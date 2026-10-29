@@ -102,18 +102,37 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(later.unreadCount, 1)
     }
 
-    func testPruneDropsOldEventsAndTheirReactions() {
+    private final class ClockBox { var now: Date; init(_ n: Date) { now = n } }
+
+    func testInsertOfAlreadyExpiredEventReturnsFalse() {
         let store = makeStore()
-        let old = now.addingTimeInterval(-8 * 86400)
-        store.insert(event("old", at: old))
-        store.insert(event("fresh", at: now.addingTimeInterval(-6 * 86400)))
-        store.insert(reaction("r-old", event: "old", at: old))
-        store.insert(reaction("r-fresh", event: "fresh"))
+        let old = event("old", at: now.addingTimeInterval(-8 * 86400))
+        XCTAssertFalse(store.insert(old))
+        XCTAssertTrue(store.events.isEmpty)
+        XCTAssertTrue(store.eventIDs.isEmpty)
+    }
+
+    func testPruneDropsAgedEventAndItsOldReactions() {
+        let box = ClockBox(now)
+        let store = TeamFeedStore(fileURL: url, myMemberID: "me", clock: { box.now }, calendar: calendar)
+        XCTAssertTrue(store.insert(event("e1", at: now)))
+        XCTAssertTrue(store.insert(reaction("r1", event: "e1", at: now)))
+        box.now = now.addingTimeInterval(9 * 86400)
         store.prune()
-        XCTAssertEqual(store.events.map(\.id), ["fresh"])
-        XCTAssertTrue(store.reactions(for: "old").isEmpty)
-        XCTAssertEqual(store.reactions(for: "fresh").count, 1)
-        XCTAssertFalse(store.reactionIDs.contains("r-old"))
+        XCTAssertTrue(store.events.isEmpty)
+        XCTAssertFalse(store.reactionIDs.contains("r1"))
+    }
+
+    func testPruneKeepsRecentReactionOfDroppedEvent() {
+        let box = ClockBox(now)
+        let store = TeamFeedStore(fileURL: url, myMemberID: "me", clock: { box.now }, calendar: calendar)
+        XCTAssertTrue(store.insert(event("e1", at: now)))
+        box.now = now.addingTimeInterval(9 * 86400)
+        // Reaction created recently (relative to the advanced clock) survives its event's pruning.
+        XCTAssertTrue(store.insert(reaction("r1", event: "e1", at: box.now)))
+        store.prune()
+        XCTAssertTrue(store.events.isEmpty)
+        XCTAssertTrue(store.reactionIDs.contains("r1"))
     }
 
     func testPruneKeepsFreshOrphanReactionAndCapsEvents() {

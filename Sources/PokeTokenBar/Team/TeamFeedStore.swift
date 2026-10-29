@@ -73,7 +73,8 @@ final class TeamFeedStore {
         stored.append(StoredEvent(event: e, receivedAt: clock()))
         sortEvents()
         prune()   // saves
-        return true
+        // An event pruned right away (too old / beyond the cap) is not "new".
+        return stored.contains(where: { $0.event.id == e.id })
     }
 
     @discardableResult
