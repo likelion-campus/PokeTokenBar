@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="2.5.6"
+VERSION="2.5.601"
 APP_NAME="PokeTokenBar"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
@@ -48,6 +48,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>같은 와이파이의 팀원과 포켓몬 소식을 주고받기 위해 필요해요.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_ptbteam._tcp</string>
+    </array>
 </dict>
 </plist>
 PLIST
