@@ -298,7 +298,7 @@ final class TeamSessionTests: XCTestCase {
     func testNewerConnectionReplacesStaleOne() {
         let a = node("A"), b = node("B")
         let old = connect(a, b)
-        hub.sever(old, silentlyOn: a.transport)   // A restarted; B still holds the dead link
+        hub.sever(old, silentlyOn: a.transport)   // A's transport forgot the link; B still holds it. Both links are dialed by A, so the newest wins whichever ID is smaller
         let fresh = connect(a, b)
         let freshPeer = fresh.peerID(on: b.transport)
         XCTAssertEqual(b.transport.disconnectCalls, [.init(peer: old.peerID(on: b.transport), kept: freshPeer)])
@@ -307,6 +307,62 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members.count, 1)
         a.session.publish(hatch())
         XCTAssertEqual(b.bigEvents.count, 1)
+    }
+
+    /// `lo` has the smaller member ID, so a connection `lo` dials is the preferred one.
+    private func orderedPair() -> (lo: Node, hi: Node) {
+        let a = node("A"), b = node("B")
+        return a.memberID < b.memberID ? (a, b) : (b, a)
+    }
+
+    /// Simulates a Mac restarting: its session and transport lose every connection, silently.
+    private func restart(_ n: Node) {
+        n.settings.isEnabled = false
+        n.session.applySettings()
+        n.settings.isEnabled = true
+        n.session.applySettings()
+    }
+
+    func testStalePreferredConnectionBeatsFreshNonPreferredOneUntilRedialed() {
+        let (lo, hi) = orderedPair()
+        let old = connect(lo, hi)   // dialed by lo: the preferred direction
+        hub.sever(old, silentlyOn: hi.transport)
+        restart(hi)                  // hi forgot it; lo still holds the dead link
+        let fresh = connect(hi, lo)  // hi dials lo: not the preferred direction
+        XCTAssertEqual(lo.transport.disconnectCalls,
+                       [.init(peer: fresh.peerID(on: lo.transport), kept: old.peerID(on: lo.transport))])
+        XCTAssertTrue(lo.transport.hasLink(old))
+        XCTAssertFalse(lo.transport.hasLink(fresh))
+        XCTAssertEqual(lo.session.members.count, 1)
+
+        let redialed = connect(lo, hi)   // lo discovers hi's new name and dials it
+        XCTAssertEqual(lo.transport.disconnectCalls.last,
+                       .init(peer: old.peerID(on: lo.transport), kept: redialed.peerID(on: lo.transport)))
+        for n in [lo, hi] {
+            XCTAssertTrue(n.transport.hasLink(redialed))
+            XCTAssertEqual(n.transport.linkCount, 1)
+            XCTAssertEqual(n.session.members.count, 1)
+        }
+        lo.session.publish(hatch())
+        XCTAssertEqual(hi.bigEvents.count, 1)
+    }
+
+    func testStalePreferredConnectionIsDroppedAfterSilenceAndLaterDialIsKept() {
+        let (lo, hi) = orderedPair()
+        let old = connect(lo, hi)
+        hub.sever(old, silentlyOn: hi.transport)
+        restart(hi)
+        clock.advance(31)
+        lo.session.tick()
+        XCTAssertTrue(lo.session.members.isEmpty)
+        XCTAssertEqual(lo.transport.disconnectCalls.count, 1)
+
+        let fresh = connect(hi, lo)
+        for n in [lo, hi] {
+            XCTAssertTrue(n.transport.hasLink(fresh))
+            XCTAssertEqual(n.session.members.count, 1)
+        }
+        XCTAssertEqual(lo.transport.disconnectCalls.count, 1)
     }
 
     func testOnlyConnectionIsKeptEvenIfNotPreferred() {
@@ -497,14 +553,22 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(profile)
     }
 
+    private func profileRequestsReceived(by raw: RawPeer) -> Int {
+        raw.received.filter { if case .profileRequest = $0 { true } else { false } }.count
+    }
+
     func testProfileTimesOut() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         let id = UUID().uuidString
         hub.connect(raw.transport, to: a.transport)
         raw.hello(memberID: id)
+        let start = ContinuousClock.now
         let profile = await a.session.requestProfile(memberID: id, timeout: .milliseconds(50))
+        let elapsed = ContinuousClock.now - start
         XCTAssertNil(profile)
+        XCTAssertEqual(profileRequestsReceived(by: raw), 1)   // it was really asked, then the timer ended it
+        XCTAssertGreaterThanOrEqual(elapsed, .milliseconds(45))
     }
 
     func testProfileRequestEndsWhenMemberLeaves() async {
@@ -513,10 +577,20 @@ final class TeamSessionTests: XCTestCase {
         let id = UUID().uuidString
         let connection = hub.connect(raw.transport, to: a.transport)
         raw.hello(memberID: id)
-        let request = Task { await a.session.requestProfile(memberID: id, timeout: .seconds(30)) }
-        await Task.yield()
+        let finished = expectation(description: "request ended")
+        var ended = false
+        var profile: TeamMemberProfile?
+        Task {
+            profile = await a.session.requestProfile(memberID: id, timeout: .seconds(30))
+            ended = true
+            finished.fulfill()
+        }
+        for _ in 0..<20 where profileRequestsReceived(by: raw) == 0 { await Task.yield() }
+        XCTAssertEqual(profileRequestsReceived(by: raw), 1)   // the request is pending before the member leaves
+        XCTAssertFalse(ended)
         hub.disconnect(connection)
-        let profile = await request.value
+        await fulfillment(of: [finished], timeout: 2)          // far shorter than the 30 s timeout
+        XCTAssertTrue(ended)
         XCTAssertNil(profile)
     }
 
