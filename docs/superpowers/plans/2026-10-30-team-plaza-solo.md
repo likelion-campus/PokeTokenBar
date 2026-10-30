@@ -926,8 +926,11 @@ git commit -m "chore(plaza): add plaza dev runner and gate team logic coverage"
 - 리소스는 `Sources/PokeTokenBar/Resources/Plaza/`에 두고 SwiftPM 리소스로 묶는다. 앱 코드는 `Bundle.module`을
   `PlazaResources` 한 곳에서만 쓴다.
 - 레벨, HP, 진행률 같은 숫자는 목록 어디에도 넣지 않는다.
-- 모든 Task의 집중 테스트 필터에 저장소 전체를 검사하는 테스트 `UsageEnvironmentTests|LocalizedUILiteralTests|TeamLocalizationTests`를
-  항상 넣는다. 지난번 최종 검토에서 이 검사 테스트를 놓쳐 결함이 늦게 드러났다.
+- 모든 Task의 집중 테스트 필터에 저장소 전체를 검사하는 테스트 15개를 항상 넣는다(개정: 처음엔 3개만 적었다가
+  `SwiftUIIsolationTests`를 놓쳐 게이트가 빨개졌다):
+  `AppLogTests|AntigravityUsageTests|CredentialSwitchCacheTests|CustomScanRootsTests|LanguageSurfaceRegressionTests|LimitPaceTests|KiroUsageTests|LiveCredentialCallGateTests|LocalizationColumnTests|LocalizedUILiteralTests|PopoverNavigationTests|ScrollerLaneTests|SwiftUIIsolationTests|TeamLocalizationTests|UsageEnvironmentTests`
+- 광장 글자는 모두 **12pt**로 쓴다. 갈무리11의 설계 크기가 12픽셀(unitsPerEm 1200, 100단위 격자)이라 11pt는
+  흐리게 보인다. 이름판은 글자 다듬기(안티에일리어싱·폰트 스무딩)를 끈다(개정, 보강 최종 검토).
 
 ### Task 11: 리소스 번들 (타일셋, 글꼴, 출처)
 
@@ -1046,7 +1049,7 @@ func testArtIsUpscaledTwiceWithoutSmoothing() { /* 출력의 (0,0)과 (1,1) 픽�
 
 **Interfaces:**
 - `enum PlazaNamePlate { static func image(text: String, isMe: Bool, scale: CGFloat) -> CGImage }`
-  - 흰 바탕 `#F8F8F0`, 테두리 2pt, 모서리 4pt, 글자 `#303848`, 글꼴은 `PlazaResources.font(size: 11)`, 안쪽 여백 좌우 5pt·상하 3pt.
+  - 흰 바탕 `#F8F8F0`, 테두리 2pt, 모서리 4pt, 글자 `#303848`, 글꼴은 `PlazaResources.font(size: 12)`(개정: 11 → 12, 글자 다듬기 끔), 안쪽 여백 좌우 5pt·상하 3pt.
   - 테두리 색: 나는 `#D04848`, 나머지는 `#586078`. 아래로 2pt 짙은 그림자.
   - `scale`은 기기 픽셀 배율이다. 텍스처는 그 배율로 만들어 카메라 HUD 층에 화면 단위로 붙인다(지금처럼 또렷하게).
 - 장면은 닉네임이나 배율이 바뀔 때만 이름판을 다시 만든다(매 프레임 금지).
