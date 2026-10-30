@@ -32,6 +32,21 @@ final class PlazaRosterTests: XCTestCase {
         XCTAssertNil(egg.speciesID); XCTAssertEqual(egg.speciesName, "알"); XCTAssertNil(egg.gender)
     }
 
+    @MainActor func testMyEntryFromEggStoreUsesTeamSettings() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-roster-\(UUID().uuidString).json")
+        let companion = CompanionStore(fileURL: url)
+        let name = "plaza.roster.\(UUID())"
+        defer { UserDefaults().removePersistentDomain(forName: name) }
+        let settings = TeamSettings(defaults: UserDefaults(suiteName: name)!)
+        settings.nickname = " 도토리 "
+        let entry = PlazaRoster.myEntry(companion: companion, teamSettings: settings)
+        XCTAssertEqual(entry.id, settings.memberID)
+        XCTAssertEqual(entry.nickname, "도토리")
+        XCTAssertNil(entry.speciesID)
+        XCTAssertEqual(entry.speciesName, L(.ko).plazaEggName)
+        XCTAssertTrue(entry.isMe)
+    }
+
     func testIconURL() {
         XCTAssertEqual(PlazaIconLoader.url(speciesID: 25).absoluteString,
             "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-vii/icons/25.png")

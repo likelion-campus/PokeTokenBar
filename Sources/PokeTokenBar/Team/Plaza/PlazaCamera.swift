@@ -13,15 +13,17 @@ enum PlazaCamera {
     /// 지도보다 작은 축은 focus를 가운데 두되 지도 밖이 보이지 않게 [0, world - size]로 자른다.
     /// 지도보다 큰 축은 지도를 가운데 둔다(origin = (world - size) / 2, 음수 가능).
     /// origin은 기기 픽셀 한 칸(1 / (zoom × backingScale) 월드 픽셀) 단위로 반올림한다.
-    static func visibleRect(focus: CGPoint, viewport: CGSize, zoom: Int, backingScale: CGFloat, world: CGSize) -> CGRect {
+    /// rightInset(포인트)은 오른쪽에서 UI가 덮는 폭이다. 오른쪽 가장자리에서는 그만큼 더 나아가 지도 끝이 덮이지 않은 쪽에 온다.
+    static func visibleRect(focus: CGPoint, viewport: CGSize, zoom: Int, backingScale: CGFloat, world: CGSize,
+                            rightInset: CGFloat = 0) -> CGRect {
         let z = CGFloat(clampedZoom(zoom))
         let step = 1 / (z * max(backingScale, 1))
         let size = CGSize(width: viewport.width / z, height: viewport.height / z)
-        func origin(_ focus: CGFloat, _ size: CGFloat, _ world: CGFloat) -> CGFloat {
-            let raw = size >= world ? (world - size) / 2 : min(max(focus - size / 2, 0), world - size)
+        func origin(_ focus: CGFloat, _ size: CGFloat, _ world: CGFloat, extra: CGFloat = 0) -> CGFloat {
+            let raw = size >= world ? (world - size) / 2 : min(max(focus - size / 2, 0), world - size + extra)
             return (raw / step).rounded() * step
         }
-        return CGRect(x: origin(focus.x, size.width, world.width),
+        return CGRect(x: origin(focus.x, size.width, world.width, extra: max(rightInset, 0) / z),
                       y: origin(focus.y, size.height, world.height),
                       width: size.width, height: size.height)
     }

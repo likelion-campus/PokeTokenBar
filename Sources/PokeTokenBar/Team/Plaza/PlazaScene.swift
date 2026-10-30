@@ -215,7 +215,8 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 
         let foot = walker.footPoint
         let focus = PlazaCamera.focus(for: foot, rightInset: PlazaRosterMetrics.coveredWidth, zoom: zoom)
-        let rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize)
+        let rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
+                                        rightInset: PlazaRosterMetrics.coveredWidth)
         let cameraPos = CGPoint(x: snap(rect.midX), y: snap(worldSize.height - rect.midY))
         cameraNode.position = cameraPos
         cameraNode.setScale(1 / z)
@@ -234,7 +235,12 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
                                      y: snapView((top - cameraPos.y) * z + 4))
     }
 
+    /// 닉네임이 비어 있으면 이름판을 숨긴다.
+    var isNamePlateVisible: Bool { !plateNode.isHidden }
+
     private func refreshPlate(backing: CGFloat) {
+        plateNode.isHidden = nickname.isEmpty
+        if nickname.isEmpty { return }
         if let key = plateKey, key.nickname == nickname, key.backing == backing { return }
         plateKey = (nickname, backing)
         let image = PlazaNamePlate.image(text: nickname, isMe: true, scale: backing)

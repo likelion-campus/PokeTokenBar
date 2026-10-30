@@ -25,9 +25,23 @@ enum PlazaRosterMetrics {
 /// 화면이 지켜보는 목록. 창이 닫혀도 모델만 남고 그리기는 멈춘다.
 @MainActor @Observable final class PlazaRosterModel {
     var entries: [PlazaRosterEntry] = []
+    /// 창이 가려지거나 최소화되면 false — 목록 아이콘의 통통 튐을 멈춘다.
+    var isAnimating = true
 }
 
 enum PlazaRoster {
+    /// 앱의 저장소와 설정에서 내 칸을 만든다. 고른 대표 종의 이름은 폼을 반영한 도감 종 이름이다.
+    @MainActor static func myEntry(companion: CompanionStore, teamSettings: TeamSettings) -> PlazaRosterEntry {
+        let followsRaised = companion.representativeSpeciesID == nil
+        return myEntry(
+            memberID: teamSettings.memberID,
+            nickname: TeamSettings.validNickname(teamSettings.nickname) ?? "",
+            subject: companion.representativeSubject, followsRaised: followsRaised,
+            raisedName: companion.displayName, raisedGender: companion.state.active?.profile?.gender,
+            pinnedName: followsRaised ? nil : companion.representativeDexSpecies?.name,
+            eggName: L(.ko).plazaEggName)
+    }
+
     /// 나 → 접속 중 → 자리 비움, 같은 무리 안에서는 닉네임 순.
     static func sorted(_ entries: [PlazaRosterEntry]) -> [PlazaRosterEntry] {
         func rank(_ e: PlazaRosterEntry) -> Int { e.isMe ? 0 : (e.presence == .online ? 1 : 2) }

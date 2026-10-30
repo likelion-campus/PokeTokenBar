@@ -9,12 +9,13 @@ enum PlazaNamePlate {
     private static let otherBorder = rgb(0x58, 0x60, 0x78)
     private static let shadowColor = CGColor(srgbRed: 0x20 / 255, green: 0x28 / 255, blue: 0x38 / 255, alpha: 0.6)
 
-    private static let border: CGFloat = 2
+    static let border: CGFloat = 2
     private static let corner: CGFloat = 4
-    private static let shadow: CGFloat = 2
-    private static let padX: CGFloat = 5
-    private static let padY: CGFloat = 3
-    private static let fontSize: CGFloat = 11
+    static let shadow: CGFloat = 2
+    static let padX: CGFloat = 5
+    static let padY: CGFloat = 3
+    private /// Galmuri11 is drawn on a 100-unit grid of 1200 units/em, so 12 pt is its native pixel size.
+    static let fontSize: CGFloat = 12
 
     private static func rgb(_ r: Int, _ g: Int, _ b: Int) -> CGColor {
         CGColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
@@ -52,7 +53,13 @@ enum PlazaNamePlate {
         fill(body, radius: corner, color: isMe ? meBorder : otherBorder)
         fill(body.insetBy(dx: border, dy: border), radius: corner - border, color: background)
 
-        context.textPosition = CGPoint(x: border + padX, y: shadow + border + padY + descent)
+        // 도트 글꼴은 격자에 맞아야 또렷하다: 글자에는 안티앨리어싱·스무딩을 끄고 기준선은 정수 포인트에 둔다.
+        context.setShouldAntialias(false)
+        context.setAllowsAntialiasing(false)
+        context.setShouldSmoothFonts(false)
+        context.setShouldSubpixelPositionFonts(false)
+        context.setShouldSubpixelQuantizeFonts(false)
+        context.textPosition = CGPoint(x: border + padX, y: shadow + border + padY + descent.rounded())
         CTLineDraw(line, context)
         return context.makeImage()!
     }

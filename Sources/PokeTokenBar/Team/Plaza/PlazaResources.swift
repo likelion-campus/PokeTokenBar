@@ -17,19 +17,26 @@ enum PlazaResources {
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
+    /// Registered once, lazily (static let initializers run once and are thread safe).
+    private static let defaultRegistration: Bool = registerFonts(in: resourceBundle())
+
     @discardableResult
-    static func registerFonts() -> Bool { registerFonts(in: resourceBundle()) }
+    static func registerFonts() -> Bool { defaultRegistration }
 
     @discardableResult
     static func registerFonts(in bundle: Bundle?) -> Bool {
         guard let url = resourceURL("Galmuri11", "ttf", in: bundle) else { return false }
         var error: Unmanaged<CFError>?
         if CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) { return true }
+        error?.release()   // the out-parameter error is returned retained
         // Registering the same file again reports "already registered"; that is still success.
-        return NSFont(name: fontName, size: 11) != nil
+        return NSFont(name: fontName, size: 12) != nil
     }
 
-    static func font(size: CGFloat) -> NSFont { font(size: size, in: resourceBundle()) }
+    static func font(size: CGFloat) -> NSFont {
+        if defaultRegistration, let font = NSFont(name: fontName, size: size) { return font }
+        return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
 
     static func font(size: CGFloat, in bundle: Bundle?) -> NSFont {
         if registerFonts(in: bundle), let font = NSFont(name: fontName, size: size) { return font }

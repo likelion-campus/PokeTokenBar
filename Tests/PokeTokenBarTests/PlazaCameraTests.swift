@@ -16,6 +16,18 @@ final class PlazaCameraTests: XCTestCase {
         XCTAssertEqual(br.maxX, 1536); XCTAssertEqual(br.maxY, 1024)
     }
 
+    func testRightInsetKeepsFootInUncoveredPartAtRightEdge() {
+        let inset: CGFloat = 246, zoom = 2
+        let foot = CGPoint(x: world.width - 16, y: 512)
+        let focus = PlazaCamera.focus(for: foot, rightInset: inset, zoom: zoom)
+        let r = PlazaCamera.visibleRect(focus: focus, viewport: .init(width: 960, height: 640), zoom: zoom,
+                                        backingScale: 2, world: world, rightInset: inset)
+        let uncoveredMaxX = r.maxX - inset / CGFloat(zoom)
+        XCTAssertLessThanOrEqual(foot.x, uncoveredMaxX)
+        XCTAssertGreaterThanOrEqual(uncoveredMaxX, world.width, "the map's right edge stays visible beside the roster")
+        XCTAssertGreaterThanOrEqual(foot.x, r.minX)
+    }
+
     func testViewportLargerThanMapCentersMap() {
         let r = PlazaCamera.visibleRect(focus: .init(x: 0, y: 0), viewport: .init(width: 4000, height: 3000), zoom: 1, backingScale: 1, world: world)
         XCTAssertEqual(r.midX, 768, accuracy: 0.5); XCTAssertEqual(r.midY, 512, accuracy: 0.5)

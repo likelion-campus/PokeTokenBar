@@ -60,7 +60,6 @@ import SpriteKit
             view.frame = container.bounds
             view.autoresizingMask = [.width, .height]
             container.addSubview(view)
-            refreshRoster()
             let roster = PlazaRosterHostingView(rootView: PlazaRosterView(model: rosterModel))
             roster.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(roster)   // SKView 위. 입력은 받지 않고 SKView가 첫 응답자를 유지한다.
@@ -91,6 +90,7 @@ import SpriteKit
         s.onZoomChange = { [preferences] in preferences.zoom = $0 }
         s.onCloseRequest = { [weak self] in self?.window?.performClose(nil) }
         scene = s
+        refreshRoster()
     }
 
     /// 지금 대표 포켓몬 그림을 다시 받아 장면에 넣는다. 장면이 없으면 아무것도 안 한다.
@@ -112,8 +112,13 @@ import SpriteKit
     /// 내 칸을 다시 만들어 목록에 넣는다. 창이 닫혀 있으면 아무것도 안 한다.
     func refreshRoster() {
         guard window != nil || scene != nil else { return }
-        rosterModel.entries = PlazaRoster.sorted(myRosterEntry().map { [$0] } ?? [])
+        let next = PlazaRoster.sorted(myRosterEntry().map { [$0] } ?? [])
+        if next != rosterModel.entries { rosterModel.entries = next }
     }
+
+    /// 테스트용 읽기 전용 값.
+    var rosterEntries: [PlazaRosterEntry] { rosterModel.entries }
+    var rosterIsAnimating: Bool { rosterModel.isAnimating }
 
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
@@ -128,6 +133,7 @@ import SpriteKit
         skView = nil
         scene = nil
         rosterModel.entries = []
+        rosterModel.isAnimating = true
         refreshGeneration += 1
         if let w = window {
             w.delegate = nil
@@ -143,6 +149,7 @@ import SpriteKit
 
     /// 최소화·완전히 가려진 동안은 그리지 않는다.
     func setRendering(visible: Bool) {
+        rosterModel.isAnimating = visible
         guard let scene else { return }
         if !visible { scene.releaseAllKeys() }
         scene.isPaused = !visible

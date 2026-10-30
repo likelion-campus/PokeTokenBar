@@ -43,11 +43,12 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     private func controller(_ d: UserDefaults,
                             fetcher: PlazaSpriteFetching = RecordingFetcher(),
                             nickname: @escaping () -> String = { "tester" },
-                            subject: @escaping () -> CompanionStore.RepresentativeSubject = { .init(speciesID: 25, isShiny: false) }
+                            subject: @escaping () -> CompanionStore.RepresentativeSubject = { .init(speciesID: 25, isShiny: false) },
+                            myEntry: @escaping () -> PlazaRosterEntry? = { nil }
     ) -> PlazaWindowController {
         PlazaWindowController(preferences: PlazaPreferences(defaults: d),
                               loader: PlazaCharacterLoader(fetcher: fetcher),
-                              nickname: nickname, subject: subject)
+                              nickname: nickname, subject: subject, myRosterEntry: myEntry)
     }
 
     /// 장면 update를 시각을 늘려 가며 부른다.
@@ -258,5 +259,47 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(c.scene?.isPaused, true)
         c.setRendering(visible: true)
         XCTAssertEqual(c.scene?.isPaused, false)
+    }
+
+    func testSetRenderingTogglesRosterAnimation() {
+        let c = controller(defaults())
+        XCTAssertTrue(c.rosterIsAnimating)
+        c.prepareScene()
+        c.setRendering(visible: false)
+        XCTAssertFalse(c.rosterIsAnimating)
+        c.setRendering(visible: true)
+        XCTAssertTrue(c.rosterIsAnimating)
+    }
+
+    func testRosterLifecyclePrepareFillsMeAndCloseClears() {
+        let me = PlazaRosterEntry(id: "me", nickname: "나", speciesID: 25, speciesName: "x", gender: nil,
+                                  isShiny: false, presence: .online, isMe: true)
+        let c = controller(defaults(), myEntry: { me })
+        XCTAssertTrue(c.rosterEntries.isEmpty)
+        c.prepareScene()
+        XCTAssertEqual(c.rosterEntries, [me])
+        c.handleClose()
+        XCTAssertTrue(c.rosterEntries.isEmpty)
+        c.refreshRoster()   // 닫힌 뒤에는 다시 채우지 않는다
+        XCTAssertTrue(c.rosterEntries.isEmpty)
+    }
+
+    func testEmptyNicknameHidesNamePlate() {
+        var name = ""
+        let c = controller(defaults(), nickname: { name })
+        c.prepareScene()
+        XCTAssertEqual(c.scene?.isNamePlateVisible, false)
+        name = "tester"
+        c.refreshNickname()
+        XCTAssertEqual(c.scene?.isNamePlateVisible, true)
+        name = ""
+        c.refreshNickname()
+        XCTAssertEqual(c.scene?.isNamePlateVisible, false)
+    }
+
+    func testRosterHostingViewPassesInputThrough() {
+        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: PlazaRosterModel()))
+        XCTAssertNil(view.hitTest(NSPoint(x: 5, y: 5)))
+        XCTAssertFalse(view.acceptsFirstResponder)
     }
 }

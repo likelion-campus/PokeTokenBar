@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 /// 광장 오른쪽 위 참여자 목록(파티 화면 느낌). 표시만 하고 입력은 받지 않는다.
+@MainActor
 struct PlazaRosterView: View {
     let model: PlazaRosterModel
 
@@ -18,11 +19,11 @@ struct PlazaRosterView: View {
                     .background(Color(hex: 0xF8F8F0), in: RoundedRectangle(cornerRadius: 4))
                 Spacer()
                 Text(l.plazaRosterCount(online: online, total: entries.count))
-                    .font(Font(PlazaResources.font(size: 11)))
+                    .font(Font(PlazaResources.font(size: 12)))
                     .foregroundStyle(Color(hex: 0xF8F8F0))
             }
             VStack(spacing: 4) {
-                ForEach(entries) { PlazaRosterSlot(entry: $0) }
+                ForEach(entries) { PlazaRosterSlot(entry: $0, animating: model.isAnimating) }
             }
             .padding(.top, 6)
         }
@@ -32,6 +33,7 @@ struct PlazaRosterView: View {
     }
 }
 
+@MainActor
 private struct PlazaRosterBackground: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 10)
@@ -53,13 +55,16 @@ private struct PlazaRosterBackground: View {
             }
         }
         .clipShape(shape)
-        .overlay(shape.inset(by: 3.5).stroke(Color(hex: 0x5FB7BD), lineWidth: 2))
+        // 바깥 선(0–3pt)을 먼저 그리고 안쪽 선(3–5pt)을 그 위에 그려 2pt 전체가 보이게 한다.
         .overlay(shape.inset(by: 1.5).stroke(Color(hex: 0x1D4F55), lineWidth: 3))
+        .overlay(shape.inset(by: 4).stroke(Color(hex: 0x5FB7BD), lineWidth: 2))
     }
 }
 
+@MainActor
 private struct PlazaRosterSlot: View {
     let entry: PlazaRosterEntry
+    let animating: Bool
 
     private var colors: (top: Color, bottom: Color, border: Color) {
         if entry.presence == .away { return (Color(hex: 0xA8B0C0), Color(hex: 0x9098A8), Color(hex: 0x4A5060)) }
@@ -73,7 +78,7 @@ private struct PlazaRosterSlot: View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22,
                                            bottomTrailingRadius: 8, topTrailingRadius: 8)
         HStack(spacing: 4) {
-            PlazaRosterIcon(speciesID: entry.speciesID, bounces: entry.presence == .online)
+            PlazaRosterIcon(speciesID: entry.speciesID, bounces: entry.presence == .online && animating)
                 .frame(width: 40, height: 30)
                 .padding(.leading, 6)
             VStack(alignment: .leading, spacing: 1) {
@@ -84,14 +89,14 @@ private struct PlazaRosterSlot: View {
                 }
                 .font(Font(PlazaResources.font(size: 12)))
                 Text(entry.speciesName).lineLimit(1)
-                    .font(Font(PlazaResources.font(size: 10)))
+                    .font(Font(PlazaResources.font(size: 12)))
                     .opacity(0.9)
             }
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
             Spacer(minLength: 0)
             Text(entry.presence == .online ? l.plazaStatusOnline : l.plazaStatusAway)
-                .font(Font(PlazaResources.font(size: 10)))
+                .font(Font(PlazaResources.font(size: 12)))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 5).padding(.vertical, 1)
                 .background(Color(hex: entry.presence == .online ? 0x48B860 : 0x9070B8), in: Capsule())
@@ -114,7 +119,9 @@ private struct PlazaRosterSlot: View {
     }
 }
 
-/// 박스 아이콘. 받는 동안과 실패했을 때는 빈 자리표시. 접속 중이면 0.5초마다 2pt씩 튄다.
+/// 박스 아이콘. 받는 동안과 실패했을 때는 빈 자리표시, 알은 알 그림. 접속 중이면 0.5초마다 2pt씩 튄다
+/// (애니메이션 없이 정수 위치를 번갈아 바꿔 초당 2번만 다시 그린다).
+@MainActor
 private struct PlazaRosterIcon: View {
     let speciesID: Int?
     let bounces: Bool
@@ -132,19 +139,31 @@ private struct PlazaRosterIcon: View {
         .offset(y: bounces && up ? -2 : 0)
         .task(id: speciesID) {
             image = nil
-            guard let id = speciesID else { return }
-            image = await PlazaIconLoader.icon(speciesID: id)
+            // 실패하면 5초 뒤 한 번 더 시도한다. 뷰가 사라져 취소되면 그림을 넣지 않는다.
+            for attempt in 0..<2 {
+                let loaded = await load()
+                if Task.isCancelled { return }
+                if let loaded { image = loaded; return }
+                if attempt == 0 {
+                    try? await Task.sleep(for: .seconds(5))
+                    if Task.isCancelled { return }
+                }
+            }
         }
-        .onAppear { startBounce() }
-        .onChange(of: bounces) { _, _ in startBounce() }
+        .task(id: bounces) {
+            up = false
+            guard bounces else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                if Task.isCancelled { return }
+                up.toggle()
+            }
+        }
     }
 
-    private func startBounce() {
-        if bounces {
-            withAnimation(.linear(duration: 0.5).repeatForever(autoreverses: true)) { up = true }
-        } else {
-            withAnimation(nil) { up = false }
-        }
+    private func load() async -> NSImage? {
+        if let id = speciesID { return await PlazaIconLoader.icon(speciesID: id) }
+        return await SpriteLoader.eggImage()
     }
 }
 
