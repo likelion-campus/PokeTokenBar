@@ -3,6 +3,16 @@ import SpriteKit
 /// 키 입력 처리 결과. 처리하지 않은 키도 조용히 삼킨다(시스템 경고음 방지).
 enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 
+/// 장면이 그리는 팀원 한 명의 값. 접속 중이면 받은 칸, 자리 비움이면 쉼터에서 쉰다.
+struct PlazaSceneMember: Equatable, Sendable {
+    let memberID: String
+    let nickname: String
+    let isAway: Bool
+    let tile: TilePoint?
+    let facing: PlazaDirection
+    let isWalking: Bool
+}
+
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.
 /// 지도 한 장, 캐릭터 노드 하나, 카메라, 이름표(카메라 자식이라 배율과 무관하게 또렷하다)로 이루어진다.
 @MainActor final class PlazaScene: SKScene {
@@ -43,6 +53,32 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         didSet { if !canWalk { walker.clearInput() } }
     }
 
+    /// 팀원 한 명의 장면 쪽 상태. 그림은 내 캐릭터와 같은 `PlazaActor`를 쓴다.
+    private struct Remote {
+        let actor: PlazaActor
+        let color: CGColor
+        var nickname: String
+        var isAway: Bool
+        var motion: PlazaRemoteMotion
+        var wanderer: PlazaShelterWanderer?
+
+        var displayName: String { Self.displayName(nickname, isAway: isAway) }
+
+        static func displayName(_ nickname: String, isAway: Bool) -> String {
+            isAway ? nickname + " " + L(.ko).plazaAwaySuffix : nickname
+        }
+
+        mutating func advance(by dt: TimeInterval) {
+            if let moved = wanderer?.advance(by: dt) { motion.moveTo(moved) }
+            motion.advance(by: dt)
+        }
+    }
+
+    private var remotes: [String: Remote] = [:]
+    private var lastReported: (tile: TilePoint, facing: PlazaDirection, isWalking: Bool)
+    /// 칸, 방향, 걷는 중 여부가 바뀔 때만 부른다.
+    var onLocalPositionChange: ((TilePoint, PlazaDirection, Bool) -> Void)?
+
     private var lastTime: TimeInterval?
     private var clock: TimeInterval = 0
 
@@ -50,6 +86,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         self.map = map
         self.worldSize = map.pixelSize
         self.walker = PlazaWalker(tile: start)
+        self.lastReported = (start, .down, false)
         self.nickname = nickname
         self.me = PlazaActor(name: nickname, color: PlazaNameColor.palette[0])
         self.zoom = PlazaCamera.clampedZoom(zoom)
@@ -93,6 +130,57 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         nameColor = color
         me.setName(nickname, color: color)
         layout()
+    }
+
+    /// 없는 팀원의 캐릭터를 지우고 새 팀원의 캐릭터를 만든다. 값만 받고 그리지 않는다(창이 가려진 동안에도 안전하다).
+    func applyMembers(_ members: [PlazaSceneMember]) {
+        let ids = Set(members.map(\.memberID))
+        for (id, remote) in remotes where !ids.contains(id) {
+            remote.actor.detach()
+            remotes[id] = nil
+        }
+        for m in members {
+            let target = resolvedTile(m)
+            if var r = remotes[m.memberID] {
+                if r.isAway != m.isAway {
+                    r.isAway = m.isAway
+                    r.wanderer = m.isAway ? shelterWanderer(m.memberID) : nil
+                    r.motion.snap(to: r.wanderer?.tile ?? target)
+                } else if !m.isAway {
+                    r.motion.moveTo(target)
+                }
+                r.motion.senderIsWalking = !m.isAway && m.isWalking
+                if !m.isAway { r.motion.facing = m.facing }
+                r.nickname = m.nickname
+                r.actor.setName(r.displayName, color: r.color)
+                remotes[m.memberID] = r
+            } else {
+                let color = PlazaNameColor.color(forMemberID: m.memberID)
+                let wanderer = m.isAway ? shelterWanderer(m.memberID) : nil
+                var motion = PlazaRemoteMotion(tile: wanderer?.tile ?? target, facing: m.facing)
+                motion.senderIsWalking = !m.isAway && m.isWalking
+                let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isAway: m.isAway), color: color),
+                               color: color, nickname: m.nickname, isAway: m.isAway, motion: motion, wanderer: wanderer)
+                r.actor.attach(world: self, camera: cameraNode)
+                remotes[m.memberID] = r
+            }
+        }
+    }
+
+    func setMemberFrames(_ memberID: String, _ frames: PlazaCharacterFrames) {
+        guard let r = remotes[memberID] else { return }
+        r.actor.setFrames(frames)
+        layout()
+    }
+
+    private func shelterWanderer(_ memberID: String) -> PlazaShelterWanderer {
+        PlazaShelterWanderer(memberID: memberID, shelter: map.shelterTiles)
+    }
+
+    /// 받은 칸이 지도 밖이거나 걸을 수 없으면 쉼터 칸. 다른 버전의 지도나 잘못된 값에도 나무 위에 서지 않는다.
+    private func resolvedTile(_ m: PlazaSceneMember) -> TilePoint {
+        if let t = m.tile, map.isWalkable(t) { return t }
+        return shelterWanderer(m.memberID).tile
     }
 
     @discardableResult
@@ -162,18 +250,32 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         walker.advance(by: dt) { [map] in map.isWalkable($0) }
         advanceAnimation(by: dt)
         layout()
+        reportLocalPosition()
     }
 
+    private func reportLocalPosition() {
+        let now = (tile: walker.tile, facing: walker.facing, isWalking: walker.isWalking)
+        guard now != lastReported else { return }
+        lastReported = now
+        onLocalPositionChange?(now.tile, now.facing, now.isWalking)
+    }
+
+    /// `dt`는 `update`에서 이미 유한하고 `maxFrameDelta` 이하다. 깨어난 장면이 팀원 이동을 몰아서 돌지 않는다.
     private func advanceAnimation(by dt: TimeInterval) {
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
         me.animate(by: dt, useBack: pose.useBack)
+        for id in Array(remotes.keys) {
+            remotes[id]?.advance(by: dt)
+            guard let r = remotes[id] else { continue }
+            let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
+            r.actor.animate(by: dt, useBack: p.useBack)
+        }
     }
 
     /// 카메라, 캐릭터, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다.
     private func layout() {
         let z = CGFloat(zoom)
         let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
-        func snap(_ v: CGFloat) -> CGFloat { PlazaPixelSnap.snap(v, backing: backing, zoom: zoom) }
 
         let foot = walker.footPoint
         // 큰 포켓몬의 머리가 잘리지 않게 앞모습 높이의 절반만큼 위를 본다(앞모습 기준이라 돌아봐도 카메라가 흔들리지 않는다).
@@ -186,9 +288,22 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         cameraNode.setScale(1 / z)
 
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
-        me.place(foot: foot, pose: pose, in: PlazaActorContext(worldHeight: worldSize.height, cameraPosition: cameraPos,
-                                                              zoom: zoom, backing: backing, viewport: size))
+        let context = PlazaActorContext(worldHeight: worldSize.height, cameraPosition: cameraPos,
+                                        zoom: zoom, backing: backing, viewport: size)
+        me.place(foot: foot, pose: pose, in: context)
+        for r in remotes.values {
+            let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
+            r.actor.place(foot: r.motion.footPoint, pose: p, in: context)
+        }
     }
+
+    /// 내 화면에 보이는 팀원 자리(걷는 중이면 도착할 칸, 자리 비움은 쉼터 칸). 표적 찾기에 쓴다.
+    var memberTiles: [String: TilePoint] { remotes.mapValues { $0.motion.tile } }
+    /// 테스트용
+    func memberFoot(_ id: String) -> CGPoint? { remotes[id]?.motion.footPoint }
+    func memberName(_ id: String) -> String? { remotes[id]?.displayName }
+    func memberNameColor(_ id: String) -> CGColor? { remotes[id]?.color }
+    func memberZ(_ id: String) -> CGFloat? { remotes[id]?.actor.characterZ }
 
     /// 테스트용: 내 캐릭터 값을 그대로 넘긴다.
     var groundShadowSize: (width: Int, height: Int) { me.groundShadowSize }

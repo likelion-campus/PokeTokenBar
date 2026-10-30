@@ -126,7 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             memberID: { [teamSettings] in teamSettings.memberID },
             subject: { [companion] in companion!.representativeSubject },
             myRosterEntry: { [companion, teamSettings] in
-                PlazaRoster.myEntry(companion: companion!, teamSettings: teamSettings) })
+                PlazaRoster.myEntry(companion: companion!, teamSettings: teamSettings) },
+            session: teamRuntime.session)
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
         teamRuntime.plaza = plaza
         teamRuntime.start()

@@ -10,6 +10,7 @@ struct PlazaRosterView: View {
         let l = L(.ko)
         let entries = model.entries
         let online = entries.filter { $0.presence == .online }.count
+        let (shown, hidden) = PlazaRoster.visible(entries, capacity: model.capacity)
         VStack(spacing: 0) {
             HStack {
                 Text(l.plazaRosterTitle)
@@ -22,12 +23,14 @@ struct PlazaRosterView: View {
                     .font(Font(PlazaResources.font(size: 12)))
                     .foregroundStyle(Color(hex: 0xF8F8F0))
             }
-            VStack(spacing: 4) {
-                ForEach(entries) { PlazaRosterSlot(entry: $0, animating: model.isAnimating) }
+            .frame(height: PlazaRosterMetrics.headerHeight)
+            VStack(spacing: PlazaRosterMetrics.slotSpacing) {
+                ForEach(shown) { PlazaRosterSlot(entry: $0, animating: model.isAnimating) }
+                if hidden > 0 { PlazaRosterMoreSlot(count: hidden) }
             }
-            .padding(.top, 6)
+            .padding(.top, PlazaRosterMetrics.listTopPadding)
         }
-        .padding(10)
+        .padding(PlazaRosterMetrics.padding)
         .frame(width: PlazaRosterMetrics.width)
         .background(PlazaRosterBackground())
     }
@@ -102,7 +105,7 @@ private struct PlazaRosterSlot: View {
                 .background(Color(hex: entry.presence == .online ? 0x48B860 : 0x9070B8), in: Capsule())
                 .padding(.trailing, 6)
         }
-        .frame(height: 44)
+        .frame(height: PlazaRosterMetrics.slotHeight)
         .background(
             VStack(spacing: 0) { c.top; c.bottom }.clipShape(shape)
         )
@@ -116,6 +119,24 @@ private struct PlazaRosterSlot: View {
         case .female: return ("♀", Color(hex: 0xFFB0C8))
         default: return nil
         }
+    }
+}
+
+/// 넘친 팀원 수를 알리는 줄.
+@MainActor
+private struct PlazaRosterMoreSlot: View {
+    let count: Int
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 8)
+        Text(L(.ko).plazaRosterMore(count))
+            .font(Font(PlazaResources.font(size: 12)))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
+            .frame(maxWidth: .infinity)
+            .frame(height: PlazaRosterMetrics.slotHeight)
+            .background(Color(hex: 0x1D4F55).opacity(0.6), in: shape)
+            .overlay(shape.inset(by: 1).stroke(Color(hex: 0x5FB7BD), lineWidth: 2))
     }
 }
 

@@ -130,6 +130,7 @@ struct PlazaActorContext {
     var groundShadowY: CGFloat { shadowNode.position.y }
     var characterX: CGFloat { characterNode.position.x }
     var characterY: CGFloat { characterNode.position.y }
+    var characterZ: CGFloat { characterNode.zPosition }
     var characterSize: CGSize { characterNode.size }
     var namePlatePosition: CGPoint { plateNode.position }
     var namePlateWidth: CGFloat { plateNode.size.width }

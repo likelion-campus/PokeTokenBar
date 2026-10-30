@@ -20,6 +20,12 @@ enum PlazaRosterMetrics {
     static let width: CGFloat = 232
     static let margin: CGFloat = 14
     static var coveredWidth: CGFloat { width + margin }
+    /// 판 안쪽 여백(위아래 각각), 머리줄 높이, 머리줄과 첫 칸 사이, 칸 높이와 간격.
+    static let padding: CGFloat = 10
+    static let headerHeight: CGFloat = 20
+    static let listTopPadding: CGFloat = 6
+    static let slotHeight: CGFloat = 44
+    static let slotSpacing: CGFloat = 4
 }
 
 /// 화면이 지켜보는 목록. 창이 닫혀도 모델만 남고 그리기는 멈춘다.
@@ -27,6 +33,8 @@ enum PlazaRosterMetrics {
     var entries: [PlazaRosterEntry] = []
     /// 창이 가려지거나 최소화되면 false — 목록 아이콘의 통통 튐을 멈춘다.
     var isAnimating = true
+    /// 창 높이에 맞는 최대 칸 수. 창 크기가 바뀔 때 정한다.
+    var capacity = Int.max
 }
 
 enum PlazaRoster {
@@ -49,6 +57,32 @@ enum PlazaRoster {
         }
         return TeamMonSummary(speciesID: entry.speciesID, isShiny: entry.isShiny, form: subject.form,
                               speciesName: entry.speciesName, gender: entry.gender)
+    }
+
+    /// 내 칸과 팀원들을 합쳐 정렬한다.
+    static func entries(me: PlazaRosterEntry?, members: [TeamMemberState]) -> [PlazaRosterEntry] {
+        let others = members.map { m in
+            PlazaRosterEntry(id: m.memberID, nickname: m.nickname, speciesID: m.character.speciesID,
+                             speciesName: m.character.speciesName ?? (m.character.speciesID == nil ? L(.ko).plazaEggName : ""),
+                             gender: m.character.gender, isShiny: m.character.isShiny,
+                             presence: m.inPlaza ? .online : .away, isMe: false)
+        }
+        return sorted((me.map { [$0] } ?? []) + others)
+    }
+
+    /// 창 높이(포인트)에 들어가는 칸 수. 넘칠 때 "외 N명" 줄이 마지막 칸을 쓰므로 최소 2칸은 둔다.
+    static func capacity(forHeight height: CGFloat) -> Int {
+        let m = PlazaRosterMetrics.self
+        let available = height - 2 * m.margin - 2 * m.padding - m.headerHeight - m.listTopPadding
+        let slots = Int(((available + m.slotSpacing) / (m.slotHeight + m.slotSpacing)).rounded(.down))
+        return max(2, slots)
+    }
+
+    /// 넘치면 마지막 칸 자리를 "외 N명" 줄로 쓴다. 입력을 받지 않아 스크롤할 수 없으므로, 잘리는 쪽은 정렬상 뒤(자리 비운 팀원)다.
+    static func visible(_ entries: [PlazaRosterEntry], capacity: Int) -> (shown: [PlazaRosterEntry], hidden: Int) {
+        guard entries.count > capacity else { return (entries, 0) }
+        let keep = max(0, capacity - 1)
+        return (Array(entries.prefix(keep)), entries.count - keep)
     }
 
     /// 나 → 접속 중 → 자리 비움, 같은 무리 안에서는 닉네임 순.

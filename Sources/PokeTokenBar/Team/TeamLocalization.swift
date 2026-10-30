@@ -22,4 +22,6 @@ extension L {
     var plazaStatusAway: String { "잠" }
     func plazaRosterCount(online: Int, total: Int) -> String { "접속 \(online) / \(total)" }
     var plazaEggName: String { "알" }
+    var plazaAwaySuffix: String { "zZ" }
+    func plazaRosterMore(_ n: Int) -> String { "외 \(n)명" }
 }

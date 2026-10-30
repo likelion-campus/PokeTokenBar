@@ -7,7 +7,8 @@ extension SKView: PlazaPausableView {}
 
 /// 광장 창. 창을 만들지 않고도 장면을 만들 수 있게(`prepareScene`) 나눠 두었다.
 @MainActor final class PlazaWindowController: NSObject, NSWindowDelegate {
-    private let map: PlazaMap
+    private let map = PlazaMapData.map
+    private let session: TeamSession?
     private let preferences: PlazaPreferences
     private let loader: PlazaCharacterLoader
     private let nickname: () -> String
@@ -35,17 +36,26 @@ extension SKView: PlazaPausableView {}
     /// 가려지면 멈추는 그리기 루프. 창을 열면 `skView`가 들어간다.
     var renderLoop: (any PlazaPausableView)?
     private var refreshGeneration = 0
+    /// 팀원 관찰의 세대. 닫거나 다시 열면 올려서 낡은 관찰 콜백을 버린다.
+    private var membersGeneration = 0
+    private var members: [String: TeamMemberState] = [:]
+    /// 팀원별로 마지막에 받으러 간 캐릭터와 그 요청 번호(낡은 결과를 버린다).
+    private var memberSubjects: [String: CompanionStore.RepresentativeSubject] = [:]
+    private var memberLoadTokens: [String: Int] = [:]
+    private var nextLoadToken = 0
+    /// 장면에 들어간 팀원 그림의 종 번호를 순서대로 남긴다(테스트용 읽기 전용).
+    private var appliedMemberLoads: [(id: String, speciesID: Int?)] = []
     /// 닫혀 있으면 nil
     private(set) var scene: PlazaScene?
 
-    init(map: PlazaMap = PlazaMapData.map,
-         preferences: PlazaPreferences,
+    init(preferences: PlazaPreferences,
          loader: PlazaCharacterLoader,
          nickname: @escaping () -> String,
          memberID: @escaping () -> String,
          subject: @escaping () -> CompanionStore.RepresentativeSubject,
-         myRosterEntry: @escaping () -> PlazaRosterEntry? = { nil }) {
-        self.map = map
+         myRosterEntry: @escaping () -> PlazaRosterEntry? = { nil },
+         session: TeamSession? = nil) {
+        self.session = session
         self.preferences = preferences
         self.loader = loader
         self.nickname = nickname
@@ -84,6 +94,7 @@ extension SKView: PlazaPausableView {}
             ])
             w.contentView = container
             w.center()
+            rosterModel.capacity = PlazaRoster.capacity(forHeight: container.bounds.height)
             w.setFrameAutosaveName(Self.frameAutosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
             view.presentScene(scene)
             w.makeFirstResponder(view)
@@ -107,8 +118,68 @@ extension SKView: PlazaPausableView {}
         s.onZoomChange = { [preferences] in preferences.zoom = $0 }
         s.onCloseRequest = { [weak self] in self?.window?.performClose(nil) }
         scene = s
+        if let session {
+            sendPosition(inPlaza: true, scene: s)
+            s.onLocalPositionChange = { [weak self] _, _, _ in
+                guard let self, let scene = self.scene else { return }
+                self.sendPosition(inPlaza: true, scene: scene)
+            }
+            membersGeneration += 1
+            observeMembers(session: session, generation: membersGeneration)
+        }
         refreshRoster()
     }
+
+    private func sendPosition(inPlaza: Bool, scene: PlazaScene) {
+        session?.updatePlazaPosition(inPlaza: inPlaza, tile: scene.walker.tile, facing: scene.walker.facing,
+                                     isWalking: scene.walker.isWalking)
+    }
+
+    /// 다시 등록을 먼저 하고 값을 반영한다(그 사이 변경을 놓치지 않는다). 세대가 바뀌었으면 끝낸다.
+    private func observeMembers(session: TeamSession, generation: Int) {
+        guard generation == membersGeneration else { return }
+        let current = withObservationTracking {
+            session.members
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeMembers(session: session, generation: generation) }
+        }
+        members = current
+        applyMembersToScene()
+        refreshRoster()
+    }
+
+    private func applyMembersToScene() {
+        guard let scene else { return }
+        let list = members.values.sorted { $0.memberID < $1.memberID }
+        scene.applyMembers(list.map {
+            PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
+                             facing: $0.facing ?? .down, isWalking: $0.isWalking)
+        })
+        let ids = Set(members.keys)
+        for id in memberSubjects.keys where !ids.contains(id) {
+            memberSubjects[id] = nil
+            memberLoadTokens[id] = nil
+        }
+        for m in list {
+            let subject = CompanionStore.RepresentativeSubject(speciesID: m.character.speciesID, isShiny: m.character.isShiny,
+                                                               form: m.character.form)
+            guard memberSubjects[m.memberID] != subject else { continue }
+            memberSubjects[m.memberID] = subject
+            nextLoadToken += 1
+            let token = nextLoadToken
+            memberLoadTokens[m.memberID] = token
+            Task { await loadMemberFrames(m.memberID, subject: subject, token: token) }
+        }
+    }
+
+    private func loadMemberFrames(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int) async {
+        let frames = await loader.frames(for: subject)
+        guard memberLoadTokens[id] == token, let scene else { return }
+        scene.setMemberFrames(id, frames)
+        appliedMemberLoads.append((id, subject.speciesID))
+    }
+
+    func appliedMemberSpecies(_ id: String) -> [Int?] { appliedMemberLoads.filter { $0.id == id }.map(\.speciesID) }
 
     /// 지금 대표 포켓몬 그림을 다시 받아 장면에 넣는다. 장면이 없으면 아무것도 안 한다.
     func refreshCharacter() async {
@@ -131,7 +202,7 @@ extension SKView: PlazaPausableView {}
     /// 내 칸을 다시 만들어 목록에 넣는다. 창이 닫혀 있으면 아무것도 안 한다.
     func refreshRoster() {
         guard window != nil || scene != nil else { return }
-        let next = PlazaRoster.sorted(myRosterEntry().map { [$0] } ?? [])
+        let next = PlazaRoster.entries(me: myRosterEntry(), members: Array(members.values))
         if next != rosterModel.entries { rosterModel.entries = next }
     }
 
@@ -142,6 +213,15 @@ extension SKView: PlazaPausableView {}
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
         persistState()
+        if let scene, session != nil {
+            session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+            scene.onLocalPositionChange = nil
+        }
+        membersGeneration += 1
+        members = [:]
+        memberSubjects = [:]
+        memberLoadTokens = [:]
+        appliedMemberLoads = []
         if let scene {
             scene.releaseAllKeys()
             scene.isPaused = true
@@ -186,6 +266,10 @@ extension SKView: PlazaPausableView {}
         scene?.releaseAllKeys()
     }
 
+    func windowDidResize(_ notification: Notification) {
+        guard let height = window?.contentView?.bounds.height else { return }
+        rosterModel.capacity = PlazaRoster.capacity(forHeight: height)
+    }
     func windowDidMiniaturize(_ notification: Notification) { setRendering(visible: false) }
     func windowDidDeminiaturize(_ notification: Notification) { setRendering(visible: true) }
     func windowDidChangeOcclusionState(_ notification: Notification) {

@@ -71,4 +71,55 @@ extension PlazaRosterTests {
         let e = PlazaRoster.character(entry: egg, subject: .init(speciesID: nil, isShiny: false))
         XCTAssertEqual(e, TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil))
     }
+
+    private func member(_ id: String, _ nick: String, inPlaza: Bool, speciesID: Int? = 25, name: String? = "Pikachu") -> TeamMemberState {
+        TeamMemberState(memberID: id, nickname: nick,
+                        character: TeamMonSummary(speciesID: speciesID, isShiny: true, form: nil, speciesName: name, gender: .female),
+                        inPlaza: inPlaza, tile: nil, facing: nil, isWalking: false)
+    }
+
+    func testEntriesSortMeOnlineAway() {
+        let me = entry("me", "힘", me: true)
+        let list = PlazaRoster.entries(me: me, members: [member("a", "다람", inPlaza: false), member("b", "나무", inPlaza: true),
+                                                         member("c", "가지", inPlaza: false)])
+        XCTAssertEqual(list.map(\.id), ["me", "b", "c", "a"])
+        XCTAssertEqual(PlazaRoster.entries(me: nil, members: [member("b", "나무", inPlaza: true)]).map(\.id), ["b"])
+    }
+
+    func testAwayEntryHasAwayPresence() {
+        let list = PlazaRoster.entries(me: nil, members: [member("a", "다람", inPlaza: false), member("b", "나무", inPlaza: true)])
+        XCTAssertEqual(list.first { $0.id == "a" }?.presence, .away)
+        XCTAssertEqual(list.first { $0.id == "b" }?.presence, .online)
+        let a = list.first { $0.id == "a" }
+        XCTAssertEqual(a?.nickname, "다람"); XCTAssertEqual(a?.speciesID, 25); XCTAssertEqual(a?.speciesName, "Pikachu")
+        XCTAssertEqual(a?.gender, .female); XCTAssertEqual(a?.isShiny, true); XCTAssertEqual(a?.isMe, false)
+        let egg = PlazaRoster.entries(me: nil, members: [member("e", "알", inPlaza: true, speciesID: nil, name: nil)])
+        XCTAssertEqual(egg.first?.speciesName, L(.ko).plazaEggName)
+    }
+
+    func testCapacityFitsHeight() {
+        let m = PlazaRosterMetrics.self
+        func panel(_ slots: Int) -> CGFloat {
+            2 * m.margin + 2 * m.padding + m.headerHeight + m.listTopPadding
+                + CGFloat(slots) * m.slotHeight + CGFloat(slots - 1) * m.slotSpacing
+        }
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: panel(5)), 5)
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: panel(5) - 1), 4, "one point short loses a slot")
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: panel(5) + 47), 5)
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: panel(5) + 48), 6)
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: 0), 2, "never fewer than me plus a more row")
+    }
+
+    func testOverflowShowsMoreRowAndHidesAwayMembers() {
+        let entries = PlazaRoster.sorted([entry("me", "나", me: true)]
+            + (0..<5).map { entry("o\($0)", "온\($0)") } + (0..<4).map { entry("a\($0)", "잠\($0)", presence: .away) })
+        XCTAssertEqual(entries.count, 10)
+        let (shown, hidden) = PlazaRoster.visible(entries, capacity: 5)
+        XCTAssertEqual(shown.count, 4); XCTAssertEqual(hidden, 6)
+        XCTAssertEqual(shown.first?.id, "me")
+        let fits = PlazaRoster.visible(entries, capacity: 10)
+        XCTAssertEqual(fits.shown.count, 10); XCTAssertEqual(fits.hidden, 0)
+        XCTAssertEqual(L(.ko).plazaRosterMore(6), "외 6명")
+        XCTAssertEqual(L(.ko).plazaAwaySuffix, "zZ")
+    }
 }
