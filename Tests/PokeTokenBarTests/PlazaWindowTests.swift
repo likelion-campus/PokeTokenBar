@@ -133,8 +133,8 @@ private struct RecordingFetcher: PlazaSpriteFetching {
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         let frame = PlazaFrame(image: ctx.makeImage()!, delay: 1)
         scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
-        XCTAssertEqual(scene.groundShadowSize.width, 64)
-        XCTAssertEqual(scene.groundShadowSize.height, 20)
+        XCTAssertEqual(scene.groundShadowSize.width, 54)
+        XCTAssertEqual(scene.groundShadowSize.height, 17)
         scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
         var t = 0.0
         scene.update(t)
@@ -142,9 +142,9 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         for _ in 0..<45 {
             t += 1.0 / 30; scene.update(t)
             minY = min(minY, scene.characterY); maxY = max(maxY, scene.characterY)
-            // The shadow never moves with the bob: its bottom edge sits centred on the foot y (bottom edge = height / 2 below the foot).
+            // The shadow never moves with the bob: its bottom edge sits centred round(h * 0.12) above the foot y.
             let h = CGFloat(scene.groundShadowSize.height)
-            let expected = PlazaMapData.map.pixelSize.height - scene.walker.footPoint.y - h / 2
+            let expected = PlazaMapData.map.pixelSize.height - (scene.walker.footPoint.y - (h * 0.12).rounded()) - h / 2
             XCTAssertEqual(scene.groundShadowY, expected, accuracy: 0.51)
         }
         XCTAssertGreaterThan(maxY - minY, 0.5, "the character y must vary across frames while walking")
