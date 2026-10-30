@@ -8,11 +8,8 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 @MainActor final class PlazaScene: SKScene {
     /// 한 프레임에 걸을 수 있는 최대 시간. 잠자기 뒤 같은 큰 간격을 막는다.
     private static let maxFrameDelta: TimeInterval = 0.1
-    /// GIF는 지연 0 또는 0.01초가 흔하다.
-    private static let minFrameDelay: TimeInterval = 0.02
 
-    /// 캐릭터 그림을 월드 단위로 키우는 배율. 발 위치(아래 가운데)는 그대로이고 이름·그림자는 키운 크기에 맞춘다.
-    static let characterScale: CGFloat = 1.5
+    static let characterScale = PlazaActor.characterScale
 
     private let map: PlazaMap
     private let worldSize: CGSize
@@ -37,33 +34,24 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     var backingOverride: CGFloat?
 
     private let mapNode: SKSpriteNode
-    private let characterNode = SKSpriteNode()
     private let cameraNode = SKCameraNode()
-    private let plateNode = SKSpriteNode()
-    private let shadowNode = SKSpriteNode()
-    /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
-    private var shadowTextureSize: (width: Int, height: Int)?
-    /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
-    private var plateKey: (nickname: String, backing: CGFloat, color: CGColor)?
+    /// 내 캐릭터.
+    private let me: PlazaActor
     private(set) var nameColor = PlazaNameColor.palette[0]
     /// false(알)면 방향키를 삼키고 입력을 지운다. 걷던 칸은 마저 간다.
     var canWalk = true {
         didSet { if !canWalk { walker.clearInput() } }
     }
 
-    private var frames: PlazaCharacterFrames?
-    private var showingBack = false
-    private var frameIndex = 0
-    private var frameElapsed: TimeInterval = 0
     private var lastTime: TimeInterval?
     private var clock: TimeInterval = 0
-    private var textureCache: [ObjectIdentifier: SKTexture] = [:]
 
     init(map: PlazaMap, mapImage: CGImage, start: TilePoint, zoom: Int, nickname: String) {
         self.map = map
         self.worldSize = map.pixelSize
         self.walker = PlazaWalker(tile: start)
         self.nickname = nickname
+        self.me = PlazaActor(name: nickname, color: PlazaNameColor.palette[0])
         self.zoom = PlazaCamera.clampedZoom(zoom)
         let texture = SKTexture(cgImage: mapImage)
         texture.filteringMode = .nearest
@@ -79,20 +67,8 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         mapNode.zPosition = 0
         addChild(mapNode)
 
-        shadowNode.anchorPoint = .zero
-        shadowNode.zPosition = 0.5
-        shadowNode.isHidden = true
-        addChild(shadowNode)
-
-        characterNode.anchorPoint = CGPoint(x: 0.5, y: 0)
-        characterNode.zPosition = 1
-        characterNode.isHidden = true
-        addChild(characterNode)
-
-        plateNode.anchorPoint = CGPoint(x: 0.5, y: 0)
-        plateNode.zPosition = 10
-        cameraNode.addChild(plateNode)
         addChild(cameraNode)
+        me.attach(world: self, camera: cameraNode)
         camera = cameraNode
         layout()
     }
@@ -102,25 +78,20 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     // MARK: - 외부 조작
 
     func setCharacter(_ frames: PlazaCharacterFrames) {
-        self.frames = frames
-        textureCache.removeAll()
-        frameIndex = 0
-        frameElapsed = 0
-        characterNode.isHidden = false
-        shadowNode.isHidden = false
-        refreshShadow()
-        applyFrame()
+        me.setFrames(frames)
         layout()
     }
 
     func setNickname(_ name: String) {
         nickname = name
+        me.setName(name, color: nameColor)
         layout()
     }
 
     func setNameColor(_ color: CGColor) {
         guard color != nameColor else { return }
         nameColor = color
+        me.setName(nickname, color: color)
         layout()
     }
 
@@ -195,47 +166,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 
     private func advanceAnimation(by dt: TimeInterval) {
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
-        if pose.useBack != showingBack {
-            showingBack = pose.useBack
-            frameIndex = 0
-            frameElapsed = 0
-        }
-        guard let list = currentFrames, !list.isEmpty else { return }
-        frameElapsed += dt
-        var guardCount = 0
-        while guardCount < list.count {
-            let delay = max(list[frameIndex % list.count].delay, Self.minFrameDelay)
-            guard frameElapsed >= delay else { break }
-            frameElapsed -= delay
-            frameIndex = (frameIndex + 1) % list.count
-            guardCount += 1
-        }
-        applyFrame()
-    }
-
-    private var currentFrames: [PlazaFrame]? {
-        guard let frames else { return nil }
-        return showingBack ? frames.back : frames.front
-    }
-
-    /// 배율을 적용한 그림 크기. 정확한 배율을 쓰고(반올림하면 홀수 크기에서 도트가 일그러진다) 위치만 기기 픽셀에 맞춘다.
-    private static func scaledSize(of image: CGImage) -> CGSize {
-        CGSize(width: CGFloat(image.width) * characterScale, height: CGFloat(image.height) * characterScale)
-    }
-
-    private func applyFrame() {
-        guard let list = currentFrames, !list.isEmpty else { return }
-        let image = list[frameIndex % list.count].image
-        let texture: SKTexture
-        if let cached = textureCache[ObjectIdentifier(image)] {
-            texture = cached
-        } else {
-            texture = SKTexture(cgImage: image)
-            texture.filteringMode = .nearest
-            textureCache[ObjectIdentifier(image)] = texture
-        }
-        characterNode.texture = texture
-        characterNode.size = Self.scaledSize(of: image)
+        me.animate(by: dt, useBack: pose.useBack)
     }
 
     /// 카메라, 캐릭터, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다.
@@ -246,7 +177,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 
         let foot = walker.footPoint
         // 큰 포켓몬의 머리가 잘리지 않게 앞모습 높이의 절반만큼 위를 본다(앞모습 기준이라 돌아봐도 카메라가 흔들리지 않는다).
-        let lift = frames?.front.first.map { Self.scaledSize(of: $0.image).height / 2 } ?? 0
+        let lift = me.cameraLift
         let focus = PlazaCamera.focus(for: foot, rightInset: PlazaRosterMetrics.coveredWidth, zoom: zoom, lift: lift)
         let rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
                                         rightInset: PlazaRosterMetrics.coveredWidth)
@@ -255,57 +186,19 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         cameraNode.setScale(1 / z)
 
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
-        characterNode.xScale = pose.flipped ? -1 : 1
-        // 그림자는 발보다 조금 위(높이의 0.12)에 가운데를 두어 발 뒤에 깔리게 하고, 아래·왼쪽 모서리를 기기 픽셀에 맞춘다. 통통 튐은 받지 않는다.
-        let shadowSize = shadowNode.size
-        let shadowCenterY = worldSize.height - (foot.y - (shadowSize.height * 0.12).rounded())
-        shadowNode.position = CGPoint(x: snap(foot.x - shadowSize.width / 2), y: snap(shadowCenterY - shadowSize.height / 2))
-        let footScene = CGPoint(x: snap(foot.x), y: snap(worldSize.height - foot.y + CGFloat(pose.bob)))
-        characterNode.position = CGPoint(x: PlazaPixelSnap.centerX(footX: foot.x, width: characterNode.size.width, backing: backing, zoom: zoom),
-                                         y: footScene.y)
-
-        // 이름표는 카메라 공간(화면 포인트)에 둔다.
-        let top = footScene.y + characterNode.size.height
-        let labelBacking = max(backing, 1)
-        refreshPlate(backing: labelBacking)
-        plateNode.position = PlazaPixelSnap.platePosition(footSceneX: footScene.x, topY: top, cameraPos: cameraPos,
-                                                          plateWidth: plateNode.size.width, viewport: size,
-                                                          backing: labelBacking, zoom: zoom)
+        me.place(foot: foot, pose: pose, in: PlazaActorContext(worldHeight: worldSize.height, cameraPosition: cameraPos,
+                                                              zoom: zoom, backing: backing, viewport: size))
     }
 
-    /// 테스트용: 그림자 노드의 크기와 아래 모서리 y, 캐릭터 노드의 y.
-    var groundShadowSize: (width: Int, height: Int) { shadowTextureSize ?? (0, 0) }
-    var groundShadowY: CGFloat { shadowNode.position.y }
-    var characterX: CGFloat { characterNode.position.x }
-    var characterY: CGFloat { characterNode.position.y }
+    /// 테스트용: 내 캐릭터 값을 그대로 넘긴다.
+    var groundShadowSize: (width: Int, height: Int) { me.groundShadowSize }
+    var groundShadowY: CGFloat { me.groundShadowY }
+    var characterX: CGFloat { me.characterX }
+    var characterY: CGFloat { me.characterY }
     var cameraPosition: CGPoint { cameraNode.position }
-    var namePlatePosition: CGPoint { plateNode.position }
-    var namePlateWidth: CGFloat { plateNode.size.width }
-    var characterSize: CGSize { characterNode.size }
-
-    private func refreshShadow() {
-        guard let first = frames?.front.first else { return }
-        let size = PlazaGroundShadow.size(forSpriteWidth: Int(Self.scaledSize(of: first.image).width.rounded()))
-        if let old = shadowTextureSize, old == size { return }
-        shadowTextureSize = size
-        let texture = SKTexture(cgImage: PlazaGroundShadow.image(width: size.width, height: size.height))
-        texture.filteringMode = .nearest
-        shadowNode.texture = texture
-        shadowNode.size = CGSize(width: size.width, height: size.height)
-    }
-
+    var namePlatePosition: CGPoint { me.namePlatePosition }
+    var namePlateWidth: CGFloat { me.namePlateWidth }
+    var characterSize: CGSize { me.characterSize }
     /// 닉네임이 비어 있으면 이름판을 숨긴다.
-    var isNamePlateVisible: Bool { !plateNode.isHidden }
-
-    private func refreshPlate(backing: CGFloat) {
-        plateNode.isHidden = nickname.isEmpty
-        if nickname.isEmpty { return }
-        if let key = plateKey, key.nickname == nickname, key.backing == backing, key.color == nameColor { return }
-        plateKey = (nickname, backing, nameColor)
-        let image = PlazaNamePlate.image(text: nickname, color: nameColor, scale: backing)
-        let texture = SKTexture(cgImage: image)
-        texture.filteringMode = .nearest
-        plateNode.texture = texture
-        plateNode.size = CGSize(width: CGFloat(image.width) / backing, height: CGFloat(image.height) / backing)
-    }
+    var isNamePlateVisible: Bool { me.isNamePlateVisible }
 }

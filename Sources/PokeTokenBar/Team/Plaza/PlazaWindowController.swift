@@ -19,11 +19,16 @@ extension SKView: PlazaPausableView {}
     /// 창 위치·크기 기억용 이름. 사용자에게 보이는 글이 아니다.
     private static let frameAutosaveName = "TeamPlazaWindow"
 
-    /// 한 번만 만든다. 다시 열 때 메인 스레드에서 지도를 다시 그리지 않는다. 시트를 못 읽으면 단색 잔디로 대신한다.
-    private lazy var mapImage: CGImage = {
-        guard let sheet = PlazaResources.tileSheet() else { return PlazaTileArt.plainGrassImage(map) }
-        return PlazaTileArt.mapImage(map, sheet: sheet)
-    }()
+    /// 프로세스에서 한 번만 만든다. 다시 열 때(와 테스트마다) 메인 스레드에서 지도를 다시 그리지 않는다. 앱의 지도는 하나뿐이다.
+    /// 시트를 못 읽으면 단색 잔디로 대신한다.
+    private static var cachedMapImage: CGImage?
+
+    private var mapImage: CGImage {
+        if let cached = Self.cachedMapImage { return cached }
+        let image = PlazaResources.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0) } ?? PlazaTileArt.plainGrassImage(map)
+        Self.cachedMapImage = image
+        return image
+    }
 
     private var window: NSWindow?
     private var skView: SKView?
