@@ -1363,3 +1363,14 @@ read_when:
   run first. Disabling the observer brings back all 85 failures under a simulated critical signal. A signal
   that arrives in the middle of a test can still fail that test. A filtered run that leaves this class out
   has no guard.
+
+- **`${VAR//\/\//\/}` keeps the backslash in macOS's bash 3.2, so a path can gain a stray `\`.**
+  `scripts/plaza-dev.sh` built `${TMPDIR}/ptb-plaza-dev`, where `TMPDIR` already ends in `/`, then collapsed
+  `//` with that substitution. Bash 3.2 writes the escaped replacement literally, so the state folder became
+  `…/T\/ptb-plaza-dev`. **Why nothing caught it:** `mkdir -p` makes any path work, the app ran normally from
+  that folder, and nobody read the resulting path. It surfaced only when a listing of the expected folder
+  came back empty. **Fix:** strip the trailing slash with `${DEV_DIR%/}`. No other script uses this
+  substitution. The team settings suite name is a hash of the state path, so moving a state folder orphans
+  its team settings; the existing dev settings were copied to the new suite by hand. There is no automated
+  test because this is a dev script. It was checked on `/bin/bash` 3.2 with `TMPDIR` ending in a slash,
+  without one and unset, and by reading `PTB_STATE_DIR` from the running app.

@@ -135,6 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeDisplaySleep()
         observePowerState()
         applyState()
+        // plaza-dev.sh 전용: 메뉴바 아이콘이 노치에 가려져도 광장을 바로 연다.
+        if CommandLine.arguments.contains("--open-plaza") { openPlaza() }
     }
 
     /// Observation 기반 상태 반영 — store 의 menuTitle(=menuLines) 변경 시 재호출.

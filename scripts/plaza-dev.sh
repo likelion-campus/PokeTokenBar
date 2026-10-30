@@ -8,8 +8,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REAL_DIR="$HOME/Library/Application Support/PokeTokenBar"
-DEV_DIR="${TMPDIR:-/tmp}/ptb-plaza-dev"
-DEV_DIR="${DEV_DIR//\/\//\/}"
+DEV_DIR="${TMPDIR:-/tmp}"
+DEV_DIR="${DEV_DIR%/}/ptb-plaza-dev"
 
 mkdir -p "$DEV_DIR"
 
@@ -27,10 +27,11 @@ cat <<'MSG'
 - 설치된 앱은 그대로 둬도 됩니다.
 - 개발 앱의 세이브와 팀 설정은 따로 저장됩니다.
 - 스프라이트 이미지 캐시는 설치된 앱과 공유합니다(캐시라 괜찮습니다).
-- 설정 → 팀에서 켜기, 팀 만들기, 닉네임 입력 후 "광장 열기"를 누르세요.
+- 광장 창이 바로 열립니다. 닫은 뒤 다시 열려면 이 스크립트를 다시 실행하세요.
+- 이름이 비어 있으면 메뉴바 아이콘 → 설정 → 팀에서 켜기, 팀 만들기, 닉네임을 입력하세요.
 - 종료는 Ctrl+C.
 
 MSG
 
 cd "$REPO_ROOT"
-PTB_STATE_DIR="$DEV_DIR" exec swift run PokeTokenBar
+PTB_STATE_DIR="$DEV_DIR" exec swift run PokeTokenBar --open-plaza
