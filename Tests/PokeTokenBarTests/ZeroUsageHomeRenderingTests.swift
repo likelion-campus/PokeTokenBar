@@ -112,7 +112,8 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         let height = 604.0
         let host = NSHostingView(rootView: PopoverView()
             .environment(store).environment(companion).environment(UpdateChecker(defaults: defaults))
-            .environment(PopoverNavigation()).environment(\.colorScheme, .dark)
+            .environment(PopoverNavigation()).environment(TeamSettings(defaults: defaults))
+            .environment(\.colorScheme, .dark)
             .environment(\.controlActiveState, .active)
             .frame(width: PopoverMetrics.width, height: height)
             .background(Color(nsColor: NSColor(calibratedWhite: 0.07, alpha: 1))))

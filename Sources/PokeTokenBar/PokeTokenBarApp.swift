@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
+    private var plaza: PlazaWindowController!
 
     // 메뉴바 캐릭터 애니메이션 — 단일 타이머로 프레임 순환.
     // 프레임 = 이미 22px 로 합성된 이미지 + delay. egg/static 은 2프레임 bob, animated 는 GIF 실제 프레임.
@@ -113,8 +114,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self   // didShow: outside-click monitor; didClose: 호스팅 해제 + 모니터 제거
 
+        plaza = PlazaWindowController(
+            preferences: PlazaPreferences(), loader: PlazaCharacterLoader(),
+            nickname: { [teamSettings] in teamSettings.nickname },
+            subject: { [companion] in companion!.representativeSubject })
+        navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
+
         observeStore()
         observeCompanionSprite()
+        observePlaza()
         observeDisplaySleep()
         observePowerState()
         applyState()
@@ -135,6 +143,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.observeStore()
             }
         }
+    }
+
+    /// 광장 캐릭터는 플로팅 펫과 같은 대표 대상을 따른다. 광장이 닫혀 있으면 두 호출 모두 아무 일도 안 한다.
+    private func observePlaza() {
+        withObservationTracking {
+            _ = companion.representativeSubject
+            _ = teamSettings.nickname
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                await self.plaza.refreshCharacter()
+                self.plaza.refreshNickname()
+                self.observePlaza()
+            }
+        }
+    }
+
+    private func openPlaza() {
+        if popover.isShown { popover.performClose(nil) }
+        plaza.show()
     }
 
     /// 대표 스프라이트 정체성(종/shiny/fps 하한) 관찰 — 대표 선택·해제와 애니메이션 품질 변경뿐 아니라
@@ -580,7 +608,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let entries = StatusItemMenu.entries(
             l: companion.l, todayTokens: store.todayTotalTokens,
             todayCost: store.showsCost ? store.todayUsageCost : nil,
-            floatingPetEnabled: store.floatingPetEnabled)
+            floatingPetEnabled: store.floatingPetEnabled, plazaAvailable: teamSettings.isReady)
         // Attaching the menu only for this click keeps left click on the popover. performClick
         // tracks the menu synchronously, with the button highlighted like any other status menu.
         statusItem.menu = StatusItemMenu.build(entries, target: self, selector: #selector(handleStatusMenu(_:)))
@@ -592,6 +620,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         switch StatusItemMenu.action(of: item) {
         case .refresh: Task { await store.refresh() }
         case .openDex: showPopover { $0.openRepresentativeDex() }
+        case .openPlaza: openPlaza()
         case .openSettings: showPopover { $0.showSettings = true }
         case .toggleFloatingPet: store.floatingPetEnabled.toggle()
         case .quit: NSApp.terminate(nil)

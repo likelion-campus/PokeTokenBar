@@ -52,6 +52,8 @@ final class PopoverNavigation {
     /// 설정을 열 때 고급 섹션을 펼친 채로 시작할지. 세션 키 행이 접힌 disclosure 안에 살아서,
     /// 그냥 설정만 열면 "만료됐다"를 보고 들어온 사용자가 고칠 입력란을 못 찾는다.
     var expandAdvancedOnOpen = false
+    /// AppDelegate 가 설정하는 "광장 열기" 동작(팝오버를 닫고 광장 창을 연다).
+    var onOpenPlaza: (() -> Void)?
 
     func reset() {
         showSettings = false
@@ -89,6 +91,7 @@ struct PopoverView: View {
     @Environment(CompanionStore.self) private var companion
     @Environment(UpdateChecker.self) private var updater
     @Environment(PopoverNavigation.self) private var nav
+    @Environment(TeamSettings.self) private var teamSettings
 
     private var l: L { companion.l }
     @State private var showingClaudeKeychainHelp = false
@@ -158,6 +161,11 @@ struct PopoverView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+
+            if teamSettings.isReady {
+                Button(l.plazaOpen) { nav.onOpenPlaza?() }
+                    .controlSize(.small)
+            }
 
             if nav.tab == .collection {
                 CollectionView(store: companion, navigation: nav)

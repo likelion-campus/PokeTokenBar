@@ -32,7 +32,7 @@ final class StatusItemMenuTests: XCTestCase {
     func testEntriesInOrderWithShortcuts() {
         let l = L(.en)
         let entries = StatusItemMenu.entries(l: l, todayTokens: 19_400_000, todayCost: reportedCost,
-                                             floatingPetEnabled: true)
+                                             floatingPetEnabled: true, plazaAvailable: false)
         XCTAssertEqual(entries, [
             .init(title: "Today's tokens 19.4M · $5.09", keyEquivalent: "", action: nil),
             nil,
@@ -47,9 +47,18 @@ final class StatusItemMenuTests: XCTestCase {
 
     func testFloatingPetRowOffersShowWhenHidden() {
         let l = L(.ko)
-        let entries = StatusItemMenu.entries(l: l, todayTokens: 0, todayCost: nil, floatingPetEnabled: false)
+        let entries = StatusItemMenu.entries(l: l, todayTokens: 0, todayCost: nil, floatingPetEnabled: false, plazaAvailable: false)
         let row = entries.compactMap { $0 }.first { $0.action == .toggleFloatingPet }
         XCTAssertEqual(row?.title, l.floatingPetEnableLabel)
+    }
+
+    func testPlazaEntryOnlyWhenAvailable() {
+        let l = L(.ko)
+        let off = StatusItemMenu.entries(l: l, todayTokens: 0, todayCost: nil, floatingPetEnabled: false, plazaAvailable: false)
+        XCTAssertFalse(off.contains { $0?.action == .openPlaza })
+        let on = StatusItemMenu.entries(l: l, todayTokens: 0, todayCost: nil, floatingPetEnabled: false, plazaAvailable: true)
+        let i = on.firstIndex { $0?.action == .openPlaza }!
+        XCTAssertEqual(on[i - 1]?.action, .openDex)
     }
 
     func testSummaryOmitsCostWhenNoProviderReportsOne() {
@@ -59,7 +68,8 @@ final class StatusItemMenuTests: XCTestCase {
     // MARK: NSMenu
 
     func testBuiltMenuKeepsSummaryDisabledAndRoutesActions() throws {
-        let entries = StatusItemMenu.entries(l: L(.en), todayTokens: 1, todayCost: nil, floatingPetEnabled: true)
+        let entries = StatusItemMenu.entries(l: L(.en), todayTokens: 1, todayCost: nil, floatingPetEnabled: true,
+                                             plazaAvailable: false)
         let target = NSObject()
         let menu = StatusItemMenu.build(entries, target: target, selector: #selector(NSObject.description))
 
