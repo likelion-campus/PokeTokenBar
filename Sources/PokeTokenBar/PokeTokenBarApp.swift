@@ -123,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeStore()
         observeCompanionSprite()
         observePlaza()
+        observePlazaNickname()
         observeDisplaySleep()
         observePowerState()
         applyState()
@@ -149,13 +150,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func observePlaza() {
         withObservationTracking {
             _ = companion.representativeSubject
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observePlaza()   // 먼저 다시 등록 — 로딩 중 변경을 놓치지 않는다(세대 가드가 낡은 로드를 버림)
+                await self.plaza.refreshCharacter()
+            }
+        }
+    }
+
+    private func observePlazaNickname() {
+        withObservationTracking {
             _ = teamSettings.nickname
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                await self.plaza.refreshCharacter()
+                self.observePlazaNickname()
                 self.plaza.refreshNickname()
-                self.observePlaza()
             }
         }
     }

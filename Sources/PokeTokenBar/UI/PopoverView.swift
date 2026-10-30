@@ -153,18 +153,22 @@ struct PopoverView: View {
         @Bindable var nav = nav
         return VStack(alignment: .leading, spacing: 12) {
             updateBanner
-            Picker("", selection: $nav.tab) {
-                Text(l.home).tag(PopoverTab.home)
-                Text(l.shop).tag(PopoverTab.shop)
-                Text(l.bag).tag(PopoverTab.bag)
-                Text(l.collection).tag(PopoverTab.collection)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            HStack(spacing: 8) {
+                Picker("", selection: $nav.tab) {
+                    Text(l.home).tag(PopoverTab.home)
+                    Text(l.shop).tag(PopoverTab.shop)
+                    Text(l.bag).tag(PopoverTab.bag)
+                    Text(l.collection).tag(PopoverTab.collection)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
 
-            if teamSettings.isReady {
-                Button(l.plazaOpen) { nav.onOpenPlaza?() }
-                    .controlSize(.small)
+                if teamSettings.isReady {
+                    Button { nav.onOpenPlaza?() } label: { Image(systemName: "map") }
+                        .buttonStyle(.borderless)
+                        .help(l.plazaOpen)
+                        .accessibilityLabel(l.plazaOpen)
+                }
             }
 
             if nav.tab == .collection {
