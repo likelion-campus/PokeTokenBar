@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import XCTest
 @testable import PokeTokenBar
@@ -36,7 +37,13 @@ final class PlazaNamePlateTests: XCTestCase {
     func testNameFontIs14() {
         XCTAssertEqual(PlazaNamePlate.fontSize, 14)
         let image = PlazaNamePlate.image(text: "Name", scale: 1)
-        // 14pt semibold text is taller than the old 12pt plate (ascent+descent of 12pt is below 16, plus 2 * pad).
-        XCTAssertGreaterThanOrEqual(image.height, 24)
+        let font12 = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let font14 = NSFont.systemFont(ofSize: 14, weight: .semibold)
+        let lineHeight12 = (font12.ascender - font12.descender).rounded(.up)
+        let lineHeight14 = (font14.ascender - font14.descender).rounded(.up)
+        XCTAssertGreaterThan(lineHeight14, lineHeight12)
+        // The plate is taller than a 12 pt plate would be: line height + 2 * pad.
+        XCTAssertGreaterThanOrEqual(CGFloat(image.height), lineHeight14 + 2 * PlazaNamePlate.pad - 1)
+        XCTAssertGreaterThan(CGFloat(image.height), lineHeight12 + 2 * PlazaNamePlate.pad)
     }
 }

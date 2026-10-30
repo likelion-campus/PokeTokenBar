@@ -313,6 +313,13 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         let frame = PlazaFrame(image: ctx.makeImage()!, delay: 1)
         scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
         XCTAssertEqual(scene.characterSize, CGSize(width: 60, height: 45))
+        // Odd sizes keep the exact 1.5x factor (no rounding distortion).
+        let odd = CGContext(data: nil, width: 41, height: 31, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let oddFrame = PlazaFrame(image: odd.makeImage()!, delay: 1)
+        scene.setCharacter(PlazaCharacterFrames(front: [oddFrame], back: [oddFrame]))
+        XCTAssertEqual(scene.characterSize, CGSize(width: 61.5, height: 46.5))
     }
 
     func testSetRenderingTogglesRosterAnimation() {

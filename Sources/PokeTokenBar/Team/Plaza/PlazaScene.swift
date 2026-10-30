@@ -204,9 +204,9 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         return showingBack ? frames.back : frames.front
     }
 
-    /// 배율을 적용한 그림 크기. 월드 픽셀에 맞도록 정수로 반올림한다.
+    /// 배율을 적용한 그림 크기. 정확한 배율을 쓰고(반올림하면 홀수 크기에서 도트가 일그러진다) 위치만 기기 픽셀에 맞춘다.
     private static func scaledSize(of image: CGImage) -> CGSize {
-        CGSize(width: (CGFloat(image.width) * characterScale).rounded(), height: (CGFloat(image.height) * characterScale).rounded())
+        CGSize(width: CGFloat(image.width) * characterScale, height: CGFloat(image.height) * characterScale)
     }
 
     private func applyFrame() {
@@ -265,7 +265,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 
     private func refreshShadow() {
         guard let first = frames?.front.first else { return }
-        let size = PlazaGroundShadow.size(forSpriteWidth: Int(Self.scaledSize(of: first.image).width))
+        let size = PlazaGroundShadow.size(forSpriteWidth: Int(Self.scaledSize(of: first.image).width.rounded()))
         if let old = shadowTextureSize, old == size { return }
         shadowTextureSize = size
         let texture = SKTexture(cgImage: PlazaGroundShadow.image(width: size.width, height: size.height))
