@@ -1230,3 +1230,50 @@ func testShadowStaysOnGroundWhileBobbing() { /* bobbed 를 캐릭터 y의 퍼짐
 - 농도: 가운데 알파 0.30, 가장자리로 갈수록 `0.30 × (1 − d)^0.8`(d = 타원 정규화 거리²)로 흐려져 바깥은 0. 월드 픽셀 해상도로
   만들고 `.nearest`로 키운다(도트 느낌의 계단식 흐림).
 - 위치: 가운데 = 발 높이보다 `round(height × 0.12)`만큼 위(뒤). 통통 튐 없음, 가장자리 맞춤은 그대로.
+
+### Task 18: 또렷한 이름, 팀원별 이름 색, 알 이동 막기 (마지막 사용자 확인 반영)
+
+**Files:**
+- Create: `Sources/PokeTokenBar/Team/Plaza/PlazaNameColor.swift`
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaNamePlate.swift`, `PlazaScene.swift`, `PlazaWalker.swift`, `PlazaWindowController.swift`
+- Modify: `Sources/PokeTokenBar/PokeTokenBarApp.swift` (컨트롤러에 멤버 ID 전달, 한 줄)
+- Modify: `scripts/test-gate.sh` (`LOGIC_CORE`에 `PlazaNameColor.swift`, `PlazaGroundShadow.swift`)
+- Create: `Tests/PokeTokenBarTests/PlazaNameColorTests.swift`
+- Modify: 관련 테스트
+
+**Interfaces / values:**
+- 색: `enum PlazaNameColor { static let palette: [CGColor]; static func index(forMemberID: String) -> Int; static func color(forMemberID: String) -> CGColor }`
+  - 팔레트 12색(순서 고정): `#FFFFFF #FFE14D #7FD4FF #FF9ECF #FFB054 #C9A6FF #8FF0C8 #FF8A80 #B6F24D #6FE8E8 #F2D6A2 #A8C8FF`.
+  - `index`는 UTF-8 바이트의 32비트 FNV-1a(`offset 2166136261`, `prime 16777619`) 값을 팔레트 크기로 나눈 나머지다. Swift의
+    `hashValue`/`Hasher`는 실행마다 달라지므로 쓰지 않는다(기기가 달라도 같은 색이어야 한다).
+- 이름: `PlazaNamePlate.image(text:color:scale:) -> CGImage`. 시스템 글꼴 **15pt bold**, 글자 채움은 `color`.
+  어두운 테두리 `#14161F` 3pt(글자 뒤에 먼저 그림: CoreText 획 그리기), 그 아래 그림자 검정 45%·아래로 1pt·흐림 2pt.
+  안티에일리어싱 켬. 테두리와 그림자가 잘리지 않게 여백 5pt.
+- 장면: `PlazaScene.setNameColor(_:)`. 색이 바뀔 때만 이름 그림을 다시 만든다.
+- 컨트롤러: `init`에 `memberID: () -> String` 추가(기본값 없이 앱에서 `teamSettings.memberID`를 넘긴다, 테스트는 고정값).
+- 알 이동 막기: `PlazaScene.canWalk: Bool`(기본 true). false면 방향키는 `press`하지 않고(삼키기), 눌린 키와 **대기 중인 탭까지** 지운다
+  (`PlazaWalker.clearInput()` 추가. `releaseAll`과 달리 `pendingTap`도 지움). 걷던 칸은 마저 간다. 컨트롤러는 장면을 만들 때와 `refreshCharacter()`
+  **시작 시점에 동기적으로** `scene.canWalk = subject().speciesID != nil`을 설정한다(그림 로딩을 기다리지 않음).
+- 진화·부화 반영 고정: 실제 `CompanionStore`로 `representativeSubject`가 관찰 가능함을 테스트한다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+```swift
+// PlazaNameColorTests
+func testPaletteHasTwelveDistinctColors() { }
+func testIndexIsStableAcrossProcesses() { /* 고정 입력의 FNV-1a 결과를 직접 계산해 값으로 박는다: "" → 2166136261 % 12, "a" → 3826002220 % 12 */ }
+func testColorComesFromPaletteAndDiffersBetweenSomeMembers() { }
+// PlazaNamePlateTests
+func testPlateUsesRequestedFillColorAndDarkOutline() { /* 빨강/파랑으로 그린 두 그림의 픽셀이 다르고, 어두운 테두리 픽셀과 채움 색 픽셀이 모두 있다. 모서리는 투명 */ }
+func testNameFontIs15Bold() { }
+// PlazaWalkerTests
+func testClearInputDropsPendingTap() { /* press + clearInput 후 advance 해도 움직이지 않음 */ }
+// PlazaWindowTests
+func testEggCannotWalk() { /* subject speciesID nil → prepareScene → 방향키 + 1초 → 칸 그대로, 돌아보지도 걷지도 않음 */ }
+func testHatchedCharacterCanWalkAgain() { /* subject를 종으로 바꾸고 refreshCharacter → 방향키로 한 칸 이동. 알일 때 누른 탭은 부화 후 걷지 않음 */ }
+func testBecomingAnEggStopsAfterCurrentStep() { /* 걷는 중 subject를 nil로 바꿔 refreshCharacter → 지금 칸만 마치고 멈춤 */ }
+func testRepresentativeSubjectChangeIsObservable() { /* 실제 CompanionStore: withObservationTracking이 setRepresentativeSpeciesID로 onChange를 부른다(기존 CompanionStore 테스트의 도감 준비 방식 재사용) */ }
+```
+
+- [ ] **Step 2–4:** `swift test --filter 'Plaza|<검사 테스트 15개>'`, `swift build --build-tests`
+- [ ] **Step 5: Commit** — `feat(plaza): bold outlined names, per-member name colors, eggs stay put`
