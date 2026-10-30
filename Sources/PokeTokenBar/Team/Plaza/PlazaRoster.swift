@@ -42,6 +42,15 @@ enum PlazaRoster {
             eggName: L(.ko).plazaEggName)
     }
 
+    /// 팀에 보내는 내 캐릭터. 이름과 성별은 내 칸과 같고, 알이면 종·이름·폼이 비어 있다.
+    static func character(entry: PlazaRosterEntry, subject: CompanionStore.RepresentativeSubject) -> TeamMonSummary {
+        guard entry.speciesID != nil else {
+            return TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil)
+        }
+        return TeamMonSummary(speciesID: entry.speciesID, isShiny: entry.isShiny, form: subject.form,
+                              speciesName: entry.speciesName, gender: entry.gender)
+    }
+
     /// 나 → 접속 중 → 자리 비움, 같은 무리 안에서는 닉네임 순.
     static func sorted(_ entries: [PlazaRosterEntry]) -> [PlazaRosterEntry] {
         func rank(_ e: PlazaRosterEntry) -> Int { e.isMe ? 0 : (e.presence == .online ? 1 : 2) }

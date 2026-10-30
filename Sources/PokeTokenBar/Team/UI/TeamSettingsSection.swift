@@ -5,6 +5,7 @@ import AppKit
 @MainActor
 struct TeamSettingsSection: View {
     @Environment(TeamSettings.self) private var team
+    @Environment(TeamSession.self) private var session: TeamSession?
     private let l = L(.ko)
     @State private var joinDraft = ""
     @State private var joinFailed = false
@@ -65,6 +66,9 @@ struct TeamSettingsSection: View {
                         Spacer()
                         Toggle(l.teamNotifications, isOn: $team.notificationsEnabled)
                             .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    }
+                    if session?.hasIncompatiblePeer == true {
+                        error(l.teamIncompatiblePeer)
                     }
                 }
             }

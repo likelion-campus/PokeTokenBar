@@ -14,6 +14,7 @@ extension L {
     var teamNickname: String { "닉네임" }
     var teamNicknameInvalid: String { "닉네임은 1~12자로 입력해 주세요" }
     var teamNotifications: String { "팀 알림" }
+    var teamIncompatiblePeer: String { "다른 버전을 쓰는 팀원이 있어요. 모두 최신 버전으로 업데이트해 주세요" }
     var plazaOpen: String { "광장 열기" }
     var plazaWindowTitle: String { "팀 광장" }
     var plazaRosterTitle: String { "팀원" }

@@ -59,3 +59,16 @@ final class PlazaRosterTests: XCTestCase {
         XCTAssertEqual(l.plazaRosterCount(online: 3, total: 5), "접속 3 / 5")
     }
 }
+
+extension PlazaRosterTests {
+    func testCharacterForTeamKeepsNameGenderAndDropsEggDetails() {
+        let entry = PlazaRosterEntry(id: "m", nickname: "나", speciesID: 4, speciesName: "파이리", gender: .female,
+                                     isShiny: true, presence: .online, isMe: true)
+        let c = PlazaRoster.character(entry: entry, subject: .init(speciesID: 4, isShiny: true, form: nil))
+        XCTAssertEqual(c, TeamMonSummary(speciesID: 4, isShiny: true, form: nil, speciesName: "파이리", gender: .female))
+        let egg = PlazaRosterEntry(id: "m", nickname: "나", speciesID: nil, speciesName: "알", gender: nil,
+                                   isShiny: false, presence: .online, isMe: true)
+        let e = PlazaRoster.character(entry: egg, subject: .init(speciesID: nil, isShiny: false))
+        XCTAssertEqual(e, TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil))
+    }
+}

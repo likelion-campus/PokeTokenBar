@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var store: UsageStore!
     private var companion: CompanionStore!
     private let teamSettings = TeamSettings()
+    private var teamRuntime: TeamRuntime!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
@@ -118,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self   // didShow: outside-click monitor; didClose: 호스팅 해제 + 모니터 제거
 
+        teamRuntime = TeamRuntime(settings: teamSettings, companion: companion)
         plaza = PlazaWindowController(
             preferences: PlazaPreferences(), loader: PlazaCharacterLoader(),
             nickname: { [teamSettings] in TeamSettings.validNickname(teamSettings.nickname) ?? "" },
@@ -126,6 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             myRosterEntry: { [companion, teamSettings] in
                 PlazaRoster.myEntry(companion: companion!, teamSettings: teamSettings) })
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
+        teamRuntime.plaza = plaza
+        teamRuntime.start()
 
         observeStore()
         observeCompanionSprite()
@@ -624,7 +628,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = NSHostingController(
             rootView: PopoverView()
                 .environment(store).environment(companion).environment(updater).environment(navigation)
-                .environment(teamSettings))
+                .environment(teamSettings).environment(teamRuntime.session))
     }
 
     @objc private func statusItemClicked() {

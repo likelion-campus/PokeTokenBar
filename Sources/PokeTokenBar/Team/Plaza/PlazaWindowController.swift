@@ -158,6 +158,11 @@ extension SKView: PlazaPausableView {}
     }
 
     /// 장면이 있으면 지금 칸을 저장한다. 아무것도 해제하지 않는다(앱 종료 때도 부른다).
+    /// 창이 있으면 닫는다(`performClose`). 팀 준비가 풀릴 때 부른다.
+    func closeIfOpen() {
+        window?.performClose(nil)
+    }
+
     func persistState() {
         if let scene { preferences.saveLastTile(scene.walker.tile) }
     }

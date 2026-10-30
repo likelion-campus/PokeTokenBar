@@ -1,0 +1,138 @@
+import XCTest
+@testable import PokeTokenBar
+
+private let runtimeNow = Date(timeIntervalSince1970: 1_700_000_000)
+
+private func runtimeNode(_ id: Int, _ children: [EvoNode] = []) -> EvoNode { EvoNode(speciesID: id, children: children) }
+private let runtimeLine = EvoLine(
+    baseID: 1, tree: runtimeNode(1, [runtimeNode(2)]), rarity: .common,
+    names: [1: ["en": "P1", "ko": "포1"], 2: ["en": "P2", "ko": "포2"]])
+
+private struct RuntimeTestProvider: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine { runtimeLine }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 1, captureRate: 255)] }
+}
+
+@MainActor
+private final class RuntimeNode {
+    let settings: TeamSettings
+    let companion: CompanionStore
+    let transport: FakeTeamTransport
+    let runtime: TeamRuntime
+    private let suite = "ptb.test.team.runtime.\(UUID().uuidString)"
+
+    init(hub: FakeTransportHub, code: TeamCode, nickname: String) {
+        let defaults = UserDefaults(suiteName: suite)!
+        settings = TeamSettings(defaults: defaults)
+        settings.code = code
+        settings.nickname = nickname
+        settings.isEnabled = true
+        let tmp = FileManager.default.temporaryDirectory
+        companion = CompanionStore(provider: RuntimeTestProvider(), clock: { runtimeNow },
+                                   fileURL: tmp.appendingPathComponent("rt-companion-\(UUID().uuidString).json"),
+                                   rng: SeededRNG(seed: 7), dittoDisguiseRollingEnabled: false, defaults: defaults)
+        transport = hub.makeTransport()
+        let feed = TeamFeedStore(fileURL: tmp.appendingPathComponent("rt-feed-\(UUID().uuidString).json"),
+                                 myMemberID: settings.memberID)
+        runtime = TeamRuntime(settings: settings, companion: companion, transport: transport, feed: feed)
+    }
+
+    deinit { UserDefaults().removePersistentDomain(forName: suite) }
+}
+
+@MainActor
+final class TeamRuntimeTests: XCTestCase {
+    /// The fake transports hold their hub unowned, so it must outlive the test body.
+    private let hub = FakeTransportHub()
+
+    private func newCode() -> TeamCode {
+        var rng = SystemRandomNumberGenerator()
+        return TeamCode.generate(using: &rng)
+    }
+
+    /// Lets the main actor run queued observation hops until `condition` holds.
+    private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<200 where !condition() { await Task.yield() }
+        XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
+    }
+
+    private func connectedPair() -> (a: RuntimeNode, b: RuntimeNode) {
+        let code = newCode()
+        let a = RuntimeNode(hub: hub, code: code, nickname: "가")
+        let b = RuntimeNode(hub: hub, code: code, nickname: "나")
+        a.runtime.start()
+        b.runtime.start()
+        hub.connect(a.transport, to: b.transport)
+        return (a, b)
+    }
+
+    func testCompanionEventIsPublished() {
+        let (a, b) = connectedPair()
+        a.companion.onTeamEvent?(CompanionTeamEvent(kind: .hatch, speciesID: 25, fromSpeciesID: nil, speciesName: "Pikachu",
+                                                    fromSpeciesName: nil, form: nil, isShiny: false, nature: nil, rarity: .common))
+        XCTAssertEqual(a.transport.sentMessages { if case .events = $0 { true } else { false } }, 1)
+        XCTAssertEqual(b.runtime.feed.events.map(\.speciesID), [25])
+    }
+
+    func testRepresentativeChangeSendsPresenceImmediately() async {
+        let (a, b) = connectedPair()
+        XCTAssertNil(b.runtime.session.members[a.settings.memberID]?.character.speciesID)
+        let before = a.transport.sentMessages { if case .presence = $0 { true } else { false } }
+        await a.companion.hatch(baseID: 1)   // no tick: the observation alone must push the new character
+        await settle { b.runtime.session.members[a.settings.memberID]?.character.speciesID == 1 }
+        let after = a.transport.sentMessages { if case .presence = $0 { true } else { false } }
+        XCTAssertGreaterThan(after, before)
+    }
+
+    func testFirstHelloCarriesThePlazaCharacter() async {
+        let code = newCode()
+        let a = RuntimeNode(hub: hub, code: code, nickname: "가")
+        await a.companion.hatch(baseID: 1)
+        let b = RuntimeNode(hub: hub, code: code, nickname: "나")
+        a.runtime.start()
+        b.runtime.start()
+        hub.connect(a.transport, to: b.transport)
+        XCTAssertEqual(b.runtime.session.members[a.settings.memberID]?.character.speciesID, 1)
+    }
+
+    func testSettingsChangeRestartsTransport() async {
+        let (a, _) = connectedPair()
+        XCTAssertEqual(a.transport.startedCodes.count, 1)
+        a.settings.code = newCode()
+        await settle { a.transport.startedCodes.count == 2 }
+        XCTAssertEqual(a.transport.stopCount, 1)
+        XCTAssertTrue(a.transport.isRunning)
+    }
+
+    func testNotReadyClosesPlaza() async {
+        let settingsDefaults = UserDefaults(suiteName: "ptb.test.team.runtime.close.\(UUID().uuidString)")!
+        let settings = TeamSettings(defaults: settingsDefaults)
+        settings.code = newCode()
+        settings.nickname = "가"
+        settings.isEnabled = true
+        let tmp = FileManager.default.temporaryDirectory
+        let companion = CompanionStore(provider: RuntimeTestProvider(), clock: { runtimeNow },
+                                       fileURL: tmp.appendingPathComponent("rt-companion-\(UUID().uuidString).json"),
+                                       rng: SeededRNG(seed: 7), dittoDisguiseRollingEnabled: false, defaults: settingsDefaults)
+        var closes = 0
+        let runtime = TeamRuntime(settings: settings, companion: companion, transport: hub.makeTransport(),
+                                  feed: TeamFeedStore(fileURL: tmp.appendingPathComponent("rt-feed-\(UUID().uuidString).json"),
+                                                      myMemberID: settings.memberID),
+                                  closePlaza: { closes += 1 })
+        runtime.start()
+        XCTAssertTrue(runtime.isHoldingActivity)
+
+        settings.nickname = "나"   // still ready
+        await Task.yield(); await Task.yield()
+        XCTAssertEqual(closes, 0)
+        XCTAssertTrue(runtime.isHoldingActivity)
+
+        settings.isEnabled = false
+        await settle { closes == 1 }
+        XCTAssertFalse(runtime.isHoldingActivity)
+
+        settings.isEnabled = true
+        await settle { runtime.isHoldingActivity }
+        XCTAssertEqual(closes, 1)
+    }
+}
