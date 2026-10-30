@@ -127,6 +127,19 @@ final class BonjourTeamTransport: TeamTransporting {
         _ = dial(endpoint)
     }
 
+    // MARK: test seams
+
+    var linkCount: Int { links.count }
+
+    /// Feeds a discovery result to the dial planner as the Bonjour browser would.
+    func injectDiscovered(_ name: String, endpoint: NWEndpoint) {
+        endpoints[name] = endpoint
+        planner.discovered(name)
+        dialDue()
+    }
+
+    func plannedDials(now: Date) -> [String] { planner.dueDials(now: now) }
+
     // MARK: lifecycle
 
     private func begin() {
@@ -136,7 +149,7 @@ final class BonjourTeamTransport: TeamTransporting {
         planner = TeamDialPlanner()
         endpoints = [:]
         let generation = generation
-        startListener(code: code, generation: generation)
+        guard startListener(code: code, generation: generation) else { return }
         if advertise { startBrowser(generation: generation) }
         let timer = Timer(timeInterval: Self.redialInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -172,9 +185,11 @@ final class BonjourTeamTransport: TeamTransporting {
         for peer in live { onPeerDisconnected?(peer) }
     }
 
-    private func restart() {
+    func restart() {
         guard wanted, running else { return }
         suspend()
+        // The owner may have stopped or restarted us from inside `onPeerDisconnected`.
+        guard wanted, !running else { return }
         begin()
     }
 
@@ -220,12 +235,12 @@ final class BonjourTeamTransport: TeamTransporting {
 
     // MARK: listener and browser
 
-    private func startListener(code: TeamCode, generation: Int) {
+    private func startListener(code: TeamCode, generation: Int) -> Bool {
         let listener: NWListener
         do { listener = try NWListener(using: Self.parameters(code: code)) } catch {
             AppLog.write("team: listener not created (\(error))")
             scheduleListenerRestart()
-            return
+            return false
         }
         if advertise { listener.service = NWListener.Service(name: instanceName, type: Self.serviceType) }
         listener.stateUpdateHandler = { [weak self] state in
@@ -250,6 +265,7 @@ final class BonjourTeamTransport: TeamTransporting {
         }
         self.listener = listener
         listener.start(queue: .main)
+        return true
     }
 
     private func startBrowser(generation: Int) {
@@ -317,16 +333,14 @@ final class BonjourTeamTransport: TeamTransporting {
                 self.handle(state, of: id)
             }
         }
-        if initiatedByMe {
-            let timer = DispatchWorkItem { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self, self.generation == generation, self.links[id]?.isReady == false else { return }
-                    self.finish(id, handshakeFailed: true)
-                }
+        let timer = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.generation == generation, self.links[id]?.isReady == false else { return }
+                self.finish(id, handshakeFailed: initiatedByMe)
             }
-            link.handshakeTimer = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.handshakeTimeout, execute: timer)
         }
+        link.handshakeTimer = timer
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.handshakeTimeout, execute: timer)
         connection.start(queue: .main)
         return id
     }

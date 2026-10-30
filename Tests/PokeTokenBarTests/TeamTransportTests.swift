@@ -164,4 +164,55 @@ final class TeamTransportTests: XCTestCase {
         a.handleDidWake()
         XCTAssertNil(a.listenerPort, "wake must not restart a transport the owner stopped")
     }
+
+    func testOwnerStoppingInsideDisconnectCallbackPreventsRestart() async throws {
+        let code = newCode()
+        let a = makeTransport(), b = makeTransport()
+        var aPeer: TeamPeerID?, bPeer: TeamPeerID?
+        a.onPeerConnected = { id, _ in aPeer = id }
+        b.onPeerConnected = { id, _ in bPeer = id }
+        a.start(code: code); b.start(code: code)
+        b.connect(to: try await loopback(a))
+        let up = await waitUntil(5) { aPeer != nil && bPeer != nil }
+        XCTAssertTrue(up)
+
+        a.onPeerDisconnected = { _ in a.stop() }
+        a.restart()
+        a.handleDidWake()
+        let came = await waitUntil(0.5) { a.listenerPort != nil }
+        XCTAssertFalse(came, "a transport stopped from the disconnect callback must stay stopped")
+    }
+
+    func testFailedDialIsClosedAndWaitsForCooldown() async throws {
+        let a = makeTransport(), b = makeTransport()
+        a.start(code: newCode()); b.start(code: newCode())
+        b.injectDiscovered("x", endpoint: try await loopback(a))
+        XCTAssertEqual(b.linkCount, 1)
+
+        let later = Date().addingTimeInterval(TeamDialPlanner.handshakeRetryCooldown + 1)
+        let failed = await waitUntil(5) { b.plannedDials(now: later) == ["x"] }
+        XCTAssertTrue(failed, "the failed dial should end and become due again after the cooldown")
+        XCTAssertEqual(b.linkCount, 0)
+        XCTAssertEqual(b.plannedDials(now: Date()), [], "no redial inside the cooldown")
+    }
+
+    func testDisconnectCoveredByKeptConnectionStopsRedialUntilKeptEnds() async throws {
+        let code = newCode()
+        let a = makeTransport(), b = makeTransport()
+        var bPeers: [TeamPeerID] = []
+        b.onPeerConnected = { id, _ in bPeers.append(id) }
+        a.start(code: code); b.start(code: code)
+        let endpoint = try await loopback(a)
+        b.injectDiscovered("x", endpoint: endpoint)
+        let first = await waitUntil(5) { bPeers.count == 1 }
+        XCTAssertTrue(first)
+        b.connect(to: endpoint)
+        let second = await waitUntil(5) { bPeers.count == 2 }
+        XCTAssertTrue(second)
+
+        b.disconnect(bPeers[0], coveredBy: bPeers[1])
+        XCTAssertEqual(b.plannedDials(now: Date()), [])
+        b.disconnect(bPeers[1], coveredBy: nil)
+        XCTAssertEqual(b.plannedDials(now: Date()), ["x"])
+    }
 }
