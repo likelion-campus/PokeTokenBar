@@ -1,0 +1,168 @@
+import XCTest
+import AppKit
+@testable import PokeTokenBar
+
+private final class SeenIDs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: [Int] = []
+    func add(_ id: Int) { lock.lock(); ids.append(id); lock.unlock() }
+    var all: [Int] { lock.lock(); defer { lock.unlock() }; return ids }
+}
+
+private struct RecordingFetcher: PlazaSpriteFetching {
+    let seen = SeenIDs()
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] {
+        seen.add(speciesID); return []
+    }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
+    func egg() async -> NSImage? { nil }
+}
+
+@MainActor final class PlazaWindowTests: XCTestCase {
+    private func defaults() -> UserDefaults { UserDefaults(suiteName: "plaza.test.\(UUID())")! }
+
+    private func controller(_ d: UserDefaults,
+                            fetcher: PlazaSpriteFetching = RecordingFetcher(),
+                            nickname: @escaping () -> String = { "tester" },
+                            subject: @escaping () -> CompanionStore.RepresentativeSubject = { .init(speciesID: 25, isShiny: false) }
+    ) -> PlazaWindowController {
+        PlazaWindowController(preferences: PlazaPreferences(defaults: d),
+                              loader: PlazaCharacterLoader(fetcher: fetcher),
+                              nickname: nickname, subject: subject)
+    }
+
+    /// 장면 update를 시각을 늘려 가며 부른다.
+    private func run(_ scene: PlazaScene, seconds: TimeInterval, from start: TimeInterval = 0) {
+        var t = start
+        scene.update(t)
+        while t < start + seconds { t += 1.0 / 30; scene.update(t) }
+    }
+
+    func testInvalidSavedTileFallsBackToSpawn() {
+        let p = PlazaPreferences(defaults: defaults()), map = PlazaMapData.map
+        XCTAssertEqual(p.lastTile(validIn: map), map.spawn)
+        p.saveLastTile(.init(x: 0, y: 0)); XCTAssertEqual(p.lastTile(validIn: map), map.spawn)
+        p.saveLastTile(.init(x: 999, y: 3)); XCTAssertEqual(p.lastTile(validIn: map), map.spawn)
+        let ok = map.shelterTiles.last!; p.saveLastTile(ok); XCTAssertEqual(p.lastTile(validIn: map), ok)
+    }
+
+    func testZoomIsClampedAndPersisted() {
+        let d = defaults(); let p = PlazaPreferences(defaults: d)
+        XCTAssertEqual(p.zoom, 2); p.zoom = 7
+        XCTAssertEqual(PlazaPreferences(defaults: d).zoom, 3)
+    }
+
+    func testClosingReleasesSceneAndSavesTile() {
+        let d = defaults(); let map = PlazaMapData.map
+        let c = controller(d)
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        let start = scene.walker.tile
+        // 위·아래·좌·우 중 갈 수 있는 방향 하나를 찾는다.
+        let options: [(UInt16, Int, Int)] = [(124, 1, 0), (123, -1, 0), (125, 0, 1), (126, 0, -1)]
+        guard let (key, dx, dy) = options.first(where: { map.isWalkable(.init(x: start.x + $0.1, y: start.y + $0.2)) }) else {
+            return XCTFail("no walkable neighbour")
+        }
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
+        scene.handleKeyUp(keyCode: key)
+        run(scene, seconds: 1)
+        let expected = TilePoint(x: start.x + dx, y: start.y + dy)
+        XCTAssertEqual(scene.walker.tile, expected)
+        c.handleClose()
+        XCTAssertNil(c.scene)
+        XCTAssertEqual(PlazaPreferences(defaults: d).lastTile(validIn: map), expected)
+    }
+
+    func testResignKeyReleasesHeldKeys() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        let start = scene.walker.tile
+        scene.handleKeyDown(keyCode: 124, characters: nil, isRepeat: false)
+        c.handleResignKey()
+        run(scene, seconds: 1)
+        XCTAssertFalse(scene.walker.isWalking)
+        XCTAssertLessThanOrEqual(abs(scene.walker.tile.x - start.x) + abs(scene.walker.tile.y - start.y), 1)
+    }
+
+    func testRefreshCharacterLoadsCurrentSubject() async {
+        let fetcher = RecordingFetcher()
+        var current = CompanionStore.RepresentativeSubject(speciesID: 25, isShiny: false)
+        let c = controller(defaults(), fetcher: fetcher, subject: { current })
+        c.prepareScene()
+        await c.refreshCharacter()
+        current = .init(speciesID: 150, isShiny: false)
+        await c.refreshCharacter()
+        XCTAssertEqual(fetcher.seen.all.last, 150)
+        XCTAssertTrue(fetcher.seen.all.contains(25))
+    }
+
+    func testRefreshCharacterWithoutSceneDoesNothing() async {
+        let fetcher = RecordingFetcher()
+        let c = controller(defaults(), fetcher: fetcher)
+        await c.refreshCharacter()
+        XCTAssertTrue(fetcher.seen.all.isEmpty)
+    }
+
+    func testRefreshNicknameUpdatesScene() {
+        var name = "first"
+        let c = controller(defaults(), nickname: { name })
+        c.prepareScene()
+        XCTAssertEqual(c.scene?.nickname, "first")
+        name = "second"
+        c.refreshNickname()
+        XCTAssertEqual(c.scene?.nickname, "second")
+    }
+
+    func testArrowRepeatIsIgnored() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        let start = scene.walker.tile
+        scene.handleKeyDown(keyCode: 124, characters: nil, isRepeat: true)
+        run(scene, seconds: 1)
+        XCTAssertEqual(scene.walker.tile, start)
+        XCTAssertFalse(scene.walker.isWalking)
+    }
+
+    func testZoomKeysChangeZoomAndNotify() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        var seen: [Int] = []
+        scene.onZoomChange = { seen.append($0) }
+        scene.handleKeyDown(keyCode: 27, characters: "-", isRepeat: false)
+        XCTAssertEqual(scene.zoom, 1)
+        scene.handleKeyDown(keyCode: 27, characters: "-", isRepeat: false)   // 이미 최소
+        scene.handleKeyDown(keyCode: 24, characters: "=", isRepeat: false)
+        scene.handleKeyDown(keyCode: 24, characters: "+", isRepeat: false)
+        scene.handleKeyDown(keyCode: 24, characters: "+", isRepeat: false)   // 이미 최대
+        XCTAssertEqual(scene.zoom, 3)
+        XCTAssertEqual(seen, [1, 2, 3])
+    }
+
+    func testZoomChangeIsPersistedThroughController() {
+        let d = defaults()
+        let c = controller(d)
+        c.prepareScene()
+        c.scene?.handleKeyDown(keyCode: 27, characters: "-", isRepeat: false)
+        XCTAssertEqual(PlazaPreferences(defaults: d).zoom, 1)
+    }
+
+    func testHugeFrameDeltaIsClamped() {
+        let map = PlazaMapData.map
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        let start = scene.walker.tile
+        let options: [(UInt16, Int, Int)] = [(124, 1, 0), (123, -1, 0), (125, 0, 1), (126, 0, -1)]
+        guard let (key, _, _) = options.first(where: { map.isWalkable(.init(x: start.x + $0.1, y: start.y + $0.2)) }) else {
+            return XCTFail("no walkable neighbour")
+        }
+        scene.update(0)
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
+        scene.handleKeyUp(keyCode: key)
+        scene.update(10_000)   // 잠자기 뒤 같은 큰 간격: 0.1초로 줄어 한 칸(0.25초)을 다 못 간다.
+        XCTAssertTrue(scene.walker.isWalking)
+    }
+}
