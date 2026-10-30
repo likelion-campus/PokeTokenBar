@@ -35,6 +35,9 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     private let characterNode = SKSpriteNode()
     private let cameraNode = SKCameraNode()
     private let plateNode = SKSpriteNode()
+    private let shadowNode = SKSpriteNode()
+    /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
+    private var shadowTextureSize: (width: Int, height: Int)?
     /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
     private var plateKey: (nickname: String, backing: CGFloat)?
 
@@ -65,6 +68,11 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         mapNode.zPosition = 0
         addChild(mapNode)
 
+        shadowNode.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        shadowNode.zPosition = 0.5
+        shadowNode.isHidden = true
+        addChild(shadowNode)
+
         characterNode.anchorPoint = CGPoint(x: 0.5, y: 0)
         characterNode.zPosition = 1
         characterNode.isHidden = true
@@ -88,6 +96,8 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         frameIndex = 0
         frameElapsed = 0
         characterNode.isHidden = false
+        shadowNode.isHidden = false
+        refreshShadow()
         applyFrame()
         layout()
     }
@@ -223,6 +233,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
         characterNode.xScale = pose.flipped ? -1 : 1
+        shadowNode.position = CGPoint(x: snap(foot.x), y: snap(worldSize.height - foot.y))
         let footScene = CGPoint(x: snap(foot.x), y: snap(worldSize.height - foot.y + CGFloat(pose.bob)))
         characterNode.position = footScene
 
@@ -232,7 +243,23 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         func snapView(_ v: CGFloat) -> CGFloat { (v * labelBacking).rounded() / labelBacking }
         refreshPlate(backing: labelBacking)
         plateNode.position = CGPoint(x: snapView((footScene.x - cameraPos.x) * z),
-                                     y: snapView((top - cameraPos.y) * z + 4))
+                                     y: snapView((top - cameraPos.y) * z + 1))
+    }
+
+    /// 테스트용: 그림자 노드의 크기와 y, 캐릭터 노드의 y.
+    var groundShadowSize: (width: Int, height: Int) { shadowTextureSize ?? (0, 0) }
+    var groundShadowY: CGFloat { shadowNode.position.y }
+    var characterY: CGFloat { characterNode.position.y }
+
+    private func refreshShadow() {
+        guard let first = frames?.front.first else { return }
+        let size = PlazaGroundShadow.size(forSpriteWidth: first.image.width)
+        if let old = shadowTextureSize, old == size { return }
+        shadowTextureSize = size
+        let texture = SKTexture(cgImage: PlazaGroundShadow.image(width: size.width, height: size.height))
+        texture.filteringMode = .nearest
+        shadowNode.texture = texture
+        shadowNode.size = CGSize(width: size.width, height: size.height)
     }
 
     /// 닉네임이 비어 있으면 이름판을 숨긴다.
@@ -243,7 +270,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         if nickname.isEmpty { return }
         if let key = plateKey, key.nickname == nickname, key.backing == backing { return }
         plateKey = (nickname, backing)
-        let image = PlazaNamePlate.image(text: nickname, isMe: true, scale: backing)
+        let image = PlazaNamePlate.image(text: nickname, scale: backing)
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         plateNode.texture = texture

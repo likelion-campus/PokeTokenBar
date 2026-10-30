@@ -124,6 +124,31 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertTrue(fetcher.seen.all.isEmpty)
     }
 
+    func testShadowStaysOnGroundWhileBobbing() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { return XCTFail("setup") }
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(data: nil, width: 50, height: 50, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let frame = PlazaFrame(image: ctx.makeImage()!, delay: 1)
+        scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
+        XCTAssertEqual(scene.groundShadowSize.width, 30)
+        XCTAssertEqual(scene.groundShadowSize.height, 9)
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
+        var t = 0.0
+        scene.update(t)
+        var bobbed = false
+        for _ in 0..<45 {
+            t += 1.0 / 30; scene.update(t)
+            if abs(scene.characterY - scene.groundShadowY) > 0.5 { bobbed = true }
+            // The shadow never moves with the bob: its y equals the snapped foot y without the bob.
+            let expected = PlazaMapData.map.pixelSize.height - scene.walker.footPoint.y
+            XCTAssertEqual(scene.groundShadowY, expected, accuracy: 0.5)
+        }
+        XCTAssertTrue(bobbed, "the character must bob while walking")
+    }
+
     func testRefreshNicknameUpdatesScene() {
         var name = "first"
         let c = controller(defaults(), nickname: { name })
@@ -182,7 +207,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         scene.update(0)
         scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
         scene.handleKeyUp(keyCode: key)
-        scene.update(10_000)   // 잠자기 뒤 같은 큰 간격: 0.1초로 줄어 한 칸(0.25초)을 다 못 간다.
+        scene.update(10_000)   // 잠자기 뒤 같은 큰 간격: 0.1초로 줄어 한 칸(0.2초)을 다 못 간다.
         XCTAssertTrue(scene.walker.isWalking)
     }
 

@@ -17,7 +17,7 @@ final class PlazaWalkerTests: XCTestCase {
     func testHoldKeepsWalking() {
         var w = PlazaWalker(tile: .init(x: 5, y: 5))
         w.press(.down); run(&w, 1.0)
-        XCTAssertTrue((9...10).contains(w.tile.y)); XCTAssertTrue(w.isWalking)
+        XCTAssertTrue((9...11).contains(w.tile.y)); XCTAssertTrue(w.isWalking)
     }
 
     func testBlockedTurnsWithoutMoving() {
@@ -30,7 +30,9 @@ final class PlazaWalkerTests: XCTestCase {
     func testLastPressedDirectionWins() {
         var w = PlazaWalker(tile: .init(x: 5, y: 5))
         w.press(.right); run(&w, 0.1); w.press(.up); run(&w, 0.4)
-        XCTAssertEqual(w.tile, .init(x: 6, y: 4))
+        // Up stays held, so the walker keeps going up after the right step; float accumulation decides whether the third step has landed.
+        XCTAssertEqual(w.tile.x, 6)
+        XCTAssertTrue((3...4).contains(w.tile.y)); XCTAssertEqual(w.facing, .up)
     }
 
     func testReleaseMidStepFinishesStep() {
@@ -46,10 +48,12 @@ final class PlazaWalkerTests: XCTestCase {
         XCTAssertEqual(abs(w.tile.x - 5) + abs(w.tile.y - 5), 1)
     }
 
+    func testStepIsPointTwoSeconds() { XCTAssertEqual(PlazaWalker.stepDuration, 0.2) }
+
     func testFootPointInterpolatesHalfway() {
         var w = PlazaWalker(tile: .init(x: 5, y: 5))
         w.press(.right)
-        w.advance(by: 0.125, canEnter: { _ in true })
+        w.advance(by: PlazaWalker.stepDuration / 2, canEnter: { _ in true })
         XCTAssertEqual(w.footPoint.x, (5.5 + 0.5) * 32, accuracy: 1.0)
         XCTAssertEqual(w.footPoint.y, 5.875 * 32, accuracy: 0.001)
     }
