@@ -63,4 +63,15 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertEqual(s.memberID, id); XCTAssertEqual(s.nickname, "민수")
         XCTAssertNil(TeamSettings(defaults: d).code)
     }
+
+    func testSuiteNameIsNilForDefaultDirectoryAndStableHashOtherwise() {
+        let def = URL(fileURLWithPath: "/tmp/ptb-default", isDirectory: true)
+        XCTAssertNil(TeamSettings.suiteName(for: def, defaultDirectory: def))
+        let dev = URL(fileURLWithPath: "/tmp/ptb-dev/../ptb-dev2", isDirectory: true)
+        let a = TeamSettings.suiteName(for: dev, defaultDirectory: def)
+        XCTAssertEqual(a, TeamSettings.suiteName(for: URL(fileURLWithPath: "/tmp/ptb-dev2"), defaultDirectory: def))
+        XCTAssertTrue(a?.hasPrefix("ptb.team.") == true)
+        XCTAssertEqual(a?.count, "ptb.team.".count + 12)
+        XCTAssertNotEqual(a, TeamSettings.suiteName(for: URL(fileURLWithPath: "/tmp/other"), defaultDirectory: def))
+    }
 }

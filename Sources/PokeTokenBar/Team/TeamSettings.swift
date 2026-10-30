@@ -41,14 +41,19 @@ final class TeamSettings {
         return t
     }
 
-    /// `PTB_STATE_DIR`이 있으면 경로 해시 suite(한 Mac에서 두 인스턴스 테스트용), 없으면 `.standard`.
-    static func defaultStore() -> UserDefaults {
-        let dir = (ProcessInfo.processInfo.environment["PTB_STATE_DIR"] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !dir.isEmpty else { return .standard }
-        let path = URL(fileURLWithPath: dir).standardizedFileURL.path
+    /// 상태 폴더가 기본 위치면 nil(=`.standard`), 아니면 경로 해시 suite 이름(한 Mac에서 두 인스턴스 테스트용).
+    static func suiteName(for directory: URL, defaultDirectory: URL) -> String? {
+        let path = directory.standardizedFileURL.path
+        guard path != defaultDirectory.standardizedFileURL.path else { return nil }
         let hash = SHA256.hash(data: Data(path.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
-        return UserDefaults(suiteName: "ptb.team." + hash) ?? .standard
+        return "ptb.team." + hash
+    }
+
+    static func defaultStore() -> UserDefaults {
+        let defaultDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PokeTokenBar", isDirectory: true)
+        guard let name = suiteName(for: AppStatePaths.directory(), defaultDirectory: defaultDir) else { return .standard }
+        return UserDefaults(suiteName: name) ?? .standard
     }
 
     func leaveTeam() {
