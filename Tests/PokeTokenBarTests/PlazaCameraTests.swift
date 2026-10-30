@@ -33,4 +33,9 @@ final class PlazaCameraTests: XCTestCase {
     func testZoomClamp() {
         XCTAssertEqual(PlazaCamera.clampedZoom(0), 1); XCTAssertEqual(PlazaCamera.clampedZoom(9), 3)
     }
+
+    func testFocusShiftsByHalfTheCoveredWidthInWorldUnits() {
+        let f = PlazaCamera.focus(for: .init(x: 100, y: 50), rightInset: 246, zoom: 2)
+        XCTAssertEqual(f.x, 161.5, accuracy: 1e-9); XCTAssertEqual(f.y, 50)
+    }
 }

@@ -214,7 +214,8 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         func snap(_ v: CGFloat) -> CGFloat { (v / step).rounded() * step }
 
         let foot = walker.footPoint
-        let rect = PlazaCamera.visibleRect(focus: foot, viewport: size, zoom: zoom, backingScale: backing, world: worldSize)
+        let focus = PlazaCamera.focus(for: foot, rightInset: PlazaRosterMetrics.coveredWidth, zoom: zoom)
+        let rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize)
         let cameraPos = CGPoint(x: snap(rect.midX), y: snap(worldSize.height - rect.midY))
         cameraNode.position = cameraPos
         cameraNode.setScale(1 / z)

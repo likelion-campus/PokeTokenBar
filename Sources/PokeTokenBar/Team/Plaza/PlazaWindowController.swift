@@ -8,6 +8,8 @@ import SpriteKit
     private let loader: PlazaCharacterLoader
     private let nickname: () -> String
     private let subject: () -> CompanionStore.RepresentativeSubject
+    private let myRosterEntry: () -> PlazaRosterEntry?
+    private let rosterModel = PlazaRosterModel()
 
     /// 창 위치·크기 기억용 이름. 사용자에게 보이는 글이 아니다.
     private static let frameAutosaveName = "TeamPlazaWindow"
@@ -28,12 +30,14 @@ import SpriteKit
          preferences: PlazaPreferences,
          loader: PlazaCharacterLoader,
          nickname: @escaping () -> String,
-         subject: @escaping () -> CompanionStore.RepresentativeSubject) {
+         subject: @escaping () -> CompanionStore.RepresentativeSubject,
+         myRosterEntry: @escaping () -> PlazaRosterEntry? = { nil }) {
         self.map = map
         self.preferences = preferences
         self.loader = loader
         self.nickname = nickname
         self.subject = subject
+        self.myRosterEntry = myRosterEntry
         super.init()
     }
 
@@ -52,7 +56,20 @@ import SpriteKit
             w.isReleasedWhenClosed = false
             w.level = .normal
             w.delegate = self
-            w.contentView = view
+            let container = NSView(frame: view.frame)
+            view.frame = container.bounds
+            view.autoresizingMask = [.width, .height]
+            container.addSubview(view)
+            refreshRoster()
+            let roster = PlazaRosterHostingView(rootView: PlazaRosterView(model: rosterModel))
+            roster.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(roster)   // SKView 위. 입력은 받지 않고 SKView가 첫 응답자를 유지한다.
+            NSLayoutConstraint.activate([
+                roster.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
+                roster.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
+                roster.widthAnchor.constraint(equalToConstant: PlazaRosterMetrics.width),
+            ])
+            w.contentView = container
             w.center()
             w.setFrameAutosaveName(Self.frameAutosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
             view.presentScene(scene)
@@ -89,6 +106,13 @@ import SpriteKit
 
     func refreshNickname() {
         scene?.setNickname(nickname())
+        refreshRoster()
+    }
+
+    /// 내 칸을 다시 만들어 목록에 넣는다. 창이 닫혀 있으면 아무것도 안 한다.
+    func refreshRoster() {
+        guard window != nil || scene != nil else { return }
+        rosterModel.entries = PlazaRoster.sorted(myRosterEntry().map { [$0] } ?? [])
     }
 
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
@@ -103,6 +127,7 @@ import SpriteKit
         skView?.presentScene(nil)
         skView = nil
         scene = nil
+        rosterModel.entries = []
         refreshGeneration += 1
         if let w = window {
             w.delegate = nil

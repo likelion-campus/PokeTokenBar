@@ -121,7 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         plaza = PlazaWindowController(
             preferences: PlazaPreferences(), loader: PlazaCharacterLoader(),
             nickname: { [teamSettings] in TeamSettings.validNickname(teamSettings.nickname) ?? "" },
-            subject: { [companion] in companion!.representativeSubject })
+            subject: { [companion] in companion!.representativeSubject },
+            myRosterEntry: { [weak self] in self?.myRosterEntry() })
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
 
         observeStore()
@@ -158,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             Task { @MainActor in
                 guard let self else { return }
                 self.observePlaza()   // 먼저 다시 등록 — 로딩 중 변경을 놓치지 않는다(세대 가드가 낡은 로드를 버림)
+                self.plaza.refreshRoster()
                 await self.plaza.refreshCharacter()
             }
         }
@@ -173,6 +175,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.plaza.refreshNickname()
             }
         }
+    }
+
+    private func myRosterEntry() -> PlazaRosterEntry? {
+        guard let companion else { return nil }
+        let subject = companion.representativeSubject
+        let followsRaised = companion.representativeSpeciesID == nil
+        let pinnedName = followsRaised ? nil : companion.dexSpecies.first { $0.id == subject.speciesID }?.name
+        return PlazaRoster.myEntry(
+            memberID: teamSettings.memberID,
+            nickname: TeamSettings.validNickname(teamSettings.nickname) ?? "",
+            subject: subject, followsRaised: followsRaised,
+            raisedName: companion.displayName, raisedGender: companion.state.active?.profile?.gender,
+            pinnedName: pinnedName, eggName: L(.ko).plazaEggName)
     }
 
     private func openPlaza() {

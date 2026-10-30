@@ -16,4 +16,9 @@ extension L {
     var teamNotifications: String { "팀 알림" }
     var plazaOpen: String { "광장 열기" }
     var plazaWindowTitle: String { "팀 광장" }
+    var plazaRosterTitle: String { "팀원" }
+    var plazaStatusOnline: String { "접속" }
+    var plazaStatusAway: String { "잠" }
+    func plazaRosterCount(online: Int, total: Int) -> String { "접속 \(online) / \(total)" }
+    var plazaEggName: String { "알" }
 }
