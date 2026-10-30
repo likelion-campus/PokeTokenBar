@@ -34,7 +34,9 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     private let mapNode: SKSpriteNode
     private let characterNode = SKSpriteNode()
     private let cameraNode = SKCameraNode()
-    private let nameLabel = SKLabelNode()
+    private let plateNode = SKSpriteNode()
+    /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
+    private var plateKey: (nickname: String, backing: CGFloat)?
 
     private var frames: PlazaCharacterFrames?
     private var showingBack = false
@@ -68,26 +70,9 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         characterNode.isHidden = true
         addChild(characterNode)
 
-        nameLabel.fontName = NSFont.boldSystemFont(ofSize: 12).fontName
-        nameLabel.fontSize = 12
-        nameLabel.fontColor = .white
-        nameLabel.verticalAlignmentMode = .bottom
-        nameLabel.horizontalAlignmentMode = .center
-        nameLabel.zPosition = 10
-        nameLabel.text = nickname
-        // 밝은 길·나무 타일 위에서도 읽히도록 검은 외곽선(그림자 라벨 네 장)을 둔다.
-        for (dx, dy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] as [(CGFloat, CGFloat)] {
-            let shadow = SKLabelNode(fontNamed: nameLabel.fontName)
-            shadow.fontSize = nameLabel.fontSize
-            shadow.fontColor = .black
-            shadow.verticalAlignmentMode = .bottom
-            shadow.horizontalAlignmentMode = .center
-            shadow.position = CGPoint(x: dx, y: dy)
-            shadow.zPosition = -1
-            shadow.text = nickname
-            nameLabel.addChild(shadow)
-        }
-        cameraNode.addChild(nameLabel)
+        plateNode.anchorPoint = CGPoint(x: 0.5, y: 0)
+        plateNode.zPosition = 10
+        cameraNode.addChild(plateNode)
         addChild(cameraNode)
         camera = cameraNode
         layout()
@@ -109,8 +94,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 
     func setNickname(_ name: String) {
         nickname = name
-        nameLabel.text = name
-        for case let shadow as SKLabelNode in nameLabel.children { shadow.text = name }
+        layout()
     }
 
     @discardableResult
@@ -244,7 +228,18 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         let top = footScene.y + characterNode.size.height
         let labelBacking = max(backing, 1)
         func snapView(_ v: CGFloat) -> CGFloat { (v * labelBacking).rounded() / labelBacking }
-        nameLabel.position = CGPoint(x: snapView((footScene.x - cameraPos.x) * z),
+        refreshPlate(backing: labelBacking)
+        plateNode.position = CGPoint(x: snapView((footScene.x - cameraPos.x) * z),
                                      y: snapView((top - cameraPos.y) * z + 4))
+    }
+
+    private func refreshPlate(backing: CGFloat) {
+        if let key = plateKey, key.nickname == nickname, key.backing == backing { return }
+        plateKey = (nickname, backing)
+        let image = PlazaNamePlate.image(text: nickname, isMe: true, scale: backing)
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .nearest
+        plateNode.texture = texture
+        plateNode.size = CGSize(width: CGFloat(image.width) / backing, height: CGFloat(image.height) / backing)
     }
 }
