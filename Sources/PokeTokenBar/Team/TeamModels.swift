@@ -52,6 +52,7 @@ struct TeamMonSummary: Codable, Equatable, Sendable {
     var isShiny: Bool
     var form: PokemonForm?
     var speciesName: String?
+    var gender: PokemonGender?
 }
 
 struct TeamDexSpecies: Codable, Equatable, Sendable {

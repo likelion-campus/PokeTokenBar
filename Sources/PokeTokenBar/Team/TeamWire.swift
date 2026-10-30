@@ -4,7 +4,34 @@ struct TeamHello: Codable, Equatable, Sendable {
     var memberID: String
     var nickname: String
     var protocolVersion: Int
+    /// The plaza character (not necessarily the member's current companion elsewhere).
     var current: TeamMonSummary
+}
+
+/// Where a member is in the plaza and how they look. Plaza fields only: nothing about usage or the Mac.
+struct TeamPresence: Codable, Equatable, Sendable {
+    var nickname: String
+    var character: TeamMonSummary
+    var inPlaza: Bool
+    var tile: TilePoint?
+    var facing: PlazaDirection?
+    var isWalking: Bool
+}
+
+enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
+    case heart, lol, party, exclaim, question
+
+    var notifiesTarget: Bool {
+        switch self {
+        case .heart, .lol, .party: true
+        case .exclaim, .question: false
+        }
+    }
+}
+
+struct TeamEmote: Codable, Equatable, Sendable {
+    var kind: TeamEmoteKind
+    var targetMemberID: String?
 }
 
 /// Messages peers exchange. `live` is true for something that just happened (publish/react),
@@ -16,6 +43,8 @@ enum TeamMessage: Codable, Equatable, Sendable {
     case reactions([TeamReaction], live: Bool)
     case profileRequest
     case profile(TeamMemberProfile)
+    case presence(TeamPresence)
+    case emote(TeamEmote)
 }
 
 enum TeamWire {
