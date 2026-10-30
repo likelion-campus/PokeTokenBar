@@ -1,5 +1,8 @@
 import SpriteKit
 
+/// 키 입력 처리 결과. 처리하지 않은 키도 조용히 삼킨다(시스템 경고음 방지).
+enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
+
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.
 /// 지도 한 장, 캐릭터 노드 하나, 카메라, 이름표(카메라 자식이라 배율과 무관하게 또렷하다)로 이루어진다.
 @MainActor final class PlazaScene: SKScene {
@@ -23,6 +26,10 @@ import SpriteKit
         }
     }
     var onZoomChange: ((Int) -> Void)?
+    /// Cmd+W, Esc. 앱에 메인 메뉴가 없어 창 닫기를 장면이 직접 요청한다.
+    var onCloseRequest: (() -> Void)?
+    /// 키 뗌 이벤트는 Command가 눌린 동안 오지 않으므로 update마다 수정 키를 확인한다. 테스트에서 바꿔 끼운다.
+    var currentModifiers: () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
 
     private let mapNode: SKSpriteNode
     private let characterNode = SKSpriteNode()
@@ -68,6 +75,18 @@ import SpriteKit
         nameLabel.horizontalAlignmentMode = .center
         nameLabel.zPosition = 10
         nameLabel.text = nickname
+        // 밝은 길·나무 타일 위에서도 읽히도록 검은 외곽선(그림자 라벨 네 장)을 둔다.
+        for (dx, dy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] as [(CGFloat, CGFloat)] {
+            let shadow = SKLabelNode(fontNamed: nameLabel.fontName)
+            shadow.fontSize = nameLabel.fontSize
+            shadow.fontColor = .black
+            shadow.verticalAlignmentMode = .bottom
+            shadow.horizontalAlignmentMode = .center
+            shadow.position = CGPoint(x: dx, y: dy)
+            shadow.zPosition = -1
+            shadow.text = nickname
+            nameLabel.addChild(shadow)
+        }
         cameraNode.addChild(nameLabel)
         addChild(cameraNode)
         camera = cameraNode
@@ -91,18 +110,27 @@ import SpriteKit
     func setNickname(_ name: String) {
         nickname = name
         nameLabel.text = name
+        for case let shadow as SKLabelNode in nameLabel.children { shadow.text = name }
     }
 
-    func handleKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool) {
+    @discardableResult
+    func handleKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
+                       modifiers: NSEvent.ModifierFlags = []) -> PlazaKeyResult {
+        if keyCode == Self.escapeKeyCode || (keyCode == Self.wKeyCode && modifiers.contains(.command)) {
+            onCloseRequest?()
+            return .closeRequested
+        }
         if let d = Self.direction(keyCode) {
-            if !isRepeat { walker.press(d) }
-            return
+            // Command+방향키는 keyUp이 오지 않아 계속 걷게 되므로 무시한다.
+            if !isRepeat && !modifiers.contains(.command) { walker.press(d) }
+            return .swallowed
         }
         switch characters {
         case "-": zoom -= 1
         case "=", "+": zoom += 1
         default: break
         }
+        return .swallowed
     }
 
     func handleKeyUp(keyCode: UInt16) {
@@ -110,6 +138,9 @@ import SpriteKit
     }
 
     func releaseAllKeys() { walker.releaseAll() }
+
+    private static let escapeKeyCode: UInt16 = 53
+    private static let wKeyCode: UInt16 = 13
 
     private static func direction(_ keyCode: UInt16) -> PlazaDirection? {
         switch keyCode {
@@ -123,18 +154,14 @@ import SpriteKit
 
     // MARK: - 키 이벤트
 
+    /// `super`를 부르면 처리하지 않은 키가 경고음을 내므로 모든 키를 여기서 삼킨다.
     override func keyDown(with event: NSEvent) {
-        let handled = Self.direction(event.keyCode) != nil || ["-", "=", "+"].contains(event.characters ?? "")
-        handleKeyDown(keyCode: event.keyCode, characters: event.characters, isRepeat: event.isARepeat)
-        if !handled { super.keyDown(with: event) }
+        handleKeyDown(keyCode: event.keyCode, characters: event.characters, isRepeat: event.isARepeat,
+                      modifiers: event.modifierFlags)
     }
 
     override func keyUp(with event: NSEvent) {
-        if Self.direction(event.keyCode) != nil {
-            handleKeyUp(keyCode: event.keyCode)
-        } else {
-            super.keyUp(with: event)
-        }
+        handleKeyUp(keyCode: event.keyCode)
     }
 
     // MARK: - 그리기
@@ -149,6 +176,7 @@ import SpriteKit
         lastTime = currentTime
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
         clock = currentTime
+        if currentModifiers().contains(.command) { walker.releaseAll() }
         walker.advance(by: dt) { [map] in map.isWalkable($0) }
         advanceAnimation(by: dt)
         layout()

@@ -9,6 +9,12 @@ import SpriteKit
     private let nickname: () -> String
     private let subject: () -> CompanionStore.RepresentativeSubject
 
+    /// 창 위치·크기 기억용 이름. 사용자에게 보이는 글이 아니다.
+    private static let frameAutosaveName = "TeamPlazaWindow"
+
+    /// 한 번만 만든다. 다시 열 때 메인 스레드에서 지도를 다시 그리지 않는다.
+    private lazy var mapImage: CGImage = PlazaTileArt.mapImage(map)
+
     private var window: NSWindow?
     private var skView: SKView?
     private var refreshGeneration = 0
@@ -45,6 +51,7 @@ import SpriteKit
             w.delegate = self
             w.contentView = view
             w.center()
+            w.setFrameAutosaveName(Self.frameAutosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
             view.presentScene(scene)
             w.makeFirstResponder(view)
             skView = view
@@ -58,10 +65,11 @@ import SpriteKit
     /// 창 없이 장면만 만든다.
     func prepareScene() {
         guard scene == nil else { return }
-        let s = PlazaScene(map: map, mapImage: PlazaTileArt.mapImage(map),
+        let s = PlazaScene(map: map, mapImage: mapImage,
                            start: preferences.lastTile(validIn: map),
                            zoom: preferences.zoom, nickname: nickname())
         s.onZoomChange = { [preferences] in preferences.zoom = $0 }
+        s.onCloseRequest = { [weak self] in self?.window?.performClose(nil) }
         scene = s
     }
 
@@ -82,11 +90,12 @@ import SpriteKit
 
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
+        persistState()
         if let scene {
-            preferences.saveLastTile(scene.walker.tile)
             scene.releaseAllKeys()
             scene.isPaused = true
             scene.onZoomChange = nil
+            scene.onCloseRequest = nil
         }
         skView?.presentScene(nil)
         skView = nil
@@ -99,11 +108,28 @@ import SpriteKit
         window = nil
     }
 
+    /// 장면이 있으면 지금 칸을 저장한다. 아무것도 해제하지 않는다(앱 종료 때도 부른다).
+    func persistState() {
+        if let scene { preferences.saveLastTile(scene.walker.tile) }
+    }
+
+    /// 최소화·완전히 가려진 동안은 그리지 않는다.
+    func setRendering(visible: Bool) {
+        guard let scene else { return }
+        if !visible { scene.releaseAllKeys() }
+        scene.isPaused = !visible
+    }
+
     /// 눌린 키를 모두 뗀다.
     func handleResignKey() {
         scene?.releaseAllKeys()
     }
 
+    func windowDidMiniaturize(_ notification: Notification) { setRendering(visible: false) }
+    func windowDidDeminiaturize(_ notification: Notification) { setRendering(visible: true) }
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        setRendering(visible: window?.occlusionState.contains(.visible) ?? true)
+    }
     func windowWillClose(_ notification: Notification) { handleClose() }
     func windowDidResignKey(_ notification: Notification) { handleResignKey() }
 }

@@ -60,6 +60,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 버튼 폭(=텍스트 길이)이나 스프라이트 크기가 변하면 레이어를 이미지 자리에 다시 맞춰야 한다.
     private var needsSpriteLayout = true
 
+    func applicationWillTerminate(_ notification: Notification) {
+        plaza?.persistState()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 로그인 에이전트 등록(plist 의 RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행한다 — 나중에 뜬
         // 쪽이 물러난다. 메뉴바 항목을 만들기 전에 판정해 아이콘이 떴다 사라지는 깜빡임을 없애고,
@@ -116,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         plaza = PlazaWindowController(
             preferences: PlazaPreferences(), loader: PlazaCharacterLoader(),
-            nickname: { [teamSettings] in teamSettings.nickname },
+            nickname: { [teamSettings] in TeamSettings.validNickname(teamSettings.nickname) ?? "" },
             subject: { [companion] in companion!.representativeSubject })
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
 

@@ -19,7 +19,26 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 }
 
 @MainActor final class PlazaWindowTests: XCTestCase {
-    private func defaults() -> UserDefaults { UserDefaults(suiteName: "plaza.test.\(UUID())")! }
+    private var suites: [String] = []
+
+    private func defaults() -> UserDefaults {
+        let name = "plaza.test.\(UUID())"
+        suites.append(name)
+        return UserDefaults(suiteName: name)!
+    }
+
+    override func tearDown() {
+        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
+        suites = []
+        super.tearDown()
+    }
+
+    /// 갈 수 있는 이웃 칸 방향 하나(키코드, dx, dy).
+    private func walkableKey(from start: TilePoint) -> (UInt16, Int, Int)? {
+        let map = PlazaMapData.map
+        let options: [(UInt16, Int, Int)] = [(124, 1, 0), (123, -1, 0), (125, 0, 1), (126, 0, -1)]
+        return options.first { map.isWalkable(.init(x: start.x + $0.1, y: start.y + $0.2)) }
+    }
 
     private func controller(_ d: UserDefaults,
                             fetcher: PlazaSpriteFetching = RecordingFetcher(),
@@ -164,5 +183,80 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         scene.handleKeyUp(keyCode: key)
         scene.update(10_000)   // 잠자기 뒤 같은 큰 간격: 0.1초로 줄어 한 칸(0.25초)을 다 못 간다.
         XCTAssertTrue(scene.walker.isWalking)
+    }
+
+    func testUnhandledKeysAreSwallowedWithoutClose() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        var closes = 0
+        scene.onCloseRequest = { closes += 1 }
+        let zoom = scene.zoom, tile = scene.walker.tile
+        XCTAssertEqual(scene.handleKeyDown(keyCode: 49, characters: " ", isRepeat: false), .swallowed)
+        XCTAssertEqual(scene.handleKeyDown(keyCode: 18, characters: "1", isRepeat: false), .swallowed)
+        XCTAssertEqual(scene.handleKeyDown(keyCode: 13, characters: "w", isRepeat: false), .swallowed)
+        XCTAssertEqual(closes, 0)
+        XCTAssertEqual(scene.zoom, zoom)
+        XCTAssertEqual(scene.walker.tile, tile)
+        XCTAssertFalse(scene.walker.isWalking)
+    }
+
+    func testCmdWAndEscapeRequestClose() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        var closes = 0
+        scene.onCloseRequest = { closes += 1 }
+        XCTAssertEqual(scene.handleKeyDown(keyCode: 13, characters: "w", isRepeat: false, modifiers: .command), .closeRequested)
+        XCTAssertEqual(scene.handleKeyDown(keyCode: 53, characters: "\u{1b}", isRepeat: false), .closeRequested)
+        XCTAssertEqual(closes, 2)
+    }
+
+    func testCommandArrowDoesNotStartWalking() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { return XCTFail("setup") }
+        let start = scene.walker.tile
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false, modifiers: .command)
+        run(scene, seconds: 1)
+        XCTAssertEqual(scene.walker.tile, start)
+        XCTAssertFalse(scene.walker.isWalking)
+    }
+
+    func testCommandHeldDuringUpdateStopsWalking() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { return XCTFail("setup") }
+        let start = scene.walker.tile
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
+        scene.currentModifiers = { .command }
+        run(scene, seconds: 2)
+        XCTAssertFalse(scene.walker.isWalking)
+        XCTAssertLessThanOrEqual(abs(scene.walker.tile.x - start.x) + abs(scene.walker.tile.y - start.y), 1)
+    }
+
+    func testPersistStateSavesTileWithoutTearingDown() {
+        let d = defaults()
+        let c = controller(d)
+        c.prepareScene()
+        guard let scene = c.scene, let (key, dx, dy) = walkableKey(from: scene.walker.tile) else { return XCTFail("setup") }
+        let start = scene.walker.tile
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
+        scene.handleKeyUp(keyCode: key)
+        run(scene, seconds: 1)
+        c.persistState()
+        XCTAssertNotNil(c.scene)
+        XCTAssertEqual(PlazaPreferences(defaults: d).lastTile(validIn: PlazaMapData.map),
+                       TilePoint(x: start.x + dx, y: start.y + dy))
+    }
+
+    func testSetRenderingPausesAndResumesScene() {
+        let c = controller(defaults())
+        c.setRendering(visible: false)   // 장면이 없어도 안전
+        c.prepareScene()
+        c.setRendering(visible: false)
+        XCTAssertEqual(c.scene?.isPaused, true)
+        c.setRendering(visible: true)
+        XCTAssertEqual(c.scene?.isPaused, false)
     }
 }
