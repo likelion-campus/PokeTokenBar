@@ -241,9 +241,9 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
         characterNode.xScale = pose.flipped ? -1 : 1
-        // 그림자는 발보다 조금 아래(높이의 1/4)에 가운데를 두고, 아래·왼쪽 모서리를 기기 픽셀에 맞춘다. 통통 튐은 받지 않는다.
+        // 그림자는 발 높이에 가운데를 두고, 아래·왼쪽 모서리를 기기 픽셀에 맞춘다. 통통 튐은 받지 않는다.
         let shadowSize = shadowNode.size
-        let shadowCenterY = worldSize.height - (foot.y + (shadowSize.height * 0.25).rounded())
+        let shadowCenterY = worldSize.height - foot.y
         shadowNode.position = CGPoint(x: snap(foot.x - shadowSize.width / 2), y: snap(shadowCenterY - shadowSize.height / 2))
         let footScene = CGPoint(x: snap(foot.x), y: snap(worldSize.height - foot.y + CGFloat(pose.bob)))
         characterNode.position = footScene

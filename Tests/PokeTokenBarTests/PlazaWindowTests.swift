@@ -142,9 +142,9 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         for _ in 0..<45 {
             t += 1.0 / 30; scene.update(t)
             minY = min(minY, scene.characterY); maxY = max(maxY, scene.characterY)
-            // The shadow never moves with the bob: its bottom edge sits at the foot y minus (height / 2 + round(height / 4)) below centre.
+            // The shadow never moves with the bob: its bottom edge sits centred on the foot y (bottom edge = height / 2 below the foot).
             let h = CGFloat(scene.groundShadowSize.height)
-            let expected = PlazaMapData.map.pixelSize.height - scene.walker.footPoint.y - (h * 0.25).rounded() - h / 2
+            let expected = PlazaMapData.map.pixelSize.height - scene.walker.footPoint.y - h / 2
             XCTAssertEqual(scene.groundShadowY, expected, accuracy: 0.51)
         }
         XCTAssertGreaterThan(maxY - minY, 0.5, "the character y must vary across frames while walking")
