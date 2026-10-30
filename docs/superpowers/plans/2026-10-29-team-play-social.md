@@ -1,5 +1,8 @@
 # 팀 놀이 1부 (소식·반응·구경) Implementation Plan
 
+> **대체됨 (2026-10-30):** 이 계획으로는 Task 1–6까지만 진행했다. 설계가
+> [팀 광장 설계](../specs/2026-10-30-team-plaza-design.md)로 바뀌어 Task 7–15는 새 계획으로 대체된다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 같은 와이파이의 팀원끼리 서버 없이 포켓몬 소식을 주고받고, 반응하고, 서로의 도감을 구경하는
