@@ -42,7 +42,12 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
     private var shadowTextureSize: (width: Int, height: Int)?
     /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
-    private var plateKey: (nickname: String, backing: CGFloat)?
+    private var plateKey: (nickname: String, backing: CGFloat, color: CGColor)?
+    private(set) var nameColor = PlazaNameColor.palette[0]
+    /// false(알)면 방향키를 삼키고 입력을 지운다. 걷던 칸은 마저 간다.
+    var canWalk = true {
+        didSet { if !canWalk { walker.clearInput() } }
+    }
 
     private var frames: PlazaCharacterFrames?
     private var showingBack = false
@@ -110,6 +115,12 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         layout()
     }
 
+    func setNameColor(_ color: CGColor) {
+        guard color != nameColor else { return }
+        nameColor = color
+        layout()
+    }
+
     @discardableResult
     func handleKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
                        modifiers: NSEvent.ModifierFlags = []) -> PlazaKeyResult {
@@ -119,7 +130,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         }
         if let d = Self.direction(keyCode) {
             // Command+방향키는 keyUp이 오지 않아 계속 걷게 되므로 무시한다.
-            if !isRepeat && !modifiers.contains(.command) { walker.press(d) }
+            if canWalk && !isRepeat && !modifiers.contains(.command) { walker.press(d) }
             return .swallowed
         }
         switch characters {
@@ -280,9 +291,9 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     private func refreshPlate(backing: CGFloat) {
         plateNode.isHidden = nickname.isEmpty
         if nickname.isEmpty { return }
-        if let key = plateKey, key.nickname == nickname, key.backing == backing { return }
-        plateKey = (nickname, backing)
-        let image = PlazaNamePlate.image(text: nickname, scale: backing)
+        if let key = plateKey, key.nickname == nickname, key.backing == backing, key.color == nameColor { return }
+        plateKey = (nickname, backing, nameColor)
+        let image = PlazaNamePlate.image(text: nickname, color: nameColor, scale: backing)
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         plateNode.texture = texture

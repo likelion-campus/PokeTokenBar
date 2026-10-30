@@ -121,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         plaza = PlazaWindowController(
             preferences: PlazaPreferences(), loader: PlazaCharacterLoader(),
             nickname: { [teamSettings] in TeamSettings.validNickname(teamSettings.nickname) ?? "" },
+            memberID: { [teamSettings] in teamSettings.memberID },
             subject: { [companion] in companion!.representativeSubject },
             myRosterEntry: { [companion, teamSettings] in
                 PlazaRoster.myEntry(companion: companion!, teamSettings: teamSettings) })

@@ -7,6 +7,16 @@ final class PlazaWalkerTests: XCTestCase {
         var t = 0.0; while t < seconds - 1e-9 { w.advance(by: 1.0 / 60, canEnter: canEnter); t += 1.0 / 60 }
     }
 
+    func testClearInputDropsPendingTap() {
+        var w = PlazaWalker(tile: .init(x: 5, y: 5))
+        w.press(.right); w.clearInput()
+        run(&w, 0.5)
+        XCTAssertEqual(w.tile, .init(x: 5, y: 5)); XCTAssertFalse(w.isWalking); XCTAssertEqual(w.facing, .down)
+        w.press(.right); w.release(.right); w.clearInput()
+        run(&w, 0.5)
+        XCTAssertEqual(w.tile, .init(x: 5, y: 5))
+    }
+
     func testTapMovesExactlyOneTile() {
         var w = PlazaWalker(tile: .init(x: 5, y: 5))
         w.press(.right); w.release(.right)

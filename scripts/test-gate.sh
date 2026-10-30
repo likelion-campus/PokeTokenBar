@@ -51,6 +51,8 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Team/Plaza/PlazaPreferences.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaRoster.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaNamePlate.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaNameColor.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaGroundShadow.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaResources.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaTileArt.swift"
 )

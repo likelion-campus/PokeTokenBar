@@ -41,6 +41,12 @@ struct PlazaWalker: Sendable {
         held.removeAll()
     }
 
+    /// 눌린 키와 아직 쓰지 않은 탭을 모두 지운다. 걷던 칸은 마저 간다.
+    mutating func clearInput() {
+        held.removeAll()
+        pendingTap = nil
+    }
+
     mutating func advance(by dt: TimeInterval, canEnter: (TilePoint) -> Bool) {
         var remaining = dt
         while true {

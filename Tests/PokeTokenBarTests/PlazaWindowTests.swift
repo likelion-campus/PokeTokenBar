@@ -44,11 +44,12 @@ private struct RecordingFetcher: PlazaSpriteFetching {
                             fetcher: PlazaSpriteFetching = RecordingFetcher(),
                             nickname: @escaping () -> String = { "tester" },
                             subject: @escaping () -> CompanionStore.RepresentativeSubject = { .init(speciesID: 25, isShiny: false) },
-                            myEntry: @escaping () -> PlazaRosterEntry? = { nil }
+                            myEntry: @escaping () -> PlazaRosterEntry? = { nil },
+                            memberID: @escaping () -> String = { "member-1" }
     ) -> PlazaWindowController {
         PlazaWindowController(preferences: PlazaPreferences(defaults: d),
                               loader: PlazaCharacterLoader(fetcher: fetcher),
-                              nickname: nickname, subject: subject, myRosterEntry: myEntry)
+                              nickname: nickname, memberID: memberID, subject: subject, myRosterEntry: myEntry)
     }
 
     /// 장면 update를 시각을 늘려 가며 부른다.
@@ -56,6 +57,55 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         var t = start
         scene.update(t)
         while t < start + seconds { t += 1.0 / 30; scene.update(t) }
+    }
+
+    func testEggCannotWalk() {
+        let c = controller(defaults(), subject: { .init(speciesID: nil, isShiny: false) })
+        c.prepareScene()
+        guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { return XCTFail("no scene") }
+        let start = scene.walker.tile
+        XCTAssertFalse(scene.canWalk)
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
+        run(scene, seconds: 1)
+        XCTAssertEqual(scene.walker.tile, start)
+        XCTAssertFalse(scene.walker.isWalking)
+        XCTAssertEqual(scene.walker.facing, .down)
+    }
+
+    func testHatchedCharacterCanWalkAgain() async {
+        var current = CompanionStore.RepresentativeSubject(speciesID: nil, isShiny: false)
+        let c = controller(defaults(), subject: { current })
+        c.prepareScene()
+        guard let scene = c.scene, let (key, dx, dy) = walkableKey(from: scene.walker.tile) else { return XCTFail("no scene") }
+        let start = scene.walker.tile
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)   // tap while an egg
+        current = .init(speciesID: 25, isShiny: false)
+        await c.refreshCharacter()
+        XCTAssertTrue(scene.canWalk)
+        run(scene, seconds: 1)
+        XCTAssertEqual(scene.walker.tile, start, "a tap pressed while an egg must not fire after hatching")
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
+        scene.handleKeyUp(keyCode: key)
+        run(scene, seconds: 1, from: 10)
+        XCTAssertEqual(scene.walker.tile, TilePoint(x: start.x + dx, y: start.y + dy))
+    }
+
+    func testBecomingAnEggStopsAfterCurrentStep() async {
+        var current = CompanionStore.RepresentativeSubject(speciesID: 25, isShiny: false)
+        let c = controller(defaults(), subject: { current })
+        c.prepareScene()
+        guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { return XCTFail("no scene") }
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
+        var t = 0.0
+        scene.update(t); t += 1.0 / 30; scene.update(t)
+        XCTAssertTrue(scene.walker.isWalking)
+        let target = scene.walker.tile
+        current = .init(speciesID: nil, isShiny: false)
+        await c.refreshCharacter()
+        XCTAssertFalse(scene.canWalk)
+        run(scene, seconds: 1, from: t)
+        XCTAssertEqual(scene.walker.tile, target)
+        XCTAssertFalse(scene.walker.isWalking)
     }
 
     func testInvalidSavedTileFallsBackToSpawn() {

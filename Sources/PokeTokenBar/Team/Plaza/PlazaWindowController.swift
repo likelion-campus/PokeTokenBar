@@ -11,6 +11,7 @@ extension SKView: PlazaPausableView {}
     private let preferences: PlazaPreferences
     private let loader: PlazaCharacterLoader
     private let nickname: () -> String
+    private let memberID: () -> String
     private let subject: () -> CompanionStore.RepresentativeSubject
     private let myRosterEntry: () -> PlazaRosterEntry?
     private let rosterModel = PlazaRosterModel()
@@ -36,12 +37,14 @@ extension SKView: PlazaPausableView {}
          preferences: PlazaPreferences,
          loader: PlazaCharacterLoader,
          nickname: @escaping () -> String,
+         memberID: @escaping () -> String,
          subject: @escaping () -> CompanionStore.RepresentativeSubject,
          myRosterEntry: @escaping () -> PlazaRosterEntry? = { nil }) {
         self.map = map
         self.preferences = preferences
         self.loader = loader
         self.nickname = nickname
+        self.memberID = memberID
         self.subject = subject
         self.myRosterEntry = myRosterEntry
         super.init()
@@ -94,6 +97,8 @@ extension SKView: PlazaPausableView {}
         let s = PlazaScene(map: map, mapImage: mapImage,
                            start: preferences.lastTile(validIn: map),
                            zoom: preferences.zoom, nickname: nickname())
+        s.setNameColor(PlazaNameColor.color(forMemberID: memberID()))
+        s.canWalk = subject().speciesID != nil
         s.onZoomChange = { [preferences] in preferences.zoom = $0 }
         s.onCloseRequest = { [weak self] in self?.window?.performClose(nil) }
         scene = s
@@ -102,7 +107,9 @@ extension SKView: PlazaPausableView {}
 
     /// 지금 대표 포켓몬 그림을 다시 받아 장면에 넣는다. 장면이 없으면 아무것도 안 한다.
     func refreshCharacter() async {
-        guard scene != nil else { return }
+        guard let current = scene else { return }
+        // 그림 로딩을 기다리지 않고 바로 반영한다(알이면 지금 걷는 칸만 마치고 선다).
+        current.canWalk = subject().speciesID != nil
         refreshGeneration += 1
         let generation = refreshGeneration
         let frames = await loader.frames(for: subject())
@@ -113,6 +120,7 @@ extension SKView: PlazaPausableView {}
 
     func refreshNickname() {
         scene?.setNickname(nickname())
+        scene?.setNameColor(PlazaNameColor.color(forMemberID: memberID()))
         refreshRoster()
     }
 
