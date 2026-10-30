@@ -30,8 +30,9 @@ Task 10의 사용자 확인과 Mac 두 대 연결 확인 결과를 보고 2부 �
   `Sources/PokeTokenBar/Team/`의 다른 파일과 `Sources/PokeTokenBar/UI/`에는 한글 문자열 리터럴을 두지 않는다.
 - 팀 코드는 `Sources/PokeTokenBar/Team/`, 광장 코드는 `Sources/PokeTokenBar/Team/Plaza/`에 둔다. 기존 파일
   수정은 각 Task가 명시한 연결 지점만 한다.
-- 그래픽은 SpriteKit, AppKit, CoreGraphics만 쓴다. 새 패키지 의존성과 리소스 번들을 넣지 않는다. 타일은 코드로
-  그린 원본 도트이고, 실제 포켓몬 게임의 타일을 베끼지 않는다.
+- 그래픽은 SpriteKit, AppKit, CoreGraphics만 쓴다. 새 패키지 의존성을 넣지 않는다. 실제 포켓몬 게임의 타일을
+  베끼지 않는다. (Task 1–10: 리소스 번들 없이 코드로 그린 타일. **보강 Task 11부터는** 스펙 개정에 따라 CC0
+  타일셋과 갈무리 글꼴을 SwiftPM 리소스로 넣는다.)
 - 도트는 뭉개지지 않아야 한다: 텍스처는 `filteringMode = .nearest`, 배율은 정수(화면 포인트 ÷ 월드 픽셀),
   노드 위치는 기기 픽셀 단위로 맞춘다.
 - 광장 창을 닫으면 그리기를 완전히 멈춘다(장면 해제).
@@ -906,3 +907,234 @@ git commit -m "chore(plaza): add plaza dev runner and gate team logic coverage"
 배율, 걷는 속도, 타일 그림 느낌, 지도 넓이. 여기서 멈춘다. 받은 의견은 이 계획의 수치(Global Constraints)를
 고치는 작은 Task로 반영하고, 그 뒤에 2부 계획(팀원 표시, 말풍선, 말 걸기, 소식판, 기념사진, 알림, 네트워크,
 릴리스)을 쓴다. 2부는 Mac 두 대 연결 확인(`scripts/team-probe.swift`) 결과가 있어야 시작한다.
+
+---
+
+## 보강: 사용자 확인 결과 반영 (2026-10-30)
+
+사용자가 Task 10의 개발 빌드로 광장을 걸어 본 뒤 두 가지를 요청했다. 하나는 코드로 그린 지도가 엉성하니 포켓몬
+게임처럼 밝고 단순한 풀밭으로 바꾸는 것이다. 다른 하나는 오른쪽에 게임 파티 화면 같은 참여자 목록을 두는 것이다.
+스펙이 개정됐다(5.3, 5.4, 5.11, 5.12, 3장, 7장). 대화에서 확정한 시안은 "단순한 풀밭 광장 시안"(30×20칸)이고,
+아래 수치와 좌표는 그 시안에서 그대로 가져왔다.
+
+**보강 Global Constraints** (위 Global Constraints에 더한다):
+- 타일셋: ArMM1998 "Zelda-like tilesets and sprites"의 `gfx/Overworld.png`(640×576, 16픽셀 칸)를 바꾸지 않고 그대로
+  넣는다. 원본은 https://opengameart.org/sites/default/files/gfx_3.zip (175 KB, CC0)이다. 칸 좌표 `(열, 행)`은 16픽셀
+  단위이고, 그림 1픽셀을 월드 2픽셀로 키운다(타일 한 칸 = 32 월드 픽셀, 지금과 같다).
+- 글꼴: 갈무리 `Galmuri11.ttf`와 라이선스(`ofl.md` → `Galmuri-OFL.txt`)를 함께 넣는다. 원본은
+  https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri11.ttf 와 https://cdn.jsdelivr.net/npm/galmuri@2.40.3/ofl.md 이다.
+- 리소스는 `Sources/PokeTokenBar/Resources/Plaza/`에 두고 SwiftPM 리소스로 묶는다. 앱 코드는 `Bundle.module`을
+  `PlazaResources` 한 곳에서만 쓴다.
+- 레벨, HP, 진행률 같은 숫자는 목록 어디에도 넣지 않는다.
+- 모든 Task의 집중 테스트 필터에 저장소 전체를 검사하는 테스트 `UsageEnvironmentTests|LocalizedUILiteralTests|TeamLocalizationTests`를
+  항상 넣는다. 지난번 최종 검토에서 이 검사 테스트를 놓쳐 결함이 늦게 드러났다.
+
+### Task 11: 리소스 번들 (타일셋, 글꼴, 출처)
+
+**Files:**
+- Create: `Sources/PokeTokenBar/Resources/Plaza/plaza-tiles.png` (= `gfx/Overworld.png`, 바이트 그대로)
+- Create: `Sources/PokeTokenBar/Resources/Plaza/Galmuri11.ttf`, `Sources/PokeTokenBar/Resources/Plaza/Galmuri-OFL.txt`
+- Create: `Sources/PokeTokenBar/Resources/Plaza/CREDITS.md` (타일셋: ArMM1998, CC0, 원본 주소 / 글꼴: Galmuri, SIL OFL 1.1, 원본 주소)
+- Create: `Sources/PokeTokenBar/Team/Plaza/PlazaResources.swift`
+- Modify: `Package.swift` (executableTarget에 `resources: [.copy("Resources/Plaza")]`)
+- Modify: `scripts/build-app.sh` (첫 슬라이스의 `--show-bin-path` 아래 `PokeTokenBar_PokeTokenBar.bundle`을 `$APP/Contents/Resources/`로 복사, 없으면 실패)
+- Test: `Tests/PokeTokenBarTests/PlazaResourcesTests.swift`
+
+**Interfaces:**
+- Produces:
+
+```swift
+enum PlazaResources {
+    static func tileSheet() -> CGImage?          // plaza-tiles.png, 640×576
+    @discardableResult static func registerFonts() -> Bool   // CTFontManagerRegisterFontsForURL(.process), 여러 번 불러도 안전
+    static let fontName: String                  // Galmuri11의 PostScript 이름(파일에서 확인해 고정)
+    static func font(size: CGFloat) -> NSFont    // 등록 실패 시 monospacedSystemFont 로 대체
+}
+```
+
+- SwiftPM이 만든 `Bundle.module`은 번들을 못 찾으면 앱을 죽인다(`fatalError`). 그래서 `PlazaResources`는
+  `Bundle.main.resourceURL`, `Bundle.main.bundleURL` 아래의 `PokeTokenBar_PokeTokenBar.bundle`을 먼저 찾는다.
+  `Bundle.module`은 테스트와 `swift run`에서만 닿는 마지막 후보로 둔다. 리소스를 못 찾으면 `nil`이나 대체 글꼴을
+  돌려줄 뿐, 광장을 열다가 죽지 않는다. 이 동작은 테스트로 고정한다(번들 경로를 주입할 수 있게 만든다).
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+```swift
+final class PlazaResourcesTests: XCTestCase {
+    func testTileSheetLoads() throws {
+        let sheet = try XCTUnwrap(PlazaResources.tileSheet())
+        XCTAssertEqual(sheet.width, 640); XCTAssertEqual(sheet.height, 576)
+    }
+    func testFontRegistersAndResolves() {
+        XCTAssertTrue(PlazaResources.registerFonts())
+        XCTAssertNotNil(NSFont(name: PlazaResources.fontName, size: 11))
+        XCTAssertEqual(PlazaResources.font(size: 11).fontName, PlazaResources.fontName)
+    }
+    func testBuildScriptCopiesResourceBundle() throws {
+        // scripts/build-app.sh 에 "PokeTokenBar_PokeTokenBar.bundle" 과 "Contents/Resources" 복사 줄이 있다
+    }
+    func testLicenseAndCreditsShipWithResources() {
+        // Bundle(PlazaResources 경유)에서 Galmuri-OFL.txt, CREDITS.md 를 찾을 수 있다
+    }
+    func testMissingBundleReturnsNilInsteadOfCrashing() {
+        // 존재하지 않는 경로를 주입하면 tileSheet() == nil, font(size:) 는 대체 글꼴
+    }
+}
+```
+
+- [ ] **Step 2: 실패 확인** — Run: `swift test --filter PlazaResourcesTests` → FAIL
+- [ ] **Step 3: 파일 받기, 리소스·스크립트·`PlazaResources` 구현**
+- [ ] **Step 4: 통과 확인** — Run: `swift test --filter 'PlazaResourcesTests|UsageEnvironmentTests|LocalizedUILiteralTests|TeamLocalizationTests'` 와 `swift build` → PASS
+- [ ] **Step 5: Commit** — `feat(plaza): bundle the plaza tileset and pixel font as resources`
+
+### Task 12: 타일셋으로 그리기와 새 풀밭 지도
+
+**Files:**
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaMap.swift` (타일 종류 정리)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaMapData.swift` (새 지도)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaTileArt.swift` (코드 그림 → 타일셋 조합)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaWindowController.swift` (지도 그림 만들 때 `PlazaResources.tileSheet()` 사용)
+- Modify: `Tests/PokeTokenBarTests/PlazaMapTests.swift`, `Tests/PokeTokenBarTests/PlazaTileArtTests.swift`
+
+**Interfaces:**
+- `PlazaTile`는 다음만 남긴다. `grass "."`, `flowers "f"`, `shelter "S"`는 지나갈 수 있고, `tree "T"`, `bush "b"`, `board "N"`는
+  지나갈 수 없다. `tallGrass`, `path`, `water`, `fence`, `rock`은 지운다. `PlazaMapError`, `spawn`, `shelterTiles`,
+  `boardTile`의 규칙은 그대로다.
+- `PlazaTileArt.mapImage(_ map: PlazaMap, sheet: CGImage) -> CGImage` (크기는 지금처럼 `width*32 × height*32`).
+  `tileImage(at:in:)`는 지운다. 시트가 없을 때를 위한 대체 그림(단색 잔디)은 컨트롤러가 정한다.
+- 그리는 규칙 (칸 좌표는 시트의 `(열, 행)`, 모두 2배로 그린다):
+  - 바닥: 모든 칸에 잔디를 깐다. 위치로 시드를 만든 결정적 난수로 `(0,9) (1,9) (0,10) (1,10) (5,9) (8,9) (5,10) (8,10)` 중 하나를 고른다.
+  - `f`: 잔디 위에 꽃 장식 `(0,8) (1,8) (2,12) (3,11) (3,12)` 중 하나를 위치 기반으로 고른다.
+  - `b`: 잔디 위에 작은 덤불 `(2,14)`를 그린다.
+  - `T`: 잔디 위에 2×2 둥근 나무 `(5,16)`을 엇갈린 격자로 덮는다(짝수 행과 홀수 행이 한 칸씩 어긋난다). 위쪽 나무부터
+    그려 아래 나무가 위를 덮는다. `T` 칸이 맨눈에 빈 잔디로 보이면 안 된다.
+  - `N`: 지도에 정확히 2×2 덩어리로 있다. 2×3 나무 게시판 `(6,6)`을 그 덩어리의 왼쪽 아래에 맞춰 그린다(그림이 한 칸 위로 솟는다).
+- 새 지도 (`PlazaMapData`, 48×32):
+  - 가장자리 3칸은 `T`다. 안쪽은 탁 트인 `.`이다.
+  - 꽃 `f` 30~50칸과 덤불 `b` 6~10칸을 흩어 둔다. 덤불끼리 붙이지 않는다.
+  - 가운데쯤 `N` 2×2 하나를 두고, 그 둘레 열린 잔디 12칸 이상을 `S`로 둔다. `spawn`은 `S` 위다.
+  - 모든 지나갈 수 있는 칸이 서로 이어진다.
+
+- [ ] **Step 1: 실패하는 테스트 작성/고치기**
+
+```swift
+// PlazaMapTests
+func testBorderIsThreeTilesOfTrees() { /* x<3, y<3, x>=45, y>=29 인 칸이 모두 .tree */ }
+func testOnlySimpleKinds() { /* 모든 칸이 . f S T b N 중 하나, f 30~50칸, b 6~10칸 */ }
+func testBoardIsOneTwoByTwoBlock() { /* N 칸이 정확히 4개이고 2×2, 바로 아래 행 두 칸이 지나갈 수 있음 */ }
+// 기존: 크기 48×32, 가장자리 막힘, spawn에서 전부 도달, 쉼터 12칸 이상, spawn이 쉼터 — 유지
+// PlazaTileArtTests (시트는 PlazaResources.tileSheet())
+func testMapImageSize() { /* 1536×1024 */ }
+func testDeterministic() { /* 같은 입력 두 번 → 같은 바이트, 길이 = w*h*4 */ }
+func testFlowerCellDiffersFromPlainGrassAndTreeCellIsNotGrass() {
+    // 3×3 작은 지도로: f 칸 픽셀 ≠ 같은 잔디 변형의 . 칸 픽셀, T 칸 가운데 픽셀 색이 잔디 변형 8종의 같은 위치 색 어느 것과도 다름
+}
+func testArtIsUpscaledTwiceWithoutSmoothing() { /* 출력의 (0,0)과 (1,1) 픽셀이 같다(2×2 블록 단위) */ }
+```
+
+- [ ] **Step 2: 실패 확인** — Run: `swift test --filter 'PlazaMapTests|PlazaTileArtTests'` → FAIL
+- [ ] **Step 3: 구현**
+- [ ] **Step 4: 통과 확인** — Run: `swift test --filter 'Plaza|UsageEnvironmentTests|LocalizedUILiteralTests|TeamLocalizationTests'` → PASS
+- [ ] **Step 5: Commit** — `feat(plaza): draw the plaza from the CC0 tileset and lay out a simple meadow`
+
+### Task 13: 이름판과 도트 글꼴
+
+**Files:**
+- Create: `Sources/PokeTokenBar/Team/Plaza/PlazaNamePlate.swift`
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaScene.swift` (이름 라벨·외곽선 노드를 이름판 텍스처로 교체)
+- Test: `Tests/PokeTokenBarTests/PlazaNamePlateTests.swift`
+
+**Interfaces:**
+- `enum PlazaNamePlate { static func image(text: String, isMe: Bool, scale: CGFloat) -> CGImage }`
+  - 흰 바탕 `#F8F8F0`, 테두리 2pt, 모서리 4pt, 글자 `#303848`, 글꼴은 `PlazaResources.font(size: 11)`, 안쪽 여백 좌우 5pt·상하 3pt.
+  - 테두리 색: 나는 `#D04848`, 나머지는 `#586078`. 아래로 2pt 짙은 그림자.
+  - `scale`은 기기 픽셀 배율이다. 텍스처는 그 배율로 만들어 카메라 HUD 층에 화면 단위로 붙인다(지금처럼 또렷하게).
+- 장면은 닉네임이나 배율이 바뀔 때만 이름판을 다시 만든다(매 프레임 금지).
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+```swift
+func testPlateGrowsWithTextAndScale() { /* "나" < "도토리도토리", scale 2 의 폭 = scale 1 의 2배(±2px) */ }
+func testMeAndOthersUseDifferentBorderColor() { /* 왼쪽 가장자리 가운데 픽셀 색이 isMe 에 따라 다르다 */ }
+```
+
+- [ ] **Step 2–4:** `swift test --filter 'PlazaNamePlateTests|PlazaWindowTests|UsageEnvironmentTests|LocalizedUILiteralTests|TeamLocalizationTests'`
+- [ ] **Step 5: Commit** — `feat(plaza): pixel-font name plates`
+
+### Task 14: 참여자 목록 (오른쪽, 파티 화면 느낌)
+
+**Files:**
+- Create: `Sources/PokeTokenBar/Team/Plaza/PlazaRoster.swift` (모델·정렬·만들기)
+- Create: `Sources/PokeTokenBar/Team/Plaza/PlazaIconLoader.swift` (PokéAPI 7세대 박스 아이콘 받기·캐시)
+- Create: `Sources/PokeTokenBar/Team/UI/PlazaRosterView.swift` (SwiftUI)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaWindowController.swift` (SKView 위 오른쪽에 `NSHostingView` 얹기, 내 정보 갱신)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaCamera.swift` (목록에 가린 폭을 고려한 초점)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaScene.swift` (초점에 가린 폭 반영)
+- Modify: `Sources/PokeTokenBar/Team/TeamLocalization.swift` (`plazaRosterTitle` "팀원", `plazaStatusOnline` "접속", `plazaStatusAway` "잠", `plazaRosterCount(online:total:)` "접속 N / M", `plazaEggName` "알")
+- Modify: `Sources/PokeTokenBar/PokeTokenBarApp.swift` (컨트롤러에 내 목록 정보 제공 클로저 연결, 바뀔 때 갱신)
+- Test: `Tests/PokeTokenBarTests/PlazaRosterTests.swift`, `Tests/PokeTokenBarTests/PlazaCameraTests.swift`
+
+**Interfaces:**
+
+```swift
+enum PlazaPresence: Sendable { case online, away }
+struct PlazaRosterEntry: Equatable, Identifiable, Sendable {
+    let id: String               // 멤버 ID (1부에서는 TeamSettings.memberID)
+    let nickname: String
+    let speciesID: Int?          // nil = 알
+    let speciesName: String
+    let gender: PokemonGender?   // 모르면 nil(기호 없음)
+    let isShiny: Bool
+    let presence: PlazaPresence
+    let isMe: Bool
+}
+enum PlazaRoster {
+    /// 나 → 접속 중 → 자리 비움, 같은 무리 안에서는 닉네임 순.
+    static func sorted(_ entries: [PlazaRosterEntry]) -> [PlazaRosterEntry]
+    /// 내 칸: 대표 포켓몬을 고르지 않았으면 키우는 포켓몬(이름 = companion.displayName, 성별 = 키우는 개체의 성별),
+    /// 골랐으면 그 종(이름 = 도감 종 이름, 성별 nil), 알이면 speciesID nil·이름 L.plazaEggName·성별 nil.
+    static func myEntry(memberID: String, nickname: String, subject: CompanionStore.RepresentativeSubject,
+                        followsRaised: Bool, raisedName: String, raisedGender: PokemonGender?,
+                        pinnedName: String?, eggName: String) -> PlazaRosterEntry
+}
+enum PlazaIconLoader {
+    static func url(speciesID: Int) -> URL   // .../sprites/pokemon/versions/generation-vii/icons/{id}.png
+    static func icon(speciesID: Int) async -> NSImage?   // SpriteStore 캐시 폴더에 "icon-<id>.png"로 캐시
+}
+extension PlazaCamera {
+    /// 오른쪽 rightInset 포인트가 가려질 때, 내 포켓몬이 보이는 영역 가운데 오도록 초점을 오른쪽으로 민다.
+    static func focus(for foot: CGPoint, rightInset: CGFloat, zoom: Int) -> CGPoint   // x + (rightInset / zoom) / 2
+}
+```
+
+- 화면 (시안 "단순한 풀밭 광장 시안"의 오른쪽 목록과 같게):
+  - 판: 폭 232pt, 오른쪽 위 14pt 안쪽. 135° 줄무늬 `#2D7F87`/`#2A7880`(6pt), 테두리 3pt `#1D4F55`, 안쪽 선 2pt `#5FB7BD`, 모서리 10pt.
+  - 왼쪽 위 탭 "팀원"(흰 바탕 `#F8F8F0`, 글자 `#2D4048`)과 오른쪽 위 "접속 N / M"을 둔다.
+  - 칸: 높이 44pt, 모서리 왼쪽 22pt·오른쪽 8pt, 위아래 반씩 두 색. 보통 `#7CC8E8`/`#5FB0D8`(테두리 `#23464C`),
+    나 `#F8B878`/`#F09858`(테두리 `#8A4A28`), 자리 비움 `#A8B0C0`/`#9098A8`(테두리 `#4A5060`). 안쪽 흰 선 2pt.
+  - 아이콘은 40×30이고, 접속 중이면 0.5초마다 2pt씩 위아래로 튄다. 이름 옆에 성별 ♂ `#A8D8FF`, ♀ `#FFB0C8`, 이로치 ★ `#FFE060`.
+  - 배지: "접속" `#48B860`, "잠" `#9070B8`. 글꼴은 모두 `PlazaResources.font`다.
+- 1부에서는 목록에 나만 있다(`presence = .online`). 2부가 팀원을 채운다.
+- 장면 초점은 `PlazaCamera.focus(for: walker.footPoint, rightInset: 232 + 14, zoom:)`를 거쳐 `visibleRect`에 넣는다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+```swift
+func testSortOrderMeOnlineAway() { /* 나, 접속(가나다), 자리 비움(가나다) 순 */ }
+func testMyEntryFollowsRaisedPinnedAndEgg() { /* 세 경우의 speciesID/이름/성별 규칙 */ }
+func testIconURL() { XCTAssertEqual(PlazaIconLoader.url(speciesID: 25).absoluteString,
+    "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-vii/icons/25.png") }
+func testFocusShiftsByHalfTheCoveredWidthInWorldUnits() { /* rightInset 246, zoom 2 → x + 61.5 */ }
+func testRosterStrings() { /* L(.ko).plazaRosterCount(online: 3, total: 5) == "접속 3 / 5" 등 */ }
+```
+
+- [ ] **Step 2–4:** `swift test --filter 'PlazaRosterTests|PlazaCameraTests|PlazaWindowTests|UsageEnvironmentTests|LocalizedUILiteralTests|TeamLocalizationTests'`, `swift build --build-tests`
+- [ ] **Step 5: Commit** — `feat(plaza): party-style roster on the right`
+
+### Task 15: 확인과 두 번째 사용자 확인
+
+- [ ] **Step 1:** 관련 테스트 전부: `swift test --filter 'Plaza|Team|SpriteBackURLTests|StatusItemMenuTests|UsageEnvironmentTests|LocalizedUILiteralTests'`
+- [ ] **Step 2:** `scripts/test-gate.sh`는 컨트롤러가 샌드박스 밖에서 돌린다(전체 통과, 커버리지 75% 이상). `LOGIC_CORE`에 `PlazaRoster.swift`, `PlazaNamePlate.swift`를 더한다.
+- [ ] **Step 3:** 개발 빌드 스모크 실행(10초 이상 살아 있음).
+- [ ] **Step 4: Commit** — `chore(plaza): gate roster and name plate logic`
+- [ ] **Step 5: 사용자 확인 (중단 지점)** — `bash scripts/plaza-dev.sh`로 새 지도, 이름판, 오른쪽 목록을 확인받는다. 여기서 멈춘다.
