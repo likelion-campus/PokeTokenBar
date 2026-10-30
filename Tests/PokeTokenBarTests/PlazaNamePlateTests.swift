@@ -32,4 +32,11 @@ final class PlazaNamePlateTests: XCTestCase {
         XCTAssertGreaterThan(white, 10, "white text pixels")
         XCTAssertGreaterThan(translucentDark, 10, "soft dark shadow pixels")
     }
+
+    func testNameFontIs14() {
+        XCTAssertEqual(PlazaNamePlate.fontSize, 14)
+        let image = PlazaNamePlate.image(text: "Name", scale: 1)
+        // 14pt semibold text is taller than the old 12pt plate (ascent+descent of 12pt is below 16, plus 2 * pad).
+        XCTAssertGreaterThanOrEqual(image.height, 24)
+    }
 }

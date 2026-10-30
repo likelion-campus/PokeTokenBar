@@ -11,6 +11,9 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     /// GIF는 지연 0 또는 0.01초가 흔하다.
     private static let minFrameDelay: TimeInterval = 0.02
 
+    /// 캐릭터 그림을 월드 단위로 키우는 배율. 발 위치(아래 가운데)는 그대로이고 이름·그림자는 키운 크기에 맞춘다.
+    static let characterScale: CGFloat = 1.5
+
     private let map: PlazaMap
     private let worldSize: CGSize
     private(set) var walker: PlazaWalker
@@ -201,6 +204,11 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         return showingBack ? frames.back : frames.front
     }
 
+    /// 배율을 적용한 그림 크기. 월드 픽셀에 맞도록 정수로 반올림한다.
+    private static func scaledSize(of image: CGImage) -> CGSize {
+        CGSize(width: (CGFloat(image.width) * characterScale).rounded(), height: (CGFloat(image.height) * characterScale).rounded())
+    }
+
     private func applyFrame() {
         guard let list = currentFrames, !list.isEmpty else { return }
         let image = list[frameIndex % list.count].image
@@ -213,7 +221,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
             textureCache[ObjectIdentifier(image)] = texture
         }
         characterNode.texture = texture
-        characterNode.size = CGSize(width: image.width, height: image.height)
+        characterNode.size = Self.scaledSize(of: image)
     }
 
     /// 카메라, 캐릭터, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다.
@@ -253,10 +261,11 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     var groundShadowSize: (width: Int, height: Int) { shadowTextureSize ?? (0, 0) }
     var groundShadowY: CGFloat { shadowNode.position.y }
     var characterY: CGFloat { characterNode.position.y }
+    var characterSize: CGSize { characterNode.size }
 
     private func refreshShadow() {
         guard let first = frames?.front.first else { return }
-        let size = PlazaGroundShadow.size(forSpriteWidth: first.image.width)
+        let size = PlazaGroundShadow.size(forSpriteWidth: Int(Self.scaledSize(of: first.image).width))
         if let old = shadowTextureSize, old == size { return }
         shadowTextureSize = size
         let texture = SKTexture(cgImage: PlazaGroundShadow.image(width: size.width, height: size.height))

@@ -3,13 +3,11 @@ import XCTest
 @testable import PokeTokenBar
 
 final class PlazaGroundShadowTests: XCTestCase {
-    func testSizeRuleFromSpriteWidth() {
-        XCTAssertEqual(PlazaGroundShadow.size(forSpriteWidth: 50).width, 30)
-        XCTAssertEqual(PlazaGroundShadow.size(forSpriteWidth: 50).height, 9)
-        XCTAssertEqual(PlazaGroundShadow.size(forSpriteWidth: 10).width, 14)
-        XCTAssertEqual(PlazaGroundShadow.size(forSpriteWidth: 10).height, 4)
-        XCTAssertEqual(PlazaGroundShadow.size(forSpriteWidth: 200).width, 80)
-        XCTAssertEqual(PlazaGroundShadow.size(forSpriteWidth: 200).height, 24)
+    func testShadowSizeRule() {
+        func size(_ w: Int) -> [Int] { let r = PlazaGroundShadow.size(forSpriteWidth: w); return [r.width, r.height] }
+        XCTAssertEqual(size(75), [64, 20])
+        XCTAssertEqual(size(10), [20, 6])
+        XCTAssertEqual(size(300), [140, 45])
     }
 
     func testEllipseSizeAlphaAndCorners() {

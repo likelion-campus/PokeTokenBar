@@ -1,6 +1,10 @@
 import AppKit
 import SpriteKit
 
+/// 그리기 루프를 멈출 수 있는 뷰. 테스트에서 창 없이 바꿔 끼운다.
+@MainActor protocol PlazaPausableView: AnyObject { var isPaused: Bool { get set } }
+extension SKView: PlazaPausableView {}
+
 /// 광장 창. 창을 만들지 않고도 장면을 만들 수 있게(`prepareScene`) 나눠 두었다.
 @MainActor final class PlazaWindowController: NSObject, NSWindowDelegate {
     private let map: PlazaMap
@@ -22,6 +26,8 @@ import SpriteKit
 
     private var window: NSWindow?
     private var skView: SKView?
+    /// 가려지면 멈추는 그리기 루프. 창을 열면 `skView`가 들어간다.
+    var renderLoop: (any PlazaPausableView)?
     private var refreshGeneration = 0
     /// 닫혀 있으면 nil
     private(set) var scene: PlazaScene?
@@ -74,6 +80,7 @@ import SpriteKit
             view.presentScene(scene)
             w.makeFirstResponder(view)
             skView = view
+            renderLoop = view
             window = w
             Task { await refreshCharacter() }
         }
@@ -131,6 +138,7 @@ import SpriteKit
         }
         skView?.presentScene(nil)
         skView = nil
+        renderLoop = nil
         scene = nil
         rosterModel.entries = []
         rosterModel.isAnimating = true
@@ -150,6 +158,7 @@ import SpriteKit
     /// 최소화·완전히 가려진 동안은 그리지 않는다.
     func setRendering(visible: Bool) {
         rosterModel.isAnimating = visible
+        renderLoop?.isPaused = !visible
         guard let scene else { return }
         if !visible { scene.releaseAllKeys() }
         scene.isPaused = !visible

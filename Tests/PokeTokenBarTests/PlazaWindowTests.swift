@@ -133,21 +133,21 @@ private struct RecordingFetcher: PlazaSpriteFetching {
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         let frame = PlazaFrame(image: ctx.makeImage()!, delay: 1)
         scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
-        XCTAssertEqual(scene.groundShadowSize.width, 30)
-        XCTAssertEqual(scene.groundShadowSize.height, 9)
+        XCTAssertEqual(scene.groundShadowSize.width, 64)
+        XCTAssertEqual(scene.groundShadowSize.height, 20)
         scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
         var t = 0.0
         scene.update(t)
-        var bobbed = false
+        var minY = CGFloat.greatestFiniteMagnitude, maxY = -CGFloat.greatestFiniteMagnitude
         for _ in 0..<45 {
             t += 1.0 / 30; scene.update(t)
-            if abs(scene.characterY - scene.groundShadowY) > 0.5 { bobbed = true }
+            minY = min(minY, scene.characterY); maxY = max(maxY, scene.characterY)
             // The shadow never moves with the bob: its bottom edge sits at the foot y minus (height / 2 + round(height / 4)) below centre.
             let h = CGFloat(scene.groundShadowSize.height)
             let expected = PlazaMapData.map.pixelSize.height - scene.walker.footPoint.y - (h * 0.25).rounded() - h / 2
             XCTAssertEqual(scene.groundShadowY, expected, accuracy: 0.51)
         }
-        XCTAssertTrue(bobbed, "the character must bob while walking")
+        XCTAssertGreaterThan(maxY - minY, 0.5, "the character y must vary across frames while walking")
     }
 
     func testRefreshNicknameUpdatesScene() {
@@ -285,6 +285,34 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(c.scene?.isPaused, true)
         c.setRendering(visible: true)
         XCTAssertEqual(c.scene?.isPaused, false)
+    }
+
+    @MainActor private final class FakeRenderLoop: PlazaPausableView { var isPaused = false }
+
+    func testHidingPausesTheViewToo() {
+        let c = controller(defaults())
+        let loop = FakeRenderLoop()
+        c.prepareScene()
+        c.renderLoop = loop
+        c.setRendering(visible: false)
+        XCTAssertTrue(loop.isPaused)
+        XCTAssertEqual(c.scene?.isPaused, true)
+        c.setRendering(visible: true)
+        XCTAssertFalse(loop.isPaused)
+        XCTAssertEqual(c.scene?.isPaused, false)
+    }
+
+    func testCharacterDrawnAtOnePointFiveScale() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        XCTAssertEqual(PlazaScene.characterScale, 1.5)
+        let ctx = CGContext(data: nil, width: 40, height: 30, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let frame = PlazaFrame(image: ctx.makeImage()!, delay: 1)
+        scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
+        XCTAssertEqual(scene.characterSize, CGSize(width: 60, height: 45))
     }
 
     func testSetRenderingTogglesRosterAnimation() {

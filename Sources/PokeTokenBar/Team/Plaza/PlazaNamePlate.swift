@@ -3,7 +3,7 @@ import CoreText
 
 /// 캐릭터 머리 위에 붙는 이름 글자: 바탕 없이 흰 글자와 부드러운 그림자. CoreGraphics/CoreText만 쓰므로 창 없이 만들 수 있다.
 enum PlazaNamePlate {
-    static let fontSize: CGFloat = 12
+    static let fontSize: CGFloat = 14
     /// 그림자(아래로 1pt, 흐림 2pt)가 잘리지 않을 여백.
     static let pad: CGFloat = 4
     private static let shadowOffset: CGFloat = 1
