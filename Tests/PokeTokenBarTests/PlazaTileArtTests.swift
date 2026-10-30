@@ -3,6 +3,10 @@ import CoreGraphics
 @testable import PokeTokenBar
 
 final class PlazaTileArtTests: XCTestCase {
+    /// The full map is rendered once per class; tests that only inspect the result reuse it.
+    private static let sharedMapImage: CGImage? = PlazaResources.tileSheet().map { PlazaTileArt.mapImage(PlazaMapData.map, sheet: $0) }
+    private func sharedMap() throws -> CGImage { try XCTUnwrap(Self.sharedMapImage) }
+
     private func sheet() throws -> CGImage { try XCTUnwrap(PlazaResources.tileSheet()) }
 
     /// 2x2 보드와 쉼터 한 칸이 있는 작은 지도. 왼쪽 위 2x2는 나무다.
@@ -11,13 +15,13 @@ final class PlazaTileArtTests: XCTestCase {
     }
 
     func testMapImageSize() throws {
-        let img = PlazaTileArt.mapImage(PlazaMapData.map, sheet: try sheet())
+        let img = try sharedMap()
         XCTAssertEqual(img.width, 48 * 32); XCTAssertEqual(img.height, 32 * 32)
     }
 
     func testDeterministic() throws {
         let sheet = try sheet()
-        let a = pixels(PlazaTileArt.mapImage(PlazaMapData.map, sheet: sheet))
+        let a = pixels(try sharedMap())
         let b = pixels(PlazaTileArt.mapImage(PlazaMapData.map, sheet: sheet))
         XCTAssertEqual(a.count, 48 * 32 * 32 * 32 * 4)
         XCTAssertEqual(a, b)
@@ -54,7 +58,7 @@ final class PlazaTileArtTests: XCTestCase {
     }
 
     func testEveryPixelIsOpaque() throws {
-        let px = pixels(PlazaTileArt.mapImage(PlazaMapData.map, sheet: try sheet()))
+        let px = pixels(try sharedMap())
         XCTAssertFalse(stride(from: 3, to: px.count, by: 4).contains { px[$0] != 255 })
     }
 
