@@ -372,6 +372,62 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(scene.characterSize, CGSize(width: 61.5, height: 46.5))
     }
 
+    private func blankFrames(width: Int, height: Int) -> PlazaCharacterFrames {
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let frame = PlazaFrame(image: ctx.makeImage()!, delay: 1)
+        return PlazaCharacterFrames(front: [frame], back: [frame])
+    }
+
+    private func assertWhole(_ v: CGFloat, _ label: String, file: StaticString = #filePath, line: UInt = #line) {
+        // SpriteKit stores positions as Float, so thirds of a pixel come back slightly off. A real defect is off by 0.5.
+        XCTAssertEqual(v, v.rounded(), accuracy: 0.01, "\(label) = \(v) is not on the device grid", file: file, line: line)
+    }
+
+    /// 1x display, odd window, odd sprite and plate widths: every edge must land on a device pixel.
+    func testLayoutPutsEdgesOnDeviceGridOnOneXDisplay() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        scene.backingOverride = 1
+        scene.size = CGSize(width: 961, height: 641)
+        scene.zoom = 2
+        scene.setCharacter(blankFrames(width: 41, height: 31))
+        let halfW = scene.size.width / 2, halfH = scene.size.height / 2
+        let width = scene.characterSize.width
+        for name in ["a", "ab", "abc", "abcd", "abcde"] {
+            scene.setNickname(name)
+            assertWhole((scene.characterX - width / 2) * 2, "sprite left edge")
+            assertWhole((scene.cameraPosition.x - halfW / 2) * 2, "camera left edge")
+            assertWhole((scene.cameraPosition.y - halfH / 2) * 2, "camera bottom edge")
+            let plate = scene.namePlatePosition
+            assertWhole(plate.x - scene.namePlateWidth / 2 + halfW, "plate left edge")
+            assertWhole(plate.y + halfH, "plate bottom edge")
+        }
+    }
+
+    /// Retina zoom 3 also gives an odd device width (61.5 x 6 = 369).
+    func testLayoutSnapsOddSpriteAtRetinaZoomThree() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        scene.backingOverride = 2
+        scene.zoom = 3
+        scene.setCharacter(blankFrames(width: 41, height: 31))
+        assertWhole((scene.characterX - scene.characterSize.width / 2) * 6, "sprite left edge")
+    }
+
+    /// The camera looks above the feet by half the front sprite, so a big Pokémon keeps its head on screen.
+    func testCameraLooksAboveFeetForBigSprite() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        let before = scene.cameraPosition.y
+        scene.setCharacter(blankFrames(width: 96, height: 96))
+        XCTAssertEqual(scene.cameraPosition.y - before, 72, accuracy: 0.5)   // 96 x 1.5 / 2
+    }
+
     func testSetRenderingTogglesRosterAnimation() {
         let c = controller(defaults())
         XCTAssertTrue(c.rosterIsAnimating)

@@ -33,6 +33,8 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     var onCloseRequest: (() -> Void)?
     /// 키 뗌 이벤트는 Command가 눌린 동안 오지 않으므로 update마다 수정 키를 확인한다. 테스트에서 바꿔 끼운다.
     var currentModifiers: () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
+    /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
+    var backingOverride: CGFloat?
 
     private let mapNode: SKSpriteNode
     private let characterNode = SKSpriteNode()
@@ -239,7 +241,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     /// 카메라, 캐릭터, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다.
     private func layout() {
         let z = CGFloat(zoom)
-        let backing = view?.window?.backingScaleFactor ?? 2
+        let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
         func snap(_ v: CGFloat) -> CGFloat { PlazaPixelSnap.snap(v, backing: backing, zoom: zoom) }
 
         let foot = walker.footPoint
@@ -274,7 +276,11 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     /// 테스트용: 그림자 노드의 크기와 아래 모서리 y, 캐릭터 노드의 y.
     var groundShadowSize: (width: Int, height: Int) { shadowTextureSize ?? (0, 0) }
     var groundShadowY: CGFloat { shadowNode.position.y }
+    var characterX: CGFloat { characterNode.position.x }
     var characterY: CGFloat { characterNode.position.y }
+    var cameraPosition: CGPoint { cameraNode.position }
+    var namePlatePosition: CGPoint { plateNode.position }
+    var namePlateWidth: CGFloat { plateNode.size.width }
     var characterSize: CGSize { characterNode.size }
 
     private func refreshShadow() {
