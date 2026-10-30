@@ -14,14 +14,19 @@ enum PlazaNameColor {
         return CGColor(srgbRed: r, green: g, blue: b, alpha: 1)
     }
 
-    /// UTF-8 바이트의 32비트 FNV-1a를 팔레트 크기로 나눈 나머지. `hashValue`는 실행마다 달라 쓰지 않는다.
-    static func index(forMemberID id: String) -> Int {
+    /// UTF-8 바이트의 32비트 FNV-1a. `hashValue`는 실행마다 달라 쓰지 않는다.
+    static func fnv1a(_ id: String) -> UInt32 {
         var hash: UInt32 = 2166136261
         for byte in id.utf8 {
             hash ^= UInt32(byte)
             hash = hash &* 16777619
         }
-        return Int(hash % UInt32(palette.count))
+        return hash
+    }
+
+    /// `fnv1a`를 팔레트 크기로 나눈 나머지.
+    static func index(forMemberID id: String) -> Int {
+        Int(fnv1a(id) % UInt32(palette.count))
     }
 
     static func color(forMemberID id: String) -> CGColor { palette[index(forMemberID: id)] }

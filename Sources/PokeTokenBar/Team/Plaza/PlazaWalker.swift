@@ -74,15 +74,20 @@ struct PlazaWalker: Sendable {
 
     /// 월드 픽셀(y 아래로). 칸 가로 가운데, 세로 0.875 지점. 걷는 중이면 보간한다.
     var footPoint: CGPoint {
-        let from = stepFrom ?? tile
         let t = stepFrom == nil ? 0 : min(1, stepElapsed / Self.stepDuration)
-        let x = Double(from.x) + Double(tile.x - from.x) * t
-        let y = Double(from.y) + Double(tile.y - from.y) * t
+        return Self.footPoint(from: stepFrom ?? tile, to: tile, progress: t)
+    }
+
+    /// `from`에서 `to`로 `progress`(0–1)만큼 간 발 위치. 팀원 보간도 같은 식을 쓴다.
+    static func footPoint(from: TilePoint, to: TilePoint, progress t: Double) -> CGPoint {
+        let x = Double(from.x) + Double(to.x - from.x) * t
+        let y = Double(from.y) + Double(to.y - from.y) * t
         let s = Double(PlazaMap.tileSize)
         return CGPoint(x: (x + 0.5) * s, y: (y + 0.875) * s)
     }
 
-    private static func offset(_ p: TilePoint, _ d: PlazaDirection) -> TilePoint {
+    /// `p`에서 `d` 방향으로 한 칸 옆.
+    static func offset(_ p: TilePoint, _ d: PlazaDirection) -> TilePoint {
         switch d {
         case .up: TilePoint(x: p.x, y: p.y - 1)
         case .down: TilePoint(x: p.x, y: p.y + 1)
