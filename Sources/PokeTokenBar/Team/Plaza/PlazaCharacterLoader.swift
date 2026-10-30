@@ -38,21 +38,16 @@ final class PlazaCharacterLoader {
     }
 
     func frames(for subject: CompanionStore.RepresentativeSubject) async -> PlazaCharacterFrames {
-        let front: [PlazaFrame]
-        let back: [PlazaFrame]
-        if let id = subject.speciesID {
-            front = await direction(id, subject, back: false)
-            let b = await direction(id, subject, back: true)
-            back = b.isEmpty ? front : b
-        } else {
-            front = await eggFrames()
-            back = front
+        let placeholder = [PlazaFrame(image: Self.placeholder(), delay: 0.1)]
+        guard let id = subject.speciesID else {
+            let egg = await eggFrames()
+            let both = egg.isEmpty ? placeholder : egg
+            return PlazaCharacterFrames(front: both, back: both)
         }
-        if front.isEmpty {
-            let p = [PlazaFrame(image: Self.placeholder(), delay: 0.1)]
-            return PlazaCharacterFrames(front: p, back: p)
-        }
-        return PlazaCharacterFrames(front: front, back: back)
+        let front = await direction(id, subject, back: false)
+        let back = await direction(id, subject, back: true)
+        let shownFront = front.isEmpty ? placeholder : front
+        return PlazaCharacterFrames(front: shownFront, back: back.isEmpty ? shownFront : back)
     }
 
     /// 한 방향의 프레임. 이로치 → 일반 순서로, 각각 움직이는 그림 → 정지 그림.

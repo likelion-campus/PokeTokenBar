@@ -7,6 +7,8 @@ private struct FakeFetcher: PlazaSpriteFetching {
     var stillFront: NSImage?
     var stillBack: NSImage?
     var eggImage: NSImage?
+    /// 참이면 이로치 요청은 항상 실패한다.
+    var failShiny = false
     let calls = Calls()
 
     final class Calls: @unchecked Sendable {
@@ -17,10 +19,13 @@ private struct FakeFetcher: PlazaSpriteFetching {
     }
 
     func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] {
-        calls.add("animated"); return animatedResult
+        calls.add("animated:\(shiny ? "shiny" : "normal"):\(back ? "back" : "front")")
+        return failShiny && shiny ? [] : animatedResult
     }
     func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
-        calls.add("still"); return back ? stillBack : stillFront
+        calls.add("still:\(shiny ? "shiny" : "normal"):\(back ? "back" : "front")")
+        if failShiny && shiny { return nil }
+        return back ? stillBack : stillFront
     }
     func egg() async -> NSImage? { calls.add("egg"); return eggImage }
 }
@@ -71,7 +76,9 @@ final class PlazaCharacterTests: XCTestCase {
         f.stillFront = makeNS()
         let frames = await PlazaCharacterLoader(fetcher: f).frames(for: .init(speciesID: 400, isShiny: false))
         XCTAssertFalse(frames.back.isEmpty)
+        XCTAssertEqual(frames.back.count, frames.front.count)
         XCTAssertTrue(frames.back[0].image === frames.front[0].image)
+        XCTAssertTrue(f.calls.all.contains("still:normal:back"))
     }
 
     func testAnimatedMissingUsesStill() async {
@@ -82,8 +89,8 @@ final class PlazaCharacterTests: XCTestCase {
         let frames = await PlazaCharacterLoader(fetcher: f).frames(for: .init(speciesID: 25, isShiny: false))
         XCTAssertEqual(frames.front.count, 1)
         XCTAssertEqual(frames.back.count, 1)
-        XCTAssertTrue(f.calls.all.contains("animated"))
-        XCTAssertTrue(f.calls.all.contains("still"))
+        XCTAssertTrue(f.calls.all.contains("animated:normal:front"))
+        XCTAssertTrue(f.calls.all.contains("still:normal:front"))
     }
 
     func testAllFetchesFailUsesPlaceholder() async {
@@ -101,5 +108,50 @@ final class PlazaCharacterTests: XCTestCase {
         XCTAssertEqual(f.calls.all, ["egg"])
         XCTAssertFalse(frames.front.isEmpty)
         XCTAssertTrue(frames.back[0].image === frames.front[0].image)
+    }
+
+    func testShinyFailureRetriesNormalColor() async {
+        var f = FakeFetcher()
+        f.failShiny = true
+        f.stillFront = makeNS([(1, 1), (2, 2)])
+        f.stillBack = makeNS([(1, 1), (4, 4)])
+        let frames = await PlazaCharacterLoader(fetcher: f).frames(for: .init(speciesID: 400, isShiny: true))
+        // 자리표시 그림은 16x16이고, 일반 색 그림은 잘리면 2x2 / 4x4이다.
+        XCTAssertEqual(frames.front[0].image.width, 2)
+        XCTAssertEqual(frames.back[0].image.width, 4)
+        XCTAssertTrue(f.calls.all.contains("still:shiny:front"))
+        XCTAssertTrue(f.calls.all.contains("still:normal:front"))
+    }
+
+    func testNonAnimatedSpeciesNeverCallsAnimated() async {
+        var f = FakeFetcher()
+        f.animatedResult = [(makeNS(), 0.1)]
+        f.stillFront = makeNS([(1, 1), (2, 2)])
+        XCTAssertFalse(PokemonAssets.hasAnimatedSprite(speciesID: 906))
+        let frames = await PlazaCharacterLoader(fetcher: f).frames(for: .init(speciesID: 906, isShiny: false))
+        XCTAssertFalse(f.calls.all.contains { $0.hasPrefix("animated") })
+        XCTAssertEqual(frames.front.count, 1)
+        XCTAssertEqual(frames.front[0].image.width, 2)
+    }
+
+    func testAnimatedSuccessTrimsToUnionAndKeepsDelays() async {
+        var f = FakeFetcher()
+        f.animatedResult = [(makeNS([(2, 2)]), 0.1), (makeNS([(6, 7)]), 0.25), (makeNS([(4, 4)]), 0.3)]
+        f.stillFront = makeNS([(0, 0)])
+        let frames = await PlazaCharacterLoader(fetcher: f).frames(for: .init(speciesID: 25, isShiny: false))
+        XCTAssertEqual(frames.front.map(\.delay), [0.1, 0.25, 0.3])
+        for fr in frames.front {
+            XCTAssertEqual(fr.image.width, 5)
+            XCTAssertEqual(fr.image.height, 6)
+        }
+        XCTAssertFalse(f.calls.all.contains { $0.hasPrefix("still:normal:front") })
+    }
+
+    func testFrontFailsBackSucceedsKeepsRealBack() async {
+        var f = FakeFetcher()
+        f.stillBack = makeNS([(1, 1), (3, 3)])
+        let frames = await PlazaCharacterLoader(fetcher: f).frames(for: .init(speciesID: 400, isShiny: false))
+        XCTAssertEqual(frames.front[0].image.width, 16)
+        XCTAssertEqual(frames.back[0].image.width, 3)
     }
 }
