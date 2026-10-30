@@ -1141,3 +1141,47 @@ func testRosterStrings() { /* L(.ko).plazaRosterCount(online: 3, total: 5) == "�
 - [ ] **Step 3:** 개발 빌드 스모크 실행(10초 이상 살아 있음).
 - [ ] **Step 4: Commit** — `chore(plaza): gate roster and name plate logic`
 - [ ] **Step 5: 사용자 확인 (중단 지점)** — `bash scripts/plaza-dev.sh`로 새 지도, 이름판, 오른쪽 목록을 확인받는다. 여기서 멈춘다.
+
+### Task 16: 이름 글자, 발밑 그림자, 걷는 속도 (두 번째 사용자 확인 반영)
+
+사용자 의견: 도트 글꼴 이름판이 깨져 보이고 모양이 어색하다 → 일반 글자 + 그림자. 포켓몬 발밑에 연한 타원
+그림자. 걷는 속도를 조금 더 빠르게.
+
+**Files:**
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaNamePlate.swift` (바탕판 없는 일반 글자 + 그림자로)
+- Create: `Sources/PokeTokenBar/Team/Plaza/PlazaGroundShadow.swift`
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaScene.swift` (그림자 노드, 새 이름 그림)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaWalker.swift` (`stepDuration` 0.25 → 0.2)
+- Modify: `Tests/PokeTokenBarTests/PlazaNamePlateTests.swift`, `PlazaWalkerTests.swift`(시간에 기대는 값), `PlazaWindowTests.swift`
+- Create: `Tests/PokeTokenBarTests/PlazaGroundShadowTests.swift`
+
+**Interfaces:**
+- 이름: `PlazaNamePlate.image(text:scale:) -> CGImage` (`isMe` 제거). 바탕·테두리 없음. 글꼴 `NSFont.systemFont(ofSize: 12, weight: .semibold)`,
+  글자 흰색 `#FFFFFF`, 그림자 검정 55% 불투명, 아래로 1pt, 흐림 2pt. 글자 다듬기(안티에일리어싱)는 켠다. 그림자가 잘리지
+  않게 둘레에 여백을 둔다. 크기는 정수 포인트로 올림, 텍스처는 기기 배율로 만들어 카메라 HUD 층에 붙인다(지금처럼).
+  닉네임이 비면 숨긴다(지금처럼).
+- 그림자: `PlazaGroundShadow.image(width: Int, height: Int) -> CGImage` — 월드 픽셀 단위의 꽉 찬 타원, 색 검정, 알파 0.22,
+  가장자리는 도트처럼 또렷하게(안티에일리어싱 끔). 장면은 캐릭터마다 그림자 노드 하나를 캐릭터 아래(zPosition 낮게)에 둔다.
+  - 크기: 지금 앞모습 첫 프레임의 폭 `w`에서 `width = clamp(round(w × 0.6), 14, 80)`을 짝수로 맞추고, `height = max(4, round(width × 0.3))`.
+  - 위치: 가운데를 `walker.footPoint`에 맞추되, 걸을 때의 통통 튐(bob)은 적용하지 않는다. 기기 픽셀 단위로 맞춘다.
+  - 그림이 바뀌면(진화 등) 크기를 다시 계산한다. 텍스처는 크기가 바뀔 때만 다시 만든다.
+- 걷기: `PlazaWalker.stepDuration = 0.2`. 시간에 기대는 테스트 값(예: 1초에 4칸)을 새 값에 맞춘다.
+
+- [ ] **Step 1: 실패하는 테스트 작성/고치기**
+
+```swift
+// PlazaNamePlateTests
+func testPlainTextHasShadowAndNoPlate() { /* 글자 영역 밖 모서리 픽셀은 투명(바탕판 없음), 반투명 그림자 픽셀이 있고, 흰 글자 픽셀이 있다 */ }
+func testWidthGrowsWithTextAndScale() { /* 기존 폭 테스트 유지(isMe 인자 제거) */ }
+// PlazaGroundShadowTests
+func testEllipseSizeAlphaAndCorners() { /* image(width: 40, height: 12): 크기 40×12, 가운데 알파 ≈ 0.22×255(±3), 네 모서리 알파 0, 중간값 알파 없음(또렷함) */ }
+func testSizeRuleFromSpriteWidth() { /* 헬퍼 size(forSpriteWidth:) : 50 → (30, 9), 10 → (14, 4), 200 → (80, 24) */ }
+// PlazaWindowTests
+func testShadowStaysOnGroundWhileBobbing() { /* setCharacter 후 걷는 중 캐릭터 y는 bob으로 바뀌어도 그림자 노드 y는 footPoint 그대로 */ }
+// PlazaWalkerTests
+func testStepIsPointTwoSeconds() { XCTAssertEqual(PlazaWalker.stepDuration, 0.2) }
+```
+
+- [ ] **Step 2–4:** `swift test --filter 'Plaza|<보강 Global Constraints의 검사 테스트 15개>'`, `swift build --build-tests`
+- [ ] **Step 5: Commit** — `feat(plaza): plain shadowed name text, soft ground shadow, faster walk`
+- [ ] **Step 6: 사용자 확인** — 개발 빌드를 다시 띄워 확인받는다.
