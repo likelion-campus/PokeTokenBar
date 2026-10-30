@@ -37,6 +37,18 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/ModelPricing.swift"
   "Sources/PokeTokenBar/Core/CustomScanRoots.swift"
   "Sources/PokeTokenBar/Core/UsageRecap.swift"
+  "Sources/PokeTokenBar/Team/TeamCode.swift"
+  "Sources/PokeTokenBar/Team/TeamSettings.swift"
+  "Sources/PokeTokenBar/Team/TeamModels.swift"
+  "Sources/PokeTokenBar/Team/TeamEventFactory.swift"
+  "Sources/PokeTokenBar/Team/TeamFeedStore.swift"
+  "Sources/PokeTokenBar/Team/TeamWire.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaMap.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaWalker.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaPose.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaCamera.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaCharacterLoader.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaPreferences.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"
