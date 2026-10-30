@@ -35,7 +35,7 @@ final class LocalizedUILiteralTests: XCTestCase {
 
     /// Character walk rather than a regex: it has to tell a `//` inside a string literal apart from
     /// a real trailing comment, or Korean comments (house style) would all read as offenders.
-    private static func hasHangulStringLiteral(_ line: String) -> Bool {
+    static func hasHangulStringLiteral(_ line: String) -> Bool {
         var inString = false
         var escaped = false
         var previous: Character?

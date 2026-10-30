@@ -20,7 +20,7 @@ final class TeamSettingsTests: XCTestCase {
     func testDefaultsAreOffAndNotReady() {
         let s = TeamSettings(defaults: freshDefaults())
         XCTAssertFalse(s.isEnabled); XCTAssertFalse(s.isReady)
-        XCTAssertTrue(s.visitsEnabled); XCTAssertTrue(s.notificationsEnabled)
+        XCTAssertTrue(s.notificationsEnabled)
         XCTAssertNil(s.code); XCTAssertEqual(s.nickname, "")
     }
 
@@ -45,11 +45,11 @@ final class TeamSettingsTests: XCTestCase {
         let code = TeamCode.generate(using: &rng)
         let s = TeamSettings(defaults: d)
         s.code = code; s.nickname = "민수"; s.isEnabled = true
-        s.visitsEnabled = false; s.notificationsEnabled = false
+        s.notificationsEnabled = false
         XCTAssertTrue(s.isReady)
         let t = TeamSettings(defaults: d)
         XCTAssertEqual(t.code, code); XCTAssertEqual(t.nickname, "민수")
-        XCTAssertTrue(t.isEnabled); XCTAssertFalse(t.visitsEnabled); XCTAssertFalse(t.notificationsEnabled)
+        XCTAssertTrue(t.isEnabled); XCTAssertFalse(t.notificationsEnabled)
     }
 
     func testLeaveTeamKeepsIdentity() {

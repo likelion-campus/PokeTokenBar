@@ -14,7 +14,6 @@ final class TeamSettings {
         }
     }
     var nickname: String { didSet { defaults.set(nickname, forKey: "team.nickname") } }
-    var visitsEnabled: Bool { didSet { defaults.set(visitsEnabled, forKey: "team.visits") } }
     var notificationsEnabled: Bool { didSet { defaults.set(notificationsEnabled, forKey: "team.notifications") } }
     let memberID: String
 
@@ -23,7 +22,6 @@ final class TeamSettings {
         isEnabled = defaults.object(forKey: "team.enabled") as? Bool ?? false
         code = defaults.string(forKey: "team.code").flatMap { TeamCode(parsing: $0) }
         nickname = defaults.string(forKey: "team.nickname") ?? ""
-        visitsEnabled = defaults.object(forKey: "team.visits") as? Bool ?? true
         notificationsEnabled = defaults.object(forKey: "team.notifications") as? Bool ?? true
         if let id = defaults.string(forKey: "team.memberID"), !id.isEmpty {
             memberID = id

@@ -1,0 +1,30 @@
+import XCTest
+@testable import PokeTokenBar
+
+final class TeamLocalizationTests: XCTestCase {
+    func testTeamSourcesHaveNoHangulLiterals() throws {
+        let team = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/PokeTokenBar/Team")
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: team, includingPropertiesForKeys: nil))
+        var offenders: [String] = []
+        var scanned = 0
+        for case let url as URL in enumerator
+        where url.pathExtension == "swift" && url.lastPathComponent != "TeamLocalization.swift" {
+            scanned += 1
+            let lines = try String(contentsOf: url, encoding: .utf8).components(separatedBy: "\n")
+            for (index, line) in lines.enumerated() where LocalizedUILiteralTests.hasHangulStringLiteral(line) {
+                offenders.append("\(url.lastPathComponent):\(index + 1)")
+            }
+        }
+        XCTAssertGreaterThan(scanned, 0)
+        XCTAssertTrue(offenders.isEmpty, "Move Hangul literals into TeamLocalization.swift: \(offenders.joined(separator: ", "))")
+    }
+
+    func testPlazaStrings() {
+        let l = L(.ko)
+        XCTAssertEqual(l.plazaOpen, "광장 열기"); XCTAssertEqual(l.plazaWindowTitle, "팀 광장")
+    }
+}
