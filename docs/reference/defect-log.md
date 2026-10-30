@@ -1342,3 +1342,24 @@ read_when:
   centre-only snap makes them fail. Class sweep: the only other `.nearest` use is the menu-bar
   sprite `CALayer` in `PokeTokenBarApp.swift` (default centre anchor, `resizeAspect`); it was not
   changed and was not measured.
+
+- **A system memory-pressure signal stops `NSCache` for the whole process, so tests that read back what
+  they just cached fail in a block on some runs.** The full suite failed with exactly 85 assertions
+  (`SpriteImageCacheTests` 25, `UnownSpriteCacheTests` 52, `UnownSpriteViewTests` 4,
+  `SpriteAnimationPreviewTests` 4), then passed on the next run of the same code. libcache keeps a pressure
+  state until the next normal signal: after warn, caches without a limit keep nothing; after critical,
+  caches that already exist keep nothing, even with a `countLimit`. A fresh cache with a limit still works,
+  so a quick check in a new cache looks healthy. Calling libcache's `cache_simulate_memory_warning_event(4)`
+  in the test process reproduces the same 85 failures with the same per-suite counts. In the real failure
+  the Mac entered warn at 17:25:45, apps were being suspended at 17:25:54 as the failures began, and it
+  returned to normal at 17:27:05. No log line said "critical", so that level is inferred from the matching
+  failure pattern. **Why it was misread:** a bisect pointed at `PlazaTileArtTests` and two clean runs after
+  making that test lighter looked like proof. The failure is intermittent, so those passes proved nothing,
+  and the real cause was found only by logging who evicted and probing a fresh cache at several points in
+  the run. Do not treat clean runs as evidence for a fix to an intermittent failure; reproduce the exact
+  failure on demand first. **Production:** nothing to fix. A miss reloads from disk, and all three
+  production caches have a limit. **Fix:** `AaaNSCachePressureGuardTests` registers a test observer that
+  sends a normal signal before every test, with no change to the upstream test files, and its name makes it
+  run first. Disabling the observer brings back all 85 failures under a simulated critical signal. A signal
+  that arrives in the middle of a test can still fail that test. A filtered run that leaves this class out
+  has no guard.

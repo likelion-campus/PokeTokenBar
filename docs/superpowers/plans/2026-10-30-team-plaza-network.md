@@ -345,7 +345,7 @@
 - `PlazaScene`에서 그림, 그림자, 이름표, 프레임 순환, 텍스처 캐시를 옮긴다. 내 캐릭터는 `PlazaActor` 하나다. 기존 테스트용 값(`groundShadowSize`, `characterX`, `characterY`, `namePlatePosition`, `isNamePlateVisible`, `backingOverride` 등)은 장면에 남겨 내 캐릭터로 위임한다.
 
 - [ ] **Step 1: 기준 확인** — Run: `swift test --filter 'Plaza|<규칙 검사 15개>'` / Expected: PASS(옮기기 전 개수를 적어 둔다)
-- [ ] **Step 2: 옮기기**
+- [ ] **Step 2: 옮기기.** 함께 `PlazaWindowController.mapImage`를 정적 캐시로 옮긴다. 지금은 `prepareScene`을 부르는 테스트마다 지도를 약 1초씩 다시 그려 `PlazaWindowTests`만 30초가 걸린다. 앱에서는 지도가 하나라 동작이 같다.
 - [ ] **Step 3: 통과 확인** — 같은 명령으로 같은 개수가 통과한다. 테스트 파일은 고치지 않는다.
 - [ ] **Step 4: Commit** — `refactor(plaza): extract PlazaActor from the scene`
 
