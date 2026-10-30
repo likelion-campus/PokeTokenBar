@@ -1222,3 +1222,11 @@ func testShadowStaysOnGroundWhileBobbing() { /* bobbed 를 캐릭터 y의 퍼짐
 - [ ] **Step 2–4:** `swift test --filter 'Plaza|<검사 테스트 15개>'`, `swift build --build-tests`
 - [ ] **Step 5: Commit** — `feat(plaza): bigger Pokémon, wider ground shadow, larger names; pause the view when hidden`
 - [ ] **Step 6: 사용자 확인**
+
+#### Task 17 보강: 그림자 시안 D (네 번째 사용자 확인)
+
+그림자가 넓어 몸이 치우친 포켓몬에서 어색하다는 의견에 시안 4개를 비교했고, 사용자가 **D(작고 부드럽게)**를 골랐다.
+- 크기: `width = clamp(round(scaledW × 0.70), 20, 140)` 짝수, `height = max(6, round(width × 0.32))`.
+- 농도: 가운데 알파 0.30, 가장자리로 갈수록 `0.30 × (1 − d)^0.8`(d = 타원 정규화 거리²)로 흐려져 바깥은 0. 월드 픽셀 해상도로
+  만들고 `.nearest`로 키운다(도트 느낌의 계단식 흐림).
+- 위치: 가운데 = 발 높이보다 `round(height × 0.12)`만큼 위(뒤). 통통 튐 없음, 가장자리 맞춤은 그대로.
