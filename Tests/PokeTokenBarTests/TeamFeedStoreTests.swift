@@ -147,6 +147,11 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.events.first?.id, "e0")
     }
 
+    func testFreshStoreWritesNoFile() {
+        _ = makeStore()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
     func testPersistsAcrossInstances() {
         let store = makeStore()
         store.insert(event("e1", at: now))

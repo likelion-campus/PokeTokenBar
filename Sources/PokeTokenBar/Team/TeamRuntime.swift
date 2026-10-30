@@ -19,6 +19,7 @@ final class TeamRuntime {
     private var activity: NSObjectProtocol?
 
     var isHoldingActivity: Bool { activity != nil }
+    var isTicking: Bool { tickTask != nil }
 
     init(settings: TeamSettings, companion: CompanionStore, transport: TeamTransporting = BonjourTeamTransport(),
          feed: TeamFeedStore? = nil, closePlaza: (() -> Void)? = nil) {
@@ -40,13 +41,6 @@ final class TeamRuntime {
         // The character first, so the first hello carries it rather than the fallback.
         observeCharacter()
         observeSettings()
-        tickTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(Self.tickInterval))
-                guard let self else { return }
-                self.session.tick()
-            }
-        }
     }
 
     // MARK: - Observation (re-register first, then work)
@@ -63,8 +57,10 @@ final class TeamRuntime {
         let ready = settings.isReady
         if ready {
             beginActivityIfNeeded()
+            startTicking()
         } else {
             endActivity()
+            stopTicking()
             if wasReady { closePlaza() }
         }
         wasReady = ready
@@ -91,6 +87,23 @@ final class TeamRuntime {
         guard activity == nil else { return }
         activity = ProcessInfo.processInfo.beginActivity(
             options: .userInitiatedAllowingIdleSystemSleep, reason: "PokeTokenBar team presence")
+    }
+
+    /// Runs only while the team is on, so a feature-off app has no periodic wake-ups.
+    private func startTicking() {
+        guard tickTask == nil else { return }
+        tickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.tickInterval))
+                guard let self else { return }
+                self.session.tick()
+            }
+        }
+    }
+
+    private func stopTicking() {
+        tickTask?.cancel()
+        tickTask = nil
     }
 
     private func endActivity() {

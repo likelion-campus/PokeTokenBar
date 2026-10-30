@@ -82,7 +82,8 @@ final class TeamFeedStore {
         guard !stored.contains(where: { $0.event.id == e.id }) else { return false }
         stored.append(StoredEvent(event: e, receivedAt: clock()))
         sortEvents()
-        prune()   // saves
+        prune()
+        save()
         // An event pruned right away (too old / beyond the cap) is not "new".
         return stored.contains(where: { $0.event.id == e.id })
     }
@@ -119,7 +120,9 @@ final class TeamFeedStore {
         save()
     }
 
+    /// Saves only when something was dropped, so a fresh store never creates its file.
     func prune() {
+        let before = (stored.count, allReactions.count)
         let today = calendar.startOfDay(for: clock())
         let cutoff = calendar.date(byAdding: .day, value: -Self.retentionDays, to: today) ?? today
         // Events whose day cannot be parsed are kept until the cap trims them.
@@ -132,7 +135,7 @@ final class TeamFeedStore {
         let present = Set(stored.map(\.event.id))
         // A reaction can arrive before its event during sync: only drop stale orphans.
         allReactions.removeAll { !present.contains($0.reaction.eventID) && $0.reaction.createdAt < cutoff }
-        save()
+        if (stored.count, allReactions.count) != before { save() }
     }
 
     // MARK: - Helpers

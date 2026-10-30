@@ -21,7 +21,7 @@ private final class RuntimeNode {
     let runtime: TeamRuntime
     private let suite = "ptb.test.team.runtime.\(UUID().uuidString)"
 
-    init(hub: FakeTransportHub, code: TeamCode, nickname: String) {
+    init(hub: FakeTransportHub, code: TeamCode, nickname: String, companionURL: URL? = nil) {
         let defaults = UserDefaults(suiteName: suite)!
         settings = TeamSettings(defaults: defaults)
         settings.code = code
@@ -29,7 +29,7 @@ private final class RuntimeNode {
         settings.isEnabled = true
         let tmp = FileManager.default.temporaryDirectory
         companion = CompanionStore(provider: RuntimeTestProvider(), clock: { runtimeNow },
-                                   fileURL: tmp.appendingPathComponent("rt-companion-\(UUID().uuidString).json"),
+                                   fileURL: companionURL ?? tmp.appendingPathComponent("rt-companion-\(UUID().uuidString).json"),
                                    rng: SeededRNG(seed: 7), dittoDisguiseRollingEnabled: false, defaults: defaults)
         transport = hub.makeTransport()
         let feed = TeamFeedStore(fileURL: tmp.appendingPathComponent("rt-feed-\(UUID().uuidString).json"),
@@ -84,10 +84,19 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertGreaterThan(after, before)
     }
 
-    func testFirstHelloCarriesThePlazaCharacter() async {
+    /// The raised Pokemon is species 2 but the pinned representative is species 1, so the plaza character
+    /// differs from the session's profile fallback.
+    func testFirstHelloCarriesThePlazaCharacter() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rt-pinned-\(UUID().uuidString).json")
+        let active = "{\"baseID\":1,\"pathIDs\":[1,2],\"stageIndex\":1,\"usedAtStage\":0,"
+            + "\"rarity\":\"common\",\"totalForms\":2,\"isShiny\":false,\"hasGrowthBoost\":false}"
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":0,\"spentTokens\":0,"
+            + "\"lastDate\":\"d1\",\"active\":\(active),\"dex\":[],\"collectedFinals\":[]}"
+        try? json.data(using: .utf8)!.write(to: url)
         let code = newCode()
-        let a = RuntimeNode(hub: hub, code: code, nickname: "가")
-        await a.companion.hatch(baseID: 1)
+        let a = RuntimeNode(hub: hub, code: code, nickname: "가", companionURL: url)
+        XCTAssertTrue(a.companion.setRepresentativeSpeciesID(1))
+        XCTAssertEqual(a.companion.currentSpeciesID, 2)
         let b = RuntimeNode(hub: hub, code: code, nickname: "나")
         a.runtime.start()
         b.runtime.start()
@@ -121,6 +130,7 @@ final class TeamRuntimeTests: XCTestCase {
                                   closePlaza: { closes += 1 })
         runtime.start()
         XCTAssertTrue(runtime.isHoldingActivity)
+        XCTAssertTrue(runtime.isTicking)
 
         settings.nickname = "나"   // still ready
         await Task.yield(); await Task.yield()
@@ -130,9 +140,11 @@ final class TeamRuntimeTests: XCTestCase {
         settings.isEnabled = false
         await settle { closes == 1 }
         XCTAssertFalse(runtime.isHoldingActivity)
+        XCTAssertFalse(runtime.isTicking)
 
         settings.isEnabled = true
         await settle { runtime.isHoldingActivity }
+        XCTAssertTrue(runtime.isTicking)
         XCTAssertEqual(closes, 1)
     }
 }
