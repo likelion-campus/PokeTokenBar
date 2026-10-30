@@ -1185,3 +1185,40 @@ func testStepIsPointTwoSeconds() { XCTAssertEqual(PlazaWalker.stepDuration, 0.2)
 - [ ] **Step 2–4:** `swift test --filter 'Plaza|<보강 Global Constraints의 검사 테스트 15개>'`, `swift build --build-tests`
 - [ ] **Step 5: Commit** — `feat(plaza): plain shadowed name text, soft ground shadow, faster walk`
 - [ ] **Step 6: 사용자 확인** — 개발 빌드를 다시 띄워 확인받는다.
+
+### Task 17: 크기 조정과 가려졌을 때 그리기 멈춤 (세 번째 사용자 확인 반영)
+
+사용자 의견: 그림자가 작아 어색하다, 이름을 더 크게, 포켓몬 기본 크기를 조금 더 크게.
+
+**Files:**
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaScene.swift` (캐릭터 배율, 그림자·이름 위치를 배율에 맞춤)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaGroundShadow.swift` (크기 규칙)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaNamePlate.swift` (14pt)
+- Modify: `Sources/PokeTokenBar/Team/Plaza/PlazaWindowController.swift` (가려지면 `SKView.isPaused`도)
+- Modify: 관련 테스트
+
+**Interfaces / values:**
+- `PlazaScene.characterScale: CGFloat = 1.5` (상수 하나). 캐릭터 그림을 월드 단위로 1.5배 그린다(가장 가까운 이웃 필터, 지금처럼).
+  발 위치 기준(아래 가운데)은 그대로이고, 이름 위치와 그림자 크기는 **배율을 적용한 그림 폭·높이**로 계산한다.
+  부딪힘·이동은 그대로 발밑 한 칸이다.
+- 그림자 크기 `PlazaGroundShadow.size(forSpriteWidth:)`: 입력은 배율을 적용한 폭. `width = clamp(round(w × 0.85), 20, 140)`을
+  짝수로, `height = max(6, round(width × 0.32))`. 알파 0.22, 위치 규칙(가운데 = 발 + round(height × 0.25), 가장자리 맞춤)은 유지.
+- 이름: `PlazaNamePlate` 글꼴 14pt semibold, 나머지 그대로.
+- 가려졌을 때: `setRendering(visible: false)`는 장면뿐 아니라 `SKView.isPaused = true`로 그리기 루프 자체를 멈추고,
+  `true`면 다시 켠다(개발 실행 기록에 창이 안 보일 때 "SKView: no drawables available" 경고가 반복됐다).
+- 테스트 손질: `testShadowStaysOnGroundWhileBobbing`의 `bobbed` 확인이 항상 참이 되어 있으니, 캐릭터 y가 프레임마다
+  바뀌는지(퍼짐)로 확인한다.
+
+- [ ] **Step 1: 실패하는 테스트 작성/고치기**
+
+```swift
+func testShadowSizeRule() { /* size(forSpriteWidth: 75) == (64, 20), 10 → (20, 6), 300 → (140, 45) */ }
+func testCharacterDrawnAtOnePointFiveScale() { /* setCharacter 후 캐릭터 노드 크기 = 프레임 크기 × 1.5 */ }
+func testNameFontIs14() { /* 같은 글자에서 14pt 그림이 이전 12pt 기준보다 크다 — 상수 확인 또는 폭 비교 */ }
+func testHidingPausesTheViewToo() { /* 창 없이 검증 가능하게: setRendering이 장면 isPaused와 뷰 일시정지 요청을 함께 바꾼다(주입 가능한 뷰 또는 상태 노출) */ }
+func testShadowStaysOnGroundWhileBobbing() { /* bobbed 를 캐릭터 y의 퍼짐으로 확인 */ }
+```
+
+- [ ] **Step 2–4:** `swift test --filter 'Plaza|<검사 테스트 15개>'`, `swift build --build-tests`
+- [ ] **Step 5: Commit** — `feat(plaza): bigger Pokémon, wider ground shadow, larger names; pause the view when hidden`
+- [ ] **Step 6: 사용자 확인**
