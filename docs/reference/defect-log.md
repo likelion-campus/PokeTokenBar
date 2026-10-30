@@ -1326,3 +1326,19 @@ read_when:
   On the same CI image, English-only recognition corrected the period label but still read
   the unrelated chart caption `Daily` as `Dally`; do not teach OCR that misspelling or relax
   the original chart guard to make a period-row regression pass.
+
+- **Nearest filter plus a centre-anchored node of odd device-pixel width puts the left edge on a half
+  pixel.** The plaza snapped only the centre of the character sprite and the name plate. With an odd
+  width in device pixels the left edge lands on .5 and the nearest filter drops or doubles columns:
+  a 41-column plate drawn 1:1 kept only 33 distinct columns, and a 31-column sprite drawn at 3x came
+  out 2, 3 or 4 px wide depending on x, so it shimmered while walking. It affects 1x displays and
+  Retina zoom 1 and 3; Retina zoom 2 is the only clean case, which is why it passed on the
+  developer's screen. The camera had the same shape: `layout()` re-snapped `rect.midX` and undid the
+  origin snap `PlazaCamera.visibleRect` had already done. Snap the left (and bottom) edge, then add
+  half the size back (`PlazaPixelSnap`), and never re-snap a value derived from an already snapped
+  origin. `layout()` falls back to backing 2 without a window, so tests cannot reach the 1x branch;
+  the pure helper takes `backing` and `zoom` and `PlazaPixelSnapTests` assert the edge lands on the
+  device grid for 1x zoom 2, odd plate width, odd viewport and Retina zoom 1 and 3. Injecting the
+  centre-only snap makes them fail. Class sweep: the only other `.nearest` use is the menu-bar
+  sprite `CALayer` in `PokeTokenBarApp.swift` (default centre anchor, `resizeAspect`); it was not
+  changed and was not measured.

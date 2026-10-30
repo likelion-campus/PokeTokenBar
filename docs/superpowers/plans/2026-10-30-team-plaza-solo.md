@@ -931,6 +931,7 @@ git commit -m "chore(plaza): add plaza dev runner and gate team logic coverage"
   `AppLogTests|AntigravityUsageTests|CredentialSwitchCacheTests|CustomScanRootsTests|LanguageSurfaceRegressionTests|LimitPaceTests|KiroUsageTests|LiveCredentialCallGateTests|LocalizationColumnTests|LocalizedUILiteralTests|PopoverNavigationTests|ScrollerLaneTests|SwiftUIIsolationTests|TeamLocalizationTests|UsageEnvironmentTests`
 - 광장 글자는 모두 **12pt**로 쓴다. 갈무리11의 설계 크기가 12픽셀(unitsPerEm 1200, 100단위 격자)이라 11pt는
   흐리게 보인다. 이름판은 글자 다듬기(안티에일리어싱·폰트 스무딩)를 끈다(개정, 보강 최종 검토).
+  (정정: 이후 이름판은 15pt 굵은 글자에 어두운 테두리·그림자로 바뀌었고 글자 다듬기는 켠다. 아래 1160행대 참고.)
 
 ### Task 11: 리소스 번들 (타일셋, 글꼴, 출처)
 

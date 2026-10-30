@@ -55,6 +55,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Team/Plaza/PlazaGroundShadow.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaResources.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaTileArt.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaPixelSnap.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"

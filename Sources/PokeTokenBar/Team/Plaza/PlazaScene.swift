@@ -69,7 +69,8 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         super.init(size: CGSize(width: 960, height: 640))
         scaleMode = .resizeFill
         anchorPoint = .zero
-        backgroundColor = .black
+        // 지도 밖은 타일셋 나무 그림자 톤의 짙은 초록(숲이 이어진 느낌).
+        backgroundColor = SKColor(red: 0x1E / 255, green: 0x3A / 255, blue: 0x26 / 255, alpha: 1)
 
         mapNode.anchorPoint = .zero
         mapNode.position = .zero
@@ -239,14 +240,15 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
     private func layout() {
         let z = CGFloat(zoom)
         let backing = view?.window?.backingScaleFactor ?? 2
-        let step = 1 / (z * max(backing, 1))
-        func snap(_ v: CGFloat) -> CGFloat { (v / step).rounded() * step }
+        func snap(_ v: CGFloat) -> CGFloat { PlazaPixelSnap.snap(v, backing: backing, zoom: zoom) }
 
         let foot = walker.footPoint
-        let focus = PlazaCamera.focus(for: foot, rightInset: PlazaRosterMetrics.coveredWidth, zoom: zoom)
+        // 큰 포켓몬의 머리가 잘리지 않게 앞모습 높이의 절반만큼 위를 본다(앞모습 기준이라 돌아봐도 카메라가 흔들리지 않는다).
+        let lift = frames?.front.first.map { Self.scaledSize(of: $0.image).height / 2 } ?? 0
+        let focus = PlazaCamera.focus(for: foot, rightInset: PlazaRosterMetrics.coveredWidth, zoom: zoom, lift: lift)
         let rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
                                         rightInset: PlazaRosterMetrics.coveredWidth)
-        let cameraPos = CGPoint(x: snap(rect.midX), y: snap(worldSize.height - rect.midY))
+        let cameraPos = CGPoint(x: rect.midX, y: worldSize.height - rect.midY)   // 원점은 visibleRect가 이미 기기 격자에 맞췄다
         cameraNode.position = cameraPos
         cameraNode.setScale(1 / z)
 
@@ -257,15 +259,16 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         let shadowCenterY = worldSize.height - (foot.y - (shadowSize.height * 0.12).rounded())
         shadowNode.position = CGPoint(x: snap(foot.x - shadowSize.width / 2), y: snap(shadowCenterY - shadowSize.height / 2))
         let footScene = CGPoint(x: snap(foot.x), y: snap(worldSize.height - foot.y + CGFloat(pose.bob)))
-        characterNode.position = footScene
+        characterNode.position = CGPoint(x: PlazaPixelSnap.centerX(footX: foot.x, width: characterNode.size.width, backing: backing, zoom: zoom),
+                                         y: footScene.y)
 
         // 이름표는 카메라 공간(화면 포인트)에 둔다.
         let top = footScene.y + characterNode.size.height
         let labelBacking = max(backing, 1)
-        func snapView(_ v: CGFloat) -> CGFloat { (v * labelBacking).rounded() / labelBacking }
         refreshPlate(backing: labelBacking)
-        plateNode.position = CGPoint(x: snapView((footScene.x - cameraPos.x) * z),
-                                     y: snapView((top - cameraPos.y) * z + 1))
+        plateNode.position = PlazaPixelSnap.platePosition(footSceneX: footScene.x, topY: top, cameraPos: cameraPos,
+                                                          plateWidth: plateNode.size.width, viewport: size,
+                                                          backing: labelBacking, zoom: zoom)
     }
 
     /// 테스트용: 그림자 노드의 크기와 아래 모서리 y, 캐릭터 노드의 y.

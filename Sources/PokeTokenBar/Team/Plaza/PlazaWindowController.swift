@@ -120,7 +120,6 @@ extension SKView: PlazaPausableView {}
 
     func refreshNickname() {
         scene?.setNickname(nickname())
-        scene?.setNameColor(PlazaNameColor.color(forMemberID: memberID()))
         refreshRoster()
     }
 
