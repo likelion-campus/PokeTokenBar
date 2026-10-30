@@ -31,15 +31,42 @@ final class PlazaMapTests: XCTestCase {
     func testShelterBoardAndSpawn() {
         XCTAssertGreaterThanOrEqual(map.shelterTiles.count, 12)
         XCTAssertEqual(map.tile(at: map.spawn), .shelter)
-        let below = TilePoint(x: map.boardTile.x, y: map.boardTile.y + 1)
+        let below = TilePoint(x: map.boardTile.x, y: map.boardTile.y + 2)
         XCTAssertTrue(map.isWalkable(below), "소식판은 아래 칸에서 위를 보고 말을 건다(2부)")
     }
 
-    func testHasEachArea() {
-        let all = PlazaMapData.rows.joined()
-        for ch: Character in ["W", "f", ",", "P"] {
-            XCTAssertTrue(all.contains(ch), "missing area \(ch)")
+    func testBorderIsThreeTilesOfTrees() {
+        for y in 0..<map.height {
+            for x in 0..<map.width where x < 3 || y < 3 || x >= map.width - 3 || y >= map.height - 3 {
+                XCTAssertEqual(map.tile(at: .init(x: x, y: y)), .tree, "(\(x),\(y))")
+            }
         }
+    }
+
+    func testOnlySimpleKinds() {
+        var counts: [Character: Int] = [:]
+        for ch in PlazaMapData.rows.joined() { counts[ch, default: 0] += 1 }
+        XCTAssertTrue(Set(counts.keys).isSubset(of: [".", "f", "S", "T", "b", "N"]))
+        XCTAssertTrue((30...50).contains(counts["f", default: 0]), "flowers \(counts["f", default: 0])")
+        XCTAssertTrue((6...10).contains(counts["b", default: 0]), "bushes \(counts["b", default: 0])")
+    }
+
+    func testBushesDoNotTouch() {
+        var bushes: [TilePoint] = []
+        for y in 0..<map.height { for x in 0..<map.width where map.tile(at: .init(x: x, y: y)) == .bush { bushes.append(.init(x: x, y: y)) } }
+        for a in bushes { for b in bushes where a != b {
+            XCTAssertGreaterThan(max(abs(a.x - b.x), abs(a.y - b.y)), 1, "\(a) \(b)")
+        } }
+    }
+
+    func testBoardIsOneTwoByTwoBlock() {
+        var boards: [TilePoint] = []
+        for y in 0..<map.height { for x in 0..<map.width where map.tile(at: .init(x: x, y: y)) == .board { boards.append(.init(x: x, y: y)) } }
+        XCTAssertEqual(boards.count, 4)
+        let b = map.boardTile
+        XCTAssertEqual(Set(boards), [b, .init(x: b.x + 1, y: b.y), .init(x: b.x, y: b.y + 1), .init(x: b.x + 1, y: b.y + 1)])
+        XCTAssertTrue(map.isWalkable(.init(x: b.x, y: b.y + 2)))
+        XCTAssertTrue(map.isWalkable(.init(x: b.x + 1, y: b.y + 2)))
     }
 
     func testRejectsBadRows() {

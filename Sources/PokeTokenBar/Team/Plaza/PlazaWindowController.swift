@@ -12,8 +12,11 @@ import SpriteKit
     /// 창 위치·크기 기억용 이름. 사용자에게 보이는 글이 아니다.
     private static let frameAutosaveName = "TeamPlazaWindow"
 
-    /// 한 번만 만든다. 다시 열 때 메인 스레드에서 지도를 다시 그리지 않는다.
-    private lazy var mapImage: CGImage = PlazaTileArt.mapImage(map)
+    /// 한 번만 만든다. 다시 열 때 메인 스레드에서 지도를 다시 그리지 않는다. 시트를 못 읽으면 단색 잔디로 대신한다.
+    private lazy var mapImage: CGImage = {
+        guard let sheet = PlazaResources.tileSheet() else { return PlazaTileArt.plainGrassImage(map) }
+        return PlazaTileArt.mapImage(map, sheet: sheet)
+    }()
 
     private var window: NSWindow?
     private var skView: SKView?

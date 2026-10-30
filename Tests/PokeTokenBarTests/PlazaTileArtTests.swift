@@ -3,53 +3,72 @@ import CoreGraphics
 @testable import PokeTokenBar
 
 final class PlazaTileArtTests: XCTestCase {
-    func testMapImageSize() {
-        let img = PlazaTileArt.mapImage(PlazaMapData.map)
+    private func sheet() throws -> CGImage { try XCTUnwrap(PlazaResources.tileSheet()) }
+
+    /// 2x2 보드와 쉼터 한 칸이 있는 작은 지도. 왼쪽 위 2x2는 나무다.
+    private func smallMap(_ at: String = ".") throws -> PlazaMap {
+        try PlazaMap(rows: ["TT" + at + "...", "TT.NN.", "...NN.", "..S..."])
+    }
+
+    func testMapImageSize() throws {
+        let img = PlazaTileArt.mapImage(PlazaMapData.map, sheet: try sheet())
         XCTAssertEqual(img.width, 48 * 32); XCTAssertEqual(img.height, 32 * 32)
     }
 
-    func testDeterministic() {
-        let map = PlazaMapData.map, p = map.spawn
-        let a = pixels(PlazaTileArt.tileImage(at: p, in: map))
-        let b = pixels(PlazaTileArt.tileImage(at: p, in: map))
-        XCTAssertEqual(a.count, 32 * 32 * 4)
+    func testDeterministic() throws {
+        let sheet = try sheet()
+        let a = pixels(PlazaTileArt.mapImage(PlazaMapData.map, sheet: sheet))
+        let b = pixels(PlazaTileArt.mapImage(PlazaMapData.map, sheet: sheet))
+        XCTAssertEqual(a.count, 48 * 32 * 32 * 32 * 4)
         XCTAssertEqual(a, b)
     }
 
-    func testPathEdgeDiffersFromInterior() throws {
-        // 가운데(1,1)만 왼쪽 이웃이 풀이다. 보드와 쉼터는 지도 검증을 통과시키려고 아래 줄에 둔다.
-        let map = try PlazaMap(rows: ["PPP", ".PP", "PPP", "NS."])
-        let px = pixels(PlazaTileArt.tileImage(at: TilePoint(x: 1, y: 1), in: map))
-        XCTAssertEqual(px.count, 32 * 32 * 4)
-        func rgb(_ x: Int, _ y: Int) -> [UInt8] { Array(px[(y * 32 + x) * 4..<(y * 32 + x) * 4 + 3]) }
-        let edge = rgb(0, 10)
-        // 왼쪽 끝 열은 모두 같은 테두리색이고, 가운데 열과 다르다
-        for y in 0..<32 {
-            XCTAssertEqual(rgb(0, y), edge, "y=\(y)")
-            XCTAssertNotEqual(rgb(0, y), rgb(16, y), "y=\(y)")
+    func testFlowerCellDiffersFromPlainGrassAndTreeCellIsNotGrass() throws {
+        let sheet = try sheet()
+        // 같은 위치 (2,0): 잔디 변형이 같으니 꽃이 있는 쪽만 달라야 한다.
+        let plain = pixels(PlazaTileArt.mapImage(try smallMap("."), sheet: sheet))
+        let flower = pixels(PlazaTileArt.mapImage(try smallMap("f"), sheet: sheet))
+        XCTAssertNotEqual(tile(plain, 2, 0, width: 6 * 32), tile(flower, 2, 0, width: 6 * 32))
+
+        // 나무 칸 (0,0)의 가운데 픽셀은 잔디 변형 8종의 같은 위치 색과 모두 다르다.
+        let tree = pixels(PlazaTileArt.mapImage(try smallMap("."), sheet: sheet))
+        let treeColor = pixel(tree, 16, 16, width: 6 * 32)
+        let sheetPx = pixels(sheet)
+        for (c, r) in [(0, 9), (1, 9), (0, 10), (1, 10), (5, 9), (8, 9), (5, 10), (8, 10)] {
+            let grass = pixel(sheetPx, c * 16 + 8, r * 16 + 8, width: sheet.width)
+            XCTAssertNotEqual(treeColor, grass, "variant (\(c),\(r))")
         }
-        // 이웃이 길인 오른쪽 끝 열에는 테두리색이 없다
-        XCTAssertFalse((0..<32).contains { rgb(31, $0) == edge })
     }
 
-    func testEveryTileKindIsOpaque() throws {
-        let map = try PlazaMap(rows: [".,fPS", "WTbFN"])
-        for y in 0..<map.height {
-            for x in 0..<map.width {
-                let px = pixels(PlazaTileArt.tileImage(at: TilePoint(x: x, y: y), in: map))
-                XCTAssertEqual(px.count, 32 * 32 * 4)
-                for i in stride(from: 3, to: px.count, by: 4) {
-                    XCTAssertEqual(px[i], 255, "tile (\(x),\(y)) pixel \(i / 4)")
-                }
+    func testArtIsUpscaledTwiceWithoutSmoothing() throws {
+        let px = pixels(PlazaTileArt.mapImage(try smallMap(), sheet: try sheet()))
+        let w = 6 * 32
+        for by in stride(from: 0, to: 4 * 32, by: 2) {
+            for bx in stride(from: 0, to: w, by: 2) {
+                let c = pixel(px, bx, by, width: w)
+                XCTAssertEqual(pixel(px, bx + 1, by, width: w), c)
+                XCTAssertEqual(pixel(px, bx, by + 1, width: w), c)
+                XCTAssertEqual(pixel(px, bx + 1, by + 1, width: w), c)
             }
         }
     }
 
-    func testSameKindDiffersByPosition() throws {
-        let map = try PlazaMap(rows: ["..", "NS"])
-        let a = pixels(PlazaTileArt.tileImage(at: TilePoint(x: 0, y: 0), in: map))
-        let b = pixels(PlazaTileArt.tileImage(at: TilePoint(x: 1, y: 0), in: map))
-        XCTAssertNotEqual(a, b)
+    func testEveryPixelIsOpaque() throws {
+        let px = pixels(PlazaTileArt.mapImage(PlazaMapData.map, sheet: try sheet()))
+        XCTAssertFalse(stride(from: 3, to: px.count, by: 4).contains { px[$0] != 255 })
+    }
+
+    private func pixel(_ px: [UInt8], _ x: Int, _ y: Int, width: Int) -> [UInt8] {
+        Array(px[(y * width + x) * 4..<(y * width + x) * 4 + 4])
+    }
+
+    private func tile(_ px: [UInt8], _ tx: Int, _ ty: Int, width: Int) -> [UInt8] {
+        var out: [UInt8] = []
+        for row in 0..<32 {
+            let start = ((ty * 32 + row) * width + tx * 32) * 4
+            out += px[start..<start + 32 * 4]
+        }
+        return out
     }
 
     /// RGBA8 비트맵 컨텍스트에 그려 실제 바이트를 반환한다.
