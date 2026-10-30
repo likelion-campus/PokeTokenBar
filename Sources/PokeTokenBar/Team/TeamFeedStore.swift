@@ -13,10 +13,15 @@ final class TeamFeedStore {
         var receivedAt: Date
     }
 
+    private struct StoredReaction: Codable {
+        var reaction: TeamReaction
+        var receivedAt: Date
+    }
+
     private struct FileContents: Codable {
         var version = 1
         var events: [StoredEvent]
-        var reactions: [TeamReaction]
+        var reactions: [StoredReaction]
         var lastReadAt: Date
     }
 
@@ -26,7 +31,7 @@ final class TeamFeedStore {
     @ObservationIgnored private let calendar: Calendar
 
     private var stored: [StoredEvent] = []
-    private var allReactions: [TeamReaction] = []
+    private var allReactions: [StoredReaction] = []
     private var lastReadAt: Date = .distantPast
 
     /// Newest first, keyed by `occurredAt ?? startOfDay(day)`.
@@ -47,22 +52,27 @@ final class TeamFeedStore {
     // MARK: - Queries
 
     func reactions(for eventID: String) -> [TeamReaction] {
-        allReactions.filter { $0.eventID == eventID }.sorted(by: Self.reactionOrder)
+        allReactions.map(\.reaction).filter { $0.eventID == eventID }.sorted(by: Self.reactionOrder)
     }
 
     var eventIDs: Set<String> { Set(stored.map(\.event.id)) }
-    var reactionIDs: Set<String> { Set(allReactions.map(\.id)) }
+    var reactionIDs: Set<String> { Set(allReactions.map(\.reaction.id)) }
 
     func events(notIn ids: Set<String>) -> [TeamEvent] {
         stored.map(\.event).filter { !ids.contains($0.id) }
     }
 
     func reactions(notIn ids: Set<String>) -> [TeamReaction] {
-        allReactions.filter { !ids.contains($0.id) }.sorted(by: Self.reactionOrder)
+        allReactions.map(\.reaction).filter { !ids.contains($0.id) }.sorted(by: Self.reactionOrder)
     }
 
     var unreadCount: Int {
-        stored.filter { $0.event.authorID != myMemberID && $0.receivedAt > lastReadAt }.count
+        let unreadEvents = stored.filter { $0.event.authorID != myMemberID && $0.receivedAt > lastReadAt }.count
+        let myEventIDs = Set(stored.filter { $0.event.authorID == myMemberID }.map(\.event.id))
+        let unreadReactions = allReactions.filter {
+            $0.reaction.authorID != myMemberID && myEventIDs.contains($0.reaction.eventID) && $0.receivedAt > lastReadAt
+        }.count
+        return unreadEvents + unreadReactions
     }
 
     // MARK: - Mutations
@@ -79,7 +89,7 @@ final class TeamFeedStore {
 
     @discardableResult
     func insert(_ r: TeamReaction) -> Bool {
-        guard !allReactions.contains(where: { $0.id == r.id }) else { return false }
+        guard !allReactions.contains(where: { $0.reaction.id == r.id }) else { return false }
         var r = r
         if r.kind == .comment {
             let trimmed = (r.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -87,17 +97,25 @@ final class TeamFeedStore {
             r = TeamReaction(id: r.id, eventID: r.eventID, authorID: r.authorID, authorNickname: r.authorNickname,
                              kind: r.kind, text: trimmed, createdAt: r.createdAt)
         } else if allReactions.contains(where: {
-            $0.authorID == r.authorID && $0.eventID == r.eventID && $0.kind == r.kind
+            $0.reaction.authorID == r.authorID && $0.reaction.eventID == r.eventID && $0.reaction.kind == r.kind
         }) {
             return false
         }
-        allReactions.append(r)
+        allReactions.append(StoredReaction(reaction: r, receivedAt: clock()))
         save()
         return true
     }
 
     func markAllRead() {
         lastReadAt = clock()
+        save()
+    }
+
+    /// Wipes events, reactions and the read marker (used when moving to another team).
+    func reset() {
+        stored = []
+        allReactions = []
+        lastReadAt = .distantPast
         save()
     }
 
@@ -113,7 +131,7 @@ final class TeamFeedStore {
         if stored.count > Self.maxEvents { stored.removeLast(stored.count - Self.maxEvents) }
         let present = Set(stored.map(\.event.id))
         // A reaction can arrive before its event during sync: only drop stale orphans.
-        allReactions.removeAll { !present.contains($0.eventID) && $0.createdAt < cutoff }
+        allReactions.removeAll { !present.contains($0.reaction.eventID) && $0.reaction.createdAt < cutoff }
         save()
     }
 

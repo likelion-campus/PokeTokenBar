@@ -160,6 +160,75 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(again.reactions(notIn: []).count, 1)
     }
 
+    private func makeBoxedStore(_ box: ClockBox) -> TeamFeedStore {
+        TeamFeedStore(fileURL: url, myMemberID: "me", clock: { box.now }, calendar: calendar)
+    }
+
+    func testReactionOnMyEventCountsAsUnread() {
+        let store = makeStore()
+        store.insert(event("mine", author: "me", at: now))
+        XCTAssertEqual(store.unreadCount, 0)
+        store.insert(reaction("r1", event: "mine", author: "bob"))
+        XCTAssertEqual(store.unreadCount, 1)
+    }
+
+    func testReactionOnOthersEventDoesNotCount() {
+        let box = ClockBox(now)
+        let store = makeBoxedStore(box)
+        store.insert(event("e1", author: "bob", at: now))
+        box.now = now.addingTimeInterval(10)
+        store.markAllRead()
+        box.now = now.addingTimeInterval(20)
+        store.insert(reaction("r1", event: "e1", author: "carol"))
+        XCTAssertEqual(store.unreadCount, 0)
+    }
+
+    func testMyOwnReactionDoesNotCount() {
+        let store = makeStore()
+        store.insert(event("mine", author: "me", at: now))
+        store.insert(reaction("r1", event: "mine", author: "me"))
+        XCTAssertEqual(store.unreadCount, 0)
+    }
+
+    func testMarkAllReadClearsEventsAndReactions() {
+        let box = ClockBox(now)
+        let store = makeBoxedStore(box)
+        store.insert(event("mine", author: "me", at: now))
+        store.insert(event("e1", author: "bob", at: now))
+        store.insert(reaction("r1", event: "mine", author: "bob"))
+        XCTAssertEqual(store.unreadCount, 2)
+        box.now = now.addingTimeInterval(10)
+        store.markAllRead()
+        XCTAssertEqual(store.unreadCount, 0)
+        box.now = now.addingTimeInterval(20)
+        store.insert(reaction("r2", event: "mine", author: "carol"))
+        XCTAssertEqual(store.unreadCount, 1)
+    }
+
+    func testUnreadReactionSurvivesReload() {
+        let store = makeStore()
+        store.insert(event("mine", author: "me", at: now))
+        store.insert(reaction("r1", event: "mine", author: "bob"))
+        XCTAssertEqual(makeStore().unreadCount, 1)
+    }
+
+    func testResetClearsEverythingAndPersists() {
+        let store = makeStore()
+        store.insert(event("mine", author: "me", at: now))
+        store.insert(reaction("r1", event: "mine", author: "bob"))
+        store.markAllRead()
+        store.reset()
+        XCTAssertTrue(store.events.isEmpty)
+        XCTAssertTrue(store.reactionIDs.isEmpty)
+        XCTAssertEqual(store.unreadCount, 0)
+        let again = makeStore()
+        XCTAssertTrue(again.events.isEmpty)
+        XCTAssertTrue(again.reactionIDs.isEmpty)
+        // The read marker is gone too: a fresh event at the same instant is unread.
+        again.insert(event("e2", author: "bob", at: now))
+        XCTAssertEqual(again.unreadCount, 1)
+    }
+
     func testCorruptFileStartsEmptyAndKeepsBackup() throws {
         try Data("{not json".utf8).write(to: url)
         let s = makeStore()
