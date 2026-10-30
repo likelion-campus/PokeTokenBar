@@ -49,6 +49,8 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Team/Plaza/PlazaCamera.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaCharacterLoader.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaPreferences.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaRoster.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaNamePlate.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"
