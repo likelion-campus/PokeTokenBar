@@ -142,9 +142,10 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         for _ in 0..<45 {
             t += 1.0 / 30; scene.update(t)
             if abs(scene.characterY - scene.groundShadowY) > 0.5 { bobbed = true }
-            // The shadow never moves with the bob: its y equals the snapped foot y without the bob.
-            let expected = PlazaMapData.map.pixelSize.height - scene.walker.footPoint.y
-            XCTAssertEqual(scene.groundShadowY, expected, accuracy: 0.5)
+            // The shadow never moves with the bob: its bottom edge sits at the foot y minus (height / 2 + round(height / 4)) below centre.
+            let h = CGFloat(scene.groundShadowSize.height)
+            let expected = PlazaMapData.map.pixelSize.height - scene.walker.footPoint.y - (h * 0.25).rounded() - h / 2
+            XCTAssertEqual(scene.groundShadowY, expected, accuracy: 0.51)
         }
         XCTAssertTrue(bobbed, "the character must bob while walking")
     }

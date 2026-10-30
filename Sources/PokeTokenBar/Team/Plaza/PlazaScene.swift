@@ -68,7 +68,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
         mapNode.zPosition = 0
         addChild(mapNode)
 
-        shadowNode.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        shadowNode.anchorPoint = .zero
         shadowNode.zPosition = 0.5
         shadowNode.isHidden = true
         addChild(shadowNode)
@@ -233,7 +233,10 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
 
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
         characterNode.xScale = pose.flipped ? -1 : 1
-        shadowNode.position = CGPoint(x: snap(foot.x), y: snap(worldSize.height - foot.y))
+        // 그림자는 발보다 조금 아래(높이의 1/4)에 가운데를 두고, 아래·왼쪽 모서리를 기기 픽셀에 맞춘다. 통통 튐은 받지 않는다.
+        let shadowSize = shadowNode.size
+        let shadowCenterY = worldSize.height - (foot.y + (shadowSize.height * 0.25).rounded())
+        shadowNode.position = CGPoint(x: snap(foot.x - shadowSize.width / 2), y: snap(shadowCenterY - shadowSize.height / 2))
         let footScene = CGPoint(x: snap(foot.x), y: snap(worldSize.height - foot.y + CGFloat(pose.bob)))
         characterNode.position = footScene
 
@@ -246,7 +249,7 @@ enum PlazaKeyResult: Equatable { case swallowed, closeRequested }
                                      y: snapView((top - cameraPos.y) * z + 1))
     }
 
-    /// 테스트용: 그림자 노드의 크기와 y, 캐릭터 노드의 y.
+    /// 테스트용: 그림자 노드의 크기와 아래 모서리 y, 캐릭터 노드의 y.
     var groundShadowSize: (width: Int, height: Int) { shadowTextureSize ?? (0, 0) }
     var groundShadowY: CGFloat { shadowNode.position.y }
     var characterY: CGFloat { characterNode.position.y }

@@ -32,13 +32,4 @@ final class PlazaNamePlateTests: XCTestCase {
         XCTAssertGreaterThan(white, 10, "white text pixels")
         XCTAssertGreaterThan(translucentDark, 10, "soft dark shadow pixels")
     }
-
-    private func pixel(_ image: CGImage, x: Int, y: Int) -> [UInt8] {
-        var data = [UInt8](repeating: 0, count: 4)
-        let context = CGContext(data: &data, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        context.draw(image, in: CGRect(x: -x, y: -(image.height - 1 - y), width: image.width, height: image.height))
-        return data
-    }
 }
