@@ -173,6 +173,7 @@ final class BonjourTeamTransport: TeamTransporting {
                 self.dialDue()
             }
         }
+        timer.tolerance = Self.redialInterval / 5   // a redial check can wait a few seconds; let the system coalesce it
         RunLoop.main.add(timer, forMode: .common)
         redialTimer = timer
     }

@@ -51,7 +51,19 @@ extension L {
     /// 팀 알림. 제목과 본문에 사용량 수치는 넣지 않는다.
     var teamNoticeTitle: String { "팀 광장" }
     func teamReactionNotice(nickname: String) -> String { "\(KoreanParticle.subject.attach(to: nickname)) 내 소식에 반응했어요" }
-    func teamEmoteNotice(nickname: String) -> String { "\(KoreanParticle.subject.attach(to: nickname)) 말풍선을 보냈어요" }
+    func teamEmoteNotice(nickname: String, kind: TeamEmoteKind) -> String {
+        "\(KoreanParticle.subject.attach(to: nickname)) 내 포켓몬에게 \(teamEmoteLabel(kind))"
+    }
+    /// 말풍선의 글자 표기. 반응 버튼과 같은 글자를 쓴다.
+    func teamEmoteLabel(_ kind: TeamEmoteKind) -> String {
+        switch kind {
+        case .heart: teamReactionLabel(.cute)
+        case .lol: plazaEmoteLol
+        case .party: teamReactionLabel(.congrats)
+        case .exclaim: "!"
+        case .question: "?"
+        }
+    }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.
     func teamNoticeSummary(first: String, others: Int) -> String {
         others > 0 ? "\(first) 외 \(others)명이 반응했어요" : "\(KoreanParticle.subject.attach(to: first)) 반응했어요"

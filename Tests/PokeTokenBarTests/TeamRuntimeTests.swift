@@ -129,22 +129,19 @@ final class TeamRuntimeTests: XCTestCase {
                                                       myMemberID: settings.memberID),
                                   closePlaza: { closes += 1 })
         runtime.start()
-        XCTAssertTrue(runtime.isHoldingActivity)
         XCTAssertTrue(runtime.isTicking)
 
         settings.nickname = "나"   // still ready
         await Task.yield(); await Task.yield()
         XCTAssertEqual(closes, 0)
-        XCTAssertTrue(runtime.isHoldingActivity)
+        XCTAssertTrue(runtime.isTicking)
 
         settings.isEnabled = false
         await settle { closes == 1 }
-        XCTAssertFalse(runtime.isHoldingActivity)
         XCTAssertFalse(runtime.isTicking)
 
         settings.isEnabled = true
-        await settle { runtime.isHoldingActivity }
-        XCTAssertTrue(runtime.isTicking)
+        await settle { runtime.isTicking }
         XCTAssertEqual(closes, 1)
     }
 
@@ -169,6 +166,25 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.sendEmote(.lol, target: nil)
         await settle { plaza.scene?.shownEmote(memberID: sender) == .lol }
     }
+    func testAppNapIsHeldOnlyWhileSomeoneIsOnline() async {
+        let code = newCode()
+        let a = RuntimeNode(hub: hub, code: code, nickname: "가")
+        let b = RuntimeNode(hub: hub, code: code, nickname: "나")
+        a.runtime.start()
+        b.runtime.start()
+        XCTAssertTrue(a.runtime.isTicking, "the tick stays tied to readiness")
+        XCTAssertFalse(a.runtime.isHoldingActivity, "alone, App Nap may nap")
+        let connection = hub.connect(a.transport, to: b.transport)
+        await settle { a.runtime.isHoldingActivity }
+        XCTAssertTrue(a.runtime.isTicking)
+        hub.disconnect(connection)
+        await settle { !a.runtime.isHoldingActivity }
+        XCTAssertTrue(a.runtime.isTicking)
+        a.settings.isEnabled = false
+        await settle { !a.runtime.isTicking }
+        XCTAssertFalse(a.runtime.isHoldingActivity)
+    }
+
     func testInvalidNicknameAttemptKeepsTheStoredNameAndTheTransport() {
         let (a, _) = connectedPair()
         let stops = a.transport.stopCount
@@ -292,6 +308,39 @@ final class TeamRuntimeNotificationTests: XCTestCase {
         now = runtimeNow.addingTimeInterval(31)
         b.runtime.tickOnce()
         XCTAssertEqual(poster.bodies.count, 2)
+    }
+
+    private func batchedReaction(_ a: RuntimeNode, _ b: RuntimeNode, _ poster: RuntimePoster) async {
+        b.companion.onTeamEvent?(hatch())
+        await settle { a.runtime.feed.events.count == 1 }
+        let id = a.runtime.feed.events[0].id
+        a.runtime.session.react(to: id, kind: .cute)
+        await settle { poster.bodies.count == 1 }
+        a.runtime.session.react(to: id, kind: .lol)
+        await settle { b.runtime.feed.reactions(for: id).count == 2 }
+    }
+
+    func testBatchedNoticesDoNotOutliveTheTeam() async {
+        let (a, b, poster) = pair()
+        await batchedReaction(a, b, poster)
+        b.settings.isEnabled = false
+        await settle { !b.runtime.isTicking }
+        b.settings.isEnabled = true
+        await settle { b.runtime.isTicking }
+        now = runtimeNow.addingTimeInterval(31)
+        b.runtime.tickOnce()
+        XCTAssertEqual(poster.bodies.count, 1)
+    }
+
+    func testBatchedNoticesDoNotOutliveACodeChange() async {
+        let (a, b, poster) = pair()
+        await batchedReaction(a, b, poster)
+        var rng = SystemRandomNumberGenerator()
+        b.settings.code = TeamCode.generate(using: &rng)
+        await Task.yield(); await Task.yield()
+        now = runtimeNow.addingTimeInterval(31)
+        b.runtime.tickOnce()
+        XCTAssertEqual(poster.bodies.count, 1)
     }
 
     func testNoAuthorizationRequestWhileTheTeamIsOff() async {

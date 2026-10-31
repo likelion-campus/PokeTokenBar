@@ -127,7 +127,6 @@ final class TeamNotifier {
     private let showInPlaza: (String) -> Void
     private let clock: () -> Date
     private var batcher = TeamNotificationBatcher()
-    private var postCount = 0
     private var didRequestAuthorization = false
 
     init(settings: TeamSettings, poster: TeamNotificationPosting, isPlazaFrontmost: @escaping () -> Bool,
@@ -164,7 +163,12 @@ final class TeamNotifier {
 
     func emoteToMe(from member: TeamMemberState, kind: TeamEmoteKind) {
         guard settings.notificationsEnabled, !isPlazaFrontmost() else { return }
-        deliver(TeamNotice(fromNickname: member.nickname, text: L(.ko).teamEmoteNotice(nickname: member.nickname)))
+        deliver(TeamNotice(fromNickname: member.nickname, text: L(.ko).teamEmoteNotice(nickname: member.nickname, kind: kind)))
+    }
+
+    /// Drops notices still waiting for the batch window.
+    func reset() {
+        batcher = TeamNotificationBatcher()
     }
 
     /// Posts what piled up once the batch window is over. Runs on the runtime's tick.
@@ -189,7 +193,7 @@ final class TeamNotifier {
     }
 
     private func post(_ text: String) {
-        postCount += 1
-        poster.post(id: "team-\(postCount)", title: L(.ko).teamNoticeTitle, body: text)
+        // A fresh id each time, so a restarted app never replaces a notice still in Notification Center.
+        poster.post(id: UUID().uuidString, title: L(.ko).teamNoticeTitle, body: text)
     }
 }
