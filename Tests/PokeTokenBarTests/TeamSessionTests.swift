@@ -218,6 +218,26 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.reactionsToMine.count, 1)
     }
 
+    /// R26: a reaction carries the day it was made, never the time, on the wire and in every teammate's file.
+    func testReactionCarriesOnlyTheDayOnWireAndOnDisk() throws {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.session.publish(hatch())
+        clock.advance(5 * 3600 + 17.25)
+        b.session.react(to: a.feed.events[0].id, kind: .cute)
+        let dayStart = Calendar.current.startOfDay(for: clock.now)
+        let sent = b.transport.sent.compactMap { sent -> TeamReaction? in
+            if case .reactions(let r, _) = sent.message { return r.first }
+            return nil
+        }
+        XCTAssertEqual(sent.map(\.createdAt), [dayStart])
+        let body = try TeamWire.encode(.reactions(sent, live: true)).dropFirst(4)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let list = try XCTUnwrap((json["reactions"] as? [String: Any])?["_0"] as? [[String: Any]])
+        XCTAssertEqual(list.first?["createdAt"] as? Double, dayStart.timeIntervalSinceReferenceDate)
+        XCTAssertEqual(a.feed.reactions(for: a.feed.events[0].id).map(\.createdAt), [dayStart])
+    }
+
     func testReactionWhileAuthorOfflineArrivesLaterQuietly() {
         let a = node("A"), b = node("B"), c = node("C")
         let ab = connect(a, b); let ac = connect(a, c); connect(b, c)

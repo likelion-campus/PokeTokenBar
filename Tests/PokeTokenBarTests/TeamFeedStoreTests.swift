@@ -295,6 +295,39 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(makeStore().unreadCount, 1)
     }
 
+    /// Unread is ordered by a local counter, not a wall clock: a frozen clock must still tell old from new.
+    func testUnreadNeedsNoClock() {
+        let store = makeStore()   // the clock never moves
+        store.insert(event("e1", at: now))
+        store.markAllRead()
+        XCTAssertEqual(store.unreadCount, 0)
+        store.insert(event("e2", at: now))
+        XCTAssertEqual(store.unreadCount, 1)
+        let again = makeStore()
+        XCTAssertEqual(again.unreadCount, 1)
+        again.markAllRead()
+        XCTAssertEqual(makeStore().unreadCount, 0)
+    }
+
+    /// R26: nothing on disk says when a reaction was made or received, or when the feed was read.
+    func testStoredReactionHoldsNoTimeOfDay() throws {
+        let store = makeStore()
+        store.insert(event("mine", author: "me", at: now))
+        let afternoon = calendar.startOfDay(for: now).addingTimeInterval(15 * 3600 + 123.456)
+        store.insert(reaction("r1", event: "mine", at: afternoon))
+        store.markAllRead()
+        XCTAssertEqual(store.reactions(for: "mine").first?.createdAt, calendar.startOfDay(for: now))
+        let text = String(decoding: try Data(contentsOf: url), as: UTF8.self)
+        XCTAssertFalse(text.contains("receivedAt"))
+        XCTAssertFalse(text.contains("lastReadAt"))
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        let stored = try XCTUnwrap((json["reactions"] as? [[String: Any]])?.first)
+        let reactionJSON = try XCTUnwrap(stored["reaction"] as? [String: Any])
+        let created = try XCTUnwrap(reactionJSON["createdAt"] as? String)
+        XCTAssertEqual(created, ISO8601DateFormatter().string(from: calendar.startOfDay(for: now)))
+        XCTAssertEqual(Set(stored.keys), ["reaction", "seq"])
+    }
+
     func testResetClearsEverythingAndPersists() {
         let store = makeStore()
         store.insert(event("mine", author: "me", at: now))

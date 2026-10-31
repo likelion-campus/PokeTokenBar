@@ -156,7 +156,8 @@ final class TeamSession {
     func react(to eventID: String, kind: TeamReactionKind) {
         guard settings.isReady, let nickname = TeamSettings.validNickname(settings.nickname) else { return }
         let reaction = TeamReaction(id: UUID().uuidString, eventID: eventID, authorID: settings.memberID,
-                                    authorNickname: nickname, kind: kind, text: nil, createdAt: clock())
+                                    authorNickname: nickname, kind: kind, text: nil,
+                                    createdAt: Calendar.current.startOfDay(for: clock()))
         guard feed.insert(reaction) else { return }
         broadcast(.reactions([reaction], live: true))
     }

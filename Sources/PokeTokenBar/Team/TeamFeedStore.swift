@@ -9,21 +9,23 @@ final class TeamFeedStore {
     static let maxEvents = 300
     static let maxReactions = 3000
 
+    /// `seq` is a local arrival counter: it orders unread without recording when anything arrived.
     private struct StoredEvent: Codable {
         var event: TeamEvent
-        var receivedAt: Date
+        var seq: Int
     }
 
     private struct StoredReaction: Codable {
         var reaction: TeamReaction
-        var receivedAt: Date
+        var seq: Int
     }
 
     private struct FileContents: Codable {
         var version = 1
         var events: [StoredEvent]
         var reactions: [StoredReaction]
-        var lastReadAt: Date
+        var lastReadSeq: Int
+        var nextSeq: Int
     }
 
     @ObservationIgnored private let fileURL: URL
@@ -33,7 +35,8 @@ final class TeamFeedStore {
 
     private var stored: [StoredEvent] = []
     private var allReactions: [StoredReaction] = []
-    private var lastReadAt: Date = .distantPast
+    private var lastReadSeq = 0
+    private var nextSeq = 1
 
     /// Newest first, keyed by `occurredAt ?? startOfDay(day)`.
     var events: [TeamEvent] { stored.map(\.event) }
@@ -68,10 +71,10 @@ final class TeamFeedStore {
     }
 
     var unreadCount: Int {
-        let unreadEvents = stored.filter { $0.event.authorID != myMemberID && $0.receivedAt > lastReadAt }.count
+        let unreadEvents = stored.filter { $0.event.authorID != myMemberID && $0.seq > lastReadSeq }.count
         let myEventIDs = Set(stored.filter { $0.event.authorID == myMemberID }.map(\.event.id))
         let unreadReactions = allReactions.filter {
-            $0.reaction.authorID != myMemberID && myEventIDs.contains($0.reaction.eventID) && $0.receivedAt > lastReadAt
+            $0.reaction.authorID != myMemberID && myEventIDs.contains($0.reaction.eventID) && $0.seq > lastReadSeq
         }.count
         return unreadEvents + unreadReactions
     }
@@ -91,7 +94,7 @@ final class TeamFeedStore {
     func insert(_ events: [TeamEvent]) -> [TeamEvent] {
         var added: [TeamEvent] = []
         for e in events where admits(e) && !stored.contains(where: { $0.event.id == e.id }) {
-            stored.append(StoredEvent(event: e, receivedAt: clock()))
+            stored.append(StoredEvent(event: e, seq: takeSeq()))
             added.append(e)
         }
         guard !added.isEmpty else { return [] }
@@ -109,7 +112,7 @@ final class TeamFeedStore {
             guard !allReactions.contains(where: {
                 $0.reaction.authorID == r.authorID && $0.reaction.eventID == r.eventID && $0.reaction.kind == r.kind
             }) else { continue }
-            allReactions.append(StoredReaction(reaction: r, receivedAt: clock()))
+            allReactions.append(StoredReaction(reaction: dayOnly(r), seq: takeSeq()))
             added.append(r)
         }
         guard !added.isEmpty else { return [] }
@@ -123,7 +126,7 @@ final class TeamFeedStore {
     }
 
     func markAllRead() {
-        lastReadAt = clock()
+        lastReadSeq = nextSeq - 1
         save()
     }
 
@@ -131,7 +134,8 @@ final class TeamFeedStore {
     func reset() {
         stored = []
         allReactions = []
-        lastReadAt = .distantPast
+        lastReadSeq = 0
+        nextSeq = 1
         save()
     }
 
@@ -150,6 +154,17 @@ final class TeamFeedStore {
         // A reaction can arrive before its event during sync: only drop stale orphans.
         allReactions.removeAll { !present.contains($0.reaction.eventID) && $0.reaction.createdAt < cutoff }
         if (stored.count, allReactions.count) != before { save() }
+    }
+
+    private func takeSeq() -> Int {
+        defer { nextSeq += 1 }
+        return nextSeq
+    }
+
+    /// R26: a reaction keeps the day it was made, never the time of day (a sender may not have rounded).
+    private func dayOnly(_ r: TeamReaction) -> TeamReaction {
+        TeamReaction(id: r.id, eventID: r.eventID, authorID: r.authorID, authorNickname: r.authorNickname,
+                     kind: r.kind, text: nil, createdAt: calendar.startOfDay(for: r.createdAt))
     }
 
     // MARK: - Admission
@@ -232,7 +247,8 @@ final class TeamFeedStore {
             let contents = try Self.makeDecoder().decode(FileContents.self, from: data)
             stored = contents.events
             allReactions = contents.reactions
-            lastReadAt = contents.lastReadAt
+            lastReadSeq = contents.lastReadSeq
+            nextSeq = contents.nextSeq
             sortEvents()
         } catch {
             let backup = URL(fileURLWithPath: fileURL.path + ".corrupt")
@@ -240,13 +256,14 @@ final class TeamFeedStore {
             try? FileManager.default.moveItem(at: fileURL, to: backup)
             stored = []
             allReactions = []
-            lastReadAt = .distantPast
+            lastReadSeq = 0
+            nextSeq = 1
         }
     }
 
     private func save() {
         saveCount += 1
-        let contents = FileContents(events: stored, reactions: allReactions, lastReadAt: lastReadAt)
+        let contents = FileContents(events: stored, reactions: allReactions, lastReadSeq: lastReadSeq, nextSeq: nextSeq)
         guard let data = try? Self.makeEncoder().encode(contents) else { return }
         try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: fileURL, options: .atomic)
