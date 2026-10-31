@@ -90,11 +90,14 @@ private struct PlazaBoardRowView: View {
 
     var body: some View {
         let l = L(.ko)
+        let lineColor = row.isShiny ? Color(hex: 0xFFE060) : Color.white
         VStack(alignment: .leading, spacing: 4) {
             Text((row.isShiny ? "★ " : "") + row.text)
                 .font(Font(PlazaResources.font(size: 12)))
-                .fontWeight(row.isBig ? .bold : .regular)
-                .foregroundStyle(row.isShiny ? Color(hex: 0xFFE060) : .white)
+                .foregroundStyle(lineColor)
+                // Only Galmuri11 regular ships, so `.fontWeight(.bold)` would do nothing: a same-colour shadow
+                // one dot to the side thickens the strokes instead.
+                .shadow(color: row.isBig ? lineColor : .clear, radius: 0, x: 0.6, y: 0)
                 .fixedSize(horizontal: false, vertical: true)
             Text(row.date)
                 .font(Font(PlazaResources.font(size: 10)))

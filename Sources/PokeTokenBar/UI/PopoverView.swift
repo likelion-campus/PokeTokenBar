@@ -169,7 +169,7 @@ struct PopoverView: View {
                         .buttonStyle(.borderless)
                         .overlay(alignment: .topTrailing) {
                             if let feed, feed.unreadCount > 0 {
-                                Circle().fill(.red).frame(width: 7, height: 7).offset(x: 2, y: -2)
+                                Circle().fill(.red).frame(width: 7, height: 7).offset(x: 2, y: -2).allowsHitTesting(false)
                             }
                         }
                         .help(l.plazaOpen)

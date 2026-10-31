@@ -185,6 +185,37 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertFalse(a.runtime.isHoldingActivity)
     }
 
+    func testFeatureOffStartsNothing() async {
+        let suite = "ptb.test.team.off.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let defaults = UserDefaults(suiteName: suite)!
+        let settings = TeamSettings(defaults: defaults)   // disabled by default
+        var rng = SystemRandomNumberGenerator()
+        settings.code = TeamCode.generate(using: &rng)
+        settings.nickname = "가"
+        XCTAssertFalse(settings.isEnabled)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rt-off-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let feedURL = dir.appendingPathComponent("team-feed.json")
+        let companion = CompanionStore(provider: RuntimeTestProvider(), clock: { runtimeNow },
+                                       fileURL: dir.appendingPathComponent("companion-state.json"),
+                                       rng: SeededRNG(seed: 7), dittoDisguiseRollingEnabled: false, defaults: defaults)
+        let transport = hub.makeTransport()
+        let poster = RuntimePoster()
+        let runtime = TeamRuntime(settings: settings, companion: companion, transport: transport,
+                                  feed: TeamFeedStore(fileURL: feedURL, myMemberID: settings.memberID))
+        runtime.notifier = TeamNotifier(settings: settings, poster: poster, isPlazaFrontmost: { false }, showInPlaza: { _ in })
+        runtime.start()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertTrue(transport.startedCodes.isEmpty, "transport never started")
+        XCTAssertFalse(transport.isRunning)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: feedURL.path), "no feed file")
+        XCTAssertFalse(runtime.isTicking, "no tick")
+        XCTAssertFalse(runtime.isHoldingActivity)
+        XCTAssertEqual(poster.authorizationRequests, 0, "no authorization request")
+    }
+
     func testInvalidNicknameAttemptKeepsTheStoredNameAndTheTransport() {
         let (a, _) = connectedPair()
         let stops = a.transport.stopCount
