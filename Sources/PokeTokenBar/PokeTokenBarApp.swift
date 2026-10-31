@@ -127,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             subject: { [companion] in companion!.representativeSubject },
             myRosterEntry: { [companion, teamSettings] in
                 PlazaRoster.myEntry(companion: companion!, teamSettings: teamSettings) },
-            session: teamRuntime.session)
+            session: teamRuntime.session, feed: teamRuntime.feed)
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
         teamRuntime.plaza = plaza
         teamRuntime.start()
@@ -629,7 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = NSHostingController(
             rootView: PopoverView()
                 .environment(store).environment(companion).environment(updater).environment(navigation)
-                .environment(teamSettings).environment(teamRuntime.session))
+                .environment(teamSettings).environment(teamRuntime.session).environment(teamRuntime.feed))
     }
 
     @objc private func statusItemClicked() {
@@ -647,7 +647,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let entries = StatusItemMenu.entries(
             l: companion.l, todayTokens: store.todayTotalTokens,
             todayCost: store.showsCost ? store.todayUsageCost : nil,
-            floatingPetEnabled: store.floatingPetEnabled, plazaAvailable: teamSettings.isReady)
+            floatingPetEnabled: store.floatingPetEnabled, plazaAvailable: teamSettings.isReady,
+            plazaUnread: teamSettings.isReady ? teamRuntime.feed.unreadCount : 0)
         // Attaching the menu only for this click keeps left click on the popover. performClick
         // tracks the menu synchronously, with the button highlighted like any other status menu.
         statusItem.menu = StatusItemMenu.build(entries, target: self, selector: #selector(handleStatusMenu(_:)))

@@ -85,6 +85,22 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     private var remotes: [String: Remote] = [:]
+
+    /// 큰 소식 반짝임 조각 하나. 시간 흐름은 `update`가 준 간격으로만 재서 창이 멈추면 같이 멈춘다.
+    private struct Sparkle {
+        let node: SKSpriteNode
+        let origin: CGPoint
+        let velocity: CGVector
+        var elapsed: TimeInterval = 0
+    }
+    static let sparkleDuration: TimeInterval = 1.0
+    private static let sparkleVelocities: [CGVector] = (0..<7).map { i in
+        let angle = Double(i) / 7 * 2 * .pi
+        let speed = i.isMultiple(of: 2) ? 44.0 : 28.0
+        return CGVector(dx: cos(angle) * speed, dy: sin(angle) * speed + 18)
+    }
+    private var sparkles: [Sparkle] = []
+    private var boardMarker: SKSpriteNode?
     private var lastReported: (tile: TilePoint, facing: PlazaDirection, isWalking: Bool)
     /// 칸, 방향, 걷는 중 여부가 바뀔 때만 부른다.
     var onLocalPositionChange: ((TilePoint, PlazaDirection, Bool) -> Void)?
@@ -246,6 +262,67 @@ struct PlazaSceneMember: Equatable, Sendable {
         layout()
     }
 
+    /// 소식판 위의 `!` 말풍선. 안 읽은 소식이 있을 때 켠다.
+    func setBoardMarker(visible: Bool) {
+        if boardMarker == nil {
+            guard visible else { return }
+            let image = PlazaEmoteArt.image(.exclaim, scale: 2)
+            let texture = SKTexture(cgImage: image)
+            texture.filteringMode = .nearest
+            let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.size)
+            node.anchorPoint = CGPoint(x: 0.5, y: 0)
+            let tile = CGFloat(PlazaMap.tileSize)
+            node.position = CGPoint(x: (CGFloat(map.boardTile.x) + 0.5) * tile,
+                                    y: worldSize.height - CGFloat(map.boardTile.y) * tile)
+            node.zPosition = 5
+            addChild(node)
+            boardMarker = node
+        }
+        boardMarker?.isHidden = !visible
+    }
+
+    var isBoardMarkerVisible: Bool { boardMarker.map { !$0.isHidden } ?? false }
+
+    /// 그 캐릭터(nil이면 나) 위에서 별 조각 몇 개가 1초쯤 퍼진다. 모르는 팀원이면 아무것도 안 한다.
+    func playSparkle(memberID: String?) {
+        guard let actor = actor(memberID) else { return }
+        let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
+        let origin = CGPoint(x: foot.x.rounded(),
+                             y: (worldSize.height - foot.y + max(actor.characterSize.height, 24) * 0.6).rounded())
+        let image = PlazaEmoteArt.sparkImage(scale: 2)
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .nearest
+        for velocity in Self.sparkleVelocities {
+            let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.sparkSize)
+            node.position = origin
+            node.zPosition = 20
+            addChild(node)
+            sparkles.append(Sparkle(node: node, origin: origin, velocity: velocity))
+        }
+    }
+
+    var sparkleCount: Int { sparkles.count }
+    /// 테스트용: 조각들의 가운데(장면 좌표). 없으면 nil.
+    var sparkleCenter: CGPoint? {
+        guard !sparkles.isEmpty else { return nil }
+        let n = CGFloat(sparkles.count)
+        return CGPoint(x: sparkles.reduce(0) { $0 + $1.node.position.x } / n, y: sparkles.reduce(0) { $0 + $1.node.position.y } / n)
+    }
+    var walkerFootX: CGFloat { walker.footPoint.x }
+
+    private func advanceSparkles(by dt: TimeInterval) {
+        guard !sparkles.isEmpty else { return }
+        sparkles = sparkles.compactMap { s in
+            var s = s
+            s.elapsed += dt
+            guard s.elapsed < Self.sparkleDuration else { s.node.removeFromParent(); return nil }
+            s.node.position = CGPoint(x: (s.origin.x + s.velocity.dx * s.elapsed).rounded(),
+                                      y: (s.origin.y + s.velocity.dy * s.elapsed).rounded())
+            s.node.alpha = CGFloat(1 - s.elapsed / Self.sparkleDuration)
+            return s
+        }
+    }
+
     private func actor(_ memberID: String?) -> PlazaActor? {
         guard let memberID else { return me }
         return remotes[memberID]?.actor
@@ -305,6 +382,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         if currentModifiers().contains(.command) { walker.releaseAll() }
         walker.advance(by: dt) { [map] in map.isWalkable($0) }
         advanceAnimation(by: dt)
+        advanceSparkles(by: dt)
         layout()
         reportLocalPosition()
     }

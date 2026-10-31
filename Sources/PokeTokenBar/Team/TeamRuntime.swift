@@ -41,6 +41,9 @@ final class TeamRuntime {
         session.onEmote = { [weak self] memberID, emote in
             self?.plaza?.showEmote(memberID: memberID, kind: emote.kind)
         }
+        session.onBigEvent = { [weak self] event in
+            self?.plaza?.showBigEvent(event)
+        }
         // The character first, so the first hello carries it rather than the fallback.
         observeCharacter()
         observeSettings()

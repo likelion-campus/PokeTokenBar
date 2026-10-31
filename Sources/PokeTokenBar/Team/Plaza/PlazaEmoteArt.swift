@@ -74,6 +74,28 @@ enum PlazaEmoteArt {
         return context.makeImage()!
     }
 
+    private static let spark = [
+        "..Y..",
+        ".YWY.",
+        "YWWWY",
+        ".YWY.",
+        "..Y..",
+    ]
+
+    /// 큰 소식 반짝임 조각 하나. 포인트 단위 크기는 `sparkSize`.
+    static let sparkSize = CGSize(width: 5 * dot, height: 5 * dot)
+
+    static func sparkImage(scale: CGFloat) -> CGImage {
+        let scale = max(scale, 1)
+        let context = CGContext(data: nil, width: Int((sparkSize.width * scale).rounded()), height: Int((sparkSize.height * scale).rounded()),
+                                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setShouldAntialias(false)
+        context.scaleBy(x: scale, y: scale)
+        drawGrid(spark, cell: dot, origin: .zero, in: context)
+        return context.makeImage()!
+    }
+
     /// 위에서 아래로 읽는 격자를 그린다. `origin`은 격자 왼쪽 아래 모서리(CG 좌표).
     private static func drawGrid(_ rows: [String], cell: CGFloat, origin: CGPoint, in context: CGContext) {
         for (row, line) in rows.enumerated() {

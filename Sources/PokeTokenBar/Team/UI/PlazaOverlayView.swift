@@ -5,14 +5,38 @@ import AppKit
 @MainActor
 struct PlazaOverlayView: View {
     let model: PlazaOverlayModel
+    var feed: TeamFeedStore?
+    var myMemberID = ""
+    var onReact: (_ eventID: String, _ kind: TeamReactionKind) -> Void = { _, _ in }
 
     var body: some View {
+        ZStack(alignment: .top) {
+            content
+            if let banner = model.banner {
+                Text(banner)
+                    .font(Font(PlazaResources.font(size: 13)))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .frame(maxWidth: 360)
+                    .background(Color(hex: 0x1D4F55).opacity(0.92), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x5FB7BD), lineWidth: 2))
+                    .padding(.top, PlazaRosterMetrics.margin)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch model.content {
         case .none:
             Color.clear
         case .board:
-            // 소식판의 내용은 소식 작업이 이 자리에 채운다.
-            panel { Color.clear }
+            panel {
+                if let feed { PlazaBoardView(feed: feed, myMemberID: myMemberID, onReact: onReact) }
+            }
         case .card(let state):
             panel { PlazaCardView(state: state) }
         }

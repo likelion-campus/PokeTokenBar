@@ -27,4 +27,39 @@ extension L {
     var plazaCardLoading: String { "불러오는 중…" }
     var plazaCardFailed: String { "도감을 받지 못했어요" }
     func plazaRosterMore(_ n: Int) -> String { "외 \(n)명" }
+    var plazaBoardTitle: String { "소식판" }
+    var plazaBoardEmpty: String { "아직 소식이 없어요" }
+    var plazaBoardShinyPrefix: String { "이로치 " }
+
+    /// 소식판, 안내, 알림이 함께 쓰는 한 줄. 수치는 넣지 않는다.
+    func teamEventText(_ e: TeamEvent) -> String {
+        let nick = e.authorNickname
+        switch e.kind {
+        case .hatch:
+            let name = (e.isShiny ? plazaBoardShinyPrefix : "") + KoreanParticle.subject.attach(to: e.speciesName)
+            return "\(nick)의 알에서 \(name) 나왔어요!"
+        case .dittoReveal:
+            return "\(nick)의 포켓몬은 사실 메타몽이었어요!"
+        case .graduate:
+            return "\(nick)의 \(KoreanParticle.subject.attach(to: e.speciesName)) 졸업했어요!"
+        case .evolve:
+            let from = KoreanParticle.subject.attach(to: e.fromSpeciesName ?? e.speciesName)
+            return "\(nick)의 \(from) \(KoreanParticle.direction.attach(to: e.speciesName)) 진화했어요"
+        }
+    }
+
+    /// 소식 날짜. 시각을 모르면 날짜만.
+    func teamBoardDate(month: Int, day: Int, time: String?) -> String {
+        time.map { "\(month)월 \(day)일 \($0)" } ?? "\(month)월 \(day)일"
+    }
+
+    /// 소식에 달린 반응과 반응 버튼의 글자. 댓글은 화면에 내지 않는다.
+    func teamReactionLabel(_ kind: TeamReactionKind) -> String {
+        switch kind {
+        case .cute: "♥"
+        case .lol: plazaEmoteLol
+        case .congrats: "🎉"
+        case .comment: ""
+        }
+    }
 }

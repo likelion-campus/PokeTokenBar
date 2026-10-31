@@ -92,6 +92,7 @@ struct PopoverView: View {
     @Environment(UpdateChecker.self) private var updater
     @Environment(PopoverNavigation.self) private var nav
     @Environment(TeamSettings.self) private var teamSettings
+    @Environment(TeamFeedStore.self) private var feed: TeamFeedStore?
 
     private var l: L { companion.l }
     @State private var showingClaudeKeychainHelp = false
@@ -166,6 +167,11 @@ struct PopoverView: View {
                 if teamSettings.isReady {
                     Button { nav.onOpenPlaza?() } label: { Image(systemName: "map") }
                         .buttonStyle(.borderless)
+                        .overlay(alignment: .topTrailing) {
+                            if let feed, feed.unreadCount > 0 {
+                                Circle().fill(.red).frame(width: 7, height: 7).offset(x: 2, y: -2)
+                            }
+                        }
                         .help(l.plazaOpen)
                         .accessibilityLabel(l.plazaOpen)
                 }

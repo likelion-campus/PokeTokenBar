@@ -19,6 +19,15 @@ extension SKView: PlazaPausableView {}
     private let clock: () -> Date
     private let profileTimeout: Duration
     private let overlayModel = PlazaOverlayModel()
+    private let feed: TeamFeedStore?
+    /// 큰 소식 배너를 보여 주는 시간.
+    static let bannerDuration: Duration = .seconds(4)
+    private let bannerSleep: @MainActor (Duration) async -> Void
+    /// 배너를 새로 띄우거나 창을 닫을 때마다 올린다. 낡은 타이머가 새 배너를 지우지 못하게 한다.
+    private var bannerGeneration = 0
+    private var bannerTask: Task<Void, Never>?
+    /// 안 읽은 소식 관찰의 세대. 닫거나 다시 열면 올려서 낡은 관찰 콜백을 버린다.
+    private var unreadGeneration = 0
     /// 판을 열거나 닫을 때마다 올린다. 닫힌 뒤(또는 다른 판이 뜬 뒤) 도착한 카드 결과를 버린다.
     private var overlayGeneration = 0
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
@@ -63,9 +72,13 @@ extension SKView: PlazaPausableView {}
          subject: @escaping () -> CompanionStore.RepresentativeSubject,
          myRosterEntry: @escaping () -> PlazaRosterEntry? = { nil },
          session: TeamSession? = nil,
+         feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
-         profileTimeout: Duration = .seconds(5)) {
+         profileTimeout: Duration = .seconds(5),
+         bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
         self.session = session
+        self.feed = feed
+        self.bannerSleep = bannerSleep
         self.profileTimeout = profileTimeout
         self.clock = clock
         self.preferences = preferences
@@ -104,7 +117,9 @@ extension SKView: PlazaPausableView {}
                 roster.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
                 roster.widthAnchor.constraint(equalToConstant: PlazaRosterMetrics.width),
             ])
-            let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlayModel), model: overlayModel)
+            let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlayModel, feed: feed, myMemberID: memberID(),
+                                                                       onReact: { [weak self] in self?.session?.react(to: $0, kind: $1) }),
+                                                model: overlayModel)
             overlay.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
             NSLayoutConstraint.activate([
@@ -142,6 +157,10 @@ extension SKView: PlazaPausableView {}
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onCloseOverlay = { [weak self] in self?.closeOverlay() }
         scene = s
+        if let feed {
+            unreadGeneration += 1
+            observeUnread(feed: feed, generation: unreadGeneration)
+        }
         if let session {
             sendPosition(inPlaza: true, scene: s)
             s.onLocalPositionChange = { [weak self] _, _, _ in
@@ -166,13 +185,14 @@ extension SKView: PlazaPausableView {}
         session?.sendEmote(kind, target: target)
     }
 
-    /// 바라보는 대상에 말을 건다. 소식판이면 빈 판(내용은 소식 작업이 채운다), 팀원이면 카드를 받아 띄운다.
+    /// 바라보는 대상에 말을 건다. 소식판이면 소식판을 열고(열 때 모두 읽음), 팀원이면 카드를 받아 띄운다.
     private func handleInteractKey() {
         guard let scene,
               let target = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
                                                    members: scene.memberTiles) else { return }
         switch target {
         case .board:
+            feed?.markAllRead()
             openOverlay(.board)
         case .member(let id):
             guard let session, let state = members[id] else { return }
@@ -194,6 +214,7 @@ extension SKView: PlazaPausableView {}
     }
 
     private func closeOverlay() {
+        if overlayModel.content == .board { feed?.markAllRead() }
         overlayGeneration += 1
         overlayModel.content = .none
         scene?.isOverlayOpen = false
@@ -206,6 +227,42 @@ extension SKView: PlazaPausableView {}
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showEmote(memberID: String, kind: TeamEmoteKind) {
         scene?.showEmote(memberID: memberID, kind: kind)
+    }
+
+    /// 큰 소식 연출: 쓴 사람 위에 반짝임, 위쪽에 배너. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 진화는 연출하지 않는다.
+    func showBigEvent(_ e: TeamEvent) {
+        guard let scene, e.kind.isBig else { return }
+        scene.playSparkle(memberID: e.authorID == memberID() ? nil : e.authorID)
+        showBanner(L(.ko).teamEventText(e))
+    }
+
+    /// 배너를 띄우고 4초 뒤 지운다. 그 사이 새 배너가 오면 새 배너가 처음부터 4초를 받는다.
+    func showBanner(_ text: String) {
+        guard scene != nil else { return }
+        bannerTask?.cancel()
+        bannerGeneration += 1
+        let generation = bannerGeneration
+        overlayModel.banner = text
+        bannerTask = Task { [weak self] in
+            guard let self else { return }
+            await self.bannerSleep(Self.bannerDuration)
+            guard !Task.isCancelled, generation == self.bannerGeneration else { return }
+            self.overlayModel.banner = nil
+        }
+    }
+
+    /// 테스트용 읽기 전용 값.
+    var banner: String? { overlayModel.banner }
+
+    /// 다시 등록을 먼저 하고 값을 반영한다. 안 읽은 소식이 있으면 소식판 위에 `!`를 띄운다.
+    private func observeUnread(feed: TeamFeedStore, generation: Int) {
+        guard generation == unreadGeneration else { return }
+        let unread = withObservationTracking {
+            feed.unreadCount
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeUnread(feed: feed, generation: generation) }
+        }
+        scene?.setBoardMarker(visible: unread > 0)
     }
 
     private func sendPosition(inPlaza: Bool, scene: PlazaScene) {
@@ -290,7 +347,13 @@ extension SKView: PlazaPausableView {}
 
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
+        if overlayModel.content == .board { feed?.markAllRead() }
         persistState()
+        bannerTask?.cancel()
+        bannerTask = nil
+        bannerGeneration += 1
+        overlayModel.banner = nil
+        unreadGeneration += 1
         if let scene, session != nil {
             session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
             scene.onLocalPositionChange = nil

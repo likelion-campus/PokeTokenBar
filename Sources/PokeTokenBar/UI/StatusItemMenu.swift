@@ -19,9 +19,10 @@ enum StatusItemMenu {
 
     /// `nil` elements are separators.
     static func entries(l: L, todayTokens: Int, todayCost: UsageCost?, floatingPetEnabled: Bool,
-                        plazaAvailable: Bool) -> [Entry?] {
+                        plazaAvailable: Bool, plazaUnread: Int) -> [Entry?] {
         let plaza: [Entry?] = plazaAvailable
-            ? [Entry(title: l.plazaOpen + "…", keyEquivalent: "p", action: .openPlaza)] : []
+            ? [Entry(title: l.plazaOpen + "…" + (plazaUnread > 0 ? " (\(plazaUnread))" : ""),
+                     keyEquivalent: "p", action: .openPlaza)] : []
         return [
             Entry(title: summary(l: l, todayTokens: todayTokens, todayCost: todayCost), keyEquivalent: "", action: nil),
             nil,
