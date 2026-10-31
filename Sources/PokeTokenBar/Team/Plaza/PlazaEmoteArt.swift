@@ -39,6 +39,27 @@ enum PlazaEmoteArt {
         "OOOOO..",
         "OOOO...",
     ]
+    // ! 와 ? 도 하트처럼 도트 격자로 그린다. 획은 두 칸 굵기, 글꼴을 쓰지 않아 가장자리가 뭉개지지 않는다.
+    private static let exclaim = [
+        "##",
+        "##",
+        "##",
+        "##",
+        "##",
+        "..",
+        "##",
+        "##",
+    ]
+    private static let question = [
+        ".####.",
+        "##..##",
+        "....##",
+        "...##.",
+        "..##..",
+        "......",
+        "..##..",
+        "..##..",
+    ]
     private static let ink = CGColor(srgbRed: 0x14 / 255, green: 0x16 / 255, blue: 0x1F / 255, alpha: 1)
     private static let palette: [Character: CGColor] = [
         "#": ink,
@@ -68,8 +89,8 @@ enum PlazaEmoteArt {
         case .heart: drawGrid(heart, cell: dot, centeredAt: center, in: context)
         case .party: drawGrid(party, cell: dot, centeredAt: center, in: context)
         case .lol: drawText(L(.ko).plazaEmoteLol, centeredAt: center, in: context)
-        case .exclaim: drawText("!", centeredAt: center, in: context)
-        case .question: drawText("?", centeredAt: center, in: context)
+        case .exclaim: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
+        case .question: drawGrid(question, cell: dot, centeredAt: center, in: context)
         }
         return context.makeImage()!
     }

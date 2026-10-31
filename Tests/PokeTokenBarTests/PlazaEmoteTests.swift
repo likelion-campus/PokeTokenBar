@@ -152,6 +152,45 @@ final class PlazaEmoteTests: XCTestCase {
         XCTAssertEqual(L(.ko).plazaEmoteLol, "ㅋㅋ")
     }
 
+    /// Reads the bubble's inside (the cells clear of border and tail) as ink/white pixels at 1 px per point.
+    private func interiorInk(_ kind: TeamEmoteKind) -> (ink: Set<[Int]>, onlyInkAndWhite: Bool) {
+        let image = PlazaEmoteArt.image(kind, scale: 1)
+        var raw = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let ctx = CGContext(data: &raw, width: image.width, height: image.height, bitsPerComponent: 8,
+                            bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        var ink = Set<[Int]>()
+        var clean = true
+        for y in 2..<20 {          // buffer row 0 is the top
+            for x in 4..<24 {
+                let i = (y * image.width + x) * 4
+                let rgb = (Int(raw[i]), Int(raw[i + 1]), Int(raw[i + 2]))
+                if rgb == (255, 255, 255) { continue }
+                if rgb == (0x14, 0x16, 0x1F), raw[i + 3] == 255 { ink.insert([x, y]) } else { clean = false }
+            }
+        }
+        return (ink, clean)
+    }
+
+    func testExclaimAndQuestionAreDotGridsLikeTheHeart() {
+        for kind in [TeamEmoteKind.exclaim, .question] {
+            let (ink, clean) = interiorInk(kind)
+            XCTAssertTrue(clean, "\(kind): only whole ink or white dots, no smoothed font edge")
+            XCTAssertFalse(ink.isEmpty, "\(kind)")
+            let xs = ink.map { $0[0] }
+            XCTAssertEqual(xs.min()! + xs.max()!, 27, "\(kind) is centred in the 28 px bubble")
+            XCTAssertEqual(xs.min()! % 2, 0, "\(kind) sits on the 2 px dot grid")
+            for y in Set(ink.map { $0[1] }) {
+                let row = ink.filter { $0[1] == y }.map { $0[0] }.sorted()
+                var runs: [Int] = [], length = 1
+                for (a, b) in zip(row, row.dropFirst()) { if b == a + 1 { length += 1 } else { runs.append(length); length = 1 } }
+                runs.append(length)
+                XCTAssertTrue(runs.allSatisfy { $0 >= 4 && $0 % 2 == 0 }, "\(kind) strokes are whole 2-cell wide dots (row \(y): \(runs))")
+            }
+        }
+    }
+
     // MARK: - 보내기와 표적
 
     func testHeartAtFacingMemberTargetsThem() async {
