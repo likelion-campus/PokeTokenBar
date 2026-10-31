@@ -34,6 +34,15 @@ private final class CountingFetcher: PlazaSpriteFetching, @unchecked Sendable {
     func egg() async -> NSImage? { nil }
 }
 
+/// Holds the retry timer until the test fires it.
+@MainActor
+private final class RetryGate {
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    var waitingCount: Int { waiting.count }
+    func sleep(_ d: Duration) async { await withCheckedContinuation { waiting.append($0) } }
+    func fire() { let w = waiting; waiting = []; w.forEach { $0.resume() } }
+}
+
 @MainActor
 final class PlazaMembersTests: XCTestCase {
     private var hub: FakeTransportHub!
@@ -92,12 +101,16 @@ final class PlazaMembersTests: XCTestCase {
         return UserDefaults(suiteName: name)!
     }
 
-    private func controller(_ me: Node, fetcher: PlazaSpriteFetching = CountingFetcher()) -> PlazaWindowController {
+    private func controller(_ me: Node, fetcher: PlazaSpriteFetching = CountingFetcher(),
+                            retry: RetryGate? = nil) -> PlazaWindowController {
         PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
                               loader: PlazaCharacterLoader(fetcher: fetcher),
                               nickname: { "나" }, memberID: { me.settings.memberID },
                               subject: { .init(speciesID: 25, isShiny: false) },
-                              myRosterEntry: { nil }, session: me.session)
+                              myRosterEntry: { nil }, session: me.session,
+                              memberRetrySleep: { d in
+                                  if let retry { await retry.sleep(d) } else { try? await Task.sleep(for: d) }
+                              })
     }
 
     /// 관찰 콜백(Task)이 돌 틈을 준다.
@@ -331,6 +344,43 @@ final class PlazaMembersTests: XCTestCase {
         fetcher.release(25)   // back
         await settle()
         XCTAssertEqual(c.appliedMemberSpecies(id), [133], "the old result must not replace the new one")
+    }
+
+    func testFailedMemberSpriteIsRequestedAgainWhileOpen() async {
+        let fetcher = CountingFetcher()
+        let retry = RetryGate()
+        let me = node("나"), other = node("민수", character: Self.pikachu)
+        let c = controller(me, fetcher: fetcher, retry: retry)
+        c.prepareScene()
+        await connect(me, other)
+        await settle()
+        let first = fetcher.calls.count(25)
+        XCTAssertGreaterThan(first, 0)
+        XCTAssertEqual(retry.waitingCount, 1, "the failed load waits to retry")
+        retry.fire()
+        await settle()
+        XCTAssertEqual(fetcher.calls.count(25), first * 2, "the retry asked for the sprite again")
+    }
+
+    func testMemberSpriteRetryIsDroppedWhenTheCharacterChangedOrThePlazaClosed() async {
+        let fetcher = CountingFetcher()
+        let retry = RetryGate()
+        let me = node("나"), other = node("민수", character: Self.pikachu)
+        let c = controller(me, fetcher: fetcher, retry: retry)
+        c.prepareScene()
+        await connect(me, other)
+        await settle()
+        other.session.updateCharacter(Self.eevee)
+        await settle()
+        let pikachuBefore = fetcher.calls.count(25)
+        retry.fire()   // both timers: the stale pikachu one and the eevee one
+        await settle()
+        XCTAssertEqual(fetcher.calls.count(25), pikachuBefore, "a changed character is not fetched as the old one")
+        c.handleClose()
+        let total = fetcher.calls.all.count
+        retry.fire()
+        await settle()
+        XCTAssertEqual(fetcher.calls.all.count, total, "a closed plaza retries nothing")
     }
 
     func testOpeningSendsPositionAndClosingSendsAway() async {

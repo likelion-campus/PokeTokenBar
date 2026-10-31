@@ -10,6 +10,8 @@ struct PlazaFrame: @unchecked Sendable {
 struct PlazaCharacterFrames: Sendable {
     let front: [PlazaFrame]
     let back: [PlazaFrame]
+    /// True when nothing could be fetched and the grey circle stands in. A later request may succeed.
+    var isPlaceholder = false
 }
 
 protocol PlazaSpriteFetching: Sendable {
@@ -42,12 +44,13 @@ final class PlazaCharacterLoader {
         guard let id = subject.speciesID else {
             let egg = await eggFrames()
             let both = egg.isEmpty ? placeholder : egg
-            return PlazaCharacterFrames(front: both, back: both)
+            return PlazaCharacterFrames(front: both, back: both, isPlaceholder: egg.isEmpty)
         }
         let front = await direction(id, subject, back: false)
         let back = await direction(id, subject, back: true)
         let shownFront = front.isEmpty ? placeholder : front
-        return PlazaCharacterFrames(front: shownFront, back: back.isEmpty ? shownFront : back)
+        return PlazaCharacterFrames(front: shownFront, back: back.isEmpty ? shownFront : back,
+                                    isPlaceholder: front.isEmpty)
     }
 
     /// 한 방향의 프레임. 이로치 → 일반 순서로, 각각 움직이는 그림 → 정지 그림.

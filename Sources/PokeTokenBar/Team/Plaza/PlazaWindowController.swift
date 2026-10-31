@@ -23,6 +23,9 @@ extension SKView: PlazaPausableView {}
     /// 큰 소식 배너를 보여 주는 시간.
     static let bannerDuration: Duration = .seconds(4)
     private let bannerSleep: @MainActor (Duration) async -> Void
+    private let memberRetrySleep: @MainActor (Duration) async -> Void
+    /// A member whose sprite request failed is asked for again after this long, while the plaza stays open.
+    static let memberLoadRetryDelay: Duration = .seconds(30)
     /// 배너를 새로 띄우거나 창을 닫을 때마다 올린다. 낡은 타이머가 새 배너를 지우지 못하게 한다.
     private var bannerGeneration = 0
     private var bannerTask: Task<Void, Never>?
@@ -78,7 +81,9 @@ extension SKView: PlazaPausableView {}
          clock: @escaping () -> Date = Date.init,
          photoWriter: @escaping (Data) -> Bool = PlazaWindowController.writePhotoToClipboard,
          profileTimeout: Duration = .seconds(5),
-         bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+         bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         memberRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+        self.memberRetrySleep = memberRetrySleep
         self.session = session
         self.feed = feed
         self.bannerSleep = bannerSleep
@@ -320,11 +325,15 @@ extension SKView: PlazaPausableView {}
                                                                form: m.character.form)
             guard memberSubjects[m.memberID] != subject else { continue }
             memberSubjects[m.memberID] = subject
-            nextLoadToken += 1
-            let token = nextLoadToken
-            memberLoadTokens[m.memberID] = token
-            Task { await loadMemberFrames(m.memberID, subject: subject, token: token) }
+            startMemberLoad(m.memberID, subject: subject)
         }
+    }
+
+    private func startMemberLoad(_ id: String, subject: CompanionStore.RepresentativeSubject) {
+        nextLoadToken += 1
+        let token = nextLoadToken
+        memberLoadTokens[id] = token
+        Task { await loadMemberFrames(id, subject: subject, token: token) }
     }
 
     private func loadMemberFrames(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int) async {
@@ -332,6 +341,15 @@ extension SKView: PlazaPausableView {}
         guard memberLoadTokens[id] == token, let scene else { return }
         scene.setMemberFrames(id, frames)
         appliedMemberLoads.append((id, subject.speciesID))
+        if frames.isPlaceholder { await retryMemberLoad(id, subject: subject, token: token) }
+    }
+
+    /// A failed request must not stay a grey circle until the plaza is reopened. Asks again only if the plaza
+    /// is still open and this member still shows the same character (a newer request or a close bumps the token).
+    private func retryMemberLoad(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int) async {
+        await memberRetrySleep(Self.memberLoadRetryDelay)
+        guard !Task.isCancelled, memberLoadTokens[id] == token, memberSubjects[id] == subject else { return }
+        startMemberLoad(id, subject: subject)
     }
 
     func appliedMemberSpecies(_ id: String) -> [Int?] { appliedMemberLoads.filter { $0.id == id }.map(\.speciesID) }
