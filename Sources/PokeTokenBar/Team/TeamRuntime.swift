@@ -136,10 +136,10 @@ final class TeamRuntime {
         self.activity = nil
     }
 
-    private static func profile(settings: TeamSettings, companion: CompanionStore) -> TeamMemberProfile {
+    static func profile(settings: TeamSettings, companion: CompanionStore) -> TeamMemberProfile {
         TeamProfileBuilder.profile(
             memberID: settings.memberID, nickname: TeamSettings.validNickname(settings.nickname) ?? "",
-            state: companion.state, dexSpecies: companion.dexSpecies,
+            state: companion.state, dexSpecies: companion.teamDexSpecies,
             speciesName: { id in
                 companion.currentLine.map {
                     companion.formDisplayName($0.localizedName(id, companion.state.language),

@@ -9,6 +9,9 @@ struct TeamSettingsSection: View {
     private let l = L(.ko)
     @State private var joinDraft = ""
     @State private var joinFailed = false
+    /// The nickname being typed; the stored one changes only on submit or focus loss, and only when valid.
+    @State private var nicknameDraft: String?
+    @FocusState private var nicknameFocused: Bool
 
     var body: some View {
         @Bindable var team = team
@@ -54,10 +57,14 @@ struct TeamSettingsSection: View {
                     Divider()
                     row {
                         Text(l.teamNickname)
-                        TextField(l.teamNickname, text: $team.nickname)
+                        TextField(l.teamNickname, text: Binding(get: { nicknameDraft ?? team.nickname },
+                                                                set: { nicknameDraft = $0 }))
                             .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
+                            .focused($nicknameFocused)
+                            .onSubmit(commitNickname)
+                            .onChange(of: nicknameFocused) { _, focused in if !focused { commitNickname() } }
                     }
-                    if TeamSettings.validNickname(team.nickname) == nil {
+                    if TeamSettings.validNickname(nicknameDraft ?? team.nickname) == nil {
                         error(l.teamNicknameInvalid)
                     }
                     Divider()
@@ -88,6 +95,12 @@ struct TeamSettingsSection: View {
         Text(message).font(.caption).foregroundStyle(.red)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12).padding(.bottom, 8)
+    }
+
+    private func commitNickname() {
+        guard let draft = nicknameDraft else { return }
+        // An invalid draft keeps the stored name and the message stays up until the field is fixed.
+        if team.commitNickname(draft) { nicknameDraft = nil }
     }
 
     private func join() {

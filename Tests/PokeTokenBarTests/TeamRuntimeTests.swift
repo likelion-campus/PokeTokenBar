@@ -169,6 +169,20 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.sendEmote(.lol, target: nil)
         await settle { plaza.scene?.shownEmote(memberID: sender) == .lol }
     }
+    func testInvalidNicknameAttemptKeepsTheStoredNameAndTheTransport() {
+        let (a, _) = connectedPair()
+        let stops = a.transport.stopCount
+        for bad in ["", "   ", String(repeating: "가", count: 13)] {
+            XCTAssertFalse(a.settings.commitNickname(bad))
+        }
+        XCTAssertEqual(a.settings.nickname, "가")
+        XCTAssertTrue(a.settings.isReady)
+        XCTAssertTrue(a.transport.isRunning)
+        XCTAssertEqual(a.transport.stopCount, stops)
+        XCTAssertTrue(a.settings.commitNickname(" 다람 "))
+        XCTAssertEqual(a.settings.nickname, "다람")
+    }
+
 }
 
 @MainActor

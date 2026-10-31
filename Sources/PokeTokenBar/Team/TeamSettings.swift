@@ -42,6 +42,14 @@ final class TeamSettings {
         return t
     }
 
+    /// Stores a nickname only when it is valid, so an edit in progress never takes the team down.
+    @discardableResult
+    func commitNickname(_ raw: String) -> Bool {
+        guard let valid = Self.validNickname(raw) else { return false }
+        if nickname != valid { nickname = valid }
+        return true
+    }
+
     /// 상태 폴더가 기본 위치면 nil(=`.standard`), 아니면 경로 해시 suite 이름(한 Mac에서 두 인스턴스 테스트용).
     static func suiteName(for directory: URL, defaultDirectory: URL) -> String? {
         let path = directory.standardizedFileURL.path

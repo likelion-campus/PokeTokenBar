@@ -459,6 +459,11 @@ final class CompanionStore {
         collectedDexSpecies(groupForms: false)
     }
 
+    /// The dex as the team card shows it: forms stay separate cells, named with their form label.
+    var teamDexSpecies: [DexSpecies] {
+        collectedDexSpecies(groupForms: true)
+    }
+
     /// Sprite → Pokédex detail link targets (species number → dex cell `collectionID`). Only species
     /// in the dex have a key, so eggs, unreached evolutions and uncaught species are not clickable.
     /// The main dex does not split forms (the form is picked on the detail page), so a
