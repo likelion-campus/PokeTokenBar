@@ -63,6 +63,8 @@ struct TeamSettingsSection: View {
                             .focused($nicknameFocused)
                             .onSubmit(commitNickname)
                             .onChange(of: nicknameFocused) { _, focused in if !focused { commitNickname() } }
+                            // Closing settings or the popover is not guaranteed to move focus first.
+                            .onDisappear(perform: commitNickname)
                     }
                     if TeamSettings.validNickname(nicknameDraft ?? team.nickname) == nil {
                         error(l.teamNicknameInvalid)
@@ -98,9 +100,14 @@ struct TeamSettingsSection: View {
     }
 
     private func commitNickname() {
-        guard let draft = nicknameDraft else { return }
-        // An invalid draft keeps the stored name and the message stays up until the field is fixed.
-        if team.commitNickname(draft) { nicknameDraft = nil }
+        nicknameDraft = Self.committedDraft(nicknameDraft, into: team)
+    }
+
+    /// Stores a valid draft and returns nil (nothing left to edit). An invalid draft keeps the stored name and
+    /// stays as it is, so the message stays up until the field is fixed.
+    static func committedDraft(_ draft: String?, into team: TeamSettings) -> String? {
+        guard let draft else { return nil }
+        return team.commitNickname(draft) ? nil : draft
     }
 
     private func join() {

@@ -178,9 +178,10 @@ final class TeamFeedStore {
 
     /// Dates must lie between the retention cutoff and tomorrow, so no row is born expired, never expires,
     /// or carries a date the file cannot be decoded with.
-    private func inWindow(_ date: Date) -> Bool {
+    private func inWindow(_ date: Date, extraDaysBelow: Int = 0) -> Bool {
         let now = clock()
-        return date >= retentionCutoff() && date <= now.addingTimeInterval(86_400)
+        let lower = calendar.date(byAdding: .day, value: -extraDaysBelow, to: retentionCutoff()) ?? retentionCutoff()
+        return date >= lower && date <= now.addingTimeInterval(86_400)
     }
 
     private func retentionCutoff() -> Date {
@@ -192,7 +193,9 @@ final class TeamFeedStore {
         guard !e.id.isEmpty, !e.authorID.isEmpty, bounded(e.id, e.authorID, e.speciesName, e.fromSpeciesName),
               TeamSettings.validNickname(e.authorNickname) != nil,
               let day = dayStart(e.day), inWindow(day) else { return false }
-        if let at = e.occurredAt, !inWindow(at) { return false }
+        // The `day` string decides the lower bound; the instant gets one more day below the cutoff because
+        // the sender's calendar may be a day ahead of this one.
+        if let at = e.occurredAt, !inWindow(at, extraDaysBelow: 1) { return false }
         return true
     }
 

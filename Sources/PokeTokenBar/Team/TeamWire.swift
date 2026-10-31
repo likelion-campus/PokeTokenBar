@@ -100,6 +100,9 @@ enum TeamWire {
                 return try decoder.decode(TeamMessage.self, from: body)
             }
         } catch {
+            // Presence and emotes are ephemeral and never stored, so a value a later version added (an emote
+            // kind, a direction) is skipped like an unknown key instead of cooling the sender down.
+            if kind == "presence" || kind == "emote" { return nil }
             throw WireError.malformed
         }
     }

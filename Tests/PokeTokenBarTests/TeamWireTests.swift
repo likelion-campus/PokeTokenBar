@@ -130,6 +130,29 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(try decoder.append(later + known + later), [.profileRequest])
     }
 
+    func testUnknownNestedValuesInEphemeralFramesAreIgnoredNotMalformed() throws {
+        let emote = try rewritten(.emote(TeamEmote(kind: .heart, targetMemberID: nil))) { json in
+            var inner = json["emote"] as! [String: Any]
+            var body = inner["_0"] as! [String: Any]
+            body["kind"] = "confetti"   // an emote a later version added
+            inner["_0"] = body
+            json["emote"] = inner
+        }
+        let walking = try rewritten(.presence(presence)) { json in
+            var inner = json["presence"] as! [String: Any]
+            var body = inner["_0"] as! [String: Any]
+            body["facing"] = "sideways"
+            inner["_0"] = body
+            json["presence"] = inner
+        }
+        var decoder = TeamWire.FrameDecoder()
+        let known = try TeamWire.encode(.profileRequest)
+        XCTAssertEqual(try decoder.append(emote + walking + known), [.profileRequest])
+        // Every other known key keeps failing loudly.
+        let bad = frame(#"{"inventory":{"_0":"nope"}}"#)
+        XCTAssertThrowsError(try decoder.append(bad))
+    }
+
     func testUnknownItemsInEventAndReactionFramesAreSkipped() throws {
         let other = TeamEvent(id: "e2", authorID: "m1", authorNickname: "Ash", kind: .evolve, speciesID: 26,
                               fromSpeciesID: 25, speciesName: "Raichu", fromSpeciesName: "Pikachu", form: nil,

@@ -153,6 +153,18 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(makeStore().reactionIDs.count, 100)
     }
 
+    func testCutoffDayEventFromFarEastSenderIsAdmitted() {
+        let store = makeStore()
+        let cutoff = calendar.startOfDay(for: now).addingTimeInterval(-7 * 86_400)
+        // The sender's local day is the cutoff day, but in this calendar the instant lies before the cutoff.
+        let eastern = event("east", at: cutoff.addingTimeInterval(-10 * 3600), day: dayString(cutoff))
+        XCTAssertTrue(store.insert(eastern))
+        let tooOld = event("old", at: cutoff.addingTimeInterval(-2 * 86_400), day: dayString(cutoff))
+        XCTAssertFalse(store.insert(tooOld), "the extra day below the cutoff is all that is allowed")
+        let oldDay = event("oldday", at: nil, day: dayString(cutoff.addingTimeInterval(-86_400)))
+        XCTAssertFalse(store.insert(oldDay), "the day string decides the lower bound")
+    }
+
     func testOrderingPutsDayOnlyAtStartOfItsDay() {
         let store = makeStore()
         let todayStart = calendar.startOfDay(for: now)

@@ -84,4 +84,18 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertEqual(a?.count, "ptb.team.".count + 12)
         XCTAssertNotEqual(a, TeamSettings.suiteName(for: URL(fileURLWithPath: "/tmp/other"), defaultDirectory: def))
     }
+
+    func testDraftCommitStoresAValidNameAndKeepsAnInvalidOne() {
+        let suite = "ptb.test.team.draft.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let team = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        XCTAssertNil(TeamSettingsSection.committedDraft(nil, into: team))
+        XCTAssertEqual(TeamSettingsSection.committedDraft("", into: team), "")
+        XCTAssertEqual(team.nickname, "")
+        XCTAssertNil(TeamSettingsSection.committedDraft(" 다람 ", into: team))
+        XCTAssertEqual(team.nickname, "다람")
+        let tooLong = String(repeating: "가", count: 13)
+        XCTAssertEqual(TeamSettingsSection.committedDraft(tooLong, into: team), tooLong)
+        XCTAssertEqual(team.nickname, "다람", "an invalid draft never replaces the stored name")
+    }
 }

@@ -253,7 +253,10 @@ struct PlazaActorContext {
         if let key = plateKey, key.nickname == name, key.backing == backing, key.color == nameColor { return }
         plateKey = (name, backing, nameColor)
         guard let image = PlazaNamePlate.image(text: name, color: nameColor, scale: backing) else {
+            // The next frame un-hides the node before the key check, so nothing of the old name may remain.
             plateNode.isHidden = true
+            plateNode.texture = nil
+            plateNode.size = .zero
             return
         }
         let texture = SKTexture(cgImage: image)
