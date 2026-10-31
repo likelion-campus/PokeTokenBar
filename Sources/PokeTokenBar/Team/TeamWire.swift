@@ -48,10 +48,16 @@ enum TeamMessage: Codable, Equatable, Sendable {
 }
 
 enum TeamWire {
+    /// Changing any raw value or case name on the wire needs a bump here (`TeamWireTests` pins them).
     static let protocolVersion = 1
     static let maxFrameBytes = 1_048_576
 
     enum WireError: Error { case frameTooLarge, malformed }
+
+    /// The top-level key of an encoded `TeamMessage`.
+    private static let knownKinds: Set<String> = [
+        "hello", "inventory", "events", "reactions", "profileRequest", "profile", "presence", "emote",
+    ]
 
     /// 4-byte big-endian length + JSON. Dates use Foundation's default (exact Double seconds).
     static func encode(_ m: TeamMessage) throws -> Data {
@@ -59,6 +65,43 @@ enum TeamWire {
         guard body.count <= maxFrameBytes else { throw WireError.frameTooLarge }
         var len = UInt32(body.count).bigEndian
         return Data(bytes: &len, count: 4) + body
+    }
+
+    /// Decodes without touching the content, so any JSON value fits.
+    private struct Anything: Decodable {}
+
+    /// One list item that may be of a kind this version does not know; it decodes to nil instead of failing.
+    private struct Lossy<T: Decodable>: Decodable {
+        let value: T?
+        init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+    }
+
+    private struct LossyList<T: Decodable>: Decodable {
+        let items: [Lossy<T>]
+        let live: Bool
+        private enum CodingKeys: String, CodingKey { case items = "_0", live }
+    }
+
+    /// nil means a message kind this version does not know: the frame is skipped, the link stays.
+    private static func decode(_ body: Data) throws -> TeamMessage? {
+        let decoder = JSONDecoder()
+        guard let keys = try? decoder.decode([String: Anything].self, from: body), keys.count == 1,
+              let kind = keys.keys.first else { throw WireError.malformed }
+        guard knownKinds.contains(kind) else { return nil }
+        do {
+            switch kind {
+            case "events":
+                let frame = try decoder.decode([String: LossyList<TeamEvent>].self, from: body)["events"]
+                return frame.map { .events($0.items.compactMap(\.value), live: $0.live) }
+            case "reactions":
+                let frame = try decoder.decode([String: LossyList<TeamReaction>].self, from: body)["reactions"]
+                return frame.map { .reactions($0.items.compactMap(\.value), live: $0.live) }
+            default:
+                return try decoder.decode(TeamMessage.self, from: body)
+            }
+        } catch {
+            throw WireError.malformed
+        }
     }
 
     struct FrameDecoder {
@@ -74,11 +117,7 @@ enum TeamWire {
                 guard buffer.count >= 4 + length else { break }
                 let body = buffer[s + 4..<s + 4 + length]
                 buffer = Data(buffer[(s + 4 + length)...])
-                do {
-                    out.append(try JSONDecoder().decode(TeamMessage.self, from: body))
-                } catch {
-                    throw WireError.malformed
-                }
+                if let message = try TeamWire.decode(Data(body)) { out.append(message) }
             }
             return out
         }

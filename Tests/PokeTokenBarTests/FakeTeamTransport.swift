@@ -87,6 +87,7 @@ final class FakeTeamTransport: TeamTransporting {
     var onPeerConnected: ((TeamPeerID, Bool) -> Void)?
     var onPeerDisconnected: ((TeamPeerID) -> Void)?
     var onMessage: ((TeamPeerID, TeamMessage) -> Void)?
+    var onPeerBadFrame: ((TeamPeerID) -> Void)?
 
     private unowned let hub: FakeTransportHub
     fileprivate var links: [TeamPeerID: FakeConnection] = [:]
@@ -96,10 +97,12 @@ final class FakeTeamTransport: TeamTransporting {
     private(set) var stopCount = 0
     private(set) var sent: [(peer: TeamPeerID, message: TeamMessage)] = []
     private(set) var disconnectCalls: [FakeTransportHub.DisconnectCall] = []
+    private(set) var refuseCalls: [TeamPeerID] = []
 
     fileprivate init(hub: FakeTransportHub) { self.hub = hub }
 
     var linkCount: Int { links.count }
+    var peerIDs: [TeamPeerID] { Array(links.keys) }
     func hasLink(_ connection: FakeConnection) -> Bool { links[connection.peerID(on: self)] === connection }
 
     func sentMessages(where match: (TeamMessage) -> Bool) -> Int { sent.filter { match($0.message) }.count }
@@ -130,6 +133,12 @@ final class FakeTeamTransport: TeamTransporting {
 
     func disconnect(_ peer: TeamPeerID, coveredBy kept: TeamPeerID?) {
         disconnectCalls.append(.init(peer: peer, kept: kept))
+        guard let connection = links.removeValue(forKey: peer) else { return }
+        notifyOtherSide(of: connection)
+    }
+
+    func refuse(_ peer: TeamPeerID) {
+        refuseCalls.append(peer)
         guard let connection = links.removeValue(forKey: peer) else { return }
         notifyOtherSide(of: connection)
     }

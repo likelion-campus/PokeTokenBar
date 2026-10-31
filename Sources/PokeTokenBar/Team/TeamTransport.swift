@@ -8,6 +8,8 @@ protocol TeamTransporting: AnyObject {
     var onPeerConnected: ((TeamPeerID, _ initiatedByMe: Bool) -> Void)? { get set }
     var onPeerDisconnected: ((TeamPeerID) -> Void)? { get set }
     var onMessage: ((TeamPeerID, TeamMessage) -> Void)? { get set }
+    /// A frame could not be decoded. The transport drops the link and holds off dialing its endpoint.
+    var onPeerBadFrame: ((TeamPeerID) -> Void)? { get set }
 
     func start(code: TeamCode)
     /// Silent: no callbacks after this returns.
@@ -16,6 +18,8 @@ protocol TeamTransporting: AnyObject {
     /// Owner-initiated and silent (no `onPeerDisconnected`). With `kept`, the endpoint of `peer` is not
     /// dialed again while `kept` stays alive. Unknown peers are ignored.
     func disconnect(_ peer: TeamPeerID, coveredBy kept: TeamPeerID?)
+    /// Like `disconnect`, but the owner does not want this peer: its endpoint is not dialed again for 5 minutes.
+    func refuse(_ peer: TeamPeerID)
 }
 
 /// Bonjour discovery plus TCP/TLS-PSK connections keyed by the team code. All state lives on the main
@@ -30,6 +34,7 @@ final class BonjourTeamTransport: TeamTransporting {
     var onPeerConnected: ((TeamPeerID, Bool) -> Void)?
     var onPeerDisconnected: ((TeamPeerID) -> Void)?
     var onMessage: ((TeamPeerID, TeamMessage) -> Void)?
+    var onPeerBadFrame: ((TeamPeerID) -> Void)?
 
     private final class Link {
         let connection: NWConnection
@@ -122,6 +127,11 @@ final class BonjourTeamTransport: TeamTransporting {
         finish(peer, handshakeFailed: false, report: false)
     }
 
+    func refuse(_ peer: TeamPeerID) {
+        guard links[peer] != nil else { return }
+        finish(peer, handshakeFailed: false, refused: true, report: false)
+    }
+
     /// Dials an endpoint directly (tests, and the Bonjour dial path).
     func connect(to endpoint: NWEndpoint) {
         _ = dial(endpoint)
@@ -130,6 +140,12 @@ final class BonjourTeamTransport: TeamTransporting {
     // MARK: test seams
 
     var linkCount: Int { links.count }
+    var peerIDs: [TeamPeerID] { Array(links.keys) }
+
+    /// Writes bytes as they are, so a test can send what `TeamWire.encode` never would.
+    func sendRaw(_ data: Data, to peer: TeamPeerID) {
+        links[peer]?.connection.send(content: data, completion: .idempotent)
+    }
 
     /// Feeds a discovery result to the dial planner as the Bonjour browser would.
     func injectDiscovered(_ name: String, endpoint: NWEndpoint) {
@@ -375,7 +391,8 @@ final class BonjourTeamTransport: TeamTransporting {
                     let messages: [TeamMessage]
                     do { messages = try link.decoder.append(data) } catch {
                         AppLog.write("team: dropped a connection after a bad frame (\(error))")
-                        self.finish(id, handshakeFailed: false)
+                        self.onPeerBadFrame?(id)
+                        self.finish(id, handshakeFailed: false, refused: true)
                         return
                     }
                     for message in messages {
@@ -393,12 +410,12 @@ final class BonjourTeamTransport: TeamTransporting {
     }
 
     /// Ends one connection. `report` is false when the owner asked for it.
-    private func finish(_ id: TeamPeerID, handshakeFailed: Bool, report: Bool = true) {
+    private func finish(_ id: TeamPeerID, handshakeFailed: Bool, refused: Bool = false, report: Bool = true) {
         guard let link = links.removeValue(forKey: id) else { return }
         link.handshakeTimer?.cancel()
         link.connection.stateUpdateHandler = nil
         link.connection.cancel()
-        planner.connectionEnded(peer: id, handshakeFailed: handshakeFailed, now: Date())
+        planner.connectionEnded(peer: id, handshakeFailed: handshakeFailed, refused: refused, now: Date())
         if report, link.isReady { onPeerDisconnected?(id) }
     }
 }

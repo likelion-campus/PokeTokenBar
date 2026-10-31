@@ -20,6 +20,10 @@ final class TeamSession {
     static let silenceLimit: TimeInterval = 30
     static let inventoryInterval: TimeInterval = 300
     static let batchSize = 100
+    /// A member the session refused (other version, same member ID, undecodable frame) is not served again for this long.
+    static let refusalCooldown: TimeInterval = 300
+    /// `hasIncompatiblePeer` clears when no mismatch was seen for this long.
+    static let incompatibleNoticeLifetime: TimeInterval = 600
 
     private struct Link {
         let initiatedByMe: Bool
@@ -57,6 +61,8 @@ final class TeamSession {
     @ObservationIgnored private var linkCounter = 0
     @ObservationIgnored private var pendingProfiles: [UUID: PendingProfile] = [:]
     @ObservationIgnored private var running = false
+    @ObservationIgnored private var refusedUntil: [String: Date] = [:]
+    @ObservationIgnored private var lastIncompatible: Date?
     /// The code the app had last time `applySettings` looked; the baseline for "did the team change".
     @ObservationIgnored private var knownCode: TeamCode?
     @ObservationIgnored private var sentNickname: String?
@@ -79,6 +85,7 @@ final class TeamSession {
         }
         transport.onPeerDisconnected = { [weak self] peer in self?.dropLink(peer) }
         transport.onMessage = { [weak self] peer, message in self?.receive(message, from: peer) }
+        transport.onPeerBadFrame = { [weak self] peer in self?.receiveBadFrame(from: peer) }
     }
 
     // MARK: - Settings
@@ -115,6 +122,10 @@ final class TeamSession {
     func tick() {
         guard running else { return }
         let now = clock()
+        if hasIncompatiblePeer, let seen = lastIncompatible, now.timeIntervalSince(seen) >= Self.incompatibleNoticeLifetime {
+            hasIncompatiblePeer = false
+        }
+        refusedUntil = refusedUntil.filter { $0.value > now }
         for (peer, link) in links where now.timeIntervalSince(link.lastReceived) >= Self.silenceLimit {
             transport.disconnect(peer, coveredBy: nil)
             dropLink(peer)
@@ -204,6 +215,8 @@ final class TeamSession {
         links = [:]
         members = [:]
         hasIncompatiblePeer = false
+        lastIncompatible = nil
+        refusedUntil = [:]
         for id in Array(pendingProfiles.keys) { finishProfileRequest(id, with: nil) }
     }
 
@@ -261,8 +274,14 @@ final class TeamSession {
 
     private func receiveHello(_ hello: TeamHello, from peer: TeamPeerID) {
         guard links[peer]?.memberID == nil else { return }
+        let now = clock()
+        if let until = refusedUntil[hello.memberID], now < until {
+            refuse(peer)
+            return
+        }
         if hello.protocolVersion != TeamWire.protocolVersion {
-            hasIncompatiblePeer = true
+            markIncompatible()
+            refusedUntil[hello.memberID] = now.addingTimeInterval(Self.refusalCooldown)
             refuse(peer)
             return
         }
@@ -291,9 +310,22 @@ final class TeamSession {
         send(.presence(makePresence()), to: kept.key)
     }
 
+    /// A frame this version cannot read: the same as a mismatch, because resending it would only repeat it.
+    private func receiveBadFrame(from peer: TeamPeerID) {
+        guard running, let link = links[peer] else { return }
+        markIncompatible()
+        if let memberID = link.memberID { refusedUntil[memberID] = clock().addingTimeInterval(Self.refusalCooldown) }
+        refuse(peer)
+    }
+
+    private func markIncompatible() {
+        hasIncompatiblePeer = true
+        lastIncompatible = clock()
+    }
+
     /// Owner-initiated disconnects are silent, so the link leaves the table right here.
     private func refuse(_ peer: TeamPeerID) {
-        transport.disconnect(peer, coveredBy: nil)
+        transport.refuse(peer)
         dropLink(peer)
     }
 

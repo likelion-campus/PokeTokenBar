@@ -288,7 +288,7 @@ final class TeamSessionTests: XCTestCase {
         hub.connect(raw.transport, to: a.transport)
         raw.hello(version: TeamWire.protocolVersion + 1)
         XCTAssertTrue(a.session.hasIncompatiblePeer)
-        XCTAssertEqual(a.transport.disconnectCalls.count, 1)
+        XCTAssertEqual(a.transport.refuseCalls.count, 1)
         XCTAssertEqual(a.transport.linkCount, 0)
         XCTAssertTrue(a.session.members.isEmpty)
     }
@@ -298,8 +298,72 @@ final class TeamSessionTests: XCTestCase {
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
         raw.hello(memberID: a.memberID)
-        XCTAssertEqual(a.transport.disconnectCalls.count, 1)
+        XCTAssertEqual(a.transport.refuseCalls.count, 1)
         XCTAssertTrue(a.session.members.isEmpty)
+        XCTAssertFalse(a.session.hasIncompatiblePeer)
+    }
+
+    /// A refused member is not served again for 5 minutes, whichever side dials, so a clone or a newer
+    /// version costs one hello per attempt and never a resync.
+    func testRefusedMemberIsRefusedAgainForFiveMinutes() {
+        let a = node("A")
+        let id = UUID().uuidString
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello(memberID: id, version: TeamWire.protocolVersion + 1)
+        XCTAssertEqual(a.transport.refuseCalls.count, 1)
+
+        clock.advance(299)
+        let again = RawPeer(hub: hub)
+        hub.connect(again.transport, to: a.transport)
+        again.hello(memberID: id)   // upgraded in the meantime, still inside the cooldown
+        XCTAssertEqual(a.transport.refuseCalls.count, 2)
+        XCTAssertTrue(a.session.members.isEmpty)
+        XCTAssertFalse(again.received.contains { if case .hello = $0 { false } else { true } },
+                       "only the hello: no inventory, no presence for a refused member")
+
+        clock.advance(2)
+        let third = RawPeer(hub: hub)
+        hub.connect(third.transport, to: a.transport)
+        third.hello(memberID: id)
+        XCTAssertEqual(a.transport.refuseCalls.count, 2)
+        XCTAssertEqual(a.session.members.count, 1)
+    }
+
+    func testUndecodableFrameIsTreatedLikeARefusal() {
+        let a = node("A")
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        let id = UUID().uuidString
+        raw.hello(memberID: id)
+        XCTAssertEqual(a.session.members.count, 1)
+        let peer = try! XCTUnwrap(raw.peerID)
+        _ = peer
+        let aPeer = a.transport.peerIDs.first!
+        a.transport.onPeerBadFrame?(aPeer)
+        XCTAssertTrue(a.session.hasIncompatiblePeer)
+        XCTAssertEqual(a.transport.refuseCalls, [aPeer])
+        XCTAssertTrue(a.session.members.isEmpty)
+
+        // The sender dials again: it gets a hello's worth of attention and no batch of news.
+        let again = RawPeer(hub: hub)
+        hub.connect(again.transport, to: a.transport)
+        again.hello(memberID: id)
+        XCTAssertEqual(a.transport.refuseCalls.count, 2)
+        XCTAssertTrue(a.session.members.isEmpty)
+    }
+
+    func testIncompatibleNoticeExpiresTenMinutesAfterTheLastMismatch() {
+        let a = node("A")
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello(version: TeamWire.protocolVersion + 1)
+        XCTAssertTrue(a.session.hasIncompatiblePeer)
+        clock.advance(599)
+        a.session.tick()
+        XCTAssertTrue(a.session.hasIncompatiblePeer)
+        clock.advance(2)
+        a.session.tick()
         XCTAssertFalse(a.session.hasIncompatiblePeer)
     }
 

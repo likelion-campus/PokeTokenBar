@@ -6,6 +6,8 @@ typealias TeamPeerID = String
 struct TeamDialPlanner {
     /// Wait after a failed handshake (wrong team code, unreachable) before dialing the same name again.
     static let handshakeRetryCooldown: TimeInterval = 60
+    /// Wait after the owner refused a peer (other version, same member ID, undecodable frame).
+    static let refusalCooldown: TimeInterval = 300
 
     private struct Entry {
         var found = true
@@ -35,11 +37,15 @@ struct TeamDialPlanner {
         entries[name]?.activePeer = peer
     }
 
-    mutating func connectionEnded(peer: TeamPeerID, handshakeFailed: Bool, now: Date) {
+    mutating func connectionEnded(peer: TeamPeerID, handshakeFailed: Bool, refused: Bool = false, now: Date) {
         for name in entries.keys where entries[name]?.coveredBy == peer { entries[name]?.coveredBy = nil }
         guard let name = nameForPeer[peer], entries[name]?.activePeer == peer else { return }
         entries[name]?.activePeer = nil
-        if handshakeFailed { entries[name]?.retryAfter = now.addingTimeInterval(Self.handshakeRetryCooldown) }
+        if refused {
+            entries[name]?.retryAfter = now.addingTimeInterval(Self.refusalCooldown)
+        } else if handshakeFailed {
+            entries[name]?.retryAfter = now.addingTimeInterval(Self.handshakeRetryCooldown)
+        }
     }
 
     /// `peer` is a duplicate of `kept`: do not dial its endpoint again while `kept` is alive.

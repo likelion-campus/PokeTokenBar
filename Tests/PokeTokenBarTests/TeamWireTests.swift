@@ -105,4 +105,86 @@ final class TeamWireTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Compatibility with later versions
+
+    private func frame(_ json: String) -> Data {
+        let body = Data(json.utf8)
+        var len = UInt32(body.count).bigEndian
+        return Data(bytes: &len, count: 4) + body
+    }
+
+    /// The same message with its top-level case renamed or an item of its first list rewritten.
+    private func rewritten(_ m: TeamMessage, _ edit: (inout [String: Any]) -> Void) throws -> Data {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: TeamWire.encode(m).dropFirst(4)) as? [String: Any])
+        edit(&json)
+        let body = try JSONSerialization.data(withJSONObject: json)
+        var len = UInt32(body.count).bigEndian
+        return Data(bytes: &len, count: 4) + body
+    }
+
+    func testUnknownMessageKindIsIgnoredAndLaterFramesStillDecode() throws {
+        var decoder = TeamWire.FrameDecoder()
+        let later = frame(#"{"hologram":{"_0":[1,2,3],"live":true}}"#)
+        let known = try TeamWire.encode(.profileRequest)
+        XCTAssertEqual(try decoder.append(later + known + later), [.profileRequest])
+    }
+
+    func testUnknownItemsInEventAndReactionFramesAreSkipped() throws {
+        let other = TeamEvent(id: "e2", authorID: "m1", authorNickname: "Ash", kind: .evolve, speciesID: 26,
+                              fromSpeciesID: 25, speciesName: "Raichu", fromSpeciesName: "Pikachu", form: nil,
+                              isShiny: false, nature: nil, rarity: .common, day: "2026-10-29", occurredAt: nil)
+        let events = try rewritten(.events([event, other], live: true)) { json in
+            var inner = json["events"] as! [String: Any]
+            var list = inner["_0"] as! [[String: Any]]
+            list[0]["kind"] = "teleport"   // a kind a later version added
+            inner["_0"] = list
+            json["events"] = inner
+        }
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(events), [.events([other], live: true)])
+
+        let second = TeamReaction(id: "r2", eventID: "e1", authorID: "m3", authorNickname: "Brock", kind: .lol, text: nil,
+                                  createdAt: Date(timeIntervalSince1970: 1_790_000_000))
+        let reactions = try rewritten(.reactions([reaction, second], live: false)) { json in
+            var inner = json["reactions"] as! [String: Any]
+            var list = inner["_0"] as! [[String: Any]]
+            list[0]["kind"] = "sparkle"
+            inner["_0"] = list
+            json["reactions"] = inner
+        }
+        var d2 = TeamWire.FrameDecoder()
+        XCTAssertEqual(try d2.append(reactions), [.reactions([second], live: false)])
+    }
+
+    func testKnownMessageWithBrokenPayloadIsStillMalformed() {
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertThrowsError(try decoder.append(frame(#"{"hello":{"_0":"not a hello"}}"#))) {
+            XCTAssertEqual($0 as? TeamWire.WireError, .malformed)
+        }
+        var d2 = TeamWire.FrameDecoder()
+        XCTAssertThrowsError(try d2.append(frame(#"[1,2]"#))) {
+            XCTAssertEqual($0 as? TeamWire.WireError, .malformed)
+        }
+    }
+
+    /// Every raw value below is part of the wire format. Changing one is a protocol change:
+    /// bump `TeamWire.protocolVersion` with it, because older Macs would drop or skip what they cannot read.
+    func testWireRawValuesArePinned() throws {
+        XCTAssertEqual(TeamWire.protocolVersion, 1)
+        XCTAssertEqual(Set(allMessages.map { m -> String in
+            let json = try! JSONSerialization.jsonObject(with: TeamWire.encode(m).dropFirst(4)) as! [String: Any]
+            return json.keys.first!
+        }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile"])
+        XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
+        XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
+        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question"])
+        XCTAssertEqual([Rarity.common, .uncommon, .rare, .legendary].map(\.rawValue), ["common", "uncommon", "rare", "legendary"])
+        XCTAssertEqual(PokemonGender.allCases.map(\.rawValue), ["male", "female", "genderless"])
+        XCTAssertEqual(PlazaDirection.allCases.map(\.rawValue), ["up", "down", "left", "right"])
+        XCTAssertEqual(PokemonNature.allCases.map(\.rawValue), [
+            "hardy", "lonely", "brave", "adamant", "naughty", "bold", "docile", "relaxed", "impish", "lax",
+            "timid", "hasty", "serious", "jolly", "naive", "modest", "mild", "quiet", "bashful", "rash",
+            "calm", "gentle", "sassy", "careful", "quirky"])
+    }
 }

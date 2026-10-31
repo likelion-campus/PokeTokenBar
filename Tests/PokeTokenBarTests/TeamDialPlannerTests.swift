@@ -27,6 +27,14 @@ final class TeamDialPlannerTests: XCTestCase {
         XCTAssertEqual(p.dueDials(now: t0.addingTimeInterval(60)), ["a"])
     }
 
+    func testRefusedConnectionWaitsFiveMinutes() {
+        var p = TeamDialPlanner()
+        p.discovered("a"); p.dialStarted("a", peer: "p1")
+        p.connectionEnded(peer: "p1", handshakeFailed: false, refused: true, now: t0)
+        XCTAssertEqual(p.dueDials(now: t0.addingTimeInterval(299)), [])
+        XCTAssertEqual(p.dueDials(now: t0.addingTimeInterval(300)), ["a"])
+    }
+
     func testCoveredEndpointIsNotRedialedUntilKeptConnectionEnds() {
         var p = TeamDialPlanner()
         p.discovered("a"); p.dialStarted("a", peer: "p1")
