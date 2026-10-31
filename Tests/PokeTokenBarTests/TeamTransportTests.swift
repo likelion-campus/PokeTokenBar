@@ -183,6 +183,45 @@ final class TeamTransportTests: XCTestCase {
         XCTAssertFalse(came, "a transport stopped from the disconnect callback must stay stopped")
     }
 
+    func testFailedBrowserRestartsLikeAFailedListener() async throws {
+        let code = newCode()
+        let a = makeTransport(), b = makeTransport()
+        var aPeer: TeamPeerID?, bPeer: TeamPeerID?
+        var aDown: [TeamPeerID] = []
+        a.onPeerConnected = { id, _ in aPeer = id }
+        b.onPeerConnected = { id, _ in bPeer = id }
+        a.onPeerDisconnected = { aDown.append($0) }
+        a.start(code: code); b.start(code: code)
+        b.connect(to: try await loopback(a))
+        let up = await waitUntil(5) { aPeer != nil && bPeer != nil }
+        XCTAssertTrue(up)
+
+        a.browserStateChanged(.ready)
+        XCTAssertTrue(aDown.isEmpty, "a healthy browser changes nothing")
+        a.browserStateChanged(.failed(.posix(.ECONNABORTED)))
+        XCTAssertEqual(aDown, [try XCTUnwrap(aPeer)])
+        XCTAssertNil(a.listenerPort)
+        let back = await waitUntil(8) { a.listenerPort != nil }
+        XCTAssertTrue(back, "the transport comes back by itself after the retry delay")
+    }
+
+    func testUnfinishedInboundLinksAreCapped() async throws {
+        let a = makeTransport()
+        a.start(code: newCode())
+        _ = try await loopback(a)
+        let port = try XCTUnwrap(a.listenerPort)
+        // Plain TCP never completes the TLS-PSK handshake, so every one of these stays unfinished.
+        let raw = (0..<(BonjourTeamTransport.maxUnfinishedInbound + 8)).map { _ in
+            NWConnection(host: "127.0.0.1", port: port, using: .tcp)
+        }
+        defer { raw.forEach { $0.cancel() } }
+        raw.forEach { $0.start(queue: .main) }
+        let full = await waitUntil(5) { a.linkCount >= BonjourTeamTransport.maxUnfinishedInbound }
+        XCTAssertTrue(full)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertEqual(a.linkCount, BonjourTeamTransport.maxUnfinishedInbound)
+    }
+
     func testFailedDialIsClosedAndWaitsForCooldown() async throws {
         let a = makeTransport(), b = makeTransport()
         a.start(code: newCode()); b.start(code: newCode())

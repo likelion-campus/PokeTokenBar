@@ -30,6 +30,9 @@ final class BonjourTeamTransport: TeamTransporting {
     private static let handshakeTimeout: TimeInterval = 10
     private static let redialInterval: TimeInterval = 15
     private static let listenerRetryDelay: TimeInterval = 5
+    /// Inbound links that have not finished their handshake. Anyone on the network can open these without
+    /// the team code, so the rest are cancelled.
+    static let maxUnfinishedInbound = 32
 
     var onPeerConnected: ((TeamPeerID, Bool) -> Void)?
     var onPeerDisconnected: ((TeamPeerID) -> Void)?
@@ -303,8 +306,21 @@ final class BonjourTeamTransport: TeamTransporting {
                 self.dialDue()
             }
         }
+        browser.stateUpdateHandler = { [weak self] state in
+            MainActor.assumeIsolated {
+                guard let self, self.generation == generation else { return }
+                self.browserStateChanged(state)
+            }
+        }
         self.browser = browser
         browser.start(queue: .main)
+    }
+
+    /// A failed browser is handled like a failed listener: tear down and start again after a pause.
+    func browserStateChanged(_ state: NWBrowser.State) {
+        guard case .failed(let error) = state else { return }
+        AppLog.write("team: browser failed (\(error))")
+        scheduleListenerRestart()
     }
 
     private func serviceName(_ result: NWBrowser.Result) -> String? {
@@ -342,6 +358,10 @@ final class BonjourTeamTransport: TeamTransporting {
     @discardableResult
     private func adopt(_ connection: NWConnection, initiatedByMe: Bool, generation: Int) -> TeamPeerID {
         let id = UUID().uuidString
+        if !initiatedByMe, links.values.filter({ !$0.initiatedByMe && !$0.isReady }).count >= Self.maxUnfinishedInbound {
+            connection.cancel()
+            return id
+        }
         let link = Link(connection: connection, initiatedByMe: initiatedByMe)
         links[id] = link
         connection.stateUpdateHandler = { [weak self] state in

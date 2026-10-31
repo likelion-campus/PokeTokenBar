@@ -209,6 +209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func openPlaza() {
+        // A notification can outlive the team; with the team off there is nothing to open.
+        guard teamSettings.isReady else { return }
         if popover.isShown { popover.performClose(nil) }
         plaza.show()
     }
