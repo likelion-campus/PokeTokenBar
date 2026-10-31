@@ -154,6 +154,33 @@ final class TeamNotificationsTests: XCTestCase {
         XCTAssertEqual(poster.posts.count, 1)
     }
 
+    func testBigEventDuringReactionWindowPostsItsOwnText() {
+        notifier.reactionToMine(reaction("지영"), bigEvent())
+        notifier.reactionToMine(reaction("철수"), bigEvent())
+        notifier.reactionToMine(reaction("영희"), bigEvent())
+        notifier.bigEvent(bigEvent(nick: "민수"))
+        XCTAssertEqual(poster.posts.count, 2)
+        XCTAssertEqual(poster.posts.last?.body, L(.ko).teamEventText(bigEvent(nick: "민수")))
+        now = t0.addingTimeInterval(30)
+        notifier.flush()
+        XCTAssertEqual(poster.posts.count, 3)
+        XCTAssertEqual(poster.posts.last?.body, L(.ko).teamNoticeSummary(first: "철수", others: 1))
+    }
+
+    func testTwoBigEventsInARowPostTwoNotices() {
+        notifier.bigEvent(bigEvent("e1", nick: "민수"))
+        notifier.bigEvent(bigEvent("e2", nick: "지영", kind: .graduate))
+        XCTAssertEqual(poster.posts.map(\.body),
+                       [L(.ko).teamEventText(bigEvent("e1", nick: "민수")),
+                        L(.ko).teamEventText(bigEvent("e2", nick: "지영", kind: .graduate))])
+    }
+
+    func testBigEventDoesNotOpenAWindow() {
+        notifier.bigEvent(bigEvent())
+        notifier.reactionToMine(reaction("지영"), bigEvent())
+        XCTAssertEqual(poster.posts.count, 2)
+    }
+
     func testSummaryWording() {
         XCTAssertEqual(L(.ko).teamNoticeSummary(first: "민수", others: 2), "민수 외 2명이 반응했어요")
         XCTAssertEqual(L(.ko).teamNoticeSummary(first: "민수", others: 0), "민수가 반응했어요")

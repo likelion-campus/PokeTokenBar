@@ -148,7 +148,8 @@ final class TeamNotifier {
 
     func bigEvent(_ e: TeamEvent) {
         guard settings.notificationsEnabled, e.authorID != settings.memberID, !isPlazaFrontmost() else { return }
-        deliver(TeamNotice(fromNickname: e.authorNickname, text: L(.ko).teamEventText(e)))
+        // Big news is rare and says something different from "reacted", so it never joins the reaction batch.
+        post(L(.ko).teamEventText(e))
     }
 
     func reactionToMine(_ r: TeamReaction, _ e: TeamEvent) {

@@ -267,9 +267,13 @@ final class TeamRuntimeNotificationTests: XCTestCase {
 
     func testTickFlushesTheBatchWindow() async {
         let (a, b, poster) = pair()
-        a.companion.onTeamEvent?(hatch())
-        a.companion.onTeamEvent?(hatch())
-        await settle { b.runtime.feed.events.count == 2 }
+        b.companion.onTeamEvent?(hatch())
+        await settle { a.runtime.feed.events.count == 1 }
+        let id = a.runtime.feed.events[0].id
+        a.runtime.session.react(to: id, kind: .cute)
+        await settle { poster.bodies.count == 1 }
+        a.runtime.session.react(to: id, kind: .lol)
+        await settle { b.runtime.feed.reactions(for: id).count == 2 }
         XCTAssertEqual(poster.bodies.count, 1)
         now = runtimeNow.addingTimeInterval(31)
         b.runtime.tickOnce()
