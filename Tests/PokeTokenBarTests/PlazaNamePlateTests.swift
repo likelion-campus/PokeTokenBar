@@ -15,10 +15,10 @@ final class PlazaNamePlateTests: XCTestCase {
         return data
     }
 
-    func testPlateUsesRequestedFillColorAndDarkOutline() {
+    func testPlateUsesRequestedFillColorAndDarkOutline() throws {
         let red = CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1), blue = CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
-        let a = PlazaNamePlate.image(text: "도토리", color: red, scale: 2)
-        let b = PlazaNamePlate.image(text: "도토리", color: blue, scale: 2)
+        let a = try XCTUnwrap(PlazaNamePlate.image(text: "도토리", color: red, scale: 2))
+        let b = try XCTUnwrap(PlazaNamePlate.image(text: "도토리", color: blue, scale: 2))
         let pa = pixels(a), pb = pixels(b)
         XCTAssertNotEqual(pa, pb)
         var fillRed = 0, fillBlue = 0, outline = 0, fillLeft = 0
@@ -35,17 +35,31 @@ final class PlazaNamePlateTests: XCTestCase {
             XCTAssertEqual(pa[(y * a.width + x) * 4 + 3], 0, "corner must be transparent")
         }
     }
-    func testWidthGrowsWithTextAndScale() {
-        let short = PlazaNamePlate.image(text: "나", color: white, scale: 2)
-        let long = PlazaNamePlate.image(text: "도토리도토리", color: white, scale: 2)
+    /// One Character can be thousands of points wide; SpriteKit aborts the process on a texture above 32,768 px.
+    func testPlateNeverExceedsTextureBound() throws {
+        let chain = "👨" + String(repeating: "\u{200D}👨", count: 999)
+        XCTAssertEqual(chain.count, 1, "precondition: the whole chain is a single Character")
+        for scale in [1, 2, 3] as [CGFloat] {
+            let image = try XCTUnwrap(PlazaNamePlate.image(text: chain, color: white, scale: scale))
+            XCTAssertLessThanOrEqual(image.width, PlazaNamePlate.maxPixelWidth, "scale \(scale)")
+            XCTAssertGreaterThan(image.width, 0)
+        }
+        let wide = String(repeating: "W", count: 400)
+        XCTAssertLessThanOrEqual(try XCTUnwrap(PlazaNamePlate.image(text: wide, color: white, scale: 2)).width,
+                                 PlazaNamePlate.maxPixelWidth)
+    }
+
+    func testWidthGrowsWithTextAndScale() throws {
+        let short = try XCTUnwrap(PlazaNamePlate.image(text: "나", color: white, scale: 2))
+        let long = try XCTUnwrap(PlazaNamePlate.image(text: "도토리도토리", color: white, scale: 2))
         XCTAssertGreaterThan(long.width, short.width)
-        let oneX = PlazaNamePlate.image(text: "도토리도토리", color: white, scale: 1)
+        let oneX = try XCTUnwrap(PlazaNamePlate.image(text: "도토리도토리", color: white, scale: 1))
         XCTAssertLessThanOrEqual(abs(long.width - 2 * oneX.width), 2)
         XCTAssertLessThanOrEqual(abs(long.height - 2 * oneX.height), 2)
     }
 
-    func testPlainTextHasShadowAndNoPlate() {
-        let image = PlazaNamePlate.image(text: "도토리", color: white, scale: 2)
+    func testPlainTextHasShadowAndNoPlate() throws {
+        let image = try XCTUnwrap(PlazaNamePlate.image(text: "도토리", color: white, scale: 2))
         var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let context = CGContext(data: &data, width: image.width, height: image.height, bitsPerComponent: 8,
                                 bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -65,9 +79,9 @@ final class PlazaNamePlateTests: XCTestCase {
         XCTAssertGreaterThan(translucentDark, 10, "soft dark shadow pixels")
     }
 
-    func testNameFontIs15Bold() {
+    func testNameFontIs15Bold() throws {
         XCTAssertEqual(PlazaNamePlate.fontSize, 15)
-        let image = PlazaNamePlate.image(text: "Name", color: white, scale: 1)
+        let image = try XCTUnwrap(PlazaNamePlate.image(text: "Name", color: white, scale: 1))
         let font12 = NSFont.systemFont(ofSize: 12, weight: .bold)
         let font15 = NSFont.systemFont(ofSize: 15, weight: .bold)
         let lineHeight12 = (font12.ascender - font12.descender).rounded(.up)

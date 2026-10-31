@@ -252,7 +252,10 @@ struct PlazaActorContext {
         if name.isEmpty { return }
         if let key = plateKey, key.nickname == name, key.backing == backing, key.color == nameColor { return }
         plateKey = (name, backing, nameColor)
-        let image = PlazaNamePlate.image(text: name, color: nameColor, scale: backing)
+        guard let image = PlazaNamePlate.image(text: name, color: nameColor, scale: backing) else {
+            plateNode.isHidden = true
+            return
+        }
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         plateNode.texture = texture

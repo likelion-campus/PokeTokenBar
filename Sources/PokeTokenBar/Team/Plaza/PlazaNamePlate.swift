@@ -6,26 +6,38 @@ enum PlazaNamePlate {
     static let fontSize: CGFloat = 15
     /// 테두리(3pt)와 그림자(아래로 1pt, 흐림 2pt)가 잘리지 않을 여백.
     static let pad: CGFloat = 5
+    /// Widest bitmap in device pixels. SpriteKit aborts the process on a texture above 32,768 px.
+    static let maxPixelWidth = 2048
     private static let outlineWidth: CGFloat = 3
     private static let shadowOffset: CGFloat = 1
     private static let shadowBlur: CGFloat = 2
 
     /// `scale`은 포인트당 기기 픽셀 수. 크기는 포인트 단위로 정수가 되도록 올린다.
-    static func image(text: String, color: CGColor, scale: CGFloat) -> CGImage {
+    static func image(text: String, color: CGColor, scale: CGFloat) -> CGImage? {
         let scale = max(scale, 1)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
         ]
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        var line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
         var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
-        let textWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+        var textWidth = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+
+        // One Character can be thousands of points wide, so the Character count of a name bounds nothing.
+        let maxTextWidth = (CGFloat(maxPixelWidth) / scale).rounded(.down) - 2 * pad
+        if textWidth > maxTextWidth {
+            let ellipsis = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
+            line = CTLineCreateTruncatedLine(line, Double(maxTextWidth), .end, ellipsis)
+                ?? CTLineCreateWithAttributedString(NSAttributedString(string: "", attributes: attributes))
+            textWidth = min(CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading)), maxTextWidth)
+        }
 
         let width = (textWidth + 2 * pad).rounded(.up)
         let height = (ascent + descent + 2 * pad).rounded(.up)
-        let context = CGContext(data: nil, width: Int(width * scale), height: Int(height * scale), bitsPerComponent: 8,
-                                bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: Int(width * scale), height: Int(height * scale), bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.setShouldAntialias(true)
         context.setAllowsAntialiasing(true)
         context.setShouldSmoothFonts(true)
@@ -45,6 +57,6 @@ enum PlazaNamePlate {
         context.setTextDrawingMode(.fill)
         context.setFillColor(color)
         CTLineDraw(line, context)
-        return context.makeImage()!
+        return context.makeImage()
     }
 }

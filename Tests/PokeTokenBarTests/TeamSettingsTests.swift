@@ -39,6 +39,16 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertNil(TeamSettings.validNickname("a\nb"))
     }
 
+    /// A zero-width-joiner chain is one Character of any byte length, so the Character count is no size bound.
+    func testNicknameIsBoundedBySizeNotCharacterCount() {
+        func chain(_ links: Int) -> String { "👨" + String(repeating: "\u{200D}👨", count: links) }
+        XCTAssertEqual(chain(1_000).count, 1, "precondition: the whole chain is a single Character")
+        XCTAssertNil(TeamSettings.validNickname(chain(1_000)))
+        XCTAssertNil(TeamSettings.validNickname(chain(46)), "326 bytes")
+        XCTAssertNotNil(TeamSettings.validNickname(chain(45)), "319 bytes")
+        XCTAssertNil(TeamSettings.validNickname(String(repeating: "a", count: 321)))
+    }
+
     func testPersistsAndIsReady() {
         let d = freshDefaults()
         var rng = SeededRNG(seed: 3)

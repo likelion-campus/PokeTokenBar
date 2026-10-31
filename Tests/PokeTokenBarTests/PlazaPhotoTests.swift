@@ -374,7 +374,7 @@ final class PlazaPhotoTests: XCTestCase {
         scene.update(0)
         let actor = try XCTUnwrap(scene.photoInput()?.actors.first)
         let plate = try XCTUnwrap(actor.plate)
-        XCTAssertEqual(plate.width, PlazaNamePlate.image(text: "나", color: scene.nameColor, scale: 2).width)
+        XCTAssertEqual(plate.width, PlazaNamePlate.image(text: "나", color: scene.nameColor, scale: 2)?.width)
         XCTAssertEqual(try XCTUnwrap(actor.bubble).width, PlazaEmoteArt.image(.heart, scale: 2).width)
     }
 

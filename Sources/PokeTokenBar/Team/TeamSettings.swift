@@ -34,10 +34,11 @@ final class TeamSettings {
 
     var isReady: Bool { isEnabled && code != nil && Self.validNickname(nickname) != nil }
 
-    /// 공백 정리 후 1~12 Character, 개행 없음. 아니면 nil.
+    /// 공백 정리 후 1~12 Character, 개행 없음, UTF-8 320바이트 이하. 아니면 nil.
+    /// ZWJ 이모지 사슬은 길이와 상관없이 Character 하나라서 Character 수는 크기 상한이 아니다.
     static func validNickname(_ raw: String) -> String? {
         let t = raw.trimmingCharacters(in: .whitespaces)
-        guard (1...12).contains(t.count), !t.contains(where: \.isNewline) else { return nil }
+        guard (1...12).contains(t.count), t.utf8.count <= 320, !t.contains(where: \.isNewline) else { return nil }
         return t
     }
 

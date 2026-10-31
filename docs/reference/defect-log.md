@@ -1374,3 +1374,17 @@ read_when:
   its team settings; the existing dev settings were copied to the new suite by hand. There is no automated
   test because this is a dev script. It was checked on `/bin/bash` 3.2 with `TMPDIR` ending in a slash,
   without one and unset, and by reading `PTB_STATE_DIR` from the running app.
+
+- **A Swift `String.count` is not a size bound: one grapheme cluster can be any number of bytes and any width.**
+  `TeamSettings.validNickname` accepted "1 to 12 Characters". A zero-width-joiner emoji chain of any length is
+  one Character, so a 1,000-emoji nickname passed, was broadcast to the team, and `PlazaNamePlate.image` sized
+  a 42,062 px bitmap from it. SpriteKit asks Metal for a texture of that width and Metal aborts the process above
+  32,768 px, so one teammate could close the app of everyone with the plaza open. **Why nothing caught it:** the
+  validator tests used Korean and emoji strings where one Character is a few bytes, and the plate tests used
+  short names, so no test ever put a long Character through either. **Fix:** `validNickname` also requires
+  `utf8.count <= 320`, and `PlazaNamePlate.image` truncates to `maxPixelWidth` (2,048 px) with
+  `CTLineCreateTruncatedLine` and returns nil instead of force unwrapping CoreGraphics results. Tests build a
+  1,000-link chain (asserting it is one Character) for both. **Class sweep:** a count of Characters used as a
+  limit on text that arrives from outside; the other one was the comment length in `TeamFeedStore.insert`, which
+  goes away because inbound comments are rejected outright. New limits on untrusted text bound bytes (`utf8.count`),
+  and anything that draws it bounds its own output size.
