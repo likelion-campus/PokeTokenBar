@@ -351,13 +351,24 @@ extension SKView: PlazaPausableView {}
 
     func refreshNickname() {
         scene?.setNickname(nickname())
+        refreshMyEntry()
+    }
+
+    /// 내 칸은 도감 전체를 훑어 만들므로 캐시한다. 내 쪽이 바뀔 때(`refreshMyEntry`)와 창을 열 때만 다시 만든다.
+    private var myEntryCache: PlazaRosterEntry??
+
+    /// 내 대표·닉네임이 바뀌었을 때 내 칸을 다시 만들어 목록에 넣는다.
+    func refreshMyEntry() {
+        myEntryCache = nil
         refreshRoster()
     }
 
-    /// 내 칸을 다시 만들어 목록에 넣는다. 창이 닫혀 있으면 아무것도 안 한다.
+    /// 목록을 다시 만든다. 내 칸은 캐시를 쓴다. 창이 닫혀 있으면 아무것도 안 한다.
     func refreshRoster() {
         guard window != nil || scene != nil else { return }
-        let next = PlazaRoster.entries(me: myRosterEntry(), members: Array(members.values))
+        let me = myEntryCache ?? myRosterEntry()
+        myEntryCache = .some(me)
+        let next = PlazaRoster.entries(me: me, members: Array(members.values))
         if next != rosterModel.entries { rosterModel.entries = next }
     }
 
@@ -402,6 +413,7 @@ extension SKView: PlazaPausableView {}
         scene = nil
         rosterModel.entries = []
         rosterModel.isAnimating = true
+        myEntryCache = nil
         refreshGeneration += 1
         if let w = window {
             w.delegate = nil

@@ -132,6 +132,27 @@ final class PlazaMembersTests: XCTestCase {
 
     // MARK: - 테스트
 
+    func testPresenceFramesDoNotRebuildMyRosterEntry() async {
+        let me = node("나"), other = node("민수")
+        var builds = 0
+        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
+                                      loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
+                                      nickname: { "나" }, memberID: { me.settings.memberID },
+                                      subject: { .init(speciesID: 25, isShiny: false) },
+                                      myRosterEntry: { builds += 1; return nil }, session: me.session)
+        c.prepareScene()
+        let afterOpen = builds
+        XCTAssertGreaterThan(afterOpen, 0)
+        await connect(me, other)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(1), facing: .down, isWalking: false)
+        await settle()
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(2), facing: .down, isWalking: true)
+        await settle()
+        XCTAssertEqual(builds, afterOpen, "member frames reuse the cached entry")
+        c.refreshMyEntry()
+        XCTAssertEqual(builds, afterOpen + 1, "my own change rebuilds it")
+    }
+
     func testOnlineMemberAppearsAtTheirTile() async {
         let me = node("나"), other = node("민수")
         let c = controller(me)

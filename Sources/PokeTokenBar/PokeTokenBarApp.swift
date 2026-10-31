@@ -191,7 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             Task { @MainActor in
                 guard let self else { return }
                 self.observePlazaRoster()
-                self.plaza.refreshRoster()
+                self.plaza.refreshMyEntry()
             }
         }
     }
