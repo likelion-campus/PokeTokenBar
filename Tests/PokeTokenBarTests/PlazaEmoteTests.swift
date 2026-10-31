@@ -122,6 +122,20 @@ final class PlazaEmoteTests: XCTestCase {
         XCTAssertEqual(pressed, [], "other keys, even with a '1' character, are not emotes")
     }
 
+    func testModifiedOrRepeatedEmoteKeysDoNotFire() {
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        var pressed: [TeamEmoteKind] = []
+        scene.onEmoteKey = { pressed.append($0) }
+        for mod: NSEvent.ModifierFlags in [.command, .control, .option, [.command, .shift]] {
+            XCTAssertEqual(scene.handleKeyDown(keyCode: heartKey, characters: "1", isRepeat: false, modifiers: mod), .swallowed)
+        }
+        XCTAssertEqual(pressed, [], "Cmd, Ctrl and Opt combinations are not emotes")
+        XCTAssertEqual(scene.handleKeyDown(keyCode: heartKey, characters: "1", isRepeat: true), .swallowed)
+        XCTAssertEqual(pressed, [], "auto-repeat is not an emote")
+        scene.handleKeyDown(keyCode: heartKey, characters: "!", isRepeat: false, modifiers: .shift)
+        XCTAssertEqual(pressed, [.heart], "Shift still works")
+    }
+
     func testEachEmoteHasArt() {
         var pixels: [Data] = []
         for kind in TeamEmoteKind.allCases {

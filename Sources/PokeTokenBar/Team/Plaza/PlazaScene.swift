@@ -197,8 +197,9 @@ struct PlazaSceneMember: Equatable, Sendable {
             if canWalk && !isRepeat && !modifiers.contains(.command) { walker.press(d) }
             return .swallowed
         }
-        if let kind = Self.emoteKind(keyCode) {
-            onEmoteKey?(kind)
+        // Cmd/Ctrl/Opt 조합은 말풍선이 아니다(아래로 내려가 처리하지 않은 키처럼 삼킨다). 눌러 둔 자동 반복도 보내지 않는다.
+        if let kind = Self.emoteKind(keyCode), modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
+            if !isRepeat { onEmoteKey?(kind) }
             return .swallowed
         }
         switch characters {
@@ -229,6 +230,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     private static let escapeKeyCode: UInt16 = 53
     private static let wKeyCode: UInt16 = 13
+
+    private static let emoteBlockingModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
 
     private static func emoteKind(_ keyCode: UInt16) -> TeamEmoteKind? {
         switch keyCode {
