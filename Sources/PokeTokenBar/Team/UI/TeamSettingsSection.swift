@@ -30,7 +30,7 @@ struct TeamSettingsSection: View {
                     Divider()
                     if let code = team.code {
                         row {
-                            Text(masked(code)).font(.callout.monospaced())
+                            Text(masked(code)).font(.callout.monospaced()).lineLimit(1)
                             Spacer()
                             Button(l.teamCopyCode) { copy(code) }
                             Button(l.teamLeave, role: .destructive) { team.leaveTeam() }

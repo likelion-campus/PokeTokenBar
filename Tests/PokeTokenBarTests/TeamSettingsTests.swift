@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import PokeTokenBar
 
@@ -97,5 +98,18 @@ final class TeamSettingsTests: XCTestCase {
         let tooLong = String(repeating: "가", count: 13)
         XCTAssertEqual(TeamSettingsSection.committedDraft(tooLong, into: team), tooLong)
         XCTAssertEqual(team.nickname, "다람", "an invalid draft never replaces the stored name")
+    }
+
+    /// The masked code is wider than its row in the popover; wrapping it broke the row into two uneven lines.
+    func testJoinedCodeStaysOnOneLineInThePopover() {
+        let team = TeamSettings(defaults: freshDefaults())
+        team.isEnabled = true
+        team.nickname = "다람"
+        var rng = SystemRandomNumberGenerator()
+        team.code = TeamCode.generate(using: &rng)
+        func height(width: CGFloat) -> CGFloat {
+            NSHostingView(rootView: TeamSettingsSection().environment(team).frame(width: width)).fittingSize.height
+        }
+        XCTAssertEqual(height(width: PopoverMetrics.width - 24), height(width: 1000))
     }
 }
