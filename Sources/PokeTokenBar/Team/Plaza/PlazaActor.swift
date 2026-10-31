@@ -146,6 +146,24 @@ struct PlazaActorContext {
         placeEmote(backing: labelBacking, viewport: context.viewport)
     }
 
+    /// 기념사진에 찍을 값. 그림을 아직 못 받았으면 nil이다. 이름표와 말풍선은 화면 배율과 상관없이 배율 2로 새로 만든다.
+    func photoActor(foot: CGPoint, pose: PlazaSpriteChoice) -> PlazaPhotoActor? {
+        guard let list = currentFrames, !list.isEmpty else { return nil }
+        let image = list[frameIndex % list.count].image
+        var shadow: CGImage?
+        var shadowRect = CGRect.zero
+        if let size = shadowTextureSize {
+            shadow = PlazaGroundShadow.image(width: size.width, height: size.height)
+            shadowRect = CGRect(x: foot.x - CGFloat(size.width) / 2,
+                                y: foot.y - (CGFloat(size.height) * 0.12).rounded() - CGFloat(size.height) / 2,
+                                width: CGFloat(size.width), height: CGFloat(size.height))
+        }
+        return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: CGPoint(x: foot.x, y: foot.y - CGFloat(pose.bob)),
+                               scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
+                               plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, color: nameColor, scale: 2),
+                               bubble: emoteKind.map { PlazaEmoteArt.image($0, scale: 2) })
+    }
+
     // MARK: - 값 읽기
 
     /// 배율을 적용한 앞모습 높이의 절반. 카메라가 큰 포켓몬의 머리를 자르지 않게 올려 보는 양이다(앞모습 기준).

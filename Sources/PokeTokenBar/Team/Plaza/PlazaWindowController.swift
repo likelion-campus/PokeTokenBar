@@ -33,6 +33,8 @@ extension SKView: PlazaPausableView {}
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
     private var lastEmoteAt: Date?
+    /// 사진 PNG를 내보낸다. 성공하면 true. 테스트가 클립보드를 건드리지 않게 바꿔 끼운다.
+    private let photoWriter: (Data) -> Bool
 
     /// 창 위치·크기 기억용 이름. 사용자에게 보이는 글이 아니다.
     private static let frameAutosaveName = "TeamPlazaWindow"
@@ -74,6 +76,7 @@ extension SKView: PlazaPausableView {}
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
+         photoWriter: @escaping (Data) -> Bool = PlazaWindowController.writePhotoToClipboard,
          profileTimeout: Duration = .seconds(5),
          bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
         self.session = session
@@ -81,6 +84,7 @@ extension SKView: PlazaPausableView {}
         self.bannerSleep = bannerSleep
         self.profileTimeout = profileTimeout
         self.clock = clock
+        self.photoWriter = photoWriter
         self.preferences = preferences
         self.loader = loader
         self.nickname = nickname
@@ -155,6 +159,7 @@ extension SKView: PlazaPausableView {}
         s.onCloseRequest = { [weak self] in self?.window?.performClose(nil) }
         s.onEmoteKey = { [weak self] in self?.handleEmoteKey($0) }
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
+        s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
         s.onCloseOverlay = { [weak self] in self?.closeOverlay() }
         scene = s
         if let feed {
@@ -183,6 +188,18 @@ extension SKView: PlazaPausableView {}
         let target = kind.notifiesTarget
             ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: scene.memberTiles) : nil
         session?.sendEmote(kind, target: target)
+    }
+
+    /// 보이는 장면을 사진으로 합성해 클립보드에 PNG로 넣고 번쩍인다. 합성이나 인코딩이 실패하면 클립보드를 그대로 두고 번쩍이지 않는다.
+    private func handlePhotoKey() {
+        guard let scene, let input = scene.photoInput(), let png = PlazaPhotoRenderer.pngData(for: input) else { return }
+        if photoWriter(png) { scene.playShutterFlash() }
+    }
+
+    nonisolated private static func writePhotoToClipboard(_ png: Data) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setData(png, forType: .png)
     }
 
     /// 바라보는 대상에 말을 건다. 소식판이면 소식판을 열고(열 때 모두 읽음), 팀원이면 카드를 받아 띄운다.
@@ -372,6 +389,7 @@ extension SKView: PlazaPausableView {}
             scene.onCloseRequest = nil
             scene.onEmoteKey = nil
             scene.onInteractKey = nil
+            scene.onPhotoKey = nil
             scene.onCloseOverlay = nil
             scene.isOverlayOpen = false
         }

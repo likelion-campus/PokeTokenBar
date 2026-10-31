@@ -42,6 +42,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onEmoteKey: ((TeamEmoteKind) -> Void)?
     /// 스페이스. 판이 닫혀 있을 때만 온다.
     var onInteractKey: (() -> Void)?
+    /// 키 P(기념사진). keyCode로만 판정한다.
+    var onPhotoKey: (() -> Void)?
     /// 판이 열린 동안 Esc와 스페이스.
     var onCloseOverlay: (() -> Void)?
     /// 판이 열리면 방향키와 말풍선 키를 무시하고 눌린 키를 놓는다. Cmd+W는 그대로 창을 닫는다.
@@ -53,7 +55,11 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
     var backingOverride: CGFloat?
 
+    private let mapImage: CGImage
+    /// 마지막 `layout`이 정한 보이는 월드 영역. 기념사진이 이 영역을 찍는다.
+    private var visibleRect: CGRect
     private let mapNode: SKSpriteNode
+    private var shutterNode: SKSpriteNode?
     private let cameraNode = SKCameraNode()
     /// 내 캐릭터.
     private let me: PlazaActor
@@ -115,6 +121,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.lastReported = (start, .down, false)
         self.nickname = nickname
         self.me = PlazaActor(name: nickname, color: PlazaNameColor.palette[0])
+        self.mapImage = mapImage
+        self.visibleRect = CGRect(origin: .zero, size: map.pixelSize)
         self.zoom = PlazaCamera.clampedZoom(zoom)
         let texture = SKTexture(cgImage: mapImage)
         texture.filteringMode = .nearest
@@ -236,6 +244,11 @@ struct PlazaSceneMember: Equatable, Sendable {
             if canWalk && !isRepeat && !modifiers.contains(.command) { walker.press(d) }
             return .swallowed
         }
+        // 사진 키도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 보내지 않는다(P를 누르고 있어도 한 번만 찍는다).
+        if keyCode == Self.pKeyCode {
+            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onPhotoKey?() }
+            return .swallowed
+        }
         // Cmd/Ctrl/Opt 조합은 말풍선이 아니다(아래로 내려가 처리하지 않은 키처럼 삼킨다). 눌러 둔 자동 반복도 보내지 않는다.
         if let kind = Self.emoteKind(keyCode), modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
             if !isRepeat { onEmoteKey?(kind) }
@@ -261,6 +274,33 @@ struct PlazaSceneMember: Equatable, Sendable {
         actor.showEmote(kind)
         layout()
     }
+
+    /// 지금 화면에 보이는 영역을 기념사진 입력으로 모은다. 그림을 아직 못 받은 캐릭터는 뺀다(알과 자리 비움은 다른 팀원처럼 찍힌다).
+    func photoInput() -> PlazaPhotoInput? {
+        guard visibleRect.width > 0, visibleRect.height > 0 else { return nil }
+        func pose(_ facing: PlazaDirection, _ isWalking: Bool) -> PlazaSpriteChoice {
+            PlazaPose.choice(facing: facing, isWalking: isWalking, clock: clock)
+        }
+        var actors = [me.photoActor(foot: walker.footPoint, pose: pose(walker.facing, walker.isWalking))]
+        for id in remotes.keys.sorted() {
+            guard let r = remotes[id] else { continue }
+            actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking)))
+        }
+        return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 })
+    }
+
+    /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.
+    func playShutterFlash() {
+        shutterNode?.removeFromParent()
+        let node = SKSpriteNode(color: .white, size: size)
+        node.alpha = 0.7
+        node.zPosition = 100
+        cameraNode.addChild(node)
+        node.run(.sequence([.fadeOut(withDuration: 0.2), .removeFromParent()]))
+        shutterNode = node
+    }
+
+    var isShutterFlashing: Bool { shutterNode?.parent != nil }
 
     /// 소식판 위의 `!` 말풍선. 안 읽은 소식이 있을 때 켠다.
     func setBoardMarker(visible: Bool) {
@@ -331,6 +371,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let escapeKeyCode: UInt16 = 53
     private static let wKeyCode: UInt16 = 13
     private static let spaceKeyCode: UInt16 = 49
+    private static let pKeyCode: UInt16 = 35
 
     private static let emoteBlockingModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
 
@@ -417,6 +458,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let focus = PlazaCamera.focus(for: foot, rightInset: PlazaRosterMetrics.coveredWidth, zoom: zoom, lift: lift)
         let rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
                                         rightInset: PlazaRosterMetrics.coveredWidth)
+        visibleRect = rect
         let cameraPos = CGPoint(x: rect.midX, y: worldSize.height - rect.midY)   // 원점은 visibleRect가 이미 기기 격자에 맞췄다
         cameraNode.position = cameraPos
         cameraNode.setScale(1 / z)
