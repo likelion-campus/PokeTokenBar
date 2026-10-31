@@ -28,6 +28,9 @@ NOTES_FILE="${1:-}"
 [[ -n "$NOTES_FILE" ]] || fail "릴리스 노트 파일을 넘기세요. 예: ./scripts/team-release.sh notes.md"
 [[ -s "$NOTES_FILE" ]] || fail "릴리스 노트 파일이 없거나 비어 있습니다: $NOTES_FILE"
 
+command -v gh >/dev/null 2>&1 || fail "gh(GitHub CLI)가 없습니다. 설치하고 gh auth login 을 한 뒤 다시 실행하세요."
+gh auth status >/dev/null 2>&1 || fail "gh 에 로그인되어 있지 않습니다. gh auth login 을 한 뒤 다시 실행하세요."
+
 # ── 2. 버전 ────────────────────────────────────────────────
 VERSION=$(grep -oE '^VERSION="[0-9]+\.[0-9]+\.[0-9]+"' scripts/build-app.sh | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
 [[ -n "$VERSION" ]] || fail "scripts/build-app.sh 에서 VERSION 을 읽지 못했습니다."
@@ -39,6 +42,12 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 [[ -z "$(git status --porcelain)" ]] || fail "커밋하지 않은 변경이 있습니다. 커밋하거나 되돌린 뒤 다시 실행하세요."
 
+ORIGIN_URL=$(git remote get-url origin 2>/dev/null || true)
+case "$ORIGIN_URL" in
+  https://github.com/likelion-campus/PokeTokenBar|https://github.com/likelion-campus/PokeTokenBar.git|git@github.com:likelion-campus/PokeTokenBar|git@github.com:likelion-campus/PokeTokenBar.git) ;;
+  *) fail "origin 이 likelion-campus/PokeTokenBar 가 아닙니다. 팀 포크를 clone 한 폴더에서 실행하세요." ;;
+esac
+
 git fetch --quiet --tags origin || fail "origin 을 가져오지 못했습니다. 네트워크를 확인하고 다시 실행하세요."
 LOCAL_HEAD=$(git rev-parse HEAD)
 REMOTE_HEAD=$(git rev-parse origin/main)
@@ -48,8 +57,10 @@ REMOTE_HEAD=$(git rev-parse origin/main)
 if git show-ref --verify --quiet "refs/tags/v$VERSION"; then
   fail "태그 v$VERSION 이 이미 있습니다. 버전을 올리는 PR을 먼저 병합하세요."
 fi
-if gh release view "v$VERSION" --repo likelion-campus/PokeTokenBar >/dev/null 2>&1; then
+if VIEW_OUT=$(gh release view "v$VERSION" --repo likelion-campus/PokeTokenBar 2>&1); then
   fail "릴리스 v$VERSION 이 이미 있습니다. 버전을 올리는 PR을 먼저 병합하세요."
+elif [[ "$VIEW_OUT" != *"release not found"* ]]; then
+  fail "릴리스가 있는지 확인하지 못했습니다(네트워크나 권한 문제일 수 있습니다). gh auth status 와 연결을 확인하고 다시 실행하세요."
 fi
 
 # ── 5. 서명 신원 ───────────────────────────────────────────
@@ -65,15 +76,21 @@ echo "  확인: 서명 신원 '$SIGN_IDENTITY' leaf=$LEAF"
 
 # ── 6. 빌드 (여기부터 /Applications 가 바뀐다) ──────────────
 export PTB_REQUIRE_STABLE_SIGN=1
+export CODESIGN_IDENTITY="$SIGN_IDENTITY"
 echo "▶ 빌드 + /Applications 설치"
 ./scripts/build-app.sh || fail "빌드가 실패했습니다. 위 출력을 확인하세요. 릴리스는 만들지 않았습니다."
 
-# ── 7. zip + universal 검사 ────────────────────────────────
+# ── 7. 빌드된 앱의 서명 leaf 확인 → zip + universal 검사 ───
+CERT_DIR=$(mktemp -d)
+trap 'rm -rf "$CERT_DIR"' EXIT
+codesign -d --extract-certificates="$CERT_DIR/cert" build/PokeTokenBar.app >/dev/null 2>&1 || fail "빌드된 앱의 서명을 읽지 못했습니다. 릴리스는 만들지 않았습니다."
+BUILT_LEAF=$(/usr/bin/openssl x509 -inform der -in "$CERT_DIR/cert0" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g' | tr 'a-f' 'A-F')
+[[ "$BUILT_LEAF" == "$TEAM_EXPECTED_LEAF" ]] || fail "빌드된 앱의 서명 leaf($BUILT_LEAF)가 고정값과 다릅니다. 릴리스는 만들지 않았습니다. 서명 신원을 확인하세요."
 rm -f "$ZIP"
 ditto -c -k --keepParent build/PokeTokenBar.app "$ZIP"
 lipo "$BINARY" -verify_arch arm64 x86_64 || fail "universal(arm64 + x86_64) 바이너리가 아닙니다. 릴리스는 만들지 않았습니다."
 
 # ── 8. 릴리스 ──────────────────────────────────────────────
 echo "▶ GitHub 릴리스 v$VERSION"
-gh release create "v$VERSION" "$ZIP" --repo likelion-campus/PokeTokenBar --target main --title "v$VERSION" --notes-file "$NOTES_FILE"
+gh release create "v$VERSION" "$ZIP" --repo likelion-campus/PokeTokenBar --target "$LOCAL_HEAD" --title "v$VERSION" --notes-file "$NOTES_FILE"
 echo "완료: v$VERSION"

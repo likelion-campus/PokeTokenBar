@@ -42,10 +42,15 @@ final class TeamReleaseScriptTests: XCTestCase {
         let create = try XCTUnwrap(creates.first)
         XCTAssertTrue(create.contains("gh release create"))
         XCTAssertTrue(create.contains("--repo likelion-campus/PokeTokenBar"))
-        XCTAssertTrue(create.contains("--target main"))
+        XCTAssertTrue(create.contains("--target "))
         XCTAssertTrue(create.contains("--notes-file"))
         // No other gh call can reach another repository or the Pages / tap steps.
-        for line in lines where line.hasPrefix("gh ") || line.contains(" gh ") {
+        let ghCalls = lines.filter {
+            ($0.hasPrefix("gh ") || $0.contains(" gh ") || $0.contains("$(gh "))
+                && !$0.hasPrefix("fail ") && !$0.hasPrefix("echo") && !$0.contains("fail \"")
+                && !$0.hasPrefix("command -v")
+        }
+        for line in ghCalls where !line.contains("gh auth status") {
             XCTAssertTrue(line.contains("gh release create") || line.contains("gh release view"),
                           "unexpected gh call: \(line)")
             XCTAssertTrue(line.contains("--repo likelion-campus/PokeTokenBar"), "gh call without the fork repo: \(line)")
@@ -106,6 +111,30 @@ final class TeamReleaseScriptTests: XCTestCase {
         XCTAssertTrue(script.contains("set -euo pipefail"))
     }
 
+    /// Fix round 1: the release is pinned to the commit that was checked and built.
+    func testTeamReleasePinsTheCheckedCommit() throws {
+        let script = try read("scripts/team-release.sh")
+        let lines = codeLines(script)
+        let build = try XCTUnwrap(firstIndex(of: "./scripts/build-app.sh", in: lines))
+        let create = try XCTUnwrap(lines.first { $0.contains("gh release create") })
+
+        XCTAssertFalse(create.contains("--target main"))
+        XCTAssertTrue(create.contains("--target \"$LOCAL_HEAD\""))
+
+        for check in ["git remote get-url origin", "gh auth status", "export CODESIGN_IDENTITY="] {
+            let at = try XCTUnwrap(firstIndex(of: check, in: lines), "missing: \(check)")
+            XCTAssertLessThan(at, build, "\(check) must come before the build")
+        }
+
+        // The built app's leaf is confirmed after the build and before the zip.
+        let zip = try XCTUnwrap(firstIndex(of: "ditto", in: lines))
+        let built = try XCTUnwrap(lines.indices.first { lines[$0].contains("codesign") && $0 > build })
+        XCTAssertLessThan(built, zip, "the built-app leaf check must come before the zip")
+
+        // A failed existence check must be told apart from "not found".
+        XCTAssertTrue(script.contains("release not found"), "view failure must be classified")
+    }
+
     func testTeamGuideCreditsAssets() throws {
         let guide = try read("TEAM.md")
         XCTAssertTrue(guide.contains("ArMM1998"))
@@ -113,11 +142,16 @@ final class TeamReleaseScriptTests: XCTestCase {
         XCTAssertTrue(guide.contains("PokéAPI"))
         XCTAssertTrue(guide.contains("brew uninstall --cask poke-token-bar"))
         XCTAssertTrue(guide.contains("scripts/team-probe.swift"))
+        XCTAssertTrue(guide.contains("팀 기능 켜기"))
+        XCTAssertTrue(guide.contains("광장 열기"))
+        XCTAssertTrue(guide.contains("그래도 열기"))
+        XCTAssertTrue(guide.contains("xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app"))
+        XCTAssertTrue(guide.contains("백업 & 이전"))
     }
 
     func testTeamGuideHoldsNoPrivateDetails() throws {
         for file in ["TEAM.md", "scripts/team-release.sh"] {
-            let text = try read(file)
+            let text = try read(file).replacingOccurrences(of: "git@github.com:", with: "")
             XCTAssertFalse(text.contains("@"), "\(file): no email addresses")
             XCTAssertFalse(text.contains(".local"), "\(file): no host names")
         }
