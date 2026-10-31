@@ -136,10 +136,10 @@ final class PlazaCardTests: XCTestCase {
         let c = controller(me, start: map.spawn, timeout: timeout)
         c.prepareScene()
         let link = hub.connect(me.transport, to: other.transport)
-        await settle()
+        await waitUntil { me.session.members[other.settings.memberID] != nil }   // a presence before the hello is dropped
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
         other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
-        await settle()
+        await waitUntil { me.session.members[other.settings.memberID]?.tile == ahead && c.scene?.memberTiles[other.settings.memberID] == ahead }
         if severed { hub.sever(link, silentlyOn: other.transport) }   // after the position arrived, so it never answers
         return (c, c.scene!, other, other.settings.memberID)
     }
@@ -201,25 +201,32 @@ final class PlazaCardTests: XCTestCase {
         // Both end up on the facing tile; the lower member ID wins that tie, so the fast one is the lower.
         let pair = [node("느림"), node("빠름")].sorted { $0.settings.memberID < $1.settings.memberID }
         let fast = pair[0], slow = pair[1]
-        let c = controller(me, start: map.spawn, timeout: .milliseconds(150))
+        let c = controller(me, start: map.spawn, timeout: .milliseconds(600))
         c.prepareScene()
         let slowLink = hub.connect(me.transport, to: slow.transport)
         hub.connect(me.transport, to: fast.transport)
-        await settle()
+        // A presence that arrives before the hello is dropped, so wait until both are known.
+        await waitUntil { me.session.members.count == 2 }
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
+        let far = TilePoint(x: 10, y: 10)
         slow.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
-        fast.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: false)
-        await settle()
-        hub.sever(slowLink, silentlyOn: slow.transport)
+        fast.session.updatePlazaPosition(inPlaza: true, tile: far, facing: .down, isWalking: false)
         let scene = c.scene!
+        // Both positions must have arrived (an away member rests in the shelter, which could be `ahead`) before the link goes quiet.
+        await waitUntil {
+            scene.memberTiles[slow.settings.memberID] == ahead && scene.memberTiles[fast.settings.memberID] == far
+                && me.session.members[slow.settings.memberID]?.tile == ahead && me.session.members[fast.settings.memberID]?.tile == far
+        }
+        hub.sever(slowLink, silentlyOn: slow.transport)
         space(scene)                                                    // slow member: never answers
         XCTAssertEqual(c.overlayContent.cardMemberID, slow.settings.memberID)
         space(scene)                                                    // close
         fast.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
-        await settle()
+        // (`ahead` is a shelter tile, so the scene tile alone can match before the update lands; wait on the received position)
+        await waitUntil { me.session.members[fast.settings.memberID]?.tile == ahead && scene.memberTiles[fast.settings.memberID] == ahead }
         space(scene)                                                    // fast member answers at once
         await waitUntil { if case .card(.loaded) = c.overlayContent { true } else { false } }
-        try? await Task.sleep(for: .milliseconds(300))                 // the first request now times out
+        try? await Task.sleep(for: .milliseconds(900))                 // the first request now times out
         guard case .card(.loaded(let s, _)) = c.overlayContent else { return XCTFail("stale result replaced the card: \(c.overlayContent)") }
         XCTAssertEqual(s.memberID, fast.settings.memberID)
     }
@@ -250,12 +257,48 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertEqual(c.overlayContent, .none)
     }
 
-    func testHeldSpaceDoesNotReopen() {
+    func testHeldSpaceNeitherOpensNorClosesTheBoard() {
+        let me = node("나")
+        let c = controller(me, start: aboveBoard)   // facing the board
+        c.prepareScene()
+        let scene = c.scene!
+        scene.handleKeyDown(keyCode: spaceKey, characters: " ", isRepeat: true)
+        XCTAssertEqual(c.overlayContent, .none, "a repeat does not open")
+        space(scene)
+        XCTAssertEqual(c.overlayContent, .board)
+        scene.handleKeyDown(keyCode: spaceKey, characters: " ", isRepeat: true)
+        XCTAssertEqual(c.overlayContent, .board, "a repeat does not close")
+    }
+
+    func testRepeatedEscNeverClosesAnything() {
         let me = node("나")
         let c = controller(me, start: aboveBoard)
         c.prepareScene()
-        c.scene!.handleKeyDown(keyCode: spaceKey, characters: " ", isRepeat: true)
+        let scene = c.scene!
+        var closeRequests = 0
+        scene.onCloseRequest = { closeRequests += 1 }
+        space(scene)
+        scene.handleKeyDown(keyCode: escKey, characters: nil, isRepeat: false)
+        XCTAssertEqual(scene.handleKeyDown(keyCode: escKey, characters: nil, isRepeat: true), .swallowed)
+        XCTAssertEqual(closeRequests, 0, "holding Esc after closing the panel must not close the window")
         XCTAssertEqual(c.overlayContent, .none)
+        // a repeat does not close an open panel either
+        space(scene)
+        scene.handleKeyDown(keyCode: escKey, characters: nil, isRepeat: true)
+        XCTAssertEqual(c.overlayContent, .board)
+    }
+
+    func testRepeatedEscWithNothingOpenDoesNotCloseWindow() {
+        let me = node("나")
+        let c = controller(me, start: aboveBoard)
+        c.prepareScene()
+        let scene = c.scene!
+        var closeRequests = 0
+        scene.onCloseRequest = { closeRequests += 1 }
+        XCTAssertEqual(scene.handleKeyDown(keyCode: escKey, characters: nil, isRepeat: true), .swallowed)
+        XCTAssertEqual(closeRequests, 0)
+        XCTAssertEqual(scene.handleKeyDown(keyCode: escKey, characters: nil, isRepeat: false), .closeRequested)
+        XCTAssertEqual(closeRequests, 1)
     }
 
     func testArrowsAndEmoteKeysBlockedWhileOverlayOpen() {

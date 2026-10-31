@@ -202,10 +202,12 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         if isOverlayOpen {
             // 판이 열린 동안에는 닫는 키만 듣는다. 이후 키 분기(사진 등)도 이 아래에 둔다.
-            if keyCode == Self.escapeKeyCode || (keyCode == Self.spaceKeyCode && !isRepeat) { onCloseOverlay?() }
+            if (keyCode == Self.escapeKeyCode || keyCode == Self.spaceKeyCode) && !isRepeat { onCloseOverlay?() }
             return .swallowed
         }
         if keyCode == Self.escapeKeyCode {
+            // 누르고 있는 Esc가 방금 닫은 판 다음에 창까지 닫지 않게 반복은 무시한다.
+            if isRepeat { return .swallowed }
             onCloseRequest?()
             return .closeRequested
         }
