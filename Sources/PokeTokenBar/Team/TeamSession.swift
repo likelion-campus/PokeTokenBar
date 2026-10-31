@@ -237,11 +237,12 @@ final class TeamSession {
         case .inventory(let eventIDs, let reactionIDs):
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
         case .events(let events, let live):
-            for e in events where feed.insert(e) {
-                if live, e.kind.isBig, e.occurredAt != nil { onBigEvent?(e) }
-            }
+            let added = feed.insert(events)
+            // `publish` sends exactly one event per live frame, so a bigger "live" frame is not a moment
+            // that just happened: store it, show nothing.
+            if live, events.count == 1, let e = added.first, e.kind.isBig, e.occurredAt != nil { onBigEvent?(e) }
         case .reactions(let reactions, let live):
-            for r in reactions where feed.insert(r) {
+            for r in feed.insert(reactions) {
                 guard live, let event = feed.events.first(where: { $0.id == r.eventID }),
                       event.authorID == settings.memberID else { continue }
                 onReactionToMine?(r, event)

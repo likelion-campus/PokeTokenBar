@@ -7,6 +7,7 @@ import Observation
 final class TeamFeedStore {
     static let retentionDays = 7
     static let maxEvents = 300
+    static let maxReactions = 3000
 
     private struct StoredEvent: Codable {
         var event: TeamEvent
@@ -77,34 +78,48 @@ final class TeamFeedStore {
 
     // MARK: - Mutations
 
+    /// Counts whole-file writes, so tests can pin one save per frame.
+    @ObservationIgnored private(set) var saveCount = 0
+
     @discardableResult
-    func insert(_ e: TeamEvent) -> Bool {
-        guard !stored.contains(where: { $0.event.id == e.id }) else { return false }
-        stored.append(StoredEvent(event: e, receivedAt: clock()))
+    func insert(_ e: TeamEvent) -> Bool { !insert([e]).isEmpty }
+
+    @discardableResult
+    func insert(_ r: TeamReaction) -> Bool { !insert([r]).isEmpty }
+
+    /// Admits a whole frame with one prune and one save. Returns the events that are new and still kept.
+    func insert(_ events: [TeamEvent]) -> [TeamEvent] {
+        var added: [TeamEvent] = []
+        for e in events where admits(e) && !stored.contains(where: { $0.event.id == e.id }) {
+            stored.append(StoredEvent(event: e, receivedAt: clock()))
+            added.append(e)
+        }
+        guard !added.isEmpty else { return [] }
         sortEvents()
         prune()
         save()
-        // An event pruned right away (too old / beyond the cap) is not "new".
-        return stored.contains(where: { $0.event.id == e.id })
+        // An event pruned right away (beyond the cap) is not "new".
+        let kept = Set(stored.map(\.event.id))
+        return added.filter { kept.contains($0.id) }
     }
 
-    @discardableResult
-    func insert(_ r: TeamReaction) -> Bool {
-        guard !allReactions.contains(where: { $0.reaction.id == r.id }) else { return false }
-        var r = r
-        if r.kind == .comment {
-            let trimmed = (r.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard (1...TeamReaction.maxCommentLength).contains(trimmed.count) else { return false }
-            r = TeamReaction(id: r.id, eventID: r.eventID, authorID: r.authorID, authorNickname: r.authorNickname,
-                             kind: r.kind, text: trimmed, createdAt: r.createdAt)
-        } else if allReactions.contains(where: {
-            $0.reaction.authorID == r.authorID && $0.reaction.eventID == r.eventID && $0.reaction.kind == r.kind
-        }) {
-            return false
+    func insert(_ reactions: [TeamReaction]) -> [TeamReaction] {
+        var added: [TeamReaction] = []
+        for r in reactions where admits(r) && !allReactions.contains(where: { $0.reaction.id == r.id }) {
+            guard !allReactions.contains(where: {
+                $0.reaction.authorID == r.authorID && $0.reaction.eventID == r.eventID && $0.reaction.kind == r.kind
+            }) else { continue }
+            allReactions.append(StoredReaction(reaction: r, receivedAt: clock()))
+            added.append(r)
         }
-        allReactions.append(StoredReaction(reaction: r, receivedAt: clock()))
+        guard !added.isEmpty else { return [] }
+        if allReactions.count > Self.maxReactions {
+            allReactions.sort { Self.reactionOrder($0.reaction, $1.reaction) }
+            allReactions.removeFirst(allReactions.count - Self.maxReactions)
+        }
         save()
-        return true
+        let kept = Set(allReactions.map(\.reaction.id))
+        return added.filter { kept.contains($0.id) }
     }
 
     func markAllRead() {
@@ -123,8 +138,7 @@ final class TeamFeedStore {
     /// Saves only when something was dropped, so a fresh store never creates its file.
     func prune() {
         let before = (stored.count, allReactions.count)
-        let today = calendar.startOfDay(for: clock())
-        let cutoff = calendar.date(byAdding: .day, value: -Self.retentionDays, to: today) ?? today
+        let cutoff = retentionCutoff()
         // Events whose day cannot be parsed are kept until the cap trims them.
         stored.removeAll { s in
             guard let d = dayStart(s.event.day) else { return false }
@@ -136,6 +150,42 @@ final class TeamFeedStore {
         // A reaction can arrive before its event during sync: only drop stale orphans.
         allReactions.removeAll { !present.contains($0.reaction.eventID) && $0.reaction.createdAt < cutoff }
         if (stored.count, allReactions.count) != before { save() }
+    }
+
+    // MARK: - Admission
+
+    private static let maxFieldBytes = 64
+
+    private func bounded(_ strings: String?...) -> Bool {
+        strings.allSatisfy { ($0?.utf8.count ?? 0) <= Self.maxFieldBytes }
+    }
+
+    /// Dates must lie between the retention cutoff and tomorrow, so no row is born expired, never expires,
+    /// or carries a date the file cannot be decoded with.
+    private func inWindow(_ date: Date) -> Bool {
+        let now = clock()
+        return date >= retentionCutoff() && date <= now.addingTimeInterval(86_400)
+    }
+
+    private func retentionCutoff() -> Date {
+        let today = calendar.startOfDay(for: clock())
+        return calendar.date(byAdding: .day, value: -Self.retentionDays, to: today) ?? today
+    }
+
+    private func admits(_ e: TeamEvent) -> Bool {
+        guard !e.id.isEmpty, !e.authorID.isEmpty, bounded(e.id, e.authorID, e.speciesName, e.fromSpeciesName),
+              TeamSettings.validNickname(e.authorNickname) != nil,
+              let day = dayStart(e.day), inWindow(day) else { return false }
+        if let at = e.occurredAt, !inWindow(at) { return false }
+        return true
+    }
+
+    /// R25: comments are not part of the feature, so they are never stored (the enum case stays for the wire).
+    private func admits(_ r: TeamReaction) -> Bool {
+        guard r.kind != .comment, !r.id.isEmpty, !r.eventID.isEmpty, !r.authorID.isEmpty,
+              bounded(r.id, r.eventID, r.authorID), TeamSettings.validNickname(r.authorNickname) != nil,
+              inWindow(r.createdAt) else { return false }
+        return true
     }
 
     // MARK: - Helpers
@@ -195,6 +245,7 @@ final class TeamFeedStore {
     }
 
     private func save() {
+        saveCount += 1
         let contents = FileContents(events: stored, reactions: allReactions, lastReadAt: lastReadAt)
         guard let data = try? Self.makeEncoder().encode(contents) else { return }
         try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

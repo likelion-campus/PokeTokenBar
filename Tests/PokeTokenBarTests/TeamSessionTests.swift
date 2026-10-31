@@ -154,6 +154,24 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.bigEvents.first?.authorID, a.memberID)
     }
 
+    /// `publish` sends one event per live frame, so a live frame with more is not a moment that just happened.
+    func testLiveFrameWithSeveralEventsStoresThemButShowsNoneAsBig() {
+        let a = node("A")
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello()
+        func big(_ id: String) -> TeamEvent {
+            TeamEvent(id: id, authorID: "z", authorNickname: "Z", kind: .hatch, speciesID: 1, fromSpeciesID: nil,
+                      speciesName: "Bulbasaur", fromSpeciesName: nil, form: nil, isShiny: false, nature: nil,
+                      rarity: .common, day: "2026-10-29", occurredAt: clock.now)
+        }
+        raw.say(.events([big("b1"), big("b2"), big("b3")], live: true))
+        XCTAssertEqual(a.feed.events.count, 3)
+        XCTAssertEqual(a.bigEvents.count, 0)
+        raw.say(.events([big("b4")], live: true))
+        XCTAssertEqual(a.bigEvents.map(\.id), ["b4"])
+    }
+
     func testDuplicateEventFromTwoPeersFiresOnce() {
         let a = node("A"), b = node("B"), c = node("C")
         connect(a, b); connect(a, c)

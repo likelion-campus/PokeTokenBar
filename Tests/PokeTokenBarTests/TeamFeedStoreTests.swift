@@ -52,27 +52,105 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.events.count, 1)
     }
 
-    func testPresetReactionOncePerAuthorButCommentsMany() {
+    func testPresetReactionOncePerAuthor() {
         let store = makeStore()
         store.insert(event("e1", at: now))
         XCTAssertTrue(store.insert(reaction("r1", kind: .cute)))
         XCTAssertFalse(store.insert(reaction("r2", kind: .cute)))
         XCTAssertTrue(store.insert(reaction("r3", kind: .lol)))
-        XCTAssertTrue(store.insert(reaction("r4", kind: .comment, text: "hi")))
-        XCTAssertTrue(store.insert(reaction("r5", kind: .comment, text: "yo")))
         XCTAssertFalse(store.insert(reaction("r1", kind: .congrats)))
-        XCTAssertEqual(store.reactions(for: "e1").count, 4)
+        XCTAssertEqual(store.reactions(for: "e1").count, 2)
     }
 
-    func testCommentLengthLimit() {
+    /// R25: no UI draws or sends comments, so one that arrives is dropped (the enum case stays for the wire).
+    func testCommentReactionsAreRejected() {
         let store = makeStore()
-        store.insert(event("e1", at: now))
-        XCTAssertFalse(store.insert(reaction("r1", kind: .comment, text: String(repeating: "a", count: 41))))
-        XCTAssertFalse(store.insert(reaction("r2", kind: .comment, text: "  \n ")))
-        XCTAssertFalse(store.insert(reaction("r3", kind: .comment, text: nil)))
-        XCTAssertTrue(store.insert(reaction("r4", kind: .comment, text: String(repeating: "가", count: 40))))
-        XCTAssertTrue(store.insert(reaction("r5", kind: .comment, text: "  trimmed \n")))
-        XCTAssertEqual(store.reactions(for: "e1").last?.text, "trimmed")
+        store.insert(event("e1", author: "me", at: now))
+        XCTAssertFalse(store.insert(reaction("r1", event: "e1", kind: .comment, text: "hi")))
+        XCTAssertFalse(store.insert(reaction("r2", event: "e1", kind: .comment, text: nil)))
+        XCTAssertTrue(store.reactionIDs.isEmpty)
+        XCTAssertEqual(store.unreadCount, 0)
+    }
+
+    private func longChain() -> String { "👨" + String(repeating: "\u{200D}👨", count: 999) }
+
+    private func eventWith(id: String = "e1", author: String = "bob", nickname: String = "bob", species: String = "Pikachu",
+                           from: String? = nil, day: String? = nil, at: Date? = nil) -> TeamEvent {
+        TeamEvent(id: id, authorID: author, authorNickname: nickname, kind: .evolve,
+                  speciesID: 25, fromSpeciesID: nil, speciesName: species, fromSpeciesName: from,
+                  form: nil, isShiny: false, nature: nil, rarity: .common,
+                  day: day ?? dayString(at ?? now), occurredAt: at)
+    }
+
+    func testEventTextFieldsAreBoundedInBytes() {
+        let store = makeStore()
+        let max = String(repeating: "a", count: 64), over = String(repeating: "a", count: 65)
+        XCTAssertTrue(store.insert(eventWith(id: max)))
+        XCTAssertFalse(store.insert(eventWith(id: over)))
+        XCTAssertFalse(store.insert(eventWith(id: "x1", author: over)))
+        XCTAssertFalse(store.insert(eventWith(id: "x2", species: over)))
+        XCTAssertFalse(store.insert(eventWith(id: "x3", from: over)))
+        XCTAssertFalse(store.insert(eventWith(id: "x4", nickname: longChain())))
+        XCTAssertFalse(store.insert(eventWith(id: "x5", nickname: "")))
+        XCTAssertFalse(store.insert(eventWith(id: "x6", species: String(repeating: "가", count: 22))), "66 bytes")
+        XCTAssertTrue(store.insert(eventWith(id: "x7", species: String(repeating: "가", count: 21), from: "깨봉이")))
+        XCTAssertEqual(store.events.count, 2)
+    }
+
+    func testEventDatesMustBeInsideRetentionAndNextDay() throws {
+        let store = makeStore()
+        XCTAssertFalse(store.insert(eventWith(id: "past", at: now.addingTimeInterval(-8 * 86400))))
+        XCTAssertFalse(store.insert(eventWith(id: "future", at: now.addingTimeInterval(2 * 86400))))
+        XCTAssertFalse(store.insert(eventWith(id: "futureDay", day: dayString(now.addingTimeInterval(3 * 86400)))))
+        XCTAssertFalse(store.insert(eventWith(id: "pastDay", day: dayString(now.addingTimeInterval(-9 * 86400)))))
+        XCTAssertFalse(store.insert(eventWith(id: "garbageDay", day: "soon")))
+        let ancient = Date(timeIntervalSince1970: -62_200_000_000)   // year 0: cannot be written as ISO 8601
+        XCTAssertFalse(store.insert(eventWith(id: "year0", day: dayString(now), at: ancient)))
+        XCTAssertTrue(store.insert(eventWith(id: "ok", at: now.addingTimeInterval(3600))))
+        XCTAssertEqual(makeStore().events.map(\.id), ["ok"], "the file still decodes on the next launch")
+    }
+
+    func testReactionFieldsAndDatesAreValidated() {
+        let store = makeStore()
+        let over = String(repeating: "a", count: 65)
+        func r(_ id: String, event: String = "e1", author: String = "bob", nick: String = "bob", at: Date) -> TeamReaction {
+            TeamReaction(id: id, eventID: event, authorID: author, authorNickname: nick, kind: .cute, text: nil, createdAt: at)
+        }
+        XCTAssertFalse(store.insert(r(over, at: now)))
+        XCTAssertFalse(store.insert(r("a", event: over, at: now)))
+        XCTAssertFalse(store.insert(r("b", author: over, at: now)))
+        XCTAssertFalse(store.insert(r("c", nick: longChain(), at: now)))
+        XCTAssertFalse(store.insert(r("d", at: now.addingTimeInterval(2 * 86400))))
+        XCTAssertFalse(store.insert(r("e", at: now.addingTimeInterval(-8 * 86400))))
+        XCTAssertFalse(store.insert(r("f", at: Date(timeIntervalSince1970: -62_200_000_000))))
+        XCTAssertTrue(store.insert(r("ok", at: now)))
+        XCTAssertEqual(store.reactionIDs, ["ok"])
+    }
+
+    func testReactionsAreCappedOldestFirst() {
+        let store = makeStore()
+        let total = TeamFeedStore.maxReactions + 5
+        let batch = (0..<total).map { i in
+            reaction("r\(i)", event: "e1", author: "a\(i)", at: now.addingTimeInterval(Double(i)))
+        }
+        XCTAssertEqual(store.insert(batch).count, TeamFeedStore.maxReactions, "the five oldest are not new")
+        XCTAssertEqual(store.reactionIDs.count, TeamFeedStore.maxReactions)
+        XCTAssertFalse(store.reactionIDs.contains("r0"))
+        XCTAssertTrue(store.reactionIDs.contains("r\(total - 1)"))
+    }
+
+    func testBatchInsertSavesOncePerFrame() {
+        let store = makeStore()
+        let before = store.saveCount
+        let events = (0..<100).map { eventWith(id: "e\($0)", at: now.addingTimeInterval(Double(-$0))) }
+        XCTAssertEqual(store.insert(events).count, 100)
+        XCTAssertEqual(store.saveCount, before + 1)
+        XCTAssertEqual(store.insert(events).count, 0, "duplicates are not new and cost no save")
+        XCTAssertEqual(store.saveCount, before + 1)
+        let reactions = (0..<100).map { reaction("r\($0)", event: "e0", author: "a\($0)") }
+        XCTAssertEqual(store.insert(reactions).count, 100)
+        XCTAssertEqual(store.saveCount, before + 2)
+        XCTAssertEqual(makeStore().reactionIDs.count, 100)
     }
 
     func testOrderingPutsDayOnlyAtStartOfItsDay() {

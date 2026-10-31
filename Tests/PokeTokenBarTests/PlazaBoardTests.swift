@@ -92,7 +92,7 @@ final class PlazaBoardRowTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("PlazaBoardRowTests-\(UUID())")
         dirs.append(dir)
         return TeamFeedStore(fileURL: dir.appendingPathComponent("team-feed.json"), myMemberID: "me",
-                             clock: { Date(timeIntervalSince1970: 1_793_000_000) }, calendar: calendar)
+                             clock: { Date(timeIntervalSince1970: 1_793_400_000) }, calendar: calendar)
     }
 
     private func reaction(_ id: String, by nick: String, _ kind: TeamReactionKind, on e: String = "e1", author: String? = nil) -> TeamReaction {
