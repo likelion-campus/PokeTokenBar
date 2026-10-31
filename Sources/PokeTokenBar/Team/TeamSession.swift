@@ -20,6 +20,7 @@ final class TeamSession {
     static let silenceLimit: TimeInterval = 30
     static let inventoryInterval: TimeInterval = 300
     static let batchSize = 100
+    static let pruneInterval: TimeInterval = 3600
     /// A member the session refused (other version, same member ID, undecodable frame) is not served again for this long.
     static let refusalCooldown: TimeInterval = 300
     /// `hasIncompatiblePeer` clears when no mismatch was seen for this long.
@@ -63,6 +64,7 @@ final class TeamSession {
     @ObservationIgnored private var running = false
     @ObservationIgnored private var refusedUntil: [String: Date] = [:]
     @ObservationIgnored private var lastIncompatible: Date?
+    @ObservationIgnored private var lastPrune = Date.distantPast
     /// The code the app had last time `applySettings` looked; the baseline for "did the team change".
     @ObservationIgnored private var knownCode: TeamCode?
     @ObservationIgnored private var sentNickname: String?
@@ -114,6 +116,7 @@ final class TeamSession {
         }
         if running { transport.stop() }
         resetConnections()
+        pruneFeed()
         sentNickname = nickname
         transport.start(code: code)
         running = true
@@ -126,6 +129,7 @@ final class TeamSession {
             hasIncompatiblePeer = false
         }
         refusedUntil = refusedUntil.filter { $0.value > now }
+        if now.timeIntervalSince(lastPrune) >= Self.pruneInterval { pruneFeed() }
         for (peer, link) in links where now.timeIntervalSince(link.lastReceived) >= Self.silenceLimit {
             transport.disconnect(peer, coveredBy: nil)
             dropLink(peer)
@@ -134,6 +138,11 @@ final class TeamSession {
             if now.timeIntervalSince(link.lastSent) >= Self.heartbeatInterval { send(.presence(makePresence()), to: peer) }
             if now.timeIntervalSince(link.lastInventory) >= Self.inventoryInterval { sendInventory(to: peer) }
         }
+    }
+
+    private func pruneFeed() {
+        feed.prune()
+        lastPrune = clock()
     }
 
     // MARK: - My state

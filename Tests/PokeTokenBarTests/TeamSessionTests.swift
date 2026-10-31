@@ -477,6 +477,42 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members.count, 1)
     }
 
+    // MARK: - Pruning
+
+    /// Stale rows leave while the app keeps running, not only at launch and on the next event.
+    func testTickPrunesAboutHourly() {
+        let a = node("A")
+        let cal = Calendar.current
+        let day = cal.startOfDay(for: clock.now)
+        func at(_ days: Int, hours: Double) -> Date { cal.date(byAdding: .day, value: days, to: day)!.addingTimeInterval(hours * 3600) }
+        // An orphan reaction (its news never arrived) leaves only through `prune()`.
+        a.feed.insert(TeamReaction(id: "orphan", eventID: "nowhere", authorID: "z", authorNickname: "Zed", kind: .cute,
+                                   text: nil, createdAt: clock.now))
+        clock.now = at(7, hours: 23.5)
+        a.session.tick()                       // first tick since the start: prunes, nothing stale yet
+        XCTAssertTrue(a.feed.reactionIDs.contains("orphan"))
+        clock.now = at(8, hours: 0.2)          // the orphan is stale now, the last prune is 40 minutes old
+        a.session.tick()
+        XCTAssertTrue(a.feed.reactionIDs.contains("orphan"), "no second prune inside the hour")
+        clock.now = at(8, hours: 0.7)
+        a.session.tick()
+        XCTAssertFalse(a.feed.reactionIDs.contains("orphan"))
+    }
+
+    func testTurningTheTeamOnPrunes() {
+        let a = node("A")
+        let cal = Calendar.current
+        a.feed.insert(TeamReaction(id: "orphan", eventID: "nowhere", authorID: "z", authorNickname: "Zed", kind: .cute,
+                                   text: nil, createdAt: clock.now))
+        a.settings.isEnabled = false
+        a.session.applySettings()
+        clock.now = cal.date(byAdding: .day, value: 9, to: clock.now)!
+        XCTAssertTrue(a.feed.reactionIDs.contains("orphan"))
+        a.settings.isEnabled = true
+        a.session.applySettings()
+        XCTAssertFalse(a.feed.reactionIDs.contains("orphan"))
+    }
+
     // MARK: - Heartbeat and timeouts
 
     func testSilentPeerIsDroppedAfterTimeout() {

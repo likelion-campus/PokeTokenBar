@@ -136,6 +136,7 @@ final class TeamFeedStore {
         allReactions = []
         lastReadSeq = 0
         nextSeq = 1
+        try? FileManager.default.removeItem(atPath: fileURL.path + ".corrupt")
         save()
     }
 

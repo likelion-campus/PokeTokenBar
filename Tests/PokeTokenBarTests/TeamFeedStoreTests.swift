@@ -340,9 +340,19 @@ final class TeamFeedStoreTests: XCTestCase {
         let again = makeStore()
         XCTAssertTrue(again.events.isEmpty)
         XCTAssertTrue(again.reactionIDs.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path + ".corrupt"))
         // The read marker is gone too: a fresh event at the same instant is unread.
         again.insert(event("e2", author: "bob", at: now))
         XCTAssertEqual(again.unreadCount, 1)
+    }
+
+    /// The backup of an unreadable file is the old team's feed too.
+    func testResetDeletesTheCorruptBackup() throws {
+        try Data("{not json".utf8).write(to: url)
+        let store = makeStore()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path + ".corrupt"))
+        store.reset()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path + ".corrupt"))
     }
 
     func testCorruptFileStartsEmptyAndKeepsBackup() throws {
