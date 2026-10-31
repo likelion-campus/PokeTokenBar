@@ -17,6 +17,10 @@ extension SKView: PlazaPausableView {}
     private let myRosterEntry: () -> PlazaRosterEntry?
     private let rosterModel = PlazaRosterModel()
     private let clock: () -> Date
+    private let profileTimeout: Duration
+    private let overlayModel = PlazaOverlayModel()
+    /// 판을 열거나 닫을 때마다 올린다. 닫힌 뒤(또는 다른 판이 뜬 뒤) 도착한 카드 결과를 버린다.
+    private var overlayGeneration = 0
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
     private var lastEmoteAt: Date?
@@ -59,8 +63,10 @@ extension SKView: PlazaPausableView {}
          subject: @escaping () -> CompanionStore.RepresentativeSubject,
          myRosterEntry: @escaping () -> PlazaRosterEntry? = { nil },
          session: TeamSession? = nil,
-         clock: @escaping () -> Date = Date.init) {
+         clock: @escaping () -> Date = Date.init,
+         profileTimeout: Duration = .seconds(5)) {
         self.session = session
+        self.profileTimeout = profileTimeout
         self.clock = clock
         self.preferences = preferences
         self.loader = loader
@@ -98,6 +104,15 @@ extension SKView: PlazaPausableView {}
                 roster.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
                 roster.widthAnchor.constraint(equalToConstant: PlazaRosterMetrics.width),
             ])
+            let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlayModel), model: overlayModel)
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
+            NSLayoutConstraint.activate([
+                overlay.topAnchor.constraint(equalTo: container.topAnchor),
+                overlay.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                overlay.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                overlay.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            ])
             w.contentView = container
             w.center()
             rosterModel.capacity = PlazaRoster.capacity(forHeight: container.bounds.height)
@@ -124,6 +139,8 @@ extension SKView: PlazaPausableView {}
         s.onZoomChange = { [preferences] in preferences.zoom = $0 }
         s.onCloseRequest = { [weak self] in self?.window?.performClose(nil) }
         s.onEmoteKey = { [weak self] in self?.handleEmoteKey($0) }
+        s.onInteractKey = { [weak self] in self?.handleInteractKey() }
+        s.onCloseOverlay = { [weak self] in self?.closeOverlay() }
         scene = s
         if let session {
             sendPosition(inPlaza: true, scene: s)
@@ -148,6 +165,43 @@ extension SKView: PlazaPausableView {}
             ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: scene.memberTiles) : nil
         session?.sendEmote(kind, target: target)
     }
+
+    /// 바라보는 대상에 말을 건다. 소식판이면 빈 판(내용은 소식 작업이 채운다), 팀원이면 카드를 받아 띄운다.
+    private func handleInteractKey() {
+        guard let scene,
+              let target = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
+                                                   members: scene.memberTiles) else { return }
+        switch target {
+        case .board:
+            openOverlay(.board)
+        case .member(let id):
+            guard let session, let state = members[id] else { return }
+            let generation = openOverlay(.card(.loading(state)))
+            Task {
+                let profile = await session.requestProfile(memberID: id, timeout: profileTimeout)
+                guard generation == overlayGeneration else { return }
+                overlayModel.content = .card(profile.map { .loaded(state, $0) } ?? .failed(state))
+            }
+        }
+    }
+
+    @discardableResult
+    private func openOverlay(_ content: PlazaOverlayContent) -> Int {
+        overlayGeneration += 1
+        overlayModel.content = content
+        scene?.isOverlayOpen = true
+        return overlayGeneration
+    }
+
+    private func closeOverlay() {
+        overlayGeneration += 1
+        overlayModel.content = .none
+        scene?.isOverlayOpen = false
+        if let skView { window?.makeFirstResponder(skView) }
+    }
+
+    /// 테스트용 읽기 전용 값.
+    var overlayContent: PlazaOverlayContent { overlayModel.content }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showEmote(memberID: String, kind: TeamEmoteKind) {
@@ -242,6 +296,8 @@ extension SKView: PlazaPausableView {}
             scene.onLocalPositionChange = nil
         }
         membersGeneration += 1
+        overlayGeneration += 1
+        overlayModel.content = .none
         members = [:]
         memberSubjects = [:]
         memberLoadTokens = [:]
@@ -252,6 +308,9 @@ extension SKView: PlazaPausableView {}
             scene.onZoomChange = nil
             scene.onCloseRequest = nil
             scene.onEmoteKey = nil
+            scene.onInteractKey = nil
+            scene.onCloseOverlay = nil
+            scene.isOverlayOpen = false
         }
         skView?.presentScene(nil)
         skView = nil

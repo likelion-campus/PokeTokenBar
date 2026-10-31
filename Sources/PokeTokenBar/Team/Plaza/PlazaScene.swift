@@ -40,6 +40,14 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onCloseRequest: (() -> Void)?
     /// 키 1–5. 한글 입력기에서는 문자가 달라지므로 keyCode로만 판정한다.
     var onEmoteKey: ((TeamEmoteKind) -> Void)?
+    /// 스페이스. 판이 닫혀 있을 때만 온다.
+    var onInteractKey: (() -> Void)?
+    /// 판이 열린 동안 Esc와 스페이스.
+    var onCloseOverlay: (() -> Void)?
+    /// 판이 열리면 방향키와 말풍선 키를 무시하고 눌린 키를 놓는다. Cmd+W는 그대로 창을 닫는다.
+    var isOverlayOpen = false {
+        didSet { if isOverlayOpen && !oldValue { walker.clearInput() } }
+    }
     /// 키 뗌 이벤트는 Command가 눌린 동안 오지 않으므로 update마다 수정 키를 확인한다. 테스트에서 바꿔 끼운다.
     var currentModifiers: () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
@@ -188,9 +196,22 @@ struct PlazaSceneMember: Equatable, Sendable {
     @discardableResult
     func handleKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
                        modifiers: NSEvent.ModifierFlags = []) -> PlazaKeyResult {
-        if keyCode == Self.escapeKeyCode || (keyCode == Self.wKeyCode && modifiers.contains(.command)) {
+        if keyCode == Self.wKeyCode && modifiers.contains(.command) {
             onCloseRequest?()
             return .closeRequested
+        }
+        if isOverlayOpen {
+            // 판이 열린 동안에는 닫는 키만 듣는다. 이후 키 분기(사진 등)도 이 아래에 둔다.
+            if keyCode == Self.escapeKeyCode || (keyCode == Self.spaceKeyCode && !isRepeat) { onCloseOverlay?() }
+            return .swallowed
+        }
+        if keyCode == Self.escapeKeyCode {
+            onCloseRequest?()
+            return .closeRequested
+        }
+        if keyCode == Self.spaceKeyCode {
+            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onInteractKey?() }
+            return .swallowed
         }
         if let d = Self.direction(keyCode) {
             // Command+방향키는 keyUp이 오지 않아 계속 걷게 되므로 무시한다.
@@ -230,6 +251,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     private static let escapeKeyCode: UInt16 = 53
     private static let wKeyCode: UInt16 = 13
+    private static let spaceKeyCode: UInt16 = 49
 
     private static let emoteBlockingModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
 

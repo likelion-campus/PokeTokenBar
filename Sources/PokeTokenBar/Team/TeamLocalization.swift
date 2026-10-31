@@ -24,5 +24,7 @@ extension L {
     var plazaEggName: String { "알" }
     var plazaAwaySuffix: String { "zZ" }
     var plazaEmoteLol: String { "ㅋㅋ" }
+    var plazaCardLoading: String { "불러오는 중…" }
+    var plazaCardFailed: String { "도감을 받지 못했어요" }
     func plazaRosterMore(_ n: Int) -> String { "외 \(n)명" }
 }

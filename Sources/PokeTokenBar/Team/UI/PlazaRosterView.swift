@@ -37,7 +37,7 @@ struct PlazaRosterView: View {
 }
 
 @MainActor
-private struct PlazaRosterBackground: View {
+struct PlazaRosterBackground: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 10)
         Canvas { ctx, size in
@@ -188,7 +188,7 @@ private struct PlazaRosterIcon: View {
     }
 }
 
-private extension Color {
+extension Color {
     init(hex: UInt32) {
         self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
                   blue: Double(hex & 0xFF) / 255)
