@@ -56,10 +56,10 @@ private func same(_ a: RGBA, _ b: RGBA) -> Bool { a.r == b.r && a.g == b.g && a.
 private let red: RGBA = (255, 0, 0, 255), blue: RGBA = (0, 0, 255, 255), green: RGBA = (0, 255, 0, 255)
 private let yellow: RGBA = (255, 255, 0, 255), black: RGBA = (0, 0, 0, 255), white: RGBA = (255, 255, 255, 255)
 
-private func actor(_ img: CGImage, flipped: Bool = false, foot: CGPoint, scale: CGFloat = 1.5,
+private func actor(_ img: CGImage, flipped: Bool = false, foot: CGPoint, scale: CGFloat = 1.5, bob: CGFloat = 0,
                    shadow: CGImage? = nil, shadowRect: CGRect = .zero,
                    plate: CGImage? = nil, bubble: CGImage? = nil) -> PlazaPhotoActor {
-    PlazaPhotoActor(image: img, flipped: flipped, foot: foot, scale: scale, shadow: shadow, shadowRect: shadowRect,
+    PlazaPhotoActor(image: img, flipped: flipped, foot: foot, bob: bob, scale: scale, shadow: shadow, shadowRect: shadowRect,
                     plate: plate, bubble: bubble)
 }
 
@@ -203,6 +203,29 @@ final class PlazaPhotoTests: XCTestCase {
             XCTAssertTrue(same(px[84, 44], blue))
             XCTAssertTrue(same(px[65, 40], red), "the part of the upper actor that is not covered stays visible")
         }
+    }
+
+    func testBobDoesNotChangeDrawOrder() throws {
+        // 발이 똑같이 겹친 두 캐릭터: 배열에서 뒤에 있는 쪽이 위에 그려진다. 뒤쪽이 통통 튀어도 순서는 그대로다.
+        let map = solid(40, 20, black)
+        func topColor(bob: CGFloat) throws -> RGBA {
+            let first = actor(solid(6, 4, red), foot: CGPoint(x: 20, y: 12))
+            let second = actor(solid(6, 4, blue), foot: CGPoint(x: 20, y: 12), bob: bob)
+            let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(input(
+                map: map, rect: CGRect(x: 0, y: 0, width: 40, height: 20), ppw: 4, [first, second]))))
+            return px[80, 36]
+        }
+        XCTAssertTrue(same(try topColor(bob: 0), blue))
+        XCTAssertTrue(same(try topColor(bob: 2), blue), "a bobbing actor keeps its place in the order (the later one stays on top)")
+    }
+
+    func testBobLiftsTheSpriteButNotTheShadowOrder() throws {
+        let map = solid(40, 20, black)
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(input(
+            map: map, rect: CGRect(x: 0, y: 0, width: 40, height: 20), ppw: 4,
+            [actor(solid(4, 2, red), foot: CGPoint(x: 20, y: 15), bob: 2)]))))
+        XCTAssertTrue(same(px[80, 51], red), "drawn 2 world pixels higher: last row ends at 15-2")
+        XCTAssertTrue(same(px[80, 52], black))
     }
 
     func testShadowsAreDrawnBeneathEverySprite() throws {
@@ -390,9 +413,12 @@ final class PlazaPhotoTests: XCTestCase {
     }
 
     func testFailedWriteDoesNotFlash() throws {
-        let c = controller { _ in false }
+        var calls = 0
+        let c = controller { _ in calls += 1; return false }
         let scene = try XCTUnwrap(c.scene)
+        scene.setCharacter(frames())
         _ = pressP(scene)
+        XCTAssertEqual(calls, 1, "rendering succeeded and the writer was asked once")
         XCTAssertFalse(scene.isShutterFlashing)
     }
 

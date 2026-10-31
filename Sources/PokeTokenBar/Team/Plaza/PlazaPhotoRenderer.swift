@@ -6,8 +6,10 @@ import ImageIO
 struct PlazaPhotoActor {
     let image: CGImage
     let flipped: Bool
-    /// 발(그림 아래 가운데). 통통 튐은 이미 반영돼 있다.
+    /// 발(그림 아래 가운데). 통통 튐은 빼고 둔다. 앞뒤 순서는 이 값으로 정한다.
     let foot: CGPoint
+    /// 걸을 때 그림만 위로 들리는 월드 픽셀. 순서에는 쓰지 않는다.
+    var bob: CGFloat = 0
     /// 월드 단위로 키우는 배율(1.5).
     let scale: CGFloat
     let shadow: CGImage?
@@ -82,12 +84,12 @@ enum PlazaPhotoRenderer {
         for a in ordered {
             let w = Int((CGFloat(a.image.width) * a.scale * ppw).rounded()), h = Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
             draw(a.image, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX),
-                 top: px(a.foot.y, origin: rect.minY) - h, w: w, h: h, mirrored: a.flipped)
+                 top: px(a.foot.y - a.bob, origin: rect.minY) - h, w: w, h: h, mirrored: a.flipped)
         }
 
         for a in ordered {
             let centerX = px(a.foot.x, origin: rect.minX)
-            var top = px(a.foot.y, origin: rect.minY) - Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
+            var top = px(a.foot.y - a.bob, origin: rect.minY) - Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
             if let plate = a.plate {
                 top -= plateGap + plate.height
                 draw(plate, x: centerX - plate.width / 2, top: top, w: plate.width, h: plate.height)

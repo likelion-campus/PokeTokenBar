@@ -158,7 +158,7 @@ struct PlazaActorContext {
                                 y: foot.y - (CGFloat(size.height) * 0.12).rounded() - CGFloat(size.height) / 2,
                                 width: CGFloat(size.width), height: CGFloat(size.height))
         }
-        return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: CGPoint(x: foot.x, y: foot.y - CGFloat(pose.bob)),
+        return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: foot, bob: CGFloat(pose.bob),
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, color: nameColor, scale: 2),
                                bubble: emoteKind.map { PlazaEmoteArt.image($0, scale: 2) })
