@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
     private var plaza: PlazaWindowController!
+    private var teamNotificationDelegate: TeamNotificationDelegate?
 
     // 메뉴바 캐릭터 애니메이션 — 단일 타이머로 프레임 순환.
     // 프레임 = 이미 22px 로 합성된 이미지 + delay. egg/static 은 2프레임 bob, animated 는 GIF 실제 프레임.
@@ -130,6 +131,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             session: teamRuntime.session, feed: teamRuntime.feed)
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
         teamRuntime.plaza = plaza
+        // Bundled app only: the notification center crashes without a bundle (swift test, .build/debug).
+        teamNotificationDelegate = TeamNotifications.installDelegate { [weak self] in self?.openPlaza() }
+        if let poster = TeamNotifications.livePoster() {
+            teamRuntime.notifier = TeamNotifier(
+                settings: teamSettings, poster: poster,
+                isPlazaFrontmost: { [weak plaza] in plaza?.isFrontmost ?? false },
+                showInPlaza: { [weak plaza] in plaza?.showBanner($0) })
+        }
         teamRuntime.start()
 
         observeStore()

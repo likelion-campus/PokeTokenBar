@@ -9,6 +9,8 @@ final class TeamRuntime {
     let feed: TeamFeedStore
     let session: TeamSession
     weak var plaza: PlazaWindowController?
+    /// Set by the app only for a bundled build; nil means no notifications (tests, dev runs).
+    var notifier: TeamNotifier?
 
     private let settings: TeamSettings
     private let companion: CompanionStore
@@ -39,10 +41,19 @@ final class TeamRuntime {
         started = true
         companion.onTeamEvent = { [weak session] in session?.publish($0) }
         session.onEmote = { [weak self] memberID, emote in
-            self?.plaza?.showEmote(memberID: memberID, kind: emote.kind)
+            guard let self else { return }
+            plaza?.showEmote(memberID: memberID, kind: emote.kind)
+            if emote.targetMemberID == settings.memberID, emote.kind.notifiesTarget,
+               let member = session.members[memberID] {
+                notifier?.emoteToMe(from: member, kind: emote.kind)
+            }
         }
         session.onBigEvent = { [weak self] event in
             self?.plaza?.showBigEvent(event)
+            self?.notifier?.bigEvent(event)
+        }
+        session.onReactionToMine = { [weak self] reaction, event in
+            self?.notifier?.reactionToMine(reaction, event)
         }
         // The character first, so the first hello carries it rather than the fallback.
         observeCharacter()
@@ -56,6 +67,7 @@ final class TeamRuntime {
             _ = settings.isEnabled
             _ = settings.code
             _ = settings.nickname
+            _ = settings.notificationsEnabled
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeSettings() }
         }
@@ -64,6 +76,7 @@ final class TeamRuntime {
         if ready {
             beginActivityIfNeeded()
             startTicking()
+            notifier?.requestAuthorizationIfNeeded()
         } else {
             endActivity()
             stopTicking()
@@ -102,9 +115,14 @@ final class TeamRuntime {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.tickInterval))
                 guard let self else { return }
-                self.session.tick()
+                self.tickOnce()
             }
         }
+    }
+
+    func tickOnce() {
+        session.tick()
+        notifier?.flush()
     }
 
     private func stopTicking() {

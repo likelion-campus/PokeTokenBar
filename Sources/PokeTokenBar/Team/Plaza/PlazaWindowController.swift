@@ -238,6 +238,9 @@ extension SKView: PlazaPausableView {}
         if let skView { window?.makeFirstResponder(skView) }
     }
 
+    /// 앱이 앞이고 광장 창이 키 창이다. 알림 대신 광장 안 안내를 쓸지 가른다.
+    var isFrontmost: Bool { NSApp.isActive && window?.isKeyWindow == true }
+
     /// 테스트용 읽기 전용 값.
     var overlayContent: PlazaOverlayContent { overlayModel.content }
 

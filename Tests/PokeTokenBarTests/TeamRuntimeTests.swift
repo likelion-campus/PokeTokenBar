@@ -170,3 +170,124 @@ final class TeamRuntimeTests: XCTestCase {
         await settle { plaza.scene?.shownEmote(memberID: sender) == .lol }
     }
 }
+
+@MainActor
+private final class RuntimePoster: TeamNotificationPosting {
+    private(set) var bodies: [String] = []
+    private(set) var authorizationRequests = 0
+    func post(id: String, title: String, body: String) { bodies.append(body) }
+    func requestAuthorization() { authorizationRequests += 1 }
+}
+
+@MainActor
+final class TeamRuntimeNotificationTests: XCTestCase {
+    private let hub = FakeTransportHub()
+    private var now = runtimeNow
+
+    private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<200 where !condition() { await Task.yield() }
+        XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
+    }
+
+    private func pair() -> (a: RuntimeNode, b: RuntimeNode, poster: RuntimePoster) {
+        var rng = SystemRandomNumberGenerator()
+        let code = TeamCode.generate(using: &rng)
+        let a = RuntimeNode(hub: hub, code: code, nickname: "가")
+        let b = RuntimeNode(hub: hub, code: code, nickname: "나")
+        let poster = RuntimePoster()
+        b.runtime.notifier = TeamNotifier(settings: b.settings, poster: poster, isPlazaFrontmost: { false },
+                                          showInPlaza: { _ in }, clock: { [unowned self] in now })
+        a.runtime.start()
+        b.runtime.start()
+        hub.connect(a.transport, to: b.transport)
+        return (a, b, poster)
+    }
+
+    private func hatch() -> CompanionTeamEvent {
+        CompanionTeamEvent(kind: .hatch, speciesID: 25, fromSpeciesID: nil, speciesName: "Pikachu", fromSpeciesName: nil,
+                           form: nil, isShiny: false, nature: nil, rarity: .common)
+    }
+
+    func testOthersBigEventReachesTheNotifier() async {
+        let (a, b, poster) = pair()
+        a.companion.onTeamEvent?(hatch())
+        await settle { poster.bodies.count == 1 }
+        XCTAssertEqual(poster.bodies, [L(.ko).teamEventText(b.runtime.feed.events[0])])
+    }
+
+    func testEvolveNeverReachesNotifier() async {
+        let (a, b, poster) = pair()
+        a.companion.onTeamEvent?(CompanionTeamEvent(kind: .evolve, speciesID: 26, fromSpeciesID: 25, speciesName: "Raichu",
+                                                    fromSpeciesName: "Pikachu", form: nil, isShiny: false, nature: nil, rarity: .common))
+        await settle { b.runtime.feed.events.count == 1 }
+        XCTAssertTrue(poster.bodies.isEmpty)
+    }
+
+    func testReactionToMyEventReachesTheNotifier() async {
+        let (a, b, poster) = pair()
+        b.companion.onTeamEvent?(hatch())
+        await settle { a.runtime.feed.events.count == 1 }
+        a.runtime.session.react(to: a.runtime.feed.events[0].id, kind: .cute)
+        await settle { poster.bodies.count == 1 }
+        XCTAssertEqual(poster.bodies, [L(.ko).teamReactionNotice(nickname: "가")])
+    }
+
+    func testEmoteTargetedAtMePosts() async {
+        let (a, b, poster) = pair()
+        await settle { b.runtime.session.members[a.settings.memberID] != nil }
+        a.runtime.session.sendEmote(.heart, target: b.settings.memberID)
+        await settle { poster.bodies.count == 1 }
+    }
+
+    /// The first valid emote posts at once and opens the batch window, so anything wrongly accepted after it
+    /// would sit in the batch; ticking past the window makes such a leak show up as a second post.
+    func testEmoteForSomeoneElseOrWithoutTargetDoesNotPost() async {
+        let (a, b, poster) = pair()
+        await settle { b.runtime.session.members[a.settings.memberID] != nil }
+        a.runtime.session.sendEmote(.party, target: b.settings.memberID)
+        await settle { poster.bodies.count == 1 }
+        a.runtime.session.sendEmote(.heart, target: "somebody-else")
+        a.runtime.session.sendEmote(.heart, target: nil)
+        now = runtimeNow.addingTimeInterval(31)
+        b.runtime.tickOnce()
+        XCTAssertEqual(poster.bodies.count, 1)
+    }
+
+    func testNonNotifyingEmoteDoesNotPost() async {
+        let (a, b, poster) = pair()
+        await settle { b.runtime.session.members[a.settings.memberID] != nil }
+        a.runtime.session.sendEmote(.party, target: b.settings.memberID)
+        await settle { poster.bodies.count == 1 }
+        a.runtime.session.sendEmote(.question, target: b.settings.memberID)
+        a.runtime.session.sendEmote(.exclaim, target: b.settings.memberID)
+        now = runtimeNow.addingTimeInterval(31)
+        b.runtime.tickOnce()
+        XCTAssertEqual(poster.bodies.count, 1)
+    }
+
+    func testTickFlushesTheBatchWindow() async {
+        let (a, b, poster) = pair()
+        a.companion.onTeamEvent?(hatch())
+        a.companion.onTeamEvent?(hatch())
+        await settle { b.runtime.feed.events.count == 2 }
+        XCTAssertEqual(poster.bodies.count, 1)
+        now = runtimeNow.addingTimeInterval(31)
+        b.runtime.tickOnce()
+        XCTAssertEqual(poster.bodies.count, 2)
+    }
+
+    func testNoAuthorizationRequestWhileTheTeamIsOff() async {
+        var rng = SystemRandomNumberGenerator()
+        let node = RuntimeNode(hub: hub, code: TeamCode.generate(using: &rng), nickname: "가")
+        node.settings.isEnabled = false
+        let poster = RuntimePoster()
+        node.runtime.notifier = TeamNotifier(settings: node.settings, poster: poster, isPlazaFrontmost: { false },
+                                             showInPlaza: { _ in })
+        node.runtime.start()
+        await Task.yield()
+        XCTAssertEqual(poster.authorizationRequests, 0)
+        XCTAssertFalse(node.runtime.isTicking)
+        node.settings.isEnabled = true
+        await settle { poster.authorizationRequests == 1 }
+    }
+}

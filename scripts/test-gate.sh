@@ -47,6 +47,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Team/TeamSession.swift"
   "Sources/PokeTokenBar/Team/TeamProfileBuilder.swift"
   "Sources/PokeTokenBar/Team/TeamRuntime.swift"
+  "Sources/PokeTokenBar/Team/TeamNotifications.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaMap.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaWalker.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaPose.swift"

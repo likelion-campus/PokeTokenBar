@@ -48,6 +48,15 @@ extension L {
         }
     }
 
+    /// 팀 알림. 제목과 본문에 사용량 수치는 넣지 않는다.
+    var teamNoticeTitle: String { "팀 광장" }
+    func teamReactionNotice(nickname: String) -> String { "\(KoreanParticle.subject.attach(to: nickname)) 내 소식에 반응했어요" }
+    func teamEmoteNotice(nickname: String) -> String { "\(KoreanParticle.subject.attach(to: nickname)) 말풍선을 보냈어요" }
+    /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.
+    func teamNoticeSummary(first: String, others: Int) -> String {
+        others > 0 ? "\(first) 외 \(others)명이 반응했어요" : "\(KoreanParticle.subject.attach(to: first)) 반응했어요"
+    }
+
     /// 소식 날짜. 시각을 모르면 날짜만.
     func teamBoardDate(month: Int, day: Int, time: String?) -> String {
         time.map { "\(month)월 \(day)일 \($0)" } ?? "\(month)월 \(day)일"
