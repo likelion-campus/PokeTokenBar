@@ -38,6 +38,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onZoomChange: ((Int) -> Void)?
     /// Cmd+W, Esc. 앱에 메인 메뉴가 없어 창 닫기를 장면이 직접 요청한다.
     var onCloseRequest: (() -> Void)?
+    /// 키 1–5. 한글 입력기에서는 문자가 달라지므로 keyCode로만 판정한다.
+    var onEmoteKey: ((TeamEmoteKind) -> Void)?
     /// 키 뗌 이벤트는 Command가 눌린 동안 오지 않으므로 update마다 수정 키를 확인한다. 테스트에서 바꿔 끼운다.
     var currentModifiers: () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
@@ -195,6 +197,10 @@ struct PlazaSceneMember: Equatable, Sendable {
             if canWalk && !isRepeat && !modifiers.contains(.command) { walker.press(d) }
             return .swallowed
         }
+        if let kind = Self.emoteKind(keyCode) {
+            onEmoteKey?(kind)
+            return .swallowed
+        }
         switch characters {
         case "-": zoom -= 1
         case "=", "+": zoom += 1
@@ -209,8 +215,31 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     func releaseAllKeys() { walker.releaseAll() }
 
+    /// `memberID`가 nil이면 나. 모르는 팀원이면 아무것도 안 한다.
+    func showEmote(memberID: String?, kind: TeamEmoteKind) {
+        guard let actor = actor(memberID) else { return }
+        actor.showEmote(kind)
+        layout()
+    }
+
+    private func actor(_ memberID: String?) -> PlazaActor? {
+        guard let memberID else { return me }
+        return remotes[memberID]?.actor
+    }
+
     private static let escapeKeyCode: UInt16 = 53
     private static let wKeyCode: UInt16 = 13
+
+    private static func emoteKind(_ keyCode: UInt16) -> TeamEmoteKind? {
+        switch keyCode {
+        case 18: .heart
+        case 19: .lol
+        case 20: .party
+        case 21: .exclaim
+        case 23: .question
+        default: nil
+        }
+    }
 
     private static func direction(_ keyCode: UInt16) -> PlazaDirection? {
         switch keyCode {
@@ -303,6 +332,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     func memberFoot(_ id: String) -> CGPoint? { remotes[id]?.motion.footPoint }
     func memberName(_ id: String) -> String? { remotes[id]?.displayName }
     func memberNameColor(_ id: String) -> CGColor? { remotes[id]?.color }
+    func shownEmote(memberID: String?) -> TeamEmoteKind? { actor(memberID)?.emoteKind }
+    func emoteFrame(memberID: String?) -> CGRect? { actor(memberID)?.emoteFrame }
+    func memberNamePlateTop(_ id: String) -> CGFloat? { remotes[id]?.actor.namePlateTop }
     func memberZ(_ id: String) -> CGFloat? { remotes[id]?.actor.characterZ }
 
     /// 테스트용: 내 캐릭터 값을 그대로 넘긴다.

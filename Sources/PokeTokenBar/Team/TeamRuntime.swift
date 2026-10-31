@@ -38,6 +38,9 @@ final class TeamRuntime {
         guard !started else { return }
         started = true
         companion.onTeamEvent = { [weak session] in session?.publish($0) }
+        session.onEmote = { [weak self] memberID, emote in
+            self?.plaza?.showEmote(memberID: memberID, kind: emote.kind)
+        }
         // The character first, so the first hello carries it rather than the fallback.
         observeCharacter()
         observeSettings()

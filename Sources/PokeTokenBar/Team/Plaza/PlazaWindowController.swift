@@ -16,6 +16,10 @@ extension SKView: PlazaPausableView {}
     private let subject: () -> CompanionStore.RepresentativeSubject
     private let myRosterEntry: () -> PlazaRosterEntry?
     private let rosterModel = PlazaRosterModel()
+    private let clock: () -> Date
+    /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
+    static let emoteInterval: TimeInterval = 0.3
+    private var lastEmoteAt: Date?
 
     /// 창 위치·크기 기억용 이름. 사용자에게 보이는 글이 아니다.
     private static let frameAutosaveName = "TeamPlazaWindow"
@@ -54,8 +58,10 @@ extension SKView: PlazaPausableView {}
          memberID: @escaping () -> String,
          subject: @escaping () -> CompanionStore.RepresentativeSubject,
          myRosterEntry: @escaping () -> PlazaRosterEntry? = { nil },
-         session: TeamSession? = nil) {
+         session: TeamSession? = nil,
+         clock: @escaping () -> Date = Date.init) {
         self.session = session
+        self.clock = clock
         self.preferences = preferences
         self.loader = loader
         self.nickname = nickname
@@ -117,6 +123,7 @@ extension SKView: PlazaPausableView {}
         s.canWalk = subject().speciesID != nil
         s.onZoomChange = { [preferences] in preferences.zoom = $0 }
         s.onCloseRequest = { [weak self] in self?.window?.performClose(nil) }
+        s.onEmoteKey = { [weak self] in self?.handleEmoteKey($0) }
         scene = s
         if let session {
             sendPosition(inPlaza: true, scene: s)
@@ -128,6 +135,23 @@ extension SKView: PlazaPausableView {}
             observeMembers(session: session, generation: membersGeneration)
         }
         refreshRoster()
+    }
+
+    /// 내 말풍선은 바로 띄운다. ♥, ㅋㅋ, 🎉는 바라보는 팀원을 표적으로 보내고, !, ?는 표적 없이 보낸다.
+    private func handleEmoteKey(_ kind: TeamEmoteKind) {
+        guard let scene else { return }
+        let now = clock()
+        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        lastEmoteAt = now
+        scene.showEmote(memberID: nil, kind: kind)
+        let target = kind.notifiesTarget
+            ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: scene.memberTiles) : nil
+        session?.sendEmote(kind, target: target)
+    }
+
+    /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
+    func showEmote(memberID: String, kind: TeamEmoteKind) {
+        scene?.showEmote(memberID: memberID, kind: kind)
     }
 
     private func sendPosition(inPlaza: Bool, scene: PlazaScene) {
@@ -227,6 +251,7 @@ extension SKView: PlazaPausableView {}
             scene.isPaused = true
             scene.onZoomChange = nil
             scene.onCloseRequest = nil
+            scene.onEmoteKey = nil
         }
         skView?.presentScene(nil)
         skView = nil

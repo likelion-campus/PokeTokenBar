@@ -147,4 +147,26 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertTrue(runtime.isTicking)
         XCTAssertEqual(closes, 1)
     }
+
+    private struct NoSprites: PlazaSpriteFetching {
+        func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
+        func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
+        func egg() async -> NSImage? { nil }
+    }
+
+    func testReceivedEmoteReachesThePlaza() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.emote.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        a.runtime.session.sendEmote(.lol, target: nil)
+        await settle { plaza.scene?.shownEmote(memberID: sender) == .lol }
+    }
 }
