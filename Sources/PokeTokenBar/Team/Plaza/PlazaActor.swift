@@ -28,6 +28,9 @@ struct PlazaActorContext {
     private let emoteNode = SKSpriteNode()
     /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
     private var shadowTextureSize: (width: Int, height: Int)?
+    /// 발밑 그림: 그림자나 알의 둥지. 기념사진도 같은 그림을 쓴다.
+    private var shadowImage: CGImage?
+    private var shadowIsNest = false
     /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
     private var plateKey: (nickname: String, backing: CGFloat, color: CGColor)?
     /// 말풍선을 보여 주는 시간.
@@ -167,7 +170,7 @@ struct PlazaActorContext {
         var shadow: CGImage?
         var shadowRect = CGRect.zero
         if let size = shadowTextureSize {
-            shadow = PlazaGroundShadow.image(width: size.width, height: size.height)
+            shadow = shadowImage
             shadowRect = CGRect(x: foot.x - CGFloat(size.width) / 2,
                                 y: foot.y - (CGFloat(size.height) * 0.12).rounded() - CGFloat(size.height) / 2,
                                 width: CGFloat(size.width), height: CGFloat(size.height))
@@ -184,6 +187,7 @@ struct PlazaActorContext {
     /// 배율을 적용한 앞모습 높이의 절반. 카메라가 큰 포켓몬의 머리를 자르지 않게 올려 보는 양이다(앞모습 기준).
     var cameraLift: CGFloat { frames?.front.first.map { Self.scaledSize(of: $0.image).height / 2 } ?? 0 }
     var groundShadowSize: (width: Int, height: Int) { shadowTextureSize ?? (0, 0) }
+    var isOnNest: Bool { shadowIsNest }
     var groundShadowY: CGFloat { shadowNode.position.y }
     var characterX: CGFloat { characterNode.position.x }
     var characterY: CGFloat { characterNode.position.y }
@@ -278,11 +282,15 @@ struct PlazaActorContext {
     }
 
     private func refreshShadow() {
-        guard let first = frames?.front.first else { return }
-        let size = PlazaGroundShadow.size(forSpriteWidth: Int(Self.scaledSize(of: first.image).width.rounded()))
-        if let old = shadowTextureSize, old == size { return }
+        guard let frames, let first = frames.front.first else { return }
+        let size = frames.isEgg ? PlazaNestArt.size
+            : PlazaGroundShadow.size(forSpriteWidth: Int(Self.scaledSize(of: first.image).width.rounded()))
+        if let old = shadowTextureSize, old == size, shadowIsNest == frames.isEgg { return }
         shadowTextureSize = size
-        let texture = SKTexture(cgImage: PlazaGroundShadow.image(width: size.width, height: size.height))
+        shadowIsNest = frames.isEgg
+        let image = frames.isEgg ? PlazaNestArt.image() : PlazaGroundShadow.image(width: size.width, height: size.height)
+        shadowImage = image
+        let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         shadowNode.texture = texture
         shadowNode.size = CGSize(width: size.width, height: size.height)

@@ -16,6 +16,8 @@ struct TeamPresence: Codable, Equatable, Sendable {
     var tile: TilePoint?
     var facing: PlazaDirection?
     var isWalking: Bool
+    /// No keyboard or mouse input for a while. Left out when false, so earlier versions read the frame as before.
+    var isIdle: Bool?
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {

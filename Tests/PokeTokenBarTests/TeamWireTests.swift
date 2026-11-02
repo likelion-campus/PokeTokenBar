@@ -16,6 +16,20 @@ final class TeamWireTests: XCTestCase {
         nickname: "Ash", character: TeamMonSummary(speciesID: 25, isShiny: true, form: nil, speciesName: "Pikachu", gender: .female),
         inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .left, isWalking: true)
 
+    /// An idle flag is sent only when true, so v2.5.602 and earlier read every other presence byte for byte.
+    func testIdleFlagIsOptionalOnTheWire() throws {
+        var idle = presence
+        idle.isIdle = true
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(idle))), [.presence(idle)])
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("isIdle"))
+        let earlier = frame(#"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":false}}}"#)
+        var earlierDecoder = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try earlierDecoder.append(earlier).first else { return XCTFail("not a presence") }
+        XCTAssertNil(p.isIdle)
+    }
+
     private var allMessages: [TeamMessage] {
         [
             .hello(TeamHello(memberID: "m1", nickname: "Ash", protocolVersion: TeamWire.protocolVersion, current: mon)),

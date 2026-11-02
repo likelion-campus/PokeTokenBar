@@ -166,6 +166,71 @@ final class PlazaMembersTests: XCTestCase {
         await settle()
     }
 
+    // MARK: - 자리비움(입력 없음)과 작은 지도
+
+    func testNoInputForTenMinutesShowsIdleInPlaceAndInputClearsIt() async {
+        let me = node("나"), other = node("민수")
+        var idleFor: TimeInterval = 0
+        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
+                                      loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
+                                      nickname: { "나" }, memberID: { me.settings.memberID },
+                                      subject: { .init(speciesID: 25, isShiny: false) },
+                                      session: me.session, secondsSinceInput: { idleFor })
+        let watcher = controller(other)
+        c.prepareScene(); watcher.prepareScene()
+        await connect(me, other)
+        let myID = me.settings.memberID
+        let before = watcher.scene!.memberTiles[myID]
+        idleFor = PlazaWindowController.idleAfter - 1
+        c.checkIdle()
+        await settle()
+        XCTAssertEqual(other.session.members[myID]?.isIdle, false, "not yet")
+        idleFor = PlazaWindowController.idleAfter
+        c.checkIdle()
+        await settle()
+        XCTAssertEqual(other.session.members[myID]?.isIdle, true)
+        XCTAssertEqual(other.session.members[myID]?.inPlaza, true)
+        XCTAssertEqual(watcher.scene?.memberName(myID), "나 zZ")
+        XCTAssertEqual(watcher.scene?.memberTiles[myID], before, "an idle member stays where they were")
+        XCTAssertEqual(watcher.rosterEntries.first { $0.id == myID }?.presence, .away)
+        XCTAssertEqual(watcher.minimapDots.first { $0.id == myID }?.isAway, true)
+        idleFor = 1
+        c.checkIdle()
+        await settle()
+        XCTAssertEqual(other.session.members[myID]?.isIdle, false)
+        XCTAssertEqual(watcher.scene?.memberName(myID), "나")
+    }
+
+    func testIdleCheckDoesNothingWhileClosed() async {
+        let me = node("나")
+        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
+                                      loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
+                                      nickname: { "나" }, memberID: { me.settings.memberID },
+                                      subject: { .init(speciesID: 25, isShiny: false) },
+                                      session: me.session, secondsSinceInput: { 10_000 })
+        c.checkIdle()
+        XCTAssertFalse(c.isIdle)
+    }
+
+    func testMinimapShowsMeAndTeammatesAndTheVisibleArea() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me)
+        c.prepareScene()
+        await connect(me, other)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(3), facing: .down, isWalking: false)
+        await settle()
+        let dots = c.minimapDots
+        XCTAssertEqual(dots.first { $0.isMe }?.tile, c.scene?.walker.tile)
+        let mate = dots.first { $0.id == other.settings.memberID }
+        XCTAssertEqual(mate?.tile, walkableTile(3))
+        XCTAssertEqual(mate?.isAway, false)
+        XCTAssertEqual(mate?.color, c.scene?.memberNameColor(other.settings.memberID))
+        XCTAssertEqual(c.minimapView, c.scene?.visibleWorldRect)
+        other.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        await settle()
+        XCTAssertEqual(c.minimapDots.first { $0.id == other.settings.memberID }?.isAway, true)
+    }
+
     // MARK: - 테스트
 
     func testPresenceFramesDoNotRebuildMyRosterEntry() async {

@@ -14,6 +14,8 @@ struct PlazaCharacterFrames: Sendable {
     var isPlaceholder = false
     /// True when no back picture came and the front stands in. It may not exist at all, so retries are limited.
     var backIsFront = false
+    /// 알이면 발밑에 그림자 대신 둥지를 깐다.
+    var isEgg = false
 }
 
 /// `SpriteLoader`와 호출부가 모두 메인 액터라 `NSImage`가 격리 경계를 넘지 않는다.
@@ -48,7 +50,7 @@ final class PlazaCharacterLoader {
         guard let id = subject.speciesID else {
             let egg = await eggFrames()
             let both = egg.isEmpty ? placeholder : egg
-            return PlazaCharacterFrames(front: both, back: both, isPlaceholder: egg.isEmpty)
+            return PlazaCharacterFrames(front: both, back: both, isPlaceholder: egg.isEmpty, isEgg: true)
         }
         let front = await direction(id, subject, back: false)
         let back = await direction(id, subject, back: true)

@@ -39,6 +39,13 @@ extension SKView: PlazaPausableView {}
     static let emoteInterval: TimeInterval = 0.3
     private var lastEmoteAt: Date?
     private var lastChatAt: Date?
+    /// 키보드·마우스 입력이 이만큼 없으면 자리비움으로 알린다. 다른 앱을 쓰는 동안은 자리비움이 아니다.
+    static let idleAfter: TimeInterval = 600
+    static let idleCheckInterval: Duration = .seconds(30)
+    private let secondsSinceInput: () -> TimeInterval
+    private(set) var isIdle = false
+    private var idleGeneration = 0
+    private let minimap = PlazaMinimapModel()
     private let chatInput = PlazaChatInput()
     private let chatLog = PlazaChatLog()
     private let backgroundModel = PlazaBackgroundModel()
@@ -91,8 +98,10 @@ extension SKView: PlazaPausableView {}
          photoWriter: @escaping (Data) -> Bool = PlazaWindowController.writePhotoToClipboard,
          profileTimeout: Duration = .seconds(5),
          bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-         spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+         spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         secondsSinceInput: @escaping () -> TimeInterval = PlazaWindowController.systemSecondsSinceInput) {
         self.spriteRetrySleep = spriteRetrySleep
+        self.secondsSinceInput = secondsSinceInput
         self.session = session
         self.feed = feed
         self.bannerSleep = bannerSleep
@@ -126,7 +135,7 @@ extension SKView: PlazaPausableView {}
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
             w.title = L(.ko).plazaWindowTitle
-            w.contentMinSize = NSSize(width: 480, height: 320)
+            w.contentMinSize = NSSize(width: 600, height: 320)   // 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭
             w.isReleasedWhenClosed = false
             w.level = .normal
             w.delegate = self
@@ -150,6 +159,10 @@ extension SKView: PlazaPausableView {}
             let chatLogView = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: chatLog))
             chatLogView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(chatLogView)   // 입력은 받지 않는다.
+            let map = PlazaMinimapHostingView(rootView: PlazaMinimapView(
+                model: minimap, mapImage: NSImage(cgImage: mapImage, size: .zero), worldSize: self.map.pixelSize))
+            map.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(map)   // 입력은 받지 않는다.
             let toggle = PlazaBackgroundToggleHostingView(rootView: PlazaBackgroundToggle(
                 model: backgroundModel, toggle: { [weak self] in self?.toggleBackground() }))
             toggle.translatesAutoresizingMaskIntoConstraints = false
@@ -170,6 +183,8 @@ extension SKView: PlazaPausableView {}
                 chatBar.widthAnchor.constraint(equalToConstant: PlazaChatLog.width),
                 chatLogView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
                 chatLogAtBottom,
+                map.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
+                map.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
                 toggle.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
                 toggle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PlazaRosterMetrics.margin),
             ])
@@ -202,13 +217,19 @@ extension SKView: PlazaPausableView {}
                            zoom: preferences.zoom, nickname: nickname())
         s.setNameColor(PlazaNameColor.color(forMemberID: memberID()))
         s.canWalk = subject().speciesID != nil
-        s.onZoomChange = { [preferences] in preferences.zoom = $0 }
+        s.onZoomChange = { [weak self, preferences] in
+            preferences.zoom = $0
+            self?.refreshMinimap()
+        }
         s.onCloseRequest = { [weak self] in self?.window?.performClose(nil) }
         s.onEmoteKey = { [weak self] in self?.handleEmoteKey($0) }
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
         s.onChatKey = { [weak self] in self?.openChat() }
         s.setBackgroundHidden(preferences.isBackgroundHidden)
+        isIdle = false
+        idleGeneration += 1
+        watchIdle(generation: idleGeneration)
         backgroundModel.isHidden = preferences.isBackgroundHidden
         s.onCloseOverlay = { [weak self] in self?.closeOverlay() }
         scene = s
@@ -221,11 +242,13 @@ extension SKView: PlazaPausableView {}
             s.onLocalPositionChange = { [weak self] _, _, _ in
                 guard let self, let scene = self.scene else { return }
                 self.sendPosition(inPlaza: true, scene: scene)
+                self.refreshMinimap()
             }
             membersGeneration += 1
             observeMembers(session: session, generation: membersGeneration)
         }
         refreshRoster()
+        refreshMinimap()
     }
 
     /// 내 말풍선은 바로 띄운다. ♥, ㅋㅋ, 🎉는 바라보는 팀원을 표적으로 보내고, !, ?는 표적 없이 보낸다.
@@ -392,8 +415,51 @@ extension SKView: PlazaPausableView {}
 
     private func sendPosition(inPlaza: Bool, scene: PlazaScene) {
         session?.updatePlazaPosition(inPlaza: inPlaza, tile: scene.walker.tile, facing: scene.walker.facing,
-                                     isWalking: scene.walker.isWalking)
+                                     isWalking: scene.walker.isWalking, isIdle: inPlaza && isIdle)
     }
+
+    /// 마지막 입력 뒤 지난 시간. 권한 없이 읽을 수 있고 어떤 앱을 쓰는지는 알 수 없다.
+    nonisolated static func systemSecondsSinceInput() -> TimeInterval {
+        let kinds: [CGEventType] = [.keyDown, .flagsChanged, .mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel,
+                                    .leftMouseDragged, .otherMouseDown]
+        return kinds.map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? 0
+    }
+
+    /// 입력이 오래 없으면 자리비움을, 다시 생기면 복귀를 알린다. 광장이 열려 있을 때만 돈다.
+    func checkIdle() {
+        guard let scene else { return }
+        let idle = secondsSinceInput() >= Self.idleAfter
+        guard idle != isIdle else { return }
+        isIdle = idle
+        sendPosition(inPlaza: true, scene: scene)
+    }
+
+    private func watchIdle(generation: Int) {
+        Task { [weak self] in
+            while let self, generation == self.idleGeneration {
+                try? await Task.sleep(for: Self.idleCheckInterval)
+                guard generation == self.idleGeneration else { return }
+                self.checkIdle()
+            }
+        }
+    }
+
+    /// 작은 지도의 점과 보이는 영역을 지금 상태로 맞춘다.
+    private func refreshMinimap() {
+        guard let scene else { return }
+        var dots = members.values.sorted { $0.memberID < $1.memberID }.compactMap { m -> PlazaMinimapModel.Dot? in
+            guard let tile = scene.memberTiles[m.memberID] else { return nil }
+            return .init(id: m.memberID, tile: tile, color: scene.memberNameColor(m.memberID) ?? PlazaNameColor.palette[0],
+                         isMe: false, isAway: !m.inPlaza || m.isIdle)
+        }
+        dots.append(.init(id: memberID(), tile: scene.walker.tile, color: scene.nameColor, isMe: true, isAway: false))
+        if dots != minimap.dots { minimap.dots = dots }
+        if scene.visibleWorldRect != minimap.view { minimap.view = scene.visibleWorldRect }
+    }
+
+    /// 테스트용 읽기 전용 값.
+    var minimapDots: [PlazaMinimapModel.Dot] { minimap.dots }
+    var minimapView: CGRect { minimap.view }
 
     /// 다시 등록을 먼저 하고 값을 반영한다(그 사이 변경을 놓치지 않는다). 세대가 바뀌었으면 끝낸다.
     private func observeMembers(session: TeamSession, generation: Int) {
@@ -413,8 +479,9 @@ extension SKView: PlazaPausableView {}
         let list = members.values.sorted { $0.memberID < $1.memberID }
         scene.applyMembers(list.map {
             PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
-                             facing: $0.facing ?? .down, isWalking: $0.isWalking)
+                             facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle)
         })
+        refreshMinimap()
         let ids = Set(members.keys)
         for id in memberSubjects.keys where !ids.contains(id) {
             memberSubjects[id] = nil
@@ -518,6 +585,8 @@ extension SKView: PlazaPausableView {}
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
         chatInput.close()
+        idleGeneration += 1
+        isIdle = false
         if overlayModel.content == .board { feed?.markAllRead() }
         persistState()
         bannerTask?.cancel()
@@ -590,6 +659,7 @@ extension SKView: PlazaPausableView {}
     func windowDidResize(_ notification: Notification) {
         guard let height = window?.contentView?.bounds.height else { return }
         rosterModel.capacity = PlazaRoster.capacity(forHeight: height)
+        refreshMinimap()
     }
     func windowDidMiniaturize(_ notification: Notification) { setRendering(visible: false) }
     func windowDidDeminiaturize(_ notification: Notification) { setRendering(visible: true) }
