@@ -24,6 +24,7 @@ private final class Node {
     var bigEvents: [TeamEvent] = []
     var reactionsToMine: [(TeamReaction, TeamEvent)] = []
     var emotes: [(memberID: String, emote: TeamEmote)] = []
+    var chats: [(memberID: String, text: String)] = []
 
     static let pikachu = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
     static let eevee = TeamMonSummary(speciesID: 133, isShiny: true, form: nil, speciesName: "Eevee", gender: nil)
@@ -48,6 +49,7 @@ private final class Node {
         session.onBigEvent = { [unowned self] in bigEvents.append($0) }
         session.onReactionToMine = { [unowned self] in reactionsToMine.append(($0, $1)) }
         session.onEmote = { [unowned self] in emotes.append(($0, $1)) }
+        session.onChat = { [unowned self] in chats.append(($0, $1)) }
         session.applySettings()
     }
 
@@ -657,6 +659,31 @@ final class TeamSessionTests: XCTestCase {
         hub.connect(raw.transport, to: a.transport)
         raw.hello(memberID: id, nickname: String(repeating: "x", count: 13))
         XCTAssertEqual(a.session.members[id]?.nickname, "")
+    }
+
+    // MARK: - Chat
+
+    func testChatIsNeitherStoredNorForwarded() {
+        let a = node("A"), b = node("B"), c = node("C")
+        connect(a, b); connect(b, c)
+        let feedBefore = b.feed.events
+        a.session.sendChat("안녕")
+        XCTAssertEqual(b.chats.map(\.text), ["안녕"])
+        XCTAssertEqual(b.chats.first?.memberID, a.memberID)
+        XCTAssertTrue(c.chats.isEmpty)
+        XCTAssertEqual(b.feed.events, feedBefore)
+        XCTAssertEqual(b.transport.sentMessages { if case .chat = $0 { true } else { false } }, 0)
+    }
+
+    func testLineOutOfFormIsDroppedAndTheLinkStays() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        for bad in ["둘\n줄", "  공백", "", String(repeating: "가", count: TeamChat.maxCharacters + 1)] {
+            a.session.sendChat(bad)
+        }
+        XCTAssertTrue(b.chats.isEmpty)
+        a.session.sendChat("정상")
+        XCTAssertEqual(b.chats.map(\.text), ["정상"])
     }
 
     // MARK: - Emotes

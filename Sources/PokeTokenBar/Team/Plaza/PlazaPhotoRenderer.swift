@@ -95,8 +95,15 @@ enum PlazaPhotoRenderer {
                 draw(plate, x: centerX - plate.width / 2, top: top, w: plate.width, h: plate.height)
             }
             if let bubble = a.bubble {
+                // 화면처럼 사진 안쪽으로 민다. 이름표가 사진 밖이면 누구 말인지 알 수 없으므로 같이 밖에 둔다.
+                let isOnPhoto = (0..<width).contains(centerX) && (0..<height).contains(top)
                 top -= bubble.height
-                draw(bubble, x: centerX - bubble.width / 2, top: top, w: bubble.width, h: bubble.height)
+                var x = centerX - bubble.width / 2
+                if isOnPhoto {
+                    x = min(max(x, 0), width - bubble.width)
+                    top = max(top, 0)
+                }
+                draw(bubble, x: x, top: top, w: bubble.width, h: bubble.height)
             }
         }
         return context.makeImage()

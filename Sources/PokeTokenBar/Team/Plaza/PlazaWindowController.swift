@@ -38,6 +38,8 @@ extension SKView: PlazaPausableView {}
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
     private var lastEmoteAt: Date?
+    private var lastChatAt: Date?
+    private let chatInput = PlazaChatInput()
     /// 사진 PNG를 내보낸다. 성공하면 true. 테스트가 클립보드를 건드리지 않게 바꿔 끼운다.
     private let photoWriter: (Data) -> Bool
 
@@ -99,6 +101,11 @@ extension SKView: PlazaPausableView {}
         self.subject = subject
         self.myRosterEntry = myRosterEntry
         super.init()
+        chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
+        chatInput.onClose = { [weak self] in
+            guard let self, let skView else { return }
+            window?.makeFirstResponder(skView)
+        }
     }
 
     /// 창이 없으면 만들고, 앱을 앞으로 가져와 창을 앞에 둔다. 이미 열려 있으면 앞으로만.
@@ -133,11 +140,17 @@ extension SKView: PlazaPausableView {}
                                                 model: overlayModel)
             overlay.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
+            let chatBar = chatInput.view
+            chatBar.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(chatBar)   // 판 위. 열린 동안에만 입력창이 첫 응답자가 된다.
             NSLayoutConstraint.activate([
                 overlay.topAnchor.constraint(equalTo: container.topAnchor),
                 overlay.bottomAnchor.constraint(equalTo: container.bottomAnchor),
                 overlay.leadingAnchor.constraint(equalTo: container.leadingAnchor),
                 overlay.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                chatBar.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+                chatBar.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                chatBar.widthAnchor.constraint(equalToConstant: 400),
             ])
             w.contentView = container
             w.center()
@@ -172,6 +185,7 @@ extension SKView: PlazaPausableView {}
         s.onEmoteKey = { [weak self] in self?.handleEmoteKey($0) }
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
+        s.onChatKey = { [weak self] in self?.openChat() }
         s.onCloseOverlay = { [weak self] in self?.closeOverlay() }
         scene = s
         if let feed {
@@ -200,6 +214,24 @@ extension SKView: PlazaPausableView {}
         let target = kind.notifiesTarget
             ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: scene.memberTiles) : nil
         session?.sendEmote(kind, target: target)
+    }
+
+    private func openChat() {
+        guard let scene else { return }
+        scene.clearInput()
+        chatInput.open()
+        window?.makeFirstResponder(chatInput.field)
+    }
+
+    /// 내 말풍선은 바로 띄운다. 보낼 글이 없으면 true(입력창을 닫는다), 너무 빠르면 false(글을 남겨 둔다).
+    private func submitChat(_ raw: String) -> Bool {
+        guard let scene, let text = TeamChat.prepared(raw) else { return true }
+        let now = clock()
+        if let last = lastChatAt, now.timeIntervalSince(last) < Self.emoteInterval { return false }
+        lastChatAt = now
+        scene.showChat(memberID: nil, text: text)
+        session?.sendChat(text)
+        return true
     }
 
     /// 보이는 장면을 사진으로 합성해 클립보드에 PNG로 넣고 번쩍인다. 합성이나 인코딩이 실패하면 클립보드를 그대로 두고 번쩍이지 않는다.
@@ -255,10 +287,16 @@ extension SKView: PlazaPausableView {}
 
     /// 테스트용 읽기 전용 값.
     var overlayContent: PlazaOverlayContent { overlayModel.content }
+    var chatInputForTesting: PlazaChatInput { chatInput }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showEmote(memberID: String, kind: TeamEmoteKind) {
         scene?.showEmote(memberID: memberID, kind: kind)
+    }
+
+    /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
+    func showChat(memberID: String, text: String) {
+        scene?.showChat(memberID: memberID, text: text)
     }
 
     /// 큰 소식 연출: 쓴 사람 위에 반짝임, 위쪽에 배너. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 진화는 연출하지 않는다.
@@ -424,6 +462,7 @@ extension SKView: PlazaPausableView {}
 
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
+        chatInput.close()
         if overlayModel.content == .board { feed?.markAllRead() }
         persistState()
         bannerTask?.cancel()
@@ -450,6 +489,7 @@ extension SKView: PlazaPausableView {}
             scene.onEmoteKey = nil
             scene.onInteractKey = nil
             scene.onPhotoKey = nil
+            scene.onChatKey = nil
             scene.onCloseOverlay = nil
             scene.isOverlayOpen = false
         }

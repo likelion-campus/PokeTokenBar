@@ -13,7 +13,7 @@ struct TeamMemberState: Equatable, Sendable {
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
-/// emotes. Keeps no connection or presence history; emotes and profiles are never stored or forwarded.
+/// emotes. Keeps no connection or presence history; emotes, chat and profiles are never stored or forwarded.
 @MainActor @Observable
 final class TeamSession {
     static let heartbeatInterval: TimeInterval = 10
@@ -51,6 +51,7 @@ final class TeamSession {
     @ObservationIgnored var onBigEvent: ((TeamEvent) -> Void)?
     @ObservationIgnored var onReactionToMine: ((TeamReaction, TeamEvent) -> Void)?
     @ObservationIgnored var onEmote: ((_ memberID: String, TeamEmote) -> Void)?
+    @ObservationIgnored var onChat: ((_ memberID: String, _ text: String) -> Void)?
 
     @ObservationIgnored private let settings: TeamSettings
     @ObservationIgnored private let feed: TeamFeedStore
@@ -186,6 +187,10 @@ final class TeamSession {
         broadcast(.emote(TeamEmote(kind: kind, targetMemberID: target)))
     }
 
+    func sendChat(_ text: String) {
+        broadcast(.chat(TeamChat(text: text)))
+    }
+
     func requestProfile(memberID: String, timeout: Duration = .seconds(5)) async -> TeamMemberProfile? {
         guard let peer = links.first(where: { $0.value.memberID == memberID })?.key else { return nil }
         let id = UUID()
@@ -272,6 +277,8 @@ final class TeamSession {
             }
         case .emote(let emote):
             onEmote?(memberID, emote)
+        case .chat(let chat):
+            if TeamChat.prepared(chat.text) == chat.text { onChat?(memberID, chat.text) }
         case .profileRequest:
             send(.profile(profileProvider()), to: peer)
         case .profile(let profile):

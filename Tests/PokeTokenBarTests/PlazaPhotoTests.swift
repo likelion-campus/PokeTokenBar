@@ -266,6 +266,18 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertTrue(same(px[60, 41], black))
     }
 
+    func testWideBubbleStaysInsideThePhotoUnlessTheNameIsOutside() throws {
+        func photo(foot: CGPoint) throws -> Pixels {
+            let a = actor(solid(2, 2, red), foot: foot, bubble: solid(40, 6, green))
+            return Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(input(
+                map: solid(60, 60, black), rect: CGRect(x: 0, y: 0, width: 60, height: 60), ppw: 2, [a]))))
+        }
+        XCTAssertTrue(same(try photo(foot: CGPoint(x: 2, y: 30))[35, 50], green), "pushed in from the left")
+        XCTAssertTrue(same(try photo(foot: CGPoint(x: 58, y: 30))[85, 50], green), "pushed in from the right")
+        XCTAssertTrue(same(try photo(foot: CGPoint(x: 30, y: 6))[60, 2], green), "pushed down from the top")
+        XCTAssertTrue(same(try photo(foot: CGPoint(x: -30, y: 30))[1, 50], black), "not pulled in from outside")
+    }
+
     func testPNGHeaderIsValid() throws {
         let map = image(4, 4) { x, _ in x < 2 ? red : blue }
         let photo = try XCTUnwrap(PlazaPhotoRenderer.render(input(map: map, rect: CGRect(x: 0, y: 0, width: 4, height: 4), ppw: 2)))
