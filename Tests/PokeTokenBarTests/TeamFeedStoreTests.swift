@@ -44,6 +44,23 @@ final class TeamFeedStoreTests: XCTestCase {
                      kind: kind, text: text, createdAt: at ?? now)
     }
 
+    func testGregorianDayIsReadOnANonGregorianMac() {
+        let sent = CompanionTeamEvent(kind: .hatch, speciesID: 25, fromSpeciesID: nil, speciesName: "Pikachu",
+                                      fromSpeciesName: nil, form: nil, isShiny: false, nature: nil, rarity: .common)
+        for identifier in [Calendar.Identifier.buddhist, .japanese] {
+            var local = Calendar(identifier: identifier)
+            local.timeZone = calendar.timeZone
+            let file = dir.appendingPathComponent("\(identifier).json")
+            let e = TeamEventFactory.make(sent, authorID: "bob", nickname: "bob", now: now,
+                                          hasOnlinePeers: false, calendar: local)
+            let store = TeamFeedStore(fileURL: file, myMemberID: "me", clock: { [now] in now }, calendar: local)
+            XCTAssertTrue(store.insert(e), "today's event is admitted on \(identifier)")
+            XCTAssertFalse(store.insert(event("old", day: "2026-01-01")), "the window still applies on \(identifier)")
+            let reopened = TeamFeedStore(fileURL: file, myMemberID: "me", clock: { [now] in now }, calendar: local)
+            XCTAssertEqual(reopened.events.map(\.id), [e.id], "launch pruning keeps it on \(identifier)")
+        }
+    }
+
     func testDuplicateEventIsIgnored() {
         let store = makeStore()
         let e1 = event("e1", at: now)

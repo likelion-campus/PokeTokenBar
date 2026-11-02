@@ -12,6 +12,8 @@ struct PlazaCharacterFrames: Sendable {
     let back: [PlazaFrame]
     /// True when nothing could be fetched and the grey circle stands in. A later request may succeed.
     var isPlaceholder = false
+    /// True when no back picture came and the front stands in. It may not exist at all, so retries are limited.
+    var backIsFront = false
 }
 
 /// `SpriteLoader`와 호출부가 모두 메인 액터라 `NSImage`가 격리 경계를 넘지 않는다.
@@ -52,7 +54,7 @@ final class PlazaCharacterLoader {
         let back = await direction(id, subject, back: true)
         let shownFront = front.isEmpty ? placeholder : front
         return PlazaCharacterFrames(front: shownFront, back: back.isEmpty ? shownFront : back,
-                                    isPlaceholder: front.isEmpty)
+                                    isPlaceholder: front.isEmpty, backIsFront: !front.isEmpty && back.isEmpty)
     }
 
     /// 한 방향의 프레임. 이로치 → 일반 순서로, 각각 움직이는 그림 → 정지 그림.

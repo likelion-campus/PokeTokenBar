@@ -78,6 +78,8 @@ final class PlazaCharacterTests: XCTestCase {
         XCTAssertFalse(frames.back.isEmpty)
         XCTAssertEqual(frames.back.count, frames.front.count)
         XCTAssertTrue(frames.back[0].image === frames.front[0].image)
+        XCTAssertTrue(frames.backIsFront)
+        XCTAssertFalse(frames.isPlaceholder)
         XCTAssertTrue(f.calls.all.contains("still:normal:back"))
     }
 
@@ -153,5 +155,7 @@ final class PlazaCharacterTests: XCTestCase {
         let frames = await PlazaCharacterLoader(fetcher: f).frames(for: .init(speciesID: 400, isShiny: false))
         XCTAssertEqual(frames.front[0].image.width, 16)
         XCTAssertEqual(frames.back[0].image.width, 3)
+        XCTAssertTrue(frames.isPlaceholder)
+        XCTAssertFalse(frames.backIsFront, "only a real front can stand in for the back")
     }
 }

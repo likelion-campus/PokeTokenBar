@@ -23,9 +23,11 @@ extension SKView: PlazaPausableView {}
     /// 큰 소식 배너를 보여 주는 시간.
     static let bannerDuration: Duration = .seconds(4)
     private let bannerSleep: @MainActor (Duration) async -> Void
-    private let memberRetrySleep: @MainActor (Duration) async -> Void
-    /// A member whose sprite request failed is asked for again after this long, while the plaza stays open.
-    static let memberLoadRetryDelay: Duration = .seconds(30)
+    private let spriteRetrySleep: @MainActor (Duration) async -> Void
+    /// A failed sprite request is made again after this long, while the plaza stays open.
+    static let spriteRetryDelay: Duration = .seconds(30)
+    /// 뒷모습은 원래 없는 그림일 수 있어(404와 오프라인을 구분할 수 없다) 몇 번만 다시 묻는다.
+    static let backRetryLimit = 3
     /// 배너를 새로 띄우거나 창을 닫을 때마다 올린다. 낡은 타이머가 새 배너를 지우지 못하게 한다.
     private var bannerGeneration = 0
     private var bannerTask: Task<Void, Never>?
@@ -82,8 +84,8 @@ extension SKView: PlazaPausableView {}
          photoWriter: @escaping (Data) -> Bool = PlazaWindowController.writePhotoToClipboard,
          profileTimeout: Duration = .seconds(5),
          bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-         memberRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
-        self.memberRetrySleep = memberRetrySleep
+         spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+        self.spriteRetrySleep = spriteRetrySleep
         self.session = session
         self.feed = feed
         self.bannerSleep = bannerSleep
@@ -139,8 +141,7 @@ extension SKView: PlazaPausableView {}
             ])
             w.contentView = container
             w.center()
-            rosterModel.capacity = PlazaRoster.capacity(forHeight: container.bounds.height)
-            w.setFrameAutosaveName(Self.frameAutosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
+            Self.restoreFrame(w, into: rosterModel)
             view.presentScene(scene)
             w.makeFirstResponder(view)
             skView = view
@@ -150,6 +151,12 @@ extension SKView: PlazaPausableView {}
         }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// 저장된 창 크기를 되살린 뒤에 목록 칸 수를 잰다. 되살리는 동안의 windowDidResize 는 `window` 가 아직 nil 이라 못 잰다.
+    static func restoreFrame(_ w: NSWindow, into roster: PlazaRosterModel, autosaveName: String = frameAutosaveName) {
+        w.setFrameAutosaveName(autosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
+        roster.capacity = PlazaRoster.capacity(forHeight: w.contentView?.bounds.height ?? 0)
     }
 
     /// 창 없이 장면만 만든다.
@@ -329,33 +336,44 @@ extension SKView: PlazaPausableView {}
         }
     }
 
-    private func startMemberLoad(_ id: String, subject: CompanionStore.RepresentativeSubject) {
+    /// 앞모습은 받을 때까지, 뒷모습은 `backRetryLimit`번까지 다시 묻는다.
+    private static func shouldRetry(_ frames: PlazaCharacterFrames, attempt: Int) -> Bool {
+        frames.isPlaceholder || (frames.backIsFront && attempt < backRetryLimit)
+    }
+
+    private func startMemberLoad(_ id: String, subject: CompanionStore.RepresentativeSubject, attempt: Int = 0) {
         nextLoadToken += 1
         let token = nextLoadToken
         memberLoadTokens[id] = token
-        Task { await loadMemberFrames(id, subject: subject, token: token) }
+        Task { await loadMemberFrames(id, subject: subject, token: token, attempt: attempt) }
     }
 
-    private func loadMemberFrames(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int) async {
+    private func loadMemberFrames(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int, attempt: Int) async {
         let frames = await loader.frames(for: subject)
         guard memberLoadTokens[id] == token, let scene else { return }
         scene.setMemberFrames(id, frames)
         appliedMemberLoads.append((id, subject.speciesID))
-        if frames.isPlaceholder { await retryMemberLoad(id, subject: subject, token: token) }
+        if Self.shouldRetry(frames, attempt: attempt) {
+            await retryMemberLoad(id, subject: subject, token: token, attempt: attempt)
+        }
     }
 
     /// A failed request must not stay a grey circle until the plaza is reopened. Asks again only if the plaza
     /// is still open and this member still shows the same character (a newer request or a close bumps the token).
-    private func retryMemberLoad(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int) async {
-        await memberRetrySleep(Self.memberLoadRetryDelay)
+    private func retryMemberLoad(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int, attempt: Int) async {
+        await spriteRetrySleep(Self.spriteRetryDelay)
         guard !Task.isCancelled, memberLoadTokens[id] == token, memberSubjects[id] == subject else { return }
-        startMemberLoad(id, subject: subject)
+        startMemberLoad(id, subject: subject, attempt: attempt + 1)
     }
 
     func appliedMemberSpecies(_ id: String) -> [Int?] { appliedMemberLoads.filter { $0.id == id }.map(\.speciesID) }
 
     /// 지금 대표 포켓몬 그림을 다시 받아 장면에 넣는다. 장면이 없으면 아무것도 안 한다.
     func refreshCharacter() async {
+        await loadCharacter(attempt: 0)
+    }
+
+    private func loadCharacter(attempt: Int) async {
         guard let current = scene else { return }
         // 그림 로딩을 기다리지 않고 바로 반영한다(알이면 지금 걷는 칸만 마치고 선다).
         current.canWalk = subject().speciesID != nil
@@ -365,6 +383,16 @@ extension SKView: PlazaPausableView {}
         // 기다리는 동안 닫혔거나 더 새 요청이 있었으면 버린다.
         guard generation == refreshGeneration, let scene else { return }
         scene.setCharacter(frames)
+        if Self.shouldRetry(frames, attempt: attempt) {
+            Task { await retryCharacter(generation, attempt: attempt) }
+        }
+    }
+
+    /// 내 그림도 팀원처럼 다시 묻는다. 더 새 요청이나 닫기가 세대를 올리면 그만둔다.
+    private func retryCharacter(_ generation: Int, attempt: Int) async {
+        await spriteRetrySleep(Self.spriteRetryDelay)
+        guard !Task.isCancelled, generation == refreshGeneration else { return }
+        await loadCharacter(attempt: attempt + 1)
     }
 
     func refreshNickname() {

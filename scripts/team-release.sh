@@ -74,13 +74,17 @@ fi
 [[ "$LEAF" == "$TEAM_EXPECTED_LEAF" ]] || fail "인증서 leaf 가 다릅니다(현재 $LEAF, 기대 $TEAM_EXPECTED_LEAF). 인증서를 바꾼 게 맞다면 TEAM_EXPECTED_LEAF 를 PR로 고치고, 아니면 원래 Mac 에서 실행하세요."
 echo "  확인: 서명 신원 '$SIGN_IDENTITY' leaf=$LEAF"
 
-# ── 6. 빌드 (여기부터 /Applications 가 바뀐다) ──────────────
+# ── 6. 테스트 게이트 ───────────────────────────────────────
+echo "▶ 테스트 게이트"
+./scripts/test-gate.sh || fail "테스트 게이트가 실패했습니다. 위 출력을 확인하세요. 릴리스는 만들지 않았습니다."
+
+# ── 7. 빌드 (여기부터 /Applications 가 바뀐다) ──────────────
 export PTB_REQUIRE_STABLE_SIGN=1
 export CODESIGN_IDENTITY="$SIGN_IDENTITY"
 echo "▶ 빌드 + /Applications 설치"
 ./scripts/build-app.sh || fail "빌드가 실패했습니다. 위 출력을 확인하세요. 릴리스는 만들지 않았습니다."
 
-# ── 7. 빌드된 앱의 서명 leaf 확인 → zip + universal 검사 ───
+# ── 8. 빌드된 앱의 서명 leaf 확인 → zip + universal 검사 ───
 CERT_DIR=$(mktemp -d)
 trap 'rm -rf "$CERT_DIR"' EXIT
 codesign -d --extract-certificates="$CERT_DIR/cert" build/PokeTokenBar.app >/dev/null 2>&1 || fail "빌드된 앱의 서명을 읽지 못했습니다. 릴리스는 만들지 않았습니다."
@@ -90,7 +94,7 @@ rm -f "$ZIP"
 ditto -c -k --keepParent build/PokeTokenBar.app "$ZIP"
 lipo "$BINARY" -verify_arch arm64 x86_64 || fail "universal(arm64 + x86_64) 바이너리가 아닙니다. 릴리스는 만들지 않았습니다."
 
-# ── 8. 릴리스 ──────────────────────────────────────────────
+# ── 9. 릴리스 ──────────────────────────────────────────────
 echo "▶ GitHub 릴리스 v$VERSION"
 gh release create "v$VERSION" "$ZIP" --repo likelion-campus/PokeTokenBar --target "$LOCAL_HEAD" --title "v$VERSION" --notes-file "$NOTES_FILE"
 echo "완료: v$VERSION"

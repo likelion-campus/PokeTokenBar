@@ -42,6 +42,14 @@ read_when:
   보존해 정적 보기로 전환할 때 복원한다. `SpriteAnimationPreviewTests`는 실제 SwiftUI 첫 렌더의
   GIF 픽셀·크기, 캐시 재사용, 프레임 지연, 정적 원본 보존을 검사한다.
 
+- **재시도를 한 경로에만 두면 나머지 경로가 같은 결함으로 남는다.** 광장은 팀원 그림만 30초 뒤 다시 받아서, 창을 열
+  때 요청이 실패하면 내 포켓몬은 다시 열 때까지 회색 원이었다. 뒷모습 실패는 앞모습으로 대체되고 `isPlaceholder`가
+  false라 내 것도 팀원 것도 재시도가 없었다. **왜 못 걸렀나:** 재시도 테스트가 팀원 경로와 앞뒤 모두 실패한 경우만
+  밟았다. 뒷모습은 원래 없는 그림일 수 있고 `SpriteStore`는 404와 오프라인을 구분하지 않으므로 `backRetryLimit`번만
+  다시 묻는다. 가드: `testFailedOwnSpriteIsRequestedAgainWhileOpen`·`testOwnSpriteRetryIsDroppedByANewerLoadOrAClose`·
+  `testMissingBackIsRequestedOnlyAFewTimes`·`testMemberBackThatFailedOnceIsRecovered`. 스윕에서 남은 것: 목록과 카드의
+  `PlazaIconLoader` 아이콘은 `.task(id:)` 한 번뿐이라 실패하면 다시 마운트될 때까지 빈칸이다.
+
 ## 판정·데이터
 
 - **Cursor usage and limits must share the refreshed login, with cookie and Bearer forms kept
@@ -312,6 +320,12 @@ read_when:
   base HP 1 인 종은 껍질몬뿐이지만 규칙은 "종" 에 걸린 것이다.
   **회귀 가드:** `PokemonProfileLogicTests.testShedinjaAlwaysHasOneHP` — Lv1/50/100 모두 1, 다른 스탯은 일반 공식,
   base HP 1 인 다른 종은 일반 공식. 수정 전 3건 실패 확인.
+
+- **그레고리력 문자열은 그레고리력으로 읽는다.** `TeamEventFactory`는 `day`를 그레고리력으로 쓰는데
+  `TeamFeedStore.dayStart`는 Mac의 달력으로 읽어, 불교력·일본력 Mac에서 날짜가 수백 년 밀렸다. 소식을 보내지도 받지도
+  못하고, 불교력에서는 실행할 때 저장된 소식까지 지워졌다. **왜 못 걸렀나:** 테스트 달력이 모두 그레고리력이라 쓰는
+  달력과 읽는 달력이 항상 같았다. 스윕: 팀 코드에서 이 경로뿐이고, `PopoverView.daysInMonth`는 이미 그레고리력이다.
+  가드: `testGregorianDayIsReadOnANonGregorianMac` — 실제 `TeamEventFactory` 출력을 비그레고리력 저장소에 넣는다.
 
 ## 외부 로그·사용량 소스
 
@@ -680,6 +694,11 @@ read_when:
   확인하는 단계가 없었다. `swift build --arch arm64 --arch x86_64` 는 xcbuild(Xcode)가 필요해 CLT 환경에서
   실패하므로, 아키텍처별 빌드 + `lipo -create` 로 합친다. 회귀 가드: `build-app.sh` 의 `lipo -verify_arch`
   와 release.sh 4/8 의 `lipo -verify_arch arm64 x86_64` 하드 게이트(릴리스는 `PTB_NATIVE_ARCH_ONLY` 금지).
+
+- **원본 릴리스의 게이트를 포크 스크립트로 옮길 때 빠뜨리지 않는다.** `team-release.sh`는 `release.sh`와 달리
+  `test-gate.sh`를 돌리지 않아, CI가 실패하거나 건너뛴 `main`도 팀 전체에 배포될 수 있었다. **왜 못 걸렀나:**
+  `testTeamReleaseChecksRunBeforeTheBuild`의 목록이 스크립트에 있는 확인만 나열해서, 없는 확인은 드러나지 않았다.
+  서명 확인 뒤, 빌드 앞에서 돌린다. 가드: 같은 테스트의 체크 목록.
 
 ## 자격증명·Keychain
 
@@ -1080,6 +1099,11 @@ read_when:
   밖·히트 영역 안 지점에 합성 마우스 이벤트를 보내 액션 발화를 확인한다. 스윕: 같은 형태의 나머지
   (`questionmark.circle` 키체인 도움말, 검색 지우기 `xmark.circle.fill`)는 채워진 원형 글리프라 라벨
   프레임이 이미 아이콘 전체라 제외.
+
+- **창 크기에서 파생한 값은 저장된 크기를 되살린 뒤에 잰다.** 광장 목록의 칸 수를 `setFrameAutosaveName` 앞에서 재서
+  창을 작게 저장해 두면 목록이 넘쳤다. 복원 중의 `windowDidResize`는 `window`가 아직 nil이라 고치지 못했다.
+  **왜 못 걸렀나:** 칸 수 계산만 테스트했고 창을 여는 순서는 테스트하지 않았다. 테스트가 `SKView`를 만들지 않도록
+  순서를 `restoreFrame`으로 빼서 고정했다. 가드: `testRosterCapacityUsesTheRestoredWindowHeight`.
 
 ## 에너지 (상시 표시 애니메이션)
 

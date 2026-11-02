@@ -155,6 +155,21 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertLessThanOrEqual(abs(scene.walker.tile.x - start.x) + abs(scene.walker.tile.y - start.y), 1)
     }
 
+    func testRosterCapacityUsesTheRestoredWindowHeight() {
+        let name = "PlazaWindowTests.\(UUID())"
+        defer { NSWindow.removeFrame(usingName: name) }
+        let rect = { (height: CGFloat) in NSRect(x: 100, y: 100, width: 960, height: height) }
+        NSWindow(contentRect: rect(320), styleMask: [.titled, .resizable], backing: .buffered, defer: true)
+            .saveFrame(usingName: name)
+        let w = NSWindow(contentRect: rect(640), styleMask: [.titled, .resizable], backing: .buffered, defer: true)
+        w.isReleasedWhenClosed = false
+        let model = PlazaRosterModel()
+        PlazaWindowController.restoreFrame(w, into: model, autosaveName: name)
+        XCTAssertEqual(w.contentView?.bounds.height, 320, "the fixture must restore the saved size")
+        XCTAssertEqual(model.capacity, PlazaRoster.capacity(forHeight: 320))
+        XCTAssertNotEqual(model.capacity, PlazaRoster.capacity(forHeight: 640), "the fixture must tell the sizes apart")
+    }
+
     func testRefreshCharacterLoadsCurrentSubject() async {
         let fetcher = RecordingFetcher()
         var current = CompanionStore.RepresentativeSubject(speciesID: 25, isShiny: false)

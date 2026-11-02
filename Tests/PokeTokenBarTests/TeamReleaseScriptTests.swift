@@ -83,6 +83,7 @@ final class TeamReleaseScriptTests: XCTestCase {
             "security find-identity",            // signing identity / leaf
             "TEAM_EXPECTED_LEAF",                // leaf pin
             "create-signing-cert.sh",            // guidance, not execution
+            "./scripts/test-gate.sh",            // tests and coverage, as release.sh runs first
         ]
         for check in checks {
             let at = try XCTUnwrap(firstIndex(of: check, in: lines), "check missing: \(check)")

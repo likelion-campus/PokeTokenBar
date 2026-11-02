@@ -34,6 +34,31 @@ private final class CountingFetcher: PlazaSpriteFetching, @unchecked Sendable {
     func egg() async -> NSImage? { nil }
 }
 
+/// 앞모습은 항상 주고, 뒷모습은 `backAfter`번 실패한 뒤에 준다. nil이면 끝내 주지 않는다.
+private final class BacklessFetcher: PlazaSpriteFetching {
+    private let image: NSImage = {
+        let ctx = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        return NSImage(cgImage: ctx.makeImage()!, size: NSSize(width: 2, height: 2))
+    }()
+    private let backAfter: Int?
+    private(set) var backRequests = 0
+
+    init(backAfter: Int? = nil) { self.backAfter = backAfter }
+
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
+        guard back else { return image }
+        backRequests += 1
+        if let backAfter, backRequests > backAfter { return image }
+        return nil
+    }
+    func egg() async -> NSImage? { nil }
+}
+
 /// Holds the retry timer until the test fires it.
 @MainActor
 private final class RetryGate {
@@ -106,7 +131,7 @@ final class PlazaMembersTests: XCTestCase {
                               nickname: { "나" }, memberID: { me.settings.memberID },
                               subject: { .init(speciesID: 25, isShiny: false) },
                               myRosterEntry: { nil }, session: me.session,
-                              memberRetrySleep: { d in
+                              spriteRetrySleep: { d in
                                   if let retry { await retry.sleep(d) } else { try? await Task.sleep(for: d) }
                               })
     }
@@ -379,6 +404,73 @@ final class PlazaMembersTests: XCTestCase {
         retry.fire()
         await settle()
         XCTAssertEqual(fetcher.calls.all.count, total, "a closed plaza retries nothing")
+    }
+
+    func testFailedOwnSpriteIsRequestedAgainWhileOpen() async {
+        let fetcher = CountingFetcher()
+        let retry = RetryGate()
+        let c = controller(node("나"), fetcher: fetcher, retry: retry)
+        c.prepareScene()
+        await c.refreshCharacter()
+        await settle()
+        let first = fetcher.calls.count(25)
+        XCTAssertGreaterThan(first, 0)
+        XCTAssertEqual(retry.waitingCount, 1, "the failed load waits to retry")
+        retry.fire()
+        await settle()
+        XCTAssertEqual(fetcher.calls.count(25), first * 2, "the retry asked for the sprite again")
+    }
+
+    func testOwnSpriteRetryIsDroppedByANewerLoadOrAClose() async {
+        let fetcher = CountingFetcher()
+        let retry = RetryGate()
+        let c = controller(node("나"), fetcher: fetcher, retry: retry)
+        c.prepareScene()
+        await c.refreshCharacter()
+        await c.refreshCharacter()
+        await settle()
+        XCTAssertEqual(retry.waitingCount, 2)
+        let one = fetcher.calls.count(25) / 2
+        retry.fire()   // the first load's stale timer and the newer load's timer
+        await settle()
+        XCTAssertEqual(fetcher.calls.count(25), one * 3, "only the newer load asks again")
+        c.handleClose()
+        let total = fetcher.calls.all.count
+        retry.fire()
+        await settle()
+        XCTAssertEqual(fetcher.calls.all.count, total, "a closed plaza retries nothing")
+    }
+
+    func testMissingBackIsRequestedOnlyAFewTimes() async {
+        let fetcher = BacklessFetcher()
+        let retry = RetryGate()
+        let c = controller(node("나"), fetcher: fetcher, retry: retry)
+        c.prepareScene()
+        await c.refreshCharacter()
+        await settle()
+        for attempt in 0..<PlazaWindowController.backRetryLimit {
+            XCTAssertEqual(retry.waitingCount, 1, "attempt \(attempt) waits to retry")
+            retry.fire()
+            await settle()
+        }
+        XCTAssertEqual(retry.waitingCount, 0, "a back picture that may not exist stops being requested")
+        XCTAssertEqual(fetcher.backRequests, 1 + PlazaWindowController.backRetryLimit)
+    }
+
+    func testMemberBackThatFailedOnceIsRecovered() async {
+        let fetcher = BacklessFetcher(backAfter: 1)
+        let retry = RetryGate()
+        let me = node("나"), other = node("민수", character: Self.pikachu)
+        let c = controller(me, fetcher: fetcher, retry: retry)
+        c.prepareScene()
+        await connect(me, other)
+        await settle()
+        XCTAssertEqual(retry.waitingCount, 1, "a failed back waits to retry")
+        retry.fire()
+        await settle()
+        XCTAssertEqual(fetcher.backRequests, 2)
+        XCTAssertEqual(retry.waitingCount, 0, "a recovered back stops retrying")
+        XCTAssertEqual(c.appliedMemberSpecies(other.settings.memberID).count, 2, "the recovered frames reach the scene")
     }
 
     func testOpeningSendsPositionAndClosingSendsAway() async {
