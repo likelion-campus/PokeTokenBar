@@ -648,6 +648,16 @@ read_when:
   안에 보관한다. 객체 동일성 검증과 동시 요청은 유지하며, Sendable 우회 선언을 추가하지 않는다.
   회귀 가드: `SpriteImageCacheTests` 의 두 동시 로드 테스트와 `macos-15` CI의 테스트 컴파일.
   (CI 실패: 2026-09-10.)
+  **재발(2026-11-02, 팀 광장 PR):** 비격리 `PlazaSpriteFetching` 과 `PlazaIconLoader.icon` 이 `@MainActor`
+  호출부·`SpriteLoader` 사이로 `NSImage` 를 넘겨 Xcode 16.4/Swift 6.1.2 소스 컴파일이 8건 실패했다.
+  Xcode 26.5 SDK 에서는 `NSImage` 가 Sendable 이라 로컬 전체 테스트가 통과한다.
+  **왜 못 걸렀나:** 포크는 워크플로가 꺼진 채로 시작해 PR 을 열 때까지 `macos-15` CI 가 한 번도 돌지 않았다.
+  `swift build` 는 테스트 타깃을 컴파일하지 않아, `NSImage` 를 저장한 `Sendable` 테스트 더블도 소스 오류 뒤에
+  숨어 있었다. → `NSImage` 를 주고받는 async API 는 호출부와 같은 `@MainActor` 에 두거나, `SpriteLoader` 처럼
+  격리 경계는 `Data` 로 넘고 `NSImage` 는 메인 액터에서 만든다. 프로토콜에 `@MainActor` 를 두면 구현체와
+  테스트 더블까지 함께 격리된다. 포크·새 저장소는 PR 을 열기 전에 Actions 부터 켠다.
+  로컬 재현은 도구체인 조합에 달려 있다: 이 Mac 의 CLT(Swift 6.0.3)는 `SwiftBridging` 모듈 중복으로
+  `Foundation` 을 못 읽고, Xcode 26.5 컴파일러에 15.2 SDK 를 붙이면 `@Observable` 매크로가 맞지 않는다.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.

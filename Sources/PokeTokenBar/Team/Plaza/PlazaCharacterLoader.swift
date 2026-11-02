@@ -14,6 +14,8 @@ struct PlazaCharacterFrames: Sendable {
     var isPlaceholder = false
 }
 
+/// `SpriteLoader`와 호출부가 모두 메인 액터라 `NSImage`가 격리 경계를 넘지 않는다.
+@MainActor
 protocol PlazaSpriteFetching: Sendable {
     func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)]
     func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage?
