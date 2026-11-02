@@ -163,14 +163,21 @@ final class PlazaChatInputTests: XCTestCase {
         w.contentView = nil
     }
 
-    func testTabKeepsTheLine() throws {
+    func testTabKeepsTheLineAndTogglesTheMegaphone() throws {
         let (i, _) = input()
         let (w, editor) = try editing(i)
         editor.insertText("안녕", replacementRange: editor.selectedRange())
+        XCTAssertFalse(i.isLoud)
         editor.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        XCTAssertTrue(i.isLoud)
+        XCTAssertEqual(i.field.placeholderAttributedString?.string, L(.ko).plazaLoudPlaceholder)
         editor.doCommand(by: #selector(NSResponder.insertBacktab(_:)))
+        XCTAssertFalse(i.isLoud)
         XCTAssertTrue(i.isOpen)
         XCTAssertEqual(editor.string, "안녕")
+        editor.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        i.close(); i.open()
+        XCTAssertFalse(i.isLoud, "each new line starts as an ordinary line")
         w.contentView = nil
     }
 
@@ -276,6 +283,7 @@ final class PlazaChatTests: XCTestCase {
 
     @MainActor final class Received {
         var lines: [(from: String, text: String)] = []
+        var loud: [String] = []
     }
 
     private func node(_ name: String) -> Node {
@@ -296,7 +304,10 @@ final class PlazaChatTests: XCTestCase {
         session.updateCharacter(mon)
         session.applySettings()
         let received = Received()
-        session.onChat = { [received] id, text in received.lines.append((id, text)) }
+        session.onChat = { [received] id, text, loud in
+            received.lines.append((id, text))
+            if loud { received.loud.append(text) }
+        }
         return Node(settings: settings, session: session, transport: transport, feed: feed, received: received)
     }
 
@@ -489,6 +500,63 @@ final class PlazaChatTests: XCTestCase {
         XCTAssertEqual(PlazaChatLog.timeText(afternoon, calendar: calendar), "14:05")
         let morning = calendar.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: 9, minute: 0))!
         XCTAssertEqual(PlazaChatLog.timeText(morning, calendar: calendar), "09:00")
+    }
+
+    // MARK: 확성기와 기록 패널
+
+    private func submitLoud(_ c: PlazaWindowController, _ text: String) -> Bool {
+        let input = c.chatInputForTesting
+        let editor = NSTextView()
+        editor.string = text
+        if !input.isLoud { _ = input.control(input.field, textView: editor, doCommandBy: #selector(NSResponder.insertTab(_:))) }
+        XCTAssertTrue(input.isLoud)
+        XCTAssertTrue(input.control(input.field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        return !input.isOpen
+    }
+
+    func testMegaphoneLineIsSentLoudAndLoggedAndLimitedToOnePerMinute() async {
+        let (c, scene, _, other) = await connected()
+        scene.handleKeyDown(keyCode: returnKey, characters: nil, isRepeat: false)
+        XCTAssertTrue(submitLoud(c, "점심 먹어요"))
+        await settle()
+        XCTAssertEqual(other.received.loud, ["점심 먹어요"])
+        XCTAssertEqual(c.chatLogLines.last?.isLoud, true)
+        XCTAssertEqual(c.banner, L(.ko).teamMegaphoneNotice(nickname: "나", text: "점심 먹어요"))
+        now = now.addingTimeInterval(PlazaWindowController.loudInterval - 1)
+        scene.handleKeyDown(keyCode: returnKey, characters: nil, isRepeat: false)
+        XCTAssertFalse(submitLoud(c, "또"), "the field keeps the line")
+        XCTAssertEqual(c.banner, L(.ko).plazaLoudTooSoon)
+        let input = c.chatInputForTesting
+        _ = input.control(input.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertTab(_:)))
+        XCTAssertFalse(input.isLoud)
+        XCTAssertTrue(submit(c, "보통 말은 돼요"), "an ordinary line is not limited")
+        await settle()
+        XCTAssertEqual(other.received.loud, ["점심 먹어요"])
+        XCTAssertEqual(other.received.lines.map(\.text), ["점심 먹어요", "보통 말은 돼요"])
+    }
+
+    func testReceivedMegaphoneIsMarkedInTheLog() async {
+        let (c, _, _, other) = await connected()
+        c.showChat(memberID: other.settings.memberID, text: "모두 회의실로", isLoud: true)
+        XCTAssertEqual(c.chatLogLines.last?.isLoud, true)
+    }
+
+    func testChatLogExpandsAndTakesClicksOnlyWithLines() async throws {
+        let log = PlazaChatLog()
+        let view = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: log), log: log)
+        view.frame = NSRect(x: 0, y: 0, width: PlazaChatLog.width, height: 120)
+        XCTAssertNil(view.hitTest(NSPoint(x: 20, y: 20)), "an empty log lets clicks through")
+        log.append(time: now, name: "a", text: "b", color: PlazaNameColor.palette[0])
+        view.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(view.hitTest(NSPoint(x: 20, y: 20)))
+        XCTAssertFalse(view.acceptsFirstResponder)
+        let (c, _, _, other) = await connected()
+        c.showChat(memberID: other.settings.memberID, text: "안녕")
+        XCTAssertFalse(c.isChatLogExpanded)
+        c.toggleChatLog()
+        XCTAssertTrue(c.isChatLogExpanded)
+        c.toggleChatLog()
+        XCTAssertFalse(c.isChatLogExpanded)
     }
 
     // MARK: 말풍선

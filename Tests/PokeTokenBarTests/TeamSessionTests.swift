@@ -25,6 +25,7 @@ private final class Node {
     var reactionsToMine: [(TeamReaction, TeamEvent)] = []
     var emotes: [(memberID: String, emote: TeamEmote)] = []
     var chats: [(memberID: String, text: String)] = []
+    var loudChats: [String] = []
 
     static let pikachu = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
     static let eevee = TeamMonSummary(speciesID: 133, isShiny: true, form: nil, speciesName: "Eevee", gender: nil)
@@ -49,7 +50,10 @@ private final class Node {
         session.onBigEvent = { [unowned self] in bigEvents.append($0) }
         session.onReactionToMine = { [unowned self] in reactionsToMine.append(($0, $1)) }
         session.onEmote = { [unowned self] in emotes.append(($0, $1)) }
-        session.onChat = { [unowned self] in chats.append(($0, $1)) }
+        session.onChat = { [unowned self] in
+            chats.append(($0, $1))
+            if $2 { loudChats.append($1) }
+        }
         session.applySettings()
     }
 
@@ -673,6 +677,15 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(c.chats.isEmpty)
         XCTAssertEqual(b.feed.events, feedBefore)
         XCTAssertEqual(b.transport.sentMessages { if case .chat = $0 { true } else { false } }, 0)
+    }
+
+    func testMegaphoneFlagReachesTheTeammate() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.session.sendChat("점심!", loud: true)
+        a.session.sendChat("그냥 말")
+        XCTAssertEqual(b.chats.map(\.text), ["점심!", "그냥 말"])
+        XCTAssertEqual(b.loudChats, ["점심!"])
     }
 
     func testLineOutOfFormIsDroppedAndTheLinkStays() {

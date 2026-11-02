@@ -81,6 +81,28 @@ final class TeamNotificationsTests: XCTestCase {
 
     override func tearDown() { UserDefaults().removePersistentDomain(forName: suite) }
 
+    func testMegaphoneNotifiesOutsideThePlazaAndBannersInside() {
+        notifier.megaphone(from: memberState("민수"), text: "점심!")
+        XCTAssertEqual(poster.posts.map(\.body), [L(.ko).teamMegaphoneNotice(nickname: "민수", text: "점심!")])
+        frontmost = true
+        now = now.addingTimeInterval(TeamNotifier.megaphoneInterval)
+        notifier.megaphone(from: memberState("민수"), text: "다시")
+        XCTAssertEqual(inPlaza, [L(.ko).teamMegaphoneNotice(nickname: "민수", text: "다시")])
+        XCTAssertEqual(poster.posts.count, 1)
+    }
+
+    func testMegaphoneIsLimitedPerMemberAndFollowsTheSwitch() {
+        notifier.megaphone(from: memberState("민수"), text: "하나")
+        now = now.addingTimeInterval(TeamNotifier.megaphoneInterval - 1)
+        notifier.megaphone(from: memberState("민수"), text: "둘")
+        XCTAssertEqual(poster.posts.count, 1, "a second megaphone within a minute is dropped")
+        settings.notificationsEnabled = false
+        now = now.addingTimeInterval(120)
+        notifier.megaphone(from: memberState("민수"), text: "셋")
+        XCTAssertEqual(poster.posts.count, 1)
+        XCTAssertTrue(inPlaza.isEmpty)
+    }
+
     func testOthersBigEventPosts() {
         notifier.bigEvent(bigEvent())
         XCTAssertEqual(poster.posts.count, 1)

@@ -11,6 +11,7 @@ final class PlazaChatLog {
         let name: String
         let text: String
         let color: CGColor
+        var isLoud = false
     }
 
     static let capacity = 50
@@ -18,12 +19,15 @@ final class PlazaChatLog {
     static let width: CGFloat = 360
 
     private(set) var lines: [Line] = []
+    /// 펼치면 담아 둔 줄을 모두 스크롤해서 본다.
+    var isExpanded = false
+    static let expandedHeight: CGFloat = 240
     private var nextID = 0
 
     var visible: [Line] { Array(lines.suffix(Self.visibleCount)) }
 
-    func append(time: Date, name: String, text: String, color: CGColor) {
-        lines.append(Line(id: nextID, time: time, name: name, text: text, color: color))
+    func append(time: Date, name: String, text: String, color: CGColor, isLoud: Bool = false) {
+        lines.append(Line(id: nextID, time: time, name: name, text: text, color: color, isLoud: isLoud))
         nextID += 1
         if lines.count > Self.capacity { lines.removeFirst(lines.count - Self.capacity) }
     }
