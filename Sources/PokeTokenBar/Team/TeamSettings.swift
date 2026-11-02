@@ -11,7 +11,12 @@ final class TeamSettings {
         didSet {
             if let code { defaults.set(code.normalized, forKey: "team.code") }
             else { defaults.removeObject(forKey: "team.code") }
+            if let code { remember(code) }
         }
+    }
+    /// 들어갔던 팀. 다시 코드를 넣지 않고 팀을 바꿀 수 있다. 코드처럼 이 Mac에만 저장한다.
+    private(set) var savedTeams: [SavedTeam] {
+        didSet { defaults.set(try? JSONEncoder().encode(savedTeams), forKey: "team.saved") }
     }
     var nickname: String { didSet { defaults.set(nickname, forKey: "team.nickname") } }
     var notificationsEnabled: Bool { didSet { defaults.set(notificationsEnabled, forKey: "team.notifications") } }
@@ -23,6 +28,9 @@ final class TeamSettings {
         code = defaults.string(forKey: "team.code").flatMap { TeamCode(parsing: $0) }
         nickname = defaults.string(forKey: "team.nickname") ?? ""
         notificationsEnabled = defaults.object(forKey: "team.notifications") as? Bool ?? true
+        savedTeams = defaults.data(forKey: "team.saved")
+            .flatMap { try? JSONDecoder().decode([SavedTeam].self, from: $0) }?
+            .filter { TeamCode(parsing: $0.code) != nil } ?? []
         if let id = defaults.string(forKey: "team.memberID"), !id.isEmpty {
             memberID = id
         } else {
@@ -30,6 +38,42 @@ final class TeamSettings {
             defaults.set(id, forKey: "team.memberID")
             memberID = id
         }
+        // v2.5.602 and earlier kept only the current code.
+        if let code { remember(code) }
+    }
+
+    struct SavedTeam: Codable, Equatable, Identifiable {
+        var code: String
+        var name: String
+        var id: String { code }
+    }
+
+    /// The saved entry of the team I'm in, if any.
+    var currentTeam: SavedTeam? { code.flatMap { c in savedTeams.first { $0.code == c.normalized } } }
+
+    private func remember(_ code: TeamCode) {
+        guard !savedTeams.contains(where: { $0.code == code.normalized }) else { return }
+        savedTeams.append(SavedTeam(code: code.normalized, name: L(.ko).teamDefaultName(savedTeams.count + 1)))
+    }
+
+    /// Moves to a saved team. The news board starts over, as when joining any other team.
+    func switchTo(_ team: SavedTeam) {
+        guard let parsed = TeamCode(parsing: team.code) else { return }
+        code = parsed
+    }
+
+    /// Leaves the current team for now so another can be made or joined. It stays saved.
+    func stepOut() {
+        code = nil
+    }
+
+    /// Names the current team with the nickname rules. An invalid name changes nothing.
+    @discardableResult
+    func renameCurrentTeam(_ raw: String) -> Bool {
+        guard let name = Self.validNickname(raw), let current = currentTeam,
+              let i = savedTeams.firstIndex(of: current) else { return false }
+        if savedTeams[i].name != name { savedTeams[i].name = name }
+        return true
     }
 
     var isReady: Bool { isEnabled && code != nil && Self.validNickname(nickname) != nil }
@@ -65,7 +109,9 @@ final class TeamSettings {
         return UserDefaults(suiteName: name) ?? .standard
     }
 
+    /// Leaves the team for good: it is also removed from the saved teams.
     func leaveTeam() {
+        if let current = code?.normalized { savedTeams.removeAll { $0.code == current } }
         code = nil
         isEnabled = false
     }

@@ -11,6 +11,7 @@ struct TeamSettingsSection: View {
     @State private var joinFailed = false
     /// The nickname being typed; the stored one changes only on submit or focus loss, and only when valid.
     @State private var nicknameDraft: String?
+    @State private var teamNameDraft: String?
     @FocusState private var nicknameFocused: Bool
 
     var body: some View {
@@ -35,6 +36,29 @@ struct TeamSettingsSection: View {
                             Button(l.teamCopyCode) { copy(code) }
                             Button(l.teamLeave, role: .destructive) { team.leaveTeam() }
                         }
+                        Divider()
+                        row {
+                            Text(l.teamName)
+                            TextField(l.teamName, text: Binding(get: { teamNameDraft ?? team.currentTeam?.name ?? "" },
+                                                                set: { teamNameDraft = $0 }))
+                                .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
+                                .onSubmit(commitTeamName)
+                                .onDisappear(perform: commitTeamName)
+                        }
+                        Divider()
+                        row {
+                            Text(l.teamSwitch)
+                            Spacer()
+                            Menu(team.currentTeam?.name ?? l.teamSwitch) {
+                                ForEach(team.savedTeams) { saved in
+                                    Button(saved.name) { switchTo(saved) }
+                                        .disabled(saved.code == code.normalized)
+                                }
+                                Divider()
+                                Button(l.teamStepOut) { team.stepOut() }
+                            }
+                            .fixedSize()
+                        }
                     } else {
                         row {
                             Button(l.teamCreate) {
@@ -52,6 +76,15 @@ struct TeamSettingsSection: View {
                         }
                         if joinFailed {
                             error(l.teamCodeInvalid)
+                        }
+                        ForEach(team.savedTeams) { saved in
+                            Divider()
+                            row {
+                                Text(l.teamSaved).foregroundStyle(.secondary)
+                                Text(saved.name).lineLimit(1)
+                                Spacer()
+                                Button(l.teamEnterSaved) { switchTo(saved) }
+                            }
                         }
                     }
                     Divider()
@@ -97,6 +130,17 @@ struct TeamSettingsSection: View {
         Text(message).font(.caption).foregroundStyle(.red)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12).padding(.bottom, 8)
+    }
+
+    private func commitTeamName() {
+        guard let draft = teamNameDraft else { return }
+        if team.renameCurrentTeam(draft) { teamNameDraft = nil }
+    }
+
+    private func switchTo(_ saved: TeamSettings.SavedTeam) {
+        commitTeamName()
+        teamNameDraft = nil
+        team.switchTo(saved)
     }
 
     private func commitNickname() {

@@ -11,6 +11,12 @@ extension L {
     var teamCodeInvalid: String { "팀 코드가 올바르지 않아요" }
     var teamCopyCode: String { "코드 복사" }
     var teamLeave: String { "팀 나가기" }
+    var teamName: String { "팀 이름" }
+    var teamSwitch: String { "팀 바꾸기" }
+    var teamStepOut: String { "다른 팀 만들기·참여" }
+    var teamSaved: String { "저장한 팀" }
+    var teamEnterSaved: String { "들어가기" }
+    func teamDefaultName(_ n: Int) -> String { "팀 \(n)" }
     var teamNickname: String { "닉네임" }
     var teamNicknameInvalid: String { "닉네임은 1~12자로 입력해 주세요" }
     var teamNotifications: String { "팀 알림" }
@@ -27,6 +33,7 @@ extension L {
     var plazaLoudPlaceholder: String { "📢 확성기: 광장 밖 팀원에게도 알림 (Tab 끄기)" }
     var plazaLoudTooSoon: String { "확성기는 1분에 한 번만 쓸 수 있어요" }
     var plazaChatLogTitle: String { "대화 기록" }
+    var plazaRosterWalkHint: String { "누르면 이 팀원에게 걸어가요" }
     var plazaChatLogExpand: String { "펼치기 ▴" }
     var plazaChatLogCollapse: String { "접기 ▾" }
     func teamMegaphoneNotice(nickname: String, text: String) -> String { "📢 \(nickname): \(text)" }

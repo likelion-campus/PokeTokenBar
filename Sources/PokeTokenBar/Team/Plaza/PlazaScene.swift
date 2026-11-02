@@ -52,8 +52,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onCloseOverlay: (() -> Void)?
     /// 판이 열리면 방향키와 말풍선 키를 무시하고 눌린 키를 놓는다. Cmd+W는 그대로 창을 닫는다.
     var isOverlayOpen = false {
-        didSet { if isOverlayOpen && !oldValue { walker.clearInput() } }
+        didSet { if isOverlayOpen && !oldValue { clearInput() } }
     }
+    private var autoWalk: (memberID: String, path: [PlazaDirection], goal: TilePoint?)?
     /// 키 뗌 이벤트는 Command가 눌린 동안 오지 않으므로 update마다 수정 키를 확인한다. 테스트에서 바꿔 끼운다.
     var currentModifiers: () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
@@ -263,7 +264,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         if let d = Self.direction(keyCode) {
             // Command+방향키는 keyUp이 오지 않아 계속 걷게 되므로 무시한다.
-            if canWalk && !isRepeat && !modifiers.contains(.command) { walker.press(d) }
+            if canWalk && !isRepeat && !modifiers.contains(.command) {
+                stopWalkingToMember()
+                walker.press(d)
+            }
             return .swallowed
         }
         // 사진 키도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 보내지 않는다(P를 누르고 있어도 한 번만 찍는다).
@@ -291,7 +295,44 @@ struct PlazaSceneMember: Equatable, Sendable {
     func releaseAllKeys() { walker.releaseAll() }
 
     /// 입력창이 키를 가져가면 키 뗌이 장면에 오지 않으므로 눌린 키와 탭을 지운다. 걷던 칸은 마저 간다.
-    func clearInput() { walker.clearInput() }
+    func clearInput() {
+        stopWalkingToMember()
+        walker.clearInput()
+    }
+
+    // MARK: - 팀원에게 걸어가기
+
+    /// 목록에서 고른 팀원 바로 옆까지 걸어가 그쪽을 바라본다. 팀원이 움직이면 길을 다시 찾는다.
+    /// 방향키를 누르거나 판·입력창을 열면 멈춘다. 알이거나 모르는 팀원이면 false.
+    @discardableResult
+    func walk(toMember id: String) -> Bool {
+        guard canWalk, remotes[id] != nil else { return false }
+        autoWalk = (id, [], nil)
+        return true
+    }
+
+    func stopWalkingToMember() { autoWalk = nil }
+
+    var walkingToMember: String? { autoWalk?.memberID }
+
+    private func advanceWalkToMember() {
+        guard let current = autoWalk else { return }
+        guard canWalk, !isOverlayOpen, let target = remotes[current.memberID]?.motion.tile else { return stopWalkingToMember() }
+        guard !walker.isWalking else { return }
+        if PlazaPathfinder.isAdjacent(walker.tile, target) {
+            walker.face(PlazaPathfinder.direction(from: walker.tile, to: target))
+            return stopWalkingToMember()
+        }
+        var path = current.path
+        if current.goal != target || path.isEmpty {
+            guard let found = PlazaPathfinder.path(from: walker.tile, toNextTo: target, map: map), !found.isEmpty else {
+                return stopWalkingToMember()
+            }
+            path = found
+        }
+        walker.step(path.removeFirst())
+        autoWalk = (current.memberID, path, target)
+    }
 
     /// `memberID`가 nil이면 나. 모르는 팀원이면 아무것도 안 한다.
     func showEmote(memberID: String?, kind: TeamEmoteKind) {
@@ -455,6 +496,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
         clock = currentTime
         if currentModifiers().contains(.command) { walker.releaseAll() }
+        advanceWalkToMember()
         walker.advance(by: dt) { [map] in map.isWalkable($0) }
         advanceAnimation(by: dt)
         advanceSparkles(by: dt)
