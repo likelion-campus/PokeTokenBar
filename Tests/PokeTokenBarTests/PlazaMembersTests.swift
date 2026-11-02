@@ -166,6 +166,90 @@ final class PlazaMembersTests: XCTestCase {
         await settle()
     }
 
+    // MARK: - 목록에서 팀원에게 걸어가기
+
+    private let rightKey: UInt16 = 124
+
+    func testChoosingATeammateWalksBesideThemAndFacesThem() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me)
+        c.prepareScene()
+        await connect(me, other)
+        let target = walkableTile(5)
+        other.session.updatePlazaPosition(inPlaza: true, tile: target, facing: .down, isWalking: false)
+        await settle()
+        let scene = c.scene!
+        c.walkToMember(other.settings.memberID)
+        XCTAssertEqual(scene.walkingToMember, other.settings.memberID)
+        step(scene, seconds: 3)
+        XCTAssertTrue(PlazaPathfinder.isAdjacent(scene.walker.tile, target), "\(scene.walker.tile) beside \(target)")
+        XCTAssertEqual(scene.walker.facing, PlazaPathfinder.direction(from: scene.walker.tile, to: target))
+        XCTAssertNil(scene.walkingToMember, "arriving ends the walk")
+    }
+
+    func testFollowsATeammateWhoMovesOnTheWay() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me)
+        c.prepareScene()
+        await connect(me, other)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(6), facing: .down, isWalking: false)
+        await settle()
+        let scene = c.scene!
+        c.walkToMember(other.settings.memberID)
+        step(scene, seconds: 0.3)
+        let moved = TilePoint(x: map.spawn.x, y: map.spawn.y + 4)
+        other.session.updatePlazaPosition(inPlaza: true, tile: moved, facing: .down, isWalking: false)
+        await settle()
+        // Re-routing at once takes about five steps. Finishing the old route first would take twice as long.
+        step(scene, seconds: 1.5, from: 0.3)
+        XCTAssertTrue(PlazaPathfinder.isAdjacent(scene.walker.tile, moved), "\(scene.walker.tile) beside \(moved)")
+    }
+
+    func testTeammateAlreadyBesideMeIsTurnedTo() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me)
+        c.prepareScene()
+        await connect(me, other)
+        let scene = c.scene!
+        let left = TilePoint(x: scene.walker.tile.x - 1, y: scene.walker.tile.y)
+        other.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .down, isWalking: false)
+        await settle()
+        XCTAssertEqual(scene.walker.facing, .down)
+        c.walkToMember(other.settings.memberID)
+        step(scene, seconds: 0.1)
+        XCTAssertEqual(scene.walker.facing, .left)
+        XCTAssertNil(scene.walkingToMember)
+    }
+
+    func testArrowKeyOrOverlayStopsTheWalk() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me)
+        c.prepareScene()
+        await connect(me, other)
+        other.session.updatePlazaPosition(inPlaza: true, tile: walkableTile(6), facing: .down, isWalking: false)
+        await settle()
+        let scene = c.scene!
+        c.walkToMember(other.settings.memberID)
+        step(scene, seconds: 0.1)
+        scene.handleKeyDown(keyCode: rightKey, characters: nil, isRepeat: false)
+        XCTAssertNil(scene.walkingToMember)
+        scene.handleKeyUp(keyCode: rightKey)
+        c.walkToMember(other.settings.memberID)
+        scene.isOverlayOpen = true
+        XCTAssertNil(scene.walkingToMember)
+    }
+
+    func testEggOrUnknownMemberCannotBeWalkedTo() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me)
+        c.prepareScene()
+        await connect(me, other)
+        let scene = c.scene!
+        XCTAssertFalse(scene.walk(toMember: "nobody"))
+        scene.canWalk = false
+        XCTAssertFalse(scene.walk(toMember: other.settings.memberID))
+    }
+
     // MARK: - 자리비움(입력 없음)과 작은 지도
 
     func testNoInputForTenMinutesShowsIdleInPlaceAndInputClearsIt() async {

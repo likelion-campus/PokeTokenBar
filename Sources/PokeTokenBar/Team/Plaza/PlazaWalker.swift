@@ -32,6 +32,16 @@ struct PlazaWalker: Sendable {
         pendingTap = d
     }
 
+    /// 키 없이 한 칸 걷는다(목록에서 팀원을 골라 걸어갈 때).
+    mutating func step(_ d: PlazaDirection) {
+        pendingTap = d
+    }
+
+    /// 서 있을 때만 돌아선다.
+    mutating func face(_ d: PlazaDirection) {
+        if stepFrom == nil { facing = d }
+    }
+
     mutating func release(_ d: PlazaDirection) {
         held.removeAll { $0 == d }
     }

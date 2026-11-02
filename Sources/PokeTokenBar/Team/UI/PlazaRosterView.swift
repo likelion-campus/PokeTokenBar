@@ -5,6 +5,8 @@ import AppKit
 @MainActor
 struct PlazaRosterView: View {
     let model: PlazaRosterModel
+    /// 팀원 칸을 누르면 그 팀원의 ID. 내 칸은 누를 수 없다.
+    var onSelect: (String) -> Void = { _ in }
 
     var body: some View {
         let l = L(.ko)
@@ -25,7 +27,12 @@ struct PlazaRosterView: View {
             }
             .frame(height: PlazaRosterMetrics.headerHeight)
             VStack(spacing: PlazaRosterMetrics.slotSpacing) {
-                ForEach(shown) { PlazaRosterSlot(entry: $0, animating: model.isAnimating) }
+                ForEach(shown) { entry in
+                    PlazaRosterSlot(entry: entry, animating: model.isAnimating)
+                        .contentShape(Rectangle())
+                        .onTapGesture { if !entry.isMe { onSelect(entry.id) } }
+                        .help(entry.isMe ? "" : L(.ko).plazaRosterWalkHint)
+                }
                 if hidden > 0 { PlazaRosterMoreSlot(count: hidden) }
             }
             .padding(.top, PlazaRosterMetrics.listTopPadding)
@@ -195,8 +202,7 @@ extension Color {
     }
 }
 
-/// 마우스·키를 장면에 그대로 넘기는 호스팅 뷰.
+/// 팀원 칸을 누를 수 있게 마우스는 받고, 키는 받지 않아 장면이 계속 받는다.
 final class PlazaRosterHostingView: NSHostingView<PlazaRosterView> {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override var acceptsFirstResponder: Bool { false }
 }

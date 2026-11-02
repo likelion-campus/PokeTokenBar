@@ -145,7 +145,9 @@ extension SKView: PlazaPausableView {}
             view.frame = container.bounds
             view.autoresizingMask = [.width, .height]
             container.addSubview(view)
-            let roster = PlazaRosterHostingView(rootView: PlazaRosterView(model: rosterModel))
+            let roster = PlazaRosterHostingView(rootView: PlazaRosterView(model: rosterModel, onSelect: { [weak self] in
+                self?.walkToMember($0)
+            }))
             roster.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(roster)   // SKView 위. 입력은 받지 않고 SKView가 첫 응답자를 유지한다.
             NSLayoutConstraint.activate([
@@ -386,6 +388,12 @@ extension SKView: PlazaPausableView {}
         scene.showChat(memberID: memberID, text: text)
         chatLog.append(time: clock(), name: member.nickname, text: text,
                        color: scene.memberNameColor(memberID) ?? PlazaNameColor.palette[0], isLoud: isLoud)
+    }
+
+    /// 목록에서 고른 팀원에게 걸어간다. 누른 뒤에도 키는 장면이 받는다.
+    func walkToMember(_ id: String) {
+        scene?.walk(toMember: id)
+        if let skView { window?.makeFirstResponder(skView) }
     }
 
     /// 대화 기록을 펼치거나 접는다. 누른 뒤에도 키는 장면이 받는다.

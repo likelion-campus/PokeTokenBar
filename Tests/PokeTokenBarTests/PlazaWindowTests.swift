@@ -509,9 +509,15 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(c.scene?.isNamePlateVisible, false)
     }
 
-    func testRosterHostingViewPassesInputThrough() {
-        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: PlazaRosterModel()))
-        XCTAssertNil(view.hitTest(NSPoint(x: 5, y: 5)))
+    /// The roster takes clicks so a teammate can be chosen, but never the keyboard.
+    func testRosterTakesClicksButNotKeys() {
+        let model = PlazaRosterModel()
+        model.entries = [PlazaRosterEntry(id: "m", nickname: "민수", speciesID: 25, speciesName: "피카츄", gender: nil,
+                                          isShiny: false, presence: .online, isMe: false)]
+        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
+        view.frame = NSRect(x: 0, y: 0, width: PlazaRosterMetrics.width, height: 120)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(view.hitTest(NSPoint(x: 100, y: 60)))
         XCTAssertFalse(view.acceptsFirstResponder)
     }
 }

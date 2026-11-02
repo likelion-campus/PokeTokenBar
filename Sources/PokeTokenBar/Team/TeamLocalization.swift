@@ -27,6 +27,7 @@ extension L {
     var plazaLoudPlaceholder: String { "📢 확성기: 광장 밖 팀원에게도 알림 (Tab 끄기)" }
     var plazaLoudTooSoon: String { "확성기는 1분에 한 번만 쓸 수 있어요" }
     var plazaChatLogTitle: String { "대화 기록" }
+    var plazaRosterWalkHint: String { "누르면 이 팀원에게 걸어가요" }
     var plazaChatLogExpand: String { "펼치기 ▴" }
     var plazaChatLogCollapse: String { "접기 ▾" }
     func teamMegaphoneNotice(nickname: String, text: String) -> String { "📢 \(nickname): \(text)" }
