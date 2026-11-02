@@ -60,7 +60,6 @@ final class PlazaCardTests: XCTestCase {
     private let map = PlazaMapData.map
 
     override func setUp() async throws {
-        try await super.setUp()
         hub = FakeTransportHub()
         var rng = SystemRandomNumberGenerator()
         code = TeamCode.generate(using: &rng)
@@ -70,7 +69,6 @@ final class PlazaCardTests: XCTestCase {
         for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
         suites = []; dirs = []
-        try await super.tearDown()
     }
 
     private struct Node {

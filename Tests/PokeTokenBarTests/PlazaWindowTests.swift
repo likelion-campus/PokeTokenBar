@@ -19,7 +19,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 }
 
 @MainActor final class PlazaWindowTests: XCTestCase {
-    private var suites: [String] = []
+    nonisolated(unsafe) private var suites: [String] = []
 
     private func defaults() -> UserDefaults {
         let name = "plaza.test.\(UUID())"

@@ -75,7 +75,6 @@ final class PlazaPhotoTests: XCTestCase {
     override func tearDown() async throws {
         for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         suites = []
-        try await super.tearDown()
     }
 
     // MARK: 합성

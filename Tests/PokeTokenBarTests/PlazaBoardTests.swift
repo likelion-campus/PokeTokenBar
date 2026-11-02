@@ -85,7 +85,6 @@ final class PlazaBoardRowTests: XCTestCase {
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
         dirs = []
-        try await super.tearDown()
     }
 
     private func feed() -> TeamFeedStore {
@@ -160,7 +159,6 @@ final class PlazaBoardTests: XCTestCase {
     private let gate = SleepGate()
 
     override func setUp() async throws {
-        try await super.setUp()
         hub = FakeTransportHub()
         var rng = SystemRandomNumberGenerator()
         code = TeamCode.generate(using: &rng)
@@ -171,7 +169,6 @@ final class PlazaBoardTests: XCTestCase {
         for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
         suites = []; dirs = []
-        try await super.tearDown()
     }
 
     @MainActor private struct Node {

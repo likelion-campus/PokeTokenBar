@@ -92,7 +92,6 @@ final class TeamSessionTests: XCTestCase {
     private var suites: [String] = []
 
     override func setUp() async throws {
-        try await super.setUp()
         hub = FakeTransportHub()
         clock = TestClock()
         code = newCode()
@@ -102,7 +101,6 @@ final class TeamSessionTests: XCTestCase {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
         for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         dirs = []; suites = []
-        try await super.tearDown()
     }
 
     private func makeDefaults() -> UserDefaults {

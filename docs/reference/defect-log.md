@@ -656,6 +656,11 @@ read_when:
   숨어 있었다. → `NSImage` 를 주고받는 async API 는 호출부와 같은 `@MainActor` 에 두거나, `SpriteLoader` 처럼
   격리 경계는 `Data` 로 넘고 `NSImage` 는 메인 액터에서 만든다. 프로토콜에 `@MainActor` 를 두면 구현체와
   테스트 더블까지 함께 격리된다. 포크·새 저장소는 PR 을 열기 전에 Actions 부터 켠다.
+  테스트 타깃은 `XCTestCase` 격리도 다르다: Xcode 16.4 에서는 `@MainActor` 테스트의 `await super.setUp()` 이
+  `self` 전송 오류이고, 동기 `setUp`/`tearDown` 은 비격리라 격리된 프로퍼티를 만지지 못한다. 저장소 관용구대로
+  `await super` 호출을 두지 않고, 동기 override 가 쓰는 프로퍼티는 `nonisolated(unsafe)` 로 둔다.
+  컴파일은 오류가 나면 일찍 멈춰서 CI 가 `await super` 2개 파일만 보고했지만 실제로는 6개 파일에 있었다.
+  CI 가 알려 준 파일이 아니라 패턴으로 스윕한다.
   로컬 재현은 도구체인 조합에 달려 있다: 이 Mac 의 CLT(Swift 6.0.3)는 `SwiftBridging` 모듈 중복으로
   `Foundation` 을 못 읽고, Xcode 26.5 컴파일러에 15.2 SDK 를 붙이면 `@Observable` 매크로가 맞지 않는다.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·

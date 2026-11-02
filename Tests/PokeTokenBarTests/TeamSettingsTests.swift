@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class TeamSettingsTests: XCTestCase {
-    private var suites: [String] = []
+    nonisolated(unsafe) private var suites: [String] = []
 
     private func freshDefaults() -> UserDefaults {
         let name = UUID().uuidString

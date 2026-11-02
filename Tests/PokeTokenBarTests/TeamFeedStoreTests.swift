@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class TeamFeedStoreTests: XCTestCase {
-    private var dir: URL!
+    nonisolated(unsafe) private var dir: URL!
     private var url: URL { dir.appendingPathComponent("team-feed.json") }
     private var now = Date(timeIntervalSince1970: 1_793_242_800) // 2026-10-29 12:00 KST
 
