@@ -9,7 +9,8 @@ enum PlazaChatBubble {
     private static let tailHeight: CGFloat = 4
     /// 글자 영역의 최대 크기. 어떤 글이 와도 그림 크기가 여기서 정해진다.
     static let maxTextWidth: CGFloat = 168
-    static let maxLines = 4
+    /// 40자가 들어가는 줄 수보다 넉넉하다. 이모지처럼 대체 글꼴로 그리는 줄은 Galmuri보다 높다.
+    static let maxLines = 6
     private static let ink = CGColor(srgbRed: 0x14 / 255, green: 0x16 / 255, blue: 0x1F / 255, alpha: 1)
     private static let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
 
@@ -26,19 +27,10 @@ enum PlazaChatBubble {
     /// `scale`은 포인트당 기기 픽셀 수.
     static func image(text: String, scale: CGFloat) -> CGImage? {
         let scale = max(scale, 1)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let setter = CTFramesetterCreateWithAttributedString(NSAttributedString(string: text, attributes: [
-            .font: PlazaResources.font(size: fontSize),
-            .paragraphStyle: paragraph,
-            NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
-        ]))
-        let limit = CGSize(width: maxTextWidth, height: maxTextHeight)
-        let fit = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(), nil, limit, nil)
-        let textWidth = min(max(fit.width, 1).rounded(.up), maxTextWidth)
-        let textHeight = min(max(fit.height, 1).rounded(.up), maxTextHeight)
-        let width = textWidth + 2 * (dot + pad)
-        let height = textHeight + 2 * (dot + pad) + tailHeight
+        let setter = framesetter(text)
+        let textSize = textSize(setter)
+        let width = textSize.width + 2 * (dot + pad)
+        let height = textSize.height + 2 * (dot + pad) + tailHeight
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(data: nil, width: Int((width * scale).rounded()), height: Int((height * scale).rounded()),
                                       bitsPerComponent: 8, bytesPerRow: 0, space: space,
@@ -51,9 +43,34 @@ enum PlazaChatBubble {
         fillTail(centerX: (width / 2).rounded(), in: context)
         context.setShouldSmoothFonts(false)
         context.setFillColor(ink)
-        let textRect = CGRect(x: dot + pad, y: tailHeight + dot + pad, width: textWidth, height: textHeight)
+        let textRect = CGRect(origin: CGPoint(x: dot + pad, y: tailHeight + dot + pad), size: textSize)
         CTFrameDraw(CTFramesetterCreateFrame(setter, CFRange(), CGPath(rect: textRect, transform: nil), nil), context)
         return context.makeImage()
+    }
+
+    /// 글자 영역에 실제로 그려지는 UTF-16 길이. 글자 영역이 모자라면 뒤쪽 줄이 말없이 빠지므로 테스트가 확인한다.
+    static func drawnLength(of text: String) -> Int {
+        let setter = framesetter(text)
+        let rect = CGRect(origin: .zero, size: textSize(setter))
+        let frame = CTFramesetterCreateFrame(setter, CFRange(), CGPath(rect: rect, transform: nil), nil)
+        return CTFrameGetVisibleStringRange(frame).length
+    }
+
+    private static func framesetter(_ text: String) -> CTFramesetter {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        return CTFramesetterCreateWithAttributedString(NSAttributedString(string: text, attributes: [
+            .font: PlazaResources.font(size: fontSize),
+            .paragraphStyle: paragraph,
+            NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
+        ]))
+    }
+
+    private static func textSize(_ setter: CTFramesetter) -> CGSize {
+        let limit = CGSize(width: maxTextWidth, height: maxTextHeight)
+        let fit = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(), nil, limit, nil)
+        return CGSize(width: min(max(fit.width, 1).rounded(.up), maxTextWidth),
+                      height: min(max(fit.height, 1).rounded(.up), maxTextHeight))
     }
 
     /// 네 귀퉁이를 한 칸씩 뺀 사각형.

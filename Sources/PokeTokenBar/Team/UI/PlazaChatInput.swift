@@ -9,6 +9,8 @@ import AppKit
     var onSubmit: ((String) -> Bool)?
     /// 어떤 이유로든 닫히면 부른다.
     var onClose: (() -> Void)?
+    /// 지금 키가 눌린 채 반복 중인지. 테스트에서 바꿔 끼운다.
+    var isKeyRepeating: () -> Bool = { NSApp.currentEvent?.isARepeat == true }
     private(set) var isOpen = false
 
     override init() {
@@ -58,9 +60,17 @@ import AppKit
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
-            if textView.hasMarkedText() { return false }
+            // false를 돌려주면 입력이 끝나 입력창이 닫히고 글이 사라진다. 조합 중이면 글자만 확정한다.
+            if textView.hasMarkedText() {
+                textView.unmarkText()
+                return true
+            }
+            // 입력창을 연 Enter를 누르고 있으면 반복 입력이 빈 입력창을 바로 닫는다.
+            if isKeyRepeating() { return true }
             if onSubmit?(textView.string) != false { close() }
             return true
+        case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertBacktab(_:)):
+            return true   // 입력창을 벗어나면 닫히므로 Tab이 쓰던 글을 지우지 않게 삼킨다.
         case #selector(NSResponder.cancelOperation(_:)):
             close()
             return true

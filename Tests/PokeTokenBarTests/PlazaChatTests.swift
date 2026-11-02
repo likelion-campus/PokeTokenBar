@@ -31,6 +31,19 @@ final class TeamChatTextTests: XCTestCase {
         XCTAssertNil(TeamChat.prepared("a" + String(repeating: "\u{0301}", count: 200)))
     }
 
+    func testPreparedCutsLongJoinedEmojiInsteadOfLosingTheLine() throws {
+        let line = String(repeating: "👩‍💻", count: 30)
+        let cut = try XCTUnwrap(TeamChat.prepared(line))
+        XCTAssertLessThanOrEqual(cut.utf8.count, TeamChat.maxBytes)
+        XCTAssertTrue(line.hasPrefix(cut))
+        XCTAssertEqual(TeamChat.prepared(cut), cut)
+    }
+
+    func testPreparedRemovesInvisibleFormatCharacters() {
+        XCTAssertNil(TeamChat.prepared("\u{200B}\u{FEFF}\u{2060}"), "an empty bubble is not a line")
+        XCTAssertEqual(TeamChat.prepared("a\u{202E}b"), "a b", "text direction cannot be overridden")
+    }
+
     func testPreparedLineIsStable() throws {
         let once = try XCTUnwrap(TeamChat.prepared("  한 줄\n더 \t"))
         XCTAssertEqual(TeamChat.prepared(once), once, "a sent line must pass the receiver's check")
@@ -45,6 +58,14 @@ final class PlazaChatBubbleTests: XCTestCase {
         XCTAssertLessThan(short.height, long.height, "the long line wraps")
         XCTAssertLessThanOrEqual(CGFloat(long.width), PlazaChatBubble.maxSize.width * 2)
         XCTAssertLessThanOrEqual(CGFloat(long.height), PlazaChatBubble.maxSize.height * 2)
+    }
+
+    func testEveryLineInTheLimitIsDrawnInFull() {
+        let lines = [String(repeating: "가", count: 40), String(repeating: "😀", count: 40), String(repeating: "🇰🇷", count: 40),
+                     String(repeating: "가😀", count: 20), String(repeating: "W", count: 40)]
+        for line in lines {
+            XCTAssertEqual(PlazaChatBubble.drawnLength(of: line), line.utf16.count, line)
+        }
     }
 
     func testOneHugeCharacterCannotGrowTheImage() throws {
@@ -124,9 +145,44 @@ final class PlazaChatInputTests: XCTestCase {
         let (w, editor) = try editing(i)
         editor.setMarkedText("하", selectedRange: NSRange(location: 1, length: 0), replacementRange: editor.selectedRange())
         XCTAssertTrue(editor.hasMarkedText())
-        XCTAssertFalse(i.control(i.field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         XCTAssertTrue(box.sent.isEmpty)
+        XCTAssertTrue(i.isOpen, "the line must not be lost")
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(editor.string, "하")
+        w.contentView = nil
+    }
+
+    func testHeldEnterDoesNotCloseTheFieldItOpened() throws {
+        let (i, box) = input()
+        i.isKeyRepeating = { true }
+        let (w, editor) = try editing(i)
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         XCTAssertTrue(i.isOpen)
+        XCTAssertTrue(box.sent.isEmpty)
+        w.contentView = nil
+    }
+
+    func testTabKeepsTheLine() throws {
+        let (i, _) = input()
+        let (w, editor) = try editing(i)
+        editor.insertText("안녕", replacementRange: editor.selectedRange())
+        editor.doCommand(by: #selector(NSResponder.insertTab(_:)))
+        editor.doCommand(by: #selector(NSResponder.insertBacktab(_:)))
+        XCTAssertTrue(i.isOpen)
+        XCTAssertEqual(editor.string, "안녕")
+        w.contentView = nil
+    }
+
+    func testCuttingAnOverlongLineKeepsTheCaret() throws {
+        let (i, _) = input()
+        let (w, editor) = try editing(i)
+        editor.insertText(String(repeating: "가", count: TeamChat.maxCharacters), replacementRange: editor.selectedRange())
+        editor.setSelectedRange(NSRange(location: 10, length: 0))
+        editor.insertText("나", replacementRange: editor.selectedRange())
+        i.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+        XCTAssertEqual(i.field.stringValue.count, TeamChat.maxCharacters)
+        XCTAssertEqual(editor.selectedRange().location, 11)
         w.contentView = nil
     }
 

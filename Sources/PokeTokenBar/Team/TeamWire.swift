@@ -41,16 +41,22 @@ struct TeamChat: Codable, Equatable, Sendable {
     static let maxBytes = 320
     var text: String
 
-    /// One line ready to send: line breaks and control characters become spaces, the ends are trimmed, and it
-    /// is cut to `maxCharacters`. nil when nothing is left. A received line must already be in this form.
+    /// One line ready to send: line breaks and invisible controls become spaces, the ends are trimmed, and it
+    /// is cut to `maxCharacters` and `maxBytes`. nil when nothing is left. A received line must already be in this form.
     static func prepared(_ raw: String) -> String? {
-        let line = String(raw.map { c in
-            c.isNewline || c.unicodeScalars.contains { $0.properties.generalCategory == .control } ? " " : c
-        })
-        let text = String(line.trimmingCharacters(in: .whitespaces).prefix(maxCharacters))
-            .trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty, text.utf8.count <= maxBytes else { return nil }
-        return text
+        let line = String(raw.map { isControl($0) ? " " : $0 })
+        var text = String(line.trimmingCharacters(in: .whitespaces).prefix(maxCharacters))
+        while text.utf8.count > maxBytes { text.removeLast() }
+        text = text.trimmingCharacters(in: .whitespaces)
+        return text.isEmpty ? nil : text
+    }
+
+    /// A format character alone is a Character of its own (zero-width space, text direction override).
+    /// Inside an emoji sequence it is part of a longer Character and stays.
+    private static func isControl(_ c: Character) -> Bool {
+        let scalars = c.unicodeScalars
+        return c.isNewline || scalars.contains { $0.properties.generalCategory == .control }
+            || (scalars.count == 1 && scalars.first?.properties.generalCategory == .format)
     }
 }
 

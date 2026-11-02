@@ -489,6 +489,7 @@ extension SKView: PlazaPausableView {}
             scene.onEmoteKey = nil
             scene.onInteractKey = nil
             scene.onPhotoKey = nil
+            scene.onChatKey = nil
             scene.onCloseOverlay = nil
             scene.isOverlayOpen = false
         }
