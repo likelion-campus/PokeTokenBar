@@ -794,6 +794,13 @@ read_when:
   진짜 계정을 먼저 찌르면, 첫 조회에서 바로 유효 토큰(`claudeAiOauth`)을 찾아 루프를 끝내므로 2회차 암호 창이 원천 소멸한다.
   가드: `testPrioritizedAccountNamesPlacesCurrentUserNameFirstAndUnknownLast`·`testPrioritizedAccountNamesFullHierarchy`.
 
+- **메뉴바 전용 앱도 편집 메뉴가 있어야 입력란에서 Cmd+C/V가 된다.** macOS는 Cmd+V를 메인 메뉴의 단축키로 처리한다.
+  SwiftUI `_EmptyScene` 은 "View" 하나뿐인 메인 메뉴를 만들어서, 팀 코드·세션 키·검색 등 앱의 모든 입력란에서 키보드
+  붙여넣기와 복사가 안 됐다(원작부터 있던 문제). **왜 못 걸렀나:** 입력 테스트가 `stringValue`를 직접 넣거나 편집기에
+  `insertText`를 불러서 메뉴 경로를 밟지 않았다. `StandardEditMenu`가 기동 때 편집 메뉴를 붙인다. XCTest는 앱 이벤트
+  루프를 돌리지 않아 실제 Cmd+V를 보낼 수 없으므로, 같은 SwiftUI 구성의 작은 앱에서 `postEvent`로 보낸 Cmd+V가 수정
+  전에는 아무것도 넣지 못하고 수정 후에는 붙여넣는 것을 확인했다. 가드: `StandardEditMenuTests`.
+
 ## 동시성
 
 - **비동기 완료가 "그 사이 교체된 대상"에 착지하지 않게 하라 — 상태를 통째로 바꾸는 경로를 새로 만들면

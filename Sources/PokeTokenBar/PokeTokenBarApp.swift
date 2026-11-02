@@ -86,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         CrashReporter.install(
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
         NSApp.setActivationPolicy(.accessory)
+        StandardEditMenu.install()   // 편집 메뉴가 없으면 어떤 입력란에서도 Cmd+V가 동작하지 않는다
         // Tooltips show 40% sooner than AppKit's 1 s default; the app's hover hints are short and
         // the popover closes quickly. Registration domain only, so a user `defaults write` still wins.
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 600])
