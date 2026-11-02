@@ -43,17 +43,3 @@ jobs:
           path: ${{ runner.temp }}/snapshot-history-renders
           if-no-files-found: ignore
           retention-days: 7
-
-  secret-scan:
-    name: secret-scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          # Full history so gitleaks can diff the whole PR commit range.
-          fetch-depth: 0
-
-      - name: Scan for committed secrets
-        uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

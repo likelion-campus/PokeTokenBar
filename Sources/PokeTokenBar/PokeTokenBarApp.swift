@@ -22,9 +22,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var outsideClickMonitor = OutsideClickMonitor()
     private var store: UsageStore!
     private var companion: CompanionStore!
+    private let teamSettings = TeamSettings()
+    private var teamRuntime: TeamRuntime!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
+    private var plaza: PlazaWindowController!
+    private var teamNotificationDelegate: TeamNotificationDelegate?
 
     // 메뉴바 캐릭터 애니메이션 — 단일 타이머로 프레임 순환.
     // 프레임 = 이미 22px 로 합성된 이미지 + delay. egg/static 은 2프레임 bob, animated 는 GIF 실제 프레임.
@@ -57,6 +61,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var placeholderSize: NSSize?
     /// 버튼 폭(=텍스트 길이)이나 스프라이트 크기가 변하면 레이어를 이미지 자리에 다시 맞춰야 한다.
     private var needsSpriteLayout = true
+
+    func applicationWillTerminate(_ notification: Notification) {
+        plaza?.persistState()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 로그인 에이전트 등록(plist 의 RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행한다 — 나중에 뜬
@@ -112,11 +120,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self   // didShow: outside-click monitor; didClose: 호스팅 해제 + 모니터 제거
 
+        teamRuntime = TeamRuntime(settings: teamSettings, companion: companion)
+        plaza = PlazaWindowController(
+            preferences: PlazaPreferences(), loader: PlazaCharacterLoader(),
+            nickname: { [teamSettings] in TeamSettings.validNickname(teamSettings.nickname) ?? "" },
+            memberID: { [teamSettings] in teamSettings.memberID },
+            subject: { [companion] in companion!.representativeSubject },
+            myRosterEntry: { [companion, teamSettings] in
+                PlazaRoster.myEntry(companion: companion!, teamSettings: teamSettings) },
+            session: teamRuntime.session, feed: teamRuntime.feed)
+        navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
+        teamRuntime.plaza = plaza
+        // Bundled app only: the notification center crashes without a bundle (swift test, .build/debug).
+        teamNotificationDelegate = TeamNotifications.installDelegate { [weak self] in self?.openPlaza() }
+        if let poster = TeamNotifications.livePoster() {
+            teamRuntime.notifier = TeamNotifier(
+                settings: teamSettings, poster: poster,
+                isPlazaFrontmost: { [weak plaza] in plaza?.isFrontmost ?? false },
+                showInPlaza: { [weak plaza] in plaza?.showBanner($0) })
+        }
+        teamRuntime.start()
+
         observeStore()
         observeCompanionSprite()
+        observePlaza()
+        observePlazaNickname()
+        observePlazaRoster()
         observeDisplaySleep()
         observePowerState()
         applyState()
+        // plaza-dev.sh 전용: 메뉴바 아이콘이 노치에 가려져도 광장을 바로 연다.
+        if CommandLine.arguments.contains("--open-plaza") { openPlaza() }
     }
 
     /// Observation 기반 상태 반영 — store 의 menuTitle(=menuLines) 변경 시 재호출.
@@ -134,6 +168,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.observeStore()
             }
         }
+    }
+
+    /// 광장 캐릭터는 플로팅 펫과 같은 대표 대상을 따른다. 광장이 닫혀 있으면 두 호출 모두 아무 일도 안 한다.
+    private func observePlaza() {
+        withObservationTracking {
+            _ = companion.representativeSubject
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observePlaza()   // 먼저 다시 등록 — 로딩 중 변경을 놓치지 않는다(세대 가드가 낡은 로드를 버림)
+                await self.plaza.refreshCharacter()
+            }
+        }
+    }
+
+    /// 내 칸에 쓰이는 모든 입력(성별, 폼, 같은 종 고정·해제 등)이 바뀌면 목록을 다시 만든다.
+    private func observePlazaRoster() {
+        withObservationTracking {
+            _ = PlazaRoster.myEntry(companion: companion, teamSettings: teamSettings)
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observePlazaRoster()
+                self.plaza.refreshMyEntry()
+            }
+        }
+    }
+
+    private func observePlazaNickname() {
+        withObservationTracking {
+            _ = teamSettings.nickname
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observePlazaNickname()
+                self.plaza.refreshNickname()
+            }
+        }
+    }
+
+    private func openPlaza() {
+        // A notification can outlive the team; with the team off there is nothing to open.
+        guard teamSettings.isReady else { return }
+        if popover.isShown { popover.performClose(nil) }
+        plaza.show()
     }
 
     /// 대표 스프라이트 정체성(종/shiny/fps 하한) 관찰 — 대표 선택·해제와 애니메이션 품질 변경뿐 아니라
@@ -560,7 +639,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildPopoverContent() {
         popover.contentViewController = NSHostingController(
             rootView: PopoverView()
-                .environment(store).environment(companion).environment(updater).environment(navigation))
+                .environment(store).environment(companion).environment(updater).environment(navigation)
+                .environment(teamSettings).environment(teamRuntime.session).environment(teamRuntime.feed))
     }
 
     @objc private func statusItemClicked() {
@@ -578,7 +658,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let entries = StatusItemMenu.entries(
             l: companion.l, todayTokens: store.todayTotalTokens,
             todayCost: store.showsCost ? store.todayUsageCost : nil,
-            floatingPetEnabled: store.floatingPetEnabled)
+            floatingPetEnabled: store.floatingPetEnabled, plazaAvailable: teamSettings.isReady,
+            plazaUnread: teamSettings.isReady ? teamRuntime.feed.unreadCount : 0)
         // Attaching the menu only for this click keeps left click on the popover. performClick
         // tracks the menu synchronously, with the button highlighted like any other status menu.
         statusItem.menu = StatusItemMenu.build(entries, target: self, selector: #selector(handleStatusMenu(_:)))
@@ -590,6 +671,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         switch StatusItemMenu.action(of: item) {
         case .refresh: Task { await store.refresh() }
         case .openDex: showPopover { $0.openRepresentativeDex() }
+        case .openPlaza: openPlaza()
         case .openSettings: showPopover { $0.showSettings = true }
         case .toggleFloatingPet: store.floatingPetEnabled.toggle()
         case .quit: NSApp.terminate(nil)

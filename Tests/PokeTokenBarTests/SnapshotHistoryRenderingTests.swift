@@ -122,7 +122,7 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         _ = NSApplication.shared
         if previousKeyWindow == nil { previousKeyWindow = NSApp.keyWindow }
         let host = NSHostingView(rootView: SettingsView(onClose: {}, onChooseRepresentative: {})
-            .environment(companion).environment(usage).environment(UpdateChecker())
+            .environment(companion).environment(usage).environment(UpdateChecker()).environment(TeamSettings(defaults: UserDefaults(suiteName: "ptb.test.team.settings-render")!))
             .environment(\.colorScheme, .light)
             .frame(width: PopoverMetrics.width))
         host.frame = NSRect(x: 0, y: 0, width: PopoverMetrics.width, height: 460)

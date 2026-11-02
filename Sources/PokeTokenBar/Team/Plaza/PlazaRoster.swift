@@ -1,0 +1,116 @@
+import Foundation
+import Observation
+
+enum PlazaPresence: Sendable { case online, away }
+
+/// 참여자 목록의 한 칸. 레벨·HP·진행률 같은 수치는 일부러 담지 않는다.
+struct PlazaRosterEntry: Equatable, Identifiable, Sendable {
+    let id: String               // 멤버 ID (1부에서는 TeamSettings.memberID)
+    let nickname: String
+    let speciesID: Int?          // nil = 알
+    let speciesName: String
+    let gender: PokemonGender?   // 모르면 nil(기호 없음)
+    let isShiny: Bool
+    let presence: PlazaPresence
+    let isMe: Bool
+}
+
+/// 목록 판의 크기. 장면 카메라가 가려진 폭을 알아야 해서 한 곳에 둔다.
+enum PlazaRosterMetrics {
+    static let width: CGFloat = 232
+    static let margin: CGFloat = 14
+    static var coveredWidth: CGFloat { width + margin }
+    /// 판 안쪽 여백(위아래 각각), 머리줄 높이, 머리줄과 첫 칸 사이, 칸 높이와 간격.
+    static let padding: CGFloat = 10
+    static let headerHeight: CGFloat = 20
+    static let listTopPadding: CGFloat = 6
+    static let slotHeight: CGFloat = 44
+    static let slotSpacing: CGFloat = 4
+}
+
+/// 화면이 지켜보는 목록. 창이 닫혀도 모델만 남고 그리기는 멈춘다.
+@MainActor @Observable final class PlazaRosterModel {
+    var entries: [PlazaRosterEntry] = []
+    /// 창이 가려지거나 최소화되면 false — 목록 아이콘의 통통 튐을 멈춘다.
+    var isAnimating = true
+    /// 창 높이에 맞는 최대 칸 수. 창 크기가 바뀔 때 정한다.
+    var capacity = Int.max
+}
+
+enum PlazaRoster {
+    /// 앱의 저장소와 설정에서 내 칸을 만든다. 고른 대표 종의 이름은 폼을 반영한 도감 종 이름이다.
+    @MainActor static func myEntry(companion: CompanionStore, teamSettings: TeamSettings) -> PlazaRosterEntry {
+        let followsRaised = companion.representativeSpeciesID == nil
+        return myEntry(
+            memberID: teamSettings.memberID,
+            nickname: TeamSettings.validNickname(teamSettings.nickname) ?? "",
+            subject: companion.representativeSubject, followsRaised: followsRaised,
+            raisedName: companion.displayName, raisedGender: companion.state.active?.profile?.gender,
+            pinnedName: followsRaised ? nil : companion.representativeDexSpecies?.name,
+            eggName: L(.ko).plazaEggName)
+    }
+
+    /// 팀에 보내는 내 캐릭터. 이름과 성별은 내 칸과 같고, 알이면 종·이름·폼이 비어 있다.
+    static func character(entry: PlazaRosterEntry, subject: CompanionStore.RepresentativeSubject) -> TeamMonSummary {
+        guard entry.speciesID != nil else {
+            return TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil)
+        }
+        return TeamMonSummary(speciesID: entry.speciesID, isShiny: entry.isShiny, form: subject.form,
+                              speciesName: entry.speciesName, gender: entry.gender)
+    }
+
+    /// 내 칸과 팀원들을 합쳐 정렬한다.
+    static func entries(me: PlazaRosterEntry?, members: [TeamMemberState]) -> [PlazaRosterEntry] {
+        let others = members.map { m in
+            PlazaRosterEntry(id: m.memberID, nickname: m.nickname, speciesID: m.character.speciesID,
+                             speciesName: m.character.speciesName ?? (m.character.speciesID == nil ? L(.ko).plazaEggName : ""),
+                             gender: m.character.gender, isShiny: m.character.isShiny,
+                             presence: m.inPlaza ? .online : .away, isMe: false)
+        }
+        return sorted((me.map { [$0] } ?? []) + others)
+    }
+
+    /// 창 높이(포인트)에 들어가는 칸 수. 넘칠 때 "외 N명" 줄이 마지막 칸을 쓰므로 최소 2칸은 둔다.
+    static func capacity(forHeight height: CGFloat) -> Int {
+        let m = PlazaRosterMetrics.self
+        let available = height - 2 * m.margin - 2 * m.padding - m.headerHeight - m.listTopPadding
+        let slots = Int(((available + m.slotSpacing) / (m.slotHeight + m.slotSpacing)).rounded(.down))
+        return max(2, slots)
+    }
+
+    /// 넘치면 마지막 칸 자리를 "외 N명" 줄로 쓴다. 입력을 받지 않아 스크롤할 수 없으므로, 잘리는 쪽은 정렬상 뒤(자리 비운 팀원)다.
+    static func visible(_ entries: [PlazaRosterEntry], capacity: Int) -> (shown: [PlazaRosterEntry], hidden: Int) {
+        guard entries.count > capacity else { return (entries, 0) }
+        let keep = max(0, capacity - 1)
+        return (Array(entries.prefix(keep)), entries.count - keep)
+    }
+
+    /// 나 → 접속 중 → 자리 비움, 같은 무리 안에서는 닉네임 순.
+    static func sorted(_ entries: [PlazaRosterEntry]) -> [PlazaRosterEntry] {
+        func rank(_ e: PlazaRosterEntry) -> Int { e.isMe ? 0 : (e.presence == .online ? 1 : 2) }
+        return entries.sorted {
+            let (a, b) = (rank($0), rank($1))
+            if a != b { return a < b }
+            if $0.nickname != $1.nickname { return $0.nickname < $1.nickname }
+            return $0.id < $1.id
+        }
+    }
+
+    /// 내 칸: 대표 포켓몬을 고르지 않았으면 키우는 포켓몬(이름 = companion.displayName, 성별 = 키우는 개체의 성별),
+    /// 골랐으면 그 종(이름 = 도감 종 이름, 성별 nil), 알이면 speciesID nil·이름 L.plazaEggName·성별 nil.
+    static func myEntry(memberID: String, nickname: String, subject: CompanionStore.RepresentativeSubject,
+                        followsRaised: Bool, raisedName: String, raisedGender: PokemonGender?,
+                        pinnedName: String?, eggName: String) -> PlazaRosterEntry {
+        let name: String
+        let gender: PokemonGender?
+        if subject.speciesID == nil {
+            name = eggName; gender = nil
+        } else if followsRaised {
+            name = raisedName; gender = raisedGender
+        } else {
+            name = pinnedName ?? raisedName; gender = nil
+        }
+        return PlazaRosterEntry(id: memberID, nickname: nickname, speciesID: subject.speciesID, speciesName: name,
+                                gender: gender, isShiny: subject.isShiny, presence: .online, isMe: true)
+    }
+}

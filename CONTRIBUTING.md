@@ -107,7 +107,9 @@ rules:
   assets** — sprites, artwork, audio, fonts, or bulk name/data files. Pokémon
   species data and sprites are fetched **at runtime** from the public
   [PokéAPI](https://pokeapi.co) and cached locally on the user's device; keep it
-  that way.
+  that way. This team fork has one exception: non-Pokémon assets under an open
+  license may be bundled when `CREDITS.md` and the license text ship with them,
+  as the plaza tileset (CC0) and Galmuri font (SIL OFL 1.1) do.
 - **Do not add features intended for commercial use**, or features that
   redistribute or export copyrighted assets.
 - **Do not commit secrets, credentials, or references to private/internal

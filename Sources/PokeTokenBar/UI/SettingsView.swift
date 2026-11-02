@@ -74,6 +74,7 @@ struct SettingsView: View {
                         difficultyGroup
                         menuBarGroup(store)
                         floatingPetGroup(store)
+                        TeamSettingsSection()
                         notificationsGroup(store)
                         updateGroup(store)
                         transferGroup(store)

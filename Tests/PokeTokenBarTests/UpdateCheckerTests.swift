@@ -223,4 +223,28 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertTrue(script.contains("\"$1\" upgrade"), "must execute brew upgrade via $1 positional arg")
         XCTAssertTrue(script.contains("open \"$2\""), "must open bundlePath via $2 positional arg")
     }
+
+    // MARK: - Team fork distribution
+
+    func testTeamForkChecksItsOwnReleases() {
+        XCTAssertEqual(UpdateChecker.releaseRepo, "likelion-campus/PokeTokenBar")
+    }
+
+    func testTeamForkNeverRunsBrewUpgrade() {
+        // brew cask(원작 탭)로 업그레이드하면 팀 기능이 사라진다.
+        XCTAssertFalse(UpdateChecker.allowsBrewUpgrade)
+    }
+
+    func testBuildScriptDeclaresLocalNetworkUsage() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let script = try String(contentsOf: repoRoot.appendingPathComponent("scripts/build-app.sh"), encoding: .utf8)
+        XCTAssertTrue(script.contains("<key>NSLocalNetworkUsageDescription</key>"))
+        XCTAssertTrue(script.contains("<string>_ptbteam._tcp</string>"))
+        // 팀 버전은 2.5.601 이상이면 된다(이후 팀 릴리스가 올려도 깨지지 않게 정확 일치는 피한다).
+        let line = try XCTUnwrap(script.split(separator: "\n").first { $0.hasPrefix("VERSION=\"") })
+        let raw = line.dropFirst("VERSION=\"".count).prefix { $0 != "\"" }
+        let version = try XCTUnwrap(UpdateChecker.normalizedReleaseVersion(String(raw)))
+        XCTAssertFalse(UpdateChecker.isNewer("2.5.601", than: version), "VERSION must be >= 2.5.601")
+    }
 }

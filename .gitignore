@@ -25,6 +25,8 @@ build/
 # (Must ignore docs/* rather than docs/ — git cannot re-include inside an excluded directory.)
 docs/*
 !docs/reference/
+# Team fork: design specs and implementation plans are published.
+!docs/superpowers/
 
 # Agent worktrees / local state
 .claude/*

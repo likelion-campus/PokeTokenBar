@@ -155,6 +155,18 @@ final class UnownTests: XCTestCase {
         XCTAssertEqual(s.formSpecies(speciesID: PokemonForm.unownSpeciesID).map(\.isRaising), [false, false, false, true])
     }
 
+    func testTeamProfileKeepsFormsAndTheirLabelledNames() throws {
+        var original = CompanionState()
+        original.dex = [entry(.a), entry(.exclamation, shiny: true)]
+        let s = try store(original)
+        let dex = TeamRuntime.profile(settings: TeamSettings(defaults: UserDefaults(suiteName: "tp-\(UUID().uuidString)")!),
+                                      companion: s).dex
+        XCTAssertEqual(dex.map(\.form), [.a, .exclamation])
+        XCTAssertEqual(dex.map(\.speciesID), [201, 201])
+        XCTAssertEqual(dex.map(\.name), s.formSpecies(speciesID: 201).map(\.name))
+        XCTAssertNotEqual(dex[0].name, dex[1].name)
+    }
+
     func testMissingADoesNotCreateAnOwnedFormOrPermitAnUncollectedRepresentative() throws {
         var original = CompanionState()
         original.dex = [entry(.question, shiny: true)]

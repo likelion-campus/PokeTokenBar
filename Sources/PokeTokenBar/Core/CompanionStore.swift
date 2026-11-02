@@ -44,6 +44,9 @@ final class CompanionStore {
     private let fileURL: URL
     private var rng: any RandomNumberGenerator
     private let dittoDisguiseRollingEnabled: Bool
+    /// Fired at hatch / evolve / graduate / Ditto reveal. Not gated by app bundle or notification
+    /// settings; whether to publish is TeamSession's call.
+    @ObservationIgnored var onTeamEvent: ((CompanionTeamEvent) -> Void)?
     private(set) var pokemonDetailsByID: [Int: PokemonDetails] = [:]
     private(set) var loadingPokemonDetailIDs: Set<Int> = []
     private(set) var failedPokemonDetailIDs: Set<Int> = []
@@ -454,6 +457,11 @@ final class CompanionStore {
     /// 아직 진화하지 않은 종이 보유로 잡힌다.
     var dexSpecies: [DexSpecies] {
         collectedDexSpecies(groupForms: false)
+    }
+
+    /// The dex as the team card shows it: forms stay separate cells, named with their form label.
+    var teamDexSpecies: [DexSpecies] {
+        collectedDexSpecies(groupForms: true)
     }
 
     /// Sprite → Pokédex detail link targets (species number → dex cell `collectionID`). Only species
@@ -954,6 +962,12 @@ final class CompanionStore {
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
                 eventUntil = clock().addingTimeInterval(4)
                 notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(newName))
+                onTeamEvent?(CompanionTeamEvent(
+                    kind: .evolve, speciesID: next.speciesID, fromSpeciesID: a.currentID,
+                    speciesName: newName,
+                    fromSpeciesName: formDisplayName(line.localizedName(a.currentID, state.language),
+                                                     speciesID: a.currentID, form: a.form),
+                    form: a.form, isShiny: a.displaysShiny, nature: a.nature, rarity: a.rarity))
             }
         }
         reconcileActiveProfileGrowth()
@@ -1041,6 +1055,10 @@ final class CompanionStore {
                                    speciesID: finalID, form: a.form)
         justGraduated = name
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
+        onTeamEvent?(CompanionTeamEvent(
+            kind: .graduate, speciesID: finalID, fromSpeciesID: nil, speciesName: name,
+            fromSpeciesName: nil, form: a.form, isShiny: a.displaysShiny, nature: a.nature,
+            rarity: a.rarity))
         eventUntil = clock().addingTimeInterval(6)
         state.active = nil
         state.reconcileRepresentativeSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
@@ -1682,6 +1700,9 @@ final class CompanionStore {
                                    speciesID: line.baseID, form: form)
         notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
                              showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name))
+        onTeamEvent?(CompanionTeamEvent(
+            kind: .hatch, speciesID: line.baseID, fromSpeciesID: nil, speciesName: name,
+            fromSpeciesName: nil, form: form, isShiny: showShiny, nature: nature, rarity: line.rarity))
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)
@@ -1739,6 +1760,10 @@ final class CompanionStore {
         eventUntil = clock().addingTimeInterval(5)
         notifyCompanionEvent(shiny ? l.notifShinyDittoRevealTitle : l.notifDittoRevealTitle,
                              shiny ? l.notifShinyDittoRevealBody(disguiseName) : l.notifDittoRevealBody(disguiseName))
+        onTeamEvent?(CompanionTeamEvent(
+            kind: .dittoReveal, speciesID: PokemonOdds.dittoSpeciesID, fromSpeciesID: a.baseID,
+            speciesName: dittoLine.localizedName(dittoLine.baseID, state.language), fromSpeciesName: disguiseName,
+            form: nil, isShiny: shiny, nature: m.nature, rarity: m.rarity))
         save()
         applyUsage(0)   // 이월분으로 메타몽 졸업 재평가(rare 3B라 보통 즉시 졸업 아님)
         isRevealingDitto = false   // Details are enrichment, not part of the reveal transaction.

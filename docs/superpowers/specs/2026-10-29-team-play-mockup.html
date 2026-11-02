@@ -1,0 +1,148 @@
+<!doctype html><meta charset="utf-8"><title>Team play mockup</title>
+<!-- Rough brainstorming mockup (2026-10-29). Layout only; sprites load from PokeAPI. -->
+<style>:root{--bg-primary:#f5f5f7;--bg-secondary:#fff;--bg-tertiary:#e5e5e7;--border:#d1d1d6;--text-primary:#1d1d1f;--text-secondary:#86868b;--text-tertiary:#aeaeb2;--accent:#0071e3}body{font-family:-apple-system,sans-serif;background:var(--bg-primary);color:var(--text-primary);max-width:900px;margin:24px auto;padding:0 16px}.option{background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px;display:flex;gap:12px}.letter{font-weight:700}.subtitle{color:var(--text-secondary)}</style>
+<style>
+  .desk { position: relative; height: 300px; border-radius: 10px; overflow: hidden;
+    background: linear-gradient(160deg, #6b8fbf 0%, #9db7d8 55%, #c9d6e6 100%); }
+  .desk .menubar { height: 22px; background: rgba(255,255,255,.55); backdrop-filter: blur(6px);
+    font-size: 11px; color: #1d1d1f; display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 0 10px; }
+  .desk .menubar img { height: 18px; image-rendering: pixelated; }
+  .pet { position: absolute; display: flex; flex-direction: column; align-items: center; }
+  .pet img { image-rendering: pixelated; }
+  .pet .tag { font-size: 10px; background: rgba(0,0,0,.45); color: #fff; padding: 1px 6px; border-radius: 8px; margin-top: 2px; }
+  .bubble { background: #fff; color: #1d1d1f; border-radius: 12px; padding: 8px 10px; font-size: 12px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.18); position: relative; max-width: 220px; line-height: 1.4; }
+  .bubble:after { content: ""; position: absolute; bottom: -6px; left: 50%; margin-left: -6px;
+    border: 6px solid transparent; border-top-color: #fff; border-bottom: 0; }
+  .rx { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .rx span { font-size: 11px; background: #f0f0f3; border: 1px solid #dcdce0; border-radius: 10px; padding: 2px 7px; cursor: default; color: #1d1d1f; }
+  .walk { font-size: 10px; color: rgba(255,255,255,.9); position: absolute; }
+
+  .pop { width: 300px; margin: 0 auto; background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.15); overflow: hidden; font-size: 12px; }
+  .pop .tabs { display: flex; border-bottom: 1px solid var(--border); }
+  .pop .tabs div { flex: 1; text-align: center; padding: 7px 0; color: var(--text-secondary); }
+  .pop .tabs .on { color: var(--text-primary); font-weight: 600; border-bottom: 2px solid var(--accent); }
+  .feed { padding: 6px 10px; display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow: hidden; }
+  .ev { display: flex; gap: 8px; align-items: flex-start; }
+  .ev img { width: 44px; height: 44px; object-fit: contain; image-rendering: pixelated; background: var(--bg-tertiary); border-radius: 8px; }
+  .ev .t { color: var(--text-primary); }
+  .ev .t b { font-weight: 600; }
+  .ev .meta { color: var(--text-tertiary); font-size: 10px; }
+  .ev .rx span { background: var(--bg-tertiary); border-color: var(--border); color: var(--text-primary); }
+  .cmt { color: var(--text-secondary); font-size: 11px; margin-top: 3px; }
+
+  .notif { width: 330px; margin: 0 auto; background: rgba(245,245,247,.96); color: #1d1d1f; border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.2); padding: 10px 12px; font-size: 12px; display: flex; gap: 10px; }
+  .notif img { width: 52px; height: 52px; object-fit: contain; image-rendering: pixelated; }
+  .notif .app { font-size: 10px; color: #86868b; text-transform: uppercase; letter-spacing: .3px; }
+  .notif .btns { display: flex; gap: 6px; margin-top: 8px; }
+  .notif .btns span { flex: 1; text-align: center; background: #e5e5ea; border-radius: 7px; padding: 4px 0; font-size: 11px; }
+
+  .back { margin-top: 26px; }
+  .back .desk { height: 200px; }
+</style>
+
+<h2>팀원이 알을 부화시키면, 내 화면엔 어떻게 보일까?</h2>
+<p class="subtitle">지금 사진 올리고 "귀엽다" / 놀리는 그 흐름을 앱 안으로 가져오는 세 가지 방식이에요. 마음에 드는 걸 클릭해 주세요 (여러 개 골라도 돼요).</p>
+
+<div class="options" data-multiselect>
+
+  <div class="option" data-choice="visit">
+    <div class="letter">A</div>
+    <div class="content" style="width:100%">
+      <h3>놀러 오는 포켓몬</h3>
+      <p>팀원의 새 포켓몬이 내 바탕화면으로 잠깐 걸어 들어와 내 플로팅 펫 옆에 서요. 말풍선의 버튼으로 바로 반응하면, 몇 초 뒤 다시 걸어 나가요.</p>
+      <div class="desk" style="margin-top:10px">
+        <div class="menubar"><span>Wi‑Fi</span><img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/133.gif"><span>12.4M</span><span>오후 3:12</span></div>
+        <div class="pet" style="right:40px; bottom:16px">
+          <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/133.gif" width="72">
+          <div class="tag">내 이브이</div>
+        </div>
+        <div class="pet" style="right:140px; bottom:16px">
+          <div class="bubble" style="margin-bottom:8px">
+            <b>민수</b>의 알에서 <b>깨봉이</b>가 나왔어요!
+            <div class="rx"><span>🥹 귀여워</span><span>🤣 이게 뭐야</span><span>🎉 축하해</span><span>💬 한마디</span></div>
+          </div>
+          <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/568.gif" width="72">
+          <div class="tag">민수의 깨봉이</div>
+        </div>
+        <div class="walk" style="right:250px; bottom:30px">← 걸어 들어옴</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="feed">
+    <div class="letter">B</div>
+    <div class="content" style="width:100%">
+      <h3>팀 탭 (모아 보는 피드)</h3>
+      <p>메뉴바 팝오버에 "팀" 탭이 생겨요. 부화·진화·졸업·교환이 시간순으로 쌓이고, 반응과 짧은 댓글이 달려요. 자리를 비웠다 와도 놓친 걸 볼 수 있어요.</p>
+      <div style="margin-top:10px">
+        <div class="pop">
+          <div class="tabs"><div>홈</div><div>도감</div><div>가방</div><div class="on">팀</div></div>
+          <div class="feed">
+            <div class="ev">
+              <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/568.gif">
+              <div>
+                <div class="t"><b>민수</b>의 알에서 깨봉이 부화</div>
+                <div class="meta">방금 · 성격: 덜렁대는</div>
+                <div class="rx"><span>🤣 3</span><span>🥹 1</span></div>
+                <div class="cmt">지수: 쓰레기봉투 맞지? ㅋㅋㅋ</div>
+              </div>
+            </div>
+            <div class="ev">
+              <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/shiny/129.gif">
+              <div>
+                <div class="t"><b>지수</b>의 잉어킹 ✨이로치 부화</div>
+                <div class="meta">32분 전</div>
+                <div class="rx"><span>🎉 4</span><span>🤣 2</span></div>
+              </div>
+            </div>
+            <div class="ev">
+              <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/40.gif">
+              <div>
+                <div class="t"><b>현우</b>의 푸린 → 푸크린 진화</div>
+                <div class="meta">오늘 오전</div>
+                <div class="rx"><span>🥹 5</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="notif">
+    <div class="letter">C</div>
+    <div class="content" style="width:100%">
+      <h3>알림 배너</h3>
+      <p>macOS 알림으로 조용히 알려줘요. 배너에서 바로 반응 버튼을 누를 수 있어요. 화면을 가장 덜 가리지만, 다른 알림에 묻히기 쉬워요.</p>
+      <div style="margin-top:10px">
+        <div class="notif">
+          <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/shiny/129.gif">
+          <div style="flex:1">
+            <div class="app">PokeTokenBar · 지금</div>
+            <div><b>지수</b>의 알에서 ✨이로치 잉어킹이 나왔어요</div>
+            <div class="btns"><span>🎉 축하해</span><span>🤣 ㅋㅋ</span><span>💬 한마디</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section back">
+  <h3>공통: 반응을 받은 사람 쪽 (민수 화면)</h3>
+  <p class="subtitle">어떤 방식을 고르든, 보낸 반응은 상대의 플로팅 펫(또는 메뉴바 포켓몬) 위에 말풍선으로 하나씩 떠요.</p>
+  <div class="desk">
+    <div class="menubar"><span>Wi‑Fi</span><img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/568.gif"><span>오후 3:12</span></div>
+    <div class="pet" style="left:50%; margin-left:-36px; bottom:16px">
+      <div class="bubble" style="margin-bottom:8px"><b>지수</b>: 🤣 이게 뭐야<br><b>현우</b>: 🥹 귀여워 (진심)</div>
+      <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/568.gif" width="72">
+      <div class="tag">내 깨봉이</div>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:14px">※ 팀원에게는 포켓몬과 이벤트만 보이고, 토큰 사용량 숫자는 보이지 않는 걸 기본으로 그렸어요.</p>

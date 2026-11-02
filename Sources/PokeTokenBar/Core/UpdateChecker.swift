@@ -38,13 +38,18 @@ final class UpdateChecker {
 
     static let skippedVersionKey = "skippedUpdateVersion"
 
+    /// 업데이트 확인 대상 저장소 — 팀 포크는 원작이 아니라 자기 릴리스를 본다.
+    nonisolated static let releaseRepo = "likelion-campus/PokeTokenBar"
+    /// 원작 brew cask 로 업그레이드하면 팀 기능이 사라지므로 포크에서는 brew 업그레이드를 하지 않는다.
+    nonisolated static let allowsBrewUpgrade = false
+
     init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init, defaults: UserDefaults = .standard,
          fetchLatest: (() async -> LatestRelease?)? = nil) {
         self.currentVersion = currentVersion
             ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
         self.clock = clock
         self.defaults = defaults
-        self.fetchLatest = fetchLatest ?? { await Self.liveLatestRelease(repo: "chattymin/PokeTokenBar") }
+        self.fetchLatest = fetchLatest ?? { await Self.liveLatestRelease(repo: Self.releaseRepo) }
     }
 
     var settingsNotice: SettingsNotice {
@@ -149,7 +154,7 @@ final class UpdateChecker {
         Task { @MainActor in
             // brew cask 설치본이면 분리(detached) 스크립트가 앱 종료 후 tap 갱신→업그레이드→재오픈.
             // 그 외(brew 미설치/비-cask 설치)면 릴리스 페이지를 연다.
-            let brew = await Task.detached { Self.brewCaskPath() }.value
+            let brew = Self.allowsBrewUpgrade ? await Task.detached { Self.brewCaskPath() }.value : nil
             if let brew {
                 Self.launchDetachedUpgrade(brew: brew)
                 NSApp.terminate(nil)

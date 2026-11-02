@@ -42,6 +42,14 @@ read_when:
   보존해 정적 보기로 전환할 때 복원한다. `SpriteAnimationPreviewTests`는 실제 SwiftUI 첫 렌더의
   GIF 픽셀·크기, 캐시 재사용, 프레임 지연, 정적 원본 보존을 검사한다.
 
+- **재시도를 한 경로에만 두면 나머지 경로가 같은 결함으로 남는다.** 광장은 팀원 그림만 30초 뒤 다시 받아서, 창을 열
+  때 요청이 실패하면 내 포켓몬은 다시 열 때까지 회색 원이었다. 뒷모습 실패는 앞모습으로 대체되고 `isPlaceholder`가
+  false라 내 것도 팀원 것도 재시도가 없었다. **왜 못 걸렀나:** 재시도 테스트가 팀원 경로와 앞뒤 모두 실패한 경우만
+  밟았다. 뒷모습은 원래 없는 그림일 수 있고 `SpriteStore`는 404와 오프라인을 구분하지 않으므로 `backRetryLimit`번만
+  다시 묻는다. 가드: `testFailedOwnSpriteIsRequestedAgainWhileOpen`·`testOwnSpriteRetryIsDroppedByANewerLoadOrAClose`·
+  `testMissingBackIsRequestedOnlyAFewTimes`·`testMemberBackThatFailedOnceIsRecovered`. 스윕에서 남은 것: 목록과 카드의
+  `PlazaIconLoader` 아이콘은 `.task(id:)` 한 번뿐이라 실패하면 다시 마운트될 때까지 빈칸이다.
+
 ## 판정·데이터
 
 - **Cursor usage and limits must share the refreshed login, with cookie and Bearer forms kept
@@ -312,6 +320,12 @@ read_when:
   base HP 1 인 종은 껍질몬뿐이지만 규칙은 "종" 에 걸린 것이다.
   **회귀 가드:** `PokemonProfileLogicTests.testShedinjaAlwaysHasOneHP` — Lv1/50/100 모두 1, 다른 스탯은 일반 공식,
   base HP 1 인 다른 종은 일반 공식. 수정 전 3건 실패 확인.
+
+- **그레고리력 문자열은 그레고리력으로 읽는다.** `TeamEventFactory`는 `day`를 그레고리력으로 쓰는데
+  `TeamFeedStore.dayStart`는 Mac의 달력으로 읽어, 불교력·일본력 Mac에서 날짜가 수백 년 밀렸다. 소식을 보내지도 받지도
+  못하고, 불교력에서는 실행할 때 저장된 소식까지 지워졌다. **왜 못 걸렀나:** 테스트 달력이 모두 그레고리력이라 쓰는
+  달력과 읽는 달력이 항상 같았다. 스윕: 팀 코드에서 이 경로뿐이고, `PopoverView.daysInMonth`는 이미 그레고리력이다.
+  가드: `testGregorianDayIsReadOnANonGregorianMac` — 실제 `TeamEventFactory` 출력을 비그레고리력 저장소에 넣는다.
 
 ## 외부 로그·사용량 소스
 
@@ -648,6 +662,23 @@ read_when:
   안에 보관한다. 객체 동일성 검증과 동시 요청은 유지하며, Sendable 우회 선언을 추가하지 않는다.
   회귀 가드: `SpriteImageCacheTests` 의 두 동시 로드 테스트와 `macos-15` CI의 테스트 컴파일.
   (CI 실패: 2026-09-10.)
+  **재발(2026-11-02, 팀 광장 PR):** 비격리 `PlazaSpriteFetching` 과 `PlazaIconLoader.icon` 이 `@MainActor`
+  호출부·`SpriteLoader` 사이로 `NSImage` 를 넘겨 Xcode 16.4/Swift 6.1.2 소스 컴파일이 8건 실패했다.
+  Xcode 26.5 SDK 에서는 `NSImage` 가 Sendable 이라 로컬 전체 테스트가 통과한다.
+  **왜 못 걸렀나:** 포크는 워크플로가 꺼진 채로 시작해 PR 을 열 때까지 `macos-15` CI 가 한 번도 돌지 않았다.
+  `swift build` 는 테스트 타깃을 컴파일하지 않아, `NSImage` 를 저장한 `Sendable` 테스트 더블도 소스 오류 뒤에
+  숨어 있었다. → `NSImage` 를 주고받는 async API 는 호출부와 같은 `@MainActor` 에 두거나, `SpriteLoader` 처럼
+  격리 경계는 `Data` 로 넘고 `NSImage` 는 메인 액터에서 만든다. 프로토콜에 `@MainActor` 를 두면 구현체와
+  테스트 더블까지 함께 격리된다. 포크·새 저장소는 PR 을 열기 전에 Actions 부터 켠다.
+  테스트 타깃은 `XCTestCase` 격리도 다르다: Xcode 16.4 에서는 `@MainActor` 테스트의 `await super.setUp()` 이
+  `self` 전송 오류이고, 동기 `setUp`/`tearDown` 은 비격리라 격리된 프로퍼티를 만지지 못한다. 저장소 관용구대로
+  `await super` 호출을 두지 않고, 동기 override 가 쓰는 프로퍼티는 `nonisolated(unsafe)` 로 둔다.
+  컴파일은 오류가 나면 일찍 멈춰서 CI 가 `await super` 2개 파일만 보고했지만 실제로는 6개 파일에 있었다.
+  CI 가 알려 준 파일이 아니라 패턴으로 스윕한다.
+  CI 러너는 영어 로케일이라 한국어 이름을 단언하는 테스트는 `setLanguage(.ko)` 로 언어를 고정한다. 한국어 Mac 에서는
+  `xcrun xctest -XCTest <모듈.스위트> -AppleLanguages '(en)' <.xctest 번들>` 로 재현된다.
+  로컬 재현은 도구체인 조합에 달려 있다: 이 Mac 의 CLT(Swift 6.0.3)는 `SwiftBridging` 모듈 중복으로
+  `Foundation` 을 못 읽고, Xcode 26.5 컴파일러에 15.2 SDK 를 붙이면 `@Observable` 매크로가 맞지 않는다.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
@@ -663,6 +694,11 @@ read_when:
   확인하는 단계가 없었다. `swift build --arch arm64 --arch x86_64` 는 xcbuild(Xcode)가 필요해 CLT 환경에서
   실패하므로, 아키텍처별 빌드 + `lipo -create` 로 합친다. 회귀 가드: `build-app.sh` 의 `lipo -verify_arch`
   와 release.sh 4/8 의 `lipo -verify_arch arm64 x86_64` 하드 게이트(릴리스는 `PTB_NATIVE_ARCH_ONLY` 금지).
+
+- **원본 릴리스의 게이트를 포크 스크립트로 옮길 때 빠뜨리지 않는다.** `team-release.sh`는 `release.sh`와 달리
+  `test-gate.sh`를 돌리지 않아, CI가 실패하거나 건너뛴 `main`도 팀 전체에 배포될 수 있었다. **왜 못 걸렀나:**
+  `testTeamReleaseChecksRunBeforeTheBuild`의 목록이 스크립트에 있는 확인만 나열해서, 없는 확인은 드러나지 않았다.
+  서명 확인 뒤, 빌드 앞에서 돌린다. 가드: 같은 테스트의 체크 목록.
 
 ## 자격증명·Keychain
 
@@ -1064,6 +1100,11 @@ read_when:
   (`questionmark.circle` 키체인 도움말, 검색 지우기 `xmark.circle.fill`)는 채워진 원형 글리프라 라벨
   프레임이 이미 아이콘 전체라 제외.
 
+- **창 크기에서 파생한 값은 저장된 크기를 되살린 뒤에 잰다.** 광장 목록의 칸 수를 `setFrameAutosaveName` 앞에서 재서
+  창을 작게 저장해 두면 목록이 넘쳤다. 복원 중의 `windowDidResize`는 `window`가 아직 nil이라 고치지 못했다.
+  **왜 못 걸렀나:** 칸 수 계산만 테스트했고 창을 여는 순서는 테스트하지 않았다. 테스트가 `SKView`를 만들지 않도록
+  순서를 `restoreFrame`으로 빼서 고정했다. 가드: `testRosterCapacityUsesTheRestoredWindowHeight`.
+
 ## 에너지 (상시 표시 애니메이션)
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
@@ -1326,3 +1367,65 @@ read_when:
   On the same CI image, English-only recognition corrected the period label but still read
   the unrelated chart caption `Daily` as `Dally`; do not teach OCR that misspelling or relax
   the original chart guard to make a period-row regression pass.
+
+- **Nearest filter plus a centre-anchored node of odd device-pixel width puts the left edge on a half
+  pixel.** The plaza snapped only the centre of the character sprite and the name plate. With an odd
+  width in device pixels the left edge lands on .5 and the nearest filter drops or doubles columns:
+  a 41-column plate drawn 1:1 kept only 33 distinct columns, and a 31-column sprite drawn at 3x came
+  out 2, 3 or 4 px wide depending on x, so it shimmered while walking. It affects 1x displays and
+  Retina zoom 1 and 3; Retina zoom 2 is the only clean case, which is why it passed on the
+  developer's screen. The camera had the same shape: `layout()` re-snapped `rect.midX` and undid the
+  origin snap `PlazaCamera.visibleRect` had already done. Snap the left (and bottom) edge, then add
+  half the size back (`PlazaPixelSnap`), and never re-snap a value derived from an already snapped
+  origin. `layout()` falls back to backing 2 without a window, so tests cannot reach the 1x branch;
+  the pure helper takes `backing` and `zoom` and `PlazaPixelSnapTests` assert the edge lands on the
+  device grid for 1x zoom 2, odd plate width, odd viewport and Retina zoom 1 and 3. Injecting the
+  centre-only snap makes them fail. Class sweep: the only other `.nearest` use is the menu-bar
+  sprite `CALayer` in `PokeTokenBarApp.swift` (default centre anchor, `resizeAspect`); it was not
+  changed and was not measured.
+
+- **A system memory-pressure signal stops `NSCache` for the whole process, so tests that read back what
+  they just cached fail in a block on some runs.** The full suite failed with exactly 85 assertions
+  (`SpriteImageCacheTests` 25, `UnownSpriteCacheTests` 52, `UnownSpriteViewTests` 4,
+  `SpriteAnimationPreviewTests` 4), then passed on the next run of the same code. libcache keeps a pressure
+  state until the next normal signal: after warn, caches without a limit keep nothing; after critical,
+  caches that already exist keep nothing, even with a `countLimit`. A fresh cache with a limit still works,
+  so a quick check in a new cache looks healthy. Calling libcache's `cache_simulate_memory_warning_event(4)`
+  in the test process reproduces the same 85 failures with the same per-suite counts. In the real failure
+  the Mac entered warn at 17:25:45, apps were being suspended at 17:25:54 as the failures began, and it
+  returned to normal at 17:27:05. No log line said "critical", so that level is inferred from the matching
+  failure pattern. **Why it was misread:** a bisect pointed at `PlazaTileArtTests` and two clean runs after
+  making that test lighter looked like proof. The failure is intermittent, so those passes proved nothing,
+  and the real cause was found only by logging who evicted and probing a fresh cache at several points in
+  the run. Do not treat clean runs as evidence for a fix to an intermittent failure; reproduce the exact
+  failure on demand first. **Production:** nothing to fix. A miss reloads from disk, and all three
+  production caches have a limit. **Fix:** `AaaNSCachePressureGuardTests` registers a test observer that
+  sends a normal signal before every test, with no change to the upstream test files, and its name makes it
+  run first. Disabling the observer brings back all 85 failures under a simulated critical signal. A signal
+  that arrives in the middle of a test can still fail that test. A filtered run that leaves this class out
+  has no guard.
+
+- **`${VAR//\/\//\/}` keeps the backslash in macOS's bash 3.2, so a path can gain a stray `\`.**
+  `scripts/plaza-dev.sh` built `${TMPDIR}/ptb-plaza-dev`, where `TMPDIR` already ends in `/`, then collapsed
+  `//` with that substitution. Bash 3.2 writes the escaped replacement literally, so the state folder became
+  `…/T\/ptb-plaza-dev`. **Why nothing caught it:** `mkdir -p` makes any path work, the app ran normally from
+  that folder, and nobody read the resulting path. It surfaced only when a listing of the expected folder
+  came back empty. **Fix:** strip the trailing slash with `${DEV_DIR%/}`. No other script uses this
+  substitution. The team settings suite name is a hash of the state path, so moving a state folder orphans
+  its team settings; the existing dev settings were copied to the new suite by hand. There is no automated
+  test because this is a dev script. It was checked on `/bin/bash` 3.2 with `TMPDIR` ending in a slash,
+  without one and unset, and by reading `PTB_STATE_DIR` from the running app.
+
+- **A Swift `String.count` is not a size bound: one grapheme cluster can be any number of bytes and any width.**
+  `TeamSettings.validNickname` accepted "1 to 12 Characters". A zero-width-joiner emoji chain of any length is
+  one Character, so a 1,000-emoji nickname passed, was broadcast to the team, and `PlazaNamePlate.image` sized
+  a 42,062 px bitmap from it. SpriteKit asks Metal for a texture of that width and Metal aborts the process above
+  32,768 px, so one teammate could close the app of everyone with the plaza open. **Why nothing caught it:** the
+  validator tests used Korean and emoji strings where one Character is a few bytes, and the plate tests used
+  short names, so no test ever put a long Character through either. **Fix:** `validNickname` also requires
+  `utf8.count <= 320`, and `PlazaNamePlate.image` truncates to `maxPixelWidth` (2,048 px) with
+  `CTLineCreateTruncatedLine` and returns nil instead of force unwrapping CoreGraphics results. Tests build a
+  1,000-link chain (asserting it is one Character) for both. **Class sweep:** a count of Characters used as a
+  limit on text that arrives from outside; the other one was the comment length in `TeamFeedStore.insert`, which
+  goes away because inbound comments are rejected outright. New limits on untrusted text bound bytes (`utf8.count`),
+  and anything that draws it bounds its own output size.

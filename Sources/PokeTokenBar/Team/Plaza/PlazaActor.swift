@@ -1,0 +1,267 @@
+import SpriteKit
+
+/// `PlazaActor.place`가 위치를 계산하는 데 필요한 장면 쪽 값.
+struct PlazaActorContext {
+    /// 월드 높이(월드 y를 장면 y로 바꿀 때 쓴다).
+    let worldHeight: CGFloat
+    /// 장면 좌표의 카메라 위치.
+    let cameraPosition: CGPoint
+    let zoom: Int
+    /// 포인트당 기기 픽셀 수.
+    let backing: CGFloat
+    /// 뷰(카메라 공간) 크기.
+    let viewport: CGSize
+}
+
+/// 광장에 서는 캐릭터 하나: 그림, 발밑 그림자, 머리 위 이름표, 프레임 순환, 텍스처 캐시.
+/// 그림과 그림자는 월드에, 이름표는 카메라 자식이라 배율과 무관하게 또렷하다.
+@MainActor final class PlazaActor {
+    /// GIF는 지연 0 또는 0.01초가 흔하다.
+    private static let minFrameDelay: TimeInterval = 0.02
+    /// 캐릭터 그림을 월드 단위로 키우는 배율. 발 위치(아래 가운데)는 그대로이고 이름·그림자는 키운 크기에 맞춘다.
+    static let characterScale: CGFloat = 1.5
+
+    private let characterNode = SKSpriteNode()
+    private let plateNode = SKSpriteNode()
+    private let shadowNode = SKSpriteNode()
+    /// 말풍선은 이름표처럼 카메라 공간에 둔다.
+    private let emoteNode = SKSpriteNode()
+    /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
+    private var shadowTextureSize: (width: Int, height: Int)?
+    /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
+    private var plateKey: (nickname: String, backing: CGFloat, color: CGColor)?
+    /// 말풍선을 보여 주는 시간.
+    static let emoteDuration: TimeInterval = 2.5
+    private var emoteKey: (kind: TeamEmoteKind, backing: CGFloat)?
+    private var emoteRemaining: TimeInterval = 0
+    private(set) var emoteKind: TeamEmoteKind?
+    private var name: String
+    private var nameColor: CGColor
+
+    private var frames: PlazaCharacterFrames?
+    private var showingBack = false
+    private var frameIndex = 0
+    private var frameElapsed: TimeInterval = 0
+    private var textureCache: [ObjectIdentifier: SKTexture] = [:]
+
+    init(name: String, color: CGColor) {
+        self.name = name
+        self.nameColor = color
+        shadowNode.anchorPoint = .zero
+        shadowNode.zPosition = 0.5
+        shadowNode.isHidden = true
+        characterNode.anchorPoint = CGPoint(x: 0.5, y: 0)
+        characterNode.zPosition = 1
+        characterNode.isHidden = true
+        plateNode.anchorPoint = CGPoint(x: 0.5, y: 0)
+        plateNode.zPosition = 10
+        emoteNode.anchorPoint = CGPoint(x: 0.5, y: 0)
+        emoteNode.zPosition = 11
+        emoteNode.isHidden = true
+    }
+
+    func attach(world: SKNode, camera: SKCameraNode) {
+        world.addChild(shadowNode)
+        world.addChild(characterNode)
+        camera.addChild(plateNode)
+        camera.addChild(emoteNode)
+    }
+
+    func detach() {
+        shadowNode.removeFromParent()
+        characterNode.removeFromParent()
+        plateNode.removeFromParent()
+        emoteNode.removeFromParent()
+    }
+
+    /// 새 말풍선이 옛것을 바꾸고 시간을 처음부터 다시 잰다. 그림은 `place`에서 그린다.
+    func showEmote(_ kind: TeamEmoteKind) {
+        emoteKind = kind
+        emoteRemaining = Self.emoteDuration
+        emoteNode.isHidden = false
+    }
+
+    func setFrames(_ f: PlazaCharacterFrames) {
+        frames = f
+        textureCache.removeAll()
+        frameIndex = 0
+        frameElapsed = 0
+        characterNode.isHidden = false
+        shadowNode.isHidden = false
+        refreshShadow()
+        applyFrame()
+    }
+
+    func setName(_ name: String, color: CGColor) {
+        self.name = name
+        self.nameColor = color
+    }
+
+    func animate(by dt: TimeInterval, useBack: Bool) {
+        if emoteKind != nil {
+            emoteRemaining -= dt
+            if emoteRemaining <= 0 { hideEmote() }
+        }
+        if useBack != showingBack {
+            showingBack = useBack
+            frameIndex = 0
+            frameElapsed = 0
+        }
+        guard let list = currentFrames, !list.isEmpty else { return }
+        frameElapsed += dt
+        var guardCount = 0
+        while guardCount < list.count {
+            let delay = max(list[frameIndex % list.count].delay, Self.minFrameDelay)
+            guard frameElapsed >= delay else { break }
+            frameElapsed -= delay
+            frameIndex = (frameIndex + 1) % list.count
+            guardCount += 1
+        }
+        applyFrame()
+    }
+
+    /// 그림, 그림자, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다. `foot`은 월드 좌표(y가 아래로)다.
+    func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext) {
+        let backing = context.backing
+        let zoom = context.zoom
+        func snap(_ v: CGFloat) -> CGFloat { PlazaPixelSnap.snap(v, backing: backing, zoom: zoom) }
+
+        characterNode.xScale = pose.flipped ? -1 : 1
+        characterNode.zPosition = 1 + foot.y / context.worldHeight   // 화면 아래쪽이 앞
+        // 그림자는 발보다 조금 위(높이의 0.12)에 가운데를 두어 발 뒤에 깔리게 하고, 아래·왼쪽 모서리를 기기 픽셀에 맞춘다. 통통 튐은 받지 않는다.
+        let shadowSize = shadowNode.size
+        let shadowCenterY = context.worldHeight - (foot.y - (shadowSize.height * 0.12).rounded())
+        shadowNode.position = CGPoint(x: snap(foot.x - shadowSize.width / 2), y: snap(shadowCenterY - shadowSize.height / 2))
+        let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob)))
+        characterNode.position = CGPoint(x: PlazaPixelSnap.centerX(footX: foot.x, width: characterNode.size.width, backing: backing, zoom: zoom),
+                                         y: footScene.y)
+
+        // 이름표는 카메라 공간(화면 포인트)에 둔다.
+        let top = footScene.y + characterNode.size.height
+        let labelBacking = max(backing, 1)
+        refreshPlate(backing: labelBacking)
+        plateNode.position = PlazaPixelSnap.platePosition(footSceneX: footScene.x, topY: top, cameraPos: context.cameraPosition,
+                                                          plateWidth: plateNode.size.width, viewport: context.viewport,
+                                                          backing: labelBacking, zoom: zoom)
+        placeEmote(backing: labelBacking, viewport: context.viewport)
+    }
+
+    /// 기념사진에 찍을 값. 그림을 아직 못 받았으면 nil이다. 이름표와 말풍선은 화면 배율과 상관없이 배율 2로 새로 만든다.
+    func photoActor(foot: CGPoint, pose: PlazaSpriteChoice) -> PlazaPhotoActor? {
+        guard let list = currentFrames, !list.isEmpty else { return nil }
+        let image = list[frameIndex % list.count].image
+        var shadow: CGImage?
+        var shadowRect = CGRect.zero
+        if let size = shadowTextureSize {
+            shadow = PlazaGroundShadow.image(width: size.width, height: size.height)
+            shadowRect = CGRect(x: foot.x - CGFloat(size.width) / 2,
+                                y: foot.y - (CGFloat(size.height) * 0.12).rounded() - CGFloat(size.height) / 2,
+                                width: CGFloat(size.width), height: CGFloat(size.height))
+        }
+        return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: foot, bob: CGFloat(pose.bob),
+                               scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
+                               plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, color: nameColor, scale: 2),
+                               bubble: emoteKind.map { PlazaEmoteArt.image($0, scale: 2) })
+    }
+
+    // MARK: - 값 읽기
+
+    /// 배율을 적용한 앞모습 높이의 절반. 카메라가 큰 포켓몬의 머리를 자르지 않게 올려 보는 양이다(앞모습 기준).
+    var cameraLift: CGFloat { frames?.front.first.map { Self.scaledSize(of: $0.image).height / 2 } ?? 0 }
+    var groundShadowSize: (width: Int, height: Int) { shadowTextureSize ?? (0, 0) }
+    var groundShadowY: CGFloat { shadowNode.position.y }
+    var characterX: CGFloat { characterNode.position.x }
+    var characterY: CGFloat { characterNode.position.y }
+    var characterZ: CGFloat { characterNode.zPosition }
+    var characterSize: CGSize { characterNode.size }
+    var namePlatePosition: CGPoint { plateNode.position }
+    var namePlateWidth: CGFloat { plateNode.size.width }
+    var namePlateTop: CGFloat { plateNode.position.y + plateNode.size.height }
+    /// 보이는 말풍선의 카메라 공간 사각형(아래 가운데 기준). 없으면 nil.
+    var emoteFrame: CGRect? {
+        guard emoteKind != nil, !emoteNode.isHidden else { return nil }
+        return CGRect(x: emoteNode.position.x - emoteNode.size.width / 2, y: emoteNode.position.y,
+                      width: emoteNode.size.width, height: emoteNode.size.height)
+    }
+    /// 닉네임이 비어 있으면 이름판을 숨긴다.
+    var isNamePlateVisible: Bool { !plateNode.isHidden }
+
+    // MARK: - 내부
+
+    private func hideEmote() {
+        emoteKind = nil
+        emoteNode.isHidden = true
+    }
+
+    /// 이름표 바로 위에 놓는다. 왼쪽·아래 모서리를 기기 픽셀에 맞춘다(홀수 크기 뷰포트는 반 픽셀을 보정한다).
+    private func placeEmote(backing: CGFloat, viewport: CGSize) {
+        guard let kind = emoteKind else { return }
+        if emoteKey?.kind != kind || emoteKey?.backing != backing {
+            emoteKey = (kind, backing)
+            let image = PlazaEmoteArt.image(kind, scale: backing)
+            let texture = SKTexture(cgImage: image)
+            texture.filteringMode = .nearest
+            emoteNode.texture = texture
+            emoteNode.size = CGSize(width: CGFloat(image.width) / backing, height: CGFloat(image.height) / backing)
+        }
+        func snapView(_ v: CGFloat) -> CGFloat { (v * backing).rounded() / backing }
+        let halfW = viewport.width / 2, halfH = viewport.height / 2
+        let left = snapView(plateNode.position.x - emoteNode.size.width / 2 + halfW) - halfW
+        let bottom = snapView(namePlateTop + halfH) - halfH
+        emoteNode.position = CGPoint(x: left + emoteNode.size.width / 2, y: bottom)
+    }
+
+    private var currentFrames: [PlazaFrame]? {
+        guard let frames else { return nil }
+        return showingBack ? frames.back : frames.front
+    }
+
+    /// 배율을 적용한 그림 크기. 정확한 배율을 쓰고(반올림하면 홀수 크기에서 도트가 일그러진다) 위치만 기기 픽셀에 맞춘다.
+    private static func scaledSize(of image: CGImage) -> CGSize {
+        CGSize(width: CGFloat(image.width) * characterScale, height: CGFloat(image.height) * characterScale)
+    }
+
+    private func applyFrame() {
+        guard let list = currentFrames, !list.isEmpty else { return }
+        let image = list[frameIndex % list.count].image
+        let texture: SKTexture
+        if let cached = textureCache[ObjectIdentifier(image)] {
+            texture = cached
+        } else {
+            texture = SKTexture(cgImage: image)
+            texture.filteringMode = .nearest
+            textureCache[ObjectIdentifier(image)] = texture
+        }
+        characterNode.texture = texture
+        characterNode.size = Self.scaledSize(of: image)
+    }
+
+    private func refreshShadow() {
+        guard let first = frames?.front.first else { return }
+        let size = PlazaGroundShadow.size(forSpriteWidth: Int(Self.scaledSize(of: first.image).width.rounded()))
+        if let old = shadowTextureSize, old == size { return }
+        shadowTextureSize = size
+        let texture = SKTexture(cgImage: PlazaGroundShadow.image(width: size.width, height: size.height))
+        texture.filteringMode = .nearest
+        shadowNode.texture = texture
+        shadowNode.size = CGSize(width: size.width, height: size.height)
+    }
+
+    private func refreshPlate(backing: CGFloat) {
+        plateNode.isHidden = name.isEmpty
+        if name.isEmpty { return }
+        if let key = plateKey, key.nickname == name, key.backing == backing, key.color == nameColor { return }
+        plateKey = (name, backing, nameColor)
+        guard let image = PlazaNamePlate.image(text: name, color: nameColor, scale: backing) else {
+            // The next frame un-hides the node before the key check, so nothing of the old name may remain.
+            plateNode.isHidden = true
+            plateNode.texture = nil
+            plateNode.size = .zero
+            return
+        }
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .nearest
+        plateNode.texture = texture
+        plateNode.size = CGSize(width: CGFloat(image.width) / backing, height: CGFloat(image.height) / backing)
+    }
+}

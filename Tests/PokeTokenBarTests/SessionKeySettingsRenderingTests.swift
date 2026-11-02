@@ -22,7 +22,7 @@ final class SessionKeySettingsRenderingTests: XCTestCase {
         navigation.openSessionKeySettings()
         let host = NSHostingController(rootView: SettingsView(
             onClose: {}, onChooseRepresentative: {}, startExpanded: navigation.expandAdvancedOnOpen)
-            .environment(usage).environment(companion).environment(UpdateChecker())
+            .environment(usage).environment(companion).environment(UpdateChecker()).environment(TeamSettings(defaults: UserDefaults(suiteName: "ptb.test.team.settings-render")!))
             .frame(width: PopoverMetrics.width))
         let previousKeyWindow = NSApp.keyWindow
         let window = SessionKeyTestWindow(contentRect: NSRect(x: -10000, y: -10000, width: PopoverMetrics.width, height: 460),
