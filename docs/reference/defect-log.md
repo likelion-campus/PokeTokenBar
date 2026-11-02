@@ -661,6 +661,8 @@ read_when:
   `await super` 호출을 두지 않고, 동기 override 가 쓰는 프로퍼티는 `nonisolated(unsafe)` 로 둔다.
   컴파일은 오류가 나면 일찍 멈춰서 CI 가 `await super` 2개 파일만 보고했지만 실제로는 6개 파일에 있었다.
   CI 가 알려 준 파일이 아니라 패턴으로 스윕한다.
+  CI 러너는 영어 로케일이라 한국어 이름을 단언하는 테스트는 `setLanguage(.ko)` 로 언어를 고정한다. 한국어 Mac 에서는
+  `xcrun xctest -XCTest <모듈.스위트> -AppleLanguages '(en)' <.xctest 번들>` 로 재현된다.
   로컬 재현은 도구체인 조합에 달려 있다: 이 Mac 의 CLT(Swift 6.0.3)는 `SwiftBridging` 모듈 중복으로
   `Foundation` 을 못 읽고, Xcode 26.5 컴파일러에 15.2 SDK 를 붙이면 `@Observable` 매크로가 맞지 않는다.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·

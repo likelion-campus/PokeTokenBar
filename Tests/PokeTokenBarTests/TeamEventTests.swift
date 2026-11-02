@@ -77,8 +77,10 @@ final class TeamEventHookTests: XCTestCase {
     }
     private func store(rng: any RandomNumberGenerator = SeededRNG(seed: 7), disguise: Bool = false,
                        url: URL? = nil) -> CompanionStore {
-        CompanionStore(provider: TeamTestProvider(), clock: { teamNow }, fileURL: url ?? tempURL(),
-                       rng: rng, dittoDisguiseRollingEnabled: disguise)
+        let s = CompanionStore(provider: TeamTestProvider(), clock: { teamNow }, fileURL: url ?? tempURL(),
+                               rng: rng, dittoDisguiseRollingEnabled: disguise)
+        s.setLanguage(.ko)   // 로케일 무관하게 한국어 이름 검증 (CI 는 영어 로케일)
+        return s
     }
 
     func testHatchHookFiresOnceWithBaseSpecies() async {
