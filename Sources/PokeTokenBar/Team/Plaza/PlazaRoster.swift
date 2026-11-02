@@ -65,7 +65,7 @@ enum PlazaRoster {
             PlazaRosterEntry(id: m.memberID, nickname: m.nickname, speciesID: m.character.speciesID,
                              speciesName: m.character.speciesName ?? (m.character.speciesID == nil ? L(.ko).plazaEggName : ""),
                              gender: m.character.gender, isShiny: m.character.isShiny,
-                             presence: m.inPlaza ? .online : .away, isMe: false)
+                             presence: m.inPlaza && !m.isIdle ? .online : .away, isMe: false)
         }
         return sorted((me.map { [$0] } ?? []) + others)
     }

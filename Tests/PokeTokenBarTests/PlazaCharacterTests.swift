@@ -110,6 +110,37 @@ final class PlazaCharacterTests: XCTestCase {
         XCTAssertEqual(f.calls.all, ["egg"])
         XCTAssertFalse(frames.front.isEmpty)
         XCTAssertTrue(frames.back[0].image === frames.front[0].image)
+        XCTAssertTrue(frames.isEgg)
+        let failed = await PlazaCharacterLoader(fetcher: FakeFetcher()).frames(for: .init(speciesID: nil, isShiny: false))
+        XCTAssertTrue(failed.isEgg, "an egg whose picture failed still sits on a nest")
+    }
+
+    func testOnlyEggsSitOnANest() async {
+        var f = FakeFetcher()
+        f.stillFront = makeNS()
+        let mon = await PlazaCharacterLoader(fetcher: f).frames(for: .init(speciesID: 400, isShiny: false))
+        XCTAssertFalse(mon.isEgg)
+        let actor = PlazaActor(name: "a", color: PlazaNameColor.palette[0])
+        actor.setFrames(mon)
+        XCTAssertFalse(actor.isOnNest)
+        var egg = mon
+        egg.isEgg = true
+        actor.setFrames(egg)
+        XCTAssertTrue(actor.isOnNest)
+        XCTAssertTrue(actor.groundShadowSize == PlazaNestArt.size)
+        let photo = actor.photoActor(foot: CGPoint(x: 100, y: 100), pose: PlazaPose.choice(facing: .down, isWalking: false, clock: 0))
+        let bytes = { (i: CGImage?) in i?.dataProvider?.data as Data? }
+        XCTAssertEqual(bytes(photo?.shadow), bytes(PlazaNestArt.image()), "the photo shows the nest too")
+        actor.setFrames(mon)
+        XCTAssertFalse(actor.isOnNest, "a hatched egg leaves the nest")
+    }
+
+    func testNestHasAHollowForTheEgg() {
+        let image = PlazaNestArt.image()
+        XCTAssertEqual(image.width, PlazaNestArt.size.width)
+        XCTAssertNil(PlazaNestArt.color(0, 0), "corners stay clear")
+        XCTAssertNotNil(PlazaNestArt.color(PlazaNestArt.cols / 2, 3))
+        XCTAssertNotEqual(PlazaNestArt.color(PlazaNestArt.cols / 2, 3), PlazaNestArt.color(PlazaNestArt.cols / 2, PlazaNestArt.rows - 1))
     }
 
     func testShinyFailureRetriesNormalColor() async {

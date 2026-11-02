@@ -1,0 +1,19 @@
+import CoreGraphics
+import Observation
+
+/// 오른쪽 아래 작은 지도에 찍을 점과 지금 보이는 영역. 위치는 칸, 영역은 월드 픽셀이다.
+@MainActor @Observable
+final class PlazaMinimapModel {
+    struct Dot: Equatable, Identifiable {
+        let id: String
+        let tile: TilePoint
+        let color: CGColor
+        let isMe: Bool
+        let isAway: Bool
+    }
+
+    static let width: CGFloat = 192
+
+    var dots: [Dot] = []
+    var view: CGRect = .zero
+}

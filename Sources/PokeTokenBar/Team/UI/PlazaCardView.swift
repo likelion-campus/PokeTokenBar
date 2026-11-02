@@ -38,7 +38,7 @@ struct PlazaCardView: View {
             PlazaCardIcon(speciesID: member.character.speciesID)
             if let other = state.differingCurrent { PlazaCardIcon(speciesID: other.speciesID) }
             Text(member.nickname).lineLimit(1)
-                .font(Font(PlazaResources.font(size: 14)))
+                .font(Font(PlazaResources.font(size: 16)))
                 .foregroundStyle(Color(cgColor: PlazaNameColor.color(forMemberID: member.memberID)))
                 .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
             Spacer(minLength: 0)
@@ -48,7 +48,7 @@ struct PlazaCardView: View {
 
     private func message(_ text: String) -> some View {
         Text(text)
-            .font(Font(PlazaResources.font(size: 12)))
+            .font(Font(PlazaResources.font(size: 14)))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

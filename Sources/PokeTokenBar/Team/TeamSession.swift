@@ -10,6 +10,8 @@ struct TeamMemberState: Equatable, Sendable {
     var tile: TilePoint?
     var facing: PlazaDirection?
     var isWalking: Bool
+    /// In the plaza but not at the keyboard. Shown as zZ in place, not moved to the shelter.
+    var isIdle = false
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -71,6 +73,7 @@ final class TeamSession {
     @ObservationIgnored private var sentNickname: String?
     @ObservationIgnored private var character: TeamMonSummary?
     @ObservationIgnored private var inPlaza = false
+    @ObservationIgnored private var isIdle = false
     @ObservationIgnored private var tile: TilePoint?
     @ObservationIgnored private var facing: PlazaDirection?
     @ObservationIgnored private var isWalking = false
@@ -154,8 +157,10 @@ final class TeamSession {
         if changed { broadcast(.presence(makePresence())) }
     }
 
-    func updatePlazaPosition(inPlaza: Bool, tile: TilePoint?, facing: PlazaDirection?, isWalking: Bool) {
+    func updatePlazaPosition(inPlaza: Bool, tile: TilePoint?, facing: PlazaDirection?, isWalking: Bool, isIdle: Bool = false) {
         let changed = inPlaza != self.inPlaza || tile != self.tile || facing != self.facing || isWalking != self.isWalking
+            || isIdle != self.isIdle
+        self.isIdle = isIdle
         self.inPlaza = inPlaza
         self.tile = tile
         self.facing = facing
@@ -261,6 +266,7 @@ final class TeamSession {
             member.tile = presence.tile
             member.facing = presence.facing
             member.isWalking = presence.isWalking
+            member.isIdle = presence.isIdle ?? false
             members[memberID] = member
         case .inventory(let eventIDs, let reactionIDs):
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
@@ -351,7 +357,7 @@ final class TeamSession {
 
     private func makePresence() -> TeamPresence {
         TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
-                     inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking)
+                     inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

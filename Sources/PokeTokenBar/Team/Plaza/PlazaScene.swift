@@ -11,6 +11,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     let tile: TilePoint?
     let facing: PlazaDirection
     let isWalking: Bool
+    /// 광장에 있지만 자리를 비웠다. 이름에 zZ를 붙이고 자리는 그대로 둔다.
+    var isIdle = false
 }
 
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.
@@ -77,10 +79,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         let color: CGColor
         var nickname: String
         var isAway: Bool
+        var isIdle = false
         var motion: PlazaRemoteMotion
         var wanderer: PlazaShelterWanderer?
 
-        var displayName: String { Self.displayName(nickname, isAway: isAway) }
+        var displayName: String { Self.displayName(nickname, isAway: isAway || isIdle) }
 
         static func displayName(_ nickname: String, isAway: Bool) -> String {
             isAway ? nickname + " " + L(.ko).plazaAwaySuffix : nickname
@@ -198,6 +201,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 r.motion.senderIsWalking = !m.isAway && m.isWalking
                 if !m.isAway { r.motion.facing = m.facing }
                 r.nickname = m.nickname
+                r.isIdle = m.isIdle
                 r.actor.setName(r.displayName, color: r.color)
                 remotes[m.memberID] = r
             } else {
@@ -205,8 +209,9 @@ struct PlazaSceneMember: Equatable, Sendable {
                 let wanderer = m.isAway ? shelterWanderer(m.memberID) : nil
                 var motion = PlazaRemoteMotion(tile: wanderer?.tile ?? target, facing: m.facing)
                 motion.senderIsWalking = !m.isAway && m.isWalking
-                let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isAway: m.isAway), color: color),
-                               color: color, nickname: m.nickname, isAway: m.isAway, motion: motion, wanderer: wanderer)
+                let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isAway: m.isAway || m.isIdle), color: color),
+                               color: color, nickname: m.nickname, isAway: m.isAway, isIdle: m.isIdle, motion: motion,
+                               wanderer: wanderer)
                 r.actor.attach(world: self, camera: cameraNode)
                 remotes[m.memberID] = r
             }
@@ -521,6 +526,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     var characterX: CGFloat { me.characterX }
     var characterY: CGFloat { me.characterY }
     var cameraPosition: CGPoint { cameraNode.position }
+    var visibleWorldRect: CGRect { visibleRect }
+    var isMeOnNest: Bool { me.isOnNest }
+    func memberIsOnNest(_ id: String) -> Bool? { remotes[id]?.actor.isOnNest }
     var namePlatePosition: CGPoint { me.namePlatePosition }
     var namePlateWidth: CGFloat { me.namePlateWidth }
     var characterSize: CGSize { me.characterSize }

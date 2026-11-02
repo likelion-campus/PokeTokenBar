@@ -14,7 +14,7 @@ struct PlazaOverlayView: View {
             content
             if let banner = model.banner {
                 Text(banner)
-                    .font(Font(PlazaResources.font(size: 13)))
+                    .font(Font(PlazaResources.font(size: 15)))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 14).padding(.vertical, 8)
