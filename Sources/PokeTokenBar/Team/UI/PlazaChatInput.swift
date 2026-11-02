@@ -12,6 +12,10 @@ import AppKit
     /// 지금 키가 눌린 채 반복 중인지. 테스트에서 바꿔 끼운다.
     var isKeyRepeating: () -> Bool = { NSApp.currentEvent?.isARepeat == true }
     private(set) var isOpen = false
+    /// 확성기로 보낸다. Tab으로 켜고 끄며, 입력창을 열 때마다 꺼진다.
+    private(set) var isLoud = false {
+        didSet { refreshLoud() }
+    }
 
     override init() {
         super.init()
@@ -28,9 +32,7 @@ import AppKit
         field.font = PlazaResources.font(size: 15)
         field.usesSingleLineMode = true
         field.cell?.isScrollable = true
-        field.placeholderAttributedString = NSAttributedString(string: L(.ko).plazaChatPlaceholder, attributes: [
-            .font: PlazaResources.font(size: 15), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
-        ])
+        refreshLoud()
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(field)
@@ -45,6 +47,7 @@ import AppKit
     func open() {
         guard !isOpen else { return }
         isOpen = true
+        isLoud = false
         field.stringValue = ""
         view.isHidden = false
     }
@@ -70,13 +73,24 @@ import AppKit
             if onSubmit?(textView.string) != false { close() }
             return true
         case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.insertBacktab(_:)):
-            return true   // 입력창을 벗어나면 닫히므로 Tab이 쓰던 글을 지우지 않게 삼킨다.
+            // 입력창을 벗어나면 닫히므로 Tab은 포커스를 옮기지 않고 확성기를 켜고 끈다.
+            isLoud.toggle()
+            return true
         case #selector(NSResponder.cancelOperation(_:)):
             close()
             return true
         default:
             return false
         }
+    }
+
+    private func refreshLoud() {
+        let l = L(.ko)
+        field.placeholderAttributedString = NSAttributedString(string: isLoud ? l.plazaLoudPlaceholder : l.plazaChatPlaceholder, attributes: [
+            .font: PlazaResources.font(size: 15), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
+        ])
+        view.layer?.borderColor = isLoud ? CGColor(srgbRed: 0xF0 / 255, green: 0x8A / 255, blue: 0x24 / 255, alpha: 1)
+            : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5)
     }
 
     /// 조합 중인 글자를 건드리면 한글이 깨지므로 조합이 끝난 뒤에 자른다.

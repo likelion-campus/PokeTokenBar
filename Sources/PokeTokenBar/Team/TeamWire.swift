@@ -42,6 +42,9 @@ struct TeamChat: Codable, Equatable, Sendable {
     /// One Character can hold any number of combining marks, so the Character count bounds nothing.
     static let maxBytes = 320
     var text: String
+    /// A megaphone line: teammates outside the plaza get a notification too. Left out when false, so earlier
+    /// versions read it as an ordinary line.
+    var isLoud: Bool?
 
     /// One line ready to send: line breaks and invisible controls become spaces, the ends are trimmed, and it
     /// is cut to `maxCharacters` and `maxBytes`. nil when nothing is left. A received line must already be in this form.

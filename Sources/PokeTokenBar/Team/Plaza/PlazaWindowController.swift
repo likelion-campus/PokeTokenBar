@@ -39,6 +39,8 @@ extension SKView: PlazaPausableView {}
     static let emoteInterval: TimeInterval = 0.3
     private var lastEmoteAt: Date?
     private var lastChatAt: Date?
+    private var lastLoudAt: Date?
+    static let loudInterval: TimeInterval = 60
     /// 키보드·마우스 입력이 이만큼 없으면 자리비움으로 알린다. 다른 앱을 쓰는 동안은 자리비움이 아니다.
     static let idleAfter: TimeInterval = 600
     static let idleCheckInterval: Duration = .seconds(30)
@@ -156,7 +158,9 @@ extension SKView: PlazaPausableView {}
                                                 model: overlayModel)
             overlay.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
-            let chatLogView = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: chatLog))
+            let chatLogView = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: chatLog, toggle: { [weak self] in
+                self?.toggleChatLog()
+            }), log: chatLog)
             chatLogView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(chatLogView)   // 입력은 받지 않는다.
             let map = PlazaMinimapHostingView(rootView: PlazaMinimapView(
@@ -301,11 +305,18 @@ extension SKView: PlazaPausableView {}
     private func submitChat(_ raw: String) -> Bool {
         guard let scene, let text = TeamChat.prepared(raw) else { return true }
         let now = clock()
+        let loud = chatInput.isLoud
         if let last = lastChatAt, now.timeIntervalSince(last) < Self.emoteInterval { return false }
+        if loud, let last = lastLoudAt, now.timeIntervalSince(last) < Self.loudInterval {
+            showBanner(L(.ko).plazaLoudTooSoon)
+            return false
+        }
         lastChatAt = now
+        if loud { lastLoudAt = now }
         scene.showChat(memberID: nil, text: text)
-        chatLog.append(time: now, name: nickname(), text: text, color: scene.nameColor)
-        session?.sendChat(text)
+        chatLog.append(time: now, name: nickname(), text: text, color: scene.nameColor, isLoud: loud)
+        session?.sendChat(text, loud: loud)
+        if loud { showBanner(L(.ko).teamMegaphoneNotice(nickname: nickname(), text: text)) }
         return true
     }
 
@@ -370,12 +381,20 @@ extension SKView: PlazaPausableView {}
     }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
-    func showChat(memberID: String, text: String) {
+    func showChat(memberID: String, text: String, isLoud: Bool = false) {
         guard let scene, let member = members[memberID] else { return }
         scene.showChat(memberID: memberID, text: text)
         chatLog.append(time: clock(), name: member.nickname, text: text,
-                       color: scene.memberNameColor(memberID) ?? PlazaNameColor.palette[0])
+                       color: scene.memberNameColor(memberID) ?? PlazaNameColor.palette[0], isLoud: isLoud)
     }
+
+    /// 대화 기록을 펼치거나 접는다. 누른 뒤에도 키는 장면이 받는다.
+    func toggleChatLog() {
+        chatLog.isExpanded.toggle()
+        if let skView { window?.makeFirstResponder(skView) }
+    }
+
+    var isChatLogExpanded: Bool { chatLog.isExpanded }
 
     /// 큰 소식 연출: 쓴 사람 위에 반짝임, 위쪽에 배너. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 진화는 연출하지 않는다.
     func showBigEvent(_ e: TeamEvent) {

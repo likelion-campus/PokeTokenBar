@@ -23,7 +23,13 @@ extension L {
     func plazaRosterCount(online: Int, total: Int) -> String { "접속 \(online) / \(total)" }
     var plazaEggName: String { "알" }
     var plazaAwaySuffix: String { "zZ" }
-    var plazaChatPlaceholder: String { "팀원에게 한마디 (Enter 보내기, Esc 취소)" }
+    var plazaChatPlaceholder: String { "팀원에게 한마디 (Enter 보내기, Tab 확성기, Esc 취소)" }
+    var plazaLoudPlaceholder: String { "📢 확성기: 광장 밖 팀원에게도 알림 (Tab 끄기)" }
+    var plazaLoudTooSoon: String { "확성기는 1분에 한 번만 쓸 수 있어요" }
+    var plazaChatLogTitle: String { "대화 기록" }
+    var plazaChatLogExpand: String { "펼치기 ▴" }
+    var plazaChatLogCollapse: String { "접기 ▾" }
+    func teamMegaphoneNotice(nickname: String, text: String) -> String { "📢 \(nickname): \(text)" }
     var plazaBackgroundHide: String { "배경 숨기기" }
     var plazaBackgroundShow: String { "배경 보이기" }
     var plazaEmoteLol: String { "ㅋㅋ" }

@@ -53,7 +53,7 @@ final class TeamSession {
     @ObservationIgnored var onBigEvent: ((TeamEvent) -> Void)?
     @ObservationIgnored var onReactionToMine: ((TeamReaction, TeamEvent) -> Void)?
     @ObservationIgnored var onEmote: ((_ memberID: String, TeamEmote) -> Void)?
-    @ObservationIgnored var onChat: ((_ memberID: String, _ text: String) -> Void)?
+    @ObservationIgnored var onChat: ((_ memberID: String, _ text: String, _ isLoud: Bool) -> Void)?
 
     @ObservationIgnored private let settings: TeamSettings
     @ObservationIgnored private let feed: TeamFeedStore
@@ -192,8 +192,8 @@ final class TeamSession {
         broadcast(.emote(TeamEmote(kind: kind, targetMemberID: target)))
     }
 
-    func sendChat(_ text: String) {
-        broadcast(.chat(TeamChat(text: text)))
+    func sendChat(_ text: String, loud: Bool = false) {
+        broadcast(.chat(TeamChat(text: text, isLoud: loud ? true : nil)))
     }
 
     func requestProfile(memberID: String, timeout: Duration = .seconds(5)) async -> TeamMemberProfile? {
@@ -284,7 +284,7 @@ final class TeamSession {
         case .emote(let emote):
             onEmote?(memberID, emote)
         case .chat(let chat):
-            if TeamChat.prepared(chat.text) == chat.text { onChat?(memberID, chat.text) }
+            if TeamChat.prepared(chat.text) == chat.text { onChat?(memberID, chat.text, chat.isLoud ?? false) }
         case .profileRequest:
             send(.profile(profileProvider()), to: peer)
         case .profile(let profile):

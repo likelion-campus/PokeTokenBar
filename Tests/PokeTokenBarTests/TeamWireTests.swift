@@ -16,6 +16,15 @@ final class TeamWireTests: XCTestCase {
         nickname: "Ash", character: TeamMonSummary(speciesID: 25, isShiny: true, form: nil, speciesName: "Pikachu", gender: .female),
         inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .left, isWalking: true)
 
+    /// A megaphone line reads as an ordinary line in v2.5.602 and earlier.
+    func testMegaphoneFlagIsOptionalOnTheWire() throws {
+        let loud = TeamMessage.chat(TeamChat(text: "점심!", isLoud: true))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(loud)), [loud])
+        let plain = String(decoding: try TeamWire.encode(.chat(TeamChat(text: "a"))).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("isLoud"))
+    }
+
     /// An idle flag is sent only when true, so v2.5.602 and earlier read every other presence byte for byte.
     func testIdleFlagIsOptionalOnTheWire() throws {
         var idle = presence

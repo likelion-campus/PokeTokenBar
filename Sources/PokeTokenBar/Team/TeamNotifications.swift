@@ -128,6 +128,9 @@ final class TeamNotifier {
     private let clock: () -> Date
     private var batcher = TeamNotificationBatcher()
     private var didRequestAuthorization = false
+    /// The last megaphone notice per member. A modified app could send them back to back.
+    private var lastMegaphone: [String: Date] = [:]
+    static let megaphoneInterval: TimeInterval = 60
 
     init(settings: TeamSettings, poster: TeamNotificationPosting, isPlazaFrontmost: @escaping () -> Bool,
          showInPlaza: @escaping (String) -> Void, clock: @escaping () -> Date = Date.init) {
@@ -164,6 +167,15 @@ final class TeamNotifier {
     func emoteToMe(from member: TeamMemberState, kind: TeamEmoteKind) {
         guard settings.notificationsEnabled, !isPlazaFrontmost() else { return }
         deliver(TeamNotice(fromNickname: member.nickname, text: L(.ko).teamEmoteNotice(nickname: member.nickname, kind: kind)))
+    }
+
+    /// A megaphone line reaches everyone: a banner with the plaza in front, a notification otherwise.
+    func megaphone(from member: TeamMemberState, text: String) {
+        guard settings.notificationsEnabled else { return }
+        let now = clock()
+        if let last = lastMegaphone[member.memberID], now.timeIntervalSince(last) < Self.megaphoneInterval { return }
+        lastMegaphone[member.memberID] = now
+        show(L(.ko).teamMegaphoneNotice(nickname: member.nickname, text: text))
     }
 
     /// Drops notices still waiting for the batch window.
