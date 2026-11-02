@@ -13,8 +13,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SIGN_IDENTITY="PokeTokenBar Local"
-# 서명 인증서 leaf SHA-1. 첫 릴리스 때는 비어 있다: 스크립트가 현재 값을 출력하면 여기에 적고 다시 실행한다.
-TEAM_EXPECTED_LEAF=""
+# "PokeTokenBar Local" leaf SHA-1. 인증서를 다시 만들거나 바꾸면 PR로 갱신한다.
+TEAM_EXPECTED_LEAF="67CE3D908138668379D07A70A9986B97FE0201CF"
 ZIP="build/PokeTokenBar.zip"
 BINARY="build/PokeTokenBar.app/Contents/MacOS/PokeTokenBar"
 
