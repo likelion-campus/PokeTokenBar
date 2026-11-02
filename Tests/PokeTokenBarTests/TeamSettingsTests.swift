@@ -12,6 +12,70 @@ final class TeamSettingsTests: XCTestCase {
         return UserDefaults(suiteName: name)!
     }
 
+    // MARK: - 저장한 팀
+
+    private func code(_ seed: UInt64) -> TeamCode {
+        var rng = SeededRNG(seed: seed)
+        return TeamCode.generate(using: &rng)
+    }
+
+    func testEveryJoinedTeamIsSavedOnceWithANumberedName() {
+        let team = TeamSettings(defaults: freshDefaults())
+        let a = code(1), b = code(2)
+        team.code = a
+        team.code = b
+        team.code = a
+        XCTAssertEqual(team.savedTeams.map(\.code), [a.normalized, b.normalized])
+        XCTAssertEqual(team.savedTeams.map(\.name), ["팀 1", "팀 2"])
+        XCTAssertEqual(team.currentTeam?.code, a.normalized)
+    }
+
+    func testTheCodeOfAnEarlierVersionBecomesASavedTeam() {
+        let d = freshDefaults()
+        d.set(code(3).normalized, forKey: "team.code")
+        let team = TeamSettings(defaults: d)
+        XCTAssertEqual(team.savedTeams.map(\.code), [code(3).normalized])
+    }
+
+    func testSwitchingAndSteppingOutKeepEveryTeam() {
+        let team = TeamSettings(defaults: freshDefaults())
+        team.isEnabled = true
+        team.code = code(1); team.code = code(2)
+        team.switchTo(team.savedTeams[0])
+        XCTAssertEqual(team.code, code(1))
+        team.stepOut()
+        XCTAssertNil(team.code)
+        XCTAssertTrue(team.isEnabled, "stepping out leaves the team feature on")
+        XCTAssertEqual(team.savedTeams.count, 2)
+    }
+
+    func testLeavingRemovesOnlyTheCurrentTeam() {
+        let team = TeamSettings(defaults: freshDefaults())
+        team.code = code(1); team.code = code(2)
+        team.leaveTeam()
+        XCTAssertEqual(team.savedTeams.map(\.code), [code(1).normalized])
+        XCTAssertNil(team.code)
+    }
+
+    func testRenamingFollowsTheNicknameRulesAndIsKept() {
+        let d = freshDefaults()
+        let team = TeamSettings(defaults: d)
+        XCTAssertFalse(team.renameCurrentTeam("개발팀"), "no current team")
+        team.code = code(1)
+        XCTAssertTrue(team.renameCurrentTeam("  개발팀 "))
+        XCTAssertFalse(team.renameCurrentTeam(""))
+        XCTAssertFalse(team.renameCurrentTeam(String(repeating: "가", count: 13)))
+        XCTAssertEqual(team.currentTeam?.name, "개발팀")
+        XCTAssertEqual(TeamSettings(defaults: d).savedTeams.map(\.name), ["개발팀"])
+    }
+
+    func testBrokenSavedEntriesAreDropped() throws {
+        let d = freshDefaults()
+        let entries = [TeamSettings.SavedTeam(code: "NOT-A-CODE", name: "x"), TeamSettings.SavedTeam(code: code(4).normalized, name: "y")]
+        d.set(try JSONEncoder().encode(entries), forKey: "team.saved")
+        XCTAssertEqual(TeamSettings(defaults: d).savedTeams.map(\.name), ["y"])
+    }
+
     override func tearDown() {
         for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         suites = []
