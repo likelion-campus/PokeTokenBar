@@ -434,6 +434,36 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     /// The camera looks above the feet by half the front sprite, so a big Pokémon keeps its head on screen.
+    /// The camera used to centre the character in the part beside the roster, so it sat left of centre.
+    func testWideViewCentersMyCharacter() {
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene else { return XCTFail("scene missing") }
+        scene.size = CGSize(width: 1200, height: 640)
+        scene.setCharacter(blankFrames(width: 40, height: 40))
+        let walker = scene.walker.footPoint
+        scene.size = CGSize(width: 1200, height: 640)
+        let screenX = (walker.x - scene.cameraPosition.x) * CGFloat(scene.zoom) + scene.size.width / 2
+        XCTAssertEqual(screenX, 600, accuracy: 1)
+    }
+
+    func testBackgroundToggleHidesTheMapAndIsRemembered() {
+        let d = defaults()
+        let c = controller(d)
+        c.prepareScene()
+        XCTAssertFalse(c.scene!.isBackgroundHidden)
+        c.toggleBackground()
+        XCTAssertTrue(c.scene!.isBackgroundHidden)
+        XCTAssertTrue(c.isBackgroundHidden)
+        XCTAssertEqual(c.scene!.backgroundColor.alphaComponent, 0)
+        let reopened = controller(d)
+        reopened.prepareScene()
+        XCTAssertTrue(reopened.scene!.isBackgroundHidden, "the choice is kept")
+        reopened.toggleBackground()
+        XCTAssertFalse(reopened.scene!.isBackgroundHidden)
+        XCTAssertEqual(reopened.scene!.backgroundColor.alphaComponent, 1)
+    }
+
     func testCameraLooksAboveFeetForBigSprite() {
         let c = controller(defaults())
         c.prepareScene()

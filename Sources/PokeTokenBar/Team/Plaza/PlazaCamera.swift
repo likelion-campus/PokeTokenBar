@@ -30,9 +30,14 @@ enum PlazaCamera {
 }
 
 extension PlazaCamera {
-    /// 오른쪽 rightInset 포인트가 가려질 때, 내 포켓몬이 보이는 영역 가운데 오도록 초점을 오른쪽으로 민다.
-    /// lift(월드 픽셀)는 초점을 위로 올린다. 키가 큰 포켓몬의 머리가 화면 위로 잘리지 않게 하려는 값이다.
-    static func focus(for foot: CGPoint, rightInset: CGFloat, zoom: Int, lift: CGFloat = 0) -> CGPoint {
-        CGPoint(x: foot.x + (rightInset / CGFloat(clampedZoom(zoom))) / 2, y: foot.y - lift)
+    /// 내 포켓몬을 화면 가운데에 둔다. 창이 좁아 오른쪽 rightInset 포인트를 덮는 목록에 걸릴 때만 왼쪽으로 비킨다.
+    /// characterHalfWidth(포인트)는 그림 너비의 절반, lift(월드 픽셀)는 초점을 위로 올린다.
+    /// lift는 키가 큰 포켓몬의 머리가 화면 위로 잘리지 않게 하려는 값이다.
+    static func focus(for foot: CGPoint, viewportWidth: CGFloat, rightInset: CGFloat, characterHalfWidth: CGFloat,
+                      zoom: Int, lift: CGFloat = 0) -> CGPoint {
+        let center = viewportWidth / 2
+        let clear = viewportWidth - rightInset - characterHalfWidth
+        let screenX = max(min(center, clear), min(center, characterHalfWidth))
+        return CGPoint(x: foot.x + (center - screenX) / CGFloat(clampedZoom(zoom)), y: foot.y - lift)
     }
 }

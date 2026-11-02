@@ -57,6 +57,23 @@ final class PlazaTileArtTests: XCTestCase {
         }
     }
 
+    /// The board is drawn as the two-cell signpost from the sheet, at the board tile.
+    func testBoardIsDrawnAsTheSignpost() throws {
+        let sheet = try sheet(), sheetPx = pixels(sheet), map = PlazaMapData.map
+        let mapPx = pixels(try sharedMap()), width = map.width * 32
+        var compared = 0
+        for sy in 0..<16 {
+            for sx in 0..<32 {
+                let s = pixel(sheetPx, 34 * 16 + sx, 2 * 16 + sy, width: sheet.width)
+                guard s[3] == 255 else { continue }
+                let m = pixel(mapPx, map.boardTile.x * 32 + sx * 2, map.boardTile.y * 32 + sy * 2, width: width)
+                XCTAssertEqual(Array(m[0..<3]), Array(s[0..<3]), "(\(sx),\(sy))")
+                compared += 1
+            }
+        }
+        XCTAssertGreaterThan(compared, 100, "the sign has opaque pixels to compare")
+    }
+
     func testEveryPixelIsOpaque() throws {
         let px = pixels(try sharedMap())
         XCTAssertFalse(stride(from: 3, to: px.count, by: 4).contains { px[$0] != 255 })

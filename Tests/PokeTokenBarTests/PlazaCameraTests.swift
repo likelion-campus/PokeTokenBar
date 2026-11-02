@@ -19,7 +19,7 @@ final class PlazaCameraTests: XCTestCase {
     func testRightInsetKeepsFootInUncoveredPartAtRightEdge() {
         let inset: CGFloat = 246, zoom = 2
         let foot = CGPoint(x: world.width - 16, y: 512)
-        let focus = PlazaCamera.focus(for: foot, rightInset: inset, zoom: zoom)
+        let focus = PlazaCamera.focus(for: foot, viewportWidth: 960, rightInset: inset, characterHalfWidth: 60, zoom: zoom)
         let r = PlazaCamera.visibleRect(focus: focus, viewport: .init(width: 960, height: 640), zoom: zoom,
                                         backingScale: 2, world: world, rightInset: inset)
         let uncoveredMaxX = r.maxX - inset / CGFloat(zoom)
@@ -46,8 +46,23 @@ final class PlazaCameraTests: XCTestCase {
         XCTAssertEqual(PlazaCamera.clampedZoom(0), 1); XCTAssertEqual(PlazaCamera.clampedZoom(9), 3)
     }
 
-    func testFocusShiftsByHalfTheCoveredWidthInWorldUnits() {
-        let f = PlazaCamera.focus(for: .init(x: 100, y: 50), rightInset: 246, zoom: 2)
-        XCTAssertEqual(f.x, 161.5, accuracy: 1e-9); XCTAssertEqual(f.y, 50)
+    func testWideWindowCentersTheCharacter() {
+        let f = PlazaCamera.focus(for: .init(x: 700, y: 50), viewportWidth: 960, rightInset: 246, characterHalfWidth: 60, zoom: 2)
+        XCTAssertEqual(f, CGPoint(x: 700, y: 50))
+    }
+
+    /// At the minimum width the centre is under the roster, so the character moves left until it clears it.
+    func testNarrowWindowMovesTheCharacterClearOfTheRoster() {
+        let width: CGFloat = 480, inset: CGFloat = 246, half: CGFloat = 60, zoom = 2
+        let foot = CGPoint(x: 700, y: 50)
+        let f = PlazaCamera.focus(for: foot, viewportWidth: width, rightInset: inset, characterHalfWidth: half, zoom: zoom)
+        let screenX = width / 2 - (f.x - foot.x) * CGFloat(zoom)
+        XCTAssertEqual(screenX + half, width - inset, accuracy: 1e-9, "the right edge of the sprite meets the roster")
+    }
+
+    func testHugeSpriteInATinyWindowStaysOnScreen() {
+        let f = PlazaCamera.focus(for: .init(x: 700, y: 50), viewportWidth: 480, rightInset: 246, characterHalfWidth: 200, zoom: 2)
+        let screenX = 240 - (f.x - 700) * 2
+        XCTAssertEqual(screenX, 200, accuracy: 1e-9, "the left edge of the sprite stays on screen")
     }
 }

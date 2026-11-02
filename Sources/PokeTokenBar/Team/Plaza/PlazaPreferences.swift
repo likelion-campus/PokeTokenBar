@@ -4,6 +4,7 @@ import Foundation
 @MainActor final class PlazaPreferences {
     private static let zoomKey = "team.plaza.zoom"
     private static let lastTileKey = "team.plaza.lastTile"
+    private static let backgroundHiddenKey = "team.plaza.backgroundHidden"
 
     private let defaults: UserDefaults
 
@@ -17,6 +18,12 @@ import Foundation
             return PlazaCamera.clampedZoom(stored)
         }
         set { defaults.set(PlazaCamera.clampedZoom(newValue), forKey: Self.zoomKey) }
+    }
+
+    /// 지도와 바탕을 숨기고 캐릭터만 보이게 한다. 창 뒤의 작업 화면이 비친다.
+    var isBackgroundHidden: Bool {
+        get { defaults.bool(forKey: Self.backgroundHiddenKey) }
+        set { defaults.set(newValue, forKey: Self.backgroundHiddenKey) }
     }
 
     /// 저장된 칸이 없거나 지도 밖이거나 못 가는 칸이면 시작 칸.

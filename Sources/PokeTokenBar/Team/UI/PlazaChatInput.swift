@@ -25,11 +25,11 @@ import AppKit
         field.drawsBackground = false
         field.focusRingType = .none
         field.textColor = .white
-        field.font = PlazaResources.font(size: 13)
+        field.font = PlazaResources.font(size: 15)
         field.usesSingleLineMode = true
         field.cell?.isScrollable = true
         field.placeholderAttributedString = NSAttributedString(string: L(.ko).plazaChatPlaceholder, attributes: [
-            .font: PlazaResources.font(size: 13), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
+            .font: PlazaResources.font(size: 15), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
         ])
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
