@@ -9,6 +9,7 @@ private struct EmptyFetcher: PlazaSpriteFetching {
 }
 
 private let spaceKey: UInt16 = 49, escKey: UInt16 = 53, wKey: UInt16 = 13, rightKey: UInt16 = 124, heartKey: UInt16 = 18
+private let upKey: UInt16 = 126, downKey: UInt16 = 125, returnKey: UInt16 = 36
 
 private extension PlazaOverlayContent {
     var cardMemberID: String? {
@@ -27,15 +28,53 @@ final class PlazaInteractionTests: XCTestCase {
         let board = map.boardTile
         let above = p(board.x, board.y - 1)
         // 소식판 칸에 팀원이 겹쳐 있어도 판이 먼저다.
-        XCTAssertEqual(PlazaInteraction.target(from: above, facing: .down, map: map, members: ["a": board]), .board)
-        XCTAssertEqual(PlazaInteraction.target(from: above, facing: .down, map: map, members: [:]), .board)
+        XCTAssertEqual(PlazaInteraction.target(from: above, facing: .down, map: map, members: ["a": board])?.target, .board)
+        XCTAssertEqual(PlazaInteraction.target(from: above, facing: .down, map: map, members: [:]),
+                       PlazaInteractionHit(target: .board, facing: .down))
     }
 
     func testMemberAheadIsTheTarget() {
         let from = map.spawn
         let ahead = PlazaTargeting.facingTile(from: from, facing: .down)
-        XCTAssertEqual(PlazaInteraction.target(from: from, facing: .down, map: map, members: ["b": ahead, "a": ahead]), .member("a"))
-        XCTAssertNil(PlazaInteraction.target(from: from, facing: .down, map: map, members: ["far": p(1, 1)]))
+        XCTAssertEqual(PlazaInteraction.target(from: from, facing: .down, map: map, members: ["b": ahead, "a": ahead])?.target, .member("a"))
+        XCTAssertNil(PlazaInteraction.target(from: p(10, 10), facing: .down, map: map, members: ["far": p(1, 1)]))
+    }
+
+    /// A teammate right beside me can be talked to without facing them first; Space turns me towards them.
+    func testMemberBesideMeIsTheTargetAndITurnToThem() {
+        let from = p(10, 10)
+        XCTAssertEqual(PlazaInteraction.target(from: from, facing: .down, map: map, members: ["m": p(11, 10)]),
+                       PlazaInteractionHit(target: .member("m"), facing: .right))
+        XCTAssertEqual(PlazaInteraction.target(from: from, facing: .down, map: map, members: ["m": p(10, 9)]),
+                       PlazaInteractionHit(target: .member("m"), facing: .up))
+        XCTAssertNil(PlazaInteraction.target(from: from, facing: .down, map: map, members: ["m": p(11, 11)]), "diagonal is not beside")
+    }
+
+    /// The board is readable from any side, without facing it first.
+    func testBoardBesideMeIsTheTarget() {
+        let b = map.boardTile
+        let left = p(b.x - 1, b.y + 1)
+        XCTAssertEqual(PlazaInteraction.target(from: left, facing: .down, map: map, members: [:]),
+                       PlazaInteractionHit(target: .board, facing: .right))
+        let below = p(b.x + 1, b.y + 2)
+        XCTAssertEqual(PlazaInteraction.target(from: below, facing: .left, map: map, members: [:]),
+                       PlazaInteractionHit(target: .board, facing: .up))
+    }
+
+    /// Order: the board I face, a teammate I face, a teammate on my tile, the board beside me, a teammate beside me.
+    func testFacedTargetsWinOverTargetsBeside() {
+        let b = map.boardTile
+        let left = p(b.x - 1, b.y + 1)
+        let ahead = p(left.x, left.y + 1)
+        XCTAssertTrue(map.isWalkable(ahead) && map.isWalkable(p(left.x - 1, left.y)), "test precondition")
+        XCTAssertEqual(PlazaInteraction.target(from: left, facing: .down, map: map, members: ["m": ahead]),
+                       PlazaInteractionHit(target: .member("m"), facing: .down))
+        XCTAssertEqual(PlazaInteraction.target(from: left, facing: .down, map: map, members: ["m": left]),
+                       PlazaInteractionHit(target: .member("m"), facing: .down))
+        XCTAssertEqual(PlazaInteraction.target(from: left, facing: .down, map: map, members: ["m": p(left.x - 1, left.y)]),
+                       PlazaInteractionHit(target: .board, facing: .right), "the board beside me wins over a teammate beside me")
+        XCTAssertEqual(PlazaInteraction.target(from: left, facing: .right, map: map, members: ["m": left]),
+                       PlazaInteractionHit(target: .board, facing: .right), "the board I face wins over everyone")
     }
 
     func testCardShowsCurrentOnlyWhenItDiffersFromPlazaCharacter() {
@@ -140,6 +179,90 @@ final class PlazaCardTests: XCTestCase {
         await waitUntil { me.session.members[other.settings.memberID]?.tile == ahead && c.scene?.memberTiles[other.settings.memberID] == ahead }
         if severed { hub.sever(link, silentlyOn: other.transport) }   // after the position arrived, so it never answers
         return (c, c.scene!, other, other.settings.memberID)
+    }
+
+    // MARK: - Space hint
+
+    func testHintShowsBesideTheBoardAndHidesWhileItIsOpen() {
+        let me = node("나")
+        let c = controller(me, start: aboveBoard)
+        c.prepareScene()
+        XCTAssertEqual(c.hint, L(.ko).plazaBoardHint)
+        space(c.scene!)
+        XCTAssertEqual(c.overlayContent, .board)
+        XCTAssertNil(c.hint, "Space now closes the board")
+        space(c.scene!)
+        XCTAssertEqual(c.hint, L(.ko).plazaBoardHint)
+    }
+
+    func testHintGoesAwayWhenIWalkOffAndComesBack() {
+        let me = node("나")
+        let c = controller(me, start: aboveBoard)
+        c.prepareScene()
+        let scene = c.scene!
+        scene.handleKeyDown(keyCode: upKey, characters: nil, isRepeat: false)
+        step(scene, seconds: 0.1)
+        scene.handleKeyUp(keyCode: upKey)
+        step(scene, seconds: 1)
+        XCTAssertEqual(scene.walker.tile, TilePoint(x: aboveBoard.x, y: aboveBoard.y - 1), "test precondition")
+        XCTAssertNil(c.hint)
+        scene.handleKeyDown(keyCode: downKey, characters: nil, isRepeat: false)
+        step(scene, seconds: 0.1)
+        scene.handleKeyUp(keyCode: downKey)
+        step(scene, seconds: 1)
+        XCTAssertEqual(c.hint, L(.ko).plazaBoardHint)
+    }
+
+    func testBoardOpensFromTheSideAndITurnToIt() {
+        let me = node("나")
+        let side = TilePoint(x: map.boardTile.x - 1, y: map.boardTile.y + 1)
+        let c = controller(me, start: side)
+        c.prepareScene()
+        XCTAssertEqual(c.scene!.walker.facing, .down)
+        XCTAssertEqual(c.hint, L(.ko).plazaBoardHint)
+        space(c.scene!)
+        XCTAssertEqual(c.overlayContent, .board)
+        XCTAssertEqual(c.scene!.walker.facing, .right)
+    }
+
+    /// A teammate right beside me (not in front) can be talked to: the hint names them and Space turns me to them.
+    func testTeammateBesideMeGetsAHintAndSpaceTurnsToThem() async {
+        let me = node("나"), other = node("민수")
+        let start = TilePoint(x: 10, y: 10), beside = TilePoint(x: 11, y: 10)
+        let c = controller(me, start: start)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        other.session.updatePlazaPosition(inPlaza: true, tile: beside, facing: .down, isWalking: false)
+        let id = other.settings.memberID
+        await waitUntil { me.session.members[id]?.tile == beside && c.scene?.memberTiles[id] == beside }
+        let scene = c.scene!
+        XCTAssertEqual(scene.walker.facing, .down)
+        XCTAssertEqual(c.hint, L(.ko).plazaMemberHint(nickname: "민수"))
+        space(scene)
+        XCTAssertEqual(scene.walker.facing, .right)
+        XCTAssertEqual(c.overlayContent.cardMemberID, id)
+        XCTAssertNil(c.hint)
+    }
+
+    func testHintHidesWhileTheChatInputIsOpen() {
+        let me = node("나")
+        let c = controller(me, start: aboveBoard)
+        c.prepareScene()
+        c.scene!.handleKeyDown(keyCode: returnKey, characters: nil, isRepeat: false)
+        XCTAssertTrue(c.chatInputForTesting.isOpen)
+        XCTAssertNil(c.hint, "Space types a space while the input is open")
+        c.chatInputForTesting.close()
+        XCTAssertEqual(c.hint, L(.ko).plazaBoardHint)
+    }
+
+    func testClosingThePlazaClearsTheHint() {
+        let me = node("나")
+        let c = controller(me, start: aboveBoard)
+        c.prepareScene()
+        XCTAssertNotNil(c.hint)
+        c.handleClose()
+        XCTAssertNil(c.hint)
     }
 
     func testFacingNothingOpensNothing() {

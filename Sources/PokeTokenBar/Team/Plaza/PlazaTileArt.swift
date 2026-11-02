@@ -15,8 +15,25 @@ enum PlazaTileArt {
     private static let bushCell: Cell = (2, 14)
     /// 2x2 칸 둥근 나무.
     private static let treeCell: Cell = (5, 16)
-    /// 소식판 팻말. 기둥이 하나씩 달린 판자 두 칸이 이어져 2x1 칸이 된다.
-    private static let boardCell: Cell = (34, 2)
+    /// 소식판 팻말의 재료. 기둥 하나가 달린 작은 팻말 한 칸이다. 이 칸의 픽셀로 2x2 칸 큰 팻말을 만든다(`signSource`).
+    static let signCell: (col: Int, row: Int) = (34, 2)
+    /// 큰 팻말의 시트 픽셀 크기. 2배로 그려 2x2 칸을 덮는다.
+    static let signSize = 32
+
+    /// 큰 팻말의 (x, y)(시트 픽셀, 0..<32)가 작은 팻말 칸의 어느 픽셀을 쓰는지. 시트에 큰 팻말이 없어 새 색 없이 늘려 만든다.
+    /// 판자는 테두리를 두고 안쪽 무늬를 되풀이해 넓고 높게 만들고, 기둥은 양쪽에 하나씩 길게 세운다.
+    static func signSource(x: Int, y: Int) -> (x: Int, y: Int) {
+        let sy = switch y {
+        case 0: 0
+        case 1...16: 1 + (y - 1) % 7
+        case 17: 8
+        case 18: 9
+        case 19...26: 10
+        default: y - 16
+        }
+        let sx = y <= 18 ? (x == 0 ? 0 : x == signSize - 1 ? 15 : 1 + (x - 1) % 14) : x % 16
+        return (sx, sy)
+    }
 
     /// 지도 전체를 한 장으로(width*32 × height*32). 광장을 열 때 한 번 만든다.
     static func mapImage(_ map: PlazaMap, sheet: CGImage) -> CGImage {
@@ -37,7 +54,13 @@ enum PlazaTileArt {
         }
         drawTrees(map, &canvas)
         let b = map.boardTile
-        canvas.blit(boardCell, cols: 2, rows: 1, x: b.x * tile, y: b.y * tile)
+        for sy in 0..<signSize {
+            for sx in 0..<signSize {
+                let s = signSource(x: sx, y: sy)
+                canvas.plot(sheetX: signCell.col * cell + s.x, sheetY: signCell.row * cell + s.y,
+                            x: b.x * tile + sx * scale, y: b.y * tile + sy * scale)
+            }
+        }
         return canvas.image()
     }
 
@@ -113,20 +136,26 @@ enum PlazaTileArt {
             let sw = cols * PlazaTileArt.cell, sh = rows * PlazaTileArt.cell
             for sy in 0..<sh {
                 for sx in 0..<sw {
-                    let si = ((c.row * PlazaTileArt.cell + sy) * sheet.width + c.col * PlazaTileArt.cell + sx) * 4
-                    let a = Int(sheet.bytes[si + 3])
-                    if a == 0 { continue }
-                    for dy in 0..<PlazaTileArt.scale {
-                        for dx in 0..<PlazaTileArt.scale {
-                            let ox = x + sx * PlazaTileArt.scale + dx, oy = y + sy * PlazaTileArt.scale + dy
-                            guard ox >= 0, oy >= 0, ox < width, oy < height else { continue }
-                            let di = (oy * width + ox) * 4
-                            for k in 0..<3 {
-                                bytes[di + k] = UInt8(min(255, Int(sheet.bytes[si + k]) + Int(bytes[di + k]) * (255 - a) / 255))
-                            }
-                            bytes[di + 3] = 255
-                        }
+                    plot(sheetX: c.col * PlazaTileArt.cell + sx, sheetY: c.row * PlazaTileArt.cell + sy,
+                         x: x + sx * PlazaTileArt.scale, y: y + sy * PlazaTileArt.scale)
+                }
+            }
+        }
+
+        /// 시트 픽셀 하나를 2x2로 키워 (x, y)(왼쪽 위, 월드 픽셀)에 겹쳐 그린다.
+        mutating func plot(sheetX: Int, sheetY: Int, x: Int, y: Int) {
+            let si = (sheetY * sheet.width + sheetX) * 4
+            let a = Int(sheet.bytes[si + 3])
+            if a == 0 { return }
+            for dy in 0..<PlazaTileArt.scale {
+                for dx in 0..<PlazaTileArt.scale {
+                    let ox = x + dx, oy = y + dy
+                    guard ox >= 0, oy >= 0, ox < width, oy < height else { continue }
+                    let di = (oy * width + ox) * 4
+                    for k in 0..<3 {
+                        bytes[di + k] = UInt8(min(255, Int(sheet.bytes[si + k]) + Int(bytes[di + k]) * (255 - a) / 255))
                     }
+                    bytes[di + 3] = 255
                 }
             }
         }

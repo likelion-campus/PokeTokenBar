@@ -116,6 +116,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var lastReported: (tile: TilePoint, facing: PlazaDirection, isWalking: Bool)
     /// 칸, 방향, 걷는 중 여부가 바뀔 때만 부른다.
     var onLocalPositionChange: ((TilePoint, PlazaDirection, Bool) -> Void)?
+    /// 스페이스로 말을 걸 대상. 내가 움직이거나 팀원이 움직여 바뀔 때만 `onInteractionTargetChange`를 부른다.
+    private(set) var interactionTarget: PlazaInteractionHit?
+    var onInteractionTargetChange: ((PlazaInteractionHit?) -> Void)?
 
     private var lastTime: TimeInterval?
     private var clock: TimeInterval = 0
@@ -217,6 +220,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 remotes[m.memberID] = r
             }
         }
+        refreshInteractionTarget()
     }
 
     func setMemberFrames(_ memberID: String, _ frames: PlazaCharacterFrames) {
@@ -312,6 +316,19 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     func stopWalkingToMember() { autoWalk = nil }
+
+    /// 말을 걸 대상 쪽으로 돌아선다. 걷는 중이면 돌지 않는다.
+    func face(_ d: PlazaDirection) {
+        walker.face(d)
+        refreshInteractionTarget()
+    }
+
+    func refreshInteractionTarget() {
+        let hit = PlazaInteraction.target(from: walker.tile, facing: walker.facing, map: map, members: memberTiles)
+        guard hit != interactionTarget else { return }
+        interactionTarget = hit
+        onInteractionTargetChange?(hit)
+    }
 
     var walkingToMember: String? { autoWalk?.memberID }
 
@@ -502,6 +519,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceSparkles(by: dt)
         layout()
         reportLocalPosition()
+        refreshInteractionTarget()
     }
 
     private func reportLocalPosition() {

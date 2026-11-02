@@ -1115,6 +1115,18 @@ read_when:
   **왜 못 걸렀나:** 칸 수 계산만 테스트했고 창을 여는 순서는 테스트하지 않았다. 테스트가 `SKView`를 만들지 않도록
   순서를 `restoreFrame`으로 빼서 고정했다. 가드: `testRosterCapacityUsesTheRestoredWindowHeight`.
 
+- **An `NSTextField` left at its intrinsic height cuts off the tops of tall glyphs when the font's line is taller.**
+  The plaza chat field (Galmuri 15) was pinned 9pt inside its bar, so it took its intrinsic height of 18pt while
+  the font's line height is 21pt. The cell clips to its frame, so the top stroke of ㅎ in the placeholder was
+  missing. The placeholder was also 385pt wide in a 336pt field, so its end was cut off on the right.
+  **Why nothing caught it:** the chat input tests drove behaviour (Enter, Tab, Esc, cutting long text) and never
+  measured the field, and the PR images showed the bar at a size where a missing 1–2px stroke is easy to miss.
+  **Fix:** the field is as tall as the font's `defaultLineHeight` and sits 4pt lower so the glyphs are in the
+  middle of the bar; the placeholder is shorter. `PlazaChatInputTests.testFieldIsAsTallAsTheFontsLine` and
+  `testPlaceholdersFitTheField` fail with the old constraint and text. **Class sweep:** no other AppKit text field
+  uses the pixel font. Chat bubbles and emote labels draw with CoreText into frames sized from the font, and SwiftUI
+  `Text` sizes itself to the line. A new AppKit field with a custom font sets its height from the font's line height.
+
 ## 에너지 (상시 표시 애니메이션)
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고

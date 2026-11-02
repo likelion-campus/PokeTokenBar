@@ -21,6 +21,15 @@ final class PlazaTargetingTests: XCTestCase {
         XCTAssertEqual(PlazaTargeting.member(from: p(5, 5), facing: .right, members: members), "y")
     }
 
+    func testTargetFallsBackToTilesBesideMe() {
+        XCTAssertEqual(PlazaTargeting.member(from: p(5, 5), facing: .right, members: ["n": p(5, 4)]), "n")
+        XCTAssertEqual(PlazaTargeting.member(from: p(5, 5), facing: .right, members: ["w": p(4, 5), "s": p(5, 6)]), "s",
+                       "up, down, left, right order")
+        XCTAssertEqual(PlazaTargeting.member(from: p(5, 5), facing: .right, members: ["n": p(5, 4), "e": p(6, 5)]), "e",
+                       "the facing tile still comes first")
+        XCTAssertNil(PlazaTargeting.member(from: p(5, 5), facing: .right, members: ["d": p(6, 6)]), "diagonal is not beside")
+    }
+
     func testTargetIsNilWhenNobodyNear() {
         XCTAssertNil(PlazaTargeting.member(from: p(5, 5), facing: .right, members: ["far": p(9, 9)]))
         XCTAssertNil(PlazaTargeting.member(from: p(5, 5), facing: .right, members: [:]))

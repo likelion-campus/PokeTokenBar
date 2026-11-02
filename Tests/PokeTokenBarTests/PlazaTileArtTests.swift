@@ -57,21 +57,36 @@ final class PlazaTileArtTests: XCTestCase {
         }
     }
 
-    /// The board is drawn as the two-cell signpost from the sheet, at the board tile.
+    /// The board is drawn as one big signpost made from the sheet's small sign, covering the 2x2 board tiles.
     func testBoardIsDrawnAsTheSignpost() throws {
         let sheet = try sheet(), sheetPx = pixels(sheet), map = PlazaMapData.map
         let mapPx = pixels(try sharedMap()), width = map.width * 32
+        XCTAssertEqual(PlazaTileArt.signSize * 2, 2 * PlazaMap.tileSize, "the sign covers the 2x2 board tiles")
         var compared = 0
-        for sy in 0..<16 {
-            for sx in 0..<32 {
-                let s = pixel(sheetPx, 34 * 16 + sx, 2 * 16 + sy, width: sheet.width)
+        for sy in 0..<PlazaTileArt.signSize {
+            for sx in 0..<PlazaTileArt.signSize {
+                let src = PlazaTileArt.signSource(x: sx, y: sy)
+                XCTAssertTrue((0..<16).contains(src.x) && (0..<16).contains(src.y), "(\(sx),\(sy)) stays in the sign cell")
+                let s = pixel(sheetPx, PlazaTileArt.signCell.col * 16 + src.x, PlazaTileArt.signCell.row * 16 + src.y, width: sheet.width)
                 guard s[3] == 255 else { continue }
                 let m = pixel(mapPx, map.boardTile.x * 32 + sx * 2, map.boardTile.y * 32 + sy * 2, width: width)
                 XCTAssertEqual(Array(m[0..<3]), Array(s[0..<3]), "(\(sx),\(sy))")
                 compared += 1
             }
         }
-        XCTAssertGreaterThan(compared, 100, "the sign has opaque pixels to compare")
+        XCTAssertGreaterThan(compared, 400, "the sign has opaque pixels to compare")
+    }
+
+    /// One board, not two side by side: the plank runs across the middle with no grass showing through.
+    func testSignBoardIsOnePiece() throws {
+        let sheetPx = pixels(try sheet()), sheetWidth = try sheet().width
+        for sy in 0...18 {
+            for sx in 1..<(PlazaTileArt.signSize - 1) {
+                let src = PlazaTileArt.signSource(x: sx, y: sy)
+                let s = pixel(sheetPx, PlazaTileArt.signCell.col * 16 + src.x, PlazaTileArt.signCell.row * 16 + src.y, width: sheetWidth)
+                XCTAssertEqual(s[3], 255, "(\(sx),\(sy))")
+            }
+        }
     }
 
     func testEveryPixelIsOpaque() throws {

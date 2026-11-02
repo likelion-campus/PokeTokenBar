@@ -37,12 +37,18 @@ import AppKit
         field.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(field)
         NSLayoutConstraint.activate([
-            field.topAnchor.constraint(equalTo: view.topAnchor, constant: 9),
-            field.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -9),
+            // 입력창 기본 높이(18)는 갈무리 글꼴의 줄 높이(21)보다 낮아 ㅎ 꼭지 같은 글자 윗부분이 잘린다.
+            // 글자는 줄의 위쪽에 그려지므로 입력창을 4pt 내려 글자가 막대 가운데에 오게 한다.
+            field.heightAnchor.constraint(equalToConstant: Self.fieldHeight),
+            field.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+            field.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -4),
             field.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             field.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
         ])
     }
+
+    /// 글꼴의 한 줄 높이. 입력창은 이보다 낮으면 글자 윗부분을 잘라 그린다.
+    static let fieldHeight = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(size: 15)).rounded(.up)
 
     func open() {
         guard !isOpen else { return }

@@ -117,6 +117,31 @@ final class PlazaChatInputTests: XCTestCase {
         return (w, try XCTUnwrap(i.field.currentEditor() as? NSTextView))
     }
 
+    /// The field was shorter than the pixel font's line, which cut off the tops of tall letters like the ㅎ stroke.
+    func testFieldIsAsTallAsTheFontsLine() throws {
+        let (i, _) = input()
+        let (w, _) = try editing(i)
+        defer { w.close() }
+        i.view.layoutSubtreeIfNeeded()
+        let font = try XCTUnwrap(i.field.font)
+        XCTAssertGreaterThanOrEqual(i.field.frame.height, NSLayoutManager().defaultLineHeight(for: font))
+    }
+
+    /// Both placeholders fit the field at the plaza's input width; a longer one was cut off on the right.
+    func testPlaceholdersFitTheField() throws {
+        let (i, _) = input()
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: PlazaChatLog.width, height: 40), styleMask: [.borderless],
+                         backing: .buffered, defer: true)
+        w.contentView = i.view
+        i.view.layoutSubtreeIfNeeded()
+        let available = try XCTUnwrap(i.field.cell).titleRect(forBounds: i.field.bounds).width
+        let l = L(.ko)
+        for text in [l.plazaChatPlaceholder, l.plazaLoudPlaceholder] {
+            let width = NSAttributedString(string: text, attributes: [.font: PlazaResources.font(size: 15)]).size().width
+            XCTAssertLessThanOrEqual(width, available, text)
+        }
+    }
+
     func testEnterSendsTheTypedTextAndCloses() throws {
         let (i, box) = input()
         let (w, editor) = try editing(i)

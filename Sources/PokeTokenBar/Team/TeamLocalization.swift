@@ -23,13 +23,17 @@ extension L {
     var teamIncompatiblePeer: String { "다른 버전을 쓰는 팀원이 있어요. 모두 최신 버전으로 업데이트해 주세요" }
     var plazaOpen: String { "광장 열기" }
     var plazaWindowTitle: String { "팀 광장" }
+    /// 창 제목. 저장한 팀 이름이 있으면 함께 보인다.
+    func plazaWindowTitle(teamName: String?) -> String { teamName.map { "\(plazaWindowTitle) · \($0)" } ?? plazaWindowTitle }
+    var plazaBoardHint: String { "스페이스바를 눌러 소식판 보기" }
+    func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
     var plazaRosterTitle: String { "팀원" }
     var plazaStatusOnline: String { "접속" }
     var plazaStatusAway: String { "잠" }
     func plazaRosterCount(online: Int, total: Int) -> String { "접속 \(online) / \(total)" }
     var plazaEggName: String { "알" }
     var plazaAwaySuffix: String { "zZ" }
-    var plazaChatPlaceholder: String { "팀원에게 한마디 (Enter 보내기, Tab 확성기, Esc 취소)" }
+    var plazaChatPlaceholder: String { "한마디 (Enter 보내기, Tab 확성기, Esc 취소)" }
     var plazaLoudPlaceholder: String { "📢 확성기: 광장 밖 팀원에게도 알림 (Tab 끄기)" }
     var plazaLoudTooSoon: String { "확성기는 1분에 한 번만 쓸 수 있어요" }
     var plazaChatLogTitle: String { "대화 기록" }
