@@ -7,7 +7,7 @@
 # 이 스크립트는 푸시하지 않는다. 버전 범프와 병합은 PR로 먼저 끝내 두고, main 에서 실행한다.
 # 모든 확인은 빌드보다 앞에 있다. 확인에서 멈추면 /Applications 는 그대로다.
 # 빌드는 build-app.sh 가 하고, 그 스크립트가 /Applications 에도 설치한다.
-# 랜딩, Homebrew 탭, Pages 단계는 없다.
+# 랜딩, Pages 단계는 없다. Homebrew 는 팀 탭만 갱신한다.
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,6 +16,8 @@ SIGN_IDENTITY="PokeTokenBar Local"
 # "PokeTokenBar Local" leaf SHA-1. 인증서를 다시 만들거나 바꾸면 PR로 갱신한다.
 TEAM_EXPECTED_LEAF="67CE3D908138668379D07A70A9986B97FE0201CF"
 ZIP="build/PokeTokenBar.zip"
+TAP_REPO="likelion-campus/homebrew-tap"
+CASK_PATH="Casks/poke-token-bar-team.rb"
 BINARY="build/PokeTokenBar.app/Contents/MacOS/PokeTokenBar"
 
 fail() {
@@ -97,4 +99,16 @@ lipo "$BINARY" -verify_arch arm64 x86_64 || fail "universal(arm64 + x86_64) 바�
 # ── 9. 릴리스 ──────────────────────────────────────────────
 echo "▶ GitHub 릴리스 v$VERSION"
 gh release create "v$VERSION" "$ZIP" --repo likelion-campus/PokeTokenBar --target "$LOCAL_HEAD" --title "v$VERSION" --notes-file "$NOTES_FILE"
+
+# ── 10. Homebrew 탭 ────────────────────────────────────────
+# 릴리스는 이미 공개됐으므로 여기서 실패하면 되돌리지 않고 고칠 값을 알려 준다.
+echo "▶ Homebrew 탭 갱신"
+ZIP_SHA=$(shasum -a 256 "$ZIP" | cut -d' ' -f1)
+TAP_FAILED="릴리스는 공개됐지만 Homebrew 탭을 갱신하지 못했습니다. $TAP_REPO 의 $CASK_PATH 에서 version 을 $VERSION, sha256 을 $ZIP_SHA 로 고치세요."
+CASK_BLOB=$(gh api "repos/$TAP_REPO/contents/$CASK_PATH" --jq '.sha') || fail "$TAP_FAILED"
+OLD_CASK=$(gh api "repos/$TAP_REPO/contents/$CASK_PATH" --jq '.content' | base64 -d) || fail "$TAP_FAILED"
+NEW_CASK=$(printf '%s\n' "$OLD_CASK" | perl -pe "s/^  version \".*\"/  version \"$VERSION\"/; s/^  sha256 \".*\"/  sha256 \"$ZIP_SHA\"/")
+[[ "$NEW_CASK" == *"version \"$VERSION\""* && "$NEW_CASK" == *"sha256 \"$ZIP_SHA\""* ]] || fail "$TAP_FAILED"
+gh api -X PUT "repos/$TAP_REPO/contents/$CASK_PATH" -f message="cask: poke-token-bar-team $VERSION" \
+  -f content="$(printf '%s\n' "$NEW_CASK" | base64)" -f sha="$CASK_BLOB" --silent || fail "$TAP_FAILED"
 echo "완료: v$VERSION"
