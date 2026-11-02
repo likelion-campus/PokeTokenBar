@@ -699,6 +699,9 @@ read_when:
   `test-gate.sh`를 돌리지 않아, CI가 실패하거나 건너뛴 `main`도 팀 전체에 배포될 수 있었다. **왜 못 걸렀나:**
   `testTeamReleaseChecksRunBeforeTheBuild`의 목록이 스크립트에 있는 확인만 나열해서, 없는 확인은 드러나지 않았다.
   서명 확인 뒤, 빌드 앞에서 돌린다. 가드: 같은 테스트의 체크 목록.
+  설치 경로도 마찬가지다. 원작 cask의 `xattr -cr` 단계가 빠진 채 zip 설치로 바꾸자 팀원 Mac에서 Gatekeeper가
+  앱을 막았다. 자체 서명 앱이라 공증이 없고, 원작은 cask가 격리 표시를 지워서 경고가 보이지 않았을 뿐이다. 이 Mac은
+  직접 빌드해서 격리 표시가 없으므로 재현되지 않는다. 팀 탭 cask의 `postflight_steps`가 같은 일을 한다.
 
 ## 자격증명·Keychain
 

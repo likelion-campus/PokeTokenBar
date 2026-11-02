@@ -230,9 +230,10 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(UpdateChecker.releaseRepo, "likelion-campus/PokeTokenBar")
     }
 
-    func testTeamForkNeverRunsBrewUpgrade() {
-        // brew cask(원작 탭)로 업그레이드하면 팀 기능이 사라진다.
-        XCTAssertFalse(UpdateChecker.allowsBrewUpgrade)
+    func testTeamForkOnlyUpgradesItsOwnCask() {
+        // 원작 cask 로 업그레이드하면 팀 기능이 사라진다.
+        XCTAssertEqual(UpdateChecker.brewCask, "poke-token-bar-team")
+        XCTAssertTrue(UpdateChecker.detachedUpgradeScript.contains("upgrade --cask poke-token-bar-team )"))
     }
 
     func testBuildScriptDeclaresLocalNetworkUsage() throws {

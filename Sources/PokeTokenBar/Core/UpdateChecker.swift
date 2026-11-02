@@ -40,8 +40,8 @@ final class UpdateChecker {
 
     /// 업데이트 확인 대상 저장소 — 팀 포크는 원작이 아니라 자기 릴리스를 본다.
     nonisolated static let releaseRepo = "likelion-campus/PokeTokenBar"
-    /// 원작 brew cask 로 업그레이드하면 팀 기능이 사라지므로 포크에서는 brew 업그레이드를 하지 않는다.
-    nonisolated static let allowsBrewUpgrade = false
+    /// 팀 탭의 cask. 원작 cask(`poke-token-bar`)로 업그레이드하면 팀 기능이 사라지므로 이름을 나눴다.
+    nonisolated static let brewCask = "poke-token-bar-team"
 
     init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init, defaults: UserDefaults = .standard,
          fetchLatest: (() async -> LatestRelease?)? = nil) {
@@ -154,7 +154,7 @@ final class UpdateChecker {
         Task { @MainActor in
             // brew cask 설치본이면 분리(detached) 스크립트가 앱 종료 후 tap 갱신→업그레이드→재오픈.
             // 그 외(brew 미설치/비-cask 설치)면 릴리스 페이지를 연다.
-            let brew = Self.allowsBrewUpgrade ? await Task.detached { Self.brewCaskPath() }.value : nil
+            let brew = await Task.detached { Self.brewCaskPath() }.value
             if let brew {
                 Self.launchDetachedUpgrade(brew: brew)
                 NSApp.terminate(nil)
@@ -182,12 +182,12 @@ final class UpdateChecker {
 
     // MARK: brew 적용 (nonisolated — 블로킹 Process 는 detached 에서)
 
-    /// poke-token-bar 가 brew cask 로 설치돼 있으면 brew 경로 반환, 아니면 nil(→ 릴리스 페이지 폴백).
+    /// 팀 cask 로 설치돼 있으면 brew 경로 반환, 아니면 nil(→ 릴리스 페이지 폴백).
     private nonisolated static func brewCaskPath() -> String? {
         guard let brew = BinaryLocator.resolve("brew", staticPaths: [
             "/opt/homebrew/bin/brew", "/usr/local/bin/brew",
         ]) else { return nil }
-        return run(brew, ["list", "--cask", "poke-token-bar"], timeout: 20) ? brew : nil
+        return run(brew, ["list", "--cask", brewCask], timeout: 20) ? brew : nil
     }
 
     private nonisolated static func run(_ binary: String, _ args: [String], timeout: TimeInterval) -> Bool {
@@ -215,7 +215,7 @@ final class UpdateChecker {
     nonisolated static let detachedUpgradeScript = """
     for i in $(seq 1 40); do kill -0 "$3" 2>/dev/null || break; sleep 0.5; done
     export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-    ( "$1" update; "$1" upgrade --cask poke-token-bar ) &
+    ( "$1" update; "$1" upgrade --cask \(brewCask) ) &
     brew_pid=$!
     for i in $(seq 1 300); do kill -0 "$brew_pid" 2>/dev/null || break; sleep 1; done
     kill "$brew_pid" 2>/dev/null

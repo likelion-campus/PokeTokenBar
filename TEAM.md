@@ -4,21 +4,28 @@
 
 ## 설치와 갈아타기
 
-이미 Homebrew로 설치해 쓰고 있다면 아래 순서로 갈아탑니다.
+Homebrew로 설치합니다. 경고 없이 바로 열리고, 앱의 업데이트 버튼도 Homebrew로 올립니다.
 
-1. 앱에서 세이브를 내보냅니다. 설정 → "백업 & 이전" → "세이브 내보내기" → "내보내기…" 를 누르고 파일을 안전한 곳에 둡니다.
-2. 터미널에서 `brew uninstall --cask poke-token-bar` 를 실행합니다. `--zap` 은 세이브까지 지우므로 쓰지 않습니다(금지).
-3. 팀 릴리스 페이지(https://github.com/likelion-campus/PokeTokenBar/releases)에서 최신 `PokeTokenBar.zip` 을 받아 풀고, `PokeTokenBar.app` 을 `/Applications` 에 넣습니다.
-4. 처음 열 때 Gatekeeper가 "확인되지 않은 개발자" 경고를 띄웁니다(자체 서명 앱이라서). README와 같은 방법으로 한 번만 풉니다.
-   - Finder: `PokeTokenBar.app` 을 우클릭(또는 Control+클릭) → "열기" → 대화상자에서 다시 "열기".
-   - 그래도 막히면 시스템 설정 → 개인정보 보호 및 보안 아래쪽의 "그래도 열기" 를 누릅니다.
-   - 터미널로 풀 수도 있습니다: `xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app`
-5. 권한 안내는 아래 세 가지입니다.
+1. 원작을 Homebrew로 쓰고 있다면 먼저 갈아탑니다. 처음 설치라면 건너뜁니다.
+   - 앱에서 세이브를 내보냅니다. 설정 → "백업 & 이전" → "세이브 내보내기" → "내보내기…" 를 누르고 파일을 안전한 곳에 둡니다.
+   - 터미널에서 `brew uninstall --cask poke-token-bar` 를 실행합니다. `--zap` 은 세이브까지 지우므로 쓰지 않습니다(금지).
+2. 터미널에서 설치합니다. zip으로 이미 설치했다면 끝에 `--force` 를 붙입니다.
+
+   ```sh
+   brew install --cask likelion-campus/tap/poke-token-bar-team
+   ```
+
+3. 권한 안내는 아래 세 가지입니다.
    - 팀 기능은 기본으로 꺼져 있습니다. 팀 기능을 켜거나 팀을 만들거나 참여할 때 로컬 네트워크 접근을 묻습니다. 허용하지 않으면 팀원이 보이지 않습니다.
    - 팀이 준비되면 알림 권한을 한 번 묻습니다. 허용하지 않으면 팀 알림만 뜨지 않고 나머지는 그대로 동작합니다.
    - Keychain 접근은 한도 갱신 버튼(새로고침)을 처음 누를 때 묻습니다. "항상 허용"을 고르면 다시 묻지 않습니다.
 
-처음 설치하는 경우에는 3~5번만 하면 됩니다.
+### Homebrew 없이 설치
+
+팀 릴리스 페이지(https://github.com/likelion-campus/PokeTokenBar/releases)에서 최신 `PokeTokenBar.zip` 을 받아 풀고, `PokeTokenBar.app` 을 `/Applications` 에 넣습니다. 앱이 Apple 공증을 받지 않아 처음 열 때 macOS가 막습니다. 악성 코드가 발견됐다는 뜻은 아니고, 아래 둘 중 하나를 한 번만 하면 됩니다.
+
+- 경고 창을 닫고 시스템 설정 → 개인정보 보호 및 보안 아래쪽의 "그래도 열기" 를 누릅니다.
+- 터미널에서 실행합니다: `xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app`
 
 ## 팀 만들기와 참여
 

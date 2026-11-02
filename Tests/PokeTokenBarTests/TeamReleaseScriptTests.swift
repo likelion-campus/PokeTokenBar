@@ -34,7 +34,6 @@ final class TeamReleaseScriptTests: XCTestCase {
 
         XCTAssertTrue(script.contains("export PTB_REQUIRE_STABLE_SIGN=1"))
         XCTAssertFalse(script.contains("chattymin/"))
-        XCTAssertFalse(script.contains("homebrew-tap"))
 
         // Every release command goes to the fork, and there is exactly one.
         let creates = lines.filter { $0.contains("gh release create") }
@@ -50,12 +49,26 @@ final class TeamReleaseScriptTests: XCTestCase {
                 && !$0.hasPrefix("fail ") && !$0.hasPrefix("echo") && !$0.contains("fail \"")
                 && !$0.hasPrefix("command -v")
         }
-        for line in ghCalls where !line.contains("gh auth status") {
+        for line in ghCalls where !line.contains("gh auth status") && !line.contains("$TAP_REPO") {
             XCTAssertTrue(line.contains("gh release create") || line.contains("gh release view"),
                           "unexpected gh call: \(line)")
             XCTAssertTrue(line.contains("--repo likelion-campus/PokeTokenBar"), "gh call without the fork repo: \(line)")
         }
         XCTAssertFalse(script.contains("gh-pages"))
+    }
+
+    /// The cask points at the release, so it moves only after the release exists, and only in the team tap.
+    func testTeamReleaseUpdatesOnlyTheTeamTapAfterTheRelease() throws {
+        let script = try read("scripts/team-release.sh")
+        let lines = codeLines(script)
+        XCTAssertTrue(script.contains("TAP_REPO=\"likelion-campus/homebrew-tap\""))
+        XCTAssertTrue(script.contains("CASK_PATH=\"Casks/poke-token-bar-team.rb\""))
+        let create = try XCTUnwrap(firstIndex(of: "gh release create", in: lines))
+        let update = try XCTUnwrap(firstIndex(of: "gh api -X PUT", in: lines))
+        XCTAssertLessThan(create, update)
+        for line in lines where line.contains("gh api") {
+            XCTAssertTrue(line.contains("repos/$TAP_REPO/contents/$CASK_PATH"), "gh api outside the cask: \(line)")
+        }
     }
 
     func testTeamReleaseNeverPushes() throws {
@@ -142,6 +155,7 @@ final class TeamReleaseScriptTests: XCTestCase {
         XCTAssertTrue(guide.contains("갈무리"))
         XCTAssertTrue(guide.contains("PokéAPI"))
         XCTAssertTrue(guide.contains("brew uninstall --cask poke-token-bar"))
+        XCTAssertTrue(guide.contains("brew install --cask likelion-campus/tap/poke-token-bar-team"))
         XCTAssertTrue(guide.contains("scripts/team-probe.swift"))
         XCTAssertTrue(guide.contains("팀 기능 켜기"))
         XCTAssertTrue(guide.contains("광장 열기"))
