@@ -34,6 +34,26 @@ struct TeamEmote: Codable, Equatable, Sendable {
     var targetMemberID: String?
 }
 
+/// A short line said in the plaza. It is shown for a moment and never stored or forwarded.
+struct TeamChat: Codable, Equatable, Sendable {
+    static let maxCharacters = 40
+    /// One Character can hold any number of combining marks, so the Character count bounds nothing.
+    static let maxBytes = 320
+    var text: String
+
+    /// One line ready to send: line breaks and control characters become spaces, the ends are trimmed, and it
+    /// is cut to `maxCharacters`. nil when nothing is left. A received line must already be in this form.
+    static func prepared(_ raw: String) -> String? {
+        let line = String(raw.map { c in
+            c.isNewline || c.unicodeScalars.contains { $0.properties.generalCategory == .control } ? " " : c
+        })
+        let text = String(line.trimmingCharacters(in: .whitespaces).prefix(maxCharacters))
+            .trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, text.utf8.count <= maxBytes else { return nil }
+        return text
+    }
+}
+
 /// Messages peers exchange. `live` is true for something that just happened (publish/react),
 /// false for a sync response; receivers decide pop-ins/bubbles from `live` only, never from clocks.
 enum TeamMessage: Codable, Equatable, Sendable {
@@ -45,6 +65,7 @@ enum TeamMessage: Codable, Equatable, Sendable {
     case profile(TeamMemberProfile)
     case presence(TeamPresence)
     case emote(TeamEmote)
+    case chat(TeamChat)
 }
 
 enum TeamWire {
@@ -56,7 +77,7 @@ enum TeamWire {
 
     /// The top-level key of an encoded `TeamMessage`.
     private static let knownKinds: Set<String> = [
-        "hello", "inventory", "events", "reactions", "profileRequest", "profile", "presence", "emote",
+        "hello", "inventory", "events", "reactions", "profileRequest", "profile", "presence", "emote", "chat",
     ]
 
     /// 4-byte big-endian length + JSON. Dates use Foundation's default (exact Double seconds).
@@ -100,9 +121,9 @@ enum TeamWire {
                 return try decoder.decode(TeamMessage.self, from: body)
             }
         } catch {
-            // Presence and emotes are ephemeral and never stored, so a value a later version added (an emote
-            // kind, a direction) is skipped like an unknown key instead of cooling the sender down.
-            if kind == "presence" || kind == "emote" { return nil }
+            // Presence, emotes and chat are ephemeral and never stored, so a value a later version added (an
+            // emote kind, a direction) is skipped like an unknown key instead of cooling the sender down.
+            if kind == "presence" || kind == "emote" || kind == "chat" { return nil }
             throw WireError.malformed
         }
     }

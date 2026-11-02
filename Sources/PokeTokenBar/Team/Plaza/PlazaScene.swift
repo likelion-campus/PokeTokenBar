@@ -44,6 +44,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onInteractKey: (() -> Void)?
     /// 키 P(기념사진). keyCode로만 판정한다.
     var onPhotoKey: (() -> Void)?
+    /// Return과 숫자패드 Enter. 판이 닫혀 있을 때만 온다.
+    var onChatKey: (() -> Void)?
     /// 판이 열린 동안 Esc와 스페이스.
     var onCloseOverlay: (() -> Void)?
     /// 판이 열리면 방향키와 말풍선 키를 무시하고 눌린 키를 놓는다. Cmd+W는 그대로 창을 닫는다.
@@ -239,6 +241,11 @@ struct PlazaSceneMember: Equatable, Sendable {
             if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onInteractKey?() }
             return .swallowed
         }
+        if keyCode == Self.returnKeyCode || keyCode == Self.keypadEnterKeyCode {
+            // 보내려고 누르고 있는 Enter가 입력창을 다시 열지 않게 반복은 무시한다.
+            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onChatKey?() }
+            return .swallowed
+        }
         if let d = Self.direction(keyCode) {
             // Command+방향키는 keyUp이 오지 않아 계속 걷게 되므로 무시한다.
             if canWalk && !isRepeat && !modifiers.contains(.command) { walker.press(d) }
@@ -268,10 +275,20 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     func releaseAllKeys() { walker.releaseAll() }
 
+    /// 입력창이 키를 가져가면 키 뗌이 장면에 오지 않으므로 눌린 키와 탭을 지운다. 걷던 칸은 마저 간다.
+    func clearInput() { walker.clearInput() }
+
     /// `memberID`가 nil이면 나. 모르는 팀원이면 아무것도 안 한다.
     func showEmote(memberID: String?, kind: TeamEmoteKind) {
         guard let actor = actor(memberID) else { return }
         actor.showEmote(kind)
+        layout()
+    }
+
+    /// `memberID`가 nil이면 나. 모르는 팀원이면 아무것도 안 한다.
+    func showChat(memberID: String?, text: String) {
+        guard let actor = actor(memberID) else { return }
+        actor.showChat(text)
         layout()
     }
 
@@ -372,6 +389,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let wKeyCode: UInt16 = 13
     private static let spaceKeyCode: UInt16 = 49
     private static let pKeyCode: UInt16 = 35
+    private static let returnKeyCode: UInt16 = 36
+    private static let keypadEnterKeyCode: UInt16 = 76
 
     private static let emoteBlockingModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
 
@@ -479,6 +498,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func memberFoot(_ id: String) -> CGPoint? { remotes[id]?.motion.footPoint }
     func memberName(_ id: String) -> String? { remotes[id]?.displayName }
     func memberNameColor(_ id: String) -> CGColor? { remotes[id]?.color }
+    func shownChat(memberID: String?) -> String? { actor(memberID)?.chatText }
     func shownEmote(memberID: String?) -> TeamEmoteKind? { actor(memberID)?.emoteKind }
     func emoteFrame(memberID: String?) -> CGRect? { actor(memberID)?.emoteFrame }
     func memberNamePlateTop(_ id: String) -> CGFloat? { remotes[id]?.actor.namePlateTop }

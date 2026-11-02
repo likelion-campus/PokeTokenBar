@@ -26,6 +26,7 @@ final class TeamWireTests: XCTestCase {
             .presence(presence),
             .emote(TeamEmote(kind: .heart, targetMemberID: "m2")),
             .emote(TeamEmote(kind: .question, targetMemberID: nil)),
+            .chat(TeamChat(text: "같이 점심?")),
             .profile(TeamMemberProfile(memberID: "m1", nickname: "Ash", current: mon,
                 dex: [TeamDexSpecies(speciesID: 25, form: nil, name: "Pikachu", rarity: .rare, hasShiny: true, hasNormal: false)])),
         ]
@@ -145,9 +146,10 @@ final class TeamWireTests: XCTestCase {
             inner["_0"] = body
             json["presence"] = inner
         }
+        let chat = frame(#"{"chat":{"_0":{"sticker":7}}}"#)   // a line a later version changed
         var decoder = TeamWire.FrameDecoder()
         let known = try TeamWire.encode(.profileRequest)
-        XCTAssertEqual(try decoder.append(emote + walking + known), [.profileRequest])
+        XCTAssertEqual(try decoder.append(emote + walking + chat + known), [.profileRequest])
         // Every other known key keeps failing loudly.
         let bad = frame(#"{"inventory":{"_0":"nope"}}"#)
         XCTAssertThrowsError(try decoder.append(bad))
@@ -198,7 +200,7 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(Set(allMessages.map { m -> String in
             let json = try! JSONSerialization.jsonObject(with: TeamWire.encode(m).dropFirst(4)) as! [String: Any]
             return json.keys.first!
-        }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile"])
+        }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
         XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question"])

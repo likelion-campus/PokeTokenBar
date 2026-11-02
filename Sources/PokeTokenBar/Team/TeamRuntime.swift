@@ -52,6 +52,9 @@ final class TeamRuntime {
                 notifier?.emoteToMe(from: member, kind: emote.kind)
             }
         }
+        session.onChat = { [weak self] memberID, text in
+            self?.plaza?.showChat(memberID: memberID, text: text)
+        }
         session.onBigEvent = { [weak self] event in
             self?.plaza?.showBigEvent(event)
             self?.notifier?.bigEvent(event)

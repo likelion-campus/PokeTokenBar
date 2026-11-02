@@ -23,6 +23,7 @@ extension L {
     func plazaRosterCount(online: Int, total: Int) -> String { "접속 \(online) / \(total)" }
     var plazaEggName: String { "알" }
     var plazaAwaySuffix: String { "zZ" }
+    var plazaChatPlaceholder: String { "팀원에게 한마디 (Enter 보내기, Esc 취소)" }
     var plazaEmoteLol: String { "ㅋㅋ" }
     var plazaCardLoading: String { "불러오는 중…" }
     var plazaCardFailed: String { "도감을 받지 못했어요" }
