@@ -55,8 +55,8 @@ final class PlazaPixelSnapTests: XCTestCase {
 
     func testCameraLiftRaisesFocusOnly() {
         let foot = CGPoint(x: 400, y: 500)
-        let base = PlazaCamera.focus(for: foot, rightInset: 100, zoom: 2)
-        let lifted = PlazaCamera.focus(for: foot, rightInset: 100, zoom: 2, lift: 72)
+        let base = PlazaCamera.focus(for: foot, viewportWidth: 960, rightInset: 100, characterHalfWidth: 40, zoom: 2)
+        let lifted = PlazaCamera.focus(for: foot, viewportWidth: 960, rightInset: 100, characterHalfWidth: 40, zoom: 2, lift: 72)
         XCTAssertEqual(lifted.x, base.x)
         XCTAssertEqual(lifted.y, foot.y - 72)
         XCTAssertEqual(base.y, foot.y, "default lift keeps existing behavior")

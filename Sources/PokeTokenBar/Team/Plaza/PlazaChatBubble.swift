@@ -3,12 +3,12 @@ import CoreText
 
 /// 포켓몬 위에 뜨는 글 말풍선. 이모트 말풍선처럼 흰 몸통, 어두운 테두리, 아래 꼬리를 그린다. 창 없이 만들 수 있다.
 enum PlazaChatBubble {
-    private static let fontSize: CGFloat = 11
+    private static let fontSize: CGFloat = 14
     private static let dot: CGFloat = 2
     private static let pad: CGFloat = 5
     private static let tailHeight: CGFloat = 4
     /// 글자 영역의 최대 크기. 어떤 글이 와도 그림 크기가 여기서 정해진다.
-    static let maxTextWidth: CGFloat = 168
+    static let maxTextWidth: CGFloat = 216
     /// 40자가 들어가는 줄 수보다 넉넉하다. 이모지처럼 대체 글꼴로 그리는 줄은 Galmuri보다 높다.
     static let maxLines = 6
     private static let ink = CGColor(srgbRed: 0x14 / 255, green: 0x16 / 255, blue: 0x1F / 255, alpha: 1)

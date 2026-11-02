@@ -40,6 +40,11 @@ extension SKView: PlazaPausableView {}
     private var lastEmoteAt: Date?
     private var lastChatAt: Date?
     private let chatInput = PlazaChatInput()
+    private let chatLog = PlazaChatLog()
+    private let backgroundModel = PlazaBackgroundModel()
+    /// 입력창이 열리면 대화 기록을 입력창 위로 올린다.
+    private var chatLogAboveInput: NSLayoutConstraint?
+    private var chatLogAtBottom: NSLayoutConstraint?
     /// 사진 PNG를 내보낸다. 성공하면 true. 테스트가 클립보드를 건드리지 않게 바꿔 끼운다.
     private let photoWriter: (Data) -> Bool
 
@@ -103,8 +108,9 @@ extension SKView: PlazaPausableView {}
         super.init()
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
-            guard let self, let skView else { return }
-            window?.makeFirstResponder(skView)
+            guard let self else { return }
+            setChatLogAboveInput(false)
+            if let skView { window?.makeFirstResponder(skView) }
         }
     }
 
@@ -115,6 +121,7 @@ extension SKView: PlazaPausableView {}
             guard let scene else { return }
             let view = SKView(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
             view.ignoresSiblingOrder = true
+            view.allowsTransparency = true   // 배경 숨기기
             let w = NSWindow(contentRect: view.frame,
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
@@ -140,17 +147,31 @@ extension SKView: PlazaPausableView {}
                                                 model: overlayModel)
             overlay.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
+            let chatLogView = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: chatLog))
+            chatLogView.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(chatLogView)   // 입력은 받지 않는다.
+            let toggle = PlazaBackgroundToggleHostingView(rootView: PlazaBackgroundToggle(
+                model: backgroundModel, toggle: { [weak self] in self?.toggleBackground() }))
+            toggle.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(toggle)
             let chatBar = chatInput.view
             chatBar.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(chatBar)   // 판 위. 열린 동안에만 입력창이 첫 응답자가 된다.
+            let chatLogAtBottom = chatLogView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16)
+            self.chatLogAtBottom = chatLogAtBottom
+            chatLogAboveInput = chatLogView.bottomAnchor.constraint(equalTo: chatBar.topAnchor, constant: -8)
             NSLayoutConstraint.activate([
                 overlay.topAnchor.constraint(equalTo: container.topAnchor),
                 overlay.bottomAnchor.constraint(equalTo: container.bottomAnchor),
                 overlay.leadingAnchor.constraint(equalTo: container.leadingAnchor),
                 overlay.trailingAnchor.constraint(equalTo: container.trailingAnchor),
                 chatBar.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-                chatBar.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-                chatBar.widthAnchor.constraint(equalToConstant: 400),
+                chatBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+                chatBar.widthAnchor.constraint(equalToConstant: PlazaChatLog.width),
+                chatLogView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+                chatLogAtBottom,
+                toggle.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
+                toggle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PlazaRosterMetrics.margin),
             ])
             w.contentView = container
             w.center()
@@ -160,6 +181,7 @@ extension SKView: PlazaPausableView {}
             skView = view
             renderLoop = view
             window = w
+            applyBackground()
             Task { await refreshCharacter() }
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -186,6 +208,8 @@ extension SKView: PlazaPausableView {}
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
         s.onChatKey = { [weak self] in self?.openChat() }
+        s.setBackgroundHidden(preferences.isBackgroundHidden)
+        backgroundModel.isHidden = preferences.isBackgroundHidden
         s.onCloseOverlay = { [weak self] in self?.closeOverlay() }
         scene = s
         if let feed {
@@ -220,8 +244,35 @@ extension SKView: PlazaPausableView {}
         guard let scene else { return }
         scene.clearInput()
         chatInput.open()
+        setChatLogAboveInput(true)
         window?.makeFirstResponder(chatInput.field)
     }
+
+    private func setChatLogAboveInput(_ above: Bool) {
+        chatLogAtBottom?.isActive = !above
+        chatLogAboveInput?.isActive = above
+    }
+
+    /// 지도와 바탕을 숨기거나 되살린다. 창도 투명하게 바꿔 뒤의 작업 화면이 비치게 한다.
+    func toggleBackground() {
+        preferences.isBackgroundHidden.toggle()
+        applyBackground()
+        if let skView { window?.makeFirstResponder(skView) }
+    }
+
+    private func applyBackground() {
+        let hidden = preferences.isBackgroundHidden
+        backgroundModel.isHidden = hidden
+        scene?.setBackgroundHidden(hidden)
+        guard let window else { return }
+        window.isOpaque = !hidden
+        window.backgroundColor = hidden ? .clear : .windowBackgroundColor
+        window.hasShadow = !hidden
+    }
+
+    /// 테스트용 읽기 전용 값.
+    var chatLogLines: [PlazaChatLog.Line] { chatLog.lines }
+    var isBackgroundHidden: Bool { backgroundModel.isHidden }
 
     /// 내 말풍선은 바로 띄운다. 보낼 글이 없으면 true(입력창을 닫는다), 너무 빠르면 false(글을 남겨 둔다).
     private func submitChat(_ raw: String) -> Bool {
@@ -230,6 +281,7 @@ extension SKView: PlazaPausableView {}
         if let last = lastChatAt, now.timeIntervalSince(last) < Self.emoteInterval { return false }
         lastChatAt = now
         scene.showChat(memberID: nil, text: text)
+        chatLog.append(time: now, name: nickname(), text: text, color: scene.nameColor)
         session?.sendChat(text)
         return true
     }
@@ -296,7 +348,10 @@ extension SKView: PlazaPausableView {}
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showChat(memberID: String, text: String) {
-        scene?.showChat(memberID: memberID, text: text)
+        guard let scene, let member = members[memberID] else { return }
+        scene.showChat(memberID: memberID, text: text)
+        chatLog.append(time: clock(), name: member.nickname, text: text,
+                       color: scene.memberNameColor(memberID) ?? PlazaNameColor.palette[0])
     }
 
     /// 큰 소식 연출: 쓴 사람 위에 반짝임, 위쪽에 배너. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 진화는 연출하지 않는다.

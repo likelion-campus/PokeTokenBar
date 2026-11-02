@@ -24,6 +24,8 @@ extension L {
     var plazaEggName: String { "알" }
     var plazaAwaySuffix: String { "zZ" }
     var plazaChatPlaceholder: String { "팀원에게 한마디 (Enter 보내기, Esc 취소)" }
+    var plazaBackgroundHide: String { "배경 숨기기" }
+    var plazaBackgroundShow: String { "배경 보이기" }
     var plazaEmoteLol: String { "ㅋㅋ" }
     var plazaCardLoading: String { "불러오는 중…" }
     var plazaCardFailed: String { "도감을 받지 못했어요" }

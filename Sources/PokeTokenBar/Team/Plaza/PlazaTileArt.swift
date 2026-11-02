@@ -15,10 +15,8 @@ enum PlazaTileArt {
     private static let bushCell: Cell = (2, 14)
     /// 2x2 칸 둥근 나무.
     private static let treeCell: Cell = (5, 16)
-    /// 나무 게시판. 그림이 (6,6)부터 2x3 칸보다 좌우로 5픽셀씩 넓어 한 칸 왼쪽에서 3x3 칸으로 읽는다.
-    /// 불투명 영역은 이 3x3 안에서 x 11..<37, y 7..<40(시트 픽셀)이다.
-    private static let boardCell: Cell = (5, 6)
-    private static let boardArtX = 11, boardArtWidth = 26, boardArtBottom = 40
+    /// 소식판 팻말. 기둥이 하나씩 달린 판자 두 칸이 이어져 2x1 칸이 된다.
+    private static let boardCell: Cell = (34, 2)
 
     /// 지도 전체를 한 장으로(width*32 × height*32). 광장을 열 때 한 번 만든다.
     static func mapImage(_ map: PlazaMap, sheet: CGImage) -> CGImage {
@@ -38,11 +36,8 @@ enum PlazaTileArt {
             }
         }
         drawTrees(map, &canvas)
-        // 게시판 그림은 2x2 덩어리의 가로 가운데, 아래쪽 끝에 맞추고 한 칸 위로 솟는다.
         let b = map.boardTile
-        let artLeft = b.x * tile + (2 * tile - boardArtWidth * scale) / 2
-        canvas.blit(boardCell, cols: 3, rows: 3,
-                    x: artLeft - boardArtX * scale, y: (b.y + 2) * tile - boardArtBottom * scale)
+        canvas.blit(boardCell, cols: 2, rows: 1, x: b.x * tile, y: b.y * tile)
         return canvas.image()
     }
 

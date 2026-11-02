@@ -132,8 +132,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         super.init(size: CGSize(width: 960, height: 640))
         scaleMode = .resizeFill
         anchorPoint = .zero
-        // 지도 밖은 타일셋 나무 그림자 톤의 짙은 초록(숲이 이어진 느낌).
-        backgroundColor = SKColor(red: 0x1E / 255, green: 0x3A / 255, blue: 0x26 / 255, alpha: 1)
+        backgroundColor = Self.forestColor
 
         mapNode.anchorPoint = .zero
         mapNode.position = .zero
@@ -154,6 +153,17 @@ struct PlazaSceneMember: Equatable, Sendable {
         me.setFrames(frames)
         layout()
     }
+
+    /// 지도 밖은 타일셋 나무 그림자 톤의 짙은 초록(숲이 이어진 느낌).
+    private static let forestColor = SKColor(red: 0x1E / 255, green: 0x3A / 255, blue: 0x26 / 255, alpha: 1)
+
+    /// 지도와 바탕을 숨긴다. 걸을 수 있는 칸은 그대로라 보이지 않는 나무와 덤불에 막힌다.
+    func setBackgroundHidden(_ hidden: Bool) {
+        mapNode.isHidden = hidden
+        backgroundColor = hidden ? .clear : Self.forestColor
+    }
+
+    var isBackgroundHidden: Bool { mapNode.isHidden }
 
     func setNickname(_ name: String) {
         nickname = name
@@ -329,7 +339,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.size)
             node.anchorPoint = CGPoint(x: 0.5, y: 0)
             let tile = CGFloat(PlazaMap.tileSize)
-            node.position = CGPoint(x: (CGFloat(map.boardTile.x) + 0.5) * tile,
+            node.position = CGPoint(x: (CGFloat(map.boardTile.x) + 1) * tile,   // 두 칸 너비 팻말의 가운데
                                     y: worldSize.height - CGFloat(map.boardTile.y) * tile)
             node.zPosition = 5
             addChild(node)
@@ -474,7 +484,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         let foot = walker.footPoint
         // 큰 포켓몬의 머리가 잘리지 않게 앞모습 높이의 절반만큼 위를 본다(앞모습 기준이라 돌아봐도 카메라가 흔들리지 않는다).
         let lift = me.cameraLift
-        let focus = PlazaCamera.focus(for: foot, rightInset: PlazaRosterMetrics.coveredWidth, zoom: zoom, lift: lift)
+        let focus = PlazaCamera.focus(for: foot, viewportWidth: size.width, rightInset: PlazaRosterMetrics.coveredWidth,
+                                      characterHalfWidth: me.characterSize.width * z / 2, zoom: zoom, lift: lift)
         let rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
                                         rightInset: PlazaRosterMetrics.coveredWidth)
         visibleRect = rect

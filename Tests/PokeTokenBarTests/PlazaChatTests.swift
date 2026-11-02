@@ -436,6 +436,61 @@ final class PlazaChatTests: XCTestCase {
         XCTAssertNil(c.scene, "no scene is created just to show a bubble")
     }
 
+    // MARK: 대화 기록
+
+    func testOwnAndReceivedLinesAreLoggedWithTimeAndNameColor() async {
+        let (c, scene, _, other) = await connected()
+        scene.handleKeyDown(keyCode: returnKey, characters: nil, isRepeat: false)
+        XCTAssertTrue(submit(c, "점심?"))
+        now = now.addingTimeInterval(60)
+        c.showChat(memberID: other.settings.memberID, text: "좋아요")
+        let lines = c.chatLogLines
+        guard lines.count == 2 else { return XCTFail("expected two lines, got \(lines.map(\.text))") }
+        XCTAssertEqual(lines.map(\.name), ["나", "민수"])
+        XCTAssertEqual(lines.map(\.text), ["점심?", "좋아요"])
+        XCTAssertEqual(lines.map(\.time), [now.addingTimeInterval(-60), now])
+        XCTAssertEqual(lines[0].color, scene.nameColor)
+        XCTAssertEqual(lines[1].color, scene.memberNameColor(other.settings.memberID))
+    }
+
+    func testLinesWhileClosedAreNotLoggedButEarlierLinesStay() async {
+        let (c, _, _, other) = await connected()
+        let id = other.settings.memberID
+        c.showChat(memberID: id, text: "하나")
+        c.handleClose()
+        c.showChat(memberID: id, text: "둘")
+        c.prepareScene()
+        await settle()
+        XCTAssertEqual(c.chatLogLines.map(\.text), ["하나"])
+    }
+
+    func testUnknownMemberIsNotLogged() async {
+        let (c, _, _, _) = await connected()
+        c.showChat(memberID: "nobody", text: "안녕")
+        XCTAssertTrue(c.chatLogLines.isEmpty)
+    }
+
+    func testLogKeepsTheLatestLinesAndShowsTheLastFew() {
+        let log = PlazaChatLog()
+        let color = PlazaNameColor.palette[0]
+        for i in 0..<(PlazaChatLog.capacity + 5) {
+            log.append(time: Date(timeIntervalSince1970: 0), name: "a", text: "\(i)", color: color)
+        }
+        XCTAssertEqual(log.lines.count, PlazaChatLog.capacity)
+        XCTAssertEqual(log.lines.first?.text, "5")
+        XCTAssertEqual(log.visible.map(\.text), (49..<55).map(String.init))
+        XCTAssertEqual(Set(log.lines.map(\.id)).count, log.lines.count)
+    }
+
+    func testTimeIsTwentyFourHour() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Seoul")!
+        let afternoon = calendar.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: 14, minute: 5))!
+        XCTAssertEqual(PlazaChatLog.timeText(afternoon, calendar: calendar), "14:05")
+        let morning = calendar.date(from: DateComponents(year: 2026, month: 11, day: 2, hour: 9, minute: 0))!
+        XCTAssertEqual(PlazaChatLog.timeText(morning, calendar: calendar), "09:00")
+    }
+
     // MARK: 말풍선
 
     func testLineExpires() async {
