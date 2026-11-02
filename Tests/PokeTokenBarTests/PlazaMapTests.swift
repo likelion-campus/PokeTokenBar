@@ -31,7 +31,7 @@ final class PlazaMapTests: XCTestCase {
     func testShelterBoardAndSpawn() {
         XCTAssertGreaterThanOrEqual(map.shelterTiles.count, 12)
         XCTAssertEqual(map.tile(at: map.spawn), .shelter)
-        let below = TilePoint(x: map.boardTile.x, y: map.boardTile.y + 1)
+        let below = TilePoint(x: map.boardTile.x, y: map.boardTile.y + 2)
         XCTAssertTrue(map.isWalkable(below), "소식판은 아래 칸에서 위를 보고 말을 건다(2부)")
     }
 
@@ -59,15 +59,17 @@ final class PlazaMapTests: XCTestCase {
         } }
     }
 
-    /// The board is a two-tile signpost, readable from every side.
-    func testBoardIsOneTwoByOneSign() {
+    /// The board is one big 2x2 signpost, readable from every side.
+    func testBoardIsOneTwoByTwoSign() {
         var boards: [TilePoint] = []
         for y in 0..<map.height { for x in 0..<map.width where map.tile(at: .init(x: x, y: y)) == .board { boards.append(.init(x: x, y: y)) } }
         let b = map.boardTile
-        XCTAssertEqual(Set(boards), [b, .init(x: b.x + 1, y: b.y)])
-        for dx in 0...1 {
-            XCTAssertTrue(map.isWalkable(.init(x: b.x + dx, y: b.y - 1)))
-            XCTAssertTrue(map.isWalkable(.init(x: b.x + dx, y: b.y + 1)))
+        XCTAssertEqual(Set(boards), [b, .init(x: b.x + 1, y: b.y), .init(x: b.x, y: b.y + 1), .init(x: b.x + 1, y: b.y + 1)])
+        for d in 0...1 {
+            XCTAssertTrue(map.isWalkable(.init(x: b.x + d, y: b.y - 1)))
+            XCTAssertTrue(map.isWalkable(.init(x: b.x + d, y: b.y + 2)))
+            XCTAssertTrue(map.isWalkable(.init(x: b.x - 1, y: b.y + d)))
+            XCTAssertTrue(map.isWalkable(.init(x: b.x + 2, y: b.y + d)))
         }
     }
 

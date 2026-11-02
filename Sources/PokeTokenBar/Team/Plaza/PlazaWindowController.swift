@@ -15,6 +15,8 @@ extension SKView: PlazaPausableView {}
     private let memberID: () -> String
     private let subject: () -> CompanionStore.RepresentativeSubject
     private let myRosterEntry: () -> PlazaRosterEntry?
+    /// 지금 팀의 저장된 이름. 창 제목에 붙인다.
+    private let teamName: () -> String?
     private let rosterModel = PlazaRosterModel()
     private let clock: () -> Date
     private let profileTimeout: Duration
@@ -94,6 +96,7 @@ extension SKView: PlazaPausableView {}
          memberID: @escaping () -> String,
          subject: @escaping () -> CompanionStore.RepresentativeSubject,
          myRosterEntry: @escaping () -> PlazaRosterEntry? = { nil },
+         teamName: @escaping () -> String? = { nil },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -116,11 +119,13 @@ extension SKView: PlazaPausableView {}
         self.memberID = memberID
         self.subject = subject
         self.myRosterEntry = myRosterEntry
+        self.teamName = teamName
         super.init()
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
             guard let self else { return }
             setChatLogAboveInput(false)
+            refreshHint()
             if let skView { window?.makeFirstResponder(skView) }
         }
     }
@@ -136,7 +141,7 @@ extension SKView: PlazaPausableView {}
             let w = NSWindow(contentRect: view.frame,
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
-            w.title = L(.ko).plazaWindowTitle
+            w.title = title
             w.contentMinSize = NSSize(width: 600, height: 320)   // 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭
             w.isReleasedWhenClosed = false
             w.level = .normal
@@ -166,7 +171,8 @@ extension SKView: PlazaPausableView {}
             chatLogView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(chatLogView)   // 입력은 받지 않는다.
             let map = PlazaMinimapHostingView(rootView: PlazaMinimapView(
-                model: minimap, mapImage: NSImage(cgImage: mapImage, size: .zero), worldSize: self.map.pixelSize))
+                model: minimap, background: backgroundModel, mapImage: NSImage(cgImage: mapImage, size: .zero),
+                worldSize: self.map.pixelSize))
             map.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(map)   // 입력은 받지 않는다.
             let toggle = PlazaBackgroundToggleHostingView(rootView: PlazaBackgroundToggle(
@@ -209,6 +215,13 @@ extension SKView: PlazaPausableView {}
         window?.makeKeyAndOrderFront(nil)
     }
 
+    /// 창 제목. 팀 이름이 바뀌면 `refreshTitle`로 다시 붙인다.
+    var title: String { L(.ko).plazaWindowTitle(teamName: teamName()) }
+
+    func refreshTitle() {
+        window?.title = title
+    }
+
     /// 저장된 창 크기를 되살린 뒤에 목록 칸 수를 잰다. 되살리는 동안의 windowDidResize 는 `window` 가 아직 nil 이라 못 잰다.
     static func restoreFrame(_ w: NSWindow, into roster: PlazaRosterModel, autosaveName: String = frameAutosaveName) {
         w.setFrameAutosaveName(autosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
@@ -232,6 +245,7 @@ extension SKView: PlazaPausableView {}
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
         s.onChatKey = { [weak self] in self?.openChat() }
+        s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         isIdle = false
         idleGeneration += 1
@@ -255,9 +269,10 @@ extension SKView: PlazaPausableView {}
         }
         refreshRoster()
         refreshMinimap()
+        s.refreshInteractionTarget()
     }
 
-    /// 내 말풍선은 바로 띄운다. ♥, ㅋㅋ, 🎉는 바라보는 팀원을 표적으로 보내고, !, ?는 표적 없이 보낸다.
+    /// 내 말풍선은 바로 띄운다. ♥, ㅋㅋ, 🎉는 바라보거나 바로 옆에 있는 팀원을 표적으로 보내고, !, ?는 표적 없이 보낸다.
     private func handleEmoteKey(_ kind: TeamEmoteKind) {
         guard let scene else { return }
         let now = clock()
@@ -273,6 +288,7 @@ extension SKView: PlazaPausableView {}
         guard let scene else { return }
         scene.clearInput()
         chatInput.open()
+        refreshHint()
         setChatLogAboveInput(true)
         window?.makeFirstResponder(chatInput.field)
     }
@@ -334,12 +350,14 @@ extension SKView: PlazaPausableView {}
         return pasteboard.setData(png, forType: .png)
     }
 
-    /// 바라보는 대상에 말을 건다. 소식판이면 소식판을 열고(열 때 모두 읽음), 팀원이면 카드를 받아 띄운다.
+    /// 바라보거나 바로 옆에 있는 대상에 말을 건다. 그쪽으로 돌아선 뒤, 소식판이면 소식판을 열고(열 때 모두 읽음),
+    /// 팀원이면 카드를 받아 띄운다.
     private func handleInteractKey() {
         guard let scene,
-              let target = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
-                                                   members: scene.memberTiles) else { return }
-        switch target {
+              let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
+                                                members: scene.memberTiles) else { return }
+        scene.face(hit.facing)
+        switch hit.target {
         case .board:
             feed?.markAllRead()
             openOverlay(.board)
@@ -359,6 +377,7 @@ extension SKView: PlazaPausableView {}
         overlayGeneration += 1
         overlayModel.content = content
         scene?.isOverlayOpen = true
+        refreshHint()
         return overlayGeneration
     }
 
@@ -367,7 +386,20 @@ extension SKView: PlazaPausableView {}
         overlayGeneration += 1
         overlayModel.content = .none
         scene?.isOverlayOpen = false
+        refreshHint()
         if let skView { window?.makeFirstResponder(skView) }
+    }
+
+    /// 스페이스로 말을 걸 수 있으면 위쪽에 안내를 띄운다. 판이나 입력창이 열려 있으면 스페이스가 다른 일을 하므로 숨긴다.
+    private func refreshHint() {
+        var text: String?
+        if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
+            switch hit.target {
+            case .board: text = L(.ko).plazaBoardHint
+            case .member(let id): text = members[id].map { L(.ko).plazaMemberHint(nickname: $0.nickname) }
+            }
+        }
+        if overlayModel.hint != text { overlayModel.hint = text }
     }
 
     /// 앱이 앞이고 광장 창이 키 창이다. 알림 대신 광장 안 안내를 쓸지 가른다.
@@ -428,6 +460,7 @@ extension SKView: PlazaPausableView {}
 
     /// 테스트용 읽기 전용 값.
     var banner: String? { overlayModel.banner }
+    var hint: String? { overlayModel.hint }
 
     /// 다시 등록을 먼저 하고 값을 반영한다. 안 읽은 소식이 있으면 소식판 위에 `!`를 띄운다.
     private func observeUnread(feed: TeamFeedStore, generation: Int) {
@@ -499,6 +532,7 @@ extension SKView: PlazaPausableView {}
         members = current
         applyMembersToScene()
         refreshRoster()
+        refreshHint()
     }
 
     private func applyMembersToScene() {
@@ -628,6 +662,7 @@ extension SKView: PlazaPausableView {}
         membersGeneration += 1
         overlayGeneration += 1
         overlayModel.content = .none
+        overlayModel.hint = nil
         members = [:]
         memberSubjects = [:]
         memberLoadTokens = [:]
@@ -642,6 +677,7 @@ extension SKView: PlazaPausableView {}
             scene.onPhotoKey = nil
             scene.onChatKey = nil
             scene.onCloseOverlay = nil
+            scene.onInteractionTargetChange = nil
             scene.isOverlayOpen = false
         }
         skView?.presentScene(nil)

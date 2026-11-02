@@ -6,6 +6,7 @@ import AppKit
 struct TeamSettingsSection: View {
     @Environment(TeamSettings.self) private var team
     @Environment(TeamSession.self) private var session: TeamSession?
+    @Environment(PopoverNavigation.self) private var nav: PopoverNavigation?
     private let l = L(.ko)
     @State private var joinDraft = ""
     @State private var joinFailed = false
@@ -13,6 +14,8 @@ struct TeamSettingsSection: View {
     @State private var nicknameDraft: String?
     @State private var teamNameDraft: String?
     @FocusState private var nicknameFocused: Bool
+    /// 코드로 참여했지만 닉네임이 아직 없다. 닉네임을 정하는 순간 광장을 연다.
+    @State private var openPlazaWhenReady = false
 
     var body: some View {
         @Bindable var team = team
@@ -145,6 +148,10 @@ struct TeamSettingsSection: View {
 
     private func commitNickname() {
         nicknameDraft = Self.committedDraft(nicknameDraft, into: team)
+        if openPlazaWhenReady && team.isReady {
+            openPlazaWhenReady = false
+            nav?.onOpenPlaza?()
+        }
     }
 
     /// Stores a valid draft and returns nil (nothing left to edit). An invalid draft keeps the stored name and
@@ -154,14 +161,21 @@ struct TeamSettingsSection: View {
         return team.commitNickname(draft) ? nil : draft
     }
 
+    enum JoinResult: Equatable { case invalid, openPlaza, needsNickname }
+
+    /// 코드가 맞으면 그 팀에 들어간다. 팀이 바로 준비되면 광장을 열고, 닉네임이 없으면 닉네임을 정할 때까지 미룬다.
+    static func join(_ draft: String, into team: TeamSettings) -> JoinResult {
+        guard let parsed = TeamCode(parsing: draft) else { return .invalid }
+        team.code = parsed
+        return team.isReady ? .openPlaza : .needsNickname
+    }
+
     private func join() {
-        if let parsed = TeamCode(parsing: joinDraft) {
-            team.code = parsed
-            joinDraft = ""
-            joinFailed = false
-        } else {
-            joinFailed = true
-        }
+        let result = Self.join(joinDraft, into: team)
+        joinFailed = result == .invalid
+        guard result != .invalid else { return }
+        joinDraft = ""
+        if result == .openPlaza { nav?.onOpenPlaza?() } else { openPlazaWhenReady = true }
     }
 
     /// "PTB-ABCDE-…" 중 앞 한 묶음만 보이게 나머지를 가린다.

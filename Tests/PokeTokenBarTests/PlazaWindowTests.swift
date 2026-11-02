@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import PokeTokenBar
 
 private final class SeenIDs: @unchecked Sendable {
@@ -445,6 +446,42 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         scene.size = CGSize(width: 1200, height: 640)
         let screenX = (walker.x - scene.cameraPosition.x) * CGFloat(scene.zoom) + scene.size.width / 2
         XCTAssertEqual(screenX, 600, accuracy: 1)
+    }
+
+    func testWindowTitleCarriesTheTeamName() {
+        var name: String? = "개발팀"
+        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
+                                      loader: PlazaCharacterLoader(fetcher: RecordingFetcher()),
+                                      nickname: { "tester" }, memberID: { "member-1" },
+                                      subject: { .init(speciesID: 25, isShiny: false) }, teamName: { name })
+        XCTAssertEqual(c.title, "팀 광장 · 개발팀")
+        name = "디자인팀"
+        XCTAssertEqual(c.title, "팀 광장 · 디자인팀", "a rename or a team switch shows on the next refresh")
+        name = nil
+        XCTAssertEqual(c.title, "팀 광장")
+    }
+
+    /// With the background hidden the minimap is a dim, see-through panel; the dots stay as they are.
+    func testMinimapDimsWhenTheBackgroundIsHidden() throws {
+        let map = NSImage(size: NSSize(width: 48, height: 32), flipped: false) { rect in
+            NSColor(srgbRed: 0.43, green: 0.73, blue: 0.33, alpha: 1).setFill(); rect.fill(); return true
+        }
+        func meanAlpha(hidden: Bool) throws -> Double {
+            let background = PlazaBackgroundModel()
+            background.isHidden = hidden
+            let view = PlazaMinimapView(model: PlazaMinimapModel(), background: background, mapImage: map,
+                                        worldSize: PlazaMapData.map.pixelSize)
+            let image = try XCTUnwrap(ImageRenderer(content: view).cgImage)
+            var px = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let ctx = try XCTUnwrap(CGContext(data: &px, width: image.width, height: image.height, bitsPerComponent: 8,
+                                              bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return Double(stride(from: 3, to: px.count, by: 4).reduce(0) { $0 + Int(px[$1]) }) / Double(px.count / 4) / 255
+        }
+        let shown = try meanAlpha(hidden: false), dimmed = try meanAlpha(hidden: true)
+        XCTAssertGreaterThan(shown, 0.9, "opaque while the map is shown")
+        XCTAssertLessThan(dimmed, 0.7, "see-through while the background is hidden")
     }
 
     func testBackgroundToggleHidesTheMapAndIsRemembered() {

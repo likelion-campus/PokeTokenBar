@@ -164,6 +164,68 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertEqual(team.nickname, "다람", "an invalid draft never replaces the stored name")
     }
 
+    /// Joining with a code opens the plaza at once, or as soon as a nickname is set.
+    func testJoinOpensThePlazaWhenTheTeamIsReady() {
+        let team = TeamSettings(defaults: freshDefaults())
+        team.isEnabled = true
+        var rng = SystemRandomNumberGenerator()
+        let code = TeamCode.generate(using: &rng)
+        XCTAssertEqual(TeamSettingsSection.join("PTB-nope", into: team), .invalid)
+        XCTAssertNil(team.code)
+        XCTAssertEqual(TeamSettingsSection.join(code.display, into: team), .needsNickname)
+        XCTAssertEqual(team.code, code)
+        team.stepOut()
+        team.nickname = "다람"
+        XCTAssertEqual(TeamSettingsSection.join(" \(code.display) ", into: team), .openPlaza)
+        XCTAssertTrue(team.isReady)
+    }
+
+    /// The settings section reaches the popover's open-plaza action: Enter in the code field opens the plaza when
+    /// the team is ready, and otherwise as soon as a valid nickname is entered.
+    func testJoiningFromTheSectionOpensThePlaza() throws {
+        for hasNickname in [true, false] {
+            let team = TeamSettings(defaults: freshDefaults())
+            team.isEnabled = true
+            if hasNickname { team.nickname = "다람" }
+            let nav = PopoverNavigation()
+            var opened = 0
+            nav.onOpenPlaza = { opened += 1 }
+            let host = NSHostingView(rootView: TeamSettingsSection().environment(team).environment(nav).frame(width: 360))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 400), styleMask: [.titled],
+                                  backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            var rng = SystemRandomNumberGenerator()
+            let code = TeamCode.generate(using: &rng)
+            try submit(code.display, in: try field(placeholder: L(.ko).teamCodePlaceholder, in: host), window: window)
+            XCTAssertEqual(team.code, code)
+            XCTAssertEqual(opened, hasNickname ? 1 : 0, "nickname set: \(hasNickname)")
+            guard !hasNickname else { continue }
+            host.layoutSubtreeIfNeeded()
+            try submit("다람", in: try field(placeholder: L(.ko).teamNickname, in: host), window: window)
+            XCTAssertTrue(team.isReady)
+            XCTAssertEqual(opened, 1, "the nickname completes the join")
+        }
+    }
+
+    private func field(placeholder: String, in view: NSView) throws -> NSTextField {
+        func find(_ v: NSView) -> NSTextField? {
+            if let f = v as? NSTextField, f.isEditable, f.placeholderString == placeholder || f.placeholderAttributedString?.string == placeholder { return f }
+            return v.subviews.lazy.compactMap(find).first
+        }
+        return try XCTUnwrap(find(view), "no field \(placeholder)")
+    }
+
+    private func submit(_ text: String, in field: NSTextField, window: NSWindow) throws {
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+        editor.insertText(text, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        editor.insertNewline(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+    }
+
     /// The masked code is wider than its row in the popover; wrapping it broke the row into two uneven lines.
     func testJoinedCodeStaysOnOneLineInThePopover() {
         let team = TeamSettings(defaults: freshDefaults())

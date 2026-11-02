@@ -129,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             subject: { [companion] in companion!.representativeSubject },
             myRosterEntry: { [companion, teamSettings] in
                 PlazaRoster.myEntry(companion: companion!, teamSettings: teamSettings) },
+            teamName: { [teamSettings] in teamSettings.currentTeam?.name },
             session: teamRuntime.session, feed: teamRuntime.feed)
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
         teamRuntime.plaza = plaza
@@ -146,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeCompanionSprite()
         observePlaza()
         observePlazaNickname()
+        observePlazaTeamName()
         observePlazaRoster()
         observeDisplaySleep()
         observePowerState()
@@ -205,6 +207,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 guard let self else { return }
                 self.observePlazaNickname()
                 self.plaza.refreshNickname()
+            }
+        }
+    }
+
+    /// 팀 이름을 바꾸거나 다른 팀으로 옮기면 광장 창 제목도 바꾼다.
+    private func observePlazaTeamName() {
+        withObservationTracking {
+            _ = teamSettings.currentTeam?.name
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observePlazaTeamName()
+                self.plaza.refreshTitle()
             }
         }
     }
