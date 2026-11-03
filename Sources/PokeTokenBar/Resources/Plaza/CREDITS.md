@@ -5,7 +5,8 @@
 - License: CC0 (public domain)
 - Source: https://opengameart.org/sites/default/files/gfx_3.zip
 
-## Font (Galmuri11.ttf)
+## Fonts (Galmuri11.ttf, Galmuri14.ttf)
 - Galmuri 2.40.3 by Lee Minseo
 - License: SIL Open Font License 1.1 (see Galmuri-OFL.txt)
-- Source: https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri11.ttf
+- Sources: https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri11.ttf,
+  https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri14.ttf

@@ -16,7 +16,7 @@ struct PlazaChatLogView: View {
                 Button(log.isExpanded ? l.plazaChatLogCollapse : l.plazaChatLogExpand, action: toggle)
                     .buttonStyle(.plain).focusable(false)
             }
-            .font(Font(PlazaResources.font(size: 12)))
+            .font(Font(PlazaResources.font(.small)))
             .foregroundStyle(Color(hex: 0xF8F8F0))
             if log.isExpanded {
                 ScrollViewReader { proxy in
@@ -46,7 +46,7 @@ struct PlazaChatLogView: View {
             + Text(line.isLoud ? "📢 " : "")
             + Text(line.name + ": ").foregroundStyle(Color(cgColor: line.color))
             + Text(line.text).foregroundStyle(line.isLoud ? Color(hex: 0xFFE060) : Color(hex: 0xF8F8F0)))
-            .font(Font(PlazaResources.font(size: 14)))
+            .font(Font(PlazaResources.font(.body)))
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -81,7 +81,7 @@ struct PlazaBackgroundToggle: View {
         Button(action: toggle) {
             Label(model.isHidden ? l.plazaBackgroundShow : l.plazaBackgroundHide,
                   systemImage: model.isHidden ? "eye" : "eye.slash")
-                .font(Font(PlazaResources.font(size: 12)))
+                .font(Font(PlazaResources.font(.small)))
                 .foregroundStyle(Color(hex: 0xF8F8F0))
                 .padding(.horizontal, 8).padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1D4F5C).opacity(0.9)))
@@ -120,7 +120,7 @@ struct PlazaNameColorPicker: View {
                         .overlay(Circle().stroke(Color(hex: 0x14161F), lineWidth: 1.5))
                     Text(l.plazaNameColor)
                 }
-                .font(Font(PlazaResources.font(size: 12)))
+                .font(Font(PlazaResources.font(.small)))
                 .foregroundStyle(Color(hex: 0xF8F8F0))
                 .padding(.horizontal, 8).padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1D4F5C).opacity(0.9)))

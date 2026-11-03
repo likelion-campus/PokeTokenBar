@@ -18,7 +18,7 @@ struct PlazaOverlayView: View {
             VStack(spacing: 8) {
                 if let banner = model.banner {
                     Text(banner)
-                        .font(Font(PlazaResources.font(size: 15)))
+                        .font(Font(PlazaResources.font(.body)))
                         .foregroundStyle(.white)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -29,7 +29,7 @@ struct PlazaOverlayView: View {
                 }
                 if let hint = model.hint {
                     Text(hint)
-                        .font(Font(PlazaResources.font(size: 14)))
+                        .font(Font(PlazaResources.font(.body)))
                         .foregroundStyle(Color(hex: 0xF8F8F0))
                         .lineLimit(1)
                         .padding(.horizontal, 12).padding(.vertical, 6)

@@ -136,7 +136,7 @@ enum PlazaEmoteArt {
 
     private static func drawText(_ text: String, centeredAt center: CGPoint, in context: CGContext) {
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: PlazaResources.font(size: 11),
+            .font: PlazaResources.font(.small),
             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
         ]
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))

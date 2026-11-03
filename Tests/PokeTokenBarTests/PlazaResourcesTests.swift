@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import XCTest
 @testable import PokeTokenBar
 
@@ -9,11 +10,50 @@ final class PlazaResourcesTests: XCTestCase {
         XCTAssertEqual(sheet.height, 576)
     }
 
-    func testFontRegistersAndResolves() {
+    func testFontsRegisterAndResolve() {
         XCTAssertTrue(PlazaResources.registerFonts())
         XCTAssertTrue(PlazaResources.registerFonts(), "calling twice stays safe")
-        XCTAssertNotNil(NSFont(name: PlazaResources.fontName, size: 11))
-        XCTAssertEqual(PlazaResources.font(size: 11).fontName, PlazaResources.fontName)
+        for size in PlazaTextSize.allCases {
+            let font = PlazaResources.font(size)
+            XCTAssertEqual(font.fontName, size.fontName)
+            XCTAssertEqual(font.pointSize, size.points)
+        }
+    }
+
+    /// One font pixel is exactly one point at each size, so it is a whole number of device pixels on 1x and 2x
+    /// screens. Off the grid (Galmuri11 at 14pt is 2.33 pixels a dot on Retina) the strokes come out uneven.
+    func testEachSizeIsOnItsFontsPixelGrid() throws {
+        let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
+        for size in PlazaTextSize.allCases {
+            let url = try XCTUnwrap(PlazaResources.resourceURL(size.fileName, "ttf", in: bundle))
+            let descriptor = try XCTUnwrap((CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor])?.first)
+            XCTAssertEqual(CTFontDescriptorCopyAttribute(descriptor, kCTFontNameAttribute) as? String, size.fontName,
+                           "the name the app asks for is the font in that file")
+            let unitsPerEm = CTFontGetUnitsPerEm(CTFontCreateWithFontDescriptor(descriptor, 12, nil))
+            let font = CTFontCreateWithFontDescriptor(descriptor, CGFloat(unitsPerEm), nil)
+            func gcd(_ a: Int, _ b: Int) -> Int { b == 0 ? abs(a) : gcd(b, a % b) }
+            var grid = 0
+            for scalar in "가나한글ㅎABab12".unicodeScalars {
+                var char = UniChar(scalar.value), glyph = CGGlyph(0)
+                CTFontGetGlyphsForCharacters(font, &char, &glyph, 1)
+                CTFontCreatePathForGlyph(font, glyph, nil)?.applyWithBlock { element in
+                    let count = switch element.pointee.type {
+                    case .moveToPoint, .addLineToPoint: 1
+                    case .addQuadCurveToPoint: 2
+                    case .addCurveToPoint: 3
+                    default: 0
+                    }
+                    for i in 0..<count {
+                        let p = element.pointee.points[i]
+                        grid = gcd(grid, Int(p.x.rounded()))
+                        grid = gcd(grid, Int(p.y.rounded()))
+                    }
+                }
+            }
+            XCTAssertGreaterThan(grid, 0, size.fileName)
+            let pixelsPerEm = CGFloat(unitsPerEm) / CGFloat(grid)
+            XCTAssertEqual(size.points, pixelsPerEm, "\(size.fileName): one font pixel must be one point")
+        }
     }
 
     func testBuildScriptCopiesResourceBundle() throws {
@@ -35,8 +75,8 @@ final class PlazaResourcesTests: XCTestCase {
         let missing = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString)")
         XCTAssertNil(PlazaResources.resourceBundle(searching: [missing]))
         XCTAssertNil(PlazaResources.tileSheet(in: nil))
-        let font = PlazaResources.font(size: 11, in: nil)
-        XCTAssertEqual(font.pointSize, 11)
+        let font = PlazaResources.font(.small, in: nil)
+        XCTAssertEqual(font.pointSize, PlazaTextSize.small.points)
         XCTAssertFalse(PlazaResources.registerFonts(in: nil))
     }
 }
