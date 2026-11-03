@@ -73,7 +73,31 @@ enum PlazaCardState: Equatable {
     }
 }
 
-enum PlazaOverlayContent: Equatable { case none, card(PlazaCardState), board }
+/// 팀원 옆에서 스페이스로 여는 메뉴의 항목. 위에서부터 이 순서다.
+enum PlazaMemberAction: CaseIterable, Equatable {
+    /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄운다.
+    case greet
+    /// 그 팀원의 도감 카드를 연다.
+    case viewCard
+}
+
+/// 팀원 메뉴. 고른 항목은 방향키로 옮기고, 끝에서 넘어가면 반대쪽 끝으로 간다.
+struct PlazaMemberMenu: Equatable {
+    let memberID: String
+    let nickname: String
+    var selection: PlazaMemberAction = .greet
+
+    mutating func move(by step: Int) {
+        let all = PlazaMemberAction.allCases
+        let i = all.firstIndex(of: selection) ?? 0
+        selection = all[((i + step) % all.count + all.count) % all.count]
+    }
+}
+
+enum PlazaOverlayContent: Equatable { case none, card(PlazaCardState), board, memberMenu(PlazaMemberMenu) }
+
+/// 판이 열린 동안 장면이 넘기는 키. 판마다 쓰는 키가 다르다.
+enum PlazaOverlayKey: Equatable { case up, down, space, enter, escape }
 
 /// 광장 위에 뜨는 판의 내용. 그리는 쪽(`PlazaOverlayView`)은 이 값만 본다.
 @MainActor @Observable

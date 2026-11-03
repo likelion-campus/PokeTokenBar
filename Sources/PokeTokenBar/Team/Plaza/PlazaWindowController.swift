@@ -52,6 +52,10 @@ extension SKView: PlazaPausableView {}
     private var chatLogAtBottom: NSLayoutConstraint?
     /// 사진 PNG를 내보낸다. 성공하면 true. 테스트가 클립보드를 건드리지 않게 바꿔 끼운다.
     private let photoWriter: (Data) -> Bool
+    /// 인사하기로 띄우는 말풍선. 누를 때마다 이 가운데 하나를 고른다.
+    static let greetingKinds: [TeamEmoteKind] = [.heart, .party]
+    /// 테스트에서 고정한다.
+    private let greetingKind: () -> TeamEmoteKind
 
     /// 창 위치·크기 기억용 이름. 사용자에게 보이는 글이 아니다.
     private static let frameAutosaveName = "TeamPlazaWindow"
@@ -95,6 +99,7 @@ extension SKView: PlazaPausableView {}
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
          photoWriter: @escaping (Data) -> Bool = PlazaWindowController.writePhotoToClipboard,
+         greetingKind: @escaping () -> TeamEmoteKind = { PlazaWindowController.greetingKinds.randomElement() ?? .heart },
          profileTimeout: Duration = .seconds(5),
          bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
@@ -105,6 +110,7 @@ extension SKView: PlazaPausableView {}
         self.profileTimeout = profileTimeout
         self.clock = clock
         self.photoWriter = photoWriter
+        self.greetingKind = greetingKind
         self.preferences = preferences
         self.loader = loader
         self.nickname = nickname
@@ -153,7 +159,9 @@ extension SKView: PlazaPausableView {}
                 roster.widthAnchor.constraint(equalToConstant: PlazaRosterMetrics.width),
             ])
             let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlayModel, feed: feed, myMemberID: memberID(),
-                                                                       onReact: { [weak self] in self?.session?.react(to: $0, kind: $1) }),
+                                                                       onReact: { [weak self] in self?.session?.react(to: $0, kind: $1) },
+                                                                       onMenuChoose: { [weak self] in self?.chooseMenu($0, memberID: $1) },
+                                                                       onMenuCancel: { [weak self] in self?.closeOverlay() }),
                                                 model: overlayModel)
             overlay.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
@@ -240,7 +248,7 @@ extension SKView: PlazaPausableView {}
         s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
-        s.onCloseOverlay = { [weak self] in self?.closeOverlay() }
+        s.onOverlayKey = { [weak self] in self?.handleOverlayKey($0) }
         scene = s
         if let feed {
             unreadGeneration += 1
@@ -340,7 +348,7 @@ extension SKView: PlazaPausableView {}
     }
 
     /// 바라보거나 바로 옆에 있는 대상에 말을 건다. 그쪽으로 돌아선 뒤, 소식판이면 소식판을 열고(열 때 모두 읽음),
-    /// 팀원이면 카드를 받아 띄운다.
+    /// 팀원이면 인사하기와 포켓몬 보기 메뉴를 띄운다.
     private func handleInteractKey() {
         guard let scene,
               let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
@@ -351,7 +359,40 @@ extension SKView: PlazaPausableView {}
             feed?.markAllRead()
             openOverlay(.board)
         case .member(let id):
-            guard let session, let state = members[id] else { return }
+            guard let state = members[id] else { return }
+            openOverlay(.memberMenu(PlazaMemberMenu(memberID: id, nickname: state.nickname)))
+        }
+    }
+
+    /// 소식판과 카드는 스페이스와 Esc로 닫는다. 메뉴는 방향키로 고르고 스페이스나 Enter로 하고 Esc로 닫는다.
+    private func handleOverlayKey(_ key: PlazaOverlayKey) {
+        switch overlayModel.content {
+        case .none:
+            break
+        case .board, .card:
+            if key == .space || key == .escape { closeOverlay() }
+        case .memberMenu(var menu):
+            switch key {
+            case .up, .down:
+                menu.move(by: key == .up ? -1 : 1)
+                overlayModel.content = .memberMenu(menu)
+            case .space, .enter:
+                chooseMenu(menu.selection, memberID: menu.memberID)
+            case .escape:
+                closeOverlay()
+            }
+        }
+    }
+
+    /// 메뉴에서 고른 일을 한다. 키로 고르든 눌러 고르든 여기로 온다.
+    func chooseMenu(_ action: PlazaMemberAction, memberID id: String) {
+        switch action {
+        case .greet:
+            closeOverlay()
+            greet(id)
+        case .viewCard:
+            // 메뉴를 연 사이에 연결이 끊긴 팀원이면 카드를 받을 수 없다.
+            guard let session, let state = members[id] else { return closeOverlay() }
             let generation = openOverlay(.card(.loading(state)))
             Task {
                 let profile = await session.requestProfile(memberID: id, timeout: profileTimeout)
@@ -359,6 +400,18 @@ extension SKView: PlazaPausableView {}
                 overlayModel.content = .card(profile.map { .loaded(state, $0) } ?? .failed(state))
             }
         }
+    }
+
+    /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.
+    private func greet(_ id: String) {
+        guard let scene else { return }
+        let now = clock()
+        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        lastEmoteAt = now
+        let kind = greetingKind()
+        scene.showEmote(memberID: nil, kind: kind)
+        scene.showEmote(memberID: id, kind: kind)
+        session?.sendEmote(kind, target: id, shared: true)
     }
 
     @discardableResult
@@ -398,9 +451,10 @@ extension SKView: PlazaPausableView {}
     var overlayContent: PlazaOverlayContent { overlayModel.content }
     var chatInputForTesting: PlazaChatInput { chatInput }
 
-    /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
-    func showEmote(memberID: String, kind: TeamEmoteKind) {
+    /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 인사하기면 받는 팀원(나일 수도 있다) 위에도 띄운다.
+    func showEmote(memberID: String, kind: TeamEmoteKind, alsoOver other: String? = nil) {
         scene?.showEmote(memberID: memberID, kind: kind)
+        if let other { scene?.showEmote(memberID: other == self.memberID() ? nil : other, kind: kind) }
     }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
@@ -641,7 +695,7 @@ extension SKView: PlazaPausableView {}
             scene.onInteractKey = nil
             scene.onPhotoKey = nil
             scene.onChatKey = nil
-            scene.onCloseOverlay = nil
+            scene.onOverlayKey = nil
             scene.onInteractionTargetChange = nil
             scene.isOverlayOpen = false
         }

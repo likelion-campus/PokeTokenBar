@@ -27,6 +27,8 @@ extension L {
     func plazaWindowTitle(teamName: String?) -> String { teamName.map { "\(plazaWindowTitle) · \($0)" } ?? plazaWindowTitle }
     var plazaBoardHint: String { "스페이스바를 눌러 소식판 보기" }
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
+    var plazaMenuGreet: String { "인사하기" }
+    var plazaMenuViewCard: String { "포켓몬 보기" }
     var plazaRosterTitle: String { "팀원" }
     var plazaStatusOnline: String { "접속" }
     var plazaStatusIdle: String { "자리비움" }

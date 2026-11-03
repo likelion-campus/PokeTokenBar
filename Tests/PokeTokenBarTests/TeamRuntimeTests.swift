@@ -197,6 +197,26 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.sendEmote(.lol, target: nil)
         await settle { plaza.scene?.shownEmote(memberID: sender) == .lol }
     }
+
+    /// A greeting aimed at me shows over the sender and over me. An ordinary emote aimed at me shows over the sender only.
+    func testReceivedGreetingShowsOverTheSenderAndMe() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.greeting.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        a.runtime.session.sendEmote(.heart, target: b.settings.memberID)
+        await settle { plaza.scene?.shownEmote(memberID: sender) == .heart }
+        XCTAssertNil(plaza.scene?.shownEmote(memberID: nil))
+        a.runtime.session.sendEmote(.party, target: b.settings.memberID, shared: true)
+        await settle { plaza.scene?.shownEmote(memberID: sender) == .party && plaza.scene?.shownEmote(memberID: nil) == .party }
+    }
     func testAppNapIsHeldOnlyWhileSomeoneIsOnline() async {
         let code = newCode()
         let a = RuntimeNode(hub: hub, code: code, nickname: "가")

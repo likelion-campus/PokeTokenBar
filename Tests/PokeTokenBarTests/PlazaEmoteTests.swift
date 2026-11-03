@@ -104,6 +104,23 @@ final class PlazaEmoteTests: XCTestCase {
         scene.handleKeyDown(keyCode: key, characters: "ㅁ", isRepeat: false)
     }
 
+    // MARK: - 인사하기
+
+    /// A greeting between two teammates shows over both of them here.
+    func testGreetingShowsOverTheSenderAndTheTarget() async {
+        let me = node("나"), b = node("가"), d = node("다")
+        let c = controller(me)
+        c.prepareScene()
+        await connect(me, b)
+        await connect(me, d)
+        let scene = c.scene!, bID = b.settings.memberID, dID = d.settings.memberID
+        for _ in 0..<200 where scene.memberTiles[bID] == nil || scene.memberTiles[dID] == nil { await Task.yield() }
+        c.showEmote(memberID: bID, kind: .heart, alsoOver: dID)
+        XCTAssertEqual(scene.shownEmote(memberID: bID), .heart)
+        XCTAssertEqual(scene.shownEmote(memberID: dID), .heart)
+        XCTAssertNil(scene.shownEmote(memberID: nil), "not over me")
+    }
+
     // MARK: - 키와 그림
 
     func testEmoteKeysWorkWithHangulInput() {
