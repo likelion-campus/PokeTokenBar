@@ -439,6 +439,17 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertNil(scene.shownEmote(memberID: id))
     }
 
+    /// The menu's name is in the teammate's picked colour, like their name tag.
+    func testMenuCarriesTheTeammatesPickedColor() async {
+        let (c, scene, other, id) = await standing()
+        other.settings.nameColor = 0x8FF0C8
+        other.session.applySettings()
+        await waitUntil { c.scene?.memberNameColor(id) == PlazaNameColor.color(forMemberID: id, chosen: 0x8FF0C8) }
+        space(scene)
+        guard case .memberMenu(let menu) = c.overlayContent else { return XCTFail("no menu: \(c.overlayContent)") }
+        XCTAssertEqual(menu.nameColor, 0x8FF0C8)
+    }
+
     func testArrowsMoveTheChoiceAndWrapAround() async {
         let (c, scene, _, _) = await standing()
         space(scene)

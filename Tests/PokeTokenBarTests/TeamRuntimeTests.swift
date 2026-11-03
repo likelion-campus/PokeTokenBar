@@ -68,6 +68,17 @@ final class TeamRuntimeTests: XCTestCase {
         return (a, b)
     }
 
+    /// Picking a name colour in the plaza (a settings change) reaches teammates without any other trigger.
+    func testPickedNameColorReachesTeammates() async {
+        let (a, b) = connectedPair()
+        // Both hellos and the presences that follow them are done, so only the pick itself can carry the colour.
+        await settle { b.runtime.session.members[a.settings.memberID] != nil && a.runtime.session.members[b.settings.memberID] != nil }
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertNil(b.runtime.session.members[a.settings.memberID]?.nameColor)
+        a.settings.nameColor = 0x7FD4FF
+        await settle { b.runtime.session.members[a.settings.memberID]?.nameColor == 0x7FD4FF }
+    }
+
     /// Five minutes without keyboard or mouse input is idle, checked on every tick whether or not the plaza is open.
     func testFiveMinutesWithoutInputIsIdleOnTheNextTick() async {
         var idleFor: TimeInterval = 0

@@ -85,6 +85,7 @@ enum PlazaMemberAction: CaseIterable, Equatable {
 struct PlazaMemberMenu: Equatable {
     let memberID: String
     let nickname: String
+    var nameColor: UInt32?
     var selection: PlazaMemberAction = .greet
 
     mutating func move(by step: Int) {

@@ -39,6 +39,20 @@ final class TeamWireTests: XCTestCase {
         XCTAssertNil(e.isShared)
     }
 
+    /// A picked name colour is sent only when there is one, and earlier versions' presence reads as none.
+    func testNameColorIsOptionalOnTheWire() throws {
+        var colored = presence
+        colored.nameColor = 0xFF9ECF
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(colored))), [.presence(colored)])
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("nameColor"))
+        let earlier = frame(#"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":false}}}"#)
+        var earlierDecoder = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try earlierDecoder.append(earlier).first else { return XCTFail("not a presence") }
+        XCTAssertNil(p.nameColor)
+    }
+
     /// An idle flag is sent only when true, so v2.5.602 and earlier read every other presence byte for byte.
     func testIdleFlagIsOptionalOnTheWire() throws {
         var idle = presence

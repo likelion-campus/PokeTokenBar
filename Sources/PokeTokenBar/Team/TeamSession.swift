@@ -12,6 +12,8 @@ struct TeamMemberState: Equatable, Sendable {
     var isWalking: Bool
     /// No keyboard or mouse input for a while, with the plaza open or closed. Shown as zZ, in place.
     var isIdle = false
+    /// The picked name colour as received; `PlazaNameColor` decides whether it can be shown.
+    var nameColor: UInt32?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -77,6 +79,7 @@ final class TeamSession {
     /// The code the app had last time `applySettings` looked; the baseline for "did the team change".
     @ObservationIgnored private var knownCode: TeamCode?
     @ObservationIgnored private var sentNickname: String?
+    @ObservationIgnored private var sentNameColor: UInt32?
     @ObservationIgnored private var character: TeamMonSummary?
     @ObservationIgnored private var inPlaza = false
     @ObservationIgnored private var tile: TilePoint?
@@ -117,8 +120,9 @@ final class TeamSession {
             return
         }
         if running && !codeChanged {
-            if nickname != sentNickname {
+            if nickname != sentNickname || settings.nameColor != sentNameColor {
                 sentNickname = nickname
+                sentNameColor = settings.nameColor
                 broadcast(.presence(makePresence()))
             }
             return
@@ -127,6 +131,7 @@ final class TeamSession {
         resetConnections()
         pruneFeed()
         sentNickname = nickname
+        sentNameColor = settings.nameColor
         transport.start(code: code)
         running = true
     }
@@ -279,6 +284,7 @@ final class TeamSession {
             member.facing = presence.facing
             member.isWalking = presence.isWalking
             member.isIdle = presence.isIdle ?? false
+            member.nameColor = presence.nameColor
             members[memberID] = member
         case .inventory(let eventIDs, let reactionIDs):
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
@@ -370,7 +376,8 @@ final class TeamSession {
 
     private func makePresence() -> TeamPresence {
         TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
-                     inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil)
+                     inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
+                     nameColor: settings.nameColor)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

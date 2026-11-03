@@ -1,8 +1,9 @@
 import CoreGraphics
 
-/// 팀원마다 고정된 이름 색. 멤버 ID로만 정해지므로 기기가 달라도 같은 색이다.
+/// 이름 색. 고르지 않았으면 멤버 ID로만 정해지므로 기기가 달라도 같은 색이고, 고르면 이 팔레트의 한 색이다.
 enum PlazaNameColor {
-    private static let hexes: [UInt32] = [
+    /// 고를 수 있는 색. 잔디와 판 위에서 모두 읽히는 밝은 색만 둔다.
+    static let hexes: [UInt32] = [
         0xFFFFFF, 0xFFE14D, 0x7FD4FF, 0xFF9ECF, 0xFFB054, 0xC9A6FF,
         0x8FF0C8, 0xFF8A80, 0xB6F24D, 0x6FE8E8, 0xF2D6A2, 0xA8C8FF,
     ]
@@ -30,4 +31,15 @@ enum PlazaNameColor {
     }
 
     static func color(forMemberID id: String) -> CGColor { palette[index(forMemberID: id)] }
+
+    /// 고른 색이 팔레트에 있으면 그 색, 아니면(안 골랐거나 모르는 값) 멤버 ID의 색. 받은 값은 여기서만 거른다.
+    static func hex(forMemberID id: String, chosen: UInt32?) -> UInt32 {
+        if let chosen, hexes.contains(chosen) { return chosen }
+        return hexes[index(forMemberID: id)]
+    }
+
+    static func color(forMemberID id: String, chosen: UInt32?) -> CGColor {
+        // `hex` always returns one of `hexes`.
+        palette[hexes.firstIndex(of: hex(forMemberID: id, chosen: chosen))!]
+    }
 }

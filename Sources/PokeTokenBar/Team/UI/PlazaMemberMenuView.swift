@@ -11,7 +11,7 @@ struct PlazaMemberMenuView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(menu.nickname)
                 .font(Font(PlazaResources.font(size: 14)))
-                .foregroundStyle(Color(cgColor: PlazaNameColor.color(forMemberID: menu.memberID)))
+                .foregroundStyle(Color(cgColor: PlazaNameColor.color(forMemberID: menu.memberID, chosen: menu.nameColor)))
                 .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
                 .lineLimit(1)
             ForEach(PlazaMemberAction.allCases, id: \.self) { action in

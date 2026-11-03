@@ -878,6 +878,22 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(relaunched.transport.isRunning)
     }
 
+    /// A picked name colour goes out at once, and a teammate who connects later gets it with the first presence.
+    func testNameColorChangeSendsPresence() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        XCTAssertNil(b.session.members[a.memberID]?.nameColor)
+        a.settings.nameColor = 0xFF9ECF
+        a.session.applySettings()
+        XCTAssertEqual(b.session.members[a.memberID]?.nameColor, 0xFF9ECF)
+        let before = a.presencesSent
+        a.session.applySettings()
+        XCTAssertEqual(a.presencesSent, before)
+        let c = node("C")
+        connect(a, c)
+        XCTAssertEqual(c.session.members[a.memberID]?.nameColor, 0xFF9ECF)
+    }
+
     func testNicknameChangeSendsPresence() {
         let a = node("A"), b = node("B")
         connect(a, b)

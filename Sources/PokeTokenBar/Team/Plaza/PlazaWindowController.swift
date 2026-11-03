@@ -17,6 +17,11 @@ extension SKView: PlazaPausableView {}
     private let myRosterEntry: () -> PlazaRosterEntry?
     /// 지금 팀의 저장된 이름. 창 제목에 붙인다.
     private let teamName: () -> String?
+    /// 내가 고른 이름 색. nil이면 멤버 ID의 색.
+    private let nameColor: () -> UInt32?
+    /// 고른 이름 색을 저장한다(팀 설정). 팀원에게는 세션이 보낸다.
+    private let chooseNameColor: (UInt32) -> Void
+    private let nameColorModel = PlazaNameColorModel()
     private let rosterModel = PlazaRosterModel()
     private let clock: () -> Date
     private let profileTimeout: Duration
@@ -95,6 +100,8 @@ extension SKView: PlazaPausableView {}
          subject: @escaping () -> CompanionStore.RepresentativeSubject,
          myRosterEntry: @escaping () -> PlazaRosterEntry? = { nil },
          teamName: @escaping () -> String? = { nil },
+         nameColor: @escaping () -> UInt32? = { nil },
+         chooseNameColor: @escaping (UInt32) -> Void = { _ in },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -118,6 +125,8 @@ extension SKView: PlazaPausableView {}
         self.subject = subject
         self.myRosterEntry = myRosterEntry
         self.teamName = teamName
+        self.nameColor = nameColor
+        self.chooseNameColor = chooseNameColor
         super.init()
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
@@ -179,6 +188,11 @@ extension SKView: PlazaPausableView {}
                 model: backgroundModel, toggle: { [weak self] in self?.toggleBackground() }))
             toggle.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(toggle)
+            let colorPicker = PlazaNameColorPickerHostingView(rootView: PlazaNameColorPicker(
+                model: nameColorModel, toggle: { [weak self] in self?.toggleNameColorPicker() },
+                choose: { [weak self] in self?.pickNameColor($0) }))
+            colorPicker.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(colorPicker)
             let chatBar = chatInput.view
             chatBar.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(chatBar)   // 판 위. 열린 동안에만 입력창이 첫 응답자가 된다.
@@ -199,6 +213,8 @@ extension SKView: PlazaPausableView {}
                 map.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
                 toggle.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
                 toggle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PlazaRosterMetrics.margin),
+                colorPicker.topAnchor.constraint(equalTo: toggle.topAnchor),
+                colorPicker.leadingAnchor.constraint(equalTo: toggle.trailingAnchor, constant: 8),
             ])
             w.contentView = container
             w.center()
@@ -234,7 +250,9 @@ extension SKView: PlazaPausableView {}
         let s = PlazaScene(map: map, mapImage: mapImage,
                            start: preferences.lastTile(validIn: map),
                            zoom: preferences.zoom, nickname: nickname())
-        s.setNameColor(PlazaNameColor.color(forMemberID: memberID()))
+        s.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: nameColor()))
+        nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: nameColor())
+        nameColorModel.isOpen = false
         s.canWalk = subject().speciesID != nil
         s.onZoomChange = { [weak self, preferences] in
             preferences.zoom = $0
@@ -294,6 +312,26 @@ extension SKView: PlazaPausableView {}
         chatLogAtBottom?.isActive = !above
         chatLogAboveInput?.isActive = above
     }
+
+    /// 이름 색 팔레트를 펼치거나 접는다. 누른 뒤에도 키는 장면이 받는다.
+    func toggleNameColorPicker() {
+        nameColorModel.isOpen.toggle()
+        if let skView { window?.makeFirstResponder(skView) }
+    }
+
+    /// 고른 색을 저장하고 내 이름표에 바로 칠한 뒤 팔레트를 접는다. 팀원에게는 세션이 다음 위치 소식으로 보낸다.
+    func pickNameColor(_ hex: UInt32) {
+        chooseNameColor(hex)
+        nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: hex)
+        nameColorModel.isOpen = false
+        scene?.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: hex))
+        refreshMinimap()
+        if let skView { window?.makeFirstResponder(skView) }
+    }
+
+    /// 테스트용 읽기 전용 값.
+    var isNameColorPickerOpen: Bool { nameColorModel.isOpen }
+    var shownNameColor: UInt32 { nameColorModel.current }
 
     /// 지도와 바탕을 숨기거나 되살린다. 창도 투명하게 바꿔 뒤의 작업 화면이 비치게 한다.
     func toggleBackground() {
@@ -360,7 +398,7 @@ extension SKView: PlazaPausableView {}
             openOverlay(.board)
         case .member(let id):
             guard let state = members[id] else { return }
-            openOverlay(.memberMenu(PlazaMemberMenu(memberID: id, nickname: state.nickname)))
+            openOverlay(.memberMenu(PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)))
         }
     }
 
@@ -560,7 +598,7 @@ extension SKView: PlazaPausableView {}
         let list = members.values.sorted { $0.memberID < $1.memberID }
         scene.applyMembers(list.map {
             PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
-                             facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle)
+                             facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle, nameColor: $0.nameColor)
         })
         refreshMinimap()
         let ids = Set(members.keys)
