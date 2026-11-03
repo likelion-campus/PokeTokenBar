@@ -2,21 +2,26 @@ import SwiftUI
 import AppKit
 
 /// 오른쪽 아래 작은 지도. 누가 어디에 있는지 한눈에 보인다. 배경을 숨기면 지도 그림과 바탕을 반투명하게 낮추고
-/// 점과 영역 표시만 또렷하게 남긴다.
+/// 점과 영역 표시만 또렷하게 남긴다. 지도 그림은 광장처럼 때에 따라 색이 바뀌고 밤에는 채도도 낮아진다. 점과 영역 표시는 그대로다.
 @MainActor
 struct PlazaMinimapView: View {
     let model: PlazaMinimapModel
     var background = PlazaBackgroundModel()
     let mapImage: NSImage
     let worldSize: CGSize
+    /// 정해진 시각으로 그린다(테스트용). nil이면 지금 시각을 1분마다 따른다.
+    var fixedDate: Date?
 
     var body: some View {
         let width = PlazaMinimapModel.width
         let height = (width * worldSize.height / max(worldSize.width, 1)).rounded()
         let dimmed = background.isHidden
         ZStack {
-            Image(nsImage: mapImage).resizable().interpolation(.medium)
-                .opacity(dimmed ? Self.dimmedMapOpacity : 1)
+            if let fixedDate {
+                mapLayer(at: fixedDate, dimmed: dimmed)
+            } else {
+                TimelineView(.everyMinute) { context in mapLayer(at: context.date, dimmed: dimmed) }
+            }
             Canvas { context, size in
                 let s = size.width / max(worldSize.width, 1)
                 let view = model.view
@@ -40,6 +45,16 @@ struct PlazaMinimapView: View {
         .padding(4)
         .background(RoundedRectangle(cornerRadius: 6).fill(dimmed ? Color.black.opacity(Self.dimmedPanelOpacity) : Color(hex: 0x1D4F5C)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(dimmed ? 0.3 : 0.5), lineWidth: 1.5))
+    }
+
+    /// 배경을 숨겼으면 광장처럼 색을 바꾸지 않는다.
+    private func mapLayer(at date: Date, dimmed: Bool) -> some View {
+        let minute = PlazaDaylight.minute(of: date)
+        let tint = dimmed ? .none : PlazaDaylight.tint(minute: minute)
+        return Image(nsImage: mapImage).resizable().interpolation(.medium)
+            .colorMultiply(Color(.sRGB, red: tint.red, green: tint.green, blue: tint.blue))
+            .saturation(dimmed ? 1 : PlazaDaylight.minimapSaturation(minute: minute))
+            .opacity(dimmed ? Self.dimmedMapOpacity : 1)
     }
 
     static let dimmedMapOpacity = 0.3

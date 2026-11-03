@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import PokeTokenBar
 
 @MainActor
@@ -45,6 +46,46 @@ final class PlazaDaylightTests: XCTestCase {
             XCTAssertLessThan(abs(t.red - last.red) + abs(t.green - last.green) + abs(t.blue - last.blue), 0.03, "minute \(m)")
             last = t
         }
+    }
+
+    /// The minimap loses colour toward night, smoothly, and is untouched by day.
+    func testMinimapSaturationFollowsTheTime() {
+        XCTAssertEqual(D.minimapSaturation(minute: 12 * 60), 1)
+        XCTAssertEqual(D.minimapSaturation(minute: 22 * 60), 0.65)
+        XCTAssertEqual(D.minimapSaturation(minute: 18 * 60), 0.95)
+        XCTAssertEqual(D.minimapSaturation(minute: 6 * 60), 0.85)
+        let all = (0...(24 * 60)).map { D.minimapSaturation(minute: Double($0)) }
+        XCTAssertEqual(all.min(), 0.65, "night is the greyest")
+        XCTAssertTrue(zip(all, all.dropFirst()).allSatisfy { abs($0 - $1) < 0.01 }, "no jumps")
+    }
+
+    /// The minimap's map follows the time like the plaza: darker, bluer and greyer at night. With the background
+    /// hidden it does not change, as the plaza does not.
+    func testMinimapMapFollowsTheTime() throws {
+        let map = NSImage(size: NSSize(width: 48, height: 32), flipped: false) { rect in
+            NSColor(srgbRed: 0.43, green: 0.73, blue: 0.33, alpha: 1).setFill(); rect.fill(); return true
+        }
+        func corner(hour: Int, hidden: Bool = false) throws -> (r: Int, g: Int, b: Int) {
+            let background = PlazaBackgroundModel()
+            background.isHidden = hidden
+            let view = PlazaMinimapView(model: PlazaMinimapModel(), background: background, mapImage: map,
+                                        worldSize: PlazaMapData.map.pixelSize, fixedDate: at(hour, 0))
+            let image = try XCTUnwrap(ImageRenderer(content: view).cgImage)
+            var px = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let ctx = try XCTUnwrap(CGContext(data: &px, width: image.width, height: image.height, bitsPerComponent: 8,
+                                              bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            let i = (12 * image.width + 12) * 4   // inside the map, clear of the frame and any dot
+            return (Int(px[i]), Int(px[i + 1]), Int(px[i + 2]))
+        }
+        let noon = try corner(hour: 12), night = try corner(hour: 22)
+        XCTAssertLessThan(night.g, noon.g - 40, "darker at night")
+        XCTAssertLessThan(night.g - night.r, noon.g - noon.r, "and less green (greyer, bluer)")
+        XCTAssertGreaterThan(night.b * noon.g, noon.b * night.g, "blue holds up better than green")
+        let hiddenNoon = try corner(hour: 12, hidden: true), hiddenNight = try corner(hour: 22, hidden: true)
+        XCTAssertEqual(hiddenNight.r, hiddenNoon.r)
+        XCTAssertEqual(hiddenNight.g, hiddenNoon.g)
     }
 
     func testPhaseBoundaries() {
