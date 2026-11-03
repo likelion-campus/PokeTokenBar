@@ -328,12 +328,19 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertLessThanOrEqual(abs(scene.walker.tile.x - start.x) + abs(scene.walker.tile.y - start.y), 1)
     }
 
+    /// The first arrow key with `count` walkable tiles in a row from `start`.
+    private func clearRun(from start: TilePoint, count: Int) -> UInt16? {
+        let map = PlazaMapData.map
+        let options: [(UInt16, Int, Int)] = [(124, 1, 0), (123, -1, 0), (125, 0, 1), (126, 0, -1)]
+        return options.first { o in (1...count).allSatisfy { map.isWalkable(.init(x: start.x + o.1 * $0, y: start.y + o.2 * $0)) } }?.0
+    }
+
     /// Holding Shift while walking runs: twice the tiles in the same time. Without Shift it walks.
     func testShiftHeldDuringUpdateRuns() {
         func walked(_ modifiers: NSEvent.ModifierFlags) -> (tiles: Int, ran: Bool) {
             let c = controller(defaults())
             c.prepareScene()
-            guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { XCTFail("setup"); return (0, false) }
+            guard let scene = c.scene, let key = clearRun(from: scene.walker.tile, count: 6) else { XCTFail("setup"); return (0, false) }
             let start = scene.walker.tile
             scene.currentModifiers = { modifiers }
             scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false, modifiers: modifiers)
@@ -347,6 +354,26 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertTrue(run.ran)
         XCTAssertGreaterThanOrEqual(run.tiles, walk.tiles * 2 - 1, "running \(run.tiles) vs walking \(walk.tiles)")
         XCTAssertGreaterThan(run.tiles, walk.tiles)
+    }
+
+    /// A frame can never cover two tiles, even a slow one while running, so every tile I pass is reported and
+    /// teammates never see me jump two tiles. The frame cap stays below the running step for that.
+    func testASlowFrameWhileRunningReportsEveryTile() {
+        XCTAssertLessThan(PlazaScene.maxFrameDelta, PlazaWalker.runStepDuration)
+        let c = controller(defaults())
+        c.prepareScene()
+        guard let scene = c.scene, let key = clearRun(from: scene.walker.tile, count: 6) else { return XCTFail("setup") }
+        var reported = [scene.walker.tile]
+        scene.onLocalPositionChange = { tile, _, _ in if tile != reported.last { reported.append(tile) } }
+        scene.currentModifiers = { .shift }
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false, modifiers: .shift)
+        var t: TimeInterval = 0
+        scene.update(t)
+        for _ in 0..<5 { t += 0.1; scene.update(t) }   // stalled frames, each longer than a running step
+        XCTAssertGreaterThan(reported.count, 3, "it ran")
+        for (a, b) in zip(reported, reported.dropFirst()) {
+            XCTAssertEqual(abs(a.x - b.x) + abs(a.y - b.y), 1, "\(a) to \(b) skips a tile")
+        }
     }
 
     func testPersistStateSavesTileWithoutTearingDown() {
