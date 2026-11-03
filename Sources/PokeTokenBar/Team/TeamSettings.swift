@@ -20,6 +20,13 @@ final class TeamSettings {
     }
     var nickname: String { didSet { defaults.set(nickname, forKey: "team.nickname") } }
     var notificationsEnabled: Bool { didSet { defaults.set(notificationsEnabled, forKey: "team.notifications") } }
+    /// 광장에서 고른 이름 색(RGB). nil이면 멤버 ID의 색을 쓴다. 모든 팀에 같이 쓴다.
+    var nameColor: UInt32? {
+        didSet {
+            if let nameColor { defaults.set(Int(nameColor), forKey: "team.nameColor") }
+            else { defaults.removeObject(forKey: "team.nameColor") }
+        }
+    }
     let memberID: String
 
     init(defaults: UserDefaults = TeamSettings.defaultStore()) {
@@ -28,6 +35,7 @@ final class TeamSettings {
         code = defaults.string(forKey: "team.code").flatMap { TeamCode(parsing: $0) }
         nickname = defaults.string(forKey: "team.nickname") ?? ""
         notificationsEnabled = defaults.object(forKey: "team.notifications") as? Bool ?? true
+        nameColor = (defaults.object(forKey: "team.nameColor") as? Int).flatMap { UInt32(exactly: $0) }
         savedTeams = defaults.data(forKey: "team.saved")
             .flatMap { try? JSONDecoder().decode([SavedTeam].self, from: $0) }?
             .filter { TeamCode(parsing: $0.code) != nil } ?? []

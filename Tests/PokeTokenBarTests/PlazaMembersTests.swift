@@ -509,6 +509,46 @@ final class PlazaMembersTests: XCTestCase {
         XCTAssertEqual(c.scene?.memberNameColor(id), PlazaNameColor.color(forMemberID: id))
     }
 
+    /// A teammate who picks a name colour shows in it here at once.
+    func testTeammatesPickedNameColorShowsHere() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me)
+        c.prepareScene()
+        await connect(me, other)
+        let id = other.settings.memberID
+        let pick = PlazaNameColor.hexes.first { $0 != PlazaNameColor.hex(forMemberID: id, chosen: nil) }!
+        other.settings.nameColor = pick
+        other.session.applySettings()
+        await settle()
+        XCTAssertEqual(c.scene?.memberNameColor(id), PlazaNameColor.color(forMemberID: id, chosen: pick))
+    }
+
+    /// Picking a colour saves it, paints my name at once, folds the palette, and is still there when the plaza reopens.
+    func testPickingMyNameColorPaintsMeAndIsKept() {
+        let me = node("나"), id = me.settings.memberID
+        var saved: UInt32?
+        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
+                                      loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
+                                      nickname: { "나" }, memberID: { id }, subject: { .init(speciesID: 25, isShiny: false) },
+                                      nameColor: { saved }, chooseNameColor: { saved = $0 }, session: me.session)
+        c.prepareScene()
+        let own = PlazaNameColor.hex(forMemberID: id, chosen: nil)
+        XCTAssertEqual(c.shownNameColor, own)
+        XCTAssertEqual(c.scene?.nameColor, PlazaNameColor.color(forMemberID: id))
+        c.toggleNameColorPicker()
+        XCTAssertTrue(c.isNameColorPickerOpen)
+        let pick = PlazaNameColor.hexes.first { $0 != own }!
+        c.pickNameColor(pick)
+        XCTAssertEqual(saved, pick)
+        XCTAssertFalse(c.isNameColorPickerOpen)
+        XCTAssertEqual(c.shownNameColor, pick)
+        XCTAssertEqual(c.scene?.nameColor, PlazaNameColor.color(forMemberID: id, chosen: pick))
+        c.handleClose()
+        c.prepareScene()
+        XCTAssertEqual(c.scene?.nameColor, PlazaNameColor.color(forMemberID: id, chosen: pick))
+        XCTAssertEqual(c.shownNameColor, pick)
+    }
+
     func testCharacterChangeReloadsOnlyThatMember() async {
         let fetcher = CountingFetcher()
         let me = node("나"), a = node("가", character: Self.pikachu), b = node("나나", character: Self.eevee)

@@ -83,6 +83,7 @@ final class TeamRuntime {
             _ = settings.isEnabled
             _ = settings.code
             _ = settings.nickname
+            _ = settings.nameColor
             _ = settings.notificationsEnabled
             _ = session.hasOnlinePeers
         } onChange: { [weak self] in

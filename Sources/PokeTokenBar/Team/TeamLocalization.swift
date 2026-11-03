@@ -47,6 +47,8 @@ extension L {
     func teamMegaphoneNotice(nickname: String, text: String) -> String { "📢 \(nickname): \(text)" }
     var plazaBackgroundHide: String { "배경 숨기기" }
     var plazaBackgroundShow: String { "배경 보이기" }
+    var plazaNameColor: String { "이름 색" }
+    func plazaNameColorChoice(_ n: Int) -> String { "이름 색 \(n)" }
     var plazaEmoteLol: String { "ㅋㅋ" }
     var plazaCardLoading: String { "불러오는 중…" }
     /// 카드 맨 위. 누구의 카드인지 보인다.

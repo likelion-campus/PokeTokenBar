@@ -100,3 +100,63 @@ final class PlazaBackgroundModel {
 final class PlazaBackgroundToggleHostingView: NSHostingView<PlazaBackgroundToggle> {
     override var acceptsFirstResponder: Bool { false }
 }
+
+/// 배경 숨기기 오른쪽의 이름 색 단추. 누르면 아래에 고를 색이 펼쳐지고, 하나를 누르면 그 색이 되고 접힌다.
+/// 누른 뒤에도 키는 장면이 받는다.
+@MainActor
+struct PlazaNameColorPicker: View {
+    static let columns = 6
+    static let swatch: CGFloat = 20
+    let model: PlazaNameColorModel
+    let toggle: () -> Void
+    let choose: (UInt32) -> Void
+
+    var body: some View {
+        let l = L(.ko)
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: toggle) {
+                HStack(spacing: 6) {
+                    Circle().fill(Color(hex: model.current)).frame(width: 12, height: 12)
+                        .overlay(Circle().stroke(Color(hex: 0x14161F), lineWidth: 1.5))
+                    Text(l.plazaNameColor)
+                }
+                .font(Font(PlazaResources.font(size: 12)))
+                .foregroundStyle(Color(hex: 0xF8F8F0))
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1D4F5C).opacity(0.9)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.5), lineWidth: 1.5))
+            }
+            .buttonStyle(.plain)
+            .focusable(false)
+            if model.isOpen {
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(Self.swatch + 4), spacing: 4), count: Self.columns), spacing: 4) {
+                    ForEach(Array(PlazaNameColor.hexes.enumerated()), id: \.offset) { i, hex in
+                        Button { choose(hex) } label: {
+                            Circle().fill(Color(hex: hex)).frame(width: Self.swatch, height: Self.swatch)
+                                .overlay(Circle().stroke(Color(hex: 0x14161F), lineWidth: 1.5))
+                                .padding(2)
+                                .overlay(Circle().stroke(Color.white, lineWidth: hex == model.current ? 2 : 0))
+                        }
+                        .buttonStyle(.plain)
+                        .focusable(false)
+                        .accessibilityLabel(l.plazaNameColorChoice(i + 1))
+                    }
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1D4F5C).opacity(0.9)))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.5), lineWidth: 1.5))
+            }
+        }
+    }
+}
+
+@MainActor @Observable
+final class PlazaNameColorModel {
+    /// 지금 이름표 색(RGB). 고르지 않았으면 멤버 ID의 색.
+    var current: UInt32 = PlazaNameColor.hexes[0]
+    var isOpen = false
+}
+
+final class PlazaNameColorPickerHostingView: NSHostingView<PlazaNameColorPicker> {
+    override var acceptsFirstResponder: Bool { false }
+}

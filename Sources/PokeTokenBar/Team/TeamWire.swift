@@ -18,6 +18,9 @@ struct TeamPresence: Codable, Equatable, Sendable {
     var isWalking: Bool
     /// No keyboard or mouse input for a while. Left out when false, so earlier versions read the frame as before.
     var isIdle: Bool?
+    /// The name colour the member picked (an RGB value from the plaza palette). Left out when none was picked;
+    /// earlier versions ignore it and keep the colour from the member ID.
+    var nameColor: UInt32?
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {

@@ -1,6 +1,7 @@
 import CoreGraphics
 import Observation
 import XCTest
+import SwiftUI
 @testable import PokeTokenBar
 
 private struct ColorTestProvider: PokeProviding {
@@ -20,6 +21,35 @@ private final class FireCount: @unchecked Sendable {
 }
 
 final class PlazaNameColorTests: XCTestCase {
+    /// A picked colour is shown only when it is one of the palette's; anything else (nothing picked, a value from
+    /// another version) falls back to the member's own colour.
+    func testPickedColorWinsOnlyWhenItIsInThePalette() {
+        let own = PlazaNameColor.hexes[PlazaNameColor.index(forMemberID: "a")]
+        let other = PlazaNameColor.hexes.first { $0 != own }!
+        XCTAssertEqual(PlazaNameColor.hex(forMemberID: "a", chosen: nil), own)
+        XCTAssertEqual(PlazaNameColor.hex(forMemberID: "a", chosen: other), other)
+        XCTAssertEqual(PlazaNameColor.hex(forMemberID: "a", chosen: 0x123456), own, "not in the palette")
+        let index = PlazaNameColor.hexes.firstIndex(of: other)!
+        XCTAssertEqual(rgb(PlazaNameColor.color(forMemberID: "a", chosen: other)), rgb(PlazaNameColor.palette[index]))
+        XCTAssertEqual(rgb(PlazaNameColor.color(forMemberID: "a", chosen: 0x123456)), rgb(PlazaNameColor.color(forMemberID: "a")))
+    }
+
+    /// The picker is one button; opened, it unfolds every palette colour below it in rows of six.
+    @MainActor
+    func testPickerUnfoldsThePaletteBelowTheButton() {
+        let model = PlazaNameColorModel()
+        func size() -> CGSize {
+            NSHostingController(rootView: PlazaNameColorPicker(model: model, toggle: {}, choose: { _ in }))
+                .sizeThatFits(in: CGSize(width: 1000, height: 1000))
+        }
+        let closed = size()
+        model.isOpen = true
+        let open = size()
+        let rows = CGFloat((PlazaNameColor.hexes.count + PlazaNameColorPicker.columns - 1) / PlazaNameColorPicker.columns)
+        XCTAssertGreaterThanOrEqual(open.height, closed.height + rows * PlazaNameColorPicker.swatch)
+        XCTAssertGreaterThanOrEqual(open.width, CGFloat(PlazaNameColorPicker.columns) * PlazaNameColorPicker.swatch)
+    }
+
     private func rgb(_ c: CGColor) -> [CGFloat] {
         let s = c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)!
         return Array(s.components!.prefix(3))

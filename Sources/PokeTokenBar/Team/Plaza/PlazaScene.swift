@@ -13,6 +13,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     let isWalking: Bool
     /// 한동안 입력이 없다(자리비움). 이름에 zZ를 붙인다. 광장 안이면 자리는 그대로 둔다.
     var isIdle = false
+    /// 그 팀원이 고른 이름 색. 없거나 팔레트에 없으면 멤버 ID의 색.
+    var nameColor: UInt32?
 }
 
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.
@@ -77,7 +79,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 팀원 한 명의 장면 쪽 상태. 그림은 내 캐릭터와 같은 `PlazaActor`를 쓴다.
     private struct Remote {
         let actor: PlazaActor
-        let color: CGColor
+        var color: CGColor
         var nickname: String
         var isAway: Bool
         var isIdle = false
@@ -207,10 +209,11 @@ struct PlazaSceneMember: Equatable, Sendable {
                 if !m.isAway { r.motion.facing = m.facing }
                 r.nickname = m.nickname
                 r.isIdle = m.isIdle
+                r.color = PlazaNameColor.color(forMemberID: m.memberID, chosen: m.nameColor)
                 r.actor.setName(r.displayName, color: r.color)
                 remotes[m.memberID] = r
             } else {
-                let color = PlazaNameColor.color(forMemberID: m.memberID)
+                let color = PlazaNameColor.color(forMemberID: m.memberID, chosen: m.nameColor)
                 let wanderer = m.isAway ? shelterWanderer(m.memberID) : nil
                 var motion = PlazaRemoteMotion(tile: wanderer?.tile ?? target, facing: m.facing)
                 motion.senderIsWalking = !m.isAway && m.isWalking

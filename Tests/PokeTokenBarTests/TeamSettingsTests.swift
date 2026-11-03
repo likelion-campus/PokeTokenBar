@@ -12,6 +12,16 @@ final class TeamSettingsTests: XCTestCase {
         return UserDefaults(suiteName: name)!
     }
 
+    func testNameColorIsKeptOnThisMac() {
+        let d = freshDefaults()
+        let s = TeamSettings(defaults: d)
+        XCTAssertNil(s.nameColor)
+        s.nameColor = 0xFF9ECF
+        XCTAssertEqual(TeamSettings(defaults: d).nameColor, 0xFF9ECF)
+        s.nameColor = nil
+        XCTAssertNil(TeamSettings(defaults: d).nameColor)
+    }
+
     // MARK: - 저장한 팀
 
     private func code(_ seed: UInt64) -> TeamCode {
