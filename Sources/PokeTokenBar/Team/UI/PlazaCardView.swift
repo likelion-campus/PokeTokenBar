@@ -50,20 +50,20 @@ struct PlazaCardView: View {
             PlazaCardSprite(mon: member.character)
             VStack(alignment: .leading, spacing: 6) {
                 Text(l.plazaCardTitle(nickname: member.nickname))
-                    .font(Font(PlazaResources.font(size: 16)))
+                    .font(Font(PlazaResources.font(.body)))
                     .foregroundStyle(Color(cgColor: PlazaNameColor.color(forMemberID: member.memberID, chosen: member.nameColor)))
                     .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 if let name = state.characterName {
                     Text(name)
-                        .font(Font(PlazaResources.font(size: 14)))
+                        .font(Font(PlazaResources.font(.body)))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
                 let badges = state.characterBadges
                 if !badges.isEmpty {
                     HStack(spacing: 4) {
-                        ForEach(Array(badges.enumerated()), id: \.offset) { _, badge in PlazaCardPill(badge: badge, size: 12) }
+                        ForEach(Array(badges.enumerated()), id: \.offset) { _, badge in PlazaCardPill(badge: badge) }
                     }
                 }
                 if let other = state.differingCurrent { PlazaCardIcon(speciesID: other.speciesID, size: CGSize(width: 40, height: 30)) }
@@ -75,7 +75,7 @@ struct PlazaCardView: View {
 
     private func message(_ text: String) -> some View {
         Text(text)
-            .font(Font(PlazaResources.font(size: 14)))
+            .font(Font(PlazaResources.font(.body)))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -85,7 +85,6 @@ struct PlazaCardView: View {
 @MainActor
 private struct PlazaCardPill: View {
     let badge: PlazaCardBadge
-    let size: CGFloat
 
     var body: some View {
         let l = L(.ko)
@@ -94,9 +93,9 @@ private struct PlazaCardPill: View {
         case .rarity(let r): (l.rarityLabel(r), rarityColor(r), .white)
         }
         Text(text)
-            .font(Font(PlazaResources.font(size: size)))
+            .font(Font(PlazaResources.font(.small)))
             .foregroundStyle(ink)
-            .padding(.horizontal, size / 2).padding(.vertical, 1)
+            .padding(.horizontal, 6).padding(.vertical, 1)
             .background(fill, in: Capsule())
     }
 }
@@ -119,7 +118,7 @@ private struct PlazaDexCell: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if legendary { PlazaCardPill(badge: .rarity(.legendary), size: 10).padding(2) }
+                if legendary { PlazaCardPill(badge: .rarity(.legendary)).padding(2) }
             }
             .help(species.name)
     }

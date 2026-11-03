@@ -44,9 +44,10 @@ struct TeamEmote: Codable, Equatable, Sendable {
 
 /// A short line said in the plaza. It is shown for a moment and never stored or forwarded.
 struct TeamChat: Codable, Equatable, Sendable {
-    static let maxCharacters = 40
+    /// v2.5.607 and earlier cut at 40 and drop a received line that is longer, so they do not show 41 to 60.
+    static let maxCharacters = 60
     /// One Character can hold any number of combining marks, so the Character count bounds nothing.
-    static let maxBytes = 320
+    static let maxBytes = 480
     var text: String
     /// A megaphone line: teammates outside the plaza get a notification too. Left out when false, so earlier
     /// versions read it as an ordinary line.

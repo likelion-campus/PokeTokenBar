@@ -60,14 +60,14 @@ struct PlazaBoardView: View {
         let rows = PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID)
         VStack(spacing: 8) {
             Text(l.plazaBoardTitle)
-                .font(Font(PlazaResources.font(size: 16)))
+                .font(Font(PlazaResources.font(.body)))
                 .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: 24)
             if rows.isEmpty {
                 Text(l.plazaBoardEmpty)
-                    .font(Font(PlazaResources.font(size: 14)))
+                    .font(Font(PlazaResources.font(.body)))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -93,20 +93,20 @@ private struct PlazaBoardRowView: View {
         let lineColor = row.isShiny ? Color(hex: 0xFFE060) : Color.white
         VStack(alignment: .leading, spacing: 4) {
             Text((row.isShiny ? "★ " : "") + row.text)
-                .font(Font(PlazaResources.font(size: 14)))
+                .font(Font(PlazaResources.font(.body)))
                 .foregroundStyle(lineColor)
-                // Only Galmuri11 regular ships, so `.fontWeight(.bold)` would do nothing: a same-colour shadow
-                // one dot to the side thickens the strokes instead.
-                .shadow(color: row.isBig ? lineColor : .clear, radius: 0, x: 0.6, y: 0)
+                // Only regular weights ship, so `.fontWeight(.bold)` would do nothing: a same-colour shadow
+                // one font dot (1pt at the body size) to the side thickens the strokes instead.
+                .shadow(color: row.isBig ? lineColor : .clear, radius: 0, x: 1, y: 0)
                 .fixedSize(horizontal: false, vertical: true)
             Text(row.date)
-                .font(Font(PlazaResources.font(size: 12)))
+                .font(Font(PlazaResources.font(.small)))
                 .foregroundStyle(.white.opacity(0.65))
             if !row.reactions.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(row.reactions, id: \.kind) { r in
                         Text(l.teamReactionLabel(r.kind) + " " + r.nicknames.joined(separator: ", "))
-                            .font(Font(PlazaResources.font(size: 12)))
+                            .font(Font(PlazaResources.font(.small)))
                             .foregroundStyle(.white.opacity(0.9))
                     }
                 }
@@ -115,7 +115,7 @@ private struct PlazaBoardRowView: View {
                 ForEach(PlazaBoardRow.buttonKinds, id: \.self) { kind in
                     Button { onReact(kind) } label: {
                         Text(l.teamReactionLabel(kind))
-                            .font(Font(PlazaResources.font(size: 13)))
+                            .font(Font(PlazaResources.font(.small)))
                             .foregroundStyle(Color(hex: 0x2D4048))
                             .frame(minWidth: 30)
                             .padding(.vertical, 2)

@@ -20,19 +20,23 @@ final class TeamChatTextTests: XCTestCase {
     }
 
     func testPreparedCutsToTheLimitWithoutEndingOnASpace() {
-        XCTAssertEqual(TeamChat.prepared(String(repeating: "가", count: 50)), String(repeating: "가", count: 40))
-        let cut = String(repeating: "a", count: 39) + " bbb"
-        XCTAssertEqual(TeamChat.prepared(cut), String(repeating: "a", count: 39))
+        let max = TeamChat.maxCharacters
+        XCTAssertEqual(TeamChat.prepared(String(repeating: "가", count: max + 10)), String(repeating: "가", count: max))
+        let cut = String(repeating: "a", count: max - 1) + " bbb"
+        XCTAssertEqual(TeamChat.prepared(cut), String(repeating: "a", count: max - 1))
     }
 
     func testPreparedKeepsJoinedEmojiAndRejectsAnEndlessCharacter() {
         let family = "👨‍👩‍👧"
         XCTAssertEqual(TeamChat.prepared(family), family)
-        XCTAssertNil(TeamChat.prepared("a" + String(repeating: "\u{0301}", count: 200)))
+        // Two bytes a mark: one Character twice as big as the byte limit.
+        XCTAssertNil(TeamChat.prepared("a" + String(repeating: "\u{0301}", count: TeamChat.maxBytes)))
     }
 
     func testPreparedCutsLongJoinedEmojiInsteadOfLosingTheLine() throws {
-        let line = String(repeating: "👩‍💻", count: 30)
+        // 11 bytes each: within the character limit, over the byte limit.
+        let line = String(repeating: "👩‍💻", count: TeamChat.maxCharacters)
+        XCTAssertGreaterThan(line.utf8.count, TeamChat.maxBytes)
         let cut = try XCTUnwrap(TeamChat.prepared(line))
         XCTAssertLessThanOrEqual(cut.utf8.count, TeamChat.maxBytes)
         XCTAssertTrue(line.hasPrefix(cut))
@@ -53,7 +57,7 @@ final class TeamChatTextTests: XCTestCase {
 final class PlazaChatBubbleTests: XCTestCase {
     func testLongLineWrapsInsideTheLimit() throws {
         let short = try XCTUnwrap(PlazaChatBubble.image(text: "안녕", scale: 2))
-        let long = try XCTUnwrap(PlazaChatBubble.image(text: String(repeating: "가", count: 40), scale: 2))
+        let long = try XCTUnwrap(PlazaChatBubble.image(text: String(repeating: "가", count: TeamChat.maxCharacters), scale: 2))
         XCTAssertLessThan(short.width, long.width)
         XCTAssertLessThan(short.height, long.height, "the long line wraps")
         XCTAssertLessThanOrEqual(CGFloat(long.width), PlazaChatBubble.maxSize.width * 2)
@@ -61,8 +65,9 @@ final class PlazaChatBubbleTests: XCTestCase {
     }
 
     func testEveryLineInTheLimitIsDrawnInFull() {
-        let lines = [String(repeating: "가", count: 40), String(repeating: "😀", count: 40), String(repeating: "🇰🇷", count: 40),
-                     String(repeating: "가😀", count: 20), String(repeating: "W", count: 40)]
+        let max = TeamChat.maxCharacters
+        let lines = [String(repeating: "가", count: max), String(repeating: "😀", count: max), String(repeating: "🇰🇷", count: max),
+                     String(repeating: "가😀", count: max / 2), String(repeating: "W", count: max), String(repeating: "가 ", count: max / 2)]
         for line in lines {
             XCTAssertEqual(PlazaChatBubble.drawnLength(of: line), line.utf16.count, line)
         }
@@ -137,7 +142,7 @@ final class PlazaChatInputTests: XCTestCase {
         let available = try XCTUnwrap(i.field.cell).titleRect(forBounds: i.field.bounds).width
         let l = L(.ko)
         for text in [l.plazaChatPlaceholder, l.plazaLoudPlaceholder] {
-            let width = NSAttributedString(string: text, attributes: [.font: PlazaResources.font(size: 15)]).size().width
+            let width = NSAttributedString(string: text, attributes: [.font: PlazaResources.font(.body)]).size().width
             XCTAssertLessThanOrEqual(width, available, text)
         }
     }
@@ -726,7 +731,7 @@ final class PlazaChatTests: XCTestCase {
         c.showEmote(memberID: id, kind: .heart)
         step(scene, seconds: 0.1)
         let emoteSize = scene.emoteFrame(memberID: id)!.size
-        c.showChat(memberID: id, text: String(repeating: "가", count: 40))
+        c.showChat(memberID: id, text: String(repeating: "가", count: TeamChat.maxCharacters))
         step(scene, seconds: 0.1, from: 1)
         XCTAssertNil(scene.shownEmote(memberID: id))
         XCTAssertNotEqual(scene.emoteFrame(memberID: id)!.size, emoteSize)
@@ -734,7 +739,7 @@ final class PlazaChatTests: XCTestCase {
         step(scene, seconds: 0.1, from: 2)
         XCTAssertNil(scene.shownChat(memberID: id))
         XCTAssertEqual(scene.emoteFrame(memberID: id)!.size, emoteSize, "the same emote is drawn again after a line")
-        c.showChat(memberID: id, text: String(repeating: "가", count: 40))
+        c.showChat(memberID: id, text: String(repeating: "가", count: TeamChat.maxCharacters))
         step(scene, seconds: 0.1, from: 3)
         XCTAssertNotEqual(scene.emoteFrame(memberID: id)!.size, emoteSize, "the same line is drawn again after an emote")
     }

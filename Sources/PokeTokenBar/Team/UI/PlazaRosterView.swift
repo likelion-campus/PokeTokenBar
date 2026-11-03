@@ -16,13 +16,13 @@ struct PlazaRosterView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(l.plazaRosterTitle)
-                    .font(Font(PlazaResources.font(size: 14)))
+                    .font(Font(PlazaResources.font(.body)))
                     .foregroundStyle(Color(hex: 0x2D4048))
                     .padding(.horizontal, 8).padding(.vertical, 2)
                     .background(Color(hex: 0xF8F8F0), in: RoundedRectangle(cornerRadius: 4))
                 Spacer()
                 Text(l.plazaRosterCount(online: online, total: entries.count))
-                    .font(Font(PlazaResources.font(size: 14)))
+                    .font(Font(PlazaResources.font(.body)))
                     .foregroundStyle(Color(hex: 0xF8F8F0))
             }
             .frame(height: PlazaRosterMetrics.headerHeight)
@@ -110,16 +110,16 @@ private struct PlazaRosterSlot: View {
                     if let g = genderSymbol { Text(g.text).foregroundStyle(g.color) }
                     if entry.isShiny { Text("★").foregroundStyle(Color(hex: 0xFFE060)) }
                 }
-                .font(Font(PlazaResources.font(size: 14)))
+                .font(Font(PlazaResources.font(.body)))
                 Text(entry.speciesName).lineLimit(1)
-                    .font(Font(PlazaResources.font(size: 14)))
+                    .font(Font(PlazaResources.font(.body)))
                     .opacity(0.9)
             }
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
             Spacer(minLength: 0)
             Text(status.text)
-                .font(Font(PlazaResources.font(size: 14)))
+                .font(Font(PlazaResources.font(.body)))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 5).padding(.vertical, 1)
                 .background(Color(hex: status.color), in: Capsule())
@@ -152,7 +152,7 @@ private struct PlazaRosterMoreSlot: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 8)
         Text(L(.ko).plazaRosterMore(count))
-            .font(Font(PlazaResources.font(size: 14)))
+            .font(Font(PlazaResources.font(.body)))
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
             .frame(maxWidth: .infinity)

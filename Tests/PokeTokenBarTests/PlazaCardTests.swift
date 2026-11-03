@@ -554,7 +554,7 @@ final class PlazaCardTests: XCTestCase {
         let inner = PlazaMemberMenuView.width - 2 * (PlazaRosterMetrics.padding + 2)
         for action in PlazaMemberAction.allCases {
             let text = "▶ " + PlazaMemberMenuView.title(action)
-            let width = NSAttributedString(string: text, attributes: [.font: PlazaResources.font(size: 15)]).size().width
+            let width = NSAttributedString(string: text, attributes: [.font: PlazaResources.font(.body)]).size().width
             XCTAssertLessThanOrEqual(width, inner, text)
         }
     }
@@ -565,7 +565,7 @@ final class PlazaCardTests: XCTestCase {
                                        onChoose: { _ in })
         let size = NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: 1000, height: 1000))
         XCTAssertEqual(size.width, PlazaMemberMenuView.width)
-        let line = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(size: 15))
+        let line = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(.body))
         // Three lines and two gaps; a wrapped line would add a whole line more.
         XCTAssertLessThan(size.height, 3.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 2 * 4, "three lines, none wrapped")
     }
