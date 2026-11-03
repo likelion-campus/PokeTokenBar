@@ -17,7 +17,7 @@ enum PlazaDaylight {
     /// 하루 중 분(0~1440)과 그때의 색, 작은 지도의 채도. 사이는 섞는다.
     private static let keys: [(minute: Double, tint: Tint, saturation: Double)] = [
         (0, night, 0.65), (5 * 60, night, 0.65), (6 * 60, dawn, 0.85), (7 * 60, .none, 1),
-        (17 * 60, .none, 1), (18 * 60, dusk, 0.95), (19 * 60, night, 0.65), (24 * 60, night, 0.65),
+        (16 * 60, .none, 1), (17 * 60, dusk, 0.95), (18 * 60, night, 0.65), (24 * 60, night, 0.65),
     ]
 
     static func tint(minute: Double) -> Tint { look(minute: minute).tint }
@@ -37,12 +37,12 @@ enum PlazaDaylight {
                 mix(a.saturation, b.saturation))
     }
 
-    /// 시계에 붙이는 때. 새벽 5~7시, 낮 7~17시, 저녁 17~19시, 그 밖은 밤.
+    /// 시계에 붙이는 때. 새벽 5~7시, 낮 7~16시, 저녁 16~18시, 그 밖은 밤.
     static func phase(minute: Double) -> Phase {
         switch minute {
         case 5 * 60..<7 * 60: .dawn
-        case 7 * 60..<17 * 60: .day
-        case 17 * 60..<19 * 60: .dusk
+        case 7 * 60..<16 * 60: .day
+        case 16 * 60..<18 * 60: .dusk
         default: .night
         }
     }
