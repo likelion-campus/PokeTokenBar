@@ -800,6 +800,13 @@ read_when:
   `insertText`를 불러서 메뉴 경로를 밟지 않았다. `StandardEditMenu`가 기동 때 편집 메뉴를 붙인다. XCTest는 앱 이벤트
   루프를 돌리지 않아 실제 Cmd+V를 보낼 수 없으므로, 같은 SwiftUI 구성의 작은 앱에서 `postEvent`로 보낸 Cmd+V가 수정
   전에는 아무것도 넣지 못하고 수정 후에는 붙여넣는 것을 확인했다. 가드: `StandardEditMenuTests`.
+- **편집 메뉴를 직접 만들면 AppKit이 표준 메뉴에 붙여 주던 항목도 직접 넣어야 한다.** 위 수정 뒤에도 "Emoji & Symbols"
+  (⌃⌘Space)는 붙지 않아, 광장 한마디를 포함한 앱의 모든 입력란에서 이모지를 넣을 방법이 없었다. 실행 중인 앱의 메뉴를
+  손쉬운 사용 API로 읽어 항목이 없음을 확인했다. **왜 못 걸렀나:** `StandardEditMenuTests`는 그때 고장 난 여섯 항목만
+  고정했고, 한마디 테스트는 이모지를 `TeamChat.prepared`와 말풍선 그리기로만 다뤄 입력 경로를 밟지 않았다(보내기·그리기는
+  됐고 넣기만 안 됐다). 부류 스윕: 표준 편집 메뉴에서 한 줄 입력란이 단축키로 쓰는 항목(실행 취소·다시 실행·자르기·복사·
+  붙이기·전체 선택·이모지)을 다시 맞춰 봤고, 서식 붙이기·찾기·맞춤법은 서식 없는 한 줄 입력란에 쓸 일이 없어 넣지 않았다.
+  가드: `StandardEditMenuTests`(⌃⌘Space 항목), `testEmojiButtonOpensThePickerAndKeepsTheLine`(광장 입력창의 😀 단추).
 
 ## 동시성
 

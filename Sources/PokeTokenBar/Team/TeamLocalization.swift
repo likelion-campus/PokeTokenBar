@@ -34,9 +34,10 @@ extension L {
     func plazaRosterCount(online: Int, total: Int) -> String { "접속 \(online) / \(total)" }
     var plazaEggName: String { "알" }
     var plazaAwaySuffix: String { "zZ" }
-    var plazaChatPlaceholder: String { "한마디 (Enter 보내기, Tab 확성기, Esc 취소)" }
-    var plazaLoudPlaceholder: String { "📢 확성기: 광장 밖 팀원에게도 알림 (Tab 끄기)" }
+    var plazaChatPlaceholder: String { "한마디 (Enter 전송, Tab 확성기, Esc 취소)" }
+    var plazaLoudPlaceholder: String { "📢 확성기: 광장 밖 팀원도 알림 (Tab 끄기)" }
     var plazaLoudTooSoon: String { "확성기는 1분에 한 번만 쓸 수 있어요" }
+    var plazaChatEmoji: String { "이모지 넣기 (⌃⌘Space)" }
     var plazaChatLogTitle: String { "대화 기록" }
     var plazaRosterWalkHint: String { "누르면 이 팀원에게 걸어가요" }
     var plazaChatLogExpand: String { "펼치기 ▴" }
