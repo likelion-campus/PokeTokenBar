@@ -158,7 +158,7 @@ final class TeamNotificationsTests: XCTestCase {
         let expected: [TeamEmoteKind: String] = [
             .heart: "민수가 내 포켓몬에게 ♥", .lol: "민수가 내 포켓몬에게 ㅋㅋ", .party: "민수가 내 포켓몬에게 🎉",
             .exclaim: "민수가 내 포켓몬에게 !", .question: "민수가 내 포켓몬에게 ?", .tackle: "민수가 내 포켓몬에게 💥",
-            .jump: "민수가 내 포켓몬에게 점프"]
+            .jump: "민수가 내 포켓몬에게 점프", .groupPhoto: "민수가 내 포켓몬에게 단체 사진"]
         XCTAssertEqual(Set(expected.keys), Set(TeamEmoteKind.allCases))
         for (kind, text) in expected { XCTAssertEqual(l.teamEmoteNotice(nickname: "민수", kind: kind), text) }
     }

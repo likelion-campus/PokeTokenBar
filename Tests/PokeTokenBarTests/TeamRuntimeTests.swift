@@ -68,6 +68,26 @@ final class TeamRuntimeTests: XCTestCase {
         return (a, b)
     }
 
+    /// A teammate's group photo starts the countdown on my plaza with their name.
+    func testReceivedGroupPhotoStartsTheCountdown() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.groupphoto.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session,
+                                          groupPhotoSleep: { _ in try? await Task.sleep(for: .seconds(60)) })
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        await settle { b.runtime.session.members[a.settings.memberID] != nil }
+        a.runtime.session.sendEmote(.groupPhoto, target: nil)
+        await settle { plaza.countdown != nil }
+        let name = b.runtime.session.members[a.settings.memberID]?.nickname ?? "?"
+        XCTAssertEqual(plaza.countdown, "\(name)님의 단체 사진 5 · G를 누르면 함께 찍어요")
+        plaza.handleClose()
+    }
+
     /// A teammate's jump makes their character hop here.
     func testReceivedJumpHopsThatTeammate() async {
         let (a, b) = connectedPair()

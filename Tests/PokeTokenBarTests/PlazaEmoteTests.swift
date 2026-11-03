@@ -146,24 +146,25 @@ final class PlazaEmoteTests: XCTestCase {
         scene.onJumpKey = { pressed.append("jump") }
         scene.onGreetKey = { pressed.append("greet") }
         scene.onTackleKey = { pressed.append("tackle") }
-        for (code, hangul) in [(UInt16(6), "ㅋ"), (7, "ㅌ"), (8, "ㅊ")] {
+        scene.onGroupPhotoKey = { pressed.append("groupPhoto") }
+        for (code, hangul) in [(UInt16(6), "ㅋ"), (7, "ㅌ"), (8, "ㅊ"), (5, "ㅎ")] {
             XCTAssertEqual(scene.handleKeyDown(keyCode: code, characters: hangul, isRepeat: false), .swallowed)
             scene.handleKeyDown(keyCode: code, characters: hangul, isRepeat: true)
             for mod: NSEvent.ModifierFlags in [.command, .control, .option] {
                 scene.handleKeyDown(keyCode: code, characters: hangul, isRepeat: false, modifiers: mod)
             }
         }
-        XCTAssertEqual(pressed, ["jump", "greet", "tackle"])
+        XCTAssertEqual(pressed, ["jump", "greet", "tackle", "groupPhoto"])
         scene.handleKeyDown(keyCode: 38, characters: "j", isRepeat: false)
-        XCTAssertEqual(pressed, ["jump", "greet", "tackle"], "J is not a shortcut any more")
+        XCTAssertEqual(pressed, ["jump", "greet", "tackle", "groupPhoto"], "J is not a shortcut any more")
     }
 
     /// The top-left guide lists every key the plaza answers to.
     func testShortcutGuideListsEveryKey() {
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.key),
-                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "P", "−/+"])
+                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "P", "G", "−/+"])
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.label),
-                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프", "인사하기", "몸통박치기", "기념사진", "확대·축소"])
+                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프", "인사하기", "몸통박치기", "기념사진", "단체 사진", "확대·축소"])
     }
 
     /// Folded, the guide is only its title line; unfolded it shows every key.

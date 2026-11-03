@@ -111,6 +111,8 @@ enum PlazaOverlayKey: Equatable { case up, down, space, enter, escape }
 final class PlazaOverlayModel {
     var content: PlazaOverlayContent = .none
     var banner: String?
+    /// 단체 사진 카운트다운. 배너와 따로 위쪽에 띄운다.
+    var countdown: String?
     /// 스페이스로 말을 걸 수 있을 때 위쪽에 띄우는 안내.
     var hint: String?
 }
