@@ -349,6 +349,21 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertGreaterThan(run.tiles, walk.tiles)
     }
 
+    /// Folding the shortcut guide is remembered the next time the plaza opens.
+    func testShortcutGuideFoldIsRemembered() {
+        let d = defaults()
+        let c = controller(d)
+        c.prepareScene()
+        XCTAssertFalse(c.areShortcutsFolded, "open the first time")
+        c.toggleShortcuts()
+        XCTAssertTrue(c.areShortcutsFolded)
+        let again = controller(d)
+        again.prepareScene()
+        XCTAssertTrue(again.areShortcutsFolded)
+        again.toggleShortcuts()
+        XCTAssertFalse(PlazaPreferences(defaults: d).areShortcutsFolded, "unfolding is remembered too")
+    }
+
     func testPersistStateSavesTileWithoutTearingDown() {
         let d = defaults()
         let c = controller(d)

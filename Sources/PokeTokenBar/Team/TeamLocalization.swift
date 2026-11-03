@@ -30,6 +30,14 @@ extension L {
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }
     var plazaJump: String { "점프" }
+    var plazaShortcutsTitle: String { "단축키" }
+    var plazaShortcutWalk: String { "걷기" }
+    var plazaShortcutRun: String { "달리기" }
+    var plazaShortcutTalk: String { "말 걸기" }
+    var plazaShortcutChat: String { "한마디" }
+    var plazaShortcutEmotes: String { "말풍선" }
+    var plazaShortcutPhoto: String { "기념사진" }
+    var plazaShortcutZoom: String { "확대·축소" }
     var plazaMenuFollow: String { "따라가기" }
     func plazaFollowHint(nickname: String) -> String { "\(nickname) 따라가는 중 · 방향키로 멈추기" }
     var plazaMenuViewCard: String { "포켓몬 보기" }
