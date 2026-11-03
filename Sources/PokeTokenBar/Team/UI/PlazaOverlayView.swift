@@ -16,6 +16,16 @@ struct PlazaOverlayView: View {
         ZStack(alignment: .top) {
             content
             VStack(spacing: 8) {
+                if let countdown = model.countdown {
+                    Text(countdown)
+                        .font(Font(PlazaResources.font(.body)))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(Color(hex: 0x1D4F55).opacity(0.92), in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0xF2C14E), lineWidth: 2))
+                        .allowsHitTesting(false)
+                }
                 if let banner = model.banner {
                     Text(banner)
                         .font(Font(PlazaResources.font(.body)))

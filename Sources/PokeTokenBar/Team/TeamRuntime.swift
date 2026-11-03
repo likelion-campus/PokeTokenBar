@@ -60,6 +60,10 @@ final class TeamRuntime {
                 plaza?.showJump(memberID: memberID)
                 return
             }
+            if emote.kind == .groupPhoto {
+                plaza?.showGroupPhoto(from: memberID)
+                return
+            }
             plaza?.showEmote(memberID: memberID, kind: emote.kind,
                              alsoOver: emote.isShared == true ? emote.targetMemberID : nil)
             if emote.targetMemberID == settings.memberID, emote.kind.notifiesTarget,

@@ -39,6 +39,14 @@ extension L {
     var plazaShortcutEmotes: String { "말풍선" }
     var plazaShortcutPhoto: String { "기념사진" }
     var plazaShortcutZoom: String { "확대·축소" }
+    var plazaShortcutGroupPhoto: String { "단체 사진" }
+    /// 이름을 아직 모르는 팀원.
+    var plazaGroupPhotoSomeone: String { "팀원" }
+    /// 단체 사진 카운트다운. 내가 시작했으면 이름 없이 모이자고 하고, 팀원이 시작했으면 함께 찍는지 알려 준다.
+    func plazaGroupPhotoCountdown(starter: String?, seconds: Int, joined: Bool) -> String {
+        guard let starter else { return "단체 사진 \(seconds) · 모두 모여요!" }
+        return "\(starter)님의 단체 사진 \(seconds) · " + (joined ? "함께 찍는 중" : "G를 누르면 함께 찍어요")
+    }
     var plazaMenuFollow: String { "따라가기" }
     func plazaFollowHint(nickname: String) -> String { "\(nickname) 따라가는 중 · 방향키로 멈추기" }
     var plazaMenuViewCard: String { "포켓몬 보기" }
@@ -115,6 +123,7 @@ extension L {
         case .question: "?"
         case .tackle: "💥"
         case .jump: "점프"
+        case .groupPhoto: "단체 사진"
         }
     }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.

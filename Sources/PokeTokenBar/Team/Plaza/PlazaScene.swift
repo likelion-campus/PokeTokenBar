@@ -58,6 +58,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onGreetKey: (() -> Void)?
     /// C(몸통박치기). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onTackleKey: (() -> Void)?
+    /// G(단체 사진). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
+    var onGroupPhotoKey: (() -> Void)?
     /// Return과 숫자패드 Enter. 판이 닫혀 있을 때만 온다.
     var onChatKey: (() -> Void)?
     /// 판이 열린 동안 판이 쓰는 키(위, 아래, 스페이스, Enter, Esc). 눌러 둔 자동 반복은 넘기지 않는다.
@@ -333,8 +335,9 @@ struct PlazaSceneMember: Equatable, Sendable {
             return .swallowed
         }
         // 사진 키도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 보내지 않는다(P를 누르고 있어도 한 번만 찍는다).
-        // Z(점프), X(인사하기), C(몸통박치기)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다.
-        if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.cKeyCode: onTackleKey][keyCode] {
+        // Z(점프), X(인사하기), C(몸통박치기), G(단체 사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다.
+        if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.cKeyCode: onTackleKey,
+                         Self.gKeyCode: onGroupPhotoKey][keyCode] {
             if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { action?() }
             return .swallowed
         }
@@ -636,6 +639,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let zKeyCode: UInt16 = 6
     private static let xKeyCode: UInt16 = 7
     private static let cKeyCode: UInt16 = 8
+    private static let gKeyCode: UInt16 = 5
     private static let returnKeyCode: UInt16 = 36
     private static let keypadEnterKeyCode: UInt16 = 76
 

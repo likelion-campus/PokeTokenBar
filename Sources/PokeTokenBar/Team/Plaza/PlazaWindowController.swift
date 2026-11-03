@@ -32,6 +32,8 @@ extension SKView: PlazaPausableView {}
     /// 큰 소식 배너를 보여 주는 시간.
     static let bannerDuration: Duration = .seconds(4)
     private let bannerSleep: @MainActor (Duration) async -> Void
+    /// 단체 사진 카운트다운의 1초. 테스트에서 바꿔 끼운다.
+    private let groupPhotoSleep: @MainActor (Duration) async -> Void
     private let spriteRetrySleep: @MainActor (Duration) async -> Void
     /// A failed sprite request is made again after this long, while the plaza stays open.
     static let spriteRetryDelay: Duration = .seconds(30)
@@ -113,11 +115,13 @@ extension SKView: PlazaPausableView {}
          greetingKind: @escaping () -> TeamEmoteKind = { PlazaWindowController.greetingKinds.randomElement() ?? .heart },
          profileTimeout: Duration = .seconds(5),
          bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         groupPhotoSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
         self.spriteRetrySleep = spriteRetrySleep
         self.session = session
         self.feed = feed
         self.bannerSleep = bannerSleep
+        self.groupPhotoSleep = groupPhotoSleep
         self.profileTimeout = profileTimeout
         self.clock = clock
         self.photoWriter = photoWriter
@@ -285,6 +289,7 @@ extension SKView: PlazaPausableView {}
         s.onTackleKey = { [weak self] in
             if let self, let id = self.faceNearbyMember() { self.tackle(id) }
         }
+        s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onChatKey = { [weak self] in self?.openChat() }
         s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
@@ -442,6 +447,66 @@ extension SKView: PlazaPausableView {}
         guard let scene, let input = scene.photoInput(), let png = PlazaPhotoRenderer.pngData(for: input) else { return }
         if photoWriter(png) { scene.playShutterFlash() }
     }
+
+    static let groupPhotoSeconds = 5
+    /// 끝난 뒤 이만큼은 G가 새 단체 사진을 시작하지 않는다. 함께 찍으려고 늦게 누른 G가 모두에게 새 카운트다운을 띄우지 않게 한다.
+    static let groupPhotoCooldown: TimeInterval = 2
+    private var groupPhotoEndedAt: Date?
+
+    /// 진행 중인 단체 사진. 시작한 팀원(나면 nil), 남은 초, 내가 함께 찍는지.
+    private var groupPhoto: (starter: String?, left: Int, joined: Bool, task: Task<Void, Never>)?
+
+    /// G. 단체 사진이 진행 중이면 나도 함께 찍고(팀원에게 다시 보내지 않는다), 아니면 시작해 팀원들에게 알린다.
+    private func handleGroupPhotoKey() {
+        if groupPhoto != nil {
+            groupPhoto?.joined = true
+            refreshCountdown()
+            return
+        }
+        if let ended = groupPhotoEndedAt, clock().timeIntervalSince(ended) < Self.groupPhotoCooldown { return }
+        session?.sendEmote(.groupPhoto, target: nil)
+        startGroupPhoto(starter: nil, joined: true)
+    }
+
+    /// 런타임이 부른다. 팀원이 단체 사진을 시작했다. 이미 진행 중이면 그대로 둔다. 창이 닫혀 있으면 아무것도 안 한다.
+    func showGroupPhoto(from memberID: String) {
+        guard scene != nil, groupPhoto == nil else { return }
+        // 막 연결된 팀원은 이름이 담긴 presence가 오기 전이라 이름이 빌 수 있다.
+        let name = session?.members[memberID]?.nickname ?? ""
+        startGroupPhoto(starter: name.isEmpty ? L(.ko).plazaGroupPhotoSomeone : name, joined: false)
+    }
+
+    /// 5초를 세고 0에 모두의 화면이 번쩍인다. 함께 찍는 사람은 기념사진처럼 클립보드에도 넣는다.
+    private func startGroupPhoto(starter: String?, joined: Bool) {
+        let task = Task { [weak self] in
+            for _ in 0..<Self.groupPhotoSeconds {
+                await self?.groupPhotoSleep(.seconds(1))
+                guard !Task.isCancelled, let self, self.groupPhoto != nil else { return }
+                self.groupPhoto?.left -= 1
+                if self.groupPhoto?.left ?? 0 > 0 { self.refreshCountdown() }
+            }
+            self?.finishGroupPhoto()
+        }
+        groupPhoto = (starter, Self.groupPhotoSeconds, joined, task)
+        refreshCountdown()
+    }
+
+    private func refreshCountdown() {
+        overlayModel.countdown = groupPhoto.map {
+            L(.ko).plazaGroupPhotoCountdown(starter: $0.starter, seconds: $0.left, joined: $0.joined)
+        }
+    }
+
+    private func finishGroupPhoto() {
+        guard let photo = groupPhoto else { return }
+        groupPhoto = nil
+        groupPhotoEndedAt = clock()
+        overlayModel.countdown = nil
+        if photo.joined { handlePhotoKey() } else { scene?.playShutterFlash() }
+    }
+
+    /// 테스트용 읽기 전용 값.
+    var countdown: String? { overlayModel.countdown }
 
     nonisolated private static func writePhotoToClipboard(_ png: Data) -> Bool {
         let pasteboard = NSPasteboard.general
@@ -813,6 +878,9 @@ extension SKView: PlazaPausableView {}
         bannerTask = nil
         bannerGeneration += 1
         overlayModel.banner = nil
+        groupPhoto?.task.cancel()
+        groupPhoto = nil
+        overlayModel.countdown = nil
         unreadGeneration += 1
         if let scene, session != nil {
             session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
@@ -837,6 +905,7 @@ extension SKView: PlazaPausableView {}
             scene.onJumpKey = nil
             scene.onGreetKey = nil
             scene.onTackleKey = nil
+            scene.onGroupPhotoKey = nil
             scene.onChatKey = nil
             scene.onOverlayKey = nil
             scene.onInteractionTargetChange = nil
