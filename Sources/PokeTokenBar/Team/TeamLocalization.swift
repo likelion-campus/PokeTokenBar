@@ -48,6 +48,15 @@ extension L {
     var plazaBackgroundHide: String { "배경 숨기기" }
     var plazaBackgroundShow: String { "배경 보이기" }
     var plazaNameColor: String { "이름 색" }
+    func plazaClock(phase: PlazaDaylight.Phase, time: String) -> String {
+        let name = switch phase {
+        case .dawn: "새벽"
+        case .day: "낮"
+        case .dusk: "저녁"
+        case .night: "밤"
+        }
+        return "\(name) \(time)"
+    }
     func plazaNameColorChoice(_ n: Int) -> String { "이름 색 \(n)" }
     var plazaEmoteLol: String { "ㅋㅋ" }
     var plazaCardLoading: String { "불러오는 중…" }

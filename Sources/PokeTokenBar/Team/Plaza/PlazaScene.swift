@@ -153,6 +153,12 @@ struct PlazaSceneMember: Equatable, Sendable {
         addChild(cameraNode)
         me.attach(world: self, camera: cameraNode)
         camera = cameraNode
+        // 지도와 캐릭터 위, 이름표와 말풍선(10, 11) 아래에 곱해 글자는 밤에도 그대로 읽힌다.
+        daylightNode.zPosition = 5
+        daylightNode.blendMode = .multiply
+        daylightNode.colorBlendFactor = 1
+        daylightNode.isHidden = true
+        cameraNode.addChild(daylightNode)
         layout()
     }
 
@@ -165,6 +171,31 @@ struct PlazaSceneMember: Equatable, Sendable {
         layout()
     }
 
+    /// 낮과 밤의 색을 화면 전체에 곱한다. 카메라에 붙어 있어 화면 크기다.
+    private let daylightNode = SKSpriteNode(color: .clear, size: .zero)
+    /// 지금 시각. 테스트에서 바꿔 끼운다.
+    var now: () -> Date = Date.init
+
+    /// 지금 곱하는 색. 배경을 숨겼으면 뒤의 작업 화면이 어두워지지 않게 곱하지 않는다.
+    var daylightTint: PlazaDaylight.Tint {
+        isBackgroundHidden ? .none : PlazaDaylight.tint(minute: PlazaDaylight.minute(of: now()))
+    }
+
+    private func applyDaylight() {
+        let t = daylightTint
+        daylightNode.isHidden = t == .none
+        daylightNode.color = SKColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: 1)
+        daylightNode.size = size
+    }
+
+    /// 화면에 곱하고 있는 색. 곱하지 않으면 nil(테스트용).
+    var shownDaylight: PlazaDaylight.Tint? {
+        guard !daylightNode.isHidden else { return nil }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        daylightNode.color.usingColorSpace(.sRGB)?.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return PlazaDaylight.Tint(red: Double(r), green: Double(g), blue: Double(b))
+    }
+
     /// 지도 밖은 타일셋 나무 그림자 톤의 짙은 초록(숲이 이어진 느낌).
     private static let forestColor = SKColor(red: 0x1E / 255, green: 0x3A / 255, blue: 0x26 / 255, alpha: 1)
 
@@ -172,6 +203,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func setBackgroundHidden(_ hidden: Bool) {
         mapNode.isHidden = hidden
         backgroundColor = hidden ? .clear : Self.forestColor
+        applyDaylight()
     }
 
     var isBackgroundHidden: Bool { mapNode.isHidden }
@@ -384,7 +416,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             guard let r = remotes[id] else { continue }
             actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking)))
         }
-        return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 })
+        return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
+                               tint: daylightTint)
     }
 
     /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.
@@ -537,6 +570,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         walker.advance(by: dt) { [map] in map.isWalkable($0) && !occupied.contains($0) }
         advanceAnimation(by: dt)
         advanceSparkles(by: dt)
+        applyDaylight()
         layout()
         reportLocalPosition()
         refreshInteractionTarget()
