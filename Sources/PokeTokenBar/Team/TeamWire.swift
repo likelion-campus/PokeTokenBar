@@ -25,11 +25,14 @@ struct TeamPresence: Codable, Equatable, Sendable {
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     case heart, lol, party, exclaim, question
+    /// 몸통박치기 (Space menu): the target's Mac moves the target one tile away from the sender. Earlier versions
+    /// cannot decode it and skip the frame.
+    case tackle
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question: false
+        case .exclaim, .question, .tackle: false
         }
     }
 }

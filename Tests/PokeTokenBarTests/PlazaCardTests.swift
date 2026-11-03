@@ -238,6 +238,7 @@ final class PlazaCardTests: XCTestCase {
     private func viewCard(_ scene: PlazaScene) {
         space(scene)
         key(scene, downKey)
+        key(scene, downKey)
         space(scene)
     }
 
@@ -460,6 +461,8 @@ final class PlazaCardTests: XCTestCase {
         space(scene)
         func selection() -> PlazaMemberAction? { if case .memberMenu(let m) = c.overlayContent { m.selection } else { nil } }
         key(scene, downKey)
+        XCTAssertEqual(selection(), .tackle)
+        key(scene, downKey)
         XCTAssertEqual(selection(), .viewCard)
         key(scene, downKey)
         XCTAssertEqual(selection(), .greet, "down from the last line goes to the first")
@@ -499,9 +502,39 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertEqual(received.first?.1, TeamEmote(kind: .heart, targetMemberID: id, isShared: true))
     }
 
+    /// 몸통박치기 from the menu: I lunge at the teammate, an impact pops on them, and they get a tackle aimed at them.
+    /// Whether they move is up to their Mac.
+    func testTackleLungesShowsAnImpactAndReachesTheTeammate() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        await waitUntil { c.scene?.memberTiles[id] == ahead }
+        var received: [(String, TeamEmote)] = []
+        other.session.onEmote = { received.append(($0, $1)) }
+        let scene = c.scene!
+        space(scene)
+        key(scene, downKey)
+        guard case .memberMenu(let menu) = c.overlayContent else { return XCTFail("no menu: \(c.overlayContent)") }
+        XCTAssertEqual(menu.selection, .tackle)
+        space(scene)
+        XCTAssertEqual(c.overlayContent, .none)
+        XCTAssertEqual(scene.impactCount, 1)
+        step(scene, seconds: PlazaActor.lungeDuration / 2)
+        XCTAssertGreaterThan(scene.lungeOffset(memberID: nil)?.y ?? 0, 0, "I lunge down, toward them")
+        XCTAssertEqual(scene.walker.tile, map.spawn, "and stay on my tile")
+        await waitUntil { !received.isEmpty }
+        XCTAssertEqual(received.first?.0, me.settings.memberID)
+        XCTAssertEqual(received.first?.1, TeamEmote(kind: .tackle, targetMemberID: id))
+    }
+
     func testEnterChoosesFromTheMenu() async {
         let (c, scene, _, id) = await standing()
         space(scene)
+        key(scene, downKey)
         key(scene, downKey)
         key(scene, returnKey)
         XCTAssertEqual(c.overlayContent.cardMemberID, id)
@@ -550,6 +583,7 @@ final class PlazaCardTests: XCTestCase {
         hub.disconnect(link)
         await waitUntil { me.session.members[id] == nil && c.scene?.memberTiles[id] == nil }
         key(scene, downKey)
+        key(scene, downKey)
         space(scene)
         XCTAssertEqual(c.overlayContent, .none)
         XCTAssertFalse(scene.isOverlayOpen)
@@ -572,8 +606,8 @@ final class PlazaCardTests: XCTestCase {
         let size = NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: 1000, height: 1000))
         XCTAssertEqual(size.width, PlazaMemberMenuView.width)
         let line = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(.body))
-        // Three lines and two gaps; a wrapped line would add a whole line more.
-        XCTAssertLessThan(size.height, 3.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 2 * 4, "three lines, none wrapped")
+        // The name and three lines with three gaps; a wrapped line would add a whole line more.
+        XCTAssertLessThan(size.height, 4.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 3 * 4, "four lines, none wrapped")
     }
 
     func testEscClosesOverlayNotWindow() {

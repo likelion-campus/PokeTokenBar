@@ -52,6 +52,10 @@ final class TeamRuntime {
         companion.onTeamEvent = { [weak session] in session?.publish($0) }
         session.onEmote = { [weak self] memberID, emote in
             guard let self else { return }
+            if emote.kind == .tackle {
+                plaza?.showTackle(from: memberID, on: emote.targetMemberID)
+                return
+            }
             plaza?.showEmote(memberID: memberID, kind: emote.kind,
                              alsoOver: emote.isShared == true ? emote.targetMemberID : nil)
             if emote.targetMemberID == settings.memberID, emote.kind.notifiesTarget,

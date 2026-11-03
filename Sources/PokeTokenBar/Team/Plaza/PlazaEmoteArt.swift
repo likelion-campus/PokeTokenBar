@@ -99,7 +99,41 @@ enum PlazaEmoteArt {
         case .lol: drawText(L(.ko).plazaEmoteLol, size: large ? .body : .small, centeredAt: center, in: context)
         case .exclaim: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
         case .question: drawGrid(question, cell: dot, centeredAt: center, in: context)
+        case .tackle: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)
         }
+        return context.makeImage()!
+    }
+
+    /// 몸통박치기가 맞은 자리에 터지는 충격. 꽉 찬 여덟 갈래 별로, 흰 가운데에서 노랑, 주황으로 번지고 바깥 테두리만 어둡다.
+    private static let impact = [
+        ".......#.......",
+        ".......#.......",
+        "..#....#....#..",
+        "...##.#Y#.##...",
+        "...#O#YYY#O#...",
+        "....#YYWYY#....",
+        "...#YYWWWYY#...",
+        "###YYWWWWWYY###",
+        "...#YYWWWYY#...",
+        "....#YYWYY#....",
+        "...#O#YYY#O#...",
+        "...##.#Y#.##...",
+        "..#....#....#..",
+        ".......#.......",
+        ".......#.......",
+    ]
+
+    /// 충격 그림의 포인트 단위 크기. 이미지 픽셀 크기는 여기에 배율을 곱한 값이다.
+    static let impactSize = CGSize(width: CGFloat(impact[0].count) * dot, height: CGFloat(impact.count) * dot)
+
+    static func impactImage(scale: CGFloat) -> CGImage {
+        let scale = max(scale, 1)
+        let context = CGContext(data: nil, width: Int((impactSize.width * scale).rounded()), height: Int((impactSize.height * scale).rounded()),
+                                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setShouldAntialias(false)
+        context.scaleBy(x: scale, y: scale)
+        drawGrid(impact, cell: dot, origin: .zero, in: context)
         return context.makeImage()!
     }
 

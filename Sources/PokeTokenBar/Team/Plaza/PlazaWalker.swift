@@ -15,6 +15,8 @@ struct PlazaWalker: Sendable {
     private var held: [PlazaDirection] = []
     /// 다음 `advance`가 쓸 탭. 같은 프레임 안에 눌렀다 뗀 키도 한 칸은 간다.
     private var pendingTap: PlazaDirection?
+    /// 몸통박치기로 밀려 갈 방향. 누른 키보다 먼저 쓴다.
+    private var pendingPush: PlazaDirection?
     /// 걷는 중이면 출발한 칸
     private var stepFrom: TilePoint?
     private var stepElapsed: TimeInterval = 0
@@ -35,6 +37,11 @@ struct PlazaWalker: Sendable {
     /// 키 없이 한 칸 걷는다(목록에서 팀원을 골라 걸어갈 때).
     mutating func step(_ d: PlazaDirection) {
         pendingTap = d
+    }
+
+    /// 다른 캐릭터에게 밀려 한 칸 미끄러진다. 누른 키보다 먼저 가고 돌아서지 않는다. 그 칸에 못 들어가면 그 자리에 선다.
+    mutating func push(_ d: PlazaDirection) {
+        pendingPush = d
     }
 
     /// 서 있을 때만 돌아선다.
@@ -69,6 +76,16 @@ struct PlazaWalker: Sendable {
                 remaining -= need
                 stepFrom = nil
                 stepElapsed = 0
+            }
+            if let push = pendingPush {
+                pendingPush = nil
+                let target = Self.offset(tile, push)
+                if canEnter(target) {
+                    stepFrom = tile
+                    tile = target
+                    stepElapsed = 0
+                    continue
+                }
             }
             guard let d = held.last ?? pendingTap else { return }
             pendingTap = nil

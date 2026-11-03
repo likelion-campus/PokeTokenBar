@@ -105,6 +105,36 @@ final class PlazaCollisionTests: XCTestCase {
         XCTAssertFalse(wall.contains(s.walker.tile) || s.walker.tile == target)
     }
 
+    // MARK: - Pushed by a tackle
+
+    func testPushMovesOneTileWithoutTurning() {
+        var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
+        w.push(.right)
+        w.advance(by: 1) { _ in true }
+        XCTAssertEqual(w.tile, TilePoint(x: 6, y: 5), "one tile, no more")
+        XCTAssertEqual(w.facing, .left, "still facing whoever pushed")
+    }
+
+    func testPushIntoABlockedTileStays() {
+        var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
+        w.push(.right)
+        w.advance(by: 1) { _ in false }
+        XCTAssertEqual(w.tile, TilePoint(x: 5, y: 5))
+        w.advance(by: 1) { _ in true }
+        XCTAssertEqual(w.tile, TilePoint(x: 5, y: 5), "a blocked push is used up, not kept for later")
+    }
+
+    /// Being pushed beats a held arrow: the push step comes first, then walking goes on.
+    func testPushGoesBeforeAHeldKey() {
+        var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .up)
+        w.press(.up)
+        w.push(.right)
+        w.advance(by: PlazaWalker.stepDuration / 2) { _ in true }
+        XCTAssertEqual(w.tile, TilePoint(x: 6, y: 5))
+        w.advance(by: PlazaWalker.stepDuration) { _ in true }
+        XCTAssertEqual(w.tile, TilePoint(x: 6, y: 4))
+    }
+
     /// A teammate resting in the shelter never wanders onto a blocked tile, and stays put when every way is blocked.
     func testShelterWandererAvoidsBlockedTiles() {
         let shelter = map.shelterTiles

@@ -77,6 +77,8 @@ enum PlazaCardState: Equatable {
 enum PlazaMemberAction: CaseIterable, Equatable {
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄운다.
     case greet
+    /// 그 팀원에게 뛰어들어 한 칸 밀어낸다.
+    case tackle
     /// 그 팀원의 도감 카드를 연다.
     case viewCard
 }

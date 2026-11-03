@@ -433,6 +433,9 @@ extension SKView: PlazaPausableView {}
         case .greet:
             closeOverlay()
             greet(id)
+        case .tackle:
+            closeOverlay()
+            tackle(id)
         case .viewCard:
             // 메뉴를 연 사이에 연결이 끊긴 팀원이면 카드를 받을 수 없다.
             guard let session, let state = members[id] else { return closeOverlay() }
@@ -443,6 +446,30 @@ extension SKView: PlazaPausableView {}
                 overlayModel.content = .card(profile.map { .loaded(state, $0) } ?? .failed(state))
             }
         }
+    }
+
+    /// 그 팀원에게 뛰어들고 충격 그림을 띄운 뒤 팀원들에게 보낸다. 밀리는 것은 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
+    private func tackle(_ id: String) {
+        guard let scene, let target = scene.memberTiles[id] else { return }
+        let now = clock()
+        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        lastEmoteAt = now
+        let me = scene.walker.tile
+        let direction = PlazaPathfinder.isAdjacent(me, target) ? PlazaPathfinder.direction(from: me, to: target) : scene.walker.facing
+        scene.playTackle(by: nil, on: id, direction: direction)
+        session?.sendEmote(.tackle, target: id)
+    }
+
+    /// 런타임이 부른다. 누군가 몸통박치기를 했다. 맞은 게 나이고 민 팀원이 내 바로 옆(또는 같은 칸)이면 그 반대쪽으로 한 칸
+    /// 밀린다. 메뉴를 연 사이에 내가 걸어가 버렸으면 충격 그림만 보이고 밀리지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
+    func showTackle(from sender: String, on target: String?) {
+        guard let scene, let target, let from = scene.memberTiles[sender] else { return }
+        let isMe = target == memberID()
+        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target] else { return }
+        let direction = PlazaPathfinder.isAdjacent(from, to) ? PlazaPathfinder.direction(from: from, to: to)
+            : members[sender]?.facing ?? .down
+        scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
+        if isMe && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction) }
     }
 
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.
