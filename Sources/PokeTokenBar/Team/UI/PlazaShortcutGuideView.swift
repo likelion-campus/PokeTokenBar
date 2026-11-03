@@ -1,24 +1,45 @@
 import SwiftUI
 import AppKit
 
-/// 왼쪽 위 배경 숨기기 아래의 단축키 안내. 팀원 옆이 아니어도 늘 보인다.
+/// 왼쪽 위 배경 숨기기 아래의 단축키 안내. 머리줄을 누르면 접히고 펼쳐진다. 누른 뒤에도 키는 장면이 받는다.
 @MainActor
 struct PlazaShortcutGuide: View {
-    /// 글자 키와 하는 일. 장면이 keyCode로 받는 Z, X, C와 같아야 한다.
+    /// 키와 하는 일. 장면이 받는 키와 같아야 한다.
     static var entries: [(key: String, label: String)] {
         let l = L(.ko)
-        return [("Z", l.plazaJump), ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle)]
+        return [
+            (l.plazaShortcutArrows, l.plazaShortcutWalk), ("Shift", l.plazaShortcutRun), ("Space", l.plazaShortcutTalk),
+            ("Enter", l.plazaShortcutChat), ("1–5", l.plazaShortcutEmotes), ("Z", l.plazaJump),
+            ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("P", l.plazaShortcutPhoto), ("−/+", l.plazaShortcutZoom),
+        ]
     }
+
+    let model: PlazaShortcutGuideModel
+    let toggle: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(Self.entries, id: \.key) { entry in
-                HStack(spacing: 6) {
-                    Text(entry.key)
-                        .frame(width: 16, height: 16)
-                        .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.15)))
-                        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.6), lineWidth: 1))
-                    Text(entry.label)
+            Button(action: toggle) {
+                HStack(spacing: 4) {
+                    Text(L(.ko).plazaShortcutsTitle)
+                    Image(systemName: model.isFolded ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusable(false)
+            if !model.isFolded {
+                ForEach(Self.entries, id: \.key) { entry in
+                    HStack(spacing: 6) {
+                        Text(entry.key)
+                            .padding(.horizontal, 3)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.15)))
+                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.6), lineWidth: 1))
+                        Text(entry.label)
+                    }
+                    .fixedSize()   // 키 이름이 "Spa…"처럼 잘리지 않게 한다.
                 }
             }
         }
@@ -30,8 +51,12 @@ struct PlazaShortcutGuide: View {
     }
 }
 
-/// 누를 것이 없어 마우스도 키도 받지 않는다. 아래의 장면이 그대로 받는다.
+@MainActor @Observable
+final class PlazaShortcutGuideModel {
+    var isFolded = false
+}
+
+/// 머리줄 단추만 누를 수 있다. 키는 받지 않아 장면이 첫 응답자를 유지한다.
 final class PlazaShortcutGuideHostingView: NSHostingView<PlazaShortcutGuide> {
     override var acceptsFirstResponder: Bool { false }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

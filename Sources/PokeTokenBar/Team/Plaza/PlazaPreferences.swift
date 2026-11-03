@@ -5,6 +5,7 @@ import Foundation
     private static let zoomKey = "team.plaza.zoom"
     private static let lastTileKey = "team.plaza.lastTile"
     private static let backgroundHiddenKey = "team.plaza.backgroundHidden"
+    private static let shortcutsFoldedKey = "team.plaza.shortcutsFolded"
 
     private let defaults: UserDefaults
 
@@ -24,6 +25,12 @@ import Foundation
     var isBackgroundHidden: Bool {
         get { defaults.bool(forKey: Self.backgroundHiddenKey) }
         set { defaults.set(newValue, forKey: Self.backgroundHiddenKey) }
+    }
+
+    /// 왼쪽 위 단축키 안내를 접어 두었다.
+    var areShortcutsFolded: Bool {
+        get { defaults.bool(forKey: Self.shortcutsFoldedKey) }
+        set { defaults.set(newValue, forKey: Self.shortcutsFoldedKey) }
     }
 
     /// 저장된 칸이 없거나 지도 밖이거나 못 가는 칸이면 시작 칸.

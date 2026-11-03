@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import AppKit
 @testable import PokeTokenBar
 
@@ -157,10 +158,25 @@ final class PlazaEmoteTests: XCTestCase {
         XCTAssertEqual(pressed, ["jump", "greet", "tackle"], "J is not a shortcut any more")
     }
 
-    /// The top-left guide lists the keys the scene answers to.
-    func testShortcutGuideNamesZXC() {
-        XCTAssertEqual(PlazaShortcutGuide.entries.map(\.key), ["Z", "X", "C"])
-        XCTAssertEqual(PlazaShortcutGuide.entries.map(\.label), ["점프", "인사하기", "몸통박치기"])
+    /// The top-left guide lists every key the plaza answers to.
+    func testShortcutGuideListsEveryKey() {
+        XCTAssertEqual(PlazaShortcutGuide.entries.map(\.key),
+                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "P", "−/+"])
+        XCTAssertEqual(PlazaShortcutGuide.entries.map(\.label),
+                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프", "인사하기", "몸통박치기", "기념사진", "확대·축소"])
+    }
+
+    /// Folded, the guide is only its title line; unfolded it shows every key.
+    func testFoldedShortcutGuideIsOnlyTheTitle() throws {
+        func height(folded: Bool) throws -> CGFloat {
+            let model = PlazaShortcutGuideModel()
+            model.isFolded = folded
+            let r = ImageRenderer(content: PlazaShortcutGuide(model: model, toggle: {}))
+            return try XCTUnwrap(r.nsImage).size.height
+        }
+        let folded = try height(folded: true), open = try height(folded: false)
+        XCTAssertLessThan(folded, 40, "one line")
+        XCTAssertGreaterThan(open, folded + CGFloat(PlazaShortcutGuide.entries.count) * 16)
     }
 
     func testModifiedOrRepeatedEmoteKeysDoNotFire() {
