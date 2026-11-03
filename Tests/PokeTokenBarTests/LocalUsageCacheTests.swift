@@ -706,7 +706,7 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(indexed, 3)
 
         try FileManager.default.removeItem(at: root.appendingPathComponent("rollout-alpha.jsonl"))
-        clock.advance(120)   // 저장 throttle(60초) 통과
+        clock.advance(LocalUsageCache.saveInterval + 1)   // 저장 throttle 통과
         _ = await cache.codexEntries(modifiedSince: orphanWindow)
 
         let afterDelete = await cache.codexSessionIndexCount()
@@ -828,8 +828,8 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertTrue(snap.contains("new.jsonl"))
     }
 
-    /// 저장 throttle: 60초 내 재저장은 생략, 60초 경과 후 저장된다 (주입 clock 으로 결정적).
-    func testSaveThrottle60s() async throws {
+    /// 저장 throttle: `saveInterval` 안의 재저장은 생략, 지나면 저장된다 (주입 clock 으로 결정적).
+    func testSaveThrottle() async throws {
         nonisolated(unsafe) var fakeNow = Date(timeIntervalSince1970: 1_700_000_000)
         let cache = makeCache(now: { fakeNow })
 
@@ -841,12 +841,33 @@ final class LocalUsageCacheTests: XCTestCase {
         fakeNow = fakeNow.addingTimeInterval(30)
         try writeFile("a.jsonl", lines: [claudeLine(id: "1", output: 2)], mtime: fakeNow)
         _ = await cache.claudeEntries(modifiedSince: since)
-        XCTAssertEqual(try Data(contentsOf: cacheFile), firstSnap, "60초 내 재저장은 생략")
+        XCTAssertEqual(try Data(contentsOf: cacheFile), firstSnap, "간격 안의 재저장은 생략")
+        fakeNow = fakeNow.addingTimeInterval(LocalUsageCache.saveInterval - 60)
+        _ = await cache.claudeEntries(modifiedSince: since)
+        XCTAssertEqual(try Data(contentsOf: cacheFile), firstSnap, "29분이 지나도 아직 생략")
 
-        // 61초 경과 → 저장됨
+        // 간격 경과 → 저장됨
         fakeNow = fakeNow.addingTimeInterval(61)
         _ = await cache.claudeEntries(modifiedSince: since)
         XCTAssertNotEqual(try Data(contentsOf: cacheFile), firstSnap, "throttle 해제 후 저장")
+    }
+
+    /// [회귀] 쓰는 중인 세션 파일이 새로고침(2분)마다 바뀌어도, 스냅샷은 하루 동안 `saveInterval`마다 한 번만 다시 쓴다.
+    /// 60초 throttle 시절에는 새로고침마다 16MB 스냅샷을 통째로 다시 써 하루 10GB를 넘겼다(macOS disk writes 리포트).
+    func testADayOfRefreshesRewritesTheSnapshotRarely() async throws {
+        nonisolated(unsafe) var fakeNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let cache = makeCache(now: { fakeNow })
+        var last = Data(), writes = 0
+        for i in 0..<(24 * 30) {   // 하루, 2분마다
+            try writeFile("live.jsonl", lines: (0...i).map { claudeLine(id: "\($0)", output: 1) }, mtime: fakeNow)
+            _ = await cache.claudeEntries(modifiedSince: since)
+            let data = (try? Data(contentsOf: cacheFile)) ?? Data()
+            if data != last { writes += 1; last = data }
+            fakeNow = fakeNow.addingTimeInterval(120)
+        }
+        // 고정 예산: 하루 49번(첫 저장 + 30분마다). 상수에서 계산하면 간격을 1분으로 되돌려도 통과해 아무것도 지키지 못한다.
+        XCTAssertLessThanOrEqual(writes, 49, "\(writes) rewrites in a day")
+        XCTAssertGreaterThan(writes, 1, "it still saves")
     }
 
     /// modifiedSince 이전 파일은 아예 수집하지 않는다.
