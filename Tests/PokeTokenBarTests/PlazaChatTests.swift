@@ -253,6 +253,37 @@ final class PlazaChatInputTests: XCTestCase {
         w.contentView = nil
     }
 
+    /// The emoji button opens the macOS picker for the line being typed: the field keeps the line and the caret.
+    func testEmojiButtonOpensThePickerAndKeepsTheLine() throws {
+        let (i, box) = input()
+        var opened = 0
+        i.openEmojiPicker = { opened += 1 }
+        let (w, editor) = try editing(i)
+        editor.insertText("안녕", replacementRange: editor.selectedRange())
+        i.emojiButton.performClick(nil)
+        XCTAssertEqual(opened, 1)
+        XCTAssertTrue(i.isOpen)
+        XCTAssertTrue(i.field.currentEditor() === editor, "the field is still being edited")
+        XCTAssertEqual(i.field.stringValue, "안녕")
+        XCTAssertTrue(box.sent.isEmpty)
+        XCTAssertTrue(i.emojiButton.refusesFirstResponder, "taking focus would end editing and close the field")
+        w.contentView = nil
+    }
+
+    func testEmojiButtonSitsAfterTheFieldInsideTheBar() {
+        let (i, _) = input()
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: PlazaChatLog.width, height: 40), styleMask: [.borderless],
+                         backing: .buffered, defer: true)
+        w.contentView = i.view
+        i.view.layoutSubtreeIfNeeded()
+        let button = i.emojiButton.frame, field = i.field.frame
+        XCTAssertGreaterThan(button.width, 0)
+        XCTAssertLessThanOrEqual(field.maxX, button.minX)
+        XCTAssertLessThanOrEqual(button.maxX, i.view.bounds.maxX)
+        XCTAssertEqual(button.midY, field.midY, accuracy: 1, "on the field's line")
+        w.contentView = nil
+    }
+
     func testCommandAReachesTheEditor() throws {
         let (i, _) = input()
         let (w, editor) = try editing(i)

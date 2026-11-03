@@ -25,6 +25,8 @@ final class StandardEditMenuTests: XCTestCase {
         let expected: [(String, NSEvent.ModifierFlags, String)] = [
             ("v", .command, "paste:"), ("c", .command, "copy:"), ("x", .command, "cut:"),
             ("a", .command, "selectAll:"), ("z", .command, "undo:"), ("z", [.command, .shift], "redo:"),
+            // AppKit added no Emoji & Symbols item, so Control+Command+Space opened nothing in any field.
+            (" ", [.control, .command], "orderFrontCharacterPalette:"),
         ]
         for (key, modifiers, action) in expected {
             let found = try XCTUnwrap(item(menu, key: key, modifiers: modifiers), "\(key) \(modifiers)")

@@ -5,6 +5,10 @@ import AppKit
 @MainActor final class PlazaChatInput: NSObject, NSTextFieldDelegate {
     let view = NSView()
     let field = PlazaChatTextField()
+    /// 오른쪽 끝의 😀. macOS 이모지 창을 연다.
+    let emojiButton = NSButton(title: "😀", target: nil, action: nil)
+    /// 이모지 창을 연다. 테스트에서 바꿔 끼운다.
+    var openEmojiPicker: () -> Void = { NSApp.orderFrontCharacterPalette(nil) }
     /// 입력한 글을 넘긴다. false면 입력창을 닫지 않고 글을 남긴다.
     var onSubmit: ((String) -> Bool)?
     /// 어떤 이유로든 닫히면 부른다.
@@ -36,6 +40,15 @@ import AppKit
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(field)
+        // 단추가 첫 응답자를 가져가면 입력이 끝나 입력창이 닫히므로 받지 않는다.
+        emojiButton.refusesFirstResponder = true
+        emojiButton.isBordered = false
+        emojiButton.font = .systemFont(ofSize: 16)
+        emojiButton.toolTip = L(.ko).plazaChatEmoji
+        emojiButton.target = self
+        emojiButton.action = #selector(emojiPressed)
+        emojiButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(emojiButton)
         NSLayoutConstraint.activate([
             // 입력창 기본 높이(18)는 갈무리 글꼴의 줄 높이(21)보다 낮아 ㅎ 꼭지 같은 글자 윗부분이 잘린다.
             // 글자는 줄의 위쪽에 그려지므로 입력창을 4pt 내려 글자가 막대 가운데에 오게 한다.
@@ -43,7 +56,10 @@ import AppKit
             field.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
             field.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -4),
             field.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            field.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            field.trailingAnchor.constraint(equalTo: emojiButton.leadingAnchor, constant: -4),
+            emojiButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            emojiButton.centerYAnchor.constraint(equalTo: field.centerYAnchor),
+            emojiButton.widthAnchor.constraint(equalToConstant: 24),
         ])
     }
 
@@ -97,6 +113,11 @@ import AppKit
         ])
         view.layer?.borderColor = isLoud ? CGColor(srgbRed: 0xF0 / 255, green: 0x8A / 255, blue: 0x24 / 255, alpha: 1)
             : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5)
+    }
+
+    /// 입력창은 열린 동안 늘 편집 중이라 고른 이모지가 커서 자리에 들어간다.
+    @objc private func emojiPressed() {
+        openEmojiPicker()
     }
 
     /// 조합 중인 글자를 건드리면 한글이 깨지므로 조합이 끝난 뒤에 자른다.

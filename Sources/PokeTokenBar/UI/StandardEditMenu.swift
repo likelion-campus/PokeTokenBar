@@ -2,7 +2,8 @@ import AppKit
 
 /// The SwiftUI empty scene builds a main menu with no Edit menu. The menu bar is never shown for this
 /// accessory app, but Cmd+C/V/X/A/Z still reach text fields only through main menu key equivalents, so
-/// without this menu no field in the app can copy or paste from the keyboard.
+/// without this menu no field in the app can copy or paste from the keyboard. AppKit does not add its own
+/// "Emoji & Symbols" item to this menu either, so Control+Command+Space is listed here too.
 @MainActor
 enum StandardEditMenu {
     static let title = "Edit"
@@ -33,5 +34,6 @@ enum StandardEditMenu {
         ("Copy", #selector(NSText.copy(_:)), "c", .command),
         ("Paste", #selector(NSText.paste(_:)), "v", .command),
         ("Select All", #selector(NSText.selectAll(_:)), "a", .command),
+        ("Emoji & Symbols", #selector(NSApplication.orderFrontCharacterPalette(_:)), " ", [.control, .command]),
     ]
 }
