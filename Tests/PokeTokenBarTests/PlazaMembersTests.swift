@@ -252,48 +252,74 @@ final class PlazaMembersTests: XCTestCase {
 
     // MARK: - 자리비움(입력 없음)과 작은 지도
 
-    func testNoInputForTenMinutesShowsIdleInPlaceAndInputClearsIt() async {
+    func testIdleShowsInPlaceAndComingBackClearsIt() async {
         let me = node("나"), other = node("민수")
-        var idleFor: TimeInterval = 0
+        let mine = PlazaRosterEntry(id: me.settings.memberID, nickname: "나", speciesID: 25, speciesName: "Pikachu", gender: nil,
+                                    isShiny: false, presence: .online, isMe: true)
         let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
                                       loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: 25, isShiny: false) },
-                                      session: me.session, secondsSinceInput: { idleFor })
+                                      myRosterEntry: { mine }, session: me.session)
         let watcher = controller(other)
         c.prepareScene(); watcher.prepareScene()
         await connect(me, other)
         let myID = me.settings.memberID
         let before = watcher.scene!.memberTiles[myID]
-        idleFor = PlazaWindowController.idleAfter - 1
-        c.checkIdle()
-        await settle()
-        XCTAssertEqual(other.session.members[myID]?.isIdle, false, "not yet")
-        idleFor = PlazaWindowController.idleAfter
-        c.checkIdle()
+        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.presence, .online)
+        me.session.updateIdle(true)
         await settle()
         XCTAssertEqual(other.session.members[myID]?.isIdle, true)
         XCTAssertEqual(other.session.members[myID]?.inPlaza, true)
         XCTAssertEqual(watcher.scene?.memberName(myID), "나 zZ")
         XCTAssertEqual(watcher.scene?.memberTiles[myID], before, "an idle member stays where they were")
-        XCTAssertEqual(watcher.rosterEntries.first { $0.id == myID }?.presence, .away)
+        XCTAssertEqual(watcher.rosterEntries.first { $0.id == myID }?.presence, .idle)
         XCTAssertEqual(watcher.minimapDots.first { $0.id == myID }?.isAway, true)
-        idleFor = 1
-        c.checkIdle()
+        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.presence, .idle, "my own row follows my input too")
+        me.session.updateIdle(false)
         await settle()
         XCTAssertEqual(other.session.members[myID]?.isIdle, false)
         XCTAssertEqual(watcher.scene?.memberName(myID), "나")
+        XCTAssertEqual(watcher.rosterEntries.first { $0.id == myID }?.presence, .online)
+        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.presence, .online)
     }
 
-    func testIdleCheckDoesNothingWhileClosed() async {
-        let me = node("나")
-        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
-                                      loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
-                                      nickname: { "나" }, memberID: { me.settings.memberID },
-                                      subject: { .init(speciesID: 25, isShiny: false) },
-                                      session: me.session, secondsSinceInput: { 10_000 })
-        c.checkIdle()
-        XCTAssertFalse(c.isIdle)
+    /// The report: a teammate working with the plaza closed showed 잠. Now they are 접속, without zZ, until they stop typing.
+    func testPlazaClosedIsOnlineUntilIdle() async {
+        let me = node("나"), other = node("민수")
+        let watcher = controller(other)
+        watcher.prepareScene()
+        await connect(me, other)   // my plaza stays closed
+        let myID = me.settings.memberID
+        XCTAssertEqual(other.session.members[myID]?.inPlaza, false, "test precondition")
+        XCTAssertEqual(watcher.rosterEntries.first { $0.id == myID }?.presence, .online)
+        XCTAssertEqual(watcher.scene?.memberName(myID), "나", "no zZ while working")
+        XCTAssertEqual(watcher.minimapDots.first { $0.id == myID }?.isAway, false)
+        me.session.updateIdle(true)
+        await settle()
+        XCTAssertEqual(other.session.members[myID]?.isIdle, true, "idle reaches teammates with the plaza closed")
+        XCTAssertEqual(watcher.rosterEntries.first { $0.id == myID }?.presence, .idle)
+        XCTAssertEqual(watcher.scene?.memberName(myID), "나 zZ")
+    }
+
+    /// The report: a teammate whose Mac slept or who quit vanished. Now they stay as 잠 (off the map) until they connect again.
+    func testDisconnectedTeammateStaysAsleepUntilTheyReconnect() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me)
+        c.prepareScene()
+        let link = hub.connect(me.transport, to: other.transport)
+        await settle()
+        let id = other.settings.memberID
+        XCTAssertEqual(c.rosterEntries.first { $0.id == id }?.presence, .online)
+        hub.disconnect(link)
+        await settle()
+        XCTAssertEqual(c.rosterEntries.first { $0.id == id }?.presence, .asleep)
+        XCTAssertEqual(c.rosterEntries.first { $0.id == id }?.nickname, "민수")
+        XCTAssertNil(c.scene?.memberTiles[id], "off the map")
+        XCTAssertNil(c.minimapDots.first { $0.id == id })
+        hub.connect(me.transport, to: other.transport)
+        await settle()
+        XCTAssertEqual(c.rosterEntries.filter { $0.id == id }.map(\.presence), [.online])
     }
 
     func testMinimapShowsMeAndTeammatesAndTheVisibleArea() async {
@@ -311,6 +337,9 @@ final class PlazaMembersTests: XCTestCase {
         XCTAssertEqual(mate?.color, c.scene?.memberNameColor(other.settings.memberID))
         XCTAssertEqual(c.minimapView, c.scene?.visibleWorldRect)
         other.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        await settle()
+        XCTAssertEqual(c.minimapDots.first { $0.id == other.settings.memberID }?.isAway, false, "closing the plaza is not idle")
+        other.session.updateIdle(true)
         await settle()
         XCTAssertEqual(c.minimapDots.first { $0.id == other.settings.memberID }?.isAway, true)
     }
@@ -370,14 +399,15 @@ final class PlazaMembersTests: XCTestCase {
         XCTAssertEqual(footTile(scene, id), b)
     }
 
-    func testAwayMemberStandsInShelterWithZzName() async {
+    /// A teammate outside the plaza stands in the shelter. zZ marks only no input, not a closed plaza.
+    func testMemberOutsideThePlazaStandsInTheShelter() async {
         let me = node("나"), other = node("민수")
         let c = controller(me)
         c.prepareScene()
         await connect(me, other)   // inPlaza is false right after hello
         let id = other.settings.memberID
         guard let scene = c.scene else { return XCTFail("no scene") }
-        XCTAssertEqual(scene.memberName(id), "민수 " + L(.ko).plazaAwaySuffix)
+        XCTAssertEqual(scene.memberName(id), "민수")
         XCTAssertTrue(map.shelterTiles.contains(scene.memberTiles[id]!))
         step(scene, seconds: 40)
         XCTAssertTrue(map.shelterTiles.contains(scene.memberTiles[id]!), "wandering stays in the shelter")
@@ -402,7 +432,7 @@ final class PlazaMembersTests: XCTestCase {
         XCTAssertTrue(map.shelterTiles.contains(footTile(scene, id)!), "back to the shelter at once")
     }
 
-    func testDisconnectedMemberDisappears() async {
+    func testDisconnectedMemberLeavesTheMapAndSleepsInTheRoster() async {
         let me = node("나"), other = node("민수")
         let c = controller(me)
         c.prepareScene()
@@ -417,7 +447,7 @@ final class PlazaMembersTests: XCTestCase {
         await settle()
         XCTAssertNil(c.scene?.memberFoot(id))
         XCTAssertTrue(c.scene?.memberTiles.isEmpty ?? false)
-        XCTAssertTrue(c.rosterEntries.isEmpty)
+        XCTAssertEqual(c.rosterEntries.map(\.presence), [.asleep])
     }
 
     func testInvalidRemoteTileFallsBackToShelter() async {

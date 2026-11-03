@@ -21,7 +21,8 @@ private final class RuntimeNode {
     let runtime: TeamRuntime
     private let suite = "ptb.test.team.runtime.\(UUID().uuidString)"
 
-    init(hub: FakeTransportHub, code: TeamCode, nickname: String, companionURL: URL? = nil) {
+    init(hub: FakeTransportHub, code: TeamCode, nickname: String, companionURL: URL? = nil,
+         secondsSinceInput: @escaping () -> TimeInterval = { 0 }) {
         let defaults = UserDefaults(suiteName: suite)!
         settings = TeamSettings(defaults: defaults)
         settings.code = code
@@ -34,7 +35,8 @@ private final class RuntimeNode {
         transport = hub.makeTransport()
         let feed = TeamFeedStore(fileURL: tmp.appendingPathComponent("rt-feed-\(UUID().uuidString).json"),
                                  myMemberID: settings.memberID)
-        runtime = TeamRuntime(settings: settings, companion: companion, transport: transport, feed: feed)
+        runtime = TeamRuntime(settings: settings, companion: companion, transport: transport, feed: feed,
+                              secondsSinceInput: secondsSinceInput)
     }
 
     deinit { UserDefaults().removePersistentDomain(forName: suite) }
@@ -64,6 +66,35 @@ final class TeamRuntimeTests: XCTestCase {
         b.runtime.start()
         hub.connect(a.transport, to: b.transport)
         return (a, b)
+    }
+
+    /// Five minutes without keyboard or mouse input is idle, checked on every tick whether or not the plaza is open.
+    func testFiveMinutesWithoutInputIsIdleOnTheNextTick() async {
+        var idleFor: TimeInterval = 0
+        let code = newCode()
+        let a = RuntimeNode(hub: hub, code: code, nickname: "가", secondsSinceInput: { idleFor })
+        let b = RuntimeNode(hub: hub, code: code, nickname: "나")
+        a.runtime.start(); b.runtime.start()
+        hub.connect(a.transport, to: b.transport)
+        await settle { b.runtime.session.members[a.settings.memberID] != nil }
+        let id = a.settings.memberID
+        XCTAssertEqual(TeamRuntime.idleAfter, 300)
+        idleFor = 299
+        a.runtime.tickOnce()
+        XCTAssertFalse(a.runtime.session.isIdle, "not yet")
+        idleFor = 300
+        a.runtime.tickOnce()
+        XCTAssertTrue(a.runtime.session.isIdle)
+        await settle { b.runtime.session.members[id]?.isIdle == true }
+        XCTAssertEqual(b.runtime.session.members[id]?.inPlaza, false, "the plaza was never opened")
+        idleFor = 1
+        a.runtime.tickOnce()
+        XCTAssertFalse(a.runtime.session.isIdle)
+        await settle { b.runtime.session.members[id]?.isIdle == false }
+    }
+
+    func testSystemIdleTimeIsReadable() {
+        XCTAssertGreaterThanOrEqual(TeamRuntime.systemSecondsSinceInput(), 0)
     }
 
     func testCompanionEventIsPublished() {

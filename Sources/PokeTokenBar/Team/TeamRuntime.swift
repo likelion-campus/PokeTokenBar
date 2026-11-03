@@ -1,10 +1,13 @@
 import Foundation
+import CoreGraphics
 
 /// Ties the companion and the team settings to the `TeamSession`: forwards companion events, keeps the
 /// session's settings and character current, ticks it, and holds an App Nap activity while teammates are online.
 @MainActor
 final class TeamRuntime {
     static let tickInterval: TimeInterval = 5
+    /// No keyboard or mouse input for this long counts as idle (자리비움), with the plaza open or closed.
+    static let idleAfter: TimeInterval = 300
     /// The tick only drives heartbeats and the notice batch, so it may coalesce with other wake-ups.
     static let tickTolerance: Duration = .seconds(2)
 
@@ -17,6 +20,7 @@ final class TeamRuntime {
     private let settings: TeamSettings
     private let companion: CompanionStore
     private let closePlazaOverride: (() -> Void)?
+    private let secondsSinceInput: () -> TimeInterval
     private var started = false
     private var wasReady: Bool
     private var lastCode: TeamCode?
@@ -27,10 +31,12 @@ final class TeamRuntime {
     var isTicking: Bool { tickTask != nil }
 
     init(settings: TeamSettings, companion: CompanionStore, transport: TeamTransporting = BonjourTeamTransport(),
-         feed: TeamFeedStore? = nil, closePlaza: (() -> Void)? = nil) {
+         feed: TeamFeedStore? = nil, closePlaza: (() -> Void)? = nil,
+         secondsSinceInput: @escaping () -> TimeInterval = TeamRuntime.systemSecondsSinceInput) {
         self.settings = settings
         self.companion = companion
         self.closePlazaOverride = closePlaza
+        self.secondsSinceInput = secondsSinceInput
         let feed = feed ?? TeamFeedStore(myMemberID: settings.memberID)
         self.feed = feed
         wasReady = settings.isReady
@@ -134,8 +140,16 @@ final class TeamRuntime {
     }
 
     func tickOnce() {
+        session.updateIdle(secondsSinceInput() >= Self.idleAfter)
         session.tick()
         notifier?.flush()
+    }
+
+    /// 마지막 입력 뒤 지난 시간. 권한 없이 읽을 수 있고 어떤 앱을 쓰는지는 알 수 없다.
+    nonisolated static func systemSecondsSinceInput() -> TimeInterval {
+        let kinds: [CGEventType] = [.keyDown, .flagsChanged, .mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel,
+                                    .leftMouseDragged, .otherMouseDown]
+        return kinds.map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? 0
     }
 
     private func stopTicking() {

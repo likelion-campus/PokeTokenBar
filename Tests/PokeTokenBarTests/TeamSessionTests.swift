@@ -616,6 +616,52 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(m?.facing)
     }
 
+    /// Idle is mine, not the plaza's: closing the plaza keeps it, and it is resent only when it changes.
+    func testIdleIsSentWithThePlazaOpenOrClosed() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false)
+        a.session.updateIdle(true)
+        XCTAssertEqual(b.session.members[a.memberID]?.isIdle, true)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        XCTAssertEqual(b.session.members[a.memberID]?.isIdle, true, "closing the plaza does not clear idle")
+        XCTAssertEqual(b.session.members[a.memberID]?.inPlaza, false)
+        let before = a.presencesSent
+        a.session.updateIdle(true)
+        XCTAssertEqual(a.presencesSent, before, "no change, nothing sent")
+        a.session.updateIdle(false)
+        XCTAssertEqual(b.session.members[a.memberID]?.isIdle, false)
+    }
+
+    /// A teammate whose connection is gone is kept as asleep (their last state) until they connect again.
+    func testDisconnectedMemberIsKeptAsAsleepUntilBack() {
+        let a = node("A"), b = node("B")
+        let ab = connect(a, b)
+        b.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false)
+        hub.disconnect(ab)
+        XCTAssertTrue(a.session.members.isEmpty)
+        XCTAssertEqual(a.session.asleepMembers[b.memberID]?.nickname, "B")
+        XCTAssertFalse(a.session.hasOnlinePeers, "asleep teammates do not hold App Nap off")
+        connect(a, b)
+        XCTAssertNotNil(a.session.members[b.memberID])
+        XCTAssertNil(a.session.asleepMembers[b.memberID])
+    }
+
+    /// The asleep list belongs to one team: a code change or turning the team off forgets it.
+    func testAsleepListIsForgottenWithTheTeam() {
+        let a = node("A"), b = node("B")
+        hub.disconnect(connect(a, b))
+        XCTAssertFalse(a.session.asleepMembers.isEmpty, "test precondition")
+        a.settings.code = newCode()
+        a.session.applySettings()
+        XCTAssertTrue(a.session.asleepMembers.isEmpty)
+        let c = node("C"), d = node("D")
+        hub.disconnect(connect(c, d))
+        c.settings.isEnabled = false
+        c.session.applySettings()
+        XCTAssertTrue(c.session.asleepMembers.isEmpty)
+    }
+
     func testDisconnectRemovesMember() {
         let a = node("A"), b = node("B")
         let ab = connect(a, b)

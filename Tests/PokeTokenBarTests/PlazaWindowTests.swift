@@ -546,6 +546,25 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(c.scene?.isNamePlateVisible, false)
     }
 
+    /// Each status reads and looks different, and a roster with all three lays out one row per teammate.
+    func testRosterShowsThreeDistinctStatuses() {
+        let badges = [PlazaPresence.online, .idle, .asleep].map(\.badge)
+        XCTAssertEqual(badges.map(\.text), ["접속", "자리비움", "잠"])
+        XCTAssertEqual(Set(badges.map(\.color)).count, 3)
+        func entry(_ id: String, _ p: PlazaPresence, me: Bool = false) -> PlazaRosterEntry {
+            PlazaRosterEntry(id: id, nickname: id, speciesID: 25, speciesName: "피카츄", gender: nil, isShiny: false,
+                             presence: p, isMe: me)
+        }
+        let model = PlazaRosterModel()
+        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
+        model.entries = [entry("me", .online, me: true)]
+        let one = view.fittingSize.height
+        model.entries = [entry("me", .idle, me: true), entry("a", .online), entry("b", .idle), entry("c", .asleep)]
+        view.layoutSubtreeIfNeeded()
+        let slot = PlazaRosterMetrics.slotHeight + PlazaRosterMetrics.slotSpacing
+        XCTAssertEqual(view.fittingSize.height - one, 3 * slot, accuracy: 1)
+    }
+
     /// The roster takes clicks so a teammate can be chosen, but never the keyboard.
     func testRosterTakesClicksButNotKeys() {
         let model = PlazaRosterModel()

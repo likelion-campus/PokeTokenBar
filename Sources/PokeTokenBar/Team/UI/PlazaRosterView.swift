@@ -31,7 +31,7 @@ struct PlazaRosterView: View {
                     PlazaRosterSlot(entry: entry, animating: model.isAnimating)
                         .contentShape(Rectangle())
                         .onTapGesture { if !entry.isMe { onSelect(entry.id) } }
-                        .help(entry.isMe ? "" : L(.ko).plazaRosterWalkHint)
+                        .help(entry.isMe || entry.presence == .asleep ? "" : L(.ko).plazaRosterWalkHint)
                 }
                 if hidden > 0 { PlazaRosterMoreSlot(count: hidden) }
             }
@@ -71,13 +71,26 @@ struct PlazaRosterBackground: View {
     }
 }
 
+extension PlazaPresence {
+    /// 상태 칸의 글자와 바탕색. 접속은 초록, 자리비움은 주황, 잠은 보라.
+    var badge: (text: String, color: UInt32) {
+        let l = L(.ko)
+        switch self {
+        case .online: return (l.plazaStatusOnline, 0x48B860)
+        case .idle: return (l.plazaStatusIdle, 0xD08830)
+        case .asleep: return (l.plazaStatusAsleep, 0x9070B8)
+        }
+    }
+}
+
 @MainActor
 private struct PlazaRosterSlot: View {
     let entry: PlazaRosterEntry
     let animating: Bool
 
     private var colors: (top: Color, bottom: Color, border: Color) {
-        if entry.presence == .away { return (Color(hex: 0xA8B0C0), Color(hex: 0x9098A8), Color(hex: 0x4A5060)) }
+        if entry.presence == .asleep { return (Color(hex: 0x8088A0), Color(hex: 0x707890), Color(hex: 0x3A4050)) }
+        if entry.presence == .idle { return (Color(hex: 0xA8B0C0), Color(hex: 0x9098A8), Color(hex: 0x4A5060)) }
         if entry.isMe { return (Color(hex: 0xF8B878), Color(hex: 0xF09858), Color(hex: 0x8A4A28)) }
         return (Color(hex: 0x7CC8E8), Color(hex: 0x5FB0D8), Color(hex: 0x23464C))
     }
@@ -105,11 +118,11 @@ private struct PlazaRosterSlot: View {
             .foregroundStyle(.white)
             .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
             Spacer(minLength: 0)
-            Text(entry.presence == .online ? l.plazaStatusOnline : l.plazaStatusAway)
+            Text(status.text)
                 .font(Font(PlazaResources.font(size: 14)))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Color(hex: entry.presence == .online ? 0x48B860 : 0x9070B8), in: Capsule())
+                .background(Color(hex: status.color), in: Capsule())
                 .padding(.trailing, 6)
         }
         .frame(height: PlazaRosterMetrics.slotHeight)
@@ -119,6 +132,8 @@ private struct PlazaRosterSlot: View {
         .overlay(shape.inset(by: 3).stroke(.white.opacity(0.6), lineWidth: 2))
         .overlay(shape.inset(by: 1).stroke(c.border, lineWidth: 2))
     }
+
+    private var status: (text: String, color: UInt32) { entry.presence.badge }
 
     private var genderSymbol: (text: String, color: Color)? {
         switch entry.gender {

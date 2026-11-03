@@ -1,7 +1,9 @@
 import Foundation
 import Observation
 
-enum PlazaPresence: Sendable { case online, away }
+/// 목록의 상태. 접속: 앱이 켜져 있고 입력이 있다(광장을 닫았어도). 자리비움: 한동안 입력이 없다.
+/// 잠: 연결이 끊겼다(Mac이 잠들었거나 앱을 껐다). 잠은 이 앱을 켜 둔 동안 본 팀원만 메모리에 남는다.
+enum PlazaPresence: Sendable { case online, idle, asleep }
 
 /// 참여자 목록의 한 칸. 레벨·HP·진행률 같은 수치는 일부러 담지 않는다.
 struct PlazaRosterEntry: Equatable, Identifiable, Sendable {
@@ -59,15 +61,22 @@ enum PlazaRoster {
                               speciesName: entry.speciesName, gender: entry.gender)
     }
 
-    /// 내 칸과 팀원들을 합쳐 정렬한다.
-    static func entries(me: PlazaRosterEntry?, members: [TeamMemberState]) -> [PlazaRosterEntry] {
-        let others = members.map { m in
+    /// 내 칸, 연결된 팀원, 끊긴 팀원(잠)을 합쳐 정렬한다. 광장을 열었는지는 상태와 상관없다.
+    static func entries(me: PlazaRosterEntry?, meIsIdle: Bool = false, members: [TeamMemberState],
+                        asleep: [TeamMemberState] = []) -> [PlazaRosterEntry] {
+        func entry(_ m: TeamMemberState, _ presence: PlazaPresence) -> PlazaRosterEntry {
             PlazaRosterEntry(id: m.memberID, nickname: m.nickname, speciesID: m.character.speciesID,
                              speciesName: m.character.speciesName ?? (m.character.speciesID == nil ? L(.ko).plazaEggName : ""),
-                             gender: m.character.gender, isShiny: m.character.isShiny,
-                             presence: m.inPlaza && !m.isIdle ? .online : .away, isMe: false)
+                             gender: m.character.gender, isShiny: m.character.isShiny, presence: presence, isMe: false)
         }
-        return sorted((me.map { [$0] } ?? []) + others)
+        let connected = Set(members.map(\.memberID))
+        let mine = me.map { e in
+            PlazaRosterEntry(id: e.id, nickname: e.nickname, speciesID: e.speciesID, speciesName: e.speciesName,
+                             gender: e.gender, isShiny: e.isShiny, presence: meIsIdle ? .idle : .online, isMe: true)
+        }
+        let others = members.map { entry($0, $0.isIdle ? .idle : .online) }
+            + asleep.filter { !connected.contains($0.memberID) }.map { entry($0, .asleep) }
+        return sorted((mine.map { [$0] } ?? []) + others)
     }
 
     /// 창 높이(포인트)에 들어가는 칸 수. 넘칠 때 "외 N명" 줄이 마지막 칸을 쓰므로 최소 2칸은 둔다.
@@ -78,16 +87,23 @@ enum PlazaRoster {
         return max(2, slots)
     }
 
-    /// 넘치면 마지막 칸 자리를 "외 N명" 줄로 쓴다. 입력을 받지 않아 스크롤할 수 없으므로, 잘리는 쪽은 정렬상 뒤(자리 비운 팀원)다.
+    /// 넘치면 마지막 칸 자리를 "외 N명" 줄로 쓴다. 입력을 받지 않아 스크롤할 수 없으므로, 잘리는 쪽은 정렬상 뒤(자리비움, 잠)다.
     static func visible(_ entries: [PlazaRosterEntry], capacity: Int) -> (shown: [PlazaRosterEntry], hidden: Int) {
         guard entries.count > capacity else { return (entries, 0) }
         let keep = max(0, capacity - 1)
         return (Array(entries.prefix(keep)), entries.count - keep)
     }
 
-    /// 나 → 접속 중 → 자리 비움, 같은 무리 안에서는 닉네임 순.
+    /// 나 → 접속 → 자리비움 → 잠, 같은 무리 안에서는 닉네임 순.
     static func sorted(_ entries: [PlazaRosterEntry]) -> [PlazaRosterEntry] {
-        func rank(_ e: PlazaRosterEntry) -> Int { e.isMe ? 0 : (e.presence == .online ? 1 : 2) }
+        func rank(_ e: PlazaRosterEntry) -> Int {
+            if e.isMe { return 0 }
+            switch e.presence {
+            case .online: return 1
+            case .idle: return 2
+            case .asleep: return 3
+            }
+        }
         return entries.sorted {
             let (a, b) = (rank($0), rank($1))
             if a != b { return a < b }
