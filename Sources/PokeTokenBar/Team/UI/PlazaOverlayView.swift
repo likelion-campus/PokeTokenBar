@@ -45,18 +45,18 @@ struct PlazaOverlayView: View {
         case .none:
             Color.clear
         case .board:
-            panel {
+            panel(CGSize(width: 340, height: 380)) {
                 if let feed { PlazaBoardView(feed: feed, myMemberID: myMemberID, onReact: onReact) }
             }
         case .card(let state):
-            panel { PlazaCardView(state: state) }
+            panel(PlazaCardMetrics.panelSize) { PlazaCardView(state: state) }
         }
     }
 
-    private func panel<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    private func panel<Content: View>(_ size: CGSize, @ViewBuilder _ content: () -> Content) -> some View {
         content()
-            .padding(PlazaRosterMetrics.padding + 4)
-            .frame(width: 340, height: 380)
+            .padding(PlazaCardMetrics.panelInset)
+            .frame(width: size.width, height: size.height)
             .background(PlazaRosterBackground())
     }
 }
