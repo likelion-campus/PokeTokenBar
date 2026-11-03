@@ -103,6 +103,41 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(scene.walker.tile, right, "pushed one tile away from the teammate on my left")
     }
 
+    /// A tackle from an evolved teammate slides me as many tiles as it asks, whether my plaza is drawing or hidden.
+    func testStrongerTacklePushesMeSeveralTiles() async {
+        for hidden in [false, true] {
+            let (a, b) = connectedPair()
+            let suite = "ptb.test.team.runtime.strongpush.\(UUID().uuidString)"
+            defer { UserDefaults().removePersistentDomain(forName: suite) }
+            let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                              loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                              nickname: { "나" }, memberID: { b.settings.memberID },
+                                              subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+            b.runtime.plaza = plaza
+            plaza.prepareScene()
+            let scene = try! XCTUnwrap(plaza.scene)
+            let map = PlazaMapData.map, start = scene.walker.tile
+            let left = TilePoint(x: start.x - 1, y: start.y), far = TilePoint(x: start.x + 3, y: start.y)
+            XCTAssertTrue((1...3).allSatisfy { map.isWalkable(TilePoint(x: start.x + $0, y: start.y)) }, "test precondition")
+            let sender = a.settings.memberID
+            await settle { scene.memberTiles[sender] != nil }
+            a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+            var t: TimeInterval = 0
+            for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
+            XCTAssertEqual(scene.memberTiles[sender], left)
+            if hidden { plaza.setRendering(visible: false) }
+            a.runtime.session.sendEmote(.tackle, target: b.settings.memberID, pushTiles: 3)
+            if hidden {
+                await settle { scene.walker.tile == far }
+            } else {
+                await settle { scene.impactCount == 1 }
+                for _ in 0..<40 { t += 0.05; scene.update(t) }
+            }
+            XCTAssertEqual(scene.walker.tile, far, "three tiles away (hidden: \(hidden))")
+            await settle { a.runtime.session.members[b.settings.memberID]?.tile == far }
+        }
+    }
+
     /// The plaza stops drawing while its window is hidden behind others, but a tackle still pushes me at once and
     /// teammates get my new tile. Before, the push waited for the next drawn frame, so the tackler saw nothing happen.
     func testTackleWhileMyPlazaIsHiddenStillPushesMe() async {

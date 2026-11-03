@@ -53,7 +53,7 @@ final class TeamRuntime {
         session.onEmote = { [weak self] memberID, emote in
             guard let self else { return }
             if emote.kind == .tackle {
-                plaza?.showTackle(from: memberID, on: emote.targetMemberID)
+                plaza?.showTackle(from: memberID, on: emote.targetMemberID, tiles: TeamEmote.pushTiles(emote.pushTiles))
                 return
             }
             plaza?.showEmote(memberID: memberID, kind: emote.kind,

@@ -132,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             teamName: { [teamSettings] in teamSettings.currentTeam?.name },
             nameColor: { [teamSettings] in teamSettings.nameColor },
             chooseNameColor: { [teamSettings] in teamSettings.nameColor = $0 },
+            evolutionStage: { [companion] in companion!.representativeEvolutionStage },
             session: teamRuntime.session, feed: teamRuntime.feed)
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
         teamRuntime.plaza = plaza

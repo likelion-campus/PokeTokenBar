@@ -39,6 +39,22 @@ final class TeamWireTests: XCTestCase {
         XCTAssertNil(e.isShared)
     }
 
+    /// A one-tile tackle leaves the push out, so it reads the same in v2.5.610 and earlier, which push one tile.
+    /// Whatever a teammate sends, a tackle pushes one to three tiles.
+    func testTacklePushTilesAreOptionalAndKeptInRange() throws {
+        let strong = TeamMessage.emote(TeamEmote(kind: .tackle, targetMemberID: "m", pushTiles: 3))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(strong)), [strong])
+        let plain = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .tackle, targetMemberID: "m"))).dropFirst(4),
+                           as: UTF8.self)
+        XCTAssertFalse(plain.contains("pushTiles"))
+        let earlier = frame(#"{"emote":{"_0":{"kind":"tackle","targetMemberID":"m"}}}"#)
+        var earlierDecoder = TeamWire.FrameDecoder()
+        guard case .emote(let e)? = try earlierDecoder.append(earlier).first else { return XCTFail("not an emote") }
+        XCTAssertNil(e.pushTiles)
+        XCTAssertEqual([nil, 0, 1, 2, 3, 4, 99, -5].map(TeamEmote.pushTiles), [1, 1, 1, 2, 3, 3, 3, 1])
+    }
+
     /// A picked name colour is sent only when there is one, and earlier versions' presence reads as none.
     func testNameColorIsOptionalOnTheWire() throws {
         var colored = presence

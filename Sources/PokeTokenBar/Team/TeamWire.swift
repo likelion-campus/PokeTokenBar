@@ -43,6 +43,16 @@ struct TeamEmote: Codable, Equatable, Sendable {
     /// A greeting (Space beside a teammate): the bubble shows over the target too. Left out when false, so
     /// earlier versions read it as an ordinary emote over the sender.
     var isShared: Bool?
+    /// A tackle: how many tiles the target slides, the tackler's evolution stage. Left out for one tile, which is
+    /// all that earlier versions push, so they read the same thing.
+    var pushTiles: Int?
+
+    /// A tackle pushes one to three tiles, like the three evolution stages.
+    static let pushTileRange = 1...3
+    /// `n` (a stage, or what a teammate sent) kept within `pushTileRange`. Left out means one tile.
+    static func pushTiles(_ n: Int?) -> Int {
+        min(max(n ?? 1, pushTileRange.lowerBound), pushTileRange.upperBound)
+    }
 }
 
 /// A short line said in the plaza. It is shown for a moment and never stored or forwarded.
