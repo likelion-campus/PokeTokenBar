@@ -29,6 +29,8 @@ struct PlazaWalker: Sendable {
     var wantsToRun = false
 
     var isWalking: Bool { stepFrom != nil }
+    /// 방향키를 누르고 있다.
+    var isHoldingKey: Bool { !held.isEmpty }
     /// 지금 가는 칸을 달리고 있다.
     var isRunning: Bool { stepFrom != nil && stepLength == Self.runStepDuration }
 

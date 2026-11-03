@@ -391,6 +391,24 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertFalse(PlazaPreferences(defaults: d).areShortcutsFolded, "unfolding is remembered too")
     }
 
+    /// Pausing and resuming leave a state line in the log, with the scene's update count, so a frozen plaza can be
+    /// told apart: paused while visible, or running but not updating.
+    func testPausingAndResumingLeaveStateLines() {
+        let c = controller(defaults())
+        c.prepareScene()
+        var lines: [String] = []
+        c.stateLog = { lines.append($0) }
+        guard let scene = c.scene else { return XCTFail("setup") }
+        scene.update(0); scene.update(1.0 / 60)
+        c.setRendering(visible: false)
+        c.setRendering(visible: true)
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertTrue(lines[0].hasPrefix("plaza rendering visible=false:"), lines[0])
+        XCTAssertTrue(lines[0].contains("scenePaused=true"), lines[0])
+        XCTAssertTrue(lines[0].contains("updates=2"), lines[0])
+        XCTAssertTrue(lines[1].contains("scenePaused=false"), lines[1])
+    }
+
     func testPersistStateSavesTileWithoutTearingDown() {
         let d = defaults()
         let c = controller(d)

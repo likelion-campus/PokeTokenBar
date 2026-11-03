@@ -705,6 +705,23 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertTrue(ran, "I ran after them without Shift")
     }
 
+    /// Shift counts only with an arrow key held: typing a capital letter while following a walker does not run.
+    func testShiftWithoutAnArrowKeyDoesNotRun() async {
+        let (_, scene, other, _) = await standing()
+        follow(scene)
+        scene.currentModifiers = { .shift }
+        let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
+        let away = TilePoint(x: ahead.x, y: ahead.y + 3)
+        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: true)
+        var t: TimeInterval = 0, walked = false, ran = false
+        for _ in 0..<300 where !walked || scene.walker.isWalking {
+            await Task.yield(); t += 1.0 / 60; scene.update(t)
+            walked = walked || scene.walker.isWalking; ran = ran || scene.walker.isRunning
+        }
+        XCTAssertTrue(walked, "following walked")
+        XCTAssertFalse(ran, "Shift alone does not run")
+    }
+
     /// An egg cannot walk, so its menu has no 따라가기.
     func testAnEggIsNotOfferedFollowing() async {
         let (c, scene, _, id) = await standing()

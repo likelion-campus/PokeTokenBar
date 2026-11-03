@@ -411,6 +411,18 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertTrue(scene.isShutterFlashing)
     }
 
+    /// A hidden plaza (paused scene) does not flash: its fade would not run and a white sheet would wait for the
+    /// window to come back, as when a group photo ends while the window is covered.
+    func testAPausedSceneDoesNotFlash() {
+        let scene = newScene()
+        scene.isPaused = true
+        scene.playShutterFlash()
+        XCTAssertFalse(scene.isShutterFlashing)
+        scene.isPaused = false
+        scene.playShutterFlash()
+        XCTAssertTrue(scene.isShutterFlashing)
+    }
+
     // MARK: 창
 
     private func controller(writer: @escaping (Data) -> Bool) -> PlazaWindowController {
