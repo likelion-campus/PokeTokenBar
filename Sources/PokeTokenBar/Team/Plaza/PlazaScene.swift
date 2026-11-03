@@ -360,9 +360,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// `memberID`가 nil이면 나. 모르는 팀원이면 아무것도 안 한다.
-    func showEmote(memberID: String?, kind: TeamEmoteKind) {
+    func showEmote(memberID: String?, kind: TeamEmoteKind, large: Bool = false) {
         guard let actor = actor(memberID) else { return }
-        actor.showEmote(kind)
+        actor.showEmote(kind, large: large)
         layout()
     }
 
