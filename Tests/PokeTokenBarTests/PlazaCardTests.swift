@@ -11,6 +11,7 @@ private struct EmptyFetcher: PlazaSpriteFetching {
 
 private let spaceKey: UInt16 = 49, escKey: UInt16 = 53, wKey: UInt16 = 13, rightKey: UInt16 = 124, heartKey: UInt16 = 18
 private let upKey: UInt16 = 126, downKey: UInt16 = 125, returnKey: UInt16 = 36
+private let zKey: UInt16 = 6, xKey: UInt16 = 7, cKey: UInt16 = 8
 
 private extension PlazaOverlayContent {
     var cardMemberID: String? {
@@ -352,6 +353,26 @@ final class PlazaCardTests: XCTestCase {
         space(c.scene!)
         XCTAssertEqual(c.overlayContent, .none)
         XCTAssertFalse(c.scene!.isOverlayOpen)
+        XCTAssertEqual(c.scene!.dustCount, 0, "Space is for talking only; jumping is Z")
+    }
+
+    /// X and C need a teammate beside me. Alone, they show and send nothing.
+    func testXAndCWithNobodyBesideDoNothing() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: TilePoint(x: 10, y: 10))
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        var received: [TeamEmote] = []
+        other.session.onEmote = { received.append($1) }
+        let scene = c.scene!
+        key(scene, xKey)
+        key(scene, cKey)
+        XCTAssertNil(scene.shownEmote(memberID: nil))
+        XCTAssertEqual(scene.impactCount, 0)
+        XCTAssertEqual(c.overlayContent, .none)
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(received, [])
     }
 
     func testSpaceOnBoardOpensEmptyBoardPanel() {
@@ -534,6 +555,51 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertEqual(received.first?.1, TeamEmote(kind: .tackle, targetMemberID: id))
     }
 
+    /// X greets the teammate in front of me at once, without the menu, the same way 인사하기 does.
+    func testXGreetsTheTeammateInFrontWithoutTheMenu() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn, greeting: .heart)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        await waitUntil { c.scene?.memberTiles[id] == ahead }
+        var received: [(String, TeamEmote)] = []
+        other.session.onEmote = { received.append(($0, $1)) }
+        let scene = c.scene!
+        key(scene, xKey)
+        XCTAssertEqual(c.overlayContent, .none, "no menu")
+        XCTAssertEqual(scene.shownEmote(memberID: nil), .heart)
+        XCTAssertEqual(scene.shownEmote(memberID: id), .heart)
+        await waitUntil { !received.isEmpty }
+        XCTAssertEqual(received.first?.1, TeamEmote(kind: .heart, targetMemberID: id, isShared: true))
+    }
+
+    /// C tackles a teammate standing beside me, not only in front: I turn to them and lunge that way.
+    func testCTurnsToTheTeammateBesideAndTacklesWithoutTheMenu() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        let left = TilePoint(x: map.spawn.x - 1, y: map.spawn.y), id = other.settings.memberID
+        other.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        await waitUntil { c.scene?.memberTiles[id] == left }
+        var received: [(String, TeamEmote)] = []
+        other.session.onEmote = { received.append(($0, $1)) }
+        let scene = c.scene!
+        XCTAssertNotEqual(scene.walker.facing, .left, "test precondition")
+        key(scene, cKey)
+        XCTAssertEqual(c.overlayContent, .none, "no menu")
+        XCTAssertEqual(scene.walker.facing, .left, "turned to them")
+        XCTAssertEqual(scene.impactCount, 1)
+        step(scene, seconds: PlazaActor.lungeDuration / 2)
+        XCTAssertLessThan(scene.lungeOffset(memberID: nil)?.x ?? 0, 0, "I lunge left, toward them")
+        await waitUntil { !received.isEmpty }
+        XCTAssertEqual(received.first?.1, TeamEmote(kind: .tackle, targetMemberID: id))
+    }
+
     // MARK: - Follow
 
     private func follow(_ scene: PlazaScene) {
@@ -606,6 +672,36 @@ final class PlazaCardTests: XCTestCase {
         scene.update(0); scene.update(0.1)
         XCTAssertNil(scene.followingMember)
         XCTAssertNotEqual(c.hint, L(.ko).plazaFollowHint(nickname: "민수"), "the follow hint goes")
+    }
+
+    // MARK: - Jump
+
+    /// Z makes me hop with dust at my feet and tells teammates. I cannot jump again in mid-air.
+    func testJumpHopsRaisesDustAndReachesTheTeammate() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        var received: [(String, TeamEmote)] = []
+        other.session.onEmote = { received.append(($0, $1)) }
+        let scene = c.scene!
+        scene.update(0)
+        let groundY = scene.characterY, shadowY = scene.groundShadowY
+        key(scene, zKey)
+        key(scene, zKey)
+        XCTAssertEqual(scene.dustCount, 2, "dust on both sides of my feet, once")
+        var t: TimeInterval = 0
+        scene.update(t)
+        while t < PlazaActor.jumpDuration / 2 { t += 1.0 / 60; scene.update(t) }
+        XCTAssertGreaterThan(scene.jumpLift(memberID: nil) ?? 0, PlazaActor.jumpHeight * 0.8, "up in the air halfway")
+        XCTAssertGreaterThan(scene.characterY - groundY, PlazaActor.jumpHeight * 0.8, "the picture is drawn up there")
+        XCTAssertEqual(scene.groundShadowY, shadowY, "the shadow stays on the ground")
+        while t < PlazaActor.jumpDuration + 0.05 { t += 1.0 / 60; scene.update(t) }
+        XCTAssertEqual(scene.jumpLift(memberID: nil), 0, "back on the ground")
+        await waitUntil { !received.isEmpty }
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(received.map(\.1), [TeamEmote(kind: .jump, targetMemberID: nil)], "one jump went out")
     }
 
     func testEnterChoosesFromTheMenu() async {

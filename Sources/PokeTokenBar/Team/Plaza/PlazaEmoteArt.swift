@@ -71,6 +71,8 @@ enum PlazaEmoteArt {
         "G": CGColor(srgbRed: 0x3F / 255, green: 0xB9 / 255, blue: 0x50 / 255, alpha: 1),
         "B": CGColor(srgbRed: 0x3B / 255, green: 0x82 / 255, blue: 0xF6 / 255, alpha: 1),
         "O": CGColor(srgbRed: 0xF0 / 255, green: 0x8A / 255, blue: 0x24 / 255, alpha: 1),
+        "U": CGColor(srgbRed: 0xF2 / 255, green: 0xEE / 255, blue: 0xE2 / 255, alpha: 1),
+        "V": CGColor(srgbRed: 0xC4 / 255, green: 0xBC / 255, blue: 0xAA / 255, alpha: 1),
     ]
 
     /// 포인트 단위 크기. 이미지 픽셀 크기는 여기에 배율을 곱한 값이다.
@@ -100,6 +102,7 @@ enum PlazaEmoteArt {
         case .exclaim: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
         case .question: drawGrid(question, cell: dot, centeredAt: center, in: context)
         case .tackle: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)
+        case .jump: drawGrid(dust, cell: dot, centeredAt: center, in: context)
         }
         return context.makeImage()!
     }
@@ -134,6 +137,27 @@ enum PlazaEmoteArt {
         context.setShouldAntialias(false)
         context.scaleBy(x: scale, y: scale)
         drawGrid(impact, cell: dot, origin: .zero, in: context)
+        return context.makeImage()!
+    }
+
+    /// 점프할 때 발밑에서 이는 먼지 한 덩이. 위는 밝고 아래는 그늘진다.
+    private static let dust = [
+        "..UUU...",
+        ".UUUUUV.",
+        "UUUUUUVV",
+        ".VVVVVV.",
+    ]
+
+    static let dustSize = CGSize(width: CGFloat(dust[0].count) * dot, height: CGFloat(dust.count) * dot)
+
+    static func dustImage(scale: CGFloat) -> CGImage {
+        let scale = max(scale, 1)
+        let context = CGContext(data: nil, width: Int((dustSize.width * scale).rounded()), height: Int((dustSize.height * scale).rounded()),
+                                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setShouldAntialias(false)
+        context.scaleBy(x: scale, y: scale)
+        drawGrid(dust, cell: dot, origin: .zero, in: context)
         return context.makeImage()!
     }
 
