@@ -40,6 +40,8 @@ struct PlazaPhotoInput {
     var tint: PlazaDaylight.Tint = .none
     /// 화면에 떠 있는 날씨 입자. 캐릭터 위, 낮밤 색 아래라 지도와 같은 색이 곱해진다.
     var weather: [PlazaPhotoParticle] = []
+    /// 땅에 떨어진 아이템. 그림자 위, 캐릭터 아래.
+    var items: [PlazaPhotoParticle] = []
 }
 
 /// 기념사진을 CoreGraphics로 합성한다. 창이나 SKView가 필요 없고, 모든 그림은 보간 없이 정수 배율로 찍는다.
@@ -90,6 +92,11 @@ enum PlazaPhotoRenderer {
             guard let shadow = a.shadow else { continue }
             draw(shadow, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
                  w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
+        }
+
+        for p in input.items {
+            draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
+                 w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
         }
 
         // 화면 위쪽에 선(발의 y가 작은) 캐릭터부터. 같으면 입력 순서를 지킨다.

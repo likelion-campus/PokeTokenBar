@@ -40,6 +40,16 @@ extension L {
     var plazaShortcutPhoto: String { "기념사진" }
     var plazaShortcutZoom: String { "확대·축소" }
     var plazaShortcutGroupPhoto: String { "단체 사진" }
+    /// 광장에서 주운 아이템. 조사까지 붙인 목적어 꼴이다.
+    func plazaItemObject(_ kind: ItemKind) -> String {
+        switch kind {
+        case .rareCandy: "이상한 사탕을"
+        case .mint: "민트를"
+        case .shinyCharm: "이로치 부적을"
+        }
+    }
+    func plazaPickedUp(_ kind: ItemKind) -> String { "\(plazaItemObject(kind)) 주웠어요! 가방에 넣었어요" }
+    func plazaMemberPickedUp(nickname: String, kind: ItemKind) -> String { "\(nickname)님이 \(plazaItemObject(kind)) 주웠어요" }
     /// 이름을 아직 모르는 팀원.
     var plazaGroupPhotoSomeone: String { "팀원" }
     /// 단체 사진 카운트다운. 내가 시작했으면 이름 없이 모이자고 하고, 팀원이 시작했으면 함께 찍는지 알려 준다.
@@ -124,6 +134,7 @@ extension L {
         case .tackle: "💥"
         case .jump: "점프"
         case .groupPhoto: "단체 사진"
+        case .pickup: "아이템"
         }
     }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.

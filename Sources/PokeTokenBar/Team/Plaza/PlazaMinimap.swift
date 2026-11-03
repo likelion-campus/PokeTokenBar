@@ -16,4 +16,6 @@ final class PlazaMinimapModel {
 
     var dots: [Dot] = []
     var view: CGRect = .zero
+    /// 광장에 떨어진 아이템의 칸.
+    var item: TilePoint?
 }

@@ -83,6 +83,22 @@ final class TeamWireTests: XCTestCase {
         XCTAssertNil(p.isRunning)
     }
 
+    /// A pickup names its item slot, and presence carries the latest slot known taken. Both are left out when absent,
+    /// and earlier versions' frames read as none.
+    func testItemFieldsAreOptionalOnTheWire() throws {
+        let pickup = TeamMessage.emote(TeamEmote(kind: .pickup, targetMemberID: nil, itemSlot: 160_000))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(pickup)), [pickup])
+        var picked = presence
+        picked.takenItemSlot = 160_000
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(picked))), [.presence(picked)])
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("takenItemSlot"))
+        let plainEmote = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .heart, targetMemberID: nil))).dropFirst(4),
+                                as: UTF8.self)
+        XCTAssertFalse(plainEmote.contains("itemSlot"))
+    }
+
     /// An idle flag is sent only when true, so v2.5.602 and earlier read every other presence byte for byte.
     func testIdleFlagIsOptionalOnTheWire() throws {
         var idle = presence
@@ -284,7 +300,7 @@ final class TeamWireTests: XCTestCase {
         }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
-        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto"])
+        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup"])
         XCTAssertEqual([Rarity.common, .uncommon, .rare, .legendary].map(\.rawValue), ["common", "uncommon", "rare", "legendary"])
         XCTAssertEqual(PokemonGender.allCases.map(\.rawValue), ["male", "female", "genderless"])
         XCTAssertEqual(PlazaDirection.allCases.map(\.rawValue), ["up", "down", "left", "right"])

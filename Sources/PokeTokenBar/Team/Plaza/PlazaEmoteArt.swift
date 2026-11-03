@@ -73,6 +73,9 @@ enum PlazaEmoteArt {
         "O": CGColor(srgbRed: 0xF0 / 255, green: 0x8A / 255, blue: 0x24 / 255, alpha: 1),
         "U": CGColor(srgbRed: 0xF2 / 255, green: 0xEE / 255, blue: 0xE2 / 255, alpha: 1),
         "V": CGColor(srgbRed: 0xC4 / 255, green: 0xBC / 255, blue: 0xAA / 255, alpha: 1),
+        // 민트: 풀밭(초록) 위에서 보이도록 청록과 밝은 청록.
+        "M": CGColor(srgbRed: 0x2F / 255, green: 0xB8 / 255, blue: 0xA6 / 255, alpha: 1),
+        "L": CGColor(srgbRed: 0xB9 / 255, green: 0xF2 / 255, blue: 0xE4 / 255, alpha: 1),
     ]
 
     /// 포인트 단위 크기. 이미지 픽셀 크기는 여기에 배율을 곱한 값이다.
@@ -104,6 +107,7 @@ enum PlazaEmoteArt {
         case .tackle: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)
         case .jump: drawGrid(dust, cell: dot, centeredAt: center, in: context)
         case .groupPhoto: drawGrid(camera, cell: dot, centeredAt: center, in: context)
+        case .pickup: drawGrid(candy, cell: dot / 2, centeredAt: center, in: context)
         }
         return context.makeImage()!
     }
@@ -179,6 +183,47 @@ enum PlazaEmoteArt {
         ".YWY.",
         "..Y..",
     ]
+
+    /// 광장에 떨어진 이상한 사탕. 둥근 사탕 양쪽에 꼬인 포장이 붙어 있다.
+    private static let candy = [
+        "##.......##",
+        "#Y#.###.#Y#",
+        "#YY#BWB#YY#",
+        "#YYYBBBYYY#",
+        "#YY#BBB#YY#",
+        "#Y#.###.#Y#",
+        "##.......##",
+    ]
+
+    /// 광장에 떨어진 민트. 잎 두 장이 한 줄기에서 벌어진다. 가운데 잎맥이 밝다.
+    private static let mintLeaf = [
+        ".##.....##.",
+        "#MM#...#MM#",
+        "#MLM#.#MLM#",
+        ".#MLM#MLM#.",
+        "..#MMLMM#..",
+        "...##L##...",
+        ".....#.....",
+    ]
+
+    private static func itemGrid(_ kind: ItemKind) -> [String] { kind == .mint ? mintLeaf : candy }
+
+    /// 광장 아이템의 포인트(월드 픽셀) 크기.
+    static func itemSize(_ kind: ItemKind) -> CGSize {
+        let grid = itemGrid(kind)
+        return CGSize(width: CGFloat(grid[0].count) * dot, height: CGFloat(grid.count) * dot)
+    }
+
+    static func itemImage(_ kind: ItemKind, scale: CGFloat) -> CGImage {
+        let scale = max(scale, 1), size = itemSize(kind)
+        let context = CGContext(data: nil, width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()),
+                                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setShouldAntialias(false)
+        context.scaleBy(x: scale, y: scale)
+        drawGrid(itemGrid(kind), cell: dot, origin: .zero, in: context)
+        return context.makeImage()!
+    }
 
     /// 큰 소식 반짝임 조각 하나. 포인트 단위 크기는 `sparkSize`.
     static let sparkSize = CGSize(width: 5 * dot, height: 5 * dot)

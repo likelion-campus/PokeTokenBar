@@ -64,6 +64,10 @@ final class TeamRuntime {
                 plaza?.showGroupPhoto(from: memberID)
                 return
             }
+            if emote.kind == .pickup {
+                if let slot = emote.itemSlot { plaza?.showPickup(from: memberID, slot: slot) }
+                return
+            }
             plaza?.showEmote(memberID: memberID, kind: emote.kind,
                              alsoOver: emote.isShared == true ? emote.targetMemberID : nil)
             if emote.targetMemberID == settings.memberID, emote.kind.notifiesTarget,

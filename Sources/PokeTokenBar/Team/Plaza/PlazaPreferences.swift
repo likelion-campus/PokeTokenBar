@@ -6,6 +6,7 @@ import Foundation
     private static let lastTileKey = "team.plaza.lastTile"
     private static let backgroundHiddenKey = "team.plaza.backgroundHidden"
     private static let shortcutsFoldedKey = "team.plaza.shortcutsFolded"
+    private static let takenItemSlotsKey = "team.plaza.takenItemSlots"
 
     private let defaults: UserDefaults
 
@@ -25,6 +26,12 @@ import Foundation
     var isBackgroundHidden: Bool {
         get { defaults.bool(forKey: Self.backgroundHiddenKey) }
         set { defaults.set(newValue, forKey: Self.backgroundHiddenKey) }
+    }
+
+    /// 누군가 주운 것으로 아는 최근 광장 아이템 칸들. 다시 켜도 이미 주운 아이템이 다시 보이지 않게 한다.
+    var takenItemSlots: [Int] {
+        get { defaults.array(forKey: Self.takenItemSlotsKey) as? [Int] ?? [] }
+        set { defaults.set(newValue, forKey: Self.takenItemSlotsKey) }
     }
 
     /// 왼쪽 위 단축키 안내를 접어 두었다.

@@ -23,6 +23,10 @@ struct TeamPresence: Codable, Equatable, Sendable {
     var nameColor: UInt32?
     /// Running (Shift) on the current step. Left out when false; earlier versions ignore it and follow at walking pace.
     var isRunning: Bool?
+    /// The latest plaza item slot this member knows was taken (`PlazaItems`), by them or anyone. Every member
+    /// passes it on, so a plaza opened after the picker left still hides that item. Left out when none; earlier
+    /// versions ignore it.
+    var takenItemSlot: Int?
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
@@ -34,11 +38,13 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     case jump
     /// 단체 사진 (G): a five-second countdown starts on every open plaza, ending in a flash. Earlier versions skip it.
     case groupPhoto
+    /// The sender picked up the plaza item of `TeamEmote.itemSlot`, so it is gone for everyone. Earlier versions skip it.
+    case pickup
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup: false
         }
     }
 }
@@ -52,6 +58,9 @@ struct TeamEmote: Codable, Equatable, Sendable {
     /// A tackle: how many tiles the target slides, the tackler's evolution stage. Left out for one tile, which is
     /// all that earlier versions push, so they read the same thing.
     var pushTiles: Int?
+
+    /// A pickup: the item slot that was picked up.
+    var itemSlot: Int?
 
     /// A tackle pushes one to three tiles, like the three evolution stages.
     static let pushTileRange = 1...3
