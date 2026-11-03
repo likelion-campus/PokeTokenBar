@@ -63,6 +63,47 @@ final class PlazaWalkerTests: XCTestCase {
     /// 0.2s felt slow to react: a step always finishes before a release or a turn counts.
     func testStepIsPointOneFiveSeconds() { XCTAssertEqual(PlazaWalker.stepDuration, 0.15) }
 
+    /// With Shift a step takes half as long, and the step is marked as running while it lasts.
+    func testRunningStepTakesHalfAsLong() {
+        var w = PlazaWalker(tile: TilePoint(x: 5, y: 5))
+        w.wantsToRun = true
+        w.press(.right); w.release(.right)
+        w.advance(by: PlazaWalker.runStepDuration / 2) { _ in true }
+        XCTAssertTrue(w.isRunning)
+        XCTAssertEqual(w.footPoint.x, PlazaWalker.footPoint(from: TilePoint(x: 5, y: 5), to: TilePoint(x: 6, y: 5), progress: 0.5).x,
+                       accuracy: 1e-9)
+        w.advance(by: PlazaWalker.runStepDuration / 2) { _ in true }
+        XCTAssertFalse(w.isWalking)
+        XCTAssertFalse(w.isRunning)
+        XCTAssertEqual(w.tile, TilePoint(x: 6, y: 5))
+    }
+
+    /// Held for 0.55s (clear of any step boundary), running covers twice the tiles walking does.
+    func testHoldingShiftCoversTwiceTheGround() {
+        func tiles(running: Bool) -> Int {
+            var w = PlazaWalker(tile: TilePoint(x: 0, y: 5))
+            w.wantsToRun = running
+            w.press(.right)
+            for _ in 0..<55 { w.advance(by: 0.01) { _ in true } }
+            return w.tile.x
+        }
+        XCTAssertEqual(tiles(running: false), 4)
+        XCTAssertEqual(tiles(running: true), 8)
+    }
+
+    /// Letting go of Shift slows the next step, not the one under way.
+    func testShiftChangesTakeEffectOnTheNextStep() {
+        var w = PlazaWalker(tile: TilePoint(x: 5, y: 5))
+        w.wantsToRun = true
+        w.press(.right)
+        w.advance(by: 0.01) { _ in true }
+        w.wantsToRun = false
+        XCTAssertTrue(w.isRunning, "the step under way keeps its pace")
+        w.advance(by: PlazaWalker.runStepDuration) { _ in true }
+        XCTAssertTrue(w.isWalking)
+        XCTAssertFalse(w.isRunning, "the next step walks")
+    }
+
     func testFootPointInterpolatesHalfway() {
         var w = PlazaWalker(tile: .init(x: 5, y: 5))
         w.press(.right)

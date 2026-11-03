@@ -10,11 +10,15 @@ struct PlazaRemoteMotion: Sendable {
     private(set) var tile: TilePoint
     var facing: PlazaDirection
     var senderIsWalking = false
+    /// 그 팀원이 달리고 있다. 다음에 출발하는 칸부터 달리는 빠르기로 따라간다.
+    var senderIsRunning = false
 
     private var queue: [TilePoint] = []
     /// 걷는 중이면 출발한 칸
     private var stepFrom: TilePoint?
     private var stepElapsed: TimeInterval = 0
+    /// 지금 가는 칸에 걸리는 시간. 칸을 출발할 때 정한다.
+    private var stepLength: TimeInterval = PlazaWalker.stepDuration
 
     var isWalking: Bool { stepFrom != nil || !queue.isEmpty || senderIsWalking }
 
@@ -24,7 +28,7 @@ struct PlazaRemoteMotion: Sendable {
     }
 
     var footPoint: CGPoint {
-        let t = stepFrom == nil ? 0 : min(1, stepElapsed / PlazaWalker.stepDuration)
+        let t = stepFrom == nil ? 0 : min(1, stepElapsed / stepLength)
         return PlazaWalker.footPoint(from: stepFrom ?? tile, to: tile, progress: t)
     }
 
@@ -48,7 +52,7 @@ struct PlazaRemoteMotion: Sendable {
         var remaining = dt
         while true {
             if stepFrom != nil {
-                let need = PlazaWalker.stepDuration - stepElapsed
+                let need = stepLength - stepElapsed
                 if remaining < need {
                     stepElapsed += remaining
                     return
@@ -60,6 +64,7 @@ struct PlazaRemoteMotion: Sendable {
             guard !queue.isEmpty else { return }
             let next = queue.removeFirst()
             facing = Self.direction(from: tile, to: next)
+            stepLength = senderIsRunning ? PlazaWalker.runStepDuration : PlazaWalker.stepDuration
             stepFrom = tile
             tile = next
         }

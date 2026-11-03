@@ -145,6 +145,16 @@ final class PlazaCollisionTests: XCTestCase {
         XCTAssertEqual(w.tile, TilePoint(x: 6, y: 5), "the rest of the slide is used up, not kept for later")
     }
 
+    /// A push slides at walking pace even while Shift is held.
+    func testPushKeepsWalkingPaceWhileRunning() {
+        var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
+        w.wantsToRun = true
+        w.push(.right)
+        w.advance(by: PlazaWalker.runStepDuration) { _ in true }
+        XCTAssertTrue(w.isWalking, "half way through a walking-pace step")
+        XCTAssertFalse(w.isRunning)
+    }
+
     /// Being pushed beats a held arrow: the push step comes first, then walking goes on.
     func testPushGoesBeforeAHeldKey() {
         var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .up)
