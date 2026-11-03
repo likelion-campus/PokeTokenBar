@@ -996,6 +996,18 @@ extension SKView: PlazaPausableView {}
         guard let scene else { return }
         if !visible { scene.releaseAllKeys() }
         scene.isPaused = !visible
+        logState("rendering visible=\(visible)")
+    }
+
+    /// 광장이 멈추는 문제를 진단하려고, 그리기를 멈추거나 되살릴 때와 창이 키 창이 되거나 물러날 때 상태를 한 줄씩 남긴다.
+    /// 상태 값만 남기고 내용은 남기지 않는다. `updates`는 장면이 돈 횟수라, 두 줄 사이에 늘지 않으면 장면이 멈춘 것이다.
+    var stateLog: (String) -> Void = { AppLog.write($0) }
+
+    private func logState(_ event: String) {
+        func text(_ b: Bool?) -> String { b.map { "\($0)" } ?? "-" }
+        stateLog("plaza \(event): occlusionVisible=\(text(window?.occlusionState.contains(.visible))) "
+            + "key=\(text(window?.isKeyWindow)) viewPaused=\(text(renderLoop?.isPaused)) "
+            + "scenePaused=\(text(scene?.isPaused)) updates=\(scene?.updateCount ?? 0)")
     }
 
     /// 눌린 키를 모두 뗀다.
@@ -1014,5 +1026,9 @@ extension SKView: PlazaPausableView {}
         setRendering(visible: window?.occlusionState.contains(.visible) ?? true)
     }
     func windowWillClose(_ notification: Notification) { handleClose() }
-    func windowDidResignKey(_ notification: Notification) { handleResignKey() }
+    func windowDidResignKey(_ notification: Notification) {
+        handleResignKey()
+        logState("resigned key")
+    }
+    func windowDidBecomeKey(_ notification: Notification) { logState("became key") }
 }

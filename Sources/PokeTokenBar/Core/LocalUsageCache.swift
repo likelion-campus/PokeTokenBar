@@ -576,11 +576,16 @@ actor LocalUsageCache {
         kimiCache = kimiCache.filter { $0.value.mtime >= cutoff }
     }
 
-    /// 변경이 있으면 디스크에 저장(최소 60초 간격으로 throttle — 잦은 쓰기 방지).
+    /// 스냅샷을 다시 쓰는 최소 간격. 스냅샷은 통째로 다시 쓰고, 매일 쓰는 사용자는 한 달 치가 압축해도 수십 MB가 된다
+    /// (실측 16MB). 그래서 쓰는 중인 세션 파일 하나 때문에 새로고침(기본 2분)마다 다시 쓰면 하루 10GB를 넘는다.
+    /// 저장이 늦어도 잃는 것은 그사이 바뀐 파일의 증분 파싱뿐이라 다음 실행에서 저장된 offset부터 싸게 다시 읽는다.
+    static let saveInterval: TimeInterval = 30 * 60
+
+    /// 변경이 있으면 디스크에 저장한다. 첫 저장(콜드 스타트 결과)은 바로, 그 뒤로는 `saveInterval`마다 한 번.
     private func saveIfNeeded() {
         guard dirty else { return }
         guard persistsToDisk else { dirty = false; return }
-        if let last = lastSave, now().timeIntervalSince(last) < 60 { return }
+        if let last = lastSave, now().timeIntervalSince(last) < Self.saveInterval { return }
         prune()
         let snap = Snapshot(
             claude: claudeCache,
