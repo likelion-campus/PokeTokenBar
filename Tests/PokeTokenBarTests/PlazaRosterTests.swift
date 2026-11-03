@@ -7,10 +7,11 @@ final class PlazaRosterTests: XCTestCase {
                          isShiny: false, presence: presence, isMe: me)
     }
 
-    func testSortOrderMeOnlineAway() {
-        let list = [entry("a", "다람", presence: .away), entry("b", "나무"), entry("c", "가지", presence: .away),
-                    entry("d", "하늘"), entry("me", "힘", me: true)]
-        XCTAssertEqual(PlazaRoster.sorted(list).map(\.id), ["me", "b", "d", "c", "a"])
+    func testSortOrderMeOnlineIdleAsleep() {
+        let list = [entry("a", "다람", presence: .asleep), entry("b", "나무"), entry("c", "가지", presence: .idle),
+                    entry("d", "하늘"), entry("e", "가람", presence: .asleep), entry("f", "바다", presence: .idle),
+                    entry("me", "힘", presence: .idle, me: true)]
+        XCTAssertEqual(PlazaRoster.sorted(list).map(\.id), ["me", "b", "d", "c", "f", "e", "a"])
     }
 
     func testMyEntryFollowsRaisedPinnedAndEgg() {
@@ -55,7 +56,8 @@ final class PlazaRosterTests: XCTestCase {
     func testRosterStrings() {
         let l = L(.ko)
         XCTAssertEqual(l.plazaRosterTitle, "팀원"); XCTAssertEqual(l.plazaStatusOnline, "접속")
-        XCTAssertEqual(l.plazaStatusAway, "잠"); XCTAssertEqual(l.plazaEggName, "알")
+        XCTAssertEqual(l.plazaStatusIdle, "자리비움"); XCTAssertEqual(l.plazaStatusAsleep, "잠")
+        XCTAssertEqual(l.plazaEggName, "알")
         XCTAssertEqual(l.plazaRosterCount(online: 3, total: 5), "접속 3 / 5")
     }
 }
@@ -72,29 +74,55 @@ extension PlazaRosterTests {
         XCTAssertEqual(e, TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil))
     }
 
-    private func member(_ id: String, _ nick: String, inPlaza: Bool, speciesID: Int? = 25, name: String? = "Pikachu") -> TeamMemberState {
+    private func member(_ id: String, _ nick: String, inPlaza: Bool, isIdle: Bool = false, speciesID: Int? = 25,
+                        name: String? = "Pikachu") -> TeamMemberState {
         TeamMemberState(memberID: id, nickname: nick,
                         character: TeamMonSummary(speciesID: speciesID, isShiny: true, form: nil, speciesName: name, gender: .female),
-                        inPlaza: inPlaza, tile: nil, facing: nil, isWalking: false)
+                        inPlaza: inPlaza, tile: nil, facing: nil, isWalking: false, isIdle: isIdle)
     }
 
-    func testEntriesSortMeOnlineAway() {
+    func testEntriesSortMeOnlineIdleAsleep() {
         let me = entry("me", "힘", me: true)
         let list = PlazaRoster.entries(me: me, members: [member("a", "다람", inPlaza: false), member("b", "나무", inPlaza: true),
-                                                         member("c", "가지", inPlaza: false)])
-        XCTAssertEqual(list.map(\.id), ["me", "b", "c", "a"])
+                                                         member("c", "가지", inPlaza: true, isIdle: true)],
+                                       asleep: [member("d", "가람", inPlaza: true)])
+        XCTAssertEqual(list.map(\.id), ["me", "b", "a", "c", "d"])
+        XCTAssertEqual(list.map(\.presence), [.online, .online, .online, .idle, .asleep])
         XCTAssertEqual(PlazaRoster.entries(me: nil, members: [member("b", "나무", inPlaza: true)]).map(\.id), ["b"])
     }
 
-    func testAwayEntryHasAwayPresence() {
-        let list = PlazaRoster.entries(me: nil, members: [member("a", "다람", inPlaza: false), member("b", "나무", inPlaza: true)])
-        XCTAssertEqual(list.first { $0.id == "a" }?.presence, .away)
+    /// A teammate working with the plaza closed is online (the report: "일하는데 '잠'"). Only no input makes them idle.
+    func testPlazaClosedIsOnlineAndOnlyNoInputIsIdle() {
+        let list = PlazaRoster.entries(me: nil, members: [member("a", "다람", inPlaza: false), member("b", "나무", inPlaza: true),
+                                                          member("c", "가지", inPlaza: false, isIdle: true)])
+        XCTAssertEqual(list.first { $0.id == "a" }?.presence, .online)
         XCTAssertEqual(list.first { $0.id == "b" }?.presence, .online)
+        XCTAssertEqual(list.first { $0.id == "c" }?.presence, .idle, "idle with the plaza closed too")
         let a = list.first { $0.id == "a" }
         XCTAssertEqual(a?.nickname, "다람"); XCTAssertEqual(a?.speciesID, 25); XCTAssertEqual(a?.speciesName, "Pikachu")
         XCTAssertEqual(a?.gender, .female); XCTAssertEqual(a?.isShiny, true); XCTAssertEqual(a?.isMe, false)
         let egg = PlazaRoster.entries(me: nil, members: [member("e", "알", inPlaza: true, speciesID: nil, name: nil)])
         XCTAssertEqual(egg.first?.speciesName, L(.ko).plazaEggName)
+    }
+
+    /// My own row follows my own input: it used to say 접속 forever.
+    func testMyRowShowsMyIdle() {
+        let me = entry("me", "힘", me: true)
+        XCTAssertEqual(PlazaRoster.entries(me: me, members: []).first?.presence, .online)
+        let idle = PlazaRoster.entries(me: me, meIsIdle: true, members: [member("b", "나무", inPlaza: true)])
+        XCTAssertEqual(idle.map(\.id), ["me", "b"], "I stay first")
+        XCTAssertEqual(idle.first?.presence, .idle)
+        XCTAssertEqual(idle.first?.isMe, true)
+    }
+
+    /// A teammate who disconnected shows as 잠 with their last character; once connected again, only the live row stays.
+    func testAsleepTeammateShowsUntilTheyConnect() {
+        let asleep = member("a", "다람", inPlaza: true)
+        let list = PlazaRoster.entries(me: nil, members: [], asleep: [asleep])
+        XCTAssertEqual(list.map(\.presence), [.asleep])
+        XCTAssertEqual(list.first?.speciesName, "Pikachu")
+        let both = PlazaRoster.entries(me: nil, members: [member("a", "다람", inPlaza: false)], asleep: [asleep])
+        XCTAssertEqual(both.map(\.presence), [.online])
     }
 
     func testCapacityFitsHeight() {
@@ -112,7 +140,7 @@ extension PlazaRosterTests {
 
     func testOverflowShowsMoreRowAndHidesAwayMembers() {
         let entries = PlazaRoster.sorted([entry("me", "나", me: true)]
-            + (0..<5).map { entry("o\($0)", "온\($0)") } + (0..<4).map { entry("a\($0)", "잠\($0)", presence: .away) })
+            + (0..<5).map { entry("o\($0)", "온\($0)") } + (0..<4).map { entry("a\($0)", "잠\($0)", presence: .asleep) })
         XCTAssertEqual(entries.count, 10)
         let (shown, hidden) = PlazaRoster.visible(entries, capacity: 5)
         XCTAssertEqual(shown.count, 4); XCTAssertEqual(hidden, 6)

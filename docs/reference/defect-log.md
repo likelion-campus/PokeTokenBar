@@ -1127,6 +1127,22 @@ read_when:
   uses the pixel font. Chat bubbles and emote labels draw with CoreText into frames sized from the font, and SwiftUI
   `Text` sizes itself to the line. A new AppKit field with a custom font sets its height from the font's line height.
 
+- **A status must be derived from what it means to the user, not from whichever field was at hand.** The plaza roster
+  showed `inPlaza && !isIdle ? 접속 : 잠`. A teammate working with the plaza window closed was 잠 (asleep), a teammate
+  whose Mac slept vanished instead of being 잠, idle was only measured while the idle person's plaza was open (so a
+  closed plaza could never become 자리비움), and my own row was hard-coded 접속. The map's zZ and the minimap's dim dot
+  used the same `!inPlaza` shortcut. **Why nothing caught it:** every test asserted the mapping the code already had
+  (plaza closed → away) and the idle tests ran only with the plaza open. No test described the user's states.
+  **Fix:** three states with their meaning written on `PlazaPresence`. 접속 means connected with recent input (plaza
+  open or closed). 자리비움 means 5 minutes without input. `TeamRuntime.tickOnce` checks this whether or not the plaza
+  is open, and `TeamSession.updateIdle` sends it. 잠 means the connection is gone; `TeamSession.asleepMembers` keeps
+  these in memory, for the current team only. zZ and the dim dot mean idle only. **Guards:**
+  `testPlazaClosedIsOnlineUntilIdle`, `testDisconnectedTeammateStaysAsleepUntilTheyReconnect`, `testMyRowShowsMyIdle`,
+  `testIdleIsSentWithThePlazaOpenOrClosed`, `testFiveMinutesWithoutInputIsIdleOnTheNextTick` (each fails with the old
+  rule injected). **Class sweep:** every reader of `inPlaza` was checked. The roster, the scene name, the minimap and
+  the idle sender were fixed. The shelter placement and emote targeting still use `inPlaza`, because they are about
+  where a teammate stands, not their status.
+
 ## 에너지 (상시 표시 애니메이션)
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고

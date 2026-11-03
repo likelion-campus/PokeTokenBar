@@ -10,12 +10,13 @@ struct TeamMemberState: Equatable, Sendable {
     var tile: TilePoint?
     var facing: PlazaDirection?
     var isWalking: Bool
-    /// In the plaza but not at the keyboard. Shown as zZ in place, not moved to the shelter.
+    /// No keyboard or mouse input for a while, with the plaza open or closed. Shown as zZ, in place.
     var isIdle = false
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
-/// emotes. Keeps no connection or presence history; emotes, chat and profiles are never stored or forwarded.
+/// emotes. Saves no connection or presence history (the asleep list lives in memory only); emotes, chat and
+/// profiles are never stored or forwarded.
 @MainActor @Observable
 final class TeamSession {
     static let heartbeatInterval: TimeInterval = 10
@@ -47,6 +48,11 @@ final class TeamSession {
 
     /// Connected teammates, without me.
     private(set) var members: [String: TeamMemberState] = [:]
+    /// Teammates seen since the team started whose connection is gone (Mac asleep, app quit), as last known.
+    /// Memory only: cleared when the team stops or changes, and a teammate leaves it when they connect again.
+    private(set) var asleepMembers: [String: TeamMemberState] = [:]
+    /// No keyboard or mouse input on this Mac for a while (`TeamRuntime` decides). Sent with every presence.
+    private(set) var isIdle = false
     private(set) var hasIncompatiblePeer = false
     var hasOnlinePeers: Bool { !members.isEmpty }
 
@@ -73,7 +79,6 @@ final class TeamSession {
     @ObservationIgnored private var sentNickname: String?
     @ObservationIgnored private var character: TeamMonSummary?
     @ObservationIgnored private var inPlaza = false
-    @ObservationIgnored private var isIdle = false
     @ObservationIgnored private var tile: TilePoint?
     @ObservationIgnored private var facing: PlazaDirection?
     @ObservationIgnored private var isWalking = false
@@ -157,15 +162,20 @@ final class TeamSession {
         if changed { broadcast(.presence(makePresence())) }
     }
 
-    func updatePlazaPosition(inPlaza: Bool, tile: TilePoint?, facing: PlazaDirection?, isWalking: Bool, isIdle: Bool = false) {
+    func updatePlazaPosition(inPlaza: Bool, tile: TilePoint?, facing: PlazaDirection?, isWalking: Bool) {
         let changed = inPlaza != self.inPlaza || tile != self.tile || facing != self.facing || isWalking != self.isWalking
-            || isIdle != self.isIdle
-        self.isIdle = isIdle
         self.inPlaza = inPlaza
         self.tile = tile
         self.facing = facing
         self.isWalking = isWalking
         if changed { broadcast(.presence(makePresence())) }
+    }
+
+    /// Tells teammates at once when I go idle or come back, whether or not the plaza is open.
+    func updateIdle(_ idle: Bool) {
+        guard idle != isIdle else { return }
+        isIdle = idle
+        broadcast(.presence(makePresence()))
     }
 
     // MARK: - News, reactions, emotes
@@ -226,6 +236,7 @@ final class TeamSession {
     private func dropLink(_ peer: TeamPeerID) {
         guard let link = links.removeValue(forKey: peer), let memberID = link.memberID else { return }
         guard !links.values.contains(where: { $0.memberID == memberID }) else { return }
+        asleepMembers[memberID] = members[memberID]
         members[memberID] = nil
         for (id, pending) in pendingProfiles where pending.memberID == memberID { finishProfileRequest(id, with: nil) }
     }
@@ -233,6 +244,7 @@ final class TeamSession {
     private func resetConnections() {
         links = [:]
         members = [:]
+        asleepMembers = [:]
         hasIncompatiblePeer = false
         lastIncompatible = nil
         refusedUntil = [:]
@@ -318,6 +330,7 @@ final class TeamSession {
         if let nickname = TeamSettings.validNickname(hello.nickname) { member.nickname = nickname }
         member.character = hello.current
         members[memberID] = member
+        asleepMembers[memberID] = nil
 
         // Both sides run the same rule, so they keep the same connection.
         let mine = settings.memberID

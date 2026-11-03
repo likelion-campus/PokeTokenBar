@@ -11,7 +11,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     let tile: TilePoint?
     let facing: PlazaDirection
     let isWalking: Bool
-    /// 광장에 있지만 자리를 비웠다. 이름에 zZ를 붙이고 자리는 그대로 둔다.
+    /// 한동안 입력이 없다(자리비움). 이름에 zZ를 붙인다. 광장 안이면 자리는 그대로 둔다.
     var isIdle = false
 }
 
@@ -84,10 +84,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         var motion: PlazaRemoteMotion
         var wanderer: PlazaShelterWanderer?
 
-        var displayName: String { Self.displayName(nickname, isAway: isAway || isIdle) }
+        /// zZ는 자리비움(입력 없음)일 때만. 광장을 닫고 일하는 팀원은 쉼터에 서 있어도 zZ가 없다.
+        var displayName: String { Self.displayName(nickname, isIdle: isIdle) }
 
-        static func displayName(_ nickname: String, isAway: Bool) -> String {
-            isAway ? nickname + " " + L(.ko).plazaAwaySuffix : nickname
+        static func displayName(_ nickname: String, isIdle: Bool) -> String {
+            isIdle ? nickname + " " + L(.ko).plazaAwaySuffix : nickname
         }
 
         mutating func advance(by dt: TimeInterval) {
@@ -213,7 +214,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 let wanderer = m.isAway ? shelterWanderer(m.memberID) : nil
                 var motion = PlazaRemoteMotion(tile: wanderer?.tile ?? target, facing: m.facing)
                 motion.senderIsWalking = !m.isAway && m.isWalking
-                let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isAway: m.isAway || m.isIdle), color: color),
+                let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isIdle: m.isIdle), color: color),
                                color: color, nickname: m.nickname, isAway: m.isAway, isIdle: m.isIdle, motion: motion,
                                wanderer: wanderer)
                 r.actor.attach(world: self, camera: cameraNode)
