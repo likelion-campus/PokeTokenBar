@@ -14,21 +14,27 @@ enum PlazaDaylight {
     static let dusk = Tint(red: 1.0, green: 0.76, blue: 0.58)
     static let dawn = Tint(red: 0.86, green: 0.8, blue: 0.98)
 
-    /// 하루 중 분(0~1440)과 그때의 색. 사이는 섞는다.
-    private static let keys: [(minute: Double, tint: Tint)] = [
-        (0, night), (5 * 60, night), (6 * 60, dawn), (7 * 60, .none),
-        (17 * 60, .none), (18 * 60, dusk), (19 * 60, night), (24 * 60, night),
+    /// 하루 중 분(0~1440)과 그때의 색, 작은 지도의 채도. 사이는 섞는다.
+    private static let keys: [(minute: Double, tint: Tint, saturation: Double)] = [
+        (0, night, 0.65), (5 * 60, night, 0.65), (6 * 60, dawn, 0.85), (7 * 60, .none, 1),
+        (17 * 60, .none, 1), (18 * 60, dusk, 0.95), (19 * 60, night, 0.65), (24 * 60, night, 0.65),
     ]
 
-    static func tint(minute: Double) -> Tint {
+    static func tint(minute: Double) -> Tint { look(minute: minute).tint }
+
+    /// 작은 지도의 지도 그림 채도(1이면 그대로). 작은 지도는 광장과 같은 색을 곱하고, 밤으로 갈수록 채도도 낮춘다.
+    static func minimapSaturation(minute: Double) -> Double { look(minute: minute).saturation }
+
+    private static func look(minute: Double) -> (tint: Tint, saturation: Double) {
         let m = min(max(minute, 0), 24 * 60)
         guard let i = keys.indices.dropLast().first(where: { keys[$0].minute <= m && m <= keys[$0 + 1].minute }) else {
-            return night
+            return (night, keys[0].saturation)
         }
-        let (a, b) = (keys[i].tint, keys[i + 1].tint)
-        let t = (m - keys[i].minute) / (keys[i + 1].minute - keys[i].minute)
+        let (a, b) = (keys[i], keys[i + 1])
+        let t = (m - a.minute) / (b.minute - a.minute)
         func mix(_ x: Double, _ y: Double) -> Double { x + (y - x) * t }
-        return Tint(red: mix(a.red, b.red), green: mix(a.green, b.green), blue: mix(a.blue, b.blue))
+        return (Tint(red: mix(a.tint.red, b.tint.red), green: mix(a.tint.green, b.tint.green), blue: mix(a.tint.blue, b.tint.blue)),
+                mix(a.saturation, b.saturation))
     }
 
     /// 시계에 붙이는 때. 새벽 5~7시, 낮 7~17시, 저녁 17~19시, 그 밖은 밤.
