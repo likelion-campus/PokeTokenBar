@@ -48,8 +48,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onPhotoKey: (() -> Void)?
     /// Return과 숫자패드 Enter. 판이 닫혀 있을 때만 온다.
     var onChatKey: (() -> Void)?
-    /// 판이 열린 동안 Esc와 스페이스.
-    var onCloseOverlay: (() -> Void)?
+    /// 판이 열린 동안 판이 쓰는 키(위, 아래, 스페이스, Enter, Esc). 눌러 둔 자동 반복은 넘기지 않는다.
+    var onOverlayKey: ((PlazaOverlayKey) -> Void)?
     /// 판이 열리면 방향키와 말풍선 키를 무시하고 눌린 키를 놓는다. Cmd+W는 그대로 창을 닫는다.
     var isOverlayOpen = false {
         didSet { if isOverlayOpen && !oldValue { clearInput() } }
@@ -248,8 +248,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             return .closeRequested
         }
         if isOverlayOpen {
-            // 판이 열린 동안에는 닫는 키만 듣는다. 이후 키 분기(사진 등)도 이 아래에 둔다.
-            if (keyCode == Self.escapeKeyCode || keyCode == Self.spaceKeyCode) && !isRepeat { onCloseOverlay?() }
+            // 판이 열린 동안에는 판의 키만 넘긴다. 이후 키 분기(사진 등)도 이 아래에 둔다.
+            if !isRepeat, let key = Self.overlayKey(keyCode) { onOverlayKey?(key) }
             return .swallowed
         }
         if keyCode == Self.escapeKeyCode {
@@ -475,6 +475,17 @@ struct PlazaSceneMember: Equatable, Sendable {
         case 20: .party
         case 21: .exclaim
         case 23: .question
+        default: nil
+        }
+    }
+
+    private static func overlayKey(_ keyCode: UInt16) -> PlazaOverlayKey? {
+        switch keyCode {
+        case 126: .up
+        case 125: .down
+        case spaceKeyCode: .space
+        case returnKeyCode, keypadEnterKeyCode: .enter
+        case escapeKeyCode: .escape
         default: nil
         }
     }

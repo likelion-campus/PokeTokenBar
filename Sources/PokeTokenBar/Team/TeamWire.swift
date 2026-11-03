@@ -34,6 +34,9 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
 struct TeamEmote: Codable, Equatable, Sendable {
     var kind: TeamEmoteKind
     var targetMemberID: String?
+    /// A greeting (Space beside a teammate): the bubble shows over the target too. Left out when false, so
+    /// earlier versions read it as an ordinary emote over the sender.
+    var isShared: Bool?
 }
 
 /// A short line said in the plaza. It is shown for a moment and never stored or forwarded.

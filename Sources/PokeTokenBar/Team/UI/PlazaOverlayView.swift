@@ -8,6 +8,9 @@ struct PlazaOverlayView: View {
     var feed: TeamFeedStore?
     var myMemberID = ""
     var onReact: (_ eventID: String, _ kind: TeamReactionKind) -> Void = { _, _ in }
+    var onMenuChoose: (_ action: PlazaMemberAction, _ memberID: String) -> Void = { _, _ in }
+    /// 메뉴 밖을 눌렀다.
+    var onMenuCancel: () -> Void = {}
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -22,6 +25,7 @@ struct PlazaOverlayView: View {
                         .frame(maxWidth: 360)
                         .background(Color(hex: 0x1D4F55).opacity(0.92), in: RoundedRectangle(cornerRadius: 8))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x5FB7BD), lineWidth: 2))
+                        .allowsHitTesting(false)
                 }
                 if let hint = model.hint {
                     Text(hint)
@@ -31,10 +35,14 @@ struct PlazaOverlayView: View {
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1D4F5C).opacity(0.9)))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.5), lineWidth: 1.5))
+                        .allowsHitTesting(false)
+                }
+                // 안내가 있던 자리에 뜬다(메뉴가 열리면 안내는 숨는다).
+                if case .memberMenu(let menu) = model.content {
+                    PlazaMemberMenuView(menu: menu, onChoose: { onMenuChoose($0, menu.memberID) })
                 }
             }
             .padding(.top, PlazaRosterMetrics.margin)
-            .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -50,6 +58,8 @@ struct PlazaOverlayView: View {
             }
         case .card(let state):
             panel(PlazaCardMetrics.panelSize) { PlazaCardView(state: state) }
+        case .memberMenu:
+            Color.clear.contentShape(Rectangle()).onTapGesture(perform: onMenuCancel)
         }
     }
 

@@ -16,7 +16,7 @@ private extension PlazaOverlayContent {
     var cardMemberID: String? {
         switch self {
         case .card(.loading(let s)), .card(.loaded(let s, _)), .card(.failed(let s)): s.memberID
-        case .none, .board: nil
+        case .none, .board, .memberMenu: nil
         }
     }
 }
@@ -203,7 +203,8 @@ final class PlazaCardTests: XCTestCase {
         return Node(settings: settings, session: session, transport: transport)
     }
 
-    private func controller(_ me: Node, start: TilePoint, timeout: Duration = .seconds(5)) -> PlazaWindowController {
+    private func controller(_ me: Node, start: TilePoint, timeout: Duration = .seconds(5),
+                            greeting: TeamEmoteKind = .party) -> PlazaWindowController {
         let name = "plaza.card.prefs.\(UUID())"
         suites.append(name)
         let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
@@ -211,7 +212,8 @@ final class PlazaCardTests: XCTestCase {
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },
                                      subject: { .init(speciesID: 25, isShiny: false) },
-                                     myRosterEntry: { nil }, session: me.session, profileTimeout: timeout)
+                                     myRosterEntry: { nil }, session: me.session, greetingKind: { greeting },
+                                     profileTimeout: timeout)
     }
 
     private func settle() async { for _ in 0..<20 { await Task.yield() } }
@@ -227,6 +229,14 @@ final class PlazaCardTests: XCTestCase {
     }
 
     private func space(_ scene: PlazaScene) { scene.handleKeyDown(keyCode: spaceKey, characters: " ", isRepeat: false) }
+    private func key(_ scene: PlazaScene, _ code: UInt16) { scene.handleKeyDown(keyCode: code, characters: nil, isRepeat: false) }
+
+    /// 팀원 옆에서 스페이스로 메뉴를 열고 "포켓몬 보기"를 고른다.
+    private func viewCard(_ scene: PlazaScene) {
+        space(scene)
+        key(scene, downKey)
+        space(scene)
+    }
 
     /// 나는 소식판 바로 위 칸에서 아래(판)를 보고 선다.
     private var aboveBoard: TilePoint { TilePoint(x: map.boardTile.x, y: map.boardTile.y - 1) }
@@ -306,7 +316,7 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertEqual(c.hint, L(.ko).plazaMemberHint(nickname: "민수"))
         space(scene)
         XCTAssertEqual(scene.walker.facing, .right)
-        XCTAssertEqual(c.overlayContent.cardMemberID, id)
+        XCTAssertEqual(c.overlayContent, .memberMenu(PlazaMemberMenu(memberID: id, nickname: "민수")))
         XCTAssertNil(c.hint)
     }
 
@@ -348,9 +358,9 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertTrue(c.scene!.isOverlayOpen)
     }
 
-    func testSpaceOnMemberLoadsProfile() async {
+    func testViewingTheCardLoadsTheProfile() async {
         let (c, scene, other, id) = await standing()
-        space(scene)
+        viewCard(scene)
         guard case .card(.loading(let state)) = c.overlayContent else { return XCTFail("expected loading, got \(c.overlayContent)") }
         XCTAssertEqual(state.memberID, id)
         XCTAssertTrue(scene.isOverlayOpen)
@@ -364,7 +374,7 @@ final class PlazaCardTests: XCTestCase {
 
     func testProfileTimeoutShowsFailure() async {
         let (c, scene, _, id) = await standing(timeout: .milliseconds(50), severed: true)
-        space(scene)
+        viewCard(scene)
         XCTAssertEqual(c.overlayContent.cardMemberID, id)
         await waitUntil { if case .card(.failed) = c.overlayContent { true } else { false } }
         guard case .card(.failed(let state)) = c.overlayContent else { return XCTFail("expected failed, got \(c.overlayContent)") }
@@ -374,7 +384,7 @@ final class PlazaCardTests: XCTestCase {
 
     func testResultAfterCloseIsDiscarded() async {
         let (c, scene, _, _) = await standing(timeout: .milliseconds(50), severed: true)
-        space(scene)
+        viewCard(scene)
         scene.handleKeyDown(keyCode: escKey, characters: nil, isRepeat: false)
         XCTAssertEqual(c.overlayContent, .none)
         try? await Task.sleep(for: .milliseconds(200))   // the request times out after the close
@@ -404,17 +414,147 @@ final class PlazaCardTests: XCTestCase {
                 && me.session.members[slow.settings.memberID]?.tile == ahead && me.session.members[fast.settings.memberID]?.tile == far
         }
         hub.sever(slowLink, silentlyOn: slow.transport)
-        space(scene)                                                    // slow member: never answers
+        viewCard(scene)                                                 // slow member: never answers
         XCTAssertEqual(c.overlayContent.cardMemberID, slow.settings.memberID)
         space(scene)                                                    // close
         fast.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
         // (`ahead` is a shelter tile, so the scene tile alone can match before the update lands; wait on the received position)
         await waitUntil { me.session.members[fast.settings.memberID]?.tile == ahead && scene.memberTiles[fast.settings.memberID] == ahead }
-        space(scene)                                                    // fast member answers at once
+        viewCard(scene)                                                 // fast member answers at once
         await waitUntil { if case .card(.loaded) = c.overlayContent { true } else { false } }
         try? await Task.sleep(for: .milliseconds(900))                 // the first request now times out
         guard case .card(.loaded(let s, _)) = c.overlayContent else { return XCTFail("stale result replaced the card: \(c.overlayContent)") }
         XCTAssertEqual(s.memberID, fast.settings.memberID)
+    }
+
+    // MARK: - Member menu
+
+    /// Space beside a teammate opens a menu with 인사하기 chosen; nothing is sent until one is picked.
+    func testSpaceBesideATeammateOpensTheMenu() async {
+        let (c, scene, _, id) = await standing()
+        space(scene)
+        XCTAssertEqual(c.overlayContent, .memberMenu(PlazaMemberMenu(memberID: id, nickname: "민수", selection: .greet)))
+        XCTAssertTrue(scene.isOverlayOpen)
+        XCTAssertNil(scene.shownEmote(memberID: nil))
+        XCTAssertNil(scene.shownEmote(memberID: id))
+    }
+
+    func testArrowsMoveTheChoiceAndWrapAround() async {
+        let (c, scene, _, _) = await standing()
+        space(scene)
+        func selection() -> PlazaMemberAction? { if case .memberMenu(let m) = c.overlayContent { m.selection } else { nil } }
+        key(scene, downKey)
+        XCTAssertEqual(selection(), .viewCard)
+        key(scene, downKey)
+        XCTAssertEqual(selection(), .greet, "down from the last line goes to the first")
+        key(scene, upKey)
+        XCTAssertEqual(selection(), .viewCard, "up from the first line goes to the last")
+        scene.handleKeyDown(keyCode: upKey, characters: nil, isRepeat: true)
+        XCTAssertEqual(selection(), .viewCard, "a held arrow moves once")
+        step(scene, seconds: 1)
+        XCTAssertEqual(scene.walker.tile, map.spawn, "arrows move the choice, not me")
+    }
+
+    /// 인사하기 puts the same bubble over me and the teammate here, and sends it as a greeting so it shows over both
+    /// on their screen too.
+    func testGreetingShowsOverBothAndReachesTheTeammate() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn, greeting: .heart)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        await waitUntil { c.scene?.memberTiles[id] == ahead }
+        var received: [(String, TeamEmote)] = []
+        other.session.onEmote = { received.append(($0, $1)) }
+        let scene = c.scene!
+        space(scene)
+        space(scene)
+        XCTAssertEqual(c.overlayContent, .none)
+        XCTAssertFalse(scene.isOverlayOpen)
+        XCTAssertEqual(scene.shownEmote(memberID: nil), .heart)
+        XCTAssertEqual(scene.shownEmote(memberID: id), .heart)
+        await waitUntil { !received.isEmpty }
+        XCTAssertEqual(received.first?.0, me.settings.memberID)
+        XCTAssertEqual(received.first?.1, TeamEmote(kind: .heart, targetMemberID: id, isShared: true))
+    }
+
+    func testEnterChoosesFromTheMenu() async {
+        let (c, scene, _, id) = await standing()
+        space(scene)
+        key(scene, downKey)
+        key(scene, returnKey)
+        XCTAssertEqual(c.overlayContent.cardMemberID, id)
+    }
+
+    func testEscClosesTheMenuNotTheWindow() async {
+        let (c, scene, _, id) = await standing()
+        var closeRequests = 0
+        scene.onCloseRequest = { closeRequests += 1 }
+        space(scene)
+        key(scene, escKey)
+        XCTAssertEqual(c.overlayContent, .none)
+        XCTAssertFalse(scene.isOverlayOpen)
+        XCTAssertEqual(closeRequests, 0)
+        XCTAssertNil(scene.shownEmote(memberID: id), "closing sends nothing")
+    }
+
+    func testHeldSpaceDoesNotChooseFromTheMenu() async {
+        let (c, scene, _, id) = await standing()
+        space(scene)
+        scene.handleKeyDown(keyCode: spaceKey, characters: " ", isRepeat: true)
+        XCTAssertEqual(c.overlayContent, .memberMenu(PlazaMemberMenu(memberID: id, nickname: "민수")))
+        XCTAssertNil(scene.shownEmote(memberID: nil))
+    }
+
+    /// Clicking a line calls the same choice as the keys.
+    func testClickingALineChoosesIt() async {
+        let (c, scene, _, id) = await standing()
+        space(scene)
+        c.chooseMenu(.viewCard, memberID: id)
+        XCTAssertEqual(c.overlayContent.cardMemberID, id)
+    }
+
+    /// The teammate left while the menu was open: there is no card to fetch, so the menu just closes.
+    func testViewingTheCardOfATeammateWhoLeftClosesTheMenu() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn)
+        c.prepareScene()
+        let link = hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        await waitUntil { c.scene?.memberTiles[id] == ahead }
+        let scene = c.scene!
+        space(scene)
+        hub.disconnect(link)
+        await waitUntil { me.session.members[id] == nil && c.scene?.memberTiles[id] == nil }
+        key(scene, downKey)
+        space(scene)
+        XCTAssertEqual(c.overlayContent, .none)
+        XCTAssertFalse(scene.isOverlayOpen)
+    }
+
+    /// Both lines fit the menu on one line each.
+    func testMenuLinesFitTheMenu() {
+        let inner = PlazaMemberMenuView.width - 2 * (PlazaRosterMetrics.padding + 2)
+        for action in PlazaMemberAction.allCases {
+            let text = "▶ " + PlazaMemberMenuView.title(action)
+            let width = NSAttributedString(string: text, attributes: [.font: PlazaResources.font(size: 15)]).size().width
+            XCTAssertLessThanOrEqual(width, inner, text)
+        }
+    }
+
+    /// The menu renders at its fixed width, with the name and both lines one text line each.
+    func testMenuViewKeepsItsWidthAndOneLineEach() {
+        let view = PlazaMemberMenuView(menu: PlazaMemberMenu(memberID: "m", nickname: "ＷＷＷＷＷＷＷＷＷＷＷＷ", selection: .viewCard),
+                                       onChoose: { _ in })
+        let size = NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: 1000, height: 1000))
+        XCTAssertEqual(size.width, PlazaMemberMenuView.width)
+        let line = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(size: 15))
+        // Three lines and two gaps; a wrapped line would add a whole line more.
+        XCTAssertLessThan(size.height, 3.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 2 * 4, "three lines, none wrapped")
     }
 
     func testEscClosesOverlayNotWindow() {
@@ -536,7 +676,7 @@ final class PlazaCardTests: XCTestCase {
         hub.connect(me.transport, to: other.transport)
         await settle()
         XCTAssertEqual(c.scene?.memberTiles[id], spot)
-        space(c.scene!)
+        viewCard(c.scene!)
         XCTAssertEqual(c.overlayContent.cardMemberID, id)
         await waitUntil { if case .card(.loaded) = c.overlayContent { true } else { false } }
         guard case .card(.loaded) = c.overlayContent else { return XCTFail("away member did not load: \(c.overlayContent)") }

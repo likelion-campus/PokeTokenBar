@@ -198,8 +198,8 @@ final class TeamSession {
         broadcast(.reactions([reaction], live: true))
     }
 
-    func sendEmote(_ kind: TeamEmoteKind, target: String?) {
-        broadcast(.emote(TeamEmote(kind: kind, targetMemberID: target)))
+    func sendEmote(_ kind: TeamEmoteKind, target: String?, shared: Bool = false) {
+        broadcast(.emote(TeamEmote(kind: kind, targetMemberID: target, isShared: shared ? true : nil)))
     }
 
     func sendChat(_ text: String, loud: Bool = false) {

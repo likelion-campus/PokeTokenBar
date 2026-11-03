@@ -25,6 +25,20 @@ final class TeamWireTests: XCTestCase {
         XCTAssertFalse(plain.contains("isLoud"))
     }
 
+    /// A greeting reads as an ordinary targeted emote (over the sender only) in v2.5.605 and earlier.
+    func testGreetingFlagIsOptionalOnTheWire() throws {
+        let greeting = TeamMessage.emote(TeamEmote(kind: .heart, targetMemberID: "m", isShared: true))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(greeting)), [greeting])
+        let plain = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .heart, targetMemberID: "m"))).dropFirst(4),
+                           as: UTF8.self)
+        XCTAssertFalse(plain.contains("isShared"))
+        let earlier = frame(#"{"emote":{"_0":{"kind":"heart","targetMemberID":"m"}}}"#)
+        var earlierDecoder = TeamWire.FrameDecoder()
+        guard case .emote(let e)? = try earlierDecoder.append(earlier).first else { return XCTFail("not an emote") }
+        XCTAssertNil(e.isShared)
+    }
+
     /// An idle flag is sent only when true, so v2.5.602 and earlier read every other presence byte for byte.
     func testIdleFlagIsOptionalOnTheWire() throws {
         var idle = presence
