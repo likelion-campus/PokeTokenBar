@@ -48,8 +48,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onInteractKey: (() -> Void)?
     /// 키 P(기념사진). keyCode로만 판정한다.
     var onPhotoKey: (() -> Void)?
-    /// J. 판이 닫혀 있을 때만 온다.
+    /// Z(점프). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onJumpKey: (() -> Void)?
+    /// X(인사하기). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
+    var onGreetKey: (() -> Void)?
+    /// C(몸통박치기). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
+    var onTackleKey: (() -> Void)?
     /// Return과 숫자패드 Enter. 판이 닫혀 있을 때만 온다.
     var onChatKey: (() -> Void)?
     /// 판이 열린 동안 판이 쓰는 키(위, 아래, 스페이스, Enter, Esc). 눌러 둔 자동 반복은 넘기지 않는다.
@@ -318,9 +322,9 @@ struct PlazaSceneMember: Equatable, Sendable {
             return .swallowed
         }
         // 사진 키도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 보내지 않는다(P를 누르고 있어도 한 번만 찍는다).
-        // 점프도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 뛰지 않는다.
-        if keyCode == Self.jKeyCode {
-            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onJumpKey?() }
+        // Z(점프), X(인사하기), C(몸통박치기)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다.
+        if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.cKeyCode: onTackleKey][keyCode] {
+            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { action?() }
             return .swallowed
         }
         if keyCode == Self.pKeyCode {
@@ -616,7 +620,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let wKeyCode: UInt16 = 13
     private static let spaceKeyCode: UInt16 = 49
     private static let pKeyCode: UInt16 = 35
-    private static let jKeyCode: UInt16 = 38
+    private static let zKeyCode: UInt16 = 6
+    private static let xKeyCode: UInt16 = 7
+    private static let cKeyCode: UInt16 = 8
     private static let returnKeyCode: UInt16 = 36
     private static let keypadEnterKeyCode: UInt16 = 76
 

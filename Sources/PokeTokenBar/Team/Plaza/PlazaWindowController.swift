@@ -187,6 +187,9 @@ extension SKView: PlazaPausableView {}
             let clock = PlazaClockHostingView(rootView: PlazaClock())
             clock.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(clock)   // 입력은 받지 않는다.
+            let shortcuts = PlazaShortcutGuideHostingView(rootView: PlazaShortcutGuide())
+            shortcuts.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(shortcuts)   // 입력은 받지 않는다.
             let toggle = PlazaBackgroundToggleHostingView(rootView: PlazaBackgroundToggle(
                 model: backgroundModel, toggle: { [weak self] in self?.toggleBackground() }))
             toggle.translatesAutoresizingMaskIntoConstraints = false
@@ -218,6 +221,8 @@ extension SKView: PlazaPausableView {}
                 clock.bottomAnchor.constraint(equalTo: map.topAnchor, constant: -6),
                 toggle.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
                 toggle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PlazaRosterMetrics.margin),
+                shortcuts.topAnchor.constraint(equalTo: toggle.bottomAnchor, constant: 6),
+                shortcuts.leadingAnchor.constraint(equalTo: toggle.leadingAnchor),
                 colorPicker.topAnchor.constraint(equalTo: toggle.topAnchor),
                 colorPicker.leadingAnchor.constraint(equalTo: toggle.trailingAnchor, constant: 8),
             ])
@@ -268,6 +273,12 @@ extension SKView: PlazaPausableView {}
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
         s.onJumpKey = { [weak self] in self?.handleJumpKey() }
+        s.onGreetKey = { [weak self] in
+            if let self, let id = self.faceNearbyMember() { self.greet(id) }
+        }
+        s.onTackleKey = { [weak self] in
+            if let self, let id = self.faceNearbyMember() { self.tackle(id) }
+        }
         s.onChatKey = { [weak self] in self?.openChat() }
         s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
@@ -393,6 +404,17 @@ extension SKView: PlazaPausableView {}
         session?.sendEmote(.jump, target: nil)
     }
 
+    /// X와 C가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
+    /// 옆에 팀원이 없으면 nil이라 아무것도 하지 않는다.
+    private func faceNearbyMember() -> String? {
+        guard let scene else { return nil }
+        let me = scene.walker.tile
+        guard let id = PlazaTargeting.member(from: me, facing: scene.walker.facing, members: scene.memberTiles),
+              let tile = scene.memberTiles[id] else { return nil }
+        if PlazaPathfinder.isAdjacent(me, tile) { scene.face(PlazaPathfinder.direction(from: me, to: tile)) }
+        return id
+    }
+
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showJump(memberID: String) {
         scene?.playJump(memberID: memberID)
@@ -413,12 +435,9 @@ extension SKView: PlazaPausableView {}
     /// 바라보거나 바로 옆에 있는 대상에 말을 건다. 그쪽으로 돌아선 뒤, 소식판이면 소식판을 열고(열 때 모두 읽음),
     /// 팀원이면 인사하기와 포켓몬 보기 메뉴를 띄운다.
     private func handleInteractKey() {
-        guard let scene else { return }
-        guard let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
-                                                members: scene.memberTiles) else {
-            // 말을 걸 팀원이나 팻말이 없으면 스페이스는 점프다.
-            return handleJumpKey()
-        }
+        guard let scene,
+              let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
+                                                members: scene.memberTiles) else { return }
         scene.face(hit.facing)
         switch hit.target {
         case .board:
@@ -797,6 +816,8 @@ extension SKView: PlazaPausableView {}
             scene.onInteractKey = nil
             scene.onPhotoKey = nil
             scene.onJumpKey = nil
+            scene.onGreetKey = nil
+            scene.onTackleKey = nil
             scene.onChatKey = nil
             scene.onOverlayKey = nil
             scene.onInteractionTargetChange = nil
