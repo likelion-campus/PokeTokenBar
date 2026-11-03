@@ -345,13 +345,23 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertNil(c.hint)
     }
 
-    func testFacingNothingOpensNothing() {
+    /// With nothing to talk to, Space jumps instead.
+    func testSpaceWithNothingToTalkToJumps() {
         let me = node("나")
         let c = controller(me, start: TilePoint(x: 10, y: 10))
         c.prepareScene()
         space(c.scene!)
         XCTAssertEqual(c.overlayContent, .none)
         XCTAssertFalse(c.scene!.isOverlayOpen)
+        XCTAssertEqual(c.scene!.dustCount, 2, "a jump")
+    }
+
+    /// Beside a teammate, Space opens the menu and does not jump.
+    func testSpaceBesideATeammateDoesNotJump() async {
+        let (c, scene, _, _) = await standing()
+        space(scene)
+        guard case .memberMenu = c.overlayContent else { return XCTFail("no menu: \(c.overlayContent)") }
+        XCTAssertEqual(scene.dustCount, 0)
     }
 
     func testSpaceOnBoardOpensEmptyBoardPanel() {

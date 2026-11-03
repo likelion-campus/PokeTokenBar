@@ -413,9 +413,12 @@ extension SKView: PlazaPausableView {}
     /// 바라보거나 바로 옆에 있는 대상에 말을 건다. 그쪽으로 돌아선 뒤, 소식판이면 소식판을 열고(열 때 모두 읽음),
     /// 팀원이면 인사하기와 포켓몬 보기 메뉴를 띄운다.
     private func handleInteractKey() {
-        guard let scene,
-              let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
-                                                members: scene.memberTiles) else { return }
+        guard let scene else { return }
+        guard let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
+                                                members: scene.memberTiles) else {
+            // 말을 걸 팀원이나 팻말이 없으면 스페이스는 점프다.
+            return handleJumpKey()
+        }
         scene.face(hit.facing)
         switch hit.target {
         case .board:
