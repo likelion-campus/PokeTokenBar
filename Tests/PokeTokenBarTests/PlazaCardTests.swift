@@ -122,9 +122,12 @@ final class PlazaInteractionTests: XCTestCase {
         let inner = m.panelSize.width - 2 * m.panelInset
         let grid = CGFloat(m.columns) * m.cellSize.width + CGFloat(m.columns - 1) * m.spacing
         XCTAssertLessThanOrEqual(grid, inner)
+        // Each cell has the icon and one line of the name under it; a long name is cut, not wrapped or widened.
+        let nameLine = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(.small))
+        XCTAssertLessThanOrEqual(m.iconSize.height + 1 + nameLine, m.cellSize.height)
         let dex = (1...15).map {
-            TeamDexSpecies(speciesID: $0, form: nil, name: "\($0)", rarity: $0.isMultiple(of: 5) ? .legendary : .common,
-                           hasShiny: $0.isMultiple(of: 3), hasNormal: true)
+            TeamDexSpecies(speciesID: $0, form: nil, name: $0 == 1 ? "아주아주긴포켓몬이름" : "\($0)",
+                           rarity: $0.isMultiple(of: 5) ? .legendary : .common, hasShiny: $0.isMultiple(of: 3), hasNormal: true)
         }
         // The widest header: a 12-character nickname, both badges (species 5 is legendary above) and a different current Pokémon.
         let long = TeamMemberState(memberID: "m", nickname: "가나다라마바사아자차카타", character:
