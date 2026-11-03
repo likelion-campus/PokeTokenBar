@@ -31,6 +31,7 @@ extension L {
     var plazaMenuTackle: String { "몸통박치기" }
     var plazaJump: String { "점프" }
     var plazaShortcutsTitle: String { "단축키" }
+    var plazaShortcutArrows: String { "방향키" }
     var plazaShortcutWalk: String { "걷기" }
     var plazaShortcutRun: String { "달리기" }
     var plazaShortcutTalk: String { "말 걸기" }
