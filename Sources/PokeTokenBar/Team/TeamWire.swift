@@ -32,11 +32,13 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     case tackle
     /// 점프 (J): the sender hops with dust at its feet. Earlier versions skip it the same way.
     case jump
+    /// 단체 사진 (G): a five-second countdown starts on every open plaza, ending in a flash. Earlier versions skip it.
+    case groupPhoto
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto: false
         }
     }
 }

@@ -103,6 +103,7 @@ enum PlazaEmoteArt {
         case .question: drawGrid(question, cell: dot, centeredAt: center, in: context)
         case .tackle: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)
         case .jump: drawGrid(dust, cell: dot, centeredAt: center, in: context)
+        case .groupPhoto: drawGrid(camera, cell: dot, centeredAt: center, in: context)
         }
         return context.makeImage()!
     }
@@ -141,6 +142,16 @@ enum PlazaEmoteArt {
     }
 
     /// 점프할 때 발밑에서 이는 먼지 한 덩이. 위는 밝고 아래는 그늘진다.
+    /// 단체 사진. 말풍선으로 뜨지는 않지만 종류마다 그림이 달라야 한다.
+    private static let camera = [
+        "..##.....",
+        "#########",
+        "#..###..#",
+        "#.#WWW#.#",
+        "#..###..#",
+        "#########",
+    ]
+
     private static let dust = [
         "..UUU...",
         ".UUUUUV.",

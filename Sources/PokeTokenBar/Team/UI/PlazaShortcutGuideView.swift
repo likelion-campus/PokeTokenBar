@@ -10,7 +10,8 @@ struct PlazaShortcutGuide: View {
         return [
             ("방향키", l.plazaShortcutWalk), ("Shift", l.plazaShortcutRun), ("Space", l.plazaShortcutTalk),
             ("Enter", l.plazaShortcutChat), ("1–5", l.plazaShortcutEmotes), ("Z", l.plazaJump),
-            ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("P", l.plazaShortcutPhoto), ("−/+", l.plazaShortcutZoom),
+            ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("P", l.plazaShortcutPhoto), ("G", l.plazaShortcutGroupPhoto),
+            ("−/+", l.plazaShortcutZoom),
         ]
     }
 
