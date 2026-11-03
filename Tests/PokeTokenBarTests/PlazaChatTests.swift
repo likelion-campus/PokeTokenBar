@@ -253,20 +253,111 @@ final class PlazaChatInputTests: XCTestCase {
         w.contentView = nil
     }
 
-    /// The emoji button opens the macOS picker for the line being typed: the field keeps the line and the caret.
-    func testEmojiButtonOpensThePickerAndKeepsTheLine() throws {
-        let (i, box) = input()
-        var opened = 0
-        i.openEmojiPicker = { opened += 1 }
+    /// The emoji button unfolds the panel above the field (the bar grows upward) and folds it again; the line stays.
+    /// The macOS emoji window is not used: on some Macs it never opens in the plaza, not even with ⌃⌘Space or 🌐.
+    func testEmojiButtonUnfoldsThePanelAboveTheField() throws {
+        let (i, _) = input()
         let (w, editor) = try editing(i)
         editor.insertText("안녕", replacementRange: editor.selectedRange())
+        i.view.layoutSubtreeIfNeeded()
+        let closedHeight = i.view.fittingSize.height
         i.emojiButton.performClick(nil)
-        XCTAssertEqual(opened, 1)
-        XCTAssertTrue(i.isOpen)
+        XCTAssertTrue(i.isEmojiPanelOpen)
+        i.view.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(i.view.fittingSize.height, closedHeight + 3 * PlazaChatInput.emojiCell)
+        XCTAssertGreaterThanOrEqual(i.emojiPanel.frame.minY, i.field.frame.maxY, "above the field")
         XCTAssertTrue(i.field.currentEditor() === editor, "the field is still being edited")
+        i.emojiButton.performClick(nil)
+        XCTAssertFalse(i.isEmojiPanelOpen)
+        i.view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(i.view.fittingSize.height, closedHeight)
         XCTAssertEqual(i.field.stringValue, "안녕")
-        XCTAssertTrue(box.sent.isEmpty)
         XCTAssertTrue(i.emojiButton.refusesFirstResponder, "taking focus would end editing and close the field")
+        w.contentView = nil
+    }
+
+    private func pick(_ i: PlazaChatInput, _ emoji: String) throws {
+        try XCTUnwrap(i.emojiPanelButtons.first { $0.title == emoji }, emoji).performClick(nil)
+    }
+
+    func testPickingAnEmojiPutsItAtTheCaretAndKeepsTheInputOpen() throws {
+        let (i, box) = input()
+        let (w, editor) = try editing(i)
+        editor.insertText("안녕", replacementRange: editor.selectedRange())
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+        i.emojiButton.performClick(nil)
+        try pick(i, "🍜")
+        XCTAssertEqual(i.field.stringValue, "안🍜녕")
+        XCTAssertTrue(i.isOpen)
+        XCTAssertTrue(i.isEmojiPanelOpen, "stays open for another pick")
+        XCTAssertTrue(i.field.currentEditor() === editor)
+        XCTAssertTrue(box.sent.isEmpty)
+        XCTAssertTrue(i.emojiPanelButtons.allSatisfy(\.refusesFirstResponder))
+        w.contentView = nil
+    }
+
+    /// A syllable being composed is finished first, so the emoji does not replace or break it.
+    func testPickingWhileComposingKeepsTheSyllable() throws {
+        let (i, _) = input()
+        let (w, editor) = try editing(i)
+        editor.setMarkedText("가", selectedRange: NSRange(location: 1, length: 0), replacementRange: editor.selectedRange())
+        i.emojiButton.performClick(nil)
+        try pick(i, "😀")
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(i.field.stringValue, "가😀")
+        w.contentView = nil
+    }
+
+    func testPickingAtTheLimitKeepsTheLimit() throws {
+        let (i, _) = input()
+        let (w, editor) = try editing(i)
+        editor.insertText(String(repeating: "가", count: TeamChat.maxCharacters), replacementRange: editor.selectedRange())
+        i.emojiButton.performClick(nil)
+        try pick(i, "🔥")
+        XCTAssertEqual(i.field.stringValue.count, TeamChat.maxCharacters)
+        w.contentView = nil
+    }
+
+    func testPanelIsFoldedWhenTheInputOpensAgain() throws {
+        let (i, _) = input()
+        let (w, _) = try editing(i)
+        i.emojiButton.performClick(nil)
+        i.close()
+        XCTAssertFalse(i.isEmojiPanelOpen)
+        i.open()
+        XCTAssertFalse(i.isEmojiPanelOpen)
+        w.contentView = nil
+    }
+
+    /// Every emoji is one character that a teammate receives exactly as picked.
+    func testEveryPanelEmojiIsSentAsPicked() {
+        XCTAssertEqual(Set(PlazaChatInput.emojis).count, PlazaChatInput.emojis.count)
+        for emoji in PlazaChatInput.emojis {
+            XCTAssertEqual(emoji.count, 1, emoji)
+            XCTAssertEqual(TeamChat.prepared(emoji), emoji, emoji)
+        }
+    }
+
+    /// The opened panel fits inside the bar at the plaza's input width.
+    func testOpenPanelFitsTheBar() {
+        let (i, _) = input()
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: PlazaChatLog.width, height: 300), styleMask: [.borderless],
+                         backing: .buffered, defer: true)
+        let host = NSView(frame: w.contentRect(forFrameRect: w.frame))
+        w.contentView = host
+        i.view.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(i.view)
+        NSLayoutConstraint.activate([
+            i.view.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            i.view.widthAnchor.constraint(equalToConstant: PlazaChatLog.width),
+            i.view.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
+        i.emojiButton.performClick(nil)
+        host.layoutSubtreeIfNeeded()
+        for b in i.emojiPanelButtons {
+            let f = b.convert(b.bounds, to: i.view)
+            XCTAssertTrue(i.view.bounds.contains(f), "\(b.title) at \(f) outside \(i.view.bounds)")
+        }
         w.contentView = nil
     }
 
