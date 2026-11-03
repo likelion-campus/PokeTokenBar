@@ -19,6 +19,28 @@ final class PlazaRemoteMotionTests: XCTestCase {
         XCTAssertFalse(m.isWalking)
     }
 
+    /// A running teammate is followed at running pace, so their tiles, sent twice as often, never pile up.
+    func testRunningSenderIsFollowedAtRunningPace() {
+        var running = PlazaRemoteMotion(tile: p(5, 5), facing: .down)
+        running.senderIsRunning = true
+        running.moveTo(p(5, 6))
+        running.advance(by: PlazaWalker.runStepDuration / 2)
+        XCTAssertEqual(running.footPoint.y, PlazaWalker.footPoint(from: p(5, 5), to: p(5, 6), progress: 0.5).y, accuracy: 1e-9,
+                       "half way after half a running step")
+        running.advance(by: PlazaWalker.runStepDuration / 2)
+        running.snap(to: p(5, 5))
+        for i in 1...10 {
+            running.moveTo(p(5 + i, 5))
+            running.advance(by: PlazaWalker.runStepDuration)
+            XCTAssertEqual(running.tile, p(5 + i, 5), "step \(i)")
+            XCTAssertEqual(running.footPoint, PlazaWalker.footPoint(from: p(5 + i, 5), to: p(5 + i, 5), progress: 0), "step \(i) done")
+        }
+        var walking = PlazaRemoteMotion(tile: p(5, 5), facing: .down)
+        walking.moveTo(p(6, 5))
+        walking.advance(by: PlazaWalker.runStepDuration)
+        XCTAssertTrue(walking.isWalking, "at walking pace the same time is half a step")
+    }
+
     func testQueuedMovesPlayInOrder() {
         var m = PlazaRemoteMotion(tile: p(5, 5), facing: .down)
         m.moveTo(p(6, 5)); m.moveTo(p(6, 6))

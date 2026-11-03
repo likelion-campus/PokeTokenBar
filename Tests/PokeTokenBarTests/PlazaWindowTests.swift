@@ -328,6 +328,27 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertLessThanOrEqual(abs(scene.walker.tile.x - start.x) + abs(scene.walker.tile.y - start.y), 1)
     }
 
+    /// Holding Shift while walking runs: twice the tiles in the same time. Without Shift it walks.
+    func testShiftHeldDuringUpdateRuns() {
+        func walked(_ modifiers: NSEvent.ModifierFlags) -> (tiles: Int, ran: Bool) {
+            let c = controller(defaults())
+            c.prepareScene()
+            guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { XCTFail("setup"); return (0, false) }
+            let start = scene.walker.tile
+            scene.currentModifiers = { modifiers }
+            scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false, modifiers: modifiers)
+            var ran = false, t: TimeInterval = 0
+            scene.update(t)
+            while t < 0.3 { t += 1.0 / 60; scene.update(t); ran = ran || scene.walker.isRunning }
+            return (abs(scene.walker.tile.x - start.x) + abs(scene.walker.tile.y - start.y), ran)
+        }
+        let walk = walked([]), run = walked(.shift)
+        XCTAssertFalse(walk.ran)
+        XCTAssertTrue(run.ran)
+        XCTAssertGreaterThanOrEqual(run.tiles, walk.tiles * 2 - 1, "running \(run.tiles) vs walking \(walk.tiles)")
+        XCTAssertGreaterThan(run.tiles, walk.tiles)
+    }
+
     func testPersistStateSavesTileWithoutTearingDown() {
         let d = defaults()
         let c = controller(d)

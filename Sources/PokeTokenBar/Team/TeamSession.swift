@@ -14,6 +14,8 @@ struct TeamMemberState: Equatable, Sendable {
     var isIdle = false
     /// The picked name colour as received; `PlazaNameColor` decides whether it can be shown.
     var nameColor: UInt32?
+    /// Running on the current step, so their character here follows at running pace.
+    var isRunning = false
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -85,6 +87,7 @@ final class TeamSession {
     @ObservationIgnored private var tile: TilePoint?
     @ObservationIgnored private var facing: PlazaDirection?
     @ObservationIgnored private var isWalking = false
+    @ObservationIgnored private var isRunning = false
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
          profileProvider: @escaping () -> TeamMemberProfile, clock: @escaping () -> Date = Date.init) {
@@ -167,12 +170,15 @@ final class TeamSession {
         if changed { broadcast(.presence(makePresence())) }
     }
 
-    func updatePlazaPosition(inPlaza: Bool, tile: TilePoint?, facing: PlazaDirection?, isWalking: Bool) {
+    func updatePlazaPosition(inPlaza: Bool, tile: TilePoint?, facing: PlazaDirection?, isWalking: Bool,
+                             isRunning: Bool = false) {
+        // 달리기는 칸을 출발할 때나 멈출 때만 바뀌므로 칸·걷기 변화 없이 혼자 바뀌지 않는다.
         let changed = inPlaza != self.inPlaza || tile != self.tile || facing != self.facing || isWalking != self.isWalking
         self.inPlaza = inPlaza
         self.tile = tile
         self.facing = facing
         self.isWalking = isWalking
+        self.isRunning = isRunning
         if changed { broadcast(.presence(makePresence())) }
     }
 
@@ -286,6 +292,7 @@ final class TeamSession {
             member.isWalking = presence.isWalking
             member.isIdle = presence.isIdle ?? false
             member.nameColor = presence.nameColor
+            member.isRunning = presence.isRunning ?? false
             members[memberID] = member
         case .inventory(let eventIDs, let reactionIDs):
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
@@ -378,7 +385,7 @@ final class TeamSession {
     private func makePresence() -> TeamPresence {
         TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
                      inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
-                     nameColor: settings.nameColor)
+                     nameColor: settings.nameColor, isRunning: isRunning ? true : nil)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

@@ -21,6 +21,8 @@ struct TeamPresence: Codable, Equatable, Sendable {
     /// The name colour the member picked (an RGB value from the plaza palette). Left out when none was picked;
     /// earlier versions ignore it and keep the colour from the member ID.
     var nameColor: UInt32?
+    /// Running (Shift) on the current step. Left out when false; earlier versions ignore it and follow at walking pace.
+    var isRunning: Bool?
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {

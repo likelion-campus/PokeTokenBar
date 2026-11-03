@@ -15,6 +15,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var isIdle = false
     /// 그 팀원이 고른 이름 색. 없거나 팔레트에 없으면 멤버 ID의 색.
     var nameColor: UInt32?
+    /// 달리고 있다. 이 화면에서도 달리는 빠르기로 따라간다.
+    var isRunning = false
 }
 
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.
@@ -249,6 +251,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                     r.motion.moveTo(target)
                 }
                 r.motion.senderIsWalking = !m.isAway && m.isWalking
+                r.motion.senderIsRunning = !m.isAway && m.isRunning
                 if !m.isAway { r.motion.facing = m.facing }
                 r.nickname = m.nickname
                 r.isIdle = m.isIdle
@@ -260,6 +263,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 let wanderer = m.isAway ? shelterWanderer(m.memberID) : nil
                 var motion = PlazaRemoteMotion(tile: wanderer?.tile ?? target, facing: m.facing)
                 motion.senderIsWalking = !m.isAway && m.isWalking
+                motion.senderIsRunning = !m.isAway && m.isRunning
                 let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isIdle: m.isIdle), color: color),
                                color: color, nickname: m.nickname, isAway: m.isAway, isIdle: m.isIdle, motion: motion,
                                wanderer: wanderer)
@@ -590,6 +594,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         walker.advance(by: PlazaWalker.stepDuration * Double(tiles)) { [map] in map.isWalkable($0) && !occupied.contains($0) }
         reportLocalPosition()
     }
+    /// 테스트용: 그 팀원을 달리는 빠르기로 따라가는지. 없으면 nil.
+    func memberIsRunning(_ id: String) -> Bool? { remotes[id]?.motion.senderIsRunning }
     /// 테스트용: 조각들의 가운데(장면 좌표). 없으면 nil.
     var sparkleCenter: CGPoint? {
         guard !sparkles.isEmpty else { return nil }
@@ -684,7 +690,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         lastTime = currentTime
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
         clock = currentTime
-        if currentModifiers().contains(.command) { walker.releaseAll() }
+        let modifiers = currentModifiers()
+        if modifiers.contains(.command) { walker.releaseAll() }
+        // Shift를 누르고 있거나, 따라가는 팀원이 달리면 달린다.
+        walker.wantsToRun = modifiers.contains(.shift) || (followingMember.flatMap { remotes[$0]?.motion.senderIsRunning } ?? false)
         advanceWalkToMember()
         let occupied = occupiedTiles()
         walker.advance(by: dt) { [map] in map.isWalkable($0) && !occupied.contains($0) }
@@ -697,6 +706,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     private func reportLocalPosition() {
+        // 달리기는 칸을 출발할 때나 멈출 때만 바뀌므로 칸·걷기 변화와 함께 보내진다.
         let now = (tile: walker.tile, facing: walker.facing, isWalking: walker.isWalking)
         guard now != lastReported else { return }
         lastReported = now
