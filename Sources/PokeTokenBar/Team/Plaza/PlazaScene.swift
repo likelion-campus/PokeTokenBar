@@ -79,6 +79,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     private let mapNode: SKSpriteNode
     private var shutterNode: SKSpriteNode?
     private let cameraNode = SKCameraNode()
+    /// 계절 날씨 입자. 캐릭터(z 1~2) 위, 낮밤 곱하기(5)와 이름표(10) 아래.
+    private let weatherLayer = PlazaWeatherLayer()
     /// 내 캐릭터.
     private let me: PlazaActor
     private(set) var nameColor = PlazaNameColor.palette[0]
@@ -160,6 +162,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapNode.zPosition = 0
         addChild(mapNode)
 
+        weatherLayer.zPosition = 3
+        addChild(weatherLayer)
         addChild(cameraNode)
         me.attach(world: self, camera: cameraNode)
         camera = cameraNode
@@ -214,6 +218,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapNode.isHidden = hidden
         backgroundColor = hidden ? .clear : Self.forestColor
         applyDaylight()
+        advanceWeather(by: 0)
     }
 
     var isBackgroundHidden: Bool { mapNode.isHidden }
@@ -458,7 +463,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking)))
         }
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
-                               tint: daylightTint)
+                               tint: daylightTint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height))
     }
 
     /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.
@@ -692,9 +697,24 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceSparkles(by: dt)
         applyDaylight()
         layout()
+        advanceWeather(by: dt)
         reportLocalPosition()
         refreshInteractionTarget()
     }
+
+    /// 날씨 입자를 움직인다. 보이는 영역은 `layout`이 정한 값을 장면 좌표(y 위로)로 바꿔 넘긴다.
+    private func advanceWeather(by dt: TimeInterval) {
+        let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
+        let v = visibleRect
+        weatherLayer.update(date: now(), isHidden: isBackgroundHidden, dt: dt,
+                            visible: CGRect(x: v.minX, y: worldSize.height - v.maxY, width: v.width, height: v.height),
+                            step: PlazaPixelSnap.step(backing: backing, zoom: zoom))
+    }
+
+    /// 테스트용: 지금 내리는 날씨와 입자.
+    var weatherKind: PlazaWeather.Kind { weatherLayer.kind }
+    var weatherParticleCount: Int { weatherLayer.particleCount }
+    var weatherParticlePositions: [CGPoint] { weatherLayer.particlePositions }
 
     private func reportLocalPosition() {
         let now = (tile: walker.tile, facing: walker.facing, isWalking: walker.isWalking)
