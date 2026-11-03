@@ -8,6 +8,8 @@ enum PlazaDirection: String, CaseIterable, Codable, Sendable { case up, down, le
 struct PlazaWalker: Sendable {
     /// 한 칸에 걸리는 시간. 걷는 도중에는 멈추거나 돌지 않으므로, 짧을수록 키를 떼거나 바꿨을 때 바로 반응한다.
     static let stepDuration: TimeInterval = 0.15
+    /// 달릴 때(Shift) 한 칸에 걸리는 시간. 걷기의 절반이다.
+    static let runStepDuration: TimeInterval = 0.075
 
     /// 걷는 중이면 도착할 칸
     private(set) var tile: TilePoint
@@ -21,8 +23,14 @@ struct PlazaWalker: Sendable {
     /// 걷는 중이면 출발한 칸
     private var stepFrom: TilePoint?
     private var stepElapsed: TimeInterval = 0
+    /// 지금 가는 칸에 걸리는 시간. 칸을 출발할 때 정한다.
+    private var stepLength: TimeInterval = Self.stepDuration
+    /// Shift를 누르고 있다. 다음에 출발하는 칸부터 달린다. 밀려 가는 칸은 늘 걷는 빠르기다.
+    var wantsToRun = false
 
     var isWalking: Bool { stepFrom != nil }
+    /// 지금 가는 칸을 달리고 있다.
+    var isRunning: Bool { stepFrom != nil && stepLength == Self.runStepDuration }
 
     init(tile: TilePoint, facing: PlazaDirection = .down) {
         self.tile = tile
@@ -69,7 +77,7 @@ struct PlazaWalker: Sendable {
         var remaining = dt
         while true {
             if stepFrom != nil {
-                let need = Self.stepDuration - stepElapsed
+                let need = stepLength - stepElapsed
                 if remaining < need {
                     stepElapsed += remaining
                     return
@@ -82,6 +90,7 @@ struct PlazaWalker: Sendable {
                 let target = Self.offset(tile, push.direction)
                 if canEnter(target) {
                     pendingPush = push.tiles > 1 ? (push.direction, push.tiles - 1) : nil
+                    stepLength = Self.stepDuration
                     stepFrom = tile
                     tile = target
                     stepElapsed = 0
@@ -95,6 +104,7 @@ struct PlazaWalker: Sendable {
             let target = Self.offset(tile, d)
             // 못 들어가면 돌아서기만 한다.
             guard canEnter(target) else { return }
+            stepLength = wantsToRun ? Self.runStepDuration : Self.stepDuration
             stepFrom = tile
             tile = target
             stepElapsed = 0
@@ -103,7 +113,7 @@ struct PlazaWalker: Sendable {
 
     /// 월드 픽셀(y 아래로). 칸 가로 가운데, 세로 0.875 지점. 걷는 중이면 보간한다.
     var footPoint: CGPoint {
-        let t = stepFrom == nil ? 0 : min(1, stepElapsed / Self.stepDuration)
+        let t = stepFrom == nil ? 0 : min(1, stepElapsed / stepLength)
         return Self.footPoint(from: stepFrom ?? tile, to: tile, progress: t)
     }
 

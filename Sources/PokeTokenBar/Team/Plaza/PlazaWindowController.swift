@@ -644,7 +644,7 @@ extension SKView: PlazaPausableView {}
 
     private func sendPosition(inPlaza: Bool, scene: PlazaScene) {
         session?.updatePlazaPosition(inPlaza: inPlaza, tile: scene.walker.tile, facing: scene.walker.facing,
-                                     isWalking: scene.walker.isWalking)
+                                     isWalking: scene.walker.isWalking, isRunning: scene.walker.isRunning)
     }
 
     /// 작은 지도의 점과 보이는 영역을 지금 상태로 맞춘다.
@@ -686,7 +686,8 @@ extension SKView: PlazaPausableView {}
         let list = members.values.sorted { $0.memberID < $1.memberID }
         scene.applyMembers(list.map {
             PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
-                             facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle, nameColor: $0.nameColor)
+                             facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle, nameColor: $0.nameColor,
+                             isRunning: $0.isRunning)
         })
         refreshMinimap()
         let ids = Set(members.keys)

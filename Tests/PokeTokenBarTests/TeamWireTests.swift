@@ -69,6 +69,20 @@ final class TeamWireTests: XCTestCase {
         XCTAssertNil(p.nameColor)
     }
 
+    /// Running is sent only when true, and earlier versions' presence reads as walking.
+    func testRunningFlagIsOptionalOnTheWire() throws {
+        var running = presence
+        running.isRunning = true
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(running))), [.presence(running)])
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("isRunning"))
+        let earlier = frame(#"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":true}}}"#)
+        var earlierDecoder = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try earlierDecoder.append(earlier).first else { return XCTFail("not a presence") }
+        XCTAssertNil(p.isRunning)
+    }
+
     /// An idle flag is sent only when true, so v2.5.602 and earlier read every other presence byte for byte.
     func testIdleFlagIsOptionalOnTheWire() throws {
         var idle = presence

@@ -656,6 +656,55 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertNotEqual(c.hint, L(.ko).plazaFollowHint(nickname: "민수"))
     }
 
+    /// Running reaches teammates, and a running teammate runs on my screen too.
+    func testRunningReachesTeammatesBothWays() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil && other.session.members[me.settings.memberID] != nil }
+        let scene = c.scene!, myID = me.settings.memberID, id = other.settings.memberID
+        let right = TilePoint(x: map.spawn.x + 1, y: map.spawn.y)
+        XCTAssertTrue(map.isWalkable(right), "test precondition")
+        scene.currentModifiers = { .shift }
+        scene.handleKeyDown(keyCode: rightKey, characters: nil, isRepeat: false, modifiers: .shift)
+        scene.update(0); scene.update(0.01)
+        XCTAssertTrue(scene.walker.isRunning)
+        await waitUntil { other.session.members[myID]?.isRunning == true }
+        XCTAssertEqual(other.session.members[myID]?.isRunning, true)
+        let spot = TilePoint(x: map.spawn.x - 3, y: map.spawn.y + 2)
+        other.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: true, isRunning: true)
+        await waitUntil { scene.memberIsRunning(id) == true }
+        XCTAssertEqual(scene.memberIsRunning(id), true)
+        other.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: false, isRunning: false)
+        await waitUntil { scene.memberIsRunning(id) == false }
+        XCTAssertEqual(scene.memberIsRunning(id), false, "stopping clears it")
+    }
+
+    /// Following a teammate who runs, I run too, so the train keeps together. Following one who walks, I walk.
+    func testFollowingARunnerRuns() async {
+        let (_, scene, other, id) = await standing()
+        scene.currentModifiers = { [] }   // a real Shift held on this Mac must not make it pass
+        follow(scene)
+        XCTAssertEqual(scene.followingMember, id)
+        let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
+        let away = TilePoint(x: ahead.x, y: ahead.y + 3)
+        XCTAssertTrue((0...3).allSatisfy { map.isWalkable(TilePoint(x: ahead.x, y: ahead.y + $0)) }, "test precondition")
+        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: true, isRunning: false)
+        var t: TimeInterval = 0, ran = false, walked = false
+        for _ in 0..<300 where !walked {
+            await Task.yield(); t += 1.0 / 60; scene.update(t)
+            walked = scene.walker.isWalking; ran = ran || scene.walker.isRunning
+        }
+        XCTAssertTrue(walked)
+        XCTAssertFalse(ran, "they walk, so I walk")
+        let further = TilePoint(x: away.x, y: away.y + 2)
+        XCTAssertTrue(map.isWalkable(TilePoint(x: away.x, y: away.y + 1)) && map.isWalkable(further), "test precondition")
+        other.session.updatePlazaPosition(inPlaza: true, tile: further, facing: .down, isWalking: true, isRunning: true)
+        for _ in 0..<300 where !ran { await Task.yield(); t += 1.0 / 60; scene.update(t); ran = scene.walker.isRunning }
+        XCTAssertTrue(ran, "I ran after them without Shift")
+    }
+
     /// An egg cannot walk, so its menu has no 따라가기.
     func testAnEggIsNotOfferedFollowing() async {
         let (c, scene, _, id) = await standing()
