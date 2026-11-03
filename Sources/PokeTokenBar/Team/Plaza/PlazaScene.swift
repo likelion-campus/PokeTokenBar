@@ -477,6 +477,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.
     func playShutterFlash() {
+        // 창이 가려져 멈춘 장면에서는 사라지는 동작이 돌지 않아 흰 막이 남는다. 보이지 않으니 번쩍이지 않는다.
+        guard !isPaused else { return }
         shutterNode?.removeFromParent()
         let node = SKSpriteNode(color: .white, size: size)
         node.alpha = 0.7
@@ -703,8 +705,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         clock = currentTime
         let modifiers = currentModifiers()
         if modifiers.contains(.command) { walker.releaseAll() }
-        // Shift를 누르고 있거나, 따라가는 팀원이 달리면 달린다.
-        walker.wantsToRun = modifiers.contains(.shift) || (followingMember.flatMap { remotes[$0]?.motion.senderIsRunning } ?? false)
+        // 방향키와 Shift를 함께 누르고 있거나, 따라가는 팀원이 달리면 달린다. Shift만으로는 달리지 않아,
+        // 따라가며 한마디에 대문자를 쳐도 달리지 않는다.
+        walker.wantsToRun = (modifiers.contains(.shift) && walker.isHoldingKey)
+            || (followingMember.flatMap { remotes[$0]?.motion.senderIsRunning } ?? false)
         advanceWalkToMember()
         let occupied = occupiedTiles()
         walker.advance(by: dt) { [map] in map.isWalkable($0) && !occupied.contains($0) }
