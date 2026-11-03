@@ -23,7 +23,9 @@ struct PlazaSceneMember: Equatable, Sendable {
 /// 지도 한 장, 캐릭터 노드 하나, 카메라, 이름표(카메라 자식이라 배율과 무관하게 또렷하다)로 이루어진다.
 @MainActor final class PlazaScene: SKScene {
     /// 한 프레임에 걸을 수 있는 최대 시간. 잠자기 뒤 같은 큰 간격을 막는다.
-    private static let maxFrameDelta: TimeInterval = 0.1
+    /// 가장 짧은 칸(달리기)보다 짧아야 한 프레임에 칸이 하나만 바뀐다. 두 칸을 한 번에 가면 그 사이 칸을 팀원에게
+    /// 보내지 못해, 팀원 화면에서는 두 칸 떨어진 칸으로 순간 이동한다.
+    static let maxFrameDelta: TimeInterval = 0.07
 
     static let characterScale = PlazaActor.characterScale
 

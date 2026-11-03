@@ -681,16 +681,26 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertEqual(scene.memberIsRunning(id), false, "stopping clears it")
     }
 
-    /// Following a teammate who runs, I run too, so the train keeps together.
+    /// Following a teammate who runs, I run too, so the train keeps together. Following one who walks, I walk.
     func testFollowingARunnerRuns() async {
         let (_, scene, other, id) = await standing()
+        scene.currentModifiers = { [] }   // a real Shift held on this Mac must not make it pass
         follow(scene)
         XCTAssertEqual(scene.followingMember, id)
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
         let away = TilePoint(x: ahead.x, y: ahead.y + 3)
         XCTAssertTrue((0...3).allSatisfy { map.isWalkable(TilePoint(x: ahead.x, y: ahead.y + $0)) }, "test precondition")
-        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: true, isRunning: true)
-        var t: TimeInterval = 0, ran = false
+        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: true, isRunning: false)
+        var t: TimeInterval = 0, ran = false, walked = false
+        for _ in 0..<300 where !walked {
+            await Task.yield(); t += 1.0 / 60; scene.update(t)
+            walked = scene.walker.isWalking; ran = ran || scene.walker.isRunning
+        }
+        XCTAssertTrue(walked)
+        XCTAssertFalse(ran, "they walk, so I walk")
+        let further = TilePoint(x: away.x, y: away.y + 2)
+        XCTAssertTrue(map.isWalkable(TilePoint(x: away.x, y: away.y + 1)) && map.isWalkable(further), "test precondition")
+        other.session.updatePlazaPosition(inPlaza: true, tile: further, facing: .down, isWalking: true, isRunning: true)
         for _ in 0..<300 where !ran { await Task.yield(); t += 1.0 / 60; scene.update(t); ran = scene.walker.isRunning }
         XCTAssertTrue(ran, "I ran after them without Shift")
     }
