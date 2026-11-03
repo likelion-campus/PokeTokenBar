@@ -104,6 +104,7 @@ extension L {
         case .exclaim: "!"
         case .question: "?"
         case .tackle: "💥"
+        case .jump: "점프"
         }
     }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.

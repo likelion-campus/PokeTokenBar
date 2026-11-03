@@ -137,6 +137,18 @@ final class PlazaEmoteTests: XCTestCase {
         XCTAssertEqual(pressed, [], "other keys, even with a '1' character, are not emotes")
     }
 
+    /// J jumps, also with Hangul input (the character is "ㅓ"); not with Cmd/Ctrl/Opt or when held.
+    func testJumpKeyWorksWithHangulInputOnly() {
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        var jumps = 0
+        scene.onJumpKey = { jumps += 1 }
+        XCTAssertEqual(scene.handleKeyDown(keyCode: 38, characters: "ㅓ", isRepeat: false), .swallowed)
+        XCTAssertEqual(jumps, 1)
+        scene.handleKeyDown(keyCode: 38, characters: "ㅓ", isRepeat: true)
+        scene.handleKeyDown(keyCode: 38, characters: "j", isRepeat: false, modifiers: .command)
+        XCTAssertEqual(jumps, 1)
+    }
+
     func testModifiedOrRepeatedEmoteKeysDoNotFire() {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
         var pressed: [TeamEmoteKind] = []

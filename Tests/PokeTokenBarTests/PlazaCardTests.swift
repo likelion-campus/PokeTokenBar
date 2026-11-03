@@ -608,6 +608,36 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertNotEqual(c.hint, L(.ko).plazaFollowHint(nickname: "민수"), "the follow hint goes")
     }
 
+    // MARK: - Jump
+
+    /// J makes me hop with dust at my feet and tells teammates. I cannot jump again in mid-air.
+    func testJumpHopsRaisesDustAndReachesTheTeammate() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        var received: [(String, TeamEmote)] = []
+        other.session.onEmote = { received.append(($0, $1)) }
+        let scene = c.scene!
+        scene.update(0)
+        let groundY = scene.characterY, shadowY = scene.groundShadowY
+        key(scene, 38)
+        key(scene, 38)
+        XCTAssertEqual(scene.dustCount, 2, "dust on both sides of my feet, once")
+        var t: TimeInterval = 0
+        scene.update(t)
+        while t < PlazaActor.jumpDuration / 2 { t += 1.0 / 60; scene.update(t) }
+        XCTAssertGreaterThan(scene.jumpLift(memberID: nil) ?? 0, PlazaActor.jumpHeight * 0.8, "up in the air halfway")
+        XCTAssertGreaterThan(scene.characterY - groundY, PlazaActor.jumpHeight * 0.8, "the picture is drawn up there")
+        XCTAssertEqual(scene.groundShadowY, shadowY, "the shadow stays on the ground")
+        while t < PlazaActor.jumpDuration + 0.05 { t += 1.0 / 60; scene.update(t) }
+        XCTAssertEqual(scene.jumpLift(memberID: nil), 0, "back on the ground")
+        await waitUntil { !received.isEmpty }
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(received.map(\.1), [TeamEmote(kind: .jump, targetMemberID: nil)], "one jump went out")
+    }
+
     func testEnterChoosesFromTheMenu() async {
         let (c, scene, _, id) = await standing()
         space(scene)

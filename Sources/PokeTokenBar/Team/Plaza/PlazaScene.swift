@@ -48,6 +48,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onInteractKey: (() -> Void)?
     /// 키 P(기념사진). keyCode로만 판정한다.
     var onPhotoKey: (() -> Void)?
+    /// J. 판이 닫혀 있을 때만 온다.
+    var onJumpKey: (() -> Void)?
     /// Return과 숫자패드 Enter. 판이 닫혀 있을 때만 온다.
     var onChatKey: (() -> Void)?
     /// 판이 열린 동안 판이 쓰는 키(위, 아래, 스페이스, Enter, Esc). 눌러 둔 자동 반복은 넘기지 않는다.
@@ -316,6 +318,11 @@ struct PlazaSceneMember: Equatable, Sendable {
             return .swallowed
         }
         // 사진 키도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 보내지 않는다(P를 누르고 있어도 한 번만 찍는다).
+        // 점프도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 뛰지 않는다.
+        if keyCode == Self.jKeyCode {
+            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onJumpKey?() }
+            return .swallowed
+        }
         if keyCode == Self.pKeyCode {
             if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onPhotoKey?() }
             return .swallowed
@@ -534,6 +541,38 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     private static let impactName = "tackle-impact"
+    private static let dustName = "jump-dust"
+
+    /// 점프: 그 캐릭터가 위로 폴짝 뛰고, 뛸 때와 내려올 때 발밑에서 먼지가 양옆으로 퍼진다. `memberID`가 nil이면 나.
+    func playJump(memberID: String?) {
+        guard let actor = actor(memberID) else { return }
+        actor.jump()
+        puffDust(under: memberID)
+        run(.sequence([.wait(forDuration: PlazaActor.jumpDuration), .run { [weak self] in self?.puffDust(under: memberID) }]))
+    }
+
+    private func puffDust(under memberID: String?) {
+        guard actor(memberID) != nil else { return }
+        let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
+        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
+        texture.filteringMode = .nearest
+        for side in [-1.0, 1.0] {
+            let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.dustSize)
+            node.position = CGPoint(x: (foot.x + side * 6).rounded(), y: (worldSize.height - foot.y + 3).rounded())
+            node.xScale = side
+            node.zPosition = 1 + foot.y / worldSize.height + 0.0002   // 그 캐릭터 발 바로 앞
+            node.name = Self.dustName
+            addChild(node)
+            node.run(.sequence([
+                .group([.moveBy(x: side * 10, y: 3, duration: 0.35), .fadeOut(withDuration: 0.35)]),
+                .removeFromParent(),
+            ]))
+        }
+    }
+
+    /// 테스트용: 떠 있는 먼지 수와 그 캐릭터가 떠 있는 높이.
+    var dustCount: Int { children.filter { $0.name == Self.dustName }.count }
+    func jumpLift(memberID: String?) -> CGFloat? { actor(memberID)?.jumpLift }
     /// 테스트용: 떠 있는 충격 그림 수와 내가 뛰어든 만큼.
     var impactCount: Int { children.filter { $0.name == Self.impactName }.count }
     func lungeOffset(memberID: String?) -> CGPoint? { actor(memberID)?.lungeOffset }
@@ -572,6 +611,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let wKeyCode: UInt16 = 13
     private static let spaceKeyCode: UInt16 = 49
     private static let pKeyCode: UInt16 = 35
+    private static let jKeyCode: UInt16 = 38
     private static let returnKeyCode: UInt16 = 36
     private static let keypadEnterKeyCode: UInt16 = 76
 

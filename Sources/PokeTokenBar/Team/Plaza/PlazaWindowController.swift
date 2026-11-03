@@ -267,6 +267,7 @@ extension SKView: PlazaPausableView {}
         s.onEmoteKey = { [weak self] in self?.handleEmoteKey($0) }
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
+        s.onJumpKey = { [weak self] in self?.handleJumpKey() }
         s.onChatKey = { [weak self] in self?.openChat() }
         s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
@@ -377,6 +378,24 @@ extension SKView: PlazaPausableView {}
         session?.sendChat(text, loud: loud)
         if loud { showBanner(L(.ko).teamMegaphoneNotice(nickname: nickname(), text: text)) }
         return true
+    }
+
+    /// 떠 있는 동안 또 뛰지 않는다.
+    private var lastJumpAt: Date?
+
+    /// 나를 폴짝 뛰게 하고 팀원들에게 보낸다. 내려오기 전에는 다시 뛰지 않는다.
+    private func handleJumpKey() {
+        guard let scene else { return }
+        let now = clock()
+        if let last = lastJumpAt, now.timeIntervalSince(last) < PlazaActor.jumpDuration { return }
+        lastJumpAt = now
+        scene.playJump(memberID: nil)
+        session?.sendEmote(.jump, target: nil)
+    }
+
+    /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
+    func showJump(memberID: String) {
+        scene?.playJump(memberID: memberID)
     }
 
     /// 보이는 장면을 사진으로 합성해 클립보드에 PNG로 넣고 번쩍인다. 합성이나 인코딩이 실패하면 클립보드를 그대로 두고 번쩍이지 않는다.
@@ -774,6 +793,7 @@ extension SKView: PlazaPausableView {}
             scene.onEmoteKey = nil
             scene.onInteractKey = nil
             scene.onPhotoKey = nil
+            scene.onJumpKey = nil
             scene.onChatKey = nil
             scene.onOverlayKey = nil
             scene.onInteractionTargetChange = nil

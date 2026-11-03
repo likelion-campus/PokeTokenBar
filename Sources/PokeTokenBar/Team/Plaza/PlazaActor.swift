@@ -50,6 +50,12 @@ struct PlazaActorContext {
     private var name: String
     private var nameColor: CGColor
 
+    /// 점프: 그림과 이름표가 위로 폴짝 뛰었다 내려온다. 그림자는 땅에 남는다.
+    static let jumpDuration: TimeInterval = 0.36
+    /// 가장 높이 떴을 때의 월드 픽셀.
+    static let jumpHeight: CGFloat = 14
+    private var jumpElapsed: TimeInterval?
+
     /// 몸통박치기: 상대 쪽으로 잠깐 뛰어들었다 돌아온다.
     static let lungeDuration: TimeInterval = 0.24
     /// 가장 멀리 나갔을 때의 월드 픽셀.
@@ -134,6 +140,16 @@ struct PlazaActorContext {
         lunge = (d, 0)
     }
 
+    func jump() {
+        jumpElapsed = 0
+    }
+
+    /// 지금 떠 있는 높이(월드 픽셀). 땅에 있으면 0.
+    var jumpLift: CGFloat {
+        guard let jumpElapsed else { return 0 }
+        return (sin(.pi * min(jumpElapsed / Self.jumpDuration, 1)) * Self.jumpHeight).rounded()
+    }
+
     /// 지금 뛰어든 만큼(월드 픽셀, y가 아래로). 뛰어들지 않았으면 0.
     var lungeOffset: CGPoint {
         guard let lunge else { return .zero }
@@ -150,6 +166,9 @@ struct PlazaActorContext {
         if var l = lunge {
             l.elapsed += dt
             lunge = l.elapsed >= Self.lungeDuration ? nil : l
+        }
+        if let e = jumpElapsed {
+            jumpElapsed = e + dt >= Self.jumpDuration ? nil : e + dt
         }
         if emoteKind != nil || chatText != nil {
             emoteRemaining -= dt
@@ -190,7 +209,7 @@ struct PlazaActorContext {
         nestFrontNode.position = shadowNode.position
         // 내 알 바로 앞. 더 아래(앞)에 선 캐릭터보다는 뒤다(한 칸 차이가 이 값보다 훨씬 크다).
         nestFrontNode.zPosition = characterNode.zPosition + 0.0001
-        let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob)))
+        let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob) + jumpLift))
         characterNode.position = CGPoint(x: PlazaPixelSnap.centerX(footX: foot.x, width: characterNode.size.width, backing: backing, zoom: zoom),
                                          y: footScene.y)
 
