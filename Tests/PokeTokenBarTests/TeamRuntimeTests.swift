@@ -125,6 +125,32 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(scene.walker.tile, right, "pushed one tile away from the teammate on my left")
     }
 
+    /// The plaza stops drawing while its window is hidden behind others, but a tackle still pushes me at once and
+    /// teammates get my new tile. Before, the push waited for the next drawn frame, so the tackler saw nothing happen.
+    func testTackleWhileMyPlazaIsHiddenStillPushesMe() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.hiddenpush.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let scene = try! XCTUnwrap(plaza.scene)
+        let start = scene.walker.tile
+        let left = TilePoint(x: start.x - 1, y: start.y), right = TilePoint(x: start.x + 1, y: start.y)
+        let sender = a.settings.memberID
+        await settle { scene.memberTiles[sender] != nil }
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        await settle { scene.memberTiles[sender] == left }
+        plaza.setRendering(visible: false)
+        XCTAssertTrue(scene.isPaused)
+        a.runtime.session.sendEmote(.tackle, target: b.settings.memberID)
+        await settle { scene.walker.tile == right }
+        await settle { a.runtime.session.members[b.settings.memberID]?.tile == right }
+    }
+
     /// Picking a name colour in the plaza (a settings change) reaches teammates without any other trigger.
     func testPickedNameColorReachesTeammates() async {
         let (a, b) = connectedPair()

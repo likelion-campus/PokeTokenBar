@@ -578,8 +578,13 @@ struct PlazaSceneMember: Equatable, Sendable {
     func lungeOffset(memberID: String?) -> CGPoint? { actor(memberID)?.lungeOffset }
 
     /// 몸통박치기에 맞아 한 칸 밀린다. 그 칸이 막혔으면 그 자리에 선다. 알도 밀린다.
+    /// 창이 가려져 장면이 멈춰 있으면(`isPaused`) 다음 화면이 오지 않으므로 그 자리에서 한 칸을 마치고 팀원에게 바로 알린다.
     func pushMe(_ d: PlazaDirection) {
         walker.push(d)
+        guard isPaused else { return }
+        let occupied = occupiedTiles()
+        walker.advance(by: PlazaWalker.stepDuration) { [map] in map.isWalkable($0) && !occupied.contains($0) }
+        reportLocalPosition()
     }
     /// 테스트용: 조각들의 가운데(장면 좌표). 없으면 nil.
     var sparkleCenter: CGPoint? {
