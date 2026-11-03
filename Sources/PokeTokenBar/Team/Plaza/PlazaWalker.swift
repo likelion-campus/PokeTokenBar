@@ -6,7 +6,8 @@ enum PlazaDirection: String, CaseIterable, Codable, Sendable { case up, down, le
 /// 한 칸씩 걷는 규칙. SpriteKit과 무관한 값 타입이다.
 /// 키를 누른 순서대로 쌓고 마지막에 누른 키가 이긴다. 한 칸을 가는 도중에는 멈추지 않는다.
 struct PlazaWalker: Sendable {
-    static let stepDuration: TimeInterval = 0.2
+    /// 한 칸에 걸리는 시간. 걷는 도중에는 멈추거나 돌지 않으므로, 짧을수록 키를 떼거나 바꿨을 때 바로 반응한다.
+    static let stepDuration: TimeInterval = 0.15
 
     /// 걷는 중이면 도착할 칸
     private(set) var tile: TilePoint
