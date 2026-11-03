@@ -9,7 +9,8 @@ enum PlazaCardMetrics {
     static let spriteSide: CGFloat = 144
     /// 도감 칸의 박스 아이콘. 원본(40x30)의 1.5배.
     static let iconSize = CGSize(width: 60, height: 45)
-    static let cellSize = CGSize(width: 64, height: 52)
+    /// 아이콘 아래에 이름 한 줄(작은 글자)이 들어간다.
+    static let cellSize = CGSize(width: 64, height: 66)
     static let columns = 5
     static let spacing: CGFloat = 4
 }
@@ -106,21 +107,30 @@ private struct PlazaDexCell: View {
 
     var body: some View {
         let legendary = species.rarity == .legendary
-        PlazaCardIcon(speciesID: species.speciesID, size: PlazaCardMetrics.iconSize)
-            .frame(width: PlazaCardMetrics.cellSize.width, height: PlazaCardMetrics.cellSize.height)
-            .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                if legendary { RoundedRectangle(cornerRadius: 6).stroke(rarityColor(.legendary), lineWidth: 1.5) }
+        VStack(spacing: 1) {
+            PlazaCardIcon(speciesID: species.speciesID, size: PlazaCardMetrics.iconSize)
+            // 긴 이름은 끝을 줄인다. 전체 이름은 마우스를 올리면 보인다.
+            Text(species.name)
+                .font(Font(PlazaResources.font(.small)))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: PlazaCardMetrics.cellSize.width - 4)
+        }
+        .frame(width: PlazaCardMetrics.cellSize.width, height: PlazaCardMetrics.cellSize.height)
+        .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            if legendary { RoundedRectangle(cornerRadius: 6).stroke(rarityColor(.legendary), lineWidth: 1.5) }
+        }
+        .overlay(alignment: .topLeading) {
+            if legendary { PlazaCardPill(badge: .rarity(.legendary)).padding(2) }
+        }
+        .overlay(alignment: .topTrailing) {
+            if species.hasShiny {
+                Text("★").font(.system(size: 12)).foregroundStyle(Color(hex: 0xFFE060)).padding(.top, 2).padding(.trailing, 4)
             }
-            .overlay(alignment: .topTrailing) {
-                if species.hasShiny {
-                    Text("★").font(.system(size: 12)).foregroundStyle(Color(hex: 0xFFE060)).padding(.top, 2).padding(.trailing, 4)
-                }
-            }
-            .overlay(alignment: .bottomLeading) {
-                if legendary { PlazaCardPill(badge: .rarity(.legendary)).padding(2) }
-            }
-            .help(species.name)
+        }
+        .help(species.name)
     }
 }
 
