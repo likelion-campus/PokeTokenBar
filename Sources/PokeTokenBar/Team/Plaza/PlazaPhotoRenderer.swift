@@ -29,6 +29,8 @@ struct PlazaPhotoInput {
     /// 월드 픽셀 하나가 차지하는 사진 픽셀(화면 배율 × 2).
     let pixelsPerWorld: Int
     let actors: [PlazaPhotoActor]
+    /// 낮과 밤의 색. 화면처럼 지도와 캐릭터에만 곱하고 이름표와 말풍선에는 곱하지 않는다.
+    var tint: PlazaDaylight.Tint = .none
 }
 
 /// 기념사진을 CoreGraphics로 합성한다. 창이나 SKView가 필요 없고, 모든 그림은 보간 없이 정수 배율로 찍는다.
@@ -91,6 +93,15 @@ enum PlazaPhotoRenderer {
                 draw(front, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
                      w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
             }
+        }
+
+        if input.tint != .none {
+            let t = input.tint
+            context.saveGState()
+            context.setBlendMode(.multiply)
+            context.setFillColor(CGColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            context.restoreGState()
         }
 
         for a in ordered {

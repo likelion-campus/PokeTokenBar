@@ -184,6 +184,9 @@ extension SKView: PlazaPausableView {}
                 worldSize: self.map.pixelSize))
             map.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(map)   // 입력은 받지 않는다.
+            let clock = PlazaClockHostingView(rootView: PlazaClock())
+            clock.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(clock)   // 입력은 받지 않는다.
             let toggle = PlazaBackgroundToggleHostingView(rootView: PlazaBackgroundToggle(
                 model: backgroundModel, toggle: { [weak self] in self?.toggleBackground() }))
             toggle.translatesAutoresizingMaskIntoConstraints = false
@@ -211,6 +214,8 @@ extension SKView: PlazaPausableView {}
                 chatLogAtBottom,
                 map.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
                 map.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+                clock.trailingAnchor.constraint(equalTo: map.trailingAnchor),
+                clock.bottomAnchor.constraint(equalTo: map.topAnchor, constant: -6),
                 toggle.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
                 toggle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PlazaRosterMetrics.margin),
                 colorPicker.topAnchor.constraint(equalTo: toggle.topAnchor),
