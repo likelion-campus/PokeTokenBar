@@ -24,6 +24,9 @@ struct PlazaActorContext {
     private let characterNode = SKSpriteNode()
     private let plateNode = SKSpriteNode()
     private let shadowNode = SKSpriteNode()
+    /// 알일 때 알 앞에 얹는 둥지 앞 테두리. 알이 둥지 안에 앉아 보이게 한다.
+    private let nestFrontNode = SKSpriteNode()
+    private var nestFrontImage: CGImage?
     /// 말풍선은 이름표처럼 카메라 공간에 둔다.
     private let emoteNode = SKSpriteNode()
     /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
@@ -57,6 +60,8 @@ struct PlazaActorContext {
         shadowNode.anchorPoint = .zero
         shadowNode.zPosition = 0.5
         shadowNode.isHidden = true
+        nestFrontNode.anchorPoint = .zero
+        nestFrontNode.isHidden = true
         characterNode.anchorPoint = CGPoint(x: 0.5, y: 0)
         characterNode.zPosition = 1
         characterNode.isHidden = true
@@ -70,6 +75,7 @@ struct PlazaActorContext {
     func attach(world: SKNode, camera: SKCameraNode) {
         world.addChild(shadowNode)
         world.addChild(characterNode)
+        world.addChild(nestFrontNode)
         camera.addChild(plateNode)
         camera.addChild(emoteNode)
     }
@@ -77,6 +83,7 @@ struct PlazaActorContext {
     func detach() {
         shadowNode.removeFromParent()
         characterNode.removeFromParent()
+        nestFrontNode.removeFromParent()
         plateNode.removeFromParent()
         emoteNode.removeFromParent()
     }
@@ -149,6 +156,9 @@ struct PlazaActorContext {
         let shadowSize = shadowNode.size
         let shadowCenterY = context.worldHeight - (foot.y - (shadowSize.height * 0.12).rounded())
         shadowNode.position = CGPoint(x: snap(foot.x - shadowSize.width / 2), y: snap(shadowCenterY - shadowSize.height / 2))
+        nestFrontNode.position = shadowNode.position
+        // 내 알 바로 앞. 더 아래(앞)에 선 캐릭터보다는 뒤다(한 칸 차이가 이 값보다 훨씬 크다).
+        nestFrontNode.zPosition = characterNode.zPosition + 0.0001
         let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob)))
         characterNode.position = CGPoint(x: PlazaPixelSnap.centerX(footX: foot.x, width: characterNode.size.width, backing: backing, zoom: zoom),
                                          y: footScene.y)
@@ -177,6 +187,7 @@ struct PlazaActorContext {
         }
         return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: foot, bob: CGFloat(pose.bob),
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
+                               front: shadowIsNest ? nestFrontImage : nil,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2) })
@@ -188,6 +199,8 @@ struct PlazaActorContext {
     var cameraLift: CGFloat { frames?.front.first.map { Self.scaledSize(of: $0.image).height / 2 } ?? 0 }
     var groundShadowSize: (width: Int, height: Int) { shadowTextureSize ?? (0, 0) }
     var isOnNest: Bool { shadowIsNest }
+    /// 둥지 앞 테두리가 보이고 내 그림보다 앞에 있는지(테스트용).
+    var nestFrontIsInFront: Bool { !nestFrontNode.isHidden && nestFrontNode.zPosition > characterNode.zPosition }
     var groundShadowY: CGFloat { shadowNode.position.y }
     var characterX: CGFloat { characterNode.position.x }
     var characterY: CGFloat { characterNode.position.y }
@@ -290,6 +303,14 @@ struct PlazaActorContext {
         shadowIsNest = frames.isEgg
         let image = frames.isEgg ? PlazaNestArt.image() : PlazaGroundShadow.image(width: size.width, height: size.height)
         shadowImage = image
+        nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage() : nil
+        nestFrontNode.isHidden = !frames.isEgg
+        if let front = nestFrontImage {
+            let texture = SKTexture(cgImage: front)
+            texture.filteringMode = .nearest
+            nestFrontNode.texture = texture
+            nestFrontNode.size = CGSize(width: size.width, height: size.height)
+        }
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         shadowNode.texture = texture

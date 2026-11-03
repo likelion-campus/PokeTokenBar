@@ -15,6 +15,8 @@ struct PlazaPhotoActor {
     let shadow: CGImage?
     /// 그림자 사각형(월드, y 아래로).
     let shadowRect: CGRect
+    /// 알 앞에 얹는 둥지 앞 테두리. 그림자와 같은 사각형에 그림 바로 다음에 그린다.
+    var front: CGImage? = nil
     /// 배율 2로 만든 이름표와 말풍선. 사진 픽셀 그대로 얹는다.
     let plate: CGImage?
     let bubble: CGImage?
@@ -85,6 +87,10 @@ enum PlazaPhotoRenderer {
             let w = Int((CGFloat(a.image.width) * a.scale * ppw).rounded()), h = Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
             draw(a.image, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX),
                  top: px(a.foot.y - a.bob, origin: rect.minY) - h, w: w, h: h, mirrored: a.flipped)
+            if let front = a.front {
+                draw(front, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
+                     w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
+            }
         }
 
         for a in ordered {

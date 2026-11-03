@@ -57,10 +57,10 @@ private let red: RGBA = (255, 0, 0, 255), blue: RGBA = (0, 0, 255, 255), green: 
 private let yellow: RGBA = (255, 255, 0, 255), black: RGBA = (0, 0, 0, 255), white: RGBA = (255, 255, 255, 255)
 
 private func actor(_ img: CGImage, flipped: Bool = false, foot: CGPoint, scale: CGFloat = 1.5, bob: CGFloat = 0,
-                   shadow: CGImage? = nil, shadowRect: CGRect = .zero,
+                   shadow: CGImage? = nil, shadowRect: CGRect = .zero, front: CGImage? = nil,
                    plate: CGImage? = nil, bubble: CGImage? = nil) -> PlazaPhotoActor {
     PlazaPhotoActor(image: img, flipped: flipped, foot: foot, bob: bob, scale: scale, shadow: shadow, shadowRect: shadowRect,
-                    plate: plate, bubble: bubble)
+                    front: front, plate: plate, bubble: bubble)
 }
 
 private func input(map: CGImage, rect: CGRect, ppw: Int, _ actors: [PlazaPhotoActor] = []) -> PlazaPhotoInput {
@@ -119,6 +119,21 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertTrue(same(a[4, 0], blue))
         let b = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(input(map: map, rect: CGRect(x: 1, y: 1, width: 2, height: 2), ppw: 4))))
         XCTAssertTrue(same(b[0, 0], blue))
+    }
+
+    /// An egg's nest rim goes over the egg, so the egg sits in its nest on the photo too. The rest of the nest stays behind.
+    func testNestFrontIsDrawnOverTheEgg() throws {
+        let map = solid(20, 20, green)
+        let egg = solid(4, 4, red)
+        let nest = solid(8, 4, yellow)
+        let rim = image(8, 4) { _, y in y >= 2 ? blue : (0, 0, 0, 0) }
+        // The egg covers x 8–11 and rows 6–9; the nest covers rows 7–10, its rim rows 9–10.
+        let rect = CGRect(x: 6, y: 7, width: 8, height: 4)
+        let a = actor(egg, foot: CGPoint(x: 10, y: 10), scale: 1, shadow: nest, shadowRect: rect, front: rim)
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(input(map: map, rect: CGRect(x: 0, y: 0, width: 20, height: 20), ppw: 1, [a]))))
+        XCTAssertTrue(same(px[9, 8], red), "the egg is over the back of the nest")
+        XCTAssertTrue(same(px[9, 9], blue), "the rim is over the egg's bottom")
+        XCTAssertTrue(same(px[7, 8], yellow), "the back of the nest shows beside the egg")
     }
 
     func testAreaOutsideMapIsFilled() throws {

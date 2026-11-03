@@ -131,8 +131,40 @@ final class PlazaCharacterTests: XCTestCase {
         let photo = actor.photoActor(foot: CGPoint(x: 100, y: 100), pose: PlazaPose.choice(facing: .down, isWalking: false, clock: 0))
         let bytes = { (i: CGImage?) in i?.dataProvider?.data as Data? }
         XCTAssertEqual(bytes(photo?.shadow), bytes(PlazaNestArt.image()), "the photo shows the nest too")
+        XCTAssertEqual(bytes(photo?.front), bytes(PlazaNestArt.frontImage()), "and its front rim over the egg")
+        let context = PlazaActorContext(worldHeight: 400, cameraPosition: .zero, zoom: 2, backing: 2, viewport: CGSize(width: 400, height: 300))
+        actor.place(foot: CGPoint(x: 100, y: 100), pose: PlazaPose.choice(facing: .down, isWalking: false, clock: 0), in: context)
+        XCTAssertTrue(actor.nestFrontIsInFront, "the rim is drawn in front of the egg")
         actor.setFrames(mon)
         XCTAssertFalse(actor.isOnNest, "a hatched egg leaves the nest")
+        XCTAssertFalse(actor.nestFrontIsInFront)
+        XCTAssertNil(actor.photoActor(foot: CGPoint(x: 100, y: 100), pose: PlazaPose.choice(facing: .down, isWalking: false, clock: 0))?.front)
+    }
+
+    /// The front rim is the lower part of the nest only, and never covers the hollow the egg sits in.
+    func testNestFrontIsTheLowerRimOnly() {
+        XCTAssertTrue(PlazaNestArt.grid.allSatisfy { $0.count == PlazaNestArt.cols })
+        let front = PlazaNestArt.frontImage(), back = PlazaNestArt.image()
+        XCTAssertEqual(front.width, back.width)
+        XCTAssertEqual(front.height, back.height)
+        let px = { (image: CGImage) -> [UInt8] in
+            var d = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let ctx = CGContext(data: &d, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return d
+        }
+        let f = px(front), cell = front.width / PlazaNestArt.cols
+        var frontCells = 0
+        for (y, row) in PlazaNestArt.grid.enumerated() {
+            for (x, ch) in row.enumerated() {
+                let alpha = f[((y * cell) * front.width + x * cell) * 4 + 3]
+                let expected = y >= PlazaNestArt.frontFromRow && ch != "." && ch != "H" && ch != "K"
+                XCTAssertEqual(alpha == 255, expected, "cell \(x),\(y) '\(ch)'")
+                if expected { frontCells += 1 }
+            }
+        }
+        XCTAssertGreaterThan(frontCells, PlazaNestArt.cols, "a real rim, not a few dots")
     }
 
     func testNestHasAHollowForTheEgg() {
