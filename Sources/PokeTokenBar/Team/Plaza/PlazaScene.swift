@@ -698,7 +698,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         layout()
     }
 
+    /// 장면이 돈 횟수. 광장 멈춤 진단 로그에 쓴다.
+    private(set) var updateCount = 0
+
     override func update(_ currentTime: TimeInterval) {
+        updateCount &+= 1
         let raw = currentTime - (lastTime ?? currentTime)
         lastTime = currentTime
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
