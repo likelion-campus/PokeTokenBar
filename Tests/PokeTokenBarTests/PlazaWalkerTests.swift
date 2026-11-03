@@ -27,7 +27,8 @@ final class PlazaWalkerTests: XCTestCase {
     func testHoldKeepsWalking() {
         var w = PlazaWalker(tile: .init(x: 5, y: 5))
         w.press(.down); run(&w, 1.0)
-        XCTAssertTrue((9...11).contains(w.tile.y)); XCTAssertTrue(w.isWalking)
+        let steps = Int(1.0 / PlazaWalker.stepDuration)
+        XCTAssertTrue((5 + steps - 1...5 + steps + 1).contains(w.tile.y)); XCTAssertTrue(w.isWalking)
     }
 
     func testBlockedTurnsWithoutMoving() {
@@ -39,8 +40,9 @@ final class PlazaWalkerTests: XCTestCase {
 
     func testLastPressedDirectionWins() {
         var w = PlazaWalker(tile: .init(x: 5, y: 5))
-        w.press(.right); run(&w, 0.1); w.press(.up); run(&w, 0.4)
-        // Up stays held, so the walker keeps going up after the right step; float accumulation decides whether the third step has landed.
+        let step = PlazaWalker.stepDuration
+        w.press(.right); run(&w, step / 2); w.press(.up); run(&w, step * 2)
+        // Up stays held, so the walker keeps going up after the right step; float accumulation decides whether the next step has begun.
         XCTAssertEqual(w.tile.x, 6)
         XCTAssertTrue((3...4).contains(w.tile.y)); XCTAssertEqual(w.facing, .up)
     }
@@ -58,7 +60,8 @@ final class PlazaWalkerTests: XCTestCase {
         XCTAssertEqual(abs(w.tile.x - 5) + abs(w.tile.y - 5), 1)
     }
 
-    func testStepIsPointTwoSeconds() { XCTAssertEqual(PlazaWalker.stepDuration, 0.2) }
+    /// 0.2s felt slow to react: a step always finishes before a release or a turn counts.
+    func testStepIsPointOneFiveSeconds() { XCTAssertEqual(PlazaWalker.stepDuration, 0.15) }
 
     func testFootPointInterpolatesHalfway() {
         var w = PlazaWalker(tile: .init(x: 5, y: 5))
