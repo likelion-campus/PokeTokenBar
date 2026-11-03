@@ -740,10 +740,23 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 지금 칸의 아이템을 띄우거나 걷고, 내가 그 칸에 서 있으면 알린다. 배경을 숨기면 땅이 없으니 아이템도 없다.
     private func advanceItem() {
-        let spawn = isBackgroundHidden ? nil : PlazaItems.current(at: now(), candidates: itemCandidates, picked: pickedItemSlots)
+        let spawn = isBackgroundHidden ? nil : currentItem()
         if spawn != shownItem { showItem(spawn) }
         placeItem()
-        if let spawn, walker.tile == spawn.tile { onItemPickup?(spawn) }
+        // 칸에 들어서는 순간(걸음을 시작할 때)이 아니라, 캐릭터가 반 칸 넘게 올라섰을 때 줍는다.
+        if let spawn, walker.tile == spawn.tile {
+            let foot = PlazaWalker.footPoint(from: spawn.tile, to: spawn.tile, progress: 0), now = walker.footPoint
+            if abs(now.x - foot.x) + abs(now.y - foot.y) <= CGFloat(PlazaMap.tileSize) / 2 { onItemPickup?(spawn) }
+        }
+    }
+
+    /// 칸의 아이템은 3시간 동안 같으니 칸이 바뀔 때만 다시 센다.
+    private var itemSpawnCache: (slot: Int, spawn: PlazaItems.Spawn?)?
+
+    private func currentItem() -> PlazaItems.Spawn? {
+        let date = now(), slot = PlazaItems.slot(at: date)
+        if itemSpawnCache?.slot != slot { itemSpawnCache = (slot, PlazaItems.spawn(slot: slot, candidates: itemCandidates)) }
+        return PlazaItems.visible(itemSpawnCache?.spawn, at: date, picked: pickedItemSlots)
     }
 
     private func showItem(_ spawn: PlazaItems.Spawn?) {

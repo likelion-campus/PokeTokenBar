@@ -23,9 +23,10 @@ struct TeamPresence: Codable, Equatable, Sendable {
     var nameColor: UInt32?
     /// Running (Shift) on the current step. Left out when false; earlier versions ignore it and follow at walking pace.
     var isRunning: Bool?
-    /// The latest plaza item slot this member picked up (`PlazaItems`), so a plaza opened later hides that item.
-    /// Left out when none; earlier versions ignore it.
-    var pickedItemSlot: Int?
+    /// The latest plaza item slot this member knows was taken (`PlazaItems`), by them or anyone. Every member
+    /// passes it on, so a plaza opened after the picker left still hides that item. Left out when none; earlier
+    /// versions ignore it.
+    var takenItemSlot: Int?
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {

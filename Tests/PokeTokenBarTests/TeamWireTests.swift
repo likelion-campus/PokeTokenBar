@@ -83,17 +83,17 @@ final class TeamWireTests: XCTestCase {
         XCTAssertNil(p.isRunning)
     }
 
-    /// A pickup names its item slot, and presence carries the latest slot picked. Both are left out when absent,
+    /// A pickup names its item slot, and presence carries the latest slot known taken. Both are left out when absent,
     /// and earlier versions' frames read as none.
     func testItemFieldsAreOptionalOnTheWire() throws {
         let pickup = TeamMessage.emote(TeamEmote(kind: .pickup, targetMemberID: nil, itemSlot: 160_000))
         var decoder = TeamWire.FrameDecoder()
         XCTAssertEqual(try decoder.append(try TeamWire.encode(pickup)), [pickup])
         var picked = presence
-        picked.pickedItemSlot = 160_000
+        picked.takenItemSlot = 160_000
         XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(picked))), [.presence(picked)])
         let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
-        XCTAssertFalse(plain.contains("pickedItemSlot"))
+        XCTAssertFalse(plain.contains("takenItemSlot"))
         let plainEmote = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .heart, targetMemberID: nil))).dropFirst(4),
                                 as: UTF8.self)
         XCTAssertFalse(plainEmote.contains("itemSlot"))

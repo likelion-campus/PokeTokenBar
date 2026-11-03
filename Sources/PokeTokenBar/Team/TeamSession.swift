@@ -16,8 +16,8 @@ struct TeamMemberState: Equatable, Sendable {
     var nameColor: UInt32?
     /// Running on the current step, so their character here follows at running pace.
     var isRunning = false
-    /// The latest plaza item slot they picked up.
-    var pickedItemSlot: Int?
+    /// The latest plaza item slot they know was taken.
+    var takenItemSlot: Int?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -90,7 +90,7 @@ final class TeamSession {
     @ObservationIgnored private var facing: PlazaDirection?
     @ObservationIgnored private var isWalking = false
     @ObservationIgnored private var isRunning = false
-    @ObservationIgnored private var pickedItemSlot: Int?
+    @ObservationIgnored private var takenItemSlot: Int?
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
          profileProvider: @escaping () -> TeamMemberProfile, clock: @escaping () -> Date = Date.init) {
@@ -217,10 +217,10 @@ final class TeamSession {
                                    pushTiles: pushTiles > 1 ? pushTiles : nil, itemSlot: itemSlot)))
     }
 
-    /// The latest plaza item I picked up, told to teammates in my presence (also to those who connect later).
-    func updatePickedItemSlot(_ slot: Int?) {
-        guard slot != pickedItemSlot else { return }
-        pickedItemSlot = slot
+    /// The latest plaza item slot I know was taken, told to teammates in my presence (also to those who connect later).
+    func updateTakenItemSlot(_ slot: Int?) {
+        guard slot != takenItemSlot else { return }
+        takenItemSlot = slot
         broadcast(.presence(makePresence()))
     }
 
@@ -303,7 +303,7 @@ final class TeamSession {
             member.isIdle = presence.isIdle ?? false
             member.nameColor = presence.nameColor
             member.isRunning = presence.isRunning ?? false
-            member.pickedItemSlot = presence.pickedItemSlot
+            member.takenItemSlot = presence.takenItemSlot
             members[memberID] = member
         case .inventory(let eventIDs, let reactionIDs):
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
@@ -396,7 +396,7 @@ final class TeamSession {
     private func makePresence() -> TeamPresence {
         TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
                      inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
-                     nameColor: settings.nameColor, isRunning: isRunning ? true : nil, pickedItemSlot: pickedItemSlot)
+                     nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

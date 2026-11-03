@@ -25,8 +25,11 @@ extension SKView: PlazaPausableView {}
     private let evolutionStage: () -> Int
     /// 광장에서 주운 아이템을 가방에 넣는다.
     private let grantItem: (ItemKind) -> Void
-    /// 팀원이 주웠다고 알려 온 아이템 칸.
-    private var heardItemPicks: Set<Int> = []
+    /// 누군가 주운 것으로 아는 아이템 칸: 내가 주운 것, 팀원이 알려 온 것, 팀원 presence가 전해 준 것. 저장하고, 가장 최근
+    /// 것을 내 presence로 다시 전한다. 그래서 주운 사람이 떠난 뒤 광장을 연 팀원도 그때 있던 누군가에게서 전해 듣는다.
+    private var takenItemSlots: Set<Int> = []
+    /// 저장해 두는 칸 수(하루 치).
+    private static let keptTakenSlots = 8
     private let nameColorModel = PlazaNameColorModel()
     private let rosterModel = PlazaRosterModel()
     private let clock: () -> Date
@@ -143,8 +146,9 @@ extension SKView: PlazaPausableView {}
         self.evolutionStage = evolutionStage
         self.grantItem = grantItem
         super.init()
-        // 다시 켜도 내가 주운 아이템을 팀원에게 알린다. 나중에 광장을 연 팀원도 그 아이템을 보지 않는다.
-        session?.updatePickedItemSlot(preferences.pickedItemSlot)
+        // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
+        takenItemSlots = Set(preferences.takenItemSlots)
+        session?.updateTakenItemSlot(takenItemSlots.max())
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
             guard let self else { return }
@@ -300,7 +304,7 @@ extension SKView: PlazaPausableView {}
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onItemPickup = { [weak self] in self?.pickUp($0) }
         s.onItemChange = { [weak self] _ in self?.refreshMinimap() }
-        s.pickedItemSlots = pickedItemSlots
+        s.pickedItemSlots = takenItemSlots
         s.onChatKey = { [weak self] in self?.openChat() }
         s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
@@ -459,26 +463,23 @@ extension SKView: PlazaPausableView {}
         if photoWriter(png) { scene.playShutterFlash() }
     }
 
-    /// 누군가 주운 아이템 칸: 내가 주운 것(다시 켜도 남는다), 팀원이 주웠다고 알려 온 것, 팀원의 presence에 담긴 것.
-    private var pickedItemSlots: Set<Int> {
-        var slots = heardItemPicks.union(members.values.compactMap(\.pickedItemSlot))
-        if let mine = preferences.pickedItemSlot { slots.insert(mine) }
-        return slots
-    }
-
-    private func applyPickedItems() {
-        let slots = pickedItemSlots
-        if scene?.pickedItemSlots != slots { scene?.pickedItemSlots = slots }
+    /// 주운 것으로 아는 칸을 더한다. 새로 알게 됐으면 저장하고, 장면에 바로 넘기고, 가장 최근 칸을 presence로 전한다.
+    private func learnTaken<S: Sequence>(_ slots: S) where S.Element == Int {
+        let before = takenItemSlots
+        takenItemSlots.formUnion(slots)
+        guard takenItemSlots != before, let latest = takenItemSlots.max() else { return }
+        takenItemSlots = takenItemSlots.filter { $0 > latest - Self.keptTakenSlots }
+        preferences.takenItemSlots = takenItemSlots.sorted()
+        scene?.pickedItemSlots = takenItemSlots
+        session?.updateTakenItemSlot(latest)
     }
 
     /// 내가 아이템 칸에 섰다. 가방에 넣고, 팀원들에게 알리고, 반짝이며 배너를 띄운다. 주운 칸을 장면에 바로 넘겨,
     /// 장면은 다음 화면부터 그 아이템을 없애고 다시 부르지 않는다.
     private func pickUp(_ spawn: PlazaItems.Spawn) {
-        preferences.pickedItemSlot = spawn.slot
-        applyPickedItems()
+        learnTaken([spawn.slot])
         grantItem(spawn.kind)
         session?.sendEmote(.pickup, target: nil, itemSlot: spawn.slot)
-        session?.updatePickedItemSlot(spawn.slot)
         scene?.playSparkle(memberID: nil)
         showBanner(L(.ko).plazaPickedUp(spawn.kind))
     }
@@ -486,8 +487,7 @@ extension SKView: PlazaPausableView {}
     /// 런타임이 부른다. 팀원이 아이템을 주웠다. 창이 닫혀 있어도 기억하고, 그 아이템이 떠 있었으면 배너로 알린다.
     func showPickup(from memberID: String, slot: Int) {
         let wasShown = scene?.shownItem?.slot == slot ? scene?.shownItem : nil
-        heardItemPicks.insert(slot)
-        applyPickedItems()
+        learnTaken([slot])
         guard let spawn = wasShown else { return }
         let name = session?.members[memberID]?.nickname ?? ""
         scene?.playSparkle(memberID: memberID)
@@ -811,7 +811,7 @@ extension SKView: PlazaPausableView {}
 
     private func applyMembersToScene() {
         guard let scene else { return }
-        applyPickedItems()
+        learnTaken(members.values.compactMap(\.takenItemSlot))
         let list = members.values.sorted { $0.memberID < $1.memberID }
         scene.applyMembers(list.map {
             PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,

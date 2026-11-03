@@ -8,8 +8,9 @@ enum PlazaItems {
     static let slotLength: TimeInterval = 3 * 3600
     /// 칸이 시작하고 이 시간 안의 어느 분에 떨어진다. 떨어진 뒤로는 칸이 끝날 때까지 있다.
     static let appearWindow: TimeInterval = 2 * 3600
-    /// 이상한 사탕이 나올 몫. 나머지는 민트다.
-    static let candyShare = 0.6
+    /// 이상한 사탕이 나올 몫. 나머지는 민트다. 사탕은 100M XP짜리라 한도 보상(주 5개)을 넘지 않게 드물게 둔다:
+    /// 일하는 시간(세 칸쯤)에 팀 전체로 하루 한 개 남짓이다.
+    static let candyShare = 0.4
 
     struct Spawn: Equatable, Sendable {
         let slot: Int
@@ -35,8 +36,12 @@ enum PlazaItems {
 
     /// 지금 광장에 있는 아이템. 아직 안 떨어졌거나 누가 주웠으면 nil.
     static func current(at date: Date, candidates: [TilePoint], picked: Set<Int>) -> Spawn? {
-        let s = slot(at: date)
-        guard !picked.contains(s), let spawn = spawn(slot: s, candidates: candidates), date >= spawn.appearsAt else { return nil }
+        visible(spawn(slot: slot(at: date), candidates: candidates), at: date, picked: picked)
+    }
+
+    /// `date`가 속한 칸의 아이템이 지금 떠 있는가. 장면은 칸의 아이템을 담아 두고 이것만 화면마다 묻는다.
+    static func visible(_ spawn: Spawn?, at date: Date, picked: Set<Int>) -> Spawn? {
+        guard let spawn, !picked.contains(spawn.slot), date >= spawn.appearsAt else { return nil }
         return spawn
     }
 

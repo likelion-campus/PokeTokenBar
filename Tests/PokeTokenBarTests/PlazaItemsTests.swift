@@ -97,8 +97,12 @@ final class PlazaItemsTests: XCTestCase {
         XCTAssertTrue(picked.isEmpty)
         s.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
         s.handleKeyUp(keyCode: key)
-        var t = 0.0
+        var t = 1.0 / 60
+        s.update(t)
+        XCTAssertEqual(s.walker.tile, spawn.tile, "the step onto it has begun")
+        XCTAssertTrue(picked.isEmpty, "not yet: the character is still mostly on the tile before")
         while picked.isEmpty && t < 1 { t += 1.0 / 60; s.update(t) }
+        XCTAssertGreaterThanOrEqual(t, PlazaWalker.stepDuration / 2, "picked once over half way")
         XCTAssertEqual(picked.first, spawn)
         s.pickedItemSlots = [spawn.slot]
         s.update(t + 0.1)
@@ -118,6 +122,19 @@ final class PlazaItemsTests: XCTestCase {
         s.setBackgroundHidden(true)
         s.update(0.2)
         XCTAssertNil(s.itemTile, "no ground, no item")
+    }
+
+    /// When the next slot comes, the scene moves on to that slot's item.
+    func testTheNextSlotBringsItsOwnItem() throws {
+        let next = try XCTUnwrap(PlazaItems.spawn(slot: slot + 1, candidates: candidates))
+        XCTAssertNotEqual(next.tile, spawn.tile, "test precondition")
+        let s = scene(on: map.spawn)
+        s.update(0)
+        XCTAssertEqual(s.itemTile, spawn.tile)
+        let later = next.appearsAt.addingTimeInterval(60)
+        s.now = { later }
+        s.update(0.1)
+        XCTAssertEqual(s.itemTile, next.tile)
     }
 
     /// The photo shows the item where it lies.
@@ -229,16 +246,16 @@ final class PlazaItemsTests: XCTestCase {
         XCTAssertEqual(granted, [spawn.kind], "only once")
         XCTAssertNil(scene.itemTile)
         XCTAssertNil(c.minimapItem)
-        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).pickedItemSlot, spawn.slot)
-        await waitUntil { !received.isEmpty && other.session.members[me.settings.memberID]?.pickedItemSlot == spawn.slot }
+        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, [spawn.slot])
+        await waitUntil { !received.isEmpty && other.session.members[me.settings.memberID]?.takenItemSlot == spawn.slot }
         XCTAssertEqual(received, [TeamEmote(kind: .pickup, targetMemberID: nil, itemSlot: spawn.slot)])
-        XCTAssertEqual(other.session.members[me.settings.memberID]?.pickedItemSlot, spawn.slot)
+        XCTAssertEqual(other.session.members[me.settings.memberID]?.takenItemSlot, spawn.slot)
     }
 
     /// A teammate's pickup takes the item away here and says who got it. I can't pick it up after them.
     func testATeammatesPickupTakesItAway() async throws {
         let (me, other) = await connected()
-        let (from, _) = try XCTUnwrap(beside(spawn.tile))
+        let (from, key) = try XCTUnwrap(beside(spawn.tile))
         let c = controller(me, prefs: prefsSuite(), start: from)
         let scene = try XCTUnwrap(c.scene)
         scene.update(0)
@@ -249,14 +266,56 @@ final class PlazaItemsTests: XCTestCase {
         scene.update(0.1)
         XCTAssertNil(scene.itemTile)
         XCTAssertNil(c.minimapItem)
+        scene.handleKeyDown(keyCode: key, characters: nil, isRepeat: false)
+        scene.handleKeyUp(keyCode: key)
+        var t = 0.1
+        for _ in 0..<30 { t += 1.0 / 60; scene.update(t) }
+        XCTAssertEqual(scene.walker.tile, spawn.tile, "I walked onto where it was")
+        XCTAssertTrue(granted.isEmpty, "nothing left to pick up")
+    }
+
+    /// The picker has left, but a teammate who heard the pickup passes it on, so a plaza opened afterwards still
+    /// does not show the item.
+    func testATakenItemIsPassedOnAfterThePickerLeaves() async throws {
+        let picker = node("민수"), relay = node("지영"), late = node("나")
+        let pickerLink = hub.connect(picker.transport, to: relay.transport)
+        await waitUntil { relay.session.members[picker.settings.memberID] != nil }
+        let relayPlaza = controller(relay, prefs: prefsSuite(), start: map.spawn)
+        relay.session.onEmote = { [weak relayPlaza] id, emote in
+            if emote.kind == .pickup, let slot = emote.itemSlot { relayPlaza?.showPickup(from: id, slot: slot) }
+        }
+        picker.session.sendEmote(.pickup, target: nil, itemSlot: spawn.slot)
+        await waitUntil { relay.session.members.isEmpty == false && relayPlaza.scene?.pickedItemSlots.contains(spawn.slot) == true }
+        hub.disconnect(pickerLink)
+        await waitUntil { relay.session.members[picker.settings.memberID] == nil }
+        hub.connect(late.transport, to: relay.transport)
+        await waitUntil { late.session.members[relay.settings.memberID]?.takenItemSlot == spawn.slot }
+        let c = controller(late, prefs: prefsSuite(), start: spawn.tile)
+        for _ in 0..<20 { await Task.yield() }
+        c.scene?.update(0)
+        XCTAssertNil(c.scene?.itemTile)
+        XCTAssertTrue(granted.isEmpty, "standing where it was gives nothing")
+    }
+
+    /// A pickup I heard about is remembered across a restart, even with nobody online afterwards.
+    func testAHeardPickupSurvivesARestart() async throws {
+        let (me, other) = await connected()
+        let suite = prefsSuite()
+        let first = controller(me, prefs: suite, start: spawn.tile)
+        first.showPickup(from: other.settings.memberID, slot: spawn.slot)
+        first.handleClose()
+        let alone = node("나")
+        let again = controller(alone, prefs: suite, start: spawn.tile)
+        again.scene?.update(0)
+        XCTAssertNil(again.scene?.itemTile)
         XCTAssertTrue(granted.isEmpty)
     }
 
     /// A plaza opened after someone picked the item up learns it from their presence and never shows it.
     func testAPlazaOpenedLaterHidesAnItemAlreadyTaken() async throws {
         let (me, other) = await connected()
-        other.session.updatePickedItemSlot(spawn.slot)
-        await waitUntil { me.session.members[other.settings.memberID]?.pickedItemSlot == spawn.slot }
+        other.session.updateTakenItemSlot(spawn.slot)
+        await waitUntil { me.session.members[other.settings.memberID]?.takenItemSlot == spawn.slot }
         let c = controller(me, prefs: prefsSuite(), start: spawn.tile)
         let scene = try XCTUnwrap(c.scene)
         for _ in 0..<20 { await Task.yield() }
@@ -273,14 +332,22 @@ final class PlazaItemsTests: XCTestCase {
         first.scene?.update(0)
         XCTAssertEqual(granted.count, 1)
         first.handleClose()
-        let restarted = me.session
-        restarted.updatePickedItemSlot(nil)   // a fresh session knows nothing
+        me.session.updateTakenItemSlot(nil)   // as if the session were new and knew nothing
         let again = controller(me, prefs: suite, start: spawn.tile)
         again.scene?.update(0)
         XCTAssertEqual(granted.count, 1, "not again")
         XCTAssertNil(again.scene?.itemTile)
-        await waitUntil { other.session.members[me.settings.memberID]?.pickedItemSlot == spawn.slot }
-        XCTAssertEqual(other.session.members[me.settings.memberID]?.pickedItemSlot, spawn.slot)
+        await waitUntil { other.session.members[me.settings.memberID]?.takenItemSlot == spawn.slot }
+        XCTAssertEqual(other.session.members[me.settings.memberID]?.takenItemSlot, spawn.slot)
+    }
+
+    /// Only a day of taken slots is kept, so the saved list does not grow forever.
+    func testOnlyADayOfTakenSlotsIsKept() async {
+        let (me, other) = await connected()
+        let suite = prefsSuite()
+        let c = controller(me, prefs: suite, start: map.spawn)
+        for s in slot..<(slot + 10) { c.showPickup(from: other.settings.memberID, slot: s) }
+        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, Array((slot + 2)..<(slot + 10)))
     }
 
     // MARK: - Bag
