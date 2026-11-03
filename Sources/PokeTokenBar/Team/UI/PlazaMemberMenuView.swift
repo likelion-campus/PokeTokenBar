@@ -38,6 +38,7 @@ struct PlazaMemberMenuView: View {
         let l = L(.ko)
         return switch action {
         case .greet: l.plazaMenuGreet
+        case .tackle: l.plazaMenuTackle
         case .viewCard: l.plazaMenuViewCard
         }
     }

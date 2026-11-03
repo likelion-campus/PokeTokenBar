@@ -473,6 +473,45 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     var sparkleCount: Int { sparkles.count }
+
+    /// 몸통박치기: 민 쪽이 상대 쪽으로 뛰어들고, 맞은 쪽 몸 가운데에서 민 쪽으로 조금 나온 곳에 충격 그림이 터졌다 사라진다.
+    /// `pusher`나 `target`이 nil이면 나. 움직이는 것은 맞은 쪽 Mac이 정한다(`pushMe`).
+    func playTackle(by pusher: String?, on target: String?, direction: PlazaDirection) {
+        actor(pusher)?.lunge(toward: direction)
+        guard let hit = actor(target) else { return }
+        let foot = target.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
+        let toward = CGFloat(PlazaMap.tileSize) * 0.5
+        let back: CGPoint = switch direction {
+        case .right: CGPoint(x: -toward, y: 0)
+        case .left: CGPoint(x: toward, y: 0)
+        case .down: CGPoint(x: 0, y: toward)
+        case .up: CGPoint(x: 0, y: -toward)
+        }
+        let center = CGPoint(x: (foot.x + back.x).rounded(),
+                             y: (worldSize.height - foot.y + back.y + max(hit.characterSize.height, 24) * 0.55).rounded())
+        let texture = SKTexture(cgImage: PlazaEmoteArt.impactImage(scale: 2))
+        texture.filteringMode = .nearest
+        let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.impactSize)
+        node.position = center
+        node.zPosition = 20
+        node.setScale(0.6)
+        node.name = Self.impactName
+        addChild(node)
+        node.run(.sequence([
+            .group([.scale(to: 1.4, duration: 0.14), .sequence([.wait(forDuration: 0.12), .fadeOut(withDuration: 0.22)])]),
+            .removeFromParent(),
+        ]))
+    }
+
+    private static let impactName = "tackle-impact"
+    /// 테스트용: 떠 있는 충격 그림 수와 내가 뛰어든 만큼.
+    var impactCount: Int { children.filter { $0.name == Self.impactName }.count }
+    func lungeOffset(memberID: String?) -> CGPoint? { actor(memberID)?.lungeOffset }
+
+    /// 몸통박치기에 맞아 한 칸 밀린다. 그 칸이 막혔으면 그 자리에 선다. 알도 밀린다.
+    func pushMe(_ d: PlazaDirection) {
+        walker.push(d)
+    }
     /// 테스트용: 조각들의 가운데(장면 좌표). 없으면 nil.
     var sparkleCenter: CGPoint? {
         guard !sparkles.isEmpty else { return nil }

@@ -68,6 +68,41 @@ final class TeamRuntimeTests: XCTestCase {
         return (a, b)
     }
 
+    /// A tackle aimed at me pushes me one tile away from the teammate who did it, when they stand right next to me.
+    /// From further away (I walked off while their menu was open) it only shows the impact.
+    func testTackleFromBesideMePushesMeOneTileAway() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.tackle.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let scene = try! XCTUnwrap(plaza.scene)
+        let map = PlazaMapData.map, start = scene.walker.tile
+        let left = TilePoint(x: start.x - 1, y: start.y), right = TilePoint(x: start.x + 1, y: start.y)
+        XCTAssertTrue(map.isWalkable(left) && map.isWalkable(right), "test precondition")
+        let sender = a.settings.memberID
+        await settle { scene.memberTiles[sender] != nil }
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: start.x - 2, y: start.y), facing: .right, isWalking: false)
+        await settle { scene.memberTiles[sender] == TilePoint(x: start.x - 2, y: start.y) }
+        a.runtime.session.sendEmote(.tackle, target: b.settings.memberID)
+        await settle { scene.impactCount == 1 }
+        scene.update(0); scene.update(1)
+        XCTAssertEqual(scene.walker.tile, start, "two tiles away: no push")
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        // A received step is walked over the next frames, so keep the scene running while waiting.
+        var t: TimeInterval = 1
+        for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.memberTiles[sender], left)
+        a.runtime.session.sendEmote(.tackle, target: b.settings.memberID)
+        await settle { scene.impactCount == 2 }
+        for _ in 0..<20 { t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.walker.tile, right, "pushed one tile away from the teammate on my left")
+    }
+
     /// Picking a name colour in the plaza (a settings change) reaches teammates without any other trigger.
     func testPickedNameColorReachesTeammates() async {
         let (a, b) = connectedPair()

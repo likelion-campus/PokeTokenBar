@@ -50,6 +50,12 @@ struct PlazaActorContext {
     private var name: String
     private var nameColor: CGColor
 
+    /// 몸통박치기: 상대 쪽으로 잠깐 뛰어들었다 돌아온다.
+    static let lungeDuration: TimeInterval = 0.24
+    /// 가장 멀리 나갔을 때의 월드 픽셀.
+    static let lungeDistance: CGFloat = 8
+    private var lunge: (direction: PlazaDirection, elapsed: TimeInterval)?
+
     private var frames: PlazaCharacterFrames?
     private var showingBack = false
     private var frameIndex = 0
@@ -124,7 +130,27 @@ struct PlazaActorContext {
         self.nameColor = color
     }
 
+    func lunge(toward d: PlazaDirection) {
+        lunge = (d, 0)
+    }
+
+    /// 지금 뛰어든 만큼(월드 픽셀, y가 아래로). 뛰어들지 않았으면 0.
+    var lungeOffset: CGPoint {
+        guard let lunge else { return .zero }
+        let amount = (sin(.pi * min(lunge.elapsed / Self.lungeDuration, 1)) * Self.lungeDistance).rounded()
+        switch lunge.direction {
+        case .right: return CGPoint(x: amount, y: 0)
+        case .left: return CGPoint(x: -amount, y: 0)
+        case .down: return CGPoint(x: 0, y: amount)
+        case .up: return CGPoint(x: 0, y: -amount)
+        }
+    }
+
     func animate(by dt: TimeInterval, useBack: Bool) {
+        if var l = lunge {
+            l.elapsed += dt
+            lunge = l.elapsed >= Self.lungeDuration ? nil : l
+        }
         if emoteKind != nil || chatText != nil {
             emoteRemaining -= dt
             if emoteRemaining <= 0 { hideEmote() }
@@ -149,6 +175,8 @@ struct PlazaActorContext {
 
     /// 그림, 그림자, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다. `foot`은 월드 좌표(y가 아래로)다.
     func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext) {
+        let lunge = lungeOffset
+        let foot = CGPoint(x: foot.x + lunge.x, y: foot.y + lunge.y)
         let backing = context.backing
         let zoom = context.zoom
         func snap(_ v: CGFloat) -> CGFloat { PlazaPixelSnap.snap(v, backing: backing, zoom: zoom) }
