@@ -491,6 +491,9 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertFalse(scene.isOverlayOpen)
         XCTAssertEqual(scene.shownEmote(memberID: nil), .heart)
         XCTAssertEqual(scene.shownEmote(memberID: id), .heart)
+        step(scene, seconds: 0.1)
+        XCTAssertEqual(scene.emoteFrame(memberID: nil)?.size, PlazaEmoteArt.size(large: true), "a greeting is drawn bigger")
+        XCTAssertEqual(scene.emoteFrame(memberID: id)?.size, PlazaEmoteArt.size(large: true))
         await waitUntil { !received.isEmpty }
         XCTAssertEqual(received.first?.0, me.settings.memberID)
         XCTAssertEqual(received.first?.1, TeamEmote(kind: .heart, targetMemberID: id, isShared: true))

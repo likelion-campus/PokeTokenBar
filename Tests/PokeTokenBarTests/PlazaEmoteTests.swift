@@ -167,6 +167,36 @@ final class PlazaEmoteTests: XCTestCase {
         XCTAssertEqual(L(.ko).plazaEmoteLol, "ㅋㅋ")
     }
 
+    /// The greeting bubble is the same art with 3-point dots: exactly 1.5 times as big, and every dot is still a
+    /// whole block of one colour. The content sits half a dot off the bubble grid, so compare at 2x, where half a
+    /// dot is 2 pixels in the normal bubble and 3 in the large one.
+    func testGreetingBubbleIsTheSameArtOneAndAHalfTimesAsBig() {
+        func pixels(_ image: CGImage) -> [UInt8] {
+            var raw = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let ctx = CGContext(data: &raw, width: image.width, height: image.height, bitsPerComponent: 8,
+                                bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return raw
+        }
+        XCTAssertEqual(PlazaEmoteArt.size(large: true).width, PlazaEmoteArt.size.width * 1.5)
+        XCTAssertEqual(PlazaEmoteArt.size(large: true).height, PlazaEmoteArt.size.height * 1.5)
+        for kind in [TeamEmoteKind.heart, .party, .exclaim, .question] {
+            let small = PlazaEmoteArt.image(kind, scale: 2), large = PlazaEmoteArt.image(kind, scale: 2, large: true)
+            XCTAssertEqual(large.width * 2, small.width * 3, "\(kind)")
+            let s = pixels(small), l = pixels(large)
+            // Half-dot blocks: 3x3 pixels in the large bubble map to 2x2 in the normal one.
+            var same = true
+            for y in 0..<(large.height) where same {
+                for x in 0..<(large.width) {
+                    let li = (y * large.width + x) * 4, si = ((y / 3 * 2) * small.width + x / 3 * 2) * 4
+                    if l[li..<li + 4] != s[si..<si + 4] { same = false; break }
+                }
+            }
+            XCTAssertTrue(same, "\(kind) is the same dots, only bigger")
+        }
+    }
+
     /// Reads the bubble's inside (the cells clear of border and tail) as ink/white pixels at 1 px per point.
     private func interiorInk(_ kind: TeamEmoteKind) -> (ink: Set<[Int]>, onlyInkAndWhite: Bool) {
         let image = PlazaEmoteArt.image(kind, scale: 1)

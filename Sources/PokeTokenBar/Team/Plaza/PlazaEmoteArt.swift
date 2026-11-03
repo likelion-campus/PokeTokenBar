@@ -6,6 +6,8 @@ import CoreText
 enum PlazaEmoteArt {
     /// 말풍선 몸통과 꼬리의 도트 하나가 차지하는 포인트.
     private static let dot: CGFloat = 2
+    /// 인사하기 말풍선의 도트. 1.5배 크고, 도트가 여전히 정수 포인트라 또렷하다.
+    private static let largeDot: CGFloat = 3
     /// `#` 테두리, `W` 흰 바탕. 꼬리는 가운데 두 칸.
     private static let bubble = [
         "..##########..",
@@ -72,23 +74,29 @@ enum PlazaEmoteArt {
     ]
 
     /// 포인트 단위 크기. 이미지 픽셀 크기는 여기에 배율을 곱한 값이다.
-    static let size = CGSize(width: CGFloat(bubble[0].count) * dot, height: CGFloat(bubble.count) * dot)
+    static let size = size(large: false)
 
-    /// `scale`은 포인트당 기기 픽셀 수.
-    static func image(_ kind: TeamEmoteKind, scale: CGFloat) -> CGImage {
+    static func size(large: Bool) -> CGSize {
+        let d = large ? largeDot : dot
+        return CGSize(width: CGFloat(bubble[0].count) * d, height: CGFloat(bubble.count) * d)
+    }
+
+    /// `scale`은 포인트당 기기 픽셀 수. `large`는 인사하기 말풍선(1.5배).
+    static func image(_ kind: TeamEmoteKind, scale: CGFloat, large: Bool = false) -> CGImage {
         let scale = max(scale, 1)
+        let dot = large ? largeDot : dot, size = size(large: large)
         let context = CGContext(data: nil, width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()),
                                 bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.setShouldAntialias(false)
         context.scaleBy(x: scale, y: scale)
         drawGrid(bubble, cell: dot, origin: .zero, in: context)
-        // 몸통 안쪽의 가운데(위에서 열한 번째 포인트)에 내용을 둔다.
-        let center = CGPoint(x: size.width / 2, y: size.height - 11)
+        // 몸통 안쪽의 가운데(위에서 다섯 도트 반)에 내용을 둔다.
+        let center = CGPoint(x: size.width / 2, y: size.height - 5.5 * dot)
         switch kind {
         case .heart: drawGrid(heart, cell: dot, centeredAt: center, in: context)
         case .party: drawGrid(party, cell: dot, centeredAt: center, in: context)
-        case .lol: drawText(L(.ko).plazaEmoteLol, centeredAt: center, in: context)
+        case .lol: drawText(L(.ko).plazaEmoteLol, size: large ? .body : .small, centeredAt: center, in: context)
         case .exclaim: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
         case .question: drawGrid(question, cell: dot, centeredAt: center, in: context)
         }
@@ -134,9 +142,9 @@ enum PlazaEmoteArt {
         drawGrid(rows, cell: cell, origin: CGPoint(x: center.x - w / 2, y: center.y - h / 2), in: context)
     }
 
-    private static func drawText(_ text: String, centeredAt center: CGPoint, in context: CGContext) {
+    private static func drawText(_ text: String, size: PlazaTextSize, centeredAt center: CGPoint, in context: CGContext) {
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: PlazaResources.font(.small),
+            .font: PlazaResources.font(size),
             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
         ]
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))

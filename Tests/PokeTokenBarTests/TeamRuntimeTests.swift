@@ -225,8 +225,13 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.sendEmote(.heart, target: b.settings.memberID)
         await settle { plaza.scene?.shownEmote(memberID: sender) == .heart }
         XCTAssertNil(plaza.scene?.shownEmote(memberID: nil))
+        plaza.scene?.update(0)
+        XCTAssertEqual(plaza.scene?.emoteFrame(memberID: sender)?.size, PlazaEmoteArt.size, "an ordinary emote keeps its size")
         a.runtime.session.sendEmote(.party, target: b.settings.memberID, shared: true)
         await settle { plaza.scene?.shownEmote(memberID: sender) == .party && plaza.scene?.shownEmote(memberID: nil) == .party }
+        plaza.scene?.update(0.1)
+        XCTAssertEqual(plaza.scene?.emoteFrame(memberID: sender)?.size, PlazaEmoteArt.size(large: true), "a greeting is bigger")
+        XCTAssertEqual(plaza.scene?.emoteFrame(memberID: nil)?.size, PlazaEmoteArt.size(large: true))
     }
     func testAppNapIsHeldOnlyWhileSomeoneIsOnline() async {
         let code = newCode()
