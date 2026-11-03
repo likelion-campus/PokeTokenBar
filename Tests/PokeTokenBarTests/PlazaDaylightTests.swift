@@ -15,14 +15,19 @@ final class PlazaDaylightTests: XCTestCase {
         XCTAssertEqual(D.tint(minute: 12 * 60), .none, "noon is untinted")
         XCTAssertEqual(D.tint(minute: 2 * 60), D.night)
         XCTAssertEqual(D.tint(minute: 23 * 60 + 59), D.night)
-        XCTAssertEqual(D.tint(minute: 18 * 60), D.dusk)
+        XCTAssertEqual(D.tint(minute: 16 * 60), .none, "the evening starts fading in at 16:00")
+        XCTAssertEqual(D.tint(minute: 17 * 60), D.dusk, "orange at its deepest at 17:00")
+        let six = D.tint(minute: 18 * 60)
+        for (got, want) in [(six.red, D.night.red), (six.green, D.night.green), (six.blue, D.night.blue)] {
+            XCTAssertEqual(got, want, accuracy: 1e-9, "dark from 18:00")
+        }
         XCTAssertEqual(D.tint(minute: 6 * 60), D.dawn)
         XCTAssertEqual(D.tint(minute: 0), D.tint(minute: 24 * 60), "midnight meets itself")
     }
 
     /// Halfway between day and evening the plaza is halfway to the evening colour, so it fades in.
     func testFadeIsHalfwayAtTheHalfHour() {
-        let half = D.tint(minute: 17 * 60 + 30)
+        let half = D.tint(minute: 16 * 60 + 30)
         XCTAssertEqual(half.red, (1 + D.dusk.red) / 2, accuracy: 1e-9)
         XCTAssertEqual(half.blue, (1 + D.dusk.blue) / 2, accuracy: 1e-9)
         let morning = D.tint(minute: 6 * 60 + 30)
@@ -52,7 +57,8 @@ final class PlazaDaylightTests: XCTestCase {
     func testMinimapSaturationFollowsTheTime() {
         XCTAssertEqual(D.minimapSaturation(minute: 12 * 60), 1)
         XCTAssertEqual(D.minimapSaturation(minute: 22 * 60), 0.65)
-        XCTAssertEqual(D.minimapSaturation(minute: 18 * 60), 0.95)
+        XCTAssertEqual(D.minimapSaturation(minute: 17 * 60), 0.95)
+        XCTAssertEqual(D.minimapSaturation(minute: 18 * 60), 0.65)
         XCTAssertEqual(D.minimapSaturation(minute: 6 * 60), 0.85)
         let all = (0...(24 * 60)).map { D.minimapSaturation(minute: Double($0)) }
         XCTAssertEqual(all.min(), 0.65, "night is the greyest")
@@ -89,8 +95,8 @@ final class PlazaDaylightTests: XCTestCase {
     }
 
     func testPhaseBoundaries() {
-        let cases: [(Int, Int, D.Phase)] = [(4, 59, .night), (5, 0, .dawn), (6, 59, .dawn), (7, 0, .day), (16, 59, .day),
-                                             (17, 0, .dusk), (18, 59, .dusk), (19, 0, .night), (0, 0, .night)]
+        let cases: [(Int, Int, D.Phase)] = [(4, 59, .night), (5, 0, .dawn), (6, 59, .dawn), (7, 0, .day), (15, 59, .day),
+                                             (16, 0, .dusk), (17, 59, .dusk), (18, 0, .night), (0, 0, .night)]
         for (h, m, phase) in cases {
             XCTAssertEqual(D.phase(minute: Double(h * 60 + m)), phase, "\(h):\(m)")
         }
@@ -102,7 +108,8 @@ final class PlazaDaylightTests: XCTestCase {
         XCTAssertEqual(D.clockText(at(21, 34, calendar: seoul), calendar: seoul), "밤 21:34")
         XCTAssertEqual(D.clockText(at(7, 5, calendar: seoul), calendar: seoul), "낮 07:05")
         XCTAssertEqual(D.clockText(at(5, 30, calendar: seoul), calendar: seoul), "새벽 05:30")
-        XCTAssertEqual(D.clockText(at(18, 0, calendar: seoul), calendar: seoul), "저녁 18:00")
+        XCTAssertEqual(D.clockText(at(17, 0, calendar: seoul), calendar: seoul), "저녁 17:00")
+        XCTAssertEqual(D.clockText(at(18, 0, calendar: seoul), calendar: seoul), "밤 18:00")
     }
 
     private func scene(at date: Date) -> PlazaScene {

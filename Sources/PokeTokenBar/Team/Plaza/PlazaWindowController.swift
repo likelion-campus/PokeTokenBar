@@ -54,6 +54,7 @@ extension SKView: PlazaPausableView {}
     private let chatInput = PlazaChatInput()
     private let chatLog = PlazaChatLog()
     private let backgroundModel = PlazaBackgroundModel()
+    private let shortcutModel = PlazaShortcutGuideModel()
     /// 입력창이 열리면 대화 기록을 입력창 위로 올린다.
     private var chatLogAboveInput: NSLayoutConstraint?
     private var chatLogAtBottom: NSLayoutConstraint?
@@ -191,9 +192,10 @@ extension SKView: PlazaPausableView {}
             let clock = PlazaClockHostingView(rootView: PlazaClock())
             clock.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(clock)   // 입력은 받지 않는다.
-            let shortcuts = PlazaShortcutGuideHostingView(rootView: PlazaShortcutGuide())
+            let shortcuts = PlazaShortcutGuideHostingView(rootView: PlazaShortcutGuide(
+                model: shortcutModel, toggle: { [weak self] in self?.toggleShortcuts() }))
             shortcuts.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(shortcuts)   // 입력은 받지 않는다.
+            container.addSubview(shortcuts)
             let toggle = PlazaBackgroundToggleHostingView(rootView: PlazaBackgroundToggle(
                 model: backgroundModel, toggle: { [weak self] in self?.toggleBackground() }))
             toggle.translatesAutoresizingMaskIntoConstraints = false
@@ -288,6 +290,7 @@ extension SKView: PlazaPausableView {}
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
+        shortcutModel.isFolded = preferences.areShortcutsFolded
         s.onOverlayKey = { [weak self] in self?.handleOverlayKey($0) }
         scene = s
         if let feed {
@@ -361,6 +364,16 @@ extension SKView: PlazaPausableView {}
         applyBackground()
         if let skView { window?.makeFirstResponder(skView) }
     }
+
+    /// 단축키 안내를 접거나 펼치고 기억한다.
+    func toggleShortcuts() {
+        preferences.areShortcutsFolded.toggle()
+        shortcutModel.isFolded = preferences.areShortcutsFolded
+        if let skView { window?.makeFirstResponder(skView) }
+    }
+
+    /// 테스트용 읽기 전용 값.
+    var areShortcutsFolded: Bool { shortcutModel.isFolded }
 
     private func applyBackground() {
         let hidden = preferences.isBackgroundHidden
