@@ -239,6 +239,7 @@ final class PlazaCardTests: XCTestCase {
         space(scene)
         key(scene, downKey)
         key(scene, downKey)
+        key(scene, downKey)
         space(scene)
     }
 
@@ -463,6 +464,8 @@ final class PlazaCardTests: XCTestCase {
         key(scene, downKey)
         XCTAssertEqual(selection(), .tackle)
         key(scene, downKey)
+        XCTAssertEqual(selection(), .follow)
+        key(scene, downKey)
         XCTAssertEqual(selection(), .viewCard)
         key(scene, downKey)
         XCTAssertEqual(selection(), .greet, "down from the last line goes to the first")
@@ -531,9 +534,84 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertEqual(received.first?.1, TeamEmote(kind: .tackle, targetMemberID: id))
     }
 
+    // MARK: - Follow
+
+    private func follow(_ scene: PlazaScene) {
+        space(scene)
+        key(scene, downKey)
+        key(scene, downKey)
+        space(scene)
+    }
+
+    /// 따라가기 keeps me beside the teammate as they walk away, shows what I am doing, and an arrow key stops it.
+    func testFollowingKeepsUpUntilAnArrowKey() async {
+        let (c, scene, other, id) = await standing()
+        follow(scene)
+        XCTAssertEqual(scene.followingMember, id)
+        XCTAssertEqual(c.hint, L(.ko).plazaFollowHint(nickname: "민수"))
+        let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
+        let away = TilePoint(x: ahead.x, y: ahead.y + 3)
+        XCTAssertTrue((0...3).allSatisfy { map.isWalkable(TilePoint(x: ahead.x, y: ahead.y + $0)) }, "test precondition")
+        other.session.updatePlazaPosition(inPlaza: true, tile: away, facing: .down, isWalking: false)
+        // Their steps and mine are walked frame by frame; keep the scene running while waiting.
+        var t: TimeInterval = 0
+        for _ in 0..<300 where scene.memberTiles[id] != away || scene.walker.isWalking
+            || abs(scene.walker.tile.x - away.x) + abs(scene.walker.tile.y - away.y) != 1 {
+            await Task.yield(); t += 1.0 / 30; scene.update(t)
+        }
+        XCTAssertEqual(scene.memberTiles[id], away)
+        XCTAssertEqual(abs(scene.walker.tile.x - away.x) + abs(scene.walker.tile.y - away.y), 1, "right beside them again")
+        for _ in 0..<10 { t += 1.0 / 30; scene.update(t) }
+        XCTAssertEqual(scene.followingMember, id, "still following after catching up")
+        scene.handleKeyDown(keyCode: rightKey, characters: nil, isRepeat: false)
+        scene.handleKeyUp(keyCode: rightKey)
+        XCTAssertNil(scene.followingMember)
+        XCTAssertNotEqual(c.hint, L(.ko).plazaFollowHint(nickname: "민수"))
+    }
+
+    /// An egg cannot walk, so its menu has no 따라가기.
+    func testAnEggIsNotOfferedFollowing() async {
+        let (c, scene, _, id) = await standing()
+        scene.canWalk = false
+        space(scene)
+        guard case .memberMenu(let menu) = c.overlayContent else { return XCTFail("no menu") }
+        XCTAssertEqual(menu.actions, [.greet, .tackle, .viewCard])
+        XCTAssertFalse(scene.follow(member: id))
+    }
+
+    /// Typing a line does not stop following, so a train can chat.
+    func testChatDoesNotStopFollowing() async {
+        let (c, scene, _, id) = await standing()
+        follow(scene)
+        key(scene, returnKey)
+        XCTAssertTrue(c.chatInputForTesting.isOpen)
+        XCTAssertEqual(scene.followingMember, id)
+    }
+
+    /// When the teammate leaves the plaza, following stops and the hint goes.
+    func testFollowingStopsWhenTheTeammateLeaves() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn)
+        c.prepareScene()
+        let link = hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        await waitUntil { c.scene?.memberTiles[id] == ahead }
+        let scene = c.scene!
+        follow(scene)
+        XCTAssertEqual(scene.followingMember, id)
+        hub.disconnect(link)
+        await waitUntil { c.scene?.memberTiles[id] == nil }
+        scene.update(0); scene.update(0.1)
+        XCTAssertNil(scene.followingMember)
+        XCTAssertNotEqual(c.hint, L(.ko).plazaFollowHint(nickname: "민수"), "the follow hint goes")
+    }
+
     func testEnterChoosesFromTheMenu() async {
         let (c, scene, _, id) = await standing()
         space(scene)
+        key(scene, downKey)
         key(scene, downKey)
         key(scene, downKey)
         key(scene, returnKey)
@@ -584,6 +662,7 @@ final class PlazaCardTests: XCTestCase {
         await waitUntil { me.session.members[id] == nil && c.scene?.memberTiles[id] == nil }
         key(scene, downKey)
         key(scene, downKey)
+        key(scene, downKey)
         space(scene)
         XCTAssertEqual(c.overlayContent, .none)
         XCTAssertFalse(scene.isOverlayOpen)
@@ -606,8 +685,8 @@ final class PlazaCardTests: XCTestCase {
         let size = NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: 1000, height: 1000))
         XCTAssertEqual(size.width, PlazaMemberMenuView.width)
         let line = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(.body))
-        // The name and three lines with three gaps; a wrapped line would add a whole line more.
-        XCTAssertLessThan(size.height, 4.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 3 * 4, "four lines, none wrapped")
+        // The name and four lines with four gaps; a wrapped line would add a whole line more.
+        XCTAssertLessThan(size.height, 5.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 4 * 4, "five lines, none wrapped")
     }
 
     func testEscClosesOverlayNotWindow() {

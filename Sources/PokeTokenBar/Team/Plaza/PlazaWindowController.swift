@@ -269,6 +269,7 @@ extension SKView: PlazaPausableView {}
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
         s.onChatKey = { [weak self] in self?.openChat() }
         s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
+        s.onFollowChange = { [weak self] _ in self?.refreshHint() }
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
         s.onOverlayKey = { [weak self] in self?.handleOverlayKey($0) }
@@ -403,7 +404,9 @@ extension SKView: PlazaPausableView {}
             openOverlay(.board)
         case .member(let id):
             guard let state = members[id] else { return }
-            openOverlay(.memberMenu(PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)))
+            var menu = PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)
+            if scene.canWalk == false { menu.actions.removeAll { $0 == .follow } }
+            openOverlay(.memberMenu(menu))
         }
     }
 
@@ -436,6 +439,9 @@ extension SKView: PlazaPausableView {}
         case .tackle:
             closeOverlay()
             tackle(id)
+        case .follow:
+            closeOverlay()
+            scene?.follow(member: id)
         case .viewCard:
             // 메뉴를 연 사이에 연결이 끊긴 팀원이면 카드를 받을 수 없다.
             guard let session, let state = members[id] else { return closeOverlay() }
@@ -505,7 +511,9 @@ extension SKView: PlazaPausableView {}
     /// 스페이스로 말을 걸 수 있으면 위쪽에 안내를 띄운다. 판이나 입력창이 열려 있으면 스페이스가 다른 일을 하므로 숨긴다.
     private func refreshHint() {
         var text: String?
-        if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
+        if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
+            text = members[id].map { L(.ko).plazaFollowHint(nickname: $0.nickname) }
+        } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
             switch hit.target {
             case .board: text = L(.ko).plazaBoardHint
             case .member(let id): text = members[id].map { L(.ko).plazaMemberHint(nickname: $0.nickname) }
