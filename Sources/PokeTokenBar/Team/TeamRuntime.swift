@@ -56,6 +56,10 @@ final class TeamRuntime {
                 plaza?.showTackle(from: memberID, on: emote.targetMemberID, tiles: TeamEmote.pushTiles(emote.pushTiles))
                 return
             }
+            if emote.kind == .jump {
+                plaza?.showJump(memberID: memberID)
+                return
+            }
             plaza?.showEmote(memberID: memberID, kind: emote.kind,
                              alsoOver: emote.isShared == true ? emote.targetMemberID : nil)
             if emote.targetMemberID == settings.memberID, emote.kind.notifiesTarget,

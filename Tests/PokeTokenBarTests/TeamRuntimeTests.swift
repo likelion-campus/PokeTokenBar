@@ -68,6 +68,28 @@ final class TeamRuntimeTests: XCTestCase {
         return (a, b)
     }
 
+    /// A teammate's jump makes their character hop here.
+    func testReceivedJumpHopsThatTeammate() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.jump.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        a.runtime.session.sendEmote(.jump, target: nil)
+        await settle { (plaza.scene?.dustCount ?? 0) == 2 }
+        var t: TimeInterval = 0
+        plaza.scene?.update(t)
+        while t < PlazaActor.jumpDuration / 2 { t += 1.0 / 60; plaza.scene?.update(t) }
+        XCTAssertGreaterThan(plaza.scene?.jumpLift(memberID: sender) ?? 0, 0)
+        XCTAssertEqual(plaza.scene?.jumpLift(memberID: nil), 0, "only they jump")
+    }
+
     /// A tackle aimed at me pushes me one tile away from the teammate who did it, when they stand right next to me.
     /// From further away (I walked off while their menu was open) it only shows the impact.
     func testTackleFromBesideMePushesMeOneTileAway() async {

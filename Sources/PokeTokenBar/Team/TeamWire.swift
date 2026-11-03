@@ -28,11 +28,13 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// 몸통박치기 (Space menu): the target's Mac moves the target one tile away from the sender. Earlier versions
     /// cannot decode it and skip the frame.
     case tackle
+    /// 점프 (J): the sender hops with dust at its feet. Earlier versions skip it the same way.
+    case jump
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle: false
+        case .exclaim, .question, .tackle, .jump: false
         }
     }
 }
