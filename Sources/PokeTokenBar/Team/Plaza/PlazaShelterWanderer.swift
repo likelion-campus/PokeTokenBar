@@ -20,14 +20,15 @@ struct PlazaShelterWanderer: Sendable {
     }
 
     /// 시간이 흘러 옮겼으면 새 칸을, 아니면 nil을 돌려준다. 한 번에 여러 번 옮겼으면 마지막 칸이다.
-    mutating func advance(by dt: TimeInterval) -> TilePoint? {
+    /// `blocked`(다른 캐릭터가 선 칸)로는 옮기지 않는다. 갈 칸이 없으면 그 차례는 쉰다.
+    mutating func advance(by dt: TimeInterval, blocked: Set<TilePoint> = []) -> TilePoint? {
         var remaining = dt
         var moved: TilePoint?
         while remaining >= untilMove {
             remaining -= untilMove
             let options = [PlazaDirection.up, .down, .left, .right]
                 .map { PlazaWalker.offset(tile, $0) }
-                .filter { shelter.contains($0) }
+                .filter { shelter.contains($0) && !blocked.contains($0) }
             if !options.isEmpty {
                 tile = options[Int(nextRandom() % UInt64(options.count))]
                 moved = tile
