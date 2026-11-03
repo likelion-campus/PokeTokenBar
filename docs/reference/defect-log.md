@@ -1290,6 +1290,14 @@ read_when:
   캡을 반드시 **이름 있는 값**으로 두고 `>0` 를 단정한다. occlusion 게이팅은
   all-spaces/`.floating` 펫이 실제로 거의 안 가려져 메뉴바와 동일 수확체감으로 미도입. (#102 리뷰 지적 반영, 2026-07-22.)
 
+- **상시 입자 표면(광장 날씨)은 이름 있는 상한·`dt` 구동·재사용 노드로 만든다. 그리고 `DateInterval.contains` 는 끝을 포함한다.**
+  날씨 입자(`PlazaWeatherLayer`)는 `maxParticles`(120) 상한, `update` 의 clamp 된 `dt` 로만 움직이고(타이머 없음, 창이 멈추면 같이
+  멈춤), 날씨 종류·개수가 바뀔 때만 노드를 만든다(`testSpritesAreReusedAcrossFrames`). 하루 단위 캐시를 `DateInterval.contains`
+  로 판정했다가 자정 0시(= 어제 구간의 끝)가 어제로 읽혀 새 날씨가 한 프레임 늦게 바뀌는 결함을 시험이 잡았다 — 끝을 뺀
+  `date >= start && date < end` 로 비교한다(`testWeatherChangesWhenMidnightEntersANewWindow`, 주입 검증 완료).
+  **5-whys:** 날짜 창 시험이 "하루 안의 시각"만 봤으면 못 잡았다 → 구간 경계 *바로 그 초*(23:59:59 → 00:00:00)를 넘는 시험이 필요하다.
+  부류 스윕: 코드베이스의 `DateInterval.contains` 는 이 한 곳이다.
+
 ## 알림
 
 - **사탕 재무장도 util dip 만 믿지 마라 — 창 epoch 를 같이 보되, 휘발성 지터에 재무장되지 않게 하라.** 지급 key 는 안정

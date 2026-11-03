@@ -22,6 +22,13 @@ struct PlazaPhotoActor {
     let bubble: CGImage?
 }
 
+/// 기념사진에 찍히는 날씨 입자 하나. 좌표는 월드 픽셀이고 y가 아래로 늘어난다(원점은 그림의 왼쪽 위).
+struct PlazaPhotoParticle {
+    let image: CGImage
+    let origin: CGPoint
+    let size: CGSize
+}
+
 struct PlazaPhotoInput {
     let mapImage: CGImage
     /// 사진에 담을 월드 영역.
@@ -31,6 +38,8 @@ struct PlazaPhotoInput {
     let actors: [PlazaPhotoActor]
     /// 낮과 밤의 색. 화면처럼 지도와 캐릭터에만 곱하고 이름표와 말풍선에는 곱하지 않는다.
     var tint: PlazaDaylight.Tint = .none
+    /// 화면에 떠 있는 날씨 입자. 캐릭터 위, 낮밤 색 아래라 지도와 같은 색이 곱해진다.
+    var weather: [PlazaPhotoParticle] = []
 }
 
 /// 기념사진을 CoreGraphics로 합성한다. 창이나 SKView가 필요 없고, 모든 그림은 보간 없이 정수 배율로 찍는다.
@@ -93,6 +102,11 @@ enum PlazaPhotoRenderer {
                 draw(front, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
                      w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
             }
+        }
+
+        for p in input.weather {
+            draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
+                 w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
         }
 
         if input.tint != .none {
