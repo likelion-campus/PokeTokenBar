@@ -33,10 +33,37 @@ enum PlazaInteraction {
     }
 }
 
+/// 카드의 광장 캐릭터 옆에 붙는 표시.
+enum PlazaCardBadge: Equatable { case shiny, rarity(Rarity) }
+
 enum PlazaCardState: Equatable {
     case loading(TeamMemberState)
     case loaded(TeamMemberState, TeamMemberProfile)
     case failed(TeamMemberState)
+
+    /// 카드 주인. 도감을 받는 중에도 안다.
+    var member: TeamMemberState {
+        switch self {
+        case .loading(let m), .loaded(let m, _), .failed(let m): m
+        }
+    }
+
+    /// 광장 캐릭터의 이름. 알이면 "알", 이름을 모르면 nil.
+    var characterName: String? {
+        let c = member.character
+        return c.speciesName ?? (c.speciesID == nil ? L(.ko).plazaEggName : nil)
+    }
+
+    /// 이로치, 그리고 일반이 아닌 희귀도. 희귀도는 도감을 받은 뒤에야 안다(광장 캐릭터 값에는 없다).
+    var characterBadges: [PlazaCardBadge] {
+        let c = member.character
+        var badges: [PlazaCardBadge] = c.isShiny ? [.shiny] : []
+        if case .loaded(_, let profile) = self, let id = c.speciesID,
+           let rarity = profile.dex.first(where: { $0.speciesID == id })?.rarity, rarity != .common {
+            badges.append(.rarity(rarity))
+        }
+        return badges
+    }
 
     /// 지금 데리고 다니는 포켓몬이 광장 캐릭터와 다를 때만 값이 있다.
     var differingCurrent: TeamMonSummary? {

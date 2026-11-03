@@ -45,6 +45,9 @@ extension L {
     var plazaBackgroundShow: String { "배경 보이기" }
     var plazaEmoteLol: String { "ㅋㅋ" }
     var plazaCardLoading: String { "불러오는 중…" }
+    /// 카드 맨 위. 누구의 카드인지 보인다.
+    func plazaCardTitle(nickname: String) -> String { "\(nickname)의 포켓몬" }
+    var plazaCardShiny: String { "★ 이로치" }
     var plazaCardFailed: String { "도감을 받지 못했어요" }
     func plazaRosterMore(_ n: Int) -> String { "외 \(n)명" }
     var plazaBoardTitle: String { "소식판" }

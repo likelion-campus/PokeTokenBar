@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
@@ -75,6 +76,70 @@ final class PlazaInteractionTests: XCTestCase {
                        PlazaInteractionHit(target: .board, facing: .right), "the board beside me wins over a teammate beside me")
         XCTAssertEqual(PlazaInteraction.target(from: left, facing: .right, map: map, members: ["m": left]),
                        PlazaInteractionHit(target: .board, facing: .right), "the board I face wins over everyone")
+    }
+
+    private func cardState(_ c: TeamMonSummary, dex: [TeamDexSpecies]?) -> PlazaCardState {
+        let state = TeamMemberState(memberID: "m", nickname: "민수", character: c, inPlaza: true, tile: nil, facing: nil, isWalking: false)
+        guard let dex else { return .loading(state) }
+        return .loaded(state, TeamMemberProfile(memberID: "m", nickname: "민수", current: c, dex: dex))
+    }
+
+    private func dexEntry(_ id: Int, _ rarity: Rarity) -> TeamDexSpecies {
+        TeamDexSpecies(speciesID: id, form: nil, name: "\(id)", rarity: rarity, hasShiny: false, hasNormal: true)
+    }
+
+    /// The big partner on the card says whose it is, what it is, and whether it is shiny or above common.
+    func testCardNamesTheOwnerAndTheirPartner() {
+        XCTAssertEqual(L(.ko).plazaCardTitle(nickname: "민수"), "민수의 포켓몬")
+        let milotic = TeamMonSummary(speciesID: 350, isShiny: false, form: nil, speciesName: "밀로틱", gender: nil)
+        XCTAssertEqual(cardState(milotic, dex: nil).characterName, "밀로틱")
+        XCTAssertEqual(cardState(milotic, dex: nil).member.nickname, "민수")
+        let egg = TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil)
+        XCTAssertEqual(cardState(egg, dex: []).characterName, L(.ko).plazaEggName)
+        let unnamed = TeamMonSummary(speciesID: 350, isShiny: false, form: nil, speciesName: nil, gender: nil)
+        XCTAssertNil(cardState(unnamed, dex: []).characterName, "an unknown name is left out, not shown as an egg")
+    }
+
+    func testCardBadgesShowShinyAndRarityAboveCommon() {
+        let shinyMewtwo = TeamMonSummary(speciesID: 150, isShiny: true, form: nil, speciesName: "뮤츠", gender: nil)
+        XCTAssertEqual(cardState(shinyMewtwo, dex: nil).characterBadges, [.shiny], "rarity is known only once the dex arrives")
+        XCTAssertEqual(cardState(shinyMewtwo, dex: [dexEntry(1, .common), dexEntry(150, .legendary)]).characterBadges,
+                       [.shiny, .rarity(.legendary)])
+        let pikachu = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "피카츄", gender: nil)
+        XCTAssertEqual(cardState(pikachu, dex: [dexEntry(25, .common)]).characterBadges, [], "common gets no badge")
+        XCTAssertEqual(cardState(pikachu, dex: [dexEntry(25, .uncommon)]).characterBadges, [.rarity(.uncommon)])
+        XCTAssertEqual(cardState(pikachu, dex: [dexEntry(150, .legendary)]).characterBadges, [], "only its own species counts")
+        let egg = TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil)
+        XCTAssertEqual(cardState(egg, dex: [dexEntry(150, .legendary)]).characterBadges, [])
+    }
+
+    /// Five 1.5x cells side by side must fit inside the card panel, or the grid spills over its border.
+    @MainActor
+    func testCardGridFitsThePanel() {
+        let m = PlazaCardMetrics.self
+        XCTAssertEqual(m.iconSize, CGSize(width: 40 * 1.5, height: 30 * 1.5), "box icons drawn at 1.5x stay crisp on Retina")
+        XCTAssertEqual(m.spriteSide, 96 * 1.5)
+        let inner = m.panelSize.width - 2 * m.panelInset
+        let grid = CGFloat(m.columns) * m.cellSize.width + CGFloat(m.columns - 1) * m.spacing
+        XCTAssertLessThanOrEqual(grid, inner)
+        let dex = (1...15).map {
+            TeamDexSpecies(speciesID: $0, form: nil, name: "\($0)", rarity: $0.isMultiple(of: 5) ? .legendary : .common,
+                           hasShiny: $0.isMultiple(of: 3), hasNormal: true)
+        }
+        // The widest header: a 12-character nickname, both badges (species 5 is legendary above) and a different current Pokémon.
+        let long = TeamMemberState(memberID: "m", nickname: "가나다라마바사아자차카타", character:
+            TeamMonSummary(speciesID: 5, isShiny: true, form: nil, speciesName: "리자드", gender: nil),
+                                   inPlaza: true, tile: nil, facing: nil, isWalking: false)
+        let current = TeamMonSummary(speciesID: 6, isShiny: false, form: nil, speciesName: "리자몽", gender: nil)
+        let loaded = PlazaCardState.loaded(long, TeamMemberProfile(memberID: "m", nickname: "", current: current, dex: dex))
+        XCTAssertEqual(loaded.characterBadges, [.shiny, .rarity(.legendary)], "test precondition")
+        XCTAssertNotNil(loaded.differingCurrent, "test precondition")
+        let proposal = CGSize(width: inner, height: m.panelSize.height - 2 * m.panelInset)
+        let fit = NSHostingController(rootView: PlazaCardView(state: loaded)).sizeThatFits(in: proposal)
+        XCTAssertLessThanOrEqual(fit.width, inner, "a 12-character nickname wraps instead of widening the card")
+        let egg = TeamMemberState(memberID: "e", nickname: "알", character: TeamMonSummary(speciesID: nil, isShiny: false, form: nil,
+                                  speciesName: nil, gender: nil), inPlaza: true, tile: nil, facing: nil, isWalking: false)
+        XCTAssertLessThanOrEqual(NSHostingController(rootView: PlazaCardView(state: .loading(egg))).sizeThatFits(in: proposal).width, inner)
     }
 
     func testCardShowsCurrentOnlyWhenItDiffersFromPlazaCharacter() {
