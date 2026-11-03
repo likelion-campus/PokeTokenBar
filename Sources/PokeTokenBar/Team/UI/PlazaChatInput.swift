@@ -5,10 +5,23 @@ import AppKit
 @MainActor final class PlazaChatInput: NSObject, NSTextFieldDelegate {
     let view = NSView()
     let field = PlazaChatTextField()
-    /// 오른쪽 끝의 😀. macOS 이모지 창을 연다.
+    /// 오른쪽 끝의 😀. 입력칸 위에 이모지 판을 펼치고 접는다.
     let emojiButton = NSButton(title: "😀", target: nil, action: nil)
-    /// 이모지 창을 연다. 테스트에서 바꿔 끼운다.
-    var openEmojiPicker: () -> Void = { NSApp.orderFrontCharacterPalette(nil) }
+    /// 자주 쓰는 이모지. macOS 이모지 창은 이 앱에서 뜨지 않는 Mac이 있어(⌃⌘Space와 🌐 키도) 앱 안에 판을 둔다.
+    static let emojis = [
+        "😀", "😂", "🤣", "😊", "😍", "🥰", "😎", "🤔", "😅", "😭",
+        "😢", "😡", "🥺", "😴", "🤯", "🥳", "👍", "👎", "👏", "🙏",
+        "🙌", "💪", "👀", "🔥", "✨", "🎉", "❤️", "💯", "✅", "❌",
+        "☕", "🍜", "🍕", "🍺", "🎂", "☀️", "🌧️", "💻", "🐛", "🚀",
+    ]
+    static let emojiColumns = 10
+    static let emojiCell: CGFloat = 32
+    /// 입력칸 위의 이모지 판. 펼쳤을 때만 입력창 안에 들어가고, 입력창이 그만큼 위로 커진다.
+    let emojiPanel = NSGridView()
+    private(set) var emojiPanelButtons: [NSButton] = []
+    var isEmojiPanelOpen: Bool { emojiPanel.superview != nil }
+    private var fieldTop: NSLayoutConstraint!
+    private var panelConstraints: [NSLayoutConstraint] = []
     /// 입력한 글을 넘긴다. false면 입력창을 닫지 않고 글을 남긴다.
     var onSubmit: ((String) -> Bool)?
     /// 어떤 이유로든 닫히면 부른다.
@@ -49,11 +62,18 @@ import AppKit
         emojiButton.action = #selector(emojiPressed)
         emojiButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(emojiButton)
+        buildEmojiPanel()
+        // 입력창 기본 높이(18)는 갈무리 글꼴의 줄 높이(21)보다 낮아 ㅎ 꼭지 같은 글자 윗부분이 잘린다.
+        // 글자는 줄의 위쪽에 그려지므로 입력창을 4pt 내려 글자가 막대 가운데에 오게 한다.
+        fieldTop = field.topAnchor.constraint(equalTo: view.topAnchor, constant: 12)
+        panelConstraints = [
+            emojiPanel.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            emojiPanel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            field.topAnchor.constraint(equalTo: emojiPanel.bottomAnchor, constant: 8),
+        ]
         NSLayoutConstraint.activate([
-            // 입력창 기본 높이(18)는 갈무리 글꼴의 줄 높이(21)보다 낮아 ㅎ 꼭지 같은 글자 윗부분이 잘린다.
-            // 글자는 줄의 위쪽에 그려지므로 입력창을 4pt 내려 글자가 막대 가운데에 오게 한다.
             field.heightAnchor.constraint(equalToConstant: Self.fieldHeight),
-            field.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+            fieldTop,
             field.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -4),
             field.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             field.trailingAnchor.constraint(equalTo: emojiButton.leadingAnchor, constant: -4),
@@ -66,17 +86,41 @@ import AppKit
     /// 글꼴의 한 줄 높이. 입력창은 이보다 낮으면 글자 윗부분을 잘라 그린다.
     static let fieldHeight = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(size: 15)).rounded(.up)
 
+    private func buildEmojiPanel() {
+        emojiPanelButtons = Self.emojis.map { emoji in
+            let b = NSButton(title: emoji, target: self, action: #selector(emojiPicked(_:)))
+            // 이모지를 눌러도 입력칸이 계속 글을 받아야 한다(첫 응답자를 가져가면 입력창이 닫힌다).
+            b.refusesFirstResponder = true
+            b.isBordered = false
+            b.font = .systemFont(ofSize: 20)
+            return b
+        }
+        let rows = stride(from: 0, to: emojiPanelButtons.count, by: Self.emojiColumns).map {
+            Array(emojiPanelButtons[$0..<min($0 + Self.emojiColumns, emojiPanelButtons.count)])
+        }
+        for row in rows { emojiPanel.addRow(with: row) }
+        emojiPanel.rowSpacing = 0
+        emojiPanel.columnSpacing = 0
+        for i in 0..<emojiPanel.numberOfColumns { emojiPanel.column(at: i).width = Self.emojiCell }
+        for i in 0..<emojiPanel.numberOfRows { emojiPanel.row(at: i).height = Self.emojiCell }
+        emojiPanel.xPlacement = .center
+        emojiPanel.yPlacement = .center
+        emojiPanel.translatesAutoresizingMaskIntoConstraints = false
+    }
+
     func open() {
         guard !isOpen else { return }
         isOpen = true
         isLoud = false
         field.stringValue = ""
+        setEmojiPanel(open: false)
         view.isHidden = false
     }
 
     func close() {
         guard isOpen else { return }
         isOpen = false
+        setEmojiPanel(open: false)
         field.stringValue = ""
         view.isHidden = true
         onClose?()
@@ -115,9 +159,33 @@ import AppKit
             : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5)
     }
 
-    /// 입력창은 열린 동안 늘 편집 중이라 고른 이모지가 커서 자리에 들어간다.
     @objc private func emojiPressed() {
-        openEmojiPicker()
+        setEmojiPanel(open: !isEmojiPanelOpen)
+    }
+
+    /// 판은 입력칸 위에 들어가 입력창을 위로 키운다. 닫으면 빠지고 입력창이 원래 높이로 돌아온다.
+    private func setEmojiPanel(open: Bool) {
+        guard open != isEmojiPanelOpen else { return }
+        if open {
+            view.addSubview(emojiPanel)
+            fieldTop.isActive = false
+            NSLayoutConstraint.activate(panelConstraints)
+        } else {
+            NSLayoutConstraint.deactivate(panelConstraints)
+            emojiPanel.removeFromSuperview()
+            fieldTop.isActive = true
+        }
+    }
+
+    @objc private func emojiPicked(_ sender: NSButton) {
+        insert(sender.title)
+    }
+
+    /// 커서 자리에 넣는다. 조합 중인 한글은 Enter처럼 먼저 확정한다. 길이 제한은 글이 바뀔 때(`controlTextDidChange`) 지킨다.
+    func insert(_ text: String) {
+        guard let editor = field.currentEditor() as? NSTextView else { return }
+        if editor.hasMarkedText() { editor.unmarkText() }
+        editor.insertText(text, replacementRange: editor.selectedRange())
     }
 
     /// 조합 중인 글자를 건드리면 한글이 깨지므로 조합이 끝난 뒤에 자른다.
