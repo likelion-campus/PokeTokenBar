@@ -760,6 +760,14 @@ struct CompanionState: Codable, Sendable {
         })
     }
 
+    /// 그 종이 자기 진화 줄에서 몇 번째 모습인지(1부터). 함께하는 개체가 도달한 단계를 먼저, 없으면 졸업 기록을 본다.
+    /// 어디에도 없으면 1. 광장 몸통박치기가 미는 칸 수에 쓴다.
+    func evolutionStage(of speciesID: Int) -> Int {
+        if let active, let i = active.pathIDs.prefix(active.stageIndex + 1).firstIndex(of: speciesID) { return i + 1 }
+        if let i = dex.lazy.compactMap({ $0.chainOrder.firstIndex(of: speciesID) }).first { return i + 1 }
+        return 1
+    }
+
     /// 보유한 특정 종의 이로치 여부. 졸업 기록과 현재 도달 단계만 훑으며 이름·정렬·희귀도 등
     /// 도감 표시 모델은 계산하지 않는다. 위장 중인 메타몽의 이로치는 리빌 전까지 숨긴다.
     func ownsShinySpecies(_ speciesID: Int, form: PokemonForm? = nil) -> Bool {

@@ -202,6 +202,8 @@ final class CompanionStore {
     }
 
     var representativeSpeciesID: Int? { state.representativeSpeciesID }
+    /// 광장에 서는 대표 포켓몬의 진화 단계(1부터). 알이면 1.
+    var representativeEvolutionStage: Int { representativeSubject.speciesID.map { state.evolutionStage(of: $0) } ?? 1 }
     var representativeForm: PokemonForm? { state.representativeForm }
 
     /// 관련 상태가 바뀌어 저장되는 경계에서만 갱신한다. 고정 종 하나의 이로치 여부만 조회하므로

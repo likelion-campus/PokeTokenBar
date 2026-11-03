@@ -124,6 +124,27 @@ final class PlazaCollisionTests: XCTestCase {
         XCTAssertEqual(w.tile, TilePoint(x: 5, y: 5), "a blocked push is used up, not kept for later")
     }
 
+    /// A stronger tackle slides several tiles in a row, still facing the same way.
+    func testPushSlidesSeveralTiles() {
+        var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
+        w.push(.right, tiles: 3)
+        w.advance(by: PlazaWalker.stepDuration * 1.5) { _ in true }
+        XCTAssertEqual(w.tile, TilePoint(x: 7, y: 5), "one tile at a time")
+        w.advance(by: 1) { _ in true }
+        XCTAssertEqual(w.tile, TilePoint(x: 8, y: 5), "three tiles, no more")
+        XCTAssertEqual(w.facing, .left)
+    }
+
+    /// A slide stops in front of the first blocked tile, and the tiles left over are dropped.
+    func testPushStopsAtTheFirstBlockedTile() {
+        var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
+        w.push(.right, tiles: 3)
+        w.advance(by: 1) { $0 != TilePoint(x: 7, y: 5) }
+        XCTAssertEqual(w.tile, TilePoint(x: 6, y: 5))
+        w.advance(by: 1) { _ in true }
+        XCTAssertEqual(w.tile, TilePoint(x: 6, y: 5), "the rest of the slide is used up, not kept for later")
+    }
+
     /// Being pushed beats a held arrow: the push step comes first, then walking goes on.
     func testPushGoesBeforeAHeldKey() {
         var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .up)

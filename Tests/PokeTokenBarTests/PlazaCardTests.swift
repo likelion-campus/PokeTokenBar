@@ -208,7 +208,7 @@ final class PlazaCardTests: XCTestCase {
     }
 
     private func controller(_ me: Node, start: TilePoint, timeout: Duration = .seconds(5),
-                            greeting: TeamEmoteKind = .party) -> PlazaWindowController {
+                            greeting: TeamEmoteKind = .party, stage: Int = 1) -> PlazaWindowController {
         let name = "plaza.card.prefs.\(UUID())"
         suites.append(name)
         let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
@@ -216,7 +216,8 @@ final class PlazaCardTests: XCTestCase {
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },
                                      subject: { .init(speciesID: 25, isShiny: false) },
-                                     myRosterEntry: { nil }, session: me.session, greetingKind: { greeting },
+                                     myRosterEntry: { nil }, evolutionStage: { stage }, session: me.session,
+                                     greetingKind: { greeting },
                                      profileTimeout: timeout)
     }
 
@@ -553,6 +554,26 @@ final class PlazaCardTests: XCTestCase {
         await waitUntil { !received.isEmpty }
         XCTAssertEqual(received.first?.0, me.settings.memberID)
         XCTAssertEqual(received.first?.1, TeamEmote(kind: .tackle, targetMemberID: id))
+    }
+
+    /// An evolved tackler asks for a longer push: as many tiles as its evolution stage, at most three.
+    func testTackleAsksForAsManyTilesAsMyEvolutionStage() async {
+        for (stage, sent) in [(2, 2), (3, 3), (5, 3)] {
+            let me = node("나"), other = node("민수")
+            let c = controller(me, start: map.spawn, stage: stage)
+            c.prepareScene()
+            hub.connect(me.transport, to: other.transport)
+            await waitUntil { me.session.members[other.settings.memberID] != nil }
+            let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down), id = other.settings.memberID
+            other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+            await waitUntil { c.scene?.memberTiles[id] == ahead }
+            var received: [TeamEmote] = []
+            other.session.onEmote = { received.append($1) }
+            c.chooseMenu(.tackle, memberID: id)
+            await waitUntil { !received.isEmpty }
+            XCTAssertEqual(received.first, TeamEmote(kind: .tackle, targetMemberID: id, pushTiles: sent), "stage \(stage)")
+            c.handleClose()
+        }
     }
 
     /// X greets the teammate in front of me at once, without the menu, the same way 인사하기 does.

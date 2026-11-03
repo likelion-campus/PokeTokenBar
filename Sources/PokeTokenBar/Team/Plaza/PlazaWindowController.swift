@@ -21,6 +21,8 @@ extension SKView: PlazaPausableView {}
     private let nameColor: () -> UInt32?
     /// 고른 이름 색을 저장한다(팀 설정). 팀원에게는 세션이 보낸다.
     private let chooseNameColor: (UInt32) -> Void
+    /// 내 광장 캐릭터의 진화 단계(1부터). 몸통박치기가 미는 칸 수다.
+    private let evolutionStage: () -> Int
     private let nameColorModel = PlazaNameColorModel()
     private let rosterModel = PlazaRosterModel()
     private let clock: () -> Date
@@ -102,6 +104,7 @@ extension SKView: PlazaPausableView {}
          teamName: @escaping () -> String? = { nil },
          nameColor: @escaping () -> UInt32? = { nil },
          chooseNameColor: @escaping (UInt32) -> Void = { _ in },
+         evolutionStage: @escaping () -> Int = { 1 },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -127,6 +130,7 @@ extension SKView: PlazaPausableView {}
         self.teamName = teamName
         self.nameColor = nameColor
         self.chooseNameColor = chooseNameColor
+        self.evolutionStage = evolutionStage
         super.init()
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
@@ -495,7 +499,8 @@ extension SKView: PlazaPausableView {}
         }
     }
 
-    /// 그 팀원에게 뛰어들고 충격 그림을 띄운 뒤 팀원들에게 보낸다. 밀리는 것은 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
+    /// 그 팀원에게 뛰어들고 충격 그림을 띄운 뒤 팀원들에게 보낸다. 내 진화 단계만큼(1–3칸) 밀라고 보내고, 실제로 미는 것은
+    /// 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func tackle(_ id: String) {
         guard let scene, let target = scene.memberTiles[id] else { return }
         let now = clock()
@@ -504,19 +509,19 @@ extension SKView: PlazaPausableView {}
         let me = scene.walker.tile
         let direction = PlazaPathfinder.isAdjacent(me, target) ? PlazaPathfinder.direction(from: me, to: target) : scene.walker.facing
         scene.playTackle(by: nil, on: id, direction: direction)
-        session?.sendEmote(.tackle, target: id)
+        session?.sendEmote(.tackle, target: id, pushTiles: TeamEmote.pushTiles(evolutionStage()))
     }
 
-    /// 런타임이 부른다. 누군가 몸통박치기를 했다. 맞은 게 나이고 민 팀원이 내 바로 옆(또는 같은 칸)이면 그 반대쪽으로 한 칸
+    /// 런타임이 부른다. 누군가 몸통박치기를 했다. 맞은 게 나이고 민 팀원이 내 바로 옆(또는 같은 칸)이면 그 반대쪽으로 `tiles`칸
     /// 밀린다. 메뉴를 연 사이에 내가 걸어가 버렸으면 충격 그림만 보이고 밀리지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
-    func showTackle(from sender: String, on target: String?) {
+    func showTackle(from sender: String, on target: String?, tiles: Int = 1) {
         guard let scene, let target, let from = scene.memberTiles[sender] else { return }
         let isMe = target == memberID()
         guard let to = isMe ? scene.walker.tile : scene.memberTiles[target] else { return }
         let direction = PlazaPathfinder.isAdjacent(from, to) ? PlazaPathfinder.direction(from: from, to: to)
             : members[sender]?.facing ?? .down
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
-        if isMe && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction) }
+        if isMe && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction, tiles: tiles) }
     }
 
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.
