@@ -25,6 +25,7 @@ final class PlazaGroupPhotoTests: XCTestCase {
     private var code: TeamCode!
     private let gate = SecondGate()
     private var written: [Data] = []
+    private var now = Date(timeIntervalSince1970: 1_700_000_000)
 
     override func setUp() async throws {
         hub = FakeTransportHub()
@@ -73,6 +74,7 @@ final class PlazaGroupPhotoTests: XCTestCase {
                                       loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: 25, isShiny: false) }, session: me.session,
+                                      clock: { [weak self] in self?.now ?? Date() },
                                       photoWriter: { [weak self] in self?.written.append($0); return true },
                                       groupPhotoSleep: { _ in await gate.sleep() })
         c.prepareScene()
@@ -167,19 +169,48 @@ final class PlazaGroupPhotoTests: XCTestCase {
         XCTAssertEqual(c.countdown, "민수님의 단체 사진 4 · G를 누르면 함께 찍어요")
     }
 
-    /// Closing the plaza mid-countdown cancels it: reopened within the five seconds, the plaza shows no stale
-    /// countdown, takes no photo, and a new G starts afresh.
+    /// Closing the plaza mid-countdown cancels it. Reopened and started again within the five seconds, the old
+    /// countdown's next second does nothing: the new one keeps its own count, and only it takes the photo.
     func testClosingThePlazaCancelsTheCountdown() async {
         let (_, _, c) = await connected()
         pressG(c)
         await tick()
+        await waitUntil { gate.count > 0 }   // the old countdown waits on its second second
         c.handleClose()
         XCTAssertNil(c.countdown)
         c.prepareScene()
-        for _ in 0..<5 { gate.tick(); for _ in 0..<10 { await Task.yield() } }
-        XCTAssertNil(c.countdown, "no countdown comes back")
-        XCTAssertTrue(written.isEmpty, "no photo after closing")
         pressG(c)
         XCTAssertEqual(c.countdown, "단체 사진 5 · 모두 모여요!", "a new one starts")
+        gate.tick()   // the old countdown wakes first
+        for _ in 0..<10 { await Task.yield() }
+        XCTAssertEqual(c.countdown, "단체 사진 5 · 모두 모여요!", "the old countdown does not count the new one down")
+        for left in [4, 3, 2, 1] {
+            await tick()
+            XCTAssertEqual(c.countdown, "단체 사진 \(left) · 모두 모여요!")
+        }
+        XCTAssertTrue(written.isEmpty)
+        await tick()
+        XCTAssertEqual(written.count, 1, "one photo, from the new countdown")
+    }
+
+    /// Right after a countdown ends, a late G (meant to take part) does not start a new one for everyone.
+    /// After the short pause it does.
+    func testALateGRightAfterTheEndStartsNothing() async {
+        let (_, other, c) = await connected()
+        var received = 0
+        other.session.onEmote = { _, _ in received += 1 }
+        c.showGroupPhoto(from: other.settings.memberID)
+        for _ in 0..<5 { await tick() }
+        XCTAssertNil(c.countdown)
+        now += PlazaWindowController.groupPhotoCooldown - 0.5
+        pressG(c)
+        XCTAssertNil(c.countdown, "too soon after the end")
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(received, 0)
+        now += 1
+        pressG(c)
+        XCTAssertEqual(c.countdown, "단체 사진 5 · 모두 모여요!")
+        await waitUntil { received == 1 }
+        XCTAssertEqual(received, 1)
     }
 }

@@ -449,6 +449,9 @@ extension SKView: PlazaPausableView {}
     }
 
     static let groupPhotoSeconds = 5
+    /// 끝난 뒤 이만큼은 G가 새 단체 사진을 시작하지 않는다. 함께 찍으려고 늦게 누른 G가 모두에게 새 카운트다운을 띄우지 않게 한다.
+    static let groupPhotoCooldown: TimeInterval = 2
+    private var groupPhotoEndedAt: Date?
 
     /// 진행 중인 단체 사진. 시작한 팀원(나면 nil), 남은 초, 내가 함께 찍는지.
     private var groupPhoto: (starter: String?, left: Int, joined: Bool, task: Task<Void, Never>)?
@@ -460,6 +463,7 @@ extension SKView: PlazaPausableView {}
             refreshCountdown()
             return
         }
+        if let ended = groupPhotoEndedAt, clock().timeIntervalSince(ended) < Self.groupPhotoCooldown { return }
         session?.sendEmote(.groupPhoto, target: nil)
         startGroupPhoto(starter: nil, joined: true)
     }
@@ -496,6 +500,7 @@ extension SKView: PlazaPausableView {}
     private func finishGroupPhoto() {
         guard let photo = groupPhoto else { return }
         groupPhoto = nil
+        groupPhotoEndedAt = clock()
         overlayModel.countdown = nil
         if photo.joined { handlePhotoKey() } else { scene?.playShutterFlash() }
     }
