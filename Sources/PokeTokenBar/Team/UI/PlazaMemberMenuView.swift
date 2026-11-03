@@ -14,7 +14,7 @@ struct PlazaMemberMenuView: View {
                 .foregroundStyle(Color(cgColor: PlazaNameColor.color(forMemberID: menu.memberID, chosen: menu.nameColor)))
                 .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
                 .lineLimit(1)
-            ForEach(PlazaMemberAction.allCases, id: \.self) { action in
+            ForEach(menu.actions, id: \.self) { action in
                 Button { onChoose(action) } label: {
                     HStack(spacing: 6) {
                         Text("▶").opacity(action == menu.selection ? 1 : 0).accessibilityHidden(true)
@@ -39,6 +39,7 @@ struct PlazaMemberMenuView: View {
         return switch action {
         case .greet: l.plazaMenuGreet
         case .tackle: l.plazaMenuTackle
+        case .follow: l.plazaMenuFollow
         case .viewCard: l.plazaMenuViewCard
         }
     }

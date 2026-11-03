@@ -29,6 +29,8 @@ extension L {
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }
+    var plazaMenuFollow: String { "따라가기" }
+    func plazaFollowHint(nickname: String) -> String { "\(nickname) 따라가는 중 · 방향키로 멈추기" }
     var plazaMenuViewCard: String { "포켓몬 보기" }
     var plazaRosterTitle: String { "팀원" }
     var plazaStatusOnline: String { "접속" }

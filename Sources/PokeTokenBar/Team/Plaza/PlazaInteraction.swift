@@ -79,6 +79,8 @@ enum PlazaMemberAction: CaseIterable, Equatable {
     case greet
     /// 그 팀원에게 뛰어들어 한 칸 밀어낸다.
     case tackle
+    /// 그 팀원 옆에 붙어 계속 따라다닌다(기차놀이).
+    case follow
     /// 그 팀원의 도감 카드를 연다.
     case viewCard
 }
@@ -89,9 +91,11 @@ struct PlazaMemberMenu: Equatable {
     let nickname: String
     var nameColor: UInt32?
     var selection: PlazaMemberAction = .greet
+    /// 보이는 줄. 알은 걸을 수 없어 따라가기가 빠진다.
+    var actions: [PlazaMemberAction] = PlazaMemberAction.allCases
 
     mutating func move(by step: Int) {
-        let all = PlazaMemberAction.allCases
+        let all = actions
         let i = all.firstIndex(of: selection) ?? 0
         selection = all[((i + step) % all.count + all.count) % all.count]
     }

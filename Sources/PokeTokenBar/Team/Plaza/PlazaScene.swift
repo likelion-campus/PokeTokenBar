@@ -56,8 +56,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     var isOverlayOpen = false {
         didSet { if isOverlayOpen && !oldValue { clearInput() } }
     }
-    /// 목록에서 골라 걸어가는 중인 팀원.
+    /// 목록에서 골라 걸어가거나 따라가는 중인 팀원.
     private var autoWalk: String?
+    /// 따라가기: 옆에 닿아도 멈추지 않고 계속 붙어 다닌다.
+    private var isFollowing = false
+    /// 따라가기를 시작하거나 멈췄다. 따라가는 팀원(멈췄으면 nil)을 넘긴다.
+    var onFollowChange: ((String?) -> Void)?
     /// 키 뗌 이벤트는 Command가 눌린 동안 오지 않으므로 update마다 수정 키를 확인한다. 테스트에서 바꿔 끼운다.
     var currentModifiers: () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
@@ -337,7 +341,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 입력창이 키를 가져가면 키 뗌이 장면에 오지 않으므로 눌린 키와 탭을 지운다. 걷던 칸은 마저 간다.
     func clearInput() {
-        stopWalkingToMember()
+        // 따라가기는 한마디를 쓰는 동안에도 이어 간다.
+        if !isFollowing { stopWalkingToMember() }
         walker.clearInput()
     }
 
@@ -348,11 +353,29 @@ struct PlazaSceneMember: Equatable, Sendable {
     @discardableResult
     func walk(toMember id: String) -> Bool {
         guard canWalk, remotes[id] != nil else { return false }
-        autoWalk = id
+        setAutoWalk(id, following: false)
         return true
     }
 
-    func stopWalkingToMember() { autoWalk = nil }
+    /// 그 팀원 옆에 붙어 계속 따라다닌다. 그 팀원이 움직이면 그 옆으로(대개 방금 떠난 칸으로) 걸어가 기차처럼 이어진다.
+    /// 방향키를 누르거나 그 팀원이 광장을 떠나면 멈춘다. 판이 열린 동안은 쉬었다가 닫으면 이어 간다. 알이거나 모르는 팀원이면 false.
+    @discardableResult
+    func follow(member id: String) -> Bool {
+        guard canWalk, remotes[id] != nil else { return false }
+        setAutoWalk(id, following: true)
+        return true
+    }
+
+    func stopWalkingToMember() { setAutoWalk(nil, following: false) }
+
+    var followingMember: String? { isFollowing ? autoWalk : nil }
+
+    private func setAutoWalk(_ id: String?, following: Bool) {
+        let was = followingMember
+        autoWalk = id
+        isFollowing = id != nil && following
+        if followingMember != was { onFollowChange?(followingMember) }
+    }
 
     /// 말을 걸 대상 쪽으로 돌아선다. 걷는 중이면 돌지 않는다.
     func face(_ d: PlazaDirection) {
@@ -378,15 +401,22 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 길은 한 칸 갈 때마다 다시 찾는다. 팀원이 움직이거나 길을 막으면 바로 돌아간다(지도가 작아 금방 찾는다).
     private func advanceWalkToMember() {
         guard let id = autoWalk else { return }
-        guard canWalk, !isOverlayOpen, let target = remotes[id]?.motion.tile else { return stopWalkingToMember() }
+        guard canWalk, let target = remotes[id]?.motion.tile else { return stopWalkingToMember() }
+        if isOverlayOpen {
+            if !isFollowing { stopWalkingToMember() }
+            return
+        }
         guard !walker.isWalking else { return }
         if PlazaPathfinder.isAdjacent(walker.tile, target) {
             walker.face(PlazaPathfinder.direction(from: walker.tile, to: target))
-            return stopWalkingToMember()
+            if !isFollowing { stopWalkingToMember() }
+            return
         }
         guard let first = PlazaPathfinder.path(from: walker.tile, toNextTo: target, map: map,
                                                blocked: occupiedTiles())?.first else {
-            return stopWalkingToMember()
+            // 따라가는 중이면 길이 트일 때까지 기다린다.
+            if !isFollowing { stopWalkingToMember() }
+            return
         }
         walker.step(first)
     }
