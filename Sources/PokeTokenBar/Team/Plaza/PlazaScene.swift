@@ -56,7 +56,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var isOverlayOpen = false {
         didSet { if isOverlayOpen && !oldValue { clearInput() } }
     }
-    private var autoWalk: (memberID: String, path: [PlazaDirection], goal: TilePoint?)?
+    /// 목록에서 골라 걸어가는 중인 팀원.
+    private var autoWalk: String?
     /// 키 뗌 이벤트는 Command가 눌린 동안 오지 않으므로 update마다 수정 키를 확인한다. 테스트에서 바꿔 끼운다.
     var currentModifiers: () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
@@ -93,8 +94,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             isIdle ? nickname + " " + L(.ko).plazaAwaySuffix : nickname
         }
 
-        mutating func advance(by dt: TimeInterval) {
-            if let moved = wanderer?.advance(by: dt) { motion.moveTo(moved) }
+        mutating func advance(by dt: TimeInterval, blocked: Set<TilePoint>) {
+            if let moved = wanderer?.advance(by: dt, blocked: blocked) { motion.moveTo(moved) }
             motion.advance(by: dt)
         }
     }
@@ -315,7 +316,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     @discardableResult
     func walk(toMember id: String) -> Bool {
         guard canWalk, remotes[id] != nil else { return false }
-        autoWalk = (id, [], nil)
+        autoWalk = id
         return true
     }
 
@@ -334,25 +335,28 @@ struct PlazaSceneMember: Equatable, Sendable {
         onInteractionTargetChange?(hit)
     }
 
-    var walkingToMember: String? { autoWalk?.memberID }
+    var walkingToMember: String? { autoWalk }
 
+    /// 다른 팀원이 서 있는(걷는 중이면 도착할) 칸. 나는 이 칸에 들어가지 못한다. 이미 겹쳐 서 있으면 빠져나갈 수는 있다.
+    /// 팀원 쪽 Mac도 같은 규칙으로 나를 피하므로 서로 겹치지 않는다(동시에 같은 칸에 들어가면 잠깐 겹칠 수 있다).
+    func occupiedTiles(except id: String? = nil) -> Set<TilePoint> {
+        Set(remotes.filter { $0.key != id }.map(\.value.motion.tile))
+    }
+
+    /// 길은 한 칸 갈 때마다 다시 찾는다. 팀원이 움직이거나 길을 막으면 바로 돌아간다(지도가 작아 금방 찾는다).
     private func advanceWalkToMember() {
-        guard let current = autoWalk else { return }
-        guard canWalk, !isOverlayOpen, let target = remotes[current.memberID]?.motion.tile else { return stopWalkingToMember() }
+        guard let id = autoWalk else { return }
+        guard canWalk, !isOverlayOpen, let target = remotes[id]?.motion.tile else { return stopWalkingToMember() }
         guard !walker.isWalking else { return }
         if PlazaPathfinder.isAdjacent(walker.tile, target) {
             walker.face(PlazaPathfinder.direction(from: walker.tile, to: target))
             return stopWalkingToMember()
         }
-        var path = current.path
-        if current.goal != target || path.isEmpty {
-            guard let found = PlazaPathfinder.path(from: walker.tile, toNextTo: target, map: map), !found.isEmpty else {
-                return stopWalkingToMember()
-            }
-            path = found
+        guard let first = PlazaPathfinder.path(from: walker.tile, toNextTo: target, map: map,
+                                               blocked: occupiedTiles())?.first else {
+            return stopWalkingToMember()
         }
-        walker.step(path.removeFirst())
-        autoWalk = (current.memberID, path, target)
+        walker.step(first)
     }
 
     /// `memberID`가 nil이면 나. 모르는 팀원이면 아무것도 안 한다.
@@ -529,7 +533,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         clock = currentTime
         if currentModifiers().contains(.command) { walker.releaseAll() }
         advanceWalkToMember()
-        walker.advance(by: dt) { [map] in map.isWalkable($0) }
+        let occupied = occupiedTiles()
+        walker.advance(by: dt) { [map] in map.isWalkable($0) && !occupied.contains($0) }
         advanceAnimation(by: dt)
         advanceSparkles(by: dt)
         layout()
@@ -549,7 +554,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
         me.animate(by: dt, useBack: pose.useBack)
         for id in Array(remotes.keys) {
-            remotes[id]?.advance(by: dt)
+            // 쉼터에서 어슬렁거리는 팀원도 나와 다른 팀원이 선 칸으로는 옮기지 않는다.
+            // `remotes`를 읽는 값은 먼저 구한다. 같은 식 안에서 고치는 원소와 함께 읽으면 접근 충돌로 멈춘다.
+            let blocked = occupiedTiles(except: id).union([walker.tile])
+            remotes[id]?.advance(by: dt, blocked: blocked)
             guard let r = remotes[id] else { continue }
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.animate(by: dt, useBack: p.useBack)

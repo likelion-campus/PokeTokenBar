@@ -482,7 +482,8 @@ final class PlazaMembersTests: XCTestCase {
         XCTAssertGreaterThan(scene.memberZ(lower.settings.memberID)!, scene.memberZ(upper.settings.memberID)!)
     }
 
-    func testMyWalkIsNotBlockedByMembers() async {
+    /// A connected teammate's position (from their presence) blocks my way: characters do not overlap.
+    func testMyWalkIsBlockedByAConnectedTeammate() async {
         let me = node("나"), other = node("민수")
         let c = controller(me)
         c.prepareScene()
@@ -497,7 +498,8 @@ final class PlazaMembersTests: XCTestCase {
         scene.handleKeyDown(keyCode: 124, characters: nil, isRepeat: false)
         scene.handleKeyUp(keyCode: 124)
         step(scene, seconds: 1)
-        XCTAssertEqual(scene.walker.tile, ahead)
+        XCTAssertEqual(scene.walker.tile, start)
+        XCTAssertEqual(scene.walker.facing, .right)
     }
 
     func testMemberNameUsesMemberColor() async {

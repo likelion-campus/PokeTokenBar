@@ -823,6 +823,11 @@ read_when:
   (`testTeammatesPickedNameColorShowsHere`, `testPickingMyNameColorPaintsMeAndIsKept`)는 이미 원래 색을 피하고, 세션·설정 쪽은 색 값을
   직접 비교해 우연히 참일 수 없다.
 
+- **고치는 원소의 인자에서 같은 컬렉션을 읽지 않는다.** `remotes[id]?.advance(by:blocked: occupiedTiles(...))`는
+  `remotes`의 원소를 고치는 동안 인자에서 `remotes`를 다시 읽어 Swift 배타 접근 검사에 걸려 멈췄다(릴리스 빌드도 검사한다).
+  충돌 테스트가 처음 돌 때 잡혔다. 수정: 읽는 값을 먼저 구해 지역 변수로 넘긴다. 부류 스윕: 광장 장면에서 원소를 고치는 다른
+  호출(`remotes[id]?.…(`)은 이것 하나였다. 가드: `PlazaCollisionTests`(장면을 실제로 돌린다).
+
 ## 동시성
 
 - **비동기 완료가 "그 사이 교체된 대상"에 착지하지 않게 하라 — 상태를 통째로 바꾸는 경로를 새로 만들면
