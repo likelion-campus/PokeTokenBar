@@ -10,7 +10,7 @@ struct PlazaMemberMenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(menu.nickname)
-                .font(Font(PlazaResources.font(size: 14)))
+                .font(Font(PlazaResources.font(.body)))
                 .foregroundStyle(Color(cgColor: PlazaNameColor.color(forMemberID: menu.memberID, chosen: menu.nameColor)))
                 .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
                 .lineLimit(1)
@@ -20,7 +20,7 @@ struct PlazaMemberMenuView: View {
                         Text("▶").opacity(action == menu.selection ? 1 : 0).accessibilityHidden(true)
                         Text(Self.title(action))
                     }
-                    .font(Font(PlazaResources.font(size: 15)))
+                    .font(Font(PlazaResources.font(.body)))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())

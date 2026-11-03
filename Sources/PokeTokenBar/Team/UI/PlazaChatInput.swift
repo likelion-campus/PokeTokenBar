@@ -46,7 +46,7 @@ import AppKit
         field.drawsBackground = false
         field.focusRingType = .none
         field.textColor = .white
-        field.font = PlazaResources.font(size: 15)
+        field.font = PlazaResources.font(.body)
         field.usesSingleLineMode = true
         field.cell?.isScrollable = true
         refreshLoud()
@@ -84,7 +84,7 @@ import AppKit
     }
 
     /// 글꼴의 한 줄 높이. 입력창은 이보다 낮으면 글자 윗부분을 잘라 그린다.
-    static let fieldHeight = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(size: 15)).rounded(.up)
+    static let fieldHeight = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(.body)).rounded(.up)
 
     private func buildEmojiPanel() {
         emojiPanelButtons = Self.emojis.map { emoji in
@@ -153,7 +153,7 @@ import AppKit
     private func refreshLoud() {
         let l = L(.ko)
         field.placeholderAttributedString = NSAttributedString(string: isLoud ? l.plazaLoudPlaceholder : l.plazaChatPlaceholder, attributes: [
-            .font: PlazaResources.font(size: 15), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
+            .font: PlazaResources.font(.body), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
         ])
         view.layer?.borderColor = isLoud ? CGColor(srgbRed: 0xF0 / 255, green: 0x8A / 255, blue: 0x24 / 255, alpha: 1)
             : CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5)
