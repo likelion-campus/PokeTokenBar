@@ -30,6 +30,18 @@ struct PlazaMinimapView: View {
                     context.stroke(Path(rect), with: .color(.white.opacity(0.9)), lineWidth: 1)
                 }
                 let tile = CGFloat(PlazaMap.tileSize) * s
+                if let item = model.item {
+                    let c = CGPoint(x: (CGFloat(item.x) + 0.5) * tile, y: (CGFloat(item.y) + 0.5) * tile)
+                    var diamond = Path()
+                    diamond.move(to: CGPoint(x: c.x, y: c.y - 4))
+                    diamond.addLine(to: CGPoint(x: c.x + 4, y: c.y))
+                    diamond.addLine(to: CGPoint(x: c.x, y: c.y + 4))
+                    diamond.addLine(to: CGPoint(x: c.x - 4, y: c.y))
+                    diamond.closeSubpath()
+                    context.opacity = 1
+                    context.fill(diamond, with: .color(Color(hex: 0xF2C14E)))
+                    context.stroke(diamond, with: .color(Color(hex: 0x14161F)), lineWidth: 1)
+                }
                 for dot in model.dots.sorted(by: { !$0.isMe && $1.isMe }) {
                     let r: CGFloat = dot.isMe ? 4.5 : 3.5
                     let center = CGPoint(x: (CGFloat(dot.tile.x) + 0.5) * tile, y: (CGFloat(dot.tile.y) + 0.5) * tile)

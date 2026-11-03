@@ -87,6 +87,17 @@ struct PlazaSceneMember: Equatable, Sendable {
     private let cameraNode = SKCameraNode()
     /// 계절 날씨 입자. 캐릭터(z 1~2) 위, 낮밤 곱하기(5)와 이름표(10) 아래.
     private let weatherLayer = PlazaWeatherLayer()
+    /// 아이템이 떨어질 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
+    private lazy var itemCandidates: [TilePoint] = PlazaItems.candidates(in: map)
+    /// 누군가 주운 아이템 칸. 창 컨트롤러가 채운다.
+    var pickedItemSlots: Set<Int> = []
+    /// 지금 광장에 있는 아이템.
+    private(set) var shownItem: PlazaItems.Spawn?
+    private var itemNode: SKSpriteNode?
+    /// 내가 아이템 칸에 섰다. 서 있는 동안 화면마다 다시 부르고, 주운 것으로 칠지는 창 컨트롤러가 정한다.
+    var onItemPickup: ((PlazaItems.Spawn) -> Void)?
+    /// 아이템이 떨어지거나 사라졌다(작은 지도 갱신용).
+    var onItemChange: ((PlazaItems.Spawn?) -> Void)?
     /// 내 캐릭터.
     private let me: PlazaActor
     private(set) var nameColor = PlazaNameColor.palette[0]
@@ -472,7 +483,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking)))
         }
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
-                               tint: daylightTint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height))
+                               tint: daylightTint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
+                               items: itemPhotoParticles)
     }
 
     /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.
@@ -713,9 +725,56 @@ struct PlazaSceneMember: Equatable, Sendable {
         applyDaylight()
         layout()
         advanceWeather(by: dt)
+        advanceItem()
         reportLocalPosition()
         refreshInteractionTarget()
     }
+
+    /// 지금 칸의 아이템을 띄우거나 걷고, 내가 그 칸에 서 있으면 알린다. 배경을 숨기면 땅이 없으니 아이템도 없다.
+    private func advanceItem() {
+        let spawn = isBackgroundHidden ? nil : PlazaItems.current(at: now(), candidates: itemCandidates, picked: pickedItemSlots)
+        if spawn != shownItem { showItem(spawn) }
+        placeItem()
+        if let spawn, walker.tile == spawn.tile { onItemPickup?(spawn) }
+    }
+
+    private func showItem(_ spawn: PlazaItems.Spawn?) {
+        shownItem = spawn
+        itemNode?.removeFromParent()
+        itemNode = nil
+        defer { onItemChange?(spawn) }
+        guard let spawn else { return }
+        // 가장 큰 배율(배율 4 × 화면 2)로 그려 두면 어느 배율에서도 정수배로 줄어든다.
+        let texture = SKTexture(cgImage: PlazaEmoteArt.itemImage(spawn.kind, scale: 8))
+        texture.filteringMode = .nearest
+        let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.itemSize(spawn.kind))
+        node.anchorPoint = CGPoint(x: 0.5, y: 0)
+        node.zPosition = 0.6   // 그림자(0.5) 위, 캐릭터(1 이상) 아래라 밟고 선 캐릭터가 앞에 온다.
+        addChild(node)
+        itemNode = node
+    }
+
+    /// 칸 가운데 발 높이에 두고 위아래로 살짝 떠다니게 한다. 기기 픽셀에 맞춘다.
+    private func placeItem() {
+        guard let spawn = shownItem, let node = itemNode else { return }
+        let foot = PlazaWalker.footPoint(from: spawn.tile, to: spawn.tile, progress: 0)
+        let bob = (sin(clock * 3) + 1) * 1.5
+        let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
+        node.position = CGPoint(x: PlazaPixelSnap.snap(foot.x, backing: backing, zoom: zoom),
+                                y: PlazaPixelSnap.snap(worldSize.height - foot.y + bob, backing: backing, zoom: zoom))
+    }
+
+    /// 기념사진에 담을 아이템. 좌표는 월드 픽셀(y 아래로, 그림 왼쪽 위).
+    private var itemPhotoParticles: [PlazaPhotoParticle] {
+        guard let spawn = shownItem, let node = itemNode else { return [] }
+        let size = PlazaEmoteArt.itemSize(spawn.kind)
+        return [PlazaPhotoParticle(image: PlazaEmoteArt.itemImage(spawn.kind, scale: 8),
+                                   origin: CGPoint(x: node.position.x - size.width / 2, y: worldSize.height - node.position.y - size.height),
+                                   size: size)]
+    }
+
+    /// 테스트용: 떠 있는 아이템의 칸.
+    var itemTile: TilePoint? { itemNode == nil ? nil : shownItem?.tile }
 
     /// 날씨 입자를 움직인다. 보이는 영역은 `layout`이 정한 값을 장면 좌표(y 위로)로 바꿔 넘긴다.
     private func advanceWeather(by dt: TimeInterval) {

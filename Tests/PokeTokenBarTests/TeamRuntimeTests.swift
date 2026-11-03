@@ -68,6 +68,23 @@ final class TeamRuntimeTests: XCTestCase {
         return (a, b)
     }
 
+    /// A teammate's pickup reaches my plaza through the runtime, which then hides that item.
+    func testReceivedPickupHidesTheItem() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.pickup.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        await settle { b.runtime.session.members[a.settings.memberID] != nil }
+        a.runtime.session.sendEmote(.pickup, target: nil, itemSlot: 160_000)
+        await settle { plaza.scene?.pickedItemSlots.contains(160_000) == true }
+        plaza.handleClose()
+    }
+
     /// A teammate's group photo starts the countdown on my plaza with their name.
     func testReceivedGroupPhotoStartsTheCountdown() async {
         let (a, b) = connectedPair()

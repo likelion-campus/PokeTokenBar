@@ -23,6 +23,10 @@ extension SKView: PlazaPausableView {}
     private let chooseNameColor: (UInt32) -> Void
     /// 내 광장 캐릭터의 진화 단계(1부터). 몸통박치기가 미는 칸 수다.
     private let evolutionStage: () -> Int
+    /// 광장에서 주운 아이템을 가방에 넣는다.
+    private let grantItem: (ItemKind) -> Void
+    /// 팀원이 주웠다고 알려 온 아이템 칸.
+    private var heardItemPicks: Set<Int> = []
     private let nameColorModel = PlazaNameColorModel()
     private let rosterModel = PlazaRosterModel()
     private let clock: () -> Date
@@ -108,6 +112,7 @@ extension SKView: PlazaPausableView {}
          nameColor: @escaping () -> UInt32? = { nil },
          chooseNameColor: @escaping (UInt32) -> Void = { _ in },
          evolutionStage: @escaping () -> Int = { 1 },
+         grantItem: @escaping (ItemKind) -> Void = { _ in },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -136,7 +141,10 @@ extension SKView: PlazaPausableView {}
         self.nameColor = nameColor
         self.chooseNameColor = chooseNameColor
         self.evolutionStage = evolutionStage
+        self.grantItem = grantItem
         super.init()
+        // 다시 켜도 내가 주운 아이템을 팀원에게 알린다. 나중에 광장을 연 팀원도 그 아이템을 보지 않는다.
+        session?.updatePickedItemSlot(preferences.pickedItemSlot)
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
             guard let self else { return }
@@ -290,6 +298,9 @@ extension SKView: PlazaPausableView {}
             if let self, let id = self.faceNearbyMember() { self.tackle(id) }
         }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
+        s.onItemPickup = { [weak self] in self?.pickUp($0) }
+        s.onItemChange = { [weak self] _ in self?.refreshMinimap() }
+        s.pickedItemSlots = pickedItemSlots
         s.onChatKey = { [weak self] in self?.openChat() }
         s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
@@ -447,6 +458,44 @@ extension SKView: PlazaPausableView {}
         guard let scene, let input = scene.photoInput(), let png = PlazaPhotoRenderer.pngData(for: input) else { return }
         if photoWriter(png) { scene.playShutterFlash() }
     }
+
+    /// 누군가 주운 아이템 칸: 내가 주운 것(다시 켜도 남는다), 팀원이 주웠다고 알려 온 것, 팀원의 presence에 담긴 것.
+    private var pickedItemSlots: Set<Int> {
+        var slots = heardItemPicks.union(members.values.compactMap(\.pickedItemSlot))
+        if let mine = preferences.pickedItemSlot { slots.insert(mine) }
+        return slots
+    }
+
+    private func applyPickedItems() {
+        let slots = pickedItemSlots
+        if scene?.pickedItemSlots != slots { scene?.pickedItemSlots = slots }
+    }
+
+    /// 내가 아이템 칸에 섰다. 가방에 넣고, 팀원들에게 알리고, 반짝이며 배너를 띄운다. 주운 칸을 장면에 바로 넘겨,
+    /// 장면은 다음 화면부터 그 아이템을 없애고 다시 부르지 않는다.
+    private func pickUp(_ spawn: PlazaItems.Spawn) {
+        preferences.pickedItemSlot = spawn.slot
+        applyPickedItems()
+        grantItem(spawn.kind)
+        session?.sendEmote(.pickup, target: nil, itemSlot: spawn.slot)
+        session?.updatePickedItemSlot(spawn.slot)
+        scene?.playSparkle(memberID: nil)
+        showBanner(L(.ko).plazaPickedUp(spawn.kind))
+    }
+
+    /// 런타임이 부른다. 팀원이 아이템을 주웠다. 창이 닫혀 있어도 기억하고, 그 아이템이 떠 있었으면 배너로 알린다.
+    func showPickup(from memberID: String, slot: Int) {
+        let wasShown = scene?.shownItem?.slot == slot ? scene?.shownItem : nil
+        heardItemPicks.insert(slot)
+        applyPickedItems()
+        guard let spawn = wasShown else { return }
+        let name = session?.members[memberID]?.nickname ?? ""
+        scene?.playSparkle(memberID: memberID)
+        showBanner(L(.ko).plazaMemberPickedUp(nickname: name.isEmpty ? L(.ko).plazaGroupPhotoSomeone : name, kind: spawn.kind))
+    }
+
+    /// 테스트용 읽기 전용 값.
+    var minimapItem: TilePoint? { minimap.item }
 
     static let groupPhotoSeconds = 5
     /// 끝난 뒤 이만큼은 G가 새 단체 사진을 시작하지 않는다. 함께 찍으려고 늦게 누른 G가 모두에게 새 카운트다운을 띄우지 않게 한다.
@@ -736,6 +785,7 @@ extension SKView: PlazaPausableView {}
         dots.append(.init(id: memberID(), tile: scene.walker.tile, color: scene.nameColor, isMe: true, isAway: false))
         if dots != minimap.dots { minimap.dots = dots }
         if scene.visibleWorldRect != minimap.view { minimap.view = scene.visibleWorldRect }
+        if scene.itemTile != minimap.item { minimap.item = scene.itemTile }
     }
 
     /// 테스트용 읽기 전용 값.
@@ -761,6 +811,7 @@ extension SKView: PlazaPausableView {}
 
     private func applyMembersToScene() {
         guard let scene else { return }
+        applyPickedItems()
         let list = members.values.sorted { $0.memberID < $1.memberID }
         scene.applyMembers(list.map {
             PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
@@ -906,6 +957,8 @@ extension SKView: PlazaPausableView {}
             scene.onGreetKey = nil
             scene.onTackleKey = nil
             scene.onGroupPhotoKey = nil
+            scene.onItemPickup = nil
+            scene.onItemChange = nil
             scene.onChatKey = nil
             scene.onOverlayKey = nil
             scene.onInteractionTargetChange = nil

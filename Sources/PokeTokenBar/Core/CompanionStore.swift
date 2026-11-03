@@ -1269,6 +1269,12 @@ final class CompanionStore {
     @discardableResult
     func buyRareCandy() -> Bool { buy(.rareCandy) }
 
+    /// 팀 광장에서 주운 아이템 하나를 가방에 넣는다.
+    func receivePlazaItem(_ kind: ItemKind) {
+        state.inventory[kind.rawValue, default: 0] += 1
+        save()
+    }
+
     // MARK: 알 (리롤 — 현재 포켓몬 폐기, 도감·확률 무영향)
 
     /// 현재 알이 보증하는 등급 하한(UI 표시용). 활성 포켓몬이 있으면 알이 없으므로 nil.
