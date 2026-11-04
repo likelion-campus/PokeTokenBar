@@ -671,8 +671,8 @@ extension SKView: PlazaPausableView {}
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
         let kind = greetingKind()
-        scene.showEmote(memberID: nil, kind: kind, large: true)
-        scene.showEmote(memberID: id, kind: kind, large: true)
+        scene.showEmote(memberID: nil, kind: kind)
+        scene.showEmote(memberID: id, kind: kind)
         session?.sendEmote(kind, target: id, shared: true)
     }
 
@@ -716,11 +716,10 @@ extension SKView: PlazaPausableView {}
     var chatInputForTesting: PlazaChatInput { chatInput }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 인사하기(`other`가 있다)면 받는 팀원(나일 수도
-    /// 있다) 위에도 띄우고, 두 말풍선 모두 1.5배로 그린다.
+    /// 있다) 위에도 띄운다.
     func showEmote(memberID: String, kind: TeamEmoteKind, alsoOver other: String? = nil) {
-        let large = other != nil
-        scene?.showEmote(memberID: memberID, kind: kind, large: large)
-        if let other { scene?.showEmote(memberID: other == self.memberID() ? nil : other, kind: kind, large: large) }
+        scene?.showEmote(memberID: memberID, kind: kind)
+        if let other { scene?.showEmote(memberID: other == self.memberID() ? nil : other, kind: kind) }
     }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.

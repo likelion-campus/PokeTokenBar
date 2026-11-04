@@ -382,7 +382,7 @@ final class TeamRuntimeTests: XCTestCase {
         await settle { plaza.scene?.shownEmote(memberID: sender) == .heart }
         XCTAssertNil(plaza.scene?.shownEmote(memberID: nil))
         plaza.scene?.update(0)
-        XCTAssertEqual(plaza.scene?.emoteFrame(memberID: sender)?.size, PlazaEmoteArt.size, "an ordinary emote keeps its size")
+        XCTAssertEqual(plaza.scene?.emoteFrame(memberID: sender)?.size, PlazaEmoteArt.size(large: true), "every bubble is the greeting size")
         a.runtime.session.sendEmote(.party, target: b.settings.memberID, shared: true)
         await settle { plaza.scene?.shownEmote(memberID: sender) == .party && plaza.scene?.shownEmote(memberID: nil) == .party }
         plaza.scene?.update(0.1)

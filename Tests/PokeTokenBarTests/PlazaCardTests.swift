@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SwiftUI
+import SpriteKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
@@ -525,6 +526,29 @@ final class PlazaCardTests: XCTestCase {
         await waitUntil { !received.isEmpty }
         XCTAssertEqual(received.first?.0, me.settings.memberID)
         XCTAssertEqual(received.first?.1, TeamEmote(kind: .heart, targetMemberID: id, isShared: true))
+    }
+
+    /// Every bubble over a character is drawn at the greeting size: the 1-5 key bubble over me and a bubble received from a
+    /// teammate. The notice-board "!" marker stays at the normal size.
+    func testEveryCharacterBubbleIsDrawnAtTheGreetingSize() async {
+        let me = node("나"), other = node("민수")
+        let c = controller(me, start: map.spawn)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        let scene = c.scene!, id = other.settings.memberID
+        let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)
+        other.session.updatePlazaPosition(inPlaza: true, tile: ahead, facing: .down, isWalking: false)
+        await waitUntil { scene.memberTiles[id] == ahead }
+        scene.handleKeyDown(keyCode: heartKey, characters: "1", isRepeat: false)
+        c.showEmote(memberID: id, kind: .party)
+        step(scene, seconds: 0.1)
+        XCTAssertEqual(scene.shownEmote(memberID: nil), .heart)
+        XCTAssertEqual(scene.emoteFrame(memberID: nil)?.size, PlazaEmoteArt.size(large: true), "my key bubble")
+        XCTAssertEqual(scene.emoteFrame(memberID: id)?.size, PlazaEmoteArt.size(large: true), "a received bubble")
+        scene.setBoardMarker(visible: true)
+        let marker = scene.children.compactMap { $0 as? SKSpriteNode }.first { $0.zPosition == 5 && !$0.isHidden }
+        XCTAssertEqual(marker?.size, PlazaEmoteArt.size, "the board marker keeps the normal size")
     }
 
     /// 몸통박치기 from the menu: I lunge at the teammate, an impact pops on them, and they get a tackle aimed at them.
