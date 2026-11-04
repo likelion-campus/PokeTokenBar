@@ -38,11 +38,9 @@ struct PlazaActorContext {
     private var plateKey: (nickname: String, backing: CGFloat, color: CGColor)?
     /// 말풍선을 보여 주는 시간.
     static let emoteDuration: TimeInterval = 2.5
-    private var emoteKey: (kind: TeamEmoteKind, backing: CGFloat, large: Bool)?
+    private var emoteKey: (kind: TeamEmoteKind, backing: CGFloat)?
     private var emoteRemaining: TimeInterval = 0
     private(set) var emoteKind: TeamEmoteKind?
-    /// 인사하기 말풍선이라 1.5배로 그린다.
-    private(set) var emoteIsLarge = false
     /// 글 말풍선을 보여 주는 시간. 읽어야 하므로 이모트보다 길다. 이모트와 같은 자리를 쓰고 나중 것이 이긴다.
     static let chatDuration: TimeInterval = 6
     private var chatKey: (text: String, backing: CGFloat)?
@@ -102,12 +100,11 @@ struct PlazaActorContext {
         emoteNode.removeFromParent()
     }
 
-    /// 새 말풍선이 옛것을 바꾸고 시간을 처음부터 다시 잰다. 그림은 `place`에서 그린다.
-    func showEmote(_ kind: TeamEmoteKind, large: Bool = false) {
+    /// 캐릭터 위 말풍선은 모두 인사하기와 같은 큰 그림(1.5배)으로 그린다. 새 말풍선이 옛것을 바꾸고 시간을 처음부터 다시 잰다. 그림은 `place`에서 그린다.
+    func showEmote(_ kind: TeamEmoteKind) {
         chatText = nil
         chatKey = nil
         emoteKind = kind
-        emoteIsLarge = large
         emoteRemaining = Self.emoteDuration
         emoteNode.isHidden = false
     }
@@ -240,7 +237,7 @@ struct PlazaActorContext {
                                front: shadowIsNest ? nestFrontImage : nil,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
-                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: emoteIsLarge) })
+                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) })
     }
 
     // MARK: - 값 읽기
@@ -285,9 +282,9 @@ struct PlazaActorContext {
                 setBubble(image, backing: backing)
             }
         } else if let kind = emoteKind {
-            if emoteKey?.kind != kind || emoteKey?.backing != backing || emoteKey?.large != emoteIsLarge {
-                emoteKey = (kind, backing, emoteIsLarge)
-                setBubble(PlazaEmoteArt.image(kind, scale: backing, large: emoteIsLarge), backing: backing)
+            if emoteKey?.kind != kind || emoteKey?.backing != backing {
+                emoteKey = (kind, backing)
+                setBubble(PlazaEmoteArt.image(kind, scale: backing, large: true), backing: backing)
             }
         } else {
             return
