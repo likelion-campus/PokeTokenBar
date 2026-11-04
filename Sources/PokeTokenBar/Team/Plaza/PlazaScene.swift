@@ -166,7 +166,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             guard campfireLit != oldValue else { return }
             campfireClock = 0
             campfirePhase = 0
-            smokeRemaining = campfireLit ? 0 : PlazaCampfire.smokeDuration
+            smokeRemaining = (campfireLit || isPaused) ? 0 : PlazaCampfire.smokeDuration
         }
     }
     private(set) var campfirePhase = 0

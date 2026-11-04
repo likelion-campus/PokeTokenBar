@@ -83,13 +83,14 @@ final class PlazaFocusTests: XCTestCase {
     }
 
     private func controller(_ me: Node, prefs: PlazaPreferences? = nil, start: TilePoint? = TilePoint(x: 36, y: 22),
-                            speciesID: Int? = 25, onEnd: ((PlazaFocusEnd) -> Void)? = nil) -> PlazaWindowController {
+                            speciesID: Int? = 25, myEntry: PlazaRosterEntry? = nil,
+                            onEnd: ((PlazaFocusEnd) -> Void)? = nil) -> PlazaWindowController {
         let prefs = prefs ?? self.prefs()
         if let start { prefs.saveLastTile(start) }
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: speciesID, isShiny: false) },
-                                      myRosterEntry: { nil }, session: me.session, clock: { [unowned self] in now },
+                                      myRosterEntry: { myEntry }, session: me.session, clock: { [unowned self] in now },
                                       focusTickSleep: { [gate] in await gate.sleep($0) })
         c.onFocusEnd = onEnd
         return c
@@ -174,7 +175,7 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertEqual(state?.tile, seat)
         XCTAssertEqual(state?.focusEndsAt, now.addingTimeInterval(3000))
         XCTAssertEqual(c.hint, "🔥 50분 남음 · 방향키로 일어나기")
-        // 앉아 있는 동안 스페이스는 메뉴를 다시 열지 않고, 다시 시작해도 바뀌지 않는다.
+        // 앉은 자리에서는 스페이스 대상이 없어(불은 어느 자리에서도 대상이 아니다) 메뉴가 열리지 않고, 다시 시작해도 바뀌지 않는다.
         key(scene, spaceKey)
         XCTAssertEqual(c.overlayContent, .none)
         c.startFocus(minutes: 25)
@@ -263,6 +264,69 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertEqual(other.received.emotes.first?.emote.kind, .party)
         XCTAssertNil(other.received.emotes.first?.emote.targetMemberID)
         c.handleClose()
+    }
+
+    func testDisplayTickEndsADueFocusOnItsOwn() async {
+        var ends: [PlazaFocusEnd] = []
+        let (_, other, c) = await pair { ends.append($0) }
+        let scene = c.scene!
+        c.startFocus(minutes: 25)
+        await gate.tick()
+        XCTAssertEqual(ends, [])
+        now = now.addingTimeInterval(1501)
+        await gate.tick()
+        XCTAssertEqual(ends, [PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true)])
+        XCTAssertNil(c.focus)
+        XCTAssertEqual(scene.shownEmote(memberID: nil), .party)
+        await waitUntil { !other.received.emotes.isEmpty }
+        await gate.tick()
+        XCTAssertEqual(ends.count, 1)
+        XCTAssertEqual(other.received.emotes.count, 1)
+        c.handleClose()
+        await gate.tick()
+    }
+
+    func testArrowKeyAfterTheEndTimeCountsAsCompleted() async {
+        var ends: [PlazaFocusEnd] = []
+        let (_, _, c) = await pair { ends.append($0) }
+        let scene = c.scene!
+        c.startFocus(minutes: 25)
+        now = now.addingTimeInterval(1501)
+        key(scene, leftKey)
+        XCTAssertEqual(ends, [PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true)])
+        XCTAssertEqual(scene.shownEmote(memberID: nil), .party)
+        c.handleClose()
+    }
+
+    func testMyRosterEntryShowsFocusWhileSeated() async {
+        let me = node("나")
+        let mine = PlazaRosterEntry(id: me.settings.memberID, nickname: "나", speciesID: 25, speciesName: "Pikachu",
+                                    gender: nil, isShiny: false, presence: .online, isMe: true)
+        let c = controller(me, myEntry: mine)
+        c.prepareScene()
+        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.presence, .online)
+        c.startFocus(minutes: 25)
+        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.presence, .focus)
+        key(c.scene!, leftKey)
+        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.presence, .online)
+        c.handleClose()
+    }
+
+    func testCAndSpaceKeepASeatedUserFacingTheFire() async {
+        let (_, other, c) = await pair()
+        c.startFocus(minutes: 25)
+        let scene = c.scene!
+        let seat = scene.walker.tile
+        let facing = scene.walker.facing
+        XCTAssertEqual(facing, .down, "the teammate stands to the side, not ahead")
+        await place(other, at: TilePoint(x: seat.x + 1, y: seat.y), in: c)
+        scene.onTackleKey?()
+        XCTAssertEqual(scene.walker.facing, facing)
+        key(scene, spaceKey)
+        XCTAssertNotNil(menu(c), "the member menu still opens")
+        XCTAssertEqual(scene.walker.facing, facing)
+        c.handleClose()
+        await gate.tick()
     }
 
     func testSilentEndSkipsCallbackAndParty() async {

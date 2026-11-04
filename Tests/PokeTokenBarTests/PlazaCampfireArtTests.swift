@@ -19,9 +19,12 @@ final class PlazaCampfireArtTests: XCTestCase {
 
     func testFramesLoopWithoutAJump() {
         for state in [PlazaCampfireArt.State.lit, .ended] {
-            let a = pixels(PlazaCampfireArt.image(state, phase: 0, scale: 1))
-            XCTAssertEqual(a, pixels(PlazaCampfireArt.image(state, phase: 12, scale: 1)))
-            XCTAssertNotEqual(a, pixels(PlazaCampfireArt.image(state, phase: 1, scale: 1)))
+            let f = (0..<12).map { pixels(PlazaCampfireArt.image(state, phase: $0, scale: 1)) }
+            func diff(_ a: [UInt8], _ b: [UInt8]) -> Int { zip(a, b).filter { $0 != $1 }.count }
+            let steps = (0..<11).map { diff(f[$0], f[$0 + 1]) }
+            let seam = diff(f[11], f[0])
+            XCTAssertGreaterThan(steps.max()!, 0)
+            XCTAssertLessThanOrEqual(Double(seam), Double(steps.max()!) * 1.5, "\(state): frame 11 -> 0 jumps")
         }
     }
 

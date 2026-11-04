@@ -46,6 +46,17 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertEqual(scene.campfirePhase, phase)
     }
 
+    /// A paused (hidden) scene never saw the fire go out, so it must not queue smoke for whenever it is shown next.
+    func testNoSmokeQueuesWhileThePausedSceneLosesTheFire() {
+        let scene = newScene()
+        scene.update(0)
+        scene.campfireLit = true
+        scene.isPaused = true
+        scene.campfireLit = false
+        scene.isPaused = false
+        XCTAssertEqual(scene.campfireState, .ready)
+    }
+
     func testSmokeShowsFifteenSecondsAfterTheFireGoesOut() {
         let scene = newScene()
         scene.update(0)
@@ -158,6 +169,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
     func testTimerLabelAppearsRedrawsOnChangeAndHides() {
         let scene = newScene()
         scene.update(0)
+        XCTAssertFalse(scene.isCampfireTimerShown)
         XCTAssertNil(scene.campfireTimerText)
         scene.setCampfireTimer("12:34")
         XCTAssertEqual(scene.campfireTimerText, "12:34")

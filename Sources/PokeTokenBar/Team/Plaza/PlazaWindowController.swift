@@ -325,7 +325,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             if let self, let id = self.faceNearbyMember() { self.greet(id) }
         }
         s.onTackleKey = { [weak self] in
-            if let self, let id = self.faceNearbyMember() { self.tackle(id) }
+            if let self, !self.isFocusing, let id = self.faceNearbyMember() { self.tackle(id) }
         }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onItemPickup = { [weak self] in self?.pickUp($0) }
@@ -606,13 +606,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard let scene,
               let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
                                                 members: scene.memberTiles) else { return }
-        scene.face(hit.facing)
+        if !isFocusing { scene.face(hit.facing) }   // 앉아 있는 동안은 불을 바라본 채로 둔다
         switch hit.target {
         case .board:
             feed?.markAllRead()
             openOverlay(.board)
         case .campfire:
-            guard focus == nil else { return }   // 이미 앉아 있으면 다시 고를 일이 없다
             let free = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: Set(scene.memberTiles.values)) != nil
             openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: isCampfireLit, minutes: free ? PlazaCampfire.durations : [],
                                                          selection: 0)))
@@ -838,12 +837,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
     func startFocus(minutes: Int) {
         guard let scene, focus == nil,
               let seat = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: Set(scene.memberTiles.values)) else { return }
-        scene.sit(at: seat)
         let started = PlazaFocus(endsAt: clock().addingTimeInterval(TimeInterval(minutes * 60)), minutes: minutes, seat: seat.tile)
         focus = started
         focusFacing = seat.facing
         preferences.focus = started
-        session?.updateFocus(endsAt: started.endsAt)
+        session?.updateFocus(endsAt: started.endsAt)   // 자리 위치보다 먼저: 자리만 알리고 끝 시각은 빠진 접속 알림이 나가지 않게
+        scene.sit(at: seat)
         sendPosition(inPlaza: true, scene: scene)
         refreshCampfire()
     }
@@ -851,25 +850,25 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 방향키나 목록 선택으로 일어선다. 앉아 있지 않으면 아무것도 안 한다.
     func standUp() {
         guard let focus else { return }
+        if !focus.isActive(at: clock()) { endFocusIfDue(); return }   // 이미 끝 시각이 지났으면 마친 것으로 센다
         let total = TimeInterval(focus.minutes * 60)
         let elapsed = total - focus.endsAt.timeIntervalSince(clock())
-        endFocus(completed: false, elapsedMinutes: min(focus.minutes, max(0, Int(elapsed / 60))), silently: false)
+        endFocus(focus, completed: false, elapsedMinutes: min(focus.minutes, max(0, Int(elapsed / 60))), silently: false)
     }
 
     /// 끝 시각이 지났으면 끝낸다. 여러 번 불러도 한 번만 끝난다.
     func endFocusIfDue() {
         guard let focus, !focus.isActive(at: clock()) else { return }
-        endFocus(completed: true, elapsedMinutes: focus.minutes, silently: false)
+        endFocus(focus, completed: true, elapsedMinutes: focus.minutes, silently: false)
     }
 
     /// 알리지도 축하하지도 않고 끝낸다.
     func endFocusSilently() {
         guard let focus else { return }
-        endFocus(completed: false, elapsedMinutes: focus.minutes, silently: true)
+        endFocus(focus, completed: false, elapsedMinutes: focus.minutes, silently: true)
     }
 
-    private func endFocus(completed: Bool, elapsedMinutes: Int, silently: Bool) {
-        guard let ended = focus else { return }
+    private func endFocus(_ ended: PlazaFocus, completed: Bool, elapsedMinutes: Int, silently: Bool) {
         focus = nil
         preferences.focus = nil
         session?.updateFocus(endsAt: nil)
@@ -903,6 +902,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             while !Task.isCancelled {
                 await sleep(.seconds(1))
                 guard !Task.isCancelled, let self else { return }
+                self.endFocusIfDue()
                 self.refreshCampfire()
             }
         }
@@ -962,7 +962,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if dots != minimap.dots { minimap.dots = dots }
         if scene.visibleWorldRect != minimap.view { minimap.view = scene.visibleWorldRect }
         if scene.itemTile != minimap.item { minimap.item = scene.itemTile }
-        let fire = isCampfireLit ? PlazaMapData.map.campfireTiles.first : nil
+        let fire = isCampfireLit ? map.campfireTiles.first : nil
         if fire != minimap.campfire { minimap.campfire = fire }
     }
 
@@ -985,7 +985,6 @@ struct PlazaFocusEnd: Equatable, Sendable {
         members = current
         if let followed = scene?.followingMember, focusRemaining(of: followed) != nil { scene?.stopWalkingToMember() }
         applyMembersToScene()
-        refreshRoster()
         refreshCampfire()
     }
 
