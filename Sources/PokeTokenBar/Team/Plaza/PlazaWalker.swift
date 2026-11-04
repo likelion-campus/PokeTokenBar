@@ -3,6 +3,13 @@ import CoreGraphics
 
 enum PlazaDirection: String, CaseIterable, Codable, Sendable { case up, down, left, right }
 
+/// 지금 가고 있는 한 칸. `progress`는 0–1.
+struct PlazaStep: Equatable, Sendable {
+    let from: TilePoint
+    let to: TilePoint
+    let progress: Double
+}
+
 /// 한 칸씩 걷는 규칙. SpriteKit과 무관한 값 타입이다.
 /// 키를 누른 순서대로 쌓고 마지막에 누른 키가 이긴다. 한 칸을 가는 도중에는 멈추지 않는다.
 struct PlazaWalker: Sendable {
@@ -117,6 +124,12 @@ struct PlazaWalker: Sendable {
     var footPoint: CGPoint {
         let t = stepFrom == nil ? 0 : min(1, stepElapsed / stepLength)
         return Self.footPoint(from: stepFrom ?? tile, to: tile, progress: t)
+    }
+
+    /// 걷는 중이면 지금 걸음, 서 있으면 nil
+    var currentStep: PlazaStep? {
+        guard let from = stepFrom else { return nil }
+        return PlazaStep(from: from, to: tile, progress: min(1, stepElapsed / stepLength))
     }
 
     /// `from`에서 `to`로 `progress`(0–1)만큼 간 발 위치. 팀원 보간도 같은 식을 쓴다.
