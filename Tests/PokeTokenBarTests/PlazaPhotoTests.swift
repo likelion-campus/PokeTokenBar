@@ -485,8 +485,10 @@ final class PlazaPhotoTests: XCTestCase {
         scene.update(0)
         var input = try XCTUnwrap(scene.photoInput())
         XCTAssertTrue(input.visibleRect.contains(CGPoint(x: 1184, y: 786)))
-        XCTAssertEqual(input.items.first?.size, PlazaCampfireArt.worldSize)
-        XCTAssertEqual(input.items.first?.origin, CGPoint(x: 1184 - 32, y: 804 - 80))
+        XCTAssertTrue(input.items.isEmpty, "the pit is a depth-sorted prop, not a ground item")
+        XCTAssertEqual(input.props.first?.particle.size, PlazaCampfireArt.worldSize)
+        XCTAssertEqual(input.props.first?.baseY, 800)
+        XCTAssertEqual(input.props.first?.particle.origin, CGPoint(x: 1184 - 32, y: 804 - 80))
         let light = try XCTUnwrap(input.light)
         XCTAssertEqual(light.center, PlazaCampfireLight.center(campfireTiles: map.campfireTiles))
         // Tiny plate so we can compare it: it must be identical with and without the light.
@@ -494,7 +496,7 @@ final class PlazaPhotoTests: XCTestCase {
         let probe = PlazaPhotoActor(image: solid(2, 2, red), flipped: false, foot: CGPoint(x: light.center.x - 40, y: light.center.y + 2),
                                     scale: 1, shadow: nil, shadowRect: .zero, plate: plate, bubble: nil)
         input = PlazaPhotoInput(mapImage: input.mapImage, visibleRect: input.visibleRect, pixelsPerWorld: input.pixelsPerWorld,
-                                actors: [probe], tint: input.tint, items: input.items, light: light)
+                                actors: [probe], tint: input.tint, props: input.props, light: light)
         let lit = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(input)))
         var dark = input; dark.light = nil
         let plain = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(dark)))
@@ -530,5 +532,47 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertEqual(Int(got.b), expect(base.b, m.b), accuracy: 2)
         // Outside the ellipse nothing changes.
         XCTAssertTrue(same(lit[2, 2], plain[2, 2]))
+    }
+
+    /// Renders the photo with a tall member on `tile` four ways (everything, members only, pit only, bare ground) and
+    /// returns the pixels where both the member and the pit show: there the full photo says which one is in front.
+    private func overlap(memberTile: TilePoint) throws -> (full: [RGBA], member: [RGBA], pit: [RGBA]) {
+        let scene = newScene()
+        scene.setCharacter(PlazaCharacterFrames(front: [PlazaFrame(image: solid(100, 60, red), delay: 0.1)],
+                                                back: [PlazaFrame(image: solid(100, 60, red), delay: 0.1)]))
+        scene.sit(at: PlazaCampfire.seats[4])
+        scene.applyMembers([PlazaSceneMember(memberID: "m", nickname: "m", isAway: false, tile: memberTile, facing: .down, isWalking: false)])
+        scene.setMemberFrames("m", PlazaCharacterFrames(front: [PlazaFrame(image: solid(100, 60, red), delay: 0.1)],
+                                                        back: [PlazaFrame(image: solid(100, 60, red), delay: 0.1)]))
+        scene.update(0)
+        XCTAssertEqual(scene.memberTiles["m"], memberTile, "the tile is walkable, so the member stands there")
+        let input = try XCTUnwrap(scene.photoInput())
+        func render(actors: Bool, props: Bool) throws -> Pixels {
+            var i = input
+            if !actors { i = PlazaPhotoInput(mapImage: i.mapImage, visibleRect: i.visibleRect, pixelsPerWorld: i.pixelsPerWorld, actors: [], props: i.props) }
+            if !props { i.props = [] }
+            return Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(i)))
+        }
+        let full = try render(actors: true, props: true), members = try render(actors: true, props: false)
+        let pit = try render(actors: false, props: true), ground = try render(actors: false, props: false)
+        var out: (full: [RGBA], member: [RGBA], pit: [RGBA]) = ([], [], [])
+        for y in 0..<full.height {
+            for x in 0..<full.width where !same(members[x, y], ground[x, y]) && !same(pit[x, y], ground[x, y]) && !same(members[x, y], pit[x, y]) {
+                out.full.append(full[x, y]); out.member.append(members[x, y]); out.pit.append(pit[x, y])
+            }
+        }
+        return out
+    }
+
+    func testAMemberNorthOfTheBaseLineIsDrawnBehindThePit() throws {
+        let o = try overlap(memberTile: TilePoint(x: 35, y: 24))   // foot y = 24.875 * 32 = 796 < 800
+        XCTAssertFalse(o.full.isEmpty, "the member's sprite overlaps the pit sprite")
+        for (f, p) in zip(o.full, o.pit) { XCTAssertTrue(same(f, p), "the pit is in front") }
+    }
+
+    func testAMemberSouthOfTheBaseLineIsDrawnInFrontOfThePit() throws {
+        let o = try overlap(memberTile: TilePoint(x: 36, y: 26))
+        XCTAssertFalse(o.full.isEmpty)
+        for (f, m) in zip(o.full, o.member) { XCTAssertTrue(same(f, m), "the member is in front") }
     }
 }

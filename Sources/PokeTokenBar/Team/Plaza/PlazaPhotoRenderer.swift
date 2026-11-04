@@ -29,6 +29,12 @@ struct PlazaPhotoParticle {
     let size: CGSize
 }
 
+/// 캐릭터와 같은 앞뒤 순서로 찍히는 물건(모닥불). `baseY`는 바닥 변의 월드 y로, 발 y가 이보다 작은 캐릭터는 뒤에 찍힌다.
+struct PlazaPhotoProp {
+    let particle: PlazaPhotoParticle
+    let baseY: CGFloat
+}
+
 struct PlazaPhotoInput {
     let mapImage: CGImage
     /// 사진에 담을 월드 영역.
@@ -42,6 +48,8 @@ struct PlazaPhotoInput {
     var weather: [PlazaPhotoParticle] = []
     /// 땅에 떨어진 아이템. 그림자 위, 캐릭터 아래.
     var items: [PlazaPhotoParticle] = []
+    /// 캐릭터와 앞뒤를 겨루는 물건. 발 y가 같으면 물건이 뒤.
+    var props: [PlazaPhotoProp] = []
     /// 모닥불이 던지는 밤빛. 낮밤 색 바로 위에 곱하고 이름표와 말풍선에는 곱하지 않는다.
     var light: PlazaPhotoLight?
 }
@@ -110,7 +118,17 @@ enum PlazaPhotoRenderer {
 
         // 화면 위쪽에 선(발의 y가 작은) 캐릭터부터. 같으면 입력 순서를 지킨다.
         let ordered = input.actors.enumerated().sorted { ($0.element.foot.y, $0.offset) < ($1.element.foot.y, $1.offset) }.map(\.element)
+        var pendingProps = input.props.sorted { $0.baseY < $1.baseY }[...]
+        func drawProps(upTo y: CGFloat?) {
+            while let prop = pendingProps.first, y.map({ prop.baseY <= $0 }) ?? true {
+                pendingProps = pendingProps.dropFirst()
+                let p = prop.particle
+                draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
+                     w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
+            }
+        }
         for a in ordered {
+            drawProps(upTo: a.foot.y)
             let w = Int((CGFloat(a.image.width) * a.scale * ppw).rounded()), h = Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
             draw(a.image, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX),
                  top: px(a.foot.y - a.bob, origin: rect.minY) - h, w: w, h: h, mirrored: a.flipped)
@@ -119,6 +137,8 @@ enum PlazaPhotoRenderer {
                      w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
             }
         }
+
+        drawProps(upTo: nil)
 
         for p in input.weather {
             draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
