@@ -130,8 +130,10 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertTrue(layer.children.filter { $0.zPosition >= 1 && $0.zPosition < 2 }.allSatisfy { !$0.isHidden })
         XCTAssertEqual(layer.bandOffset(at: a), .zero)
         XCTAssertNil(layer.overlayOffset(at: a))
-        layer.update(dt: 1)
+        // The dropped delayed cue (0.45 s left at hide time) would be running at elapsed 0.05 here.
+        layer.update(dt: 0.5)
         XCTAssertTrue(layer.activeRustles.isEmpty)
+        XCTAssertEqual(layer.leafCount, 0)
     }
 
     func testCuesOffTheGrassAreIgnored() throws {
