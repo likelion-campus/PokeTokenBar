@@ -571,7 +571,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard let actor = actor(memberID) else { return }
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         // 풀숲에 숨은 캐릭터는 몸이 없으니 이름표가 앉은 자리에서 터진다.
-        let originY = actor.concealment > 0.5 ? worldSize.height - foot.y + PlazaTallGrass.hiddenPlateLift
+        let originY = memberID != nil && actor.concealment > 0.5 ? worldSize.height - foot.y + PlazaTallGrass.hiddenPlateLift
             : worldSize.height - foot.y + max(actor.characterSize.height, 24) * 0.6
         let origin = CGPoint(x: foot.x.rounded(), y: originY.rounded())
         let image = PlazaEmoteArt.sparkImage(scale: 2)
@@ -958,6 +958,11 @@ struct PlazaSceneMember: Equatable, Sendable {
     func memberNamePlateTop(_ id: String) -> CGFloat? { remotes[id]?.actor.namePlateTop }
     func memberZ(_ id: String) -> CGFloat? { remotes[id]?.actor.characterZ }
     var myOpacity: CGFloat { me.characterOpacity }
+    var myShadowOpacity: CGFloat { me.shadowOpacity }
+    var myNamePlateTop: CGFloat { me.namePlateTop }
+    var myFootPoint: CGPoint { walker.footPoint }
+    func memberShadowOpacity(_ id: String) -> CGFloat? { remotes[id]?.actor.shadowOpacity }
+    func memberNamePlateVisible(_ id: String) -> Bool? { remotes[id]?.actor.isNamePlateVisible }
     func memberOpacity(_ id: String) -> CGFloat? { remotes[id]?.actor.characterOpacity }
     func memberNestFrontOpacity(_ id: String) -> CGFloat? { remotes[id]?.actor.nestFrontOpacity }
 

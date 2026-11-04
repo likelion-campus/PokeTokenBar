@@ -161,7 +161,7 @@ enum PlazaPhotoRenderer {
             var top = px(a.foot.y - a.bob, origin: rect.minY) - Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
             if let base = a.plateBaseY { top = px(base, origin: rect.minY) }
             if let plate = a.plate {
-                top -= (a.plateBaseY == nil ? plateGap : 0) + plate.height
+                top -= plateGap + plate.height
                 draw(plate, x: centerX - plate.width / 2, top: top, w: plate.width, h: plate.height)
             }
             if let bubble = a.bubble {

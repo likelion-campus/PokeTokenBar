@@ -55,7 +55,7 @@ import SpriteKit
                 guard map.tile(at: p) == .tallGrass else { continue }
                 let slice = PlazaTallGrass.slice(at: p) { map.tile(at: $0) == .tallGrass }
                 slices[p] = slice
-                let node = SKSpriteNode(texture: Self.texture(art.front(slice)), size: CGSize(width: tile, height: tile))
+                let node = SKSpriteNode(texture: cachedTexture("front", slice) { art.front($0) }, size: CGSize(width: tile, height: tile))
                 node.anchorPoint = .zero
                 node.position = basePosition(p)
                 node.zPosition = 1 + (CGFloat(y) * tile + 31) / worldHeight
@@ -69,6 +69,8 @@ import SpriteKit
 
     var bandCount: Int { bands.count }
     var leafCount: Int { leaves.count }
+    /// 테스트용: 띠들이 쓰는 서로 다른 텍스처 수(조각 종류마다 하나만 만든다).
+    var distinctBandTextureCount: Int { Set(bands.values.compactMap { $0.texture.map(ObjectIdentifier.init) }).count }
     var activeRustles: [(tile: TilePoint, kind: PlazaRustleKind, strong: Bool)] {
         running.map { ($0.tile, $0.kind, $0.strong) }
     }
@@ -196,7 +198,7 @@ import SpriteKit
     }
 
     private func cachedTexture(_ kind: String, _ s: PlazaTallGrassSlice, _ make: (PlazaTallGrassSlice) -> CGImage) -> SKTexture {
-        let key = "\(kind)\(s.col)\(s.row)"
+        let key = "\(kind)-\(s.col)-\(s.row)"
         if let t = textureCache[key] { return t }
         let t = Self.texture(make(s))
         textureCache[key] = t

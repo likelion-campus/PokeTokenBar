@@ -225,7 +225,8 @@ struct PlazaActorContext {
         let top = footScene.y + characterNode.size.height
         let labelBacking = max(backing, 1)
         refreshPlate(backing: labelBacking)
-        let plateBase = PlazaTallGrass.plateBaseY(spriteTopY: top, footSceneY: context.worldHeight - foot.y, concealment: concealment)
+        let plateBase = PlazaTallGrass.plateBaseY(spriteTopY: top, footSceneY: context.worldHeight - foot.y,
+                                                 concealment: isMe ? 0 : concealment)   // 내 포켓몬은 40%로 보이니 이름표는 머리 위에 둔다
         plateNode.position = PlazaPixelSnap.platePosition(footSceneX: footScene.x, topY: plateBase, cameraPos: context.cameraPosition,
                                                           plateWidth: plateNode.size.width, viewport: context.viewport,
                                                           backing: labelBacking, zoom: zoom)
@@ -250,7 +251,7 @@ struct PlazaActorContext {
             opacity = PlazaTallGrass.opacity(concealment: concealment, isMe: isMeForConcealment)
             // 화면과 같은 높이 규칙(PlazaTallGrass.plateBaseY)을 월드 y(아래로)로 옮긴 값.
             let height = CGFloat(image.height) * Self.characterScale
-            plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2))
+            if !isMeForConcealment { plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2)) }
         }
         return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: foot, bob: CGFloat(pose.bob),
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
@@ -276,6 +277,7 @@ struct PlazaActorContext {
     /// 테스트용: 풀숲에서 흐려진 그림과 둥지 앞 테두리의 투명도.
     var characterOpacity: CGFloat { characterNode.alpha }
     var nestFrontOpacity: CGFloat { nestFrontNode.alpha }
+    var shadowOpacity: CGFloat { shadowNode.alpha }
     var characterSize: CGSize { characterNode.size }
     var namePlatePosition: CGPoint { plateNode.position }
     var namePlateWidth: CGFloat { plateNode.size.width }
