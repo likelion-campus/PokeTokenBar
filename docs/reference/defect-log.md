@@ -1552,3 +1552,15 @@ read_when:
   its own clock (`inWindow`) before trimming by count, and reports an entry trimmed right away as not new. The
   plaza chat log trims by count in arrival order, and emote throttles compare times from the controller's own
   clock. None of them trims by a value a teammate chose.
+
+- **A save throttle that lets the first save through can still hold back the expensive one.**
+  #49 made `LocalUsageCache` save at most every 30 minutes, with the first save at once. On a cold start (first
+  install, a parser version bump, an unreadable snapshot) that first save holds only the today window from phase 1.
+  Phase 2 parses a month of files, which takes tens of seconds, and that waited 30 minutes, so quitting or updating
+  in that window parsed everything again on the next launch. **Why nothing caught it:** the rewrite budget test models
+  a steady day with one growing file, and no test went through a cold start's two phases with the throttle on.
+  **Fix:** save at once when 200 files never seen before have been parsed since the last save
+  (`freshFilesForImmediateSave`). Normal days create about 180 new session files, a few per 30 minutes. The budget
+  test now adds a new session file every 8 minutes and still allows at most 49 rewrites a day, and a new test
+  checks that a relaunch after phase 2 reads the month from the snapshot. **Class sweep:** no other save in
+  `Sources` is throttled.
