@@ -105,7 +105,19 @@ struct PlazaMemberMenu: Equatable {
     }
 }
 
-enum PlazaOverlayContent: Equatable { case none, card(PlazaCardState), board, memberMenu(PlazaMemberMenu) }
+/// 모닥불 메뉴. `minutes`가 비면 빈 자리가 없다는 안내만 보인다. `selection`은 `minutes`의 순번이다.
+struct PlazaCampfireMenu: Equatable {
+    let isJoin: Bool
+    let minutes: [Int]
+    var selection: Int
+
+    mutating func move(by step: Int) {
+        guard !minutes.isEmpty else { return }
+        selection = ((selection + step) % minutes.count + minutes.count) % minutes.count
+    }
+}
+
+enum PlazaOverlayContent: Equatable { case none, card(PlazaCardState), board, memberMenu(PlazaMemberMenu), campfireMenu(PlazaCampfireMenu) }
 
 /// 판이 열린 동안 장면이 넘기는 키. 판마다 쓰는 키가 다르다.
 enum PlazaOverlayKey: Equatable { case up, down, space, enter, escape }

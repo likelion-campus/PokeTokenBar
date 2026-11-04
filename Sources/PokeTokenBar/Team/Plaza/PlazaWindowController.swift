@@ -5,6 +5,13 @@ import SpriteKit
 @MainActor protocol PlazaPausableView: AnyObject { var isPaused: Bool { get set } }
 extension SKView: PlazaPausableView {}
 
+/// 집중이 끝났다. `completed`면 시간을 다 채웠고, 아니면 일어선 것이다.
+struct PlazaFocusEnd: Equatable, Sendable {
+    let minutes: Int
+    let elapsedMinutes: Int
+    let completed: Bool
+}
+
 /// 광장 창. 창을 만들지 않고도 장면을 만들 수 있게(`prepareScene`) 나눠 두었다.
 @MainActor final class PlazaWindowController: NSObject, NSWindowDelegate {
     private let map = PlazaMapData.map
@@ -44,6 +51,15 @@ extension SKView: PlazaPausableView {}
     private let spriteRetrySleep: @MainActor (Duration) async -> Void
     /// 그리기 감시의 간격. 테스트에서 바꿔 끼운다.
     private let renderCheckSleep: @MainActor (Duration) async -> Void
+    /// 창이 열려 있는 동안 1초마다 모닥불·타이머·안내를 다시 맞추는 틱. 테스트에서 바꿔 끼운다.
+    private let focusTickSleep: @MainActor (Duration) async -> Void
+    private var focusTick: Task<Void, Never>?
+    /// 지금 모닥불에 앉아 집중 중인 나. 앉으면 저장하고, 끝나거나 일어서면 지운다.
+    private(set) var focus: PlazaFocus?
+    /// 앉은 자리가 바라보는 방향. 다시 열거나 닫을 때 그대로 알린다.
+    private var focusFacing: PlazaDirection = .down
+    /// 집중이 끝났다(시간이 다 됐거나 일어섰다). 조용히 끝낼 때는 부르지 않는다.
+    var onFocusEnd: ((PlazaFocusEnd) -> Void)?
     /// A failed sprite request is made again after this long, while the plaza stays open.
     static let spriteRetryDelay: Duration = .seconds(30)
     /// 뒷모습은 원래 없는 그림일 수 있어(404와 오프라인을 구분할 수 없다) 몇 번만 다시 묻는다.
@@ -127,7 +143,9 @@ extension SKView: PlazaPausableView {}
          bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          groupPhotoSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-         renderCheckSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+         renderCheckSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         focusTickSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+        self.focusTickSleep = focusTickSleep
         self.spriteRetrySleep = spriteRetrySleep
         self.renderCheckSleep = renderCheckSleep
         self.session = session
@@ -153,6 +171,7 @@ extension SKView: PlazaPausableView {}
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
         takenItemSlots = keptSlots(Set(preferences.takenItemSlots))
         session?.updateTakenItemSlot(takenItemSlots.max())
+        restoreFocus()
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
             guard let self else { return }
@@ -195,7 +214,8 @@ extension SKView: PlazaPausableView {}
             let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlayModel, feed: feed, myMemberID: memberID(),
                                                                        onReact: { [weak self] in self?.session?.react(to: $0, kind: $1) },
                                                                        onMenuChoose: { [weak self] in self?.chooseMenu($0, memberID: $1) },
-                                                                       onMenuCancel: { [weak self] in self?.closeOverlay() }),
+                                                                       onMenuCancel: { [weak self] in self?.closeOverlay() },
+                                                                       onCampfireChoose: { [weak self] in self?.chooseCampfire(index: $0) }),
                                                 model: overlayModel)
             overlay.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
@@ -287,6 +307,7 @@ extension SKView: PlazaPausableView {}
         let s = PlazaScene(map: map, mapImage: mapImage,
                            start: preferences.lastTile(validIn: map),
                            zoom: preferences.zoom, nickname: nickname())
+        if let focus { s.sit(at: .init(tile: focus.seat, facing: focusFacing)) }
         s.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: nameColor()))
         nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: nameColor())
         nameColorModel.isOpen = false
@@ -318,6 +339,7 @@ extension SKView: PlazaPausableView {}
         backgroundModel.isHidden = preferences.isBackgroundHidden
         shortcutModel.isFolded = preferences.areShortcutsFolded
         s.onOverlayKey = { [weak self] in self?.handleOverlayKey($0) }
+        s.onWalkKey = { [weak self] in self?.standUp() }
         scene = s
         if let feed {
             unreadGeneration += 1
@@ -336,6 +358,8 @@ extension SKView: PlazaPausableView {}
         refreshRoster()
         refreshMinimap()
         s.refreshInteractionTarget()
+        refreshCampfire()
+        startFocusTick()
     }
 
     /// 내 말풍선은 바로 띄운다. ♥, ㅋㅋ, 🎉는 바라보거나 바로 옆에 있는 팀원을 표적으로 보내고, !, ?는 표적 없이 보낸다.
@@ -588,7 +612,10 @@ extension SKView: PlazaPausableView {}
             feed?.markAllRead()
             openOverlay(.board)
         case .campfire:
-            break   // 모닥불 메뉴는 이어지는 작업에서 붙인다.
+            guard focus == nil else { return }   // 이미 앉아 있으면 다시 고를 일이 없다
+            let free = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: Set(scene.memberTiles.values)) != nil
+            openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: isCampfireLit, minutes: free ? PlazaCampfire.durations : [],
+                                                         selection: 0)))
         case .member(let id):
             guard let state = members[id] else { return }
             var menu = PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)
@@ -614,7 +641,26 @@ extension SKView: PlazaPausableView {}
             case .escape:
                 closeOverlay()
             }
+        case .campfireMenu(var menu):
+            switch key {
+            case .up, .down:
+                menu.move(by: key == .up ? -1 : 1)
+                overlayModel.content = .campfireMenu(menu)
+            case .space, .enter:
+                chooseCampfire(index: menu.selection)
+            case .escape:
+                closeOverlay()
+            }
         }
+    }
+
+    /// 모닥불 메뉴에서 고른 시간으로 앉는다. 키로 고르든 눌러 고르든 여기로 온다. 고를 시간이 없으면 메뉴만 닫는다.
+    func chooseCampfire(index: Int) {
+        guard case .campfireMenu(let menu) = overlayModel.content, menu.minutes.indices.contains(index) else {
+            return closeOverlay()
+        }
+        closeOverlay()
+        startFocus(minutes: menu.minutes[index])
     }
 
     /// 메뉴에서 고른 일을 한다. 키로 고르든 눌러 고르든 여기로 온다.
@@ -699,12 +745,14 @@ extension SKView: PlazaPausableView {}
     /// 스페이스로 말을 걸 수 있으면 위쪽에 안내를 띄운다. 판이나 입력창이 열려 있으면 스페이스가 다른 일을 하므로 숨긴다.
     private func refreshHint() {
         var text: String?
-        if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
+        if let focus, overlayModel.content == .none, !chatInput.isOpen {
+            text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
+        } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
             text = members[id].map { L(.ko).plazaFollowHint(nickname: $0.nickname) }
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
             switch hit.target {
             case .board: text = L(.ko).plazaBoardHint
-            case .campfire: text = L(.ko).plazaCampfireLightHint
+            case .campfire: text = isCampfireLit ? L(.ko).plazaCampfireJoinHint : L(.ko).plazaCampfireLightHint
             case .member(let id): text = members[id].map { L(.ko).plazaMemberHint(nickname: $0.nickname) }
             }
         }
@@ -736,6 +784,7 @@ extension SKView: PlazaPausableView {}
 
     /// 목록에서 고른 팀원에게 걸어간다. 누른 뒤에도 키는 장면이 받는다.
     func walkToMember(_ id: String) {
+        standUp()
         scene?.walk(toMember: id)
         if let skView { window?.makeFirstResponder(skView) }
     }
@@ -747,6 +796,104 @@ extension SKView: PlazaPausableView {}
     }
 
     var isChatLogExpanded: Bool { chatLog.isExpanded }
+
+    // MARK: - 모닥불 집중
+
+    var isFocusing: Bool { focus != nil }
+    /// 테스트용 읽기 전용 값: 저장된 집중.
+    var preferencesFocusForTesting: PlazaFocus? { preferences.focus }
+    var isCampfireMenuOpen: Bool { if case .campfireMenu = overlayModel.content { true } else { false } }
+
+    /// 내가 앉아 있거나 팀원 중 누가 집중 중이면 불이 켜져 있다. 팀원의 끝 시각은 받을 때만 걸러지므로 지금과 다시 견준다.
+    var isCampfireLit: Bool {
+        let now = clock()
+        return focus?.isActive(at: now) == true || members.values.contains { $0.focusEndsAt.map { $0 > now } ?? false }
+    }
+
+    /// 지난 실행에서 저장한 집중을 되살린다. 아직 안 끝났으면 창이 없어도 팀원에게 앉은 모습을 알린다. 끝났으면 지운다.
+    private func restoreFocus() {
+        guard let saved = preferences.focus, saved.isActive(at: clock()),
+              let seat = PlazaCampfire.seats.first(where: { $0.tile == saved.seat }) else {
+            preferences.focus = nil
+            return
+        }
+        focus = saved
+        focusFacing = seat.facing
+        session?.updateFocus(endsAt: saved.endsAt)
+        session?.updatePlazaPosition(inPlaza: true, tile: seat.tile, facing: seat.facing, isWalking: false)
+    }
+
+    /// 가장 가까운 빈 자리에 앉아 집중을 시작한다. 이미 앉아 있거나 빈 자리가 없으면 아무것도 안 한다.
+    func startFocus(minutes: Int) {
+        guard let scene, focus == nil,
+              let seat = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: Set(scene.memberTiles.values)) else { return }
+        scene.sit(at: seat)
+        let started = PlazaFocus(endsAt: clock().addingTimeInterval(TimeInterval(minutes * 60)), minutes: minutes, seat: seat.tile)
+        focus = started
+        focusFacing = seat.facing
+        preferences.focus = started
+        session?.updateFocus(endsAt: started.endsAt)
+        sendPosition(inPlaza: true, scene: scene)
+        refreshCampfire()
+    }
+
+    /// 방향키나 목록 선택으로 일어선다. 앉아 있지 않으면 아무것도 안 한다.
+    func standUp() {
+        guard let focus else { return }
+        let total = TimeInterval(focus.minutes * 60)
+        let elapsed = total - focus.endsAt.timeIntervalSince(clock())
+        endFocus(completed: false, elapsedMinutes: min(focus.minutes, max(0, Int(elapsed / 60))), silently: false)
+    }
+
+    /// 끝 시각이 지났으면 끝낸다. 여러 번 불러도 한 번만 끝난다.
+    func endFocusIfDue() {
+        guard let focus, !focus.isActive(at: clock()) else { return }
+        endFocus(completed: true, elapsedMinutes: focus.minutes, silently: false)
+    }
+
+    /// 알리지도 축하하지도 않고 끝낸다.
+    func endFocusSilently() {
+        guard let focus else { return }
+        endFocus(completed: false, elapsedMinutes: focus.minutes, silently: true)
+    }
+
+    private func endFocus(completed: Bool, elapsedMinutes: Int, silently: Bool) {
+        guard let ended = focus else { return }
+        focus = nil
+        preferences.focus = nil
+        session?.updateFocus(endsAt: nil)
+        if scene == nil {
+            // 창이 닫혀 있는 동안 앉은 모습으로 남아 있었다. 이제 광장을 떠난 것으로 알린다.
+            session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        } else {
+            refreshCampfire()
+        }
+        if completed && !silently {
+            scene?.showEmote(memberID: nil, kind: .party)
+            session?.sendEmote(.party, target: nil)
+        }
+        if !silently { onFocusEnd?(PlazaFocusEnd(minutes: ended.minutes, elapsedMinutes: elapsedMinutes, completed: completed)) }
+    }
+
+    /// 불, 타이머 글, 안내를 이 순서로 지금에 맞춘다.
+    private func refreshCampfire() {
+        guard let scene else { return }
+        scene.campfireLit = isCampfireLit
+        scene.setCampfireTimer(focus.map { PlazaCampfire.clock($0.endsAt.timeIntervalSince(clock())) })
+        refreshHint()
+    }
+
+    private func startFocusTick() {
+        focusTick?.cancel()
+        let sleep = focusTickSleep
+        focusTick = Task { [weak self] in
+            while !Task.isCancelled {
+                await sleep(.seconds(1))
+                guard !Task.isCancelled, let self else { return }
+                self.refreshCampfire()
+            }
+        }
+    }
 
     /// 큰 소식 연출: 쓴 사람 위에 반짝임, 위쪽에 배너. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 진화는 연출하지 않는다.
     func showBigEvent(_ e: TeamEvent) {
@@ -822,7 +969,7 @@ extension SKView: PlazaPausableView {}
         members = current
         applyMembersToScene()
         refreshRoster()
-        refreshHint()
+        refreshCampfire()
     }
 
     private func applyMembersToScene() {
@@ -941,6 +1088,8 @@ extension SKView: PlazaPausableView {}
         logState("closing")   // 멈춘 광장을 닫아 되살리는 순간의 상태
         renderWatchdog?.cancel()
         renderWatchdog = nil
+        focusTick?.cancel()
+        focusTick = nil
         chatInput.close()
         if overlayModel.content == .board { feed?.markAllRead() }
         persistState()
@@ -953,7 +1102,12 @@ extension SKView: PlazaPausableView {}
         overlayModel.countdown = nil
         unreadGeneration += 1
         if let scene, session != nil {
-            session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+            // 앉아 있으면 창을 닫아도 팀원에게는 그 자리에 앉은 채로 남는다.
+            if let focus {
+                session?.updatePlazaPosition(inPlaza: true, tile: focus.seat, facing: focusFacing, isWalking: false)
+            } else {
+                session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+            }
             scene.onLocalPositionChange = nil
         }
         membersGeneration += 1
@@ -981,6 +1135,7 @@ extension SKView: PlazaPausableView {}
             scene.onFrameClockStall = nil
             scene.onChatKey = nil
             scene.onOverlayKey = nil
+            scene.onWalkKey = nil
             scene.onInteractionTargetChange = nil
             scene.isOverlayOpen = false
         }

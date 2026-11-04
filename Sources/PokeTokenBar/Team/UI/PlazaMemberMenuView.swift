@@ -44,3 +44,48 @@ struct PlazaMemberMenuView: View {
         }
     }
 }
+
+/// 모닥불 메뉴. 팀원 메뉴와 같은 모양이고 제목만 금색이다. 빈 자리가 없으면 안내 한 줄만 보인다.
+@MainActor
+struct PlazaCampfireMenuView: View {
+    let menu: PlazaCampfireMenu
+    let onChoose: (Int) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L(.ko).plazaCampfireMenuTitle(isJoin: menu.isJoin))
+                .font(Font(PlazaResources.font(.body)))
+                .foregroundStyle(Color(hex: 0xF2C14E))
+                .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
+                .lineLimit(1)
+            if menu.minutes.isEmpty {
+                Text(Self.rows(menu)[0])
+                    .font(Font(PlazaResources.font(.body)))
+                    .foregroundStyle(.white)
+            }
+            ForEach(Array(menu.minutes.indices), id: \.self) { i in
+                Button { onChoose(i) } label: {
+                    HStack(spacing: 6) {
+                        Text("▶").opacity(i == menu.selection ? 1 : 0).accessibilityHidden(true)
+                        Text(Self.rows(menu)[i])
+                    }
+                    .font(Font(PlazaResources.font(.body)))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+            }
+        }
+        .padding(PlazaRosterMetrics.padding + 2)
+        .frame(width: PlazaMemberMenuView.width)
+        .background(PlazaRosterBackground())
+    }
+
+    /// 보이는 줄의 글. 고를 시간이 없으면 안내 한 줄이다.
+    static func rows(_ menu: PlazaCampfireMenu) -> [String] {
+        let l = L(.ko)
+        return menu.minutes.isEmpty ? [l.plazaCampfireFull] : menu.minutes.map { l.plazaCampfireRow(minutes: $0) }
+    }
+}

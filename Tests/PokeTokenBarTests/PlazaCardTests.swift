@@ -17,7 +17,7 @@ private extension PlazaOverlayContent {
     var cardMemberID: String? {
         switch self {
         case .card(.loading(let s)), .card(.loaded(let s, _)), .card(.failed(let s)): s.memberID
-        case .none, .board, .memberMenu: nil
+        case .none, .board, .memberMenu, .campfireMenu: nil
         }
     }
 }

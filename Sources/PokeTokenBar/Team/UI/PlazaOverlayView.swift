@@ -11,6 +11,7 @@ struct PlazaOverlayView: View {
     var onMenuChoose: (_ action: PlazaMemberAction, _ memberID: String) -> Void = { _, _ in }
     /// 메뉴 밖을 눌렀다.
     var onMenuCancel: () -> Void = {}
+    var onCampfireChoose: (_ index: Int) -> Void = { _ in }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -51,6 +52,9 @@ struct PlazaOverlayView: View {
                 if case .memberMenu(let menu) = model.content {
                     PlazaMemberMenuView(menu: menu, onChoose: { onMenuChoose($0, menu.memberID) })
                 }
+                if case .campfireMenu(let menu) = model.content {
+                    PlazaCampfireMenuView(menu: menu, onChoose: onCampfireChoose)
+                }
             }
             .padding(.top, PlazaRosterMetrics.margin)
         }
@@ -68,7 +72,7 @@ struct PlazaOverlayView: View {
             }
         case .card(let state):
             panel(PlazaCardMetrics.panelSize) { PlazaCardView(state: state) }
-        case .memberMenu:
+        case .memberMenu, .campfireMenu:
             Color.clear.contentShape(Rectangle()).onTapGesture(perform: onMenuCancel)
         }
     }

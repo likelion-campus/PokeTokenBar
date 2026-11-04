@@ -35,6 +35,12 @@ extension L {
         return m == 0 ? "\(h)시간 남음" : "\(h)시간 \(m)분 남음"
     }
     func plazaFocusDuration(minutes: Int) -> String { minutes % 60 == 0 ? "\(minutes / 60)시간" : "\(minutes)분" }
+    var plazaCampfireJoinHint: String { "스페이스바를 눌러 같이 집중하기" }
+    /// 앉아 있는 동안의 안내. `remaining`은 `plazaFocusRemaining`의 결과.
+    func plazaFocusHint(remaining: String) -> String { "🔥 \(remaining) · 방향키로 일어나기" }
+    func plazaCampfireMenuTitle(isJoin: Bool) -> String { isJoin ? "같이 집중하기" : "모닥불" }
+    func plazaCampfireRow(minutes: Int) -> String { "\(plazaFocusDuration(minutes: minutes)) 집중" }
+    var plazaCampfireFull: String { "자리가 없어요" }
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }
