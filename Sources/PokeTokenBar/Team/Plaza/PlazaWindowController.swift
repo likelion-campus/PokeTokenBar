@@ -833,13 +833,16 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 지난 실행에서 저장한 집중을 되살린다. 아직 안 끝났으면 창이 없어도 팀원에게 앉은 모습을 알린다. 끝났으면 지운다.
     private func restoreFocus() {
         guard let saved = preferences.focus, saved.isActive(at: clock()),
-              let seat = PlazaCampfire.seats.first(where: { $0.tile == saved.seat }) else {
+              let seat = PlazaCampfire.nearestSeat(to: saved.seat) else {
             preferences.focus = nil
             return
         }
-        focus = saved
+        // 모닥불이 옮겨지기 전 버전에서 저장한 자리면 가장 가까운 새 자리로 옮겨 앉힌다(8시간 집중을 잃지 않게).
+        let restored = saved.seat == seat.tile ? saved : PlazaFocus(endsAt: saved.endsAt, minutes: saved.minutes, seat: seat.tile)
+        if restored != saved { preferences.focus = restored }
+        focus = restored
         focusFacing = seat.facing
-        session?.updateFocus(endsAt: saved.endsAt)
+        session?.updateFocus(endsAt: restored.endsAt)
         session?.updatePlazaPosition(inPlaza: true, tile: seat.tile, facing: seat.facing, isWalking: false)
     }
 

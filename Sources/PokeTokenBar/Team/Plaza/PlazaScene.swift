@@ -87,8 +87,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     private let cameraNode = SKCameraNode()
     /// 계절 날씨 입자. 캐릭터(z 1~2) 위, 낮밤 곱하기(5)와 이름표(10) 아래.
     private let weatherLayer = PlazaWeatherLayer()
-    /// 아이템이 떨어질 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
-    private lazy var itemCandidates: [TilePoint] = PlazaItems.candidates(in: map)
+    /// 지금 지도에서 아이템이 놓일 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
+    private lazy var itemOpenTiles: Set<TilePoint> = PlazaItems.openTiles(in: map)
     /// 누군가 주운 아이템 칸. 창 컨트롤러가 채운다.
     var pickedItemSlots: Set<Int> = []
     /// 지금 광장에 있는 아이템.
@@ -873,8 +873,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     private func currentItem() -> PlazaItems.Spawn? {
         let date = now(), slot = PlazaItems.slot(at: date)
-        if itemSpawnCache?.slot != slot { itemSpawnCache = (slot, PlazaItems.spawn(slot: slot, candidates: itemCandidates)) }
-        if let spawn = itemSpawnCache?.spawn, PlazaItems.isOnCampfire(spawn, map: map) { return nil }
+        if itemSpawnCache?.slot != slot { itemSpawnCache = (slot, PlazaItems.spawn(slot: slot, candidates: PlazaItems.spawnCandidates)) }
+        if let spawn = itemSpawnCache?.spawn, !PlazaItems.isShown(spawn, openTiles: itemOpenTiles) { return nil }
         return PlazaItems.visible(itemSpawnCache?.spawn, at: date, picked: pickedItemSlots)
     }
 

@@ -730,7 +730,9 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     func testCameraLooksAboveFeetForBigSprite() {
-        let c = controller(defaults())
+        let d = defaults()
+        PlazaPreferences(defaults: d).saveLastTile(TilePoint(x: 23, y: 14))   // 쉼터는 지도 위쪽 끝이라 카메라가 막힌다: 가운데에서 시작
+        let c = controller(d)
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
         let before = scene.cameraPosition.y

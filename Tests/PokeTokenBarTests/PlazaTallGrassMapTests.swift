@@ -2,42 +2,6 @@ import XCTest
 @testable import PokeTokenBar
 
 final class PlazaTallGrassMapTests: XCTestCase {
-    /// 풀숲을 넣기 전 지도(모닥불 포함, fb97203). 풀숲이 빈 땅만 바꿨는지, 아이템 후보가 그대로인지 비교하는 기준이다.
-    static let legacyRows: [String] = [
-        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-        "TTT..........................................TTT",
-        "TTT..f.........b.......f.....................TTT",
-        "TTT.....................f.f.............f....TTT",
-        "TTT..........f...f...........................TTT",
-        "TTT...........................b.f............TTT",
-        "TTT.......f..................................TTT",
-        "TTT.....f..........f............f....f.......TTT",
-        "TTT....................................b.....TTT",
-        "TTT.f........................................TTT",
-        "TTT..................................f.f.....TTT",
-        "TTT.......b.........................f......f.TTT",
-        "TTT...................SNNS...................TTT",
-        "TTT.f.................SNNS.......f...........TTT",
-        "TTT.......f...f......SSSSSS..............f...TTT",
-        "TTT............b.....SSSSSS.......f..........TTT",
-        "TTT............................f...f.........TTT",
-        "TTT........b.................................TTT",
-        "TTT........f..................f..............TTT",
-        "TTT............f.......................f.....TTT",
-        "TTT...............f..............b...f....b..TTT",
-        "TTT..............f.....f...f........FF.......TTT",
-        "TTT.................................FF.......TTT",
-        "TTT..........................................TTT",
-        "TTT..............f...........f........ff.....TTT",
-        "TTT...................f......................TTT",
-        "TTT..........................................TTT",
-        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
-    ]
-
     let rows = PlazaMapData.rows
     let map = PlazaMapData.map
 
@@ -75,23 +39,10 @@ final class PlazaTallGrassMapTests: XCTestCase {
         XCTAssertTrue(PlazaTile.tallGrass.isWalkable)
     }
 
-    func testOnlyOpenGroundBecameGrass() {
-        let old = Self.legacyRows
-        XCTAssertEqual(rows.count, old.count)
-        for (y, (n, o)) in zip(rows, old).enumerated() {
-            XCTAssertEqual(n.count, o.count, "row \(y)")
-            for (x, (a, b)) in zip(n, o).enumerated() where a != b {
-                XCTAssertEqual(a, "g", "(\(x),\(y)) 바뀐 칸은 풀숲이어야 한다")
-                XCTAssertTrue(b == "." || b == "f", "(\(x),\(y)) 풀숲은 풀밭·꽃만 덮는다: \(b)")
-            }
-        }
-    }
-
-    func testItemCandidatesMatchTheMapBeforeTallGrass() throws {
-        let legacy = try PlazaMap(rows: Self.legacyRows)
-        let before = PlazaItems.candidates(in: legacy)
-        XCTAssertEqual(before.count, 1062)
-        XCTAssertEqual(PlazaItems.candidates(in: map), before)
+    /// 풀숲은 걸을 수 있어서 아이템 후보를 바꾸지 않는다: g를 풀밭으로 바꾼 지도와 후보가 같다.
+    func testTallGrassDoesNotChangeItemCandidates() throws {
+        let plain = try PlazaMap(rows: rows.map { $0.replacingOccurrences(of: "g", with: ".") })
+        XCTAssertEqual(PlazaItems.candidates(in: map), PlazaItems.candidates(in: plain))
     }
 
     func testPatchesAreSolidRectanglesAtLeastTwoByTwo() {
@@ -121,10 +72,6 @@ final class PlazaTallGrassMapTests: XCTestCase {
             for kind: Character in ["S", "N", "F"] {
                 for q in points(of: kind, in: rows) { XCTAssertGreaterThan(chebyshev(p, q), 2, "\(kind) \(p) \(q)") }
             }
-            // 모닥불 자리 (36–37, 23–24): 아직 지도에 F 가 없어도 2칸 안에 풀숲이 없어야 한다.
-            for fx in 36...37 { for fy in 23...24 {
-                XCTAssertGreaterThan(chebyshev(p, TilePoint(x: fx, y: fy)), 2, "모닥불 자리 \(p)")
-            } }
         }
     }
 

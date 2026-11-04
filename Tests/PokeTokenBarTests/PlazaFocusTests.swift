@@ -82,7 +82,7 @@ final class PlazaFocusTests: XCTestCase {
         return PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
     }
 
-    private func controller(_ me: Node, prefs: PlazaPreferences? = nil, start: TilePoint? = TilePoint(x: 36, y: 22),
+    private func controller(_ me: Node, prefs: PlazaPreferences? = nil, start: TilePoint? = TilePoint(x: 23, y: 14),
                             speciesID: Int? = 25, myEntry: PlazaRosterEntry? = nil,
                             onEnd: ((PlazaFocusEnd) -> Void)? = nil) -> PlazaWindowController {
         let prefs = prefs ?? self.prefs()
@@ -110,7 +110,7 @@ final class PlazaFocusTests: XCTestCase {
         scene.handleKeyDown(keyCode: code, characters: "", isRepeat: false)
     }
 
-    private func pair(start: TilePoint? = TilePoint(x: 36, y: 22), speciesID: Int? = 25,
+    private func pair(start: TilePoint? = TilePoint(x: 23, y: 14), speciesID: Int? = 25,
                       onEnd: ((PlazaFocusEnd) -> Void)? = nil) async -> (me: Node, other: Node, c: PlazaWindowController) {
         let me = node("나"), other = node("가")
         let c = controller(me, start: start, speciesID: speciesID, onEnd: onEnd)
@@ -160,7 +160,7 @@ final class PlazaFocusTests: XCTestCase {
         key(scene, spaceKey)
         key(scene, downKey)
         key(scene, spaceKey)
-        let seat = TilePoint(x: 35, y: 21)
+        let seat = TilePoint(x: 22, y: 13)
         let expected = PlazaFocus(endsAt: now.addingTimeInterval(3000), minutes: 50, seat: seat)
         XCTAssertEqual(c.focus, expected)
         XCTAssertTrue(c.isFocusing)
@@ -186,14 +186,14 @@ final class PlazaFocusTests: XCTestCase {
     func testJoiningALitFireUsesMyOwnDuration() async {
         let (_, other, c) = await pair()
         let scene = c.scene!
-        await place(other, at: TilePoint(x: 35, y: 21), focusEnds: now.addingTimeInterval(600), in: c)
+        await place(other, at: TilePoint(x: 22, y: 13), focusEnds: now.addingTimeInterval(600), in: c)
         XCTAssertTrue(c.isCampfireLit)
         XCTAssertTrue(scene.campfireLit)
         XCTAssertEqual(c.hint, "스페이스바를 눌러 같이 집중하기")
         key(scene, spaceKey)
         XCTAssertEqual(c.overlayContent, .campfireMenu(PlazaCampfireMenu(isJoin: true, minutes: [25, 50, 480], selection: 0)))
         key(scene, spaceKey)
-        XCTAssertEqual(c.focus, PlazaFocus(endsAt: now.addingTimeInterval(1500), minutes: 25, seat: TilePoint(x: 38, y: 21)))
+        XCTAssertEqual(c.focus, PlazaFocus(endsAt: now.addingTimeInterval(1500), minutes: 25, seat: TilePoint(x: 25, y: 13)))
         c.handleClose()
     }
 
@@ -360,15 +360,15 @@ final class PlazaFocusTests: XCTestCase {
         var ends: [PlazaFocusEnd] = []
         let me = node("나")
         let p = prefs()
-        p.focus = PlazaFocus(endsAt: now.addingTimeInterval(600), minutes: 25, seat: TilePoint(x: 35, y: 21))
+        p.focus = PlazaFocus(endsAt: now.addingTimeInterval(600), minutes: 25, seat: TilePoint(x: 22, y: 13))
         let c = controller(me, prefs: p, speciesID: nil) { ends.append($0) }
         c.prepareScene()
         let scene = c.scene!
-        XCTAssertEqual(scene.walker.tile, TilePoint(x: 35, y: 21))
+        XCTAssertEqual(scene.walker.tile, TilePoint(x: 22, y: 13))
         key(scene, downKey)
         XCTAssertNil(c.focus)
         XCTAssertEqual(ends.count, 1)
-        XCTAssertEqual(scene.walker.tile, TilePoint(x: 35, y: 21), "an egg cannot walk off")
+        XCTAssertEqual(scene.walker.tile, TilePoint(x: 22, y: 13), "an egg cannot walk off")
         c.handleClose()
     }
 
@@ -377,7 +377,7 @@ final class PlazaFocusTests: XCTestCase {
     func testClosingWhileFocusingKeepsMeSeatedAndReopeningStartsOnTheSeat() async {
         let (me, other, c) = await pair()
         c.startFocus(minutes: 25)
-        let seat = TilePoint(x: 35, y: 21)
+        let seat = TilePoint(x: 22, y: 13)
         c.handleClose()
         for _ in 0..<20 { await Task.yield() }
         let state = seen(other, me)
@@ -400,7 +400,7 @@ final class PlazaFocusTests: XCTestCase {
         let me = node("나"), other = node("가")
         await connect(me, other)
         let p = prefs()
-        let saved = PlazaFocus(endsAt: now.addingTimeInterval(600), minutes: 25, seat: TilePoint(x: 38, y: 21))
+        let saved = PlazaFocus(endsAt: now.addingTimeInterval(600), minutes: 25, seat: TilePoint(x: 25, y: 13))
         p.focus = saved
         let c = controller(me, prefs: p)
         XCTAssertTrue(c.isFocusing)
@@ -416,11 +416,31 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertFalse(late.isFocusing)
         XCTAssertNil(p.focus)
         XCTAssertEqual(ends, [])
+    }
 
-        // 자리 목록에 없는 칸에 저장돼 있으면 되살리지 않는다.
-        p.focus = PlazaFocus(endsAt: now.addingTimeInterval(600), minutes: 25, seat: TilePoint(x: 1, y: 1))
-        XCTAssertFalse(controller(me, prefs: p).isFocusing)
+    /// v2.5.614 에서 저장한 자리(모닥불이 오른쪽 아래였을 때)는 집중을 잃지 않고 가장 가까운 새 자리로 옮겨 앉는다.
+    func testAFocusSavedAtAnOldSeatMovesToTheNearestNewSeat() async {
+        let me = node("나"), other = node("가")
+        await connect(me, other)
+        let p = prefs()
+        let old = PlazaFocus(endsAt: now.addingTimeInterval(600), minutes: 25, seat: TilePoint(x: 35, y: 21))
+        p.focus = old
+        let c = controller(me, prefs: p)
+        let seat = PlazaCampfire.nearestSeat(to: old.seat)!
+        XCTAssertNotEqual(seat.tile, old.seat)
+        XCTAssertTrue(c.isFocusing, "the focus survives the upgrade")
+        XCTAssertEqual(c.focus, PlazaFocus(endsAt: old.endsAt, minutes: 25, seat: seat.tile))
+        XCTAssertEqual(p.focus, c.focus, "the new seat is saved, so the next launch restores it as is")
+        await waitUntil { seen(other, me)?.focusEndsAt == old.endsAt }
+        XCTAssertEqual(seen(other, me)?.tile, seat.tile)
+        XCTAssertEqual(seen(other, me)?.facing, seat.facing)
+
+        // 끝난 집중은 자리와 상관없이 조용히 버린다.
+        now = now.addingTimeInterval(601)
+        var ends: [PlazaFocusEnd] = []
+        XCTAssertFalse(controller(me, prefs: p) { ends.append($0) }.isFocusing)
         XCTAssertNil(p.focus)
+        XCTAssertEqual(ends, [])
     }
 
     // MARK: - 불과 타이머
@@ -458,7 +478,7 @@ final class PlazaFocusTests: XCTestCase {
         let (_, other, c) = await pair()
         XCTAssertNil(c.minimapCampfire)
         await place(other, at: PlazaMapData.map.spawn, focusEnds: now.addingTimeInterval(600), in: c)
-        XCTAssertEqual(c.minimapCampfire, TilePoint(x: 36, y: 23))
+        XCTAssertEqual(c.minimapCampfire, TilePoint(x: 23, y: 15))
         now = now.addingTimeInterval(601)
         await gate.tick()
         XCTAssertNil(c.minimapCampfire, "the 1 s tick alone puts the fire out")

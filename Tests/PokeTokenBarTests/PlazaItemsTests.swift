@@ -18,7 +18,9 @@ private struct OfflineLineProvider: PokeProviding {
 @MainActor
 final class PlazaItemsTests: XCTestCase {
     private let map = PlazaMapData.map
-    private var candidates: [TilePoint] { PlazaItems.candidates(in: map) }
+    /// The tiles slots pick from: the frozen item layout, the same on every version.
+    private var candidates: [TilePoint] { PlazaItems.spawnCandidates }
+    private var openTiles: Set<TilePoint> { PlazaItems.openTiles(in: map) }
     /// A slot whose item is up, and a moment while it is.
     private let slot = 160_000
     private var spawn: PlazaItems.Spawn { PlazaItems.spawn(slot: slot, candidates: candidates)! }
@@ -28,9 +30,10 @@ final class PlazaItemsTests: XCTestCase {
 
     func testCandidatesAreOpenGroundOnly() {
         let shelter = Set(map.shelterTiles)
-        XCTAssertFalse(candidates.isEmpty)
-        for t in candidates {
-            XCTAssertTrue(map.isWalkable(t) || map.tile(at: t) == .campfire)
+        let open = PlazaItems.candidates(in: map)
+        XCTAssertFalse(open.isEmpty)
+        for t in open {
+            XCTAssertTrue(map.isWalkable(t))
             XCTAssertFalse(shelter.contains(t), "\(t) is in the shelter")
             XCTAssertFalse([PlazaDirection.up, .down, .left, .right].contains { map.tile(at: PlazaWalker.offset(t, $0)) == .board },
                            "\(t) is next to the sign")
@@ -430,8 +433,8 @@ final class PlazaItemsTests: XCTestCase {
         XCTAssertEqual(reloaded.itemCount(.rareCandy), candies + 1, "saved")
     }
 
-    /// Version 2.5.x clients without the pit pick the same spots, so the pit tiles stay in the candidate list.
-    func testCampfireKeepsItemSpotsOfEarlierVersions() {
+    /// Every earlier version picks its spot from the same frozen layout, so the pit, sign and shelter moving changes nothing.
+    func testTheMoveKeepsTheItemSpotsOfEarlierVersions() {
         XCTAssertEqual(candidates.count, 1062)
         let expected = [(34, 22), (41, 3), (39, 14), (37, 4), (12, 12)]
         for (i, e) in expected.enumerated() {
@@ -439,20 +442,47 @@ final class PlazaItemsTests: XCTestCase {
         }
     }
 
-    func testAnItemThatWouldLandInTheFireIsNotShown() throws {
-        var found: PlazaItems.Spawn?
-        var n = 160_000
-        while found == nil, n < 4_000_000 {
-            if let s = PlazaItems.spawn(slot: n, candidates: candidates), PlazaItems.isOnCampfire(s, map: map) { found = s }
-            n += 1
+    /// First slot at or after 160_000 whose frozen-layout tile satisfies `where`.
+    private func slotWhere(_ predicate: (TilePoint) -> Bool) throws -> PlazaItems.Spawn {
+        for n in 160_000..<4_000_000 {
+            if let s = PlazaItems.spawn(slot: n, candidates: candidates), predicate(s.tile) { return s }
         }
-        let fire = try XCTUnwrap(found)
-        XCTAssertTrue(map.campfireTiles.contains(fire.tile))
-        XCTAssertFalse(PlazaItems.isOnCampfire(spawn, map: map), "test precondition: the default slot is on open ground")
+        throw XCTSkip("no slot found")
+    }
+
+    /// The new pit sits inside the old sign and shelter, which no slot ever picks, so no item can land in the fire.
+    func testNoSlotCanPickAFireTile() {
+        for t in map.campfireTiles { XCTAssertFalse(candidates.contains(t), "\(t)") }
+    }
+
+    func testAnItemWhoseSpotIsNowTheSignOrTheShelterIsNotShown() throws {
+        let board = Set([PlazaDirection.up, .down, .left, .right].map { PlazaWalker.offset(map.boardTile, $0) })
+        let blocked: [(String, (TilePoint) -> Bool)] = [
+            ("sign", { $0 == self.map.boardTile }),
+            ("shelter", { self.map.shelterTiles.contains($0) }),
+            ("next to the sign", { board.contains($0) && self.map.isWalkable($0) && !self.map.shelterTiles.contains($0) }),
+        ]
+        for (name, predicate) in blocked {
+            let item = try slotWhere(predicate)
+            XCTAssertFalse(PlazaItems.isShown(item, openTiles: openTiles), name)
+            let s = scene(on: map.spawn)
+            let at = item.appearsAt.addingTimeInterval(60)
+            s.now = { at }
+            s.update(0)
+            XCTAssertNil(s.itemTile, name)
+        }
+    }
+
+    func testAnItemWhoseSpotIsStillOpenIsShownThere() {
+        XCTAssertTrue(PlazaItems.isShown(spawn, openTiles: openTiles), "test precondition: the default slot is on open ground")
         let s = scene(on: map.spawn)
-        let at = fire.appearsAt.addingTimeInterval(60)
-        s.now = { at }
+        s.now = { self.during }
         s.update(0)
-        XCTAssertNil(s.itemTile)
+        XCTAssertEqual(s.itemTile, spawn.tile)
+    }
+
+    func testAnItemInTallGrassIsStillShown() throws {
+        let item = try slotWhere { self.map.tile(at: $0) == .tallGrass }
+        XCTAssertTrue(PlazaItems.isShown(item, openTiles: openTiles))
     }
 }

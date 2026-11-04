@@ -11,7 +11,7 @@ private struct EmptyFetcher: PlazaSpriteFetching {
 }
 
 private let spaceKey: UInt16 = 49, escKey: UInt16 = 53, wKey: UInt16 = 13, rightKey: UInt16 = 124, heartKey: UInt16 = 18
-private let upKey: UInt16 = 126, downKey: UInt16 = 125, returnKey: UInt16 = 36
+private let upKey: UInt16 = 126, downKey: UInt16 = 125, leftKey: UInt16 = 123, returnKey: UInt16 = 36
 private let zKey: UInt16 = 6, xKey: UInt16 = 7, cKey: UInt16 = 8
 
 private extension PlazaOverlayContent {
@@ -313,12 +313,17 @@ final class PlazaCardTests: XCTestCase {
         let c = controller(me, start: aboveBoard)
         c.prepareScene()
         let scene = c.scene!
-        scene.handleKeyDown(keyCode: upKey, characters: nil, isRepeat: false)
+        // 판 위는 나무라 위로 못 간다: 옆으로 한 칸 걸어 나갔다가 돌아와 판을 다시 본다.
+        scene.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)
         step(scene, seconds: 0.1)
-        scene.handleKeyUp(keyCode: upKey)
+        scene.handleKeyUp(keyCode: leftKey)
         step(scene, seconds: 1)
-        XCTAssertEqual(scene.walker.tile, TilePoint(x: aboveBoard.x, y: aboveBoard.y - 1), "test precondition")
+        XCTAssertEqual(scene.walker.tile, TilePoint(x: aboveBoard.x - 1, y: aboveBoard.y), "test precondition")
         XCTAssertNil(c.hint)
+        scene.handleKeyDown(keyCode: rightKey, characters: nil, isRepeat: false)
+        step(scene, seconds: 0.1)
+        scene.handleKeyUp(keyCode: rightKey)
+        step(scene, seconds: 1)
         scene.handleKeyDown(keyCode: downKey, characters: nil, isRepeat: false)
         step(scene, seconds: 0.1)
         scene.handleKeyUp(keyCode: downKey)

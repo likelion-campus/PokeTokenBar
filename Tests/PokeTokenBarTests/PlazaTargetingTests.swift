@@ -37,11 +37,11 @@ final class PlazaTargetingTests: XCTestCase {
 
     func testSpaceReachesTheCampfireLikeTheBoard() {
         let map = PlazaMapData.map
-        XCTAssertEqual(PlazaInteraction.target(from: p(36, 22), facing: .down, map: map, members: [:]),
+        XCTAssertEqual(PlazaInteraction.target(from: p(23, 14), facing: .down, map: map, members: [:]),
                        PlazaInteractionHit(target: .campfire, facing: .down))
-        XCTAssertEqual(PlazaInteraction.target(from: p(35, 23), facing: .up, map: map, members: [:]),
+        XCTAssertEqual(PlazaInteraction.target(from: p(22, 15), facing: .up, map: map, members: [:]),
                        PlazaInteractionHit(target: .campfire, facing: .right))
-        XCTAssertEqual(PlazaInteraction.target(from: p(35, 23), facing: .up, map: map, members: ["m": p(35, 22)]),
+        XCTAssertEqual(PlazaInteraction.target(from: p(22, 15), facing: .up, map: map, members: ["m": p(22, 14)]),
                        PlazaInteractionHit(target: .member("m"), facing: .up), "a member on the faced tile beats a side pit")
     }
 }
