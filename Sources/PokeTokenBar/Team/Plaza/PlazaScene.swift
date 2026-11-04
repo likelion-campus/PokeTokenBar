@@ -274,6 +274,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func setBackgroundHidden(_ hidden: Bool) {
         mapNode.isHidden = hidden
         tallGrassLayer?.setHidden(hidden)
+        layout()   // 풀숲 가림을 바로 풀어 곧바로 찍는 사진도 숨은 팀원을 그리게 한다
         backgroundColor = hidden ? .clear : Self.forestColor
         applyDaylight()
         advanceWeather(by: 0)
@@ -525,7 +526,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
                                tint: daylightTint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
-                               items: itemPhotoParticles)
+                               items: itemPhotoParticles,
+                               bands: tallGrassLayer?.photoBands(in: visibleRect) ?? [])
     }
 
     /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.

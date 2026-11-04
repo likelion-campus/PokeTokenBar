@@ -471,4 +471,86 @@ final class PlazaPhotoTests: XCTestCase {
         _ = pressP(scene)
         XCTAssertEqual(written, 1, "a closed plaza no longer takes photos")
     }
+
+    // MARK: 풀숲 띠와 숨은 팀원
+
+    private func tallActor(foot: CGPoint, opacity: CGFloat = 1, plateBaseY: CGFloat? = nil, plate: CGImage? = nil) -> PlazaPhotoActor {
+        // 32x48 그림은 배율 1.5로 48x72 월드 픽셀이다.
+        var a = actor(solid(32, 48, red), foot: foot, plate: plate)
+        a.opacity = opacity
+        a.plateBaseY = plateBaseY
+        return a
+    }
+
+    private func bandInput(_ actors: [PlazaPhotoActor], bands: [PlazaPhotoBand] = []) -> PlazaPhotoInput {
+        var i = input(map: solid(8, 8, green), rect: CGRect(x: 0, y: 0, width: 128, height: 128), ppw: 2, actors)
+        i.bands = bands
+        return i
+    }
+
+    /// 칸 (1,1): 월드 x 32-64, y 32-64.
+    private func yellowBand() -> PlazaPhotoBand {
+        PlazaPhotoBand(image: solid(32, 32, yellow), origin: CGPoint(x: 32, y: 32), size: CGSize(width: 32, height: 32), sortY: 63)
+    }
+
+    func testABandCoversTheFeetOfAnActorInItsTile() throws {
+        let photo = try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([tallActor(foot: CGPoint(x: 48, y: 50))], bands: [yellowBand()])))
+        let px = Pixels(photo)
+        XCTAssertTrue(same(px[96, 90], yellow), "just above the foot the band is on top: \(px[96, 90])")
+        XCTAssertTrue(same(px[96, 50], red), "above the band the actor shows")
+    }
+
+    func testABandStaysBehindAnActorInTheRowBelow() throws {
+        let photo = try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([tallActor(foot: CGPoint(x: 48, y: 90))], bands: [yellowBand()])))
+        XCTAssertTrue(same(Pixels(photo)[96, 100], red), "the actor in front is drawn over the band")
+    }
+
+    func testAHiddenActorLeavesOnlyItsPlate() throws {
+        let plate = solid(10, 6, black)
+        let a = tallActor(foot: CGPoint(x: 48, y: 100), opacity: 0, plateBaseY: 80, plate: plate)
+        let photo = try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([a])))
+        let px = Pixels(photo)
+        for y in 0..<px.height { for x in 0..<px.width where same(px[x, y], red) { return XCTFail("sprite pixel at \(x),\(y)") } }
+        // 이름표 바닥은 plateBaseY(80)의 사진 픽셀 160.
+        XCTAssertTrue(same(px[96, 159], black), "plate bottom row")
+        XCTAssertTrue(same(px[96, 154], black), "plate top row")
+        XCTAssertFalse(same(px[96, 161], black))
+        XCTAssertFalse(same(px[96, 152], black))
+    }
+
+    func testOpacityBlendsTheSprite() throws {
+        let photo = try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([tallActor(foot: CGPoint(x: 48, y: 100), opacity: 0.4)])))
+        let p = Pixels(photo)[96, 150]
+        XCTAssertFalse(same(p, red))
+        XCTAssertFalse(same(p, green))
+        XCTAssertTrue(p.r > 60 && p.g > 20 && p.g < 100, "a mix of the red sprite and green ground: \(p)")
+    }
+
+    private func tallGrassScene() throws -> PlazaScene {
+        let art = try XCTUnwrap(PlazaTallGrassArt.load())
+        let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: TilePoint(x: 20, y: 22), zoom: 2,
+                           nickname: "me", tallGrass: art)
+        s.size = CGSize(width: 800, height: 600)
+        s.backingOverride = 2
+        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]   // 72 world px tall at x1.5
+        s.setCharacter(PlazaCharacterFrames(front: tall, back: tall))
+        s.applyMembers([PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 7, y: 6), facing: .down, isWalking: false)])
+        s.setMemberFrames("a", PlazaCharacterFrames(front: tall, back: tall))
+        var t: TimeInterval = 0
+        s.update(t)
+        for _ in 0..<3 { t += 1.0 / 30; s.update(t) }
+        return s
+    }
+
+    func testPhotoInputCarriesBandsAndConcealment() throws {
+        let s = try tallGrassScene()
+        let shown = try XCTUnwrap(s.photoInput())
+        XCTAssertFalse(shown.bands.isEmpty)
+        let hidden = try XCTUnwrap(shown.actors.first { $0.opacity == 0 }, "the teammate in the grass is drawn at opacity 0")
+        XCTAssertNotNil(hidden.plateBaseY)
+        s.setBackgroundHidden(true)
+        let off = try XCTUnwrap(s.photoInput())
+        XCTAssertTrue(off.bands.isEmpty)
+        XCTAssertTrue(off.actors.allSatisfy { $0.opacity == 1 })
+    }
 }

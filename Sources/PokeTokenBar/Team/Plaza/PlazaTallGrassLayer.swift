@@ -89,6 +89,20 @@ import SpriteKit
         return CGPoint(x: CGFloat(o.dx) * Self.scale, y: -CGFloat(o.dy) * Self.scale)
     }
 
+    /// 기념사진에 찍을 띠. `visible`은 월드(y 아래로)이고, 겹치는 칸의 지금 띠를 변위까지 담아 돌려준다. 가려져 있으면 비어 있다.
+    func photoBands(in visible: CGRect) -> [PlazaPhotoBand] {
+        guard !isConcealed else { return [] }
+        let tile = CGFloat(PlazaMap.tileSize)
+        var result: [PlazaPhotoBand] = []
+        for (p, node) in bands {
+            let origin = CGPoint(x: node.position.x, y: worldHeight - node.position.y - tile)
+            guard CGRect(origin: origin, size: CGSize(width: tile, height: tile)).intersects(visible) else { continue }
+            result.append(PlazaPhotoBand(image: art.front(slices[p]!), origin: origin, size: CGSize(width: tile, height: tile),
+                                         sortY: CGFloat(p.y) * tile + 31))
+        }
+        return result
+    }
+
     func rustle(_ cue: PlazaRustleCue) {
         guard isGrass(cue.tile) else { return }
         if cue.delay > 0 { pending.append((cue, cue.delay)) } else { start(cue, elapsed: 0) }

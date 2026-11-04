@@ -244,12 +244,21 @@ struct PlazaActorContext {
                                 y: foot.y - (CGFloat(size.height) * 0.12).rounded() - CGFloat(size.height) / 2,
                                 width: CGFloat(size.width), height: CGFloat(size.height))
         }
+        var opacity: CGFloat = 1
+        var plateBaseY: CGFloat?
+        if concealment > 0 {
+            opacity = PlazaTallGrass.opacity(concealment: concealment, isMe: isMeForConcealment)
+            // 화면과 같은 높이 규칙(PlazaTallGrass.plateBaseY)을 월드 y(아래로)로 옮긴 값.
+            let height = CGFloat(image.height) * Self.characterScale
+            plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2))
+        }
         return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: foot, bob: CGFloat(pose.bob),
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
                                front: shadowIsNest ? nestFrontImage : nil,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
-                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) })
+                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
+                               opacity: opacity, plateBaseY: plateBaseY)
     }
 
     // MARK: - 값 읽기
