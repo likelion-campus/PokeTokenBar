@@ -132,7 +132,6 @@ extension L {
         }
     }
 
-    /// 팀 알림. 제목과 본문에 사용량 수치는 넣지 않는다.
     func plazaFocusDoneLine(minutes: Int) -> String { "🔥 \(plazaFocusDuration(minutes: minutes)) 집중 끝!" }
     func plazaFocusEarlyLine(minutes: Int) -> String { "집중을 마쳤어요 · \(minutes)분" }
     /// 집중 중 모아 둔 알림 요약. 0인 항목은 뺀다. 모은 게 없으면 nil.
@@ -141,6 +140,8 @@ extension L {
             .filter { $0.1 > 0 }.map { "\($0.0) \($0.1)" }
         return parts.isEmpty ? nil : "그동안 " + parts.joined(separator: " · ")
     }
+
+    /// 팀 알림. 제목과 본문에 사용량 수치는 넣지 않는다.
     var teamNoticeTitle: String { "팀 광장" }
     func teamReactionNotice(nickname: String) -> String { "\(KoreanParticle.subject.attach(to: nickname)) 내 소식에 반응했어요" }
     func teamEmoteNotice(nickname: String, kind: TeamEmoteKind) -> String {

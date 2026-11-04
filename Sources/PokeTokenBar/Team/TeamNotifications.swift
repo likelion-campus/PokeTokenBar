@@ -214,6 +214,7 @@ final class TeamNotifier {
     /// Drops notices still waiting for the batch window.
     func reset() {
         batcher = TeamNotificationBatcher()
+        heldTally = TeamFocusTally()
     }
 
     /// Posts what piled up once the batch window is over. Runs on the runtime's tick.

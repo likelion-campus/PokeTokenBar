@@ -358,4 +358,21 @@ final class TeamNotifierFocusTests: XCTestCase {
         notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 12, completed: false))
         XCTAssertEqual(poster.posts.map(\.body), ["집중을 마쳤어요 · 12분"])
     }
+
+    func testResetDropsWhatWasHeldSoItNeverReachesTheNextFocus() {
+        holdSome()
+        notifier.reset()
+        XCTAssertEqual(notifier.heldTally, TeamFocusTally())
+        notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true))
+        XCTAssertEqual(poster.posts.map(\.body), ["🔥 25분 집중 끝!"])
+    }
+
+    func testSummaryPutsPartiesBetweenLolAndReactions() {
+        let m = memberState("민수")
+        notifier.emoteToMe(from: m, kind: .lol)
+        notifier.emoteToMe(from: m, kind: .party)
+        notifier.reactionToMine(reaction(), bigEvent())
+        notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true))
+        XCTAssertEqual(poster.posts.map(\.body), ["🔥 25분 집중 끝!\n그동안 ㅋㅋ 1 · 🎉 1 · 반응 1"])
+    }
 }
