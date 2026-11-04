@@ -5,7 +5,7 @@ import Foundation
 enum PlazaCampfireLight {
     static let warm = (r: 1.0, g: 0.84, b: 0.62)
     /// 세계 좌표 반지름(가로, 세로).
-    static let radii = CGSize(width: 190, height: 132)
+    static let radii = CGSize(width: 285, height: 198)
 
     /// 불빛의 깜빡임 배율. 주기 12 위상에서 이음새 없이 반복된다.
     static func flicker(phase: Int) -> Double {
