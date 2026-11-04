@@ -34,6 +34,8 @@ extension L {
         let h = minutes / 60, m = minutes % 60
         return m == 0 ? "\(h)시간 남음" : "\(h)시간 \(m)분 남음"
     }
+    /// 집중 중인 팀원 메뉴의 상태 줄.
+    func plazaFocusStatus(seconds: TimeInterval) -> String { "🔥 집중 중 · " + plazaFocusRemaining(seconds: seconds) }
     func plazaFocusDuration(minutes: Int) -> String { minutes % 60 == 0 ? "\(minutes / 60)시간" : "\(minutes)분" }
     var plazaCampfireJoinHint: String { "스페이스바를 눌러 같이 집중하기" }
     /// 앉아 있는 동안의 안내. `remaining`은 `plazaFocusRemaining`의 결과.
@@ -50,6 +52,7 @@ extension L {
     var plazaShortcutWalk: String { "걷기" }
     var plazaShortcutRun: String { "달리기" }
     var plazaShortcutTalk: String { "말 걸기" }
+    var plazaShortcutFocus: String { "모닥불 옆: 집중" }
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
     var plazaShortcutPhoto: String { "기념사진" }
@@ -77,6 +80,7 @@ extension L {
     var plazaMenuViewCard: String { "포켓몬 보기" }
     var plazaRosterTitle: String { "팀원" }
     var plazaStatusOnline: String { "접속" }
+    var plazaStatusFocus: String { "🔥집중" }
     var plazaStatusIdle: String { "자리비움" }
     var plazaStatusAsleep: String { "잠" }
     func plazaRosterCount(online: Int, total: Int) -> String { "접속 \(online) / \(total)" }

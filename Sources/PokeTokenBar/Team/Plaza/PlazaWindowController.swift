@@ -621,7 +621,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             var menu = PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)
             if scene.canWalk == false { menu.actions.removeAll { $0 == .follow } }
             let remaining = focusRemaining(of: id)
-            if let remaining { menu.status = "🔥 집중 중 · " + L(.ko).plazaFocusRemaining(seconds: remaining) }
+            if let remaining { menu.status = L(.ko).plazaFocusStatus(seconds: remaining) }
             if isFocusing || remaining != nil { menu.actions.removeAll { $0 == .tackle || $0 == .follow } }
             openOverlay(.memberMenu(menu))
         }
@@ -960,11 +960,14 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if dots != minimap.dots { minimap.dots = dots }
         if scene.visibleWorldRect != minimap.view { minimap.view = scene.visibleWorldRect }
         if scene.itemTile != minimap.item { minimap.item = scene.itemTile }
+        let fire = isCampfireLit ? PlazaMapData.map.campfireTiles.first : nil
+        if fire != minimap.campfire { minimap.campfire = fire }
     }
 
     /// 테스트용 읽기 전용 값.
     var minimapDots: [PlazaMinimapModel.Dot] { minimap.dots }
     var minimapView: CGRect { minimap.view }
+    var minimapCampfire: TilePoint? { minimap.campfire }
 
     /// 다시 등록을 먼저 하고 값을 반영한다(그 사이 변경을 놓치지 않는다). 세대가 바뀌었으면 끝낸다.
     private func observeMembers(session: TeamSession, generation: Int) {
@@ -1086,8 +1089,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard window != nil || scene != nil else { return }
         let me = myEntryCache ?? myRosterEntry()
         myEntryCache = .some(me)
-        let next = PlazaRoster.entries(me: me, meIsIdle: session?.isIdle ?? false, members: Array(members.values),
-                                       asleep: session.map { Array($0.asleepMembers.values) } ?? [])
+        let next = PlazaRoster.entries(me: me, meIsIdle: session?.isIdle ?? false, meIsFocusing: isFocusing, members: Array(members.values),
+                                       asleep: session.map { Array($0.asleepMembers.values) } ?? [], now: clock())
         if next != rosterModel.entries { rosterModel.entries = next }
     }
 

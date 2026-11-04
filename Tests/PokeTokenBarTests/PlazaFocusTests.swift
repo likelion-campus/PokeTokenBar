@@ -390,6 +390,20 @@ final class PlazaFocusTests: XCTestCase {
         await gate.tick()
     }
 
+    func testMinimapShowsTheFireOnlyWhileLit() async {
+        let (_, other, c) = await pair()
+        XCTAssertNil(c.minimapCampfire)
+        await place(other, at: PlazaMapData.map.spawn, focusEnds: now.addingTimeInterval(600), in: c)
+        c.scene?.onItemChange?(nil)
+        XCTAssertEqual(c.minimapCampfire, TilePoint(x: 36, y: 23))
+        now = now.addingTimeInterval(601)
+        await gate.tick()
+        c.scene?.onItemChange?(nil)
+        XCTAssertNil(c.minimapCampfire)
+        c.handleClose()
+        await gate.tick()
+    }
+
     // MARK: - 몸통박치기와 따라가기
 
     private var spawn: TilePoint { TilePoint(x: 10, y: 10) }

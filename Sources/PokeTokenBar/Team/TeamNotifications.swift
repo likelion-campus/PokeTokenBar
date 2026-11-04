@@ -211,7 +211,7 @@ final class TeamNotifier {
         }
     }
 
-    /// Drops notices still waiting for the batch window.
+    /// Drops notices still waiting for the batch window, and the ones held during a focus.
     func reset() {
         batcher = TeamNotificationBatcher()
         heldTally = TeamFocusTally()
