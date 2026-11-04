@@ -117,6 +117,11 @@ enum TeamNotifications {
     }
 }
 
+/// What was held back while the user focused, for the end line.
+struct TeamFocusTally: Equatable {
+    var hearts = 0, lols = 0, parties = 0, reactions = 0, news = 0
+}
+
 /// Turns big news, reactions to my news and emotes sent to me into macOS notifications. With the plaza in front
 /// only reaction notices are shown, inside the plaza; bubbles and sparkles are already visible there.
 @MainActor
@@ -127,6 +132,9 @@ final class TeamNotifier {
     private let showInPlaza: (String) -> Void
     private let clock: () -> Date
     private var batcher = TeamNotificationBatcher()
+    /// True while the user sits at the campfire. Set by the runtime.
+    var isFocusing: () -> Bool = { false }
+    private(set) var heldTally = TeamFocusTally()
     private var didRequestAuthorization = false
     /// The last megaphone notice per member. A modified app could send them back to back.
     private var lastMegaphone: [String: Date] = [:]
@@ -150,6 +158,7 @@ final class TeamNotifier {
 
     func bigEvent(_ e: TeamEvent) {
         guard settings.notificationsEnabled, e.authorID != settings.memberID, !isPlazaFrontmost() else { return }
+        if isFocusing() { heldTally.news += 1; return }
         // Big news is rare and says something different from "reacted", so it never joins the reaction batch.
         post(L(.ko).teamEventText(e))
     }
@@ -159,6 +168,8 @@ final class TeamNotifier {
         let text = L(.ko).teamReactionNotice(nickname: r.authorNickname)
         if isPlazaFrontmost() {
             showInPlaza(text)
+        } else if isFocusing() {
+            heldTally.reactions += 1
         } else {
             deliver(TeamNotice(fromNickname: r.authorNickname, text: text))
         }
@@ -166,6 +177,15 @@ final class TeamNotifier {
 
     func emoteToMe(from member: TeamMemberState, kind: TeamEmoteKind) {
         guard settings.notificationsEnabled, !isPlazaFrontmost() else { return }
+        if isFocusing() {
+            switch kind {
+            case .heart: heldTally.hearts += 1
+            case .lol: heldTally.lols += 1
+            case .party: heldTally.parties += 1
+            default: break
+            }
+            return
+        }
         deliver(TeamNotice(fromNickname: member.nickname, text: L(.ko).teamEmoteNotice(nickname: member.nickname, kind: kind)))
     }
 
@@ -176,6 +196,19 @@ final class TeamNotifier {
         if let last = lastMegaphone[member.memberID], now.timeIntervalSince(last) < Self.megaphoneInterval { return }
         lastMegaphone[member.memberID] = now
         show(L(.ko).teamMegaphoneNotice(nickname: member.nickname, text: text))
+    }
+
+    /// The focus is over: one line with what was held. Bypasses the batcher.
+    func focusEnded(_ end: PlazaFocusEnd) {
+        let l = L(.ko)
+        let first = end.completed ? l.plazaFocusDoneLine(minutes: end.minutes) : l.plazaFocusEarlyLine(minutes: end.elapsedMinutes)
+        let body = [first, l.plazaFocusSummary(heldTally)].compactMap { $0 }.joined(separator: "\n")
+        heldTally = TeamFocusTally()
+        if isPlazaFrontmost() {
+            showInPlaza(body)
+        } else if settings.notificationsEnabled {
+            post(body)
+        }
     }
 
     /// Drops notices still waiting for the batch window.
