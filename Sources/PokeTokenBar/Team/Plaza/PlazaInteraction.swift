@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum PlazaInteractionTarget: Equatable { case board, member(String) }
+enum PlazaInteractionTarget: Equatable { case board, campfire, member(String) }
 
 /// 스페이스로 말을 걸 대상과, 말을 걸 때 돌아설 방향.
 struct PlazaInteractionHit: Equatable {
@@ -17,12 +17,16 @@ enum PlazaInteraction {
                        members: [String: TilePoint]) -> PlazaInteractionHit? {
         let ahead = PlazaTargeting.facingTile(from: from, facing: facing)
         if map.tile(at: ahead) == .board { return .init(target: .board, facing: facing) }
+        if map.tile(at: ahead) == .campfire { return .init(target: .campfire, facing: facing) }
         for tile in [ahead, from] {
             if let id = PlazaTargeting.member(on: tile, members: members) { return .init(target: .member(id), facing: facing) }
         }
         let sides = PlazaTargeting.otherSides(facing)
         if let d = sides.first(where: { map.tile(at: PlazaWalker.offset(from, $0)) == .board }) {
             return .init(target: .board, facing: d)
+        }
+        if let d = sides.first(where: { map.tile(at: PlazaWalker.offset(from, $0)) == .campfire }) {
+            return .init(target: .campfire, facing: d)
         }
         for d in sides {
             if let id = PlazaTargeting.member(on: PlazaWalker.offset(from, d), members: members) {
@@ -90,6 +94,8 @@ struct PlazaMemberMenu: Equatable {
     let memberID: String
     let nickname: String
     var nameColor: UInt32?
+    /// 이름 아래에 금색으로 그리는 한 줄. 집중 중인 팀원에게만 있다.
+    var status: String?
     var selection: PlazaMemberAction = .greet
     /// 보이는 줄. 알은 걸을 수 없어 따라가기가 빠진다.
     var actions: [PlazaMemberAction] = PlazaMemberAction.allCases
@@ -101,7 +107,19 @@ struct PlazaMemberMenu: Equatable {
     }
 }
 
-enum PlazaOverlayContent: Equatable { case none, card(PlazaCardState), board, memberMenu(PlazaMemberMenu) }
+/// 모닥불 메뉴. `minutes`가 비면 빈 자리가 없다는 안내만 보인다. `selection`은 `minutes`의 순번이다.
+struct PlazaCampfireMenu: Equatable {
+    let isJoin: Bool
+    let minutes: [Int]
+    var selection: Int
+
+    mutating func move(by step: Int) {
+        guard !minutes.isEmpty else { return }
+        selection = ((selection + step) % minutes.count + minutes.count) % minutes.count
+    }
+}
+
+enum PlazaOverlayContent: Equatable { case none, card(PlazaCardState), board, memberMenu(PlazaMemberMenu), campfireMenu(PlazaCampfireMenu) }
 
 /// 판이 열린 동안 장면이 넘기는 키. 판마다 쓰는 키가 다르다.
 enum PlazaOverlayKey: Equatable { case up, down, space, enter, escape }

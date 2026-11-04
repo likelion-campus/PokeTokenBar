@@ -191,6 +191,34 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var lastTime: TimeInterval?
     private var clock: TimeInterval = 0
 
+    /// 방향키를 누를 때(자동 반복 제외, 판이 닫혀 있을 때). `canWalk`와 무관하게 알도 부른다. 모닥불에서 일어서는 데 쓴다.
+    var onWalkKey: (() -> Void)?
+
+    // MARK: 모닥불 상태
+    /// 창 컨트롤러가 정한다. 켜진 채 `true → false`가 되면 연기가 `smokeDuration` 동안 피어오른다.
+    var campfireLit = false {
+        didSet {
+            guard campfireLit != oldValue else { return }
+            campfireClock = 0
+            campfirePhase = 0
+            smokeRemaining = (campfireLit || isPaused) ? 0 : PlazaCampfire.smokeDuration
+        }
+    }
+    private(set) var campfirePhase = 0
+    private var campfireClock: TimeInterval = 0
+    private var smokeRemaining: TimeInterval = 0
+    private let campfireNode: SKSpriteNode?
+    private var campfireTextures: [PlazaCampfireArt.State: [SKTexture]] = [:]
+    private var campfireDrawn: (state: PlazaCampfireArt.State, index: Int)?
+    private let campfireLightNode = SKSpriteNode()
+    /// 밤빛 텍스처. 현재 밤 색(1/256로 반올림) 하나에 대해서만 위상별로 쌓는다. 색이 바뀌면 비운다.
+    private struct LightKey: Hashable { let r: Int, g: Int, b: Int }
+    private var lightTextures: (key: LightKey, byPhase: [Int: SKTexture])?
+    private var lightDrawn: (key: LightKey, phase: Int)?
+    private var campfireTimerNode: SKSpriteNode?
+    private(set) var campfireTimerText: String?
+    private var campfireTimerDrawn: (text: String, backing: CGFloat)?
+
     init(map: PlazaMap, mapImage: CGImage, start: TilePoint, zoom: Int, nickname: String, tallGrass: PlazaTallGrassArt? = nil) {
         self.map = map
         self.worldSize = map.pixelSize
@@ -204,6 +232,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let texture = SKTexture(cgImage: mapImage)
         texture.filteringMode = .nearest
         self.mapNode = SKSpriteNode(texture: texture, size: map.pixelSize)
+        self.campfireNode = Self.makeCampfireNode(map: map)
         super.init(size: CGSize(width: 960, height: 640))
         scaleMode = .resizeFill
         anchorPoint = .zero
@@ -219,6 +248,12 @@ struct PlazaSceneMember: Equatable, Sendable {
             tallGrassLayer = layer
         }
 
+        if let campfireNode { addChild(campfireNode) }
+        // 낮밤 곱하기(5) 위, 이름표(10) 아래. 곱하고 둘로 늘려 흰색에 가까운 값(0.5)이 아무것도 바꾸지 않는다.
+        campfireLightNode.blendMode = .multiplyX2
+        campfireLightNode.zPosition = 6
+        campfireLightNode.isHidden = true
+        if campfireNode != nil { addChild(campfireLightNode) }
         weatherLayer.zPosition = 3
         addChild(weatherLayer)
         addChild(cameraNode)
@@ -252,8 +287,12 @@ struct PlazaSceneMember: Equatable, Sendable {
         isBackgroundHidden ? .none : PlazaDaylight.tint(minute: PlazaDaylight.minute(of: now()))
     }
 
+    /// 마지막 `applyDaylight`가 정한 색. 모닥불빛이 프레임마다 시각 계산을 되풀이하지 않게 한 번만 구해 둔다.
+    private var appliedTint = PlazaDaylight.Tint.none
+
     private func applyDaylight() {
         let t = daylightTint
+        appliedTint = t
         daylightNode.isHidden = t == .none
         daylightNode.color = SKColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: 1)
         daylightNode.size = size
@@ -278,6 +317,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         backgroundColor = hidden ? .clear : Self.forestColor
         applyDaylight()
         advanceWeather(by: 0)
+        applyCampfire()
     }
 
     var isBackgroundHidden: Bool { mapNode.isHidden }
@@ -380,6 +420,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             return .swallowed
         }
         if let d = Self.direction(keyCode) {
+            if !isRepeat && !modifiers.contains(.command) { onWalkKey?() }
             // Command+방향키는 keyUp이 오지 않아 계속 걷게 되므로 무시한다.
             if canWalk && !isRepeat && !modifiers.contains(.command) {
                 stopWalkingToMember()
@@ -455,6 +496,15 @@ struct PlazaSceneMember: Equatable, Sendable {
         if followingMember != was { onFollowChange?(followingMember) }
     }
 
+    /// 모닥불 자리에 앉는다. 그 칸과 방향으로 바로 옮기고, 걸어가기와 따라가기를 멈추고, 바뀐 자리를 알린다.
+    func sit(at seat: PlazaCampfire.Seat) {
+        stopWalkingToMember()
+        walker = PlazaWalker(tile: seat.tile, facing: seat.facing)
+        layout()
+        reportLocalPosition()
+        refreshInteractionTarget()
+    }
+
     /// 말을 걸 대상 쪽으로 돌아선다. 걷는 중이면 돌지 않는다.
     func face(_ d: PlazaDirection) {
         walker.face(d)
@@ -524,10 +574,12 @@ struct PlazaSceneMember: Equatable, Sendable {
             guard let r = remotes[id] else { continue }
             actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking)))
         }
+        let tint = daylightTint
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
-                               tint: daylightTint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
+                               tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
                                items: itemPhotoParticles,
-                               bands: tallGrassLayer?.photoBands(in: visibleRect) ?? [])
+                               bands: tallGrassLayer?.photoBands(in: visibleRect) ?? [],
+                               props: campfirePhotoProps, light: campfirePhotoLight(tint: tint))
     }
 
     /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.
@@ -796,6 +848,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceTallGrass(by: dt)
         advanceSparkles(by: dt)
         applyDaylight()
+        advanceCampfire(by: dt)
         layout()
         advanceWeather(by: dt)
         advanceItem()
@@ -821,6 +874,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func currentItem() -> PlazaItems.Spawn? {
         let date = now(), slot = PlazaItems.slot(at: date)
         if itemSpawnCache?.slot != slot { itemSpawnCache = (slot, PlazaItems.spawn(slot: slot, candidates: itemCandidates)) }
+        if let spawn = itemSpawnCache?.spawn, PlazaItems.isOnCampfire(spawn, map: map) { return nil }
         return PlazaItems.visible(itemSpawnCache?.spawn, at: date, picked: pickedItemSlots)
     }
 
@@ -980,4 +1034,180 @@ struct PlazaSceneMember: Equatable, Sendable {
     var characterSize: CGSize { me.characterSize }
     /// 닉네임이 비어 있으면 이름판을 숨긴다.
     var isNamePlateVisible: Bool { me.isNamePlateVisible }
+
+    // MARK: - 모닥불
+
+    var campfireState: PlazaCampfireArt.State { campfireLit ? .lit : (smokeRemaining > 0 ? .ended : .ready) }
+
+    /// 모닥불 발자국 바닥 변에서 4px 아래, 가로 가운데(월드, y 아래로). 지도에 모닥불이 없으면 nil.
+    private static func campfireBase(_ map: PlazaMap) -> CGPoint? {
+        let t = map.campfireTiles
+        guard let minX = t.map(\.x).min(), let maxX = t.map(\.x).max(), let maxY = t.map(\.y).max() else { return nil }
+        let tile = CGFloat(PlazaMap.tileSize)
+        return CGPoint(x: CGFloat(minX + maxX + 1) / 2 * tile, y: CGFloat(maxY + 1) * tile + 4)
+    }
+
+    private static func makeCampfireNode(map: PlazaMap) -> SKSpriteNode? {
+        guard let base = campfireBase(map), let maxY = map.campfireTiles.map(\.y).max() else { return nil }
+        let node = SKSpriteNode(color: .clear, size: PlazaCampfireArt.worldSize)
+        node.anchorPoint = CGPoint(x: 0.5, y: 0)
+        node.position = CGPoint(x: base.x, y: map.pixelSize.height - base.y)
+        // 캐릭터와 같은 식: 바닥 변(칸 경계)의 y로 앞뒤를 정한다.
+        node.zPosition = 1 + CGFloat(maxY + 1) * CGFloat(PlazaMap.tileSize) / map.pixelSize.height
+        return node
+    }
+
+    private func campfireTexture(_ state: PlazaCampfireArt.State, _ index: Int) -> SKTexture {
+        if campfireTextures[state] == nil {
+            campfireTextures[state] = PlazaCampfireArt.frames(state).map {
+                let texture = SKTexture(cgImage: $0)
+                texture.filteringMode = .nearest
+                return texture
+            }
+        }
+        return campfireTextures[state]![index]
+    }
+
+    /// 프레임 시계는 `update`가 준 간격으로만 흐른다. 연기는 꺼진 뒤 `smokeDuration` 동안.
+    private func advanceCampfire(by dt: TimeInterval) {
+        if smokeRemaining > 0 { smokeRemaining = max(0, smokeRemaining - dt) }
+        if campfireState != .ready {
+            let period = PlazaCampfire.frameDuration * Double(PlazaCampfire.frameCount)
+            campfireClock += dt
+            if campfireClock >= period { campfireClock -= period }
+            campfirePhase = min(Int(campfireClock / PlazaCampfire.frameDuration), PlazaCampfire.frameCount - 1)
+        } else {
+            campfirePhase = 0
+        }
+        applyCampfire()
+    }
+
+    private func applyCampfire() {
+        if let node = campfireNode {
+            node.isHidden = isBackgroundHidden
+            let state = campfireState
+            let index = state == .ready ? 0 : campfirePhase
+            if campfireDrawn?.state != state || campfireDrawn?.index != index {
+                node.texture = campfireTexture(state, index)
+                campfireDrawn = (state, index)
+            }
+        }
+        applyCampfireLight()
+        applyCampfireTimer()
+    }
+
+    var isCampfirePitShown: Bool { campfireNode.map { !$0.isHidden } ?? false }
+    var campfireZ: CGFloat? { campfireNode?.zPosition }
+
+    /// 밤빛은 불이 켜져 있고, 배경이 보이고, 해 질 녘이나 밤일 때만.
+    var isCampfireLightShown: Bool { lightShown(tint: appliedTint) }
+
+    private func lightShown(tint: PlazaDaylight.Tint) -> Bool {
+        campfireNode != nil && campfireLit && !isBackgroundHidden && PlazaCampfireLight.strength(tint) > 0
+    }
+
+    private func applyCampfireLight() {
+        let shown = isCampfireLightShown
+        campfireLightNode.isHidden = !shown
+        guard shown, let center = PlazaCampfireLight.center(campfireTiles: map.campfireTiles) else { return }
+        let tint = appliedTint
+        let key = LightKey(r: Int((tint.red * 256).rounded()), g: Int((tint.green * 256).rounded()), b: Int((tint.blue * 256).rounded()))
+        if lightDrawn?.key != key || lightDrawn?.phase != campfirePhase {
+            if lightTextures?.key != key { lightTextures = (key, [:]) }
+            let radii = PlazaCampfireLight.radii(phase: campfirePhase)
+            let counts = PlazaCampfireLight.blockCounts(radii: radii)
+            if lightTextures?.byPhase[campfirePhase] == nil {
+                let rounded = PlazaDaylight.Tint(red: Double(key.r) / 256, green: Double(key.g) / 256, blue: Double(key.b) / 256)
+                lightTextures?.byPhase[campfirePhase] = Self.lightTexture(tint: rounded, radii: radii)
+            }
+            campfireLightNode.texture = lightTextures?.byPhase[campfirePhase]
+            campfireLightNode.size = CGSize(width: counts.w * 2, height: counts.h * 2)
+            lightDrawn = (key, campfirePhase)
+        }
+        campfireLightNode.position = CGPoint(x: center.x, y: worldSize.height - center.y)
+    }
+
+    /// 2 세계 px당 텍셀 하나. 값은 `multiplier / 2`(곱하기X2가 두 배로 되돌린다). 타원 밖은 (0.5, 0.5, 0.5)라 그대로다.
+    private static func lightTexture(tint: PlazaDaylight.Tint, radii: CGSize) -> SKTexture {
+        let n = PlazaCampfireLight.blockCounts(radii: radii)
+        var rings: [Double: [UInt8]] = [:]
+        var data = [UInt8](repeating: 255, count: n.w * n.h * 4)
+        for j in 0..<n.h {
+            for i in 0..<n.w {
+                let k = PlazaCampfireLight.blockMix(i: i, j: j, radii: radii)
+                if rings[k] == nil {
+                    let m = PlazaCampfireLight.multiplier(tint: tint, mix: k)
+                    rings[k] = [m.r, m.g, m.b].map { UInt8(min(255, max(0, ($0 / 2 * 255).rounded()))) }
+                }
+                let o = (j * n.w + i) * 4
+                data[o] = rings[k]![0]; data[o + 1] = rings[k]![1]; data[o + 2] = rings[k]![2]
+            }
+        }
+        let image = CGImage(width: n.w, height: n.h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n.w * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                            provider: CGDataProvider(data: Data(data) as CFData)!, decode: nil, shouldInterpolate: false,
+                            intent: .defaultIntent)!
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .nearest
+        return texture
+    }
+
+    /// 모닥불 밑에 띄우는 남은 시간 글자. nil이면 숨긴다. 글자가 바뀔 때만 다시 그린다.
+    func setCampfireTimer(_ text: String?) {
+        campfireTimerText = text
+        applyCampfireTimer()
+    }
+
+    private func applyCampfireTimer() {
+        guard let text = campfireTimerText, campfireNode != nil, !isBackgroundHidden,
+              let base = Self.campfireBase(map) else { campfireTimerNode?.isHidden = true; return }
+        let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
+        if campfireTimerDrawn?.text != text || campfireTimerDrawn?.backing != backing {
+            guard let image = PlazaNamePlate.image(text: text, color: CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), scale: backing) else {
+                campfireTimerNode?.isHidden = true
+                return
+            }
+            let texture = SKTexture(cgImage: image)
+            texture.filteringMode = .nearest
+            let node = campfireTimerNode ?? SKSpriteNode()
+            node.texture = texture
+            node.size = CGSize(width: CGFloat(image.width) / backing, height: CGFloat(image.height) / backing)
+            node.anchorPoint = CGPoint(x: 0.5, y: 0)
+            node.zPosition = 10
+            if node.parent == nil { cameraNode.addChild(node) }
+            campfireTimerNode = node
+            campfireTimerDrawn = (text, backing)
+        }
+        guard let node = campfireTimerNode else { return }
+        node.isHidden = false
+        let z = CGFloat(zoom)
+        let bottomY = worldSize.height - base.y - node.size.height / z
+        node.position = PlazaPixelSnap.platePosition(footSceneX: base.x, topY: bottomY, cameraPos: cameraNode.position,
+                                                     plateWidth: node.size.width, viewport: size, backing: backing, zoom: zoom)
+    }
+
+    var isCampfireTimerShown: Bool { campfireTimerNode.map { !$0.isHidden } ?? false }
+    /// 테스트용: 글자 그림과 밤빛 그림이 새로 만들어졌는지 보려는 신원.
+    var campfireTimerTextureID: ObjectIdentifier? { campfireTimerNode?.texture.map(ObjectIdentifier.init) }
+    /// 테스트용: 밤빛 텍스처의 픽셀과 노드의 월드 사각형(장면 좌표, y 위로).
+    var campfireLightImage: CGImage? { campfireLightNode.texture?.cgImage() }
+    var campfireLightFrame: CGRect { campfireLightNode.frame }
+    var campfireLightTextureID: ObjectIdentifier? { campfireLightNode.texture.map(ObjectIdentifier.init) }
+
+    /// 모닥불은 캐릭터와 같은 앞뒤 순서에 끼어든다(바닥 변 y = 칸 경계).
+    private var campfirePhotoProps: [PlazaPhotoProp] {
+        guard let node = campfireNode, !node.isHidden, let base = Self.campfireBase(map) else { return [] }
+        let state = campfireState
+        let frames = PlazaCampfireArt.frames(state)
+        let size = PlazaCampfireArt.worldSize
+        let particle = PlazaPhotoParticle(image: frames[state == .ready ? 0 : campfirePhase],
+                                          origin: CGPoint(x: base.x - size.width / 2, y: base.y - size.height), size: size)
+        return [PlazaPhotoProp(particle: particle, baseY: base.y - 4)]
+    }
+
+    private func campfirePhotoLight(tint: PlazaDaylight.Tint) -> PlazaPhotoLight? {
+        guard lightShown(tint: tint), let center = PlazaCampfireLight.center(campfireTiles: map.campfireTiles) else { return nil }
+        return PlazaPhotoLight(center: center, radii: PlazaCampfireLight.radii(phase: campfirePhase), tint: tint)
+    }
 }

@@ -46,7 +46,7 @@ final class PlazaMapTests: XCTestCase {
     func testOnlySimpleKinds() {
         var counts: [Character: Int] = [:]
         for ch in PlazaMapData.rows.joined() { counts[ch, default: 0] += 1 }
-        XCTAssertTrue(Set(counts.keys).isSubset(of: [".", "f", "S", "T", "b", "N", "g"]))
+        XCTAssertTrue(Set(counts.keys).isSubset(of: [".", "f", "S", "T", "b", "N", "F", "g"]))
         XCTAssertTrue((30...50).contains(counts["f", default: 0]), "flowers \(counts["f", default: 0])")
         XCTAssertTrue((6...10).contains(counts["b", default: 0]), "bushes \(counts["b", default: 0])")
     }
@@ -90,5 +90,26 @@ final class PlazaMapTests: XCTestCase {
     func testOutsideIsTree() {
         XCTAssertEqual(map.tile(at: .init(x: -1, y: 5)), .tree)
         XCTAssertFalse(map.isWalkable(.init(x: map.width, y: 5)))
+    }
+
+    func testCampfireFillsTwoByTwoInTheLowerRight() {
+        let pit = [TilePoint(x: 36, y: 23), TilePoint(x: 37, y: 23), TilePoint(x: 36, y: 24), TilePoint(x: 37, y: 24)]
+        XCTAssertEqual(map.campfireTiles, pit)
+        for t in pit { XCTAssertFalse(map.isWalkable(t)) }
+        let seats = [(35, 21), (38, 21), (32, 21), (41, 21), (33, 24), (40, 24), (35, 27), (38, 27)].map { TilePoint(x: $0.0, y: $0.1) }
+        for t in seats {
+            XCTAssertTrue(map.isWalkable(t), "\(t) must stay walkable")
+            XCTAssertFalse(map.campfireTiles.contains(t))
+        }
+    }
+
+    /// An older-version teammate can report the pit as its tile; the scene treats it like any unwalkable tile.
+    @MainActor
+    func testATeammateReportedOnThePitIsDrawnInTheShelter() {
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        scene.size = CGSize(width: 800, height: 600)
+        scene.applyMembers([PlazaSceneMember(memberID: "m", nickname: "m", isAway: false, tile: TilePoint(x: 36, y: 23),
+                                             facing: .down, isWalking: false)])
+        XCTAssertTrue(map.shelterTiles.contains(scene.memberTiles["m"]!))
     }
 }

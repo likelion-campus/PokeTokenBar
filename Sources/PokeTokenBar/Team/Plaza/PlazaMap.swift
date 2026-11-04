@@ -12,12 +12,12 @@ enum PlazaTile: Character, Sendable {
     // 지나갈 수 있음
     case grass = ".", flowers = "f", shelter = "S", tallGrass = "g"
     // 지나갈 수 없음
-    case tree = "T", bush = "b", board = "N"
+    case tree = "T", bush = "b", board = "N", campfire = "F"
 
     var isWalkable: Bool {
         switch self {
         case .grass, .flowers, .shelter, .tallGrass: true
-        case .tree, .bush, .board: false
+        case .tree, .bush, .board, .campfire: false
         }
     }
 }
@@ -39,6 +39,8 @@ struct PlazaMap: Sendable {
     let height: Int
     private let tiles: [[PlazaTile]]
     let shelterTiles: [TilePoint]
+    /// 모닥불 자리 칸(행 우선 순서). 없는 지도면 비어 있다.
+    let campfireTiles: [TilePoint]
     let boardTile: TilePoint
     let spawn: TilePoint
 
@@ -56,10 +58,12 @@ struct PlazaMap: Sendable {
             grid.append(line)
         }
         var shelter: [TilePoint] = []
+        var campfire: [TilePoint] = []
         var board: TilePoint?
         for (y, line) in grid.enumerated() {
             for (x, tile) in line.enumerated() {
                 if tile == .shelter { shelter.append(TilePoint(x: x, y: y)) }
+                if tile == .campfire { campfire.append(TilePoint(x: x, y: y)) }
                 if tile == .board, board == nil { board = TilePoint(x: x, y: y) }
             }
         }
@@ -81,6 +85,7 @@ struct PlazaMap: Sendable {
         self.height = grid.count
         self.tiles = grid
         self.shelterTiles = shelter
+        self.campfireTiles = campfire
         self.boardTile = board
         self.spawn = best
     }

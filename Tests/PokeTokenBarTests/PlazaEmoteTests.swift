@@ -162,9 +162,9 @@ final class PlazaEmoteTests: XCTestCase {
     /// The top-left guide lists every key the plaza answers to.
     func testShortcutGuideListsEveryKey() {
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.key),
-                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "P", "G", "−/+"])
+                       ["방향키", "Shift", "Space", "Space", "Enter", "1–5", "Z", "X", "C", "P", "G", "−/+"])
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.label),
-                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프", "인사하기", "몸통박치기", "기념사진", "단체 사진", "확대·축소"])
+                       ["걷기", "달리기", "말 걸기", "모닥불 옆: 집중", "한마디", "말풍선", "점프", "인사하기", "몸통박치기", "기념사진", "단체 사진", "확대·축소"])
     }
 
     /// Folded, the guide is only its title line; unfolded it shows every key.

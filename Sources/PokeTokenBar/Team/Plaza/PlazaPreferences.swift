@@ -6,6 +6,7 @@ import Foundation
     private static let lastTileKey = "team.plaza.lastTile"
     private static let backgroundHiddenKey = "team.plaza.backgroundHidden"
     private static let shortcutsFoldedKey = "team.plaza.shortcutsFolded"
+    private static let focusKey = "team.plaza.focus"
     private static let takenItemSlotsKey = "team.plaza.takenItemSlots"
 
     private let defaults: UserDefaults
@@ -38,6 +39,21 @@ import Foundation
     var areShortcutsFolded: Bool {
         get { defaults.bool(forKey: Self.shortcutsFoldedKey) }
         set { defaults.set(newValue, forKey: Self.shortcutsFoldedKey) }
+    }
+
+    /// 모닥불 집중 상태. 없으면 nil이고, nil을 넣으면 저장값을 지운다.
+    var focus: PlazaFocus? {
+        get {
+            guard let data = defaults.data(forKey: Self.focusKey) else { return nil }
+            return try? JSONDecoder().decode(PlazaFocus.self, from: data)
+        }
+        set {
+            guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
+                defaults.removeObject(forKey: Self.focusKey)
+                return
+            }
+            defaults.set(data, forKey: Self.focusKey)
+        }
     }
 
     /// 저장된 칸이 없거나 지도 밖이거나 못 가는 칸이면 시작 칸.

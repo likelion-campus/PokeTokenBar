@@ -18,4 +18,6 @@ final class PlazaMinimapModel {
     var view: CGRect = .zero
     /// 광장에 떨어진 아이템의 칸.
     var item: TilePoint?
+    /// 불이 켜져 있을 때 모닥불 자리의 왼쪽 위 칸. 꺼져 있으면 nil.
+    var campfire: TilePoint?
 }

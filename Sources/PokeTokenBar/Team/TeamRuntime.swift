@@ -50,6 +50,8 @@ final class TeamRuntime {
         guard !started else { return }
         started = true
         companion.onTeamEvent = { [weak session] in session?.publish($0) }
+        plaza?.onFocusEnd = { [weak self] in self?.notifier?.focusEnded($0) }
+        notifier?.isFocusing = { [weak self] in self?.plaza?.isFocusing ?? false }
         session.onEmote = { [weak self] memberID, emote in
             guard let self else { return }
             if emote.kind == .tackle {
@@ -108,7 +110,10 @@ final class TeamRuntime {
         session.applySettings()
         let ready = settings.isReady
         // Notices batched for another team (or for no team) must not be posted later.
-        if !ready || settings.code != lastCode { notifier?.reset() }
+        if !ready || settings.code != lastCode {
+            notifier?.reset()
+            plaza?.endFocusSilently()
+        }
         lastCode = settings.code
         if ready {
             startTicking()
@@ -160,6 +165,7 @@ final class TeamRuntime {
     func tickOnce() {
         session.updateIdle(secondsSinceInput() >= Self.idleAfter)
         session.tick()
+        plaza?.endFocusIfDue()
         notifier?.flush()
     }
 

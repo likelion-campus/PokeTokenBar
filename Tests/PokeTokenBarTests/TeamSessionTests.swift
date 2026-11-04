@@ -633,6 +633,29 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.isIdle, false)
     }
 
+    /// A received focus end time counts only inside (now, now + 8 h + 600 s] on this Mac's clock.
+    func testReceivedFocusIsKeptOnlyInsideTheWindow() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let t0 = clock.now
+        a.session.updateFocus(endsAt: t0.addingTimeInterval(1500))
+        XCTAssertEqual(b.session.members[a.memberID]?.focusEndsAt, t0.addingTimeInterval(1500))
+        a.session.updateFocus(endsAt: t0.addingTimeInterval(9 * 3600))
+        XCTAssertNil(b.session.members[a.memberID]?.focusEndsAt)
+        a.session.updateFocus(endsAt: t0.addingTimeInterval(-60))
+        XCTAssertNil(b.session.members[a.memberID]?.focusEndsAt)
+    }
+
+    func testUpdateFocusSendsPresenceOnlyOnChange() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let before = a.presencesSent
+        let end = clock.now.addingTimeInterval(1500)
+        a.session.updateFocus(endsAt: end)
+        a.session.updateFocus(endsAt: end)
+        XCTAssertEqual(a.presencesSent, before + 1)
+    }
+
     /// A teammate whose connection is gone is kept as asleep (their last state) until they connect again.
     func testDisconnectedMemberIsKeptAsAsleepUntilBack() {
         let a = node("A"), b = node("B")

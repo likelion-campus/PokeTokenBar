@@ -2,8 +2,7 @@ import XCTest
 @testable import PokeTokenBar
 
 final class PlazaTallGrassMapTests: XCTestCase {
-    /// 풀숲을 넣기 전 지도(71a24c1). 풀숲이 빈 땅만 바꿨는지, 아이템 후보가 그대로인지 비교하는 기준이다.
-    /// 리베이스로 모닥불이 들어오면 그 지도로 다시 옮긴다.
+    /// 풀숲을 넣기 전 지도(모닥불 포함, fb97203). 풀숲이 빈 땅만 바꿨는지, 아이템 후보가 그대로인지 비교하는 기준이다.
     static let legacyRows: [String] = [
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
@@ -28,8 +27,8 @@ final class PlazaTallGrassMapTests: XCTestCase {
         "TTT........f..................f..............TTT",
         "TTT............f.......................f.....TTT",
         "TTT...............f..............b...f....b..TTT",
-        "TTT..............f.....f...f.................TTT",
-        "TTT..........................................TTT",
+        "TTT..............f.....f...f........FF.......TTT",
+        "TTT.................................FF.......TTT",
         "TTT..........................................TTT",
         "TTT..............f...........f........ff.....TTT",
         "TTT...................f......................TTT",
