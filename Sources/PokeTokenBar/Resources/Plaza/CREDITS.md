@@ -10,3 +10,9 @@
 - License: SIL Open Font License 1.1 (see Galmuri-OFL.txt)
 - Sources: https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri11.ttf,
   https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri14.ttf
+
+## Tall grass (plaza-tallgrass.png)
+- "Pokemon inspired 16x16 tiles" (`tilemap.png`, unmodified) by RedVoxel
+- License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/). This file is not under the app's MIT license.
+- Copyright notice: https://red-voxel.itch.io/ - RedVoxel
+- Source: https://opengameart.org/content/pokemon-inspired-16x16-tiles
