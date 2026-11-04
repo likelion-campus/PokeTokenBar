@@ -14,6 +14,12 @@ struct PlazaMemberMenuView: View {
                 .foregroundStyle(Color(cgColor: PlazaNameColor.color(forMemberID: menu.memberID, chosen: menu.nameColor)))
                 .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
                 .lineLimit(1)
+            if let status = menu.status {
+                Text(status)
+                    .font(Font(PlazaResources.font(.body)))
+                    .foregroundStyle(Color(hex: 0xF2C14E))
+                    .lineLimit(1)
+            }
             ForEach(menu.actions, id: \.self) { action in
                 Button { onChoose(action) } label: {
                     HStack(spacing: 6) {

@@ -94,6 +94,8 @@ struct PlazaMemberMenu: Equatable {
     let memberID: String
     let nickname: String
     var nameColor: UInt32?
+    /// 이름 아래에 금색으로 그리는 한 줄. 집중 중인 팀원에게만 있다.
+    var status: String?
     var selection: PlazaMemberAction = .greet
     /// 보이는 줄. 알은 걸을 수 없어 따라가기가 빠진다.
     var actions: [PlazaMemberAction] = PlazaMemberAction.allCases

@@ -620,6 +620,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
             guard let state = members[id] else { return }
             var menu = PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)
             if scene.canWalk == false { menu.actions.removeAll { $0 == .follow } }
+            let remaining = focusRemaining(of: id)
+            if let remaining { menu.status = "🔥 집중 중 · " + L(.ko).plazaFocusRemaining(seconds: remaining) }
+            if isFocusing || remaining != nil { menu.actions.removeAll { $0 == .tackle || $0 == .follow } }
             openOverlay(.memberMenu(menu))
         }
     }
@@ -690,7 +693,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 그 팀원에게 뛰어들고 충격 그림을 띄운 뒤 팀원들에게 보낸다. 내 진화 단계만큼(1–3칸) 밀라고 보내고, 실제로 미는 것은
     /// 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func tackle(_ id: String) {
-        guard let scene, let target = scene.memberTiles[id] else { return }
+        guard let scene, let target = scene.memberTiles[id], !isFocusing, focusRemaining(of: id) == nil else { return }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
@@ -709,7 +712,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let direction = PlazaPathfinder.isAdjacent(from, to) ? PlazaPathfinder.direction(from: from, to: to)
             : members[sender]?.facing ?? .down
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
-        if isMe && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction, tiles: tiles) }
+        // 집중 중이거나 모닥불 메뉴를 연 내 Mac은 밀지 않는다(옛 버전이 보낸 몸통박치기도 같다). 충격 그림만 보인다.
+        if isMe && !isFocusing && !isCampfireMenuOpen && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction, tiles: tiles) }
     }
 
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.
@@ -803,6 +807,13 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 테스트용 읽기 전용 값: 저장된 집중.
     var preferencesFocusForTesting: PlazaFocus? { preferences.focus }
     var isCampfireMenuOpen: Bool { if case .campfireMenu = overlayModel.content { true } else { false } }
+
+    /// 그 팀원이 아직 집중 중이면 남은 초. 끝 시각은 받을 때만 걸러지므로 지금과 다시 견준다.
+    private func focusRemaining(of id: String) -> TimeInterval? {
+        guard let end = members[id]?.focusEndsAt else { return nil }
+        let left = end.timeIntervalSince(clock())
+        return left > 0 ? left : nil
+    }
 
     /// 내가 앉아 있거나 팀원 중 누가 집중 중이면 불이 켜져 있다. 팀원의 끝 시각은 받을 때만 걸러지므로 지금과 다시 견준다.
     var isCampfireLit: Bool {
@@ -967,6 +978,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             Task { @MainActor in self?.observeMembers(session: session, generation: generation) }
         }
         members = current
+        if let followed = scene?.followingMember, focusRemaining(of: followed) != nil { scene?.stopWalkingToMember() }
         applyMembersToScene()
         refreshRoster()
         refreshCampfire()

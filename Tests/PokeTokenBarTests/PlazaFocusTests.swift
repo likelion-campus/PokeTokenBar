@@ -389,4 +389,122 @@ final class PlazaFocusTests: XCTestCase {
         c.handleClose()
         await gate.tick()
     }
+
+    // MARK: - 몸통박치기와 따라가기
+
+    private var spawn: TilePoint { TilePoint(x: 10, y: 10) }
+    private var beside: TilePoint { TilePoint(x: 11, y: 10) }
+
+    private func menu(_ c: PlazaWindowController) -> PlazaMemberMenu? {
+        if case .memberMenu(let m) = c.overlayContent { m } else { nil }
+    }
+
+    private func tackles(_ n: Node) -> Int { n.received.emotes.filter { $0.emote.kind == .tackle }.count }
+
+    func testFocusingTeammateMenuHasNoTackleOrFollow() async {
+        let (_, other, c) = await pair(start: spawn)
+        XCTAssertTrue(PlazaMapData.map.isWalkable(beside), "test precondition")
+        await place(other, at: beside, focusEnds: now.addingTimeInterval(1080), in: c)
+        key(c.scene!, spaceKey)
+        XCTAssertEqual(menu(c)?.actions, [.greet, .viewCard])
+        XCTAssertEqual(menu(c)?.status, "🔥 집중 중 · 18분 남음")
+        c.handleClose()
+    }
+
+    func testWhileFocusingMyMenuHasNoTackleOrFollow() async {
+        let (_, other, c) = await pair(start: spawn)
+        await place(other, at: beside, in: c)
+        key(c.scene!, spaceKey)
+        XCTAssertEqual(menu(c)?.actions, [.greet, .tackle, .follow, .viewCard], "baseline: not focusing")
+        XCTAssertNil(menu(c)?.status)
+        key(c.scene!, 53)
+        c.startFocus(minutes: 25)
+        let seat = c.scene!.walker.tile
+        await place(other, at: TilePoint(x: seat.x + 1, y: seat.y), in: c)
+        key(c.scene!, spaceKey)
+        XCTAssertEqual(menu(c)?.actions, [.greet, .viewCard])
+        XCTAssertNil(menu(c)?.status)
+        c.handleClose()
+        await gate.tick()
+    }
+
+    func testCDoesNothingAroundAFocus() async {
+        let (_, other, c) = await pair(start: spawn)
+        await place(other, at: beside, focusEnds: now.addingTimeInterval(600), in: c)
+        c.scene!.onTackleKey?()
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(tackles(other), 0, "teammate is focusing")
+        // 끝 시각이 지난 팀원은 더는 집중 중이 아니다(받을 때만 걸러지므로 지금과 다시 견준다).
+        now = now.addingTimeInterval(601)
+        c.scene!.onTackleKey?()
+        await waitUntil { tackles(other) == 1 }
+        c.handleClose()
+
+        let (_, other2, c2) = await pair(start: spawn)
+        c2.startFocus(minutes: 25)
+        let seat = c2.scene!.walker.tile
+        await place(other2, at: TilePoint(x: seat.x + 1, y: seat.y), in: c2)
+        c2.scene!.onTackleKey?()
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(tackles(other2), 0, "I am focusing")
+        c2.handleClose()
+        await gate.tick()
+    }
+
+    func testFollowStopsWhenEitherSideStartsFocusing() async {
+        let (_, other, c) = await pair(start: spawn)
+        let scene = c.scene!
+        await place(other, at: beside, in: c)
+        XCTAssertTrue(scene.follow(member: other.settings.memberID))
+        c.startFocus(minutes: 25)
+        XCTAssertNil(scene.followingMember)
+        c.handleClose()
+        await gate.tick()
+
+        let (_, other2, c2) = await pair(start: spawn)
+        await place(other2, at: beside, in: c2)
+        XCTAssertTrue(c2.scene!.follow(member: other2.settings.memberID))
+        other2.session.updateFocus(endsAt: now.addingTimeInterval(600))
+        await waitUntil { c2.scene?.followingMember == nil }
+        c2.handleClose()
+    }
+
+    /// 모닥불 곁에서 팀원이 바로 옆에서 박치기를 했을 때 내가 밀리는지. 밀릴 수 있는 방향(양쪽 칸이 걸을 수 있음)을 골라 쓴다.
+    private func pushed(focusing: Bool, menuOpen: Bool) async -> Bool {
+        let map = PlazaMapData.map
+        let (me, other, c) = await pair()
+        let scene = c.scene!
+        if focusing { c.startFocus(minutes: 25) }
+        if menuOpen { key(scene, spaceKey) }
+        XCTAssertEqual(c.isFocusing, focusing)
+        XCTAssertEqual(c.isCampfireMenuOpen, menuOpen)
+        let spot = scene.walker.tile
+        let adjacent = [PlazaDirection.left, .right, .up, .down].map { PlazaWalker.offset(spot, $0) }
+        guard let from = adjacent.first(where: { a in
+            map.isWalkable(a) && map.isWalkable(TilePoint(x: 2 * spot.x - a.x, y: 2 * spot.y - a.y))
+        }) else { XCTFail("no pushable side"); return false }
+        await place(other, at: from, in: c)
+        let before = scene.walker.tile
+        c.showTackle(from: other.settings.memberID, on: me.settings.memberID)
+        XCTAssertEqual(scene.impactCount, 1, "the impact always plays")
+        for i in 1...20 { scene.update(Double(i) * 0.05) }
+        c.handleClose()
+        await gate.tick()
+        return scene.walker.tile != before
+    }
+
+    func testTackleStillPushesWhenNotFocusingAndMenuClosed() async {
+        let moved = await pushed(focusing: false, menuOpen: false)
+        XCTAssertTrue(moved, "control: the harness really pushes")
+    }
+
+    func testFocusingMeIsNotPushedByATackle() async {
+        let moved = await pushed(focusing: true, menuOpen: false)
+        XCTAssertFalse(moved)
+    }
+
+    func testCampfireMenuOpenBlocksThePush() async {
+        let moved = await pushed(focusing: false, menuOpen: true)
+        XCTAssertFalse(moved)
+    }
 }
