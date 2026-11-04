@@ -1564,3 +1564,23 @@ read_when:
   test now adds a new session file every 8 minutes and still allows at most 49 rewrites a day, and a new test
   checks that a relaunch after phase 2 reads the month from the snapshot. **Class sweep:** no other save in
   `Sources` is throttled.
+
+- **`SKView.isPaused = false` does not guarantee that SpriteKit's frames come back.**
+  After switching to another app and back, the plaza froze: teammates' chat still arrived, nobody moved, and closing
+  and reopening the window recovered it. The state lines from #50/#54 caught it in v2.5.613. After `rendering
+  visible=true` the view and the scene were both unpaused and the window was visible and key, yet `updates` stayed at
+  9856 for 67 seconds. A later hide and show of the window brought it back. The same resume had worked two minutes
+  earlier. The disassembly of SpriteKit on this Mac explains it. `-[SKView setPaused:]` returns early when the value
+  is unchanged, and otherwise starts or stops its `SKDisplayLink`, which starts or stops a CVDisplayLink through
+  blocks on another queue. Each vsync is dropped while a callback is in flight, and the link rebuilds itself when
+  its frame rate looks wrong, so the start sometimes leaves the signal off. Setting `false` again then does nothing,
+  and only another pause and resume restarts it. **Why nothing caught it:** the tests drive a fake render loop and
+  check our pause flags, not that SpriteKit calls `update` again. The live experiments (cover, minimize, hide,
+  quick toggles) never hit the intermittent race. The first logs recorded the update count only at state changes,
+  so the stall was invisible until a resume left it unchanged. **Fix:** a watchdog in `PlazaWindowController` looks
+  once a second while rendering is on (view and scene unpaused, no live resize). If `update` has not run since the
+  last look, it pauses and resumes the view and logs `render loop stalled, kick N` (the first three and every 60th),
+  then `render loop resumed after N kick(s)`. Tests cover the wake-up, a paused plaza left alone, the log cap and
+  the timer stopping on close. Whether one pause and resume always restarts a stuck view is so far shown only by the
+  natural recovery; the log lines will show it in the field. **Class sweep:** the plaza `SKView` is the only
+  SpriteKit view. The roster's bounce is a SwiftUI value with no display link of its own.
