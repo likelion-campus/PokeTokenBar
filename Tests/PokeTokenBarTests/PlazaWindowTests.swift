@@ -539,6 +539,26 @@ private struct RecordingFetcher: PlazaSpriteFetching {
                         "plaza render loop stalled, kick 3", "plaza render loop stalled, kick 60"])
     }
 
+    /// A reopened plaza has a new scene, so the watchdog forgets the last look: the first one only takes the count.
+    func testAReopenedPlazaStartsWatchingAfresh() {
+        let c = controller(defaults())
+        c.prepareScene()
+        c.renderLoop = RecordingRenderLoop()
+        c.checkRendering()
+        c.checkRendering()                  // stuck before closing: one kick
+        c.handleClose()
+        c.prepareScene()
+        let loop = RecordingRenderLoop()
+        c.renderLoop = loop
+        var lines: [String] = []
+        c.stateLog = { lines.append($0) }
+        c.startRenderWatchdog()
+        c.checkRendering()
+        XCTAssertEqual(loop.sets, [], "the new scene has not had a second yet")
+        XCTAssertEqual(lines, [])
+        c.handleClose()
+    }
+
     /// The watchdog looks once a second while the plaza is open and stops when it closes.
     func testTheWatchdogLooksEverySecondUntilClosed() async {
         let gate = CheckGate()

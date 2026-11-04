@@ -1036,9 +1036,11 @@ extension SKView: PlazaPausableView {}
     private var lastRenderCheckCount: Int?
     private var renderKicks = 0
 
-    /// 창을 열면 그리기 감시를 시작하고 닫을 때 멈춘다.
+    /// 창을 열면 그리기 감시를 시작하고 닫을 때 멈춘다. 다시 열면 새 장면이라 지난 확인 값을 버린다.
     func startRenderWatchdog() {
         renderWatchdog?.cancel()
+        lastRenderCheckCount = nil
+        renderKicks = 0
         let sleep = renderCheckSleep
         renderWatchdog = Task { [weak self] in
             while !Task.isCancelled {
