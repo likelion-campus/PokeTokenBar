@@ -27,6 +27,14 @@ extension L {
     func plazaWindowTitle(teamName: String?) -> String { teamName.map { "\(plazaWindowTitle) · \($0)" } ?? plazaWindowTitle }
     var plazaBoardHint: String { "스페이스바를 눌러 소식판 보기" }
     var plazaCampfireLightHint: String { "스페이스바를 눌러 모닥불 피우기" }
+    /// 집중 남은 시간. 1분 미만도 "1분"으로 올림해 보인다.
+    func plazaFocusRemaining(seconds: TimeInterval) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded(.up)))
+        guard minutes >= 60 else { return "\(minutes)분 남음" }
+        let h = minutes / 60, m = minutes % 60
+        return m == 0 ? "\(h)시간 남음" : "\(h)시간 \(m)분 남음"
+    }
+    func plazaFocusDuration(minutes: Int) -> String { minutes % 60 == 0 ? "\(minutes / 60)시간" : "\(minutes)분" }
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }
