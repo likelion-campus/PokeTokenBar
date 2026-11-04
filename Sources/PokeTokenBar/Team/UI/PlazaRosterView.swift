@@ -11,7 +11,7 @@ struct PlazaRosterView: View {
     var body: some View {
         let l = L(.ko)
         let entries = model.entries
-        let online = entries.filter { $0.presence == .online }.count
+        let online = entries.filter { $0.presence == .online || $0.presence == .focus }.count
         let (shown, hidden) = PlazaRoster.visible(entries, capacity: model.capacity)
         VStack(spacing: 0) {
             HStack {
@@ -79,6 +79,7 @@ extension PlazaPresence {
         case .online: return (l.plazaStatusOnline, 0x48B860)
         case .idle: return (l.plazaStatusIdle, 0xD08830)
         case .asleep: return (l.plazaStatusAsleep, 0x9070B8)
+        case .focus: return (l.plazaStatusFocus, 0xD9502A)
         }
     }
 }
@@ -101,7 +102,7 @@ private struct PlazaRosterSlot: View {
         let shape = UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22,
                                            bottomTrailingRadius: 8, topTrailingRadius: 8)
         HStack(spacing: 4) {
-            PlazaRosterIcon(speciesID: entry.speciesID, bounces: entry.presence == .online && animating)
+            PlazaRosterIcon(speciesID: entry.speciesID, bounces: (entry.presence == .online || entry.presence == .focus) && animating)
                 .frame(width: 40, height: 30)
                 .padding(.leading, 6)
             VStack(alignment: .leading, spacing: 1) {

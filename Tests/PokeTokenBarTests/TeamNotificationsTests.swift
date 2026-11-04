@@ -282,3 +282,97 @@ final class TeamNotificationsTests: XCTestCase {
         XCTAssertEqual(content.threadIdentifier, "team")
     }
 }
+
+@MainActor
+final class TeamNotifierFocusTests: XCTestCase {
+    private var frontmost = false
+    private var focusing = true
+    private var inPlaza: [String] = []
+    private let poster = FakePoster()
+    private var settings: TeamSettings!
+    private var notifier: TeamNotifier!
+    private let suite = "ptb.test.team.notifier.focus.\(UUID().uuidString)"
+
+    override func setUp() async throws {
+        settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        notifier = TeamNotifier(settings: settings, poster: poster, isPlazaFrontmost: { [unowned self] in frontmost },
+                                showInPlaza: { [unowned self] in inPlaza.append($0) }, clock: { t0 })
+        notifier.isFocusing = { [unowned self] in focusing }
+    }
+
+    override func tearDown() { UserDefaults().removePersistentDomain(forName: suite) }
+
+    private func holdSome() {
+        let m = memberState("민수")
+        notifier.emoteToMe(from: m, kind: .heart)
+        notifier.emoteToMe(from: m, kind: .heart)
+        notifier.emoteToMe(from: m, kind: .lol)
+        notifier.emoteToMe(from: m, kind: .exclaim)
+        for _ in 0..<3 { notifier.reactionToMine(reaction(), bigEvent()) }
+        notifier.bigEvent(bigEvent())
+    }
+
+    func testFocusHoldsEmotesReactionsAndNewsButNotTheMegaphone() {
+        holdSome()
+        XCTAssertTrue(poster.posts.isEmpty)
+        XCTAssertEqual(notifier.heldTally, TeamFocusTally(hearts: 2, lols: 1, parties: 0, reactions: 3, news: 1))
+        notifier.emoteToMe(from: memberState("민수"), kind: .party)
+        XCTAssertEqual(notifier.heldTally.parties, 1)
+        notifier.megaphone(from: memberState("지영"), text: "점심!")
+        XCTAssertEqual(poster.posts.count, 1)
+    }
+
+    func testFocusDoesNotHoldWhatThePlazaShows() {
+        frontmost = true
+        notifier.reactionToMine(reaction(), bigEvent())
+        notifier.emoteToMe(from: memberState("민수"), kind: .heart)
+        notifier.bigEvent(bigEvent())
+        XCTAssertEqual(inPlaza.count, 1)
+        XCTAssertEqual(notifier.heldTally, TeamFocusTally())
+    }
+
+    func testFocusEndPostsOneSummaryAndResets() {
+        holdSome()
+        notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true))
+        XCTAssertEqual(poster.posts.map(\.body), ["🔥 25분 집중 끝!\n그동안 ♥ 2 · ㅋㅋ 1 · 반응 3 · 소식 1"])
+        XCTAssertEqual(notifier.heldTally, TeamFocusTally())
+        notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true))
+        XCTAssertEqual(poster.posts.last?.body, "🔥 25분 집중 끝!")
+        holdSome()
+        frontmost = true
+        notifier.focusEnded(PlazaFocusEnd(minutes: 50, elapsedMinutes: 50, completed: true))
+        XCTAssertEqual(poster.posts.count, 2)
+        XCTAssertEqual(inPlaza, ["🔥 50분 집중 끝!\n그동안 ♥ 2 · ㅋㅋ 1 · 반응 3 · 소식 1"])
+    }
+
+    func testFocusEndRespectsTheNotificationSwitch() {
+        settings.notificationsEnabled = false
+        notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true))
+        XCTAssertTrue(poster.posts.isEmpty)
+        frontmost = true
+        notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true))
+        XCTAssertEqual(inPlaza, ["🔥 25분 집중 끝!"])
+    }
+
+    func testEarlyStandUpLine() {
+        notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 12, completed: false))
+        XCTAssertEqual(poster.posts.map(\.body), ["집중을 마쳤어요 · 12분"])
+    }
+
+    func testResetDropsWhatWasHeldSoItNeverReachesTheNextFocus() {
+        holdSome()
+        notifier.reset()
+        XCTAssertEqual(notifier.heldTally, TeamFocusTally())
+        notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true))
+        XCTAssertEqual(poster.posts.map(\.body), ["🔥 25분 집중 끝!"])
+    }
+
+    func testSummaryPutsPartiesBetweenLolAndReactions() {
+        let m = memberState("민수")
+        notifier.emoteToMe(from: m, kind: .lol)
+        notifier.emoteToMe(from: m, kind: .party)
+        notifier.reactionToMine(reaction(), bigEvent())
+        notifier.focusEnded(PlazaFocusEnd(minutes: 25, elapsedMinutes: 25, completed: true))
+        XCTAssertEqual(poster.posts.map(\.body), ["🔥 25분 집중 끝!\n그동안 ㅋㅋ 1 · 🎉 1 · 반응 1"])
+    }
+}

@@ -30,6 +30,14 @@ struct PlazaMinimapView: View {
                     context.stroke(Path(rect), with: .color(.white.opacity(0.9)), lineWidth: 1)
                 }
                 let tile = CGFloat(PlazaMap.tileSize) * s
+                if let fire = model.campfire {
+                    // 모닥불 자리는 2×2칸이라 중심은 왼쪽 위 칸에서 한 칸 오른쪽·아래다.
+                    let c = CGPoint(x: (CGFloat(fire.x) + 1) * tile, y: (CGFloat(fire.y) + 1) * tile)
+                    let square = Path(CGRect(x: c.x - 2.5, y: c.y - 2.5, width: 5, height: 5))
+                    context.opacity = 1
+                    context.fill(square, with: .color(Color(hex: 0xF08A24)))
+                    context.stroke(square, with: .color(Color(hex: 0x14161F)), lineWidth: 1)
+                }
                 if let item = model.item {
                     let c = CGPoint(x: (CGFloat(item.x) + 0.5) * tile, y: (CGFloat(item.y) + 0.5) * tile)
                     var diamond = Path()

@@ -105,6 +105,31 @@ extension PlazaRosterTests {
         XCTAssertEqual(egg.first?.speciesName, L(.ko).plazaEggName)
     }
 
+    func testFocusBadgeBeatsIdleButNotAsleep() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        func focused(_ id: String, _ nick: String, ends: Date, idle: Bool = false) -> TeamMemberState {
+            var m = member(id, nick, inPlaza: true, isIdle: idle); m.focusEndsAt = ends; return m
+        }
+        let me = entry("me", "힘", me: true)
+        let list = PlazaRoster.entries(
+            me: me, meIsFocusing: true,
+            members: [focused("a", "가지", ends: now.addingTimeInterval(60), idle: true),
+                      focused("b", "나무", ends: now.addingTimeInterval(-1)),
+                      member("c", "다람", inPlaza: true)],
+            asleep: [focused("d", "가람", ends: now.addingTimeInterval(60))], now: now)
+        func presence(_ id: String) -> PlazaPresence? { list.first { $0.id == id }?.presence }
+        XCTAssertEqual(presence("me"), .focus)
+        XCTAssertEqual(presence("a"), .focus, "focus beats idle")
+        XCTAssertEqual(presence("b"), .online, "expired focus")
+        XCTAssertEqual(presence("d"), .asleep, "asleep beats focus")
+        XCTAssertEqual(list.map(\.id), ["me", "a", "b", "c", "d"], "focus sorts with online by nickname")
+    }
+
+    func testFocusBadgeText() {
+        XCTAssertEqual(PlazaPresence.focus.badge.text, "🔥집중")
+        XCTAssertEqual(PlazaPresence.focus.badge.color, 0xD9502A)
+    }
+
     /// My own row follows my own input: it used to say 접속 forever.
     func testMyRowShowsMyIdle() {
         let me = entry("me", "힘", me: true)

@@ -27,6 +27,9 @@ struct TeamPresence: Codable, Equatable, Sendable {
     /// passes it on, so a plaza opened after the picker left still hides that item. Left out when none; earlier
     /// versions ignore it.
     var takenItemSlot: Int?
+    /// When this member's campfire focus ends. Left out when not focusing; earlier versions ignore it. A receiver
+    /// keeps it only inside `PlazaFocus.accepted`'s window.
+    var focusEndsAt: Date?
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {

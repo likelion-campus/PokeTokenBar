@@ -68,6 +68,69 @@ final class TeamRuntimeTests: XCTestCase {
         return (a, b)
     }
 
+    // MARK: - Focus
+
+    /// Real time: teammates drop a focus end that is already past by their own clock.
+    private var focusNow = Date()
+
+    /// A node whose plaza sits at the campfire, with a notifier posting to a fake.
+    private func focusingNode() async -> (a: RuntimeNode, b: RuntimeNode, plaza: PlazaWindowController, poster: RuntimePoster) {
+        let code = newCode()
+        let a = RuntimeNode(hub: hub, code: code, nickname: "가")
+        let b = RuntimeNode(hub: hub, code: code, nickname: "나")
+        let suite = "ptb.test.team.runtime.focus.\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: suite)!)
+        prefs.saveLastTile(TilePoint(x: 36, y: 22))
+        let plaza = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session,
+                                          clock: { [unowned self] in focusNow },
+                                          focusTickSleep: { _ in try? await Task.sleep(for: .seconds(3600)) })
+        let poster = RuntimePoster()
+        b.runtime.plaza = plaza
+        b.runtime.notifier = TeamNotifier(settings: b.settings, poster: poster, isPlazaFrontmost: { false },
+                                          showInPlaza: { _ in })
+        a.runtime.start()
+        b.runtime.start()
+        hub.connect(a.transport, to: b.transport)
+        plaza.prepareScene()
+        await settle { b.runtime.session.members[a.settings.memberID] != nil }
+        plaza.startFocus(minutes: 25)
+        XCTAssertNotNil(plaza.focus)
+        return (a, b, plaza, poster)
+    }
+
+    func testTickEndsADueFocus() async {
+        let (_, b, plaza, poster) = await focusingNode()
+        focusNow = focusNow.addingTimeInterval(25 * 60 + 1)
+        b.runtime.tickOnce()
+        XCTAssertEqual(poster.bodies, ["🔥 25분 집중 끝!"])
+        b.runtime.tickOnce()
+        XCTAssertEqual(poster.bodies.count, 1)
+        plaza.handleClose()
+    }
+
+    func testChangingTeamEndsTheFocusSilently() async {
+        let (a, b, plaza, poster) = await focusingNode()
+        await settle { a.runtime.session.members[b.settings.memberID]?.focusEndsAt != nil }
+        b.settings.code = newCode()
+        await settle { plaza.focus == nil }
+        XCTAssertTrue(poster.bodies.isEmpty)
+        await settle { a.runtime.session.members[b.settings.memberID]?.focusEndsAt == nil }
+        plaza.handleClose()
+    }
+
+    func testTurningTheTeamOffEndsTheFocusSilently() async {
+        let (a, b, plaza, poster) = await focusingNode()
+        await settle { a.runtime.session.members[b.settings.memberID]?.focusEndsAt != nil }
+        b.settings.isEnabled = false
+        await settle { plaza.focus == nil }
+        XCTAssertTrue(poster.bodies.isEmpty)
+        await settle { a.runtime.session.members[b.settings.memberID]?.focusEndsAt == nil }
+        plaza.handleClose()
+    }
+
     /// A teammate's pickup reaches my plaza through the runtime, which then hides that item.
     func testReceivedPickupHidesTheItem() async {
         let (a, b) = connectedPair()

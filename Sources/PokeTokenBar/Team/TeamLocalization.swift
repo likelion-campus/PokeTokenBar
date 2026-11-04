@@ -26,6 +26,23 @@ extension L {
     /// 창 제목. 저장한 팀 이름이 있으면 함께 보인다.
     func plazaWindowTitle(teamName: String?) -> String { teamName.map { "\(plazaWindowTitle) · \($0)" } ?? plazaWindowTitle }
     var plazaBoardHint: String { "스페이스바를 눌러 소식판 보기" }
+    var plazaCampfireLightHint: String { "스페이스바를 눌러 모닥불 피우기" }
+    /// 집중 남은 시간. 1분 미만도 "1분"으로 올림해 보인다.
+    func plazaFocusRemaining(seconds: TimeInterval) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded(.up)))
+        guard minutes >= 60 else { return "\(minutes)분 남음" }
+        let h = minutes / 60, m = minutes % 60
+        return m == 0 ? "\(h)시간 남음" : "\(h)시간 \(m)분 남음"
+    }
+    /// 집중 중인 팀원 메뉴의 상태 줄.
+    func plazaFocusStatus(seconds: TimeInterval) -> String { "🔥 집중 중 · " + plazaFocusRemaining(seconds: seconds) }
+    func plazaFocusDuration(minutes: Int) -> String { minutes % 60 == 0 ? "\(minutes / 60)시간" : "\(minutes)분" }
+    var plazaCampfireJoinHint: String { "스페이스바를 눌러 같이 집중하기" }
+    /// 앉아 있는 동안의 안내. `remaining`은 `plazaFocusRemaining`의 결과.
+    func plazaFocusHint(remaining: String) -> String { "🔥 \(remaining) · 방향키로 일어나기" }
+    func plazaCampfireMenuTitle(isJoin: Bool) -> String { isJoin ? "같이 집중하기" : "모닥불" }
+    func plazaCampfireRow(minutes: Int) -> String { "\(plazaFocusDuration(minutes: minutes)) 집중" }
+    var plazaCampfireFull: String { "자리가 없어요" }
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }
@@ -35,6 +52,7 @@ extension L {
     var plazaShortcutWalk: String { "걷기" }
     var plazaShortcutRun: String { "달리기" }
     var plazaShortcutTalk: String { "말 걸기" }
+    var plazaShortcutFocus: String { "모닥불 옆: 집중" }
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
     var plazaShortcutPhoto: String { "기념사진" }
@@ -62,6 +80,7 @@ extension L {
     var plazaMenuViewCard: String { "포켓몬 보기" }
     var plazaRosterTitle: String { "팀원" }
     var plazaStatusOnline: String { "접속" }
+    var plazaStatusFocus: String { "🔥집중" }
     var plazaStatusIdle: String { "자리비움" }
     var plazaStatusAsleep: String { "잠" }
     func plazaRosterCount(online: Int, total: Int) -> String { "접속 \(online) / \(total)" }
@@ -115,6 +134,15 @@ extension L {
             let from = KoreanParticle.subject.attach(to: e.fromSpeciesName ?? e.speciesName)
             return "\(nick)의 \(from) \(KoreanParticle.direction.attach(to: e.speciesName)) 진화했어요"
         }
+    }
+
+    func plazaFocusDoneLine(minutes: Int) -> String { "🔥 \(plazaFocusDuration(minutes: minutes)) 집중 끝!" }
+    func plazaFocusEarlyLine(minutes: Int) -> String { "집중을 마쳤어요 · \(minutes)분" }
+    /// 집중 중 모아 둔 알림 요약. 0인 항목은 뺀다. 모은 게 없으면 nil.
+    func plazaFocusSummary(_ t: TeamFocusTally) -> String? {
+        let parts = [("♥", t.hearts), ("ㅋㅋ", t.lols), ("🎉", t.parties), ("반응", t.reactions), ("소식", t.news)]
+            .filter { $0.1 > 0 }.map { "\($0.0) \($0.1)" }
+        return parts.isEmpty ? nil : "그동안 " + parts.joined(separator: " · ")
     }
 
     /// 팀 알림. 제목과 본문에 사용량 수치는 넣지 않는다.

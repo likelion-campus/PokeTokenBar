@@ -29,19 +29,36 @@ struct PlazaPhotoParticle {
     let size: CGSize
 }
 
+/// 캐릭터와 같은 앞뒤 순서로 찍히는 물건(모닥불). `baseY`는 바닥 변의 월드 y로, 발 y가 이보다 작은 캐릭터는 뒤에 찍힌다.
+struct PlazaPhotoProp {
+    let particle: PlazaPhotoParticle
+    let baseY: CGFloat
+}
+
 struct PlazaPhotoInput {
     let mapImage: CGImage
     /// 사진에 담을 월드 영역.
     let visibleRect: CGRect
     /// 월드 픽셀 하나가 차지하는 사진 픽셀(화면 배율 × 2).
     let pixelsPerWorld: Int
-    let actors: [PlazaPhotoActor]
+    var actors: [PlazaPhotoActor]
     /// 낮과 밤의 색. 화면처럼 지도와 캐릭터에만 곱하고 이름표와 말풍선에는 곱하지 않는다.
     var tint: PlazaDaylight.Tint = .none
     /// 화면에 떠 있는 날씨 입자. 캐릭터 위, 낮밤 색 아래라 지도와 같은 색이 곱해진다.
     var weather: [PlazaPhotoParticle] = []
     /// 땅에 떨어진 아이템. 그림자 위, 캐릭터 아래.
     var items: [PlazaPhotoParticle] = []
+    /// 캐릭터와 앞뒤를 겨루는 물건. 발 y가 같으면 물건이 뒤.
+    var props: [PlazaPhotoProp] = []
+    /// 모닥불이 던지는 밤빛. 낮밤 색 바로 위에 곱하고 이름표와 말풍선에는 곱하지 않는다.
+    var light: PlazaPhotoLight?
+}
+
+/// 기념사진에 곱할 모닥불빛. 좌표는 월드 픽셀(y 아래로)이고 반지름은 깜빡임이 이미 곱해져 있다.
+struct PlazaPhotoLight {
+    let center: CGPoint
+    let radii: CGSize
+    let tint: PlazaDaylight.Tint
 }
 
 /// 기념사진을 CoreGraphics로 합성한다. 창이나 SKView가 필요 없고, 모든 그림은 보간 없이 정수 배율로 찍는다.
@@ -101,7 +118,17 @@ enum PlazaPhotoRenderer {
 
         // 화면 위쪽에 선(발의 y가 작은) 캐릭터부터. 같으면 입력 순서를 지킨다.
         let ordered = input.actors.enumerated().sorted { ($0.element.foot.y, $0.offset) < ($1.element.foot.y, $1.offset) }.map(\.element)
+        var pendingProps = input.props.sorted { $0.baseY < $1.baseY }[...]
+        func drawProps(upTo y: CGFloat?) {
+            while let prop = pendingProps.first, y.map({ prop.baseY <= $0 }) ?? true {
+                pendingProps = pendingProps.dropFirst()
+                let p = prop.particle
+                draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
+                     w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
+            }
+        }
         for a in ordered {
+            drawProps(upTo: a.foot.y)
             let w = Int((CGFloat(a.image.width) * a.scale * ppw).rounded()), h = Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
             draw(a.image, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX),
                  top: px(a.foot.y - a.bob, origin: rect.minY) - h, w: w, h: h, mirrored: a.flipped)
@@ -110,6 +137,8 @@ enum PlazaPhotoRenderer {
                      w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
             }
         }
+
+        drawProps(upTo: nil)
 
         for p in input.weather {
             draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
@@ -123,6 +152,31 @@ enum PlazaPhotoRenderer {
             context.setFillColor(CGColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
             context.restoreGState()
+        }
+
+        if let light = input.light, let base = context.data {
+            let bytes = base.assumingMemoryBound(to: UInt8.self), stride = context.bytesPerRow
+            let n = PlazaCampfireLight.blockCounts(radii: light.radii)
+            let left = light.center.x - CGFloat(n.w), top = light.center.y - CGFloat(n.h)
+            for j in 0..<n.h {
+                let y0 = max(px(top + CGFloat(2 * j), origin: rect.minY), 0), y1 = min(px(top + CGFloat(2 * j + 2), origin: rect.minY), height)
+                guard y0 < y1 else { continue }
+                for i in 0..<n.w {
+                    let k = PlazaCampfireLight.blockMix(i: i, j: j, radii: light.radii)
+                    guard k > 0 else { continue }
+                    let x0 = max(px(left + CGFloat(2 * i), origin: rect.minX), 0), x1 = min(px(left + CGFloat(2 * i + 2), origin: rect.minX), width)
+                    guard x0 < x1 else { continue }
+                    let m = PlazaCampfireLight.multiplier(tint: light.tint, mix: k)
+                    for y in y0..<y1 {
+                        for x in x0..<x1 {
+                            let o = y * stride + x * 4
+                            bytes[o] = UInt8(min(255, (Double(bytes[o]) * m.r).rounded()))
+                            bytes[o + 1] = UInt8(min(255, (Double(bytes[o + 1]) * m.g).rounded()))
+                            bytes[o + 2] = UInt8(min(255, (Double(bytes[o + 2]) * m.b).rounded()))
+                        }
+                    }
+                }
+            }
         }
 
         for a in ordered {

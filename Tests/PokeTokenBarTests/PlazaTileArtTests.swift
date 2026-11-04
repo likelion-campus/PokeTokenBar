@@ -119,4 +119,11 @@ final class PlazaTileArtTests: XCTestCase {
         }
         return data
     }
+
+    func testCampfireTilesAreDrawnAsGrass() throws {
+        let sheet = try sheet()
+        let swapped = try PlazaMap(rows: PlazaMapData.rows.map { $0.replacingOccurrences(of: "F", with: ".") })
+        let a = pixels(try sharedMap()), b = pixels(PlazaTileArt.mapImage(swapped, sheet: sheet))
+        XCTAssertEqual(tile(a, 36, 23, width: 48 * 32), tile(b, 36, 23, width: 48 * 32))
+    }
 }

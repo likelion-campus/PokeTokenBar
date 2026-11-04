@@ -1204,6 +1204,21 @@ read_when:
   the idle sender were fixed. The shelter placement and emote targeting still use `inPlaza`, because they are about
   where a teammate stands, not their status.
 
+- **A narrow test filter hides the repository-wide guards; run the full suite before every commit.** A Hangul literal in a
+  `Team/` source broke `TeamLocalizationTests`' no-Hangul guard (all team text lives in `TeamLocalization`). It slipped
+  through because every task of the campfire branch ran a filtered `swift test --filter`, which excluded the guard.
+  **Why nothing caught it:** the guard existed and was correct, but nobody ran it. **Capture:** the mechanism already
+  existed: CI runs `scripts/test-gate.sh` (the full `swift test`) on every push and PR (`.github/workflows/ci.yml`). The
+  gap was only the filtered runs during per-task work, so run the full suite before each commit too.
+  **Class sweep:** the only filtered runs were the per-task ones on this branch; no other guard was skipped.
+
+- **A render test must pin the scene clock and derive variants from a copy.** A photo test compared a render that carried
+  the real time-of-day tint with variants rebuilt without it, and the scene clock was not pinned, so it failed only
+  after 16:00 (dusk). **Why nothing caught it:** it passed all morning and afternoon, so the tint-free variants
+  matched by accident. **Capture:** photo/scene render tests pin `now` (`PlazaPhotoTests.newScene` pins 2026-05-10 12:00),
+  and variants are made by mutating a copy of the input, never by rebuilding it.
+  **Class sweep:** every scene/photo test that compares renders pins `now` or compares variants made from one input (clean).
+
 ## 에너지 (상시 표시 애니메이션)
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
