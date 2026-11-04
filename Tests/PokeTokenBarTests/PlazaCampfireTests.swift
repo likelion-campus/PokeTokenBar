@@ -14,23 +14,38 @@ import XCTest
 
     func testSeatsAreTheEightFromTheSpec() {
         let expected: [PlazaCampfire.Seat] = [
-            .init(tile: tile(35, 21), facing: .down), .init(tile: tile(38, 21), facing: .down),
-            .init(tile: tile(32, 21), facing: .right), .init(tile: tile(41, 21), facing: .left),
-            .init(tile: tile(33, 24), facing: .right), .init(tile: tile(40, 24), facing: .left),
-            .init(tile: tile(35, 27), facing: .up), .init(tile: tile(38, 27), facing: .up),
+            .init(tile: tile(22, 13), facing: .down), .init(tile: tile(25, 13), facing: .down),
+            .init(tile: tile(19, 13), facing: .right), .init(tile: tile(28, 13), facing: .left),
+            .init(tile: tile(20, 16), facing: .right), .init(tile: tile(27, 16), facing: .left),
+            .init(tile: tile(22, 19), facing: .up), .init(tile: tile(25, 19), facing: .up),
         ]
         XCTAssertEqual(PlazaCampfire.seats, expected)
         XCTAssertEqual(PlazaCampfire.durations, [25, 50, 480])
     }
 
     func testNearestFreeSeatSkipsTakenSeatsAndBreaksTiesInListOrder() {
-        XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(36, 22), occupied: [])?.tile, tile(35, 21))
-        XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(36, 22), occupied: [tile(35, 21)])?.tile, tile(38, 21))
+        XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(23, 14), occupied: [])?.tile, tile(22, 13))
+        XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(23, 14), occupied: [tile(22, 13)])?.tile, tile(25, 13))
         let all = Set(PlazaCampfire.seats.map(\.tile))
-        XCTAssertNil(PlazaCampfire.nearestFreeSeat(from: tile(36, 22), occupied: all))
-        XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(34, 24), occupied: [])?.tile, tile(33, 24))
-        // (36,24): (35,21) 과 (35,27) 이 거리 10 으로 동률 — 목록에서 앞선 자리가 이긴다.
-        XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(36, 24), occupied: [tile(33, 24), tile(40, 24)])?.tile, tile(35, 21))
+        XCTAssertNil(PlazaCampfire.nearestFreeSeat(from: tile(23, 14), occupied: all))
+        XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(21, 16), occupied: [])?.tile, tile(20, 16))
+        // (23,16): (22,13) 과 (22,19) 가 거리 10 으로 동률 — 목록에서 앞선 자리가 이긴다.
+        XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(23, 16), occupied: [tile(20, 16), tile(27, 16)])?.tile, tile(22, 13))
+    }
+
+    /// 자리는 지도의 모닥불 자리에서 도출한다: 구덩이 왼쪽 위 칸 기준 오프셋이 그대로 따라온다.
+    func testSeatsFollowThePitOnTheMap() {
+        let origin = PlazaMapData.map.campfireTiles.first!
+        XCTAssertEqual(origin, tile(23, 15))
+        XCTAssertEqual(PlazaCampfire.seats.first?.tile, tile(origin.x - 1, origin.y - 2))
+        XCTAssertEqual(PlazaCampfire.seats.last?.tile, tile(origin.x + 2, origin.y + 4))
+    }
+
+    /// 모닥불이 옮겨지기 전 버전의 자리(35,21)는 가장 가까운 새 자리로 대응한다. 점유는 보지 않고 동률이면 목록 순서다.
+    func testNearestSeatIgnoresOccupancyAndBreaksTiesInListOrder() {
+        XCTAssertEqual(PlazaCampfire.nearestSeat(to: tile(35, 21))?.tile, tile(27, 16))
+        XCTAssertEqual(PlazaCampfire.nearestSeat(to: tile(22, 13))?.tile, tile(22, 13))
+        XCTAssertEqual(PlazaCampfire.nearestSeat(to: tile(18, 15))?.tile, tile(19, 13), "tie with (20,16): the earlier seat wins")
     }
 
     func testClockFormat() {

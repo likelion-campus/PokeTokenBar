@@ -8,27 +8,27 @@ enum PlazaMapData {
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
         "TTT..........................................TTT",
-        "TTT..f.........b.......f..........ggggg......TTT",
-        "TTT..ggggggg............f.f.......ggggg.f....TTT",
-        "TTT..ggggggg.f...f................ggggg......TTT",
-        "TTT..ggggggg..................b.f............TTT",
+        "TTT..f.........b......SNNS........ggggg......TTT",
+        "TTT..ggggggg..........SNNSf.......ggggg.f....TTT",
+        "TTT..ggggggg.f...f...SSSSSS.......ggggg......TTT",
+        "TTT..ggggggg.........SSSSSS...b.f............TTT",
         "TTT..ggggggg.................................TTT",
         "TTT.....f..........f............f....f.......TTT",
         "TTT..........................ggg.......b.....TTT",
         "TTT.f........................ggg.............TTT",
         "TTT..................................f.f.....TTT",
         "TTT.......b.........................f......f.TTT",
-        "TTT...................SNNS..............ggg..TTT",
-        "TTT.f..gg.............SNNS.......f......ggg..TTT",
-        "TTT....gg.f...f......SSSSSS..............f...TTT",
-        "TTT............b.....SSSSSS.......f..........TTT",
+        "TTT.....................................ggg..TTT",
+        "TTT.f..gg..............FF........f......ggg..TTT",
+        "TTT....gg.f...f........FF................f...TTT",
+        "TTT............b..................f..........TTT",
         "TTT............................f...f.........TTT",
         "TTT........b.................................TTT",
         "TTT........f..................f..............TTT",
         "TTT............f.......................f.....TTT",
         "TTT.ggggg.........f..............b...f....b..TTT",
-        "TTT.ggggg........f.....f...f........FF.......TTT",
-        "TTT.ggggg................ggggggg....FF.......TTT",
+        "TTT.ggggg........f.....f...f.................TTT",
+        "TTT.ggggg................ggggggg.............TTT",
         "TTT.ggggg.......gg.......ggggggg.............TTT",
         "TTT.............gg.......ggggggg......ff.....TTT",
         "TTT...................f..ggggggg.............TTT",
@@ -38,7 +38,50 @@ enum PlazaMapData {
         "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
     ]
 
+    /// 아이템 자리를 뽑는 데 쓰는 고정 배치(v2.5.613 지도). 쉼터·소식판·모닥불을 옮겨도 칸 번호가 같은 자리에 떨어지도록,
+    /// 이 배치의 후보 목록으로만 자리를 뽑는다. 이 줄들은 절대 바꾸지 않는다(바꾸면 버전마다 아이템 자리가 갈린다).
+    /// 지금 지도에서 그 칸이 막혔으면 아이템은 보이지 않는다(`PlazaItems.isShown`).
+    static let itemLayoutRows: [String] = [
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "TTT..........................................TTT",
+        "TTT..f.........b.......f.....................TTT",
+        "TTT.....................f.f.............f....TTT",
+        "TTT..........f...f...........................TTT",
+        "TTT...........................b.f............TTT",
+        "TTT.......f..................................TTT",
+        "TTT.....f..........f............f....f.......TTT",
+        "TTT....................................b.....TTT",
+        "TTT.f........................................TTT",
+        "TTT..................................f.f.....TTT",
+        "TTT.......b.........................f......f.TTT",
+        "TTT...................SNNS...................TTT",
+        "TTT.f.................SNNS.......f...........TTT",
+        "TTT.......f...f......SSSSSS..............f...TTT",
+        "TTT............b.....SSSSSS.......f..........TTT",
+        "TTT............................f...f.........TTT",
+        "TTT........b.................................TTT",
+        "TTT........f..................f..............TTT",
+        "TTT............f.......................f.....TTT",
+        "TTT...............f..............b...f....b..TTT",
+        "TTT..............f.....f...f.................TTT",
+        "TTT..........................................TTT",
+        "TTT..........................................TTT",
+        "TTT..............f...........f........ff.....TTT",
+        "TTT...................f......................TTT",
+        "TTT..........................................TTT",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+        "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+    ]
+
     static let map: PlazaMap = {
         do { return try PlazaMap(rows: rows) } catch { fatalError("Invalid plaza map: \(error)") }
+    }()
+
+    /// `itemLayoutRows`로 만든 지도. 한 번만 만든다.
+    static let itemLayoutMap: PlazaMap = {
+        do { return try PlazaMap(rows: itemLayoutRows) } catch { fatalError("Invalid item layout: \(error)") }
     }()
 }

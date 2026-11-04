@@ -97,12 +97,12 @@ final class PlazaCampfireSceneTests: XCTestCase {
     func testPitDrawsBehindCharactersInFrontOfIt() throws {
         let scene = newScene()
         scene.applyMembers([
-            PlazaSceneMember(memberID: "front", nickname: "front", isAway: false, tile: TilePoint(x: 36, y: 26), facing: .down, isWalking: false),
-            PlazaSceneMember(memberID: "back", nickname: "back", isAway: false, tile: TilePoint(x: 36, y: 21), facing: .down, isWalking: false),
+            PlazaSceneMember(memberID: "front", nickname: "front", isAway: false, tile: TilePoint(x: 23, y: 18), facing: .down, isWalking: false),
+            PlazaSceneMember(memberID: "back", nickname: "back", isAway: false, tile: TilePoint(x: 23, y: 13), facing: .down, isWalking: false),
         ])
         scene.update(0)
         let pit = try XCTUnwrap(scene.campfireZ)
-        XCTAssertEqual(pit, 1 + CGFloat(25 * 32) / map.pixelSize.height, accuracy: 1e-9)
+        XCTAssertEqual(pit, 1 + CGFloat(17 * 32) / map.pixelSize.height, accuracy: 1e-9)
         XCTAssertGreaterThan(try XCTUnwrap(scene.memberZ("front")), pit)
         XCTAssertLessThan(try XCTUnwrap(scene.memberZ("back")), pit)
     }
@@ -134,7 +134,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         scene.onLocalPositionChange = { reports.append(($0, $1, $2)) }
         let seat = PlazaCampfire.seats[4]
         scene.sit(at: seat)
-        XCTAssertEqual(scene.walker.tile, TilePoint(x: 33, y: 24))
+        XCTAssertEqual(scene.walker.tile, TilePoint(x: 20, y: 16))
         XCTAssertEqual(scene.walker.facing, .right)
         XCTAssertFalse(scene.walker.isWalking)
         XCTAssertEqual(reports.count, 1)
@@ -143,7 +143,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
 
     func testSitStopsAutoWalk() {
         let scene = newScene()
-        scene.applyMembers([PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 36, y: 26), facing: .down, isWalking: false)])
+        scene.applyMembers([PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 23, y: 18), facing: .down, isWalking: false)])
         XCTAssertTrue(scene.follow(member: "a"))
         scene.sit(at: PlazaCampfire.seats[4])
         XCTAssertNil(scene.followingMember)

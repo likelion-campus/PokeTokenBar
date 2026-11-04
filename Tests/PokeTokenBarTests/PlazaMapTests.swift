@@ -92,15 +92,26 @@ final class PlazaMapTests: XCTestCase {
         XCTAssertFalse(map.isWalkable(.init(x: map.width, y: 5)))
     }
 
-    func testCampfireFillsTwoByTwoInTheLowerRight() {
-        let pit = [TilePoint(x: 36, y: 23), TilePoint(x: 37, y: 23), TilePoint(x: 36, y: 24), TilePoint(x: 37, y: 24)]
+    func testCampfireFillsTwoByTwoAtTheMapCenter() {
+        let pit = [TilePoint(x: 23, y: 15), TilePoint(x: 24, y: 15), TilePoint(x: 23, y: 16), TilePoint(x: 24, y: 16)]
         XCTAssertEqual(map.campfireTiles, pit)
         for t in pit { XCTAssertFalse(map.isWalkable(t)) }
-        let seats = [(35, 21), (38, 21), (32, 21), (41, 21), (33, 24), (40, 24), (35, 27), (38, 27)].map { TilePoint(x: $0.0, y: $0.1) }
-        for t in seats {
+        let touching = Set(pit.flatMap { p in (-1...1).flatMap { dx in (-1...1).map { dy in TilePoint(x: p.x + dx, y: p.y + dy) } } })
+        for seat in PlazaCampfire.seats {
+            let t = seat.tile
             XCTAssertTrue(map.isWalkable(t), "\(t) must stay walkable")
-            XCTAssertFalse(map.campfireTiles.contains(t))
+            XCTAssertNotEqual(map.tile(at: t), .tallGrass, "\(t) is not tall grass")
+            XCTAssertNotEqual(map.tile(at: t), .shelter, "\(t) is not the shelter")
+            XCTAssertFalse(touching.contains(t), "\(t) must not touch the pit")
         }
+    }
+
+    func testBoardAndShelterSitAtTheTopCenter() {
+        XCTAssertEqual(map.boardTile, TilePoint(x: 23, y: 4))
+        let shelter = [(22, 4), (25, 4), (22, 5), (25, 5)] + (21...26).flatMap { x in [6, 7].map { (x, $0) } }
+        XCTAssertEqual(Set(map.shelterTiles), Set(shelter.map { TilePoint(x: $0.0, y: $0.1) }))
+        XCTAssertEqual(map.shelterTiles.count, 16)
+        XCTAssertEqual(map.spawn, TilePoint(x: 23, y: 6))
     }
 
     /// An older-version teammate can report the pit as its tile; the scene treats it like any unwalkable tile.
@@ -108,7 +119,7 @@ final class PlazaMapTests: XCTestCase {
     func testATeammateReportedOnThePitIsDrawnInTheShelter() {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
         scene.size = CGSize(width: 800, height: 600)
-        scene.applyMembers([PlazaSceneMember(memberID: "m", nickname: "m", isAway: false, tile: TilePoint(x: 36, y: 23),
+        scene.applyMembers([PlazaSceneMember(memberID: "m", nickname: "m", isAway: false, tile: TilePoint(x: 23, y: 15),
                                              facing: .down, isWalking: false)])
         XCTAssertTrue(map.shelterTiles.contains(scene.memberTiles["m"]!))
     }
