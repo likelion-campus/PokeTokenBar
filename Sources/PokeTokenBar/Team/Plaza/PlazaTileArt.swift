@@ -36,7 +36,7 @@ enum PlazaTileArt {
     }
 
     /// 지도 전체를 한 장으로(width*32 × height*32). 광장을 열 때 한 번 만든다.
-    static func mapImage(_ map: PlazaMap, sheet: CGImage) -> CGImage {
+    static func mapImage(_ map: PlazaMap, sheet: CGImage, tallGrass: PlazaTallGrassArt? = nil) -> CGImage {
         var canvas = Canvas(width: map.width * tile, height: map.height * tile, sheet: SheetPixels(sheet))
         for y in 0..<map.height {
             for x in 0..<map.width {
@@ -52,6 +52,7 @@ enum PlazaTileArt {
                 }
             }
         }
+        if let tallGrass { drawTallGrass(map, tallGrass, &canvas) }
         drawTrees(map, &canvas)
         let b = map.boardTile
         for sy in 0..<signSize {
@@ -62,6 +63,26 @@ enum PlazaTileArt {
             }
         }
         return canvas.image()
+    }
+
+    /// 풀숲 칸마다 이웃에 맞는 조각을 잔디 위에 2배로 겹친다. 그림이 없으면 그리지 않아 풀밭으로 남는다.
+    private static func drawTallGrass(_ map: PlazaMap, _ art: PlazaTallGrassArt, _ canvas: inout Canvas) {
+        var sources: [PlazaTallGrassSlice: SheetPixels] = [:]
+        let isGrass: (TilePoint) -> Bool = { map.tile(at: $0) == .tallGrass }
+        for y in 0..<map.height {
+            for x in 0..<map.width {
+                let p = TilePoint(x: x, y: y)
+                guard isGrass(p) else { continue }
+                let s = PlazaTallGrass.slice(at: p, isGrass: isGrass)
+                let source = sources[s] ?? SheetPixels(art.tile(s))
+                sources[s] = source
+                for sy in 0..<cell {
+                    for sx in 0..<cell {
+                        canvas.plot(from: source, sheetX: sx, sheetY: sy, x: x * tile + sx * scale, y: y * tile + sy * scale)
+                    }
+                }
+            }
+        }
     }
 
     /// 나무는 2x2 칸이며 (x + y)가 짝수인 자리에 놓아 줄마다 한 칸씩 엇갈린다.
@@ -144,6 +165,10 @@ enum PlazaTileArt {
 
         /// 시트 픽셀 하나를 2x2로 키워 (x, y)(왼쪽 위, 월드 픽셀)에 겹쳐 그린다.
         mutating func plot(sheetX: Int, sheetY: Int, x: Int, y: Int) {
+            plot(from: sheet, sheetX: sheetX, sheetY: sheetY, x: x, y: y)
+        }
+
+        mutating func plot(from sheet: SheetPixels, sheetX: Int, sheetY: Int, x: Int, y: Int) {
             let si = (sheetY * sheet.width + sheetX) * 4
             let a = Int(sheet.bytes[si + 3])
             if a == 0 { return }

@@ -63,6 +63,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Team/Plaza/PlazaPixelSnap.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaRemoteMotion.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaTallGrass.swift"
+  "Sources/PokeTokenBar/Team/Plaza/PlazaTallGrassArt.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaShelterWanderer.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaTargeting.swift"
   "Sources/PokeTokenBar/Team/Plaza/PlazaPhotoRenderer.swift"
