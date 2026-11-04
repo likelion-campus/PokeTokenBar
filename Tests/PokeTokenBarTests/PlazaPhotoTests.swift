@@ -553,4 +553,40 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertTrue(off.bands.isEmpty)
         XCTAssertTrue(off.actors.allSatisfy { $0.opacity == 1 })
     }
+
+    func testMyOwnPokemonInTheGrassIsDrawnAtFortyPercent() throws {
+        let art = try XCTUnwrap(PlazaTallGrassArt.load())
+        let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: TilePoint(x: 6, y: 6), zoom: 2,
+                           nickname: "me", tallGrass: art)
+        s.size = CGSize(width: 800, height: 600)
+        s.backingOverride = 2
+        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]
+        s.setCharacter(PlazaCharacterFrames(front: tall, back: tall))
+        var t: TimeInterval = 0
+        s.update(t)
+        for _ in 0..<3 { t += 1.0 / 30; s.update(t) }
+        let input = try XCTUnwrap(s.photoInput())
+        let me = try XCTUnwrap(input.actors.first)
+        XCTAssertEqual(me.opacity, 0.4, accuracy: 1e-9)
+        XCTAssertNotNil(me.plateBaseY)
+
+        func pixels(_ opacity: CGFloat) throws -> Pixels {
+            var i = input
+            var a = me
+            a.opacity = opacity
+            i = PlazaPhotoInput(mapImage: i.mapImage, visibleRect: i.visibleRect, pixelsPerWorld: i.pixelsPerWorld,
+                                actors: [a], bands: [])
+            return Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(i)))
+        }
+        let blended = try pixels(me.opacity), full = try pixels(1), none = try pixels(0)
+        var fullRed = 0, blendedRed = 0, changed = 0
+        for y in 0..<full.height { for x in 0..<full.width {
+            if same(full[x, y], red) { fullRed += 1 }
+            if same(blended[x, y], red) { blendedRed += 1 }
+            if !same(blended[x, y], none[x, y]) { changed += 1 }
+        } }
+        XCTAssertGreaterThan(fullRed, 0, "the sprite shows at full strength")
+        XCTAssertEqual(blendedRed, 0, "at 40% no pixel keeps the pure sprite colour")
+        XCTAssertGreaterThan(changed, 0, "at 40% the sprite is still visible")
+    }
 }
