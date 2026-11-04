@@ -471,4 +471,64 @@ final class PlazaPhotoTests: XCTestCase {
         _ = pressP(scene)
         XCTAssertEqual(written, 1, "a closed plaza no longer takes photos")
     }
+
+    // MARK: 모닥불
+
+    private func nightDate() -> Date { Calendar.current.date(bySettingHour: 21, minute: 0, second: 0, of: Date())! }
+
+    func testPhotoCarriesTheFireAndItsNightLight() throws {
+        let scene = newScene()
+        scene.now = { self.nightDate() }
+        scene.setCharacter(frames())
+        scene.campfireLit = true
+        scene.sit(at: PlazaCampfire.seats[4])   // bring the fire into view
+        scene.update(0)
+        var input = try XCTUnwrap(scene.photoInput())
+        XCTAssertTrue(input.visibleRect.contains(CGPoint(x: 1184, y: 786)))
+        XCTAssertEqual(input.items.first?.size, PlazaCampfireArt.worldSize)
+        XCTAssertEqual(input.items.first?.origin, CGPoint(x: 1184 - 32, y: 804 - 80))
+        let light = try XCTUnwrap(input.light)
+        XCTAssertEqual(light.center, PlazaCampfireLight.center(campfireTiles: map.campfireTiles))
+        // Tiny plate so we can compare it: it must be identical with and without the light.
+        let plate = solid(4, 4, white)
+        let probe = PlazaPhotoActor(image: solid(2, 2, red), flipped: false, foot: CGPoint(x: light.center.x - 40, y: light.center.y + 2),
+                                    scale: 1, shadow: nil, shadowRect: .zero, plate: plate, bubble: nil)
+        input = PlazaPhotoInput(mapImage: input.mapImage, visibleRect: input.visibleRect, pixelsPerWorld: input.pixelsPerWorld,
+                                actors: [probe], tint: input.tint, items: input.items, light: light)
+        let lit = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(input)))
+        var dark = input; dark.light = nil
+        let plain = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(dark)))
+        let ppw = input.pixelsPerWorld
+        // A ground pixel one tile left of the pit footprint.
+        let gx = Int((CGFloat(35 * 32) + 16 - input.visibleRect.minX) * CGFloat(ppw)), gy = Int((CGFloat(24 * 32) + 16 - input.visibleRect.minY) * CGFloat(ppw))
+        let a = lit[gx, gy], b = plain[gx, gy]
+        XCTAssertGreaterThan(Int(a.r) + Int(a.g) + Int(a.b), Int(b.r) + Int(b.g) + Int(b.b))
+        // The plate sits above the sprite: find it at the foot column, a few pixels above the sprite top.
+        let px = Int((probe.foot.x - input.visibleRect.minX) * CGFloat(ppw)), foot = Int((probe.foot.y - input.visibleRect.minY) * CGFloat(ppw))
+        let plateRow = foot - 2 * ppw - 2 - plate.height / 2   // inside the 4x4 plate, above the 2px*1 sprite
+        XCTAssertTrue(same(lit[px, plateRow], plain[px, plateRow]))
+        XCTAssertTrue(same(lit[px, plateRow], white), "the plate is white and untouched by the tint and the light")
+    }
+
+    func testPhotoLightMatchesTheSceneMaths() throws {
+        let tint = PlazaDaylight.Tint(red: 0.45, green: 0.5, blue: 0.7)
+        let ground = solid(64, 64, (200, 180, 160, 255))
+        let center = CGPoint(x: 32, y: 32)
+        let radii = CGSize(width: 24, height: 20)
+        let rect = CGRect(x: 0, y: 0, width: 64, height: 64)
+        var inp = input(map: ground, rect: rect, ppw: 2)
+        inp.tint = tint
+        let plain = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(inp)))
+        inp.light = PlazaPhotoLight(center: center, radii: radii, tint: tint)
+        let lit = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(inp)))
+        // The centre block is inside ring 1 (mix 1).
+        let m = PlazaCampfireLight.multiplier(tint: tint, mix: 1)
+        let base = plain[64, 64], got = lit[64, 64]
+        func expect(_ v: UInt8, _ k: Double) -> Int { min(255, Int((Double(v) * k).rounded())) }
+        XCTAssertEqual(Int(got.r), expect(base.r, m.r), accuracy: 2)
+        XCTAssertEqual(Int(got.g), expect(base.g, m.g), accuracy: 2)
+        XCTAssertEqual(Int(got.b), expect(base.b, m.b), accuracy: 2)
+        // Outside the ellipse nothing changes.
+        XCTAssertTrue(same(lit[2, 2], plain[2, 2]))
+    }
 }

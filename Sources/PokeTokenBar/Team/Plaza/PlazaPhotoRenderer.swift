@@ -42,6 +42,15 @@ struct PlazaPhotoInput {
     var weather: [PlazaPhotoParticle] = []
     /// 땅에 떨어진 아이템. 그림자 위, 캐릭터 아래.
     var items: [PlazaPhotoParticle] = []
+    /// 모닥불이 던지는 밤빛. 낮밤 색 바로 위에 곱하고 이름표와 말풍선에는 곱하지 않는다.
+    var light: PlazaPhotoLight?
+}
+
+/// 기념사진에 곱할 모닥불빛. 좌표는 월드 픽셀(y 아래로)이고 반지름은 깜빡임이 이미 곱해져 있다.
+struct PlazaPhotoLight {
+    let center: CGPoint
+    let radii: CGSize
+    let tint: PlazaDaylight.Tint
 }
 
 /// 기념사진을 CoreGraphics로 합성한다. 창이나 SKView가 필요 없고, 모든 그림은 보간 없이 정수 배율로 찍는다.
@@ -123,6 +132,31 @@ enum PlazaPhotoRenderer {
             context.setFillColor(CGColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
             context.restoreGState()
+        }
+
+        if let light = input.light, let base = context.data {
+            let bytes = base.assumingMemoryBound(to: UInt8.self), stride = context.bytesPerRow
+            let n = PlazaCampfireLight.blockCounts(radii: light.radii)
+            let left = light.center.x - CGFloat(n.w), top = light.center.y - CGFloat(n.h)
+            for j in 0..<n.h {
+                let y0 = max(px(top + CGFloat(2 * j), origin: rect.minY), 0), y1 = min(px(top + CGFloat(2 * j + 2), origin: rect.minY), height)
+                guard y0 < y1 else { continue }
+                for i in 0..<n.w {
+                    let k = PlazaCampfireLight.blockMix(i: i, j: j, radii: light.radii)
+                    guard k > 0 else { continue }
+                    let x0 = max(px(left + CGFloat(2 * i), origin: rect.minX), 0), x1 = min(px(left + CGFloat(2 * i + 2), origin: rect.minX), width)
+                    guard x0 < x1 else { continue }
+                    let m = PlazaCampfireLight.multiplier(tint: light.tint, mix: k)
+                    for y in y0..<y1 {
+                        for x in x0..<x1 {
+                            let o = y * stride + x * 4
+                            bytes[o] = UInt8(min(255, (Double(bytes[o]) * m.r).rounded()))
+                            bytes[o + 1] = UInt8(min(255, (Double(bytes[o + 1]) * m.g).rounded()))
+                            bytes[o + 2] = UInt8(min(255, (Double(bytes[o + 2]) * m.b).rounded()))
+                        }
+                    }
+                }
+            }
         }
 
         for a in ordered {

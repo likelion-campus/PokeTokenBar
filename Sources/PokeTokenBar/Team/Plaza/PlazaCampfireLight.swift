@@ -40,4 +40,22 @@ enum PlazaCampfireLight {
               let maxY = campfireTiles.map(\.y).max() else { return nil }
         return CGPoint(x: Double(minX + maxX + 1) / 2 * 32, y: Double(maxY + 1) * 32 - 14)
     }
+
+    /// 깜빡임을 곱한 세계 반지름.
+    static func radii(phase: Int) -> CGSize {
+        let f = CGFloat(flicker(phase: phase))
+        return CGSize(width: radii.width * f, height: radii.height * f)
+    }
+
+    /// 2 세계 px 블록 격자. 반지름을 덮는 가로·세로 블록 수(중심 양쪽 합쳐 `2 * 수` 세계 px).
+    static func blockCounts(radii: CGSize) -> (w: Int, h: Int) {
+        (Int(radii.width.rounded(.up)), Int(radii.height.rounded(.up)))
+    }
+
+    /// 블록 (i, j) 가운데의 계단형 세기. 타원 밖이면 0. 장면 텍스처와 사진이 같은 격자를 쓴다.
+    static func blockMix(i: Int, j: Int, radii: CGSize) -> Double {
+        let n = blockCounts(radii: radii)
+        let dx = Double(2 * i + 1 - n.w) / Double(radii.width), dy = Double(2 * j + 1 - n.h) / Double(radii.height)
+        return mix(normalizedDistance: (dx * dx + dy * dy).squareRoot())
+    }
 }

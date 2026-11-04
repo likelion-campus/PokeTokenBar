@@ -143,7 +143,7 @@ final class PlazaItemsTests: XCTestCase {
         let s = scene(on: from)   // the camera follows me, so stand next to it
         s.update(0)
         let input = try XCTUnwrap(s.photoInput())
-        XCTAssertEqual(input.items.count, 1)
+        XCTAssertEqual(input.items.count, 2, "the campfire pit comes first, then the item")
         let withItem = try XCTUnwrap(PlazaPhotoRenderer.render(input))
         var bare = input
         bare.items = []
