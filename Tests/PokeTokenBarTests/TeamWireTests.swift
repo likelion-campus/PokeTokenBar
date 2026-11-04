@@ -113,6 +113,35 @@ final class TeamWireTests: XCTestCase {
         XCTAssertNil(p.isIdle)
     }
 
+    /// The focus end time is left out when nil, and v2.5.613 ignores the key.
+    func testPresenceFocusIsOptionalForEarlierVersions() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("focusEndsAt"))
+        var focused = presence
+        focused.focusEndsAt = Date(timeIntervalSince1970: 1_800_000_000)
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(focused))), [.presence(focused)])
+        let withoutKey = frame(#"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":false}}}"#)
+        var d2 = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try d2.append(withoutKey).first else { return XCTFail("not a presence") }
+        XCTAssertNil(p.focusEndsAt)
+        struct EarlierPresence: Codable {
+            var nickname: String
+            var character: TeamMonSummary
+            var inPlaza: Bool
+            var tile: TilePoint?
+            var facing: PlazaDirection?
+            var isWalking: Bool
+            var isIdle: Bool?
+            var nameColor: UInt32?
+            var isRunning: Bool?
+            var takenItemSlot: Int?
+        }
+        let body = try JSONEncoder().encode(focused)
+        XCTAssertTrue(String(decoding: body, as: UTF8.self).contains("focusEndsAt"))
+        XCTAssertEqual(try JSONDecoder().decode(EarlierPresence.self, from: body).nickname, "Ash")
+    }
+
     private var allMessages: [TeamMessage] {
         [
             .hello(TeamHello(memberID: "m1", nickname: "Ash", protocolVersion: TeamWire.protocolVersion, current: mon)),

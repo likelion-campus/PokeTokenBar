@@ -18,6 +18,8 @@ struct TeamMemberState: Equatable, Sendable {
     var isRunning = false
     /// The latest plaza item slot they know was taken.
     var takenItemSlot: Int?
+    /// When their focus ends, kept only if it passed `PlazaFocus.accepted` on receipt.
+    var focusEndsAt: Date?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -91,6 +93,7 @@ final class TeamSession {
     @ObservationIgnored private var isWalking = false
     @ObservationIgnored private var isRunning = false
     @ObservationIgnored private var takenItemSlot: Int?
+    @ObservationIgnored private var focusEndsAt: Date?
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
          profileProvider: @escaping () -> TeamMemberProfile, clock: @escaping () -> Date = Date.init) {
@@ -224,6 +227,13 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
+    /// When my campfire focus ends (nil: not focusing), told to teammates in my presence.
+    func updateFocus(endsAt: Date?) {
+        guard endsAt != focusEndsAt else { return }
+        focusEndsAt = endsAt
+        broadcast(.presence(makePresence()))
+    }
+
     func sendChat(_ text: String, loud: Bool = false) {
         broadcast(.chat(TeamChat(text: text, isLoud: loud ? true : nil)))
     }
@@ -304,6 +314,7 @@ final class TeamSession {
             member.nameColor = presence.nameColor
             member.isRunning = presence.isRunning ?? false
             member.takenItemSlot = presence.takenItemSlot
+            member.focusEndsAt = PlazaFocus.accepted(presence.focusEndsAt, now: clock())
             members[memberID] = member
         case .inventory(let eventIDs, let reactionIDs):
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
@@ -396,7 +407,8 @@ final class TeamSession {
     private func makePresence() -> TeamPresence {
         TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
                      inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
-                     nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot)
+                     nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot,
+                     focusEndsAt: focusEndsAt)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {
