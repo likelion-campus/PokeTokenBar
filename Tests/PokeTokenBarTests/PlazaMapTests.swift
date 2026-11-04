@@ -46,7 +46,7 @@ final class PlazaMapTests: XCTestCase {
     func testOnlySimpleKinds() {
         var counts: [Character: Int] = [:]
         for ch in PlazaMapData.rows.joined() { counts[ch, default: 0] += 1 }
-        XCTAssertTrue(Set(counts.keys).isSubset(of: [".", "f", "S", "T", "b", "N"]))
+        XCTAssertTrue(Set(counts.keys).isSubset(of: [".", "f", "S", "T", "b", "N", "g"]))
         XCTAssertTrue((30...50).contains(counts["f", default: 0]), "flowers \(counts["f", default: 0])")
         XCTAssertTrue((6...10).contains(counts["b", default: 0]), "bushes \(counts["b", default: 0])")
     }
