@@ -85,15 +85,16 @@ extension SKView: PlazaPausableView {}
     /// 풀숲 조각 그림도 프로세스당 한 번만 읽는다. 못 읽으면 바깥 nil(=읽어 봤지만 없음)로 기억한다.
     private static var cachedTallGrass: PlazaTallGrassArt??
 
+    private static func tallGrassArt() -> PlazaTallGrassArt? {
+        if let loaded = cachedTallGrass { return loaded }
+        let art = PlazaTallGrassArt.load()
+        cachedTallGrass = .some(art)
+        return art
+    }
+
     private var mapImage: CGImage {
         if let cached = Self.cachedMapImage { return cached }
-        let tallGrass: PlazaTallGrassArt?
-        if let loaded = Self.cachedTallGrass {
-            tallGrass = loaded
-        } else {
-            tallGrass = PlazaTallGrassArt.load()
-            Self.cachedTallGrass = .some(tallGrass)
-        }
+        let tallGrass = Self.tallGrassArt()
         let image = PlazaResources.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: tallGrass) } ?? PlazaTileArt.plainGrassImage(map)
         Self.cachedMapImage = image
         return image
@@ -295,7 +296,8 @@ extension SKView: PlazaPausableView {}
         guard scene == nil else { return }
         let s = PlazaScene(map: map, mapImage: mapImage,
                            start: preferences.lastTile(validIn: map),
-                           zoom: preferences.zoom, nickname: nickname())
+                           zoom: preferences.zoom, nickname: nickname(),
+                           tallGrass: Self.tallGrassArt())
         s.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: nameColor()))
         nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: nameColor())
         nameColorModel.isOpen = false
