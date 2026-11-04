@@ -45,14 +45,17 @@ enum PlazaItems {
         return spawn
     }
 
-    /// 떨어질 수 있는 칸: 걸을 수 있고, 쉼터가 아니고, 소식판 바로 옆이 아닌 칸(스페이스로 말 걸기와 겹치지 않게).
+    /// 아이템이 모닥불 자리에 떨어졌는가. 이전 버전과 같은 자리를 뽑되 불 속의 아이템은 보이지 않게 한다.
+    static func isOnCampfire(_ spawn: Spawn, map: PlazaMap) -> Bool { map.tile(at: spawn.tile) == .campfire }
+
+    /// 떨어질 수 있는 칸: 걸을 수 있고(모닥불 자리는 이전 버전의 자리와 같도록 풀밭으로 센다), 쉼터가 아니고, 소식판 바로 옆이 아닌 칸(스페이스로 말 걸기와 겹치지 않게).
     static func candidates(in map: PlazaMap) -> [TilePoint] {
         let shelter = Set(map.shelterTiles)
         var out: [TilePoint] = []
         for y in 0..<map.height {
             for x in 0..<map.width {
                 let t = TilePoint(x: x, y: y)
-                guard map.isWalkable(t), !shelter.contains(t) else { continue }
+                guard map.isWalkable(t) || map.tile(at: t) == .campfire, !shelter.contains(t) else { continue }
                 let nearBoard = [PlazaDirection.up, .down, .left, .right].contains { map.tile(at: PlazaWalker.offset(t, $0)) == .board }
                 if !nearBoard { out.append(t) }
             }

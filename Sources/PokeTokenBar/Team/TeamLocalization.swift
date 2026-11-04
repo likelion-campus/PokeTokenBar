@@ -26,6 +26,7 @@ extension L {
     /// 창 제목. 저장한 팀 이름이 있으면 함께 보인다.
     func plazaWindowTitle(teamName: String?) -> String { teamName.map { "\(plazaWindowTitle) · \($0)" } ?? plazaWindowTitle }
     var plazaBoardHint: String { "스페이스바를 눌러 소식판 보기" }
+    var plazaCampfireLightHint: String { "스페이스바를 눌러 모닥불 피우기" }
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }

@@ -775,6 +775,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func currentItem() -> PlazaItems.Spawn? {
         let date = now(), slot = PlazaItems.slot(at: date)
         if itemSpawnCache?.slot != slot { itemSpawnCache = (slot, PlazaItems.spawn(slot: slot, candidates: itemCandidates)) }
+        if let spawn = itemSpawnCache?.spawn, PlazaItems.isOnCampfire(spawn, map: map) { return nil }
         return PlazaItems.visible(itemSpawnCache?.spawn, at: date, picked: pickedItemSlots)
     }
 

@@ -587,6 +587,8 @@ extension SKView: PlazaPausableView {}
         case .board:
             feed?.markAllRead()
             openOverlay(.board)
+        case .campfire:
+            break   // 모닥불 메뉴는 이어지는 작업에서 붙인다.
         case .member(let id):
             guard let state = members[id] else { return }
             var menu = PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)
@@ -702,6 +704,7 @@ extension SKView: PlazaPausableView {}
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
             switch hit.target {
             case .board: text = L(.ko).plazaBoardHint
+            case .campfire: text = L(.ko).plazaCampfireLightHint
             case .member(let id): text = members[id].map { L(.ko).plazaMemberHint(nickname: $0.nickname) }
             }
         }

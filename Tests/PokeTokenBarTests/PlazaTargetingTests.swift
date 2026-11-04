@@ -34,4 +34,14 @@ final class PlazaTargetingTests: XCTestCase {
         XCTAssertNil(PlazaTargeting.member(from: p(5, 5), facing: .right, members: ["far": p(9, 9)]))
         XCTAssertNil(PlazaTargeting.member(from: p(5, 5), facing: .right, members: [:]))
     }
+
+    func testSpaceReachesTheCampfireLikeTheBoard() {
+        let map = PlazaMapData.map
+        XCTAssertEqual(PlazaInteraction.target(from: p(36, 22), facing: .down, map: map, members: [:]),
+                       PlazaInteractionHit(target: .campfire, facing: .down))
+        XCTAssertEqual(PlazaInteraction.target(from: p(35, 23), facing: .up, map: map, members: [:]),
+                       PlazaInteractionHit(target: .campfire, facing: .right))
+        XCTAssertEqual(PlazaInteraction.target(from: p(35, 23), facing: .up, map: map, members: ["m": p(35, 22)]),
+                       PlazaInteractionHit(target: .member("m"), facing: .up), "a member on the faced tile beats a side pit")
+    }
 }

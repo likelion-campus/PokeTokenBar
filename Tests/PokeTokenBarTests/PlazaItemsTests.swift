@@ -30,7 +30,7 @@ final class PlazaItemsTests: XCTestCase {
         let shelter = Set(map.shelterTiles)
         XCTAssertFalse(candidates.isEmpty)
         for t in candidates {
-            XCTAssertTrue(map.isWalkable(t))
+            XCTAssertTrue(map.isWalkable(t) || map.tile(at: t) == .campfire)
             XCTAssertFalse(shelter.contains(t), "\(t) is in the shelter")
             XCTAssertFalse([PlazaDirection.up, .down, .left, .right].contains { map.tile(at: PlazaWalker.offset(t, $0)) == .board },
                            "\(t) is next to the sign")
@@ -428,5 +428,31 @@ final class PlazaItemsTests: XCTestCase {
         XCTAssertEqual(s.itemCount(.mint), mints + 1)
         let reloaded = store()
         XCTAssertEqual(reloaded.itemCount(.rareCandy), candies + 1, "saved")
+    }
+
+    /// Version 2.5.x clients without the pit pick the same spots, so the pit tiles stay in the candidate list.
+    func testCampfireKeepsItemSpotsOfEarlierVersions() {
+        XCTAssertEqual(candidates.count, 1062)
+        let expected = [(34, 22), (41, 3), (39, 14), (37, 4), (12, 12)]
+        for (i, e) in expected.enumerated() {
+            XCTAssertEqual(PlazaItems.spawn(slot: 160_000 + i, candidates: candidates)?.tile, TilePoint(x: e.0, y: e.1))
+        }
+    }
+
+    func testAnItemThatWouldLandInTheFireIsNotShown() throws {
+        var found: PlazaItems.Spawn?
+        var n = 160_000
+        while found == nil, n < 4_000_000 {
+            if let s = PlazaItems.spawn(slot: n, candidates: candidates), PlazaItems.isOnCampfire(s, map: map) { found = s }
+            n += 1
+        }
+        let fire = try XCTUnwrap(found)
+        XCTAssertTrue(map.campfireTiles.contains(fire.tile))
+        XCTAssertFalse(PlazaItems.isOnCampfire(spawn, map: map), "test precondition: the default slot is on open ground")
+        let s = scene(on: map.spawn)
+        let at = fire.appearsAt.addingTimeInterval(60)
+        s.now = { at }
+        s.update(0)
+        XCTAssertNil(s.itemTile)
     }
 }

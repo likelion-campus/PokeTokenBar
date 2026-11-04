@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-enum PlazaInteractionTarget: Equatable { case board, member(String) }
+enum PlazaInteractionTarget: Equatable { case board, campfire, member(String) }
 
 /// 스페이스로 말을 걸 대상과, 말을 걸 때 돌아설 방향.
 struct PlazaInteractionHit: Equatable {
@@ -17,12 +17,16 @@ enum PlazaInteraction {
                        members: [String: TilePoint]) -> PlazaInteractionHit? {
         let ahead = PlazaTargeting.facingTile(from: from, facing: facing)
         if map.tile(at: ahead) == .board { return .init(target: .board, facing: facing) }
+        if map.tile(at: ahead) == .campfire { return .init(target: .campfire, facing: facing) }
         for tile in [ahead, from] {
             if let id = PlazaTargeting.member(on: tile, members: members) { return .init(target: .member(id), facing: facing) }
         }
         let sides = PlazaTargeting.otherSides(facing)
         if let d = sides.first(where: { map.tile(at: PlazaWalker.offset(from, $0)) == .board }) {
             return .init(target: .board, facing: d)
+        }
+        if let d = sides.first(where: { map.tile(at: PlazaWalker.offset(from, $0)) == .campfire }) {
+            return .init(target: .campfire, facing: d)
         }
         for d in sides {
             if let id = PlazaTargeting.member(on: PlazaWalker.offset(from, d), members: members) {
