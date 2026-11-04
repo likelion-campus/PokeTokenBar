@@ -41,7 +41,7 @@ struct PlazaPhotoInput {
     let visibleRect: CGRect
     /// 월드 픽셀 하나가 차지하는 사진 픽셀(화면 배율 × 2).
     let pixelsPerWorld: Int
-    let actors: [PlazaPhotoActor]
+    var actors: [PlazaPhotoActor]
     /// 낮과 밤의 색. 화면처럼 지도와 캐릭터에만 곱하고 이름표와 말풍선에는 곱하지 않는다.
     var tint: PlazaDaylight.Tint = .none
     /// 화면에 떠 있는 날씨 입자. 캐릭터 위, 낮밤 색 아래라 지도와 같은 색이 곱해진다.

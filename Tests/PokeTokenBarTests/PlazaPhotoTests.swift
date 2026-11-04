@@ -309,6 +309,8 @@ final class PlazaPhotoTests: XCTestCase {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: zoom, nickname: "나")
         scene.backingOverride = 2
         scene.size = CGSize(width: 800, height: 600)
+        // 낮과 날씨를 벽시계에 맡기지 않는다: 해 질 녘 색이나 계절 날씨가 끼면 사진 픽셀 비교가 시각에 따라 달라진다.
+        scene.now = { Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 12))! }
         return scene
     }
 
@@ -549,7 +551,7 @@ final class PlazaPhotoTests: XCTestCase {
         let input = try XCTUnwrap(scene.photoInput())
         func render(actors: Bool, props: Bool) throws -> Pixels {
             var i = input
-            if !actors { i = PlazaPhotoInput(mapImage: i.mapImage, visibleRect: i.visibleRect, pixelsPerWorld: i.pixelsPerWorld, actors: [], props: i.props) }
+            if !actors { i.actors = [] }
             if !props { i.props = [] }
             return Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(i)))
         }
