@@ -304,6 +304,7 @@ extension SKView: PlazaPausableView {}
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onItemPickup = { [weak self] in self?.pickUp($0) }
         s.onItemChange = { [weak self] _ in self?.refreshMinimap() }
+        s.onFrameClockStall = { [weak self] in self?.logState($0 ? "frame clock stalled" : "frame clock resumed") }
         s.pickedItemSlots = takenItemSlots
         s.onChatKey = { [weak self] in self?.openChat() }
         s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
@@ -922,6 +923,7 @@ extension SKView: PlazaPausableView {}
 
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
+        logState("closing")   // 멈춘 광장을 닫아 되살리는 순간의 상태
         chatInput.close()
         if overlayModel.content == .board { feed?.markAllRead() }
         persistState()
@@ -959,6 +961,7 @@ extension SKView: PlazaPausableView {}
             scene.onGroupPhotoKey = nil
             scene.onItemPickup = nil
             scene.onItemChange = nil
+            scene.onFrameClockStall = nil
             scene.onChatKey = nil
             scene.onOverlayKey = nil
             scene.onInteractionTargetChange = nil
@@ -1001,13 +1004,16 @@ extension SKView: PlazaPausableView {}
 
     /// 광장이 멈추는 문제를 진단하려고, 그리기를 멈추거나 되살릴 때와 창이 키 창이 되거나 물러날 때 상태를 한 줄씩 남긴다.
     /// 상태 값만 남기고 내용은 남기지 않는다. `updates`는 장면이 돈 횟수라, 두 줄 사이에 늘지 않으면 장면이 멈춘 것이다.
+    /// `t`는 마지막 프레임 시계라, `updates`는 늘어도 `t`가 그대로면 장면은 도는데 시계가 멈춘 것이다. 닫을 때와
+    /// 시계가 2초 넘게 멈추거나 다시 흐를 때도 한 줄 남긴다.
     var stateLog: (String) -> Void = { AppLog.write($0) }
 
     private func logState(_ event: String) {
         func text(_ b: Bool?) -> String { b.map { "\($0)" } ?? "-" }
         stateLog("plaza \(event): occlusionVisible=\(text(window?.occlusionState.contains(.visible))) "
             + "key=\(text(window?.isKeyWindow)) viewPaused=\(text(renderLoop?.isPaused)) "
-            + "scenePaused=\(text(scene?.isPaused)) updates=\(scene?.updateCount ?? 0)")
+            + "scenePaused=\(text(scene?.isPaused)) updates=\(scene?.updateCount ?? 0) "
+            + "t=\(scene?.lastFrameTime.map { String(format: "%.2f", $0) } ?? "-")")
     }
 
     /// 눌린 키를 모두 뗀다.
