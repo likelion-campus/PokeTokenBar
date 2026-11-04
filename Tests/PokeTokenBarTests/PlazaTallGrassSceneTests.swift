@@ -129,37 +129,39 @@ final class PlazaTallGrassSceneTests: XCTestCase {
         XCTAssertFalse(walkingTwitch)
     }
 
-    /// Scene actions only run once the scene is on screen, so the landing action itself is not stepped here:
-    /// the test checks it is queued and calls what it runs.
-    func testAJumpInGrassPopsOutThenLandsWithABounce() throws {
-        let s = scene(start: TilePoint(x: 6, y: 6), tallGrass: try art())
+    /// Driven only through playJump and update: the landing bounce rides the scene clock, not an action.
+    private func jump(from tile: TilePoint, grass: PlazaTallGrassArt) -> (opacityAt18: CGFloat, opacityAt50: CGFloat, bounced: [TimeInterval]) {
+        let s = scene(start: tile, tallGrass: grass)
         s.setCharacter(frames())
         var t = step(s, seconds: 0.1)
-        XCTAssertEqual(s.myOpacity, 0.4, accuracy: 0.001)
         s.playJump(memberID: nil)
-        XCTAssertTrue(s.hasActions(), "the landing bounce is queued with the dust")
-        let layer = try XCTUnwrap(s.tallGrassLayer)
+        let layer = s.tallGrassLayer!
         let start = t
-        var opacityAt18: CGFloat?, opacityAt40: CGFloat?
-        while t < start + 0.45 {
+        var at18: CGFloat = -1, at50: CGFloat = -1
+        var bounced: [TimeInterval] = []
+        while t < start + 0.52 {
             t += 1.0 / 30
             s.update(t)
             let e = t - start
-            if abs(e - 0.18) < 1.0 / 60 { opacityAt18 = s.myOpacity }
-            if abs(e - 0.4) < 1.0 / 60 { opacityAt40 = s.myOpacity }
+            if abs(e - 0.18) < 1.0 / 60 { at18 = s.myOpacity }
+            if abs(e - 0.5) < 1.0 / 60 { at50 = s.myOpacity }
+            if layer.activeRustles.contains(where: { $0.tile == tile && $0.kind == .bounce && !$0.strong }) { bounced.append(e) }
         }
-        XCTAssertEqual(try XCTUnwrap(opacityAt18), 1, accuracy: 0.001)
-        XCTAssertEqual(try XCTUnwrap(opacityAt40), 0.4, accuracy: 0.001)
-        s.bounceGrass(under: nil)
-        XCTAssertTrue(layer.activeRustles.contains { $0.tile == TilePoint(x: 6, y: 6) && $0.kind == .bounce && !$0.strong })
+        return (at18, at50, bounced)
+    }
+
+    func testAJumpInGrassPopsOutThenLandsWithABounce() throws {
+        let r = jump(from: TilePoint(x: 6, y: 6), grass: try art())
+        XCTAssertEqual(r.opacityAt18, 1, accuracy: 0.001)
+        XCTAssertEqual(r.opacityAt50, 0.4, accuracy: 0.001)
+        let first = try XCTUnwrap(r.bounced.first, "no landing bounce")
+        XCTAssertGreaterThanOrEqual(first, 0.33)
+        XCTAssertLessThanOrEqual(first, 0.46)
     }
 
     func testALandingOnOpenGroundDoesNotRustle() throws {
-        let s = scene(start: TilePoint(x: 4, y: 6), tallGrass: try art())
-        s.setCharacter(frames())
-        step(s, seconds: 0.1)
-        s.bounceGrass(under: nil)
-        XCTAssertTrue(try XCTUnwrap(s.tallGrassLayer).activeRustles.isEmpty)
+        let r = jump(from: TilePoint(x: 4, y: 6), grass: try art())
+        XCTAssertTrue(r.bounced.isEmpty)
     }
 
     func testHidingTheBackgroundShowsEveryone() throws {

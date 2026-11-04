@@ -137,6 +137,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         var lastStep: (from: TilePoint, to: TilePoint)?
         var still: TimeInterval = 0
         var flip = false
+        var lastLift: CGFloat = 0
 
         mutating func advance(tile: TilePoint, step: PlazaStep?, lift: CGFloat, dt: TimeInterval, layer: PlazaTallGrassLayer) {
             if let step {
@@ -147,6 +148,11 @@ struct PlazaSceneMember: Equatable, Sendable {
             } else {
                 lastStep = nil
             }
+            // 점프에서 내려앉은 프레임: 풀숲 칸이면 약하게 들썩인다. 장면 시간(dt)으로만 잰다.
+            if lastLift > 0, lift == 0, layer.isGrass(tile) {
+                layer.rustle(PlazaRustleCue(tile: tile, kind: .bounce, strong: false, delay: 0))
+            }
+            lastLift = lift
             let hidden = PlazaTallGrass.concealment(tile: tile, step: step, jumpLift: lift, isGrass: layer.isGrass) == 1
             guard hidden, step == nil, lift == 0 else { still = 0; return }
             still += dt
@@ -617,18 +623,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard let actor = actor(memberID) else { return }
         actor.jump()
         puffDust(under: memberID)
-        run(.sequence([.wait(forDuration: PlazaActor.jumpDuration), .run { [weak self] in
-            self?.puffDust(under: memberID)
-            self?.bounceGrass(under: memberID)
-        }]))
-    }
-
-    /// 풀숲에 내려앉으면 그 칸이 약하게 들썩인다. 착지 동작은 장면이 화면에 올라야 돌아서 테스트는 이 함수를 직접 부른다.
-    func bounceGrass(under memberID: String?) {
-        guard let layer = tallGrassLayer, actor(memberID) != nil else { return }
-        let tile = memberID.flatMap { remotes[$0]?.motion.tile } ?? walker.tile
-        guard layer.isGrass(tile) else { return }
-        layer.rustle(PlazaRustleCue(tile: tile, kind: .bounce, strong: false, delay: 0))
+        run(.sequence([.wait(forDuration: PlazaActor.jumpDuration), .run { [weak self] in self?.puffDust(under: memberID) }]))
     }
 
     private func puffDust(under memberID: String?) {
