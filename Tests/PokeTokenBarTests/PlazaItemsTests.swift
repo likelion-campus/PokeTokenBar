@@ -207,13 +207,14 @@ final class PlazaItemsTests: XCTestCase {
     private func controller(_ me: Node, prefs suite: String, start: TilePoint) -> PlazaWindowController {
         let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: suite)!)
         prefs.saveLastTile(start)
+        let now = during
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: 25, isShiny: false) },
                                       grantItem: { [weak self] in self?.granted.append($0) },
-                                      session: me.session, bannerSleep: { _ in try? await Task.sleep(for: .seconds(60)) })
+                                      session: me.session, clock: { now },
+                                      bannerSleep: { _ in try? await Task.sleep(for: .seconds(60)) })
         c.prepareScene()
-        let now = during
         c.scene?.now = { now }
         return c
     }
@@ -272,6 +273,20 @@ final class PlazaItemsTests: XCTestCase {
         for _ in 0..<30 { t += 1.0 / 60; scene.update(t) }
         XCTAssertEqual(scene.walker.tile, spawn.tile, "I walked onto where it was")
         XCTAssertTrue(granted.isEmpty, "nothing left to pick up")
+    }
+
+    /// The pickup banners read naturally for both items, and a picker whose name I don't know yet is "팀원".
+    func testPickupBannersReadNaturally() async throws {
+        XCTAssertEqual(L(.ko).plazaPickedUp(.rareCandy), "이상한 사탕을 주웠어요! 가방에 넣었어요")
+        XCTAssertEqual(L(.ko).plazaPickedUp(.mint), "민트를 주웠어요! 가방에 넣었어요")
+        let (me, _) = await connected()
+        let (from, _) = try XCTUnwrap(beside(spawn.tile))
+        let c = controller(me, prefs: prefsSuite(), start: from)
+        let scene = try XCTUnwrap(c.scene)
+        scene.update(0)
+        XCTAssertEqual(scene.itemTile, spawn.tile)
+        c.showPickup(from: "not-in-the-roster-yet", slot: spawn.slot)
+        XCTAssertEqual(c.banner, "팀원님이 \(L(.ko).plazaItemObject(spawn.kind)) 주웠어요")
     }
 
     /// The picker has left, but a teammate who heard the pickup passes it on, so a plaza opened afterwards still
@@ -341,13 +356,54 @@ final class PlazaItemsTests: XCTestCase {
         XCTAssertEqual(other.session.members[me.settings.memberID]?.takenItemSlot, spawn.slot)
     }
 
-    /// Only a day of taken slots is kept, so the saved list does not grow forever.
+    /// Only a day of taken slots up to now is kept, so the saved list does not grow forever, plus the next slot that a
+    /// teammate whose clock runs a little ahead may already have picked.
     func testOnlyADayOfTakenSlotsIsKept() async {
         let (me, other) = await connected()
         let suite = prefsSuite()
         let c = controller(me, prefs: suite, start: map.spawn)
-        for s in slot..<(slot + 10) { c.showPickup(from: other.settings.memberID, slot: s) }
-        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, Array((slot + 2)..<(slot + 10)))
+        for s in (slot - 10)...(slot + 1) { c.showPickup(from: other.settings.memberID, slot: s) }
+        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, Array((slot - 7)...(slot + 1)))
+    }
+
+    /// A teammate whose clock runs a day or more ahead tells me about a slot far from now. It must not push out the item
+    /// I then pick up: standing on it gives it once, not every frame, and the far slot is neither kept nor passed on.
+    func testASlotFarAheadDoesNotUndoMyPickup() async throws {
+        let (me, other) = await connected()
+        let suite = prefsSuite()
+        let c = controller(me, prefs: suite, start: spawn.tile)
+        other.session.updateTakenItemSlot(slot + 8)
+        await waitUntil { me.session.members[other.settings.memberID]?.takenItemSlot == slot + 8 }
+        c.showPickup(from: other.settings.memberID, slot: slot + 8)
+        let scene = try XCTUnwrap(c.scene)
+        for i in 0..<5 { scene.update(Double(i) / 60) }
+        XCTAssertEqual(granted, [spawn.kind], "once, not every frame")
+        XCTAssertNil(scene.itemTile)
+        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, [spawn.slot])
+        await waitUntil { other.session.members[me.settings.memberID]?.takenItemSlot == spawn.slot }
+        XCTAssertEqual(other.session.members[me.settings.memberID]?.takenItemSlot, spawn.slot)
+    }
+
+    /// A slot no honest Mac can send (the extremes of Int) is dropped without trapping.
+    func testAnImpossibleSlotIsDropped() async {
+        let (me, other) = await connected()
+        let suite = prefsSuite()
+        let c = controller(me, prefs: suite, start: map.spawn)
+        c.showPickup(from: other.settings.memberID, slot: .min)
+        c.showPickup(from: other.settings.memberID, slot: .max)
+        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, [])
+        XCTAssertEqual(c.scene?.pickedItemSlots, [])
+    }
+
+    /// A far slot saved while my own clock ran ahead is dropped when the plaza opens, so I pass on my real latest one.
+    func testAFarSlotSavedEarlierIsDroppedOnOpen() async {
+        let (me, other) = await connected()
+        let suite = prefsSuite()
+        PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots = [slot, slot + 8]
+        let c = controller(me, prefs: suite, start: map.spawn)
+        XCTAssertEqual(c.scene?.pickedItemSlots, [slot])
+        await waitUntil { other.session.members[me.settings.memberID]?.takenItemSlot == slot }
+        XCTAssertEqual(other.session.members[me.settings.memberID]?.takenItemSlot, slot)
     }
 
     // MARK: - Bag

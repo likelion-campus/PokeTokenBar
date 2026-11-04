@@ -148,6 +148,8 @@ actor LocalUsageCache {
     private var loaded = false
     private var dirty = false
     private var lastSave: Date?
+    /// 마지막 저장 뒤 처음 읽은(캐시에 없던) 파일 수.
+    private var freshFilesSinceSave = 0
 
     // 테스트 시임 — 기본값은 실환경(실 로그 루트·Application Support·실시간).
     private let claudeRoot: URL?
@@ -375,6 +377,7 @@ actor LocalUsageCache {
                   let mtime = v.contentModificationDate, mtime >= since else { continue }
             let size = v.fileSize ?? 0
             let key = url.path
+            let isFresh = cache[key] == nil
             let fileEntries: [LocalUsageReader.Entry]
             if let blob = cache[key], blob.mtime == mtime, blob.size == size {
                 fileEntries = blob.attributedEntries            // 변경 없음 → 재파싱 안 함
@@ -392,6 +395,7 @@ actor LocalUsageCache {
                                     claudeCostState: costState)
                     cache[key] = blob
                     dirty = true
+                    if isFresh { freshFilesSinceSave += 1 }
                     fileEntries = blob.attributedEntries
                 } else if let prior {
                     fileEntries = prior.attributedEntries
@@ -401,6 +405,7 @@ actor LocalUsageCache {
             } else if let entries = parse(url) {
                 cache[key] = Blob(mtime: mtime, size: size, entries: entries)
                 dirty = true
+                if isFresh { freshFilesSinceSave += 1 }
                 fileEntries = entries
             } else if let blob = cache[key] {
                 // 일시적 읽기 실패는 현재 signature에 굳히지 않는다. 이전 blob을 쓰되,
@@ -442,6 +447,7 @@ actor LocalUsageCache {
                 return blob.rollout
             }
             let rollout = LocalUsageReader.parseCodexRollout(file.url, fmt: fmt)
+            if codexCache[file.path] == nil { freshFilesSinceSave += 1 }
             codexCache[file.path] = CodexBlob(
                 mtime: file.mtime,
                 size: file.size,
@@ -580,12 +586,19 @@ actor LocalUsageCache {
     /// (실측 16MB). 그래서 쓰는 중인 세션 파일 하나 때문에 새로고침(기본 2분)마다 다시 쓰면 하루 10GB를 넘는다.
     /// 저장이 늦어도 잃는 것은 그사이 바뀐 파일의 증분 파싱뿐이라 다음 실행에서 저장된 offset부터 싸게 다시 읽는다.
     static let saveInterval: TimeInterval = 30 * 60
+    /// 처음 읽은 파일이 이만큼 쌓이면 간격을 기다리지 않고 저장한다. 콜드 스타트(첫 설치, 파서 버전 변경)는 첫 저장이
+    /// 오늘 파일만 담고, 곧이어 한 달 치 수천 파일을 새로 읽는다. 그걸 30분 동안 안 남기면 그사이 끄거나 업데이트할 때
+    /// 수십 초짜리 파싱을 처음부터 다시 한다. 평소 새 세션 파일은 하루 200개 남짓이라(실측 40일 6,838개) 30분 사이에
+    /// 이만큼 쌓이지 않는다.
+    static let freshFilesForImmediateSave = 200
 
-    /// 변경이 있으면 디스크에 저장한다. 첫 저장(콜드 스타트 결과)은 바로, 그 뒤로는 `saveInterval`마다 한 번.
+    /// 변경이 있으면 디스크에 저장한다. 실행 뒤 첫 저장과, 처음 읽은 파일이 많이 쌓였을 때는 바로, 그 밖에는
+    /// `saveInterval`마다 한 번.
     private func saveIfNeeded() {
         guard dirty else { return }
         guard persistsToDisk else { dirty = false; return }
-        if let last = lastSave, now().timeIntervalSince(last) < Self.saveInterval { return }
+        if let last = lastSave, now().timeIntervalSince(last) < Self.saveInterval,
+           freshFilesSinceSave < Self.freshFilesForImmediateSave { return }
         prune()
         let snap = Snapshot(
             claude: claudeCache,
@@ -609,6 +622,7 @@ actor LocalUsageCache {
             try? out.write(to: fileURL, options: .atomic)
             dirty = false
             lastSave = now()
+            freshFilesSinceSave = 0
         }
     }
 }

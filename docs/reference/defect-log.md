@@ -1536,3 +1536,31 @@ read_when:
   limit on text that arrives from outside; the other one was the comment length in `TeamFeedStore.insert`, which
   goes away because inbound comments are rejected outright. New limits on untrusted text bound bytes (`utf8.count`),
   and anything that draws it bounds its own output size.
+
+- **Pruning a set relative to its own largest value lets one far value evict the one you just added.**
+  `PlazaWindowController.learnTaken` kept the eight taken item slots below the largest it knew. A teammate whose
+  clock ran a day or more ahead passed on a slot eight or more past mine, so the slot I had just picked up was
+  dropped in the same call. The item stayed on the map, and since I was still standing on it, every frame picked
+  it up again: one item in the bag, one emote and one save per frame. The far slot was saved and relayed by every
+  Mac, so it spread to the whole team and survived restarts until real time caught up. A modified client sending
+  `Int.min` also trapped on `latest - 8`. **Why nothing caught it:** the pruning test fed slots in rising order,
+  so the slot just learned was always the largest; no test learned a slot below one already known. **Fix:** keep
+  only slots in a window around my own clock (the last eight up to now, plus the next one for small clock skew),
+  both when learning and when loading saved slots. Tests cover a far slot from a teammate's presence (granted once,
+  not saved, not relayed), a far slot saved earlier, and the Int extremes. **Class sweep:** other places that keep
+  or trim values from teammates. `TeamFeedStore` already admits events and reactions only inside a window around
+  its own clock (`inWindow`) before trimming by count, and reports an entry trimmed right away as not new. The
+  plaza chat log trims by count in arrival order, and emote throttles compare times from the controller's own
+  clock. None of them trims by a value a teammate chose.
+
+- **A save throttle that lets the first save through can still hold back the expensive one.**
+  #49 made `LocalUsageCache` save at most every 30 minutes, with the first save at once. On a cold start (first
+  install, a parser version bump, an unreadable snapshot) that first save holds only the today window from phase 1.
+  Phase 2 parses a month of files, which takes tens of seconds, and that waited 30 minutes, so quitting or updating
+  in that window parsed everything again on the next launch. **Why nothing caught it:** the rewrite budget test models
+  a steady day with one growing file, and no test went through a cold start's two phases with the throttle on.
+  **Fix:** save at once when 200 files never seen before have been parsed since the last save
+  (`freshFilesForImmediateSave`). Normal days create about 180 new session files, a few per 30 minutes. The budget
+  test now adds a new session file every 8 minutes and still allows at most 49 rewrites a day, and a new test
+  checks that a relaunch after phase 2 reads the month from the snapshot. **Class sweep:** no other save in
+  `Sources` is throttled.

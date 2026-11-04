@@ -860,6 +860,8 @@ final class LocalUsageCacheTests: XCTestCase {
         var last = Data(), writes = 0
         for i in 0..<(24 * 30) {   // 하루, 2분마다
             try writeFile("live.jsonl", lines: (0...i).map { claudeLine(id: "\($0)", output: 1) }, mtime: fakeNow)
+            // 평소처럼 새 세션 파일도 8분마다 하나씩(하루 180개) 생긴다.
+            if i % 4 == 0 { try writeFile("session-\(i).jsonl", lines: [claudeLine(id: "s\(i)", output: 1)], mtime: fakeNow) }
             _ = await cache.claudeEntries(modifiedSince: since)
             let data = (try? Data(contentsOf: cacheFile)) ?? Data()
             if data != last { writes += 1; last = data }
@@ -868,6 +870,26 @@ final class LocalUsageCacheTests: XCTestCase {
         // 고정 예산: 하루 49번(첫 저장 + 30분마다). 상수에서 계산하면 간격을 1분으로 되돌려도 통과해 아무것도 지키지 못한다.
         XCTAssertLessThanOrEqual(writes, 49, "\(writes) rewrites in a day")
         XCTAssertGreaterThan(writes, 1, "it still saves")
+    }
+
+    /// 콜드 스타트의 한 달 치 파싱은 저장 간격을 기다리지 않고 남는다. 첫 저장은 오늘 창(파일 하나)이고, 곧이어
+    /// 한 달 창이 새 파일 수백 개를 읽는다. 그걸 30분 동안 안 남기면 그사이 끄거나 업데이트할 때 처음부터 다시 파싱한다.
+    func testAColdMonthParseIsSavedWithoutWaiting() async throws {
+        let fakeNow = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+        try writeFile("today.jsonl", lines: [claudeLine(id: "t", output: 1)], mtime: fakeNow.addingTimeInterval(-60))
+        let old = fakeNow.addingTimeInterval(-5 * 86400)
+        for i in 0..<LocalUsageCache.freshFilesForImmediateSave {
+            try writeFile("old-\(i).jsonl", lines: [claudeLine(id: "o\(i)", output: 42)], mtime: old)
+        }
+        let month = fakeNow.addingTimeInterval(-30 * 86400)
+        let cache = makeCache(now: { fakeNow })
+        _ = await cache.claudeEntries(modifiedSince: fakeNow.addingTimeInterval(-3600))   // 1단계: 오늘, 첫 저장
+        _ = await cache.claudeEntries(modifiedSince: month)                               // 2단계: 한 달
+        // 크기와 mtime은 그대로 내용만 바꾼다. 저장된 스냅샷을 읽으면 42, 다시 파싱하면 43이다.
+        try writeFile("old-0.jsonl", lines: [claudeLine(id: "o0", output: 43)], mtime: old)
+        let relaunched = await makeCache(now: { fakeNow }).claudeEntries(modifiedSince: month)
+        XCTAssertFalse(relaunched.contains { $0.output == 43 }, "the month parse was not saved")
+        XCTAssertEqual(relaunched.filter { $0.output == 42 }.count, LocalUsageCache.freshFilesForImmediateSave)
     }
 
     /// modifiedSince 이전 파일은 아예 수집하지 않는다.
