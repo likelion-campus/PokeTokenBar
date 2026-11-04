@@ -80,8 +80,9 @@ final class TeamRuntimeTests: XCTestCase {
         b.runtime.plaza = plaza
         plaza.prepareScene()
         await settle { b.runtime.session.members[a.settings.memberID] != nil }
-        a.runtime.session.sendEmote(.pickup, target: nil, itemSlot: 160_000)
-        await settle { plaza.scene?.pickedItemSlots.contains(160_000) == true }
+        let slot = PlazaItems.slot(at: Date())
+        a.runtime.session.sendEmote(.pickup, target: nil, itemSlot: slot)
+        await settle { plaza.scene?.pickedItemSlots.contains(slot) == true }
         plaza.handleClose()
     }
 
