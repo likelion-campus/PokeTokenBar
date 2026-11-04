@@ -409,6 +409,29 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertTrue(lines[1].contains("scenePaused=false"), lines[1])
     }
 
+    /// If SpriteKit keeps calling update with a frame clock that does not move, nobody moves while the update count
+    /// still grows. That leaves a line when it starts and one when the clock moves again, and closing the window (how
+    /// people recover) leaves the state at that moment.
+    func testAStalledFrameClockAndClosingLeaveStateLines() {
+        let c = controller(defaults())
+        c.prepareScene()
+        var lines: [String] = []
+        c.stateLog = { lines.append($0) }
+        guard let scene = c.scene else { return XCTFail("setup") }
+        for _ in 0..<(PlazaScene.stalledFramesForLog * 2) { scene.update(10) }
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertTrue(lines[0].hasPrefix("plaza frame clock stalled:"), lines[0])
+        XCTAssertTrue(lines[0].contains("updates=\(PlazaScene.stalledFramesForLog) t=10.00"), lines[0])
+        scene.update(10 + 1.0 / 60)
+        scene.update(10 + 2.0 / 60)
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertTrue(lines[1].hasPrefix("plaza frame clock resumed:"), lines[1])
+        c.handleClose()
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertTrue(lines[2].hasPrefix("plaza closing:"), lines[2])
+        XCTAssertTrue(lines[2].contains("updates=\(PlazaScene.stalledFramesForLog * 2 + 2) t=10.03"), lines[2])
+    }
+
     func testPersistStateSavesTileWithoutTearingDown() {
         let d = defaults()
         let c = controller(d)

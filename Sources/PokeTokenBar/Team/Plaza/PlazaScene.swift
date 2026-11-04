@@ -703,6 +703,16 @@ struct PlazaSceneMember: Equatable, Sendable {
         handleKeyUp(keyCode: event.keyCode)
     }
 
+    private func noteFrameClock(advanced: Bool) {
+        if advanced {
+            if stalledFrames >= Self.stalledFramesForLog { onFrameClockStall?(false) }
+            stalledFrames = 0
+        } else {
+            stalledFrames += 1
+            if stalledFrames == Self.stalledFramesForLog { onFrameClockStall?(true) }
+        }
+    }
+
     // MARK: - 그리기
 
     override func didChangeSize(_ oldSize: CGSize) {
@@ -712,11 +722,20 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 장면이 돈 횟수. 광장 멈춤 진단 로그에 쓴다.
     private(set) var updateCount = 0
+    /// 마지막으로 받은 프레임 시계. 광장 멈춤 진단 로그에 쓴다.
+    var lastFrameTime: TimeInterval? { lastTime }
+    /// 장면은 도는데 프레임 시계가 멈췄으면 true, 그 뒤 다시 흐르면 false로 부른다. 움직임과 말풍선 시간은 모두 이
+    /// 시계의 차이로만 흘러, 시계가 멈추면 `update`가 돌아도 아무도 움직이지 않는다. 광장 멈춤 진단 로그에 쓴다.
+    var onFrameClockStall: ((Bool) -> Void)?
+    /// 프레임 시계가 이만큼 연달아 흐르지 않으면 멈춘 것으로 본다(60fps로 2초).
+    static let stalledFramesForLog = 120
+    private var stalledFrames = 0
 
     override func update(_ currentTime: TimeInterval) {
         updateCount &+= 1
         let raw = currentTime - (lastTime ?? currentTime)
         lastTime = currentTime
+        noteFrameClock(advanced: raw > 0)
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
         clock = currentTime
         let modifiers = currentModifiers()
