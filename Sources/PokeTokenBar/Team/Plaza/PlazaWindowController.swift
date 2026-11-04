@@ -42,6 +42,8 @@ extension SKView: PlazaPausableView {}
     /// 단체 사진 카운트다운의 1초. 테스트에서 바꿔 끼운다.
     private let groupPhotoSleep: @MainActor (Duration) async -> Void
     private let spriteRetrySleep: @MainActor (Duration) async -> Void
+    /// 그리기 감시의 간격. 테스트에서 바꿔 끼운다.
+    private let renderCheckSleep: @MainActor (Duration) async -> Void
     /// A failed sprite request is made again after this long, while the plaza stays open.
     static let spriteRetryDelay: Duration = .seconds(30)
     /// 뒷모습은 원래 없는 그림일 수 있어(404와 오프라인을 구분할 수 없다) 몇 번만 다시 묻는다.
@@ -124,8 +126,10 @@ extension SKView: PlazaPausableView {}
          profileTimeout: Duration = .seconds(5),
          bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          groupPhotoSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-         spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+         spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         renderCheckSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
         self.spriteRetrySleep = spriteRetrySleep
+        self.renderCheckSleep = renderCheckSleep
         self.session = session
         self.feed = feed
         self.bannerSleep = bannerSleep
@@ -256,6 +260,7 @@ extension SKView: PlazaPausableView {}
             skView = view
             renderLoop = view
             window = w
+            startRenderWatchdog()
             applyBackground()
             Task { await refreshCharacter() }
         }
@@ -931,6 +936,8 @@ extension SKView: PlazaPausableView {}
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
         logState("closing")   // 멈춘 광장을 닫아 되살리는 순간의 상태
+        renderWatchdog?.cancel()
+        renderWatchdog = nil
         chatInput.close()
         if overlayModel.content == .board { feed?.markAllRead() }
         persistState()
@@ -1021,6 +1028,50 @@ extension SKView: PlazaPausableView {}
             + "key=\(text(window?.isKeyWindow)) viewPaused=\(text(renderLoop?.isPaused)) "
             + "scenePaused=\(text(scene?.isPaused)) updates=\(scene?.updateCount ?? 0) "
             + "t=\(scene?.lastFrameTime.map { String(format: "%.2f", $0) } ?? "-")")
+    }
+
+    /// 그리기를 켜 둔 동안 이만큼마다 장면이 돌았는지 본다.
+    static let renderCheckInterval: Duration = .seconds(1)
+    private var renderWatchdog: Task<Void, Never>?
+    private var lastRenderCheckCount: Int?
+    private var renderKicks = 0
+
+    /// 창을 열면 그리기 감시를 시작하고 닫을 때 멈춘다. 다시 열면 새 장면이라 지난 확인 값을 버린다.
+    func startRenderWatchdog() {
+        renderWatchdog?.cancel()
+        lastRenderCheckCount = nil
+        renderKicks = 0
+        let sleep = renderCheckSleep
+        renderWatchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                await sleep(Self.renderCheckInterval)
+                guard !Task.isCancelled, let self else { return }
+                self.checkRendering()
+            }
+        }
+    }
+
+    /// 그리기를 켜 두었는데 지난 확인 뒤로 장면이 한 번도 돌지 않았으면 일시정지했다 다시 풀어 깨운다.
+    /// SpriteKit은 일시정지를 풀 때 화면 신호를 다른 큐에서 비동기로 다시 켜는데, 가끔 신호가 꺼진 채 남는다. 그러면
+    /// `isPaused`는 false인데 `update`가 불리지 않아 아무도 움직이지 않고, 같은 값을 다시 넣어도 SpriteKit은 아무것도
+    /// 하지 않는다. 창이 다시 가려졌다 보여 일시정지를 한 번 더 오가야 돌아왔다. 창 크기를 바꾸는 동안에는 SpriteKit이
+    /// 일부러 그리지 않으므로 보지 않는다. 처음 세 번과 그 뒤 60번마다만 남긴다.
+    func checkRendering() {
+        guard let scene, let loop = renderLoop, !loop.isPaused, !scene.isPaused, window?.inLiveResize != true else {
+            lastRenderCheckCount = nil
+            return
+        }
+        defer { lastRenderCheckCount = scene.updateCount }
+        guard let last = lastRenderCheckCount else { return }
+        if scene.updateCount == last {
+            renderKicks += 1
+            if renderKicks <= 3 || renderKicks % 60 == 0 { logState("render loop stalled, kick \(renderKicks)") }
+            loop.isPaused = true
+            loop.isPaused = false
+        } else if renderKicks > 0 {
+            logState("render loop resumed after \(renderKicks) kick(s)")
+            renderKicks = 0
+        }
     }
 
     /// 눌린 키를 모두 뗀다.

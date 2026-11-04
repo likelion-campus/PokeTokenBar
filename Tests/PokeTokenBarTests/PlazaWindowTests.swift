@@ -459,6 +459,130 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 
     @MainActor private final class FakeRenderLoop: PlazaPausableView { var isPaused = false }
 
+    /// Remembers every pause and resume, as SpriteKit's own view would receive them.
+    @MainActor private final class RecordingRenderLoop: PlazaPausableView {
+        var sets: [Bool] = []
+        var isPaused = false { didSet { sets.append(isPaused) } }
+    }
+
+    /// Each watchdog second waits here until the test lets it go.
+    @MainActor private final class CheckGate {
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+        var count: Int { waiting.count }
+        func sleep() async { await withCheckedContinuation { waiting.append($0) } }
+        func tick() { if !waiting.isEmpty { waiting.removeFirst().resume() } }
+    }
+
+    private func settle(_ condition: () -> Bool) async {
+        for _ in 0..<200 where !condition() { await Task.yield() }
+    }
+
+    /// SpriteKit sometimes leaves its frame signal off after the view is resumed: the view says it is not paused, but
+    /// update is never called and nobody moves until the window is hidden and shown again. A second with rendering on
+    /// and no update pauses and resumes the view to restart it, and says so in the log, then says when it moves again.
+    func testAStalledRenderLoopIsWokenAndLogged() {
+        let c = controller(defaults())
+        c.prepareScene()
+        let loop = RecordingRenderLoop()
+        c.renderLoop = loop
+        var lines: [String] = []
+        c.stateLog = { lines.append($0) }
+        guard let scene = c.scene else { return XCTFail("setup") }
+        scene.update(0)
+        c.checkRendering()                  // first look
+        scene.update(1.0 / 60)
+        c.checkRendering()                  // it ran
+        XCTAssertEqual(loop.sets, [])
+        c.checkRendering()                  // a second without a single update
+        XCTAssertEqual(loop.sets, [true, false], "paused and resumed to restart SpriteKit's frames")
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertTrue(lines[0].hasPrefix("plaza render loop stalled, kick 1:"), lines[0])
+        scene.update(2.0 / 60)
+        c.checkRendering()
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertTrue(lines[1].hasPrefix("plaza render loop resumed after 1 kick(s):"), lines[1])
+        scene.update(3.0 / 60)
+        c.checkRendering()
+        XCTAssertEqual(lines.count, 2, "running normally leaves nothing")
+        XCTAssertEqual(loop.sets, [true, false])
+    }
+
+    /// A plaza we paused ourselves (hidden) is left alone, and the first look after resuming only takes the count.
+    func testAPausedPlazaIsNotWoken() {
+        let c = controller(defaults())
+        c.prepareScene()
+        let loop = RecordingRenderLoop()
+        c.renderLoop = loop
+        c.checkRendering()
+        c.setRendering(visible: false)
+        c.checkRendering()
+        c.checkRendering()
+        XCTAssertEqual(loop.sets, [true])
+        c.setRendering(visible: true)
+        c.checkRendering()
+        XCTAssertEqual(loop.sets, [true, false], "no wake-up right after resuming")
+    }
+
+    /// A plaza that stays stuck keeps being woken every second, but the log gets only the first three and every 60th.
+    func testAStuckPlazaLogsOnlyNowAndThen() {
+        let c = controller(defaults())
+        c.prepareScene()
+        let loop = RecordingRenderLoop()
+        c.renderLoop = loop
+        var lines: [String] = []
+        c.stateLog = { lines.append($0) }
+        c.checkRendering()
+        for _ in 0..<60 { c.checkRendering() }
+        XCTAssertEqual(loop.sets.count, 120)
+        XCTAssertEqual(lines.map { $0.components(separatedBy: ":")[0] },
+                       ["plaza render loop stalled, kick 1", "plaza render loop stalled, kick 2",
+                        "plaza render loop stalled, kick 3", "plaza render loop stalled, kick 60"])
+    }
+
+    /// A reopened plaza has a new scene, so the watchdog forgets the last look: the first one only takes the count.
+    func testAReopenedPlazaStartsWatchingAfresh() {
+        let c = controller(defaults())
+        c.prepareScene()
+        c.renderLoop = RecordingRenderLoop()
+        c.checkRendering()
+        c.checkRendering()                  // stuck before closing: one kick
+        c.handleClose()
+        c.prepareScene()
+        let loop = RecordingRenderLoop()
+        c.renderLoop = loop
+        var lines: [String] = []
+        c.stateLog = { lines.append($0) }
+        c.startRenderWatchdog()
+        c.checkRendering()
+        XCTAssertEqual(loop.sets, [], "the new scene has not had a second yet")
+        XCTAssertEqual(lines, [])
+        c.handleClose()
+    }
+
+    /// The watchdog looks once a second while the plaza is open and stops when it closes.
+    func testTheWatchdogLooksEverySecondUntilClosed() async {
+        let gate = CheckGate()
+        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
+                                      loader: PlazaCharacterLoader(fetcher: RecordingFetcher()),
+                                      nickname: { "tester" }, memberID: { "member-1" },
+                                      subject: { .init(speciesID: 25, isShiny: false) },
+                                      renderCheckSleep: { _ in await gate.sleep() })
+        c.prepareScene()
+        let loop = RecordingRenderLoop()
+        c.renderLoop = loop
+        c.startRenderWatchdog()
+        await settle { gate.count == 1 }
+        gate.tick()                         // first look
+        await settle { gate.count == 1 }
+        gate.tick()                         // no update since: wake it
+        await settle { loop.sets == [true, false] && gate.count == 1 }
+        XCTAssertEqual(loop.sets, [true, false])
+        c.handleClose()
+        gate.tick()
+        await settle { gate.count == 1 }
+        XCTAssertEqual(gate.count, 0, "closed: no more looks")
+    }
+
     func testHidingPausesTheViewToo() {
         let c = controller(defaults())
         let loop = FakeRenderLoop()
