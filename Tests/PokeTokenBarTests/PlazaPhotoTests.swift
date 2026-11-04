@@ -511,11 +511,23 @@ final class PlazaPhotoTests: XCTestCase {
         let photo = try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([a])))
         let px = Pixels(photo)
         for y in 0..<px.height { for x in 0..<px.width where same(px[x, y], red) { return XCTFail("sprite pixel at \(x),\(y)") } }
-        // 이름표 바닥은 plateBaseY(80)의 사진 픽셀 160.
-        XCTAssertTrue(same(px[96, 159], black), "plate bottom row")
-        XCTAssertTrue(same(px[96, 154], black), "plate top row")
-        XCTAssertFalse(same(px[96, 161], black))
-        XCTAssertFalse(same(px[96, 152], black))
+        // plateBaseY(80)는 사진 픽셀 160이고, 화면처럼 그 위로 plateGap(2)을 띄운다: 이름표는 152-157행.
+        XCTAssertTrue(same(px[96, 157], black), "plate bottom row")
+        XCTAssertTrue(same(px[96, 152], black), "plate top row")
+        XCTAssertFalse(same(px[96, 158], black))
+        XCTAssertFalse(same(px[96, 151], black))
+    }
+
+    func testAHiddenActorsShadowAndNestFrontAreNotDrawn() throws {
+        var a = tallActor(foot: CGPoint(x: 48, y: 100), opacity: 0)
+        a = PlazaPhotoActor(image: a.image, flipped: false, foot: a.foot, scale: a.scale, shadow: solid(20, 8, blue),
+                            shadowRect: CGRect(x: 38, y: 96, width: 20, height: 8), front: solid(20, 8, yellow), plate: nil, bubble: nil,
+                            opacity: 0)
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([a]))))
+        for y in 0..<px.height { for x in 0..<px.width {
+            XCTAssertFalse(same(px[x, y], blue), "shadow pixel at \(x),\(y)")
+            XCTAssertFalse(same(px[x, y], yellow), "nest front pixel at \(x),\(y)")
+        } }
     }
 
     func testOpacityBlendsTheSprite() throws {
@@ -568,7 +580,7 @@ final class PlazaPhotoTests: XCTestCase {
         let input = try XCTUnwrap(s.photoInput())
         let me = try XCTUnwrap(input.actors.first)
         XCTAssertEqual(me.opacity, 0.4, accuracy: 1e-9)
-        XCTAssertNotNil(me.plateBaseY)
+        XCTAssertNil(me.plateBaseY, "my name tag stays on my head")
 
         func pixels(_ opacity: CGFloat) throws -> Pixels {
             var i = input
