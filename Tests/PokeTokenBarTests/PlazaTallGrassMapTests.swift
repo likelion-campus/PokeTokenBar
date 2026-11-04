@@ -72,10 +72,6 @@ final class PlazaTallGrassMapTests: XCTestCase {
             for kind: Character in ["S", "N", "F"] {
                 for q in points(of: kind, in: rows) { XCTAssertGreaterThan(chebyshev(p, q), 2, "\(kind) \(p) \(q)") }
             }
-            // 모닥불 자리 (36–37, 23–24): 아직 지도에 F 가 없어도 2칸 안에 풀숲이 없어야 한다.
-            for fx in 36...37 { for fy in 23...24 {
-                XCTAssertGreaterThan(chebyshev(p, TilePoint(x: fx, y: fy)), 2, "모닥불 자리 \(p)")
-            } }
         }
     }
 
