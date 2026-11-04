@@ -886,12 +886,14 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if !silently { onFocusEnd?(PlazaFocusEnd(minutes: ended.minutes, elapsedMinutes: elapsedMinutes, completed: completed)) }
     }
 
-    /// 불, 타이머 글, 안내를 이 순서로 지금에 맞춘다.
+    /// 불, 타이머 글, 안내를 이 순서로 지금에 맞춘다. 끝 시각이 지나도 새 소식은 오지 않으므로 목록의 🔥집중과 작은 지도의 불도 여기서 다시 맞춘다(둘 다 바뀔 때만 쓴다).
     private func refreshCampfire() {
         guard let scene else { return }
         scene.campfireLit = isCampfireLit
         scene.setCampfireTimer(focus.map { PlazaCampfire.clock($0.endsAt.timeIntervalSince(clock())) })
         refreshHint()
+        refreshRoster()
+        refreshMinimap()
     }
 
     private func startFocusTick() {

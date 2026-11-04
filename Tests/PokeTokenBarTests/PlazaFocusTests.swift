@@ -394,12 +394,23 @@ final class PlazaFocusTests: XCTestCase {
         let (_, other, c) = await pair()
         XCTAssertNil(c.minimapCampfire)
         await place(other, at: PlazaMapData.map.spawn, focusEnds: now.addingTimeInterval(600), in: c)
-        c.scene?.onItemChange?(nil)
         XCTAssertEqual(c.minimapCampfire, TilePoint(x: 36, y: 23))
         now = now.addingTimeInterval(601)
         await gate.tick()
-        c.scene?.onItemChange?(nil)
-        XCTAssertNil(c.minimapCampfire)
+        XCTAssertNil(c.minimapCampfire, "the 1 s tick alone puts the fire out")
+        c.handleClose()
+        await gate.tick()
+    }
+
+    func testRosterBadgeExpiresOnTheTickAlone() async {
+        let (_, other, c) = await pair()
+        let id = other.settings.memberID
+        await place(other, at: PlazaMapData.map.spawn, focusEnds: now.addingTimeInterval(600), in: c)
+        await gate.tick()
+        XCTAssertEqual(c.rosterEntries.first { $0.id == id }?.presence, .focus)
+        now = now.addingTimeInterval(601)
+        await gate.tick()
+        XCTAssertEqual(c.rosterEntries.first { $0.id == id }?.presence, .online)
         c.handleClose()
         await gate.tick()
     }
