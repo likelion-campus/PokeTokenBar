@@ -536,6 +536,21 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertTrue(same(lit[2, 2], plain[2, 2]))
     }
 
+    func testPhotoLightHalfOutsideTheFrameStillLightsTheInsideOnly() throws {
+        let tint = PlazaDaylight.Tint(red: 0.45, green: 0.5, blue: 0.7)
+        let ground = solid(64, 64, (200, 180, 160, 255))
+        let rect = CGRect(x: 0, y: 0, width: 64, height: 64)
+        var inp = input(map: ground, rect: rect, ppw: 2)
+        inp.tint = tint
+        let plain = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(inp)))
+        // The fire sits on the frame's corner: most light blocks fall outside and must be skipped.
+        inp.light = PlazaPhotoLight(center: CGPoint(x: 0, y: 0), radii: CGSize(width: 24, height: 20), tint: tint)
+        let lit = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(inp)))
+        XCTAssertTrue(same(lit[120, 120], plain[120, 120]), "far from the light nothing changes")
+        let corners = [(0, 0), (0, 127), (127, 0), (127, 127)]
+        XCTAssertTrue(corners.contains { !same(lit[$0.0, $0.1], plain[$0.0, $0.1]) }, "the part of the light inside the frame is drawn")
+    }
+
     /// Renders the photo with a tall member on `tile` four ways (everything, members only, pit only, bare ground) and
     /// returns the pixels where both the member and the pit show: there the full photo says which one is in front.
     private func overlap(memberTile: TilePoint) throws -> (full: [RGBA], member: [RGBA], pit: [RGBA]) {
