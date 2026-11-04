@@ -474,6 +474,136 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertEqual(written, 1, "a closed plaza no longer takes photos")
     }
 
+    // MARK: 풀숲 띠와 숨은 팀원
+
+    private func tallActor(foot: CGPoint, opacity: CGFloat = 1, plateBaseY: CGFloat? = nil, plate: CGImage? = nil) -> PlazaPhotoActor {
+        // 32x48 그림은 배율 1.5로 48x72 월드 픽셀이다.
+        var a = actor(solid(32, 48, red), foot: foot, plate: plate)
+        a.opacity = opacity
+        a.plateBaseY = plateBaseY
+        return a
+    }
+
+    private func bandInput(_ actors: [PlazaPhotoActor], bands: [PlazaPhotoBand] = []) -> PlazaPhotoInput {
+        var i = input(map: solid(8, 8, green), rect: CGRect(x: 0, y: 0, width: 128, height: 128), ppw: 2, actors)
+        i.bands = bands
+        return i
+    }
+
+    /// 칸 (1,1): 월드 x 32-64, y 32-64.
+    private func yellowBand() -> PlazaPhotoBand {
+        PlazaPhotoBand(image: solid(32, 32, yellow), origin: CGPoint(x: 32, y: 32), size: CGSize(width: 32, height: 32), sortY: 63)
+    }
+
+    func testABandCoversTheFeetOfAnActorInItsTile() throws {
+        let photo = try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([tallActor(foot: CGPoint(x: 48, y: 50))], bands: [yellowBand()])))
+        let px = Pixels(photo)
+        XCTAssertTrue(same(px[96, 90], yellow), "just above the foot the band is on top: \(px[96, 90])")
+        XCTAssertTrue(same(px[96, 50], red), "above the band the actor shows")
+    }
+
+    func testABandStaysBehindAnActorInTheRowBelow() throws {
+        let photo = try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([tallActor(foot: CGPoint(x: 48, y: 90))], bands: [yellowBand()])))
+        XCTAssertTrue(same(Pixels(photo)[96, 100], red), "the actor in front is drawn over the band")
+    }
+
+    func testAHiddenActorLeavesOnlyItsPlate() throws {
+        let plate = solid(10, 6, black)
+        let a = tallActor(foot: CGPoint(x: 48, y: 100), opacity: 0, plateBaseY: 80, plate: plate)
+        let photo = try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([a])))
+        let px = Pixels(photo)
+        for y in 0..<px.height { for x in 0..<px.width where same(px[x, y], red) { return XCTFail("sprite pixel at \(x),\(y)") } }
+        // plateBaseY(80)는 사진 픽셀 160이고, 화면처럼 그 위로 plateGap(2)을 띄운다: 이름표는 152-157행.
+        XCTAssertTrue(same(px[96, 157], black), "plate bottom row")
+        XCTAssertTrue(same(px[96, 152], black), "plate top row")
+        XCTAssertFalse(same(px[96, 158], black))
+        XCTAssertFalse(same(px[96, 151], black))
+    }
+
+    func testAHiddenActorsShadowAndNestFrontAreNotDrawn() throws {
+        var a = tallActor(foot: CGPoint(x: 48, y: 100), opacity: 0)
+        a = PlazaPhotoActor(image: a.image, flipped: false, foot: a.foot, scale: a.scale, shadow: solid(20, 8, blue),
+                            shadowRect: CGRect(x: 38, y: 96, width: 20, height: 8), front: solid(20, 8, yellow), plate: nil, bubble: nil,
+                            opacity: 0)
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([a]))))
+        for y in 0..<px.height { for x in 0..<px.width {
+            XCTAssertFalse(same(px[x, y], blue), "shadow pixel at \(x),\(y)")
+            XCTAssertFalse(same(px[x, y], yellow), "nest front pixel at \(x),\(y)")
+        } }
+    }
+
+    func testOpacityBlendsTheSprite() throws {
+        let photo = try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([tallActor(foot: CGPoint(x: 48, y: 100), opacity: 0.4)])))
+        let p = Pixels(photo)[96, 150]
+        XCTAssertFalse(same(p, red))
+        XCTAssertFalse(same(p, green))
+        XCTAssertTrue(p.r > 60 && p.g > 20 && p.g < 100, "a mix of the red sprite and green ground: \(p)")
+    }
+
+    private func tallGrassScene() throws -> PlazaScene {
+        let art = try XCTUnwrap(PlazaTallGrassArt.load())
+        let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: TilePoint(x: 20, y: 22), zoom: 2,
+                           nickname: "me", tallGrass: art)
+        s.size = CGSize(width: 800, height: 600)
+        s.backingOverride = 2
+        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]   // 72 world px tall at x1.5
+        s.setCharacter(PlazaCharacterFrames(front: tall, back: tall))
+        s.applyMembers([PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 7, y: 6), facing: .down, isWalking: false)])
+        s.setMemberFrames("a", PlazaCharacterFrames(front: tall, back: tall))
+        var t: TimeInterval = 0
+        s.update(t)
+        for _ in 0..<3 { t += 1.0 / 30; s.update(t) }
+        return s
+    }
+
+    func testPhotoInputCarriesBandsAndConcealment() throws {
+        let s = try tallGrassScene()
+        let shown = try XCTUnwrap(s.photoInput())
+        XCTAssertFalse(shown.bands.isEmpty)
+        let hidden = try XCTUnwrap(shown.actors.first { $0.opacity == 0 }, "the teammate in the grass is drawn at opacity 0")
+        XCTAssertNotNil(hidden.plateBaseY)
+        s.setBackgroundHidden(true)
+        let off = try XCTUnwrap(s.photoInput())
+        XCTAssertTrue(off.bands.isEmpty)
+        XCTAssertTrue(off.actors.allSatisfy { $0.opacity == 1 })
+    }
+
+    func testMyOwnPokemonInTheGrassIsDrawnAtFortyPercent() throws {
+        let art = try XCTUnwrap(PlazaTallGrassArt.load())
+        let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: TilePoint(x: 6, y: 6), zoom: 2,
+                           nickname: "me", tallGrass: art)
+        s.size = CGSize(width: 800, height: 600)
+        s.backingOverride = 2
+        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]
+        s.setCharacter(PlazaCharacterFrames(front: tall, back: tall))
+        var t: TimeInterval = 0
+        s.update(t)
+        for _ in 0..<3 { t += 1.0 / 30; s.update(t) }
+        let input = try XCTUnwrap(s.photoInput())
+        let me = try XCTUnwrap(input.actors.first)
+        XCTAssertEqual(me.opacity, 0.4, accuracy: 1e-9)
+        XCTAssertNil(me.plateBaseY, "my name tag stays on my head")
+
+        func pixels(_ opacity: CGFloat) throws -> Pixels {
+            var i = input
+            var a = me
+            a.opacity = opacity
+            i = PlazaPhotoInput(mapImage: i.mapImage, visibleRect: i.visibleRect, pixelsPerWorld: i.pixelsPerWorld,
+                                actors: [a], bands: [])
+            return Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(i)))
+        }
+        let blended = try pixels(me.opacity), full = try pixels(1), none = try pixels(0)
+        var fullRed = 0, blendedRed = 0, changed = 0
+        for y in 0..<full.height { for x in 0..<full.width {
+            if same(full[x, y], red) { fullRed += 1 }
+            if same(blended[x, y], red) { blendedRed += 1 }
+            if !same(blended[x, y], none[x, y]) { changed += 1 }
+        } }
+        XCTAssertGreaterThan(fullRed, 0, "the sprite shows at full strength")
+        XCTAssertEqual(blendedRed, 0, "at 40% no pixel keeps the pure sprite colour")
+        XCTAssertGreaterThan(changed, 0, "at 40% the sprite is still visible")
+    }
+
     // MARK: 모닥불
 
     private func nightDate() -> Date { Calendar.current.date(bySettingHour: 21, minute: 0, second: 0, of: Date())! }

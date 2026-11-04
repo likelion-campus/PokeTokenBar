@@ -98,10 +98,20 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 프로세스에서 한 번만 만든다. 다시 열 때(와 테스트마다) 메인 스레드에서 지도를 다시 그리지 않는다. 앱의 지도는 하나뿐이다.
     /// 시트를 못 읽으면 단색 잔디로 대신한다.
     private static var cachedMapImage: CGImage?
+    /// 풀숲 조각 그림도 프로세스당 한 번만 읽는다. 못 읽으면 바깥 nil(=읽어 봤지만 없음)로 기억한다.
+    private static var cachedTallGrass: PlazaTallGrassArt??
+
+    private static func tallGrassArt() -> PlazaTallGrassArt? {
+        if let loaded = cachedTallGrass { return loaded }
+        let art = PlazaTallGrassArt.load()
+        cachedTallGrass = .some(art)
+        return art
+    }
 
     private var mapImage: CGImage {
         if let cached = Self.cachedMapImage { return cached }
-        let image = PlazaResources.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0) } ?? PlazaTileArt.plainGrassImage(map)
+        let tallGrass = Self.tallGrassArt()
+        let image = PlazaResources.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: tallGrass) } ?? PlazaTileArt.plainGrassImage(map)
         Self.cachedMapImage = image
         return image
     }
@@ -306,7 +316,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard scene == nil else { return }
         let s = PlazaScene(map: map, mapImage: mapImage,
                            start: preferences.lastTile(validIn: map),
-                           zoom: preferences.zoom, nickname: nickname())
+                           zoom: preferences.zoom, nickname: nickname(),
+                           tallGrass: Self.tallGrassArt())
         if let focus { s.sit(at: .init(tile: focus.seat, facing: focusFacing)) }
         s.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: nameColor()))
         nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: nameColor())

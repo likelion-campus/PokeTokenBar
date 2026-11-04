@@ -115,6 +115,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         var isIdle = false
         var motion: PlazaRemoteMotion
         var wanderer: PlazaShelterWanderer?
+        var grassWatch = GrassWatch()
 
         /// zZ는 자리비움(입력 없음)일 때만. 광장을 닫고 일하는 팀원은 쉼터에 서 있어도 zZ가 없다.
         var displayName: String { Self.displayName(nickname, isIdle: isIdle) }
@@ -130,6 +131,40 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     private var remotes: [String: Remote] = [:]
+
+    /// 풀숲 흔들기 상태 하나(나 또는 팀원 한 명): 지난 걸음과 가만히 가려져 있는 시간.
+    @MainActor private struct GrassWatch {
+        var lastStep: (from: TilePoint, to: TilePoint)?
+        var still: TimeInterval = 0
+        var flip = false
+        var lastLift: CGFloat = 0
+
+        mutating func advance(tile: TilePoint, step: PlazaStep?, lift: CGFloat, dt: TimeInterval, layer: PlazaTallGrassLayer) {
+            if let step {
+                if lastStep?.from != step.from || lastStep?.to != step.to {
+                    lastStep = (step.from, step.to)
+                    for cue in PlazaTallGrass.cues(from: step.from, to: step.to, isGrass: layer.isGrass) { layer.rustle(cue) }
+                }
+            } else {
+                lastStep = nil
+            }
+            // 점프에서 내려앉은 프레임: 풀숲 칸이면 약하게 들썩인다. 장면 시간(dt)으로만 잰다.
+            if lastLift > 0, lift == 0, layer.isGrass(tile) {
+                layer.rustle(PlazaRustleCue(tile: tile, kind: .bounce, strong: false, delay: 0))
+            }
+            lastLift = lift
+            let hidden = PlazaTallGrass.concealment(tile: tile, step: step, jumpLift: lift, isGrass: layer.isGrass) == 1
+            guard hidden, step == nil, lift == 0 else { still = 0; return }
+            still += dt
+            if still >= PlazaTallGrass.twitchInterval {
+                still = 0
+                layer.rustle(PlazaRustleCue(tile: tile, kind: .sway(flip ? -1 : 1), strong: false, delay: 0))
+                flip.toggle()
+            }
+        }
+    }
+    private var myGrassWatch = GrassWatch()
+    private(set) var tallGrassLayer: PlazaTallGrassLayer?
 
     /// 큰 소식 반짝임 조각 하나. 시간 흐름은 `update`가 준 간격으로만 재서 창이 멈추면 같이 멈춘다.
     private struct Sparkle {
@@ -184,7 +219,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private(set) var campfireTimerText: String?
     private var campfireTimerDrawn: (text: String, backing: CGFloat)?
 
-    init(map: PlazaMap, mapImage: CGImage, start: TilePoint, zoom: Int, nickname: String) {
+    init(map: PlazaMap, mapImage: CGImage, start: TilePoint, zoom: Int, nickname: String, tallGrass: PlazaTallGrassArt? = nil) {
         self.map = map
         self.worldSize = map.pixelSize
         self.walker = PlazaWalker(tile: start)
@@ -207,6 +242,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapNode.position = .zero
         mapNode.zPosition = 0
         addChild(mapNode)
+        if let tallGrass {
+            let layer = PlazaTallGrassLayer(map: map, art: tallGrass)
+            addChild(layer)
+            tallGrassLayer = layer
+        }
 
         if let campfireNode { addChild(campfireNode) }
         // 낮밤 곱하기(5) 위, 이름표(10) 아래. 곱하고 둘로 늘려 흰색에 가까운 값(0.5)이 아무것도 바꾸지 않는다.
@@ -272,6 +312,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 지도와 바탕을 숨긴다. 걸을 수 있는 칸은 그대로라 보이지 않는 나무와 덤불에 막힌다.
     func setBackgroundHidden(_ hidden: Bool) {
         mapNode.isHidden = hidden
+        tallGrassLayer?.setHidden(hidden)
+        layout()   // 풀숲 가림을 바로 풀어 곧바로 찍는 사진도 숨은 팀원을 그리게 한다
         backgroundColor = hidden ? .clear : Self.forestColor
         applyDaylight()
         advanceWeather(by: 0)
@@ -535,7 +577,9 @@ struct PlazaSceneMember: Equatable, Sendable {
         let tint = daylightTint
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
                                tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
-                               items: itemPhotoParticles, props: campfirePhotoProps, light: campfirePhotoLight(tint: tint))
+                               items: itemPhotoParticles,
+                               bands: tallGrassLayer?.photoBands(in: visibleRect) ?? [],
+                               props: campfirePhotoProps, light: campfirePhotoLight(tint: tint))
     }
 
     /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.
@@ -578,8 +622,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     func playSparkle(memberID: String?) {
         guard let actor = actor(memberID) else { return }
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
-        let origin = CGPoint(x: foot.x.rounded(),
-                             y: (worldSize.height - foot.y + max(actor.characterSize.height, 24) * 0.6).rounded())
+        // 풀숲에 숨은 캐릭터는 몸이 없으니 이름표가 앉은 자리에서 터진다.
+        let originY = memberID != nil && actor.concealment > 0.5 ? worldSize.height - foot.y + PlazaTallGrass.hiddenPlateLift
+            : worldSize.height - foot.y + max(actor.characterSize.height, 24) * 0.6
+        let origin = CGPoint(x: foot.x.rounded(), y: originY.rounded())
         let image = PlazaEmoteArt.sparkImage(scale: 2)
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
@@ -799,6 +845,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let occupied = occupiedTiles()
         walker.advance(by: dt) { [map] in map.isWalkable($0) && !occupied.contains($0) }
         advanceAnimation(by: dt)
+        advanceTallGrass(by: dt)
         advanceSparkles(by: dt)
         applyDaylight()
         advanceCampfire(by: dt)
@@ -906,6 +953,24 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
 
+    /// 나와 팀원의 새 걸음이 지나는 풀을 흔들고, 가만히 가려진 채 있으면 가끔 움찔하게 한 뒤 레이어 시간을 흘린다.
+    private func advanceTallGrass(by dt: TimeInterval) {
+        guard let layer = tallGrassLayer else { return }
+        myGrassWatch.advance(tile: walker.tile, step: walker.currentStep, lift: me.jumpLift, dt: dt, layer: layer)
+        for id in Array(remotes.keys) {
+            guard let r = remotes[id] else { continue }
+            var watch = r.grassWatch
+            watch.advance(tile: r.motion.tile, step: r.motion.currentStep, lift: r.actor.jumpLift, dt: dt, layer: layer)
+            remotes[id]?.grassWatch = watch
+        }
+        layer.update(dt: dt)
+    }
+
+    /// 풀숲에 가려진 정도(0–1). 그림이 없거나 배경이 숨으면 늘 0이다.
+    private func concealment(tile: TilePoint, step: PlazaStep?, actor: PlazaActor) -> CGFloat {
+        PlazaTallGrass.concealment(tile: tile, step: step, jumpLift: actor.jumpLift) { [tallGrassLayer] in tallGrassLayer?.isGrass($0) ?? false }
+    }
+
     /// 카메라, 캐릭터, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다.
     private func layout() {
         let z = CGFloat(zoom)
@@ -926,10 +991,12 @@ struct PlazaSceneMember: Equatable, Sendable {
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
         let context = PlazaActorContext(worldHeight: worldSize.height, cameraPosition: cameraPos,
                                         zoom: zoom, backing: backing, viewport: size)
-        me.place(foot: foot, pose: pose, in: context)
+        me.place(foot: foot, pose: pose, in: context,
+                 concealment: concealment(tile: walker.tile, step: walker.currentStep, actor: me), isMe: true)
         for r in remotes.values {
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
-            r.actor.place(foot: r.motion.footPoint, pose: p, in: context)
+            r.actor.place(foot: r.motion.footPoint, pose: p, in: context,
+                          concealment: concealment(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor))
         }
     }
 
@@ -944,6 +1011,14 @@ struct PlazaSceneMember: Equatable, Sendable {
     func emoteFrame(memberID: String?) -> CGRect? { actor(memberID)?.emoteFrame }
     func memberNamePlateTop(_ id: String) -> CGFloat? { remotes[id]?.actor.namePlateTop }
     func memberZ(_ id: String) -> CGFloat? { remotes[id]?.actor.characterZ }
+    var myOpacity: CGFloat { me.characterOpacity }
+    var myShadowOpacity: CGFloat { me.shadowOpacity }
+    var myNamePlateTop: CGFloat { me.namePlateTop }
+    var myFootPoint: CGPoint { walker.footPoint }
+    func memberShadowOpacity(_ id: String) -> CGFloat? { remotes[id]?.actor.shadowOpacity }
+    func memberNamePlateVisible(_ id: String) -> Bool? { remotes[id]?.actor.isNamePlateVisible }
+    func memberOpacity(_ id: String) -> CGFloat? { remotes[id]?.actor.characterOpacity }
+    func memberNestFrontOpacity(_ id: String) -> CGFloat? { remotes[id]?.actor.nestFrontOpacity }
 
     /// 테스트용: 내 캐릭터 값을 그대로 넘긴다.
     var groundShadowSize: (width: Int, height: Int) { me.groundShadowSize }

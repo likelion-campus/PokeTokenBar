@@ -20,6 +20,19 @@ struct PlazaPhotoActor {
     /// 배율 2로 만든 이름표와 말풍선. 사진 픽셀 그대로 얹는다.
     let plate: CGImage?
     let bubble: CGImage?
+    /// 풀숲에 가려진 만큼 흐리게. 그림·그림자·둥지 앞 테두리에만 주고 이름표와 말풍선은 늘 불투명하다.
+    var opacity: CGFloat = 1
+    /// 이름표 바닥의 월드 y(아래로). nil이면 머리 위에 둔다.
+    var plateBaseY: CGFloat? = nil
+}
+
+/// 기념사진에 찍히는 풀숲 앞 띠 한 칸. 좌표는 월드 픽셀이고 y가 아래로 늘어난다.
+struct PlazaPhotoBand {
+    let image: CGImage
+    let origin: CGPoint
+    let size: CGSize
+    /// 캐릭터의 `foot.y` 와 견주는 앞뒤 키(칸 맨 아래 줄).
+    let sortY: CGFloat
 }
 
 /// 기념사진에 찍히는 날씨 입자 하나. 좌표는 월드 픽셀이고 y가 아래로 늘어난다(원점은 그림의 왼쪽 위).
@@ -48,6 +61,8 @@ struct PlazaPhotoInput {
     var weather: [PlazaPhotoParticle] = []
     /// 땅에 떨어진 아이템. 그림자 위, 캐릭터 아래.
     var items: [PlazaPhotoParticle] = []
+    /// 풀숲 앞 띠. 캐릭터와 `foot.y`/`sortY` 키 순서로 섞어 그린다.
+    var bands: [PlazaPhotoBand] = []
     /// 캐릭터와 앞뒤를 겨루는 물건. 발 y가 같으면 물건이 뒤.
     var props: [PlazaPhotoProp] = []
     /// 모닥불이 던지는 밤빛. 낮밤 색 바로 위에 곱하고 이름표와 말풍선에는 곱하지 않는다.
@@ -107,6 +122,8 @@ enum PlazaPhotoRenderer {
 
         for a in input.actors {
             guard let shadow = a.shadow else { continue }
+            context.setAlpha(a.opacity)
+            defer { context.setAlpha(1) }
             draw(shadow, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
                  w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
         }
@@ -127,9 +144,10 @@ enum PlazaPhotoRenderer {
                      w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
             }
         }
-        for a in ordered {
-            drawProps(upTo: a.foot.y)
+        func drawActor(_ a: PlazaPhotoActor) {
             let w = Int((CGFloat(a.image.width) * a.scale * ppw).rounded()), h = Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
+            context.setAlpha(a.opacity)
+            defer { context.setAlpha(1) }
             draw(a.image, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX),
                  top: px(a.foot.y - a.bob, origin: rect.minY) - h, w: w, h: h, mirrored: a.flipped)
             if let front = a.front {
@@ -137,6 +155,19 @@ enum PlazaPhotoRenderer {
                      w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
             }
         }
+        // 풀숲 띠는 캐릭터와 키 순서로 섞는다. 같은 키면 캐릭터가 먼저라 띠가 발을 덮는다.
+        let bands = input.bands.enumerated().sorted { ($0.element.sortY, $0.offset) < ($1.element.sortY, $1.offset) }.map(\.element)
+        var nextBand = 0
+        func drawBand(_ b: PlazaPhotoBand) {
+            draw(b.image, x: px(b.origin.x, origin: rect.minX), top: px(b.origin.y, origin: rect.minY),
+                 w: Int((b.size.width * ppw).rounded()), h: Int((b.size.height * ppw).rounded()))
+        }
+        for a in ordered {
+            drawProps(upTo: a.foot.y)
+            while nextBand < bands.count, bands[nextBand].sortY < a.foot.y { drawBand(bands[nextBand]); nextBand += 1 }
+            drawActor(a)
+        }
+        while nextBand < bands.count { drawBand(bands[nextBand]); nextBand += 1 }
 
         drawProps(upTo: nil)
 
@@ -182,6 +213,7 @@ enum PlazaPhotoRenderer {
         for a in ordered {
             let centerX = px(a.foot.x, origin: rect.minX)
             var top = px(a.foot.y - a.bob, origin: rect.minY) - Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
+            if let base = a.plateBaseY { top = px(base, origin: rect.minY) }
             if let plate = a.plate {
                 top -= plateGap + plate.height
                 draw(plate, x: centerX - plate.width / 2, top: top, w: plate.width, h: plate.height)

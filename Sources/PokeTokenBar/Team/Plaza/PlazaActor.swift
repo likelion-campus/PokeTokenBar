@@ -60,6 +60,10 @@ struct PlazaActorContext {
     static let lungeDistance: CGFloat = 8
     private var lunge: (direction: PlazaDirection, elapsed: TimeInterval)?
 
+    /// 마지막 `place`가 받은 풀숲 가림 정도와 내 캐릭터 여부. 기념사진이 같은 값으로 그린다.
+    private(set) var concealment: CGFloat = 0
+    private(set) var isMeForConcealment = false
+
     private var frames: PlazaCharacterFrames?
     private var showingBack = false
     private var frameIndex = 0
@@ -190,7 +194,14 @@ struct PlazaActorContext {
     }
 
     /// 그림, 그림자, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다. `foot`은 월드 좌표(y가 아래로)다.
-    func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext) {
+    /// `concealment`(0–1)는 풀숲에 가려진 정도다. 그림·그림자·둥지 앞 테두리를 흐리게 하고 이름표를 풀숲 위로 내린다. `isMe`면 내 화면에서 40%까지만 흐려진다.
+    func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat = 0, isMe: Bool = false) {
+        self.concealment = concealment
+        isMeForConcealment = isMe
+        let alpha = PlazaTallGrass.opacity(concealment: concealment, isMe: isMe)
+        characterNode.alpha = alpha
+        shadowNode.alpha = alpha
+        nestFrontNode.alpha = alpha
         let lunge = lungeOffset
         let foot = CGPoint(x: foot.x + lunge.x, y: foot.y + lunge.y)
         let backing = context.backing
@@ -214,7 +225,9 @@ struct PlazaActorContext {
         let top = footScene.y + characterNode.size.height
         let labelBacking = max(backing, 1)
         refreshPlate(backing: labelBacking)
-        plateNode.position = PlazaPixelSnap.platePosition(footSceneX: footScene.x, topY: top, cameraPos: context.cameraPosition,
+        let plateBase = PlazaTallGrass.plateBaseY(spriteTopY: top, footSceneY: context.worldHeight - foot.y,
+                                                 concealment: isMe ? 0 : concealment)   // 내 포켓몬은 40%로 보이니 이름표는 머리 위에 둔다
+        plateNode.position = PlazaPixelSnap.platePosition(footSceneX: footScene.x, topY: plateBase, cameraPos: context.cameraPosition,
                                                           plateWidth: plateNode.size.width, viewport: context.viewport,
                                                           backing: labelBacking, zoom: zoom)
         placeEmote(backing: labelBacking, viewport: context.viewport)
@@ -232,12 +245,21 @@ struct PlazaActorContext {
                                 y: foot.y - (CGFloat(size.height) * 0.12).rounded() - CGFloat(size.height) / 2,
                                 width: CGFloat(size.width), height: CGFloat(size.height))
         }
+        var opacity: CGFloat = 1
+        var plateBaseY: CGFloat?
+        if concealment > 0 {
+            opacity = PlazaTallGrass.opacity(concealment: concealment, isMe: isMeForConcealment)
+            // 화면과 같은 높이 규칙(PlazaTallGrass.plateBaseY)을 월드 y(아래로)로 옮긴 값.
+            let height = CGFloat(image.height) * Self.characterScale
+            if !isMeForConcealment { plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2)) }
+        }
         return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: foot, bob: CGFloat(pose.bob),
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
                                front: shadowIsNest ? nestFrontImage : nil,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
-                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) })
+                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
+                               opacity: opacity, plateBaseY: plateBaseY)
     }
 
     // MARK: - 값 읽기
@@ -252,6 +274,10 @@ struct PlazaActorContext {
     var characterX: CGFloat { characterNode.position.x }
     var characterY: CGFloat { characterNode.position.y }
     var characterZ: CGFloat { characterNode.zPosition }
+    /// 테스트용: 풀숲에서 흐려진 그림과 둥지 앞 테두리의 투명도.
+    var characterOpacity: CGFloat { characterNode.alpha }
+    var nestFrontOpacity: CGFloat { nestFrontNode.alpha }
+    var shadowOpacity: CGFloat { shadowNode.alpha }
     var characterSize: CGSize { characterNode.size }
     var namePlatePosition: CGPoint { plateNode.position }
     var namePlateWidth: CGFloat { plateNode.size.width }

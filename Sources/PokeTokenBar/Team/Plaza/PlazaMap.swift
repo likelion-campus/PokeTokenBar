@@ -10,13 +10,13 @@ struct TilePoint: Hashable, Codable, Sendable {
 /// 지도 한 칸의 종류. rawValue가 지도 문자열에서 쓰는 문자다.
 enum PlazaTile: Character, Sendable {
     // 지나갈 수 있음
-    case grass = ".", flowers = "f", shelter = "S"
+    case grass = ".", flowers = "f", shelter = "S", tallGrass = "g"
     // 지나갈 수 없음
     case tree = "T", bush = "b", board = "N", campfire = "F"
 
     var isWalkable: Bool {
         switch self {
-        case .grass, .flowers, .shelter: true
+        case .grass, .flowers, .shelter, .tallGrass: true
         case .tree, .bush, .board, .campfire: false
         }
     }

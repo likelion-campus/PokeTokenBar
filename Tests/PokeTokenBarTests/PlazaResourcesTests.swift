@@ -1,5 +1,6 @@
 import AppKit
 import CoreText
+import CryptoKit
 import XCTest
 @testable import PokeTokenBar
 
@@ -8,6 +9,30 @@ final class PlazaResourcesTests: XCTestCase {
         let sheet = try XCTUnwrap(PlazaResources.tileSheet())
         XCTAssertEqual(sheet.width, 640)
         XCTAssertEqual(sheet.height, 576)
+    }
+
+    func testTallGrassSheetLoads() throws {
+        let sheet = try XCTUnwrap(PlazaResources.tallGrassSheet())
+        XCTAssertEqual(sheet.width, 208)
+        XCTAssertEqual(sheet.height, 144)
+    }
+
+    /// The CC-BY-SA credit says "unmodified", so the bundled bytes must stay the original file.
+    func testTallGrassSheetIsTheUnmodifiedOriginal() throws {
+        let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
+        let url = try XCTUnwrap(PlazaResources.resourceURL("plaza-tallgrass", "png", in: bundle))
+        let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(digest, "d8b02d00acf54d3daf21c33e1cd7873ba6d82b3aa949989258e5d785885319fd")
+    }
+
+    func testCreditsNameTheTallGrassLicense() throws {
+        let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
+        let url = try XCTUnwrap(PlazaResources.resourceURL("CREDITS", "md", in: bundle))
+        let credits = try String(contentsOf: url, encoding: .utf8)
+        for needle in ["RedVoxel", "CC-BY-SA 3.0", "https://creativecommons.org/licenses/by-sa/3.0/",
+                       "https://opengameart.org/content/pokemon-inspired-16x16-tiles", "unmodified", "CC-BY-SA-3.0.txt"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
     }
 
     func testFontsRegisterAndResolve() {
@@ -69,12 +94,14 @@ final class PlazaResourcesTests: XCTestCase {
         let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
         XCTAssertNotNil(PlazaResources.resourceURL("Galmuri-OFL", "txt", in: bundle))
         XCTAssertNotNil(PlazaResources.resourceURL("CREDITS", "md", in: bundle))
+        XCTAssertNotNil(PlazaResources.resourceURL("CC-BY-SA-3.0", "txt", in: bundle))
     }
 
     func testMissingBundleReturnsNilInsteadOfCrashing() {
         let missing = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString)")
         XCTAssertNil(PlazaResources.resourceBundle(searching: [missing]))
         XCTAssertNil(PlazaResources.tileSheet(in: nil))
+        XCTAssertNil(PlazaResources.tallGrassSheet(in: nil))
         let font = PlazaResources.font(.small, in: nil)
         XCTAssertEqual(font.pointSize, PlazaTextSize.small.points)
         XCTAssertFalse(PlazaResources.registerFonts(in: nil))

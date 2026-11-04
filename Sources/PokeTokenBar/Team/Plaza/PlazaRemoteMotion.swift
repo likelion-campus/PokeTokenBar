@@ -32,6 +32,12 @@ struct PlazaRemoteMotion: Sendable {
         return PlazaWalker.footPoint(from: stepFrom ?? tile, to: tile, progress: t)
     }
 
+    /// 걷는 중이면 지금 걸음, 서 있으면 nil
+    var currentStep: PlazaStep? {
+        guard let from = stepFrom else { return nil }
+        return PlazaStep(from: from, to: tile, progress: min(1, stepElapsed / stepLength))
+    }
+
     mutating func moveTo(_ t: TilePoint) {
         let last = queue.last ?? tile
         if t == last { return }

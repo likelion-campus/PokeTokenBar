@@ -44,6 +44,17 @@ final class PlazaTileArtTests: XCTestCase {
         }
     }
 
+    func testTallGrassIsBakedOnlyWithTheArt() throws {
+        let sheet = try sheet()
+        let art = try XCTUnwrap(PlazaTallGrassArt.load())
+        let w = 6 * 32
+        let plain = tile(pixels(PlazaTileArt.mapImage(try smallMap("."), sheet: sheet)), 2, 0, width: w)
+        let baked = tile(pixels(PlazaTileArt.mapImage(try smallMap("g"), sheet: sheet, tallGrass: art)), 2, 0, width: w)
+        let without = tile(pixels(PlazaTileArt.mapImage(try smallMap("g"), sheet: sheet, tallGrass: nil)), 2, 0, width: w)
+        XCTAssertNotEqual(baked, plain)
+        XCTAssertEqual(without, plain)
+    }
+
     func testArtIsUpscaledTwiceWithoutSmoothing() throws {
         let px = pixels(PlazaTileArt.mapImage(try smallMap(), sheet: try sheet()))
         let w = 6 * 32
