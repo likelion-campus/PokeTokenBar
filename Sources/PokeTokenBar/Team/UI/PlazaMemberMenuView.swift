@@ -14,6 +14,7 @@ struct PlazaMemberMenuView: View {
                 .foregroundStyle(Color(cgColor: PlazaNameColor.color(forMemberID: menu.memberID, chosen: menu.nameColor)))
                 .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
                 .lineLimit(1)
+                .frame(maxWidth: Self.width - 2 * (PlazaRosterMetrics.padding + 2), alignment: .leading)   // 이름은 늘 180pt 안에서 줄인다
             if let status = menu.status {
                 Text(status)
                     .font(Font(PlazaResources.font(.body)))
@@ -36,7 +37,8 @@ struct PlazaMemberMenuView: View {
             }
         }
         .padding(PlazaRosterMetrics.padding + 2)
-        .frame(width: Self.width)
+        .frame(minWidth: PlazaMemberMenuView.width, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)   // 180pt 이상, 가장 긴 줄에 맞춰 자란다
         .background(PlazaRosterBackground())
     }
 
@@ -85,7 +87,8 @@ struct PlazaCampfireMenuView: View {
             }
         }
         .padding(PlazaRosterMetrics.padding + 2)
-        .frame(width: PlazaMemberMenuView.width)
+        .frame(minWidth: PlazaMemberMenuView.width, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)   // 180pt 이상, 가장 긴 줄에 맞춰 자란다
         .background(PlazaRosterBackground())
     }
 

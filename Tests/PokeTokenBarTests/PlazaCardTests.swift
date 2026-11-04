@@ -22,7 +22,37 @@ private extension PlazaOverlayContent {
     }
 }
 
+@MainActor
 final class PlazaInteractionTests: XCTestCase {
+    private func renderedWidth<V: View>(_ view: V) throws -> CGFloat {
+        let r = ImageRenderer(content: view)
+        r.scale = 1
+        return CGFloat(try XCTUnwrap(r.cgImage).width)
+    }
+
+    func testMemberMenuGrowsToFitALongStatusButKeepsItsUsualWidth() throws {
+        var menu = PlazaMemberMenu(memberID: "a", nickname: "가", nameColor: nil)
+        let plain = try renderedWidth(PlazaMemberMenuView(menu: menu, onChoose: { _ in }))
+        XCTAssertEqual(plain, PlazaMemberMenuView.width)
+        menu.status = L(.ko).plazaFocusStatus(seconds: 7 * 3600 + 43 * 60)
+        let long = try renderedWidth(PlazaMemberMenuView(menu: menu, onChoose: { _ in }))
+        XCTAssertGreaterThan(long, PlazaMemberMenuView.width)
+        for join in [false, true] {
+            let c = PlazaCampfireMenu(isJoin: join, minutes: PlazaCampfire.durations, selection: 0)
+            XCTAssertGreaterThanOrEqual(try renderedWidth(PlazaCampfireMenuView(menu: c, onChoose: { _ in })), PlazaMemberMenuView.width)
+        }
+    }
+
+    /// A seated user is never aimed at the pit by Space; if the seats move this fails loudly.
+    func testNoSeatEverTargetsTheCampfire() {
+        for seat in PlazaCampfire.seats {
+            for d in PlazaDirection.allCases {
+                let hit = PlazaInteraction.target(from: seat.tile, facing: d, map: PlazaMapData.map, members: [:])
+                XCTAssertNotEqual(hit?.target, .campfire, "\(seat.tile) \(d)")
+            }
+        }
+    }
+
     private let map = PlazaMapData.map
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
 
