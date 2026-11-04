@@ -109,8 +109,8 @@ final class PlazaCampfireArtTests: XCTestCase {
     }
 
     func testRingsAndFlicker() {
-        // 사용자가 정한 반경: 150 × 104에서 190 × 132로, 다시 1.5배인 285 × 198로 넓혔다.
-        XCTAssertEqual(PlazaCampfireLight.radii, CGSize(width: 285, height: 198))
+        // 사용자가 정한 반경: 150 × 104 → 190 × 132 → 285 × 198 → 다시 2배인 570 × 396.
+        XCTAssertEqual(PlazaCampfireLight.radii, CGSize(width: 570, height: 396))
         XCTAssertEqual(PlazaCampfireLight.mix(normalizedDistance: 0.3), 1)
         XCTAssertEqual(PlazaCampfireLight.mix(normalizedDistance: 0.5), 0.78)
         XCTAssertEqual(PlazaCampfireLight.mix(normalizedDistance: 0.7), 0.52)
