@@ -13,6 +13,6 @@
 
 ## Tall grass (plaza-tallgrass.png)
 - "Pokemon inspired 16x16 tiles" (`tilemap.png`, unmodified) by RedVoxel
-- License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/). This file is not under the app's MIT license.
+- License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/). This file is not under the app's MIT license. — full text: CC-BY-SA-3.0.txt
 - Copyright notice: https://red-voxel.itch.io/ - RedVoxel
 - Source: https://opengameart.org/content/pokemon-inspired-16x16-tiles

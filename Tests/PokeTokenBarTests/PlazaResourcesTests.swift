@@ -30,7 +30,7 @@ final class PlazaResourcesTests: XCTestCase {
         let url = try XCTUnwrap(PlazaResources.resourceURL("CREDITS", "md", in: bundle))
         let credits = try String(contentsOf: url, encoding: .utf8)
         for needle in ["RedVoxel", "CC-BY-SA 3.0", "https://creativecommons.org/licenses/by-sa/3.0/",
-                       "https://opengameart.org/content/pokemon-inspired-16x16-tiles", "unmodified"] {
+                       "https://opengameart.org/content/pokemon-inspired-16x16-tiles", "unmodified", "CC-BY-SA-3.0.txt"] {
             XCTAssertTrue(credits.contains(needle), needle)
         }
     }
@@ -94,6 +94,7 @@ final class PlazaResourcesTests: XCTestCase {
         let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
         XCTAssertNotNil(PlazaResources.resourceURL("Galmuri-OFL", "txt", in: bundle))
         XCTAssertNotNil(PlazaResources.resourceURL("CREDITS", "md", in: bundle))
+        XCTAssertNotNil(PlazaResources.resourceURL("CC-BY-SA-3.0", "txt", in: bundle))
     }
 
     func testMissingBundleReturnsNilInsteadOfCrashing() {
