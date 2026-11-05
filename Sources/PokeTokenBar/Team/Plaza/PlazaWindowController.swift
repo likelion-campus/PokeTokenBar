@@ -42,6 +42,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private let clock: () -> Date
     private let profileTimeout: Duration
     private let overlayModel = PlazaOverlayModel()
+    /// 사진 모드에서 숨기는 HUD 뷰. 판과 대화 입력창은 넣지 않는다.
+    private var hudViews: [NSView] = []
     private let feed: TeamFeedStore?
     /// 큰 소식 배너를 보여 주는 시간.
     static let bannerDuration: Duration = .seconds(4)
@@ -282,6 +284,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 colorPicker.topAnchor.constraint(equalTo: toggle.topAnchor),
                 colorPicker.leadingAnchor.constraint(equalTo: toggle.trailingAnchor, constant: 8),
             ])
+            hudViews = [roster, chatLogView, map, clock, shortcuts, toggle, colorPicker]
             w.contentView = container
             w.center()
             Self.restoreFrame(w, into: rosterModel)
@@ -331,6 +334,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onEmoteKey = { [weak self] in self?.handleEmoteKey($0) }
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
+        s.onPhotoModeChange = { [weak self] in self?.photoModeChanged($0) }
         s.onJumpKey = { [weak self] in self?.handleJumpKey() }
         s.onGreetKey = { [weak self] in
             if let self, let id = self.faceNearbyMember() { self.greet(id) }
@@ -498,10 +502,29 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene?.playJump(memberID: memberID)
     }
 
-    /// 보이는 장면을 사진으로 합성해 클립보드에 PNG로 넣고 번쩍인다. 합성이나 인코딩이 실패하면 클립보드를 그대로 두고 번쩍이지 않는다.
+    /// 사진 모드 밖이면 연다. 안이면 찍는다.
     private func handlePhotoKey() {
+        if scene?.isPhotoMode == true { takePhoto() } else { scene?.enterPhotoMode() }
+    }
+
+    var isPhotoMode: Bool { scene?.isPhotoMode ?? false }
+    var overlayIsPhotoMode: Bool { overlayModel.isPhotoMode }
+
+    /// 사진 모드를 열고 닫을 때: 틀을 그리고 HUD를 숨기거나 되살린다.
+    private func photoModeChanged(_ on: Bool) {
+        overlayModel.isPhotoMode = on
+        for view in hudViews { view.isHidden = on }
+        refreshHint()
+        refreshCountdown()
+    }
+
+    /// 보이는 장면(사진 모드면 틀 안)을 사진으로 합성해 클립보드에 PNG로 넣고 번쩍인다. 합성이나 인코딩이 실패하면 클립보드를 그대로 두고 번쩍이지 않는다.
+    private func takePhoto() {
         guard let scene, let input = scene.photoInput(), let png = PlazaPhotoRenderer.pngData(for: input) else { return }
-        if photoWriter(png) { scene.playShutterFlash() }
+        if photoWriter(png) {
+            scene.playShutterFlash()
+            showBanner(L(.ko).plazaPhotoCopied)
+        }
     }
 
     /// 주운 것으로 아는 칸을 더한다. 새로 알게 됐으면 저장하고, 장면에 바로 넘기고, 가장 최근 칸을 presence로 전한다.
@@ -599,7 +622,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         groupPhoto = nil
         groupPhotoEndedAt = clock()
         overlayModel.countdown = nil
-        if photo.joined { handlePhotoKey() } else { scene?.playShutterFlash() }
+        if photo.joined { takePhoto() } else { scene?.playShutterFlash() }
     }
 
     /// 테스트용 읽기 전용 값.
@@ -759,7 +782,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 스페이스로 말을 걸 수 있으면 위쪽에 안내를 띄운다. 판이나 입력창이 열려 있으면 스페이스가 다른 일을 하므로 숨긴다.
     private func refreshHint() {
         var text: String?
-        if let focus, overlayModel.content == .none, !chatInput.isOpen {
+        if isPhotoMode {
+            text = nil
+        } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
             text = members[id].map { L(.ko).plazaFollowHint(nickname: $0.nickname) }
@@ -1143,6 +1168,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         overlayGeneration += 1
         overlayModel.content = .none
         overlayModel.hint = nil
+        overlayModel.isPhotoMode = false
+        hudViews = []
         members = [:]
         memberSubjects = [:]
         memberLoadTokens = [:]
@@ -1155,6 +1182,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.onEmoteKey = nil
             scene.onInteractKey = nil
             scene.onPhotoKey = nil
+            scene.onPhotoModeChange = nil
             scene.onJumpKey = nil
             scene.onGreetKey = nil
             scene.onTackleKey = nil
