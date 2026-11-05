@@ -189,6 +189,25 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.handleClose()
     }
 
+    /// A teammate's firework bursts here in the style they sent.
+    func testReceivedFireworkBurstsInTheirStyle() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.firework.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        a.runtime.session.sendEmote(.firework, target: nil, fireworkStyle: "willow")
+        await settle { plaza.scene?.fireworkStyleIDs.isEmpty == false }
+        XCTAssertEqual(plaza.scene?.fireworkStyleIDs, ["willow"])
+        plaza.handleClose()
+    }
+
     /// A teammate's jump makes their character hop here.
     func testReceivedJumpHopsThatTeammate() async {
         let (a, b) = connectedPair()

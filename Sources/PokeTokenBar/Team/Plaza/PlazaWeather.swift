@@ -159,9 +159,9 @@ enum PlazaWeatherArt {
     private static func both(_ grid: [String]) -> [[String]] { [grid, grid.map { String($0.reversed()) }] }
 
     /// 격자 하나를 칸당 1픽셀 그림으로 만든다(화면은 최근접 보간으로 키운다).
-    static func images(_ kind: PlazaWeather.Kind) -> [CGImage] { grids(kind).map(image) }
+    static func images(_ kind: PlazaWeather.Kind) -> [CGImage] { grids(kind).map { image($0, palette: palette) } }
 
-    private static func image(_ rows: [String]) -> CGImage {
+    static func image(_ rows: [String], palette: [Character: (r: UInt8, g: UInt8, b: UInt8)]) -> CGImage {
         let w = rows[0].count, h = rows.count
         let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpace(name: CGColorSpace.sRGB)!,

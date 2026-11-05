@@ -27,11 +27,11 @@ enum PlazaCampfireLight {
         return 0
     }
 
-    /// 어두워진 장면 위에 한 번 더 곱하는 채널별 배율(최대 2).
-    static func multiplier(tint: PlazaDaylight.Tint, mix k: Double) -> (r: Double, g: Double, b: Double) {
+    /// 어두워진 장면 위에 한 번 더 곱하는 채널별 배율(최대 2). `color`는 빛의 색으로, 불꽃은 제 색을 넘긴다.
+    static func multiplier(tint: PlazaDaylight.Tint, mix k: Double, color: (r: Double, g: Double, b: Double) = warm) -> (r: Double, g: Double, b: Double) {
         let ks = k * strength(tint)
-        func channel(_ warm: Double, _ tint: Double) -> Double { min(2, (1 - ks) + ks * warm / tint) }
-        return (channel(warm.r, tint.red), channel(warm.g, tint.green), channel(warm.b, tint.blue))
+        func channel(_ light: Double, _ tint: Double) -> Double { min(2, (1 - ks) + ks * light / tint) }
+        return (channel(color.r, tint.red), channel(color.g, tint.green), channel(color.b, tint.blue))
     }
 
     /// 빛의 중심(세계 px, y 아래 방향). 발자국 가로 중앙, 아랫변에서 14 위.
