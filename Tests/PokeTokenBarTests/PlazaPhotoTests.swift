@@ -79,6 +79,34 @@ final class PlazaPhotoTests: XCTestCase {
 
     // MARK: 합성
 
+    /// Fireworks are light: the night tint must not darken them, and a name plate stays readable on top.
+    func testFireworksSitAboveTheTintAndBelowTheNames() throws {
+        var i = input(map: solid(8, 8, white), rect: CGRect(x: 0, y: 0, width: 8, height: 8), ppw: 1,
+                      [actor(solid(2, 2, blue), foot: CGPoint(x: 4, y: 8), scale: 1, plate: solid(2, 2, green))])
+        i.tint = PlazaDaylight.Tint(red: 0.5, green: 0.5, blue: 0.5)
+        i.fireworks = [PlazaPhotoParticle(image: solid(8, 8, red), origin: .zero, size: CGSize(width: 8, height: 8))]
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(i)))
+        XCTAssertTrue(same(px[0, 0], red), "full strength under the night tint: \(px[0, 0])")
+        XCTAssertTrue(same(px[4, 3], green), "the plate stays on top: \(px[4, 3])")
+    }
+
+    /// A firework's light brightens the photo like the campfire's does, weaker as its level drops, and only inside it.
+    func testFireworkLightBrightensThePhotoAtItsLevel() throws {
+        let tint = PlazaDaylight.night
+        func shot(level: Double) throws -> Pixels {
+            var i = input(map: solid(40, 40, (100, 100, 100, 255)), rect: CGRect(x: 0, y: 0, width: 40, height: 40), ppw: 1)
+            i.tint = tint
+            i.fireworkLights = [PlazaPhotoLight(center: CGPoint(x: 10, y: 10), radii: CGSize(width: 8, height: 8), tint: tint,
+                                                color: (r: 1, g: 1, b: 1), level: level)]
+            return Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(i)))
+        }
+        let full = try shot(level: 1), half = try shot(level: 0.5)
+        XCTAssertEqual(Int(full[10, 10].b), 100, accuracy: 1, "lifted back to the daylight colour")
+        XCTAssertGreaterThan(full[10, 10].b, half[10, 10].b)
+        XCTAssertGreaterThan(half[10, 10].b, full[30, 30].b)
+        XCTAssertEqual(Int(full[30, 30].b), 78, accuracy: 1, "outside it the night stays")
+    }
+
     func testPhotoSizeMatchesViewportAtIntegerScale() throws {
         let map = solid(64, 64, green)
         let photo = try XCTUnwrap(PlazaPhotoRenderer.render(input(map: map, rect: CGRect(x: 3, y: 2, width: 40, height: 30), ppw: 4)))
