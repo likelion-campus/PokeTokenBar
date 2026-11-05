@@ -319,7 +319,9 @@ final class TeamSession {
             member.takenItemSlot = presence.takenItemSlot
             member.focusEndsAt = PlazaFocus.accepted(presence.focusEndsAt, now: clock())
             members[memberID] = member
-            if let schedule = presence.schedule, settings.adoptSchedule(schedule, now: clock()) {
+            // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
+            if let schedule = presence.schedule, settings.code == knownCode,
+               settings.adoptSchedule(schedule, now: clock()) {
                 sentSchedule = settings.schedule
                 broadcast(.presence(makePresence()))
             }
@@ -415,7 +417,8 @@ final class TeamSession {
         TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
                      inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
                      nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot,
-                     focusEndsAt: focusEndsAt, schedule: settings.schedule)
+                     focusEndsAt: focusEndsAt,
+                     schedule: settings.schedule)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

@@ -638,6 +638,20 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.settings.schedule?.coreStart, 6)
     }
 
+    /// settings.code moves before applySettings runs; the old team's links must not feed the new team's key.
+    func testScheduleIsNotStoredUnderACodeThatTheLinksDoNotBelongTo() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let oldCode = a.settings.code
+        let otherCode = newCode()
+        a.settings.code = otherCode
+        b.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        b.session.applySettings()
+        XCTAssertNil(a.settings.schedule)
+        a.settings.code = oldCode
+        XCTAssertNil(a.settings.schedule)
+    }
+
     func testPresenceWithoutScheduleLeavesMineUnchanged() {
         let a = node("A")
         a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
