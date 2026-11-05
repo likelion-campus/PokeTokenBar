@@ -418,7 +418,7 @@ final class TeamSession {
                      inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
                      nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot,
                      focusEndsAt: focusEndsAt,
-                     schedule: settings.schedule)
+                     schedule: settings.code == knownCode ? settings.schedule : nil)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {
