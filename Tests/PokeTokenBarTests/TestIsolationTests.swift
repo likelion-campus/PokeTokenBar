@@ -49,21 +49,69 @@ final class TestIsolationTests: XCTestCase {
             }
             """.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         XCTAssertEqual(Self.offenders(in: good, file: "B.swift"), [])
+
+        // setUpWithError()/tearDownWithError()도 동기 override다. private(set)도 격리된 멤버다.
+        let withError = """
+            @MainActor final class D: XCTestCase {
+                private(set) var count = 0
+                fileprivate(set) var name = ""
+                override func setUpWithError() throws { count = 1 }
+                override func tearDownWithError() throws { name = "" }
+            }
+            """.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        XCTAssertEqual(Self.offenders(in: withError, file: "D.swift"), ["D.swift:4 count", "D.swift:5 name"])
+
+        // 문자열과 주석 안의 중괄호는 세지 않는다. 세면 깊이가 틀어져 뒤의 override를 놓친다.
+        let braces = """
+            @MainActor final class E: XCTestCase {
+                private var clock: Double = 0
+                private let open = "{"   // {
+                let label = "a \\" {"
+                override func setUp() { clock = 0 }
+            }
+            """.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        XCTAssertEqual(Self.offenders(in: braces, file: "E.swift"), ["E.swift:5 clock"])
+    }
+
+    /// 한 줄에서 `//` 주석과 단순한 `"…"` 문자열(이스케이프 포함)을 뺀다. 중괄호를 세기 전에 쓴다.
+    /// 여러 줄 문자열(`"""`)과 `/* */`는 다루지 않는다.
+    static func stripped(_ line: String) -> String {
+        var out = "", inString = false, escaped = false
+        var previous: Character?
+        for ch in line {
+            if inString {
+                if escaped { escaped = false } else if ch == "\\" { escaped = true } else if ch == "\"" { inString = false }
+                continue
+            }
+            if ch == "\"" { inString = true; previous = ch; continue }
+            if ch == "/" && previous == "/" { out.removeLast(); break }
+            out.append(ch)
+            previous = ch
+        }
+        return out
     }
 
     /// `@MainActor` XCTestCase마다 클래스 바로 아래 단계의 격리된 `var`/`func` 이름을 모으고,
-    /// 같은 단계의 동기 `setUp()`/`tearDown()` 본문이 그 이름을 쓰면 "파일:줄 이름"으로 돌려준다.
-    static func offenders(in lines: [String], file: String) -> [String] {
-        let memberPattern = try! NSRegularExpression(pattern: #"^\s*(?:@\w+\s+)*(?:(?:private|fileprivate|internal|public|static|class|final|lazy|weak|override|nonisolated\(unsafe\)|nonisolated)\s+)*(var|func)\s+(\w+)"#)
-        let syncOverride = try! NSRegularExpression(pattern: #"override\s+func\s+(setUp|tearDown)\(\)\s*(throws\s*)?\{"#)
+    /// 같은 단계의 동기 `setUp()`/`tearDown()`/`setUpWithError()`/`tearDownWithError()` 본문이 그 이름을 쓰면 "파일:줄 이름"으로 돌려준다.
+    /// 줄 수에 선형이다: 앞의 비지 않은 줄은 한 번 훑어 미리 적어 둔다.
+    static func offenders(in rawLines: [String], file: String) -> [String] {
+        let memberPattern = try! NSRegularExpression(pattern: #"^\s*(?:@\w+\s+)*(?:(?:private\(set\)|fileprivate\(set\)|internal\(set\)|public\(set\)|private|fileprivate|internal|public|static|class|final|lazy|weak|override|nonisolated\(unsafe\)|nonisolated)\s+)*(var|func)\s+(\w+)"#)
+        let syncOverride = try! NSRegularExpression(pattern: #"override\s+func\s+(setUp|tearDown)(WithError)?\(\)\s*(throws\s*)?\{"#)
+        let lines = rawLines.map(stripped)
+        var previousNonEmpty = [String?](repeating: nil, count: lines.count)
+        var last: String?
+        for (i, line) in lines.enumerated() {
+            previousNonEmpty[i] = last
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if !t.isEmpty { last = t }
+        }
         var result: [String] = []
         var index = 0
         while index < lines.count {
             let line = lines[index]
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let previous = lines[..<index].reversed().map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
             guard trimmed.contains("class "), trimmed.contains(": XCTestCase"),
-                  trimmed.contains("@MainActor") || previous == "@MainActor" else { index += 1; continue }
+                  trimmed.contains("@MainActor") || previousNonEmpty[index] == "@MainActor" else { index += 1; continue }
             // 클래스 본문을 중괄호로 잘라, 줄마다 그 줄이 시작할 때의 깊이를 적는다(클래스 안 첫 단계 = 1).
             var depth = 0, started = false, end = index
             var startDepth: [Int: Int] = [:]
@@ -81,7 +129,7 @@ final class TestIsolationTests: XCTestCase {
                 let range = NSRange(text.startIndex..., in: text)
                 guard let m = memberPattern.firstMatch(in: text, range: range),
                       let name = Range(m.range(at: 2), in: text).map({ String(text[$0]) }) else { continue }
-                if text.contains("nonisolated") || ["setUp", "tearDown"].contains(name) { continue }
+                if text.contains("nonisolated") || ["setUp", "tearDown", "setUpWithError", "tearDownWithError"].contains(name) { continue }
                 isolated.insert(name)
             }
             for j in (index + 1)..<end where startDepth[j] == 1 {
