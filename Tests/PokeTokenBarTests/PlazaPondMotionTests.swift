@@ -97,15 +97,25 @@ final class PlazaPondMotionTests: XCTestCase {
         XCTAssertFalse(s.isMeInWater)
     }
 
-    func testWalkingToASwimmer() {
-        let s = scene(start: p(31, 17))
-        s.applyMembers([member("a", p(34, 18))])
+    func testWalkingToASwimmer() throws {
+        let start = p(29, 17), target = p(34, 18)
+        XCTAssertTrue(map.isWalkable(start))
+        for dx in -2...2 { for dy in -2...2 { XCTAssertFalse(map.isWater(p(start.x + dx, start.y + dy)), "start is away from water") } }
+        let edge = try XCTUnwrap(PlazaPond.nearestEdgeWater(to: target, isWater: { self.map.isWater($0) },
+                                                            isLand: { self.map.isWalkable($0) }))
+        XCTAssertNil(PlazaPathfinder.path(from: start, toNextTo: target, map: map), "no land tile touches the swimmer")
+        let route = try XCTUnwrap(PlazaPathfinder.path(from: start, toNextTo: edge, map: map))
+        let expected = route.reduce(start) { PlazaWalker.offset($0, $1) }
+        XCTAssertEqual(expected, p(34, 16))
+        XCTAssertTrue(PlazaPathfinder.isAdjacent(expected, edge))
+
+        let s = scene(start: start)
+        s.applyMembers([member("a", target)])
         XCTAssertTrue(s.walk(toMember: "a"))
-        run(s, 4)
+        run(s, 6)
+        XCTAssertEqual(s.walker.tile, expected)
         XCTAssertFalse(s.isMeInWater)
         XCTAssertNil(s.walkingToMember)
-        XCTAssertTrue(PlazaDirection.allCases.contains { map.isWater(PlazaWalker.offset(s.walker.tile, $0)) },
-                      "ended on the shore next to the edge water")
         let swimmer = scene(start: p(33, 18))
         swimmer.applyMembers([member("a", p(34, 18))])
         XCTAssertFalse(swimmer.walk(toMember: "a"))
