@@ -845,7 +845,9 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     /// 나와 팀원 하나를 잇고, 나는 (31,18)에서 물(오른쪽)을 보고 선다. 시계는 `now`가 정한다.
-    private func pondPair(mate: TilePoint? = nil, types: @escaping (Int) async -> [String]? = { _ in nil })
+    private func pondPair(mate: TilePoint? = nil, types: @escaping (Int) async -> [String]? = { _ in nil },
+                          subject: @escaping () -> CompanionStore.RepresentativeSubject = { .init(speciesID: 25, isShiny: false) },
+                          retrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) })
         async -> (me: PondNode, other: PondNode, c: PlazaWindowController) {
         var rng = SystemRandomNumberGenerator()
         let code = TeamCode.generate(using: &rng)
@@ -854,9 +856,10 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         prefs.saveLastTile(TilePoint(x: 31, y: 18))
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: RecordingFetcher()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
-                                      subject: { .init(speciesID: 25, isShiny: false) },
+                                      subject: subject,
                                       pokemonTypes: types,
-                                      session: me.session, clock: { [unowned self] in pondNow })
+                                      session: me.session, clock: { [unowned self] in pondNow },
+                                      spriteRetrySleep: retrySleep)
         c.prepareScene()
         pondHub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
@@ -972,16 +975,45 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     func testWaterTypeSetsTheDiveLimit() async {
-        let (_, _, water) = await pondPair(types: { _ in ["water", "flying"] })
-        XCTAssertEqual(water.scene?.diveLimit, PlazaPond.diveLimit)
-        await water.refreshCharacter()
-        await waitUntil { water.scene?.diveLimit == 15 }
-        XCTAssertEqual(water.scene?.diveLimit, 15)
-        water.handleClose()
-        let (_, _, fire) = await pondPair(types: { _ in ["fire"] })
-        await fire.refreshCharacter()
+        var species = 130   // Gyarados
+        let (_, _, c) = await pondPair(types: { $0 == 130 ? ["water", "flying"] : ["fire"] },
+                                       subject: { .init(speciesID: species, isShiny: false) })
+        XCTAssertEqual(c.scene?.diveLimit, PlazaPond.diveLimit)
+        await c.refreshCharacter()
+        await waitUntil { c.scene?.diveLimit == 15 }
+        XCTAssertEqual(c.scene?.diveLimit, 15)
+        species = 4   // Charmander
+        await c.refreshCharacter()
+        await waitUntil { c.scene?.diveLimit == 6 }
+        XCTAssertEqual(c.scene?.diveLimit, 6, "a non-water species goes back to the short limit")
+        c.handleClose()
+    }
+
+    @MainActor private final class Held {
+        var typeCalls: [CheckedContinuation<[String]?, Never>] = []
+        var retrySleeps: [CheckedContinuation<Void, Never>] = []
+        var lookups = 0
+    }
+
+    /// The first type lookup hangs; a sprite retry starts meanwhile. The retry's own lookup decides the limit.
+    func testSpriteRetryDoesNotLoseTheDiveLimit() async {
+        let held = Held()
+        let (_, _, c) = await pondPair(
+            types: { [held] _ in
+                held.lookups += 1
+                if held.lookups == 1 { return await withCheckedContinuation { held.typeCalls.append($0) } }
+                return ["water"]
+            },
+            retrySleep: { [held] _ in await withCheckedContinuation { held.retrySleeps.append($0) } })
+        await c.refreshCharacter()   // the empty fetcher gives placeholder frames, so a retry waits on the sleep
+        await waitUntil { !held.retrySleeps.isEmpty && held.lookups == 1 }
+        held.retrySleeps.removeFirst().resume()
+        await waitUntil { c.scene?.diveLimit == 15 }
+        XCTAssertEqual(c.scene?.diveLimit, 15, "the retry's lookup applied")
+        held.typeCalls.removeFirst().resume(returning: nil)   // the stale lookup finally answers
         for _ in 0..<40 { await Task.yield() }
-        XCTAssertEqual(fire.scene?.diveLimit, 6)
-        fire.handleClose()
+        XCTAssertEqual(c.scene?.diveLimit, 15, "and the stale answer is dropped")
+        c.handleClose()
+        held.retrySleeps.forEach { $0.resume() }
     }
 }

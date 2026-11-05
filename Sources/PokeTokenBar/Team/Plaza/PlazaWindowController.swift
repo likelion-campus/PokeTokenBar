@@ -1095,7 +1095,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         current.myEvolutionStage = evolutionStage()
         refreshGeneration += 1
         let generation = refreshGeneration
-        if attempt == 0 { applyDiveLimit(generation: generation, speciesID: subject().speciesID) }
+        applyDiveLimit(generation: generation, speciesID: subject().speciesID)
         let frames = await loader.frames(for: subject())
         // 기다리는 동안 닫혔거나 더 새 요청이 있었으면 버린다.
         guard generation == refreshGeneration, let scene else { return }
