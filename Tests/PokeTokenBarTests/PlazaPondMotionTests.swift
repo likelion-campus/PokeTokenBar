@@ -121,4 +121,19 @@ final class PlazaPondMotionTests: XCTestCase {
         XCTAssertFalse(swimmer.walk(toMember: "a"))
         XCTAssertFalse(swimmer.follow(member: "a"))
     }
+
+    /// The only shore tile next to the swimmer is taken by a teammate: the walk picks another water edge,
+    /// not the swimmer's own tile, and ends on a free shore tile.
+    func testWalkingToASwimmerWhoseShoreTileIsTaken() {
+        let s = scene(start: p(29, 17))
+        s.applyMembers([member("a", p(32, 18)), member("b", p(31, 18))])
+        XCTAssertTrue(s.walk(toMember: "a"))
+        run(s, 8)
+        XCTAssertNil(s.walkingToMember)
+        XCTAssertFalse(s.isMeInWater)
+        let tile = s.walker.tile
+        XCTAssertNotEqual(tile, p(31, 18))
+        XCTAssertTrue(map.isWalkable(tile))
+        XCTAssertTrue(PlazaDirection.allCases.contains { map.isWater(PlazaWalker.offset(tile, $0)) }, "on the shore: \(tile)")
+    }
 }

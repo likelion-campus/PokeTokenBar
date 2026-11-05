@@ -80,6 +80,18 @@ final class PlazaPondTests: XCTestCase {
         XCTAssertEqual(mine, ["a", "d"])
     }
 
+    func testWetTargetsMeasureChebyshevDistance() {
+        let actors: [(id: String?, tile: TilePoint)] = [(id: "diag", tile: p(12, 12))]   // Chebyshev 2, Manhattan 4
+        XCTAssertEqual(PlazaPond.wetTargets(splash: p(10, 10), radius: 2, splasher: nil, actors: actors,
+                                            isWater: { _ in false }), ["diag"])
+        XCTAssertEqual(PlazaPond.wetTargets(splash: p(10, 10), radius: 1, splasher: nil, actors: actors,
+                                            isWater: { _ in false }), [])
+    }
+
+    func testAWaterTileIsNotShore() {
+        XCTAssertEqual(shore([p(1, 1), p(2, 1)], p(1, 1)), .notShore)
+    }
+
     @MainActor
     func testNumbers() {
         XCTAssertEqual(PlazaPond.splashRadius(stage: 0), 1)

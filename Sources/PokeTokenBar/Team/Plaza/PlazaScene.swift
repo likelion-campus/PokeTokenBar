@@ -618,7 +618,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard on != isDiving, !on || isMeInWater else { return }
         isDiving = on
         diveElapsed = 0
-        if !on, isMeInWater { splash(at: walker.tile, big: true, stage: myEvolutionStage, splasher: nil) }
+        if !on { splashSurfacing() }
     }
 
     /// Z를 눌렀을 때 할 일: 땅에서는 점프(물가면 첨벙 점프)나 첨벙 뛰어들기, 물속에서는 잠수와 떠오름.
@@ -627,6 +627,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         let taken = occupiedTiles()
         return PlazaPond.action(tile: walker.tile, facing: walker.facing, isDiving: isDiving, canMove: canMove,
                                 isWater: { map.isWater($0) }, isFree: { !taken.contains($0) })
+    }
+
+    /// 물속에서 잠수를 끝내며 떠오르는 큰 물보라. 물 밖이면 아무것도 하지 않는다.
+    private func splashSurfacing() {
+        if isMeInWater { splash(at: walker.tile, big: true, stage: myEvolutionStage, splasher: nil) }
     }
 
     /// 물 칸 `d` 쪽으로 첨벙 뛰어든다. 이미 물속(뛰어드는 걸음 중 포함)이면 아무것도 하지 않는다.
@@ -660,7 +665,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         if isDiving {
             diveElapsed += dt
             if diveElapsed >= diveLimit || !isMeInWater {
-                if isMeInWater { splash(at: walker.tile, big: true, stage: myEvolutionStage, splasher: nil) }
+                splashSurfacing()
                 isDiving = false
                 // 물에서 나가며 끝난 잠수는 땅 칸을 먼저 알린다. 옛 물 칸에 '잠수 끝'만 가면 받는 쪽이 없던 떠오름을 그린다.
                 if !isMeInWater { reportLocalPosition() }
@@ -670,8 +675,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         myDive.advance(toward: isDiving, dt: dt)
         watchPond(id: nil, stage: myEvolutionStage, tile: walker.tile, step: walker.currentStep, actor: me,
                   facing: walker.facing, diving: isDiving, dt: dt)
-        for id in Array(remotes.keys) {
-            guard let r = remotes[id] else { continue }
+        for (id, r) in remotes {
             remotes[id]?.dive.advance(toward: isShownDiving(r), dt: dt)
             watchPond(id: id, stage: r.stage, tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor,
                       facing: r.motion.facing, diving: isShownDiving(r), dt: dt)
@@ -683,7 +687,13 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func watchPond(id: String?, stage: Int, tile: TilePoint, step: PlazaStep?, actor: PlazaActor,
                            facing: PlazaDirection, diving: Bool, dt: TimeInterval) {
         guard pondLayer != nil else { return }
-        var watch = id.flatMap { remotes[$0]?.pond } ?? myPond
+        var watch: PondWatch
+        if let id {
+            guard let theirs = remotes[id]?.pond else { return }
+            watch = theirs
+        } else {
+            watch = myPond
+        }
         let events = watch.advance(tile: tile, step: step, lift: actor.jumpLift, facing: facing, diving: diving, dt: dt,
                                    isWater: { map.isWater($0) })
         if let id { remotes[id]?.pond = watch } else { myPond = watch }
@@ -741,7 +751,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         var goal = target
         var route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked)
         if route == nil, map.isWater(target),
-           let edge = PlazaPond.nearestEdgeWater(to: target, isWater: { map.isWater($0) }, isLand: { map.isWalkable($0) }) {
+           let edge = PlazaPond.nearestEdgeWater(to: target, isWater: { map.isWater($0) }, isLand: { map.isWalkable($0) && !blocked.contains($0) }) {
             // 물 가운데의 팀원: 가장 가까운 테두리 물 칸 옆 땅까지만 간다.
             goal = edge
             if PlazaPathfinder.isAdjacent(walker.tile, edge) {

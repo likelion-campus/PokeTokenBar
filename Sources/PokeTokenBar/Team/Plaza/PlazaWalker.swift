@@ -116,6 +116,7 @@ struct PlazaWalker: Sendable {
             if let d = pendingPlunge {
                 pendingPlunge = nil
                 pendingTap = nil
+                pendingPush = nil   // 헤엄치는 쪽은 밀리지 않는다
                 facing = d
                 let target = Self.offset(tile, d)
                 stepLength = length(tile, target, running: false)
