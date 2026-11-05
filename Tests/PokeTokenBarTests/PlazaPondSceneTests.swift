@@ -385,11 +385,11 @@ final class PlazaPondSceneTests: XCTestCase {
 
     func testTeammateSurfacingSplashesWithTheirStage() throws {
         let s = scene(start: p(20, 22))
-        addAll(s, [at("a", p(34, 18), stage: 2, diving: true), at("in", p(34, 20)), at("out", p(34, 21))])   // distance 2 and 3
+        addAll(s, [at("a", p(34, 19), stage: 2, diving: true), at("in", p(34, 21)), at("out", p(34, 22))])   // distance 2 and 3
         var t = run(s, 0.3)
         let layer = try XCTUnwrap(s.pondLayer)
         XCTAssertEqual(layer.dropletCount, 0)
-        s.applyMembers([at("a", p(34, 18), stage: 2), at("in", p(34, 20)), at("out", p(34, 21))])
+        s.applyMembers([at("a", p(34, 19), stage: 2), at("in", p(34, 21)), at("out", p(34, 22))])
         t = run(s, 0.1, from: t)
         XCTAssertEqual(layer.dropletCount, 10)
         XCTAssertEqual(s.isWet(memberID: "in"), true)

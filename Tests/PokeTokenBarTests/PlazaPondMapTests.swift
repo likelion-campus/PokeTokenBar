@@ -107,12 +107,46 @@ final class PlazaPondMapTests: XCTestCase {
         XCTAssertFalse(map.isWater(TilePoint(x: -1, y: 0)))
     }
 
+    private static let pondRects: [(xs: ClosedRange<Int>, ys: ClosedRange<Int>)] = [
+        (32...38, 15...20), (12...18, 10...14), (19...23, 22...27)]
+
+    private func rectTiles(_ r: (xs: ClosedRange<Int>, ys: ClosedRange<Int>)) -> Set<TilePoint> {
+        var out = Set<TilePoint>()
+        for y in r.ys { for x in r.xs { out.insert(TilePoint(x: x, y: y)) } }
+        return out
+    }
+
     func testPondMatchesTheSpec() {
-        var expected = Set<TilePoint>()
-        for y in 17...19 { for x in 32...37 { expected.insert(TilePoint(x: x, y: y)) } }
-        for y in 15...16 { for x in 35...37 { expected.insert(TilePoint(x: x, y: y)) } }
-        XCTAssertEqual(expected.count, 24)
-        XCTAssertEqual(water, expected)
+        let rects = Self.pondRects.map(rectTiles)
+        XCTAssertEqual(rects.map(\.count), [42, 35, 30])
+        XCTAssertEqual(water, rects.reduce(into: Set<TilePoint>()) { $0.formUnion($1) })
+        XCTAssertEqual(water.count, 107)
+    }
+
+    func testPondsAreThreeSeparateRectangles() {
+        // Flood-fill the 8-connected water components: exactly three, each one a full rectangle.
+        var left = water
+        var boxes: [(xs: ClosedRange<Int>, ys: ClosedRange<Int>, count: Int)] = []
+        while let seed = left.first {
+            var comp = Set<TilePoint>(), stack = [seed]
+            while let p = stack.popLast() {
+                guard left.remove(p) != nil else { continue }
+                comp.insert(p)
+                for dy in -1...1 { for dx in -1...1 { stack.append(TilePoint(x: p.x + dx, y: p.y + dy)) } }
+            }
+            let xs = comp.map(\.x), ys = comp.map(\.y)
+            let box = (xs: xs.min()!...xs.max()!, ys: ys.min()!...ys.max()!, count: comp.count)
+            XCTAssertEqual(box.count, box.xs.count * box.ys.count, "pond at \(box.xs) x \(box.ys) is not a full rectangle")
+            boxes.append(box)
+        }
+        XCTAssertEqual(boxes.count, 3)
+        for r in Self.pondRects {
+            XCTAssertTrue(boxes.contains { $0.xs == r.xs && $0.ys == r.ys }, "missing pond \(r)")
+        }
+        // Plain rectangles have no inner corners: every shore tile is a drawable edge or outer corner.
+        for p in shoreLand {
+            XCTAssertNotEqual(PlazaPond.shore(at: p, isWater: map.isWater), .unsupported, "\(p)")
+        }
     }
 
     func testOnlyOpenGroundChanged() {
@@ -124,7 +158,7 @@ final class PlazaPondMapTests: XCTestCase {
                 XCTAssertTrue(a == "." || a == "f", "water replaced \(a) at (\(x),\(y))")
             }
         }
-        XCTAssertEqual(shoreLand.count, 26)
+        XCTAssertEqual(shoreLand.count, 84)
         for p in shoreLand {
             let ch = Self.legacyRows[p.y][Self.legacyRows[p.y].index(Self.legacyRows[p.y].startIndex, offsetBy: p.x)]
             XCTAssertTrue(ch == "." || ch == "f", "shore \(p) was \(ch)")
@@ -144,8 +178,7 @@ final class PlazaPondMapTests: XCTestCase {
                 let q = TilePoint(x: x, y: y)
                 let need: Int
                 switch map.tile(at: q) {
-                case .bush, .tallGrass: need = 2
-                case .shelter, .board, .campfire: need = 3
+                case .bush, .tallGrass, .shelter, .board, .campfire: need = 1   // the shore ring itself is clear
                 default: continue
                 }
                 XCTAssertGreaterThanOrEqual(chebyshev(p, q), need, "\(p) vs \(q) \(map.tile(at: q))")

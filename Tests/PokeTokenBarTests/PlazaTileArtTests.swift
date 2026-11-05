@@ -47,6 +47,31 @@ final class PlazaTileArtTests: XCTestCase {
         XCTAssertEqual(tile(withFlower, 2, 1, width: w), tile(img, 2, 1, width: w))
     }
 
+    /// One pad in each pond is really baked: its opaque sheet pixels land on the water tile (doubled), and a bare water tile stays plain.
+    func testLilyPadsAreBakedInEachPond() throws {
+        let sheet = try sheet(), sp = pixels(sheet)
+        let img = pixels(try sharedMap())
+        let w = 48 * 32
+        let bare = tile(img, 36, 18, width: w)   // east pond, no pad
+        var expectedWater: [UInt8] = []
+        for r in 0..<32 { for c in 0..<32 { expectedWater += pixel(sp, 3 * 16 + c / 2, 7 * 16 + r / 2, width: sheet.width) } }
+        XCTAssertEqual(bare, expectedWater)
+        // (tile, sheet cell): single pads in all three ponds, and the first and second half of each pair.
+        let pads: [(x: Int, y: Int, col: Int)] = [(33, 18, 2), (14, 13, 2), (21, 25, 2), (35, 15, 4), (36, 15, 5), (16, 11, 4), (17, 11, 5)]
+        for pad in pads {
+            let baked = tile(img, pad.x, pad.y, width: w)
+            XCTAssertNotEqual(baked, expectedWater, "pad at (\(pad.x),\(pad.y)) not drawn")
+            var opaque = 0
+            for r in 0..<32 { for c in 0..<32 {
+                let px = pixel(sp, pad.col * 16 + c / 2, r / 2, width: sheet.width)
+                guard px[3] == 255 else { continue }
+                opaque += 1
+                XCTAssertEqual(Array(baked[(r * 32 + c) * 4..<(r * 32 + c) * 4 + 4]), px, "pad (\(pad.x),\(pad.y)) pixel \(c),\(r)")
+            } }
+            XCTAssertGreaterThan(opaque, 0)
+        }
+    }
+
     func testMapImageSize() throws {
         let img = try sharedMap()
         XCTAssertEqual(img.width, 48 * 32); XCTAssertEqual(img.height, 32 * 32)

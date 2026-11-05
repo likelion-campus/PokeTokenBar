@@ -16,8 +16,8 @@ enum PlazaTileArt {
     private static let waterCell: Cell = (3, 7)
     private static let lilySingle: Cell = (2, 0)
     private static let lilyPair: [Cell] = [(4, 0), (5, 0)]
-    private static let lilySingleTile = TilePoint(x: 33, y: 18)
-    private static let lilyPairTile = TilePoint(x: 35, y: 15)
+    private static let lilySingleTiles = [TilePoint(x: 33, y: 18), TilePoint(x: 14, y: 13), TilePoint(x: 21, y: 25)]
+    private static let lilyPairTiles = [TilePoint(x: 35, y: 15), TilePoint(x: 16, y: 11)]
     /// 2x2 칸 둥근 나무.
     private static let treeCell: Cell = (5, 16)
     /// 소식판 팻말의 재료. 기둥 하나가 달린 작은 팻말 한 칸이다. 이 칸의 픽셀로 2x2 칸 큰 팻말을 만든다(`signSource`).
@@ -79,14 +79,15 @@ enum PlazaTileArt {
         return canvas.image()
     }
 
-    /// 연잎: 물 칸 위에 한 칸짜리 하나와 두 칸짜리 하나. 그 자리가 물이 아닌 지도(작은 테스트 지도)에는 그리지 않는다.
+    /// 연잎: 연못마다 물 칸 위에 한 칸짜리와 두 칸짜리. 그 자리가 물이 아닌 지도(작은 테스트 지도)에는 그리지 않는다.
     private static func drawLilyPads(_ map: PlazaMap, _ canvas: inout Canvas) {
-        let single = lilySingleTile, pair = lilyPairTile
-        if map.isWater(single) {
+        for single in lilySingleTiles where map.isWater(single) {
             canvas.blit(lilySingle, cols: 1, rows: 1, x: single.x * tile, y: single.y * tile)
         }
-        for (i, c) in lilyPair.enumerated() where map.isWater(TilePoint(x: pair.x + i, y: pair.y)) {
-            canvas.blit(c, cols: 1, rows: 1, x: (pair.x + i) * tile, y: pair.y * tile)
+        for pair in lilyPairTiles {
+            for (i, c) in lilyPair.enumerated() where map.isWater(TilePoint(x: pair.x + i, y: pair.y)) {
+                canvas.blit(c, cols: 1, rows: 1, x: (pair.x + i) * tile, y: pair.y * tile)
+            }
         }
     }
 
