@@ -50,8 +50,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     var isPhotoMode: Bool { photoCenter != nil }
     /// 사진 모드에서 화면에 비친 사진 틀(세계 좌표, y 아래로). `layout()`이 정한다.
     private(set) var photoFrame: CGRect?
+    /// 마지막 `layout()`에서 지도 안으로 잘린 틀 중심. `photoCenter`는 확대·크기 변경에 건드리지 않고, 밀 때만 이 값에서 시작해 잘라 저장한다.
+    private var photoShownCenter: CGPoint?
     var onPhotoModeChange: ((Bool) -> Void)?
-    private var zoomBeforePhotoMode = 2
+    private var zoomBeforePhotoMode = PlazaCamera.defaultZoom
     private var panKeys: Set<PlazaDirection> = []
     var onZoomChange: ((Int) -> Void)?
     /// Cmd+W, Esc. 앱에 메인 메뉴가 없어 창 닫기를 장면이 직접 요청한다.
@@ -439,15 +441,23 @@ struct PlazaSceneMember: Equatable, Sendable {
             }
             return .swallowed
         }
-        // 사진 키도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 보내지 않는다(P를 누르고 있어도 한 번만 찍는다).
-        // Z(점프), X(인사하기), C(몸통박치기), G(단체 사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다.
-        if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.cKeyCode: onTackleKey,
-                         Self.gKeyCode: onGroupPhotoKey][keyCode] {
-            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { action?() }
+        // C(몸통박치기)와 P(사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다(P를 누르고 있어도 한 번만 찍는다).
+        if keyCode == Self.cKeyCode || keyCode == Self.pKeyCode {
+            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
+                if keyCode == Self.cKeyCode { onTackleKey?() } else { onPhotoKey?() }
+            }
             return .swallowed
         }
-        if keyCode == Self.pKeyCode {
-            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onPhotoKey?() }
+        return handleSharedKeyDown(keyCode: keyCode, characters: characters, isRepeat: isRepeat, modifiers: modifiers)
+    }
+
+    /// 평소와 사진 모드가 함께 쓰는 키: Z/X/G, 말풍선, 확대. 수정 키가 눌렸거나 자동 반복이면 보내지 않는다.
+    /// 사진 모드에서만 다른 키(방향키, Space/P, C, Enter, Esc)는 호출하기 전에 각자 처리한다.
+    private func handleSharedKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
+                                     modifiers: NSEvent.ModifierFlags) -> PlazaKeyResult {
+        let plain = !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers)
+        if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.gKeyCode: onGroupPhotoKey][keyCode] {
+            if plain { action?() }
             return .swallowed
         }
         // Cmd/Ctrl/Opt 조합은 말풍선이 아니다(아래로 내려가 처리하지 않은 키처럼 삼킨다). 눌러 둔 자동 반복도 보내지 않는다.
@@ -475,33 +485,23 @@ struct PlazaSceneMember: Equatable, Sendable {
             if !isRepeat && !modifiers.contains(.command) { panKeys.insert(d) }
             return .swallowed
         }
-        let plain = !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers)
         if keyCode == Self.spaceKeyCode || keyCode == Self.pKeyCode {
-            if plain { onPhotoKey?() }
+            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onPhotoKey?() }
             return .swallowed
         }
-        if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.gKeyCode: onGroupPhotoKey][keyCode] {
-            if plain { action?() }
-            return .swallowed
-        }
-        if let kind = Self.emoteKind(keyCode), modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
-            if !isRepeat { onEmoteKey?(kind) }
-            return .swallowed
-        }
-        switch characters {
-        case "-": zoom -= 1
-        case "=", "+": zoom += 1
-        default: break
-        }
-        return .swallowed
+        // 사진 모드에서는 C(몸통박치기)와 Enter(채팅)를 쓰지 않는다.
+        if keyCode == Self.cKeyCode || keyCode == Self.returnKeyCode || keyCode == Self.keypadEnterKeyCode { return .swallowed }
+        return handleSharedKeyDown(keyCode: keyCode, characters: characters, isRepeat: isRepeat, modifiers: modifiers)
     }
 
     /// 카메라를 내 캐릭터에서 떼어 지금 보이는 화면 한가운데에 둔다. 걷던 것도 멈춘다.
     func enterPhotoMode() {
         guard !isPhotoMode else { return }
         zoomBeforePhotoMode = zoom
-        photoCenter = CGPoint(x: visibleRect.midX, y: visibleRect.midY)
-        walker.releaseAll()
+        // 화면이 튀지 않게 틀 가운데를 지금 보이는 영역이 그대로 남는 곳에 둔다(위 여백과 아래 여백이 다르다).
+        photoCenter = CGPoint(x: visibleRect.midX,
+                              y: visibleRect.midY + (PlazaPhotoFrame.topInset - PlazaPhotoFrame.bottomInset) / (2 * CGFloat(zoom)))
+        walker.clearInput()   // 아직 쓰지 않은 탭이 남아 한 걸음 더 가지 않게 탭까지 지운다
         stopWalkingToMember()
         panKeys.removeAll()
         layout()
@@ -909,7 +909,14 @@ struct PlazaSceneMember: Equatable, Sendable {
             let speed = modifiers.contains(.shift) ? PlazaPhotoFrame.fastPanSpeed : PlazaPhotoFrame.panSpeed
             let dx = (panKeys.contains(.right) ? 1 : 0) - (panKeys.contains(.left) ? 1 : 0)
             let dy = (panKeys.contains(.down) ? 1 : 0) - (panKeys.contains(.up) ? 1 : 0)
-            photoCenter = CGPoint(x: c.x + CGFloat(dx) * speed * CGFloat(dt), y: c.y + CGFloat(dy) * speed * CGFloat(dt))
+            if dx != 0 || dy != 0 {
+                // 지도 안으로 잘린 채 보이는 중심에서 밀고 다시 자른다. 가장자리에서 더 민 만큼을 쌓지 않는다.
+                // 확대·창 크기 변경은 저장한 중심을 건드리지 않아야 돌아왔을 때 틀이 제자리다(그래서 자르기는 여기서만 저장한다).
+                let from = photoShownCenter ?? c
+                let moved = CGPoint(x: from.x + CGFloat(dx) * speed * CGFloat(dt), y: from.y + CGFloat(dy) * speed * CGFloat(dt))
+                photoCenter = PlazaPhotoFrame.layout(center: moved, viewport: size, zoom: zoom, backingScale: backingOverride ?? view?.window?.backingScaleFactor ?? 2,
+                                                     world: worldSize)?.center ?? moved
+            }
         }
         // 방향키와 Shift를 함께 누르고 있거나, 따라가는 팀원이 달리면 달린다. Shift만으로는 달리지 않아,
         // 따라가며 한마디에 대문자를 쳐도 달리지 않는다.
@@ -1051,18 +1058,20 @@ struct PlazaSceneMember: Equatable, Sendable {
         let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
 
         let foot = walker.footPoint
-        // 큰 포켓몬의 머리가 잘리지 않게 앞모습 높이의 절반만큼 위를 본다(앞모습 기준이라 돌아봐도 카메라가 흔들리지 않는다).
-        let lift = me.cameraLift
-        let focus = PlazaCamera.focus(for: foot, viewportWidth: size.width, rightInset: PlazaRosterMetrics.coveredWidth,
-                                      characterHalfWidth: me.characterSize.width * z / 2, zoom: zoom, lift: lift)
-        var rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
-                                        rightInset: PlazaRosterMetrics.coveredWidth)
+        var rect: CGRect
         photoFrame = nil
-        if let c = photoCenter,
-           let photo = PlazaPhotoFrame.layout(center: c, viewport: size, zoom: zoom, backingScale: backing, world: worldSize) {
+        photoShownCenter = nil
+        if let c = photoCenter, let photo = PlazaPhotoFrame.layout(center: c, viewport: size, zoom: zoom, backingScale: backing, world: worldSize) {
             rect = photo.visible
             photoFrame = photo.frame
-            photoCenter = photo.center   // 가장자리에서 더 밀린 만큼을 쌓아 두지 않는다
+            photoShownCenter = photo.center
+        } else {
+            // 큰 포켓몬의 머리가 잘리지 않게 앞모습 높이의 절반만큼 위를 본다(앞모습 기준이라 돌아봐도 카메라가 흔들리지 않는다).
+            let lift = me.cameraLift
+            let focus = PlazaCamera.focus(for: foot, viewportWidth: size.width, rightInset: PlazaRosterMetrics.coveredWidth,
+                                          characterHalfWidth: me.characterSize.width * z / 2, zoom: zoom, lift: lift)
+            rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
+                                           rightInset: PlazaRosterMetrics.coveredWidth)
         }
         visibleRect = rect
         let cameraPos = CGPoint(x: rect.midX, y: worldSize.height - rect.midY)   // 원점은 visibleRect가 이미 기기 격자에 맞췄다

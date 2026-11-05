@@ -43,13 +43,59 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         let before = scene.visibleWorldRect
         scene.enterPhotoMode()
         let c = try XCTUnwrap(scene.photoCenter)
-        XCTAssertEqual(c, CGPoint(x: before.midX, y: before.midY))
+        // 위 여백(24)과 아래 여백(44)이 달라 틀 가운데는 화면 가운데보다 (24-44)/(2·2)=5pt 위다. 그래야 장면이 튀지 않는다.
+        XCTAssertEqual(c, CGPoint(x: before.midX, y: before.midY - 5))
         let l = try XCTUnwrap(layoutFor(c))
         XCTAssertEqual(scene.photoFrame, l.frame)
         XCTAssertEqual(scene.visibleWorldRect, l.visible)
+        XCTAssertEqual(scene.visibleWorldRect, before)
         XCTAssertEqual(reports, [true])
         scene.enterPhotoMode()
         XCTAssertEqual(reports, [true])
+    }
+
+    func testEnteringDoesNotMoveTheViewAtOtherZoomsToo() throws {
+        for z in [1, 3] {
+            let scene = newScene()
+            scene.zoom = z
+            let before = scene.visibleWorldRect
+            scene.enterPhotoMode()
+            let after = scene.visibleWorldRect
+            for (a, b) in [(after.minX, before.minX), (after.minY, before.minY), (after.width, before.width), (after.height, before.height)] {
+                XCTAssertEqual(a, b, accuracy: 0.01, "zoom \(z)")
+            }
+        }
+    }
+
+    func testATapPendingAtEntryNeverMovesMe() throws {
+        let scene = newScene()
+        _ = down(scene, 126)           // 위로 한 칸 출발
+        run(scene, seconds: 0.05)      // 한 칸(0.15초) 도중
+        XCTAssertTrue(scene.walker.isWalking)
+        _ = down(scene, 126)           // 도중에 다시 눌러 탭을 남긴다
+        scene.handleKeyUp(keyCode: 126)
+        let tile = scene.walker.tile
+        scene.enterPhotoMode()
+        run(scene, seconds: 1)
+        XCTAssertEqual(scene.walker.tile, tile)
+        XCTAssertFalse(scene.walker.isWalking)
+    }
+
+    func testZoomingOutAndBackKeepsAFramePannedToTheCorner() throws {
+        let scene = newScene()
+        scene.enterPhotoMode()
+        _ = down(scene, 123)
+        _ = down(scene, 126)
+        run(scene, seconds: 10)
+        scene.handleKeyUp(keyCode: 123)
+        scene.handleKeyUp(keyCode: 126)
+        let corner = try XCTUnwrap(scene.photoFrame)
+        XCTAssertEqual(corner.origin, .zero)
+        _ = down(scene, 27, "-")
+        XCTAssertEqual(scene.zoom, 1)
+        _ = down(scene, 27, "=")
+        XCTAssertEqual(scene.zoom, 2)
+        XCTAssertEqual(scene.photoFrame, corner)
     }
 
     func testArrowsSlideTheFrameNotMe() throws {

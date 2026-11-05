@@ -43,4 +43,25 @@ final class PlazaPhotoFrameTests: XCTestCase {
             XCTAssertNil(PlazaPhotoFrame.layout(center: .zero, viewport: vp, zoom: 2, backingScale: 2, world: world))
         }
     }
+
+    /// 화면 위 틀(viewRect)을 월드로 옮기면 layout이 정한 frame과 같다. 틀 기하가 두 벌이 아니다.
+    func testViewRectInWorldIsTheLayoutFrame() throws {
+        for vp in [CGSize(width: 960, height: 640), CGSize(width: 700.5, height: 411), CGSize(width: 1440, height: 900)] {
+            for zoom in 1...3 {
+                let l = try XCTUnwrap(PlazaPhotoFrame.layout(center: .init(x: 768, y: 512), viewport: vp, zoom: zoom, backingScale: 2, world: world))
+                let r = try XCTUnwrap(PlazaPhotoFrame.viewRect(in: vp))
+                let z = CGFloat(zoom)
+                let inWorld = CGRect(x: l.visible.minX + r.minX / z, y: l.visible.minY + r.minY / z, width: r.width / z, height: r.height / z)
+                for (a, b) in [(inWorld.minX, l.frame.minX), (inWorld.minY, l.frame.minY), (inWorld.width, l.frame.width), (inWorld.height, l.frame.height)] {
+                    XCTAssertEqual(a, b, accuracy: 0.01, "\(vp) zoom \(zoom)")
+                }
+            }
+        }
+    }
+
+    func testNoViewRectWhenTheWindowIsSmallerThanTheInsets() {
+        for vp in [CGSize(width: 40, height: 200), CGSize(width: 200, height: 60), .zero] {
+            XCTAssertNil(PlazaPhotoFrame.viewRect(in: vp))
+        }
+    }
 }

@@ -65,9 +65,7 @@ struct PlazaOverlayView: View {
     /// 사진 모드의 틀. 사진에 담기는 영역은 창에서 여백(포인트)을 뺀 사각형이다. 아무것도 클릭을 받지 않는다.
     private var photoFrame: some View {
         GeometryReader { geo in
-            let frame = CGRect(x: PlazaPhotoFrame.sideInset, y: PlazaPhotoFrame.topInset,
-                               width: geo.size.width - 2 * PlazaPhotoFrame.sideInset,
-                               height: geo.size.height - PlazaPhotoFrame.topInset - PlazaPhotoFrame.bottomInset)
+            if let frame = PlazaPhotoFrame.viewRect(in: geo.size) {
             ZStack(alignment: .topLeading) {
                 Path { p in
                     p.addRect(CGRect(origin: .zero, size: geo.size))
@@ -93,6 +91,7 @@ struct PlazaOverlayView: View {
                     .minimumScaleFactor(0.7)
                     .frame(width: frame.width, height: PlazaPhotoFrame.bottomInset, alignment: .center)
                     .position(x: geo.size.width / 2, y: geo.size.height - PlazaPhotoFrame.bottomInset / 2)
+            }
             }
         }
         .allowsHitTesting(false)

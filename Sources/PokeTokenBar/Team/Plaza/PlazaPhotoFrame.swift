@@ -14,11 +14,19 @@ enum PlazaPhotoFrame {
         let center: CGPoint
     }
 
+    /// 뷰포트(포인트) 안에서 틀이 차지하는 사각형(왼쪽 위 원점, y 아래로). 여백이 뷰포트보다 커 틀이 없으면 nil.
+    /// 장면의 `layout`과 화면 위 틀 그림이 같은 사각형을 쓰도록 기하는 여기 한 곳에만 둔다.
+    static func viewRect(in viewport: CGSize) -> CGRect? {
+        // CGRect.width는 음수를 절댓값으로 돌려주므로 여백을 뺀 크기를 먼저 따로 본다.
+        let width = viewport.width - 2 * sideInset, height = viewport.height - topInset - bottomInset
+        guard width > 0, height > 0 else { return nil }
+        return CGRect(x: sideInset, y: topInset, width: width, height: height)
+    }
+
     /// center를 가운데 둔 틀. 창이 여백보다 작아 틀이 없으면 nil.
     /// visible = frame을 여백 ÷ zoom만큼 사방으로 키운 영역(크기 = 뷰포트 ÷ zoom).
     static func layout(center: CGPoint, viewport: CGSize, zoom: Int, backingScale: CGFloat, world: CGSize) -> Layout? {
-        let inner = CGSize(width: viewport.width - 2 * sideInset, height: viewport.height - topInset - bottomInset)
-        guard inner.width > 0, inner.height > 0 else { return nil }
+        guard let inner = viewRect(in: viewport)?.size else { return nil }
         let z = CGFloat(PlazaCamera.clampedZoom(zoom))
         let frame = PlazaCamera.visibleRect(focus: center, viewport: inner, zoom: zoom, backingScale: backingScale, world: world)
         let visible = CGRect(x: frame.minX - sideInset / z, y: frame.minY - topInset / z,
