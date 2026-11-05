@@ -383,10 +383,19 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 지금 시각. 테스트에서 바꿔 끼운다.
     var now: () -> Date = Date.init
 
+    /// 팀이 정한 밝은 시간대와 날씨 주기. `PlazaWindowController.applySchedule`이 넣는다.
+    /// 바뀌면 `setBackgroundHidden`처럼 바로 다시 그린다(멈춘 장면에서도 낮밤·날씨·모닥불빛이 맞게).
+    var coreTime = PlazaCoreTime.standard {
+        didSet { if coreTime != oldValue { applyDaylight(); applyCampfire() } }
+    }
+    var weatherPeriod = PlazaWeather.Period.day {
+        didSet { if weatherPeriod != oldValue { advanceWeather(by: 0) } }
+    }
+
     /// 지금 곱하는 색. 배경을 숨겼으면 뒤의 작업 화면이 어두워지지 않게 곱하지 않는다.
     var daylightTint: PlazaDaylight.Tint {
         guard !isBackgroundHidden else { return .none }
-        return PlazaDaylight.dimmed(PlazaDaylight.tint(minute: PlazaDaylight.minute(of: now())), by: fireworkLayer.dimLevel)
+        return PlazaDaylight.dimmed(PlazaDaylight.tint(minute: PlazaDaylight.minute(of: now()), core: coreTime), by: fireworkLayer.dimLevel)
     }
 
     /// 마지막 `applyDaylight`가 정한 색. 모닥불빛이 프레임마다 시각 계산을 되풀이하지 않게 한 번만 구해 둔다.
@@ -1285,7 +1294,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func advanceWeather(by dt: TimeInterval) {
         let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
         let v = visibleRect
-        weatherLayer.update(date: now(), isHidden: isBackgroundHidden, dt: dt,
+        weatherLayer.update(date: now(), isHidden: isBackgroundHidden, dt: dt, period: weatherPeriod,
                             visible: CGRect(x: v.minX, y: worldSize.height - v.maxY, width: v.width, height: v.height),
                             step: PlazaPixelSnap.step(backing: backing, zoom: zoom))
     }

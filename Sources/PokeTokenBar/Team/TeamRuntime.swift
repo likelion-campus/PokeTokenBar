@@ -107,11 +107,13 @@ final class TeamRuntime {
             _ = settings.nickname
             _ = settings.nameColor
             _ = settings.notificationsEnabled
+            _ = settings.schedule
             _ = session.hasOnlinePeers
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeSettings() }
         }
         session.applySettings()
+        plaza?.applySchedule()
         let ready = settings.isReady
         // Notices batched for another team (or for no team) must not be posted later.
         if !ready || settings.code != lastCode {

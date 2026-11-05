@@ -1,36 +1,51 @@
 import CoreGraphics
 import Foundation
 
-/// 광장의 계절 날씨. 이 Mac의 날짜로만 정해서 같은 날은 팀원 모두 같은 날씨를 본다. 자정에 바뀐다.
+/// 광장의 계절 날씨. 실제 계절과 상관없이 벚꽃·초록 나뭇잎·낙엽·눈이 하루씩 차례로 돈다. 바뀌는 주기는 팀이 고른다(하루·한 주·한 달).
+/// 이 Mac의 날짜로만 정해서 같은 주기 안에서는 팀원 모두 같은 날씨를 보고, 주기가 바뀔 때(자정 등) 바뀐다.
 enum PlazaWeather {
     enum Kind: Equatable, CaseIterable {
-        case clear, petals, rain, leaves, snow
+        /// 배경을 숨겼을 때만 쓴다. 날짜로는 나오지 않는다.
+        case clear, petals, greenLeaves, leaves, snow
+    }
+
+    /// 주기마다 도는 순서. 2026-11-05가 낙엽이다.
+    static let cycle: [Kind] = [.petals, .greenLeaves, .leaves, .snow]
+
+    /// 기본 달력. 시스템 달력이 일본력·불기여도 연월일이 같아야 팀원 모두 같은 날씨를 본다.
+    static var gregorian: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = .current
+        return c
     }
 
     /// 한 화면에 그리는 입자 수의 상한. 넓은 화면에서도 노드 수가 이 값을 넘지 않는다.
     static let maxParticles = 120
 
-    /// 날짜(월일)로 정한 날씨.
-    /// 벚꽃 4/1~4/14 매일, 비 6/20~7/31 반쯤, 낙엽 10/20~11/20 매일, 눈 12/1~2월 말 반쯤. 나머지는 맑음.
-    static func kind(on date: Date, calendar: Calendar = .current) -> Kind {
-        let year = calendar.component(.year, from: date), month = calendar.component(.month, from: date)
-        let day = calendar.component(.day, from: date)
-        let wet = isWetDay(year: year, month: month, day: day)
-        switch month * 100 + day {
-        case 401...414: return .petals
-        case 620...731: return wet ? .rain : .clear
-        case 1020...1120: return .leaves
-        case 1201...1231, 101...229: return wet ? .snow : .clear
-        default: return .clear
+    /// 날씨가 바뀌는 주기. 주는 월요일에 시작한다.
+    enum Period: String, CaseIterable, Sendable { case day, week, month }
+
+    /// 그 주기의 날씨. 날짜(연월일)로 센 주기 번호로 `cycle`을 돌아서, 이어지는 두 주기는 늘 다르고 넷마다 한 번씩 나온다.
+    static func kind(on date: Date, calendar: Calendar = gregorian, period: Period = .day) -> Kind {
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        let (y, m, d) = (c.year ?? 1970, c.month ?? 1, c.day ?? 1)
+        let n: Int
+        switch period {
+        case .day: n = dayNumber(year: y, month: m, day: d)
+        case .week: n = Int(floor(Double(dayNumber(year: y, month: m, day: d) + 3) / 7))   // 1970-01-01이 목요일
+        case .month: n = y * 12 + m - 1
         }
+        return cycle[((n % cycle.count) + cycle.count) % cycle.count]
     }
 
-    /// 비와 눈이 오는 날인가. 날짜의 FNV 해시를 섞어 정하므로 어느 Mac에서나 같다.
-    static func isWetDay(year: Int, month: Int, day: Int) -> Bool {
-        var z = UInt64(PlazaNameColor.fnv1a("\(year)-\(month)-\(day)")) &* 0x9E37_79B9_7F4A_7C15
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        return (z >> 33) & 1 == 1
+    /// 1970-01-01부터 센 그레고리력 날짜 수(그 전은 음수). 시간대와 상관없이 같은 연월일이면 같은 수다.
+    static func dayNumber(year: Int, month: Int, day: Int) -> Int {
+        let y = month <= 2 ? year - 1 : year
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yearOfEra = y - era * 400
+        let dayOfYear = (153 * ((month + 9) % 12) + 2) / 5 + day - 1   // 3월 1일이 0
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        return era * 146_097 + dayOfEra - 719_468
     }
 
     /// 종류별 움직임. 속도는 월드 픽셀/초이고 아래로 떨어지는 쪽이 양수.
@@ -49,7 +64,7 @@ enum PlazaWeather {
         switch kind {
         case .clear: Motion(fall: 0, drift: 0, sway: 0, swayRate: 0, density: 0)
         case .petals: Motion(fall: 18, drift: 6, sway: 14, swayRate: 1.5, density: 7e-4)
-        case .rain: Motion(fall: 150, drift: 70, sway: 0, swayRate: 0, density: 1.2e-3)
+        case .greenLeaves: Motion(fall: 22, drift: 5, sway: 16, swayRate: 1.6, density: 6e-4)
         case .leaves: Motion(fall: 24, drift: -5, sway: 18, swayRate: 1.8, density: 6e-4)
         case .snow: Motion(fall: 14, drift: 0, sway: 8, swayRate: 1.2, density: 1e-3)
         }
@@ -121,11 +136,13 @@ struct PlazaWeatherField {
 enum PlazaWeatherArt {
     private static let palette: [Character: (r: UInt8, g: UInt8, b: UInt8)] = [
         "W": (0xF6, 0xFA, 0xFF), "S": (0xC6, 0xDA, 0xF0),
-        "L": (0xDC, 0xEC, 0xFF), "D": (0x9C, 0xC0, 0xEE),
         "P": (0xF8, 0xBB, 0xCF), "p": (0xE8, 0x8D, 0xAC),
         "O": (0xE8, 0x83, 0x2A), "o": (0xB4, 0x5E, 0x14),
         "R": (0xD1, 0x43, 0x2E), "r": (0x96, 0x2A, 0x1C),
         "Y": (0xF2, 0xC2, 0x30), "y": (0xC4, 0x96, 0x1A),
+        // 초록 잎. 풀(밝은 초록) 위에서 보이게 풀보다 훨씬 밝은 연두 잎에 짙은 잎맥을 넣는다.
+        "G": (0xE4, 0xF7, 0x8C), "g": (0x2E, 0x5E, 0x18),
+        "H": (0xC4, 0xEC, 0x5E), "h": (0x24, 0x4C, 0x12),
     ]
 
     /// 위에서 아래로 읽는 도트 격자.
@@ -133,8 +150,8 @@ enum PlazaWeatherArt {
         switch kind {
         case .clear: []
         case .snow: [[".W.", "WWW", ".W."], ["WW", "WS"], ["W"]]
-        case .rain: [["D.", "D.", ".L", ".L"]]
         case .petals: both([".PP", "PPp"])
+        case .greenLeaves: both(["GG.", "GgG", ".GG"]) + both(["HH.", "HhH", ".HH"])
         case .leaves: both(["OO.", "OoO", ".OO"]) + both(["RR.", "RrR", ".RR"]) + both(["YY.", "YyY", ".YY"])
         }
     }

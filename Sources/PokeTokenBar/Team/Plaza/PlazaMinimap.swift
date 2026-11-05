@@ -16,6 +16,8 @@ final class PlazaMinimapModel {
 
     var dots: [Dot] = []
     var view: CGRect = .zero
+    /// 팀이 정한 밝은 시간대. 지도의 색과 시계가 따른다.
+    var coreTime = PlazaCoreTime.standard
     /// 광장에 떨어진 아이템의 칸.
     var item: TilePoint?
     /// 불이 켜져 있을 때 모닥불 자리의 왼쪽 위 칸. 꺼져 있으면 nil.

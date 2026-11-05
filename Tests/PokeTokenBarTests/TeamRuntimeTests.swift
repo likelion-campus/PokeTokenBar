@@ -101,6 +101,26 @@ final class TeamRuntimeTests: XCTestCase {
         return (a, b, plaza, poster)
     }
 
+    /// A local schedule change reaches an already open plaza without reopening it.
+    func testChangingTheScheduleUpdatesAnOpenPlaza() async throws {
+        let node = RuntimeNode(hub: hub, code: newCode(), nickname: "가")
+        let suite = "ptb.test.team.runtime.schedule.\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "가" }, memberID: { node.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) },
+                                          schedule: { node.settings.schedule })
+        node.runtime.plaza = plaza
+        node.runtime.start()
+        plaza.prepareScene()
+        let scene = try XCTUnwrap(plaza.scene)
+        XCTAssertEqual(scene.coreTime, .standard)
+        node.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .month, now: Date())
+        await settle { scene.coreTime == PlazaCoreTime(start: 8, end: 20) }
+        XCTAssertEqual(scene.weatherPeriod, .month)
+    }
+
     func testTickEndsADueFocus() async {
         let (_, b, plaza, poster) = await focusingNode()
         focusNow = focusNow.addingTimeInterval(25 * 60 + 1)

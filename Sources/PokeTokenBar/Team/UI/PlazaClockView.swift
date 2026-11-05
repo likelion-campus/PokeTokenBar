@@ -1,12 +1,14 @@
 import SwiftUI
 import AppKit
 
-/// 작은 지도 위의 시계. 때(새벽·낮·저녁·밤)와 이 Mac의 시각을 1분마다 바꾼다.
+/// 작은 지도 위의 시계. 때(아침·낮·저녁·밤)와 이 Mac의 시각을 1분마다 바꾼다.
 @MainActor
 struct PlazaClock: View {
+    let model: PlazaMinimapModel
+
     var body: some View {
         TimelineView(.everyMinute) { context in
-            Text(PlazaDaylight.clockText(context.date))
+            Text(PlazaDaylight.clockText(context.date, core: model.coreTime))
                 .font(Font(PlazaResources.font(.small)))
                 .foregroundStyle(Color(hex: 0xF8F8F0))
                 .padding(.horizontal, 8).padding(.vertical, 5)

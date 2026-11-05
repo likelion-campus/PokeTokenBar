@@ -22,6 +22,144 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertNil(TeamSettings(defaults: d).nameColor)
     }
 
+    // MARK: - 광장 일정
+
+    private func schedule(_ at: TimeInterval, by: String = "m", start: Int = 9, end: Int = 18) -> PlazaSchedule {
+        PlazaSchedule(coreStart: start, coreEnd: end, seasonPeriod: "week", changedAt: Date(timeIntervalSince1970: at),
+                      changedBy: by, changedByName: "N")
+    }
+
+    func testChangeScheduleStampsAndClamps() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.nickname = "Ash"
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 1_000)
+        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .month, now: now)
+        XCTAssertEqual(s.schedule?.changedAt, now)
+        XCTAssertEqual(s.schedule?.changedBy, s.memberID)
+        XCTAssertEqual(s.schedule?.changedByName, "Ash")
+        XCTAssertEqual(s.schedule?.period, .month)
+        for (input, expected) in [((16, 10), (16, 17)), ((0, 30), (1, 23)), ((23, 23), (22, 23)), ((22, 5), (22, 23))] {
+            s.changeSchedule(coreStart: input.0, coreEnd: input.1, period: .day, now: now)
+            XCTAssertEqual(s.schedule?.coreStart, expected.0)
+            XCTAssertEqual(s.schedule?.coreEnd, expected.1)
+        }
+    }
+
+    func testChangeScheduleBeatsAStoredStampAheadOfThisClock() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(s.adoptSchedule(schedule(1_300, start: 7), now: now))
+        s.changeSchedule(coreStart: 11, coreEnd: 15, period: .day, now: now)
+        XCTAssertEqual(s.schedule?.coreStart, 11)
+        XCTAssertGreaterThan(s.schedule!.changedAt, Date(timeIntervalSince1970: 1_300))
+    }
+
+    func testReselectingTheCurrentValueDoesNotRestamp() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        s.changeSchedule(coreStart: PlazaCoreTime.standard.start, coreEnd: PlazaCoreTime.standard.end, period: .day, now: Date(timeIntervalSince1970: 1))
+        XCTAssertNil(s.schedule, "the default is not a change")
+        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: Date(timeIntervalSince1970: 2))
+        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: Date(timeIntervalSince1970: 3))
+        XCTAssertEqual(s.schedule?.changedAt, Date(timeIntervalSince1970: 2))
+    }
+
+    func testChangedByNameIsEmptyWhenTheNicknameIsInvalid() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        s.nickname = "  "
+        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: Date(timeIntervalSince1970: 2))
+        XCTAssertEqual(s.schedule?.changedByName, "")
+    }
+
+    func testChangeScheduleWithoutTeamDoesNothing() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .day, now: Date())
+        XCTAssertNil(s.schedule)
+    }
+
+    func testScheduleIsPersistedPerTeam() {
+        let d = freshDefaults()
+        let s = TeamSettings(defaults: d)
+        s.code = code(1)
+        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .week, now: Date(timeIntervalSince1970: 5))
+        XCTAssertEqual(TeamSettings(defaults: d).schedule?.coreStart, 9)
+        s.code = code(2)
+        XCTAssertNil(s.schedule)
+        s.changeSchedule(coreStart: 11, coreEnd: 12, period: .day, now: Date(timeIntervalSince1970: 6))
+        s.code = code(1)
+        XCTAssertEqual(s.schedule?.coreStart, 9)
+        s.code = code(2)
+        XCTAssertEqual(s.schedule?.coreStart, 11)
+    }
+
+    /// 피어가 보낸 문자열은 저장되어 이후 모든 presence 에 실린다. 닉네임 상한을 넘으면 받지 않는다.
+    func testAdoptScheduleRejectsOversizedPeerStrings() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 10_000)
+        var base = schedule(10_000)
+        func tried(_ edit: (inout PlazaSchedule) -> Void) -> Bool {
+            var c = base
+            edit(&c)
+            return s.adoptSchedule(c, now: now)
+        }
+        XCTAssertFalse(tried { $0.changedByName = String(repeating: "가", count: 300_000) })   // ~900 KB
+        XCTAssertFalse(tried { $0.changedByName = "열두글자를넘는아주긴이름입니다" })
+        XCTAssertFalse(tried { $0.changedBy = String(repeating: "x", count: 65) })
+        XCTAssertFalse(tried { $0.seasonPeriod = String(repeating: "x", count: 17) })
+        XCTAssertNil(s.schedule)
+        base.changedByName = ""
+        XCTAssertTrue(s.adoptSchedule(base, now: now), "an unnamed change is fine")
+    }
+
+    func testChangeScheduleAfterAdoptingAnUnknownPeriodIsNotDropped() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        var later = schedule(100)
+        later.seasonPeriod = "quarter"
+        XCTAssertTrue(s.adoptSchedule(later, now: Date(timeIntervalSince1970: 200)))
+        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .day, now: Date(timeIntervalSince1970: 150))
+        XCTAssertEqual(s.schedule?.seasonPeriod, "day")
+        XCTAssertGreaterThan(s.schedule?.changedAt ?? .distantPast, later.changedAt)
+    }
+
+    func testLeaveTeamForgetsItsSchedule() {
+        let d = freshDefaults()
+        let s = TeamSettings(defaults: d)
+        s.code = code(1)
+        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .week, now: Date(timeIntervalSince1970: 5))
+        s.leaveTeam()
+        s.code = code(1)
+        XCTAssertNil(s.schedule)
+        XCTAssertNil(TeamSettings(defaults: d).schedule)
+    }
+
+    func testAdoptScheduleLastWriterWins() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 10_000)
+        XCTAssertTrue(s.adoptSchedule(schedule(100, by: "b"), now: now))
+        XCTAssertFalse(s.adoptSchedule(schedule(99, by: "z"), now: now))        // older
+        XCTAssertFalse(s.adoptSchedule(schedule(100, by: "a"), now: now))       // tie, lesser id
+        XCTAssertFalse(s.adoptSchedule(schedule(100, by: "b"), now: now))       // identical
+        XCTAssertTrue(s.adoptSchedule(schedule(100, by: "c", start: 7), now: now))   // tie, greater id
+        XCTAssertEqual(s.schedule?.coreStart, 7)
+        XCTAssertTrue(s.adoptSchedule(schedule(101, by: "a"), now: now))        // newer
+    }
+
+    func testAdoptScheduleRejectsFarFutureAndInvalidRange() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 10_000)
+        XCTAssertFalse(s.adoptSchedule(schedule(10_601), now: now))
+        XCTAssertTrue(s.adoptSchedule(schedule(10_600), now: now))
+        XCTAssertFalse(s.adoptSchedule(schedule(10_700, start: 16, end: 10), now: Date(timeIntervalSince1970: 10_500)))   // newer, so only the range check can reject it
+        XCTAssertFalse(s.adoptSchedule(schedule(20_000, start: 0, end: 5), now: Date(timeIntervalSince1970: 30_000)))
+    }
+
     // MARK: - 저장한 팀
 
     private func code(_ seed: UInt64) -> TeamCode {

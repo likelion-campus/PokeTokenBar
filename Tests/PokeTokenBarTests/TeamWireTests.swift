@@ -69,6 +69,60 @@ final class TeamWireTests: XCTestCase {
         XCTAssertNil(p.nameColor)
     }
 
+    /// The shared plaza schedule is sent only when set; an unknown season period reads as a day.
+    func testScheduleIsOptionalOnTheWire() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("schedule"))
+        var withSchedule = presence
+        withSchedule.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "month",
+                                              changedAt: Date(timeIntervalSince1970: 1_790_000_000.5),
+                                              changedBy: "m1", changedByName: "Ash")
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(withSchedule))), [.presence(withSchedule)])
+        let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":false,"schedule":{"coreStart":10,"coreEnd":16,"seasonPeriod":"season","changedAt":1790000000,"changedBy":"m","changedByName":"A"}}}}"#
+        var d2 = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try d2.append(frame(json)).first, let sch = p.schedule else { return XCTFail("no schedule") }
+        XCTAssertEqual(sch.period, .day)
+    }
+
+    /// 손으로 쓴 Codable 은 새 선택 필드를 키 목록에 빼먹어도 컴파일되지만, 합성이면 모든 필드가 오간다.
+    func testEveryOptionalFieldSurvivesARoundTrip() throws {
+        var full = presence
+        full.tile = TilePoint(x: 3, y: 4)
+        full.facing = .left
+        full.isIdle = true
+        full.nameColor = 0xFF9ECF
+        full.isRunning = true
+        full.takenItemSlot = 2
+        full.focusEndsAt = Date(timeIntervalSince1970: 1_790_000_000.5)
+        full.isDiving = true
+        full.evolutionStage = 2
+        full.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "week",
+                                      changedAt: Date(timeIntervalSince1970: 1_790_000_000.5),
+                                      changedBy: "m1", changedByName: "Ash")
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(full))), [.presence(full)])
+    }
+
+    /// A schedule this version cannot read costs only the schedule, never the member's position or name.
+    func testMalformedScheduleDropsOnlyTheSchedule() throws {
+        let head = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335,"schedule":"#
+        let bad = [#"{"coreStart":"ten","coreEnd":16,"seasonPeriod":"day","changedAt":1790000000,"changedBy":"m","changedByName":"A"}"#,
+                   #"{"coreStart":10,"coreEnd":16,"seasonPeriod":"day","changedAt":1790000000,"changedByName":"A"}"#]
+        for schedule in bad {
+            var decoder = TeamWire.FrameDecoder()
+            guard case .presence(let p)? = try decoder.append(frame(head + schedule + "}}}")).first else {
+                return XCTFail("presence dropped")
+            }
+            XCTAssertNil(p.schedule)
+            XCTAssertEqual(p.nickname, "Ash")
+            XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
+            XCTAssertEqual(p.facing, .left)
+            XCTAssertTrue(p.isWalking)
+            XCTAssertEqual(p.nameColor, 16752335)
+        }
+    }
+
     /// Running is sent only when true, and earlier versions' presence reads as walking.
     func testRunningFlagIsOptionalOnTheWire() throws {
         var running = presence

@@ -34,6 +34,37 @@ struct TeamPresence: Codable, Equatable, Sendable {
     var isDiving: Bool?
     /// The evolution stage of the shown Pokemon. Left out at stage 1; a receiver keeps it within 1...3.
     var evolutionStage: Int?
+    /// The team's plaza schedule as this member knows it. Left out when never changed; earlier versions ignore it.
+    @LossyOptional var schedule: PlazaSchedule?
+}
+
+/// 읽을 수 없는 값(나중 버전의 모양, 잘못된 값)을 nil 로 읽는 선택값. 이 필드만 너그럽고 나머지 필드는 합성 Codable 그대로라,
+/// 새 필드를 더해도 키 목록이나 `init(from:)` 을 따로 고칠 일이 없다. nil 은 인코딩에서 빠진다.
+@propertyWrapper
+struct LossyOptional<Value: Codable & Equatable & Sendable>: Codable, Equatable, Sendable {
+    var wrappedValue: Value?
+    init(wrappedValue: Value?) { self.wrappedValue = wrappedValue }
+    init(from decoder: Decoder) throws {
+        wrappedValue = try? decoder.singleValueContainer().decode(Value.self)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        if let wrappedValue { try c.encode(wrappedValue) } else { try c.encodeNil() }
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// 키가 없어도 nil 로 읽는다(합성 디코더는 이 오버로드를 고른다).
+    func decode<V>(_ type: LossyOptional<V>.Type, forKey key: Key) throws -> LossyOptional<V> {
+        (try? decodeIfPresent(type, forKey: key)) ?? LossyOptional(wrappedValue: nil)
+    }
+}
+
+extension KeyedEncodingContainer {
+    /// nil 이면 키를 쓰지 않아 이전 버전이 프레임을 전과 같이 읽는다.
+    mutating func encode<V>(_ value: LossyOptional<V>, forKey key: Key) throws {
+        if value.wrappedValue != nil { try encode(value.wrappedValue, forKey: key) }
+    }
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
@@ -179,7 +210,7 @@ enum TeamWire {
                 return try decoder.decode(TeamMessage.self, from: body)
             }
         } catch {
-            // Presence, emotes and chat are ephemeral and never stored, so a value a later version added (an
+            // Presence (apart from the plaza schedule it carries), emotes and chat are ephemeral, so a value a later version added (an
             // emote kind, a direction) is skipped like an unknown key instead of cooling the sender down.
             if kind == "presence" || kind == "emote" || kind == "chat" { return nil }
             throw WireError.malformed

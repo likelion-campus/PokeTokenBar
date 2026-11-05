@@ -27,6 +27,10 @@ final class TeamSettings {
             else { defaults.removeObject(forKey: "team.nameColor") }
         }
     }
+    /// 팀 코드(정규화)별 광장 일정. 이 Mac에만 저장하고, 팀원끼리는 presence 로 맞춘다.
+    private var schedules: [String: PlazaSchedule] {
+        didSet { defaults.set(try? JSONEncoder().encode(schedules), forKey: "team.schedules") }
+    }
     let memberID: String
 
     init(defaults: UserDefaults = TeamSettings.defaultStore()) {
@@ -36,6 +40,8 @@ final class TeamSettings {
         nickname = defaults.string(forKey: "team.nickname") ?? ""
         notificationsEnabled = defaults.object(forKey: "team.notifications") as? Bool ?? true
         nameColor = (defaults.object(forKey: "team.nameColor") as? Int).flatMap { UInt32(exactly: $0) }
+        schedules = defaults.data(forKey: "team.schedules")
+            .flatMap { try? JSONDecoder().decode([String: PlazaSchedule].self, from: $0) } ?? [:]
         savedTeams = defaults.data(forKey: "team.saved")
             .flatMap { try? JSONDecoder().decode([SavedTeam].self, from: $0) }?
             .filter { TeamCode(parsing: $0.code) != nil } ?? []
@@ -48,6 +54,43 @@ final class TeamSettings {
         }
         // v2.5.602 and earlier kept only the current code.
         if let code { remember(code) }
+    }
+
+    /// The current team's schedule; nil when never changed or when there is no team.
+    var schedule: PlazaSchedule? { code.flatMap { schedules[$0.normalized] } }
+
+    /// Changes the schedule. Start clamps into 1...22 and end into (start+1)...23, so start < end always holds.
+    func changeSchedule(coreStart: Int, coreEnd: Int, period: PlazaWeather.Period, now: Date) {
+        guard let key = code?.normalized else { return }
+        let start = min(max(coreStart, 1), 22)
+        let end = min(max(coreEnd, start + 1), 23)
+        // 지금과 같은 값을 다시 고르면 도장을 새로 찍지 않는다.
+        let current = schedules[key]
+        if start == (current?.coreTime ?? .standard).start, end == (current?.coreTime ?? .standard).end,
+           period.rawValue == (current?.seasonPeriod ?? PlazaWeather.Period.day.rawValue) { return }
+        // 저장된 도장이 이 Mac 시계보다 앞서 있어도(시계가 느리거나 빠른 Mac 값을 받은 경우) 내 수정이 지지 않게 한다.
+        let stamp = max(now, (current?.changedAt ?? .distantPast).addingTimeInterval(0.001))
+        schedules[key] = PlazaSchedule(coreStart: start, coreEnd: end, seasonPeriod: period.rawValue, changedAt: stamp,
+                                       changedBy: memberID, changedByName: Self.validNickname(nickname) ?? "")
+    }
+
+    /// Last-writer-wins: stores `s` for the current team when it is valid, not from the far future, and newer.
+    @discardableResult
+    func adoptSchedule(_ s: PlazaSchedule, now: Date) -> Bool {
+        guard let key = code?.normalized,
+              PlazaCoreTime(start: s.coreStart, end: s.coreEnd) != nil,
+              s.changedAt <= now.addingTimeInterval(600),
+              Self.isBounded(s),
+              s.isNewer(than: schedules[key]) else { return false }
+        schedules[key] = s
+        return true
+    }
+
+    /// 피어가 보낸 문자열은 저장되고 이후 모든 presence 에 실려 나간다. 닉네임 규칙(`validNickname`)과 같은 상한을 둬서
+    /// 큰 값 하나가 프레임 상한(1 MB)을 넘겨 팀 전체의 presence 를 막지 못하게 한다.
+    private static func isBounded(_ s: PlazaSchedule) -> Bool {
+        (s.changedByName.isEmpty || validNickname(s.changedByName) == s.changedByName)
+            && s.changedBy.utf8.count <= 64 && s.seasonPeriod.utf8.count <= 16
     }
 
     struct SavedTeam: Codable, Equatable, Identifiable {
@@ -119,7 +162,10 @@ final class TeamSettings {
 
     /// Leaves the team for good: it is also removed from the saved teams.
     func leaveTeam() {
-        if let current = code?.normalized { savedTeams.removeAll { $0.code == current } }
+        if let current = code?.normalized {
+            savedTeams.removeAll { $0.code == current }
+            schedules[current] = nil
+        }
         code = nil
         isEnabled = false
     }

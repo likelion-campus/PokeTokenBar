@@ -567,6 +567,132 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - Presence
 
+    func testScheduleChangeReachesTheOtherNode() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.session.applySettings()
+        XCTAssertNotNil(a.settings.schedule)
+        XCTAssertEqual(b.settings.schedule, a.settings.schedule)
+    }
+
+    func testOlderScheduleIsNotAdoptedAndDoesNotRevert() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.session.applySettings()
+        let older = PlazaSchedule(coreStart: 1, coreEnd: 2, seasonPeriod: "day", changedAt: clock.now.addingTimeInterval(-60),
+                                  changedBy: "zzz", changedByName: "Z")
+        XCTAssertFalse(b.settings.adoptSchedule(older, now: clock.now))
+        b.session.applySettings()
+        XCTAssertEqual(a.settings.schedule?.coreStart, 8)
+        XCTAssertEqual(b.settings.schedule?.coreStart, 8)
+    }
+
+    func testTwoChangesASecondApartConvergeOnTheLater() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.session.applySettings()
+        clock.advance(1)
+        b.settings.changeSchedule(coreStart: 11, coreEnd: 15, period: .month, now: clock.now)
+        b.session.applySettings()
+        XCTAssertEqual(a.settings.schedule, b.settings.schedule)
+        XCTAssertEqual(a.settings.schedule?.coreStart, 11)
+        // The same, made while apart: the later one wins on both once they meet.
+        let c = node("C"), d = node("D")
+        c.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        clock.advance(1)
+        d.settings.changeSchedule(coreStart: 12, coreEnd: 14, period: .day, now: clock.now)
+        connect(c, d)
+        XCTAssertEqual(c.settings.schedule?.coreStart, 12)
+        XCTAssertEqual(d.settings.schedule?.coreStart, 12)
+    }
+
+    func testScheduleRelaysThroughAMiddleNodeAndReachesALateJoiner() {
+        let a = node("A"), b = node("B"), c = node("C")
+        connect(a, b)
+        connect(b, c)            // c has no link to a
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.session.applySettings()
+        XCTAssertEqual(c.settings.schedule, a.settings.schedule)
+        let late = node("L")
+        connect(b, late)         // offline during the change
+        XCTAssertEqual(late.settings.schedule, a.settings.schedule)
+    }
+
+    /// The far-future guard runs against the session's clock, not the wall clock.
+    func testScheduleStampedMoreThanTenMinutesAheadIsNotAdopted() {
+        let a = node("A")
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello()
+        func send(_ ahead: TimeInterval, start: Int) {
+            let s = PlazaSchedule(coreStart: start, coreEnd: 20, seasonPeriod: "week",
+                                  changedAt: clock.now.addingTimeInterval(ahead), changedBy: "x", changedByName: "X")
+            raw.say(.presence(TeamPresence(nickname: "Raw", character: Node.eevee, inPlaza: true,
+                                           tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: false, schedule: s)))
+        }
+        send(601, start: 5)
+        XCTAssertNil(a.settings.schedule)
+        send(599, start: 6)
+        XCTAssertEqual(a.settings.schedule?.coreStart, 6)
+    }
+
+    /// A peer's 900 KB name must not be adopted, or it would ride in every presence and push the frame past the limit.
+    func testScheduleWithAHugeNameIsNeitherAdoptedNorRelayed() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello()
+        let s = PlazaSchedule(coreStart: 5, coreEnd: 20, seasonPeriod: "week", changedAt: clock.now,
+                              changedBy: "x", changedByName: String(repeating: "가", count: 300_000))
+        raw.say(.presence(TeamPresence(nickname: "Raw", character: Node.eevee, inPlaza: true,
+                                       tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: false, schedule: s)))
+        XCTAssertTrue(a.session.members.values.contains { $0.nickname == "Raw" }, "the presence itself still arrives")
+        XCTAssertNil(a.settings.schedule)
+        XCTAssertNil(b.settings.schedule)
+    }
+
+    /// settings.code moves before applySettings runs; the old team's links must not feed the new team's key.
+    func testScheduleIsNotStoredUnderACodeThatTheLinksDoNotBelongTo() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let oldCode = a.settings.code
+        let otherCode = newCode()
+        a.settings.code = otherCode
+        b.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        b.session.applySettings()
+        XCTAssertNil(a.settings.schedule)
+        a.settings.code = oldCode
+        XCTAssertNil(a.settings.schedule)
+    }
+
+    /// The other direction: in the same window, my presence to the old team's links must not carry the new team's schedule.
+    func testScheduleIsNotSentOnLinksOfAnotherTeam() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.code = newCode()
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)   // stored under the new code
+        XCTAssertNotNil(a.settings.schedule)
+        a.session.updateTakenItemSlot(1)   // a presence broadcast on the old team's links
+        XCTAssertEqual(b.session.members[a.memberID]?.takenItemSlot, 1, "the presence did arrive")
+        XCTAssertNil(b.settings.schedule, "but without the other team's schedule")
+    }
+
+    func testPresenceWithoutScheduleLeavesMineUnchanged() {
+        let a = node("A")
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        let before = a.settings.schedule
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello()
+        raw.say(.presence(TeamPresence(nickname: "Raw", character: Node.eevee, inPlaza: true,
+                                       tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: false)))
+        XCTAssertEqual(a.settings.schedule, before)
+    }
+
     func testCharacterChangeIsSentImmediately() {
         let a = node("A"), b = node("B")
         connect(a, b)

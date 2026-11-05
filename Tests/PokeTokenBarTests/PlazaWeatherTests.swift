@@ -6,7 +6,7 @@ import SpriteKit
 @MainActor
 final class PlazaWeatherTests: XCTestCase {
     private typealias W = PlazaWeather
-    private let calendar = Calendar.current
+    private let calendar: Calendar = PlazaWeather.gregorian
 
     private func date(_ y: Int, _ m: Int, _ d: Int, _ h: Int = 12, _ min: Int = 0, _ s: Int = 0) -> Date {
         calendar.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min, second: s))!
@@ -14,84 +14,43 @@ final class PlazaWeatherTests: XCTestCase {
 
     private func kind(_ y: Int, _ m: Int, _ d: Int) -> W.Kind { W.kind(on: date(y, m, d), calendar: calendar) }
 
-    /// The kind a window day must have: always the window's kind, or the kind on wet days only.
-    private func expected(_ y: Int, _ m: Int, _ d: Int, wet: W.Kind) -> W.Kind {
-        W.isWetDay(year: y, month: m, day: d) ? wet : .clear
+    // MARK: 하루씩 도는 날씨
+
+    /// The four kinds take turns a day at a time, in season order. 2026-11-05 is a leaves day.
+    func testOneKindADayInSeasonOrder() {
+        XCTAssertEqual(W.cycle, [.petals, .greenLeaves, .leaves, .snow])
+        let days: [(Int, Int, W.Kind)] = [(11, 5, .leaves), (11, 6, .snow), (11, 7, .petals), (11, 8, .greenLeaves), (11, 9, .leaves)]
+        for (m, d, k) in days { XCTAssertEqual(kind(2026, m, d), k, "2026-\(m)-\(d)") }
     }
 
-    // MARK: 날짜 창
-
-    func testPetalsEveryDayFromAprilFirstToFourteenth() {
-        for year in [2026, 2027, 2028] {
-            XCTAssertEqual(kind(year, 3, 31), .clear)
-            for d in 1...14 { XCTAssertEqual(kind(year, 4, d), .petals, "\(year)-4-\(d)") }
-            XCTAssertEqual(kind(year, 4, 15), .clear)
+    /// Two days in a row never share a kind, every four days bring all four, and no day is clear or rainy.
+    /// Year ends and leap days keep the turn going.
+    func testConsecutiveDaysDifferAndAllFourComeEveryFourDays() {
+        var c = DateComponents(year: 2023, month: 12, day: 25, hour: 12)
+        var last: W.Kind?
+        var window: [W.Kind] = []
+        for _ in 0..<(365 * 3) {
+            let k = W.kind(on: calendar.date(from: c)!, calendar: calendar)
+            XCTAssertNotEqual(k, .clear)
+            if let last { XCTAssertNotEqual(k, last, "\(c)") }
+            last = k
+            window.append(k)
+            if window.count == 4 { XCTAssertEqual(Set(window), Set(W.cycle), "\(c)"); window.removeFirst() }
+            c = calendar.dateComponents([.year, .month, .day, .hour], from: calendar.date(byAdding: .day, value: 1, to: calendar.date(from: c)!)!)
         }
     }
 
-    func testLeavesEveryDayFromOctoberTwentiethToNovemberTwentieth() {
-        for year in [2026, 2027, 2028] {
-            XCTAssertEqual(kind(year, 10, 19), .clear)
-            XCTAssertEqual(kind(year, 10, 20), .leaves)
-            XCTAssertEqual(kind(year, 11, 20), .leaves)
-            XCTAssertEqual(kind(year, 11, 21), .clear)
-        }
-        for d in 20...31 { XCTAssertEqual(kind(2026, 10, d), .leaves) }
-        for d in 1...20 { XCTAssertEqual(kind(2026, 11, d), .leaves) }
-    }
-
-    /// Wet days cannot sit outside the window, and the window's first and last day are inside it (some year has rain there).
-    func testRainWindowIsJuneTwentiethToJulyThirtyFirst() {
-        for year in 2000...2100 {
-            XCTAssertEqual(kind(year, 6, 19), .clear)
-            XCTAssertEqual(kind(year, 8, 1), .clear)
-            XCTAssertEqual(kind(year, 6, 20), expected(year, 6, 20, wet: .rain))
-            XCTAssertEqual(kind(year, 7, 31), expected(year, 7, 31, wet: .rain))
-        }
-        XCTAssertTrue((2000...2100).contains { kind($0, 6, 20) == .rain }, "June 20 is inside the window")
-        XCTAssertTrue((2000...2100).contains { kind($0, 7, 31) == .rain }, "July 31 is inside the window")
-    }
-
-    func testSnowWindowIsDecemberFirstThroughFebruaryEndLeapYearsToo() {
-        for year in 2000...2100 {
-            XCTAssertEqual(kind(year, 11, 30), .clear)
-            XCTAssertEqual(kind(year, 12, 1), expected(year, 12, 1, wet: .snow))
-            XCTAssertEqual(kind(year, 12, 31), expected(year, 12, 31, wet: .snow))
-            XCTAssertEqual(kind(year, 1, 1), expected(year, 1, 1, wet: .snow), "Dec 31 flows into Jan 1")
-            XCTAssertEqual(kind(year, 2, 28), expected(year, 2, 28, wet: .snow))
-            XCTAssertEqual(kind(year, 3, 1), .clear)
-        }
-        let leap = [2000, 2004, 2024, 2028]
-        for year in leap { XCTAssertEqual(kind(year, 2, 29), expected(year, 2, 29, wet: .snow), "leap day \(year)") }
-        XCTAssertTrue((2000...2100).filter { $0 % 4 == 0 && $0 != 2100 }.contains { kind($0, 2, 29) == .snow }, "Feb 29 is inside")
-        XCTAssertTrue((2000...2100).contains { kind($0, 12, 1) == .snow })
-        XCTAssertTrue((2000...2100).contains { kind($0, 12, 31) == .snow })
-        XCTAssertTrue((2000...2100).contains { kind($0, 1, 1) == .snow })
-        XCTAssertTrue((2000...2100).contains { kind($0, 2, 28) == .snow })
-    }
-
-    func testOtherDaysAreClear() {
-        for (m, d) in [(5, 10), (8, 15), (9, 30), (3, 15), (4, 20), (6, 1)] { XCTAssertEqual(kind(2026, m, d), .clear, "\(m)/\(d)") }
-    }
-
-    /// Wet days come from the date alone: the same date gives the same answer, and the window has both kinds of day.
-    func testWetDaysAreDeterministicAndMixed() {
-        for (m, range) in [(7, 1...31), (12, 1...31), (1, 1...31)] {
-            for year in 2020...2030 {
-                let wet = range.filter { W.isWetDay(year: year, month: m, day: $0) }.count
-                XCTAssertTrue((1..<range.count).contains(wet), "\(year)-\(m): \(wet) wet days")
-                XCTAssertEqual(wet, range.filter { W.isWetDay(year: year, month: m, day: $0) }.count, "same answer twice")
-            }
-        }
-        var wet = 0, total = 0
-        for year in 2000...2100 { for d in 1...31 { total += 1; if W.isWetDay(year: year, month: 7, day: d) { wet += 1 } } }
-        XCTAssertEqual(Double(wet) / Double(total), 0.5, accuracy: 0.08, "about half the days")
-        let december = (1...31).map { W.isWetDay(year: 2026, month: 12, day: $0) }
-        XCTAssertTrue(december.contains(true) && december.contains(false))
+    func testDayNumberCountsCalendarDays() {
+        XCTAssertEqual(W.dayNumber(year: 1970, month: 1, day: 1), 0)
+        XCTAssertEqual(W.dayNumber(year: 1969, month: 12, day: 31), -1)
+        XCTAssertEqual(W.dayNumber(year: 2000, month: 3, day: 1), 11_017)
+        XCTAssertEqual(W.dayNumber(year: 2026, month: 11, day: 5), 20_762)
+        XCTAssertEqual(W.dayNumber(year: 2024, month: 3, day: 1) - W.dayNumber(year: 2024, month: 2, day: 28), 2, "leap day")
+        XCTAssertEqual(W.dayNumber(year: 2027, month: 1, day: 1) - W.dayNumber(year: 2026, month: 12, day: 31), 1)
     }
 
     func testTimeOfDayDoesNotChangeTheDaysWeather() {
-        for (y, m, d) in [(2026, 4, 5), (2026, 7, 4), (2026, 12, 25)] {
+        for (y, m, d) in [(2026, 4, 5), (2026, 7, 1), (2026, 11, 5), (2027, 1, 10), (2028, 2, 29)] {
             let first = W.kind(on: date(y, m, d, 0, 0, 0), calendar: calendar)
             XCTAssertEqual(W.kind(on: date(y, m, d, 23, 59, 59), calendar: calendar), first)
         }
@@ -150,8 +109,8 @@ final class PlazaWeatherTests: XCTestCase {
     }
 
     func testAParticleLeavingTheSideComesBackOnTheOtherSide() {
-        // 비는 오른쪽으로 흐르므로 오른쪽 가장자리를 넘은 입자가 왼쪽에서 돌아온다.
-        var f = PlazaWeatherField(kind: .rain, count: 100, in: screen)
+        // 초록 잎은 오른쪽으로 흐르므로 오른쪽 가장자리를 넘은 입자가 왼쪽에서 돌아온다.
+        var f = PlazaWeatherField(kind: .greenLeaves, count: 100, in: screen)
         var sideWraps = 0
         for _ in 0..<200 {
             let last = f.particles
@@ -173,10 +132,8 @@ final class PlazaWeatherTests: XCTestCase {
             let moves = zip(start, f.particles).map { ($1.x - $0.x, $1.y - $0.y) }.filter { abs($0.0) < 50 && abs($0.1) < 50 }
             return (moves.map(\.0).reduce(0, +) / Double(moves.count), moves.map(\.1).reduce(0, +) / Double(moves.count))
         }
-        let rain = averageMotion(.rain), snow = averageMotion(.snow), petals = averageMotion(.petals), leaves = averageMotion(.leaves)
-        XCTAssertLessThan(rain.dy, snow.dy * 4, "rain falls much faster than snow (y goes down)")
-        XCTAssertGreaterThan(rain.dx, 3, "rain is slanted to the right")
-        for m in [snow, petals, leaves] { XCTAssertLessThan(m.dy, 0, "everything falls") }
+        for k in W.cycle { XCTAssertLessThan(averageMotion(k).dy, 0, "\(k) falls (y goes down)") }
+        XCTAssertGreaterThan(averageMotion(.leaves).dy, averageMotion(.snow).dy * 3, "nothing falls fast; snow drifts down slowest")
     }
 
     func testPausedTimeMovesNothing() {
@@ -199,7 +156,7 @@ final class PlazaWeatherTests: XCTestCase {
         }
         XCTAssertEqual(PlazaWeatherArt.grids(.petals)[1], PlazaWeatherArt.grids(.petals)[0].map { String($0.reversed()) })
         XCTAssertEqual(PlazaWeatherArt.grids(.leaves).count, 6, "three colours, each also mirrored")
-        XCTAssertEqual(PlazaWeatherArt.grids(.rain)[0].count, 4, "a rain streak is four tall")
+        XCTAssertEqual(PlazaWeatherArt.grids(.greenLeaves).count, 4, "two greens, each also mirrored")
     }
 
     // MARK: 장면
@@ -221,7 +178,6 @@ final class PlazaWeatherTests: XCTestCase {
     }
 
     private var snowDay: Date { firstDay(of: .snow, month: 12) }
-    private var clearDay: Date { date(2026, 5, 10) }
 
     private func run(_ s: PlazaScene, seconds: Double, from start: Double = 0) {
         var t = start
@@ -230,13 +186,13 @@ final class PlazaWeatherTests: XCTestCase {
     }
 
     func testSceneShowsTheDaysWeather() {
-        let cases: [(Date, W.Kind)] = [(date(2026, 4, 5), .petals), (firstDay(of: .rain, month: 7), .rain),
-                                       (date(2026, 11, 1), .leaves), (snowDay, .snow), (clearDay, .clear)]
+        let cases: [(Date, W.Kind)] = [(date(2026, 11, 5), .leaves), (date(2026, 11, 6), .snow),
+                                       (date(2026, 11, 7), .petals), (date(2026, 11, 8), .greenLeaves)]
         for (day, wanted) in cases {
             let s = scene(at: day)
             s.update(0)
             XCTAssertEqual(s.weatherKind, wanted)
-            XCTAssertEqual(s.weatherParticleCount > 0, wanted != .clear, "\(wanted)")
+            XCTAssertGreaterThan(s.weatherParticleCount, 0, "\(wanted)")
         }
     }
 
@@ -312,24 +268,20 @@ final class PlazaWeatherTests: XCTestCase {
         XCTAssertGreaterThan(s.weatherParticleCount, 0, "and back when the map returns")
     }
 
-    func testWeatherChangesWhenMidnightEntersANewWindow() {
-        var current = date(2026, 3, 31, 23, 59, 59)
+    func testWeatherChangesAtMidnight() {
+        var current = date(2026, 11, 5, 23, 59, 59)
         let s = scene(at: current)
         s.now = { current }
         s.update(0)
-        XCTAssertEqual(s.weatherKind, .clear)
-        XCTAssertEqual(s.weatherParticleCount, 0)
-        current = date(2026, 4, 1, 0, 0, 0)
-        s.update(0.1)
-        XCTAssertEqual(s.weatherKind, .petals)
+        XCTAssertEqual(s.weatherKind, .leaves)
         XCTAssertGreaterThan(s.weatherParticleCount, 0)
-        current = date(2026, 4, 14, 23, 59, 59)
+        current = date(2026, 11, 6, 0, 0, 0)
+        s.update(0.1)
+        XCTAssertEqual(s.weatherKind, .snow)
+        XCTAssertGreaterThan(s.weatherParticleCount, 0)
+        current = date(2026, 11, 7, 0, 0, 0)
         s.update(0.2)
         XCTAssertEqual(s.weatherKind, .petals)
-        current = date(2026, 4, 15, 0, 0, 0)
-        s.update(0.3)
-        XCTAssertEqual(s.weatherKind, .clear)
-        XCTAssertEqual(s.weatherParticleCount, 0)
     }
 
     func testWeatherLayerSitsAboveCharactersAndBelowTheDaylightMultiply() {
@@ -355,12 +307,12 @@ final class PlazaWeatherTests: XCTestCase {
     func testTheDayIsNotRecalculatedWithinTheDay() {
         let layer = PlazaWeatherLayer()
         let rect = CGRect(x: 0, y: 0, width: 300, height: 200)
-        layer.update(date: date(2026, 4, 5, 8), isHidden: false, dt: 0, visible: rect, step: 0.25)
+        layer.update(date: date(2026, 11, 7, 8), isHidden: false, dt: 0, visible: rect, step: 0.25)
         XCTAssertEqual(layer.kind, .petals)
-        layer.update(date: date(2026, 4, 5, 23, 59, 59), isHidden: false, dt: 0, visible: rect, step: 0.25)
+        layer.update(date: date(2026, 11, 7, 23, 59, 59), isHidden: false, dt: 0, visible: rect, step: 0.25)
         XCTAssertEqual(layer.kind, .petals)
-        layer.update(date: date(2026, 4, 20, 8), isHidden: false, dt: 0, visible: rect, step: 0.25)
-        XCTAssertEqual(layer.kind, .clear, "a later date outside the cached day is looked up again")
+        layer.update(date: date(2026, 11, 20, 8), isHidden: false, dt: 0, visible: rect, step: 0.25)
+        XCTAssertEqual(layer.kind, .greenLeaves, "a later date outside the cached day is looked up again")
     }
 
     // MARK: 기념사진
@@ -405,15 +357,16 @@ final class PlazaWeatherTests: XCTestCase {
             XCTAssertEqual(p.origin.x, onScreen.x, accuracy: 1e-9)
             XCTAssertEqual(p.origin.y, world - onScreen.y - p.size.height, accuracy: 1e-9, "scene y up becomes world y down")
         }
-        XCTAssertEqual(scene(at: clearDay).photoInput()?.weather.count, 0)
     }
 
-    func testPhotoDrawsTheParticlesAndLeavesAClearDayAlone() throws {
-        let snowy = scene(at: snowDay), clear = scene(at: clearDay)
-        for s in [snowy, clear] { run(s, seconds: 1) }
+    func testPhotoDrawsTheParticles() throws {
+        let snowy = scene(at: snowDay)
+        run(snowy, seconds: 1)
         let input = try XCTUnwrap(snowy.photoInput())
         let withSnow = try XCTUnwrap(PlazaPhotoRenderer.render(input))
-        let without = try XCTUnwrap(PlazaPhotoRenderer.render(XCTUnwrap(clear.photoInput())))
+        var bareInput = input
+        bareInput.weather = []
+        let without = try XCTUnwrap(PlazaPhotoRenderer.render(bareInput))
         let flake = try XCTUnwrap(plusFlake(input))
         let at = centerPixel(flake, input: input)
         let drawn = pixel(withSnow, at.x, at.y), bare = pixel(without, at.x, at.y)
@@ -473,5 +426,57 @@ final class PlazaWeatherTests: XCTestCase {
         }
         XCTAssertGreaterThan(plateOnTop, 20, "the name plate shows through an all-white blanket, so it is drawn after it")
         XCTAssertGreaterThan(whites, 1000, "while the map and character are under it")
+    }
+
+    // MARK: 주기 (일·주·월)
+
+    private func kind(_ y: Int, _ m: Int, _ d: Int, _ period: W.Period) -> W.Kind {
+        W.kind(on: date(y, m, d), calendar: calendar, period: period)
+    }
+
+    /// 주는 월요일에 바뀐다.
+    func testWeeklyPeriodChangesOnMonday() {
+        let monday = kind(2026, 11, 9, .week)
+        for d in 9...15 { XCTAssertEqual(kind(2026, 11, d, .week), monday, "11-\(d)") }
+        XCTAssertNotEqual(kind(2026, 11, 8, .week), monday)
+        XCTAssertNotEqual(kind(2026, 11, 16, .week), monday)
+    }
+
+    func testMonthlyPeriodChangesOnTheFirst() {
+        let nov = kind(2026, 11, 1, .month)
+        for d in 1...30 { XCTAssertEqual(kind(2026, 11, d, .month), nov, "11-\(d)") }
+        XCTAssertNotEqual(kind(2026, 10, 31, .month), nov)
+        XCTAssertNotEqual(kind(2026, 12, 1, .month), nov)
+    }
+
+    /// 기본 달력은 시스템 달력(일본력·불기 등)이 아니라 그레고리력이다. 그래야 팀원 모두 같은 날씨를 본다.
+    func testTheDefaultCalendarIsGregorianWhateverTheSystemCalendar() {
+        XCTAssertEqual(W.gregorian.identifier, .gregorian)
+        XCTAssertEqual(W.gregorian.timeZone, TimeZone.current)
+        for p in W.Period.allCases {
+            let when = date(2026, 11, 9)
+            XCTAssertEqual(W.kind(on: when, period: p), W.kind(on: when, calendar: calendar, period: p), "\(p)")
+        }
+    }
+
+    func testEveryPeriodShowsLeavesOn20261105() {
+        for p in W.Period.allCases { XCTAssertEqual(kind(2026, 11, 5, p), .leaves, "\(p)") }
+    }
+
+    func testConsecutivePeriodsDiffer() {
+        var prev = kind(2026, 1, 5, .week)
+        for i in 1..<30 {
+            let d = calendar.date(byAdding: .day, value: 7 * i, to: date(2026, 1, 5))!
+            let k = W.kind(on: d, calendar: calendar, period: .week)
+            XCTAssertNotEqual(k, prev, "week \(i)")
+            prev = k
+        }
+        prev = kind(2026, 1, 15, .month)
+        for i in 1..<24 {
+            let d = calendar.date(byAdding: .month, value: i, to: date(2026, 1, 15))!
+            let k = W.kind(on: d, calendar: calendar, period: .month)
+            XCTAssertNotEqual(k, prev, "month \(i)")
+            prev = k
+        }
     }
 }

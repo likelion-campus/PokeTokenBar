@@ -327,6 +327,22 @@ read_when:
   달력과 읽는 달력이 항상 같았다. 스윕: 팀 코드에서 이 경로뿐이고, `PopoverView.daysInMonth`는 이미 그레고리력이다.
   가드: `testGregorianDayIsReadOnANonGregorianMac` — 실제 `TeamEventFactory` 출력을 비그레고리력 저장소에 넣는다.
 
+- **피어가 보낸 문자열을 저장·재전송하려면 보내기 전에 받는 쪽에서 크기 상한을 건다.** 팀 광장 일정(`PlazaSchedule`)을
+  채택할 때 `changedByName`·`changedBy`·`seasonPeriod`에 상한이 없어, ~900 KB 이름 하나가 시계 검사(+600초)를 통과해
+  모두에게 저장되고 이후 **모든 presence 에 실려** 프레임 상한(1 MB)을 넘겼다. 그 팀원의 presence 가 팀 전체에서 조용히
+  끊기고 재시작해도 남는다. **왜 못 걸렀나:** 일정 테스트는 값의 *시각·범위*(먼 미래, 잘못된 시간대)만 두드렸고 문자열
+  *크기*는 보지 않았다. 닉네임은 `validNickname`이 막아 주지만 새 필드는 그 경로를 지나지 않았다. 규칙: 피어 입력이
+  디스크에 쓰이거나 다시 퍼지면 필드마다 상한을 두고, 닉네임 성격이면 `validNickname`과 같은 규칙을 쓴다(`adoptSchedule`의
+  `isBounded`). 스윕: 소식·반응(`TeamFeedStore.bounded` 64바이트 + `validNickname`), presence 닉네임(`validNickname`), 채팅
+  (저장·전달 안 함, `prepared`), 그 밖의 presence 필드는 Int·Date·열거형이라 크기가 고정이다 — 빈틈은 일정뿐이었다.
+  가드: `testAdoptScheduleRejectsOversizedPeerStrings`, `testScheduleWithAHugeNameIsNeitherAdoptedNorRelayed`.
+
+- **손으로 쓴 `init(from:)`·`CodingKeys`는 필드 하나 때문에 전체 Codable을 맡기지 않는다.** `schedule` 하나를 너그럽게
+  읽으려고 `TeamPresence`의 12개 필드를 모두 손으로 옮겼는데, 이러면 다음 선택 필드를 키 목록이나 디코더에서 빼먹어도
+  컴파일되고 그 값은 조용히 오가지 않는다. 필드 하나만 다르게 읽을 때는 프로퍼티 래퍼(`@LossyOptional`)와 컨테이너 오버로드로
+  그 필드에만 적용하고 나머지는 합성 Codable에 둔다. 가드: `testEveryOptionalFieldSurvivesARoundTrip`(모든 선택 필드를 채워
+  왕복; 키 목록에서 `takenItemSlot`을 빼면 실패하는 것을 확인).
+
 ## 외부 로그·사용량 소스
 
 - **토큰 파일 파서는 외부 도구의 실제 직렬화 구조체(중첩 객체)를 반영해야 한다.** `jetski-standalone-oauth-token`
