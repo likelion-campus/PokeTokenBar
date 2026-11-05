@@ -64,7 +64,8 @@ enum PlazaPond {
 
     static func action(tile: TilePoint, facing: PlazaDirection, isDiving: Bool, canMove: Bool,
                        isWater: (TilePoint) -> Bool, isFree: (TilePoint) -> Bool) -> PlazaPondAction {
-        if isWater(tile) { return isDiving ? .surface : .dive }
+        // 물속의 알은 잠수하지 않고 폴짝 뛰기만 한다(이미 잠수 중이면 떠오른다).
+        if isWater(tile) { return isDiving ? .surface : (canMove ? .dive : .jump) }
         let ahead = PlazaWalker.offset(tile, facing)
         if canMove, isWater(ahead), isFree(ahead) { return .plunge(facing) }
         let nearWater = PlazaDirection.allCases.contains { isWater(PlazaWalker.offset(tile, $0)) }

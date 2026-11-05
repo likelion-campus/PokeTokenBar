@@ -45,6 +45,9 @@ final class PlazaPondTests: XCTestCase {
         XCTAssertEqual(act(p(1, 1), .right), .jump)
         XCTAssertEqual(act(p(6, 5), .right), .dive)
         XCTAssertEqual(act(p(6, 5), .right, diving: true), .surface)
+        // An egg (cannot move) in the water only hops, or surfaces if it was already diving.
+        XCTAssertEqual(act(p(6, 5), .right, canMove: false), .jump)
+        XCTAssertEqual(act(p(6, 5), .right, diving: true, canMove: false), .surface)
     }
 
     func testShoreSplashPrefersTheFacedWater() {

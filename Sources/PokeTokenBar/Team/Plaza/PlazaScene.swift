@@ -509,7 +509,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         if let d = Self.direction(keyCode) {
             if !isRepeat && !modifiers.contains(.command) { onWalkKey?() }
             // Command+방향키는 keyUp이 오지 않아 계속 걷게 되므로 무시한다.
-            if canWalk && !isRepeat && !modifiers.contains(.command) {
+            // 물속에서는 알도 방향키로 걸어 나올 수 있다. 땅에 닿으면 `update`가 입력을 지운다.
+            if (canWalk || isMeInWater) && !isRepeat && !modifiers.contains(.command) {
                 stopWalkingToMember()
                 walker.press(d)
             }
@@ -1055,6 +1056,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         // 따라가며 한마디에 대문자를 쳐도 달리지 않는다.
         walker.wantsToRun = (modifiers.contains(.shift) && walker.isHoldingKey)
             || (followingMember.flatMap { remotes[$0]?.motion.senderIsRunning } ?? false)
+        if !canWalk, !isMeInWater { walker.clearInput() }   // 물에서 나온 알은 누르고 있던 키로 더 걷지 않는다
         advanceWalkToMember()
         let occupied = occupiedTiles()
         walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), stepDuration: pondStepDuration)

@@ -294,6 +294,29 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(plunger.dustCount, 2, "the take-off of a plunge is still on land")
     }
 
+    func testAnEggInTheWaterClimbsOutThenStaysOnLand() {
+        let s = scene(start: p(32, 18))
+        var t = run(s, 0.1)
+        s.canWalk = false   // graduated or released while swimming
+        XCTAssertEqual(s.pondAction(canMove: s.canWalk), .jump, "an egg only hops in the water")
+        s.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)
+        t = run(s, 0.5, from: t)
+        XCTAssertEqual(s.walker.tile, p(31, 18), "the arrow key took it out of the water")
+        s.handleKeyUp(keyCode: leftKey)
+        s.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)
+        t = run(s, 0.5, from: t)
+        XCTAssertEqual(s.walker.tile, p(31, 18), "on land an egg cannot walk")
+    }
+
+    func testAnEggHoldingAKeyStopsAtTheShore() {
+        let s = scene(start: p(32, 18))
+        let t = run(s, 0.1)
+        s.canWalk = false
+        s.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)   // and keeps holding it
+        run(s, 1, from: t)
+        XCTAssertEqual(s.walker.tile, p(31, 18))
+    }
+
     func testShoreJumpSplashesSmall() throws {
         let s = scene(start: p(31, 18))
         addAll(s, [at("near", p(31, 19)), at("far", p(30, 18))])   // distance 1 and 2 from (32,18)
