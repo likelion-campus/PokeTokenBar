@@ -132,6 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             teamName: { [teamSettings] in teamSettings.currentTeam?.name },
             nameColor: { [teamSettings] in teamSettings.nameColor },
             chooseNameColor: { [teamSettings] in teamSettings.nameColor = $0 },
+            schedule: { [teamSettings] in teamSettings.schedule },
             evolutionStage: { [companion] in companion!.representativeEvolutionStage },
             grantItem: { [companion] in companion!.receivePlazaItem($0) },
             session: teamRuntime.session, feed: teamRuntime.feed)

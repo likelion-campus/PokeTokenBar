@@ -112,6 +112,8 @@ struct TeamSettingsSection: View {
                         Toggle(l.teamNotifications, isOn: $team.notificationsEnabled)
                             .labelsHidden().toggleStyle(.switch).controlSize(.small)
                     }
+                    Divider()
+                    scheduleRows
                     if session?.hasIncompatiblePeer == true {
                         error(l.teamIncompatiblePeer)
                     }
@@ -121,6 +123,47 @@ struct TeamSettingsSection: View {
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1))
         }
+    }
+
+    private var scheduleRows: some View {
+        let core = team.schedule?.coreTime ?? .standard
+        let period = team.schedule?.period ?? .day
+        func change(_ start: Int, _ end: Int, _ period: PlazaWeather.Period) {
+            team.changeSchedule(coreStart: start, coreEnd: end, period: period, now: Date())
+        }
+        return VStack(spacing: 0) {
+            row {
+                Text(l.teamCoreTime)
+                Spacer()
+                Picker(l.teamCoreTime, selection: Binding(get: { core.start }, set: { change($0, core.end, period) })) {
+                    ForEach(1...22, id: \.self) { Text(l.teamHour($0)).tag($0) }
+                }
+                .labelsHidden().fixedSize()
+                Text("~")
+                Picker(l.teamCoreTime, selection: Binding(get: { core.end }, set: { change(core.start, $0, period) })) {
+                    ForEach((core.start + 1)...23, id: \.self) { Text(l.teamHour($0)).tag($0) }
+                }
+                .labelsHidden().fixedSize()
+            }
+            Divider()
+            row {
+                Text(l.teamWeatherPeriod)
+                Spacer()
+                Picker(l.teamWeatherPeriod, selection: Binding(get: { period }, set: { change(core.start, core.end, $0) })) {
+                    ForEach(PlazaWeather.Period.allCases, id: \.self) { Text(l.teamWeatherPeriodName($0)).tag($0) }
+                }
+                .labelsHidden().pickerStyle(.segmented).fixedSize()
+            }
+            Text(scheduleCaption)
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.bottom, 8)
+        }
+    }
+
+    private var scheduleCaption: String {
+        guard let s = team.schedule else { return l.teamScheduleDefaultCaption }
+        return l.teamScheduleChangedCaption(name: s.changedByName, when: l.teamScheduleDate(s.changedAt))
     }
 
     private func row<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

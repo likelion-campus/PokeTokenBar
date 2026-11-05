@@ -282,9 +282,13 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 지금 시각. 테스트에서 바꿔 끼운다.
     var now: () -> Date = Date.init
 
+    /// 팀이 정한 밝은 시간대와 날씨 주기. `PlazaWindowController.applySchedule`이 넣는다.
+    var coreTime = PlazaCoreTime.standard
+    var weatherPeriod = PlazaWeather.Period.day
+
     /// 지금 곱하는 색. 배경을 숨겼으면 뒤의 작업 화면이 어두워지지 않게 곱하지 않는다.
     var daylightTint: PlazaDaylight.Tint {
-        isBackgroundHidden ? .none : PlazaDaylight.tint(minute: PlazaDaylight.minute(of: now()))
+        isBackgroundHidden ? .none : PlazaDaylight.tint(minute: PlazaDaylight.minute(of: now()), core: coreTime)
     }
 
     /// 마지막 `applyDaylight`가 정한 색. 모닥불빛이 프레임마다 시각 계산을 되풀이하지 않게 한 번만 구해 둔다.
@@ -920,7 +924,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func advanceWeather(by dt: TimeInterval) {
         let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
         let v = visibleRect
-        weatherLayer.update(date: now(), isHidden: isBackgroundHidden, dt: dt,
+        weatherLayer.update(date: now(), isHidden: isBackgroundHidden, dt: dt, period: weatherPeriod,
                             visible: CGRect(x: v.minX, y: worldSize.height - v.maxY, width: v.width, height: v.height),
                             step: PlazaPixelSnap.step(backing: backing, zoom: zoom))
     }

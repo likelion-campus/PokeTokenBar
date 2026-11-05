@@ -26,6 +26,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private let teamName: () -> String?
     /// 내가 고른 이름 색. nil이면 멤버 ID의 색.
     private let nameColor: () -> UInt32?
+    private let schedule: () -> PlazaSchedule?
     /// 고른 이름 색을 저장한다(팀 설정). 팀원에게는 세션이 보낸다.
     private let chooseNameColor: (UInt32) -> Void
     /// 내 광장 캐릭터의 진화 단계(1부터). 몸통박치기가 미는 칸 수다.
@@ -142,6 +143,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
          teamName: @escaping () -> String? = { nil },
          nameColor: @escaping () -> UInt32? = { nil },
          chooseNameColor: @escaping (UInt32) -> Void = { _ in },
+         schedule: @escaping () -> PlazaSchedule? = { nil },
          evolutionStage: @escaping () -> Int = { 1 },
          grantItem: @escaping (ItemKind) -> Void = { _ in },
          session: TeamSession? = nil,
@@ -174,6 +176,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         self.myRosterEntry = myRosterEntry
         self.teamName = teamName
         self.nameColor = nameColor
+        self.schedule = schedule
         self.chooseNameColor = chooseNameColor
         self.evolutionStage = evolutionStage
         self.grantItem = grantItem
@@ -239,7 +242,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 worldSize: self.map.pixelSize))
             map.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(map)   // 입력은 받지 않는다.
-            let clock = PlazaClockHostingView(rootView: PlazaClock())
+            let clock = PlazaClockHostingView(rootView: PlazaClock(model: minimap))
             clock.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(clock)   // 입력은 받지 않는다.
             let shortcuts = PlazaShortcutGuideHostingView(rootView: PlazaShortcutGuide(
@@ -352,6 +355,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onOverlayKey = { [weak self] in self?.handleOverlayKey($0) }
         s.onWalkKey = { [weak self] in self?.standUp() }
         scene = s
+        applySchedule()
         if let feed {
             unreadGeneration += 1
             observeUnread(feed: feed, generation: unreadGeneration)
@@ -963,6 +967,15 @@ struct PlazaFocusEnd: Equatable, Sendable {
                                      isWalking: scene.walker.isWalking, isRunning: scene.walker.isRunning)
     }
 
+    /// 팀이 정한 밝은 시간대와 날씨 주기를 장면과 지도에 넣는다. 정한 적이 없으면 기본값.
+    func applySchedule() {
+        let core = schedule()?.coreTime ?? .standard
+        let period = schedule()?.period ?? .day
+        if minimap.coreTime != core { minimap.coreTime = core }
+        scene?.coreTime = core
+        scene?.weatherPeriod = period
+    }
+
     /// 작은 지도의 점과 보이는 영역을 지금 상태로 맞춘다.
     private func refreshMinimap() {
         guard let scene else { return }
@@ -982,6 +995,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 테스트용 읽기 전용 값.
     var minimapDots: [PlazaMinimapModel.Dot] { minimap.dots }
     var minimapView: CGRect { minimap.view }
+    var minimapCoreTime: PlazaCoreTime { minimap.coreTime }
     var minimapCampfire: TilePoint? { minimap.campfire }
 
     /// 다시 등록을 먼저 하고 값을 반영한다(그 사이 변경을 놓치지 않는다). 세대가 바뀌었으면 끝낸다.

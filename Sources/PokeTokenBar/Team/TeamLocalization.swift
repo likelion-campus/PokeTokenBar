@@ -20,6 +20,28 @@ extension L {
     var teamNickname: String { "닉네임" }
     var teamNicknameInvalid: String { "닉네임은 1~12자로 입력해 주세요" }
     var teamNotifications: String { "팀 알림" }
+    var teamCoreTime: String { "코어타임" }
+    func teamHour(_ h: Int) -> String { "\(h)시" }
+    var teamWeatherPeriod: String { "계절 바뀌는 주기" }
+    func teamWeatherPeriodName(_ p: PlazaWeather.Period) -> String {
+        switch p {
+        case .day: "하루"
+        case .week: "1주일"
+        case .month: "1개월"
+        }
+    }
+    /// "11월 5일 14:02" — 사용자의 달력과 시간대로.
+    func teamScheduleDate(_ date: Date, calendar: Calendar = .current) -> String {
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = calendar.timeZone
+        f.dateFormat = "M월 d일 HH:mm"
+        return f.string(from: date)
+    }
+    var teamScheduleDefaultCaption: String { "모든 팀원에게 같이 적용돼요 · 앞뒤 1시간은 노을이 져요" }
+    func teamScheduleChangedCaption(name: String, when: String) -> String {
+        "모든 팀원에게 같이 적용돼요 · \(name)님이 \(when)에 바꿨어요"
+    }
     var teamIncompatiblePeer: String { "다른 버전을 쓰는 팀원이 있어요. 모두 최신 버전으로 업데이트해 주세요" }
     var plazaOpen: String { "광장 열기" }
     var plazaWindowTitle: String { "팀 광장" }
