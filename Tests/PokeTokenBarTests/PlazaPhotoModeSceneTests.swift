@@ -18,6 +18,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         return scene
     }
 
+    /// 테스트마다 새 인스턴스라 0에서 시작한다. 동기 `setUp`에서 되돌리지 않는다(CI의 Xcode 16.4에서는 비격리다).
     private var clockTime: TimeInterval = 0
 
     /// 1/30초씩 `seconds`만큼 update를 돌린다.
@@ -34,8 +35,6 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
     private func layoutFor(_ c: CGPoint, zoom: Int = 2) -> PlazaPhotoFrame.Layout? {
         PlazaPhotoFrame.layout(center: c, viewport: size, zoom: zoom, backingScale: 2, world: map.pixelSize)
     }
-
-    override func setUp() { clockTime = 0 }
 
     func testEnteringKeepsTheViewAndFramesIt() throws {
         let scene = newScene()

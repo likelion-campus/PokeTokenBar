@@ -690,6 +690,13 @@ read_when:
   `xcrun xctest -XCTest <모듈.스위트> -AppleLanguages '(en)' <.xctest 번들>` 로 재현된다.
   로컬 재현은 도구체인 조합에 달려 있다: 이 Mac 의 CLT(Swift 6.0.3)는 `SwiftBridging` 모듈 중복으로
   `Foundation` 을 못 읽고, Xcode 26.5 컴파일러에 15.2 SDK 를 붙이면 `@Observable` 매크로가 맞지 않는다.
+  **재발(2026-11-05, 사진 모드 PR #67):** 새 `@MainActor` 테스트가 동기 `override func setUp() { clockTime = 0 }` 로
+  격리된 `var` 를 되돌려 CI(Xcode 16.4/Swift 6.1.2)의 테스트 컴파일이 실패했다. 로컬 Xcode 26.5(Swift 6.3.2)는 통과시킨다.
+  **왜 못 걸렀나:** 위 규칙이 문장으로만 있어 계획의 전역 제약에도 과제 리뷰에도 들어가지 않았고, 로컬 전체 테스트와
+  게이트는 최신 도구체인이라 이 부류를 볼 수 없다. → 소스 스캔 가드 `TestIsolationTests` 가 `@MainActor` XCTestCase 의
+  동기 `setUp()`/`tearDown()` 본문이 `nonisolated(unsafe)` 가 아닌 클래스 멤버(`var`·`func`)를 쓰면 실패한다.
+  그 줄은 지웠다(XCTest 는 테스트마다 새 인스턴스를 만들어 초기값이 이미 0이다). 부류 스윕: Tests 의 동기 override 전부를
+  가드로 검사했고 위반은 이 한 곳뿐이었다. 가드는 이 줄을 되살리면 실패한다(주입 확인).
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
