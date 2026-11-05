@@ -32,6 +32,8 @@ struct PlazaWalker: Sendable {
     private var stepElapsed: TimeInterval = 0
     /// 지금 가는 칸에 걸리는 시간. 칸을 출발할 때 정한다.
     private var stepLength: TimeInterval = Self.stepDuration
+    /// 다음 `advance`에서 canEnter와 상관없이 한 칸 뛰어들 방향
+    private var pendingPlunge: PlazaDirection?
     /// Shift를 누르고 있다. 다음에 출발하는 칸부터 달린다. 밀려 가는 칸은 늘 걷는 빠르기다.
     var wantsToRun = false
 
@@ -62,6 +64,12 @@ struct PlazaWalker: Sendable {
         pendingPush = (d, tiles)
     }
 
+    /// 연못으로 뛰어든다: 다음 걸음은 `canEnter`와 상관없이 `d`로 한 칸, 누른 키와 탭보다 먼저다.
+    /// 그 칸이 빈 물 칸인지는 부르는 쪽이 확인한다.
+    mutating func plunge(_ d: PlazaDirection) {
+        pendingPlunge = d
+    }
+
     /// 서 있을 때만 돌아선다.
     mutating func face(_ d: PlazaDirection) {
         if stepFrom == nil { facing = d }
@@ -82,7 +90,17 @@ struct PlazaWalker: Sendable {
         pendingTap = nil
     }
 
-    mutating func advance(by dt: TimeInterval, canEnter: (TilePoint) -> Bool) {
+    mutating func advance(by dt: TimeInterval, canEnter: (TilePoint) -> Bool,
+                          stepDuration: ((TilePoint, TilePoint, Bool) -> TimeInterval)? = nil) {
+        advance(by: dt, canEnterFrom: { _, to in canEnter(to) }, stepDuration: stepDuration)
+    }
+
+    /// `canEnterFrom(출발 칸, 도착 칸)`: 걸음마다 지금 서 있는 칸을 알려 준다(물속인지에 따라 갈 수 있는 칸이 달라진다).
+    mutating func advance(by dt: TimeInterval, canEnterFrom canEnter: (TilePoint, TilePoint) -> Bool,
+                          stepDuration: ((TilePoint, TilePoint, Bool) -> TimeInterval)? = nil) {
+        func length(_ from: TilePoint, _ to: TilePoint, running: Bool) -> TimeInterval {
+            stepDuration?(from, to, running) ?? (running ? Self.runStepDuration : Self.stepDuration)
+        }
         var remaining = dt
         while true {
             if stepFrom != nil {
@@ -95,11 +113,22 @@ struct PlazaWalker: Sendable {
                 stepFrom = nil
                 stepElapsed = 0
             }
+            if let d = pendingPlunge {
+                pendingPlunge = nil
+                pendingTap = nil
+                facing = d
+                let target = Self.offset(tile, d)
+                stepLength = length(tile, target, running: false)
+                stepFrom = tile
+                tile = target
+                stepElapsed = 0
+                continue
+            }
             if let push = pendingPush {
                 let target = Self.offset(tile, push.direction)
-                if canEnter(target) {
+                if canEnter(tile, target) {
                     pendingPush = push.tiles > 1 ? (push.direction, push.tiles - 1) : nil
-                    stepLength = Self.stepDuration
+                    stepLength = length(tile, target, running: false)
                     stepFrom = tile
                     tile = target
                     stepElapsed = 0
@@ -112,8 +141,8 @@ struct PlazaWalker: Sendable {
             facing = d
             let target = Self.offset(tile, d)
             // 못 들어가면 돌아서기만 한다.
-            guard canEnter(target) else { return }
-            stepLength = wantsToRun ? Self.runStepDuration : Self.stepDuration
+            guard canEnter(tile, target) else { return }
+            stepLength = length(tile, target, running: wantsToRun)
             stepFrom = tile
             tile = target
             stepElapsed = 0

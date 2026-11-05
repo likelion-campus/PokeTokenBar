@@ -128,9 +128,10 @@ struct PlazaSceneMember: Equatable, Sendable {
             isIdle ? nickname + " " + L(.ko).plazaAwaySuffix : nickname
         }
 
-        mutating func advance(by dt: TimeInterval, blocked: Set<TilePoint>) {
+        mutating func advance(by dt: TimeInterval, blocked: Set<TilePoint>,
+                              stepDuration: ((TilePoint, TilePoint, Bool) -> TimeInterval)? = nil) {
             if let moved = wanderer?.advance(by: dt, blocked: blocked) { motion.moveTo(moved) }
-            motion.advance(by: dt)
+            motion.advance(by: dt, stepDuration: stepDuration)
         }
     }
 
@@ -392,7 +393,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 받은 칸이 지도 밖이거나 걸을 수 없으면 쉼터 칸. 다른 버전의 지도나 잘못된 값에도 나무 위에 서지 않는다.
     private func resolvedTile(_ m: PlazaSceneMember) -> TilePoint {
-        if let t = m.tile, map.isWalkable(t) { return t }
+        if let t = m.tile, map.isWalkable(t) || map.isWater(t) { return t }
         return shelterWanderer(m.memberID).tile
     }
 
@@ -475,7 +476,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 방향키를 누르거나 판·입력창을 열면 멈춘다. 알이거나 모르는 팀원이면 false.
     @discardableResult
     func walk(toMember id: String) -> Bool {
-        guard canWalk, remotes[id] != nil else { return false }
+        guard canWalk, !isMeInWater, remotes[id] != nil else { return false }
         setAutoWalk(id, following: false)
         return true
     }
@@ -484,7 +485,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 방향키를 누르거나 그 팀원이 광장을 떠나면 멈춘다. 판이 열린 동안은 쉬었다가 닫으면 이어 간다. 알이거나 모르는 팀원이면 false.
     @discardableResult
     func follow(member id: String) -> Bool {
-        guard canWalk, remotes[id] != nil else { return false }
+        guard canWalk, !isMeInWater, remotes[id] != nil else { return false }
         setAutoWalk(id, following: true)
         return true
     }
@@ -524,6 +525,25 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     var walkingToMember: String? { autoWalk }
 
+    /// 내가 물속에 있다(걷는 중이면 도착할 칸 기준).
+    var isMeInWater: Bool { map.isWater(walker.tile) }
+    /// 그 팀원이 물속에 있다. 모르는 팀원이면 nil.
+    func memberIsInWater(_ id: String) -> Bool? { remotes[id].map { map.isWater($0.motion.tile) } }
+
+    /// 땅에서는 걸을 수 있는 빈 칸만, 물속에서는 물 칸과 걸을 수 있는 땅 칸에 들어간다.
+    private func canEnterTile(occupied: Set<TilePoint>) -> (TilePoint, TilePoint) -> Bool {
+        { [map] from, to in
+            guard !occupied.contains(to) else { return false }
+            return map.isWalkable(to) || (map.isWater(from) && map.isWater(to))
+        }
+    }
+
+    private var pondStepDuration: (TilePoint, TilePoint, Bool) -> TimeInterval {
+        { [map] from, to, running in
+            PlazaPond.stepDuration(from: from, to: to, running: running, isWater: { map.isWater($0) })
+        }
+    }
+
     /// 다른 팀원이 서 있는(걷는 중이면 도착할) 칸. 나는 이 칸에 들어가지 못한다. 이미 겹쳐 서 있으면 빠져나갈 수는 있다.
     /// 팀원 쪽 Mac도 같은 규칙으로 나를 피하므로 서로 겹치지 않는다(동시에 같은 칸에 들어가면 잠깐 겹칠 수 있다).
     func occupiedTiles(except id: String? = nil) -> Set<TilePoint> {
@@ -538,14 +558,30 @@ struct PlazaSceneMember: Equatable, Sendable {
             if !isFollowing { stopWalkingToMember() }
             return
         }
+        // 물속의 팀원은 따라갈 수 없고, 물속의 나는 길을 찾지 않는다.
+        if isFollowing && map.isWater(target) { return stopWalkingToMember() }
         guard !walker.isWalking else { return }
+        if isMeInWater { return stopWalkingToMember() }
         if PlazaPathfinder.isAdjacent(walker.tile, target) {
             walker.face(PlazaPathfinder.direction(from: walker.tile, to: target))
             if !isFollowing { stopWalkingToMember() }
             return
         }
-        guard let first = PlazaPathfinder.path(from: walker.tile, toNextTo: target, map: map,
-                                               blocked: occupiedTiles())?.first else {
+        let blocked = occupiedTiles()
+        var goal = target
+        var route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked)
+        if route == nil, map.isWater(target),
+           let edge = PlazaPond.nearestEdgeWater(to: target, isWater: { map.isWater($0) }, isLand: { map.isWalkable($0) }) {
+            // 물 가운데의 팀원: 가장 가까운 테두리 물 칸 옆 땅까지만 간다.
+            goal = edge
+            if PlazaPathfinder.isAdjacent(walker.tile, edge) {
+                walker.face(PlazaPathfinder.direction(from: walker.tile, to: edge))
+                stopWalkingToMember()
+                return
+            }
+            route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked)
+        }
+        guard let first = route?.first else {
             // 따라가는 중이면 길이 트일 때까지 기다린다.
             if !isFollowing { stopWalkingToMember() }
             return
@@ -713,10 +749,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 몸통박치기에 맞아 `tiles`칸 밀린다. 막힌 칸을 만나면 그 앞에 선다. 알도 밀린다.
     /// 창이 가려져 장면이 멈춰 있으면(`isPaused`) 다음 화면이 오지 않으므로 그 자리에서 다 밀리고 팀원에게 바로 알린다.
     func pushMe(_ d: PlazaDirection, tiles: Int = 1) {
+        guard !isMeInWater else { return }
         walker.push(d, tiles: tiles)
         guard isPaused else { return }
         let occupied = occupiedTiles()
-        walker.advance(by: PlazaWalker.stepDuration * Double(tiles)) { [map] in map.isWalkable($0) && !occupied.contains($0) }
+        walker.advance(by: PlazaWalker.stepDuration * Double(tiles), canEnterFrom: canEnterTile(occupied: occupied),
+                       stepDuration: pondStepDuration)
         reportLocalPosition()
     }
     /// 테스트용: 그 팀원을 달리는 빠르기로 따라가는지. 없으면 nil.
@@ -847,7 +885,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             || (followingMember.flatMap { remotes[$0]?.motion.senderIsRunning } ?? false)
         advanceWalkToMember()
         let occupied = occupiedTiles()
-        walker.advance(by: dt) { [map] in map.isWalkable($0) && !occupied.contains($0) }
+        walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), stepDuration: pondStepDuration)
         advanceAnimation(by: dt)
         advanceTallGrass(by: dt)
         advanceSparkles(by: dt)
@@ -950,7 +988,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             // 쉼터에서 어슬렁거리는 팀원도 나와 다른 팀원이 선 칸으로는 옮기지 않는다.
             // `remotes`를 읽는 값은 먼저 구한다. 같은 식 안에서 고치는 원소와 함께 읽으면 접근 충돌로 멈춘다.
             let blocked = occupiedTiles(except: id).union([walker.tile])
-            remotes[id]?.advance(by: dt, blocked: blocked)
+            remotes[id]?.advance(by: dt, blocked: blocked, stepDuration: pondStepDuration)
             guard let r = remotes[id] else { continue }
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.animate(by: dt, useBack: p.useBack)
