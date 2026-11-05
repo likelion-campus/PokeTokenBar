@@ -9,7 +9,6 @@ struct PlazaShortcutGuide: View {
         let l = L(.ko)
         return [
             (l.plazaShortcutArrows, l.plazaShortcutWalk), ("Shift", l.plazaShortcutRun), ("Space", l.plazaShortcutTalk),
-            ("Space", l.plazaShortcutFocus),
             ("Enter", l.plazaShortcutChat), ("1–5", l.plazaShortcutEmotes), ("Z", l.plazaJump),
             ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("P", l.plazaShortcutPhoto), ("G", l.plazaShortcutGroupPhoto),
             ("−/+", l.plazaShortcutZoom),
