@@ -17,6 +17,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     var nameColor: UInt32?
     /// 달리고 있다. 이 화면에서도 달리는 빠르기로 따라간다.
     var isRunning = false
+    /// 연못에서 잠수 중이다.
+    var isDiving = false
+    /// 진화 단계 1...3.
+    var evolutionStage = 1
 }
 
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.

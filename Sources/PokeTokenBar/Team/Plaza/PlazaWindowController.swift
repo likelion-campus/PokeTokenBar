@@ -1008,7 +1008,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene.applyMembers(list.map {
             PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
                              facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle, nameColor: $0.nameColor,
-                             isRunning: $0.isRunning)
+                             isRunning: $0.isRunning, isDiving: $0.isDiving, evolutionStage: $0.evolutionStage)
         })
         refreshMinimap()
         let ids = Set(members.keys)
