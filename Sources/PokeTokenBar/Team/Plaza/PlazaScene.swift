@@ -123,6 +123,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         /// 그 팀원이 알린 잠수와, 그림에 반영한 흐려짐.
         var diving = false
         var dive = DiveFade()
+        var stage = 1
+        var pond = PondWatch()
 
         /// zZ는 자리비움(입력 없음)일 때만. 광장을 닫고 일하는 팀원은 쉼터에 서 있어도 zZ가 없다.
         var displayName: String { Self.displayName(nickname, isIdle: isIdle) }
@@ -172,6 +174,50 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
     private var myGrassWatch = GrassWatch()
+
+    /// 연못 기록 하나(나 또는 팀원 한 명): 땅에서 물로 뛰는 걸음, 지난 점프 높이, 잠수 거품 시계.
+    /// 도착·착지·거품을 `advance`가 세어 돌려주고, 물보라와 젖음은 장면이 낸다.
+    private struct PondWatch {
+        var plungeTo: TilePoint?
+        var lastStep: (from: TilePoint, to: TilePoint)?
+        var lastLift: CGFloat = 0
+        var bubbleClock: TimeInterval = PlazaPond.bubbleInterval
+
+        struct Events { var landedInWater: TilePoint?; var shoreSplash: TilePoint?; var bubble = false }
+
+        /// 땅→물 걸음이 끝난 프레임에 도착 칸을, 점프에서 내려앉은 프레임에 땅의 물가 물보라 칸을, 잠수 중 0.4초마다 거품을 알린다.
+        mutating func advance(tile: TilePoint, step: PlazaStep?, lift: CGFloat, facing: PlazaDirection, diving: Bool,
+                              dt: TimeInterval, isWater: (TilePoint) -> Bool) -> Events {
+            var events = Events()
+            let sameStep = step != nil && step?.from == lastStep?.from && step?.to == lastStep?.to
+            if let landed = plungeTo, !sameStep {
+                events.landedInWater = landed
+                plungeTo = nil
+            }
+            if let step {
+                if !sameStep {
+                    lastStep = (step.from, step.to)
+                    if !isWater(step.from), isWater(step.to) { plungeTo = step.to }
+                }
+            } else {
+                lastStep = nil
+            }
+            if lastLift > 0, lift == 0, !isWater(tile) {
+                events.shoreSplash = PlazaPond.shoreSplashTile(tile: tile, facing: facing, isWater: isWater)
+            }
+            lastLift = lift
+            if diving {
+                bubbleClock += dt
+                if bubbleClock >= PlazaPond.bubbleInterval { bubbleClock = 0; events.bubble = true }
+            } else {
+                bubbleClock = PlazaPond.bubbleInterval
+            }
+            return events
+        }
+    }
+    private var myPond = PondWatch()
+    /// 내 진화 단계(1...3). 큰 물보라가 젖게 하는 반경이다. 창 컨트롤러가 내 종이 바뀔 때마다 맞춘다.
+    var myEvolutionStage = 1
 
     /// 잠수로 흐려지는 정도(0–1). `PlazaPond.diveFade`초에 걸쳐 오가며 장면 시간(dt)으로만 잰다.
     private struct DiveFade {
@@ -393,7 +439,11 @@ struct PlazaSceneMember: Equatable, Sendable {
                 if !m.isAway { r.motion.facing = m.facing }
                 r.nickname = m.nickname
                 r.isIdle = m.isIdle
+                if r.diving, !m.isDiving, map.isWater(target) {
+                    splash(at: target, big: true, stage: m.evolutionStage, splasher: m.memberID)
+                }
                 r.diving = m.isDiving
+                r.stage = m.evolutionStage
                 r.color = PlazaNameColor.color(forMemberID: m.memberID, chosen: m.nameColor)
                 r.actor.setName(r.displayName, color: r.color)
                 remotes[m.memberID] = r
@@ -405,7 +455,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 motion.senderIsRunning = !m.isAway && m.isRunning
                 let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isIdle: m.isIdle), color: color),
                                color: color, nickname: m.nickname, isAway: m.isAway, isIdle: m.isIdle, motion: motion,
-                               wanderer: wanderer, diving: m.isDiving)
+                               wanderer: wanderer, diving: m.isDiving, stage: m.evolutionStage)
                 r.actor.attach(world: self, camera: cameraNode)
                 remotes[m.memberID] = r
             }
@@ -567,6 +617,34 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard on != isDiving, !on || isMeInWater else { return }
         isDiving = on
         diveElapsed = 0
+        if !on, isMeInWater { splash(at: walker.tile, big: true, stage: myEvolutionStage, splasher: nil) }
+    }
+
+    /// Z를 눌렀을 때 할 일: 땅에서는 점프(물가면 첨벙 점프)나 첨벙 뛰어들기, 물속에서는 잠수와 떠오름.
+    /// 바라보는 물 칸에 팀원이 있으면 뛰어들지 않는다.
+    func pondAction(canMove: Bool) -> PlazaPondAction {
+        let taken = occupiedTiles()
+        return PlazaPond.action(tile: walker.tile, facing: walker.facing, isDiving: isDiving, canMove: canMove,
+                                isWater: { map.isWater($0) }, isFree: { !taken.contains($0) })
+    }
+
+    /// 물 칸 `d` 쪽으로 첨벙 뛰어든다. 이미 물속(뛰어드는 걸음 중 포함)이면 아무것도 하지 않는다.
+    /// 큰 물보라는 걸음이 물에 내려앉을 때 `advancePond`가 낸다.
+    func plunge(_ d: PlazaDirection) {
+        guard !isMeInWater else { return }
+        walker.plunge(d)
+        playJump(memberID: nil)
+    }
+
+    /// 물보라 하나: 입자를 내고 땅에 선 배우를 젖게 한다. 연못 그림이 없거나 배경이 숨으면 아무것도 내지 않는다.
+    private func splash(at tile: TilePoint, big: Bool, stage: Int, splasher: String?) {
+        guard let layer = pondLayer, !isBackgroundHidden else { return }
+        layer.splash(at: tile, big: big)
+        let actors: [(id: String?, tile: TilePoint)] = [(nil, walker.tile)] + remotes.map { ($0.key, $0.value.motion.tile) }
+        for id in PlazaPond.wetTargets(splash: tile, radius: big ? PlazaPond.splashRadius(stage: stage) : 1,
+                                       splasher: splasher, actors: actors, isWater: { map.isWater($0) }) {
+            actor(id)?.showWet()
+        }
     }
 
     /// 그 팀원이 잠수한 것으로 보인다: 지금 보이는 자리가 물일 때만. 자리 비움이면 쉼터 칸으로 옮겨져 물이 아니다.
@@ -581,16 +659,34 @@ struct PlazaSceneMember: Equatable, Sendable {
         if isDiving {
             diveElapsed += dt
             if diveElapsed >= diveLimit || !isMeInWater {
+                if isMeInWater { splash(at: walker.tile, big: true, stage: myEvolutionStage, splasher: nil) }
                 isDiving = false
                 onDivingChange?(false)
             }
         }
         myDive.advance(toward: isDiving, dt: dt)
+        watchPond(id: nil, stage: myEvolutionStage, tile: walker.tile, step: walker.currentStep, actor: me,
+                  facing: walker.facing, diving: isDiving, dt: dt)
         for id in Array(remotes.keys) {
             guard let r = remotes[id] else { continue }
             remotes[id]?.dive.advance(toward: isShownDiving(r), dt: dt)
+            watchPond(id: id, stage: r.stage, tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor,
+                      facing: r.motion.facing, diving: isShownDiving(r), dt: dt)
         }
         pondLayer?.update(dt: dt)
+    }
+
+    /// 한 배우의 연못 기록을 한 프레임 흘리고, 땅→물 착지의 큰 물보라·땅 점프 착지의 작은 물보라·잠수 거품을 낸다.
+    private func watchPond(id: String?, stage: Int, tile: TilePoint, step: PlazaStep?, actor: PlazaActor,
+                           facing: PlazaDirection, diving: Bool, dt: TimeInterval) {
+        guard pondLayer != nil else { return }
+        var watch = id.flatMap { remotes[$0]?.pond } ?? myPond
+        let events = watch.advance(tile: tile, step: step, lift: actor.jumpLift, facing: facing, diving: diving, dt: dt,
+                                   isWater: { map.isWater($0) })
+        if let id { remotes[id]?.pond = watch } else { myPond = watch }
+        if let landed = events.landedInWater { splash(at: landed, big: true, stage: stage, splasher: id) }
+        if let shore = events.shoreSplash { splash(at: shore, big: false, stage: stage, splasher: id) }
+        if events.bubble { pondLayer?.bubble(at: tile) }
     }
 
     /// 헤엄 높이 자르기. 배경이 보이는 연못 그림일 때, 물 칸에 선 배우가 걷는 중이 아니거나 물에서 출발한 걸음일 때만 0보다 크다.
@@ -813,6 +909,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용: 떠 있는 먼지 수와 그 캐릭터가 떠 있는 높이.
     var dustCount: Int { children.filter { $0.name == Self.dustName }.count }
     func jumpLift(memberID: String?) -> CGFloat? { actor(memberID)?.jumpLift }
+    func isWet(memberID: String?) -> Bool? { actor(memberID)?.isWet }
     /// 테스트용: 떠 있는 충격 그림 수와 내가 뛰어든 만큼.
     var impactCount: Int { children.filter { $0.name == Self.impactName }.count }
     func lungeOffset(memberID: String?) -> CGPoint? { actor(memberID)?.lungeOffset }

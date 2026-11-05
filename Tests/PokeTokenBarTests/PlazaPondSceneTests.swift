@@ -231,4 +231,228 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.memberOpacity("a"), 1)
         XCTAssertEqual(s.memberSwimRingVisible("a"), false)
     }
+
+    // MARK: - Z plunge, splashes, wet, bubbles
+
+    private let rightKey: UInt16 = 124
+
+    private func at(_ id: String, _ tile: TilePoint, stage: Int = 1, diving: Bool = false) -> PlazaSceneMember {
+        var m = member(id, tile, diving: diving)
+        m.evolutionStage = stage
+        return m
+    }
+
+    private func addAll(_ s: PlazaScene, _ members: [PlazaSceneMember]) {
+        s.applyMembers(members)
+        for m in members { s.setMemberFrames(m.memberID, frames()) }
+    }
+
+    func testPlungeSplashesBigAndWetsByStage() throws {
+        let s = scene(start: p(31, 18))
+        s.myEvolutionStage = 3
+        addAll(s, [at("near", p(29, 18)), at("edge", p(30, 20)), at("far", p(28, 18))])   // distance 3, 3, 4 from (32,18)
+        s.face(.right)
+        var t = run(s, 0.1)
+        XCTAssertEqual(s.pondAction(canMove: true), .plunge(.right))
+        s.plunge(.right)
+        let layer = try XCTUnwrap(s.pondLayer)
+        t = run(s, 0.2, from: t)
+        XCTAssertEqual(layer.dropletCount, 0, "the splash waits for the landing")
+        XCTAssertEqual(s.isWet(memberID: "near"), false)
+        run(s, 0.2, from: t)
+        XCTAssertTrue(s.isMeInWater)
+        XCTAssertEqual(layer.dropletCount, 10)
+        XCTAssertGreaterThanOrEqual(layer.ringCount, 1)
+        XCTAssertEqual(s.isWet(memberID: "near"), true)
+        XCTAssertEqual(s.isWet(memberID: "edge"), true)
+        XCTAssertEqual(s.isWet(memberID: "far"), false)
+        XCTAssertEqual(s.isWet(memberID: nil), false, "the splasher stays dry")
+    }
+
+    func testShoreJumpSplashesSmall() throws {
+        let s = scene(start: p(31, 18))
+        addAll(s, [at("near", p(31, 19)), at("far", p(30, 18))])   // distance 1 and 2 from (32,18)
+        s.face(.down)
+        var t = run(s, 0.1)
+        XCTAssertEqual(s.pondAction(canMove: true), .shoreJump)
+        s.playJump(memberID: nil)
+        let layer = try XCTUnwrap(s.pondLayer)
+        t = run(s, 0.2, from: t)
+        XCTAssertEqual(layer.dropletCount, 0)
+        run(s, 0.2, from: t)
+        XCTAssertEqual(layer.dropletCount, 4)
+        XCTAssertEqual(layer.ringCount, 1)
+        XCTAssertEqual(s.isWet(memberID: "near"), true)
+        XCTAssertEqual(s.isWet(memberID: "far"), false)
+    }
+
+    func testTeammateShoreJumpSplashesToo() throws {
+        let s = scene(start: p(20, 22))
+        addAll(s, [at("a", p(31, 18)), at("b", p(31, 19))])
+        var t = run(s, 0.1)
+        s.playJump(memberID: "a")
+        t = run(s, 0.5, from: t)
+        let layer = try XCTUnwrap(s.pondLayer)
+        XCTAssertGreaterThan(layer.dropletCount, 0)
+        XCTAssertEqual(s.isWet(memberID: "b"), true)
+        XCTAssertEqual(s.isWet(memberID: "a"), false)
+    }
+
+    func testSurfacingSplashesButLeavingTheWaterDoesNot() throws {
+        let s = scene(start: p(33, 18))
+        s.myEvolutionStage = 2
+        addAll(s, [at("a", p(31, 18))])   // distance 2 from (33,18)
+        var t = run(s, 0.1)
+        let layer = try XCTUnwrap(s.pondLayer)
+        s.setDiving(true)
+        t = run(s, 0.8, from: t)
+        XCTAssertEqual(layer.dropletCount, 0, "diving itself makes no splash")
+        s.setDiving(false)
+        XCTAssertEqual(layer.dropletCount, 10)
+        XCTAssertEqual(s.isWet(memberID: "a"), true)
+
+        // Timing out surfaces in place with a splash too.
+        t = run(s, 3, from: t)
+        XCTAssertEqual(layer.dropletCount, 0)
+        s.setDiving(true)
+        t = run(s, 6.2, from: t)
+        XCTAssertFalse(s.isDiving)
+        XCTAssertGreaterThan(layer.dropletCount + layer.ringCount, 0, "the timeout surfaces with a splash")
+
+        // Climbing out while diving makes none.
+        let out = scene(start: p(32, 18))
+        out.myEvolutionStage = 3
+        let outLayer = try XCTUnwrap(out.pondLayer)
+        var u = run(out, 0.1)
+        out.setDiving(true)
+        u = run(out, 0.5, from: u)
+        out.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)
+        out.handleKeyUp(keyCode: leftKey)
+        var peak = 0
+        for _ in 0..<30 { u += 1.0 / 30; out.update(u); peak = max(peak, outLayer.dropletCount + outLayer.ringCount + outLayer.pendingCount) }
+        XCTAssertEqual(out.walker.tile, p(31, 18))
+        XCTAssertFalse(out.isDiving)
+        XCTAssertEqual(peak, 0)
+    }
+
+    func testTeammateSurfacingSplashesWithTheirStage() throws {
+        let s = scene(start: p(20, 22))
+        addAll(s, [at("a", p(34, 18), stage: 2, diving: true), at("in", p(34, 20)), at("out", p(34, 21))])   // distance 2 and 3
+        var t = run(s, 0.3)
+        let layer = try XCTUnwrap(s.pondLayer)
+        XCTAssertEqual(layer.dropletCount, 0)
+        s.applyMembers([at("a", p(34, 18), stage: 2), at("in", p(34, 20)), at("out", p(34, 21))])
+        t = run(s, 0.1, from: t)
+        XCTAssertEqual(layer.dropletCount, 10)
+        XCTAssertEqual(s.isWet(memberID: "in"), true)
+        XCTAssertEqual(s.isWet(memberID: "out"), false)
+        XCTAssertEqual(s.isWet(memberID: "a"), false)
+    }
+
+    func testTeammateClimbingOutWhileSurfacingMakesNoSplash() throws {
+        let s = scene(start: p(20, 22))
+        addAll(s, [at("a", p(32, 18), stage: 3, diving: true), at("b", p(31, 19))])
+        var t = run(s, 0.3)
+        let layer = try XCTUnwrap(s.pondLayer)
+        // Their presence now reports land and no dive; my copy of them still lags on the water.
+        s.applyMembers([at("a", p(31, 18), stage: 3), at("b", p(31, 19))])
+        var peak = 0
+        for _ in 0..<3 { t += 1.0 / 30; s.update(t); peak = max(peak, layer.dropletCount + layer.pendingCount) }
+        XCTAssertEqual(peak, 0)
+        XCTAssertEqual(s.isWet(memberID: "b"), false)
+    }
+
+    func testDiversBlowBubbles() throws {
+        let s = scene(start: p(33, 18))
+        addAll(s, [at("a", p(35, 18), diving: true)])
+        var t = run(s, 0.1)
+        let layer = try XCTUnwrap(s.pondLayer)
+        s.setDiving(true)
+        var peak = 0
+        for _ in 0..<30 { t += 1.0 / 30; s.update(t); peak = max(peak, layer.bubbleCount) }
+        XCTAssertGreaterThanOrEqual(peak, 2)
+        s.setDiving(false)
+        t = run(s, 1.5, from: t)
+        // Only the teammate keeps blowing now; with a single diver at most two bubbles overlap.
+        XCTAssertLessThanOrEqual(layer.bubbleCount, 2)
+        s.applyMembers([at("a", p(35, 18))])
+        t = run(s, 1, from: t)
+        XCTAssertEqual(layer.bubbleCount, 0, "surfaced swimmers blow none")
+    }
+
+    func testWetDoesNotClearAChatBubble() {
+        let s = scene(start: p(31, 18))
+        addAll(s, [at("a", p(31, 19))])
+        s.face(.down)
+        var t = run(s, 0.1)
+        s.showChat(memberID: "a", text: "hello")
+        s.playJump(memberID: nil)
+        t = run(s, 0.5, from: t)
+        XCTAssertEqual(s.isWet(memberID: "a"), true)
+        XCTAssertEqual(s.shownChat(memberID: "a"), "hello")
+        run(s, 2.5, from: t)
+        XCTAssertEqual(s.isWet(memberID: "a"), false, "the drop lasts two seconds")
+    }
+
+    func testPlungeIsBlockedBySwimmerAndRepeatedZ() throws {
+        let s = scene(start: p(31, 18))
+        addAll(s, [at("swimmer", p(32, 18))])
+        s.face(.right)
+        var t = run(s, 0.1)
+        XCTAssertEqual(s.pondAction(canMove: true), .shoreJump)
+        s.applyMembers([at("swimmer", p(35, 18))])
+        t = run(s, 0.1, from: t)
+        XCTAssertEqual(s.pondAction(canMove: true), .plunge(.right))
+        XCTAssertEqual(s.pondAction(canMove: false), .shoreJump)
+        s.plunge(.right)
+        t = run(s, 0.1, from: t)
+        XCTAssertTrue(s.walker.isWalking)
+        s.plunge(.right)   // a second Z in the middle of the plunge step
+        run(s, 1, from: t)
+        XCTAssertEqual(s.walker.tile, p(32, 18), "one tile only")
+    }
+
+    func testPlungingWhileWalkingToAMemberStopsTheWalk() {
+        let s = scene(start: p(31, 18))
+        addAll(s, [at("far", p(20, 22))])
+        s.face(.right)
+        var t = run(s, 0.1)
+        XCTAssertTrue(s.walk(toMember: "far"))
+        s.plunge(.right)
+        t = run(s, 0.8, from: t)
+        XCTAssertNil(s.walkingToMember)
+        XCTAssertTrue(s.isMeInWater)
+        XCTAssertEqual(s.walker.tile, p(32, 18))
+    }
+
+    func testNoParticlesOrWetWithoutPondVisualsOrWithTheBackgroundHidden() throws {
+        let plain = scene(start: p(31, 18), pondVisuals: false)
+        addAll(plain, [at("a", p(31, 19))])
+        plain.face(.right)
+        var t = run(plain, 0.1)
+        plain.plunge(.right)
+        t = run(plain, 0.6, from: t)
+        XCTAssertTrue(plain.isMeInWater)
+        XCTAssertEqual(plain.isWet(memberID: "a"), false)
+        plain.myEvolutionStage = 3
+        plain.setDiving(true)
+        plain.setDiving(false)   // a surfacing splash would reach the neighbours
+        XCTAssertEqual(plain.isWet(memberID: "a"), false)
+
+        let hidden = scene(start: p(31, 18))
+        addAll(hidden, [at("a", p(31, 19))])
+        hidden.face(.right)
+        hidden.setBackgroundHidden(true)
+        let layer = try XCTUnwrap(hidden.pondLayer)
+        var u = run(hidden, 0.1)
+        hidden.plunge(.right)
+        var peak = 0
+        for _ in 0..<20 { u += 1.0 / 30; hidden.update(u); peak = max(peak, layer.dropletCount + layer.ringCount + layer.pendingCount) }
+        XCTAssertTrue(hidden.isMeInWater)
+        XCTAssertEqual(peak, 0)
+        XCTAssertEqual(hidden.isWet(memberID: "a"), false)
+        hidden.setDiving(true)
+        u = run(hidden, 1, from: u)
+        XCTAssertEqual(layer.bubbleCount, 0)
+    }
 }

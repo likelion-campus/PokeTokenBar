@@ -33,6 +33,15 @@ struct PlazaActorContext {
     private var nestFrontImage: CGImage?
     /// 말풍선은 이름표처럼 카메라 공간에 둔다.
     private let emoteNode = SKSpriteNode()
+    /// 물보라에 젖었을 때 이름표 옆에 잠깐 뜨는 💧. 말풍선과 별개의 노드라 말풍선을 지우지도 가리지도 않는다.
+    private let wetNode = SKSpriteNode()
+    private var wetRemaining: TimeInterval = 0
+    private static let wetSize = CGSize(width: 16, height: 16)
+    private static let wetTexture: SKTexture = {
+        let texture = SKTexture(cgImage: PlazaPondArt.wetImage(scale: 4))
+        texture.filteringMode = .nearest
+        return texture
+    }()
     /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
     private var shadowTextureSize: (width: Int, height: Int)?
     /// 발밑 그림: 그림자나 알의 둥지. 기념사진도 같은 그림을 쓴다.
@@ -93,6 +102,11 @@ struct PlazaActorContext {
         emoteNode.anchorPoint = CGPoint(x: 0.5, y: 0)
         emoteNode.zPosition = 11
         emoteNode.isHidden = true
+        wetNode.texture = Self.wetTexture
+        wetNode.size = Self.wetSize
+        wetNode.anchorPoint = CGPoint(x: 0, y: 0.5)
+        wetNode.zPosition = 11
+        wetNode.isHidden = true
     }
 
     func attach(world: SKNode, camera: SKCameraNode) {
@@ -102,6 +116,7 @@ struct PlazaActorContext {
         world.addChild(nestFrontNode)
         camera.addChild(plateNode)
         camera.addChild(emoteNode)
+        camera.addChild(wetNode)
     }
 
     func detach() {
@@ -111,7 +126,16 @@ struct PlazaActorContext {
         nestFrontNode.removeFromParent()
         plateNode.removeFromParent()
         emoteNode.removeFromParent()
+        wetNode.removeFromParent()
     }
+
+    /// 💧를 `PlazaPond.wetDuration`초 동안 이름표 옆에 띄운다. 다시 젖으면 시간을 처음부터 잰다.
+    func showWet() {
+        wetRemaining = PlazaPond.wetDuration
+        wetNode.isHidden = false
+    }
+
+    var isWet: Bool { wetRemaining > 0 }
 
     /// 캐릭터 위 말풍선은 모두 인사하기와 같은 큰 그림(1.5배)으로 그린다. 새 말풍선이 옛것을 바꾸고 시간을 처음부터 다시 잰다. 그림은 `place`에서 그린다.
     func showEmote(_ kind: TeamEmoteKind) {
@@ -179,6 +203,10 @@ struct PlazaActorContext {
         }
         if let e = jumpElapsed {
             jumpElapsed = e + dt >= Self.jumpDuration ? nil : e + dt
+        }
+        if wetRemaining > 0 {
+            wetRemaining -= dt
+            if wetRemaining <= 0 { wetNode.isHidden = true }
         }
         if emoteKind != nil || chatText != nil {
             emoteRemaining -= dt
@@ -251,6 +279,8 @@ struct PlazaActorContext {
                                                           plateWidth: plateNode.size.width, viewport: context.viewport,
                                                           backing: labelBacking, zoom: zoom)
         placeEmote(backing: labelBacking, viewport: context.viewport)
+        wetNode.position = CGPoint(x: plateNode.position.x + plateNode.size.width / 2 + 1,
+                                   y: plateNode.position.y + plateNode.size.height / 2)
     }
 
     /// 기념사진에 찍을 값. 그림을 아직 못 받았으면 nil이다. 이름표와 말풍선은 화면 배율과 상관없이 배율 2로 새로 만든다.
