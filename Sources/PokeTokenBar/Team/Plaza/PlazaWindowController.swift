@@ -73,6 +73,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var overlayGeneration = 0
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
+    /// 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭, 펼친 단축키 안내가 다 보이는 높이.
+    static let minContentSize = NSSize(width: 600, height: 340)
     private var lastEmoteAt: Date?
     private var lastChatAt: Date?
     private var lastLoudAt: Date?
@@ -203,7 +205,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
             w.title = title
-            w.contentMinSize = NSSize(width: 600, height: 320)   // 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭
+            w.contentMinSize = Self.minContentSize
             w.isReleasedWhenClosed = false
             w.level = .normal
             w.delegate = self
@@ -339,6 +341,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             if let self, !self.isFocusing, let id = self.faceNearbyMember() { self.tackle(id) }
         }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
+        s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
         s.onItemPickup = { [weak self] in self?.pickUp($0) }
         s.onItemChange = { [weak self] _ in self?.refreshMinimap() }
         s.onFrameClockStall = { [weak self] in self?.logState($0 ? "frame clock stalled" : "frame clock resumed") }
@@ -496,6 +499,23 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showJump(memberID: String) {
         scene?.playJump(memberID: memberID)
+    }
+
+    /// 직전에 쏜 불꽃 종류. 같은 종류가 연달아 나오지 않게 기억한다.
+    private var lastFireworkStyle: String?
+
+    /// 무작위 종류로 한 발을 쏘고 팀원들에게 보낸다. 앞의 불꽃이 끝나지 않았으면 장면이 거절해 아무에게도 보내지 않는다.
+    private func handleFireworkKey() {
+        var rng = SystemRandomNumberGenerator()
+        let style = PlazaFireworks.next(after: lastFireworkStyle, using: &rng)
+        guard scene?.playFirework(memberID: nil, style: style.id) == true else { return }
+        lastFireworkStyle = style.id
+        session?.sendEmote(.firework, target: nil, fireworkStyle: style.id)
+    }
+
+    /// 런타임이 부른다. 팀원이 불꽃을 쐈다. 창이 닫혀 있으면 아무것도 안 한다.
+    func showFirework(memberID: String, style: String?) {
+        scene?.playFirework(memberID: memberID, style: style)
     }
 
     /// 보이는 장면을 사진으로 합성해 클립보드에 PNG로 넣고 번쩍인다. 합성이나 인코딩이 실패하면 클립보드를 그대로 두고 번쩍이지 않는다.

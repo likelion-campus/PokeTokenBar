@@ -60,6 +60,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onTackleKey: (() -> Void)?
     /// G(단체 사진). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onGroupPhotoKey: (() -> Void)?
+    /// F(불꽃놀이). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
+    var onFireworkKey: (() -> Void)?
     /// Return과 숫자패드 Enter. 판이 닫혀 있을 때만 온다.
     var onChatKey: (() -> Void)?
     /// 판이 열린 동안 판이 쓰는 키(위, 아래, 스페이스, Enter, Esc). 눌러 둔 자동 반복은 넘기지 않는다.
@@ -87,6 +89,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     private let cameraNode = SKCameraNode()
     /// 계절 날씨 입자. 캐릭터(z 1~2) 위, 낮밤 곱하기(5)와 이름표(10) 아래.
     private let weatherLayer = PlazaWeatherLayer()
+    /// 불꽃. 빛이라 낮밤 곱하기(5)와 모닥불빛(6) 위, 이름표(10) 아래.
+    private let fireworkLayer = PlazaFireworkLayer()
     /// 지금 지도에서 아이템이 놓일 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
     private lazy var itemOpenTiles: Set<TilePoint> = PlazaItems.openTiles(in: map)
     /// 누군가 주운 아이템 칸. 창 컨트롤러가 채운다.
@@ -256,6 +260,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         if campfireNode != nil { addChild(campfireLightNode) }
         weatherLayer.zPosition = 3
         addChild(weatherLayer)
+        fireworkLayer.zPosition = 7
+        addChild(fireworkLayer)
         addChild(cameraNode)
         me.attach(world: self, camera: cameraNode)
         camera = cameraNode
@@ -284,7 +290,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 지금 곱하는 색. 배경을 숨겼으면 뒤의 작업 화면이 어두워지지 않게 곱하지 않는다.
     var daylightTint: PlazaDaylight.Tint {
-        isBackgroundHidden ? .none : PlazaDaylight.tint(minute: PlazaDaylight.minute(of: now()))
+        guard !isBackgroundHidden else { return .none }
+        return PlazaDaylight.dimmed(PlazaDaylight.tint(minute: PlazaDaylight.minute(of: now())), by: fireworkLayer.dimLevel)
     }
 
     /// 마지막 `applyDaylight`가 정한 색. 모닥불빛이 프레임마다 시각 계산을 되풀이하지 않게 한 번만 구해 둔다.
@@ -429,9 +436,9 @@ struct PlazaSceneMember: Equatable, Sendable {
             return .swallowed
         }
         // 사진 키도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 보내지 않는다(P를 누르고 있어도 한 번만 찍는다).
-        // Z(점프), X(인사하기), C(몸통박치기), G(단체 사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다.
+        // Z(점프), X(인사하기), C(몸통박치기), G(단체 사진), F(불꽃놀이)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다.
         if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.cKeyCode: onTackleKey,
-                         Self.gKeyCode: onGroupPhotoKey][keyCode] {
+                         Self.gKeyCode: onGroupPhotoKey, Self.fKeyCode: onFireworkKey][keyCode] {
             if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { action?() }
             return .swallowed
         }
@@ -579,7 +586,9 @@ struct PlazaSceneMember: Equatable, Sendable {
                                tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
                                items: itemPhotoParticles,
                                bands: tallGrassLayer?.photoBands(in: visibleRect) ?? [],
-                               props: campfirePhotoProps, light: campfirePhotoLight(tint: tint))
+                               props: campfirePhotoProps, light: campfirePhotoLight(tint: tint),
+                               fireworks: fireworkLayer.photoParticles(worldHeight: worldSize.height),
+                               fireworkLight: fireworkLayer.photoLight(tint: tint, worldHeight: worldSize.height))
     }
 
     /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.
@@ -639,6 +648,39 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     var sparkleCount: Int { sparkles.count }
+
+    /// 그 캐릭터(nil이면 나) 머리 위로 한 발이 올라가 터진다. 내 불꽃은 앞의 불꽃이 끝나야 쏠 수 있어 난사할 수 없다.
+    /// 시간을 재지 않아 창이 멈추면 기다림도 멈춘다. 팀원의 불꽃은 그 팀원의 Mac이 막았으니 여기서는 막지 않는다.
+    /// 터뜨리지 못했으면 false. 창이 가려져 멈춘 장면은 볼 수 없으니 터뜨리지 않는다.
+    @discardableResult
+    func playFirework(memberID: String?, style: String?) -> Bool {
+        guard !isPaused, let actor = actor(memberID) else { return false }
+        if memberID == nil, fireworkLayer.isFiring(owner: nil) { return false }
+        let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
+        let head = CGPoint(x: foot.x, y: worldSize.height - foot.y + actor.characterSize.height)
+        // 양옆의 안내판과 목록이 덮는 폭은 빼고 본다. 멀리 있는 팀원의 불꽃이 그 뒤에서 터지면 보이지 않는다.
+        let v = visibleRect, z = CGFloat(zoom)
+        let left = PlazaShortcutGuide.coveredWidth / z, right = PlazaRosterMetrics.coveredWidth / z
+        let burst = PlazaFireworks.burstPoint(head: head, visible: CGRect(x: v.minX + left, y: worldSize.height - v.maxY,
+                                                                          width: v.width - left - right, height: v.height))
+        return fireworkLayer.launch(PlazaFireworks.style(id: style), at: burst, rise: PlazaFireworks.rise(head: head, burst: burst),
+                                    owner: memberID)
+    }
+
+    /// 그 자리(장면 좌표)에 지금 닿은 모닥불빛(0~1). 꺼져 있으면 0이다.
+    private func firelight(at point: CGPoint) -> Double {
+        guard isCampfireLightShown, let center = PlazaCampfireLight.center(campfireTiles: map.campfireTiles) else { return 0 }
+        let radii = PlazaCampfireLight.radii
+        let dx = (point.x - center.x) / radii.width, dy = (worldSize.height - point.y - center.y) / radii.height
+        return PlazaCampfireLight.mix(normalizedDistance: hypot(dx, dy)) * PlazaCampfireLight.strength(appliedTint)
+    }
+
+    /// 테스트용
+    var fireworkZ: CGFloat { fireworkLayer.zPosition }
+    var fireworkPieceCount: Int { fireworkLayer.shownCount }
+    var fireworkLightCount: Int { fireworkLayer.shownLightCount }
+    var fireworkPositions: [CGPoint] { fireworkLayer.shownPositions }
+    var fireworkStyleIDs: [String] { fireworkLayer.styleIDs }
 
     /// 몸통박치기: 민 쪽이 상대 쪽으로 뛰어들고, 맞은 쪽 몸 가운데에서 민 쪽으로 조금 나온 곳에 충격 그림이 터졌다 사라진다.
     /// `pusher`나 `target`이 nil이면 나. 움직이는 것은 맞은 쪽 Mac이 정한다(`pushMe`).
@@ -724,6 +766,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         return CGPoint(x: sparkles.reduce(0) { $0 + $1.node.position.x } / n, y: sparkles.reduce(0) { $0 + $1.node.position.y } / n)
     }
     var walkerFootX: CGFloat { walker.footPoint.x }
+    var walkerFootY: CGFloat { walker.footPoint.y }
 
     private func advanceSparkles(by dt: TimeInterval) {
         guard !sparkles.isEmpty else { return }
@@ -751,6 +794,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let xKeyCode: UInt16 = 7
     private static let cKeyCode: UInt16 = 8
     private static let gKeyCode: UInt16 = 5
+    private static let fKeyCode: UInt16 = 3
     private static let returnKeyCode: UInt16 = 36
     private static let keypadEnterKeyCode: UInt16 = 76
 
@@ -847,6 +891,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceAnimation(by: dt)
         advanceTallGrass(by: dt)
         advanceSparkles(by: dt)
+        fireworkLayer.advance(by: dt, tint: appliedTint, firelight: firelight(at:))
         applyDaylight()
         advanceCampfire(by: dt)
         layout()
@@ -1128,7 +1173,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// 2 세계 px당 텍셀 하나. 값은 `multiplier / 2`(곱하기X2가 두 배로 되돌린다). 타원 밖은 (0.5, 0.5, 0.5)라 그대로다.
-    private static func lightTexture(tint: PlazaDaylight.Tint, radii: CGSize) -> SKTexture {
+    /// `color`와 `level`은 빛의 색과 세기로, 불꽃이 제 값을 넘긴다.
+    static func lightTexture(tint: PlazaDaylight.Tint, radii: CGSize, color: (r: Double, g: Double, b: Double) = PlazaCampfireLight.warm,
+                             level: Double = 1) -> SKTexture {
         let n = PlazaCampfireLight.blockCounts(radii: radii)
         var rings: [Double: [UInt8]] = [:]
         var data = [UInt8](repeating: 255, count: n.w * n.h * 4)
@@ -1136,7 +1183,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             for i in 0..<n.w {
                 let k = PlazaCampfireLight.blockMix(i: i, j: j, radii: radii)
                 if rings[k] == nil {
-                    let m = PlazaCampfireLight.multiplier(tint: tint, mix: k)
+                    let m = PlazaCampfireLight.multiplier(tint: tint, mix: k * level, color: color)
                     rings[k] = [m.r, m.g, m.b].map { UInt8(min(255, max(0, ($0 / 2 * 255).rounded()))) }
                 }
                 let o = (j * n.w + i) * 4

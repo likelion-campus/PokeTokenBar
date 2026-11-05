@@ -10,10 +10,13 @@ struct PlazaShortcutGuide: View {
         return [
             (l.plazaShortcutArrows, l.plazaShortcutWalk), ("Shift", l.plazaShortcutRun), ("Space", l.plazaShortcutTalk),
             ("Enter", l.plazaShortcutChat), ("1–5", l.plazaShortcutEmotes), ("Z", l.plazaJump),
-            ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("P", l.plazaShortcutPhoto), ("G", l.plazaShortcutGroupPhoto),
+            ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("F", l.plazaShortcutFirework), ("P", l.plazaShortcutPhoto), ("G", l.plazaShortcutGroupPhoto),
             ("−/+", l.plazaShortcutZoom),
         ]
     }
+
+    /// 창 왼쪽 끝에서 펼친 안내판의 오른쪽 끝까지(포인트).
+    static let coveredWidth: CGFloat = 130
 
     let model: PlazaShortcutGuideModel
     let toggle: () -> Void

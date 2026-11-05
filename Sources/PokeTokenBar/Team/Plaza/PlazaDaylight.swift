@@ -22,6 +22,11 @@ enum PlazaDaylight {
 
     static func tint(minute: Double) -> Tint { look(minute: minute).tint }
 
+    /// 밤 색으로 `k`(0~1)만큼 섞는다. 이미 밤이면 그대로다.
+    static func dimmed(_ t: Tint, by k: Double) -> Tint {
+        Tint(red: t.red + (night.red - t.red) * k, green: t.green + (night.green - t.green) * k, blue: t.blue + (night.blue - t.blue) * k)
+    }
+
     /// 작은 지도의 지도 그림 채도(1이면 그대로). 작은 지도는 광장과 같은 색을 곱하고, 밤으로 갈수록 채도도 낮춘다.
     static func minimapSaturation(minute: Double) -> Double { look(minute: minute).saturation }
 
