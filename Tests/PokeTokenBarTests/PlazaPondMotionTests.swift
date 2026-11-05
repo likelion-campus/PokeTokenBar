@@ -106,7 +106,7 @@ final class PlazaPondMotionTests: XCTestCase {
         XCTAssertNil(PlazaPathfinder.path(from: start, toNextTo: target, map: map), "no land tile touches the swimmer")
         let route = try XCTUnwrap(PlazaPathfinder.path(from: start, toNextTo: edge, map: map))
         let expected = route.reduce(start) { PlazaWalker.offset($0, $1) }
-        XCTAssertEqual(expected, p(31, 18))
+        XCTAssertEqual(expected, p(34, 15))
         XCTAssertTrue(PlazaPathfinder.isAdjacent(expected, edge))
 
         let s = scene(start: start)

@@ -57,7 +57,7 @@ final class PlazaTileArtTests: XCTestCase {
         for r in 0..<32 { for c in 0..<32 { expectedWater += pixel(sp, 3 * 16 + c / 2, 7 * 16 + r / 2, width: sheet.width) } }
         XCTAssertEqual(bare, expectedWater)
         // (tile, sheet cell): single pads in all three ponds, and the first and second half of each pair.
-        let pads: [(x: Int, y: Int, col: Int)] = [(33, 18, 2), (14, 13, 2), (21, 25, 2), (35, 15, 4), (36, 15, 5), (16, 11, 4), (17, 11, 5)]
+        let pads: [(x: Int, y: Int, col: Int)] = [(33, 18, 2), (14, 13, 2), (21, 25, 2), (35, 16, 4), (36, 16, 5), (16, 11, 4), (17, 11, 5)]
         for pad in pads {
             let baked = tile(img, pad.x, pad.y, width: w)
             XCTAssertNotEqual(baked, expectedWater, "pad at (\(pad.x),\(pad.y)) not drawn")
