@@ -806,4 +806,182 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertNotNil(view.hitTest(NSPoint(x: 100, y: 60)))
         XCTAssertFalse(view.acceptsFirstResponder)
     }
+
+    // MARK: - Pond: Z routing, tackle and menu rules, dive limit
+
+    private struct PondNode {
+        let settings: TeamSettings
+        let session: TeamSession
+        let transport: FakeTeamTransport
+        let received: PondReceived
+    }
+    @MainActor private final class PondReceived { var emotes: [TeamEmote] = [] }
+    private static let pondMon = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
+    private let zKey: UInt16 = 6, cKey: UInt16 = 8
+
+    private func pondNode(_ name: String, code: TeamCode) -> PondNode {
+        let suite = "plaza.pond.\(UUID())"
+        suites.append(suite)
+        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        settings.code = code
+        settings.nickname = name
+        settings.isEnabled = true
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("PlazaWindowTests-\(UUID())")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let feed = TeamFeedStore(fileURL: dir.appendingPathComponent("team-feed.json"), myMemberID: settings.memberID)
+        let transport = pondHub.makeTransport()
+        let session = TeamSession(settings: settings, feed: feed, transport: transport,
+                                  profileProvider: { TeamMemberProfile(memberID: settings.memberID, nickname: name, current: Self.pondMon, dex: []) })
+        session.updateCharacter(Self.pondMon)
+        session.applySettings()
+        let received = PondReceived()
+        session.onEmote = { [received] _, emote in received.emotes.append(emote) }
+        return PondNode(settings: settings, session: session, transport: transport, received: received)
+    }
+
+    private func waitUntil(_ condition: () -> Bool, line: UInt = #line) async {
+        for _ in 0..<400 where !condition() { await Task.yield() }
+        XCTAssertTrue(condition(), "condition not reached", line: line)
+    }
+
+    /// 나와 팀원 하나를 잇고, 나는 (31,18)에서 물(오른쪽)을 보고 선다. 시계는 `now`가 정한다.
+    private func pondPair(mate: TilePoint? = nil, types: @escaping (Int) async -> [String]? = { _ in nil })
+        async -> (me: PondNode, other: PondNode, c: PlazaWindowController) {
+        var rng = SystemRandomNumberGenerator()
+        let code = TeamCode.generate(using: &rng)
+        let me = pondNode("나", code: code), other = pondNode("민수", code: code)
+        let prefs = PlazaPreferences(defaults: defaults())
+        prefs.saveLastTile(TilePoint(x: 31, y: 18))
+        let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: RecordingFetcher()),
+                                      nickname: { "나" }, memberID: { me.settings.memberID },
+                                      subject: { .init(speciesID: 25, isShiny: false) },
+                                      pokemonTypes: types,
+                                      session: me.session, clock: { [unowned self] in pondNow })
+        c.prepareScene()
+        pondHub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        if let mate {
+            other.session.updatePlazaPosition(inPlaza: true, tile: mate, facing: .down, isWalking: false)
+            await waitUntil { c.scene?.memberTiles[other.settings.memberID] == mate }
+        }
+        c.scene!.face(.right)
+        return (me, other, c)
+    }
+    private var pondNow: Date {
+        get { pondClock.now }
+        set { pondClock.now = newValue }
+    }
+    private let pondClock = PondClock()
+    private let pondHub = FakeTransportHub()
+    @MainActor private final class PondClock { var now = Date(timeIntervalSince1970: 1_700_000_000) }
+
+    private func pondKey(_ scene: PlazaScene, _ code: UInt16) {
+        scene.handleKeyDown(keyCode: code, characters: "", isRepeat: false)
+    }
+
+    /// 첨벙 걸음이 끝나 물에 내려앉도록 장면을 돌린다.
+    private func settle(_ scene: PlazaScene, _ t: inout TimeInterval, seconds: TimeInterval = 0.6) {
+        let end = t + seconds
+        while t < end { t += 1.0 / 30; scene.update(t) }
+    }
+
+    private func jumps(_ n: PondNode) -> Int { n.received.emotes.filter { $0.kind == .jump }.count }
+
+    func testZRoutesToPlungeDiveAndSurface() async {
+        let (me, other, c) = await pondPair()
+        let scene = c.scene!, id = me.settings.memberID
+        var t: TimeInterval = 0
+        scene.update(t)
+        pondKey(scene, zKey)
+        await waitUntil { jumps(other) == 1 }
+        settle(scene, &t, seconds: 0.1)
+        // 0.36초 안에 다시 누르면 아무것도 보내지 않는다.
+        pondNow = pondNow.addingTimeInterval(0.2)
+        pondKey(scene, zKey)
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(jumps(other), 1, "a second Z inside 0.36s sends no second jump")
+        XCTAssertFalse(scene.isDiving)
+        XCTAssertNotEqual(other.session.members[id]?.isDiving, true)
+        settle(scene, &t)
+        XCTAssertTrue(scene.isMeInWater, "plunged into the water")
+        pondNow = pondNow.addingTimeInterval(1)
+        pondKey(scene, zKey)
+        XCTAssertTrue(scene.isDiving)
+        await waitUntil { other.session.members[id]?.isDiving == true }
+        pondNow = pondNow.addingTimeInterval(1)
+        pondKey(scene, zKey)
+        XCTAssertFalse(scene.isDiving)
+        await waitUntil { other.session.members[id]?.isDiving != true }
+        XCTAssertEqual(jumps(other), 1, "diving and surfacing send no jump")
+        c.handleClose()
+    }
+
+    func testClosingThePlazaWhileDivingClearsIt() async {
+        let (me, other, c) = await pondPair()
+        let scene = c.scene!, id = me.settings.memberID
+        var t: TimeInterval = 0
+        scene.update(t)
+        pondKey(scene, zKey)
+        settle(scene, &t)
+        pondNow = pondNow.addingTimeInterval(1)
+        pondKey(scene, zKey)
+        await waitUntil { other.session.members[id]?.isDiving == true }
+        c.handleClose()
+        await waitUntil { other.session.members[id]?.isDiving != true }
+    }
+
+    func testNoTackleInWater() async {
+        // 팀원이 물속: C로 몸통박치기하지 않고 메뉴에도 몸통박치기·따라가기가 없다.
+        let water = TilePoint(x: 32, y: 18)
+        let (_, swimmer, c1) = await pondPair(mate: water)
+        c1.scene!.onTackleKey?()
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(swimmer.received.emotes.filter { $0.kind == .tackle }.count, 0, "the target is in the water")
+        pondKey(c1.scene!, 49)
+        guard case .memberMenu(let m1) = c1.overlayContent else { return XCTFail("no menu: \(c1.overlayContent)") }
+        XCTAssertEqual(m1.actions, [.greet, .viewCard], "no tackle or follow for a swimmer")
+        c1.handleClose()
+
+        // 내가 물속: 땅의 팀원에게도 C가 아무것도 보내지 않고, 메뉴에서 몸통박치기·따라가기가 빠진다.
+        let (_, mate, c2) = await pondPair(mate: TilePoint(x: 30, y: 18))
+        var t: TimeInterval = 0
+        c2.scene!.update(t)
+        pondKey(c2.scene!, zKey)
+        settle(c2.scene!, &t)
+        XCTAssertTrue(c2.scene!.isMeInWater)
+        mate.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 31, y: 18), facing: .down, isWalking: false)
+        for _ in 0..<400 where c2.scene?.memberTiles[mate.settings.memberID] != TilePoint(x: 31, y: 18) {
+            await Task.yield(); settle(c2.scene!, &t, seconds: 0.05)
+        }
+        settle(c2.scene!, &t, seconds: 0.6)
+        XCTAssertEqual(c2.scene?.memberTiles[mate.settings.memberID], TilePoint(x: 31, y: 18))
+        c2.scene!.face(.left)
+        c2.scene!.onTackleKey?()
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(mate.received.emotes.filter { $0.kind == .tackle }.count, 0, "I am in the water")
+        pondKey(c2.scene!, 49)
+        guard case .memberMenu(let m2) = c2.overlayContent else { return XCTFail("no menu: \(c2.overlayContent)") }
+        XCTAssertEqual(m2.actions, [.greet, .viewCard], "no tackle or follow while I swim")
+        c2.handleClose()
+
+        // 둘 다 땅이면 그대로 보낸다(위 두 확인이 아무것도 안 지키는 테스트가 아님을 보인다).
+        let (_, land, c3) = await pondPair(mate: TilePoint(x: 30, y: 18))
+        c3.scene!.onTackleKey?()
+        await waitUntil { land.received.emotes.contains { $0.kind == .tackle } }
+        c3.handleClose()
+    }
+
+    func testWaterTypeSetsTheDiveLimit() async {
+        let (_, _, water) = await pondPair(types: { _ in ["water", "flying"] })
+        XCTAssertEqual(water.scene?.diveLimit, PlazaPond.diveLimit)
+        await water.refreshCharacter()
+        await waitUntil { water.scene?.diveLimit == 15 }
+        XCTAssertEqual(water.scene?.diveLimit, 15)
+        water.handleClose()
+        let (_, _, fire) = await pondPair(types: { _ in ["fire"] })
+        await fire.refreshCharacter()
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(fire.scene?.diveLimit, 6)
+        fire.handleClose()
+    }
 }

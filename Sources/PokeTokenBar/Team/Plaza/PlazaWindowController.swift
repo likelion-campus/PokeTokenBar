@@ -30,6 +30,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private let chooseNameColor: (UInt32) -> Void
     /// 내 광장 캐릭터의 진화 단계(1부터). 몸통박치기가 미는 칸 수다.
     private let evolutionStage: () -> Int
+    /// 종 번호의 타입 목록. 물 타입이면 잠수를 더 오래 한다. 못 구하면 nil.
+    private let pokemonTypes: (Int) async -> [String]?
     /// 광장에서 주운 아이템을 가방에 넣는다.
     private let grantItem: (ItemKind) -> Void
     /// 누군가 주운 것으로 아는 아이템 칸: 내가 주운 것, 팀원이 알려 온 것, 팀원 presence가 전해 준 것. 저장하고, 가장 최근
@@ -147,6 +149,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
          nameColor: @escaping () -> UInt32? = { nil },
          chooseNameColor: @escaping (UInt32) -> Void = { _ in },
          evolutionStage: @escaping () -> Int = { 1 },
+         pokemonTypes: @escaping (Int) async -> [String]? = { _ in nil },
          grantItem: @escaping (ItemKind) -> Void = { _ in },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
@@ -180,6 +183,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         self.nameColor = nameColor
         self.chooseNameColor = chooseNameColor
         self.evolutionStage = evolutionStage
+        self.pokemonTypes = pokemonTypes
         self.grantItem = grantItem
         super.init()
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
@@ -328,6 +332,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: nameColor())
         nameColorModel.isOpen = false
         s.canWalk = subject().speciesID != nil
+        s.myEvolutionStage = evolutionStage()
+        s.onDivingChange = { [weak self] in self?.session?.updateDiving($0) }
         s.onZoomChange = { [weak self, preferences] in
             preferences.zoom = $0
             self?.refreshMinimap()
@@ -483,8 +489,20 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let now = clock()
         if let last = lastJumpAt, now.timeIntervalSince(last) < PlazaActor.jumpDuration { return }
         lastJumpAt = now
-        scene.playJump(memberID: nil)
-        session?.sendEmote(.jump, target: nil)
+        switch scene.pondAction(canMove: scene.canWalk && !isFocusing) {
+        case .jump, .shoreJump:
+            scene.playJump(memberID: nil)
+            session?.sendEmote(.jump, target: nil)
+        case .plunge(let d):
+            scene.plunge(d)
+            session?.sendEmote(.jump, target: nil)
+        case .dive:
+            scene.setDiving(true)
+            session?.updateDiving(true)
+        case .surface:
+            scene.setDiving(false)
+            session?.updateDiving(false)
+        }
     }
 
     /// X와 C가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
@@ -638,6 +656,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             let remaining = focusRemaining(of: id)
             if let remaining { menu.status = L(.ko).plazaFocusStatus(seconds: remaining) }
             if isFocusing || remaining != nil { menu.actions.removeAll { $0 == .tackle || $0 == .follow } }
+            // 물속에서는 몸통박치기를 하지도 받지도 않고, 따라갈 수도 없다(내가 물속이어도 따라가기는 멈춘다).
+            if scene.isMeInWater || scene.memberIsInWater(id) == true { menu.actions.removeAll { $0 == .tackle || $0 == .follow } }
             openOverlay(.memberMenu(menu))
         }
     }
@@ -708,7 +728,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 그 팀원에게 뛰어들고 충격 그림을 띄운 뒤 팀원들에게 보낸다. 내 진화 단계만큼(1–3칸) 밀라고 보내고, 실제로 미는 것은
     /// 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func tackle(_ id: String) {
-        guard let scene, let target = scene.memberTiles[id], !isFocusing, focusRemaining(of: id) == nil else { return }
+        guard let scene, let target = scene.memberTiles[id], !isFocusing, focusRemaining(of: id) == nil,
+              !scene.isMeInWater, scene.memberIsInWater(id) != true else { return }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
@@ -1071,14 +1092,27 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard let current = scene else { return }
         // 그림 로딩을 기다리지 않고 바로 반영한다(알이면 지금 걷는 칸만 마치고 선다).
         current.canWalk = subject().speciesID != nil
+        current.myEvolutionStage = evolutionStage()
         refreshGeneration += 1
         let generation = refreshGeneration
+        if attempt == 0 { applyDiveLimit(generation: generation, speciesID: subject().speciesID) }
         let frames = await loader.frames(for: subject())
         // 기다리는 동안 닫혔거나 더 새 요청이 있었으면 버린다.
         guard generation == refreshGeneration, let scene else { return }
         scene.setCharacter(frames)
         if Self.shouldRetry(frames, attempt: attempt) {
             Task { await retryCharacter(generation, attempt: attempt) }
+        }
+    }
+
+    /// 종의 타입으로 잠수 한도를 정한다. 더 새 요청이나 닫기가 세대를 올렸으면 낡은 결과를 버린다.
+    private func applyDiveLimit(generation: Int, speciesID: Int?) {
+        guard let speciesID else { scene?.diveLimit = PlazaPond.diveLimit(types: nil); return }
+        Task { [weak self] in
+            guard let self else { return }
+            let types = await pokemonTypes(speciesID)
+            guard generation == refreshGeneration, let scene else { return }
+            scene.diveLimit = PlazaPond.diveLimit(types: types)
         }
     }
 
@@ -1120,6 +1154,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
         logState("closing")   // 멈춘 광장을 닫아 되살리는 순간의 상태
+        if scene?.isDiving == true { scene?.setDiving(false) }
+        session?.updateDiving(false)
         renderWatchdog?.cancel()
         renderWatchdog = nil
         focusTick?.cancel()
