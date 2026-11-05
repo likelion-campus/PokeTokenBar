@@ -15,10 +15,19 @@ enum PlazaWeather {
     /// 한 화면에 그리는 입자 수의 상한. 넓은 화면에서도 노드 수가 이 값을 넘지 않는다.
     static let maxParticles = 120
 
-    /// 그날의 날씨. 날짜(연월일)의 일련번호로 `cycle`을 돌아서, 이어지는 두 날은 늘 다르고 나흘마다 넷이 한 번씩 나온다.
-    static func kind(on date: Date, calendar: Calendar = .current) -> Kind {
+    /// 날씨가 바뀌는 주기. 주는 월요일에 시작한다.
+    enum Period: String, CaseIterable, Sendable { case day, week, month }
+
+    /// 그 주기의 날씨. 날짜(연월일)로 센 주기 번호로 `cycle`을 돌아서, 이어지는 두 주기는 늘 다르고 넷마다 한 번씩 나온다.
+    static func kind(on date: Date, calendar: Calendar = .current, period: Period = .day) -> Kind {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
-        let n = dayNumber(year: c.year ?? 1970, month: c.month ?? 1, day: c.day ?? 1)
+        let (y, m, d) = (c.year ?? 1970, c.month ?? 1, c.day ?? 1)
+        let n: Int
+        switch period {
+        case .day: n = dayNumber(year: y, month: m, day: d)
+        case .week: n = Int(floor(Double(dayNumber(year: y, month: m, day: d) + 3) / 7))   // 1970-01-01이 목요일
+        case .month: n = y * 12 + m - 1
+        }
         return cycle[((n % cycle.count) + cycle.count) % cycle.count]
     }
 

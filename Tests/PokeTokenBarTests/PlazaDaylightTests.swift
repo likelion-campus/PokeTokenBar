@@ -178,4 +178,53 @@ final class PlazaDaylightTests: XCTestCase {
         let plateRows = (0..<13).filter { y in (8..<12).contains { red($0, y) == 255 } }
         XCTAssertFalse(plateRows.isEmpty, "the name tag stays untinted")
     }
+
+    // MARK: 코어타임 변경
+
+    func testCustomCoreTimeMovesTheGlows() throws {
+        let core = try XCTUnwrap(PlazaCoreTime(start: 9, end: 18))
+        XCTAssertEqual(D.tint(minute: 8 * 60 + 30, core: core), D.dawn)
+        XCTAssertEqual(D.tint(minute: 9 * 60, core: core), .none)
+        XCTAssertEqual(D.tint(minute: 18 * 60 + 30, core: core), D.dusk)
+        let seven = D.tint(minute: 19 * 60, core: core)
+        for (got, want) in [(seven.red, D.night.red), (seven.green, D.night.green), (seven.blue, D.night.blue)] {
+            XCTAssertEqual(got, want, accuracy: 1e-9)
+        }
+        XCTAssertEqual(D.tint(minute: 8 * 60, core: core), D.night)
+        XCTAssertEqual(D.phase(minute: 8 * 60, core: core), .dawn)
+        XCTAssertEqual(D.phase(minute: 9 * 60, core: core), .day)
+        XCTAssertEqual(D.phase(minute: 17 * 60 + 59, core: core), .day)
+        XCTAssertEqual(D.phase(minute: 18 * 60, core: core), .dusk)
+        XCTAssertEqual(D.phase(minute: 19 * 60, core: core), .night)
+    }
+
+    func testEdgeCoreTimesStayInsideTheDay() throws {
+        for (s, e) in [(1, 23), (1, 2)] {
+            let core = try XCTUnwrap(PlazaCoreTime(start: s, end: e))
+            for m in stride(from: 0.0, through: 1440, by: 15) {
+                let t = D.tint(minute: m, core: core)
+                XCTAssertTrue([t.red, t.green, t.blue, D.minimapSaturation(minute: m, core: core)].allSatisfy(\.isFinite), "\(s)-\(e) at \(m)")
+            }
+        }
+        let wide = try XCTUnwrap(PlazaCoreTime(start: 1, end: 23))
+        XCTAssertEqual(D.tint(minute: 0, core: wide), D.night)
+        XCTAssertEqual(D.tint(minute: 30, core: wide), D.dawn)
+        XCTAssertEqual(D.tint(minute: 23 * 60 + 30, core: wide), D.dusk)
+    }
+
+    func testCoreTimeRejectsBadRanges() {
+        XCTAssertNil(PlazaCoreTime(start: 0, end: 5))
+        XCTAssertNil(PlazaCoreTime(start: 5, end: 5))
+        XCTAssertNil(PlazaCoreTime(start: 6, end: 5))
+        XCTAssertNil(PlazaCoreTime(start: 22, end: 24))
+        XCTAssertNotNil(PlazaCoreTime(start: 22, end: 23))
+        XCTAssertNotNil(PlazaCoreTime(start: 1, end: 2))
+    }
+
+    func testClockTextUsesTheCoreTime() throws {
+        let core = try XCTUnwrap(PlazaCoreTime(start: 9, end: 18))
+        let seoul = Calendar(identifier: .gregorian)
+        XCTAssertEqual(D.clockText(at(8, 30, calendar: seoul), calendar: seoul, core: core), "아침 08:30")
+        XCTAssertEqual(D.clockText(at(17, 30, calendar: seoul), calendar: seoul, core: core), "낮 17:30")
+    }
 }

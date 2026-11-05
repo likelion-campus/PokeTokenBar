@@ -427,4 +427,46 @@ final class PlazaWeatherTests: XCTestCase {
         XCTAssertGreaterThan(plateOnTop, 20, "the name plate shows through an all-white blanket, so it is drawn after it")
         XCTAssertGreaterThan(whites, 1000, "while the map and character are under it")
     }
+
+    // MARK: 주기 (일·주·월)
+
+    private func kind(_ y: Int, _ m: Int, _ d: Int, _ period: W.Period) -> W.Kind {
+        W.kind(on: date(y, m, d), calendar: calendar, period: period)
+    }
+
+    /// 주는 월요일에 바뀐다.
+    func testWeeklyPeriodChangesOnMonday() {
+        let monday = kind(2026, 11, 9, .week)
+        for d in 9...15 { XCTAssertEqual(kind(2026, 11, d, .week), monday, "11-\(d)") }
+        XCTAssertNotEqual(kind(2026, 11, 8, .week), monday)
+        XCTAssertNotEqual(kind(2026, 11, 16, .week), monday)
+    }
+
+    func testMonthlyPeriodChangesOnTheFirst() {
+        let nov = kind(2026, 11, 1, .month)
+        for d in 1...30 { XCTAssertEqual(kind(2026, 11, d, .month), nov, "11-\(d)") }
+        XCTAssertNotEqual(kind(2026, 10, 31, .month), nov)
+        XCTAssertNotEqual(kind(2026, 12, 1, .month), nov)
+    }
+
+    func testEveryPeriodShowsLeavesOn20261105() {
+        for p in W.Period.allCases { XCTAssertEqual(kind(2026, 11, 5, p), .leaves, "\(p)") }
+    }
+
+    func testConsecutivePeriodsDiffer() {
+        var prev = kind(2026, 1, 5, .week)
+        for i in 1..<30 {
+            let d = calendar.date(byAdding: .day, value: 7 * i, to: date(2026, 1, 5))!
+            let k = W.kind(on: d, calendar: calendar, period: .week)
+            XCTAssertNotEqual(k, prev, "week \(i)")
+            prev = k
+        }
+        prev = kind(2026, 1, 15, .month)
+        for i in 1..<24 {
+            let d = calendar.date(byAdding: .month, value: i, to: date(2026, 1, 15))!
+            let k = W.kind(on: d, calendar: calendar, period: .month)
+            XCTAssertNotEqual(k, prev, "month \(i)")
+            prev = k
+        }
+    }
 }
