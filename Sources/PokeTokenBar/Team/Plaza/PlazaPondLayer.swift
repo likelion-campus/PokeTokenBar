@@ -4,27 +4,31 @@ import SpriteKit
 /// 시간은 `update(dt:)` 로만 흐른다. 타이머는 없다.
 @MainActor final class PlazaPondLayer: SKNode {
     static let maxDroplets = 48, maxRings = 12, maxBubbles = 24, maxPending = 32
-    static let smallDroplets = 4, bigDroplets = 10
     static let secondRingDelay: TimeInterval = 0.12
     private static let dropletLife: TimeInterval = 0.5, ringLife: TimeInterval = 0.6, bubbleLife: TimeInterval = 0.6
-    private static let dropletZ: CGFloat = 2.5, ringZ: CGFloat = 0.06, bubbleZ: CGFloat = 0.07
-    private static let dropletVX: [CGFloat] = [-22, 18, -8, 10, -30, 28, -14, 24, -3, 4]
-    private static let dropletVY: CGFloat = 70, dropletGravity: CGFloat = 260
-    private static let ringFromRadius = 2, ringToRadius = 7   // 시트 픽셀 (월드 4 → 14px)
-    private static let bubbleRise: CGFloat = 10
+    private static let dropletZ: CGFloat = 2.5, ringZ: CGFloat = 0.06, bubbleZ: CGFloat = 2.4
+    /// 방울마다 (옆으로 가는 거리, 가장 높이 오르는 높이). 월드 px, 물가선 기준. 부채꼴로 퍼진다.
+    private static let bigDroplets: [(reach: CGFloat, height: CGFloat)] = [
+        (-40, 20), (-30, 36), (-20, 50), (-11, 60), (-4, 68), (5, 64), (13, 56), (22, 44), (32, 30), (42, 18)]
+    private static let smallDropletShapes: [(reach: CGFloat, height: CGFloat)] = [(-16, 10), (-6, 22), (7, 20), (17, 9)]
+    private static let ringFromRadius = 2, bigRingToRadius = 14, smallRingToRadius = 7   // 시트 픽셀 (월드 ×2)
+    private static let bubbleRise: CGFloat = 14
+    private static let bubbleOffsets: [CGFloat] = [-6, 5, -2, 7, -8, 3]
     private static let grid: CGFloat = 2
     private static let scale: CGFloat = 2   // 시트 픽셀 → 월드 px
 
     private struct Particle {
         let start: CGPoint   // 월드 좌표(SpriteKit, y 위로)
-        let vx: CGFloat
+        var reach: CGFloat = 0   // 방울: 옆으로 가는 거리
+        var height: CGFloat = 0   // 방울: 가장 높이 오르는 높이
+        var toRadius = 0   // 고리: 끝 반지름(시트 픽셀)
         var age: TimeInterval
         let node: SKSpriteNode
     }
-    private enum Kind { case droplets(Int), ring }
+    /// 대기열에는 큰 물보라의 두 번째 고리만 들어간다.
     private struct Pending {
         let at: CGPoint
-        let kind: Kind
+        let toRadius: Int
         var wait: TimeInterval
     }
 
@@ -40,6 +44,7 @@ import SpriteKit
     private let dropletTexture = PlazaPondLayer.texture(PlazaPondArt.droplet())
     private let bubbleTexture = PlazaPondLayer.texture(PlazaPondArt.bubble())
     private var isConcealed = false
+    private var bubbleSerial = 0
 
     init(map: PlazaMap = PlazaMapData.map) {
         worldHeight = CGFloat(map.height * PlazaMap.tileSize)
@@ -53,30 +58,28 @@ import SpriteKit
     var bubbleCount: Int { bubbles.count }
     var pendingCount: Int { pending.count }
 
-    func splash(at tile: TilePoint, big: Bool, delay: TimeInterval = 0) {
+    /// 물보라는 `tile`의 물가선(칸 아래쪽, 발이 닿는 높이)에서 시작한다.
+    func splash(at tile: TilePoint, big: Bool) {
         guard !isConcealed else { return }
-        let p = center(of: tile)
-        let kinds: [(Kind, TimeInterval)] = big
-            ? [(.droplets(Self.bigDroplets), 0), (.ring, 0), (.ring, Self.secondRingDelay)]
-            : [(.droplets(Self.smallDroplets), 0), (.ring, 0)]
+        let foot = PlazaWalker.footPoint(from: tile, to: tile, progress: 0)
+        let p = CGPoint(x: foot.x, y: worldHeight - foot.y)
         // 대기열은 물보라 통째로 넣거나 통째로 버린다(고리만 잃고 방울만 남지 않게).
-        let queued = kinds.filter { delay + $0.1 > 0 }.count
-        guard pending.count + queued <= Self.maxPending else { return }
-        for (kind, extra) in kinds {
-            let wait = delay + extra
-            if wait <= 0 {
-                start(Pending(at: p, kind: kind, wait: 0), elapsed: 0)
-            } else {
-                pending.append(Pending(at: p, kind: kind, wait: wait))
-            }
+        if big {
+            guard pending.count < Self.maxPending else { return }
+            pending.append(Pending(at: p, toRadius: Self.bigRingToRadius, wait: Self.secondRingDelay))
         }
+        startDroplets(big ? Self.bigDroplets : Self.smallDropletShapes, at: p)
+        startRing(at: p, toRadius: big ? Self.bigRingToRadius : Self.smallRingToRadius, elapsed: 0)
     }
 
     func bubble(at tile: TilePoint) {
         guard !isConcealed, bubbles.count < Self.maxBubbles else { return }
         let node = bubblePool.popLast() ?? makeNode(z: Self.bubbleZ, size: 3)
         node.texture = bubbleTexture
-        let b = Particle(start: center(of: tile), vx: 0, age: 0, node: node)
+        var c = center(of: tile)
+        c.x += Self.bubbleOffsets[bubbleSerial % Self.bubbleOffsets.count]
+        bubbleSerial += 1
+        let b = Particle(start: c, age: 0, node: node)
         node.isHidden = false
         bubbles.append(b)
         placeBubble(b)
@@ -91,7 +94,7 @@ import SpriteKit
         var waiting: [Pending] = []
         for var p in pending {
             p.wait -= dt
-            if p.wait <= 0 { start(p, elapsed: -p.wait) } else { waiting.append(p) }
+            if p.wait <= 0 { startRing(at: p.at, toRadius: p.toRadius, elapsed: -p.wait) } else { waiting.append(p) }
         }
         pending = waiting
     }
@@ -116,26 +119,24 @@ import SpriteKit
         CGPoint(x: (p.x / Self.grid).rounded() * Self.grid, y: (p.y / Self.grid).rounded() * Self.grid)
     }
 
-    private func start(_ p: Pending, elapsed: TimeInterval) {
-        switch p.kind {
-        case .droplets(let n):
-            for i in 0..<n where droplets.count < Self.maxDroplets {
-                let node = dropletPool.popLast() ?? makeNode(z: Self.dropletZ, size: 2)
-                node.texture = dropletTexture
-                var d = Particle(start: p.at, vx: Self.dropletVX[i % Self.dropletVX.count], age: elapsed, node: node)
-                d.age = min(d.age, Self.dropletLife)
-                node.isHidden = false
-                droplets.append(d)
-                placeDroplet(d)
-            }
-        case .ring:
-            guard rings.count < Self.maxRings else { return }
-            let node = ringPool.popLast() ?? makeNode(z: Self.ringZ, size: 0)
-            let r = Particle(start: p.at, vx: 0, age: elapsed, node: node)
+    private func startDroplets(_ shapes: [(reach: CGFloat, height: CGFloat)], at p: CGPoint) {
+        for shape in shapes where droplets.count < Self.maxDroplets {
+            let node = dropletPool.popLast() ?? makeNode(z: Self.dropletZ, size: 2)
+            node.texture = dropletTexture
+            let d = Particle(start: p, reach: shape.reach, height: shape.height, age: 0, node: node)
             node.isHidden = false
-            rings.append(r)
-            placeRing(r)
+            droplets.append(d)
+            placeDroplet(d)
         }
+    }
+
+    private func startRing(at p: CGPoint, toRadius: Int, elapsed: TimeInterval) {
+        guard rings.count < Self.maxRings else { return }
+        let node = ringPool.popLast() ?? makeNode(z: Self.ringZ, size: 0)
+        let r = Particle(start: p, toRadius: toRadius, age: elapsed, node: node)
+        node.isHidden = false
+        rings.append(r)
+        placeRing(r)
     }
 
     private func makeNode(z: CGFloat, size: CGFloat) -> SKSpriteNode {
@@ -162,14 +163,14 @@ import SpriteKit
     }
 
     private func placeDroplet(_ d: Particle) {
-        let t = CGFloat(d.age)
-        let y = Self.dropletVY * t - 0.5 * Self.dropletGravity * t * t   // 위로 튀고 떨어진다
-        d.node.position = snap(CGPoint(x: d.start.x + d.vx * t, y: d.start.y + y))
+        let u = CGFloat(d.age / Self.dropletLife)
+        // 옆으로는 같은 빠르기로, 위로는 포물선: u=0.5 에서 `height` 만큼 오르고 다시 물가선으로 내려온다.
+        d.node.position = snap(CGPoint(x: d.start.x + d.reach * u, y: d.start.y + 4 * d.height * u * (1 - u)))
     }
 
     private func placeRing(_ r: Particle) {
         let k = CGFloat(r.age / Self.ringLife)
-        let span = Self.ringToRadius - Self.ringFromRadius
+        let span = r.toRadius - Self.ringFromRadius
         let radius = Self.ringFromRadius + Int((CGFloat(span) * k).rounded())
         let texture = ringTextures[radius] ?? {
             let t = Self.texture(PlazaPondArt.ring(radius: radius))

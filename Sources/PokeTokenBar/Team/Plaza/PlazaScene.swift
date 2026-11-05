@@ -889,6 +889,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     private func puffDust(under memberID: String?) {
         guard actor(memberID) != nil else { return }
+        let tile = memberID.flatMap { remotes[$0]?.motion.tile } ?? walker.tile
+        if map.isWater(tile) { return }   // 물 위에는 먼지가 일지 않는다
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
         texture.filteringMode = .nearest
