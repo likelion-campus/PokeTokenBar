@@ -100,7 +100,7 @@ extension L {
     var plazaNameColor: String { "이름 색" }
     func plazaClock(phase: PlazaDaylight.Phase, time: String) -> String {
         let name = switch phase {
-        case .dawn: "새벽"
+        case .dawn: "아침"
         case .day: "낮"
         case .dusk: "저녁"
         case .night: "밤"

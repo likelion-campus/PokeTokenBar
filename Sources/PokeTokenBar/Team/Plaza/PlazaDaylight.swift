@@ -1,6 +1,7 @@
 import Foundation
 
-/// 광장의 낮과 밤. 이 Mac의 시계로 정하고, 바뀔 때는 한 시간쯤에 걸쳐 천천히 섞는다.
+/// 광장의 낮과 밤. 이 Mac의 시계로 정한다. 회사 코어타임(10~16시)은 내내 밝고, 그 앞뒤 한 시간(9~10시, 16~17시)은
+/// 노을이 졌다 걷히며, 나머지는 밤이다. 노을은 반 시간에 걸쳐 짙어지고 반 시간에 걸쳐 걷힌다.
 enum PlazaDaylight {
     enum Phase: Equatable, CaseIterable { case dawn, day, dusk, night }
 
@@ -16,8 +17,8 @@ enum PlazaDaylight {
 
     /// 하루 중 분(0~1440)과 그때의 색, 작은 지도의 채도. 사이는 섞는다.
     private static let keys: [(minute: Double, tint: Tint, saturation: Double)] = [
-        (0, night, 0.65), (5 * 60, night, 0.65), (6 * 60, dawn, 0.85), (7 * 60, .none, 1),
-        (16 * 60, .none, 1), (17 * 60, dusk, 0.95), (18 * 60, night, 0.65), (24 * 60, night, 0.65),
+        (0, night, 0.65), (9 * 60, night, 0.65), (9 * 60 + 30, dawn, 0.85), (10 * 60, .none, 1),
+        (16 * 60, .none, 1), (16 * 60 + 30, dusk, 0.95), (17 * 60, night, 0.65), (24 * 60, night, 0.65),
     ]
 
     static func tint(minute: Double) -> Tint { look(minute: minute).tint }
@@ -37,12 +38,12 @@ enum PlazaDaylight {
                 mix(a.saturation, b.saturation))
     }
 
-    /// 시계에 붙이는 때. 새벽 5~7시, 낮 7~16시, 저녁 16~18시, 그 밖은 밤.
+    /// 시계에 붙이는 때. 아침 9~10시, 낮 10~16시, 저녁 16~17시, 그 밖은 밤.
     static func phase(minute: Double) -> Phase {
         switch minute {
-        case 5 * 60..<7 * 60: .dawn
-        case 7 * 60..<16 * 60: .day
-        case 16 * 60..<18 * 60: .dusk
+        case 9 * 60..<10 * 60: .dawn
+        case 10 * 60..<16 * 60: .day
+        case 16 * 60..<17 * 60: .dusk
         default: .night
         }
     }
