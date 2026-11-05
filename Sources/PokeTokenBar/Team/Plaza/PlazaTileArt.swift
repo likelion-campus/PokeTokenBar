@@ -13,6 +13,11 @@ enum PlazaTileArt {
     private static let grassCells: [Cell] = [(0, 9), (1, 9), (0, 10), (1, 10), (5, 9), (8, 9), (5, 10), (8, 10)]
     private static let flowerCells: [Cell] = [(0, 8), (1, 8), (2, 12), (3, 11), (3, 12)]
     private static let bushCell: Cell = (2, 14)
+    private static let waterCell: Cell = (3, 7)
+    private static let lilySingle: Cell = (2, 0)
+    private static let lilyPair: [Cell] = [(4, 0), (5, 0)]
+    private static let lilySingleTile = TilePoint(x: 33, y: 18)
+    private static let lilyPairTile = TilePoint(x: 35, y: 15)
     /// 2x2 칸 둥근 나무.
     private static let treeCell: Cell = (5, 16)
     /// 소식판 팻말의 재료. 기둥 하나가 달린 작은 팻말 한 칸이다. 이 칸의 픽셀로 2x2 칸 큰 팻말을 만든다(`signSource`).
@@ -42,7 +47,15 @@ enum PlazaTileArt {
             for x in 0..<map.width {
                 let p = TilePoint(x: x, y: y)
                 let n = Noise(p)
+                if map.isWater(p) {
+                    canvas.blit(waterCell, cols: 1, rows: 1, x: x * tile, y: y * tile)
+                    continue
+                }
                 canvas.blit(grassCells[n.below(grassCells.count, 1)], cols: 1, rows: 1, x: x * tile, y: y * tile)
+                if case .cell(let col, let row) = PlazaPond.shore(at: p, isWater: map.isWater) {
+                    canvas.blit((col, row), cols: 1, rows: 1, x: x * tile, y: y * tile)
+                    continue
+                }
                 switch map.tile(at: p) {
                 case .flowers:
                     canvas.blit(flowerCells[n.below(flowerCells.count, 2)], cols: 1, rows: 1, x: x * tile, y: y * tile)
@@ -52,6 +65,7 @@ enum PlazaTileArt {
                 }
             }
         }
+        drawLilyPads(map, &canvas)
         if let tallGrass { drawTallGrass(map, tallGrass, &canvas) }
         drawTrees(map, &canvas)
         let b = map.boardTile
@@ -63,6 +77,17 @@ enum PlazaTileArt {
             }
         }
         return canvas.image()
+    }
+
+    /// 연잎: 물 칸 위에 한 칸짜리 하나와 두 칸짜리 하나. 그 자리가 물이 아닌 지도(작은 테스트 지도)에는 그리지 않는다.
+    private static func drawLilyPads(_ map: PlazaMap, _ canvas: inout Canvas) {
+        let single = lilySingleTile, pair = lilyPairTile
+        if map.isWater(single) {
+            canvas.blit(lilySingle, cols: 1, rows: 1, x: single.x * tile, y: single.y * tile)
+        }
+        for (i, c) in lilyPair.enumerated() where map.isWater(TilePoint(x: pair.x + i, y: pair.y)) {
+            canvas.blit(c, cols: 1, rows: 1, x: (pair.x + i) * tile, y: pair.y * tile)
+        }
     }
 
     /// 풀숲 칸마다 이웃에 맞는 조각을 잔디 위에 2배로 겹친다. 그림이 없으면 그리지 않아 풀밭으로 남는다.

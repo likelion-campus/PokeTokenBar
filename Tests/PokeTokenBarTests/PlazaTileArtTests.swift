@@ -14,6 +14,39 @@ final class PlazaTileArtTests: XCTestCase {
         try PlazaMap(rows: ["TT" + at + "...", "TT.NN.", "...NN.", "..S..."])
     }
 
+    func testPondAndShoreAreBaked() throws {
+        let sheet = try sheet()
+        let sp = pixels(sheet)
+        // 8x6: water at x 2-3, y 2-3. (2,1) is land north of water; (4,2) land east of water.
+        func rows(_ flower: Bool) -> [String] {
+            ["........", flower ? "..f....." : "........", "..ww....", "..ww....", "........", "T..NN.S."]
+        }
+        let w = 8 * 32
+        let img = pixels(PlazaTileArt.mapImage(try PlazaMap(rows: rows(false)), sheet: sheet))
+        // water = sheet (3,7) doubled
+        let waterTile = tile(img, 2, 2, width: w)
+        var expectedWater: [UInt8] = []
+        for r in 0..<32 { for c in 0..<32 {
+            expectedWater += pixel(sp, 3 * 16 + c / 2, 7 * 16 + r / 2, width: sheet.width)
+        } }
+        XCTAssertEqual(waterTile, expectedWater)
+        // north shore (2,1) = grass variant with sheet (3,6) over it; (2,1) has water to the south.
+        let grassOnly = pixels(PlazaTileArt.mapImage(try PlazaMap(rows: ["........", "........", "........", "........", "........", "T..NN.S."]), sheet: sheet))
+        var expectedShore = tile(grassOnly, 2, 1, width: w)
+        for r in 0..<32 { for c in 0..<32 {
+            let px = pixel(sp, 3 * 16 + c / 2, 6 * 16 + r / 2, width: sheet.width)
+            if px[3] == 0 { continue }
+            let a = Int(px[3]), i = (r * 32 + c) * 4
+            for k in 0..<3 { expectedShore[i + k] = UInt8(min(255, Int(px[k]) + Int(expectedShore[i + k]) * (255 - a) / 255)) }
+            expectedShore[i + 3] = 255
+        } }
+        // cell (2,1) north of water at x=2 has water S and no other orthogonal; diagonal (3,2) is also water, so S only.
+        XCTAssertEqual(tile(img, 2, 1, width: w), expectedShore)
+        // flowers on a shore cell are not drawn
+        let withFlower = pixels(PlazaTileArt.mapImage(try PlazaMap(rows: rows(true)), sheet: sheet))
+        XCTAssertEqual(tile(withFlower, 2, 1, width: w), tile(img, 2, 1, width: w))
+    }
+
     func testMapImageSize() throws {
         let img = try sharedMap()
         XCTAssertEqual(img.width, 48 * 32); XCTAssertEqual(img.height, 32 * 32)
