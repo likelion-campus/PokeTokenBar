@@ -63,6 +63,32 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(s.memberShadowOpacity("a")), 0)
     }
 
+    func testPlungeStaysUncutUntilItLandsInTheWater() {
+        let s = scene(start: p(20, 22))
+        add(s, "a", p(31, 18))
+        var t = run(s, 0.1)
+        XCTAssertEqual(s.memberVisibleHeight("a"), 72)
+        s.applyMembers([member("a", p(32, 18))])
+        t = run(s, 0.04, from: t)
+        XCTAssertEqual(s.memberVisibleHeight("a"), 72, "mid-step from land")
+        XCTAssertEqual(s.memberSwimRingVisible("a"), false)
+        run(s, 0.5, from: t)
+        XCTAssertEqual(s.memberTiles["a"], p(32, 18))
+        XCTAssertEqual(s.memberVisibleHeight("a") ?? 0, 72 * 0.45, accuracy: 1)
+        XCTAssertEqual(s.memberSwimRingVisible("a"), true)
+    }
+
+    func testClimbingOutIsUncutFromTheStepStart() {
+        let s = scene(start: p(32, 18))
+        var t = run(s, 0.1)
+        XCTAssertEqual(s.myVisibleHeight, 72 * 0.45, accuracy: 1)
+        s.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)
+        t = run(s, 0.05, from: t)
+        s.handleKeyUp(keyCode: leftKey)
+        XCTAssertTrue(s.walker.isWalking)
+        XCTAssertEqual(s.myVisibleHeight, 72, "mid-step out of the water")
+    }
+
     func testMeSwimmingIsCutToo() {
         let s = scene(start: p(33, 18))
         run(s, 0.1)

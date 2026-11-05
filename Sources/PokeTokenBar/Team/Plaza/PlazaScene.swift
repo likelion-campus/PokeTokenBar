@@ -569,8 +569,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         diveElapsed = 0
     }
 
-    /// 그 팀원이 잠수한 것으로 보인다: 자리 비움이 아니고 지금 보이는 자리가 물일 때만.
-    private func isShownDiving(_ r: Remote) -> Bool { !r.isAway && r.diving && map.isWater(r.motion.tile) }
+    /// 그 팀원이 잠수한 것으로 보인다: 지금 보이는 자리가 물일 때만. 자리 비움이면 쉼터 칸으로 옮겨져 물이 아니다.
+    private func isShownDiving(_ r: Remote) -> Bool { r.diving && map.isWater(r.motion.tile) }
     func memberIsDiving(_ id: String) -> Bool? { remotes[id].map(isShownDiving) }
     var myVisibleHeight: CGFloat { me.visibleSpriteHeight }
     func memberVisibleHeight(_ id: String) -> CGFloat? { remotes[id]?.actor.visibleSpriteHeight }
@@ -593,9 +593,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         pondLayer?.update(dt: dt)
     }
 
-    /// 헤엄 높이 자르기. 배경이 보이는 연못 그림일 때 물 칸에 선 배우만 0보다 크다.
-    private func swimSink(tile: TilePoint, actor: PlazaActor) -> CGFloat {
-        guard pondVisuals, !isBackgroundHidden, map.isWater(tile), actor.fullSpriteHeight > 0 else { return 0 }
+    /// 헤엄 높이 자르기. 배경이 보이는 연못 그림일 때, 물 칸에 선 배우가 걷는 중이 아니거나 물에서 출발한 걸음일 때만 0보다 크다.
+    /// 땅에서 뛰어드는 걸음은 물에 내려앉은 뒤에야 잘린다.
+    private func swimSink(tile: TilePoint, step: PlazaStep?, actor: PlazaActor) -> CGFloat {
+        guard pondVisuals, !isBackgroundHidden, map.isWater(tile), step.map({ map.isWater($0.from) }) ?? true,
+              actor.fullSpriteHeight > 0 else { return 0 }
         return PlazaPond.swimSink(spriteHeight: actor.fullSpriteHeight)
     }
 
@@ -1107,12 +1109,12 @@ struct PlazaSceneMember: Equatable, Sendable {
                                         zoom: zoom, backing: backing, viewport: size)
         me.place(foot: foot, pose: pose, in: context,
                  concealment: concealment(tile: walker.tile, step: walker.currentStep, actor: me, dive: myDive.level), isMe: true,
-                 swimSink: swimSink(tile: walker.tile, actor: me))
+                 swimSink: swimSink(tile: walker.tile, step: walker.currentStep, actor: me))
         for r in remotes.values {
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.place(foot: r.motion.footPoint, pose: p, in: context,
                           concealment: concealment(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor, dive: r.dive.level),
-                          swimSink: swimSink(tile: r.motion.tile, actor: r.actor))
+                          swimSink: swimSink(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor))
         }
     }
 
