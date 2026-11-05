@@ -85,7 +85,7 @@ enum PlazaPond {
     }
 
     static func splashRadius(stage: Int) -> Int {
-        min(max(stage, TeamEmote.pushTileRange.lowerBound), TeamEmote.pushTileRange.upperBound)
+        TeamEmote.pushTiles(stage)
     }
 
     static func diveLimit(types: [String]?) -> TimeInterval {
@@ -113,8 +113,8 @@ enum PlazaPond {
         switch (isWater(from), isWater(to)) {
         case (false, true): plungeStepDuration
         case (true, true): swimStepDuration
-        case (true, false): 0.15
-        case (false, false): running ? 0.075 : 0.15
+        case (true, false): PlazaWalker.stepDuration
+        case (false, false): running ? PlazaWalker.runStepDuration : PlazaWalker.stepDuration
         }
     }
 

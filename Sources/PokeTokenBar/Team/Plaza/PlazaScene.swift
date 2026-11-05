@@ -636,10 +636,9 @@ struct PlazaSceneMember: Equatable, Sendable {
         if isMeInWater { splash(at: walker.tile, big: true, stage: myEvolutionStage, splasher: nil) }
     }
 
-    /// 물 칸 `d` 쪽으로 첨벙 뛰어든다. 이미 물속(뛰어드는 걸음 중 포함)이면 아무것도 하지 않는다.
+    /// 물 칸 `d` 쪽으로 첨벙 뛰어든다. `pondAction`이 `.plunge`일 때만 부른다(땅에 서 있고 바라보는 칸이 빈 물 칸).
     /// 큰 물보라는 걸음이 물에 내려앉을 때 `advancePond`가 낸다.
     func plunge(_ d: PlazaDirection) {
-        guard !isMeInWater else { return }
         walker.plunge(d)
         plungeJumpOwed = true
     }

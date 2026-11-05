@@ -2,12 +2,11 @@ import Foundation
 import CoreGraphics
 import CoreText
 
-/// 연못 물보라 방울·물결 고리·거품·헤엄 고리. 코드로 그리는 픽셀은 이 넷뿐이고 색은 다섯 가지만 쓴다.
+/// 연못 물보라 방울·물결 고리·거품·헤엄 고리. 코드로 그리는 픽셀은 이 넷뿐이고 색은 네 가지(진한 물빛·물빛·연한 물빛·하양)만 쓴다.
 /// 모두 시트 픽셀 단위(월드 2px)로 만들고, 늘리지 않고 최근접으로 그린다.
 enum PlazaPondArt {
     private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
     private static let deep: [UInt8] = [0x16, 0x5C, 0x88]     // #165C88
-    private static let dark: [UInt8] = [0x1E, 0x7C, 0xB8]     // #1E7CB8
     private static let mid: [UInt8] = [0x29, 0x96, 0xDB]      // #2996DB
     private static let light: [UInt8] = [0x5A, 0xAE, 0xE4]    // #5AAEE4
     private static let white: [UInt8] = [0xFF, 0xFF, 0xFF]    // #FFFFFF

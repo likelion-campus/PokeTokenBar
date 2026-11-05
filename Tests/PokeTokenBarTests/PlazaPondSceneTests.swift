@@ -444,7 +444,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: "a"), false, "the drop lasts two seconds")
     }
 
-    func testPlungeIsBlockedBySwimmerAndRepeatedZ() throws {
+    func testPlungeIsBlockedBySwimmer() throws {
         let s = scene(start: p(31, 18))
         addAll(s, [at("swimmer", p(32, 18))])
         s.face(.right)
@@ -457,7 +457,6 @@ final class PlazaPondSceneTests: XCTestCase {
         s.plunge(.right)
         t = run(s, 0.1, from: t)
         XCTAssertTrue(s.walker.isWalking)
-        s.plunge(.right)   // a second Z in the middle of the plunge step
         run(s, 1, from: t)
         XCTAssertEqual(s.walker.tile, p(32, 18), "one tile only")
     }
