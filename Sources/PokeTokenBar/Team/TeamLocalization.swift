@@ -75,6 +75,8 @@ extension L {
         guard let starter else { return "단체 사진 \(seconds) · 모두 모여요!" }
         return "\(starter)님의 단체 사진 \(seconds) · " + (joined ? "함께 찍는 중" : "G를 누르면 함께 찍어요")
     }
+    var plazaPhotoGuide: String { "📷 사진 모드 · 방향키 이동 · Shift 빠르게 · −/+ 확대 · Space 찍기 · G 단체 사진 · Esc 나가기" }
+    var plazaPhotoCopied: String { "사진을 클립보드에 담았어요 · ⌘V로 붙여 넣기" }
     var plazaMenuFollow: String { "따라가기" }
     func plazaFollowHint(nickname: String) -> String { "\(nickname) 따라가는 중 · 방향키로 멈추기" }
     var plazaMenuViewCard: String { "포켓몬 보기" }
