@@ -1240,6 +1240,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         renderLoop?.isPaused = !visible
         guard let scene else { return }
         if !visible { scene.releaseAllKeys() }
+        // 가려진 동안은 장면이 돌지 않아 잠수 제한 시간이 흐르지 않는다. 숨기면 잠수를 끝낸다.
+        if !visible, scene.isDiving {
+            scene.setDiving(false)
+            session?.updateDiving(false)
+        }
         scene.isPaused = !visible
         logState("rendering visible=\(visible)")
     }

@@ -965,6 +965,39 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         c.handleClose()
     }
 
+    /// The time limit is the scene's `onDivingChange` closure wired by the controller; teammates must see it.
+    func testTheDiveLimitReachesTeammates() async {
+        let (me, other, c) = await pondPair()
+        let scene = c.scene!, id = me.settings.memberID
+        var t: TimeInterval = 0
+        scene.update(t)
+        pondKey(scene, zKey)
+        settle(scene, &t)
+        pondNow = pondNow.addingTimeInterval(1)
+        pondKey(scene, zKey)
+        await waitUntil { other.session.members[id]?.isDiving == true }
+        settle(scene, &t, seconds: PlazaPond.diveLimit + 0.5)
+        XCTAssertFalse(scene.isDiving, "the limit ended the dive")
+        await waitUntil { other.session.members[id]?.isDiving != true }
+        c.handleClose()
+    }
+
+    func testHidingThePlazaEndsTheDive() async {
+        let (me, other, c) = await pondPair()
+        let scene = c.scene!, id = me.settings.memberID
+        var t: TimeInterval = 0
+        scene.update(t)
+        pondKey(scene, zKey)
+        settle(scene, &t)
+        pondNow = pondNow.addingTimeInterval(1)
+        pondKey(scene, zKey)
+        await waitUntil { other.session.members[id]?.isDiving == true }
+        c.setRendering(visible: false)   // the scene stops updating, so the time limit could never fire
+        XCTAssertFalse(scene.isDiving)
+        await waitUntil { other.session.members[id]?.isDiving != true }
+        c.handleClose()
+    }
+
     func testNoTackleInWater() async {
         // 팀원이 물속: C로 몸통박치기하지 않고 메뉴에도 몸통박치기·따라가기가 없다.
         let water = TilePoint(x: 32, y: 18)
