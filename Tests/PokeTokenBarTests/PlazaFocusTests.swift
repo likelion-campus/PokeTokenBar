@@ -247,6 +247,25 @@ final class PlazaFocusTests: XCTestCase {
         c.handleClose()
     }
 
+    func testArrowsInPhotoModeDoNotEndAFocus() async {
+        var ends: [PlazaFocusEnd] = []
+        let (_, _, c) = await pair { ends.append($0) }
+        let scene = c.scene!
+        c.startFocus(minutes: 25)
+        key(scene, 35)
+        XCTAssertTrue(c.isPhotoMode)
+        key(scene, leftKey)
+        XCTAssertEqual(ends, [])
+        XCTAssertNotNil(c.focus)
+        key(scene, 53)
+        XCTAssertFalse(c.isPhotoMode)
+        XCTAssertNotNil(c.focus)
+        key(scene, leftKey)
+        XCTAssertEqual(ends.count, 1)
+        XCTAssertNil(c.focus)
+        c.handleClose()
+    }
+
     func testDueFocusEndsOnceWithACelebration() async {
         var ends: [PlazaFocusEnd] = []
         let (_, other, c) = await pair { ends.append($0) }

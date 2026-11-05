@@ -476,10 +476,14 @@ final class PlazaPhotoTests: XCTestCase {
         let scene = try XCTUnwrap(c.scene)
         scene.setCharacter(frames())
         _ = pressP(scene)
+        XCTAssertTrue(written.isEmpty, "첫 P는 사진 모드만 연다")
+        XCTAssertTrue(c.isPhotoMode)
+        _ = pressP(scene)
         _ = pressP(scene, isRepeat: true)
         XCTAssertEqual(written.count, 1)
         XCTAssertEqual(Array(try XCTUnwrap(written.first).prefix(4)), [0x89, 0x50, 0x4E, 0x47])
         XCTAssertTrue(scene.isShutterFlashing)
+        XCTAssertEqual(c.banner, "사진을 클립보드에 담았어요 · ⌘V로 붙여 넣기")
     }
 
     func testFailedWriteDoesNotFlash() throws {
@@ -488,8 +492,10 @@ final class PlazaPhotoTests: XCTestCase {
         let scene = try XCTUnwrap(c.scene)
         scene.setCharacter(frames())
         _ = pressP(scene)
+        _ = pressP(scene)
         XCTAssertEqual(calls, 1, "rendering succeeded and the writer was asked once")
         XCTAssertFalse(scene.isShutterFlashing)
+        XCTAssertNil(c.banner)
     }
 
     func testClosedWindowStopsListeningForPhotoKey() throws {
@@ -497,6 +503,7 @@ final class PlazaPhotoTests: XCTestCase {
         let c = controller { _ in written += 1; return true }
         let scene = try XCTUnwrap(c.scene)
         scene.setCharacter(frames())
+        _ = pressP(scene)
         _ = pressP(scene)
         XCTAssertEqual(written, 1)
         c.handleClose()

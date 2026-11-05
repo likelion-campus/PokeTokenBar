@@ -26,12 +26,15 @@ final class PlazaGroupPhotoTests: XCTestCase {
     private let gate = SecondGate()
     private var written: [Data] = []
     private var now = Date(timeIntervalSince1970: 1_700_000_000)
+    private var frontmost = true
+    private var writeSucceeds = true
 
     override func setUp() async throws {
         hub = FakeTransportHub()
         var rng = SystemRandomNumberGenerator()
         code = TeamCode.generate(using: &rng)
         written = []
+        writeSucceeds = true
     }
 
     override func tearDown() async throws {
@@ -75,8 +78,9 @@ final class PlazaGroupPhotoTests: XCTestCase {
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: 25, isShiny: false) }, session: me.session,
                                       clock: { [weak self] in self?.now ?? Date() },
-                                      photoWriter: { [weak self] in self?.written.append($0); return true },
-                                      groupPhotoSleep: { _ in await gate.sleep() })
+                                      photoWriter: { [weak self] in self?.written.append($0); return self?.writeSucceeds ?? true },
+                                      groupPhotoSleep: { _ in await gate.sleep() },
+                                      isFrontmost: { [weak self] in self?.frontmost ?? true })
         c.prepareScene()
         c.scene?.backingOverride = 2
         c.scene?.size = CGSize(width: 400, height: 300)
@@ -106,6 +110,14 @@ final class PlazaGroupPhotoTests: XCTestCase {
         c.scene?.handleKeyDown(keyCode: 5, characters: "ㅎ", isRepeat: isRepeat)
     }
 
+    private func pressP(_ c: PlazaWindowController) {
+        c.scene?.handleKeyDown(keyCode: 35, characters: "ㅔ", isRepeat: false)
+    }
+
+    private func pressEsc(_ c: PlazaWindowController) {
+        c.scene?.handleKeyDown(keyCode: 53, characters: "\u{1b}", isRepeat: false)
+    }
+
     /// G starts a five-second countdown here and on teammates' plazas, then flashes and puts my photo on the clipboard.
     func testGStartsACountdownThatEndsInMyPhoto() async throws {
         let (_, other, c) = await connected()
@@ -113,6 +125,7 @@ final class PlazaGroupPhotoTests: XCTestCase {
         other.session.onEmote = { received.append($1) }
         pressG(c)
         pressG(c, isRepeat: true)
+        XCTAssertTrue(c.isPhotoMode, "G opens photo mode")
         XCTAssertEqual(c.countdown, "단체 사진 5 · 모두 모여요!")
         await waitUntil { !received.isEmpty }
         XCTAssertEqual(received, [TeamEmote(kind: .groupPhoto, targetMemberID: nil)])
@@ -124,19 +137,20 @@ final class PlazaGroupPhotoTests: XCTestCase {
         await tick()
         XCTAssertNil(c.countdown)
         XCTAssertEqual(written.count, 1, "one photo")
+        XCTAssertTrue(c.isPhotoMode, "photo mode stays on after the group photo")
         XCTAssertTrue(try XCTUnwrap(c.scene).isShutterFlashing)
         XCTAssertEqual(received.count, 1, "the held G sent nothing more")
     }
 
-    /// A teammate's countdown flashes my plaza too but leaves my clipboard alone, unless I press G to take part,
+    /// A teammate's countdown flashes my plaza too but leaves my clipboard alone, unless I am in photo mode (P),
     /// which sends nothing.
-    func testTeammatesCountdownTakesMyPhotoOnlyWhenIJoin() async throws {
+    func testTeammatesCountdownTakesMyPhotoOnlyInPhotoMode() async throws {
         let (_, other, c) = await connected()
         let id = other.settings.memberID
         var received = 0
         other.session.onEmote = { _, _ in received += 1 }
         c.showGroupPhoto(from: id)
-        XCTAssertEqual(c.countdown, "민수님의 단체 사진 5 · G를 누르면 함께 찍어요")
+        XCTAssertEqual(c.countdown, "민수님의 단체 사진 5 · P를 누르면 함께 찍어요")
         for _ in 0..<5 { await tick() }
         XCTAssertNil(c.countdown)
         XCTAssertTrue(try XCTUnwrap(c.scene).isShutterFlashing, "everyone sees the flash")
@@ -144,20 +158,95 @@ final class PlazaGroupPhotoTests: XCTestCase {
 
         c.showGroupPhoto(from: id)
         await tick()
-        pressG(c)
+        pressP(c)
         XCTAssertEqual(c.countdown, "민수님의 단체 사진 4 · 함께 찍는 중")
         for _ in 0..<4 { await tick() }
         XCTAssertNil(c.countdown)
-        XCTAssertEqual(written.count, 1, "joined, so my photo is taken")
+        XCTAssertEqual(written.count, 1, "in photo mode, so my photo is taken")
         try? await Task.sleep(for: .milliseconds(50))
         XCTAssertEqual(received, 0, "taking part sends nothing")
+    }
+
+    /// G during a teammate's countdown enters photo mode, which is the joining; it sends nothing.
+    func testGDuringATeammatesCountdownJoinsWithoutSending() async {
+        let (_, other, c) = await connected()
+        var received = 0
+        other.session.onEmote = { _, _ in received += 1 }
+        c.showGroupPhoto(from: other.settings.memberID)
+        pressG(c)
+        XCTAssertTrue(c.isPhotoMode)
+        XCTAssertEqual(c.countdown, "민수님의 단체 사진 5 · 함께 찍는 중")
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(received, 0)
+        for _ in 0..<5 { await tick() }
+        XCTAssertEqual(written.count, 1)
+    }
+
+    /// Esc during the countdown leaves the shot: the flash still comes, the clipboard stays.
+    func testEscDuringTheCountdownLeavesTheShot() async throws {
+        let (_, _, c) = await connected()
+        pressG(c)
+        await tick()
+        pressEsc(c)
+        XCTAssertFalse(c.isPhotoMode)
+        XCTAssertEqual(c.countdown, "단체 사진 4 · P를 누르면 함께 찍어요")
+        for _ in 0..<4 { await tick() }
+        XCTAssertTrue(try XCTUnwrap(c.scene).isShutterFlashing)
+        XCTAssertTrue(written.isEmpty)
+    }
+
+    /// A plaza left behind another app is not photographed, so a teammate's countdown cannot overwrite the clipboard.
+    func testBackgroundPlazaIsNotPhotographed() async throws {
+        let (_, other, c) = await connected()
+        pressP(c)
+        c.showGroupPhoto(from: other.settings.memberID)
+        frontmost = false
+        for _ in 0..<5 { await tick() }
+        XCTAssertTrue(try XCTUnwrap(c.scene).isShutterFlashing)
+        XCTAssertTrue(written.isEmpty)
+        XCTAssertTrue(c.isPhotoMode)
+    }
+
+    /// In photo mode with the plaza behind another window, the text says the photo needs the window in front; it follows
+    /// the window gaining and losing key without waiting for the next second.
+    func testTheCountdownSaysWhenThePlazaIsNotInFront() async {
+        let (_, other, c) = await connected()
+        pressG(c)
+        XCTAssertEqual(c.countdown, "단체 사진 5 · 모두 모여요!")
+        frontmost = false
+        c.handleResignKey()
+        XCTAssertEqual(c.countdown, "단체 사진 5 · 광장 창을 앞에 두면 함께 찍혀요")
+        frontmost = true
+        c.handleBecomeKey()
+        XCTAssertEqual(c.countdown, "단체 사진 5 · 모두 모여요!")
+        c.handleClose()
+        c.prepareScene()
+        c.showGroupPhoto(from: other.settings.memberID)
+        pressP(c)
+        XCTAssertEqual(c.countdown, "민수님의 단체 사진 5 · 함께 찍는 중")
+        frontmost = false
+        c.handleResignKey()
+        XCTAssertEqual(c.countdown, "민수님의 단체 사진 5 · 광장 창을 앞에 두면 함께 찍혀요")
+        c.handleClose()
+    }
+
+    /// A photo that cannot be written still flashes at zero: every screen flashes, whatever happens to the clipboard.
+    func testAFailedPhotoStillFlashesAtZero() async throws {
+        let (_, _, c) = await connected()
+        writeSucceeds = false
+        pressG(c)
+        for _ in 0..<5 { await tick() }
+        XCTAssertNil(c.countdown)
+        XCTAssertEqual(written.count, 1, "the write was attempted")
+        XCTAssertTrue(try XCTUnwrap(c.scene).isShutterFlashing)
+        c.handleClose()
     }
 
     /// A teammate whose name has not arrived yet (their presence comes after they connect) shows as 팀원.
     func testATeammateWithNoNameYetShowsAsTeammate() async {
         let (_, _, c) = await connected()
         c.showGroupPhoto(from: "not-a-member")
-        XCTAssertEqual(c.countdown, "팀원님의 단체 사진 5 · G를 누르면 함께 찍어요")
+        XCTAssertEqual(c.countdown, "팀원님의 단체 사진 5 · P를 누르면 함께 찍어요")
     }
 
     /// While a countdown runs, another start (mine or a teammate's) does not restart it.
@@ -166,7 +255,7 @@ final class PlazaGroupPhotoTests: XCTestCase {
         c.showGroupPhoto(from: other.settings.memberID)
         await tick()
         c.showGroupPhoto(from: other.settings.memberID)
-        XCTAssertEqual(c.countdown, "민수님의 단체 사진 4 · G를 누르면 함께 찍어요")
+        XCTAssertEqual(c.countdown, "민수님의 단체 사진 4 · P를 누르면 함께 찍어요")
     }
 
     /// Closing the plaza mid-countdown cancels it. Reopened and started again within the five seconds, the old
