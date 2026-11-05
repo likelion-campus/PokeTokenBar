@@ -30,6 +30,8 @@ struct TeamPresence: Codable, Equatable, Sendable {
     /// When this member's campfire focus ends. Left out when not focusing; earlier versions ignore it. A receiver
     /// keeps it only inside `PlazaFocus.accepted`'s window.
     var focusEndsAt: Date?
+    /// The team's plaza schedule as this member knows it. Left out when never changed; earlier versions ignore it.
+    var schedule: PlazaSchedule?
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {

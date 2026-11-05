@@ -22,6 +22,74 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertNil(TeamSettings(defaults: d).nameColor)
     }
 
+    // MARK: - 광장 일정
+
+    private func schedule(_ at: TimeInterval, by: String = "m", start: Int = 9, end: Int = 18) -> PlazaSchedule {
+        PlazaSchedule(coreStart: start, coreEnd: end, seasonPeriod: "week", changedAt: Date(timeIntervalSince1970: at),
+                      changedBy: by, changedByName: "N")
+    }
+
+    func testChangeScheduleStampsAndClamps() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.nickname = "Ash"
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 1_000)
+        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .month, now: now)
+        XCTAssertEqual(s.schedule?.changedAt, now)
+        XCTAssertEqual(s.schedule?.changedBy, s.memberID)
+        XCTAssertEqual(s.schedule?.changedByName, "Ash")
+        XCTAssertEqual(s.schedule?.period, .month)
+        for (input, expected) in [((16, 10), (16, 17)), ((0, 30), (1, 23)), ((23, 23), (22, 23))] {
+            s.changeSchedule(coreStart: input.0, coreEnd: input.1, period: .day, now: now)
+            XCTAssertEqual(s.schedule?.coreStart, expected.0)
+            XCTAssertEqual(s.schedule?.coreEnd, expected.1)
+        }
+    }
+
+    func testChangeScheduleWithoutTeamDoesNothing() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .day, now: Date())
+        XCTAssertNil(s.schedule)
+    }
+
+    func testScheduleIsPersistedPerTeam() {
+        let d = freshDefaults()
+        let s = TeamSettings(defaults: d)
+        s.code = code(1)
+        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .week, now: Date(timeIntervalSince1970: 5))
+        XCTAssertEqual(TeamSettings(defaults: d).schedule?.coreStart, 9)
+        s.code = code(2)
+        XCTAssertNil(s.schedule)
+        s.changeSchedule(coreStart: 11, coreEnd: 12, period: .day, now: Date(timeIntervalSince1970: 6))
+        s.code = code(1)
+        XCTAssertEqual(s.schedule?.coreStart, 9)
+        s.code = code(2)
+        XCTAssertEqual(s.schedule?.coreStart, 11)
+    }
+
+    func testAdoptScheduleLastWriterWins() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 10_000)
+        XCTAssertTrue(s.adoptSchedule(schedule(100, by: "b"), now: now))
+        XCTAssertFalse(s.adoptSchedule(schedule(99, by: "z"), now: now))        // older
+        XCTAssertFalse(s.adoptSchedule(schedule(100, by: "a"), now: now))       // tie, lesser id
+        XCTAssertFalse(s.adoptSchedule(schedule(100, by: "b"), now: now))       // identical
+        XCTAssertTrue(s.adoptSchedule(schedule(100, by: "c", start: 7), now: now))   // tie, greater id
+        XCTAssertEqual(s.schedule?.coreStart, 7)
+        XCTAssertTrue(s.adoptSchedule(schedule(101, by: "a"), now: now))        // newer
+    }
+
+    func testAdoptScheduleRejectsFarFutureAndInvalidRange() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 10_000)
+        XCTAssertFalse(s.adoptSchedule(schedule(10_601), now: now))
+        XCTAssertTrue(s.adoptSchedule(schedule(10_600), now: now))
+        XCTAssertFalse(s.adoptSchedule(schedule(10_599, start: 16, end: 10), now: now))
+        XCTAssertFalse(s.adoptSchedule(schedule(20_000, start: 0, end: 5), now: Date(timeIntervalSince1970: 30_000)))
+    }
+
     // MARK: - 저장한 팀
 
     private func code(_ seed: UInt64) -> TeamCode {

@@ -27,6 +27,10 @@ final class TeamSettings {
             else { defaults.removeObject(forKey: "team.nameColor") }
         }
     }
+    /// 팀 코드(정규화)별 광장 일정. 이 Mac에만 저장하고, 팀원끼리는 presence 로 맞춘다.
+    private var schedules: [String: PlazaSchedule] {
+        didSet { defaults.set(try? JSONEncoder().encode(schedules), forKey: "team.schedules") }
+    }
     let memberID: String
 
     init(defaults: UserDefaults = TeamSettings.defaultStore()) {
@@ -36,6 +40,8 @@ final class TeamSettings {
         nickname = defaults.string(forKey: "team.nickname") ?? ""
         notificationsEnabled = defaults.object(forKey: "team.notifications") as? Bool ?? true
         nameColor = (defaults.object(forKey: "team.nameColor") as? Int).flatMap { UInt32(exactly: $0) }
+        schedules = defaults.data(forKey: "team.schedules")
+            .flatMap { try? JSONDecoder().decode([String: PlazaSchedule].self, from: $0) } ?? [:]
         savedTeams = defaults.data(forKey: "team.saved")
             .flatMap { try? JSONDecoder().decode([SavedTeam].self, from: $0) }?
             .filter { TeamCode(parsing: $0.code) != nil } ?? []
@@ -48,6 +54,29 @@ final class TeamSettings {
         }
         // v2.5.602 and earlier kept only the current code.
         if let code { remember(code) }
+    }
+
+    /// The current team's schedule; nil when never changed or when there is no team.
+    var schedule: PlazaSchedule? { code.flatMap { schedules[$0.normalized] } }
+
+    /// Changes the schedule. Start clamps into 1...22 and end into (start+1)...23, so start < end always holds.
+    func changeSchedule(coreStart: Int, coreEnd: Int, period: PlazaWeather.Period, now: Date) {
+        guard let key = code?.normalized else { return }
+        let start = min(max(coreStart, 1), 22)
+        let end = min(max(coreEnd, start + 1), 23)
+        schedules[key] = PlazaSchedule(coreStart: start, coreEnd: end, seasonPeriod: period.rawValue, changedAt: now,
+                                       changedBy: memberID, changedByName: nickname)
+    }
+
+    /// Last-writer-wins: stores `s` for the current team when it is valid, not from the far future, and newer.
+    @discardableResult
+    func adoptSchedule(_ s: PlazaSchedule, now: Date) -> Bool {
+        guard let key = code?.normalized,
+              PlazaCoreTime(start: s.coreStart, end: s.coreEnd) != nil,
+              s.changedAt <= now.addingTimeInterval(600),
+              s.isNewer(than: schedules[key]) else { return false }
+        schedules[key] = s
+        return true
     }
 
     struct SavedTeam: Codable, Equatable, Identifiable {

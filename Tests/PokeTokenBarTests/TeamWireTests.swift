@@ -69,6 +69,22 @@ final class TeamWireTests: XCTestCase {
         XCTAssertNil(p.nameColor)
     }
 
+    /// The shared plaza schedule is sent only when set; an unknown season period reads as a day.
+    func testScheduleIsOptionalOnTheWire() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("schedule"))
+        var withSchedule = presence
+        withSchedule.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "month",
+                                              changedAt: Date(timeIntervalSince1970: 1_790_000_000.5),
+                                              changedBy: "m1", changedByName: "Ash")
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(withSchedule))), [.presence(withSchedule)])
+        let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":false,"schedule":{"coreStart":10,"coreEnd":16,"seasonPeriod":"season","changedAt":1790000000,"changedBy":"m","changedByName":"A"}}}}"#
+        var d2 = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try d2.append(frame(json)).first, let sch = p.schedule else { return XCTFail("no schedule") }
+        XCTAssertEqual(sch.period, .day)
+    }
+
     /// Running is sent only when true, and earlier versions' presence reads as walking.
     func testRunningFlagIsOptionalOnTheWire() throws {
         var running = presence

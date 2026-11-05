@@ -86,6 +86,7 @@ final class TeamSession {
     @ObservationIgnored private var knownCode: TeamCode?
     @ObservationIgnored private var sentNickname: String?
     @ObservationIgnored private var sentNameColor: UInt32?
+    @ObservationIgnored private var sentSchedule: PlazaSchedule?
     @ObservationIgnored private var character: TeamMonSummary?
     @ObservationIgnored private var inPlaza = false
     @ObservationIgnored private var tile: TilePoint?
@@ -129,9 +130,10 @@ final class TeamSession {
             return
         }
         if running && !codeChanged {
-            if nickname != sentNickname || settings.nameColor != sentNameColor {
+            if nickname != sentNickname || settings.nameColor != sentNameColor || settings.schedule != sentSchedule {
                 sentNickname = nickname
                 sentNameColor = settings.nameColor
+                sentSchedule = settings.schedule
                 broadcast(.presence(makePresence()))
             }
             return
@@ -141,6 +143,7 @@ final class TeamSession {
         pruneFeed()
         sentNickname = nickname
         sentNameColor = settings.nameColor
+        sentSchedule = settings.schedule
         transport.start(code: code)
         running = true
     }
@@ -316,6 +319,10 @@ final class TeamSession {
             member.takenItemSlot = presence.takenItemSlot
             member.focusEndsAt = PlazaFocus.accepted(presence.focusEndsAt, now: clock())
             members[memberID] = member
+            if let schedule = presence.schedule, settings.adoptSchedule(schedule, now: clock()) {
+                sentSchedule = settings.schedule
+                broadcast(.presence(makePresence()))
+            }
         case .inventory(let eventIDs, let reactionIDs):
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
         case .events(let events, let live):
@@ -408,7 +415,7 @@ final class TeamSession {
         TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
                      inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
                      nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot,
-                     focusEndsAt: focusEndsAt)
+                     focusEndsAt: focusEndsAt, schedule: settings.schedule)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

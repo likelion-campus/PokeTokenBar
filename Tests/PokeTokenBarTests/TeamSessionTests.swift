@@ -566,6 +566,72 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - Presence
 
+    func testScheduleChangeReachesTheOtherNode() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.session.applySettings()
+        XCTAssertNotNil(a.settings.schedule)
+        XCTAssertEqual(b.settings.schedule, a.settings.schedule)
+    }
+
+    func testOlderScheduleIsNotAdoptedAndDoesNotRevert() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.session.applySettings()
+        let older = PlazaSchedule(coreStart: 1, coreEnd: 2, seasonPeriod: "day", changedAt: clock.now.addingTimeInterval(-60),
+                                  changedBy: "zzz", changedByName: "Z")
+        XCTAssertFalse(b.settings.adoptSchedule(older, now: clock.now))
+        b.session.applySettings()
+        XCTAssertEqual(a.settings.schedule?.coreStart, 8)
+        XCTAssertEqual(b.settings.schedule?.coreStart, 8)
+    }
+
+    func testTwoChangesASecondApartConvergeOnTheLater() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.session.applySettings()
+        clock.advance(1)
+        b.settings.changeSchedule(coreStart: 11, coreEnd: 15, period: .month, now: clock.now)
+        b.session.applySettings()
+        XCTAssertEqual(a.settings.schedule, b.settings.schedule)
+        XCTAssertEqual(a.settings.schedule?.coreStart, 11)
+        // The same, made while apart: the later one wins on both once they meet.
+        let c = node("C"), d = node("D")
+        c.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        clock.advance(1)
+        d.settings.changeSchedule(coreStart: 12, coreEnd: 14, period: .day, now: clock.now)
+        connect(c, d)
+        XCTAssertEqual(c.settings.schedule?.coreStart, 12)
+        XCTAssertEqual(d.settings.schedule?.coreStart, 12)
+    }
+
+    func testScheduleRelaysThroughAMiddleNodeAndReachesALateJoiner() {
+        let a = node("A"), b = node("B"), c = node("C")
+        connect(a, b)
+        connect(b, c)            // c has no link to a
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.session.applySettings()
+        XCTAssertEqual(c.settings.schedule, a.settings.schedule)
+        let late = node("L")
+        connect(b, late)         // offline during the change
+        XCTAssertEqual(late.settings.schedule, a.settings.schedule)
+    }
+
+    func testPresenceWithoutScheduleLeavesMineUnchanged() {
+        let a = node("A")
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        let before = a.settings.schedule
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello()
+        raw.say(.presence(TeamPresence(nickname: "Raw", character: Node.eevee, inPlaza: true,
+                                       tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: false)))
+        XCTAssertEqual(a.settings.schedule, before)
+    }
+
     func testCharacterChangeIsSentImmediately() {
         let a = node("A"), b = node("B")
         connect(a, b)
