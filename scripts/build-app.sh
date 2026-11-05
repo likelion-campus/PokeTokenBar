@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="2.5.617"
+VERSION="2.5.618"
 APP_NAME="PokeTokenBar"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
