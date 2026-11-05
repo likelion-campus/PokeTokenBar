@@ -95,6 +95,48 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertEqual(s.schedule?.coreStart, 11)
     }
 
+    /// 피어가 보낸 문자열은 저장되어 이후 모든 presence 에 실린다. 닉네임 상한을 넘으면 받지 않는다.
+    func testAdoptScheduleRejectsOversizedPeerStrings() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 10_000)
+        var base = schedule(10_000)
+        func tried(_ edit: (inout PlazaSchedule) -> Void) -> Bool {
+            var c = base
+            edit(&c)
+            return s.adoptSchedule(c, now: now)
+        }
+        XCTAssertFalse(tried { $0.changedByName = String(repeating: "가", count: 300_000) })   // ~900 KB
+        XCTAssertFalse(tried { $0.changedByName = "열두글자를넘는아주긴이름입니다" })
+        XCTAssertFalse(tried { $0.changedBy = String(repeating: "x", count: 65) })
+        XCTAssertFalse(tried { $0.seasonPeriod = String(repeating: "x", count: 17) })
+        XCTAssertNil(s.schedule)
+        base.changedByName = ""
+        XCTAssertTrue(s.adoptSchedule(base, now: now), "an unnamed change is fine")
+    }
+
+    func testChangeScheduleAfterAdoptingAnUnknownPeriodIsNotDropped() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        var later = schedule(100)
+        later.seasonPeriod = "quarter"
+        XCTAssertTrue(s.adoptSchedule(later, now: Date(timeIntervalSince1970: 200)))
+        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .day, now: Date(timeIntervalSince1970: 150))
+        XCTAssertEqual(s.schedule?.seasonPeriod, "day")
+        XCTAssertGreaterThan(s.schedule?.changedAt ?? .distantPast, later.changedAt)
+    }
+
+    func testLeaveTeamForgetsItsSchedule() {
+        let d = freshDefaults()
+        let s = TeamSettings(defaults: d)
+        s.code = code(1)
+        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .week, now: Date(timeIntervalSince1970: 5))
+        s.leaveTeam()
+        s.code = code(1)
+        XCTAssertNil(s.schedule)
+        XCTAssertNil(TeamSettings(defaults: d).schedule)
+    }
+
     func testAdoptScheduleLastWriterWins() {
         let s = TeamSettings(defaults: freshDefaults())
         s.code = code(1)

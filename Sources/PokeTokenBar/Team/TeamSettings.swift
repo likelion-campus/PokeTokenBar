@@ -67,7 +67,7 @@ final class TeamSettings {
         // 지금과 같은 값을 다시 고르면 도장을 새로 찍지 않는다.
         let current = schedules[key]
         if start == (current?.coreTime ?? .standard).start, end == (current?.coreTime ?? .standard).end,
-           period == (current?.period ?? .day) { return }
+           period.rawValue == (current?.seasonPeriod ?? PlazaWeather.Period.day.rawValue) { return }
         // 저장된 도장이 이 Mac 시계보다 앞서 있어도(시계가 느리거나 빠른 Mac 값을 받은 경우) 내 수정이 지지 않게 한다.
         let stamp = max(now, (current?.changedAt ?? .distantPast).addingTimeInterval(0.001))
         schedules[key] = PlazaSchedule(coreStart: start, coreEnd: end, seasonPeriod: period.rawValue, changedAt: stamp,
@@ -80,9 +80,17 @@ final class TeamSettings {
         guard let key = code?.normalized,
               PlazaCoreTime(start: s.coreStart, end: s.coreEnd) != nil,
               s.changedAt <= now.addingTimeInterval(600),
+              Self.isBounded(s),
               s.isNewer(than: schedules[key]) else { return false }
         schedules[key] = s
         return true
+    }
+
+    /// 피어가 보낸 문자열은 저장되고 이후 모든 presence 에 실려 나간다. 닉네임 규칙(`validNickname`)과 같은 상한을 둬서
+    /// 큰 값 하나가 프레임 상한(1 MB)을 넘겨 팀 전체의 presence 를 막지 못하게 한다.
+    private static func isBounded(_ s: PlazaSchedule) -> Bool {
+        (s.changedByName.isEmpty || validNickname(s.changedByName) == s.changedByName)
+            && s.changedBy.utf8.count <= 64 && s.seasonPeriod.utf8.count <= 16
     }
 
     struct SavedTeam: Codable, Equatable, Identifiable {
@@ -154,7 +162,10 @@ final class TeamSettings {
 
     /// Leaves the team for good: it is also removed from the saved teams.
     func leaveTeam() {
-        if let current = code?.normalized { savedTeams.removeAll { $0.code == current } }
+        if let current = code?.normalized {
+            savedTeams.removeAll { $0.code == current }
+            schedules[current] = nil
+        }
         code = nil
         isEnabled = false
     }

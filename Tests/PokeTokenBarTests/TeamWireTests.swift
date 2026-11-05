@@ -85,6 +85,23 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(sch.period, .day)
     }
 
+    /// 손으로 쓴 Codable 은 새 선택 필드를 키 목록에 빼먹어도 컴파일되지만, 합성이면 모든 필드가 오간다.
+    func testEveryOptionalFieldSurvivesARoundTrip() throws {
+        var full = presence
+        full.tile = TilePoint(x: 3, y: 4)
+        full.facing = .left
+        full.isIdle = true
+        full.nameColor = 0xFF9ECF
+        full.isRunning = true
+        full.takenItemSlot = 2
+        full.focusEndsAt = Date(timeIntervalSince1970: 1_790_000_000.5)
+        full.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "week",
+                                      changedAt: Date(timeIntervalSince1970: 1_790_000_000.5),
+                                      changedBy: "m1", changedByName: "Ash")
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(full))), [.presence(full)])
+    }
+
     /// A schedule this version cannot read costs only the schedule, never the member's position or name.
     func testMalformedScheduleDropsOnlyTheSchedule() throws {
         let head = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335,"schedule":"#

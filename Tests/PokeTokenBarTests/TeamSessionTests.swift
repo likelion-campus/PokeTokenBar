@@ -638,6 +638,22 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.settings.schedule?.coreStart, 6)
     }
 
+    /// A peer's 900 KB name must not be adopted, or it would ride in every presence and push the frame past the limit.
+    func testScheduleWithAHugeNameIsNeitherAdoptedNorRelayed() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello()
+        let s = PlazaSchedule(coreStart: 5, coreEnd: 20, seasonPeriod: "week", changedAt: clock.now,
+                              changedBy: "x", changedByName: String(repeating: "가", count: 300_000))
+        raw.say(.presence(TeamPresence(nickname: "Raw", character: Node.eevee, inPlaza: true,
+                                       tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: false, schedule: s)))
+        XCTAssertTrue(a.session.members.values.contains { $0.nickname == "Raw" }, "the presence itself still arrives")
+        XCTAssertNil(a.settings.schedule)
+        XCTAssertNil(b.settings.schedule)
+    }
+
     /// settings.code moves before applySettings runs; the old team's links must not feed the new team's key.
     func testScheduleIsNotStoredUnderACodeThatTheLinksDoNotBelongTo() {
         let a = node("A"), b = node("B")
