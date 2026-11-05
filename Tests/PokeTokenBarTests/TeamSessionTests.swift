@@ -620,6 +620,24 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(late.settings.schedule, a.settings.schedule)
     }
 
+    /// The far-future guard runs against the session's clock, not the wall clock.
+    func testScheduleStampedMoreThanTenMinutesAheadIsNotAdopted() {
+        let a = node("A")
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello()
+        func send(_ ahead: TimeInterval, start: Int) {
+            let s = PlazaSchedule(coreStart: start, coreEnd: 20, seasonPeriod: "week",
+                                  changedAt: clock.now.addingTimeInterval(ahead), changedBy: "x", changedByName: "X")
+            raw.say(.presence(TeamPresence(nickname: "Raw", character: Node.eevee, inPlaza: true,
+                                           tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: false, schedule: s)))
+        }
+        send(601, start: 5)
+        XCTAssertNil(a.settings.schedule)
+        send(599, start: 6)
+        XCTAssertEqual(a.settings.schedule?.coreStart, 6)
+    }
+
     func testPresenceWithoutScheduleLeavesMineUnchanged() {
         let a = node("A")
         a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)

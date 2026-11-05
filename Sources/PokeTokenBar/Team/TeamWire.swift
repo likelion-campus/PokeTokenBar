@@ -32,6 +32,31 @@ struct TeamPresence: Codable, Equatable, Sendable {
     var focusEndsAt: Date?
     /// The team's plaza schedule as this member knows it. Left out when never changed; earlier versions ignore it.
     var schedule: PlazaSchedule?
+
+    private enum CodingKeys: String, CodingKey {
+        case nickname, character, inPlaza, tile, facing, isWalking, isIdle, nameColor, isRunning, takenItemSlot,
+             focusEndsAt, schedule
+    }
+}
+
+extension TeamPresence {
+    /// A `schedule` this version cannot read (a later shape, a bad value) reads as none, so the member's position,
+    /// character and name still arrive.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        nickname = try c.decode(String.self, forKey: .nickname)
+        character = try c.decode(TeamMonSummary.self, forKey: .character)
+        inPlaza = try c.decode(Bool.self, forKey: .inPlaza)
+        tile = try c.decodeIfPresent(TilePoint.self, forKey: .tile)
+        facing = try c.decodeIfPresent(PlazaDirection.self, forKey: .facing)
+        isWalking = try c.decode(Bool.self, forKey: .isWalking)
+        isIdle = try c.decodeIfPresent(Bool.self, forKey: .isIdle)
+        nameColor = try c.decodeIfPresent(UInt32.self, forKey: .nameColor)
+        isRunning = try c.decodeIfPresent(Bool.self, forKey: .isRunning)
+        takenItemSlot = try c.decodeIfPresent(Int.self, forKey: .takenItemSlot)
+        focusEndsAt = try c.decodeIfPresent(Date.self, forKey: .focusEndsAt)
+        schedule = try? c.decodeIfPresent(PlazaSchedule.self, forKey: .schedule)
+    }
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {

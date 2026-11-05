@@ -85,6 +85,25 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(sch.period, .day)
     }
 
+    /// A schedule this version cannot read costs only the schedule, never the member's position or name.
+    func testMalformedScheduleDropsOnlyTheSchedule() throws {
+        let head = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335,"schedule":"#
+        let bad = [#"{"coreStart":"ten","coreEnd":16,"seasonPeriod":"day","changedAt":1790000000,"changedBy":"m","changedByName":"A"}"#,
+                   #"{"coreStart":10,"coreEnd":16,"seasonPeriod":"day","changedAt":1790000000,"changedByName":"A"}"#]
+        for schedule in bad {
+            var decoder = TeamWire.FrameDecoder()
+            guard case .presence(let p)? = try decoder.append(frame(head + schedule + "}}}")).first else {
+                return XCTFail("presence dropped")
+            }
+            XCTAssertNil(p.schedule)
+            XCTAssertEqual(p.nickname, "Ash")
+            XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
+            XCTAssertEqual(p.facing, .left)
+            XCTAssertTrue(p.isWalking)
+            XCTAssertEqual(p.nameColor, 16752335)
+        }
+    }
+
     /// Running is sent only when true, and earlier versions' presence reads as walking.
     func testRunningFlagIsOptionalOnTheWire() throws {
         var running = presence
