@@ -24,6 +24,10 @@ struct PlazaActorContext {
     private let characterNode = SKSpriteNode()
     private let plateNode = SKSpriteNode()
     private let shadowNode = SKSpriteNode()
+    /// 헤엄칠 때 몸이 물에 잠기는 높이에 얹는 물결 고리.
+    private let swimRingNode = SKSpriteNode()
+    /// 아래쪽 월드 픽셀을 잘라 낸 양(헤엄). 0이면 온전하다.
+    private var swimSink: CGFloat = 0
     /// 알일 때 알 앞에 얹는 둥지 앞 테두리. 알이 둥지 안에 앉아 보이게 한다.
     private let nestFrontNode = SKSpriteNode()
     private var nestFrontImage: CGImage?
@@ -76,6 +80,9 @@ struct PlazaActorContext {
         shadowNode.anchorPoint = .zero
         shadowNode.zPosition = 0.5
         shadowNode.isHidden = true
+        swimRingNode.texture = Self.swimRingTexture
+        swimRingNode.size = CGSize(width: 24, height: 6)   // 12×3 시트 픽셀 × 2
+        swimRingNode.isHidden = true
         nestFrontNode.anchorPoint = .zero
         nestFrontNode.isHidden = true
         characterNode.anchorPoint = CGPoint(x: 0.5, y: 0)
@@ -91,6 +98,7 @@ struct PlazaActorContext {
     func attach(world: SKNode, camera: SKCameraNode) {
         world.addChild(shadowNode)
         world.addChild(characterNode)
+        world.addChild(swimRingNode)
         world.addChild(nestFrontNode)
         camera.addChild(plateNode)
         camera.addChild(emoteNode)
@@ -99,6 +107,7 @@ struct PlazaActorContext {
     func detach() {
         shadowNode.removeFromParent()
         characterNode.removeFromParent()
+        swimRingNode.removeFromParent()
         nestFrontNode.removeFromParent()
         plateNode.removeFromParent()
         emoteNode.removeFromParent()
@@ -195,13 +204,20 @@ struct PlazaActorContext {
 
     /// 그림, 그림자, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다. `foot`은 월드 좌표(y가 아래로)다.
     /// `concealment`(0–1)는 풀숲에 가려진 정도다. 그림·그림자·둥지 앞 테두리를 흐리게 하고 이름표를 풀숲 위로 내린다. `isMe`면 내 화면에서 40%까지만 흐려진다.
-    func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat = 0, isMe: Bool = false) {
+    /// `swimSink`가 0보다 크면 헤엄이다: 그림 아래를 그만큼 잘라 윗부분만 보이고, 그림자는 숨기고, 물높이 고리를 얹는다.
+    func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat = 0, isMe: Bool = false,
+               swimSink: CGFloat = 0) {
+        if swimSink != self.swimSink {
+            self.swimSink = swimSink
+            applyFrame()
+        }
         self.concealment = concealment
         isMeForConcealment = isMe
         let alpha = PlazaTallGrass.opacity(concealment: concealment, isMe: isMe)
         characterNode.alpha = alpha
-        shadowNode.alpha = alpha
-        nestFrontNode.alpha = alpha
+        shadowNode.alpha = swimSink > 0 ? 0 : alpha
+        nestFrontNode.alpha = swimSink > 0 ? 0 : alpha
+        swimRingNode.alpha = alpha
         let lunge = lungeOffset
         let foot = CGPoint(x: foot.x + lunge.x, y: foot.y + lunge.y)
         let backing = context.backing
@@ -220,6 +236,10 @@ struct PlazaActorContext {
         let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob) + jumpLift))
         characterNode.position = CGPoint(x: PlazaPixelSnap.centerX(footX: foot.x, width: characterNode.size.width, backing: backing, zoom: zoom),
                                          y: footScene.y)
+
+        swimRingNode.isHidden = swimSink <= 0 || characterNode.isHidden
+        swimRingNode.position = CGPoint(x: characterNode.position.x, y: footScene.y)
+        swimRingNode.zPosition = characterNode.zPosition + 0.0002
 
         // 이름표는 카메라 공간(화면 포인트)에 둔다.
         let top = footScene.y + characterNode.size.height
@@ -278,6 +298,11 @@ struct PlazaActorContext {
     var characterOpacity: CGFloat { characterNode.alpha }
     var nestFrontOpacity: CGFloat { nestFrontNode.alpha }
     var shadowOpacity: CGFloat { shadowNode.alpha }
+    /// 지금 보이는 그림 높이(월드 픽셀). 헤엄이면 잘린 만큼 줄어든다.
+    var visibleSpriteHeight: CGFloat { characterNode.size.height }
+    var isSwimRingVisible: Bool { !swimRingNode.isHidden }
+    /// 자르기 전 지금 그림의 높이(월드 픽셀). 그림이 없으면 0.
+    var fullSpriteHeight: CGFloat { currentFrames?.first.map { Self.scaledSize(of: $0.image).height } ?? 0 }
     var characterSize: CGSize { characterNode.size }
     var namePlatePosition: CGPoint { plateNode.position }
     var namePlateWidth: CGFloat { plateNode.size.width }
@@ -363,9 +388,25 @@ struct PlazaActorContext {
             texture.filteringMode = .nearest
             textureCache[ObjectIdentifier(image)] = texture
         }
-        characterNode.texture = texture
-        characterNode.size = Self.scaledSize(of: image)
+        let full = Self.scaledSize(of: image)
+        let cut = swimSink > 0 ? min((swimSink / Self.characterScale).rounded(), CGFloat(image.height) - 1) : 0   // 그림 줄 단위로 자른다
+        if cut > 0 {
+            let f = cut / CGFloat(image.height)
+            let top = SKTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: texture)
+            top.filteringMode = .nearest
+            characterNode.texture = top
+            characterNode.size = CGSize(width: full.width, height: full.height - cut * Self.characterScale)
+        } else {
+            characterNode.texture = texture
+            characterNode.size = full
+        }
     }
+
+    private static let swimRingTexture: SKTexture = {
+        let t = SKTexture(cgImage: PlazaPondArt.swimRing())
+        t.filteringMode = .nearest
+        return t
+    }()
 
     private func refreshShadow() {
         guard let frames, let first = frames.front.first else { return }
