@@ -40,9 +40,19 @@ struct PlazaSceneMember: Equatable, Sendable {
             if clamped != zoom { zoom = clamped; return }
             guard zoom != oldValue else { return }
             layout()
-            onZoomChange?(zoom)
+            // 사진 모드 안의 확대는 저장하지 않는다. 나갈 때 들어올 때의 확대로 돌아간다.
+            if !isPhotoMode { onZoomChange?(zoom) }
         }
     }
+
+    /// 사진 모드의 프레임 중심(세계 좌표, y 아래로). nil이면 평소처럼 내 캐릭터를 따라간다.
+    private(set) var photoCenter: CGPoint?
+    var isPhotoMode: Bool { photoCenter != nil }
+    /// 사진 모드에서 화면에 비친 사진 틀(세계 좌표, y 아래로). `layout()`이 정한다.
+    private(set) var photoFrame: CGRect?
+    var onPhotoModeChange: ((Bool) -> Void)?
+    private var zoomBeforePhotoMode = 2
+    private var panKeys: Set<PlazaDirection> = []
     var onZoomChange: ((Int) -> Void)?
     /// Cmd+W, Esc. 앱에 메인 메뉴가 없어 창 닫기를 장면이 직접 요청한다.
     var onCloseRequest: (() -> Void)?
@@ -404,6 +414,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             if !isRepeat, let key = Self.overlayKey(keyCode) { onOverlayKey?(key) }
             return .swallowed
         }
+        if isPhotoMode { return handlePhotoModeKeyDown(keyCode: keyCode, characters: characters, isRepeat: isRepeat, modifiers: modifiers) }
         if keyCode == Self.escapeKeyCode {
             // 누르고 있는 Esc가 방금 닫은 판 다음에 창까지 닫지 않게 반복은 무시한다.
             if isRepeat { return .swallowed }
@@ -452,17 +463,73 @@ struct PlazaSceneMember: Equatable, Sendable {
         return .swallowed
     }
 
-    func handleKeyUp(keyCode: UInt16) {
-        if let d = Self.direction(keyCode) { walker.release(d) }
+    /// 사진 모드의 키. 전부 삼킨다. 방향키는 걷기가 아니라 틀을 민다.
+    private func handlePhotoModeKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
+                                        modifiers: NSEvent.ModifierFlags) -> PlazaKeyResult {
+        if keyCode == Self.escapeKeyCode {
+            if !isRepeat { exitPhotoMode() }
+            return .swallowed
+        }
+        if let d = Self.direction(keyCode) {
+            // Command+방향키는 keyUp이 오지 않아 계속 밀리게 되므로 무시한다.
+            if !isRepeat && !modifiers.contains(.command) { panKeys.insert(d) }
+            return .swallowed
+        }
+        let plain = !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers)
+        if keyCode == Self.spaceKeyCode || keyCode == Self.pKeyCode {
+            if plain { onPhotoKey?() }
+            return .swallowed
+        }
+        if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.gKeyCode: onGroupPhotoKey][keyCode] {
+            if plain { action?() }
+            return .swallowed
+        }
+        if let kind = Self.emoteKind(keyCode), modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
+            if !isRepeat { onEmoteKey?(kind) }
+            return .swallowed
+        }
+        switch characters {
+        case "-": zoom -= 1
+        case "=", "+": zoom += 1
+        default: break
+        }
+        return .swallowed
     }
 
-    func releaseAllKeys() { walker.releaseAll() }
+    /// 카메라를 내 캐릭터에서 떼어 지금 보이는 화면 한가운데에 둔다. 걷던 것도 멈춘다.
+    func enterPhotoMode() {
+        guard !isPhotoMode else { return }
+        zoomBeforePhotoMode = zoom
+        photoCenter = CGPoint(x: visibleRect.midX, y: visibleRect.midY)
+        walker.releaseAll()
+        stopWalkingToMember()
+        panKeys.removeAll()
+        layout()
+        onPhotoModeChange?(true)
+    }
+
+    func exitPhotoMode() {
+        guard isPhotoMode else { return }
+        photoCenter = nil
+        photoFrame = nil
+        panKeys.removeAll()
+        zoom = zoomBeforePhotoMode
+        layout()
+        onPhotoModeChange?(false)
+    }
+
+    func handleKeyUp(keyCode: UInt16) {
+        if let d = Self.direction(keyCode) { walker.release(d); panKeys.remove(d) }
+    }
+
+    func releaseAllKeys() { walker.releaseAll(); panKeys.removeAll() }
 
     /// 입력창이 키를 가져가면 키 뗌이 장면에 오지 않으므로 눌린 키와 탭을 지운다. 걷던 칸은 마저 간다.
     func clearInput() {
         // 따라가기는 한마디를 쓰는 동안에도 이어 간다.
         if !isFollowing { stopWalkingToMember() }
         walker.clearInput()
+        panKeys.removeAll()
     }
 
     // MARK: - 팀원에게 걸어가기
@@ -565,7 +632,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 지금 화면에 보이는 영역을 기념사진 입력으로 모은다. 그림을 아직 못 받은 캐릭터는 뺀다(알과 자리 비움은 다른 팀원처럼 찍힌다).
     func photoInput() -> PlazaPhotoInput? {
-        guard visibleRect.width > 0, visibleRect.height > 0 else { return nil }
+        let rect = photoFrame ?? visibleRect
+        guard rect.width > 0, rect.height > 0 else { return nil }
         func pose(_ facing: PlazaDirection, _ isWalking: Bool) -> PlazaSpriteChoice {
             PlazaPose.choice(facing: facing, isWalking: isWalking, clock: clock)
         }
@@ -575,10 +643,10 @@ struct PlazaSceneMember: Equatable, Sendable {
             actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking)))
         }
         let tint = daylightTint
-        return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
+        return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
                                tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
                                items: itemPhotoParticles,
-                               bands: tallGrassLayer?.photoBands(in: visibleRect) ?? [],
+                               bands: tallGrassLayer?.photoBands(in: rect) ?? [],
                                props: campfirePhotoProps, light: campfirePhotoLight(tint: tint))
     }
 
@@ -836,7 +904,13 @@ struct PlazaSceneMember: Equatable, Sendable {
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
         clock = currentTime
         let modifiers = currentModifiers()
-        if modifiers.contains(.command) { walker.releaseAll() }
+        if modifiers.contains(.command) { walker.releaseAll(); panKeys.removeAll() }
+        if let c = photoCenter {
+            let speed = modifiers.contains(.shift) ? PlazaPhotoFrame.fastPanSpeed : PlazaPhotoFrame.panSpeed
+            let dx = (panKeys.contains(.right) ? 1 : 0) - (panKeys.contains(.left) ? 1 : 0)
+            let dy = (panKeys.contains(.down) ? 1 : 0) - (panKeys.contains(.up) ? 1 : 0)
+            photoCenter = CGPoint(x: c.x + CGFloat(dx) * speed * CGFloat(dt), y: c.y + CGFloat(dy) * speed * CGFloat(dt))
+        }
         // 방향키와 Shift를 함께 누르고 있거나, 따라가는 팀원이 달리면 달린다. Shift만으로는 달리지 않아,
         // 따라가며 한마디에 대문자를 쳐도 달리지 않는다.
         walker.wantsToRun = (modifiers.contains(.shift) && walker.isHoldingKey)
@@ -981,8 +1055,15 @@ struct PlazaSceneMember: Equatable, Sendable {
         let lift = me.cameraLift
         let focus = PlazaCamera.focus(for: foot, viewportWidth: size.width, rightInset: PlazaRosterMetrics.coveredWidth,
                                       characterHalfWidth: me.characterSize.width * z / 2, zoom: zoom, lift: lift)
-        let rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
+        var rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
                                         rightInset: PlazaRosterMetrics.coveredWidth)
+        photoFrame = nil
+        if let c = photoCenter,
+           let photo = PlazaPhotoFrame.layout(center: c, viewport: size, zoom: zoom, backingScale: backing, world: worldSize) {
+            rect = photo.visible
+            photoFrame = photo.frame
+            photoCenter = photo.center   // 가장자리에서 더 밀린 만큼을 쌓아 두지 않는다
+        }
         visibleRect = rect
         let cameraPos = CGPoint(x: rect.midX, y: worldSize.height - rect.midY)   // 원점은 visibleRect가 이미 기기 격자에 맞췄다
         cameraNode.position = cameraPos
