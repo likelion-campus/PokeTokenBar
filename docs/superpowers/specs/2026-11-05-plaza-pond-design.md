@@ -88,10 +88,10 @@
 - 지도 이미지(`PlazaTileArt.mapImage`)에 굽는다. 작은 지도·기념사진·낮밤 색에 저절로 나온다. 연잎을 함께 굽는다(한 칸짜리 (2,0)은 (33,18)·(14,13)·(21,25), 두 칸짜리 (4,0)–(5,0)은 (35,15)·(16,11)에서 시작)(자리는 **[구현자 재량]**).
 
 ### 5.2 배치 [설계자 판단·미확인]
-사각 연못 세 개, 헤엄 칸(물) 107칸과 물가 칸 84칸이다. 지도 문자열은 부록 A에 있다. 안쪽 모서리 그림은 지도가 쓰지 않지만 순수 규칙(`PlazaPond.shore`)에는 남겨 테스트한다.
+사각 연못 세 개, 헤엄 칸(물) 78칸과 물가 칸 72칸이다. 지도 문자열은 부록 A에 있다. 안쪽 모서리 그림은 지도가 쓰지 않지만 순수 규칙(`PlazaPond.shore`)에는 남겨 테스트한다.
 - 동쪽 7×6 (42칸): x 32–38, y 15–20
-- 서쪽 7×5 (35칸): x 12–18, y 10–14
-- 남쪽 5×6 (30칸): x 19–23, y 22–27
+- 서쪽 5×4 (20칸): x 13–17, y 11–14
+- 남쪽 4×4 (16칸): x 20–23, y 23–26
 
 배치 규칙(시안 검사 통과). 물가 칸 둘레는 비어 있다.
 - 물 칸과 물가 칸은 모두 지금 `.`이나 `f`다.
@@ -198,11 +198,11 @@ TTT..ggggggg.f...f...SSSSSS.......ggggg......TTT
 TTT..ggggggg.........SSSSSS...b.f............TTT
 TTT..ggggggg.................................TTT
 TTT.....f..........f............f....f.......TTT
-TTT.........wwwwwww..........ggg.......b.....TTT
-TTT.f.......wwwwwww..........ggg.............TTT
-TTT.........wwwwwww..................f.f.....TTT
-TTT.......b.wwwwwww.................f......f.TTT
-TTT.........wwwwwww.....................ggg..TTT
+TTT..........................ggg.......b.....TTT
+TTT.f........wwwww...........ggg.............TTT
+TTT..........wwwww...................f.f.....TTT
+TTT.......b..wwwww..................f......f.TTT
+TTT..........wwwww......................ggg..TTT
 TTT.f..gg..............FF.......wwwwwww.ggg..TTT
 TTT....gg.f...f........FF.......wwwwwww..f...TTT
 TTT............b................wwwwwww......TTT
@@ -210,12 +210,12 @@ TTT............................fwwwwwww......TTT
 TTT........b....................wwwwwww......TTT
 TTT........f..................f.wwwwwww......TTT
 TTT............f.......................f.....TTT
-TTT.ggggg.........fwwwww.........b...f....b..TTT
-TTT.ggggg........f.wwwww...f.................TTT
-TTT.ggggg..........wwwww.ggggggg.............TTT
-TTT.ggggg.......gg.wwwww.ggggggg.............TTT
-TTT.............gg.wwwww.ggggggg......ff.....TTT
-TTT................wwwww.ggggggg.............TTT
+TTT.ggggg.........f..............b...f....b..TTT
+TTT.ggggg........f..wwww...f.................TTT
+TTT.ggggg...........wwww.ggggggg.............TTT
+TTT.ggggg.......gg..wwww.ggggggg.............TTT
+TTT.............gg..wwww.ggggggg......ff.....TTT
+TTT...................f..ggggggg.............TTT
 TTT..........................................TTT
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
 TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT
