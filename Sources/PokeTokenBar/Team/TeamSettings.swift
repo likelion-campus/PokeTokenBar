@@ -64,8 +64,14 @@ final class TeamSettings {
         guard let key = code?.normalized else { return }
         let start = min(max(coreStart, 1), 22)
         let end = min(max(coreEnd, start + 1), 23)
-        schedules[key] = PlazaSchedule(coreStart: start, coreEnd: end, seasonPeriod: period.rawValue, changedAt: now,
-                                       changedBy: memberID, changedByName: nickname)
+        // 지금과 같은 값을 다시 고르면 도장을 새로 찍지 않는다.
+        let current = schedules[key]
+        if start == (current?.coreTime ?? .standard).start, end == (current?.coreTime ?? .standard).end,
+           period == (current?.period ?? .day) { return }
+        // 저장된 도장이 이 Mac 시계보다 앞서 있어도(시계가 느리거나 빠른 Mac 값을 받은 경우) 내 수정이 지지 않게 한다.
+        let stamp = max(now, (current?.changedAt ?? .distantPast).addingTimeInterval(0.001))
+        schedules[key] = PlazaSchedule(coreStart: start, coreEnd: end, seasonPeriod: period.rawValue, changedAt: stamp,
+                                       changedBy: memberID, changedByName: Self.validNickname(nickname) ?? "")
     }
 
     /// Last-writer-wins: stores `s` for the current team when it is valid, not from the far future, and newer.

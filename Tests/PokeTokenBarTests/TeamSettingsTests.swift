@@ -46,6 +46,34 @@ final class TeamSettingsTests: XCTestCase {
         }
     }
 
+    func testChangeScheduleBeatsAStoredStampAheadOfThisClock() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(s.adoptSchedule(schedule(1_300, start: 7), now: now))
+        s.changeSchedule(coreStart: 11, coreEnd: 15, period: .day, now: now)
+        XCTAssertEqual(s.schedule?.coreStart, 11)
+        XCTAssertGreaterThan(s.schedule!.changedAt, Date(timeIntervalSince1970: 1_300))
+    }
+
+    func testReselectingTheCurrentValueDoesNotRestamp() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        s.changeSchedule(coreStart: PlazaCoreTime.standard.start, coreEnd: PlazaCoreTime.standard.end, period: .day, now: Date(timeIntervalSince1970: 1))
+        XCTAssertNil(s.schedule, "the default is not a change")
+        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: Date(timeIntervalSince1970: 2))
+        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: Date(timeIntervalSince1970: 3))
+        XCTAssertEqual(s.schedule?.changedAt, Date(timeIntervalSince1970: 2))
+    }
+
+    func testChangedByNameIsEmptyWhenTheNicknameIsInvalid() {
+        let s = TeamSettings(defaults: freshDefaults())
+        s.code = code(1)
+        s.nickname = "  "
+        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: Date(timeIntervalSince1970: 2))
+        XCTAssertEqual(s.schedule?.changedByName, "")
+    }
+
     func testChangeScheduleWithoutTeamDoesNothing() {
         let s = TeamSettings(defaults: freshDefaults())
         s.changeSchedule(coreStart: 9, coreEnd: 18, period: .day, now: Date())
@@ -86,7 +114,7 @@ final class TeamSettingsTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 10_000)
         XCTAssertFalse(s.adoptSchedule(schedule(10_601), now: now))
         XCTAssertTrue(s.adoptSchedule(schedule(10_600), now: now))
-        XCTAssertFalse(s.adoptSchedule(schedule(10_599, start: 16, end: 10), now: now))
+        XCTAssertFalse(s.adoptSchedule(schedule(10_700, start: 16, end: 10), now: Date(timeIntervalSince1970: 10_500)))   // newer, so only the range check can reject it
         XCTAssertFalse(s.adoptSchedule(schedule(20_000, start: 0, end: 5), now: Date(timeIntervalSince1970: 30_000)))
     }
 

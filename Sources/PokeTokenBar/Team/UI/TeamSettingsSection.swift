@@ -164,8 +164,10 @@ struct TeamSettingsSection: View {
     }
 
     private var scheduleCaption: String {
-        guard let s = team.schedule else { return l.teamScheduleDefaultCaption }
-        return l.teamScheduleChangedCaption(name: s.changedByName, when: l.teamScheduleDate(s.changedAt))
+        guard let s = team.schedule, let name = TeamSettings.validNickname(s.changedByName) else {
+            return l.teamScheduleDefaultCaption
+        }
+        return l.teamScheduleChangedCaption(name: name, when: l.teamScheduleDate(s.changedAt))
     }
 
     private func row<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {

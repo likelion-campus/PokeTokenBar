@@ -1,16 +1,23 @@
 import CoreGraphics
 import Foundation
 
-/// 광장의 계절 날씨. 실제 계절과 상관없이 벚꽃·초록 나뭇잎·낙엽·눈이 하루씩 차례로 돈다.
-/// 이 Mac의 날짜로만 정해서 같은 날은 팀원 모두 같은 날씨를 보고, 자정에 바뀐다.
+/// 광장의 계절 날씨. 실제 계절과 상관없이 벚꽃·초록 나뭇잎·낙엽·눈이 하루씩 차례로 돈다. 바뀌는 주기는 팀이 고른다(하루·한 주·한 달).
+/// 이 Mac의 날짜로만 정해서 같은 주기 안에서는 팀원 모두 같은 날씨를 보고, 주기가 바뀔 때(자정 등) 바뀐다.
 enum PlazaWeather {
     enum Kind: Equatable, CaseIterable {
         /// 배경을 숨겼을 때만 쓴다. 날짜로는 나오지 않는다.
         case clear, petals, greenLeaves, leaves, snow
     }
 
-    /// 하루씩 도는 순서. 2026-11-05가 낙엽이다.
+    /// 주기마다 도는 순서. 2026-11-05가 낙엽이다.
     static let cycle: [Kind] = [.petals, .greenLeaves, .leaves, .snow]
+
+    /// 기본 달력. 시스템 달력이 일본력·불기여도 연월일이 같아야 팀원 모두 같은 날씨를 본다.
+    static var gregorian: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = .current
+        return c
+    }
 
     /// 한 화면에 그리는 입자 수의 상한. 넓은 화면에서도 노드 수가 이 값을 넘지 않는다.
     static let maxParticles = 120
@@ -19,7 +26,7 @@ enum PlazaWeather {
     enum Period: String, CaseIterable, Sendable { case day, week, month }
 
     /// 그 주기의 날씨. 날짜(연월일)로 센 주기 번호로 `cycle`을 돌아서, 이어지는 두 주기는 늘 다르고 넷마다 한 번씩 나온다.
-    static func kind(on date: Date, calendar: Calendar = .current, period: Period = .day) -> Kind {
+    static func kind(on date: Date, calendar: Calendar = gregorian, period: Period = .day) -> Kind {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         let (y, m, d) = (c.year ?? 1970, c.month ?? 1, c.day ?? 1)
         let n: Int

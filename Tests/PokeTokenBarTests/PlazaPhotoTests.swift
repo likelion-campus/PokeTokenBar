@@ -309,7 +309,7 @@ final class PlazaPhotoTests: XCTestCase {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: zoom, nickname: "나")
         scene.backingOverride = 2
         scene.size = CGSize(width: 800, height: 600)
-        // 낮과 날씨를 벽시계에 맡기지 않는다: 해 질 녘 색이나 계절 날씨가 끼면 사진 픽셀 비교가 시각에 따라 달라진다.
+        // 낮을 벽시계에 맡기지 않는다: 해 질 녘 색이 끼면 사진 픽셀 비교가 시각에 따라 달라진다. 이 날은 눈 오는 날이지만 입자는 시드로 고정이고, 픽셀 검사는 입자를 피하거나 날씨 없는 입력을 쓰므로 날씨에 기대지 않는다.
         scene.now = { Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 12))! }
         return scene
     }

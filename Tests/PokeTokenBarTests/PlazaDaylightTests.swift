@@ -206,6 +206,15 @@ final class PlazaDaylightTests: XCTestCase {
                 XCTAssertTrue([t.red, t.green, t.blue, D.minimapSaturation(minute: m, core: core)].allSatisfy(\.isFinite), "\(s)-\(e) at \(m)")
             }
         }
+        let narrow = try XCTUnwrap(PlazaCoreTime(start: 1, end: 2))
+        XCTAssertEqual(D.tint(minute: 0, core: narrow), D.night)
+        XCTAssertEqual(D.tint(minute: 30, core: narrow), D.dawn)
+        for m in [60.0, 90, 120] { XCTAssertEqual(D.tint(minute: m, core: narrow), .none, "at \(m)") }
+        XCTAssertEqual(D.tint(minute: 150, core: narrow), D.dusk)
+        let three = D.tint(minute: 180, core: narrow)   // the fade ends here, up to rounding
+        XCTAssertEqual(three.red, D.night.red, accuracy: 1e-9)
+        XCTAssertEqual(three.green, D.night.green, accuracy: 1e-9)
+        XCTAssertEqual(three.blue, D.night.blue, accuracy: 1e-9)
         let wide = try XCTUnwrap(PlazaCoreTime(start: 1, end: 23))
         XCTAssertEqual(D.tint(minute: 0, core: wide), D.night)
         XCTAssertEqual(D.tint(minute: 30, core: wide), D.dawn)

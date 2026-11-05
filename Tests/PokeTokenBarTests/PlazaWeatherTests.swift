@@ -6,7 +6,7 @@ import SpriteKit
 @MainActor
 final class PlazaWeatherTests: XCTestCase {
     private typealias W = PlazaWeather
-    private let calendar = Calendar.current
+    private let calendar: Calendar = PlazaWeather.gregorian
 
     private func date(_ y: Int, _ m: Int, _ d: Int, _ h: Int = 12, _ min: Int = 0, _ s: Int = 0) -> Date {
         calendar.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min, second: s))!
@@ -447,6 +447,16 @@ final class PlazaWeatherTests: XCTestCase {
         for d in 1...30 { XCTAssertEqual(kind(2026, 11, d, .month), nov, "11-\(d)") }
         XCTAssertNotEqual(kind(2026, 10, 31, .month), nov)
         XCTAssertNotEqual(kind(2026, 12, 1, .month), nov)
+    }
+
+    /// 기본 달력은 시스템 달력(일본력·불기 등)이 아니라 그레고리력이다. 그래야 팀원 모두 같은 날씨를 본다.
+    func testTheDefaultCalendarIsGregorianWhateverTheSystemCalendar() {
+        XCTAssertEqual(W.gregorian.identifier, .gregorian)
+        XCTAssertEqual(W.gregorian.timeZone, TimeZone.current)
+        for p in W.Period.allCases {
+            let when = date(2026, 11, 9)
+            XCTAssertEqual(W.kind(on: when, period: p), W.kind(on: when, calendar: calendar, period: p), "\(p)")
+        }
     }
 
     func testEveryPeriodShowsLeavesOn20261105() {
