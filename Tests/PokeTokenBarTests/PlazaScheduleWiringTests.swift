@@ -117,6 +117,11 @@ final class PlazaScheduleWiringTests: XCTestCase {
                                       calendar: c)
         XCTAssertEqual(l.teamScheduleChangedCaption(name: "민수", when: when),
                        "모든 팀원에게 같이 적용돼요 · 민수님이 11월 5일 14:02에 바꿨어요")
+        // 같은 포매터를 다시 쓰므로, 다른 시간대가 이전 설정에 묶이지 않는지 본다.
+        var la = Calendar(identifier: .gregorian)
+        la.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        XCTAssertEqual(l.teamScheduleDate(c.date(from: DateComponents(timeZone: c.timeZone, year: 2026, month: 11, day: 5, hour: 14, minute: 2))!,
+                                          calendar: la), "11월 4일 21:02")
         XCTAssertEqual(PlazaWeather.Period.allCases.map(l.teamWeatherPeriodName), ["하루", "1주일", "1개월"])
     }
 }

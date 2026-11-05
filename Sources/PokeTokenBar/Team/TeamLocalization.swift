@@ -32,12 +32,21 @@ extension L {
     }
     /// "11월 5일 14:02" — 사용자의 달력과 시간대로.
     func teamScheduleDate(_ date: Date, calendar: Calendar = .current) -> String {
-        let f = DateFormatter()
-        f.calendar = calendar
-        f.timeZone = calendar.timeZone
-        f.dateFormat = "M월 d일 HH:mm"
-        return f.string(from: date)
+        Self.scheduleDateLock.lock()
+        defer { Self.scheduleDateLock.unlock() }
+        if Self.scheduleDateFormatter.calendar != calendar {
+            Self.scheduleDateFormatter.calendar = calendar
+            Self.scheduleDateFormatter.timeZone = calendar.timeZone
+        }
+        return Self.scheduleDateFormatter.string(from: date)
     }
+    /// 설정 화면이 그려질 때마다 만들지 않도록 하나만 둔다. 달력이 바뀐 때만 다시 맞춘다.
+    private static let scheduleDateLock = NSLock()
+    nonisolated(unsafe) private static let scheduleDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "M월 d일 HH:mm"
+        return f
+    }()
     var teamScheduleDefaultCaption: String { "모든 팀원에게 같이 적용돼요 · 앞뒤 1시간은 노을이 져요" }
     func teamScheduleChangedCaption(name: String, when: String) -> String {
         "모든 팀원에게 같이 적용돼요 · \(name)님이 \(when)에 바꿨어요"
