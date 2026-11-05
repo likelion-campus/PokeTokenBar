@@ -222,7 +222,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
 
     func testKeysInPhotoMode() {
         let scene = newScene()
-        var c = (photo: 0, interact: 0, chat: 0, tackle: 0, group: 0, jump: 0, greet: 0, emote: 0, close: 0)
+        var c = (photo: 0, interact: 0, chat: 0, tackle: 0, group: 0, jump: 0, greet: 0, firework: 0, emote: 0, close: 0)
         scene.onPhotoKey = { c.photo += 1 }
         scene.onInteractKey = { c.interact += 1 }
         scene.onChatKey = { c.chat += 1 }
@@ -230,10 +230,11 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         scene.onGroupPhotoKey = { c.group += 1 }
         scene.onJumpKey = { c.jump += 1 }
         scene.onGreetKey = { c.greet += 1 }
+        scene.onFireworkKey = { c.firework += 1 }
         scene.onEmoteKey = { _ in c.emote += 1 }
         scene.onCloseRequest = { c.close += 1 }
         scene.enterPhotoMode()
-        for code: UInt16 in [49, 35, 36, 8, 5, 6, 7, 18] { XCTAssertEqual(down(scene, code), .swallowed) }
+        for code: UInt16 in [49, 35, 36, 8, 5, 6, 7, 3, 18] { XCTAssertEqual(down(scene, code), .swallowed) }
         XCTAssertEqual(c.photo, 2)
         XCTAssertEqual(c.interact, 0)
         XCTAssertEqual(c.chat, 0)
@@ -241,6 +242,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(c.group, 1)
         XCTAssertEqual(c.jump, 1)
         XCTAssertEqual(c.greet, 1)
+        XCTAssertEqual(c.firework, 1)   // F(불꽃놀이)는 말풍선처럼 사진 모드에서도 된다
         XCTAssertEqual(c.emote, 1)
         XCTAssertEqual(down(scene, 53), .swallowed)
         XCTAssertFalse(scene.isPhotoMode)

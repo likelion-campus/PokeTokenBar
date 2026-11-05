@@ -43,11 +43,13 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     case groupPhoto
     /// The sender picked up the plaza item of `TeamEmote.itemSlot`, so it is gone for everyone. Earlier versions skip it.
     case pickup
+    /// 불꽃놀이 (F): one shell of `TeamEmote.fireworkStyle` rises from the sender and bursts. Earlier versions skip it.
+    case firework
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework: false
         }
     }
 }
@@ -64,6 +66,9 @@ struct TeamEmote: Codable, Equatable, Sendable {
 
     /// A pickup: the item slot that was picked up.
     var itemSlot: Int?
+
+    /// A firework: the `PlazaFireworkStyle.id` to burst. A style this version does not know becomes the default one.
+    var fireworkStyle: String?
 
     /// A tackle pushes one to three tiles, like the three evolution stages.
     static let pushTileRange = 1...3
