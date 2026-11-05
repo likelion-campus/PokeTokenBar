@@ -77,16 +77,15 @@ extension L {
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }
-    var plazaJump: String { "점프" }
+    var plazaJump: String { "점프 · 물놀이" }
     var plazaShortcutsTitle: String { "단축키" }
     var plazaShortcutArrows: String { "방향키" }
     var plazaShortcutWalk: String { "걷기" }
     var plazaShortcutRun: String { "달리기" }
     var plazaShortcutTalk: String { "말 걸기" }
-    var plazaShortcutFocus: String { "모닥불 옆: 집중" }
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
-    var plazaShortcutPhoto: String { "기념사진" }
+    var plazaShortcutPhoto: String { "사진 모드" }
     var plazaShortcutZoom: String { "확대·축소" }
     var plazaShortcutGroupPhoto: String { "단체 사진" }
     var plazaShortcutFirework: String { "불꽃놀이" }
@@ -102,11 +101,16 @@ extension L {
     func plazaMemberPickedUp(nickname: String, kind: ItemKind) -> String { "\(nickname)님이 \(plazaItemObject(kind)) 주웠어요" }
     /// 이름을 아직 모르는 팀원.
     var plazaGroupPhotoSomeone: String { "팀원" }
-    /// 단체 사진 카운트다운. 내가 시작했으면 이름 없이 모이자고 하고, 팀원이 시작했으면 함께 찍는지 알려 준다.
-    func plazaGroupPhotoCountdown(starter: String?, seconds: Int, joined: Bool) -> String {
-        guard let starter else { return "단체 사진 \(seconds) · 모두 모여요!" }
-        return "\(starter)님의 단체 사진 \(seconds) · " + (joined ? "함께 찍는 중" : "G를 누르면 함께 찍어요")
+    /// 단체 사진 카운트다운. joined는 사진 모드인지, frontmost는 광장 창이 맨 앞인지다. 0에 사진이 클립보드에 들어가는 건 둘 다일 때뿐이라,
+    /// 사진 모드인데 창이 뒤에 있으면 찍히지 않는다고 알린다. 내가 시작했으면 이름 없이, 팀원이 시작했으면 이름과 함께 알려 준다.
+    func plazaGroupPhotoCountdown(starter: String?, seconds: Int, joined: Bool, frontmost: Bool) -> String {
+        let head = starter.map { "\($0)님의 단체 사진 \(seconds) · " } ?? "단체 사진 \(seconds) · "
+        guard joined else { return head + "P를 누르면 함께 찍어요" }
+        guard frontmost else { return head + "광장 창을 앞에 두면 함께 찍혀요" }
+        return head + (starter == nil ? "모두 모여요!" : "함께 찍는 중")
     }
+    var plazaPhotoGuide: String { "📷 사진 모드 · 방향키 이동 · Shift 빠르게 · −/+ 확대 · Space 찍기 · G 단체 사진 · Esc 나가기" }
+    var plazaPhotoCopied: String { "사진을 클립보드에 담았어요 · ⌘V로 붙여 넣기" }
     var plazaMenuFollow: String { "따라가기" }
     func plazaFollowHint(nickname: String) -> String { "\(nickname) 따라가는 중 · 방향키로 멈추기" }
     var plazaMenuViewCard: String { "포켓몬 보기" }

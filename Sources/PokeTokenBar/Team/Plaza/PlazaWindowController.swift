@@ -31,6 +31,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private let chooseNameColor: (UInt32) -> Void
     /// 내 광장 캐릭터의 진화 단계(1부터). 몸통박치기가 미는 칸 수다.
     private let evolutionStage: () -> Int
+    /// 종 번호의 타입 목록. 물 타입이면 잠수를 더 오래 한다. 못 구하면 nil.
+    private let pokemonTypes: (Int) async -> [String]?
     /// 광장에서 주운 아이템을 가방에 넣는다.
     private let grantItem: (ItemKind) -> Void
     /// 누군가 주운 것으로 아는 아이템 칸: 내가 주운 것, 팀원이 알려 온 것, 팀원 presence가 전해 준 것. 저장하고, 가장 최근
@@ -43,12 +45,15 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private let clock: () -> Date
     private let profileTimeout: Duration
     private let overlayModel = PlazaOverlayModel()
+    /// 사진 모드에서 숨기는 HUD 뷰. 판과 대화 입력창은 넣지 않는다.
+    private var hudViews: [NSView] = []
     private let feed: TeamFeedStore?
     /// 큰 소식 배너를 보여 주는 시간.
     static let bannerDuration: Duration = .seconds(4)
     private let bannerSleep: @MainActor (Duration) async -> Void
     /// 단체 사진 카운트다운의 1초. 테스트에서 바꿔 끼운다.
     private let groupPhotoSleep: @MainActor (Duration) async -> Void
+    private let frontmostOverride: (@MainActor () -> Bool)?
     private let spriteRetrySleep: @MainActor (Duration) async -> Void
     /// 그리기 감시의 간격. 테스트에서 바꿔 끼운다.
     private let renderCheckSleep: @MainActor (Duration) async -> Void
@@ -101,6 +106,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 프로세스에서 한 번만 만든다. 다시 열 때(와 테스트마다) 메인 스레드에서 지도를 다시 그리지 않는다. 앱의 지도는 하나뿐이다.
     /// 시트를 못 읽으면 단색 잔디로 대신한다.
     private static var cachedMapImage: CGImage?
+    /// 연못 그림은 타일 시트의 물 칸을 쓰므로 시트를 읽었을 때만 켠다. `mapImage`가 채운다.
+    private static var cachedHasTileSheet = false
     /// 풀숲 조각 그림도 프로세스당 한 번만 읽는다. 못 읽으면 바깥 nil(=읽어 봤지만 없음)로 기억한다.
     private static var cachedTallGrass: PlazaTallGrassArt??
 
@@ -114,8 +121,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var mapImage: CGImage {
         if let cached = Self.cachedMapImage { return cached }
         let tallGrass = Self.tallGrassArt()
-        let image = PlazaResources.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: tallGrass) } ?? PlazaTileArt.plainGrassImage(map)
+        let sheet = PlazaResources.tileSheet()
+        let image = sheet.map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: tallGrass) } ?? PlazaTileArt.plainGrassImage(map)
         Self.cachedMapImage = image
+        Self.cachedHasTileSheet = sheet != nil
         return image
     }
 
@@ -147,6 +156,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
          chooseNameColor: @escaping (UInt32) -> Void = { _ in },
          schedule: @escaping () -> PlazaSchedule? = { nil },
          evolutionStage: @escaping () -> Int = { 1 },
+         pokemonTypes: @escaping (Int) async -> [String]? = { _ in nil },
          grantItem: @escaping (ItemKind) -> Void = { _ in },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
@@ -158,7 +168,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
          groupPhotoSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          renderCheckSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-         focusTickSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+         focusTickSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         isFrontmost: (@MainActor () -> Bool)? = nil) {
+        self.frontmostOverride = isFrontmost
         self.focusTickSleep = focusTickSleep
         self.spriteRetrySleep = spriteRetrySleep
         self.renderCheckSleep = renderCheckSleep
@@ -181,6 +193,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         self.schedule = schedule
         self.chooseNameColor = chooseNameColor
         self.evolutionStage = evolutionStage
+        self.pokemonTypes = pokemonTypes
         self.grantItem = grantItem
         super.init()
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
@@ -287,6 +300,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 colorPicker.topAnchor.constraint(equalTo: toggle.topAnchor),
                 colorPicker.leadingAnchor.constraint(equalTo: toggle.trailingAnchor, constant: 8),
             ])
+            hudViews = [roster, chatLogView, map, clock, shortcuts, toggle, colorPicker]
             w.contentView = container
             w.center()
             Self.restoreFrame(w, into: rosterModel)
@@ -319,16 +333,19 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 창 없이 장면만 만든다.
     func prepareScene() {
         guard scene == nil else { return }
-        let s = PlazaScene(map: map, mapImage: mapImage,
+        let image = mapImage
+        let s = PlazaScene(map: map, mapImage: image,
                            start: preferences.lastTile(validIn: map),
                            zoom: preferences.zoom, nickname: nickname(),
-                           tallGrass: Self.tallGrassArt())
+                           tallGrass: Self.tallGrassArt(), pondVisuals: Self.cachedHasTileSheet)
         s.now = clock   // 낮밤·날씨도 컨트롤러와 같은 시계를 쓴다
         if let focus { s.sit(at: .init(tile: focus.seat, facing: focusFacing)) }
         s.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: nameColor()))
         nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: nameColor())
         nameColorModel.isOpen = false
         s.canWalk = subject().speciesID != nil
+        s.myEvolutionStage = evolutionStage()
+        s.onDivingChange = { [weak self] in self?.session?.updateDiving($0) }
         s.onZoomChange = { [weak self, preferences] in
             preferences.zoom = $0
             self?.refreshMinimap()
@@ -337,6 +354,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onEmoteKey = { [weak self] in self?.handleEmoteKey($0) }
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
+        s.onPhotoModeChange = { [weak self] in self?.photoModeChanged($0) }
         s.onJumpKey = { [weak self] in self?.handleJumpKey() }
         s.onGreetKey = { [weak self] in
             if let self, let id = self.faceNearbyMember() { self.greet(id) }
@@ -487,8 +505,20 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let now = clock()
         if let last = lastJumpAt, now.timeIntervalSince(last) < PlazaActor.jumpDuration { return }
         lastJumpAt = now
-        scene.playJump(memberID: nil)
-        session?.sendEmote(.jump, target: nil)
+        switch scene.pondAction(canMove: scene.canWalk && !isFocusing) {
+        case .jump, .shoreJump:
+            scene.playJump(memberID: nil)
+            session?.sendEmote(.jump, target: nil)
+        case .plunge(let d):
+            scene.plunge(d)
+            session?.sendEmote(.jump, target: nil)
+        case .dive:
+            scene.setDiving(true)
+            session?.updateDiving(true)
+        case .surface:
+            scene.setDiving(false)
+            session?.updateDiving(false)
+        }
     }
 
     /// X와 C가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
@@ -524,10 +554,31 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene?.playFirework(memberID: memberID, style: style)
     }
 
-    /// 보이는 장면을 사진으로 합성해 클립보드에 PNG로 넣고 번쩍인다. 합성이나 인코딩이 실패하면 클립보드를 그대로 두고 번쩍이지 않는다.
+    /// 사진 모드 밖이면 연다. 안이면 찍는다.
     private func handlePhotoKey() {
-        guard let scene, let input = scene.photoInput(), let png = PlazaPhotoRenderer.pngData(for: input) else { return }
-        if photoWriter(png) { scene.playShutterFlash() }
+        if scene?.isPhotoMode == true { takePhoto() } else { scene?.enterPhotoMode() }
+    }
+
+    var isPhotoMode: Bool { scene?.isPhotoMode ?? false }
+    var overlayIsPhotoMode: Bool { overlayModel.isPhotoMode }
+
+    /// 사진 모드를 열고 닫을 때: 틀을 그리고 HUD를 숨기거나 되살린다.
+    private func photoModeChanged(_ on: Bool) {
+        overlayModel.isPhotoMode = on
+        for view in hudViews { view.isHidden = on }
+        refreshHint()
+        refreshCountdown()
+        refreshMinimap()   // 나가면 지도의 보이는 영역도 따라가기 화면으로 돌아와야 한다(1초 뒤 틱을 기다리지 않는다)
+    }
+
+    /// 보이는 장면(사진 모드면 틀 안)을 사진으로 합성해 클립보드에 PNG로 넣고 번쩍인다. 합성이나 인코딩이 실패하면 클립보드를 그대로 두고 번쩍이지 않는다.
+    /// 클립보드에 넣었으면 true.
+    @discardableResult
+    private func takePhoto() -> Bool {
+        guard let scene, let input = scene.photoInput(), let png = PlazaPhotoRenderer.pngData(for: input), photoWriter(png) else { return false }
+        scene.playShutterFlash()
+        showBanner(L(.ko).plazaPhotoCopied)
+        return true
     }
 
     /// 주운 것으로 아는 칸을 더한다. 새로 알게 됐으면 저장하고, 장면에 바로 넘기고, 가장 최근 칸을 presence로 전한다.
@@ -576,19 +627,16 @@ struct PlazaFocusEnd: Equatable, Sendable {
     static let groupPhotoCooldown: TimeInterval = 2
     private var groupPhotoEndedAt: Date?
 
-    /// 진행 중인 단체 사진. 시작한 팀원(나면 nil), 남은 초, 내가 함께 찍는지.
-    private var groupPhoto: (starter: String?, left: Int, joined: Bool, task: Task<Void, Never>)?
+    /// 진행 중인 단체 사진. 시작한 팀원(나면 nil), 남은 초. 함께 찍는지는 사진 모드인지로 정한다.
+    private var groupPhoto: (starter: String?, left: Int, task: Task<Void, Never>)?
 
-    /// G. 단체 사진이 진행 중이면 나도 함께 찍고(팀원에게 다시 보내지 않는다), 아니면 시작해 팀원들에게 알린다.
+    /// G. 사진 모드가 아니면 먼저 들어간다. 진행 중인 단체 사진이 있으면 들어간 것이 곧 함께 찍는 것이라 더 하지 않고(팀원에게 다시 보내지 않는다), 아니면 시작해 팀원들에게 알린다.
     private func handleGroupPhotoKey() {
-        if groupPhoto != nil {
-            groupPhoto?.joined = true
-            refreshCountdown()
-            return
-        }
+        if !isPhotoMode { scene?.enterPhotoMode() }
+        if groupPhoto != nil { return }
         if let ended = groupPhotoEndedAt, clock().timeIntervalSince(ended) < Self.groupPhotoCooldown { return }
         session?.sendEmote(.groupPhoto, target: nil)
-        startGroupPhoto(starter: nil, joined: true)
+        startGroupPhoto(starter: nil)
     }
 
     /// 런타임이 부른다. 팀원이 단체 사진을 시작했다. 이미 진행 중이면 그대로 둔다. 창이 닫혀 있으면 아무것도 안 한다.
@@ -596,11 +644,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard scene != nil, groupPhoto == nil else { return }
         // 막 연결된 팀원은 이름이 담긴 presence가 오기 전이라 이름이 빌 수 있다.
         let name = session?.members[memberID]?.nickname ?? ""
-        startGroupPhoto(starter: name.isEmpty ? L(.ko).plazaGroupPhotoSomeone : name, joined: false)
+        startGroupPhoto(starter: name.isEmpty ? L(.ko).plazaGroupPhotoSomeone : name)
     }
 
-    /// 5초를 세고 0에 모두의 화면이 번쩍인다. 함께 찍는 사람은 기념사진처럼 클립보드에도 넣는다.
-    private func startGroupPhoto(starter: String?, joined: Bool) {
+    /// 5초를 세고 0에 모두의 화면이 번쩍인다. 사진 모드에서 앞에 있는 사람은 기념사진처럼 클립보드에도 넣는다.
+    private func startGroupPhoto(starter: String?) {
         let task = Task { [weak self] in
             for _ in 0..<Self.groupPhotoSeconds {
                 await self?.groupPhotoSleep(.seconds(1))
@@ -610,22 +658,24 @@ struct PlazaFocusEnd: Equatable, Sendable {
             }
             self?.finishGroupPhoto()
         }
-        groupPhoto = (starter, Self.groupPhotoSeconds, joined, task)
+        groupPhoto = (starter, Self.groupPhotoSeconds, task)
         refreshCountdown()
     }
 
     private func refreshCountdown() {
         overlayModel.countdown = groupPhoto.map {
-            L(.ko).plazaGroupPhotoCountdown(starter: $0.starter, seconds: $0.left, joined: $0.joined)
+            L(.ko).plazaGroupPhotoCountdown(starter: $0.starter, seconds: $0.left, joined: isPhotoMode,
+                                               frontmost: isFrontmost)
         }
     }
 
     private func finishGroupPhoto() {
-        guard let photo = groupPhoto else { return }
+        guard groupPhoto != nil else { return }
         groupPhoto = nil
         groupPhotoEndedAt = clock()
         overlayModel.countdown = nil
-        if photo.joined { handlePhotoKey() } else { scene?.playShutterFlash() }
+        // 찍지 못했어도(합성·인코딩·쓰기 실패) 0에는 모두의 화면이 번쩍인다.
+        if !(isPhotoMode && isFrontmost && takePhoto()) { scene?.playShutterFlash() }
     }
 
     /// 테스트용 읽기 전용 값.
@@ -659,6 +709,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             let remaining = focusRemaining(of: id)
             if let remaining { menu.status = L(.ko).plazaFocusStatus(seconds: remaining) }
             if isFocusing || remaining != nil { menu.actions.removeAll { $0 == .tackle || $0 == .follow } }
+            // 물속에서는 몸통박치기를 하지도 받지도 않고, 따라갈 수도 없다(내가 물속이어도 따라가기는 멈춘다).
+            if scene.isMeInWater || scene.memberIsInWater(id) == true { menu.actions.removeAll { $0 == .tackle || $0 == .follow } }
             openOverlay(.memberMenu(menu))
         }
     }
@@ -729,7 +781,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 그 팀원에게 뛰어들고 충격 그림을 띄운 뒤 팀원들에게 보낸다. 내 진화 단계만큼(1–3칸) 밀라고 보내고, 실제로 미는 것은
     /// 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func tackle(_ id: String) {
-        guard let scene, let target = scene.memberTiles[id], !isFocusing, focusRemaining(of: id) == nil else { return }
+        guard let scene, let target = scene.memberTiles[id], !isFocusing, focusRemaining(of: id) == nil,
+              !scene.isMeInWater, scene.memberIsInWater(id) != true else { return }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
@@ -785,7 +838,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 스페이스로 말을 걸 수 있으면 위쪽에 안내를 띄운다. 판이나 입력창이 열려 있으면 스페이스가 다른 일을 하므로 숨긴다.
     private func refreshHint() {
         var text: String?
-        if let focus, overlayModel.content == .none, !chatInput.isOpen {
+        if isPhotoMode {
+            text = nil
+        } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
             text = members[id].map { L(.ko).plazaFollowHint(nickname: $0.nickname) }
@@ -800,7 +855,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     }
 
     /// 앱이 앞이고 광장 창이 키 창이다. 알림 대신 광장 안 안내를 쓸지 가른다.
-    var isFrontmost: Bool { NSApp.isActive && window?.isKeyWindow == true }
+    var isFrontmost: Bool { frontmostOverride?() ?? (NSApp.isActive && window?.isKeyWindow == true) }
 
     /// 테스트용 읽기 전용 값.
     var overlayContent: PlazaOverlayContent { overlayModel.content }
@@ -1045,7 +1100,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene.applyMembers(list.map {
             PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
                              facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle, nameColor: $0.nameColor,
-                             isRunning: $0.isRunning)
+                             isRunning: $0.isRunning, isDiving: $0.isDiving, evolutionStage: $0.evolutionStage)
         })
         refreshMinimap()
         let ids = Set(members.keys)
@@ -1103,14 +1158,27 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard let current = scene else { return }
         // 그림 로딩을 기다리지 않고 바로 반영한다(알이면 지금 걷는 칸만 마치고 선다).
         current.canWalk = subject().speciesID != nil
+        current.myEvolutionStage = evolutionStage()
         refreshGeneration += 1
         let generation = refreshGeneration
+        applyDiveLimit(generation: generation, speciesID: subject().speciesID)
         let frames = await loader.frames(for: subject())
         // 기다리는 동안 닫혔거나 더 새 요청이 있었으면 버린다.
         guard generation == refreshGeneration, let scene else { return }
         scene.setCharacter(frames)
         if Self.shouldRetry(frames, attempt: attempt) {
             Task { await retryCharacter(generation, attempt: attempt) }
+        }
+    }
+
+    /// 종의 타입으로 잠수 한도를 정한다. 더 새 요청이나 닫기가 세대를 올렸으면 낡은 결과를 버린다.
+    private func applyDiveLimit(generation: Int, speciesID: Int?) {
+        guard let speciesID else { scene?.diveLimit = PlazaPond.diveLimit(types: nil); return }
+        Task { [weak self] in
+            guard let self else { return }
+            let types = await pokemonTypes(speciesID)
+            guard generation == refreshGeneration, let scene else { return }
+            scene.diveLimit = PlazaPond.diveLimit(types: types)
         }
     }
 
@@ -1152,6 +1220,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 마지막 칸을 저장하고 장면과 창 내용을 해제해 그리기를 멈춘다.
     func handleClose() {
         logState("closing")   // 멈춘 광장을 닫아 되살리는 순간의 상태
+        if scene?.isDiving == true { scene?.setDiving(false) }
+        session?.updateDiving(false)
         renderWatchdog?.cancel()
         renderWatchdog = nil
         focusTick?.cancel()
@@ -1180,6 +1250,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         overlayGeneration += 1
         overlayModel.content = .none
         overlayModel.hint = nil
+        overlayModel.isPhotoMode = false
+        hudViews = []
         members = [:]
         memberSubjects = [:]
         memberLoadTokens = [:]
@@ -1192,10 +1264,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.onEmoteKey = nil
             scene.onInteractKey = nil
             scene.onPhotoKey = nil
+            scene.onPhotoModeChange = nil
             scene.onJumpKey = nil
             scene.onGreetKey = nil
             scene.onTackleKey = nil
             scene.onGroupPhotoKey = nil
+            scene.onFireworkKey = nil
             scene.onItemPickup = nil
             scene.onItemChange = nil
             scene.onFrameClockStall = nil
@@ -1236,6 +1310,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         renderLoop?.isPaused = !visible
         guard let scene else { return }
         if !visible { scene.releaseAllKeys() }
+        // 가려진 동안은 장면이 돌지 않아 잠수 제한 시간이 흐르지 않는다. 숨기면 잠수를 끝낸다.
+        if !visible, scene.isDiving {
+            scene.setDiving(false)
+            session?.updateDiving(false)
+        }
         scene.isPaused = !visible
         logState("rendering visible=\(visible)")
     }
@@ -1301,6 +1380,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 눌린 키를 모두 뗀다.
     func handleResignKey() {
         scene?.releaseAllKeys()
+        refreshCountdown()   // 앞에 있는지가 카운트다운 문구를 바꾼다
+    }
+
+    func handleBecomeKey() {
+        refreshCountdown()
     }
 
     func windowDidResize(_ notification: Notification) {
@@ -1318,5 +1402,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         handleResignKey()
         logState("resigned key")
     }
-    func windowDidBecomeKey(_ notification: Notification) { logState("became key") }
+    func windowDidBecomeKey(_ notification: Notification) {
+        handleBecomeKey()
+        logState("became key")
+    }
 }

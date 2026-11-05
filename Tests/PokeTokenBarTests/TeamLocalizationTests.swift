@@ -28,3 +28,21 @@ final class TeamLocalizationTests: XCTestCase {
         XCTAssertEqual(l.plazaOpen, "광장 열기"); XCTAssertEqual(l.plazaWindowTitle, "팀 광장")
     }
 }
+
+final class PlazaPhotoTextTests: XCTestCase {
+    func testPhotoModeStrings() {
+        XCTAssertEqual(L(.ko).plazaPhotoGuide, "📷 사진 모드 · 방향키 이동 · Shift 빠르게 · −/+ 확대 · Space 찍기 · G 단체 사진 · Esc 나가기")
+        XCTAssertEqual(L(.ko).plazaPhotoCopied, "사진을 클립보드에 담았어요 · ⌘V로 붙여 넣기")
+    }
+
+    func testGroupPhotoCountdownStrings() {
+        let l = L(.ko)
+        XCTAssertEqual(l.plazaGroupPhotoCountdown(starter: nil, seconds: 3, joined: true, frontmost: true), "단체 사진 3 · 모두 모여요!")
+        XCTAssertEqual(l.plazaGroupPhotoCountdown(starter: nil, seconds: 3, joined: false, frontmost: true), "단체 사진 3 · P를 누르면 함께 찍어요")
+        XCTAssertEqual(l.plazaGroupPhotoCountdown(starter: "민수", seconds: 3, joined: true, frontmost: true), "민수님의 단체 사진 3 · 함께 찍는 중")
+        XCTAssertEqual(l.plazaGroupPhotoCountdown(starter: "민수", seconds: 3, joined: false, frontmost: true), "민수님의 단체 사진 3 · P를 누르면 함께 찍어요")
+        XCTAssertEqual(l.plazaGroupPhotoCountdown(starter: nil, seconds: 3, joined: true, frontmost: false), "단체 사진 3 · 광장 창을 앞에 두면 함께 찍혀요")
+        XCTAssertEqual(l.plazaGroupPhotoCountdown(starter: "민수", seconds: 3, joined: true, frontmost: false), "민수님의 단체 사진 3 · 광장 창을 앞에 두면 함께 찍혀요")
+        XCTAssertEqual(l.plazaGroupPhotoCountdown(starter: "민수", seconds: 3, joined: false, frontmost: false), "민수님의 단체 사진 3 · P를 누르면 함께 찍어요")
+    }
+}

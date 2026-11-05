@@ -30,7 +30,7 @@ private final class Node {
     static let pikachu = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
     static let eevee = TeamMonSummary(speciesID: 133, isShiny: true, form: nil, speciesName: "Eevee", gender: nil)
 
-    init(_ name: String, hub: FakeTransportHub, clock: TestClock, code: TeamCode?, defaults: UserDefaults, feedURL: URL, enabled: Bool = true) {
+    init(_ name: String, hub: FakeTransportHub, clock: TestClock, code: TeamCode?, defaults: UserDefaults, feedURL: URL, enabled: Bool = true, stage: Int = 1) {
         nickname = name
         settings = TeamSettings(defaults: defaults)
         if let code { settings.code = code }
@@ -46,6 +46,7 @@ private final class Node {
                                                     dex: [TeamDexSpecies(speciesID: 25, form: nil, name: "Pikachu", rarity: .common,
                                                                          hasShiny: false, hasNormal: true)])
                               },
+                              evolutionStage: { stage },
                               clock: { clock.now })
         session.onBigEvent = { [unowned self] in bigEvents.append($0) }
         session.onReactionToMine = { [unowned self] in reactionsToMine.append(($0, $1)) }
@@ -122,8 +123,8 @@ final class TeamSessionTests: XCTestCase {
         return dir.appendingPathComponent("team-feed.json")
     }
 
-    private func node(_ name: String, code: TeamCode? = nil, enabled: Bool = true) -> Node {
-        Node(name, hub: hub, clock: clock, code: code ?? self.code, defaults: makeDefaults(), feedURL: makeFeedURL(), enabled: enabled)
+    private func node(_ name: String, code: TeamCode? = nil, enabled: Bool = true, stage: Int = 1) -> Node {
+        Node(name, hub: hub, clock: clock, code: code ?? self.code, defaults: makeDefaults(), feedURL: makeFeedURL(), enabled: enabled, stage: stage)
     }
 
     private func hatch() -> CompanionTeamEvent { companion(.hatch) }
@@ -770,6 +771,32 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(b.session.members[a.memberID]?.focusEndsAt)
         a.session.updateFocus(endsAt: t0.addingTimeInterval(-60))
         XCTAssertNil(b.session.members[a.memberID]?.focusEndsAt)
+    }
+
+    func testPresenceCarriesDivingAndStage() {
+        let a = node("A", stage: 3), b = node("B")
+        connect(a, b)
+        XCTAssertEqual(b.session.members[a.memberID]?.evolutionStage, 3)
+        XCTAssertEqual(b.session.members[a.memberID]?.isDiving, false)
+        let sentDiving = a.transport.sentMessages { if case .presence(let p) = $0, p.isDiving != nil { true } else { false } }
+        XCTAssertEqual(sentDiving, 0, "isDiving stays off the wire until true")
+        let before = a.presencesSent
+        a.session.updateDiving(true)
+        a.session.updateDiving(true)
+        XCTAssertEqual(a.presencesSent, before + 1)
+        XCTAssertEqual(b.session.members[a.memberID]?.isDiving, true)
+        XCTAssertEqual(b.session.members[a.memberID]?.evolutionStage, 3)
+        a.session.updateDiving(false)
+        XCTAssertEqual(b.session.members[a.memberID]?.isDiving, false)
+    }
+
+    func testReceivedStageIsClampedAndMissingIsOne() {
+        let a = node("A", stage: 7), b = node("B")
+        connect(a, b)
+        XCTAssertEqual(b.session.members[a.memberID]?.evolutionStage, 3)
+        let c = node("C"), d = node("D")
+        connect(c, d)
+        XCTAssertEqual(d.session.members[c.memberID]?.evolutionStage, 1)
     }
 
     func testUpdateFocusSendsPresenceOnlyOnChange() {

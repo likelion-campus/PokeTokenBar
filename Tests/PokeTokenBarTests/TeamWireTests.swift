@@ -95,6 +95,8 @@ final class TeamWireTests: XCTestCase {
         full.isRunning = true
         full.takenItemSlot = 2
         full.focusEndsAt = Date(timeIntervalSince1970: 1_790_000_000.5)
+        full.isDiving = true
+        full.evolutionStage = 2
         full.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "week",
                                       changedAt: Date(timeIntervalSince1970: 1_790_000_000.5),
                                       changedBy: "m1", changedByName: "Ash")
@@ -175,6 +177,23 @@ final class TeamWireTests: XCTestCase {
         var earlierDecoder = TeamWire.FrameDecoder()
         guard case .presence(let p)? = try earlierDecoder.append(earlier).first else { return XCTFail("not a presence") }
         XCTAssertNil(p.isIdle)
+    }
+
+    /// Diving and the evolution stage are sent only when true / above 1; earlier JSON without the keys still decodes.
+    func testPondFieldsAreOptionalAndOmitted() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("isDiving"))
+        XCTAssertFalse(plain.contains("evolutionStage"))
+        var pond = presence
+        pond.isDiving = true
+        pond.evolutionStage = 2
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(pond))), [.presence(pond)])
+        let earlier = frame(#"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":false}}}"#)
+        var d2 = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try d2.append(earlier).first else { return XCTFail("not a presence") }
+        XCTAssertNil(p.isDiving)
+        XCTAssertNil(p.evolutionStage)
     }
 
     /// The focus end time is left out when nil, and v2.5.613 ignores the key.

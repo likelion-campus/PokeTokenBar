@@ -706,6 +706,17 @@ read_when:
   `xcrun xctest -XCTest <모듈.스위트> -AppleLanguages '(en)' <.xctest 번들>` 로 재현된다.
   로컬 재현은 도구체인 조합에 달려 있다: 이 Mac 의 CLT(Swift 6.0.3)는 `SwiftBridging` 모듈 중복으로
   `Foundation` 을 못 읽고, Xcode 26.5 컴파일러에 15.2 SDK 를 붙이면 `@Observable` 매크로가 맞지 않는다.
+  **재발(2026-11-05, 사진 모드 PR #67):** 새 `@MainActor` 테스트가 동기 `override func setUp() { clockTime = 0 }` 로
+  격리된 `var` 를 되돌려 CI(Xcode 16.4/Swift 6.1.2)의 테스트 컴파일이 실패했다. 로컬 Xcode 26.5(Swift 6.3.2)는 통과시킨다.
+  **왜 못 걸렀나:** 위 규칙이 문장으로만 있어 계획의 전역 제약에도 과제 리뷰에도 들어가지 않았고, 로컬 전체 테스트와
+  게이트는 최신 도구체인이라 이 부류를 볼 수 없다. → 소스 스캔 가드 `TestIsolationTests` 가 `@MainActor` XCTestCase 의
+  동기 `setUp()`/`tearDown()` 본문이 `nonisolated(unsafe)` 가 아닌 클래스 멤버(`var`·`func`)를 쓰면 실패한다.
+  그 줄은 지웠다(XCTest 는 테스트마다 새 인스턴스를 만들어 초기값이 이미 0이다). 부류 스윕: Tests 의 동기 override 전부를
+  가드로 검사했고 위반은 이 한 곳뿐이었다. 가드는 이 줄을 되살리면 실패한다(주입 확인).
+  **가드 자체의 보강(2026-11-05, PR #67 점검):** 처음 스캐너는 ① 줄마다 앞의 비지 않은 줄을 다시 만들어 파일당 O(n²)(실행당 6초)였고
+  ② `setUpWithError()`/`tearDownWithError()` 를 안 보고 ③ `private(set) var` 를 멤버로 못 세고 ④ 문자열·주석 안의 `{` 로
+  깊이가 틀어졌다. 앞 줄을 한 번에 적어 선형(0.28초)으로 만들고 세 경우를 `testTheScanFlagsIsolatedMembersOnly` 에 더했다
+  (각 규칙을 되돌리면 실패). 실제 테스트 파일에는 새 위반이 없다.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
@@ -893,6 +904,16 @@ read_when:
   (출발할 때 봐야 할 시계를 도착해서 보는 격). 가드를 넣을 땐 그 함수 위의 await 까지 거슬러 확인하고,
   회귀 테스트도 **그 await 를 실제로 지나는 진입점**으로 써라 — `hatch(baseID:)` 경로 테스트는
   `chooseBase()` 를 안 지나 통과하면서 아무것도 지키지 않았다(`testImportDuringSpeciesRollDiscardsTheHatch`).
+
+- **Broadcast the position before a flag that depends on it.** Climbing out of a dive cleared `isDiving` and sent it
+  with the old water tile; the land tile went out as a separate presence afterwards. A receiver handling the first frame
+  alone read "in the water, no longer diving" and played a surfacing splash that never happened (`advancePond` ran before
+  `reportLocalPosition`). **Why nothing caught it:** the dive tests checked the sender's end state and the receiver's final
+  flag, never the order of the frames on the wire. **Capture:** `advancePond` reports the position before
+  `onDivingChange(false)`, and `testClimbingOutOfADiveSendsTheLandTileFirst` reads the sent presences in order (it fails
+  with the order restored). `startFocus` already orders its position and flag this way on purpose.
+  **Class sweep:** the other flag writers (`setDiving` from Z, the dive limit, closing, hiding) leave the tile where it is, so
+  no tile and flag can disagree there.
 
 ## 프로세스·인스턴스
 
@@ -1234,6 +1255,73 @@ read_when:
   matched by accident. **Capture:** photo/scene render tests pin `now` (`PlazaPhotoTests.newScene` pins 2026-05-10 12:00),
   and variants are made by mutating a copy of the input, never by rebuilding it.
   **Class sweep:** every scene/photo test that compares renders pins `now` or compares variants made from one input (clean).
+- **A `ForEach` id must be unique, and a hand-written list doesn't guarantee that.** `PlazaShortcutGuide`
+  used `id: \.key`. The campfire row added a second `Space` key, and SwiftUI then drew the first
+  `Space` row twice, so "모닥불 옆: 집중" appeared as "말 걸기". The list test passed because it read
+  `entries`, not what was drawn. The row is gone now, and `testShortcutGuideKeysAreUnique` fails on any
+  repeated key. **Class sweep:** the other hand-written lists used this way (`intervalPresets`,
+  `rarityDisplayOrder`, the stat order, the board buttons) have no repeats, and the Claude root list
+  drops repeats when it is built. The rest use enum cases, offsets or real ids.
+
+- **Effect tests must assert where things go, not how many exist.** The pond droplets passed every count test while they
+  drew a flat bar across the sprite (one shared vertical speed), and the rings sat under a wide sprite where nothing showed
+  them; bubbles were hidden under a diver. Only an offscreen render showed it. **Why nothing caught it:** the tests counted
+  particles and checked caps, which are true for a flat bar too. **Capture:** `PlazaPondLayerTests` read node positions and
+  sizes (`testBigSplashFansOutAndRises`, `testRingsSitOnTheWaterlineAndGrow`, `testBubblesRiseAndFade`), each failing when the
+  droplets share one height or the origin is the tile centre. For particle effects, read positions, sizes and z, and render
+  the effect offscreen before calling it done. **Class sweep:** the weather layer already exposes `particlePositions`
+  to its tests; the wet icon and the dust are single nodes placed from the foot point.
+
+- **"키를 놓는다"와 "입력을 지운다"는 다르다 — 모드 진입은 쓰지 않은 탭까지 지운다 (사진 모드 PR #67).** `enterPhotoMode` 가
+  `walker.releaseAll()` 을 불러, 걷는 중(0.15초 칸) 눌러 둔 방향 탭(`pendingTap`)이 남았다. 사진 모드가 시작된 뒤에도
+  내 포켓몬이 한 칸 더 걸었다(spec 4.1 위반). **5-whys:** 증상(진입 뒤 한 걸음) → `releaseAll` 은 문서대로 탭을 남긴다 →
+  이름이 비슷한 `clearInput()` 이 따로 있는데 진입 코드가 짧은 쪽을 골랐다 → **테스트는 서 있는 채 P 를 눌러서**
+  탭이 비어 있는 경로로만 통과했다(트리거는 "걷는 도중 + 탭 대기"). **회귀 테스트:** `testATapPendingAtEntryNeverMovesMe` 가
+  걷는 도중 방향키를 다시 눌러 탭을 남기고 진입한다(`clearInput` → `releaseAll` 주입 시 실패 확인).
+  **부류 스윕:** `releaseAll` 호출처 전수(`PlazaScene` 의 `releaseAllKeys`, 창 키 상실, ⌘ 눌림): 창 키 상실·⌘ 는 키 뗌이
+  오지 않는 상황에서 눌린 키만 놓으면 되고 탭은 사용자가 이미 한 입력이라 남기는 게 맞다. 입력을 아예 버려야 하는
+  입력창 열기·판 열기·`canWalk` 해제는 이미 `clearInput` 이다. 새 모드로 "들어가며 입력을 넘기지 않는" 곳은 `clearInput`.
+
+- **저장 값을 파생 값(잘린 값)으로 되쓰지 마라 — 되쓰는 건 그 값을 바꾸는 입력 한 곳에서만 (사진 모드 PR #67).** `layout()` 이
+  지도 안으로 자른 틀 중심을 `photoCenter` 에 다시 써서, 모서리로 민 틀을 −로 줄였다 +로 되돌리거나 창 크기를 바꾸면 틀이
+  제자리로 돌아오지 않았다(spec 4.3 "−/+ 는 중심을 유지"). **5-whys:** 증상(틀이 영영 이동) → 가장자리에서 방향키를
+  계속 눌러도 위치가 쌓이지 않게 하려고 `layout()` 에 되쓰기를 넣었다 → 되쓰기의 목적은 "민 값을 쌓지 않기"인데 위치가
+  입력 쪽(`update` 의 밀기)이 아니라 모든 레이아웃 호출 쪽이었다 → **기존 가장자리 테스트는 밀고 가만히 있는 경로만**
+  밟아 확대·크기 변경이 값을 바꾸는지 몰랐다. **수정:** 밀 때만 "지금 보이는(잘린) 중심에서 시작해 더하고 자른 값을 저장".
+  `layout()` 은 읽기 전용. **회귀 테스트:** `testZoomingOutAndBackKeepsAFramePannedToTheCorner`(모서리에서 2→1→2 뒤 틀 동일,
+  되쓰기 주입 시 실패), `testHoldingAtTheEdgeDoesNotPileUp` 유지. **부류 스윕:** `layout()` 이 쓰는 `private(set)`/저장 프로퍼티
+  (`photoFrame`, `visibleRect`, `photoShownCenter`)는 모두 레이아웃 결과 캐시이고 입력 값은 `photoCenter` 뿐이다.
+  **같은 모드의 쌍둥이 결함:** 진입 때 틀 중심을 "화면 가운데"로 시드하면 위·아래 여백(24/44)이 달라 장면이 10pt 튄다.
+  시드는 파생 값이 이어지는 쪽에서 역산한다 — `중심.y = visible.midY + (위 − 아래) ÷ (2·배율)`.
+  `testEnteringKeepsTheViewAndFramesIt` 가 `visibleWorldRect` 불변을 단언한다(시드를 화면 가운데로 되돌리면 실패).
+
+- **같은 규칙을 두 곳에 적지 마라 — 기하는 한 함수, 키 표는 한 꼬리 (사진 모드 PR #67).** 오버레이가 틀 사각형을
+  `geo.size` 와 여백 상수로 따로 계산했고, 사진 모드 키 처리가 평소 키 처리의 Z/X/G·말풍선·확대 표를 통째로 복사했다.
+  **왜 못 걸렀나:** 두 복사본이 오늘은 같은 값이라 모든 테스트가 통과한다 — 한쪽만 바뀌는 날에야 드러난다. **수정:**
+  `PlazaPhotoFrame.viewRect(in:)` 를 `layout` 과 오버레이가 함께 쓰고(`testViewRectInWorldIsTheLayoutFrame` 가 뷰포트별로 월드
+  변환이 `layout().frame` 과 같음을 단언, 한쪽 오프셋 주입 시 실패), 키는 `handleSharedKeyDown` 한 꼬리를 두 경로가 쓴다.
+  **스윕:** `PlazaPhotoFrame` 상수를 쓰는 곳(`PlazaScene` 팬 속도, 오버레이 브래킷·안내 문구 위치)은 상수만 읽고 사각형은
+  `viewRect` 만 만든다. 두 번째 키 표는 이제 없다.
+
+- **사용자에게 하는 약속의 조건과 행동의 조건은 한 식으로 — 그리고 실패해도 신호는 간다 (사진 모드 PR #67).** 단체 사진
+  카운트다운 문구는 "사진 모드인가"만 보고 "함께 찍는 중"이라 했지만 0 의 동작은 "사진 모드 **이고** 광장 창이 앞"이라
+  뒤에 있으면 번쩍이기만 했다. 또 앞에서 찍던 사람의 `takePhoto()` 가 합성·인코딩·쓰기에서 실패하면 번쩍임이 아예 없었다
+  ("모두의 화면이 0 에 번쩍인다"는 약속 위반). **5-whys:** 증상(약속과 다른 결과) → 문구 함수의 인자와 `finishGroupPhoto` 의
+  분기가 서로 다른 입력을 봤다 → 이전 점검이 "문구는 사진 모드로 충분하다"고 판정했고 **테스트는 앞에 있는 경우만** 봤다
+  (`frontmost = false` 는 0 의 결과만 단언하고 문구는 단언하지 않았다) → 실패 경로는 `photoWriter` 가 늘 true 였다.
+  **수정:** 문구에 세 번째 상태("사진 모드지만 앞이 아님")를 더하고 키 창 변화(`handleBecomeKey`/`handleResignKey`)에서도
+  다시 쓴다. `takePhoto()` 는 성공 여부를 돌려주고 실패해도 0 에 번쩍인다. **회귀 테스트:**
+  `testTheCountdownSaysWhenThePlazaIsNotInFront`(새 문구, 키 창 변화로 되돌림), `testAFailedPhotoStillFlashesAtZero`(쓰기 실패 +
+  번쩍임; `takePhoto` 결과를 무시하면 실패 확인). **스윕:** `isFrontmost` 를 읽는 곳과 `photoWriter` 를 부르는 곳을 전수
+  확인했다 — 수동 Space 촬영은 사용자가 직접 누른 것이라 실패 시 번쩍임을 일부러 주지 않는다(성공했다는 신호이므로).
+
+- **모드 전환·키 창 변화는 그 모드에서 파생되는 표시를 그 자리에서 갱신한다 (사진 모드 PR #67).** `photoModeChanged(false)` 가
+  작은 지도를 다시 맞추지 않아, 사진 모드의 틀 영역이 최대 1초(다음 틱) 동안 지도에 남았다. 카운트다운 문구도 같은 부류다
+  (키 창이 바뀌어도 다음 초 틱까지 옛 문구). **왜 못 걸렀나:** 테스트가 나간 뒤 지도 값이 장면과 같은지 봤지만 지도가
+  **원래부터 따라가기 화면과 같은 값**이라 갱신이 없어도 통과했다(사진 모드 중 지도를 한 번 맞춰 둬야 트리거). 
+  **회귀 테스트:** `testTheMinimapFollowsTheSceneRightAfterLeaving` 은 사진 모드에서 밀고 지도를 맞춘 뒤 Esc, 갱신 제거 시
+  실패. **스윕:** `onPhotoModeChange` 구독자(`photoModeChanged`)가 HUD·힌트·카운트다운·지도를 모두 맞추고, `handleResignKey`/
+  `handleBecomeKey` 가 카운트다운을 맞춘다.
 
 ## 에너지 (상시 표시 애니메이션)
 

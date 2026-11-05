@@ -17,6 +17,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     var nameColor: UInt32?
     /// 달리고 있다. 이 화면에서도 달리는 빠르기로 따라간다.
     var isRunning = false
+    /// 연못에서 잠수 중이다.
+    var isDiving = false
+    /// 진화 단계 1...3.
+    var evolutionStage = 1
 }
 
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.
@@ -40,9 +44,21 @@ struct PlazaSceneMember: Equatable, Sendable {
             if clamped != zoom { zoom = clamped; return }
             guard zoom != oldValue else { return }
             layout()
-            onZoomChange?(zoom)
+            // 사진 모드 안의 확대는 저장하지 않는다. 나갈 때 들어올 때의 확대로 돌아간다.
+            if !isPhotoMode { onZoomChange?(zoom) }
         }
     }
+
+    /// 사진 모드의 프레임 중심(세계 좌표, y 아래로). nil이면 평소처럼 내 캐릭터를 따라간다.
+    private(set) var photoCenter: CGPoint?
+    var isPhotoMode: Bool { photoCenter != nil }
+    /// 사진 모드에서 화면에 비친 사진 틀(세계 좌표, y 아래로). `layout()`이 정한다.
+    private(set) var photoFrame: CGRect?
+    /// 마지막 `layout()`에서 지도 안으로 잘린 틀 중심. `photoCenter`는 확대·크기 변경에 건드리지 않고, 밀 때만 이 값에서 시작해 잘라 저장한다.
+    private var photoShownCenter: CGPoint?
+    var onPhotoModeChange: ((Bool) -> Void)?
+    private var zoomBeforePhotoMode = PlazaCamera.defaultZoom
+    private var panKeys: Set<PlazaDirection> = []
     var onZoomChange: ((Int) -> Void)?
     /// Cmd+W, Esc. 앱에 메인 메뉴가 없어 창 닫기를 장면이 직접 요청한다.
     var onCloseRequest: (() -> Void)?
@@ -50,7 +66,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onEmoteKey: ((TeamEmoteKind) -> Void)?
     /// 스페이스. 판이 닫혀 있을 때만 온다.
     var onInteractKey: (() -> Void)?
-    /// 키 P(기념사진). keyCode로만 판정한다.
+    /// 키 P(사진 모드 진입, 사진 모드에서는 촬영). keyCode로만 판정한다.
     var onPhotoKey: (() -> Void)?
     /// Z(점프). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onJumpKey: (() -> Void)?
@@ -82,7 +98,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     var backingOverride: CGFloat?
 
     private let mapImage: CGImage
-    /// 마지막 `layout`이 정한 보이는 월드 영역. 기념사진이 이 영역을 찍는다.
+    /// 마지막 `layout`이 정한 보이는 월드 영역. 평소 기념사진이 이 영역을 찍는다(사진 모드에서는 `photoFrame`).
     private var visibleRect: CGRect
     private let mapNode: SKSpriteNode
     private var shutterNode: SKSpriteNode?
@@ -120,6 +136,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         var motion: PlazaRemoteMotion
         var wanderer: PlazaShelterWanderer?
         var grassWatch = GrassWatch()
+        /// 그 팀원이 알린 잠수와, 그림에 반영한 흐려짐.
+        var diving = false
+        var dive = DiveFade()
+        var stage = 1
+        var pond = PondWatch()
 
         /// zZ는 자리비움(입력 없음)일 때만. 광장을 닫고 일하는 팀원은 쉼터에 서 있어도 zZ가 없다.
         var displayName: String { Self.displayName(nickname, isIdle: isIdle) }
@@ -128,9 +149,10 @@ struct PlazaSceneMember: Equatable, Sendable {
             isIdle ? nickname + " " + L(.ko).plazaAwaySuffix : nickname
         }
 
-        mutating func advance(by dt: TimeInterval, blocked: Set<TilePoint>) {
+        mutating func advance(by dt: TimeInterval, blocked: Set<TilePoint>,
+                              stepDuration: ((TilePoint, TilePoint, Bool) -> TimeInterval)? = nil) {
             if let moved = wanderer?.advance(by: dt, blocked: blocked) { motion.moveTo(moved) }
-            motion.advance(by: dt)
+            motion.advance(by: dt, stepDuration: stepDuration)
         }
     }
 
@@ -168,6 +190,71 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
     private var myGrassWatch = GrassWatch()
+
+    /// 연못 기록 하나(나 또는 팀원 한 명): 땅에서 물로 뛰는 걸음, 지난 점프 높이, 잠수 거품 시계.
+    /// 도착·착지·거품을 `advance`가 세어 돌려주고, 물보라와 젖음은 장면이 낸다.
+    private struct PondWatch {
+        var plungeTo: TilePoint?
+        var lastStep: (from: TilePoint, to: TilePoint)?
+        var lastLift: CGFloat = 0
+        var bubbleClock: TimeInterval = PlazaPond.bubbleInterval
+
+        struct Events { var landedInWater: TilePoint?; var shoreSplash: TilePoint?; var bubble = false }
+
+        /// 땅→물 걸음이 끝난 프레임에 도착 칸을, 점프에서 내려앉은 프레임에 땅의 물가 물보라 칸을, 잠수 중 0.4초마다 거품을 알린다.
+        mutating func advance(tile: TilePoint, step: PlazaStep?, lift: CGFloat, facing: PlazaDirection, diving: Bool,
+                              dt: TimeInterval, isWater: (TilePoint) -> Bool) -> Events {
+            var events = Events()
+            let sameStep = step != nil && step?.from == lastStep?.from && step?.to == lastStep?.to
+            if let landed = plungeTo, !sameStep {
+                // 뛰어든 걸음이 사라졌어도 아직 물에 있을 때만 착지다. 자리 비움 같은 순간이동이면 물보라를 내지 않는다.
+                // (방향키를 누르고 있으면 같은 프레임에 다음 헤엄 걸음이 시작되니 `tile == landed`로 비교하지 않는다.)
+                if isWater(tile) { events.landedInWater = landed }
+                plungeTo = nil
+            }
+            if let step {
+                if !sameStep {
+                    lastStep = (step.from, step.to)
+                    if !isWater(step.from), isWater(step.to) { plungeTo = step.to }
+                }
+            } else {
+                lastStep = nil
+            }
+            if lastLift > 0, lift == 0, !isWater(tile) {
+                events.shoreSplash = PlazaPond.shoreSplashTile(tile: tile, facing: facing, isWater: isWater)
+            }
+            lastLift = lift
+            if diving {
+                bubbleClock += dt
+                if bubbleClock >= PlazaPond.bubbleInterval { bubbleClock = 0; events.bubble = true }
+            } else {
+                bubbleClock = PlazaPond.bubbleInterval
+            }
+            return events
+        }
+    }
+    private var myPond = PondWatch()
+    /// 내 진화 단계(1...3). 큰 물보라가 젖게 하는 반경이다. 창 컨트롤러가 내 종이 바뀔 때마다 맞춘다.
+    var myEvolutionStage = 1
+
+    /// 잠수로 흐려지는 정도(0–1). `PlazaPond.diveFade`초에 걸쳐 오가며 장면 시간(dt)으로만 잰다.
+    private struct DiveFade {
+        var level: CGFloat = 0
+        mutating func advance(toward on: Bool, dt: TimeInterval) {
+            let step = CGFloat(dt / PlazaPond.diveFade)
+            level = on ? min(1, level + step) : max(0, level - step)
+        }
+    }
+    private var myDive = DiveFade()
+    private let pondVisuals: Bool
+    private(set) var pondLayer: PlazaPondLayer?
+    /// 내가 잠수 중이다. 물속에서만 켜진다.
+    private(set) var isDiving = false
+    private var diveElapsed: TimeInterval = 0
+    /// 잠수 제한 시간. 창 컨트롤러가 포켓몬 타입으로 바꾼다.
+    var diveLimit: TimeInterval = PlazaPond.diveLimit
+    /// 시간이 다했거나 물 밖으로 나가 장면이 잠수를 끝냈을 때. `setDiving`으로 끈 때는 부르지 않는다.
+    var onDivingChange: ((Bool) -> Void)?
     private(set) var tallGrassLayer: PlazaTallGrassLayer?
 
     /// 큰 소식 반짝임 조각 하나. 시간 흐름은 `update`가 준 간격으로만 재서 창이 멈추면 같이 멈춘다.
@@ -223,12 +310,14 @@ struct PlazaSceneMember: Equatable, Sendable {
     private(set) var campfireTimerText: String?
     private var campfireTimerDrawn: (text: String, backing: CGFloat)?
 
-    init(map: PlazaMap, mapImage: CGImage, start: TilePoint, zoom: Int, nickname: String, tallGrass: PlazaTallGrassArt? = nil) {
+    init(map: PlazaMap, mapImage: CGImage, start: TilePoint, zoom: Int, nickname: String, tallGrass: PlazaTallGrassArt? = nil,
+         pondVisuals: Bool = false) {
         self.map = map
         self.worldSize = map.pixelSize
         self.walker = PlazaWalker(tile: start)
         self.lastReported = (start, .down, false)
         self.nickname = nickname
+        self.pondVisuals = pondVisuals
         self.me = PlazaActor(name: nickname, color: PlazaNameColor.palette[0])
         self.mapImage = mapImage
         self.visibleRect = CGRect(origin: .zero, size: map.pixelSize)
@@ -250,6 +339,12 @@ struct PlazaSceneMember: Equatable, Sendable {
             let layer = PlazaTallGrassLayer(map: map, art: tallGrass)
             addChild(layer)
             tallGrassLayer = layer
+        }
+
+        if pondVisuals {
+            let layer = PlazaPondLayer(map: map)
+            addChild(layer)
+            pondLayer = layer
         }
 
         if let campfireNode { addChild(campfireNode) }
@@ -329,6 +424,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func setBackgroundHidden(_ hidden: Bool) {
         mapNode.isHidden = hidden
         tallGrassLayer?.setHidden(hidden)
+        pondLayer?.setHidden(hidden)
         layout()   // 풀숲 가림을 바로 풀어 곧바로 찍는 사진도 숨은 팀원을 그리게 한다
         backgroundColor = hidden ? .clear : Self.forestColor
         applyDaylight()
@@ -373,6 +469,11 @@ struct PlazaSceneMember: Equatable, Sendable {
                 if !m.isAway { r.motion.facing = m.facing }
                 r.nickname = m.nickname
                 r.isIdle = m.isIdle
+                if r.diving, !m.isDiving, map.isWater(target) {
+                    splash(at: target, big: true, stage: m.evolutionStage, splasher: m.memberID)
+                }
+                r.diving = m.isDiving
+                r.stage = m.evolutionStage
                 r.color = PlazaNameColor.color(forMemberID: m.memberID, chosen: m.nameColor)
                 r.actor.setName(r.displayName, color: r.color)
                 remotes[m.memberID] = r
@@ -384,7 +485,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 motion.senderIsRunning = !m.isAway && m.isRunning
                 let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isIdle: m.isIdle), color: color),
                                color: color, nickname: m.nickname, isAway: m.isAway, isIdle: m.isIdle, motion: motion,
-                               wanderer: wanderer)
+                               wanderer: wanderer, diving: m.isDiving, stage: m.evolutionStage)
                 r.actor.attach(world: self, camera: cameraNode)
                 remotes[m.memberID] = r
             }
@@ -404,7 +505,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 받은 칸이 지도 밖이거나 걸을 수 없으면 쉼터 칸. 다른 버전의 지도나 잘못된 값에도 나무 위에 서지 않는다.
     private func resolvedTile(_ m: PlazaSceneMember) -> TilePoint {
-        if let t = m.tile, map.isWalkable(t) { return t }
+        if let t = m.tile, map.isWalkable(t) || map.isWater(t) { return t }
         return shelterWanderer(m.memberID).tile
     }
 
@@ -420,6 +521,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             if !isRepeat, let key = Self.overlayKey(keyCode) { onOverlayKey?(key) }
             return .swallowed
         }
+        if isPhotoMode { return handlePhotoModeKeyDown(keyCode: keyCode, characters: characters, isRepeat: isRepeat, modifiers: modifiers) }
         if keyCode == Self.escapeKeyCode {
             // 누르고 있는 Esc가 방금 닫은 판 다음에 창까지 닫지 않게 반복은 무시한다.
             if isRepeat { return .swallowed }
@@ -438,21 +540,31 @@ struct PlazaSceneMember: Equatable, Sendable {
         if let d = Self.direction(keyCode) {
             if !isRepeat && !modifiers.contains(.command) { onWalkKey?() }
             // Command+방향키는 keyUp이 오지 않아 계속 걷게 되므로 무시한다.
-            if canWalk && !isRepeat && !modifiers.contains(.command) {
+            // 물속에서는 알도 방향키로 걸어 나올 수 있다. 땅에 닿으면 `update`가 입력을 지운다.
+            if (canWalk || isMeInWater) && !isRepeat && !modifiers.contains(.command) {
                 stopWalkingToMember()
                 walker.press(d)
             }
             return .swallowed
         }
-        // 사진 키도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 보내지 않는다(P를 누르고 있어도 한 번만 찍는다).
-        // Z(점프), X(인사하기), C(몸통박치기), G(단체 사진), F(불꽃놀이)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다.
-        if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.cKeyCode: onTackleKey,
-                         Self.gKeyCode: onGroupPhotoKey, Self.fKeyCode: onFireworkKey][keyCode] {
-            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { action?() }
+        // C(몸통박치기)와 P(사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다(P를 누르고 있어도 한 번만 찍는다).
+        if keyCode == Self.cKeyCode || keyCode == Self.pKeyCode {
+            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
+                if keyCode == Self.cKeyCode { onTackleKey?() } else { onPhotoKey?() }
+            }
             return .swallowed
         }
-        if keyCode == Self.pKeyCode {
-            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onPhotoKey?() }
+        return handleSharedKeyDown(keyCode: keyCode, characters: characters, isRepeat: isRepeat, modifiers: modifiers)
+    }
+
+    /// 평소와 사진 모드가 함께 쓰는 키: Z/X/G/F(불꽃놀이), 말풍선, 확대. 수정 키가 눌렸거나 자동 반복이면 보내지 않는다.
+    /// 사진 모드에서만 다른 키(방향키, Space/P, C, Enter, Esc)는 호출하기 전에 각자 처리한다.
+    private func handleSharedKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
+                                     modifiers: NSEvent.ModifierFlags) -> PlazaKeyResult {
+        let plain = !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers)
+        if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.gKeyCode: onGroupPhotoKey,
+                         Self.fKeyCode: onFireworkKey][keyCode] {
+            if plain { action?() }
             return .swallowed
         }
         // Cmd/Ctrl/Opt 조합은 말풍선이 아니다(아래로 내려가 처리하지 않은 키처럼 삼킨다). 눌러 둔 자동 반복도 보내지 않는다.
@@ -468,17 +580,63 @@ struct PlazaSceneMember: Equatable, Sendable {
         return .swallowed
     }
 
-    func handleKeyUp(keyCode: UInt16) {
-        if let d = Self.direction(keyCode) { walker.release(d) }
+    /// 사진 모드의 키. 전부 삼킨다. 방향키는 걷기가 아니라 틀을 민다.
+    private func handlePhotoModeKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
+                                        modifiers: NSEvent.ModifierFlags) -> PlazaKeyResult {
+        if keyCode == Self.escapeKeyCode {
+            if !isRepeat { exitPhotoMode() }
+            return .swallowed
+        }
+        if let d = Self.direction(keyCode) {
+            // Command+방향키는 keyUp이 오지 않아 계속 밀리게 되므로 무시한다.
+            if !isRepeat && !modifiers.contains(.command) { panKeys.insert(d) }
+            return .swallowed
+        }
+        if keyCode == Self.spaceKeyCode || keyCode == Self.pKeyCode {
+            if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onPhotoKey?() }
+            return .swallowed
+        }
+        // 사진 모드에서는 C(몸통박치기)와 Enter(채팅)를 쓰지 않는다.
+        if keyCode == Self.cKeyCode || keyCode == Self.returnKeyCode || keyCode == Self.keypadEnterKeyCode { return .swallowed }
+        return handleSharedKeyDown(keyCode: keyCode, characters: characters, isRepeat: isRepeat, modifiers: modifiers)
     }
 
-    func releaseAllKeys() { walker.releaseAll() }
+    /// 카메라를 내 캐릭터에서 떼어 지금 보이는 화면 한가운데에 둔다. 걷던 것도 멈춘다.
+    func enterPhotoMode() {
+        guard !isPhotoMode else { return }
+        zoomBeforePhotoMode = zoom
+        // 화면이 튀지 않게 틀 가운데를 지금 보이는 영역이 그대로 남는 곳에 둔다(위 여백과 아래 여백이 다르다).
+        photoCenter = CGPoint(x: visibleRect.midX,
+                              y: visibleRect.midY + (PlazaPhotoFrame.topInset - PlazaPhotoFrame.bottomInset) / (2 * CGFloat(zoom)))
+        walker.clearInput()   // 아직 쓰지 않은 탭이 남아 한 걸음 더 가지 않게 탭까지 지운다
+        stopWalkingToMember()
+        panKeys.removeAll()
+        layout()
+        onPhotoModeChange?(true)
+    }
+
+    func exitPhotoMode() {
+        guard isPhotoMode else { return }
+        photoCenter = nil
+        photoFrame = nil
+        panKeys.removeAll()
+        zoom = zoomBeforePhotoMode
+        layout()
+        onPhotoModeChange?(false)
+    }
+
+    func handleKeyUp(keyCode: UInt16) {
+        if let d = Self.direction(keyCode) { walker.release(d); panKeys.remove(d) }
+    }
+
+    func releaseAllKeys() { walker.releaseAll(); panKeys.removeAll() }
 
     /// 입력창이 키를 가져가면 키 뗌이 장면에 오지 않으므로 눌린 키와 탭을 지운다. 걷던 칸은 마저 간다.
     func clearInput() {
         // 따라가기는 한마디를 쓰는 동안에도 이어 간다.
         if !isFollowing { stopWalkingToMember() }
         walker.clearInput()
+        panKeys.removeAll()
     }
 
     // MARK: - 팀원에게 걸어가기
@@ -487,7 +645,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 방향키를 누르거나 판·입력창을 열면 멈춘다. 알이거나 모르는 팀원이면 false.
     @discardableResult
     func walk(toMember id: String) -> Bool {
-        guard canWalk, remotes[id] != nil else { return false }
+        guard canWalk, !isMeInWater, remotes[id] != nil else { return false }
         setAutoWalk(id, following: false)
         return true
     }
@@ -496,7 +654,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 방향키를 누르거나 그 팀원이 광장을 떠나면 멈춘다. 판이 열린 동안은 쉬었다가 닫으면 이어 간다. 알이거나 모르는 팀원이면 false.
     @discardableResult
     func follow(member id: String) -> Bool {
-        guard canWalk, remotes[id] != nil else { return false }
+        guard canWalk, !isMeInWater, remotes[id] != nil else { return false }
         setAutoWalk(id, following: true)
         return true
     }
@@ -536,6 +694,126 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     var walkingToMember: String? { autoWalk }
 
+    /// 내가 물속에 있다(걷는 중이면 도착할 칸 기준).
+    var isMeInWater: Bool { map.isWater(walker.tile) }
+    /// 그 팀원이 물속에 있다. 모르는 팀원이면 nil.
+    func memberIsInWater(_ id: String) -> Bool? { remotes[id].map { map.isWater($0.motion.tile) } }
+
+    /// 잠수를 켠다(물속에서만) 또는 끈다. 컨트롤러가 부르므로 `onDivingChange`는 부르지 않는다.
+    func setDiving(_ on: Bool) {
+        guard on != isDiving, !on || isMeInWater else { return }
+        isDiving = on
+        diveElapsed = 0
+        if !on { splashSurfacing() }
+    }
+
+    /// Z를 눌렀을 때 할 일: 땅에서는 점프(물가면 첨벙 점프)나 첨벙 뛰어들기, 물속에서는 잠수와 떠오름.
+    /// 바라보는 물 칸에 팀원이 있으면 뛰어들지 않는다.
+    func pondAction(canMove: Bool) -> PlazaPondAction {
+        let taken = occupiedTiles()
+        return PlazaPond.action(tile: walker.tile, facing: walker.facing, isDiving: isDiving, canMove: canMove,
+                                isWater: { map.isWater($0) }, isFree: { !taken.contains($0) })
+    }
+
+    /// 물속에서 잠수를 끝내며 떠오르는 큰 물보라. 물 밖이면 아무것도 하지 않는다.
+    private func splashSurfacing() {
+        if isMeInWater { splash(at: walker.tile, big: true, stage: myEvolutionStage, splasher: nil) }
+    }
+
+    /// 물 칸 `d` 쪽으로 첨벙 뛰어든다. `pondAction`이 `.plunge`일 때만 부른다(땅에 서 있고 바라보는 칸이 빈 물 칸).
+    /// 큰 물보라는 걸음이 물에 내려앉을 때 `advancePond`가 낸다.
+    func plunge(_ d: PlazaDirection) {
+        walker.plunge(d)
+        plungeJumpOwed = true
+    }
+
+    /// `plunge`가 부른 점프를 아직 못 낸 상태. 뛰어드는 걸음이 시작될 때 `update`가 낸다(진행 중인 땅 걸음이 끝나야 시작한다).
+    private var plungeJumpOwed = false
+
+    /// 물보라 하나: 입자를 내고 땅에 선 배우를 젖게 한다. 연못 그림이 없거나 배경이 숨으면 아무것도 내지 않는다.
+    private func splash(at tile: TilePoint, big: Bool, stage: Int, splasher: String?) {
+        guard let layer = pondLayer, !isBackgroundHidden else { return }
+        layer.splash(at: tile, big: big)
+        let actors: [(id: String?, tile: TilePoint)] = [(nil, walker.tile)] + remotes.map { ($0.key, $0.value.motion.tile) }
+        for id in PlazaPond.wetTargets(splash: tile, radius: big ? PlazaPond.splashRadius(stage: stage) : 1,
+                                       splasher: splasher, actors: actors, isWater: { map.isWater($0) }) {
+            actor(id)?.showWet()
+        }
+    }
+
+    /// 그 팀원이 잠수한 것으로 보인다: 지금 보이는 자리가 물일 때만. 자리 비움이면 쉼터 칸으로 옮겨져 물이 아니다.
+    private func isShownDiving(_ r: Remote) -> Bool { r.diving && map.isWater(r.motion.tile) }
+    func memberIsDiving(_ id: String) -> Bool? { remotes[id].map(isShownDiving) }
+    var myVisibleHeight: CGFloat { me.visibleSpriteHeight }
+    func memberVisibleHeight(_ id: String) -> CGFloat? { remotes[id]?.actor.visibleSpriteHeight }
+    func memberSwimRingVisible(_ id: String) -> Bool? { remotes[id]?.actor.isSwimRingVisible }
+    func memberSwimRingY(_ id: String) -> CGFloat? { remotes[id]?.actor.swimRingY }
+
+    /// 시간이 다했거나 물 밖으로 나가면 내 잠수를 끝내고 알린다. 잠수 흐려짐을 흘리고 연못 레이어 시간을 흘린다.
+    private func advancePond(by dt: TimeInterval) {
+        if isDiving {
+            diveElapsed += dt
+            if diveElapsed >= diveLimit || !isMeInWater {
+                splashSurfacing()
+                isDiving = false
+                // 물에서 나가며 끝난 잠수는 땅 칸을 먼저 알린다. 옛 물 칸에 '잠수 끝'만 가면 받는 쪽이 없던 떠오름을 그린다.
+                if !isMeInWater { reportLocalPosition() }
+                onDivingChange?(false)
+            }
+        }
+        myDive.advance(toward: isDiving, dt: dt)
+        watchPond(id: nil, stage: myEvolutionStage, tile: walker.tile, step: walker.currentStep, actor: me,
+                  facing: walker.facing, diving: isDiving, dt: dt)
+        for id in Array(remotes.keys) {
+            guard let r = remotes[id] else { continue }
+            remotes[id]?.dive.advance(toward: isShownDiving(r), dt: dt)
+            watchPond(id: id, stage: r.stage, tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor,
+                      facing: r.motion.facing, diving: isShownDiving(r), dt: dt)
+        }
+        pondLayer?.update(dt: dt)
+    }
+
+    /// 한 배우의 연못 기록을 한 프레임 흘리고, 땅→물 착지의 큰 물보라·땅 점프 착지의 작은 물보라·잠수 거품을 낸다.
+    private func watchPond(id: String?, stage: Int, tile: TilePoint, step: PlazaStep?, actor: PlazaActor,
+                           facing: PlazaDirection, diving: Bool, dt: TimeInterval) {
+        guard pondLayer != nil else { return }
+        var watch: PondWatch
+        if let id {
+            guard let theirs = remotes[id]?.pond else { return }
+            watch = theirs
+        } else {
+            watch = myPond
+        }
+        let events = watch.advance(tile: tile, step: step, lift: actor.jumpLift, facing: facing, diving: diving, dt: dt,
+                                   isWater: { map.isWater($0) })
+        if let id { remotes[id]?.pond = watch } else { myPond = watch }
+        if let landed = events.landedInWater { splash(at: landed, big: true, stage: stage, splasher: id) }
+        if let shore = events.shoreSplash { splash(at: shore, big: false, stage: stage, splasher: id) }
+        if events.bubble { pondLayer?.bubble(at: tile) }
+    }
+
+    /// 헤엄 높이 자르기. 배경이 보이는 연못 그림일 때, 물 칸에 선 배우가 걷는 중이 아니거나 물에서 출발한 걸음일 때만 0보다 크다.
+    /// 땅에서 뛰어드는 걸음은 물에 내려앉은 뒤에야 잘린다.
+    private func swimSink(tile: TilePoint, step: PlazaStep?, actor: PlazaActor) -> CGFloat {
+        guard pondVisuals, !isBackgroundHidden, map.isWater(tile), step.map({ map.isWater($0.from) }) ?? true,
+              actor.fullSpriteHeight > 0 else { return 0 }
+        return PlazaPond.swimSink(spriteHeight: actor.fullSpriteHeight)
+    }
+
+    /// 땅에서는 걸을 수 있는 빈 칸만, 물속에서는 물 칸과 걸을 수 있는 땅 칸에 들어간다.
+    private func canEnterTile(occupied: Set<TilePoint>) -> (TilePoint, TilePoint) -> Bool {
+        { [map] from, to in
+            guard !occupied.contains(to) else { return false }
+            return map.isWalkable(to) || (map.isWater(from) && map.isWater(to))
+        }
+    }
+
+    private var pondStepDuration: (TilePoint, TilePoint, Bool) -> TimeInterval {
+        { [map] from, to, running in
+            PlazaPond.stepDuration(from: from, to: to, running: running, isWater: { map.isWater($0) })
+        }
+    }
+
     /// 다른 팀원이 서 있는(걷는 중이면 도착할) 칸. 나는 이 칸에 들어가지 못한다. 이미 겹쳐 서 있으면 빠져나갈 수는 있다.
     /// 팀원 쪽 Mac도 같은 규칙으로 나를 피하므로 서로 겹치지 않는다(동시에 같은 칸에 들어가면 잠깐 겹칠 수 있다).
     func occupiedTiles(except id: String? = nil) -> Set<TilePoint> {
@@ -550,14 +828,30 @@ struct PlazaSceneMember: Equatable, Sendable {
             if !isFollowing { stopWalkingToMember() }
             return
         }
+        // 물속의 팀원은 따라갈 수 없고, 물속의 나는 길을 찾지 않는다.
+        if isFollowing && map.isWater(target) { return stopWalkingToMember() }
         guard !walker.isWalking else { return }
+        if isMeInWater { return stopWalkingToMember() }
         if PlazaPathfinder.isAdjacent(walker.tile, target) {
             walker.face(PlazaPathfinder.direction(from: walker.tile, to: target))
             if !isFollowing { stopWalkingToMember() }
             return
         }
-        guard let first = PlazaPathfinder.path(from: walker.tile, toNextTo: target, map: map,
-                                               blocked: occupiedTiles())?.first else {
+        let blocked = occupiedTiles()
+        var goal = target
+        var route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked)
+        if route == nil, map.isWater(target),
+           let edge = PlazaPond.nearestEdgeWater(to: target, from: walker.tile, isWater: { map.isWater($0) }, isLand: { map.isWalkable($0) && !blocked.contains($0) }) {
+            // 물 가운데의 팀원: 가장 가까운 테두리 물 칸 옆 땅까지만 간다.
+            goal = edge
+            if PlazaPathfinder.isAdjacent(walker.tile, edge) {
+                walker.face(PlazaPathfinder.direction(from: walker.tile, to: edge))
+                stopWalkingToMember()
+                return
+            }
+            route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked)
+        }
+        guard let first = route?.first else {
             // 따라가는 중이면 길이 트일 때까지 기다린다.
             if !isFollowing { stopWalkingToMember() }
             return
@@ -579,9 +873,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         layout()
     }
 
-    /// 지금 화면에 보이는 영역을 기념사진 입력으로 모은다. 그림을 아직 못 받은 캐릭터는 뺀다(알과 자리 비움은 다른 팀원처럼 찍힌다).
+    /// 지금 화면에 보이는 영역(사진 모드면 프레임 안, `photoFrame ?? visibleRect`)을 기념사진 입력으로 모은다. 그림을 아직 못 받은 캐릭터는 뺀다(알과 자리 비움은 다른 팀원처럼 찍힌다).
     func photoInput() -> PlazaPhotoInput? {
-        guard visibleRect.width > 0, visibleRect.height > 0 else { return nil }
+        let rect = photoFrame ?? visibleRect
+        guard rect.width > 0, rect.height > 0 else { return nil }
         func pose(_ facing: PlazaDirection, _ isWalking: Bool) -> PlazaSpriteChoice {
             PlazaPose.choice(facing: facing, isWalking: isWalking, clock: clock)
         }
@@ -591,10 +886,10 @@ struct PlazaSceneMember: Equatable, Sendable {
             actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking)))
         }
         let tint = daylightTint
-        return PlazaPhotoInput(mapImage: mapImage, visibleRect: visibleRect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
+        return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
                                tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
                                items: itemPhotoParticles,
-                               bands: tallGrassLayer?.photoBands(in: visibleRect) ?? [],
+                               bands: tallGrassLayer?.photoBands(in: rect) ?? [],
                                props: campfirePhotoProps, light: campfirePhotoLight(tint: tint),
                                fireworks: fireworkLayer.photoParticles(worldHeight: worldSize.height),
                                fireworkLight: fireworkLayer.photoLight(tint: tint, worldHeight: worldSize.height))
@@ -733,6 +1028,9 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     private func puffDust(under memberID: String?) {
         guard actor(memberID) != nil else { return }
+        // 내가 뛰어드는 걸음을 막 시작했다면 먼지는 떠난 땅 칸에서 인다(walker.tile은 이미 도착할 물 칸이다).
+        let tile = memberID.flatMap { remotes[$0]?.motion.tile } ?? walker.currentStep?.from ?? walker.tile
+        if map.isWater(tile) { return }   // 물 위에는 먼지가 일지 않는다
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
         texture.filteringMode = .nearest
@@ -753,6 +1051,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용: 떠 있는 먼지 수와 그 캐릭터가 떠 있는 높이.
     var dustCount: Int { children.filter { $0.name == Self.dustName }.count }
     func jumpLift(memberID: String?) -> CGFloat? { actor(memberID)?.jumpLift }
+    func isWet(memberID: String?) -> Bool? { actor(memberID)?.isWet }
     /// 테스트용: 떠 있는 충격 그림 수와 내가 뛰어든 만큼.
     var impactCount: Int { children.filter { $0.name == Self.impactName }.count }
     func lungeOffset(memberID: String?) -> CGPoint? { actor(memberID)?.lungeOffset }
@@ -760,10 +1059,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 몸통박치기에 맞아 `tiles`칸 밀린다. 막힌 칸을 만나면 그 앞에 선다. 알도 밀린다.
     /// 창이 가려져 장면이 멈춰 있으면(`isPaused`) 다음 화면이 오지 않으므로 그 자리에서 다 밀리고 팀원에게 바로 알린다.
     func pushMe(_ d: PlazaDirection, tiles: Int = 1) {
+        guard !isMeInWater else { return }
         walker.push(d, tiles: tiles)
         guard isPaused else { return }
         let occupied = occupiedTiles()
-        walker.advance(by: PlazaWalker.stepDuration * Double(tiles)) { [map] in map.isWalkable($0) && !occupied.contains($0) }
+        walker.advance(by: PlazaWalker.stepDuration * Double(tiles), canEnterFrom: canEnterTile(occupied: occupied),
+                       stepDuration: pondStepDuration)
         reportLocalPosition()
     }
     /// 테스트용: 그 팀원을 달리는 빠르기로 따라가는지. 없으면 nil.
@@ -889,16 +1190,35 @@ struct PlazaSceneMember: Equatable, Sendable {
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
         clock = currentTime
         let modifiers = currentModifiers()
-        if modifiers.contains(.command) { walker.releaseAll() }
+        if modifiers.contains(.command) { walker.releaseAll(); panKeys.removeAll() }
+        if let c = photoCenter {
+            let speed = modifiers.contains(.shift) ? PlazaPhotoFrame.fastPanSpeed : PlazaPhotoFrame.panSpeed
+            let dx = (panKeys.contains(.right) ? 1 : 0) - (panKeys.contains(.left) ? 1 : 0)
+            let dy = (panKeys.contains(.down) ? 1 : 0) - (panKeys.contains(.up) ? 1 : 0)
+            if dx != 0 || dy != 0 {
+                // 지도 안으로 잘린 채 보이는 중심에서 밀고 다시 자른다. 가장자리에서 더 민 만큼을 쌓지 않는다.
+                // 확대·창 크기 변경은 저장한 중심을 건드리지 않아야 돌아왔을 때 틀이 제자리다(그래서 자르기는 여기서만 저장한다).
+                let from = photoShownCenter ?? c
+                let moved = CGPoint(x: from.x + CGFloat(dx) * speed * CGFloat(dt), y: from.y + CGFloat(dy) * speed * CGFloat(dt))
+                photoCenter = PlazaPhotoFrame.layout(center: moved, viewport: size, zoom: zoom, backingScale: backingOverride ?? view?.window?.backingScaleFactor ?? 2,
+                                                     world: worldSize)?.center ?? moved
+            }
+        }
         // 방향키와 Shift를 함께 누르고 있거나, 따라가는 팀원이 달리면 달린다. Shift만으로는 달리지 않아,
         // 따라가며 한마디에 대문자를 쳐도 달리지 않는다.
         walker.wantsToRun = (modifiers.contains(.shift) && walker.isHoldingKey)
             || (followingMember.flatMap { remotes[$0]?.motion.senderIsRunning } ?? false)
+        if !canWalk, !isMeInWater { walker.clearInput() }   // 물에서 나온 알은 누르고 있던 키로 더 걷지 않는다
         advanceWalkToMember()
         let occupied = occupiedTiles()
-        walker.advance(by: dt) { [map] in map.isWalkable($0) && !occupied.contains($0) }
+        walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), stepDuration: pondStepDuration)
+        if plungeJumpOwed, let step = walker.currentStep, !map.isWater(step.from), map.isWater(step.to) {
+            plungeJumpOwed = false
+            playJump(memberID: nil)
+        }
         advanceAnimation(by: dt)
         advanceTallGrass(by: dt)
+        advancePond(by: dt)
         advanceSparkles(by: dt)
         fireworkLayer.advance(by: dt, tint: appliedTint, firelight: firelight(at:))
         applyDaylight()
@@ -1000,7 +1320,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             // 쉼터에서 어슬렁거리는 팀원도 나와 다른 팀원이 선 칸으로는 옮기지 않는다.
             // `remotes`를 읽는 값은 먼저 구한다. 같은 식 안에서 고치는 원소와 함께 읽으면 접근 충돌로 멈춘다.
             let blocked = occupiedTiles(except: id).union([walker.tile])
-            remotes[id]?.advance(by: dt, blocked: blocked)
+            remotes[id]?.advance(by: dt, blocked: blocked, stepDuration: pondStepDuration)
             guard let r = remotes[id] else { continue }
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.animate(by: dt, useBack: p.useBack)
@@ -1021,8 +1341,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// 풀숲에 가려진 정도(0–1). 그림이 없거나 배경이 숨으면 늘 0이다.
-    private func concealment(tile: TilePoint, step: PlazaStep?, actor: PlazaActor) -> CGFloat {
-        PlazaTallGrass.concealment(tile: tile, step: step, jumpLift: actor.jumpLift) { [tallGrassLayer] in tallGrassLayer?.isGrass($0) ?? false }
+    /// 잠수로 가려진 정도와 `max`로 합친다. 연못 그림이 꺼져 있으면(배경 숨김 포함) 잠수는 가리지 않는다.
+    private func concealment(tile: TilePoint, step: PlazaStep?, actor: PlazaActor, dive: CGFloat) -> CGFloat {
+        let grass = PlazaTallGrass.concealment(tile: tile, step: step, jumpLift: actor.jumpLift) { [tallGrassLayer] in tallGrassLayer?.isGrass($0) ?? false }
+        return pondVisuals && !isBackgroundHidden ? max(grass, dive) : grass
     }
 
     /// 카메라, 캐릭터, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다.
@@ -1031,12 +1353,21 @@ struct PlazaSceneMember: Equatable, Sendable {
         let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
 
         let foot = walker.footPoint
-        // 큰 포켓몬의 머리가 잘리지 않게 앞모습 높이의 절반만큼 위를 본다(앞모습 기준이라 돌아봐도 카메라가 흔들리지 않는다).
-        let lift = me.cameraLift
-        let focus = PlazaCamera.focus(for: foot, viewportWidth: size.width, rightInset: PlazaRosterMetrics.coveredWidth,
-                                      characterHalfWidth: me.characterSize.width * z / 2, zoom: zoom, lift: lift)
-        let rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
-                                        rightInset: PlazaRosterMetrics.coveredWidth)
+        var rect: CGRect
+        photoFrame = nil
+        photoShownCenter = nil
+        if let c = photoCenter, let photo = PlazaPhotoFrame.layout(center: c, viewport: size, zoom: zoom, backingScale: backing, world: worldSize) {
+            rect = photo.visible
+            photoFrame = photo.frame
+            photoShownCenter = photo.center
+        } else {
+            // 큰 포켓몬의 머리가 잘리지 않게 앞모습 높이의 절반만큼 위를 본다(앞모습 기준이라 돌아봐도 카메라가 흔들리지 않는다).
+            let lift = me.cameraLift
+            let focus = PlazaCamera.focus(for: foot, viewportWidth: size.width, rightInset: PlazaRosterMetrics.coveredWidth,
+                                          characterHalfWidth: me.characterSize.width * z / 2, zoom: zoom, lift: lift)
+            rect = PlazaCamera.visibleRect(focus: focus, viewport: size, zoom: zoom, backingScale: backing, world: worldSize,
+                                           rightInset: PlazaRosterMetrics.coveredWidth)
+        }
         visibleRect = rect
         let cameraPos = CGPoint(x: rect.midX, y: worldSize.height - rect.midY)   // 원점은 visibleRect가 이미 기기 격자에 맞췄다
         cameraNode.position = cameraPos
@@ -1046,11 +1377,13 @@ struct PlazaSceneMember: Equatable, Sendable {
         let context = PlazaActorContext(worldHeight: worldSize.height, cameraPosition: cameraPos,
                                         zoom: zoom, backing: backing, viewport: size)
         me.place(foot: foot, pose: pose, in: context,
-                 concealment: concealment(tile: walker.tile, step: walker.currentStep, actor: me), isMe: true)
+                 concealment: concealment(tile: walker.tile, step: walker.currentStep, actor: me, dive: myDive.level), isMe: true,
+                 swimSink: swimSink(tile: walker.tile, step: walker.currentStep, actor: me))
         for r in remotes.values {
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.place(foot: r.motion.footPoint, pose: p, in: context,
-                          concealment: concealment(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor))
+                          concealment: concealment(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor, dive: r.dive.level),
+                          swimSink: swimSink(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor))
         }
     }
 
