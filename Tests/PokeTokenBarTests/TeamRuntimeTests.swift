@@ -165,7 +165,7 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.sendEmote(.groupPhoto, target: nil)
         await settle { plaza.countdown != nil }
         let name = b.runtime.session.members[a.settings.memberID]?.nickname ?? "?"
-        XCTAssertEqual(plaza.countdown, "\(name)님의 단체 사진 5 · G를 누르면 함께 찍어요")
+        XCTAssertEqual(plaza.countdown, "\(name)님의 단체 사진 5 · P를 누르면 함께 찍어요")
         plaza.handleClose()
     }
 

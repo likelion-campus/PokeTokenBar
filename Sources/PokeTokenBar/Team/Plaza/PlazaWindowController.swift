@@ -50,6 +50,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private let bannerSleep: @MainActor (Duration) async -> Void
     /// 단체 사진 카운트다운의 1초. 테스트에서 바꿔 끼운다.
     private let groupPhotoSleep: @MainActor (Duration) async -> Void
+    private let frontmostOverride: (@MainActor () -> Bool)?
     private let spriteRetrySleep: @MainActor (Duration) async -> Void
     /// 그리기 감시의 간격. 테스트에서 바꿔 끼운다.
     private let renderCheckSleep: @MainActor (Duration) async -> Void
@@ -156,7 +157,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
          groupPhotoSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          renderCheckSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-         focusTickSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) }) {
+         focusTickSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         isFrontmost: (@MainActor () -> Bool)? = nil) {
+        self.frontmostOverride = isFrontmost
         self.focusTickSleep = focusTickSleep
         self.spriteRetrySleep = spriteRetrySleep
         self.renderCheckSleep = renderCheckSleep
@@ -573,19 +576,16 @@ struct PlazaFocusEnd: Equatable, Sendable {
     static let groupPhotoCooldown: TimeInterval = 2
     private var groupPhotoEndedAt: Date?
 
-    /// 진행 중인 단체 사진. 시작한 팀원(나면 nil), 남은 초, 내가 함께 찍는지.
-    private var groupPhoto: (starter: String?, left: Int, joined: Bool, task: Task<Void, Never>)?
+    /// 진행 중인 단체 사진. 시작한 팀원(나면 nil), 남은 초. 함께 찍는지는 사진 모드인지로 정한다.
+    private var groupPhoto: (starter: String?, left: Int, task: Task<Void, Never>)?
 
-    /// G. 단체 사진이 진행 중이면 나도 함께 찍고(팀원에게 다시 보내지 않는다), 아니면 시작해 팀원들에게 알린다.
+    /// G. 사진 모드가 아니면 먼저 들어간다. 진행 중인 단체 사진이 있으면 들어간 것이 곧 함께 찍는 것이라 더 하지 않고(팀원에게 다시 보내지 않는다), 아니면 시작해 팀원들에게 알린다.
     private func handleGroupPhotoKey() {
-        if groupPhoto != nil {
-            groupPhoto?.joined = true
-            refreshCountdown()
-            return
-        }
+        if !isPhotoMode { scene?.enterPhotoMode() }
+        if groupPhoto != nil { return }
         if let ended = groupPhotoEndedAt, clock().timeIntervalSince(ended) < Self.groupPhotoCooldown { return }
         session?.sendEmote(.groupPhoto, target: nil)
-        startGroupPhoto(starter: nil, joined: true)
+        startGroupPhoto(starter: nil)
     }
 
     /// 런타임이 부른다. 팀원이 단체 사진을 시작했다. 이미 진행 중이면 그대로 둔다. 창이 닫혀 있으면 아무것도 안 한다.
@@ -593,11 +593,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard scene != nil, groupPhoto == nil else { return }
         // 막 연결된 팀원은 이름이 담긴 presence가 오기 전이라 이름이 빌 수 있다.
         let name = session?.members[memberID]?.nickname ?? ""
-        startGroupPhoto(starter: name.isEmpty ? L(.ko).plazaGroupPhotoSomeone : name, joined: false)
+        startGroupPhoto(starter: name.isEmpty ? L(.ko).plazaGroupPhotoSomeone : name)
     }
 
-    /// 5초를 세고 0에 모두의 화면이 번쩍인다. 함께 찍는 사람은 기념사진처럼 클립보드에도 넣는다.
-    private func startGroupPhoto(starter: String?, joined: Bool) {
+    /// 5초를 세고 0에 모두의 화면이 번쩍인다. 사진 모드에서 앞에 있는 사람은 기념사진처럼 클립보드에도 넣는다.
+    private func startGroupPhoto(starter: String?) {
         let task = Task { [weak self] in
             for _ in 0..<Self.groupPhotoSeconds {
                 await self?.groupPhotoSleep(.seconds(1))
@@ -607,22 +607,22 @@ struct PlazaFocusEnd: Equatable, Sendable {
             }
             self?.finishGroupPhoto()
         }
-        groupPhoto = (starter, Self.groupPhotoSeconds, joined, task)
+        groupPhoto = (starter, Self.groupPhotoSeconds, task)
         refreshCountdown()
     }
 
     private func refreshCountdown() {
         overlayModel.countdown = groupPhoto.map {
-            L(.ko).plazaGroupPhotoCountdown(starter: $0.starter, seconds: $0.left, joined: $0.joined)
+            L(.ko).plazaGroupPhotoCountdown(starter: $0.starter, seconds: $0.left, joined: isPhotoMode)
         }
     }
 
     private func finishGroupPhoto() {
-        guard let photo = groupPhoto else { return }
+        guard groupPhoto != nil else { return }
         groupPhoto = nil
         groupPhotoEndedAt = clock()
         overlayModel.countdown = nil
-        if photo.joined { takePhoto() } else { scene?.playShutterFlash() }
+        if isPhotoMode && isFrontmost { takePhoto() } else { scene?.playShutterFlash() }
     }
 
     /// 테스트용 읽기 전용 값.
@@ -799,7 +799,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     }
 
     /// 앱이 앞이고 광장 창이 키 창이다. 알림 대신 광장 안 안내를 쓸지 가른다.
-    var isFrontmost: Bool { NSApp.isActive && window?.isKeyWindow == true }
+    var isFrontmost: Bool { frontmostOverride?() ?? (NSApp.isActive && window?.isKeyWindow == true) }
 
     /// 테스트용 읽기 전용 값.
     var overlayContent: PlazaOverlayContent { overlayModel.content }

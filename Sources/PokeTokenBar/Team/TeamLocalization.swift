@@ -70,10 +70,10 @@ extension L {
     func plazaMemberPickedUp(nickname: String, kind: ItemKind) -> String { "\(nickname)님이 \(plazaItemObject(kind)) 주웠어요" }
     /// 이름을 아직 모르는 팀원.
     var plazaGroupPhotoSomeone: String { "팀원" }
-    /// 단체 사진 카운트다운. 내가 시작했으면 이름 없이 모이자고 하고, 팀원이 시작했으면 함께 찍는지 알려 준다.
+    /// 단체 사진 카운트다운. joined는 사진 모드인지다. 내가 시작했으면 이름 없이, 팀원이 시작했으면 이름과 함께 찍는지 알려 준다.
     func plazaGroupPhotoCountdown(starter: String?, seconds: Int, joined: Bool) -> String {
-        guard let starter else { return "단체 사진 \(seconds) · 모두 모여요!" }
-        return "\(starter)님의 단체 사진 \(seconds) · " + (joined ? "함께 찍는 중" : "G를 누르면 함께 찍어요")
+        guard let starter else { return "단체 사진 \(seconds) · " + (joined ? "모두 모여요!" : "P를 누르면 함께 찍어요") }
+        return "\(starter)님의 단체 사진 \(seconds) · " + (joined ? "함께 찍는 중" : "P를 누르면 함께 찍어요")
     }
     var plazaPhotoGuide: String { "📷 사진 모드 · 방향키 이동 · Shift 빠르게 · −/+ 확대 · Space 찍기 · G 단체 사진 · Esc 나가기" }
     var plazaPhotoCopied: String { "사진을 클립보드에 담았어요 · ⌘V로 붙여 넣기" }
