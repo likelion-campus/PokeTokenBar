@@ -60,7 +60,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onEmoteKey: ((TeamEmoteKind) -> Void)?
     /// 스페이스. 판이 닫혀 있을 때만 온다.
     var onInteractKey: (() -> Void)?
-    /// 키 P(기념사진). keyCode로만 판정한다.
+    /// 키 P(사진 모드 진입, 사진 모드에서는 촬영). keyCode로만 판정한다.
     var onPhotoKey: (() -> Void)?
     /// Z(점프). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onJumpKey: (() -> Void)?
@@ -90,7 +90,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     var backingOverride: CGFloat?
 
     private let mapImage: CGImage
-    /// 마지막 `layout`이 정한 보이는 월드 영역. 기념사진이 이 영역을 찍는다.
+    /// 마지막 `layout`이 정한 보이는 월드 영역. 평소 기념사진이 이 영역을 찍는다(사진 모드에서는 `photoFrame`).
     private var visibleRect: CGRect
     private let mapNode: SKSpriteNode
     private var shutterNode: SKSpriteNode?
@@ -630,7 +630,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         layout()
     }
 
-    /// 지금 화면에 보이는 영역을 기념사진 입력으로 모은다. 그림을 아직 못 받은 캐릭터는 뺀다(알과 자리 비움은 다른 팀원처럼 찍힌다).
+    /// 지금 화면에 보이는 영역(사진 모드면 프레임 안, `photoFrame ?? visibleRect`)을 기념사진 입력으로 모은다. 그림을 아직 못 받은 캐릭터는 뺀다(알과 자리 비움은 다른 팀원처럼 찍힌다).
     func photoInput() -> PlazaPhotoInput? {
         let rect = photoFrame ?? visibleRect
         guard rect.width > 0, rect.height > 0 else { return nil }

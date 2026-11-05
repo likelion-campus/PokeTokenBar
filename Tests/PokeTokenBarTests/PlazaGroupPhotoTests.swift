@@ -135,6 +135,7 @@ final class PlazaGroupPhotoTests: XCTestCase {
         await tick()
         XCTAssertNil(c.countdown)
         XCTAssertEqual(written.count, 1, "one photo")
+        XCTAssertTrue(c.isPhotoMode, "photo mode stays on after the group photo")
         XCTAssertTrue(try XCTUnwrap(c.scene).isShutterFlashing)
         XCTAssertEqual(received.count, 1, "the held G sent nothing more")
     }

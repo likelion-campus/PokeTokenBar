@@ -74,6 +74,37 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(scene.photoCenter).y - y0, 256, accuracy: 1)
     }
 
+    func testCommandArrivingAfterTheArrowDropsThePan() throws {
+        let scene = newScene()
+        scene.enterPhotoMode()
+        let c0 = try XCTUnwrap(scene.photoCenter)
+        _ = down(scene, 124)
+        scene.currentModifiers = { .command }
+        run(scene, seconds: 0.5)
+        let c1 = try XCTUnwrap(scene.photoCenter)
+        XCTAssertEqual(c1.x, c0.x, accuracy: 0.01)
+        XCTAssertEqual(c1.y, c0.y, accuracy: 0.01)
+    }
+
+    func testUpArrowPansTheFrameUp() throws {
+        let scene = newScene()
+        scene.enterPhotoMode()
+        let y0 = try XCTUnwrap(scene.photoCenter).y
+        _ = down(scene, 126)
+        run(scene, seconds: 0.5)
+        XCTAssertEqual(try XCTUnwrap(scene.photoCenter).y - y0, -128, accuracy: 1)
+    }
+
+    func testShiftLeftPansTheFrameFastLeft() throws {
+        let scene = newScene()
+        scene.enterPhotoMode()
+        scene.currentModifiers = { .shift }
+        let x0 = try XCTUnwrap(scene.photoCenter).x
+        _ = down(scene, 123)
+        run(scene, seconds: 0.5)
+        XCTAssertEqual(try XCTUnwrap(scene.photoCenter).x - x0, -256, accuracy: 1)
+    }
+
     func testArrowsInPhotoModeNeverCallOnWalkKey() {
         let scene = newScene()
         var walks = 0

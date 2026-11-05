@@ -29,6 +29,15 @@ final class PlazaPhotoOverlayTests: XCTestCase {
             XCTAssertEqual(Int(p[3]), 128, accuracy: 3, "margin at \(x),\(y)")
             XCTAssertEqual(p[0], 0)
         }
+        // 프레임은 x 24…576, y 24…276. 위·아래·오른쪽 여백과 프레임의 경계(괄호와 안내 글자를 피한 자리).
+        for (x, y) in [(300, 22), (60, 278), (578, 160)] {
+            let p = px(x, y)
+            XCTAssertEqual(Int(p[3]), 128, accuracy: 3, "margin at \(x),\(y)")
+            XCTAssertEqual(p[0], 0)
+        }
+        for (x, y) in [(300, 26), (60, 274), (574, 160)] {
+            XCTAssertEqual(px(x, y)[3], 0, "clear at \(x),\(y)")
+        }
         // 왼쪽 위 괄호의 세로 팔: 선(3pt) 한가운데, 모서리에서 10pt 아래.
         let bracket = px(Int(PlazaPhotoFrame.sideInset + PlazaPhotoFrame.bracketWidth / 2 - 0.5),
                          Int(PlazaPhotoFrame.topInset) + 10)

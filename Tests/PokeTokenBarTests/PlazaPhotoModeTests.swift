@@ -62,7 +62,6 @@ final class PlazaPhotoModeTests: XCTestCase {
         key(scene, escKey)   // 보드 옆이라 스페이스는 판을 연다. 닫고 시작한다.
         XCTAssertEqual(c.overlayContent, .none)
         key(scene, pKey, "p")
-        scene.update(1)   // 틀은 다음 프레임에 잡힌다
         key(scene, spaceKey)
         XCTAssertEqual(written.count, 1)
         let rep = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(written.first)))
