@@ -30,6 +30,10 @@ struct TeamPresence: Codable, Equatable, Sendable {
     /// When this member's campfire focus ends. Left out when not focusing; earlier versions ignore it. A receiver
     /// keeps it only inside `PlazaFocus.accepted`'s window.
     var focusEndsAt: Date?
+    /// Diving in the plaza pond. Left out when not diving; earlier versions ignore it.
+    var isDiving: Bool?
+    /// The evolution stage of the shown Pokemon. Left out at stage 1; a receiver keeps it within 1...3.
+    var evolutionStage: Int?
 }
 
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {

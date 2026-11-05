@@ -46,13 +46,12 @@ extension L {
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }
-    var plazaJump: String { "점프" }
+    var plazaJump: String { "점프 · 물놀이" }
     var plazaShortcutsTitle: String { "단축키" }
     var plazaShortcutArrows: String { "방향키" }
     var plazaShortcutWalk: String { "걷기" }
     var plazaShortcutRun: String { "달리기" }
     var plazaShortcutTalk: String { "말 걸기" }
-    var plazaShortcutFocus: String { "모닥불 옆: 집중" }
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
     var plazaShortcutPhoto: String { "사진 모드" }

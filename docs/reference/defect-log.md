@@ -889,6 +889,16 @@ read_when:
   회귀 테스트도 **그 await 를 실제로 지나는 진입점**으로 써라 — `hatch(baseID:)` 경로 테스트는
   `chooseBase()` 를 안 지나 통과하면서 아무것도 지키지 않았다(`testImportDuringSpeciesRollDiscardsTheHatch`).
 
+- **Broadcast the position before a flag that depends on it.** Climbing out of a dive cleared `isDiving` and sent it
+  with the old water tile; the land tile went out as a separate presence afterwards. A receiver handling the first frame
+  alone read "in the water, no longer diving" and played a surfacing splash that never happened (`advancePond` ran before
+  `reportLocalPosition`). **Why nothing caught it:** the dive tests checked the sender's end state and the receiver's final
+  flag, never the order of the frames on the wire. **Capture:** `advancePond` reports the position before
+  `onDivingChange(false)`, and `testClimbingOutOfADiveSendsTheLandTileFirst` reads the sent presences in order (it fails
+  with the order restored). `startFocus` already orders its position and flag this way on purpose.
+  **Class sweep:** the other flag writers (`setDiving` from Z, the dive limit, closing, hiding) leave the tile where it is, so
+  no tile and flag can disagree there.
+
 ## 프로세스·인스턴스
 
 - **로그인 실행을 LaunchAgent 로 등록하면 "등록하는 순간" 앱이 한 번 더 뜬다.** plist 의 `RunAtLoad` 는
@@ -1229,6 +1239,22 @@ read_when:
   matched by accident. **Capture:** photo/scene render tests pin `now` (`PlazaPhotoTests.newScene` pins 2026-05-10 12:00),
   and variants are made by mutating a copy of the input, never by rebuilding it.
   **Class sweep:** every scene/photo test that compares renders pins `now` or compares variants made from one input (clean).
+- **A `ForEach` id must be unique, and a hand-written list doesn't guarantee that.** `PlazaShortcutGuide`
+  used `id: \.key`. The campfire row added a second `Space` key, and SwiftUI then drew the first
+  `Space` row twice, so "모닥불 옆: 집중" appeared as "말 걸기". The list test passed because it read
+  `entries`, not what was drawn. The row is gone now, and `testShortcutGuideKeysAreUnique` fails on any
+  repeated key. **Class sweep:** the other hand-written lists used this way (`intervalPresets`,
+  `rarityDisplayOrder`, the stat order, the board buttons) have no repeats, and the Claude root list
+  drops repeats when it is built. The rest use enum cases, offsets or real ids.
+
+- **Effect tests must assert where things go, not how many exist.** The pond droplets passed every count test while they
+  drew a flat bar across the sprite (one shared vertical speed), and the rings sat under a wide sprite where nothing showed
+  them; bubbles were hidden under a diver. Only an offscreen render showed it. **Why nothing caught it:** the tests counted
+  particles and checked caps, which are true for a flat bar too. **Capture:** `PlazaPondLayerTests` read node positions and
+  sizes (`testBigSplashFansOutAndRises`, `testRingsSitOnTheWaterlineAndGrow`, `testBubblesRiseAndFade`), each failing when the
+  droplets share one height or the origin is the tile centre. For particle effects, read positions, sizes and z, and render
+  the effect offscreen before calling it done. **Class sweep:** the weather layer already exposes `particlePositions`
+  to its tests; the wet icon and the dust are single nodes placed from the foot point.
 
 - **"키를 놓는다"와 "입력을 지운다"는 다르다 — 모드 진입은 쓰지 않은 탭까지 지운다 (사진 모드 PR #67).** `enterPhotoMode` 가
   `walker.releaseAll()` 을 불러, 걷는 중(0.15초 칸) 눌러 둔 방향 탭(`pendingTap`)이 남았다. 사진 모드가 시작된 뒤에도

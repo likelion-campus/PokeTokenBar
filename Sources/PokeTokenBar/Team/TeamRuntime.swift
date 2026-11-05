@@ -43,7 +43,7 @@ final class TeamRuntime {
         lastCode = settings.code
         session = TeamSession(settings: settings, feed: feed, transport: transport, profileProvider: {
             Self.profile(settings: settings, companion: companion)
-        })
+        }, evolutionStage: { [companion] in companion.representativeEvolutionStage })
     }
 
     func start() {
