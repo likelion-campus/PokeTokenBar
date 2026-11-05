@@ -24,14 +24,16 @@ final class PlazaPondLayerTests: XCTestCase {
 
     func testArtUsesOnlyPondColours() {
         let allowed: Set<UInt32> = [0x1E7CB8, 0x2996DB, 0x5AAEE4, 0xFFFFFF, 0x165C88]
-        let images = [PlazaPondArt.droplet(), PlazaPondArt.bubble(), PlazaPondArt.swimRing()]
-            + (2...14).map { PlazaPondArt.ring(radius: $0) }
+        let images = [PlazaPondArt.droplet(), PlazaPondArt.bigDroplet(), PlazaPondArt.bubble(), PlazaPondArt.swimRing()]
+            + (2...20).map { PlazaPondArt.ring(radius: $0) }
         for image in images {
             let colours = opaqueColours(image)
             XCTAssertFalse(colours.isEmpty)
             XCTAssertTrue(colours.isSubset(of: allowed), "\(colours.subtracting(allowed))")
         }
         XCTAssertEqual(PlazaPondArt.droplet().width, 2)
+        XCTAssertEqual(PlazaPondArt.bigDroplet().width, 3)
+        XCTAssertEqual(PlazaPondArt.bigDroplet().height, 3)
         XCTAssertEqual(PlazaPondArt.bubble().width, 3)
         XCTAssertEqual(PlazaPondArt.swimRing().width, 12)
     }
@@ -39,14 +41,14 @@ final class PlazaPondLayerTests: XCTestCase {
     func testSmallAndBigSplash() {
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: false)
-        XCTAssertEqual(layer.dropletCount, 4)
+        XCTAssertEqual(layer.dropletCount, PlazaPondLayer.smallDroplets)
         XCTAssertEqual(layer.ringCount, 1)
         layer.update(dt: 0.61)
         XCTAssertEqual(layer.dropletCount, 0)
         XCTAssertEqual(layer.ringCount, 0)
 
         layer.splash(at: tile, big: true)
-        XCTAssertEqual(layer.dropletCount, 10)
+        XCTAssertEqual(layer.dropletCount, PlazaPondLayer.bigDroplets)
         XCTAssertEqual(layer.ringCount, 1)
         layer.update(dt: 0.12)
         XCTAssertEqual(layer.ringCount, 2)
@@ -67,15 +69,15 @@ final class PlazaPondLayerTests: XCTestCase {
     func testBigSplashFansOutAndRises() {
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: true)
-        layer.update(dt: 0.25)
+        layer.update(dt: 0.3)
         let drops = visible(layer, z: 2.5)
-        XCTAssertEqual(drops.count, 10)
+        XCTAssertEqual(drops.count, PlazaPondLayer.bigDroplets)
         let ys = drops.map(\.position.y), xs = drops.map(\.position.x)
-        XCTAssertGreaterThanOrEqual(ys.max()! - ys.min()!, 30)
-        XCTAssertGreaterThanOrEqual(ys.max()! - waterline, 50, "the top droplet clears the sprite's face")
-        XCTAssertGreaterThanOrEqual(xs.max()! - xs.min()!, 30)
+        XCTAssertGreaterThanOrEqual(ys.max()! - ys.min()!, 60)
+        XCTAssertGreaterThanOrEqual(ys.max()! - waterline, 90, "the top droplet clears the sprite's face")
+        XCTAssertGreaterThanOrEqual(xs.max()! - xs.min()!, 60)
         XCTAssertGreaterThanOrEqual(Set(ys).count, 5)
-        layer.update(dt: 0.26)
+        layer.update(dt: 0.31)
         XCTAssertEqual(layer.dropletCount, 0)
     }
 
@@ -83,11 +85,11 @@ final class PlazaPondLayerTests: XCTestCase {
         func top(big: Bool) -> CGFloat {
             let layer = PlazaPondLayer()
             layer.splash(at: tile, big: big)
-            layer.update(dt: 0.25)
+            layer.update(dt: 0.3)
             return visible(layer, z: 2.5).map(\.position.y).max()! - waterline
         }
         XCTAssertLessThan(top(big: false), top(big: true) - 20)
-        XCTAssertLessThanOrEqual(top(big: false), 24)
+        XCTAssertLessThanOrEqual(top(big: false), 44)
     }
 
     func testRingsSitOnTheWaterlineAndGrow() {
@@ -101,11 +103,30 @@ final class PlazaPondLayerTests: XCTestCase {
         let big = width(big: true), small = width(big: false)
         XCTAssertEqual(big.y, waterline, accuracy: 2)
         XCTAssertEqual(small.y, waterline, accuracy: 2)
-        XCTAssertGreaterThan(big.w, 40)
-        XCTAssertLessThan(small.w, 32)
+        XCTAssertGreaterThan(big.w, 60)
+        XCTAssertLessThan(small.w, 44)
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: true)
         XCTAssertEqual((visible(layer, z: 0.06).first as! SKSpriteNode).position.x, waterlineX, accuracy: 2)
+    }
+
+    func testReusedDropletNodesGetTheirSizeAgain() {
+        let layer = PlazaPondLayer()
+        func sizes() -> Set<CGFloat> { Set(visible(layer, z: 2.5).map { ($0 as! SKSpriteNode).size.width }) }
+        layer.splash(at: tile, big: true)
+        XCTAssertEqual(sizes(), [4, 6])
+        layer.update(dt: 1)
+        func droplets() -> Int { layer.children.filter { abs($0.zPosition - 2.5) < 0.001 }.count }
+        let nodes = droplets()
+        layer.splash(at: tile, big: true)
+        XCTAssertEqual(droplets(), nodes, "the second splash reuses the first one's nodes")
+        XCTAssertEqual(sizes(), [4, 6])
+        // A small splash after a big one lands on pooled nodes that were big: every pick is re-sized.
+        layer.update(dt: 1)
+        layer.splash(at: tile, big: false)
+        let big = visible(layer, z: 2.5).filter { ($0 as! SKSpriteNode).size.width == 6 }.count
+        XCTAssertEqual(big, (PlazaPondLayer.smallDroplets + 2) / 3)
+        XCTAssertEqual(sizes(), [4, 6])
     }
 
     func testBubblesRiseAndFade() {
@@ -162,7 +183,7 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertEqual(layer.dropletCount, 0)
         XCTAssertEqual(layer.ringCount, 0)
         layer.splash(at: tile, big: false)
-        XCTAssertEqual(layer.dropletCount, 4)
+        XCTAssertEqual(layer.dropletCount, PlazaPondLayer.smallDroplets)
     }
 
     func testNodesAreReused() {

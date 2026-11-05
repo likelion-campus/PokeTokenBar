@@ -17,6 +17,12 @@ enum PlazaPondArt {
         image(["w.", "mm"].map(Array.init), width: 2, height: 2, palette: ["w": white, "m": mid])
     }
 
+    /// 3×3. 위·왼쪽은 하양, 가운데는 연한 물빛, 오른쪽·아래는 물빛. 모서리는 투명.
+    static func bigDroplet() -> CGImage {
+        image([".w.", "wlm", ".m."].map(Array.init), width: 3, height: 3,
+              palette: ["w": white, "l": light, "m": mid])
+    }
+
     /// 가로:세로 = 2:1 타원 테두리. 가로 반지름 `radius` 시트 픽셀, 크기 (2r+1)×(2·ry+1).
     static func ring(radius: Int) -> CGImage {
         let rx = max(radius, 2), ry = max(rx / 2, 1)
