@@ -12,9 +12,12 @@ private struct EmptyFetcher: PlazaSpriteFetching {
 @MainActor
 final class PlazaPhotoModeTests: XCTestCase {
     private var suites: [String] = []
+    private var controllers: [PlazaWindowController] = []
     private let pKey: UInt16 = 35, spaceKey: UInt16 = 49, escKey: UInt16 = 53, rightKey: UInt16 = 124
 
     override func tearDown() async throws {
+        for c in controllers { c.handleClose() }
+        controllers = []
         for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         suites = []
     }
@@ -27,6 +30,7 @@ final class PlazaPhotoModeTests: XCTestCase {
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                       nickname: { "나" }, memberID: { "me" }, subject: { .init(speciesID: 25, isShiny: false) },
                                       photoWriter: writer)
+        controllers.append(c)
         c.prepareScene()
         setUpScene(c)
         return (c, prefs)
@@ -113,5 +117,22 @@ final class PlazaPhotoModeTests: XCTestCase {
         XCTAssertEqual(scene.zoom, 2)
         scene.update(1)
         XCTAssertEqual(scene.visibleWorldRect, start, "내 위치를 중심으로 다시 잡고, 남은 pan 키가 없다")
+    }
+
+    /// 사진 모드를 나가면 작은 지도의 보이는 영역이 곧바로 따라가기 화면으로 돌아온다(1초 틱을 기다리지 않는다).
+    func testTheMinimapFollowsTheSceneRightAfterLeaving() throws {
+        let (c, _) = controller { _ in true }
+        let scene = try XCTUnwrap(c.scene)
+        let follow = scene.visibleWorldRect
+        key(scene, pKey, "p")
+        key(scene, rightKey)
+        for i in 1...30 { scene.update(Double(i) / 30) }
+        c.pickNameColor(PlazaNameColor.hexes[0])   // 틱 대신 지도를 한 번 맞추는 계기: 지도가 사진 모드 영역을 보여 준다
+        XCTAssertEqual(c.minimapView, scene.visibleWorldRect)
+        XCTAssertNotEqual(c.minimapView, follow)
+        key(scene, escKey)
+        XCTAssertFalse(c.isPhotoMode)
+        XCTAssertEqual(scene.visibleWorldRect, follow)
+        XCTAssertEqual(c.minimapView, follow)
     }
 }

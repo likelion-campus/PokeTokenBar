@@ -519,15 +519,17 @@ struct PlazaFocusEnd: Equatable, Sendable {
         for view in hudViews { view.isHidden = on }
         refreshHint()
         refreshCountdown()
+        refreshMinimap()   // 나가면 지도의 보이는 영역도 따라가기 화면으로 돌아와야 한다(1초 뒤 틱을 기다리지 않는다)
     }
 
     /// 보이는 장면(사진 모드면 틀 안)을 사진으로 합성해 클립보드에 PNG로 넣고 번쩍인다. 합성이나 인코딩이 실패하면 클립보드를 그대로 두고 번쩍이지 않는다.
-    private func takePhoto() {
-        guard let scene, let input = scene.photoInput(), let png = PlazaPhotoRenderer.pngData(for: input) else { return }
-        if photoWriter(png) {
-            scene.playShutterFlash()
-            showBanner(L(.ko).plazaPhotoCopied)
-        }
+    /// 클립보드에 넣었으면 true.
+    @discardableResult
+    private func takePhoto() -> Bool {
+        guard let scene, let input = scene.photoInput(), let png = PlazaPhotoRenderer.pngData(for: input), photoWriter(png) else { return false }
+        scene.playShutterFlash()
+        showBanner(L(.ko).plazaPhotoCopied)
+        return true
     }
 
     /// 주운 것으로 아는 칸을 더한다. 새로 알게 됐으면 저장하고, 장면에 바로 넘기고, 가장 최근 칸을 presence로 전한다.
@@ -613,7 +615,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     private func refreshCountdown() {
         overlayModel.countdown = groupPhoto.map {
-            L(.ko).plazaGroupPhotoCountdown(starter: $0.starter, seconds: $0.left, joined: isPhotoMode)
+            L(.ko).plazaGroupPhotoCountdown(starter: $0.starter, seconds: $0.left, joined: isPhotoMode,
+                                               frontmost: isFrontmost)
         }
     }
 
@@ -622,7 +625,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         groupPhoto = nil
         groupPhotoEndedAt = clock()
         overlayModel.countdown = nil
-        if isPhotoMode && isFrontmost { takePhoto() } else { scene?.playShutterFlash() }
+        // 찍지 못했어도(합성·인코딩·쓰기 실패) 0에는 모두의 화면이 번쩍인다.
+        if !(isPhotoMode && isFrontmost && takePhoto()) { scene?.playShutterFlash() }
     }
 
     /// 테스트용 읽기 전용 값.
@@ -1292,6 +1296,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 눌린 키를 모두 뗀다.
     func handleResignKey() {
         scene?.releaseAllKeys()
+        refreshCountdown()   // 앞에 있는지가 카운트다운 문구를 바꾼다
+    }
+
+    func handleBecomeKey() {
+        refreshCountdown()
     }
 
     func windowDidResize(_ notification: Notification) {
@@ -1309,5 +1318,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         handleResignKey()
         logState("resigned key")
     }
-    func windowDidBecomeKey(_ notification: Notification) { logState("became key") }
+    func windowDidBecomeKey(_ notification: Notification) {
+        handleBecomeKey()
+        logState("became key")
+    }
 }

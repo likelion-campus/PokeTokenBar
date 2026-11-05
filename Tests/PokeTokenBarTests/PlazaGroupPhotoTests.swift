@@ -27,12 +27,14 @@ final class PlazaGroupPhotoTests: XCTestCase {
     private var written: [Data] = []
     private var now = Date(timeIntervalSince1970: 1_700_000_000)
     private var frontmost = true
+    private var writeSucceeds = true
 
     override func setUp() async throws {
         hub = FakeTransportHub()
         var rng = SystemRandomNumberGenerator()
         code = TeamCode.generate(using: &rng)
         written = []
+        writeSucceeds = true
     }
 
     override func tearDown() async throws {
@@ -76,7 +78,7 @@ final class PlazaGroupPhotoTests: XCTestCase {
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: 25, isShiny: false) }, session: me.session,
                                       clock: { [weak self] in self?.now ?? Date() },
-                                      photoWriter: { [weak self] in self?.written.append($0); return true },
+                                      photoWriter: { [weak self] in self?.written.append($0); return self?.writeSucceeds ?? true },
                                       groupPhotoSleep: { _ in await gate.sleep() },
                                       isFrontmost: { [weak self] in self?.frontmost ?? true })
         c.prepareScene()
@@ -203,6 +205,41 @@ final class PlazaGroupPhotoTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(c.scene).isShutterFlashing)
         XCTAssertTrue(written.isEmpty)
         XCTAssertTrue(c.isPhotoMode)
+    }
+
+    /// In photo mode with the plaza behind another window, the text says the photo needs the window in front; it follows
+    /// the window gaining and losing key without waiting for the next second.
+    func testTheCountdownSaysWhenThePlazaIsNotInFront() async {
+        let (_, other, c) = await connected()
+        pressG(c)
+        XCTAssertEqual(c.countdown, "단체 사진 5 · 모두 모여요!")
+        frontmost = false
+        c.handleResignKey()
+        XCTAssertEqual(c.countdown, "단체 사진 5 · 광장 창을 앞에 두면 함께 찍혀요")
+        frontmost = true
+        c.handleBecomeKey()
+        XCTAssertEqual(c.countdown, "단체 사진 5 · 모두 모여요!")
+        c.handleClose()
+        c.prepareScene()
+        c.showGroupPhoto(from: other.settings.memberID)
+        pressP(c)
+        XCTAssertEqual(c.countdown, "민수님의 단체 사진 5 · 함께 찍는 중")
+        frontmost = false
+        c.handleResignKey()
+        XCTAssertEqual(c.countdown, "민수님의 단체 사진 5 · 광장 창을 앞에 두면 함께 찍혀요")
+        c.handleClose()
+    }
+
+    /// A photo that cannot be written still flashes at zero: every screen flashes, whatever happens to the clipboard.
+    func testAFailedPhotoStillFlashesAtZero() async throws {
+        let (_, _, c) = await connected()
+        writeSucceeds = false
+        pressG(c)
+        for _ in 0..<5 { await tick() }
+        XCTAssertNil(c.countdown)
+        XCTAssertEqual(written.count, 1, "the write was attempted")
+        XCTAssertTrue(try XCTUnwrap(c.scene).isShutterFlashing)
+        c.handleClose()
     }
 
     /// A teammate whose name has not arrived yet (their presence comes after they connect) shows as 팀원.
