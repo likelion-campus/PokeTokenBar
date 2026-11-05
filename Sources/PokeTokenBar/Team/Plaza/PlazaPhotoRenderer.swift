@@ -69,8 +69,8 @@ struct PlazaPhotoInput {
     var light: PlazaPhotoLight?
     /// 하늘의 불꽃 조각. 빛이라 낮밤 색이 곱해지지 않고, 이름표와 말풍선 아래에 찍힌다.
     var fireworks: [PlazaPhotoParticle] = []
-    /// 불꽃이 던지는 빛. 모닥불빛과 같이 곱한다.
-    var fireworkLights: [PlazaPhotoLight] = []
+    /// 불꽃이 던지는 빛. 모닥불빛 다음에 곱한다.
+    var fireworkLight: PlazaPhotoLight?
 }
 
 /// 기념사진에 곱할 모닥불빛. 좌표는 월드 픽셀(y 아래로)이고 반지름은 깜빡임이 이미 곱해져 있다.
@@ -192,7 +192,7 @@ enum PlazaPhotoRenderer {
             context.restoreGState()
         }
 
-        for light in [input.light].compactMap({ $0 }) + input.fireworkLights {
+        for light in [input.light, input.fireworkLight].compactMap({ $0 }) {
             guard let base = context.data else { break }
             let bytes = base.assumingMemoryBound(to: UInt8.self), stride = context.bytesPerRow
             let n = PlazaCampfireLight.blockCounts(radii: light.radii)

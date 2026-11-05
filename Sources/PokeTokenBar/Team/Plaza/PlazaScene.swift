@@ -588,7 +588,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                                bands: tallGrassLayer?.photoBands(in: visibleRect) ?? [],
                                props: campfirePhotoProps, light: campfirePhotoLight(tint: tint),
                                fireworks: fireworkLayer.photoParticles(worldHeight: worldSize.height),
-                               fireworkLights: fireworkLayer.photoLights(tint: tint, worldHeight: worldSize.height))
+                               fireworkLight: fireworkLayer.photoLight(tint: tint, worldHeight: worldSize.height))
     }
 
     /// 사진을 찍은 뒤 화면이 잠깐 하얗게 번쩍인다. 카메라 자식이라 배율과 상관없이 화면을 덮는다.
@@ -664,6 +664,14 @@ struct PlazaSceneMember: Equatable, Sendable {
                                                                           width: v.width - covered, height: v.height))
         return fireworkLayer.launch(PlazaFireworks.style(id: style), at: burst, rise: PlazaFireworks.rise(head: head, burst: burst),
                                     owner: memberID)
+    }
+
+    /// 그 자리(장면 좌표)에 지금 닿은 모닥불빛(0~1). 꺼져 있으면 0이다.
+    private func firelight(at point: CGPoint) -> Double {
+        guard isCampfireLightShown, let center = PlazaCampfireLight.center(campfireTiles: map.campfireTiles) else { return 0 }
+        let radii = PlazaCampfireLight.radii
+        let dx = (point.x - center.x) / radii.width, dy = (worldSize.height - point.y - center.y) / radii.height
+        return PlazaCampfireLight.mix(normalizedDistance: hypot(dx, dy)) * PlazaCampfireLight.strength(appliedTint)
     }
 
     /// 테스트용
@@ -882,7 +890,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceAnimation(by: dt)
         advanceTallGrass(by: dt)
         advanceSparkles(by: dt)
-        fireworkLayer.advance(by: dt, tint: appliedTint)
+        fireworkLayer.advance(by: dt, tint: appliedTint, firelight: firelight(at:))
         applyDaylight()
         advanceCampfire(by: dt)
         layout()

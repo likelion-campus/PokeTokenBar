@@ -238,7 +238,7 @@ final class PlazaFireworksTests: XCTestCase {
         while layer.launch(ring(), at: CGPoint(x: 200, y: 200), owner: "가") {}
         XCTAssertTrue(layer.launch(F.style(id: "willow"), at: CGPoint(x: 200, y: 200)))
         advance(layer, seconds: F.riseDuration + 0.2)
-        XCTAssertLessThanOrEqual(layer.children.count, PlazaFireworkLayer.maxPieces + F.style(id: "willow").pieces.count + PlazaFireworkLayer.maxLights)
+        XCTAssertLessThanOrEqual(layer.children.count, PlazaFireworkLayer.maxPieces + F.style(id: "willow").pieces.count + 1)
     }
 
     /// The Pokémon sprites step at ten frames a second, so a smooth burst would look like it came from another game.
@@ -514,22 +514,78 @@ final class PlazaFireworksTests: XCTestCase {
         let layer = PlazaFireworkLayer()
         layer.launch(ring(), at: CGPoint(x: 200, y: 300))
         lit(layer, seconds: F.riseDuration + 0.1)
-        let light = try XCTUnwrap(layer.photoLights(tint: night, worldHeight: 1000).first)
+        let light = try XCTUnwrap(layer.photoLight(tint: night, worldHeight: 1000))
         XCTAssertEqual(light.center, CGPoint(x: 200, y: 700), "the photo's y runs down from the top")
         XCTAssertEqual(light.radii, F.lightRadii)
         XCTAssertEqual(light.level, 1)
     }
 
-    func testLightsAreCappedAndReused() {
+    /// Lights multiply, so two over one spot push the ground past daylight into neon. The sky gives one light at a time.
+    func testOnlyTheBrightestBurstLights() throws {
         let layer = PlazaFireworkLayer()
-        for _ in 0..<(PlazaFireworkLayer.maxLights + 3) { layer.launch(ring(), at: CGPoint(x: 200, y: 200)) }
+        layer.launch(ring(), at: CGPoint(x: 100, y: 100), owner: "가")
+        lit(layer, seconds: F.riseDuration + 0.75)
+        layer.launch(F.style(id: "double"), at: CGPoint(x: 300, y: 100))
         lit(layer, seconds: F.riseDuration + 0.1)
-        XCTAssertEqual(layer.shownLightCount, PlazaFireworkLayer.maxLights)
-        lit(layer, seconds: ring().duration + 0.2)
+        XCTAssertEqual(layer.shownLightCount, 1)
+        let light = try XCTUnwrap(layer.photoLight(tint: night, worldHeight: 1000))
+        XCTAssertEqual(light.center.x, 300, "the fresh burst, not the fading one")
+        XCTAssertEqual(light.level, 1)
+    }
+
+    func testTheOneLightNodeIsReused() {
+        let layer = PlazaFireworkLayer()
+        layer.launch(ring(), at: CGPoint(x: 200, y: 200))
+        lit(layer, seconds: F.riseDuration + ring().duration + 0.2)
         let made = layer.children.count
         layer.launch(ring(), at: CGPoint(x: 200, y: 200))
         lit(layer, seconds: F.riseDuration + 0.1)
         XCTAssertEqual(layer.children.count, made)
+    }
+
+    /// Ground the campfire already lights must not brighten again, or the two multiply past daylight.
+    func testABurstLightsOnlyWhatTheFirelightLeaves() throws {
+        let layer = PlazaFireworkLayer()
+        layer.launch(ring(), at: CGPoint(x: 200, y: 200))
+        layer.advance(by: F.riseDuration + 0.1, tint: night) { _ in 0.75 }
+        layer.advance(by: 0.01, tint: night) { _ in 0.75 }
+        let light = try XCTUnwrap(layer.photoLight(tint: night, worldHeight: 1000))
+        XCTAssertEqual(light.level, 0.25, accuracy: 0.001)
+    }
+
+    func testABurstFullyInTheFirelightAddsNoLight() {
+        let layer = PlazaFireworkLayer()
+        layer.launch(ring(), at: CGPoint(x: 200, y: 200))
+        layer.advance(by: F.riseDuration + 0.1, tint: night) { _ in 1 }
+        XCTAssertEqual(layer.shownLightCount, 0)
+        XCTAssertGreaterThan(layer.shownCount, 0, "the pieces still burst")
+    }
+
+    private func nightScene(start: TilePoint) -> PlazaScene {
+        let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start, zoom: 2, nickname: "나")
+        s.size = CGSize(width: 960, height: 640)
+        let at = midnight()
+        s.now = { at }
+        s.campfireLit = true
+        s.update(0)
+        return s
+    }
+
+    func testBesideALitCampfireTheFireworkAddsNoLight() throws {
+        let fire = try XCTUnwrap(map.campfireTiles.first)
+        let s = nightScene(start: TilePoint(x: fire.x, y: fire.y + 3))
+        XCTAssertTrue(s.isCampfireLightShown)
+        s.playFirework(memberID: nil, style: "ring")
+        run(s, seconds: F.riseDuration + 0.2, from: 0)
+        XCTAssertGreaterThan(s.fireworkPieceCount, 0)
+        XCTAssertEqual(s.fireworkLightCount, 0)
+    }
+
+    func testFarFromALitCampfireTheFireworkLights() {
+        let s = nightScene(start: TilePoint(x: 4, y: 28))
+        s.playFirework(memberID: nil, style: "ring")
+        run(s, seconds: F.riseDuration + 0.2, from: 0)
+        XCTAssertEqual(s.fireworkLightCount, 1)
     }
 
     func testTheSceneLightsANightFirework() throws {
@@ -539,8 +595,7 @@ final class PlazaFireworksTests: XCTestCase {
         run(s, seconds: F.riseDuration + 0.2, from: 0)
         XCTAssertEqual(s.fireworkLightCount, 1)
         let input = try XCTUnwrap(s.photoInput())
-        XCTAssertEqual(input.fireworkLights.count, 1)
-        XCTAssertEqual(input.fireworkLights.first?.tint, input.tint)
+        XCTAssertEqual(input.fireworkLight?.tint, input.tint)
     }
 
     /// The dark of a daytime show is dark enough for the burst to light the ground.

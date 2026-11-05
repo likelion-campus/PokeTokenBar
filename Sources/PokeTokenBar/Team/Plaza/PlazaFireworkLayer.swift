@@ -40,12 +40,10 @@ enum PlazaFireworkArt {
 }
 
 /// 불꽃을 그리는 노드. 시간은 `advance`가 준 간격으로만 흘러 창이 멈추면 불꽃도 멈추고, 타이머는 없다.
-/// 스프라이트는 재사용하고, 조각 수와 빛 수는 상한을 넘지 않는다.
+/// 스프라이트는 재사용하고 조각 수는 상한을 넘지 않는다. 빛은 곱해져 겹치면 땅이 낮보다 밝아지므로 한 번에 하나만 켠다.
 @MainActor final class PlazaFireworkLayer: SKNode {
     /// 하늘에 함께 있을 수 있는 팀원 불꽃의 조각 수. 넘으면 그 발은 터뜨리지 않는다.
     static let maxPieces = 200
-    /// 함께 켤 수 있는 빛 수. 넘는 불꽃은 빛 없이 터진다.
-    static let maxLights = 4
     /// 터지는 동안 낮을 밤 색으로 섞는 정도.
     static let dimStrength = 0.7
     /// 어두워지고 밝아지는 데 걸리는 박자 수.
@@ -79,13 +77,20 @@ enum PlazaFireworkArt {
 
     private var bursts: [Burst] = []
     private var sprites: [SKSpriteNode] = []
-    private var lightNodes: [SKSpriteNode] = []
+    private lazy var lightNode: SKSpriteNode = {
+        let node = SKSpriteNode()
+        node.blendMode = .multiplyX2
+        node.zPosition = -1   // 조각(7) 아래, 모닥불빛과 같은 6에서 낮밤 색 위에 곱한다.
+        node.isHidden = true
+        addChild(node)
+        return node
+    }()
     private var images: [PlazaFireworkGlyph: CGImage] = [:]
     private var textures: [PlazaFireworkGlyph: SKTexture] = [:]
     /// 빛 텍스처. 지금 낮밤 색 하나에 대해서만 쌓고, 색이 바뀌면 비운다.
     private var lightTextures: (tint: [Int], byLook: [Look: SKTexture])?
     private var shown: [Shown] = []
-    private var lights: [Light] = []
+    private var light: Light?
     private var clock: TimeInterval = 0
     private var drawnBeat = -1
     /// 낮을 어둡게 하는 정도. 0이면 그대로다.
@@ -108,8 +113,8 @@ enum PlazaFireworkArt {
     /// 그 사람의 불꽃이 아직 끝나지 않았다.
     func isFiring(owner: String?) -> Bool { bursts.contains { $0.owner == owner } }
 
-    /// `tint`는 지금 곱하는 낮밤 색으로, 어두울 때만 빛이 켜진다.
-    func advance(by dt: TimeInterval, tint: PlazaDaylight.Tint = .none) {
+    /// `tint`는 지금 곱하는 낮밤 색으로, 어두울 때만 빛이 켜진다. `firelight`는 그 자리(장면 좌표)에 이미 닿은 모닥불빛(0~1)이다.
+    func advance(by dt: TimeInterval, tint: PlazaDaylight.Tint = .none, firelight: (CGPoint) -> Double = { _ in 0 }) {
         guard isActive else { return }
         clock += dt
         bursts.removeAll { clock - $0.launchedAt >= PlazaFireworks.riseDuration + $0.style.duration }
@@ -117,7 +122,7 @@ enum PlazaFireworkArt {
         guard beat != drawnBeat else { return }
         moveDim(beats: drawnBeat < 0 ? 1 : beat - drawnBeat)
         drawnBeat = beat
-        draw(at: Double(beat) * PlazaFireworks.beat, tint: tint)
+        draw(at: Double(beat) * PlazaFireworks.beat, tint: tint, firelight: firelight)
     }
 
     private func moveDim(beats: Int) {
@@ -125,9 +130,9 @@ enum PlazaFireworkArt {
         dimLevel = bursts.isEmpty ? max(dimLevel - step, 0) : min(dimLevel + step, Self.dimStrength)
     }
 
-    private func draw(at time: TimeInterval, tint: PlazaDaylight.Tint) {
+    private func draw(at time: TimeInterval, tint: PlazaDaylight.Tint, firelight: (CGPoint) -> Double) {
         shown = []
-        lights = []
+        light = nil
         for burst in bursts {
             let age = time - burst.launchedAt - PlazaFireworks.riseDuration
             if age < 0 { addShell(burst, age: age) }
@@ -135,13 +140,14 @@ enum PlazaFireworkArt {
                 guard let glyph = piece.glyph(at: age), let offset = piece.offset(at: age) else { continue }
                 add(glyph, at: CGPoint(x: burst.center.x + offset.dx, y: burst.center.y + offset.dy))
             }
-            let level = PlazaFireworks.lightLevel(age: age, duration: burst.style.duration)
-            if level > 0, PlazaCampfireLight.strength(tint) > 0, lights.count < Self.maxLights {
-                lights.append(Light(center: burst.center, color: burst.style.shell, level: level))
+            // 가장 밝은 불꽃 하나만 빛난다. 모닥불빛이 닿은 땅은 남은 만큼만 밝혀 두 빛이 겹쳐도 낮을 넘지 않는다.
+            let level = PlazaFireworks.lightLevel(age: age, duration: burst.style.duration) * (1 - firelight(burst.center))
+            if level > 0, level >= light?.level ?? 0, PlazaCampfireLight.strength(tint) > 0 {
+                light = Light(center: burst.center, color: burst.style.shell, level: level)
             }
         }
         for node in sprites.dropFirst(shown.count) { node.isHidden = true }
-        placeLights(tint: tint)
+        placeLight(tint: tint)
     }
 
     /// 터질 자리로 곧장 올라가며 점점 느려지는 포탄과 꼬리 두 점.
@@ -187,34 +193,21 @@ enum PlazaFireworkArt {
         return node
     }
 
-    private func placeLights(tint: PlazaDaylight.Tint) {
+    private func placeLight(tint: PlazaDaylight.Tint) {
+        guard let light else { lightNode.isHidden = true; return }
         let key = [tint.red, tint.green, tint.blue].map { Int(($0 * 256).rounded()) }
         if lightTextures?.tint != key { lightTextures = (key, [:]) }
         let radii = PlazaFireworks.lightRadii, counts = PlazaCampfireLight.blockCounts(radii: radii)
-        for (i, light) in lights.enumerated() {
-            let look = Look(color: light.color, level: light.level)
-            if lightTextures?.byLook[look] == nil {
-                let rounded = PlazaDaylight.Tint(red: Double(key[0]) / 256, green: Double(key[1]) / 256, blue: Double(key[2]) / 256)
-                lightTextures?.byLook[look] = PlazaScene.lightTexture(tint: rounded, radii: radii, color: light.color.light, level: light.level)
-            }
-            let node = lightNode(i)
-            node.texture = lightTextures?.byLook[look]
-            node.size = CGSize(width: counts.w * 2, height: counts.h * 2)
-            let cell = CGFloat(PlazaFireworkArt.cell)
-            node.position = CGPoint(x: (light.center.x / cell).rounded() * cell, y: (light.center.y / cell).rounded() * cell)
-            node.isHidden = false
+        let look = Look(color: light.color, level: light.level)
+        if lightTextures?.byLook[look] == nil {
+            let rounded = PlazaDaylight.Tint(red: Double(key[0]) / 256, green: Double(key[1]) / 256, blue: Double(key[2]) / 256)
+            lightTextures?.byLook[look] = PlazaScene.lightTexture(tint: rounded, radii: radii, color: light.color.light, level: light.level)
         }
-        for node in lightNodes.dropFirst(lights.count) { node.isHidden = true }
-    }
-
-    private func lightNode(_ index: Int) -> SKSpriteNode {
-        if index < lightNodes.count { return lightNodes[index] }
-        let node = SKSpriteNode()
-        node.blendMode = .multiplyX2
-        node.zPosition = -1   // 조각(7) 아래, 모닥불빛과 같은 6에서 낮밤 색 위에 곱한다.
-        addChild(node)
-        lightNodes.append(node)
-        return node
+        let cell = CGFloat(PlazaFireworkArt.cell)
+        lightNode.texture = lightTextures?.byLook[look]
+        lightNode.size = CGSize(width: counts.w * 2, height: counts.h * 2)
+        lightNode.position = CGPoint(x: (light.center.x / cell).rounded() * cell, y: (light.center.y / cell).rounded() * cell)
+        lightNode.isHidden = false
     }
 
     /// 지금 보이는 조각을 기념사진 좌표(월드, y 아래로)로 돌려준다.
@@ -225,8 +218,8 @@ enum PlazaFireworkArt {
         }
     }
 
-    func photoLights(tint: PlazaDaylight.Tint, worldHeight: CGFloat) -> [PlazaPhotoLight] {
-        lights.map {
+    func photoLight(tint: PlazaDaylight.Tint, worldHeight: CGFloat) -> PlazaPhotoLight? {
+        light.map {
             PlazaPhotoLight(center: CGPoint(x: $0.center.x, y: worldHeight - $0.center.y), radii: PlazaFireworks.lightRadii, tint: tint,
                             color: $0.color.light, level: $0.level)
         }
@@ -234,7 +227,7 @@ enum PlazaFireworkArt {
 
     /// 테스트용
     var shownCount: Int { sprites.filter { !$0.isHidden }.count }
-    var shownLightCount: Int { lightNodes.filter { !$0.isHidden && $0.texture != nil }.count }
+    var shownLightCount: Int { !lightNode.isHidden && lightNode.texture != nil ? 1 : 0 }
     var shownPositions: [CGPoint] { sprites.filter { !$0.isHidden }.map(\.position) }
     var styleIDs: [String] { bursts.map(\.style.id) }
 }

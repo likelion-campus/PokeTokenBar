@@ -96,8 +96,8 @@ final class PlazaPhotoTests: XCTestCase {
         func shot(level: Double) throws -> Pixels {
             var i = input(map: solid(40, 40, (100, 100, 100, 255)), rect: CGRect(x: 0, y: 0, width: 40, height: 40), ppw: 1)
             i.tint = tint
-            i.fireworkLights = [PlazaPhotoLight(center: CGPoint(x: 10, y: 10), radii: CGSize(width: 8, height: 8), tint: tint,
-                                                color: (r: 1, g: 1, b: 1), level: level)]
+            i.fireworkLight = PlazaPhotoLight(center: CGPoint(x: 10, y: 10), radii: CGSize(width: 8, height: 8), tint: tint,
+                                              color: (r: 1, g: 1, b: 1), level: level)
             return Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(i)))
         }
         let full = try shot(level: 1), half = try shot(level: 0.5)
