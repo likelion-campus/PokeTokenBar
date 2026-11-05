@@ -67,6 +67,10 @@ struct PlazaPhotoInput {
     var props: [PlazaPhotoProp] = []
     /// 모닥불이 던지는 밤빛. 낮밤 색 바로 위에 곱하고 이름표와 말풍선에는 곱하지 않는다.
     var light: PlazaPhotoLight?
+    /// 하늘의 불꽃 조각. 빛이라 낮밤 색이 곱해지지 않고, 이름표와 말풍선 아래에 찍힌다.
+    var fireworks: [PlazaPhotoParticle] = []
+    /// 불꽃이 던지는 빛. 모닥불빛 다음에 곱한다.
+    var fireworkLight: PlazaPhotoLight?
 }
 
 /// 기념사진에 곱할 모닥불빛. 좌표는 월드 픽셀(y 아래로)이고 반지름은 깜빡임이 이미 곱해져 있다.
@@ -74,6 +78,9 @@ struct PlazaPhotoLight {
     let center: CGPoint
     let radii: CGSize
     let tint: PlazaDaylight.Tint
+    var color: (r: Double, g: Double, b: Double) = PlazaCampfireLight.warm
+    /// 빛의 세기(0~1). 불꽃이 터진 뒤 줄어든다.
+    var level = 1.0
 }
 
 /// 기념사진을 CoreGraphics로 합성한다. 창이나 SKView가 필요 없고, 모든 그림은 보간 없이 정수 배율로 찍는다.
@@ -185,7 +192,8 @@ enum PlazaPhotoRenderer {
             context.restoreGState()
         }
 
-        if let light = input.light, let base = context.data {
+        for light in [input.light, input.fireworkLight].compactMap({ $0 }) {
+            guard let base = context.data else { break }
             let bytes = base.assumingMemoryBound(to: UInt8.self), stride = context.bytesPerRow
             let n = PlazaCampfireLight.blockCounts(radii: light.radii)
             let left = light.center.x - CGFloat(n.w), top = light.center.y - CGFloat(n.h)
@@ -197,7 +205,7 @@ enum PlazaPhotoRenderer {
                     guard k > 0 else { continue }
                     let x0 = max(px(left + CGFloat(2 * i), origin: rect.minX), 0), x1 = min(px(left + CGFloat(2 * i + 2), origin: rect.minX), width)
                     guard x0 < x1 else { continue }
-                    let m = PlazaCampfireLight.multiplier(tint: light.tint, mix: k)
+                    let m = PlazaCampfireLight.multiplier(tint: light.tint, mix: k * light.level, color: light.color)
                     for y in y0..<y1 {
                         for x in x0..<x1 {
                             let o = y * stride + x * 4
@@ -208,6 +216,11 @@ enum PlazaPhotoRenderer {
                     }
                 }
             }
+        }
+
+        for p in input.fireworks {
+            draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
+                 w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
         }
 
         for a in ordered {

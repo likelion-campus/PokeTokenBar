@@ -108,6 +108,7 @@ enum PlazaEmoteArt {
         case .jump: drawGrid(dust, cell: dot, centeredAt: center, in: context)
         case .groupPhoto: drawGrid(camera, cell: dot, centeredAt: center, in: context)
         case .pickup: drawGrid(candy, cell: dot / 2, centeredAt: center, in: context)
+        case .firework: drawGrid(spark, cell: dot, centeredAt: center, in: context)
         }
         return context.makeImage()!
     }
@@ -176,7 +177,7 @@ enum PlazaEmoteArt {
         return context.makeImage()!
     }
 
-    private static let spark = [
+    static let spark = [
         "..Y..",
         ".YWY.",
         "YWWWY",
