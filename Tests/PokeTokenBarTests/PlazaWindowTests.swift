@@ -933,6 +933,38 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         await waitUntil { other.session.members[id]?.isDiving != true }
     }
 
+    /// Climbing out of a dive: the land tile must go out before the cleared flag. A receiver reading "water tile, not
+    /// diving" would play a surfacing splash that never happened.
+    func testClimbingOutOfADiveSendsTheLandTileFirst() async {
+        let (me, other, c) = await pondPair()
+        let scene = c.scene!, id = me.settings.memberID, map = PlazaMapData.map
+        var t: TimeInterval = 0
+        scene.update(t)
+        pondKey(scene, zKey)
+        settle(scene, &t)
+        pondNow = pondNow.addingTimeInterval(1)
+        pondKey(scene, zKey)
+        await waitUntil { other.session.members[id]?.isDiving == true }
+        pondKey(scene, 123)   // left, out of the water
+        settle(scene, &t, seconds: 0.5)
+        scene.handleKeyUp(keyCode: 123)
+        XCTAssertFalse(scene.isMeInWater)
+        XCTAssertFalse(scene.isDiving)
+        await waitUntil { other.session.members[id]?.isDiving != true }
+        let presences = me.transport.sent.compactMap { sent -> TeamPresence? in
+            if case .presence(let p) = sent.message { return p }
+            return nil
+        }
+        guard let diveStart = presences.firstIndex(where: { $0.isDiving == true }) else { return XCTFail("no dive sent") }
+        let after = presences[diveStart...].filter { $0.isDiving != true }
+        XCTAssertFalse(after.isEmpty)
+        for presence in after {
+            XCTAssertFalse(presence.tile.map { map.isWater($0) } ?? false,
+                           "a presence that clears the dive must not carry a water tile: \(String(describing: presence.tile))")
+        }
+        c.handleClose()
+    }
+
     func testNoTackleInWater() async {
         // 팀원이 물속: C로 몸통박치기하지 않고 메뉴에도 몸통박치기·따라가기가 없다.
         let water = TilePoint(x: 32, y: 18)

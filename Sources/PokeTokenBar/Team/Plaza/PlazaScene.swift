@@ -661,6 +661,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             if diveElapsed >= diveLimit || !isMeInWater {
                 if isMeInWater { splash(at: walker.tile, big: true, stage: myEvolutionStage, splasher: nil) }
                 isDiving = false
+                // 물에서 나가며 끝난 잠수는 땅 칸을 먼저 알린다. 옛 물 칸에 '잠수 끝'만 가면 받는 쪽이 없던 떠오름을 그린다.
+                if !isMeInWater { reportLocalPosition() }
                 onDivingChange?(false)
             }
         }
