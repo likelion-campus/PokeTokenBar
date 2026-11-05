@@ -652,6 +652,18 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(a.settings.schedule)
     }
 
+    /// The other direction: in the same window, my presence to the old team's links must not carry the new team's schedule.
+    func testScheduleIsNotSentOnLinksOfAnotherTeam() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.settings.code = newCode()
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)   // stored under the new code
+        XCTAssertNotNil(a.settings.schedule)
+        a.session.updateTakenItemSlot(1)   // a presence broadcast on the old team's links
+        XCTAssertEqual(b.session.members[a.memberID]?.takenItemSlot, 1, "the presence did arrive")
+        XCTAssertNil(b.settings.schedule, "but without the other team's schedule")
+    }
+
     func testPresenceWithoutScheduleLeavesMineUnchanged() {
         let a = node("A")
         a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
