@@ -83,6 +83,18 @@ final class TeamWireTests: XCTestCase {
         XCTAssertNil(p.isRunning)
     }
 
+    /// A firework names its style. Plain emotes leave the field out, and an emote without one reads as none.
+    func testFireworkStyleIsOptionalOnTheWire() throws {
+        let firework = TeamMessage.emote(TeamEmote(kind: .firework, targetMemberID: nil, fireworkStyle: "willow"))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(firework)), [firework])
+        let plain = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .heart, targetMemberID: nil))).dropFirst(4),
+                           as: UTF8.self)
+        XCTAssertFalse(plain.contains("fireworkStyle"))
+        let noStyle = TeamMessage.emote(TeamEmote(kind: .firework, targetMemberID: nil))
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(noStyle)), [noStyle])
+    }
+
     /// A pickup names its item slot, and presence carries the latest slot known taken. Both are left out when absent,
     /// and earlier versions' frames read as none.
     func testItemFieldsAreOptionalOnTheWire() throws {
@@ -346,7 +358,7 @@ final class TeamWireTests: XCTestCase {
         }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
-        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup"])
+        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework"])
         XCTAssertEqual([Rarity.common, .uncommon, .rare, .legendary].map(\.rawValue), ["common", "uncommon", "rare", "legendary"])
         XCTAssertEqual(PokemonGender.allCases.map(\.rawValue), ["male", "female", "genderless"])
         XCTAssertEqual(PlazaDirection.allCases.map(\.rawValue), ["up", "down", "left", "right"])

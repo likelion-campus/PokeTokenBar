@@ -70,6 +70,10 @@ final class TeamRuntime {
                 if let slot = emote.itemSlot { plaza?.showPickup(from: memberID, slot: slot) }
                 return
             }
+            if emote.kind == .firework {
+                plaza?.showFirework(memberID: memberID, style: emote.fireworkStyle)
+                return
+            }
             plaza?.showEmote(memberID: memberID, kind: emote.kind,
                              alsoOver: emote.isShared == true ? emote.targetMemberID : nil)
             if emote.targetMemberID == settings.memberID, emote.kind.notifiesTarget,
