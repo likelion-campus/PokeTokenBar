@@ -55,7 +55,7 @@ extension L {
     var plazaShortcutFocus: String { "모닥불 옆: 집중" }
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
-    var plazaShortcutPhoto: String { "기념사진" }
+    var plazaShortcutPhoto: String { "사진 모드" }
     var plazaShortcutZoom: String { "확대·축소" }
     var plazaShortcutGroupPhoto: String { "단체 사진" }
     /// 광장에서 주운 아이템. 조사까지 붙인 목적어 꼴이다.
