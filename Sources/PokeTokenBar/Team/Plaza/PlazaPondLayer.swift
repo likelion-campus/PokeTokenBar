@@ -51,6 +51,7 @@ import SpriteKit
     var dropletCount: Int { droplets.count }
     var ringCount: Int { rings.count }
     var bubbleCount: Int { bubbles.count }
+    var pendingCount: Int { pending.count }
 
     func splash(at tile: TilePoint, big: Bool, delay: TimeInterval = 0) {
         guard !isConcealed else { return }
@@ -58,11 +59,14 @@ import SpriteKit
         let kinds: [(Kind, TimeInterval)] = big
             ? [(.droplets(Self.bigDroplets), 0), (.ring, 0), (.ring, Self.secondRingDelay)]
             : [(.droplets(Self.smallDroplets), 0), (.ring, 0)]
+        // 대기열은 물보라 통째로 넣거나 통째로 버린다(고리만 잃고 방울만 남지 않게).
+        let queued = kinds.filter { delay + $0.1 > 0 }.count
+        guard pending.count + queued <= Self.maxPending else { return }
         for (kind, extra) in kinds {
             let wait = delay + extra
             if wait <= 0 {
                 start(Pending(at: p, kind: kind, wait: 0), elapsed: 0)
-            } else if pending.count < Self.maxPending {
+            } else {
                 pending.append(Pending(at: p, kind: kind, wait: wait))
             }
         }
