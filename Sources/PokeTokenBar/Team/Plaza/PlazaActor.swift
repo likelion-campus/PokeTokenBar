@@ -309,7 +309,7 @@ struct PlazaActorContext {
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
-                               opacity: opacity, plateBaseY: plateBaseY)
+                               opacity: opacity, plateBaseY: plateBaseY, sink: swimSink)
     }
 
     // MARK: - 값 읽기

@@ -24,6 +24,8 @@ struct PlazaPhotoActor {
     var opacity: CGFloat = 1
     /// 이름표 바닥의 월드 y(아래로). nil이면 머리 위에 둔다.
     var plateBaseY: CGFloat? = nil
+    /// 헤엄으로 물에 잠긴 월드 픽셀. 0보다 크면 그림을 그만큼 내려 그리고 발 선 아래는 자르며, 그림자와 둥지 앞 테두리는 그리지 않는다.
+    var sink: CGFloat = 0
 }
 
 /// 기념사진에 찍히는 풀숲 앞 띠 한 칸. 좌표는 월드 픽셀이고 y가 아래로 늘어난다.
@@ -121,7 +123,7 @@ enum PlazaPhotoRenderer {
              w: Int((CGFloat(input.mapImage.width) * ppw).rounded()), h: Int((CGFloat(input.mapImage.height) * ppw).rounded()))
 
         for a in input.actors {
-            guard let shadow = a.shadow else { continue }
+            guard let shadow = a.shadow, a.sink <= 0 else { continue }
             context.setAlpha(a.opacity)
             defer { context.setAlpha(1) }
             draw(shadow, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
@@ -148,9 +150,17 @@ enum PlazaPhotoRenderer {
             let w = Int((CGFloat(a.image.width) * a.scale * ppw).rounded()), h = Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
             context.setAlpha(a.opacity)
             defer { context.setAlpha(1) }
+            let footTop = px(a.foot.y - a.bob, origin: rect.minY)
+            let sunk = a.sink > 0
+            if sunk {
+                // 헤엄: 그림을 sink만큼 내려 그리고 발 선 아래는 자른다(화면이 그림 아래를 잘라 내는 것과 같다).
+                context.saveGState()
+                context.clip(to: CGRect(x: 0, y: height - footTop, width: width, height: footTop))
+            }
             draw(a.image, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX),
-                 top: px(a.foot.y - a.bob, origin: rect.minY) - h, w: w, h: h, mirrored: a.flipped)
-            if let front = a.front {
+                 top: footTop - h + Int((a.sink * ppw).rounded()), w: w, h: h, mirrored: a.flipped)
+            if sunk { context.restoreGState() }
+            if let front = a.front, !sunk {
                 draw(front, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
                      w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
             }
@@ -213,6 +223,7 @@ enum PlazaPhotoRenderer {
         for a in ordered {
             let centerX = px(a.foot.x, origin: rect.minX)
             var top = px(a.foot.y - a.bob, origin: rect.minY) - Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
+            if a.sink > 0 { top += Int((a.sink * ppw).rounded()) }   // 이름표는 잘린 윗부분 위에 놓는다
             if let base = a.plateBaseY { top = px(base, origin: rect.minY) }
             if let plate = a.plate {
                 top -= plateGap + plate.height
