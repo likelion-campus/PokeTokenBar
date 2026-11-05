@@ -52,7 +52,6 @@ extension L {
     var plazaShortcutWalk: String { "걷기" }
     var plazaShortcutRun: String { "달리기" }
     var plazaShortcutTalk: String { "말 걸기" }
-    var plazaShortcutFocus: String { "모닥불 옆: 집중" }
     var plazaShortcutChat: String { "한마디" }
     var plazaShortcutEmotes: String { "말풍선" }
     var plazaShortcutPhoto: String { "기념사진" }

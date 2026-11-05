@@ -1218,6 +1218,13 @@ read_when:
   matched by accident. **Capture:** photo/scene render tests pin `now` (`PlazaPhotoTests.newScene` pins 2026-05-10 12:00),
   and variants are made by mutating a copy of the input, never by rebuilding it.
   **Class sweep:** every scene/photo test that compares renders pins `now` or compares variants made from one input (clean).
+- **A `ForEach` id must be unique, and a hand-written list doesn't guarantee that.** `PlazaShortcutGuide`
+  used `id: \.key`. The campfire row added a second `Space` key, and SwiftUI then drew the first
+  `Space` row twice, so "모닥불 옆: 집중" appeared as "말 걸기". The list test passed because it read
+  `entries`, not what was drawn. The row is gone now, and `testShortcutGuideKeysAreUnique` fails on any
+  repeated key. **Class sweep:** the other hand-written lists used this way (`intervalPresets`,
+  `rarityDisplayOrder`, the stat order, the board buttons) have no repeats, and the Claude root list
+  drops repeats when it is built. The rest use enum cases, offsets or real ids.
 
 ## 에너지 (상시 표시 애니메이션)
 
