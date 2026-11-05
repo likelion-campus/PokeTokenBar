@@ -143,7 +143,7 @@ enum PlazaFireworkArt {
             // 가장 밝은 불꽃 하나만 빛난다. 모닥불빛이 닿은 땅은 남은 만큼만 밝혀 두 빛이 겹쳐도 낮을 넘지 않는다.
             let level = PlazaFireworks.lightLevel(age: age, duration: burst.style.duration) * (1 - firelight(burst.center))
             if level > 0, level >= light?.level ?? 0, PlazaCampfireLight.strength(tint) > 0 {
-                light = Light(center: burst.center, color: burst.style.shell, level: level)
+                light = Light(center: onGrid(burst.center), color: burst.style.shell, level: level)
             }
         }
         for node in sprites.dropFirst(shown.count) { node.isHidden = true }
@@ -160,12 +160,17 @@ enum PlazaFireworkArt {
         }
     }
 
-    /// 그림 가운데를 `center`에 맞추되 타일 그림의 점 격자에 올린다. 격자에서 벗어나면 조각이 흔들려 보인다.
+    /// 타일 그림의 점 격자에 올린다. 격자에서 벗어나면 조각이 흔들려 보인다.
+    private func onGrid(_ point: CGPoint) -> CGPoint {
+        let cell = CGFloat(PlazaFireworkArt.cell)
+        return CGPoint(x: (point.x / cell).rounded() * cell, y: (point.y / cell).rounded() * cell)
+    }
+
+    /// 그림 가운데를 `center`에 맞춘다.
     private func add(_ glyph: PlazaFireworkGlyph, at center: CGPoint) {
         let image = image(glyph), cell = CGFloat(PlazaFireworkArt.cell)
         let size = CGSize(width: CGFloat(image.width) * cell, height: CGFloat(image.height) * cell)
-        let position = CGPoint(x: ((center.x - size.width / 2) / cell).rounded() * cell,
-                               y: ((center.y - size.height / 2) / cell).rounded() * cell)
+        let position = onGrid(CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2))
         shown.append(Shown(image: image, position: position, size: size))
         let node = sprite(shown.count - 1)
         node.texture = textures[glyph]
@@ -203,10 +208,9 @@ enum PlazaFireworkArt {
             let rounded = PlazaDaylight.Tint(red: Double(key[0]) / 256, green: Double(key[1]) / 256, blue: Double(key[2]) / 256)
             lightTextures?.byLook[look] = PlazaScene.lightTexture(tint: rounded, radii: radii, color: light.color.light, level: light.level)
         }
-        let cell = CGFloat(PlazaFireworkArt.cell)
         lightNode.texture = lightTextures?.byLook[look]
         lightNode.size = CGSize(width: counts.w * 2, height: counts.h * 2)
-        lightNode.position = CGPoint(x: (light.center.x / cell).rounded() * cell, y: (light.center.y / cell).rounded() * cell)
+        lightNode.position = light.center
         lightNode.isHidden = false
     }
 

@@ -16,6 +16,9 @@ struct PlazaShortcutGuide: View {
         ]
     }
 
+    /// 창 왼쪽 끝에서 펼친 안내판의 오른쪽 끝까지(포인트).
+    static let coveredWidth: CGFloat = 130
+
     let model: PlazaShortcutGuideModel
     let toggle: () -> Void
 

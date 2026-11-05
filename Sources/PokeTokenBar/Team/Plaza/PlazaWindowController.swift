@@ -73,6 +73,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var overlayGeneration = 0
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
+    /// 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭, 펼친 단축키 안내가 다 보이는 높이.
+    static let minContentSize = NSSize(width: 600, height: 340)
     private var lastEmoteAt: Date?
     private var lastChatAt: Date?
     private var lastLoudAt: Date?
@@ -203,7 +205,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
             w.title = title
-            w.contentMinSize = NSSize(width: 600, height: 320)   // 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭
+            w.contentMinSize = Self.minContentSize
             w.isReleasedWhenClosed = false
             w.level = .normal
             w.delegate = self

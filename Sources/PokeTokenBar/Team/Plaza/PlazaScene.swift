@@ -658,10 +658,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         if memberID == nil, fireworkLayer.isFiring(owner: nil) { return false }
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         let head = CGPoint(x: foot.x, y: worldSize.height - foot.y + actor.characterSize.height)
-        // 오른쪽 목록이 덮는 폭은 카메라처럼 빼고 본다. 멀리 있는 팀원의 불꽃이 목록 뒤에서 터지면 보이지 않는다.
-        let v = visibleRect, covered = PlazaRosterMetrics.coveredWidth / CGFloat(zoom)
-        let burst = PlazaFireworks.burstPoint(head: head, visible: CGRect(x: v.minX, y: worldSize.height - v.maxY,
-                                                                          width: v.width - covered, height: v.height))
+        // 양옆의 안내판과 목록이 덮는 폭은 빼고 본다. 멀리 있는 팀원의 불꽃이 그 뒤에서 터지면 보이지 않는다.
+        let v = visibleRect, z = CGFloat(zoom)
+        let left = PlazaShortcutGuide.coveredWidth / z, right = PlazaRosterMetrics.coveredWidth / z
+        let burst = PlazaFireworks.burstPoint(head: head, visible: CGRect(x: v.minX + left, y: worldSize.height - v.maxY,
+                                                                          width: v.width - left - right, height: v.height))
         return fireworkLayer.launch(PlazaFireworks.style(id: style), at: burst, rise: PlazaFireworks.rise(head: head, burst: burst),
                                     owner: memberID)
     }

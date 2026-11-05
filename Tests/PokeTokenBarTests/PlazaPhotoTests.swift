@@ -79,14 +79,16 @@ final class PlazaPhotoTests: XCTestCase {
 
     // MARK: 합성
 
-    /// Fireworks are light: the night tint must not darken them, and a name plate stays readable on top.
-    func testFireworksSitAboveTheTintAndBelowTheNames() throws {
+    /// Fireworks are light: neither the night tint nor a light may change them, and a name plate stays readable on top.
+    func testFireworksSitAboveTheTintAndTheLightAndBelowTheNames() throws {
+        let tint = PlazaDaylight.Tint(red: 0.5, green: 0.5, blue: 0.5), grey: RGBA = (100, 100, 100, 255)
         var i = input(map: solid(8, 8, white), rect: CGRect(x: 0, y: 0, width: 8, height: 8), ppw: 1,
                       [actor(solid(2, 2, blue), foot: CGPoint(x: 4, y: 8), scale: 1, plate: solid(2, 2, green))])
-        i.tint = PlazaDaylight.Tint(red: 0.5, green: 0.5, blue: 0.5)
-        i.fireworks = [PlazaPhotoParticle(image: solid(8, 8, red), origin: .zero, size: CGSize(width: 8, height: 8))]
+        i.tint = tint
+        i.fireworkLight = PlazaPhotoLight(center: CGPoint(x: 4, y: 4), radii: CGSize(width: 16, height: 16), tint: tint)
+        i.fireworks = [PlazaPhotoParticle(image: solid(8, 8, grey), origin: .zero, size: CGSize(width: 8, height: 8))]
         let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(i)))
-        XCTAssertTrue(same(px[0, 0], red), "full strength under the night tint: \(px[0, 0])")
+        XCTAssertTrue(same(px[0, 0], grey), "unchanged by the tint and the light: \(px[0, 0])")
         XCTAssertTrue(same(px[4, 3], green), "the plate stays on top: \(px[4, 3])")
     }
 

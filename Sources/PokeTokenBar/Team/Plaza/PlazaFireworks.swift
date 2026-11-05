@@ -72,14 +72,15 @@ struct PlazaFireworkStyle: Equatable, Sendable {
     var duration: TimeInterval { pieces.map { $0.delay + $0.life }.max() ?? 0 }
 }
 
-/// 광장 불꽃의 종류와 정해진 값. 새 종류는 `styles`에 한 줄 더하면 된다. 다른 곳은 고치지 않는다.
+/// 광장 불꽃의 종류와 정해진 값. 있는 모양과 색을 쓰는 새 종류는 `styles`에 한 줄이면 된다. 새 모양이면 아래에 모양 함수를 더하고,
+/// 새 색이면 `PlazaFireworkColor`와 `PlazaFireworkArt`에도 더한다. 어느 쪽이든 `TEAM.md`의 종류 목록도 고친다.
 enum PlazaFireworks {
-    /// 조각이 움직이는 박자. 포켓몬 그림과 같은 초당 10장이라, 더 부드러우면 다른 게임에서 온 것처럼 보인다.
+    /// 조각이 움직이는 박자. 초당 10장으로 끊어 움직여야 도트 그림답고, 부드러우면 광장에서 튀어 보인다.
     static let beat: TimeInterval = 0.1
     static let riseDuration: TimeInterval = 0.6
     /// 포탄이 오르는 높이. 보통은 위 끝까지 오르고, 터지는 자리가 화면에 밀려 내려오면 그만큼 덜 오른다.
     static let riseRange: ClosedRange<CGFloat> = 24...90
-    /// 터지는 자리를 화면 가장자리에서 이만큼 띄운다. 둥근 불꽃이 잘리지 않는 거리다.
+    /// 터지는 자리를 보이는 영역의 가장자리에서 이만큼 띄운다. 둥근 불꽃이 잘리지 않는 거리다.
     static let burstMargin: CGFloat = 64
     /// 땅에 던지는 빛의 세계 좌표 반지름(가로, 세로). 머리 위에서 터져도 쏜 캐릭터까지 닿는다.
     static let lightRadii = CGSize(width: 220, height: 160)
@@ -109,11 +110,13 @@ enum PlazaFireworks {
         styles.filter { $0.id != last }.randomElement(using: &rng) ?? styles[0]
     }
 
-    /// 터질 자리(장면 좌표). 머리 위지만 늘 보이는 영역 안으로 민다. 멀리 있는 팀원의 불꽃은 그쪽 화면 가장자리에서 터진다.
+    /// 터질 자리(장면 좌표). 머리 위지만 늘 `visible` 안으로 민다. 멀리 있는 팀원의 불꽃은 그쪽 가장자리에서 터진다.
+    /// 하늘은 위쪽이고 아래 두 모서리에는 대화 기록과 작은 지도가 있어 가운데보다 낮게는 터지지 않는다.
     static func burstPoint(head: CGPoint, visible: CGRect) -> CGPoint {
-        func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat { lo <= hi ? min(max(v, lo), hi) : (lo + hi) / 2 }
-        return CGPoint(x: clamp(head.x, visible.minX + burstMargin, visible.maxX - burstMargin),
-                       y: clamp(head.y + riseRange.upperBound, visible.minY + burstMargin, visible.maxY - burstMargin))
+        let left = visible.minX + burstMargin, right = visible.maxX - burstMargin
+        let top = max(visible.maxY - burstMargin, visible.midY)
+        return CGPoint(x: left <= right ? min(max(head.x, left), right) : visible.midX,
+                       y: min(max(head.y + riseRange.upperBound, visible.midY), top))
     }
 
     /// 포탄이 오를 높이. 머리에서 출발해 터지는 자리에 닿는다. 밀려서 머리보다 낮아져도 조금은 오른다.

@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SpriteKit
+import SwiftUI
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
@@ -139,6 +140,12 @@ final class PlazaFireworksTests: XCTestCase {
         XCTAssertEqual(p, CGPoint(x: 716, y: 556))
     }
 
+    /// The bottom corners hold the chat log and the minimap, and the sky is up: a teammate far south bursts mid-view.
+    func testABurstNeverDropsBelowTheMiddleOfTheView() {
+        let p = F.burstPoint(head: CGPoint(x: 500, y: -1000), visible: CGRect(x: 300, y: 300, width: 480, height: 320))
+        XCTAssertEqual(p, CGPoint(x: 500, y: 460))
+    }
+
     func testAViewSmallerThanABurstCentresIt() {
         let p = F.burstPoint(head: CGPoint(x: 2000, y: 3000), visible: CGRect(x: 0, y: 0, width: 100, height: 100))
         XCTAssertEqual(p, CGPoint(x: 50, y: 50))
@@ -166,9 +173,10 @@ final class PlazaFireworksTests: XCTestCase {
         while left > 0.0001 { let dt = min(left, 1.0 / 60); layer.advance(by: dt); left -= dt }
     }
 
-    private func lit(_ layer: PlazaFireworkLayer, seconds: TimeInterval, tint: PlazaDaylight.Tint = PlazaDaylight.night) {
+    private func lit(_ layer: PlazaFireworkLayer, seconds: TimeInterval, tint: PlazaDaylight.Tint = PlazaDaylight.night,
+                     firelight: (CGPoint) -> Double = { _ in 0 }) {
         var left = seconds
-        while left > 0.0001 { let dt = min(left, 1.0 / 60); layer.advance(by: dt, tint: tint); left -= dt }
+        while left > 0.0001 { let dt = min(left, 1.0 / 60); layer.advance(by: dt, tint: tint, firelight: firelight); left -= dt }
     }
 
     func testAShellRisesAndThenThePiecesBurst() {
@@ -408,6 +416,39 @@ final class PlazaFireworksTests: XCTestCase {
         }
     }
 
+    /// The same on the left, where the unfolded shortcut guide hides the sky, at every zoom.
+    func testATeammateFarWestBurstsClearOfTheGuide() throws {
+        for zoom in PlazaCamera.zoomRange {
+            let s = scene()
+            s.zoom = zoom
+            s.update(0)
+            s.applyMembers([PlazaSceneMember(memberID: "far", nickname: "가", isAway: false, tile: TilePoint(x: 4, y: 28), facing: .down, isWalking: false)])
+            XCTAssertTrue(s.playFirework(memberID: "far", style: "ring"))
+            run(s, seconds: 1, from: 0)
+            let v = try XCTUnwrap(s.photoInput()?.visibleRect)
+            XCTAssertFalse(s.fireworkPositions.isEmpty)
+            for p in s.fireworkPositions {
+                XCTAssertGreaterThan(p.x, v.minX + PlazaShortcutGuide.coveredWidth / CGFloat(zoom), "behind the guide at zoom \(zoom)")
+            }
+        }
+    }
+
+    private func guideSize() throws -> CGSize {
+        let renderer = ImageRenderer(content: PlazaShortcutGuide(model: PlazaShortcutGuideModel(), toggle: {}))
+        renderer.scale = 1
+        return try XCTUnwrap(renderer.nsImage?.size)
+    }
+
+    /// `coveredWidth` is written by hand, so a longer row must not outgrow it unnoticed.
+    func testTheGuideFitsItsCoveredWidth() throws {
+        XCTAssertLessThanOrEqual(PlazaRosterMetrics.margin + (try guideSize()).width, PlazaShortcutGuide.coveredWidth)
+    }
+
+    /// Adding the F row made the unfolded guide taller than the smallest window. It sits 46 points below the top.
+    func testTheGuideFitsTheSmallestWindow() throws {
+        XCTAssertLessThanOrEqual(46 + (try guideSize()).height, PlazaWindowController.minContentSize.height)
+    }
+
     /// A burst pushed down by the top of the view must not start its shell under the feet.
     func testAShellLeavesFromTheHeadWhenTheBurstIsPushedDown() throws {
         let s = scene()
@@ -499,7 +540,62 @@ final class PlazaFireworksTests: XCTestCase {
         XCTAssertNotNil(node.texture)
         XCTAssertEqual(node.position, CGPoint(x: 200, y: 300))
         XCTAssertEqual(node.size, CGSize(width: 440, height: 320), "twice the radii")
-        XCTAssertLessThan(node.zPosition, 0)
+        XCTAssertLessThan(node.zPosition, 0, "under the pieces")
+        XCTAssertGreaterThan(scene().fireworkZ + node.zPosition, 5, "above the daylight tint, or it is multiplied away")
+    }
+
+    private func lightNode(_ layer: PlazaFireworkLayer) throws -> SKSpriteNode {
+        try XCTUnwrap(layer.children.compactMap { $0 as? SKSpriteNode }.first { $0.blendMode == .multiplyX2 && !$0.isHidden })
+    }
+
+    /// The red, green and blue of the texel at the middle of a light texture.
+    private func centre(_ texture: SKTexture?) throws -> [Int] {
+        let image = try XCTUnwrap(texture?.cgImage())
+        var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let context = try XCTUnwrap(CGContext(data: &data, width: image.width, height: image.height, bitsPerComponent: 8,
+                                              bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let o = (image.height / 2 * image.width + image.width / 2) * 4
+        return (0..<3).map { Int(data[o + $0]) }
+    }
+
+    func testTheScreenLightIsInItsColourAndLevel() throws {
+        let layer = PlazaFireworkLayer()
+        layer.launch(F.style(id: "spiral"), at: CGPoint(x: 200, y: 200))
+        lit(layer, seconds: F.riseDuration + 0.65)
+        let m = PlazaCampfireLight.multiplier(tint: night, mix: 0.75, color: PlazaFireworkColor.blue.light)
+        let want = [m.r, m.g, m.b].map { Int(($0 / 2 * 255).rounded()) }
+        for (got, expected) in zip(try centre(lightNode(layer).texture), want) { XCTAssertEqual(got, expected, accuracy: 2) }
+    }
+
+    /// The texture is cached per tint, so the dusk must not keep showing the light drawn for the night.
+    func testTheScreenLightFollowsTheTint() throws {
+        let layer = PlazaFireworkLayer()
+        layer.launch(ring(), at: CGPoint(x: 200, y: 200))
+        lit(layer, seconds: F.riseDuration + 0.05)
+        let atNight = try centre(lightNode(layer).texture)
+        lit(layer, seconds: 0.1, tint: PlazaDaylight.dusk)
+        XCTAssertNotEqual(try centre(lightNode(layer).texture), atNight)
+    }
+
+    func testThePhotoLightKeepsItsColourAndLevel() throws {
+        let layer = PlazaFireworkLayer()
+        layer.launch(F.style(id: "spiral"), at: CGPoint(x: 200, y: 200))
+        lit(layer, seconds: F.riseDuration + 0.65)
+        let light = try XCTUnwrap(layer.photoLight(tint: night, worldHeight: 1000))
+        XCTAssertEqual(light.level, 0.75)
+        XCTAssertEqual(light.color.r, 0.7)
+        XCTAssertEqual(light.color.b, 1)
+    }
+
+    func testThePhotoLightSitsExactlyWhereTheScreenLightDoes() throws {
+        let layer = PlazaFireworkLayer()
+        layer.launch(ring(), at: CGPoint(x: 201, y: 303))
+        lit(layer, seconds: F.riseDuration + 0.1)
+        let node = try lightNode(layer), light = try XCTUnwrap(layer.photoLight(tint: night, worldHeight: 1000))
+        XCTAssertEqual(node.position, CGPoint(x: 202, y: 304), "on the tile dot grid")
+        XCTAssertEqual(light.center, CGPoint(x: 202, y: 696))
     }
 
     func testDaylightGetsNoLight() {
@@ -531,6 +627,19 @@ final class PlazaFireworksTests: XCTestCase {
         let light = try XCTUnwrap(layer.photoLight(tint: night, worldHeight: 1000))
         XCTAssertEqual(light.center.x, 300, "the fresh burst, not the fading one")
         XCTAssertEqual(light.level, 1)
+    }
+
+    /// The newest burst is not always the brightest: one under the firelight has little left to give.
+    func testAFadingBurstOutshinesAFreshOneUnderTheFirelight() throws {
+        let layer = PlazaFireworkLayer()
+        let firelight: (CGPoint) -> Double = { $0.x == 300 ? 0.9 : 0 }
+        layer.launch(ring(), at: CGPoint(x: 100, y: 100), owner: "가")
+        lit(layer, seconds: F.riseDuration + 0.5, firelight: firelight)
+        layer.launch(ring(), at: CGPoint(x: 300, y: 100))
+        lit(layer, seconds: F.riseDuration + 0.1, firelight: firelight)
+        let light = try XCTUnwrap(layer.photoLight(tint: night, worldHeight: 1000))
+        XCTAssertEqual(light.center.x, 100)
+        XCTAssertGreaterThanOrEqual(light.level, 0.25, "its own level, not the fresh burst's 0.1")
     }
 
     func testTheOneLightNodeIsReused() {
