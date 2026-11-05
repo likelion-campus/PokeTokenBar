@@ -112,8 +112,10 @@ struct TeamSettingsSection: View {
                         Toggle(l.teamNotifications, isOn: $team.notificationsEnabled)
                             .labelsHidden().toggleStyle(.switch).controlSize(.small)
                     }
-                    Divider()
-                    scheduleRows
+                    if team.code != nil {
+                        Divider()
+                        scheduleRows
+                    }
                     if session?.hasIncompatiblePeer == true {
                         error(l.teamIncompatiblePeer)
                     }

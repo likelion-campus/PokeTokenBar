@@ -969,8 +969,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     /// 팀이 정한 밝은 시간대와 날씨 주기를 장면과 지도에 넣는다. 정한 적이 없으면 기본값.
     func applySchedule() {
-        let core = schedule()?.coreTime ?? .standard
-        let period = schedule()?.period ?? .day
+        let current = schedule()
+        let core = current?.coreTime ?? .standard
+        let period = current?.period ?? .day
         if minimap.coreTime != core { minimap.coreTime = core }
         scene?.coreTime = core
         scene?.weatherPeriod = period

@@ -39,7 +39,7 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertEqual(s.schedule?.changedBy, s.memberID)
         XCTAssertEqual(s.schedule?.changedByName, "Ash")
         XCTAssertEqual(s.schedule?.period, .month)
-        for (input, expected) in [((16, 10), (16, 17)), ((0, 30), (1, 23)), ((23, 23), (22, 23))] {
+        for (input, expected) in [((16, 10), (16, 17)), ((0, 30), (1, 23)), ((23, 23), (22, 23)), ((22, 5), (22, 23))] {
             s.changeSchedule(coreStart: input.0, coreEnd: input.1, period: .day, now: now)
             XCTAssertEqual(s.schedule?.coreStart, expected.0)
             XCTAssertEqual(s.schedule?.coreEnd, expected.1)
