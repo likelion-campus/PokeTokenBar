@@ -137,4 +137,14 @@ final class PlazaShelterWandererTests: XCTestCase {
         var w = PlazaShelterWanderer(memberID: "x", shelter: [TilePoint(x: 0, y: 0), TilePoint(x: 5, y: 5)])
         for _ in 0..<100 { XCTAssertNil(w.advance(by: 1)) }
     }
+
+    func testStepDurationClosureSetsPace() {
+        var m = PlazaRemoteMotion(tile: TilePoint(x: 5, y: 5), facing: .down)
+        m.senderIsRunning = true
+        m.moveTo(TilePoint(x: 6, y: 5))
+        m.advance(by: 0.2, stepDuration: { _, _, running in running ? 0.25 : 0.1 })
+        XCTAssertTrue(m.currentStep != nil, "closure got running=true and chose 0.25")
+        m.advance(by: 0.06, stepDuration: { _, _, _ in 0.25 })
+        XCTAssertNil(m.currentStep)
+    }
 }

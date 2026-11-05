@@ -752,4 +752,96 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertFalse(o.full.isEmpty)
         for (f, m) in zip(o.full, o.member) { XCTAssertTrue(same(f, m), "the member is in front") }
     }
+
+    // MARK: 헤엄과 잠수
+
+    func testASwimmerShowsOnlyTheTop() throws {
+        // 72px 단색 배우: 발 y=100(사진 200행), sink 39.6이면 보이는 높이는 32.4 -> 사진 65행 안팎.
+        var a = actor(solid(32, 48, red), foot: CGPoint(x: 48, y: 100), shadow: solid(20, 8, blue),
+                      shadowRect: CGRect(x: 38, y: 96, width: 20, height: 8), front: solid(20, 8, yellow), plate: solid(10, 6, black))
+        a.sink = 39.6
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([a]))))
+        var redRows: [Int] = []
+        for y in 0..<px.height {
+            for x in 0..<px.width {
+                XCTAssertFalse(same(px[x, y], blue), "no shadow at \(x),\(y)")
+                XCTAssertFalse(same(px[x, y], yellow), "no nest front at \(x),\(y)")
+                if same(px[x, y], red) { redRows.append(y) }
+            }
+        }
+        XCTAssertLessThanOrEqual(redRows.max() ?? 0, 199, "nothing below the foot line (photo row 200)")
+        XCTAssertEqual(Double(redRows.max()! - redRows.min()! + 1), 32.4 * 2, accuracy: 2)
+        // 이름표는 보이는 윗부분 위에 놓인다: 맨 윗 행(135) 위 plateGap(2)을 띄운다.
+        XCTAssertTrue(same(px[96, 132], black), "plate sits right above the visible top")
+    }
+
+    func testASwimmerWithBobIsClippedAtTheLiftedFootLine() throws {
+        var a = actor(solid(32, 48, red), foot: CGPoint(x: 48, y: 100), bob: 2)
+        a.sink = 39.6
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(bandInput([a]))))
+        var maxRow = 0
+        for y in 0..<px.height { for x in 0..<px.width where same(px[x, y], red) { maxRow = max(maxRow, y) } }
+        XCTAssertEqual(maxRow, 195, "the cut follows the lifted foot like the scene")
+    }
+
+    private func pondScene() -> PlazaScene {
+        let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: TilePoint(x: 20, y: 22), zoom: 2,
+                           nickname: "me", pondVisuals: true)
+        s.size = CGSize(width: 800, height: 600)
+        s.backingOverride = 2
+        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]
+        s.setCharacter(PlazaCharacterFrames(front: tall, back: tall))
+        return s
+    }
+
+    private func addMembers(_ s: PlazaScene, _ list: [(id: String, tile: TilePoint, diving: Bool)]) {
+        s.applyMembers(list.map {
+            var m = PlazaSceneMember(memberID: $0.id, nickname: $0.id, isAway: false, tile: $0.tile, facing: .down, isWalking: false)
+            m.isDiving = $0.diving
+            return m
+        })
+        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]
+        for m in list { s.setMemberFrames(m.id, PlazaCharacterFrames(front: tall, back: tall)) }
+    }
+
+    private func settle(_ s: PlazaScene) {
+        var t: TimeInterval = 0
+        s.update(t)
+        for _ in 0..<6 { t += 1.0 / 30; s.update(t) }
+    }
+
+    /// While a swimmer fades into a dive the name plate follows the visible (cut) height, not the full sprite.
+    func testSwimmerNamePlateUsesTheVisibleHeightWhileDiving() throws {
+        let s = pondScene()
+        addMembers(s, [("dive", TilePoint(x: 35, y: 18), true)])
+        s.update(0)
+        s.update(1.0 / 30)   // the dive fade is a sixth of the way: 0 < concealment < 0.5
+        let swimmer = try XCTUnwrap(try XCTUnwrap(s.photoInput()).actors.first { abs($0.foot.x - 35.5 * 32) < 1 })
+        XCTAssertGreaterThan(swimmer.opacity, 0)
+        let c = CGFloat(1.0 / 30 / PlazaPond.diveFade)
+        let visible = 72 - swimmer.sink
+        let expected = swimmer.foot.y - (visible - (visible - PlazaTallGrass.hiddenPlateLift) * min(1, c * 2))
+        XCTAssertEqual(try XCTUnwrap(swimmer.plateBaseY), expected, accuracy: 0.5)
+    }
+
+    func testPhotoInputCarriesSwimAndDive() throws {
+        let s = pondScene()
+        addMembers(s, [("swim", TilePoint(x: 34, y: 18), false), ("dive", TilePoint(x: 35, y: 18), true),
+                       ("land", TilePoint(x: 30, y: 18), false)])
+        settle(s)
+        // y가 같은 배우는 닉네임으로 가린다. 이름표 PNG 대신 발 x(타일 중심)로 고른다.
+        let actors = try XCTUnwrap(s.photoInput()).actors
+        let swimmer = try XCTUnwrap(actors.first { abs($0.foot.x - 34.5 * 32) < 1 })
+        let diver = try XCTUnwrap(actors.first { abs($0.foot.x - 35.5 * 32) < 1 })
+        let walker = try XCTUnwrap(actors.first { abs($0.foot.x - 30.5 * 32) < 1 })
+        XCTAssertGreaterThan(swimmer.sink, 0)
+        XCTAssertEqual(swimmer.sink, 72 * 0.55, accuracy: 1)
+        XCTAssertEqual(diver.opacity, 0, accuracy: 0.001)
+        XCTAssertNotNil(diver.plateBaseY)
+        XCTAssertEqual(walker.sink, 0)
+
+        s.setBackgroundHidden(true)
+        XCTAssertTrue(try XCTUnwrap(s.photoInput()).actors.allSatisfy { $0.sink == 0 && $0.opacity == 1 },
+                      "the live scene does not cut with the background hidden, and neither does the photo")
+    }
 }

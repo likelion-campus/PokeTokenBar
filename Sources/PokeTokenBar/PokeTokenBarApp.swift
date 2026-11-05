@@ -133,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             nameColor: { [teamSettings] in teamSettings.nameColor },
             chooseNameColor: { [teamSettings] in teamSettings.nameColor = $0 },
             evolutionStage: { [companion] in companion!.representativeEvolutionStage },
+            pokemonTypes: { try? await PokeAPIClient.shared.pokemonDetails(speciesID: $0).types },
             grantItem: { [companion] in companion!.receivePlazaItem($0) },
             session: teamRuntime.session, feed: teamRuntime.feed)
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }

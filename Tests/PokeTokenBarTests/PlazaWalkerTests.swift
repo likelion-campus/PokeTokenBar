@@ -111,4 +111,35 @@ final class PlazaWalkerTests: XCTestCase {
         XCTAssertEqual(w.footPoint.x, (5.5 + 0.5) * 32, accuracy: 1.0)
         XCTAssertEqual(w.footPoint.y, 5.875 * 32, accuracy: 0.001)
     }
+
+    func testStepDurationClosureSetsStepLengthAndNilKeepsRules() {
+        var w = PlazaWalker(tile: .init(x: 5, y: 5))
+        w.press(.right); w.release(.right)
+        w.advance(by: 0.1, canEnter: { _ in true }, stepDuration: { _, _, _ in 0.5 })
+        XCTAssertTrue(w.isWalking)
+        w.advance(by: 0.41, canEnter: { _ in true }, stepDuration: { _, _, _ in 0.5 })
+        XCTAssertFalse(w.isWalking)
+        w.wantsToRun = true
+        w.press(.right); w.release(.right)
+        w.advance(by: 0.08, canEnter: { _ in true })
+        XCTAssertFalse(w.isWalking, "nil closure keeps the run pace")
+    }
+
+    func testPlungeIgnoresCanEnterAndBeatsPendingTap() {
+        var w = PlazaWalker(tile: .init(x: 5, y: 5))
+        w.press(.left); w.release(.left)
+        w.plunge(.down)
+        w.advance(by: 0.01, canEnter: { _ in false }, stepDuration: { _, _, _ in 0.36 })
+        XCTAssertEqual(w.tile, .init(x: 5, y: 6)); XCTAssertEqual(w.facing, .down)
+        w.advance(by: 0.4, canEnter: { _ in false })
+        XCTAssertEqual(w.tile, .init(x: 5, y: 6), "the tap was dropped")
+    }
+
+    func testPlungeDropsAPendingPush() {
+        var w = PlazaWalker(tile: .init(x: 5, y: 5))
+        w.push(.up, tiles: 3)
+        w.plunge(.right)
+        w.advance(by: 2, canEnter: { _ in true }, stepDuration: { _, _, _ in 0.36 })
+        XCTAssertEqual(w.tile, .init(x: 6, y: 5), "a swimmer is not pushed after the plunge")
+    }
 }

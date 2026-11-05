@@ -54,7 +54,7 @@ struct PlazaRemoteMotion: Sendable {
         stepElapsed = 0
     }
 
-    mutating func advance(by dt: TimeInterval) {
+    mutating func advance(by dt: TimeInterval, stepDuration: ((TilePoint, TilePoint, Bool) -> TimeInterval)? = nil) {
         var remaining = dt
         while true {
             if stepFrom != nil {
@@ -70,7 +70,8 @@ struct PlazaRemoteMotion: Sendable {
             guard !queue.isEmpty else { return }
             let next = queue.removeFirst()
             facing = Self.direction(from: tile, to: next)
-            stepLength = senderIsRunning ? PlazaWalker.runStepDuration : PlazaWalker.stepDuration
+            stepLength = stepDuration?(tile, next, senderIsRunning)
+                ?? (senderIsRunning ? PlazaWalker.runStepDuration : PlazaWalker.stepDuration)
             stepFrom = tile
             tile = next
         }

@@ -20,6 +20,10 @@ struct TeamMemberState: Equatable, Sendable {
     var takenItemSlot: Int?
     /// When their focus ends, kept only if it passed `PlazaFocus.accepted` on receipt.
     var focusEndsAt: Date?
+    /// Diving in the pond.
+    var isDiving = false
+    /// Their evolution stage, 1...3.
+    var evolutionStage = 1
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -94,13 +98,17 @@ final class TeamSession {
     @ObservationIgnored private var isRunning = false
     @ObservationIgnored private var takenItemSlot: Int?
     @ObservationIgnored private var focusEndsAt: Date?
+    @ObservationIgnored private var isDiving = false
+    @ObservationIgnored private let evolutionStage: () -> Int
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
-         profileProvider: @escaping () -> TeamMemberProfile, clock: @escaping () -> Date = Date.init) {
+         profileProvider: @escaping () -> TeamMemberProfile,
+         evolutionStage: @escaping () -> Int = { 1 }, clock: @escaping () -> Date = Date.init) {
         self.settings = settings
         self.feed = feed
         self.transport = transport
         self.profileProvider = profileProvider
+        self.evolutionStage = evolutionStage
         self.clock = clock
         knownCode = settings.code
         transport.onPeerConnected = { [weak self] peer, initiatedByMe in
@@ -234,6 +242,13 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
+    /// Whether I am diving in the pond, told to teammates in my presence.
+    func updateDiving(_ diving: Bool) {
+        guard diving != isDiving else { return }
+        isDiving = diving
+        broadcast(.presence(makePresence()))
+    }
+
     func sendChat(_ text: String, loud: Bool = false) {
         broadcast(.chat(TeamChat(text: text, isLoud: loud ? true : nil)))
     }
@@ -315,6 +330,8 @@ final class TeamSession {
             member.isRunning = presence.isRunning ?? false
             member.takenItemSlot = presence.takenItemSlot
             member.focusEndsAt = PlazaFocus.accepted(presence.focusEndsAt, now: clock())
+            member.isDiving = presence.isDiving ?? false
+            member.evolutionStage = TeamEmote.pushTiles(presence.evolutionStage)
             members[memberID] = member
         case .inventory(let eventIDs, let reactionIDs):
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
@@ -408,7 +425,8 @@ final class TeamSession {
         TeamPresence(nickname: TeamSettings.validNickname(settings.nickname) ?? "", character: currentCharacter,
                      inPlaza: inPlaza, tile: tile, facing: facing, isWalking: isWalking, isIdle: isIdle ? true : nil,
                      nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot,
-                     focusEndsAt: focusEndsAt)
+                     focusEndsAt: focusEndsAt,
+                     isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }())
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {
