@@ -3,18 +3,16 @@ import SpriteKit
 /// 연못의 물보라 방울, 물결 고리, 거품을 그리는 노드. 모두 풀에서 꺼내 쓰는 스프라이트이고,
 /// 시간은 `update(dt:)` 로만 흐른다. 타이머는 없다.
 @MainActor final class PlazaPondLayer: SKNode {
-    static let maxDroplets = 64, maxRings = 12, maxBubbles = 24, maxPending = 32
+    static let maxDroplets = 48, maxRings = 12, maxBubbles = 24, maxPending = 32
     static let secondRingDelay: TimeInterval = 0.12
-    private static let dropletLife: TimeInterval = 0.6, ringLife: TimeInterval = 0.6, bubbleLife: TimeInterval = 0.6
+    private static let dropletLife: TimeInterval = 0.5, ringLife: TimeInterval = 0.6, bubbleLife: TimeInterval = 0.6
     private static let dropletZ: CGFloat = 2.5, ringZ: CGFloat = 0.06, bubbleZ: CGFloat = 2.4
     /// 방울마다 (옆으로 가는 거리, 가장 높이 오르는 높이). 월드 px, 물가선 기준. 부채꼴로 퍼진다.
     private static let bigShapes: [(reach: CGFloat, height: CGFloat)] = [
-        (-64, 26), (-52, 46), (-42, 62), (-32, 78), (-23, 90), (-14, 100), (-7, 108), (-2, 114),
-        (4, 110), (10, 104), (18, 94), (27, 82), (36, 68), (46, 50), (56, 34), (66, 22)]
-    private static let smallShapes: [(reach: CGFloat, height: CGFloat)] = [
-        (-26, 16), (-17, 30), (-6, 40), (7, 38), (18, 28), (27, 14)]
+        (-42, 18), (-33, 32), (-25, 44), (-17, 54), (-10, 62), (-3, 68), (4, 66), (11, 60), (18, 52), (26, 42), (34, 30), (44, 16)]
+    private static let smallShapes: [(reach: CGFloat, height: CGFloat)] = [(-16, 10), (-8, 20), (0, 24), (8, 20), (17, 9)]
     static let bigDroplets = bigShapes.count, smallDroplets = smallShapes.count
-    private static let ringFromRadius = 2, bigRingToRadius = 20, smallRingToRadius = 10   // 시트 픽셀 (월드 ×2)
+    private static let ringFromRadius = 2, bigRingToRadius = 14, smallRingToRadius = 7   // 시트 픽셀 (월드 ×2)
     private static let bubbleRise: CGFloat = 14
     private static let bubbleOffsets: [CGFloat] = [-6, 5, -2, 7, -8, 3]
     private static let grid: CGFloat = 2
@@ -45,7 +43,6 @@ import SpriteKit
     private var bubblePool: [SKSpriteNode] = []
     private var ringTextures: [Int: SKTexture] = [:]   // 반지름(시트 픽셀)마다 하나
     private let dropletTexture = PlazaPondLayer.texture(PlazaPondArt.droplet())
-    private let bigDropletTexture = PlazaPondLayer.texture(PlazaPondArt.bigDroplet())
     private let bubbleTexture = PlazaPondLayer.texture(PlazaPondArt.bubble())
     private var isConcealed = false
     private var bubbleSerial = 0
@@ -124,12 +121,9 @@ import SpriteKit
     }
 
     private func startDroplets(_ shapes: [(reach: CGFloat, height: CGFloat)], at p: CGPoint) {
-        for (i, shape) in shapes.enumerated() where droplets.count < Self.maxDroplets {
-            let node = dropletPool.popLast() ?? makeNode(z: Self.dropletZ, size: 2)
-            // 세 번째마다 큰 방울. 풀에서 되살린 노드는 크기가 다를 수 있어 매번 그림과 크기를 함께 정한다.
-            let big = i % 3 == 0
-            node.texture = big ? bigDropletTexture : dropletTexture
-            node.size = CGSize(width: (big ? 3 : 2) * Self.scale, height: (big ? 3 : 2) * Self.scale)
+        for shape in shapes where droplets.count < Self.maxDroplets {
+            let node = dropletPool.popLast() ?? makeNode(z: Self.dropletZ, size: 3)
+            node.texture = dropletTexture
             let d = Particle(start: p, reach: shape.reach, height: shape.height, age: 0, node: node)
             node.isHidden = false
             droplets.append(d)

@@ -12,13 +12,8 @@ enum PlazaPondArt {
     private static let light: [UInt8] = [0x5A, 0xAE, 0xE4]    // #5AAEE4
     private static let white: [UInt8] = [0xFF, 0xFF, 0xFF]    // #FFFFFF
 
-    /// 2×2. 위는 하양, 아래는 물빛.
-    static func droplet() -> CGImage {
-        image(["w.", "mm"].map(Array.init), width: 2, height: 2, palette: ["w": white, "m": mid])
-    }
-
     /// 3×3. 위·왼쪽은 하양, 가운데는 연한 물빛, 오른쪽·아래는 물빛. 모서리는 투명.
-    static func bigDroplet() -> CGImage {
+    static func droplet() -> CGImage {
         image([".w.", "wlm", ".m."].map(Array.init), width: 3, height: 3,
               palette: ["w": white, "l": light, "m": mid])
     }
