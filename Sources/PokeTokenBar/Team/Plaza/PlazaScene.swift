@@ -283,8 +283,13 @@ struct PlazaSceneMember: Equatable, Sendable {
     var now: () -> Date = Date.init
 
     /// 팀이 정한 밝은 시간대와 날씨 주기. `PlazaWindowController.applySchedule`이 넣는다.
-    var coreTime = PlazaCoreTime.standard
-    var weatherPeriod = PlazaWeather.Period.day
+    /// 바뀌면 `setBackgroundHidden`처럼 바로 다시 그린다(멈춘 장면에서도 낮밤·날씨·모닥불빛이 맞게).
+    var coreTime = PlazaCoreTime.standard {
+        didSet { if coreTime != oldValue { applyDaylight(); applyCampfire() } }
+    }
+    var weatherPeriod = PlazaWeather.Period.day {
+        didSet { if weatherPeriod != oldValue { advanceWeather(by: 0) } }
+    }
 
     /// 지금 곱하는 색. 배경을 숨겼으면 뒤의 작업 화면이 어두워지지 않게 곱하지 않는다.
     var daylightTint: PlazaDaylight.Tint {

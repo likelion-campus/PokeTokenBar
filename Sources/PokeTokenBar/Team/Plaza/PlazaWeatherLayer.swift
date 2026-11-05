@@ -23,8 +23,7 @@ import SpriteKit
     private func kind(at date: Date, period: PlazaWeather.Period) -> PlazaWeather.Kind {
         // DateInterval.contains 는 끝을 포함해 자정 0시가 어제로 읽힌다. 끝은 빼고 비교한다.
         if let day, day.period == period, date >= day.interval.start, date < day.interval.end { return day.kind }
-        var calendar = Calendar(identifier: .gregorian)   // 일본력·불기여도 날씨는 같아야 한다
-        calendar.timeZone = .current
+        let calendar = PlazaWeather.gregorian   // 일본력·불기여도 날씨는 같아야 한다
         let k = PlazaWeather.kind(on: date, calendar: calendar, period: period)
         day = calendar.dateInterval(of: .day, for: date).map { ($0, period, k) }
         return k

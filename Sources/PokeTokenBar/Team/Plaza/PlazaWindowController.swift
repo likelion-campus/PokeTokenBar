@@ -321,6 +321,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                            start: preferences.lastTile(validIn: map),
                            zoom: preferences.zoom, nickname: nickname(),
                            tallGrass: Self.tallGrassArt())
+        s.now = clock   // 낮밤·날씨도 컨트롤러와 같은 시계를 쓴다
         if let focus { s.sit(at: .init(tile: focus.seat, facing: focusFacing)) }
         s.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: nameColor()))
         nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: nameColor())
@@ -349,13 +350,14 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onChatKey = { [weak self] in self?.openChat() }
         s.onInteractionTargetChange = { [weak self] _ in self?.refreshHint() }
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
+        // 일정을 먼저 넣어야 낮밤·날씨·모닥불빛이 기본값으로 한 번 그려졌다가 다시 만들어지지 않는다.
+        scene = s
+        applySchedule()
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
         shortcutModel.isFolded = preferences.areShortcutsFolded
         s.onOverlayKey = { [weak self] in self?.handleOverlayKey($0) }
         s.onWalkKey = { [weak self] in self?.standUp() }
-        scene = s
-        applySchedule()
         if let feed {
             unreadGeneration += 1
             observeUnread(feed: feed, generation: unreadGeneration)

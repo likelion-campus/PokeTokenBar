@@ -9,7 +9,7 @@ private struct NoSprites: PlazaSpriteFetching {
 
 @MainActor
 final class PlazaScheduleWiringTests: XCTestCase {
-    private let cal = Calendar.current
+    private let cal = PlazaWeather.gregorian
 
     private func date(_ y: Int, _ m: Int, _ d: Int, _ h: Int = 12, _ min: Int = 0) -> Date {
         cal.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min))!
@@ -29,13 +29,13 @@ final class PlazaScheduleWiringTests: XCTestCase {
                       changedBy: "m", changedByName: "민수")
     }
 
-    private func controller(_ current: @escaping () -> PlazaSchedule?) -> PlazaWindowController {
+    private func controller(at now: @escaping () -> Date = Date.init, _ current: @escaping () -> PlazaSchedule?) -> PlazaWindowController {
         let suite = "ptb.test.schedule.wiring.\(UUID().uuidString)"
         addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
         return PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
                                      loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                      nickname: { "나" }, memberID: { "me" },
-                                     subject: { .init(speciesID: 25, isShiny: false) }, schedule: current)
+                                     subject: { .init(speciesID: 25, isShiny: false) }, schedule: current, clock: now)
     }
 
     func testApplyScheduleMovesTheDawnAndNullFallsBackToStandard() throws {
@@ -50,6 +50,41 @@ final class PlazaScheduleWiringTests: XCTestCase {
         plaza.applySchedule()
         XCTAssertEqual(s.coreTime, .standard)
         XCTAssertEqual(s.daylightTint, PlazaDaylight.night, "08:30 is night for the default 10-16")
+    }
+
+    func testPrepareSceneDrawsTheTeamScheduleFromTheFirstFrame() throws {
+        let plaza = controller(at: { self.date(2026, 11, 5, 8, 30) }) { self.schedule(9, 18) }
+        plaza.prepareScene()
+        let s = try XCTUnwrap(plaza.scene)
+        assertTint(s.shownDaylight, PlazaDaylight.dawn)
+    }
+
+    private func assertTint(_ got: PlazaDaylight.Tint?, _ want: PlazaDaylight.Tint, _ msg: String = "",
+                             file: StaticString = #filePath, line: UInt = #line) {
+        guard let got else { return XCTFail("no tint. \(msg)", file: file, line: line) }
+        XCTAssertEqual(got.red, want.red, accuracy: 0.01, msg, file: file, line: line)
+        XCTAssertEqual(got.green, want.green, accuracy: 0.01, msg, file: file, line: line)
+        XCTAssertEqual(got.blue, want.blue, accuracy: 0.01, msg, file: file, line: line)
+    }
+
+    func testSchedulePropertiesRedrawAPausedScene() throws {
+        let s = scene(at: date(2026, 11, 9, 8, 30))
+        s.update(0)   // 한 번은 그려 화면 영역을 정한 뒤, 멈춘 장면에서 바꾼다
+        s.isPaused = true
+        s.coreTime = try XCTUnwrap(PlazaCoreTime(start: 9, end: 18))
+        assertTint(s.shownDaylight, PlazaDaylight.dawn, "no update call")
+        s.coreTime = .standard
+        assertTint(s.shownDaylight, PlazaDaylight.night)
+        // 하루 주기와 1주일 주기의 날씨가 다른 날을 찾는다.
+        let day = try XCTUnwrap((0..<60).map { self.date(2026, 11, 9 + $0 % 20, 12) }.first {
+            PlazaWeather.kind(on: $0, period: .day) != PlazaWeather.kind(on: $0, period: .month)
+        })
+        s.now = { day }
+        s.weatherPeriod = .week
+        s.weatherPeriod = .day
+        XCTAssertEqual(s.weatherKind, PlazaWeather.kind(on: day, period: .day))
+        s.weatherPeriod = .month
+        XCTAssertEqual(s.weatherKind, PlazaWeather.kind(on: day, period: .month), "a new period shows its weather without update")
     }
 
     func testWeekPeriodHoldsTheWeatherForTheWholeWeek() {
