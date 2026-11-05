@@ -191,7 +191,9 @@ struct PlazaSceneMember: Equatable, Sendable {
             var events = Events()
             let sameStep = step != nil && step?.from == lastStep?.from && step?.to == lastStep?.to
             if let landed = plungeTo, !sameStep {
-                events.landedInWater = landed
+                // 뛰어든 걸음이 사라졌어도 아직 물에 있을 때만 착지다. 자리 비움 같은 순간이동이면 물보라를 내지 않는다.
+                // (방향키를 누르고 있으면 같은 프레임에 다음 헤엄 걸음이 시작되니 `tile == landed`로 비교하지 않는다.)
+                if isWater(tile) { events.landedInWater = landed }
                 plungeTo = nil
             }
             if let step {
@@ -639,8 +641,11 @@ struct PlazaSceneMember: Equatable, Sendable {
     func plunge(_ d: PlazaDirection) {
         guard !isMeInWater else { return }
         walker.plunge(d)
-        playJump(memberID: nil)
+        plungeJumpOwed = true
     }
+
+    /// `plunge`가 부른 점프를 아직 못 낸 상태. 뛰어드는 걸음이 시작될 때 `update`가 낸다(진행 중인 땅 걸음이 끝나야 시작한다).
+    private var plungeJumpOwed = false
 
     /// 물보라 하나: 입자를 내고 땅에 선 배우를 젖게 한다. 연못 그림이 없거나 배경이 숨으면 아무것도 내지 않는다.
     private func splash(at tile: TilePoint, big: Bool, stage: Int, splasher: String?) {
@@ -659,6 +664,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     var myVisibleHeight: CGFloat { me.visibleSpriteHeight }
     func memberVisibleHeight(_ id: String) -> CGFloat? { remotes[id]?.actor.visibleSpriteHeight }
     func memberSwimRingVisible(_ id: String) -> Bool? { remotes[id]?.actor.isSwimRingVisible }
+    func memberSwimRingY(_ id: String) -> CGFloat? { remotes[id]?.actor.swimRingY }
 
     /// 시간이 다했거나 물 밖으로 나가면 내 잠수를 끝내고 알린다. 잠수 흐려짐을 흘리고 연못 레이어 시간을 흘린다.
     private func advancePond(by dt: TimeInterval) {
@@ -675,7 +681,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         myDive.advance(toward: isDiving, dt: dt)
         watchPond(id: nil, stage: myEvolutionStage, tile: walker.tile, step: walker.currentStep, actor: me,
                   facing: walker.facing, diving: isDiving, dt: dt)
-        for (id, r) in remotes {
+        for id in Array(remotes.keys) {
+            guard let r = remotes[id] else { continue }
             remotes[id]?.dive.advance(toward: isShownDiving(r), dt: dt)
             watchPond(id: id, stage: r.stage, tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor,
                       facing: r.motion.facing, diving: isShownDiving(r), dt: dt)
@@ -751,7 +758,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         var goal = target
         var route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked)
         if route == nil, map.isWater(target),
-           let edge = PlazaPond.nearestEdgeWater(to: target, isWater: { map.isWater($0) }, isLand: { map.isWalkable($0) && !blocked.contains($0) }) {
+           let edge = PlazaPond.nearestEdgeWater(to: target, from: walker.tile, isWater: { map.isWater($0) }, isLand: { map.isWalkable($0) && !blocked.contains($0) }) {
             // 물 가운데의 팀원: 가장 가까운 테두리 물 칸 옆 땅까지만 간다.
             goal = edge
             if PlazaPathfinder.isAdjacent(walker.tile, edge) {
@@ -902,7 +909,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     private func puffDust(under memberID: String?) {
         guard actor(memberID) != nil else { return }
-        let tile = memberID.flatMap { remotes[$0]?.motion.tile } ?? walker.tile
+        // 내가 뛰어드는 걸음을 막 시작했다면 먼지는 떠난 땅 칸에서 인다(walker.tile은 이미 도착할 물 칸이다).
+        let tile = memberID.flatMap { remotes[$0]?.motion.tile } ?? walker.currentStep?.from ?? walker.tile
         if map.isWater(tile) { return }   // 물 위에는 먼지가 일지 않는다
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
@@ -1070,6 +1078,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceWalkToMember()
         let occupied = occupiedTiles()
         walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), stepDuration: pondStepDuration)
+        if plungeJumpOwed, let step = walker.currentStep, !map.isWater(step.from), map.isWater(step.to) {
+            plungeJumpOwed = false
+            playJump(memberID: nil)
+        }
         advanceAnimation(by: dt)
         advanceTallGrass(by: dt)
         advancePond(by: dt)

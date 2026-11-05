@@ -266,7 +266,8 @@ struct PlazaActorContext {
                                          y: footScene.y)
 
         swimRingNode.isHidden = swimSink <= 0 || characterNode.isHidden
-        swimRingNode.position = CGPoint(x: characterNode.position.x, y: footScene.y)
+        // 고리는 수면에 붙어 있다: 통통 튐은 따르되 점프 높이는 따르지 않는다.
+        swimRingNode.position = CGPoint(x: characterNode.position.x, y: footScene.y - jumpLift)
         swimRingNode.zPosition = characterNode.zPosition + 0.0002
 
         // 이름표는 카메라 공간(화면 포인트)에 둔다.
@@ -300,7 +301,7 @@ struct PlazaActorContext {
         if concealment > 0 {
             opacity = PlazaTallGrass.opacity(concealment: concealment, isMe: isMeForConcealment)
             // 화면과 같은 높이 규칙(PlazaTallGrass.plateBaseY)을 월드 y(아래로)로 옮긴 값.
-            let height = CGFloat(image.height) * Self.characterScale
+            let height = CGFloat(image.height) * Self.characterScale - swimSink
             if !isMeForConcealment { plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2)) }
         }
         return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: foot, bob: CGFloat(pose.bob),
@@ -331,6 +332,7 @@ struct PlazaActorContext {
     /// 지금 보이는 그림 높이(월드 픽셀). 헤엄이면 잘린 만큼 줄어든다.
     var visibleSpriteHeight: CGFloat { characterNode.size.height }
     var isSwimRingVisible: Bool { !swimRingNode.isHidden }
+    var swimRingY: CGFloat { swimRingNode.position.y }
     /// 자르기 전 지금 그림의 높이(월드 픽셀). 그림이 없으면 0.
     var fullSpriteHeight: CGFloat { currentFrames?.first.map { Self.scaledSize(of: $0.image).height } ?? 0 }
     var characterSize: CGSize { characterNode.size }

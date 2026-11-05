@@ -125,9 +125,22 @@ final class PlazaPondTests: XCTestCase {
         let isWater: (TilePoint) -> Bool = { w.contains($0) }
         let isLand: (TilePoint) -> Bool = { !w.contains($0) }
         // centre (6,6): every edge water cell is at Manhattan distance 1; first in scan order wins
-        let r = PlazaPond.nearestEdgeWater(to: p(6, 6), isWater: isWater, isLand: isLand)
+        let r = PlazaPond.nearestEdgeWater(to: p(6, 6), from: p(6, 0), isWater: isWater, isLand: isLand)
         XCTAssertEqual(r, p(6, 5))
-        XCTAssertEqual(PlazaPond.nearestEdgeWater(to: p(7, 7), isWater: isWater, isLand: isLand), p(7, 7))
-        XCTAssertNil(PlazaPond.nearestEdgeWater(to: p(0, 0), isWater: { _ in false }, isLand: { _ in true }))
+        XCTAssertEqual(PlazaPond.nearestEdgeWater(to: p(7, 7), from: p(0, 0), isWater: isWater, isLand: isLand), p(7, 7))
+        XCTAssertNil(PlazaPond.nearestEdgeWater(to: p(0, 0), from: p(0, 0), isWater: { _ in false }, isLand: { _ in true }))
+    }
+
+    func testNearestEdgeWaterPrefersTheWalkersSide() {
+        let w = block(5, 5, 3, 3)
+        let isWater: (TilePoint) -> Bool = { w.contains($0) }
+        let isLand: (TilePoint) -> Bool = { !w.contains($0) }
+        func edge(from: TilePoint) -> TilePoint? {
+            PlazaPond.nearestEdgeWater(to: p(6, 6), from: from, isWater: isWater, isLand: isLand)
+        }
+        XCTAssertEqual(edge(from: p(10, 6)), p(7, 6), "east of the pond")
+        XCTAssertEqual(edge(from: p(6, 10)), p(6, 7), "south of the pond")
+        XCTAssertEqual(edge(from: p(0, 6)), p(5, 6), "west of the pond")
+        XCTAssertEqual(edge(from: p(10, 10)), p(7, 6), "equally near sides keep the scan order")
     }
 }

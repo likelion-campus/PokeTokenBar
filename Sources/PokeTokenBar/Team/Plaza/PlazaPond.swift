@@ -119,20 +119,24 @@ enum PlazaPond {
     }
 
     /// 걸어가기 목표: 물속 팀원에게 가장 가까운(맨해튼) 물 칸 중 상하좌우에 땅이 있는 칸. 없으면 nil.
-    /// 거리가 같으면 위쪽(y), 그다음 왼쪽(x) 칸.
-    static func nearestEdgeWater(to target: TilePoint, isWater: (TilePoint) -> Bool,
+    /// 같은 거리의 후보 가운데에서는 걷는 쪽(`from`)에 가장 가까운 칸, 그래도 같으면 위쪽(y), 그다음 왼쪽(x) 칸.
+    static func nearestEdgeWater(to target: TilePoint, from: TilePoint, isWater: (TilePoint) -> Bool,
                                  isLand: (TilePoint) -> Bool) -> TilePoint? {
         func isEdge(_ q: TilePoint) -> Bool {
             isWater(q) && PlazaDirection.allCases.contains { isLand(PlazaWalker.offset(q, $0)) }
         }
         for d in 0...edgeSearchRadius {
+            var best: (tile: TilePoint, distance: Int)?
             for dy in -d...d {
                 let rest = d - abs(dy)
                 for dx in Set([-rest, rest]).sorted() {
                     let q = at(target, dx, dy)
-                    if isEdge(q) { return q }
+                    guard isEdge(q) else { continue }
+                    let distance = abs(q.x - from.x) + abs(q.y - from.y)
+                    if best == nil || distance < best!.distance { best = (q, distance) }
                 }
             }
+            if let best { return best.tile }
         }
         return nil
     }

@@ -780,6 +780,20 @@ final class PlazaPhotoTests: XCTestCase {
         for _ in 0..<6 { t += 1.0 / 30; s.update(t) }
     }
 
+    /// While a swimmer fades into a dive the name plate follows the visible (cut) height, not the full sprite.
+    func testSwimmerNamePlateUsesTheVisibleHeightWhileDiving() throws {
+        let s = pondScene()
+        addMembers(s, [("dive", TilePoint(x: 35, y: 18), true)])
+        s.update(0)
+        s.update(1.0 / 30)   // the dive fade is a sixth of the way: 0 < concealment < 0.5
+        let swimmer = try XCTUnwrap(try XCTUnwrap(s.photoInput()).actors.first { abs($0.foot.x - 35.5 * 32) < 1 })
+        XCTAssertGreaterThan(swimmer.opacity, 0)
+        let c = CGFloat(1.0 / 30 / PlazaPond.diveFade)
+        let visible = 72 - swimmer.sink
+        let expected = swimmer.foot.y - (visible - (visible - PlazaTallGrass.hiddenPlateLift) * min(1, c * 2))
+        XCTAssertEqual(try XCTUnwrap(swimmer.plateBaseY), expected, accuracy: 0.5)
+    }
+
     func testPhotoInputCarriesSwimAndDive() throws {
         let s = pondScene()
         addMembers(s, [("swim", TilePoint(x: 34, y: 18), false), ("dive", TilePoint(x: 35, y: 18), true),

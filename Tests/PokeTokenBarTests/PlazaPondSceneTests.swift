@@ -291,6 +291,8 @@ final class PlazaPondSceneTests: XCTestCase {
         let plunger = scene(start: p(31, 18))
         plunger.face(.right)
         plunger.plunge(.right)
+        plunger.update(0)
+        plunger.update(1.0 / 30)
         XCTAssertEqual(plunger.dustCount, 2, "the take-off of a plunge is still on land")
     }
 
@@ -458,6 +460,104 @@ final class PlazaPondSceneTests: XCTestCase {
         s.plunge(.right)   // a second Z in the middle of the plunge step
         run(s, 1, from: t)
         XCTAssertEqual(s.walker.tile, p(32, 18), "one tile only")
+    }
+
+    /// Z pressed in the middle of a land step: the arc must wait for the plunge step, not start with the old step.
+    func testPlungeArcWaitsForThePlungeStep() {
+        let s = scene(start: p(30, 18))
+        s.face(.right)
+        var t = run(s, 0.1)
+        s.handleKeyDown(keyCode: rightKey, characters: nil, isRepeat: false)
+        t += 1.0 / 30; s.update(t)
+        s.handleKeyUp(keyCode: rightKey)
+        XCTAssertEqual(s.walker.currentStep?.to, p(31, 18), "a land step is under way")
+        s.plunge(.right)
+        var liftOnLand = false
+        var startedAt: Int?
+        var liftAt: Int?
+        for i in 0..<30 {
+            t += 1.0 / 30; s.update(t)
+            let swimCut = s.walker.currentStep.map { map.isWater($0.to) && !map.isWater($0.from) } ?? false
+            if swimCut, startedAt == nil { startedAt = i }
+            let lift = s.jumpLift(memberID: nil) ?? 0
+            if lift > 0, liftAt == nil { liftAt = i }
+            if lift > 0, startedAt == nil { liftOnLand = true }
+        }
+        XCTAssertFalse(liftOnLand, "no lift before the plunge step starts")
+        XCTAssertNotNil(startedAt)
+        XCTAssertLessThanOrEqual((liftAt ?? 99) - (startedAt ?? 0), 1, "the lift begins with the plunge step")
+        XCTAssertGreaterThanOrEqual(liftAt ?? -1, startedAt ?? 99)
+    }
+
+    func testPlungeFromStandstillLiftsOnTheNextUpdate() {
+        let s = scene(start: p(31, 18))
+        s.face(.right)
+        let t = run(s, 0.1)
+        s.plunge(.right)
+        XCTAssertEqual(s.jumpLift(memberID: nil) ?? 0, 0)
+        s.update(t + 1.0 / 30)
+        XCTAssertGreaterThan(s.jumpLift(memberID: nil) ?? 0, 0)
+    }
+
+    /// A snap (here: going away to the shelter) removes the plunge step without it ever landing: no splash.
+    func testNoSplashFromAPlungeThatNeverLanded() throws {
+        let s = scene(start: p(20, 22))
+        addAll(s, [at("a", p(31, 18)), at("neighbour", p(31, 17))])
+        let layer = try XCTUnwrap(s.pondLayer)
+        var t = run(s, 0.1)
+        s.applyMembers([at("a", p(32, 18)), at("neighbour", p(31, 17))])
+        t = run(s, 0.04, from: t)
+        XCTAssertNotNil(s.memberTiles["a"].flatMap { map.isWater($0) ? $0 : nil }, "the plunge step is under way")
+        s.applyMembers([member("a", p(32, 18), away: true), at("neighbour", p(31, 17))])
+        var peak = 0
+        for _ in 0..<30 { t += 1.0 / 30; s.update(t); peak = max(peak, layer.dropletCount) }
+        XCTAssertFalse(map.isWater(try XCTUnwrap(s.memberTiles["a"])), "snapped to the shelter")
+        XCTAssertEqual(peak, 0)
+        XCTAssertEqual(s.isWet(memberID: "neighbour"), false)
+        XCTAssertEqual(s.isWet(memberID: nil), false)
+    }
+
+    /// Holding the arrow starts the next swim step in the same frame the plunge lands; that still splashes.
+    func testAPlungeFollowedAtOnceByAHeldSwimStepStillSplashes() throws {
+        let s = scene(start: p(31, 18))
+        s.face(.right)
+        let layer = try XCTUnwrap(s.pondLayer)
+        var t = run(s, 0.1)
+        s.plunge(.right)
+        s.handleKeyDown(keyCode: rightKey, characters: nil, isRepeat: false)
+        var peak = 0
+        for _ in 0..<30 { t += 1.0 / 30; s.update(t); peak = max(peak, layer.dropletCount) }
+        XCTAssertGreaterThan(s.walker.tile.x, 32, "swimming on")
+        XCTAssertEqual(peak, PlazaPondLayer.bigDroplets)
+    }
+
+    func testWaterlineRingStaysOnTheWaterWhileASwimmerJumps() throws {
+        let s = scene(start: p(20, 22))
+        add(s, "a", p(34, 18))
+        var t = run(s, 0.1)
+        let rest = try XCTUnwrap(s.memberSwimRingY("a"))
+        XCTAssertEqual(s.memberSwimRingVisible("a"), true)
+        s.playJump(memberID: "a")
+        var sawLift = false
+        for _ in 0..<6 {
+            t += 1.0 / 30; s.update(t)
+            if (s.jumpLift(memberID: "a") ?? 0) > 0 {
+                sawLift = true
+                XCTAssertEqual(try XCTUnwrap(s.memberSwimRingY("a")), rest, "the ring keeps its bob but not the lift")
+            }
+        }
+        XCTAssertTrue(sawLift)
+    }
+
+    func testWalkingToAMemberInTheWaterStopsOnTheNearSide() {
+        let s = scene(start: p(31, 17))
+        addAll(s, [at("swimmer", p(33, 17))])
+        let t = run(s, 0.1)
+        XCTAssertTrue(s.walk(toMember: "swimmer"))
+        run(s, 1, from: t)
+        XCTAssertNil(s.walkingToMember)
+        XCTAssertEqual(s.walker.tile, p(31, 17), "stays on this side instead of walking round the pond")
+        XCTAssertEqual(s.walker.facing, .right)
     }
 
     func testPlungingWhileWalkingToAMemberStopsTheWalk() {
