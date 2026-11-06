@@ -5,12 +5,48 @@ import XCTest
 /// (Xcode 26.5의 로컬 컴파일러는 통과시킨다). 저장소 관용구: 동기 override가 쓰는 프로퍼티는 `nonisolated(unsafe)`로 둔다.
 /// defect-log "빌드·도구체인" 참고.
 final class TestIsolationTests: XCTestCase {
-    func testSynchronousSetUpAndTearDownInMainActorTestsTouchOnlyUnsafeState() throws {
+    private func testFiles() throws -> [URL] {
         let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()   // PokeTokenBarTests
-        let files = try FileManager.default.contentsOfDirectory(at: tests, includingPropertiesForKeys: nil)
+        return try FileManager.default.contentsOfDirectory(at: tests, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "swift" && $0.lastPathComponent != "TestIsolationTests.swift" }   // 아래 예시 문자열은 빼고
+    }
+
+    /// `@MainActor` 테스트의 `await super.setUp()`은 Xcode 16.4에서 `self` 전송 오류다. 로컬 컴파일러는 통과시키므로 여기서 막는다.
+    func testNoTestAwaitsSuper() throws {
         var offenders: [String] = []
-        for url in files {
+        for url in try testFiles() {
+            let lines = try String(contentsOf: url, encoding: .utf8)
+                .split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+            offenders += Self.awaitedSuperCalls(in: lines, file: url.lastPathComponent)
+        }
+        XCTAssertTrue(offenders.isEmpty, """
+            `await super.setUp()`/`tearDown()` fails to compile on CI's Xcode 16.4 in a @MainActor test. \
+            Drop the call: XCTestCase's own versions do nothing. \(offenders.joined(separator: ", "))
+            """)
+    }
+
+    func testTheScanFlagsAwaitedSuperCalls() {
+        let lines = """
+            override func setUp() async throws {
+                try await super.setUp()
+                // try await super.setUp()
+                let note = "await super.setUp()"
+            }
+            override func tearDown() async throws { await  super.tearDown() }
+            override func setUp() { super.setUp() }
+            """.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        XCTAssertEqual(Self.awaitedSuperCalls(in: lines, file: "A.swift"), ["A.swift:2", "A.swift:6"])
+    }
+
+    static func awaitedSuperCalls(in lines: [String], file: String) -> [String] {
+        lines.enumerated().compactMap { i, line in
+            stripped(line).range(of: #"await\s+super\."#, options: .regularExpression) == nil ? nil : "\(file):\(i + 1)"
+        }
+    }
+
+    func testSynchronousSetUpAndTearDownInMainActorTestsTouchOnlyUnsafeState() throws {
+        var offenders: [String] = []
+        for url in try testFiles() {
             let lines = try String(contentsOf: url, encoding: .utf8)
                 .split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
             offenders += Self.offenders(in: lines, file: url.lastPathComponent)

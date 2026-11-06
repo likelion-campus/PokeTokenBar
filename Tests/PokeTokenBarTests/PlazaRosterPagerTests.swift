@@ -22,7 +22,6 @@ final class PlazaRosterPagerTests: XCTestCase {
     private var previousPoint: CGPoint { CGPoint(x: nextPoint.x - PlazaRosterMetrics.pagerHitSize, y: nextPoint.y) }
 
     override func setUp() async throws {
-        try await super.setUp()
         let png = try XCTUnwrap(PlazaRosterTests.solidPNG(red: 1))
         _ = await PlazaIconLoader.icon(speciesID: species) { _ in png }
     }

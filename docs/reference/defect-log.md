@@ -750,6 +750,9 @@ read_when:
   ② `setUpWithError()`/`tearDownWithError()` 를 안 보고 ③ `private(set) var` 를 멤버로 못 세고 ④ 문자열·주석 안의 `{` 로
   깊이가 틀어졌다. 앞 줄을 한 번에 적어 선형(0.28초)으로 만들고 세 경우를 `testTheScanFlagsIsolatedMembersOnly` 에 더했다
   (각 규칙을 되돌리면 실패). 실제 테스트 파일에는 새 위반이 없다.
+  **재발(2026-11-06, 팀원 목록 페이지 PR #77):** 새 `@MainActor` 테스트의 `try await super.setUp()` 이 CI(Xcode 16.4)에서만 컴파일 실패했다.
+  **왜 못 걸렀나:** 이 금지는 위에 문장으로만 있었고, 가드는 동기 override 만 봤다. 로컬 게이트가 통과해 PR 전에 이 절을 다시 볼 이유도 없었다.
+  → `TestIsolationTests.testNoTestAwaitsSuper` 가 `await super.` 를 스캔한다(줄을 되살리면 로컬에서 실패, 주입 확인). 스윕: 전체에서 이 한 곳이었다.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
