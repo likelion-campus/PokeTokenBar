@@ -953,13 +953,13 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     var sparkleCount: Int { sparkles.count }
 
-    /// 그 캐릭터(nil이면 나) 머리 위로 한 발이 올라가 터진다. 내 불꽃은 앞의 불꽃이 끝나야 쏠 수 있어 난사할 수 없다.
-    /// 시간을 재지 않아 창이 멈추면 기다림도 멈춘다. 팀원의 불꽃은 그 팀원의 Mac이 막았으니 여기서는 막지 않는다.
+    /// 그 캐릭터(nil이면 나) 머리 위로 한 발이 올라가 터진다. 내 불꽃은 0.5초에 한 발까지 쏠 수 있다(앞의 불꽃이 떠 있어도 된다).
+    /// 간격은 불꽃 층의 시간으로 재서 창이 멈추면 기다림도 멈춘다. 팀원의 불꽃은 그 팀원의 Mac이 막았으니 여기서는 막지 않는다.
     /// 터뜨리지 못했으면 false. 창이 가려져 멈춘 장면은 볼 수 없으니 터뜨리지 않는다.
     @discardableResult
     func playFirework(memberID: String?, style: String?) -> Bool {
         guard !isPaused, let actor = actor(memberID) else { return false }
-        if memberID == nil, fireworkLayer.isFiring(owner: nil) { return false }
+        if memberID == nil, !fireworkLayer.canLaunchOwn { return false }
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         let head = CGPoint(x: foot.x, y: worldSize.height - foot.y + actor.characterSize.height)
         // 양옆의 안내판과 목록이 덮는 폭은 빼고 본다. 멀리 있는 팀원의 불꽃이 그 뒤에서 터지면 보이지 않는다.

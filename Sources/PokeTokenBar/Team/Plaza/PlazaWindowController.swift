@@ -540,7 +540,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 직전에 쏜 불꽃 종류. 같은 종류가 연달아 나오지 않게 기억한다.
     private var lastFireworkStyle: String?
 
-    /// 무작위 종류로 한 발을 쏘고 팀원들에게 보낸다. 앞의 불꽃이 끝나지 않았으면 장면이 거절해 아무에게도 보내지 않는다.
+    /// 무작위 종류로 한 발을 쏘고 팀원들에게 보낸다. 쏜 지 0.5초가 안 지났으면 장면이 거절해 아무에게도 보내지 않는다.
     private func handleFireworkKey() {
         var rng = SystemRandomNumberGenerator()
         let style = PlazaFireworks.next(after: lastFireworkStyle, using: &rng)

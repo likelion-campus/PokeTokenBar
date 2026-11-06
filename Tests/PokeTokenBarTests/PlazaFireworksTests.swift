@@ -212,7 +212,7 @@ final class PlazaFireworksTests: XCTestCase {
         layer.launch(ring(), at: CGPoint(x: 200, y: 200))
         advance(layer, seconds: F.riseDuration + ring().duration + 0.2)
         XCTAssertEqual(layer.shownCount, 0)
-        XCTAssertFalse(layer.isFiring(owner: nil))
+        XCTAssertEqual(layer.styleIDs, [])
         XCTAssertTrue(layer.isActive, "the dark is still lifting")
         advance(layer, seconds: 0.4)
         XCTAssertFalse(layer.isActive)
@@ -240,7 +240,7 @@ final class PlazaFireworksTests: XCTestCase {
         XCTAssertTrue(layer.launch(ring(), at: CGPoint(x: 200, y: 200), owner: "가"))
     }
 
-    /// Teammates filling the sky must not stop my F. I can only have one in the air, so the total stays bounded.
+    /// Teammates filling the sky must not stop my F. My own are limited by the launch interval, not the cap.
     func testAFullSkyStillTakesMyFirework() {
         let layer = PlazaFireworkLayer()
         while layer.launch(ring(), at: CGPoint(x: 200, y: 200), owner: "가") {}
@@ -477,7 +477,44 @@ final class PlazaFireworksTests: XCTestCase {
         s.applyMembers([PlazaSceneMember(memberID: "가", nickname: "가", isAway: false, tile: map.spawn, facing: .down, isWalking: false)])
         XCTAssertTrue(s.playFirework(memberID: "가", style: "ring"))
         XCTAssertTrue(s.playFirework(memberID: nil, style: "ring"))
-        XCTAssertFalse(s.playFirework(memberID: nil, style: "ring"), "my own is in the air now")
+        XCTAssertFalse(s.playFirework(memberID: nil, style: "ring"), "my own was just fired")
+    }
+
+    // MARK: 내 불꽃 간격
+
+    func testMyNextFireworkWaitsHalfASecondOfLayerTime() {
+        let layer = PlazaFireworkLayer()
+        XCTAssertTrue(layer.canLaunchOwn, "nothing fired yet")
+        layer.launch(ring(), at: CGPoint(x: 200, y: 200))
+        XCTAssertFalse(layer.canLaunchOwn, "no time has passed")
+        layer.advance(by: 0.4)
+        XCTAssertFalse(layer.canLaunchOwn)
+        layer.advance(by: 0.1)
+        XCTAssertTrue(layer.canLaunchOwn, "0.5 s on the layer clock")
+        XCTAssertEqual(PlazaFireworkLayer.ownInterval, 0.5)
+    }
+
+    func testASecondOfMineLaunchesWhileTheFirstIsStillInTheAir() {
+        let s = scene()
+        s.update(0)
+        XCTAssertTrue(s.playFirework(memberID: nil, style: "ring"))
+        run(s, seconds: 0.4, from: 0)
+        XCTAssertFalse(s.playFirework(memberID: nil, style: "ring"), "0.4 s is too soon")
+        run(s, seconds: 0.1, from: 0.4)
+        let one = s.fireworkPieceCount
+        XCTAssertGreaterThan(one, 0)
+        XCTAssertTrue(s.playFirework(memberID: nil, style: "ring"), "0.5 s on, with the first still rising")
+        run(s, seconds: 1, from: 0.5)
+        XCTAssertGreaterThan(s.fireworkPieceCount, one, "both bursts are drawn")
+    }
+
+    func testMyIntervalDoesNotGateTeammates() {
+        let layer = PlazaFireworkLayer()
+        layer.launch(ring(), at: CGPoint(x: 200, y: 200))
+        XCTAssertFalse(layer.canLaunchOwn)
+        XCTAssertTrue(layer.launch(ring(), at: CGPoint(x: 200, y: 200), owner: "가"))
+        XCTAssertTrue(layer.launch(ring(), at: CGPoint(x: 200, y: 200), owner: "가"), "no per-sender gate on the receiver")
+        XCTAssertFalse(layer.canLaunchOwn, "theirs do not restart or clear my wait")
     }
 
     /// A teammate's Mac decides when they may fire. A slow frame here must not lose their next one.
@@ -804,9 +841,9 @@ final class PlazaFireworksTests: XCTestCase {
         XCTAssertEqual(scene.fireworkStyleIDs, [sent], "the same style on both screens")
     }
 
-    /// F is held back until my last firework has finished, so it cannot be spammed. It takes no clock: the show pauses with
-    /// the window, and so does the wait.
-    func testTheNextFireworkWaitsForTheLastToFinish() async throws {
+    /// F is held back until 0.5 s after my last firework, so it cannot be spammed. The wait is scene time, not the wall clock:
+    /// the show pauses with the window, and so does the wait.
+    func testTheNextFireworkWaitsHalfASecondOfSceneTime() async throws {
         let hub = FakeTransportHub()
         var rng = SystemRandomNumberGenerator()
         let code = TeamCode.generate(using: &rng)
@@ -817,19 +854,18 @@ final class PlazaFireworksTests: XCTestCase {
         let scene = try await connected(c, meT, otherT, hub: hub, other: otherS)
         scene.handleKeyDown(keyCode: fireworkKey, characters: "ㄹ", isRepeat: false)
         await settle()
-        let first = try XCTUnwrap(other.emotes.first?.fireworkStyle)
-        let duration = F.riseDuration + F.style(id: first).duration
+        XCTAssertEqual(other.emotes.count, 1)
 
-        run(scene, seconds: duration - 0.3, from: 0)
+        run(scene, seconds: 0.3, from: 0)
         clockNow = clockNow.addingTimeInterval(3600)
         scene.handleKeyDown(keyCode: fireworkKey, characters: "ㄹ", isRepeat: false)
         await settle()
-        XCTAssertEqual(other.emotes.count, 1, "still in the air, however long the wall clock says")
+        XCTAssertEqual(other.emotes.count, 1, "too soon, however long the wall clock says")
 
-        run(scene, seconds: 0.5, from: duration - 0.3)
+        run(scene, seconds: 0.3, from: 0.3)
         scene.handleKeyDown(keyCode: fireworkKey, characters: "ㄹ", isRepeat: false)
         await settle()
-        XCTAssertEqual(other.emotes.count, 2)
+        XCTAssertEqual(other.emotes.count, 2, "0.5 s of scene time passed while the first is still in the air")
     }
 
     /// One pair of shots differs by chance seven times in eight, so this fires enough of them to catch a repeat.
