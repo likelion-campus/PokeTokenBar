@@ -33,7 +33,13 @@ final class TeamTokenBucketTests: XCTestCase {
         XCTAssertTrue(b.take(5, now: t0))
     }
 
-    func testAClockGoingBackGivesNothingAndTakesNothing() {
+    func testAClockGoingBackTakesNothingAway() {
+        var b = TeamTokenBucket(capacity: 2, perSecond: 1)
+        XCTAssertTrue(b.take(now: t0))
+        XCTAssertTrue(b.take(now: t0.addingTimeInterval(-100)), "the one that was left is still there")
+    }
+
+    func testAClockGoingBackGivesNothing() {
         var b = TeamTokenBucket(capacity: 2, perSecond: 1)
         XCTAssertTrue(b.take(2, now: t0))
         XCTAssertFalse(b.take(now: t0.addingTimeInterval(-100)))

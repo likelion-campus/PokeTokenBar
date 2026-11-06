@@ -103,6 +103,13 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.insert([r, r, sameSlot, otherKind]).map(\.id), ["r", "r3"])
     }
 
+    func testTwoReactionsWithOneIDInAFrameKeepTheFirst() {
+        let store = makeStore()
+        let first = TeamReaction(id: "r", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .cute, text: nil, createdAt: now)
+        let reused = TeamReaction(id: "r", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .lol, text: nil, createdAt: now)
+        XCTAssertEqual(store.insert([first, reused]).map(\.kind), [.cute])
+    }
+
     private func event(_ id: String, author: String = "bob", at: Date? = nil, day: String? = nil) -> TeamEvent {
         TeamEvent(id: id, authorID: author, authorNickname: author, kind: .hatch,
                   speciesID: 25, fromSpeciesID: nil, speciesName: "Pikachu", fromSpeciesName: nil,
