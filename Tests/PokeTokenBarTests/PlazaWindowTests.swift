@@ -795,25 +795,21 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(view.fittingSize.height - one, 3 * slot, accuracy: 1)
     }
 
+    /// A new view per case: without a window, macOS 15 does not refresh `fittingSize` after a second change to the model.
     func testRosterPanelHoldsOnePage() {
-        let model = PlazaRosterModel()
-        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
-        func people(_ count: Int) -> [PlazaRosterEntry] {
-            (0..<count).map {
+        func height(people count: Int, page: Int = 0) -> CGFloat {
+            let model = PlazaRosterModel()
+            model.entries = (0..<count).map {
                 PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
                                  isShiny: false, presence: .idle, isMe: false)
             }
+            model.page = page
+            return PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
         }
-        model.entries = people(6)
-        view.layoutSubtreeIfNeeded()
-        let six = view.fittingSize.height
-        model.entries = people(7)
-        view.layoutSubtreeIfNeeded()
-        XCTAssertEqual(view.fittingSize.height, six, accuracy: 1, "the seventh person goes to the next page")
-        model.page = 1
-        view.layoutSubtreeIfNeeded()
+        let six = height(people: 6)
+        XCTAssertEqual(height(people: 7), six, accuracy: 1, "the seventh person goes to the next page")
         let slot = PlazaRosterMetrics.slotHeight + PlazaRosterMetrics.slotSpacing
-        XCTAssertEqual(six - view.fittingSize.height, 5 * slot, accuracy: 1)
+        XCTAssertEqual(six - height(people: 7, page: 1), 5 * slot, accuracy: 1)
     }
 
     /// The roster draws under the minimap and the clock, so its reserve must cover both as they really measure.

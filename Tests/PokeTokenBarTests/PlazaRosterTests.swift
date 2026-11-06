@@ -215,11 +215,13 @@ extension PlazaRosterTests {
         let id = 987_654
         let png = try XCTUnwrap(Self.solidPNG(red: 1))
         var loads = 0
+        XCTAssertNil(PlazaIconLoader.cachedIcon(speciesID: id))
         let first = await PlazaIconLoader.icon(speciesID: id) { _ in loads += 1; return png }
         XCTAssertNotNil(first)
         let second = await PlazaIconLoader.icon(speciesID: id) { _ in loads += 1; return nil }
         XCTAssertTrue(second === first)
         XCTAssertEqual(loads, 1)
+        XCTAssertTrue(PlazaIconLoader.cachedIcon(speciesID: id) === first)
     }
 
     @MainActor func testFailedIconIsTriedAgain() async throws {
@@ -232,7 +234,8 @@ extension PlazaRosterTests {
     }
 
     /// Turning a page mounts new rows. A remembered icon must be there on the first frame, not after a blank one.
-    /// The icon draws as r0.94 g0.29 here, the blank placeholder as r0.73 g0.75.
+    /// The icon draws with green under 0.5, the blank placeholder as r0.73 g0.75. Only macOS 15 tells them apart without
+    /// the row's own lookup: there `.task` runs after the first frame, while on macOS 26 it has already finished.
     @MainActor func testRememberedIconDrawsOnTheFirstFrame() async throws {
         let id = 987_656
         let png = try XCTUnwrap(Self.solidPNG(red: 1))

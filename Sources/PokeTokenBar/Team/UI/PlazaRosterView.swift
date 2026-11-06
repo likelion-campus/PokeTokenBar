@@ -186,9 +186,15 @@ private struct PlazaRosterIcon: View {
     @State private var image: NSImage?
     @State private var up = false
 
+    /// 페이지를 넘기면 칸이 새로 생긴다. macOS 15 는 `.task` 가 첫 그림 뒤에 도니, 메모리에 있는 아이콘은 여기서 바로 그린다.
+    private var cached: NSImage? {
+        if let speciesID { return PlazaIconLoader.cachedIcon(speciesID: speciesID) }
+        return SpriteLoader.cachedEggImage()
+    }
+
     var body: some View {
         Group {
-            if let image {
+            if let image = cached ?? image {
                 Image(nsImage: image).interpolation(.none).resizable().scaledToFit()
             } else {
                 RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.25)).padding(4)
