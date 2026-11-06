@@ -29,6 +29,13 @@ enum PlazaRosterMetrics {
     static let listTopPadding: CGFloat = 6
     static let slotHeight: CGFloat = 44
     static let slotSpacing: CGFloat = 4
+    /// 한 페이지의 최대 칸 수. 포켓몬 게임의 파티가 여섯 마리인 데서 왔다.
+    static let pageSize = 6
+    /// 머리줄 < > 단추의 누르는 영역(한 변).
+    static let pagerHitSize: CGFloat = 24
+    /// 창 아래에서 비워 두는 높이: 아래 여백 16, 작은 지도 136, 사이 6, 시계 24, 시계와 띄우는 6.
+    /// 작은 지도와 시계가 목록 위에 그려지므로 목록은 이 위에서 끝난다.
+    static let bottomClearance: CGFloat = 188
 }
 
 /// 화면이 지켜보는 목록. 창이 닫혀도 모델만 남고 그리기는 멈춘다.
@@ -36,8 +43,16 @@ enum PlazaRosterMetrics {
     var entries: [PlazaRosterEntry] = []
     /// 창이 가려지거나 최소화되면 false — 목록 아이콘의 통통 튐을 멈춘다.
     var isAnimating = true
-    /// 창 높이에 맞는 최대 칸 수. 창 크기가 바뀔 때 정한다.
-    var capacity = Int.max
+    /// 한 페이지의 칸 수. 창 크기가 바뀔 때 정한다.
+    var capacity = PlazaRosterMetrics.pageSize
+    /// 보고 있는 페이지(0부터). 인원이 줄어 없어진 페이지면 그릴 때 마지막 페이지로 본다.
+    var page = 0
+
+    /// 보이는 페이지에서 앞이나 뒤로 넘긴다. 끝에서는 그대로다.
+    func turnPage(by delta: Int) {
+        let now = PlazaRoster.page(entries, index: page, size: capacity)
+        page = min(max(now.index + delta, 0), now.count - 1)
+    }
 }
 
 enum PlazaRoster {
@@ -83,19 +98,19 @@ enum PlazaRoster {
         return sorted((mine.map { [$0] } ?? []) + others)
     }
 
-    /// 창 높이(포인트)에 들어가는 칸 수. 넘칠 때 "외 N명" 줄이 마지막 칸을 쓰므로 최소 2칸은 둔다.
+    /// 창 높이(포인트)에서 시계 위까지 들어가는 칸 수. 많아도 한 페이지(여섯 칸)까지다.
     static func capacity(forHeight height: CGFloat) -> Int {
         let m = PlazaRosterMetrics.self
-        let available = height - 2 * m.margin - 2 * m.padding - m.headerHeight - m.listTopPadding
+        let available = height - m.margin - m.bottomClearance - 2 * m.padding - m.headerHeight - m.listTopPadding
         let slots = Int(((available + m.slotSpacing) / (m.slotHeight + m.slotSpacing)).rounded(.down))
-        return max(2, slots)
+        return min(m.pageSize, max(1, slots))
     }
 
-    /// 넘치면 마지막 칸 자리를 "외 N명" 줄로 쓴다. 입력을 받지 않아 스크롤할 수 없으므로, 잘리는 쪽은 정렬상 뒤(자리비움, 잠)다.
-    static func visible(_ entries: [PlazaRosterEntry], capacity: Int) -> (shown: [PlazaRosterEntry], hidden: Int) {
-        guard entries.count > capacity else { return (entries, 0) }
-        let keep = max(0, capacity - 1)
-        return (Array(entries.prefix(keep)), entries.count - keep)
+    /// 정렬된 목록을 `size`칸씩 나눈 한 페이지. 없어진 페이지를 달라고 하면 마지막 페이지를 준다.
+    static func page(_ entries: [PlazaRosterEntry], index: Int, size: Int) -> (shown: [PlazaRosterEntry], index: Int, count: Int) {
+        let count = max(0, entries.count - 1) / size + 1
+        let index = min(index, count - 1)
+        return (Array(entries.dropFirst(index * size).prefix(size)), index, count)
     }
 
     /// 나 → 접속(집중 포함) → 자리비움 → 잠, 같은 무리 안에서는 닉네임 순.

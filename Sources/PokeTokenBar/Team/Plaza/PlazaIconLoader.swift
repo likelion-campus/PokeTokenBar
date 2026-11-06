@@ -6,11 +6,19 @@ enum PlazaIconLoader {
         URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-vii/icons/\(speciesID).png")!
     }
 
-    /// 캐시에 있으면 그것을, 없으면 받아서 캐시한다. 실패하면 nil(화면은 빈 자리표시를 그린다).
+    /// 이번 실행에서 그린 아이콘. 페이지를 넘겨 새로 생긴 칸이 받기를 기다리지 않고 첫 그림부터 쓴다.
+    @MainActor private static var memory: [Int: NSImage] = [:]
+
     @MainActor
-    static func icon(speciesID: Int) async -> NSImage? {
-        guard let data = await iconData(speciesID: speciesID) else { return nil }
-        return NSImage(data: data)
+    static func cachedIcon(speciesID: Int) -> NSImage? { memory[speciesID] }
+
+    /// 메모리나 캐시에 있으면 그것을, 없으면 받아서 캐시한다. 실패하면 nil(화면은 빈 자리표시를 그린다).
+    @MainActor
+    static func icon(speciesID: Int, load: (Int) async -> Data? = iconData) async -> NSImage? {
+        if let kept = memory[speciesID] { return kept }
+        guard let data = await load(speciesID), let image = NSImage(data: data) else { return nil }
+        memory[speciesID] = image
+        return image
     }
 
     /// 파일·네트워크는 메인 액터 밖에서 처리하고, 격리 경계는 `NSImage` 대신 `Data`로 넘는다.

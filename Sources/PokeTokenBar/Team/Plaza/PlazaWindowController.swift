@@ -41,7 +41,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 지금 칸까지 저장해 두는 지난 칸 수(하루 치).
     private static let keptTakenSlots = 8
     private let nameColorModel = PlazaNameColorModel()
-    private let rosterModel = PlazaRosterModel()
+    let rosterModel = PlazaRosterModel()
     private let clock: () -> Date
     private let profileTimeout: Duration
     private let overlayModel = PlazaOverlayModel()
@@ -229,9 +229,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             view.frame = container.bounds
             view.autoresizingMask = [.width, .height]
             container.addSubview(view)
-            let roster = PlazaRosterHostingView(rootView: PlazaRosterView(model: rosterModel, onSelect: { [weak self] in
-                self?.walkToMember($0)
-            }))
+            let roster = PlazaRosterHostingView(rootView: rosterView())
             roster.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(roster)   // SKView 위. 입력은 받지 않고 SKView가 첫 응답자를 유지한다.
             NSLayoutConstraint.activate([
@@ -883,6 +881,18 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if let skView { window?.makeFirstResponder(skView) }
     }
 
+    /// 창에 올리는 목록. 칸은 그 팀원에게 걸어가고, < > 는 페이지를 넘긴다.
+    func rosterView() -> PlazaRosterView {
+        PlazaRosterView(model: rosterModel, onSelect: { [weak self] in self?.walkToMember($0) },
+                        onTurn: { [weak self] in self?.turnRosterPage(by: $0) })
+    }
+
+    /// 목록 페이지를 넘긴다. 누른 뒤에도 키는 장면이 받는다.
+    func turnRosterPage(by delta: Int) {
+        rosterModel.turnPage(by: delta)
+        if let skView { window?.makeFirstResponder(skView) }
+    }
+
     /// 대화 기록을 펼치거나 접는다. 누른 뒤에도 키는 장면이 받는다.
     func toggleChatLog() {
         chatLog.isExpanded.toggle()
@@ -1284,6 +1294,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         renderLoop = nil
         scene = nil
         rosterModel.entries = []
+        rosterModel.page = 0
         rosterModel.isAnimating = true
         myEntryCache = nil
         refreshGeneration += 1

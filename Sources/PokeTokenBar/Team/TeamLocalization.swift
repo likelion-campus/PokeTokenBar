@@ -150,7 +150,6 @@ extension L {
     func plazaCardTitle(nickname: String) -> String { "\(nickname)의 포켓몬" }
     var plazaCardShiny: String { "★ 이로치" }
     var plazaCardFailed: String { "도감을 받지 못했어요" }
-    func plazaRosterMore(_ n: Int) -> String { "외 \(n)명" }
     var plazaBoardTitle: String { "소식판" }
     var plazaBoardEmpty: String { "아직 소식이 없어요" }
     var plazaBoardShinyPrefix: String { "이로치 " }

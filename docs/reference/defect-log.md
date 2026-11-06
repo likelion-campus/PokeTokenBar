@@ -750,6 +750,9 @@ read_when:
   ② `setUpWithError()`/`tearDownWithError()` 를 안 보고 ③ `private(set) var` 를 멤버로 못 세고 ④ 문자열·주석 안의 `{` 로
   깊이가 틀어졌다. 앞 줄을 한 번에 적어 선형(0.28초)으로 만들고 세 경우를 `testTheScanFlagsIsolatedMembersOnly` 에 더했다
   (각 규칙을 되돌리면 실패). 실제 테스트 파일에는 새 위반이 없다.
+  **재발(2026-11-06, 팀원 목록 페이지 PR #77):** 새 `@MainActor` 테스트의 `try await super.setUp()` 이 CI(Xcode 16.4)에서만 컴파일 실패했다.
+  **왜 못 걸렀나:** 이 금지는 위에 문장으로만 있었고, 가드는 동기 override 만 봤다. 로컬 게이트가 통과해 PR 전에 이 절을 다시 볼 이유도 없었다.
+  → `TestIsolationTests.testNoTestAwaitsSuper` 가 `await super.` 를 스캔한다(줄을 되살리면 로컬에서 실패, 주입 확인). 스윕: 전체에서 이 한 곳이었다.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
@@ -1355,6 +1358,22 @@ read_when:
   **회귀 테스트:** `testTheMinimapFollowsTheSceneRightAfterLeaving` 은 사진 모드에서 밀고 지도를 맞춘 뒤 Esc, 갱신 제거 시
   실패. **스윕:** `onPhotoModeChange` 구독자(`photoModeChanged`)가 HUD·힌트·카운트다운·지도를 모두 맞추고, `handleResignKey`/
   `handleBecomeKey` 가 카운트다운을 맞춘다.
+
+- **같은 모서리의 HUD는 서로의 높이를 뺀다 (팀원 목록 페이지).** `PlazaRoster.capacity` 가 창 높이에서 여백만 빼서, 기본 창(640)의 목록이
+  11칸까지 늘어나 시계와 작은 지도 뒤로 들어갔다. 둘은 목록보다 나중에 `addSubview` 돼 위에 그려지므로 실측으로 10명일 때 78pt, 13명일 때
+  126pt가 겹쳐 10번째 줄과 "외 N명" 줄이 가려졌다. 둘은 클릭도 통과시켜 가려진 줄이 그대로 눌렸다. **왜 못 걸렀나:** `testCapacityFitsHeight` 는
+  창 높이 산수만 봤고, 판 둘을 함께 배치해 본 테스트가 없었으며, 눈 확인은 팀원이 적을 때만 했다. **회귀 테스트:** `testPageFitsAboveTheClock`,
+  `testRosterClearanceCoversTheMinimapAndTheClock`(실제 뷰를 재므로 `bottomClearance` 를 150으로 줄이면 실패 확인). **스윕:** 창 높이로 크기를
+  정하는 판은 목록뿐이다. 왼쪽의 단축키 안내(펼치면 266pt)와 대화 기록은 고정 크기라 낮은 창에서 만날 수 있고, 이번에 고치지 않았다.
+
+- **안 눌려야 하는 클릭은 눌리는 클릭과 같이 검사한다 (팀원 목록 페이지).** 호스팅 뷰를 고정 높이로 두자 SwiftUI가 내용을 가운데로 옮겨, 마지막
+  페이지의 `>` 검사가 빈 곳을 누르고 통과했다. 비활성 단추를 고장 내도 그 단언은 잡지 못했다. 실제 창처럼 위쪽 제약으로 배치하고, 같은 클릭 묶음에
+  살아 있는 쪽 화살표를 넣어 좌표가 머리줄에 닿는다는 것까지 증명한다(`testArrowIsDeadAtItsEnd`). **결함 주입은 기준 실행이 통과해야 뜻이 있다:**
+  기준이 빨간 채 돌린 주입은 모두 "잡음"으로 나온다. 주입 스크립트가 기준을 먼저 돌리고 빨가면 멈춰야 한다. **SwiftUI 타이밍은 로컬 OS 결과로 판단하지
+  않는다:** macOS 26 에서는 `.task` 안의 `await` 가 멈추지 않으면 호스팅 뷰의 첫 그림에 결과가 담긴다. 이 실험만 보고 첫 그림용 조회를 "필요 없다"며 지웠다가,
+  macOS 15 CI 에서 `testRememberedIconDrawsOnTheFirstFrame` 이 빈 자리표시 색으로 실패해 되돌렸다. `.task` 가 첫 그림 뒤에 도는 OS 가 있으므로 `body` 에서
+  메모리를 직접 본다. 같은 CI 에서 창 없는 호스팅 뷰의 `fittingSize` 는 모델이 두 번째로 바뀌어도 그대로였다. 크기를 재는 테스트는 경우마다 새 뷰를 만든다
+  (`testRosterPanelHoldsOnePage`). 이 앱의 최소 버전은 macOS 14 라서, 지우는 근거가 로컬 실험뿐이면 CI 를 본 뒤에 지운다.
 
 ## 에너지 (상시 표시 애니메이션)
 
