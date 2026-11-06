@@ -21,6 +21,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var isDiving = false
     /// 진화 단계 1...3.
     var evolutionStage = 1
+    /// 이름 위에 쓰는 성격. 모르면 이름만 쓴다.
+    var nature: PokemonNature?
 }
 
 /// 광장 장면. 월드는 y가 아래로 늘어나고 SpriteKit은 위로 늘어나므로 `sceneY = 월드 높이 - y`로 바꾼다.
@@ -447,6 +449,14 @@ struct PlazaSceneMember: Equatable, Sendable {
         layout()
     }
 
+    /// 내 이름 위의 성격.
+    func setNature(_ nature: PokemonNature?) {
+        let title = nature.map(L(.ko).plazaNatureTitle)
+        guard title != me.title else { return }
+        me.setTitle(title)
+        layout()
+    }
+
     /// 없는 팀원의 캐릭터를 지우고 새 팀원의 캐릭터를 만든다. 값만 받고 그리지 않는다(창이 가려진 동안에도 안전하다).
     func applyMembers(_ members: [PlazaSceneMember]) {
         let ids = Set(members.map(\.memberID))
@@ -476,6 +486,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 r.stage = m.evolutionStage
                 r.color = PlazaNameColor.color(forMemberID: m.memberID, chosen: m.nameColor)
                 r.actor.setName(r.displayName, color: r.color)
+                r.actor.setTitle(m.nature.map(L(.ko).plazaNatureTitle))
                 remotes[m.memberID] = r
             } else {
                 let color = PlazaNameColor.color(forMemberID: m.memberID, chosen: m.nameColor)
@@ -486,6 +497,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 let r = Remote(actor: PlazaActor(name: Remote.displayName(m.nickname, isIdle: m.isIdle), color: color),
                                color: color, nickname: m.nickname, isAway: m.isAway, isIdle: m.isIdle, motion: motion,
                                wanderer: wanderer, diving: m.isDiving, stage: m.evolutionStage)
+                r.actor.setTitle(m.nature.map(L(.ko).plazaNatureTitle))
                 r.actor.attach(world: self, camera: cameraNode)
                 remotes[m.memberID] = r
             }
@@ -1398,10 +1410,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     func shownEmote(memberID: String?) -> TeamEmoteKind? { actor(memberID)?.emoteKind }
     func emoteFrame(memberID: String?) -> CGRect? { actor(memberID)?.emoteFrame }
     func memberNamePlateTop(_ id: String) -> CGFloat? { remotes[id]?.actor.namePlateTop }
+    func memberTitle(_ id: String) -> String? { remotes[id]?.actor.title }
     func memberZ(_ id: String) -> CGFloat? { remotes[id]?.actor.characterZ }
     var myOpacity: CGFloat { me.characterOpacity }
     var myShadowOpacity: CGFloat { me.shadowOpacity }
     var myNamePlateTop: CGFloat { me.namePlateTop }
+    var myTitle: String? { me.title }
     var myFootPoint: CGPoint { walker.footPoint }
     func memberShadowOpacity(_ id: String) -> CGFloat? { remotes[id]?.actor.shadowOpacity }
     func memberNamePlateVisible(_ id: String) -> Bool? { remotes[id]?.actor.isNamePlateVisible }

@@ -15,6 +15,77 @@ final class PlazaNamePlateTests: XCTestCase {
         return data
     }
 
+    // MARK: - 성격 줄
+
+    private let red = CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+
+    /// 글자 채움(순수한 빨강) 픽셀의 x 범위. `rows`는 위에서부터 센 줄이다.
+    private func fillSpan(_ image: CGImage, rows: Range<Int>) -> ClosedRange<Int>? {
+        let data = pixels(image)
+        var low: Int?, high: Int?
+        for y in rows {
+            for x in 0..<image.width {
+                let i = (y * image.width + x) * 4
+                if data[i] == 255, data[i + 1] == 0, data[i + 2] == 0, data[i + 3] == 255 {
+                    low = min(low ?? x, x); high = max(high ?? x, x)
+                }
+            }
+        }
+        guard let low, let high else { return nil }
+        return low...high
+    }
+
+    func testTitleLeavesTheNameWhereItWas() throws {
+        let plain = try XCTUnwrap(PlazaNamePlate.image(text: "아주긴닉네임입니다요", color: red, scale: 2))
+        let titled = try XCTUnwrap(PlazaNamePlate.image(text: "아주긴닉네임입니다요", title: "수줍은", color: red, scale: 2))
+        XCTAssertEqual(titled.width, plain.width, "a narrower title does not widen the plate")
+        XCTAssertGreaterThan(titled.height, plain.height)
+        // 이름표는 아래가 기준이라 아래쪽 줄이 그대로면 이름이 움직이지 않은 것이다. 위쪽은 성격의 그림자가 번진다.
+        let rowBytes = plain.width * 4
+        let lower = plain.height / 2
+        XCTAssertEqual(Array(pixels(titled).suffix(lower * rowBytes)), Array(pixels(plain).suffix(lower * rowBytes)))
+    }
+
+    func testTitleDrawsAboveTheNameInTheNameColour() throws {
+        let plain = try XCTUnwrap(PlazaNamePlate.image(text: "나", color: red, scale: 2))
+        let titled = try XCTUnwrap(PlazaNamePlate.image(text: "나", title: "수줍은", color: red, scale: 2))
+        XCTAssertNotNil(fillSpan(titled, rows: 0..<(titled.height - plain.height + 6)))
+    }
+
+    func testAWideTitleCentresBothLines() throws {
+        let plain = try XCTUnwrap(PlazaNamePlate.image(text: "나", color: red, scale: 2))
+        let titled = try XCTUnwrap(PlazaNamePlate.image(text: "나", title: "무사태평한", color: red, scale: 2))
+        XCTAssertGreaterThan(titled.width, plain.width)
+        let split = titled.height - plain.height
+        let top = try XCTUnwrap(fillSpan(titled, rows: 0..<split))
+        let bottom = try XCTUnwrap(fillSpan(titled, rows: (split + 12)..<titled.height))
+        for span in [top, bottom] {
+            XCTAssertEqual(Double(span.lowerBound + span.upperBound) / 2, Double(titled.width) / 2, accuracy: 6)
+        }
+    }
+
+    func testANarrowTitleSitsCentredOverTheName() throws {
+        let plain = try XCTUnwrap(PlazaNamePlate.image(text: "아주긴닉네임입니다요", color: red, scale: 2))
+        let titled = try XCTUnwrap(PlazaNamePlate.image(text: "아주긴닉네임입니다요", title: "수줍은", color: red, scale: 2))
+        let title = try XCTUnwrap(fillSpan(titled, rows: 0..<(titled.height - plain.height)))
+        XCTAssertEqual(Double(title.lowerBound + title.upperBound) / 2, Double(titled.width) / 2, accuracy: 6)
+    }
+
+    func testTheTitleIsSmallerThanTheName() throws {
+        let plain = try XCTUnwrap(PlazaNamePlate.image(text: "수줍은수줍은", color: red, scale: 2))
+        let titled = try XCTUnwrap(PlazaNamePlate.image(text: "수줍은수줍은", title: "수줍은수줍은", color: red, scale: 2))
+        let split = titled.height - plain.height
+        let title = try XCTUnwrap(fillSpan(titled, rows: 0..<split))
+        let name = try XCTUnwrap(fillSpan(titled, rows: (split + 12)..<titled.height))
+        XCTAssertLessThan(title.count, name.count * 9 / 10)
+    }
+
+    func testAVeryLongNameStaysInsideTheLimitWithATitle() throws {
+        let long = String(repeating: "가", count: 4000)
+        let titled = try XCTUnwrap(PlazaNamePlate.image(text: long, title: "수줍은", color: red, scale: 2))
+        XCTAssertLessThanOrEqual(titled.width, PlazaNamePlate.maxPixelWidth)
+    }
+
     func testPlateUsesRequestedFillColorAndDarkOutline() throws {
         let red = CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1), blue = CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
         let a = try XCTUnwrap(PlazaNamePlate.image(text: "도토리", color: red, scale: 2))

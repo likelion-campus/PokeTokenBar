@@ -404,6 +404,25 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(b.runtime.session.members[a.settings.memberID]?.character.speciesID, 1)
     }
 
+    func testHelloCarriesMyNatureAndAMintReachesTeammates() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rt-nature-\(UUID().uuidString).json")
+        let active = "{\"baseID\":1,\"pathIDs\":[1],\"stageIndex\":0,\"usedAtStage\":0,"
+            + "\"rarity\":\"common\",\"totalForms\":1,\"isShiny\":false,\"nature\":\"adamant\"}"
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":0,\"spentTokens\":0,\"lastDate\":\"d1\","
+            + "\"active\":\(active),\"dex\":[],\"collectedFinals\":[],\"inventory\":{\"mint\":1}}"
+        try json.data(using: .utf8)!.write(to: url)
+        let code = newCode()
+        let a = RuntimeNode(hub: hub, code: code, nickname: "가", companionURL: url)
+        let b = RuntimeNode(hub: hub, code: code, nickname: "나")
+        a.runtime.start()
+        b.runtime.start()
+        hub.connect(a.transport, to: b.transport)
+        let id = a.settings.memberID
+        XCTAssertEqual(b.runtime.session.members[id]?.character.nature, .adamant)
+        let minted = try XCTUnwrap(a.companion.useMint())
+        await settle { b.runtime.session.members[id]?.character.nature == minted }
+    }
+
     func testSettingsChangeRestartsTransport() async {
         let (a, _) = connectedPair()
         XCTAssertEqual(a.transport.startedCodes.count, 1)
