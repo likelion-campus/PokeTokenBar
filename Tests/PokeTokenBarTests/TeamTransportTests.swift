@@ -245,6 +245,19 @@ final class TeamTransportTests: XCTestCase {
         XCTAssertEqual(a.linkCount, BonjourTeamTransport.maxUnfinishedOutbound, "they stay unfinished, so nothing more is dialed")
     }
 
+    /// Every new name asks for a dial. Sorting all of them each time held the main thread for 21 s over 5,000 names,
+    /// so with no room nothing may be scanned. Far under the limit here, to stay clear of a busy machine.
+    func testAFloodOfNamesCostsLittleOnceTheDialsAreFull() async throws {
+        let sink = try await silentSink()
+        defer { sink.listener.cancel() }
+        let a = makeTransport()
+        a.start(code: newCode())
+        let start = Date()
+        for i in 0..<5000 { a.injectDiscovered("ptb-rogue-\(i)", endpoint: sink.endpoint) }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 5)
+        XCTAssertEqual(a.linkCount, BonjourTeamTransport.maxUnfinishedOutbound)
+    }
+
     func testDialsLeaveRoomForTheLinkLimit() async throws {
         let sink = try await silentSink()
         defer { sink.listener.cancel() }

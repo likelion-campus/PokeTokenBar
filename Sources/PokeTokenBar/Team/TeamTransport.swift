@@ -358,6 +358,7 @@ final class BonjourTeamTransport: TeamTransporting {
         var rng = SystemRandomNumberGenerator()
         let unfinished = links.values.filter { $0.initiatedByMe && !$0.isReady }.count
         let room = min(Self.maxUnfinishedOutbound - unfinished, linkLimit - links.count)
+        guard room > 0 else { return }   // every new name lands here, and a flood of them must not cost a scan each
         for name in planner.dialPicks(now: Date(), limit: room, using: &rng) {
             guard let endpoint = endpoints[name], let peer = dial(endpoint) else { continue }
             planner.dialStarted(name, peer: peer)
