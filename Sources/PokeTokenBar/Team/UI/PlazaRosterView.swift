@@ -1,18 +1,20 @@
 import SwiftUI
 import AppKit
 
-/// 광장 오른쪽 위 참여자 목록(파티 화면 느낌). 표시만 하고 입력은 받지 않는다.
+/// 광장 오른쪽 위 참여자 목록(파티 화면 느낌). 칸과 페이지 단추는 누를 수 있고, 키는 받지 않는다.
 @MainActor
 struct PlazaRosterView: View {
     let model: PlazaRosterModel
     /// 팀원 칸을 누르면 그 팀원의 ID. 내 칸은 누를 수 없다.
     var onSelect: (String) -> Void = { _ in }
+    /// < > 를 누르면 넘길 방향(-1, 1).
+    var onTurn: (Int) -> Void = { _ in }
 
     var body: some View {
         let l = L(.ko)
         let entries = model.entries
         let online = entries.filter { $0.presence == .online || $0.presence == .focus }.count
-        let (shown, hidden) = PlazaRoster.visible(entries, capacity: model.capacity)
+        let page = PlazaRoster.page(entries, index: model.page, size: model.capacity)
         VStack(spacing: 0) {
             HStack {
                 Text(l.plazaRosterTitle)
@@ -24,16 +26,18 @@ struct PlazaRosterView: View {
                 Text(l.plazaRosterCount(online: online, total: entries.count))
                     .font(Font(PlazaResources.font(.body)))
                     .foregroundStyle(Color(hex: 0xF8F8F0))
+                if page.count > 1 {
+                    PlazaRosterPager(hasPrevious: page.index > 0, hasNext: page.index < page.count - 1, turn: onTurn)
+                }
             }
             .frame(height: PlazaRosterMetrics.headerHeight)
             VStack(spacing: PlazaRosterMetrics.slotSpacing) {
-                ForEach(shown) { entry in
+                ForEach(page.shown) { entry in
                     PlazaRosterSlot(entry: entry, animating: model.isAnimating)
                         .contentShape(Rectangle())
                         .onTapGesture { if !entry.isMe { onSelect(entry.id) } }
                         .help(entry.isMe || entry.presence == .asleep ? "" : L(.ko).plazaRosterWalkHint)
                 }
-                if hidden > 0 { PlazaRosterMoreSlot(count: hidden) }
             }
             .padding(.top, PlazaRosterMetrics.listTopPadding)
         }
@@ -145,21 +149,31 @@ private struct PlazaRosterSlot: View {
     }
 }
 
-/// 넘친 팀원 수를 알리는 줄.
+/// 머리줄의 < > 단추. 페이지 번호가 없어서, 끝 쪽 단추가 흐려지는 것이 지금 위치를 알려 준다.
 @MainActor
-private struct PlazaRosterMoreSlot: View {
-    let count: Int
+private struct PlazaRosterPager: View {
+    let hasPrevious: Bool
+    let hasNext: Bool
+    let turn: (Int) -> Void
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 8)
-        Text(L(.ko).plazaRosterMore(count))
-            .font(Font(PlazaResources.font(.body)))
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
-            .frame(maxWidth: .infinity)
-            .frame(height: PlazaRosterMetrics.slotHeight)
-            .background(Color(hex: 0x1D4F55).opacity(0.6), in: shape)
-            .overlay(shape.inset(by: 1).stroke(Color(hex: 0x5FB7BD), lineWidth: 2))
+        HStack(spacing: 0) {
+            arrow("<", enabled: hasPrevious, delta: -1)
+            arrow(">", enabled: hasNext, delta: 1)
+        }
+    }
+
+    private func arrow(_ glyph: String, enabled: Bool, delta: Int) -> some View {
+        Button { turn(delta) } label: {
+            Text(glyph)
+                .font(Font(PlazaResources.font(.body)))
+                .foregroundStyle(Color(hex: 0xF8F8F0))
+                .frame(width: PlazaRosterMetrics.pagerHitSize, height: PlazaRosterMetrics.pagerHitSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).focusable(false)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
     }
 }
 
@@ -172,6 +186,18 @@ private struct PlazaRosterIcon: View {
     @State private var image: NSImage?
     @State private var up = false
 
+    /// 페이지를 넘기면 칸이 새로 생긴다. 메모리에 있는 아이콘은 첫 화면부터 그려 깜빡이지 않게 한다.
+    init(speciesID: Int?, bounces: Bool) {
+        self.speciesID = speciesID
+        self.bounces = bounces
+        _image = State(initialValue: Self.cached(speciesID))
+    }
+
+    private static func cached(_ speciesID: Int?) -> NSImage? {
+        if let speciesID { return PlazaIconLoader.cachedIcon(speciesID: speciesID) }
+        return SpriteLoader.cachedEggImage()
+    }
+
     var body: some View {
         Group {
             if let image {
@@ -182,7 +208,8 @@ private struct PlazaRosterIcon: View {
         }
         .offset(y: bounces && up ? -2 : 0)
         .task(id: speciesID) {
-            image = nil
+            image = Self.cached(speciesID)
+            if image != nil { return }
             // 실패하면 5초 뒤 한 번 더 시도한다. 뷰가 사라져 취소되면 그림을 넣지 않는다.
             for attempt in 0..<2 {
                 let loaded = await load()

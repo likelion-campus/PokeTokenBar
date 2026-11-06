@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import PokeTokenBar
 
 final class PlazaRosterTests: XCTestCase {
@@ -59,6 +60,7 @@ final class PlazaRosterTests: XCTestCase {
         XCTAssertEqual(l.plazaStatusIdle, "자리비움"); XCTAssertEqual(l.plazaStatusAsleep, "잠")
         XCTAssertEqual(l.plazaEggName, "알")
         XCTAssertEqual(l.plazaRosterCount(online: 3, total: 5), "접속 3 / 5")
+        XCTAssertEqual(l.plazaAwaySuffix, "zZ")
     }
 }
 
@@ -150,29 +152,108 @@ extension PlazaRosterTests {
         XCTAssertEqual(both.map(\.presence), [.online])
     }
 
-    func testCapacityFitsHeight() {
+    @MainActor func testPageFitsAboveTheClock() {
         let m = PlazaRosterMetrics.self
-        func panel(_ slots: Int) -> CGFloat {
-            2 * m.margin + 2 * m.padding + m.headerHeight + m.listTopPadding
+        func height(_ slots: Int) -> CGFloat {
+            m.margin + m.bottomClearance + 2 * m.padding + m.headerHeight + m.listTopPadding
                 + CGFloat(slots) * m.slotHeight + CGFloat(slots - 1) * m.slotSpacing
         }
-        XCTAssertEqual(PlazaRoster.capacity(forHeight: panel(5)), 5)
-        XCTAssertEqual(PlazaRoster.capacity(forHeight: panel(5) - 1), 4, "one point short loses a slot")
-        XCTAssertEqual(PlazaRoster.capacity(forHeight: panel(5) + 47), 5)
-        XCTAssertEqual(PlazaRoster.capacity(forHeight: panel(5) + 48), 6)
-        XCTAssertEqual(PlazaRoster.capacity(forHeight: 0), 2, "never fewer than me plus a more row")
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: height(4)), 4)
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: height(4) - 1), 3, "one point short loses a slot")
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: height(4) + 47), 4)
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: height(4) + 48), 5)
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: 640), 6, "the default window shows a full party")
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: 2000), 6, "a tall window still stops at six")
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: PlazaWindowController.minContentSize.height), 2, "the smallest window")
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: 0), 1, "a page is never empty")
     }
 
-    func testOverflowShowsMoreRowAndHidesAwayMembers() {
+    func testPagesSplitTheSortedListBySix() {
         let entries = PlazaRoster.sorted([entry("me", "나", me: true)]
             + (0..<5).map { entry("o\($0)", "온\($0)") } + (0..<4).map { entry("a\($0)", "잠\($0)", presence: .asleep) })
-        XCTAssertEqual(entries.count, 10)
-        let (shown, hidden) = PlazaRoster.visible(entries, capacity: 5)
-        XCTAssertEqual(shown.count, 4); XCTAssertEqual(hidden, 6)
-        XCTAssertEqual(shown.first?.id, "me")
-        let fits = PlazaRoster.visible(entries, capacity: 10)
-        XCTAssertEqual(fits.shown.count, 10); XCTAssertEqual(fits.hidden, 0)
-        XCTAssertEqual(L(.ko).plazaRosterMore(6), "외 6명")
-        XCTAssertEqual(L(.ko).plazaAwaySuffix, "zZ")
+        let first = PlazaRoster.page(entries, index: 0, size: 6)
+        XCTAssertEqual(first.shown.map(\.id), ["me", "o0", "o1", "o2", "o3", "o4"])
+        XCTAssertEqual(first.index, 0)
+        XCTAssertEqual(first.count, 2)
+        let second = PlazaRoster.page(entries, index: 1, size: 6)
+        XCTAssertEqual(second.shown.map(\.id), ["a0", "a1", "a2", "a3"], "asleep teammates sort to the last page")
+        XCTAssertEqual(second.index, 1)
+    }
+
+    func testTheSeventhPersonAddsAPage() {
+        let six = (0..<6).map { entry("m\($0)", "멤버\($0)") }
+        XCTAssertEqual(PlazaRoster.page(six, index: 0, size: 6).count, 1)
+        XCTAssertEqual(PlazaRoster.page(six + [entry("m6", "멤버6")], index: 0, size: 6).count, 2)
+        XCTAssertEqual(PlazaRoster.page([], index: 0, size: 6).count, 1)
+        XCTAssertEqual(PlazaRoster.page([], index: 0, size: 6).shown, [])
+    }
+
+    func testPageFallsBackWhenItsPeopleLeave() {
+        let seven = (0..<7).map { entry("m\($0)", "멤버\($0)") }
+        let page = PlazaRoster.page(seven, index: 5, size: 6)
+        XCTAssertEqual(page.index, 1)
+        XCTAssertEqual(page.shown.map(\.id), ["m6"])
+        XCTAssertEqual(PlazaRoster.page(Array(seven.prefix(6)), index: 1, size: 6).index, 0)
+    }
+
+    @MainActor func testTurningPagesStopsAtTheEnds() {
+        let model = PlazaRosterModel()
+        model.entries = (0..<13).map { entry("m\($0)", "멤버\($0)") }
+        model.turnPage(by: -1)
+        XCTAssertEqual(model.page, 0)
+        model.turnPage(by: 1)
+        model.turnPage(by: 1)
+        XCTAssertEqual(model.page, 2)
+        model.turnPage(by: 1)
+        XCTAssertEqual(model.page, 2)
+        model.entries = Array(model.entries.prefix(7))
+        model.turnPage(by: -1)
+        XCTAssertEqual(model.page, 0, "turning starts from the page on screen, not the one that went away")
+    }
+
+    @MainActor func testIconStaysInMemoryAfterTheFirstLoad() async throws {
+        let id = 987_654
+        let png = try XCTUnwrap(Self.solidPNG(red: 1))
+        var loads = 0
+        XCTAssertNil(PlazaIconLoader.cachedIcon(speciesID: id))
+        let first = await PlazaIconLoader.icon(speciesID: id) { _ in loads += 1; return png }
+        XCTAssertNotNil(first)
+        let second = await PlazaIconLoader.icon(speciesID: id) { _ in loads += 1; return nil }
+        XCTAssertTrue(second === first)
+        XCTAssertEqual(loads, 1)
+        XCTAssertTrue(PlazaIconLoader.cachedIcon(speciesID: id) === first)
+    }
+
+    @MainActor func testFailedIconIsNotRemembered() async {
+        let id = 987_655
+        let missing = await PlazaIconLoader.icon(speciesID: id) { _ in nil }
+        XCTAssertNil(missing)
+        XCTAssertNil(PlazaIconLoader.cachedIcon(speciesID: id))
+    }
+
+    /// Turning a page mounts new rows. A remembered icon must be there on the first frame, not after a blank one.
+    @MainActor func testRememberedIconDrawsOnTheFirstFrame() async throws {
+        let id = 987_656
+        let png = try XCTUnwrap(Self.solidPNG(red: 1))
+        _ = await PlazaIconLoader.icon(speciesID: id) { _ in png }
+        let model = PlazaRosterModel()
+        model.entries = [PlazaRosterEntry(id: "a", nickname: "a", speciesID: id, speciesName: "x", gender: nil,
+                                          isShiny: false, presence: .idle, isMe: false)]
+        let renderer = ImageRenderer(content: PlazaRosterView(model: model))
+        renderer.scale = 1
+        let image = try XCTUnwrap(renderer.nsImage?.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        let rep = NSBitmapImageRep(cgImage: image)
+        let m = PlazaRosterMetrics.self
+        let y = Int(m.padding + m.headerHeight + m.listTopPadding + m.slotHeight / 2)
+        let color = try XCTUnwrap(rep.colorAt(x: Int(m.padding) + 26, y: y)?.usingColorSpace(.deviceRGB))
+        XCTAssertGreaterThan(color.redComponent, 0.8)
+        XCTAssertLessThan(color.greenComponent, 0.2, "the icon, not the blank placeholder")
+    }
+
+    static func solidPNG(red: CGFloat) -> Data? {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 30, bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        for x in 0..<40 { for y in 0..<30 { rep?.setColor(NSColor(deviceRed: red, green: 0, blue: 0, alpha: 1), atX: x, y: y) } }
+        return rep?.representation(using: .png, properties: [:])
     }
 }

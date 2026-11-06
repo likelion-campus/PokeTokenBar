@@ -795,6 +795,49 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(view.fittingSize.height - one, 3 * slot, accuracy: 1)
     }
 
+    func testRosterPanelHoldsOnePage() {
+        let model = PlazaRosterModel()
+        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
+        func people(_ count: Int) -> [PlazaRosterEntry] {
+            (0..<count).map {
+                PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
+                                 isShiny: false, presence: .idle, isMe: false)
+            }
+        }
+        model.entries = people(6)
+        view.layoutSubtreeIfNeeded()
+        let six = view.fittingSize.height
+        model.entries = people(7)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(view.fittingSize.height, six, accuracy: 1, "the seventh person goes to the next page")
+        model.page = 1
+        view.layoutSubtreeIfNeeded()
+        let slot = PlazaRosterMetrics.slotHeight + PlazaRosterMetrics.slotSpacing
+        XCTAssertEqual(six - view.fittingSize.height, 5 * slot, accuracy: 1)
+    }
+
+    /// The roster draws under the minimap and the clock, so its reserve must cover both as they really measure.
+    func testRosterClearanceCoversTheMinimapAndTheClock() {
+        let map = NSHostingView(rootView: PlazaMinimapView(model: PlazaMinimapModel(), mapImage: NSImage(size: NSSize(width: 1, height: 1)),
+                                                           worldSize: PlazaMapData.map.pixelSize))
+        let clock = NSHostingView(rootView: PlazaClock(model: PlazaMinimapModel()))
+        // 16 below the map and 6 between the map and the clock, as the window lays them out.
+        XCTAssertLessThanOrEqual(16 + map.fittingSize.height + 6 + clock.fittingSize.height, PlazaRosterMetrics.bottomClearance)
+    }
+
+    func testRosterPageTurnsFromTheControllerAndResetsOnClose() {
+        let c = controller(defaults())
+        c.prepareScene()
+        c.rosterModel.entries = (0..<7).map {
+            PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
+                             isShiny: false, presence: .idle, isMe: false)
+        }
+        c.turnRosterPage(by: 1)
+        XCTAssertEqual(c.rosterModel.page, 1)
+        c.handleClose()
+        XCTAssertEqual(c.rosterModel.page, 0, "reopening starts from the first page")
+    }
+
     /// The roster takes clicks so a teammate can be chosen, but never the keyboard.
     func testRosterTakesClicksButNotKeys() {
         let model = PlazaRosterModel()
