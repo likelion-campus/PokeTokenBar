@@ -217,6 +217,24 @@ final class TeamNotificationsTests: XCTestCase {
                         L(.ko).teamEventText(bigEvent("e2", nick: "지영", kind: .graduate))])
     }
 
+    /// Big news skips the batch, so a modified app could post one banner per frame. The board keeps them all.
+    func testAFloodOfBigNewsStopsAtTheLimit() {
+        for _ in 0..<50 { notifier.bigEvent(bigEvent(author: "bob")) }
+        XCTAssertEqual(poster.posts.count, TeamNotifier.bigNoticeBurst)
+        now = now.addingTimeInterval(TeamNotifier.bigNoticeInterval)
+        notifier.bigEvent(bigEvent(author: "bob"))
+        XCTAssertEqual(poster.posts.count, TeamNotifier.bigNoticeBurst + 1, "it comes back with time")
+    }
+
+    func testBigNewsHeldDuringFocusDoesNotSpendTheLimit() {
+        notifier.isFocusing = { true }
+        for _ in 0..<50 { notifier.bigEvent(bigEvent(author: "bob")) }
+        XCTAssertEqual(notifier.heldTally.news, 50)
+        notifier.isFocusing = { false }
+        notifier.bigEvent(bigEvent(author: "bob"))
+        XCTAssertEqual(poster.posts.count, 1)
+    }
+
     func testBigEventDoesNotOpenAWindow() {
         notifier.bigEvent(bigEvent())
         notifier.reactionToMine(reaction("지영"), bigEvent())

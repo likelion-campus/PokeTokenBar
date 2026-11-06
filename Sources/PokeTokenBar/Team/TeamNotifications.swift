@@ -139,6 +139,10 @@ final class TeamNotifier {
     /// The last megaphone notice per member. A modified app could send them back to back.
     private var lastMegaphone: [String: Date] = [:]
     static let megaphoneInterval: TimeInterval = 60
+    /// Big news skips the batch, so a modified app could post one banner per frame. The board keeps what this drops.
+    static let bigNoticeBurst = 3
+    static let bigNoticeInterval: TimeInterval = 20
+    private var bigNotices = TeamTokenBucket(capacity: Double(bigNoticeBurst), perSecond: 1 / bigNoticeInterval)
 
     init(settings: TeamSettings, poster: TeamNotificationPosting, isPlazaFrontmost: @escaping () -> Bool,
          showInPlaza: @escaping (String) -> Void, clock: @escaping () -> Date = Date.init) {
@@ -160,6 +164,7 @@ final class TeamNotifier {
         guard settings.notificationsEnabled, e.authorID != settings.memberID, !isPlazaFrontmost() else { return }
         if isFocusing() { heldTally.news += 1; return }
         // Big news is rare and says something different from "reacted", so it never joins the reaction batch.
+        guard bigNotices.take(now: clock()) else { return }
         post(L(.ko).teamEventText(e))
     }
 

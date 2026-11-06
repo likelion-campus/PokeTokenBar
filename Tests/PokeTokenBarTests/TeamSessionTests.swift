@@ -164,7 +164,7 @@ final class TeamSessionTests: XCTestCase {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
-        raw.hello()
+        raw.hello(memberID: "z")
         func big(_ id: String) -> TeamEvent {
             TeamEvent(id: id, authorID: "z", authorNickname: "Z", kind: .hatch, speciesID: 1, fromSpeciesID: nil,
                       speciesName: "Bulbasaur", fromSpeciesName: nil, form: nil, isShiny: false, nature: nil,
@@ -308,30 +308,32 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertFalse(a.session.hasIncompatiblePeer)
     }
 
-    /// A refused member is not served again for 5 minutes, whichever side dials, so a clone or a newer
-    /// version costs one hello per attempt and never a resync.
-    func testRefusedMemberIsRefusedAgainForFiveMinutes() {
+    /// Another version costs one hello per attempt and never a resync.
+    func testAnotherVersionGetsNothingButAHelloEveryTime() {
+        let a = node("A")
+        let id = UUID().uuidString
+        for attempt in 1...3 {
+            let raw = RawPeer(hub: hub)
+            hub.connect(raw.transport, to: a.transport)
+            raw.hello(memberID: id, version: TeamWire.protocolVersion + 1)
+            XCTAssertEqual(a.transport.refuseCalls.count, attempt)
+            XCTAssertTrue(a.session.members.isEmpty)
+            XCTAssertFalse(raw.received.contains { if case .hello = $0 { false } else { true } },
+                           "only the hello: no inventory, no presence for another version")
+        }
+    }
+
+    /// Someone who updates gets straight in, whenever they were last refused.
+    func testAnUpdatedMemberIsServedAtOnce() {
         let a = node("A")
         let id = UUID().uuidString
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
         raw.hello(memberID: id, version: TeamWire.protocolVersion + 1)
+        let updated = RawPeer(hub: hub)
+        hub.connect(updated.transport, to: a.transport)
+        updated.hello(memberID: id)
         XCTAssertEqual(a.transport.refuseCalls.count, 1)
-
-        clock.advance(299)
-        let again = RawPeer(hub: hub)
-        hub.connect(again.transport, to: a.transport)
-        again.hello(memberID: id)   // upgraded in the meantime, still inside the cooldown
-        XCTAssertEqual(a.transport.refuseCalls.count, 2)
-        XCTAssertTrue(a.session.members.isEmpty)
-        XCTAssertFalse(again.received.contains { if case .hello = $0 { false } else { true } },
-                       "only the hello: no inventory, no presence for a refused member")
-
-        clock.advance(2)
-        let third = RawPeer(hub: hub)
-        hub.connect(third.transport, to: a.transport)
-        third.hello(memberID: id)
-        XCTAssertEqual(a.transport.refuseCalls.count, 2)
         XCTAssertEqual(a.session.members.count, 1)
     }
 
@@ -348,13 +350,6 @@ final class TeamSessionTests: XCTestCase {
         a.transport.onPeerBadFrame?(aPeer)
         XCTAssertTrue(a.session.hasIncompatiblePeer)
         XCTAssertEqual(a.transport.refuseCalls, [aPeer])
-        XCTAssertTrue(a.session.members.isEmpty)
-
-        // The sender dials again: it gets a hello's worth of attention and no batch of news.
-        let again = RawPeer(hub: hub)
-        hub.connect(again.transport, to: a.transport)
-        again.hello(memberID: id)
-        XCTAssertEqual(a.transport.refuseCalls.count, 2)
         XCTAssertTrue(a.session.members.isEmpty)
     }
 

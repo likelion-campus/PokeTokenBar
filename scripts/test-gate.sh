@@ -29,6 +29,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/LocalizationErrors.swift"
   "Sources/PokeTokenBar/Core/UsageStore.swift"
   "Sources/PokeTokenBar/Team/TeamDialPlanner.swift"
+  "Sources/PokeTokenBar/Team/TeamTokenBucket.swift"
   "Sources/PokeTokenBar/Core/Models.swift"
   "Sources/PokeTokenBar/Core/UsageCost.swift"
   "Sources/PokeTokenBar/Core/TokenFormatter.swift"

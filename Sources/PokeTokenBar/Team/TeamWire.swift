@@ -161,6 +161,9 @@ enum TeamWire {
     /// Changing any raw value or case name on the wire needs a bump here (`TeamWireTests` pins them).
     static let protocolVersion = 1
     static let maxFrameBytes = 1_048_576
+    /// The longest ID, species name, form or date a peer may send. A real one is far shorter. Rows stay small enough
+    /// that a batch always fits in a frame; one row too big used to stop its whole batch from syncing.
+    static let maxFieldBytes = 64
 
     enum WireError: Error { case frameTooLarge, malformed }
 
