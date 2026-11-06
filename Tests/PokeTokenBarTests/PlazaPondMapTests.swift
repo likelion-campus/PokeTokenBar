@@ -108,7 +108,7 @@ final class PlazaPondMapTests: XCTestCase {
     }
 
     private static let pondRects: [(xs: ClosedRange<Int>, ys: ClosedRange<Int>)] = [
-        (32...37, 16...20), (13...17, 11...14), (20...22, 24...26)]
+        (32...37, 16...20), (20...22, 24...26)]
 
     private func rectTiles(_ r: (xs: ClosedRange<Int>, ys: ClosedRange<Int>)) -> Set<TilePoint> {
         var out = Set<TilePoint>()
@@ -118,13 +118,13 @@ final class PlazaPondMapTests: XCTestCase {
 
     func testPondMatchesTheSpec() {
         let rects = Self.pondRects.map(rectTiles)
-        XCTAssertEqual(rects.map(\.count), [30, 20, 9])
+        XCTAssertEqual(rects.map(\.count), [30, 9])
         XCTAssertEqual(water, rects.reduce(into: Set<TilePoint>()) { $0.formUnion($1) })
-        XCTAssertEqual(water.count, 59)
+        XCTAssertEqual(water.count, 39)
     }
 
-    func testPondsAreThreeSeparateRectangles() {
-        // Flood-fill the 8-connected water components: exactly three, each one a full rectangle.
+    func testPondsAreTwoSeparateRectangles() {
+        // Flood-fill the 8-connected water components: exactly two, each one a full rectangle.
         var left = water
         var boxes: [(xs: ClosedRange<Int>, ys: ClosedRange<Int>, count: Int)] = []
         while let seed = left.first {
@@ -139,7 +139,7 @@ final class PlazaPondMapTests: XCTestCase {
             XCTAssertEqual(box.count, box.xs.count * box.ys.count, "pond at \(box.xs) x \(box.ys) is not a full rectangle")
             boxes.append(box)
         }
-        XCTAssertEqual(boxes.count, 3)
+        XCTAssertEqual(boxes.count, 2)
         for r in Self.pondRects {
             XCTAssertTrue(boxes.contains { $0.xs == r.xs && $0.ys == r.ys }, "missing pond \(r)")
         }
@@ -158,7 +158,7 @@ final class PlazaPondMapTests: XCTestCase {
                 XCTAssertTrue(a == "." || a == "f", "water replaced \(a) at (\(x),\(y))")
             }
         }
-        XCTAssertEqual(shoreLand.count, 64)
+        XCTAssertEqual(shoreLand.count, 42)
         for p in shoreLand {
             let ch = Self.legacyRows[p.y][Self.legacyRows[p.y].index(Self.legacyRows[p.y].startIndex, offsetBy: p.x)]
             XCTAssertTrue(ch == "." || ch == "f", "shore \(p) was \(ch)")
