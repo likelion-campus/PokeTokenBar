@@ -832,8 +832,8 @@ private struct RecordingFetcher: PlazaSpriteFetching {
             PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
                              isShiny: false, presence: .idle, isMe: false)
         }
-        c.turnRosterPage(by: 1)
-        XCTAssertEqual(c.rosterModel.page, 1)
+        c.rosterView().onTurn(1)
+        XCTAssertEqual(c.rosterModel.page, 1, "the arrows are wired to the window's list")
         c.handleClose()
         XCTAssertEqual(c.rosterModel.page, 0, "reopening starts from the first page")
     }
