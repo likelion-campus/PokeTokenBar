@@ -33,6 +33,17 @@ final class BonjourTeamTransport: TeamTransporting {
     /// Inbound links that have not finished their handshake. Anyone on the network can open these without
     /// the team code, so the rest are cancelled.
     static let maxUnfinishedInbound = 32
+    /// Dials that have not finished their handshake. Anyone on the network can advertise any number of services
+    /// without the team code, and every dial holds a file handle until it fails.
+    static let maxUnfinishedOutbound = 32
+    /// Links in any state. Each holds a file handle and an app starts with 256, which it also needs for its saves.
+    static let maxLinks = 128
+    /// What one link may send. An honest app sends a few KB a second and under 1 MB for a full sync, so only a flood
+    /// reaches this, and a flood holds the main thread because that is where frames are decoded.
+    nonisolated static let receiveBurst = 4.0 * 1_048_576
+    nonisolated static let receivePerSecond = 256.0 * 1024
+    /// Each frame counts for this many bytes on top of its own: tiny frames are cheap to send and not to handle.
+    static let frameCost = 1024
 
     var onPeerConnected: ((TeamPeerID, Bool) -> Void)?
     var onPeerDisconnected: ((TeamPeerID) -> Void)?
@@ -43,6 +54,7 @@ final class BonjourTeamTransport: TeamTransporting {
         let connection: NWConnection
         let initiatedByMe: Bool
         var decoder = TeamWire.FrameDecoder()
+        var budget = TeamTokenBucket(capacity: BonjourTeamTransport.receiveBurst, perSecond: BonjourTeamTransport.receivePerSecond)
         var isReady = false
         var handshakeTimer: DispatchWorkItem?
         init(connection: NWConnection, initiatedByMe: Bool) {
@@ -52,6 +64,7 @@ final class BonjourTeamTransport: TeamTransporting {
     }
 
     private let advertise: Bool
+    private let linkLimit: Int
     /// True between the owner's `start(code:)` and `stop()`. Internal restarts only happen while set.
     private var wanted = false
     private var running = false
@@ -73,8 +86,9 @@ final class BonjourTeamTransport: TeamTransporting {
     /// Nil until the listener is ready (before that the framework reports port 0).
     var listenerPort: NWEndpoint.Port? { listenerIsReady ? listener?.port : nil }
 
-    init(advertise: Bool = true) {
+    init(advertise: Bool = true, linkLimit: Int = BonjourTeamTransport.maxLinks) {
         self.advertise = advertise
+        self.linkLimit = linkLimit
     }
 
     static func parameters(code: TeamCode) -> NWParameters {
@@ -337,11 +351,15 @@ final class BonjourTeamTransport: TeamTransporting {
     private func lost(_ result: NWBrowser.Result) {
         guard let name = serviceName(result) else { return }
         endpoints[name] = nil
-        planner.lost(name)
+        planner.lost(name, now: Date())
     }
 
     private func dialDue() {
-        for name in planner.dueDials(now: Date()) {
+        var rng = SystemRandomNumberGenerator()
+        let unfinished = links.values.filter { $0.initiatedByMe && !$0.isReady }.count
+        let room = min(Self.maxUnfinishedOutbound - unfinished, linkLimit - links.count)
+        guard room > 0 else { return }   // every new name lands here, and a flood of them must not cost a scan each
+        for name in planner.dialPicks(now: Date(), limit: room, using: &rng) {
             guard let endpoint = endpoints[name], let peer = dial(endpoint) else { continue }
             planner.dialStarted(name, peer: peer)
         }
@@ -358,7 +376,8 @@ final class BonjourTeamTransport: TeamTransporting {
     @discardableResult
     private func adopt(_ connection: NWConnection, initiatedByMe: Bool, generation: Int) -> TeamPeerID {
         let id = UUID().uuidString
-        if !initiatedByMe, links.values.filter({ !$0.initiatedByMe && !$0.isReady }).count >= Self.maxUnfinishedInbound {
+        if !initiatedByMe, links.count >= linkLimit
+            || links.values.filter({ !$0.initiatedByMe && !$0.isReady }).count >= Self.maxUnfinishedInbound {
             connection.cancel()
             return id
         }
@@ -412,6 +431,12 @@ final class BonjourTeamTransport: TeamTransporting {
                     let messages: [TeamMessage]
                     do { messages = try link.decoder.append(data) } catch {
                         AppLog.write("team: dropped a connection after a bad frame (\(error))")
+                        self.onPeerBadFrame?(id)
+                        self.finish(id, handshakeFailed: false, refused: true)
+                        return
+                    }
+                    guard link.budget.take(Double(data.count + messages.count * Self.frameCost), now: Date()) else {
+                        AppLog.write("team: dropped a connection that sent too much")
                         self.onPeerBadFrame?(id)
                         self.finish(id, handshakeFailed: false, refused: true)
                         return

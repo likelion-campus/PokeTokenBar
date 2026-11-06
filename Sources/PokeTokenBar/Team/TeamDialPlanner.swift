@@ -25,8 +25,16 @@ struct TeamDialPlanner {
         if entries[name] == nil { entries[name] = Entry() } else { entries[name]?.found = true }
     }
 
-    mutating func lost(_ name: String) {
-        entries[name]?.found = false
+    /// Forgets the name unless a running dial, a cover or a cooldown still needs it, so the names a rogue service
+    /// rotates through do not pile up.
+    mutating func lost(_ name: String, now: Date) {
+        guard let e = entries[name] else { return }
+        if e.activePeer == nil, e.coveredBy == nil, e.retryAfter.map({ now >= $0 }) ?? true {
+            entries[name] = nil
+            nameForPeer = nameForPeer.filter { $0.value != name }
+        } else {
+            entries[name]?.found = false
+        }
     }
 
     mutating func dialStarted(_ name: String, peer: TeamPeerID) {
@@ -59,4 +67,12 @@ struct TeamDialPlanner {
             e.found && e.activePeer == nil && e.coveredBy == nil && (e.retryAfter.map { now >= $0 } ?? true)
         }.keys.sorted()
     }
+
+    /// At most `limit` due names, in random order. Anyone can advertise names that sort first, so with more names
+    /// than room a fixed order would never reach the real teammate.
+    func dialPicks<R: RandomNumberGenerator>(now: Date, limit: Int, using rng: inout R) -> [String] {
+        Array(dueDials(now: now).shuffled(using: &rng).prefix(max(limit, 0)))
+    }
+
+    var nameCount: Int { entries.count }
 }

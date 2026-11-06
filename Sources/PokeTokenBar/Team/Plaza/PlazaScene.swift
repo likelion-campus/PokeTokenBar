@@ -933,7 +933,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 그 캐릭터(nil이면 나) 위에서 별 조각 몇 개가 1초쯤 퍼진다. 모르는 팀원이면 아무것도 안 한다.
     func playSparkle(memberID: String?) {
-        guard let actor = actor(memberID) else { return }
+        // 창이 가려져 멈춘 장면에서는 지우는 화면과 동작이 돌지 않아 쌓이기만 한다. 아래 몸통박치기와 점프도 같다.
+        guard !isPaused, let actor = actor(memberID) else { return }
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         // 풀숲에 숨은 캐릭터는 몸이 없으니 이름표가 앉은 자리에서 터진다.
         let originY = memberID != nil && actor.concealment > 0.5 ? worldSize.height - foot.y + PlazaTallGrass.hiddenPlateLift
@@ -990,7 +991,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// `pusher`나 `target`이 nil이면 나. 움직이는 것은 맞은 쪽 Mac이 정한다(`pushMe`).
     func playTackle(by pusher: String?, on target: String?, direction: PlazaDirection) {
         actor(pusher)?.lunge(toward: direction)
-        guard let hit = actor(target) else { return }
+        guard !isPaused, let hit = actor(target) else { return }
         let foot = target.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         let toward = CGFloat(PlazaMap.tileSize) * 0.5
         let back: CGPoint = switch direction {
@@ -1020,7 +1021,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 점프: 그 캐릭터가 위로 폴짝 뛰고, 뛸 때와 내려올 때 발밑에서 먼지가 양옆으로 퍼진다. `memberID`가 nil이면 나.
     func playJump(memberID: String?) {
-        guard let actor = actor(memberID) else { return }
+        guard !isPaused, let actor = actor(memberID) else { return }
         actor.jump()
         puffDust(under: memberID)
         run(.sequence([.wait(forDuration: PlazaActor.jumpDuration), .run { [weak self] in self?.puffDust(under: memberID) }]))

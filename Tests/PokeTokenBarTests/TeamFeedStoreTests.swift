@@ -31,6 +31,85 @@ final class TeamFeedStoreTests: XCTestCase {
         return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
     }
 
+    // MARK: - Hostile rows
+
+    /// Every row goes through here, so a String field added later without a limit fails without anyone writing a test.
+    private func assertEveryStringIsBounded<T: Codable>(_ row: T, insert: (T, TeamFeedStore) -> Void,
+                                                        file: StaticString = #filePath, line: UInt = #line) throws {
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(row)) as? [String: Any])
+        let keys = object.compactMap { $0.value is String ? $0.key : nil }
+        XCTAssertGreaterThan(keys.count, 3, file: file, line: line)
+        for key in keys {
+            var bad = object
+            // Leading zeros keep a date readable, so the size is the only thing wrong with it.
+            bad[key] = String(repeating: "0", count: 2000) + (try XCTUnwrap(object[key] as? String))
+            let data = try JSONSerialization.data(withJSONObject: bad)
+            guard let hostile = try? JSONDecoder().decode(T.self, from: data) else { continue }   // an enum refuses it
+            let target = dir.appendingPathComponent("\(UUID().uuidString).json")
+            insert(hostile, TeamFeedStore(fileURL: target, myMemberID: "me", clock: { [now] in now }, calendar: calendar))
+            let size = (try? FileManager.default.attributesOfItem(atPath: target.path)[.size] as? Int) ?? 0
+            XCTAssertLessThan(size, 1024, "\(key) reached the disk at full size", file: file, line: line)
+        }
+    }
+
+    func testEveryStringFieldOfAnEventIsBounded() throws {
+        let e = TeamEvent(id: "e", authorID: "bob", authorNickname: "bob", kind: .evolve, speciesID: 25, fromSpeciesID: 172,
+                          speciesName: "Pikachu", fromSpeciesName: "Pichu", form: PokemonForm("sandy"), isShiny: false,
+                          nature: .hardy, rarity: .common, day: dayString(now), occurredAt: now)
+        XCTAssertEqual(makeStore().insert([e]).count, 1, "the row is fine until a field is blown up")
+        try assertEveryStringIsBounded(e) { _ = $1.insert([$0]) }
+    }
+
+    func testEveryStringFieldOfAReactionIsBounded() throws {
+        let r = TeamReaction(id: "r", eventID: "e", authorID: "bob", authorNickname: "bob", kind: .cute, text: "x", createdAt: now)
+        XCTAssertEqual(makeStore().insert([r]).count, 1, "the row is fine until a field is blown up")
+        try assertEveryStringIsBounded(r) { _ = $1.insert([$0]) }
+    }
+
+    /// `validNickname` trims before it measures, so the row keeps what the check never saw.
+    func testSpacesDoNotHideANicknamesSize() {
+        let padded = "A" + String(repeating: " ", count: 2000)
+        let store = makeStore()
+        XCTAssertTrue(store.insert([TeamEvent(id: "e", authorID: "bob", authorNickname: padded, kind: .hatch, speciesID: 25,
+                                              fromSpeciesID: nil, speciesName: "Pikachu", fromSpeciesName: nil, form: nil,
+                                              isShiny: false, nature: nil, rarity: .common, day: dayString(now),
+                                              occurredAt: nil)]).isEmpty)
+        XCTAssertTrue(store.insert([TeamReaction(id: "r", eventID: "e", authorID: "bob", authorNickname: padded, kind: .cute,
+                                                 text: nil, createdAt: now)]).isEmpty)
+    }
+
+    /// One row too big used to stop its whole batch of 100, so honest news never reached a newcomer.
+    func testAFullBatchOfTheLargestRowsFitsInAFrame() throws {
+        let long = String(repeating: "\"", count: TeamWire.maxFieldBytes)   // a quote costs two bytes in JSON
+        let name = String(repeating: "\"", count: 12)
+        let events = (0..<TeamSession.batchSize).map { _ in
+            TeamEvent(id: long, authorID: long, authorNickname: name, kind: .evolve, speciesID: .max, fromSpeciesID: .max,
+                      speciesName: long, fromSpeciesName: long, form: PokemonForm(long), isShiny: true, nature: .hardy,
+                      rarity: .legendary, day: long, occurredAt: now)
+        }
+        XCTAssertNoThrow(try TeamWire.encode(.events(events, live: false)))
+        let reactions = (0..<TeamSession.batchSize).map { _ in
+            TeamReaction(id: long, eventID: long, authorID: long, authorNickname: name, kind: .congrats, text: nil, createdAt: now)
+        }
+        XCTAssertNoThrow(try TeamWire.encode(.reactions(reactions, live: false)))
+    }
+
+    func testAFrameOfDuplicatesKeepsOneOfEach() {
+        let store = makeStore()
+        XCTAssertEqual(store.insert([event("a"), event("a"), event("b")]).map(\.id).sorted(), ["a", "b"])
+        let r = TeamReaction(id: "r", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .cute, text: nil, createdAt: now)
+        let sameSlot = TeamReaction(id: "r2", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .cute, text: nil, createdAt: now)
+        let otherKind = TeamReaction(id: "r3", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .lol, text: nil, createdAt: now)
+        XCTAssertEqual(store.insert([r, r, sameSlot, otherKind]).map(\.id), ["r", "r3"])
+    }
+
+    func testTwoReactionsWithOneIDInAFrameKeepTheFirst() {
+        let store = makeStore()
+        let first = TeamReaction(id: "r", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .cute, text: nil, createdAt: now)
+        let reused = TeamReaction(id: "r", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .lol, text: nil, createdAt: now)
+        XCTAssertEqual(store.insert([first, reused]).map(\.kind), [.cute])
+    }
+
     private func event(_ id: String, author: String = "bob", at: Date? = nil, day: String? = nil) -> TeamEvent {
         TeamEvent(id: id, authorID: author, authorNickname: author, kind: .hatch,
                   speciesID: 25, fromSpeciesID: nil, speciesName: "Pikachu", fromSpeciesName: nil,

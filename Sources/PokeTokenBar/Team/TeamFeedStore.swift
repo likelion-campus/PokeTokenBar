@@ -20,6 +20,12 @@ final class TeamFeedStore {
         var seq: Int
     }
 
+    /// One author gives each kind once per event.
+    private struct ReactionSlot: Hashable {
+        let authorID: String, eventID: String, kind: TeamReactionKind
+        init(_ r: TeamReaction) { authorID = r.authorID; eventID = r.eventID; kind = r.kind }
+    }
+
     private struct FileContents: Codable {
         var version = 1
         var events: [StoredEvent]
@@ -93,7 +99,8 @@ final class TeamFeedStore {
     /// Admits a whole frame with one prune and one save. Returns the events that are new and still kept.
     func insert(_ events: [TeamEvent]) -> [TeamEvent] {
         var added: [TeamEvent] = []
-        for e in events where admits(e) && !stored.contains(where: { $0.event.id == e.id }) {
+        var known = eventIDs
+        for e in events where admits(e) && known.insert(e.id).inserted {
             stored.append(StoredEvent(event: e, seq: takeSeq()))
             added.append(e)
         }
@@ -108,10 +115,11 @@ final class TeamFeedStore {
 
     func insert(_ reactions: [TeamReaction]) -> [TeamReaction] {
         var added: [TeamReaction] = []
-        for r in reactions where admits(r) && !allReactions.contains(where: { $0.reaction.id == r.id }) {
-            guard !allReactions.contains(where: {
-                $0.reaction.authorID == r.authorID && $0.reaction.eventID == r.eventID && $0.reaction.kind == r.kind
-            }) else { continue }
+        var known = reactionIDs
+        var given = Set(allReactions.map { ReactionSlot($0.reaction) })
+        for r in reactions where admits(r) && !known.contains(r.id) {
+            guard given.insert(ReactionSlot(r)).inserted else { continue }
+            known.insert(r.id)
             allReactions.append(StoredReaction(reaction: dayOnly(r), seq: takeSeq()))
             added.append(r)
         }
@@ -170,11 +178,12 @@ final class TeamFeedStore {
 
     // MARK: - Admission
 
-    private static let maxFieldBytes = 64
-
     private func bounded(_ strings: String?...) -> Bool {
-        strings.allSatisfy { ($0?.utf8.count ?? 0) <= Self.maxFieldBytes }
+        strings.allSatisfy { ($0?.utf8.count ?? 0) <= TeamWire.maxFieldBytes }
     }
+
+    /// The row keeps the nickname as sent and `validNickname` measures a trimmed copy, so the two must match.
+    private func isNickname(_ s: String) -> Bool { TeamSettings.validNickname(s) == s }
 
     /// Dates must lie between the retention cutoff and tomorrow, so no row is born expired, never expires,
     /// or carries a date the file cannot be decoded with.
@@ -190,9 +199,9 @@ final class TeamFeedStore {
     }
 
     private func admits(_ e: TeamEvent) -> Bool {
-        guard !e.id.isEmpty, !e.authorID.isEmpty, bounded(e.id, e.authorID, e.speciesName, e.fromSpeciesName),
-              TeamSettings.validNickname(e.authorNickname) != nil,
-              let day = dayStart(e.day), inWindow(day) else { return false }
+        guard !e.id.isEmpty, !e.authorID.isEmpty,
+              bounded(e.id, e.authorID, e.speciesName, e.fromSpeciesName, e.day, e.form?.rawValue),
+              isNickname(e.authorNickname), let day = dayStart(e.day), inWindow(day) else { return false }
         // The `day` string decides the lower bound; the instant gets one more day below the cutoff because
         // the sender's calendar may be a day ahead of this one.
         if let at = e.occurredAt, !inWindow(at, extraDaysBelow: 1) { return false }
@@ -202,7 +211,7 @@ final class TeamFeedStore {
     /// R25: comments are not part of the feature, so they are never stored (the enum case stays for the wire).
     private func admits(_ r: TeamReaction) -> Bool {
         guard r.kind != .comment, !r.id.isEmpty, !r.eventID.isEmpty, !r.authorID.isEmpty,
-              bounded(r.id, r.eventID, r.authorID), TeamSettings.validNickname(r.authorNickname) != nil,
+              bounded(r.id, r.eventID, r.authorID), isNickname(r.authorNickname),
               inWindow(r.createdAt) else { return false }
         return true
     }
