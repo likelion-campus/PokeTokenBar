@@ -11,10 +11,20 @@ final class TeamTransportTests: XCTestCase {
         transports = []
     }
 
-    private func makeTransport() -> BonjourTeamTransport {
-        let t = BonjourTeamTransport(advertise: false)
+    private func makeTransport(linkLimit: Int = BonjourTeamTransport.maxLinks) -> BonjourTeamTransport {
+        let t = BonjourTeamTransport(advertise: false, linkLimit: linkLimit)
         transports.append(t)
         return t
+    }
+
+    /// Accepts TCP and never speaks TLS, like a rogue service holding a dial open.
+    private func silentSink() async throws -> (listener: NWListener, endpoint: NWEndpoint) {
+        let listener = try NWListener(using: .tcp)
+        listener.newConnectionHandler = { $0.start(queue: .main) }
+        listener.start(queue: .main)
+        let ready = await waitUntil(5) { listener.port != nil && listener.port?.rawValue != 0 }
+        XCTAssertTrue(ready)
+        return (listener, .hostPort(host: "127.0.0.1", port: try XCTUnwrap(listener.port)))
     }
 
     private func newCode() -> TeamCode {
@@ -220,6 +230,61 @@ final class TeamTransportTests: XCTestCase {
         XCTAssertTrue(full)
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertEqual(a.linkCount, BonjourTeamTransport.maxUnfinishedInbound)
+    }
+
+    /// Anyone on the network can advertise a thousand services without the team code. Before the cap every one
+    /// was dialed at once, which took all 256 file handles an app gets: saves failed and no teammate could connect.
+    func testDialsToRogueServicesAreCapped() async throws {
+        let sink = try await silentSink()
+        defer { sink.listener.cancel() }
+        let a = makeTransport()
+        a.start(code: newCode())
+        for i in 0..<1000 { a.injectDiscovered("ptb-rogue-\(i)", endpoint: sink.endpoint) }
+        XCTAssertEqual(a.linkCount, BonjourTeamTransport.maxUnfinishedOutbound)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(a.linkCount, BonjourTeamTransport.maxUnfinishedOutbound, "they stay unfinished, so nothing more is dialed")
+    }
+
+    func testDialsLeaveRoomForTheLinkLimit() async throws {
+        let sink = try await silentSink()
+        defer { sink.listener.cancel() }
+        let a = makeTransport(linkLimit: 3)
+        a.start(code: newCode())
+        for i in 0..<10 { a.injectDiscovered("ptb-rogue-\(i)", endpoint: sink.endpoint) }
+        XCTAssertEqual(a.linkCount, 3)
+    }
+
+    func testInboundLinksStopAtTheLinkLimit() async throws {
+        let a = makeTransport(linkLimit: 2)
+        a.start(code: newCode())
+        _ = try await loopback(a)
+        let port = try XCTUnwrap(a.listenerPort)
+        let raw = (0..<6).map { _ in NWConnection(host: "127.0.0.1", port: port, using: .tcp) }
+        defer { raw.forEach { $0.cancel() } }
+        raw.forEach { $0.start(queue: .main) }
+        let full = await waitUntil(5) { a.linkCount >= 2 }
+        XCTAssertTrue(full)
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertEqual(a.linkCount, 2)
+    }
+
+    /// The cap only counts unfinished dials, so a finished link leaves room for the next one.
+    func testAFinishedLinkDoesNotUseUpADialSlot() async throws {
+        let code = newCode()
+        let server = makeTransport()
+        server.start(code: code)
+        let real = try await loopback(server)
+        let a = makeTransport()
+        a.start(code: code)
+        var connected = 0
+        a.onPeerConnected = { _, _ in connected += 1 }
+        a.injectDiscovered("ptb-teammate", endpoint: real)
+        let up = await waitUntil(5) { connected == 1 }
+        XCTAssertTrue(up)
+        let sink = try await silentSink()
+        defer { sink.listener.cancel() }
+        for i in 0..<100 { a.injectDiscovered("ptb-rogue-\(i)", endpoint: sink.endpoint) }
+        XCTAssertEqual(a.linkCount, BonjourTeamTransport.maxUnfinishedOutbound + 1)
     }
 
     func testFailedDialIsClosedAndWaitsForCooldown() async throws {
