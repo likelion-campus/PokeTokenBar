@@ -287,6 +287,66 @@ final class TeamTransportTests: XCTestCase {
         XCTAssertEqual(a.linkCount, BonjourTeamTransport.maxUnfinishedOutbound + 1)
     }
 
+    /// Two connected transports. Bytes written with `sendRaw` on the second reach the first.
+    private func connectedPair() async throws -> (receiver: BonjourTeamTransport, sender: BonjourTeamTransport, peer: TeamPeerID) {
+        let code = newCode()
+        let receiver = makeTransport(), sender = makeTransport()
+        receiver.start(code: code); sender.start(code: code)
+        var peer: TeamPeerID?
+        sender.onPeerConnected = { id, _ in peer = id }
+        sender.connect(to: try await loopback(receiver))
+        let up = await waitUntil(5) { peer != nil && receiver.linkCount == 1 }
+        XCTAssertTrue(up)
+        return (receiver, sender, try XCTUnwrap(peer))
+    }
+
+    /// Big frames decode on the main thread, so a link pouring them in would hold it for as long as it liked.
+    func testALinkPouringInBytesIsDropped() async throws {
+        let (receiver, sender, peer) = try await connectedPair()
+        var bad = 0
+        receiver.onPeerBadFrame = { _ in bad += 1 }
+        let id = String(repeating: "x", count: 1_000_000)
+        let frame = try TeamWire.encode(.inventory(eventIDs: [id], reactionIDs: []))
+        for _ in 0..<6 { sender.sendRaw(frame, to: peer) }
+        let dropped = await waitUntil(5) { bad == 1 }
+        XCTAssertTrue(dropped)
+        XCTAssertEqual(receiver.linkCount, 0)
+    }
+
+    /// Small frames cost little to send and more to handle, so each one counts for more than its bytes.
+    func testALinkPouringInTinyFramesIsDropped() async throws {
+        let (receiver, sender, peer) = try await connectedPair()
+        var delivered = 0, bad = 0
+        receiver.onMessage = { _, _ in delivered += 1 }
+        receiver.onPeerBadFrame = { _ in bad += 1 }
+        let frame = try TeamWire.encode(.emote(TeamEmote(kind: .jump, targetMemberID: nil)))
+        let flood = Data(repeating: 0, count: 0) + (0..<6000).reduce(into: Data()) { d, _ in d.append(frame) }
+        sender.sendRaw(flood, to: peer)
+        let dropped = await waitUntil(5) { bad == 1 }
+        XCTAssertTrue(dropped)
+        XCTAssertLessThan(delivered, 6000, "the rest of a flood is not handled")
+    }
+
+    /// What an honest app sends at its busiest: a full sync, well under the burst, then a run across the plaza.
+    func testASyncAndARunAreNotDropped() async throws {
+        let (receiver, sender, peer) = try await connectedPair()
+        var bad = 0, delivered = 0
+        receiver.onPeerBadFrame = { _ in bad += 1 }
+        receiver.onMessage = { _, _ in delivered += 1 }
+        let row = TeamReaction(id: UUID().uuidString, eventID: UUID().uuidString, authorID: UUID().uuidString,
+                               authorNickname: "닉네임", kind: .cute, text: nil, createdAt: Date())
+        let batch = try TeamWire.encode(.reactions(Array(repeating: row, count: TeamSession.batchSize), live: false))
+        for _ in 0..<33 { sender.sendRaw(batch, to: peer) }
+        let moved = TeamPresence(nickname: "닉네임", character: TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "피카츄", gender: nil),
+                                 inPlaza: true, tile: TilePoint(x: 3, y: 3), facing: .down, isWalking: true)
+        let step = try TeamWire.encode(.presence(moved))
+        for _ in 0..<300 { sender.sendRaw(step, to: peer) }
+        let all = await waitUntil(5) { delivered == 333 }
+        XCTAssertTrue(all)
+        XCTAssertEqual(bad, 0)
+        XCTAssertEqual(receiver.linkCount, 1)
+    }
+
     func testFailedDialIsClosedAndWaitsForCooldown() async throws {
         let a = makeTransport(), b = makeTransport()
         a.start(code: newCode()); b.start(code: newCode())

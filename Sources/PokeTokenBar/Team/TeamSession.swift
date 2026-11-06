@@ -37,6 +37,12 @@ final class TeamSession {
     static let batchSize = 100
     /// More than a team has. A modified app can leave under new IDs for as long as it likes.
     static let maxAsleepMembers = 128
+    /// One tiny frame asks for the whole feed back. An honest peer asks at connect and then every five minutes.
+    nonisolated static let inventoryReplyBurst = 3
+    nonisolated static let inventoryReplyInterval: TimeInterval = 30
+    /// A profile is the whole dex, asked for when someone opens a card.
+    nonisolated static let profileReplyBurst = 5
+    nonisolated static let profileReplyInterval: TimeInterval = 2
     static let pruneInterval: TimeInterval = 3600
     /// A member the session refused (other version, same member ID, undecodable frame) is not served again for this long.
     static let refusalCooldown: TimeInterval = 300
@@ -52,6 +58,10 @@ final class TeamSession {
         var lastReceived: Date
         var lastSent: Date
         var lastInventory: Date
+        var inventoryReplies = TeamTokenBucket(capacity: Double(TeamSession.inventoryReplyBurst),
+                                               perSecond: 1 / TeamSession.inventoryReplyInterval)
+        var profileReplies = TeamTokenBucket(capacity: Double(TeamSession.profileReplyBurst),
+                                             perSecond: 1 / TeamSession.profileReplyInterval)
     }
 
     private struct PendingProfile {
@@ -348,6 +358,7 @@ final class TeamSession {
                 broadcast(.presence(makePresence()))
             }
         case .inventory(let eventIDs, let reactionIDs):
+            guard links[peer]?.inventoryReplies.take(now: clock()) == true else { return }
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
         case .events(let events, let live):
             // Nothing honest sends more, and a store pass over a frame this size stops the main thread for seconds.
@@ -368,6 +379,7 @@ final class TeamSession {
         case .chat(let chat):
             if TeamChat.prepared(chat.text) == chat.text { onChat?(memberID, chat.text, chat.isLoud ?? false) }
         case .profileRequest:
+            guard links[peer]?.profileReplies.take(now: clock()) == true else { return }
             send(.profile(profileProvider()), to: peer)
         case .profile(let profile):
             for (id, pending) in pendingProfiles where pending.memberID == memberID {

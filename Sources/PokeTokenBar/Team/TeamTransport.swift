@@ -38,6 +38,12 @@ final class BonjourTeamTransport: TeamTransporting {
     static let maxUnfinishedOutbound = 32
     /// Links in any state. Each holds a file handle and an app starts with 256, which it also needs for its saves.
     static let maxLinks = 128
+    /// What one link may send. An honest app sends a few KB a second and under 1 MB for a full sync, so only a flood
+    /// reaches this, and a flood holds the main thread because that is where frames are decoded.
+    nonisolated static let receiveBurst = 4.0 * 1_048_576
+    nonisolated static let receivePerSecond = 256.0 * 1024
+    /// Each frame counts for this many bytes on top of its own: tiny frames are cheap to send and not to handle.
+    static let frameCost = 1024
 
     var onPeerConnected: ((TeamPeerID, Bool) -> Void)?
     var onPeerDisconnected: ((TeamPeerID) -> Void)?
@@ -48,6 +54,7 @@ final class BonjourTeamTransport: TeamTransporting {
         let connection: NWConnection
         let initiatedByMe: Bool
         var decoder = TeamWire.FrameDecoder()
+        var budget = TeamTokenBucket(capacity: BonjourTeamTransport.receiveBurst, perSecond: BonjourTeamTransport.receivePerSecond)
         var isReady = false
         var handshakeTimer: DispatchWorkItem?
         init(connection: NWConnection, initiatedByMe: Bool) {
@@ -423,6 +430,12 @@ final class BonjourTeamTransport: TeamTransporting {
                     let messages: [TeamMessage]
                     do { messages = try link.decoder.append(data) } catch {
                         AppLog.write("team: dropped a connection after a bad frame (\(error))")
+                        self.onPeerBadFrame?(id)
+                        self.finish(id, handshakeFailed: false, refused: true)
+                        return
+                    }
+                    guard link.budget.take(Double(data.count + messages.count * Self.frameCost), now: Date()) else {
+                        AppLog.write("team: dropped a connection that sent too much")
                         self.onPeerBadFrame?(id)
                         self.finish(id, handshakeFailed: false, refused: true)
                         return

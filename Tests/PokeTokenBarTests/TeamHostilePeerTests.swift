@@ -138,6 +138,43 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(feed.reactionIDs.count, TeamSession.batchSize)
     }
 
+    // MARK: - Rates
+
+    private var eventReplies: (Peer) -> Int {
+        { $0.received.filter { if case .events = $0 { true } else { false } }.count }
+    }
+
+    /// One tiny frame asks for the whole feed back, so it is the cheapest way to make this Mac work.
+    func testInventoryFloodIsAnsweredOnlyAFewTimes() {
+        feed.insert(event("mine", author: "me"))
+        let peer = join("A")
+        for _ in 0..<50 { say(.inventory(eventIDs: [], reactionIDs: []), from: peer) }
+        XCTAssertEqual(eventReplies(peer), TeamSession.inventoryReplyBurst)
+        clock = clock.addingTimeInterval(TeamSession.inventoryReplyInterval)
+        say(.inventory(eventIDs: [], reactionIDs: []), from: peer)
+        XCTAssertEqual(eventReplies(peer), TeamSession.inventoryReplyBurst + 1, "it comes back with time")
+    }
+
+    func testProfileFloodIsAnsweredOnlyAFewTimes() {
+        let peer = join("A")
+        let before = profilesServed
+        for _ in 0..<50 { say(.profileRequest, from: peer) }
+        XCTAssertEqual(profilesServed - before, TeamSession.profileReplyBurst)
+        clock = clock.addingTimeInterval(TeamSession.profileReplyInterval)
+        say(.profileRequest, from: peer)
+        XCTAssertEqual(profilesServed - before, TeamSession.profileReplyBurst + 1)
+    }
+
+    /// Replies are limited per link, so one member's flood does not cost a teammate their card.
+    func testAnotherMembersRepliesAreUntouched() {
+        let flood = join("A")
+        for _ in 0..<50 { say(.profileRequest, from: flood) }
+        let other = join("B")
+        let before = profilesServed
+        say(.profileRequest, from: other)
+        XCTAssertEqual(profilesServed - before, 1)
+    }
+
     func testTheAsleepListStopsGrowing() {
         for i in 0..<(TeamSession.maxAsleepMembers + 20) {
             let peer = join("gone-\(i)")
