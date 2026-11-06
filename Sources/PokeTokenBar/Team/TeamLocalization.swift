@@ -4,6 +4,36 @@ import Foundation
 /// Team 쪽 한글 문자열 리터럴은 이 파일에만 둔다 (TeamLocalizationTests 가 검사).
 extension L {
     var teamSectionTitle: String { "팀" }
+    /// 이름 앞에 붙여 읽는 성격. 본가 이름("의젓")은 뒤에 이름이 오면 어색해 꾸미는 말로 바꾼다.
+    func plazaNatureTitle(_ nature: PokemonNature) -> String {
+        switch nature {
+        case .hardy: "노력하는"
+        case .lonely: "외로운"
+        case .brave: "용감한"
+        case .adamant: "고집스러운"
+        case .naughty: "개구쟁이"
+        case .bold: "대담한"
+        case .docile: "온순한"
+        case .relaxed: "무사태평한"
+        case .impish: "장난꾸러기"
+        case .lax: "촐랑대는"
+        case .timid: "겁쟁이"
+        case .hasty: "성급한"
+        case .serious: "성실한"
+        case .jolly: "명랑한"
+        case .naive: "천진난만한"
+        case .modest: "조심스러운"
+        case .mild: "의젓한"
+        case .quiet: "냉정한"
+        case .bashful: "수줍은"
+        case .rash: "덜렁대는"
+        case .calm: "차분한"
+        case .gentle: "얌전한"
+        case .sassy: "건방진"
+        case .careful: "신중한"
+        case .quirky: "변덕스러운"
+        }
+    }
     var teamEnable: String { "팀 기능 켜기" }
     var teamCreate: String { "팀 만들기" }
     var teamJoin: String { "코드로 참여" }

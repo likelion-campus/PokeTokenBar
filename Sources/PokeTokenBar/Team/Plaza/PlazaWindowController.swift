@@ -1110,7 +1110,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene.applyMembers(list.map {
             PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
                              facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle, nameColor: $0.nameColor,
-                             isRunning: $0.isRunning, isDiving: $0.isDiving, evolutionStage: $0.evolutionStage)
+                             isRunning: $0.isRunning, isDiving: $0.isDiving, evolutionStage: $0.evolutionStage,
+                             nature: $0.character.nature)
         })
         refreshMinimap()
         let ids = Set(members.keys)
@@ -1218,6 +1219,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard window != nil || scene != nil else { return }
         let me = myEntryCache ?? myRosterEntry()
         myEntryCache = .some(me)
+        scene?.setNature(me?.nature)
         let next = PlazaRoster.entries(me: me, meIsIdle: session?.isIdle ?? false, meIsFocusing: isFocusing, members: Array(members.values),
                                        asleep: session.map { Array($0.asleepMembers.values) } ?? [], now: clock())
         if next != rosterModel.entries { rosterModel.entries = next }

@@ -252,6 +252,41 @@ final class PlazaMembersTests: XCTestCase {
 
     // MARK: - 자리비움(입력 없음)과 작은 지도
 
+    func testATeammatesNatureReachesTheirPlateAndFollowsAChange() async {
+        var mon = Self.pikachu
+        mon.nature = .naive
+        let me = node("나"), other = node("민수", character: mon)
+        let c = controller(me)
+        c.prepareScene()
+        await connect(me, other)
+        let id = other.settings.memberID
+        XCTAssertEqual(c.scene?.memberTitle(id), "천진난만한", "from the first hello")
+        mon.nature = .sassy
+        other.session.updateCharacter(mon)
+        await settle()
+        XCTAssertEqual(c.scene?.memberTitle(id), "건방진", "a mint on their side")
+        mon.nature = nil
+        other.session.updateCharacter(mon)
+        await settle()
+        XCTAssertNil(c.scene?.memberTitle(id))
+    }
+
+    func testMyNatureComesFromMyEntryAndFollowsItsRefresh() {
+        let me = node("나")
+        var mine = PlazaRosterEntry(id: me.settings.memberID, nickname: "나", speciesID: 25, speciesName: "Pikachu", gender: nil,
+                                    isShiny: false, presence: .online, isMe: true, nature: .calm)
+        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
+                                      loader: PlazaCharacterLoader(fetcher: CountingFetcher()),
+                                      nickname: { "나" }, memberID: { me.settings.memberID },
+                                      subject: { .init(speciesID: 25, isShiny: false) },
+                                      myRosterEntry: { mine }, session: me.session)
+        c.prepareScene()
+        XCTAssertEqual(c.scene?.myTitle, "차분한")
+        mine.nature = .rash
+        c.refreshMyEntry()
+        XCTAssertEqual(c.scene?.myTitle, "덜렁대는")
+    }
+
     func testIdleShowsInPlaceAndComingBackClearsIt() async {
         let me = node("나"), other = node("민수")
         let mine = PlazaRosterEntry(id: me.settings.memberID, nickname: "나", speciesID: 25, speciesName: "Pikachu", gender: nil,

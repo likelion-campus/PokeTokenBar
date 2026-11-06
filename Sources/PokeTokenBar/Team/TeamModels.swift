@@ -53,6 +53,8 @@ struct TeamMonSummary: Codable, Equatable, Sendable {
     var form: PokemonForm?
     var speciesName: String?
     var gender: PokemonGender?
+    /// Shown above the name in the plaza. Left out when unknown; earlier versions ignore it.
+    @LossyOptional var nature: PokemonNature? = nil
 
     /// What a peer sent, without a name or form too long to be real. The character still shows.
     var bounded: TeamMonSummary {

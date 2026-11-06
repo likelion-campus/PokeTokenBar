@@ -205,6 +205,11 @@ final class CompanionStore {
     /// 광장에 서는 대표 포켓몬의 진화 단계(1부터). 알이면 1.
     var representativeEvolutionStage: Int { representativeSubject.speciesID.map { state.evolutionStage(of: $0) } ?? 1 }
     var representativeForm: PokemonForm? { state.representativeForm }
+    /// 광장 이름표의 성격. 종을 고르지 않았으면 키우는 개체, 골랐으면 그 종의 가장 최근 개체다.
+    var representativeNature: PokemonNature? {
+        guard let selected = state.representativeSpeciesID else { return currentNature }
+        return state.latestNature(of: selected, form: state.representativeForm)
+    }
 
     /// 관련 상태가 바뀌어 저장되는 경계에서만 갱신한다. 고정 종 하나의 이로치 여부만 조회하므로
     /// 이름 해석·정렬을 포함한 `dexSpecies` 계산을 메뉴바/플로팅 펫 렌더마다 반복하지 않는다.

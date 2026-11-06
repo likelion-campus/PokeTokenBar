@@ -782,6 +782,18 @@ struct CompanionState: Codable, Sendable {
         return active.displaysShiny
     }
 
+    /// 그 종의 가장 최근 개체 성격. 키우는 중이면 그 개체, 아니면 가장 늦게 잡은 기록이다. 성격이 없는 옛 개체는 건너뛴다.
+    func latestNature(of speciesID: Int, form: PokemonForm? = nil) -> PokemonNature? {
+        let form = PokemonForm.resolved(speciesID: speciesID, form: form)
+        if let active, let nature = active.nature,
+           active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID),
+           PokemonForm.resolved(speciesID: speciesID, form: active.form) == form { return nature }
+        return dex.filter {
+            $0.nature != nil && $0.chainOrder.contains(speciesID)
+                && PokemonForm.resolved(speciesID: speciesID, form: $0.form) == form
+        }.max { ($0.caughtAt ?? .distantPast) < ($1.caughtAt ?? .distantPast) }?.nature
+    }
+
     /// 대표 포켓몬은 사용자가 현재 보유한 종만 가리킨다. Fresh Egg·메타몽 리빌·손편집 세이브가
     /// 유령 종을 메뉴바와 플로팅 펫에 영구히 남기지 않게 한다.
     mutating func reconcileRepresentativeSelection() {

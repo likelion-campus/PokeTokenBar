@@ -104,6 +104,30 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(full))), [.presence(full)])
     }
 
+    func testNatureIsOptionalOnTheWire() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("nature"), "earlier versions read the frame as before")
+        var titled = presence
+        titled.character.nature = .naive
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(titled))), [.presence(titled)])
+        let hello = TeamHello(memberID: "m", nickname: "Ash", protocolVersion: TeamWire.protocolVersion, current: titled.character)
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.hello(hello))), [.hello(hello)])
+    }
+
+    /// A nature this version cannot read costs only the nature, never the member's position or character.
+    func testUnreadableNatureDropsOnlyTheNature() throws {
+        for nature in [#""sleepy""#, "7", "{}", "null"] {
+            let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P","nature":"#
+                + nature + #"},"inPlaza":true,"tile":{"x":3,"y":4},"isWalking":true}}}"#
+            var decoder = TeamWire.FrameDecoder()
+            guard case .presence(let p)? = try decoder.append(frame(json)).first else { return XCTFail("presence dropped: \(nature)") }
+            XCTAssertNil(p.character.nature, nature)
+            XCTAssertEqual(p.character.speciesID, 25)
+            XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
+        }
+    }
+
     /// A schedule this version cannot read costs only the schedule, never the member's position or name.
     func testMalformedScheduleDropsOnlyTheSchedule() throws {
         let head = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335,"schedule":"#

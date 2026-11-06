@@ -16,6 +16,7 @@ struct PlazaRosterEntry: Equatable, Identifiable, Sendable {
     let isShiny: Bool
     let presence: PlazaPresence
     let isMe: Bool
+    var nature: PokemonNature? = nil   // 이름표 위에 쓴다. 목록에는 보이지 않는다
 }
 
 /// 목록 판의 크기. 장면 카메라가 가려진 폭을 알아야 해서 한 곳에 둔다.
@@ -65,7 +66,7 @@ enum PlazaRoster {
             subject: companion.representativeSubject, followsRaised: followsRaised,
             raisedName: companion.displayName, raisedGender: companion.state.active?.profile?.gender,
             pinnedName: followsRaised ? nil : companion.representativeDexSpecies?.name,
-            eggName: L(.ko).plazaEggName)
+            eggName: L(.ko).plazaEggName, nature: companion.representativeNature)
     }
 
     /// 팀에 보내는 내 캐릭터. 이름과 성별은 내 칸과 같고, 알이면 종·이름·폼이 비어 있다.
@@ -74,7 +75,7 @@ enum PlazaRoster {
             return TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil)
         }
         return TeamMonSummary(speciesID: entry.speciesID, isShiny: entry.isShiny, form: subject.form,
-                              speciesName: entry.speciesName, gender: entry.gender)
+                              speciesName: entry.speciesName, gender: entry.gender, nature: entry.nature)
     }
 
     /// 내 칸, 연결된 팀원, 끊긴 팀원(잠)을 합쳐 정렬한다. 광장을 열었는지는 상태와 상관없다.
@@ -84,12 +85,14 @@ enum PlazaRoster {
         func entry(_ m: TeamMemberState, _ presence: PlazaPresence) -> PlazaRosterEntry {
             PlazaRosterEntry(id: m.memberID, nickname: m.nickname, speciesID: m.character.speciesID,
                              speciesName: m.character.speciesName ?? (m.character.speciesID == nil ? L(.ko).plazaEggName : ""),
-                             gender: m.character.gender, isShiny: m.character.isShiny, presence: presence, isMe: false)
+                             gender: m.character.gender, isShiny: m.character.isShiny, presence: presence, isMe: false,
+                             nature: m.character.nature)
         }
         let connected = Set(members.map(\.memberID))
         let mine = me.map { e in
             PlazaRosterEntry(id: e.id, nickname: e.nickname, speciesID: e.speciesID, speciesName: e.speciesName,
-                             gender: e.gender, isShiny: e.isShiny, presence: meIsFocusing ? .focus : (meIsIdle ? .idle : .online), isMe: true)
+                             gender: e.gender, isShiny: e.isShiny, presence: meIsFocusing ? .focus : (meIsIdle ? .idle : .online), isMe: true,
+                             nature: e.nature)
         }
         let others = members.map { m in
             entry(m, m.focusEndsAt.map { $0 > now } == true ? .focus : (m.isIdle ? .idle : .online))
@@ -135,7 +138,7 @@ enum PlazaRoster {
     /// 골랐으면 그 종(이름 = 도감 종 이름, 성별 nil), 알이면 speciesID nil·이름 L.plazaEggName·성별 nil.
     static func myEntry(memberID: String, nickname: String, subject: CompanionStore.RepresentativeSubject,
                         followsRaised: Bool, raisedName: String, raisedGender: PokemonGender?,
-                        pinnedName: String?, eggName: String) -> PlazaRosterEntry {
+                        pinnedName: String?, eggName: String, nature: PokemonNature? = nil) -> PlazaRosterEntry {
         let name: String
         let gender: PokemonGender?
         if subject.speciesID == nil {
@@ -146,6 +149,6 @@ enum PlazaRoster {
             name = pinnedName ?? raisedName; gender = nil
         }
         return PlazaRosterEntry(id: memberID, nickname: nickname, speciesID: subject.speciesID, speciesName: name,
-                                gender: gender, isShiny: subject.isShiny, presence: .online, isMe: true)
+                                gender: gender, isShiny: subject.isShiny, presence: .online, isMe: true, nature: nature)
     }
 }

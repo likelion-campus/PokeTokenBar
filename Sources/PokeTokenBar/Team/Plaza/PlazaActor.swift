@@ -48,7 +48,7 @@ struct PlazaActorContext {
     private var shadowImage: CGImage?
     private var shadowIsNest = false
     /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
-    private var plateKey: (nickname: String, backing: CGFloat, color: CGColor)?
+    private var plateKey: (nickname: String, title: String?, backing: CGFloat, color: CGColor)?
     /// 말풍선을 보여 주는 시간.
     static let emoteDuration: TimeInterval = 2.5
     private var emoteKey: (kind: TeamEmoteKind, backing: CGFloat)?
@@ -59,6 +59,7 @@ struct PlazaActorContext {
     private var chatKey: (text: String, backing: CGFloat)?
     private(set) var chatText: String?
     private var name: String
+    private(set) var title: String?
     private var nameColor: CGColor
 
     /// 점프: 그림과 이름표가 위로 폴짝 뛰었다 내려온다. 그림자는 땅에 남는다.
@@ -168,6 +169,11 @@ struct PlazaActorContext {
     func setName(_ name: String, color: CGColor) {
         self.name = name
         self.nameColor = color
+    }
+
+    /// 이름 위에 쓰는 줄(성격). nil이면 이름만 쓴다.
+    func setTitle(_ title: String?) {
+        self.title = title
     }
 
     func lunge(toward d: PlazaDirection) {
@@ -307,7 +313,7 @@ struct PlazaActorContext {
         return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: foot, bob: CGFloat(pose.bob),
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
                                front: shadowIsNest ? nestFrontImage : nil,
-                               plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, color: nameColor, scale: 2),
+                               plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
                                opacity: opacity, plateBaseY: plateBaseY, sink: swimSink)
@@ -466,9 +472,9 @@ struct PlazaActorContext {
     private func refreshPlate(backing: CGFloat) {
         plateNode.isHidden = name.isEmpty
         if name.isEmpty { return }
-        if let key = plateKey, key.nickname == name, key.backing == backing, key.color == nameColor { return }
-        plateKey = (name, backing, nameColor)
-        guard let image = PlazaNamePlate.image(text: name, color: nameColor, scale: backing) else {
+        if let key = plateKey, key.nickname == name, key.title == title, key.backing == backing, key.color == nameColor { return }
+        plateKey = (name, title, backing, nameColor)
+        guard let image = PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: backing) else {
             // The next frame un-hides the node before the key check, so nothing of the old name may remain.
             plateNode.isHidden = true
             plateNode.texture = nil
