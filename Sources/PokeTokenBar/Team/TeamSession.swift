@@ -35,6 +35,8 @@ final class TeamSession {
     static let silenceLimit: TimeInterval = 30
     static let inventoryInterval: TimeInterval = 300
     static let batchSize = 100
+    /// More than a team has. A modified app can leave under new IDs for as long as it likes.
+    static let maxAsleepMembers = 128
     static let pruneInterval: TimeInterval = 3600
     /// A member the session refused (other version, same member ID, undecodable frame) is not served again for this long.
     static let refusalCooldown: TimeInterval = 300
@@ -287,6 +289,9 @@ final class TeamSession {
         guard let link = links.removeValue(forKey: peer), let memberID = link.memberID else { return }
         guard !links.values.contains(where: { $0.memberID == memberID }) else { return }
         asleepMembers[memberID] = members[memberID]
+        if asleepMembers.count > Self.maxAsleepMembers, let other = asleepMembers.keys.first(where: { $0 != memberID }) {
+            asleepMembers[other] = nil
+        }
         members[memberID] = nil
         for (id, pending) in pendingProfiles where pending.memberID == memberID { finishProfileRequest(id, with: nil) }
     }
@@ -323,7 +328,7 @@ final class TeamSession {
         case .presence(let presence):
             guard var member = members[memberID] else { return }
             if let nickname = TeamSettings.validNickname(presence.nickname) { member.nickname = nickname }
-            member.character = presence.character
+            member.character = presence.character.bounded
             member.inPlaza = presence.inPlaza
             member.tile = presence.tile
             member.facing = presence.facing
@@ -345,11 +350,14 @@ final class TeamSession {
         case .inventory(let eventIDs, let reactionIDs):
             sendMissing(eventIDs: Set(eventIDs), reactionIDs: Set(reactionIDs), to: peer)
         case .events(let events, let live):
+            // Nothing honest sends more, and a store pass over a frame this size stops the main thread for seconds.
+            guard events.count <= Self.batchSize else { return }
             let added = feed.insert(events)
             // `publish` sends exactly one event per live frame, so a bigger "live" frame is not a moment
             // that just happened: store it, show nothing.
             if live, events.count == 1, let e = added.first, e.kind.isBig, e.occurredAt != nil { onBigEvent?(e) }
         case .reactions(let reactions, let live):
+            guard reactions.count <= Self.batchSize else { return }
             for r in feed.insert(reactions) {
                 guard live, let event = feed.events.first(where: { $0.id == r.eventID }),
                       event.authorID == settings.memberID else { continue }
@@ -370,6 +378,10 @@ final class TeamSession {
 
     private func receiveHello(_ hello: TeamHello, from peer: TeamPeerID) {
         guard links[peer]?.memberID == nil else { return }
+        guard hello.memberID.utf8.count <= TeamWire.maxFieldBytes else {
+            refuse(peer)
+            return
+        }
         let now = clock()
         if let until = refusedUntil[hello.memberID], now < until {
             refuse(peer)
@@ -387,10 +399,11 @@ final class TeamSession {
         }
         let memberID = hello.memberID
         links[peer]?.memberID = memberID
-        var member = members[memberID] ?? TeamMemberState(memberID: memberID, nickname: "", character: hello.current,
+        let character = hello.current.bounded
+        var member = members[memberID] ?? TeamMemberState(memberID: memberID, nickname: "", character: character,
                                                           inPlaza: false, tile: nil, facing: nil, isWalking: false)
         if let nickname = TeamSettings.validNickname(hello.nickname) { member.nickname = nickname }
-        member.character = hello.current
+        member.character = character
         members[memberID] = member
         asleepMembers[memberID] = nil
 

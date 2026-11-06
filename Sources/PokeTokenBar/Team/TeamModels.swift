@@ -53,6 +53,14 @@ struct TeamMonSummary: Codable, Equatable, Sendable {
     var form: PokemonForm?
     var speciesName: String?
     var gender: PokemonGender?
+
+    /// What a peer sent, without a name or form too long to be real. The character still shows.
+    var bounded: TeamMonSummary {
+        var c = self
+        if (speciesName?.utf8.count ?? 0) > TeamWire.maxFieldBytes { c.speciesName = nil }
+        if (form?.rawValue.utf8.count ?? 0) > TeamWire.maxFieldBytes { c.form = nil }
+        return c
+    }
 }
 
 struct TeamDexSpecies: Codable, Equatable, Sendable {

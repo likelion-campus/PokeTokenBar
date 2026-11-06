@@ -53,6 +53,9 @@ final class FakeTransportHub {
         return connection
     }
 
+    /// The one connection `transport` has.
+    func connection(of transport: FakeTeamTransport) -> FakeConnection { transport.links.values.first! }
+
     /// The connection ends and both sides are told.
     func disconnect(_ connection: FakeConnection) {
         for side in [connection.initiator, connection.acceptor] {
