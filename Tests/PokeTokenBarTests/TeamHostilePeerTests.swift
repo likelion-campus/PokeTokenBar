@@ -175,6 +175,97 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(profilesServed - before, 1)
     }
 
+    // MARK: - Whose name is on it
+
+    /// Anyone can say any member ID, so a refusal must never reach the real member.
+    func testAWrongVersionHelloUnderAMembersIDDoesNotLockThemOut() {
+        _ = join("B", version: TeamWire.protocolVersion + 1)
+        XCTAssertTrue(session.members.isEmpty)
+        _ = join("B")
+        XCTAssertNotNil(session.members["B"])
+    }
+
+    func testABadFrameUnderAMembersIDDoesNotLockThemOut() throws {
+        let impostor = join("B")
+        let link = try XCTUnwrap(transport.peerIDs.first)
+        transport.onPeerBadFrame?(link)
+        _ = impostor
+        XCTAssertNil(session.members["B"])
+        _ = join("B")
+        XCTAssertNotNil(session.members["B"])
+    }
+
+    func testALiveEventUnderAnotherNameIsDropped() {
+        let peer = join("A")
+        say(.events([event("forged", author: "B")], live: true), from: peer)
+        XCTAssertTrue(feed.events.isEmpty, "a live frame is the sender's own news")
+        XCTAssertTrue(bigEvents.isEmpty)
+    }
+
+    func testALiveEventUnderTheSendersNameGoesThrough() {
+        let peer = join("A")
+        say(.events([event("own", author: "A")], live: true), from: peer)
+        XCTAssertEqual(feed.events.map(\.id), ["own"])
+        XCTAssertEqual(bigEvents.map(\.id), ["own"])
+    }
+
+    /// Sync carries other members' news on purpose: it is how someone who was away catches up.
+    func testASyncedEventKeepsItsAuthorAndStaysQuiet() {
+        let peer = join("A")
+        say(.events([event("theirs", author: "B")], live: false), from: peer)
+        XCTAssertEqual(feed.events.map(\.authorID), ["B"])
+        XCTAssertTrue(bigEvents.isEmpty)
+    }
+
+    func testALiveReactionUnderAnotherNameIsDropped() {
+        feed.insert(event("mine", author: "me"))
+        let peer = join("A")
+        say(.reactions([reaction("forged", on: "mine", author: "B")], live: true), from: peer)
+        XCTAssertTrue(feed.reactionIDs.isEmpty)
+        XCTAssertTrue(reactionsToMine.isEmpty)
+    }
+
+    func testALiveReactionUnderTheSendersNameGoesThrough() {
+        feed.insert(event("mine", author: "me"))
+        let peer = join("A")
+        say(.reactions([reaction("own", on: "mine", author: "A")], live: true), from: peer)
+        XCTAssertEqual(reactionsToMine.map(\.id), ["own"])
+    }
+
+    // MARK: - A plaza window behind others
+
+    private func scene() -> PlazaScene {
+        let map = PlazaMapData.map
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        scene.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: map.spawn, facing: .down, isWalking: false)])
+        return scene
+    }
+
+    /// Their removal runs on SKActions and frames, and a covered window has neither, so each one would stay for good.
+    func testEffectsAddNothingWhileTheSceneIsPaused() {
+        let s = scene()
+        s.isPaused = true
+        let before = s.children.count
+        for _ in 0..<50 {
+            s.playJump(memberID: "A")
+            s.playTackle(by: "A", on: nil, direction: .down)
+            s.playSparkle(memberID: "A")
+        }
+        XCTAssertEqual(s.children.count, before)
+        XCTAssertEqual(s.sparkleCount, 0)
+    }
+
+    func testEffectsStillPlayOnAVisibleScene() {
+        let jump = scene(), tackle = scene(), sparkle = scene()
+        let before = jump.children.count
+        jump.playJump(memberID: "A")
+        tackle.playTackle(by: "A", on: nil, direction: .down)
+        sparkle.playSparkle(memberID: "A")
+        XCTAssertGreaterThan(jump.children.count, before)
+        XCTAssertGreaterThan(tackle.children.count, before)
+        XCTAssertGreaterThan(sparkle.sparkleCount, 0)
+    }
+
     func testTheAsleepListStopsGrowing() {
         for i in 0..<(TeamSession.maxAsleepMembers + 20) {
             let peer = join("gone-\(i)")

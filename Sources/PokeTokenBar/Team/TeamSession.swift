@@ -44,8 +44,6 @@ final class TeamSession {
     nonisolated static let profileReplyBurst = 5
     nonisolated static let profileReplyInterval: TimeInterval = 2
     static let pruneInterval: TimeInterval = 3600
-    /// A member the session refused (other version, same member ID, undecodable frame) is not served again for this long.
-    static let refusalCooldown: TimeInterval = 300
     /// `hasIncompatiblePeer` clears when no mismatch was seen for this long.
     static let incompatibleNoticeLifetime: TimeInterval = 600
 
@@ -95,7 +93,6 @@ final class TeamSession {
     @ObservationIgnored private var linkCounter = 0
     @ObservationIgnored private var pendingProfiles: [UUID: PendingProfile] = [:]
     @ObservationIgnored private var running = false
-    @ObservationIgnored private var refusedUntil: [String: Date] = [:]
     @ObservationIgnored private var lastIncompatible: Date?
     @ObservationIgnored private var lastPrune = Date.distantPast
     /// The code the app had last time `applySettings` looked; the baseline for "did the team change".
@@ -174,7 +171,6 @@ final class TeamSession {
         if hasIncompatiblePeer, let seen = lastIncompatible, now.timeIntervalSince(seen) >= Self.incompatibleNoticeLifetime {
             hasIncompatiblePeer = false
         }
-        refusedUntil = refusedUntil.filter { $0.value > now }
         if now.timeIntervalSince(lastPrune) >= Self.pruneInterval { pruneFeed() }
         for (peer, link) in links where now.timeIntervalSince(link.lastReceived) >= Self.silenceLimit {
             transport.disconnect(peer, coveredBy: nil)
@@ -312,7 +308,6 @@ final class TeamSession {
         asleepMembers = [:]
         hasIncompatiblePeer = false
         lastIncompatible = nil
-        refusedUntil = [:]
         for id in Array(pendingProfiles.keys) { finishProfileRequest(id, with: nil) }
     }
 
@@ -363,12 +358,15 @@ final class TeamSession {
         case .events(let events, let live):
             // Nothing honest sends more, and a store pass over a frame this size stops the main thread for seconds.
             guard events.count <= Self.batchSize else { return }
+            // A live frame is the sender's own news. Synced rows are other members' too, and nothing can check those.
+            if live, events.contains(where: { $0.authorID != memberID }) { return }
             let added = feed.insert(events)
             // `publish` sends exactly one event per live frame, so a bigger "live" frame is not a moment
             // that just happened: store it, show nothing.
             if live, events.count == 1, let e = added.first, e.kind.isBig, e.occurredAt != nil { onBigEvent?(e) }
         case .reactions(let reactions, let live):
             guard reactions.count <= Self.batchSize else { return }
+            if live, reactions.contains(where: { $0.authorID != memberID }) { return }
             for r in feed.insert(reactions) {
                 guard live, let event = feed.events.first(where: { $0.id == r.eventID }),
                       event.authorID == settings.memberID else { continue }
@@ -394,14 +392,9 @@ final class TeamSession {
             refuse(peer)
             return
         }
-        let now = clock()
-        if let until = refusedUntil[hello.memberID], now < until {
-            refuse(peer)
-            return
-        }
+        // A refusal holds this link only. Anyone can say any member ID, so remembering the ID would lock the real member out.
         if hello.protocolVersion != TeamWire.protocolVersion {
             markIncompatible()
-            refusedUntil[hello.memberID] = now.addingTimeInterval(Self.refusalCooldown)
             refuse(peer)
             return
         }
@@ -434,9 +427,8 @@ final class TeamSession {
 
     /// A frame this version cannot read: the same as a mismatch, because resending it would only repeat it.
     private func receiveBadFrame(from peer: TeamPeerID) {
-        guard running, let link = links[peer] else { return }
+        guard running, links[peer] != nil else { return }
         markIncompatible()
-        if let memberID = link.memberID { refusedUntil[memberID] = clock().addingTimeInterval(Self.refusalCooldown) }
         refuse(peer)
     }
 
