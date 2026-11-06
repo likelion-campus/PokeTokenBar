@@ -42,18 +42,24 @@ final class PlazaRosterPagerTests: XCTestCase {
         var turns: [Int] = []
         let frame = NSRect(x: 0, y: 0, width: PlazaRosterMetrics.width, height: panelHeight)
         let roster = PlazaRosterHostingView(rootView: PlazaRosterView(model: model, onTurn: { turns.append($0) }))
-        roster.frame = frame
+        roster.translatesAutoresizingMaskIntoConstraints = false
         let scene = Scene(frame: frame)
         let container = NSView(frame: frame)
         container.addSubview(scene)
         container.addSubview(roster)
+        // Pinned to the top with its own height, as the plaza window does: a short last page keeps the arrows in place.
+        NSLayoutConstraint.activate([
+            roster.topAnchor.constraint(equalTo: container.topAnchor),
+            roster.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            roster.widthAnchor.constraint(equalToConstant: PlazaRosterMetrics.width),
+        ])
         let window = NSWindow(contentRect: frame.offsetBy(dx: -10000, dy: -10000), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = container
         window.orderFront(nil)
         defer { window.close() }
         XCTAssertTrue(window.makeFirstResponder(scene))
-        roster.layoutSubtreeIfNeeded()
+        container.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         for point in points {
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -73,9 +79,16 @@ final class PlazaRosterPagerTests: XCTestCase {
         XCTAssertTrue(result.keptKeys)
     }
 
+    /// The glyph is about 7 points wide: a click near the corner of the target must still count.
+    func testClickBesideTheGlyphStillTurns() throws {
+        let corner = CGPoint(x: nextPoint.x + 9, y: nextPoint.y + 9)
+        XCTAssertEqual(try click([corner], people: 7).turns, [1])
+    }
+
+    /// The live arrow beside each dead one proves the click lands on the header.
     func testArrowIsDeadAtItsEnd() throws {
-        XCTAssertEqual(try click([previousPoint], people: 7).turns, [])
-        XCTAssertEqual(try click([nextPoint], people: 7, page: 1).turns, [])
+        XCTAssertEqual(try click([previousPoint, nextPoint], people: 7).turns, [1])
+        XCTAssertEqual(try click([nextPoint, previousPoint], people: 7, page: 1).turns, [-1])
     }
 
     func testArrowsAppearFromTheSeventhPerson() throws {

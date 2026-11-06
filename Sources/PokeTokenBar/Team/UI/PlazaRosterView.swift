@@ -186,18 +186,6 @@ private struct PlazaRosterIcon: View {
     @State private var image: NSImage?
     @State private var up = false
 
-    /// 페이지를 넘기면 칸이 새로 생긴다. 메모리에 있는 아이콘은 첫 화면부터 그려 깜빡이지 않게 한다.
-    init(speciesID: Int?, bounces: Bool) {
-        self.speciesID = speciesID
-        self.bounces = bounces
-        _image = State(initialValue: Self.cached(speciesID))
-    }
-
-    private static func cached(_ speciesID: Int?) -> NSImage? {
-        if let speciesID { return PlazaIconLoader.cachedIcon(speciesID: speciesID) }
-        return SpriteLoader.cachedEggImage()
-    }
-
     var body: some View {
         Group {
             if let image {
@@ -208,8 +196,7 @@ private struct PlazaRosterIcon: View {
         }
         .offset(y: bounces && up ? -2 : 0)
         .task(id: speciesID) {
-            image = Self.cached(speciesID)
-            if image != nil { return }
+            image = nil
             // 실패하면 5초 뒤 한 번 더 시도한다. 뷰가 사라져 취소되면 그림을 넣지 않는다.
             for attempt in 0..<2 {
                 let loaded = await load()

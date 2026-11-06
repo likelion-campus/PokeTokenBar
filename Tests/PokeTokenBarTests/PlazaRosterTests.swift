@@ -215,23 +215,24 @@ extension PlazaRosterTests {
         let id = 987_654
         let png = try XCTUnwrap(Self.solidPNG(red: 1))
         var loads = 0
-        XCTAssertNil(PlazaIconLoader.cachedIcon(speciesID: id))
         let first = await PlazaIconLoader.icon(speciesID: id) { _ in loads += 1; return png }
         XCTAssertNotNil(first)
         let second = await PlazaIconLoader.icon(speciesID: id) { _ in loads += 1; return nil }
         XCTAssertTrue(second === first)
         XCTAssertEqual(loads, 1)
-        XCTAssertTrue(PlazaIconLoader.cachedIcon(speciesID: id) === first)
     }
 
-    @MainActor func testFailedIconIsNotRemembered() async {
+    @MainActor func testFailedIconIsTriedAgain() async throws {
         let id = 987_655
+        let png = try XCTUnwrap(Self.solidPNG(red: 1))
         let missing = await PlazaIconLoader.icon(speciesID: id) { _ in nil }
         XCTAssertNil(missing)
-        XCTAssertNil(PlazaIconLoader.cachedIcon(speciesID: id))
+        let retried = await PlazaIconLoader.icon(speciesID: id) { _ in png }
+        XCTAssertNotNil(retried)
     }
 
     /// Turning a page mounts new rows. A remembered icon must be there on the first frame, not after a blank one.
+    /// The icon draws as r0.94 g0.29 here, the blank placeholder as r0.73 g0.75.
     @MainActor func testRememberedIconDrawsOnTheFirstFrame() async throws {
         let id = 987_656
         let png = try XCTUnwrap(Self.solidPNG(red: 1))
@@ -239,15 +240,24 @@ extension PlazaRosterTests {
         let model = PlazaRosterModel()
         model.entries = [PlazaRosterEntry(id: "a", nickname: "a", speciesID: id, speciesName: "x", gender: nil,
                                           isShiny: false, presence: .idle, isMe: false)]
-        let renderer = ImageRenderer(content: PlazaRosterView(model: model))
-        renderer.scale = 1
-        let image = try XCTUnwrap(renderer.nsImage?.cgImage(forProposedRect: nil, context: nil, hints: nil))
-        let rep = NSBitmapImageRep(cgImage: image)
+        // A real host, drawn before the run loop turns: `.task` has not had its chance yet.
+        let host = NSHostingView(rootView: PlazaRosterView(model: model))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        let window = NSWindow(contentRect: host.frame.offsetBy(dx: -10000, dy: -10000), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / host.bounds.width
         let m = PlazaRosterMetrics.self
         let y = Int(m.padding + m.headerHeight + m.listTopPadding + m.slotHeight / 2)
-        let color = try XCTUnwrap(rep.colorAt(x: Int(m.padding) + 26, y: y)?.usingColorSpace(.deviceRGB))
+        let color = try XCTUnwrap(rep.colorAt(x: Int((m.padding + 26) * scale), y: Int(CGFloat(y) * scale))?.usingColorSpace(.deviceRGB))
         XCTAssertGreaterThan(color.redComponent, 0.8)
-        XCTAssertLessThan(color.greenComponent, 0.2, "the icon, not the blank placeholder")
+        XCTAssertLessThan(color.greenComponent, 0.5, "the icon, not the blank placeholder")
     }
 
     static func solidPNG(red: CGFloat) -> Data? {

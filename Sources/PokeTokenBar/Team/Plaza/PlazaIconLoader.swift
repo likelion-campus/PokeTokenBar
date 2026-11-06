@@ -6,11 +6,8 @@ enum PlazaIconLoader {
         URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-vii/icons/\(speciesID).png")!
     }
 
-    /// 이번 실행에서 그린 아이콘. 목록 페이지를 넘겨도 다시 읽지 않고 바로 그린다.
+    /// 이번 실행에서 그린 아이콘. 여기 있으면 `.task`가 멈추지 않고 끝나서, 페이지를 넘겨 새로 생긴 칸도 첫 화면부터 그려진다.
     @MainActor private static var memory: [Int: NSImage] = [:]
-
-    @MainActor
-    static func cachedIcon(speciesID: Int) -> NSImage? { memory[speciesID] }
 
     /// 메모리나 캐시에 있으면 그것을, 없으면 받아서 캐시한다. 실패하면 nil(화면은 빈 자리표시를 그린다).
     @MainActor
