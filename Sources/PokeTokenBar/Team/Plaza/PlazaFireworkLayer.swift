@@ -44,6 +44,8 @@ enum PlazaFireworkArt {
 @MainActor final class PlazaFireworkLayer: SKNode {
     /// 하늘에 함께 있을 수 있는 팀원 불꽃의 조각 수. 넘으면 그 발은 터뜨리지 않는다.
     static let maxPieces = 200
+    /// 내 불꽃을 잇달아 쏠 수 있는 최소 간격(층의 시간 기준). 앞의 불꽃이 아직 떠 있어도 이만큼 지나면 다음 발을 쏠 수 있다.
+    static let ownInterval: TimeInterval = 0.5
     /// 터지는 동안 낮을 밤 색으로 섞는 정도.
     static let dimStrength = 0.7
     /// 어두워지고 밝아지는 데 걸리는 박자 수.
@@ -92,26 +94,29 @@ enum PlazaFireworkArt {
     private var shown: [Shown] = []
     private var light: Light?
     private var clock: TimeInterval = 0
+    /// 내가 마지막으로 쏜 때의 `clock`. 쏜 적이 없으면 nil.
+    private var lastOwnLaunch: TimeInterval?
     private var drawnBeat = -1
     /// 낮을 어둡게 하는 정도. 0이면 그대로다.
     private(set) var dimLevel = 0.0
 
     var isActive: Bool { !bursts.isEmpty || dimLevel > 0 }
 
-    /// 팀원의 불꽃은 조각이 상한을 넘으면 터뜨리지 않고 false. 내 불꽃은 한 번에 한 발뿐이라 상한을 보지 않아,
-    /// 하늘이 가득해도 F가 먹히고 조각 수는 상한에 한 발을 더한 값을 넘지 않는다.
+    /// 팀원의 불꽃은 조각이 상한을 넘으면 터뜨리지 않고 false. 내 불꽃은 상한을 보지 않아 하늘이 가득해도 F가 먹힌다.
+    /// 대신 `canLaunchOwn`(0.5초 간격)으로 속도가 묶여, 하늘에 내 불꽃은 (riseDuration + 가장 긴 종류의 duration) / 0.5발쯤을 넘지 않는다.
     @discardableResult
     func launch(_ style: PlazaFireworkStyle, at burst: CGPoint, rise: CGFloat = PlazaFireworks.riseRange.upperBound,
                 owner: String? = nil) -> Bool {
         let inAir = bursts.reduce(0) { $0 + $1.style.pieces.count }
         guard owner == nil || inAir + style.pieces.count <= Self.maxPieces else { return false }
         bursts.append(Burst(style: style, center: burst, rise: rise, owner: owner, launchedAt: clock))
+        if owner == nil { lastOwnLaunch = clock }
         drawnBeat = -1
         return true
     }
 
-    /// 그 사람의 불꽃이 아직 끝나지 않았다.
-    func isFiring(owner: String?) -> Bool { bursts.contains { $0.owner == owner } }
+    /// 내가 쏜 지 `ownInterval`이 지났다(쏜 적이 없으면 언제든). 층의 시간으로 재서, 창이 멈추면 기다림도 멈춘다.
+    var canLaunchOwn: Bool { lastOwnLaunch.map { clock - $0 >= Self.ownInterval - 1e-9 } ?? true }
 
     /// `tint`는 지금 곱하는 낮밤 색으로, 어두울 때만 빛이 켜진다. `firelight`는 그 자리(장면 좌표)에 이미 닿은 모닥불빛(0~1)이다.
     func advance(by dt: TimeInterval, tint: PlazaDaylight.Tint = .none, firelight: (CGPoint) -> Double = { _ in 0 }) {
