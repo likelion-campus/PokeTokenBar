@@ -33,7 +33,7 @@ enum PlazaRosterMetrics {
     static let pageSize = 6
     /// 머리줄 < > 단추의 누르는 영역(한 변).
     static let pagerHitSize: CGFloat = 24
-    /// 창 아래에서 비워 두는 높이: 아래 여백 16, 작은 지도 136, 사이 6, 시계 26, 시계와 띄우는 4.
+    /// 창 아래에서 비워 두는 높이: 아래 여백 16, 작은 지도 136, 사이 6, 시계 24, 시계와 띄우는 6.
     /// 작은 지도와 시계가 목록 위에 그려지므로 목록은 이 위에서 끝난다.
     static let bottomClearance: CGFloat = 188
 }
