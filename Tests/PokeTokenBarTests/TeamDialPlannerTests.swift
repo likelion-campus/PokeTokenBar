@@ -98,6 +98,13 @@ final class TeamDialPlannerTests: XCTestCase {
         XCTAssertEqual(p.dialPicks(now: t0, limit: 32, using: &rng), ["b"])
     }
 
+    func testLosingAnUnknownNameChangesNothing() {
+        var p = TeamDialPlanner()
+        p.discovered("a")
+        p.lost("never-seen", now: t0)
+        XCTAssertEqual(p.dueDials(now: t0), ["a"])
+    }
+
     func testLostNameWithNothingPendingIsForgotten() {
         var p = TeamDialPlanner()
         for i in 0..<1000 { p.discovered("n\(i)"); p.lost("n\(i)", now: t0) }
