@@ -758,6 +758,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     func memberIsDiving(_ id: String) -> Bool? { remotes[id].map(isShownDiving) }
     var myVisibleHeight: CGFloat { me.visibleSpriteHeight }
     func memberVisibleHeight(_ id: String) -> CGFloat? { remotes[id]?.actor.visibleSpriteHeight }
+    var myActor: PlazaActor { me }
+    func memberActor(_ id: String) -> PlazaActor? { remotes[id]?.actor }
     func memberSwimRingVisible(_ id: String) -> Bool? { remotes[id]?.actor.isSwimRingVisible }
     func memberSwimRingY(_ id: String) -> CGFloat? { remotes[id]?.actor.swimRingY }
 
@@ -810,6 +812,24 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard pondVisuals, !isBackgroundHidden, map.isWater(tile), step.map({ map.isWater($0.from) }) ?? true,
               actor.fullSpriteHeight > 0 else { return 0 }
         return PlazaPond.swimSink(spriteHeight: actor.fullSpriteHeight)
+    }
+
+    /// `foot` 아래 물 칸을 둘러싼 연못 사각형(장면 좌표, y 위로). 땅이면 nil이다. 연못은 늘 꽉 찬 사각형이다.
+    func waterRect(foot: CGPoint) -> CGRect? {
+        let ts = CGFloat(PlazaMap.tileSize)
+        let t = TilePoint(x: Int(foot.x / ts), y: Int(foot.y / ts))
+        guard map.isWater(t) else { return nil }
+        var x0 = t.x, x1 = t.x, y0 = t.y, y1 = t.y
+        while map.isWater(TilePoint(x: x0 - 1, y: t.y)) { x0 -= 1 }
+        while map.isWater(TilePoint(x: x1 + 1, y: t.y)) { x1 += 1 }
+        while map.isWater(TilePoint(x: t.x, y: y0 - 1)) { y0 -= 1 }
+        while map.isWater(TilePoint(x: t.x, y: y1 + 1)) { y1 += 1 }
+        return CGRect(x: CGFloat(x0) * ts, y: worldSize.height - CGFloat(y1 + 1) * ts, width: CGFloat(x1 - x0 + 1) * ts, height: CGFloat(y1 - y0 + 1) * ts)
+    }
+
+    /// `waterRect`를 사진 좌표(월드, y 아래로)로 옮긴 값.
+    private func photoWaterClip(foot: CGPoint) -> CGRect? {
+        waterRect(foot: foot).map { CGRect(x: $0.minX, y: worldSize.height - $0.maxY, width: $0.width, height: $0.height) }
     }
 
     /// 땅에서는 걸을 수 있는 빈 칸만, 물속에서는 물 칸과 걸을 수 있는 땅 칸에 들어간다.
@@ -892,10 +912,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         func pose(_ facing: PlazaDirection, _ isWalking: Bool) -> PlazaSpriteChoice {
             PlazaPose.choice(facing: facing, isWalking: isWalking, clock: clock)
         }
-        var actors = [me.photoActor(foot: walker.footPoint, pose: pose(walker.facing, walker.isWalking))]
+        var actors = [me.photoActor(foot: walker.footPoint, pose: pose(walker.facing, walker.isWalking), waterClip: photoWaterClip(foot: walker.footPoint))]
         for id in remotes.keys.sorted() {
             guard let r = remotes[id] else { continue }
-            actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking)))
+            actors.append(r.actor.photoActor(foot: r.motion.footPoint, pose: pose(r.motion.facing, r.motion.isWalking),
+                                          waterClip: photoWaterClip(foot: r.motion.footPoint)))
         }
         let tint = daylightTint
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
@@ -1401,12 +1422,13 @@ struct PlazaSceneMember: Equatable, Sendable {
                                         zoom: zoom, backing: backing, viewport: size)
         me.place(foot: foot, pose: pose, in: context,
                  concealment: concealment(tile: walker.tile, step: walker.currentStep, actor: me, dive: myDive.level), isMe: true,
-                 swimSink: swimSink(tile: walker.tile, step: walker.currentStep, actor: me))
+                 swimSink: swimSink(tile: walker.tile, step: walker.currentStep, actor: me), waterRect: waterRect(foot: foot))
         for r in remotes.values {
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.place(foot: r.motion.footPoint, pose: p, in: context,
                           concealment: concealment(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor, dive: r.dive.level),
-                          swimSink: swimSink(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor))
+                          swimSink: swimSink(tile: r.motion.tile, step: r.motion.currentStep, actor: r.actor),
+                          waterRect: waterRect(foot: r.motion.footPoint))
         }
     }
 
