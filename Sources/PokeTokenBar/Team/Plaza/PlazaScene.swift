@@ -552,8 +552,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         if let d = Self.direction(keyCode) {
             if !isRepeat && !modifiers.contains(.command) { onWalkKey?() }
             // Command+방향키는 keyUp이 오지 않아 계속 걷게 되므로 무시한다.
-            // 물속에서는 알도 방향키로 걸어 나올 수 있다. 땅에 닿으면 `update`가 입력을 지운다.
-            if (canWalk || isMeInWater) && !isRepeat && !modifiers.contains(.command) {
+            // 알은 물속에서도 방향키로 움직이지 않는다. 물가로는 `update`가 저절로 올려 보낸다.
+            if canWalk && !isRepeat && !modifiers.contains(.command) {
                 stopWalkingToMember()
                 walker.press(d)
             }
@@ -1221,7 +1221,17 @@ struct PlazaSceneMember: Equatable, Sendable {
         // 따라가며 한마디에 대문자를 쳐도 달리지 않는다.
         walker.wantsToRun = (modifiers.contains(.shift) && walker.isHoldingKey)
             || (followingMember.flatMap { remotes[$0]?.motion.senderIsRunning } ?? false)
-        if !canWalk, !isMeInWater { walker.clearInput() }   // 물에서 나온 알은 누르고 있던 키로 더 걷지 않는다
+        if !canWalk {
+            walker.clearInput()
+            // 알은 헤엄치지 못한다. 헤엄치다 알이 됐으면(졸업, 놓아주기, 대표 포켓몬 해제) 가장 가까운 물가로 저절로 올라온다.
+            if isMeInWater, !walker.isWalking {
+                let taken = occupiedTiles()
+                if let d = PlazaPond.stepAshore(from: walker.tile, isWater: { map.isWater($0) },
+                                                isLand: { map.isWalkable($0) && !taken.contains($0) }) {
+                    walker.step(d)
+                }
+            }
+        }
         advanceWalkToMember()
         let occupied = occupiedTiles()
         walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), stepDuration: pondStepDuration)

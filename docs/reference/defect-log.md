@@ -917,6 +917,16 @@ read_when:
   보낸다. 부류 스윕: 팀원이 보낸 것으로 내 위치나 상태가 바뀌는 길은 밀림 하나였고, 말풍선·점프·충격 그림은 보이는 것뿐이라
   창을 볼 때 그려지면 된다. 가드: `testTackleWhileMyPlazaIsHiddenStillPushesMe`.
 
+- **규칙의 예외는 그 목적만큼만 연다.** 연못(#68)은 헤엄치다 알이 된 나를 물에서 꺼내려고, 물속이면 알도 방향키로
+  걷게 했다(`canWalk || isMeInWater`). 이 예외는 '물가로 나가기'가 아니라 '물속에서 마음대로 걷기'를 열어서, 알이 연못
+  안을 계속 헤엄쳐 다닐 수 있었다(사용자 보고). **왜 못 걸렀나:** 테스트는 땅 쪽 방향키만 눌러 '나온다'만 확인했고,
+  예외 갈래(`isMeInWater`만 참)에서 목적 밖의 입력(물 쪽 방향키)은 한 번도 넣지 않았다. 수정: 알은 물속에서도 방향키를
+  받지 않고, 장면이 가장 가까운 빈 물가로 한 칸씩 저절로 올려 보낸다(`PlazaPond.stepAshore`). 부류 스윕: 알이 `canWalk`를
+  거치지 않고 움직이는 다른 길은 몸통박치기에 밀리기(의도된 동작이고 땅에서 물로는 밀리지 않는다), 모닥불 자리에 앉기
+  (물 칸이 아니다)뿐이다. 따라가기와 목록에서 걸어가기는 `canWalk`로 막혀 있다. 가드:
+  `testAnEggInTheWaterCannotSwimAround`, `testAnEggInTheWaterClimbsOutByItselfThenStaysOnLand`,
+  `testAnEggClimbsOutBesideATeammateOnTheNearestShore`, `testStepAshoreTakesTheShortestWaterRouteToFreeLand`.
+
 - **한 프레임에 칸이 둘 바뀌면 그 사이 칸을 팀원에게 못 보낸다 — 프레임 간격 상한은 가장 짧은 칸보다 짧게.** 달리기(칸당
   0.075초)를 넣었는데 장면의 `maxFrameDelta`는 걷기(0.15초) 시절의 0.1초 그대로라, 멈칫한 프레임 한 번에 칸을 둘 끝내고
   위치 보고는 한 번만 나갔다. 팀원 쪽 `PlazaRemoteMotion.moveTo`는 한 칸 차이만 이어 걷고 그 밖은 순간 이동한다(PR 리뷰가

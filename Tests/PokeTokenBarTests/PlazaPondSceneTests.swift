@@ -296,27 +296,40 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(plunger.dustCount, 2, "the take-off of a plunge is still on land")
     }
 
-    func testAnEggInTheWaterClimbsOutThenStaysOnLand() {
+    func testAnEggInTheWaterClimbsOutByItselfThenStaysOnLand() {
         let s = scene(start: p(32, 18))
         var t = run(s, 0.1)
-        s.canWalk = false   // graduated or released while swimming
+        s.canWalk = false   // graduated, released or unpinned while swimming
         XCTAssertEqual(s.pondAction(canMove: s.canWalk), .jump, "an egg only hops in the water")
-        s.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)
         t = run(s, 0.5, from: t)
-        XCTAssertEqual(s.walker.tile, p(31, 18), "the arrow key took it out of the water")
-        s.handleKeyUp(keyCode: leftKey)
+        XCTAssertEqual(s.walker.tile, p(31, 18), "with no key pressed it climbed out at the nearest shore")
         s.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)
         t = run(s, 0.5, from: t)
         XCTAssertEqual(s.walker.tile, p(31, 18), "on land an egg cannot walk")
     }
 
-    func testAnEggHoldingAKeyStopsAtTheShore() {
+    func testAnEggInTheWaterCannotSwimAround() {
+        // In the middle of the pond, a held key toward open water is ignored: every step heads for the nearest shore.
+        let s = scene(start: p(34, 18))
+        var t = run(s, 0.1)
+        s.canWalk = false
+        s.handleKeyDown(keyCode: rightKey, characters: nil, isRepeat: false)   // deeper into the pond, and held
+        var visited = [s.walker.tile]
+        for _ in 0..<60 {
+            t += 1.0 / 30
+            s.update(t)
+            if visited.last != s.walker.tile { visited.append(s.walker.tile) }
+        }
+        XCTAssertEqual(visited, [p(34, 18), p(34, 17), p(34, 16), p(34, 15)], "it swam where the key said, not ashore")
+    }
+
+    func testAnEggClimbsOutBesideATeammateOnTheNearestShore() {
         let s = scene(start: p(32, 18))
+        add(s, "a", p(31, 18))
         let t = run(s, 0.1)
         s.canWalk = false
-        s.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)   // and keeps holding it
         run(s, 1, from: t)
-        XCTAssertEqual(s.walker.tile, p(31, 18))
+        XCTAssertEqual(s.walker.tile, p(31, 17), "the taken shore tile sent it one tile up the shore")
     }
 
     func testShoreJumpSplashesSmall() throws {

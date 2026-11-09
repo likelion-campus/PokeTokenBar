@@ -140,4 +140,28 @@ enum PlazaPond {
         }
         return nil
     }
+
+    /// 물속의 알이 물가로 나가는 다음 한 걸음. 물 칸만 지나 가장 가까운 `isLand` 칸으로 가는 길의 첫 방향이다.
+    /// 거리가 같으면 위·오른쪽·아래·왼쪽 순서로 먼저 찾은 길이다. 물 밖이거나 닿을 땅이 없으면 nil.
+    static func stepAshore(from start: TilePoint, isWater: (TilePoint) -> Bool,
+                           isLand: (TilePoint) -> Bool) -> PlazaDirection? {
+        guard isWater(start) else { return nil }
+        var first: [TilePoint: PlazaDirection] = [:]
+        var queue = [start]
+        var head = 0
+        while head < queue.count {
+            let q = queue[head]
+            head += 1
+            for d in [PlazaDirection.up, .right, .down, .left] {
+                let n = PlazaWalker.offset(q, d)
+                guard n != start, first[n] == nil else { continue }
+                let step = first[q] ?? d
+                if isLand(n) { return step }
+                guard isWater(n) else { continue }
+                first[n] = step
+                queue.append(n)
+            }
+        }
+        return nil
+    }
 }
