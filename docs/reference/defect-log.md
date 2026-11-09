@@ -714,6 +714,15 @@ read_when:
 
 ## 빌드·도구체인
 
+- **고정 날짜로 만든 데이터는 실제 시계를 쓰는 저장소에 넣지 않는다.** `PlazaBoardTests`의 한 테스트가 날짜를
+  2026-10-30으로 박은 소식을 실제 시계로 도는 `TeamFeedStore`(7일만 보관)에 넣었다. 11월 7일부터 소식이 들어가자마자
+  버려져 표시등이 꺼진 채로 CI가 깨졌다. 코드는 바뀌지 않았고 무관한 #80에서 처음 드러났다. **왜 못 걸렀나:** 쓸 때는
+  날짜가 보관 기간 안이라 통과했고, 넣기의 결과(`insert`의 Bool)를 확인하지 않아 원인 대신 결과(표시등)에서 실패했다.
+  수정: 소식을 제품과 같은 `TeamEventFactory.make(now: Date())`로 오늘 날짜에 만들고, 넣기가 받아들여졌는지 먼저
+  확인한다. 부류 스윕: 고정 날짜 소식을 넣는 다른 테스트(`TeamSessionTests`, `TeamHostilePeerTests`,
+  `PlazaBoardTests`의 목록 테스트)는 모두 저장소에 고정 시계를 준다. 나머지 광장 테스트는 세션이 오늘 날짜로 만드는
+  소식만 쓴다.
+
 - **새 SDK에서 통과해도 CI의 AppKit Sendable 선언을 가정하지 마라.** 동시 캐시 로드 테스트가
   `Task { await SpriteLoader.image(...) }` 로 `NSImage?` 를 반환해 로컬 Swift 6.3.3에서는 통과했지만,
   CI의 Xcode 16.4/Swift 6.1.2에서는 `NSImage: Sendable` 이 unavailable이라 테스트 컴파일이 실패했다.
