@@ -50,6 +50,21 @@ final class PlazaPondTests: XCTestCase {
         XCTAssertEqual(act(p(6, 5), .right, diving: true, canMove: false), .surface)
     }
 
+    func testStepAshoreTakesTheShortestWaterRouteToFreeLand() {
+        // A 3x3 pond at x4-6 y4-6 with land all around.
+        let water = Set((4...6).flatMap { x in (4...6).map { p(x, $0) } })
+        func step(_ from: TilePoint, taken: Set<TilePoint> = []) -> PlazaDirection? {
+            PlazaPond.stepAshore(from: from, isWater: { water.contains($0) },
+                                 isLand: { !water.contains($0) && !taken.contains($0) })
+        }
+        XCTAssertEqual(step(p(4, 5)), .left, "an edge tile steps straight out")
+        XCTAssertEqual(step(p(5, 5)), .up, "equal routes go up, right, down, left")
+        XCTAssertEqual(step(p(4, 5), taken: [p(3, 5)]), .up, "a taken shore tile sends it to the next nearest one")
+        XCTAssertNil(step(p(2, 2)), "not in the water")
+        XCTAssertNil(PlazaPond.stepAshore(from: p(5, 5), isWater: { water.contains($0) }, isLand: { _ in false }),
+                     "no free land at all")
+    }
+
     func testShoreSplashPrefersTheFacedWater() {
         func s(_ t: TilePoint, _ f: PlazaDirection, _ w: Set<TilePoint>) -> TilePoint? {
             PlazaPond.shoreSplashTile(tile: t, facing: f, isWater: { w.contains($0) })
