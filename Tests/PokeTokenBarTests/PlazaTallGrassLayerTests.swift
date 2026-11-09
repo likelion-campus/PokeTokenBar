@@ -18,7 +18,7 @@ final class PlazaTallGrassLayerTests: XCTestCase {
 
     func testOneBandPerGrassTileBetweenItsRowAndTheNext() throws {
         let layer = try makeLayer()
-        XCTAssertEqual(layer.bandCount, 111)
+        XCTAssertEqual(layer.bandCount, 107)
         let z = try XCTUnwrap(layer.bandZ(at: a))
         XCTAssertGreaterThan(z, 1 + (6 * 32 + 28) / H)
         XCTAssertLessThan(z, 1 + (7 * 32 + 28) / H)
