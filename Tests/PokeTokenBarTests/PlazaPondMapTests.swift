@@ -108,7 +108,7 @@ final class PlazaPondMapTests: XCTestCase {
     }
 
     private static let pondRects: [(xs: ClosedRange<Int>, ys: ClosedRange<Int>)] = [
-        (5...14, 13...15), (32...37, 14...20), (20...22, 24...26)]
+        (5...14, 13...15), (32...38, 14...20), (20...22, 24...26)]
 
     private func rectTiles(_ r: (xs: ClosedRange<Int>, ys: ClosedRange<Int>)) -> Set<TilePoint> {
         var out = Set<TilePoint>()
@@ -118,9 +118,9 @@ final class PlazaPondMapTests: XCTestCase {
 
     func testPondMatchesTheSpec() {
         let rects = Self.pondRects.map(rectTiles)
-        XCTAssertEqual(rects.map(\.count), [30, 42, 9])
+        XCTAssertEqual(rects.map(\.count), [30, 49, 9])
         XCTAssertEqual(water, rects.reduce(into: Set<TilePoint>()) { $0.formUnion($1) })
-        XCTAssertEqual(water.count, 81)
+        XCTAssertEqual(water.count, 88)
     }
 
     func testPondsAreThreeSeparateRectangles() {
@@ -166,7 +166,7 @@ final class PlazaPondMapTests: XCTestCase {
                 XCTAssertTrue(a == "." || a == "f", "water replaced \(a) at (\(x),\(y))")
             }
         }
-        XCTAssertEqual(shoreLand.count, 76)
+        XCTAssertEqual(shoreLand.count, 78)
         for p in shoreLand {
             let ch = old[p.y][old[p.y].index(old[p.y].startIndex, offsetBy: p.x)]
             XCTAssertTrue(ch == "." || ch == "f", "shore \(p) was \(ch)")
