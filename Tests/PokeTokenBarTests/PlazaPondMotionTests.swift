@@ -74,7 +74,7 @@ final class PlazaPondMotionTests: XCTestCase {
         XCTAssertFalse(out.isMeInWater)
     }
 
-    func testOldVersionTeammateOnWaterSwimsAndCannotPushMe() {
+    func testTeammateOnWaterSwimsAndABlockedPushStopsBeforeThem() {
         let s = scene(start: p(35, 18))
         s.applyMembers([member("a", p(33, 18))])
         XCTAssertEqual(s.memberTiles["a"], p(33, 18), "not sent to the shelter")
@@ -82,7 +82,7 @@ final class PlazaPondMotionTests: XCTestCase {
         XCTAssertNil(s.memberIsInWater("nobody"))
         s.pushMe(.left, tiles: 2)
         run(s, 1)
-        XCTAssertEqual(s.walker.tile, p(35, 18))
+        XCTAssertEqual(s.walker.tile, p(34, 18), "pushed through the water, stopped before the swimmer in the way")
     }
 
     func testFollowingSomeoneWhoPlungesStopsAtTheShore() {

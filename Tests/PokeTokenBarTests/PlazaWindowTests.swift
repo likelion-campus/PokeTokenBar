@@ -1037,41 +1037,79 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         c.handleClose()
     }
 
-    func testNoTackleInWater() async {
-        // 팀원이 물속: C로 몸통박치기하지 않고 메뉴에도 몸통박치기·따라가기가 없다.
+    private func tackles(_ n: PondNode) -> Int { n.received.emotes.filter { $0.kind == .tackle }.count }
+
+    /// A swimming target can be tackled from the C key and from the menu, but there is nobody to follow into the water.
+    func testTackleReachesASwimmingTarget() async {
+        let (_, swimmer, c) = await pondPair(mate: TilePoint(x: 32, y: 18))
+        c.scene!.onTackleKey?()
+        await waitUntil { tackles(swimmer) == 1 }
+        pondKey(c.scene!, 49)
+        guard case .memberMenu(let m) = c.overlayContent else { return XCTFail("no menu: \(c.overlayContent)") }
+        XCTAssertEqual(m.actions, [.greet, .tackle, .viewCard], "tackle stays, follow is gone for a swimmer")
+        c.handleClose()
+    }
+
+    /// A swimming me can tackle a teammate on land (the other side of the `A || B` gate: only I am in the water).
+    func testTackleWhileISwimAtALandTarget() async {
+        let (_, mate, c) = await pondPair(mate: TilePoint(x: 30, y: 18))
+        var t: TimeInterval = 0
+        c.scene!.update(t)
+        pondKey(c.scene!, zKey)
+        settle(c.scene!, &t)
+        XCTAssertTrue(c.scene!.isMeInWater)
+        mate.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 31, y: 18), facing: .down, isWalking: false)
+        for _ in 0..<400 where c.scene?.memberTiles[mate.settings.memberID] != TilePoint(x: 31, y: 18) {
+            await Task.yield(); settle(c.scene!, &t, seconds: 0.05)
+        }
+        settle(c.scene!, &t, seconds: 0.6)
+        XCTAssertEqual(c.scene?.memberTiles[mate.settings.memberID], TilePoint(x: 31, y: 18))
+        c.scene!.face(.left)
+        c.scene!.onTackleKey?()
+        await waitUntil { tackles(mate) == 1 }
+        pondKey(c.scene!, 49)
+        guard case .memberMenu(let m) = c.overlayContent else { return XCTFail("no menu: \(c.overlayContent)") }
+        XCTAssertEqual(m.actions, [.greet, .tackle, .viewCard], "no follow while I swim, tackle stays")
+        c.handleClose()
+    }
+
+    /// A diver cannot be tackled and cannot tackle: no C, no menu entry.
+    func testNoTackleWithADiver() async {
         let water = TilePoint(x: 32, y: 18)
-        let (_, swimmer, c1) = await pondPair(mate: water)
+        let (_, diver, c1) = await pondPair(mate: water)
+        diver.session.updateDiving(true)
+        await waitUntil { c1.scene?.memberIsDiving(diver.settings.memberID) == true }
         c1.scene!.onTackleKey?()
         for _ in 0..<40 { await Task.yield() }
-        XCTAssertEqual(swimmer.received.emotes.filter { $0.kind == .tackle }.count, 0, "the target is in the water")
+        XCTAssertEqual(tackles(diver), 0, "the target is diving")
         pondKey(c1.scene!, 49)
         guard case .memberMenu(let m1) = c1.overlayContent else { return XCTFail("no menu: \(c1.overlayContent)") }
-        XCTAssertEqual(m1.actions, [.greet, .viewCard], "no tackle or follow for a swimmer")
+        XCTAssertEqual(m1.actions, [.greet, .viewCard], "no tackle or follow for a diver")
         c1.handleClose()
 
-        // 내가 물속: 땅의 팀원에게도 C가 아무것도 보내지 않고, 메뉴에서 몸통박치기·따라가기가 빠진다.
         let (_, mate, c2) = await pondPair(mate: TilePoint(x: 30, y: 18))
         var t: TimeInterval = 0
         c2.scene!.update(t)
         pondKey(c2.scene!, zKey)
         settle(c2.scene!, &t)
-        XCTAssertTrue(c2.scene!.isMeInWater)
+        pondNow = pondNow.addingTimeInterval(1)
+        pondKey(c2.scene!, zKey)
+        XCTAssertTrue(c2.scene!.isDiving)
         mate.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 31, y: 18), facing: .down, isWalking: false)
         for _ in 0..<400 where c2.scene?.memberTiles[mate.settings.memberID] != TilePoint(x: 31, y: 18) {
             await Task.yield(); settle(c2.scene!, &t, seconds: 0.05)
         }
         settle(c2.scene!, &t, seconds: 0.6)
-        XCTAssertEqual(c2.scene?.memberTiles[mate.settings.memberID], TilePoint(x: 31, y: 18))
         c2.scene!.face(.left)
         c2.scene!.onTackleKey?()
         for _ in 0..<40 { await Task.yield() }
-        XCTAssertEqual(mate.received.emotes.filter { $0.kind == .tackle }.count, 0, "I am in the water")
+        XCTAssertEqual(tackles(mate), 0, "I am diving")
         pondKey(c2.scene!, 49)
         guard case .memberMenu(let m2) = c2.overlayContent else { return XCTFail("no menu: \(c2.overlayContent)") }
-        XCTAssertEqual(m2.actions, [.greet, .viewCard], "no tackle or follow while I swim")
+        XCTAssertEqual(m2.actions, [.greet, .viewCard], "no tackle or follow while I dive")
         c2.handleClose()
 
-        // 둘 다 땅이면 그대로 보낸다(위 두 확인이 아무것도 안 지키는 테스트가 아님을 보인다).
+        // 둘 다 땅이면 그대로 보낸다(위 확인이 아무것도 안 지키는 테스트가 아님을 보인다).
         let (_, land, c3) = await pondPair(mate: TilePoint(x: 30, y: 18))
         c3.scene!.onTackleKey?()
         await waitUntil { land.received.emotes.contains { $0.kind == .tackle } }
