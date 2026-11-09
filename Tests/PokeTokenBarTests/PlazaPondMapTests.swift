@@ -108,7 +108,7 @@ final class PlazaPondMapTests: XCTestCase {
     }
 
     private static let pondRects: [(xs: ClosedRange<Int>, ys: ClosedRange<Int>)] = [
-        (32...37, 16...20), (20...22, 24...26)]
+        (5...14, 13...15), (32...37, 14...20), (20...22, 24...26)]
 
     private func rectTiles(_ r: (xs: ClosedRange<Int>, ys: ClosedRange<Int>)) -> Set<TilePoint> {
         var out = Set<TilePoint>()
@@ -118,13 +118,13 @@ final class PlazaPondMapTests: XCTestCase {
 
     func testPondMatchesTheSpec() {
         let rects = Self.pondRects.map(rectTiles)
-        XCTAssertEqual(rects.map(\.count), [30, 9])
+        XCTAssertEqual(rects.map(\.count), [30, 42, 9])
         XCTAssertEqual(water, rects.reduce(into: Set<TilePoint>()) { $0.formUnion($1) })
-        XCTAssertEqual(water.count, 39)
+        XCTAssertEqual(water.count, 81)
     }
 
-    func testPondsAreTwoSeparateRectangles() {
-        // Flood-fill the 8-connected water components: exactly two, each one a full rectangle.
+    func testPondsAreThreeSeparateRectangles() {
+        // Flood-fill the 8-connected water components: exactly three, each one a full rectangle.
         var left = water
         var boxes: [(xs: ClosedRange<Int>, ys: ClosedRange<Int>, count: Int)] = []
         while let seed = left.first {
@@ -139,7 +139,7 @@ final class PlazaPondMapTests: XCTestCase {
             XCTAssertEqual(box.count, box.xs.count * box.ys.count, "pond at \(box.xs) x \(box.ys) is not a full rectangle")
             boxes.append(box)
         }
-        XCTAssertEqual(boxes.count, 2)
+        XCTAssertEqual(boxes.count, 3)
         for r in Self.pondRects {
             XCTAssertTrue(boxes.contains { $0.xs == r.xs && $0.ys == r.ys }, "missing pond \(r)")
         }
@@ -150,7 +150,15 @@ final class PlazaPondMapTests: XCTestCase {
     }
 
     func testOnlyOpenGroundChanged() {
-        let old = Self.legacyRows, new = PlazaMapData.rows
+        // The reshape also cleared the 2x2 tall grass at (7...8, 15...16) and moved the bush (10,13) to (6,19);
+        // apart from those, only open ground may have turned to water.
+        var old = Self.legacyRows
+        func set(_ x: Int, _ y: Int, _ c: Character) {
+            var row = Array(old[y]); row[x] = c; old[y] = String(row)
+        }
+        for y in 15...16 { for x in 7...8 { set(x, y, ".") } }
+        set(10, 13, "."); set(6, 19, "b")
+        let new = PlazaMapData.rows
         XCTAssertEqual(old.count, new.count)
         for (y, (o, n)) in zip(old, new).enumerated() {
             for (x, (a, b)) in zip(o, n).enumerated() where a != b {
@@ -158,9 +166,9 @@ final class PlazaPondMapTests: XCTestCase {
                 XCTAssertTrue(a == "." || a == "f", "water replaced \(a) at (\(x),\(y))")
             }
         }
-        XCTAssertEqual(shoreLand.count, 42)
+        XCTAssertEqual(shoreLand.count, 76)
         for p in shoreLand {
-            let ch = Self.legacyRows[p.y][Self.legacyRows[p.y].index(Self.legacyRows[p.y].startIndex, offsetBy: p.x)]
+            let ch = old[p.y][old[p.y].index(old[p.y].startIndex, offsetBy: p.x)]
             XCTAssertTrue(ch == "." || ch == "f", "shore \(p) was \(ch)")
         }
     }

@@ -47,7 +47,7 @@ final class PlazaTallGrassMapTests: XCTestCase {
 
     func testPatchesAreSolidRectanglesAtLeastTwoByTwo() {
         let all = patches()
-        XCTAssertEqual(all.count, 8)
+        XCTAssertEqual(all.count, 7)
         for patch in all {
             let xs = patch.map(\.x), ys = patch.map(\.y)
             let w = xs.max()! - xs.min()! + 1, h = ys.max()! - ys.min()! + 1

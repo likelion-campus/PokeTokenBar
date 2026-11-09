@@ -320,7 +320,7 @@ final class PlazaPondSceneTests: XCTestCase {
             s.update(t)
             if visited.last != s.walker.tile { visited.append(s.walker.tile) }
         }
-        XCTAssertEqual(visited, [p(34, 18), p(34, 17), p(34, 16), p(34, 15)], "it swam where the key said, not ashore")
+        XCTAssertEqual(visited, [p(34, 18), p(34, 19), p(34, 20), p(34, 21)], "it swam where the key said, not ashore")
     }
 
     func testAnEggClimbsOutBesideATeammateOnTheNearestShore() {
