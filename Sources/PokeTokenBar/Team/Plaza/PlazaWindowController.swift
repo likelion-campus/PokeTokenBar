@@ -707,8 +707,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
             let remaining = focusRemaining(of: id)
             if let remaining { menu.status = L(.ko).plazaFocusStatus(seconds: remaining) }
             if isFocusing || remaining != nil { menu.actions.removeAll { $0 == .tackle || $0 == .follow } }
-            // 물속에서는 몸통박치기를 하지도 받지도 않고, 따라갈 수도 없다(내가 물속이어도 따라가기는 멈춘다).
-            if scene.isMeInWater || scene.memberIsInWater(id) == true { menu.actions.removeAll { $0 == .tackle || $0 == .follow } }
+            // 물속에서는 따라갈 수 없다(내가 물속이어도 따라가기는 멈춘다). 몸통박치기는 헤엄치는 쪽끼리도 되지만 잠수한 쪽은 못 한다.
+            if scene.isMeInWater || scene.memberIsInWater(id) == true { menu.actions.removeAll { $0 == .follow } }
+            if scene.isDiving || scene.memberIsDiving(id) == true { menu.actions.removeAll { $0 == .tackle } }
             openOverlay(.memberMenu(menu))
         }
     }
@@ -780,7 +781,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func tackle(_ id: String) {
         guard let scene, let target = scene.memberTiles[id], !isFocusing, focusRemaining(of: id) == nil,
-              !scene.isMeInWater, scene.memberIsInWater(id) != true else { return }
+              !scene.isDiving, scene.memberIsDiving(id) != true else { return }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now

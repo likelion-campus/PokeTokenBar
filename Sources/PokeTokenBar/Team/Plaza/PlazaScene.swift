@@ -820,6 +820,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
 
+    /// 밀려 가는 걸음은 땅에서 물로도 들어간다(떨어진다). 빈 칸이어야 하고, 막힌 칸은 그대로 막는다.
+    private func canPushTile(occupied: Set<TilePoint>) -> (TilePoint, TilePoint) -> Bool {
+        { [map] _, to in !occupied.contains(to) && (map.isWalkable(to) || map.isWater(to)) }
+    }
+
     private var pondStepDuration: (TilePoint, TilePoint, Bool) -> TimeInterval {
         { [map] from, to, running in
             PlazaPond.stepDuration(from: from, to: to, running: running, isWater: { map.isWater($0) })
@@ -1069,15 +1074,28 @@ struct PlazaSceneMember: Equatable, Sendable {
     var impactCount: Int { children.filter { $0.name == Self.impactName }.count }
     func lungeOffset(memberID: String?) -> CGPoint? { actor(memberID)?.lungeOffset }
 
-    /// 몸통박치기에 맞아 `tiles`칸 밀린다. 막힌 칸을 만나면 그 앞에 선다. 알도 밀린다.
+    /// 몸통박치기에 맞아 `tiles`칸 밀린다. 막힌 칸을 만나면 그 앞에 서고, 땅에서 물로 떨어지면 그 첫 물 칸에서 끝난다(큰 물보라).
+    /// 헤엄치는 중에도 밀리고 물 칸을 지나 땅까지 밀려 나올 수 있지만, 잠수 중에는 밀리지 않는다. 알도 밀린다.
     /// 창이 가려져 장면이 멈춰 있으면(`isPaused`) 다음 화면이 오지 않으므로 그 자리에서 다 밀리고 팀원에게 바로 알린다.
     func pushMe(_ d: PlazaDirection, tiles: Int = 1) {
-        guard !isMeInWater else { return }
-        walker.push(d, tiles: tiles)
-        guard isPaused else { return }
+        guard !isDiving else { return }
         let occupied = occupiedTiles()
-        walker.advance(by: PlazaWalker.stepDuration * Double(tiles), canEnterFrom: canEnterTile(occupied: occupied),
-                       stepDuration: pondStepDuration)
+        let canEnter = canPushTile(occupied: occupied)
+        var reach = 0
+        var at = walker.tile
+        while reach < tiles {
+            let next = PlazaWalker.offset(at, d)
+            guard canEnter(at, next) else { break }
+            reach += 1
+            let fell = !map.isWater(at) && map.isWater(next)
+            at = next
+            if fell { break }
+        }
+        guard reach > 0 else { return }
+        walker.push(d, tiles: reach)
+        guard isPaused else { return }
+        walker.advance(by: PlazaPond.plungeStepDuration * Double(reach), canEnterFrom: canEnterTile(occupied: occupied),
+                       canPushInto: canEnter, stepDuration: pondStepDuration)
         reportLocalPosition()
     }
     /// 테스트용: 그 팀원을 달리는 빠르기로 따라가는지. 없으면 nil.
@@ -1234,7 +1252,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         advanceWalkToMember()
         let occupied = occupiedTiles()
-        walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), stepDuration: pondStepDuration)
+        walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), canPushInto: canPushTile(occupied: occupied),
+                       stepDuration: pondStepDuration)
         if plungeJumpOwed, let step = walker.currentStep, !map.isWater(step.from), map.isWater(step.to) {
             plungeJumpOwed = false
             playJump(memberID: nil)

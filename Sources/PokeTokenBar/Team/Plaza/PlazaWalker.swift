@@ -96,7 +96,9 @@ struct PlazaWalker: Sendable {
     }
 
     /// `canEnterFrom(출발 칸, 도착 칸)`: 걸음마다 지금 서 있는 칸을 알려 준다(물속인지에 따라 갈 수 있는 칸이 달라진다).
+    /// `canPushInto`: 밀려 가는 걸음만 따로 판단한다(밀리면 땅에서 물로 떨어질 수 있다). 없으면 `canEnter`와 같다.
     mutating func advance(by dt: TimeInterval, canEnterFrom canEnter: (TilePoint, TilePoint) -> Bool,
+                          canPushInto: ((TilePoint, TilePoint) -> Bool)? = nil,
                           stepDuration: ((TilePoint, TilePoint, Bool) -> TimeInterval)? = nil) {
         func length(_ from: TilePoint, _ to: TilePoint, running: Bool) -> TimeInterval {
             stepDuration?(from, to, running) ?? (running ? Self.runStepDuration : Self.stepDuration)
@@ -127,7 +129,7 @@ struct PlazaWalker: Sendable {
             }
             if let push = pendingPush {
                 let target = Self.offset(tile, push.direction)
-                if canEnter(tile, target) {
+                if canPushInto?(tile, target) ?? canEnter(tile, target) {
                     pendingPush = push.tiles > 1 ? (push.direction, push.tiles - 1) : nil
                     stepLength = length(tile, target, running: false)
                     stepFrom = tile
