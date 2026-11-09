@@ -57,7 +57,7 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
         settle(s)
         let a = try XCTUnwrap(s.memberActor("a"))
         XCTAssertTrue(a.isSubmergedBodyVisible)
-        XCTAssertEqual(a.submergedBodyAlpha, 0.45 * a.characterOpacity, accuracy: 0.001)
+        XCTAssertEqual(a.submergedBodyAlpha, 0.35 * a.characterOpacity, accuracy: 0.001)
         let cut = (72 * 0.55 / 1.5).rounded()   // rows of the 48-row sprite under water
         XCTAssertEqual(a.submergedBodySize, CGSize(width: 48, height: cut * 1.5))
         XCTAssertEqual(a.submergedBodyTextureRect.height, cut / 48, accuracy: 0.001)
@@ -72,7 +72,7 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(s.memberActor("land")).submergedBodyClip)
         // a diver fades with its character: the body follows that alpha and is gone once hidden.
         let d = try XCTUnwrap(s.memberActor("dive"))
-        XCTAssertEqual(d.submergedBodyAlpha, 0.45 * d.characterOpacity, accuracy: 0.001)
+        XCTAssertEqual(d.submergedBodyAlpha, 0.35 * d.characterOpacity, accuracy: 0.001)
     }
 
     func testClipIsTheSwimmersPondForMeAndForAMember() throws {

@@ -15,7 +15,7 @@ enum PlazaPondArt {
     /// 연못 타일의 물빛(지도 그림에서 잰 값). 헤엄치는 캐릭터의 잠긴 아랫부분에 이 색을 `submergedBlend`만큼 섞는다.
     static let waterColor = SKColor(red: 30 / 255, green: 124 / 255, blue: 184 / 255, alpha: 1)
     /// 잠긴 아랫부분의 불투명도(캐릭터 불투명도에 곱한다)와 물빛을 섞는 비율.
-    static let submergedAlpha: CGFloat = 0.45
+    static let submergedAlpha: CGFloat = 0.35
     static let submergedBlend: CGFloat = 0.3
 
     /// 3×3. 위·왼쪽은 하양, 가운데는 연한 물빛, 오른쪽·아래는 물빛. 모서리는 투명.
