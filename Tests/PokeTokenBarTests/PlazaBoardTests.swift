@@ -285,7 +285,9 @@ final class PlazaBoardTests: XCTestCase {
 
     func testMarkerIsLitFromTheStartWhenNewsWasAlreadyUnread() {
         let me = node("나")
-        me.feed.insert(event("e0", author: "other"))
+        // This feed keeps a week by the real clock, so the news must be dated today (a fixed day expires).
+        let news = TeamEventFactory.make(hatch(), authorID: "other", nickname: "민수", now: Date(), hasOnlinePeers: false)
+        XCTAssertTrue(me.feed.insert(news), "the feed kept today's news")
         let c = controller(me, start: map.spawn)
         c.prepareScene()
         XCTAssertTrue(c.scene!.isBoardMarkerVisible)
