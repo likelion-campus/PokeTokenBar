@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import CoreText
+import SpriteKit
 
 /// 연못 물보라 방울·물결 고리·거품·헤엄 고리. 코드로 그리는 픽셀은 이 넷뿐이고 색은 네 가지(진한 물빛·물빛·연한 물빛·하양)만 쓴다.
 /// 모두 시트 픽셀 단위(월드 2px)로 만들고, 늘리지 않고 최근접으로 그린다.
@@ -10,6 +11,12 @@ enum PlazaPondArt {
     private static let mid: [UInt8] = [0x29, 0x96, 0xDB]      // #2996DB
     private static let light: [UInt8] = [0x5A, 0xAE, 0xE4]    // #5AAEE4
     private static let white: [UInt8] = [0xFF, 0xFF, 0xFF]    // #FFFFFF
+
+    /// 연못 타일의 물빛(지도 그림에서 잰 값). 헤엄치는 캐릭터의 잠긴 아랫부분에 이 색을 `submergedBlend`만큼 섞는다.
+    static let waterColor = SKColor(red: 30 / 255, green: 124 / 255, blue: 184 / 255, alpha: 1)
+    /// 잠긴 아랫부분의 불투명도(캐릭터 불투명도에 곱한다)와 물빛을 섞는 비율.
+    static let submergedAlpha: CGFloat = 0.35
+    static let submergedBlend: CGFloat = 0.3
 
     /// 3×3. 위·왼쪽은 하양, 가운데는 연한 물빛, 오른쪽·아래는 물빛. 모서리는 투명.
     static func droplet() -> CGImage {

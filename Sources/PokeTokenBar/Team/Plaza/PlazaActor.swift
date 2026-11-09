@@ -26,6 +26,10 @@ struct PlazaActorContext {
     private let shadowNode = SKSpriteNode()
     /// 헤엄칠 때 몸이 물에 잠기는 높이에 얹는 물결 고리.
     private let swimRingNode = SKSpriteNode()
+    /// 물에 잠긴 아랫부분을 물 아래에 비치게 그리는 반투명 스프라이트. 연못 사각형으로 자르는 크롭 노드 안에 둔다.
+    private let ghostCrop = SKCropNode()
+    private let ghostNode = SKSpriteNode()
+    private let ghostMask = SKSpriteNode(color: .white, size: .zero)
     /// 아래쪽 월드 픽셀을 잘라 낸 양(헤엄). 0이면 온전하다.
     private var swimSink: CGFloat = 0
     /// 알일 때 알 앞에 얹는 둥지 앞 테두리. 알이 둥지 안에 앉아 보이게 한다.
@@ -93,6 +97,12 @@ struct PlazaActorContext {
         swimRingNode.texture = Self.swimRingTexture
         swimRingNode.size = CGSize(width: 24, height: 6)   // 12×3 시트 픽셀 × 2
         swimRingNode.isHidden = true
+        ghostNode.anchorPoint = CGPoint(x: 0.5, y: 1)
+        ghostNode.color = PlazaPondArt.waterColor
+        ghostNode.colorBlendFactor = PlazaPondArt.submergedBlend
+        ghostCrop.isHidden = true
+        ghostMask.anchorPoint = .zero
+        ghostCrop.addChild(ghostNode)
         nestFrontNode.anchorPoint = .zero
         nestFrontNode.isHidden = true
         characterNode.anchorPoint = CGPoint(x: 0.5, y: 0)
@@ -114,6 +124,7 @@ struct PlazaActorContext {
         world.addChild(shadowNode)
         world.addChild(characterNode)
         world.addChild(swimRingNode)
+        world.addChild(ghostCrop)
         world.addChild(nestFrontNode)
         camera.addChild(plateNode)
         camera.addChild(emoteNode)
@@ -124,6 +135,7 @@ struct PlazaActorContext {
         shadowNode.removeFromParent()
         characterNode.removeFromParent()
         swimRingNode.removeFromParent()
+        ghostCrop.removeFromParent()
         nestFrontNode.removeFromParent()
         plateNode.removeFromParent()
         emoteNode.removeFromParent()
@@ -240,7 +252,7 @@ struct PlazaActorContext {
     /// `concealment`(0–1)는 풀숲에 가려진 정도다. 그림·그림자·둥지 앞 테두리를 흐리게 하고 이름표를 풀숲 위로 내린다. `isMe`면 내 화면에서 40%까지만 흐려진다.
     /// `swimSink`가 0보다 크면 헤엄이다: 그림 아래를 그만큼 잘라 윗부분만 보이고, 그림자는 숨기고, 물높이 고리를 얹는다.
     func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat = 0, isMe: Bool = false,
-               swimSink: CGFloat = 0) {
+               swimSink: CGFloat = 0, waterRect: CGRect? = nil) {
         if swimSink != self.swimSink {
             self.swimSink = swimSink
             applyFrame()
@@ -276,6 +288,20 @@ struct PlazaActorContext {
         swimRingNode.position = CGPoint(x: characterNode.position.x, y: footScene.y - jumpLift)
         swimRingNode.zPosition = characterNode.zPosition + 0.0002
 
+        // 잠긴 아랫부분: 수면 아래, 물결 고리 아래에 반투명하게. 연못 밖(`waterRect`가 nil)이면 그리지 않아 땅에 띠가 남지 않는다.
+        if swimSink > 0, !characterNode.isHidden, let r = waterRect {
+            ghostCrop.isHidden = false
+            ghostNode.xScale = characterNode.xScale
+            ghostNode.position = characterNode.position
+            ghostNode.alpha = PlazaPondArt.submergedAlpha * alpha
+            ghostCrop.zPosition = characterNode.zPosition + 0.0001
+            ghostMask.position = r.origin
+            ghostMask.size = r.size
+            ghostCrop.maskNode = ghostMask
+        } else {
+            ghostCrop.isHidden = true
+        }
+
         // 이름표는 카메라 공간(화면 포인트)에 둔다.
         let top = footScene.y + characterNode.size.height
         let labelBacking = max(backing, 1)
@@ -291,7 +317,8 @@ struct PlazaActorContext {
     }
 
     /// 기념사진에 찍을 값. 그림을 아직 못 받았으면 nil이다. 이름표와 말풍선은 화면 배율과 상관없이 배율 2로 새로 만든다.
-    func photoActor(foot: CGPoint, pose: PlazaSpriteChoice) -> PlazaPhotoActor? {
+    /// `waterClip`은 헤엄칠 때 발이 선 연못의 사각형(월드, y 아래로)이다.
+    func photoActor(foot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect? = nil) -> PlazaPhotoActor? {
         guard let list = currentFrames, !list.isEmpty else { return nil }
         let image = list[frameIndex % list.count].image
         var shadow: CGImage?
@@ -316,7 +343,7 @@ struct PlazaActorContext {
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
-                               opacity: opacity, plateBaseY: plateBaseY, sink: swimSink)
+                               opacity: opacity, plateBaseY: plateBaseY, sink: swimSink, waterClip: swimSink > 0 ? waterClip : nil)
     }
 
     // MARK: - 값 읽기
@@ -337,6 +364,12 @@ struct PlazaActorContext {
     var shadowOpacity: CGFloat { shadowNode.alpha }
     /// 지금 보이는 그림 높이(월드 픽셀). 헤엄이면 잘린 만큼 줄어든다.
     var visibleSpriteHeight: CGFloat { characterNode.size.height }
+    /// 잠긴 아랫부분(테스트용).
+    var isSubmergedBodyVisible: Bool { !ghostCrop.isHidden }
+    var submergedBodyAlpha: CGFloat { ghostNode.alpha }
+    var submergedBodySize: CGSize { ghostNode.size }
+    var submergedBodyTextureRect: CGRect { ghostNode.texture?.textureRect() ?? .zero }
+    var submergedBodyClip: CGRect? { ghostCrop.isHidden || ghostCrop.maskNode == nil ? nil : CGRect(origin: ghostMask.position, size: ghostMask.size) }
     var isSwimRingVisible: Bool { !swimRingNode.isHidden }
     var swimRingY: CGFloat { swimRingNode.position.y }
     /// 자르기 전 지금 그림의 높이(월드 픽셀). 그림이 없으면 0.
@@ -434,6 +467,10 @@ struct PlazaActorContext {
             top.filteringMode = .nearest
             characterNode.texture = top
             characterNode.size = CGSize(width: full.width, height: full.height - cut * Self.characterScale)
+            let low = SKTexture(rect: CGRect(x: 0, y: 0, width: 1, height: f), in: texture)   // 잘려 나간 아래 줄
+            low.filteringMode = .nearest
+            ghostNode.texture = low
+            ghostNode.size = CGSize(width: full.width, height: cut * Self.characterScale)
         } else {
             characterNode.texture = texture
             characterNode.size = full

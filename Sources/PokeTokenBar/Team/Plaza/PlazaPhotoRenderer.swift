@@ -26,6 +26,8 @@ struct PlazaPhotoActor {
     var plateBaseY: CGFloat? = nil
     /// 헤엄으로 물에 잠긴 월드 픽셀. 0보다 크면 그림을 그만큼 내려 그리고 발 선 아래는 자르며, 그림자와 둥지 앞 테두리는 그리지 않는다.
     var sink: CGFloat = 0
+    /// 헤엄칠 때 발이 선 연못 사각형(월드, y 아래로). 잠긴 아랫부분을 이 안에만 반투명하게 그린다. nil이면 그리지 않는다.
+    var waterClip: CGRect? = nil
 }
 
 /// 기념사진에 찍히는 풀숲 앞 띠 한 칸. 좌표는 월드 픽셀이고 y가 아래로 늘어난다.
@@ -159,6 +161,20 @@ enum PlazaPhotoRenderer {
             defer { context.setAlpha(1) }
             let footTop = px(a.foot.y - a.bob, origin: rect.minY)
             let sunk = a.sink > 0
+            if sunk, let pond = a.waterClip, let tinted = Self.submerged(a.image) {
+                // 잠긴 아랫부분: 화면처럼 연못 안, 발 선 아래만 반투명한 물빛으로.
+                let x0 = px(pond.minX, origin: rect.minX), x1 = px(pond.maxX, origin: rect.minX)
+                let y0 = max(px(pond.minY, origin: rect.minY), footTop), y1 = px(pond.maxY, origin: rect.minY)
+                if x1 > x0, y1 > y0 {
+                    context.saveGState()
+                    context.clip(to: cg(x0, y0, x1 - x0, y1 - y0))
+                    context.setAlpha(a.opacity * PlazaPondArt.submergedAlpha)
+                    draw(tinted, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX),
+                         top: footTop - h + Int((a.sink * ppw).rounded()), w: w, h: h, mirrored: a.flipped)
+                    context.restoreGState()
+                    context.setAlpha(a.opacity)
+                }
+            }
             if sunk {
                 // 헤엄: 그림을 sink만큼 내려 그리고 발 선 아래는 자른다(화면이 그림 아래를 잘라 내는 것과 같다).
                 context.saveGState()
@@ -255,6 +271,20 @@ enum PlazaPhotoRenderer {
             }
         }
         return context.makeImage()
+    }
+
+    /// 그림에 물빛을 `submergedBlend`만큼 섞은 사본(투명한 곳은 그대로).
+    private static func submerged(_ image: CGImage) -> CGImage? {
+        guard let c = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        c.draw(image, in: rect)
+        c.setBlendMode(.sourceAtop)
+        let w = PlazaPondArt.waterColor
+        c.setFillColor(CGColor(srgbRed: w.redComponent, green: w.greenComponent, blue: w.blueComponent, alpha: PlazaPondArt.submergedBlend))
+        c.fill(rect)
+        return c.makeImage()
     }
 
     static func pngData(for input: PlazaPhotoInput) -> Data? {
