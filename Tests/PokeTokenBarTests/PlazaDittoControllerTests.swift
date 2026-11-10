@@ -301,6 +301,31 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(sent?.tile, before?.tile)
     }
 
+    func testASmallerIDOpeningThePlazaCarriesOnTheCopy() async throws {
+        let trio = sorted(3)
+        let (me, b, m) = (trio[0], trio[1], trio[2])   // I would host the moment I open the window
+        await connect(me, b); await connect(m, b); await connect(me, m)
+        place(m, at: ground(-5, 0))
+        let now = Date()
+        host(b, dittoForm(ground(5, 3), now: now).copying(m.id, now: now))
+        await settle()
+        let before = try XCTUnwrap(me.session.members[b.id]?.ditto)
+        let c = controller(me)
+        c.prepareScene()
+        // b yields on seeing my ready frame, before my first tick.
+        b.session.updateDitto(ready: true, state: nil)
+        await settle()
+        XCTAssertNil(me.session.members[b.id]?.ditto, "test precondition: the old host has already let go")
+        c.advanceDitto(now: now.addingTimeInterval(0.05))
+        await settle()
+        XCTAssertTrue(c.isDittoHost)
+        let kept = c.shownDitto
+        XCTAssertEqual(kept?.decoyOf, m.id)
+        XCTAssertEqual(kept?.since, before.since)
+        XCTAssertEqual(kept?.tile, before.tile)
+        XCTAssertEqual(c.scene?.decoyTile, before.tile)
+    }
+
     func testTheHostMovesTheDittoWithoutSceneFrames() async {
         let me = node("나")
         let c = controller(me)

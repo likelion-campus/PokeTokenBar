@@ -421,6 +421,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.refreshInteractionTarget()
         refreshCampfire()
         startFocusTick()
+        // 내가 가장 작은 ID로 막 열었다면 첫 틱에 호스트가 된다. 옛 호스트는 내 준비 소식을 보는 즉시 물러나 그 전에 소식을
+        // 거둘 수 있으므로, 알리는 쪽을 지금 한 번 받아 그린다. 호스트 두뇌는 보이는 모습에서 이어 간다(명세 §5.6).
+        showReceivedDitto(smallestReceivedDitto())
         session?.updateDitto(ready: true, state: nil)
         startDittoLoop()
     }
@@ -1117,13 +1120,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard host == me, !smallerHosts else {
             dittoBrain = nil
             session?.updateDitto(ready: true, state: nil)
-            let source = host.flatMap { members[$0]?.ditto }
-                ?? members.filter { $0.value.ditto != nil }.min { $0.key < $1.key }?.value.ditto
-            // 호스트의 소식이 아직 없으면 마지막 모습 그대로 둔다. 땅이 아닌 칸은 믿지 않는다.
-            if let state = source, PlazaDitto.isGround(state.tile, in: map),
-               !(state.isDecoy && state.since == foundDittoSince) {
-                showDitto(state, change: PlazaDitto.change(from: shownDitto, to: state))
-            }
+            showReceivedDitto(host.flatMap { members[$0]?.ditto } ?? smallestReceivedDitto())
             return
         }
         let world = dittoWorld(scene: scene, now: now)
@@ -1137,6 +1134,18 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
         session?.updateDitto(ready: true, state: brain.state)
         showDitto(brain.state, change: PlazaDitto.change(from: shownDitto, to: brain.state))
+    }
+
+    /// 알리는 팀원들 가운데 가장 작은 ID의 메타몽.
+    private func smallestReceivedDitto() -> PlazaDittoState? {
+        members.filter { $0.value.ditto != nil }.min { $0.key < $1.key }?.value.ditto
+    }
+
+    /// 받은 메타몽을 그린다. 소식이 아직 없으면 마지막 모습 그대로 둔다. 땅이 아닌 칸과 이미 들킨 복사본은 믿지 않는다.
+    private func showReceivedDitto(_ state: PlazaDittoState?) {
+        guard let state, PlazaDitto.isGround(state.tile, in: map),
+              !(state.isDecoy && state.since == foundDittoSince) else { return }
+        showDitto(state, change: PlazaDitto.change(from: shownDitto, to: state))
     }
 
     /// 지금 호스트: 광장에 있고 준비됐거나 메타몽을 알리는 팀원과 나 가운데 가장 작은 ID.
