@@ -726,6 +726,14 @@ read_when:
 
 ## 빌드·도구체인
 
+- **`Sendable` 여부는 SDK마다 다르다 — 파일 범위 전역에는 값 타입만 둔다.** 메타몽 PR(#88)이 테스트 파일 맨 위에
+  `private let dittoPicture: NSImage = { … }()` 를 두었다. macOS 26 SDK에서는 `NSImage` 가 `Sendable` 이라 로컬 전체 스위트와
+  릴리스 게이트(2956개)를 모두 통과했지만, CI(macOS 15 / Xcode 16.4 / Swift 6.1.2)의 15.5 SDK에서는 "not concurrency-safe"
+  컴파일 오류로 main CI가 빨개졌다. **왜 못 걸렀나:** 6.1 툴체인을 쓰는 곳은 CI뿐인데, 빠른 배포 흐름이라 CI를 기다리지 않고
+  머지했다(받아들인 비용, 고쳐 나간다). 테스트 코드라 출시된 앱에는 영향이 없었다. **규칙:** 파일 범위 `let` 에는 정수·문자열·
+  날짜 같은 값만 두고, `NSImage`·`NSColor`·`SKTexture` 같은 AppKit/SpriteKit 객체는 그 값을 쓰는 타입의 인스턴스 프로퍼티로
+  둔다(같은 파일의 `BacklessFetcher.image` 처럼). 스윕: `Tests/`·`Sources/` 의 파일 범위 `let`/`var` 는 모두 값 타입이었다.
+
 - **고정 날짜로 만든 데이터는 실제 시계를 쓰는 저장소에 넣지 않는다.** `PlazaBoardTests`의 한 테스트가 날짜를
   2026-10-30으로 박은 소식을 실제 시계로 도는 `TeamFeedStore`(7일만 보관)에 넣었다. 11월 7일부터 소식이 들어가자마자
   버려져 표시등이 꺼진 채로 CI가 깨졌다. 코드는 바뀌지 않았고 무관한 #80에서 처음 드러났다. **왜 못 걸렀나:** 쓸 때는
