@@ -1104,12 +1104,28 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let sleep = dittoLoopSleep
         dittoLoop = Task { [weak self] in
             while !Task.isCancelled {
-                await sleep(.milliseconds(50))
+                guard let delay = self?.dittoLoopDelay() else { return }   // 기다리는 동안 self 를 붙들지 않는다
+                await sleep(delay)
                 guard !Task.isCancelled, let self else { return }
                 self.advanceDitto(now: self.clock())
             }
         }
     }
+
+    /// 다음 틱까지. 호스트가 걷는 중일 때만 0.05초이고, 서 있으면 두뇌의 다음 할 일까지(최대 0.25초) 잔다. 호스트가 아니면
+    /// 시계가 필요 없다: 팀원 소식이 올 때마다 `observeMembers` 가 `advanceDitto` 를 부르니 호스트가 사라진 것을 놓칠 때를 위해서만 1초.
+    private func dittoLoopDelay() -> Duration {
+        let now = clock()
+        guard let brain = dittoBrain else {
+            return dittoHost() == memberID() ? Self.dittoWalkingTick : Self.dittoIdleTick
+        }
+        if brain.isMoving { return Self.dittoWalkingTick }
+        let wait = brain.nextWake(now: now).timeIntervalSince(now)
+        let ms = Int((wait * 1000).rounded(.up))
+        return .milliseconds(min(max(ms, 50), 250))
+    }
+    private static let dittoWalkingTick = Duration.milliseconds(50)
+    private static let dittoIdleTick = Duration.seconds(1)
 
     /// 한 걸음. 가장 작은 ID의 준비된 Mac이 호스트다. 호스트면 두뇌를 돌려 알리고, 아니면 호스트의 메타몽을 따라 그린다.
     func advanceDitto(now: Date) {
@@ -1337,6 +1353,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if let followed = scene?.followingMember, focusRemaining(of: followed) != nil { scene?.stopWalkingToMember() }
         applyMembersToScene()
         refreshCampfire()
+        // 팀원 소식(들어옴·나감·위치·메타몽)이 올 때마다 메타몽도 따라간다. 루프가 돌기 전(광장을 여는 중)에는 건드리지 않는다.
+        if dittoLoop != nil { advanceDitto(now: clock()) }
     }
 
     private func applyMembersToScene() {

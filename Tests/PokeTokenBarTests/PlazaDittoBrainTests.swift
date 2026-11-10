@@ -261,4 +261,52 @@ final class PlazaDittoBrainTests: XCTestCase {
             XCTAssertEqual(brain.state.tile, here)
         }
     }
+
+    /// The pace of a route must not depend on how often the brain is ticked: each step starts where the last one ended.
+    func testAStepStartsWhereThePreviousOneEndedAtCoarseTicks() {
+        let p = openTile()
+        let w = world()
+        let coarse = 0.1, d = PlazaWalker.stepDuration
+        // Find a seed whose first walk is at least three steps long, at a fine tick.
+        for seed in 1...200 as ClosedRange<UInt64> {
+            var fine = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: seed)
+            var now = t0
+            var changes = 0, last = fine.state.tile
+            while now.timeIntervalSince(t0) < 30, changes < 3 {
+                now = now.addingTimeInterval(0.01)
+                _ = fine.tick(now: now, world: w)
+                if fine.state.tile != last { changes += 1; last = fine.state.tile }
+                else if changes > 0, !fine.isMoving { break }
+            }
+            guard changes >= 3 else { continue }
+            var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: seed)
+            now = t0
+            var times: [TimeInterval] = []
+            var tile = brain.state.tile
+            while now.timeIntervalSince(t0) < 30, times.count < 3 {
+                now = now.addingTimeInterval(coarse)
+                _ = brain.tick(now: now, world: w)
+                if brain.state.tile != tile { times.append(now.timeIntervalSince(t0)); tile = brain.state.tile }
+            }
+            XCTAssertEqual(times.count, 3)
+            // Step 3 begins when step 2 ends: two step durations after step 1, to within one coarse tick.
+            XCTAssertLessThanOrEqual(times[2] - times[0], 2 * d + 0.0501, "\(times)")
+            return
+        }
+        XCTFail("no seed walks three steps")
+    }
+
+    func testItAsksForATickAtOnceOnlyWhileMoving() {
+        let p = openTile()
+        let w = world()
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 5)
+        XCTAssertFalse(brain.isMoving)
+        XCTAssertGreaterThan(brain.nextWake(now: t0), t0, "it stands for a while first")
+        var now = t0
+        while !brain.isMoving, now.timeIntervalSince(t0) < 60 { now = now.addingTimeInterval(0.05); _ = brain.tick(now: now, world: w) }
+        XCTAssertTrue(brain.isMoving)
+        while brain.isMoving, now.timeIntervalSince(t0) < 120 { now = now.addingTimeInterval(0.05); _ = brain.tick(now: now, world: w) }
+        XCTAssertFalse(brain.isMoving)
+        XCTAssertGreaterThanOrEqual(brain.nextWake(now: now), now)
+    }
 }

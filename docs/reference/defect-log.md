@@ -718,6 +718,12 @@ read_when:
   모습을 둔다. 가드: `testACopyOfAMemberNotInThePlazaIsNotShown`(되돌리면 실패), 지도 밖 칸과 연타는 `testAStateOffTheMapIsIgnored`·
   `testABurstOfDittoStatesLeavesTheLastGoodOneShown`.
 
+- **이어 맡기는 쪽이 보이는 상태를 먼저 받아야 한다 — 진짜 호스트의 마지막 소식은 내 첫 틱보다 먼저 사라질 수 있다.** 더 작은 ID 의
+  Mac 이 광장을 열면 첫 틱에 호스트가 되는데 `shownDitto` 가 비어 있어 두뇌가 무작위 칸에서 새로 시작했고, 옛 호스트는 내 준비
+  소식을 보자마자 물러나 소식을 거두므로 복사본이 모두의 화면에서 사라졌다. 열 때 알리는 쪽의 메타몽을 한 번 받아 그리고 두뇌가
+  거기서 이어 간다. 가드: `testASmallerIDOpeningThePlazaCarriesOnTheCopy`(옛 호스트가 이미 물러난 뒤의 첫 틱까지 같은 `decoyOf`·`since`·칸을
+  본다; 한 줄을 지우면 실패). 메뉴를 연 사이 복사본이 돌아오면 고른 일을 버린다(`testAMenuOnACopyThatTurnedBackDoesNothing`).
+
 ## 빌드·도구체인
 
 - **고정 날짜로 만든 데이터는 실제 시계를 쓰는 저장소에 넣지 않는다.** `PlazaBoardTests`의 한 테스트가 날짜를
@@ -1530,6 +1536,15 @@ read_when:
   `date >= start && date < end` 로 비교한다(`testWeatherChangesWhenMidnightEntersANewWindow`, 주입 검증 완료).
   **5-whys:** 날짜 창 시험이 "하루 안의 시각"만 봤으면 못 잡았다 → 구간 경계 *바로 그 초*(23:59:59 → 00:00:00)를 넘는 시험이 필요하다.
   부류 스윕: 코드베이스의 `DateInterval.contains` 는 이 한 곳이다.
+
+- **광장의 상시 틱은 일하는 쪽만 빠르게 돌린다 — 호스트가 아닌 쪽과 서 있는 쪽은 사건이나 마감에 깬다.** 메타몽 루프를 열린 광장마다
+  0.05초로 돌려, 호스트가 아닌 Mac·가려진 창·가만히 선 호스트(대부분의 시간)도 초당 20번 깼다. **5-whys:** 상시 깸 →
+  "한 틱이면 단순하다"고 모든 경우를 같은 간격으로 → 왜 못 걸렀나: 테스트는 루프를 손으로 넘기는 `LoopGate` 라 간격 자체를 보지
+  않았다. 수정: 호스트가 걷는 중일 때만 0.05초, 서 있으면 두뇌의 `nextWake`(대기 끝·15분 한계·휴식 끝)까지 최대 0.25초, 호스트가
+  아니면 1초(호스트 증발 대비용 안전망)이고 팀원 소식은 `observeMembers` 가 `advanceDitto` 를 바로 불러 반영한다. 간격이 길어져도
+  걸음이 느려지지 않도록 두뇌는 걸음을 `now` 가 아니라 앞 걸음이 끝난 시각에서 시작한다. 가드: `testOnlyAWalkingHostTicksAtFiftyMilliseconds`
+  (LoopGate 가 요청한 간격을 기록), `testAPresenceChangeMovesTheDittoWithoutALoopTick`(관찰 호출을 지우면 실패),
+  `testAStepStartsWhereThePreviousOneEndedAtCoarseTicks`(되돌리면 실패). 상시 루프를 더할 때는 "이 틱은 누가 필요로 하나"부터 묻는다.
 
 ## 알림
 

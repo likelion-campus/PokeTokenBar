@@ -66,8 +66,12 @@ struct PlazaDittoBrain {
             return [.turnedBack]
         }
 
+        // A route's next step starts where the last one ended, not when a coarse tick noticed, so the pace does not depend on
+        // how often it is ticked. It never starts so far back that the step would already be over (a long gap does not replay).
+        var chainedFrom: Date?
         if let end = stepEnd, now >= end {
             stepEnd = nil
+            chainedFrom = end
             if route.isEmpty { state.isWalking = nil; state.isRunning = nil }
         }
 
@@ -89,7 +93,8 @@ struct PlazaDittoBrain {
                 state.isRunning = nil
                 waitUntil = now.addingTimeInterval(PlazaWalker.stepDuration)
             } else {
-                step(to: next, now: now)
+                let duration = routeRuns ? PlazaWalker.runStepDuration : PlazaWalker.stepDuration
+                step(to: next, from: chainedFrom.map { max($0, now.addingTimeInterval(-duration)) } ?? now)
             }
             return events
         }
@@ -110,6 +115,18 @@ struct PlazaDittoBrain {
             if route.isEmpty { waitUntil = now.addingTimeInterval(Self.uniform(Self.dittoWait, &rng)) }
         }
         return events
+    }
+
+    /// A step or a route is under way, so the next tick is wanted at once.
+    var isMoving: Bool { stepEnd != nil || !route.isEmpty }
+
+    /// When the brain next has something to do on its own while it stands: the end of its wait, the copy's time limit, the end of
+    /// its rest. Never in the past. Nothing else (a neighbour arriving) is a deadline; that comes from the world changing.
+    func nextWake(now: Date) -> Date {
+        var wake = waitUntil
+        if state.isDecoy { wake = min(wake, state.since.addingTimeInterval(PlazaDitto.decoyLimit)) }
+        if let rest = state.restUntil, rest > now { wake = min(wake, rest) }
+        return max(wake, now)
     }
 
     /// Someone tackled the copy: turn back where it stands. No-op in Ditto form.
@@ -142,12 +159,12 @@ struct PlazaDittoBrain {
         }
     }
 
-    private mutating func step(to next: TilePoint, now: Date) {
+    private mutating func step(to next: TilePoint, from start: Date) {
         route.removeFirst()
         state.facing = PlazaPathfinder.direction(from: state.tile, to: next)
         state.tile = next
         let duration = routeRuns ? PlazaWalker.runStepDuration : PlazaWalker.stepDuration
-        let end = now.addingTimeInterval(duration)
+        let end = start.addingTimeInterval(duration)
         stepEnd = end
         state.isWalking = true
         state.isRunning = routeRuns ? true : nil

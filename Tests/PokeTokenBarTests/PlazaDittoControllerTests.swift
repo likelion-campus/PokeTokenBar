@@ -75,7 +75,9 @@ final class PlazaDittoControllerTests: XCTestCase {
     @MainActor private final class LoopGate {
         private var waiting: [CheckedContinuation<Void, Never>] = []
         var waitingCount: Int { waiting.count }
-        func sleep(_ d: Duration) async { await withCheckedContinuation { waiting.append($0) } }
+        /// Every duration the loop asked to sleep, in order.
+        private(set) var requested: [Duration] = []
+        func sleep(_ d: Duration) async { requested.append(d); await withCheckedContinuation { waiting.append($0) } }
         func fire() { let w = waiting; waiting = []; w.forEach { $0.resume() } }
     }
 
@@ -199,6 +201,61 @@ final class PlazaDittoControllerTests: XCTestCase {
         await settle()
         XCTAssertEqual(gate.waitingCount, 1, "one stream of ticks after reopening, not two")
         XCTAssertNotNil(c.shownDitto)
+    }
+
+    func testOnlyAWalkingHostTicksAtFiftyMilliseconds() async {
+        // A non-host does not need the clock: it follows the host through presence changes, with a slow fallback.
+        let pair = sorted(2)
+        let (a, me) = (pair[0], pair[1])
+        await connect(a, me)
+        host(a, dittoForm(ground(8, 8)))
+        await settle()
+        let follower = LoopGate()
+        let c = controller(me, gate: follower)
+        c.prepareScene()
+        await settle()
+        XCTAssertGreaterThanOrEqual(follower.requested.first ?? .zero, .seconds(1))
+        c.handleClose()
+
+        // A host that stands still sleeps longer than a step; one that walks asks for 50 ms.
+        let lone = node("나")
+        let gate = LoopGate()
+        let h = controller(lone, gate: gate)
+        h.prepareScene()
+        await settle()
+        XCTAssertEqual(gate.requested.last, .milliseconds(50), "about to take over: a quick first tick")
+        var requested = 0
+        var sawLong = false, sawWalk = false
+        let t0 = Date()
+        for i in 1...4000 where !(sawLong && sawWalk) {
+            gate.fire()
+            await settle()
+            h.advanceDitto(now: t0.addingTimeInterval(Double(i) * 0.05))
+            guard gate.requested.count > requested else { continue }
+            requested = gate.requested.count
+            if let d = gate.requested.last { if d > .milliseconds(50) { sawLong = true } else { sawWalk = true } }
+        }
+        XCTAssertTrue(sawLong, "standing still sleeps more than 50 ms")
+        XCTAssertTrue(sawWalk, "walking ticks at 50 ms")
+        XCTAssertTrue(gate.requested.allSatisfy { $0 <= .milliseconds(250) })
+        h.handleClose()
+    }
+
+    func testAPresenceChangeMovesTheDittoWithoutALoopTick() async {
+        let pair = sorted(2)
+        let (a, me) = (pair[0], pair[1])
+        await connect(a, me)
+        let gate = LoopGate()   // never fired
+        let c = controller(me, gate: gate)
+        c.prepareScene()
+        host(a, dittoForm(ground(8, 8)))
+        await settle()
+        XCTAssertEqual(c.scene?.dittoTile, ground(8, 8), "followed from the presence alone")
+        host(a, dittoForm(ground(8, 9)))
+        for _ in 0..<400 where c.shownDitto?.tile != ground(8, 9) { await Task.yield() }
+        XCTAssertEqual(c.shownDitto?.tile, ground(8, 9), "the scene walks there on its own update")
+        XCTAssertEqual(gate.waitingCount, 1)
+        c.handleClose()
     }
 
     func testAnUnchangedDittoLeavesTheSceneAlone() async {
