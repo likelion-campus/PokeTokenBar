@@ -38,7 +38,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 누군가 주운 것으로 아는 아이템 칸: 내가 주운 것, 팀원이 알려 온 것, 팀원 presence가 전해 준 것. 저장하고, 가장 최근
     /// 것을 내 presence로 다시 전한다. 그래서 주운 사람이 떠난 뒤 광장을 연 팀원도 그때 있던 누군가에게서 전해 듣는다.
     private var takenItemSlots: Set<Int> = []
-    /// 지금 칸까지 저장해 두는 지난 칸 수(하루 치).
+    /// 지금 칸까지 저장해 두는 지난 칸 수. 아이템은 지금 칸 것만 보이니 몇 칸이면 충분하다.
     private static let keptTakenSlots = 8
     private let nameColorModel = PlazaNameColorModel()
     let rosterModel = PlazaRosterModel()
@@ -589,7 +589,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         session?.updateTakenItemSlot(kept.max())
     }
 
-    /// 내 시계로 지금 칸까지 하루 치와, 시계가 조금 앞선 팀원이 먼저 넘어간 다음 칸 하나만 남긴다. 시계가 크게 틀린 팀원이
+    /// 내 시계로 지금 칸까지 몇 칸과, 시계가 조금 앞선 팀원이 먼저 넘어간 다음 칸 하나만 남긴다. 시계가 크게 틀린 팀원이
     /// 알려 온 먼 칸은 버린다. 가장 큰 칸을 기준으로 자르면 그런 칸이 방금 주운 지금 칸을 밀어내, 아이템이 사라지지 않고
     /// 서 있는 동안 화면마다 다시 주워진다. 그 칸이 내 presence로 모두에게 퍼지고 저장돼 재시작해도 남는다.
     private func keptSlots(_ slots: Set<Int>) -> Set<Int> {
