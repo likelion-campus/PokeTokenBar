@@ -536,6 +536,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             return
         }
         if var r = remotes[key] {
+            // 팀원처럼 칸이 바뀌면(걸음이든 순간이동이든) 춤을 멈춘다.
+            if r.motion.tile != shown.tile { r.actor.stopDance() }
             r.motion.moveTo(shown.tile)   // 한 칸이 아니면 moveTo가 알아서 바로 옮긴다
             r.motion.senderIsWalking = shown.isWalking
             r.motion.senderIsRunning = shown.isRunning

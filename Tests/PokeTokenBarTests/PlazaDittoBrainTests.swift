@@ -279,6 +279,48 @@ final class PlazaDittoBrainTests: XCTestCase {
         XCTAssertEqual(copying.state, copy)
     }
 
+    func testAHoldKeepsItStandingUntilThen() {
+        let p = openTile()
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: world(), now: t0, seed: 3)
+        let until = t0.addingTimeInterval(10)   // past its first wait (2–6 s)
+        brain.hold(until: until)
+        var now = t0
+        while now < until.addingTimeInterval(-dt) {
+            now = now.addingTimeInterval(dt)
+            _ = brain.tick(now: now, world: world())
+            XCTAssertEqual(brain.state.tile, p, "held at \(now.timeIntervalSince(t0))")
+        }
+        XCTAssertEqual(brain.nextWake(now: now), until)
+        while now < until.addingTimeInterval(1) {
+            now = now.addingTimeInterval(dt)
+            _ = brain.tick(now: now, world: world())
+        }
+        XCTAssertNotEqual(brain.state.tile, p, "it walks once the hold ends")
+    }
+
+    func testAHoldDoesNotStopAWalkOrAFlee() {
+        let p = openTile()
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: world(), now: t0, seed: 3)
+        var now = t0
+        while !brain.isMoving {
+            now = now.addingTimeInterval(dt)
+            _ = brain.tick(now: now, world: world())
+        }
+        let walking = brain.state.tile
+        brain.hold(until: now.addingTimeInterval(60))
+        for _ in 0..<40 { now = now.addingTimeInterval(dt); _ = brain.tick(now: now, world: world()) }
+        XCTAssertNotEqual(brain.state.tile, walking, "the walk under way goes on")
+
+        let me = TilePoint(x: p.x + 1, y: p.y)
+        let w = world(blocked: [me], copyable: ["me": me])
+        var copying = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 3)
+        XCTAssertTrue(copying.tackled(by: "me", now: t0, world: w))
+        copying.hold(until: t0.addingTimeInterval(60))
+        now = t0
+        while now.timeIntervalSince(t0) < 10 { now = now.addingTimeInterval(dt); _ = copying.tick(now: now, world: w) }
+        XCTAssertGreaterThanOrEqual(manhattan(copying.state.tile, me), PlazaDitto.fleeDistance, "the flee goes on")
+    }
+
     func testItWaitsWhenSomeoneStepsIntoItsPath() {
         let p = openTile()
         let w = world()
