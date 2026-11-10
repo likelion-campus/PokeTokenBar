@@ -599,6 +599,12 @@ final class TeamRuntimeTests: XCTestCase {
 
 }
 
+private struct DecoyNoSprites: PlazaSpriteFetching {
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
+    func egg() async -> NSImage? { nil }
+}
+
 @MainActor
 private final class RuntimePoster: TeamNotificationPosting {
     private(set) var bodies: [String] = []
@@ -634,6 +640,95 @@ final class TeamRuntimeNotificationTests: XCTestCase {
     private func hatch() -> CompanionTeamEvent {
         CompanionTeamEvent(kind: .hatch, speciesID: 25, fromSpeciesID: nil, speciesName: "Pikachu", fromSpeciesName: nil,
                            form: nil, isShiny: false, nature: nil, rarity: .common)
+    }
+
+    /// A greeting aimed at the Ditto copy never reaches the real teammate's notifications, even when a hostile app
+    /// names me as the target.
+    func testAGreetingAtTheCopyDoesNotNotifyTheRealOne() async {
+        let (a, b, poster) = pair()
+        await settle { b.runtime.session.members[a.settings.memberID] != nil }
+        a.runtime.session.sendEmote(.lol, target: b.settings.memberID, overDecoy: true)
+        a.runtime.session.sendEmote(.party, target: b.settings.memberID)
+        await settle { poster.bodies.count >= 1 }
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertEqual(poster.bodies, [L(.ko).teamEmoteNotice(nickname: "가", kind: .party)])
+    }
+
+    /// The two decoy kinds are routed to the plaza, not drawn as bubbles. The plaza runs on the larger ID, so the other Mac hosts
+    /// a copy of it; each kind must then show its own effect (a hop, a banner), which a missing route would never produce.
+    func testDecoyKindsReachThePlaza() async throws {
+        let (x, y, _) = pair()
+        let (host, viewer) = x.settings.memberID < y.settings.memberID ? (x, y) : (y, x)
+        let suite = "ptb.test.team.runtime.decoy.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: DecoyNoSprites()),
+                                          nickname: { "나" }, memberID: { viewer.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: viewer.runtime.session)
+        viewer.runtime.plaza = plaza
+        plaza.prepareScene()
+        let hostID = host.settings.memberID, viewerID = viewer.settings.memberID
+        await settle { viewer.runtime.session.members[hostID] != nil }
+        let now = Date()
+        let tile = TilePoint(x: PlazaMapData.map.spawn.x + 8, y: PlazaMapData.map.spawn.y + 8)
+        XCTAssertTrue(PlazaDitto.isGround(tile, in: PlazaMapData.map), "test precondition")
+        host.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        host.runtime.session.updateDitto(ready: true, state: PlazaDittoState(
+            tile: tile, facing: .down, isWalking: nil, isRunning: nil, decoyOf: viewerID, since: now, restUntil: nil))
+        await settle { viewer.runtime.session.members[hostID]?.ditto != nil }
+        for _ in 0..<20 { await Task.yield() }   // the plaza reads the session through an observation hop
+        plaza.advanceDitto(now: now)
+        XCTAssertEqual(plaza.shownDitto?.decoyOf, viewerID, "test precondition: the host's copy of me is shown")
+        let scene = try XCTUnwrap(plaza.scene)
+
+        // decoyJump: the copy hops (dust), and nothing is drawn as a bubble over the host.
+        XCTAssertEqual(scene.dustCount, 0)
+        host.runtime.session.sendEmote(.decoyJump, target: nil)
+        await settle { scene.dustCount > 0 }
+        XCTAssertNil(scene.shownEmote(memberID: hostID))
+
+        // decoyFound: the banner names the finder and the copy turns back.
+        host.runtime.session.sendEmote(.decoyFound, target: viewerID)
+        await settle { plaza.banner != nil }
+        XCTAssertEqual(plaza.shownDitto?.isDecoy, false)
+        XCTAssertNil(scene.shownEmote(memberID: hostID))
+        plaza.handleClose()
+    }
+
+    /// A greeting that was aimed at the copy (`overDecoy`) shows its bubble over the copy on this screen too, so greeting the copy
+    /// looks the same as greeting the real one. Without the flag, or with no copy shown, nothing is drawn over the Ditto.
+    func testAGreetingAtTheCopyShowsOverTheCopy() async throws {
+        let (x, y, _) = pair()
+        let (host, viewer) = x.settings.memberID < y.settings.memberID ? (x, y) : (y, x)
+        let suite = "ptb.test.team.runtime.decoyemote.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: DecoyNoSprites()),
+                                          nickname: { "나" }, memberID: { viewer.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: viewer.runtime.session)
+        viewer.runtime.plaza = plaza
+        plaza.prepareScene()
+        let hostID = host.settings.memberID, viewerID = viewer.settings.memberID
+        await settle { viewer.runtime.session.members[hostID] != nil }
+        let now = Date()
+        let tile = TilePoint(x: PlazaMapData.map.spawn.x + 8, y: PlazaMapData.map.spawn.y + 8)
+        host.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        host.runtime.session.updateDitto(ready: true, state: PlazaDittoState(
+            tile: tile, facing: .down, isWalking: nil, isRunning: nil, decoyOf: viewerID, since: now, restUntil: nil))
+        await settle { viewer.runtime.session.members[hostID]?.ditto != nil }
+        for _ in 0..<20 { await Task.yield() }
+        plaza.advanceDitto(now: now)
+        XCTAssertEqual(plaza.shownDitto?.decoyOf, viewerID, "test precondition: the host's copy of me is shown")
+        let scene = try XCTUnwrap(plaza.scene)
+        let key = PlazaDitto.sceneKey
+
+        host.runtime.session.sendEmote(.lol, target: nil)
+        await settle { scene.shownEmote(memberID: hostID) == .lol }
+        XCTAssertNil(scene.shownEmote(memberID: key), "an ordinary bubble is not drawn over the copy")
+
+        host.runtime.session.sendEmote(.party, target: nil, overDecoy: true)
+        await settle { scene.shownEmote(memberID: key) == .party }
+        plaza.handleClose()
     }
 
     func testOthersBigEventReachesTheNotifier() async {

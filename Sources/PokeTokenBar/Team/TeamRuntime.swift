@@ -78,9 +78,18 @@ final class TeamRuntime {
                 plaza?.showDance(memberID: memberID, style: emote.danceStyle)
                 return
             }
+            if emote.kind == .decoyFound {
+                plaza?.showDecoyFound(from: memberID, copied: emote.targetMemberID)
+                return
+            }
+            if emote.kind == .decoyJump {
+                plaza?.showDecoyJump(from: memberID)
+                return
+            }
+            let overDecoy = emote.overDecoy == true
             plaza?.showEmote(memberID: memberID, kind: emote.kind,
-                             alsoOver: emote.isShared == true ? emote.targetMemberID : nil)
-            if emote.targetMemberID == settings.memberID, emote.kind.notifiesTarget,
+                             alsoOver: emote.isShared == true ? emote.targetMemberID : nil, overDecoy: overDecoy)
+            if !overDecoy, emote.targetMemberID == settings.memberID, emote.kind.notifiesTarget,
                let member = session.members[memberID] {
                 notifier?.emoteToMe(from: member, kind: emote.kind)
             }

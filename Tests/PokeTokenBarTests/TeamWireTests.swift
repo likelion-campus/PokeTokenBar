@@ -440,6 +440,43 @@ final class TeamWireTests: XCTestCase {
         }
     }
 
+    private var sampleDitto: PlazaDittoState {
+        PlazaDittoState(tile: TilePoint(x: 3, y: 4), facing: .left, isWalking: nil, isRunning: nil,
+                        decoyOf: "m1", since: Date(timeIntervalSince1970: 1_790_000_000), restUntil: nil)
+    }
+
+    func testDittoFieldsAreOptionalOnTheWire() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("ditto"))
+        XCTAssertFalse(plain.contains("dittoReady"))
+        var withDitto = presence
+        withDitto.ditto = sampleDitto
+        withDitto.dittoReady = true
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(withDitto))), [.presence(withDitto)])
+    }
+
+    func testUnreadableDittoDropsOnlyTheDitto() throws {
+        let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335,"ditto":{"tile":"x"},"dittoReady":true}}}"#
+        var decoder = TeamWire.FrameDecoder()
+        guard case .presence(let p)? = try decoder.append(frame(json)).first else { return XCTFail("presence dropped") }
+        XCTAssertNil(p.ditto)
+        XCTAssertEqual(p.dittoReady, true)
+        XCTAssertEqual(p.nickname, "Ash")
+        XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
+        XCTAssertEqual(p.facing, .left)
+        XCTAssertTrue(p.isWalking)
+        XCTAssertEqual(p.nameColor, 16752335)
+    }
+
+    func testOverDecoyIsOmittedWhenFalse() throws {
+        let plain = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .heart, targetMemberID: "m"))).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("overDecoy"))
+        let over = TeamMessage.emote(TeamEmote(kind: .heart, targetMemberID: "m", overDecoy: true))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(over)), [over])
+    }
+
     /// Every raw value below is part of the wire format. Changing one is a protocol change:
     /// bump `TeamWire.protocolVersion` with it, because older Macs would drop or skip what they cannot read.
     func testWireRawValuesArePinned() throws {
@@ -450,7 +487,7 @@ final class TeamWireTests: XCTestCase {
         }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
-        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance"])
+        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump"])
         XCTAssertEqual([Rarity.common, .uncommon, .rare, .legendary].map(\.rawValue), ["common", "uncommon", "rare", "legendary"])
         XCTAssertEqual(PokemonGender.allCases.map(\.rawValue), ["male", "female", "genderless"])
         XCTAssertEqual(PlazaDirection.allCases.map(\.rawValue), ["up", "down", "left", "right"])

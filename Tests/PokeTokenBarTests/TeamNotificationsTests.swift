@@ -161,7 +161,10 @@ final class TeamNotificationsTests: XCTestCase {
             .jump: "민수가 내 포켓몬에게 점프", .groupPhoto: "민수가 내 포켓몬에게 단체 사진",
             .pickup: "민수가 내 포켓몬에게 아이템", .firework: "민수가 내 포켓몬에게 불꽃놀이",
             .dance: "민수가 내 포켓몬에게 춤"]
-        XCTAssertEqual(Set(expected.keys), Set(TeamEmoteKind.allCases))
+        // The decoy kinds are broadcast to the whole plaza, never aimed at a member, so no notice is ever worded for them.
+        let decoyKinds: Set<TeamEmoteKind> = [.decoyFound, .decoyJump]
+        XCTAssertTrue(decoyKinds.allSatisfy { !$0.notifiesTarget })
+        XCTAssertEqual(Set(expected.keys).union(decoyKinds), Set(TeamEmoteKind.allCases))
         for (kind, text) in expected { XCTAssertEqual(l.teamEmoteNotice(nickname: "민수", kind: kind), text) }
     }
 

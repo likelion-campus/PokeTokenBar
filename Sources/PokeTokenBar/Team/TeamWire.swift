@@ -36,6 +36,11 @@ struct TeamPresence: Codable, Equatable, Sendable {
     var evolutionStage: Int?
     /// The team's plaza schedule as this member knows it. Left out when never changed; earlier versions ignore it.
     @LossyOptional var schedule: PlazaSchedule?
+    /// The plaza Ditto, sent only by the member who hosts it. Left out otherwise; unreadable or earlier-version
+    /// values become nil without hurting the rest of the frame.
+    @LossyOptional var ditto: PlazaDittoState?
+    /// My plaza window is open and runs the Ditto. Left out when false.
+    @LossyOptional var dittoReady: Bool?
 }
 
 /// 읽을 수 없는 값(나중 버전의 모양, 잘못된 값)을 nil 로 읽는 선택값. 이 필드만 너그럽고 나머지 필드는 합성 Codable 그대로라,
@@ -83,11 +88,15 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// 춤 (D): the sender dances one round of `TeamEmote.danceStyle`. Earlier versions skip it. The ♪ bubble the plaza
     /// shows over three dancers is drawn from this kind but is never sent.
     case dance
+    /// Someone found the Ditto copy of `TeamEmote.targetMemberID`. Earlier versions skip it.
+    case decoyFound
+    /// The Ditto copy jumped. Earlier versions skip it.
+    case decoyJump
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump: false
         }
     }
 }
@@ -110,6 +119,8 @@ struct TeamEmote: Codable, Equatable, Sendable {
 
     /// A dance: the `PlazaDance.Style.id` to dance. A style this version does not know becomes the first one.
     var danceStyle: String?
+    /// A greeting aimed at the Ditto copy. Left out when false.
+    var overDecoy: Bool?
 
     /// A tackle pushes one to three tiles, like the three evolution stages.
     static let pushTileRange = 1...3

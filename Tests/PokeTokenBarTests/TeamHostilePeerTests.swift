@@ -123,6 +123,28 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(transport.refuseCalls.count, 1)
     }
 
+    func testHostileDittoStatesAreDropped() {
+        let peer = join("hostile")
+        let year: TimeInterval = 365 * 86400
+        func ditto(decoyOf: String? = nil, since: Date? = nil, restUntil: Date? = nil) -> PlazaDittoState {
+            PlazaDittoState(tile: TilePoint(x: 1, y: 1), facing: .down, isWalking: nil, isRunning: nil,
+                            decoyOf: decoyOf, since: since ?? clock, restUntil: restUntil)
+        }
+        let hostile = [ditto(decoyOf: String(repeating: "x", count: 10_000)),
+                       ditto(since: clock.addingTimeInterval(year)),
+                       ditto(restUntil: clock.addingTimeInterval(year))]
+        for d in hostile {
+            var p = TeamPresence(nickname: "x", character: Self.mon, inPlaza: true, tile: TilePoint(x: 7, y: 8),
+                                 facing: .left, isWalking: true)
+            p.ditto = d
+            p.dittoReady = true
+            say(.presence(p), from: peer)
+            XCTAssertNil(session.members["hostile"]?.ditto)
+            XCTAssertEqual(session.members["hostile"]?.tile, TilePoint(x: 7, y: 8), "the rest of the presence still applies")
+            XCTAssertEqual(session.members["hostile"]?.dittoReady, true)
+        }
+    }
+
     func testAMemberIDAtTheLimitIsServed() {
         _ = join(String(repeating: "x", count: TeamWire.maxFieldBytes))
         XCTAssertEqual(session.members.count, 1)

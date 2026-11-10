@@ -712,6 +712,18 @@ read_when:
   `setrlimit` 으로 낮춘다. 디버그 빌드의 메인 스레드 시간은 릴리스의 약 세 배였으니 시간은 릴리스로 잰다. 다른 빌드가
   도는 동안에는 5초 제한이 있는 전송 시험이 실패할 수 있다.
 
+- **받은 값이 가리키는 멤버는 "알고 있다"가 아니라 "지금 광장에 있다"까지 본다.** 메타몽의 `decoyOf` 를 `members[id]` 가 있으면
+  그대로 따라 그려서, 광장을 떠난 팀원의 복사본도 보였다(명세 §5.6 은 지금 광장에 있는 멤버를 요구한다). 호스트 쪽 두뇌는 광장
+  멤버만 고르므로 정직한 앱은 보내지 않는 값이라 테스트가 못 밟았다. 수정: `m.inPlaza` 를 요구하고 아니면 모르는 멤버처럼 이전
+  모습을 둔다. 가드: `testACopyOfAMemberNotInThePlazaIsNotShown`(되돌리면 실패), 지도 밖 칸과 연타는 `testAStateOffTheMapIsIgnored`·
+  `testABurstOfDittoStatesLeavesTheLastGoodOneShown`.
+
+- **이어 맡기는 쪽이 보이는 상태를 먼저 받아야 한다 — 진짜 호스트의 마지막 소식은 내 첫 틱보다 먼저 사라질 수 있다.** 더 작은 ID 의
+  Mac 이 광장을 열면 첫 틱에 호스트가 되는데 `shownDitto` 가 비어 있어 두뇌가 무작위 칸에서 새로 시작했고, 옛 호스트는 내 준비
+  소식을 보자마자 물러나 소식을 거두므로 복사본이 모두의 화면에서 사라졌다. 열 때 알리는 쪽의 메타몽을 한 번 받아 그리고 두뇌가
+  거기서 이어 간다. 가드: `testASmallerIDOpeningThePlazaCarriesOnTheCopy`(옛 호스트가 이미 물러난 뒤의 첫 틱까지 같은 `decoyOf`·`since`·칸을
+  본다; 한 줄을 지우면 실패). 메뉴를 연 사이 복사본이 돌아오면 고른 일을 버린다(`testAMenuOnACopyThatTurnedBackDoesNothing`).
+
 ## 빌드·도구체인
 
 - **고정 날짜로 만든 데이터는 실제 시계를 쓰는 저장소에 넣지 않는다.** `PlazaBoardTests`의 한 테스트가 날짜를
@@ -969,6 +981,19 @@ read_when:
   with the order restored). `startFocus` already orders its position and flag this way on purpose.
   **Class sweep:** the other flag writers (`setDiving` from Z, the dive limit, closing, hiding) leave the tile where it is, so
   no tile and flag can disagree there.
+
+- **재시도·대기 Task 는 `self` 를 붙들고 기다리지 않는다 — 약한 참조로 기다리고 깬 뒤에 되살린다.** 광장 컨트롤러의
+  스프라이트 재시도(`startMemberLoad`/`loadCharacter`)가 `Task { await retry… }` 로 `self` 를 강하게 잡은 채 30초를
+  자고 깨어 또 재시도했다. 그림이 영영 안 오면 컨트롤러가 주인(테스트 케이스)이 사라진 뒤에도 안 죽고, Ditto 루프(0.05초)가
+  이미 해제된 `[unowned self]` 시계를 불러 `swift test` 전체가 signal 6 으로 죽었다(`PlazaFireworksTests` 에서 터졌지만
+  원인은 앞선 스위트). **5-whys:** 증상 크래시 → 해제된 테스트 케이스의 시계 호출 → 닫히지 않은 컨트롤러가 틱 중 → 재시도
+  체인이 `self` 를 강하게 붙듦(빈 fetcher 는 항상 placeholder) → 왜 못 걸렀나: 작업마다 집중 필터만 돌렸고 전체 스위트는
+  마지막에 한 번이라 다른 스위트의 좀비 컨트롤러를 볼 일이 없었다. 기존 1초 틱은 같은 좀비를 두고도 시계를 부르지 않아 숨었다.
+  수정: 기다림은 `[weak self]` Task 가 맡고 `self` 는 깬 뒤에 다시 얻는다(`self` 를 건 await 는 로딩 호출뿐). 가드:
+  `PlazaControllerLifetimeTests`(재시도 중인 컨트롤러가 놓으면 죽는다; 옛 코드로 되돌리면 실패). 부류 스윕: 컨트롤러의 다른
+  `Task` 는 이미 `[weak self]`(`focusTick`·`dittoLoop`·배너·단체 사진·`applyDiveLimit`)거나 단발 await(`viewCard`)다. 이 수정으로
+  컨트롤러가 정말 죽게 되자 놓은 컨트롤러에 기대던 두 테스트(`PlazaCardTests` 의 `let (_, …) = await standing()`)가 드러나
+  컨트롤러를 붙들게 고쳤다 — 장면 콜백은 컨트롤러를 약하게 쥐므로 테스트가 컨트롤러를 쥐고 있어야 한다.
 
 ## 프로세스·인스턴스
 
@@ -1394,6 +1419,19 @@ read_when:
   메모리를 직접 본다. 같은 CI 에서 창 없는 호스팅 뷰의 `fittingSize` 는 모델이 두 번째로 바뀌어도 그대로였다. 크기를 재는 테스트는 경우마다 새 뷰를 만든다
   (`testRosterPanelHoldsOnePage`). 이 앱의 최소 버전은 macOS 14 라서, 지우는 근거가 로컬 실험뿐이면 CI 를 본 뒤에 지운다.
 
+- **예약된 비멤버 장면 키(`PlazaDitto.sceneKey`)는 멤버를 향한 모든 UI 경로에 닿아야 한다 — 대상 찾기, 안내문, 메뉴, 따라가기 줄.**
+  복사본은 `members` 에 없는 장면 키라서 장면의 `refreshInteractionTarget` 이 `memberTiles`(키 제외)만 보면 진짜 팀원 앞에서는
+  "스페이스바를 눌러 X에게 말 걸기"가 뜨고 복사본 앞에서는 안 떴으며, `refreshHint` 가 `members[id]` 로 이름을 찾아 복사본을
+  따라갈 때는 "X 따라가는 중" 줄도 없었다. 몸통박치기 없이 어느 쪽이 가짜인지 드러나는 결함이다. **5-whys:** 안내문이
+  안 뜸 → 대상 표와 이름 표가 키를 몰랐다 → 메뉴·몸통박치기·인사 경로는 컨트롤러의 `targetTiles` 병합으로 이미 키를 알았고
+  안내문 경로만 장면의 원래 표를 썼다(대상 표가 둘) → 왜 못 걸렀나: 복사본 테스트가 메뉴·인사·몸통박치기만 밟고 안내문은 보지
+  않았다. 수정: 장면이 `targetTiles`(멤버 + 복사본일 때만 메타몽)를 한 곳에서 만들고 대상 찾기와 컨트롤러가 같이 쓰며,
+  `hintName(of:)` 이 키를 따라 한 팀원의 이름으로 바꾼다(메타몽 모습은 안내문 없음). 가드: `testTheHintOnTheCopyIsTheHintOnTheRealMember`·
+  `testFollowingTheCopyShowsTheFollowLine`·`testFacingTheDittoFormShowsNoHint`(장면 변경을 되돌리면 앞의 것이, 이름 변환을 되돌리면 둘째가 실패).
+  부류 스윕: `members[`/`memberTiles`/`remotes[` 쓰임을 전수 확인했다. 몸통박치기를 받는 쪽(`showTackle`)과 `dittoWorld`·미니맵 점은
+  진짜 팀원만 다루거나 복사본 점을 따로 더하므로 키를 일부러 빼고, 메뉴·카드·걷기·이모트·따라가기는 키를 이미 처리한다.
+  새 UI 경로가 멤버를 이름으로 찾으면 키 처리가 필요한지 먼저 묻는다.
+
 ## 에너지 (상시 표시 애니메이션)
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
@@ -1498,6 +1536,15 @@ read_when:
   `date >= start && date < end` 로 비교한다(`testWeatherChangesWhenMidnightEntersANewWindow`, 주입 검증 완료).
   **5-whys:** 날짜 창 시험이 "하루 안의 시각"만 봤으면 못 잡았다 → 구간 경계 *바로 그 초*(23:59:59 → 00:00:00)를 넘는 시험이 필요하다.
   부류 스윕: 코드베이스의 `DateInterval.contains` 는 이 한 곳이다.
+
+- **광장의 상시 틱은 일하는 쪽만 빠르게 돌린다 — 호스트가 아닌 쪽과 서 있는 쪽은 사건이나 마감에 깬다.** 메타몽 루프를 열린 광장마다
+  0.05초로 돌려, 호스트가 아닌 Mac·가려진 창·가만히 선 호스트(대부분의 시간)도 초당 20번 깼다. **5-whys:** 상시 깸 →
+  "한 틱이면 단순하다"고 모든 경우를 같은 간격으로 → 왜 못 걸렀나: 테스트는 루프를 손으로 넘기는 `LoopGate` 라 간격 자체를 보지
+  않았다. 수정: 호스트가 걷는 중일 때만 0.05초, 서 있으면 두뇌의 `nextWake`(대기 끝·15분 한계·휴식 끝)까지 최대 0.25초, 호스트가
+  아니면 1초(호스트 증발 대비용 안전망)이고 팀원 소식은 `observeMembers` 가 `advanceDitto` 를 바로 불러 반영한다. 간격이 길어져도
+  걸음이 느려지지 않도록 두뇌는 걸음을 `now` 가 아니라 앞 걸음이 끝난 시각에서 시작한다. 가드: `testOnlyAWalkingHostTicksAtFiftyMilliseconds`
+  (LoopGate 가 요청한 간격을 기록), `testAPresenceChangeMovesTheDittoWithoutALoopTick`(관찰 호출을 지우면 실패),
+  `testAStepStartsWhereThePreviousOneEndedAtCoarseTicks`(되돌리면 실패). 상시 루프를 더할 때는 "이 틱은 누가 필요로 하나"부터 묻는다.
 
 ## 알림
 

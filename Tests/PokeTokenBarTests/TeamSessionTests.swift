@@ -768,6 +768,56 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(b.session.members[a.memberID]?.focusEndsAt)
     }
 
+    private func dittoState(since: Date) -> PlazaDittoState {
+        PlazaDittoState(tile: TilePoint(x: 3, y: 4), facing: .down, isWalking: nil, isRunning: nil,
+                        decoyOf: nil, since: since, restUntil: nil)
+    }
+
+    func testPresenceCarriesMyDittoAndReadiness() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let s = dittoState(since: clock.now)
+        a.session.updateDitto(ready: true, state: s)
+        XCTAssertEqual(b.session.members[a.memberID]?.ditto, s)
+        XCTAssertEqual(b.session.members[a.memberID]?.dittoReady, true)
+        a.session.updateDitto(ready: false, state: nil)
+        XCTAssertNil(b.session.members[a.memberID]?.ditto)
+        XCTAssertEqual(b.session.members[a.memberID]?.dittoReady, false)
+    }
+
+    func testUpdateDittoSendsOnlyOnChange() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let s = dittoState(since: clock.now)
+        let before = a.presencesSent
+        a.session.updateDitto(ready: false, state: nil)
+        XCTAssertEqual(a.presencesSent, before)
+        a.session.updateDitto(ready: true, state: s)
+        a.session.updateDitto(ready: true, state: s)
+        XCTAssertEqual(a.presencesSent, before + 1)
+        var moved = s
+        moved.tile = TilePoint(x: 5, y: 4)
+        a.session.updateDitto(ready: true, state: moved)
+        XCTAssertEqual(a.presencesSent, before + 2)
+    }
+
+    func testReceivedDittoIsKeptOnTheMember() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let s = dittoState(since: clock.now)
+        a.session.updateDitto(ready: true, state: s)
+        XCTAssertEqual(b.session.members[a.memberID]?.ditto, s)
+    }
+
+    func testAHelloClaimingTheDittoKeyIsRefused() {
+        let a = node("A")
+        let raw = RawPeer(hub: hub)
+        hub.connect(raw.transport, to: a.transport)
+        raw.hello(memberID: PlazaDitto.sceneKey)
+        XCTAssertEqual(a.transport.refuseCalls.count, 1)
+        XCTAssertTrue(a.session.members.isEmpty)
+    }
+
     func testPresenceCarriesDivingAndStage() {
         let a = node("A", stage: 3), b = node("B")
         connect(a, b)

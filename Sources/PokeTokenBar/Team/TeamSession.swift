@@ -24,6 +24,10 @@ struct TeamMemberState: Equatable, Sendable {
     var isDiving = false
     /// Their evolution stage, 1...3.
     var evolutionStage = 1
+    /// The Ditto they host, kept only if it passed `PlazaDittoState.accepted` on receipt.
+    var ditto: PlazaDittoState?
+    /// Their plaza window is open and runs the Ditto.
+    var dittoReady = false
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -109,6 +113,8 @@ final class TeamSession {
     @ObservationIgnored private var takenItemSlot: Int?
     @ObservationIgnored private var focusEndsAt: Date?
     @ObservationIgnored private var isDiving = false
+    @ObservationIgnored private var dittoReady = false
+    @ObservationIgnored private var dittoState: PlazaDittoState?
     @ObservationIgnored private let evolutionStage: () -> Int
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
@@ -235,10 +241,10 @@ final class TeamSession {
     }
 
     func sendEmote(_ kind: TeamEmoteKind, target: String?, shared: Bool = false, pushTiles: Int = 1, itemSlot: Int? = nil, fireworkStyle: String? = nil,
-                   danceStyle: String? = nil) {
+                   danceStyle: String? = nil, overDecoy: Bool = false) {
         broadcast(.emote(TeamEmote(kind: kind, targetMemberID: target, isShared: shared ? true : nil,
                                    pushTiles: pushTiles > 1 ? pushTiles : nil, itemSlot: itemSlot, fireworkStyle: fireworkStyle,
-                                   danceStyle: danceStyle)))
+                                   danceStyle: danceStyle, overDecoy: overDecoy ? true : nil)))
     }
 
     /// The latest plaza item slot I know was taken, told to teammates in my presence (also to those who connect later).
@@ -259,6 +265,14 @@ final class TeamSession {
     func updateDiving(_ diving: Bool) {
         guard diving != isDiving else { return }
         isDiving = diving
+        broadcast(.presence(makePresence()))
+    }
+
+    /// Whether my plaza runs the Ditto, and the Ditto I host (nil: not hosting), told to teammates in my presence.
+    func updateDitto(ready: Bool, state: PlazaDittoState?) {
+        guard ready != dittoReady || state != dittoState else { return }
+        dittoReady = ready
+        dittoState = state
         broadcast(.presence(makePresence()))
     }
 
@@ -347,6 +361,8 @@ final class TeamSession {
             member.focusEndsAt = PlazaFocus.accepted(presence.focusEndsAt, now: clock())
             member.isDiving = presence.isDiving ?? false
             member.evolutionStage = TeamEmote.pushTiles(presence.evolutionStage)
+            member.ditto = PlazaDittoState.accepted(presence.ditto, now: clock())
+            member.dittoReady = presence.dittoReady ?? false
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             if let schedule = presence.schedule, settings.code == knownCode,
@@ -400,7 +416,7 @@ final class TeamSession {
             refuse(peer)
             return
         }
-        if hello.memberID == settings.memberID {
+        if hello.memberID == settings.memberID || hello.memberID == PlazaDitto.sceneKey {
             refuse(peer)
             return
         }
@@ -455,7 +471,8 @@ final class TeamSession {
                      nameColor: settings.nameColor, isRunning: isRunning ? true : nil, takenItemSlot: takenItemSlot,
                      focusEndsAt: focusEndsAt,
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
-                     schedule: settings.code == knownCode ? settings.schedule : nil)
+                     schedule: settings.code == knownCode ? settings.schedule : nil,
+                     ditto: dittoState, dittoReady: dittoReady ? true : nil)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

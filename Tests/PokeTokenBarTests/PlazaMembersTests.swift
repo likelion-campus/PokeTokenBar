@@ -11,6 +11,15 @@ private final class Calls: @unchecked Sendable {
 }
 
 /// 호출만 세고 빈 결과를 돌려준다. `slowIDs`에 든 종은 gate가 열릴 때까지 기다린다.
+/// A picture that loads, so the plaza's own Ditto (which a lone host now shows as soon as a teammate arrives) never joins a retry the test is counting.
+private let dittoPicture: NSImage = {
+    let ctx = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+    return NSImage(cgImage: ctx.makeImage()!, size: NSSize(width: 2, height: 2))
+}()
+
 private final class CountingFetcher: PlazaSpriteFetching, @unchecked Sendable {
     let calls = Calls()
     private let lock = NSLock()
@@ -30,7 +39,9 @@ private final class CountingFetcher: PlazaSpriteFetching, @unchecked Sendable {
         if isSlow(speciesID) { await withCheckedContinuation { park(speciesID, $0) } }
         return []
     }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
+        speciesID == PlazaDitto.speciesID ? dittoPicture : nil
+    }
     func egg() async -> NSImage? { nil }
 }
 
@@ -51,7 +62,7 @@ private final class BacklessFetcher: PlazaSpriteFetching {
 
     func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
     func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
-        guard back else { return image }
+        guard back, speciesID != PlazaDitto.speciesID else { return image }
         backRequests += 1
         if let backAfter, backRequests > backAfter { return image }
         return nil
