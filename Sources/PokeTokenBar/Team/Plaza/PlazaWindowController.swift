@@ -67,8 +67,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var dittoBrain: PlazaDittoBrain?
     /// 내가 찾은 복사본의 `since`. 호스트의 소식이 따라잡기 전에 온 옛 복사본 소식을 다시 그리지 않는다.
     private var foundDittoSince: Date?
-    /// 메타몽에게 메뉴를 열 때 보인 모습의 `since`. 고를 때 모습이 바뀌었으면 고른 일을 하지 않는다.
-    private var menuDittoSince: Date?
+    /// 메타몽에게 메뉴를 열 때 보인 메타몽. 고를 때 누구 모습인지가 바뀌었으면 고른 일을 하지 않는다.
+    private var menuDitto: PlazaDittoState?
     /// 이 Mac이 지금 보여 주는 메타몽. 호스트가 바뀌어도 이어 받는다.
     private(set) var shownDitto: PlazaDittoState?
     /// `shownDitto`에 입힌 이름·색·칭호·그림. 둘 다 그대로면 0.05초 틱마다 장면과 지도를 다시 건드리지 않는다.
@@ -777,7 +777,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             if scene.isMeInWater || scene.memberIsInWater(id) == true { menu.actions.removeAll { $0 == .follow } }
             if scene.isDiving || scene.memberIsDiving(id) == true { menu.actions.removeAll { $0 == .tackle } }
             guard !menu.actions.isEmpty else { return }   // 집중 중이거나 잠수 중에 메타몽 모습을 보면 할 일이 없다
-            if isDitto { menuDittoSince = shownDitto?.since }
+            if isDitto { menuDitto = shownDitto }
             openOverlay(.memberMenu(menu))
         }
     }
@@ -823,9 +823,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     /// 메뉴에서 고른 일을 한다. 키로 고르든 눌러 고르든 여기로 온다.
     func chooseMenu(_ action: PlazaMemberAction, memberID id: String) {
-        // 메뉴를 연 사이에 메타몽이 모습을 바꿨다면(복사본이 돌아왔거나 메타몽이 누군가로 변했다) 고른 일은 없던 일이다.
-        // 모습이 바뀔 때마다 `since`가 새로 찍힌다.
-        if id == PlazaDitto.sceneKey, menuDittoSince == nil || shownDitto?.since != menuDittoSince { return closeOverlay() }
+        // 메뉴를 연 사이에 메타몽이 누구 모습인지가 바뀌었다면(복사본이 돌아왔거나, 메타몽이 누군가로 변했거나, 다른 팀원의
+        // 복사본이 됐다) 메뉴의 이름과 할 일이 맞지 않으니 고른 일은 없던 일이다. 같은 모습으로 시각만 새로 찍힌 것은 괜찮다.
+        if id == PlazaDitto.sceneKey {
+            guard let opened = menuDitto, let shown = shownDitto, shown.decoyOf == opened.decoyOf else { return closeOverlay() }
+        }
         switch action {
         case .greet:
             closeOverlay()
@@ -1291,6 +1293,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.playDittoPoof()
             if scene.followingMember == PlazaDitto.sceneKey { scene.stopWalkingToMember() }
         }
+        // 메타몽 모습도 대상이라, 그 자리에서 모습만 바뀌면 바라보는 대상은 그대로여서 안내가 저절로 다시 그려지지 않는다.
+        if change != .none { refreshHint() }
         refreshMinimap()
     }
 

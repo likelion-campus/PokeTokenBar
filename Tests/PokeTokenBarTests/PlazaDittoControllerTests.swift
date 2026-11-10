@@ -819,10 +819,12 @@ final class PlazaDittoControllerTests: XCTestCase {
         let t = await adjacentDittoForm()
         let log = emotes(from: t.a)
         t.c.scene?.onGreetKey?()
+        XCTAssertNil(t.c.scene?.shownEmote(memberID: key), "X does not greet the Ditto form")
         t.c.scene?.onEmoteKey?(.heart)
         await settle()
         XCTAssertEqual(log.items.map(\.kind), [.heart], "only the bubble goes out, aimed at nobody")
         XCTAssertNil(log.items.first?.targetMemberID)
+        XCTAssertNil(log.items.first?.overDecoy)
         XCTAssertNil(t.c.banner)
     }
 
@@ -867,6 +869,51 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertTrue(log.items.isEmpty)
         XCTAssertNil(t.c.banner)
         XCTAssertEqual(t.c.shownDitto?.decoyOf, t.me.id)
+    }
+
+    /// The finder turns the copy back with its own clock; the host's state then brings the same Ditto form with the host's
+    /// `since`. A menu opened on the Ditto form in between still works: it is still the Ditto form.
+    func testAMenuOnTheDittoFormSurvivesTheHostRestampingIt() async {
+        let t = await adjacentDittoForm()
+        t.c.scene?.onInteractKey?()
+        guard case .memberMenu = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        let log = emotes(from: t.a)
+        let now = Date().addingTimeInterval(0.4)
+        host(t.a, dittoForm(beside(), now: now).turnedBack(now: now))
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertEqual(t.c.shownDitto?.since, now, "test precondition")
+        t.c.chooseMenu(.tackle, memberID: key)
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.tackle])
+        XCTAssertEqual(log.items.first?.targetMemberID, key)
+    }
+
+    /// A menu opened on m's copy does nothing once the Ditto copies someone else: its name and card would be wrong.
+    func testAMenuOnACopyThatNowCopiesSomeoneElseDoesNothing() async {
+        let t = await adjacentCopy()
+        t.scene.onInteractKey?()
+        guard case .memberMenu = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        let log = emotes(from: t.m)
+        let now = t.since.addingTimeInterval(1)
+        host(t.a, dittoForm(beside(), now: now).copying(t.a.id, now: now))
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.a.id, "test precondition")
+        t.c.chooseMenu(.tackle, memberID: key)
+        await settle()
+        XCTAssertEqual(t.c.overlayContent, .none)
+        XCTAssertTrue(log.items.isEmpty)
+        XCTAssertNil(t.c.banner)
+    }
+
+    /// The copy turns back on the tile I face: the hint follows at once, though my target tile did not change.
+    func testTheHintFollowsAFormChangeOnTheSameTile() async {
+        let t = await adjacentCopy()
+        XCTAssertEqual(t.c.hint, L(.ko).plazaMemberHint(nickname: t.m.settings.nickname), "test precondition")
+        t.scene.onTackleKey?()
+        XCTAssertNil(t.c.shownDitto?.decoyOf, "test precondition")
+        XCTAssertEqual(t.c.hint, L(.ko).plazaMemberHint(nickname: L(.ko).plazaDittoName))
     }
 
     /// [me host, m]: the host's Ditto form rests right beside me; m stands away from it.
