@@ -623,7 +623,7 @@ final class PlazaDanceTests: XCTestCase {
         press(s)
         XCTAssertTrue(s.isDancing(memberID: nil))
         XCTAssertEqual(r.ids.count, 1)
-            }
+    }
 
     // MARK: 팀원의 춤
 
@@ -921,11 +921,88 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertFalse(s.isDancing(memberID: nil))
         run(s, 1)
         s.handleKeyUp(keyCode: leftKey)
-        XCTAssertTrue(s.walk(toMember: "a"))   // a walk to a member, not following
-        run(s, 0.02)
+        XCTAssertEqual(r.ids, [])
+    }
+
+    /// 걸어가는 도중 한 걸음이 막 끝나고 다음 걸음이 시작되기 전의 틈: 걷지 않지만 걸을 참이다.
+    func testDIsRefusedBetweenTwoStepsOfAWalkToAMember() {
+        let s = scene()
+        add(s, [member("a", TilePoint(x: map.spawn.x + 6, y: map.spawn.y))])
+        let r = recordRounds(s)
+        XCTAssertTrue(s.walk(toMember: "a"))
+        var gap = false
+        for _ in 0..<40 {
+            run(s, dt)
+            if !s.walker.isWalking, s.walker.tile != map.spawn, s.walkingToMember != nil { gap = true; break }
+        }
+        XCTAssertTrue(gap, "the harness reached the gap between two steps")
         press(s)
         XCTAssertFalse(s.isDancing(memberID: nil))
         XCTAssertEqual(r.ids, [])
+    }
+
+    // MARK: 걷다 멈춘 팀원의 춤
+
+    private func walkingRemote(_ s: PlazaScene) -> (here: TilePoint, next: TilePoint) {
+        let here = TilePoint(x: map.spawn.x + 2, y: map.spawn.y), next = TilePoint(x: here.x + 1, y: here.y)
+        add(s, [member("a", here)])
+        add(s, [member("a", next, walking: true)])
+        return (here, next)
+    }
+
+    func testADanceReceivedWhileTheSenderIsStillWalkingStartsWhenItStops() {
+        let s = scene()
+        let (_, next) = walkingRemote(s)
+        wall = grid + 0.2
+        XCTAssertFalse(s.playDance(memberID: "a", style: "twirl"), "not started yet")
+        XCTAssertFalse(s.isDancing(memberID: "a"))
+        add(s, [member("a", next)])   // the presence that says it stopped
+        run(s, 0.3)
+        XCTAssertTrue(s.isDancing(memberID: "a"))
+        XCTAssertEqual(s.danceStyle(memberID: "a"), .twirl)
+        let drift = ((s.memberActor("a")?.dance?.elapsed ?? -1) - PlazaDance.gridOffset(at: Date(timeIntervalSince1970: wall)))
+            .truncatingRemainder(dividingBy: PlazaDance.beat)
+        XCTAssertTrue(abs(drift) < 1e-3 || abs(drift - PlazaDance.beat) < 1e-3, "aligned to the grid like any other round: \(drift)")
+    }
+
+    func testAPendingDanceIsDroppedAfterABeatAndANewerOneReplacesIt() {
+        let s = scene()
+        let (_, next) = walkingRemote(s)
+        s.playDance(memberID: "a", style: "twirl")
+        s.playDance(memberID: "a", style: "bounce")   // replaces the pending one
+        add(s, [member("a", next)])
+        run(s, 0.3)
+        XCTAssertEqual(s.danceStyle(memberID: "a"), .bounce)
+        let s2 = scene()
+        _ = walkingRemote(s2)
+        s2.playDance(memberID: "a", style: "twirl")
+        run(s2, 0.5)   // still walking for more than a beat
+        add(s2, [member("a", TilePoint(x: map.spawn.x + 3, y: map.spawn.y))])
+        run(s2, 0.2)
+        XCTAssertFalse(s2.isDancing(memberID: "a"), "too late: dropped")
+    }
+
+    func testAPendingDanceIsNotKeptForWaterAnUnknownMemberOrAPausedScene() {
+        let s = scene(pond: true)
+        XCTAssertFalse(s.playDance(memberID: "ghost", style: "sway"))
+        add(s, [member("swimmer", TilePoint(x: 34, y: 16))])
+        XCTAssertFalse(s.playDance(memberID: "swimmer", style: "sway"))
+        s.isPaused = true
+        XCTAssertFalse(s.playDance(memberID: "swimmer", style: "sway"))
+        s.isPaused = false
+        run(s, 0.3)
+        XCTAssertFalse(s.isDancing(memberID: "swimmer"))
+    }
+
+    func testPausingForgetsAPendingDance() {
+        let s = scene()
+        let (_, next) = walkingRemote(s)
+        s.playDance(memberID: "a", style: "twirl")
+        s.isPaused = true
+        s.isPaused = false
+        add(s, [member("a", next)])
+        run(s, 0.2)
+        XCTAssertFalse(s.isDancing(memberID: "a"))
     }
 
     // MARK: 순간이동

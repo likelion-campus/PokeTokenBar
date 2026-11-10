@@ -1129,13 +1129,38 @@ struct PlazaSceneMember: Equatable, Sendable {
         layout()
     }
 
-    /// 팀원이 춤을 춘다. 한 판만 춘다. 모르는 팀원, 물속이나 잠수 중, 움직이는 중, 멈춘 장면이면 false.
-    /// 모르는 이름의 춤은 좌우 흔들기다. 집중 중인지는 컨트롤러가 먼저 가린다.
+    /// 팀원이 춤을 춘다. 한 판만 춘다. 모르는 팀원, 물속이나 잠수 중, 멈춘 장면이면 false.
+    /// 움직이는 중이면 지금은 false지만, 한 박자 안에 멈추면 그때 시작한다(걸음을 막 마친 팀원의 춤이 소식보다 먼저 와서 버려지지 않게).
+    /// 새 춤이 기다리던 춤을 갈아 끼운다. 모르는 이름의 춤은 좌우 흔들기다. 집중 중인지는 컨트롤러가 먼저 가린다.
     @discardableResult
     func playDance(memberID: String, style: String?) -> Bool {
-        guard !isPaused, let r = remotes[memberID], !map.isWater(r.motion.tile), !r.motion.isWalking else { return false }
-        beginDance(r.actor, style: PlazaDance.Style.style(id: style))
+        guard !isPaused, let r = remotes[memberID], !map.isWater(r.motion.tile) else { return false }
+        let chosen = PlazaDance.Style.style(id: style)
+        if r.motion.isWalking {
+            pendingDances[memberID] = (chosen, PlazaDance.beat)
+            return false
+        }
+        pendingDances[memberID] = nil
+        beginDance(r.actor, style: chosen)
         return true
+    }
+
+    /// 걷는 중에 받아 멈추기를 기다리는 팀원의 춤과 남은 시간. 노드를 만들지 않는 값 하나라 몰려와도 팀원 수를 넘지 않는다.
+    private var pendingDances: [String: (style: PlazaDance.Style, remaining: TimeInterval)] = [:]
+
+    /// 기다리던 춤을, 그 팀원이 멈췄으면 시작하고 한 박자가 지났으면 버린다.
+    private func advancePendingDances(by dt: TimeInterval) {
+        for (id, pending) in pendingDances {
+            guard let r = remotes[id], !isPaused, !map.isWater(r.motion.tile) else { pendingDances[id] = nil; continue }
+            if !r.motion.isWalking {
+                pendingDances[id] = nil
+                beginDance(r.actor, style: pending.style)
+            } else if pending.remaining - dt <= 0 {
+                pendingDances[id] = nil
+            } else {
+                pendingDances[id]?.remaining -= dt
+            }
+        }
     }
 
     /// 그 캐릭터(nil이면 나)의 춤을 멈춘다. 떠 있던 ♪도 지운다.
@@ -1146,6 +1171,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func stopAllDances() {
         me.stopDance()
         for r in remotes.values { r.actor.stopDance() }
+        pendingDances.removeAll()
         isDanceHeld = false
     }
 
@@ -1532,6 +1558,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             r.actor.animate(by: dt, useBack: p.useBack)
         }
         continueHeldDance()
+        advancePendingDances(by: dt)
     }
 
     /// 나와 팀원의 새 걸음이 지나는 풀을 흔들고, 가만히 가려진 채 있으면 가끔 움찔하게 한 뒤 레이어 시간을 흘린다.
