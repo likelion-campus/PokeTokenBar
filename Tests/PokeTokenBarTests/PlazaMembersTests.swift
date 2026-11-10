@@ -11,17 +11,18 @@ private final class Calls: @unchecked Sendable {
 }
 
 /// 호출만 세고 빈 결과를 돌려준다. `slowIDs`에 든 종은 gate가 열릴 때까지 기다린다.
-/// A picture that loads, so the plaza's own Ditto (which a lone host now shows as soon as a teammate arrives) never joins a retry the test is counting.
-private let dittoPicture: NSImage = {
-    let ctx = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
-                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
-    ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
-    return NSImage(cgImage: ctx.makeImage()!, size: NSSize(width: 2, height: 2))
-}()
-
 private final class CountingFetcher: PlazaSpriteFetching, @unchecked Sendable {
     let calls = Calls()
+    /// A picture that loads, so the plaza's own Ditto (which a lone host now shows as soon as a teammate arrives) never joins
+    /// a retry the test is counting. An instance property, not a file-scope `let`: `NSImage` is not `Sendable` in the
+    /// macOS 15 SDK, so a global of it does not compile on CI (Xcode 16.4).
+    private let dittoPicture: NSImage = {
+        let ctx = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        return NSImage(cgImage: ctx.makeImage()!, size: NSSize(width: 2, height: 2))
+    }()
     private let lock = NSLock()
     private var gates: [Int: CheckedContinuation<Void, Never>] = [:]
     private var slow: Set<Int> = []
