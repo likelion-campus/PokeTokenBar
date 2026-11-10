@@ -370,7 +370,8 @@ struct PlazaActorContext {
         }
 
         // 이름표는 카메라 공간(화면 포인트)에 둔다.
-        let top = footScene.y + characterNode.size.height
+        // 춤의 눌림은 이름표와 말풍선에 따르지 않는다(박자마다 덜컥거린다). 사진도 눌리지 않은 높이로 놓는다.
+        let top = footScene.y + characterNode.size.height / characterNode.yScale
         let labelBacking = max(backing, 1)
         refreshPlate(backing: labelBacking)
         let plateBase = PlazaTallGrass.plateBaseY(spriteTopY: top, footSceneY: context.worldHeight - foot.y,
@@ -531,6 +532,8 @@ struct PlazaActorContext {
             textureCache[ObjectIdentifier(image)] = texture
         }
         let full = Self.scaledSize(of: image)
+        // `size`는 현재 배율을 곱한 값이라, 춤의 눌림이 남은 채 대입하면 눌림이 지워지거나 두 번 곱해진다. `place`가 눌림을 다시 건다.
+        characterNode.yScale = 1
         let cut = swimSink > 0 ? min((swimSink / Self.characterScale).rounded(), CGFloat(image.height) - 1) : 0   // 그림 줄 단위로 자른다
         if cut > 0 {
             let f = cut / CGFloat(image.height)
