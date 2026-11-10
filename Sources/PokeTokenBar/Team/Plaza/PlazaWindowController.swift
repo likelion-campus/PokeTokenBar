@@ -67,6 +67,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var dittoBrain: PlazaDittoBrain?
     /// 내가 찾은 복사본의 `since`. 호스트의 소식이 따라잡기 전에 온 옛 복사본 소식을 다시 그리지 않는다.
     private var foundDittoSince: Date?
+    /// 메타몽에게 메뉴를 열 때 보인 메타몽. 고를 때 누구 모습인지가 바뀌었으면 고른 일을 하지 않는다.
+    private var menuDitto: PlazaDittoState?
     /// 이 Mac이 지금 보여 주는 메타몽. 호스트가 바뀌어도 이어 받는다.
     private(set) var shownDitto: PlazaDittoState?
     /// `shownDitto`에 입힌 이름·색·칭호·그림. 둘 다 그대로면 0.05초 틱마다 장면과 지도를 다시 건드리지 않는다.
@@ -381,7 +383,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             if let self, let id = self.faceNearbyMember() { self.greet(id) }
         }
         s.onTackleKey = { [weak self] in
-            if let self, !self.isFocusing, let id = self.faceNearbyMember() { self.tackle(id) }
+            if let self, !self.isFocusing, let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
         }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
@@ -554,11 +556,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
     }
 
     /// X와 C가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
-    /// 옆에 팀원이 없으면 nil이라 아무것도 하지 않는다.
-    private func faceNearbyMember() -> String? {
+    /// 옆에 팀원이 없으면 nil이라 아무것도 하지 않는다. C는 메타몽 모습도 고르도록 `tiles`에 `interactionTiles`를 준다.
+    private func faceNearbyMember(in tiles: [String: TilePoint]? = nil) -> String? {
         guard let scene else { return nil }
         let me = scene.walker.tile
-        let tiles = targetTiles
+        let tiles = tiles ?? targetTiles
         guard let id = PlazaTargeting.member(from: me, facing: scene.walker.facing, members: tiles),
               let tile = tiles[id] else { return nil }
         if PlazaPathfinder.isAdjacent(me, tile) { scene.face(PlazaPathfinder.direction(from: me, to: tile)) }
@@ -568,10 +570,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 말을 걸 수 있는 팀원의 칸. 메타몽은 팀원 흉내를 내는 동안에만 들어간다.
     private var targetTiles: [String: TilePoint] { scene?.targetTiles ?? [:] }
 
-    /// 안내 문구에 쓰는 이름. 복사본은 따라 한 팀원의 이름이라 진짜와 같은 문구가 나온다. 메타몽 모습이면 nil.
+    /// 안내 문구에 쓰는 이름. 복사본은 따라 한 팀원의 이름이라 진짜와 같은 문구가 나온다. 메타몽 모습이면 메타몽.
     private func hintName(of id: String) -> String? {
         guard id == PlazaDitto.sceneKey else { return members[id]?.nickname }
-        guard let copied = shownDitto?.decoyOf else { return nil }
+        guard let copied = shownDitto?.decoyOf else { return L(.ko).plazaDittoName }
         return copied == memberID() ? nickname() : members[copied]?.nickname
     }
 
@@ -747,7 +749,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private func handleInteractKey() {
         guard let scene,
               let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
-                                                members: targetTiles) else { return }
+                                                members: scene.interactionTiles) else { return }
         if !isFocusing { scene.face(hit.facing) }   // 앉아 있는 동안은 불을 바라본 채로 둔다
         switch hit.target {
         case .board:
@@ -759,10 +761,16 @@ struct PlazaFocusEnd: Equatable, Sendable {
                                                          selection: 0)))
         case .member(let id):
             // 복사본의 메뉴는 따라 한 팀원의 이름과 색으로 연다. 나를 따라 했다면 카드는 없다.
-            let isCopy = id == PlazaDitto.sceneKey
-            let copied = isCopy ? shownDitto?.decoyOf : id
+            // 메타몽 모습의 메뉴에는 몸통박치기만 있다.
+            let isDitto = id == PlazaDitto.sceneKey
+            let isCopy = isDitto && shownDitto?.isDecoy == true
+            let copied = isDitto ? shownDitto?.decoyOf : id
             var menu: PlazaMemberMenu
-            if isCopy, copied == memberID() {
+            if isDitto, !isCopy {
+                menu = PlazaMemberMenu(memberID: id, nickname: L(.ko).plazaDittoName, nameColor: PlazaDitto.nameHex)
+                menu.actions = [.tackle]
+                menu.selection = .tackle
+            } else if isCopy, copied == memberID() {
                 menu = PlazaMemberMenu(memberID: id, nickname: nickname(), nameColor: nameColorModel.current)
                 menu.actions.removeAll { $0 == .viewCard }
             } else if let state = copied.flatMap({ members[$0] }) {
@@ -777,6 +785,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             // 물속에서는 따라갈 수 없다(내가 물속이어도 따라가기는 멈춘다). 몸통박치기는 헤엄치는 쪽끼리도 되지만 잠수한 쪽은 못 한다.
             if scene.isMeInWater || scene.memberIsInWater(id) == true { menu.actions.removeAll { $0 == .follow } }
             if scene.isDiving || scene.memberIsDiving(id) == true { menu.actions.removeAll { $0 == .tackle } }
+            guard !menu.actions.isEmpty else { return }   // 집중 중이거나 잠수 중에 메타몽 모습을 보면 할 일이 없다
+            if isDitto { menuDitto = shownDitto }
             openOverlay(.memberMenu(menu))
         }
     }
@@ -822,8 +832,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     /// 메뉴에서 고른 일을 한다. 키로 고르든 눌러 고르든 여기로 온다.
     func chooseMenu(_ action: PlazaMemberAction, memberID id: String) {
-        // 메뉴를 연 사이에 복사본이 메타몽으로 돌아왔다면 고른 일은 없던 일이다.
-        if id == PlazaDitto.sceneKey, shownDitto?.isDecoy != true { return closeOverlay() }
+        // 메뉴를 연 사이에 메타몽이 누구 모습인지가 바뀌었다면(복사본이 돌아왔거나, 메타몽이 누군가로 변했거나, 다른 팀원의
+        // 복사본이 됐다) 메뉴의 이름과 할 일이 맞지 않으니 고른 일은 없던 일이다. 같은 모습으로 시각만 새로 찍힌 것은 괜찮다.
+        if id == PlazaDitto.sceneKey {
+            guard let opened = menuDitto, let shown = shownDitto, shown.decoyOf == opened.decoyOf else { return closeOverlay() }
+        }
         switch action {
         case .greet:
             closeOverlay()
@@ -851,9 +864,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 그 팀원에게 뛰어들고 충격 그림을 띄운 뒤 팀원들에게 보낸다. 내 진화 단계만큼(1–3칸) 밀라고 보내고, 실제로 미는 것은
     /// 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func tackle(_ id: String) {
-        // 복사본이 대상 칸에 있는 것은 장면이 복사본 모습일 때뿐이고, 그때 `shownDitto`도 같은 복사본이라 `copied`가 있다.
-        let copied = id == PlazaDitto.sceneKey ? shownDitto?.decoyOf : nil
-        guard let scene, let target = targetTiles[id], !isFocusing, focusRemaining(of: id) == nil,
+        // 장면의 메타몽과 `shownDitto`는 늘 같은 모습이라, 복사본이면 `copied`가 있고 메타몽 모습이면 nil이다.
+        let isDitto = id == PlazaDitto.sceneKey
+        let copied = isDitto ? shownDitto?.decoyOf : nil
+        guard let scene, let target = scene.interactionTiles[id], !isFocusing, focusRemaining(of: id) == nil,
               !scene.isDiving, scene.memberIsDiving(id) != true else { return }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
@@ -868,18 +882,28 @@ struct PlazaFocusEnd: Equatable, Sendable {
             showDecoyFound(from: memberID(), copied: copied)
             return
         }
+        if isDitto {
+            // 메타몽 모습은 밀리지 않고 나로 변한다. 정하는 것은 호스트다.
+            session?.sendEmote(.tackle, target: id)
+            dittoFormTackled(by: memberID())
+            return
+        }
         session?.sendEmote(.tackle, target: id, pushTiles: TeamEmote.pushTiles(evolutionStage()))
     }
 
     /// 런타임이 부른다. 누군가 몸통박치기를 했다. 맞은 게 나이고 민 팀원이 내 바로 옆(또는 같은 칸)이면 그 반대쪽으로 `tiles`칸
     /// 밀린다. 메뉴를 연 사이에 내가 걸어가 버렸으면 충격 그림만 보이고 밀리지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
+    /// 메타몽 모습이 맞았으면 아무도 밀리지 않고, 호스트가 민 팀원으로 바꾼다. 내 화면에서 이미 복사본이면 그리지 않는다.
     func showTackle(from sender: String, on target: String?, tiles: Int = 1) {
         guard let scene, let target, let from = scene.memberTiles[sender] else { return }
         let isMe = target == memberID()
-        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target] else { return }
+        let isDitto = target == PlazaDitto.sceneKey
+        if isDitto, shownDitto?.isDecoy != false { return }
+        guard let to = isMe ? scene.walker.tile : isDitto ? scene.dittoTile : scene.memberTiles[target] else { return }
         let direction = PlazaPathfinder.isAdjacent(from, to) ? PlazaPathfinder.direction(from: from, to: to)
             : members[sender]?.facing ?? .down
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
+        if isDitto { return dittoFormTackled(by: sender) }
         // 집중 중이거나 모닥불 메뉴를 연 내 Mac은 밀지 않는다(옛 버전이 보낸 몸통박치기도 같다). 충격 그림만 보인다.
         if isMe && !isFocusing && !isCampfireMenuOpen && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction, tiles: tiles) }
     }
@@ -1194,6 +1218,17 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if let finder { showBanner(L(.ko).plazaDecoyFound(nickname: finder)) }
     }
 
+    /// 누가 메타몽 모습을 몸통박치기했다. 호스트만 정한다: 그 팀원을 따라 할 수 있으면 쉬는 중이어도, 옆에 다른 팀원이
+    /// 있어도 바로 그 팀원으로 변해 달아난다. 호스트가 아니면 호스트의 소식을 기다린다.
+    private func dittoFormTackled(by sender: String) {
+        guard let scene, var brain = dittoBrain else { return }
+        let now = clock()
+        guard brain.tackled(by: sender, now: now, world: dittoWorld(scene: scene, now: now)) else { return }
+        dittoBrain = brain
+        session?.updateDitto(ready: true, state: brain.state)
+        showDitto(brain.state, change: PlazaDitto.change(from: shownDitto, to: brain.state))
+    }
+
     /// 런타임이 부른다. 호스트의 복사본이 폴짝 뛰었다. 호스트가 아닌 팀원이 보낸 것은 무시한다.
     func showDecoyJump(from sender: String) {
         guard sender == dittoHost(), shownDitto?.isDecoy == true else { return }
@@ -1269,6 +1304,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.playDittoPoof()
             if scene.followingMember == PlazaDitto.sceneKey { scene.stopWalkingToMember() }
         }
+        // 메타몽 모습도 대상이라, 그 자리에서 모습만 바뀌면 바라보는 대상은 그대로여서 안내가 저절로 다시 그려지지 않는다.
+        if change != .none { refreshHint() }
         refreshMinimap()
     }
 
