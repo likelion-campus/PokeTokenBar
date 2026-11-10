@@ -119,6 +119,7 @@ extension L {
     var plazaShortcutZoom: String { "확대·축소" }
     var plazaShortcutGroupPhoto: String { "단체 사진" }
     var plazaShortcutFirework: String { "불꽃놀이" }
+    var plazaShortcutDance: String { "춤" }
     /// 광장에서 주운 아이템. 조사까지 붙인 목적어 꼴이다.
     func plazaItemObject(_ kind: ItemKind) -> String {
         switch kind {
@@ -175,6 +176,7 @@ extension L {
     }
     func plazaNameColorChoice(_ n: Int) -> String { "이름 색 \(n)" }
     var plazaEmoteLol: String { "ㅋㅋ" }
+    var plazaEmoteDance: String { "♪" }
     var plazaCardLoading: String { "불러오는 중…" }
     /// 카드 맨 위. 누구의 카드인지 보인다.
     func plazaCardTitle(nickname: String) -> String { "\(nickname)의 포켓몬" }
@@ -229,6 +231,7 @@ extension L {
         case .groupPhoto: "단체 사진"
         case .pickup: "아이템"
         case .firework: "불꽃놀이"
+        case .dance: "춤"
         }
     }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.

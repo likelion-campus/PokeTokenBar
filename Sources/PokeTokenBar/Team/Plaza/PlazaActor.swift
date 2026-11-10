@@ -196,6 +196,59 @@ struct PlazaActorContext {
         jumpElapsed = 0
     }
 
+    /// 춤: 한 판(`PlazaDance.round`)을 춘다. `elapsed`는 박자 격자에서 지난 시간에서 시작해 격자에 맞춰 끝난다.
+    private(set) var dance: (style: PlazaDance.Style, elapsed: TimeInterval)?
+    /// 한 판이 시간이 다 돼 끝났다(걷기 같은 이유로 멈춘 것은 아니다). `takeFinishedDance`가 읽고 지운다.
+    private var danceFinished = false
+    /// 이번 판에서 ♪를 정했다(띄웠거나 다른 말풍선 때문에 건너뛰었다).
+    var danceNotesDecided = false
+
+    var isDancing: Bool { dance != nil }
+
+    /// 새 판을 시작한다. 하던 판은 버린다. 떠 있던 ♪는 지워 다른 말풍선으로 세지 않는다.
+    func startDance(_ style: PlazaDance.Style, offset: TimeInterval) {
+        clearDanceNotes()
+        dance = (style, max(0, min(offset, PlazaDance.beat)))
+        danceFinished = false
+        danceNotesDecided = false
+    }
+
+    func stopDance() {
+        clearDanceNotes()
+        dance = nil
+        danceFinished = false
+    }
+
+    /// 판이 저절로 끝났으면 true를 한 번 돌려준다.
+    func takeFinishedDance() -> Bool {
+        defer { danceFinished = false }
+        return danceFinished
+    }
+
+    /// 머리 위에 ♪를 이번 판이 끝날 때까지 띄운다. 이미 말풍선이 떠 있으면 부르는 쪽이 건너뛴다.
+    func showDanceNotes() {
+        guard let dance else { return }
+        chatText = nil
+        chatKey = nil
+        emoteKind = .dance
+        emoteRemaining = max(0, PlazaDance.round - dance.elapsed)
+        emoteNode.isHidden = false
+        danceNotesDecided = true
+    }
+
+    private func clearDanceNotes() {
+        if emoteKind == .dance { hideEmote() }
+    }
+
+    /// 말풍선(이모트나 글)이 떠 있다. 춤의 ♪도 센다.
+    var isBubbleShown: Bool { emoteKind != nil || chatText != nil }
+
+    /// 지금 걸음의 자세. 춤추지 않으면 `rest`.
+    var dancePose: PlazaDancePose {
+        guard let dance else { return .rest }
+        return PlazaDancePose.pose(dance.style, tick: PlazaDance.tick(elapsed: dance.elapsed))
+    }
+
     /// 지금 떠 있는 높이(월드 픽셀). 땅에 있으면 0.
     var jumpLift: CGFloat {
         guard let jumpElapsed else { return 0 }
@@ -215,6 +268,17 @@ struct PlazaActorContext {
     }
 
     func animate(by dt: TimeInterval, useBack: Bool) {
+        if var d = dance {
+            d.elapsed += dt
+            if PlazaDance.isOver(elapsed: d.elapsed) {
+                clearDanceNotes()
+                dance = nil
+                danceFinished = true
+            } else {
+                dance = d
+            }
+        }
+        let useBack = dancePose.back ?? useBack
         if var l = lunge {
             l.elapsed += dt
             lunge = l.elapsed >= Self.lungeDuration ? nil : l
@@ -265,12 +329,15 @@ struct PlazaActorContext {
         nestFrontNode.alpha = swimSink > 0 ? 0 : alpha
         swimRingNode.alpha = alpha
         let lunge = lungeOffset
-        let foot = CGPoint(x: foot.x + lunge.x, y: foot.y + lunge.y)
+        let dancePose = dancePose
+        let foot = CGPoint(x: foot.x + lunge.x + dancePose.offsetX, y: foot.y + lunge.y)
         let backing = context.backing
         let zoom = context.zoom
         func snap(_ v: CGFloat) -> CGFloat { PlazaPixelSnap.snap(v, backing: backing, zoom: zoom) }
 
-        characterNode.xScale = pose.flipped ? -1 : 1
+        characterNode.xScale = (pose.flipped != dancePose.flipped) ? -1 : 1
+        characterNode.yScale = dancePose.squash
+        characterNode.zRotation = dancePose.tilt
         characterNode.zPosition = 1 + foot.y / context.worldHeight   // 화면 아래쪽이 앞
         // 그림자는 발보다 조금 위(높이의 0.12)에 가운데를 두어 발 뒤에 깔리게 하고, 아래·왼쪽 모서리를 기기 픽셀에 맞춘다. 통통 튐은 받지 않는다.
         let shadowSize = shadowNode.size
@@ -279,7 +346,7 @@ struct PlazaActorContext {
         nestFrontNode.position = shadowNode.position
         // 내 알 바로 앞. 더 아래(앞)에 선 캐릭터보다는 뒤다(한 칸 차이가 이 값보다 훨씬 크다).
         nestFrontNode.zPosition = characterNode.zPosition + 0.0001
-        let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob) + jumpLift))
+        let footScene = CGPoint(x: snap(foot.x), y: snap(context.worldHeight - foot.y + CGFloat(pose.bob) + jumpLift + dancePose.lift))
         characterNode.position = CGPoint(x: PlazaPixelSnap.centerX(footX: foot.x, width: characterNode.size.width, backing: backing, zoom: zoom),
                                          y: footScene.y)
 
@@ -318,8 +385,11 @@ struct PlazaActorContext {
 
     /// 기념사진에 찍을 값. 그림을 아직 못 받았으면 nil이다. 이름표와 말풍선은 화면 배율과 상관없이 배율 2로 새로 만든다.
     /// `waterClip`은 헤엄칠 때 발이 선 연못의 사각형(월드, y 아래로)이다.
-    func photoActor(foot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect? = nil) -> PlazaPhotoActor? {
+    func photoActor(foot rawFoot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect? = nil) -> PlazaPhotoActor? {
         guard let list = currentFrames, !list.isEmpty else { return nil }
+        // 춤의 옆걸음은 그림자도 함께 간다(화면의 `place`와 같다).
+        let dancePose = dancePose
+        let foot = CGPoint(x: rawFoot.x + dancePose.offsetX, y: rawFoot.y)
         let image = list[frameIndex % list.count].image
         var shadow: CGImage?
         var shadowRect = CGRect.zero
@@ -337,13 +407,14 @@ struct PlazaActorContext {
             let height = CGFloat(image.height) * Self.characterScale - swimSink
             if !isMeForConcealment { plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2)) }
         }
-        return PlazaPhotoActor(image: image, flipped: pose.flipped, foot: foot, bob: CGFloat(pose.bob),
+        return PlazaPhotoActor(image: image, flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
                                front: shadowIsNest ? nestFrontImage : nil,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
-                               opacity: opacity, plateBaseY: plateBaseY, sink: swimSink, waterClip: swimSink > 0 ? waterClip : nil)
+                               opacity: opacity, plateBaseY: plateBaseY, sink: swimSink, waterClip: swimSink > 0 ? waterClip : nil,
+                               lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt)
     }
 
     // MARK: - 값 읽기

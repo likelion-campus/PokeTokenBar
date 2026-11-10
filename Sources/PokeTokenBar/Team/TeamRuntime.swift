@@ -74,6 +74,10 @@ final class TeamRuntime {
                 plaza?.showFirework(memberID: memberID, style: emote.fireworkStyle)
                 return
             }
+            if emote.kind == .dance {
+                plaza?.showDance(memberID: memberID, style: emote.danceStyle)
+                return
+            }
             plaza?.showEmote(memberID: memberID, kind: emote.kind,
                              alsoOver: emote.isShared == true ? emote.targetMemberID : nil)
             if emote.targetMemberID == settings.memberID, emote.kind.notifiesTarget,
