@@ -238,6 +238,47 @@ final class PlazaDittoBrainTests: XCTestCase {
         XCTAssertEqual(plain.state, before)
     }
 
+    func testATackleCopiesTheTacklerEvenWhileResting() {
+        let p = openTile()
+        let me = TilePoint(x: p.x + 1, y: p.y)
+        let rest = t0.addingTimeInterval(180)
+        // "a" is beside it too and would win an ordinary copy (smallest ID); the tackler wins a tackle.
+        let a = TilePoint(x: p.x, y: p.y + 1)
+        let w = world(blocked: [me, a], copyable: ["a": a, "me": me])
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p, rest: rest), world: w, now: t0, seed: 5)
+        let at = t0.addingTimeInterval(10)
+        XCTAssertTrue(brain.tackled(by: "me", now: at, world: w))
+        XCTAssertEqual(brain.state.decoyOf, "me")
+        XCTAssertEqual(brain.state.since, at)
+        XCTAssertNil(brain.state.restUntil)
+        // Then it flees from the tackler like any copy.
+        var now = at
+        while now.timeIntervalSince(at) < 10 {
+            now = now.addingTimeInterval(dt)
+            _ = brain.tick(now: now, world: w)
+        }
+        XCTAssertGreaterThanOrEqual(manhattan(brain.state.tile, me), PlazaDitto.fleeDistance)
+        XCTAssertEqual(brain.state.decoyOf, "me")
+    }
+
+    func testATackleByAnyoneWhoCannotBeCopiedOrOnACopyDoesNothing() {
+        let p = openTile()
+        let me = TilePoint(x: p.x + 1, y: p.y)
+        let rest = t0.addingTimeInterval(180)
+        // An egg, someone idle or focusing, or an older version: present but not copyable.
+        let w = world(blocked: [me], copyable: [:], present: ["me": me])
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p, rest: rest), world: w, now: t0, seed: 5)
+        let before = brain.state
+        XCTAssertFalse(brain.tackled(by: "me", now: t0.addingTimeInterval(1), world: w))
+        XCTAssertEqual(brain.state, before)
+
+        let copy = PlazaDittoState(tile: p, facing: .down, isWalking: nil, isRunning: nil, decoyOf: "m", since: t0, restUntil: nil)
+        let wc = world(blocked: [me], copyable: ["me": me, "m": TilePoint(x: p.x, y: p.y + 30)])
+        var copying = PlazaDittoBrain(resuming: copy, world: wc, now: t0, seed: 5)
+        XCTAssertFalse(copying.tackled(by: "me", now: t0.addingTimeInterval(1), world: wc))
+        XCTAssertEqual(copying.state, copy)
+    }
+
     func testItWaitsWhenSomeoneStepsIntoItsPath() {
         let p = openTile()
         let w = world()

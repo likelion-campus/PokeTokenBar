@@ -77,11 +77,8 @@ struct PlazaDittoBrain {
 
         if !state.isDecoy, state.restUntil.map({ now >= $0 }) ?? true,
            let id = PlazaDitto.copyTarget(ditto: state.tile, copyable: world.copyable) {
-            state = state.copying(id, now: now)
+            copy(id, now: now)
             events.append(.transformed(id))
-            fleeing = true
-            route = []
-            waitUntil = now
         }
 
         guard stepEnd == nil else { return events }
@@ -135,7 +132,23 @@ struct PlazaDittoBrain {
         turnBack(now: now)
     }
 
+    /// Someone tackled the Ditto form: copy them at once, even while resting and even when someone else is beside it.
+    /// Nothing happens when they can't be copied or when it is already a copy. Returns whether it transformed.
+    mutating func tackled(by id: String, now: Date, world: PlazaDittoWorld) -> Bool {
+        guard !state.isDecoy, world.copyable[id] != nil else { return false }
+        copy(id, now: now)
+        return true
+    }
+
     // MARK: - Behaviour
+
+    /// Become `id` and flee from them on the next tick (after the step under way, if any).
+    private mutating func copy(_ id: String, now: Date) {
+        state = state.copying(id, now: now)
+        fleeing = true
+        route = []
+        waitUntil = now
+    }
 
     private mutating func turnBack(now: Date) {
         state = state.turnedBack(now: now)

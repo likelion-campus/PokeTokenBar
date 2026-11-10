@@ -75,7 +75,8 @@ extension KeyedEncodingContainer {
 enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     case heart, lol, party, exclaim, question
     /// 몸통박치기 (Space menu): the target's Mac moves the target one tile away from the sender. Earlier versions
-    /// cannot decode it and skip the frame.
+    /// cannot decode it and skip the frame. With target `PlazaDitto.sceneKey` it hit the Ditto in its own form: the
+    /// Ditto's host turns it into the sender, and nobody is pushed. Versions before that skip such a tackle.
     case tackle
     /// 점프 (J): the sender hops with dust at its feet. Earlier versions skip it the same way.
     case jump
