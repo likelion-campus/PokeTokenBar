@@ -153,7 +153,7 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
     }
 
     func testAnEggInTheWaterSinksWholeInPlace() throws {
-        let s = scene(start: TilePoint(x: 33, y: 15))
+        let s = scene(start: TilePoint(x: 33, y: 17))
         s.setCharacter(eggFrames())
         settle(s)
         assertSunkWhole(s.myActor)
@@ -193,6 +193,8 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
         XCTAssertEqual(a.characterOpacity, 1)
         XCTAssertEqual(a.visibleSpriteHeight, 72)
         XCTAssertTrue(a.nestFrontIsInFront)
+        XCTAssertEqual(a.nestFrontOpacity, 1)
+        XCTAssertEqual(a.shadowOpacity, 1)
     }
 
     func testAPhotoOfAnEggInTheWaterShowsItSunk() throws {
@@ -218,5 +220,52 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
         XCTAssertGreaterThan(top.r, 40, "the egg shows through the water at its top")
         XCTAssertLessThan(top.r, 200, "translucent, no opaque top part")
         XCTAssertEqual(foot.r, top.r, "the whole egg is drawn alike")
+    }
+
+    func testASunkEggInThePondsTopRowSinksDeeperInsteadOfBeingCut() throws {
+        let s = scene(start: TilePoint(x: 33, y: 14))
+        s.setCharacter(eggFrames())
+        settle(s)
+        let a = s.myActor
+        let clip = try XCTUnwrap(a.submergedBodyClip)
+        XCTAssertEqual(a.submergedBodyTopY, clip.maxY, accuracy: 0.001, "the top rests on the pond's top edge")
+        XCTAssertLessThan(a.submergedBodyTopY, a.characterY + 72, "it sank deeper than a mid-pond egg")
+        XCTAssertEqual(a.submergedBodySize, CGSize(width: 48, height: 72), "the whole egg is still there")
+        XCTAssertEqual(a.swimRingY, a.submergedBodyTopY - 2, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(a.swimRingY, clip.maxY, "the ring is not on the bank")
+    }
+
+    func testAJumpingSunkEggStaysSunk() throws {
+        let s = scene(start: TilePoint(x: 33, y: 16))
+        s.setCharacter(eggFrames())
+        settle(s)
+        let top = s.myActor.submergedBodyTopY, ring = s.myActor.swimRingY
+        s.playJump(memberID: nil)
+        var t: TimeInterval = 1
+        var lifted = false
+        for _ in 0..<12 {
+            t += 1.0 / 30; s.update(t)
+            lifted = lifted || s.myActor.characterY > top - 72 + 0.5
+            XCTAssertEqual(s.myActor.submergedBodyTopY, top, accuracy: 0.001)
+            XCTAssertEqual(s.myActor.swimRingY, ring, accuracy: 0.001)
+        }
+        XCTAssertTrue(lifted, "the jump really lifted the character node")
+    }
+
+    func testPhotoClipsASunkEggToThePondAndKeepsItWholeAtTheTopEdge() throws {
+        // Pond = world rows 40..128. The egg (72 tall, foot 100) would top out at 28, above the pond: it sinks to row 40 whole.
+        var e = PlazaPhotoActor(image: solid(32, 48), flipped: false, foot: CGPoint(x: 64, y: 100), scale: 1.5,
+                                shadow: nil, shadowRect: .zero, plate: nil, bubble: nil)
+        e.eggSunk = true
+        e.waterClip = CGRect(x: 50, y: 40, width: 48, height: 88)
+        let pic = PlazaPhotoInput(mapImage: solid(128, 128, r: 0, g: 0.5, b: 0.7), visibleRect: CGRect(x: 0, y: 0, width: 128, height: 128),
+                                  pixelsPerWorld: 2, actors: [e])
+        let img = try XCTUnwrap(PlazaPhotoRenderer.render(pic))
+        let plain = pixel(img, 8, 60 * 2)
+        XCTAssertEqual(pixel(img, 64 * 2, 36 * 2).r, plain.r, "nothing above the pond's top edge")
+        XCTAssertGreaterThan(pixel(img, 64 * 2, 44 * 2).r, plain.r + 20, "the egg's top is just inside the pond")
+        XCTAssertGreaterThan(pixel(img, 64 * 2, 108 * 2).r, plain.r + 20, "sunk below its foot line: the egg is whole, not cut")
+        XCTAssertEqual(pixel(img, 44 * 2, 80 * 2).r, plain.r, "the egg spans x40-88 but the clip starts at 50")
+        XCTAssertGreaterThan(pixel(img, 60 * 2, 80 * 2).r, plain.r + 20)
     }
 }

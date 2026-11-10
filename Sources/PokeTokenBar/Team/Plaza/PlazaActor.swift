@@ -26,11 +26,11 @@ struct PlazaActorContext {
     private let shadowNode = SKSpriteNode()
     /// 헤엄칠 때 몸이 물에 잠기는 높이에 얹는 물결 고리.
     private let swimRingNode = SKSpriteNode()
-    /// 물에 잠긴 아랫부분을 물 아래에 비치게 그리는 반투명 스프라이트. 연못 사각형으로 자르는 크롭 노드 안에 둔다.
+    /// 물에 잠긴 아랫부분(알은 몸통 전체)을 물 아래에 비치게 그리는 반투명 스프라이트. 연못 사각형으로 자르는 크롭 노드 안에 둔다.
     private let ghostCrop = SKCropNode()
     private let ghostNode = SKSpriteNode()
     private let ghostMask = SKSpriteNode(color: .white, size: .zero)
-    /// 아래쪽 월드 픽셀을 잘라 낸 양(헤엄). 0이면 온전하다.
+    /// 아래쪽 월드 픽셀을 잘라 낸 양(헤엄). 0이면 온전하다. 알은 자르지 않아도 0보다 크면 물에 든 것이다.
     private var swimSink: CGFloat = 0
     /// 알이 물에 들었다(헤엄 높이가 있는 알). 알은 자르지 않고 통째로 물빛에 잠긴다.
     private var eggSunk: Bool { shadowIsNest && swimSink > 0 }
@@ -317,6 +317,7 @@ struct PlazaActorContext {
     /// 그림, 그림자, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다. `foot`은 월드 좌표(y가 아래로)다.
     /// `concealment`(0–1)는 풀숲에 가려진 정도다. 그림·그림자·둥지 앞 테두리를 흐리게 하고 이름표를 풀숲 위로 내린다. `isMe`면 내 화면에서 40%까지만 흐려진다.
     /// `swimSink`가 0보다 크면 헤엄이다: 그림 아래를 그만큼 잘라 윗부분만 보이고, 그림자는 숨기고, 물높이 고리를 얹는다.
+    /// 알(`eggSunk`)은 자르지 않고 몸통을 숨긴 채 통째로 잠긴 그림 하나만 그리며, 고리는 그 꼭대기에 둔다.
     func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat = 0, isMe: Bool = false,
                swimSink: CGFloat = 0, waterRect: CGRect? = nil) {
         if swimSink != self.swimSink {
@@ -355,16 +356,18 @@ struct PlazaActorContext {
 
         swimRingNode.isHidden = swimSink <= 0 || characterNode.isHidden
         // 고리는 수면에 붙어 있다: 통통 튐은 따르되 점프 높이는 따르지 않는다.
-        // 잠긴 알은 수면이 알의 꼭대기다.
+        // 잠긴 알은 수면이 알의 꼭대기다. 점프로 뜨지 않고, 연못 맨 윗줄에서는 꼭대기가 연못 위 가장자리를 넘지 않게 내려앉는다.
+        var eggTop = footScene.y - jumpLift + characterNode.size.height
+        if let r = waterRect { eggTop = min(eggTop, r.maxY) }
         swimRingNode.position = CGPoint(x: characterNode.position.x,
-                                        y: footScene.y - jumpLift + (eggSunk ? characterNode.size.height - 2 : 0))
+                                        y: eggSunk ? eggTop - 2 : footScene.y - jumpLift)
         swimRingNode.zPosition = characterNode.zPosition + 0.0002
 
         // 잠긴 아랫부분: 수면 아래, 물결 고리 아래에 반투명하게. 연못 밖(`waterRect`가 nil)이면 그리지 않아 땅에 띠가 남지 않는다.
         if swimSink > 0, !characterNode.isHidden, let r = waterRect {
             ghostCrop.isHidden = false
             ghostNode.xScale = characterNode.xScale
-            ghostNode.position = eggSunk ? CGPoint(x: characterNode.position.x, y: characterNode.position.y + characterNode.size.height)
+            ghostNode.position = eggSunk ? CGPoint(x: characterNode.position.x, y: eggTop)
                                          : characterNode.position
             ghostNode.alpha = (eggSunk ? PlazaPondArt.submergedEggAlpha : PlazaPondArt.submergedAlpha) * alpha
             ghostCrop.zPosition = characterNode.zPosition + 0.0001
@@ -440,7 +443,7 @@ struct PlazaActorContext {
     var characterOpacity: CGFloat { characterNode.alpha }
     var nestFrontOpacity: CGFloat { nestFrontNode.alpha }
     var shadowOpacity: CGFloat { shadowNode.alpha }
-    /// 지금 보이는 그림 높이(월드 픽셀). 헤엄이면 잘린 만큼 줄어든다.
+    /// 지금 보이는 그림 높이(월드 픽셀). 헤엄이면 잘린 만큼 줄어든다. 물에 든 알은 자르지 않아 전체 높이(몸통은 투명).
     var visibleSpriteHeight: CGFloat { characterNode.size.height }
     /// 잠긴 아랫부분(테스트용).
     var isSubmergedBodyVisible: Bool { !ghostCrop.isHidden }

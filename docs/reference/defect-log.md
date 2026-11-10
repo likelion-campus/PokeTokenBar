@@ -1650,13 +1650,19 @@ read_when:
   (빈 물가가 없으면 물에 남아 `update` 가 마저 하고, 걸음 수 상한으로 끝없이 돌지 않는다).
   **부류:** 상태별 모습(헤엄·잠수·춤·점프)은 **알 프레임으로도** 확인한다. `update` 에만 있는 로직은 장면이 멈추면 돌지
   않으므로, 내 위치·상태를 바꿔 팀원에게 가야 하는 것은 `pushMe` 처럼 멈춘 경로가 필요하다.
-  **스윕:** 멈춘 장면에서 알이 물에 들 수 있는 길은 `canWalk` 전환과 `pushMe` 둘뿐이다 — `sit`/집중 자리는 땅이고
-  시작 칸은 `canWalk` 기본값이 true 라 이후 전환이 `didSet` 으로 덮인다. 상태별 모습 중 알을 가정하지 못한 곳은 사진
-  렌더러의 `sink` 가지와 그림자·둥지 앞 테두리 숨김이었고 함께 고쳤다.
+  **스윕:** 멈춘 장면에서 알이 물에 드는 길은 `canWalk` 전환과 `pushMe` 둘이고, 물에 든 채 **멈추기 시작하는** 경우
+  (올라오는 도중 창이 가려짐)는 `isPaused` didSet 이 덮는다. 시작 칸은 물일 수 없다(`PlazaPreferences.lastTile` 이
+  걸을 수 있는 칸만 받고 연못은 걸을 수 없다). `sit`/집중 자리는 땅이다. 연못 맨 윗줄에서는 잠긴 알이 연못 위 가장자리에
+  잘리고 고리가 둑에 뜨므로 꼭대기를 가장자리까지 내려 앉힌다(사진도 같다). 잠긴 알은 점프로 뜨지 않는다(고리가 수면에 남는다).
+  올라오는 길의 첫 물 칸을 팀원이 막으면 제자리에서 끝낸다(걸음이 안 나가면 중단 + 상한 64). 물에서 나오는 마지막 걸음은
+  도착 칸이 땅이라 시작하자마자 서 있는 알로 그려진다 — 헤엄치다 나오는 포켓몬과 같고 **일부러 그렇다**. 상태별 모습 중
+  알을 가정하지 못한 곳은 사진 렌더러의 `sink` 가지와 그림자·둥지 앞 테두리 숨김이었고 함께 고쳤다.
   가드: `testAnEggInTheWaterSinksWholeInPlace`, `testARemoteEggInTheWaterSinksTheSameWay`,
   `testASwimmingPokemonKeepsItsHeadAboveWater`, `testAnEggLeavingTheWaterStandsOnItsNestAgain`,
   `testAPhotoOfAnEggInTheWaterShowsItSunk`, `testAPausedSceneMovesAnEggAshoreAtOnceWhenIBecomeAnEgg`,
-  `testAPausedPushIntoTheWaterLeavesAnEggOnTheShore`, `testAPausedEggWithNoFreeShoreWaitsInTheWater`.
+  `testAPausedPushIntoTheWaterLeavesAnEggOnTheShore`, `testAPausedEggWithNoFreeShoreWaitsInTheWater`, `testASunkEggInThePondsTopRowSinksDeeperInsteadOfBeingCut`,
+  `testPhotoClipsASunkEggToThePondAndKeepsItWholeAtTheTopEdge`, `testAJumpingSunkEggStaysSunk`,
+  `testAPlazaThatPausesWithMyEggStillInTheWaterClimbsItOut`, `testAPausedEggWhoseRouteIsBlockedByASwimmerStaysAndDoesNotHang`.
 
 ## 프로세스 제어·업데이트
 

@@ -116,7 +116,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 멈추면 모든 춤을 끝낸다. 멈춘 동안 시계만 흘러 되살아난 춤이 박자 격자에서 어긋나기 때문이다.
     /// 그리기 감시가 멈춘 그림을 깨우려고 뷰를 껐다 켜도(`checkRendering`) 장면이 멈췄다 풀리므로 춤이 끝난다. 의도한 동작이다.
     override var isPaused: Bool {
-        didSet { if isPaused && !oldValue { stopAllDances() } }
+        didSet {
+            if isPaused && !oldValue {
+                stopAllDances()
+                climbOutNowIfPaused()   // 알이 물에 든 채 멈추기 시작하면 `update`가 더는 올라오게 해 주지 않는다
+            }
+        }
     }
 
     /// 마지막 `layout`이 정한 보이는 월드 영역. 평소 기념사진이 이 영역을 찍는다(사진 모드에서는 `photoFrame`).
@@ -908,7 +913,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// 헤엄 높이 자르기. 배경이 보이는 연못 그림일 때, 물 칸에 선 배우가 걷는 중이 아니거나 물에서 출발한 걸음일 때만 0보다 크다.
-    /// 땅에서 뛰어드는 걸음은 물에 내려앉은 뒤에야 잘린다.
+    /// 땅에서 뛰어드는 걸음은 물에 내려앉은 뒤에야 잘린다. 물에서 나오는 마지막 걸음은 도착 칸이 땅이라 걸음이 시작되면 바로 선 모습이다(헤엄치다 나오는 포켓몬과 같다. 일부러 그렇다).
     private func swimSink(tile: TilePoint, step: PlazaStep?, actor: PlazaActor) -> CGFloat {
         guard pondVisuals, !isBackgroundHidden, map.isWater(tile), step.map({ map.isWater($0.from) }) ?? true,
               actor.fullSpriteHeight > 0 else { return 0 }
@@ -1355,28 +1360,31 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard isPaused else { return }
         walker.advance(by: PlazaPond.plungeStepDuration * Double(reach), canEnterFrom: canEnterTile(occupied: occupied),
                        canPushInto: canEnter, stepDuration: pondStepDuration)
-        if !climbOutNowIfPaused() { reportLocalPosition() }
+        reportLocalPosition()   // 먼저 빠진 칸을 알려 팀원이 첨벙을 본 뒤 올라오는 것을 본다
+        climbOutNowIfPaused()
     }
 
     /// 장면이 멈춰 있는데(`isPaused`) 알이 물에 있으면 `update`가 오지 않으므로 그 자리에서 가장 가까운 물가까지 올라와 팀원에게 알린다.
-    /// 올라올 빈 물가가 없으면 물에 남고 장면이 다시 돌 때 `update`가 맡는다. 올라왔으면 true.
-    @discardableResult
-    private func climbOutNowIfPaused() -> Bool {
-        guard isPaused, !canWalk, !isDiving, isMeInWater else { return false }
+    /// 올라올 빈 물가가 없으면 물에 남고 장면이 다시 돌 때 `update`가 맡는다. 
+    private func climbOutNowIfPaused() {
+        guard isPaused, !canWalk, !isDiving, isMeInWater else { return }
         for _ in 0..<64 {   // 걸음마다 물 칸을 하나씩 벗어나니 이 정도면 충분하다(끝없이 돌지 않게 하는 상한)
+            var stepped = false
             if !walker.isWalking {
                 guard isMeInWater else { break }
                 let taken = occupiedTiles()
                 guard let d = PlazaPond.stepAshore(from: walker.tile, isWater: { map.isWater($0) },
                                                    isLand: { map.isWalkable($0) && !taken.contains($0) }) else { break }
                 walker.step(d)
+                stepped = true
             }
             let occupied = occupiedTiles()
+            let before = walker.tile
             walker.advance(by: 2, canEnterFrom: canEnterTile(occupied: occupied), canPushInto: canPushTile(occupied: occupied),
                            stepDuration: pondStepDuration)
+            if stepped, walker.tile == before { break }   // 길 위 물 칸에 팀원이 있어 못 간다: 더 돌지 않고 물에 남는다
         }
         reportLocalPosition()
-        return !isMeInWater
     }
     /// 테스트용: 그 팀원을 달리는 빠르기로 따라가는지. 없으면 nil.
     func memberIsRunning(_ id: String) -> Bool? { remotes[id]?.motion.senderIsRunning }

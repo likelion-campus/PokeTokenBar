@@ -177,7 +177,8 @@ enum PlazaPhotoRenderer {
                         context.saveGState()
                         context.clip(to: cg(x0, y0, x1 - x0, y1 - y0))
                         context.setAlpha(a.opacity * PlazaPondArt.submergedEggAlpha)
-                        draw(tinted, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX), top: footTop - h, w: w, h: h, mirrored: a.flipped)
+                        // 연못 맨 윗줄에서는 화면처럼 꼭대기가 연못 위 가장자리에 닿도록 알 전체를 내려 그린다(자르지 않는다).
+                        draw(tinted, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX), top: max(footTop - h, y0), w: w, h: h, mirrored: a.flipped)
                         context.restoreGState()
                     }
                 }

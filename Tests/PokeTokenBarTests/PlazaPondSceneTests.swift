@@ -638,7 +638,7 @@ final class PlazaPondSceneTests: XCTestCase {
         s.onLocalPositionChange = { tile, _, _ in reported.append(tile) }
         s.pushMe(.right)
         XCTAssertFalse(s.isMeInWater)
-        XCTAssertEqual(reported.last.map { !map.isWater($0) }, true, "the last report is on land")
+        XCTAssertEqual(Array(reported.suffix(2)), [p(32, 18), p(31, 18)], "teammates see the fall, then the climb")
     }
 
     func testAPausedEggWithNoFreeShoreWaitsInTheWater() {
@@ -657,5 +657,27 @@ final class PlazaPondSceneTests: XCTestCase {
         s.applyMembers([])
         run(s, 6, from: 0.2)
         XCTAssertFalse(s.isMeInWater, "once the plaza runs and a shore frees, update finishes the climb")
+    }
+
+    func testAPlazaThatPausesWithMyEggStillInTheWaterClimbsItOut() {
+        let s = scene(start: p(35, 16))
+        run(s, 0.1)
+        s.canWalk = false   // an egg now, mid-pond, climbing by update
+        run(s, 0.3, from: 0.1)
+        XCTAssertTrue(s.isMeInWater, "still swimming for the shore")
+        var reported: [TilePoint] = []
+        s.onLocalPositionChange = { tile, _, _ in reported.append(tile) }
+        s.isPaused = true
+        XCTAssertFalse(s.isMeInWater)
+        XCTAssertEqual(reported.last.map { !map.isWater($0) }, true)
+    }
+
+    func testAPausedEggWhoseRouteIsBlockedByASwimmerStaysAndDoesNotHang() {
+        let s = scene(start: p(33, 18))
+        run(s, 0.1)
+        add(s, "blocker", p(32, 18))   // on the first tile of the way to the free shore at (31,18)
+        s.isPaused = true
+        s.canWalk = false
+        XCTAssertEqual(s.walker.tile, p(33, 18))
     }
 }
