@@ -109,6 +109,8 @@ enum PlazaEmoteArt {
         case .groupPhoto: drawGrid(camera, cell: dot, centeredAt: center, in: context)
         case .pickup: drawGrid(candy, cell: dot / 2, centeredAt: center, in: context)
         case .firework: drawGrid(spark, cell: dot, centeredAt: center, in: context)
+        case .decoyFound: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
+        case .decoyJump: drawGrid(dust, cell: dot, centeredAt: center, in: context)
         }
         return context.makeImage()!
     }

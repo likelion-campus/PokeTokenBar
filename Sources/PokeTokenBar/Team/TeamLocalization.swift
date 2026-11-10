@@ -229,6 +229,8 @@ extension L {
         case .groupPhoto: "단체 사진"
         case .pickup: "아이템"
         case .firework: "불꽃놀이"
+        case .decoyFound: "찾았다"
+        case .decoyJump: "점프"
         }
     }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.
