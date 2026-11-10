@@ -173,6 +173,13 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(try decoder.append(try TeamWire.encode(noStyle)), [noStyle])
     }
 
+    /// Doing anything else stops the sender's dance, except the Ditto host's copy jump and the shared moments. A new kind must choose here.
+    func testWhichEmotesEndTheSendersDance() {
+        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound]
+        for kind in TeamEmoteKind.allCases { XCTAssertEqual(kind.endsSendersDance, ends.contains(kind), "\(kind)") }
+        XCTAssertEqual(Set(TeamEmoteKind.allCases.filter { !$0.endsSendersDance }), [.groupPhoto, .pickup, .dance, .decoyJump])
+    }
+
     /// A dance names its style. Other emotes leave the field out, and an earlier version's frame reads as none.
     func testDanceStyleIsOptionalOnTheWire() throws {
         let dance = TeamMessage.emote(TeamEmote(kind: .dance, targetMemberID: nil, danceStyle: "bigHop"))
