@@ -724,6 +724,17 @@ read_when:
   거기서 이어 간다. 가드: `testASmallerIDOpeningThePlazaCarriesOnTheCopy`(옛 호스트가 이미 물러난 뒤의 첫 틱까지 같은 `decoyOf`·`since`·칸을
   본다; 한 줄을 지우면 실패). 메뉴를 연 사이 복사본이 돌아오면 고른 일을 버린다(`testAMenuOnACopyThatTurnedBackDoesNothing`).
 
+- **낡은 메뉴 검사는 메뉴가 보여 준 것으로 한다 — 다른 Mac이 다시 찍는 시각으로 하지 않는다. 그 자리에서 모습만 바뀌는 대상은
+  안내를 직접 다시 그린다.** 메타몽 모습도 몸통박치기 대상이 되면서(머지 전 리뷰에서 발견) 두 가지가 샜다. (1) 메뉴를 연 순간의
+  `since` 와 고를 때의 `since` 를 비교했는데, 찾은 Mac은 제 시계로 메타몽 모습을 찍고 호스트 소식이 호스트 시각으로 다시 찍어서,
+  모습은 그대로인데 메뉴가 말없이 닫혔다. 반대로 "복사본인가"만 보면 X의 복사본 메뉴로 Y의 복사본에 인사하거나 카드를 연다.
+  수정: 메뉴를 연 때와 고를 때의 `decoyOf`(누구 모습인지)가 같아야 한다. (2) 메타몽이 두 모습 모두 대상이라, 바라보는 칸에서
+  모습만 바뀌면 대상 바뀜 알림이 오지 않아 안내가 옛 이름에 머물렀다. 수정: `showDitto` 가 모습이 바뀔 때 안내를 다시 그린다.
+  **왜 못 걸렀나:** 메뉴 테스트는 모습이 한 번만 바뀌는 경우뿐이었고 시각만 바뀌는 경우가 없었다. 안내 테스트는 처음 그린
+  상태만 봤다. 가드: `testAMenuOnTheDittoFormSurvivesTheHostRestampingIt`·`testAMenuOnACopyThatNowCopiesSomeoneElseDoesNothing`·
+  `testTheHintFollowsAFormChangeOnTheSameTile`(각각 `since` 비교, "복사본인가" 비교, 다시 그리기 삭제를 주입하면 실패).
+  스윕: 다른 `since` 비교는 `foundDittoSince` 하나로, 호스트가 찍은 복사본의 시각끼리 비교하므로 해당 없다.
+
 ## 빌드·도구체인
 
 - **`Sendable` 여부는 SDK마다 다르다 — 파일 범위 전역에는 값 타입만 둔다.** 메타몽 PR(#88)이 테스트 파일 맨 위에

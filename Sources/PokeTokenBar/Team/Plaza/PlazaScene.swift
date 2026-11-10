@@ -80,7 +80,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onGroupPhotoKey: (() -> Void)?
     /// F(불꽃놀이). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onFireworkKey: (() -> Void)?
-    /// 내 춤 한 판이 시작됐다(D를 눌렀을 때와 누르고 있어 이어질 때). 춤의 `PlazaDance.Style.id`를 넘긴다. 컨트롤러가 팀원에게 보낸다.
+    /// 내 춤 한 판이 시작됐다(D를 눌렀을 때와 판이 끝나 저절로 이어질 때). 춤의 `PlazaDance.Style.id`를 넘긴다. 컨트롤러가 팀원에게 보낸다.
     var onDanceRound: ((String) -> Void)?
     /// 내가 모닥불에서 집중 중이다. 컨트롤러가 알려 준다. 집중 중에는 춤추지 않는다.
     var isFocusing: () -> Bool = { false }
@@ -91,8 +91,6 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
     /// 내가 직전에 춘 춤. 연달아 같은 춤이 나오지 않게 기억한다.
     private var lastDanceStyle: PlazaDance.Style?
-    /// D를 누르고 있다(춤이 시작된 뒤부터). 한 판이 끝났을 때 이어서 출지 정한다.
-    private var isDanceHeld = false
     /// Return과 숫자패드 Enter. 판이 닫혀 있을 때만 온다.
     var onChatKey: (() -> Void)?
     /// 판이 열린 동안 판이 쓰는 키(위, 아래, 스페이스, Enter, Esc). 눌러 둔 자동 반복은 넘기지 않는다.
@@ -740,10 +738,9 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     func handleKeyUp(keyCode: UInt16) {
         if let d = Self.direction(keyCode) { walker.release(d); panKeys.remove(d) }
-        if keyCode == Self.dKeyCode { isDanceHeld = false }
     }
 
-    func releaseAllKeys() { walker.releaseAll(); panKeys.removeAll(); isDanceHeld = false }
+    func releaseAllKeys() { walker.releaseAll(); panKeys.removeAll() }
 
     /// 입력창이 키를 가져가면 키 뗌이 장면에 오지 않으므로 눌린 키와 탭을 지운다. 걷던 칸은 마저 간다.
     func clearInput() {
@@ -751,7 +748,6 @@ struct PlazaSceneMember: Equatable, Sendable {
         if !isFollowing { stopWalkingToMember() }
         walker.clearInput()
         panKeys.removeAll()
-        isDanceHeld = false
     }
 
     // MARK: - 팀원에게 걸어가기
@@ -803,7 +799,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     func refreshInteractionTarget() {
-        let hit = PlazaInteraction.target(from: walker.tile, facing: walker.facing, map: map, members: targetTiles)
+        let hit = PlazaInteraction.target(from: walker.tile, facing: walker.facing, map: map, members: interactionTiles)
         guard hit != interactionTarget else { return }
         interactionTarget = hit
         onInteractionTargetChange?(hit)
@@ -1166,19 +1162,15 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     // MARK: - 춤
 
-    /// D. 새 판을 무작위 춤으로 시작한다(직전과 다른 춤). 못 출 때(걷는 중, 물속, 집중 중, 멈춘 장면)는 아무것도 하지 않는다.
+    /// D. 새 판을 무작위 춤으로 시작한다(직전과 다른 춤). 춤은 멈출 때까지 판마다 새 춤으로 이어진다. 못 출 때(걷는 중, 물속, 집중 중, 멈춘 장면)는 아무것도 하지 않는다.
     private func pressDance() {
         guard canDance else { return }
-        // 새 판은 박자마다 한 번까지. 연타는 판을 다시 시작하지도 팀원에게 보내지도 않는다(누르고 있는 동안 이어 추기는 그대로).
+        // 새 판은 박자마다 한 번까지. 연타는 판을 다시 시작하지도 팀원에게 보내지도 않는다.
         if let last = lastDanceRoundAt {
             let since = now().timeIntervalSince(last)
-            if since >= 0, since < PlazaDance.beat - 1e-3 {   // 시계 값의 오차로 딱 한 박자 뒤 누름이 막히지 않게 한다
-                isDanceHeld = me.isDancing
-                return
-            }
+            if since >= 0, since < PlazaDance.beat - 1e-3 { return }   // 시계 값의 오차로 딱 한 박자 뒤 누름이 막히지 않게 한다
         }
         startLocalDanceRound()
-        isDanceHeld = true
     }
 
     /// 내가 마지막으로 새 판을 시작한 시각(장면의 `now`).
@@ -1194,18 +1186,19 @@ struct PlazaSceneMember: Equatable, Sendable {
         let style = pickDanceStyle(lastDanceStyle)
         lastDanceStyle = style
         lastDanceRoundAt = now()
-        beginDance(me, style: style)
+        beginDance(me, style: style, remote: false)
         onDanceRound?(style.id)
     }
 
-    /// 판을 박자 격자에 맞춰 시작하고 ♪를 살핀다. 시계는 장면의 `now`라, 따로 시작해도 같은 박자에 뛴다.
-    private func beginDance(_ actor: PlazaActor, style: PlazaDance.Style) {
-        actor.startDance(style, offset: PlazaDance.gridOffset(at: now()))
-        updateDanceNotes(starter: actor)
+    /// 판을 박자 격자에 맞춰 시작한다(♪는 배우가 띄운다). 시계는 장면의 `now`라, 따로 시작해도 같은 박자에 뛴다.
+    /// 팀원 춤은 도착한 때부터 다음 판 소식을 `remoteGrace`만큼 더 기다린다(격자가 아니라 도착 시각 기준이라 늘 한 박자 여유가 있다).
+    private func beginDance(_ actor: PlazaActor, style: PlazaDance.Style, remote: Bool) {
+        let offset = PlazaDance.gridOffset(at: now())
+        actor.startDance(style, offset: offset, length: remote ? offset + PlazaDance.round + PlazaDance.remoteGrace : PlazaDance.round)
         layout()
     }
 
-    /// 팀원이 춤을 춘다. 한 판만 춘다. 모르는 팀원, 물속이나 잠수 중, 멈춘 장면이면 false.
+    /// 팀원이 춤을 춘다. 소식 하나가 한 판이고, 다음 소식이 없으면 한 판 + 여유 뒤에 끝난다. 모르는 팀원, 물속이나 잠수 중, 멈춘 장면이면 false.
     /// 움직이는 중이면 지금은 false지만, 한 박자 안에 멈추면 그때 시작한다(걸음을 막 마친 팀원의 춤이 소식보다 먼저 와서 버려지지 않게).
     /// 새 춤이 기다리던 춤을 갈아 끼운다. 모르는 이름의 춤은 좌우 흔들기다. 집중 중인지는 컨트롤러가 먼저 가린다.
     @discardableResult
@@ -1217,7 +1210,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             return false
         }
         pendingDances[memberID] = nil
-        beginDance(r.actor, style: chosen)
+        beginDance(r.actor, style: chosen, remote: true)
         return true
     }
 
@@ -1230,7 +1223,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             guard let r = remotes[id], !isPaused, !map.isWater(r.motion.tile) else { pendingDances[id] = nil; continue }
             if !r.motion.isWalking {
                 pendingDances[id] = nil
-                beginDance(r.actor, style: pending.style)
+                beginDance(r.actor, style: pending.style, remote: true)
             } else if pending.remaining - dt <= 0 {
                 pendingDances[id] = nil
             } else {
@@ -1241,6 +1234,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 그 캐릭터(nil이면 나)의 춤을 멈춘다. 떠 있던 ♪도 지운다.
     func stopDance(memberID: String?) {
+        if let memberID { pendingDances[memberID] = nil }   // 걸으며 기다리던 춤도 버린다
         actor(memberID)?.stopDance()
     }
 
@@ -1248,7 +1242,6 @@ struct PlazaSceneMember: Equatable, Sendable {
         me.stopDance()
         for r in remotes.values { r.actor.stopDance() }
         pendingDances.removeAll()
-        isDanceHeld = false
     }
 
     /// 걷기 시작했거나 물에 든 캐릭터의 춤을 끊는다. 밀림, 뛰어들기, 물가로 올라오기 같은 모든 이유를 한 곳에서 잡는다.
@@ -1257,41 +1250,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         for r in remotes.values where r.motion.isWalking || map.isWater(r.motion.tile) { r.actor.stopDance() }
     }
 
-    /// 내 판이 저절로 끝났고 D를 아직 누르고 있으면 새 춤으로 이어 춘다. 못 이으면 누름을 접는다.
-    private func continueHeldDance() {
-        guard me.takeFinishedDance(), isDanceHeld else { return }
-        if canDance { startLocalDanceRound() } else { isDanceHeld = false }
-    }
-
-    /// 춤추는 배우들의 칸(나와 팀원).
-    private var dancerTiles: [(actor: PlazaActor, tile: TilePoint)] {
-        var list: [(PlazaActor, TilePoint)] = []
-        if me.isDancing { list.append((me, walker.tile)) }
-        for r in remotes.values where r.actor.isDancing { list.append((r.actor, r.motion.tile)) }
-        return list
-    }
-
-    /// 판이 시작될 때, 다른 춤꾼 둘 이상이 `PlazaDance.noteRadius`칸(체비쇼프 거리) 안에서 함께 추는 배우의 머리 위에 ♪를 이번 판 동안 띄운다.
-    /// 시작한 배우는 이 판의 ♪를 여기서 정한다. 이미 추던 배우는 새 춤꾼 덕에 조건이 채워졌을 때 아직 정하지 않았다면 이어서 띄운다
-    /// (그렇지 않으면 셋이 모여도 마지막에 시작한 한 명만 ♪가 뜬다). 떠 있는 말풍선은 갈아 끼우지 않는다. 내려가는 노드는 만들지 않는다.
-    private func updateDanceNotes(starter: PlazaActor) {
-        let dancers = dancerTiles
-        for (actor, tile) in dancers {
-            let isStarter = actor === starter
-            guard isStarter || !actor.danceNotesDecided else { continue }
-            // 이미 추던 배우는 판이 한 박자 넘게 남았을 때만 ♪를 받는다(몇 프레임 깜빡이지 않게).
-            if !isStarter, let dance = actor.dance, PlazaDance.round - dance.elapsed < PlazaDance.beat { continue }
-            let near = dancers.filter { other in
-                other.actor !== actor
-                    && max(abs(other.tile.x - tile.x), abs(other.tile.y - tile.y)) <= PlazaDance.noteRadius
-            }.count
-            guard near >= 2 else { continue }   // 나중에 춤꾼이 늘면 다시 살핀다
-            if actor.isBubbleShown {
-                actor.danceNotesDecided = true   // 떠 있는 말풍선은 갈아 끼우지 않고, 이번 판에는 ♪를 띄우지 않는다
-                continue
-            }
-            actor.showDanceNotes()
-        }
+    /// 내 판이 저절로 끝났으면 새 춤으로 이어 춘다. 못 이으면 그대로 끝난다.
+    private func continueDance() {
+        guard me.takeFinishedDance(), canDance else { return }
+        startLocalDanceRound()
     }
 
     /// 테스트용: 그 캐릭터(nil이면 나)의 춤과 자세.
@@ -1510,7 +1472,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
         clock = currentTime
         let modifiers = currentModifiers()
-        if modifiers.contains(.command) { walker.releaseAll(); panKeys.removeAll(); isDanceHeld = false }
+        if modifiers.contains(.command) { walker.releaseAll(); panKeys.removeAll() }
         if let c = photoCenter {
             let speed = modifiers.contains(.shift) ? PlazaPhotoFrame.fastPanSpeed : PlazaPhotoFrame.panSpeed
             let dx = (panKeys.contains(.right) ? 1 : 0) - (panKeys.contains(.left) ? 1 : 0)
@@ -1657,7 +1619,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.animate(by: dt, useBack: p.useBack)
         }
-        continueHeldDance()
+        continueDance()
         advancePendingDances(by: dt)
     }
 
@@ -1726,11 +1688,17 @@ struct PlazaSceneMember: Equatable, Sendable {
     var memberTiles: [String: TilePoint] {
         remotes.filter { $0.key != PlazaDitto.sceneKey }.mapValues { $0.motion.tile }
     }
-    /// 말을 걸 수 있는 자리: 팀원 자리에 팀원 흉내를 내는 동안의 메타몽을 더한다. 메타몽 모습일 때는 넣지 않아 진짜와 구별되지 않는다.
-    /// 보기·안내·메뉴·따라가기가 모두 이 한 곳에서 대상을 얻는다.
+    /// 말을 걸 수 있는 자리: 팀원 자리에 팀원 흉내를 내는 동안의 메타몽을 더한다. 메타몽 모습은 `interactionTiles`에만 든다.
     var targetTiles: [String: TilePoint] {
         var tiles = memberTiles
         if let tile = decoyTile { tiles[PlazaDitto.sceneKey] = tile }
+        return tiles
+    }
+    /// 스페이스와 몸통박치기의 대상 자리: `targetTiles`에 메타몽 모습의 메타몽을 더한다. 메타몽 모습에게는 몸통박치기만 할 수 있고,
+    /// 박치기하면 그 사람으로 변한다. 인사, 말풍선 표적, 따라가기는 `targetTiles`를 쓴다.
+    var interactionTiles: [String: TilePoint] {
+        var tiles = targetTiles
+        if let tile = dittoTile { tiles[PlazaDitto.sceneKey] = tile }
         return tiles
     }
     /// 테스트용

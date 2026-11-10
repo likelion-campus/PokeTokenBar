@@ -718,6 +718,7 @@ final class PlazaDittoControllerTests: XCTestCase {
     func testGreetingTheCopyLooksLikeGreetingTheRealOne() async {
         let t = await adjacentCopy()
         let log = emotes(from: t.m)
+        t.scene.onInteractKey?()
         t.c.chooseMenu(.greet, memberID: key)
         await settle()
         XCTAssertNotNil(t.scene.shownEmote(memberID: nil))
@@ -753,26 +754,238 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(t.scene.walkingToMember, t.a.id)
     }
 
-    func testSpaceAndTackleDoNothingOnDittoForm() async {
+    /// [host a, me] with a hosting the Ditto form right beside me, resting so it does not copy me on its own.
+    private func adjacentDittoForm(now: Date = Date()) async -> (c: PlazaWindowController, a: Node, me: Node) {
         let nodes = sorted(2)
         let (a, me) = (nodes[0], nodes[1])
         await connect(a, me)
         let c = controller(me, start: meStart.me)
         c.prepareScene()
-        host(a, dittoForm(beside()))
+        host(a, dittoForm(beside(), now: now).turnedBack(now: now))
         await settle()
-        c.advanceDitto(now: Date())
-        XCTAssertNotNil(c.scene?.dittoTile)
-        let log = emotes(from: a)
-        c.scene?.onInteractKey?()
+        c.advanceDitto(now: now)
+        XCTAssertEqual(c.scene?.dittoTile, beside(), "test precondition")
+        XCTAssertEqual(c.shownDitto?.isDecoy, false, "test precondition")
+        return (c, a, me)
+    }
+
+    func testSpaceOnTheDittoFormOffersOnlyTackle() async {
+        let t = await adjacentDittoForm()
+        t.c.scene?.onInteractKey?()
+        guard case .memberMenu(let menu) = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        XCTAssertEqual(menu.memberID, key)
+        XCTAssertEqual(menu.nickname, L(.ko).plazaDittoName)
+        XCTAssertEqual(menu.actions, [.tackle])
+        XCTAssertEqual(menu.selection, .tackle)
+    }
+
+    /// Diving takes tackle away, and the Ditto form has nothing else: Space opens no empty menu.
+    func testSpaceOnTheDittoFormWhileDivingOpensNothing() async throws {
+        // A shore tile with water on one side: I start there, get pushed into the water, and the Ditto takes the shore.
+        var pair: (shore: TilePoint, toWater: PlazaDirection)?
+        search: for y in 0..<map.height { for x in 0..<map.width {
+            let g = TilePoint(x: x, y: y)
+            guard PlazaDitto.isGround(g, in: map) else { continue }
+            if let d = PlazaDirection.allCases.first(where: { map.isWater(PlazaWalker.offset(g, $0)) }) { pair = (g, d); break search }
+        } }
+        let (shore, toWater) = try XCTUnwrap(pair)
+        let back: PlazaDirection = switch toWater { case .up: .down; case .down: .up; case .left: .right; case .right: .left }
+        let nodes = sorted(2)
+        let (a, me) = (nodes[0], nodes[1])
+        await connect(a, me)
+        let c = controller(me, start: shore)
+        c.prepareScene()
+        let scene = try XCTUnwrap(c.scene)
+        scene.isPaused = true   // a paused scene lands the push at once
+        scene.pushMe(toWater)
+        scene.isPaused = false
+        XCTAssertTrue(scene.isMeInWater, "test precondition")
+        let now = Date()
+        host(a, dittoForm(shore, now: now).turnedBack(now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        XCTAssertEqual(scene.dittoTile, shore, "test precondition")
+        scene.face(back)
+        scene.setDiving(true)
+        XCTAssertTrue(scene.isDiving, "test precondition")
+        scene.onInteractKey?()
         XCTAssertEqual(c.overlayContent, .none)
-        c.scene?.onTackleKey?()
-        c.scene?.onGreetKey?()
-        c.scene?.onEmoteKey?(.heart)
+        scene.setDiving(false)
+        scene.onInteractKey?()
+        guard case .memberMenu = c.overlayContent else { return XCTFail("control: surfaced, the menu opens") }
+    }
+
+    func testGreetAndBubblesStillSkipTheDittoForm() async {
+        let t = await adjacentDittoForm()
+        let log = emotes(from: t.a)
+        t.c.scene?.onGreetKey?()
+        XCTAssertNil(t.c.scene?.shownEmote(memberID: key), "X does not greet the Ditto form")
+        t.c.scene?.onEmoteKey?(.heart)
         await settle()
         XCTAssertEqual(log.items.map(\.kind), [.heart], "only the bubble goes out, aimed at nobody")
         XCTAssertNil(log.items.first?.targetMemberID)
-        XCTAssertNil(c.banner)
+        XCTAssertNil(log.items.first?.overDecoy)
+        XCTAssertNil(t.c.banner)
+    }
+
+    /// A non-host's tackle goes to the host, aimed at the Ditto and pushing nobody. Nothing is found.
+    func testTacklingTheDittoFormAsksTheHostToCopyMe() async {
+        let t = await adjacentDittoForm()
+        let log = emotes(from: t.a)
+        t.c.scene?.onTackleKey?()
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.tackle])
+        XCTAssertEqual(log.items.first?.targetMemberID, key)
+        XCTAssertNil(log.items.first?.pushTiles)
+        XCTAssertNil(t.c.banner)
+        XCTAssertEqual(t.c.shownDitto?.isDecoy, false, "the host decides")
+    }
+
+    func testTackleFromTheDittoFormMenu() async {
+        let t = await adjacentDittoForm()
+        let log = emotes(from: t.a)
+        t.c.scene?.onInteractKey?()
+        t.c.chooseMenu(.tackle, memberID: key)
+        await settle()
+        XCTAssertEqual(t.c.overlayContent, .none)
+        XCTAssertEqual(log.items.map(\.kind), [.tackle])
+        XCTAssertEqual(log.items.first?.targetMemberID, key)
+    }
+
+    /// A menu opened on the Ditto form does nothing once the Ditto has become someone: the tackle would otherwise find it.
+    func testAMenuOnTheDittoFormThatBecameACopyDoesNothing() async {
+        let t = await adjacentDittoForm()
+        t.c.scene?.onInteractKey?()
+        guard case .memberMenu = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        let log = emotes(from: t.a)
+        let now = Date().addingTimeInterval(1)
+        host(t.a, dittoForm(beside(), now: now).copying(t.me.id, now: now))
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.me.id, "test precondition")
+        t.c.chooseMenu(.tackle, memberID: key)
+        await settle()
+        XCTAssertEqual(t.c.overlayContent, .none)
+        XCTAssertTrue(log.items.isEmpty)
+        XCTAssertNil(t.c.banner)
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.me.id)
+    }
+
+    /// The finder turns the copy back with its own clock; the host's state then brings the same Ditto form with the host's
+    /// `since`. A menu opened on the Ditto form in between still works: it is still the Ditto form.
+    func testAMenuOnTheDittoFormSurvivesTheHostRestampingIt() async {
+        let t = await adjacentDittoForm()
+        t.c.scene?.onInteractKey?()
+        guard case .memberMenu = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        let log = emotes(from: t.a)
+        let now = Date().addingTimeInterval(0.4)
+        host(t.a, dittoForm(beside(), now: now).turnedBack(now: now))
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertEqual(t.c.shownDitto?.since, now, "test precondition")
+        t.c.chooseMenu(.tackle, memberID: key)
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.tackle])
+        XCTAssertEqual(log.items.first?.targetMemberID, key)
+    }
+
+    /// A menu opened on m's copy does nothing once the Ditto copies someone else: its name and card would be wrong.
+    func testAMenuOnACopyThatNowCopiesSomeoneElseDoesNothing() async {
+        let t = await adjacentCopy()
+        t.scene.onInteractKey?()
+        guard case .memberMenu = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        let log = emotes(from: t.m)
+        let now = t.since.addingTimeInterval(1)
+        host(t.a, dittoForm(beside(), now: now).copying(t.a.id, now: now))
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.a.id, "test precondition")
+        t.c.chooseMenu(.tackle, memberID: key)
+        await settle()
+        XCTAssertEqual(t.c.overlayContent, .none)
+        XCTAssertTrue(log.items.isEmpty)
+        XCTAssertNil(t.c.banner)
+    }
+
+    /// The copy turns back on the tile I face: the hint follows at once, though my target tile did not change.
+    func testTheHintFollowsAFormChangeOnTheSameTile() async {
+        let t = await adjacentCopy()
+        XCTAssertEqual(t.c.hint, L(.ko).plazaMemberHint(nickname: t.m.settings.nickname), "test precondition")
+        t.scene.onTackleKey?()
+        XCTAssertNil(t.c.shownDitto?.decoyOf, "test precondition")
+        XCTAssertEqual(t.c.hint, L(.ko).plazaMemberHint(nickname: L(.ko).plazaDittoName))
+    }
+
+    /// [me host, m]: the host's Ditto form rests right beside me; m stands away from it.
+    private func hostingDittoForm(now: Date = Date()) async -> (c: PlazaWindowController, me: Node, m: Node) {
+        let nodes = sorted(3)
+        let (a, me, m) = (nodes[0], nodes[1], nodes[2])
+        await connect(a, me); await connect(m, me)
+        let c = controller(me, start: meStart.me)
+        c.prepareScene()
+        place(m, at: ground(-5, 0))
+        host(a, dittoForm(beside(), now: now).turnedBack(now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        // a leaves; I carry the resting Ditto form on.
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updateDitto(ready: false, state: nil)
+        await settle()
+        c.advanceDitto(now: now.addingTimeInterval(0.05))
+        XCTAssertTrue(c.isDittoHost, "test precondition")
+        XCTAssertEqual(c.shownDitto?.isDecoy, false, "test precondition")
+        XCTAssertNotNil(c.shownDitto?.restUntil, "test precondition")
+        return (c, me, m)
+    }
+
+    func testTheHostTurnsTheDittoFormIntoWhoeverTackledIt() async {
+        let t = await hostingDittoForm()
+        // I stand right beside it, yet m's tackle wins.
+        t.c.showTackle(from: t.m.id, on: key)
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.m.id)
+        XCTAssertEqual(t.c.scene?.decoyTile, beside())
+        XCTAssertEqual(t.c.scene?.memberName(key), t.m.settings.nickname)
+        XCTAssertNil(t.c.banner)
+        await settle()
+        XCTAssertEqual(t.m.session.members[t.me.id]?.ditto?.decoyOf, t.m.id, "the new copy is sent at once")
+    }
+
+    /// Someone the Ditto can't copy (an egg, idle, focusing, or not ready) tackles it: the hit shows, nothing else changes.
+    func testATackleBySomeoneWhoCannotBeCopiedLeavesTheDittoForm() async {
+        let t = await hostingDittoForm()
+        place(t.m, at: ground(-5, 0), ready: false)
+        await settle()
+        let before = t.c.shownDitto
+        t.c.showTackle(from: t.m.id, on: key)
+        XCTAssertEqual(t.c.shownDitto, before)
+        XCTAssertEqual(t.c.scene?.children.filter { $0.name == "tackle-impact" }.count, 1)
+    }
+
+    func testTheHostsOwnTackleTurnsTheDittoFormIntoMe() async {
+        let t = await hostingDittoForm()
+        let log = emotes(from: t.m)
+        t.c.scene?.onTackleKey?()
+        await settle()
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.me.id)
+        XCTAssertEqual(log.items.map(\.kind), [.tackle])
+        XCTAssertEqual(log.items.first?.targetMemberID, key)
+        XCTAssertNil(t.c.banner)
+    }
+
+    /// A tackle aimed at the Ditto form that arrives after it became a copy neither finds it nor changes whom it copies.
+    func testATackleOnTheDittoFormArrivingAfterItBecameACopyIsIgnored() async {
+        let t = await hostingDittoForm()
+        t.c.showTackle(from: t.m.id, on: key)
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.m.id, "test precondition")
+        let since = t.c.shownDitto?.since
+        let impacts = { t.c.scene?.children.filter { $0.name == "tackle-impact" }.count ?? 0 }
+        let before = impacts()
+        XCTAssertEqual(before, 1, "the first tackle hit the Ditto form")
+        t.c.showTackle(from: t.m.id, on: key)
+        XCTAssertEqual(impacts(), before, "no hit is drawn on the copy: that would give it away")
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.m.id)
+        XCTAssertEqual(t.c.shownDitto?.since, since)
+        XCTAssertNil(t.c.banner)
     }
 
     func testSpaceOnTheCopyOpensTheCopiedMembersMenu() async {
@@ -825,22 +1038,15 @@ final class PlazaDittoControllerTests: XCTestCase {
 
     func testFollowingTheCopyShowsTheFollowLine() async {
         let t = await adjacentCopy()
+        t.scene.onInteractKey?()
         t.c.chooseMenu(.follow, memberID: key)
         XCTAssertEqual(t.scene.followingMember, key)
         XCTAssertEqual(t.c.hint, L(.ko).plazaFollowHint(nickname: t.m.settings.nickname))
     }
 
-    func testFacingTheDittoFormShowsNoHint() async {
-        let nodes = sorted(2)
-        let (a, me) = (nodes[0], nodes[1])
-        await connect(a, me)
-        let c = controller(me, start: meStart.me)
-        c.prepareScene()
-        host(a, dittoForm(beside()))
-        await settle()
-        c.advanceDitto(now: Date())
-        XCTAssertNotNil(c.scene?.dittoTile)
-        XCTAssertNil(c.hint)
+    func testFacingTheDittoFormNamesTheDitto() async {
+        let t = await adjacentDittoForm()
+        XCTAssertEqual(t.c.hint, L(.ko).plazaMemberHint(nickname: L(.ko).plazaDittoName))
     }
 
     func testADecoyJumpFromANonHostIsIgnored() async {
@@ -920,6 +1126,7 @@ final class PlazaDittoControllerTests: XCTestCase {
     /// Following the copy stops when the copy turns back (the host found it, or its time ran out).
     func testFollowingTheCopyStopsWhenItTurnsBack() async {
         let t = await adjacentCopy()
+        t.scene.onInteractKey?()
         t.c.chooseMenu(.follow, memberID: key)
         XCTAssertEqual(t.scene.followingMember, key, "test precondition")
         let now = t.since.addingTimeInterval(1)
