@@ -85,6 +85,9 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     case pickup
     /// 불꽃놀이 (F): one shell of `TeamEmote.fireworkStyle` rises from the sender and bursts. Earlier versions skip it.
     case firework
+    /// 춤 (D): the sender dances one round of `TeamEmote.danceStyle`. Earlier versions skip it. The ♪ bubble the plaza
+    /// shows over three dancers is drawn from this kind but is never sent.
+    case dance
     /// Someone found the Ditto copy of `TeamEmote.targetMemberID`. Earlier versions skip it.
     case decoyFound
     /// The Ditto copy jumped. Earlier versions skip it.
@@ -93,7 +96,7 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .decoyFound, .decoyJump: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump: false
         }
     }
 }
@@ -114,6 +117,8 @@ struct TeamEmote: Codable, Equatable, Sendable {
     /// A firework: the `PlazaFireworkStyle.id` to burst. A style this version does not know becomes the default one.
     var fireworkStyle: String?
 
+    /// A dance: the `PlazaDance.Style.id` to dance. A style this version does not know becomes the first one.
+    var danceStyle: String?
     /// A greeting aimed at the Ditto copy. Left out when false.
     var overDecoy: Bool?
 

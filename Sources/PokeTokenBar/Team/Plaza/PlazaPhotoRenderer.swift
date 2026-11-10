@@ -28,6 +28,12 @@ struct PlazaPhotoActor {
     var sink: CGFloat = 0
     /// 헤엄칠 때 발이 선 연못 사각형(월드, y 아래로). 잠긴 아랫부분을 이 안에만 반투명하게 그린다. nil이면 그리지 않는다.
     var waterClip: CGRect? = nil
+    /// 춤으로 그림이 뜬 월드 픽셀. `bob`처럼 그림만 올리고 앞뒤 순서에는 쓰지 않는다.
+    var lift: CGFloat = 0
+    /// 춤으로 발을 기준으로 세로로 눌리거나 늘어난 배율.
+    var squash: CGFloat = 1
+    /// 춤으로 발(그림 아래 가운데)을 축으로 기운 라디안. 양수는 반시계 방향.
+    var tilt: CGFloat = 0
 }
 
 /// 기념사진에 찍히는 풀숲 앞 띠 한 칸. 좌표는 월드 픽셀이고 y가 아래로 늘어난다.
@@ -159,7 +165,7 @@ enum PlazaPhotoRenderer {
             let w = Int((CGFloat(a.image.width) * a.scale * ppw).rounded()), h = Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
             context.setAlpha(a.opacity)
             defer { context.setAlpha(1) }
-            let footTop = px(a.foot.y - a.bob, origin: rect.minY)
+            let footTop = px(a.foot.y - a.bob - a.lift, origin: rect.minY)
             let sunk = a.sink > 0
             if sunk, let pond = a.waterClip, let tinted = Self.submerged(a.image) {
                 // 잠긴 아랫부분: 화면처럼 연못 안, 발 선 아래만 반투명한 물빛으로.
@@ -180,8 +186,20 @@ enum PlazaPhotoRenderer {
                 context.saveGState()
                 context.clip(to: CGRect(x: 0, y: height - footTop, width: width, height: footTop))
             }
-            draw(a.image, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX),
-                 top: footTop - h + Int((a.sink * ppw).rounded()), w: w, h: h, mirrored: a.flipped)
+            let bodyX = px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX)
+            let bodyTop = footTop - h + Int((a.sink * ppw).rounded())
+            // 춤: 화면처럼 발 한가운데를 축으로 기울이고 세로로 늘인다.
+            let tilted = a.tilt != 0 || a.squash != 1
+            if tilted {
+                let pivot = CGPoint(x: CGFloat(bodyX) + CGFloat(w) / 2, y: CGFloat(height - (bodyTop + h)))
+                context.saveGState()
+                context.translateBy(x: pivot.x, y: pivot.y)
+                context.rotate(by: a.tilt)
+                context.scaleBy(x: 1, y: a.squash)
+                context.translateBy(x: -pivot.x, y: -pivot.y)
+            }
+            draw(a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
+            if tilted { context.restoreGState() }
             if sunk { context.restoreGState() }
             if let front = a.front, !sunk {
                 draw(front, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
@@ -251,7 +269,7 @@ enum PlazaPhotoRenderer {
 
         for a in ordered {
             let centerX = px(a.foot.x, origin: rect.minX)
-            var top = px(a.foot.y - a.bob, origin: rect.minY) - Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
+            var top = px(a.foot.y - a.bob - a.lift, origin: rect.minY) - Int((CGFloat(a.image.height) * a.scale * ppw).rounded())
             if a.sink > 0 { top += Int((a.sink * ppw).rounded()) }   // 이름표는 잘린 윗부분 위에 놓는다
             if let base = a.plateBaseY { top = px(base, origin: rect.minY) }
             if let plate = a.plate {

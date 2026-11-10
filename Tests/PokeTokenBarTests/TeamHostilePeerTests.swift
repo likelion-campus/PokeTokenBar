@@ -85,6 +85,36 @@ final class TeamHostilePeerTests: XCTestCase {
         TeamReaction(id: id, eventID: eventID, authorID: author, authorNickname: author, kind: .cute, text: nil, createdAt: clock)
     }
 
+    // MARK: - Dance
+
+    /// A modified app can send any `danceStyle` and as many dances as it likes. A huge or garbage style plays the default
+    /// dance, and a flood only restarts the round: the plaza gains no nodes.
+    func testAHugeDanceStyleAndAFloodOfDancesGrowNothing() {
+        let map = PlazaMapData.map
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        scene.size = CGSize(width: 960, height: 640)
+        scene.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false,
+                                             tile: TilePoint(x: map.spawn.x + 2, y: map.spawn.y), facing: .down, isWalking: false)])
+        scene.update(0)
+        let nodes = scene.children.count
+        var received = 0
+        session.onEmote = { id, emote in
+            received += 1
+            if emote.kind == .dance { scene.playDance(memberID: id, style: emote.danceStyle) }
+        }
+        let peer = join("A")
+        let huge = String(repeating: "x", count: 900_000)
+        say(.emote(TeamEmote(kind: .dance, targetMemberID: nil, danceStyle: huge)), from: peer)
+        XCTAssertEqual(received, 1)
+        XCTAssertEqual(scene.danceStyle(memberID: "A"), .sway)
+        for i in 0..<500 {
+            say(.emote(TeamEmote(kind: .dance, targetMemberID: "someone", danceStyle: i.isMultiple(of: 2) ? "\u{0}\(i)" : "bigHop")), from: peer)
+        }
+        XCTAssertEqual(received, 501)
+        XCTAssertEqual(scene.children.count, nodes)
+        XCTAssertTrue(scene.isDancing(memberID: "A"))
+    }
+
     // MARK: - Sizes
 
     func testAMemberIDTooLongToBeRealIsRefused() {

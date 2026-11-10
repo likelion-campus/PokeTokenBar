@@ -38,6 +38,8 @@ struct PlazaWalker: Sendable {
     var wantsToRun = false
 
     var isWalking: Bool { stepFrom != nil }
+    /// 걸음을 시작하려고 기다리는 탭, 밀림, 뛰어들기가 있다. 다음 `advance`에서 걷기 시작한다.
+    var hasPendingMove: Bool { pendingTap != nil || pendingPush != nil || pendingPlunge != nil }
     /// 방향키를 누르고 있다.
     var isHoldingKey: Bool { !held.isEmpty }
     /// 지금 가는 칸을 달리고 있다.

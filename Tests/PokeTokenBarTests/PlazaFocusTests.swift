@@ -635,4 +635,50 @@ final class PlazaFocusTests: XCTestCase {
         let moved = await pushed(focusing: false, menuOpen: true)
         XCTAssertFalse(moved)
     }
+
+    // MARK: - 춤
+
+    private let dKey: UInt16 = 2
+
+    /// 집중 중에는 D가 춤도 소식도 만들지 않고, 일어서면 춘다. 한 판마다 팀원에게 한 번씩 춤을 보낸다.
+    func testDWhileFocusingDoesNothingAndThenDancesAndSendsOneEmotePerRound() async {
+        let (me, other, c) = await pair()
+        let scene = c.scene!
+        c.startFocus(minutes: 25)
+        await waitUntil { seen(other, me)?.focusEndsAt != nil }
+        key(scene, dKey)
+        XCTAssertFalse(scene.isDancing(memberID: nil))
+        for _ in 0..<30 { await Task.yield() }
+        XCTAssertEqual(other.received.emotes.filter { $0.emote.kind == .dance }.count, 0, "nothing was sent")
+        key(scene, leftKey)   // 일어선다
+        scene.handleKeyUp(keyCode: leftKey)
+        XCTAssertNil(c.focus)
+        for i in 1...20 { scene.update(Double(i) * 0.05) }   // 걸음을 마친다
+        key(scene, dKey)
+        let style = scene.danceStyle(memberID: nil)
+        XCTAssertNotNil(style)
+        await waitUntil { other.received.emotes.contains { $0.emote.kind == .dance } }
+        let sent = other.received.emotes.filter { $0.emote.kind == .dance }
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertEqual(sent.first?.emote.danceStyle, style?.id)
+        XCTAssertNil(sent.first?.emote.targetMemberID)
+        c.handleClose()
+        await gate.tick()
+    }
+
+    /// 앉아서 집중하는 팀원의 춤은 이 화면에서 무시한다.
+    func testADanceFromAFocusingTeammateIsIgnored() async {
+        let (_, other, c) = await pair()
+        await place(other, at: TilePoint(x: 22, y: 13), focusEnds: now.addingTimeInterval(600), in: c)
+        let id = other.settings.memberID
+        c.showDance(memberID: id, style: "sway")
+        XCTAssertFalse(c.scene!.isDancing(memberID: id))
+        await place(other, at: TilePoint(x: 22, y: 13), in: c)
+        other.session.updateFocus(endsAt: nil)
+        for _ in 0..<40 { await Task.yield() }
+        c.showDance(memberID: id, style: "sway")
+        XCTAssertTrue(c.scene!.isDancing(memberID: id), "control: the same teammate dances once the focus is over")
+        c.handleClose()
+        await gate.tick()
+    }
 }
