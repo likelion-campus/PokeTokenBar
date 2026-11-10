@@ -507,7 +507,6 @@ struct PlazaSceneMember: Equatable, Sendable {
         refreshInteractionTarget()
     }
 
-
     /// 광장 메타몽 한 마리. nil이면 지운다. 팀원이 아니라서 `applyMembers`가 건드리지 않고 `memberTiles`에도 없다.
     func applyDitto(_ shown: PlazaDittoShown?) {
         let key = PlazaDitto.sceneKey
@@ -518,8 +517,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             return
         }
         if var r = remotes[key] {
-            let far = max(abs(r.motion.tile.x - shown.tile.x), abs(r.motion.tile.y - shown.tile.y)) > 1
-            if far { r.motion.snap(to: shown.tile) } else { r.motion.moveTo(shown.tile) }
+            r.motion.moveTo(shown.tile)   // 한 칸이 아니면 moveTo가 알아서 바로 옮긴다
             r.motion.senderIsWalking = shown.isWalking
             r.motion.senderIsRunning = shown.isRunning
             r.motion.facing = shown.facing
@@ -1735,7 +1733,6 @@ struct PlazaSceneMember: Equatable, Sendable {
         return PlazaPhotoLight(center: center, radii: PlazaCampfireLight.radii(phase: campfirePhase), tint: tint)
     }
 }
-
 
 /// 광장 메타몽이 지금 보여줄 모습. 이름·색·칭호는 호출하는 쪽이 정해 넘긴다.
 struct PlazaDittoShown: Equatable {

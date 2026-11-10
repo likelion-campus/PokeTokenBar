@@ -72,11 +72,27 @@ final class PlazaDittoSceneTests: XCTestCase {
         XCTAssertEqual(s.memberTitle(key), "천진난만한")
     }
 
-    func testTheCopySnapsOnAHostChangeJump() {
+    func testAFarJumpSnapsAtOnce() throws {
         let s = scene()
         s.applyDitto(shown(p(22, 22)))
+        s.applyDitto(shown(p(23, 22)))
         s.applyDitto(shown(p(30, 22)))
-        XCTAssertEqual(s.dittoTile, p(30, 22))
+        let foot = try XCTUnwrap(s.memberFoot(key))
+        s.applyDitto(nil)
+        s.applyDitto(shown(p(30, 22)))
+        XCTAssertEqual(foot, s.memberFoot(key))
+    }
+
+    func testAQueuedTwoStepWalkGlidesInsteadOfSnapping() throws {
+        let s = scene()
+        s.applyDitto(shown(p(22, 22)))
+        let start = try XCTUnwrap(s.memberFoot(key))
+        s.applyDitto(shown(p(23, 22)))
+        s.applyDitto(shown(p(24, 22)))   // before the first step starts: continues from the queued tile
+        XCTAssertEqual(s.memberFoot(key), start)
+        s.applyDitto(nil)
+        s.applyDitto(shown(p(24, 22)))
+        XCTAssertNotEqual(s.memberFoot(key), start)
     }
 
     func testThePhotoIncludesTheDitto() throws {
