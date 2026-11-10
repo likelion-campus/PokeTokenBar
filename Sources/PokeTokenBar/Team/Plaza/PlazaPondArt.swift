@@ -17,6 +17,8 @@ enum PlazaPondArt {
     /// 잠긴 아랫부분의 불투명도(캐릭터 불투명도에 곱한다)와 물빛을 섞는 비율.
     static let submergedAlpha: CGFloat = 0.35
     static let submergedBlend: CGFloat = 0.3
+    /// 물에 든 알을 통째로 물빛에 담가 그릴 때의 불투명도. 알은 헤엄치지 못하니 머리를 내밀지 않고 온통 잠겨 보인다.
+    static let submergedEggAlpha: CGFloat = 0.65
 
     /// 3×3. 위·왼쪽은 하양, 가운데는 연한 물빛, 오른쪽·아래는 물빛. 모서리는 투명.
     static func droplet() -> CGImage {
