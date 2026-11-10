@@ -154,6 +154,48 @@ final class PlazaDittoBrainTests: XCTestCase {
         XCTAssertTrue(brain.state.isDecoy)
     }
 
+    func testTheCopyIdlesAfterTheFlee() {
+        var jumps = 0, turns = 0
+        for seed in UInt64(21)...24 {
+            let p = openTile()
+            let m = TilePoint(x: p.x + 1, y: p.y)
+            let w = world(blocked: [m], copyable: ["m": m])
+            var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: seed)
+            var now = t0.addingTimeInterval(dt)
+            XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+            // Flee phase: from the copy until its first stop. It must walk, never run.
+            var walked = false
+            while now.timeIntervalSince(t0) < 60 {
+                now = now.addingTimeInterval(dt)
+                _ = brain.tick(now: now, world: w)
+                if brain.state.isWalking == true { walked = true; XCTAssertNotEqual(brain.state.isRunning, true, "flee ran") }
+                else if walked { break }
+            }
+            XCTAssertGreaterThanOrEqual(manhattan(brain.state.tile, m), PlazaDitto.fleeDistance)
+            // Idle phase.
+            var walking = 0.0, steps = 0
+            var last = brain.state
+            let end = now.addingTimeInterval(600)
+            while now < end {
+                now = now.addingTimeInterval(dt)
+                jumps += brain.tick(now: now, world: w).filter { $0 == .jumped }.count
+                let s = brain.state
+                XCTAssertTrue(s.isDecoy)
+                if s.isWalking == true { walking += dt }
+                if s.tile != last.tile { steps += 1 }
+                else if s.facing != last.facing, s.isWalking != true { turns += 1 }
+                if s.isWalking != true, steps > 0 {
+                    XCTAssertTrue((1...3).contains(steps), "idle walk of \(steps) tiles")
+                    steps = 0
+                }
+                last = s
+            }
+            XCTAssertLessThan(walking / 600, 0.30)
+        }
+        XCTAssertGreaterThan(jumps, 0, "a copy should sometimes jump")
+        XCTAssertGreaterThan(turns, 0, "a copy should sometimes turn")
+    }
+
     func testTheCopyTurnsBackAfterFifteenMinutes() {
         let p = openTile()
         let since = t0

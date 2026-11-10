@@ -98,7 +98,8 @@ struct PlazaDittoBrain {
         if fleeing {
             planFlee(world: world)
             fleeing = !route.isEmpty
-            if route.isEmpty { waitUntil = now.addingTimeInterval(Self.uniform(Self.copyWait, &rng)) } else { routeRuns = true }
+            routeRuns = false
+            if route.isEmpty { waitUntil = now.addingTimeInterval(Self.uniform(Self.copyWait, &rng)) }
             return events
         }
         if state.isDecoy {
@@ -151,6 +152,7 @@ struct PlazaDittoBrain {
         state.isWalking = true
         state.isRunning = routeRuns ? true : nil
         if route.isEmpty {
+            fleeing = false
             let range = state.isDecoy ? Self.copyWait : Self.dittoWait
             waitUntil = end.addingTimeInterval(Self.uniform(range, &rng))
         }
@@ -168,7 +170,8 @@ struct PlazaDittoBrain {
 
     private mutating func planFlee(world: PlazaDittoWorld) {
         route = []
-        guard let id = state.decoyOf, let real = world.present[id] else { return }
+        guard let id = state.decoyOf, let real = world.present[id],
+              Self.manhattan(state.tile, real) < PlazaDitto.fleeDistance else { return }
         let reach = Self.reach(from: state.tile, world: world, maxDist: nil)
         let tiles = reach.dist.filter { $0.value >= 1 }.keys.sorted(by: Self.order)
         let far = tiles.filter { Self.manhattan($0, real) >= PlazaDitto.fleeDistance }
