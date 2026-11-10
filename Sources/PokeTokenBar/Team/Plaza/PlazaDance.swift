@@ -11,8 +11,9 @@ enum PlazaDance {
     static let beatsPerRound = 4
     static let ticksPerRound = 16
     static let round: TimeInterval = Double(beatsPerRound) * beat
-    /// 이 칸 수(체비쇼프 거리) 안에서 셋 이상이 함께 추면 ♪가 뜬다.
-    static let noteRadius = 5
+    /// 팀원의 춤이 한 판이 끝난 뒤에도 다음 판 소식을 기다리는 시간. 네트워크 지연으로 다음 판 소식은 격자 경계보다 조금 늦게 오므로,
+    /// 이 여유가 없으면 남의 춤이 판마다 멈췄다 다시 시작하고 ♪가 깜빡인다.
+    static let remoteGrace: TimeInterval = beat
     /// 더해 온 시간의 부동소수점 오차(그리고 시계 값의 오차)가 걸음 경계를 한 걸음 넘기지 않게 하는 여유.
     private static let epsilon: TimeInterval = 1e-4
 
@@ -39,8 +40,8 @@ enum PlazaDance {
         return max(0, Int(((elapsed + epsilon) / step).rounded(.down))) % ticksPerRound
     }
 
-    /// 한 판이 끝났다.
-    static func isOver(elapsed: TimeInterval) -> Bool { elapsed + epsilon >= round }
+    /// 춤이 `length`초(기본은 한 판)를 채웠다.
+    static func isOver(elapsed: TimeInterval, length: TimeInterval = round) -> Bool { elapsed + epsilon >= length }
 
     /// `date`가 박자 격자에서 지난 시간(0..<beat). 한 판은 이 값에서 시작해 격자에 맞춰 끝난다.
     /// 마이크로초 정수로 센다. 0.4는 이진수로 딱 떨어지지 않아 실수 나머지로는 격자 위의 시각이 0이 아닌 값이 나온다.

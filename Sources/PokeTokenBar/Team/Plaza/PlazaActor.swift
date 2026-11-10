@@ -196,21 +196,20 @@ struct PlazaActorContext {
         jumpElapsed = 0
     }
 
-    /// 춤: 한 판(`PlazaDance.round`)을 춘다. `elapsed`는 박자 격자에서 지난 시간에서 시작해 격자에 맞춰 끝난다.
+    /// 춤: `elapsed`는 박자 격자에서 지난 시간에서 시작한다. `danceLength`를 채우면 끝난다(내 춤은 한 판, 팀원 춤은 한 판 + 여유).
     private(set) var dance: (style: PlazaDance.Style, elapsed: TimeInterval)?
-    /// 한 판이 시간이 다 돼 끝났다(걷기 같은 이유로 멈춘 것은 아니다). `takeFinishedDance`가 읽고 지운다.
+    private var danceLength = PlazaDance.round
+    /// 춤이 시간이 다 돼 끝났다(걷기 같은 이유로 멈춘 것은 아니다). `takeFinishedDance`가 읽고 지운다.
     private var danceFinished = false
-    /// 이번 판에서 ♪를 정했다(띄웠거나 다른 말풍선 때문에 건너뛰었다).
-    var danceNotesDecided = false
 
     var isDancing: Bool { dance != nil }
 
-    /// 새 판을 시작한다. 하던 판은 버린다. 떠 있던 ♪는 지워 다른 말풍선으로 세지 않는다.
-    func startDance(_ style: PlazaDance.Style, offset: TimeInterval) {
-        clearDanceNotes()
+    /// 새 춤을 시작한다. 하던 춤은 버린다. ♪는 춤추는 동안 계속 떠 있으므로 지우지 않고 그대로 이어 간다.
+    func startDance(_ style: PlazaDance.Style, offset: TimeInterval, length: TimeInterval = PlazaDance.round) {
         dance = (style, max(0, min(offset, PlazaDance.beat)))
+        danceLength = length
         danceFinished = false
-        danceNotesDecided = false
+        showDanceNotesIfFree()
     }
 
     func stopDance() {
@@ -219,21 +218,17 @@ struct PlazaActorContext {
         danceFinished = false
     }
 
-    /// 판이 저절로 끝났으면 true를 한 번 돌려준다.
+    /// 춤이 저절로 끝났으면 true를 한 번 돌려준다.
     func takeFinishedDance() -> Bool {
         defer { danceFinished = false }
         return danceFinished
     }
 
-    /// 머리 위에 ♪를 이번 판이 끝날 때까지 띄운다. 이미 말풍선이 떠 있으면 부르는 쪽이 건너뛴다.
-    func showDanceNotes() {
-        guard let dance else { return }
-        chatText = nil
-        chatKey = nil
+    /// 춤추는 동안 다른 말풍선이 없으면 머리 위에 ♪를 띄운다. 시간이 다해 사라지지 않고 춤이 멈출 때 지워진다.
+    private func showDanceNotesIfFree() {
+        guard isDancing, !isBubbleShown else { return }
         emoteKind = .dance
-        emoteRemaining = max(0, PlazaDance.round - dance.elapsed)
         emoteNode.isHidden = false
-        danceNotesDecided = true
     }
 
     private func clearDanceNotes() {
@@ -270,7 +265,7 @@ struct PlazaActorContext {
     func animate(by dt: TimeInterval, useBack: Bool) {
         if var d = dance {
             d.elapsed += dt
-            if PlazaDance.isOver(elapsed: d.elapsed) {
+            if PlazaDance.isOver(elapsed: d.elapsed, length: danceLength) {
                 clearDanceNotes()
                 dance = nil
                 danceFinished = true
@@ -290,10 +285,11 @@ struct PlazaActorContext {
             wetRemaining -= dt
             if wetRemaining <= 0 { wetNode.isHidden = true }
         }
-        if emoteKind != nil || chatText != nil {
+        if (emoteKind != nil && emoteKind != .dance) || chatText != nil {
             emoteRemaining -= dt
             if emoteRemaining <= 0 { hideEmote() }
         }
+        showDanceNotesIfFree()   // 다른 말풍선이 사라졌는데 아직 춤추면 ♪가 돌아온다
         if useBack != showingBack {
             showingBack = useBack
             frameIndex = 0

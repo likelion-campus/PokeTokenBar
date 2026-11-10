@@ -666,6 +666,71 @@ final class PlazaFocusTests: XCTestCase {
         await gate.tick()
     }
 
+    /// 말풍선·점프·인사·몸통박치기·불꽃놀이·글은 실제로 일어날 때 내 춤을 멈추고, 연타 제한에 걸려 아무 일도 없으면 멈추지 않는다.
+    func testEachLocalActionStopsMyDance() async {
+        var sceneClock = 4000.0
+        let actions: [(String, (PlazaWindowController) -> Void)] = [
+            ("bubble", { $0.scene!.onEmoteKey?(.heart) }),
+            ("jump", { $0.scene!.onJumpKey?() }),
+            ("greet", { $0.scene!.onGreetKey?() }),
+            ("tackle", { $0.scene!.onTackleKey?() }),
+            ("firework", { $0.scene!.onFireworkKey?() }),
+            ("chat", { _ = $0.chatInputForTesting.onSubmit?("안녕") }),
+        ]
+        for (name, act) in actions {
+            let (_, other, c) = await pair(start: spawn)
+            let scene = c.scene!
+            scene.now = { Date(timeIntervalSince1970: sceneClock) }
+            await place(other, at: beside, in: c)
+            key(scene, dKey)
+            XCTAssertTrue(scene.isDancing(memberID: nil), name)
+            act(c)
+            XCTAssertFalse(scene.isDancing(memberID: nil), "\(name) stops the dance")
+            XCTAssertNotEqual(scene.shownEmote(memberID: nil), .dance, "\(name): the notes went too")
+            c.handleClose()
+            await gate.tick()
+        }
+        // A rate-limited repeat does nothing, so it leaves the next dance alone.
+        let (_, _, c) = await pair(start: spawn)
+        let scene = c.scene!
+        scene.now = { Date(timeIntervalSince1970: sceneClock) }
+        scene.onEmoteKey?(.heart)
+        sceneClock += 1
+        key(scene, dKey)
+        XCTAssertTrue(scene.isDancing(memberID: nil))
+        scene.onEmoteKey?(.lol)   // same controller clock: too soon, ignored
+        XCTAssertTrue(scene.isDancing(memberID: nil), "a bubble that was refused does not stop the dance")
+        c.handleClose()
+        await gate.tick()
+    }
+
+    /// 사진 모드와 단체 사진은 춤을 멈추지 않는다.
+    func testPhotoModeAndGroupPhotoDoNotStopMyDance() async {
+        let (_, _, c) = await pair(start: spawn)
+        let scene = c.scene!
+        key(scene, dKey)
+        XCTAssertTrue(scene.isDancing(memberID: nil))
+        key(scene, 35)   // P
+        XCTAssertTrue(scene.isPhotoMode)
+        XCTAssertTrue(scene.isDancing(memberID: nil))
+        scene.onGroupPhotoKey?()
+        XCTAssertTrue(scene.isDancing(memberID: nil))
+        c.handleClose()
+        await gate.tick()
+    }
+
+    /// 자리비움이 되면 춤이 멈춘다.
+    func testGoingIdleStopsMyDance() async {
+        let (me, _, c) = await pair(start: spawn)
+        let scene = c.scene!
+        key(scene, dKey)
+        XCTAssertTrue(scene.isDancing(memberID: nil))
+        me.session.updateIdle(true)
+        await waitUntil { !scene.isDancing(memberID: nil) }
+        c.handleClose()
+        await gate.tick()
+    }
+
     /// 앉아서 집중하는 팀원의 춤은 이 화면에서 무시한다.
     func testADanceFromAFocusingTeammateIsIgnored() async {
         let (_, other, c) = await pair()

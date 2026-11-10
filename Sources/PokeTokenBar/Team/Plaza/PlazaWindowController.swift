@@ -434,6 +434,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
+        scene.stopDance(memberID: nil)
         scene.showEmote(memberID: nil, kind: kind)
         var target = kind.notifiesTarget
             ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targetTiles) : nil
@@ -518,6 +519,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
         lastChatAt = now
         if loud { lastLoudAt = now }
+        scene.stopDance(memberID: nil)
         scene.showChat(memberID: nil, text: text)
         chatLog.append(time: now, name: nickname(), text: text, color: scene.nameColor, isLoud: loud)
         session?.sendChat(text, loud: loud)
@@ -536,6 +538,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         lastJumpAt = now
         switch scene.pondAction(canMove: scene.canWalk && !isFocusing) {
         case .jump, .shoreJump:
+            scene.stopDance(memberID: nil)
             scene.playJump(memberID: nil)
             session?.sendEmote(.jump, target: nil)
         case .plunge(let d):
@@ -585,6 +588,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         var rng = SystemRandomNumberGenerator()
         let style = PlazaFireworks.next(after: lastFireworkStyle, using: &rng)
         guard scene?.playFirework(memberID: nil, style: style.id) == true else { return }
+        scene?.stopDance(memberID: nil)
         lastFireworkStyle = style.id
         session?.sendEmote(.firework, target: nil, fireworkStyle: style.id)
     }
@@ -592,6 +596,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 런타임이 부른다. 팀원이 불꽃을 쐈다. 창이 닫혀 있으면 아무것도 안 한다.
     func showFirework(memberID: String, style: String?) {
         scene?.playFirework(memberID: memberID, style: style)
+    }
+
+    /// 런타임이 부른다. 팀원이 다른 동작(말풍선, 글, 점프 같은)을 해 그 팀원의 춤을 멈춘다. 창이 닫혀 있으면 아무것도 안 한다.
+    func stopDance(memberID: String) {
+        scene?.stopDance(memberID: memberID)
     }
 
     /// 런타임이 부른다. 팀원이 춤 한 판을 춘다. 집중 중인 팀원은 앉아 있으니 추지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
@@ -849,6 +858,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
+        scene.stopDance(memberID: nil)
         let me = scene.walker.tile
         let direction = PlazaPathfinder.isAdjacent(me, target) ? PlazaPathfinder.direction(from: me, to: target) : scene.walker.facing
         scene.playTackle(by: nil, on: id, direction: direction)
@@ -880,6 +890,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
+        scene.stopDance(memberID: nil)
         let kind = greetingKind()
         scene.showEmote(memberID: nil, kind: kind)
         scene.showEmote(memberID: id, kind: kind)
@@ -1350,6 +1361,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             Task { @MainActor in self?.observeMembers(session: session, generation: generation) }
         }
         members = current
+        if session.isIdle { scene?.stopDance(memberID: nil) }
         if let followed = scene?.followingMember, focusRemaining(of: followed) != nil { scene?.stopWalkingToMember() }
         applyMembersToScene()
         refreshCampfire()

@@ -209,7 +209,7 @@ final class TeamRuntimeTests: XCTestCase {
     }
 
     /// A teammate's dance plays here in the style they sent, one round, and an unknown style plays the default one.
-    func testReceivedDancePlaysOneRoundOfTheirStyle() async {
+    func testReceivedDancePlaysTheirStyle() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.dance.\(UUID().uuidString)"
         defer { UserDefaults().removePersistentDomain(forName: suite) }
@@ -224,10 +224,44 @@ final class TeamRuntimeTests: XCTestCase {
         a.runtime.session.sendEmote(.dance, target: nil, danceStyle: "twirl")
         await settle { plaza.scene?.isDancing(memberID: sender) == true }
         XCTAssertEqual(plaza.scene?.danceStyle(memberID: sender), .twirl)
-        XCTAssertNil(plaza.scene?.shownEmote(memberID: sender), "a dance is no bubble")
+        XCTAssertEqual(plaza.scene?.shownEmote(memberID: sender), .dance, "the notes show over every dancer")
         a.runtime.session.sendEmote(.dance, target: nil, danceStyle: "fromANewerVersion")
         await settle { plaza.scene?.danceStyle(memberID: sender) == .sway }
         XCTAssertEqual(plaza.scene?.danceStyle(memberID: sender), .sway)
+        plaza.handleClose()
+    }
+
+    /// A teammate who does something else stops dancing on my screen; the shared moments and the Ditto copy's jump do not.
+    func testARemotesActionEmoteOrChatStopsItsDance() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.danceStop.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        func dance() async {
+            a.runtime.session.sendEmote(.dance, target: nil, danceStyle: "sway")
+            await settle { plaza.scene?.isDancing(memberID: sender) == true }
+        }
+        for kind in TeamEmoteKind.allCases where kind.endsSendersDance {
+            await dance()
+            a.runtime.session.sendEmote(kind, target: nil)
+            await settle { plaza.scene?.isDancing(memberID: sender) == false }
+        }
+        await dance()
+        a.runtime.session.sendChat("안녕", loud: false)
+        await settle { plaza.scene?.isDancing(memberID: sender) == false }
+        for kind in TeamEmoteKind.allCases where !kind.endsSendersDance && kind != .dance {
+            await dance()
+            a.runtime.session.sendEmote(kind, target: nil)
+            for _ in 0..<60 { await Task.yield() }
+            XCTAssertEqual(plaza.scene?.isDancing(memberID: sender), true, "\(kind) leaves the dance alone")
+        }
         plaza.handleClose()
     }
 
