@@ -387,7 +387,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
-        s.onDanceRound = { [weak self] in self?.session?.sendEmote(.dance, target: nil, danceStyle: $0) }
+        s.onDanceRound = { [weak self] in
+            self?.session?.sendEmote(.dance, target: nil, danceStyle: $0)
+            self?.danceAlong(with: nil, style: $0)
+        }
         s.isFocusing = { [weak self] in self?.isFocusing ?? false }
         s.onItemPickup = { [weak self] in self?.pickUp($0) }
         s.onItemChange = { [weak self] _ in self?.refreshMinimap() }
@@ -609,6 +612,20 @@ struct PlazaFocusEnd: Equatable, Sendable {
     func showDance(memberID: String, style: String?) {
         guard focusRemaining(of: memberID) == nil else { return }
         scene?.playDance(memberID: memberID, style: style)
+        // 팀원의 춤이 내 화면에서 아직 안 시작됐어도(걸음을 마치는 중, 창이 가려져 장면이 멈춤) 메타몽 쪽은 자리로 정한다.
+        danceAlong(with: memberID, style: style)
+    }
+
+    /// 메타몽 둘레 여덟 칸에서 누가(nil이면 나) 춤 한 판을 시작했으면 메타몽도 같은 춤을 같은 박자에 춘다. 메타몽 모습이든
+    /// 복사본이든 같다. 춤 소식은 판마다 오므로 판마다 다시 추고, 소식이 끊기면 팀원 춤처럼 한 판과 여유 뒤에 멈춘다.
+    /// 호스트는 그동안 메타몽을 세워 둔다(달아나는 중이면 그대로 간다). 창이 가려져 내 장면이 그리지 않아도 다른 Mac에서는
+    /// 춤추고 있으므로, 세워 두기는 그리기와 따로 자리만으로 정한다.
+    private func danceAlong(with dancer: String?, style: String?) {
+        guard let scene, let ditto = scene.dittoTile else { return }
+        let tile: TilePoint? = if let dancer { scene.memberTiles[dancer] } else { scene.walker.tile }
+        guard let tile, PlazaDitto.dancesAlong(ditto: ditto, dancer: tile) else { return }
+        scene.playDance(memberID: PlazaDitto.sceneKey, style: style)
+        dittoBrain?.hold(until: clock().addingTimeInterval(PlazaDitto.danceHold))
     }
 
     /// 사진 모드 밖이면 연다. 안이면 찍는다.
@@ -1232,6 +1249,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 런타임이 부른다. 호스트의 복사본이 폴짝 뛰었다. 호스트가 아닌 팀원이 보낸 것은 무시한다.
     func showDecoyJump(from sender: String) {
         guard sender == dittoHost(), shownDitto?.isDecoy == true else { return }
+        scene?.stopDance(memberID: PlazaDitto.sceneKey)
         scene?.playJump(memberID: PlazaDitto.sceneKey)
     }
 
@@ -1298,9 +1316,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         case .none:
             break
         case .transformed:
+            scene.stopDance(memberID: PlazaDitto.sceneKey)
             scene.playDittoPoof()
             if let id = state.decoyOf, scene.walkingToMember == id { scene.stopWalkingToMember() }
         case .turnedBack:
+            scene.stopDance(memberID: PlazaDitto.sceneKey)
             scene.playDittoPoof()
             if scene.followingMember == PlazaDitto.sceneKey { scene.stopWalkingToMember() }
         }

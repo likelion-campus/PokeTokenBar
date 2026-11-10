@@ -26,6 +26,15 @@ enum PlazaDitto {
         inPlaza && ready && !isIdle && !isFocusing && !isEgg
     }
 
+    /// How long the host holds a dancing Ditto still: one round and the wait for the next round's news, exactly as long as a
+    /// received dance lasts, so the host's Ditto never hops or walks off mid-dance.
+    static let danceHold: TimeInterval = PlazaDance.round + PlazaDance.remoteGrace
+
+    /// A dancer in the eight tiles around the Ditto (or on its tile) makes it dance the same dance, in either form.
+    static func dancesAlong(ditto: TilePoint, dancer: TilePoint) -> Bool {
+        max(abs(ditto.x - dancer.x), abs(ditto.y - dancer.y)) <= 1
+    }
+
     /// The member to copy: one of `copyable` on a tile next to `ditto`. Smallest ID when several.
     static func copyTarget(ditto: TilePoint, copyable: [String: TilePoint]) -> String? {
         copyable.filter { PlazaPathfinder.isAdjacent(ditto, $0.value) }.keys.min()

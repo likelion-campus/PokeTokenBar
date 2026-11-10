@@ -140,6 +140,13 @@ struct PlazaDittoBrain {
         return true
     }
 
+    /// The Ditto is dancing along with someone: stand until `until`. A flee goes on; a walk under way goes on too, since
+    /// its route runs before the wait is looked at and its last step sets a fresh wait.
+    mutating func hold(until: Date) {
+        guard !fleeing else { return }
+        waitUntil = max(waitUntil, until)
+    }
+
     // MARK: - Behaviour
 
     /// Become `id` and flee from them on the next tick (after the step under way, if any).
