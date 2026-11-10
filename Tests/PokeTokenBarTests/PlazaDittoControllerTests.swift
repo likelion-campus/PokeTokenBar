@@ -702,6 +702,25 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(t.scene.followingMember, key)
     }
 
+    func testAMenuOnACopyThatTurnedBackDoesNothing() async {
+        for action in [PlazaMemberAction.follow, .greet, .tackle, .viewCard] {
+            let t = await adjacentCopy()
+            t.scene.onInteractKey?()
+            guard case .memberMenu = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+            let log = emotes(from: t.m)
+            let now = t.since.addingTimeInterval(1)
+            host(t.a, dittoForm(beside(), now: now))
+            await settle()
+            t.c.advanceDitto(now: now)
+            XCTAssertEqual(t.c.shownDitto?.isDecoy, false, "test precondition")
+            t.c.chooseMenu(action, memberID: key)
+            await settle()
+            XCTAssertEqual(t.c.overlayContent, .none, "\(action)")
+            XCTAssertNil(t.scene.followingMember, "\(action)")
+            XCTAssertTrue(log.items.isEmpty, "\(action)")
+        }
+    }
+
     func testTheMenuOnMyOwnCopyHasNoCard() async {
         let t = await adjacentCopy(ofMe: true, nickname: "재헌")
         t.scene.onInteractKey?()

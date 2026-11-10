@@ -810,6 +810,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     /// 메뉴에서 고른 일을 한다. 키로 고르든 눌러 고르든 여기로 온다.
     func chooseMenu(_ action: PlazaMemberAction, memberID id: String) {
+        // 메뉴를 연 사이에 복사본이 메타몽으로 돌아왔다면 고른 일은 없던 일이다.
+        if id == PlazaDitto.sceneKey, shownDitto?.isDecoy != true { return closeOverlay() }
         switch action {
         case .greet:
             closeOverlay()
