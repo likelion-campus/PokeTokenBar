@@ -903,6 +903,17 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(t.m.session.members[t.me.id]?.ditto?.decoyOf, t.m.id, "the new copy is sent at once")
     }
 
+    /// Someone the Ditto can't copy (an egg, idle, focusing, or not ready) tackles it: the hit shows, nothing else changes.
+    func testATackleBySomeoneWhoCannotBeCopiedLeavesTheDittoForm() async {
+        let t = await hostingDittoForm()
+        place(t.m, at: ground(-5, 0), ready: false)
+        await settle()
+        let before = t.c.shownDitto
+        t.c.showTackle(from: t.m.id, on: key)
+        XCTAssertEqual(t.c.shownDitto, before)
+        XCTAssertEqual(t.c.scene?.children.filter { $0.name == "tackle-impact" }.count, 1)
+    }
+
     func testTheHostsOwnTackleTurnsTheDittoFormIntoMe() async {
         let t = await hostingDittoForm()
         let log = emotes(from: t.m)
