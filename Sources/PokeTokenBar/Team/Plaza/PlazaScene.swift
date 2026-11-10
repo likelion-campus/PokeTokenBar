@@ -143,6 +143,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         var dive = DiveFade()
         var stage = 1
         var pond = PondWatch()
+        /// 광장 메타몽 전용: 팀원을 따라 한 모습인지.
+        var isDecoy = false
 
         /// zZ는 자리비움(입력 없음)일 때만. 광장을 닫고 일하는 팀원은 쉼터에 서 있어도 zZ가 없다.
         var displayName: String { Self.displayName(nickname, isIdle: isIdle) }
@@ -460,7 +462,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 없는 팀원의 캐릭터를 지우고 새 팀원의 캐릭터를 만든다. 값만 받고 그리지 않는다(창이 가려진 동안에도 안전하다).
     func applyMembers(_ members: [PlazaSceneMember]) {
         let ids = Set(members.map(\.memberID))
-        for (id, remote) in remotes where !ids.contains(id) {
+        for (id, remote) in remotes where !ids.contains(id) && id != PlazaDitto.sceneKey {
             remote.actor.detach()
             remotes[id] = nil
         }
@@ -503,6 +505,71 @@ struct PlazaSceneMember: Equatable, Sendable {
             }
         }
         refreshInteractionTarget()
+    }
+
+
+    /// 광장 메타몽 한 마리. nil이면 지운다. 팀원이 아니라서 `applyMembers`가 건드리지 않고 `memberTiles`에도 없다.
+    func applyDitto(_ shown: PlazaDittoShown?) {
+        let key = PlazaDitto.sceneKey
+        guard let shown else {
+            remotes[key]?.actor.detach()
+            remotes[key] = nil
+            refreshInteractionTarget()
+            return
+        }
+        if var r = remotes[key] {
+            let far = max(abs(r.motion.tile.x - shown.tile.x), abs(r.motion.tile.y - shown.tile.y)) > 1
+            if far { r.motion.snap(to: shown.tile) } else { r.motion.moveTo(shown.tile) }
+            r.motion.senderIsWalking = shown.isWalking
+            r.motion.senderIsRunning = shown.isRunning
+            r.motion.facing = shown.facing
+            r.nickname = shown.name
+            r.color = shown.nameColor
+            r.isDecoy = shown.isDecoy
+            r.actor.setName(r.displayName, color: r.color)
+            r.actor.setTitle(shown.title)
+            remotes[key] = r
+        } else {
+            var motion = PlazaRemoteMotion(tile: shown.tile, facing: shown.facing)
+            motion.senderIsWalking = shown.isWalking
+            motion.senderIsRunning = shown.isRunning
+            var r = Remote(actor: PlazaActor(name: shown.name, color: shown.nameColor), color: shown.nameColor,
+                           nickname: shown.name, isAway: false, motion: motion)
+            r.isDecoy = shown.isDecoy
+            r.actor.setTitle(shown.title)
+            r.actor.attach(world: self, camera: cameraNode)
+            remotes[key] = r
+        }
+        refreshInteractionTarget()
+    }
+
+    var dittoTile: TilePoint? { remotes[PlazaDitto.sceneKey]?.motion.tile }
+    var decoyTile: TilePoint? {
+        guard let r = remotes[PlazaDitto.sceneKey], r.isDecoy else { return nil }
+        return r.motion.tile
+    }
+
+    /// 변신·원래대로 돌아올 때 발밑에서 일어나는 먼지 고리.
+    func playDittoPoof() {
+        guard !isPaused, let r = remotes[PlazaDitto.sceneKey] else { return }
+        let foot = r.motion.footPoint
+        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
+        texture.filteringMode = .nearest
+        let count = 5
+        for i in 0..<count {
+            let angle = Double(i) / Double(count) * 2 * .pi
+            let dx = cos(angle), dy = sin(angle)
+            let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.dustSize)
+            node.position = CGPoint(x: (foot.x + dx * 6).rounded(), y: (worldSize.height - foot.y + 3 + dy * 4).rounded())
+            node.xScale = dx < 0 ? -1 : 1
+            node.zPosition = 1 + foot.y / worldSize.height + 0.0002
+            node.name = Self.dustName
+            addChild(node)
+            node.run(.sequence([
+                .group([.moveBy(x: dx * 12, y: dy * 8 + 3, duration: 0.45), .fadeOut(withDuration: 0.45)]),
+                .removeFromParent(),
+            ]))
+        }
     }
 
     func setMemberFrames(_ memberID: String, _ frames: PlazaCharacterFrames) {
@@ -1452,7 +1519,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// 내 화면에 보이는 팀원 자리(걷는 중이면 도착할 칸, 자리 비움은 쉼터 칸). 표적 찾기에 쓴다.
-    var memberTiles: [String: TilePoint] { remotes.mapValues { $0.motion.tile } }
+    var memberTiles: [String: TilePoint] {
+        remotes.filter { $0.key != PlazaDitto.sceneKey }.mapValues { $0.motion.tile }
+    }
     /// 테스트용
     func memberFoot(_ id: String) -> CGPoint? { remotes[id]?.motion.footPoint }
     func memberName(_ id: String) -> String? { remotes[id]?.displayName }
@@ -1665,4 +1734,17 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard lightShown(tint: tint), let center = PlazaCampfireLight.center(campfireTiles: map.campfireTiles) else { return nil }
         return PlazaPhotoLight(center: center, radii: PlazaCampfireLight.radii(phase: campfirePhase), tint: tint)
     }
+}
+
+
+/// 광장 메타몽이 지금 보여줄 모습. 이름·색·칭호는 호출하는 쪽이 정해 넘긴다.
+struct PlazaDittoShown: Equatable {
+    var tile: TilePoint
+    var facing: PlazaDirection
+    var isWalking: Bool
+    var isRunning: Bool
+    var name: String
+    var nameColor: CGColor
+    var title: String?
+    var isDecoy: Bool
 }
