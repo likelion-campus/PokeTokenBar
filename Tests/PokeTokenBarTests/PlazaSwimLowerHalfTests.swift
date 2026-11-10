@@ -21,6 +21,12 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
         return PlazaCharacterFrames(front: f, back: f)
     }
 
+    private func eggFrames() -> PlazaCharacterFrames {
+        var f = frames()
+        f.isEgg = true
+        return f
+    }
+
     private func scene(start: TilePoint) -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start, zoom: 2,
                            nickname: "me", pondVisuals: true)
@@ -37,6 +43,11 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
             return m
         })
         for m in list { s.setMemberFrames(m.id, frames()) }
+    }
+
+    private func addEgg(_ s: PlazaScene, _ id: String, _ tile: TilePoint) {
+        add(s, [(id, tile, false)])
+        s.setMemberFrames(id, eggFrames())
     }
 
     private func settle(_ s: PlazaScene) {
@@ -123,5 +134,89 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
         let plain = pixel(img, 8, 128 + 4)   // same row, beside the swimmer
         XCTAssertGreaterThan(inside.r, 40)
         XCTAssertEqual(below.r, plain.r, "nothing past the pond's bottom edge")
+    }
+
+    // MARK: egg in the water
+
+    private func assertSunkWhole(_ a: PlazaActor, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(a.isSubmergedBodyVisible, file: file, line: line)
+        XCTAssertEqual(a.submergedBodyTextureRect, CGRect(x: 0, y: 0, width: 1, height: 1), file: file, line: line)
+        XCTAssertEqual(a.submergedBodyAlpha, PlazaPondArt.submergedEggAlpha, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(a.submergedBodySize, CGSize(width: 48, height: 72), file: file, line: line)
+        XCTAssertEqual(a.submergedBodyTopY, a.characterY + 72, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(a.characterOpacity, 0, "the opaque body is gone", file: file, line: line)
+        XCTAssertEqual(a.visibleSpriteHeight, 72, file: file, line: line)
+        XCTAssertTrue(a.isSwimRingVisible, file: file, line: line)
+        XCTAssertEqual(a.swimRingY, a.characterY + 72 - 2, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(a.nestFrontOpacity, 0, file: file, line: line)
+        XCTAssertEqual(a.submergedBodyClip, pondClip, file: file, line: line)
+    }
+
+    func testAnEggInTheWaterSinksWholeInPlace() throws {
+        let s = scene(start: TilePoint(x: 33, y: 15))
+        s.setCharacter(eggFrames())
+        settle(s)
+        assertSunkWhole(s.myActor)
+        let standing = scene(start: TilePoint(x: 20, y: 22))
+        standing.setCharacter(eggFrames())
+        settle(standing)
+        XCTAssertEqual(s.myActor.namePlatePosition.y, standing.myActor.namePlatePosition.y, accuracy: 0.001, "the plate rides where a standing egg's would")
+    }
+
+    func testARemoteEggInTheWaterSinksTheSameWay() throws {
+        let s = scene(start: TilePoint(x: 20, y: 22))
+        addEgg(s, "a", TilePoint(x: 34, y: 18))
+        settle(s)
+        assertSunkWhole(try XCTUnwrap(s.memberActor("a")))
+    }
+
+    func testASwimmingPokemonKeepsItsHeadAboveWater() throws {
+        let s = scene(start: TilePoint(x: 20, y: 22))
+        add(s, [("a", TilePoint(x: 34, y: 18), false)])
+        settle(s)
+        let a = try XCTUnwrap(s.memberActor("a"))
+        XCTAssertEqual(a.visibleSpriteHeight, 72 * 0.45, accuracy: 1)
+        XCTAssertEqual(a.characterOpacity, 1)
+        XCTAssertEqual(a.swimRingY, a.characterY, accuracy: 0.001, "the ring is at the foot")
+    }
+
+    func testAnEggLeavingTheWaterStandsOnItsNestAgain() throws {
+        let s = scene(start: TilePoint(x: 20, y: 22))
+        addEgg(s, "a", TilePoint(x: 34, y: 18))
+        settle(s)
+        s.applyMembers([PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 30, y: 18), facing: .down, isWalking: false)])
+        var t: TimeInterval = 1
+        for _ in 0..<90 { t += 1.0 / 30; s.update(t) }
+        let a = try XCTUnwrap(s.memberActor("a"))
+        XCTAssertFalse(a.isSubmergedBodyVisible)
+        XCTAssertFalse(a.isSwimRingVisible)
+        XCTAssertEqual(a.characterOpacity, 1)
+        XCTAssertEqual(a.visibleSpriteHeight, 72)
+        XCTAssertTrue(a.nestFrontIsInFront)
+    }
+
+    func testAPhotoOfAnEggInTheWaterShowsItSunk() throws {
+        let s = scene(start: TilePoint(x: 33, y: 15))
+        s.setCharacter(eggFrames())
+        settle(s)
+        let input = try XCTUnwrap(s.photoInput())
+        let a = try XCTUnwrap(input.actors.first)
+        XCTAssertNotNil(a.waterClip)
+        XCTAssertTrue(a.eggSunk)
+        XCTAssertEqual(a.sink, 0, "the whole egg stands in place")
+        XCTAssertNil(a.front)
+        // Pixels: world 128x128 of blue water; the egg stands on foot y=100 in a pond covering the whole picture.
+        var e = PlazaPhotoActor(image: solid(32, 48), flipped: false, foot: CGPoint(x: 64, y: 100), scale: 1.5,
+                                shadow: nil, shadowRect: .zero, plate: nil, bubble: nil)
+        e.eggSunk = true
+        e.waterClip = CGRect(x: 0, y: 0, width: 128, height: 128)
+        let pic = PlazaPhotoInput(mapImage: solid(128, 128, r: 0, g: 0.5, b: 0.7), visibleRect: CGRect(x: 0, y: 0, width: 128, height: 128),
+                                  pixelsPerWorld: 2, actors: [e])
+        let img = try XCTUnwrap(PlazaPhotoRenderer.render(pic))
+        let top = pixel(img, 64 * 2, (100 - 72 + 4) * 2)   // just under the egg's top
+        let foot = pixel(img, 64 * 2, (100 - 4) * 2)
+        XCTAssertGreaterThan(top.r, 40, "the egg shows through the water at its top")
+        XCTAssertLessThan(top.r, 200, "translucent, no opaque top part")
+        XCTAssertEqual(foot.r, top.r, "the whole egg is drawn alike")
     }
 }

@@ -1638,6 +1638,26 @@ read_when:
   height). Measure a new cap against every canvas in the dex, not the cached few; the guard is
   `testWideSpriteFillsMenuBarHeightUntilTheWidthCap` with the real Swanna and Tynamo canvases.
 
+- **물속의 알이 물 위에 둥둥 떠 보였고, 장면이 멈춰 있으면 물에서 나오지도 않았다.** 헤엄 표현(#83)은 몸 윗부분 45%만
+  또렷하게 두고 아랫부분을 물빛 유령으로 그린다 — 알에 그대로 쓰니 부표처럼 떠 보였다(알은 헤엄치지 못한다). 5-whys:
+  ① 알이 물에서 나오는 길(#80)은 `update` 의 `!canWalk` 분기에만 있어, 창이 가려져 장면이 멈추면(`isPaused`)
+  알이 되든 몸통박치기로 빠지든(`pushMe` 의 멈춘 가지는 걸음만 끝내고 올라오지 않는다) 팀원 화면에선 계속 물속이다.
+  ② 왜 못 걸렀나: #83 은 포켓몬 프레임으로만, #80 은 위치만 검증했다. 알의 물속 **모습**을 보는 테스트도 렌더도 없었고
+  (#80 PR 이미지에 뜬 돔이 찍혀 있었는데도 아무도 짚지 않았다), 멈춘 장면 경로는 `pushMe` 에만 있고 `canWalk` 에는 없었다.
+  수정: `eggSunk`(알+헤엄 높이)면 몸통을 투명(`alpha 0`, `isHidden` 은 "그림 있음" 표시라 건드리지 않는다)으로 하고
+  그림 전체를 제자리에서 `submergedEggAlpha` 물빛 유령 하나로 그리며 고리는 알 꼭대기에 둔다(사진도 같다).
+  멈춘 장면에서는 `canWalk=false` 와 `pushMe` 끝에서 `climbOutNowIfPaused` 가 같은 `stepAshore` 길로 바로 올라와 보고한다
+  (빈 물가가 없으면 물에 남아 `update` 가 마저 하고, 걸음 수 상한으로 끝없이 돌지 않는다).
+  **부류:** 상태별 모습(헤엄·잠수·춤·점프)은 **알 프레임으로도** 확인한다. `update` 에만 있는 로직은 장면이 멈추면 돌지
+  않으므로, 내 위치·상태를 바꿔 팀원에게 가야 하는 것은 `pushMe` 처럼 멈춘 경로가 필요하다.
+  **스윕:** 멈춘 장면에서 알이 물에 들 수 있는 길은 `canWalk` 전환과 `pushMe` 둘뿐이다 — `sit`/집중 자리는 땅이고
+  시작 칸은 `canWalk` 기본값이 true 라 이후 전환이 `didSet` 으로 덮인다. 상태별 모습 중 알을 가정하지 못한 곳은 사진
+  렌더러의 `sink` 가지와 그림자·둥지 앞 테두리 숨김이었고 함께 고쳤다.
+  가드: `testAnEggInTheWaterSinksWholeInPlace`, `testARemoteEggInTheWaterSinksTheSameWay`,
+  `testASwimmingPokemonKeepsItsHeadAboveWater`, `testAnEggLeavingTheWaterStandsOnItsNestAgain`,
+  `testAPhotoOfAnEggInTheWaterShowsItSunk`, `testAPausedSceneMovesAnEggAshoreAtOnceWhenIBecomeAnEgg`,
+  `testAPausedPushIntoTheWaterLeavesAnEggOnTheShore`, `testAPausedEggWithNoFreeShoreWaitsInTheWater`.
+
 ## 프로세스 제어·업데이트
 
 - **"나중에"는 이 버전을 다시 안 보여 주는 스킵이지, 다음에 또 물어보기가 아니다.** `skipCurrent()` 가

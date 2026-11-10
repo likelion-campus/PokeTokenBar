@@ -28,6 +28,8 @@ struct PlazaPhotoActor {
     var sink: CGFloat = 0
     /// 헤엄칠 때 발이 선 연못 사각형(월드, y 아래로). 잠긴 아랫부분을 이 안에만 반투명하게 그린다. nil이면 그리지 않는다.
     var waterClip: CGRect? = nil
+    /// 물에 든 알. `sink`는 0이고, 그림을 제자리에서 통째로 물빛 반투명(`submergedEggAlpha`)으로만 연못 안에 그린다(불투명 몸통 없음).
+    var eggSunk = false
     /// 춤으로 그림이 뜬 월드 픽셀. `bob`처럼 그림만 올리고 앞뒤 순서에는 쓰지 않는다.
     var lift: CGFloat = 0
     /// 춤으로 발을 기준으로 세로로 눌리거나 늘어난 배율.
@@ -138,7 +140,7 @@ enum PlazaPhotoRenderer {
              w: Int((CGFloat(input.mapImage.width) * ppw).rounded()), h: Int((CGFloat(input.mapImage.height) * ppw).rounded()))
 
         for a in input.actors {
-            guard let shadow = a.shadow, a.sink <= 0 else { continue }
+            guard let shadow = a.shadow, a.sink <= 0, !a.eggSunk else { continue }
             context.setAlpha(a.opacity)
             defer { context.setAlpha(1) }
             draw(shadow, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
@@ -167,6 +169,20 @@ enum PlazaPhotoRenderer {
             defer { context.setAlpha(1) }
             let footTop = px(a.foot.y - a.bob - a.lift, origin: rect.minY)
             let sunk = a.sink > 0
+            if a.eggSunk {
+                if let pond = a.waterClip, let tinted = Self.submerged(a.image) {
+                    let x0 = px(pond.minX, origin: rect.minX), x1 = px(pond.maxX, origin: rect.minX)
+                    let y0 = px(pond.minY, origin: rect.minY), y1 = px(pond.maxY, origin: rect.minY)
+                    if x1 > x0, y1 > y0 {
+                        context.saveGState()
+                        context.clip(to: cg(x0, y0, x1 - x0, y1 - y0))
+                        context.setAlpha(a.opacity * PlazaPondArt.submergedEggAlpha)
+                        draw(tinted, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX), top: footTop - h, w: w, h: h, mirrored: a.flipped)
+                        context.restoreGState()
+                    }
+                }
+                return
+            }
             if sunk, let pond = a.waterClip, let tinted = Self.submerged(a.image) {
                 // 잠긴 아랫부분: 화면처럼 연못 안, 발 선 아래만 반투명한 물빛으로.
                 let x0 = px(pond.minX, origin: rect.minX), x1 = px(pond.maxX, origin: rect.minX)

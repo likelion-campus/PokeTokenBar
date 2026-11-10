@@ -615,4 +615,47 @@ final class PlazaPondSceneTests: XCTestCase {
         u = run(hidden, 1, from: u)
         XCTAssertEqual(layer.bubbleCount, 0)
     }
+
+    // MARK: paused scene
+
+    func testAPausedSceneMovesAnEggAshoreAtOnceWhenIBecomeAnEgg() {
+        let s = scene(start: p(32, 18))
+        run(s, 0.1)
+        var reported: [TilePoint] = []
+        s.onLocalPositionChange = { tile, _, _ in reported.append(tile) }
+        s.isPaused = true
+        s.canWalk = false
+        XCTAssertEqual(s.walker.tile, p(31, 18), "no update ran, yet the egg is on the shore")
+        XCTAssertEqual(reported.last, p(31, 18), "teammates are told")
+    }
+
+    func testAPausedPushIntoTheWaterLeavesAnEggOnTheShore() {
+        let s = scene(start: p(31, 18))
+        run(s, 0.1)
+        s.canWalk = false
+        s.isPaused = true
+        var reported: [TilePoint] = []
+        s.onLocalPositionChange = { tile, _, _ in reported.append(tile) }
+        s.pushMe(.right)
+        XCTAssertFalse(s.isMeInWater)
+        XCTAssertEqual(reported.last.map { !map.isWater($0) }, true, "the last report is on land")
+    }
+
+    func testAPausedEggWithNoFreeShoreWaitsInTheWater() {
+        let s = scene(start: p(34, 18))
+        run(s, 0.1)
+        var members: [PlazaSceneMember] = []
+        var n = 0
+        for x in 30...40 { for y in 12...22 where map.isWalkable(p(x, y)) && !map.isWater(p(x, y)) {
+            members.append(member("m\(n)", p(x, y))); n += 1
+        } }
+        s.applyMembers(members)
+        s.isPaused = true
+        s.canWalk = false
+        XCTAssertTrue(s.isMeInWater, "every shore is taken, so it stays")
+        s.isPaused = false
+        s.applyMembers([])
+        run(s, 6, from: 0.2)
+        XCTAssertFalse(s.isMeInWater, "once the plaza runs and a shore frees, update finishes the climb")
+    }
 }

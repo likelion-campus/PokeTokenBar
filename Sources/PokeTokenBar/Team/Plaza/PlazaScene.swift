@@ -144,7 +144,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     private(set) var nameColor = PlazaNameColor.palette[0]
     /// false(알)면 방향키를 삼키고 입력을 지운다. 걷던 칸은 마저 간다.
     var canWalk = true {
-        didSet { if !canWalk { walker.clearInput() } }
+        didSet {
+            if !canWalk {
+                walker.clearInput()
+                climbOutNowIfPaused()
+            }
+        }
     }
 
     /// 팀원 한 명의 장면 쪽 상태. 그림은 내 캐릭터와 같은 `PlazaActor`를 쓴다.
@@ -1350,7 +1355,28 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard isPaused else { return }
         walker.advance(by: PlazaPond.plungeStepDuration * Double(reach), canEnterFrom: canEnterTile(occupied: occupied),
                        canPushInto: canEnter, stepDuration: pondStepDuration)
+        if !climbOutNowIfPaused() { reportLocalPosition() }
+    }
+
+    /// 장면이 멈춰 있는데(`isPaused`) 알이 물에 있으면 `update`가 오지 않으므로 그 자리에서 가장 가까운 물가까지 올라와 팀원에게 알린다.
+    /// 올라올 빈 물가가 없으면 물에 남고 장면이 다시 돌 때 `update`가 맡는다. 올라왔으면 true.
+    @discardableResult
+    private func climbOutNowIfPaused() -> Bool {
+        guard isPaused, !canWalk, !isDiving, isMeInWater else { return false }
+        for _ in 0..<64 {   // 걸음마다 물 칸을 하나씩 벗어나니 이 정도면 충분하다(끝없이 돌지 않게 하는 상한)
+            if !walker.isWalking {
+                guard isMeInWater else { break }
+                let taken = occupiedTiles()
+                guard let d = PlazaPond.stepAshore(from: walker.tile, isWater: { map.isWater($0) },
+                                                   isLand: { map.isWalkable($0) && !taken.contains($0) }) else { break }
+                walker.step(d)
+            }
+            let occupied = occupiedTiles()
+            walker.advance(by: 2, canEnterFrom: canEnterTile(occupied: occupied), canPushInto: canPushTile(occupied: occupied),
+                           stepDuration: pondStepDuration)
+        }
         reportLocalPosition()
+        return !isMeInWater
     }
     /// 테스트용: 그 팀원을 달리는 빠르기로 따라가는지. 없으면 nil.
     func memberIsRunning(_ id: String) -> Bool? { remotes[id]?.motion.senderIsRunning }
