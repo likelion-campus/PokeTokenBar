@@ -793,7 +793,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     func refreshInteractionTarget() {
-        let hit = PlazaInteraction.target(from: walker.tile, facing: walker.facing, map: map, members: memberTiles)
+        let hit = PlazaInteraction.target(from: walker.tile, facing: walker.facing, map: map, members: targetTiles)
         guard hit != interactionTarget else { return }
         interactionTarget = hit
         onInteractionTargetChange?(hit)
@@ -1691,6 +1691,13 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 내 화면에 보이는 팀원 자리(걷는 중이면 도착할 칸, 자리 비움은 쉼터 칸). 표적 찾기에 쓴다.
     var memberTiles: [String: TilePoint] {
         remotes.filter { $0.key != PlazaDitto.sceneKey }.mapValues { $0.motion.tile }
+    }
+    /// 말을 걸 수 있는 자리: 팀원 자리에 팀원 흉내를 내는 동안의 메타몽을 더한다. 메타몽 모습일 때는 넣지 않아 진짜와 구별되지 않는다.
+    /// 보기·안내·메뉴·따라가기가 모두 이 한 곳에서 대상을 얻는다.
+    var targetTiles: [String: TilePoint] {
+        var tiles = memberTiles
+        if let tile = decoyTile { tiles[PlazaDitto.sceneKey] = tile }
+        return tiles
     }
     /// 테스트용
     func memberFoot(_ id: String) -> CGPoint? { remotes[id]?.motion.footPoint }

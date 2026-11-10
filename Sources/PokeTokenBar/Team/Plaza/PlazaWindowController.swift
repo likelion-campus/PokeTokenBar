@@ -560,11 +560,13 @@ struct PlazaFocusEnd: Equatable, Sendable {
     }
 
     /// 말을 걸 수 있는 팀원의 칸. 메타몽은 팀원 흉내를 내는 동안에만 들어간다.
-    private var targetTiles: [String: TilePoint] {
-        guard let scene else { return [:] }
-        var tiles = scene.memberTiles
-        if let tile = scene.decoyTile { tiles[PlazaDitto.sceneKey] = tile }
-        return tiles
+    private var targetTiles: [String: TilePoint] { scene?.targetTiles ?? [:] }
+
+    /// 안내 문구에 쓰는 이름. 복사본은 따라 한 팀원의 이름이라 진짜와 같은 문구가 나온다. 메타몽 모습이면 nil.
+    private func hintName(of id: String) -> String? {
+        guard id == PlazaDitto.sceneKey else { return members[id]?.nickname }
+        guard let shown = shownDitto, shown.isDecoy, let copied = shown.decoyOf else { return nil }
+        return copied == memberID() ? nickname() : members[copied]?.nickname
     }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
@@ -909,12 +911,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
         } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
-            text = members[id].map { L(.ko).plazaFollowHint(nickname: $0.nickname) }
+            text = hintName(of: id).map { L(.ko).plazaFollowHint(nickname: $0) }
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
             switch hit.target {
             case .board: text = L(.ko).plazaBoardHint
             case .campfire: text = isCampfireLit ? L(.ko).plazaCampfireJoinHint : L(.ko).plazaCampfireLightHint
-            case .member(let id): text = members[id].map { L(.ko).plazaMemberHint(nickname: $0.nickname) }
+            case .member(let id): text = hintName(of: id).map { L(.ko).plazaMemberHint(nickname: $0) }
             }
         }
         if overlayModel.hint != text { overlayModel.hint = text }

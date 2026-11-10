@@ -970,6 +970,19 @@ read_when:
   **Class sweep:** the other flag writers (`setDiving` from Z, the dive limit, closing, hiding) leave the tile where it is, so
   no tile and flag can disagree there.
 
+- **재시도·대기 Task 는 `self` 를 붙들고 기다리지 않는다 — 약한 참조로 기다리고 깬 뒤에 되살린다.** 광장 컨트롤러의
+  스프라이트 재시도(`startMemberLoad`/`loadCharacter`)가 `Task { await retry… }` 로 `self` 를 강하게 잡은 채 30초를
+  자고 깨어 또 재시도했다. 그림이 영영 안 오면 컨트롤러가 주인(테스트 케이스)이 사라진 뒤에도 안 죽고, Ditto 루프(0.05초)가
+  이미 해제된 `[unowned self]` 시계를 불러 `swift test` 전체가 signal 6 으로 죽었다(`PlazaFireworksTests` 에서 터졌지만
+  원인은 앞선 스위트). **5-whys:** 증상 크래시 → 해제된 테스트 케이스의 시계 호출 → 닫히지 않은 컨트롤러가 틱 중 → 재시도
+  체인이 `self` 를 강하게 붙듦(빈 fetcher 는 항상 placeholder) → 왜 못 걸렀나: 작업마다 집중 필터만 돌렸고 전체 스위트는
+  마지막에 한 번이라 다른 스위트의 좀비 컨트롤러를 볼 일이 없었다. 기존 1초 틱은 같은 좀비를 두고도 시계를 부르지 않아 숨었다.
+  수정: 기다림은 `[weak self]` Task 가 맡고 `self` 는 깬 뒤에 다시 얻는다(`self` 를 건 await 는 로딩 호출뿐). 가드:
+  `PlazaControllerLifetimeTests`(재시도 중인 컨트롤러가 놓으면 죽는다; 옛 코드로 되돌리면 실패). 부류 스윕: 컨트롤러의 다른
+  `Task` 는 이미 `[weak self]`(`focusTick`·`dittoLoop`·배너·단체 사진·`applyDiveLimit`)거나 단발 await(`viewCard`)다. 이 수정으로
+  컨트롤러가 정말 죽게 되자 놓은 컨트롤러에 기대던 두 테스트(`PlazaCardTests` 의 `let (_, …) = await standing()`)가 드러나
+  컨트롤러를 붙들게 고쳤다 — 장면 콜백은 컨트롤러를 약하게 쥐므로 테스트가 컨트롤러를 쥐고 있어야 한다.
+
 ## 프로세스·인스턴스
 
 - **로그인 실행을 LaunchAgent 로 등록하면 "등록하는 순간" 앱이 한 번 더 뜬다.** plist 의 `RunAtLoad` 는
@@ -1394,18 +1407,18 @@ read_when:
   메모리를 직접 본다. 같은 CI 에서 창 없는 호스팅 뷰의 `fittingSize` 는 모델이 두 번째로 바뀌어도 그대로였다. 크기를 재는 테스트는 경우마다 새 뷰를 만든다
   (`testRosterPanelHoldsOnePage`). 이 앱의 최소 버전은 macOS 14 라서, 지우는 근거가 로컬 실험뿐이면 CI 를 본 뒤에 지운다.
 
-- **재시도·대기 Task 는 `self` 를 붙들고 기다리지 않는다 — 약한 참조로 기다리고 깬 뒤에 되살린다.** 광장 컨트롤러의
-  스프라이트 재시도(`startMemberLoad`/`loadCharacter`)가 `Task { await retry… }` 로 `self` 를 강하게 잡은 채 30초를
-  자고 깨어 또 재시도했다. 그림이 영영 안 오면 컨트롤러가 주인(테스트 케이스)이 사라진 뒤에도 안 죽고, Ditto 루프(0.05초)가
-  이미 해제된 `[unowned self]` 시계를 불러 `swift test` 전체가 signal 6 으로 죽었다(`PlazaFireworksTests` 에서 터졌지만
-  원인은 앞선 스위트). **5-whys:** 증상 크래시 → 해제된 테스트 케이스의 시계 호출 → 닫히지 않은 컨트롤러가 틱 중 → 재시도
-  체인이 `self` 를 강하게 붙듦(빈 fetcher 는 항상 placeholder) → 왜 못 걸렀나: 작업마다 집중 필터만 돌렸고 전체 스위트는
-  마지막에 한 번이라 다른 스위트의 좀비 컨트롤러를 볼 일이 없었다. 기존 1초 틱은 같은 좀비를 두고도 시계를 부르지 않아 숨었다.
-  수정: 기다림은 `[weak self]` Task 가 맡고 `self` 는 깬 뒤에 다시 얻는다(`self` 를 건 await 는 로딩 호출뿐). 가드:
-  `PlazaControllerLifetimeTests`(재시도 중인 컨트롤러가 놓으면 죽는다; 옛 코드로 되돌리면 실패). 부류 스윕: 컨트롤러의 다른
-  `Task` 는 이미 `[weak self]`(`focusTick`·`dittoLoop`·배너·단체 사진·`applyDiveLimit`)거나 단발 await(`viewCard`)다. 이 수정으로
-  컨트롤러가 정말 죽게 되자 놓은 컨트롤러에 기대던 두 테스트(`PlazaCardTests` 의 `let (_, …) = await standing()`)가 드러나
-  컨트롤러를 붙들게 고쳤다 — 장면 콜백은 컨트롤러를 약하게 쥐므로 테스트가 컨트롤러를 쥐고 있어야 한다.
+- **예약된 비멤버 장면 키(`PlazaDitto.sceneKey`)는 멤버를 향한 모든 UI 경로에 닿아야 한다 — 대상 찾기, 안내문, 메뉴, 따라가기 줄.**
+  복사본은 `members` 에 없는 장면 키라서 장면의 `refreshInteractionTarget` 이 `memberTiles`(키 제외)만 보면 진짜 팀원 앞에서는
+  "스페이스바를 눌러 X에게 말 걸기"가 뜨고 복사본 앞에서는 안 떴으며, `refreshHint` 가 `members[id]` 로 이름을 찾아 복사본을
+  따라갈 때는 "X 따라가는 중" 줄도 없었다. 몸통박치기 없이 어느 쪽이 가짜인지 드러나는 결함이다. **5-whys:** 안내문이
+  안 뜸 → 대상 표와 이름 표가 키를 몰랐다 → 메뉴·몸통박치기·인사 경로는 컨트롤러의 `targetTiles` 병합으로 이미 키를 알았고
+  안내문 경로만 장면의 원래 표를 썼다(대상 표가 둘) → 왜 못 걸렀나: 복사본 테스트가 메뉴·인사·몸통박치기만 밟고 안내문은 보지
+  않았다. 수정: 장면이 `targetTiles`(멤버 + 복사본일 때만 메타몽)를 한 곳에서 만들고 대상 찾기와 컨트롤러가 같이 쓰며,
+  `hintName(of:)` 이 키를 따라 한 팀원의 이름으로 바꾼다(메타몽 모습은 안내문 없음). 가드: `testTheHintOnTheCopyIsTheHintOnTheRealMember`·
+  `testFollowingTheCopyShowsTheFollowLine`·`testFacingTheDittoFormShowsNoHint`(장면 변경을 되돌리면 앞의 것이, 이름 변환을 되돌리면 둘째가 실패).
+  부류 스윕: `members[`/`memberTiles`/`remotes[` 쓰임을 전수 확인했다. 몸통박치기를 받는 쪽(`showTackle`)과 `dittoWorld`·미니맵 점은
+  진짜 팀원만 다루거나 복사본 점을 따로 더하므로 키를 일부러 빼고, 메뉴·카드·걷기·이모트·따라가기는 키를 이미 처리한다.
+  새 UI 경로가 멤버를 이름으로 찾으면 키 처리가 필요한지 먼저 묻는다.
 
 ## 에너지 (상시 표시 애니메이션)
 

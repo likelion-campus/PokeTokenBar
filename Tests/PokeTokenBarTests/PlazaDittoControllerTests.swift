@@ -660,6 +660,35 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertTrue(menu.actions.contains(.tackle))
     }
 
+    // MARK: - The hints must not give the copy away
+
+    func testTheHintOnTheCopyIsTheHintOnTheRealMember() async {
+        let t = await adjacentCopy()
+        XCTAssertEqual(t.c.hint, L(.ko).plazaMemberHint(nickname: t.m.settings.nickname))
+        let mine = await adjacentCopy(ofMe: true, nickname: "재헌")
+        XCTAssertEqual(mine.c.hint, L(.ko).plazaMemberHint(nickname: "재헌"))
+    }
+
+    func testFollowingTheCopyShowsTheFollowLine() async {
+        let t = await adjacentCopy()
+        t.c.chooseMenu(.follow, memberID: key)
+        XCTAssertEqual(t.scene.followingMember, key)
+        XCTAssertEqual(t.c.hint, L(.ko).plazaFollowHint(nickname: t.m.settings.nickname))
+    }
+
+    func testFacingTheDittoFormShowsNoHint() async {
+        let nodes = sorted(2)
+        let (a, me) = (nodes[0], nodes[1])
+        await connect(a, me)
+        let c = controller(me, start: meStart.me)
+        c.prepareScene()
+        host(a, dittoForm(beside()))
+        await settle()
+        c.advanceDitto(now: Date())
+        XCTAssertNotNil(c.scene?.dittoTile)
+        XCTAssertNil(c.hint)
+    }
+
     func testADecoyJumpFromANonHostIsIgnored() async {
         let nodes = sorted(3)
         let (a, me, m) = (nodes[0], nodes[1], nodes[2])
