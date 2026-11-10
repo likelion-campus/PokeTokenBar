@@ -71,15 +71,27 @@ final class PlazaDittoControllerTests: XCTestCase {
         return UserDefaults(suiteName: name)!
     }
 
+    /// Holds the Ditto loop's sleep until the test fires it.
+    @MainActor private final class LoopGate {
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+        var waitingCount: Int { waiting.count }
+        func sleep(_ d: Duration) async { await withCheckedContinuation { waiting.append($0) } }
+        func fire() { let w = waiting; waiting = []; w.forEach { $0.resume() } }
+    }
+
     /// The loop sleeps for good, so only `advanceDitto(now:)` moves the Ditto.
-    private func controller(_ me: Node, fetcher: PlazaSpriteFetching = RecordingFetcher()) -> PlazaWindowController {
+    private func controller(_ me: Node, fetcher: PlazaSpriteFetching = RecordingFetcher(), gate: LoopGate? = nil,
+                            seed: UInt64 = 7) -> PlazaWindowController {
         PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
                               loader: PlazaCharacterLoader(fetcher: fetcher),
                               nickname: { "나" }, memberID: { me.settings.memberID },
                               subject: { .init(speciesID: 25, isShiny: false) },
                               myRosterEntry: { nil }, session: me.session,
                               spriteRetrySleep: { _ in try? await Task.sleep(for: .seconds(3600)) },
-                              dittoLoopSleep: { _ in try? await Task.sleep(for: .seconds(3600)) })
+                              dittoLoopSleep: { d in
+                                  if let gate { await gate.sleep(d) } else { try? await Task.sleep(for: .seconds(3600)) }
+                              },
+                              dittoSeed: { seed })
     }
 
     private func settle() async {
@@ -134,6 +146,63 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertNil(other.session.members[me.id]?.ditto)
         XCTAssertNil(c.shownDitto)
         XCTAssertFalse(c.isDittoHost)
+    }
+
+    func testAControllerWhoseWindowWasNeverShownNeverSendsReady() async {
+        let me = node("나"), other = node("민수")
+        await connect(me, other)
+        _ = controller(me)
+        me.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        await settle()
+        XCTAssertNotNil(other.session.members[me.id], "my presence did reach the other side")
+        XCTAssertEqual(other.session.members[me.id]?.dittoReady, false)
+    }
+
+    func testTheLoopTicksWhileOpenStopsOnCloseAndRestartsOnce() async {
+        let me = node("나")
+        let gate = LoopGate()
+        let c = controller(me, gate: gate)
+        c.prepareScene()
+        await settle()
+        XCTAssertEqual(gate.waitingCount, 1)
+        XCTAssertNil(c.shownDitto, "no tick yet")
+        gate.fire()
+        await settle()
+        XCTAssertNotNil(c.shownDitto, "a tick reached advanceDitto")
+        XCTAssertEqual(gate.waitingCount, 1, "and the loop sleeps again")
+
+        c.handleClose()
+        gate.fire()
+        await settle()
+        XCTAssertEqual(gate.waitingCount, 0, "closing ends the loop")
+
+        c.prepareScene()
+        await settle()
+        XCTAssertEqual(gate.waitingCount, 1)
+        gate.fire()
+        await settle()
+        XCTAssertEqual(gate.waitingCount, 1, "one stream of ticks after reopening, not two")
+        XCTAssertNotNil(c.shownDitto)
+    }
+
+    func testAnUnchangedDittoLeavesTheSceneAlone() async {
+        let pair = sorted(2)
+        let (a, me) = (pair[0], pair[1])
+        await connect(a, me)
+        let c = controller(me)
+        c.prepareScene()
+        host(a, dittoForm(ground(4, 0)))
+        await settle()
+        c.advanceDitto(now: Date())
+        XCTAssertEqual(c.scene?.dittoTile, ground(4, 0))
+        // Remove it behind the controller's back: a tick with nothing new must not redraw it.
+        c.scene?.applyDitto(nil)
+        c.advanceDitto(now: Date())
+        XCTAssertNil(c.scene?.dittoTile)
+        host(a, dittoForm(ground(6, 0)))
+        await settle()
+        c.advanceDitto(now: Date())
+        XCTAssertEqual(c.scene?.dittoTile, ground(6, 0), "a change is drawn")
     }
 
     // MARK: - Host choice

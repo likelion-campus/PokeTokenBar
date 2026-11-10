@@ -67,6 +67,16 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var dittoBrain: PlazaDittoBrain?
     /// 이 Mac이 지금 보여 주는 메타몽. 호스트가 바뀌어도 이어 받는다.
     private(set) var shownDitto: PlazaDittoState?
+    /// `shownDitto`에 입힌 이름·색·칭호·그림. 둘 다 그대로면 0.05초 틱마다 장면과 지도를 다시 건드리지 않는다.
+    private var shownDittoLook: DittoLook?
+    private let dittoSeed: () -> UInt64
+
+    private struct DittoLook: Equatable {
+        var name: String
+        var color: CGColor
+        var title: String?
+        var subject: CompanionStore.RepresentativeSubject
+    }
     /// 지금 모닥불에 앉아 집중 중인 나. 앉으면 저장하고, 끝나거나 일어서면 지운다.
     private(set) var focus: PlazaFocus?
     /// 앉은 자리가 바라보는 방향. 다시 열거나 닫을 때 그대로 알린다.
@@ -177,10 +187,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
          renderCheckSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          focusTickSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          dittoLoopSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         dittoSeed: @escaping () -> UInt64 = { UInt64.random(in: .min ... .max) },
          isFrontmost: (@MainActor () -> Bool)? = nil) {
         self.frontmostOverride = isFrontmost
         self.focusTickSleep = focusTickSleep
         self.dittoLoopSleep = dittoLoopSleep
+        self.dittoSeed = dittoSeed
         self.spriteRetrySleep = spriteRetrySleep
         self.renderCheckSleep = renderCheckSleep
         self.session = session
@@ -337,7 +349,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         roster.capacity = PlazaRoster.capacity(forHeight: w.contentView?.bounds.height ?? 0)
     }
 
-    /// 창 없이 장면만 만든다.
+    /// 창 없이 장면만 만든다. 창이 열려 있을 때만 불러야 한다(`show()`뿐): 여기서 메타몽 준비를 알리면 이 Mac이 호스트 후보가 된다.
     func prepareScene() {
         guard scene == nil else { return }
         let image = mapImage
@@ -1060,7 +1072,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
         let world = dittoWorld(scene: scene, now: now)
         var brain = dittoBrain ?? PlazaDittoBrain(resuming: shownDitto, world: world, now: now,
-                                                  seed: UInt64.random(in: .min ... .max))
+                                                  seed: dittoSeed())
         _ = brain.tick(now: now, world: world)   // .jumped 는 다음 작업에서 다룬다
         dittoBrain = brain
         session?.updateDitto(ready: true, state: brain.state)
@@ -1093,25 +1105,32 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard let scene else { return }
         guard let state else {
             shownDitto = nil
+            shownDittoLook = nil
             scene.applyDitto(nil)
             refreshMinimap()
             return
         }
-        let look: (name: String, color: CGColor, title: String?, subject: CompanionStore.RepresentativeSubject)
+        let look: DittoLook
         if let id = state.decoyOf {
             if id == memberID() {
-                look = (nickname(), scene.nameColor, (myEntryCache ?? myRosterEntry())?.nature.map(L(.ko).plazaNatureTitle), subject())
+                if myEntryCache == nil { myEntryCache = .some(myRosterEntry()) }   // 틱마다 도감을 훑지 않는다
+                look = DittoLook(name: nickname(), color: scene.nameColor,
+                                 title: (myEntryCache ?? nil)?.nature.map(L(.ko).plazaNatureTitle), subject: subject())
             } else if let m = members[id] {
-                look = (m.nickname, PlazaNameColor.color(forMemberID: id, chosen: m.nameColor), m.character.nature.map(L(.ko).plazaNatureTitle),
-                        .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form))
+                look = DittoLook(name: m.nickname, color: PlazaNameColor.color(forMemberID: id, chosen: m.nameColor),
+                                 title: m.character.nature.map(L(.ko).plazaNatureTitle),
+                                 subject: .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form))
             } else {
                 return
             }
         } else {
-            look = (L(.ko).plazaDittoName, PlazaNameColor.color(forMemberID: PlazaDitto.sceneKey, chosen: PlazaDitto.nameHex), nil,
-                    .init(speciesID: PlazaDitto.speciesID, isShiny: false, form: nil))
+            look = DittoLook(name: L(.ko).plazaDittoName,
+                             color: PlazaNameColor.color(forMemberID: PlazaDitto.sceneKey, chosen: PlazaDitto.nameHex), title: nil,
+                             subject: .init(speciesID: PlazaDitto.speciesID, isShiny: false, form: nil))
         }
+        if state == shownDitto, look == shownDittoLook, change == .none { return }
         shownDitto = state
+        shownDittoLook = look
         scene.applyDitto(PlazaDittoShown(tile: state.tile, facing: state.facing, isWalking: state.isWalking ?? false,
                                          isRunning: state.isRunning ?? false, name: look.name, nameColor: look.color,
                                          title: look.title, isDecoy: state.isDecoy))
@@ -1365,6 +1384,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         dittoLoop = nil
         dittoBrain = nil
         shownDitto = nil
+        shownDittoLook = nil
         session?.updateDitto(ready: false, state: nil)
         chatInput.close()
         if overlayModel.content == .board { feed?.markAllRead() }
