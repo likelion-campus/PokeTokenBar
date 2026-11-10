@@ -1223,7 +1223,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let look: DittoLook
         if let id = state.decoyOf {
             if id == memberID() {
-                if myEntryCache == nil { myEntryCache = .some(myRosterEntry()) }   // 틱마다 도감을 훑지 않는다
+                // 내 칸은 창을 열 때 `refreshRoster` 가 이미 캐시해 두었다. 틱마다 도감을 훑지 않는다.
                 look = DittoLook(name: nickname(), color: scene.nameColor,
                                  title: (myEntryCache ?? nil)?.nature.map(L(.ko).plazaNatureTitle), subject: subject())
             } else if let m = members[id], m.inPlaza {

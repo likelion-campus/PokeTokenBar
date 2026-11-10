@@ -399,4 +399,24 @@ final class PlazaDittoBrainTests: XCTestCase {
             XCTAssertTrue(moved, "seed \(seed) never walked")
         }
     }
+
+    /// Walled into a small pocket, no tile is 8 away from the real one: the copy still walks as far from it as the pocket allows.
+    func testACopyInAPocketFleesAsFarAsThePocketAllows() {
+        let p = openTile()
+        let m = TilePoint(x: p.x + 1, y: p.y)
+        let pocket = wall(around: p, radius: 2).union([m])
+        let w = world(blocked: pocket, copyable: ["m": m])
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 11)
+        var now = t0.addingTimeInterval(dt)
+        XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+        var walked = false
+        while now.timeIntervalSince(t0) < 5 {
+            now = now.addingTimeInterval(dt)
+            _ = brain.tick(now: now, world: w)
+            if brain.state.isWalking == true { walked = true } else if walked { break }
+        }
+        XCTAssertTrue(walked)
+        XCTAssertGreaterThan(manhattan(brain.state.tile, m), 1, "it moved away from the real one")
+        XCTAssertLessThanOrEqual(manhattan(brain.state.tile, p), 2, "and stayed in the pocket")
+    }
 }
