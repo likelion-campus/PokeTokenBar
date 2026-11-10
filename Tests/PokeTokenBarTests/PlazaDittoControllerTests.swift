@@ -343,8 +343,10 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(scene.memberNameColor(key), PlazaNameColor.color(forMemberID: m.id, chosen: m.settings.nameColor))
         XCTAssertEqual(scene.memberNameColor(key), scene.memberNameColor(m.id))
         XCTAssertEqual(scene.decoyTile, ground(5, 3))
-        let dots = c.minimapDots.filter { $0.color == scene.memberNameColor(m.id) && !$0.isMe }
+        // Filter by id, not colour: another teammate's random ID can map to the same palette colour.
+        let dots = c.minimapDots.filter { ($0.id == m.id || $0.id == key) && !$0.isMe }
         XCTAssertEqual(Set(dots.map(\.id)), [m.id, key])
+        XCTAssertEqual(Set(dots.map(\.color)).count, 1, "the copy's dot is the real one's colour")
     }
 
     func testTheCopyFollowsTheRealOnesLookChange() async {
@@ -414,6 +416,55 @@ final class PlazaDittoControllerTests: XCTestCase {
         c.advanceDitto(now: Date())
         XCTAssertNil(c.scene?.dittoTile)
         XCTAssertNil(c.shownDitto)
+    }
+
+    // MARK: - Hostile peers
+
+    func testACopyOfAMemberNotInThePlazaIsNotShown() async {
+        let (c, a, m) = await copyScene()
+        XCTAssertEqual(c.shownDitto?.decoyOf, m.id, "test precondition")
+        let before = c.shownDitto
+        m.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        await settle()
+        let now = Date().addingTimeInterval(1)
+        host(a, dittoForm(ground(6, 3), now: now).copying(m.id, now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        XCTAssertEqual(c.shownDitto, before, "the previous look stays, as for an unknown member")
+    }
+
+    func testAStateOffTheMapIsIgnored() async {
+        let pair = sorted(2)
+        let (a, me) = (pair[0], pair[1])
+        await connect(a, me)
+        let c = controller(me)
+        c.prepareScene()
+        for off in [TilePoint(x: -1, y: 0), TilePoint(x: map.width, y: map.height), TilePoint(x: 1_000_000, y: -1_000_000)] {
+            host(a, dittoForm(off))
+            await settle()
+            c.advanceDitto(now: Date())
+            XCTAssertNil(c.scene?.dittoTile, "\(off)")
+            XCTAssertNil(c.shownDitto)
+        }
+    }
+
+    func testABurstOfDittoStatesLeavesTheLastGoodOneShown() async {
+        let (c, a, m) = await copyScene()
+        let membersBefore = c.scene?.memberTiles.count
+        let now = Date()
+        var last: TilePoint?
+        for i in 0..<300 {
+            let tile = i % 3 == 0 ? TilePoint(x: -i, y: i) : ground(i % 7, 3)
+            if PlazaDitto.isGround(tile, in: map) { last = tile }
+            host(a, dittoForm(tile, now: now).copying(i % 2 == 0 ? m.id : String(repeating: "x", count: i + 1), now: now))
+        }
+        await settle()
+        c.advanceDitto(now: now)
+        let shown = try? XCTUnwrap(c.shownDitto)
+        XCTAssertNotNil(shown)
+        XCTAssertTrue(PlazaDitto.isGround(shown?.tile ?? TilePoint(x: -1, y: -1), in: map))
+        XCTAssertNotNil(last)
+        XCTAssertEqual(c.scene?.memberTiles.count, membersBefore, "the burst adds no one to the scene")
     }
 
     // MARK: - Campfire seats

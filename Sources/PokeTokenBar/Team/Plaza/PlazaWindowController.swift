@@ -1199,7 +1199,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 if myEntryCache == nil { myEntryCache = .some(myRosterEntry()) }   // 틱마다 도감을 훑지 않는다
                 look = DittoLook(name: nickname(), color: scene.nameColor,
                                  title: (myEntryCache ?? nil)?.nature.map(L(.ko).plazaNatureTitle), subject: subject())
-            } else if let m = members[id] {
+            } else if let m = members[id], m.inPlaza {
                 look = DittoLook(name: m.nickname, color: PlazaNameColor.color(forMemberID: id, chosen: m.nameColor),
                                  title: m.character.nature.map(L(.ko).plazaNatureTitle),
                                  subject: .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form))

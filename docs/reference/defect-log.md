@@ -712,6 +712,12 @@ read_when:
   `setrlimit` 으로 낮춘다. 디버그 빌드의 메인 스레드 시간은 릴리스의 약 세 배였으니 시간은 릴리스로 잰다. 다른 빌드가
   도는 동안에는 5초 제한이 있는 전송 시험이 실패할 수 있다.
 
+- **받은 값이 가리키는 멤버는 "알고 있다"가 아니라 "지금 광장에 있다"까지 본다.** 메타몽의 `decoyOf` 를 `members[id]` 가 있으면
+  그대로 따라 그려서, 광장을 떠난 팀원의 복사본도 보였다(명세 §5.6 은 지금 광장에 있는 멤버를 요구한다). 호스트 쪽 두뇌는 광장
+  멤버만 고르므로 정직한 앱은 보내지 않는 값이라 테스트가 못 밟았다. 수정: `m.inPlaza` 를 요구하고 아니면 모르는 멤버처럼 이전
+  모습을 둔다. 가드: `testACopyOfAMemberNotInThePlazaIsNotShown`(되돌리면 실패), 지도 밖 칸과 연타는 `testAStateOffTheMapIsIgnored`·
+  `testABurstOfDittoStatesLeavesTheLastGoodOneShown`.
+
 ## 빌드·도구체인
 
 - **고정 날짜로 만든 데이터는 실제 시계를 쓰는 저장소에 넣지 않는다.** `PlazaBoardTests`의 한 테스트가 날짜를
