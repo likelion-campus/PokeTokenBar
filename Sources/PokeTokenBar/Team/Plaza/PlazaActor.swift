@@ -26,12 +26,14 @@ struct PlazaActorContext {
     private let shadowNode = SKSpriteNode()
     /// 헤엄칠 때 몸이 물에 잠기는 높이에 얹는 물결 고리.
     private let swimRingNode = SKSpriteNode()
-    /// 물에 잠긴 아랫부분을 물 아래에 비치게 그리는 반투명 스프라이트. 연못 사각형으로 자르는 크롭 노드 안에 둔다.
+    /// 물에 잠긴 아랫부분(알은 몸통 전체)을 물 아래에 비치게 그리는 반투명 스프라이트. 연못 사각형으로 자르는 크롭 노드 안에 둔다.
     private let ghostCrop = SKCropNode()
     private let ghostNode = SKSpriteNode()
     private let ghostMask = SKSpriteNode(color: .white, size: .zero)
-    /// 아래쪽 월드 픽셀을 잘라 낸 양(헤엄). 0이면 온전하다.
+    /// 아래쪽 월드 픽셀을 잘라 낸 양(헤엄). 0이면 온전하다. 알은 자르지 않아도 0보다 크면 물에 든 것이다.
     private var swimSink: CGFloat = 0
+    /// 알이 물에 들었다(헤엄 높이가 있는 알). 알은 자르지 않고 통째로 물빛에 잠긴다.
+    private var eggSunk: Bool { shadowIsNest && swimSink > 0 }
     /// 알일 때 알 앞에 얹는 둥지 앞 테두리. 알이 둥지 안에 앉아 보이게 한다.
     private let nestFrontNode = SKSpriteNode()
     private var nestFrontImage: CGImage?
@@ -312,6 +314,7 @@ struct PlazaActorContext {
     /// 그림, 그림자, 이름표 위치를 정한다. 위치는 기기 픽셀 단위로 맞춘다. `foot`은 월드 좌표(y가 아래로)다.
     /// `concealment`(0–1)는 풀숲에 가려진 정도다. 그림·그림자·둥지 앞 테두리를 흐리게 하고 이름표를 풀숲 위로 내린다. `isMe`면 내 화면에서 40%까지만 흐려진다.
     /// `swimSink`가 0보다 크면 헤엄이다: 그림 아래를 그만큼 잘라 윗부분만 보이고, 그림자는 숨기고, 물높이 고리를 얹는다.
+    /// 알(`eggSunk`)은 자르지 않고 몸통을 숨긴 채 통째로 잠긴 그림 하나만 그리며, 고리는 그 꼭대기에 둔다.
     func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat = 0, isMe: Bool = false,
                swimSink: CGFloat = 0, waterRect: CGRect? = nil) {
         if swimSink != self.swimSink {
@@ -325,6 +328,7 @@ struct PlazaActorContext {
         shadowNode.alpha = swimSink > 0 ? 0 : alpha
         nestFrontNode.alpha = swimSink > 0 ? 0 : alpha
         swimRingNode.alpha = alpha
+        if eggSunk { characterNode.alpha = 0 }   // 몸통은 숨기되 `isHidden`은 건드리지 않는다(그림이 있다는 표시로 쓴다)
         let lunge = lungeOffset
         let dancePose = dancePose
         let foot = CGPoint(x: foot.x + lunge.x + dancePose.offsetX, y: foot.y + lunge.y)
@@ -349,15 +353,20 @@ struct PlazaActorContext {
 
         swimRingNode.isHidden = swimSink <= 0 || characterNode.isHidden
         // 고리는 수면에 붙어 있다: 통통 튐은 따르되 점프 높이는 따르지 않는다.
-        swimRingNode.position = CGPoint(x: characterNode.position.x, y: footScene.y - jumpLift)
+        // 잠긴 알은 수면이 알의 꼭대기다. 점프로 뜨지 않고, 연못 맨 윗줄에서는 꼭대기가 연못 위 가장자리를 넘지 않게 내려앉는다.
+        var eggTop = footScene.y - jumpLift + characterNode.size.height
+        if let r = waterRect { eggTop = min(eggTop, r.maxY) }
+        swimRingNode.position = CGPoint(x: characterNode.position.x,
+                                        y: eggSunk ? eggTop - 2 : footScene.y - jumpLift)
         swimRingNode.zPosition = characterNode.zPosition + 0.0002
 
         // 잠긴 아랫부분: 수면 아래, 물결 고리 아래에 반투명하게. 연못 밖(`waterRect`가 nil)이면 그리지 않아 땅에 띠가 남지 않는다.
         if swimSink > 0, !characterNode.isHidden, let r = waterRect {
             ghostCrop.isHidden = false
             ghostNode.xScale = characterNode.xScale
-            ghostNode.position = characterNode.position
-            ghostNode.alpha = PlazaPondArt.submergedAlpha * alpha
+            ghostNode.position = eggSunk ? CGPoint(x: characterNode.position.x, y: eggTop)
+                                         : characterNode.position
+            ghostNode.alpha = (eggSunk ? PlazaPondArt.submergedEggAlpha : PlazaPondArt.submergedAlpha) * alpha
             ghostCrop.zPosition = characterNode.zPosition + 0.0001
             ghostMask.position = r.origin
             ghostMask.size = r.size
@@ -402,16 +411,16 @@ struct PlazaActorContext {
         if concealment > 0 {
             opacity = PlazaTallGrass.opacity(concealment: concealment, isMe: isMeForConcealment)
             // 화면과 같은 높이 규칙(PlazaTallGrass.plateBaseY)을 월드 y(아래로)로 옮긴 값.
-            let height = CGFloat(image.height) * Self.characterScale - swimSink
+            let height = CGFloat(image.height) * Self.characterScale - (eggSunk ? 0 : swimSink)
             if !isMeForConcealment { plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2)) }
         }
         return PlazaPhotoActor(image: image, flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
-                               front: shadowIsNest ? nestFrontImage : nil,
+                               front: shadowIsNest && !eggSunk ? nestFrontImage : nil,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
-                               opacity: opacity, plateBaseY: plateBaseY, sink: swimSink, waterClip: swimSink > 0 ? waterClip : nil,
+                               opacity: opacity, plateBaseY: plateBaseY, sink: eggSunk ? 0 : swimSink, waterClip: swimSink > 0 ? waterClip : nil, eggSunk: eggSunk,
                                lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt)
     }
 
@@ -431,11 +440,12 @@ struct PlazaActorContext {
     var characterOpacity: CGFloat { characterNode.alpha }
     var nestFrontOpacity: CGFloat { nestFrontNode.alpha }
     var shadowOpacity: CGFloat { shadowNode.alpha }
-    /// 지금 보이는 그림 높이(월드 픽셀). 헤엄이면 잘린 만큼 줄어든다.
+    /// 지금 보이는 그림 높이(월드 픽셀). 헤엄이면 잘린 만큼 줄어든다. 물에 든 알은 자르지 않아 전체 높이(몸통은 투명).
     var visibleSpriteHeight: CGFloat { characterNode.size.height }
     /// 잠긴 아랫부분(테스트용).
     var isSubmergedBodyVisible: Bool { !ghostCrop.isHidden }
     var submergedBodyAlpha: CGFloat { ghostNode.alpha }
+    var submergedBodyTopY: CGFloat { ghostNode.position.y }
     var submergedBodySize: CGSize { ghostNode.size }
     var submergedBodyTextureRect: CGRect { ghostNode.texture?.textureRect() ?? .zero }
     var submergedBodyClip: CGRect? { ghostCrop.isHidden || ghostCrop.maskNode == nil ? nil : CGRect(origin: ghostMask.position, size: ghostMask.size) }
@@ -531,7 +541,7 @@ struct PlazaActorContext {
         let full = Self.scaledSize(of: image)
         // `size`는 현재 배율을 곱한 값이라, 춤의 눌림이 남은 채 대입하면 눌림이 지워지거나 두 번 곱해진다. `place`가 눌림을 다시 건다.
         characterNode.yScale = 1
-        let cut = swimSink > 0 ? min((swimSink / Self.characterScale).rounded(), CGFloat(image.height) - 1) : 0   // 그림 줄 단위로 자른다
+        let cut = swimSink > 0 && !shadowIsNest ? min((swimSink / Self.characterScale).rounded(), CGFloat(image.height) - 1) : 0   // 그림 줄 단위로 자른다
         if cut > 0 {
             let f = cut / CGFloat(image.height)
             let top = SKTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: texture)
@@ -545,6 +555,10 @@ struct PlazaActorContext {
         } else {
             characterNode.texture = texture
             characterNode.size = full
+            if eggSunk {   // 물에 든 알: 통째로 물빛 몸통 하나
+                ghostNode.texture = texture
+                ghostNode.size = full
+            }
         }
     }
 
