@@ -309,4 +309,94 @@ final class PlazaDittoBrainTests: XCTestCase {
         XCTAssertFalse(brain.isMoving)
         XCTAssertGreaterThanOrEqual(brain.nextWake(now: now), now)
     }
+    // MARK: - Coverage gaps (nextWake, flee without a route, boxed-in wander)
+
+    private func decoyState(at p: TilePoint, since: Date) -> PlazaDittoState {
+        PlazaDittoState(tile: p, facing: .down, isWalking: nil, isRunning: nil, decoyOf: "m", since: since, restUntil: nil)
+    }
+
+    /// A wall of every tile at Manhattan distance `radius + 1` from `p`: four-way movement cannot cross it.
+    private func wall(around p: TilePoint, radius: Int) -> Set<TilePoint> {
+        var out = Set<TilePoint>()
+        let r = radius + 1
+        for dx in -r...r {
+            let dy = r - abs(dx)
+            out.insert(TilePoint(x: p.x + dx, y: p.y + dy))
+            out.insert(TilePoint(x: p.x + dx, y: p.y - dy))
+        }
+        return out
+    }
+
+    func testNextWakeIsTheCopysTimeLimitWhenThatComesBeforeItsWait() {
+        let p = openTile()
+        // 5 s of the copy's 900 s left; its wait is at least 6 s.
+        let brain = PlazaDittoBrain(resuming: decoyState(at: p, since: t0.addingTimeInterval(-895)),
+                                    world: world(copyable: ["m": TilePoint(x: p.x, y: p.y + 30)]), now: t0, seed: 3)
+        XCTAssertEqual(brain.nextWake(now: t0), t0.addingTimeInterval(5))
+    }
+
+    func testNextWakeIsTheEndOfARestWhenThatComesBeforeItsWait() {
+        let p = openTile()
+        // Rest ends in 1 s; a Ditto waits at least 2 s.
+        let brain = PlazaDittoBrain(resuming: dittoState(at: p, rest: t0.addingTimeInterval(1)), world: world(), now: t0, seed: 3)
+        XCTAssertEqual(brain.nextWake(now: t0), t0.addingTimeInterval(1))
+        // Once the rest is over it no longer pulls the wake in.
+        XCTAssertGreaterThanOrEqual(brain.nextWake(now: t0.addingTimeInterval(1.5)), t0.addingTimeInterval(2))
+    }
+
+    /// The real one is already 8+ tiles away when the flee is planned: the copy has nowhere to flee from, so it idles.
+    func testACopyWhoseRealOneIsAlreadyFarDoesNotFlee() {
+        let p = openTile()
+        let m = TilePoint(x: p.x + 1, y: p.y)
+        let far = TilePoint(x: p.x, y: p.y + 30)
+        let w = world(blocked: [m], copyable: ["m": m], present: ["m": far])
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 11)
+        var now = t0.addingTimeInterval(dt)
+        XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+        XCTAssertFalse(brain.isMoving)
+        XCTAssertNotEqual(brain.state.isWalking, true)
+        XCTAssertEqual(brain.state.tile, p)
+        // It waits a copy's 6...20 s, then idles as a copy (still the copy, never a Ditto).
+        XCTAssertGreaterThanOrEqual(brain.nextWake(now: now), now.addingTimeInterval(6 - 0.001))
+        let end = now.addingTimeInterval(5)
+        while now < end { now = now.addingTimeInterval(dt); _ = brain.tick(now: now, world: w); XCTAssertEqual(brain.state.tile, p) }
+        XCTAssertTrue(brain.state.isDecoy)
+    }
+
+    /// No tile to flee to (boxed in): the copy stays, waits like a copy, and keeps being the copy.
+    func testABoxedInCopyHasNowhereToFleeAndWaits() {
+        let p = openTile()
+        let m = TilePoint(x: p.x + 1, y: p.y)
+        let ring: Set<TilePoint> = [m, TilePoint(x: p.x - 1, y: p.y), TilePoint(x: p.x, y: p.y - 1), TilePoint(x: p.x, y: p.y + 1)]
+        let w = world(blocked: ring, copyable: ["m": m])
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 11)
+        var now = t0.addingTimeInterval(dt)
+        XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+        XCTAssertFalse(brain.isMoving)
+        XCTAssertEqual(brain.state.tile, p)
+        XCTAssertGreaterThanOrEqual(brain.nextWake(now: now), now.addingTimeInterval(6 - 0.001))
+        let end = now.addingTimeInterval(60)
+        while now < end { now = now.addingTimeInterval(dt); _ = brain.tick(now: now, world: w); XCTAssertEqual(brain.state.tile, p) }
+        XCTAssertTrue(brain.state.isDecoy)
+    }
+
+    /// Walled into a pocket one tile wide, a wanted distance of 2...4 has no tile at exactly that distance; it still takes a
+    /// shorter walk instead of standing forever.
+    func testAWalledInDittoStillWalksTheShorterRoutes() {
+        let p = openTile()
+        let pocket = wall(around: p, radius: 1)
+        let w = world(blocked: pocket)
+        for seed in 1...30 as ClosedRange<UInt64> {
+            var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: seed)
+            var now = t0
+            var moved = false
+            while now.timeIntervalSince(t0) < 7 {
+                now = now.addingTimeInterval(dt)
+                _ = brain.tick(now: now, world: w)
+                XCTAssertLessThanOrEqual(manhattan(brain.state.tile, p), 1, "seed \(seed) left the pocket")
+                if brain.state.tile != p { moved = true }
+            }
+            XCTAssertTrue(moved, "seed \(seed) never walked")
+        }
+    }
 }
