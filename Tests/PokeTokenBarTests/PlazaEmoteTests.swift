@@ -202,7 +202,12 @@ final class PlazaEmoteTests: XCTestCase {
 
     func testEachEmoteHasArt() {
         var pixels: [Data] = []
-        for kind in TeamEmoteKind.allCases {
+        // The two decoy kinds are protocol messages, never bubbles; a new kind must be listed on purpose.
+        let decoyKinds: [TeamEmoteKind] = [.decoyFound, .decoyJump]
+        let bubbleKinds: [TeamEmoteKind] = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup,
+                                            .firework, .dance]
+        XCTAssertEqual(Set(bubbleKinds + decoyKinds), Set(TeamEmoteKind.allCases), "every kind is sorted into bubble or message")
+        for kind in bubbleKinds {
             let one = PlazaEmoteArt.image(kind, scale: 1)
             let two = PlazaEmoteArt.image(kind, scale: 2)
             XCTAssertGreaterThan(one.width, 0)
@@ -212,8 +217,17 @@ final class PlazaEmoteTests: XCTestCase {
             XCTAssertTrue(data.contains { $0 != 0 }, "\(kind) draws something")
             pixels.append(data)
         }
-        XCTAssertEqual(Set(pixels).count, TeamEmoteKind.allCases.count, "every kind looks different")
+        XCTAssertEqual(Set(pixels).count, bubbleKinds.count, "every kind looks different")
         XCTAssertEqual(L(.ko).plazaEmoteLol, "ㅋㅋ")
+    }
+
+    func testDecoyKindsDrawNoBubble() {
+        let map = PlazaMapData.map
+        let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
+        for kind in [TeamEmoteKind.decoyFound, .decoyJump] {
+            scene.showEmote(memberID: nil, kind: kind)
+            XCTAssertNil(scene.shownEmote(memberID: nil), "\(kind)")
+        }
     }
 
     /// The greeting bubble is the same art with 3-point dots: exactly 1.5 times as big, and every dot is still a

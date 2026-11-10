@@ -65,6 +65,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var dittoLoop: Task<Void, Never>?
     /// 내가 호스트일 때만 있는 메타몽 두뇌.
     private var dittoBrain: PlazaDittoBrain?
+    /// 내가 찾은 복사본의 `since`. 호스트의 소식이 따라잡기 전에 온 옛 복사본 소식을 다시 그리지 않는다.
+    private var foundDittoSince: Date?
     /// 이 Mac이 지금 보여 주는 메타몽. 호스트가 바뀌어도 이어 받는다.
     private(set) var shownDitto: PlazaDittoState?
     /// `shownDitto`에 입힌 이름·색·칭호·그림. 둘 다 그대로면 0.05초 틱마다 장면과 지도를 다시 건드리지 않는다.
@@ -430,8 +432,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastEmoteAt = now
         scene.showEmote(memberID: nil, kind: kind)
-        let target = kind.notifiesTarget
-            ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: scene.memberTiles) : nil
+        var target = kind.notifiesTarget
+            ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targetTiles) : nil
+        if target == PlazaDitto.sceneKey { target = nil }   // 복사본에게 보낸 마음은 진짜 팀원에게 가지 않는다
         session?.sendEmote(kind, target: target)
     }
 
@@ -549,10 +552,19 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private func faceNearbyMember() -> String? {
         guard let scene else { return nil }
         let me = scene.walker.tile
-        guard let id = PlazaTargeting.member(from: me, facing: scene.walker.facing, members: scene.memberTiles),
-              let tile = scene.memberTiles[id] else { return nil }
+        let tiles = targetTiles
+        guard let id = PlazaTargeting.member(from: me, facing: scene.walker.facing, members: tiles),
+              let tile = tiles[id] else { return nil }
         if PlazaPathfinder.isAdjacent(me, tile) { scene.face(PlazaPathfinder.direction(from: me, to: tile)) }
         return id
+    }
+
+    /// 말을 걸 수 있는 팀원의 칸. 메타몽은 팀원 흉내를 내는 동안에만 들어간다.
+    private var targetTiles: [String: TilePoint] {
+        guard let scene else { return [:] }
+        var tiles = scene.memberTiles
+        if let tile = scene.decoyTile { tiles[PlazaDitto.sceneKey] = tile }
+        return tiles
     }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
@@ -721,7 +733,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private func handleInteractKey() {
         guard let scene,
               let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
-                                                members: scene.memberTiles) else { return }
+                                                members: targetTiles) else { return }
         if !isFocusing { scene.face(hit.facing) }   // 앉아 있는 동안은 불을 바라본 채로 둔다
         switch hit.target {
         case .board:
@@ -732,10 +744,20 @@ struct PlazaFocusEnd: Equatable, Sendable {
             openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: isCampfireLit, minutes: free ? PlazaCampfire.durations : [],
                                                          selection: 0)))
         case .member(let id):
-            guard let state = members[id] else { return }
-            var menu = PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)
+            // 복사본의 메뉴는 따라 한 팀원의 이름과 색으로 연다. 나를 따라 했다면 카드는 없다.
+            let isCopy = id == PlazaDitto.sceneKey
+            let copied = isCopy ? shownDitto?.decoyOf : id
+            var menu: PlazaMemberMenu
+            if isCopy, copied == memberID() {
+                menu = PlazaMemberMenu(memberID: id, nickname: nickname(), nameColor: nameColorModel.current)
+                menu.actions.removeAll { $0 == .viewCard }
+            } else if let state = copied.flatMap({ members[$0] }) {
+                menu = PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)
+            } else {
+                return
+            }
             if scene.canWalk == false { menu.actions.removeAll { $0 == .follow } }
-            let remaining = focusRemaining(of: id)
+            let remaining = copied.flatMap { focusRemaining(of: $0) }
             if let remaining { menu.status = L(.ko).plazaFocusStatus(seconds: remaining) }
             if isFocusing || remaining != nil { menu.actions.removeAll { $0 == .tackle || $0 == .follow } }
             // 물속에서는 따라갈 수 없다(내가 물속이어도 따라가기는 멈춘다). 몸통박치기는 헤엄치는 쪽끼리도 되지만 잠수한 쪽은 못 한다.
@@ -798,10 +820,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene?.follow(member: id)
         case .viewCard:
             // 메뉴를 연 사이에 연결이 끊긴 팀원이면 카드를 받을 수 없다.
-            guard let session, let state = members[id] else { return closeOverlay() }
+            // 복사본에서 열었으면 따라 한 팀원의 카드다.
+            let cardID = id == PlazaDitto.sceneKey ? shownDitto?.decoyOf : id
+            guard let session, let cardID, let state = members[cardID] else { return closeOverlay() }
             let generation = openOverlay(.card(.loading(state)))
             Task {
-                let profile = await session.requestProfile(memberID: id, timeout: profileTimeout)
+                let profile = await session.requestProfile(memberID: cardID, timeout: profileTimeout)
                 guard generation == overlayGeneration else { return }
                 overlayModel.content = .card(profile.map { .loaded(state, $0) } ?? .failed(state))
             }
@@ -811,7 +835,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 그 팀원에게 뛰어들고 충격 그림을 띄운 뒤 팀원들에게 보낸다. 내 진화 단계만큼(1–3칸) 밀라고 보내고, 실제로 미는 것은
     /// 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func tackle(_ id: String) {
-        guard let scene, let target = scene.memberTiles[id], !isFocusing, focusRemaining(of: id) == nil,
+        let isCopy = id == PlazaDitto.sceneKey
+        guard let scene, let target = targetTiles[id], !isFocusing, focusRemaining(of: id) == nil,
               !scene.isDiving, scene.memberIsDiving(id) != true else { return }
         let now = clock()
         if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
@@ -819,6 +844,13 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let me = scene.walker.tile
         let direction = PlazaPathfinder.isAdjacent(me, target) ? PlazaPathfinder.direction(from: me, to: target) : scene.walker.facing
         scene.playTackle(by: nil, on: id, direction: direction)
+        if isCopy {
+            // 복사본은 밀리지 않고 정체를 드러낸다. 따라 한 팀원을 알려 모두가 같은 복사본을 찾았다고 안다.
+            guard let copied = shownDitto?.decoyOf else { return }
+            session?.sendEmote(.decoyFound, target: copied)
+            showDecoyFound(from: memberID(), copied: copied)
+            return
+        }
         session?.sendEmote(.tackle, target: id, pushTiles: TeamEmote.pushTiles(evolutionStage()))
     }
 
@@ -844,7 +876,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let kind = greetingKind()
         scene.showEmote(memberID: nil, kind: kind)
         scene.showEmote(memberID: id, kind: kind)
-        session?.sendEmote(kind, target: id, shared: true)
+        if id == PlazaDitto.sceneKey {
+            session?.sendEmote(kind, target: nil, overDecoy: true)   // 진짜 팀원은 인사받은 줄 모른다
+        } else {
+            session?.sendEmote(kind, target: id, shared: true)
+        }
     }
 
     @discardableResult
@@ -893,9 +929,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 인사하기(`other`가 있다)면 받는 팀원(나일 수도
     /// 있다) 위에도 띄운다.
-    func showEmote(memberID: String, kind: TeamEmoteKind, alsoOver other: String? = nil) {
+    func showEmote(memberID: String, kind: TeamEmoteKind, alsoOver other: String? = nil, overDecoy: Bool = false) {
         scene?.showEmote(memberID: memberID, kind: kind)
         if let other { scene?.showEmote(memberID: other == self.memberID() ? nil : other, kind: kind) }
+        // 복사본에게 한 인사: 복사본이 보일 때만 그 머리 위에도 띄운다.
+        if overDecoy, shownDitto?.isDecoy == true { scene?.showEmote(memberID: PlazaDitto.sceneKey, kind: kind) }
     }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
@@ -908,6 +946,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     /// 목록에서 고른 팀원에게 걸어간다. 누른 뒤에도 키는 장면이 받는다.
     func walkToMember(_ id: String) {
+        // 복사본이 된 팀원에게는 걸어가지 않는다. 진짜인지 묻는 ?만 띄운다(5번 키와 같다).
+        if shownDitto?.decoyOf == id {
+            handleEmoteKey(.question)
+            if let skView { window?.makeFirstResponder(skView) }
+            return
+        }
         standUp()
         scene?.walk(toMember: id)
         if let skView { window?.makeFirstResponder(skView) }
@@ -1064,8 +1108,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     func advanceDitto(now: Date) {
         guard let scene else { return }
         let me = memberID()
-        let others = members.filter { $0.value.inPlaza && ($0.value.dittoReady || $0.value.ditto != nil) }.mapValues { _ in true }
-        let host = PlazaDitto.host(me: me, meReady: true, others: others)
+        let host = dittoHost()
         let smallerHosts = members.contains { $0.key < me && $0.value.ditto != nil }
         guard host == me, !smallerHosts else {
             dittoBrain = nil
@@ -1073,7 +1116,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             let source = host.flatMap { members[$0]?.ditto }
                 ?? members.filter { $0.value.ditto != nil }.min { $0.key < $1.key }?.value.ditto
             // 호스트의 소식이 아직 없으면 마지막 모습 그대로 둔다. 땅이 아닌 칸은 믿지 않는다.
-            if let state = source, PlazaDitto.isGround(state.tile, in: map) {
+            if let state = source, PlazaDitto.isGround(state.tile, in: map),
+               !(state.isDecoy && state.since == foundDittoSince) {
                 showDitto(state, change: PlazaDitto.change(from: shownDitto, to: state))
             }
             return
@@ -1081,10 +1125,39 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let world = dittoWorld(scene: scene, now: now)
         var brain = dittoBrain ?? PlazaDittoBrain(resuming: shownDitto, world: world, now: now,
                                                   seed: dittoSeed())
-        _ = brain.tick(now: now, world: world)   // .jumped 는 다음 작업에서 다룬다
+        let events = brain.tick(now: now, world: world)
         dittoBrain = brain
+        if events.contains(.jumped) {
+            scene.playJump(memberID: PlazaDitto.sceneKey)
+            session?.sendEmote(.decoyJump, target: nil)
+        }
         session?.updateDitto(ready: true, state: brain.state)
         showDitto(brain.state, change: PlazaDitto.change(from: shownDitto, to: brain.state))
+    }
+
+    /// 지금 호스트: 광장에 있고 준비됐거나 메타몽을 알리는 팀원과 나 가운데 가장 작은 ID.
+    private func dittoHost() -> String? {
+        let others = members.filter { $0.value.inPlaza && ($0.value.dittoReady || $0.value.ditto != nil) }.mapValues { _ in true }
+        return PlazaDitto.host(me: memberID(), meReady: true, others: others)
+    }
+
+    /// 런타임이 부른다. 누군가 `copied`의 복사본을 몸통박치기로 찾았다. 지금 그 복사본이 보일 때만 받는다. 받으면 바로 메타몽 모습이라 같은 복사본의 두 번째 소식은 저절로 무시된다.
+    /// 먼지와 배너를 띄우고 메타몽으로 바로 돌아간다. 호스트의 소식이 따라잡기 전의 옛 복사본은 다시 그리지 않는다.
+    func showDecoyFound(from sender: String, copied: String?) {
+        guard let scene, let copied, let shown = shownDitto, shown.decoyOf == copied else { return }
+        foundDittoSince = shown.since
+        let now = clock()
+        dittoBrain?.found(now: now)
+        showDitto(dittoBrain?.state ?? shown.turnedBack(now: now), change: .turnedBack(shown.tile))
+        scene.showEmote(memberID: PlazaDitto.sceneKey, kind: .exclaim)
+        let finder = sender == memberID() ? nickname() : members[sender]?.nickname
+        if let finder { showBanner(L(.ko).plazaDecoyFound(nickname: finder)) }
+    }
+
+    /// 런타임이 부른다. 호스트의 복사본이 폴짝 뛰었다. 호스트가 아닌 팀원이 보낸 것은 무시한다.
+    func showDecoyJump(from sender: String) {
+        guard sender == dittoHost(), shownDitto?.isDecoy == true else { return }
+        scene?.playJump(memberID: PlazaDitto.sceneKey)
     }
 
     private func dittoWorld(scene: PlazaScene, now: Date) -> PlazaDittoWorld {
@@ -1391,6 +1464,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         dittoLoop?.cancel()
         dittoLoop = nil
         dittoBrain = nil
+        foundDittoSince = nil
         shownDitto = nil
         shownDittoLook = nil
         session?.updateDitto(ready: false, state: nil)

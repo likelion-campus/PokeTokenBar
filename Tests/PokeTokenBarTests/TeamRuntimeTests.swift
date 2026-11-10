@@ -599,6 +599,12 @@ final class TeamRuntimeTests: XCTestCase {
 
 }
 
+private struct DecoyNoSprites: PlazaSpriteFetching {
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
+    func egg() async -> NSImage? { nil }
+}
+
 @MainActor
 private final class RuntimePoster: TeamNotificationPosting {
     private(set) var bodies: [String] = []
@@ -634,6 +640,42 @@ final class TeamRuntimeNotificationTests: XCTestCase {
     private func hatch() -> CompanionTeamEvent {
         CompanionTeamEvent(kind: .hatch, speciesID: 25, fromSpeciesID: nil, speciesName: "Pikachu", fromSpeciesName: nil,
                            form: nil, isShiny: false, nature: nil, rarity: .common)
+    }
+
+    /// A greeting aimed at the Ditto copy never reaches the real teammate's notifications, even when a hostile app
+    /// names me as the target.
+    func testAGreetingAtTheCopyDoesNotNotifyTheRealOne() async {
+        let (a, b, poster) = pair()
+        await settle { b.runtime.session.members[a.settings.memberID] != nil }
+        a.runtime.session.sendEmote(.lol, target: b.settings.memberID, overDecoy: true)
+        a.runtime.session.sendEmote(.party, target: b.settings.memberID)
+        await settle { poster.bodies.count >= 1 }
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertEqual(poster.bodies, [L(.ko).teamEmoteNotice(nickname: "가", kind: .party)])
+    }
+
+    /// The two decoy kinds are routed to the plaza, not drawn as bubbles.
+    func testDecoyKindsReachThePlaza() async {
+        let (a, b, _) = pair()
+        let suite = "ptb.test.team.runtime.decoy.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: DecoyNoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        let now = Date()
+        plaza.advanceDitto(now: now)
+        // No copy is shown, so a find is ignored and nothing is drawn.
+        a.runtime.session.sendEmote(.decoyFound, target: sender)
+        a.runtime.session.sendEmote(.decoyJump, target: nil)
+        a.runtime.session.sendEmote(.lol, target: nil)
+        await settle { plaza.scene?.shownEmote(memberID: sender) == .lol }
+        XCTAssertNil(plaza.banner)
+        plaza.handleClose()
     }
 
     func testOthersBigEventReachesTheNotifier() async {

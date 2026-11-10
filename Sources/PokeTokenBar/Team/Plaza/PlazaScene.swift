@@ -994,7 +994,8 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// `memberID`가 nil이면 나. 모르는 팀원이면 아무것도 안 한다.
     func showEmote(memberID: String?, kind: TeamEmoteKind) {
-        guard let actor = actor(memberID) else { return }
+        // 메타몽 복사본 소식은 말풍선이 아니다.
+        guard kind != .decoyFound, kind != .decoyJump, let actor = actor(memberID) else { return }
         actor.showEmote(kind)
         layout()
     }

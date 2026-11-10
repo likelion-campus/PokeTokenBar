@@ -81,10 +81,12 @@ final class PlazaDittoControllerTests: XCTestCase {
 
     /// The loop sleeps for good, so only `advanceDitto(now:)` moves the Ditto.
     private func controller(_ me: Node, fetcher: PlazaSpriteFetching = RecordingFetcher(), gate: LoopGate? = nil,
-                            seed: UInt64 = 7) -> PlazaWindowController {
-        PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
+                            seed: UInt64 = 7, nickname: String = "나", start: TilePoint? = nil) -> PlazaWindowController {
+        let prefs = PlazaPreferences(defaults: defaults())
+        if let start { prefs.saveLastTile(start) }
+        return PlazaWindowController(preferences: prefs,
                               loader: PlazaCharacterLoader(fetcher: fetcher),
-                              nickname: { "나" }, memberID: { me.settings.memberID },
+                              nickname: { nickname }, memberID: { me.settings.memberID },
                               subject: { .init(speciesID: 25, isShiny: false) },
                               myRosterEntry: { nil }, session: me.session,
                               spriteRetrySleep: { _ in try? await Task.sleep(for: .seconds(3600)) },
@@ -113,6 +115,20 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertTrue(PlazaDitto.isGround(t, in: map), "\(t) must be ground")
         return t
     }
+
+    /// Where my character starts in the adjacency tests, and the ground tile right beside it (to its right).
+    private lazy var meStart: (me: TilePoint, beside: TilePoint) = {
+        let far = [ground(8, 8), ground(-5, 0), map.spawn]
+        for y in 0..<map.height { for x in 0..<(map.width - 1) {
+            let t = TilePoint(x: x, y: y), r = TilePoint(x: x + 1, y: y)
+            guard PlazaDitto.isGround(t, in: map), PlazaDitto.isGround(r, in: map) else { continue }
+            if far.allSatisfy({ abs($0.x - x) + abs($0.y - y) > 4 }) { return (t, r) }
+        } }
+        XCTFail("no two neighbouring ground tiles")
+        return (map.spawn, map.spawn)
+    }()
+
+    private func beside() -> TilePoint { meStart.beside }
 
     private func place(_ n: Node, at tile: TilePoint, ready: Bool = true) {
         n.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
@@ -413,5 +429,282 @@ final class PlazaDittoControllerTests: XCTestCase {
         c.startFocus(minutes: 25)
         XCTAssertNotNil(c.focus)
         XCTAssertNotEqual(c.focus?.seat, seat.tile)
+    }
+
+    // MARK: - Finding the copy
+
+    /// [host a, me, member m] with a hosting a copy of `copied` right beside me (spawn, one tile right).
+    @MainActor private struct Adjacent {
+        let c: PlazaWindowController, a: Node, me: Node, m: Node, since: Date
+        var scene: PlazaScene { c.scene! }
+    }
+
+    private func adjacentCopy(ofMe: Bool = false, nickname: String = "나", now: Date = Date()) async -> Adjacent {
+        let nodes = sorted(3)
+        let (a, me, m) = (nodes[0], nodes[1], nodes[2])
+        await connect(a, me); await connect(m, me)
+        let c = controller(me, nickname: nickname, start: meStart.me)
+        c.prepareScene()
+        place(m, at: ground(-5, 0))
+        host(a, dittoForm(beside(), now: now).copying(ofMe ? me.id : m.id, now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        XCTAssertEqual(c.scene?.decoyTile, beside(), "test precondition")
+        return Adjacent(c: c, a: a, me: me, m: m, since: now)
+    }
+
+    private func emotes(from node: Node) -> EmoteLog {
+        let log = EmoteLog()
+        node.session.onEmote = { log.items.append($1) }
+        return log
+    }
+
+    @MainActor private final class EmoteLog { var items: [TeamEmote] = [] }
+
+    func testTacklingTheCopyRevealsItForEveryone() async {
+        let t = await adjacentCopy(nickname: "재헌")
+        let log = emotes(from: t.a)
+        t.scene.onTackleKey?()
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.decoyFound])
+        XCTAssertEqual(log.items.first?.targetMemberID, t.m.id)
+        XCTAssertNil(t.c.shownDitto?.decoyOf)
+        XCTAssertEqual(t.scene.dittoTile, beside())
+        XCTAssertNil(t.scene.decoyTile, "Ditto form at that tile")
+        XCTAssertEqual(t.scene.memberName(key), L(.ko).plazaDittoName)
+        XCTAssertEqual(t.c.banner, "재헌님이 메타몽을 찾았어요!")
+        XCTAssertEqual(t.scene.shownEmote(memberID: key), .exclaim)
+    }
+
+    func testTheCopiedPersonCanTackleTheirOwnCopy() async {
+        let t = await adjacentCopy(ofMe: true, nickname: "재헌")
+        let log = emotes(from: t.a)
+        t.scene.onTackleKey?()
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.decoyFound])
+        XCTAssertEqual(log.items.first?.targetMemberID, t.me.id)
+        XCTAssertNil(t.scene.decoyTile)
+        XCTAssertEqual(t.c.banner, "재헌님이 메타몽을 찾았어요!")
+    }
+
+    func testTacklingTheRealOneStillPushes() async {
+        let nodes = sorted(2)
+        let (m, me) = (nodes[0], nodes[1])
+        await connect(m, me)
+        let c = controller(me, start: meStart.me)
+        c.prepareScene()
+        place(m, at: beside())
+        await settle()
+        let log = emotes(from: m)
+        c.scene?.onTackleKey?()
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.tackle])
+        XCTAssertEqual(log.items.first?.targetMemberID, m.id)
+    }
+
+    func testAReceivedFindShowsTheBannerOnce() async {
+        let t = await adjacentCopy()
+        t.c.showDecoyFound(from: t.m.id, copied: t.m.id)
+        XCTAssertEqual(t.c.banner, L(.ko).plazaDecoyFound(nickname: t.m.settings.nickname))
+        t.c.showBanner("other")
+        t.c.showDecoyFound(from: t.a.id, copied: t.m.id)
+        XCTAssertEqual(t.c.banner, "other", "the second find of the same copy shows nothing")
+        XCTAssertNil(t.c.shownDitto?.decoyOf)
+    }
+
+    func testAFindWithNoCopyIsIgnored() async {
+        let nodes = sorted(3)
+        let (a, me, m) = (nodes[0], nodes[1], nodes[2])
+        await connect(a, me); await connect(m, me)
+        let c = controller(me)
+        c.prepareScene()
+        place(m, at: ground(-5, 0))
+        host(a, dittoForm(ground(4, 0)))
+        await settle()
+        c.advanceDitto(now: Date())
+        c.showDecoyFound(from: m.id, copied: m.id)
+        XCTAssertNil(c.banner)
+        XCTAssertNil(c.scene?.shownEmote(memberID: key))
+        // A copy of somebody else is not found by a find naming m either.
+        let now = Date()
+        host(a, dittoForm(ground(4, 0), now: now).copying(a.id, now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        c.showDecoyFound(from: m.id, copied: m.id)
+        XCTAssertNil(c.banner)
+        c.showDecoyFound(from: m.id, copied: nil)
+        XCTAssertNil(c.banner)
+        XCTAssertEqual(c.shownDitto?.decoyOf, a.id)
+    }
+
+    func testAPresenceFromBeforeTheFindDoesNotBringTheCopyBack() async {
+        let t = await adjacentCopy()
+        t.c.showDecoyFound(from: t.m.id, copied: t.m.id)
+        XCTAssertNil(t.scene.decoyTile)
+        // The host's presence has not caught up yet: it still carries the copy with the same since.
+        await settle()
+        t.c.advanceDitto(now: t.since.addingTimeInterval(0.05))
+        XCTAssertNil(t.scene.decoyTile, "the stale copy is not drawn again")
+        XCTAssertNil(t.c.shownDitto?.decoyOf)
+        // The host later turns back, rests, and copies again: a new since is shown.
+        let later = t.since.addingTimeInterval(300)
+        host(t.a, dittoForm(beside(), now: later).copying(t.m.id, now: later))
+        await settle()
+        t.c.advanceDitto(now: later)
+        XCTAssertEqual(t.scene.decoyTile, beside())
+    }
+
+    func testTheHostTurnsBackOnAReceivedFind() async {
+        let nodes = sorted(3)
+        let (a, me, m) = (nodes[0], nodes[1], nodes[2])
+        await connect(a, me); await connect(m, me)
+        let c = controller(me)
+        c.prepareScene()
+        place(m, at: ground(-5, 0))
+        let now = Date()
+        host(a, dittoForm(beside(), now: now).copying(m.id, now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updateDitto(ready: false, state: nil)
+        await settle()
+        c.advanceDitto(now: now.addingTimeInterval(0.05))
+        XCTAssertTrue(c.isDittoHost)
+        XCTAssertEqual(c.shownDitto?.decoyOf, m.id)
+        c.showDecoyFound(from: m.id, copied: m.id)
+        c.advanceDitto(now: now.addingTimeInterval(0.1))
+        await settle()
+        let sent = try? XCTUnwrap(a.session.members[me.id]?.ditto)
+        XCTAssertNil(sent?.decoyOf)
+        XCTAssertEqual(sent?.restUntil?.timeIntervalSinceReferenceDate ?? 0,
+                       Date().addingTimeInterval(PlazaDitto.restDuration).timeIntervalSinceReferenceDate, accuracy: 5)
+    }
+
+    func testGreetingTheCopyLooksLikeGreetingTheRealOne() async {
+        let t = await adjacentCopy()
+        let log = emotes(from: t.m)
+        t.c.chooseMenu(.greet, memberID: key)
+        await settle()
+        XCTAssertNotNil(t.scene.shownEmote(memberID: nil))
+        XCTAssertEqual(t.scene.shownEmote(memberID: key), t.scene.shownEmote(memberID: nil))
+        XCTAssertEqual(log.items.count, 1)
+        XCTAssertNil(log.items.first?.targetMemberID, "the real one is not told")
+        XCTAssertEqual(log.items.first?.overDecoy, true)
+    }
+
+    func testHeartAtTheCopyHasNoTarget() async {
+        let t = await adjacentCopy()
+        let log = emotes(from: t.m)
+        t.scene.onEmoteKey?(.heart)
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.heart])
+        XCTAssertNil(log.items.first?.targetMemberID)
+    }
+
+    func testClickingTheCopiedMemberInTheRosterAsksInsteadOfWalking() async {
+        let t = await adjacentCopy()
+        let log = emotes(from: t.a)
+        t.c.walkToMember(t.m.id)
+        await settle()
+        XCTAssertNil(t.scene.walkingToMember)
+        XCTAssertEqual(t.scene.shownEmote(memberID: nil), .question)
+        XCTAssertEqual(log.items.map(\.kind), [.question])
+        XCTAssertNil(log.items.first?.targetMemberID)
+    }
+
+    func testClickingAnotherMemberStillWalks() async {
+        let t = await adjacentCopy()
+        t.c.walkToMember(t.a.id)
+        XCTAssertEqual(t.scene.walkingToMember, t.a.id)
+    }
+
+    func testSpaceAndTackleDoNothingOnDittoForm() async {
+        let nodes = sorted(2)
+        let (a, me) = (nodes[0], nodes[1])
+        await connect(a, me)
+        let c = controller(me, start: meStart.me)
+        c.prepareScene()
+        host(a, dittoForm(beside()))
+        await settle()
+        c.advanceDitto(now: Date())
+        XCTAssertNotNil(c.scene?.dittoTile)
+        let log = emotes(from: a)
+        c.scene?.onInteractKey?()
+        XCTAssertEqual(c.overlayContent, .none)
+        c.scene?.onTackleKey?()
+        c.scene?.onGreetKey?()
+        c.scene?.onEmoteKey?(.heart)
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.heart], "only the bubble goes out, aimed at nobody")
+        XCTAssertNil(log.items.first?.targetMemberID)
+        XCTAssertNil(c.banner)
+    }
+
+    func testSpaceOnTheCopyOpensTheCopiedMembersMenu() async {
+        let t = await adjacentCopy()
+        t.scene.onInteractKey?()
+        guard case .memberMenu(let menu) = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        XCTAssertEqual(menu.memberID, key)
+        XCTAssertEqual(menu.nickname, t.m.settings.nickname)
+        XCTAssertTrue(menu.actions.contains(.viewCard))
+        t.c.chooseMenu(.follow, memberID: key)
+        XCTAssertEqual(t.scene.followingMember, key)
+    }
+
+    func testTheMenuOnMyOwnCopyHasNoCard() async {
+        let t = await adjacentCopy(ofMe: true, nickname: "재헌")
+        t.scene.onInteractKey?()
+        guard case .memberMenu(let menu) = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        XCTAssertEqual(menu.nickname, "재헌")
+        XCTAssertFalse(menu.actions.contains(.viewCard))
+        XCTAssertTrue(menu.actions.contains(.tackle))
+    }
+
+    func testADecoyJumpFromANonHostIsIgnored() async {
+        let nodes = sorted(3)
+        let (a, me, m) = (nodes[0], nodes[1], nodes[2])
+        await connect(a, me); await connect(m, me)
+        let c = controller(me)
+        c.prepareScene()
+        place(m, at: ground(-5, 0))
+        let now = Date()
+        host(a, dittoForm(beside(), now: now).copying(m.id, now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        let scene = c.scene!
+        c.showDecoyJump(from: m.id)
+        scene.update(0.01)
+        XCTAssertEqual(scene.dustCount, 0, "m is not the host")
+        c.showDecoyJump(from: a.id)
+        XCTAssertGreaterThan(scene.dustCount, 0, "the host's jump hops the copy")
+    }
+
+    func testTheHostsCopyJumpsAreSent() async {
+        let nodes = sorted(3)
+        let (a, me, m) = (nodes[0], nodes[1], nodes[2])
+        await connect(a, me); await connect(m, me)
+        let c = controller(me)
+        c.prepareScene()
+        place(m, at: ground(-5, 0))
+        var now = Date()
+        host(a, dittoForm(beside(), now: now).copying(m.id, now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updateDitto(ready: false, state: nil)
+        await settle()
+        let log = emotes(from: m)
+        var jumped = false
+        for _ in 0..<12_000 where !jumped {
+            now = now.addingTimeInterval(0.05)
+            c.advanceDitto(now: now)
+            guard c.shownDitto?.isDecoy == true else { break }
+            c.scene?.update(0)
+            jumped = c.scene?.dustCount ?? 0 > 0
+        }
+        XCTAssertTrue(jumped, "the host's copy hopped")
+        await settle()
+        XCTAssertEqual(log.items.filter { $0.kind == .decoyJump }.count, 1)
+        XCTAssertNil(log.items.first { $0.kind == .decoyJump }?.targetMemberID)
     }
 }
