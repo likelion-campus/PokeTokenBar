@@ -60,6 +60,13 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 창이 열려 있는 동안 1초마다 모닥불·타이머·안내를 다시 맞추는 틱. 테스트에서 바꿔 끼운다.
     private let focusTickSleep: @MainActor (Duration) async -> Void
     private var focusTick: Task<Void, Never>?
+    /// 창이 열려 있는 동안 0.05초마다 메타몽을 한 걸음 진행하는 틱. 테스트에서 바꿔 끼운다.
+    private let dittoLoopSleep: @MainActor (Duration) async -> Void
+    private var dittoLoop: Task<Void, Never>?
+    /// 내가 호스트일 때만 있는 메타몽 두뇌.
+    private var dittoBrain: PlazaDittoBrain?
+    /// 이 Mac이 지금 보여 주는 메타몽. 호스트가 바뀌어도 이어 받는다.
+    private(set) var shownDitto: PlazaDittoState?
     /// 지금 모닥불에 앉아 집중 중인 나. 앉으면 저장하고, 끝나거나 일어서면 지운다.
     private(set) var focus: PlazaFocus?
     /// 앉은 자리가 바라보는 방향. 다시 열거나 닫을 때 그대로 알린다.
@@ -169,9 +176,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
          spriteRetrySleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          renderCheckSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          focusTickSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+         dittoLoopSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          isFrontmost: (@MainActor () -> Bool)? = nil) {
         self.frontmostOverride = isFrontmost
         self.focusTickSleep = focusTickSleep
+        self.dittoLoopSleep = dittoLoopSleep
         self.spriteRetrySleep = spriteRetrySleep
         self.renderCheckSleep = renderCheckSleep
         self.session = session
@@ -396,6 +405,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.refreshInteractionTarget()
         refreshCampfire()
         startFocusTick()
+        session?.updateDitto(ready: true, state: nil)
+        startDittoLoop()
     }
 
     /// 내 말풍선은 바로 띄운다. ♥, ㅋㅋ, 🎉는 바라보거나 바로 옆에 있는 팀원을 표적으로 보내고, !, ?는 표적 없이 보낸다.
@@ -697,7 +708,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             feed?.markAllRead()
             openOverlay(.board)
         case .campfire:
-            let free = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: Set(scene.memberTiles.values)) != nil
+            let free = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: scene.occupiedTiles()) != nil
             openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: isCampfireLit, minutes: free ? PlazaCampfire.durations : [],
                                                          selection: 0)))
         case .member(let id):
@@ -941,7 +952,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 가장 가까운 빈 자리에 앉아 집중을 시작한다. 이미 앉아 있거나 빈 자리가 없으면 아무것도 안 한다.
     func startFocus(minutes: Int) {
         guard let scene, focus == nil,
-              let seat = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: Set(scene.memberTiles.values)) else { return }
+              let seat = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: scene.occupiedTiles()) else { return }
         let started = PlazaFocus(endsAt: clock().addingTimeInterval(TimeInterval(minutes * 60)), minutes: minutes, seat: seat.tile)
         focus = started
         focusFacing = seat.facing
@@ -1013,6 +1024,114 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
     }
 
+    // MARK: - 메타몽
+
+    var isDittoHost: Bool { dittoBrain != nil }
+
+    private func startDittoLoop() {
+        dittoLoop?.cancel()
+        let sleep = dittoLoopSleep
+        dittoLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                await sleep(.milliseconds(50))
+                guard !Task.isCancelled, let self else { return }
+                self.advanceDitto(now: self.clock())
+            }
+        }
+    }
+
+    /// 한 걸음. 가장 작은 ID의 준비된 Mac이 호스트다. 호스트면 두뇌를 돌려 알리고, 아니면 호스트의 메타몽을 따라 그린다.
+    func advanceDitto(now: Date) {
+        guard let scene else { return }
+        let me = memberID()
+        let others = members.filter { $0.value.inPlaza && ($0.value.dittoReady || $0.value.ditto != nil) }.mapValues { _ in true }
+        let host = PlazaDitto.host(me: me, meReady: true, others: others)
+        let smallerHosts = members.contains { $0.key < me && $0.value.ditto != nil }
+        guard host == me, !smallerHosts else {
+            dittoBrain = nil
+            session?.updateDitto(ready: true, state: nil)
+            let source = host.flatMap { members[$0]?.ditto }
+                ?? members.filter { $0.value.ditto != nil }.min { $0.key < $1.key }?.value.ditto
+            // 호스트의 소식이 아직 없으면 마지막 모습 그대로 둔다. 땅이 아닌 칸은 믿지 않는다.
+            if let state = source, PlazaDitto.isGround(state.tile, in: map) {
+                showDitto(state, change: PlazaDitto.change(from: shownDitto, to: state))
+            }
+            return
+        }
+        let world = dittoWorld(scene: scene, now: now)
+        var brain = dittoBrain ?? PlazaDittoBrain(resuming: shownDitto, world: world, now: now,
+                                                  seed: UInt64.random(in: .min ... .max))
+        _ = brain.tick(now: now, world: world)   // .jumped 는 다음 작업에서 다룬다
+        dittoBrain = brain
+        session?.updateDitto(ready: true, state: brain.state)
+        showDitto(brain.state, change: PlazaDitto.change(from: shownDitto, to: brain.state))
+    }
+
+    private func dittoWorld(scene: PlazaScene, now: Date) -> PlazaDittoWorld {
+        let myID = memberID()
+        let myTile = scene.walker.tile
+        var copyable: [String: TilePoint] = [:]
+        var present: [String: TilePoint] = [myID: myTile]
+        for m in members.values {
+            guard m.inPlaza, let tile = scene.memberTiles[m.memberID] else { continue }
+            present[m.memberID] = tile
+            if PlazaDitto.canBeCopied(inPlaza: true, ready: m.dittoReady, isIdle: m.isIdle,
+                                      isFocusing: focusRemaining(of: m.memberID) != nil, isEgg: m.character.speciesID == nil) {
+                copyable[m.memberID] = tile
+            }
+        }
+        if PlazaDitto.canBeCopied(inPlaza: true, ready: true, isIdle: session?.isIdle ?? false, isFocusing: isFocusing,
+                                  isEgg: subject().speciesID == nil) {
+            copyable[myID] = myTile
+        }
+        return PlazaDittoWorld(map: map, blocked: scene.occupiedTiles(except: PlazaDitto.sceneKey).union([myTile]),
+                               copyable: copyable, present: present)
+    }
+
+    /// 장면, 그림, 작은 지도, 먼지를 한꺼번에 맞춘다. 따라 하는 팀원을 아직 모르면 그리지 않고 이전 모습으로 둔다.
+    private func showDitto(_ state: PlazaDittoState?, change: PlazaDittoChange) {
+        guard let scene else { return }
+        guard let state else {
+            shownDitto = nil
+            scene.applyDitto(nil)
+            refreshMinimap()
+            return
+        }
+        let look: (name: String, color: CGColor, title: String?, subject: CompanionStore.RepresentativeSubject)
+        if let id = state.decoyOf {
+            if id == memberID() {
+                look = (nickname(), scene.nameColor, (myEntryCache ?? myRosterEntry())?.nature.map(L(.ko).plazaNatureTitle), subject())
+            } else if let m = members[id] {
+                look = (m.nickname, PlazaNameColor.color(forMemberID: id, chosen: m.nameColor), m.character.nature.map(L(.ko).plazaNatureTitle),
+                        .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form))
+            } else {
+                return
+            }
+        } else {
+            look = (L(.ko).plazaDittoName, PlazaNameColor.color(forMemberID: PlazaDitto.sceneKey, chosen: PlazaDitto.nameHex), nil,
+                    .init(speciesID: PlazaDitto.speciesID, isShiny: false, form: nil))
+        }
+        shownDitto = state
+        scene.applyDitto(PlazaDittoShown(tile: state.tile, facing: state.facing, isWalking: state.isWalking ?? false,
+                                         isRunning: state.isRunning ?? false, name: look.name, nameColor: look.color,
+                                         title: look.title, isDecoy: state.isDecoy))
+        if memberSubjects[PlazaDitto.sceneKey] != look.subject {
+            memberSubjects[PlazaDitto.sceneKey] = look.subject
+            startMemberLoad(PlazaDitto.sceneKey, subject: look.subject)
+        }
+        switch change {
+        case .none:
+            break
+        case .transformed:
+            scene.playDittoPoof()
+            if let id = state.decoyOf, scene.walkingToMember == id { scene.stopWalkingToMember() }
+        case .turnedBack:
+            scene.playDittoPoof()
+            if scene.followingMember == PlazaDitto.sceneKey { scene.stopWalkingToMember() }
+        }
+        refreshMinimap()
+    }
+
     /// 큰 소식 연출: 쓴 사람 위에 반짝임, 위쪽에 배너. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 진화는 연출하지 않는다.
     func showBigEvent(_ e: TeamEvent) {
         guard let scene, e.kind.isBig else { return }
@@ -1073,6 +1192,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
             return .init(id: m.memberID, tile: tile, color: scene.memberNameColor(m.memberID) ?? PlazaNameColor.palette[0],
                          isMe: false, isAway: m.isIdle)
         }
+        if shownDitto?.isDecoy == true, let tile = scene.dittoTile, let color = scene.memberNameColor(PlazaDitto.sceneKey) {
+            dots.append(.init(id: PlazaDitto.sceneKey, tile: tile, color: color, isMe: false, isAway: false))
+        }
         dots.append(.init(id: memberID(), tile: scene.walker.tile, color: scene.nameColor, isMe: true, isAway: false))
         if dots != minimap.dots { minimap.dots = dots }
         if scene.visibleWorldRect != minimap.view { minimap.view = scene.visibleWorldRect }
@@ -1116,7 +1238,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         })
         refreshMinimap()
         let ids = Set(members.keys)
-        for id in memberSubjects.keys where !ids.contains(id) {
+        for id in memberSubjects.keys where !ids.contains(id) && id != PlazaDitto.sceneKey {
             memberSubjects[id] = nil
             memberLoadTokens[id] = nil
         }
@@ -1239,6 +1361,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         renderWatchdog = nil
         focusTick?.cancel()
         focusTick = nil
+        dittoLoop?.cancel()
+        dittoLoop = nil
+        dittoBrain = nil
+        shownDitto = nil
+        session?.updateDitto(ready: false, state: nil)
         chatInput.close()
         if overlayModel.content == .board { feed?.markAllRead() }
         persistState()
