@@ -95,6 +95,20 @@ final class PlazaDittoSceneTests: XCTestCase {
         XCTAssertNotEqual(s.memberFoot(key), start)
     }
 
+    /// A dance that arrives while the Ditto is walking waits for it to stop; if it moves on to another tile meanwhile, the
+    /// dance (decided for the old tile) is dropped.
+    func testAParkedDanceIsDroppedWhenTheDittoMovesOn() {
+        let s = scene()
+        s.applyDitto(shown(p(22, 22)))
+        s.setMemberFrames(key, frames())
+        s.applyDitto(shown(p(23, 22)))   // a step
+        XCTAssertFalse(s.playDance(memberID: key, style: "spin"), "test precondition: parked while walking")
+        s.applyDitto(shown(p(30, 22)))   // snapped far away, standing
+        var t: TimeInterval = 100
+        for _ in 0..<20 { t += 1.0 / 30; s.update(t) }
+        XCTAssertFalse(s.isDancing(memberID: key))
+    }
+
     func testThePhotoIncludesTheDitto() throws {
         let s = scene()
         s.setCharacter(frames())

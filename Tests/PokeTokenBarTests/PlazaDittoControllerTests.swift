@@ -615,23 +615,6 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(t.scene.danceStyle(memberID: key), .bounce)
     }
 
-    /// A dancer whose dance does not start (here: in the water, where nobody dances) is not followed.
-    func testADancerWhoseDanceDoesNotStartIsNotFollowed() async throws {
-        var pair: (shore: TilePoint, water: TilePoint)?
-        search: for y in 0..<map.height { for x in 0..<map.width {
-            let g = TilePoint(x: x, y: y)
-            guard PlazaDitto.isGround(g, in: map) else { continue }
-            if let d = PlazaDirection.allCases.first(where: { map.isWater(PlazaWalker.offset(g, $0)) }) {
-                pair = (g, PlazaWalker.offset(g, d)); break search
-            }
-        } }
-        let (shore, water) = try XCTUnwrap(pair)
-        let t = await dancing(ditto: shore, dancer: water)
-        t.c.showDance(memberID: t.m.id, style: "spin")
-        XCTAssertFalse(t.scene.isDancing(memberID: t.m.id), "test precondition")
-        XCTAssertFalse(t.scene.isDancing(memberID: key))
-    }
-
     func testTheDittoDancesAlongWithMe() async {
         let nodes = sorted(2)
         let (a, me) = (nodes[0], nodes[1])
@@ -650,15 +633,19 @@ final class PlazaDittoControllerTests: XCTestCase {
     }
 
     /// The host holds the dancing Ditto still while a dancer keeps going, and lets it wander once the dancing stops.
-    func testTheHostKeepsADancingDittoStill() async {
+    /// `hidden`: the host's plaza window is covered, so its scene draws nothing, but other Macs still show the dance.
+    /// `local`: I am the dancer (D every round) instead of m.
+    private func assertTheHostHoldsADancingDitto(hidden: Bool = false, local: Bool = false,
+                                                 file: StaticString = #filePath, line: UInt = #line) async {
         let nodes = sorted(3)
         let (a, me, m) = (nodes[0], nodes[1], nodes[2])
         await connect(a, me); await connect(m, me)
         var now = Date()
         let c = controller(me, start: meStart.me, clock: { now })
         c.prepareScene()
-        let ditto = ground(4, 0)
-        place(m, at: ground(5, 1))
+        c.scene?.now = { now }
+        let ditto = local ? beside() : ground(4, 0)
+        place(m, at: local ? ground(-5, 0) : ground(5, 1))
         host(a, dittoForm(ditto, now: now).turnedBack(now: now))
         await settle()
         c.advanceDitto(now: now)
@@ -667,20 +654,44 @@ final class PlazaDittoControllerTests: XCTestCase {
         await settle()
         now += 0.05
         c.advanceDitto(now: now)
-        XCTAssertTrue(c.isDittoHost, "test precondition")
-        // m dances a round every 1.6 s for 12 s, longer than any wait before the Ditto's next walk (2–6 s).
+        XCTAssertTrue(c.isDittoHost, "test precondition", file: file, line: line)
+        if hidden { c.setRendering(visible: false) }
+        // A round every 1.6 s for 12 s, longer than any wait before the Ditto's next walk (2–6 s).
         var next = now
         let end = now.addingTimeInterval(12)
         while now < end {
-            if now >= next { c.showDance(memberID: m.id, style: "sway"); next += PlazaDance.round }
+            if now >= next {
+                if local { _ = c.scene?.handleKeyDown(keyCode: 2, characters: "d", isRepeat: false) }
+                else { c.showDance(memberID: m.id, style: "sway") }
+                next += PlazaDance.round
+            }
             now += 0.1
             c.advanceDitto(now: now)
-            XCTAssertEqual(c.shownDitto?.tile, ditto, "held at \(12 - end.timeIntervalSince(now))")
+            XCTAssertEqual(c.shownDitto?.tile, ditto, "held at \(12 - end.timeIntervalSince(now))", file: file, line: line)
         }
-        // m stops: the Ditto wanders again.
+        if local { XCTAssertTrue(c.scene?.isDancing(memberID: nil) == true, "test precondition", file: file, line: line) }
+        // The rounds stop: the Ditto wanders again.
         let free = now.addingTimeInterval(8)
         while now < free, c.shownDitto?.tile == ditto { now += 0.1; c.advanceDitto(now: now) }
-        XCTAssertNotEqual(c.shownDitto?.tile, ditto)
+        XCTAssertNotEqual(c.shownDitto?.tile, ditto, file: file, line: line)
+    }
+
+    func testTheHostKeepsADancingDittoStill() async { await assertTheHostHoldsADancingDitto() }
+
+    func testAHiddenHostStillKeepsADancingDittoStill() async { await assertTheHostHoldsADancingDitto(hidden: true) }
+
+    func testTheHostKeepsTheDittoStillWhileIDance() async { await assertTheHostHoldsADancingDitto(local: true) }
+
+    /// On my screen the dancer may still be finishing a step when their round arrives: their own dance waits for the step,
+    /// and the Ditto follows at once rather than a round later.
+    func testADancerFinishingAStepIsFollowedAtOnce() async {
+        let t = await dancing(ditto: ground(4, 0), dancer: ground(5, 1))
+        t.m.session.updatePlazaPosition(inPlaza: true, tile: ground(5, 0), facing: .up, isWalking: true)   // a step, both tiles in range
+        await settle()
+        t.c.showDance(memberID: t.m.id, style: "spin")
+        XCTAssertFalse(t.scene.isDancing(memberID: t.m.id), "test precondition: the dancer's own dance waits for the step")
+        XCTAssertTrue(t.scene.isDancing(memberID: key))
+        XCTAssertEqual(t.scene.danceStyle(memberID: key), .spin)
     }
 
     func testAFormChangeStopsTheDittosDance() async {
