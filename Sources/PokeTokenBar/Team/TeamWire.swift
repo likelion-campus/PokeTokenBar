@@ -86,8 +86,8 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     case pickup
     /// 불꽃놀이 (F): one shell of `TeamEmote.fireworkStyle` rises from the sender and bursts. Earlier versions skip it.
     case firework
-    /// 춤 (D): the sender dances one round of `TeamEmote.danceStyle`. Earlier versions skip it. The ♪ bubble the plaza
-    /// shows over three dancers is drawn from this kind but is never sent.
+    /// 춤 (D): the sender dances one round of `TeamEmote.danceStyle`. A looping dancer sends one per round. Earlier versions
+    /// skip it. The ♪ bubble the plaza shows over every dancer is drawn from this kind but is never sent.
     case dance
     /// Someone found the Ditto copy of `TeamEmote.targetMemberID`. Earlier versions skip it.
     case decoyFound
@@ -98,6 +98,16 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
         switch self {
         case .heart, .lol, .party: true
         case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump: false
+        }
+    }
+
+    /// The sender did something else, so their plaza dance stops. `decoyJump` is sent by the Ditto host for the copy, not by the
+    /// host acting; `groupPhoto` keeps the dance like photo mode does; `pickup` only follows a walk, which already stopped it.
+    /// A new kind must choose.
+    var endsSendersDance: Bool {
+        switch self {
+        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound: true
+        case .groupPhoto, .pickup, .dance, .decoyJump: false
         }
     }
 }

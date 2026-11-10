@@ -54,6 +54,7 @@ final class TeamRuntime {
         notifier?.isFocusing = { [weak self] in self?.plaza?.isFocusing ?? false }
         session.onEmote = { [weak self] memberID, emote in
             guard let self else { return }
+            if emote.kind.endsSendersDance { plaza?.stopDance(memberID: memberID) }
             if emote.kind == .tackle {
                 plaza?.showTackle(from: memberID, on: emote.targetMemberID, tiles: TeamEmote.pushTiles(emote.pushTiles))
                 return
@@ -96,6 +97,7 @@ final class TeamRuntime {
         }
         session.onChat = { [weak self] memberID, text, isLoud in
             guard let self else { return }
+            plaza?.stopDance(memberID: memberID)
             plaza?.showChat(memberID: memberID, text: text, isLoud: isLoud)
             if isLoud, let member = session.members[memberID] { notifier?.megaphone(from: member, text: text) }
         }
