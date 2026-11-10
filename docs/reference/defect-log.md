@@ -735,6 +735,15 @@ read_when:
   `testTheHintFollowsAFormChangeOnTheSameTile`(각각 `since` 비교, "복사본인가" 비교, 다시 그리기 삭제를 주입하면 실패).
   스윕: 다른 `since` 비교는 `foundDittoSince` 하나로, 호스트가 찍은 복사본의 시각끼리 비교하므로 해당 없다.
 
+- **모두가 따르는 결정을 내 장면의 그리기 결과로 정하지 않는다 — 가려진 창은 장면을 멈춰 그리기가 거절된다.** 메타몽 따라 춤추기
+  (머지 전 리뷰에서 발견)에서 호스트가 "메타몽을 세워 둘지"를 `playDance` 가 true일 때만 정했다. 호스트의 광장 창이 가려지면
+  `setRendering(visible: false)` 로 장면이 멈춰 `playDance` 가 늘 false라, 다른 Mac에서는 메타몽이 춤추는데 호스트의 두뇌는 그대로
+  걸어가 버렸다. 춤추는 팀원이 내 화면에서 아직 걸음을 마치는 중일 때도(춤이 걸음 끝을 기다린다) 같은 이유로 첫 판을 놓쳤다.
+  수정: 따라 출지는 자리(메타몽 칸과 춤추는 사람의 칸)로만 정하고, 그리기는 그 결과를 따른다. **왜 못 걸렀나:** 호스트 테스트가
+  모두 보이는 창이었고, 춤추는 팀원은 늘 서 있었다. 가드: `testAHiddenHostStillKeepsADancingDittoStill`·
+  `testADancerFinishingAStepIsFollowedAtOnce`(그리기 결과로 되돌리면 실패). 스윕: 컨트롤러에서 그리기 결과로 정하는 곳은 불꽃
+  키(`playFirework`)뿐인데, 내 키 입력의 연타 제한이고 가려진 창에는 키가 오지 않아 해당 없다.
+
 ## 빌드·도구체인
 
 - **`Sendable` 여부는 SDK마다 다르다 — 파일 범위 전역에는 값 타입만 둔다.** 메타몽 PR(#88)이 테스트 파일 맨 위에
