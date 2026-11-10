@@ -1356,29 +1356,27 @@ struct PlazaFocusEnd: Equatable, Sendable {
         frames.isPlaceholder || (frames.backIsFront && attempt < backRetryLimit)
     }
 
+    /// 재시도 대기 중에는 컨트롤러를 붙들지 않는다(약한 참조). 붙들면 그림이 영영 안 오는 동안 컨트롤러가 닫혀도 안 죽고
+    /// 광장 틱이 남의 테스트·옛 클로저를 계속 부른다.
     private func startMemberLoad(_ id: String, subject: CompanionStore.RepresentativeSubject, attempt: Int = 0) {
         nextLoadToken += 1
         let token = nextLoadToken
         memberLoadTokens[id] = token
-        Task { await loadMemberFrames(id, subject: subject, token: token, attempt: attempt) }
-    }
-
-    private func loadMemberFrames(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int, attempt: Int) async {
-        let frames = await loader.frames(for: subject)
-        guard memberLoadTokens[id] == token, let scene else { return }
-        scene.setMemberFrames(id, frames)
-        appliedMemberLoads.append((id, subject.speciesID))
-        if Self.shouldRetry(frames, attempt: attempt) {
-            await retryMemberLoad(id, subject: subject, token: token, attempt: attempt)
+        Task { [weak self, sleep = spriteRetrySleep] in
+            guard await self?.loadMemberFrames(id, subject: subject, token: token, attempt: attempt) == true else { return }
+            await sleep(Self.spriteRetryDelay)
+            guard !Task.isCancelled, let self, self.memberLoadTokens[id] == token, self.memberSubjects[id] == subject else { return }
+            self.startMemberLoad(id, subject: subject, attempt: attempt + 1)
         }
     }
 
-    /// A failed request must not stay a grey circle until the plaza is reopened. Asks again only if the plaza
-    /// is still open and this member still shows the same character (a newer request or a close bumps the token).
-    private func retryMemberLoad(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int, attempt: Int) async {
-        await spriteRetrySleep(Self.spriteRetryDelay)
-        guard !Task.isCancelled, memberLoadTokens[id] == token, memberSubjects[id] == subject else { return }
-        startMemberLoad(id, subject: subject, attempt: attempt + 1)
+    /// 다시 물어야 하면 true.
+    private func loadMemberFrames(_ id: String, subject: CompanionStore.RepresentativeSubject, token: Int, attempt: Int) async -> Bool {
+        let frames = await loader.frames(for: subject)
+        guard memberLoadTokens[id] == token, let scene else { return false }
+        scene.setMemberFrames(id, frames)
+        appliedMemberLoads.append((id, subject.speciesID))
+        return Self.shouldRetry(frames, attempt: attempt)
     }
 
     func appliedMemberSpecies(_ id: String) -> [Int?] { appliedMemberLoads.filter { $0.id == id }.map(\.speciesID) }
@@ -1401,7 +1399,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard generation == refreshGeneration, let scene else { return }
         scene.setCharacter(frames)
         if Self.shouldRetry(frames, attempt: attempt) {
-            Task { await retryCharacter(generation, attempt: attempt) }
+            Task { [weak self, sleep = spriteRetrySleep] in
+                await sleep(Self.spriteRetryDelay)
+                guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
+                await self.loadCharacter(attempt: attempt + 1)
+            }
         }
     }
 
@@ -1414,13 +1416,6 @@ struct PlazaFocusEnd: Equatable, Sendable {
             guard generation == refreshGeneration, let scene else { return }
             scene.diveLimit = PlazaPond.diveLimit(types: types)
         }
-    }
-
-    /// 내 그림도 팀원처럼 다시 묻는다. 더 새 요청이나 닫기가 세대를 올리면 그만둔다.
-    private func retryCharacter(_ generation: Int, attempt: Int) async {
-        await spriteRetrySleep(Self.spriteRetryDelay)
-        guard !Task.isCancelled, generation == refreshGeneration else { return }
-        await loadCharacter(attempt: attempt + 1)
     }
 
     func refreshNickname() {

@@ -742,7 +742,8 @@ final class PlazaCardTests: XCTestCase {
 
     /// Following a teammate who runs, I run too, so the train keeps together. Following one who walks, I walk.
     func testFollowingARunnerRuns() async {
-        let (_, scene, other, id) = await standing()
+        let (c, scene, other, id) = await standing()
+        defer { withExtendedLifetime(c) {} }   // the scene's callbacks hold the controller weakly
         scene.currentModifiers = { [] }   // a real Shift held on this Mac must not make it pass
         follow(scene)
         XCTAssertEqual(scene.followingMember, id)
@@ -766,7 +767,8 @@ final class PlazaCardTests: XCTestCase {
 
     /// Shift counts only with an arrow key held: typing a capital letter while following a walker does not run.
     func testShiftWithoutAnArrowKeyDoesNotRun() async {
-        let (_, scene, other, _) = await standing()
+        let (c, scene, other, _) = await standing()
+        defer { withExtendedLifetime(c) {} }   // the scene's callbacks hold the controller weakly
         follow(scene)
         scene.currentModifiers = { .shift }
         let ahead = PlazaTargeting.facingTile(from: map.spawn, facing: .down)

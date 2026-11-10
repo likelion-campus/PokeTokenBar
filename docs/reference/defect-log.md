@@ -1394,6 +1394,19 @@ read_when:
   메모리를 직접 본다. 같은 CI 에서 창 없는 호스팅 뷰의 `fittingSize` 는 모델이 두 번째로 바뀌어도 그대로였다. 크기를 재는 테스트는 경우마다 새 뷰를 만든다
   (`testRosterPanelHoldsOnePage`). 이 앱의 최소 버전은 macOS 14 라서, 지우는 근거가 로컬 실험뿐이면 CI 를 본 뒤에 지운다.
 
+- **재시도·대기 Task 는 `self` 를 붙들고 기다리지 않는다 — 약한 참조로 기다리고 깬 뒤에 되살린다.** 광장 컨트롤러의
+  스프라이트 재시도(`startMemberLoad`/`loadCharacter`)가 `Task { await retry… }` 로 `self` 를 강하게 잡은 채 30초를
+  자고 깨어 또 재시도했다. 그림이 영영 안 오면 컨트롤러가 주인(테스트 케이스)이 사라진 뒤에도 안 죽고, Ditto 루프(0.05초)가
+  이미 해제된 `[unowned self]` 시계를 불러 `swift test` 전체가 signal 6 으로 죽었다(`PlazaFireworksTests` 에서 터졌지만
+  원인은 앞선 스위트). **5-whys:** 증상 크래시 → 해제된 테스트 케이스의 시계 호출 → 닫히지 않은 컨트롤러가 틱 중 → 재시도
+  체인이 `self` 를 강하게 붙듦(빈 fetcher 는 항상 placeholder) → 왜 못 걸렀나: 작업마다 집중 필터만 돌렸고 전체 스위트는
+  마지막에 한 번이라 다른 스위트의 좀비 컨트롤러를 볼 일이 없었다. 기존 1초 틱은 같은 좀비를 두고도 시계를 부르지 않아 숨었다.
+  수정: 기다림은 `[weak self]` Task 가 맡고 `self` 는 깬 뒤에 다시 얻는다(`self` 를 건 await 는 로딩 호출뿐). 가드:
+  `PlazaControllerLifetimeTests`(재시도 중인 컨트롤러가 놓으면 죽는다; 옛 코드로 되돌리면 실패). 부류 스윕: 컨트롤러의 다른
+  `Task` 는 이미 `[weak self]`(`focusTick`·`dittoLoop`·배너·단체 사진·`applyDiveLimit`)거나 단발 await(`viewCard`)다. 이 수정으로
+  컨트롤러가 정말 죽게 되자 놓은 컨트롤러에 기대던 두 테스트(`PlazaCardTests` 의 `let (_, …) = await standing()`)가 드러나
+  컨트롤러를 붙들게 고쳤다 — 장면 콜백은 컨트롤러를 약하게 쥐므로 테스트가 컨트롤러를 쥐고 있어야 한다.
+
 ## 에너지 (상시 표시 애니메이션)
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
