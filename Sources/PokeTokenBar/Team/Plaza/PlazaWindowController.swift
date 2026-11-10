@@ -568,7 +568,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 안내 문구에 쓰는 이름. 복사본은 따라 한 팀원의 이름이라 진짜와 같은 문구가 나온다. 메타몽 모습이면 nil.
     private func hintName(of id: String) -> String? {
         guard id == PlazaDitto.sceneKey else { return members[id]?.nickname }
-        guard let shown = shownDitto, shown.isDecoy, let copied = shown.decoyOf else { return nil }
+        guard let copied = shownDitto?.decoyOf else { return nil }
         return copied == memberID() ? nickname() : members[copied]?.nickname
     }
 
@@ -842,7 +842,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 그 팀원에게 뛰어들고 충격 그림을 띄운 뒤 팀원들에게 보낸다. 내 진화 단계만큼(1–3칸) 밀라고 보내고, 실제로 미는 것은
     /// 그 팀원의 Mac이 정한다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func tackle(_ id: String) {
-        let isCopy = id == PlazaDitto.sceneKey
+        // 복사본이 대상 칸에 있는 것은 장면이 복사본 모습일 때뿐이고, 그때 `shownDitto`도 같은 복사본이라 `copied`가 있다.
+        let copied = id == PlazaDitto.sceneKey ? shownDitto?.decoyOf : nil
         guard let scene, let target = targetTiles[id], !isFocusing, focusRemaining(of: id) == nil,
               !scene.isDiving, scene.memberIsDiving(id) != true else { return }
         let now = clock()
@@ -851,9 +852,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let me = scene.walker.tile
         let direction = PlazaPathfinder.isAdjacent(me, target) ? PlazaPathfinder.direction(from: me, to: target) : scene.walker.facing
         scene.playTackle(by: nil, on: id, direction: direction)
-        if isCopy {
+        if let copied {
             // 복사본은 밀리지 않고 정체를 드러낸다. 따라 한 팀원을 알려 모두가 같은 복사본을 찾았다고 안다.
-            guard let copied = shownDitto?.decoyOf else { return }
             session?.sendEmote(.decoyFound, target: copied)
             showDecoyFound(from: memberID(), copied: copied)
             return

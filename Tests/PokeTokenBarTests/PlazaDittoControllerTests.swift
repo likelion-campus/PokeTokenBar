@@ -83,14 +83,15 @@ final class PlazaDittoControllerTests: XCTestCase {
 
     /// The loop sleeps for good, so only `advanceDitto(now:)` moves the Ditto.
     private func controller(_ me: Node, fetcher: PlazaSpriteFetching = RecordingFetcher(), gate: LoopGate? = nil,
-                            seed: UInt64 = 7, nickname: String = "나", start: TilePoint? = nil) -> PlazaWindowController {
+                            seed: UInt64 = 7, nickname: String = "나", start: TilePoint? = nil,
+                            myEntry: PlazaRosterEntry? = nil) -> PlazaWindowController {
         let prefs = PlazaPreferences(defaults: defaults())
         if let start { prefs.saveLastTile(start) }
         return PlazaWindowController(preferences: prefs,
                               loader: PlazaCharacterLoader(fetcher: fetcher),
                               nickname: { nickname }, memberID: { me.settings.memberID },
                               subject: { .init(speciesID: 25, isShiny: false) },
-                              myRosterEntry: { nil }, session: me.session,
+                              myRosterEntry: { myEntry }, session: me.session,
                               spriteRetrySleep: { _ in try? await Task.sleep(for: .seconds(3600)) },
                               dittoLoopSleep: { d in
                                   if let gate { await gate.sleep(d) } else { try? await Task.sleep(for: .seconds(3600)) }
@@ -572,11 +573,12 @@ final class PlazaDittoControllerTests: XCTestCase {
         var scene: PlazaScene { c.scene! }
     }
 
-    private func adjacentCopy(ofMe: Bool = false, nickname: String = "나", now: Date = Date()) async -> Adjacent {
+    private func adjacentCopy(ofMe: Bool = false, nickname: String = "나", now: Date = Date(),
+                              myEntry: PlazaRosterEntry? = nil) async -> Adjacent {
         let nodes = sorted(3)
         let (a, me, m) = (nodes[0], nodes[1], nodes[2])
         await connect(a, me); await connect(m, me)
-        let c = controller(me, nickname: nickname, start: meStart.me)
+        let c = controller(me, nickname: nickname, start: meStart.me, myEntry: myEntry)
         c.prepareScene()
         place(m, at: ground(-5, 0))
         host(a, dittoForm(beside(), now: now).copying(ofMe ? me.id : m.id, now: now))
@@ -887,5 +889,62 @@ final class PlazaDittoControllerTests: XCTestCase {
         await settle()
         XCTAssertEqual(log.items.filter { $0.kind == .decoyJump }.count, 1)
         XCTAssertNil(log.items.first { $0.kind == .decoyJump }?.targetMemberID)
+    }
+
+    // MARK: - Coverage gaps
+
+    /// A copy of me wears my nature title, like my own plate does.
+    func testACopyOfMeShowsMyNatureTitle() async {
+        let entry = PlazaRosterEntry(id: "me", nickname: "재헌", speciesID: 25, speciesName: "Pikachu", gender: nil, isShiny: false,
+                                     presence: .online, isMe: true, nature: .jolly)
+        let t = await adjacentCopy(ofMe: true, nickname: "재헌", myEntry: entry)
+        XCTAssertEqual(t.scene.memberTitle(key), L(.ko).plazaNatureTitle(.jolly))
+    }
+
+    /// "View card" on the copy opens the card of the member it copies, and the request goes to that member.
+    func testViewingTheCopysCardLoadsTheCopiedMembersCard() async {
+        let t = await adjacentCopy()
+        t.scene.onInteractKey?()
+        t.c.chooseMenu(.viewCard, memberID: key)
+        guard case .card(.loading(let state)) = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        XCTAssertEqual(state.memberID, t.m.id)
+        for _ in 0..<200 {
+            if case .card(.loaded) = t.c.overlayContent { break }
+            await Task.yield()
+        }
+        guard case .card(.loaded(let loaded, let profile)) = t.c.overlayContent else { return XCTFail("\(t.c.overlayContent)") }
+        XCTAssertEqual(loaded.memberID, t.m.id)
+        XCTAssertEqual(profile.memberID, t.m.id)
+    }
+
+    /// Following the copy stops when the copy turns back (the host found it, or its time ran out).
+    func testFollowingTheCopyStopsWhenItTurnsBack() async {
+        let t = await adjacentCopy()
+        t.c.chooseMenu(.follow, memberID: key)
+        XCTAssertEqual(t.scene.followingMember, key, "test precondition")
+        let now = t.since.addingTimeInterval(1)
+        host(t.a, dittoForm(beside(), now: now))
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertEqual(t.c.shownDitto?.isDecoy, false, "test precondition")
+        XCTAssertNil(t.scene.followingMember)
+    }
+
+    /// With no ready host to follow (the hosts sending a Ditto are not in the plaza), the smaller ID's Ditto is the one shown.
+    func testTheSmallerIDsDittoIsShownWhenTwoSendOne() async {
+        let trio = sorted(3)
+        let (a, b, me) = (trio[0], trio[1], trio[2])
+        await connect(a, me); await connect(b, me); await connect(a, b)
+        let c = controller(me)
+        c.prepareScene()
+        let now = Date()
+        for (n, tile) in [(a, ground(6, 0)), (b, ground(5, 3))] {
+            n.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+            n.session.updateDitto(ready: true, state: dittoForm(tile, now: now))
+        }
+        await settle()
+        c.advanceDitto(now: now)
+        XCTAssertFalse(c.isDittoHost, "a smaller ID is sending a Ditto")
+        XCTAssertEqual(c.scene?.dittoTile, ground(6, 0))
     }
 }
