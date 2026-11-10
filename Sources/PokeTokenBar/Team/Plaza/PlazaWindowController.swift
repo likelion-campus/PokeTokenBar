@@ -1194,7 +1194,6 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let events = brain.tick(now: now, world: world)
         dittoBrain = brain
         if events.contains(.jumped) {
-            scene.stopDance(memberID: PlazaDitto.sceneKey)   // 팀원처럼 뛰면 춤을 멈춘다
             scene.playJump(memberID: PlazaDitto.sceneKey)
             session?.sendEmote(.decoyJump, target: nil)
         }

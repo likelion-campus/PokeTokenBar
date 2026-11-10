@@ -26,7 +26,8 @@ enum PlazaDitto {
         inPlaza && ready && !isIdle && !isFocusing && !isEgg
     }
 
-    /// How long the host holds a dancing Ditto still: one round and the wait for the next round's news.
+    /// How long the host holds a dancing Ditto still: one round and the wait for the next round's news, exactly as long as a
+    /// received dance lasts, so the host's Ditto never hops or walks off mid-dance.
     static let danceHold: TimeInterval = PlazaDance.round + PlazaDance.remoteGrace
 
     /// A dancer in the eight tiles around the Ditto (or on its tile) makes it dance the same dance, in either form.
