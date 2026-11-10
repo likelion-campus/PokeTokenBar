@@ -41,7 +41,7 @@ enum PlazaDance {
     }
 
     /// 춤이 `length`초(기본은 한 판)를 채웠다.
-    static func isOver(elapsed: TimeInterval, length: TimeInterval = round) -> Bool { elapsed + epsilon >= length }
+    static func isOver(elapsed: TimeInterval, length: TimeInterval) -> Bool { elapsed + epsilon >= length }
 
     /// `date`가 박자 격자에서 지난 시간(0..<beat). 한 판은 이 값에서 시작해 격자에 맞춰 끝난다.
     /// 마이크로초 정수로 센다. 0.4는 이진수로 딱 떨어지지 않아 실수 나머지로는 격자 위의 시각이 0이 아닌 값이 나온다.

@@ -66,16 +66,6 @@ final class PlazaDanceTests: XCTestCase {
         s.update(clockTime)
     }
 
-    /// 걸어 다닐 수 있는 가로 일곱 칸이 이어진 줄의 왼쪽 끝.
-    private func openRow() throws -> TilePoint {
-        for y in 0..<map.height {
-            for x in 0..<(map.width - 7) where (0..<7).allSatisfy({ map.isWalkable(TilePoint(x: x + $0, y: y)) }) {
-                return TilePoint(x: x, y: y)
-            }
-        }
-        throw XCTSkip("no open row")
-    }
-
     private func recordRounds(_ s: PlazaScene) -> Recorder {
         let r = Recorder()
         s.onDanceRound = { r.ids.append($0) }
@@ -327,7 +317,6 @@ final class PlazaDanceTests: XCTestCase {
         s.pickDanceStyle = { _ in .bigHop }
         wall = grid + 0.05
         press(s)
-        s.handleKeyUp(keyCode: dKey)
         run(s, 0.15)
         XCTAssertTrue(s.playDance(memberID: "a", style: "bigHop"), "0.15 s after mine")
         for frame in 0..<25 {
@@ -408,6 +397,7 @@ final class PlazaDanceTests: XCTestCase {
         let s = scene()
         let r = recordRounds(s)
         press(s)
+        s.handleKeyUp(keyCode: dKey)   // letting go changes nothing: the dance goes on by itself
         var seen: [String] = []
         for _ in 0..<5 {
             run(s, PlazaDance.round)
@@ -694,8 +684,6 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: ♪
 
-    private func notes(_ s: PlazaScene, _ ids: [String]) -> [Bool] { ids.map { s.shownEmote(memberID: $0) == .dance } }
-
     func testNotesShowOverASoloDancer() {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
@@ -717,7 +705,7 @@ final class PlazaDanceTests: XCTestCase {
                           PlazaEmoteArt.image(.lol, scale: 2, large: true).dataProvider?.data as Data?)
     }
 
-    func testNotesDoNotReplaceAChatOrEmoteBubbleAndReturnWhenItExpires() {
+    func testNotesDoNotReplaceAChatOrEmoteBubble() {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y)), member("b", TilePoint(x: map.spawn.x + 3, y: map.spawn.y))])
         s.showChat(memberID: "a", text: "안녕")
@@ -744,24 +732,87 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(s.shownEmote(memberID: nil), .dance, "after a chat line too")
     }
 
+    /// 프레임을 그린 직후(다음 소식이 오기 전)마다 ♪를 본다. 소식은 한 판 + 0.1초 늦게 온다.
     func testNotesDoNotFlickerBetweenRounds() {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         press(s)
         s.playDance(memberID: "a", style: "sway")
-        var remoteStyles = ["bounce", "spin", "twirl", "wiggle"]
         var sinceEmote = 0.0
         for frame in 0..<Int(5 * PlazaDance.round / dt) {
             run(s, dt)
             sinceEmote += dt
-            if sinceEmote >= PlazaDance.round + 0.1 - 1e-6 {   // the next emote arrives a little late
-                s.playDance(memberID: "a", style: remoteStyles.removeFirst())
-                remoteStyles.append("sway")
-                sinceEmote = 0
-            }
             XCTAssertEqual(s.shownEmote(memberID: nil), .dance, "local, frame \(frame)")
             XCTAssertEqual(s.shownEmote(memberID: "a"), .dance, "remote, frame \(frame)")
+            if sinceEmote >= PlazaDance.round + 0.1 - 1e-6 {
+                s.playDance(memberID: "a", style: Style.allCases[frame % 7].id)
+                sinceEmote = 0
+            }
         }
+    }
+
+    /// 시계가 어긋나 소식이 격자 경계 바로 앞에 닿고 다음 소식이 한 판 + 조금 뒤에 와도 ♪가 한 프레임도 빠지지 않는다.
+    func testARemoteNotesSurviveAnEmoteArrivingJustBeforeTheGridLine() {
+        let s = scene()
+        add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
+        wall = grid + 0.39
+        s.playDance(memberID: "a", style: "sway")
+        for frame in 1...Int((PlazaDance.round + 0.1) / dt) {
+            run(s, dt)
+            XCTAssertEqual(s.shownEmote(memberID: "a"), .dance, "frame \(frame)")
+        }
+        s.playDance(memberID: "a", style: "spin")
+        run(s, dt)
+        XCTAssertEqual(s.shownEmote(memberID: "a"), .dance)
+        XCTAssertEqual(s.danceStyle(memberID: "a"), .spin)
+    }
+
+    /// 같은 글이 ♪ 뒤에 다시 와도 글 그림을 다시 그린다(말풍선 노드는 하나라 ♪ 그림이 남으면 안 된다).
+    func testTheSameChatAfterNotesDrawsTheChatNotTheNotes() throws {
+        let s = scene()
+        s.showChat(memberID: nil, text: "ㅋㅋ")
+        run(s, dt)
+        press(s)
+        run(s, PlazaActor.chatDuration + 0.1)
+        let notes = try XCTUnwrap(s.emoteFrame(memberID: nil))
+        XCTAssertEqual(s.shownEmote(memberID: nil), .dance)
+        XCTAssertEqual(notes.size, PlazaEmoteArt.size(large: true))
+        s.stopDance(memberID: nil)
+        s.showChat(memberID: nil, text: "ㅋㅋ")
+        run(s, dt)
+        XCTAssertEqual(s.shownChat(memberID: nil), "ㅋㅋ")
+        let chat = try XCTUnwrap(s.emoteFrame(memberID: nil))
+        XCTAssertNotEqual(chat.size, notes.size, "the chat picture, not the notes")
+    }
+
+    /// 입력창·방향 없는 키 뗌·수정 키·판 열기는 춤을 멈추지 않는다(예전엔 D를 누르고 있기만 접었다).
+    func testReleasingKeysOrOpeningThingsDoesNotStopTheLoop() {
+        let releases: [(String, (PlazaScene) -> Void)] = [
+            ("releaseAllKeys", { $0.releaseAllKeys() }), ("clearInput", { $0.clearInput() }),
+            ("overlay", { $0.isOverlayOpen = true }), ("command", { $0.currentModifiers = { .command } }),
+            ("zoom", { $0.handleKeyDown(keyCode: 24, characters: "=", isRepeat: false) }),
+        ]
+        for (name, release) in releases {
+            let s = scene()
+            let r = recordRounds(s)
+            press(s)
+            release(s)
+            run(s, PlazaDance.round + 0.2)
+            XCTAssertTrue(s.isDancing(memberID: nil), name)
+            XCTAssertEqual(r.ids.count, 2, "\(name): the next round went out")
+            clockTime = 0; wall = grid
+        }
+    }
+
+    /// 걷다 멈추기를 기다리던 춤도 그 팀원이 다른 동작을 하면 버려진다.
+    func testAnActionDropsARemotesPendingDance() {
+        let s = scene()
+        let (_, next) = walkingRemote(s)
+        s.playDance(memberID: "a", style: "twirl")
+        s.stopDance(memberID: "a")
+        add(s, [member("a", next)])
+        run(s, 0.3)
+        XCTAssertFalse(s.isDancing(memberID: "a"))
     }
 
     func testNotesBuildNoNodesAndStopWithThePause() {
@@ -800,10 +851,10 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(s.shownEmote(memberID: "a"), .dance)
         XCTAssertTrue(s.playDance(memberID: "a", style: "spin"))   // the next round's emote, a little late
         XCTAssertEqual(s.danceStyle(memberID: "a"), .spin)
-        // The emote came 0.1 s past the grid, so this round started 0.1 s into the beat: it lasts round + grace - 0.1.
-        run(s, PlazaDance.round + PlazaDance.remoteGrace - 0.1 - 0.1)
+        // The grace counts from the arrival: each emote keeps the dancer for a round plus a beat.
+        run(s, PlazaDance.round + PlazaDance.remoteGrace - 0.1)
         XCTAssertTrue(s.isDancing(memberID: "a"), "inside the grace")
-        run(s, 0.15)
+        run(s, 0.2)
         XCTAssertFalse(s.isDancing(memberID: "a"), "no emote within the grace: over")
         XCTAssertNil(s.shownEmote(memberID: "a"))
     }
@@ -822,7 +873,6 @@ final class PlazaDanceTests: XCTestCase {
         s.pickDanceStyle = { _ in .bounce }
         wall = grid
         press(s)
-        s.handleKeyUp(keyCode: dKey)
         let plateAtRest0 = s.myNamePlateTop
         XCTAssertEqual(s.myActor.characterSize.height, full * 0.84, accuracy: 0.01, "tick 0 squashes")
         run(s, 0.1)   // tick 1
@@ -840,7 +890,6 @@ final class PlazaDanceTests: XCTestCase {
         let y0 = s.myActor.characterY, x0 = s.myActor.characterX
         s.pickDanceStyle = { _ in .shuffle }
         press(s)
-        s.handleKeyUp(keyCode: dKey)
         run(s, 0.7)   // tick 7: lift 2, sidestep 8
         XCTAssertEqual(s.myActor.characterY - y0, 2, accuracy: 0.01)
         XCTAssertEqual(s.myActor.characterX - x0, 8, accuracy: 0.5)
@@ -853,7 +902,6 @@ final class PlazaDanceTests: XCTestCase {
         s.pickDanceStyle = { _ in .spin }
         wall = grid
         press(s)
-        s.handleKeyUp(keyCode: dKey)
         func shown() throws -> CGImage { try XCTUnwrap(s.photoInput()?.actors.first).image }
         XCTAssertTrue(try shown() === front.image, "tick 0")
         run(s, 0.8)   // tick 8: the back
@@ -864,7 +912,6 @@ final class PlazaDanceTests: XCTestCase {
         wall += PlazaDance.beat
         s.pickDanceStyle = { _ in .twirl }
         press(s)
-        s.handleKeyUp(keyCode: dKey)
         run(s, 0.2)   // tick 2 of the next round: the back
         XCTAssertTrue(try shown() === back.image)
     }
@@ -894,7 +941,6 @@ final class PlazaDanceTests: XCTestCase {
         press(s)
         let first = s.danceStyle(memberID: nil)
         run(s, 0.45)
-        s.handleKeyUp(keyCode: dKey)
         press(s)
         XCTAssertEqual(r.ids.count, 2)
         XCTAssertNotEqual(s.danceStyle(memberID: nil), first)
@@ -1032,7 +1078,6 @@ final class PlazaDanceTests: XCTestCase {
         press(s)
         var photo = try XCTUnwrap(s.photoInput()?.actors.first)
         XCTAssertEqual(photo.tilt, 0.2, accuracy: 1e-9)
-        s.handleKeyUp(keyCode: dKey)
         s.pickDanceStyle = { _ in .bounce }
         wall += PlazaDance.beat
         press(s)

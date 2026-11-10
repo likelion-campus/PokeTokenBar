@@ -1176,14 +1176,15 @@ struct PlazaSceneMember: Equatable, Sendable {
         let style = pickDanceStyle(lastDanceStyle)
         lastDanceStyle = style
         lastDanceRoundAt = now()
-        beginDance(me, style: style)
+        beginDance(me, style: style, remote: false)
         onDanceRound?(style.id)
     }
 
     /// 판을 박자 격자에 맞춰 시작한다(♪는 배우가 띄운다). 시계는 장면의 `now`라, 따로 시작해도 같은 박자에 뛴다.
-    /// 팀원 춤은 다음 판 소식을 `remoteGrace`만큼 더 기다린다.
-    private func beginDance(_ actor: PlazaActor, style: PlazaDance.Style, length: TimeInterval = PlazaDance.round) {
-        actor.startDance(style, offset: PlazaDance.gridOffset(at: now()), length: length)
+    /// 팀원 춤은 도착한 때부터 다음 판 소식을 `remoteGrace`만큼 더 기다린다(격자가 아니라 도착 시각 기준이라 늘 한 박자 여유가 있다).
+    private func beginDance(_ actor: PlazaActor, style: PlazaDance.Style, remote: Bool) {
+        let offset = PlazaDance.gridOffset(at: now())
+        actor.startDance(style, offset: offset, length: remote ? offset + PlazaDance.round + PlazaDance.remoteGrace : PlazaDance.round)
         layout()
     }
 
@@ -1199,7 +1200,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             return false
         }
         pendingDances[memberID] = nil
-        beginDance(r.actor, style: chosen, length: PlazaDance.round + PlazaDance.remoteGrace)
+        beginDance(r.actor, style: chosen, remote: true)
         return true
     }
 
@@ -1212,7 +1213,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             guard let r = remotes[id], !isPaused, !map.isWater(r.motion.tile) else { pendingDances[id] = nil; continue }
             if !r.motion.isWalking {
                 pendingDances[id] = nil
-                beginDance(r.actor, style: pending.style, length: PlazaDance.round + PlazaDance.remoteGrace)
+                beginDance(r.actor, style: pending.style, remote: true)
             } else if pending.remaining - dt <= 0 {
                 pendingDances[id] = nil
             } else {
@@ -1223,6 +1224,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 그 캐릭터(nil이면 나)의 춤을 멈춘다. 떠 있던 ♪도 지운다.
     func stopDance(memberID: String?) {
+        if let memberID { pendingDances[memberID] = nil }   // 걸으며 기다리던 춤도 버린다
         actor(memberID)?.stopDance()
     }
 

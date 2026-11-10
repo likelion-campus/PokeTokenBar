@@ -101,7 +101,8 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     }
 
     /// The sender did something else, so their plaza dance stops. `decoyJump` is sent by the Ditto host for the copy, not by the
-    /// host acting, and `groupPhoto`/`pickup` are not the sender's own plaza actions. A new kind must choose.
+    /// host acting; `groupPhoto` keeps the dance like photo mode does; `pickup` only follows a walk, which already stopped it.
+    /// A new kind must choose.
     var endsSendersDance: Bool {
         switch self {
         case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound: true

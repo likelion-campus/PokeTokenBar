@@ -706,7 +706,7 @@ final class PlazaFocusTests: XCTestCase {
 
     /// 사진 모드와 단체 사진은 춤을 멈추지 않는다.
     func testPhotoModeAndGroupPhotoDoNotStopMyDance() async {
-        let (_, _, c) = await pair(start: spawn)
+        let (_, other, c) = await pair(start: spawn)
         let scene = c.scene!
         key(scene, dKey)
         XCTAssertTrue(scene.isDancing(memberID: nil))
@@ -715,6 +715,23 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertTrue(scene.isDancing(memberID: nil))
         scene.onGroupPhotoKey?()
         XCTAssertTrue(scene.isDancing(memberID: nil))
+        for i in 1...50 { scene.update(Double(i) * 0.05) }   // 2.5 s: past a round
+        XCTAssertTrue(scene.isDancing(memberID: nil))
+        await waitUntil { other.received.emotes.filter { $0.emote.kind == .dance }.count >= 2 }
+        c.handleClose()
+        await gate.tick()
+    }
+
+    /// 자리비움이 아직 안 풀렸을 때(주기 점검 전) 시작한 새 춤은 팀원 소식이 와도 멈추지 않는다. 멈추는 것은 막 자리를 비운 순간뿐이다.
+    func testAnIdleFlagThatHasNotRefreshedDoesNotStopANewDance() async {
+        let (me, other, c) = await pair(start: spawn)
+        let scene = c.scene!
+        me.session.updateIdle(true)
+        for _ in 0..<40 { await Task.yield() }
+        key(scene, dKey)
+        XCTAssertTrue(scene.isDancing(memberID: nil))
+        await place(other, at: beside, in: c)   // a teammate update while `isIdle` is still true
+        XCTAssertTrue(scene.isDancing(memberID: nil), "level-triggered idle would stop it here")
         c.handleClose()
         await gate.tick()
     }

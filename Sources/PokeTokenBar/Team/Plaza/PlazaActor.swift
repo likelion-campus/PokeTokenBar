@@ -205,7 +205,7 @@ struct PlazaActorContext {
     var isDancing: Bool { dance != nil }
 
     /// 새 춤을 시작한다. 하던 춤은 버린다. ♪는 춤추는 동안 계속 떠 있으므로 지우지 않고 그대로 이어 간다.
-    func startDance(_ style: PlazaDance.Style, offset: TimeInterval, length: TimeInterval = PlazaDance.round) {
+    func startDance(_ style: PlazaDance.Style, offset: TimeInterval, length: TimeInterval) {
         dance = (style, max(0, min(offset, PlazaDance.beat)))
         danceLength = length
         danceFinished = false
@@ -227,6 +227,7 @@ struct PlazaActorContext {
     /// 춤추는 동안 다른 말풍선이 없으면 머리 위에 ♪를 띄운다. 시간이 다해 사라지지 않고 춤이 멈출 때 지워진다.
     private func showDanceNotesIfFree() {
         guard isDancing, !isBubbleShown else { return }
+        chatKey = nil   // 말풍선 노드를 ♪가 쓰므로, 같은 글이 다시 오면 글 그림을 새로 그리게 한다
         emoteKind = .dance
         emoteNode.isHidden = false
     }

@@ -208,7 +208,7 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.handleClose()
     }
 
-    /// A teammate's dance plays here in the style they sent, one round, and an unknown style plays the default one.
+    /// A teammate's dance plays here in the style they sent, with ♪ over it, and an unknown style plays the default one.
     func testReceivedDancePlaysTheirStyle() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.dance.\(UUID().uuidString)"

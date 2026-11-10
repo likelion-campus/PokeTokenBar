@@ -1349,6 +1349,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
     var minimapCoreTime: PlazaCoreTime { minimap.coreTime }
     var minimapCampfire: TilePoint? { minimap.campfire }
 
+    /// 직전에 본 내 자리비움. 자리비움이 막 시작됐을 때만 춤을 멈추려고 기억한다.
+    private var wasIdle = false
+
     /// 다시 등록을 먼저 하고 값을 반영한다(그 사이 변경을 놓치지 않는다). 세대가 바뀌었으면 끝낸다.
     private func observeMembers(session: TeamSession, generation: Int) {
         guard generation == membersGeneration else { return }
@@ -1361,7 +1364,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             Task { @MainActor in self?.observeMembers(session: session, generation: generation) }
         }
         members = current
-        if session.isIdle { scene?.stopDance(memberID: nil) }
+        if session.isIdle && !wasIdle { scene?.stopDance(memberID: nil) }   // 자리비움이 되는 순간만(돌아온 뒤 새 춤은 건드리지 않는다)
+        wasIdle = session.isIdle
         if let followed = scene?.followingMember, focusRemaining(of: followed) != nil { scene?.stopWalkingToMember() }
         applyMembersToScene()
         refreshCampfire()
