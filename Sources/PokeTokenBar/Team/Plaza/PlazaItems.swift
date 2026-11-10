@@ -1,16 +1,16 @@
 import Foundation
 
-/// 광장에 가끔 떨어지는 아이템(이상한 사탕, 민트). 유닉스 시각을 3시간씩 나눈 칸마다 하나가 떨어진다.
+/// 광장에 떨어지는 아이템(이상한 사탕, 민트). 유닉스 시각을 20분씩 나눈 칸마다 하나가 떨어진다.
 /// 칸 번호만으로 떨어지는 때·자리·종류를 정해 어느 Mac에서나 같고, 밟은 사람이 가방에 넣는다.
-/// 일하는 틈에 가끔 들르는 정도가 되도록 드물게 떨어지고, 떨어졌다고 알리지 않는다.
+/// 일하는 틈에 광장에 들를 이유가 자주 생기도록 자주 떨어지고, 떨어졌다고 알리지 않는다.
 enum PlazaItems {
     /// 칸 하나의 길이. 칸마다 하나가 떨어진다.
-    static let slotLength: TimeInterval = 3 * 3600
+    static let slotLength: TimeInterval = 20 * 60
     /// 칸이 시작하고 이 시간 안의 어느 분에 떨어진다. 떨어진 뒤로는 칸이 끝날 때까지 있다.
-    static let appearWindow: TimeInterval = 2 * 3600
-    /// 이상한 사탕이 나올 몫. 나머지는 민트다. 사탕은 100M XP짜리라 한도 보상(주 5개)을 넘지 않게 드물게 둔다:
-    /// 일하는 시간(세 칸쯤)에 팀 전체로 하루 한 개 남짓이다.
-    static let candyShare = 0.4
+    static let appearWindow: TimeInterval = 10 * 60
+    /// 이상한 사탕이 나올 몫. 나머지는 민트다. 팀이 사탕 위주로 정했다(2026-11-10): 평일 일하는 시간(9~18시, 27칸)에
+    /// 팀 전체로 하루 스무 개 가까이 떨어진다. 사탕 하나가 100M XP라 한도 보상(주 5개)보다 훨씬 빨리 큰다.
+    static let candyShare = 0.8
 
     struct Spawn: Equatable, Sendable {
         let slot: Int

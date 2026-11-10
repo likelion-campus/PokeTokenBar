@@ -40,7 +40,7 @@ final class PlazaItemsTests: XCTestCase {
         }
     }
 
-    /// Every slot of three hours drops one item, at a minute within its first two hours, on an open tile, and it
+    /// Every slot of twenty minutes drops one item, at a minute within its first ten, on an open tile, and it
     /// stays until the slot ends. The same slot gives the same item on every Mac.
     func testEachSlotDropsOneItemTheSameEverywhere() {
         var kinds: [ItemKind: Int] = [:]
@@ -57,7 +57,9 @@ final class PlazaItemsTests: XCTestCase {
         }
         XCTAssertEqual(Set(kinds.keys), [.rareCandy, .mint])
         XCTAssertEqual(Double(kinds[.rareCandy] ?? 0) / 1000, PlazaItems.candyShare, accuracy: 0.06)
-        XCTAssertEqual(PlazaItems.slotLength, 3 * 3600, "one item every three hours: people have work to do")
+        XCTAssertEqual(PlazaItems.slotLength, 20 * 60, "one item every twenty minutes: a reason to drop by often")
+        XCTAssertEqual(PlazaItems.appearWindow, 10 * 60, "it lies for at least ten minutes")
+        XCTAssertEqual(PlazaItems.candyShare, 0.8, "mostly rare candies")
     }
 
     func testTheItemIsUpFromItsMinuteUntilTheSlotEndsUnlessPicked() {
@@ -359,9 +361,9 @@ final class PlazaItemsTests: XCTestCase {
         XCTAssertEqual(other.session.members[me.settings.memberID]?.takenItemSlot, spawn.slot)
     }
 
-    /// Only a day of taken slots up to now is kept, so the saved list does not grow forever, plus the next slot that a
-    /// teammate whose clock runs a little ahead may already have picked.
-    func testOnlyADayOfTakenSlotsIsKept() async {
+    /// Only the last few taken slots up to now are kept, so the saved list does not grow forever, plus the next slot that
+    /// a teammate whose clock runs a little ahead may already have picked.
+    func testOnlyTheLastFewTakenSlotsAreKept() async {
         let (me, other) = await connected()
         let suite = prefsSuite()
         let c = controller(me, prefs: suite, start: map.spawn)
@@ -369,7 +371,7 @@ final class PlazaItemsTests: XCTestCase {
         XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, Array((slot - 7)...(slot + 1)))
     }
 
-    /// A teammate whose clock runs a day or more ahead tells me about a slot far from now. It must not push out the item
+    /// A teammate whose clock runs hours ahead tells me about a slot far from now. It must not push out the item
     /// I then pick up: standing on it gives it once, not every frame, and the far slot is neither kept nor passed on.
     func testASlotFarAheadDoesNotUndoMyPickup() async throws {
         let (me, other) = await connected()

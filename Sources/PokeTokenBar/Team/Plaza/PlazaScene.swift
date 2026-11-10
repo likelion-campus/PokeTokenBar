@@ -1305,7 +1305,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
 
-    /// 칸의 아이템은 3시간 동안 같으니 칸이 바뀔 때만 다시 센다.
+    /// 칸의 아이템은 칸이 끝날 때까지 같으니 칸이 바뀔 때만 다시 센다.
     private var itemSpawnCache: (slot: Int, spawn: PlazaItems.Spawn?)?
 
     private func currentItem() -> PlazaItems.Spawn? {
