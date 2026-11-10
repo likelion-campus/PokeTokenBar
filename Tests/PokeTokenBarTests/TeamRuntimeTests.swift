@@ -208,6 +208,29 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.handleClose()
     }
 
+    /// A teammate's dance plays here in the style they sent, one round, and an unknown style plays the default one.
+    func testReceivedDancePlaysOneRoundOfTheirStyle() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.dance.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        a.runtime.session.sendEmote(.dance, target: nil, danceStyle: "twirl")
+        await settle { plaza.scene?.isDancing(memberID: sender) == true }
+        XCTAssertEqual(plaza.scene?.danceStyle(memberID: sender), .twirl)
+        XCTAssertNil(plaza.scene?.shownEmote(memberID: sender), "a dance is no bubble")
+        a.runtime.session.sendEmote(.dance, target: nil, danceStyle: "fromANewerVersion")
+        await settle { plaza.scene?.danceStyle(memberID: sender) == .sway }
+        XCTAssertEqual(plaza.scene?.danceStyle(memberID: sender), .sway)
+        plaza.handleClose()
+    }
+
     /// A teammate's jump makes their character hop here.
     func testReceivedJumpHopsThatTeammate() async {
         let (a, b) = connectedPair()

@@ -362,6 +362,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
+        s.onDanceRound = { [weak self] in self?.session?.sendEmote(.dance, target: nil, danceStyle: $0) }
+        s.isFocusing = { [weak self] in self?.isFocusing ?? false }
         s.onItemPickup = { [weak self] in self?.pickUp($0) }
         s.onItemChange = { [weak self] _ in self?.refreshMinimap() }
         s.onFrameClockStall = { [weak self] in self?.logState($0 ? "frame clock stalled" : "frame clock resumed") }
@@ -550,6 +552,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 런타임이 부른다. 팀원이 불꽃을 쐈다. 창이 닫혀 있으면 아무것도 안 한다.
     func showFirework(memberID: String, style: String?) {
         scene?.playFirework(memberID: memberID, style: style)
+    }
+
+    /// 런타임이 부른다. 팀원이 춤 한 판을 춘다. 집중 중인 팀원은 앉아 있으니 추지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
+    func showDance(memberID: String, style: String?) {
+        guard focusRemaining(of: memberID) == nil else { return }
+        scene?.playDance(memberID: memberID, style: style)
     }
 
     /// 사진 모드 밖이면 연다. 안이면 찍는다.
@@ -1283,6 +1291,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.onTackleKey = nil
             scene.onGroupPhotoKey = nil
             scene.onFireworkKey = nil
+            scene.onDanceRound = nil
+            scene.isFocusing = { false }
             scene.onItemPickup = nil
             scene.onItemChange = nil
             scene.onFrameClockStall = nil

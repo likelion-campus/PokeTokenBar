@@ -80,6 +80,19 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onGroupPhotoKey: (() -> Void)?
     /// F(불꽃놀이). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onFireworkKey: (() -> Void)?
+    /// 내 춤 한 판이 시작됐다(D를 눌렀을 때와 누르고 있어 이어질 때). 춤의 `PlazaDance.Style.id`를 넘긴다. 컨트롤러가 팀원에게 보낸다.
+    var onDanceRound: ((String) -> Void)?
+    /// 내가 모닥불에서 집중 중이다. 컨트롤러가 알려 준다. 집중 중에는 춤추지 않는다.
+    var isFocusing: () -> Bool = { false }
+    /// 다음 춤을 고른다(직전 춤은 피한다). 테스트에서 바꿔 끼운다.
+    var pickDanceStyle: (PlazaDance.Style?) -> PlazaDance.Style = { last in
+        var rng = SystemRandomNumberGenerator()
+        return PlazaDance.Style.next(after: last, using: &rng)
+    }
+    /// 내가 직전에 춘 춤. 연달아 같은 춤이 나오지 않게 기억한다.
+    private var lastDanceStyle: PlazaDance.Style?
+    /// D를 누르고 있다(춤이 시작된 뒤부터). 한 판이 끝났을 때 이어서 출지 정한다.
+    private var isDanceHeld = false
     /// Return과 숫자패드 Enter. 판이 닫혀 있을 때만 온다.
     var onChatKey: (() -> Void)?
     /// 판이 열린 동안 판이 쓰는 키(위, 아래, 스페이스, Enter, Esc). 눌러 둔 자동 반복은 넘기지 않는다.
@@ -100,6 +113,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     var backingOverride: CGFloat?
 
     private let mapImage: CGImage
+    /// 멈추면 모든 춤을 끝낸다. 멈춘 동안 시계만 흘러 되살아난 춤이 박자 격자에서 어긋나기 때문이다.
+    /// 그리기 감시가 멈춘 그림을 깨우려고 뷰를 껐다 켜도(`checkRendering`) 장면이 멈췄다 풀리므로 춤이 끝난다. 의도한 동작이다.
+    override var isPaused: Bool {
+        didSet { if isPaused && !oldValue { stopAllDances() } }
+    }
+
     /// 마지막 `layout`이 정한 보이는 월드 영역. 평소 기념사진이 이 영역을 찍는다(사진 모드에서는 `photoFrame`).
     private var visibleRect: CGRect
     private let mapNode: SKSpriteNode
@@ -467,6 +486,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         for m in members {
             let target = resolvedTile(m)
             if var r = remotes[m.memberID] {
+                let tileBefore = r.motion.tile
+                defer { if let now = remotes[m.memberID], now.motion.tile != tileBefore { now.actor.stopDance() } }
                 if r.isAway != m.isAway {
                     r.isAway = m.isAway
                     r.wanderer = m.isAway ? shelterWanderer(m.memberID) : nil
@@ -556,6 +577,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             if canWalk && !isRepeat && !modifiers.contains(.command) {
                 stopWalkingToMember()
                 walker.press(d)
+                stopDance(memberID: nil)
             }
             return .swallowed
         }
@@ -569,11 +591,15 @@ struct PlazaSceneMember: Equatable, Sendable {
         return handleSharedKeyDown(keyCode: keyCode, characters: characters, isRepeat: isRepeat, modifiers: modifiers)
     }
 
-    /// 평소와 사진 모드가 함께 쓰는 키: Z/X/G/F(불꽃놀이), 말풍선, 확대. 수정 키가 눌렸거나 자동 반복이면 보내지 않는다.
+    /// 평소와 사진 모드가 함께 쓰는 키: Z/X/G/F(불꽃놀이)/D(춤), 말풍선, 확대. 수정 키가 눌렸거나 자동 반복이면 보내지 않는다.
     /// 사진 모드에서만 다른 키(방향키, Space/P, C, Enter, Esc)는 호출하기 전에 각자 처리한다.
     private func handleSharedKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
                                      modifiers: NSEvent.ModifierFlags) -> PlazaKeyResult {
         let plain = !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers)
+        if keyCode == Self.dKeyCode {
+            if plain { pressDance() }
+            return .swallowed
+        }
         if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.gKeyCode: onGroupPhotoKey,
                          Self.fKeyCode: onFireworkKey][keyCode] {
             if plain { action?() }
@@ -639,9 +665,10 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     func handleKeyUp(keyCode: UInt16) {
         if let d = Self.direction(keyCode) { walker.release(d); panKeys.remove(d) }
+        if keyCode == Self.dKeyCode { isDanceHeld = false }
     }
 
-    func releaseAllKeys() { walker.releaseAll(); panKeys.removeAll() }
+    func releaseAllKeys() { walker.releaseAll(); panKeys.removeAll(); isDanceHeld = false }
 
     /// 입력창이 키를 가져가면 키 뗌이 장면에 오지 않으므로 눌린 키와 탭을 지운다. 걷던 칸은 마저 간다.
     func clearInput() {
@@ -649,6 +676,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         if !isFollowing { stopWalkingToMember() }
         walker.clearInput()
         panKeys.removeAll()
+        isDanceHeld = false
     }
 
     // MARK: - 팀원에게 걸어가기
@@ -677,6 +705,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     private func setAutoWalk(_ id: String?, following: Bool) {
         let was = followingMember
+        if id != nil { stopDance(memberID: nil) }
         autoWalk = id
         isFollowing = id != nil && following
         if followingMember != was { onFollowChange?(followingMember) }
@@ -685,6 +714,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 모닥불 자리에 앉는다. 그 칸과 방향으로 바로 옮기고, 걸어가기와 따라가기를 멈추고, 바뀐 자리를 알린다.
     func sit(at seat: PlazaCampfire.Seat) {
         stopWalkingToMember()
+        stopDance(memberID: nil)
         walker = PlazaWalker(tile: seat.tile, facing: seat.facing)
         layout()
         reportLocalPosition()
@@ -735,6 +765,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 물 칸 `d` 쪽으로 첨벙 뛰어든다. `pondAction`이 `.plunge`일 때만 부른다(땅에 서 있고 바라보는 칸이 빈 물 칸).
     /// 큰 물보라는 걸음이 물에 내려앉을 때 `advancePond`가 낸다.
     func plunge(_ d: PlazaDirection) {
+        stopDance(memberID: nil)
         walker.plunge(d)
         plungeJumpOwed = true
     }
@@ -1057,6 +1088,141 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let impactName = "tackle-impact"
     private static let dustName = "jump-dust"
 
+    // MARK: - 춤
+
+    /// D. 새 판을 무작위 춤으로 시작한다(직전과 다른 춤). 못 출 때(걷는 중, 물속, 집중 중, 멈춘 장면)는 아무것도 하지 않는다.
+    private func pressDance() {
+        guard canDance else { return }
+        // 새 판은 박자마다 한 번까지. 연타는 판을 다시 시작하지도 팀원에게 보내지도 않는다(누르고 있는 동안 이어 추기는 그대로).
+        if let last = lastDanceRoundAt {
+            let since = now().timeIntervalSince(last)
+            if since >= 0, since < PlazaDance.beat - 1e-3 {   // 시계 값의 오차로 딱 한 박자 뒤 누름이 막히지 않게 한다
+                isDanceHeld = me.isDancing
+                return
+            }
+        }
+        startLocalDanceRound()
+        isDanceHeld = true
+    }
+
+    /// 내가 마지막으로 새 판을 시작한 시각(장면의 `now`).
+    private var lastDanceRoundAt: Date?
+
+    /// 지금 내가 춤을 시작할 수 있다. 알은 춘다. 풀숲도 괜찮다. 걸을 참이어도(기다리는 걸음, 따라가지 않는 걸어가기) 못 춘다.
+    var canDance: Bool {
+        !isPaused && !walker.isWalking && !walker.hasPendingMove && !(autoWalk != nil && !isFollowing)
+            && !isMeInWater && !isDiving && !isFocusing()
+    }
+
+    private func startLocalDanceRound() {
+        let style = pickDanceStyle(lastDanceStyle)
+        lastDanceStyle = style
+        lastDanceRoundAt = now()
+        beginDance(me, style: style)
+        onDanceRound?(style.id)
+    }
+
+    /// 판을 박자 격자에 맞춰 시작하고 ♪를 살핀다. 시계는 장면의 `now`라, 따로 시작해도 같은 박자에 뛴다.
+    private func beginDance(_ actor: PlazaActor, style: PlazaDance.Style) {
+        actor.startDance(style, offset: PlazaDance.gridOffset(at: now()))
+        updateDanceNotes(starter: actor)
+        layout()
+    }
+
+    /// 팀원이 춤을 춘다. 한 판만 춘다. 모르는 팀원, 물속이나 잠수 중, 멈춘 장면이면 false.
+    /// 움직이는 중이면 지금은 false지만, 한 박자 안에 멈추면 그때 시작한다(걸음을 막 마친 팀원의 춤이 소식보다 먼저 와서 버려지지 않게).
+    /// 새 춤이 기다리던 춤을 갈아 끼운다. 모르는 이름의 춤은 좌우 흔들기다. 집중 중인지는 컨트롤러가 먼저 가린다.
+    @discardableResult
+    func playDance(memberID: String, style: String?) -> Bool {
+        guard !isPaused, let r = remotes[memberID], !map.isWater(r.motion.tile) else { return false }
+        let chosen = PlazaDance.Style.style(id: style)
+        if r.motion.isWalking {
+            pendingDances[memberID] = (chosen, PlazaDance.beat)
+            return false
+        }
+        pendingDances[memberID] = nil
+        beginDance(r.actor, style: chosen)
+        return true
+    }
+
+    /// 걷는 중에 받아 멈추기를 기다리는 팀원의 춤과 남은 시간. 노드를 만들지 않는 값 하나라 몰려와도 팀원 수를 넘지 않는다.
+    private var pendingDances: [String: (style: PlazaDance.Style, remaining: TimeInterval)] = [:]
+
+    /// 기다리던 춤을, 그 팀원이 멈췄으면 시작하고 한 박자가 지났으면 버린다.
+    private func advancePendingDances(by dt: TimeInterval) {
+        for (id, pending) in pendingDances {
+            guard let r = remotes[id], !isPaused, !map.isWater(r.motion.tile) else { pendingDances[id] = nil; continue }
+            if !r.motion.isWalking {
+                pendingDances[id] = nil
+                beginDance(r.actor, style: pending.style)
+            } else if pending.remaining - dt <= 0 {
+                pendingDances[id] = nil
+            } else {
+                pendingDances[id]?.remaining -= dt
+            }
+        }
+    }
+
+    /// 그 캐릭터(nil이면 나)의 춤을 멈춘다. 떠 있던 ♪도 지운다.
+    func stopDance(memberID: String?) {
+        actor(memberID)?.stopDance()
+    }
+
+    private func stopAllDances() {
+        me.stopDance()
+        for r in remotes.values { r.actor.stopDance() }
+        pendingDances.removeAll()
+        isDanceHeld = false
+    }
+
+    /// 걷기 시작했거나 물에 든 캐릭터의 춤을 끊는다. 밀림, 뛰어들기, 물가로 올라오기 같은 모든 이유를 한 곳에서 잡는다.
+    private func stopMovingDancers() {
+        if walker.isWalking || isMeInWater { me.stopDance() }
+        for r in remotes.values where r.motion.isWalking || map.isWater(r.motion.tile) { r.actor.stopDance() }
+    }
+
+    /// 내 판이 저절로 끝났고 D를 아직 누르고 있으면 새 춤으로 이어 춘다. 못 이으면 누름을 접는다.
+    private func continueHeldDance() {
+        guard me.takeFinishedDance(), isDanceHeld else { return }
+        if canDance { startLocalDanceRound() } else { isDanceHeld = false }
+    }
+
+    /// 춤추는 배우들의 칸(나와 팀원).
+    private var dancerTiles: [(actor: PlazaActor, tile: TilePoint)] {
+        var list: [(PlazaActor, TilePoint)] = []
+        if me.isDancing { list.append((me, walker.tile)) }
+        for r in remotes.values where r.actor.isDancing { list.append((r.actor, r.motion.tile)) }
+        return list
+    }
+
+    /// 판이 시작될 때, 다른 춤꾼 둘 이상이 `PlazaDance.noteRadius`칸(체비쇼프 거리) 안에서 함께 추는 배우의 머리 위에 ♪를 이번 판 동안 띄운다.
+    /// 시작한 배우는 이 판의 ♪를 여기서 정한다. 이미 추던 배우는 새 춤꾼 덕에 조건이 채워졌을 때 아직 정하지 않았다면 이어서 띄운다
+    /// (그렇지 않으면 셋이 모여도 마지막에 시작한 한 명만 ♪가 뜬다). 떠 있는 말풍선은 갈아 끼우지 않는다. 내려가는 노드는 만들지 않는다.
+    private func updateDanceNotes(starter: PlazaActor) {
+        let dancers = dancerTiles
+        for (actor, tile) in dancers {
+            let isStarter = actor === starter
+            guard isStarter || !actor.danceNotesDecided else { continue }
+            // 이미 추던 배우는 판이 한 박자 넘게 남았을 때만 ♪를 받는다(몇 프레임 깜빡이지 않게).
+            if !isStarter, let dance = actor.dance, PlazaDance.round - dance.elapsed < PlazaDance.beat { continue }
+            let near = dancers.filter { other in
+                other.actor !== actor
+                    && max(abs(other.tile.x - tile.x), abs(other.tile.y - tile.y)) <= PlazaDance.noteRadius
+            }.count
+            guard near >= 2 else { continue }   // 나중에 춤꾼이 늘면 다시 살핀다
+            if actor.isBubbleShown {
+                actor.danceNotesDecided = true   // 떠 있는 말풍선은 갈아 끼우지 않고, 이번 판에는 ♪를 띄우지 않는다
+                continue
+            }
+            actor.showDanceNotes()
+        }
+    }
+
+    /// 테스트용: 그 캐릭터(nil이면 나)의 춤과 자세.
+    func isDancing(memberID: String?) -> Bool { actor(memberID)?.isDancing ?? false }
+    func danceStyle(memberID: String?) -> PlazaDance.Style? { actor(memberID)?.dance?.style }
+    func dancePose(memberID: String?) -> PlazaDancePose? { actor(memberID)?.dancePose }
+
     /// 점프: 그 캐릭터가 위로 폴짝 뛰고, 뛸 때와 내려올 때 발밑에서 먼지가 양옆으로 퍼진다. `memberID`가 nil이면 나.
     func playJump(memberID: String?) {
         guard !isPaused, let actor = actor(memberID) else { return }
@@ -1113,6 +1279,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             if fell { break }
         }
         guard reach > 0 else { return }
+        stopDance(memberID: nil)
         walker.push(d, tiles: reach)
         guard isPaused else { return }
         walker.advance(by: PlazaPond.plungeStepDuration * Double(reach), canEnterFrom: canEnterTile(occupied: occupied),
@@ -1157,6 +1324,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let cKeyCode: UInt16 = 8
     private static let gKeyCode: UInt16 = 5
     private static let fKeyCode: UInt16 = 3
+    private static let dKeyCode: UInt16 = 2
     private static let returnKeyCode: UInt16 = 36
     private static let keypadEnterKeyCode: UInt16 = 76
 
@@ -1242,7 +1410,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
         clock = currentTime
         let modifiers = currentModifiers()
-        if modifiers.contains(.command) { walker.releaseAll(); panKeys.removeAll() }
+        if modifiers.contains(.command) { walker.releaseAll(); panKeys.removeAll(); isDanceHeld = false }
         if let c = photoCenter {
             let speed = modifiers.contains(.shift) ? PlazaPhotoFrame.fastPanSpeed : PlazaPhotoFrame.panSpeed
             let dx = (panKeys.contains(.right) ? 1 : 0) - (panKeys.contains(.left) ? 1 : 0)
@@ -1377,6 +1545,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// `dt`는 `update`에서 이미 유한하고 `maxFrameDelta` 이하다. 깨어난 장면이 팀원 이동을 몰아서 돌지 않는다.
     private func advanceAnimation(by dt: TimeInterval) {
+        stopMovingDancers()
         let pose = PlazaPose.choice(facing: walker.facing, isWalking: walker.isWalking, clock: clock)
         me.animate(by: dt, useBack: pose.useBack)
         for id in Array(remotes.keys) {
@@ -1388,6 +1557,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             let p = PlazaPose.choice(facing: r.motion.facing, isWalking: r.motion.isWalking, clock: clock)
             r.actor.animate(by: dt, useBack: p.useBack)
         }
+        continueHeldDance()
+        advancePendingDances(by: dt)
     }
 
     /// 나와 팀원의 새 걸음이 지나는 풀을 흔들고, 가만히 가려진 채 있으면 가끔 움찔하게 한 뒤 레이어 시간을 흘린다.
