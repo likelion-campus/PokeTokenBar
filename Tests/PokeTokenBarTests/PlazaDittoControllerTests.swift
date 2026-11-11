@@ -1365,20 +1365,18 @@ extension PlazaDittoControllerTests {
         XCTAssertEqual(c.scene?.decoyTile, row(x), "test precondition")
     }
 
-    func testTheHostsCopyTacklePushesMeAwayAndExplainsOnce() async {
+    func testTheHostsCopyTacklePushesMeAwayWithoutSayingWhoItWas() async {
         let t = await pranked()
         t.c.showDecoyTackle(from: t.a.id, on: t.me.id)
         run(t.c.scene!)
         XCTAssertEqual(t.c.scene?.walker.tile, row(9), "one tile away from the copy")
-        XCTAssertEqual(t.c.banner, L(.ko).plazaDecoyTackleHint)
+        XCTAssertNil(t.c.banner, "nothing gives the copy away")
 
-        t.c.showBanner("다른 배너")
         t.clock.now += PlazaWindowController.decoyTackleInterval + 1
         await moveCopy(t.c, host: t.a, of: t.m, to: 10, clock: t.clock)
         t.c.showDecoyTackle(from: t.a.id, on: t.me.id)
         run(t.c.scene!)
         XCTAssertEqual(t.c.scene?.walker.tile, row(8), "pushed again after the interval")
-        XCTAssertEqual(t.c.banner, "다른 배너", "the explanation shows once")
     }
 
     func testACopyTackleFromSomeoneWhoIsNotTheHostIsDropped() async {
