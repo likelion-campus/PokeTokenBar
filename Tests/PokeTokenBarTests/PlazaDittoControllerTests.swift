@@ -1328,3 +1328,134 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(c.scene?.dittoTile, ground(6, 0))
     }
 }
+
+// MARK: - The copy's pranks
+
+/// Row 3 of the map is open ground from x 3 to 44.
+extension PlazaDittoControllerTests {
+    /// Starts at the real time: the session drops a Ditto state stamped far from its own clock.
+    @MainActor private final class Clock { var now = Date() }
+
+    private func row(_ x: Int) -> TilePoint { TilePoint(x: x, y: 3) }
+
+    private func run(_ s: PlazaScene) {
+        var t = 0.0
+        s.update(t)
+        while t < 1 { t += 1.0 / 30; s.update(t) }
+    }
+
+    /// `a` hosts a copy of `m` standing at `copyX` on row 3; I stand at x 10 and am not the host.
+    private func pranked(copyAt copyX: Int = 11) async -> (c: PlazaWindowController, a: Node, me: Node, m: Node, clock: Clock) {
+        let nodes = sorted(3)
+        let (a, me, m) = (nodes[0], nodes[1], nodes[2])
+        await connect(a, me); await connect(m, me)
+        let clock = Clock()
+        let c = controller(me, start: row(10), clock: { clock.now })
+        c.prepareScene()
+        place(m, at: row(30))
+        await moveCopy(c, host: a, of: m, to: copyX, clock: clock)
+        return (c, a, me, m, clock)
+    }
+
+    private func moveCopy(_ c: PlazaWindowController, host a: Node, of m: Node, to x: Int, clock: Clock) async {
+        host(a, dittoForm(row(x), now: clock.now).copying(m.id, now: clock.now))
+        await settle()
+        c.advanceDitto(now: clock.now)
+        run(c.scene!)   // a copy that moved walks there
+        XCTAssertEqual(c.scene?.decoyTile, row(x), "test precondition")
+    }
+
+    func testTheHostsCopyTacklePushesMeAwayAndExplainsOnce() async {
+        let t = await pranked()
+        t.c.showDecoyTackle(from: t.a.id, on: t.me.id)
+        run(t.c.scene!)
+        XCTAssertEqual(t.c.scene?.walker.tile, row(9), "one tile away from the copy")
+        XCTAssertEqual(t.c.banner, L(.ko).plazaDecoyTackleHint)
+
+        t.c.showBanner("다른 배너")
+        t.clock.now += PlazaWindowController.decoyTackleInterval + 1
+        await moveCopy(t.c, host: t.a, of: t.m, to: 10, clock: t.clock)
+        t.c.showDecoyTackle(from: t.a.id, on: t.me.id)
+        run(t.c.scene!)
+        XCTAssertEqual(t.c.scene?.walker.tile, row(8), "pushed again after the interval")
+        XCTAssertEqual(t.c.banner, "다른 배너", "the explanation shows once")
+    }
+
+    func testACopyTackleFromSomeoneWhoIsNotTheHostIsDropped() async {
+        let t = await pranked()
+        t.c.showDecoyTackle(from: t.m.id, on: t.me.id)
+        run(t.c.scene!)
+        XCTAssertEqual(t.c.scene?.walker.tile, row(10))
+        XCTAssertNil(t.c.banner)
+    }
+
+    func testACopyTackleFromACopyThatIsNotBesideMeIsDropped() async {
+        let t = await pranked(copyAt: 12)
+        t.c.showDecoyTackle(from: t.a.id, on: t.me.id)
+        run(t.c.scene!)
+        XCTAssertEqual(t.c.scene?.walker.tile, row(10))
+    }
+
+    func testACopyTackleOnSomeoneElseDoesNotMoveMe() async {
+        let t = await pranked()
+        let below = TilePoint(x: 11, y: 4)   // right under the copy, so the push goes down, where nothing blocks me
+        place(t.m, at: below)
+        await settle()
+        run(t.c.scene!)
+        XCTAssertEqual(t.c.scene?.memberTiles[t.m.id], below)
+        t.c.showDecoyTackle(from: t.a.id, on: t.m.id)
+        t.c.showDecoyTackle(from: t.a.id, on: nil)
+        run(t.c.scene!)
+        XCTAssertEqual(t.c.scene?.walker.tile, row(10))
+    }
+
+    func testCopyTacklesPushMeOnceInTheInterval() async {
+        let t = await pranked()
+        t.c.showDecoyTackle(from: t.a.id, on: t.me.id)
+        run(t.c.scene!)
+        t.clock.now += PlazaWindowController.decoyTackleInterval - 1
+        await moveCopy(t.c, host: t.a, of: t.m, to: 10, clock: t.clock)
+        t.c.showDecoyTackle(from: t.a.id, on: t.me.id)
+        run(t.c.scene!)
+        XCTAssertEqual(t.c.scene?.walker.tile, row(9), "a host that sends them in a burst moves me once")
+    }
+
+    func testNoCopyTackleInPhotoMode() async {
+        let t = await pranked()
+        _ = t.c.scene?.handleKeyDown(keyCode: 35, characters: "p", isRepeat: false)
+        XCTAssertTrue(t.c.isPhotoMode)
+        t.c.showDecoyTackle(from: t.a.id, on: t.me.id)
+        run(t.c.scene!)
+        XCTAssertEqual(t.c.scene?.walker.tile, row(10))
+    }
+
+    func testAsHostMyCopyWalksUpToATeammateAndTheTackleIsSent() async {
+        let nodes = sorted(4)
+        let (a, me, m, v) = (nodes[0], nodes[1], nodes[2], nodes[3])
+        await connect(a, me); await connect(m, me); await connect(v, me)
+        let c = controller(me, start: row(40))
+        c.prepareScene()
+        place(m, at: row(36))
+        place(v, at: row(10))
+        var now = Date()
+        host(a, dittoForm(row(14), now: now).copying(m.id, now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        a.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        a.session.updateDitto(ready: false, state: nil)
+        await settle()
+        let log = emotes(from: v)
+        for _ in 0..<5_000 where !log.items.contains(where: { $0.kind == .decoyTackle }) {
+            now = now.addingTimeInterval(0.05)
+            c.advanceDitto(now: now)
+            guard c.shownDitto?.isDecoy == true else { break }
+            await Task.yield()
+        }
+        await settle()
+        let sent = log.items.filter { $0.kind == .decoyTackle }
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertEqual(sent.first?.targetMemberID, v.id)
+        XCTAssertEqual(v.session.members[me.id]?.ditto.map { PlazaPathfinder.isAdjacent($0.tile, row(10)) }, true,
+                       "the copy's place reached the teammate before the tackle")
+    }
+}

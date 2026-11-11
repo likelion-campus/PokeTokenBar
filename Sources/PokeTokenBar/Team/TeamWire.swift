@@ -93,6 +93,9 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     case decoyFound
     /// The Ditto copy jumped. Earlier versions skip it.
     case decoyJump
+    /// The Ditto copy tackled `TeamEmote.targetMemberID`, sent by the Ditto's host. The target's Mac moves the target one tile
+    /// away from the copy. Earlier versions skip it.
+    case decoyTackle
     /// 물귀신 (C while diving): the sender surfaces and drags the target, on the shore beside it, into the water. The target's Mac
     /// moves the target. Earlier versions skip it.
     case pull
@@ -100,7 +103,7 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .pull: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull: false
         }
     }
 
@@ -110,7 +113,7 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     var endsSendersDance: Bool {
         switch self {
         case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound: true
-        case .groupPhoto, .pickup, .dance, .decoyJump, .pull: false
+        case .groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull: false
         }
     }
 }
