@@ -1289,8 +1289,6 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 복사본에게 밀리는 것은 이만큼에 한 번뿐이다. 호스트는 한 번 변신에 몇 번만, 2분 넘게 띄워서 보낸다.
     static let decoyTackleInterval: TimeInterval = 60
     private var lastDecoyTackleAt: Date?
-    /// 복사본에게 처음 밀렸을 때 한 번만 띄우는 안내를 이미 띄웠다(창을 여는 동안).
-    private var decoyTackleHintShown = false
 
     /// 런타임이 부른다. 메타몽을 돌리는 팀원이 복사본의 몸통박치기를 알렸다. 다른 팀원이 보낸 것은 버린다.
     func showDecoyTackle(from sender: String, on target: String?) {
@@ -1311,9 +1309,6 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if let last = lastDecoyTackleAt, now.timeIntervalSince(last) < Self.decoyTackleInterval { return }
         lastDecoyTackleAt = now
         scene.pushMe(direction)
-        guard !decoyTackleHintShown else { return }
-        decoyTackleHintShown = true
-        showBanner(L(.ko).plazaDecoyTackleHint)
     }
 
     /// 알리는 팀원들 가운데 가장 작은 ID의 메타몽.
