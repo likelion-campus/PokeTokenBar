@@ -1090,11 +1090,11 @@ final class PlazaDittoControllerTests: XCTestCase {
     }
 
     /// [me host, m]: the host's Ditto form rests right beside me; m stands away from it.
-    private func hostingDittoForm(now: Date = Date()) async -> (c: PlazaWindowController, me: Node, m: Node) {
+    private func hostingDittoForm(now: Date = Date(), seed: UInt64 = 7) async -> (c: PlazaWindowController, me: Node, m: Node) {
         let nodes = sorted(3)
         let (a, me, m) = (nodes[0], nodes[1], nodes[2])
         await connect(a, me); await connect(m, me)
-        let c = controller(me, start: meStart.me)
+        let c = controller(me, seed: seed, start: meStart.me)
         c.prepareScene()
         place(m, at: ground(-5, 0))
         host(a, dittoForm(beside(), now: now).turnedBack(now: now))
@@ -1134,8 +1134,79 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(t.c.scene?.children.filter { $0.name == "tackle-impact" }.count, 1)
     }
 
+    /// Whether a tackle from beside it copies or bounces is the brain's draw: seed 1 copies, seed 7 bounces.
+    func testTheHostsOwnTackleSometimesBouncesTheDittoFormAway() async {
+        let now = Date()
+        let t = await hostingDittoForm(now: now, seed: 7)
+        t.c.scene?.onTackleKey?()
+        XCTAssertEqual(t.c.shownDitto?.isBouncing, true)
+        XCTAssertEqual(t.c.shownDitto?.isDecoy, false)
+        XCTAssertNil(t.c.banner)
+        t.c.advanceDitto(now: Date().addingTimeInterval(0.1))
+        XCTAssertGreaterThan(hop(t.c), 0, "it hops as it goes")
+        XCTAssertEqual(t.c.shownDitto?.tile, TilePoint(x: beside().x + 1, y: beside().y), "away from me")
+        await settle()
+        XCTAssertEqual(t.m.session.members[t.me.id]?.ditto?.isBouncing, true, "teammates are told it bounces")
+    }
+
+    private func hop(_ c: PlazaWindowController) -> CGFloat {
+        c.scene?.update(0)
+        c.scene?.update(0.1)
+        return c.scene?.jumpLift(memberID: key) ?? 0
+    }
+
+    func testTheHostsBouncingDittoHopsOnMyScreenToo() async {
+        let now = Date()
+        let t = await adjacentDittoForm(now: now)
+        var s = dittoForm(TilePoint(x: beside().x + 1, y: beside().y), now: now).turnedBack(now: now)
+        s.isBouncing = true
+        host(t.a, s)
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertGreaterThan(hop(t.c), 0)
+    }
+
+    /// A step is shorter than a hop. The next step does not start the hop over while the Ditto is still in the air.
+    func testAHopIsNotCutShortByTheNextStep() async {
+        let now = Date()
+        let t = await adjacentDittoForm(now: now)
+        var s = dittoForm(TilePoint(x: beside().x + 1, y: beside().y), now: now).turnedBack(now: now)
+        s.isBouncing = true
+        host(t.a, s)
+        await settle()
+        t.c.advanceDitto(now: now)
+        let lift = hop(t.c)
+        s.tile = TilePoint(x: beside().x + 2, y: beside().y)
+        host(t.a, s)
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertEqual(t.c.scene?.jumpLift(memberID: key), lift)
+    }
+
+    /// Frames an honest host does not send: a bounce without a step, and a bouncing copy. Neither hops.
+    func testABounceWithoutAStepOrOnACopyDoesNotHop() async {
+        let now = Date()
+        let t = await adjacentDittoForm(now: now)
+        var s = dittoForm(beside(), now: now).turnedBack(now: now)
+        s.isBouncing = true
+        host(t.a, s)
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertEqual(t.c.shownDitto?.isBouncing, true, "test precondition")
+        XCTAssertEqual(hop(t.c), 0, "it stands where it stood")
+
+        var copy = dittoForm(TilePoint(x: beside().x + 1, y: beside().y), now: now).copying(t.me.id, now: now)
+        copy.isBouncing = true
+        host(t.a, copy)
+        await settle()
+        t.c.advanceDitto(now: now)
+        XCTAssertEqual(hop(t.c), 0, "a copy never bounces")
+        run(t.c.scene!)
+        XCTAssertEqual(t.c.scene?.decoyTile, TilePoint(x: beside().x + 1, y: beside().y), "the copy did move")
+    }
+
     func testTheHostsOwnTackleTurnsTheDittoFormIntoMe() async {
-        let t = await hostingDittoForm()
+        let t = await hostingDittoForm(seed: 1)
         let log = emotes(from: t.m)
         t.c.scene?.onTackleKey?()
         await settle()

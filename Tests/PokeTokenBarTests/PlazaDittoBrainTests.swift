@@ -244,19 +244,22 @@ final class PlazaDittoBrainTests: XCTestCase {
         let rest = t0.addingTimeInterval(180)
         // "a" is beside it too and would win an ordinary copy (smallest ID); the tackler wins a tackle.
         let a = TilePoint(x: p.x, y: p.y + 1)
-        let w = world(blocked: [me, a], copyable: ["a": a, "me": me])
+        // Someone stands behind it, so it can't bounce away and always copies.
+        let behind = TilePoint(x: p.x - 1, y: p.y)
+        let w = world(blocked: [me, a, behind], copyable: ["a": a, "me": me])
         var brain = PlazaDittoBrain(resuming: dittoState(at: p, rest: rest), world: w, now: t0, seed: 5)
         let at = t0.addingTimeInterval(10)
-        XCTAssertTrue(brain.tackled(by: "me", now: at, world: w))
+        XCTAssertEqual(brain.tackled(by: "me", now: at, world: w), .transformed)
         XCTAssertEqual(brain.state.decoyOf, "me")
         XCTAssertEqual(brain.state.since, at)
         XCTAssertNil(brain.state.restUntil)
         // Then it flees from the tackler like any copy. Looked at before the copy's first idle action (at least 6 s after the
         // flee ends), which may walk it a few tiles back whatever the random draws are.
+        let open = world(blocked: [me, a], copyable: ["a": a, "me": me])   // whoever stood behind has left
         var now = at
         while now.timeIntervalSince(at) < 6 {
             now = now.addingTimeInterval(dt)
-            _ = brain.tick(now: now, world: w)
+            _ = brain.tick(now: now, world: open)
         }
         XCTAssertGreaterThanOrEqual(manhattan(brain.state.tile, me), PlazaDitto.fleeDistance)
         XCTAssertEqual(brain.state.decoyOf, "me")
@@ -267,17 +270,116 @@ final class PlazaDittoBrainTests: XCTestCase {
         let me = TilePoint(x: p.x + 1, y: p.y)
         let rest = t0.addingTimeInterval(180)
         // An egg, someone idle or focusing, or an older version: present but not copyable.
-        let w = world(blocked: [me], copyable: [:], present: ["me": me])
+        // With someone behind the Ditto there is no room to bounce either.
+        let w = world(blocked: [me, TilePoint(x: p.x - 1, y: p.y)], copyable: [:], present: ["me": me])
         var brain = PlazaDittoBrain(resuming: dittoState(at: p, rest: rest), world: w, now: t0, seed: 5)
         let before = brain.state
-        XCTAssertFalse(brain.tackled(by: "me", now: t0.addingTimeInterval(1), world: w))
+        XCTAssertEqual(brain.tackled(by: "me", now: t0.addingTimeInterval(1), world: w), .nothing)
         XCTAssertEqual(brain.state, before)
 
         let copy = PlazaDittoState(tile: p, facing: .down, isWalking: nil, isRunning: nil, decoyOf: "m", since: t0, restUntil: nil)
         let wc = world(blocked: [me], copyable: ["me": me, "m": TilePoint(x: p.x, y: p.y + 30)])
         var copying = PlazaDittoBrain(resuming: copy, world: wc, now: t0, seed: 5)
-        XCTAssertFalse(copying.tackled(by: "me", now: t0.addingTimeInterval(1), world: wc))
+        XCTAssertEqual(copying.tackled(by: "me", now: t0.addingTimeInterval(1), world: wc), .nothing)
         XCTAssertEqual(copying.state, copy)
+    }
+
+    /// The tile `n` steps west of `p`: a tackler on the east side knocks the Ditto that way.
+    private func west(_ p: TilePoint, _ n: Int) -> TilePoint { TilePoint(x: p.x - n, y: p.y) }
+
+    private func settle(_ brain: inout PlazaDittoBrain, from start: Date, world: PlazaDittoWorld, seconds: Double = 1.5) {
+        var now = start
+        while now.timeIntervalSince(start) < seconds {
+            now = now.addingTimeInterval(dt)
+            _ = brain.tick(now: now, world: world)
+        }
+    }
+
+    func testATackleByATacklerItCannotCopyBouncesItStraightAway() {
+        let p = openTile()
+        let me = TilePoint(x: p.x + 1, y: p.y)
+        let rest = t0.addingTimeInterval(180)
+        let w = world(blocked: [me], copyable: [:], present: ["me": me])
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p, rest: rest), world: w, now: t0, seed: 5)
+        XCTAssertEqual(brain.tackled(by: "me", now: t0, world: w), .bounced)
+        XCTAssertEqual(brain.state.isBouncing, true)
+        XCTAssertFalse(brain.state.isDecoy)
+        XCTAssertEqual(brain.state.restUntil, rest, "its rest goes on")
+        _ = brain.tick(now: t0.addingTimeInterval(dt), world: w)
+        XCTAssertEqual(brain.state.tile, west(p, 1))
+        XCTAssertNil(brain.state.isRunning, "it bounces at a walking pace")
+        settle(&brain, from: t0, world: w)
+        XCTAssertEqual(brain.state.tile, west(p, PlazaDittoBrain.bounceTiles))
+        XCTAssertNil(brain.state.isBouncing, "the bounce is over when it lands")
+    }
+
+    /// A host that takes over mid-bounce has no route to finish, so the bounce is over.
+    func testResumingABouncingDittoEndsTheBounce() {
+        var s = dittoState(at: openTile())
+        s.isBouncing = true
+        let brain = PlazaDittoBrain(resuming: s, world: world(), now: t0, seed: 5)
+        XCTAssertNil(brain.state.isBouncing)
+    }
+
+    func testABounceStopsBeforeATakenTile() {
+        let p = openTile()
+        let me = TilePoint(x: p.x + 1, y: p.y)
+        let w = world(blocked: [me, west(p, 3)], copyable: [:], present: ["me": me])
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 5)
+        XCTAssertEqual(brain.tackled(by: "me", now: t0, world: w), .bounced)
+        settle(&brain, from: t0, world: w)
+        XCTAssertEqual(brain.state.tile, west(p, 2))
+        XCTAssertNil(brain.state.isBouncing)
+    }
+
+    func testABounceEndsWhenSomeoneStepsIntoItsWay() {
+        let p = openTile()
+        let me = TilePoint(x: p.x + 1, y: p.y)
+        let w = world(blocked: [me], copyable: [:], present: ["me": me])
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 5)
+        XCTAssertEqual(brain.tackled(by: "me", now: t0, world: w), .bounced)
+        let closed = world(blocked: [me, west(p, 1)], copyable: [:], present: ["me": me])
+        _ = brain.tick(now: t0.addingTimeInterval(dt), world: closed)
+        XCTAssertEqual(brain.state.tile, p)
+        XCTAssertNil(brain.state.isBouncing)
+    }
+
+    func testATacklerWhoIsNotBesideItNeverBouncesIt() {
+        let p = openTile()
+        let far = TilePoint(x: p.x + 2, y: p.y)
+        for seed in 0..<40 as Range<UInt64> {
+            let w = world(blocked: [far], copyable: ["me": far])
+            var brain = PlazaDittoBrain(resuming: dittoState(at: p, rest: t0.addingTimeInterval(180)), world: w, now: t0, seed: seed)
+            XCTAssertEqual(brain.tackled(by: "me", now: t0, world: w), .transformed, "seed \(seed)")
+        }
+    }
+
+    func testATackleSometimesBouncesItAndSometimesCopiesTheTackler() {
+        let p = openTile()
+        let me = TilePoint(x: p.x + 1, y: p.y)
+        let w = world(blocked: [me], copyable: ["me": me])
+        var outcomes: [PlazaDittoTackleOutcome: Int] = [:]
+        for seed in 0..<200 as Range<UInt64> {
+            var brain = PlazaDittoBrain(resuming: dittoState(at: p, rest: t0.addingTimeInterval(180)), world: w, now: t0, seed: seed)
+            outcomes[brain.tackled(by: "me", now: t0, world: w), default: 0] += 1
+        }
+        XCTAssertEqual(outcomes[.nothing], nil)
+        XCTAssertGreaterThan(outcomes[.bounced] ?? 0, 60)
+        XCTAssertGreaterThan(outcomes[.transformed] ?? 0, 60)
+    }
+
+    /// A Ditto that is not resting copies anyone beside it. Bounced by that someone, it leaves instead of copying them.
+    func testABouncingDittoDoesNotCopyTheTacklerItIsLeaving() {
+        let p = openTile()
+        let me = TilePoint(x: p.x + 1, y: p.y)
+        let w = world(blocked: [me], copyable: ["me": me])
+        for seed in 0..<40 as Range<UInt64> {
+            var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: seed)
+            guard brain.tackled(by: "me", now: t0, world: w) == .bounced else { continue }
+            _ = brain.tick(now: t0.addingTimeInterval(dt), world: w)
+            XCTAssertFalse(brain.state.isDecoy, "seed \(seed)")
+            XCTAssertEqual(brain.state.tile, west(p, 1), "seed \(seed)")
+        }
     }
 
     func testAHoldKeepsItStandingUntilThen() {
@@ -313,9 +415,9 @@ final class PlazaDittoBrainTests: XCTestCase {
         XCTAssertNotEqual(brain.state.tile, walking, "the walk under way goes on")
 
         let me = TilePoint(x: p.x + 1, y: p.y)
-        let w = world(blocked: [me], copyable: ["me": me])
+        let w = world(blocked: [me, TilePoint(x: p.x - 1, y: p.y)], copyable: ["me": me])
         var copying = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 3)
-        XCTAssertTrue(copying.tackled(by: "me", now: t0, world: w))
+        XCTAssertEqual(copying.tackled(by: "me", now: t0, world: w), .transformed)
         copying.hold(until: t0.addingTimeInterval(60))
         now = t0
         while now.timeIntervalSince(t0) < 10 { now = now.addingTimeInterval(dt); _ = copying.tick(now: now, world: w) }

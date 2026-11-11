@@ -17,6 +17,9 @@ enum PlazaDittoBrainEvent: Equatable {
     case pranked(String)
 }
 
+/// What a tackle on the Ditto form did.
+enum PlazaDittoTackleOutcome: Equatable { case nothing, transformed, bounced }
+
 /// The host's Ditto: wanders as a Ditto, copies a teammate standing next to it, flees, idles as the copy,
 /// and turns back after the time limit or when the real one leaves. Pure logic: no SpriteKit, no network.
 struct PlazaDittoBrain {
@@ -45,6 +48,9 @@ struct PlazaDittoBrain {
     static let prankGap: ClosedRange<Double> = 120...240
     private static let prankRetry: TimeInterval = 30
     private static let prankReach = 14
+    /// A tackle on the Ditto form: this often it bounces away instead of copying the tackler, up to this many tiles.
+    static let bounceChance = 0.5
+    static let bounceTiles = 4
     private var pranksLeft = 0
     private var nextPrankAt = Date.distantFuture
     /// The member the copy is walking up to.
@@ -58,6 +64,7 @@ struct PlazaDittoBrain {
         if var s = resuming, PlazaDitto.isGround(s.tile, in: world.map), !world.blocked.contains(s.tile) {
             s.isWalking = nil
             s.isRunning = nil
+            s.isBouncing = nil
             start = s
         } else {
             let tile = Self.randomFreeTile(world: world, rng: &rng)
@@ -90,10 +97,11 @@ struct PlazaDittoBrain {
         if let end = stepEnd, now >= end {
             stepEnd = nil
             chainedFrom = end
-            if route.isEmpty { state.isWalking = nil; state.isRunning = nil }
+            if route.isEmpty { state.isWalking = nil; state.isRunning = nil; state.isBouncing = nil }
         }
 
-        if !state.isDecoy, state.restUntil.map({ now >= $0 }) ?? true,
+        // A Ditto bouncing away from a tackle does not copy the tackler it has not left yet.
+        if !state.isDecoy, state.isBouncing != true, state.restUntil.map({ now >= $0 }) ?? true,
            let id = PlazaDitto.copyTarget(ditto: state.tile, copyable: world.copyable) {
             copy(id, now: now)
             events.append(.transformed(id))
@@ -106,6 +114,7 @@ struct PlazaDittoBrain {
                 route = []
                 state.isWalking = nil
                 state.isRunning = nil
+                state.isBouncing = nil
                 waitUntil = now.addingTimeInterval(PlazaWalker.stepDuration)
             } else {
                 let duration = routeRuns ? PlazaWalker.runStepDuration : PlazaWalker.stepDuration
@@ -156,12 +165,38 @@ struct PlazaDittoBrain {
         turnBack(now: now)
     }
 
-    /// Someone tackled the Ditto form: copy them at once, even while resting and even when someone else is beside it.
-    /// Nothing happens when they can't be copied or when it is already a copy. Returns whether it transformed.
-    mutating func tackled(by id: String, now: Date, world: PlazaDittoWorld) -> Bool {
-        guard !state.isDecoy, world.copyable[id] != nil else { return false }
+    /// Someone tackled the Ditto form. Half the time it bounces away from a tackler standing beside it, in a straight line over
+    /// free ground; otherwise it copies them at once, even while resting and even when someone else is beside it. A tackler who
+    /// can't be copied only ever bounces it, and one it can't bounce away from only ever gets copied. Nothing happens to a copy.
+    mutating func tackled(by id: String, now: Date, world: PlazaDittoWorld) -> PlazaDittoTackleOutcome {
+        guard !state.isDecoy else { return .nothing }
+        let canCopy = world.copyable[id] != nil
+        let path = bouncePath(awayFrom: world.present[id], world: world)
+        if !path.isEmpty, !canCopy || rng.unit() < Self.bounceChance {
+            route = path
+            routeRuns = false
+            state.isBouncing = true
+            waitUntil = now
+            return .bounced
+        }
+        guard canCopy else { return .nothing }
         copy(id, now: now)
-        return true
+        return .transformed
+    }
+
+    /// The free ground tiles in a straight line away from a tackler on a tile next to the Ditto. Empty when the tackler is
+    /// not beside it or the first tile is taken.
+    private func bouncePath(awayFrom tackler: TilePoint?, world: PlazaDittoWorld) -> [TilePoint] {
+        guard let tackler, PlazaPathfinder.isAdjacent(tackler, state.tile) else { return [] }
+        let d = PlazaPathfinder.direction(from: tackler, to: state.tile)
+        var path: [TilePoint] = []
+        var cur = state.tile
+        for _ in 0..<Self.bounceTiles {
+            cur = PlazaWalker.offset(cur, d)
+            guard PlazaDitto.isGround(cur, in: world.map), !world.blocked.contains(cur) else { break }
+            path.append(cur)
+        }
+        return path
     }
 
     /// The Ditto is dancing along with someone: stand until `until`. A flee goes on; a walk under way goes on too, since

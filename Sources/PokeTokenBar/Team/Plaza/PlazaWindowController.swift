@@ -1342,12 +1342,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if let finder { showBanner(L(.ko).plazaDecoyFound(nickname: finder)) }
     }
 
-    /// 누가 메타몽 모습을 몸통박치기했다. 호스트만 정한다: 그 팀원을 따라 할 수 있으면 쉬는 중이어도, 옆에 다른 팀원이
-    /// 있어도 바로 그 팀원으로 변해 달아난다. 호스트가 아니면 호스트의 소식을 기다린다.
+    /// 누가 메타몽 모습을 몸통박치기했다. 호스트만 정한다: 반은 그 팀원 반대쪽으로 통통 튕겨 나가고, 반은 쉬는 중이어도,
+    /// 옆에 다른 팀원이 있어도 바로 그 팀원으로 변해 달아난다. 호스트가 아니면 호스트의 소식을 기다린다.
     private func dittoFormTackled(by sender: String) {
         guard let scene, var brain = dittoBrain else { return }
         let now = clock()
-        guard brain.tackled(by: sender, now: now, world: dittoWorld(scene: scene, now: now)) else { return }
+        guard brain.tackled(by: sender, now: now, world: dittoWorld(scene: scene, now: now)) != .nothing else { return }
         dittoBrain = brain
         session?.updateDitto(ready: true, state: brain.state)
         showDitto(brain.state, change: PlazaDitto.change(from: shownDitto, to: brain.state))
@@ -1413,7 +1413,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         shownDitto = state
         shownDittoLook = look
         scene.applyDitto(PlazaDittoShown(tile: state.tile, facing: state.facing, isWalking: state.isWalking ?? false,
-                                         isRunning: state.isRunning ?? false, name: look.name, nameColor: look.color,
+                                         isRunning: state.isRunning ?? false,
+                                         isBouncing: state.isBouncing == true && !state.isDecoy, name: look.name, nameColor: look.color,
                                          title: look.title, isDecoy: state.isDecoy))
         if memberSubjects[PlazaDitto.sceneKey] != look.subject {
             memberSubjects[PlazaDitto.sceneKey] = look.subject

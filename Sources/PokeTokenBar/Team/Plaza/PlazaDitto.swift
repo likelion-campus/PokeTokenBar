@@ -53,6 +53,8 @@ struct PlazaDittoState: Codable, Equatable, Sendable {
     var facing: PlazaDirection
     var isWalking: Bool?
     var isRunning: Bool?
+    /// The Ditto form is bouncing away from a tackle: it hops as it goes. Left out otherwise; older versions skip it.
+    var isBouncing: Bool? = nil
     var decoyOf: String?
     var since: Date
     var restUntil: Date?
