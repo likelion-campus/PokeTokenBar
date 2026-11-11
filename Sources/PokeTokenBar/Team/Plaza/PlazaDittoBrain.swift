@@ -11,7 +11,11 @@ struct PlazaDittoWorld {
     var present: [String: TilePoint]
 }
 
-enum PlazaDittoBrainEvent: Equatable { case transformed(String), turnedBack, jumped }
+enum PlazaDittoBrainEvent: Equatable {
+    case transformed(String), turnedBack, jumped
+    /// The copy tackled this member, who stands on the tile it faces.
+    case pranked(String)
+}
 
 /// The host's Ditto: wanders as a Ditto, copies a teammate standing next to it, flees, idles as the copy,
 /// and turns back after the time limit or when the real one leaves. Pure logic: no SpriteKit, no network.
@@ -35,6 +39,16 @@ struct PlazaDittoBrain {
     private static let walkChance = 0.35
     private static let runShare = 0.10
     private static let turnChance = 0.5
+    /// Pranks: the copy walks up to a teammate who is not the one it copies and tackles them, a few times per copy and well apart.
+    static let pranksPerCopy = 3
+    static let firstPrankDelay: ClosedRange<Double> = 60...120
+    static let prankGap: ClosedRange<Double> = 120...240
+    private static let prankRetry: TimeInterval = 30
+    private static let prankReach = 14
+    private var pranksLeft = 0
+    private var nextPrankAt = Date.distantFuture
+    /// The member the copy is walking up to.
+    private var prankTarget: String?
 
     /// Carry on from `resuming` when it is given and its tile is ground and not blocked; otherwise start in Ditto form on a
     /// random free ground tile, `since = now`, no rest.
@@ -53,6 +67,10 @@ struct PlazaDittoBrain {
         let range = start.isDecoy ? Self.copyWait : Self.dittoWait
         self.state = start
         self.waitUntil = now.addingTimeInterval(Self.uniform(range, &rng))
+        if start.isDecoy {
+            pranksLeft = Self.pranksPerCopy
+            nextPrankAt = now.addingTimeInterval(Self.uniform(Self.firstPrankDelay, &rng))
+        }
         self.rng = rng
     }
 
@@ -105,7 +123,13 @@ struct PlazaDittoBrain {
             return events
         }
         if state.isDecoy {
-            idleAsCopy(now: now, world: world, events: &events)
+            if let id = prankTarget {
+                strike(id, now: now, world: world, events: &events)
+            } else if pranksLeft > 0, now >= nextPrankAt {
+                if !planPrank(now: now, world: world) { idleAsCopy(now: now, world: world, events: &events) }
+            } else {
+                idleAsCopy(now: now, world: world, events: &events)
+            }
         } else {
             planWalk(maxSteps: Self.dittoWalkMax, world: world)
             routeRuns = false
@@ -155,6 +179,53 @@ struct PlazaDittoBrain {
         fleeing = true
         route = []
         waitUntil = now
+        prankTarget = nil
+        pranksLeft = Self.pranksPerCopy
+        nextPrankAt = now.addingTimeInterval(Self.uniform(Self.firstPrankDelay, &rng))
+    }
+
+    /// Pick a teammate to tackle and walk to a tile beside them. Not the copied one, and only one standing on ground who could
+    /// be copied (so not away, focusing or an egg). A tile from which the push goes into water comes first, then the nearest.
+    /// Returns false, and tries again later, when nobody can be reached.
+    private mutating func planPrank(now: Date, world: PlazaDittoWorld) -> Bool {
+        let reach = Self.reach(from: state.tile, world: world, maxDist: Self.prankReach)
+        var best: (id: String, tile: TilePoint, wet: Bool, dist: Int)?
+        for id in world.copyable.keys.sorted() where id != state.decoyOf {
+            guard let victim = world.copyable[id], PlazaDitto.isGround(victim, in: world.map) else { continue }
+            for d in PlazaDirection.allCases {
+                let from = PlazaWalker.offset(victim, d)
+                guard let dist = reach.dist[from] else { continue }
+                let wet = world.map.isWater(TilePoint(x: 2 * victim.x - from.x, y: 2 * victim.y - from.y))
+                if let b = best, (b.wet ? 0 : 1, b.dist) <= (wet ? 0 : 1, dist) { continue }
+                best = (id, from, wet, dist)
+            }
+        }
+        guard let best else {
+            nextPrankAt = now.addingTimeInterval(Self.prankRetry)
+            return false
+        }
+        prankTarget = best.id
+        route = Self.path(to: best.tile, reach: reach)
+        routeRuns = false
+        waitUntil = now
+        return true
+    }
+
+    /// The walk up is over. Tackle the target if they still stand beside the copy, then run a few steps off; if they moved away,
+    /// try again later.
+    private mutating func strike(_ id: String, now: Date, world: PlazaDittoWorld, events: inout [PlazaDittoBrainEvent]) {
+        prankTarget = nil
+        waitUntil = now.addingTimeInterval(Self.uniform(Self.copyWait, &rng))
+        guard let victim = world.copyable[id], PlazaPathfinder.isAdjacent(state.tile, victim) else {
+            nextPrankAt = now.addingTimeInterval(Self.prankRetry)
+            return
+        }
+        state.facing = PlazaPathfinder.direction(from: state.tile, to: victim)
+        events.append(.pranked(id))
+        pranksLeft -= 1
+        nextPrankAt = now.addingTimeInterval(Self.uniform(Self.prankGap, &rng))
+        planWalk(maxSteps: Self.copyWalkMax, world: world)
+        routeRuns = true
     }
 
     private mutating func turnBack(now: Date) {
@@ -191,7 +262,8 @@ struct PlazaDittoBrain {
         if route.isEmpty {
             fleeing = false
             let range = state.isDecoy ? Self.copyWait : Self.dittoWait
-            waitUntil = end.addingTimeInterval(Self.uniform(range, &rng))
+            // A walk up to a prank target ends in the tackle, with no pause for the target to wander off in.
+            waitUntil = prankTarget != nil ? end : end.addingTimeInterval(Self.uniform(range, &rng))
         }
     }
 

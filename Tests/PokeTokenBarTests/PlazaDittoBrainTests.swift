@@ -251,9 +251,10 @@ final class PlazaDittoBrainTests: XCTestCase {
         XCTAssertEqual(brain.state.decoyOf, "me")
         XCTAssertEqual(brain.state.since, at)
         XCTAssertNil(brain.state.restUntil)
-        // Then it flees from the tackler like any copy.
+        // Then it flees from the tackler like any copy. Looked at before the copy's first idle action (at least 6 s after the
+        // flee ends), which may walk it a few tiles back whatever the random draws are.
         var now = at
-        while now.timeIntervalSince(at) < 10 {
+        while now.timeIntervalSince(at) < 6 {
             now = now.addingTimeInterval(dt)
             _ = brain.tick(now: now, world: w)
         }
@@ -501,5 +502,110 @@ final class PlazaDittoBrainTests: XCTestCase {
         XCTAssertTrue(walked)
         XCTAssertGreaterThan(manhattan(brain.state.tile, m), 1, "it moved away from the real one")
         XCTAssertLessThanOrEqual(manhattan(brain.state.tile, p), 2, "and stayed in the pocket")
+    }
+}
+
+/// The copy's pranks: it walks up to a teammate it does not copy and tackles them, a few times per copy and well apart.
+/// The right pond's water is x32-38 y14-20; (31,16) is its west shore.
+final class PlazaDittoPrankTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    private let map = PlazaMapData.map
+    private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
+
+    private func copy(of id: String, at tile: TilePoint) -> PlazaDittoState {
+        PlazaDittoState(tile: tile, facing: .down, isWalking: nil, isRunning: nil, decoyOf: id, since: t0, restUntil: nil)
+    }
+
+    /// Ticks for `seconds` and returns every prank with when it happened and where the copy stood.
+    private func pranks(_ brain: inout PlazaDittoBrain, world: PlazaDittoWorld, seconds: TimeInterval,
+                        from start: Date? = nil) -> [(id: String, at: TimeInterval, tile: TilePoint, facing: PlazaDirection)] {
+        var out: [(id: String, at: TimeInterval, tile: TilePoint, facing: PlazaDirection)] = []
+        var now = start ?? t0
+        let end = now.addingTimeInterval(seconds)
+        while now < end {
+            now = now.addingTimeInterval(0.05)
+            for case .pranked(let id) in brain.tick(now: now, world: world) {
+                out.append((id, now.timeIntervalSince(t0), brain.state.tile, brain.state.facing))
+            }
+        }
+        return out
+    }
+
+    private func world(copied: TilePoint, others: [String: TilePoint], present: [String: TilePoint] = [:]) -> PlazaDittoWorld {
+        var copyable = others
+        copyable["real"] = copied
+        return PlazaDittoWorld(map: map, blocked: Set(copyable.values).union(present.values), copyable: copyable,
+                               present: copyable.merging(present) { a, _ in a })
+    }
+
+    func testTheCopyWalksUpToATeammateAndTacklesThemFacingThem() {
+        let victim = p(20, 28)
+        let w = world(copied: p(4, 28), others: ["v": victim])
+        var brain = PlazaDittoBrain(resuming: copy(of: "real", at: p(24, 28)), world: w, now: t0, seed: 5)
+        let all = pranks(&brain, world: w, seconds: 200)
+        let first = try! XCTUnwrap(all.first)
+        XCTAssertEqual(first.id, "v")
+        XCTAssertTrue(PlazaPathfinder.isAdjacent(first.tile, victim))
+        XCTAssertEqual(first.facing, PlazaPathfinder.direction(from: first.tile, to: victim))
+        XCTAssertGreaterThanOrEqual(first.at, PlazaDittoBrain.firstPrankDelay.lowerBound, "not right after copying")
+    }
+
+    func testItNeverTacklesTheOneItCopies() {
+        let w = world(copied: p(20, 28), others: [:])
+        var brain = PlazaDittoBrain(resuming: copy(of: "real", at: p(24, 28)), world: w, now: t0, seed: 5)
+        XCTAssertEqual(pranks(&brain, world: w, seconds: 900).count, 0)
+    }
+
+    func testItLeavesAloneThoseWhoCannotBeCopiedOrStandInWater() {
+        // "away" is in the plaza but not copyable (away, focusing, an egg, or a window that is not open); "swimmer" is in the pond.
+        var w = world(copied: p(4, 28), others: ["swimmer": p(33, 16)], present: ["away": p(20, 28)])
+        w.blocked.remove(p(33, 16))
+        var brain = PlazaDittoBrain(resuming: copy(of: "real", at: p(24, 28)), world: w, now: t0, seed: 5)
+        XCTAssertEqual(pranks(&brain, world: w, seconds: 900).count, 0)
+    }
+
+    func testAtMostThreePranksPerCopyAndWellApart() {
+        let w = world(copied: p(4, 28), others: ["v": p(20, 28)])
+        var brain = PlazaDittoBrain(resuming: copy(of: "real", at: p(24, 28)), world: w, now: t0, seed: 5)
+        let times = pranks(&brain, world: w, seconds: PlazaDitto.decoyLimit - 1).map(\.at)
+        XCTAssertGreaterThanOrEqual(times.count, 2, "there is time for more than one")
+        XCTAssertLessThanOrEqual(times.count, PlazaDittoBrain.pranksPerCopy)
+        for (a, b) in zip(times, times.dropFirst()) {
+            XCTAssertGreaterThanOrEqual(b - a, PlazaDittoBrain.prankGap.lowerBound)
+        }
+    }
+
+    func testAShoreTeammateIsPushedTowardsTheWaterAndComesBeforeANearerOne() {
+        let shore = p(31, 16)
+        XCTAssertTrue(map.isWater(p(32, 16)))
+        let w = world(copied: p(4, 28), others: ["shore": shore, "near": p(26, 18)])
+        var brain = PlazaDittoBrain(resuming: copy(of: "real", at: p(25, 18)), world: w, now: t0, seed: 5)
+        let first = try! XCTUnwrap(pranks(&brain, world: w, seconds: 200).first)
+        XCTAssertEqual(first.id, "shore")
+        XCTAssertEqual(first.tile, p(30, 16))
+        XCTAssertEqual(first.facing, .right)
+    }
+
+    func testATargetWhoWalkedAwayIsNotTackledFromAfar() {
+        let w = world(copied: p(4, 28), others: ["v": p(20, 28)])
+        var brain = PlazaDittoBrain(resuming: copy(of: "real", at: p(28, 28)), world: w, now: t0, seed: 5)
+        // Run until the copy is two tiles from the target on its walk up, then move the target far away.
+        var now = t0
+        while abs(brain.state.tile.x - 20) + abs(brain.state.tile.y - 28) > 2, now.timeIntervalSince(t0) < 200 {
+            now = now.addingTimeInterval(0.05)
+            XCTAssertEqual(brain.tick(now: now, world: w).filter { if case .pranked = $0 { true } else { false } }, [])
+        }
+        XCTAssertLessThan(now.timeIntervalSince(t0), 200, "the copy did walk up")
+        let moved = world(copied: p(4, 28), others: ["v": p(40, 28)])
+        let soon = pranks(&brain, world: moved, seconds: 20, from: now)
+        XCTAssertEqual(soon.count, 0, "the walk ended beside an empty tile")
+    }
+
+    func testTurningBackEndsThePranks() {
+        let w = world(copied: p(4, 28), others: ["v": p(20, 28)])
+        var brain = PlazaDittoBrain(resuming: copy(of: "real", at: p(24, 28)), world: w, now: t0, seed: 5)
+        brain.found(now: t0.addingTimeInterval(1))
+        XCTAssertEqual(pranks(&brain, world: world(copied: p(4, 28), others: ["v": p(20, 28)]), seconds: 170,
+                              from: t0.addingTimeInterval(1)).count, 0, "a Ditto in its own form tackles nobody")
     }
 }

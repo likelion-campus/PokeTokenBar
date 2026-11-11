@@ -955,8 +955,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
         if isDitto { return dittoFormTackled(by: sender) }
         // 집중 중이거나 모닥불 메뉴를 연 내 Mac은 밀지 않는다(옛 버전이 보낸 몸통박치기도 같다). 충격 그림만 보인다.
-        if isMe && !isFocusing && !isCampfireMenuOpen && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction, tiles: tiles) }
+        if isMe && canBePushed && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction, tiles: tiles) }
     }
+
+    /// 집중 중이거나 모닥불 메뉴를 연 나는 밀리지 않는다.
+    private var canBePushed: Bool { !isFocusing && !isCampfireMenuOpen }
 
     /// 잠수한 내가 지금 C로 끌어들일 수 있는 물가의 팀원들.
     private func pullTargets(_ scene: PlazaScene) -> [String: TilePoint] {
@@ -1276,6 +1279,41 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
         session?.updateDitto(ready: true, state: brain.state)
         showDitto(brain.state, change: PlazaDitto.change(from: shownDitto, to: brain.state))
+        // 복사본의 장난. 복사본이 어디서 어느 쪽을 보는지 먼저 알린 뒤에 보낸다.
+        for case .pranked(let id) in events {
+            playDecoyTackle(on: id)
+            session?.sendEmote(.decoyTackle, target: id)
+        }
+    }
+
+    /// 복사본에게 밀리는 것은 이만큼에 한 번뿐이다. 호스트는 한 번 변신에 몇 번만, 2분 넘게 띄워서 보낸다.
+    static let decoyTackleInterval: TimeInterval = 60
+    private var lastDecoyTackleAt: Date?
+    /// 복사본에게 처음 밀렸을 때 한 번만 띄우는 안내를 이미 띄웠다(창을 여는 동안).
+    private var decoyTackleHintShown = false
+
+    /// 런타임이 부른다. 메타몽을 돌리는 팀원이 복사본의 몸통박치기를 알렸다. 다른 팀원이 보낸 것은 버린다.
+    func showDecoyTackle(from sender: String, on target: String?) {
+        guard sender == dittoHost(), let target else { return }
+        playDecoyTackle(on: target)
+    }
+
+    /// 복사본이 바로 옆의 `target`에게 뛰어든다. 맞은 게 나이면 반대쪽으로 한 칸 밀린다(집중, 모닥불 메뉴, 사진 모드에서는 밀리지 않는다).
+    /// 복사본이 지금 보이지 않거나 그 팀원 옆에 없으면 아무것도 안 한다.
+    private func playDecoyTackle(on target: String) {
+        guard let scene, shownDitto?.isDecoy == true, let from = scene.dittoTile else { return }
+        let isMe = target == memberID()
+        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target], PlazaPathfinder.isAdjacent(from, to) else { return }
+        let direction = PlazaPathfinder.direction(from: from, to: to)
+        scene.playTackle(by: PlazaDitto.sceneKey, on: isMe ? nil : target, direction: direction)
+        guard isMe, canBePushed, !isPhotoMode else { return }
+        let now = clock()
+        if let last = lastDecoyTackleAt, now.timeIntervalSince(last) < Self.decoyTackleInterval { return }
+        lastDecoyTackleAt = now
+        scene.pushMe(direction)
+        guard !decoyTackleHintShown else { return }
+        decoyTackleHintShown = true
+        showBanner(L(.ko).plazaDecoyTackleHint)
     }
 
     /// 알리는 팀원들 가운데 가장 작은 ID의 메타몽.
