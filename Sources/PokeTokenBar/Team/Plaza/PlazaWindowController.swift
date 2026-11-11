@@ -417,6 +417,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 guard let self, let scene = self.scene else { return }
                 self.sendPosition(inPlaza: true, scene: scene)
                 self.refreshMinimap()
+                self.refreshHint()
             }
             membersGeneration += 1
             observeMembers(session: session, generation: membersGeneration)
@@ -583,6 +584,35 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
     func showJump(memberID: String) {
         scene?.playJump(memberID: memberID)
+        startleMe(by: memberID)
+    }
+
+    private var lastStartledAt: Date?
+
+    /// 풀숲에서 뛴 팀원이 내 바로 옆이면 그쪽으로 돌아서 "!"와 함께 펄쩍 뛰고 팀원들에게 보낸다. 사진 모드에서는 놀라지 않는다.
+    /// 풀숲 옆에는 물도 모닥불 자리도 없어서 헤엄치거나 집중하는 중에는 이 조건이 맞지 않는다.
+    private func startleMe(by id: String) {
+        guard let scene, let from = scene.memberTiles[id], !isPhotoMode,
+              PlazaStartle.startles(jumper: from, victim: scene.walker.tile, isGrass: scene.isGrass) else { return }
+        let now = clock()
+        if let last = lastStartledAt, now.timeIntervalSince(last) < PlazaStartle.cooldown { return }
+        lastStartledAt = now
+        lastJumpAt = now
+        scene.face(PlazaPathfinder.direction(from: scene.walker.tile, to: from))
+        scene.stopDance(memberID: nil)
+        scene.playJump(memberID: nil)
+        scene.showEmote(memberID: nil, kind: .exclaim)
+        session?.sendEmote(.jump, target: nil)
+        session?.sendEmote(.exclaim, target: nil)
+    }
+
+    /// 풀숲에 숨은 내가 Z로 놀래킬 수 있을 때의 안내. 옆에 놀랄 팀원이 없으면 숨었다는 것과 방법만 알린다. 숨지 않았으면 nil.
+    private func startleHint() -> (text: String, hasTarget: Bool)? {
+        guard let scene, scene.isGrass(scene.walker.tile) else { return nil }
+        let ids = PlazaStartle.targets(me: scene.walker.tile, members: scene.memberTiles, isGrass: scene.isGrass)
+        if ids.isEmpty { return (L(.ko).plazaHiddenHint, false) }
+        if ids.count == 1, let name = members[ids[0]]?.nickname { return (L(.ko).plazaStartleHint(nickname: name), true) }
+        return (L(.ko).plazaStartleManyHint, true)
     }
 
     /// 직전에 쏜 불꽃 종류. 같은 종류가 연달아 나오지 않게 기억한다.
@@ -969,6 +999,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
             text = hintName(of: id).map { L(.ko).plazaFollowHint(nickname: $0) }
+        } else if overlayModel.content == .none, !chatInput.isOpen, let startle = startleHint(), startle.hasTarget {
+            text = startle.text
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
             switch hit.target {
             case .board: text = L(.ko).plazaBoardHint
@@ -976,8 +1008,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
             case .member(let id): text = hintName(of: id).map { L(.ko).plazaMemberHint(nickname: $0) }
             }
         }
+        if text == nil, !isPhotoMode, focus == nil, overlayModel.content == .none, !chatInput.isOpen { text = startleHint()?.text }
         if overlayModel.hint != text { overlayModel.hint = text }
     }
+
+    func refreshHintForTesting() { refreshHint() }
 
     /// 앱이 앞이고 광장 창이 키 창이다. 알림 대신 광장 안 안내를 쓸지 가른다.
     var isFrontmost: Bool { frontmostOverride?() ?? (NSApp.isActive && window?.isKeyWindow == true) }
