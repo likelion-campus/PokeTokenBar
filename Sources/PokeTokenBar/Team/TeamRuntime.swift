@@ -83,6 +83,10 @@ final class TeamRuntime {
                 plaza?.showDecoyFound(from: memberID, copied: emote.targetMemberID)
                 return
             }
+            if emote.kind == .pull {
+                plaza?.showPull(from: memberID, on: emote.targetMemberID)
+                return
+            }
             if emote.kind == .decoyJump {
                 plaza?.showDecoyJump(from: memberID)
                 return

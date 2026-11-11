@@ -368,7 +368,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         nameColorModel.isOpen = false
         s.canWalk = subject().speciesID != nil
         s.myEvolutionStage = evolutionStage()
-        s.onDivingChange = { [weak self] in self?.session?.updateDiving($0) }
+        s.onDivingChange = { [weak self] in self?.session?.updateDiving($0); self?.refreshHint() }
         s.onZoomChange = { [weak self, preferences] in
             preferences.zoom = $0
             self?.refreshMinimap()
@@ -383,7 +383,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
             if let self, let id = self.faceNearbyMember() { self.greet(id) }
         }
         s.onTackleKey = { [weak self] in
-            if let self, !self.isFocusing, let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
+            guard let self, !self.isFocusing else { return }
+            if self.scene?.isDiving == true { return self.pullUnder() }
+            if let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
         }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
@@ -557,6 +559,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.setDiving(false)
             session?.updateDiving(false)
         }
+        refreshHint()
     }
 
     /// X와 C가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
@@ -955,6 +958,38 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if isMe && !isFocusing && !isCampfireMenuOpen && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction, tiles: tiles) }
     }
 
+    /// 잠수한 내가 지금 C로 끌어들일 수 있는 물가의 팀원들.
+    private func pullTargets(_ scene: PlazaScene) -> [String: TilePoint] {
+        let occupied = scene.occupiedTiles()
+        return PlazaPullUnder.targets(diver: scene.walker.tile, members: scene.memberTiles, isWater: { [map] in map.isWater($0) },
+                                      isFree: { !occupied.contains($0) })
+    }
+
+    /// 물귀신: 떠오르면서 한 칸 물러나고, 바라보거나 바로 옆 물가에 선 팀원에게 끌어들인다고 보낸다. 빠지는 것은 그 팀원의 Mac이 정한다.
+    /// 끌어들일 팀원이 없으면 아무 일도 없다. 말풍선 키와 같은 연타 제한을 쓴다.
+    private func pullUnder() {
+        guard let scene, scene.isDiving else { return }
+        let targets = pullTargets(scene)
+        let me = scene.walker.tile
+        guard let id = PlazaTargeting.member(from: me, facing: scene.walker.facing, members: targets), let tile = targets[id] else { return }
+        let now = clock()
+        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        lastEmoteAt = now
+        scene.setDiving(false)
+        session?.updateDiving(false)
+        scene.pushMe(PlazaPathfinder.direction(from: tile, to: me))
+        session?.sendEmote(.pull, target: id)
+        refreshHint()
+    }
+
+    /// 런타임이 부른다. 물귀신이 나를 끌어들였다. 내가 물가에 서 있고 그 팀원이 바로 앞 물속에 있을 때만 그 물 칸으로 빠진다.
+    /// 사진 모드에서는 끌려가지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
+    func showPull(from sender: String, on target: String?) {
+        guard let scene, target == memberID(), !isPhotoMode, let from = scene.memberTiles[sender],
+              let d = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { [map] in map.isWater($0) }) else { return }
+        scene.plunge(d)   // 끄는 팀원은 물러나는 중이라 그 칸이 비었는지 따지지 않는다
+    }
+
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.
     private func greet(_ id: String) {
         guard let scene else { return }
@@ -999,6 +1034,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
             text = hintName(of: id).map { L(.ko).plazaFollowHint(nickname: $0) }
+        } else if let scene, scene.isDiving, overlayModel.content == .none, !chatInput.isOpen {
+            let targets = pullTargets(scene)
+            let id = PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targets)
+            text = id.flatMap { members[$0]?.nickname }.map { L(.ko).plazaPullHint(nickname: $0) } ?? L(.ko).plazaDivingHint
         } else if overlayModel.content == .none, !chatInput.isOpen, let startle = startleHint(), startle.hasTarget {
             text = startle.text
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {

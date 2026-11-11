@@ -1101,12 +1101,14 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         }
         settle(c2.scene!, &t, seconds: 0.6)
         c2.scene!.face(.left)
-        c2.scene!.onTackleKey?()
-        for _ in 0..<40 { await Task.yield() }
-        XCTAssertEqual(tackles(mate), 0, "I am diving")
         pondKey(c2.scene!, 49)
         guard case .memberMenu(let m2) = c2.overlayContent else { return XCTFail("no menu: \(c2.overlayContent)") }
         XCTAssertEqual(m2.actions, [.greet, .viewCard], "no tackle or follow while I dive")
+        pondKey(c2.scene!, 53)   // Esc closes the menu
+        c2.scene!.onTackleKey?()
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(tackles(mate), 0, "C while diving pulls the teammate in; it is not a tackle")
+        XCTAssertFalse(c2.scene!.isDiving, "the pull surfaced me")
         c2.handleClose()
 
         // 둘 다 땅이면 그대로 보낸다(위 확인이 아무것도 안 지키는 테스트가 아님을 보인다).
