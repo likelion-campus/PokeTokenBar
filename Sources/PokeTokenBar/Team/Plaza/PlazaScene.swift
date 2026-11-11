@@ -287,6 +287,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 시간이 다했거나 물 밖으로 나가 장면이 잠수를 끝냈을 때. `setDiving`으로 끈 때는 부르지 않는다.
     var onDivingChange: ((Bool) -> Void)?
     private(set) var tallGrassLayer: PlazaTallGrassLayer?
+    /// 풀숲이 그려진 칸. 배경을 숨기면 풀숲도 없다.
+    func isGrass(_ t: TilePoint) -> Bool { tallGrassLayer?.isGrass(t) ?? false }
 
     /// 큰 소식 반짝임 조각 하나. 시간 흐름은 `update`가 준 간격으로만 재서 창이 멈추면 같이 멈춘다.
     private struct Sparkle {

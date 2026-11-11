@@ -107,6 +107,9 @@ extension L {
     func plazaCampfireRow(minutes: Int) -> String { "\(plazaFocusDuration(minutes: minutes)) 집중" }
     var plazaCampfireFull: String { "자리가 없어요" }
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
+    var plazaHiddenHint: String { "풀숲에 숨었어요 · 팀원이 옆에 오면 Z로 놀래키기" }
+    func plazaStartleHint(nickname: String) -> String { "Z를 눌러 \(nickname) 놀래키기" }
+    var plazaStartleManyHint: String { "Z를 눌러 옆에 있는 팀원 놀래키기" }
     var plazaMenuGreet: String { "인사하기" }
     var plazaMenuTackle: String { "몸통박치기" }
     var plazaJump: String { "점프 · 물놀이" }
