@@ -194,9 +194,10 @@ final class PlazaPullUnderTests: XCTestCase {
         XCTAssertEqual(scene.walker.tile, p(31, 16))
     }
 
-    func testThePullReachesTheTeammateThroughTheRuntimeWire() async throws {
+    func testThePullCarriesOnlyItsKindAndTarget() throws {
         let frame = try TeamWire.encode(.emote(TeamEmote(kind: .pull, targetMemberID: "m")))
-        XCTAssertEqual(String(decoding: frame.dropFirst(4), as: UTF8.self), #"{"emote":{"_0":{"kind":"pull","targetMemberID":"m"}}}"#)
+        let body = try JSONSerialization.jsonObject(with: frame.dropFirst(4)) as? [String: [String: [String: String]]]
+        XCTAssertEqual(body, ["emote": ["_0": ["kind": "pull", "targetMemberID": "m"]]])
     }
 
     // MARK: - Hints
