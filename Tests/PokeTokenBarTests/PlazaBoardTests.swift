@@ -152,7 +152,6 @@ final class PlazaBoardRowTests: XCTestCase {
 @MainActor
 final class PlazaBoardTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private let map = PlazaMapData.map
@@ -167,7 +166,7 @@ final class PlazaBoardTests: XCTestCase {
     override func tearDown() async throws {
         gate.releaseAll()
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     @MainActor private struct Node {
@@ -182,7 +181,6 @@ final class PlazaBoardTests: XCTestCase {
 
     private func node(_ name: String) -> Node {
         let suite = "plaza.board.\(UUID())"
-        suites.append(suite)
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
@@ -201,7 +199,6 @@ final class PlazaBoardTests: XCTestCase {
 
     private func controller(_ me: Node, start: TilePoint) -> PlazaWindowController {
         let name = "plaza.board.prefs.\(UUID())"
-        suites.append(name)
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         prefs.saveLastTile(start)
         let gate = gate, myID = me.id

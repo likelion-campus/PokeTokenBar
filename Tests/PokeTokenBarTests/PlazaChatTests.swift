@@ -408,7 +408,6 @@ final class PlazaChatInputTests: XCTestCase {
 @MainActor
 final class PlazaChatTests: XCTestCase {
     private var hub: FakeTransportHub!
-    nonisolated(unsafe) private var suites: [String] = []
     nonisolated(unsafe) private var dirs: [URL] = []
     private var code: TeamCode!
     private var now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -421,7 +420,7 @@ final class PlazaChatTests: XCTestCase {
 
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     private struct Node {
@@ -439,7 +438,6 @@ final class PlazaChatTests: XCTestCase {
 
     private func node(_ name: String) -> Node {
         let suite = "plaza.chat.\(UUID())"
-        suites.append(suite)
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
@@ -464,7 +462,6 @@ final class PlazaChatTests: XCTestCase {
 
     private func controller(_ me: Node) -> PlazaWindowController {
         let suite = "plaza.chat.prefs.\(UUID())"
-        suites.append(suite)
         return PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                      loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },

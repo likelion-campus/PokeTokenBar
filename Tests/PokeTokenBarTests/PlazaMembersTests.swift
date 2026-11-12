@@ -83,7 +83,6 @@ private final class RetryGate {
 @MainActor
 final class PlazaMembersTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private let map = PlazaMapData.map
@@ -96,7 +95,7 @@ final class PlazaMembersTests: XCTestCase {
 
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     private struct Node {
@@ -107,7 +106,6 @@ final class PlazaMembersTests: XCTestCase {
 
     private func node(_ name: String, character: TeamMonSummary? = nil) -> Node {
         let suite = "plaza.members.\(UUID())"
-        suites.append(suite)
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
@@ -131,7 +129,6 @@ final class PlazaMembersTests: XCTestCase {
 
     private func defaults() -> UserDefaults {
         let name = "plaza.members.prefs.\(UUID())"
-        suites.append(name)
         return TestDefaults.make(suite: name)
     }
 

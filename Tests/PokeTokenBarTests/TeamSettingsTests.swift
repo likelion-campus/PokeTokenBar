@@ -4,11 +4,8 @@ import XCTest
 
 @MainActor
 final class TeamSettingsTests: XCTestCase {
-    nonisolated(unsafe) private var suites: [String] = []
-
     private func freshDefaults() -> UserDefaults {
         let name = UUID().uuidString
-        suites.append(name)
         return TestDefaults.make(suite: name)
     }
 
@@ -222,11 +219,6 @@ final class TeamSettingsTests: XCTestCase {
         let entries = [TeamSettings.SavedTeam(code: "NOT-A-CODE", name: "x"), TeamSettings.SavedTeam(code: code(4).normalized, name: "y")]
         d.set(try JSONEncoder().encode(entries), forKey: "team.saved")
         XCTAssertEqual(TeamSettings(defaults: d).savedTeams.map(\.name), ["y"])
-    }
-
-    override func tearDown() {
-        suites = []
-        super.tearDown()
     }
 
     func testDefaultsAreOffAndNotReady() {

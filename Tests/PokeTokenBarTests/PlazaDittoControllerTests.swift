@@ -18,7 +18,6 @@ private final class RecordingFetcher: PlazaSpriteFetching, @unchecked Sendable {
 @MainActor
 final class PlazaDittoControllerTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private let map = PlazaMapData.map
@@ -34,7 +33,7 @@ final class PlazaDittoControllerTests: XCTestCase {
 
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     @MainActor private struct Node {
@@ -46,7 +45,6 @@ final class PlazaDittoControllerTests: XCTestCase {
 
     private func node(_ name: String, character: TeamMonSummary? = nil) -> Node {
         let suite = "plaza.ditto.\(UUID())"
-        suites.append(suite)
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
@@ -69,7 +67,6 @@ final class PlazaDittoControllerTests: XCTestCase {
 
     private func defaults() -> UserDefaults {
         let name = "plaza.ditto.prefs.\(UUID())"
-        suites.append(name)
         return TestDefaults.make(suite: name)
     }
 

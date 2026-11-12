@@ -193,7 +193,6 @@ final class PlazaInteractionTests: XCTestCase {
 @MainActor
 final class PlazaCardTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private let map = PlazaMapData.map
@@ -206,7 +205,7 @@ final class PlazaCardTests: XCTestCase {
 
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     private struct Node {
@@ -219,7 +218,6 @@ final class PlazaCardTests: XCTestCase {
 
     private func node(_ name: String) -> Node {
         let suite = "plaza.card.\(UUID())"
-        suites.append(suite)
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
@@ -240,7 +238,6 @@ final class PlazaCardTests: XCTestCase {
     private func controller(_ me: Node, start: TilePoint, timeout: Duration = .seconds(5),
                             greeting: TeamEmoteKind = .party, stage: Int = 1) -> PlazaWindowController {
         let name = "plaza.card.prefs.\(UUID())"
-        suites.append(name)
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         prefs.saveLastTile(start)
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),

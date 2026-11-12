@@ -773,7 +773,6 @@ final class PlazaFireworksTests: XCTestCase {
 
     // MARK: 창과 팀원
 
-    private var suites: [String] = []
     private var dirs: [URL] = []
     /// 세션은 테스트가 끝날 때까지 붙잡아 둔다. 놓으면 그 팀원이 사라진다.
     private var sessions: [TeamSession] = []
@@ -781,7 +780,7 @@ final class PlazaFireworksTests: XCTestCase {
 
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []; sessions = []
+        dirs = []; sessions = []
     }
 
     private static let pikachu = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
@@ -790,7 +789,6 @@ final class PlazaFireworksTests: XCTestCase {
 
     private func session(_ name: String, code: TeamCode, hub: FakeTransportHub) -> (TeamSession, FakeTeamTransport, TeamSettings, Received) {
         let suite = "plaza.fireworks.\(UUID())"
-        suites.append(suite)
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
@@ -812,7 +810,6 @@ final class PlazaFireworksTests: XCTestCase {
 
     private func controller(_ session: TeamSession, _ settings: TeamSettings) -> PlazaWindowController {
         let name = "plaza.fireworks.prefs.\(UUID())"
-        suites.append(name)
         return PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: name)),
                                      loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { settings.memberID },

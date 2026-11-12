@@ -20,17 +20,9 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 }
 
 @MainActor final class PlazaWindowTests: XCTestCase {
-    nonisolated(unsafe) private var suites: [String] = []
-
     private func defaults() -> UserDefaults {
         let name = "plaza.test.\(UUID())"
-        suites.append(name)
         return TestDefaults.make(suite: name)
-    }
-
-    override func tearDown() {
-        suites = []
-        super.tearDown()
     }
 
     /// 갈 수 있는 이웃 칸 방향 하나(키코드, dx, dy).
@@ -859,7 +851,6 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 
     private func pondNode(_ name: String, code: TeamCode) -> PondNode {
         let suite = "plaza.pond.\(UUID())"
-        suites.append(suite)
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name

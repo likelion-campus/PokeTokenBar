@@ -24,7 +24,6 @@ private struct GrowthProfileProvider: PokeProviding, PokemonDetailProviding {
 @MainActor
 final class ProfileGrowthIntegrationTests: XCTestCase {
     nonisolated(unsafe) private var paths: [URL] = []
-    nonisolated(unsafe) private var suites: [String] = []
     override func tearDown() {
         for path in paths { try? FileManager.default.removeItem(at: path) }
         super.tearDown()
@@ -37,7 +36,6 @@ final class ProfileGrowthIntegrationTests: XCTestCase {
         let file = dir.appendingPathComponent("state.json")
         try JSONEncoder().encode(state).write(to: file)
         let suite = "profile-integration-\(UUID())"
-        suites.append(suite)
         let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         defaults.set(difficulty, forKey: "growthDifficulty")
         return (CompanionStore(provider: GrowthProfileProvider(forms: forms), fileURL: file,

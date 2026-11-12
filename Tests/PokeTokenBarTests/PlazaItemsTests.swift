@@ -159,7 +159,6 @@ final class PlazaItemsTests: XCTestCase {
     // MARK: - Team
 
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private var granted: [ItemKind] = []
@@ -173,7 +172,7 @@ final class PlazaItemsTests: XCTestCase {
 
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     private struct Node {
@@ -184,7 +183,6 @@ final class PlazaItemsTests: XCTestCase {
 
     private func node(_ name: String) -> Node {
         let suite = "plaza.items.\(UUID())"
-        suites.append(suite)
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
@@ -204,7 +202,6 @@ final class PlazaItemsTests: XCTestCase {
 
     private func prefsSuite() -> String {
         let name = "plaza.items.prefs.\(UUID())"
-        suites.append(name)
         return name
     }
 

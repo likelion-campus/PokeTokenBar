@@ -12,7 +12,6 @@ private final class NoSprites: PlazaSpriteFetching, @unchecked Sendable {
 @MainActor
 final class PlazaStartleControllerTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private var now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -38,7 +37,6 @@ final class PlazaStartleControllerTests: XCTestCase {
 
     private func defaults() -> UserDefaults {
         let name = "plaza.startle.\(UUID())"
-        suites.append(name)
         return TestDefaults.make(suite: name)
     }
 

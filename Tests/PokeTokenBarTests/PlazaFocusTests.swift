@@ -25,7 +25,6 @@ private let spaceKey: UInt16 = 49, upKey: UInt16 = 126, downKey: UInt16 = 125, l
 @MainActor
 final class PlazaFocusTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private var now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -39,7 +38,7 @@ final class PlazaFocusTests: XCTestCase {
 
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     private struct Node {
@@ -55,7 +54,6 @@ final class PlazaFocusTests: XCTestCase {
 
     private func node(_ name: String) -> Node {
         let suite = "plaza.focus.\(UUID())"
-        suites.append(suite)
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
@@ -77,7 +75,6 @@ final class PlazaFocusTests: XCTestCase {
 
     private func prefs() -> PlazaPreferences {
         let name = "plaza.focus.prefs.\(UUID())"
-        suites.append(name)
         return PlazaPreferences(defaults: TestDefaults.make(suite: name))
     }
 

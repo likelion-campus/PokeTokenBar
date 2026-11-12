@@ -70,11 +70,6 @@ private func input(map: CGImage, rect: CGRect, ppw: Int, _ actors: [PlazaPhotoAc
 @MainActor
 final class PlazaPhotoTests: XCTestCase {
     private let map = PlazaMapData.map
-    private var suites: [String] = []
-
-    override func tearDown() async throws {
-        suites = []
-    }
 
     // MARK: 합성
 
@@ -458,7 +453,6 @@ final class PlazaPhotoTests: XCTestCase {
 
     private func controller(writer: @escaping (Data) -> Bool) -> PlazaWindowController {
         let name = "plaza.photo.prefs.\(UUID())"
-        suites.append(name)
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                       nickname: { "나" }, memberID: { "me" }, subject: { .init(speciesID: 25, isShiny: false) },
