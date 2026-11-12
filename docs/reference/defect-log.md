@@ -1884,7 +1884,7 @@ read_when:
   rest, or with a copy. **Why nothing caught it:** every controller test for the tackle and the dance started
   from `dittoForm(...).turnedBack(now:)`, a resting Ditto, because that is the state in which the Ditto holds still.
   No test walked up to a fresh one, which is what a person does first. **Fix:** the Ditto copies a neighbour only
-  after they stood beside it for `PlazaDittoBrain.copyDelay` (3 s), waits for them meanwhile, and copies nobody
+  after they stood beside it for `PlazaDittoBrain.copyDelay` (3 s at first, 2 s since the next change), waits for them meanwhile, and copies nobody
   while it dances along. Tests start from a fresh Ditto and tackle or dance inside the delay. **Class sweep:** the
   other things done to a character beside you (greeting, tackle, pull-under, startle, the member menu) target
   teammates, who do not react to adjacency. The Ditto copy's own prank walks up and tackles at once by design.

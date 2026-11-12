@@ -20,12 +20,14 @@ enum PlazaDance {
     /// 같이 추는 거리. 이 칸 수 안(대각선 포함)에서 춤추는 팀원끼리 같은 춤을 춘다.
     static let togetherRange = 2
 
-    /// 내가 따라 출 팀원: 둘레 `togetherRange`칸 안에서 춤추는 팀원(`dancers`) 가운데 ID가 가장 작은 팀원. 내 ID가 더 작으면 nil이다
-    /// (그때는 그 팀원들이 나를 따른다). 모든 Mac이 같은 규칙을 쓰므로 누가 누구를 따를지 서로 묻지 않아도 맞는다.
-    static func leader(me: String, at tile: TilePoint, dancers: [String: TilePoint]) -> String? {
-        let near = dancers.filter { max(abs($0.value.x - tile.x), abs($0.value.y - tile.y)) <= togetherRange }
-        guard let first = near.keys.min(), first < me else { return nil }
-        return first
+    /// 내가 따라 출 팀원: 둘레 `togetherRange`칸 안에서 춤추는 팀원(`dancers`) 가운데 가장 먼저 춤을 시작한 팀원. 내가(`since`,
+    /// 아직 안 추면 nil) 더 먼저 시작했으면 nil이다(그때는 그 팀원들이 나를 따른다). 시작 시각은 춘 사람이 춤 소식에 실어 보내는
+    /// 값이라 모든 Mac이 같은 값을 견주고, 같은 시각이면 ID가 작은 쪽이 먼저다. 그래서 누가 누구를 따를지 서로 묻지 않아도 맞는다.
+    static func leader(me: String, since: Date?, at tile: TilePoint, dancers: [String: (tile: TilePoint, since: Date)]) -> String? {
+        let near = dancers.filter { max(abs($0.value.tile.x - tile.x), abs($0.value.tile.y - tile.y)) <= togetherRange }
+        guard let first = near.min(by: { ($0.value.since, $0.key) < ($1.value.since, $1.key) }) else { return nil }
+        if let since, (since, me) < (first.value.since, first.key) { return nil }
+        return first.key
     }
 
     /// 춤 한 종류. `id`는 팀원에게 보내는 이름이라 내보낸 뒤에는 바꾸지 않는다.

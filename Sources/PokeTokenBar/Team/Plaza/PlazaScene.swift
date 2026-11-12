@@ -1177,7 +1177,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard canDance, !isDanceRoundTooSoon else { return }
         // 팀원의 춤을 이미 따라 추고 있으면 그대로 둔다. 판을 다시 시작하면 그 팀원과 동작이 어긋난다.
         if let lead = danceLeaderStyle(), me.dance?.style == lead { return }
-        startLocalDanceRound()
+        startLocalDanceRound(continuing: me.isDancing)
     }
 
     /// 새 판은 박자마다 한 번까지. 연타는(따라 추는 팀원의 소식이 몰려와도) 판을 다시 시작하지도 팀원에게 보내지도 않는다.
@@ -1190,11 +1190,14 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 내가 따라 추는 팀원의 새 판이 왔다. 내가 추는 중이면 같은 춤으로 내 판을 다시 시작해 동작까지 맞춘다. 팀원에게도 내 새 판으로 보낸다.
     func followDance(_ style: PlazaDance.Style) {
         guard me.isDancing, canDance, !isDanceRoundTooSoon else { return }
-        startLocalDanceRound(following: style)
+        startLocalDanceRound(following: style, continuing: true)
     }
 
     /// 내가 마지막으로 새 판을 시작한 시각(장면의 `now`).
     private var lastDanceRoundAt: Date?
+
+    /// 내가 지금 추는 춤을 시작한 시각(판이 이어져도 그대로다). 춤을 멈춘 뒤에는 지난 값이 남아 있다.
+    private(set) var danceStartedAt: Date?
 
     /// 지금 내가 춤을 시작할 수 있다. 알은 춘다. 풀숲도 괜찮다. 걸을 참이어도(기다리는 걸음, 따라가지 않는 걸어가기) 못 춘다.
     var canDance: Bool {
@@ -1204,7 +1207,9 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 따라 출 팀원이 근처에서 추고 있으면 그 춤을, 아니면 무작위 춤을 춘다. 따라 추는 판은 팀원 춤처럼 다음 판 소식을 조금 더
     /// 기다린다(소식이 격자보다 조금 늦게 오므로, 안 기다리면 그 사이에 내 판이 먼저 끝나 지난 춤으로 한 번 더 시작한다).
-    private func startLocalDanceRound(following: PlazaDance.Style? = nil) {
+    /// `continuing`이 아니면(안 추다가 D를 누름) 지금이 춤을 시작한 시각이 된다. 누구를 따를지가 이 시각으로 정해지므로 먼저 정한다.
+    private func startLocalDanceRound(following: PlazaDance.Style? = nil, continuing: Bool) {
+        if !continuing || danceStartedAt == nil { danceStartedAt = now() }
         let lead = following ?? danceLeaderStyle()
         let style = lead ?? pickDanceStyle(lastDanceStyle)
         lastDanceStyle = style
@@ -1276,7 +1281,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 내 판이 저절로 끝났으면 새 춤으로 이어 춘다. 못 이으면 그대로 끝난다.
     private func continueDance() {
         guard me.takeFinishedDance(), canDance else { return }
-        startLocalDanceRound()
+        startLocalDanceRound(continuing: true)
     }
 
     /// 그 캐릭터(nil이면 나)의 춤과 자세.

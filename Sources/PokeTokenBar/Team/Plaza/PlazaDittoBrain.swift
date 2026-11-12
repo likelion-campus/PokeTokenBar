@@ -52,7 +52,7 @@ struct PlazaDittoBrain {
     static let bounceChance = 0.5
     static let bounceTiles = 4
     /// The Ditto copies a neighbour only after they have stood beside it this long, so there is time to tackle it or dance.
-    static let copyDelay: TimeInterval = 3
+    static let copyDelay: TimeInterval = 2
     /// The neighbour it is about to copy and since when they have stood beside it.
     private var neighbour: (id: String, since: Date)?
     /// It dances along until then and copies nobody meanwhile.

@@ -76,7 +76,8 @@ final class TeamRuntime {
                 return
             }
             if emote.kind == .dance {
-                plaza?.showDance(memberID: memberID, style: emote.danceStyle)
+                plaza?.showDance(memberID: memberID, style: emote.danceStyle,
+                                 since: emote.danceSince.map(Date.init(timeIntervalSince1970:)))
                 return
             }
             if emote.kind == .decoyFound {

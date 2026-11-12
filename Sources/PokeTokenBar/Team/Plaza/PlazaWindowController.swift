@@ -390,7 +390,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
         s.onDanceRound = { [weak self] in
-            self?.session?.sendEmote(.dance, target: nil, danceStyle: $0)
+            self?.session?.sendEmote(.dance, target: nil, danceStyle: $0, danceSince: self?.scene?.danceStartedAt)
             self?.danceAlong(with: nil, style: $0)
         }
         s.danceLeaderStyle = { [weak self] in self?.danceLeader().flatMap { self?.scene?.danceStyle(memberID: $0) } }
@@ -643,8 +643,15 @@ struct PlazaFocusEnd: Equatable, Sendable {
     }
 
     /// 런타임이 부른다. 팀원이 춤 한 판을 춘다. 집중 중인 팀원은 앉아 있으니 추지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
-    func showDance(memberID: String, style: String?) {
+    /// `since`는 그 팀원이 춤을 시작한 시각이다. 안 보내는 이전 버전이면 내 화면에서 그 춤이 시작된 때로 친다.
+    func showDance(memberID: String, style: String?, since: Date? = nil) {
         guard focusRemaining(of: memberID) == nil else { return }
+        danceSince = danceSince.filter { scene?.memberTiles[$0.key] != nil }   // 떠난 팀원의 값이 쌓이지 않게 한다
+        if let since {
+            danceSince[memberID] = since
+        } else if danceSince[memberID] == nil || scene?.isDancing(memberID: memberID) != true {
+            danceSince[memberID] = clock()
+        }
         scene?.playDance(memberID: memberID, style: style)
         // 팀원의 춤이 내 화면에서 아직 안 시작됐어도(걸음을 마치는 중, 창이 가려져 장면이 멈춤) 메타몽 쪽은 자리로 정한다.
         danceAlong(with: memberID, style: style)
@@ -656,9 +663,17 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 안 추고 있을 수 있다)를 춤추는 팀원으로 본다. 메타몽은 팀원이 아니라 들어가지 않는다.
     private func danceLeader(alsoDancing extra: String? = nil) -> String? {
         guard let scene else { return nil }
-        let dancers = scene.memberTiles.filter { $0.key == extra || scene.isDancing(memberID: $0.key) }
-        return PlazaDance.leader(me: memberID(), at: scene.walker.tile, dancers: dancers)
+        var dancers: [String: (tile: TilePoint, since: Date)] = [:]
+        for (id, tile) in scene.memberTiles where id == extra || scene.isDancing(memberID: id) {
+            if let since = danceSince[id] { dancers[id] = (tile, since) }
+        }
+        // 내 시각은 장면이 새 판마다 이걸 묻기 전에 정해 둔다(판이 끝나 이어 출 때는 그 순간 내가 안 추는 중이다). 춤을 멈춘 뒤의
+        // 지난 값은 남의 판 소식에만 쓰이고, 그때는 내가 안 추니 따라 추지도 않는다.
+        return PlazaDance.leader(me: memberID(), since: scene.danceStartedAt, at: scene.walker.tile, dancers: dancers)
     }
+
+    /// 팀원이 춤을 시작한 시각(`showDance`). 춤을 멈춘 팀원의 값은 남아 있어도 춤추는 팀원만 보므로 쓰이지 않는다.
+    private var danceSince: [String: Date] = [:]
 
     /// 메타몽 둘레 여덟 칸에서 누가(nil이면 나) 춤 한 판을 시작했으면 메타몽도 같은 춤을 같은 박자에 춘다. 메타몽 모습이든
     /// 복사본이든 같다. 춤 소식은 판마다 오므로 판마다 다시 추고, 소식이 끊기면 팀원 춤처럼 한 판과 여유 뒤에 멈춘다.

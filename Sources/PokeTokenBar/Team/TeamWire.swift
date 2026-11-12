@@ -136,6 +136,9 @@ struct TeamEmote: Codable, Equatable, Sendable {
 
     /// A dance: the `PlazaDance.Style.id` to dance. A style this version does not know becomes the first one.
     var danceStyle: String?
+    /// A dance: when the sender began dancing (seconds since 1970), the same in every round until they stop. Teammates
+    /// dancing close together follow whoever began first. Left out by earlier versions.
+    var danceSince: Double?
     /// A greeting aimed at the Ditto copy. Left out when false.
     var overDecoy: Bool?
 

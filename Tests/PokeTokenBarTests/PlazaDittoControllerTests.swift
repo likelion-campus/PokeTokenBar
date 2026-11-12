@@ -657,39 +657,129 @@ final class PlazaDittoControllerTests: XCTestCase {
         return t
     }
 
-    func testIDanceTheDanceOfANearbyDancerWithASmallerIDRoundAfterRound() async {
-        let t = await together(aAt: beside())
+    func testIDanceTheDanceOfANearbyDancerWhoBeganBeforeMeRoundAfterRound() async {
+        let t = await together(zAt: beside())
         let sent = emotes(from: t.a)
-        t.c.showDance(memberID: t.a.id, style: "spin")
+        t.c.showDance(memberID: t.z.id, style: "spin", since: t.now)
         XCTAssertFalse(t.scene.isDancing(memberID: nil), "their dance alone does not start mine")
+        t.now += 0.5
+        let began = t.now
         t.d()
         XCTAssertEqual(t.scene.danceStyle(memberID: nil), .spin)
-        t.now += PlazaDance.round
-        t.c.showDance(memberID: t.a.id, style: "twirl")
+        t.now += PlazaDance.round - 0.5
+        t.c.showDance(memberID: t.z.id, style: "twirl", since: began.addingTimeInterval(-0.5))
         XCTAssertEqual(t.scene.danceStyle(memberID: nil), .twirl)
         await settle()
-        XCTAssertEqual(sent.items.filter { $0.kind == .dance }.map(\.danceStyle), ["spin", "twirl"], "others see the dance I do")
+        let dances = sent.items.filter { $0.kind == .dance }
+        XCTAssertEqual(dances.map(\.danceStyle), ["spin", "twirl"], "others see the dance I do")
+        XCTAssertEqual(dances.map(\.danceSince), [began.timeIntervalSince1970, began.timeIntervalSince1970],
+                       "every round carries when I began, so every Mac ranks me the same")
     }
 
-    func testADancerWithALargerIDFollowsMeNotTheOtherWayRound() async {
-        let t = await together(zAt: beside())
-        t.c.showDance(memberID: t.z.id, style: "spin")
+    func testADancerWhoBeganAfterMeFollowsMeNotTheOtherWayRound() async {
+        let t = await together(aAt: beside())
         t.d()
+        t.now += 0.5
+        t.c.showDance(memberID: t.a.id, style: "spin", since: t.now)
         XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
         t.now += PlazaDance.round
-        t.c.showDance(memberID: t.z.id, style: "twirl")
+        t.c.showDance(memberID: t.a.id, style: "twirl", since: t.now.addingTimeInterval(-PlazaDance.round))
         XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
+    }
+
+    /// My round ends and the next one starts by itself: I still began first, so I pick a new dance instead of taking theirs.
+    func testILeadThroughMyNextRoundToo() async {
+        let t = await together(aAt: beside())
+        var picks: [PlazaDance.Style] = [.bounce, .twirl]
+        t.scene.pickDanceStyle = { _ in picks.removeFirst() }
+        var clock: TimeInterval = 0
+        t.scene.update(clock)
+        t.d()
+        t.now += 0.5
+        t.c.showDance(memberID: t.a.id, style: "bounce", since: t.now)
+        while picks.count == 1, clock < 3 {
+            clock += 0.05; t.now += 0.05
+            t.scene.update(clock)
+        }
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .twirl)
+    }
+
+    /// Two Macs that began within the network delay each saw their own dance first. What they sent settles it.
+    func testWhenTheyBeganDecidesNotWhenTheirNewsArrived() async {
+        let t = await together(zAt: beside())
+        t.d()
+        t.now += 0.5
+        t.c.showDance(memberID: t.z.id, style: "spin", since: t.now.addingTimeInterval(-1))
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .spin)
+    }
+
+    func testBeginningAtTheSameInstantTheSmallerIDLeads() async {
+        let t = await together(aAt: beside())
+        t.d()
+        t.now += 0.5
+        t.c.showDance(memberID: t.a.id, style: "spin", since: t.now.addingTimeInterval(-0.5))
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .spin)
+    }
+
+    func testBeginningAtTheSameInstantALargerIDFollowsMe() async {
+        let t = await together(zAt: beside())
+        t.d()
+        t.now += 0.5
+        t.c.showDance(memberID: t.z.id, style: "spin", since: t.now.addingTimeInterval(-0.5))
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
+    }
+
+    /// 2.5.625 and earlier send no start time, so their dance began when it started on my screen, and stays so each round.
+    func testADancerWhoSendsNoStartTimeBeganWhenTheirDanceStartedHere() async {
+        let t = await together(zAt: beside())
+        t.c.showDance(memberID: t.z.id, style: "spin")
+        t.now += 0.5
+        t.d()
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .spin, "they began first")
+        t.now += PlazaDance.round - 0.5
+        t.c.showDance(memberID: t.z.id, style: "twirl")
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .twirl, "a later round does not make them begin later")
+        // They stop, and begin again after me: now I began first.
+        t.c.stopDance(memberID: t.z.id)
+        t.now += 0.5
+        t.c.showDance(memberID: t.z.id, style: "sway")
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .twirl)
+    }
+
+    func testAfterIStopAndDanceAgainIFollowWhoeverKeptDancing() async {
+        let t = await together(aAt: beside())
+        t.d()
+        t.now += 0.5
+        t.c.showDance(memberID: t.a.id, style: "spin", since: t.now)
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce, "test precondition: I lead")
+        t.scene.stopDance(memberID: nil)
+        t.now += 0.5
+        t.d()
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .spin)
+    }
+
+    /// A modified app can send any start time. The far past only makes it the one to follow; the far future makes it follow.
+    func testAnAbsurdStartTimeOnlyDecidesWhoLeads() async {
+        let t = await together(zAt: beside())
+        t.d()
+        t.now += 0.5
+        t.c.showDance(memberID: t.z.id, style: "spin", since: Date(timeIntervalSince1970: 1.7e308))
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
+        t.now += 0.5
+        t.c.showDance(memberID: t.z.id, style: "twirl", since: Date(timeIntervalSince1970: -1.7e308))
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .twirl)
     }
 
     func testADancerThreeTilesAwayIsNotFollowed() async {
         let far = TilePoint(x: meStart.me.x + PlazaDance.togetherRange + 1, y: meStart.me.y)
         let t = await together(aAt: far)
-        t.c.showDance(memberID: t.a.id, style: "spin")
+        t.c.showDance(memberID: t.a.id, style: "spin", since: t.now)
         XCTAssertTrue(t.scene.isDancing(memberID: t.a.id), "test precondition")
+        t.now += 0.5
         t.d()
         XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
         t.now += PlazaDance.round
-        t.c.showDance(memberID: t.a.id, style: "twirl")
+        t.c.showDance(memberID: t.a.id, style: "twirl", since: t.now.addingTimeInterval(-PlazaDance.round - 0.5))
         XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
     }
 
@@ -701,7 +791,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         t.a.session.updatePlazaPosition(inPlaza: true, tile: beside(), facing: .left, isWalking: true)
         await settle()
         t.now += PlazaDance.round
-        t.c.showDance(memberID: t.a.id, style: "spin")
+        t.c.showDance(memberID: t.a.id, style: "spin", since: t.now.addingTimeInterval(-PlazaDance.round - 1))
         XCTAssertFalse(t.scene.isDancing(memberID: t.a.id), "test precondition")
         XCTAssertEqual(t.scene.danceStyle(memberID: nil), .spin)
     }
