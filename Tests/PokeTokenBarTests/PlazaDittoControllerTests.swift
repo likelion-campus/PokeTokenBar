@@ -632,6 +632,80 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(scene.danceStyle(memberID: key), scene.danceStyle(memberID: nil))
     }
 
+    // MARK: - Dancing the same dance as a teammate (here for this file's nodes sorted by ID)
+
+    /// [a, me, z] by ID. `near` stands on `tile`; the other one is far away.
+    @MainActor private final class Together {
+        var now = Date()
+        var c: PlazaWindowController!, a: Node!, me: Node!, z: Node!
+        var scene: PlazaScene { c.scene! }
+        func d() { _ = scene.handleKeyDown(keyCode: 2, characters: "d", isRepeat: false) }
+    }
+
+    private func together(aAt: TilePoint? = nil, zAt: TilePoint? = nil) async -> Together {
+        let t = Together()
+        let nodes = sorted(3)
+        (t.a, t.me, t.z) = (nodes[0], nodes[1], nodes[2])
+        await connect(t.a, t.me); await connect(t.z, t.me)
+        t.c = controller(t.me, start: meStart.me, clock: { t.now })
+        t.c.prepareScene()
+        t.scene.now = { t.now }
+        t.scene.pickDanceStyle = { _ in .bounce }
+        place(t.a, at: aAt ?? ground(-5, 0))
+        place(t.z, at: zAt ?? ground(8, 8))
+        await settle()
+        return t
+    }
+
+    func testIDanceTheDanceOfANearbyDancerWithASmallerIDRoundAfterRound() async {
+        let t = await together(aAt: beside())
+        let sent = emotes(from: t.a)
+        t.c.showDance(memberID: t.a.id, style: "spin")
+        XCTAssertFalse(t.scene.isDancing(memberID: nil), "their dance alone does not start mine")
+        t.d()
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .spin)
+        t.now += PlazaDance.round
+        t.c.showDance(memberID: t.a.id, style: "twirl")
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .twirl)
+        await settle()
+        XCTAssertEqual(sent.items.filter { $0.kind == .dance }.map(\.danceStyle), ["spin", "twirl"], "others see the dance I do")
+    }
+
+    func testADancerWithALargerIDFollowsMeNotTheOtherWayRound() async {
+        let t = await together(zAt: beside())
+        t.c.showDance(memberID: t.z.id, style: "spin")
+        t.d()
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
+        t.now += PlazaDance.round
+        t.c.showDance(memberID: t.z.id, style: "twirl")
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
+    }
+
+    func testADancerThreeTilesAwayIsNotFollowed() async {
+        let far = TilePoint(x: meStart.me.x + PlazaDance.togetherRange + 1, y: meStart.me.y)
+        let t = await together(aAt: far)
+        t.c.showDance(memberID: t.a.id, style: "spin")
+        XCTAssertTrue(t.scene.isDancing(memberID: t.a.id), "test precondition")
+        t.d()
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
+        t.now += PlazaDance.round
+        t.c.showDance(memberID: t.a.id, style: "twirl")
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce)
+    }
+
+    /// Their round can arrive while they still finish a step on my screen, so their own dance has not started yet.
+    func testALeaderStillFinishingAStepIsFollowedAtOnce() async {
+        let t = await together(aAt: TilePoint(x: beside().x + 1, y: beside().y))
+        t.d()
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .bounce, "test precondition: nobody to follow yet")
+        t.a.session.updatePlazaPosition(inPlaza: true, tile: beside(), facing: .left, isWalking: true)
+        await settle()
+        t.now += PlazaDance.round
+        t.c.showDance(memberID: t.a.id, style: "spin")
+        XCTAssertFalse(t.scene.isDancing(memberID: t.a.id), "test precondition")
+        XCTAssertEqual(t.scene.danceStyle(memberID: nil), .spin)
+    }
+
     /// The host holds the dancing Ditto still while a dancer keeps going, and lets it wander once the dancing stops.
     /// `hidden`: the host's plaza window is covered, so its scene draws nothing, but other Macs still show the dance.
     /// `local`: I am the dancer (D every round) instead of m.

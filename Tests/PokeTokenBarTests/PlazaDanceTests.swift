@@ -1155,4 +1155,115 @@ final class PlazaDanceTests: XCTestCase {
     func testTheShortcutGuideListsD() {
         XCTAssertTrue(PlazaShortcutGuide.entries.contains { $0.key == "D" && $0.label == "춤" })
     }
+
+    // MARK: 같은 춤 맞추기
+
+    func testTheLeaderIsTheSmallestNearbyDancerWithASmallerIDThanMine() {
+        let me = TilePoint(x: 10, y: 10)
+        func leader(_ dancers: [String: TilePoint], me id: String = "m") -> String? { PlazaDance.leader(me: id, at: me, dancers: dancers) }
+        XCTAssertNil(leader([:]))
+        XCTAssertEqual(leader(["b": TilePoint(x: 11, y: 10)]), "b")
+        XCTAssertEqual(leader(["b": TilePoint(x: 11, y: 10), "a": TilePoint(x: 9, y: 9)]), "a")
+        XCTAssertNil(leader(["z": TilePoint(x: 11, y: 10)]), "they follow me instead")
+        XCTAssertEqual(leader(["z": TilePoint(x: 11, y: 10), "b": TilePoint(x: 10, y: 11)]), "b")
+        // Two tiles away counts, diagonals too; three does not.
+        XCTAssertEqual(leader(["b": TilePoint(x: 12, y: 12)]), "b")
+        XCTAssertEqual(leader(["b": TilePoint(x: 10, y: 8)]), "b")
+        XCTAssertNil(leader(["b": TilePoint(x: 13, y: 10)]))
+        XCTAssertNil(leader(["b": TilePoint(x: 10, y: 7)]))
+        XCTAssertEqual(leader(["a": TilePoint(x: 13, y: 10), "b": TilePoint(x: 11, y: 10)]), "b", "a far dancer does not lead")
+        XCTAssertNil(leader(["m": me, "z": me]), "I am not my own leader")
+    }
+
+    /// A scene whose leader, when `lead` is set, is the remote "a" dancing two tiles away.
+    private func following() -> (s: PlazaScene, r: Recorder, lead: Recorder) {
+        let s = scene()
+        add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
+        wall = grid
+        let lead = Recorder()
+        s.danceLeaderStyle = { [unowned s] in lead.ids.isEmpty ? nil : s.danceStyle(memberID: "a") }
+        s.pickDanceStyle = { _ in .bounce }
+        return (s, recordRounds(s), lead)
+    }
+
+    func testDStartsWithTheLeadersDance() {
+        let t = following()
+        t.lead.ids = ["on"]
+        t.s.playDance(memberID: "a", style: "spin")
+        press(t.s)
+        XCTAssertEqual(t.s.danceStyle(memberID: nil), .spin)
+        XCTAssertEqual(t.r.ids, ["spin"], "teammates are told the dance I really do")
+    }
+
+    func testWithNoLeaderDIsARandomDance() {
+        let t = following()
+        t.s.playDance(memberID: "a", style: "spin")
+        press(t.s)
+        XCTAssertEqual(t.s.danceStyle(memberID: nil), .bounce)
+    }
+
+    func testTheLeadersNextRoundRestartsMineWithTheSameDanceAndTheSameMoves() {
+        let t = following()
+        t.lead.ids = ["on"]
+        t.s.playDance(memberID: "a", style: "spin")
+        run(t.s, 0.6)
+        press(t.s)   // I join part-way through their round
+        run(t.s, PlazaDance.round - 0.6 + 0.05)   // their next round's news comes a little after the grid
+        XCTAssertEqual(t.r.ids, ["spin"])
+        t.s.playDance(memberID: "a", style: "bigHop")
+        t.s.followDance(.bigHop)
+        XCTAssertEqual(t.r.ids, ["spin", "bigHop"])
+        for _ in 0..<33 {
+            run(t.s, dt)
+            XCTAssertEqual(t.s.danceStyle(memberID: nil), .bigHop)
+            XCTAssertEqual(t.s.dancePose(memberID: nil), t.s.dancePose(memberID: "a"), "the same move on the same frame")
+        }
+        XCTAssertEqual(t.r.ids, ["spin", "bigHop"], "a whole round on, mine still waits for their news rather than starting over")
+    }
+
+    func testFollowingDoesNothingWhenIAmNotDancing() {
+        let t = following()
+        t.lead.ids = ["on"]
+        t.s.playDance(memberID: "a", style: "spin")
+        t.s.followDance(.spin)
+        XCTAssertFalse(t.s.isDancing(memberID: nil))
+        XCTAssertEqual(t.r.ids, [])
+    }
+
+    func testAFloodOfLeaderRoundsRestartsMineOncePerBeat() {
+        let t = following()
+        t.lead.ids = ["on"]
+        t.s.playDance(memberID: "a", style: "spin")
+        press(t.s)
+        run(t.s, 0.2)
+        for style in [PlazaDance.Style.twirl, .sway, .wiggle] { t.s.followDance(style) }
+        XCTAssertEqual(t.r.ids, ["spin"], "inside the beat: nothing restarts and nothing is sent")
+        run(t.s, 0.2)
+        for style in [PlazaDance.Style.twirl, .sway, .wiggle] { t.s.followDance(style) }
+        XCTAssertEqual(t.r.ids, ["spin", "twirl"])
+    }
+
+    func testDWhileAlreadyFollowingChangesNothing() {
+        let t = following()
+        t.lead.ids = ["on"]
+        t.s.playDance(memberID: "a", style: "spin")
+        press(t.s)
+        run(t.s, 0.8)
+        let pose = t.s.dancePose(memberID: nil)
+        press(t.s)
+        XCTAssertEqual(t.r.ids, ["spin"])
+        XCTAssertEqual(t.s.dancePose(memberID: nil), pose, "the round is not started over")
+    }
+
+    func testWhenTheLeaderStopsIGoOnWithMyOwnDances() {
+        let t = following()
+        t.lead.ids = ["on"]
+        t.s.playDance(memberID: "a", style: "spin")
+        press(t.s)
+        run(t.s, PlazaDance.round + PlazaDance.remoteGrace + 0.2)   // no more news from "a"
+        XCTAssertFalse(t.s.isDancing(memberID: "a"), "test precondition")
+        XCTAssertTrue(t.s.isDancing(memberID: nil))
+        XCTAssertEqual(t.s.danceStyle(memberID: nil), .bounce)
+        XCTAssertEqual(t.r.ids, ["spin", "bounce"])
+    }
 }
