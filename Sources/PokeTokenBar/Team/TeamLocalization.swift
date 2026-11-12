@@ -86,6 +86,7 @@ extension L {
     var plazaWindowTitle: String { "팀 광장" }
     var plazaDittoName: String { "메타몽" }
     func plazaDecoyFound(nickname: String) -> String { "\(nickname)님이 메타몽을 찾았어요!" }
+    func plazaMimicFound(finder: String, owner: String) -> String { "\(finder)님이 \(owner)의 메타몽을 찾았어요!" }
     /// 창 제목. 저장한 팀 이름이 있으면 함께 보인다.
     func plazaWindowTitle(teamName: String?) -> String { teamName.map { "\(plazaWindowTitle) · \($0)" } ?? plazaWindowTitle }
     var plazaBoardHint: String { "스페이스바를 눌러 소식판 보기" }

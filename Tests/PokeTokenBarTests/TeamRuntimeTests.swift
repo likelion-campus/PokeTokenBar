@@ -691,7 +691,74 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(a.settings.nickname, "다람")
     }
 
+
+    // MARK: - Ditto mimic
+
+    /// b's plaza (a Ditto), with a standing on the tile to b's left. `a` and `b` are connected.
+    private func mimicPlaza() async -> (a: RuntimeNode, b: RuntimeNode, plaza: PlazaWindowController, scene: PlazaScene) {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.mimic.\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 132, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let scene = try! XCTUnwrap(plaza.scene)
+        let start = scene.walker.tile
+        let left = TilePoint(x: start.x - 1, y: start.y)
+        XCTAssertTrue(PlazaMapData.map.isWalkable(left), "test precondition")
+        let sender = a.settings.memberID
+        await settle { scene.memberTiles[sender] != nil }
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        var t: TimeInterval = 0
+        for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.memberTiles[sender], left)
+        return (a, b, plaza, scene)
+    }
+
+    /// A frame an older version sends reveals a disguised me, and pushes nobody.
+    func testAnOlderVersionsTackleRevealsMeAndDoesNotPush() async {
+        let (a, b, plaza, scene) = await mimicPlaza()
+        let start = scene.walker.tile
+        let aID = a.settings.memberID
+        let found = RuntimeFoundLog()
+        a.runtime.session.onEmote = { found.items.append($1) }
+        plaza.chooseMenu(.tackle, memberID: aID)
+        XCTAssertEqual(plaza.mimicking, aID, "test precondition")
+        let before = scene.impactCount   // my own tackle on a already drew one
+        a.runtime.session.sendEmote(.tackle, target: b.settings.memberID, pushTiles: 3)
+        await settle { scene.impactCount == before + 1 }
+        var t: TimeInterval = 100
+        for _ in 0..<40 { t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.walker.tile, start)
+        XCTAssertNil(plaza.mimicking)
+        await settle { found.items.contains { $0.kind == .mimicFound } }
+        XCTAssertEqual(found.items.first { $0.kind == .mimicFound }?.targetMemberID, aID)
+    }
+
+    /// The two new kinds reach the plaza: a Ditto's tackle only bursts, and a find shows the banner.
+    func testMimicKindsReachThePlaza() async {
+        let (a, b, plaza, scene) = await mimicPlaza()
+        let start = scene.walker.tile
+        let session = a.runtime.session
+        session.sendEmote(.mimicTackle, target: b.settings.memberID)
+        await settle { scene.impactCount == 1 }
+        var t: TimeInterval = 100
+        for _ in 0..<40 { t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.walker.tile, start)
+
+        session.updateCharacter(TeamMonSummary(speciesID: 132, isShiny: false, form: nil, speciesName: "Ditto", gender: nil))
+        session.updateMimic(b.settings.memberID)
+        await settle { plaza.shownMimics[a.settings.memberID] == b.settings.memberID }
+        session.sendEmote(.mimicFound, target: b.settings.memberID)
+        await settle { plaza.banner != nil }
+        XCTAssertEqual(plaza.banner, "나님이 가의 메타몽을 찾았어요!")
+    }
 }
+
+@MainActor private final class RuntimeFoundLog { var items: [TeamEmote] = [] }
 
 private struct DecoyNoSprites: PlazaSpriteFetching {
     func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }

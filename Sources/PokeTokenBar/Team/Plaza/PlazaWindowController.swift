@@ -1023,7 +1023,40 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
         if isDitto { return dittoFormTackled(by: sender) }
         // 집중 중이거나 모닥불 메뉴를 연 내 Mac은 밀지 않는다(옛 버전이 보낸 몸통박치기도 같다). 충격 그림만 보인다.
-        if isMe && canBePushed && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction, tiles: tiles) }
+        guard isMe, PlazaPathfinder.isAdjacent(from, to) || from == to else { return }
+        // A disguised me is found instead of pushed.
+        if myMimic != nil { return revealMe(by: sender) }
+        if canBePushed { scene.pushMe(direction, tiles: tiles) }
+    }
+
+    /// 런타임이 부른다. 메타몽 팀원의 몸통박치기. 아무도 밀리지 않고 충격 그림만 보이며, 맞은 게 변장한 나이고 옆에 있으면 들킨다.
+    /// 그린 자리에 없는 표적(모르는 ID, 메타몽 모습)은 아무것도 안 한다.
+    func showMimicTackle(from sender: String, on target: String?) {
+        guard let scene, let target, let from = scene.memberTiles[sender] else { return }
+        let isMe = target == memberID()
+        guard let to = isMe ? scene.walker.tile : scene.memberTiles[target] else { return }
+        let direction = PlazaPathfinder.isAdjacent(from, to) ? PlazaPathfinder.direction(from: from, to: to)
+            : members[sender]?.facing ?? .down
+        scene.playTackle(by: sender, on: isMe ? nil : target, direction: direction)
+        if isMe, myMimic != nil, PlazaPathfinder.isAdjacent(from, to) || from == to { revealMe(by: sender) }
+    }
+
+    /// 런타임이 부른다. 변장한 팀원이 들켰다. 변장 중이라고 그리고 있는 팀원의 소식만 믿는다.
+    func showMimicFound(from sender: String, finder: String?) {
+        guard scene != nil, let finder, shownMimics[sender] != nil else { return }
+        scene?.showEmote(memberID: sender, kind: .exclaim)
+        let finderName = finder == memberID() ? nickname() : members[finder]?.nickname
+        if let finderName, let owner = members[sender]?.nickname {
+            showBanner(L(.ko).plazaMimicFound(finder: finderName, owner: owner))
+        }
+    }
+
+    /// 변장한 내가 들켰다. 찾은 팀원에게 먼저 알린 뒤에 변장을 푼다(받는 쪽이 아직 변장한 모습으로 들킨 것을 보게).
+    private func revealMe(by finder: String) {
+        session?.sendEmote(.mimicFound, target: finder)
+        endMimic()
+        scene?.showEmote(memberID: nil, kind: .exclaim)
+        if let name = members[finder]?.nickname { showBanner(L(.ko).plazaMimicFound(finder: name, owner: nickname())) }
     }
 
     /// V. 눈 오는 날에 바라보는 쪽으로 눈덩이를 던지고 팀원들에게 보낸다. 돌아서지 않는다. 집중 중, 알, 헤엄치는 중, 바로 앞이 막혔을 때는
@@ -1085,7 +1118,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
             guard let self, hit else { return }
             // 닿을 때 겨눈 칸에 더는 없으면 빗나간 것이다(걸어서 피했다).
             if isMe {
-                if self.canBePushed, self.scene?.walker.tile == shot.endTile { self.scene?.pushMe(direction, tiles: pushed) }
+                guard self.scene?.walker.tile == shot.endTile else { return }
+                if self.myMimic != nil { self.revealMe(by: sender) }
+                else if self.canBePushed { self.scene?.pushMe(direction, tiles: pushed) }
             } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.dittoTile == shot.endTile {
                 self.dittoFormTackled(by: sender)
             }

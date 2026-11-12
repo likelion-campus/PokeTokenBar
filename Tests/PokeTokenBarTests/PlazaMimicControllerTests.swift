@@ -495,4 +495,162 @@ final class PlazaMimicControllerTests: XCTestCase {
         x.session.applySettings()
         await waitUntil { w.scene.myShownNameColor == PlazaNameColor.color(forMemberID: x.id, chosen: 0x7FD4FF) }
     }
+
+    // MARK: - Being found
+
+    private var clockT: TimeInterval = 0
+
+    private func run(_ w: World, _ seconds: TimeInterval) {
+        let end = clockT + seconds
+        w.scene.update(clockT)
+        while clockT < end - 1e-9 { clockT += 0.05; w.scene.update(clockT) }
+    }
+
+    /// I am a Ditto copying x ("지아"), Doyun ("도윤", Pikachu) stands at `doyunAt`.
+    private func disguisedWorld(doyunAt: TilePoint? = nil) async -> (w: World, x: Node, doyun: Node, log: EmoteLog) {
+        let (w, x) = await dittoWorld()
+        let doyun = await join(w, "도윤", Self.pikachu, at: doyunAt ?? row(11))
+        let log = emotes(from: doyun)
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        await waitUntil { x.session.members[w.me.id]?.mimicOf == x.id }
+        XCTAssertEqual(w.c.mimicking, x.id, "test precondition")
+        return (w, x, doyun, log)
+    }
+
+    private func founds(_ log: EmoteLog) -> [TeamEmote] { log.items.filter { $0.kind == .mimicFound } }
+
+    func testATackleRevealsMeInsteadOfPushing() async {
+        let (w, _, doyun, log) = await disguisedWorld()
+        let start = w.scene.walker.tile
+        w.c.showTackle(from: doyun.id, on: w.me.id, tiles: 2)
+        run(w, 1)
+        XCTAssertEqual(w.scene.walker.tile, start)
+        XCTAssertNil(w.c.mimicking)
+        await waitUntil { !self.founds(log).isEmpty }
+        XCTAssertEqual(founds(log).first?.targetMemberID, doyun.id)
+        await waitUntil { doyun.session.members[w.me.id]?.mimicOf == nil }
+        XCTAssertEqual(w.scene.shownEmote(memberID: nil), .exclaim)
+        XCTAssertEqual(w.c.banner, "도윤님이 나의 메타몽을 찾았어요!")
+    }
+
+    func testTheFindIsSentBeforeTheDisguiseIsDropped() async {
+        let (w, x, doyun, _) = await disguisedWorld()
+        var seen: [String?] = []
+        let me = w.me.id
+        doyun.session.onEmote = { [doyun] _, e in
+            if e.kind == .mimicFound { seen.append(doyun.session.members[me]?.mimicOf) }
+        }
+        w.c.showTackle(from: doyun.id, on: me)
+        await waitUntil { !seen.isEmpty }
+        XCTAssertEqual(seen, [x.id])
+    }
+
+    func testADittosTackleRevealsADisguisedMe() async {
+        let (w, _, _, _) = await disguisedWorld()
+        let a = await join(w, "에이", Self.ditto, at: row(9))
+        let log = emotes(from: a)
+        w.c.showMimicTackle(from: a.id, on: w.me.id)
+        run(w, 1)
+        XCTAssertNil(w.c.mimicking)
+        await waitUntil { !self.founds(log).isEmpty }
+        XCTAssertEqual(founds(log).first?.targetMemberID, a.id)
+    }
+
+    func testADittosTackleOnAnUndisguisedMePushesNobody() async {
+        let (w, _) = await dittoWorld()
+        let a = await join(w, "에이", Self.ditto, at: row(11))
+        let start = w.scene.walker.tile
+        w.c.showMimicTackle(from: a.id, on: w.me.id)
+        run(w, 1)
+        XCTAssertEqual(w.scene.walker.tile, start)
+        XCTAssertEqual(w.scene.impactCount, 1)
+    }
+
+    func testATackleFromAfarOnlyShowsTheStar() async {
+        let (w, _, doyun, log) = await disguisedWorld(doyunAt: row(7))
+        let start = w.scene.walker.tile
+        let before = w.scene.impactCount
+        w.c.showTackle(from: doyun.id, on: w.me.id)
+        run(w, 1)
+        XCTAssertNotNil(w.c.mimicking)
+        XCTAssertEqual(w.scene.walker.tile, start)
+        XCTAssertEqual(w.scene.impactCount, before + 1)
+        await settle()
+        XCTAssertTrue(founds(log).isEmpty)
+    }
+
+    func testASnowballRevealsMeWhenItLands() async {
+        now = PlazaSnowballControllerTests.day(6)
+        let (w, _, doyun, log) = await disguisedWorld(doyunAt: row(6))   // 4 tiles: a 3-tile ball lands in under 0.3 s
+        let start = w.scene.walker.tile
+        w.c.showSnowball(from: doyun.id, on: w.me.id, tiles: 2, direction: .right)
+        run(w, 0.3)
+        XCTAssertNotNil(w.c.mimicking, "still in the air")
+        run(w, 0.9)
+        XCTAssertNil(w.c.mimicking)
+        XCTAssertEqual(w.scene.walker.tile, start)
+        await waitUntil { !self.founds(log).isEmpty }
+        XCTAssertEqual(founds(log).first?.targetMemberID, doyun.id)
+    }
+
+    func testMySnowballAsADittoIsAnOrdinarySnowball() async {
+        now = PlazaSnowballControllerTests.day(6)
+        mySpecies = 132
+        let w = await world()
+        let x = await join(w, "지아", Self.jia, at: row(13), nameColor: jiaColor)
+        let log = emotes(from: x)
+        w.scene.face(.right)
+        run(w, 0.1)
+        w.scene.handleKeyDown(keyCode: 9, characters: "ㅁ", isRepeat: false)
+        await waitUntil { log.items.contains { $0.kind == .snowball } }
+        XCTAssertEqual(log.items.first { $0.kind == .snowball }?.targetMemberID, x.id)
+        XCTAssertNil(w.c.mimicking)
+    }
+
+    func testTheGuestCopysPrankDoesNotRevealMe() async {
+        let (w, x, _, _) = await disguisedWorld(doyunAt: row(7))
+        let state = PlazaDittoState(tile: row(11), facing: .down, isWalking: nil, isRunning: nil, decoyOf: nil, since: now, restUntil: nil)
+            .copying(x.id, now: now)
+        w.quiet.session.updateDitto(ready: true, state: state)
+        await settle()
+        w.c.advanceDitto(now: now)
+        run(w, 1)
+        XCTAssertEqual(w.scene.decoyTile, row(11), "test precondition")
+        w.c.showDecoyTackle(from: w.quiet.id, on: w.me.id)
+        run(w, 1)
+        XCTAssertEqual(w.c.mimicking, x.id)
+    }
+
+    // MARK: - Seeing a find
+
+    private func disguisedOther(_ w: World, _ x: Node) async -> Node {
+        let m = await join(w, "민수", Self.ditto, at: row(20))
+        m.session.updateMimic(x.id)
+        await waitUntil { w.c.shownMimics[m.id] == x.id }
+        return m
+    }
+
+    func testOthersSeeTheRevealBanner() async {
+        let (w, x) = await dittoWorld()
+        let doyun = await join(w, "도윤", Self.pikachu, at: row(7))
+        let m = await disguisedOther(w, x)
+        w.c.showMimicFound(from: m.id, finder: doyun.id)
+        XCTAssertEqual(w.scene.shownEmote(memberID: m.id), .exclaim)
+        XCTAssertEqual(w.c.banner, "도윤님이 민수의 메타몽을 찾았어요!")
+        w.c.showMimicFound(from: m.id, finder: w.me.id)
+        XCTAssertEqual(w.c.banner, "나님이 민수의 메타몽을 찾았어요!")
+    }
+
+    func testAFoundFromSomeoneNotDisguisedIsIgnored() async {
+        let (w, x) = await dittoWorld()
+        let doyun = await join(w, "도윤", Self.pikachu, at: row(7))
+        let plain = await join(w, "민수", Self.ditto, at: row(20))
+        w.c.showMimicFound(from: plain.id, finder: doyun.id)
+        XCTAssertNil(w.c.banner)
+        XCTAssertNil(w.scene.shownEmote(memberID: plain.id))
+        let m = await disguisedOther(w, x)
+        w.c.showMimicFound(from: m.id, finder: nil)
+        XCTAssertNil(w.c.banner)
+        XCTAssertNil(w.scene.shownEmote(memberID: m.id))
+    }
 }
