@@ -42,6 +42,19 @@ private final class RuntimeNode {
     deinit { UserDefaults().removePersistentDomain(forName: suite) }
 }
 
+/// Runs the main actor's queued hops until `condition` holds, or ten seconds pass; then asserts it holds. Tests wait on the
+/// condition they need, never on a yield count.
+@MainActor
+private func settleUntil(_ condition: () -> Bool, file: StaticString, line: UInt) async {
+        let deadline = ContinuousClock.now + .seconds(10)
+        var spins = 0
+        while !condition(), ContinuousClock.now < deadline {
+            spins += 1
+            if spins < 200 { await Task.yield() } else { try? await Task.sleep(for: .milliseconds(2)) }
+        }
+        XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
+}
+
 @MainActor
 final class TeamRuntimeTests: XCTestCase {
     /// The fake transports hold their hub unowned, so it must outlive the test body.
@@ -54,13 +67,7 @@ final class TeamRuntimeTests: XCTestCase {
 
     /// Lets the main actor run queued observation hops until `condition` holds, or ten seconds pass.
     private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
-        let deadline = ContinuousClock.now + .seconds(10)
-        var spins = 0
-        while !condition(), ContinuousClock.now < deadline {
-            spins += 1
-            if spins < 200 { await Task.yield() } else { try? await Task.sleep(for: .milliseconds(2)) }
-        }
-        XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
+        await settleUntil(condition, file: file, line: line)
     }
 
     private func connectedPair() -> (a: RuntimeNode, b: RuntimeNode) {
@@ -721,11 +728,12 @@ final class TeamRuntimeTests: XCTestCase {
         await settle { scene.memberTiles[sender] != nil }
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
         var t: TimeInterval = 0
-        for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
-        XCTAssertEqual(scene.memberTiles[sender], left)
-        // The scene can show the tile before the controller's own copy of the member reads "in the plaza"; a tackle in
-        // that gap finds nobody to copy. Let the member-list hop land first.
-        for _ in 0..<50 { await Task.yield() }
+        // An away member is drawn on a shelter tile that can be `left` by chance, so the tile alone is not enough: a Ditto
+        // tackle needs the controller's own copy to read "in the plaza", which the scene shows as no longer away.
+        await settle {
+            t += 0.05; scene.update(t)
+            return scene.memberTiles[sender] == left && scene.memberIsAway(sender) == false
+        }
         return (a, b, plaza, scene)
     }
 
@@ -791,13 +799,7 @@ final class TeamRuntimeNotificationTests: XCTestCase {
     private var now = runtimeNow
 
     private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
-        let deadline = ContinuousClock.now + .seconds(10)
-        var spins = 0
-        while !condition(), ContinuousClock.now < deadline {
-            spins += 1
-            if spins < 200 { await Task.yield() } else { try? await Task.sleep(for: .milliseconds(2)) }
-        }
-        XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
+        await settleUntil(condition, file: file, line: line)
     }
 
     private func pair() -> (a: RuntimeNode, b: RuntimeNode, poster: RuntimePoster) {

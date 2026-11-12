@@ -1910,6 +1910,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func memberFoot(_ id: String) -> CGPoint? { remotes[id]?.motion.footPoint }
     func memberName(_ id: String) -> String? { remotes[id]?.displayName }
     func memberNameColor(_ id: String) -> CGColor? { remotes[id]?.color }
+    func memberIsAway(_ id: String) -> Bool? { remotes[id]?.isAway }
     func shownChat(memberID: String?) -> String? { actor(memberID)?.chatText }
     func shownEmote(memberID: String?) -> TeamEmoteKind? { actor(memberID)?.emoteKind }
     func emoteFrame(memberID: String?) -> CGRect? { actor(memberID)?.emoteFrame }
