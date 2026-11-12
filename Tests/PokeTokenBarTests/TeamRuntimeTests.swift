@@ -52,9 +52,14 @@ final class TeamRuntimeTests: XCTestCase {
         return TeamCode.generate(using: &rng)
     }
 
-    /// Lets the main actor run queued observation hops until `condition` holds.
+    /// Lets the main actor run queued observation hops until `condition` holds, or ten seconds pass.
     private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
-        for _ in 0..<200 where !condition() { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(10)
+        var spins = 0
+        while !condition(), ContinuousClock.now < deadline {
+            spins += 1
+            if spins < 200 { await Task.yield() } else { try? await Task.sleep(for: .milliseconds(2)) }
+        }
         XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
     }
 
@@ -122,8 +127,11 @@ final class TeamRuntimeTests: XCTestCase {
         let tile = scene.walker.tile
         var now = Date()
         scene.now = { now }
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: tile.x + 1, y: tile.y), facing: .down, isWalking: false)
-        await settle { scene.memberTiles[a.settings.memberID] != nil }
+        let spot = TilePoint(x: tile.x + 1, y: tile.y)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: false)
+        // Wait for the spot itself: before this news lands the scene already draws `a` on a random shelter tile, so "has a tile"
+        // is true at once, and a dance sent from there is out of `togetherRange` and is not followed.
+        await settle { scene.memberTiles[a.settings.memberID] == spot }
         _ = scene.handleKeyDown(keyCode: 2, characters: "d", isRepeat: false)
         XCTAssertEqual(scene.danceStyle(memberID: nil), .bounce, "test precondition: I dance alone")
         now += 1   // a new round is refused within a beat of my last one
@@ -783,7 +791,12 @@ final class TeamRuntimeNotificationTests: XCTestCase {
     private var now = runtimeNow
 
     private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
-        for _ in 0..<200 where !condition() { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(10)
+        var spins = 0
+        while !condition(), ContinuousClock.now < deadline {
+            spins += 1
+            if spins < 200 { await Task.yield() } else { try? await Task.sleep(for: .milliseconds(2)) }
+        }
         XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
     }
 
