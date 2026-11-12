@@ -175,9 +175,35 @@ final class TeamWireTests: XCTestCase {
 
     /// Doing anything else stops the sender's dance, except the Ditto host's copy jump and the shared moments. A new kind must choose here.
     func testWhichEmotesEndTheSendersDance() {
-        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound]
+        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball]
         for kind in TeamEmoteKind.allCases { XCTAssertEqual(kind.endsSendersDance, ends.contains(kind), "\(kind)") }
         XCTAssertEqual(Set(TeamEmoteKind.allCases.filter { !$0.endsSendersDance }), [.groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull])
+    }
+
+    /// A snowball names the way it flew. Every other kind leaves the field out, and an earlier version's frame reads as none.
+    func testSnowballDirectionIsOptionalOnTheWire() throws {
+        let ball = TeamMessage.emote(TeamEmote(kind: .snowball, targetMemberID: "m", pushTiles: 2, snowballDirection: .left))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(ball)), [ball])
+        let tackle = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .tackle, targetMemberID: "m"))).dropFirst(4),
+                            as: UTF8.self)
+        XCTAssertFalse(tackle.contains("snowballDirection"), "An encoded tackle has no `snowballDirection` key")
+        let old = frame(#"{"emote":{"_0":{"kind":"tackle","targetMemberID":"m"}}}"#)
+        XCTAssertEqual(try decoder.append(old), [.emote(TeamEmote(kind: .tackle, targetMemberID: "m"))])
+    }
+
+    /// A direction this version does not know skips the frame, and the frames after it still decode.
+    func testASnowballWithAnUnknownDirectionIsSkipped() throws {
+        let bad = try rewritten(.emote(TeamEmote(kind: .snowball, targetMemberID: nil, snowballDirection: .up))) { json in
+            var inner = json["emote"] as! [String: Any]
+            var body = inner["_0"] as! [String: Any]
+            body["snowballDirection"] = "north"
+            inner["_0"] = body
+            json["emote"] = inner
+        }
+        var decoder = TeamWire.FrameDecoder()
+        let known = try TeamWire.encode(.profileRequest)
+        XCTAssertEqual(try decoder.append(bad + known), [.profileRequest])
     }
 
     /// A dance names its style. Other emotes leave the field out, and an earlier version's frame reads as none.
@@ -504,7 +530,7 @@ final class TeamWireTests: XCTestCase {
         }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
-        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull"])
+        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball"])
         XCTAssertEqual([Rarity.common, .uncommon, .rare, .legendary].map(\.rawValue), ["common", "uncommon", "rare", "legendary"])
         XCTAssertEqual(PokemonGender.allCases.map(\.rawValue), ["male", "female", "genderless"])
         XCTAssertEqual(PlazaDirection.allCases.map(\.rawValue), ["up", "down", "left", "right"])

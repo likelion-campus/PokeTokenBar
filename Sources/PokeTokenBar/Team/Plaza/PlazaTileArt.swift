@@ -9,17 +9,17 @@ enum PlazaTileArt {
     private static let scale = 2
 
     /// 시트 칸 좌표 (열, 행).
-    private typealias Cell = (col: Int, row: Int)
-    private static let grassCells: [Cell] = [(0, 9), (1, 9), (0, 10), (1, 10), (5, 9), (8, 9), (5, 10), (8, 10)]
-    private static let flowerCells: [Cell] = [(0, 8), (1, 8), (2, 12), (3, 11), (3, 12)]
-    private static let bushCell: Cell = (2, 14)
+    typealias Cell = (col: Int, row: Int)
+    static let grassCells: [Cell] = [(0, 9), (1, 9), (0, 10), (1, 10), (5, 9), (8, 9), (5, 10), (8, 10)]
+    static let flowerCells: [Cell] = [(0, 8), (1, 8), (2, 12), (3, 11), (3, 12)]
+    static let bushCell: Cell = (2, 14)
     private static let waterCell: Cell = (3, 7)
     private static let lilySingle: Cell = (2, 0)
     private static let lilyPair: [Cell] = [(4, 0), (5, 0)]
     private static let lilySingleTiles = [TilePoint(x: 33, y: 18), TilePoint(x: 14, y: 13), TilePoint(x: 21, y: 25)]
     private static let lilyPairTiles = [TilePoint(x: 35, y: 16), TilePoint(x: 16, y: 11)]
     /// 2x2 칸 둥근 나무.
-    private static let treeCell: Cell = (5, 16)
+    static let treeCell: Cell = (5, 16)
     /// 소식판 팻말의 재료. 기둥 하나가 달린 작은 팻말 한 칸이다. 이 칸의 픽셀로 2x2 칸 큰 팻말을 만든다(`signSource`).
     static let signCell: (col: Int, row: Int) = (34, 2)
     /// 큰 팻말의 시트 픽셀 크기. 2배로 그려 2x2 칸을 덮는다.

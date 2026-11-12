@@ -433,8 +433,10 @@ final class PlazaFireworksTests: XCTestCase {
         }
     }
 
-    private func guideSize() throws -> CGSize {
-        let renderer = ImageRenderer(content: PlazaShortcutGuide(model: PlazaShortcutGuideModel(), toggle: {}))
+    private func guideSize(snowDay: Bool = false) throws -> CGSize {
+        let model = PlazaShortcutGuideModel()
+        model.isSnowDay = snowDay
+        let renderer = ImageRenderer(content: PlazaShortcutGuide(model: model, toggle: {}))
         renderer.scale = 1
         return try XCTUnwrap(renderer.nsImage?.size)
     }
@@ -447,6 +449,13 @@ final class PlazaFireworksTests: XCTestCase {
     /// Adding the F row made the unfolded guide taller than the smallest window. It sits 46 points below the top.
     func testTheGuideFitsTheSmallestWindow() throws {
         XCTAssertLessThanOrEqual(46 + (try guideSize()).height, PlazaWindowController.minContentSize.height)
+    }
+
+    /// The V row of snow days must not outgrow the smallest window or the covered width either.
+    func testTheSnowDayGuideFitsTheSmallestWindowAndItsWidth() throws {
+        let size = try guideSize(snowDay: true)
+        XCTAssertLessThanOrEqual(PlazaRosterMetrics.margin + size.width, PlazaShortcutGuide.coveredWidth)
+        XCTAssertLessThanOrEqual(46 + size.height, PlazaWindowController.minContentSize.height)
     }
 
     /// A burst pushed down by the top of the view must not start its shell under the feet.

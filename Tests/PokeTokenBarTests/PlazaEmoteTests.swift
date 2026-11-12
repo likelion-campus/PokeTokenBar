@@ -167,6 +167,20 @@ final class PlazaEmoteTests: XCTestCase {
                        ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프 · 물놀이", "인사하기", "몸통박치기", "춤", "불꽃놀이", "사진 모드", "단체 사진", "확대·축소"])
     }
 
+    /// On snow days the guide gains a V row right after C.
+    func testShortcutGuideAddsVOnSnowDays() {
+        var keys = PlazaShortcutGuide.entries.map(\.key), labels = PlazaShortcutGuide.entries.map(\.label)
+        let at = keys.firstIndex(of: "C")! + 1
+        keys.insert("V", at: at)
+        labels.insert("눈뭉치", at: at)
+        let snow = PlazaShortcutGuide.entries(isSnowDay: true)
+        XCTAssertEqual(snow.map(\.key), keys)
+        XCTAssertEqual(snow.map(\.label), labels)
+        XCTAssertEqual(Set(snow.map(\.key)).count, snow.count)
+        XCTAssertEqual(PlazaShortcutGuide.entries(isSnowDay: false).map(\.key), PlazaShortcutGuide.entries.map(\.key))
+        XCTAssertEqual(PlazaShortcutGuide.entries(isSnowDay: false).map(\.label), PlazaShortcutGuide.entries.map(\.label))
+    }
+
     /// The guide's rows are identified by key, so a repeated key would draw the first row twice.
     func testShortcutGuideKeysAreUnique() {
         let keys = PlazaShortcutGuide.entries.map(\.key)
@@ -203,7 +217,7 @@ final class PlazaEmoteTests: XCTestCase {
     func testEachEmoteHasArt() {
         var pixels: [Data] = []
         // The decoy kinds and the pull are protocol messages, never bubbles; a new kind must be listed on purpose.
-        let decoyKinds: [TeamEmoteKind] = [.decoyFound, .decoyJump, .decoyTackle, .pull]
+        let decoyKinds: [TeamEmoteKind] = [.decoyFound, .decoyJump, .decoyTackle, .pull, .snowball]
         let bubbleKinds: [TeamEmoteKind] = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup,
                                             .firework, .dance]
         XCTAssertEqual(Set(bubbleKinds + decoyKinds), Set(TeamEmoteKind.allCases), "every kind is sorted into bubble or message")

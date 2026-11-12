@@ -142,4 +142,21 @@ final class PlazaWalkerTests: XCTestCase {
         w.advance(by: 2, canEnter: { _ in true }, stepDuration: { _, _, _ in 0.36 })
         XCTAssertEqual(w.tile, .init(x: 6, y: 5), "a swimmer is not pushed after the plunge")
     }
+
+    func testIsSlidingOnlyDuringAPushStep() {
+        var w = PlazaWalker(tile: .init(x: 5, y: 5))
+        XCTAssertFalse(w.isSliding)
+        w.push(.right, tiles: 2)
+        w.advance(by: 0.05, canEnter: open)
+        XCTAssertTrue(w.isSliding)
+        run(&w, 0.5)
+        XCTAssertFalse(w.isWalking); XCTAssertEqual(w.tile, .init(x: 7, y: 5))
+        w.press(.down)
+        w.advance(by: 0.05, canEnter: open)
+        XCTAssertTrue(w.isWalking); XCTAssertFalse(w.isSliding)
+        var d = PlazaWalker(tile: .init(x: 5, y: 5))
+        d.plunge(.right)
+        d.advance(by: 0.05, canEnter: open)
+        XCTAssertTrue(d.isWalking); XCTAssertFalse(d.isSliding)
+    }
 }

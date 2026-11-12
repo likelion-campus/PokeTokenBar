@@ -388,6 +388,35 @@ final class TeamRuntimeTests: XCTestCase {
         }
     }
 
+    /// A snowball flies on my screen and pushes me when it lands; the push is capped at three tiles however much the frame asks.
+    func testSnowballReachesThePlazaAndPushesAtMostThreeTiles() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.snowpush.\(UUID().uuidString)"
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let snowDay = PlazaWeather.gregorian.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 12))!
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session,
+                                          clock: { snowDay })
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let scene = try! XCTUnwrap(plaza.scene)
+        let map = PlazaMapData.map, start = scene.walker.tile
+        let left = TilePoint(x: start.x - 1, y: start.y), far = TilePoint(x: start.x + 3, y: start.y)
+        XCTAssertTrue((1...3).allSatisfy { map.isWalkable(TilePoint(x: start.x + $0, y: start.y)) }, "test precondition")
+        let sender = a.settings.memberID
+        await settle { scene.memberTiles[sender] != nil }
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        var t: TimeInterval = 0
+        for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.memberTiles[sender], left)
+        a.runtime.session.sendEmote(.snowball, target: b.settings.memberID, pushTiles: 99, snowballDirection: .right)
+        await settle { scene.snowballFlightCount == 1 }
+        for _ in 0..<40 { t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.walker.tile, far, "exactly three tiles right")
+    }
+
     /// The plaza stops drawing while its window is hidden behind others, but a tackle still pushes me at once and
     /// teammates get my new tile. Before, the push waited for the next drawn frame, so the tackler saw nothing happen.
     func testTackleWhileMyPlazaIsHiddenStillPushesMe() async {
