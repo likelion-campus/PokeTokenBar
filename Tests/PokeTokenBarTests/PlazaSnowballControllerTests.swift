@@ -217,6 +217,19 @@ final class PlazaSnowballControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.walker.tile, p(16, 12))
     }
 
+    func testWalkingOffTheAimedTileBeforeTheBallLandsDodgesIt() async {
+        let w = await world(me: p(14, 12), b: p(10, 12))
+        w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 2, direction: .right)
+        let (key, side): (UInt16, TilePoint) = map.isWalkable(p(14, 13)) ? (125, p(14, 13)) : (126, p(14, 11))
+        XCTAssertTrue(map.isWalkable(side), "test precondition")
+        w.scene.handleKeyDown(keyCode: key, characters: "", isRepeat: false)
+        run(w.scene, 0.1)
+        w.scene.handleKeyUp(keyCode: key)
+        run(w.scene, 1.2)
+        XCTAssertEqual(w.scene.walker.tile, side, "walked off, not pushed along the row")
+        XCTAssertEqual(w.scene.impactCount, 0, "no star on a tile the ball never touched")
+    }
+
     func testAHitFromOutOfLineOrTooFarOnlyBursts() async {
         let cases: [(String, TilePoint, PlazaDirection)] = [
             ("too far", p(7, 12), .right), ("off the row", p(10, 11), .right), ("wrong way", p(10, 12), .left),
@@ -344,6 +357,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         for _ in 0..<500 { w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .right) }
         XCTAssertLessThanOrEqual(w.scene.snowballFlightCount, PlazaSnowballLayer.maxFlights)
         XCTAssertLessThanOrEqual(w.scene.snowballNodeCount, PlazaSnowballLayer.maxFlights * 8)
+        XCTAssertEqual(w.scene.impactCount, 0, "refused flights draw no impact")
     }
 
     // MARK: - A covered window

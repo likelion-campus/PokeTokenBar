@@ -1797,6 +1797,39 @@ extension PlazaDittoControllerTests {
         XCTAssertEqual(c.banner, "나님이 메타몽을 찾았어요!")
     }
 
+    func testASnowballMissesACopyThatSteppedAwayBeforeItLanded() async {
+        let now = snowDay
+        sessionNow = now
+        let nodes = sorted(3)
+        let (a, me, m) = (nodes[0], nodes[1], nodes[2])
+        await connect(a, me); await connect(m, me)
+        let start = rowOfFour()
+        let copyTile = TilePoint(x: start.x + 3, y: start.y)
+        let aside = [TilePoint(x: copyTile.x, y: copyTile.y + 1), TilePoint(x: copyTile.x, y: copyTile.y - 1)]
+            .first { PlazaDitto.isGround($0, in: map) && $0 != ground(8, 8) && $0 != ground(-5, 0) }
+        guard let aside else { return XCTFail("no tile beside the copy") }
+        let c = controller(me, start: start, clock: { now })
+        c.prepareScene()
+        place(m, at: ground(-5, 0))
+        host(a, dittoForm(copyTile, now: now).copying(m.id, now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        let log = emotes(from: a)
+        c.scene?.face(.right)
+        _ = c.scene?.handleKeyDown(keyCode: 9, characters: "v", isRepeat: false)
+        await settle()
+        host(a, dittoForm(aside, now: now).copying(m.id, now: now))
+        await settle()
+        var t = 0.0
+        c.scene?.update(t)
+        while t < 0.2 { t += 0.05; c.scene?.update(t) }
+        XCTAssertNotEqual(c.scene?.dittoTile, copyTile, "test precondition: the copy left its tile")
+        while t < 0.8 { t += 0.05; c.scene?.update(t) }
+        await settle()
+        XCTAssertTrue(log.items.filter { $0.kind == .decoyFound }.isEmpty, "the ball landed where the copy no longer stood")
+        XCTAssertEqual(c.shownDitto?.isDecoy, true)
+    }
+
     func testASnowballFromAfarTurnsTheHostsDittoFormIntoTheThrower() async {
         let now = snowDay
         sessionNow = now

@@ -1028,7 +1028,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         session?.sendEmote(.snowball, target: target, pushTiles: TeamEmote.pushTiles(evolutionStage()), snowballDirection: facing)
         let copied = target == PlazaDitto.sceneKey ? shownDitto?.decoyOf : nil
         scene.playSnowball(by: nil, shot: shot) { [weak self] in
-            guard let self, target == PlazaDitto.sceneKey else { return }
+            // 복사본이 닿기 전에 비켜섰으면 빗나간 것이다.
+            guard let self, target == PlazaDitto.sceneKey, self.scene?.dittoTile == shot.endTile else { return }
             if let copied {
                 // 복사본은 닿는 순간 정체를 드러낸다. 몸통박치기와 같이 따라 한 팀원을 알려 모두가 같은 복사본을 찾았다고 안다.
                 guard self.shownDitto?.decoyOf == copied else { return }
@@ -1069,9 +1070,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let pushed = TeamEmote.pushTiles(tiles)
         scene.playSnowball(by: sender, shot: shot) { [weak self] in
             guard let self, hit else { return }
+            // 닿을 때 겨눈 칸에 더는 없으면 빗나간 것이다(걸어서 피했다).
             if isMe {
-                if self.canBePushed { self.scene?.pushMe(direction, tiles: pushed) }
-            } else if isDitto, self.shownDitto?.isDecoy == false {
+                if self.canBePushed, self.scene?.walker.tile == shot.endTile { self.scene?.pushMe(direction, tiles: pushed) }
+            } else if isDitto, self.shownDitto?.isDecoy == false, self.scene?.dittoTile == shot.endTile {
                 self.dittoFormTackled(by: sender)
             }
         }
