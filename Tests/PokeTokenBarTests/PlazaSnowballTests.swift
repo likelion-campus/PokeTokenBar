@@ -28,6 +28,22 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertEqual(c?.end, .actor(id: "s", tile: p(13, 14)))
     }
 
+    func testVerticalThrowsAimAlongTheColumn() {
+        // Column 10: grass at row 11-12, pond rows 13-15, grass again at row 16.
+        let down = PlazaSnowball.aim(from: p(10, 11), facing: .down, targets: [:], map: map)
+        XCTAssertEqual(down?.end, .ground(p(10, 16)))
+        XCTAssertEqual(down?.frames, 5)
+        let swimmer = PlazaSnowball.aim(from: p(10, 11), facing: .down, targets: ["s": p(10, 14), "t": p(10, 15)], map: map)
+        XCTAssertEqual(swimmer?.end, .actor(id: "s", tile: p(10, 14)))
+        XCTAssertEqual(swimmer?.frames, 3)
+        let up = PlazaSnowball.aim(from: p(10, 16), facing: .up, targets: [:], map: map)
+        XCTAssertEqual(up?.end, .ground(p(10, 11)))
+        let target = PlazaSnowball.aim(from: p(10, 16), facing: .up, targets: ["a": p(10, 13)], map: map)
+        XCTAssertEqual(target?.end, .actor(id: "a", tile: p(10, 13)))
+        XCTAssertNil(PlazaSnowball.aim(from: p(10, 3), facing: .up, targets: [:], map: map))   // the tree line above
+        XCTAssertNil(PlazaSnowball.aim(from: p(15, 16), facing: .down, targets: [:], map: map)) // the bush at (15,17)
+    }
+
     func testFacingAnObstacleOrTheEdgeThrowsNothing() {
         XCTAssertNil(PlazaSnowball.aim(from: p(3, 12), facing: .left, targets: [:], map: map))
         XCTAssertNil(PlazaSnowball.aim(from: p(44, 12), facing: .right, targets: [:], map: map))
@@ -41,6 +57,19 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(7, 12), target: p(14, 12), direction: .right))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(10, 11), target: p(14, 12), direction: .right))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(14, 12), target: p(14, 12), direction: .right))
+    }
+
+    func testVerticalHitsNeedTheSameColumnTheRightWayWithinSix() {
+        XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 9), direction: .down))
+        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 1), direction: .down))
+        XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 11), direction: .down))
+        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 12), direction: .down))
+        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 5), target: p(6, 9), direction: .down))
+        XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 8), direction: .up))
+        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 15), direction: .up))
+        XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 6), direction: .up))
+        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 5), direction: .up))
+        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 12), target: p(4, 8), direction: .up))
     }
 
     func testFramesAreTheTileCountFromOneToSix() {
