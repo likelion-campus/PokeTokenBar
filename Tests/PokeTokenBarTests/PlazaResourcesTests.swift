@@ -30,7 +30,7 @@ final class PlazaResourcesTests: XCTestCase {
         let url = try XCTUnwrap(PlazaResources.resourceURL("CREDITS", "md", in: bundle))
         let credits = try String(contentsOf: url, encoding: .utf8)
         for needle in ["RedVoxel", "CC-BY-SA 3.0", "https://creativecommons.org/licenses/by-sa/3.0/",
-                       "https://opengameart.org/content/pokemon-inspired-16x16-tiles", "unmodified", "CC-BY-SA-3.0.txt"] {
+                       "https://opengameart.org/content/pokemon-inspired-16x16-tiles", "unmodified", "CC-BY-SA-3.0.txt", "snow days"] {
             XCTAssertTrue(credits.contains(needle), needle)
         }
     }
