@@ -112,3 +112,5 @@ NEW_CASK=$(printf '%s\n' "$OLD_CASK" | perl -pe "s/^  version \".*\"/  version \
 gh api -X PUT "repos/$TAP_REPO/contents/$CASK_PATH" -f message="cask: poke-token-bar-team $VERSION" \
   -f content="$(printf '%s\n' "$NEW_CASK" | base64)" -f sha="$CASK_BLOB" --silent || fail "$TAP_FAILED"
 echo "완료: v$VERSION"
+echo "   앱은 Spotlight·Finder·Launchpad 에서 직접 다시 열어라."
+echo "   에이전트(Claude Code/Codex) 셸에서 open 으로 띄우면 앱이 설정에 접근하지 못해 팀 광장 등 설정이 사라진다."

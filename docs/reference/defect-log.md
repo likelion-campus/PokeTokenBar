@@ -1910,3 +1910,13 @@ read_when:
   teammates, who do not react to adjacency. The Ditto copy's own prank walks up and tackles at once by design.
   **When adding an action on a character:** test it from the state a person meets first, not only the state that is
   easiest to hold still.
+
+- **에이전트 셸에서 띄운 앱은 "실행 중"이어도 건강하지 않다 — cfprefsd 가 설정 접근을 거절한다.**
+  v2.5.626 릴리스 뒤 `build-app.sh` 가 앱을 종료·설치만 하고, 에이전트가 자기 셸에서
+  `open -g /Applications/PokeTokenBar.app` 으로 다시 켰다. Orca → Claude Code 프로세스 트리에서 시작한
+  프로세스는 사용자의 환경설정을 쓸 수 없어 cfprefsd 가 그 pid 의 읽기("Unable to determine access")와
+  쓰기("Path not accessible")를 거절했고, 앱은 빈 UserDefaults 로 떠서 `team.enabled` 가 false 가 되어
+  팀 광장과 지도 아이콘이 사라졌다. 디스크의 plist 는 멀쩡했다. 프로세스가 떠 있다는 사실은 설정을 읽는다는
+  증거가 아니다. 진단: `log show --predicate 'process == "cfprefsd" AND eventMessage CONTAINS "process <pid>"'`.
+  규칙: 릴리스·설치 뒤 앱은 사용자가 직접 다시 연다. 에이전트는 앱을 띄우지 않고, 두 스크립트의 마지막 안내도
+  `open` 을 권하지 않는다.
