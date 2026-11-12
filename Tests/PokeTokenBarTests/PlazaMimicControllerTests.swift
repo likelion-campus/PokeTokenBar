@@ -496,6 +496,90 @@ final class PlazaMimicControllerTests: XCTestCase {
         await waitUntil { w.scene.myShownNameColor == PlazaNameColor.color(forMemberID: x.id, chosen: 0x7FD4FF) }
     }
 
+    // MARK: - Roster, menu and hints
+
+    func testClickingEitherOfThemInTheRosterAsks() async {
+        let w = await world()
+        let m = await join(w, "민수", Self.ditto, at: row(20))
+        let x = await join(w, "지아", Self.jia, at: row(24), nameColor: jiaColor)
+        let y = await join(w, "노랑", Self.other, at: row(28))
+        let log = emotes(from: x)
+        m.session.updateMimic(x.id)
+        await waitUntil { w.c.shownMimics[m.id] == x.id }
+        w.c.walkToMember(x.id)
+        await settle()
+        XCTAssertNil(w.scene.walkingToMember)
+        XCTAssertEqual(w.scene.shownEmote(memberID: nil), .question)
+        now = now.addingTimeInterval(0.4)   // past the 0.3 s emote throttle (0.3 exactly rounds under it)
+        w.c.walkToMember(m.id)
+        await settle()
+        XCTAssertNil(w.scene.walkingToMember)
+        XCTAssertEqual(w.scene.shownEmote(memberID: nil), .question)
+        XCTAssertEqual(log.items.map(\.kind), [.question, .question])
+        w.c.walkToMember(y.id)
+        XCTAssertEqual(w.scene.walkingToMember, y.id)
+    }
+
+    func testWhileIMimicClickingTheOneICopyAsks() async {
+        let (w, x) = await dittoWorld()
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        XCTAssertEqual(w.c.mimicking, x.id, "test precondition")
+        now = now.addingTimeInterval(0.4)   // the tackle just used the emote throttle
+        w.c.walkToMember(x.id)
+        await settle()
+        XCTAssertNil(w.scene.walkingToMember)
+        XCTAssertEqual(w.scene.shownEmote(memberID: nil), .question)
+    }
+
+    /// m ("민수", a Ditto) stands beside me, facing me, and copies x ("지아").
+    private func copyBeside() async -> (w: World, m: Node, x: Node) {
+        let w = await world()
+        let m = await join(w, "민수", Self.ditto, at: row(11))
+        let x = await join(w, "지아", Self.jia, at: row(24), nameColor: jiaColor)
+        m.session.updateMimic(x.id)
+        await waitUntil { w.c.shownMimics[m.id] == x.id }
+        await settle()
+        w.scene.face(.right)
+        return (w, m, x)
+    }
+
+    func testTheSpaceHintAndMenuUseTheCopiedName() async {
+        let (w, m, x) = await copyBeside()
+        w.c.refreshHintForTesting()
+        XCTAssertEqual(w.c.hint, "스페이스바를 눌러 지아에게 말 걸기")
+        w.scene.onInteractKey?()
+        guard case .memberMenu(let menu) = w.c.overlayContent else { return XCTFail("menu opens") }
+        XCTAssertEqual(menu.nickname, "지아")
+        XCTAssertEqual(menu.nameColor, 0xFF9ECF)
+        XCTAssertTrue(menu.actions.contains(.viewCard))
+        w.c.chooseMenu(.viewCard, memberID: m.id)
+        guard case .card(.loading(let state)) = w.c.overlayContent else { return XCTFail("card opens") }
+        XCTAssertEqual(state.memberID, x.id)
+    }
+
+    func testAMenuOnACopyOfMeHasNoCard() async {
+        let w = await world()
+        let m = await join(w, "민수", Self.ditto, at: row(11))
+        m.session.updateMimic(w.me.id)
+        await waitUntil { w.c.shownMimics[m.id] == w.me.id }
+        await settle()
+        w.scene.face(.right)
+        w.scene.onInteractKey?()
+        guard case .memberMenu(let menu) = w.c.overlayContent else { return XCTFail("menu opens") }
+        XCTAssertEqual(menu.nickname, "나")
+        XCTAssertFalse(menu.actions.contains(.viewCard))
+    }
+
+    func testAMenuWhoseDisguiseChangedDoesNothing() async {
+        let (w, m, _) = await copyBeside()
+        w.scene.onInteractKey?()
+        guard case .memberMenu = w.c.overlayContent else { return XCTFail("menu opens") }
+        m.session.updateMimic(nil)
+        await waitUntil { w.c.shownMimics[m.id] == nil }
+        w.c.chooseMenu(.viewCard, memberID: m.id)
+        XCTAssertEqual(w.c.overlayContent, .none)
+    }
+
     // MARK: - Being found
 
     private var clockT: TimeInterval = 0

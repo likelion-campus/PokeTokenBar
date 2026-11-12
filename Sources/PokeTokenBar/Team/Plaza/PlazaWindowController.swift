@@ -185,6 +185,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var memberSubjects: [String: CompanionStore.RepresentativeSubject] = [:]
     /// Member -> the member whose look they are drawn with now.
     private(set) var shownMimics: [String: String] = [:]
+    /// The member whose menu is open and who they were drawn as then; a choice is dropped if that changed.
+    private var menuLook: (id: String, shownAs: String?)?
     private var memberLoadTokens: [String: Int] = [:]
     private var nextLoadToken = 0
     /// 장면에 들어간 팀원 그림의 종 번호를 순서대로 남긴다(테스트용 읽기 전용).
@@ -611,7 +613,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     /// 안내 문구에 쓰는 이름. 복사본은 따라 한 팀원의 이름이라 진짜와 같은 문구가 나온다. 메타몽 모습이면 메타몽.
     private func hintName(of id: String) -> String? {
-        guard id == PlazaDitto.sceneKey else { return members[id]?.nickname }
+        guard id == PlazaDitto.sceneKey else {
+            // A member drawn as someone else is named as that someone.
+            if let copied = shownMimics[id] { return realLook(of: copied)?.name }
+            return members[id]?.nickname
+        }
         guard let copied = shownDitto?.decoyOf else { return L(.ko).plazaDittoName }
         return copied == memberID() ? nickname() : members[copied]?.nickname
     }
@@ -646,7 +652,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard let scene, scene.isGrass(scene.walker.tile) else { return nil }
         let ids = PlazaStartle.targets(me: scene.walker.tile, members: scene.memberTiles, isGrass: scene.isGrass)
         if ids.isEmpty { return (L(.ko).plazaHiddenHint, false) }
-        if ids.count == 1, let name = members[ids[0]]?.nickname { return (L(.ko).plazaStartleHint(nickname: name), true) }
+        if ids.count == 1, let name = hintName(of: ids[0]) { return (L(.ko).plazaStartleHint(nickname: name), true) }
         return (L(.ko).plazaStartleManyHint, true)
     }
 
@@ -880,6 +886,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
             } else if isCopy, copied == memberID() {
                 menu = PlazaMemberMenu(memberID: id, nickname: nickname(), nameColor: nameColorModel.current)
                 menu.actions.removeAll { $0 == .viewCard }
+            } else if !isDitto, let shownAs = shownMimics[id], let look = realLook(of: shownAs) {
+                // A member drawn as x gets x's name and colour and x's card; if x is me there is no card.
+                menu = PlazaMemberMenu(memberID: id, nickname: look.name, nameColor: look.nameHex)
+                if shownAs == memberID() { menu.actions.removeAll { $0 == .viewCard } }
             } else if let state = copied.flatMap({ members[$0] }) {
                 menu = PlazaMemberMenu(memberID: id, nickname: state.nickname, nameColor: state.nameColor)
             } else {
@@ -894,6 +904,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             if scene.isDiving || scene.memberIsDiving(id) == true { menu.actions.removeAll { $0 == .tackle } }
             guard !menu.actions.isEmpty else { return }   // 집중 중이거나 잠수 중에 메타몽 모습을 보면 할 일이 없다
             if isDitto { menuDitto = shownDitto }
+            menuLook = (id, shownMimics[id])
             openOverlay(.memberMenu(menu))
         }
     }
@@ -944,6 +955,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if id == PlazaDitto.sceneKey {
             guard let opened = menuDitto, let shown = shownDitto, shown.decoyOf == opened.decoyOf else { return closeOverlay() }
         }
+        // The same for a member drawn as someone else: the menu's name and card no longer match.
+        if let opened = menuLook, opened.id == id, opened.shownAs != shownMimics[id] { return closeOverlay() }
         switch action {
         case .greet:
             closeOverlay()
@@ -957,7 +970,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         case .viewCard:
             // 메뉴를 연 사이에 연결이 끊긴 팀원이면 카드를 받을 수 없다.
             // 복사본에서 열었으면 따라 한 팀원의 카드다.
-            let cardID = id == PlazaDitto.sceneKey ? shownDitto?.decoyOf : id
+            let cardID = id == PlazaDitto.sceneKey ? shownDitto?.decoyOf : (shownMimics[id] ?? id)
             guard let session, let cardID, let state = members[cardID] else { return closeOverlay() }
             let generation = openOverlay(.card(.loading(state)))
             Task {
@@ -1189,6 +1202,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     }
 
     private func closeOverlay() {
+        menuLook = nil
         if overlayModel.content == .board { feed?.markAllRead() }
         overlayGeneration += 1
         overlayModel.content = .none
@@ -1209,7 +1223,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         } else if let scene, scene.isDiving, overlayModel.content == .none, !chatInput.isOpen {
             let targets = pullTargets(scene)
             let id = PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targets)
-            text = id.flatMap { members[$0]?.nickname }.map { L(.ko).plazaPullHint(nickname: $0) } ?? L(.ko).plazaDivingHint
+            text = id.flatMap { hintName(of: $0) }.map { L(.ko).plazaPullHint(nickname: $0) } ?? L(.ko).plazaDivingHint
         } else if let mimic = myMimic, let look = myShownLook, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaMimicHint(nickname: look.name, seconds: mimic.since.addingTimeInterval(PlazaMimic.duration).timeIntervalSince(clock()))
         } else if overlayModel.content == .none, !chatInput.isOpen, let startle = startleHint(), startle.hasTarget {
@@ -1255,7 +1269,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 목록에서 고른 팀원에게 걸어간다. 누른 뒤에도 키는 장면이 받는다.
     func walkToMember(_ id: String) {
         // 복사본이 된 팀원에게는 걸어가지 않는다. 진짜인지 묻는 ?만 띄운다(5번 키와 같다).
-        if shownDitto?.decoyOf == id {
+        // The same while someone is disguised as them or they are disguised as someone (me included).
+        if shownDitto?.decoyOf == id || shownMimics[id] != nil || shownMimics.values.contains(id) || myMimic?.of == id {
             handleEmoteKey(.question)
             if let skView { window?.makeFirstResponder(skView) }
             return
