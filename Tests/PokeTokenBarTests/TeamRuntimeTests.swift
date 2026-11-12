@@ -715,6 +715,9 @@ final class TeamRuntimeTests: XCTestCase {
         var t: TimeInterval = 0
         for _ in 0..<200 where scene.memberTiles[sender] != left { await Task.yield(); t += 0.05; scene.update(t) }
         XCTAssertEqual(scene.memberTiles[sender], left)
+        // The scene can show the tile before the controller's own copy of the member reads "in the plaza"; a tackle in
+        // that gap finds nobody to copy. Let the member-list hop land first.
+        for _ in 0..<50 { await Task.yield() }
         return (a, b, plaza, scene)
     }
 

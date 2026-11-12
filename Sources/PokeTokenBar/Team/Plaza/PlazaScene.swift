@@ -558,8 +558,12 @@ struct PlazaSceneMember: Equatable, Sendable {
         layout()
     }
 
+    /// Test-only: how many times the member list was redrawn, so a test can see an idle tick leave the scene alone.
+    private(set) var applyMembersCount = 0
+
     /// 없는 팀원의 캐릭터를 지우고 새 팀원의 캐릭터를 만든다. 값만 받고 그리지 않는다(창이 가려진 동안에도 안전하다).
     func applyMembers(_ members: [PlazaSceneMember]) {
+        applyMembersCount &+= 1
         let ids = Set(members.map(\.memberID))
         for (id, remote) in remotes where !ids.contains(id) && id != PlazaDitto.sceneKey {
             remote.actor.detach()

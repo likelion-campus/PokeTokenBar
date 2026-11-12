@@ -132,8 +132,9 @@ final class PlazaMimicControllerTests: XCTestCase {
     /// My controller, plus a quiet teammate with the smallest ID who is ready and far away, so this Mac never hosts the guest Ditto.
     private func world() async -> World {
         let me = node("나")
-        var quiet = node("조용")
-        while quiet.id >= me.id { quiet = node("조용") }
+        // A chosen colour that no test copies, so the quiet one never shares a colour with a copied teammate by chance.
+        var quiet = node("조용", nameColor: 0xFFFFFF)
+        while quiet.id >= me.id { quiet = node("조용", nameColor: 0xFFFFFF) }
         let c = controller(me)
         c.prepareScene()
         await connect(me, quiet)
@@ -254,6 +255,25 @@ final class PlazaMimicControllerTests: XCTestCase {
         await gate.tick()
         XCTAssertEqual(w.scene.memberName(m.id), "민수")
         XCTAssertTrue(w.c.shownMimics.isEmpty)
+    }
+
+    /// The 1 s tick runs for as long as the plaza is open; with nothing changed it must not redraw every member.
+    func testATickWithNoChangeDoesNotRedrawTheMembers() async {
+        let w = await world()
+        let m = await join(w, "민수", Self.ditto, at: row(20))
+        let x = await join(w, "지아", Self.jia, at: row(24), nameColor: jiaColor)
+        m.session.updateMimic(x.id)
+        await waitUntil { w.c.shownMimics[m.id] == x.id }
+        await settle()
+        let before = w.scene.applyMembersCount
+        await gate.tick()
+        await gate.tick()
+        XCTAssertEqual(w.scene.applyMembersCount, before, "an idle tick leaves the drawn members alone")
+        XCTAssertEqual(w.scene.memberName(m.id), "지아")
+
+        now = now.addingTimeInterval(PlazaMimic.duration + PlazaMimic.receiverGrace)
+        await gate.tick()
+        XCTAssertGreaterThan(w.scene.applyMembersCount, before, "test precondition: a real change does redraw")
     }
 
     // MARK: - Walks, chat, the guest Ditto
@@ -452,6 +472,19 @@ final class PlazaMimicControllerTests: XCTestCase {
         XCTAssertNil(x.session.members[w.me.id]?.mimicOf)
     }
 
+    /// Copying another Ditto draws the same species I already am, so no sprite reload follows to notice the leaver:
+    /// only the member-list path can end the disguise before the next tick.
+    func testACopiedDittoLeavingEndsMyDisguiseWithoutATick() async {
+        mySpecies = 132
+        let w = await world()
+        let d = await join(w, "디토", Self.ditto, at: row(24))
+        w.c.chooseMenu(.tackle, memberID: d.id)
+        XCTAssertEqual(w.c.mimicking, d.id)
+        d.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        await waitUntil { w.c.mimicking == nil }
+        XCTAssertNil(w.c.mimicking)
+    }
+
     func testNoLongerADittoEndsMyDisguise() async {
         let (w, x) = await dittoWorld()
         w.c.chooseMenu(.tackle, memberID: x.id)
@@ -640,6 +673,39 @@ final class PlazaMimicControllerTests: XCTestCase {
         XCTAssertEqual(founds(log).first?.targetMemberID, a.id)
     }
 
+    /// A Ditto's tackle on a third member is only a burst here, whether the Ditto is next to them or far away, and a
+    /// target this scene doesn't draw is ignored. None of it touches my own disguise.
+    func testADittosTackleOnSomeoneElseOnlyBursts() async {
+        let (w, _, doyun, _) = await disguisedWorld()
+        let a = await join(w, "에이", Self.ditto, at: row(12))   // next to 도윤 (row 11)
+        let far = await join(w, "비", Self.ditto, at: row(18))
+        let start = w.scene.walker.tile
+        var before = w.scene.impactCount
+        w.c.showMimicTackle(from: a.id, on: doyun.id)
+        run(w, 1)
+        XCTAssertEqual(w.scene.impactCount, before + 1, "next to them")
+        before = w.scene.impactCount
+        w.c.showMimicTackle(from: far.id, on: doyun.id)
+        run(w, 1)
+        XCTAssertEqual(w.scene.impactCount, before + 1, "from afar")
+        before = w.scene.impactCount
+        w.c.showMimicTackle(from: a.id, on: "nobody")
+        run(w, 1)
+        XCTAssertEqual(w.scene.impactCount, before, "a target this scene doesn't draw")
+        XCTAssertNotNil(w.c.mimicking)
+        XCTAssertEqual(w.scene.walker.tile, start)
+    }
+
+    func testADittoOnMyOwnTileStillFindsMe() async {
+        let (w, _, _, _) = await disguisedWorld()
+        let a = await join(w, "에이", Self.ditto, at: w.scene.walker.tile)
+        let log = emotes(from: a)
+        w.c.showMimicTackle(from: a.id, on: w.me.id)
+        run(w, 1)
+        XCTAssertNil(w.c.mimicking)
+        await waitUntil { !self.founds(log).isEmpty }
+    }
+
     func testADittosTackleOnAnUndisguisedMePushesNobody() async {
         let (w, _) = await dittoWorld()
         let a = await join(w, "에이", Self.ditto, at: row(11))
@@ -675,6 +741,17 @@ final class PlazaMimicControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.walker.tile, start)
         await waitUntil { !self.founds(log).isEmpty }
         XCTAssertEqual(founds(log).first?.targetMemberID, doyun.id)
+    }
+
+    func testASnowballIDodgeLeavesMeDisguised() async {
+        now = PlazaSnowballControllerTests.day(6)
+        let (w, _, doyun, log) = await disguisedWorld(doyunAt: row(6))
+        w.c.showSnowball(from: doyun.id, on: w.me.id, tiles: 2, direction: .right)
+        w.scene.pushMe(.down, tiles: 1)   // gone from the tile it was aimed at before it lands
+        run(w, 1.2)
+        XCTAssertNotNil(w.c.mimicking, "a miss doesn't find me")
+        await settle()
+        XCTAssertTrue(founds(log).isEmpty)
     }
 
     func testMySnowballAsADittoIsAnOrdinarySnowball() async {
