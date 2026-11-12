@@ -744,6 +744,14 @@ read_when:
   `testADancerFinishingAStepIsFollowedAtOnce`(그리기 결과로 되돌리면 실패). 스윕: 컨트롤러에서 그리기 결과로 정하는 곳은 불꽃
   키(`playFirework`)뿐인데, 내 키 입력의 연타 제한이고 가려진 창에는 키가 오지 않아 해당 없다.
 
+- **새 기능이 같은 영역의 기존 규칙(알은 복사 불가, 되감긴 시계, 같은 알림 한 번만)을 옮겨 받지 않았다 — 메타몽 따라 하기(릴리스 직전 리뷰·감사).**
+  게스트 메타몽의 `canBeCopied(... !isEgg)` 규칙이 팀원 메타몽의 몸통박치기·`realLook`·`mimicTargets` 에 없어 알로 변장할 수 있었고,
+  변장한 팀원 따라가기가 안 멈추고, `.mimicFound` 를 아무 발신자가 몇 번이든 보낼 수 있었고, 시계가 뒤로 가면 `now - since` 가 음수라
+  변장이 5분+α 갔다. **왜 못 걸렀나:** 테스트가 정상 대상(피카츄)만 썼고, 같은 영역의 기존 규칙·한 번만 규칙을 새 경로에 대조하지 않았다.
+  가드: `testADittoCannotCopyAnEggTeammate`·`testAHostileFoundBannerIsIgnored`·`testAClockThatJumpedBackEndsMyDisguise*`
+  (각 가드를 빼면 실패). 스윕: 시간 차 비교는 `receiverGrace` 한쪽만 막던 것을 `isOver` 로 모았고, 테스트 전용 기록(`appliedMemberLoads`)은
+  64개로 제한했다.
+
 ## 빌드·도구체인
 
 - **`Sendable` 여부는 SDK마다 다르다 — 파일 범위 전역에는 값 타입만 둔다.** 메타몽 PR(#88)이 테스트 파일 맨 위에
