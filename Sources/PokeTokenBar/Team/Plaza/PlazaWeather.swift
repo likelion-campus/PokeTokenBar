@@ -1,16 +1,12 @@
 import CoreGraphics
 import Foundation
 
-/// 광장의 계절 날씨. 실제 계절과 상관없이 벚꽃·초록 나뭇잎·낙엽·눈이 하루씩 차례로 돈다. 바뀌는 주기는 팀이 고른다(하루·한 주·한 달).
-/// 이 Mac의 날짜로만 정해서 같은 주기 안에서는 팀원 모두 같은 날씨를 보고, 주기가 바뀔 때(자정 등) 바뀐다.
+/// 광장의 날씨. 팀이 정한 대로 광장은 날마다 눈이 온다. 벚꽃·초록 나뭇잎·낙엽 그림은 남겨 두지만 날짜로는 나오지 않는다.
 enum PlazaWeather {
     enum Kind: Equatable, CaseIterable {
         /// 배경을 숨겼을 때만 쓴다. 날짜로는 나오지 않는다.
         case clear, petals, greenLeaves, leaves, snow
     }
-
-    /// 주기마다 도는 순서. 2026-11-05가 낙엽이다.
-    static let cycle: [Kind] = [.petals, .greenLeaves, .leaves, .snow]
 
     /// 기본 달력. 시스템 달력이 일본력·불기여도 연월일이 같아야 팀원 모두 같은 날씨를 본다.
     static var gregorian: Calendar {
@@ -22,31 +18,11 @@ enum PlazaWeather {
     /// 한 화면에 그리는 입자 수의 상한. 넓은 화면에서도 노드 수가 이 값을 넘지 않는다.
     static let maxParticles = 120
 
-    /// 날씨가 바뀌는 주기. 주는 월요일에 시작한다.
+    /// 예전에 날씨가 바뀌던 주기. v2.5.626 이하 팀원이 아직 이 값으로 돌리므로 팀 설정의 와이어 필드로 남긴다.
     enum Period: String, CaseIterable, Sendable { case day, week, month }
 
-    /// 그 주기의 날씨. 날짜(연월일)로 센 주기 번호로 `cycle`을 돌아서, 이어지는 두 주기는 늘 다르고 넷마다 한 번씩 나온다.
-    static func kind(on date: Date, calendar: Calendar = gregorian, period: Period = .day) -> Kind {
-        let c = calendar.dateComponents([.year, .month, .day], from: date)
-        let (y, m, d) = (c.year ?? 1970, c.month ?? 1, c.day ?? 1)
-        let n: Int
-        switch period {
-        case .day: n = dayNumber(year: y, month: m, day: d)
-        case .week: n = Int(floor(Double(dayNumber(year: y, month: m, day: d) + 3) / 7))   // 1970-01-01이 목요일
-        case .month: n = y * 12 + m - 1
-        }
-        return cycle[((n % cycle.count) + cycle.count) % cycle.count]
-    }
-
-    /// 1970-01-01부터 센 그레고리력 날짜 수(그 전은 음수). 시간대와 상관없이 같은 연월일이면 같은 수다.
-    static func dayNumber(year: Int, month: Int, day: Int) -> Int {
-        let y = month <= 2 ? year - 1 : year
-        let era = (y >= 0 ? y : y - 399) / 400
-        let yearOfEra = y - era * 400
-        let dayOfYear = (153 * ((month + 9) % 12) + 2) / 5 + day - 1   // 3월 1일이 0
-        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
-        return era * 146_097 + dayOfEra - 719_468
-    }
+    /// 그 날의 날씨. 날짜와 주기에 상관없이 늘 눈이다.
+    static func kind(on date: Date, calendar: Calendar = gregorian, period: Period = .day) -> Kind { .snow }
 
     /// 종류별 움직임. 속도는 월드 픽셀/초이고 아래로 떨어지는 쪽이 양수.
     struct Motion {
