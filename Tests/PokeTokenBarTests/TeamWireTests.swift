@@ -194,6 +194,16 @@ final class TeamWireTests: XCTestCase {
         XCTAssertTrue(String(decoding: try TeamWire.encode(dance).dropFirst(4), as: UTF8.self).contains("\"danceStyle\":\"bigHop\""))
     }
 
+    /// A dance says when the dancer began. An earlier version's dance has no such field and reads as nil.
+    func testDanceSinceIsOptionalOnTheWireAndComesBackExactly() throws {
+        let since = 1_794_000_123.456789
+        let dance = TeamMessage.emote(TeamEmote(kind: .dance, targetMemberID: nil, danceStyle: "spin", danceSince: since))
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(dance)), [dance])
+        let old = TeamMessage.emote(TeamEmote(kind: .dance, targetMemberID: nil, danceStyle: "spin"))
+        XCTAssertFalse(String(decoding: try TeamWire.encode(old).dropFirst(4), as: UTF8.self).contains("danceSince"))
+    }
+
     /// A pickup names its item slot, and presence carries the latest slot known taken. Both are left out when absent,
     /// and earlier versions' frames read as none.
     func testItemFieldsAreOptionalOnTheWire() throws {

@@ -1158,21 +1158,56 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 같은 춤 맞추기
 
-    func testTheLeaderIsTheSmallestNearbyDancerWithASmallerIDThanMine() {
-        let me = TilePoint(x: 10, y: 10)
-        func leader(_ dancers: [String: TilePoint], me id: String = "m") -> String? { PlazaDance.leader(me: id, at: me, dancers: dancers) }
+    func testTheLeaderIsTheNearbyDancerWhoBeganFirst() {
+        let me = TilePoint(x: 10, y: 10), near = TilePoint(x: 11, y: 10)
+        func at(_ s: TimeInterval) -> Date { Date(timeIntervalSince1970: 1000 + s) }
+        func leader(_ dancers: [String: (tile: TilePoint, since: Date)], since: TimeInterval? = 5, me id: String = "m") -> String? {
+            PlazaDance.leader(me: id, since: since.map(at), at: me, dancers: dancers)
+        }
         XCTAssertNil(leader([:]))
-        XCTAssertEqual(leader(["b": TilePoint(x: 11, y: 10)]), "b")
-        XCTAssertEqual(leader(["b": TilePoint(x: 11, y: 10), "a": TilePoint(x: 9, y: 9)]), "a")
-        XCTAssertNil(leader(["z": TilePoint(x: 11, y: 10)]), "they follow me instead")
-        XCTAssertEqual(leader(["z": TilePoint(x: 11, y: 10), "b": TilePoint(x: 10, y: 11)]), "b")
+        XCTAssertEqual(leader(["z": (near, at(4))]), "z", "they began first; a larger ID does not matter")
+        XCTAssertNil(leader(["a": (near, at(6))]), "I began first, so they follow me; a smaller ID does not matter")
+        XCTAssertEqual(leader(["a": (near, at(4)), "z": (TilePoint(x: 9, y: 9), at(3))]), "z", "the earliest of several")
+        XCTAssertEqual(leader(["a": (near, at(4)), "z": (TilePoint(x: 9, y: 9), at(6))]), "a", "one before me, one after me")
+        XCTAssertEqual(leader(["a": (near, at(7)), "z": (near, at(6))], since: nil), "z", "not dancing yet, I follow whoever began first")
+        // The same instant: the smaller ID goes first, on every Mac.
+        XCTAssertEqual(leader(["a": (near, at(5))]), "a")
+        XCTAssertNil(leader(["z": (near, at(5))]))
+        XCTAssertEqual(leader(["b": (near, at(4)), "a": (near, at(4))]), "a")
         // Two tiles away counts, diagonals too; three does not.
-        XCTAssertEqual(leader(["b": TilePoint(x: 12, y: 12)]), "b")
-        XCTAssertEqual(leader(["b": TilePoint(x: 10, y: 8)]), "b")
-        XCTAssertNil(leader(["b": TilePoint(x: 13, y: 10)]))
-        XCTAssertNil(leader(["b": TilePoint(x: 10, y: 7)]))
-        XCTAssertEqual(leader(["a": TilePoint(x: 13, y: 10), "b": TilePoint(x: 11, y: 10)]), "b", "a far dancer does not lead")
-        XCTAssertNil(leader(["m": me, "z": me]), "I am not my own leader")
+        XCTAssertEqual(leader(["b": (TilePoint(x: 12, y: 12), at(4))]), "b")
+        XCTAssertEqual(leader(["b": (TilePoint(x: 10, y: 8), at(4))]), "b")
+        XCTAssertNil(leader(["b": (TilePoint(x: 13, y: 10), at(4))]))
+        XCTAssertNil(leader(["b": (TilePoint(x: 10, y: 7), at(4))]))
+        XCTAssertEqual(leader(["a": (TilePoint(x: 13, y: 10), at(1)), "b": (near, at(4))]), "b", "a far dancer does not lead")
+    }
+
+    func testMyDanceBeganWhenIFirstPressedDAndStaysThroughEveryRound() {
+        let s = scene()
+        s.pickDanceStyle = { _ in .bounce }
+        wall = grid + 0.25
+        let began = Date(timeIntervalSince1970: wall)
+        press(s)
+        XCTAssertEqual(s.danceStartedAt, began)
+        run(s, PlazaDance.round + 0.2)   // the next round follows by itself
+        XCTAssertEqual(s.danceStartedAt, began)
+        run(s, 0.4)
+        press(s)   // D again while dancing only changes the dance
+        XCTAssertEqual(s.danceStartedAt, began)
+        run(s, 0.4)
+        s.followDance(.spin)
+        XCTAssertEqual(s.danceStyle(memberID: nil), .spin, "test precondition")
+        XCTAssertEqual(s.danceStartedAt, began)
+    }
+
+    func testDancingAgainAfterStoppingBeginsAnew() {
+        let s = scene()
+        press(s)
+        run(s, 1.0)
+        s.stopDance(memberID: nil)
+        run(s, 1.0)
+        press(s)
+        XCTAssertEqual(s.danceStartedAt, Date(timeIntervalSince1970: wall))
     }
 
     /// A scene whose leader, when `lead` is set, is the remote "a" dancing two tiles away.

@@ -101,6 +101,37 @@ final class TeamRuntimeTests: XCTestCase {
         return (a, b, plaza, poster)
     }
 
+    /// A teammate's dance carries when they began, and that (not when it arrived here) decides who follows whom.
+    func testATeammatesDanceStartTimeReachesThePlaza() async throws {
+        let code = newCode()
+        let a = RuntimeNode(hub: hub, code: code, nickname: "가")
+        let b = RuntimeNode(hub: hub, code: code, nickname: "나")
+        let suite = "ptb.test.team.runtime.dance.\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: suite)!)
+        let plaza = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        a.runtime.start()
+        b.runtime.start()
+        hub.connect(a.transport, to: b.transport)
+        plaza.prepareScene()
+        let scene = try XCTUnwrap(plaza.scene)
+        scene.pickDanceStyle = { _ in .bounce }
+        let tile = scene.walker.tile
+        var now = Date()
+        scene.now = { now }
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: tile.x + 1, y: tile.y), facing: .down, isWalking: false)
+        await settle { scene.memberTiles[a.settings.memberID] != nil }
+        _ = scene.handleKeyDown(keyCode: 2, characters: "d", isRepeat: false)
+        XCTAssertEqual(scene.danceStyle(memberID: nil), .bounce, "test precondition: I dance alone")
+        now += 1   // a new round is refused within a beat of my last one
+        a.runtime.session.sendEmote(.dance, target: nil, danceStyle: "spin", danceSince: now.addingTimeInterval(-60))
+        await settle { scene.danceStyle(memberID: nil) == .spin }
+        XCTAssertEqual(scene.danceStyle(memberID: nil), .spin, "they began a minute before me, though their news came after my D")
+    }
+
     /// A local schedule change reaches an already open plaza without reopening it.
     func testChangingTheScheduleUpdatesAnOpenPlaza() async throws {
         let node = RuntimeNode(hub: hub, code: newCode(), nickname: "가")

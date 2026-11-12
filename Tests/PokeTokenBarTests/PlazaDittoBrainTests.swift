@@ -651,11 +651,11 @@ final class PlazaDittoBrainTests: XCTestCase {
                 if brain.tick(now: now, world: neighbour ? beside(brain) : world()).contains(.transformed("m")) { copied = true }
             }
         }
-        run(1.8, neighbour: true)
+        run(PlazaDittoBrain.copyDelay * 0.6, neighbour: true)
         run(dt, neighbour: false)
         XCTAssertEqual(brain.state.tile, p, "test precondition: it has not walked yet")
-        run(1.8, neighbour: true)
-        XCTAssertFalse(copied, "1.8 s twice is not 3 s in a row")
+        run(PlazaDittoBrain.copyDelay * 0.6, neighbour: true)
+        XCTAssertFalse(copied, "0.6 of the delay twice is not the delay in a row")
     }
 
     func testADifferentNeighbourStartsTheDelayOver() {
