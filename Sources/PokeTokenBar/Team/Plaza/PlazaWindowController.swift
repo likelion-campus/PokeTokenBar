@@ -101,7 +101,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
     /// 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭, 펼친 단축키 안내가 다 보이는 높이.
-    static let minContentSize = NSSize(width: 600, height: 340)
+    static let minContentSize = NSSize(width: 600, height: 352)
     private var lastEmoteAt: Date?
     private var lastChatAt: Date?
     private var lastLoudAt: Date?
@@ -155,7 +155,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     private func snowDayChanged(_ on: Bool) {
         minimap.snowMapImage = on ? Self.snowLook(for: map).map { NSImage(cgImage: $0.mapImage, size: .zero) } : nil
+        shortcutModel.isSnowDay = on
     }
+
+    /// 테스트용: 단축키 안내에 V(눈뭉치) 줄이 보이는가.
+    var shortcutsShowSnowball: Bool { shortcutModel.isSnowDay }
 
     var minimapShowsSnow: Bool { minimap.snowMapImage != nil }
 
@@ -407,6 +411,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             if self.scene?.isDiving == true { return self.pullUnder() }
             if let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
         }
+        s.onSnowballKey = { [weak self] in self?.handleSnowballKey() }
         s.onGroupPhotoKey = { [weak self] in self?.handleGroupPhotoKey() }
         s.onFireworkKey = { [weak self] in self?.handleFireworkKey() }
         s.onDanceRound = { [weak self] in
@@ -1006,6 +1011,70 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if isDitto { return dittoFormTackled(by: sender) }
         // 집중 중이거나 모닥불 메뉴를 연 내 Mac은 밀지 않는다(옛 버전이 보낸 몸통박치기도 같다). 충격 그림만 보인다.
         if isMe && canBePushed && (PlazaPathfinder.isAdjacent(from, to) || from == to) { scene.pushMe(direction, tiles: tiles) }
+    }
+
+    /// V. 눈 오는 날에 바라보는 쪽으로 눈덩이를 던지고 팀원들에게 보낸다. 돌아서지 않는다. 집중 중, 알, 헤엄치는 중, 바로 앞이 막혔을 때는
+    /// 아무것도 안 한다. 말풍선 키와 같은 연타 제한을 쓴다. 메타몽 모습이나 복사본을 맞히면 눈덩이가 닿을 때 몸통박치기처럼 반응한다.
+    private func handleSnowballKey() {
+        guard let scene, scene.isSnowDay, !isFocusing, scene.canWalk, !scene.isMeInWater else { return }
+        let facing = scene.walker.facing
+        guard let shot = PlazaSnowball.aim(from: scene.walker.tile, facing: facing, targets: scene.snowballTargets, map: map) else { return }
+        let now = clock()
+        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        lastEmoteAt = now
+        scene.stopDance(memberID: nil)
+        var target: String?
+        if case .actor(let id, _) = shot.end { target = id }
+        session?.sendEmote(.snowball, target: target, pushTiles: TeamEmote.pushTiles(evolutionStage()), snowballDirection: facing)
+        let copied = target == PlazaDitto.sceneKey ? shownDitto?.decoyOf : nil
+        scene.playSnowball(by: nil, shot: shot) { [weak self] in
+            guard let self, target == PlazaDitto.sceneKey else { return }
+            if let copied {
+                // 복사본은 닿는 순간 정체를 드러낸다. 몸통박치기와 같이 따라 한 팀원을 알려 모두가 같은 복사본을 찾았다고 안다.
+                guard self.shownDitto?.decoyOf == copied else { return }
+                self.session?.sendEmote(.decoyFound, target: copied)
+                self.showDecoyFound(from: self.memberID(), copied: copied)
+            } else if self.shownDitto?.isDecoy == false {
+                self.dittoFormTackled(by: self.memberID())
+            }
+        }
+    }
+
+    /// 런타임이 부른다. 누군가 눈덩이를 던졌다. 이 눈 오는 날의 내 화면에 날려 보내고, 맞은 게 나이고 던진 팀원과 같은 줄(6칸 안)이면
+    /// 눈덩이가 닿을 때 `direction`으로 `tiles`칸 밀린다. 닿기 전에 창이 가려져도 눈덩이는 바로 닿는다. 눈 오는 날이 아니거나 방향이 없거나
+    /// 던진 팀원이 내 광장에 보이지 않으면 버린다. 그린 자리에 없는 표적(모르는 ID, 잠수 중인 팀원)은 빗나간 것으로 날아간다.
+    func showSnowball(from sender: String, on target: String?, tiles: Int, direction: PlazaDirection?) {
+        guard let scene, let direction, scene.isSnowDay, let from = scene.memberTiles[sender] else { return }
+        let isMe = target == memberID()
+        let isDitto = target == PlazaDitto.sceneKey
+        let resolved: (id: String?, tile: TilePoint)?
+        if isMe {
+            resolved = scene.isDiving ? nil : (nil, scene.walker.tile)
+        } else if isDitto {
+            resolved = scene.dittoTile.map { (PlazaDitto.sceneKey, $0) }
+        } else if let target, let tile = scene.memberTiles[target], scene.memberIsDiving(target) != true {
+            resolved = (target, tile)
+        } else {
+            resolved = nil
+        }
+        let shot: PlazaSnowballShot
+        if let resolved {
+            shot = PlazaSnowballShot(from: from, direction: direction, end: .actor(id: resolved.id, tile: resolved.tile))
+        } else if let miss = PlazaSnowball.aim(from: from, facing: direction, targets: [:], map: map) {
+            shot = miss
+        } else {
+            return
+        }
+        let hit = resolved.map { PlazaSnowball.hits(thrower: from, target: $0.tile, direction: direction) } ?? false
+        let pushed = TeamEmote.pushTiles(tiles)
+        scene.playSnowball(by: sender, shot: shot) { [weak self] in
+            guard let self, hit else { return }
+            if isMe {
+                if self.canBePushed { self.scene?.pushMe(direction, tiles: pushed) }
+            } else if isDitto, self.shownDitto?.isDecoy == false {
+                self.dittoFormTackled(by: sender)
+            }
+        }
     }
 
     /// 집중 중이거나 모닥불 메뉴를 연 나는 밀리지 않는다.
@@ -1767,6 +1836,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.onJumpKey = nil
             scene.onGreetKey = nil
             scene.onTackleKey = nil
+            scene.onSnowballKey = nil
             scene.onGroupPhotoKey = nil
             scene.onFireworkKey = nil
             scene.onDanceRound = nil

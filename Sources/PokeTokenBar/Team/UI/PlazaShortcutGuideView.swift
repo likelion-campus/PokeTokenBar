@@ -5,14 +5,19 @@ import AppKit
 @MainActor
 struct PlazaShortcutGuide: View {
     /// 키와 하는 일. 장면이 받는 키와 같아야 한다.
-    static var entries: [(key: String, label: String)] {
+    static var entries: [(key: String, label: String)] { entries(isSnowDay: false) }
+
+    /// 눈 오는 날에는 C 바로 뒤에 V(눈뭉치)가 끼어든다.
+    static func entries(isSnowDay: Bool) -> [(key: String, label: String)] {
         let l = L(.ko)
-        return [
+        var rows: [(key: String, label: String)] = [
             (l.plazaShortcutArrows, l.plazaShortcutWalk), ("Shift", l.plazaShortcutRun), ("Space", l.plazaShortcutTalk),
             ("Enter", l.plazaShortcutChat), ("1–5", l.plazaShortcutEmotes), ("Z", l.plazaJump),
             ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("D", l.plazaShortcutDance), ("F", l.plazaShortcutFirework), ("P", l.plazaShortcutPhoto), ("G", l.plazaShortcutGroupPhoto),
             ("−/+", l.plazaShortcutZoom),
         ]
+        if isSnowDay, let c = rows.firstIndex(where: { $0.key == "C" }) { rows.insert(("V", l.plazaShortcutSnowball), at: c + 1) }
+        return rows
     }
 
     /// 창 왼쪽 끝에서 펼친 안내판의 오른쪽 끝까지(포인트).
@@ -34,7 +39,7 @@ struct PlazaShortcutGuide: View {
             .buttonStyle(.plain)
             .focusable(false)
             if !model.isFolded {
-                ForEach(Self.entries, id: \.key) { entry in
+                ForEach(Self.entries(isSnowDay: model.isSnowDay), id: \.key) { entry in
                     HStack(spacing: 6) {
                         Text(entry.key)
                             .padding(.horizontal, 3)
@@ -58,6 +63,7 @@ struct PlazaShortcutGuide: View {
 @MainActor @Observable
 final class PlazaShortcutGuideModel {
     var isFolded = false
+    var isSnowDay = false
 }
 
 /// 머리줄 단추만 누를 수 있다. 키는 받지 않아 장면이 첫 응답자를 유지한다.

@@ -23,6 +23,8 @@ final class PlazaDittoControllerTests: XCTestCase {
     private var code: TeamCode!
     private let map = PlazaMapData.map
     private let key = PlazaDitto.sceneKey
+    /// When set, sessions made by `node` read this time (the clock-skew check on a received Ditto compares against it).
+    private var sessionNow: Date?
 
     override func setUp() async throws {
         hub = FakeTransportHub()
@@ -57,7 +59,8 @@ final class PlazaDittoControllerTests: XCTestCase {
         let transport = hub.makeTransport()
         let current = character ?? Self.pikachu
         let session = TeamSession(settings: settings, feed: feed, transport: transport,
-                                  profileProvider: { TeamMemberProfile(memberID: settings.memberID, nickname: name, current: current, dex: []) })
+                                  profileProvider: { TeamMemberProfile(memberID: settings.memberID, nickname: name, current: current, dex: []) },
+                                  clock: { [unowned self] in sessionNow ?? Date() })
         session.updateCharacter(current)
         session.applySettings()
         return Node(settings: settings, session: session, transport: transport)
@@ -1744,5 +1747,84 @@ extension PlazaDittoControllerTests {
         XCTAssertEqual(sent.first?.targetMemberID, v.id)
         XCTAssertEqual(v.session.members[me.id]?.ditto.map { PlazaPathfinder.isAdjacent($0.tile, row(10)) }, true,
                        "the copy's place reached the teammate before the tackle")
+    }
+
+    // MARK: - Snowballs
+
+    private var snowDay: Date {
+        PlazaWeather.gregorian.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 12))!
+    }
+
+    /// A row of four ground tiles for me and three more to my right, clear of where the other members stand.
+    private func rowOfFour() -> TilePoint {
+        let taken = [ground(8, 8), ground(-5, 0), map.spawn]
+        for y in 0..<map.height { for x in 0..<(map.width - 4) {
+            let row = (0..<4).map { TilePoint(x: x + $0, y: y) }
+            if row.allSatisfy({ PlazaDitto.isGround($0, in: map) && !taken.contains($0) }) { return row[0] }
+        } }
+        XCTFail("no row of four ground tiles")
+        return map.spawn
+    }
+
+    func testASnowballRevealsTheCopyWhenItLands() async {
+        let now = snowDay
+        sessionNow = now
+        let nodes = sorted(3)
+        let (a, me, m) = (nodes[0], nodes[1], nodes[2])
+        await connect(a, me); await connect(m, me)
+        let start = rowOfFour()
+        let copyTile = TilePoint(x: start.x + 3, y: start.y)
+        let c = controller(me, start: start, clock: { now })
+        c.prepareScene()
+        place(m, at: ground(-5, 0))
+        host(a, dittoForm(copyTile, now: now).copying(m.id, now: now))
+        await settle()
+        c.advanceDitto(now: now)
+        XCTAssertEqual(c.scene?.decoyTile, copyTile, "test precondition")
+        let log = emotes(from: a)
+        c.scene?.face(.right)
+        _ = c.scene?.handleKeyDown(keyCode: 9, characters: "v", isRepeat: false)
+        await settle()
+        XCTAssertEqual(log.items.filter { $0.kind == .snowball }.first?.targetMemberID, key)
+        XCTAssertTrue(log.items.filter { $0.kind == .decoyFound }.isEmpty, "not found before it lands")
+        XCTAssertEqual(c.shownDitto?.decoyOf, m.id)
+        var t = 0.0
+        c.scene?.update(t)
+        while t < 0.5 { t += 0.05; c.scene?.update(t) }
+        await settle()
+        XCTAssertEqual(log.items.filter { $0.kind == .decoyFound }.first?.targetMemberID, m.id)
+        XCTAssertEqual(c.shownDitto?.isDecoy, false)
+        XCTAssertEqual(c.banner, "나님이 메타몽을 찾았어요!")
+    }
+
+    func testASnowballFromAfarTurnsTheHostsDittoFormIntoTheThrower() async {
+        let now = snowDay
+        sessionNow = now
+        let t = await hostingDittoForm(now: now, clock: { now })
+        let scene = t.c.scene!
+        let ditto = beside()
+        var spot: (tile: TilePoint, toward: PlazaDirection)?
+        search: for k in 2...6 {
+            for (d, back) in [(PlazaDirection.right, PlazaDirection.left), (.left, .right), (.down, .up), (.up, .down)] {
+                var tile = ditto
+                for _ in 0..<k { tile = PlazaWalker.offset(tile, back) }
+                var clear = PlazaDitto.isGround(tile, in: map) && tile != meStart.me
+                var between = ditto
+                for _ in 0..<(k - 1) { between = PlazaWalker.offset(between, back); clear = clear && map.isWalkable(between) && between != meStart.me }
+                if clear { spot = (tile, d); break search }
+            }
+        }
+        guard let spot else { return XCTFail("no tile in line with the Ditto form") }
+        place(t.m, at: spot.tile)
+        var time = 0.0
+        for _ in 0..<200 where scene.memberTiles[t.m.id] != spot.tile { await Task.yield(); time += 0.05; scene.update(time) }
+        XCTAssertEqual(scene.memberTiles[t.m.id], spot.tile, "test precondition")
+        let across: PlazaDirection = (spot.toward == .left || spot.toward == .right) ? .down : .right
+        t.c.showSnowball(from: t.m.id, on: key, tiles: 1, direction: across)
+        for _ in 0..<20 { time += 0.05; scene.update(time) }
+        XCTAssertEqual(t.c.shownDitto?.isDecoy, false, "out of line the form stays")
+        t.c.showSnowball(from: t.m.id, on: key, tiles: 1, direction: spot.toward)
+        for _ in 0..<20 { time += 0.05; scene.update(time) }
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.m.id)
     }
 }
