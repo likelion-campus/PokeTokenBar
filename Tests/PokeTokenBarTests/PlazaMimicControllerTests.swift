@@ -31,6 +31,7 @@ final class PlazaMimicControllerTests: XCTestCase {
     private let map = PlazaMapData.map
     private let key = PlazaDitto.sceneKey
     private var mySpecies = 7
+    private var myName = "나"
     private let myColor: UInt32 = 0xFFE14D
 
     override func setUp() async throws {
@@ -90,7 +91,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         let p = prefs()
         p.saveLastTile(row(10))
         return PlazaWindowController(preferences: p, loader: PlazaCharacterLoader(fetcher: RecordingFetcher()),
-                                     nickname: { "나" }, memberID: { me.settings.memberID },
+                                     nickname: { [unowned self] in myName }, memberID: { me.settings.memberID },
                                      subject: { [unowned self] in .init(speciesID: mySpecies, isShiny: false) },
                                      nameColor: { [unowned self] in myColor },
                                      session: me.session, clock: { [unowned self] in now },
@@ -109,8 +110,14 @@ final class PlazaMimicControllerTests: XCTestCase {
         await settle()
     }
 
+    /// Waits on the condition, never on a yield count: the sprite fetcher runs off the main actor.
     private func waitUntil(_ condition: () -> Bool, line: UInt = #line) async {
-        for _ in 0..<400 where !condition() { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(10)
+        var spins = 0
+        while !condition(), ContinuousClock.now < deadline {
+            spins += 1
+            if spins < 400 { await Task.yield() } else { try? await Task.sleep(for: .milliseconds(2)) }
+        }
         XCTAssertTrue(condition(), "condition not reached", line: line)
     }
 
@@ -171,7 +178,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.memberNameColor(m.id), PlazaNameColor.color(forMemberID: x.id, chosen: jiaColor))
         XCTAssertEqual(w.scene.memberTitle(m.id), nature(.timid))
         XCTAssertEqual(w.c.shownMimics, [m.id: x.id])
-        XCTAssertEqual(w.c.appliedMemberSpecies(m.id).last, 25)
+        await waitUntil { w.c.appliedMemberSpecies(m.id).last == 25 }
         let same = w.c.minimapDots.filter { $0.color == w.scene.memberNameColor(x.id) }
         XCTAssertEqual(Set(same.map(\.id)), [m.id, x.id], "both dots wear the copied colour")
 
@@ -179,7 +186,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         await waitUntil { w.c.shownMimics.isEmpty }
         await settle()
         XCTAssertEqual(w.scene.memberName(m.id), "민수")
-        XCTAssertEqual(w.c.appliedMemberSpecies(m.id).last, 132)
+        await waitUntil { w.c.appliedMemberSpecies(m.id).last == 132 }
     }
 
     func testACopyOfMeShowsMyRealLook() async {
@@ -190,7 +197,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         await settle()
         XCTAssertEqual(w.scene.memberName(m.id), "나")
         XCTAssertEqual(w.scene.memberNameColor(m.id), PlazaNameColor.color(forMemberID: w.me.id, chosen: myColor))
-        XCTAssertEqual(w.c.appliedMemberSpecies(m.id).last, mySpecies)
+        await waitUntil { w.c.appliedMemberSpecies(m.id).last == mySpecies }
     }
 
     func testACopyOfACopierShowsTheirRealLook() async {
@@ -203,7 +210,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         await waitUntil { w.c.shownMimics[a.id] == b.id && w.c.shownMimics[b.id] == x.id }
         await settle()
         XCTAssertEqual(w.scene.memberName(a.id), "비", "b's own name, not 지아")
-        XCTAssertEqual(w.c.appliedMemberSpecies(a.id).last, 132)
+        await waitUntil { w.c.appliedMemberSpecies(a.id).last == 132 }
         XCTAssertEqual(w.scene.memberName(b.id), "지아")
     }
 
@@ -324,7 +331,7 @@ final class PlazaMimicControllerTests: XCTestCase {
         await settle()
         XCTAssertEqual(w.scene.memberName(key), "민수")
         XCTAssertEqual(w.scene.memberNameColor(key), PlazaNameColor.color(forMemberID: m.id, chosen: 0x7FD4FF))
-        XCTAssertEqual(w.c.appliedMemberSpecies(key).last, 132)
+        await waitUntil { w.c.appliedMemberSpecies(key).last == 132 }
 
         let loads = w.c.appliedMemberSpecies(key).count
         m.session.updateMimic(y.id)
@@ -373,6 +380,78 @@ final class PlazaMimicControllerTests: XCTestCase {
         await settle()
         XCTAssertEqual(log.items.map(\.kind), [.tackle])
         XCTAssertNil(w.c.mimicking)
+    }
+
+    private static let egg = TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil)
+
+    func testADittoCannotCopyAnEggTeammate() async {
+        let (w, _) = await dittoWorld()
+        let e = await join(w, "알", Self.egg, at: row(11))
+        let log = emotes(from: e)
+        w.c.chooseMenu(.tackle, memberID: e.id)
+        await settle()
+        XCTAssertNil(w.c.mimicking)
+        XCTAssertEqual(log.items.map(\.kind), [.mimicTackle], "the tackle is still sent, nobody is pushed")
+        XCTAssertNil(log.items.first?.pushTiles)
+    }
+
+    func testTheCopiedMemberBecomingAnEggEndsMyDisguise() async {
+        let (w, x) = await dittoWorld()
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        XCTAssertEqual(w.c.mimicking, x.id)
+        x.session.updateCharacter(Self.egg)
+        await waitUntil { w.c.mimicking == nil }
+        await waitUntil { x.session.members[w.me.id]?.mimicOf == nil }
+    }
+
+    func testAReceivedDisguiseOfAnEggIsDrawnAsTheSender() async {
+        let w = await world()
+        let m = await join(w, "민수", Self.ditto, at: row(20))
+        let e = await join(w, "알", Self.egg, at: row(24))
+        m.session.updateMimic(e.id)
+        await waitUntil { w.me.session.members[m.id]?.mimicOf == e.id }
+        await settle()
+        XCTAssertTrue(w.c.shownMimics.isEmpty)
+        XCTAssertEqual(w.scene.memberName(m.id), "민수")
+    }
+
+    func testTacklingTheOneIFollowStopsTheFollow() async {
+        let (w, x) = await dittoWorld()
+        XCTAssertTrue(w.scene.follow(member: x.id))
+        XCTAssertEqual(w.scene.followingMember, x.id, "test precondition")
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        XCTAssertEqual(w.c.mimicking, x.id)
+        XCTAssertNil(w.scene.walkingToMember)
+        XCTAssertNil(w.scene.followingMember)
+    }
+
+    func testAClockThatJumpedBackEndsMyDisguiseAtTheNextTick() async {
+        let (w, x) = await dittoWorld()
+        let t0 = now
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        now = t0.addingTimeInterval(-3600)
+        await gate.tick()
+        XCTAssertNil(w.c.mimicking)
+    }
+
+    func testTheHintNeverShowsMoreThanFiveMinutes() async {
+        let (w, x) = await dittoWorld()
+        let t0 = now
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        now = t0.addingTimeInterval(-3)   // a small step back is tolerated
+        w.c.refreshHintForTesting()
+        XCTAssertEqual(w.c.hint, "지아로 변신 중 · 5:00")
+    }
+
+    func testTheCountdownYieldsToTheSpaceHintOfAFacedTeammate() async {
+        let (w, x) = await dittoWorld()
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        w.c.refreshHintForTesting()
+        XCTAssertEqual(w.c.hint, "지아로 변신 중 · 5:00", "with nothing to press Space on, the countdown shows")
+        let doyun = await join(w, "도윤", Self.pikachu, at: row(11))
+        w.scene.face(.right)
+        w.c.refreshHintForTesting()
+        XCTAssertEqual(w.c.hint, L(.ko).plazaMemberHint(nickname: doyun.settings.nickname))
     }
 
     func testTacklingATeammateDisguisesMeAsThem() async {
@@ -519,6 +598,30 @@ final class PlazaMimicControllerTests: XCTestCase {
         w.c.chooseMenu(.tackle, memberID: x.id)
         w.c.refreshHintForTesting()
         XCTAssertFalse(w.c.hint?.contains("변신 중") ?? false)
+    }
+
+    func testACopyOfMeFollowsMyOwnChangesWithoutATeammateUpdate() async {
+        let w = await world()
+        let m = await join(w, "민수", Self.ditto, at: row(20))
+        m.session.updateMimic(w.me.id)
+        await waitUntil { w.c.shownMimics[m.id] == w.me.id }
+        await settle()
+        XCTAssertEqual(w.scene.memberName(m.id), "나")
+        myName = "새이름"
+        w.c.refreshNickname()
+        XCTAssertEqual(w.scene.memberName(m.id), "새이름")
+        mySpecies = 4
+        await w.c.refreshCharacter()
+        await waitUntil { w.c.appliedMemberSpecies(m.id).last == 4 }
+    }
+
+    func testTheMemberLoadLogKeepsOnlyTheLastSixtyFour() async {
+        let w = await world()
+        for i in 0..<100 { w.c.recordAppliedLoad("a", speciesID: i) }
+        w.c.recordAppliedLoad("b", speciesID: 1)
+        XCTAssertEqual(w.c.appliedMemberSpecies("a").count, 63)
+        XCTAssertEqual(w.c.appliedMemberSpecies("a").last, 99)
+        XCTAssertEqual(w.c.appliedMemberSpecies("b"), [1])
     }
 
     func testMyDisguiseFollowsTheirNameColour() async {
@@ -798,8 +901,36 @@ final class PlazaMimicControllerTests: XCTestCase {
         w.c.showMimicFound(from: m.id, finder: doyun.id)
         XCTAssertEqual(w.scene.shownEmote(memberID: m.id), .exclaim)
         XCTAssertEqual(w.c.banner, "도윤님이 민수의 메타몽을 찾았어요!")
+    }
+
+    func testAHostileFoundBannerIsIgnored() async {
+        let (w, x) = await dittoWorld()
+        let doyun = await join(w, "도윤", Self.pikachu, at: row(7))
+        let gone = await join(w, "떠남", Self.pikachu, at: row(8))
+        let m = await disguisedOther(w, x)
+        gone.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        await waitUntil { w.me.session.members[gone.id]?.inPlaza == false }
+        await settle()   // the controller observes the leave on the next hop
+
+        w.c.showMimicFound(from: m.id, finder: m.id)
+        XCTAssertNil(w.c.banner, "the sender cannot name itself")
+        w.c.showMimicFound(from: m.id, finder: gone.id)
+        w.c.showMimicFound(from: m.id, finder: "nobody")
+        XCTAssertNil(w.c.banner, "the finder must be in the plaza")
+        XCTAssertNil(w.scene.shownEmote(memberID: m.id))
+
+        w.c.showMimicFound(from: m.id, finder: doyun.id)
+        XCTAssertEqual(w.c.banner, "도윤님이 민수의 메타몽을 찾았어요!")
         w.c.showMimicFound(from: m.id, finder: w.me.id)
-        XCTAssertEqual(w.c.banner, "나님이 민수의 메타몽을 찾았어요!")
+        XCTAssertEqual(w.c.banner, "도윤님이 민수의 메타몽을 찾았어요!", "one find per disguise")
+
+        m.session.updateMimic(nil)
+        await waitUntil { w.c.shownMimics[m.id] == nil }
+        now = now.addingTimeInterval(1)
+        m.session.updateMimic(x.id)
+        await waitUntil { w.c.shownMimics[m.id] == x.id }
+        w.c.showMimicFound(from: m.id, finder: w.me.id)
+        XCTAssertEqual(w.c.banner, "나님이 민수의 메타몽을 찾았어요!", "a new disguise can be found again")
     }
 
     func testAFoundFromSomeoneNotDisguisedIsIgnored() async {

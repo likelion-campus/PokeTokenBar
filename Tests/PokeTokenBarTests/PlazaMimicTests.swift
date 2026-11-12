@@ -23,13 +23,13 @@ final class PlazaMimicTests: XCTestCase {
     }
 
     func testTackleDisguisesSwitchesReleasesOrKeeps() {
-        XCTAssertEqual(PlazaMimic.tackle("x", mine: nil, targetIsDisguised: false, targetInPlaza: true), .disguise(as: "x"))
-        XCTAssertEqual(PlazaMimic.tackle("y", mine: "x", targetIsDisguised: false, targetInPlaza: true), .disguise(as: "y"))
-        XCTAssertEqual(PlazaMimic.tackle("x", mine: "x", targetIsDisguised: false, targetInPlaza: true), .release)
-        XCTAssertEqual(PlazaMimic.tackle("b", mine: nil, targetIsDisguised: true, targetInPlaza: true), .keep)
-        XCTAssertEqual(PlazaMimic.tackle("b", mine: "x", targetIsDisguised: true, targetInPlaza: true), .keep)
-        XCTAssertEqual(PlazaMimic.tackle("b", mine: "b", targetIsDisguised: true, targetInPlaza: true), .keep)
-        XCTAssertEqual(PlazaMimic.tackle("x", mine: nil, targetIsDisguised: false, targetInPlaza: false), .keep)
+        XCTAssertEqual(PlazaMimic.tackle("x", mine: nil, targetIsDisguised: false, targetCopyable: true), .disguise(as: "x"))
+        XCTAssertEqual(PlazaMimic.tackle("y", mine: "x", targetIsDisguised: false, targetCopyable: true), .disguise(as: "y"))
+        XCTAssertEqual(PlazaMimic.tackle("x", mine: "x", targetIsDisguised: false, targetCopyable: true), .release)
+        XCTAssertEqual(PlazaMimic.tackle("b", mine: nil, targetIsDisguised: true, targetCopyable: true), .keep)
+        XCTAssertEqual(PlazaMimic.tackle("b", mine: "x", targetIsDisguised: true, targetCopyable: true), .keep)
+        XCTAssertEqual(PlazaMimic.tackle("b", mine: "b", targetIsDisguised: true, targetCopyable: true), .keep)
+        XCTAssertEqual(PlazaMimic.tackle("x", mine: nil, targetIsDisguised: false, targetCopyable: false), .keep)
     }
 
     func testMyDisguiseIsOverAfterFiveMinutesALeaveOrALostDitto() {
@@ -37,6 +37,17 @@ final class PlazaMimicTests: XCTestCase {
         XCTAssertTrue(PlazaMimic.isOver(since: t0, now: t0.addingTimeInterval(300), targetInPlaza: true, amDitto: true))
         XCTAssertTrue(PlazaMimic.isOver(since: t0, now: t0.addingTimeInterval(1), targetInPlaza: false, amDitto: true))
         XCTAssertTrue(PlazaMimic.isOver(since: t0, now: t0.addingTimeInterval(1), targetInPlaza: true, amDitto: false))
+    }
+
+    func testLettingGoNeedsNoCopyableTarget() {
+        XCTAssertEqual(PlazaMimic.tackle("x", mine: "x", targetIsDisguised: false, targetCopyable: false), .release,
+                       "letting go of the one I already am is always allowed")
+    }
+
+    func testAClockThatJumpedBackEndsMyDisguise() {
+        XCTAssertTrue(PlazaMimic.isOver(since: t0.addingTimeInterval(3600), now: t0, targetInPlaza: true, amDitto: true))
+        XCTAssertFalse(PlazaMimic.isOver(since: t0.addingTimeInterval(PlazaMimic.receiverGrace), now: t0, targetInPlaza: true, amDitto: true),
+                       "a small step back is still tolerated")
     }
 
     func testShownTargetFollowsAnHonestDisguise() {

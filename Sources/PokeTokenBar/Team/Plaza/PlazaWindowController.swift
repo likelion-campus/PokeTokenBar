@@ -67,6 +67,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var dittoBrain: PlazaDittoBrain?
     /// 내가 찾은 복사본의 `since`. 호스트의 소식이 따라잡기 전에 온 옛 복사본 소식을 다시 그리지 않는다.
     private var foundDittoSince: Date?
+    /// Per sender, the `mimicSeenAt` of the disguise already announced as found: one banner per disguise.
+    private var foundMimics: [String: Date] = [:]
     /// 메타몽에게 메뉴를 열 때 보인 메타몽. 고를 때 누구 모습인지가 바뀌었으면 고른 일을 하지 않는다.
     private var menuDitto: PlazaDittoState?
     /// 이 Mac이 지금 보여 주는 메타몽. 호스트가 바뀌어도 이어 받는다.
@@ -510,6 +512,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: hex)
         nameColorModel.isOpen = false
         scene?.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: hex))
+        redrawCopiesOfMe()
         refreshMinimap()
         if let skView { window?.makeFirstResponder(skView) }
     }
@@ -1012,7 +1015,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             // A Ditto's tackle pushes nobody: it copies the teammate (or lets go of them).
             session?.sendEmote(.mimicTackle, target: id)
             switch PlazaMimic.tackle(id, mine: myMimic?.of, targetIsDisguised: shownMimics[id] != nil,
-                                     targetInPlaza: members[id]?.inPlaza == true) {
+                                     targetCopyable: members[id].map { $0.inPlaza && $0.character.speciesID != nil } == true) {
             case .disguise(let target): beginMimic(as: target)
             case .release: endMimic()
             case .keep: break
@@ -1056,7 +1059,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     /// 런타임이 부른다. 변장한 팀원이 들켰다. 변장 중이라고 그리고 있는 팀원의 소식만 믿는다.
     func showMimicFound(from sender: String, finder: String?) {
-        guard scene != nil, let finder, shownMimics[sender] != nil else { return }
+        guard scene != nil, let finder, finder != sender, shownMimics[sender] != nil,
+              finder == memberID() || members[finder]?.inPlaza == true,
+              let disguise = members[sender]?.mimicSeenAt, foundMimics[sender] != disguise else { return }
+        foundMimics[sender] = disguise
         scene?.showEmote(memberID: sender, kind: .exclaim)
         let finderName = finder == memberID() ? nickname() : members[finder]?.nickname
         if let finderName, let owner = members[sender]?.nickname {
@@ -1224,8 +1230,6 @@ struct PlazaFocusEnd: Equatable, Sendable {
             let targets = pullTargets(scene)
             let id = PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targets)
             text = id.flatMap { hintName(of: $0) }.map { L(.ko).plazaPullHint(nickname: $0) } ?? L(.ko).plazaDivingHint
-        } else if let mimic = myMimic, let look = myShownLook, overlayModel.content == .none, !chatInput.isOpen {
-            text = L(.ko).plazaMimicHint(nickname: look.name, seconds: mimic.since.addingTimeInterval(PlazaMimic.duration).timeIntervalSince(clock()))
         } else if overlayModel.content == .none, !chatInput.isOpen, let startle = startleHint(), startle.hasTarget {
             text = startle.text
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
@@ -1236,6 +1240,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
             }
         }
         if text == nil, !isPhotoMode, focus == nil, overlayModel.content == .none, !chatInput.isOpen { text = startleHint()?.text }
+        // The countdown only fills an otherwise empty hint: interaction and startle hints win.
+        if text == nil, !isPhotoMode, let mimic = myMimic, let look = myShownLook, overlayModel.content == .none, !chatInput.isOpen {
+            let left = min(PlazaMimic.duration, mimic.since.addingTimeInterval(PlazaMimic.duration).timeIntervalSince(clock()))
+            text = L(.ko).plazaMimicHint(nickname: look.name, seconds: left)
+        }
         if overlayModel.hint != text { overlayModel.hint = text }
     }
 
@@ -1749,6 +1758,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     var myShownSubject: CompanionStore.RepresentativeSubject { myShownLook?.subject ?? subject() }
 
     private func beginMimic(as id: String) {
+        if scene?.walkingToMember == id { scene?.stopWalkingToMember() }   // also a follow
         myMimic = (id, clock())
         session?.updateMimic(id)
         refreshMyLook()
@@ -1773,22 +1783,24 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if myShownSubject != oldSubject { Task { await refreshCharacter() } }
     }
 
-    /// A member's real look, never a disguise: me, or a member in the plaza.
+    /// A member's real look, never a disguise: me, or a member in the plaza. Never an egg: a Ditto can't copy one.
     private func realLook(of id: String) -> PlazaMimicLook? {
         if id == memberID() {
+            guard subject().speciesID != nil else { return nil }
             return PlazaMimicLook(memberID: id, name: nickname(), nameHex: PlazaNameColor.hex(forMemberID: id, chosen: nameColor()),
                                   nature: (myEntryCache ?? nil)?.nature, subject: subject())
         }
-        guard let m = members[id], m.inPlaza else { return nil }
+        guard let m = members[id], m.inPlaza, m.character.speciesID != nil else { return nil }
         return PlazaMimicLook(memberID: id, name: m.nickname, nameHex: PlazaNameColor.hex(forMemberID: id, chosen: m.nameColor),
                               nature: m.character.nature,
                               subject: .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form))
     }
 
-    /// Who each member is drawn as. Only members in the plaza (and me) can be copied.
+    /// Who each member is drawn as. Only members in the plaza (and me) can be copied, and never an egg: this must stay
+    /// consistent with `realLook`, or the 1 s tick redraws every second.
     private func mimicTargets() -> [String: String] {
-        var inPlaza = Set(members.values.filter(\.inPlaza).map(\.memberID))
-        inPlaza.insert(memberID())
+        var inPlaza = Set(members.values.filter { $0.inPlaza && $0.character.speciesID != nil }.map(\.memberID))
+        if subject().speciesID != nil { inPlaza.insert(memberID()) }
         let now = clock()
         var targets: [String: String] = [:]
         for m in members.values {
@@ -1855,9 +1867,16 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let frames = await loader.frames(for: subject)
         guard memberLoadTokens[id] == token, let scene else { return false }
         scene.setMemberFrames(id, frames)
-        appliedMemberLoads.append((id, subject.speciesID))
+        recordAppliedLoad(id, speciesID: subject.speciesID)
         return Self.shouldRetry(frames, attempt: attempt)
     }
+
+    /// Test-only log of applied sprite loads, capped so it can't grow while the plaza stays open.
+    func recordAppliedLoad(_ id: String, speciesID: Int?) {
+        appliedMemberLoads.append((id, speciesID))
+        if appliedMemberLoads.count > Self.appliedMemberLoadLimit { appliedMemberLoads.removeFirst(appliedMemberLoads.count - Self.appliedMemberLoadLimit) }
+    }
+    private static let appliedMemberLoadLimit = 64
 
     func appliedMemberSpecies(_ id: String) -> [Int?] { appliedMemberLoads.filter { $0.id == id }.map(\.speciesID) }
 
@@ -1869,6 +1888,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private func loadCharacter(attempt: Int) async {
         guard let current = scene else { return }
         endMimicIfDue()
+        redrawCopiesOfMe()
         // 그림 로딩을 기다리지 않고 바로 반영한다(알이면 지금 걷는 칸만 마치고 선다).
         current.canWalk = subject().speciesID != nil
         current.myEvolutionStage = evolutionStage()
@@ -1902,6 +1922,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
     func refreshNickname() {
         scene?.setNickname(nickname())
         refreshMyEntry()
+        redrawCopiesOfMe()
+    }
+
+    /// A teammate drawn as me shows my look on my screen too: redraw when my own look changed, without waiting for their update.
+    private func redrawCopiesOfMe() {
+        if shownMimics.values.contains(memberID()) { applyMembersToScene() }
     }
 
     /// 내 칸은 도감 전체를 훑어 만들므로 캐시한다. 내 쪽이 바뀔 때(`refreshMyEntry`)와 창을 열 때만 다시 만든다.
@@ -1941,6 +1967,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         dittoLoop = nil
         dittoBrain = nil
         foundDittoSince = nil
+        foundMimics = [:]
         shownDitto = nil
         shownDittoLook = nil
         session?.updateDitto(ready: false, state: nil)
