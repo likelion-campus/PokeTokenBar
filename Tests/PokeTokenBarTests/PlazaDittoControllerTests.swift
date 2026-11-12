@@ -1090,14 +1090,15 @@ final class PlazaDittoControllerTests: XCTestCase {
     }
 
     /// [me host, m]: the host's Ditto form rests right beside me; m stands away from it.
-    private func hostingDittoForm(now: Date = Date(), seed: UInt64 = 7) async -> (c: PlazaWindowController, me: Node, m: Node) {
+    private func hostingDittoForm(now: Date = Date(), seed: UInt64 = 7, resting: Bool = true,
+                                  clock: @escaping () -> Date = Date.init) async -> (c: PlazaWindowController, me: Node, m: Node) {
         let nodes = sorted(3)
         let (a, me, m) = (nodes[0], nodes[1], nodes[2])
         await connect(a, me); await connect(m, me)
-        let c = controller(me, seed: seed, start: meStart.me)
+        let c = controller(me, seed: seed, start: meStart.me, clock: clock)
         c.prepareScene()
         place(m, at: ground(-5, 0))
-        host(a, dittoForm(beside(), now: now).turnedBack(now: now))
+        host(a, resting ? dittoForm(beside(), now: now).turnedBack(now: now) : dittoForm(beside(), now: now))
         await settle()
         c.advanceDitto(now: now)
         // a leaves; I carry the resting Ditto form on.
@@ -1107,7 +1108,7 @@ final class PlazaDittoControllerTests: XCTestCase {
         c.advanceDitto(now: now.addingTimeInterval(0.05))
         XCTAssertTrue(c.isDittoHost, "test precondition")
         XCTAssertEqual(c.shownDitto?.isDecoy, false, "test precondition")
-        XCTAssertNotNil(c.shownDitto?.restUntil, "test precondition")
+        XCTAssertEqual(c.shownDitto?.restUntil != nil, resting, "test precondition")
         return (c, me, m)
     }
 
@@ -1147,6 +1148,59 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(t.c.shownDitto?.tile, TilePoint(x: beside().x + 1, y: beside().y), "away from me")
         await settle()
         XCTAssertEqual(t.m.session.members[t.me.id]?.ditto?.isBouncing, true, "teammates are told it bounces")
+    }
+
+    /// The real case: I walk up to a Ditto that is not resting. It does not copy me at once, so my tackle is what decides.
+    func testATackleRightAfterWalkingUpToAFreshDittoStillBouncesIt() async {
+        var now = Date()
+        let t = await hostingDittoForm(now: now, seed: 7, resting: false, clock: { now })
+        for _ in 0..<10 { now += 0.05; t.c.advanceDitto(now: now) }
+        XCTAssertEqual(t.c.shownDitto?.isDecoy, false, "half a second beside it is not enough to be copied")
+        XCTAssertEqual(t.c.shownDitto?.tile, beside(), "and it stays to be tackled")
+        t.c.scene?.onTackleKey?()
+        XCTAssertEqual(t.c.shownDitto?.isBouncing, true)
+        XCTAssertEqual(t.c.shownDitto?.isDecoy, false)
+    }
+
+    /// Standing beside a fresh Ditto for the copy delay is what gets me copied.
+    func testAFreshDittoCopiesMeAfterIStandBesideItForTheDelay() async {
+        var now = Date()
+        let t = await hostingDittoForm(now: now, resting: false, clock: { now })
+        let start = now
+        while now.timeIntervalSince(start) < PlazaDittoBrain.copyDelay - 0.2 { now += 0.05; t.c.advanceDitto(now: now) }
+        XCTAssertEqual(t.c.shownDitto?.isDecoy, false)
+        while now.timeIntervalSince(start) < PlazaDittoBrain.copyDelay + 0.3 { now += 0.05; t.c.advanceDitto(now: now) }
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.me.id)
+    }
+
+    /// I dance beside a fresh Ditto: it dances along in its own form for as long as I keep going, and copies me only after
+    /// I have stopped and stayed for the delay.
+    func testAFreshDittoDancingAlongWithMeDoesNotCopyMe() async {
+        var now = Date()
+        let t = await hostingDittoForm(now: now, resting: false, clock: { now })
+        t.c.scene?.now = { now }
+        var next = now, lastRound = now
+        let end = now.addingTimeInterval(10)
+        while now < end {
+            if now >= next {
+                _ = t.c.scene?.handleKeyDown(keyCode: 2, characters: "d", isRepeat: false)
+                lastRound = now
+                next += PlazaDance.round
+            }
+            now += 0.05
+            t.c.advanceDitto(now: now)
+            XCTAssertEqual(t.c.shownDitto?.isDecoy, false, "at \(10 - end.timeIntervalSince(now))")
+        }
+        XCTAssertTrue(t.c.scene?.isDancing(memberID: key) == true)
+        XCTAssertEqual(t.c.shownDitto?.tile, beside())
+        // The dancing stops: the hold runs out a round and its grace after my last round, and the delay starts from there.
+        let held = lastRound.addingTimeInterval(PlazaDitto.danceHold)
+        while now < held.addingTimeInterval(PlazaDittoBrain.copyDelay - 0.3) {
+            now += 0.05; t.c.advanceDitto(now: now)
+            XCTAssertEqual(t.c.shownDitto?.isDecoy, false)
+        }
+        while now < held.addingTimeInterval(PlazaDittoBrain.copyDelay + 0.3) { now += 0.05; t.c.advanceDitto(now: now) }
+        XCTAssertEqual(t.c.shownDitto?.decoyOf, t.me.id)
     }
 
     private func hop(_ c: PlazaWindowController) -> CGFloat {

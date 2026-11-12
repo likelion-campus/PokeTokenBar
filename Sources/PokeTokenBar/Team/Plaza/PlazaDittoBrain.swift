@@ -51,6 +51,12 @@ struct PlazaDittoBrain {
     /// A tackle on the Ditto form: this often it bounces away instead of copying the tackler, up to this many tiles.
     static let bounceChance = 0.5
     static let bounceTiles = 4
+    /// The Ditto copies a neighbour only after they have stood beside it this long, so there is time to tackle it or dance.
+    static let copyDelay: TimeInterval = 3
+    /// The neighbour it is about to copy and since when they have stood beside it.
+    private var neighbour: (id: String, since: Date)?
+    /// It dances along until then and copies nobody meanwhile.
+    private var danceUntil = Date.distantPast
     private var pranksLeft = 0
     private var nextPrankAt = Date.distantFuture
     /// The member the copy is walking up to.
@@ -100,11 +106,21 @@ struct PlazaDittoBrain {
             if route.isEmpty { state.isWalking = nil; state.isRunning = nil; state.isBouncing = nil }
         }
 
-        // A Ditto bouncing away from a tackle does not copy the tackler it has not left yet.
-        if !state.isDecoy, state.isBouncing != true, state.restUntil.map({ now >= $0 }) ?? true,
+        // A Ditto bouncing away from a tackle does not copy the tackler it has not left yet, and a dancing one copies nobody.
+        if !state.isDecoy, state.isBouncing != true, now >= danceUntil,
            let id = PlazaDitto.copyTarget(ditto: state.tile, copyable: world.copyable) {
-            copy(id, now: now)
-            events.append(.transformed(id))
+            if neighbour?.id != id { neighbour = (id, now) }
+            if let since = neighbour?.since, state.restUntil.map({ now >= $0 }) ?? true {
+                if now.timeIntervalSince(since) >= Self.copyDelay {
+                    copy(id, now: now)
+                    events.append(.transformed(id))
+                } else {
+                    // It does not wander off from the neighbour it is about to copy.
+                    waitUntil = max(waitUntil, since.addingTimeInterval(Self.copyDelay))
+                }
+            }
+        } else {
+            neighbour = nil
         }
 
         guard stepEnd == nil else { return events }
@@ -199,9 +215,10 @@ struct PlazaDittoBrain {
         return path
     }
 
-    /// The Ditto is dancing along with someone: stand until `until`. A flee goes on; a walk under way goes on too, since
+    /// The Ditto is dancing along with someone: stand until `until` and copy nobody. A flee goes on; a walk under way goes on too, since
     /// its route runs before the wait is looked at and its last step sets a fresh wait.
     mutating func hold(until: Date) {
+        danceUntil = max(danceUntil, until)
         guard !fleeing else { return }
         waitUntil = max(waitUntil, until)
     }
@@ -212,6 +229,7 @@ struct PlazaDittoBrain {
     private mutating func copy(_ id: String, now: Date) {
         state = state.copying(id, now: now)
         fleeing = true
+        neighbour = nil
         route = []
         waitUntil = now
         prankTarget = nil
