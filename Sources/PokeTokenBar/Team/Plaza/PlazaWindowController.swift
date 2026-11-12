@@ -995,6 +995,17 @@ struct PlazaFocusEnd: Equatable, Sendable {
             dittoFormTackled(by: memberID())
             return
         }
+        if PlazaMimic.isDitto(speciesID: subject().speciesID) {
+            // A Ditto's tackle pushes nobody: it copies the teammate (or lets go of them).
+            session?.sendEmote(.mimicTackle, target: id)
+            switch PlazaMimic.tackle(id, mine: myMimic?.of, targetIsDisguised: shownMimics[id] != nil,
+                                     targetInPlaza: members[id]?.inPlaza == true) {
+            case .disguise(let target): beginMimic(as: target)
+            case .release: endMimic()
+            case .keep: break
+            }
+            return
+        }
         session?.sendEmote(.tackle, target: id, pushTiles: TeamEmote.pushTiles(evolutionStage()))
     }
 
@@ -1164,6 +1175,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             let targets = pullTargets(scene)
             let id = PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targets)
             text = id.flatMap { members[$0]?.nickname }.map { L(.ko).plazaPullHint(nickname: $0) } ?? L(.ko).plazaDivingHint
+        } else if let mimic = myMimic, let look = myShownLook, overlayModel.content == .none, !chatInput.isOpen {
+            text = L(.ko).plazaMimicHint(nickname: look.name, seconds: mimic.since.addingTimeInterval(PlazaMimic.duration).timeIntervalSince(clock()))
         } else if overlayModel.content == .none, !chatInput.isOpen, let startle = startleHint(), startle.hasTarget {
             text = startle.text
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
@@ -1658,6 +1671,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         wasIdle = session.isIdle
         if let followed = scene?.followingMember, focusRemaining(of: followed) != nil { scene?.stopWalkingToMember() }
         applyMembersToScene()
+        endMimicIfDue()
+        refreshMyLook()
         refreshCampfire()
         // 팀원 소식(들어옴·나감·위치·메타몽)이 올 때마다 메타몽도 따라간다. 루프가 돌기 전(광장을 여는 중)에는 건드리지 않는다.
         if dittoLoop != nil { advanceDitto(now: clock()) }
@@ -1666,8 +1681,46 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// A disguise runs out on its own, with no news from the teammate. The 1 s tick calls this: redraw when who is
     /// drawn as whom has changed.
     func endMimicIfDue() {
-        guard scene != nil, mimicTargets() != shownMimics else { return }
-        applyMembersToScene()
+        guard scene != nil else { return }
+        if let mine = myMimic,
+           PlazaMimic.isOver(since: mine.since, now: clock(), targetInPlaza: realLook(of: mine.of) != nil,
+                             amDitto: PlazaMimic.isDitto(speciesID: subject().speciesID)) {
+            endMimic()
+        }
+        if mimicTargets() != shownMimics { applyMembersToScene() }
+        if myMimic != nil { refreshHint() }   // the time left counts down
+    }
+
+    /// Who I am disguised as and since when, nil while I am myself.
+    private var myMimic: (of: String, since: Date)?
+    /// The look I am drawn with while disguised.
+    private var myShownLook: PlazaMimicLook?
+    var mimicking: String? { myMimic?.of }
+    var myShownSubject: CompanionStore.RepresentativeSubject { myShownLook?.subject ?? subject() }
+
+    private func beginMimic(as id: String) {
+        myMimic = (id, clock())
+        session?.updateMimic(id)
+        refreshMyLook()
+        refreshHint()
+    }
+
+    private func endMimic() {
+        guard myMimic != nil else { return }
+        myMimic = nil
+        session?.updateMimic(nil)
+        refreshMyLook()
+        refreshHint()
+    }
+
+    /// Follows the copied member's changes; reloads my sprite only when the drawn species changed.
+    private func refreshMyLook() {
+        let look = myMimic.flatMap { realLook(of: $0.of) }
+        guard look != myShownLook else { return }
+        let oldSubject = myShownSubject
+        myShownLook = look
+        scene?.setMyDisguise(look)
+        if myShownSubject != oldSubject { Task { await refreshCharacter() } }
     }
 
     /// A member's real look, never a disguise: me, or a member in the plaza.
@@ -1765,13 +1818,14 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     private func loadCharacter(attempt: Int) async {
         guard let current = scene else { return }
+        endMimicIfDue()
         // 그림 로딩을 기다리지 않고 바로 반영한다(알이면 지금 걷는 칸만 마치고 선다).
         current.canWalk = subject().speciesID != nil
         current.myEvolutionStage = evolutionStage()
         refreshGeneration += 1
         let generation = refreshGeneration
         applyDiveLimit(generation: generation, speciesID: subject().speciesID)
-        let frames = await loader.frames(for: subject())
+        let frames = await loader.frames(for: myShownSubject)
         // 기다리는 동안 닫혔거나 더 새 요청이 있었으면 버린다.
         guard generation == refreshGeneration, let scene else { return }
         scene.setCharacter(frames)
@@ -1840,6 +1894,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
         shownDitto = nil
         shownDittoLook = nil
         session?.updateDitto(ready: false, state: nil)
+        myMimic = nil
+        myShownLook = nil
+        session?.updateMimic(nil)
         chatInput.close()
         if overlayModel.content == .board { feed?.markAllRead() }
         persistState()

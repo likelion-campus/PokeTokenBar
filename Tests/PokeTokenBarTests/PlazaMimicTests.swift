@@ -62,4 +62,11 @@ final class PlazaMimicTests: XCTestCase {
             XCTAssertNil(PlazaMimic.shownTarget(of: m, now: now, inPlaza: plaza), label)
         }
     }
+
+    func testTheHintNamesThemAndCountsDown() {
+        XCTAssertEqual(L(.ko).plazaMimicHint(nickname: "지아", seconds: 252), "지아로 변신 중 · 4:12")
+        XCTAssertEqual(L(.ko).plazaMimicHint(nickname: "도윤", seconds: 0.2), "도윤으로 변신 중 · 0:01")
+        XCTAssertEqual(L(.ko).plazaMimicHint(nickname: "지아", seconds: 300), "지아로 변신 중 · 5:00")
+        XCTAssertEqual(L(.ko).plazaMimicHint(nickname: "지아", seconds: -3), "지아로 변신 중 · 0:00")
+    }
 }

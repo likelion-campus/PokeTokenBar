@@ -30,7 +30,7 @@ final class PlazaMimicControllerTests: XCTestCase {
     private let gate = TickGate()
     private let map = PlazaMapData.map
     private let key = PlazaDitto.sceneKey
-    private let mySpecies = 7
+    private var mySpecies = 7
     private let myColor: UInt32 = 0xFFE14D
 
     override func setUp() async throws {
@@ -311,5 +311,188 @@ final class PlazaMimicControllerTests: XCTestCase {
         await waitUntil { w.c.shownMimics[m.id] == y.id }
         await settle()
         XCTAssertEqual(w.c.appliedMemberSpecies(key).count, loads, "m switching disguise does not reload the guest Ditto")
+    }
+
+    // MARK: - My own disguise
+
+    @MainActor private final class EmoteLog { var items: [TeamEmote] = [] }
+
+    private func emotes(from node: Node) -> EmoteLog {
+        let log = EmoteLog()
+        node.session.onEmote = { log.items.append($1) }
+        return log
+    }
+
+    /// A world where I am a Ditto, with a Pikachu copy target `x` ("지아") in view.
+    private func dittoWorld() async -> (w: World, x: Node) {
+        mySpecies = 132
+        let w = await world()
+        let x = await join(w, "지아", Self.jia, at: row(24), nameColor: jiaColor)
+        return (w, x)
+    }
+
+    func testADittosTackleSendsAMimicTackleAndPushesNobody() async {
+        mySpecies = 132
+        let w = await world()
+        let x = await join(w, "지아", Self.jia, at: row(11), nameColor: jiaColor)
+        let log = emotes(from: x)
+        w.scene.face(.right)
+        w.scene.onTackleKey?()
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.mimicTackle])
+        XCTAssertEqual(log.items.first?.targetMemberID, x.id)
+        XCTAssertNil(log.items.first?.pushTiles)
+    }
+
+    func testOnlyADittoOnThePlazaMimics() async {
+        mySpecies = 25   // subject() already shows an egg-disguised Ditto as its fake species (spec 3)
+        let w = await world()
+        let x = await join(w, "지아", Self.jia, at: row(24), nameColor: jiaColor)
+        let log = emotes(from: x)
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.tackle])
+        XCTAssertNil(w.c.mimicking)
+    }
+
+    func testTacklingATeammateDisguisesMeAsThem() async {
+        let (w, x) = await dittoWorld()
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        await waitUntil { x.session.members[w.me.id]?.mimicOf == x.id }
+        XCTAssertEqual(w.c.mimicking, x.id)
+        XCTAssertEqual(w.scene.myShownName, "지아")
+        XCTAssertEqual(w.scene.myShownNameColor, PlazaNameColor.color(forMemberID: x.id, chosen: jiaColor))
+        XCTAssertEqual(w.scene.myTitle, nature(.timid))
+        XCTAssertEqual(w.c.myShownSubject, .init(speciesID: 25, isShiny: true))
+    }
+
+    func testTacklingAnotherTeammateSwitchesAndRestartsTheClock() async {
+        let (w, x) = await dittoWorld()
+        let y = await join(w, "노랑", Self.other, at: row(28))
+        let t0 = now
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        now = t0.addingTimeInterval(200)
+        w.c.chooseMenu(.tackle, memberID: y.id)
+        XCTAssertEqual(w.c.mimicking, y.id)
+        now = t0.addingTimeInterval(499)
+        await gate.tick()
+        XCTAssertEqual(w.c.mimicking, y.id)
+        now = t0.addingTimeInterval(500)
+        await gate.tick()
+        XCTAssertNil(w.c.mimicking)
+    }
+
+    func testTacklingTheSameTeammateAgainReleasesMe() async {
+        let (w, x) = await dittoWorld()
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        now = now.addingTimeInterval(1)
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        await waitUntil { x.session.members[w.me.id]?.mimicOf == nil }
+        XCTAssertNil(w.c.mimicking)
+        XCTAssertEqual(w.scene.myShownName, "나")
+    }
+
+    func testTacklingADisguisedDittoLeavesMeAsIAm() async {
+        let (w, x) = await dittoWorld()
+        let y = await join(w, "노랑", Self.other, at: row(28))
+        let b = await join(w, "비", Self.ditto, at: row(20))
+        let log = emotes(from: b)
+        b.session.updateMimic(x.id)
+        await waitUntil { w.c.shownMimics[b.id] == x.id }
+        w.c.chooseMenu(.tackle, memberID: b.id)
+        await settle()
+        XCTAssertEqual(log.items.map(\.kind), [.mimicTackle])
+        XCTAssertNil(w.c.mimicking)
+
+        now = now.addingTimeInterval(1)
+        w.c.chooseMenu(.tackle, memberID: y.id)
+        now = now.addingTimeInterval(1)
+        w.c.chooseMenu(.tackle, memberID: b.id)
+        XCTAssertEqual(w.c.mimicking, y.id)
+    }
+
+    func testCopyingAnUndisguisedDittoTakesItsRealLook() async {
+        let (w, x) = await dittoWorld()
+        let b = await join(w, "비", Self.ditto, at: row(20))
+        w.c.chooseMenu(.tackle, memberID: b.id)
+        XCTAssertEqual(w.c.mimicking, b.id)
+        XCTAssertEqual(w.scene.myShownName, "비")
+        XCTAssertEqual(w.c.myShownSubject.speciesID, 132)
+        b.session.updateMimic(x.id)
+        await waitUntil { w.c.shownMimics[b.id] == x.id }
+        await settle()
+        XCTAssertEqual(w.scene.myShownName, "비")
+        XCTAssertEqual(w.c.myShownSubject.speciesID, 132)
+    }
+
+    func testFiveMinutesEndMyDisguiseWhileTheWindowIsCovered() async {
+        let (w, x) = await dittoWorld()
+        let t0 = now
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        w.c.setRendering(visible: false)
+        await settle()
+        now = t0.addingTimeInterval(299)
+        await gate.tick()
+        XCTAssertEqual(w.c.mimicking, x.id)
+        now = t0.addingTimeInterval(300)
+        await gate.tick()
+        XCTAssertNil(w.c.mimicking)
+        await waitUntil { x.session.members[w.me.id]?.mimicOf == nil }
+        XCTAssertEqual(w.scene.myShownName, "나")
+        XCTAssertEqual(w.c.myShownSubject.speciesID, 132)
+    }
+
+    func testTheCopiedMemberLeavingEndsMyDisguise() async {
+        let (w, x) = await dittoWorld()
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        XCTAssertEqual(w.c.mimicking, x.id)
+        x.session.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
+        await waitUntil { w.c.mimicking == nil }
+        await waitUntil { x.session.members[w.me.id]?.mimicOf == nil }
+        XCTAssertNil(x.session.members[w.me.id]?.mimicOf)
+    }
+
+    func testNoLongerADittoEndsMyDisguise() async {
+        let (w, x) = await dittoWorld()
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        XCTAssertEqual(w.c.mimicking, x.id)
+        mySpecies = 25
+        await w.c.refreshCharacter()
+        XCTAssertNil(w.c.mimicking)
+    }
+
+    func testClosingThePlazaEndsMyDisguise() async {
+        let (w, x) = await dittoWorld()
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        await waitUntil { x.session.members[w.me.id]?.mimicOf == x.id }
+        w.c.handleClose()
+        await waitUntil { x.session.members[w.me.id]?.mimicOf == nil }
+        w.c.prepareScene()
+        XCTAssertNil(w.c.mimicking)
+        XCTAssertEqual(w.c.scene?.myShownName, "나")
+    }
+
+    func testTheHintShowsWhoIAmAndTheTimeLeft() async {
+        let (w, x) = await dittoWorld()
+        let t0 = now
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        now = t0.addingTimeInterval(48)
+        w.c.refreshHintForTesting()
+        XCTAssertEqual(w.c.hint, "지아로 변신 중 · 4:12")
+        now = t0.addingTimeInterval(59.5)
+        await gate.tick()
+        XCTAssertEqual(w.c.hint, "지아로 변신 중 · 4:01")
+        now = now.addingTimeInterval(1)
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        w.c.refreshHintForTesting()
+        XCTAssertFalse(w.c.hint?.contains("변신 중") ?? false)
+    }
+
+    func testMyDisguiseFollowsTheirNameColour() async {
+        let (w, x) = await dittoWorld()
+        w.c.chooseMenu(.tackle, memberID: x.id)
+        x.settings.nameColor = 0x7FD4FF
+        x.session.applySettings()
+        await waitUntil { w.scene.myShownNameColor == PlazaNameColor.color(forMemberID: x.id, chosen: 0x7FD4FF) }
     }
 }
