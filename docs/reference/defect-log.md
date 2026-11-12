@@ -1875,3 +1875,18 @@ read_when:
   the timer stopping on close. Whether one pause and resume always restarts a stuck view is so far shown only by the
   natural recovery; the log lines will show it in the field. **Class sweep:** the plaza `SKView` is the only
   SpriteKit view. The roster's bounce is a SwiftUI value with no display link of its own.
+
+- **A feature that needs a moment beside a character is dead when another rule fires the instant you arrive.**
+  In v2.5.625 the plaza Ditto could be bounced away with a tackle and danced with, yet in real use it only ever
+  transformed and turned back. A Ditto that is not resting copied a teammate the moment they stood beside it and
+  fled, so the tackle always landed on the copy (which reveals it) and there was nobody left to dance with. The
+  bounce was reachable only during the three-minute rest, and dancing along only from a diagonal tile, during the
+  rest, or with a copy. **Why nothing caught it:** every controller test for the tackle and the dance started
+  from `dittoForm(...).turnedBack(now:)`, a resting Ditto, because that is the state in which the Ditto holds still.
+  No test walked up to a fresh one, which is what a person does first. **Fix:** the Ditto copies a neighbour only
+  after they stood beside it for `PlazaDittoBrain.copyDelay` (3 s), waits for them meanwhile, and copies nobody
+  while it dances along. Tests start from a fresh Ditto and tackle or dance inside the delay. **Class sweep:** the
+  other things done to a character beside you (greeting, tackle, pull-under, startle, the member menu) target
+  teammates, who do not react to adjacency. The Ditto copy's own prank walks up and tackles at once by design.
+  **When adding an action on a character:** test it from the state a person meets first, not only the state that is
+  easiest to hold still.

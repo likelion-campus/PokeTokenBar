@@ -29,6 +29,16 @@ final class PlazaDittoBrainTests: XCTestCase {
         PlazaDittoState(tile: p, facing: .down, isWalking: nil, isRunning: nil, decoyOf: nil, since: t0, restUntil: rest)
     }
 
+    /// Keeps ticking until the Ditto copies `id`, who stands beside it; false when it has not within the copy delay.
+    private func copies(_ brain: inout PlazaDittoBrain, _ id: String, now: inout Date, world: PlazaDittoWorld) -> Bool {
+        let end = now.addingTimeInterval(PlazaDittoBrain.copyDelay + dt)
+        while now <= end {
+            if brain.tick(now: now, world: world).contains(.transformed(id)) { return true }
+            now = now.addingTimeInterval(dt)
+        }
+        return false
+    }
+
     private func manhattan(_ a: TilePoint, _ b: TilePoint) -> Int { abs(a.x - b.x) + abs(a.y - b.y) }
 
     func testItStartsOnFreeGroundAndNeverStepsOffIt() {
@@ -121,7 +131,7 @@ final class PlazaDittoBrainTests: XCTestCase {
         // Start the Ditto beside "m" with no rest: it copies on the first tick.
         var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 11)
         var now = t0.addingTimeInterval(dt)
-        XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+        XCTAssertTrue(copies(&brain, "m", now: &now, world: w))
         let copiedAt = now
         while now.timeIntervalSince(copiedAt) < 15 {
             now = now.addingTimeInterval(dt)
@@ -137,7 +147,7 @@ final class PlazaDittoBrainTests: XCTestCase {
         let w = world(blocked: [m], copyable: ["m": m])
         var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 21)
         var now = t0.addingTimeInterval(dt)
-        XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+        XCTAssertTrue(copies(&brain, "m", now: &now, world: w))
         // Let the flee finish, then measure.
         let fleeEnd = now.addingTimeInterval(30)
         while now < fleeEnd { now = now.addingTimeInterval(dt); _ = brain.tick(now: now, world: w) }
@@ -162,7 +172,7 @@ final class PlazaDittoBrainTests: XCTestCase {
             let w = world(blocked: [m], copyable: ["m": m])
             var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: seed)
             var now = t0.addingTimeInterval(dt)
-            XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+            XCTAssertTrue(copies(&brain, "m", now: &now, world: w))
             // Flee phase: from the copy until its first stop. It must walk, never run.
             var walked = false
             while now.timeIntervalSince(t0) < 60 {
@@ -538,7 +548,7 @@ final class PlazaDittoBrainTests: XCTestCase {
         let w = world(blocked: [m], copyable: ["m": m], present: ["m": far])
         var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 11)
         var now = t0.addingTimeInterval(dt)
-        XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+        XCTAssertTrue(copies(&brain, "m", now: &now, world: w))
         XCTAssertFalse(brain.isMoving)
         XCTAssertNotEqual(brain.state.isWalking, true)
         XCTAssertEqual(brain.state.tile, p)
@@ -557,7 +567,7 @@ final class PlazaDittoBrainTests: XCTestCase {
         let w = world(blocked: ring, copyable: ["m": m])
         var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 11)
         var now = t0.addingTimeInterval(dt)
-        XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+        XCTAssertTrue(copies(&brain, "m", now: &now, world: w))
         XCTAssertFalse(brain.isMoving)
         XCTAssertEqual(brain.state.tile, p)
         XCTAssertGreaterThanOrEqual(brain.nextWake(now: now), now.addingTimeInterval(6 - 0.001))
@@ -594,7 +604,7 @@ final class PlazaDittoBrainTests: XCTestCase {
         let w = world(blocked: pocket, copyable: ["m": m])
         var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: w, now: t0, seed: 11)
         var now = t0.addingTimeInterval(dt)
-        XCTAssertTrue(brain.tick(now: now, world: w).contains(.transformed("m")))
+        XCTAssertTrue(copies(&brain, "m", now: &now, world: w))
         var walked = false
         while now.timeIntervalSince(t0) < 5 {
             now = now.addingTimeInterval(dt)
@@ -605,6 +615,93 @@ final class PlazaDittoBrainTests: XCTestCase {
         XCTAssertGreaterThan(manhattan(brain.state.tile, m), 1, "it moved away from the real one")
         XCTAssertLessThanOrEqual(manhattan(brain.state.tile, p), 2, "and stayed in the pocket")
     }
+
+    // MARK: - Copy delay
+
+    private func beside(_ brain: PlazaDittoBrain, _ id: String = "m") -> PlazaDittoWorld {
+        let next = TilePoint(x: brain.state.tile.x + 1, y: brain.state.tile.y)
+        return world(blocked: [next], copyable: [id: next])
+    }
+
+    func testItCopiesANeighbourOnlyAfterTheyStoodBesideItForTheDelayAndStaysMeanwhile() {
+        for seed in UInt64(1)...20 {
+            let p = openTile()
+            var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: world(), now: t0, seed: seed)
+            var now = t0
+            var at: Date?
+            while at == nil, now.timeIntervalSince(t0) < 5 {
+                now = now.addingTimeInterval(dt)
+                if brain.tick(now: now, world: beside(brain)).contains(.transformed("m")) { at = now }
+                else { XCTAssertEqual(brain.state.tile, p, "seed \(seed): it waits for the neighbour it is about to copy") }
+            }
+            // First seen beside it at t0 + dt.
+            XCTAssertEqual(at?.timeIntervalSince(t0) ?? 0, dt + PlazaDittoBrain.copyDelay, accuracy: dt + 0.001, "seed \(seed)")
+        }
+    }
+
+    func testANeighbourWhoStepsAwayStartsTheDelayOver() {
+        let p = openTile()
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: world(), now: t0, seed: 5)
+        var now = t0
+        var copied = false
+        func run(_ seconds: Double, neighbour: Bool) {
+            let end = now.addingTimeInterval(seconds)
+            while now < end {
+                now = now.addingTimeInterval(dt)
+                if brain.tick(now: now, world: neighbour ? beside(brain) : world()).contains(.transformed("m")) { copied = true }
+            }
+        }
+        run(1.8, neighbour: true)
+        run(dt, neighbour: false)
+        XCTAssertEqual(brain.state.tile, p, "test precondition: it has not walked yet")
+        run(1.8, neighbour: true)
+        XCTAssertFalse(copied, "1.8 s twice is not 3 s in a row")
+    }
+
+    func testADifferentNeighbourStartsTheDelayOver() {
+        let p = openTile()
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: world(), now: t0, seed: 5)
+        var now = t0
+        var copied: [PlazaDittoBrainEvent] = []
+        for id in ["m", "k"] {
+            let end = now.addingTimeInterval(2)
+            while now < end { now = now.addingTimeInterval(dt); copied += brain.tick(now: now, world: beside(brain, id)) }
+        }
+        XCTAssertEqual(copied, [])
+    }
+
+    func testAHeldDittoCopiesNobodyAndTheDelayStartsWhenTheHoldEnds() {
+        let p = openTile()
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p), world: world(), now: t0, seed: 5)
+        var now = t0
+        var at: Date?
+        let held = t0.addingTimeInterval(8)
+        while at == nil, now.timeIntervalSince(t0) < 15 {
+            now = now.addingTimeInterval(dt)
+            if now < held { brain.hold(until: held) }
+            if brain.tick(now: now, world: beside(brain)).contains(.transformed("m")) { at = now }
+        }
+        XCTAssertEqual(at?.timeIntervalSince(held) ?? 0, PlazaDittoBrain.copyDelay, accuracy: 2 * dt + 0.001)
+    }
+
+    /// The delay is not added to the rest: a neighbour who waited out the rest beside it is copied the moment it ends.
+    func testTheDelayRunsDuringTheRest() {
+        let p = openTile()
+        let rest = t0.addingTimeInterval(10)
+        var brain = PlazaDittoBrain(resuming: dittoState(at: p, rest: rest), world: world(), now: t0, seed: 5)
+        var now = t0
+        var at: Date?
+        var since = t0
+        var last = p
+        while at == nil, now.timeIntervalSince(t0) < 20 {
+            now = now.addingTimeInterval(dt)
+            if brain.state.tile != last { last = brain.state.tile; since = now }
+            if brain.tick(now: now, world: beside(brain)).contains(.transformed("m")) { at = now }
+        }
+        let due = max(rest, since.addingTimeInterval(PlazaDittoBrain.copyDelay))
+        XCTAssertEqual(at?.timeIntervalSince(due) ?? -99, 0, accuracy: 2 * dt + 0.001)
+    }
+
 }
 
 /// The copy's pranks: it walks up to a teammate it does not copy and tackles them, a few times per copy and well apart.

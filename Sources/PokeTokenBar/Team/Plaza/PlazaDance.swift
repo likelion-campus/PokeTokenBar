@@ -17,6 +17,17 @@ enum PlazaDance {
     /// 더해 온 시간의 부동소수점 오차(그리고 시계 값의 오차)가 걸음 경계를 한 걸음 넘기지 않게 하는 여유.
     private static let epsilon: TimeInterval = 1e-4
 
+    /// 같이 추는 거리. 이 칸 수 안(대각선 포함)에서 춤추는 팀원끼리 같은 춤을 춘다.
+    static let togetherRange = 2
+
+    /// 내가 따라 출 팀원: 둘레 `togetherRange`칸 안에서 춤추는 팀원(`dancers`) 가운데 ID가 가장 작은 팀원. 내 ID가 더 작으면 nil이다
+    /// (그때는 그 팀원들이 나를 따른다). 모든 Mac이 같은 규칙을 쓰므로 누가 누구를 따를지 서로 묻지 않아도 맞는다.
+    static func leader(me: String, at tile: TilePoint, dancers: [String: TilePoint]) -> String? {
+        let near = dancers.filter { max(abs($0.value.x - tile.x), abs($0.value.y - tile.y)) <= togetherRange }
+        guard let first = near.keys.min(), first < me else { return nil }
+        return first
+    }
+
     /// 춤 한 종류. `id`는 팀원에게 보내는 이름이라 내보낸 뒤에는 바꾸지 않는다.
     enum Style: String, CaseIterable, Sendable {
         case sway, bounce, spin, shuffle, wiggle, bigHop, twirl

@@ -393,6 +393,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             self?.session?.sendEmote(.dance, target: nil, danceStyle: $0)
             self?.danceAlong(with: nil, style: $0)
         }
+        s.danceLeaderStyle = { [weak self] in self?.danceLeader().flatMap { self?.scene?.danceStyle(memberID: $0) } }
         s.isFocusing = { [weak self] in self?.isFocusing ?? false }
         s.onItemPickup = { [weak self] in self?.pickUp($0) }
         s.onItemChange = { [weak self] _ in self?.refreshMinimap() }
@@ -647,6 +648,16 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene?.playDance(memberID: memberID, style: style)
         // 팀원의 춤이 내 화면에서 아직 안 시작됐어도(걸음을 마치는 중, 창이 가려져 장면이 멈춤) 메타몽 쪽은 자리로 정한다.
         danceAlong(with: memberID, style: style)
+        // 내가 따라 추는 팀원의 새 판이면 나도 같은 춤으로 새 판을 시작한다.
+        if danceLeader(alsoDancing: memberID) == memberID { scene?.followDance(PlazaDance.Style.style(id: style)) }
+    }
+
+    /// 내가 따라 출 팀원(`PlazaDance.leader`). 내 화면에서 춤추는 팀원과, 방금 춤 소식을 보낸 `extra`(걸음을 마치는 중이라 아직
+    /// 안 추고 있을 수 있다)를 춤추는 팀원으로 본다. 메타몽은 팀원이 아니라 들어가지 않는다.
+    private func danceLeader(alsoDancing extra: String? = nil) -> String? {
+        guard let scene else { return nil }
+        let dancers = scene.memberTiles.filter { $0.key == extra || scene.isDancing(memberID: $0.key) }
+        return PlazaDance.leader(me: memberID(), at: scene.walker.tile, dancers: dancers)
     }
 
     /// 메타몽 둘레 여덟 칸에서 누가(nil이면 나) 춤 한 판을 시작했으면 메타몽도 같은 춤을 같은 박자에 춘다. 메타몽 모습이든

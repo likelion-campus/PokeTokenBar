@@ -89,6 +89,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         var rng = SystemRandomNumberGenerator()
         return PlazaDance.Style.next(after: last, using: &rng)
     }
+    /// 내가 따라 출 팀원이 지금 추는 춤. 따라 출 팀원이 없으면 nil. 컨트롤러가 알려 준다.
+    var danceLeaderStyle: () -> PlazaDance.Style? = { nil }
     /// 내가 직전에 춘 춤. 연달아 같은 춤이 나오지 않게 기억한다.
     private var lastDanceStyle: PlazaDance.Style?
     /// Return과 숫자패드 Enter. 판이 닫혀 있을 때만 온다.
@@ -1172,13 +1174,23 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// D. 새 판을 무작위 춤으로 시작한다(직전과 다른 춤). 춤은 멈출 때까지 판마다 새 춤으로 이어진다. 못 출 때(걷는 중, 물속, 집중 중, 멈춘 장면)는 아무것도 하지 않는다.
     private func pressDance() {
-        guard canDance else { return }
-        // 새 판은 박자마다 한 번까지. 연타는 판을 다시 시작하지도 팀원에게 보내지도 않는다.
-        if let last = lastDanceRoundAt {
-            let since = now().timeIntervalSince(last)
-            if since >= 0, since < PlazaDance.beat - 1e-3 { return }   // 시계 값의 오차로 딱 한 박자 뒤 누름이 막히지 않게 한다
-        }
+        guard canDance, !isDanceRoundTooSoon else { return }
+        // 팀원의 춤을 이미 따라 추고 있으면 그대로 둔다. 판을 다시 시작하면 그 팀원과 동작이 어긋난다.
+        if let lead = danceLeaderStyle(), me.dance?.style == lead { return }
         startLocalDanceRound()
+    }
+
+    /// 새 판은 박자마다 한 번까지. 연타는(따라 추는 팀원의 소식이 몰려와도) 판을 다시 시작하지도 팀원에게 보내지도 않는다.
+    private var isDanceRoundTooSoon: Bool {
+        guard let last = lastDanceRoundAt else { return false }
+        let since = now().timeIntervalSince(last)
+        return since >= 0 && since < PlazaDance.beat - 1e-3   // 시계 값의 오차로 딱 한 박자 뒤 누름이 막히지 않게 한다
+    }
+
+    /// 내가 따라 추는 팀원의 새 판이 왔다. 내가 추는 중이면 같은 춤으로 내 판을 다시 시작해 동작까지 맞춘다. 팀원에게도 내 새 판으로 보낸다.
+    func followDance(_ style: PlazaDance.Style) {
+        guard me.isDancing, canDance, !isDanceRoundTooSoon else { return }
+        startLocalDanceRound(following: style)
     }
 
     /// 내가 마지막으로 새 판을 시작한 시각(장면의 `now`).
@@ -1190,11 +1202,14 @@ struct PlazaSceneMember: Equatable, Sendable {
             && !isMeInWater && !isDiving && !isFocusing()
     }
 
-    private func startLocalDanceRound() {
-        let style = pickDanceStyle(lastDanceStyle)
+    /// 따라 출 팀원이 근처에서 추고 있으면 그 춤을, 아니면 무작위 춤을 춘다. 따라 추는 판은 팀원 춤처럼 다음 판 소식을 조금 더
+    /// 기다린다(소식이 격자보다 조금 늦게 오므로, 안 기다리면 그 사이에 내 판이 먼저 끝나 지난 춤으로 한 번 더 시작한다).
+    private func startLocalDanceRound(following: PlazaDance.Style? = nil) {
+        let lead = following ?? danceLeaderStyle()
+        let style = lead ?? pickDanceStyle(lastDanceStyle)
         lastDanceStyle = style
         lastDanceRoundAt = now()
-        beginDance(me, style: style, remote: false)
+        beginDance(me, style: style, remote: lead != nil)
         onDanceRound?(style.id)
     }
 
@@ -1264,7 +1279,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         startLocalDanceRound()
     }
 
-    /// 테스트용: 그 캐릭터(nil이면 나)의 춤과 자세.
+    /// 그 캐릭터(nil이면 나)의 춤과 자세.
     func isDancing(memberID: String?) -> Bool { actor(memberID)?.isDancing ?? false }
     func danceStyle(memberID: String?) -> PlazaDance.Style? { actor(memberID)?.dance?.style }
     func dancePose(memberID: String?) -> PlazaDancePose? { actor(memberID)?.dancePose }
