@@ -46,13 +46,13 @@ private final class RuntimeNode {
 /// condition they need, never on a yield count.
 @MainActor
 private func settleUntil(_ condition: () -> Bool, file: StaticString, line: UInt) async {
-        let deadline = ContinuousClock.now + .seconds(10)
-        var spins = 0
-        while !condition(), ContinuousClock.now < deadline {
-            spins += 1
-            if spins < 200 { await Task.yield() } else { try? await Task.sleep(for: .milliseconds(2)) }
-        }
-        XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
+    let deadline = ContinuousClock.now + .seconds(10)
+    var spins = 0
+    while !condition(), ContinuousClock.now < deadline {
+        spins += 1
+        if spins < 200 { await Task.yield() } else { try? await Task.sleep(for: .milliseconds(2)) }
+    }
+    XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
 }
 
 @MainActor
@@ -350,6 +350,9 @@ final class TeamRuntimeTests: XCTestCase {
         let left = TilePoint(x: start.x - 1, y: start.y), right = TilePoint(x: start.x + 1, y: start.y)
         XCTAssertTrue(map.isWalkable(left) && map.isWalkable(right), "test precondition")
         let sender = a.settings.memberID
+        // A Ditto can't copy an egg, and a fresh runtime's companion is one: give `a` a species to copy.
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
+        await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: start.x - 2, y: start.y), facing: .right, isWalking: false)
         await settle { scene.memberTiles[sender] == TilePoint(x: start.x - 2, y: start.y) }
@@ -421,6 +424,9 @@ final class TeamRuntimeTests: XCTestCase {
         let left = TilePoint(x: start.x - 1, y: start.y), far = TilePoint(x: start.x + 3, y: start.y)
         XCTAssertTrue((1...3).allSatisfy { map.isWalkable(TilePoint(x: start.x + $0, y: start.y)) }, "test precondition")
         let sender = a.settings.memberID
+        // A Ditto can't copy an egg, and a fresh runtime's companion is one: give `a` a species to copy.
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
+        await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
         var t: TimeInterval = 0
@@ -448,6 +454,9 @@ final class TeamRuntimeTests: XCTestCase {
         let start = scene.walker.tile
         let left = TilePoint(x: start.x - 1, y: start.y), right = TilePoint(x: start.x + 1, y: start.y)
         let sender = a.settings.memberID
+        // A Ditto can't copy an egg, and a fresh runtime's companion is one: give `a` a species to copy.
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
+        await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
         await settle { scene.memberTiles[sender] == left }
@@ -706,7 +715,6 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(a.settings.nickname, "다람")
     }
 
-
     // MARK: - Ditto mimic
 
     /// b's plaza (a Ditto), with a standing on the tile to b's left. `a` and `b` are connected.
@@ -725,6 +733,9 @@ final class TeamRuntimeTests: XCTestCase {
         let left = TilePoint(x: start.x - 1, y: start.y)
         XCTAssertTrue(PlazaMapData.map.isWalkable(left), "test precondition")
         let sender = a.settings.memberID
+        // A Ditto can't copy an egg, and a fresh runtime's companion is one: give `a` a species to copy.
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
+        await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
         var t: TimeInterval = 0
