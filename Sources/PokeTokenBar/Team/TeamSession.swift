@@ -28,6 +28,10 @@ struct TeamMemberState: Equatable, Sendable {
     var ditto: PlazaDittoState?
     /// Their plaza window is open and runs the Ditto.
     var dittoReady = false
+    /// As received, at most `TeamWire.maxFieldBytes` bytes.
+    var mimicOf: String?
+    /// This Mac's clock when the current `mimicOf` first arrived; nil with no `mimicOf`.
+    var mimicSeenAt: Date?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -115,6 +119,7 @@ final class TeamSession {
     @ObservationIgnored private var isDiving = false
     @ObservationIgnored private var dittoReady = false
     @ObservationIgnored private var dittoState: PlazaDittoState?
+    @ObservationIgnored private var mimicOf: String?
     @ObservationIgnored private let evolutionStage: () -> Int
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
@@ -278,6 +283,13 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
+    /// Whom my Ditto is disguised as (nil: nobody), told to teammates in my presence.
+    func updateMimic(_ memberID: String?) {
+        guard memberID != mimicOf else { return }
+        mimicOf = memberID
+        broadcast(.presence(makePresence()))
+    }
+
     func sendChat(_ text: String, loud: Bool = false) {
         broadcast(.chat(TeamChat(text: text, isLoud: loud ? true : nil)))
     }
@@ -365,6 +377,9 @@ final class TeamSession {
             member.evolutionStage = TeamEmote.pushTiles(presence.evolutionStage)
             member.ditto = PlazaDittoState.accepted(presence.ditto, now: clock())
             member.dittoReady = presence.dittoReady ?? false
+            let mimic = presence.mimicOf.flatMap { $0.utf8.count <= TeamWire.maxFieldBytes ? $0 : nil }
+            if mimic != member.mimicOf { member.mimicSeenAt = mimic == nil ? nil : clock() }
+            member.mimicOf = mimic
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             if let schedule = presence.schedule, settings.code == knownCode,
@@ -474,7 +489,7 @@ final class TeamSession {
                      focusEndsAt: focusEndsAt,
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
                      schedule: settings.code == knownCode ? settings.schedule : nil,
-                     ditto: dittoState, dittoReady: dittoReady ? true : nil)
+                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

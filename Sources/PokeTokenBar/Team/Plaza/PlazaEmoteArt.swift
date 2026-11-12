@@ -113,6 +113,8 @@ enum PlazaEmoteArt {
         case .decoyJump: drawGrid(dust, cell: dot, centeredAt: center, in: context)
         case .decoyTackle: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)
         case .snowball: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)   // never shown as a bubble
+        case .mimicTackle: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)   // never shown as a bubble
+        case .mimicFound: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)   // never shown as a bubble
         case .pull: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
         case .dance: drawText(L(.ko).plazaEmoteDance, size: large ? .body : .small, centeredAt: center, in: context)
         }

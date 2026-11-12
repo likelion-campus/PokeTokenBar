@@ -744,6 +744,14 @@ read_when:
   `testADancerFinishingAStepIsFollowedAtOnce`(그리기 결과로 되돌리면 실패). 스윕: 컨트롤러에서 그리기 결과로 정하는 곳은 불꽃
   키(`playFirework`)뿐인데, 내 키 입력의 연타 제한이고 가려진 창에는 키가 오지 않아 해당 없다.
 
+- **새 기능이 같은 영역의 기존 규칙(알은 복사 불가, 되감긴 시계, 같은 알림 한 번만)을 옮겨 받지 않았다 — 메타몽 따라 하기(릴리스 직전 리뷰·감사).**
+  게스트 메타몽의 `canBeCopied(... !isEgg)` 규칙이 팀원 메타몽의 몸통박치기·`realLook`·`mimicTargets` 에 없어 알로 변장할 수 있었고,
+  변장한 팀원 따라가기가 안 멈추고, `.mimicFound` 를 아무 발신자가 몇 번이든 보낼 수 있었고, 시계가 뒤로 가면 `now - since` 가 음수라
+  변장이 5분+α 갔다. **왜 못 걸렀나:** 테스트가 정상 대상(피카츄)만 썼고, 같은 영역의 기존 규칙·한 번만 규칙을 새 경로에 대조하지 않았다.
+  가드: `testADittoCannotCopyAnEggTeammate`·`testAHostileFoundBannerIsIgnored`·`testAClockThatJumpedBackEndsMyDisguise*`
+  (각 가드를 빼면 실패). 스윕: 시간 차 비교는 `receiverGrace` 한쪽만 막던 것을 `isOver` 로 모았고, 테스트 전용 기록(`appliedMemberLoads`)은
+  64개로 제한했다.
+
 ## 빌드·도구체인
 
 - **`Sendable` 여부는 SDK마다 다르다 — 파일 범위 전역에는 값 타입만 둔다.** 메타몽 PR(#88)이 테스트 파일 맨 위에
@@ -1022,6 +1030,18 @@ read_when:
   `Task` 는 이미 `[weak self]`(`focusTick`·`dittoLoop`·배너·단체 사진·`applyDiveLimit`)거나 단발 await(`viewCard`)다. 이 수정으로
   컨트롤러가 정말 죽게 되자 놓은 컨트롤러에 기대던 두 테스트(`PlazaCardTests` 의 `let (_, …) = await standing()`)가 드러나
   컨트롤러를 붙들게 고쳤다 — 장면 콜백은 컨트롤러를 약하게 쥐므로 테스트가 컨트롤러를 쥐고 있어야 한다.
+
+- **테스트는 "대상이 나타났다"가 아니라 그 테스트가 쓰는 조건을 기다린다 — 교차 세션 전달은 값이 맞을 때까지(기한을 두고) 폴링한다.**
+  `testATeammatesDanceStartTimeReachesThePlaza` 가 약 3번에 1번 실패했다(병합 기점에서도 같다). 처음엔 `settle` 이 200번
+  `yield` 하고 포기해서라고 보았으나, 기다림을 10초 기한 폴링으로 바꿔도 같은 비율로 실패했다. **5-whys:** 증상 내가 팀원의 춤을
+  못 따라 춤 → 팀원이 내 `togetherRange`(2칸) 밖에 그려져 있었다 → 팀원의 위치 소식이 오기 전에는 장면이 그 팀원을 무작위
+  쉼터 칸에 그리는데, 테스트가 `memberTiles[id] != nil`(쉼터 칸에서도 즉시 참)만 기다리고 바로 춤 소식을 보냈다 → 왜 못
+  걸렀나: 기다림이 "나타남"을 확인했고 결과 단언은 "따라 춤"을 확인해서 위치가 둘을 잇는다는 걸 아무도 안 봤다; 쉼터 칸이 우연히
+  가까운 날은 통과해 거짓 안심을 줬다. **수정:** 보낼 칸(`spot`)이 될 때까지 기다린다. 대기 도우미(`TeamRuntimeTests.settle`
+  두 곳)는 `yield` 횟수 대신 10초 기한 폴링으로 바꿨다. **같은 부류 스윕:** `memberTiles[...] != nil` 만 기다린 뒤 거리·위치에
+  기대는 테스트는 이 하나뿐이었다(나머지는 위치 무관이거나 곧바로 정확한 칸을 기다린다: `testMimicKindsReachThePlaza` 등).
+  `mimicPlaza` 도 같은 틈(쉼터 칸이 우연히 기다리던 칸과 같아, 장면 칸은 맞는데 컨트롤러의 멤버 사본이 아직 '광장 밖')을 가졌고, 처음엔 `yield` 50번으로 덮었다가 이제 칸과 `scene.memberIsAway == false` 를 조건으로 기다린다. **가드:** 옛 조건(`!= nil`)으로
+  되돌리면 `TeamRuntimeTests` 12번 중 2번 실패가 되살아난다(고치면 12/12 통과).
 
 ## 프로세스·인스턴스
 

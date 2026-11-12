@@ -145,6 +145,24 @@ final class TeamHostilePeerTests: XCTestCase {
         }
     }
 
+    func testAnOverlongMimicIsDropped() {
+        let peer = join("hostile")
+        for length in [TeamWire.maxFieldBytes + 1, 10_000] {
+            var p = TeamPresence(nickname: "x", character: Self.mon, inPlaza: true, tile: TilePoint(x: 7, y: 8),
+                                 facing: .left, isWalking: true)
+            p.mimicOf = String(repeating: "x", count: length)
+            say(.presence(p), from: peer)
+            XCTAssertNil(session.members["hostile"]?.mimicOf, "\(length) bytes")
+            XCTAssertNil(session.members["hostile"]?.mimicSeenAt)
+            XCTAssertEqual(session.members["hostile"]?.tile, TilePoint(x: 7, y: 8), "the rest of the presence still applies")
+        }
+        var ok = TeamPresence(nickname: "x", character: Self.mon, inPlaza: true, tile: TilePoint(x: 7, y: 8),
+                              facing: .left, isWalking: true)
+        ok.mimicOf = String(repeating: "x", count: TeamWire.maxFieldBytes)
+        say(.presence(ok), from: peer)
+        XCTAssertEqual(session.members["hostile"]?.mimicOf?.utf8.count, TeamWire.maxFieldBytes)
+    }
+
     func testAMemberIDAtTheLimitIsServed() {
         _ = join(String(repeating: "x", count: TeamWire.maxFieldBytes))
         XCTAssertEqual(session.members.count, 1)

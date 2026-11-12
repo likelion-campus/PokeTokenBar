@@ -42,6 +42,19 @@ private final class RuntimeNode {
     deinit { UserDefaults().removePersistentDomain(forName: suite) }
 }
 
+/// Runs the main actor's queued hops until `condition` holds, or ten seconds pass; then asserts it holds. Tests wait on the
+/// condition they need, never on a yield count.
+@MainActor
+private func settleUntil(_ condition: () -> Bool, file: StaticString, line: UInt) async {
+    let deadline = ContinuousClock.now + .seconds(10)
+    var spins = 0
+    while !condition(), ContinuousClock.now < deadline {
+        spins += 1
+        if spins < 200 { await Task.yield() } else { try? await Task.sleep(for: .milliseconds(2)) }
+    }
+    XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
+}
+
 @MainActor
 final class TeamRuntimeTests: XCTestCase {
     /// The fake transports hold their hub unowned, so it must outlive the test body.
@@ -52,10 +65,9 @@ final class TeamRuntimeTests: XCTestCase {
         return TeamCode.generate(using: &rng)
     }
 
-    /// Lets the main actor run queued observation hops until `condition` holds.
+    /// Lets the main actor run queued observation hops until `condition` holds, or ten seconds pass.
     private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
-        for _ in 0..<200 where !condition() { await Task.yield() }
-        XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
+        await settleUntil(condition, file: file, line: line)
     }
 
     private func connectedPair() -> (a: RuntimeNode, b: RuntimeNode) {
@@ -122,8 +134,11 @@ final class TeamRuntimeTests: XCTestCase {
         let tile = scene.walker.tile
         var now = Date()
         scene.now = { now }
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: tile.x + 1, y: tile.y), facing: .down, isWalking: false)
-        await settle { scene.memberTiles[a.settings.memberID] != nil }
+        let spot = TilePoint(x: tile.x + 1, y: tile.y)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: spot, facing: .down, isWalking: false)
+        // Wait for the spot itself: before this news lands the scene already draws `a` on a random shelter tile, so "has a tile"
+        // is true at once, and a dance sent from there is out of `togetherRange` and is not followed.
+        await settle { scene.memberTiles[a.settings.memberID] == spot }
         _ = scene.handleKeyDown(keyCode: 2, characters: "d", isRepeat: false)
         XCTAssertEqual(scene.danceStyle(memberID: nil), .bounce, "test precondition: I dance alone")
         now += 1   // a new round is refused within a beat of my last one
@@ -335,6 +350,9 @@ final class TeamRuntimeTests: XCTestCase {
         let left = TilePoint(x: start.x - 1, y: start.y), right = TilePoint(x: start.x + 1, y: start.y)
         XCTAssertTrue(map.isWalkable(left) && map.isWalkable(right), "test precondition")
         let sender = a.settings.memberID
+        // A Ditto can't copy an egg, and a fresh runtime's companion is one: give `a` a species to copy.
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
+        await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: start.x - 2, y: start.y), facing: .right, isWalking: false)
         await settle { scene.memberTiles[sender] == TilePoint(x: start.x - 2, y: start.y) }
@@ -406,6 +424,9 @@ final class TeamRuntimeTests: XCTestCase {
         let left = TilePoint(x: start.x - 1, y: start.y), far = TilePoint(x: start.x + 3, y: start.y)
         XCTAssertTrue((1...3).allSatisfy { map.isWalkable(TilePoint(x: start.x + $0, y: start.y)) }, "test precondition")
         let sender = a.settings.memberID
+        // A Ditto can't copy an egg, and a fresh runtime's companion is one: give `a` a species to copy.
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
+        await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
         var t: TimeInterval = 0
@@ -433,6 +454,9 @@ final class TeamRuntimeTests: XCTestCase {
         let start = scene.walker.tile
         let left = TilePoint(x: start.x - 1, y: start.y), right = TilePoint(x: start.x + 1, y: start.y)
         let sender = a.settings.memberID
+        // A Ditto can't copy an egg, and a fresh runtime's companion is one: give `a` a species to copy.
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
+        await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
         await settle { scene.memberTiles[sender] != nil }
         a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
         await settle { scene.memberTiles[sender] == left }
@@ -691,7 +715,80 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(a.settings.nickname, "다람")
     }
 
+    // MARK: - Ditto mimic
+
+    /// b's plaza (a Ditto), with a standing on the tile to b's left. `a` and `b` are connected.
+    private func mimicPlaza() async -> (a: RuntimeNode, b: RuntimeNode, plaza: PlazaWindowController, scene: PlazaScene) {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.mimic.\(UUID().uuidString)"
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 132, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let scene = try! XCTUnwrap(plaza.scene)
+        let start = scene.walker.tile
+        let left = TilePoint(x: start.x - 1, y: start.y)
+        XCTAssertTrue(PlazaMapData.map.isWalkable(left), "test precondition")
+        let sender = a.settings.memberID
+        // A Ditto can't copy an egg, and a fresh runtime's companion is one: give `a` a species to copy.
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil))
+        await settle { b.runtime.session.members[sender]?.character.speciesID == 25 }
+        await settle { scene.memberTiles[sender] != nil }
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: left, facing: .right, isWalking: false)
+        var t: TimeInterval = 0
+        // An away member is drawn on a shelter tile that can be `left` by chance, so the tile alone is not enough: a Ditto
+        // tackle needs the controller's own copy to read "in the plaza", which the scene shows as no longer away.
+        await settle {
+            t += 0.05; scene.update(t)
+            return scene.memberTiles[sender] == left && scene.memberIsAway(sender) == false
+        }
+        return (a, b, plaza, scene)
+    }
+
+    /// A frame an older version sends reveals a disguised me, and pushes nobody.
+    func testAnOlderVersionsTackleRevealsMeAndDoesNotPush() async {
+        let (a, b, plaza, scene) = await mimicPlaza()
+        let start = scene.walker.tile
+        let aID = a.settings.memberID
+        let found = RuntimeFoundLog()
+        a.runtime.session.onEmote = { found.items.append($1) }
+        plaza.chooseMenu(.tackle, memberID: aID)
+        XCTAssertEqual(plaza.mimicking, aID, "test precondition")
+        let before = scene.impactCount   // my own tackle on a already drew one
+        a.runtime.session.sendEmote(.tackle, target: b.settings.memberID, pushTiles: 3)
+        await settle { scene.impactCount == before + 1 }
+        var t: TimeInterval = 100
+        for _ in 0..<40 { t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.walker.tile, start)
+        XCTAssertNil(plaza.mimicking)
+        await settle { found.items.contains { $0.kind == .mimicFound } }
+        XCTAssertEqual(found.items.first { $0.kind == .mimicFound }?.targetMemberID, aID)
+    }
+
+    /// The two new kinds reach the plaza: a Ditto's tackle only bursts, and a find shows the banner.
+    func testMimicKindsReachThePlaza() async {
+        let (a, b, plaza, scene) = await mimicPlaza()
+        let start = scene.walker.tile
+        let session = a.runtime.session
+        session.sendEmote(.mimicTackle, target: b.settings.memberID)
+        await settle { scene.impactCount == 1 }
+        var t: TimeInterval = 100
+        for _ in 0..<40 { t += 0.05; scene.update(t) }
+        XCTAssertEqual(scene.walker.tile, start)
+
+        session.updateCharacter(TeamMonSummary(speciesID: 132, isShiny: false, form: nil, speciesName: "Ditto", gender: nil))
+        session.updateMimic(b.settings.memberID)
+        await settle { plaza.shownMimics[a.settings.memberID] == b.settings.memberID }
+        session.sendEmote(.mimicFound, target: b.settings.memberID)
+        await settle { plaza.banner != nil }
+        XCTAssertEqual(plaza.banner, "나님이 가의 메타몽을 찾았어요!")
+    }
 }
+
+@MainActor private final class RuntimeFoundLog { var items: [TeamEmote] = [] }
 
 private struct DecoyNoSprites: PlazaSpriteFetching {
     func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
@@ -713,8 +810,7 @@ final class TeamRuntimeNotificationTests: XCTestCase {
     private var now = runtimeNow
 
     private func settle(_ condition: () -> Bool, file: StaticString = #filePath, line: UInt = #line) async {
-        for _ in 0..<200 where !condition() { await Task.yield() }
-        XCTAssertTrue(condition(), "condition not reached", file: file, line: line)
+        await settleUntil(condition, file: file, line: line)
     }
 
     private func pair() -> (a: RuntimeNode, b: RuntimeNode, poster: RuntimePoster) {

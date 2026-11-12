@@ -153,6 +153,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 내 캐릭터.
     private let me: PlazaActor
     private(set) var nameColor = PlazaNameColor.palette[0]
+    /// My plate while I copy a teammate; nil for my own.
+    private var disguise: PlazaMimicLook?
+    /// My own nature title, kept apart from what the actor shows.
+    private var ownTitle: String?
     /// false(알)면 방향키를 삼키고 입력을 지운다. 걷던 칸은 마저 간다.
     var canWalk = true {
         didSet {
@@ -516,27 +520,50 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     func setNickname(_ name: String) {
         nickname = name
-        me.setName(name, color: nameColor)
-        layout()
+        applyMyPlate()
     }
 
     func setNameColor(_ color: CGColor) {
         guard color != nameColor else { return }
         nameColor = color
-        me.setName(nickname, color: color)
-        layout()
+        applyMyPlate()
     }
 
     /// 내 이름 위의 성격.
     func setNature(_ nature: PokemonNature?) {
         let title = nature.map(L(.ko).plazaNatureTitle)
-        guard title != me.title else { return }
-        me.setTitle(title)
+        guard title != ownTitle else { return }
+        ownTitle = title
+        applyMyPlate()
+    }
+
+    /// My plate while I copy a teammate (§5.2); nil for my own. `nickname`, `nameColor` and my nature title stay mine:
+    /// `setNickname`, `setNameColor` and `setNature` keep storing them and show them only while no disguise is set.
+    func setMyDisguise(_ look: PlazaMimicLook?) {
+        disguise = look
+        applyMyPlate()
+    }
+
+    var myShownName: String { me.name }
+    var myShownNameColor: CGColor { me.nameColor }
+
+    private func applyMyPlate() {
+        if let d = disguise {
+            me.setName(d.name, color: PlazaNameColor.color(forMemberID: d.memberID, chosen: d.nameHex))
+            me.setTitle(d.nature.map(L(.ko).plazaNatureTitle))
+        } else {
+            me.setName(nickname, color: nameColor)
+            me.setTitle(ownTitle)
+        }
         layout()
     }
 
+    /// Test-only: how many times the member list was redrawn, so a test can see an idle tick leave the scene alone.
+    private(set) var applyMembersCount = 0
+
     /// 없는 팀원의 캐릭터를 지우고 새 팀원의 캐릭터를 만든다. 값만 받고 그리지 않는다(창이 가려진 동안에도 안전하다).
     func applyMembers(_ members: [PlazaSceneMember]) {
+        applyMembersCount &+= 1
         let ids = Set(members.map(\.memberID))
         for (id, remote) in remotes where !ids.contains(id) && id != PlazaDitto.sceneKey {
             remote.actor.detach()
@@ -1883,6 +1910,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func memberFoot(_ id: String) -> CGPoint? { remotes[id]?.motion.footPoint }
     func memberName(_ id: String) -> String? { remotes[id]?.displayName }
     func memberNameColor(_ id: String) -> CGColor? { remotes[id]?.color }
+    func memberIsAway(_ id: String) -> Bool? { remotes[id]?.isAway }
     func shownChat(memberID: String?) -> String? { actor(memberID)?.chatText }
     func shownEmote(memberID: String?) -> TeamEmoteKind? { actor(memberID)?.emoteKind }
     func emoteFrame(memberID: String?) -> CGRect? { actor(memberID)?.emoteFrame }

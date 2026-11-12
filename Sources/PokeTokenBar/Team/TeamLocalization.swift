@@ -86,6 +86,7 @@ extension L {
     var plazaWindowTitle: String { "팀 광장" }
     var plazaDittoName: String { "메타몽" }
     func plazaDecoyFound(nickname: String) -> String { "\(nickname)님이 메타몽을 찾았어요!" }
+    func plazaMimicFound(finder: String, owner: String) -> String { "\(finder)님이 \(owner)의 메타몽을 찾았어요!" }
     /// 창 제목. 저장한 팀 이름이 있으면 함께 보인다.
     func plazaWindowTitle(teamName: String?) -> String { teamName.map { "\(plazaWindowTitle) · \($0)" } ?? plazaWindowTitle }
     var plazaBoardHint: String { "스페이스바를 눌러 소식판 보기" }
@@ -107,6 +108,11 @@ extension L {
     func plazaCampfireRow(minutes: Int) -> String { "\(plazaFocusDuration(minutes: minutes)) 집중" }
     var plazaCampfireFull: String { "자리가 없어요" }
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
+    /// While I am disguised as a teammate: who, and the time left (rounded up, never below 0:00).
+    func plazaMimicHint(nickname: String, seconds: TimeInterval) -> String {
+        let left = max(0, Int(seconds.rounded(.up)))
+        return "\(KoreanParticle.direction.attach(to: nickname)) 변신 중 · \(left / 60):\(String(format: "%02d", left % 60))"
+    }
     var plazaDivingHint: String { "잠수 중 · 물가에 선 팀원 밑에서 C로 끌어들이기" }
     func plazaPullHint(nickname: String) -> String { "C를 눌러 \(nickname) 물속으로 끌어들이기" }
     var plazaHiddenHint: String { "풀숲에 숨었어요 · 팀원이 옆에 오면 Z로 놀래키기" }
@@ -244,6 +250,8 @@ extension L {
         case .pull: "끌어들이기"
         case .snowball: "눈뭉치"
         case .decoyTackle: "💥"
+        case .mimicTackle: "💥"
+        case .mimicFound: "찾았다"
         case .dance: "춤"
         }
     }

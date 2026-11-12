@@ -162,7 +162,7 @@ final class TeamNotificationsTests: XCTestCase {
             .pickup: "민수가 내 포켓몬에게 아이템", .firework: "민수가 내 포켓몬에게 불꽃놀이",
             .dance: "민수가 내 포켓몬에게 춤"]
         // These kinds never notify their target: the decoy kinds and pull are plaza-wide or move the target in the plaza, and a snowball's push is felt in the plaza, not announced.
-        let decoyKinds: Set<TeamEmoteKind> = [.decoyFound, .decoyJump, .decoyTackle, .pull, .snowball]   // a pull moves its target in the plaza and never notifies
+        let decoyKinds: Set<TeamEmoteKind> = [.decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound]   // a pull moves its target in the plaza and never notifies
         XCTAssertTrue(decoyKinds.allSatisfy { !$0.notifiesTarget })
         XCTAssertEqual(Set(expected.keys).union(decoyKinds), Set(TeamEmoteKind.allCases))
         for (kind, text) in expected { XCTAssertEqual(l.teamEmoteNotice(nickname: "민수", kind: kind), text) }
