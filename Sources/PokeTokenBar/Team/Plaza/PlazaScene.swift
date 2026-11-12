@@ -112,7 +112,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
     var backingOverride: CGFloat?
 
-    private let mapImage: CGImage
+    private(set) var mapImage: CGImage
+    /// 처음 받은 지도 그림과 풀숲 그림(눈 오는 날이 아닌 모습).
+    private let normalMapImage: CGImage
+    private let normalTallGrass: PlazaTallGrassArt?
     /// 멈추면 모든 춤을 끝낸다. 멈춘 동안 시계만 흘러 되살아난 춤이 박자 격자에서 어긋나기 때문이다.
     /// 그리기 감시가 멈춘 그림을 깨우려고 뷰를 껐다 켜도(`checkRendering`) 장면이 멈췄다 풀리므로 춤이 끝난다. 의도한 동작이다.
     override var isPaused: Bool {
@@ -355,6 +358,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.pondVisuals = pondVisuals
         self.me = PlazaActor(name: nickname, color: PlazaNameColor.palette[0])
         self.mapImage = mapImage
+        self.normalMapImage = mapImage
+        self.normalTallGrass = tallGrass
         self.visibleRect = CGRect(origin: .zero, size: map.pixelSize)
         self.zoom = PlazaCamera.clampedZoom(zoom)
         let texture = SKTexture(cgImage: mapImage)
@@ -424,7 +429,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         didSet { if coreTime != oldValue { applyDaylight(); applyCampfire() } }
     }
     var weatherPeriod = PlazaWeather.Period.day {
-        didSet { if weatherPeriod != oldValue { advanceWeather(by: 0) } }
+        didSet { if weatherPeriod != oldValue { advanceWeather(by: 0); refreshSnowDay() } }
     }
 
     /// 지금 곱하는 색. 배경을 숨겼으면 뒤의 작업 화면이 어두워지지 않게 곱하지 않는다.
@@ -1546,6 +1551,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceCampfire(by: dt)
         layout()
         advanceWeather(by: dt)
+        refreshSnowDay()
         advanceItem()
         reportLocalPosition()
         refreshInteractionTarget()
@@ -1618,6 +1624,36 @@ struct PlazaSceneMember: Equatable, Sendable {
         weatherLayer.update(date: now(), isHidden: isBackgroundHidden, dt: dt, period: weatherPeriod,
                             visible: CGRect(x: v.minX, y: worldSize.height - v.maxY, width: v.width, height: v.height),
                             step: PlazaPixelSnap.step(backing: backing, zoom: zoom))
+    }
+
+    /// 눈 오는 날의 지도와 풀숲 그림. 컨트롤러가 넣고, 눈 그림을 못 만들면 nil이라 지도는 그대로다.
+    var snowLook: () -> PlazaSnowLook? = { nil }
+    /// 눈 오는 날이 켜지거나 꺼졌다.
+    var onSnowDayChange: ((Bool) -> Void)?
+    /// 오늘이 눈 오는 날인가. 배경을 숨겨도 그대로다.
+    var isSnowDay: Bool { weatherLayer.kind(at: now(), period: weatherPeriod) == .snow }
+    /// `refreshSnowDay`가 마지막으로 적용한 날.
+    private(set) var isSnowShown = false
+    /// 테스트용: 지금 그리는 지도 그림.
+    var shownMapImage: CGImage { mapImage }
+
+    /// 눈 오는 날과 보이는 모습을 맞춘다. `update`와 주기 변경, 컨트롤러가 부른다.
+    func refreshSnowDay() {
+        let on = isSnowDay
+        guard on != isSnowShown else { return }
+        var image = normalMapImage
+        var grass = normalTallGrass
+        if on, let look = snowLook() {
+            image = look.mapImage
+            grass = look.tallGrass ?? normalTallGrass
+        }
+        let texture = SKTexture(cgImage: image)
+        texture.filteringMode = .nearest
+        mapNode.texture = texture
+        mapImage = image
+        if let grass { tallGrassLayer?.setArt(grass) }
+        isSnowShown = on
+        onSnowDayChange?(on)
     }
 
     /// 테스트용: 지금 내리는 날씨와 입자.

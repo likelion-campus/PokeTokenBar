@@ -73,3 +73,9 @@ enum PlazaSnowSheet {
                        decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
     }
 }
+
+/// 눈 오는 날의 지도 그림과 풀숲 그림.
+struct PlazaSnowLook {
+    let mapImage: CGImage
+    let tallGrass: PlazaTallGrassArt?
+}

@@ -139,6 +139,26 @@ struct PlazaFocusEnd: Equatable, Sendable {
         return art
     }
 
+    /// 눈 오는 날의 그림도 프로세스당 한 번만 만든다. 타일 시트가 없으면 바깥 nil(=만들어 봤지만 없음)이다.
+    private static var cachedSnowLook: PlazaSnowLook??
+
+    private static func snowLook(for map: PlazaMap) -> PlazaSnowLook? {
+        if let built = cachedSnowLook { return built }
+        var look: PlazaSnowLook?
+        if let sheet = PlazaResources.tileSheet() {
+            let art = PlazaResources.tallGrassSheet().map(PlazaSnowSheet.tallGrass).flatMap(PlazaTallGrassArt.init(sheet:))
+            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSnowSheet.tiles(sheet), tallGrass: art), tallGrass: art)
+        }
+        cachedSnowLook = .some(look)
+        return look
+    }
+
+    private func snowDayChanged(_ on: Bool) {
+        minimap.snowMapImage = on ? Self.snowLook(for: map).map { NSImage(cgImage: $0.mapImage, size: .zero) } : nil
+    }
+
+    var minimapShowsSnow: Bool { minimap.snowMapImage != nil }
+
     private var mapImage: CGImage {
         if let cached = Self.cachedMapImage { return cached }
         let tallGrass = Self.tallGrassArt()
@@ -404,7 +424,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
         // 일정을 먼저 넣어야 낮밤·날씨·모닥불빛이 기본값으로 한 번 그려졌다가 다시 만들어지지 않는다.
         scene = s
+        s.snowLook = { [map] in Self.snowLook(for: map) }
+        s.onSnowDayChange = { [weak self] in self?.snowDayChanged($0) }
         applySchedule()
+        s.refreshSnowDay()
+        snowDayChanged(s.isSnowShown)
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
         shortcutModel.isFolded = preferences.areShortcutsFolded
