@@ -83,7 +83,6 @@ struct PlazaSnowballFlight {
             place(&f)
             kept.append(f)
         }
-        current = []
         flights = kept + flights
     }
 
@@ -113,24 +112,24 @@ struct PlazaSnowballFlight {
             f.shadow?.zPosition = 0.5
             return
         }
-        guard spec.burst != .none else { return }
         let step = min(frame - spec.frames, PlazaSnowball.burstFrames - 1)
         let air = spec.burst == .air
         let center = CGPoint(x: spec.end.x, y: worldHeight - spec.end.y + (air ? spec.endHeight : 0))
         let z: CGFloat = air ? 21 : 1 + spec.end.y / worldHeight + 0.0003
         let pieces = PlazaSnowball.burstPieces(step: step, onGround: !air)
         while f.pieces.count < pieces.count {
-            f.pieces.append(take(texture: textures[0], anchor: CGPoint(x: 0.5, y: 0.5)))
+            f.pieces.append(take(texture: textures[0], anchor: CGPoint(x: 0, y: 0)))
         }
         for (i, piece) in pieces.enumerated() {
             let node = f.pieces[i]
             node.texture = textures[piece.glyph]
             node.size = CGSize(width: textures[piece.glyph].size().width * PlazaSnowball.cell,
                                height: textures[piece.glyph].size().height * PlazaSnowball.cell)
-            node.position = CGPoint(x: even(center.x + piece.offset.dx), y: even(center.y + piece.offset.dy))
+            // 왼쪽 아래 모서리를 월드 2픽셀(시트 한 픽셀)에 맞춘다. 가운데를 맞추면 6픽셀 조각이 홀수 픽셀에 앉는다.
+            node.position = CGPoint(x: even(center.x + piece.offset.dx - node.size.width / 2),
+                                    y: even(center.y + piece.offset.dy - node.size.height / 2))
             node.zPosition = z
         }
-        while f.pieces.count > pieces.count { give(f.pieces.removeLast()) }
     }
 
     private func take(texture: SKTexture, anchor: CGPoint) -> SKSpriteNode {

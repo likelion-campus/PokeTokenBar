@@ -35,8 +35,10 @@ import SpriteKit
                                  blue: CGFloat(PlazaSnow.footprintHex & 0xFF) / 255, alpha: 1)
             node.size = p.alongX ? CGSize(width: PlazaSnow.footprintLength, height: PlazaSnow.footprintWidth)
                                  : CGSize(width: PlazaSnow.footprintWidth, height: PlazaSnow.footprintLength)
-            // 시트 픽셀(월드 2픽셀)에 맞춘다.
-            node.position = CGPoint(x: (p.center.x / 2).rounded() * 2, y: ((worldHeight - p.center.y) / 2).rounded() * 2)
+            // 왼쪽 아래 모서리를 시트 픽셀(월드 2픽셀)에 맞춘다. 가운데를 맞추면 6픽셀 변이 홀수 픽셀에 앉는다.
+            node.anchorPoint = .zero
+            node.position = CGPoint(x: ((p.center.x - node.size.width / 2) / 2).rounded() * 2,
+                                    y: ((worldHeight - p.center.y - node.size.height / 2) / 2).rounded() * 2)
             node.alpha = 1
             node.isHidden = false
             if node.parent == nil { addChild(node) }
