@@ -15,7 +15,7 @@ final class TeamSessionLoopbackTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("TeamSessionLoopbackTests-\(UUID().uuidString)")
 
         init(_ name: String, code: TeamCode) {
-            let defaults = UserDefaults(suiteName: suite)!
+            let defaults = TestDefaults.make(suite: suite)
             settings = TeamSettings(defaults: defaults)
             settings.code = code
             settings.nickname = name
@@ -32,7 +32,6 @@ final class TeamSessionLoopbackTests: XCTestCase {
 
         func tearDown() {
             transport.stop()
-            UserDefaults().removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: dir)
         }
     }

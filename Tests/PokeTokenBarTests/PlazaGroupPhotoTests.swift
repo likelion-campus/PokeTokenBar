@@ -20,7 +20,6 @@ private struct NoSprites: PlazaSpriteFetching {
 @MainActor
 final class PlazaGroupPhotoTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private let gate = SecondGate()
@@ -38,9 +37,8 @@ final class PlazaGroupPhotoTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     private struct Node {
@@ -51,8 +49,7 @@ final class PlazaGroupPhotoTests: XCTestCase {
 
     private func node(_ name: String) -> Node {
         let suite = "plaza.groupphoto.\(UUID())"
-        suites.append(suite)
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
         settings.isEnabled = true
@@ -71,9 +68,8 @@ final class PlazaGroupPhotoTests: XCTestCase {
 
     private func controller(_ me: Node) -> PlazaWindowController {
         let name = "plaza.groupphoto.prefs.\(UUID())"
-        suites.append(name)
         let gate = gate
-        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: name)!),
+        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: name)),
                                       loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: 25, isShiny: false) }, session: me.session,

@@ -92,8 +92,7 @@ final class PlazaNameColorTests: XCTestCase {
                               names: [25: ["ko": "x", "en": "x"]], form: nil)]
         try JSONEncoder().encode(state).write(to: url)
         let suite = "namecolor-\(UUID())"
-        let defaults = UserDefaults(suiteName: suite)!
-        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: suite)
         let store = CompanionStore(provider: ColorTestProvider(), clock: { Date(timeIntervalSince1970: 1_700_000_000) },
                                    fileURL: url, rng: SeededRNG(seed: 7),
                                    dittoDisguiseRollingEnabled: false, defaults: defaults)

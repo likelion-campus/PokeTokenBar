@@ -31,8 +31,7 @@ final class PlazaScheduleWiringTests: XCTestCase {
 
     private func controller(at now: @escaping () -> Date = Date.init, _ current: @escaping () -> PlazaSchedule?) -> PlazaWindowController {
         let suite = "ptb.test.schedule.wiring.\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
-        return PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        return PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                      loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                      nickname: { "나" }, memberID: { "me" },
                                      subject: { .init(speciesID: 25, isShiny: false) }, schedule: current, clock: now)

@@ -77,11 +77,10 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
 
     private func makeStores(snapshotCount: Int) throws -> (CompanionStore, UsageStore) {
         let suite = "SnapshotHistoryRendering-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock {
-            defaults.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: directory)
         }
         let file = directory.appendingPathComponent("companion-state.json")
@@ -122,7 +121,7 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         _ = NSApplication.shared
         if previousKeyWindow == nil { previousKeyWindow = NSApp.keyWindow }
         let host = NSHostingView(rootView: SettingsView(onClose: {}, onChooseRepresentative: {})
-            .environment(companion).environment(usage).environment(UpdateChecker()).environment(TeamSettings(defaults: UserDefaults(suiteName: "ptb.test.team.settings-render")!))
+            .environment(companion).environment(usage).environment(UpdateChecker()).environment(TeamSettings(defaults: TestDefaults.make(suite: "ptb.test.team.settings-render")))
             .environment(\.colorScheme, .light)
             .frame(width: PopoverMetrics.width))
         host.frame = NSRect(x: 0, y: 0, width: PopoverMetrics.width, height: 460)

@@ -2,14 +2,6 @@ import XCTest
 @testable import PokeTokenBar
 
 @MainActor final class PlazaCampfireTests: XCTestCase {
-    nonisolated(unsafe) private var suites: [String] = []
-
-    override func tearDown() {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
-        suites = []
-        super.tearDown()
-    }
-
     private func tile(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
 
     func testSeatsAreTheEightFromTheSpec() {
@@ -86,8 +78,7 @@ import XCTest
 
     func testFocusSurvivesPreferencesRoundTrip() {
         let name = "plaza.test.\(UUID())"
-        suites.append(name)
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         XCTAssertNil(prefs.focus)
         let f = PlazaFocus(endsAt: Date(timeIntervalSince1970: 1_800_001_500), minutes: 25, seat: tile(35, 21))
         prefs.focus = f

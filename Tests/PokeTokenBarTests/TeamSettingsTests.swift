@@ -4,12 +4,9 @@ import XCTest
 
 @MainActor
 final class TeamSettingsTests: XCTestCase {
-    nonisolated(unsafe) private var suites: [String] = []
-
     private func freshDefaults() -> UserDefaults {
         let name = UUID().uuidString
-        suites.append(name)
-        return UserDefaults(suiteName: name)!
+        return TestDefaults.make(suite: name)
     }
 
     func testNameColorIsKeptOnThisMac() {
@@ -224,12 +221,6 @@ final class TeamSettingsTests: XCTestCase {
         XCTAssertEqual(TeamSettings(defaults: d).savedTeams.map(\.name), ["y"])
     }
 
-    override func tearDown() {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
-        suites = []
-        super.tearDown()
-    }
-
     func testDefaultsAreOffAndNotReady() {
         let s = TeamSettings(defaults: freshDefaults())
         XCTAssertFalse(s.isEnabled); XCTAssertFalse(s.isReady)
@@ -300,8 +291,7 @@ final class TeamSettingsTests: XCTestCase {
 
     func testDraftCommitStoresAValidNameAndKeepsAnInvalidOne() {
         let suite = "ptb.test.team.draft.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let team = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let team = TeamSettings(defaults: TestDefaults.make(suite: suite))
         XCTAssertNil(TeamSettingsSection.committedDraft(nil, into: team))
         XCTAssertEqual(TeamSettingsSection.committedDraft("", into: team), "")
         XCTAssertEqual(team.nickname, "")

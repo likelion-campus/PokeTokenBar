@@ -15,7 +15,6 @@ private let heartKey: UInt16 = 18, lolKey: UInt16 = 19, partyKey: UInt16 = 20, e
 @MainActor
 final class PlazaEmoteTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private var now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -28,9 +27,8 @@ final class PlazaEmoteTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     private struct Node {
@@ -49,8 +47,7 @@ final class PlazaEmoteTests: XCTestCase {
 
     private func node(_ name: String) -> Node {
         let suite = "plaza.emote.\(UUID())"
-        suites.append(suite)
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
         settings.isEnabled = true
@@ -70,8 +67,7 @@ final class PlazaEmoteTests: XCTestCase {
 
     private func defaults() -> UserDefaults {
         let name = "plaza.emote.prefs.\(UUID())"
-        suites.append(name)
-        return UserDefaults(suiteName: name)!
+        return TestDefaults.make(suite: name)
     }
 
     private func controller(_ me: Node, start: TilePoint? = nil, speciesID: Int? = 25) -> PlazaWindowController {

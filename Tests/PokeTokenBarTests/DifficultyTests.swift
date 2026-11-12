@@ -20,7 +20,7 @@ final class DifficultyTests: XCTestCase {
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":\(used),\"spentTokens\":0,"
             + "\"lastDate\":\"d\",\"dex\":[],\"collectedFinals\":[]}"
         try? json.data(using: .utf8)!.write(to: url)
-        let suite = UserDefaults(suiteName: "ptb-diff-\(UUID().uuidString)")!
+        let suite = TestDefaults.make(suite: "ptb-diff-\(UUID().uuidString)")
         suite.set(growth, forKey: "growthDifficulty")
         suite.set(shop, forKey: "shopDifficulty")
         return CompanionStore(provider: StubDiffProvider(value: line()),

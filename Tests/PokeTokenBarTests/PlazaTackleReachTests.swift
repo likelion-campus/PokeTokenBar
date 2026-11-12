@@ -28,10 +28,9 @@ final class PlazaTackleReachTests: XCTestCase {
         let url = directory.appendingPathComponent("companion-state.json")
         try JSONEncoder().encode(state).write(to: url)
         let suite = "reach-tests-\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
         let date = now
         return CompanionStore(provider: OfflineLineProvider(), clock: { date }, fileURL: url,
-                              dittoDisguiseRollingEnabled: false, defaults: UserDefaults(suiteName: suite)!)
+                              dittoDisguiseRollingEnabled: false, defaults: TestDefaults.make(suite: suite))
     }
 
     func testEvolutionStageIsThePlaceInItsOwnLine() {

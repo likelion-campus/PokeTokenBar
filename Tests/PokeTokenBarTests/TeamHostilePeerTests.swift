@@ -23,7 +23,7 @@ final class TeamHostilePeerTests: XCTestCase {
         dir = FileManager.default.temporaryDirectory.appendingPathComponent("TeamHostilePeerTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         suite = "ptb.test.team.hostile.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         defaults.set("me", forKey: "team.memberID")
         settings = TeamSettings(defaults: defaults)
         var rng = SystemRandomNumberGenerator()
@@ -43,7 +43,6 @@ final class TeamHostilePeerTests: XCTestCase {
 
     override func tearDown() async throws {
         try? FileManager.default.removeItem(at: dir)
-        UserDefaults().removePersistentDomain(forName: suite)
     }
 
     private final class Peer {

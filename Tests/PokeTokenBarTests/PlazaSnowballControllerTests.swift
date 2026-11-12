@@ -12,7 +12,6 @@ private struct EmptyFetcher: PlazaSpriteFetching {
 @MainActor
 final class PlazaSnowballControllerTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private var now = PlazaSnowballControllerTests.day(6)
@@ -33,9 +32,8 @@ final class PlazaSnowballControllerTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     @MainActor private struct Node {
@@ -52,8 +50,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
 
     private func node(_ name: String) -> Node {
         let suite = "plaza.snowball.\(UUID())"
-        suites.append(suite)
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
         settings.isEnabled = true
@@ -73,8 +70,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
 
     private func defaults() -> UserDefaults {
         let name = "plaza.snowball.prefs.\(UUID())"
-        suites.append(name)
-        return UserDefaults(suiteName: name)!
+        return TestDefaults.make(suite: name)
     }
 
     private func controller(_ me: Node, start: TilePoint, speciesID: Int?, stage: Int) -> PlazaWindowController {

@@ -96,7 +96,6 @@ final class TeamSessionTests: XCTestCase {
     private var clock: TestClock!
     private var code: TeamCode!
     private var dirs: [URL] = []
-    private var suites: [String] = []
 
     override func setUp() async throws {
         hub = FakeTransportHub()
@@ -106,14 +105,12 @@ final class TeamSessionTests: XCTestCase {
 
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
-        dirs = []; suites = []
+        dirs = []
     }
 
     private func makeDefaults() -> UserDefaults {
         let name = UUID().uuidString
-        suites.append(name)
-        return UserDefaults(suiteName: name)!
+        return TestDefaults.make(suite: name)
     }
 
     private func makeFeedURL() -> URL {

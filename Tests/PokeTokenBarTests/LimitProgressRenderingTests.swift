@@ -7,8 +7,7 @@ import XCTest
 final class LimitProgressRenderingTests: XCTestCase {
     func testRemainingModeReversesRenderedFillAndClampsExhaustedQuota() throws {
         let suite = "LimitProgressRendering-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         let store = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
 
         func renderedPercent(_ used: Double) throws -> Double {
@@ -41,8 +40,7 @@ final class LimitProgressRenderingTests: XCTestCase {
     /// 무검증으로 남고, 채움만 뒤집히고 눈금은 그대로였던 #286 부류가 그 틈으로 다시 들어온다.
     func testPaceMarkerRendersAtElapsedPositionAndMirrorsInRemainingMode() throws {
         let suite = "LimitPaceRendering-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         let store = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
         let width = 200.0
         let height = 14.0
@@ -101,8 +99,7 @@ final class LimitProgressRenderingTests: XCTestCase {
     /// 커 보였다. 위치 테스트는 어느 쪽이든 통과하므로(가장 어두운 *열*만 본다) 길이를 따로 잰다.
     func testPaceMarkerStaysCloseToPaintedTrackHeight() throws {
         let suite = "LimitPaceHeight-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         let store = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
         let width = 200.0
         let height = 20.0

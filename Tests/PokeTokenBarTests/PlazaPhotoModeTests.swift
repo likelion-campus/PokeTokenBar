@@ -11,21 +11,17 @@ private struct EmptyFetcher: PlazaSpriteFetching {
 /// 컨트롤러 수준의 사진 모드: P로 열고, Space로 찍고, Esc로 나가고, 닫으면 모두 되돌린다.
 @MainActor
 final class PlazaPhotoModeTests: XCTestCase {
-    private var suites: [String] = []
     private var controllers: [PlazaWindowController] = []
     private let pKey: UInt16 = 35, spaceKey: UInt16 = 49, escKey: UInt16 = 53, rightKey: UInt16 = 124
 
     override func tearDown() async throws {
         for c in controllers { c.handleClose() }
         controllers = []
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
-        suites = []
     }
 
     private func controller(writer: @escaping (Data) -> Bool) -> (PlazaWindowController, PlazaPreferences) {
         let name = "plaza.photomode.prefs.\(UUID())"
-        suites.append(name)
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         prefs.zoom = 2
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                       nickname: { "나" }, memberID: { "me" }, subject: { .init(speciesID: 25, isShiny: false) },

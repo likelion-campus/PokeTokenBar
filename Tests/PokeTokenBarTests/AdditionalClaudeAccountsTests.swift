@@ -241,8 +241,7 @@ final class ClaudeAccountRootsTests: XCTestCase {
 
     func testInstalledAccountRootsReadTheSettingOutsideTheApp() throws {
         let suite = "ptb-account-roots-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         XCTAssertEqual(ClaudeAccountRoots.installedAccountRoots(defaults: defaults), [])
         let personal = home.appendingPathComponent(".claude-personal").path
         defaults.set(personal, forKey: ClaudeAccountRoots.defaultsKey)
@@ -476,7 +475,7 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
 
     override func setUpWithError() throws {
         suiteName = "ptb-accounts-\(UUID().uuidString)"
-        testDefaults = UserDefaults(suiteName: suiteName)
+        testDefaults = TestDefaults.make(suite: suiteName)
         KeychainAccessGate.isDisabled = false
         base = FileManager.default.temporaryDirectory
             .appendingPathComponent("ptb-accounts-store-\(UUID().uuidString)", isDirectory: true)
@@ -487,7 +486,6 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        testDefaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: base)
     }
 
@@ -1265,7 +1263,7 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
 
     override func setUpWithError() throws {
         suiteName = "ptb-tracked-\(UUID().uuidString)"
-        testDefaults = UserDefaults(suiteName: suiteName)
+        testDefaults = TestDefaults.make(suite: suiteName)
         KeychainAccessGate.isDisabled = false
         base = FileManager.default.temporaryDirectory
             .appendingPathComponent("ptb-tracked-\(UUID().uuidString)", isDirectory: true)
@@ -1273,7 +1271,6 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        testDefaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: base)
     }
 
@@ -1819,7 +1816,7 @@ final class ClaudeAccountUsageStoreTests: XCTestCase {
 
     override func setUpWithError() throws {
         suiteName = "ptb-account-usage-\(UUID().uuidString)"
-        testDefaults = UserDefaults(suiteName: suiteName)
+        testDefaults = TestDefaults.make(suite: suiteName)
         KeychainAccessGate.isDisabled = false
         base = FileManager.default.temporaryDirectory
             .appendingPathComponent("ptb-account-usage-\(UUID().uuidString)", isDirectory: true)
@@ -1827,7 +1824,6 @@ final class ClaudeAccountUsageStoreTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        testDefaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: base)
     }
 

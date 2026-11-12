@@ -486,8 +486,7 @@ final class GrokUsageTests: XCTestCase {
     @MainActor
     func testGrokOnlyUserGetsAllAggregates() async throws {
         let suite = "GrokUsageTests.parity.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: suite)
         let today = LocalUsageReader.todayKey()
         // burnTier 임계는 1,000 tokens/min 초과 — 그 위 값으로 "관측됐다"를 검증한다.
         let block = BlockUsage(id: "b", startTime: "", endTime: "", isActive: true,
@@ -519,8 +518,7 @@ final class GrokUsageTests: XCTestCase {
     @MainActor
     func testDefaultRegistryIncludesGrok() {
         let suite = "GrokUsageTests.registry.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: suite)
         let store = UsageStore(autoRefresh: false, defaults: defaults)
         XCTAssertTrue(store.registeredProviderIDs.contains("grok"))
     }

@@ -65,8 +65,7 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
 
     private func render(history: Bool, language: AppLanguage = .ko, costs: CostCoverage? = nil) async throws {
         let suite = "QuietHome-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(suite).json")
         defer { try? FileManager.default.removeItem(at: file) }
         var state = CompanionState()

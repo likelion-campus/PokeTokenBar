@@ -172,8 +172,7 @@ final class DittoRevealTests: XCTestCase {
 
     func testBoostedEasyDittoRetainsLevelAndIdentityAcrossReveal() async throws {
         let suite = "ditto-profile-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         let s = seedDisguise(boosted: true, defaults: defaults)
         s.setGrowthDifficulty(0.1)
         await s.loadPokemonDetails(speciesID: 1)
@@ -377,8 +376,7 @@ final class DittoRevealTests: XCTestCase {
         for difficulty in [0.1, 1.0, 2.0] {
             for boosted in [false, true] {
                 let suiteName = "ditto-candy-\(UUID())"
-                let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-                defer { defaults.removePersistentDomain(forName: suiteName) }
+                let defaults = try XCTUnwrap(TestDefaults.make(suite: suiteName))
                 defaults.set(difficulty, forKey: "growthDifficulty")
                 let s = seedDisguise(boosted: boosted, defaults: defaults)
                 await drainReveal(s)

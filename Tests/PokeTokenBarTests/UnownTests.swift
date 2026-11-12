@@ -101,10 +101,9 @@ final class UnownTests: XCTestCase {
                         provider: any PokeProviding = UnownTestProvider()) -> CompanionStore {
         let date = now
         let suite = "unown-tests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = TestDefaults.make(suite: suite)
         defaults.set(1.0, forKey: "growthDifficulty")
         defaults.set(1.0, forKey: "shopDifficulty")
-        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
         return CompanionStore(provider: provider, clock: { date },
                               fileURL: url, rng: SeededRNG(seed: seed),
                               dittoDisguiseRollingEnabled: false, defaults: defaults)
@@ -159,7 +158,7 @@ final class UnownTests: XCTestCase {
         var original = CompanionState()
         original.dex = [entry(.a), entry(.exclamation, shiny: true)]
         let s = try store(original)
-        let dex = TeamRuntime.profile(settings: TeamSettings(defaults: UserDefaults(suiteName: "tp-\(UUID().uuidString)")!),
+        let dex = TeamRuntime.profile(settings: TeamSettings(defaults: TestDefaults.make(suite: "tp-\(UUID().uuidString)")),
                                       companion: s).dex
         XCTAssertEqual(dex.map(\.form), [.a, .exclamation])
         XCTAssertEqual(dex.map(\.speciesID), [201, 201])

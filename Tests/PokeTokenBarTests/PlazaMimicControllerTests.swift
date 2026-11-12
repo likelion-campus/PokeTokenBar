@@ -23,7 +23,6 @@ private final class RecordingFetcher: PlazaSpriteFetching, @unchecked Sendable {
 @MainActor
 final class PlazaMimicControllerTests: XCTestCase {
     private var hub: FakeTransportHub!
-    private var suites: [String] = []
     private var dirs: [URL] = []
     private var code: TeamCode!
     private var now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -41,9 +40,8 @@ final class PlazaMimicControllerTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        suites = []; dirs = []
+        dirs = []
     }
 
     @MainActor private struct Node {
@@ -61,8 +59,7 @@ final class PlazaMimicControllerTests: XCTestCase {
 
     private func node(_ name: String, character: TeamMonSummary? = nil, nameColor: UInt32? = nil) -> Node {
         let suite = "plaza.mimic.\(UUID())"
-        suites.append(suite)
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
         settings.nameColor = nameColor
@@ -83,8 +80,7 @@ final class PlazaMimicControllerTests: XCTestCase {
 
     private func prefs() -> PlazaPreferences {
         let name = "plaza.mimic.prefs.\(UUID())"
-        suites.append(name)
-        return PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
+        return PlazaPreferences(defaults: TestDefaults.make(suite: name))
     }
 
     private func controller(_ me: Node) -> PlazaWindowController {

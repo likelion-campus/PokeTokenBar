@@ -25,7 +25,7 @@ final class PlazaControllerLifetimeTests: XCTestCase {
             defer { try? FileManager.default.removeItem(at: dir) }
             let mon = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
             func node(_ name: String) -> (TeamSession, FakeTeamTransport, TeamSettings) {
-                let settings = TeamSettings(defaults: UserDefaults(suiteName: "plaza.lifetime.\(UUID())")!)
+                let settings = TeamSettings(defaults: TestDefaults.make(suite: "plaza.lifetime.\(UUID())"))
                 settings.code = code
                 settings.nickname = name
                 settings.isEnabled = true
@@ -40,7 +40,7 @@ final class PlazaControllerLifetimeTests: XCTestCase {
             let (me, meT, meS) = node("나")
             let (other, otherT, _) = node("가")
             defer { withExtendedLifetime(other) {} }
-            let c = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: "plaza.lifetime.prefs.\(UUID())")!),
+            let c = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.lifetime.prefs.\(UUID())")),
                                           loader: PlazaCharacterLoader(fetcher: NeverDeliversFetcher()),
                                           nickname: { "나" }, memberID: { meS.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) },

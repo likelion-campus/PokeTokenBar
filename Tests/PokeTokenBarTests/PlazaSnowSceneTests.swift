@@ -20,8 +20,7 @@ final class PlazaSnowSceneTests: XCTestCase {
 
     private func defaults() -> UserDefaults {
         let name = "PlazaSnowSceneTests-\(UUID().uuidString)"
-        let d = UserDefaults(suiteName: name)!
-        addTeardownBlock { d.removePersistentDomain(forName: name) }
+        let d = TestDefaults.make(suite: name)
         return d
     }
 

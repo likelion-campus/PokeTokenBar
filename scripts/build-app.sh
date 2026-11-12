@@ -113,5 +113,4 @@ pkill -x "$APP_NAME" 2>/dev/null || true
 rm -rf "/Applications/$APP_NAME.app"
 cp -R "$APP" /Applications/
 
-echo "완료: 앱을 종료하고 /Applications/$APP_NAME.app 에 설치했다. Spotlight·Finder·Launchpad 에서 직접 열어라."
-echo "   에이전트(Claude Code/Codex) 셸에서 open 으로 띄우면 앱이 설정에 접근하지 못해 팀 광장 등 설정이 사라진다."
+echo "완료: open /Applications/$APP_NAME.app"
