@@ -12,8 +12,7 @@ private final class SessionKeyTestWindow: NSWindow {
 final class SessionKeySettingsRenderingTests: XCTestCase {
     func testSessionKeyEntryOpensInsideViewportAndPreservesDifficultyControls() async throws {
         let suite = "SessionKeySettingsRendering-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(suite).json")
         defer { try? FileManager.default.removeItem(at: file) }
         let usage = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
@@ -22,7 +21,7 @@ final class SessionKeySettingsRenderingTests: XCTestCase {
         navigation.openSessionKeySettings()
         let host = NSHostingController(rootView: SettingsView(
             onClose: {}, onChooseRepresentative: {}, startExpanded: navigation.expandAdvancedOnOpen)
-            .environment(usage).environment(companion).environment(UpdateChecker()).environment(TeamSettings(defaults: UserDefaults(suiteName: "ptb.test.team.settings-render")!))
+            .environment(usage).environment(companion).environment(UpdateChecker()).environment(TeamSettings(defaults: TestDefaults.make(suite: "ptb.test.team.settings-render")))
             .frame(width: PopoverMetrics.width))
         let previousKeyWindow = NSApp.keyWindow
         let window = SessionKeyTestWindow(contentRect: NSRect(x: -10000, y: -10000, width: PopoverMetrics.width, height: 460),

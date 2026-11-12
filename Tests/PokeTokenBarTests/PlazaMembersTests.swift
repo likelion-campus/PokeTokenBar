@@ -95,7 +95,6 @@ final class PlazaMembersTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
         suites = []; dirs = []
     }
@@ -109,7 +108,7 @@ final class PlazaMembersTests: XCTestCase {
     private func node(_ name: String, character: TeamMonSummary? = nil) -> Node {
         let suite = "plaza.members.\(UUID())"
         suites.append(suite)
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
         settings.isEnabled = true
@@ -133,7 +132,7 @@ final class PlazaMembersTests: XCTestCase {
     private func defaults() -> UserDefaults {
         let name = "plaza.members.prefs.\(UUID())"
         suites.append(name)
-        return UserDefaults(suiteName: name)!
+        return TestDefaults.make(suite: name)
     }
 
     private func controller(_ me: Node, fetcher: PlazaSpriteFetching = CountingFetcher(),

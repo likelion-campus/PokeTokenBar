@@ -23,7 +23,7 @@ final class DifficultySaveTests: XCTestCase {
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("difficulty-save-\(UUID()).json")
         try JSONEncoder().encode(state).write(to: url)
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "difficulty-save-\(UUID())"))
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: "difficulty-save-\(UUID())"))
         defaults.set(difficulty, forKey: "growthDifficulty")
         defaults.set(20.0, forKey: "shopDifficulty")
         let store = CompanionStore(provider: DifficultySaveProvider(), fileURL: url,

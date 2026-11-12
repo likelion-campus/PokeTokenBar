@@ -30,7 +30,7 @@ final class ProviderTabLayoutTests: XCTestCase {
     /// — Grok 추가 때 목록만 손대고 끝난 것과 같은 표류를 기계로 막는다.
     func testTabListMatchesTheRegisteredProviders() {
         let store = UsageStore(autoRefresh: false,
-                               defaults: UserDefaults(suiteName: "ProviderTabLayoutTests.\(UUID().uuidString)")!)
+                               defaults: TestDefaults.make(suite: "ProviderTabLayoutTests.\(UUID().uuidString)"))
         XCTAssertEqual(allProviders.map(\.providerID), store.registeredProviderIDs,
                        "탭 레이아웃 가드의 프로바이더 목록이 UsageStore.init 기본 배열과 다르다")
     }

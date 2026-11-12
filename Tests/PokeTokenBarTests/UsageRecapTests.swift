@@ -86,7 +86,7 @@ final class UsageLedgerTests: XCTestCase {
     }
 
     func testJunkIsDroppedOnLoad() {
-        let defaults = UserDefaults(suiteName: "ledger-junk-\(UUID().uuidString)")!
+        let defaults = TestDefaults.make(suite: "ledger-junk-\(UUID().uuidString)")
         defaults.set(["2026-09-10": 400, "nope": 10, "0000-00-00": 10, "2026-09-11": 0],
                      forKey: UsageLedger.defaultsKey)
         defaults.set("0000-00-00", forKey: UsageLedger.coverageKey)
@@ -98,7 +98,7 @@ final class UsageLedgerTests: XCTestCase {
     }
 
     func testSaveAndLoadRoundTrip() {
-        let defaults = UserDefaults(suiteName: "ledger-round-\(UUID().uuidString)")!
+        let defaults = TestDefaults.make(suite: "ledger-round-\(UUID().uuidString)")
         let l = ledger(since: "2026-09-01", [("2026-09-10", 700)])
         l.save(to: defaults)
 
@@ -151,7 +151,7 @@ final class UsageLedgerRecordingTests: XCTestCase {
         let formatter = LocalUsageReader.localDayFormatter()
         let today = formatter.string(from: Date())
         let yesterday = formatter.string(from: Date().addingTimeInterval(-86_400))
-        let defaults = UserDefaults(suiteName: "ledger-refresh-\(UUID().uuidString)")!
+        let defaults = TestDefaults.make(suite: "ledger-refresh-\(UUID().uuidString)")
         let store = UsageStore(
             providers: [LedgerProvider(daily: usage(today, 300),
                                        series: [usage(yesterday, 900), usage(today, 300)])],
@@ -179,7 +179,7 @@ extension UsageLedgerRecordingTests {
         let lastDayTwoYearsAgo = formatter.string(from: thisYear.shifted(by: -1, calendar: calendar).start
             .addingTimeInterval(-12 * 3600))
         let today = formatter.string(from: Date())
-        let defaults = UserDefaults(suiteName: "ledger-retention-\(UUID().uuidString)")!
+        let defaults = TestDefaults.make(suite: "ledger-retention-\(UUID().uuidString)")
         var seeded = UsageLedger()
         seeded.merge([usage(lastDayTwoYearsAgo, 70), usage(lastYearStart, 80)])
         seeded.save(to: defaults)
@@ -345,7 +345,7 @@ final class UsageRecapRenderingTests: XCTestCase {
         let dexJSON = String(decoding: try JSONEncoder().encode(dex), as: UTF8.self)
         try Data(#"{"installBaselineSet":true,"usedSinceInstall":1000,"lastDate":"d","dex":\#(dexJSON)}"#.utf8)
             .write(to: url)
-        let defaults = UserDefaults(suiteName: "recap-render-\(UUID().uuidString)")!
+        let defaults = TestDefaults.make(suite: "recap-render-\(UUID().uuidString)")
         ledger(since: key(2026, 8, 1), [(key(2026, 9, 17), 5_000), (key(2026, 8, 20), 900)]).save(to: defaults)
         let usageStore = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
 
@@ -383,8 +383,7 @@ final class UsageRecapRenderingTests: XCTestCase {
 
     func testBucketDescriptionsDistinguishUsageZeroAndMissingDataInEveryLanguage() throws {
         let suite = "recap-bucket-descriptions-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         ledger(since: key(2026, 8, 1), [(key(2026, 9, 17), 12_345)]).save(to: defaults)
         let store = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
         let companion = CompanionStore(fileURL: url, defaults: defaults)
@@ -422,7 +421,7 @@ final class UsageRecapRenderingTests: XCTestCase {
         let dexJSON = String(decoding: try JSONEncoder().encode([unown, wormadam]), as: UTF8.self)
         try Data(#"{"installBaselineSet":true,"usedSinceInstall":1000,"lastDate":"d","language":"en","dex":\#(dexJSON)}"#.utf8)
             .write(to: url)
-        let defaults = UserDefaults(suiteName: "recap-unown-\(UUID().uuidString)")!
+        let defaults = TestDefaults.make(suite: "recap-unown-\(UUID().uuidString)")
         ledger(since: key(2026, 9, 1), [(key(2026, 9, 17), 5_000)]).save(to: defaults)
         let content = RecapContent(store: UsageStore(providers: [], autoRefresh: false, defaults: defaults),
                                    companion: CompanionStore(fileURL: url, defaults: defaults),

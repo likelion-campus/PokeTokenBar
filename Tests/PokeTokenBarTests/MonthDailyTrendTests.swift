@@ -287,7 +287,7 @@ final class MonthDailyTrendTests: XCTestCase {
             claudeLimitsProvider: NoClaudeLimits(), codexLimitsProvider: NoCodexLimits(),
             antigravityLimitsProvider: NoAntigravityLimits(), statusProvider: NoStatus(),
             autoRefresh: false,
-            defaults: UserDefaults(suiteName: "MonthDailyTrendTests.\(UUID().uuidString)")!)
+            defaults: TestDefaults.make(suite: "MonthDailyTrendTests.\(UUID().uuidString)"))
         await store.refresh(scheduleEmptyRetry: false)
 
         let totals = store.monthDailyTotals

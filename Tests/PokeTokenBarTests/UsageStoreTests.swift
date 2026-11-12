@@ -188,13 +188,8 @@ final class UsageStoreTests: XCTestCase {
     override func setUp() {
         super.setUp()
         suiteName = "ptb-test-\(UUID().uuidString)"
-        testDefaults = UserDefaults(suiteName: suiteName)
+        testDefaults = TestDefaults.make(suite: suiteName)
         KeychainAccessGate.isDisabled = false
-    }
-
-    override func tearDown() {
-        testDefaults.removePersistentDomain(forName: suiteName)
-        super.tearDown()
     }
 
     private func makeStore(

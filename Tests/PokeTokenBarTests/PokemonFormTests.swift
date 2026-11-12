@@ -58,10 +58,9 @@ final class PokemonFormTests: XCTestCase {
         let url = directory.appendingPathComponent("companion-state.json")
         try JSONEncoder().encode(state).write(to: url)
         let suite = "form-tests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = TestDefaults.make(suite: suite)
         defaults.set(1.0, forKey: "growthDifficulty")
         defaults.set(1.0, forKey: "shopDifficulty")
-        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
         let date = now
         return CompanionStore(provider: FormTestProvider(), clock: { date }, fileURL: url,
                               rng: SeededRNG(seed: seed), dittoDisguiseRollingEnabled: false, defaults: defaults)
@@ -281,9 +280,8 @@ final class PokemonFormTests: XCTestCase {
         try Data(json.utf8).write(to: url)
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         let suite = "form-ditto-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = TestDefaults.make(suite: suite)
         defaults.set(1.0, forKey: "growthDifficulty")
-        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
         let date = now
         let s = CompanionStore(provider: FormTestProvider(), clock: { date }, fileURL: url, rng: SeededRNG(seed: 7),
                                defaults: defaults)

@@ -25,11 +25,10 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     private func defaults() -> UserDefaults {
         let name = "plaza.test.\(UUID())"
         suites.append(name)
-        return UserDefaults(suiteName: name)!
+        return TestDefaults.make(suite: name)
     }
 
     override func tearDown() {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         suites = []
         super.tearDown()
     }
@@ -861,7 +860,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     private func pondNode(_ name: String, code: TeamCode) -> PondNode {
         let suite = "plaza.pond.\(UUID())"
         suites.append(suite)
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
         settings.isEnabled = true

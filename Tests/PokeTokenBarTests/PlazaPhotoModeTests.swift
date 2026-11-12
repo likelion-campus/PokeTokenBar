@@ -18,14 +18,13 @@ final class PlazaPhotoModeTests: XCTestCase {
     override func tearDown() async throws {
         for c in controllers { c.handleClose() }
         controllers = []
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         suites = []
     }
 
     private func controller(writer: @escaping (Data) -> Bool) -> (PlazaWindowController, PlazaPreferences) {
         let name = "plaza.photomode.prefs.\(UUID())"
         suites.append(name)
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         prefs.zoom = 2
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                       nickname: { "나" }, memberID: { "me" }, subject: { .init(speciesID: 25, isShiny: false) },

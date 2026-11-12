@@ -23,7 +23,7 @@ private final class RuntimeNode {
 
     init(hub: FakeTransportHub, code: TeamCode, nickname: String, companionURL: URL? = nil,
          secondsSinceInput: @escaping () -> TimeInterval = { 0 }) {
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = TestDefaults.make(suite: suite)
         settings = TeamSettings(defaults: defaults)
         settings.code = code
         settings.nickname = nickname
@@ -38,8 +38,6 @@ private final class RuntimeNode {
         runtime = TeamRuntime(settings: settings, companion: companion, transport: transport, feed: feed,
                               secondsSinceInput: secondsSinceInput)
     }
-
-    deinit { UserDefaults().removePersistentDomain(forName: suite) }
 }
 
 /// Runs the main actor's queued hops until `condition` holds, or ten seconds pass; then asserts it holds. Tests wait on the
@@ -91,8 +89,7 @@ final class TeamRuntimeTests: XCTestCase {
         let a = RuntimeNode(hub: hub, code: code, nickname: "가")
         let b = RuntimeNode(hub: hub, code: code, nickname: "나")
         let suite = "ptb.test.team.runtime.focus.\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: suite)!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: suite))
         prefs.saveLastTile(TilePoint(x: 36, y: 22))
         let plaza = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
@@ -119,8 +116,7 @@ final class TeamRuntimeTests: XCTestCase {
         let a = RuntimeNode(hub: hub, code: code, nickname: "가")
         let b = RuntimeNode(hub: hub, code: code, nickname: "나")
         let suite = "ptb.test.team.runtime.dance.\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: suite)!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: suite))
         let plaza = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -151,8 +147,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testChangingTheScheduleUpdatesAnOpenPlaza() async throws {
         let node = RuntimeNode(hub: hub, code: newCode(), nickname: "가")
         let suite = "ptb.test.team.runtime.schedule.\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "가" }, memberID: { node.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) },
@@ -201,8 +196,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testReceivedPickupHidesTheItem() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.pickup.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -219,8 +213,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testReceivedGroupPhotoStartsTheCountdown() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.groupphoto.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session,
@@ -239,8 +232,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testReceivedFireworkBurstsInTheirStyle() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.firework.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -258,8 +250,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testReceivedDancePlaysTheirStyle() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.dance.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -281,8 +272,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testARemotesActionEmoteOrChatStopsItsDance() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.danceStop.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -315,8 +305,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testReceivedJumpHopsThatTeammate() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.jump.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -338,8 +327,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testTackleFromBesideMePushesMeOneTileAway() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.tackle.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -376,8 +364,7 @@ final class TeamRuntimeTests: XCTestCase {
         for hidden in [false, true] {
             let (a, b) = connectedPair()
             let suite = "ptb.test.team.runtime.strongpush.\(UUID().uuidString)"
-            defer { UserDefaults().removePersistentDomain(forName: suite) }
-            let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+            let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                               loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                               nickname: { "나" }, memberID: { b.settings.memberID },
                                               subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -410,9 +397,8 @@ final class TeamRuntimeTests: XCTestCase {
     func testSnowballReachesThePlazaAndPushesAtMostThreeTiles() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.snowpush.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
         let snowDay = PlazaWeather.gregorian.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 12))!
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session,
@@ -443,8 +429,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testTackleWhileMyPlazaIsHiddenStillPushesMe() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.hiddenpush.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -574,7 +559,7 @@ final class TeamRuntimeTests: XCTestCase {
     }
 
     func testNotReadyClosesPlaza() async {
-        let settingsDefaults = UserDefaults(suiteName: "ptb.test.team.runtime.close.\(UUID().uuidString)")!
+        let settingsDefaults = TestDefaults.make(suite: "ptb.test.team.runtime.close.\(UUID().uuidString)")
         let settings = TeamSettings(defaults: settingsDefaults)
         settings.code = newCode()
         settings.nickname = "가"
@@ -614,8 +599,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testReceivedEmoteReachesThePlaza() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.emote.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -631,8 +615,7 @@ final class TeamRuntimeTests: XCTestCase {
     func testReceivedGreetingShowsOverTheSenderAndMe() async {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.greeting.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
@@ -672,8 +655,7 @@ final class TeamRuntimeTests: XCTestCase {
 
     func testFeatureOffStartsNothing() async {
         let suite = "ptb.test.team.off.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = TestDefaults.make(suite: suite)
         let settings = TeamSettings(defaults: defaults)   // disabled by default
         var rng = SystemRandomNumberGenerator()
         settings.code = TeamCode.generate(using: &rng)
@@ -721,8 +703,7 @@ final class TeamRuntimeTests: XCTestCase {
     private func mimicPlaza() async -> (a: RuntimeNode, b: RuntimeNode, plaza: PlazaWindowController, scene: PlazaScene) {
         let (a, b) = connectedPair()
         let suite = "ptb.test.team.runtime.mimic.\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
                                           subject: { .init(speciesID: 132, isShiny: false) }, session: b.runtime.session)
@@ -850,8 +831,7 @@ final class TeamRuntimeNotificationTests: XCTestCase {
         let (x, y, _) = pair()
         let (host, viewer) = x.settings.memberID < y.settings.memberID ? (x, y) : (y, x)
         let suite = "ptb.test.team.runtime.decoy.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: DecoyNoSprites()),
                                           nickname: { "나" }, memberID: { viewer.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: viewer.runtime.session)
@@ -891,8 +871,7 @@ final class TeamRuntimeNotificationTests: XCTestCase {
         let (x, y, _) = pair()
         let (host, viewer) = x.settings.memberID < y.settings.memberID ? (x, y) : (y, x)
         let suite = "ptb.test.team.runtime.decoyemote.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: UserDefaults(suiteName: suite)!),
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: DecoyNoSprites()),
                                           nickname: { "나" }, memberID: { viewer.settings.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) }, session: viewer.runtime.session)

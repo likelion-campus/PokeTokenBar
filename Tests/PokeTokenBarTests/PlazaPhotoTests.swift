@@ -73,7 +73,6 @@ final class PlazaPhotoTests: XCTestCase {
     private var suites: [String] = []
 
     override func tearDown() async throws {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         suites = []
     }
 
@@ -460,7 +459,7 @@ final class PlazaPhotoTests: XCTestCase {
     private func controller(writer: @escaping (Data) -> Bool) -> PlazaWindowController {
         let name = "plaza.photo.prefs.\(UUID())"
         suites.append(name)
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                       nickname: { "나" }, memberID: { "me" }, subject: { .init(speciesID: 25, isShiny: false) },
                                       photoWriter: writer)

@@ -38,8 +38,7 @@ final class PlazaRosterTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-roster-\(UUID().uuidString).json")
         let companion = CompanionStore(fileURL: url)
         let name = "plaza.roster.\(UUID())"
-        defer { UserDefaults().removePersistentDomain(forName: name) }
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: name)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: name))
         settings.nickname = " 도토리 "
         let entry = PlazaRoster.myEntry(companion: companion, teamSettings: settings)
         XCTAssertEqual(entry.id, settings.memberID)

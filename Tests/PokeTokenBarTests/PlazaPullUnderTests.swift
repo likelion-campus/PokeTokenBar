@@ -26,7 +26,6 @@ final class PlazaPullUnderTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
     }
 
@@ -76,7 +75,7 @@ final class PlazaPullUnderTests: XCTestCase {
     private func defaults() -> UserDefaults {
         let name = "plaza.pull.\(UUID())"
         suites.append(name)
-        return UserDefaults(suiteName: name)!
+        return TestDefaults.make(suite: name)
     }
 
     private func node(_ name: String) -> Node {

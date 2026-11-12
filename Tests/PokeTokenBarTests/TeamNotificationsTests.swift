@@ -74,12 +74,10 @@ final class TeamNotificationsTests: XCTestCase {
     private let suite = "ptb.test.team.notifications.\(UUID().uuidString)"
 
     override func setUp() async throws {
-        settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         notifier = TeamNotifier(settings: settings, poster: poster, isPlazaFrontmost: { [unowned self] in frontmost },
                                 showInPlaza: { [unowned self] in inPlaza.append($0) }, clock: { [unowned self] in now })
     }
-
-    override func tearDown() { UserDefaults().removePersistentDomain(forName: suite) }
 
     func testMegaphoneNotifiesOutsideThePlazaAndBannersInside() {
         notifier.megaphone(from: memberState("민수"), text: "점심!")
@@ -316,13 +314,11 @@ final class TeamNotifierFocusTests: XCTestCase {
     private let suite = "ptb.test.team.notifier.focus.\(UUID().uuidString)"
 
     override func setUp() async throws {
-        settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         notifier = TeamNotifier(settings: settings, poster: poster, isPlazaFrontmost: { [unowned self] in frontmost },
                                 showInPlaza: { [unowned self] in inPlaza.append($0) }, clock: { t0 })
         notifier.isFocusing = { [unowned self] in focusing }
     }
-
-    override func tearDown() { UserDefaults().removePersistentDomain(forName: suite) }
 
     private func holdSome() {
         let m = memberState("민수")

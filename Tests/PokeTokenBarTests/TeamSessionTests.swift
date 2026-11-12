@@ -106,14 +106,13 @@ final class TeamSessionTests: XCTestCase {
 
     override func tearDown() async throws {
         for d in dirs { try? FileManager.default.removeItem(at: d) }
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         dirs = []; suites = []
     }
 
     private func makeDefaults() -> UserDefaults {
         let name = UUID().uuidString
         suites.append(name)
-        return UserDefaults(suiteName: name)!
+        return TestDefaults.make(suite: name)
     }
 
     private func makeFeedURL() -> URL {

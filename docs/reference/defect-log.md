@@ -1911,12 +1911,20 @@ read_when:
   **When adding an action on a character:** test it from the state a person meets first, not only the state that is
   easiest to hold still.
 
-- **에이전트 셸에서 띄운 앱은 "실행 중"이어도 건강하지 않다 — cfprefsd 가 설정 접근을 거절한다.**
-  v2.5.626 릴리스 뒤 `build-app.sh` 가 앱을 종료·설치만 하고, 에이전트가 자기 셸에서
-  `open -g /Applications/PokeTokenBar.app` 으로 다시 켰다. Orca → Claude Code 프로세스 트리에서 시작한
-  프로세스는 사용자의 환경설정을 쓸 수 없어 cfprefsd 가 그 pid 의 읽기("Unable to determine access")와
-  쓰기("Path not accessible")를 거절했고, 앱은 빈 UserDefaults 로 떠서 `team.enabled` 가 false 가 되어
-  팀 광장과 지도 아이콘이 사라졌다. 디스크의 plist 는 멀쩡했다. 프로세스가 떠 있다는 사실은 설정을 읽는다는
-  증거가 아니다. 진단: `log show --predicate 'process == "cfprefsd" AND eventMessage CONTAINS "process <pid>"'`.
-  규칙: 릴리스·설치 뒤 앱은 사용자가 직접 다시 연다. 에이전트는 앱을 띄우지 않고, 두 스크립트의 마지막 안내도
-  `open` 을 권하지 않는다.
+- **테스트가 흘린 UserDefaults 스위트가 cfprefsd 를 막으면 모든 앱의 설정이 "사라진다".**
+  증상: 앱이 빈 UserDefaults 로 떠서 `team.enabled` 가 false 가 되고 팀 광장과 지도 아이콘이 사라졌으며, 앱이 진짜 값을
+  기본값으로 덮어썼다. 시스템 데몬의 설정 접근도 함께 실패했다. 원인: 테스트가 테스트마다 UUID 이름 스위트
+  (`ptb.test.team.runtime.<UUID>`, `plaza.ditto.prefs.<UUID>` …)를 만들었고, `removePersistentDomain` 은 도메인을
+  비울 뿐 `~/Library/Preferences/<suite>.plist` 를 남긴다 — 게다가 cfprefsd 는 변경 뒤 몇 초 늦게 파일을 쓰므로
+  지운 직후에도 다시 생긴다. 결국 그 폴더에 34만 개 항목이 쌓였고(그중 341.7k 가 테스트 스위트) 사용자의 cfprefsd 에이전트가
+  디렉터리 fd 508 개를 쥔 채 모든 프로세스의 읽기("Unable to determine access")와 쓰기("Path not accessible")를 거절했다.
+  정상이면 DIR fd 는 1 개 안팎이다. 오독: `defaults read` 가 어디서나 실패해서 "에이전트 셸에서 띄운 앱만 설정에
+  못 닿는다"로 잘못 결론 내렸고(#108, 철회), 스크립트에 "직접 열어라" 안내를 넣었다. 실패 범위가 에이전트 셸에 한정되는지
+  확인하지 않았다. 진단: `lsof -p $(pgrep -u $USER -x cfprefsd) | awk '$5=="DIR"' | wc -l` 이 수백이면 막힌 것이고,
+  `log show --last 1h --predicate 'process == "cfprefsd" AND eventMessage CONTAINS "rejecting"'` 에 거절 기록이 남는다.
+  복구: 앱 plist 를 백업하고, 앱을 종료하고, cfprefsd 에이전트를 kill 해 launchd 가 새로 띄우게 한 뒤(fd 1 개로 돌아온다),
+  덮어써진 키를 백업에서 고치고, 앱을 다시 연다. 먼저 앱을 끄지 않으면 앱이 다시 덮어쓴다.
+  **규칙:** 테스트는 스위트를 `TestDefaults.make(suite:)` 로만 만든다 — 이 헬퍼가 번들 종료 때 plist 를 지우고 cfprefsd 의
+  지연 쓰기까지 기다려 다시 지운다. `Tests/` 에서 `TestDefaultsScanTests` 가 헬퍼 밖의 직접 생성 호출을 실패시킨다.
+  테스트에서 `removePersistentDomain` 을 따로 부르지 않는다(그 호출이 빈 plist 를 다시 만든다). 5-whys 공백: 각 테스트는
+  자기 스위트를 지웠다고 믿어 통과했고, 흘린 파일은 테스트 밖(`~/Library/Preferences`)에만 쌓여 어떤 게이트도 보지 않았다.

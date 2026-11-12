@@ -9,7 +9,7 @@ final class TeamSettingsTests: XCTestCase {
     private func freshDefaults() -> UserDefaults {
         let name = UUID().uuidString
         suites.append(name)
-        return UserDefaults(suiteName: name)!
+        return TestDefaults.make(suite: name)
     }
 
     func testNameColorIsKeptOnThisMac() {
@@ -225,7 +225,6 @@ final class TeamSettingsTests: XCTestCase {
     }
 
     override func tearDown() {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         suites = []
         super.tearDown()
     }
@@ -300,8 +299,7 @@ final class TeamSettingsTests: XCTestCase {
 
     func testDraftCommitStoresAValidNameAndKeepsAnInvalidOne() {
         let suite = "ptb.test.team.draft.\(UUID().uuidString)"
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
-        let team = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let team = TeamSettings(defaults: TestDefaults.make(suite: suite))
         XCTAssertNil(TeamSettingsSection.committedDraft(nil, into: team))
         XCTAssertEqual(TeamSettingsSection.committedDraft("", into: team), "")
         XCTAssertEqual(team.nickname, "")

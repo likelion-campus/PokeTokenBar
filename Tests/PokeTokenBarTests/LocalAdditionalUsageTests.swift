@@ -201,8 +201,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
     @MainActor
     func testDefaultRegistryIncludesOnlyRequestedAdditionalProviders() {
         let suite = "LocalAdditionalUsageTests.registry.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: suite)
         let store = UsageStore(autoRefresh: false, defaults: defaults)
 
         XCTAssertEqual(

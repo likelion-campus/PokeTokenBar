@@ -40,8 +40,7 @@ final class FormMetadataNoteRenderingTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("state.json")
         let suite = "FormMetadataNote-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         var state = CompanionState()
         state.language = .en
         if !egg {

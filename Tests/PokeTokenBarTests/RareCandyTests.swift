@@ -430,8 +430,7 @@ final class RareCandyStoreTests: XCTestCase {
             for boosted in [false, true] {
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent("rc-batch-\(UUID().uuidString).json")
                 let suiteName = "rc-batch-\(UUID().uuidString)"
-                let defaults = UserDefaults(suiteName: suiteName)!
-                defer { defaults.removePersistentDomain(forName: suiteName) }
+                let defaults = TestDefaults.make(suite: suiteName)
                 defaults.set(difficulty, forKey: "growthDifficulty")
                 let s = CompanionStore(provider: StubProvider(value: rcLinear3), clock: { rcNow },
                                        fileURL: url, rng: SeededRNG(seed: 7), defaults: defaults)
@@ -702,13 +701,8 @@ final class RareCandyGrantIntegrationTests: XCTestCase {
     override func setUp() {
         super.setUp()
         suiteName = "rc-int-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        defaults = TestDefaults.make(suite: suiteName)
     }
-    override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
-        super.tearDown()
-    }
-
     private func usage(claude: LimitStatus? = nil, codex: CodexRateLimitStatus? = nil,
                        antigravity: AntigravityRateLimitStatus? = nil,
                        providers: [any UsageProvider]? = nil) -> UsageStore {

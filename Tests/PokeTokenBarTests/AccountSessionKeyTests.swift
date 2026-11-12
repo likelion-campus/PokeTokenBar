@@ -174,7 +174,7 @@ final class AccountSessionKeyStoreTests: XCTestCase {
 
     override func setUpWithError() throws {
         suiteName = "ptb-account-keys-\(UUID().uuidString)"
-        testDefaults = UserDefaults(suiteName: suiteName)
+        testDefaults = TestDefaults.make(suite: suiteName)
         KeychainAccessGate.isDisabled = false
         base = FileManager.default.temporaryDirectory
             .appendingPathComponent("ptb-account-keys-store-\(UUID().uuidString)", isDirectory: true)
@@ -186,7 +186,6 @@ final class AccountSessionKeyStoreTests: XCTestCase {
 
     override func tearDownWithError() throws {
         KeychainAccessGate.isDisabled = false
-        testDefaults.removePersistentDomain(forName: suiteName)
         try? FileManager.default.removeItem(at: base)
     }
 

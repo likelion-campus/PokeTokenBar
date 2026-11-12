@@ -166,7 +166,6 @@ final class PlazaBoardTests: XCTestCase {
 
     override func tearDown() async throws {
         gate.releaseAll()
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
         suites = []; dirs = []
     }
@@ -184,7 +183,7 @@ final class PlazaBoardTests: XCTestCase {
     private func node(_ name: String) -> Node {
         let suite = "plaza.board.\(UUID())"
         suites.append(suite)
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
         settings.isEnabled = true
@@ -203,7 +202,7 @@ final class PlazaBoardTests: XCTestCase {
     private func controller(_ me: Node, start: TilePoint) -> PlazaWindowController {
         let name = "plaza.board.prefs.\(UUID())"
         suites.append(name)
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         prefs.saveLastTile(start)
         let gate = gate, myID = me.id
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
@@ -428,7 +427,7 @@ final class PlazaBoardTests: XCTestCase {
     // MARK: runtime wiring
 
     func testRuntimeRoutesBigEventToThePlaza() async {
-        let defaults = UserDefaults(suiteName: "plaza.board.runtime.\(UUID())")!
+        let defaults = TestDefaults.make(suite: "plaza.board.runtime.\(UUID())")
         let settings = TeamSettings(defaults: defaults)
         settings.code = code
         settings.nickname = "나"
@@ -441,7 +440,7 @@ final class PlazaBoardTests: XCTestCase {
         let feed = TeamFeedStore(fileURL: dir.appendingPathComponent("f.json"), myMemberID: settings.memberID)
         let runtime = TeamRuntime(settings: settings, companion: companion, transport: hub.makeTransport(), feed: feed)
         let myID = settings.memberID
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: "plaza.board.rt.prefs.\(UUID())")!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.board.rt.prefs.\(UUID())"))
         let plaza = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                           nickname: { "나" }, memberID: { myID },
                                           subject: { .init(speciesID: 25, isShiny: false) },

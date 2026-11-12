@@ -136,18 +136,16 @@ final class CustomScanRootsTests: XCTestCase {
 
     func testStoredValueDoesNotLeakAcrossProviders() {
         let suite = "ptb.scan.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: suite)
         defaults.set("~/claude-extra", forKey: CustomScanRoots.defaultsKey(for: "claude_code"))
         XCTAssertEqual(CustomScanRoots.storedValue(for: "claude_code", defaults: defaults), "~/claude-extra")
         XCTAssertNil(CustomScanRoots.storedValue(for: "codex", defaults: defaults))
-        XCTAssertNil(CustomScanRoots.storedValue(for: "claude_code", defaults: UserDefaults(suiteName: "ptb.empty.\(UUID().uuidString)")!))
+        XCTAssertNil(CustomScanRoots.storedValue(for: "claude_code", defaults: TestDefaults.make(suite: "ptb.empty.\(UUID().uuidString)")))
     }
 
     func testBlankStoredValueIsNil() {
         let suite = "ptb.scan.blank.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: suite)
         defaults.set("  \n ", forKey: CustomScanRoots.defaultsKey(for: "gemini"))
         XCTAssertNil(CustomScanRoots.storedValue(for: "gemini", defaults: defaults))
     }
@@ -157,8 +155,7 @@ final class CustomScanRootsTests: XCTestCase {
     @MainActor
     func testUsageStorePersistsPerProviderAndLeavesOthersAlone() {
         let suite = "ptb.store.scan.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: suite)
         let store = UsageStore(autoRefresh: false, defaults: defaults)
         store.setCustomScanRoots("~/codex-extra", for: "codex")
         XCTAssertEqual(store.customScanRoots(for: "codex"), "~/codex-extra")
@@ -354,8 +351,7 @@ final class CustomScanRootsTests: XCTestCase {
     @MainActor
     func testEveryRegisteredProviderConsultsItsOwnCustomScanRootsKey() throws {
         let suite = "ptb.scan.sweep.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: suite)
         let ids = UsageStore(autoRefresh: false, defaults: defaults).registeredProviderIDs
         XCTAssertFalse(ids.isEmpty)
 

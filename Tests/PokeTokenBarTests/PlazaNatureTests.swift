@@ -110,8 +110,7 @@ final class PlazaNatureTests: XCTestCase {
 
     func testMyEntryCarriesTheRepresentativeNature() throws {
         let name = "plaza.nature.\(UUID())"
-        defer { UserDefaults().removePersistentDomain(forName: name) }
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: name)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: name))
         let companion = try store(nature: "naive")
         XCTAssertEqual(PlazaRoster.myEntry(companion: companion, teamSettings: settings).nature, .naive)
     }

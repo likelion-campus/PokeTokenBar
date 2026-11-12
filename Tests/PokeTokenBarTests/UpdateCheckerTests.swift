@@ -46,8 +46,7 @@ final class UpdateCheckerTests: XCTestCase {
     @MainActor
     private func isolatedDefaults() -> UserDefaults {
         let suite = "UpdateCheckerTests.check.\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
-        return UserDefaults(suiteName: suite)!
+        return TestDefaults.make(suite: suite)
     }
 
     /// A failed GitHub lookup must not start the 30-minute cooldown: otherwise opening the
@@ -170,8 +169,7 @@ final class UpdateCheckerTests: XCTestCase {
     @MainActor
     func testSkippedReleaseStaysVisibleAndANewerOneReturnsToTheBanner() {
         let suite = "UpdateCheckerTests.skip.\(UUID().uuidString)"
-        let box = UserDefaults(suiteName: suite)!
-        defer { box.removePersistentDomain(forName: suite) }
+        let box = TestDefaults.make(suite: suite)
         let checker = UpdateChecker(currentVersion: "2.5.3", defaults: box)
 
         checker.consider(latest: "2.5.4", url: "https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.4")
@@ -201,8 +199,7 @@ final class UpdateCheckerTests: XCTestCase {
     @MainActor
     func testShowAgainRestoresTheBannerAndUpdateUsesTheSkippedRelease() {
         let suite = "UpdateCheckerTests.restore.\(UUID().uuidString)"
-        let box = UserDefaults(suiteName: suite)!
-        defer { box.removePersistentDomain(forName: suite) }
+        let box = TestDefaults.make(suite: suite)
         let checker = UpdateChecker(currentVersion: "2.5.3", defaults: box)
         let url = "https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.4"
         checker.consider(latest: "2.5.4", url: url)

@@ -127,8 +127,7 @@ final class AntigravityRateLimitsProviderTests: XCTestCase {
         let status = try JSONDecoder().decode(AntigravityRateLimitStatus.self, from: data)
 
         let suite = "test.antigravity.limits.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: suite)
 
         defaults.set(true, forKey: "showLimitInMenu")
 

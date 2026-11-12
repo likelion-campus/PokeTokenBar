@@ -205,7 +205,6 @@ final class PlazaCardTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
         suites = []; dirs = []
     }
@@ -221,7 +220,7 @@ final class PlazaCardTests: XCTestCase {
     private func node(_ name: String) -> Node {
         let suite = "plaza.card.\(UUID())"
         suites.append(suite)
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
         settings.isEnabled = true
@@ -242,7 +241,7 @@ final class PlazaCardTests: XCTestCase {
                             greeting: TeamEmoteKind = .party, stage: Int = 1) -> PlazaWindowController {
         let name = "plaza.card.prefs.\(UUID())"
         suites.append(name)
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: name)!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         prefs.saveLastTile(start)
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },

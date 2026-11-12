@@ -172,7 +172,6 @@ final class PlazaItemsTests: XCTestCase {
     }
 
     override func tearDown() async throws {
-        for s in suites { UserDefaults().removePersistentDomain(forName: s) }
         for d in dirs { try? FileManager.default.removeItem(at: d) }
         suites = []; dirs = []
     }
@@ -186,7 +185,7 @@ final class PlazaItemsTests: XCTestCase {
     private func node(_ name: String) -> Node {
         let suite = "plaza.items.\(UUID())"
         suites.append(suite)
-        let settings = TeamSettings(defaults: UserDefaults(suiteName: suite)!)
+        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
         settings.nickname = name
         settings.isEnabled = true
@@ -210,7 +209,7 @@ final class PlazaItemsTests: XCTestCase {
     }
 
     private func controller(_ me: Node, prefs suite: String, start: TilePoint) -> PlazaWindowController {
-        let prefs = PlazaPreferences(defaults: UserDefaults(suiteName: suite)!)
+        let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: suite))
         prefs.saveLastTile(start)
         let now = during
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: NoSprites()),
@@ -252,7 +251,7 @@ final class PlazaItemsTests: XCTestCase {
         XCTAssertEqual(granted, [spawn.kind], "only once")
         XCTAssertNil(scene.itemTile)
         XCTAssertNil(c.minimapItem)
-        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, [spawn.slot])
+        XCTAssertEqual(PlazaPreferences(defaults: TestDefaults.make(suite: suite)).takenItemSlots, [spawn.slot])
         await waitUntil { !received.isEmpty && other.session.members[me.settings.memberID]?.takenItemSlot == spawn.slot }
         XCTAssertEqual(received, [TeamEmote(kind: .pickup, targetMemberID: nil, itemSlot: spawn.slot)])
         XCTAssertEqual(other.session.members[me.settings.memberID]?.takenItemSlot, spawn.slot)
@@ -368,7 +367,7 @@ final class PlazaItemsTests: XCTestCase {
         let suite = prefsSuite()
         let c = controller(me, prefs: suite, start: map.spawn)
         for s in (slot - 10)...(slot + 1) { c.showPickup(from: other.settings.memberID, slot: s) }
-        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, Array((slot - 7)...(slot + 1)))
+        XCTAssertEqual(PlazaPreferences(defaults: TestDefaults.make(suite: suite)).takenItemSlots, Array((slot - 7)...(slot + 1)))
     }
 
     /// A teammate whose clock runs hours ahead tells me about a slot far from now. It must not push out the item
@@ -384,7 +383,7 @@ final class PlazaItemsTests: XCTestCase {
         for i in 0..<5 { scene.update(Double(i) / 60) }
         XCTAssertEqual(granted, [spawn.kind], "once, not every frame")
         XCTAssertNil(scene.itemTile)
-        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, [spawn.slot])
+        XCTAssertEqual(PlazaPreferences(defaults: TestDefaults.make(suite: suite)).takenItemSlots, [spawn.slot])
         await waitUntil { other.session.members[me.settings.memberID]?.takenItemSlot == spawn.slot }
         XCTAssertEqual(other.session.members[me.settings.memberID]?.takenItemSlot, spawn.slot)
     }
@@ -396,7 +395,7 @@ final class PlazaItemsTests: XCTestCase {
         let c = controller(me, prefs: suite, start: map.spawn)
         c.showPickup(from: other.settings.memberID, slot: .min)
         c.showPickup(from: other.settings.memberID, slot: .max)
-        XCTAssertEqual(PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots, [])
+        XCTAssertEqual(PlazaPreferences(defaults: TestDefaults.make(suite: suite)).takenItemSlots, [])
         XCTAssertEqual(c.scene?.pickedItemSlots, [])
     }
 
@@ -404,7 +403,7 @@ final class PlazaItemsTests: XCTestCase {
     func testAFarSlotSavedEarlierIsDroppedOnOpen() async {
         let (me, other) = await connected()
         let suite = prefsSuite()
-        PlazaPreferences(defaults: UserDefaults(suiteName: suite)!).takenItemSlots = [slot, slot + 8]
+        PlazaPreferences(defaults: TestDefaults.make(suite: suite)).takenItemSlots = [slot, slot + 8]
         let c = controller(me, prefs: suite, start: map.spawn)
         XCTAssertEqual(c.scene?.pickedItemSlots, [slot])
         await waitUntil { other.session.members[me.settings.memberID]?.takenItemSlot == slot }
@@ -420,10 +419,9 @@ final class PlazaItemsTests: XCTestCase {
         let url = dir.appendingPathComponent("companion-state.json")
         try JSONEncoder().encode(CompanionState()).write(to: url)
         let suite = "items-store-\(UUID().uuidString)"
-        addTeardownBlock { UserDefaults.standard.removePersistentDomain(forName: suite) }
         func store() -> CompanionStore {
             CompanionStore(provider: OfflineLineProvider(), clock: { Date(timeIntervalSince1970: 1_700_000_000) }, fileURL: url,
-                           dittoDisguiseRollingEnabled: false, defaults: UserDefaults(suiteName: suite)!)
+                           dittoDisguiseRollingEnabled: false, defaults: TestDefaults.make(suite: suite))
         }
         let s = store()
         let candies = s.itemCount(.rareCandy), mints = s.itemCount(.mint)
