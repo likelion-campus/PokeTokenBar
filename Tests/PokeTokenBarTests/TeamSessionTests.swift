@@ -801,6 +801,45 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.presencesSent, before + 2)
     }
 
+    func testPresenceCarriesMyMimic() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.session.updateMimic("x")
+        XCTAssertEqual(b.session.members[a.memberID]?.mimicOf, "x")
+        a.session.updateMimic(nil)
+        XCTAssertNil(b.session.members[a.memberID]?.mimicOf)
+    }
+
+    func testUpdateMimicSendsOnlyOnChange() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let before = a.presencesSent
+        a.session.updateMimic(nil)
+        XCTAssertEqual(a.presencesSent, before)
+        a.session.updateMimic("x")
+        a.session.updateMimic("x")
+        XCTAssertEqual(a.presencesSent, before + 1)
+        a.session.updateMimic("y")
+        XCTAssertEqual(a.presencesSent, before + 2)
+    }
+
+    func testTheSeenTimeIsTheFirstPresenceWithThatMimic() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let t0 = clock.now
+        a.session.updateMimic("x")
+        XCTAssertEqual(b.session.members[a.memberID]?.mimicSeenAt, t0)
+        clock.advance(10)
+        a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 2, y: 2), facing: .left, isWalking: false)
+        XCTAssertEqual(b.session.members[a.memberID]?.mimicOf, "x")
+        XCTAssertEqual(b.session.members[a.memberID]?.mimicSeenAt, t0, "a repeat of the same value keeps the stamp")
+        clock.advance(10)
+        a.session.updateMimic("y")
+        XCTAssertEqual(b.session.members[a.memberID]?.mimicSeenAt, t0.addingTimeInterval(20))
+        a.session.updateMimic(nil)
+        XCTAssertNil(b.session.members[a.memberID]?.mimicSeenAt)
+    }
+
     func testReceivedDittoIsKeptOnTheMember() {
         let a = node("A"), b = node("B")
         connect(a, b)

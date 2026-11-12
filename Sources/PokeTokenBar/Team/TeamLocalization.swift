@@ -244,6 +244,8 @@ extension L {
         case .pull: "끌어들이기"
         case .snowball: "눈뭉치"
         case .decoyTackle: "💥"
+        case .mimicTackle: "💥"
+        case .mimicFound: "찾았다"
         case .dance: "춤"
         }
     }

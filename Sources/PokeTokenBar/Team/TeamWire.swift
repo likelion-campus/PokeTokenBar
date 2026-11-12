@@ -41,6 +41,9 @@ struct TeamPresence: Codable, Equatable, Sendable {
     @LossyOptional var ditto: PlazaDittoState?
     /// My plaza window is open and runs the Ditto. Left out when false.
     @LossyOptional var dittoReady: Bool?
+    /// A Ditto's disguise: the member whose real look the sender shows in the plaza. Left out when not disguised;
+    /// earlier versions ignore it and draw a Ditto.
+    @LossyOptional var mimicOf: String?
 }
 
 /// 읽을 수 없는 값(나중 버전의 모양, 잘못된 값)을 nil 로 읽는 선택값. 이 필드만 너그럽고 나머지 필드는 합성 Codable 그대로라,
@@ -102,11 +105,16 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// 눈뭉치 (V on snow days): one ball along `TeamEmote.snowballDirection`. `targetMemberID` is the member or `PlazaDitto.sceneKey` it hits,
     /// nil on a miss; `pushTiles` as for a tackle. The hit Mac pushes itself when the ball lands. Earlier versions skip it.
     case snowball
+    /// A Ditto teammate's 몸통박치기 on `targetMemberID`: lunge and star, nobody is pushed. Its presence's `mimicOf` says what it
+    /// did to the sender's disguise; the target's Mac reveals the target if disguised. Earlier versions skip it.
+    case mimicTackle
+    /// The sender's disguise was found by `targetMemberID`. Sent before the presence that drops `mimicOf`. Earlier versions skip it.
+    case mimicFound
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound: false
         }
     }
 
@@ -115,8 +123,8 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// A new kind must choose.
     var endsSendersDance: Bool {
         switch self {
-        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball: true
-        case .groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull: false
+        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle: true
+        case .groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull, .mimicFound: false
         }
     }
 }
