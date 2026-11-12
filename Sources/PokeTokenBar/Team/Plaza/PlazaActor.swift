@@ -64,9 +64,9 @@ struct PlazaActorContext {
     static let chatDuration: TimeInterval = 6
     private var chatKey: (text: String, backing: CGFloat)?
     private(set) var chatText: String?
-    private var name: String
+    private(set) var name: String
     private(set) var title: String?
-    private var nameColor: CGColor
+    private(set) var nameColor: CGColor
 
     /// 점프: 그림과 이름표가 위로 폴짝 뛰었다 내려온다. 그림자는 땅에 남는다.
     static let jumpDuration: TimeInterval = 0.36
