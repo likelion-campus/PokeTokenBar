@@ -76,6 +76,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onGreetKey: (() -> Void)?
     /// C(몸통박치기). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onTackleKey: (() -> Void)?
+    /// V(눈덩이). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
+    var onSnowballKey: (() -> Void)?
     /// G(단체 사진). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onGroupPhotoKey: (() -> Void)?
     /// F(불꽃놀이). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
@@ -123,6 +125,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             if isPaused && !oldValue {
                 stopAllDances()
                 climbOutNowIfPaused()   // 알이 물에 든 채 멈추기 시작하면 `update`가 더는 올라오게 해 주지 않는다
+                snowballLayer.landAll()   // 멈춘 장면은 프레임이 오지 않으니 날던 눈덩이를 모두 그 자리에서 착지시킨다
             }
         }
     }
@@ -251,6 +254,10 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
     private var myPrintWatch = PrintWatch()
     private let footprintLayer: PlazaFootprintLayer
+    private let snowballLayer: PlazaSnowballLayer
+    var snowballFlightCount: Int { snowballLayer.flightCount }
+    var snowballNodeCount: Int { snowballLayer.nodeCount }
+    var snowballSpriteCount: Int { snowballLayer.shownSpriteCount }
     var footprintCount: Int { footprintLayer.count }
     var footprintAlphas: [CGFloat] { footprintLayer.alphas }
 
@@ -380,6 +387,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.map = map
         self.worldSize = map.pixelSize
         self.footprintLayer = PlazaFootprintLayer(worldHeight: map.pixelSize.height)
+        self.snowballLayer = PlazaSnowballLayer(worldHeight: map.pixelSize.height)
         self.walker = PlazaWalker(tile: start)
         self.lastReported = (start, .down, false)
         self.nickname = nickname
@@ -426,6 +434,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         fireworkLayer.zPosition = 7
         addChild(fireworkLayer)
         addChild(footprintLayer)
+        addChild(snowballLayer)
         addChild(cameraNode)
         me.attach(world: self, camera: cameraNode)
         camera = cameraNode
@@ -702,10 +711,10 @@ struct PlazaSceneMember: Equatable, Sendable {
             }
             return .swallowed
         }
-        // C(몸통박치기)와 P(사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다(P를 누르고 있어도 한 번만 찍는다).
-        if keyCode == Self.cKeyCode || keyCode == Self.pKeyCode {
+        // C(몸통박치기)와 V(눈덩이), P(사진)도 말풍선 키와 같은 규칙: 수정 키가 눌렸거나 자동 반복이면 하지 않는다(P를 누르고 있어도 한 번만 찍는다).
+        if keyCode == Self.cKeyCode || keyCode == Self.vKeyCode || keyCode == Self.pKeyCode {
             if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) {
-                if keyCode == Self.cKeyCode { onTackleKey?() } else { onPhotoKey?() }
+                if keyCode == Self.cKeyCode { onTackleKey?() } else if keyCode == Self.vKeyCode { onSnowballKey?() } else { onPhotoKey?() }
             }
             return .swallowed
         }
@@ -755,8 +764,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             if !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers) { onPhotoKey?() }
             return .swallowed
         }
-        // 사진 모드에서는 C(몸통박치기)와 Enter(채팅)를 쓰지 않는다.
-        if keyCode == Self.cKeyCode || keyCode == Self.returnKeyCode || keyCode == Self.keypadEnterKeyCode { return .swallowed }
+        // 사진 모드에서는 C(몸통박치기), V(눈덩이), Enter(채팅)를 쓰지 않는다.
+        if keyCode == Self.cKeyCode || keyCode == Self.vKeyCode || keyCode == Self.returnKeyCode || keyCode == Self.keypadEnterKeyCode { return .swallowed }
         return handleSharedKeyDown(keyCode: keyCode, characters: characters, isRepeat: isRepeat, modifiers: modifiers)
     }
 
@@ -1180,6 +1189,11 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// `pusher`나 `target`이 nil이면 나. 움직이는 것은 맞은 쪽 Mac이 정한다(`pushMe`).
     func playTackle(by pusher: String?, on target: String?, direction: PlazaDirection) {
         actor(pusher)?.lunge(toward: direction)
+        showImpact(on: target, direction: direction)
+    }
+
+    /// 맞은 쪽 몸 가운데에서 민 쪽으로 조금 나온 곳에 터졌다 사라지는 충격 그림. 멈춘 장면에서는 그리지 않는다.
+    private func showImpact(on target: String?, direction: PlazaDirection) {
         guard !isPaused, let hit = actor(target) else { return }
         let foot = target.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         let toward = CGFloat(PlazaMap.tileSize) * 0.5
@@ -1203,6 +1217,49 @@ struct PlazaSceneMember: Equatable, Sendable {
             .group([.scale(to: 1.4, duration: 0.14), .sequence([.wait(forDuration: 0.12), .fadeOut(withDuration: 0.22)])]),
             .removeFromParent(),
         ]))
+    }
+
+    /// 눈덩이를 던질 수 있는 자리: `interactionTiles`에서 잠수 중인 팀원을 뺀다.
+    var snowballTargets: [String: TilePoint] {
+        interactionTiles.filter { remotes[$0.key]?.diving != true }
+    }
+
+    /// 던진 쪽(nil = 나)이 뛰어들고 눈덩이 하나가 `shot`을 따라 난다. 멈췄거나 가득 찼으면 아무것도 그리지 않고 `onLand`를 바로 부른다.
+    /// 닿을 때 맞으면 충격 그림, 물에 빠지면 작은 물보라가 먼저 나온 뒤 `onLand`가 불린다.
+    func playSnowball(by thrower: String?, shot: PlazaSnowballShot, onLand: @escaping @MainActor () -> Void) {
+        actor(thrower)?.lunge(toward: shot.direction)
+        let unit: CGPoint = switch shot.direction {
+        case .right: CGPoint(x: 1, y: 0)
+        case .left: CGPoint(x: -1, y: 0)
+        case .down: CGPoint(x: 0, y: 1)
+        case .up: CGPoint(x: 0, y: -1)
+        }
+        func foot(_ t: TilePoint) -> CGPoint { PlazaWalker.footPoint(from: t, to: t, progress: 0) }
+        let origin = foot(shot.from)
+        let start = CGPoint(x: origin.x + unit.x * PlazaSnowball.handReach, y: origin.y + unit.y * PlazaSnowball.handReach)
+        let end: CGPoint, endHeight: CGFloat, burst: PlazaSnowballFlight.Burst
+        switch shot.end {
+        case .actor(let id, let tile):
+            let f = foot(tile)
+            end = CGPoint(x: f.x - unit.x * PlazaSnowball.bodyInset, y: f.y - unit.y * PlazaSnowball.bodyInset)
+            endHeight = PlazaSnowball.bodyHeight(spriteHeight: actor(id)?.characterSize.height ?? 0)
+            burst = .air
+        case .ground(let tile):
+            end = foot(tile)
+            endHeight = 0
+            burst = map.isWater(tile) ? .none : .ground
+        }
+        let landing: @MainActor () -> Void = { [weak self] in
+            if let self, !self.isPaused {
+                switch shot.end {
+                case .actor(let id, _): self.showImpact(on: id, direction: shot.direction)
+                case .ground(let tile): if self.map.isWater(tile) { self.pondLayer?.splash(at: tile, big: false) }
+                }
+            }
+            onLand()
+        }
+        let flight = PlazaSnowballFlight(start: start, end: end, endHeight: endHeight, frames: shot.frames, burst: burst)
+        if isPaused || !snowballLayer.launch(flight, onLand: landing) { landing() }
     }
 
     private static let impactName = "tackle-impact"
@@ -1450,6 +1507,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let zKeyCode: UInt16 = 6
     private static let xKeyCode: UInt16 = 7
     private static let cKeyCode: UInt16 = 8
+    private static let vKeyCode: UInt16 = 9
     private static let gKeyCode: UInt16 = 5
     private static let fKeyCode: UInt16 = 3
     private static let dKeyCode: UInt16 = 2
@@ -1578,6 +1636,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         advanceAnimation(by: dt)
         advanceTallGrass(by: dt)
         advanceFootprints(by: dt)
+        snowballLayer.advance(by: dt)
         advancePond(by: dt)
         advanceSparkles(by: dt)
         fireworkLayer.advance(by: dt, tint: appliedTint, firelight: firelight(at:))
