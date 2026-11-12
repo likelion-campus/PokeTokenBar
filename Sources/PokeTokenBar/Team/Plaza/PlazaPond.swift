@@ -28,6 +28,11 @@ enum PlazaPond {
         TilePoint(x: p.x + dx, y: p.y + dy)
     }
 
+    /// `shore(at:isWater:)` 가 돌려줄 수 있는 모든 시트 칸.
+    static let shoreCells: [(col: Int, row: Int)] = [
+        (2, 6), (3, 6), (4, 6), (2, 7), (4, 7), (2, 8), (3, 8), (4, 8), (2, 9), (3, 9), (2, 10), (3, 10)
+    ]
+
     /// 물 칸 그림은 늘 (3,7). 땅 칸의 물가 그림(5.1 표). 물 칸 자신은 `.notShore`.
     static func shore(at p: TilePoint, isWater: (TilePoint) -> Bool) -> PlazaPondShore {
         if isWater(p) { return .notShore }

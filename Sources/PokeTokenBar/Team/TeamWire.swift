@@ -99,11 +99,14 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// 물귀신 (C while diving): the sender surfaces and drags the target, on the shore beside it, into the water. The target's Mac
     /// moves the target. Earlier versions skip it.
     case pull
+    /// 눈뭉치 (V on snow days): one ball along `TeamEmote.snowballDirection`. `targetMemberID` is the member or `PlazaDitto.sceneKey` it hits,
+    /// nil on a miss; `pushTiles` as for a tackle. The hit Mac pushes itself when the ball lands. Earlier versions skip it.
+    case snowball
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball: false
         }
     }
 
@@ -112,7 +115,7 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// A new kind must choose.
     var endsSendersDance: Bool {
         switch self {
-        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound: true
+        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball: true
         case .groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull: false
         }
     }
@@ -141,6 +144,8 @@ struct TeamEmote: Codable, Equatable, Sendable {
     var danceSince: Double?
     /// A greeting aimed at the Ditto copy. Left out when false.
     var overDecoy: Bool?
+    /// A snowball: the way it was thrown. Left out by every other kind.
+    var snowballDirection: PlazaDirection?
 
     /// A tackle pushes one to three tiles, like the three evolution stages.
     static let pushTileRange = 1...3

@@ -981,6 +981,16 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.transport.sentMessages { if case .emote = $0 { true } else { false } }, 0)
     }
 
+    func testASnowballCarriesItsDirectionAndPush() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.session.sendEmote(.snowball, target: b.memberID, pushTiles: 3, snowballDirection: .up)
+        XCTAssertEqual(b.emotes.count, 1)
+        XCTAssertEqual(b.emotes.first?.emote.kind, .snowball)
+        XCTAssertEqual(b.emotes.first?.emote.pushTiles, 3)
+        XCTAssertEqual(b.emotes.first?.emote.snowballDirection, .up)
+    }
+
     // MARK: - Profiles
 
     func testProfileRoundTrip() async {

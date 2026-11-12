@@ -116,6 +116,7 @@ extension L {
     var plazaMenuTackle: String { "몸통박치기" }
     var plazaJump: String { "점프 · 물놀이" }
     var plazaShortcutsTitle: String { "단축키" }
+    var plazaShortcutSnowball: String { "눈뭉치" }
     var plazaShortcutArrows: String { "방향키" }
     var plazaShortcutWalk: String { "걷기" }
     var plazaShortcutRun: String { "달리기" }
@@ -241,6 +242,7 @@ extension L {
         case .decoyFound: "찾았다"
         case .decoyJump: "점프"
         case .pull: "끌어들이기"
+        case .snowball: "눈뭉치"
         case .decoyTackle: "💥"
         case .dance: "춤"
         }

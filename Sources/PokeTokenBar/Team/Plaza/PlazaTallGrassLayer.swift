@@ -28,7 +28,7 @@ import SpriteKit
     }
 
     private let map: PlazaMap
-    private let art: PlazaTallGrassArt
+    private var art: PlazaTallGrassArt
     private let worldHeight: CGFloat
     private var bands: [TilePoint: SKSpriteNode] = [:]
     private var slices: [TilePoint: PlazaTallGrassSlice] = [:]
@@ -73,6 +73,21 @@ import SpriteKit
     var distinctBandTextureCount: Int { Set(bands.values.compactMap { $0.texture.map(ObjectIdentifier.init) }).count }
     var activeRustles: [(tile: TilePoint, kind: PlazaRustleKind, strong: Bool)] {
         running.map { ($0.tile, $0.kind, $0.strong) }
+    }
+
+    /// 테스트용: 띠가 지금 쓰는 텍스처.
+    func bandTexture(at p: TilePoint) -> SKTexture? { bands[p]?.texture }
+
+    /// 그림을 바꿔 끼운다(눈 오는 날). 도는 흔들림은 끝내고, 텍스처 캐시를 비우고, 모든 띠를 새 그림으로 다시 입힌다.
+    func setArt(_ art: PlazaTallGrassArt) {
+        for r in running { finish(r) }
+        running = []
+        self.art = art
+        textureCache = [:]
+        leafTextures = art.leaves.map(Self.texture)
+        for (p, band) in bands {
+            band.texture = cachedTexture("front", slices[p]!) { art.front($0) }
+        }
     }
 
     func isGrass(_ p: TilePoint) -> Bool { !isConcealed && map.tile(at: p) == .tallGrass }

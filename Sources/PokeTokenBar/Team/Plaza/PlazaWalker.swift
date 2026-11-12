@@ -36,8 +36,12 @@ struct PlazaWalker: Sendable {
     private var pendingPlunge: PlazaDirection?
     /// Shift를 누르고 있다. 다음에 출발하는 칸부터 달린다. 밀려 가는 칸은 늘 걷는 빠르기다.
     var wantsToRun = false
+    /// 지금 가는 칸이 밀려 가는 칸이다.
+    private var stepSlides = false
 
     var isWalking: Bool { stepFrom != nil }
+    /// 지금 가는 칸이 밀려 미끄러지는 칸이다(뛰어들기와 걷기는 아니다).
+    var isSliding: Bool { stepFrom != nil && stepSlides }
     /// 걸음을 시작하려고 기다리는 탭, 밀림, 뛰어들기가 있다. 다음 `advance`에서 걷기 시작한다.
     var hasPendingMove: Bool { pendingTap != nil || pendingPush != nil || pendingPlunge != nil }
     /// 방향키를 누르고 있다.
@@ -124,6 +128,7 @@ struct PlazaWalker: Sendable {
                 facing = d
                 let target = Self.offset(tile, d)
                 stepLength = length(tile, target, running: false)
+                stepSlides = false
                 stepFrom = tile
                 tile = target
                 stepElapsed = 0
@@ -134,6 +139,7 @@ struct PlazaWalker: Sendable {
                 if canPushInto?(tile, target) ?? canEnter(tile, target) {
                     pendingPush = push.tiles > 1 ? (push.direction, push.tiles - 1) : nil
                     stepLength = length(tile, target, running: false)
+                    stepSlides = true
                     stepFrom = tile
                     tile = target
                     stepElapsed = 0
@@ -148,6 +154,7 @@ struct PlazaWalker: Sendable {
             // 못 들어가면 돌아서기만 한다.
             guard canEnter(tile, target) else { return }
             stepLength = length(tile, target, running: wantsToRun)
+            stepSlides = false
             stepFrom = tile
             tile = target
             stepElapsed = 0

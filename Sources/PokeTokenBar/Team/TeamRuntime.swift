@@ -59,6 +59,11 @@ final class TeamRuntime {
                 plaza?.showTackle(from: memberID, on: emote.targetMemberID, tiles: TeamEmote.pushTiles(emote.pushTiles))
                 return
             }
+            if emote.kind == .snowball {
+                plaza?.showSnowball(from: memberID, on: emote.targetMemberID, tiles: TeamEmote.pushTiles(emote.pushTiles),
+                                    direction: emote.snowballDirection)
+                return
+            }
             if emote.kind == .jump {
                 plaza?.showJump(memberID: memberID)
                 return

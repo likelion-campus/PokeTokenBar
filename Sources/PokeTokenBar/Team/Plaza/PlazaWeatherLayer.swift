@@ -20,7 +20,8 @@ import SpriteKit
         place(step: step)
     }
 
-    private func kind(at date: Date, period: PlazaWeather.Period) -> PlazaWeather.Kind {
+    /// 그날의 날씨. 배경을 숨겨도 그대로라 눈 오는 날을 가릴 때 쓴다.
+    func kind(at date: Date, period: PlazaWeather.Period) -> PlazaWeather.Kind {
         // DateInterval.contains 는 끝을 포함해 자정 0시가 어제로 읽힌다. 끝은 빼고 비교한다.
         if let day, day.period == period, date >= day.interval.start, date < day.interval.end { return day.kind }
         let calendar = PlazaWeather.gregorian   // 일본력·불기여도 날씨는 같아야 한다
