@@ -46,30 +46,17 @@ final class PlazaSnowSceneTests: XCTestCase {
         }
     }
 
-    func testPreconditions() {
-        let w = PlazaWeather.self, cal = PlazaWeather.gregorian
-        XCTAssertEqual(w.kind(on: date(6, 12, 0, 0), calendar: cal), .snow)
-        XCTAssertNotEqual(w.kind(on: date(5, 12, 0, 0), calendar: cal), .snow)
-        XCTAssertNotEqual(w.kind(on: date(7, 12, 0, 0), calendar: cal), .snow)
-        XCTAssertEqual(w.kind(on: date(12, 12, 0, 0), calendar: cal, period: .day), .greenLeaves)
-        XCTAssertEqual(w.kind(on: date(12, 12, 0, 0), calendar: cal, period: .week), .snow)
-    }
-
-    func testASnowDayShowsTheSnowMapUntilTheDayEnds() throws {
+    func testTheSnowMapShowsOnAnyDayAndIsAskedForOnce() throws {
         let e = Env(map: map, now: date(5, 23, 59, 59))
         e.scene.refreshSnowDay()
-        XCTAssertTrue(e.scene.shownMapImage === e.plain)
-        e.now = date(6, 0, 0, 0)
-        e.scene.update(1)
         XCTAssertTrue(e.scene.shownMapImage === e.snow)
         XCTAssertTrue(try XCTUnwrap(e.scene.photoInput()).mapImage === e.snow)
-        e.now = date(6, 23, 59, 59)
+        e.now = date(6, 0, 0, 0)
+        e.scene.update(1)
+        e.now = date(7, 0, 0, 0)
         e.scene.update(2)
         XCTAssertTrue(e.scene.shownMapImage === e.snow)
-        e.now = date(7, 0, 0, 0)
-        e.scene.update(3)
-        XCTAssertTrue(e.scene.shownMapImage === e.plain)
-        XCTAssertEqual(e.seen, [true, false])
+        XCTAssertEqual(e.seen, [true])
         XCTAssertEqual(e.asked, 1)
     }
 
@@ -81,34 +68,8 @@ final class PlazaSnowSceneTests: XCTestCase {
         let layer = try XCTUnwrap(e.scene.tallGrassLayer)
         let whole = CGRect(origin: .zero, size: map.pixelSize)
         func hasGreen() -> Bool { layer.photoBands(in: whole).contains { SnowPixels.contains($0.image, rgb: greens) } }
-        e.now = date(6, 12, 0, 0)
         e.scene.update(1)
         XCTAssertFalse(hasGreen())
-        e.now = date(7, 12, 0, 0)
-        e.scene.update(2)
-        XCTAssertTrue(hasGreen())
-    }
-
-    func testAPausedSceneCatchesUpOnTheFirstFrameAfterMidnight() {
-        let e = Env(map: map, now: date(5, 23, 59, 59))
-        e.scene.update(1)
-        e.scene.isPaused = true
-        e.now = date(6, 0, 0, 1)
-        XCTAssertTrue(e.scene.isSnowDay)
-        XCTAssertTrue(e.scene.shownMapImage === e.plain)
-        e.scene.isPaused = false
-        e.scene.update(2)
-        XCTAssertTrue(e.scene.shownMapImage === e.snow)
-    }
-
-    func testChangingThePeriodTurnsTheMapAtOnce() {
-        let e = Env(map: map, now: date(12, 12, 0, 0))
-        e.scene.refreshSnowDay()
-        XCTAssertTrue(e.scene.shownMapImage === e.plain)
-        e.scene.weatherPeriod = .week
-        XCTAssertTrue(e.scene.shownMapImage === e.snow)
-        e.scene.weatherPeriod = .day
-        XCTAssertTrue(e.scene.shownMapImage === e.plain)
     }
 
     func testWithoutSnowArtTheDayIsSnowButTheMapStays() {
@@ -138,12 +99,11 @@ final class PlazaSnowSceneTests: XCTestCase {
                                      myRosterEntry: { nil }, session: nil, clock: { at })
     }
 
-    func testTheMinimapShowsTheSnowMapOnSnowDays() throws {
-        let a = controller(on: 6), b = controller(on: 6), c = controller(on: 7)
-        [a, b, c].forEach { $0.prepareScene() }
+    func testTheMinimapShowsTheSnowMap() throws {
+        let a = controller(on: 6), b = controller(on: 7)
+        [a, b].forEach { $0.prepareScene() }
         XCTAssertTrue(a.minimapShowsSnow)
+        XCTAssertTrue(b.minimapShowsSnow)
         XCTAssertTrue(try XCTUnwrap(a.scene).shownMapImage === (try XCTUnwrap(b.scene).shownMapImage))
-        XCTAssertFalse(try XCTUnwrap(c.scene).shownMapImage === (try XCTUnwrap(a.scene).shownMapImage))
-        XCTAssertFalse(c.minimapShowsSnow)
     }
 }

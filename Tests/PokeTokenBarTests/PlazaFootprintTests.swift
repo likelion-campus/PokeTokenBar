@@ -58,13 +58,6 @@ final class PlazaFootprintTests: XCTestCase {
         XCTAssertEqual(e.scene.footprintCount, 0)
     }
 
-    func testNoMarksOnOtherDays() {
-        let e = Env(map: map, day: 7)
-        e.walkRight()
-        e.frames(0.5)
-        XCTAssertEqual(e.scene.footprintCount, 0)
-    }
-
     func testAPushLeavesNoMarks() {
         let e = Env(map: map)
         e.scene.pushMe(.right, tiles: 2)
@@ -88,16 +81,6 @@ final class PlazaFootprintTests: XCTestCase {
         e.scene.applyDitto(shown(p(20, 12), bouncing: true))
         e.frames(0.5)
         XCTAssertEqual(e.scene.footprintCount, 4)
-    }
-
-    func testTheDayEndingClearsTheMarks() {
-        let e = Env(map: map)
-        e.walkRight()
-        e.frames(0.2)
-        XCTAssertEqual(e.scene.footprintCount, 2)
-        e.now = date(7, 0, 0, 0)
-        e.scene.update(e.time + 1.0 / 30)
-        XCTAssertEqual(e.scene.footprintCount, 0)
     }
 
     func testAHiddenBackgroundClearsAndMakesNoMarks() {

@@ -153,15 +153,13 @@ final class PlazaSnowballControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.snowballFlightCount, 1)
     }
 
-    func testVDoesNothingOffSnowDaysOrWhenICannotThrow() async {
+    func testVDoesNothingWhenICannotThrow() async {
         func assertNothing(_ name: String, _ w: World) async {
             press(w.scene, vKey)
             await settle()
             XCTAssertTrue(snowballs(w.b).isEmpty, "\(name): sent")
             XCTAssertEqual(w.scene.snowballFlightCount, 0, "\(name): flew")
         }
-        now = Self.day(7)
-        await assertNothing("off snow days", await world(me: p(10, 12), b: p(14, 12)))
         now = Self.day(6)
         let focusing = await world(me: p(10, 12), b: p(14, 12))
         focusing.c.startFocus(minutes: 25)
@@ -176,19 +174,16 @@ final class PlazaSnowballControllerTests: XCTestCase {
         await assertNothing("a tree ahead", await world(me: p(3, 12), b: p(7, 12), facing: .left))
     }
 
-    func testVFollowsTheDay() async {
-        now = Self.day(6, 23, 59, 59)
+    func testVThrowsOnAnyDate() async {
+        now = Self.day(7, 23, 59, 59)
         let w = await world(me: p(10, 12), b: p(14, 12))
         XCTAssertTrue(w.c.shortcutsShowSnowball)
         press(w.scene, vKey)
         await settle()
         XCTAssertEqual(snowballs(w.b).count, 1)
-        now = Self.day(7, 0, 0, 0)
+        now = Self.day(20, 0, 0, 0)
         run(w.scene, 0.1)
-        XCTAssertFalse(w.c.shortcutsShowSnowball)
-        press(w.scene, vKey)
-        await settle()
-        XCTAssertEqual(snowballs(w.b).count, 1, "nothing more")
+        XCTAssertTrue(w.c.shortcutsShowSnowball)
     }
 
     func testVIsLimitedLikeTheOtherKeys() async {
@@ -341,16 +336,6 @@ final class PlazaSnowballControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.impactCount, 0)
     }
 
-    func testSnowballsOffSnowDaysAreDropped() async {
-        now = Self.day(7)
-        let w = await world(me: p(14, 12), b: p(10, 12))
-        w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 2, direction: .right)
-        XCTAssertEqual(w.scene.snowballFlightCount, 0)
-        run(w.scene, 1.0)
-        XCTAssertEqual(w.scene.walker.tile, p(14, 12))
-        XCTAssertEqual(w.scene.impactCount, 0)
-    }
-
     func testAFloodOfSnowballsStaysUnderTheCap() async {
         let w = await world(me: p(14, 12), b: p(10, 12))
         for _ in 0..<500 { w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .right) }
@@ -360,16 +345,6 @@ final class PlazaSnowballControllerTests: XCTestCase {
     }
 
     // MARK: - A covered window
-
-    func testASnowballWhileCoveredOnANewSnowDayStillPushesMe() async {
-        now = Self.day(5, 23, 59, 59)
-        let w = await world(me: p(14, 12), b: p(10, 12))
-        w.c.setRendering(visible: false)
-        now = Self.day(6, 0, 0, 1)
-        w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 2, direction: .right)
-        XCTAssertEqual(w.scene.walker.tile, p(16, 12), "pushed with no frame")
-        XCTAssertEqual(w.scene.snowballNodeCount, 0)
-    }
 
     func testCoveringTheWindowMidFlightStillPushesMe() async {
         let w = await world(me: p(14, 12), b: p(10, 12))

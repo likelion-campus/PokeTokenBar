@@ -176,8 +176,6 @@ final class PlazaEmoteTests: XCTestCase {
         XCTAssertEqual(snow.map(\.key), keys)
         XCTAssertEqual(snow.map(\.label), labels)
         XCTAssertEqual(Set(snow.map(\.key)).count, snow.count)
-        XCTAssertEqual(PlazaShortcutGuide.entries(isSnowDay: false).map(\.key), PlazaShortcutGuide.entries.map(\.key))
-        XCTAssertEqual(PlazaShortcutGuide.entries(isSnowDay: false).map(\.label), PlazaShortcutGuide.entries.map(\.label))
     }
 
     /// The guide's rows are identified by key, so a repeated key would draw the first row twice.

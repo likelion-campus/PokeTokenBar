@@ -52,14 +52,6 @@ extension L {
     var teamNotifications: String { "팀 알림" }
     var teamCoreTime: String { "코어타임" }
     func teamHour(_ h: Int) -> String { "\(h)시" }
-    var teamWeatherPeriod: String { "계절 바뀌는 주기" }
-    func teamWeatherPeriodName(_ p: PlazaWeather.Period) -> String {
-        switch p {
-        case .day: "하루"
-        case .week: "1주일"
-        case .month: "1개월"
-        }
-    }
     /// "11월 5일 14:02" — 사용자의 달력과 시간대로.
     func teamScheduleDate(_ date: Date, calendar: Calendar = .current) -> String {
         Self.scheduleDateLock.lock()

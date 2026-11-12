@@ -147,15 +147,6 @@ struct TeamSettingsSection: View {
                 }
                 .labelsHidden().fixedSize()
             }
-            Divider()
-            row {
-                Text(l.teamWeatherPeriod)
-                Spacer()
-                Picker(l.teamWeatherPeriod, selection: Binding(get: { period }, set: { change(core.start, core.end, $0) })) {
-                    ForEach(PlazaWeather.Period.allCases, id: \.self) { Text(l.teamWeatherPeriodName($0)).tag($0) }
-                }
-                .labelsHidden().pickerStyle(.segmented).fixedSize()
-            }
             Text(scheduleCaption)
                 .font(.caption).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

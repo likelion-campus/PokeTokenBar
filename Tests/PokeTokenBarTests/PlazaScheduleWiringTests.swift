@@ -74,29 +74,6 @@ final class PlazaScheduleWiringTests: XCTestCase {
         assertTint(s.shownDaylight, PlazaDaylight.dawn, "no update call")
         s.coreTime = .standard
         assertTint(s.shownDaylight, PlazaDaylight.night)
-        // 하루 주기와 1주일 주기의 날씨가 다른 날을 찾는다.
-        let day = try XCTUnwrap((0..<60).map { self.date(2026, 11, 9 + $0 % 20, 12) }.first {
-            PlazaWeather.kind(on: $0, period: .day) != PlazaWeather.kind(on: $0, period: .month)
-        })
-        s.now = { day }
-        s.weatherPeriod = .week
-        s.weatherPeriod = .day
-        XCTAssertEqual(s.weatherKind, PlazaWeather.kind(on: day, period: .day))
-        s.weatherPeriod = .month
-        XCTAssertEqual(s.weatherKind, PlazaWeather.kind(on: day, period: .month), "a new period shows its weather without update")
-    }
-
-    func testWeekPeriodHoldsTheWeatherForTheWholeWeek() {
-        let s = scene(at: date(2026, 11, 9))
-        s.weatherPeriod = .week
-        s.update(0)
-        let monday = s.weatherKind
-        s.now = { self.date(2026, 11, 15, 23) }
-        s.update(0.1)
-        XCTAssertEqual(s.weatherKind, monday, "Mon to Sun is one week, and the day cache keys on the period")
-        s.weatherPeriod = .day
-        s.update(0.1)
-        XCTAssertNotEqual(s.weatherKind, monday, "switching the period must not reuse the cached day")
     }
 
     func testMinimapModelGetsTheCoreTime() {
@@ -121,6 +98,5 @@ final class PlazaScheduleWiringTests: XCTestCase {
         la.timeZone = TimeZone(identifier: "America/Los_Angeles")!
         XCTAssertEqual(l.teamScheduleDate(c.date(from: DateComponents(timeZone: c.timeZone, year: 2026, month: 11, day: 5, hour: 14, minute: 2))!,
                                           calendar: la), "11월 4일 21:02")
-        XCTAssertEqual(PlazaWeather.Period.allCases.map(l.teamWeatherPeriodName), ["하루", "1주일", "1개월"])
     }
 }
