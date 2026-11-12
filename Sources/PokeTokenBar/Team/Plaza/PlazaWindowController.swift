@@ -183,6 +183,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var members: [String: TeamMemberState] = [:]
     /// 팀원별로 마지막에 받으러 간 캐릭터와 그 요청 번호(낡은 결과를 버린다).
     private var memberSubjects: [String: CompanionStore.RepresentativeSubject] = [:]
+    /// Member -> the member whose look they are drawn with now.
+    private(set) var shownMimics: [String: String] = [:]
     private var memberLoadTokens: [String: Int] = [:]
     private var nextLoadToken = 0
     /// 장면에 들어간 팀원 그림의 종 번호를 순서대로 남긴다(테스트용 읽기 전용).
@@ -1197,8 +1199,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
     func showChat(memberID: String, text: String, isLoud: Bool = false) {
         guard let scene, let member = members[memberID] else { return }
         scene.showChat(memberID: memberID, text: text)
+        // The log keeps the real name and colour, even while the member is drawn as someone else.
         chatLog.append(time: clock(), name: member.nickname, text: text,
-                       color: scene.memberNameColor(memberID) ?? PlazaNameColor.palette[0], isLoud: isLoud)
+                       color: PlazaNameColor.color(forMemberID: memberID, chosen: member.nameColor), isLoud: isLoud)
     }
 
     /// 목록에서 고른 팀원에게 걸어간다. 누른 뒤에도 키는 장면이 받는다.
@@ -1340,6 +1343,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 await sleep(.seconds(1))
                 guard !Task.isCancelled, let self else { return }
                 self.endFocusIfDue()
+                self.endMimicIfDue()
                 self.refreshCampfire()
             }
         }
@@ -1659,16 +1663,56 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if dittoLoop != nil { advanceDitto(now: clock()) }
     }
 
+    /// A disguise runs out on its own, with no news from the teammate. The 1 s tick calls this: redraw when who is
+    /// drawn as whom has changed.
+    func endMimicIfDue() {
+        guard scene != nil, mimicTargets() != shownMimics else { return }
+        applyMembersToScene()
+    }
+
+    /// A member's real look, never a disguise: me, or a member in the plaza.
+    private func realLook(of id: String) -> PlazaMimicLook? {
+        if id == memberID() {
+            return PlazaMimicLook(memberID: id, name: nickname(), nameHex: PlazaNameColor.hex(forMemberID: id, chosen: nameColor()),
+                                  nature: (myEntryCache ?? nil)?.nature, subject: subject())
+        }
+        guard let m = members[id], m.inPlaza else { return nil }
+        return PlazaMimicLook(memberID: id, name: m.nickname, nameHex: PlazaNameColor.hex(forMemberID: id, chosen: m.nameColor),
+                              nature: m.character.nature,
+                              subject: .init(speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form))
+    }
+
+    /// Who each member is drawn as. Only members in the plaza (and me) can be copied.
+    private func mimicTargets() -> [String: String] {
+        var inPlaza = Set(members.values.filter(\.inPlaza).map(\.memberID))
+        inPlaza.insert(memberID())
+        let now = clock()
+        var targets: [String: String] = [:]
+        for m in members.values {
+            if let target = PlazaMimic.shownTarget(of: m, now: now, inPlaza: inPlaza) { targets[m.memberID] = target }
+        }
+        return targets
+    }
+
     private func applyMembersToScene() {
         guard let scene else { return }
         learnTaken(members.values.compactMap(\.takenItemSlot))
         let list = members.values.sorted { $0.memberID < $1.memberID }
+        let targets = mimicTargets()
+        let looks = targets.compactMapValues(realLook(of:))
         scene.applyMembers(list.map {
-            PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
-                             facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle, nameColor: $0.nameColor,
-                             isRunning: $0.isRunning, isDiving: $0.isDiving, evolutionStage: $0.evolutionStage,
-                             nature: $0.character.nature)
+            let look = looks[$0.memberID]
+            return PlazaSceneMember(memberID: $0.memberID, nickname: look?.name ?? $0.nickname, isAway: !$0.inPlaza, tile: $0.tile,
+                                    facing: $0.facing ?? .down, isWalking: $0.isWalking, isIdle: $0.isIdle,
+                                    nameColor: look?.nameHex ?? $0.nameColor,
+                                    isRunning: $0.isRunning, isDiving: $0.isDiving, evolutionStage: $0.evolutionStage,
+                                    nature: look != nil ? look?.nature : $0.character.nature)
         })
+        let shown = targets.filter { looks[$0.key] != nil }
+        for (id, target) in shown where shownMimics[id] != target {
+            if let walking = scene.walkingToMember, walking == id || walking == target { scene.stopWalkingToMember() }
+        }
+        shownMimics = shown
         refreshMinimap()
         let ids = Set(members.keys)
         for id in memberSubjects.keys where !ids.contains(id) && id != PlazaDitto.sceneKey {
@@ -1676,8 +1720,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             memberLoadTokens[id] = nil
         }
         for m in list {
-            let subject = CompanionStore.RepresentativeSubject(speciesID: m.character.speciesID, isShiny: m.character.isShiny,
-                                                               form: m.character.form)
+            let subject = looks[m.memberID]?.subject ?? CompanionStore.RepresentativeSubject(
+                speciesID: m.character.speciesID, isShiny: m.character.isShiny, form: m.character.form)
             guard memberSubjects[m.memberID] != subject else { continue }
             memberSubjects[m.memberID] = subject
             startMemberLoad(m.memberID, subject: subject)
@@ -1824,6 +1868,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         hudViews = []
         members = [:]
         memberSubjects = [:]
+        shownMimics = [:]
         memberLoadTokens = [:]
         appliedMemberLoads = []
         if let scene {
