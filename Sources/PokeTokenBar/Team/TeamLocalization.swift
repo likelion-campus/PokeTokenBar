@@ -241,6 +241,7 @@ extension L {
         case .decoyFound: "찾았다"
         case .decoyJump: "점프"
         case .pull: "끌어들이기"
+        case .snowball: "눈뭉치"
         case .decoyTackle: "💥"
         case .dance: "춤"
         }

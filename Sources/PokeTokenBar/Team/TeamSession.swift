@@ -241,11 +241,12 @@ final class TeamSession {
     }
 
     func sendEmote(_ kind: TeamEmoteKind, target: String?, shared: Bool = false, pushTiles: Int = 1, itemSlot: Int? = nil, fireworkStyle: String? = nil,
-                   danceStyle: String? = nil, danceSince: Date? = nil, overDecoy: Bool = false) {
+                   danceStyle: String? = nil, danceSince: Date? = nil, overDecoy: Bool = false,
+                   snowballDirection: PlazaDirection? = nil) {
         broadcast(.emote(TeamEmote(kind: kind, targetMemberID: target, isShared: shared ? true : nil,
                                    pushTiles: pushTiles > 1 ? pushTiles : nil, itemSlot: itemSlot, fireworkStyle: fireworkStyle,
                                    danceStyle: danceStyle, danceSince: danceSince?.timeIntervalSince1970,
-                                   overDecoy: overDecoy ? true : nil)))
+                                   overDecoy: overDecoy ? true : nil, snowballDirection: snowballDirection)))
     }
 
     /// The latest plaza item slot I know was taken, told to teammates in my presence (also to those who connect later).
