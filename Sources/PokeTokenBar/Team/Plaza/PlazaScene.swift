@@ -170,6 +170,9 @@ struct PlazaSceneMember: Equatable, Sendable {
         var motion: PlazaRemoteMotion
         var wanderer: PlazaShelterWanderer?
         var grassWatch = GrassWatch()
+        var printWatch = PrintWatch()
+        /// 광장 메타몽 전용: 몸통박치기에 튕겨 나가는 중(걸음이 아니라 밀림이라 발자국을 남기지 않는다).
+        var isBouncing = false
         /// 그 팀원이 알린 잠수와, 그림에 반영한 흐려짐.
         var diving = false
         var dive = DiveFade()
@@ -226,6 +229,30 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
     private var myGrassWatch = GrassWatch()
+
+    /// 발자국 기록 하나(나 또는 팀원 한 명): 가고 있는 걸음과 미끄러지는 걸음인지. 끝난 걸음을 돌려준다(미끄러진 걸음은 빼고).
+    private struct PrintWatch {
+        var lastStep: (from: TilePoint, to: TilePoint)?
+        var slides = false
+
+        mutating func advance(step: PlazaStep?, sliding: Bool) -> (from: TilePoint, to: TilePoint)? {
+            var ended: (from: TilePoint, to: TilePoint)?
+            if let last = lastStep, step?.from != last.from || step?.to != last.to {
+                if !slides { ended = last }
+                lastStep = nil
+                slides = false
+            }
+            if let step {
+                if lastStep == nil { lastStep = (step.from, step.to) }
+                slides = slides || sliding
+            }
+            return ended
+        }
+    }
+    private var myPrintWatch = PrintWatch()
+    private let footprintLayer: PlazaFootprintLayer
+    var footprintCount: Int { footprintLayer.count }
+    var footprintAlphas: [CGFloat] { footprintLayer.alphas }
 
     /// 연못 기록 하나(나 또는 팀원 한 명): 땅에서 물로 뛰는 걸음, 지난 점프 높이, 잠수 거품 시계.
     /// 도착·착지·거품을 `advance`가 세어 돌려주고, 물보라와 젖음은 장면이 낸다.
@@ -352,6 +379,7 @@ struct PlazaSceneMember: Equatable, Sendable {
          pondVisuals: Bool = false) {
         self.map = map
         self.worldSize = map.pixelSize
+        self.footprintLayer = PlazaFootprintLayer(worldHeight: map.pixelSize.height)
         self.walker = PlazaWalker(tile: start)
         self.lastReported = (start, .down, false)
         self.nickname = nickname
@@ -397,6 +425,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         addChild(weatherLayer)
         fireworkLayer.zPosition = 7
         addChild(fireworkLayer)
+        addChild(footprintLayer)
         addChild(cameraNode)
         me.attach(world: self, camera: cameraNode)
         camera = cameraNode
@@ -465,6 +494,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapNode.isHidden = hidden
         tallGrassLayer?.setHidden(hidden)
         pondLayer?.setHidden(hidden)
+        footprintLayer.isHidden = hidden
+        if hidden { footprintLayer.removeAll() }
         layout()   // 풀숲 가림을 바로 풀어 곧바로 찍는 사진도 숨은 팀원을 그리게 한다
         backgroundColor = hidden ? .clear : Self.forestColor
         applyDaylight()
@@ -568,6 +599,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             r.nickname = shown.name
             r.color = shown.nameColor
             r.isDecoy = shown.isDecoy
+            r.isBouncing = shown.isBouncing
             r.actor.setName(r.displayName, color: r.color)
             r.actor.setTitle(shown.title)
             remotes[key] = r
@@ -578,6 +610,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             var r = Remote(actor: PlazaActor(name: shown.name, color: shown.nameColor), color: shown.nameColor,
                            nickname: shown.name, isAway: false, motion: motion)
             r.isDecoy = shown.isDecoy
+            r.isBouncing = shown.isBouncing
             r.actor.setTitle(shown.title)
             r.actor.attach(world: self, camera: cameraNode)
             remotes[key] = r
@@ -1544,6 +1577,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         advanceAnimation(by: dt)
         advanceTallGrass(by: dt)
+        advanceFootprints(by: dt)
         advancePond(by: dt)
         advanceSparkles(by: dt)
         fireworkLayer.advance(by: dt, tint: appliedTint, firelight: firelight(at:))
@@ -1653,6 +1687,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapImage = image
         if let grass { tallGrassLayer?.setArt(grass) }
         isSnowShown = on
+        if !on { footprintLayer.removeAll() }
         onSnowDayChange?(on)
     }
 
@@ -1685,6 +1720,22 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         continueDance()
         advancePendingDances(by: dt)
+    }
+
+    /// 눈 오는 날, 끝난 걸음마다 발자국을 찍고 레이어 시간을 흘린다. 밀려 간 걸음은 찍지 않는다.
+    private func advanceFootprints(by dt: TimeInterval) {
+        var ended: [(from: TilePoint, to: TilePoint)] = []
+        if let e = myPrintWatch.advance(step: walker.currentStep, sliding: walker.isSliding) { ended.append(e) }
+        for id in Array(remotes.keys) {
+            guard let r = remotes[id] else { continue }
+            var watch = r.printWatch
+            if let e = watch.advance(step: r.motion.currentStep, sliding: r.isBouncing) { ended.append(e) }
+            remotes[id]?.printWatch = watch
+        }
+        if isSnowShown, !isBackgroundHidden {
+            for e in ended { footprintLayer.stamp(PlazaSnow.footprints(from: e.from, to: e.to, map: map)) }
+        }
+        footprintLayer.advance(by: dt)
     }
 
     /// 나와 팀원의 새 걸음이 지나는 풀을 흔들고, 가만히 가려진 채 있으면 가끔 움찔하게 한 뒤 레이어 시간을 흘린다.
