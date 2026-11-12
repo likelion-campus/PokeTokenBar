@@ -1,5 +1,6 @@
 import XCTest
 import CoreGraphics
+import SpriteKit
 @testable import PokeTokenBar
 
 @MainActor
@@ -121,5 +122,14 @@ final class PlazaFootprintTests: XCTestCase {
         XCTAssertEqual(layer.count, 0)
         for _ in 0..<160 { layer.stamp(one) }
         XCTAssertLessThanOrEqual(layer.children.count, 160)
+    }
+
+    func testAMarkAcrossTheStepIsTallAndOneAlongItIsWide() {
+        let layer = PlazaFootprintLayer(worldHeight: 1000)
+        layer.stamp([PlazaSnow.Footprint(center: CGPoint(x: 100, y: 100), alongX: true)])
+        layer.stamp([PlazaSnow.Footprint(center: CGPoint(x: 200, y: 100), alongX: false)])
+        let sizes = layer.children.compactMap { ($0 as? SKSpriteNode)?.size }
+        XCTAssertEqual(sizes, [CGSize(width: PlazaSnow.footprintLength, height: PlazaSnow.footprintWidth),
+                               CGSize(width: PlazaSnow.footprintWidth, height: PlazaSnow.footprintLength)])
     }
 }

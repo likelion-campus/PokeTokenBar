@@ -69,6 +69,18 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(landed, 1)
     }
 
+    func testABallAtAMemberWhoLeftStillFliesAndLandsOnce() {
+        let s = scene()
+        addAll(s, [member("a", p(10, 12))])
+        s.update(0)
+        var landed = 0
+        let shot = PlazaSnowballShot(from: p(10, 12), direction: .right, end: .actor(id: "gone", tile: p(14, 12)))
+        s.playSnowball(by: "a", shot: shot) { landed += 1 }
+        run(s, 0.9)
+        XCTAssertEqual(landed, 1)
+        XCTAssertEqual(s.snowballFlightCount, 0)
+    }
+
     func testAHitShowsTheImpactStarAndTheThrowerLunges() {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])
