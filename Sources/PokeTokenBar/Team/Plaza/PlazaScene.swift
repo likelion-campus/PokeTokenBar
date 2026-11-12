@@ -1249,17 +1249,21 @@ struct PlazaSceneMember: Equatable, Sendable {
             endHeight = 0
             burst = map.isWater(tile) ? .none : .ground
         }
-        let landing: @MainActor () -> Void = { [weak self] in
+        let effects: @MainActor () -> Void = { [weak self] in
             if let self, !self.isPaused {
                 switch shot.end {
-                case .actor(let id, _): self.showImpact(on: id, direction: shot.direction)
+                case .actor(let id, let tile):
+                    // 맞힌 자리에 더는 없으면(걸어서 피했다) 별 없이 공중에서 터지기만 한다.
+                    let standing = id.map { self.remotes[$0]?.motion.tile } ?? self.walker.tile
+                    if standing == tile { self.showImpact(on: id, direction: shot.direction) }
                 case .ground(let tile): if self.map.isWater(tile) { self.pondLayer?.splash(at: tile, big: false) }
                 }
             }
-            onLand()
         }
+        let landing: @MainActor () -> Void = { effects(); onLand() }
         let flight = PlazaSnowballFlight(start: start, end: end, endHeight: endHeight, frames: shot.frames, burst: burst)
-        if isPaused || !snowballLayer.launch(flight, onLand: landing) { landing() }
+        // 멈췄거나 가득 찬 장면은 그림 없이 바로 닿은 것으로 친다. 가득 찬 뒤 몰려오는 프레임이 충격 노드를 만들지 못하게 한다.
+        if isPaused || !snowballLayer.launch(flight, onLand: landing) { onLand() }
     }
 
     private static let impactName = "tackle-impact"

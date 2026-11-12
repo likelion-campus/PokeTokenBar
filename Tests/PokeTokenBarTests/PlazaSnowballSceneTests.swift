@@ -118,6 +118,15 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.children.count, before)
     }
 
+    func testABallLandingWhereItsTargetNoLongerStandsShowsNoStar() {
+        let s = scene(start: p(14, 13))   // I stand beside the aimed tile (14,12)
+        addAll(s, [member("a", p(10, 12))])
+        s.update(0)
+        s.playSnowball(by: "a", shot: hitShot) {}
+        run(s, 0.9)
+        XCTAssertEqual(s.impactCount, 0)
+    }
+
     func testPausingMidFlightLandsEveryBallAtOnce() {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])
@@ -140,6 +149,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         for _ in 0..<(PlazaSnowballLayer.maxFlights + 5) { s.playSnowball(by: "a", shot: hitShot) { landed += 1 } }
         XCTAssertEqual(s.snowballFlightCount, PlazaSnowballLayer.maxFlights)
         XCTAssertEqual(landed, 5)
+        XCTAssertEqual(s.impactCount, 0, "a refused flight lands at once without an impact node")
     }
 
     func testNodesAreReused() {
