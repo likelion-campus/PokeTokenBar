@@ -109,6 +109,10 @@ final class TeamRuntime {
                 plaza?.showDecoyJump(from: memberID)
                 return
             }
+            if emote.kind == .pray {
+                plaza?.showPray(memberID: memberID)
+                return
+            }
             let overDecoy = emote.overDecoy == true
             plaza?.showEmote(memberID: memberID, kind: emote.kind,
                              alsoOver: emote.isShared == true ? emote.targetMemberID : nil, overDecoy: overDecoy)

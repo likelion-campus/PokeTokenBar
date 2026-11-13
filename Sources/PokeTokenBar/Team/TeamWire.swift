@@ -110,11 +110,14 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     case mimicTackle
     /// The sender's disguise was found by `targetMemberID`. Sent before the presence that drops `mimicOf`. Earlier versions skip it.
     case mimicFound
+    /// 기도 (A while an egg): the sender prayed over its own egg. Shown as a bubble over the sender with a wobble, and only
+    /// while the sender is an egg. The prayer count lives in the sender's save and is never sent. Earlier versions skip it.
+    case pray
 
     var notifiesTarget: Bool {
         switch self {
         case .heart, .lol, .party: true
-        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound: false
+        case .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup, .firework, .dance, .decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound, .pray: false
         }
     }
 
@@ -123,7 +126,7 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// A new kind must choose.
     var endsSendersDance: Bool {
         switch self {
-        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle: true
+        case .heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray: true
         case .groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull, .mimicFound: false
         }
     }

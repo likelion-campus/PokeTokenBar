@@ -176,7 +176,7 @@ final class TeamWireTests: XCTestCase {
 
     /// Doing anything else stops the sender's dance, except the Ditto host's copy jump and the shared moments. A new kind must choose here.
     func testWhichEmotesEndTheSendersDance() {
-        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle]
+        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray]
         for kind in TeamEmoteKind.allCases { XCTAssertEqual(kind.endsSendersDance, ends.contains(kind), "\(kind)") }
         XCTAssertEqual(Set(TeamEmoteKind.allCases.filter { !$0.endsSendersDance }), [.groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull, .mimicFound])
     }
@@ -551,7 +551,7 @@ final class TeamWireTests: XCTestCase {
         }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
-        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball", "mimicTackle", "mimicFound"])
+        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball", "mimicTackle", "mimicFound", "pray"])
         XCTAssertEqual([Rarity.common, .uncommon, .rare, .legendary].map(\.rawValue), ["common", "uncommon", "rare", "legendary"])
         XCTAssertEqual(PokemonGender.allCases.map(\.rawValue), ["male", "female", "genderless"])
         XCTAssertEqual(PlazaDirection.allCases.map(\.rawValue), ["up", "down", "left", "right"])

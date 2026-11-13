@@ -82,6 +82,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     var onGroupPhotoKey: (() -> Void)?
     /// F(불꽃놀이). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다.
     var onFireworkKey: (() -> Void)?
+    /// A(기도). 판이 닫혀 있을 때만 온다. keyCode로만 판정한다. 알인지는 컨트롤러가 가른다.
+    var onPrayKey: (() -> Void)?
     /// 내 춤 한 판이 시작됐다(D를 눌렀을 때와 판이 끝나 저절로 이어질 때). 춤의 `PlazaDance.Style.id`를 넘긴다. 컨트롤러가 팀원에게 보낸다.
     var onDanceRound: ((String) -> Void)?
     /// 내가 모닥불에서 집중 중이다. 컨트롤러가 알려 준다. 집중 중에는 춤추지 않는다.
@@ -748,7 +750,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         return handleSharedKeyDown(keyCode: keyCode, characters: characters, isRepeat: isRepeat, modifiers: modifiers)
     }
 
-    /// 평소와 사진 모드가 함께 쓰는 키: Z/X/G/F(불꽃놀이)/D(춤), 말풍선, 확대. 수정 키가 눌렸거나 자동 반복이면 보내지 않는다.
+    /// 평소와 사진 모드가 함께 쓰는 키: Z/X/G/F(불꽃놀이)/A(기도)/D(춤), 말풍선, 확대. 수정 키가 눌렸거나 자동 반복이면 보내지 않는다.
     /// 사진 모드에서만 다른 키(방향키, Space/P, C, Enter, Esc)는 호출하기 전에 각자 처리한다.
     private func handleSharedKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
                                      modifiers: NSEvent.ModifierFlags) -> PlazaKeyResult {
@@ -758,7 +760,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             return .swallowed
         }
         if let action = [Self.zKeyCode: onJumpKey, Self.xKeyCode: onGreetKey, Self.gKeyCode: onGroupPhotoKey,
-                         Self.fKeyCode: onFireworkKey][keyCode] {
+                         Self.fKeyCode: onFireworkKey, Self.aKeyCode: onPrayKey][keyCode] {
             if plain { action?() }
             return .swallowed
         }
@@ -1415,6 +1417,14 @@ struct PlazaSceneMember: Equatable, Sendable {
     func danceStyle(memberID: String?) -> PlazaDance.Style? { actor(memberID)?.dance?.style }
     func dancePose(memberID: String?) -> PlazaDancePose? { actor(memberID)?.dancePose }
 
+    /// 기도: 그 캐릭터 위에 기도 말풍선이 뜨고 그림이 좌우로 흔들린다. 새 노드를 만들지 않아 멈춘 장면에서도 쌓이지 않는다.
+    /// `memberID`가 nil이면 나. 모르는 팀원이면 아무것도 안 한다.
+    func playPray(memberID: String?) {
+        guard let actor = actor(memberID) else { return }
+        actor.wobble()
+        showEmote(memberID: memberID, kind: .pray)
+    }
+
     /// 점프: 그 캐릭터가 위로 폴짝 뛰고, 뛸 때와 내려올 때 발밑에서 먼지가 양옆으로 퍼진다. `memberID`가 nil이면 나.
     func playJump(memberID: String?) {
         guard !isPaused, let actor = actor(memberID) else { return }
@@ -1448,6 +1458,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용: 떠 있는 먼지 수와 그 캐릭터가 떠 있는 높이.
     var dustCount: Int { children.filter { $0.name == Self.dustName }.count }
     func jumpLift(memberID: String?) -> CGFloat? { actor(memberID)?.jumpLift }
+    func wobbleTilt(memberID: String?) -> CGFloat? { actor(memberID)?.wobbleTilt }
     func isWet(memberID: String?) -> Bool? { actor(memberID)?.isWet }
     /// 테스트용: 떠 있는 충격 그림 수와 내가 뛰어든 만큼.
     var impactCount: Int { children.filter { $0.name == Self.impactName }.count }
@@ -1542,6 +1553,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private static let gKeyCode: UInt16 = 5
     private static let fKeyCode: UInt16 = 3
     private static let dKeyCode: UInt16 = 2
+    private static let aKeyCode: UInt16 = 0
     private static let returnKeyCode: UInt16 = 36
     private static let keypadEnterKeyCode: UInt16 = 76
 

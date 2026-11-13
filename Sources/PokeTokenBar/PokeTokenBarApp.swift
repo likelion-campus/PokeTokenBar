@@ -156,6 +156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             evolutionStage: { [companion] in companion!.representativeEvolutionStage },
             pokemonTypes: { try? await PokeAPIClient.shared.pokemonDetails(speciesID: $0).types },
             grantItem: { [companion] in companion!.receivePlazaItem($0) },
+            pray: { [companion] in companion!.pray() },
+            prayerCount: { [companion] in companion!.state.eggPrayers?.count ?? 0 },
             session: teamRuntime.session, feed: teamRuntime.feed)
         navigation.onOpenPlaza = { [weak self] in self?.openPlaza() }
         teamRuntime.plaza = plaza

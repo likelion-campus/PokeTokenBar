@@ -74,6 +74,12 @@ struct PlazaActorContext {
     static let jumpHeight: CGFloat = 14
     private var jumpElapsed: TimeInterval?
 
+    /// 기도: 알이 제자리에서 좌우로 두 번 흔들리다 멎는다.
+    static let wobbleDuration: TimeInterval = 0.5
+    /// 가장 크게 기울었을 때의 각도(라디안).
+    static let wobbleAngle: CGFloat = 0.18
+    private var wobbleElapsed: TimeInterval?
+
     /// 몸통박치기: 상대 쪽으로 잠깐 뛰어들었다 돌아온다.
     static let lungeDuration: TimeInterval = 0.24
     /// 가장 멀리 나갔을 때의 월드 픽셀.
@@ -198,6 +204,17 @@ struct PlazaActorContext {
         jumpElapsed = 0
     }
 
+    func wobble() {
+        wobbleElapsed = 0
+    }
+
+    /// 지금 흔들려 기운 각도(라디안). 흔들리지 않으면 0. 뒤로 갈수록 작아진다.
+    var wobbleTilt: CGFloat {
+        guard let wobbleElapsed else { return 0 }
+        let progress = min(wobbleElapsed / Self.wobbleDuration, 1)
+        return sin(progress * 4 * .pi) * (1 - progress) * Self.wobbleAngle
+    }
+
     /// 춤: `elapsed`는 박자 격자에서 지난 시간에서 시작한다. `danceLength`를 채우면 끝난다(내 춤은 한 판, 팀원 춤은 한 판 + 여유).
     private(set) var dance: (style: PlazaDance.Style, elapsed: TimeInterval)?
     private var danceLength = PlazaDance.round
@@ -284,6 +301,9 @@ struct PlazaActorContext {
         if let e = jumpElapsed {
             jumpElapsed = e + dt >= Self.jumpDuration ? nil : e + dt
         }
+        if let e = wobbleElapsed {
+            wobbleElapsed = e + dt >= Self.wobbleDuration ? nil : e + dt
+        }
         if wetRemaining > 0 {
             wetRemaining -= dt
             if wetRemaining <= 0 { wetNode.isHidden = true }
@@ -338,7 +358,7 @@ struct PlazaActorContext {
 
         characterNode.xScale = (pose.flipped != dancePose.flipped) ? -1 : 1
         characterNode.yScale = dancePose.squash
-        characterNode.zRotation = dancePose.tilt
+        characterNode.zRotation = dancePose.tilt + wobbleTilt
         characterNode.zPosition = 1 + foot.y / context.worldHeight   // 화면 아래쪽이 앞
         // 그림자는 발보다 조금 위(높이의 0.12)에 가운데를 두어 발 뒤에 깔리게 하고, 아래·왼쪽 모서리를 기기 픽셀에 맞춘다. 통통 튐은 받지 않는다.
         let shadowSize = shadowNode.size
