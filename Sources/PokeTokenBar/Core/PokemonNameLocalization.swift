@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Shared by species names and battle metadata. Keep every language returned by the API;
 /// adding an app language must not require changing a second allowlist or redownloading names.

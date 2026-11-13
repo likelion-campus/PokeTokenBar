@@ -1100,10 +1100,9 @@ final class UsageStore {
         isRefreshing = true
         clearStaleSuspension(reason: "refresh")
         // App Nap 방지 — 백그라운드 스로틀로 로그 파싱·codex 조회가 타임아웃되는 것을 막는다 (시스템 슬립은 허용)
-        let activity = ProcessInfo.processInfo.beginActivity(
-            options: .userInitiatedAllowingIdleSystemSleep, reason: "PokeTokenBar usage refresh")
+        let activity = PlatformCompat.beginActivity(reason: "PokeTokenBar usage refresh")
         defer {
-            ProcessInfo.processInfo.endActivity(activity)
+            PlatformCompat.endActivity(activity)
             isRefreshing = false
             // 진행 중 겹쳐 들어온 요청을 1회 반영. 요청 도착률이 유한하므로 무한 재실행 없음.
             if refreshPending {

@@ -101,7 +101,7 @@ enum ProcessRunner {
             process.terminate()
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                 if process.isRunning {
-                    kill(process.processIdentifier, SIGKILL)
+                    PlatformCompat.forceKill(pid: process.processIdentifier)
                 }
             }
             logStderrTail(errURL, binary: binary)

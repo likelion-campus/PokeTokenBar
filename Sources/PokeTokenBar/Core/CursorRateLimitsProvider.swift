@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Cursor 공식 한도(월간 포함 allowance) 조회 추상화.
 public protocol CursorLimitsProviding: Sendable {

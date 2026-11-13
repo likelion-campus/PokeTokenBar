@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Shared Cursor login for dashboard cookies and API2 Bearer requests. Refreshed tokens stay in
 /// memory; Cursor owns its SQLite login. A changed login/root invalidates the refreshed credential.

@@ -1,5 +1,12 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Cursor dashboard usage API (unofficial personal-account endpoints).
 /// Auth comes from the local Cursor login (`cursorAuth/accessToken`) or

@@ -76,7 +76,6 @@ NetworkReachabilityTests.swift
 OmoUsageTests.swift
 OmpUsageTests.swift
 OpenCodeGoLimitsTests.swift
-OutsideClickMonitorTests.swift
 PaceTierTests.swift
 PerformanceTests.swift
 PetEventLineTests.swift

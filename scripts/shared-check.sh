@@ -6,4 +6,6 @@
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PTB_SHARED_ONLY=1 swift build --build-tests --build-path .build-shared
+# SwiftPM keeps the previous source list in debug.yaml and the manifest cache ignores mac-only.txt edits.
+rm -f .build-shared/debug.yaml
+PTB_SHARED_ONLY=1 swift build --build-tests --build-path .build-shared --manifest-cache none

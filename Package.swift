@@ -27,9 +27,13 @@ if windowsBuild {
     package = Package(
         name: "PokeTokenBar",
         platforms: [.macOS(.v14)],  // ignored on Windows; keeps the Mac pre-check on the same deployment target
+        dependencies: [
+            .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
+        ],
         targets: [
             .target(
                 name: "PokeTokenBar",
+                dependencies: [.product(name: "Crypto", package: "swift-crypto")],
                 path: "Sources/PokeTokenBar",
                 exclude: macOnlyList("Sources/PokeTokenBar") + ["mac-only.txt", "Resources"]
             ),
