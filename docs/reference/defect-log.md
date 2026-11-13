@@ -2028,3 +2028,17 @@ read_when:
   지연 쓰기까지 기다려 다시 지운다. `Tests/` 에서 `TestDefaultsScanTests` 가 헬퍼 밖의 직접 생성 호출을 실패시킨다.
   테스트에서 `removePersistentDomain` 을 따로 부르지 않는다(그 호출이 빈 plist 를 다시 만든다). 5-whys 공백: 각 테스트는
   자기 스위트를 지웠다고 믿어 통과했고, 흘린 파일은 테스트 밖(`~/Library/Preferences`)에만 쌓여 어떤 게이트도 보지 않았다.
+  **재발 (2026-11-13, v2.5.630 게이트).** #110 이후에도 전체 스위트(3623 개)를 돌리자 파일은 2 개만 남았는데 cfprefsd 가
+  디렉터리 fd 507 개를 쥐고 있었고, 앱이 팀 리스너 없이 떴다(cfprefsd 재시작으로 복구). 측정한 메커니즘: cfprefsd 의 **디렉터리 fd 수는
+  테스트 프로세스가 새로 만든 plist 가 늘면 같이 오르고, 그 파일을 지우면 내려간다**(스위트 50 개를 만들고 종료하면 1 → 51, 파일 50 개를 지우면 1 초 안에 1). 107 개
+  테스트 슬라이스에서 plist 216 개가 동시에 존재했고 fd 가 108 까지 올랐다(테스트 하나가 가장 많이 연 건 `PlazaEmoteTests` 의
+  `testHeartAtAwayMemberTargetsThem` 으로 약 103 개 — 후보 팀원을 만들 때마다 suite 를 하나씩 열었다). #110 은 번들 종료 때 지우기만 해서, 실행 중
+  동시에 존재하는 plist 수(= 테스트 수에 비례)가 한도를 넘는 것은 막지 못했고, 한도를 넘어 막힌 cfprefsd 는 나중에 파일을
+  지워도 풀리지 않는다. 5-whys 공백: #110 은 끝 상태(남은 파일 없음)만 봤고 `TestDefaultsScanTests` 는 "헬퍼를 거치는가"만
+  봤다 — 실행 중 동시 plist 수를 재는 것은 없었다. **고침:** `TestDefaults` 가 UUID 스위트 대신 `ptb.test.pool.<pid>.<n>` 풀(pid 는 동시에 도는 `swift test` 끼리 도메인을 공유하지 않게 한다)을
+  재사용한다. 한 테스트 케이스(`testCaseWillStart`~`DidFinish`) 안에서 요청 이름마다 풀 슬롯 하나, 같은 이름은 같은
+  `UserDefaults` 객체이고, 슬롯은 내줄 때와 테스트 끝에 비운다. 풀은 한 테스트가 요청하는 서로 다른 이름의 최대 개수까지만
+  자란다(Plaza|Team 1727 개 테스트에서 fd 피크 22, 32 개 상한을 두기 전에는 84). 테스트 밖 요청은 8 슬롯 라운드로빈이다. 한 테스트가 서로 다른 이름을 **32 개** 넘게 열면 `XCTFail` 한다(그래도 쓸 수 있는 저장소는 돌려줘 실행은 이어진다) — 이름을 재사용할 것. 번들 종료 때 이 프로세스의 풀 plist 전부(`ptb.test.pool*.<pid>.*`)를 지우고, 첫 요청 때 죽은 pid 의 잔여 풀 plist 도 지운다. `TestDefaultsScanTests` 는 헬퍼 밖의 `removePersistentDomain(` 과 풀 테스트 밖의 `TestDefaults(prefix:` 도 막는다. `TestDefaultsPoolTests` 가
+  동시 도메인 수 상한·재사용 슬롯 빈 상태·같은 이름 동일 객체를 고정한다(결함 주입으로 각각 실패 확인). **릴리스 안전망:**
+  `scripts/cfprefsd-guard.sh` 가 `team-release.sh` 의 테스트 게이트 직후(앱 설치·실행 전) DIR fd 가 100 을 넘으면 경고하고
+  `cfprefsd agent` 를 재시작해 내려갈 때까지 기다리며, 회복하지 않으면 릴리스를 중단한다.
