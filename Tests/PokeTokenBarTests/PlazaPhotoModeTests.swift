@@ -25,7 +25,8 @@ final class PlazaPhotoModeTests: XCTestCase {
         prefs.zoom = 2
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                       nickname: { "나" }, memberID: { "me" }, subject: { .init(speciesID: 25, isShiny: false) },
-                                      photoWriter: writer)
+                                      photoWriter: writer,
+                                      dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
         controllers.append(c)
         c.prepareScene()
         setUpScene(c)
