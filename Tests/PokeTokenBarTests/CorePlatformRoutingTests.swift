@@ -86,7 +86,6 @@ final class CorePlatformRoutingTests: XCTestCase {
     private var secrets: CountingSecrets!
 
     override func setUp() async throws {
-        try await super.setUp()
         savedPlatform = Platform.current
         notifications = RecordingNotifications()
         events = RecordingEvents()
@@ -97,7 +96,6 @@ final class CorePlatformRoutingTests: XCTestCase {
 
     override func tearDown() async throws {
         Platform.current = savedPlatform
-        try await super.tearDown()
     }
 
     private func makeStore(claude: LimitStatus? = nil, asleep: AwakeFlag = AwakeFlag(asleep: false),
