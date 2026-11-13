@@ -22,8 +22,8 @@ for ty in 0..<12 {
     }
 }
 // A "sprite": normal, then flipped at half alpha.
-ptb_draw_bitmap(canvas, grass, 0, 0, 16, 16, 96, 96, 96, 96, 1, 0)
-ptb_draw_bitmap(canvas, grass, 0, 0, 16, 16, 240, 96, 96, 96, 0.5, 1)
+ptb_draw_bitmap(canvas, tiles, 144, 208, 96, 48, 40, 500, 192, 96, 1, 0)
+ptb_draw_bitmap(canvas, tiles, 144, 208, 96, 48, 250, 500, 192, 96, 0.5, 1)
 // Pixel font at its native size, aliased.
 ptb_fill_round_rect(canvas, 40, 300, 300, 40, 0, 0, 0, 0, 0.6)
 ptb_draw_text(canvas, "광장 Plaza 123", "Galmuri11", 12, 0, 48, 304, 1, 1, 1, 1, 0)
