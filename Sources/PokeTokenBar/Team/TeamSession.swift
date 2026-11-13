@@ -32,6 +32,8 @@ struct TeamMemberState: Equatable, Sendable {
     var mimicOf: String?
     /// This Mac's clock when the current `mimicOf` first arrived; nil with no `mimicOf`.
     var mimicSeenAt: Date?
+    /// Their token totals, kept within `TeamUsage.bounded`. nil from an earlier version.
+    var usage: TeamUsage?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -120,6 +122,8 @@ final class TeamSession {
     @ObservationIgnored private var dittoReady = false
     @ObservationIgnored private var dittoState: PlazaDittoState?
     @ObservationIgnored private var mimicOf: String?
+    /// My token totals as last told to teammates.
+    @ObservationIgnored private(set) var usage: TeamUsage?
     @ObservationIgnored private let evolutionStage: () -> Int
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
@@ -290,6 +294,13 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
+    /// My token totals, told to teammates in my presence when they change.
+    func updateUsage(_ usage: TeamUsage?) {
+        guard usage != self.usage else { return }
+        self.usage = usage
+        broadcast(.presence(makePresence()))
+    }
+
     func sendChat(_ text: String, loud: Bool = false) {
         broadcast(.chat(TeamChat(text: text, isLoud: loud ? true : nil)))
     }
@@ -380,6 +391,7 @@ final class TeamSession {
             let mimic = presence.mimicOf.flatMap { $0.utf8.count <= TeamWire.maxFieldBytes ? $0 : nil }
             if mimic != member.mimicOf { member.mimicSeenAt = mimic == nil ? nil : clock() }
             member.mimicOf = mimic
+            member.usage = presence.usage?.bounded
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             if let schedule = presence.schedule, settings.code == knownCode,
@@ -489,7 +501,7 @@ final class TeamSession {
                      focusEndsAt: focusEndsAt,
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
                      schedule: settings.code == knownCode ? settings.schedule : nil,
-                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf)
+                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, usage: usage)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

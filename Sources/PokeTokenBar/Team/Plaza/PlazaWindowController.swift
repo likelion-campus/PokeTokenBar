@@ -1945,7 +1945,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let me = myEntryCache ?? myRosterEntry()
         myEntryCache = .some(me)
         scene?.setNature(me?.nature)
-        let next = PlazaRoster.entries(me: me, meIsIdle: session?.isIdle ?? false, meIsFocusing: isFocusing, members: Array(members.values),
+        let next = PlazaRoster.entries(me: me, meIsIdle: session?.isIdle ?? false, meIsFocusing: isFocusing, myUsage: session?.usage,
+                                       members: Array(members.values),
                                        asleep: session.map { Array($0.asleepMembers.values) } ?? [], now: clock())
         if next != rosterModel.entries { rosterModel.entries = next }
     }
