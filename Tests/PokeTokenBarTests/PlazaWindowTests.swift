@@ -1055,11 +1055,15 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         settle(c.scene!, &t, seconds: 0.6)
         XCTAssertEqual(c.scene?.memberTiles[mate.settings.memberID], TilePoint(x: 31, y: 18))
         c.scene!.face(.left)
-        c.scene!.onTackleKey?()
-        await waitUntil { tackles(mate) == 1 }
         pondKey(c.scene!, 49)
         guard case .memberMenu(let m) = c.overlayContent else { return XCTFail("no menu: \(c.overlayContent)") }
         XCTAssertEqual(m.actions, [.greet, .tackle, .viewCard], "no follow while I swim, tackle stays")
+        pondKey(c.scene!, 53)
+        XCTAssertEqual(c.overlayContent, .none)
+        // Deliberate change (pull range): a swimmer's C at a pullable shore teammate is the 물귀신 pull, not a tackle.
+        c.scene!.onTackleKey?()
+        await waitUntil { mate.received.emotes.filter { $0.kind == .pull }.count == 1 }
+        XCTAssertEqual(tackles(mate), 0)
         c.handleClose()
     }
 
