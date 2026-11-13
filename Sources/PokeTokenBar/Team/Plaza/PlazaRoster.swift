@@ -17,7 +17,7 @@ struct PlazaRosterEntry: Equatable, Identifiable, Sendable {
     let presence: PlazaPresence
     let isMe: Bool
     var nature: PokemonNature? = nil   // 이름표 위에 쓴다. 목록에는 보이지 않는다
-    var usage: TeamUsage? = nil        // 칸에 마우스를 올리면 보인다. 이전 버전 팀원과 잠든 팀원은 nil
+    var activity: PlazaActivity? = nil // 칸에 마우스를 올리면 보인다. 오늘 기록이 아니거나 이전 버전 팀원이면 nil(기록 없음)
 }
 
 /// 목록 판의 크기. 장면 카메라가 가려진 폭을 알아야 해서 한 곳에 둔다.
@@ -31,6 +31,16 @@ enum PlazaRosterMetrics {
     static let listTopPadding: CGFloat = 6
     static let slotHeight: CGFloat = 44
     static let slotSpacing: CGFloat = 4
+    /// 펼친 칸 아래 오늘 한 일의 줄 높이와 줄 간격, 위 여백, 아래 여백.
+    static let activityRowHeight: CGFloat = 14
+    static let activityRowGap: CGFloat = 1
+    static let activityTopPadding: CGFloat = 0
+    static let activityBottomPadding: CGFloat = 8
+    /// 줄이 `rows`개(기록이 없으면 0개이고 한 줄)일 때 칸이 아래로 늘어나는 높이.
+    static func activityHeight(rows: Int) -> CGFloat {
+        let n = CGFloat(max(rows, 1))
+        return activityTopPadding + n * activityRowHeight + (n - 1) * activityRowGap + activityBottomPadding
+    }
     /// 한 페이지의 최대 칸 수. 포켓몬 게임의 파티가 여섯 마리인 데서 왔다.
     static let pageSize = 6
     /// 머리줄 < > 단추의 누르는 영역(한 변).
@@ -49,9 +59,17 @@ enum PlazaRosterMetrics {
     var capacity = PlazaRosterMetrics.pageSize
     /// 보고 있는 페이지(0부터). 인원이 줄어 없어진 페이지면 그릴 때 마지막 페이지로 본다.
     var page = 0
+    /// 마우스가 올라와 아래로 펼쳐진 칸의 팀원 ID.
+    var hoveredID: String?
+
+    /// 마우스가 칸에 들어오거나 나갔다. 다른 칸으로 옮겨 간 뒤 늦게 오는 나감은 새 칸을 접지 않는다.
+    func hover(_ id: String, inside: Bool) {
+        if inside { hoveredID = id } else if hoveredID == id { hoveredID = nil }
+    }
 
     /// 보이는 페이지에서 앞이나 뒤로 넘긴다. 끝에서는 그대로다.
     func turnPage(by delta: Int) {
+        hoveredID = nil
         let now = PlazaRoster.page(entries, index: page, size: capacity)
         page = min(max(now.index + delta, 0), now.count - 1)
     }
@@ -81,19 +99,20 @@ enum PlazaRoster {
 
     /// 내 칸, 연결된 팀원, 끊긴 팀원(잠)을 합쳐 정렬한다. 광장을 열었는지는 상태와 상관없다.
     /// 집중은 끝 시각이 지금보다 뒤일 때만이다(받을 때만 걸러지므로 여기서 다시 견준다).
-    static func entries(me: PlazaRosterEntry?, meIsIdle: Bool = false, meIsFocusing: Bool = false, myUsage: TeamUsage? = nil,
+    static func entries(me: PlazaRosterEntry?, meIsIdle: Bool = false, meIsFocusing: Bool = false, myActivity: PlazaActivity? = nil,
                         members: [TeamMemberState], asleep: [TeamMemberState] = [], now: Date = Date()) -> [PlazaRosterEntry] {
+        let today = PlazaActivity.dayKey(now)
         func entry(_ m: TeamMemberState, _ presence: PlazaPresence) -> PlazaRosterEntry {
             PlazaRosterEntry(id: m.memberID, nickname: m.nickname, speciesID: m.character.speciesID,
                              speciesName: m.character.speciesName ?? (m.character.speciesID == nil ? L(.ko).plazaEggName : ""),
                              gender: m.character.gender, isShiny: m.character.isShiny, presence: presence, isMe: false,
-                             nature: m.character.nature, usage: presence == .asleep ? nil : m.usage)
+                             nature: m.character.nature, activity: m.activity?.shown(on: today))
         }
         let connected = Set(members.map(\.memberID))
         let mine = me.map { e in
             PlazaRosterEntry(id: e.id, nickname: e.nickname, speciesID: e.speciesID, speciesName: e.speciesName,
                              gender: e.gender, isShiny: e.isShiny, presence: meIsFocusing ? .focus : (meIsIdle ? .idle : .online), isMe: true,
-                             nature: e.nature, usage: myUsage)
+                             nature: e.nature, activity: myActivity?.shown(on: today))
         }
         let others = members.map { m in
             entry(m, m.focusEndsAt.map { $0 > now } == true ? .focus : (m.isIdle ? .idle : .online))

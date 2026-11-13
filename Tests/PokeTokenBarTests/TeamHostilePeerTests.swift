@@ -144,17 +144,18 @@ final class TeamHostilePeerTests: XCTestCase {
         }
     }
 
-    /// A modified app can send any totals. They are kept between zero and a size that still fits the roster.
-    func testAbsurdUsageTotalsAreBounded() {
+    /// A modified app can send any numbers. They are kept in range.
+    func testAbsurdActivityNumbersAreBounded() {
         let peer = join("hostile")
         var p = TeamPresence(nickname: "x", character: Self.mon, inPlaza: true, tile: TilePoint(x: 7, y: 8), facing: .left, isWalking: true)
-        p.usage = TeamUsage(today: .min, week: -1, month: .max)
+        var a = PlazaActivity(day: "2026-11-13")
+        a.seconds = .max; a.iceBreaks = .min; a.fireworks = .max; a.tackles = -1; a.snowballHits = PlazaActivity.maxCount + 1; a.greetings = 5
+        p.activity = a
         say(.presence(p), from: peer)
-        XCTAssertEqual(session.members["hostile"]?.usage, TeamUsage(today: 0, week: 0, month: TeamUsage.maxTokens))
-        XCTAssertEqual(TokenFormatter.compact(TeamUsage.maxTokens), "999.99B")
-        p.usage = TeamUsage(today: 5, week: TeamUsage.maxTokens, month: TeamUsage.maxTokens + 1)
-        say(.presence(p), from: peer)
-        XCTAssertEqual(session.members["hostile"]?.usage, TeamUsage(today: 5, week: TeamUsage.maxTokens, month: TeamUsage.maxTokens))
+        let got = session.members["hostile"]?.activity
+        XCTAssertEqual(got?.seconds, PlazaActivity.maxSeconds)
+        XCTAssertEqual([got?.iceBreaks, got?.fireworks, got?.tackles, got?.snowballHits, got?.greetings, got?.pickups],
+                       [0, PlazaActivity.maxCount, 0, PlazaActivity.maxCount, 5, 0])
     }
 
     func testAnOverlongMimicIsDropped() {
