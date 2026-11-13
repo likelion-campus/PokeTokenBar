@@ -43,3 +43,35 @@ jobs:
         with:
           name: core-log-${{ matrix.os }}
           path: spike/core/*.log
+  probe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: OpenSSL (static)
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install openssl:x64-windows-static
+      - name: Build
+        shell: cmd
+        run: |
+          cd spike\probe
+          cl /nologo /W3 /MT /O1 ptbprobe.c /I "%VCPKG_INSTALLATION_ROOT%\installed\x64-windows-static\include" /link /LIBPATH:"%VCPKG_INSTALLATION_ROOT%\installed\x64-windows-static\lib" libssl.lib libcrypto.lib ws2_32.lib dnsapi.lib crypt32.lib advapi32.lib user32.lib
+          dir ptbprobe.exe
+      - name: Loopback run (APIs only, not the answer)
+        shell: bash
+        run: |
+          cd spike/probe
+          ./ptbprobe.exe serve CITEST --once > serve.log 2>&1 &
+          sleep 3
+          ./ptbprobe.exe browse CITEST --once > browse.log 2>&1 || true
+          sleep 2
+          echo "--- serve"; cat serve.log; echo "--- browse"; cat browse.log
+          echo "--- direct"; port=$(grep -oE "LISTENING port [0-9]+" serve.log | grep -oE "[0-9]+$" || true)
+          ./ptbprobe.exe serve CITEST --once > serve2.log 2>&1 &
+          sleep 2; port=$(grep -oE "LISTENING port [0-9]+" serve2.log | grep -oE "[0-9]+$")
+          ./ptbprobe.exe browse CITEST --host 127.0.0.1 --port "$port" --once; cat serve2.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ptbprobe-win-x64
+          path: spike/probe/ptbprobe.exe
