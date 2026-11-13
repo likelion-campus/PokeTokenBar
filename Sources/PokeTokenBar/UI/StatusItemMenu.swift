@@ -7,7 +7,7 @@ import AppKit
 @MainActor
 enum StatusItemMenu {
     enum Action: Equatable {
-        case refresh, openDex, openPlaza, openSettings, toggleFloatingPet, quit
+        case refresh, openDex, openPlaza, openSettings, toggleFloatingPet, toggleBackView, quit
     }
 
     struct Entry: Equatable {
@@ -15,10 +15,13 @@ enum StatusItemMenu {
         let keyEquivalent: String
         /// `nil` is an informational row: shown greyed out, not clickable.
         let action: Action?
+        /// Shown with a checkmark.
+        var isChecked = false
     }
 
     /// `nil` elements are separators.
     static func entries(l: L, todayTokens: Int, todayCost: UsageCost?, floatingPetEnabled: Bool,
+                        alwaysFacesBack: Bool = false,
                         plazaAvailable: Bool, plazaUnread: Int) -> [Entry?] {
         let plaza: [Entry?] = plazaAvailable
             ? [Entry(title: l.plazaOpen + "…" + (plazaUnread > 0 ? " (\(plazaUnread))" : ""),
@@ -32,6 +35,7 @@ enum StatusItemMenu {
             Entry(title: l.settings + "…", keyEquivalent: ",", action: .openSettings),
             Entry(title: floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel,
                   keyEquivalent: "", action: .toggleFloatingPet),
+            Entry(title: l.backViewLabel, keyEquivalent: "", action: .toggleBackView, isChecked: alwaysFacesBack),
             nil,
             Entry(title: l.quit, keyEquivalent: "q", action: .quit),
         ]
@@ -68,6 +72,7 @@ enum StatusItemMenu {
             item.target = entry.action == nil ? nil : target
             item.representedObject = entry.action.map(ActionBox.init)
             item.isEnabled = entry.action != nil
+            item.state = entry.isChecked ? .on : .off
             menu.addItem(item)
         }
         return menu
