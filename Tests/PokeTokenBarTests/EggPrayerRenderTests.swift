@@ -32,7 +32,6 @@ final class EggPrayerRenderTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let suite = "PrayerRender-\(UUID())"
         let defaults = TestDefaults.make(suite: suite)
-        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
         var state = CompanionState()
         state.language = language
         if egg {

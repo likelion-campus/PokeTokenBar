@@ -122,7 +122,6 @@ final class DexCompletionStoreTests: XCTestCase {
         let url = directory.appendingPathComponent("companion-state.json")
         let suite = "ptb-dex-import-\(UUID())"
         let defaults = TestDefaults.make(suite: suite)
-        defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(1.0, forKey: "growthDifficulty")
 
         var legacy = CompanionState()

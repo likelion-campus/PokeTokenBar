@@ -57,9 +57,11 @@ final class PlazaMimicControllerTests: XCTestCase {
     private static let other = TeamMonSummary(speciesID: 4, isShiny: false, form: nil, speciesName: "Charmander", gender: nil)
     private let jiaColor: UInt32 = 0xFF9ECF
 
-    private func node(_ name: String, character: TeamMonSummary? = nil, nameColor: UInt32? = nil) -> Node {
+    private func node(_ name: String, character: TeamMonSummary? = nil, nameColor: UInt32? = nil, memberID: String? = nil) -> Node {
         let suite = "plaza.mimic.\(UUID())"
-        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
+        let nodeDefaults = TestDefaults.make(suite: suite)
+        if let memberID { nodeDefaults.set(memberID, forKey: "team.memberID") }
+        let settings = TeamSettings(defaults: nodeDefaults)
         settings.code = code
         settings.nickname = name
         settings.nameColor = nameColor
@@ -134,10 +136,11 @@ final class PlazaMimicControllerTests: XCTestCase {
 
     /// My controller, plus a quiet teammate with the smallest ID who is ready and far away, so this Mac never hosts the guest Ditto.
     private func world() async -> World {
-        let me = node("나")
+        // The quiet one must sort before me; pick the ids first instead of re-rolling whole nodes (each node opens a suite).
+        let ids = [UUID().uuidString, UUID().uuidString].sorted()
+        let me = node("나", memberID: ids[1])
         // A chosen colour that no test copies, so the quiet one never shares a colour with a copied teammate by chance.
-        var quiet = node("조용", nameColor: 0xFFFFFF)
-        while quiet.id >= me.id { quiet = node("조용", nameColor: 0xFFFFFF) }
+        let quiet = node("조용", nameColor: 0xFFFFFF, memberID: ids[0])
         let c = controller(me)
         c.prepareScene()
         await connect(me, quiet)
