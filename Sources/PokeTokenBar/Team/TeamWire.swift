@@ -44,6 +44,8 @@ struct TeamPresence: Codable, Equatable, Sendable {
     /// A Ditto's disguise: the member whose real look the sender shows in the plaza. Left out when not disguised;
     /// earlier versions ignore it and draw a Ditto.
     @LossyOptional var mimicOf: String?
+    /// The last plaza ice break this member knows. Every member passes it on. Left out when none.
+    @LossyOptional var iceBreak: PlazaIceBreak?
 }
 
 /// 읽을 수 없는 값(나중 버전의 모양, 잘못된 값)을 nil 로 읽는 선택값. 이 필드만 너그럽고 나머지 필드는 합성 Codable 그대로라,
@@ -154,6 +156,9 @@ struct TeamEmote: Codable, Equatable, Sendable {
     var overDecoy: Bool?
     /// A snowball: the way it was thrown. Left out by every other kind.
     var snowballDirection: PlazaDirection?
+    /// A jump that breaks the plaza ice: the frozen pond and the turn (§6). Left out by every other jump and kind; earlier
+    /// versions see a plain jump. Unreadable values become nil.
+    @LossyOptional var iceBreak: PlazaIceBreak?
 
     /// A tackle pushes one to three tiles, like the three evolution stages.
     static let pushTileRange = 1...3

@@ -32,6 +32,8 @@ struct TeamMemberState: Equatable, Sendable {
     var mimicOf: String?
     /// This Mac's clock when the current `mimicOf` first arrived; nil with no `mimicOf`.
     var mimicSeenAt: Date?
+    /// The last ice break they know, as received; the plaza filters it.
+    var iceBreak: PlazaIceBreak?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -120,6 +122,7 @@ final class TeamSession {
     @ObservationIgnored private var dittoReady = false
     @ObservationIgnored private var dittoState: PlazaDittoState?
     @ObservationIgnored private var mimicOf: String?
+    @ObservationIgnored private var iceBreak: PlazaIceBreak?
     @ObservationIgnored private let evolutionStage: () -> Int
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
@@ -247,11 +250,12 @@ final class TeamSession {
 
     func sendEmote(_ kind: TeamEmoteKind, target: String?, shared: Bool = false, pushTiles: Int = 1, itemSlot: Int? = nil, fireworkStyle: String? = nil,
                    danceStyle: String? = nil, danceSince: Date? = nil, overDecoy: Bool = false,
-                   snowballDirection: PlazaDirection? = nil) {
+                   snowballDirection: PlazaDirection? = nil, iceBreak: PlazaIceBreak? = nil) {
         broadcast(.emote(TeamEmote(kind: kind, targetMemberID: target, isShared: shared ? true : nil,
                                    pushTiles: pushTiles > 1 ? pushTiles : nil, itemSlot: itemSlot, fireworkStyle: fireworkStyle,
                                    danceStyle: danceStyle, danceSince: danceSince?.timeIntervalSince1970,
-                                   overDecoy: overDecoy ? true : nil, snowballDirection: snowballDirection)))
+                                   overDecoy: overDecoy ? true : nil, snowballDirection: snowballDirection,
+                                   iceBreak: iceBreak)))
     }
 
     /// The latest plaza item slot I know was taken, told to teammates in my presence (also to those who connect later).
@@ -287,6 +291,13 @@ final class TeamSession {
     func updateMimic(_ memberID: String?) {
         guard memberID != mimicOf else { return }
         mimicOf = memberID
+        broadcast(.presence(makePresence()))
+    }
+
+    /// The last plaza ice break I know (nil: none), told to teammates in my presence.
+    func updateIceBreak(_ b: PlazaIceBreak?) {
+        guard b != iceBreak else { return }
+        iceBreak = b
         broadcast(.presence(makePresence()))
     }
 
@@ -380,6 +391,7 @@ final class TeamSession {
             let mimic = presence.mimicOf.flatMap { $0.utf8.count <= TeamWire.maxFieldBytes ? $0 : nil }
             if mimic != member.mimicOf { member.mimicSeenAt = mimic == nil ? nil : clock() }
             member.mimicOf = mimic
+            member.iceBreak = presence.iceBreak
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             if let schedule = presence.schedule, settings.code == knownCode,
@@ -489,7 +501,7 @@ final class TeamSession {
                      focusEndsAt: focusEndsAt,
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
                      schedule: settings.code == knownCode ? settings.schedule : nil,
-                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf)
+                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {
