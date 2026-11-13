@@ -245,7 +245,8 @@ final class PlazaCardTests: XCTestCase {
                                      subject: { .init(speciesID: 25, isShiny: false) },
                                      myRosterEntry: { nil }, evolutionStage: { stage }, session: me.session,
                                      greetingKind: { greeting },
-                                     profileTimeout: timeout)
+                                     profileTimeout: timeout,
+                                     dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
     }
 
     private func settle() async { for _ in 0..<20 { await Task.yield() } }

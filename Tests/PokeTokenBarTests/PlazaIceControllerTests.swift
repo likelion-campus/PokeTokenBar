@@ -21,6 +21,7 @@ final class PlazaIceControllerTests: XCTestCase {
     private var T: Double { now.timeIntervalSince1970 }
     private var leftPond: TilePoint { TilePoint(x: 5, y: 13) }
     private var R: TilePoint { TilePoint(x: 32, y: 14) }
+    private var B: TilePoint { TilePoint(x: 20, y: 24) }
     private func brk(_ pond: TilePoint, _ at: Double) -> PlazaIceBreak { PlazaIceBreak(at: at, pond: pond) }
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
 
@@ -150,7 +151,7 @@ final class PlazaIceControllerTests: XCTestCase {
         XCTAssertNil(w.scene.frozenPondAnchor, "nothing is frozen for a minute")
         now = now.addingTimeInterval(60)
         run(w.scene, 0.1)
-        XCTAssertEqual(w.scene.frozenPondAnchor, R, "the next pond froze a minute after the break")
+        XCTAssertEqual(w.scene.frozenPondAnchor, B, "the next pond froze a minute after the break")
     }
 
     func testAReceivedBreakFreezesTheNextPondAMinuteLater() async {
@@ -163,8 +164,8 @@ final class PlazaIceControllerTests: XCTestCase {
         XCTAssertTrue(w.scene.isWaterNow(p(34, 17)))
         now = now.addingTimeInterval(60)
         run(w.scene, 0.1)
-        XCTAssertEqual(w.scene.frozenPondAnchor, R)
-        XCTAssertTrue(w.scene.isWalkableNow(p(34, 17)))
+        XCTAssertEqual(w.scene.frozenPondAnchor, B)
+        XCTAssertTrue(w.scene.isWalkableNow(p(21, 25)))
     }
 
     func testZFromTheShoreLeapsOntoTheIceAndBreaksIt() async {

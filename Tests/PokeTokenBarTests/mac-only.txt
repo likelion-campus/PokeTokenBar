@@ -167,3 +167,7 @@ UsageCostTests.swift
 UsageRecapTests.swift
 UsageStreakTests.swift
 ZeroUsageHomeRenderingTests.swift
+# from main after the split; not yet tried in the shared set
+ParkedDitto.swift
+PlazaActivityControllerTests.swift
+PlazaActivityTests.swift

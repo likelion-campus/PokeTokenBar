@@ -823,19 +823,68 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.iceBreak, x)
     }
 
-    func testPresenceCarriesMyUsageAndSendsOnlyOnChange() async {
+    private func activity(seconds: Int = 0, fireworks: Int = 0) -> PlazaActivity {
+        var a = PlazaActivity(day: "2026-11-13")
+        a.seconds = seconds
+        a.fireworks = fireworks
+        return a
+    }
+
+    func testPresenceCarriesMyActivityAndACountSendsAtOnce() async {
         let a = node("A"), b = node("B")
         connect(a, b)
-        XCTAssertNil(b.session.members[a.memberID]?.usage)
+        XCTAssertNil(b.session.members[a.memberID]?.activity)
         let before = a.presencesSent
-        let usage = TeamUsage(today: 10, week: 200, month: 3000)
-        a.session.updateUsage(usage)
-        a.session.updateUsage(usage)
-        XCTAssertEqual(a.presencesSent, before + 1)
-        XCTAssertEqual(b.session.members[a.memberID]?.usage, usage)
-        XCTAssertEqual(a.session.usage, usage)
-        a.session.updateUsage(nil)
-        XCTAssertNil(b.session.members[a.memberID]?.usage)
+        a.session.updateActivity(activity())
+        XCTAssertEqual(a.presencesSent, before + 1, "the first one goes out")
+        a.session.updateActivity(activity())
+        XCTAssertEqual(a.presencesSent, before + 1, "the same numbers are not sent again")
+        a.session.updateActivity(activity(fireworks: 1))
+        a.session.updateActivity(activity(fireworks: 2))
+        XCTAssertEqual(a.presencesSent, before + 3, "every count is sent when it changes")
+        XCTAssertEqual(b.session.members[a.memberID]?.activity, activity(fireworks: 2))
+        XCTAssertEqual(a.session.activity, activity(fireworks: 2))
+    }
+
+    func testTimeAloneIsSentAtMostOncePerMinute() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.session.updateActivity(activity())
+        let sent = a.presencesSent
+        for second in 1...59 {
+            clock.advance(1)
+            a.session.updateActivity(activity(seconds: second))
+        }
+        XCTAssertEqual(a.presencesSent, sent, "59 seconds of time is held back")
+        XCTAssertEqual(b.session.members[a.memberID]?.activity?.seconds, 0)
+        clock.advance(1)
+        a.session.updateActivity(activity(seconds: 60))
+        XCTAssertEqual(a.presencesSent, sent + 1, "the minute is up")
+        XCTAssertEqual(b.session.members[a.memberID]?.activity?.seconds, 60)
+        clock.advance(5)
+        a.session.updateActivity(activity(seconds: 65))
+        XCTAssertEqual(a.presencesSent, sent + 1)
+    }
+
+    func testACountSendsAtOnceEvenRightAfterTheTimeWent() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.session.updateActivity(activity())
+        let sent = a.presencesSent
+        clock.advance(1)
+        a.session.updateActivity(activity(seconds: 1, fireworks: 1))
+        XCTAssertEqual(a.presencesSent, sent + 1)
+        XCTAssertEqual(b.session.members[a.memberID]?.activity, activity(seconds: 1, fireworks: 1))
+    }
+
+    func testANewDayIsSentAtOnce() async {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        a.session.updateActivity(activity())
+        let sent = a.presencesSent
+        a.session.updateActivity(PlazaActivity(day: "2026-11-14"))
+        XCTAssertEqual(a.presencesSent, sent + 1)
+        XCTAssertEqual(b.session.members[a.memberID]?.activity?.day, "2026-11-14")
     }
 
     func testUpdateMimicSendsOnlyOnChange() async {

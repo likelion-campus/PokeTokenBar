@@ -53,3 +53,5 @@ Team/Plaza/PlazaTileArt.swift
 Team/Plaza/PlazaWeatherArt.swift
 Team/Plaza/PlazaWeatherLayer.swift
 Team/Plaza/PlazaWindowController.swift
+# from main after the split; not yet tried in the shared set
+Team/Plaza/PlazaActivity.swift

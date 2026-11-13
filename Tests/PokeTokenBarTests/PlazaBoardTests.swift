@@ -206,7 +206,8 @@ final class PlazaBoardTests: XCTestCase {
                                      nickname: { "나" }, memberID: { myID },
                                      subject: { .init(speciesID: 25, isShiny: false) },
                                      myRosterEntry: { nil }, session: me.session, feed: me.feed,
-                                     bannerSleep: { await gate.sleep($0) })
+                                     bannerSleep: { await gate.sleep($0) },
+                                     dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
     }
 
     private func waitUntil(_ condition: () -> Bool) async {
