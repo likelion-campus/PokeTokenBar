@@ -90,6 +90,8 @@ extension SKView: PlazaPausableView {}
     private(set) var activity = PlazaActivity(day: "")
     /// 내가 보냈고 아직 땅에 닿지 않은 깨는 점프. 닿아서 배운 것이 이 가운데 하나일 때만 내가 깬 것으로 센다.
     private var pendingBreaks: [PlazaIceBreak] = []
+    /// 아는 마지막 모닥불 스위치. 창이 닫혀 있어도 배운다.
+    private var campfireSwitch: PlazaCampfireSwitch?
     /// 집중이 끝났다(시간이 다 됐거나 일어섰다). 조용히 끝낼 때는 부르지 않는다.
     var onFocusEnd: ((PlazaFocusEnd) -> Void)?
     /// A failed sprite request is made again after this long, while the plaza stays open.
@@ -160,29 +162,30 @@ extension SKView: PlazaPausableView {}
         return art
     }
 
-    /// 눈 오는 날의 그림도 프로세스당 한 번만 만든다. 타일 시트가 없으면 바깥 nil(=만들어 봤지만 없음)이다.
-    private static var cachedSnowLook: PlazaSnowLook??
+    /// 계절의 그림도 프로세스당 한 번만 만든다. 안쪽 nil은 만들어 봤지만 없음(타일 시트가 없거나 원본 그대로인 여름)이다.
+    private static var cachedSeasonLooks: [PlazaSeason: PlazaSnowLook?] = [:]
 
-    private static func snowLook(for map: PlazaMap) -> PlazaSnowLook? {
-        if let built = cachedSnowLook { return built }
+    private static func seasonLook(for map: PlazaMap, season: PlazaSeason) -> PlazaSnowLook? {
+        if let built = cachedSeasonLooks[season] { return built }
         var look: PlazaSnowLook?
-        if let sheet = PlazaResources.tileSheet() {
-            let art = PlazaResources.tallGrassSheet().map(PlazaSnowSheet.tallGrass).flatMap(PlazaTallGrassArt.init(sheet:))
-            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSnowSheet.tiles(sheet), tallGrass: art), tallGrass: art)
+        if season != .summer, let sheet = PlazaResources.tileSheet() {
+            let art = PlazaResources.tallGrassSheet().map { PlazaSeasonSheet.tallGrass($0, season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
+            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art),
+                                 tallGrass: art)
         }
-        cachedSnowLook = .some(look)
+        cachedSeasonLooks[season] = .some(look)
         return look
     }
 
-    private func snowDayChanged(_ on: Bool) {
-        minimap.snowMapImage = on ? Self.snowLook(for: map).map { NSImage(cgImage: $0.mapImage, size: .zero) } : nil
-        shortcutModel.isSnowDay = on
+    private func seasonChanged(_ season: PlazaSeason) {
+        minimap.seasonMapImage = Self.seasonLook(for: map, season: season).map { NSImage(cgImage: $0.mapImage, size: .zero) }
+        shortcutModel.season = season
     }
 
-    /// 테스트용: 단축키 안내에 V(눈뭉치) 줄이 보이는가.
-    var shortcutsShowSnowball: Bool { shortcutModel.isSnowDay }
+    /// 테스트용: 단축키 안내의 V 줄에 적힌 던지는 것.
+    var shortcutThrowLabel: String? { PlazaShortcutGuide.entries(season: shortcutModel.season).first { $0.key == "V" }?.label }
 
-    var minimapShowsSnow: Bool { minimap.snowMapImage != nil }
+    var minimapShowsSnow: Bool { minimap.seasonMapImage != nil && scene?.isSnowShown == true }
 
     private var mapImage: CGImage {
         if let cached = Self.cachedMapImage { return cached }
@@ -279,6 +282,8 @@ extension SKView: PlazaPausableView {}
         session?.updateTakenItemSlot(takenItemSlots.max())
         iceBreak = PlazaIce.accepted(preferences.iceBreak, now: clock(), ponds: Self.icePonds)
         session?.updateIceBreak(iceBreak)
+        campfireSwitch = PlazaCampfire.accepted(preferences.campfire, now: clock())
+        session?.updateCampfire(campfireSwitch)
         activity = (preferences.activity ?? PlazaActivity(day: "")).rolled(to: PlazaActivity.dayKey(clock()))
         session?.updateActivity(activity)
         restoreFocus()
@@ -470,11 +475,11 @@ extension SKView: PlazaPausableView {}
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
         // 일정을 먼저 넣어야 낮밤·날씨·모닥불빛이 기본값으로 한 번 그려졌다가 다시 만들어지지 않는다.
         scene = s
-        s.snowLook = { [map] in Self.snowLook(for: map) }
-        s.onSnowDayChange = { [weak self] in self?.snowDayChanged($0) }
+        s.seasonLook = { [map] in Self.seasonLook(for: map, season: $0) }
+        s.onSeasonChange = { [weak self] in self?.seasonChanged($0) }
         applySchedule()
         s.refreshSnowDay()
-        snowDayChanged(s.isSnowShown)
+        seasonChanged(s.shownSeason)
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
         shortcutModel.isFolded = preferences.areShortcutsFolded
@@ -978,9 +983,15 @@ extension SKView: PlazaPausableView {}
     /// 바라보거나 바로 옆에 있는 대상에 말을 건다. 그쪽으로 돌아선 뒤, 소식판이면 소식판을 열고(열 때 모두 읽음),
     /// 팀원이면 인사하기와 포켓몬 보기 메뉴를 띄운다.
     private func handleInteractKey() {
-        guard let scene,
-              let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
-                                                members: scene.interactionTiles) else { return }
+        guard let scene else { return }
+        guard let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
+                                                members: scene.interactionTiles) else {
+            // 자리는 불에서 떨어져 있어 말을 걸 대상이 없다. 앉은 채로는 불을 켜고 끄는 줄만 있는 모닥불 메뉴를 연다.
+            if isFocusing {
+                openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: true, minutes: [], selection: 0, isLit: isCampfireLit, isSeated: true)))
+            }
+            return
+        }
         if !isFocusing { scene.face(hit.facing) }   // 앉아 있는 동안은 불을 바라본 채로 둔다
         switch hit.target {
         case .board:
@@ -988,8 +999,9 @@ extension SKView: PlazaPausableView {}
             openOverlay(.board)
         case .campfire:
             let free = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: scene.occupiedTiles()) != nil
-            openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: isCampfireLit, minutes: free ? PlazaCampfire.durations : [],
-                                                         selection: 0)))
+            openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: isAnyoneFocusing,
+                                                         minutes: free ? PlazaCampfire.durations : [],
+                                                         selection: 0, isLit: isCampfireLit)))
         case .member(let id):
             // 복사본의 메뉴는 따라 한 팀원의 이름과 색으로 연다. 나를 따라 했다면 카드는 없다.
             // 메타몽 모습의 메뉴에는 몸통박치기만 있다.
@@ -1057,13 +1069,15 @@ extension SKView: PlazaPausableView {}
         }
     }
 
-    /// 모닥불 메뉴에서 고른 시간으로 앉는다. 키로 고르든 눌러 고르든 여기로 온다. 고를 시간이 없으면 메뉴만 닫는다.
+    /// 모닥불 메뉴에서 고른 시간으로 앉거나, 마지막 줄이면 불을 켜거나 끈다. 키로 고르든 눌러 고르든 여기로 온다.
     func chooseCampfire(index: Int) {
-        guard case .campfireMenu(let menu) = overlayModel.content, menu.minutes.indices.contains(index) else {
-            return closeOverlay()
-        }
+        guard case .campfireMenu(let menu) = overlayModel.content else { return closeOverlay() }
         closeOverlay()
-        startFocus(minutes: menu.minutes[index])
+        if menu.minutes.indices.contains(index) {
+            startFocus(minutes: menu.minutes[index])
+        } else if index == menu.toggleIndex {
+            setCampfire(lit: !isCampfireLit)
+        }
     }
 
     /// 메뉴에서 고른 일을 한다. 키로 고르든 눌러 고르든 여기로 온다.
@@ -1197,7 +1211,7 @@ extension SKView: PlazaPausableView {}
     /// V. 눈 오는 날에 바라보는 쪽으로 눈덩이를 던지고 팀원들에게 보낸다. 돌아서지 않는다. 집중 중, 알, 헤엄치는 중, 바로 앞이 막혔을 때는
     /// 아무것도 안 한다. 말풍선 키와 같은 연타 제한을 쓴다. 메타몽 모습이나 복사본을 맞히면 눈덩이가 닿을 때 몸통박치기처럼 반응한다.
     private func handleSnowballKey() {
-        guard let scene, scene.isSnowDay, !isFocusing, scene.canWalk, !scene.isMeInWater else { return }
+        guard let scene, !isFocusing, scene.canWalk, !scene.isMeInWater else { return }
         let facing = scene.walker.facing
         guard let shot = PlazaSnowball.aim(from: scene.walker.tile, facing: facing, targets: scene.snowballTargets, map: map) else { return }
         let now = clock()
@@ -1231,7 +1245,7 @@ extension SKView: PlazaPausableView {}
     /// 눈덩이가 닿을 때 `direction`으로 `tiles`칸 밀린다. 닿기 전에 창이 가려져도 눈덩이는 바로 닿는다. 눈 오는 날이 아니거나 방향이 없거나
     /// 던진 팀원이 내 광장에 보이지 않으면 버린다. 그린 자리에 없는 표적(모르는 ID, 잠수 중인 팀원)은 빗나간 것으로 날아간다.
     func showSnowball(from sender: String, on target: String?, tiles: Int, direction: PlazaDirection?) {
-        guard let scene, let direction, scene.isSnowDay, let from = scene.memberTiles[sender] else { return }
+        guard let scene, let direction, let from = scene.memberTiles[sender] else { return }
         let isMe = target == memberID()
         let isDitto = target == PlazaDitto.sceneKey
         let resolved: (id: String?, tile: TilePoint)?
@@ -1366,7 +1380,7 @@ extension SKView: PlazaPausableView {}
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
             switch hit.target {
             case .board: text = L(.ko).plazaBoardHint
-            case .campfire: text = isCampfireLit ? L(.ko).plazaCampfireJoinHint : L(.ko).plazaCampfireLightHint
+            case .campfire: text = isAnyoneFocusing ? L(.ko).plazaCampfireJoinHint : L(.ko).plazaCampfireLightHint
             case .member(let id): text = hintName(of: id).map { L(.ko).plazaMemberHint(nickname: $0) }
             }
         }
@@ -1451,6 +1465,7 @@ extension SKView: PlazaPausableView {}
     var isFocusing: Bool { focus != nil }
     /// 테스트용 읽기 전용 값: 저장된 집중.
     var preferencesFocusForTesting: PlazaFocus? { preferences.focus }
+    var memberIDForTesting: String { memberID() }
     var isCampfireMenuOpen: Bool { if case .campfireMenu = overlayModel.content { true } else { false } }
 
     /// 그 팀원이 아직 집중 중이면 남은 초. 끝 시각은 받을 때만 걸러지므로 지금과 다시 견준다.
@@ -1460,10 +1475,33 @@ extension SKView: PlazaPausableView {}
         return left > 0 ? left : nil
     }
 
-    /// 내가 앉아 있거나 팀원 중 누가 집중 중이면 불이 켜져 있다. 팀원의 끝 시각은 받을 때만 걸러지므로 지금과 다시 견준다.
-    var isCampfireLit: Bool {
+    /// 내가 앉아 있거나 팀원 중 누가 집중 중이다. 팀원의 끝 시각은 받을 때만 걸러지므로 지금과 다시 견준다.
+    var isAnyoneFocusing: Bool {
         let now = clock()
         return focus?.isActive(at: now) == true || members.values.contains { $0.focusEndsAt.map { $0 > now } ?? false }
+    }
+
+    /// 누가 켜거나 껐으면 그대로, 아니면 집중하는 사람이 있을 때 켜져 있다.
+    var isCampfireLit: Bool { PlazaCampfire.isLit(campfireSwitch, anyoneFocusing: isAnyoneFocusing) }
+
+    /// 내가 스위치를 바꾼다(nil: 손대지 않은 상태로). 저장하고 팀원에게 알리고 불을 맞춘다.
+    func setCampfire(lit: Bool?) {
+        let flipped = PlazaCampfire.flipped(to: lit, after: campfireSwitch, now: clock())
+        campfireSwitch = flipped
+        preferences.campfire = flipped
+        session?.updateCampfire(flipped)
+        refreshCampfire()
+    }
+
+    /// 받은 스위치를 배운다. 걸러서 합친 값이 달라질 때만 저장하고 알리고 불을 맞춘다.
+    private func learnCampfire(_ received: PlazaCampfireSwitch?) {
+        guard let s = PlazaCampfire.accepted(received, now: clock()) else { return }
+        let merged = PlazaCampfire.merged(campfireSwitch, s)
+        guard merged != campfireSwitch else { return }
+        campfireSwitch = merged
+        preferences.campfire = merged
+        session?.updateCampfire(merged)
+        refreshCampfire()
     }
 
     /// 지난 실행에서 저장한 집중을 되살린다. 아직 안 끝났으면 창이 없어도 팀원에게 앉은 모습을 알린다. 끝났으면 지운다.
@@ -1490,6 +1528,7 @@ extension SKView: PlazaPausableView {}
         focus = started
         focusFacing = seat.facing
         preferences.focus = started
+        if campfireSwitch?.lit == false { setCampfire(lit: nil) }   // 꺼 둔 불도 새 집중이 다시 켠다
         session?.updateFocus(endsAt: started.endsAt)   // 자리 위치보다 먼저: 자리만 알리고 끝 시각은 빠진 접속 알림이 나가지 않게
         scene.sit(at: seat)
         sendPosition(inPlaza: true, scene: scene)
@@ -1521,6 +1560,8 @@ extension SKView: PlazaPausableView {}
         focus = nil
         preferences.focus = nil
         session?.updateFocus(endsAt: nil)
+        // 손으로 켠 불도 집중이 끝나면 집중을 따르게 돌린다. 다른 사람이 아직 집중 중이면 켜져 있다가 마지막 집중과 함께 꺼진다.
+        if campfireSwitch?.lit == true { setCampfire(lit: nil) }
         if scene == nil {
             // 창이 닫혀 있는 동안 앉은 모습으로 남아 있었다. 이제 광장을 떠난 것으로 알린다.
             session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
@@ -1815,14 +1856,14 @@ extension SKView: PlazaPausableView {}
                                      isWalking: scene.walker.isWalking, isRunning: scene.walker.isRunning)
     }
 
-    /// 팀이 정한 밝은 시간대와 날씨 주기를 장면과 지도에 넣는다. 정한 적이 없으면 기본값.
+    /// 팀이 정한 밝은 시간대와 계절을 장면과 지도에 넣는다. 정한 적이 없으면 기본값.
     func applySchedule() {
         let current = schedule()
         let core = current?.coreTime ?? .standard
-        let period = current?.period ?? .day
+
         if minimap.coreTime != core { minimap.coreTime = core }
         scene?.coreTime = core
-        scene?.weatherPeriod = period
+        scene?.seasonChoice = current?.season ?? .winter
     }
 
     /// 작은 지도의 점과 보이는 영역을 지금 상태로 맞춘다.
@@ -1868,6 +1909,7 @@ extension SKView: PlazaPausableView {}
         if session.isIdle && !wasIdle { scene?.stopDance(memberID: nil) }   // 자리비움이 되는 순간만(돌아온 뒤 새 춤은 건드리지 않는다)
         wasIdle = session.isIdle
         if let followed = scene?.followingMember, focusRemaining(of: followed) != nil { scene?.stopWalkingToMember() }
+        for s in current.values.compactMap(\.campfire) { learnCampfire(s) }
         applyMembersToScene()
         endMimicIfDue()
         refreshMyLook()

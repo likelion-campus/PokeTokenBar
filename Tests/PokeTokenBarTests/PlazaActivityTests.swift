@@ -106,7 +106,7 @@ final class PlazaActivityTests: XCTestCase {
             .init(label: "얼음 깬 횟수", value: "4"),
             .init(label: "폭죽", value: "12"),
             .init(label: "몸통박치기", value: "0"),
-            .init(label: "눈뭉치 맞힌 횟수", value: "7"),
+            .init(label: "던져서 맞힌 횟수", value: "7"),
             .init(label: "인사", value: "30"),
             .init(label: "주운 아이템", value: "2"),
         ])

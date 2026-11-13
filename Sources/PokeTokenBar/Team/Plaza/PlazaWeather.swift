@@ -1,9 +1,9 @@
 import Foundation
 
-/// 광장의 날씨. 팀이 정한 대로 광장은 날마다 눈이 온다. 벚꽃·초록 나뭇잎·낙엽 그림은 남겨 두지만 날짜로는 나오지 않는다.
+/// 광장에 내리는 것. 계절(`PlazaSeason.weather`)이 정한다: 봄 벚꽃, 여름 초록 나뭇잎, 가을 낙엽, 겨울 눈.
 enum PlazaWeather {
     enum Kind: Equatable, CaseIterable {
-        /// 배경을 숨겼을 때만 쓴다. 날짜로는 나오지 않는다.
+        /// 배경을 숨겼을 때만 쓴다. 계절로는 나오지 않는다.
         case clear, petals, greenLeaves, leaves, snow
     }
 
@@ -16,12 +16,6 @@ enum PlazaWeather {
 
     /// 한 화면에 그리는 입자 수의 상한. 넓은 화면에서도 노드 수가 이 값을 넘지 않는다.
     static let maxParticles = 120
-
-    /// 예전에 날씨가 바뀌던 주기. v2.5.626 이하 팀원이 아직 이 값으로 돌리므로 팀 설정의 와이어 필드로 남긴다.
-    enum Period: String, CaseIterable, Sendable { case day, week, month }
-
-    /// 그 날의 날씨. 날짜와 주기에 상관없이 늘 눈이다.
-    static func kind(on date: Date, calendar: Calendar = gregorian, period: Period = .day) -> Kind { .snow }
 
     /// 종류별 움직임. 속도는 월드 픽셀/초이고 아래로 떨어지는 쪽이 양수.
     struct Motion {

@@ -95,11 +95,22 @@ enum PlazaSnowball {
     }
 }
 
-/// 눈덩이·터짐 그림. 눈 입자 격자에 그림자 한 칸을 계산으로 덧붙인다.
+/// 던지는 것과 터짐 그림. 눈 입자 격자에 그림자 한 칸을 계산으로 덧붙이고, 계절마다 색만 바꾼다:
+/// 겨울 눈뭉치, 봄 꽃잎 뭉치, 가을 낙엽 뭉치. 여름은 공만 물풍선 그림이고 터짐은 물방울 색이다.
 enum PlazaSnowballArt {
-    private static let palette: [Character: (r: UInt8, g: UInt8, b: UInt8)] = [
-        "W": (0xF6, 0xFA, 0xFF), "S": (0xC6, 0xDA, 0xF0), "o": (0x8D, 0xA3, 0xBF),
-    ]
+    typealias Palette = [Character: (r: UInt8, g: UInt8, b: UInt8)]
+    /// 그림과, 그림 한 픽셀의 월드 픽셀 수.
+    typealias Piece = (image: CGImage, scale: CGFloat)
+
+    /// 밝은 칸("W"), 어두운 칸("S"), 그림자("o").
+    static func palette(_ season: PlazaSeason) -> Palette {
+        switch season {
+        case .winter: ["W": (0xF6, 0xFA, 0xFF), "S": (0xC6, 0xDA, 0xF0), "o": (0x8D, 0xA3, 0xBF)]
+        case .spring: ["W": (0xFD, 0xDC, 0xE6), "S": (0xF2, 0xA0, 0xBC), "o": (0xB8, 0x5A, 0x80)]
+        case .summer: ["W": (0xD6, 0xF0, 0xFF), "S": (0x6C, 0xB8, 0xF0), "o": (0x2E, 0x78, 0xC0)]
+        case .autumn: ["W": (0xF2, 0xA6, 0x3C), "S": (0xC4, 0x52, 0x1E), "o": (0x6E, 0x3A, 0x10)]
+        }
+    }
 
     /// 왼쪽이나 위쪽 이웃이 칠해진 빈 칸마다 그림자("o") 한 칸을 더한다. 격자는 오른쪽·아래로 한 칸씩 커진다.
     static func shaded(_ grid: [String]) -> [String] {
@@ -116,8 +127,13 @@ enum PlazaSnowballArt {
         }
     }
 
-    /// `PlazaWeatherArt.grids(.snow)`의 눈송이 셋을 그림자와 함께 그린다. [0]이 공이다.
-    static func pieces() -> [CGImage] {
-        PlazaWeatherArt.grids(.snow).map { PlazaWeatherArt.image(shaded($0), palette: palette) }
+    /// `PlazaWeatherArt.grids(.snow)`의 눈송이 셋을 그림자와 함께 그 계절 색으로 그린다. [0]이 공이다.
+    /// 여름에 `balloon`이 있으면 공은 그 그림 그대로다(월드 픽셀당 한 픽셀).
+    static func pieces(_ season: PlazaSeason = .winter, balloon: CGImage? = nil) -> [Piece] {
+        var pieces: [Piece] = PlazaWeatherArt.grids(.snow).map {
+            (PlazaWeatherArt.image(shaded($0), palette: palette(season)), PlazaSnowball.cell)
+        }
+        if season == .summer, let balloon { pieces[0] = (balloon, 1) }
+        return pieces
     }
 }

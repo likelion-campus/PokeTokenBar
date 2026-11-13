@@ -107,15 +107,21 @@ struct PlazaMemberMenu: Equatable {
     }
 }
 
-/// 모닥불 메뉴. `minutes`가 비면 빈 자리가 없다는 안내만 보인다. `selection`은 `minutes`의 순번이다.
+/// 모닥불 메뉴. 시간 줄들 아래에 불을 켜거나 끄는 줄이 하나 있다. `minutes`가 비면 시간 줄 대신 빈 자리가 없다는
+/// 안내가 보이고(내가 앉아 있으면 안내도 없다), `selection`은 고를 수 있는 줄의 순번이다.
 struct PlazaCampfireMenu: Equatable {
     let isJoin: Bool
     let minutes: [Int]
     var selection: Int
+    /// 불이 켜져 있으면 마지막 줄이 "불 끄기", 아니면 "불 켜기"다.
+    var isLit = false
+    var isSeated = false
+
+    var toggleIndex: Int { minutes.count }
 
     mutating func move(by step: Int) {
-        guard !minutes.isEmpty else { return }
-        selection = ((selection + step) % minutes.count + minutes.count) % minutes.count
+        let count = minutes.count + 1
+        selection = ((selection + step) % count + count) % count
     }
 }
 

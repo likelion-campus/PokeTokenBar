@@ -82,7 +82,7 @@ final class TeamWireTests: XCTestCase {
         let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"isWalking":false,"schedule":{"coreStart":10,"coreEnd":16,"seasonPeriod":"season","changedAt":1790000000,"changedBy":"m","changedByName":"A"}}}}"#
         var d2 = TeamWire.FrameDecoder()
         guard case .presence(let p)? = try d2.append(frame(json)).first, let sch = p.schedule else { return XCTFail("no schedule") }
-        XCTAssertEqual(sch.period, .day)
+        XCTAssertEqual(sch.season, .winter)
     }
 
     /// 손으로 쓴 Codable 은 새 선택 필드를 키 목록에 빼먹어도 컴파일되지만, 합성이면 모든 필드가 오간다.

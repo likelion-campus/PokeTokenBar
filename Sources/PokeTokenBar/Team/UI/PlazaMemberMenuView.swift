@@ -66,12 +66,12 @@ struct PlazaCampfireMenuView: View {
                 .foregroundStyle(Color(hex: 0xF2C14E))
                 .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
                 .lineLimit(1)
-            if menu.minutes.isEmpty {
-                Text(Self.rows(menu)[0])
+            if let notice = Self.notice(menu) {
+                Text(notice)
                     .font(Font(PlazaResources.font(.body)))
                     .foregroundStyle(.white)
             }
-            ForEach(Array(menu.minutes.indices), id: \.self) { i in
+            ForEach(Array(Self.rows(menu).indices), id: \.self) { i in
                 Button { onChoose(i) } label: {
                     HStack(spacing: 6) {
                         Text("▶").opacity(i == menu.selection ? 1 : 0).accessibilityHidden(true)
@@ -92,9 +92,14 @@ struct PlazaCampfireMenuView: View {
         .background(PlazaRosterBackground())
     }
 
-    /// 보이는 줄의 글. 고를 시간이 없으면 안내 한 줄이다.
+    /// 고를 수 있는 줄의 글: 시간들, 그리고 불 켜기나 끄기.
     static func rows(_ menu: PlazaCampfireMenu) -> [String] {
         let l = L(.ko)
-        return menu.minutes.isEmpty ? [l.plazaCampfireFull] : menu.minutes.map { l.plazaCampfireRow(minutes: $0) }
+        return menu.minutes.map { l.plazaCampfireRow(minutes: $0) } + [l.plazaCampfireToggle(isLit: menu.isLit)]
+    }
+
+    /// 고를 시간이 없고 내가 앉아 있지도 않으면 빈 자리가 없다는 안내.
+    static func notice(_ menu: PlazaCampfireMenu) -> String? {
+        menu.minutes.isEmpty && !menu.isSeated ? L(.ko).plazaCampfireFull : nil
     }
 }

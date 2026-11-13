@@ -16,7 +16,13 @@
 - License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/). This file is not under the app's MIT license. — full text: CC-BY-SA-3.0.txt
 - Copyright notice: https://red-voxel.itch.io/ - RedVoxel
 - Source: https://opengameart.org/content/pokemon-inspired-16x16-tiles
-- On snow days the app recolours this image at runtime (exact colour swaps, no new shapes); the recoloured image is a derivative and stays under CC-BY-SA 3.0.
+- In the plaza's winter and autumn the app recolours this image at runtime (exact colour swaps, no new shapes); the recoloured image is a derivative and stays under CC-BY-SA 3.0.
+
+## Water balloon (plaza-water-balloon.png)
+- "Water gun fight art" (`waterballoon.png`, unmodified) by rrcaseyr
+- License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/). This file is not under the app's MIT license. — full text: CC-BY-SA-3.0.txt
+- Source: https://opengameart.org/content/water-gun-fight-art
+- Thrown in the plaza's summer. The app draws it as it is.
 
 ## Ice cracks (plaza-ice-cracks.png)
 - "Ice Mountains Tileset" (`ice_mountain_tileset.png`, unmodified) by CookieEfedu

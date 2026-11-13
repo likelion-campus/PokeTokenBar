@@ -47,6 +47,15 @@ enum PlazaResources {
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
+    /// 여름에 던지는 물풍선 그림(14×18, 반투명).
+    static func waterBalloon() -> CGImage? { waterBalloon(in: resourceBundle()) }
+
+    static func waterBalloon(in bundle: Bundle?) -> CGImage? {
+        guard let url = resourceURL("plaza-water-balloon", "png", in: bundle),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
     static func tallGrassSheet() -> CGImage? { tallGrassSheet(in: resourceBundle()) }
 
     static func tallGrassSheet(in bundle: Bundle?) -> CGImage? {

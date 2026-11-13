@@ -24,7 +24,7 @@ final class PlazaScheduleWiringTests: XCTestCase {
         return s
     }
 
-    private func schedule(_ s: Int, _ e: Int, _ period: PlazaWeather.Period = .day) -> PlazaSchedule {
+    private func schedule(_ s: Int, _ e: Int, _ period: PlazaSeasonChoice = .winter) -> PlazaSchedule {
         PlazaSchedule(coreStart: s, coreEnd: e, seasonPeriod: period.rawValue, changedAt: Date(timeIntervalSince1970: 1_700_000_000),
                       changedBy: "m", changedByName: "민수")
     }
