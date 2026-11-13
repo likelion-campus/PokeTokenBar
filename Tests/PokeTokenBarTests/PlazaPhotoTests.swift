@@ -121,6 +121,15 @@ final class PlazaPhotoTests: XCTestCase {
         XCTAssertNil(PlazaPhotoRenderer.pngData(for: input(map: map, rect: .zero, ppw: 4)))
     }
 
+    func testIceIsDrawnOverTheMapWithItsAlpha() throws {
+        let map = solid(4, 4, black)
+        var in4 = input(map: map, rect: CGRect(x: 0, y: 0, width: 4, height: 4), ppw: 1)
+        in4.ice = [PlazaPhotoParticle(image: solid(2, 2, white), origin: CGPoint(x: 1, y: 1), size: CGSize(width: 2, height: 2), alpha: 0.5)]
+        let px = Pixels(try XCTUnwrap(PlazaPhotoRenderer.render(in4)))
+        XCTAssertEqual(Int(px[1, 1].r), 128, accuracy: 2)
+        XCTAssertEqual(px[0, 0].r, 0)
+    }
+
     func testTilesStayCrisp() throws {
         // 체크무늬 지도를 3배로 찍어도 빨강과 파랑 외의 색(섞인 경계)이 없다.
         let map = image(8, 8) { x, y in (x + y).isMultiple(of: 2) ? red : blue }

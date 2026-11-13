@@ -323,6 +323,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var myDive = DiveFade()
     private let pondVisuals: Bool
     private(set) var pondLayer: PlazaPondLayer?
+    private var iceLayer: PlazaIceLayer?
     /// 내가 잠수 중이다. 물속에서만 켜진다.
     private(set) var isDiving = false
     private var diveElapsed: TimeInterval = 0
@@ -432,6 +433,12 @@ struct PlazaSceneMember: Equatable, Sendable {
             addChild(layer)
             pondLayer = layer
         }
+        if let iceArt {
+            let layer = PlazaIceLayer(ponds: icePonds, art: iceArt, mapImage: mapImage, worldHeight: map.pixelSize.height)
+            addChild(layer)
+            iceLayer = layer
+            drawIce()
+        }
 
         if let campfireNode { addChild(campfireNode) }
         // 낮밤 곱하기(5) 위, 이름표(10) 아래. 곱하고 둘로 늘려 흰색에 가까운 값(0.5)이 아무것도 바꾸지 않는다.
@@ -513,6 +520,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapNode.isHidden = hidden
         tallGrassLayer?.setHidden(hidden)
         pondLayer?.setHidden(hidden)
+        iceLayer?.setConcealed(hidden)
         footprintLayer.isHidden = hidden
         if hidden { footprintLayer.removeAll() }
         layout()   // 풀숲 가림을 바로 풀어 곧바로 찍는 사진도 숨은 팀원을 그리게 한다
@@ -986,7 +994,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func refreshIce(hit: TilePoint?) {
         iceTurn = PlazaIce.turn(at: now())
         let target = PlazaIce.frozenIndex(last: iceBreak, turn: iceTurn, ponds: icePonds)
-        guard target != frozenIndex else { return }
+        guard target != frozenIndex else { drawIce(); return }
         let old = frozenIndex
         frozenIndex = target
         if let old {
@@ -998,7 +1006,30 @@ struct PlazaSceneMember: Equatable, Sendable {
                 sink(old)
             }
         }
+        drawIce()
         onIceChange?()
+    }
+
+    private(set) var iceDrawCount = 0
+    /// 얼어 가는 중이라 알파가 1 전이다. 가만히 선 얼음은 프레임마다 그리지 않게 한다.
+    private var iceFading = false
+    var shownCrackCount: Int { iceLayer?.shownCrackCount ?? 0 }
+    var shownShardCount: Int { iceLayer?.shownShardCount ?? 0 }
+    var iceLayerNodeCount: Int { iceLayer?.nodeCount ?? 0 }
+    func iceAlpha(pondAnchor: TilePoint) -> CGFloat? {
+        icePonds.firstIndex { $0.anchor == pondAnchor }.flatMap { iceLayer?.iceAlpha(pond: $0) }
+    }
+
+    func iceTextureID(pondAnchor: TilePoint) -> ObjectIdentifier? {
+        icePonds.firstIndex { $0.anchor == pondAnchor }.flatMap { iceLayer?.iceTextureID(pond: $0) }
+    }
+
+    private func drawIce() {
+        guard let iceLayer else { return }
+        iceDrawCount += 1
+        let alpha = PlazaIce.freezeAlpha(now: now(), last: iceBreak)
+        iceFading = frozenIndex != nil && alpha < 1
+        iceLayer.show(frozen: frozenIndex, alpha: alpha, breaking: breaking)
     }
 
     /// 깨지는 중인 연못을 0.6초 전이어도 바로 가라앉히고 깨짐을 끝낸다.
@@ -1009,6 +1040,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     private func advanceIce(by dt: TimeInterval) {
+        let drawn = breaking != nil
         if !landings.isEmpty {
             for i in landings.indices { landings[i].remaining -= dt }
             let due = landings.filter { $0.remaining <= 0 }
@@ -1026,6 +1058,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             if b.elapsed >= PlazaIce.breakEnd { breaking = nil }
         }
         if !icePonds.isEmpty, PlazaIce.turn(at: now()) != iceTurn { refreshIce(hit: nil) }
+        if breaking != nil || drawn || iceFading { drawIce() }
     }
 
     /// 점프한 사람(nil이면 나)이 선 칸을 깨진 연못 안으로 맞춰 알린다. 서 있는 칸을 모르면 연못 가운데다.
@@ -1053,6 +1086,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         for l in due { land(l.break, jumper: l.jumper) }
         if breaking != nil {
             finishBreak()
+            drawIce()
             onIceChange?()
         }
     }
@@ -1259,6 +1293,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
                                tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
                                items: itemPhotoParticles,
+                               ice: iceLayer?.photoParticles() ?? [],
                                bands: tallGrassLayer?.photoBands(in: rect) ?? [],
                                props: campfirePhotoProps, light: campfirePhotoLight(tint: tint),
                                fireworks: fireworkLayer.photoParticles(worldHeight: worldSize.height),
@@ -1921,6 +1956,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         texture.filteringMode = .nearest
         mapNode.texture = texture
         mapImage = image
+        iceLayer?.setMapImage(image)
         if let grass { tallGrassLayer?.setArt(grass) }
         isSnowShown = on
         if !on { footprintLayer.removeAll() }
