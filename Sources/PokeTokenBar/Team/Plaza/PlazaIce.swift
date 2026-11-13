@@ -175,9 +175,10 @@ enum PlazaIce {
 
     /// 칸 좌표로 정하는 고정 값 0..<12. 6 이상이면 (값 − 6)번 칸을 좌우로 뒤집는다.
     static func crackCell(at t: TilePoint) -> Int {
-        var v = UInt32(truncatingIfNeeded: t.x) &* 7 &+ UInt32(truncatingIfNeeded: t.y) &* 2044
-        v ^= v >> 7
-        return Int(v % 12)
+        var rng = PlazaSplitMix64(seed: UInt64(PlazaNameColor.fnv1a("plaza-ice-crack-\(t.x)-\(t.y)")))
+        let cell = Int(rng.next() % 6)
+        let mirrored = rng.next() % 2 == 1
+        return cell + (mirrored ? 6 : 0)
     }
 
     fileprivate static func squaredDistance(_ a: TilePoint, _ b: TilePoint) -> Int {
