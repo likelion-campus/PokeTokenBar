@@ -53,7 +53,6 @@ final class ActivityVisualizationTests: XCTestCase {
     func testSelectionRoundTripsAndUnknownValuesFallBack() {
         let name = "vis-\(UUID().uuidString)"
         let suite = TestDefaults.make(suite: name)
-        defer { suite.removePersistentDomain(forName: name) }
 
         suite.set(ActivityVisualization.recentHeatmap.rawValue, forKey: "activityVisualization")
         XCTAssertEqual(stored(in: suite), .recentHeatmap)
