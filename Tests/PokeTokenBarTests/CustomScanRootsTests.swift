@@ -108,7 +108,7 @@ final class CustomScanRootsTests: XCTestCase {
     /// prefix check misses it and the refresh would walk the whole disk.
     func testRootFilesystemCustomDoesNotEvictCuratedDefault() throws {
         #if os(Windows)
-        throw XCTSkip("a custom root of "/" has no meaning on Windows (drive roots); not yet Windows-aware")
+        throw XCTSkip("a custom root of a bare slash has no meaning on Windows (drive roots); not yet Windows-aware")
         #endif
         let home = tempDir()
         let curated = [home.appendingPathComponent(".claude/projects")]
