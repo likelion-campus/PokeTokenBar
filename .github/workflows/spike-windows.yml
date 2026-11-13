@@ -1,0 +1,39 @@
+name: spike-windows
+# Throwaway experiments for the Windows port (spec §9). Never merged to main.
+on:
+  push:
+    branches: ['spike/**']
+concurrency:
+  group: spike-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.1.2-release
+          tag: 6.1.2-RELEASE
+      - run: swift --version
+      - name: Portable closure - build and test
+        shell: bash
+        run: |
+          cd spike/core
+          cp closure-sources.txt sources.txt; cp closure-tests.txt tests.txt; ./sync.sh
+          swift build 2>&1 | tee closure-build.log
+          swift test 2>&1 | tee closure-test.log
+      - name: Wide set - build, errors expected
+        if: always()
+        shell: bash
+        run: |
+          cd spike/core
+          cp wide-sources.txt sources.txt; : > tests.txt; ./sync.sh
+          swift build 2>&1 > wide-build.log || true
+          grep -E "error:" wide-build.log | sed -E 's/^.*error: //' | sort | uniq -c | sort -rn > wide-errors.txt
+          head -60 wide-errors.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-log
+          path: spike/core/*.log

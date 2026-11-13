@@ -1,0 +1,33 @@
+ 230 cannot find 'LimitsError' in scope
+ 190 cannot find 'CustomScanRoots' in scope
+ 128 cannot find type 'CompanionStore' in scope
+  60 cannot find type 'ClaudeLimitsProviding' in scope
+  60 cannot find type 'AccountIdentity' in scope
+  60 cannot find 'LocalAdditionalUsageReader' in scope
+  48 'nil' requires a contextual type
+  38 cannot find type 'TeamTransporting' in scope
+  36 cannot find type 'PlazaSplitMix64' in scope
+  22 cannot find type 'PlazaWeather' in scope
+  20 cannot find type 'LimitsError' in scope
+  20 cannot find 'PlazaSplitMix64' in scope
+  20 cannot find 'OAuthLimitsProvider' in scope
+  20 cannot find 'LocalAntigravityUsageCache' in scope
+  18 cannot find 'PlazaWeather' in scope
+  18 cannot find 'PlazaNameColor' in scope
+  12 cannot find type 'UsageStore' in scope
+  12 cannot find type 'PokemonNameDisplayStore' in scope
+  10 type 'PlazaMimicLook' does not conform to protocol 'Equatable'
+  10 generic parameter 'E' could not be inferred
+  10 converting non-escaping value to '(HTTPURLResponse) throws(E) -> TimeInterval?' (aka '(HTTPURLResponse) throws(E) -> Optional<Double>') may allow it to escape
+  10 cannot infer key path type from context; consider explicitly specifying a root type
+  10 cannot infer contextual base in reference to member 'forConfigRoot'
+  10 cannot find type 'TeamNotifier' in scope
+  10 cannot find type 'TeamFocusTally' in scope
+  10 cannot find type 'PlazaWindowController' in scope
+  10 cannot find 'PlazaChatLog' in scope
+  10 cannot find 'OAuthCredentialData' in scope
+  10 cannot find 'AccountIdentity' in scope
+   8 value of type 'Any' has no member '1'
+   8 value of type 'Any' has no member '0'
+   8 cannot infer type of closure parameter '$0' without a type annotation
+   1 emit-module command failed with exit code 1 (use -v to see invocation)

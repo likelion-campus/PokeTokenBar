@@ -1,0 +1,6 @@
+Sources/
+Tests/
+.build/
+all.txt
+build.log
+failing.txt
