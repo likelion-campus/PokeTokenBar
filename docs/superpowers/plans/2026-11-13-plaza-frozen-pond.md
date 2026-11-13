@@ -118,7 +118,7 @@
 - **§4.6, source addresses.** It asks for source addresses in CREDITS.md but gives none, only sha256s. This plan takes them from the mock's saved OpenGameArt pages (Task 3).
   - Two of the pages' attachment names differ from the spec's file names: the gloss attachment is `stuff_0.png` (the preview is `stuff_1.png`), and the shards attachment is `boulder_0.gif` (the preview is `boulder.gif`).
   - Keep whichever download matches the sha256.
-- **§5.4, the hint.** It shows "Z로 얼음 깨기" whenever I stand on the ice. An egg pushed onto the ice also sees it, although its Z is a plain jump (§5.2). This plan follows §5.4 literally.
+- **§5.4, the hint.** Ruling (controller, after the plan was written): the spec now shows the hint only when Z would break the ice, i.e. when I can move (`scene.canWalk && !isFocusing`). An egg or a focusing member on the ice sees no ice hint.
 - **§4.4 vs §5.1, a step onto the pond at 0.6 s.** A member mid-step from the shore onto a breaking pond at 0.6 s gets their big splash at 0.6 s, slightly before they land. §5.1 leaves this detail to the implementer.
 
 ---
@@ -763,7 +763,7 @@ Shore and land tiles used below: (4,14), (4,13), (6,12), (3,14), (15,14), (16,14
     - Then the accepted break: `scene.queueIceLanding(b, jumper: memberID)`, or `learnIceBreak(b)` when there is no scene.
   - **`applyMembersToScene`:** after `learnTaken`, `learnIceBreak(b)` for each member `iceBreak` that is not `scene.isIceLandingQueued(b)`.
   - **Pull-under:** `pullTargets` and `showPull` pass `{ scene.isWaterNow($0) }`.
-  - **Hint:** the existing fallback line becomes `text = startleHint()?.text ?? (scene?.isMeOnIce == true ? L(.ko).plazaIceHint : nil)`, so member, startle and campfire hints win.
+  - **Hint:** the existing fallback line becomes `text = startleHint()?.text ?? (scene?.isMeOnIce == true && scene?.canWalk == true && !isFocusing ? L(.ko).plazaIceHint : nil)`, so member, startle and campfire hints win, and an egg or a focusing member sees no ice hint (spec §5.4).
   - **`handleClose`:**
     - Set `scene.onIceChange = nil` before `scene.isPaused = true`, so pausing lands a pending break of mine and learns it.
     - Set `scene.onIceLanding = nil` with the other nils after it.
@@ -827,6 +827,7 @@ Shore and land tiles used below: (4,14), (4,13), (6,12), (3,14), (15,14), (16,14
       - On (5,14): `c.hint == L(.ko).plazaIceHint`.
       - With b on (6,14), facing it: the member hint.
       - After the break sinks me: not the ice hint.
+      - With `scene.canWalk = false` (an egg) on (5,14): not the ice hint.
   - **`TeamRuntimeTests.testABreakingJumpReachesThePlaza`.** Use the snowball test's setup.
     - Peer a sends `.jump` with `iceBreak (L, turn(clock))`.
     - After landing frames, `plaza.iceBreak` equals it.
