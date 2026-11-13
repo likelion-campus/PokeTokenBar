@@ -501,6 +501,26 @@ final class PlazaFocusTests: XCTestCase {
         await gate.tick()
     }
 
+    func testTheRosterShowsATeammatesUsageAndMine() async {
+        let me = node("나"), other = node("가")
+        let entry = PlazaRosterEntry(id: me.settings.memberID, nickname: "나", speciesID: 25, speciesName: "Pikachu",
+                                     gender: nil, isShiny: false, presence: .online, isMe: true)
+        let c = controller(me, myEntry: entry)
+        c.prepareScene()
+        await connect(me, other)
+        let id = other.settings.memberID
+        let theirs = TeamUsage(today: 10, week: 200, month: 3000), mine = TeamUsage(today: 1, week: 2, month: 3)
+        other.session.updateUsage(theirs)
+        await place(other, at: PlazaMapData.map.spawn, in: c)
+        XCTAssertEqual(c.rosterEntries.first { $0.id == id }?.usage, theirs)
+        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.usage, .some(nil), "my slot is there, with no usage read yet")
+        me.session.updateUsage(mine)
+        c.refreshRoster()
+        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.usage, mine)
+        c.handleClose()
+        await gate.tick()
+    }
+
     func testRosterBadgeExpiresOnTheTickAlone() async {
         let (_, other, c) = await pair()
         let id = other.settings.memberID

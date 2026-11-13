@@ -17,6 +17,7 @@ struct PlazaRosterEntry: Equatable, Identifiable, Sendable {
     let presence: PlazaPresence
     let isMe: Bool
     var nature: PokemonNature? = nil   // 이름표 위에 쓴다. 목록에는 보이지 않는다
+    var usage: TeamUsage? = nil        // 칸에 마우스를 올리면 보인다. 이전 버전 팀원과 잠든 팀원은 nil
 }
 
 /// 목록 판의 크기. 장면 카메라가 가려진 폭을 알아야 해서 한 곳에 둔다.
@@ -80,19 +81,19 @@ enum PlazaRoster {
 
     /// 내 칸, 연결된 팀원, 끊긴 팀원(잠)을 합쳐 정렬한다. 광장을 열었는지는 상태와 상관없다.
     /// 집중은 끝 시각이 지금보다 뒤일 때만이다(받을 때만 걸러지므로 여기서 다시 견준다).
-    static func entries(me: PlazaRosterEntry?, meIsIdle: Bool = false, meIsFocusing: Bool = false,
+    static func entries(me: PlazaRosterEntry?, meIsIdle: Bool = false, meIsFocusing: Bool = false, myUsage: TeamUsage? = nil,
                         members: [TeamMemberState], asleep: [TeamMemberState] = [], now: Date = Date()) -> [PlazaRosterEntry] {
         func entry(_ m: TeamMemberState, _ presence: PlazaPresence) -> PlazaRosterEntry {
             PlazaRosterEntry(id: m.memberID, nickname: m.nickname, speciesID: m.character.speciesID,
                              speciesName: m.character.speciesName ?? (m.character.speciesID == nil ? L(.ko).plazaEggName : ""),
                              gender: m.character.gender, isShiny: m.character.isShiny, presence: presence, isMe: false,
-                             nature: m.character.nature)
+                             nature: m.character.nature, usage: presence == .asleep ? nil : m.usage)
         }
         let connected = Set(members.map(\.memberID))
         let mine = me.map { e in
             PlazaRosterEntry(id: e.id, nickname: e.nickname, speciesID: e.speciesID, speciesName: e.speciesName,
                              gender: e.gender, isShiny: e.isShiny, presence: meIsFocusing ? .focus : (meIsIdle ? .idle : .online), isMe: true,
-                             nature: e.nature)
+                             nature: e.nature, usage: myUsage)
         }
         let others = members.map { m in
             entry(m, m.focusEndsAt.map { $0 > now } == true ? .focus : (m.isIdle ? .idle : .online))

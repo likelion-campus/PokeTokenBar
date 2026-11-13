@@ -807,6 +807,21 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(b.session.members[a.memberID]?.mimicOf)
     }
 
+    func testPresenceCarriesMyUsageAndSendsOnlyOnChange() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        XCTAssertNil(b.session.members[a.memberID]?.usage)
+        let before = a.presencesSent
+        let usage = TeamUsage(today: 10, week: 200, month: 3000)
+        a.session.updateUsage(usage)
+        a.session.updateUsage(usage)
+        XCTAssertEqual(a.presencesSent, before + 1)
+        XCTAssertEqual(b.session.members[a.memberID]?.usage, usage)
+        XCTAssertEqual(a.session.usage, usage)
+        a.session.updateUsage(nil)
+        XCTAssertNil(b.session.members[a.memberID]?.usage)
+    }
+
     func testUpdateMimicSendsOnlyOnChange() {
         let a = node("A"), b = node("B")
         connect(a, b)
