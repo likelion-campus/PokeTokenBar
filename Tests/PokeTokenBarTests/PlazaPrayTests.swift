@@ -77,7 +77,8 @@ final class PlazaPrayTests: XCTestCase {
                                      subject: { .init(speciesID: speciesID, isShiny: false) },
                                      myRosterEntry: { nil },
                                      pray: { prayers.count += 1 }, prayerCount: { prayers.count },
-                                     session: me.session, clock: { [unowned self] in now })
+                                     session: me.session, clock: { [unowned self] in now },
+                                     dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
     }
 
     /// 팻말·모닥불에서 멀고 풀숲도 아닌 걸을 수 있는 칸. 여기서는 다른 안내가 뜨지 않아 기도 안내가 보인다.

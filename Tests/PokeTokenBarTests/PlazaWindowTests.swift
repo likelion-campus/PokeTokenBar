@@ -747,7 +747,9 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         let c = controller(defaults(), myEntry: { me })
         XCTAssertTrue(c.rosterEntries.isEmpty)
         c.prepareScene()
-        XCTAssertEqual(c.rosterEntries, [me])
+        var mine = me
+        mine.activity = c.activity   // my slot carries today's numbers, zero so far
+        XCTAssertEqual(c.rosterEntries, [mine])
         c.handleClose()
         XCTAssertTrue(c.rosterEntries.isEmpty)
         c.refreshRoster()   // 닫힌 뒤에는 다시 채우지 않는다
@@ -888,7 +890,8 @@ private struct RecordingFetcher: PlazaSpriteFetching {
                                       subject: subject,
                                       pokemonTypes: types,
                                       session: me.session, clock: { [unowned self] in pondNow },
-                                      spriteRetrySleep: retrySleep)
+                                      spriteRetrySleep: retrySleep,
+                                      dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
         c.prepareScene()
         pondHub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }

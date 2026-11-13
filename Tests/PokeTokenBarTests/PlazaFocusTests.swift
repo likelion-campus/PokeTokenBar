@@ -80,14 +80,16 @@ final class PlazaFocusTests: XCTestCase {
 
     private func controller(_ me: Node, prefs: PlazaPreferences? = nil, start: TilePoint? = TilePoint(x: 23, y: 14),
                             speciesID: Int? = 25, myEntry: PlazaRosterEntry? = nil,
-                            onEnd: ((PlazaFocusEnd) -> Void)? = nil) -> PlazaWindowController {
+                            onEnd: ((PlazaFocusEnd) -> Void)? = nil, dittoSeed: UInt64? = nil) -> PlazaWindowController {
         let prefs = prefs ?? self.prefs()
         if let start { prefs.saveLastTile(start) }
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                       nickname: { "나" }, memberID: { me.settings.memberID },
                                       subject: { .init(speciesID: speciesID, isShiny: false) },
                                       myRosterEntry: { myEntry }, session: me.session, clock: { [unowned self] in now },
-                                      focusTickSleep: { [gate] in await gate.sleep($0) })
+                                      focusTickSleep: { [gate] in await gate.sleep($0) },
+                                      dittoLoopSleep: ParkedDitto.loopSleep,
+                                      dittoSeed: { dittoSeed ?? ParkedDitto.seed })
         c.onFocusEnd = onEnd
         return c
     }
@@ -107,9 +109,9 @@ final class PlazaFocusTests: XCTestCase {
     }
 
     private func pair(start: TilePoint? = TilePoint(x: 23, y: 14), speciesID: Int? = 25,
-                      onEnd: ((PlazaFocusEnd) -> Void)? = nil) async -> (me: Node, other: Node, c: PlazaWindowController) {
+                      onEnd: ((PlazaFocusEnd) -> Void)? = nil, dittoSeed: UInt64? = nil) async -> (me: Node, other: Node, c: PlazaWindowController) {
         let me = node("나"), other = node("가")
-        let c = controller(me, start: start, speciesID: speciesID, onEnd: onEnd)
+        let c = controller(me, start: start, speciesID: speciesID, onEnd: onEnd, dittoSeed: dittoSeed)
         c.prepareScene()
         await connect(me, other)
         return (me, other, c)
@@ -501,26 +503,6 @@ final class PlazaFocusTests: XCTestCase {
         await gate.tick()
     }
 
-    func testTheRosterShowsATeammatesUsageAndMine() async {
-        let me = node("나"), other = node("가")
-        let entry = PlazaRosterEntry(id: me.settings.memberID, nickname: "나", speciesID: 25, speciesName: "Pikachu",
-                                     gender: nil, isShiny: false, presence: .online, isMe: true)
-        let c = controller(me, myEntry: entry)
-        c.prepareScene()
-        await connect(me, other)
-        let id = other.settings.memberID
-        let theirs = TeamUsage(today: 10, week: 200, month: 3000), mine = TeamUsage(today: 1, week: 2, month: 3)
-        other.session.updateUsage(theirs)
-        await place(other, at: PlazaMapData.map.spawn, in: c)
-        XCTAssertEqual(c.rosterEntries.first { $0.id == id }?.usage, theirs)
-        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.usage, .some(nil), "my slot is there, with no usage read yet")
-        me.session.updateUsage(mine)
-        c.refreshRoster()
-        XCTAssertEqual(c.rosterEntries.first { $0.isMe }?.usage, mine)
-        c.handleClose()
-        await gate.tick()
-    }
-
     func testRosterBadgeExpiresOnTheTickAlone() async {
         let (_, other, c) = await pair()
         let id = other.settings.memberID
@@ -549,6 +531,7 @@ final class PlazaFocusTests: XCTestCase {
         let (_, other, c) = await pair(start: spawn)
         XCTAssertTrue(PlazaMapData.map.isWalkable(beside), "test precondition")
         await place(other, at: beside, focusEnds: now.addingTimeInterval(1080), in: c)
+        c.scene!.face(.right)
         key(c.scene!, spaceKey)
         XCTAssertEqual(menu(c)?.actions, [.greet, .viewCard])
         XCTAssertEqual(menu(c)?.status, "🔥 집중 중 · 18분 남음")
@@ -558,6 +541,7 @@ final class PlazaFocusTests: XCTestCase {
     func testWhileFocusingMyMenuHasNoTackleOrFollow() async {
         let (_, other, c) = await pair(start: spawn)
         await place(other, at: beside, in: c)
+        c.scene!.face(.right)
         key(c.scene!, spaceKey)
         XCTAssertEqual(menu(c)?.actions, [.greet, .tackle, .follow, .viewCard], "baseline: not focusing")
         XCTAssertNil(menu(c)?.status)
@@ -570,6 +554,28 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertNil(menu(c)?.status)
         c.handleClose()
         await gate.tick()
+    }
+
+    /// The Ditto is on the tile I face, and the teammate is beside me. Facing the teammate picks the teammate; the
+    /// Ditto's `[.tackle]` menu must not replace the teammate's (the v2.5.632 gate flake: the Ditto sat at (10, 11)).
+    func testFacingTheTeammateOpensTheirMenuWithTheDittoAhead() async {
+        let ahead = TilePoint(x: spawn.x, y: spawn.y + 1)
+        let (_, other, c) = await pair(start: spawn, dittoSeed: ParkedDitto.seed(landingOn: ahead))
+        await place(other, at: beside, in: c)
+        XCTAssertEqual(c.scene!.dittoTile, ahead, "test precondition: the Ditto stands where I would face by default")
+        c.scene!.face(.right)
+        key(c.scene!, spaceKey)
+        XCTAssertEqual(menu(c)?.memberID, other.settings.memberID)
+        XCTAssertEqual(menu(c)?.actions, [.greet, .tackle, .follow, .viewCard])
+        c.handleClose()
+    }
+
+    func testTheHarnessParksTheDittoAwayFromEveryTestTile() async {
+        let (_, _, c) = await pair(start: spawn)
+        let ditto = c.scene!.dittoTile
+        XCTAssertNotNil(ditto, "test precondition: the Ditto is on the map")
+        XCTAssertGreaterThan(abs((ditto?.x ?? 0) - spawn.x) + abs((ditto?.y ?? 0) - spawn.y), 8)
+        c.handleClose()
     }
 
     func testCDoesNothingAroundAFocus() async {

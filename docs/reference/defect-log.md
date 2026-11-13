@@ -809,6 +809,17 @@ read_when:
   `PlazaBoardTests`의 목록 테스트)는 모두 저장소에 고정 시계를 준다. 나머지 광장 테스트는 세션이 오늘 날짜로 만드는
   소식만 쓴다.
 
+- **누가 대상으로 잡히는지에 기대는 광장 테스트는 메타몽을 직접 통제한다.** 테스트가 만든 `PlazaWindowController` 는
+  호스트라서 메타몽을 직접 띄우고, 무작위 칸에서 시작해 실시간 50ms 루프로 돌아다닌다. v2.5.632 릴리스 게이트에서
+  `testWhileFocusingMyMenuHasNoTackleOrFollow` 가 한 번 `[.tackle]`(메타몽 메뉴)로 실패했다: 스페이스를 누를 때 메타몽이
+  바라보는 칸 (10,11)에 서 있었고, 바라보는 칸이 옆 칸의 팀원보다 먼저다. **왜 못 걸렀나:** 사전 조건이 `isWalkable(beside)`
+  뿐이라 "그 칸 말고 다른 대상이 없다"를 확인하지 않았고, 메타몽이 하필 거기 설 확률이 작아 재실행(6회)은 모두 통과했다.
+  수정: `ParkedDitto`(루프를 재우고 시드로 먼 칸에 세움)를 대상이 걸린 광장 테스트의 컨트롤러에 넘기고, 팀원 옆에서 메뉴를
+  여는 테스트는 팀원을 바라본 뒤 누른다. 가드: `testFacingTheTeammateOpensTheirMenuWithTheDittoAhead` 가 `ParkedDitto.seed(landingOn:)`
+  로 메타몽을 바라보는 칸에 강제로 세운다(결함 주입 시 실패 확인). 스윕: `PlazaFocusTests`·`PlazaCardTests`·`PlazaBoardTests`·
+  `PlazaPhotoModeTests`·`PlazaSnowballControllerTests`·`PlazaPrayTests`·`PlazaActivityControllerTests`·`PlazaEmoteTests`·
+  `PlazaWindowTests`(연못 하네스). `Ditto`·`Mimic`·`PullUnder`·`Startle` 컨트롤러 테스트는 이미 루프를 재우고 시드를 준다.
+
 - **새 SDK에서 통과해도 CI의 AppKit Sendable 선언을 가정하지 마라.** 동시 캐시 로드 테스트가
   `Task { await SpriteLoader.image(...) }` 로 `NSImage?` 를 반환해 로컬 Swift 6.3.3에서는 통과했지만,
   CI의 Xcode 16.4/Swift 6.1.2에서는 `NSImage: Sendable` 이 unavailable이라 테스트 컴파일이 실패했다.

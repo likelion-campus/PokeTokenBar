@@ -389,10 +389,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func onStoreRefreshed() {
         updateCompanion()
         companion.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
-        // 팀원 목록에 보이는 내 토큰 합계. 아직 읽은 사용량이 없으면 보내지 않는다(0으로 보이지 않게).
-        teamRuntime.session.updateUsage(store.hasUsageData
-            ? TeamUsage(today: store.todayTotalTokens, week: store.weekTotalTokens, month: store.monthTotalTokens) : nil)
-        plaza.refreshRoster()
     }
 
     // MARK: 메뉴바 애니메이션
