@@ -107,3 +107,8 @@ Not learned: whether the 15k lines behind the seam hide more gaps. Stage 1 will 
 - Still to hear from the user: Windows version, whether the account was a standard one, whether the firewall
   prompt appeared and asked for an admin password, run C (the real app's service is visible), and the `out.png`
   from `ptbdraw --hardware`.
+- User's answers: Windows 11, a standard (non-admin) account. The firewall prompt appeared on run A. Whether it
+  asked for an admin password was not answered; run A's inbound connection did succeed. `ptbdraw --hardware`
+  saved `out.png`, and by eye it is the same picture as the WARP render (no pixel diff was made; the file was not
+  sent back). Run C (the real app's service is visible) was effectively covered by run A's Mac log and by the
+  Windows browse reaching the Mac; the Windows-side FOUND lines for teammates' apps were not sent back.
