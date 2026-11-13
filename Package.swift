@@ -19,6 +19,7 @@ func macOnlyList(_ dir: String) -> [String] {
     return text.split(whereSeparator: { $0 == "\n" || $0 == "\r" || $0 == "\r\n" })
         .map { $0.trimmingCharacters(in: .whitespaces) }
         .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+        .map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }  // SwiftPM matches directories without the slash
 }
 
 let package: Package
