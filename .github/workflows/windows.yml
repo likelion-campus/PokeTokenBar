@@ -1,0 +1,31 @@
+name: windows
+# Builds and tests the shared (non-Apple) part of the app on Windows. Informational: not a required check.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  shared:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
+      - run: swift --version
+      - name: Build
+        shell: bash
+        run: swift build 2>&1 | tee build.log
+      - name: Test
+        shell: bash
+        run: swift test 2>&1 | tee test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-logs
+          path: "*.log"
