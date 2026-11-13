@@ -156,7 +156,10 @@ final class PlazaPrayTests: XCTestCase {
         press(scene, prayKey)
         XCTAssertEqual(prayers.count, 1)
         XCTAssertEqual(scene.shownEmote(memberID: nil), .pray, "my own bubble shows at once")
-        XCTAssertEqual(c.hint, L(.ko).plazaPrayHint(prayers: 1), "the hint follows the count")
+        XCTAssertEqual(c.hint, "기도 1번", "the count shows right after a prayer")
+        now = now.addingTimeInterval(PlazaWindowController.prayedHintDuration)
+        c.endPrayedHintIfDue()
+        XCTAssertEqual(c.hint, L(.ko).plazaPrayHint(prayers: 1), "then the usual hint returns, with the count")
 
         var t: TimeInterval = 0
         scene.update(t)
@@ -206,6 +209,26 @@ final class PlazaPrayTests: XCTestCase {
         XCTAssertEqual(other.received.emotes, [])
         c.refreshHintForTesting()
         XCTAssertNotEqual(c.hint, L(.ko).plazaPrayHint(prayers: 0))
+    }
+
+    /// An egg cannot walk and usually stands beside the board, whose hint is always up there. The count still shows
+    /// right after a prayer, and the board hint returns afterwards.
+    func testThePrayerCountShowsEvenBesideTheBoard() {
+        let me = node("나", character: Self.egg)
+        let prayers = Prayers()
+        let besideBoard = TilePoint(x: map.boardTile.x, y: map.boardTile.y - 1)
+        let c = controller(me, speciesID: nil, prayers: prayers, start: besideBoard)
+        c.prepareScene()
+        let scene = c.scene!
+        c.refreshHintForTesting()
+        XCTAssertEqual(c.hint, L(.ko).plazaBoardHint, "test precondition: the board hint is up")
+        press(scene, prayKey)
+        XCTAssertEqual(c.hint, "기도 1번")
+        c.endPrayedHintIfDue()
+        XCTAssertEqual(c.hint, "기도 1번", "not before its time")
+        now = now.addingTimeInterval(PlazaWindowController.prayedHintDuration)
+        c.endPrayedHintIfDue()
+        XCTAssertEqual(c.hint, L(.ko).plazaBoardHint)
     }
 
     /// An egg that has not prayed yet is told how; the count joins once there is one.

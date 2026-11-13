@@ -127,6 +127,8 @@ extension L {
     var plazaShortcutFirework: String { "불꽃놀이" }
     var plazaShortcutDance: String { "춤" }
     var plazaShortcutPray: String { "기도(알)" }
+    /// 기도한 직후 잠깐 보이는 횟수.
+    func plazaPrayedHint(prayers: Int) -> String { "기도 \(prayers)번" }
     /// 알일 때 위쪽 안내 줄. 아직 기도한 적이 없으면 방법만 보인다.
     func plazaPrayHint(prayers: Int) -> String {
         prayers > 0 ? "A를 눌러 기도하기 · 기도 \(prayers)번" : "A를 눌러 기도하기"

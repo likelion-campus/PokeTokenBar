@@ -111,6 +111,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var lastEmoteAt: Date?
     /// 기도 소식 연타 제한: 마지막으로 팀원에게 보낸 시각부터 잰다. 횟수는 제한 없이 센다.
     private var lastPraySentAt: Date?
+    /// 기도한 직후 위쪽 안내 줄에 횟수를 보여 주는 시간. 알은 걷지 못해 대개 소식판 옆에 서 있고, 그 자리에서는
+    /// 소식판 안내가 늘 떠 있어서 횟수가 가려진다. 그래서 이 동안은 횟수가 다른 안내보다 먼저다.
+    static let prayedHintDuration: TimeInterval = 2
+    private var prayedHintUntil: Date?
     private var lastChatAt: Date?
     private var lastLoudAt: Date?
     static let loudInterval: TimeInterval = 60
@@ -502,11 +506,19 @@ struct PlazaFocusEnd: Equatable, Sendable {
         guard let scene, subject().speciesID == nil else { return }
         pray()
         scene.playPray(memberID: nil)
-        refreshHint()
         let now = clock()
+        prayedHintUntil = now.addingTimeInterval(Self.prayedHintDuration)
+        refreshHint()
         if let last = lastPraySentAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
         lastPraySentAt = now
         session?.sendEmote(.pray, target: nil)
+    }
+
+    /// 기도 횟수 안내의 시간이 다 됐으면 평소 안내로 돌아간다. 1초 틱이 부른다(테스트는 직접 부른다).
+    func endPrayedHintIfDue() {
+        guard let until = prayedHintUntil, clock() >= until else { return }
+        prayedHintUntil = nil
+        refreshHint()
     }
 
     private func openChat() {
@@ -1252,6 +1264,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         var text: String?
         if isPhotoMode {
             text = nil
+        } else if let until = prayedHintUntil, clock() < until, overlayModel.content == .none, !chatInput.isOpen {
+            text = L(.ko).plazaPrayedHint(prayers: prayerCount())
         } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
@@ -1450,6 +1464,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 guard !Task.isCancelled, let self else { return }
                 self.endFocusIfDue()
                 self.endMimicIfDue()
+                self.endPrayedHintIfDue()
                 self.refreshCampfire()
             }
         }
