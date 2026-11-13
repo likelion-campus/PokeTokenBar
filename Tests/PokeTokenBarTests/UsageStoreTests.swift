@@ -1248,7 +1248,7 @@ final class UsageStoreTests: XCTestCase {
     /// 기본 등록 프로바이더 레지스트리 무결성 — 비어 있지 않고 id 가 유일.
     /// (새 프로바이더를 배열에 등록하는 단일 지점이 살아있는지 최소 보증.)
     func testDefaultProviderRegistryHasUniqueIds() {
-        let store = UsageStore(autoRefresh: false, defaults: testDefaults)
+        let store = UsageStore(providers: UsageStore.defaultProviders(), autoRefresh: false, defaults: testDefaults)
         let ids = store.registeredProviderIDs
         XCTAssertFalse(ids.isEmpty)
         XCTAssertEqual(Set(ids).count, ids.count, "프로바이더 id 중복")

@@ -2053,3 +2053,24 @@ read_when:
   동시 도메인 수 상한·재사용 슬롯 빈 상태·같은 이름 동일 객체를 고정한다(결함 주입으로 각각 실패 확인). **릴리스 안전망:**
   `scripts/cfprefsd-guard.sh` 가 `team-release.sh` 의 테스트 게이트 직후(앱 설치·실행 전) DIR fd 가 100 을 넘으면 경고하고
   `cfprefsd agent` 를 재시작해 내려갈 때까지 기다리며, 회복하지 않으면 릴리스를 중단한다.
+
+  **재발 2 (2026-11-13, 풀의 늦은 쓰기).** 전체 게이트에서 `UsageLedgerRecordingTests.testTheFirstRefreshAlreadyFillsTheLedger` 가
+  한 번 실패했다 — `UsageLedger.load(from: defaults)` 가 테스트 픽스처 이틀이 아니라 개발자 **실제** 원장(11 일, 수십억 토큰)을
+  돌려줬고(`store.dailyLedger` 는 맞았다), 단독으로는 통과했다. 원인 둘의 합이다. ① `CustomScanRootsTests` 등은 `providers:` 없이
+  `UsageStore(...)` 를 만들어 기본 프로바이더 = 실제 `~/.claude` 등 로그를 읽었고, `setCustomScanRoots` 같은 setter 는 기다리지 않는
+  `Task { await refresh() }` 를 띄워 **테스트가 끝난 뒤** refresh 가 끝나며 `recordDailyLedger` 가 `defaults` 에 저장한다.
+  ② #125 의 풀은 슬롯을 다음 테스트에 다시 내주므로 그 늦은 쓰기가 **방금 같은 슬롯을 받은 다음 테스트**의 도메인에 떨어진다
+  (UUID 스위트 시절엔 아무도 다시 읽지 않는 도메인이었다). 결정적 재현: 느린 프로바이더를 단 스토어에서 setter 를 부르고 즉시 끝나는 테스트
+  뒤에, 다음 테스트가 3 초 기다리며 같은 키를 읽는다(고치기 전 실패 확인). 5-whys 공백: #125 리뷰가 "다음 테스트로의 늦은 쓰기"를 minor 로
+  짚었으나 재현 테스트가 없었고, 풀 테스트는 늦은 쓰기를 *슬롯이 다시 내줄 때 비워지는가*(핸드아웃 시점)로만 봤다 — 핸드아웃 **뒤**에
+  떨어지는 쓰기는 어느 테스트도 밟지 않았다. **고침 (인프라):** 테스트가 받는 객체를 `PooledDefaults`(`UserDefaults` 서브클래스)로 하고,
+  테스트가 끝날 때(또는 슬롯이 넘어갈 때) `close()` 해서 이후 `set`/`removeObject` 를 버린다. 물리 도메인은 그대로 풀이라
+  cfprefsd 한도는 유지된다(Plaza|Team 1823 개에서 fd 피크 22). 시도하고 버린 안: 테스트마다 유일한 도메인 + 끝/경계마다 plist 삭제 —
+  cfprefsd 가 삭제 뒤에도 최근 열린 도메인 fd 를 한동안 쥐어 Plaza|Team 에서 피크 315(>300)로 올랐다. 도메인 수가 아니라 **만들어지는
+  도메인의 속도**에 비례하므로 빠른 슬라이스에서 한도를 넘을 수 있다. 게다가 서브클래스의 락은 재귀여야 한다 — `super.set(Int,…)` 가
+  `set(_:forKey:)` 를 다시 불러 일반 락이면 교착한다. **고침 (원인):** `Tests/` 의 모든 `UsageStore(` 는 `providers:` 를 명시해야 한다 —
+  `UsageStoreHermeticityScanTests` 가 어긴 호출을 실패시킨다(레지스트리 확인은 `UsageStore.defaultProviders()` 를 넘기고, 스스로 refresh 하는
+  스토어는 `makeHermeticUsageStore` 로 프로바이더·한도·Claude 설정 폴더 탐색을 모두 막는다). **회귀 테스트:** `TestDefaultsLateWriteTests`
+  (실제 `UsageStore` 의 늦은 저장이 다음 테스트에 안 보인다), `TestDefaultsPoolTests` 의 늦은 쓰기·외부 링 테스트 — `close()` 를 no-op 으로
+  주입하면 실패, 스캔 테스트는 맨 `UsageStore(` 를 주입하면 실패함을 확인했다. 남은 것: `LocalUsageParityTests` 는 `PTB_PARITY=1` 일 때만
+  도는 의도적 실제 로그 대조라 `.standard` 를 쓴다(기본 스킵).

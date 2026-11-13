@@ -40,12 +40,45 @@ final class TestDefaultsPoolTests: XCTestCase {
         XCTAssertNil(second.object(forKey: "other"))
         let domain = pool.physicalDomains[0]
         XCTAssertNil(CFPreferencesCopyAppValue("key" as CFString, domain as CFString), "cfprefsd must not hold the old value either")
-        // A write that lands after the owner's scope ended is wiped when the slot is handed out again.
         pool.endTestCase()
-        first.set("late", forKey: "late")
+    }
+
+    /// Regression for the late write: a store that outlived its test saved the developer's real usage
+    /// ledger through its pooled suite after the next test had been handed the same slot.
+    func testALateWriteAfterTheScopeEndedCannotReachTheNextScope() {
+        let pool = makePool()
         pool.beginTestCase()
-        XCTAssertNil(pool.open("c").object(forKey: "late"))
+        let first = pool.open("a")
+        first.set("dirty", forKey: "key")
         pool.endTestCase()
+
+        pool.beginTestCase()
+        let second = pool.open("a")   // the same physical slot, handed on
+        let domain = pool.physicalDomains[0]
+        XCTAssertFalse(first === second)
+        // Late writes of every shape the stores use, while the next test runs.
+        first.set("late", forKey: "late")
+        first.set(5, forKey: "int")
+        first.set(true, forKey: "bool")
+        first.set(1.5, forKey: "double")
+        first.set(URL(string: "https://example.com"), forKey: "url")
+        first.removeObject(forKey: "key")
+        first.synchronize()
+        second.set("mine", forKey: "mine")
+        for key in ["late", "int", "bool", "double", "url"] {
+            XCTAssertNil(second.object(forKey: key), key)
+            XCTAssertNil(CFPreferencesCopyAppValue(key as CFString, domain as CFString), "cfprefsd: \(key)")
+        }
+        XCTAssertEqual(second.string(forKey: "mine"), "mine", "the live object still writes")
+        pool.endTestCase()
+    }
+
+    func testAnObjectHandedOnWithinTheExternalRingIsClosed() {
+        let pool = makePool()
+        let first = pool.open("e0")
+        for i in 1...8 { _ = pool.open("e\(i)") }   // wraps the ring of 8 back to the first slot
+        first.set("late", forKey: "late")
+        XCTAssertNil(first.object(forKey: "late"))
     }
 
     func testReopeningTheSameNameInOneScopeGivesTheSameObject() {
@@ -86,12 +119,12 @@ final class TestDefaultsPoolTests: XCTestCase {
         pool.beginTestCase()
         var last: UserDefaults?
         for i in 0..<(TestDefaults.maxNamesPerTest + 20) { last = pool.open("n\(i)") }
-        pool.endTestCase()
         XCTAssertEqual(reports.messages.count, 1)
         XCTAssertTrue(reports.messages.first?.contains("defect-log") == true)
         XCTAssertLessThanOrEqual(pool.physicalDomains.count, TestDefaults.maxNamesPerTest + 1)
         last?.set(1, forKey: "k")
         XCTAssertEqual(last?.integer(forKey: "k"), 1)
+        pool.endTestCase()
         // The next test case starts clean and under the cap again.
         pool.beginTestCase()
         _ = pool.open("fresh")

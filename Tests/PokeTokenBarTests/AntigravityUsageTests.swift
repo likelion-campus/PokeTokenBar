@@ -703,7 +703,7 @@ final class AntigravityUsageTests: XCTestCase {
     func testDefaultRegistryIncludesAntigravity() {
         let suite = "AntigravityUsageTests.registry.\(UUID().uuidString)"
         let defaults = TestDefaults.make(suite: suite)
-        let store = UsageStore(autoRefresh: false, defaults: defaults)
+        let store = UsageStore(providers: UsageStore.defaultProviders(), autoRefresh: false, defaults: defaults)
         XCTAssertTrue(store.registeredProviderIDs.contains("antigravity"))
     }
 
