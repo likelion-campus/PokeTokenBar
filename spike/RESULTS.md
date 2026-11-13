@@ -94,3 +94,16 @@ Not learned: whether the 15k lines behind the seam hide more gaps. Stage 1 will 
   chain is routine and was left out. Cost if wrong: a presentation problem shows up in stage 6.
 - Not covered: `multiplyX2`, rotation, crop nodes, GIF decoding, text measurement, performance.
 - STILL OPEN (needs the user's PC): the same render on a real GPU, to compare with the WARP image.
+
+### Experiment 2, real-PC run (2026-11-13, office Wi-Fi) — YES for A and B
+
+- Windows PC `DESKTOP-75RFFUC` (10.10.162.115) and this Mac (10.10.162.132), same Wi-Fi.
+- Run A (Windows serves, Mac browses): the Mac found `probe-win-412f._ptbteam._tcp.local.`, connected,
+  `TLS-PSK handshake OK`, sent a ping and received the pong.
+- Run B (Mac serves, Windows browses): the Mac logged incoming connections from 10.10.162.115,
+  `TLS-PSK handshake OK`, and `got: ping DESKTOP-75RFFUC …`. So Windows discovered the Mac service by DNS-SD,
+  resolved it and connected, both IPv4.
+- Noise as predicted: the Mac probe refused 9 dials from teammates' apps (`bad MAC`).
+- Still to hear from the user: Windows version, whether the account was a standard one, whether the firewall
+  prompt appeared and asked for an admin password, run C (the real app's service is visible), and the `out.png`
+  from `ptbdraw --hardware`.
