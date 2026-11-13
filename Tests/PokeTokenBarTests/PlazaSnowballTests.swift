@@ -10,11 +10,16 @@ final class PlazaSnowballTests: XCTestCase {
         let a = PlazaSnowball.aim(from: p(10, 12), facing: .right, targets: ["a": p(14, 12), "b": p(12, 12)], map: map)
         XCTAssertEqual(a?.end, .actor(id: "b", tile: p(12, 12)))
         XCTAssertEqual(a?.frames, 2)
-        let b = PlazaSnowball.aim(from: p(10, 12), facing: .right, targets: ["a": p(16, 12)], map: map)
-        XCTAssertEqual(b?.end, .ground(p(15, 12)))
-        XCTAssertEqual(b?.frames, 5)
+        let b = PlazaSnowball.aim(from: p(10, 12), facing: .right, targets: ["a": p(21, 12)], map: map)
+        XCTAssertEqual(b?.end, .ground(p(20, 12)))
+        XCTAssertEqual(b?.frames, 10)
         let c = PlazaSnowball.aim(from: p(10, 12), facing: .right, targets: ["x": p(10, 12)], map: map)
-        XCTAssertEqual(c?.end, .ground(p(15, 12)))
+        XCTAssertEqual(c?.end, .ground(p(20, 12)))
+        let edge = PlazaSnowball.aim(from: p(10, 12), facing: .right, targets: ["a": p(20, 12)], map: map)
+        XCTAssertEqual(edge?.end, .actor(id: "a", tile: p(20, 12)))
+        XCTAssertEqual(edge?.frames, 10)
+        let past = PlazaSnowball.aim(from: p(10, 12), facing: .right, targets: ["a": p(21, 12)], map: map)
+        XCTAssertEqual(past?.end, .ground(p(20, 12)))   // eleven tiles away is out of range
         let d = PlazaSnowball.aim(from: p(10, 12), facing: .right, targets: ["b": p(12, 12), "a": p(12, 12)], map: map)
         XCTAssertEqual(d?.end, .actor(id: "a", tile: p(12, 12)))
     }
@@ -23,7 +28,7 @@ final class PlazaSnowballTests: XCTestCase {
         let a = PlazaSnowball.aim(from: p(12, 17), facing: .right, targets: ["m": p(16, 17)], map: map)
         XCTAssertEqual(a?.end, .ground(p(14, 17)))
         let b = PlazaSnowball.aim(from: p(17, 14), facing: .left, targets: [:], map: map)
-        XCTAssertEqual(b?.end, .ground(p(12, 14)))
+        XCTAssertEqual(b?.end, .ground(p(7, 14)))
         let c = PlazaSnowball.aim(from: p(17, 14), facing: .left, targets: ["s": p(13, 14)], map: map)
         XCTAssertEqual(c?.end, .actor(id: "s", tile: p(13, 14)))
     }
@@ -31,13 +36,13 @@ final class PlazaSnowballTests: XCTestCase {
     func testVerticalThrowsAimAlongTheColumn() {
         // Column 10: grass at row 11-12, pond rows 13-15, grass again at row 16.
         let down = PlazaSnowball.aim(from: p(10, 11), facing: .down, targets: [:], map: map)
-        XCTAssertEqual(down?.end, .ground(p(10, 16)))
-        XCTAssertEqual(down?.frames, 5)
+        XCTAssertEqual(down?.end, .ground(p(10, 21)))   // over the pond, ten tiles on
+        XCTAssertEqual(down?.frames, 10)
         let swimmer = PlazaSnowball.aim(from: p(10, 11), facing: .down, targets: ["s": p(10, 14), "t": p(10, 15)], map: map)
         XCTAssertEqual(swimmer?.end, .actor(id: "s", tile: p(10, 14)))
         XCTAssertEqual(swimmer?.frames, 3)
         let up = PlazaSnowball.aim(from: p(10, 16), facing: .up, targets: [:], map: map)
-        XCTAssertEqual(up?.end, .ground(p(10, 11)))
+        XCTAssertEqual(up?.end, .ground(p(10, 6)))
         let target = PlazaSnowball.aim(from: p(10, 16), facing: .up, targets: ["a": p(10, 13)], map: map)
         XCTAssertEqual(target?.end, .actor(id: "a", tile: p(10, 13)))
         XCTAssertNil(PlazaSnowball.aim(from: p(10, 3), facing: .up, targets: [:], map: map))   // the tree line above
@@ -50,30 +55,31 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertNil(PlazaSnowball.aim(from: p(14, 17), facing: .right, targets: [:], map: map))
     }
 
-    func testHitsNeedTheSameLineTheRightWayWithinSix() {
+    func testHitsNeedTheSameLineTheRightWayWithinEleven() {
         XCTAssertTrue(PlazaSnowball.hits(thrower: p(10, 12), target: p(14, 12), direction: .right))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(10, 12), target: p(14, 12), direction: .left))
-        XCTAssertTrue(PlazaSnowball.hits(thrower: p(8, 12), target: p(14, 12), direction: .right))
-        XCTAssertFalse(PlazaSnowball.hits(thrower: p(7, 12), target: p(14, 12), direction: .right))
+        XCTAssertTrue(PlazaSnowball.hits(thrower: p(3, 12), target: p(14, 12), direction: .right))
+        XCTAssertFalse(PlazaSnowball.hits(thrower: p(2, 12), target: p(14, 12), direction: .right))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(10, 11), target: p(14, 12), direction: .right))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(14, 12), target: p(14, 12), direction: .right))
     }
 
-    func testVerticalHitsNeedTheSameColumnTheRightWayWithinSix() {
+    func testVerticalHitsNeedTheSameColumnTheRightWayWithinEleven() {
         XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 9), direction: .down))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 1), direction: .down))
-        XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 11), direction: .down))
-        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 12), direction: .down))
+        XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 16), direction: .down))
+        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 17), direction: .down))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 5), target: p(6, 9), direction: .down))
         XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 8), direction: .up))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 15), direction: .up))
-        XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 6), direction: .up))
-        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 5), direction: .up))
+        XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 1), direction: .up))
+        XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 12), target: p(5, 0), direction: .up))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 12), target: p(4, 8), direction: .up))
     }
 
-    func testFramesAreTheTileCountFromOneToSix() {
-        XCTAssertEqual(PlazaSnowballShot(from: p(0, 0), direction: .down, end: .actor(id: nil, tile: p(0, 9))).frames, 6)
+    func testFramesAreTheTileCountFromOneToTen() {
+        XCTAssertEqual(PlazaSnowballShot(from: p(0, 0), direction: .down, end: .actor(id: nil, tile: p(0, 10))).frames, 10)
+        XCTAssertEqual(PlazaSnowballShot(from: p(0, 0), direction: .down, end: .actor(id: nil, tile: p(0, 14))).frames, 10)
         XCTAssertEqual(PlazaSnowballShot(from: p(0, 0), direction: .right, end: .ground(p(1, 0))).frames, 1)
     }
 

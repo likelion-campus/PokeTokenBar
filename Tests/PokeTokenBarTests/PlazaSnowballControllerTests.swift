@@ -222,14 +222,14 @@ final class PlazaSnowballControllerTests: XCTestCase {
     }
 
     func testAHitFromOutOfLineOrTooFarOnlyBursts() async {
-        let cases: [(String, TilePoint, PlazaDirection)] = [
-            ("too far", p(7, 12), .right), ("off the row", p(10, 11), .right), ("wrong way", p(10, 12), .left),
+        let cases: [(String, TilePoint, TilePoint, PlazaDirection)] = [
+            ("too far", p(20, 12), p(8, 12), .right), ("off the row", p(14, 12), p(10, 11), .right), ("wrong way", p(14, 12), p(10, 12), .left),
         ]
-        for (name, from, direction) in cases {
-            let w = await world(me: p(14, 12), b: from)
+        for (name, me, from, direction) in cases {
+            let w = await world(me: me, b: from)
             w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 2, direction: direction)
-            run(w.scene, 1.0)
-            XCTAssertEqual(w.scene.walker.tile, p(14, 12), name)
+            run(w.scene, 1.5)
+            XCTAssertEqual(w.scene.walker.tile, me, name)
             XCTAssertEqual(w.scene.impactCount, 1, name)
         }
     }
