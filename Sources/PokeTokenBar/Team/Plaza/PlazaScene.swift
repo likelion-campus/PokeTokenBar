@@ -423,7 +423,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
         if pondVisuals {
             let layer = PlazaPondLayer(map: map)
-            addChild(layer)
+            addChild((layer.root as! SKDrawNode).sk)
             pondLayer = layer
         }
 

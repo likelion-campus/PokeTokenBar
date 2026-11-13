@@ -88,5 +88,5 @@ final class SpikePondRenderTests: XCTestCase {
 }
 
 enum SpikePondHost {
-    @MainActor static func node(of layer: PlazaPondLayer) -> SKNode { layer }
+    @MainActor static func node(of layer: PlazaPondLayer) -> SKNode { (layer.root as! SKDrawNode).sk }
 }
