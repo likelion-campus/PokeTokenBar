@@ -8,6 +8,13 @@ private final class LogLines: @unchecked Sendable {
     var lines: [String] { lock.lock(); defer { lock.unlock() }; return storage }
 }
 
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func bump() { lock.lock(); count += 1; lock.unlock() }
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
 @MainActor
 final class PlatformTests: XCTestCase {
     func testWindowsStubsReportUnavailable() async {
@@ -16,17 +23,19 @@ final class PlatformTests: XCTestCase {
 
         let authorized = await platform.notifications.requestAuthorization()
         XCTAssertFalse(authorized)
+        XCTAssertFalse(platform.notifications.isAvailable)
         platform.notifications.post(id: "a", title: "t", body: "b", sound: true)
 
         XCTAssertEqual(platform.secrets.read(service: "s", account: nil), .failure(.unavailable))
         XCTAssertEqual(platform.secrets.read(service: "s", account: "acct"), .failure(.unavailable))
 
-        var fired = 0
-        platform.events.onWake { fired += 1 }
-        platform.events.onScreensSleep { fired += 1 }
-        platform.events.onScreensWake { fired += 1 }
-        platform.events.onDayChange { fired += 1 }
-        XCTAssertEqual(fired, 0)
+        let fired = Counter()
+        platform.events.onWake { fired.bump() }
+        platform.events.onScreensSleep { fired.bump() }
+        platform.events.onScreensWake { fired.bump() }
+        platform.events.onDayChange { fired.bump() }
+        XCTAssertEqual(fired.value, 0)
+        XCTAssertFalse(platform.events.displaysAreAsleep)
 
         XCTAssertEqual(platform.idle.secondsSinceLastInput(), 0)
     }
@@ -43,6 +52,8 @@ final class PlatformTests: XCTestCase {
             platform.events.onScreensSleep {}
             platform.events.onScreensWake {}
             platform.events.onDayChange {}
+            _ = platform.notifications.isAvailable
+            _ = platform.events.displaysAreAsleep
             _ = platform.idle.secondsSinceLastInput()
         }
         XCTAssertEqual(sink.lines.count, 4, "one line per stub: \(sink.lines)")

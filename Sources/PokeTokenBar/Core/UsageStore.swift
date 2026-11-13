@@ -1,7 +1,5 @@
-import AppKit
 import Foundation
 import Observation
-import UserNotifications
 
 /// burn rate 단계 — companion 표시 상태(작업/집중) 판정에 사용.
 enum BurnTier: Sendable {
@@ -927,7 +925,7 @@ final class UsageStore {
          },
          autoRefresh: Bool = true,
          defaults: UserDefaults = .standard,
-         displaysAsleep: @escaping @MainActor () -> Bool = { CGDisplayIsAsleep(CGMainDisplayID()) != 0 }) {
+         displaysAsleep: @escaping @MainActor () -> Bool = { Platform.current.events.displaysAreAsleep }) {
         self.providers = providers
         self.displaysAsleep = displaysAsleep
         self.limitsProvider = claudeLimitsProvider
@@ -987,26 +985,18 @@ final class UsageStore {
         reschedule()
 
         // 자정 경계: 날짜가 바뀌면 "오늘" 버킷 즉시 갱신
-        NotificationCenter.default.addObserver(
-            forName: .NSCalendarDayChanged, object: nil, queue: .main
-        ) { [weak self] _ in
+        Platform.current.events.onDayChange { [weak self] in
             Task { @MainActor in await self?.refresh() }
         }
         // 슬립 복귀 시 즉시 갱신
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        Platform.current.events.onWake { [weak self] in
             Task { @MainActor in await self?.handleSystemWake() }
         }
         // 디스플레이 꺼짐 → 폴링(로그 파싱 + 한도 조회 + codex 서브프로세스) 일시정지, 켜짐 → 재개 + 즉시 갱신 (배터리)
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        Platform.current.events.onScreensSleep { [weak self] in
             Task { @MainActor in self?.suspendPolling() }
         }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        Platform.current.events.onScreensWake { [weak self] in
             Task { @MainActor in self?.resumePolling() }
         }
 
@@ -2093,10 +2083,10 @@ final class UsageStore {
     /// 팝오버 첫 오픈 등 사용자 의도 시점에 1회만 알림 권한 요청(멱등).
     func requestNotificationAuthorizationIfNeeded() {
         guard !notifAuthRequested else { return }
-        guard AppEnv.isBundledApp else { return }
+        guard Platform.current.notifications.isAvailable else { return }
         notifAuthRequested = true
         Task {
-            try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            _ = await Platform.current.notifications.requestAuthorization()
         }
     }
 
@@ -2169,7 +2159,7 @@ final class UsageStore {
             windows: windows, accounts: accounts, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
         guard !alerts.isEmpty else { return }
 
-        if limitNotifications, AppEnv.isBundledApp {
+        if limitNotifications, Platform.current.notifications.isAvailable {
             postLimitNotifications(alerts)
         }
         if floatingPetEnabled, floatingPetBubbleAlerts {
@@ -2248,14 +2238,10 @@ final class UsageStore {
     private func postLimitNotifications(_ alerts: [LimitAlert]) {
         let l = L(localizationLanguage)
         for alert in alerts {
-            let content = UNMutableNotificationContent()
-            content.title = alert.isCritical ? l.notifCritical : l.notifWarning
-            content.body = alert.body(l)
-            content.sound = alert.isCritical ? .default : nil
-            UNUserNotificationCenter.current().add(
-                UNNotificationRequest(
-                    identifier: "\(alert.key)-\(alert.isCritical ? "critical" : "warning")",
-                    content: content, trigger: nil))
+            Platform.current.notifications.post(
+                id: "\(alert.key)-\(alert.isCritical ? "critical" : "warning")",
+                title: alert.isCritical ? l.notifCritical : l.notifWarning,
+                body: alert.body(l), sound: alert.isCritical)
         }
     }
 
