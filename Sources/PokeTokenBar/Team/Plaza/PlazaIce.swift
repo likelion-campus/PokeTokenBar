@@ -119,12 +119,19 @@ enum PlazaIce {
         return index(b) > index(a) ? b : a
     }
 
-    /// 연못 없음: nil. last 가 nil(또는 모르는 기준 칸): 0. now < last.at + 60: nil. 아니면 last 다음 연못(끝이면 처음).
+    /// 연못 없음: nil. last 가 nil(또는 모르는 기준 칸): 0. now < last.at + 60: nil.
+    /// 아니면 깨진 연못을 뺀 나머지(연못 순서) 중 하나. 고르는 값은 마지막 깨짐 `(at, pond)` 만으로 정해져서
+    /// 어느 Mac이든 같다: SplitMix64(fnv1a("plaza-ice-next-<at 비트>-<x>-<y>")) 의 첫 수 % 후보 수.
+    /// 연못이 하나뿐이면 그 연못.
     static func frozenIndex(last: PlazaIceBreak?, now: Date, ponds: [Pond]) -> Int? {
         guard !ponds.isEmpty else { return nil }
         guard let last, let i = ponds.firstIndex(where: { $0.anchor == last.pond }) else { return 0 }
         guard now.timeIntervalSince1970 >= last.at + refreezeDelay else { return nil }
-        return (i + 1) % ponds.count
+        let candidates = ponds.indices.filter { $0 != i }
+        guard !candidates.isEmpty else { return i }
+        let seed = "plaza-ice-next-\(last.at.bitPattern)-\(last.pond.x)-\(last.pond.y)"
+        var rng = PlazaSplitMix64(seed: UInt64(PlazaNameColor.fnv1a(seed)))
+        return candidates[Int(rng.next() % UInt64(candidates.count))]
     }
 
     /// last 가 nil 이거나 모르는 기준 칸이면 1. 아니면 clamp((now − (last.at + 60)) / freezeFade, 0, 1).

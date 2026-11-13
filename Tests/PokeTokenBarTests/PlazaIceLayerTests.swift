@@ -11,6 +11,7 @@ final class PlazaIceLayerTests: XCTestCase {
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
     private var L: TilePoint { p(5, 13) }
     private var R: TilePoint { p(32, 14) }
+    private var B: TilePoint { p(20, 24) }
     private func brk(_ pond: TilePoint, ago: Double = 0) -> PlazaIceBreak { PlazaIceBreak(at: nowSeconds - ago, pond: pond) }
 
     private func layer(art: PlazaIceArt = PlazaIceArt.load(), image: CGImage? = nil) -> PlazaIceLayer {
@@ -89,10 +90,10 @@ final class PlazaIceLayerTests: XCTestCase {
         XCTAssertNil(s.iceAlpha(pondAnchor: R))
         nowSeconds += 60.25
         s.update(1)
-        XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: R)), 0.25, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: B)), 0.25, accuracy: 1e-6)
         nowSeconds += 1
         s.update(2)
-        XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: R)), 1, accuracy: 1e-6)
+        XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: B)), 1, accuracy: 1e-6)
     }
 
     func testAFreezeLongAgoShowsAtFullOpacity() throws {
