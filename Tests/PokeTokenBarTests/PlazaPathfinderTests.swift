@@ -44,4 +44,14 @@ final class PlazaPathfinderTests: XCTestCase {
         XCTAssertEqual(PlazaPathfinder.direction(from: p, to: TilePoint(x: 5, y: 6)), .down)
         XCTAssertEqual(PlazaPathfinder.direction(from: p, to: TilePoint(x: 5, y: 4)), .up)
     }
+
+    func testPathUsesTheGivenWalkability() throws {
+        let pondTiles = Set(PlazaIce.ponds(in: map)[0].tiles)
+        let start = TilePoint(x: 4, y: 14), target = TilePoint(x: 16, y: 14)
+        let steps = try XCTUnwrap(PlazaPathfinder.path(from: start, toNextTo: target, map: map,
+                                                       isWalkable: { [map] in map.isWalkable($0) || pondTiles.contains($0) }))
+        XCTAssertEqual(steps, Array(repeating: PlazaDirection.right, count: 11))
+        let around = try XCTUnwrap(PlazaPathfinder.path(from: start, toNextTo: target, map: map))
+        XCTAssertNotEqual(around.first, .right)
+    }
 }
