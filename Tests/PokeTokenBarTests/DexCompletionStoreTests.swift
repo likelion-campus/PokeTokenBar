@@ -121,7 +121,7 @@ final class DexCompletionStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("companion-state.json")
         let suite = "ptb-dex-import-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let defaults = TestDefaults.make(suite: suite)
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(1.0, forKey: "growthDifficulty")
 

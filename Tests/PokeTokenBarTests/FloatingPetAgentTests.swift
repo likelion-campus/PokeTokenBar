@@ -249,7 +249,7 @@ final class FloatingPetAgentWiringTests: XCTestCase {
                              onOpenPopover: (() -> Void)? = nil) throws -> Fixture {
         // Motion pinned on: the bob must not depend on this Mac's Low Power or Reduce Motion.
         let suite = "FloatingPetAgentWiringTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let defaults = TestDefaults.make(suite: suite)
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(suite).json")
         let store = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
         if hatched {

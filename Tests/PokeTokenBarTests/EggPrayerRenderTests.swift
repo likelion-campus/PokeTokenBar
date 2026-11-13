@@ -31,7 +31,7 @@ final class EggPrayerRenderTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let suite = "PrayerRender-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let defaults = TestDefaults.make(suite: suite)
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
         var state = CompanionState()
         state.language = language

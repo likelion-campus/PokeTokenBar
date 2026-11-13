@@ -52,7 +52,7 @@ final class ActivityVisualizationTests: XCTestCase {
     /// without that visualization, or a stray `defaults write`, must not leave the popover empty.
     func testSelectionRoundTripsAndUnknownValuesFallBack() {
         let name = "vis-\(UUID().uuidString)"
-        let suite = UserDefaults(suiteName: name)!
+        let suite = TestDefaults.make(suite: name)
         defer { suite.removePersistentDomain(forName: name) }
 
         suite.set(ActivityVisualization.recentHeatmap.rawValue, forKey: "activityVisualization")

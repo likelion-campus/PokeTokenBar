@@ -19,7 +19,7 @@ final class MenuGrowthTests: XCTestCase {
 
     private func fixture(_ body: (UsageStore, CompanionStore) async throws -> Void) async throws {
         let name = "ptb-menu-growth-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        let defaults = TestDefaults.make(suite: name)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer {

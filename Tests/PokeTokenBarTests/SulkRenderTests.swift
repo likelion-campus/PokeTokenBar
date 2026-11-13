@@ -79,7 +79,7 @@ final class SulkRenderTests: XCTestCase {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("sulk-render-\(UUID()).json")
         addTeardownBlock { try? FileManager.default.removeItem(at: file) }
         let suite = "SulkRender-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let defaults = TestDefaults.make(suite: suite)
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
         let names = [Self.speciesID: ["en": "Pikachu", "ko": "피카츄"]]
         let line = EvoLine(baseID: Self.speciesID, tree: EvoNode(speciesID: Self.speciesID, children: []),
@@ -157,7 +157,7 @@ final class SulkRenderTests: XCTestCase {
             for sulking in [false, true] {
                 let companion = try await makeCompanion(language: language, sulking: sulking)
                 let suite = "SulkRenderUsage-\(UUID())"
-                let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+                let defaults = TestDefaults.make(suite: suite)
                 addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
                 let usage = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
                 // The same text the hover callout shows; the chrome here only approximates the NSPanel's.
