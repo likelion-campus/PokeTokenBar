@@ -389,11 +389,14 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(Set(json?.keys ?? [:].keys), ["nickname", "character", "inPlaza", "tile", "facing", "isWalking"])
     }
 
-    func testWireJSONCarriesNoUsageOrHostWords() throws {
-        for m in allMessages {
+    /// Token totals are shared since the roster shows them; cost, limits, growth progress and the Mac's name never are.
+    func testWireJSONCarriesNoCostLimitOrHostWords() throws {
+        var withUsage = presence
+        withUsage.usage = TeamUsage(today: 1, week: 2, month: 3)
+        for m in allMessages + [.presence(withUsage)] {
             let body = try TeamWire.encode(m).dropFirst(4)
             let text = String(decoding: body, as: UTF8.self).lowercased()
-            for word in ["token", "cost", "usage", "limit", "progress", "host"] {
+            for word in ["token", "cost", "limit", "progress", "host"] {
                 XCTAssertFalse(text.contains(word), "\(word) in \(text)")
             }
         }
@@ -512,6 +515,27 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(p.facing, .left)
         XCTAssertTrue(p.isWalking)
         XCTAssertEqual(p.nameColor, 16752335)
+    }
+
+    func testUsageIsOptionalOnTheWireAndHoldsThreeTotals() throws {
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("usage"), "earlier versions read the frame as before")
+        var shared = presence
+        shared.usage = TeamUsage(today: 12_300_000, week: 340_000_000, month: 1_170_000_000)
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(shared))), [.presence(shared)])
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(shared)) as? [String: Any]
+        XCTAssertEqual(Set((json?["usage"] as? [String: Any] ?? [:]).keys), ["today", "week", "month"])
+    }
+
+    func testUnreadableUsageDropsOnlyTheUsage() throws {
+        for bad in [#""lots""#, #"{"today":1.5,"week":2,"month":3}"#, #"{"today":1}"#] {
+            let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"usage":"# + bad + "}}}"
+            var decoder = TeamWire.FrameDecoder()
+            guard case .presence(let p)? = try decoder.append(frame(json)).first else { return XCTFail("presence dropped: \(bad)") }
+            XCTAssertNil(p.usage, bad)
+            XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
+        }
     }
 
     func testMimicIsOptionalOnTheWire() throws {

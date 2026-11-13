@@ -34,6 +34,8 @@ struct TeamMemberState: Equatable, Sendable {
     var mimicSeenAt: Date?
     /// The last ice break they know, as received; the plaza filters it.
     var iceBreak: PlazaIceBreak?
+    /// Their token totals, kept within `TeamUsage.bounded`. nil from an earlier version.
+    var usage: TeamUsage?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -123,6 +125,8 @@ final class TeamSession {
     @ObservationIgnored private var dittoState: PlazaDittoState?
     @ObservationIgnored private var mimicOf: String?
     @ObservationIgnored private var iceBreak: PlazaIceBreak?
+    /// My token totals as last told to teammates.
+    @ObservationIgnored private(set) var usage: TeamUsage?
     @ObservationIgnored private let evolutionStage: () -> Int
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
@@ -301,6 +305,13 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
+    /// My token totals, told to teammates in my presence when they change.
+    func updateUsage(_ usage: TeamUsage?) {
+        guard usage != self.usage else { return }
+        self.usage = usage
+        broadcast(.presence(makePresence()))
+    }
+
     func sendChat(_ text: String, loud: Bool = false) {
         broadcast(.chat(TeamChat(text: text, isLoud: loud ? true : nil)))
     }
@@ -392,6 +403,7 @@ final class TeamSession {
             if mimic != member.mimicOf { member.mimicSeenAt = mimic == nil ? nil : clock() }
             member.mimicOf = mimic
             member.iceBreak = presence.iceBreak
+            member.usage = presence.usage?.bounded
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             if let schedule = presence.schedule, settings.code == knownCode,
@@ -501,7 +513,7 @@ final class TeamSession {
                      focusEndsAt: focusEndsAt,
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
                      schedule: settings.code == knownCode ? settings.schedule : nil,
-                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak)
+                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, usage: usage)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

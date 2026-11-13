@@ -166,6 +166,8 @@ extension L {
     var plazaChatEmoji: String { "이모지" }
     var plazaChatLogTitle: String { "대화 기록" }
     var plazaRosterWalkHint: String { "누르면 이 팀원에게 걸어가요" }
+    func plazaRosterUsageToday(_ tokens: String) -> String { "오늘 \(tokens)" }
+    func plazaRosterUsagePeriods(week: String, month: String) -> String { "주 \(week)  월 \(month)" }
     var plazaChatLogExpand: String { "펼치기 ▴" }
     var plazaChatLogCollapse: String { "접기 ▾" }
     func teamMegaphoneNotice(nickname: String, text: String) -> String { "📢 \(nickname): \(text)" }

@@ -8,7 +8,23 @@ struct TeamHello: Codable, Equatable, Sendable {
     var current: TeamMonSummary
 }
 
-/// Where a member is in the plaza and how they look. Plaza fields only: nothing about usage or the Mac.
+/// Token totals a member shows teammates in the plaza roster. Tokens only: never cost or limits.
+struct TeamUsage: Codable, Equatable, Sendable {
+    var today: Int
+    var week: Int
+    var month: Int
+
+    /// Larger than any real total, and short enough to fit the roster when shown ("999.99B").
+    static let maxTokens = 999_990_000_000
+
+    /// What a teammate sent, each total kept within 0...`maxTokens`.
+    var bounded: TeamUsage {
+        func keep(_ n: Int) -> Int { min(max(n, 0), Self.maxTokens) }
+        return TeamUsage(today: keep(today), week: keep(week), month: keep(month))
+    }
+}
+
+/// Where a member is in the plaza and how they look, and their token totals. Nothing about cost, limits or the Mac.
 struct TeamPresence: Codable, Equatable, Sendable {
     var nickname: String
     var character: TeamMonSummary
@@ -46,6 +62,9 @@ struct TeamPresence: Codable, Equatable, Sendable {
     @LossyOptional var mimicOf: String?
     /// The last plaza ice break this member knows. Every member passes it on. Left out when none.
     @LossyOptional var iceBreak: PlazaIceBreak?
+    /// The sender's token totals for today, this week and this month. Left out until their first usage reading;
+    /// earlier versions leave it out and ignore it.
+    @LossyOptional var usage: TeamUsage?
 }
 
 /// 읽을 수 없는 값(나중 버전의 모양, 잘못된 값)을 nil 로 읽는 선택값. 이 필드만 너그럽고 나머지 필드는 합성 Codable 그대로라,

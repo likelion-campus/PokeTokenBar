@@ -9,6 +9,8 @@ struct PlazaRosterView: View {
     var onSelect: (String) -> Void = { _ in }
     /// < > 를 누르면 넘길 방향(-1, 1).
     var onTurn: (Int) -> Void = { _ in }
+    /// 마우스 없이도 토큰 사용량을 펼쳐 둘 팀원(그림을 뽑을 때 쓴다).
+    var revealsUsageOf: String? = nil
 
     var body: some View {
         let l = L(.ko)
@@ -33,7 +35,7 @@ struct PlazaRosterView: View {
             .frame(height: PlazaRosterMetrics.headerHeight)
             VStack(spacing: PlazaRosterMetrics.slotSpacing) {
                 ForEach(page.shown) { entry in
-                    PlazaRosterSlot(entry: entry, animating: model.isAnimating)
+                    PlazaRosterSlot(entry: entry, animating: model.isAnimating, showsUsageAtRest: entry.id == revealsUsageOf)
                         .contentShape(Rectangle())
                         .onTapGesture { if !entry.isMe { onSelect(entry.id) } }
                         .help(entry.isMe || entry.presence == .asleep ? "" : L(.ko).plazaRosterWalkHint)
@@ -92,6 +94,11 @@ extension PlazaPresence {
 private struct PlazaRosterSlot: View {
     let entry: PlazaRosterEntry
     let animating: Bool
+    var showsUsageAtRest = false
+    @State private var hovering = false
+
+    /// 토큰 사용량이 보이는 중: 마우스가 올라와 있고 그 팀원의 사용량을 안다.
+    private var showsUsage: Bool { (hovering || showsUsageAtRest) && entry.usage != nil }
 
     private var colors: (top: Color, bottom: Color, border: Color) {
         if entry.presence == .asleep { return (Color(hex: 0x8088A0), Color(hex: 0x707890), Color(hex: 0x3A4050)) }
@@ -105,32 +112,56 @@ private struct PlazaRosterSlot: View {
         let c = colors
         let shape = UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22,
                                            bottomTrailingRadius: 8, topTrailingRadius: 8)
-        HStack(spacing: 4) {
-            PlazaRosterIcon(speciesID: entry.speciesID, bounces: (entry.presence == .online || entry.presence == .focus) && animating)
-                .frame(width: 40, height: 30)
-                .padding(.leading, 6)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 3) {
-                    Text(entry.nickname).lineLimit(1)
-                    if let g = genderSymbol { Text(g.text).foregroundStyle(g.color) }
-                    if entry.isShiny { Text("★").foregroundStyle(Color(hex: 0xFFE060)) }
+        // 마우스를 올리면 칸의 내용이 왼쪽으로 빠지고 토큰 사용량이 오른쪽에서 밀려 들어온다. 사용량을 모르는 팀원은 그대로다.
+        // 가장 긴 값("주 999.9M  월 999.9M")이 잘리지 않도록 사용량은 아이콘 자리까지 칸 너비를 다 쓴다.
+        ZStack(alignment: .leading) {
+            HStack(spacing: 4) {
+                PlazaRosterIcon(speciesID: entry.speciesID, bounces: (entry.presence == .online || entry.presence == .focus) && animating)
+                    .frame(width: 40, height: 30)
+                    .padding(.leading, 6)
+                HStack(spacing: 4) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 3) {
+                            Text(entry.nickname).lineLimit(1)
+                            if let g = genderSymbol { Text(g.text).foregroundStyle(g.color) }
+                            if entry.isShiny { Text("★").foregroundStyle(Color(hex: 0xFFE060)) }
+                        }
+                        .font(Font(PlazaResources.font(.body)))
+                        Text(entry.speciesName).lineLimit(1)
+                            .font(Font(PlazaResources.font(.body)))
+                            .opacity(0.9)
+                    }
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
+                    Spacer(minLength: 0)
+                    Text(status.text)
+                        .font(Font(PlazaResources.font(.body)))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color(hex: status.color), in: Capsule())
+                        .padding(.trailing, 6)
+                }
+            }
+            .offset(x: showsUsage ? -PlazaRosterMetrics.width : 0)
+            if let usage = entry.usage {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.plazaRosterUsageToday(TokenFormatter.compact(usage.today))).lineLimit(1)
+                    Text(l.plazaRosterUsagePeriods(week: TokenFormatter.compact(usage.week),
+                                                   month: TokenFormatter.compact(usage.month))).lineLimit(1)
+                        .opacity(0.9)
                 }
                 .font(Font(PlazaResources.font(.body)))
-                Text(entry.speciesName).lineLimit(1)
-                    .font(Font(PlazaResources.font(.body)))
-                    .opacity(0.9)
-            }
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
-            Spacer(minLength: 0)
-            Text(status.text)
-                .font(Font(PlazaResources.font(.body)))
                 .foregroundStyle(.white)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Color(hex: status.color), in: Capsule())
-                .padding(.trailing, 6)
+                .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 18).padding(.trailing, 8)
+                .offset(x: showsUsage ? 0 : PlazaRosterMetrics.width)
+            }
         }
         .frame(height: PlazaRosterMetrics.slotHeight)
+        .clipShape(shape)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.18), value: showsUsage)
         .background(
             VStack(spacing: 0) { c.top; c.bottom }.clipShape(shape)
         )

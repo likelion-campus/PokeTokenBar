@@ -144,6 +144,19 @@ final class TeamHostilePeerTests: XCTestCase {
         }
     }
 
+    /// A modified app can send any totals. They are kept between zero and a size that still fits the roster.
+    func testAbsurdUsageTotalsAreBounded() {
+        let peer = join("hostile")
+        var p = TeamPresence(nickname: "x", character: Self.mon, inPlaza: true, tile: TilePoint(x: 7, y: 8), facing: .left, isWalking: true)
+        p.usage = TeamUsage(today: .min, week: -1, month: .max)
+        say(.presence(p), from: peer)
+        XCTAssertEqual(session.members["hostile"]?.usage, TeamUsage(today: 0, week: 0, month: TeamUsage.maxTokens))
+        XCTAssertEqual(TokenFormatter.compact(TeamUsage.maxTokens), "999.99B")
+        p.usage = TeamUsage(today: 5, week: TeamUsage.maxTokens, month: TeamUsage.maxTokens + 1)
+        say(.presence(p), from: peer)
+        XCTAssertEqual(session.members["hostile"]?.usage, TeamUsage(today: 5, week: TeamUsage.maxTokens, month: TeamUsage.maxTokens))
+    }
+
     func testAnOverlongMimicIsDropped() {
         let peer = join("hostile")
         for length in [TeamWire.maxFieldBytes + 1, 10_000] {

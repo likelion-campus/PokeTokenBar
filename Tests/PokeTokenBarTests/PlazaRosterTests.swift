@@ -142,6 +142,17 @@ extension PlazaRosterTests {
     }
 
     /// A teammate who disconnected shows as 잠 with their last character; once connected again, only the live row stays.
+    func testEntriesCarryUsageForMeAndConnectedTeammatesButNotAsleepOnes() {
+        let mine = TeamUsage(today: 1, week: 2, month: 3), theirs = TeamUsage(today: 4, week: 5, month: 6)
+        var on = member("a", "다람", inPlaza: true); on.usage = theirs
+        let old = member("b", "나무", inPlaza: true)
+        var gone = member("c", "가지", inPlaza: true); gone.usage = theirs
+        let list = PlazaRoster.entries(me: entry("me", "힘", me: true), myUsage: mine, members: [on, old], asleep: [gone])
+        XCTAssertEqual(list.map(\.id), ["me", "b", "a", "c"])
+        XCTAssertEqual(list.map(\.usage), [mine, nil, theirs, nil], "an earlier version sends none; a sleeping teammate's is out of date")
+        XCTAssertNil(PlazaRoster.entries(me: entry("me", "힘", me: true), members: []).first?.usage)
+    }
+
     func testAsleepTeammateShowsUntilTheyConnect() {
         let asleep = member("a", "다람", inPlaza: true)
         let list = PlazaRoster.entries(me: nil, members: [], asleep: [asleep])
