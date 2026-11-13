@@ -39,11 +39,11 @@ enum BinaryLocator {
                                      base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var paths = [URL(fileURLWithPath: binaryPath).deletingLastPathComponent().path]
         paths.append(contentsOf: commonToolDirectories())
-        for entry in (base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":") {
+        for entry in (base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: PlatformCompat.pathListSeparator) {
             paths.append(String(entry))
         }
         var seen = Set<String>()
-        let merged = paths.filter { seen.insert($0).inserted }.joined(separator: ":")
+        let merged = paths.filter { seen.insert($0).inserted }.joined(separator: String(PlatformCompat.pathListSeparator))
         var env = base
         env["PATH"] = merged
         return env

@@ -7,6 +7,7 @@ read_when:
   - 메뉴바·플로팅 펫 등 상시 표시 애니메이션의 성능을 손볼 때
   - 스프라이트·이미지를 고정 크기 프레임에 그릴 때(비율 왜곡 부류)
   - 세이브 이전/병합·외부 파일 입력 경로를 만들 때
+  - 윈도우 공용 집합(`mac-only.txt`)·`Platform/`·윈도우 CI 테스트를 건드릴 때
   - 팀 프레임을 받거나 저장하는 코드, 다른 Mac이 고른 값을 쓰는 코드를 손볼 때
 ---
 
@@ -882,6 +883,48 @@ read_when:
   설치 경로도 마찬가지다. 원작 cask의 `xattr -cr` 단계가 빠진 채 zip 설치로 바꾸자 팀원 Mac에서 Gatekeeper가
   앱을 막았다. 자체 서명 앱이라 공증이 없고, 원작은 cask가 격리 표시를 지워서 경고가 보이지 않았을 뿐이다. 이 Mac은
   직접 빌드해서 격리 표시가 없으므로 재현되지 않는다. 팀 탭 cask의 `postflight_steps`가 같은 일을 한다.
+
+- **한 줄씩 읽는 목록·설정 파일에서 값 뒤의 `# 주석`은 파서가 떼지 않으면 주석이 아니다.** 윈도우 이식의 테스트용
+  `mac-only.txt` 에 `BinaryLocatorTests.swift  # 이유` 처럼 적었더니 한 줄 전체가 파일명이 되어 그 파일이 제외되지
+  않았다(조용히). 파서는 전체 줄 주석(`#` 로 시작하는 줄)만 안다. **왜 못 걸렀나:** 제외 목록은 "있는 것만 빼는"
+  구조라 틀린 항목이 에러 없이 무시됐다. 잡은 것은 `SharedSourcesScanTests.testEveryListedPathExists`(목록의 모든 경로가 실제로
+  있어야 함)였다. **규칙:** 목록·설정 파서의 주석 문법을 파일 머리에 적고 그 밖의 형태는 쓰지 않는다. 목록의 항목이 가리키는
+  것이 실제로 있는지 확인하는 테스트를 둔다(없는 항목이 조용히 무시되는 목록에는 필수).
+
+- **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
+  테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
+  윈도우 워크플로는 종료 코드만 봤다. **가드(기계):** `SharedSourcesScanTests` 가 윈도우에서 도는 파일의 `@MainActor`
+  클래스(확장 포함) 안 동기 `func test…()` 를 실패시키고, 윈도우 워크플로가 실행된 테스트 수 하한을 확인한다.
+  **규칙:** 윈도우에서 도는 `@MainActor` 테스트는 `async` 로 쓴다.
+
+- **기록된 순서의 `.last` 를 단언하는 테스트는 늦게 합쳐져 도착하는 비동기 조회의 순서에 기댄다.** 마지막 값이 "기대한 최종
+  상태"인지는 어느 조회가 늦게 끝나느냐에 달려 있어, 실행 환경의 타이밍에 따라 결과가 달라질 수 있다(윈도우 CI 이식 중 발견). **규칙:** 어떤 시점까지의
+  시퀀스 전체를 단언하거나, 알려진 지점까지 기다린 뒤 단언한다. `.last` 로 최종 상태를 보려면 그 값이 정말 마지막에 쓰이는 것이
+  보장돼야 한다.
+
+- **SwiftPM은 `mac-only.txt` 가 바뀐 뒤에도 옛 소스 목록을 쓸 수 있다.** 매니페스트가 파일 시스템 목록을 읽어 만든 결과가
+  캐시되어 있으면 목록을 고쳐도 같은 파일 집합을 빌드한다(공용 집합 빌드가 "통과"해도 새 목록을 본 것이 아니다).
+  `scripts/shared-check.sh` 가 `debug.yaml` 을 지우고 매니페스트 캐시를 끄는 것으로 막는다. **규칙:** 빌드 입력을 파일
+  목록으로 정하는 구성은, 목록을 바꾼 뒤 캐시를 지우고 재현되는지 한 번 확인한다.
+
+- **`await store.refresh()` 가 돌아왔다고 그 결과가 이미 기록됐다고 가정하지 않는다 (테스트에서의 강제 언래핑 금지).**
+  `LocalizationErrorsTests` 가 `refresh` 직후 `store.lastErrorDescription!` 를 풀었는데, 윈도우 CI 에서 한 번 nil 이어서
+  프로세스가 죽었고 뒤의 테스트 1,500여 개가 돌지 않았다(직전 실행들은 통과). 위의 "기록된 순서의 `.last`" 항목과 같은 부류다:
+  합쳐진 조회가 늦게 끝나면 기다린 호출이 먼저 돌아온다. 정확한 경로는 재현하지 못했다. **고침:** 값이 기록될 때까지 기다린 뒤
+  단언하고, 끝내 없으면 `XCTFail` 한다. **규칙:** 테스트에서 비동기 결과를 `!` 로 풀지 않는다 — 크래시는 실패 하나가 아니라
+  실행 전체를 잃는다.
+- **경로 목록 구분자(`:`)와 경로 구분자(`/`)를 문자열로 박아 두면 윈도우에서 조용히 틀린다.** `BinaryLocator` 가 PATH 를
+  `":"` 로 나누고 이어서, 윈도우(`;`, 드라이브 문자에 `:` 포함)에서는 항목이 잘못 쪼개졌다. **왜 못 걸렀나:** 맥에서는 옳은 값이라
+  모든 테스트가 통과했고, 그 테스트 파일은 윈도우 실행에서 빠져 있었다(기대값도 `:` 를 박아 두었다). **고침:**
+  `PlatformCompat.pathListSeparator` 를 쓰고 테스트가 플랫폼 구분자로 단언한다(`WindowsPathTests`, `BinaryLocatorTests` 가 두 OS 에서 돈다).
+  **부류 스윕(2026-11-13):** 공용 소스(`Core`, `Team`)에서 `separator: ":"`, `separatedBy: ":"`, PATH 기본값 리터럴을 grep 했고
+  남은 것은 `BinaryLocator` 의 POSIX 기본 PATH 한 곳뿐이다(윈도우용 도구 디렉터리는 4단계 범위). 홈 경로를 문자열로 비교하는 곳은
+  윈도우에서 `\` 와 `/` 표기가 섞여 중복 제거가 듣지 않는다 — 경로 비교는 `URL.path` 끼리 한다. **규칙:** 공용 코드에서 경로를
+  나누거나 잇는 문자는 `PlatformCompat` 에서 가져오고, 그 코드를 지키는 테스트는 윈도우에서도 돌게 둔다.
+- **윈도우 체크아웃은 텍스트 파일을 CRLF 로 바꾸므로 목록을 읽는 스크립트는 `\r` 을 떼야 한다.** 줄 끝의 `\r` 이 경로의
+  일부가 되어 항목이 어떤 파일과도 맞지 않는다. 스캔 테스트의 목록 파서는 이미 `isNewline`/trim 으로 견디고, 스크립트는 `\r` 을
+  제거한다. **규칙:** 목록·스크립트 입력 파일을 읽는 코드는 CRLF 를 입력으로 가정하고, `.gitattributes` 로 고정이 필요한 파일은
+  고정한다. (JSONL 사용량 로그는 줄 끝 `\r` 이 있어도 JSON 공백으로 파싱되어 같은 결과다: `WindowsPathTests`.)
 
 ## 자격증명·Keychain
 
@@ -2053,3 +2096,24 @@ read_when:
   동시 도메인 수 상한·재사용 슬롯 빈 상태·같은 이름 동일 객체를 고정한다(결함 주입으로 각각 실패 확인). **릴리스 안전망:**
   `scripts/cfprefsd-guard.sh` 가 `team-release.sh` 의 테스트 게이트 직후(앱 설치·실행 전) DIR fd 가 100 을 넘으면 경고하고
   `cfprefsd agent` 를 재시작해 내려갈 때까지 기다리며, 회복하지 않으면 릴리스를 중단한다.
+
+  **재발 2 (2026-11-13, 풀의 늦은 쓰기).** 전체 게이트에서 `UsageLedgerRecordingTests.testTheFirstRefreshAlreadyFillsTheLedger` 가
+  한 번 실패했다 — `UsageLedger.load(from: defaults)` 가 테스트 픽스처 이틀이 아니라 개발자 **실제** 원장(11 일, 수십억 토큰)을
+  돌려줬고(`store.dailyLedger` 는 맞았다), 단독으로는 통과했다. 원인 둘의 합이다. ① `CustomScanRootsTests` 등은 `providers:` 없이
+  `UsageStore(...)` 를 만들어 기본 프로바이더 = 실제 `~/.claude` 등 로그를 읽었고, `setCustomScanRoots` 같은 setter 는 기다리지 않는
+  `Task { await refresh() }` 를 띄워 **테스트가 끝난 뒤** refresh 가 끝나며 `recordDailyLedger` 가 `defaults` 에 저장한다.
+  ② #125 의 풀은 슬롯을 다음 테스트에 다시 내주므로 그 늦은 쓰기가 **방금 같은 슬롯을 받은 다음 테스트**의 도메인에 떨어진다
+  (UUID 스위트 시절엔 아무도 다시 읽지 않는 도메인이었다). 결정적 재현: 느린 프로바이더를 단 스토어에서 setter 를 부르고 즉시 끝나는 테스트
+  뒤에, 다음 테스트가 3 초 기다리며 같은 키를 읽는다(고치기 전 실패 확인). 5-whys 공백: #125 리뷰가 "다음 테스트로의 늦은 쓰기"를 minor 로
+  짚었으나 재현 테스트가 없었고, 풀 테스트는 늦은 쓰기를 *슬롯이 다시 내줄 때 비워지는가*(핸드아웃 시점)로만 봤다 — 핸드아웃 **뒤**에
+  떨어지는 쓰기는 어느 테스트도 밟지 않았다. **고침 (인프라):** 테스트가 받는 객체를 `PooledDefaults`(`UserDefaults` 서브클래스)로 하고,
+  테스트가 끝날 때(또는 슬롯이 넘어갈 때) `close()` 해서 이후 `set`/`removeObject` 를 버린다. 물리 도메인은 그대로 풀이라
+  cfprefsd 한도는 유지된다(Plaza|Team 1823 개에서 fd 피크 22). 시도하고 버린 안: 테스트마다 유일한 도메인 + 끝/경계마다 plist 삭제 —
+  cfprefsd 가 삭제 뒤에도 최근 열린 도메인 fd 를 한동안 쥐어 Plaza|Team 에서 피크 315(>300)로 올랐다. 도메인 수가 아니라 **만들어지는
+  도메인의 속도**에 비례하는 것으로 보인다(1 회 측정, 다른 세션의 빌드가 겹쳤다) — 빠른 슬라이스에서 한도를 넘을 수 있다. 주의: 서브클래스의 락은 재귀여야 한다 — `super.set(Int,…)` 가
+  `set(_:forKey:)` 를 다시 불러 일반 락이면 교착한다. **고침 (원인):** `Tests/` 의 모든 `UsageStore(` 는 `providers:` 를 명시해야 한다 —
+  `UsageStoreHermeticityScanTests` 가 어긴 호출을 실패시킨다(레지스트리 확인은 `UsageStore.defaultProviders()` 를 넘기고, 스스로 refresh 하는
+  스토어는 `makeHermeticUsageStore` 로 프로바이더·한도·Claude 설정 폴더 탐색을 모두 막는다). **회귀 테스트:** `TestDefaultsLateWriteTests`
+  (실제 `UsageStore` 의 늦은 저장이 다음 테스트에 안 보인다), `TestDefaultsPoolTests` 의 늦은 쓰기·외부 링 테스트 — `close()` 를 no-op 으로
+  주입하면 실패, 스캔 테스트는 맨 `UsageStore(` 를 주입하면 실패함을 확인했다. **두 번째 늦은 쓰기 (리뷰에서 발견):** `UsageStore.reschedule` / `suspendPolling` 의 타이머 클로저가 `{ _ in Task { @MainActor [weak self] in … } }` 였다 — 안쪽 `[weak self]` 는 바깥 클로저의 캡처를 약하게 만들지 못해 바깥 클로저가 `self` 를 **강하게** 쥔다. 타이머가 런루프에 붙어 있으니 테스트가 만든 모든 스토어가 스코프가 끝나도 죽지 않고 120 s 마다 실제 로그를 읽어 풀 슬롯에 원장을 저장했다(보고된 11 일 원장과 더 잘 맞는다). 고침: `{ [weak self] _ in Task { @MainActor in await self?.refresh() } }`(앱 동작 동일 — 앱은 스토어를 평생 쥔다). 같은 패턴 스윕: `Sources/` 의 `Timer(` 4 곳(UsageStore 2 곳이 이 결함, `PokeTokenBarApp.swift:577`·`TeamTransport.swift:187` 은 바깥 클로저에 이미 `[weak self]`)과 NotificationCenter 옵저버(바깥 `[weak self]`) 는 정상. 회귀 테스트 `testAStoreIsReleasedWhenItsScopeEnds`(스코프 뒤 약참조가 nil) — 옛 캡처를 되돌리면 실패. **레지스트리 테스트:** `UsageStore(providers: defaultProviders())` 는 타이머를 통해 실제 로그·Keychain·네트워크를 만지므로 `UsageStore.defaultProviders().map(\.id)` 로 바꿔 스토어를 만들지 않는다(`registeredProviderIDs` 는 `providers.map(\.id)` 일 뿐이라 잃는 것 없음). 스캔은 `defaultProviders` 를 넘기는 `UsageStore(`/`UsageStore.init(` 도, 자기 인자 목록 밖(중첩 호출·문자열)의 `providers:` 도 실패시킨다. 남은 것: `LocalUsageParityTests` 는 `PTB_PARITY=1` 일 때만
+  도는 의도적 실제 로그 대조라 `.standard` 를 쓴다(기본 스킵).

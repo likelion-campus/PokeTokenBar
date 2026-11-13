@@ -19,11 +19,42 @@ import XCTest
 /// finished and before the next starts) uses a separate pool of at most `externalLimit` slots, reused
 /// round-robin.
 ///
+/// A pooled slot outlives its test, so a store that does too (an un-awaited refresh `Task`, a timer) could
+/// save into the slot after the next test was handed it: the real usage ledger of the developer's machine
+/// once landed in `UsageLedgerRecordingTests` that way. So the object a test receives is a `PooledDefaults`
+/// that is *closed* when the test ends (or the slot is handed on): from then on its writes are dropped. A
+/// late write can then only reach an object nobody reads, while the physical domains stay bounded.
+///
 /// cfprefsd writes dirty domains a few seconds *after* the last change, and writes them again if the file
 /// is deleted before that. So when the bundle finishes this deletes every pool plist of this process
 /// (`ptb.test.pool*.<pid>.*`), then keeps sweeping until cfprefsd's delayed writes have landed and been
 /// deleted too. The first request also deletes pool plists of processes that no longer exist. That costs a few seconds once per
 /// `swift test` run. `TestDefaultsScanTests` fails if any other file calls the raw initializer.
+/// The `UserDefaults` handed to a test. Behaves like a normal suite until `close()`, then drops every write.
+final class PooledDefaults: UserDefaults, @unchecked Sendable {
+    private let gate = NSRecursiveLock()   // super.set(Int...) calls back into set(_:forKey:)
+    private var closed = false
+
+    override init?(suiteName suitename: String?) { super.init(suiteName: suitename) }
+
+    func close() { gate.lock(); closed = true; gate.unlock() }
+    var isClosed: Bool { gate.lock(); defer { gate.unlock() }; return closed }
+
+    /// Runs `write` unless closed. The gate is held across the write so close() cannot interleave with it.
+    private func ifOpen(_ write: () -> Void) {
+        gate.lock(); defer { gate.unlock() }
+        if !closed { write() }
+    }
+
+    override func set(_ value: Any?, forKey defaultName: String) { ifOpen { super.set(value, forKey: defaultName) } }
+    override func set(_ value: Int, forKey defaultName: String) { ifOpen { super.set(value, forKey: defaultName) } }
+    override func set(_ value: Float, forKey defaultName: String) { ifOpen { super.set(value, forKey: defaultName) } }
+    override func set(_ value: Double, forKey defaultName: String) { ifOpen { super.set(value, forKey: defaultName) } }
+    override func set(_ value: Bool, forKey defaultName: String) { ifOpen { super.set(value, forKey: defaultName) } }
+    override func set(_ url: URL?, forKey defaultName: String) { ifOpen { super.set(url, forKey: defaultName) } }
+    override func removeObject(forKey defaultName: String) { ifOpen { super.removeObject(forKey: defaultName) } }
+}
+
 final class TestDefaults: NSObject, XCTestObservation, @unchecked Sendable {
     private static let shared = TestDefaults()
     private static let externalLimit = 8
@@ -33,7 +64,7 @@ final class TestDefaults: NSObject, XCTestObservation, @unchecked Sendable {
 
     private let lock = NSLock()
     private let prefix: String
-    private var slots: [Int: UserDefaults] = [:]
+    private var slots: [Int: PooledDefaults] = [:]
     private var scope: [String: Int] = [:]
     private var inTestCase = false
     private var externalScope: [String: Int] = [:]
@@ -106,9 +137,10 @@ final class TestDefaults: NSObject, XCTestObservation, @unchecked Sendable {
 
     private static func externalKey(_ n: Int) -> Int { -1 - n }
 
-    /// Returns the slot's object, creating it on first use, with an empty domain.
+    /// Returns a new open object on the slot's domain, which is empty. The previous holder's object is closed.
     private func handOut(slot: Int, domain: String, key: Int) -> UserDefaults {
-        let defaults = slots[key] ?? UserDefaults(suiteName: domain)!
+        slots[key]?.close()
+        let defaults = PooledDefaults(suiteName: domain)!
         slots[key] = defaults
         Self.wipe(defaults, domain: domain)
         return defaults
@@ -132,7 +164,10 @@ final class TestDefaults: NSObject, XCTestObservation, @unchecked Sendable {
 
     func endTestCase() {
         lock.lock()
-        for n in scope.values { Self.wipe(slots[n]!, domain: "\(prefix).\(n)") }
+        for n in scope.values {
+            Self.wipe(slots[n]!, domain: "\(prefix).\(n)")
+            slots[n]!.close()
+        }
         scope = [:]
         inTestCase = false
         lock.unlock()

@@ -158,8 +158,7 @@ final class DailyTrendStackTests: XCTestCase {
     /// 1번째(Claude)와 같은 색이 됐다. 프로바이더를 추가하면 이 테스트가 팔레트 색 추가를 요구한다.
     @MainActor
     func testEveryRegisteredProviderGetsItsOwnColor() {
-        let defaults = TestDefaults.make(suite: "DailyTrendStackTests.\(UUID().uuidString)")
-        let registry = UsageStore(autoRefresh: false, defaults: defaults).registeredProviderIDs
+        let registry = UsageStore.defaultProviders().map(\.id)
         let slots = DailyTrendStack.colorIndices(for: registry, registry: registry,
                                                  paletteCount: MonthDailyTrend.providerPalette.count)
         XCTAssertEqual(Set(slots.values).count, registry.count,

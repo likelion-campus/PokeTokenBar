@@ -69,6 +69,16 @@ Because the repository squash-merges, the PR title becomes the commit subject on
   `python3 scripts/check-pr.py --base origin/main --title 'docs: clarify PR requirements' --body-file /tmp/pr-body.md`.
   Add `--ui-changes` when visible behavior changes outside the UI directory.
 
+## Sources that also build on Windows
+
+On the `windows-port` branch, `Sources/PokeTokenBar` also builds on Windows minus the paths in `Sources/PokeTokenBar/mac-only.txt` (tests: `Tests/PokeTokenBarTests/mac-only.txt`). To keep it working:
+
+- A new file that imports an Apple-only framework (AppKit, SwiftUI, SpriteKit, CoreGraphics, Security, ...) goes in `mac-only.txt`, or keep that drawing in its own file so the rest stays shared.
+- Calls to the OS from shared code go through `Platform` / `PlatformCompat` (under `Sources/PokeTokenBar/Platform/`), the only place for body-level `#if os(...)`.
+- Tests in a `@MainActor` class that runs on Windows must be `async`; a synchronous one makes Windows run 0 tests.
+
+Pre-check on the Mac: `./scripts/shared-check.sh` and `swift test --filter SharedSourcesScanTests`.
+
 ## Code conventions
 
 The app is provider-agnostic by design. When extending it, follow these rules
