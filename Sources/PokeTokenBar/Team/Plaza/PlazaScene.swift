@@ -263,6 +263,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private let footprintLayer: PlazaFootprintLayer
     private let snowballLayer: PlazaSnowballLayer
     var snowballFlightCount: Int { snowballLayer.flightCount }
+    var snowballBallSizes: [CGSize] { snowballLayer.ballSizes }
     var snowballNodeCount: Int { snowballLayer.nodeCount }
     var snowballSpriteCount: Int { snowballLayer.shownSpriteCount }
     var footprintCount: Int { footprintLayer.count }
@@ -401,6 +402,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.worldSize = map.pixelSize
         self.footprintLayer = PlazaFootprintLayer(worldHeight: map.pixelSize.height)
         self.snowballLayer = PlazaSnowballLayer(worldHeight: map.pixelSize.height)
+        // 처음 보이는 계절(`shownSeason`)의 그림으로 시작한다. `refreshSnowDay`는 계절이 바뀔 때만 그림을 바꾼다.
+        snowballLayer.setArt(PlazaSnowballArt.pieces(.summer, balloon: PlazaScene.waterBalloon))
         self.walker = PlazaWalker(tile: start)
         self.lastReported = (start, .down, false)
         self.nickname = nickname
@@ -485,9 +488,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     var coreTime = PlazaCoreTime.standard {
         didSet { if coreTime != oldValue { applyDaylight(); applyCampfire() } }
     }
-    var weatherPeriod = PlazaWeather.Period.day {
-        didSet { if weatherPeriod != oldValue { advanceWeather(by: 0); refreshSnowDay() } }
+    /// 팀이 고른 계절. 정한 적이 없으면 겨울이다.
+    var seasonChoice = PlazaSeasonChoice.winter {
+        didSet { if seasonChoice != oldValue { advanceWeather(by: 0); refreshSnowDay(); refreshIce(hit: nil) } }
     }
+    /// 지금의 계절. `auto`면 내 달력의 오늘이다.
+    var season: PlazaSeason { seasonChoice.season(on: now()) }
 
     /// 지금 곱하는 색. 배경을 숨겼으면 뒤의 작업 화면이 어두워지지 않게 곱하지 않는다.
     var daylightTint: PlazaDaylight.Tint {
@@ -995,8 +1001,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     private func refreshIce(hit: TilePoint?) {
-        let target = PlazaIce.frozenIndex(last: iceBreak, now: now(), ponds: icePonds)
-        freezeDue = target == nil ? iceBreak.map { $0.at + PlazaIce.refreezeDelay } : nil
+        // 연못은 겨울에만 언다.
+        let target = isSnowDay ? PlazaIce.frozenIndex(last: iceBreak, now: now(), ponds: icePonds) : nil
+        freezeDue = isSnowDay && target == nil ? iceBreak.map { $0.at + PlazaIce.refreezeDelay } : nil
         guard target != frozenIndex else { drawIce(); return }
         let old = frozenIndex
         frozenIndex = target
@@ -1944,29 +1951,32 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func advanceWeather(by dt: TimeInterval) {
         let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
         let v = visibleRect
-        weatherLayer.update(date: now(), isHidden: isBackgroundHidden, dt: dt, period: weatherPeriod,
+        weatherLayer.update(weather: season.weather, isHidden: isBackgroundHidden, dt: dt,
                             visible: CGRect(x: v.minX, y: worldSize.height - v.maxY, width: v.width, height: v.height),
                             step: PlazaPixelSnap.step(backing: backing, zoom: zoom))
     }
 
-    /// 눈 오는 날의 지도와 풀숲 그림. 컨트롤러가 넣고, 눈 그림을 못 만들면 nil이라 지도는 그대로다.
-    var snowLook: () -> PlazaSnowLook? = { nil }
-    /// 눈 오는 날이 켜지거나 꺼졌다.
-    var onSnowDayChange: ((Bool) -> Void)?
-    /// 오늘이 눈 오는 날인가. 배경을 숨겨도 그대로다.
-    var isSnowDay: Bool { weatherLayer.kind(at: now(), period: weatherPeriod) == .snow }
-    /// `refreshSnowDay`가 마지막으로 적용한 날.
-    private(set) var isSnowShown = false
+    /// 그 계절의 지도와 풀숲 그림. 컨트롤러가 넣고, 원본 그대로인 계절(여름)이거나 그림을 못 만들면 nil이라 원본을 쓴다.
+    var seasonLook: (PlazaSeason) -> PlazaSnowLook? = { _ in nil }
+    /// 보이는 계절이 바뀌었다.
+    var onSeasonChange: ((PlazaSeason) -> Void)?
+    /// 지금이 겨울인가(눈이 오고 발자국이 찍히고 연못이 언다). 배경을 숨겨도 그대로다.
+    var isSnowDay: Bool { season == .winter }
+    /// `refreshSnowDay`가 마지막으로 적용한 계절. 처음 지도는 원본(여름)이다.
+    private(set) var shownSeason = PlazaSeason.summer
+    var isSnowShown: Bool { shownSeason == .winter }
     /// 테스트용: 지금 그리는 지도 그림.
     var shownMapImage: CGImage { mapImage }
 
-    /// 눈 오는 날과 보이는 모습을 맞춘다. `update`와 주기 변경, 컨트롤러가 부른다.
+    private static let waterBalloon = PlazaResources.waterBalloon()
+
+    /// 계절과 보이는 모습을 맞춘다. `update`(달력을 따르는 계절은 날이 바뀌며 바뀐다)와 계절 변경, 컨트롤러가 부른다.
     func refreshSnowDay() {
-        let on = isSnowDay
-        guard on != isSnowShown else { return }
+        let s = season
+        guard s != shownSeason else { return }
         var image = normalMapImage
         var grass = normalTallGrass
-        if on, let look = snowLook() {
+        if let look = seasonLook(s) {
             image = look.mapImage
             grass = look.tallGrass ?? normalTallGrass
         }
@@ -1976,9 +1986,11 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapImage = image
         iceLayer?.setMapImage(image)
         if let grass { tallGrassLayer?.setArt(grass) }
-        isSnowShown = on
-        if !on { footprintLayer.removeAll() }
-        onSnowDayChange?(on)
+        shownSeason = s
+        snowballLayer.setArt(PlazaSnowballArt.pieces(s, balloon: PlazaScene.waterBalloon))
+        if s != .winter { footprintLayer.removeAll() }
+        refreshIce(hit: nil)
+        onSeasonChange?(s)
     }
 
     /// 테스트용: 지금 내리는 날씨와 입자.

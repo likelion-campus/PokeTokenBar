@@ -129,21 +129,29 @@ struct TeamSettingsSection: View {
 
     private var scheduleRows: some View {
         let core = team.schedule?.coreTime ?? .standard
-        let period = team.schedule?.period ?? .day
-        func change(_ start: Int, _ end: Int, _ period: PlazaWeather.Period) {
-            team.changeSchedule(coreStart: start, coreEnd: end, period: period, now: Date())
+        let season = team.schedule?.season ?? .winter
+        func change(_ start: Int, _ end: Int, _ season: PlazaSeasonChoice) {
+            team.changeSchedule(coreStart: start, coreEnd: end, season: season, now: Date())
         }
         return VStack(spacing: 0) {
             row {
                 Text(l.teamCoreTime)
                 Spacer()
-                Picker(l.teamCoreTime, selection: Binding(get: { core.start }, set: { change($0, core.end, period) })) {
+                Picker(l.teamCoreTime, selection: Binding(get: { core.start }, set: { change($0, core.end, season) })) {
                     ForEach(1...22, id: \.self) { Text(l.teamHour($0)).tag($0) }
                 }
                 .labelsHidden().fixedSize()
                 Text("~")
-                Picker(l.teamCoreTime, selection: Binding(get: { core.end }, set: { change(core.start, $0, period) })) {
+                Picker(l.teamCoreTime, selection: Binding(get: { core.end }, set: { change(core.start, $0, season) })) {
                     ForEach((core.start + 1)...23, id: \.self) { Text(l.teamHour($0)).tag($0) }
+                }
+                .labelsHidden().fixedSize()
+            }
+            row {
+                Text(l.teamSeason)
+                Spacer()
+                Picker(l.teamSeason, selection: Binding(get: { season }, set: { change(core.start, core.end, $0) })) {
+                    ForEach(PlazaSeasonChoice.allCases, id: \.self) { Text(l.teamSeasonName($0)).tag($0) }
                 }
                 .labelsHidden().fixedSize()
             }

@@ -157,9 +157,9 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.prepareScene()
         let scene = try XCTUnwrap(plaza.scene)
         XCTAssertEqual(scene.coreTime, .standard)
-        node.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .month, now: Date())
+        node.settings.changeSchedule(coreStart: 8, coreEnd: 20, season: .spring, now: Date())
         await settle { scene.coreTime == PlazaCoreTime(start: 8, end: 20) }
-        XCTAssertEqual(scene.weatherPeriod, .month)
+        XCTAssertEqual(scene.seasonChoice, .spring)
     }
 
     func testTickEndsADueFocus() async {

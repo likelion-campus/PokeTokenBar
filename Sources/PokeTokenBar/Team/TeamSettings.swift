@@ -60,17 +60,17 @@ final class TeamSettings {
     var schedule: PlazaSchedule? { code.flatMap { schedules[$0.normalized] } }
 
     /// Changes the schedule. Start clamps into 1...22 and end into (start+1)...23, so start < end always holds.
-    func changeSchedule(coreStart: Int, coreEnd: Int, period: PlazaWeather.Period, now: Date) {
+    func changeSchedule(coreStart: Int, coreEnd: Int, season: PlazaSeasonChoice, now: Date) {
         guard let key = code?.normalized else { return }
         let start = min(max(coreStart, 1), 22)
         let end = min(max(coreEnd, start + 1), 23)
         // 지금과 같은 값을 다시 고르면 도장을 새로 찍지 않는다.
         let current = schedules[key]
         if start == (current?.coreTime ?? .standard).start, end == (current?.coreTime ?? .standard).end,
-           period.rawValue == (current?.seasonPeriod ?? PlazaWeather.Period.day.rawValue) { return }
+           season.rawValue == (current?.seasonPeriod ?? PlazaSeasonChoice.winter.rawValue) { return }
         // 저장된 도장이 이 Mac 시계보다 앞서 있어도(시계가 느리거나 빠른 Mac 값을 받은 경우) 내 수정이 지지 않게 한다.
         let stamp = max(now, (current?.changedAt ?? .distantPast).addingTimeInterval(0.001))
-        schedules[key] = PlazaSchedule(coreStart: start, coreEnd: end, seasonPeriod: period.rawValue, changedAt: stamp,
+        schedules[key] = PlazaSchedule(coreStart: start, coreEnd: end, seasonPeriod: season.rawValue, changedAt: stamp,
                                        changedBy: memberID, changedByName: Self.validNickname(nickname) ?? "")
     }
 

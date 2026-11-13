@@ -51,6 +51,16 @@ extension L {
     var teamNicknameInvalid: String { "닉네임은 1~12자로 입력해 주세요" }
     var teamNotifications: String { "팀 알림" }
     var teamCoreTime: String { "코어타임" }
+    var teamSeason: String { "광장 계절" }
+    func teamSeasonName(_ choice: PlazaSeasonChoice) -> String {
+        switch choice {
+        case .auto: "달력 따라 자동"
+        case .spring: "봄"
+        case .summer: "여름"
+        case .autumn: "가을"
+        case .winter: "겨울"
+        }
+    }
     func teamHour(_ h: Int) -> String { "\(h)시" }
     /// "11월 5일 14:02" — 사용자의 달력과 시간대로.
     func teamScheduleDate(_ date: Date, calendar: Calendar = .current) -> String {
@@ -116,7 +126,14 @@ extension L {
     var plazaMenuTackle: String { "몸통박치기" }
     var plazaJump: String { "점프 · 물놀이" }
     var plazaShortcutsTitle: String { "단축키" }
-    var plazaShortcutSnowball: String { "눈뭉치" }
+    func plazaShortcutThrow(_ season: PlazaSeason) -> String {
+        switch season {
+        case .spring: "꽃잎 뭉치"
+        case .summer: "물풍선"
+        case .autumn: "낙엽 뭉치"
+        case .winter: "눈뭉치"
+        }
+    }
     var plazaShortcutArrows: String { "방향키" }
     var plazaShortcutWalk: String { "걷기" }
     var plazaShortcutRun: String { "달리기" }
@@ -178,7 +195,7 @@ extension L {
     var plazaActivityIceBreaks: String { "얼음 깬 횟수" }
     var plazaActivityFireworks: String { "폭죽" }
     var plazaActivityTackles: String { "몸통박치기" }
-    var plazaActivitySnowballHits: String { "눈뭉치 맞힌 횟수" }
+    var plazaActivitySnowballHits: String { "던져서 맞힌 횟수" }
     var plazaActivityGreetings: String { "인사" }
     var plazaActivityPickups: String { "주운 아이템" }
     var plazaActivityNone: String { "기록 없음" }

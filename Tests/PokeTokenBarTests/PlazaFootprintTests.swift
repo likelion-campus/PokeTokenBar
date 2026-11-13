@@ -23,7 +23,7 @@ final class PlazaFootprintTests: XCTestCase {
             scene.backingOverride = 2
             scene.size = CGSize(width: 800, height: 600)
             scene.now = { [unowned self] in self.now }
-            scene.snowLook = { PlazaSnowLook(mapImage: plain, tallGrass: nil) }
+            scene.seasonLook = { _ in PlazaSnowLook(mapImage: plain, tallGrass: nil) }
             scene.refreshSnowDay()
             scene.update(time)
         }

@@ -5,10 +5,10 @@ import AppKit
 @MainActor
 struct PlazaShortcutGuide: View {
     /// 키와 하는 일. 장면이 받는 키와 같아야 한다.
-    static var entries: [(key: String, label: String)] { entries(isSnowDay: false) }
+    static var entries: [(key: String, label: String)] { entries(season: .winter) }
 
-    /// 눈 오는 날에는 C 바로 뒤에 V(눈뭉치)가 끼어든다.
-    static func entries(isSnowDay: Bool) -> [(key: String, label: String)] {
+    /// C 바로 뒤의 V는 계절마다 던지는 것이 다르다(눈뭉치, 꽃잎 뭉치, 물풍선, 낙엽 뭉치).
+    static func entries(season: PlazaSeason) -> [(key: String, label: String)] {
         let l = L(.ko)
         var rows: [(key: String, label: String)] = [
             (l.plazaShortcutArrows, l.plazaShortcutWalk), ("Shift", l.plazaShortcutRun), ("Space", l.plazaShortcutTalk),
@@ -16,7 +16,7 @@ struct PlazaShortcutGuide: View {
             ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("D", l.plazaShortcutDance), ("F", l.plazaShortcutFirework), ("P", l.plazaShortcutPhoto), ("G", l.plazaShortcutGroupPhoto),
             ("A", l.plazaShortcutPray), ("−/+", l.plazaShortcutZoom),
         ]
-        if isSnowDay, let c = rows.firstIndex(where: { $0.key == "C" }) { rows.insert(("V", l.plazaShortcutSnowball), at: c + 1) }
+        if let c = rows.firstIndex(where: { $0.key == "C" }) { rows.insert(("V", l.plazaShortcutThrow(season)), at: c + 1) }
         return rows
     }
 
@@ -39,7 +39,7 @@ struct PlazaShortcutGuide: View {
             .buttonStyle(.plain)
             .focusable(false)
             if !model.isFolded {
-                ForEach(Self.entries(isSnowDay: model.isSnowDay), id: \.key) { entry in
+                ForEach(Self.entries(season: model.season), id: \.key) { entry in
                     HStack(spacing: 6) {
                         Text(entry.key)
                             .padding(.horizontal, 3)
@@ -63,7 +63,7 @@ struct PlazaShortcutGuide: View {
 @MainActor @Observable
 final class PlazaShortcutGuideModel {
     var isFolded = false
-    var isSnowDay = false
+    var season = PlazaSeason.winter
 }
 
 /// 머리줄 단추만 누를 수 있다. 키는 받지 않아 장면이 첫 응답자를 유지한다.

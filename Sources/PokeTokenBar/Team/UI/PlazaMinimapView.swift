@@ -71,7 +71,7 @@ struct PlazaMinimapView: View {
     private func mapLayer(at date: Date, dimmed: Bool) -> some View {
         let minute = PlazaDaylight.minute(of: date)
         let tint = dimmed ? .none : PlazaDaylight.tint(minute: minute, core: model.coreTime)
-        return Image(nsImage: model.snowMapImage ?? mapImage).resizable().interpolation(.medium)
+        return Image(nsImage: model.seasonMapImage ?? mapImage).resizable().interpolation(.medium)
             .colorMultiply(Color(.sRGB, red: tint.red, green: tint.green, blue: tint.blue))
             .saturation(dimmed ? 1 : PlazaDaylight.minimapSaturation(minute: minute, core: model.coreTime))
             .opacity(dimmed ? Self.dimmedMapOpacity : 1)

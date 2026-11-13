@@ -562,7 +562,7 @@ final class TeamSessionTests: XCTestCase {
     func testScheduleChangeReachesTheOtherNode() {
         let a = node("A"), b = node("B")
         connect(a, b)
-        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: clock.now)
         a.session.applySettings()
         XCTAssertNotNil(a.settings.schedule)
         XCTAssertEqual(b.settings.schedule, a.settings.schedule)
@@ -571,7 +571,7 @@ final class TeamSessionTests: XCTestCase {
     func testOlderScheduleIsNotAdoptedAndDoesNotRevert() {
         let a = node("A"), b = node("B")
         connect(a, b)
-        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: clock.now)
         a.session.applySettings()
         let older = PlazaSchedule(coreStart: 1, coreEnd: 2, seasonPeriod: "day", changedAt: clock.now.addingTimeInterval(-60),
                                   changedBy: "zzz", changedByName: "Z")
@@ -584,18 +584,18 @@ final class TeamSessionTests: XCTestCase {
     func testTwoChangesASecondApartConvergeOnTheLater() {
         let a = node("A"), b = node("B")
         connect(a, b)
-        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: clock.now)
         a.session.applySettings()
         clock.advance(1)
-        b.settings.changeSchedule(coreStart: 11, coreEnd: 15, period: .month, now: clock.now)
+        b.settings.changeSchedule(coreStart: 11, coreEnd: 15, season: .spring, now: clock.now)
         b.session.applySettings()
         XCTAssertEqual(a.settings.schedule, b.settings.schedule)
         XCTAssertEqual(a.settings.schedule?.coreStart, 11)
         // The same, made while apart: the later one wins on both once they meet.
         let c = node("C"), d = node("D")
-        c.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        c.settings.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: clock.now)
         clock.advance(1)
-        d.settings.changeSchedule(coreStart: 12, coreEnd: 14, period: .day, now: clock.now)
+        d.settings.changeSchedule(coreStart: 12, coreEnd: 14, season: .winter, now: clock.now)
         connect(c, d)
         XCTAssertEqual(c.settings.schedule?.coreStart, 12)
         XCTAssertEqual(d.settings.schedule?.coreStart, 12)
@@ -605,7 +605,7 @@ final class TeamSessionTests: XCTestCase {
         let a = node("A"), b = node("B"), c = node("C")
         connect(a, b)
         connect(b, c)            // c has no link to a
-        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: clock.now)
         a.session.applySettings()
         XCTAssertEqual(c.settings.schedule, a.settings.schedule)
         let late = node("L")
@@ -654,7 +654,7 @@ final class TeamSessionTests: XCTestCase {
         let oldCode = a.settings.code
         let otherCode = newCode()
         a.settings.code = otherCode
-        b.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        b.settings.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: clock.now)
         b.session.applySettings()
         XCTAssertNil(a.settings.schedule)
         a.settings.code = oldCode
@@ -666,7 +666,7 @@ final class TeamSessionTests: XCTestCase {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.settings.code = newCode()
-        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)   // stored under the new code
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: clock.now)   // stored under the new code
         XCTAssertNotNil(a.settings.schedule)
         a.session.updateTakenItemSlot(1)   // a presence broadcast on the old team's links
         XCTAssertEqual(b.session.members[a.memberID]?.takenItemSlot, 1, "the presence did arrive")
@@ -675,7 +675,7 @@ final class TeamSessionTests: XCTestCase {
 
     func testPresenceWithoutScheduleLeavesMineUnchanged() {
         let a = node("A")
-        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
+        a.settings.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: clock.now)
         let before = a.settings.schedule
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)

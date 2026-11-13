@@ -445,7 +445,7 @@ final class PlazaIceSceneTests: XCTestCase {
         nowSeconds = PlazaWeather.gregorian.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 12))!.timeIntervalSince1970
         let s = scene(start: p(4, 14))
         let plain = PlazaTileArt.plainGrassImage(map)
-        s.snowLook = { PlazaSnowLook(mapImage: plain, tallGrass: nil) }
+        s.seasonLook = { _ in PlazaSnowLook(mapImage: plain, tallGrass: nil) }
         s.refreshSnowDay()
         s.update(0)
         tap(s, rightKey)
@@ -454,7 +454,7 @@ final class PlazaIceSceneTests: XCTestCase {
         run(s, 0.2)
         XCTAssertEqual(s.footprintCount, 0)
         let land = scene(start: p(4, 14))
-        land.snowLook = { PlazaSnowLook(mapImage: plain, tallGrass: nil) }
+        land.seasonLook = { _ in PlazaSnowLook(mapImage: plain, tallGrass: nil) }
         land.refreshSnowDay()
         land.update(0)
         tap(land, upKey)
