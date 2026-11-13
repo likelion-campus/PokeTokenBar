@@ -159,4 +159,15 @@ final class PlazaWalkerTests: XCTestCase {
         d.advance(by: 0.05, canEnter: open)
         XCTAssertTrue(d.isWalking); XCTAssertFalse(d.isSliding)
     }
+
+    func testAPlungeCanTakeAGivenLength() {
+        var w = PlazaWalker(tile: .init(x: 5, y: 5))
+        w.plunge(.right, duration: 0.36)
+        let stepDuration: (TilePoint, TilePoint, Bool) -> TimeInterval = { _, _, _ in 0.15 }
+        w.advance(by: 0.3, canEnter: open, stepDuration: stepDuration)
+        XCTAssertTrue(w.isWalking)
+        w.advance(by: 0.07, canEnter: open, stepDuration: stepDuration)
+        XCTAssertFalse(w.isWalking)
+        XCTAssertEqual(w.tile, .init(x: 6, y: 5))
+    }
 }

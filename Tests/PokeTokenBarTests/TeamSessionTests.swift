@@ -807,6 +807,22 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(b.session.members[a.memberID]?.mimicOf)
     }
 
+    func testABreakingJumpCarriesItsBreak() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let x = PlazaIceBreak(pond: TilePoint(x: 5, y: 13), turn: 9_960_000)
+        a.session.sendEmote(.jump, target: nil, iceBreak: x)
+        XCTAssertEqual(b.emotes.first?.emote.iceBreak, x)
+    }
+
+    func testMyLastBreakTravelsInPresence() {
+        let a = node("A"), b = node("B")
+        connect(a, b)
+        let x = PlazaIceBreak(pond: TilePoint(x: 5, y: 13), turn: 9_960_000)
+        a.session.updateIceBreak(x)
+        XCTAssertEqual(b.session.members[a.memberID]?.iceBreak, x)
+    }
+
     func testPresenceCarriesMyUsageAndSendsOnlyOnChange() {
         let a = node("A"), b = node("B")
         connect(a, b)

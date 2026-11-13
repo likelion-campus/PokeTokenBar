@@ -55,6 +55,25 @@ enum PlazaResources {
         return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
+    static func iceCrackSheet(in bundle: Bundle?) -> CGImage? {
+        guard let url = resourceURL("plaza-ice-cracks", "png", in: bundle),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    static func iceGlossSheet(in bundle: Bundle?) -> CGImage? {
+        guard let url = resourceURL("plaza-ice-gloss", "png", in: bundle),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    /// Every frame of the shattering-boulder gif; empty when the file is missing.
+    static func iceShatterFrames(in bundle: Bundle?) -> [CGImage] {
+        guard let url = resourceURL("plaza-ice-shatter", "gif", in: bundle),
+              let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return [] }
+        return (0..<CGImageSourceGetCount(source)).compactMap { CGImageSourceCreateImageAtIndex(source, $0, nil) }
+    }
+
     /// Registered once, lazily (static let initializers run once and are thread safe).
     private static let defaultRegistration: Bool = registerFonts(in: resourceBundle())
 

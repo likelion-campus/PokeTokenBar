@@ -86,6 +86,8 @@ final class PlazaDittoControllerTests: XCTestCase {
                             myEntry: PlazaRosterEntry? = nil, clock: @escaping () -> Date = Date.init) -> PlazaWindowController {
         let prefs = PlazaPreferences(defaults: defaults())
         if let start { prefs.saveLastTile(start) }
+        // No pond is frozen here: these tests walk into the water.
+        prefs.iceBreak = PlazaIceBreak(pond: TilePoint(x: 5, y: 13), turn: PlazaIce.turn(at: clock()))
         return PlazaWindowController(preferences: prefs,
                               loader: PlazaCharacterLoader(fetcher: fetcher),
                               nickname: { nickname }, memberID: { me.settings.memberID },

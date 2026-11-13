@@ -7,6 +7,7 @@ import Foundation
     private static let backgroundHiddenKey = "team.plaza.backgroundHidden"
     private static let shortcutsFoldedKey = "team.plaza.shortcutsFolded"
     private static let focusKey = "team.plaza.focus"
+    private static let iceBreakKey = "team.plaza.iceBreak"
     private static let takenItemSlotsKey = "team.plaza.takenItemSlots"
 
     private let defaults: UserDefaults
@@ -53,6 +54,21 @@ import Foundation
                 return
             }
             defaults.set(data, forKey: Self.focusKey)
+        }
+    }
+
+    /// 마지막으로 안 얼음 깨짐. nil을 넣으면 저장값을 지운다.
+    var iceBreak: PlazaIceBreak? {
+        get {
+            guard let data = defaults.data(forKey: Self.iceBreakKey) else { return nil }
+            return try? JSONDecoder().decode(PlazaIceBreak.self, from: data)
+        }
+        set {
+            guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
+                defaults.removeObject(forKey: Self.iceBreakKey)
+                return
+            }
+            defaults.set(data, forKey: Self.iceBreakKey)
         }
     }
 

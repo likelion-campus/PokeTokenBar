@@ -15,7 +15,8 @@ enum PlazaPathfinder {
 
     /// `target` 바로 옆 칸에서 끝나는 가장 짧은 길. 이미 옆이면 빈 길, 갈 수 없으면 nil.
     static func path(from start: TilePoint, toNextTo target: TilePoint, map: PlazaMap,
-                     blocked: Set<TilePoint> = []) -> [PlazaDirection]? {
+                     blocked: Set<TilePoint> = [], isWalkable: ((TilePoint) -> Bool)? = nil) -> [PlazaDirection]? {
+        let walkable = isWalkable ?? { map.isWalkable($0) }
         if isAdjacent(start, target) { return [] }
         var previous: [TilePoint: (TilePoint, PlazaDirection)] = [:]
         var seen: Set<TilePoint> = [start]
@@ -25,7 +26,7 @@ enum PlazaPathfinder {
             head += 1
             for d in [PlazaDirection.up, .down, .left, .right] {
                 let n = PlazaWalker.offset(p, d)
-                guard map.isWalkable(n), !blocked.contains(n), seen.insert(n).inserted else { continue }
+                guard walkable(n), !blocked.contains(n), seen.insert(n).inserted else { continue }
                 previous[n] = (p, d)
                 if isAdjacent(n, target) && n != target {
                     var steps: [PlazaDirection] = []

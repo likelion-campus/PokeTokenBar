@@ -52,6 +52,7 @@ struct PlazaPhotoParticle {
     let image: CGImage
     let origin: CGPoint
     let size: CGSize
+    var alpha: CGFloat = 1
 }
 
 /// 캐릭터와 같은 앞뒤 순서로 찍히는 물건(모닥불). `baseY`는 바닥 변의 월드 y로, 발 y가 이보다 작은 캐릭터는 뒤에 찍힌다.
@@ -73,6 +74,8 @@ struct PlazaPhotoInput {
     var weather: [PlazaPhotoParticle] = []
     /// 땅에 떨어진 아이템. 그림자 위, 캐릭터 아래.
     var items: [PlazaPhotoParticle] = []
+    /// 언 연못의 얼음과 보이는 금. 지도 바로 위에 각자의 알파로 찍는다(파편은 찍지 않는다).
+    var ice: [PlazaPhotoParticle] = []
     /// 풀숲 앞 띠. 캐릭터와 `foot.y`/`sortY` 키 순서로 섞어 그린다.
     var bands: [PlazaPhotoBand] = []
     /// 캐릭터와 앞뒤를 겨루는 물건. 발 y가 같으면 물건이 뒤.
@@ -138,6 +141,13 @@ enum PlazaPhotoRenderer {
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
         draw(input.mapImage, x: px(0, origin: rect.minX), top: px(0, origin: rect.minY),
              w: Int((CGFloat(input.mapImage.width) * ppw).rounded()), h: Int((CGFloat(input.mapImage.height) * ppw).rounded()))
+
+        for p in input.ice {
+            context.setAlpha(p.alpha)
+            draw(p.image, x: px(p.origin.x, origin: rect.minX), top: px(p.origin.y, origin: rect.minY),
+                 w: Int((p.size.width * ppw).rounded()), h: Int((p.size.height * ppw).rounded()))
+        }
+        context.setAlpha(1)
 
         for a in input.actors {
             guard let shadow = a.shadow, a.sink <= 0, !a.eggSunk else { continue }

@@ -337,6 +337,19 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(s.sparkleCount, 0)
     }
 
+    func testIceLandingsAddNothingWhileTheSceneIsPaused() {
+        let map = PlazaMapData.map
+        let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나",
+                           iceArt: PlazaIceArt.none)
+        s.applyMembers([PlazaSceneMember(memberID: "A", nickname: "A", isAway: false, tile: map.spawn, facing: .down, isWalking: false)])
+        s.isPaused = true
+        let before = s.children.count
+        let anchor = PlazaIce.ponds(in: map)[0].anchor
+        for _ in 0..<50 { s.queueIceLanding(PlazaIceBreak(pond: anchor, turn: 1), jumper: "A") }
+        XCTAssertEqual(s.children.count, before)
+        XCTAssertEqual(s.iceLandingCount, 0)
+    }
+
     func testEffectsStillPlayOnAVisibleScene() {
         let jump = scene(), tackle = scene(), sparkle = scene()
         let before = jump.children.count
