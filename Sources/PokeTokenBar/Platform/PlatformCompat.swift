@@ -55,6 +55,15 @@ enum PlatformCompat {
 
     /// Keeps the app from being throttled while a refresh runs (App Nap). Idle system sleep stays allowed.
     /// nil on Windows.
+    /// Whether `beginActivity` returns a token on this system.
+    static var holdsActivities: Bool {
+        #if os(Windows)
+        return false
+        #else
+        return true
+        #endif
+    }
+
     static func beginActivity(reason: String) -> AnyObject? {
         #if os(Windows)
         return nil

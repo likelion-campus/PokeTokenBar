@@ -42,6 +42,12 @@ final class PlatformCompatTests: XCTestCase {
 
     func testActivityTokenRoundTrips() {
         let token = PlatformCompat.beginActivity(reason: "PlatformCompatTests")
+        if PlatformCompat.holdsActivities {
+            XCTAssertNotNil(token)
+            XCTAssertTrue(token is NSObjectProtocol, "endActivity would drop this token and leave the activity open")
+        } else {
+            XCTAssertNil(token)
+        }
         PlatformCompat.endActivity(token)
         PlatformCompat.endActivity(nil)
     }
