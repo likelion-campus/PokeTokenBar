@@ -2,12 +2,15 @@
 // DNS-SD through the built-in windns API, TCP through Winsock, TLS 1.2 PSK through OpenSSL.
 //   ptbprobe serve <code> [--once]
 //   ptbprobe browse <code> [--host <host> --port <port>] [--once]
+#define UNICODE
+#define _UNICODE
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <windns.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +36,7 @@ static void say(const char *fmt, ...) {
 static void derive_key(const char *code) {
     const char *info = "poketokenbar.team.psk.v1";
     unsigned int n = 0;
+    say("deriving key");
     HMAC(EVP_sha256(), code, (int)strlen(code), (const unsigned char *)info, strlen(info), g_key, &n);
     unsigned char digest[32]; SHA256(g_key, 32, digest);
     char hex[17]; for (int i = 0; i < 8; i++) sprintf(hex + i * 2, "%02x", digest[i]);
@@ -101,7 +105,7 @@ static int connect_host(const char *host, unsigned short port) {
     for (struct addrinfo *a = res; a; a = a->ai_next) {
         SOCKET s = socket(a->ai_family, a->ai_socktype, a->ai_protocol);
         if (connect(s, a->ai_addr, (int)a->ai_addrlen) == 0) {
-            char label[300]; sprintf(label, "%s:%u (%s)", host, port, a->ai_family == AF_INET6 ? "IPv6" : "IPv4");
+            char label[400]; sprintf(label, "%s:%u (%s)", host, port, a->ai_family == AF_INET6 ? "IPv6" : "IPv4");
             int ok = talk(s, label); closesocket(s); freeaddrinfo(res); return ok;
         }
         say("FAIL TCP %s:%u family %d wsa %d", host, port, a->ai_family, WSAGetLastError());

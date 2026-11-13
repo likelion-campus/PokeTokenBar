@@ -64,13 +64,13 @@ jobs:
           cd spike/probe
           ./ptbprobe.exe serve CITEST --once > serve.log 2>&1 &
           sleep 3
-          ./ptbprobe.exe browse CITEST --once > browse.log 2>&1 || true
+          ./ptbprobe.exe browse CITEST --once > browse.log 2>&1 || echo "browse exit $?"
           sleep 2
           echo "--- serve"; cat serve.log; echo "--- browse"; cat browse.log
           echo "--- direct"; port=$(grep -oE "LISTENING port [0-9]+" serve.log | grep -oE "[0-9]+$" || true)
           ./ptbprobe.exe serve CITEST --once > serve2.log 2>&1 &
           sleep 2; port=$(grep -oE "LISTENING port [0-9]+" serve2.log | grep -oE "[0-9]+$")
-          ./ptbprobe.exe browse CITEST --host 127.0.0.1 --port "$port" --once; cat serve2.log
+          ./ptbprobe.exe browse CITEST --host 127.0.0.1 --port "$port" --once || echo "direct exit $?"; cat serve2.log
       - uses: actions/upload-artifact@v4
         with:
           name: ptbprobe-win-x64
