@@ -8,6 +8,7 @@ import Foundation
     private static let shortcutsFoldedKey = "team.plaza.shortcutsFolded"
     private static let focusKey = "team.plaza.focus"
     private static let iceBreakKey = "team.plaza.iceBreak"
+    private static let campfireKey = "team.plaza.campfire"
     private static let takenItemSlotsKey = "team.plaza.takenItemSlots"
     private static let activityKey = "team.plaza.activity"
 
@@ -70,6 +71,21 @@ import Foundation
                 return
             }
             defaults.set(data, forKey: Self.iceBreakKey)
+        }
+    }
+
+    /// 마지막으로 안 모닥불 스위치. nil을 넣으면 저장값을 지운다.
+    var campfire: PlazaCampfireSwitch? {
+        get {
+            guard let data = defaults.data(forKey: Self.campfireKey) else { return nil }
+            return try? JSONDecoder().decode(PlazaCampfireSwitch.self, from: data)
+        }
+        set {
+            guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
+                defaults.removeObject(forKey: Self.campfireKey)
+                return
+            }
+            defaults.set(data, forKey: Self.campfireKey)
         }
     }
 

@@ -144,6 +144,17 @@ final class TeamHostilePeerTests: XCTestCase {
         }
     }
 
+    /// A campfire switch of the wrong shape is dropped without hurting the rest of the presence.
+    func testAMalformedCampfireSwitchIsDropped() throws {
+        let peer = join("hostile")
+        for bad in [#"7"#, #"{"lit":"yes","at":1}"#, #"{"lit":true}"#, #"{"lit":true,"at":"now"}"#] {
+            let json = #"{"presence":{"_0":{"nickname":"x","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":7,"y":8},"facing":"left","isWalking":true,"campfire":\#(bad)}}}"#
+            say(try JSONDecoder().decode(TeamMessage.self, from: Data(json.utf8)), from: peer)
+            XCTAssertNil(session.members["hostile"]?.campfire, bad)
+            XCTAssertEqual(session.members["hostile"]?.tile, TilePoint(x: 7, y: 8), "the rest of the presence still applies")
+        }
+    }
+
     /// A modified app can send any numbers. They are kept in range.
     func testAbsurdActivityNumbersAreBounded() {
         let peer = join("hostile")
