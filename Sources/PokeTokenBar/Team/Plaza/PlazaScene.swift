@@ -263,6 +263,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private let footprintLayer: PlazaFootprintLayer
     private let snowballLayer: PlazaSnowballLayer
     var snowballFlightCount: Int { snowballLayer.flightCount }
+    var snowballBallSizes: [CGSize] { snowballLayer.ballSizes }
     var snowballNodeCount: Int { snowballLayer.nodeCount }
     var snowballSpriteCount: Int { snowballLayer.shownSpriteCount }
     var footprintCount: Int { footprintLayer.count }
@@ -1965,6 +1966,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용: 지금 그리는 지도 그림.
     var shownMapImage: CGImage { mapImage }
 
+    private static let waterBalloon = PlazaResources.waterBalloon()
+
     /// 계절과 보이는 모습을 맞춘다. `update`(달력을 따르는 계절은 날이 바뀌며 바뀐다)와 계절 변경, 컨트롤러가 부른다.
     func refreshSnowDay() {
         let s = season
@@ -1982,6 +1985,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         iceLayer?.setMapImage(image)
         if let grass { tallGrassLayer?.setArt(grass) }
         shownSeason = s
+        snowballLayer.setArt(PlazaSnowballArt.pieces(s, balloon: PlazaScene.waterBalloon))
         if s != .winter { footprintLayer.removeAll() }
         refreshIce(hit: nil)
         onSeasonChange?(s)

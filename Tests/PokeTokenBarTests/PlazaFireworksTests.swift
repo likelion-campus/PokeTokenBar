@@ -435,7 +435,7 @@ final class PlazaFireworksTests: XCTestCase {
 
     private func guideSize(snowDay: Bool = false) throws -> CGSize {
         let model = PlazaShortcutGuideModel()
-        model.isSnowDay = snowDay
+        model.season = snowDay ? .winter : .summer
         let renderer = ImageRenderer(content: PlazaShortcutGuide(model: model, toggle: {}))
         renderer.scale = 1
         return try XCTUnwrap(renderer.nsImage?.size)

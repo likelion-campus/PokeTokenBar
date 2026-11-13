@@ -142,6 +142,64 @@ final class PlazaSeasonTests: XCTestCase {
         XCTAssertTrue(s.isMeInWater)
     }
 
+    // MARK: 던지는 것
+
+    private func colours(_ image: CGImage) -> Set<UInt32> {
+        let (w, h) = (image.width, image.height)
+        var raw = [UInt8](repeating: 0, count: w * h * 4)
+        let ctx = CGContext(data: &raw, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        var found = Set<UInt32>()
+        for i in stride(from: 0, to: raw.count, by: 4) where raw[i + 3] == 255 {
+            found.insert(UInt32(raw[i]) << 16 | UInt32(raw[i + 1]) << 8 | UInt32(raw[i + 2]))
+        }
+        return found
+    }
+
+    func testEachSeasonThrowsItsOwnColoursInTheSnowballsShapes() {
+        let snow = PlazaSnowballArt.pieces(.winter)
+        let want: [PlazaSeason: Set<UInt32>] = [.spring: [0xFDDCE6, 0xF2A0BC, 0xB85A80], .summer: [0xD6F0FF, 0x6CB8F0, 0x2E78C0],
+                                                .autumn: [0xF2A63C, 0xC4521E, 0x6E3A10], .winter: [0xF6FAFF, 0xC6DAF0, 0x8DA3BF]]
+        for season in PlazaSeason.allCases {
+            let pieces = PlazaSnowballArt.pieces(season)
+            XCTAssertEqual(pieces.map(\.scale), [4, 4, 4])
+            XCTAssertEqual(pieces.map(\.image.width), snow.map(\.image.width), "\(season)")
+            XCTAssertEqual(pieces.map(\.image.height), snow.map(\.image.height), "\(season)")
+            XCTAssertEqual(pieces.map { colours($0.image) }.reduce(Set()) { $0.union($1) }, want[season], "\(season)")
+        }
+    }
+
+    func testSummerThrowsTheWaterBalloonPictureAsItIsAndOnlyInSummer() throws {
+        let balloon = try XCTUnwrap(PlazaResources.waterBalloon(), "the bundled picture loads")
+        XCTAssertEqual([balloon.width, balloon.height], [14, 18])
+        let summer = PlazaSnowballArt.pieces(.summer, balloon: balloon)
+        XCTAssertTrue(summer[0].image === balloon)
+        XCTAssertEqual(summer.map(\.scale), [1, 4, 4], "one picture pixel is one world pixel; the droplets keep the grid scale")
+        for season in [PlazaSeason.spring, .autumn, .winter] {
+            XCTAssertFalse(PlazaSnowballArt.pieces(season, balloon: balloon).contains { $0.image === balloon }, "\(season)")
+        }
+    }
+
+    func testTheFlyingThingChangesWithTheSeason() throws {
+        let s = scene()
+        s.refreshSnowDay()
+        s.update(0)
+        func ballSize() throws -> CGSize {
+            let shot = PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))
+            let before = Set(s.snowballBallSizes.map { "\($0)" })
+            s.playSnowball(by: nil, shot: shot) {}
+            return try XCTUnwrap(s.snowballBallSizes.first { !before.contains("\($0)") } ?? s.snowballBallSizes.last)
+        }
+        XCTAssertEqual(try ballSize(), CGSize(width: 16, height: 16), "a snowball is a 4×4 grid of 4-pixel cells")
+        s.seasonChoice = .summer
+        XCTAssertEqual(s.snowballBallSizes, [CGSize(width: 14, height: 18)], "the ball already in the air turns too")
+        XCTAssertEqual(try ballSize(), CGSize(width: 14, height: 18))
+        s.seasonChoice = .autumn
+        XCTAssertEqual(Set(s.snowballBallSizes.map { "\($0)" }).count, 1)
+        XCTAssertEqual(s.snowballBallSizes.first, CGSize(width: 16, height: 16))
+    }
+
     // MARK: 색
 
     func testSpringAndAutumnRecolourTheSheetAndSummerLeavesItAlone() throws {
@@ -189,14 +247,17 @@ final class PlazaSeasonTests: XCTestCase {
                       changedBy: "m", changedByName: "민수")
     }
 
-    func testTheTeamsSeasonReachesThePlazaAndTheSnowballKeyIsWinterOnly() throws {
+    func testTheTeamsSeasonReachesThePlazaAndNamesWhatVThrows() throws {
         var current: PlazaSchedule? = schedule("summer")
         let plaza = controller { current }
         plaza.prepareScene()
         let s = try XCTUnwrap(plaza.scene)
         XCTAssertEqual(s.shownSeason, .summer)
         XCTAssertNil(s.frozenPondAnchor)
-        XCTAssertFalse(plaza.shortcutsShowSnowball)
+        XCTAssertEqual(plaza.shortcutThrowLabel, "물풍선")
+        s.update(0)
+        s.handleKeyDown(keyCode: 9, characters: "v", isRepeat: false)
+        XCTAssertEqual(s.snowballFlightCount, 1, "V throws in summer too")
         XCTAssertFalse(plaza.minimapShowsSnow)
         current = schedule("auto")
         plaza.applySchedule()
@@ -208,7 +269,7 @@ final class PlazaSeasonTests: XCTestCase {
             current = schedule(word)
             plaza.applySchedule()
             XCTAssertEqual(s.shownSeason, .winter, word)
-            XCTAssertTrue(plaza.shortcutsShowSnowball, word)
+            XCTAssertEqual(plaza.shortcutThrowLabel, "눈뭉치", word)
             XCTAssertTrue(plaza.minimapShowsSnow, word)
         }
         current = nil

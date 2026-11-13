@@ -160,21 +160,23 @@ final class PlazaEmoteTests: XCTestCase {
     /// The top-left guide lists every key the plaza answers to.
     func testShortcutGuideListsEveryKey() {
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.key),
-                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "D", "F", "P", "G", "A", "−/+"])
+                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "V", "D", "F", "P", "G", "A", "−/+"])
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.label),
-                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프 · 물놀이", "인사하기", "몸통박치기", "춤", "불꽃놀이", "사진 모드", "단체 사진", "기도(알)", "확대·축소"])
+                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프 · 물놀이", "인사하기", "몸통박치기", "눈뭉치", "춤", "불꽃놀이", "사진 모드", "단체 사진", "기도(알)", "확대·축소"])
     }
 
     /// On snow days the guide gains a V row right after C.
     func testShortcutGuideAddsVOnSnowDays() {
-        var keys = PlazaShortcutGuide.entries.map(\.key), labels = PlazaShortcutGuide.entries.map(\.label)
-        let at = keys.firstIndex(of: "C")! + 1
-        keys.insert("V", at: at)
-        labels.insert("눈뭉치", at: at)
-        let snow = PlazaShortcutGuide.entries(isSnowDay: true)
-        XCTAssertEqual(snow.map(\.key), keys)
-        XCTAssertEqual(snow.map(\.label), labels)
+        let snow = PlazaShortcutGuide.entries
+        let at = snow.firstIndex { $0.key == "C" }! + 1
+        XCTAssertEqual(snow[at].key, "V")
+        XCTAssertEqual(snow[at].label, "눈뭉치")
         XCTAssertEqual(Set(snow.map(\.key)).count, snow.count)
+        for (season, label) in [(PlazaSeason.spring, "꽃잎 뭉치"), (.summer, "물풍선"), (.autumn, "낙엽 뭉치"), (.winter, "눈뭉치")] {
+            let rows = PlazaShortcutGuide.entries(season: season)
+            XCTAssertEqual(rows.map(\.key), snow.map(\.key), "the same keys in every season")
+            XCTAssertEqual(rows[at].label, label)
+        }
     }
 
     /// The guide's rows are identified by key, so a repeated key would draw the first row twice.

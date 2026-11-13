@@ -125,7 +125,14 @@ extension L {
     var plazaMenuTackle: String { "몸통박치기" }
     var plazaJump: String { "점프 · 물놀이" }
     var plazaShortcutsTitle: String { "단축키" }
-    var plazaShortcutSnowball: String { "눈뭉치" }
+    func plazaShortcutThrow(_ season: PlazaSeason) -> String {
+        switch season {
+        case .spring: "꽃잎 뭉치"
+        case .summer: "물풍선"
+        case .autumn: "낙엽 뭉치"
+        case .winter: "눈뭉치"
+        }
+    }
     var plazaShortcutArrows: String { "방향키" }
     var plazaShortcutWalk: String { "걷기" }
     var plazaShortcutRun: String { "달리기" }
@@ -187,7 +194,7 @@ extension L {
     var plazaActivityIceBreaks: String { "얼음 깬 횟수" }
     var plazaActivityFireworks: String { "폭죽" }
     var plazaActivityTackles: String { "몸통박치기" }
-    var plazaActivitySnowballHits: String { "눈뭉치 맞힌 횟수" }
+    var plazaActivitySnowballHits: String { "던져서 맞힌 횟수" }
     var plazaActivityGreetings: String { "인사" }
     var plazaActivityPickups: String { "주운 아이템" }
     var plazaActivityNone: String { "기록 없음" }

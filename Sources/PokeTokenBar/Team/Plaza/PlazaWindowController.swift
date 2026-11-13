@@ -184,11 +184,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     private func seasonChanged(_ season: PlazaSeason) {
         minimap.seasonMapImage = Self.seasonLook(for: map, season: season).map { NSImage(cgImage: $0.mapImage, size: .zero) }
-        shortcutModel.isSnowDay = season == .winter
+        shortcutModel.season = season
     }
 
-    /// 테스트용: 단축키 안내에 V(눈뭉치) 줄이 보이는가.
-    var shortcutsShowSnowball: Bool { shortcutModel.isSnowDay }
+    /// 테스트용: 단축키 안내의 V 줄에 적힌 던지는 것.
+    var shortcutThrowLabel: String? { PlazaShortcutGuide.entries(season: shortcutModel.season).first { $0.key == "V" }?.label }
 
     var minimapShowsSnow: Bool { minimap.seasonMapImage != nil && scene?.isSnowShown == true }
 
@@ -1205,7 +1205,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// V. 눈 오는 날에 바라보는 쪽으로 눈덩이를 던지고 팀원들에게 보낸다. 돌아서지 않는다. 집중 중, 알, 헤엄치는 중, 바로 앞이 막혔을 때는
     /// 아무것도 안 한다. 말풍선 키와 같은 연타 제한을 쓴다. 메타몽 모습이나 복사본을 맞히면 눈덩이가 닿을 때 몸통박치기처럼 반응한다.
     private func handleSnowballKey() {
-        guard let scene, scene.isSnowDay, !isFocusing, scene.canWalk, !scene.isMeInWater else { return }
+        guard let scene, !isFocusing, scene.canWalk, !scene.isMeInWater else { return }
         let facing = scene.walker.facing
         guard let shot = PlazaSnowball.aim(from: scene.walker.tile, facing: facing, targets: scene.snowballTargets, map: map) else { return }
         let now = clock()
@@ -1239,7 +1239,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 눈덩이가 닿을 때 `direction`으로 `tiles`칸 밀린다. 닿기 전에 창이 가려져도 눈덩이는 바로 닿는다. 눈 오는 날이 아니거나 방향이 없거나
     /// 던진 팀원이 내 광장에 보이지 않으면 버린다. 그린 자리에 없는 표적(모르는 ID, 잠수 중인 팀원)은 빗나간 것으로 날아간다.
     func showSnowball(from sender: String, on target: String?, tiles: Int, direction: PlazaDirection?) {
-        guard let scene, let direction, scene.isSnowDay, let from = scene.memberTiles[sender] else { return }
+        guard let scene, let direction, let from = scene.memberTiles[sender] else { return }
         let isMe = target == memberID()
         let isDitto = target == PlazaDitto.sceneKey
         let resolved: (id: String?, tile: TilePoint)?
