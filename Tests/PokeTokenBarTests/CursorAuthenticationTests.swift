@@ -18,16 +18,14 @@ final class CursorAuthenticationTests: XCTestCase {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("CursorAuth-\(UUID().uuidString)")
         root = directory.appendingPathComponent("Stable")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let tag = "\(name) \(directory.lastPathComponent)"
-        print("DIAG setUp \(tag)")
         CursorAuthentication.configurationForTesting = .init(roots: [root])
         CursorAuthentication.resetForTesting()
         CursorUsageAPI.cacheFileURLForTesting = directory.appendingPathComponent("usage-cache.json")
         CursorUsageAPI.resetCacheForTesting()
         // An unexpected request fails locally; no test may fall through to a user's credentials.
         CursorAuthentication.transportForTesting = { _ in XCTFail("unexpected refresh"); return nil }
-        CursorUsageAPI.transportForTesting = { r in print("DIAG foreign usage request: \(r.url?.absoluteString ?? "") tag=\(tag)"); XCTFail("unexpected usage request"); return nil }
-        CursorRateLimitsProvider.transportForTesting = { r in print("DIAG foreign limits request in \(tag): \(r.url?.absoluteString ?? "") auth=\(r.value(forHTTPHeaderField: "Authorization") ?? "-") "); XCTFail("unexpected limits request"); return nil }
+        CursorUsageAPI.transportForTesting = { _ in XCTFail("unexpected usage request"); return nil }
+        CursorRateLimitsProvider.transportForTesting = { _ in XCTFail("unexpected limits request"); return nil }
     }
 
     override func tearDownWithError() throws {
@@ -38,10 +36,11 @@ final class CursorAuthenticationTests: XCTestCase {
         CursorUsageAPI.cacheFileURLForTesting = nil
         CursorUsageAPI.resetCacheForTesting()
         CursorRateLimitsProvider.transportForTesting = nil
-        // TEMP-DIAG
+        // Windows can briefly refuse to delete a just-written database (a scanner or the closing handle still holds
+        // it; seen once on CI as "permission denied" on state.vscdb). Retry before failing.
         for attempt in 0..<5 {
-            do { try FileManager.default.removeItem(at: directory); if attempt > 0 { print("DIAG remove ok after retry \(attempt)") }; break }
-            catch { print("DIAG remove attempt \(attempt) failed: \(error)"); Thread.sleep(forTimeInterval: 0.3); if attempt == 4 { throw error } }
+            do { try FileManager.default.removeItem(at: directory); break }
+            catch { if attempt == 4 { throw error }; Thread.sleep(forTimeInterval: 0.3) }
         }
         directory = nil
         root = nil
@@ -318,12 +317,10 @@ final class CursorAuthenticationTests: XCTestCase {
     private func seed(_ root: URL, access: String?, refresh: String?) throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         var db: OpaquePointer?
-        let rcOpen = sqlite3_open(root.appendingPathComponent("state.vscdb").path, &db)
-        XCTAssertEqual(rcOpen, SQLITE_OK)
+        XCTAssertEqual(sqlite3_open(root.appendingPathComponent("state.vscdb").path, &db), SQLITE_OK)
         defer { sqlite3_close(db) }
-        let rcCreate = sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE, value BLOB); DELETE FROM ItemTable;", nil, nil, nil)
-        if rcOpen != SQLITE_OK || rcCreate != SQLITE_OK { print("DIAG seed \(root.path) open=\(rcOpen) create=\(rcCreate) msg=\(db.map { String(cString: sqlite3_errmsg($0)) } ?? "nil")") }
-        XCTAssertEqual(rcCreate, SQLITE_OK)
+        sqlite3_busy_timeout(db, 2000)   // Windows can report SQLITE_BUSY on a fresh file while it is still being scanned
+        XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE, value BLOB); DELETE FROM ItemTable;", nil, nil, nil), SQLITE_OK)
         for (key, value) in [("cursorAuth/accessToken", access), ("cursorAuth/refreshToken", refresh)] {
             guard let value else { continue }
             XCTAssertEqual(sqlite3_exec(db, "INSERT INTO ItemTable VALUES ('\(key)', '\(value)');", nil, nil, nil), SQLITE_OK)
