@@ -8,26 +8,14 @@ import SpriteKit
     private var images: [CGImage] = []
     private var textures: [SKTexture] = []
     private var sprites: [SKSpriteNode] = []
-    /// 오늘의 날씨. 날이 바뀔 때까지 달력을 다시 계산하지 않는다.
-    private var day: (interval: DateInterval, period: PlazaWeather.Period, kind: PlazaWeather.Kind)?
 
     /// `visible`은 보이는 영역(장면 좌표)이고, `step`은 기기 픽셀 하나의 월드 크기. 숨기면 입자를 걷는다.
-    func update(date: Date, isHidden: Bool, dt: TimeInterval, period: PlazaWeather.Period = .day, visible: CGRect, step: CGFloat) {
-        let wanted = isHidden ? PlazaWeather.Kind.clear : kind(at: date, period: period)
+    func update(weather: PlazaWeather.Kind, isHidden: Bool, dt: TimeInterval, visible: CGRect, step: CGFloat) {
+        let wanted = isHidden ? PlazaWeather.Kind.clear : weather
         let count = PlazaWeather.count(wanted, area: visible.width * visible.height)
         if wanted != kind || count != sprites.count { rebuild(wanted, count: count, visible: visible) }
         field?.advance(by: dt, in: visible)
         place(step: step)
-    }
-
-    /// 그날의 날씨. 배경을 숨겨도 그대로라 눈 오는 날을 가릴 때 쓴다.
-    func kind(at date: Date, period: PlazaWeather.Period) -> PlazaWeather.Kind {
-        // DateInterval.contains 는 끝을 포함해 자정 0시가 어제로 읽힌다. 끝은 빼고 비교한다.
-        if let day, day.period == period, date >= day.interval.start, date < day.interval.end { return day.kind }
-        let calendar = PlazaWeather.gregorian   // 일본력·불기여도 날씨는 같아야 한다
-        let k = PlazaWeather.kind(on: date, calendar: calendar, period: period)
-        day = calendar.dateInterval(of: .day, for: date).map { ($0, period, k) }
-        return k
     }
 
     private func rebuild(_ wanted: PlazaWeather.Kind, count: Int, visible: CGRect) {

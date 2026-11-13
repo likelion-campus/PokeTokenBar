@@ -34,6 +34,8 @@ struct TeamMemberState: Equatable, Sendable {
     var mimicSeenAt: Date?
     /// The last ice break they know, as received; the plaza filters it.
     var iceBreak: PlazaIceBreak?
+    /// The last campfire switch they know, as received; the plaza filters it.
+    var campfire: PlazaCampfireSwitch?
     /// What they did in the plaza today, kept within `PlazaActivity.bounded`. nil from an earlier version.
     var activity: PlazaActivity?
 }
@@ -125,6 +127,7 @@ final class TeamSession {
     @ObservationIgnored private var dittoState: PlazaDittoState?
     @ObservationIgnored private var mimicOf: String?
     @ObservationIgnored private var iceBreak: PlazaIceBreak?
+    @ObservationIgnored private var campfire: PlazaCampfireSwitch?
     /// My plaza activity as last handed over; teammates get it with every presence.
     @ObservationIgnored private(set) var activity: PlazaActivity?
     @ObservationIgnored private var activitySentAt: Date?
@@ -308,6 +311,13 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
+    /// The last plaza campfire switch I know (nil: none), told to teammates in my presence.
+    func updateCampfire(_ s: PlazaCampfireSwitch?) {
+        guard s != campfire else { return }
+        campfire = s
+        broadcast(.presence(makePresence()))
+    }
+
     /// My plaza activity, told to teammates in my presence. A new count or day goes out at once; a change in time alone
     /// waits until a minute has passed since the last one sent here.
     func updateActivity(_ new: PlazaActivity) {
@@ -411,6 +421,7 @@ final class TeamSession {
             if mimic != member.mimicOf { member.mimicSeenAt = mimic == nil ? nil : clock() }
             member.mimicOf = mimic
             member.iceBreak = presence.iceBreak
+            member.campfire = presence.campfire
             member.activity = presence.activity?.bounded
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
@@ -521,7 +532,8 @@ final class TeamSession {
                      focusEndsAt: focusEndsAt,
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
                      schedule: settings.code == knownCode ? settings.schedule : nil,
-                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, activity: activity)
+                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, campfire: campfire,
+                     activity: activity)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

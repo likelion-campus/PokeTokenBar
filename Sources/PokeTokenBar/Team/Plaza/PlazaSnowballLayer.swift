@@ -28,24 +28,42 @@ struct PlazaSnowballFlight {
     private var flights: [Flight] = []
     private var pool: [SKSpriteNode] = []
     private var created = 0
-    private let textures: [SKTexture]
+    private var textures: [SKTexture] = []
+    /// 그림마다, 그림 한 픽셀의 월드 픽셀 수.
+    private var scales: [CGFloat] = []
     private let shadowTexture: SKTexture
+
+    private static func nearest(_ image: CGImage) -> SKTexture {
+        let t = SKTexture(cgImage: image)
+        t.filteringMode = .nearest
+        return t
+    }
+
+    /// 던지는 것과 터짐 그림을 바꾼다(계절이 바뀔 때). 이미 날고 있는 것은 다음 프레임부터 새 그림이다.
+    func setArt(_ pieces: [PlazaSnowballArt.Piece]) {
+        textures = pieces.map { Self.nearest($0.image) }
+        scales = pieces.map(\.scale)
+        for f in flights { f.ball.map { resize($0, glyph: 0) } }
+    }
+
+    private func resize(_ node: SKSpriteNode, glyph: Int) {
+        node.texture = textures[glyph]
+        node.size = CGSize(width: textures[glyph].size().width * scales[glyph], height: textures[glyph].size().height * scales[glyph])
+    }
 
     init(worldHeight: CGFloat) {
         self.worldHeight = worldHeight
-        func nearest(_ image: CGImage) -> SKTexture {
-            let t = SKTexture(cgImage: image)
-            t.filteringMode = .nearest
-            return t
-        }
-        textures = PlazaSnowballArt.pieces().map(nearest)
+        let nearest = Self.nearest
         shadowTexture = nearest(PlazaGroundShadow.image(width: Int(PlazaSnowball.shadowSize.width), height: Int(PlazaSnowball.shadowSize.height)))
         super.init()
+        setArt(PlazaSnowballArt.pieces())
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     var flightCount: Int { flights.count }
+    /// 테스트용: 날고 있는 것들의 크기(월드 픽셀).
+    var ballSizes: [CGSize] { flights.compactMap { $0.ball?.size } }
     var nodeCount: Int { created }
     var shownSpriteCount: Int { children.filter { !$0.isHidden }.count }
 
@@ -54,6 +72,7 @@ struct PlazaSnowballFlight {
         guard flights.count < Self.maxFlights else { return false }
         var f = Flight(spec: flight, onLand: onLand)
         f.ball = take(texture: textures[0], anchor: CGPoint(x: 0, y: 0))
+        f.ball.map { resize($0, glyph: 0) }
         f.shadow = take(texture: shadowTexture, anchor: CGPoint(x: 0, y: 0))
         f.shadow?.size = PlazaSnowball.shadowSize
         flights.append(f)
@@ -106,7 +125,7 @@ struct PlazaSnowballFlight {
         if !f.landed {
             let u = CGFloat(frame) / CGFloat(spec.frames)
             let g = CGPoint(x: spec.start.x + (spec.end.x - spec.start.x) * u, y: spec.start.y + (spec.end.y - spec.start.y) * u)
-            f.ball?.position = CGPoint(x: even(g.x - 2 * PlazaSnowball.cell), y: even(worldHeight - g.y + PlazaSnowball.height(at: u, endHeight: spec.endHeight)))
+            f.ball?.position = CGPoint(x: even(g.x - (f.ball?.size.width ?? 0) / 2), y: even(worldHeight - g.y + PlazaSnowball.height(at: u, endHeight: spec.endHeight)))
             f.ball?.zPosition = 1 + g.y / worldHeight + 0.0003
             f.shadow?.position = CGPoint(x: even(g.x - PlazaSnowball.shadowSize.width / 2), y: even(worldHeight - g.y - PlazaSnowball.shadowSize.height / 2))
             f.shadow?.zPosition = 0.5
@@ -122,9 +141,7 @@ struct PlazaSnowballFlight {
         }
         for (i, piece) in pieces.enumerated() {
             let node = f.pieces[i]
-            node.texture = textures[piece.glyph]
-            node.size = CGSize(width: textures[piece.glyph].size().width * PlazaSnowball.cell,
-                               height: textures[piece.glyph].size().height * PlazaSnowball.cell)
+            resize(node, glyph: piece.glyph)
             // 왼쪽 아래 모서리를 월드 2픽셀(시트 한 픽셀)에 맞춘다. 가운데를 맞추면 6픽셀 조각이 홀수 픽셀에 앉는다.
             node.position = CGPoint(x: even(center.x + piece.offset.dx - node.size.width / 2),
                                     y: even(center.y + piece.offset.dy - node.size.height / 2))

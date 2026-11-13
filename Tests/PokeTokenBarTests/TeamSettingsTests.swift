@@ -31,13 +31,13 @@ final class TeamSettingsTests: XCTestCase {
         s.nickname = "Ash"
         s.code = code(1)
         let now = Date(timeIntervalSince1970: 1_000)
-        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .month, now: now)
+        s.changeSchedule(coreStart: 8, coreEnd: 20, season: .spring, now: now)
         XCTAssertEqual(s.schedule?.changedAt, now)
         XCTAssertEqual(s.schedule?.changedBy, s.memberID)
         XCTAssertEqual(s.schedule?.changedByName, "Ash")
-        XCTAssertEqual(s.schedule?.period, .month)
+        XCTAssertEqual(s.schedule?.season, .spring)
         for (input, expected) in [((16, 10), (16, 17)), ((0, 30), (1, 23)), ((23, 23), (22, 23)), ((22, 5), (22, 23))] {
-            s.changeSchedule(coreStart: input.0, coreEnd: input.1, period: .day, now: now)
+            s.changeSchedule(coreStart: input.0, coreEnd: input.1, season: .winter, now: now)
             XCTAssertEqual(s.schedule?.coreStart, expected.0)
             XCTAssertEqual(s.schedule?.coreEnd, expected.1)
         }
@@ -48,7 +48,7 @@ final class TeamSettingsTests: XCTestCase {
         s.code = code(1)
         let now = Date(timeIntervalSince1970: 1_000)
         XCTAssertTrue(s.adoptSchedule(schedule(1_300, start: 7), now: now))
-        s.changeSchedule(coreStart: 11, coreEnd: 15, period: .day, now: now)
+        s.changeSchedule(coreStart: 11, coreEnd: 15, season: .winter, now: now)
         XCTAssertEqual(s.schedule?.coreStart, 11)
         XCTAssertGreaterThan(s.schedule!.changedAt, Date(timeIntervalSince1970: 1_300))
     }
@@ -56,10 +56,10 @@ final class TeamSettingsTests: XCTestCase {
     func testReselectingTheCurrentValueDoesNotRestamp() {
         let s = TeamSettings(defaults: freshDefaults())
         s.code = code(1)
-        s.changeSchedule(coreStart: PlazaCoreTime.standard.start, coreEnd: PlazaCoreTime.standard.end, period: .day, now: Date(timeIntervalSince1970: 1))
+        s.changeSchedule(coreStart: PlazaCoreTime.standard.start, coreEnd: PlazaCoreTime.standard.end, season: .winter, now: Date(timeIntervalSince1970: 1))
         XCTAssertNil(s.schedule, "the default is not a change")
-        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: Date(timeIntervalSince1970: 2))
-        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: Date(timeIntervalSince1970: 3))
+        s.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: Date(timeIntervalSince1970: 2))
+        s.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: Date(timeIntervalSince1970: 3))
         XCTAssertEqual(s.schedule?.changedAt, Date(timeIntervalSince1970: 2))
     }
 
@@ -67,13 +67,13 @@ final class TeamSettingsTests: XCTestCase {
         let s = TeamSettings(defaults: freshDefaults())
         s.code = code(1)
         s.nickname = "  "
-        s.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: Date(timeIntervalSince1970: 2))
+        s.changeSchedule(coreStart: 8, coreEnd: 20, season: .autumn, now: Date(timeIntervalSince1970: 2))
         XCTAssertEqual(s.schedule?.changedByName, "")
     }
 
     func testChangeScheduleWithoutTeamDoesNothing() {
         let s = TeamSettings(defaults: freshDefaults())
-        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .day, now: Date())
+        s.changeSchedule(coreStart: 9, coreEnd: 18, season: .winter, now: Date())
         XCTAssertNil(s.schedule)
     }
 
@@ -81,11 +81,11 @@ final class TeamSettingsTests: XCTestCase {
         let d = freshDefaults()
         let s = TeamSettings(defaults: d)
         s.code = code(1)
-        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .week, now: Date(timeIntervalSince1970: 5))
+        s.changeSchedule(coreStart: 9, coreEnd: 18, season: .autumn, now: Date(timeIntervalSince1970: 5))
         XCTAssertEqual(TeamSettings(defaults: d).schedule?.coreStart, 9)
         s.code = code(2)
         XCTAssertNil(s.schedule)
-        s.changeSchedule(coreStart: 11, coreEnd: 12, period: .day, now: Date(timeIntervalSince1970: 6))
+        s.changeSchedule(coreStart: 11, coreEnd: 12, season: .winter, now: Date(timeIntervalSince1970: 6))
         s.code = code(1)
         XCTAssertEqual(s.schedule?.coreStart, 9)
         s.code = code(2)
@@ -118,8 +118,8 @@ final class TeamSettingsTests: XCTestCase {
         var later = schedule(100)
         later.seasonPeriod = "quarter"
         XCTAssertTrue(s.adoptSchedule(later, now: Date(timeIntervalSince1970: 200)))
-        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .day, now: Date(timeIntervalSince1970: 150))
-        XCTAssertEqual(s.schedule?.seasonPeriod, "day")
+        s.changeSchedule(coreStart: 9, coreEnd: 18, season: .winter, now: Date(timeIntervalSince1970: 150))
+        XCTAssertEqual(s.schedule?.seasonPeriod, "winter")
         XCTAssertGreaterThan(s.schedule?.changedAt ?? .distantPast, later.changedAt)
     }
 
@@ -127,7 +127,7 @@ final class TeamSettingsTests: XCTestCase {
         let d = freshDefaults()
         let s = TeamSettings(defaults: d)
         s.code = code(1)
-        s.changeSchedule(coreStart: 9, coreEnd: 18, period: .week, now: Date(timeIntervalSince1970: 5))
+        s.changeSchedule(coreStart: 9, coreEnd: 18, season: .autumn, now: Date(timeIntervalSince1970: 5))
         s.leaveTeam()
         s.code = code(1)
         XCTAssertNil(s.schedule)

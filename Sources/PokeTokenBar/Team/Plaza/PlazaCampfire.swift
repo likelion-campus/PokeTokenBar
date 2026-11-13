@@ -1,5 +1,13 @@
 import Foundation
 
+/// 팀이 함께 쓰는 모닥불 스위치. 누가 켜거나 끄면 그 Mac의 벽시계(유닉스 초, `PlazaIceBreak.at` 과 같은 약속)와 함께
+/// 프레즌스에 실려 가고, 모두가 더 늦은 쪽을 따른다.
+struct PlazaCampfireSwitch: Codable, Equatable, Sendable {
+    /// true: 켰다. false: 껐다. nil: 손대지 않은 상태로 돌렸다(집중하는 사람이 있으면 켜진다).
+    var lit: Bool?
+    var at: Double
+}
+
 /// 모닥불 둘레의 자리와 시간 규칙. SpriteKit과 무관한 값이다.
 enum PlazaCampfire {
     struct Seat: Equatable, Sendable {
@@ -25,6 +33,32 @@ enum PlazaCampfire {
     static let frameCount = 12
     static let frameDuration: TimeInterval = 0.09
     static let smokeDuration: TimeInterval = 15
+
+    /// 받은 스위치의 `at` 이 내 시계보다 앞서도 봐주는 시계 어긋남.
+    static let clockSlack: TimeInterval = 60
+
+    /// s.at 이 유한하고 now + 60초 이하일 때만 s.
+    static func accepted(_ s: PlazaCampfireSwitch?, now: Date) -> PlazaCampfireSwitch? {
+        guard let s, s.at.isFinite, s.at <= now.timeIntervalSince1970 + clockSlack else { return nil }
+        return s
+    }
+
+    /// `at` 이 더 큰 쪽. nil 은 진다. 같으면 끔 > 켬 > 손대지 않음 순서로 이긴다(어느 Mac에서 합쳐도 같다).
+    static func merged(_ a: PlazaCampfireSwitch?, _ b: PlazaCampfireSwitch?) -> PlazaCampfireSwitch? {
+        guard let a else { return b }
+        guard let b else { return a }
+        if b.at != a.at { return b.at > a.at ? b : a }
+        func rank(_ s: PlazaCampfireSwitch) -> Int { s.lit == false ? 2 : (s.lit == true ? 1 : 0) }
+        return rank(b) > rank(a) ? b : a
+    }
+
+    /// 내가 지금 바꾼 스위치. 아는 스위치의 시계가 내 것보다 앞서 있어도 내 것이 이기게 그보다 조금 뒤로 찍는다.
+    static func flipped(to lit: Bool?, after known: PlazaCampfireSwitch?, now: Date) -> PlazaCampfireSwitch {
+        PlazaCampfireSwitch(lit: lit, at: max(now.timeIntervalSince1970, (known?.at ?? -.infinity) + 0.001))
+    }
+
+    /// 스위치가 켬이나 끔이면 그대로, 아니면 집중하는 사람이 있을 때 켜진다.
+    static func isLit(_ s: PlazaCampfireSwitch?, anyoneFocusing: Bool) -> Bool { s?.lit ?? anyoneFocusing }
 
     /// 비어 있는 자리 중 제곱거리가 가장 가까운 곳. 동률이면 목록에서 앞선 자리.
     static func nearestFreeSeat(from p: TilePoint, occupied: Set<TilePoint>) -> Seat? {

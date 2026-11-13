@@ -38,11 +38,11 @@ final class PlazaSnowSceneTests: XCTestCase {
             scene.backingOverride = 2
             scene.size = CGSize(width: 800, height: 600)
             scene.now = { [unowned self] in self.now }
-            scene.snowLook = { [unowned self] in
+            scene.seasonLook = { [unowned self] _ in
                 self.asked += 1
                 return hasSnow ? PlazaSnowLook(mapImage: self.snow, tallGrass: snowTallGrass) : nil
             }
-            scene.onSnowDayChange = { [unowned self] in self.seen.append($0) }
+            scene.onSeasonChange = { [unowned self] in self.seen.append($0 == .winter) }
         }
     }
 

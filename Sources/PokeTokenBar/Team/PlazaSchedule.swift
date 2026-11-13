@@ -5,7 +5,9 @@ import Foundation
 struct PlazaSchedule: Codable, Equatable, Sendable {
     var coreStart: Int
     var coreEnd: Int
-    /// "day" | "week" | "month"; anything else reads as `.day`.
+    /// The season choice (`PlazaSeasonChoice` raw value). v2.5.632 and earlier wrote "day" | "week" | "month" here for a
+    /// weather period they no longer use; those and anything else read as winter. Earlier versions keep and pass on
+    /// whatever string they receive, which is why the season travels in this field.
     var seasonPeriod: String
     var changedAt: Date
     var changedBy: String
@@ -14,7 +16,7 @@ struct PlazaSchedule: Codable, Equatable, Sendable {
 
     /// `.standard` when the stored range is invalid.
     var coreTime: PlazaCoreTime { PlazaCoreTime(start: coreStart, end: coreEnd) ?? .standard }
-    var period: PlazaWeather.Period { PlazaWeather.Period(rawValue: seasonPeriod) ?? .day }
+    var season: PlazaSeasonChoice { PlazaSeasonChoice(wire: seasonPeriod) }
 
     func isNewer(than other: PlazaSchedule?) -> Bool {
         guard let other else { return true }
