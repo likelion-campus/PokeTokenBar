@@ -118,6 +118,17 @@ final class PlazaSeasonTests: XCTestCase {
         XCTAssertEqual(s.iceDrawCount, drawn, "a refreeze that is long due must not redraw the ice every frame")
     }
 
+    func testThePondFreezesWhenTheCalendarTurnsToWinter() {
+        let s = scene(ice: true)
+        s.seasonChoice = .auto
+        s.setIceBreak(nil)
+        s.update(0)
+        XCTAssertNil(s.frozenPondAnchor, "30 November")
+        now = now.addingTimeInterval(1)
+        s.update(1)
+        XCTAssertNotNil(s.frozenPondAnchor, "1 December")
+    }
+
     func testWhoStandsOnTheIceFallsInWhenTheSeasonTurns() throws {
         let probe = scene(ice: true)
         probe.setIceBreak(nil)
