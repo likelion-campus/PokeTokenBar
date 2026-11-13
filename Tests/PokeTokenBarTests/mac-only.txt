@@ -7,8 +7,6 @@ AgentURLHandlerTests.swift
 # AntigravityRateLimitsProviderTests: needs AntigravityTokenCache (Security)
 AntigravityRateLimitsProviderTests.swift
 AppLogTests.swift
-# BinaryLocatorTests: testAugmentedEnvironmentPrependsToolPaths expects ':' PATH separators; needs a Windows-aware assertion
-BinaryLocatorTests.swift
 CatchLogRenderingTests.swift
 CodexLargeRolloutPerformanceTests.swift
 CollectionReadabilityRenderingTests.swift

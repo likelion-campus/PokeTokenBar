@@ -58,6 +58,15 @@ enum PlatformCompat {
         #endif
     }
 
+    /// Separates the entries of a PATH-style list: `:` on the Mac and other POSIX systems, `;` on Windows.
+    static var pathListSeparator: Character {
+        #if os(Windows)
+        return ";"
+        #else
+        return ":"
+        #endif
+    }
+
     /// A path that names a location without a base directory. The Mac and other POSIX systems: a leading `/`.
     /// Windows also takes a drive path (`C:\x`, `C:/x`) and a UNC path.
     static func isAbsolutePath(_ path: String) -> Bool {
