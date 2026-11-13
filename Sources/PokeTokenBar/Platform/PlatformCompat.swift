@@ -43,6 +43,21 @@ enum PlatformCompat {
         #endif
     }
 
+    /// Sets (or, with nil, removes) a process environment variable. Tests use it for `PTB_STATE_DIR`.
+    static func setEnvironment(_ name: String, _ value: String?) {
+        #if os(Windows)
+        name.withCString(encodedAs: UTF16.self) { n in
+            if let value {
+                value.withCString(encodedAs: UTF16.self) { _ = SetEnvironmentVariableW(n, $0) }
+            } else {
+                _ = SetEnvironmentVariableW(n, nil)
+            }
+        }
+        #else
+        if let value { setenv(name, value, 1) } else { unsetenv(name) }
+        #endif
+    }
+
     static func abbreviatingWithTilde(_ path: String) -> String {
         #if os(Windows)
         let home = NSHomeDirectory()

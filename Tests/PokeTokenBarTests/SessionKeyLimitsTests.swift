@@ -530,8 +530,8 @@ final class SessionKeyStoreLocationTests: XCTestCase {
     func testDefaultPathHonorsStateDirOverride() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("ptb-statedir-\(UUID().uuidString)", isDirectory: true)
-        setenv("PTB_STATE_DIR", dir.path, 1)
-        defer { unsetenv("PTB_STATE_DIR") }
+        PlatformCompat.setEnvironment("PTB_STATE_DIR", dir.path)
+        defer { PlatformCompat.setEnvironment("PTB_STATE_DIR", nil) }
 
         let store = SessionKeyStore()
         XCTAssertEqual(store.fileURL.deletingLastPathComponent().standardizedFileURL,
@@ -546,8 +546,8 @@ final class SessionKeyStoreLocationTests: XCTestCase {
 
     /// 공백만 있는 값은 무시 — `URL(fileURLWithPath:)` 가 CWD 상대경로로 해석하는 것을 막는다.
     func testBlankStateDirFallsBackToAppSupport() {
-        setenv("PTB_STATE_DIR", "   ", 1)
-        defer { unsetenv("PTB_STATE_DIR") }
+        PlatformCompat.setEnvironment("PTB_STATE_DIR", "   ")
+        defer { PlatformCompat.setEnvironment("PTB_STATE_DIR", nil) }
         XCTAssertEqual(SessionKeyStore().fileURL.lastPathComponent, "session-key.json")
         XCTAssertTrue(SessionKeyStore().fileURL.path.contains("Application Support"),
                       "공백 값은 무시하고 기본 위치를 쓴다")

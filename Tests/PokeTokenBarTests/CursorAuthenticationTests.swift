@@ -4,6 +4,9 @@ import SQLite3
 import CSQLite
 #endif
 import XCTest
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import PokeTokenBar
 
 /// Drive both production fetchers with synthetic SQLite logins and injected network boundaries.

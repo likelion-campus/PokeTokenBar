@@ -1,6 +1,5 @@
 # Test files NOT built on Windows (relative to this file's directory). A file is listed when it needs an Apple-only framework
 # (AppKit, SpriteKit, CoreGraphics drawing, ...), a Mac-only type, or when its assertions do not hold on Windows (reason above the entry).
-# (AppKit, SpriteKit, CoreGraphics drawing, ...), a Mac-only type, or when its assertions do not hold on Windows (reason above the entry).
 AaaNSCachePressureGuardTests.swift
 ActivityVisualizationTests.swift
 AdditionalClaudeAccountsTests.swift
@@ -13,6 +12,8 @@ BinaryLocatorTests.swift
 CatchLogRenderingTests.swift
 CodexLargeRolloutPerformanceTests.swift
 CollectionReadabilityRenderingTests.swift
+# CompanionTests+Mac: RelativeDateTimeFormatter (missing from Foundation on Windows)
+CompanionTests+Mac.swift
 CorePlatformRoutingTests.swift
 # CredentialSwitchCacheTests: needs KeychainReader (Security)
 CredentialSwitchCacheTests.swift
@@ -32,6 +33,8 @@ FloatingPetAgentTests.swift
 FloatingPetPettingTests.swift
 FormMetadataNoteRenderingTests.swift
 GenerationDexScreenshotTests.swift
+# GrokUsageTests: NSData zlib in a helper; the cache is stored uncompressed on Windows (needs Windows-aware assertions)
+GrokUsageTests.swift
 IndividualPickerRenderingTests.swift
 # KeychainAutoPathTests: needs KeychainReader (Security)
 KeychainAutoPathTests.swift
@@ -41,6 +44,8 @@ LimitPaceTests+Mac.swift
 LimitProgressRenderingTests.swift
 # LiveCredentialCallGateTests: needs OAuthLimitsProvider and AntigravityRateLimitsProvider (Security)
 LiveCredentialCallGateTests.swift
+# LocalUsageCacheTests: NSData zlib in several helpers and assertions; the cache is stored uncompressed on Windows (needs Windows-aware assertions)
+LocalUsageCacheTests.swift
 # LocalUsageReaderTests: needs Bundle.module fixtures (the Windows build has no test resources)
 LocalUsageReaderTests.swift
 LoginItemTests.swift

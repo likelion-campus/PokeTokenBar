@@ -1,4 +1,7 @@
 import XCTest
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import PokeTokenBar
 
 private enum FormTestError: Error { case offline }
