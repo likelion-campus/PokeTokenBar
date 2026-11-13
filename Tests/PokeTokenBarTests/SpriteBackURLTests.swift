@@ -16,7 +16,7 @@ final class SpriteBackURLTests: XCTestCase {
     func testFrontKeysUnchangedAndBackKeysDistinct() {
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: true, shiny: false), "25-a")
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: true, shiny: true), "25-sha")
-        XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: true, shiny: false, back: true), "25-ba")
-        XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: false, shiny: true, back: true), "25-bshs")
+        XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: true, shiny: false, back: true), "25-back-a")
+        XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: false, shiny: true, back: true), "25-back-shs")
     }
 }

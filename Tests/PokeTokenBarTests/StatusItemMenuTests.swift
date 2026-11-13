@@ -40,6 +40,7 @@ final class StatusItemMenuTests: XCTestCase {
             .init(title: l.dexTitle, keyEquivalent: "d", action: .openDex),
             .init(title: "Settings…", keyEquivalent: ",", action: .openSettings),
             .init(title: l.floatingPetHideLabel, keyEquivalent: "", action: .toggleFloatingPet),
+            .init(title: l.backViewLabel, keyEquivalent: "", action: .toggleBackView),
             nil,
             .init(title: l.quit, keyEquivalent: "q", action: .quit),
         ])
@@ -71,6 +72,19 @@ final class StatusItemMenuTests: XCTestCase {
         XCTAssertEqual(title(unread: 0), l.plazaOpen + "…")
         XCTAssertEqual(title(unread: 3), l.plazaOpen + "… (3)")
         XCTAssertNil(title(unread: 3, available: false), "no plaza entry, so no count either")
+    }
+
+    func testBackViewRowIsCheckedWhenAlwaysFacingBack() throws {
+        for on in [false, true] {
+            let entries = StatusItemMenu.entries(l: L(.en), todayTokens: 0, todayCost: nil,
+                                                 floatingPetEnabled: false, alwaysFacesBack: on,
+                                                 plazaAvailable: false, plazaUnread: 0)
+            let row = try XCTUnwrap(entries.compactMap { $0 }.first { $0.action == .toggleBackView })
+            XCTAssertEqual(row.isChecked, on)
+            let menu = StatusItemMenu.build(entries, target: NSObject(), selector: #selector(NSObject.description))
+            let item = try XCTUnwrap(menu.items.first { StatusItemMenu.action(of: $0) == .toggleBackView })
+            XCTAssertEqual(item.state, on ? .on : .off)
+        }
     }
 
     func testSummaryOmitsCostWhenNoProviderReportsOne() {

@@ -27,12 +27,32 @@ protocol PlazaSpriteFetching: Sendable {
 }
 
 /// `SpriteLoader`에 위임하는 얇은 어댑터. 네트워크를 타므로 단위 테스트하지 않는다.
+///
+/// 뒷모습만은 `SpriteStore`에서 직접 받는다. `SpriteLoader`는 뒷모습이 없으면 앞모습을 대신 돌려주는데,
+/// 광장은 뒷모습이 오지 않았다는 사실(`PlazaCharacterFrames.backIsFront`)을 알아야 다시 시도한다.
 struct LivePlazaSpriteFetcher: PlazaSpriteFetching {
     func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] {
-        await SpriteLoader.animationFrames(speciesID: speciesID, shiny: shiny, form: form, back: back)
+        guard back else {
+            return await SpriteLoader.animationFrames(speciesID: speciesID, shiny: shiny, form: form)
+        }
+        for variant in shiny ? [true, false] : [false] {
+            guard let data = await SpriteStore.shared.data(speciesID: speciesID, animated: true, shiny: variant,
+                                                           form: form, back: true) else { continue }
+            let frames = GIFDecoder.frames(from: data)
+            if !frames.isEmpty { return frames }
+        }
+        return []
     }
     func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
-        await SpriteLoader.image(speciesID: speciesID, animated: false, shiny: shiny, form: form, back: back)
+        guard back else {
+            return await SpriteLoader.image(speciesID: speciesID, animated: false, shiny: shiny, form: form)
+        }
+        for variant in shiny ? [true, false] : [false] {
+            guard let data = await SpriteStore.shared.data(speciesID: speciesID, animated: false, shiny: variant,
+                                                           form: form, back: true) else { continue }
+            if let image = NSImage(data: data) { return image }
+        }
+        return nil
     }
     func egg() async -> NSImage? { await SpriteLoader.eggImage() }
 }
