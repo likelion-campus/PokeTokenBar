@@ -35,12 +35,76 @@ final class PlazaIceTests: XCTestCase {
         XCTAssertEqual(PlazaIce.frozenIndex(last: nil, now: date(T), ponds: ps), 0)
         XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), now: date(T + 59.9), ponds: ps))
         XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), now: date(T - 500), ponds: ps))
-        XCTAssertEqual(PlazaIce.frozenIndex(last: br(L, T), now: late, ponds: ps), 1)
+        // The draw is pinned: break L at T freezes B (2), not the rotation's R.
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(L, T), now: late, ponds: ps), 2)
         XCTAssertEqual(PlazaIce.frozenIndex(last: br(R, T), now: late, ponds: ps), 2)
-        XCTAssertEqual(PlazaIce.frozenIndex(last: br(B, T), now: late, ponds: ps), 0)
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(B, T), now: late, ponds: ps), 1)
         XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), now: late, ponds: []))
         XCTAssertNil(PlazaIce.frozenIndex(last: nil, now: late, ponds: []))
         XCTAssertEqual(PlazaIce.frozenIndex(last: br(p(6, 13), T), now: late, ponds: ps), 0)
+    }
+
+    /// Values computed by an independent script (FNV-1a of "plaza-ice-next-<at bits>-<x>-<y>", SplitMix64, % candidates).
+    func testTheDrawIsPinnedToTheSeedString() {
+        let ps = ponds
+        func pick(_ pond: TilePoint, _ at: Double) -> Int? {
+            PlazaIce.frozenIndex(last: br(pond, at), now: date(at + 60), ponds: ps)
+        }
+        XCTAssertEqual(pick(L, 1_792_818_060.123456), 2)
+        XCTAssertEqual(pick(L, T + 1), 1)
+        XCTAssertEqual(pick(R, T + 1), 2)
+        XCTAssertEqual(pick(B, T + 1), 0)
+        XCTAssertEqual(pick(L, T + 2), 1)
+        XCTAssertEqual(pick(B, T + 4), 0)
+    }
+
+    func testTheFrozenPondIsNeverTheBrokenOneAndEveryOtherPondGetsPicked() {
+        let ps = ponds
+        for (i, pond) in [L, R, B].enumerated() {
+            var seen = Set<Int>()
+            for k in 0..<200 {
+                let at = T + Double(k) * 7.31
+                let idx = PlazaIce.frozenIndex(last: br(pond, at), now: date(at + 60), ponds: ps)
+                XCTAssertNotNil(idx)
+                XCTAssertNotEqual(idx, i, "pond \(i) at \(at)")
+                if let idx { seen.insert(idx) }
+            }
+            XCTAssertEqual(seen, Set([0, 1, 2]).subtracting([i]), "both other ponds get picked after pond \(i)")
+        }
+    }
+
+    func testTheDrawIsADeterministicFunctionOfTheBreakEvenAfterTheWire() throws {
+        let ps = ponds
+        for at in [T, 1_792_818_060.123456, 1_800_000_007.987654321, 1_790_000_000.5, 0.1, 1e-7, 1_234_567_890.000001] {
+            let b = br(L, at)
+            let first = PlazaIce.frozenIndex(last: b, now: date(at + 60), ponds: ps)
+            XCTAssertEqual(PlazaIce.frozenIndex(last: b, now: date(at + 500), ponds: ps), first)
+            let json = try JSONEncoder().encode(b)
+            let back = try JSONDecoder().decode(PlazaIceBreak.self, from: json)
+            XCTAssertEqual(back.at.bitPattern, at.bitPattern, "JSON keeps every bit of \(at)")
+            XCTAssertEqual(PlazaIce.frozenIndex(last: back, now: date(at + 60), ponds: ps), first)
+            var decoder = TeamWire.FrameDecoder()
+            let msg = TeamMessage.emote(TeamEmote(kind: .jump, targetMemberID: nil, iceBreak: b))
+            let got = try decoder.append(try TeamWire.encode(msg))
+            guard case .emote(let e)? = got.first, let wired = e.iceBreak else { return XCTFail("emote lost its break") }
+            XCTAssertEqual(wired.at.bitPattern, at.bitPattern)
+            XCTAssertEqual(PlazaIce.frozenIndex(last: wired, now: date(at + 60), ponds: ps), first)
+        }
+    }
+
+    func testTheDrawEdgeCases() throws {
+        let ps = ponds
+        let one = [ps[1]]
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(R, T), now: date(T + 60), ponds: one), 0, "one pond refreezes itself")
+        XCTAssertNil(PlazaIce.frozenIndex(last: br(R, T), now: date(T + 59), ponds: one))
+        XCTAssertNil(PlazaIce.frozenIndex(last: br(R, T), now: date(T + 60), ponds: []))
+        XCTAssertEqual(PlazaIce.frozenIndex(last: nil, now: date(T), ponds: ps), 0)
+        let two = [ps[0], ps[1]]
+        for k in 0..<20 {
+            let at = T + Double(k)
+            XCTAssertEqual(PlazaIce.frozenIndex(last: br(L, at), now: date(at + 60), ponds: two), 1)
+            XCTAssertEqual(PlazaIce.frozenIndex(last: br(R, at), now: date(at + 60), ponds: two), 0)
+        }
     }
 
     func testFreezeAlphaFadesInOverASecondFromAtPlusAMinute() {
@@ -71,7 +135,7 @@ final class PlazaIceTests: XCTestCase {
         var last: PlazaIceBreak?
         for b in [br(L, T), br(R, T + 20), br(B, T + 40)] { last = PlazaIce.merged(last, b, ponds: ps) }
         XCTAssertEqual(last, br(B, T + 40))
-        XCTAssertEqual(PlazaIce.frozenIndex(last: last, now: date(T + 100), ponds: ps), 0)
+        XCTAssertEqual(PlazaIce.frozenIndex(last: last, now: date(T + 100), ponds: ps), 1, "the draw after B at T + 40")
     }
 
     func testAcceptedBoundsTheClockAndDropsUnknownPonds() {
