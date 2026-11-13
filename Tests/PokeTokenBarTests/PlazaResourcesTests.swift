@@ -30,7 +30,19 @@ final class PlazaResourcesTests: XCTestCase {
         let url = try XCTUnwrap(PlazaResources.resourceURL("CREDITS", "md", in: bundle))
         let credits = try String(contentsOf: url, encoding: .utf8)
         for needle in ["RedVoxel", "CC-BY-SA 3.0", "https://creativecommons.org/licenses/by-sa/3.0/",
-                       "https://opengameart.org/content/pokemon-inspired-16x16-tiles", "unmodified", "CC-BY-SA-3.0.txt", "snow days"] {
+                       "https://opengameart.org/content/pokemon-inspired-16x16-tiles", "unmodified", "CC-BY-SA-3.0.txt", "winter and autumn"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
+    }
+
+    /// The CC-BY-SA credit says "unmodified", so the bundled bytes must stay the original file.
+    func testWaterBalloonIsTheUnmodifiedOriginalAndCredited() throws {
+        let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
+        let url = try XCTUnwrap(PlazaResources.resourceURL("plaza-water-balloon", "png", in: bundle))
+        let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(digest, "3ae2d716a639227daa849d3885306be9798bb89dc7c62a2507518887fca1902b")
+        let credits = try String(contentsOf: try XCTUnwrap(PlazaResources.resourceURL("CREDITS", "md", in: bundle)), encoding: .utf8)
+        for needle in ["rrcaseyr", "Water gun fight art", "https://opengameart.org/content/water-gun-fight-art", "plaza-water-balloon.png"] {
             XCTAssertTrue(credits.contains(needle), needle)
         }
     }
