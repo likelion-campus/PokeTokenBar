@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 
 /// Aside persists mutable turn aggregates, not append-only usage events, and `ON DELETE
 /// CASCADE` removes a session's turns outright when the user deletes the session. The

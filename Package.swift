@@ -32,8 +32,18 @@ if windowsBuild {
         ],
         targets: [
             .target(
+                name: "CSQLite",  // vendored amalgamation; the Mac app links the system sqlite3 instead
+                path: "Sources/CSQLite",
+                exclude: ["LICENSE.md"],
+                cSettings: [
+                    .define("SQLITE_THREADSAFE", to: "1"),
+                    .define("SQLITE_OMIT_LOAD_EXTENSION"),
+                    .define("SQLITE_OMIT_DEPRECATED"),
+                ]
+            ),
+            .target(
                 name: "PokeTokenBar",
-                dependencies: [.product(name: "Crypto", package: "swift-crypto")],
+                dependencies: [.product(name: "Crypto", package: "swift-crypto"), "CSQLite"],
                 path: "Sources/PokeTokenBar",
                 exclude: macOnlyList("Sources/PokeTokenBar") + ["mac-only.txt", "Resources"],
                 swiftSettings: [.define("PTB_SHARED_ONLY")]  // Platform.current takes the stubs in the shared build
