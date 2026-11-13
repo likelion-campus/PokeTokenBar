@@ -6,6 +6,24 @@ import WinSDK
 /// The Security framework's status code type; `LimitsError.keychainUnavailable` carries one on every OS.
 #if !canImport(Darwin)
 typealias OSStatus = Int32
+/// Security framework codes `UsageStore.isKeychainPromptDeclined` compares against.
+let errSecUserCanceled: OSStatus = -128
+let errSecAuthFailed: OSStatus = -25293
+#endif
+
+#if os(Windows)
+/// swift-corelibs Foundation has no CGVector. Same shape as Core Graphics', for the plaza's particle math.
+struct CGVector: Equatable, Sendable {
+    var dx: CGFloat
+    var dy: CGFloat
+    init() { dx = 0; dy = 0 }
+    init(dx: CGFloat, dy: CGFloat) { self.dx = dx; self.dy = dy }
+    static let zero = CGVector()
+}
+
+/// There is no autorelease pool on Windows; run the body.
+@inline(__always)
+func autoreleasepool<Result>(invoking body: () throws -> Result) rethrows -> Result { try body() }
 #endif
 
 /// Small OS differences that shared code needs. This directory is the one place body-level `#if os(...)` is allowed.

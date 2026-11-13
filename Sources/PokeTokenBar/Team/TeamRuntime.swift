@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// Ties the companion and the team settings to the `TeamSession`: forwards companion events, keeps the
 /// session's settings and character current, ticks it, and holds an App Nap activity while teammates are online.
