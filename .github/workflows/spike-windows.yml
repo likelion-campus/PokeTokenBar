@@ -75,3 +75,26 @@ jobs:
         with:
           name: ptbprobe-win-x64
           path: spike/probe/ptbprobe.exe
+  draw:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
+      - name: Build
+        shell: bash
+        run: cd spike/draw && swift build -c release 2>&1 | tail -40
+      - name: Render headless
+        shell: bash
+        run: |
+          mkdir res && cp Sources/PokeTokenBar/Resources/Plaza/*.png Sources/PokeTokenBar/Resources/Plaza/*.ttf res/
+          curl -sSL -o res/Pretendard-Bold.otf "https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/public/static/Pretendard-Bold.otf"
+          spike/draw/.build/release/ptbdraw.exe res draw-warp.png
+          ls -la draw-warp.png spike/draw/.build/release/ptbdraw.exe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: draw-png
+          path: draw-warp.png
