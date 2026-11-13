@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Security
 
 /// Antigravity 공식 한도 조회 추상화 — 실 구현 또는 테스트 스텁 주입.

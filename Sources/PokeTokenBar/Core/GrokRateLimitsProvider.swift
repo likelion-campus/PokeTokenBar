@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Grok subscription credit limits (the Grok CLI `/usage` → Usage limit tab).
 public protocol GrokLimitsProviding: Sendable {

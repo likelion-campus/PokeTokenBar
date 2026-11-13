@@ -1,6 +1,5 @@
 # Paths (relative to this file's directory) that are NOT built on Windows. A trailing / marks a directory.
 # A file belongs here when it imports an Apple-only framework or needs something that is. See SharedSourcesScanTests.
-# ProcessRunner (kill/SIGKILL), ProviderStatusChecker (URLSession) and TeamCode (CryptoKit) are shared-able but wait for stage 1 task 2.
 Core/AntigravityRateLimitsProvider.swift
 Core/ClaudeAccountRoots.swift
 Core/ClaudeAccountUsage.swift
@@ -32,8 +31,6 @@ Core/PokedexRegion.swift
 Core/PokemonForm.swift
 Core/PokemonNameLocalization.swift
 Core/PokemonProfile.swift
-Core/ProcessRunner.swift
-Core/ProviderStatusChecker.swift
 Core/SaveSnapshots.swift
 Core/SaveTransfer.swift
 Core/SessionKeyLimitsProvider.swift
@@ -43,11 +40,9 @@ Core/UsageCost.swift
 Core/UsageProvider.swift
 Core/UsageRecap.swift
 Core/UsageStore.swift
-OutsideClickMonitor.swift
 PokeTokenBarApp.swift
 Team/Plaza/
 Team/PlazaSchedule.swift
-Team/TeamCode.swift
 Team/TeamEventFactory.swift
 Team/TeamFeedStore.swift
 Team/TeamLocalization.swift

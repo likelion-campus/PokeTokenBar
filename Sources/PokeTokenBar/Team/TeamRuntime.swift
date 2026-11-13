@@ -25,7 +25,7 @@ final class TeamRuntime {
     private var wasReady: Bool
     private var lastCode: TeamCode?
     private var tickTask: Task<Void, Never>?
-    private var activity: NSObjectProtocol?
+    private var activity: AnyObject?
 
     var isHoldingActivity: Bool { activity != nil }
     var isTicking: Bool { tickTask != nil }
@@ -193,8 +193,7 @@ final class TeamRuntime {
     /// App Nap would delay the heartbeat until teammates see me disappear. Idle system sleep stays allowed.
     private func beginActivityIfNeeded() {
         guard activity == nil else { return }
-        activity = ProcessInfo.processInfo.beginActivity(
-            options: .userInitiatedAllowingIdleSystemSleep, reason: "PokeTokenBar team presence")
+        activity = PlatformCompat.beginActivity(reason: "PokeTokenBar team presence")
     }
 
     /// Runs only while the team is on, so a feature-off app has no periodic wake-ups.
@@ -230,7 +229,7 @@ final class TeamRuntime {
 
     private func endActivity() {
         guard let activity else { return }
-        ProcessInfo.processInfo.endActivity(activity)
+        PlatformCompat.endActivity(activity)
         self.activity = nil
     }
 

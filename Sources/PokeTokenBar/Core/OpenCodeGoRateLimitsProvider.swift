@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// OpenCode Go subscription limits (rolling 5h / weekly / monthly allowance).
 public protocol OpenCodeGoLimitsProviding: Sendable {

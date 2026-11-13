@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 /// 팀 공유 비밀: 60비트 난수를 RFC 4648 base32(12자)로 표기한다. TLS-PSK 키 유도의 입력.
 /// 같은 와이파이에서 주고받는 데이터를 잡으면 코드를 대입해 볼 수 있으므로 이보다 줄이지 않는다.

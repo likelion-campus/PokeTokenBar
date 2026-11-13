@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// claude.ai 세션 쿠키(`sessionKey`)로 공식 한도를 조회하는 경로.
 ///

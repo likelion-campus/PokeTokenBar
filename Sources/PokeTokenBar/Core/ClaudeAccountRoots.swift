@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 
 /// Extra Claude Code config folders (`CLAUDE_CONFIG_DIR` logins) whose official limits are shown
@@ -305,7 +309,7 @@ struct ClaudeAccountLimits: Sendable, Identifiable {
 
     static func additional(_ account: AdditionalClaudeLimits) -> ClaudeAccountLimits {
         ClaudeAccountLimits(id: account.key, windowKeyPrefix: "claude.\(account.key)",
-                            fallbackTitle: (account.rootPath as NSString).abbreviatingWithTildeInPath,
+                            fallbackTitle: PlatformCompat.abbreviatingWithTilde(account.rootPath),
                             status: account.status, isDefault: false, isExpired: account.isExpired,
                             updatedAt: account.updatedAt, sessionKeyExpired: account.sessionKeyExpired)
     }
