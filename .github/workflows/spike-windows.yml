@@ -8,13 +8,19 @@ concurrency:
   cancel-in-progress: true
 jobs:
   core:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-2022, branch: swift-6.1.2-release, tag: 6.1.2-RELEASE }
+          - { os: windows-latest, branch: swift-6.3.2-release, tag: 6.3.2-RELEASE }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: compnerd/gha-setup-swift@main
         with:
-          branch: swift-6.1.2-release
-          tag: 6.1.2-RELEASE
+          branch: ${{ matrix.branch }}
+          tag: ${{ matrix.tag }}
       - run: swift --version
       - name: Portable closure - build and test
         shell: bash
@@ -35,5 +41,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: core-log
+          name: core-log-${{ matrix.os }}
           path: spike/core/*.log
