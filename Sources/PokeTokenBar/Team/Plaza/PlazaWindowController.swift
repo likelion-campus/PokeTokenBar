@@ -1106,7 +1106,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
     }
 
-    /// 런타임이 부른다. 누군가 눈덩이를 던졌다. 이 눈 오는 날의 내 화면에 날려 보내고, 맞은 게 나이고 던진 팀원과 같은 줄(6칸 안)이면
+    /// 런타임이 부른다. 누군가 눈덩이를 던졌다. 이 눈 오는 날의 내 화면에 날려 보내고, 맞은 게 나이고 던진 팀원과 같은 줄(11칸 안)이면
     /// 눈덩이가 닿을 때 `direction`으로 `tiles`칸 밀린다. 닿기 전에 창이 가려져도 눈덩이는 바로 닿는다. 눈 오는 날이 아니거나 방향이 없거나
     /// 던진 팀원이 내 광장에 보이지 않으면 버린다. 그린 자리에 없는 표적(모르는 ID, 잠수 중인 팀원)은 빗나간 것으로 날아간다.
     func showSnowball(from sender: String, on target: String?, tiles: Int, direction: PlazaDirection?) {

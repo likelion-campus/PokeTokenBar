@@ -24,7 +24,7 @@ struct PlazaSnowballShot: Equatable {
 
 /// 눈덩이 규칙. SpriteKit과 무관하다.
 enum PlazaSnowball {
-    static let range = 5, reach = 6, maxFrames = 6, burstFrames = 4
+    static let range = 10, reach = 11, maxFrames = 10, burstFrames = 4
     static let frameDuration: TimeInterval = 0.1
     static let handHeight: CGFloat = 14, peak: CGFloat = 16, maxBodyHeight: CGFloat = 24
     static let handReach: CGFloat = 16      // the ball starts this far ahead of the thrower's feet
