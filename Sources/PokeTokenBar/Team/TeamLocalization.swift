@@ -107,6 +107,7 @@ extension L {
     }
     var plazaDivingHint: String { "잠수 중 · 물가에 선 팀원 밑에서 C로 끌어들이기" }
     func plazaPullHint(nickname: String) -> String { "C를 눌러 \(nickname) 물속으로 끌어들이기" }
+    var plazaIceHint: String { "얼음 위예요 · Z로 얼음 깨기" }
     var plazaHiddenHint: String { "풀숲에 숨었어요 · 팀원이 옆에 오면 Z로 놀래키기" }
     func plazaStartleHint(nickname: String) -> String { "Z를 눌러 \(nickname) 놀래키기" }
     var plazaStartleManyHint: String { "Z를 눌러 옆에 있는 팀원 놀래키기" }

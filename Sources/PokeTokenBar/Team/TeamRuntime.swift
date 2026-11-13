@@ -73,7 +73,7 @@ final class TeamRuntime {
                 return
             }
             if emote.kind == .jump {
-                plaza?.showJump(memberID: memberID)
+                plaza?.showJump(memberID: memberID, iceBreak: emote.iceBreak)
                 return
             }
             if emote.kind == .groupPhoto {

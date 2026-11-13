@@ -125,6 +125,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     override var isPaused: Bool {
         didSet {
             if isPaused && !oldValue {
+                finishIceNow()
                 stopAllDances()
                 climbOutNowIfPaused()   // 알이 물에 든 채 멈추기 시작하면 `update`가 더는 올라오게 해 주지 않는다
                 snowballLayer.landAll()   // 멈춘 장면은 프레임이 오지 않으니 날던 눈덩이를 모두 그 자리에서 착지시킨다
@@ -324,6 +325,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var myDive = DiveFade()
     private let pondVisuals: Bool
     private(set) var pondLayer: PlazaPondLayer?
+    private var iceLayer: PlazaIceLayer?
     /// 내가 잠수 중이다. 물속에서만 켜진다.
     private(set) var isDiving = false
     private var diveElapsed: TimeInterval = 0
@@ -389,8 +391,13 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var campfireTimerDrawn: (text: String, backing: CGFloat)?
 
     init(map: PlazaMap, mapImage: CGImage, start: TilePoint, zoom: Int, nickname: String, tallGrass: PlazaTallGrassArt? = nil,
-         pondVisuals: Bool = false) {
+         pondVisuals: Bool = false, iceArt: PlazaIceArt? = nil) {
         self.map = map
+        self.icePonds = iceArt == nil ? [] : PlazaIce.ponds(in: map)
+        var index: [TilePoint: Int] = [:]
+        for (i, pond) in icePonds.enumerated() { for t in pond.tiles { index[t] = i } }
+        self.icePondIndex = index
+        self.frozenIndex = icePonds.isEmpty ? nil : 0
         self.worldSize = map.pixelSize
         self.footprintLayer = PlazaFootprintLayer(worldHeight: map.pixelSize.height)
         self.snowballLayer = PlazaSnowballLayer(worldHeight: map.pixelSize.height)
@@ -427,6 +434,12 @@ struct PlazaSceneMember: Equatable, Sendable {
             let layer = PlazaPondLayer(map: map)
             addChild(layer)
             pondLayer = layer
+        }
+        if let iceArt {
+            let layer = PlazaIceLayer(ponds: icePonds, art: iceArt, mapImage: mapImage, worldHeight: map.pixelSize.height)
+            addChild(layer)
+            iceLayer = layer
+            drawIce()
         }
 
         if let campfireNode { addChild(campfireNode) }
@@ -509,6 +522,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         mapNode.isHidden = hidden
         tallGrassLayer?.setHidden(hidden)
         pondLayer?.setHidden(hidden)
+        iceLayer?.setConcealed(hidden)
         footprintLayer.isHidden = hidden
         if hidden { footprintLayer.removeAll() }
         layout()   // 풀숲 가림을 바로 풀어 곧바로 찍는 사진도 숨은 팀원을 그리게 한다
@@ -588,7 +602,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 if !m.isAway { r.motion.facing = m.facing }
                 r.nickname = m.nickname
                 r.isIdle = m.isIdle
-                if r.diving, !m.isDiving, map.isWater(target) {
+                if r.diving, !m.isDiving, isWaterNow(target) {
                     splash(at: target, big: true, stage: m.evolutionStage, splasher: m.memberID)
                 }
                 r.diving = m.isDiving
@@ -894,9 +908,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     var walkingToMember: String? { autoWalk }
 
     /// 내가 물속에 있다(걷는 중이면 도착할 칸 기준).
-    var isMeInWater: Bool { map.isWater(walker.tile) }
+    var isMeInWater: Bool { isWaterNow(walker.tile) }
     /// 그 팀원이 물속에 있다. 모르는 팀원이면 nil.
-    func memberIsInWater(_ id: String) -> Bool? { remotes[id].map { map.isWater($0.motion.tile) } }
+    func memberIsInWater(_ id: String) -> Bool? { remotes[id].map { isWaterNow($0.motion.tile) } }
 
     /// 잠수를 켠다(물속에서만) 또는 끈다. 컨트롤러가 부르므로 `onDivingChange`는 부르지 않는다.
     func setDiving(_ on: Bool) {
@@ -911,7 +925,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     func pondAction(canMove: Bool) -> PlazaPondAction {
         let taken = occupiedTiles()
         return PlazaPond.action(tile: walker.tile, facing: walker.facing, isDiving: isDiving, canMove: canMove,
-                                isWater: { map.isWater($0) }, isFree: { !taken.contains($0) })
+                                isWater: { isWaterNow($0) }, isFree: { !taken.contains($0) },
+                                isIce: { isFrozen($0) })
     }
 
     /// 물속에서 잠수를 끝내며 떠오르는 큰 물보라. 물 밖이면 아무것도 하지 않는다.
@@ -924,11 +939,175 @@ struct PlazaSceneMember: Equatable, Sendable {
     func plunge(_ d: PlazaDirection) {
         stopDance(memberID: nil)
         walker.plunge(d)
-        plungeJumpOwed = true
+        plungeJumpOwed = PlazaWalker.offset(walker.tile, d)
     }
 
-    /// `plunge`가 부른 점프를 아직 못 낸 상태. 뛰어드는 걸음이 시작될 때 `update`가 낸다(진행 중인 땅 걸음이 끝나야 시작한다).
-    private var plungeJumpOwed = false
+    /// 얼음 칸 `d` 쪽으로 뛰어오른다: 뛰어들기와 같은 걸음이지만 점프 한 번 길이(0.36초)다. `pondAction`이 `.leapOntoIce`일 때만 부른다.
+    func leapOntoIce(_ d: PlazaDirection) {
+        stopDance(memberID: nil)
+        walker.plunge(d, duration: PlazaPond.plungeStepDuration)
+        plungeJumpOwed = PlazaWalker.offset(walker.tile, d)
+    }
+
+    // MARK: - 언 연못
+
+    /// 한 번에 줄 서는 얼음 착지 수의 상한. 넘치면 바로 착지시킨다(받은 값이 노드를 늘리지 못하게).
+    static let maxIceLandings = 8
+    private let icePonds: [PlazaIce.Pond]
+    private let icePondIndex: [TilePoint: Int]
+    private var iceTurn = PlazaIce.turn(at: Date())
+    private var frozenIndex: Int?
+    /// 마지막으로 깨진 연못. 어느 연못이 언 채인지는 이것과 차례로 정해진다.
+    private(set) var iceBreak: PlazaIceBreak?
+    private var breaking: (pond: Int, hit: TilePoint, elapsed: TimeInterval)?
+    private var landings: [(break: PlazaIceBreak, jumper: String?, remaining: TimeInterval)] = []
+    /// 깬 점프가 땅에 닿았다. 깨진 것과 맞은 칸을 넘긴다.
+    var onIceLanding: ((PlazaIceBreak, TilePoint) -> Void)?
+    /// 단단한 얼음이 바뀌었다(얼거나 가라앉음).
+    var onIceChange: (() -> Void)?
+
+    private func isFrozen(_ t: TilePoint) -> Bool {
+        guard let i = icePondIndex[t] else { return false }
+        return i == frozenIndex
+    }
+    /// 언 연못이거나, 깨지는 중이고 아직 0.6초 전인 연못.
+    func isIce(_ t: TilePoint) -> Bool {
+        guard let i = icePondIndex[t] else { return false }
+        if i == frozenIndex { return true }
+        if let b = breaking, b.pond == i, b.elapsed < PlazaIce.sinkAt { return true }
+        return false
+    }
+    func isWaterNow(_ t: TilePoint) -> Bool { map.isWater(t) && !isIce(t) }
+    func isWalkableNow(_ t: TilePoint) -> Bool { map.isWalkable(t) || isIce(t) }
+    var frozenPondAnchor: TilePoint? { frozenIndex.map { icePonds[$0].anchor } }
+    var isMeOnIce: Bool { isFrozen(walker.tile) }
+    var breakingPondAnchor: TilePoint? { breaking.map { icePonds[$0.pond].anchor } }
+    var breakingHit: TilePoint? { breaking?.hit }
+    var iceLandingCount: Int { landings.count }
+
+    /// 아는 마지막 깨짐을 바꾼다. 장면이 멈췄거나 아직 한 프레임도 안 그렸으면 그대로 적용하고, 아니면 깨지는 모습을 거친다.
+    /// 받은 값이 내 차례보다 앞서거나 모르는 연못이면 버린다.
+    func setIceBreak(_ b: PlazaIceBreak?, hit: TilePoint? = nil) {
+        if let b, PlazaIce.accepted(b, turn: PlazaIce.turn(at: now()), ponds: icePonds) == nil { return }
+        iceBreak = b
+        refreshIce(hit: hit)
+    }
+
+    private func refreshIce(hit: TilePoint?) {
+        iceTurn = PlazaIce.turn(at: now())
+        let target = PlazaIce.frozenIndex(last: iceBreak, turn: iceTurn, ponds: icePonds)
+        guard target != frozenIndex else { drawIce(); return }
+        let old = frozenIndex
+        frozenIndex = target
+        if let old {
+            if !isPaused, updateCount > 0, iceBreak?.pond == icePonds[old].anchor {
+                finishBreak()
+                let pond = icePonds[old]
+                breaking = (old, hit.map(pond.nearestTile(to:)) ?? pond.center, 0)
+            } else {
+                sink(old)
+            }
+        }
+        drawIce()
+        onIceChange?()
+    }
+
+    private(set) var iceDrawCount = 0
+    /// 얼어 가는 중이라 알파가 1 전이다. 가만히 선 얼음은 프레임마다 그리지 않게 한다.
+    private var iceFading = false
+    var shownCrackCount: Int { iceLayer?.shownCrackCount ?? 0 }
+    var shownShardCount: Int { iceLayer?.shownShardCount ?? 0 }
+    var iceLayerNodeCount: Int { iceLayer?.nodeCount ?? 0 }
+    func iceAlpha(pondAnchor: TilePoint) -> CGFloat? {
+        icePonds.firstIndex { $0.anchor == pondAnchor }.flatMap { iceLayer?.iceAlpha(pond: $0) }
+    }
+
+    func iceTextureID(pondAnchor: TilePoint) -> ObjectIdentifier? {
+        icePonds.firstIndex { $0.anchor == pondAnchor }.flatMap { iceLayer?.iceTextureID(pond: $0) }
+    }
+
+    private func drawIce() {
+        guard let iceLayer else { return }
+        iceDrawCount += 1
+        let alpha = PlazaIce.freezeAlpha(now: now(), last: iceBreak)
+        iceFading = frozenIndex != nil && alpha < 1
+        iceLayer.show(frozen: frozenIndex, alpha: alpha, breaking: breaking)
+    }
+
+    /// 깨지는 중인 연못을 0.6초 전이어도 바로 가라앉히고 깨짐을 끝낸다.
+    private func finishBreak() {
+        guard let b = breaking else { return }
+        breaking = nil
+        if b.elapsed < PlazaIce.sinkAt { sink(b.pond) }
+    }
+
+    private func advanceIce(by dt: TimeInterval) {
+        let drawn = breaking != nil
+        if !landings.isEmpty {
+            for i in landings.indices { landings[i].remaining -= dt }
+            let due = landings.filter { $0.remaining <= 0 }
+            landings.removeAll { $0.remaining <= 0 }
+            for l in due { land(l.break, jumper: l.jumper) }
+        }
+        if var b = breaking {
+            let before = b.elapsed
+            b.elapsed += dt
+            breaking = b
+            if before < PlazaIce.sinkAt, b.elapsed >= PlazaIce.sinkAt {
+                sink(b.pond)
+                onIceChange?()
+            }
+            if b.elapsed >= PlazaIce.breakEnd { breaking = nil }
+        }
+        if !icePonds.isEmpty, PlazaIce.turn(at: now()) != iceTurn { refreshIce(hit: nil) }
+        if breaking != nil || drawn || iceFading { drawIce() }
+    }
+
+    /// 점프한 사람(nil이면 나)이 선 칸을 깨진 연못 안으로 맞춰 알린다. 서 있는 칸을 모르면 연못 가운데다.
+    private func land(_ b: PlazaIceBreak, jumper: String?) {
+        guard let pond = icePonds.first(where: { $0.anchor == b.pond }) else { return }
+        let shown = jumper.map { remotes[$0]?.motion.tile } ?? walker.tile
+        onIceLanding?(b, shown.map(pond.nearestTile(to:)) ?? pond.center)
+    }
+
+    /// 깨는 점프가 땅에 닿을 때까지 줄을 세운다(0.36초). 멈춘 장면이거나 줄이 가득이면 바로 닿는다.
+    func queueIceLanding(_ b: PlazaIceBreak, jumper: String?) {
+        if isPaused || landings.count >= Self.maxIceLandings {
+            land(b, jumper: jumper)
+        } else {
+            landings.append((b, jumper, PlazaActor.jumpDuration))
+        }
+    }
+
+    func isIceLandingQueued(_ b: PlazaIceBreak) -> Bool { landings.contains { $0.break == b } }
+
+    /// 멈추면 줄 선 착지를 모두 닿게 하고, 깨지는 중이면 바로 가라앉혀 끝낸다.
+    private func finishIceNow() {
+        let due = landings
+        landings.removeAll()
+        for l in due { land(l.break, jumper: l.jumper) }
+        if breaking != nil {
+            finishBreak()
+            drawIce()
+            onIceChange?()
+        }
+    }
+
+    /// 그 연못에 선(걷는 중이면 도착할) 모두에게 큰 물보라. 멈춘 장면은 물보라 없이 알을 물가로 올린다.
+    private func sink(_ pond: Int) {
+        let p = icePonds[pond]
+        if isPaused {
+            climbOutNowIfPaused()
+            return
+        }
+        if p.contains(walker.tile) { splash(at: walker.tile, big: true, stage: myEvolutionStage, splasher: nil) }
+        for (id, r) in remotes where p.contains(r.motion.tile) {
+            splash(at: r.motion.tile, big: true, stage: r.stage, splasher: id)
+        }
+    }
+
+    /// `plunge`가 부른 점프를 아직 못 낸 걸음의 도착 칸. 그 걸음이 시작될 때 `update`가 낸다(진행 중인 땅 걸음이 끝나야 시작한다).
+    private var plungeJumpOwed: TilePoint?
 
     /// 물보라 하나: 입자를 내고 땅에 선 배우를 젖게 한다. 연못 그림이 없거나 배경이 숨으면 아무것도 내지 않는다.
     private func splash(at tile: TilePoint, big: Bool, stage: Int, splasher: String?) {
@@ -936,13 +1115,13 @@ struct PlazaSceneMember: Equatable, Sendable {
         layer.splash(at: tile, big: big)
         let actors: [(id: String?, tile: TilePoint)] = [(nil, walker.tile)] + remotes.map { ($0.key, $0.value.motion.tile) }
         for id in PlazaPond.wetTargets(splash: tile, radius: big ? PlazaPond.splashRadius(stage: stage) : 1,
-                                       splasher: splasher, actors: actors, isWater: { map.isWater($0) }) {
+                                       splasher: splasher, actors: actors, isWater: { isWaterNow($0) }) {
             actor(id)?.showWet()
         }
     }
 
     /// 그 팀원이 잠수한 것으로 보인다: 지금 보이는 자리가 물일 때만. 자리 비움이면 쉼터 칸으로 옮겨져 물이 아니다.
-    private func isShownDiving(_ r: Remote) -> Bool { r.diving && map.isWater(r.motion.tile) }
+    private func isShownDiving(_ r: Remote) -> Bool { r.diving && isWaterNow(r.motion.tile) }
     func memberIsDiving(_ id: String) -> Bool? { remotes[id].map(isShownDiving) }
     var myVisibleHeight: CGFloat { me.visibleSpriteHeight }
     func memberVisibleHeight(_ id: String) -> CGFloat? { remotes[id]?.actor.visibleSpriteHeight }
@@ -987,7 +1166,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             watch = myPond
         }
         let events = watch.advance(tile: tile, step: step, lift: actor.jumpLift, facing: facing, diving: diving, dt: dt,
-                                   isWater: { map.isWater($0) })
+                                   isWater: { isWaterNow($0) })
         if let id { remotes[id]?.pond = watch } else { myPond = watch }
         if let landed = events.landedInWater { splash(at: landed, big: true, stage: stage, splasher: id) }
         if let shore = events.shoreSplash { splash(at: shore, big: false, stage: stage, splasher: id) }
@@ -997,7 +1176,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 헤엄 높이 자르기. 배경이 보이는 연못 그림일 때, 물 칸에 선 배우가 걷는 중이 아니거나 물에서 출발한 걸음일 때만 0보다 크다.
     /// 땅에서 뛰어드는 걸음은 물에 내려앉은 뒤에야 잘린다. 물에서 나오는 마지막 걸음은 도착 칸이 땅이라 걸음이 시작되면 바로 선 모습이다(헤엄치다 나오는 포켓몬과 같다. 일부러 그렇다).
     private func swimSink(tile: TilePoint, step: PlazaStep?, actor: PlazaActor) -> CGFloat {
-        guard pondVisuals, !isBackgroundHidden, map.isWater(tile), step.map({ map.isWater($0.from) }) ?? true,
+        guard pondVisuals, !isBackgroundHidden, isWaterNow(tile), step.map({ isWaterNow($0.from) }) ?? true,
               actor.fullSpriteHeight > 0 else { return 0 }
         return PlazaPond.swimSink(spriteHeight: actor.fullSpriteHeight)
     }
@@ -1006,12 +1185,12 @@ struct PlazaSceneMember: Equatable, Sendable {
     func waterRect(foot: CGPoint) -> CGRect? {
         let ts = CGFloat(PlazaMap.tileSize)
         let t = TilePoint(x: Int(foot.x / ts), y: Int(foot.y / ts))
-        guard map.isWater(t) else { return nil }
+        guard isWaterNow(t) else { return nil }
         var x0 = t.x, x1 = t.x, y0 = t.y, y1 = t.y
-        while map.isWater(TilePoint(x: x0 - 1, y: t.y)) { x0 -= 1 }
-        while map.isWater(TilePoint(x: x1 + 1, y: t.y)) { x1 += 1 }
-        while map.isWater(TilePoint(x: t.x, y: y0 - 1)) { y0 -= 1 }
-        while map.isWater(TilePoint(x: t.x, y: y1 + 1)) { y1 += 1 }
+        while isWaterNow(TilePoint(x: x0 - 1, y: t.y)) { x0 -= 1 }
+        while isWaterNow(TilePoint(x: x1 + 1, y: t.y)) { x1 += 1 }
+        while isWaterNow(TilePoint(x: t.x, y: y0 - 1)) { y0 -= 1 }
+        while isWaterNow(TilePoint(x: t.x, y: y1 + 1)) { y1 += 1 }
         return CGRect(x: CGFloat(x0) * ts, y: worldSize.height - CGFloat(y1 + 1) * ts, width: CGFloat(x1 - x0 + 1) * ts, height: CGFloat(y1 - y0 + 1) * ts)
     }
 
@@ -1022,20 +1201,20 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 땅에서는 걸을 수 있는 빈 칸만, 물속에서는 물 칸과 걸을 수 있는 땅 칸에 들어간다.
     private func canEnterTile(occupied: Set<TilePoint>) -> (TilePoint, TilePoint) -> Bool {
-        { [map] from, to in
+        { [unowned self] from, to in
             guard !occupied.contains(to) else { return false }
-            return map.isWalkable(to) || (map.isWater(from) && map.isWater(to))
+            return isWalkableNow(to) || (isWaterNow(from) && isWaterNow(to))
         }
     }
 
     /// 밀려 가는 걸음은 땅에서 물로도 들어간다(떨어진다). 빈 칸이어야 하고, 막힌 칸은 그대로 막는다.
     private func canPushTile(occupied: Set<TilePoint>) -> (TilePoint, TilePoint) -> Bool {
-        { [map] _, to in !occupied.contains(to) && (map.isWalkable(to) || map.isWater(to)) }
+        { [unowned self] _, to in !occupied.contains(to) && (isWalkableNow(to) || isWaterNow(to)) }
     }
 
     private var pondStepDuration: (TilePoint, TilePoint, Bool) -> TimeInterval {
-        { [map] from, to, running in
-            PlazaPond.stepDuration(from: from, to: to, running: running, isWater: { map.isWater($0) })
+        { [unowned self] from, to, running in
+            PlazaPond.stepDuration(from: from, to: to, running: running, isWater: { isWaterNow($0) })
         }
     }
 
@@ -1054,7 +1233,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             return
         }
         // 물속의 팀원은 따라갈 수 없고, 물속의 나는 길을 찾지 않는다.
-        if isFollowing && map.isWater(target) { return stopWalkingToMember() }
+        if isFollowing && isWaterNow(target) { return stopWalkingToMember() }
         guard !walker.isWalking else { return }
         if isMeInWater { return stopWalkingToMember() }
         if PlazaPathfinder.isAdjacent(walker.tile, target) {
@@ -1064,9 +1243,9 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         let blocked = occupiedTiles()
         var goal = target
-        var route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked)
-        if route == nil, map.isWater(target),
-           let edge = PlazaPond.nearestEdgeWater(to: target, from: walker.tile, isWater: { map.isWater($0) }, isLand: { map.isWalkable($0) && !blocked.contains($0) }) {
+        var route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked, isWalkable: isWalkableNow)
+        if route == nil, isWaterNow(target),
+           let edge = PlazaPond.nearestEdgeWater(to: target, from: walker.tile, isWater: { isWaterNow($0) }, isLand: { isWalkableNow($0) && !blocked.contains($0) }) {
             // 물 가운데의 팀원: 가장 가까운 테두리 물 칸 옆 땅까지만 간다.
             goal = edge
             if PlazaPathfinder.isAdjacent(walker.tile, edge) {
@@ -1074,7 +1253,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                 stopWalkingToMember()
                 return
             }
-            route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked)
+            route = PlazaPathfinder.path(from: walker.tile, toNextTo: goal, map: map, blocked: blocked, isWalkable: isWalkableNow)
         }
         guard let first = route?.first else {
             // 따라가는 중이면 길이 트일 때까지 기다린다.
@@ -1116,6 +1295,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
                                tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
                                items: itemPhotoParticles,
+                               ice: iceLayer?.photoParticles() ?? [],
                                bands: tallGrassLayer?.photoBands(in: rect) ?? [],
                                props: campfirePhotoProps, light: campfirePhotoLight(tint: tint),
                                fireworks: fireworkLayer.photoParticles(worldHeight: worldSize.height),
@@ -1276,7 +1456,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         case .ground(let tile):
             end = foot(tile)
             endHeight = 0
-            burst = map.isWater(tile) ? .none : .ground
+            burst = isWaterNow(tile) ? .none : .ground
         }
         let effects: @MainActor () -> Void = { [weak self] in
             if let self, !self.isPaused {
@@ -1285,7 +1465,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                     // 맞힌 자리에 더는 없으면(걸어서 피했다) 별 없이 공중에서 터지기만 한다.
                     let standing = id.map { self.remotes[$0]?.motion.tile } ?? self.walker.tile
                     if standing == tile { self.showImpact(on: id, direction: shot.direction) }
-                case .ground(let tile): if self.map.isWater(tile) { self.pondLayer?.splash(at: tile, big: false) }
+                case .ground(let tile): if self.isWaterNow(tile) { self.pondLayer?.splash(at: tile, big: false) }
                 }
             }
         }
@@ -1359,7 +1539,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 새 춤이 기다리던 춤을 갈아 끼운다. 모르는 이름의 춤은 좌우 흔들기다. 집중 중인지는 컨트롤러가 먼저 가린다.
     @discardableResult
     func playDance(memberID: String, style: String?) -> Bool {
-        guard !isPaused, let r = remotes[memberID], !map.isWater(r.motion.tile) else { return false }
+        guard !isPaused, let r = remotes[memberID], !isWaterNow(r.motion.tile) else { return false }
         let chosen = PlazaDance.Style.style(id: style)
         if r.motion.isWalking {
             pendingDances[memberID] = (chosen, PlazaDance.beat)
@@ -1376,7 +1556,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 기다리던 춤을, 그 팀원이 멈췄으면 시작하고 한 박자가 지났으면 버린다.
     private func advancePendingDances(by dt: TimeInterval) {
         for (id, pending) in pendingDances {
-            guard let r = remotes[id], !isPaused, !map.isWater(r.motion.tile) else { pendingDances[id] = nil; continue }
+            guard let r = remotes[id], !isPaused, !isWaterNow(r.motion.tile) else { pendingDances[id] = nil; continue }
             if !r.motion.isWalking {
                 pendingDances[id] = nil
                 beginDance(r.actor, style: pending.style, remote: true)
@@ -1403,7 +1583,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 걷기 시작했거나 물에 든 캐릭터의 춤을 끊는다. 밀림, 뛰어들기, 물가로 올라오기 같은 모든 이유를 한 곳에서 잡는다.
     private func stopMovingDancers() {
         if walker.isWalking || isMeInWater { me.stopDance() }
-        for r in remotes.values where r.motion.isWalking || map.isWater(r.motion.tile) { r.actor.stopDance() }
+        for r in remotes.values where r.motion.isWalking || isWaterNow(r.motion.tile) { r.actor.stopDance() }
     }
 
     /// 내 판이 저절로 끝났으면 새 춤으로 이어 춘다. 못 이으면 그대로 끝난다.
@@ -1437,7 +1617,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         guard actor(memberID) != nil else { return }
         // 내가 뛰어드는 걸음을 막 시작했다면 먼지는 떠난 땅 칸에서 인다(walker.tile은 이미 도착할 물 칸이다).
         let tile = memberID.flatMap { remotes[$0]?.motion.tile } ?? walker.currentStep?.from ?? walker.tile
-        if map.isWater(tile) { return }   // 물 위에는 먼지가 일지 않는다
+        if isWaterNow(tile) { return }   // 물 위에는 먼지가 일지 않는다
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
         let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
         texture.filteringMode = .nearest
@@ -1477,7 +1657,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             let next = PlazaWalker.offset(at, d)
             guard canEnter(at, next) else { break }
             reach += 1
-            let fell = !map.isWater(at) && map.isWater(next)
+            let fell = !isWaterNow(at) && isWaterNow(next)
             at = next
             if fell { break }
         }
@@ -1500,8 +1680,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             if !walker.isWalking {
                 guard isMeInWater else { break }
                 let taken = occupiedTiles()
-                guard let d = PlazaPond.stepAshore(from: walker.tile, isWater: { map.isWater($0) },
-                                                   isLand: { map.isWalkable($0) && !taken.contains($0) }) else { break }
+                guard let d = PlazaPond.stepAshore(from: walker.tile, isWater: { isWaterNow($0) },
+                                                   isLand: { isWalkableNow($0) && !taken.contains($0) }) else { break }
                 walker.step(d)
                 stepped = true
             }
@@ -1638,6 +1818,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         noteFrameClock(advanced: raw > 0)
         let dt = raw.isFinite ? min(max(raw, 0), Self.maxFrameDelta) : 0
         clock = currentTime
+        advanceIce(by: dt)
         let modifiers = currentModifiers()
         if modifiers.contains(.command) { walker.releaseAll(); panKeys.removeAll() }
         if let c = photoCenter {
@@ -1662,8 +1843,8 @@ struct PlazaSceneMember: Equatable, Sendable {
             // 알은 헤엄치지 못한다. 헤엄치다 알이 됐으면(졸업, 놓아주기, 대표 포켓몬 해제) 가장 가까운 물가로 저절로 올라온다.
             if isMeInWater, !walker.isWalking {
                 let taken = occupiedTiles()
-                if let d = PlazaPond.stepAshore(from: walker.tile, isWater: { map.isWater($0) },
-                                                isLand: { map.isWalkable($0) && !taken.contains($0) }) {
+                if let d = PlazaPond.stepAshore(from: walker.tile, isWater: { isWaterNow($0) },
+                                                isLand: { isWalkableNow($0) && !taken.contains($0) }) {
                     walker.step(d)
                 }
             }
@@ -1672,8 +1853,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         let occupied = occupiedTiles()
         walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), canPushInto: canPushTile(occupied: occupied),
                        stepDuration: pondStepDuration)
-        if plungeJumpOwed, let step = walker.currentStep, !map.isWater(step.from), map.isWater(step.to) {
-            plungeJumpOwed = false
+        if let owed = plungeJumpOwed, let step = walker.currentStep, step.to == owed {
+            plungeJumpOwed = nil
             playJump(memberID: nil)
         }
         advanceAnimation(by: dt)
@@ -1787,6 +1968,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         texture.filteringMode = .nearest
         mapNode.texture = texture
         mapImage = image
+        iceLayer?.setMapImage(image)
         if let grass { tallGrassLayer?.setArt(grass) }
         isSnowShown = on
         if !on { footprintLayer.removeAll() }
