@@ -595,6 +595,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         case .surface:
             scene.setDiving(false)
             session?.updateDiving(false)
+        case .breakIce, .leapOntoIce: break   // wired in Task 6
         }
         refreshHint()
     }

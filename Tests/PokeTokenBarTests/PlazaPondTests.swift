@@ -50,6 +50,20 @@ final class PlazaPondTests: XCTestCase {
         XCTAssertEqual(act(p(6, 5), .right, diving: true, canMove: false), .surface)
     }
 
+    func testZOnIceBreaksAndFromTheShoreLeaps() {
+        let ice: Set<TilePoint> = [p(6, 5)]
+        func act(_ t: TilePoint, _ f: PlazaDirection, canMove: Bool = true, free: Bool = true) -> PlazaPondAction {
+            PlazaPond.action(tile: t, facing: f, isDiving: false, canMove: canMove,
+                             isWater: { _ in false }, isFree: { _ in free }, isIce: { ice.contains($0) })
+        }
+        XCTAssertEqual(act(p(6, 5), .right), .breakIce)
+        XCTAssertEqual(act(p(6, 5), .right, canMove: false), .jump)
+        XCTAssertEqual(act(p(5, 5), .right), .leapOntoIce(.right))
+        XCTAssertEqual(act(p(5, 5), .right, free: false), .jump)
+        XCTAssertEqual(act(p(5, 5), .right, canMove: false), .jump)
+        XCTAssertEqual(act(p(5, 5), .up), .jump)
+    }
+
     func testStepAshoreTakesTheShortestWaterRouteToFreeLand() {
         // A 3x3 pond at x4-6 y4-6 with land all around.
         let water = Set((4...6).flatMap { x in (4...6).map { p(x, $0) } })
