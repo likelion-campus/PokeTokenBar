@@ -173,8 +173,15 @@ extension L {
     var plazaChatEmoji: String { "이모지" }
     var plazaChatLogTitle: String { "대화 기록" }
     var plazaRosterWalkHint: String { "누르면 이 팀원에게 걸어가요" }
-    func plazaRosterUsageToday(_ tokens: String) -> String { "오늘 \(tokens)" }
-    func plazaRosterUsagePeriods(week: String, month: String) -> String { "주 \(week)  월 \(month)" }
+    var plazaActivityTime: String { "접속시간" }
+    var plazaActivityIceBreaks: String { "얼음 깬 횟수" }
+    var plazaActivityFireworks: String { "폭죽" }
+    var plazaActivityTackles: String { "몸통박치기" }
+    var plazaActivitySnowballHits: String { "눈뭉치 맞힌 횟수" }
+    var plazaActivityGreetings: String { "인사" }
+    var plazaActivityPickups: String { "주운 아이템" }
+    var plazaActivityNone: String { "기록 없음" }
+    func plazaActivityDuration(hours: Int, minutes: Int) -> String { hours > 0 ? "\(hours)시간 \(minutes)분" : "\(minutes)분" }
     var plazaChatLogExpand: String { "펼치기 ▴" }
     var plazaChatLogCollapse: String { "접기 ▾" }
     func teamMegaphoneNotice(nickname: String, text: String) -> String { "📢 \(nickname): \(text)" }

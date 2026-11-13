@@ -243,9 +243,11 @@ final class PlazaItemsTests: XCTestCase {
         let scene = try XCTUnwrap(c.scene)
         scene.update(0)
         XCTAssertEqual(granted, [spawn.kind])
+        XCTAssertEqual(c.activity.pickups, 1, "today's count")
         XCTAssertEqual(c.banner, L(.ko).plazaPickedUp(spawn.kind))
         scene.update(0.1); scene.update(0.2)
         XCTAssertEqual(granted, [spawn.kind], "only once")
+        XCTAssertEqual(c.activity.pickups, 1, "once")
         XCTAssertNil(scene.itemTile)
         XCTAssertNil(c.minimapItem)
         XCTAssertEqual(PlazaPreferences(defaults: TestDefaults.make(suite: suite)).takenItemSlots, [spawn.slot])
@@ -274,6 +276,7 @@ final class PlazaItemsTests: XCTestCase {
         for _ in 0..<30 { t += 1.0 / 60; scene.update(t) }
         XCTAssertEqual(scene.walker.tile, spawn.tile, "I walked onto where it was")
         XCTAssertTrue(granted.isEmpty, "nothing left to pick up")
+        XCTAssertEqual(c.activity.pickups, 0, "a teammate's pickup is not mine")
     }
 
     /// The pickup banners read naturally for both items, and a picker whose name I don't know yet is "팀원".
