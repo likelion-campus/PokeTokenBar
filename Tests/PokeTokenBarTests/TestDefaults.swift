@@ -175,14 +175,24 @@ final class TestDefaults: NSObject, XCTestObservation, @unchecked Sendable {
         return rest.dropFirst().split(separator: ".").first.flatMap { Int32($0) }
     }
 
+    /// Whether a process with this pid exists. Windows has no `kill(pid, 0)`; there every owner counts as alive,
+    /// so nothing is swept (the pool lives under `~/Library/Preferences`, which Windows does not have).
+    static func processIsAlive(_ pid: Int32) -> Bool {
+        #if os(Windows)
+        return true
+        #else
+        return kill(pid, 0) == 0 || errno != ESRCH
+        #endif
+    }
+
     /// Deletes every pool plist in `dir` whose owner process is gone (crashed runs). `isAlive` is injectable.
     @discardableResult
     static func removeStalePlists(in dir: String,
-                                  isAlive: (Int32) -> Bool = { kill($0, 0) == 0 || errno != ESRCH }) -> Int {
+                                  isAlive: (Int32) -> Bool = processIsAlive) -> Int {
         let files = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
         var removed = 0
         for file in files {
-            guard let pid = poolPid(ofFile: file), pid != getpid(), !isAlive(pid) else { continue }
+            guard let pid = poolPid(ofFile: file), pid != ProcessInfo.processInfo.processIdentifier, !isAlive(pid) else { continue }
             if (try? FileManager.default.removeItem(atPath: "\(dir)/\(file)")) != nil { removed += 1 }
         }
         return removed
