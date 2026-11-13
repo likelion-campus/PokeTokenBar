@@ -56,3 +56,4 @@ Team/TeamTransport.swift
 Team/TeamWire.swift
 Team/UI/
 UI/
+Platform/Mac/

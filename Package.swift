@@ -35,7 +35,8 @@ if windowsBuild {
                 name: "PokeTokenBar",
                 dependencies: [.product(name: "Crypto", package: "swift-crypto")],
                 path: "Sources/PokeTokenBar",
-                exclude: macOnlyList("Sources/PokeTokenBar") + ["mac-only.txt", "Resources"]
+                exclude: macOnlyList("Sources/PokeTokenBar") + ["mac-only.txt", "Resources"],
+                swiftSettings: [.define("PTB_SHARED_ONLY")]  // Platform.current takes the stubs in the shared build
             ),
             .testTarget(
                 name: "PokeTokenBarTests",
