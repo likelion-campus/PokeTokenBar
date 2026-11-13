@@ -45,9 +45,11 @@ final class PlazaEmoteTests: XCTestCase {
 
     private static let pikachu = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
 
-    private func node(_ name: String) -> Node {
+    private func node(_ name: String, memberID: String? = nil) -> Node {
         let suite = "plaza.emote.\(UUID())"
-        let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
+        let nodeDefaults = TestDefaults.make(suite: suite)
+        if let memberID { nodeDefaults.set(memberID, forKey: "team.memberID") }
+        let settings = TeamSettings(defaults: nodeDefaults)
         settings.code = code
         settings.nickname = name
         settings.isEnabled = true
@@ -329,13 +331,14 @@ final class PlazaEmoteTests: XCTestCase {
     func testHeartAtAwayMemberTargetsThem() async {
         let me = node("나")
         // 자리 비움 팀원은 멤버 ID로 정해진 쉼터 칸에 선다. 멤버 ID는 매번 달라서, 그 위쪽 칸을 걸을 수 있는 팀원이 나올 때까지 만든다.
-        var candidate = node("민수")
+        // 멤버 ID는 UUID라서 팀원을 만들기 전에 ID만 먼저 굴린다(팀원마다 suite 가 하나씩 생기지 않게).
+        var candidateID = UUID().uuidString
         for _ in 0..<100 {
-            let tile = PlazaShelterWanderer(memberID: candidate.settings.memberID, shelter: map.shelterTiles).tile
+            let tile = PlazaShelterWanderer(memberID: candidateID, shelter: map.shelterTiles).tile
             if map.isWalkable(TilePoint(x: tile.x, y: tile.y - 1)) { break }
-            candidate = node("민수")
+            candidateID = UUID().uuidString
         }
-        let other = candidate
+        let other = node("민수", memberID: candidateID)
         let id = other.settings.memberID
         let shelter = PlazaShelterWanderer(memberID: id, shelter: map.shelterTiles).tile
         let above = TilePoint(x: shelter.x, y: shelter.y - 1)

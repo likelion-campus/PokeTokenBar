@@ -23,7 +23,6 @@ final class MenuGrowthTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer {
-            defaults.removePersistentDomain(forName: name)
             try? FileManager.default.removeItem(at: directory)
         }
         var state = CompanionState()
