@@ -337,11 +337,17 @@ final class UsageStoreTests: XCTestCase {
                                defaults: testDefaults)
 
         await store.refresh(scheduleEmptyRetry: false)
+        print("DIAG A after refresh: \(limits.promptFlags)")
         XCTAssertFalse(limits.promptFlags.isEmpty, "자동 refresh 가 한도를 조회해야 한다")
         XCTAssertTrue(limits.promptFlags.allSatisfy { $0 == false },
                       "자동 폴링은 절대 Keychain 프롬프트 경로(true)를 쓰면 안 된다 — 암호 다이얼로그 유발")
 
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        print("DIAG B before manual after 300ms: \(limits.promptFlags)")
         await store.refreshLimitTokenFromKeychain()
+        print("DIAG C after manual: \(limits.promptFlags)")
+        try? await Task.sleep(nanoseconds: 500_000_000)
+        print("DIAG D 500ms later: \(limits.promptFlags)")
         XCTAssertEqual(limits.promptFlags.last, true,
                        "수동 갱신(사용자 버튼)만 프롬프트 허용 경로를 쓴다 DIAG \(limits.promptFlags)")
     }

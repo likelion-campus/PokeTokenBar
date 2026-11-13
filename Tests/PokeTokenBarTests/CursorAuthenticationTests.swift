@@ -18,14 +18,16 @@ final class CursorAuthenticationTests: XCTestCase {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("CursorAuth-\(UUID().uuidString)")
         root = directory.appendingPathComponent("Stable")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let tag = "\(name) \(directory.lastPathComponent)"
+        print("DIAG setUp \(tag)")
         CursorAuthentication.configurationForTesting = .init(roots: [root])
         CursorAuthentication.resetForTesting()
         CursorUsageAPI.cacheFileURLForTesting = directory.appendingPathComponent("usage-cache.json")
         CursorUsageAPI.resetCacheForTesting()
         // An unexpected request fails locally; no test may fall through to a user's credentials.
         CursorAuthentication.transportForTesting = { _ in XCTFail("unexpected refresh"); return nil }
-        CursorUsageAPI.transportForTesting = { _ in XCTFail("unexpected usage request"); return nil }
-        CursorRateLimitsProvider.transportForTesting = { _ in XCTFail("unexpected limits request"); return nil }
+        CursorUsageAPI.transportForTesting = { r in print("DIAG foreign usage request: \(r.url?.absoluteString ?? "") tag=\(tag)"); XCTFail("unexpected usage request"); return nil }
+        CursorRateLimitsProvider.transportForTesting = { r in print("DIAG foreign limits request in \(tag): \(r.url?.absoluteString ?? "") auth=\(r.value(forHTTPHeaderField: "Authorization") ?? "-") "); XCTFail("unexpected limits request"); return nil }
     }
 
     override func tearDownWithError() throws {
