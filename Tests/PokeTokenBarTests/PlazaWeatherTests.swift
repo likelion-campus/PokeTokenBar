@@ -12,19 +12,39 @@ final class PlazaWeatherTests: XCTestCase {
         calendar.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min, second: s))!
     }
 
-    private func kind(_ y: Int, _ m: Int, _ d: Int) -> W.Kind { W.kind(on: date(y, m, d), calendar: calendar) }
+    // MARK: 계절
 
-    // MARK: 날마다 눈
-
-    /// The plaza snows every day: any date, any period, any time of day.
-    func testEveryDayIsSnow() {
-        for (y, m, d) in [(2026, 4, 5), (2026, 7, 1), (2026, 11, 5), (2026, 11, 13), (2027, 1, 10), (2028, 2, 29)] {
-            for h in [0, 12, 23] {
-                for p in W.Period.allCases {
-                    XCTAssertEqual(W.kind(on: date(y, m, d, h), calendar: calendar, period: p), .snow, "\(y)-\(m)-\(d) \(h) \(p)")
-                }
-            }
+    /// A fixed season is that season on any date; only `auto` reads the calendar.
+    func testAFixedSeasonIgnoresTheDate() {
+        for (y, m, d) in [(2026, 4, 5), (2026, 7, 1), (2026, 11, 13), (2027, 1, 10)] {
+            XCTAssertEqual(PlazaSeasonChoice.spring.season(on: date(y, m, d), calendar: calendar), .spring)
+            XCTAssertEqual(PlazaSeasonChoice.summer.season(on: date(y, m, d), calendar: calendar), .summer)
+            XCTAssertEqual(PlazaSeasonChoice.autumn.season(on: date(y, m, d), calendar: calendar), .autumn)
+            XCTAssertEqual(PlazaSeasonChoice.winter.season(on: date(y, m, d), calendar: calendar), .winter)
         }
+    }
+
+    /// March to May is spring, June to August summer, September to November autumn, December to February winter.
+    func testAutoFollowsTheCalendarMonthAndTurnsAtMidnight() {
+        let want: [PlazaSeason] = [.winter, .winter, .spring, .spring, .spring, .summer, .summer, .summer, .autumn, .autumn, .autumn, .winter]
+        for m in 1...12 {
+            XCTAssertEqual(PlazaSeasonChoice.auto.season(on: date(2026, m, 15), calendar: calendar), want[m - 1], "month \(m)")
+        }
+        XCTAssertEqual(PlazaSeasonChoice.auto.season(on: date(2026, 2, 28, 23, 59, 59), calendar: calendar), .winter)
+        XCTAssertEqual(PlazaSeasonChoice.auto.season(on: date(2026, 3, 1, 0, 0, 0), calendar: calendar), .spring)
+        XCTAssertEqual(PlazaSeasonChoice.auto.season(on: date(2026, 11, 30, 23, 59, 59), calendar: calendar), .autumn)
+        XCTAssertEqual(PlazaSeasonChoice.auto.season(on: date(2026, 12, 1, 0, 0, 0), calendar: calendar), .winter)
+    }
+
+    /// Unknown strings, and the period words v2.5.632 and earlier wrote, read as winter.
+    func testTheWireValueReadsUnknownWordsAsWinter() {
+        for word in ["day", "week", "month", "", "quarter", "Spring"] { XCTAssertEqual(PlazaSeasonChoice(wire: word), .winter, word) }
+        for c in PlazaSeasonChoice.allCases { XCTAssertEqual(PlazaSeasonChoice(wire: c.rawValue), c) }
+        XCTAssertLessThanOrEqual(PlazaSeasonChoice.allCases.map(\.rawValue.utf8.count).max()!, 16, "fits the schedule's bound")
+    }
+
+    func testEachSeasonHasItsOwnWeather() {
+        XCTAssertEqual(PlazaSeason.allCases.map(\.weather), [.petals, .greenLeaves, .leaves, .snow])
     }
 
     // MARK: 입자 움직임
@@ -142,13 +162,7 @@ final class PlazaWeatherTests: XCTestCase {
         return s
     }
 
-    private func firstDay(of wanted: W.Kind, year: Int = 2026, month: Int, hour: Int = 12) -> Date {
-        for d in 1...28 where kind(year, month, d) == wanted { return date(year, month, d, hour) }
-        XCTFail("no \(wanted) day in \(year)-\(month)")
-        return date(year, month, 1)
-    }
-
-    private var snowDay: Date { firstDay(of: .snow, month: 12) }
+    private var snowDay: Date { date(2026, 12, 1) }
 
     private func run(_ s: PlazaScene, seconds: Double, from start: Double = 0) {
         var t = start
@@ -246,10 +260,10 @@ final class PlazaWeatherTests: XCTestCase {
     func testSpritesAreReusedAcrossFrames() {
         let layer = PlazaWeatherLayer()
         let rect = CGRect(x: 0, y: 0, width: 300, height: 200)
-        layer.update(date: snowDay, isHidden: false, dt: 0, visible: rect, step: 0.25)
+        layer.update(weather: .snow, isHidden: false, dt: 0, visible: rect, step: 0.25)
         let first = layer.children
         XCTAssertFalse(first.isEmpty)
-        for _ in 1...30 { layer.update(date: snowDay, isHidden: false, dt: 0.03, visible: rect, step: 0.25) }
+        for _ in 1...30 { layer.update(weather: .snow, isHidden: false, dt: 0.03, visible: rect, step: 0.25) }
         XCTAssertTrue(zip(first, layer.children).allSatisfy { $0 === $1 }, "no nodes made in steady state")
         XCTAssertEqual(first.count, layer.children.count)
         XCTAssertTrue(layer.children.allSatisfy { ($0 as? SKSpriteNode)?.texture?.filteringMode == .nearest })
@@ -322,8 +336,7 @@ final class PlazaWeatherTests: XCTestCase {
 
     func testPhotoTintsTheParticlesLikeTheMap() throws {
         let night = date(2026, 12, 1, 23, 0)
-        var day = night
-        for d in 1...28 where kind(2026, 12, d) == .snow { day = date(2026, 12, d, 23, 0); break }
+        let day = night
         let s = scene(at: day)
         run(s, seconds: 1)
         var input = try XCTUnwrap(s.photoInput())
@@ -368,19 +381,11 @@ final class PlazaWeatherTests: XCTestCase {
         XCTAssertGreaterThan(whites, 1000, "while the map and character are under it")
     }
 
-    // MARK: 주기 (일·주·월)
-
-    private func kind(_ y: Int, _ m: Int, _ d: Int, _ period: W.Period) -> W.Kind {
-        W.kind(on: date(y, m, d), calendar: calendar, period: period)
-    }
-
-    /// 기본 달력은 시스템 달력(일본력·불기 등)이 아니라 그레고리력이다. 그래야 팀원 모두 같은 날씨를 본다.
+    /// 기본 달력은 시스템 달력(일본력·불기 등)이 아니라 그레고리력이다. 그래야 팀원 모두 같은 계절을 본다.
     func testTheDefaultCalendarIsGregorianWhateverTheSystemCalendar() {
         XCTAssertEqual(W.gregorian.identifier, .gregorian)
         XCTAssertEqual(W.gregorian.timeZone, TimeZone.current)
-        for p in W.Period.allCases {
-            let when = date(2026, 11, 9)
-            XCTAssertEqual(W.kind(on: when, period: p), W.kind(on: when, calendar: calendar, period: p), "\(p)")
-        }
+        let when = date(2026, 11, 9)
+        XCTAssertEqual(PlazaSeasonChoice.auto.season(on: when), PlazaSeasonChoice.auto.season(on: when, calendar: calendar))
     }
 }

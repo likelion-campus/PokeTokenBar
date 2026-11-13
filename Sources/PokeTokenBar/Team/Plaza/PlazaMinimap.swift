@@ -24,5 +24,5 @@ final class PlazaMinimapModel {
     /// 불이 켜져 있을 때 모닥불 자리의 왼쪽 위 칸. 꺼져 있으면 nil.
     var campfire: TilePoint?
     /// 눈 오는 날의 지도 그림. nil이면 평소 지도를 그린다.
-    var snowMapImage: NSImage?
+    var seasonMapImage: NSImage?
 }

@@ -51,6 +51,16 @@ extension L {
     var teamNicknameInvalid: String { "닉네임은 1~12자로 입력해 주세요" }
     var teamNotifications: String { "팀 알림" }
     var teamCoreTime: String { "코어타임" }
+    var teamSeason: String { "광장 계절" }
+    func teamSeasonName(_ choice: PlazaSeasonChoice) -> String {
+        switch choice {
+        case .auto: "달력 따라 자동"
+        case .spring: "봄"
+        case .summer: "여름"
+        case .autumn: "가을"
+        case .winter: "겨울"
+        }
+    }
     func teamHour(_ h: Int) -> String { "\(h)시" }
     /// "11월 5일 14:02" — 사용자의 달력과 시간대로.
     func teamScheduleDate(_ date: Date, calendar: Calendar = .current) -> String {

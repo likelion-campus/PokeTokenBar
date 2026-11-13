@@ -167,29 +167,30 @@ struct PlazaFocusEnd: Equatable, Sendable {
         return art
     }
 
-    /// 눈 오는 날의 그림도 프로세스당 한 번만 만든다. 타일 시트가 없으면 바깥 nil(=만들어 봤지만 없음)이다.
-    private static var cachedSnowLook: PlazaSnowLook??
+    /// 계절의 그림도 프로세스당 한 번만 만든다. 안쪽 nil은 만들어 봤지만 없음(타일 시트가 없거나 원본 그대로인 여름)이다.
+    private static var cachedSeasonLooks: [PlazaSeason: PlazaSnowLook?] = [:]
 
-    private static func snowLook(for map: PlazaMap) -> PlazaSnowLook? {
-        if let built = cachedSnowLook { return built }
+    private static func seasonLook(for map: PlazaMap, season: PlazaSeason) -> PlazaSnowLook? {
+        if let built = cachedSeasonLooks[season] { return built }
         var look: PlazaSnowLook?
-        if let sheet = PlazaResources.tileSheet() {
-            let art = PlazaResources.tallGrassSheet().map(PlazaSnowSheet.tallGrass).flatMap(PlazaTallGrassArt.init(sheet:))
-            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSnowSheet.tiles(sheet), tallGrass: art), tallGrass: art)
+        if season != .summer, let sheet = PlazaResources.tileSheet() {
+            let art = PlazaResources.tallGrassSheet().map { PlazaSeasonSheet.tallGrass($0, season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
+            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art),
+                                 tallGrass: art)
         }
-        cachedSnowLook = .some(look)
+        cachedSeasonLooks[season] = .some(look)
         return look
     }
 
-    private func snowDayChanged(_ on: Bool) {
-        minimap.snowMapImage = on ? Self.snowLook(for: map).map { NSImage(cgImage: $0.mapImage, size: .zero) } : nil
-        shortcutModel.isSnowDay = on
+    private func seasonChanged(_ season: PlazaSeason) {
+        minimap.seasonMapImage = Self.seasonLook(for: map, season: season).map { NSImage(cgImage: $0.mapImage, size: .zero) }
+        shortcutModel.isSnowDay = season == .winter
     }
 
     /// 테스트용: 단축키 안내에 V(눈뭉치) 줄이 보이는가.
     var shortcutsShowSnowball: Bool { shortcutModel.isSnowDay }
 
-    var minimapShowsSnow: Bool { minimap.snowMapImage != nil }
+    var minimapShowsSnow: Bool { minimap.seasonMapImage != nil && scene?.isSnowShown == true }
 
     private var mapImage: CGImage {
         if let cached = Self.cachedMapImage { return cached }
@@ -477,11 +478,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onFollowChange = { [weak self] _ in self?.refreshHint() }
         // 일정을 먼저 넣어야 낮밤·날씨·모닥불빛이 기본값으로 한 번 그려졌다가 다시 만들어지지 않는다.
         scene = s
-        s.snowLook = { [map] in Self.snowLook(for: map) }
-        s.onSnowDayChange = { [weak self] in self?.snowDayChanged($0) }
+        s.seasonLook = { [map] in Self.seasonLook(for: map, season: $0) }
+        s.onSeasonChange = { [weak self] in self?.seasonChanged($0) }
         applySchedule()
         s.refreshSnowDay()
-        snowDayChanged(s.isSnowShown)
+        seasonChanged(s.shownSeason)
         s.setBackgroundHidden(preferences.isBackgroundHidden)
         backgroundModel.isHidden = preferences.isBackgroundHidden
         shortcutModel.isFolded = preferences.areShortcutsFolded
@@ -1822,14 +1823,14 @@ struct PlazaFocusEnd: Equatable, Sendable {
                                      isWalking: scene.walker.isWalking, isRunning: scene.walker.isRunning)
     }
 
-    /// 팀이 정한 밝은 시간대와 날씨 주기를 장면과 지도에 넣는다. 정한 적이 없으면 기본값.
+    /// 팀이 정한 밝은 시간대와 계절을 장면과 지도에 넣는다. 정한 적이 없으면 기본값.
     func applySchedule() {
         let current = schedule()
         let core = current?.coreTime ?? .standard
-        let period = current?.period ?? .day
+
         if minimap.coreTime != core { minimap.coreTime = core }
         scene?.coreTime = core
-        scene?.weatherPeriod = period
+        scene?.seasonChoice = current?.season ?? .winter
     }
 
     /// 작은 지도의 점과 보이는 영역을 지금 상태로 맞춘다.
