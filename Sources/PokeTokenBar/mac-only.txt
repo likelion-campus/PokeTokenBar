@@ -10,9 +10,12 @@ Core/CrashReporter.swift
 Core/CursorAuthentication.swift
 Core/CursorRateLimitsProvider.swift
 Core/CursorUsageAPI.swift
+# CustomScanRoots: no Apple import any more; waits for LocalAdditionalUsageReader (SQLite, task 5)
 Core/CustomScanRoots.swift
 Core/GrokRateLimitsProvider.swift
 Core/KeychainAccess.swift
+# LimitsTypes: pure types moved out of OAuthLimitsProvider; waits for LimitStatus (Models.swift)
+Core/LimitsTypes.swift
 Core/LocalAdditionalUsageProvider.swift
 Core/LocalAntigravityUsageReader.swift
 Core/LocalAsideUsageReader.swift
@@ -22,6 +25,7 @@ Core/LocalUsageReader.swift
 Core/Localization.swift
 Core/LocalizationErrors.swift
 Core/LoginItem.swift
+# Models: waits for UsageCost / CostCoverage (UsageCost.swift)
 Core/Models.swift
 Core/NetworkReachabilityMonitor.swift
 Core/OAuthLimitsProvider.swift
@@ -29,6 +33,9 @@ Core/OpenCodeGoRateLimitsProvider.swift
 Core/PokeAPIClient.swift
 Core/PokedexRegion.swift
 Core/PokemonForm.swift
+# PokemonNameDisplayStore: no Apple import; waits for PokemonNameResource (PokemonNameLocalization.swift)
+Core/PokemonNameDisplayStore.swift
+# PokemonNameLocalization: waits for NameDTO (PokeAPIClient.swift)
 Core/PokemonNameLocalization.swift
 Core/PokemonProfile.swift
 Core/SaveSnapshots.swift
@@ -61,3 +68,5 @@ Team/TeamWire.swift
 Team/UI/
 UI/
 Platform/Mac/
+# from main after the split; needs plaza types that are still Mac-only
+Team/Plaza/PlazaActivity.swift

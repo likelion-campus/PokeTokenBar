@@ -33,6 +33,7 @@ enum StubPlatform {
 @MainActor final class StubNotifications: LocalNotifying {
     private let once: LogOnce
     init(log: @escaping @Sendable (String) -> Void) { once = LogOnce("Platform stub: notifications unavailable", sink: log) }
+    var isAvailable: Bool { once.fire(); return false }
     func requestAuthorization() async -> Bool { once.fire(); return false }
     func post(id: String, title: String, body: String, sound: Bool) { once.fire() }
 }
@@ -46,10 +47,11 @@ final class StubSecrets: SecretStoring {
 @MainActor final class StubSystemEvents: SystemEvents {
     private let once: LogOnce
     init(log: @escaping @Sendable (String) -> Void) { once = LogOnce("Platform stub: system events never fire", sink: log) }
-    func onWake(_ f: @escaping () -> Void) { once.fire() }
-    func onScreensSleep(_ f: @escaping () -> Void) { once.fire() }
-    func onScreensWake(_ f: @escaping () -> Void) { once.fire() }
-    func onDayChange(_ f: @escaping () -> Void) { once.fire() }
+    func onWake(_ f: @escaping @Sendable () -> Void) { once.fire() }
+    func onScreensSleep(_ f: @escaping @Sendable () -> Void) { once.fire() }
+    func onScreensWake(_ f: @escaping @Sendable () -> Void) { once.fire() }
+    func onDayChange(_ f: @escaping @Sendable () -> Void) { once.fire() }
+    var displaysAreAsleep: Bool { once.fire(); return false }
 }
 
 final class StubIdleClock: IdleClock {

@@ -2,6 +2,8 @@ import Foundation
 
 /// Small protocols for the OS services shared code needs. Method lists grow only when a real call site needs them.
 @MainActor protocol LocalNotifying {
+    /// False where posting must not be attempted (the Mac: outside an app bundle, `UNUserNotificationCenter` crashes).
+    var isAvailable: Bool { get }
     func requestAuthorization() async -> Bool
     func post(id: String, title: String, body: String, sound: Bool)
 }
@@ -13,10 +15,12 @@ protocol SecretStoring: Sendable {
 }
 
 @MainActor protocol SystemEvents {
-    func onWake(_ f: @escaping () -> Void)
-    func onScreensSleep(_ f: @escaping () -> Void)
-    func onScreensWake(_ f: @escaping () -> Void)
-    func onDayChange(_ f: @escaping () -> Void)
+    func onWake(_ f: @escaping @Sendable () -> Void)
+    func onScreensSleep(_ f: @escaping @Sendable () -> Void)
+    func onScreensWake(_ f: @escaping @Sendable () -> Void)
+    func onDayChange(_ f: @escaping @Sendable () -> Void)
+    /// Whether the main display is asleep (the Mac: `CGDisplayIsAsleep(CGMainDisplayID())`).
+    var displaysAreAsleep: Bool { get }
 }
 
 protocol IdleClock: Sendable {
