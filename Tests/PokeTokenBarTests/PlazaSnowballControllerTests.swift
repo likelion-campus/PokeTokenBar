@@ -81,7 +81,8 @@ final class PlazaSnowballControllerTests: XCTestCase {
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },
                                      subject: { .init(speciesID: speciesID, isShiny: false) },
-                                     myRosterEntry: { nil }, evolutionStage: { stage }, session: me.session, clock: { [unowned self] in now })
+                                     myRosterEntry: { nil }, evolutionStage: { stage }, session: me.session, clock: { [unowned self] in now },
+                                     dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
     }
 
     private func settle() async {
