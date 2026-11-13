@@ -1,5 +1,9 @@
 import XCTest
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 @testable import PokeTokenBar
 
 /// Synthetic SQLite fixtures; no personal Aside data is used by these tests.
