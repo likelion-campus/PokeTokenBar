@@ -112,3 +112,8 @@ Not learned: whether the 15k lines behind the seam hide more gaps. Stage 1 will 
   saved `out.png`, and by eye it is the same picture as the WARP render (no pixel diff was made; the file was not
   sent back). Run C (the real app's service is visible) was effectively covered by run A's Mac log and by the
   Windows browse reaching the Mac; the Windows-side FOUND lines for teammates' apps were not sent back.
+- Follow-up from the user: they are not sure the dialog was the firewall prompt (one alert appeared and went away on
+  OK). `netsh advfirewall firewall show rule name=all | findstr /i ptbprobe` on that PC printed a line, so Windows
+  did create a firewall rule for the probe from a standard account, with no admin password. The rule's action
+  (allow/block) and profile were not read; run A's inbound success implies it allows on that network.
+  Stage 4 must still check this from a clean state with the real installer.
