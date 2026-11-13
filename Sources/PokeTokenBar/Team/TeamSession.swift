@@ -34,8 +34,8 @@ struct TeamMemberState: Equatable, Sendable {
     var mimicSeenAt: Date?
     /// The last ice break they know, as received; the plaza filters it.
     var iceBreak: PlazaIceBreak?
-    /// Their token totals, kept within `TeamUsage.bounded`. nil from an earlier version.
-    var usage: TeamUsage?
+    /// What they did in the plaza today, kept within `PlazaActivity.bounded`. nil from an earlier version.
+    var activity: PlazaActivity?
 }
 
 /// Sits on a `TeamTransporting`: syncs news and reactions, keeps the member table, passes presence and
@@ -125,8 +125,11 @@ final class TeamSession {
     @ObservationIgnored private var dittoState: PlazaDittoState?
     @ObservationIgnored private var mimicOf: String?
     @ObservationIgnored private var iceBreak: PlazaIceBreak?
-    /// My token totals as last told to teammates.
-    @ObservationIgnored private(set) var usage: TeamUsage?
+    /// My plaza activity as last handed over; teammates get it with every presence.
+    @ObservationIgnored private(set) var activity: PlazaActivity?
+    @ObservationIgnored private var activitySentAt: Date?
+    /// A change in the time alone is sent at most this often.
+    static let activityTimeInterval: TimeInterval = 60
     @ObservationIgnored private let evolutionStage: () -> Int
 
     init(settings: TeamSettings, feed: TeamFeedStore, transport: TeamTransporting,
@@ -305,10 +308,15 @@ final class TeamSession {
         broadcast(.presence(makePresence()))
     }
 
-    /// My token totals, told to teammates in my presence when they change.
-    func updateUsage(_ usage: TeamUsage?) {
-        guard usage != self.usage else { return }
-        self.usage = usage
+    /// My plaza activity, told to teammates in my presence. A new count or day goes out at once; a change in time alone
+    /// waits until a minute has passed since the last one sent here.
+    func updateActivity(_ new: PlazaActivity) {
+        let old = activity
+        guard new != old else { return }
+        activity = new
+        let now = clock()
+        if let old, old.countsMatch(new), let sent = activitySentAt, now.timeIntervalSince(sent) < Self.activityTimeInterval { return }
+        activitySentAt = now
         broadcast(.presence(makePresence()))
     }
 
@@ -403,7 +411,7 @@ final class TeamSession {
             if mimic != member.mimicOf { member.mimicSeenAt = mimic == nil ? nil : clock() }
             member.mimicOf = mimic
             member.iceBreak = presence.iceBreak
-            member.usage = presence.usage?.bounded
+            member.activity = presence.activity?.bounded
             members[memberID] = member
             // 코드가 막 바뀌어 이전 팀 링크가 아직 살아 있는 동안에는 받은 일정을 새 팀 몫으로 저장하지 않는다.
             if let schedule = presence.schedule, settings.code == knownCode,
@@ -513,7 +521,7 @@ final class TeamSession {
                      focusEndsAt: focusEndsAt,
                      isDiving: isDiving ? true : nil, evolutionStage: { let n = evolutionStage(); return n > 1 ? n : nil }(),
                      schedule: settings.code == knownCode ? settings.schedule : nil,
-                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, usage: usage)
+                     ditto: dittoState, dittoReady: dittoReady ? true : nil, mimicOf: mimicOf, iceBreak: iceBreak, activity: activity)
     }
 
     private func send(_ message: TeamMessage, to peer: TeamPeerID) {

@@ -9,6 +9,7 @@ import Foundation
     private static let focusKey = "team.plaza.focus"
     private static let iceBreakKey = "team.plaza.iceBreak"
     private static let takenItemSlotsKey = "team.plaza.takenItemSlots"
+    private static let activityKey = "team.plaza.activity"
 
     private let defaults: UserDefaults
 
@@ -69,6 +70,21 @@ import Foundation
                 return
             }
             defaults.set(data, forKey: Self.iceBreakKey)
+        }
+    }
+
+    /// 오늘 광장에서 한 일. 다시 켜도 이어 센다. 날짜가 지났는지는 읽는 쪽이 `rolled(to:)`로 본다.
+    var activity: PlazaActivity? {
+        get {
+            guard let data = defaults.data(forKey: Self.activityKey) else { return nil }
+            return try? JSONDecoder().decode(PlazaActivity.self, from: data)
+        }
+        set {
+            guard let newValue, let data = try? JSONEncoder().encode(newValue) else {
+                defaults.removeObject(forKey: Self.activityKey)
+                return
+            }
+            defaults.set(data, forKey: Self.activityKey)
         }
     }
 

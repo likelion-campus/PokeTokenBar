@@ -93,6 +93,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private var focusFacing: PlazaDirection = .down
     /// 아는 마지막 얼음 깨짐. 어느 연못이 언 채인지는 이것과 시계로 정해진다. 다시 켜도 기억한다.
     private(set) var iceBreak: PlazaIceBreak?
+    /// 오늘 광장에서 한 일. 팀원 목록에서 마우스를 올리면 보인다.
+    private(set) var activity = PlazaActivity(day: "")
+    /// 내가 보냈고 아직 땅에 닿지 않은 깨는 점프. 닿아서 배운 것이 이 가운데 하나일 때만 내가 깬 것으로 센다.
+    private var pendingBreaks: [PlazaIceBreak] = []
     /// 집중이 끝났다(시간이 다 됐거나 일어섰다). 조용히 끝낼 때는 부르지 않는다.
     var onFocusEnd: ((PlazaFocusEnd) -> Void)?
     /// A failed sprite request is made again after this long, while the plaza stays open.
@@ -282,6 +286,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         session?.updateTakenItemSlot(takenItemSlots.max())
         iceBreak = PlazaIce.accepted(preferences.iceBreak, now: clock(), ponds: Self.icePonds)
         session?.updateIceBreak(iceBreak)
+        activity = (preferences.activity ?? PlazaActivity(day: "")).rolled(to: PlazaActivity.dayKey(clock()))
+        session?.updateActivity(activity)
         restoreFocus()
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
@@ -409,6 +415,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     static func restoreFrame(_ w: NSWindow, into roster: PlazaRosterModel, autosaveName: String = frameAutosaveName) {
         w.setFrameAutosaveName(autosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
         roster.capacity = PlazaRoster.capacity(forHeight: w.contentView?.bounds.height ?? 0)
+        roster.maxListHeight = PlazaRoster.maxListHeight(forHeight: w.contentView?.bounds.height ?? 0)
     }
 
     /// 창 없이 장면만 만든다. 창이 열려 있을 때만 불러야 한다(`show()`뿐): 여기서 메타몽 준비를 알리면 이 Mac이 호스트 후보가 된다.
@@ -665,6 +672,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene.stopDance(memberID: nil)
         if let leap { scene.leapOntoIce(leap) } else { scene.playJump(memberID: nil) }
         session?.sendEmote(.jump, target: nil, iceBreak: b)
+        pendingBreaks.append(b)
         scene.queueIceLanding(b, jumper: nil)
     }
 
@@ -711,6 +719,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
 
     /// 받았거나 내가 깬 얼음 깨짐을 배운다. 걸러서 합친 값이 달라질 때만 저장하고 알리고 장면에 넣는다.
     private func learnIceBreak(_ received: PlazaIceBreak?, hit: TilePoint? = nil) {
+        let isMine = received.flatMap { pendingBreaks.firstIndex(of: $0) }.map { pendingBreaks.remove(at: $0) } != nil
         guard let b = PlazaIce.accepted(received, now: clock(), ponds: Self.icePonds) else { return }
         let merged = PlazaIce.merged(iceBreak, b, ponds: Self.icePonds)
         guard merged != iceBreak else { return }
@@ -718,6 +727,28 @@ struct PlazaFocusEnd: Equatable, Sendable {
         preferences.iceBreak = merged
         session?.updateIceBreak(merged)
         scene?.setIceBreak(merged, hit: hit)
+        if isMine { record(.iceBreak) }
+    }
+
+    /// 오늘 한 일에 하나를 더한다. 날짜가 바뀌었으면 0에서 다시 시작하고, 바로 저장하고 팀원에게 알린다.
+    private func record(_ kind: PlazaActivity.Kind) {
+        var next = activity.rolled(to: PlazaActivity.dayKey(clock()))
+        next.record(kind)
+        commitActivity(next, save: true)
+    }
+
+    private func commitActivity(_ next: PlazaActivity, save: Bool) {
+        activity = next
+        if save { preferences.activity = next }
+        session?.updateActivity(next)
+    }
+
+    /// 1초 틱마다: 날짜가 바뀌었으면 넘기고, 자리비움이 아니면 1초를 더한다. 시간은 1분마다 저장한다(세는 것은 바로 저장한다).
+    private func tickActivity() {
+        var next = activity.rolled(to: PlazaActivity.dayKey(clock()))
+        if session?.isIdle != true { next.addSeconds(1) }
+        guard next != activity else { return }
+        commitActivity(next, save: !next.countsMatch(activity) || next.seconds % 60 == 0)
     }
 
     private var lastStartledAt: Date?
@@ -756,6 +787,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         var rng = SystemRandomNumberGenerator()
         let style = PlazaFireworks.next(after: lastFireworkStyle, using: &rng)
         guard scene?.playFirework(memberID: nil, style: style.id) == true else { return }
+        record(.firework)
         scene?.stopDance(memberID: nil)
         lastFireworkStyle = style.id
         session?.sendEmote(.firework, target: nil, fireworkStyle: style.id)
@@ -866,6 +898,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private func pickUp(_ spawn: PlazaItems.Spawn) {
         learnTaken([spawn.slot])
         grantItem(spawn.kind)
+        record(.pickup)
         session?.sendEmote(.pickup, target: nil, itemSlot: spawn.slot)
         scene?.playSparkle(memberID: nil)
         showBanner(L(.ko).plazaPickedUp(spawn.kind))
@@ -1088,6 +1121,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let me = scene.walker.tile
         let direction = PlazaPathfinder.isAdjacent(me, target) ? PlazaPathfinder.direction(from: me, to: target) : scene.walker.facing
         scene.playTackle(by: nil, on: id, direction: direction)
+        record(.tackle)
         if let copied {
             // 복사본은 밀리지 않고 정체를 드러낸다. 따라 한 팀원을 알려 모두가 같은 복사본을 찾았다고 안다.
             session?.sendEmote(.decoyFound, target: copied)
@@ -1182,8 +1216,13 @@ struct PlazaFocusEnd: Equatable, Sendable {
         session?.sendEmote(.snowball, target: target, pushTiles: TeamEmote.pushTiles(evolutionStage()), snowballDirection: facing)
         let copied = target == PlazaDitto.sceneKey ? shownDitto?.decoyOf : nil
         scene.playSnowball(by: nil, shot: shot) { [weak self] in
+            guard let self else { return }
+            // 닿을 때 겨눈 칸에 그 팀원(또는 메타몽)이 아직 있어야 맞힌 것이다. 비켜섰으면 빗나간 것이다.
+            if let target, (target == PlazaDitto.sceneKey ? self.scene?.dittoTile : self.scene?.memberTiles[target]) == shot.endTile {
+                self.record(.snowballHit)
+            }
             // 복사본이 닿기 전에 비켜섰으면 빗나간 것이다.
-            guard let self, target == PlazaDitto.sceneKey, self.scene?.dittoTile == shot.endTile else { return }
+            guard target == PlazaDitto.sceneKey, self.scene?.dittoTile == shot.endTile else { return }
             if let copied {
                 // 복사본은 닿는 순간 정체를 드러낸다. 몸통박치기와 같이 따라 한 팀원을 알려 모두가 같은 복사본을 찾았다고 안다.
                 guard self.shownDitto?.decoyOf == copied else { return }
@@ -1283,6 +1322,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let kind = greetingKind()
         scene.showEmote(memberID: nil, kind: kind)
         scene.showEmote(memberID: id, kind: kind)
+        record(.greeting)
         if id == PlazaDitto.sceneKey {
             session?.sendEmote(kind, target: nil, overDecoy: true)   // 진짜 팀원은 인사받은 줄 모른다
         } else {
@@ -1521,6 +1561,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 self.endFocusIfDue()
                 self.endMimicIfDue()
                 self.endPrayedHintIfDue()
+                self.tickActivity()
                 self.refreshCampfire()
             }
         }
@@ -2055,7 +2096,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let me = myEntryCache ?? myRosterEntry()
         myEntryCache = .some(me)
         scene?.setNature(me?.nature)
-        let next = PlazaRoster.entries(me: me, meIsIdle: session?.isIdle ?? false, meIsFocusing: isFocusing, myUsage: session?.usage,
+        let next = PlazaRoster.entries(me: me, meIsIdle: session?.isIdle ?? false, meIsFocusing: isFocusing, myActivity: activity,
                                        members: Array(members.values),
                                        asleep: session.map { Array($0.asleepMembers.values) } ?? [], now: clock())
         if next != rosterModel.entries { rosterModel.entries = next }
@@ -2121,6 +2162,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.onIceChange = nil
             scene.isPaused = true   // 기다리던 내 깨짐이 닿으며 배운다
             scene.onIceLanding = nil
+            preferences.activity = activity   // 방금 닿은 내 깨짐과 쌓인 시간까지
+            pendingBreaks = []
             scene.onZoomChange = nil
             scene.onCloseRequest = nil
             scene.onEmoteKey = nil
@@ -2151,6 +2194,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene = nil
         rosterModel.entries = []
         rosterModel.page = 0
+        rosterModel.hoveredID = nil
         rosterModel.isAnimating = true
         myEntryCache = nil
         refreshGeneration += 1
@@ -2257,6 +2301,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     func windowDidResize(_ notification: Notification) {
         guard let height = window?.contentView?.bounds.height else { return }
         rosterModel.capacity = PlazaRoster.capacity(forHeight: height)
+        rosterModel.maxListHeight = PlazaRoster.maxListHeight(forHeight: height)
         refreshMinimap()
     }
     func windowDidMiniaturize(_ notification: Notification) { setRendering(visible: false) }
