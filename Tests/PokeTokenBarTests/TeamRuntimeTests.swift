@@ -322,6 +322,31 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(plaza.scene?.jumpLift(memberID: nil), 0, "only they jump")
     }
 
+    /// A prayer from an egg teammate in the plaza shows over their egg here.
+    func testReceivedPrayShowsOverThatEggTeammate() async {
+        let (a, b) = connectedPair()
+        let suite = "ptb.test.team.runtime.pray.\(UUID().uuidString)"
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil))
+        let tile = TilePoint(x: 30, y: 20)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        // The session learns first and the controller follows a beat later; once the scene has the tile, the controller has it too.
+        await settle {
+            let member = b.runtime.session.members[sender]
+            return member?.inPlaza == true && member?.character.speciesID == nil && plaza.scene?.memberTiles[sender] == tile
+        }
+        a.runtime.session.sendEmote(.pray, target: nil)
+        await settle { plaza.scene?.shownEmote(memberID: sender) == .pray }
+        XCTAssertEqual(plaza.scene?.shownEmote(memberID: sender), .pray)
+        XCTAssertNil(plaza.scene?.shownEmote(memberID: nil), "only over them")
+    }
+
     /// A tackle aimed at me pushes me one tile away from the teammate who did it, when they stand right next to me.
     /// From further away (I walked off while their menu was open) it only shows the impact.
     func testTackleFromBesideMePushesMeOneTileAway() async {

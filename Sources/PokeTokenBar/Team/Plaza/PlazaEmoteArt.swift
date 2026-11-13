@@ -41,6 +41,17 @@ enum PlazaEmoteArt {
         "OOOOO..",
         "OOOO...",
     ]
+    /// 기도: 맞댄 두 손(노랑, 가운데 주황 금)과 양쪽 소매(파랑).
+    private static let pray = [
+        "...Y...",
+        "..YOY..",
+        "..YOY..",
+        ".YYOYY.",
+        ".YYOYY.",
+        ".YYOYY.",
+        "BBY.YBB",
+        "BB...BB",
+    ]
     // ! 와 ? 도 하트처럼 도트 격자로 그린다. 획은 두 칸 굵기, 글꼴을 쓰지 않아 가장자리가 뭉개지지 않는다.
     private static let exclaim = [
         "##",
@@ -117,6 +128,7 @@ enum PlazaEmoteArt {
         case .mimicFound: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)   // never shown as a bubble
         case .pull: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
         case .dance: drawText(L(.ko).plazaEmoteDance, size: large ? .body : .small, centeredAt: center, in: context)
+        case .pray: drawGrid(pray, cell: dot, centeredAt: center, in: context)
         }
         return context.makeImage()!
     }

@@ -98,6 +98,7 @@ final class TeamWireTests: XCTestCase {
         full.isDiving = true
         full.evolutionStage = 2
         full.mimicOf = "m1"
+        full.iceBreak = PlazaIceBreak(at: 1_790_000_000.5, pond: TilePoint(x: 5, y: 13))
         full.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "week",
                                       changedAt: Date(timeIntervalSince1970: 1_790_000_000.5),
                                       changedBy: "m1", changedByName: "Ash")
@@ -176,7 +177,7 @@ final class TeamWireTests: XCTestCase {
 
     /// Doing anything else stops the sender's dance, except the Ditto host's copy jump and the shared moments. A new kind must choose here.
     func testWhichEmotesEndTheSendersDance() {
-        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle]
+        let ends: Set<TeamEmoteKind> = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .firework, .decoyFound, .snowball, .mimicTackle, .pray]
         for kind in TeamEmoteKind.allCases { XCTAssertEqual(kind.endsSendersDance, ends.contains(kind), "\(kind)") }
         XCTAssertEqual(Set(TeamEmoteKind.allCases.filter { !$0.endsSendersDance }), [.groupPhoto, .pickup, .dance, .decoyJump, .decoyTackle, .pull, .mimicFound])
     }
@@ -557,6 +558,43 @@ final class TeamWireTests: XCTestCase {
         XCTAssertEqual(p.nameColor, 16752335)
     }
 
+    func testIceBreakIsOptionalOnTheWire() throws {
+        let x = PlazaIceBreak(at: 1_790_000_000.5, pond: TilePoint(x: 5, y: 13))
+        var decoder = TeamWire.FrameDecoder()
+        let breaking = TeamMessage.emote(TeamEmote(kind: .jump, targetMemberID: nil, iceBreak: x))
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(breaking)), [breaking])
+        let plainJump = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .jump, targetMemberID: nil))).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plainJump.contains("iceBreak"))
+        let plain = String(decoding: try TeamWire.encode(.presence(presence)).dropFirst(4), as: UTF8.self)
+        XCTAssertFalse(plain.contains("iceBreak"))
+        var withBreak = presence
+        withBreak.iceBreak = x
+        XCTAssertEqual(try decoder.append(try TeamWire.encode(.presence(withBreak))), [.presence(withBreak)])
+        XCTAssertEqual(try decoder.append(frame(#"{"emote":{"_0":{"kind":"jump"}}}"#)),
+                       [.emote(TeamEmote(kind: .jump, targetMemberID: nil))])
+    }
+
+    func testUnreadableIceBreakDropsOnlyTheBreak() throws {
+        var decoder = TeamWire.FrameDecoder()
+        XCTAssertEqual(try decoder.append(frame(#"{"emote":{"_0":{"kind":"jump","iceBreak":{"pond":"x","at":1}}}}"#)),
+                       [.emote(TeamEmote(kind: .jump, targetMemberID: nil))])
+        // A v2.5.630 peer's shape: the pond is readable but the 3-minute turn replaced by `at`, so it reads as no break.
+        XCTAssertEqual(try decoder.append(frame(#"{"emote":{"_0":{"kind":"jump","iceBreak":{"pond":{"x":5,"y":13},"turn":9960000}}}}"#)),
+                       [.emote(TeamEmote(kind: .jump, targetMemberID: nil))])
+        let old = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335,"iceBreak":{"pond":{"x":5,"y":13},"turn":9960000}}}}"#
+        guard case .presence(let q)? = try decoder.append(frame(old)).first else { return XCTFail("old-shape presence dropped") }
+        XCTAssertNil(q.iceBreak)
+        XCTAssertEqual(q.nickname, "Ash")
+        XCTAssertEqual(q.tile, TilePoint(x: 3, y: 4))
+        let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335,"iceBreak":7}}}"#
+        guard case .presence(let p)? = try decoder.append(frame(json)).first else { return XCTFail("presence dropped") }
+        XCTAssertNil(p.iceBreak)
+        XCTAssertEqual(p.nickname, "Ash")
+        XCTAssertEqual(p.tile, TilePoint(x: 3, y: 4))
+        XCTAssertEqual(p.facing, .left)
+        XCTAssertEqual(p.nameColor, 16752335)
+    }
+
     func testOverDecoyIsOmittedWhenFalse() throws {
         let plain = String(decoding: try TeamWire.encode(.emote(TeamEmote(kind: .heart, targetMemberID: "m"))).dropFirst(4), as: UTF8.self)
         XCTAssertFalse(plain.contains("overDecoy"))
@@ -569,13 +607,15 @@ final class TeamWireTests: XCTestCase {
     /// bump `TeamWire.protocolVersion` with it, because older Macs would drop or skip what they cannot read.
     func testWireRawValuesArePinned() throws {
         XCTAssertEqual(TeamWire.protocolVersion, 1)
+        let breakJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(PlazaIceBreak(at: 1, pond: TilePoint(x: 5, y: 13)))) as! [String: Any]
+        XCTAssertEqual(Set(breakJSON.keys), ["at", "pond"])
         XCTAssertEqual(Set(allMessages.map { m -> String in
             let json = try! JSONSerialization.jsonObject(with: TeamWire.encode(m).dropFirst(4)) as! [String: Any]
             return json.keys.first!
         }), ["hello", "inventory", "events", "reactions", "profileRequest", "presence", "emote", "profile", "chat"])
         XCTAssertEqual([TeamEventKind.hatch, .evolve, .graduate, .dittoReveal].map(\.rawValue), ["hatch", "evolve", "graduate", "dittoReveal"])
         XCTAssertEqual([TeamReactionKind.cute, .lol, .congrats, .comment].map(\.rawValue), ["cute", "lol", "congrats", "comment"])
-        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball", "mimicTackle", "mimicFound"])
+        XCTAssertEqual(TeamEmoteKind.allCases.map(\.rawValue), ["heart", "lol", "party", "exclaim", "question", "tackle", "jump", "groupPhoto", "pickup", "firework", "dance", "decoyFound", "decoyJump", "decoyTackle", "pull", "snowball", "mimicTackle", "mimicFound", "pray"])
         XCTAssertEqual([Rarity.common, .uncommon, .rare, .legendary].map(\.rawValue), ["common", "uncommon", "rare", "legendary"])
         XCTAssertEqual(PokemonGender.allCases.map(\.rawValue), ["male", "female", "genderless"])
         XCTAssertEqual(PlazaDirection.allCases.map(\.rawValue), ["up", "down", "left", "right"])

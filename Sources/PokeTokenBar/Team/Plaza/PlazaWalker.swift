@@ -34,6 +34,8 @@ struct PlazaWalker: Sendable {
     private var stepLength: TimeInterval = Self.stepDuration
     /// 다음 `advance`에서 canEnter와 상관없이 한 칸 뛰어들 방향
     private var pendingPlunge: PlazaDirection?
+    /// 뛰어드는 걸음의 고정 길이. nil이면 `stepDuration` 규칙을 따른다.
+    private var pendingPlungeDuration: TimeInterval?
     /// Shift를 누르고 있다. 다음에 출발하는 칸부터 달린다. 밀려 가는 칸은 늘 걷는 빠르기다.
     var wantsToRun = false
     /// 지금 가는 칸이 밀려 가는 칸이다.
@@ -72,8 +74,10 @@ struct PlazaWalker: Sendable {
 
     /// 연못으로 뛰어든다: 다음 걸음은 `canEnter`와 상관없이 `d`로 한 칸, 누른 키와 탭보다 먼저다.
     /// 그 칸이 빈 물 칸인지는 부르는 쪽이 확인한다.
-    mutating func plunge(_ d: PlazaDirection) {
+    /// `duration`을 주면 그 걸음은 그 시간 동안 간다.
+    mutating func plunge(_ d: PlazaDirection, duration: TimeInterval? = nil) {
         pendingPlunge = d
+        pendingPlungeDuration = duration
     }
 
     /// 서 있을 때만 돌아선다.
@@ -127,7 +131,8 @@ struct PlazaWalker: Sendable {
                 pendingPush = nil   // 헤엄치는 쪽은 밀리지 않는다
                 facing = d
                 let target = Self.offset(tile, d)
-                stepLength = length(tile, target, running: false)
+                stepLength = pendingPlungeDuration ?? length(tile, target, running: false)
+                pendingPlungeDuration = nil
                 stepSlides = false
                 stepFrom = tile
                 tile = target

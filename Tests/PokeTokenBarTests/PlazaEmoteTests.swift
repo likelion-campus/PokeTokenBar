@@ -158,9 +158,9 @@ final class PlazaEmoteTests: XCTestCase {
     /// The top-left guide lists every key the plaza answers to.
     func testShortcutGuideListsEveryKey() {
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.key),
-                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "D", "F", "P", "G", "−/+"])
+                       ["방향키", "Shift", "Space", "Enter", "1–5", "Z", "X", "C", "D", "F", "P", "G", "A", "−/+"])
         XCTAssertEqual(PlazaShortcutGuide.entries.map(\.label),
-                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프 · 물놀이", "인사하기", "몸통박치기", "춤", "불꽃놀이", "사진 모드", "단체 사진", "확대·축소"])
+                       ["걷기", "달리기", "말 걸기", "한마디", "말풍선", "점프 · 물놀이", "인사하기", "몸통박치기", "춤", "불꽃놀이", "사진 모드", "단체 사진", "기도(알)", "확대·축소"])
     }
 
     /// On snow days the guide gains a V row right after C.
@@ -213,7 +213,7 @@ final class PlazaEmoteTests: XCTestCase {
         // The decoy kinds and the pull are protocol messages, never bubbles; a new kind must be listed on purpose.
         let decoyKinds: [TeamEmoteKind] = [.decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound]
         let bubbleKinds: [TeamEmoteKind] = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup,
-                                            .firework, .dance]
+                                            .firework, .dance, .pray]
         XCTAssertEqual(Set(bubbleKinds + decoyKinds), Set(TeamEmoteKind.allCases), "every kind is sorted into bubble or message")
         for kind in bubbleKinds {
             let one = PlazaEmoteArt.image(kind, scale: 1)

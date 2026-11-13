@@ -1,7 +1,9 @@
 import Foundation
 import CoreGraphics
 
-enum PlazaPondAction: Equatable, Sendable { case jump, shoreJump, plunge(PlazaDirection), dive, surface }
+enum PlazaPondAction: Equatable, Sendable { case jump, shoreJump, plunge(PlazaDirection), dive, surface
+    case breakIce, leapOntoIce(PlazaDirection)
+}
 
 enum PlazaPondShore: Equatable, Sendable {
     case notShore
@@ -68,11 +70,15 @@ enum PlazaPond {
     }
 
     static func action(tile: TilePoint, facing: PlazaDirection, isDiving: Bool, canMove: Bool,
-                       isWater: (TilePoint) -> Bool, isFree: (TilePoint) -> Bool) -> PlazaPondAction {
+                       isWater: (TilePoint) -> Bool, isFree: (TilePoint) -> Bool,
+                       isIce: (TilePoint) -> Bool = { _ in false }) -> PlazaPondAction {
         // 물속의 알은 잠수하지 않고 폴짝 뛰기만 한다(이미 잠수 중이면 떠오른다).
         if isWater(tile) { return isDiving ? .surface : (canMove ? .dive : .jump) }
+        // 얼음 위에서는 깬다(움직일 수 없으면 그냥 뛴다).
+        if isIce(tile) { return canMove ? .breakIce : .jump }
         let ahead = PlazaWalker.offset(tile, facing)
         if canMove, isWater(ahead), isFree(ahead) { return .plunge(facing) }
+        if canMove, isIce(ahead), isFree(ahead) { return .leapOntoIce(facing) }
         let nearWater = PlazaDirection.allCases.contains { isWater(PlazaWalker.offset(tile, $0)) }
         return nearWater ? .shoreJump : .jump
     }

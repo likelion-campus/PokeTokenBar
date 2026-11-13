@@ -73,7 +73,7 @@ final class TeamRuntime {
                 return
             }
             if emote.kind == .jump {
-                plaza?.showJump(memberID: memberID)
+                plaza?.showJump(memberID: memberID, iceBreak: emote.iceBreak)
                 return
             }
             if emote.kind == .groupPhoto {
@@ -107,6 +107,10 @@ final class TeamRuntime {
             }
             if emote.kind == .decoyJump {
                 plaza?.showDecoyJump(from: memberID)
+                return
+            }
+            if emote.kind == .pray {
+                plaza?.showPray(memberID: memberID)
                 return
             }
             let overDecoy = emote.overDecoy == true

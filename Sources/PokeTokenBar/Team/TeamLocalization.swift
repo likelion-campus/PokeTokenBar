@@ -107,6 +107,7 @@ extension L {
     }
     var plazaDivingHint: String { "잠수 중 · 물가에 선 팀원 밑에서 C로 끌어들이기" }
     func plazaPullHint(nickname: String) -> String { "C를 눌러 \(nickname) 물속으로 끌어들이기" }
+    var plazaIceHint: String { "얼음 위예요 · Z로 얼음 깨기" }
     var plazaHiddenHint: String { "풀숲에 숨었어요 · 팀원이 옆에 오면 Z로 놀래키기" }
     func plazaStartleHint(nickname: String) -> String { "Z를 눌러 \(nickname) 놀래키기" }
     var plazaStartleManyHint: String { "Z를 눌러 옆에 있는 팀원 놀래키기" }
@@ -126,6 +127,13 @@ extension L {
     var plazaShortcutGroupPhoto: String { "단체 사진" }
     var plazaShortcutFirework: String { "불꽃놀이" }
     var plazaShortcutDance: String { "춤" }
+    var plazaShortcutPray: String { "기도(알)" }
+    /// 기도한 직후 잠깐 보이는 횟수.
+    func plazaPrayedHint(prayers: Int) -> String { "기도 \(prayers)번" }
+    /// 알일 때 위쪽 안내 줄. 아직 기도한 적이 없으면 방법만 보인다.
+    func plazaPrayHint(prayers: Int) -> String {
+        prayers > 0 ? "A를 눌러 기도하기 · 기도 \(prayers)번" : "A를 눌러 기도하기"
+    }
     /// 광장에서 주운 아이템. 조사까지 붙인 목적어 꼴이다.
     func plazaItemObject(_ kind: ItemKind) -> String {
         switch kind {
@@ -247,6 +255,7 @@ extension L {
         case .mimicTackle: "💥"
         case .mimicFound: "찾았다"
         case .dance: "춤"
+        case .pray: "기도"
         }
     }
     /// `others`는 첫 사람을 뺀 서로 다른 닉네임 수. 0이면 한 사람이다.

@@ -35,6 +35,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private let pokemonTypes: (Int) async -> [String]?
     /// 광장에서 주운 아이템을 가방에 넣는다.
     private let grantItem: (ItemKind) -> Void
+    /// 내 알에 기도 한 번을 더한다(데스크톱 펫에서 알을 누르는 것과 같은 횟수).
+    private let pray: () -> Void
+    /// 지금 알에 쌓인 기도 횟수. 위쪽 안내 줄에 쓴다.
+    private let prayerCount: () -> Int
     /// 누군가 주운 것으로 아는 아이템 칸: 내가 주운 것, 팀원이 알려 온 것, 팀원 presence가 전해 준 것. 저장하고, 가장 최근
     /// 것을 내 presence로 다시 전한다. 그래서 주운 사람이 떠난 뒤 광장을 연 팀원도 그때 있던 누군가에게서 전해 듣는다.
     private var takenItemSlots: Set<Int> = []
@@ -87,6 +91,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private(set) var focus: PlazaFocus?
     /// 앉은 자리가 바라보는 방향. 다시 열거나 닫을 때 그대로 알린다.
     private var focusFacing: PlazaDirection = .down
+    /// 아는 마지막 얼음 깨짐. 어느 연못이 언 채인지는 이것과 시계로 정해진다. 다시 켜도 기억한다.
+    private(set) var iceBreak: PlazaIceBreak?
     /// 집중이 끝났다(시간이 다 됐거나 일어섰다). 조용히 끝낼 때는 부르지 않는다.
     var onFocusEnd: ((PlazaFocusEnd) -> Void)?
     /// A failed sprite request is made again after this long, while the plaza stays open.
@@ -103,8 +109,14 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
     /// 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭, 펼친 단축키 안내가 다 보이는 높이.
-    static let minContentSize = NSSize(width: 600, height: 352)
+    static let minContentSize = NSSize(width: 600, height: 372)
     private var lastEmoteAt: Date?
+    /// 기도 소식 연타 제한: 마지막으로 팀원에게 보낸 시각부터 잰다. 횟수는 제한 없이 센다.
+    private var lastPraySentAt: Date?
+    /// 기도한 직후 위쪽 안내 줄에 횟수를 보여 주는 시간. 알은 걷지 못해 대개 소식판 옆에 서 있고, 그 자리에서는
+    /// 소식판 안내가 늘 떠 있어서 횟수가 가려진다. 그래서 이 동안은 횟수가 다른 안내보다 먼저다.
+    static let prayedHintDuration: TimeInterval = 2
+    private var prayedHintUntil: Date?
     private var lastChatAt: Date?
     private var lastLoudAt: Date?
     static let loudInterval: TimeInterval = 60
@@ -133,6 +145,16 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private static var cachedHasTileSheet = false
     /// 풀숲 조각 그림도 프로세스당 한 번만 읽는다. 못 읽으면 바깥 nil(=읽어 봤지만 없음)로 기억한다.
     private static var cachedTallGrass: PlazaTallGrassArt??
+
+    /// 얼음 그림은 프로세스당 한 번만 읽는다.
+    private static var cachedIceArt: PlazaIceArt?
+    private static func iceArt() -> PlazaIceArt {
+        if let art = cachedIceArt { return art }
+        let art = PlazaIceArt.load()
+        cachedIceArt = art
+        return art
+    }
+    private static let icePonds: [PlazaIce.Pond] = PlazaIce.ponds(in: PlazaMapData.map)
 
     private static func tallGrassArt() -> PlazaTallGrassArt? {
         if let loaded = cachedTallGrass { return loaded }
@@ -209,6 +231,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
          evolutionStage: @escaping () -> Int = { 1 },
          pokemonTypes: @escaping (Int) async -> [String]? = { _ in nil },
          grantItem: @escaping (ItemKind) -> Void = { _ in },
+         pray: @escaping () -> Void = {},
+         prayerCount: @escaping () -> Int = { 0 },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -250,10 +274,14 @@ struct PlazaFocusEnd: Equatable, Sendable {
         self.evolutionStage = evolutionStage
         self.pokemonTypes = pokemonTypes
         self.grantItem = grantItem
+        self.pray = pray
+        self.prayerCount = prayerCount
         super.init()
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
         takenItemSlots = keptSlots(Set(preferences.takenItemSlots))
         session?.updateTakenItemSlot(takenItemSlots.max())
+        iceBreak = PlazaIce.accepted(preferences.iceBreak, now: clock(), ponds: Self.icePonds)
+        session?.updateIceBreak(iceBreak)
         restoreFocus()
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
@@ -390,8 +418,13 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let s = PlazaScene(map: map, mapImage: image,
                            start: preferences.lastTile(validIn: map),
                            zoom: preferences.zoom, nickname: nickname(),
-                           tallGrass: Self.tallGrassArt(), pondVisuals: Self.cachedHasTileSheet)
+                           tallGrass: Self.tallGrassArt(), pondVisuals: Self.cachedHasTileSheet,
+                           iceArt: Self.iceArt())
         s.now = clock   // 낮밤·날씨도 컨트롤러와 같은 시계를 쓴다
+        for m in session?.members.values.map({ $0 }) ?? [] { learnIceBreak(m.iceBreak) }
+        s.setIceBreak(iceBreak)
+        s.onIceLanding = { [weak self] in self?.learnIceBreak($0, hit: $1) }
+        s.onIceChange = { [weak self] in self?.refreshHint() }
         if let focus { s.sit(at: .init(tile: focus.seat, facing: focusFacing)) }
         s.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: nameColor()))
         nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: nameColor())
@@ -409,6 +442,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
         s.onPhotoModeChange = { [weak self] in self?.photoModeChanged($0) }
         s.onJumpKey = { [weak self] in self?.handleJumpKey() }
+        s.onPrayKey = { [weak self] in self?.handlePrayKey() }
         s.onGreetKey = { [weak self] in
             if let self, let id = self.faceNearbyMember() { self.greet(id) }
         }
@@ -484,6 +518,26 @@ struct PlazaFocusEnd: Equatable, Sendable {
             ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targetTiles) : nil
         if target == PlazaDitto.sceneKey { target = nil }   // 복사본에게 보낸 마음은 진짜 팀원에게 가지 않는다
         session?.sendEmote(kind, target: target)
+    }
+
+    /// 내가 알일 때만 기도한다. 누를 때마다 한 번씩 세고 내 화면에 바로 보이며, 팀원에게 보내는 것만 연타를 제한한다.
+    private func handlePrayKey() {
+        guard let scene, subject().speciesID == nil else { return }
+        pray()
+        scene.playPray(memberID: nil)
+        let now = clock()
+        prayedHintUntil = now.addingTimeInterval(Self.prayedHintDuration)
+        refreshHint()
+        if let last = lastPraySentAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        lastPraySentAt = now
+        session?.sendEmote(.pray, target: nil)
+    }
+
+    /// 기도 횟수 안내의 시간이 다 됐으면 평소 안내로 돌아간다. 1초 틱이 부른다(테스트는 직접 부른다).
+    func endPrayedHintIfDue() {
+        guard let until = prayedHintUntil, clock() >= until else { return }
+        prayedHintUntil = nil
+        refreshHint()
     }
 
     private func openChat() {
@@ -595,8 +649,22 @@ struct PlazaFocusEnd: Equatable, Sendable {
         case .surface:
             scene.setDiving(false)
             session?.updateDiving(false)
+        case .breakIce:
+            breakIce(scene, now: now, leap: nil)
+        case .leapOntoIce(let d):
+            breakIce(scene, now: now, leap: d)
         }
         refreshHint()
+    }
+
+    /// 얼음을 깨는 점프: 보내고, 내 착지(0.36초 뒤)에서 깨짐을 배운다. `leap`이 있으면 물가에서 그 칸의 얼음으로 뛰어오른다.
+    private func breakIce(_ scene: PlazaScene, now: Date, leap: PlazaDirection?) {
+        guard let pond = scene.frozenPondAnchor else { return }
+        let b = PlazaIceBreak(at: now.timeIntervalSince1970, pond: pond)
+        scene.stopDance(memberID: nil)
+        if let leap { scene.leapOntoIce(leap) } else { scene.playJump(memberID: nil) }
+        session?.sendEmote(.jump, target: nil, iceBreak: b)
+        scene.queueIceLanding(b, jumper: nil)
     }
 
     /// X와 C가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
@@ -625,10 +693,30 @@ struct PlazaFocusEnd: Equatable, Sendable {
         return copied == memberID() ? nickname() : members[copied]?.nickname
     }
 
+    /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 기도는 알만 하므로, 알이 아닌 팀원이나
+    /// 광장에 없는 팀원이 보낸 것은 버린다(정직한 앱은 보내지 않는다).
+    func showPray(memberID: String) {
+        guard let member = members[memberID], member.inPlaza, member.character.speciesID == nil else { return }
+        scene?.playPray(memberID: memberID)
+    }
+
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
-    func showJump(memberID: String) {
+    func showJump(memberID: String, iceBreak b: PlazaIceBreak? = nil) {
         scene?.playJump(memberID: memberID)
         startleMe(by: memberID)
+        guard let b = PlazaIce.accepted(b, now: clock(), ponds: Self.icePonds) else { return }
+        if let scene { scene.queueIceLanding(b, jumper: memberID) } else { learnIceBreak(b) }
+    }
+
+    /// 받았거나 내가 깬 얼음 깨짐을 배운다. 걸러서 합친 값이 달라질 때만 저장하고 알리고 장면에 넣는다.
+    private func learnIceBreak(_ received: PlazaIceBreak?, hit: TilePoint? = nil) {
+        guard let b = PlazaIce.accepted(received, now: clock(), ponds: Self.icePonds) else { return }
+        let merged = PlazaIce.merged(iceBreak, b, ponds: Self.icePonds)
+        guard merged != iceBreak else { return }
+        iceBreak = merged
+        preferences.iceBreak = merged
+        session?.updateIceBreak(merged)
+        scene?.setIceBreak(merged, hit: hit)
     }
 
     private var lastStartledAt: Date?
@@ -1152,7 +1240,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 잠수한 내가 지금 C로 끌어들일 수 있는 물가의 팀원들.
     private func pullTargets(_ scene: PlazaScene) -> [String: TilePoint] {
         let occupied = scene.occupiedTiles()
-        return PlazaPullUnder.targets(diver: scene.walker.tile, members: scene.memberTiles, isWater: { [map] in map.isWater($0) },
+        return PlazaPullUnder.targets(diver: scene.walker.tile, members: scene.memberTiles, isWater: { scene.isWaterNow($0) },
                                       isFree: { !occupied.contains($0) })
     }
 
@@ -1177,7 +1265,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 사진 모드에서는 끌려가지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
     func showPull(from sender: String, on target: String?) {
         guard let scene, target == memberID(), !isPhotoMode, let from = scene.memberTiles[sender],
-              let d = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { [map] in map.isWater($0) }) else { return }
+              let d = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { scene.isWaterNow($0) }) else { return }
         scene.plunge(d)   // 끄는 팀원은 물러나는 중이라 그 칸이 비었는지 따지지 않는다
     }
 
@@ -1222,6 +1310,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         var text: String?
         if isPhotoMode {
             text = nil
+        } else if let until = prayedHintUntil, clock() < until, overlayModel.content == .none, !chatInput.isOpen {
+            text = L(.ko).plazaPrayedHint(prayers: prayerCount())
         } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
@@ -1239,11 +1329,17 @@ struct PlazaFocusEnd: Equatable, Sendable {
             case .member(let id): text = hintName(of: id).map { L(.ko).plazaMemberHint(nickname: $0) }
             }
         }
-        if text == nil, !isPhotoMode, focus == nil, overlayModel.content == .none, !chatInput.isOpen { text = startleHint()?.text }
+        if text == nil, !isPhotoMode, focus == nil, overlayModel.content == .none, !chatInput.isOpen {
+            text = startleHint()?.text ?? (scene?.isMeOnIce == true && scene?.canWalk == true && !isFocusing ? L(.ko).plazaIceHint : nil)
+        }
         // The countdown only fills an otherwise empty hint: interaction and startle hints win.
         if text == nil, !isPhotoMode, let mimic = myMimic, let look = myShownLook, overlayModel.content == .none, !chatInput.isOpen {
             let left = min(PlazaMimic.duration, mimic.since.addingTimeInterval(PlazaMimic.duration).timeIntervalSince(clock()))
             text = L(.ko).plazaMimicHint(nickname: look.name, seconds: left)
+        }
+        // 알일 때의 기도 안내도 다른 안내가 없을 때만 채운다.
+        if text == nil, !isPhotoMode, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
+            text = L(.ko).plazaPrayHint(prayers: prayerCount())
         }
         if overlayModel.hint != text { overlayModel.hint = text }
     }
@@ -1416,6 +1512,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 guard !Task.isCancelled, let self else { return }
                 self.endFocusIfDue()
                 self.endMimicIfDue()
+                self.endPrayedHintIfDue()
                 self.refreshCampfire()
             }
         }
@@ -1812,6 +1909,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private func applyMembersToScene() {
         guard let scene else { return }
         learnTaken(members.values.compactMap(\.takenItemSlot))
+        for b in members.values.compactMap(\.iceBreak) {
+            // 내 쪽에서 곧 닿을 점프가 알린 깨짐은 그 착지에서 배운다.
+            if let accepted = PlazaIce.accepted(b, now: clock(), ponds: Self.icePonds), scene.isIceLandingQueued(accepted) { continue }
+            learnIceBreak(b)
+        }
         let list = members.values.sorted { $0.memberID < $1.memberID }
         let targets = mimicTargets()
         let looks = targets.compactMapValues(realLook(of:))
@@ -2008,7 +2110,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
         appliedMemberLoads = []
         if let scene {
             scene.releaseAllKeys()
-            scene.isPaused = true
+            scene.onIceChange = nil
+            scene.isPaused = true   // 기다리던 내 깨짐이 닿으며 배운다
+            scene.onIceLanding = nil
             scene.onZoomChange = nil
             scene.onCloseRequest = nil
             scene.onEmoteKey = nil
@@ -2021,6 +2125,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.onSnowballKey = nil
             scene.onGroupPhotoKey = nil
             scene.onFireworkKey = nil
+            scene.onPrayKey = nil
             scene.onDanceRound = nil
             scene.isFocusing = { false }
             scene.onItemPickup = nil
