@@ -79,6 +79,8 @@ echo "  확인: 서명 신원 '$SIGN_IDENTITY' leaf=$LEAF"
 # ── 6. 테스트 게이트 ───────────────────────────────────────
 echo "▶ 테스트 게이트"
 ./scripts/test-gate.sh || fail "테스트 게이트가 실패했습니다. 위 출력을 확인하세요. 릴리스는 만들지 않았습니다."
+# 테스트가 cfprefsd 를 막았으면 앱을 설치하고 띄우기 전에 풀어 둔다(실패하면 릴리스 중단).
+./scripts/cfprefsd-guard.sh || fail "cfprefsd 를 회복하지 못했습니다. 릴리스는 만들지 않았습니다."
 
 # ── 7. 빌드 (여기부터 /Applications 가 바뀐다) ──────────────
 export PTB_REQUIRE_STABLE_SIGN=1

@@ -80,7 +80,6 @@ final class SulkRenderTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: file) }
         let suite = "SulkRender-\(UUID())"
         let defaults = TestDefaults.make(suite: suite)
-        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
         let names = [Self.speciesID: ["en": "Pikachu", "ko": "피카츄"]]
         let line = EvoLine(baseID: Self.speciesID, tree: EvoNode(speciesID: Self.speciesID, children: []),
                            rarity: .common, names: names)
@@ -158,7 +157,6 @@ final class SulkRenderTests: XCTestCase {
                 let companion = try await makeCompanion(language: language, sulking: sulking)
                 let suite = "SulkRenderUsage-\(UUID())"
                 let defaults = TestDefaults.make(suite: suite)
-                addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
                 let usage = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
                 // The same text the hover callout shows; the chrome here only approximates the NSPanel's.
                 let hover = FloatingPetView.hoverTooltip(
