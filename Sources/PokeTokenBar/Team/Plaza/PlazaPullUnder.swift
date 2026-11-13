@@ -48,6 +48,7 @@ enum PlazaPullUnder {
                         guard mine ? isWater(behind) && isFree(behind) : isFree(step) else { return nil }
                         return (id, Pull(direction: back, tiles: j, landing: step, stepsBack: mine))
                     }
+                    // isFree is unreachable here (a nearer member would itself be the target); kept for symmetry with `drag`
                     guard isWalkable(step), isFree(step) else { return nil }
                 }
                 return nil   // 나 쪽에 물이 없다: me가 물이라 여기 오지 않는다

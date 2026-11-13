@@ -423,4 +423,34 @@ extension PlazaPullUnderTests {
         c.refreshHintForTesting()
         XCTAssertEqual(c.hint, L(.ko).plazaDivingHint)
     }
+
+    func testCWhileDivingWithNothingToPullDoesNotEvenTurnMe() async throws {
+        let (c, scene, _, other, heard) = try await open(me: p(39, 17), plunging: .left, teammate: p(37, 17))
+        scene.face(.right)
+        scene.setDiving(true)
+        run(scene, 0.1)
+        _ = scene.handleKeyDown(keyCode: cKey, characters: "c", isRepeat: false)
+        await settle()
+        XCTAssertEqual(scene.walker.facing, .right, "a swimmer beside me is no pull target and a diver cannot tackle")
+        XCTAssertTrue(scene.isDiving)
+        XCTAssertTrue(heard.emotes.isEmpty)
+        withExtendedLifetime((c, other)) {}
+    }
+
+    func testThePullHintFollowsAMateWalkingIntoAndOutOfRange() async throws {
+        let (c, scene, _, other, _) = try await open(me: p(39, 17), plunging: .left, teammate: p(40, 10))
+        swimOut(scene, extra: 1)   // (37,17), facing the shore
+        run(scene, 0.2)
+        XCTAssertNil(c.hint)
+        other.session.updatePlazaPosition(inPlaza: true, tile: p(40, 17), facing: .down, isWalking: false)
+        await settle()
+        run(scene, 6)
+        XCTAssertEqual(scene.memberTiles[other.id], p(40, 17))
+        XCTAssertEqual(c.hint, L(.ko).plazaPullHint(nickname: "민수"), "no key press needed")
+        other.session.updatePlazaPosition(inPlaza: true, tile: p(40, 10), facing: .down, isWalking: false)
+        await settle()
+        run(scene, 6)
+        XCTAssertEqual(scene.memberTiles[other.id], p(40, 10))
+        XCTAssertNil(c.hint)
+    }
 }

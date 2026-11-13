@@ -449,6 +449,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onTackleKey = { [weak self] in
             guard let self, !self.isFocusing else { return }
             if self.pullUnder() { return }
+            if self.scene?.isDiving == true { return }   // a diver cannot tackle: nothing to pull means nothing happens, not even a turn
             if let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
         }
         s.onSnowballKey = { [weak self] in self?.handleSnowballKey() }
