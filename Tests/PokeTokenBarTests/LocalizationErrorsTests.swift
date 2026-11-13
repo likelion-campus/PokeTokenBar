@@ -59,7 +59,14 @@ final class LocalizationErrorsTests: XCTestCase {
         XCTAssertEqual(store.sessionKeyError, L(.ja).sessionKeyMalformedError)
         XCTAssertEqual(store.limitTokenRefreshError, L(.ja).sessionKeyExpiredError)
         await store.refresh(scheduleEmptyRetry: false)
-        let diagnostic = store.lastErrorDescription!
+        // The awaited refresh can return while a coalesced fetch is still in flight (seen once on Windows CI, where the
+        // force unwrap then crashed the whole run), so wait for the error to be recorded instead of assuming the order.
+        var recorded = store.lastErrorDescription
+        for _ in 0..<300 where recorded == nil {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            recorded = store.lastErrorDescription
+        }
+        guard let diagnostic = recorded else { return XCTFail("the refresh never recorded the provider error") }
         XCTAssertEqual(store.lastErrorMessage(L(.ko)), L(.ko).usageRefreshError + "\n" + diagnostic)
         XCTAssertEqual(store.lastErrorMessage(L(.de)), L(.de).usageRefreshError + "\n" + diagnostic)
         XCTAssertEqual(store.lastErrorDescription, diagnostic)
