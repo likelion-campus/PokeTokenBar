@@ -40,10 +40,21 @@ enum SharedSources {
     static let appleOnly = SharedSourcesScanTests.appleOnly
 
     private static let importRegex = try! NSRegularExpression(
-        pattern: #"^\s*(?:@\w+\s+)*import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?([A-Za-z0-9_]+)"#)
+        pattern: #"^\s*(?:@\w+(?:\([^)]*\))?\s+)*import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?([A-Za-z0-9_]+)"#)
+    private static let conditionRegex = try! NSRegularExpression(pattern: #"\b(?:os|canImport|arch|targetEnvironment)\("#)
 
     static func lines(of url: URL) throws -> [String] {
         try String(contentsOf: url, encoding: .utf8).components(separatedBy: .newlines)
+    }
+
+    /// Modules imported on one source line, in any form (attributes, `;`-joined statements, trailing comments).
+    static func importedModules(in line: String) -> [String] {
+        let code = line.components(separatedBy: "//").first ?? line
+        return code.components(separatedBy: ";").compactMap { statement in
+            guard let m = importRegex.firstMatch(in: statement, range: NSRange(statement.startIndex..., in: statement)),
+                  let r = Range(m.range(at: 1), in: statement) else { return nil }
+            return String(statement[r])
+        }
     }
 
     /// One message per Apple-only import in `files`.
@@ -51,11 +62,7 @@ enum SharedSources {
         var out: [String] = []
         for url in files {
             for line in try lines(of: url) {
-                let range = NSRange(line.startIndex..., in: line)
-                guard let m = importRegex.firstMatch(in: line, range: range),
-                      let r = Range(m.range(at: 1), in: line) else { continue }
-                let module = String(line[r])
-                if appleOnly.contains(module) {
+                for module in importedModules(in: line) where appleOnly.contains(module) {
                     out.append("\(relativePath(url, root: root)) imports \(module). Add it to mac-only.txt, or route the call through Platform.")
                 }
             }
@@ -77,14 +84,16 @@ enum SharedSources {
             if rel.hasPrefix("Platform/") { continue }
             let ls = try lines(of: url).map { $0.trimmingCharacters(in: .whitespaces) }
             var covered = Set<Int>()
-            for (i, l) in ls.enumerated() where l.hasPrefix("#if os(") || l.hasPrefix("#if canImport(") {
+            for (i, l) in ls.enumerated() where (l.hasPrefix("#if") || l.hasPrefix("#elseif"))
+                && conditionRegex.firstMatch(in: l, range: NSRange(l.startIndex..., in: l)) != nil {
                 if let shape = guardShapes.first(where: { Array(ls[i...].prefix($0.count)) == $0 }) {
                     covered.formUnion(i..<(i + shape.count))
                 } else {
                     out.append("\(rel):\(i + 1) has `\(l)`. Only the three import guards are allowed outside Platform/.")
                 }
             }
-            for (i, l) in ls.enumerated() where (l == "import CryptoKit" || l == "import SQLite3") && !covered.contains(i) {
+            for (i, l) in ls.enumerated() where !covered.contains(i)
+                && !Set(importedModules(in: l)).isDisjoint(with: ["CryptoKit", "SQLite3"]) {
                 out.append("\(rel):\(i + 1) has `\(l)` outside its import guard.")
             }
         }
@@ -99,7 +108,9 @@ enum SharedSources {
 final class SharedSourcesScanTests: XCTestCase {
     static let appleOnly: Set<String> = ["AppKit", "SwiftUI", "SpriteKit", "CoreGraphics", "CoreText", "QuartzCore", "ImageIO",
                                           "UniformTypeIdentifiers", "Network", "Security", "LocalAuthentication", "ServiceManagement",
-                                          "UserNotifications", "Darwin", "Metal", "Combine"]
+                                          "UserNotifications", "Darwin", "Metal", "Combine",
+                                          "WebKit", "IOKit", "CoreServices", "ApplicationServices", "CoreImage", "AVFoundation",
+                                          "OSLog", "os", "Cocoa", "Carbon"]  // not CoreFoundation: Foundation re-exports it on Windows too
 
     func testEveryListedPathExists() throws {
         for (list, root) in [(SharedSources.sourcesList, SharedSources.sourcesRoot), (SharedSources.testsList, SharedSources.testsRoot)] {
@@ -108,6 +119,7 @@ final class SharedSourcesScanTests: XCTestCase {
                 let exists = FileManager.default.fileExists(atPath: root.appendingPathComponent(entry).path, isDirectory: &isDir)
                 XCTAssertTrue(exists, "\(list.lastPathComponent) lists \(entry), which does not exist")
                 if entry.hasSuffix("/") { XCTAssertTrue(isDir.boolValue, "\(entry) ends with / but is not a directory") }
+                else { XCTAssertFalse(isDir.boolValue, "\(list.lastPathComponent) lists directory \(entry) without a trailing /") }
             }
         }
     }
@@ -121,19 +133,48 @@ final class SharedSourcesScanTests: XCTestCase {
 
     func testOnlyTheThreeImportGuardsAppearOutsidePlatform() throws {
         let files = try SharedSources.sharedFiles(root: SharedSources.sourcesRoot, listURL: SharedSources.sourcesList)
+        XCTAssertFalse(files.isEmpty)
         let bad = try SharedSources.guardViolations(in: files, root: SharedSources.sourcesRoot)
         XCTAssertEqual(bad, [])
     }
 
-    func testTheScanCatchesAnInjectedImport() throws {
+    /// Runs both scanners over a temp dir holding one file with `content`.
+    private func scan(_ content: String) throws -> (imports: [String], guards: [String]) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-scan-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("Injected.swift")
-        try "import Foundation\nimport AppKit\n#if os(macOS)\nlet x = 1\n#endif\n".write(to: file, atomically: true, encoding: .utf8)
-        XCTAssertEqual(try SharedSources.importViolations(in: [file], root: dir),
-                       ["Injected.swift imports AppKit. Add it to mac-only.txt, or route the call through Platform."])
-        XCTAssertEqual(try SharedSources.guardViolations(in: [file], root: dir).count, 1)
+        try content.write(to: file, atomically: true, encoding: .utf8)
+        return (try SharedSources.importViolations(in: [file], root: dir), try SharedSources.guardViolations(in: [file], root: dir))
+    }
+
+    func testTheScanCatchesAnInjectedImport() throws {
+        let r = try scan("import Foundation\nimport AppKit\n")
+        XCTAssertEqual(r.imports, ["Injected.swift imports AppKit. Add it to mac-only.txt, or route the call through Platform."])
+        XCTAssertEqual(r.guards, [])
+    }
+
+    func testTheScanCatchesImportVariants() throws {
+        for line in ["@_spi(X) import AppKit", "@preconcurrency import SwiftUI", "import Foundation; import AppKit",
+                     "import AppKit // why", "import struct AppKit.NSColor", "import os", "import WebKit"] {
+            XCTAssertEqual(try scan(line + "\n").imports.count, 1, line)
+        }
+        XCTAssertEqual(try scan("import Foundation\n// import AppKit\n").imports, [])
+    }
+
+    func testTheScanCatchesConditionalsOutsideTheThreeGuards() throws {
+        for cond in ["#if os(macOS)", "#if !os(Windows)", "#if !canImport(AppKit)", "#if os(macOS) || os(iOS)",
+                     "#if arch(arm64)", "#if targetEnvironment(simulator)", "#if DEBUG && os(macOS)", "#if canImport(AppKit)"] {
+            XCTAssertEqual(try scan("\(cond)\nlet x = 1\n#endif\n").guards.count, 1, cond)
+        }
+        XCTAssertEqual(try scan("#if DEBUG\nlet x = 1\n#elseif os(macOS)\nlet y = 1\n#endif\n").guards.count, 1)
+        XCTAssertEqual(try scan("#if canImport(CryptoKit)\nimport CryptoKit\n#else\nimport Crypto\n#endif\n").guards, [])
+    }
+
+    func testCryptoKitAndSQLite3NeedTheirGuardInAnyImportForm() throws {
+        for line in ["import CryptoKit", "@preconcurrency import CryptoKit", "import SQLite3 // x", "import Foundation; import CryptoKit"] {
+            XCTAssertEqual(try scan(line + "\n").guards.count, 1, line)
+        }
     }
 
     func testSharedSetDoesNotShrink() throws {

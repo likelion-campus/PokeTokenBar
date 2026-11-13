@@ -6,4 +6,4 @@
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PTB_SHARED_ONLY=1 swift build --build-path .build-shared
+PTB_SHARED_ONLY=1 swift build --build-tests --build-path .build-shared
