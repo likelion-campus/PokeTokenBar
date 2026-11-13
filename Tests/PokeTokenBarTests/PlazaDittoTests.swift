@@ -23,12 +23,12 @@ final class PlazaDittoTests: XCTestCase {
         XCTAssertFalse(f(true, true, false, true)); XCTAssertFalse(f(true, true, false, false, true))
     }
 
-    func testItDancesAlongWithADancerInTheEightTilesAround() {
+    func testItDancesAlongWithADancerWithinThreeTiles() {
         let d = TilePoint(x: 10, y: 10)
-        for dx in -1...1 { for dy in -1...1 {
+        for dx in -3...3 { for dy in -3...3 {
             XCTAssertTrue(PlazaDitto.dancesAlong(ditto: d, dancer: TilePoint(x: 10 + dx, y: 10 + dy)), "\(dx),\(dy)")
         } }
-        for far in [TilePoint(x: 12, y: 10), TilePoint(x: 8, y: 11), TilePoint(x: 11, y: 12), TilePoint(x: 10, y: 8)] {
+        for far in [TilePoint(x: 14, y: 10), TilePoint(x: 6, y: 11), TilePoint(x: 11, y: 14), TilePoint(x: 10, y: 6)] {
             XCTAssertFalse(PlazaDitto.dancesAlong(ditto: d, dancer: far), "\(far)")
         }
     }

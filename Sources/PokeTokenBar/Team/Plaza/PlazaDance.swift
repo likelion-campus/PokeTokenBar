@@ -18,7 +18,7 @@ enum PlazaDance {
     private static let epsilon: TimeInterval = 1e-4
 
     /// 같이 추는 거리. 이 칸 수 안(대각선 포함)에서 춤추는 팀원끼리 같은 춤을 춘다.
-    static let togetherRange = 2
+    static let togetherRange = 3
 
     /// 내가 따라 출 팀원: 둘레 `togetherRange`칸 안에서 춤추는 팀원(`dancers`) 가운데 가장 먼저 춤을 시작한 팀원. 내가(`since`,
     /// 아직 안 추면 nil) 더 먼저 시작했으면 nil이다(그때는 그 팀원들이 나를 따른다). 시작 시각은 춘 사람이 춤 소식에 실어 보내는

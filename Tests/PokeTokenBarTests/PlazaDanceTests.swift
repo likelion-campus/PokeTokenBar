@@ -1174,12 +1174,12 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(leader(["a": (near, at(5))]), "a")
         XCTAssertNil(leader(["z": (near, at(5))]))
         XCTAssertEqual(leader(["b": (near, at(4)), "a": (near, at(4))]), "a")
-        // Two tiles away counts, diagonals too; three does not.
-        XCTAssertEqual(leader(["b": (TilePoint(x: 12, y: 12), at(4))]), "b")
-        XCTAssertEqual(leader(["b": (TilePoint(x: 10, y: 8), at(4))]), "b")
-        XCTAssertNil(leader(["b": (TilePoint(x: 13, y: 10), at(4))]))
-        XCTAssertNil(leader(["b": (TilePoint(x: 10, y: 7), at(4))]))
-        XCTAssertEqual(leader(["a": (TilePoint(x: 13, y: 10), at(1)), "b": (near, at(4))]), "b", "a far dancer does not lead")
+        // Three tiles away counts, diagonals too; four does not.
+        XCTAssertEqual(leader(["b": (TilePoint(x: 13, y: 13), at(4))]), "b")
+        XCTAssertEqual(leader(["b": (TilePoint(x: 10, y: 7), at(4))]), "b")
+        XCTAssertNil(leader(["b": (TilePoint(x: 14, y: 10), at(4))]))
+        XCTAssertNil(leader(["b": (TilePoint(x: 10, y: 6), at(4))]))
+        XCTAssertEqual(leader(["a": (TilePoint(x: 14, y: 10), at(1)), "b": (near, at(4))]), "b", "a far dancer does not lead")
     }
 
     func testMyDanceBeganWhenIFirstPressedDAndStaysThroughEveryRound() {
