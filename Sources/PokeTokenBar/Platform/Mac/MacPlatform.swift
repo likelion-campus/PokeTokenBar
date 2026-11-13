@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Placeholders for the Mac side of the `Platform` seam.
@@ -27,5 +28,10 @@ struct MacSecrets: SecretStoring {
 }
 
 struct MacIdleClock: IdleClock {
-    func secondsSinceLastInput() -> TimeInterval { 0 }
+    /// 마지막 입력 뒤 지난 시간. 권한 없이 읽을 수 있고 어떤 앱을 쓰는지는 알 수 없다.
+    func secondsSinceLastInput() -> TimeInterval {
+        let kinds: [CGEventType] = [.keyDown, .flagsChanged, .mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel,
+                                    .leftMouseDragged, .otherMouseDown]
+        return kinds.map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? 0
+    }
 }

@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 /// Ties the companion and the team settings to the `TeamSession`: forwards companion events, keeps the
 /// session's settings and character current, ticks it, and holds an App Nap activity while teammates are online.
@@ -30,13 +29,14 @@ final class TeamRuntime {
     var isHoldingActivity: Bool { activity != nil }
     var isTicking: Bool { tickTask != nil }
 
-    init(settings: TeamSettings, companion: CompanionStore, transport: TeamTransporting = BonjourTeamTransport(),
+    init(settings: TeamSettings, companion: CompanionStore, transport: TeamTransporting,
          feed: TeamFeedStore? = nil, closePlaza: (() -> Void)? = nil,
-         secondsSinceInput: @escaping () -> TimeInterval = TeamRuntime.systemSecondsSinceInput) {
+         idle: IdleClock = Platform.current.idle,
+         secondsSinceInput: (() -> TimeInterval)? = nil) {
         self.settings = settings
         self.companion = companion
         self.closePlazaOverride = closePlaza
-        self.secondsSinceInput = secondsSinceInput
+        self.secondsSinceInput = secondsSinceInput ?? { idle.secondsSinceLastInput() }
         let feed = feed ?? TeamFeedStore(myMemberID: settings.memberID)
         self.feed = feed
         wasReady = settings.isReady
@@ -213,13 +213,6 @@ final class TeamRuntime {
         session.tick()
         plaza?.endFocusIfDue()
         notifier?.flush()
-    }
-
-    /// 마지막 입력 뒤 지난 시간. 권한 없이 읽을 수 있고 어떤 앱을 쓰는지는 알 수 없다.
-    nonisolated static func systemSecondsSinceInput() -> TimeInterval {
-        let kinds: [CGEventType] = [.keyDown, .flagsChanged, .mouseMoved, .leftMouseDown, .rightMouseDown, .scrollWheel,
-                                    .leftMouseDragged, .otherMouseDown]
-        return kinds.map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? 0
     }
 
     private func stopTicking() {

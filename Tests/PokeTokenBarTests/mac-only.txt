@@ -213,3 +213,4 @@ UsageRecapTests.swift
 UsageStoreTests.swift
 UsageStreakTests.swift
 ZeroUsageHomeRenderingTests.swift
+TestDefaultsPoolTests.swift  # reads CFPreferences directly; the pool is a macOS cfprefsd concern

@@ -514,7 +514,31 @@ final class TeamRuntimeTests: XCTestCase {
     }
 
     func testSystemIdleTimeIsReadable() {
-        XCTAssertGreaterThanOrEqual(TeamRuntime.systemSecondsSinceInput(), 0)
+        XCTAssertGreaterThanOrEqual(MacIdleClock().secondsSinceLastInput(), 0)
+    }
+
+    /// With no closure override, the runtime asks the injected clock whether the user is idle.
+    func testIdleSecondsComeFromTheClock() {
+        final class FakeIdle: IdleClock, @unchecked Sendable {
+            var seconds: TimeInterval = 123
+            func secondsSinceLastInput() -> TimeInterval { seconds }
+        }
+        let clock = FakeIdle()
+        let defaults = TestDefaults.make(suite: "ptb.test.team.runtime.idle.\(UUID().uuidString)")
+        let settings = TeamSettings(defaults: defaults)
+        let tmp = FileManager.default.temporaryDirectory
+        let companion = CompanionStore(provider: RuntimeTestProvider(), clock: { runtimeNow },
+                                       fileURL: tmp.appendingPathComponent("rt-companion-\(UUID().uuidString).json"),
+                                       rng: SeededRNG(seed: 7), dittoDisguiseRollingEnabled: false, defaults: defaults)
+        let runtime = TeamRuntime(settings: settings, companion: companion, transport: hub.makeTransport(),
+                                  feed: TeamFeedStore(fileURL: tmp.appendingPathComponent("rt-feed-\(UUID().uuidString).json"),
+                                                      myMemberID: settings.memberID),
+                                  idle: clock)
+        runtime.tickOnce()
+        XCTAssertFalse(runtime.session.isIdle, "123s is under the 300s limit")
+        clock.seconds = TeamRuntime.idleAfter
+        runtime.tickOnce()
+        XCTAssertTrue(runtime.session.isIdle, "the clock's value decides")
     }
 
     func testCompanionEventIsPublished() {
