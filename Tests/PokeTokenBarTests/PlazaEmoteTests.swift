@@ -78,7 +78,8 @@ final class PlazaEmoteTests: XCTestCase {
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },
                                      subject: { .init(speciesID: speciesID, isShiny: false) },
-                                     myRosterEntry: { nil }, session: me.session, clock: { [unowned self] in now })
+                                     myRosterEntry: { nil }, session: me.session, clock: { [unowned self] in now },
+                                     dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
     }
 
     private func settle() async {

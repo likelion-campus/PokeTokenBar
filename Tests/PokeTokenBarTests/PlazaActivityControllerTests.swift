@@ -91,7 +91,8 @@ final class PlazaActivityControllerTests: XCTestCase {
                               nickname: { "나" }, memberID: { me.settings.memberID },
                               subject: { .init(speciesID: 25, isShiny: false) },
                               myRosterEntry: { entry }, evolutionStage: { stage }, session: me.session, clock: { [unowned self] in now },
-                              focusTickSleep: { [gate] in await gate.sleep($0) })
+                              focusTickSleep: { [gate] in await gate.sleep($0) },
+                              dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
     }
 
     private func settle() async { for _ in 0..<20 { await Task.yield() } }
