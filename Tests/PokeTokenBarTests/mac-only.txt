@@ -171,3 +171,5 @@ PlazaActivityControllerTests.swift
 PlazaActivityTests.swift
 # from main (#134): builds the scene
 PlazaSeasonTests.swift
+# from main (#140): pins the macOS defaults pool against late writers; its tests must stay synchronous
+TestDefaultsLateWriteTests.swift
