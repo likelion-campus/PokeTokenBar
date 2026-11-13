@@ -87,6 +87,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private(set) var focus: PlazaFocus?
     /// 앉은 자리가 바라보는 방향. 다시 열거나 닫을 때 그대로 알린다.
     private var focusFacing: PlazaDirection = .down
+    /// 아는 마지막 얼음 깨짐. 어느 연못이 언 채인지는 이것과 시계로 정해진다. 다시 켜도 기억한다.
+    private(set) var iceBreak: PlazaIceBreak?
     /// 집중이 끝났다(시간이 다 됐거나 일어섰다). 조용히 끝낼 때는 부르지 않는다.
     var onFocusEnd: ((PlazaFocusEnd) -> Void)?
     /// A failed sprite request is made again after this long, while the plaza stays open.
@@ -133,6 +135,16 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private static var cachedHasTileSheet = false
     /// 풀숲 조각 그림도 프로세스당 한 번만 읽는다. 못 읽으면 바깥 nil(=읽어 봤지만 없음)로 기억한다.
     private static var cachedTallGrass: PlazaTallGrassArt??
+
+    /// 얼음 그림은 프로세스당 한 번만 읽는다.
+    private static var cachedIceArt: PlazaIceArt?
+    private static func iceArt() -> PlazaIceArt {
+        if let art = cachedIceArt { return art }
+        let art = PlazaIceArt.load()
+        cachedIceArt = art
+        return art
+    }
+    private static let icePonds: [PlazaIce.Pond] = PlazaIce.ponds(in: PlazaMapData.map)
 
     private static func tallGrassArt() -> PlazaTallGrassArt? {
         if let loaded = cachedTallGrass { return loaded }
@@ -254,6 +266,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
         takenItemSlots = keptSlots(Set(preferences.takenItemSlots))
         session?.updateTakenItemSlot(takenItemSlots.max())
+        iceBreak = PlazaIce.accepted(preferences.iceBreak, turn: PlazaIce.turn(at: clock()), ponds: Self.icePonds)
+        session?.updateIceBreak(iceBreak)
         restoreFocus()
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         chatInput.onClose = { [weak self] in
@@ -390,8 +404,13 @@ struct PlazaFocusEnd: Equatable, Sendable {
         let s = PlazaScene(map: map, mapImage: image,
                            start: preferences.lastTile(validIn: map),
                            zoom: preferences.zoom, nickname: nickname(),
-                           tallGrass: Self.tallGrassArt(), pondVisuals: Self.cachedHasTileSheet)
+                           tallGrass: Self.tallGrassArt(), pondVisuals: Self.cachedHasTileSheet,
+                           iceArt: Self.iceArt())
         s.now = clock   // 낮밤·날씨도 컨트롤러와 같은 시계를 쓴다
+        for m in session?.members.values.map({ $0 }) ?? [] { learnIceBreak(m.iceBreak) }
+        s.setIceBreak(iceBreak)
+        s.onIceLanding = { [weak self] in self?.learnIceBreak($0, hit: $1) }
+        s.onIceChange = { [weak self] in self?.refreshHint() }
         if let focus { s.sit(at: .init(tile: focus.seat, facing: focusFacing)) }
         s.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: nameColor()))
         nameColorModel.current = PlazaNameColor.hex(forMemberID: memberID(), chosen: nameColor())
@@ -595,9 +614,22 @@ struct PlazaFocusEnd: Equatable, Sendable {
         case .surface:
             scene.setDiving(false)
             session?.updateDiving(false)
-        case .breakIce, .leapOntoIce: break   // wired in Task 6
+        case .breakIce:
+            breakIce(scene, now: now, leap: nil)
+        case .leapOntoIce(let d):
+            breakIce(scene, now: now, leap: d)
         }
         refreshHint()
+    }
+
+    /// 얼음을 깨는 점프: 보내고, 내 착지(0.36초 뒤)에서 깨짐을 배운다. `leap`이 있으면 물가에서 그 칸의 얼음으로 뛰어오른다.
+    private func breakIce(_ scene: PlazaScene, now: Date, leap: PlazaDirection?) {
+        guard let pond = scene.frozenPondAnchor else { return }
+        let b = PlazaIceBreak(pond: pond, turn: PlazaIce.turn(at: now))
+        scene.stopDance(memberID: nil)
+        if let leap { scene.leapOntoIce(leap) } else { scene.playJump(memberID: nil) }
+        session?.sendEmote(.jump, target: nil, iceBreak: b)
+        scene.queueIceLanding(b, jumper: nil)
     }
 
     /// X와 C가 메뉴 없이 바로 할 팀원. 말풍선 키와 같이 바라보거나 바로 옆에 있는 팀원이고, 옆이면 그쪽으로 돌아선다.
@@ -627,9 +659,23 @@ struct PlazaFocusEnd: Equatable, Sendable {
     }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
-    func showJump(memberID: String) {
+    func showJump(memberID: String, iceBreak b: PlazaIceBreak? = nil) {
         scene?.playJump(memberID: memberID)
         startleMe(by: memberID)
+        guard let b = PlazaIce.accepted(b, turn: PlazaIce.turn(at: clock()), ponds: Self.icePonds) else { return }
+        if let scene { scene.queueIceLanding(b, jumper: memberID) } else { learnIceBreak(b) }
+    }
+
+    /// 받았거나 내가 깬 얼음 깨짐을 배운다. 걸러서 합친 값이 달라질 때만 저장하고 알리고 장면에 넣는다.
+    private func learnIceBreak(_ received: PlazaIceBreak?, hit: TilePoint? = nil) {
+        let turn = PlazaIce.turn(at: clock())
+        guard let b = PlazaIce.accepted(received, turn: turn, ponds: Self.icePonds) else { return }
+        let merged = PlazaIce.merged(iceBreak, b, ponds: Self.icePonds)
+        guard merged != iceBreak else { return }
+        iceBreak = merged
+        preferences.iceBreak = merged
+        session?.updateIceBreak(merged)
+        scene?.setIceBreak(merged, hit: hit)
     }
 
     private var lastStartledAt: Date?
@@ -1153,7 +1199,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 잠수한 내가 지금 C로 끌어들일 수 있는 물가의 팀원들.
     private func pullTargets(_ scene: PlazaScene) -> [String: TilePoint] {
         let occupied = scene.occupiedTiles()
-        return PlazaPullUnder.targets(diver: scene.walker.tile, members: scene.memberTiles, isWater: { [map] in map.isWater($0) },
+        return PlazaPullUnder.targets(diver: scene.walker.tile, members: scene.memberTiles, isWater: { scene.isWaterNow($0) },
                                       isFree: { !occupied.contains($0) })
     }
 
@@ -1178,7 +1224,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 사진 모드에서는 끌려가지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
     func showPull(from sender: String, on target: String?) {
         guard let scene, target == memberID(), !isPhotoMode, let from = scene.memberTiles[sender],
-              let d = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { [map] in map.isWater($0) }) else { return }
+              let d = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { scene.isWaterNow($0) }) else { return }
         scene.plunge(d)   // 끄는 팀원은 물러나는 중이라 그 칸이 비었는지 따지지 않는다
     }
 
@@ -1240,7 +1286,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
             case .member(let id): text = hintName(of: id).map { L(.ko).plazaMemberHint(nickname: $0) }
             }
         }
-        if text == nil, !isPhotoMode, focus == nil, overlayModel.content == .none, !chatInput.isOpen { text = startleHint()?.text }
+        if text == nil, !isPhotoMode, focus == nil, overlayModel.content == .none, !chatInput.isOpen {
+            text = startleHint()?.text ?? (scene?.isMeOnIce == true && scene?.canWalk == true && !isFocusing ? L(.ko).plazaIceHint : nil)
+        }
         // The countdown only fills an otherwise empty hint: interaction and startle hints win.
         if text == nil, !isPhotoMode, let mimic = myMimic, let look = myShownLook, overlayModel.content == .none, !chatInput.isOpen {
             let left = min(PlazaMimic.duration, mimic.since.addingTimeInterval(PlazaMimic.duration).timeIntervalSince(clock()))
@@ -1813,6 +1861,11 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private func applyMembersToScene() {
         guard let scene else { return }
         learnTaken(members.values.compactMap(\.takenItemSlot))
+        for b in members.values.compactMap(\.iceBreak) {
+            // 내 쪽에서 곧 닿을 점프가 알린 깨짐은 그 착지에서 배운다.
+            if let accepted = PlazaIce.accepted(b, turn: PlazaIce.turn(at: clock()), ponds: Self.icePonds), scene.isIceLandingQueued(accepted) { continue }
+            learnIceBreak(b)
+        }
         let list = members.values.sorted { $0.memberID < $1.memberID }
         let targets = mimicTargets()
         let looks = targets.compactMapValues(realLook(of:))
@@ -2008,7 +2061,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
         appliedMemberLoads = []
         if let scene {
             scene.releaseAllKeys()
-            scene.isPaused = true
+            scene.onIceChange = nil
+            scene.isPaused = true   // 기다리던 내 깨짐이 닿으며 배운다
+            scene.onIceLanding = nil
             scene.onZoomChange = nil
             scene.onCloseRequest = nil
             scene.onEmoteKey = nil

@@ -322,6 +322,30 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(plaza.scene?.jumpLift(memberID: nil), 0, "only they jump")
     }
 
+    /// A breaking jump reaches the plaza as a break the controller learns when the landing comes.
+    func testABreakingJumpReachesThePlaza() async {
+        let (a, b) = connectedPair()
+        let now = Date(timeIntervalSince1970: 10_000 * 180 + 60)
+        let suite = "ptb.test.team.runtime.icejump.\(UUID().uuidString)"
+        let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
+                                          loader: PlazaCharacterLoader(fetcher: NoSprites()),
+                                          nickname: { "나" }, memberID: { b.settings.memberID },
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session,
+                                          clock: { now })
+        b.runtime.plaza = plaza
+        plaza.prepareScene()
+        let sender = a.settings.memberID
+        await settle { plaza.scene?.memberTiles[sender] != nil }
+        let brk = PlazaIceBreak(pond: TilePoint(x: 5, y: 13), turn: PlazaIce.turn(at: now))
+        a.runtime.session.sendEmote(.jump, target: nil, iceBreak: brk)
+        await settle { (plaza.scene?.iceLandingCount ?? 0) == 1 }
+        var t: TimeInterval = 0
+        plaza.scene?.update(t)
+        while t < 0.5 { t += 0.05; plaza.scene?.update(t) }
+        XCTAssertEqual(plaza.iceBreak, brk)
+        plaza.handleClose()
+    }
+
     /// A tackle aimed at me pushes me one tile away from the teammate who did it, when they stand right next to me.
     /// From further away (I walked off while their menu was open) it only shows the impact.
     func testTackleFromBesideMePushesMeOneTileAway() async {
