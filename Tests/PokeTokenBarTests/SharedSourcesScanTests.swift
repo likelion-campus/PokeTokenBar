@@ -232,7 +232,7 @@ final class SharedSourcesScanTests: XCTestCase {
     func testNoSynchronousMainActorTestRunsOnWindows() throws {
         let tests = try SharedSources.macOnly(listURL: SharedSources.testsList)
         let all = SharedSources.allSwiftFiles(root: SharedSources.testsRoot)
-        let texts = try all.map { (SharedSources.relativePath($0, root: SharedSources.testsRoot), try String(contentsOf: $0, encoding: .utf8)) }
+        let texts = try all.map { (rel: SharedSources.relativePath($0, root: SharedSources.testsRoot), text: try String(contentsOf: $0, encoding: .utf8)) }
         let reportable = Set(texts.map(\.rel).filter { !SharedSources.isListed($0, in: tests) })
         XCTAssertEqual(SharedSources.syncMainActorTestViolations(texts: texts, reportable: reportable), [])
     }
