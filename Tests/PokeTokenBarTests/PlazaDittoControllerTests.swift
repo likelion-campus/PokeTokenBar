@@ -600,8 +600,14 @@ final class PlazaDittoControllerTests: XCTestCase {
         XCTAssertEqual(t.scene.danceStyle(memberID: key), .twirl)
     }
 
-    func testADancerTwoTilesAwayIsNotFollowed() async {
-        let t = await dancing(ditto: ground(4, 0), dancer: ground(6, 0))
+    func testADancerThreeTilesAwayIsFollowed() async {
+        let t = await dancing(ditto: ground(4, 0), dancer: ground(4 + PlazaDance.togetherRange, 0))
+        t.c.showDance(memberID: t.m.id, style: "spin")
+        XCTAssertEqual(t.scene.danceStyle(memberID: key), .spin)
+    }
+
+    func testADancerFourTilesAwayIsNotFollowed() async {
+        let t = await dancing(ditto: ground(4, 0), dancer: ground(4 + PlazaDance.togetherRange + 1, 0))
         t.c.showDance(memberID: t.m.id, style: "spin")
         XCTAssertTrue(t.scene.isDancing(memberID: t.m.id), "test precondition")
         XCTAssertFalse(t.scene.isDancing(memberID: key))

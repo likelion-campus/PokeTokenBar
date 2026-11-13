@@ -30,9 +30,10 @@ enum PlazaDitto {
     /// received dance lasts, so the host's Ditto never hops or walks off mid-dance.
     static let danceHold: TimeInterval = PlazaDance.round + PlazaDance.remoteGrace
 
-    /// A dancer in the eight tiles around the Ditto (or on its tile) makes it dance the same dance, in either form.
+    /// A dancer within `PlazaDance.togetherRange` tiles of the Ditto (diagonals too) makes it dance the same dance, in either
+    /// form: the same reach as teammates dancing together.
     static func dancesAlong(ditto: TilePoint, dancer: TilePoint) -> Bool {
-        max(abs(ditto.x - dancer.x), abs(ditto.y - dancer.y)) <= 1
+        max(abs(ditto.x - dancer.x), abs(ditto.y - dancer.y)) <= PlazaDance.togetherRange
     }
 
     /// The member to copy: one of `copyable` on a tile next to `ditto`. Smallest ID when several.
