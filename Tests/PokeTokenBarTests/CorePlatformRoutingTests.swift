@@ -111,6 +111,11 @@ final class CorePlatformRoutingTests: XCTestCase {
                    displaysAsleep: { asleep.asleep })
     }
 
+    private func fire(_ hooks: [@Sendable () -> Void], file: StaticString = #filePath, line: UInt = #line) {
+        guard let hook = hooks.first else { return XCTFail("the store registered no hook", file: file, line: line) }
+        hook()
+    }
+
     private func waitUntil(_ what: String, _ cond: () -> Bool) async {
         for _ in 0..<2000 where !cond() { await Task.yield() }
         XCTAssertTrue(cond(), what)
@@ -125,7 +130,7 @@ final class CorePlatformRoutingTests: XCTestCase {
         store.suspendPolling()
         XCTAssertTrue(store.isPollingSuspended)
         asleep.asleep = false
-        events.wake[0]()   // what didWake does: handleSystemWake -> clear stale suspension + refresh
+        fire(events.wake)   // what didWake does: handleSystemWake -> clear stale suspension + refresh
         await waitUntil("wake refreshes") { !store.isPollingSuspended && store.todayTotalTokens == 1_000 }
         XCTAssertFalse(store.isPollingSuspended)
         XCTAssertEqual(store.todayTotalTokens, 1_000)
@@ -133,9 +138,9 @@ final class CorePlatformRoutingTests: XCTestCase {
 
     func testScreensSleepAndWakeSuspendAndResumePolling() async {
         let store = makeStore(suite: "routing-screens")
-        events.screensSleep[0]()
+        fire(events.screensSleep)
         await waitUntil("suspended") { store.isPollingSuspended }
-        events.screensWake[0]()
+        fire(events.screensWake)
         await waitUntil("resumed") { !store.isPollingSuspended && store.todayTotalTokens == 1_000 }
         XCTAssertFalse(store.isPollingSuspended)
     }
@@ -144,7 +149,7 @@ final class CorePlatformRoutingTests: XCTestCase {
         let store = makeStore(suite: "routing-day")
         XCTAssertEqual(events.dayChange.count, 1)
         XCTAssertEqual(store.todayTotalTokens, 0)
-        events.dayChange[0]()   // NSCalendarDayChanged: refresh() so "today" is rebuilt
+        fire(events.dayChange)   // NSCalendarDayChanged: refresh() so "today" is rebuilt
         await waitUntil("day change refreshes") { store.todayTotalTokens == 1_000 }
         XCTAssertEqual(store.todayTotalTokens, 1_000)
     }
