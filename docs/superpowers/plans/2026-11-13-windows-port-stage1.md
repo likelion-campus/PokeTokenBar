@@ -14,7 +14,8 @@
 
 - **The Mac app must not change.** No behaviour, timing or UI difference. Every task ends with the full Mac suite green (`./scripts/test-gate.sh`), not a filtered run.
 - Work in `.worktrees/<name>` from `origin/main`. Never edit the main checkout. No bare `git stash`. Always `--repo likelion-campus/PokeTokenBar`.
-- One PR per task, English title (Conventional Commits) and body, merged without waiting for CI (lean flow). Do not merge between a peer's "bumping now" and "tag is out".
+- **All Windows-port work lands on the long-lived branch `windows-port`, not `main`** (user decision, 2026-11-13, to keep it from mixing with releases). One PR per task, targeting `windows-port`, English title (Conventional Commits) and body. `main` is merged into `windows-port` at the start of every task; `windows-port` goes to `main` only when the user says so. Where a step below says "merge", it means into `windows-port`.
+- The user is holding new feature work while the port is under way, so `main` should move little. If it does move, the merge into `windows-port` comes first and conflicts are resolved there.
 - Windows CI does **not** block PR merges. A red Windows build blocks releases only from stage 8 on; in stage 1 it is informational, and each task still leaves it green.
 - CI pair is fixed: `windows-latest` + Swift `6.3.2-RELEASE` (6.1.2 cannot build swift-crypto on that image).
 - Upstream-owned files (`Sources/PokeTokenBar/Core/**`, `UI/**`, `PokeTokenBarApp.swift`, `OutsideClickMonitor.swift`) are **not moved or renamed**. Edits to them are the smallest that route an OS call through `Platform`, or a guarded import. Each PR body lists the upstream-owned lines it changed, so the next upstream sync knows where to look.
@@ -112,7 +113,7 @@ final class SharedSourcesScanTests: XCTestCase {
 
 - [ ] **Step 6: `.gitattributes`** — `*.sh`, `*.txt`, `*.swift`, `*.json`, `*.jsonl` as `text eol=lf`.
 
-- [ ] **Step 7: `.github/workflows/windows.yml`.** On push to `main` and on PRs. `windows-latest`, `compnerd/gha-setup-swift` with `swift-6.3.2-release` / `6.3.2-RELEASE`, `swift build`, `swift test`, upload the log. Not a required check.
+- [ ] **Step 7: `.github/workflows/windows.yml`.** On push to `main` and `windows-port`, and on PRs. `windows-latest`, `compnerd/gha-setup-swift` with `swift-6.3.2-release` / `6.3.2-RELEASE`, `swift build`, `swift test`, upload the log. Not a required check.
 
 - [ ] **Step 8: Verify.** `swift test --filter SharedSourcesScanTests` → PASS. `./scripts/shared-check.sh` → exit 0. `./scripts/test-gate.sh` → green. Push the branch; the Windows run → green (expect 82 tests; record which fail and move those test files to the test list with a `# why` comment — Task 7 brings them back).
 
