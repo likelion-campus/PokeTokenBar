@@ -181,6 +181,17 @@ final class PlazaSeasonTests: XCTestCase {
         }
     }
 
+    /// 장면이 처음 보이는 계절은 여름(원본 지도)이다. 팀이 여름을 골라 둔 광장을 열면 계절이 "바뀌지" 않으므로,
+    /// 던지는 것도 처음부터 여름 것이어야 한다.
+    func testAPlazaOpenedInSummerThrowsTheBalloonFromTheStart() {
+        let s = scene()
+        s.seasonChoice = .summer
+        s.refreshSnowDay()
+        s.update(0)
+        s.playSnowball(by: nil, shot: PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))) {}
+        XCTAssertEqual(s.snowballBallSizes, [CGSize(width: 14, height: 18)])
+    }
+
     func testTheFlyingThingChangesWithTheSeason() throws {
         let s = scene()
         s.refreshSnowDay()

@@ -402,6 +402,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.worldSize = map.pixelSize
         self.footprintLayer = PlazaFootprintLayer(worldHeight: map.pixelSize.height)
         self.snowballLayer = PlazaSnowballLayer(worldHeight: map.pixelSize.height)
+        // 처음 보이는 계절(`shownSeason`)의 그림으로 시작한다. `refreshSnowDay`는 계절이 바뀔 때만 그림을 바꾼다.
+        snowballLayer.setArt(PlazaSnowballArt.pieces(.summer, balloon: PlazaScene.waterBalloon))
         self.walker = PlazaWalker(tile: start)
         self.lastReported = (start, .down, false)
         self.nickname = nickname

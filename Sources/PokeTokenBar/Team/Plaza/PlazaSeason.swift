@@ -65,7 +65,7 @@ enum PlazaSeasonSheet {
         case .autumn: [
             (autumnGround, PlazaTileArt.grassCells),
             (autumnGround.merging([0x266433: 0x6E5A2E]) { $1 }, PlazaPond.shoreCells),
-            ([0x328E41: 0xA89040, 0xE8F8D0: 0xF6E7B0], PlazaTileArt.flowerCells),
+            ([0x328E41: 0xA89040, 0xE8F8D0: 0xF6E7B0, 0x60D0C0: 0xD98A2A], PlazaTileArt.flowerCells),
             ([0x2ECA35: 0xD9A72A, 0x62EB3D: 0xF2C230, 0x29973B: 0xB07A1A], [PlazaTileArt.bushCell]),
             ([0x2ECA5C: 0xE8832A, 0x50EB6C: 0xF2A63C, 0x299750: 0xC4521E, 0x328E53: 0xB4441A], treeCells),
             ([0x2ECA35: 0xD9A72A, 0x29973B: 0xB07A1A], [PlazaTileArt.signCell]),
