@@ -3,6 +3,11 @@ import Foundation
 import WinSDK
 #endif
 
+/// The Security framework's status code type; `LimitsError.keychainUnavailable` carries one on every OS.
+#if !canImport(Darwin)
+typealias OSStatus = Int32
+#endif
+
 /// Small OS differences that shared code needs. This directory is the one place body-level `#if os(...)` is allowed.
 /// On macOS every function is the exact call the call site used before it moved here.
 enum PlatformCompat {

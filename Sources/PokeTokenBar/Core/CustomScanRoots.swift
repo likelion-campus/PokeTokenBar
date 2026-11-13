@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// Per-provider extra scan folders from Settings (#177).
