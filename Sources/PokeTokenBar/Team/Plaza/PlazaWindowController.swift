@@ -448,7 +448,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
         s.onTackleKey = { [weak self] in
             guard let self, !self.isFocusing else { return }
-            if self.scene?.isDiving == true { return self.pullUnder() }
+            if self.pullUnder() { return }
+            if self.scene?.isDiving == true { return }   // a diver cannot tackle: nothing to pull means nothing happens, not even a turn
             if let id = self.faceNearbyMember(in: self.scene?.interactionTiles) { self.tackle(id) }
         }
         s.onSnowballKey = { [weak self] in self?.handleSnowballKey() }
@@ -1237,36 +1238,39 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 집중 중이거나 모닥불 메뉴를 연 나는 밀리지 않는다.
     private var canBePushed: Bool { !isFocusing && !isCampfireMenuOpen }
 
-    /// 잠수한 내가 지금 C로 끌어들일 수 있는 물가의 팀원들.
-    private func pullTargets(_ scene: PlazaScene) -> [String: TilePoint] {
+    /// 물속(헤엄치거나 잠수)의 내가 지금 C로 끌어들일 수 있는 팀원과 그 모양. 물 밖이면 nil.
+    private func pullTarget(_ scene: PlazaScene) -> (id: String, pull: PlazaPullUnder.Pull)? {
         let occupied = scene.occupiedTiles()
-        return PlazaPullUnder.targets(diver: scene.walker.tile, members: scene.memberTiles, isWater: { scene.isWaterNow($0) },
-                                      isFree: { !occupied.contains($0) })
+        return PlazaPullUnder.target(me: scene.walker.tile, facing: scene.walker.facing, members: scene.memberTiles,
+                                     isWater: { scene.isWaterNow($0) }, isWalkable: { scene.isWalkableNow($0) },
+                                     isFree: { !occupied.contains($0) })
     }
 
-    /// 물귀신: 떠오르면서 한 칸 물러나고, 바라보거나 바로 옆 물가에 선 팀원에게 끌어들인다고 보낸다. 빠지는 것은 그 팀원의 Mac이 정한다.
-    /// 끌어들일 팀원이 없으면 아무 일도 없다. 말풍선 키와 같은 연타 제한을 쓴다.
-    private func pullUnder() {
-        guard let scene, scene.isDiving else { return }
-        let targets = pullTargets(scene)
-        let me = scene.walker.tile
-        guard let id = PlazaTargeting.member(from: me, facing: scene.walker.facing, members: targets), let tile = targets[id] else { return }
+    /// 물귀신: 잠수 중이면 떠오르고, 자기 칸으로 끌어들일 때는 한 칸 물러나며, 바라보는 쪽 세 칸 안이나 바로 옆 물가에 선 팀원에게 끌어들인다고 보낸다.
+    /// 빠지는 것은 그 팀원의 Mac이 정한다. 끌어들일 팀원이 없으면 false(몸통박치기로 넘어간다). 말풍선 키와 같은 연타 제한을 쓴다.
+    private func pullUnder() -> Bool {
+        guard let scene, let (id, pull) = pullTarget(scene) else { return false }
         let now = clock()
-        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        if let last = lastEmoteAt, now.timeIntervalSince(last) < Self.emoteInterval { return true }
         lastEmoteAt = now
-        scene.setDiving(false)
-        session?.updateDiving(false)
-        scene.pushMe(PlazaPathfinder.direction(from: tile, to: me))
+        if scene.isDiving {
+            scene.setDiving(false)
+            session?.updateDiving(false)
+        }
+        if pull.stepsBack { scene.pushMe(pull.direction) }
         session?.sendEmote(.pull, target: id)
         refreshHint()
+        return true
     }
 
-    /// 런타임이 부른다. 물귀신이 나를 끌어들였다. 내가 물가에 서 있고 그 팀원이 바로 앞 물속에 있을 때만 그 물 칸으로 빠진다.
-    /// 사진 모드에서는 끌려가지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
+    /// 런타임이 부른다. 물귀신이 나를 끌어들였다. 내가 땅에 서 있고 그 팀원이 같은 줄 4칸 안 물속에 있으며 그 사이가 모두 땅일 때만
+    /// 첫 물 칸까지(3칸 안) 미끄러져 빠진다. 사진 모드에서는 끌려가지 않는다. 창이 닫혀 있으면 아무것도 안 한다.
     func showPull(from sender: String, on target: String?) {
         guard let scene, target == memberID(), !isPhotoMode, let from = scene.memberTiles[sender],
-              let d = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { scene.isWaterNow($0) }) else { return }
-        scene.plunge(d)   // 끄는 팀원은 물러나는 중이라 그 칸이 비었는지 따지지 않는다
+              let drag = PlazaPullUnder.drag(victim: scene.walker.tile, puller: from, isWater: { scene.isWaterNow($0) },
+                                             isWalkable: { scene.isWalkableNow($0) }) else { return }
+        // 끄는 팀원은 물러나는 중이라 그 칸이 비었는지 따지지 않는다
+        if drag.tiles == 1 { scene.plunge(drag.direction) } else { scene.pushMe(drag.direction, tiles: drag.tiles, pulledBy: sender) }
     }
 
     /// 하트나 폭죽을 나와 그 팀원 머리 위에 함께 띄우고 팀원들에게 보낸다. 말풍선 키와 같은 연타 제한을 쓴다.
@@ -1305,6 +1309,12 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if let skView { window?.makeFirstResponder(skView) }
     }
 
+    /// 물속에서 C로 끌어들일 팀원이 있으면 그 안내, 잠수 중이면 방법 안내, 헤엄만 치면 nil.
+    private func pullHint(_ scene: PlazaScene) -> String? {
+        if let id = pullTarget(scene)?.id, let name = hintName(of: id) { return L(.ko).plazaPullHint(nickname: name) }
+        return scene.isDiving ? L(.ko).plazaDivingHint : nil
+    }
+
     /// 스페이스로 말을 걸 수 있으면 위쪽에 안내를 띄운다. 판이나 입력창이 열려 있으면 스페이스가 다른 일을 하므로 숨긴다.
     private func refreshHint() {
         var text: String?
@@ -1316,10 +1326,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
             text = hintName(of: id).map { L(.ko).plazaFollowHint(nickname: $0) }
-        } else if let scene, scene.isDiving, overlayModel.content == .none, !chatInput.isOpen {
-            let targets = pullTargets(scene)
-            let id = PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targets)
-            text = id.flatMap { hintName(of: $0) }.map { L(.ko).plazaPullHint(nickname: $0) } ?? L(.ko).plazaDivingHint
+        } else if let scene, overlayModel.content == .none, !chatInput.isOpen, let pullHint = pullHint(scene) {
+            text = pullHint
         } else if overlayModel.content == .none, !chatInput.isOpen, let startle = startleHint(), startle.hasTarget {
             text = startle.text
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {

@@ -105,7 +105,7 @@ extension L {
         let left = max(0, Int(seconds.rounded(.up)))
         return "\(KoreanParticle.direction.attach(to: nickname)) 변신 중 · \(left / 60):\(String(format: "%02d", left % 60))"
     }
-    var plazaDivingHint: String { "잠수 중 · 물가에 선 팀원 밑에서 C로 끌어들이기" }
+    var plazaDivingHint: String { "잠수 중 · 물가 팀원을 바라보고 C로 끌어들이기" }
     func plazaPullHint(nickname: String) -> String { "C를 눌러 \(nickname) 물속으로 끌어들이기" }
     var plazaIceHint: String { "얼음 위예요 · Z로 얼음 깨기" }
     var plazaHiddenHint: String { "풀숲에 숨었어요 · 팀원이 옆에 오면 Z로 놀래키기" }
