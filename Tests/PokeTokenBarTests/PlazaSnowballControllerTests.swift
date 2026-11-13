@@ -76,8 +76,8 @@ final class PlazaSnowballControllerTests: XCTestCase {
     private func controller(_ me: Node, start: TilePoint, speciesID: Int?, stage: Int) -> PlazaWindowController {
         let prefs = PlazaPreferences(defaults: defaults())
         prefs.saveLastTile(start)
-        // No pond is frozen: this class swims in the left one.
-        prefs.iceBreak = PlazaIceBreak(pond: TilePoint(x: 5, y: 13), turn: PlazaIce.turn(at: now))
+        // The left pond is broken (the next one is the far right pond): this class swims in the left one.
+        prefs.iceBreak = PlazaIceBreak(at: now.timeIntervalSince1970, pond: TilePoint(x: 5, y: 13))
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },
                                      subject: { .init(speciesID: speciesID, isShiny: false) },
