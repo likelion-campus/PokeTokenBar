@@ -747,7 +747,9 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         let c = controller(defaults(), myEntry: { me })
         XCTAssertTrue(c.rosterEntries.isEmpty)
         c.prepareScene()
-        XCTAssertEqual(c.rosterEntries, [me])
+        var mine = me
+        mine.activity = c.activity   // my slot carries today's numbers, zero so far
+        XCTAssertEqual(c.rosterEntries, [mine])
         c.handleClose()
         XCTAssertTrue(c.rosterEntries.isEmpty)
         c.refreshRoster()   // 닫힌 뒤에는 다시 채우지 않는다
