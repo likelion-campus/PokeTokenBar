@@ -171,3 +171,5 @@ ZeroUsageHomeRenderingTests.swift
 ParkedDitto.swift
 PlazaActivityControllerTests.swift
 PlazaActivityTests.swift
+# from main (#134): builds the scene
+PlazaSeasonTests.swift

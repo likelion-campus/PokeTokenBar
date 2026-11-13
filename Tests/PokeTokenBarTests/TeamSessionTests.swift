@@ -823,7 +823,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.iceBreak, x)
     }
 
-    func testMyCampfireSwitchTravelsInPresence() {
+    func testMyCampfireSwitchTravelsInPresence() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.updateCampfire(PlazaCampfireSwitch(lit: false, at: 1_790_000_000.5))

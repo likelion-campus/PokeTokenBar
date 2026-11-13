@@ -89,7 +89,7 @@ import XCTest
 
     // MARK: - 스위치
 
-    func testSwitchAcceptsOnlyFiniteTimesUpToAMinuteAhead() {
+    func testSwitchAcceptsOnlyFiniteTimesUpToAMinuteAhead() async {
         let now = Date(timeIntervalSince1970: 1_000)
         XCTAssertNil(PlazaCampfire.accepted(nil, now: now))
         XCTAssertNil(PlazaCampfire.accepted(.init(lit: false, at: .infinity), now: now))
@@ -99,7 +99,7 @@ import XCTest
         XCTAssertEqual(PlazaCampfire.accepted(.init(lit: nil, at: -5), now: now), .init(lit: nil, at: -5))
     }
 
-    func testTheLaterSwitchWinsAndATieHasOneWinnerEitherWay() {
+    func testTheLaterSwitchWinsAndATieHasOneWinnerEitherWay() async {
         let on = PlazaCampfireSwitch(lit: true, at: 5), off = PlazaCampfireSwitch(lit: false, at: 5), auto = PlazaCampfireSwitch(lit: nil, at: 5)
         let late = PlazaCampfireSwitch(lit: true, at: 6)
         XCTAssertEqual(PlazaCampfire.merged(nil, on), on)
@@ -112,7 +112,7 @@ import XCTest
         }
     }
 
-    func testMySwitchIsStampedAfterTheOneIKnow() {
+    func testMySwitchIsStampedAfterTheOneIKnow() async {
         let now = Date(timeIntervalSince1970: 1_000)
         XCTAssertEqual(PlazaCampfire.flipped(to: true, after: nil, now: now), .init(lit: true, at: 1_000))
         XCTAssertEqual(PlazaCampfire.flipped(to: nil, after: .init(lit: false, at: 900), now: now), .init(lit: nil, at: 1_000))
@@ -121,7 +121,7 @@ import XCTest
         XCTAssertEqual(ahead.at, 1_050.001, accuracy: 1e-6)
     }
 
-    func testAnUntouchedFireFollowsFocusAndASetOneDoesNot() {
+    func testAnUntouchedFireFollowsFocusAndASetOneDoesNot() async {
         XCTAssertFalse(PlazaCampfire.isLit(nil, anyoneFocusing: false))
         XCTAssertTrue(PlazaCampfire.isLit(nil, anyoneFocusing: true))
         XCTAssertTrue(PlazaCampfire.isLit(.init(lit: nil, at: 1), anyoneFocusing: true))

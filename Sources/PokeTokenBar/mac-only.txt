@@ -53,3 +53,5 @@ Team/Plaza/PlazaTileArt.swift
 Team/Plaza/PlazaWeatherArt.swift
 Team/Plaza/PlazaWeatherLayer.swift
 Team/Plaza/PlazaWindowController.swift
+# the CGImage recolouring split out of PlazaSeason.swift (main #134)
+Team/Plaza/PlazaSeasonSheet.swift
