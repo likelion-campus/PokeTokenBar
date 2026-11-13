@@ -241,7 +241,8 @@ final class SulkRenderTests: XCTestCase {
                                         size: CGSize(width: 244, height: 120), to: directory)
         }
         let entries = StatusItemMenu.entries(l: l, todayTokens: 19_400_000, todayCost: nil,
-                                             floatingPetEnabled: false, alwaysFacesBack: true)
+                                             floatingPetEnabled: false, alwaysFacesBack: true,
+                                             plazaAvailable: false, plazaUnread: 0)
         let rows = entries.map { entry -> MenuRow in
             guard let entry else { return MenuRow(title: "", isSeparator: true) }
             return MenuRow(title: entry.title, checked: entry.isChecked,
