@@ -68,3 +68,5 @@ Team/TeamWire.swift
 Team/UI/
 UI/
 Platform/Mac/
+# from main after the split; needs plaza types that are still Mac-only
+Team/Plaza/PlazaActivity.swift

@@ -217,3 +217,7 @@ ZeroUsageHomeRenderingTests.swift
 TestDefaultsPoolTests.swift
 # CorePlatformRoutingTests exercises UsageStore/CompanionStore and the Mac* platform types
 CorePlatformRoutingTests.swift
+# from main after the split; their subjects are still Mac-only
+ParkedDitto.swift
+PlazaActivityControllerTests.swift
+PlazaActivityTests.swift
