@@ -58,7 +58,7 @@ Swift를 유지하는 이유 (사용자가 들은 것):
 
 | 구분 | 분량 | 윈도우에서 |
 |---|---|---|
-| Foundation만 쓰는 로직 (`Core` 1만 1천, `Team` 3천) | 약 1만 4천 줄 | 그대로 컴파일될 것으로 본다 |
+| Foundation만 쓰는 로직 (`Core` 1만 1천, `Team` 3천) | 약 1만 4천 줄 | 언어·도구는 문제없다. 다만 맥 전용 파일의 타입에 기대는 곳이 많아 이음매부터 잘라야 한다 (§9.1) |
 | OS 서비스를 부르는 코드 (Security, Network, UserNotifications, ServiceManagement, CryptoKit, Darwin) | 약 5천 줄 | 부르는 곳만 갈아 끼운다 |
 | `Team` 중 CoreGraphics만 import | 약 3천 줄 | 좌표 타입만 쓰는 약 1천 8백 줄은 Foundation의 `CGPoint` 등으로 해결될 것으로 본다. 나머지 약 1천 2백 줄(`PlazaTileArt`, `CampfireArt`, `TallGrassArt`, `NestArt`, `SnowSheet`, `GroundShadow`, `Weather`, `PhotoRenderer`)은 `CGContext`·`CGImage`로 그림을 만든다. 윈도우에 없으므로 §5의 "그림 만들기"로 옮긴다 |
 | 광장 그리기 (SpriteKit 10파일) | 약 6천 줄 | 창구로 옮긴다 (§5) |
@@ -153,7 +153,7 @@ Swift를 유지하는 이유 (사용자가 들은 것):
 | 서비스 | 맥 (지금) | 윈도우 |
 |---|---|---|
 | 팀 찾기 | `NWBrowser`/`NWListener` Bonjour | 윈도우 기본 DNS-SD (`DnsServiceBrowse`/`DnsServiceRegister`, Win10+) |
-| 팀 연결 암호화 | Network.framework TLS-PSK | §9 실험으로 정한다: Schannel PSK 또는 앱에 넣은 TLS 라이브러리 |
+| 팀 연결 암호화 | Network.framework TLS-PSK | 앱에 넣은 OpenSSL 3 (§9.1). Schannel은 쓰지 않는다 |
 | 비밀 보관 | Keychain | Windows Credential Manager 또는 DPAPI **[구현자 재량]** |
 | 해시·암호 | CryptoKit | swift-crypto (같은 API) |
 | 알림 | UserNotifications | 윈도우 토스트 알림 |
@@ -202,6 +202,37 @@ Swift를 유지하는 이유 (사용자가 들은 것):
    이것이 되어야 맥에서 작업하는 세션이 윈도우 화면을 확인할 수 있다.
 4. **창구를 거친 맥 광장이 지금과 같은가.** `PlazaPondLayer` 같은 작은 층 하나를 창구로 옮겨, 화면 밖 렌더
    결과가 옮기기 전과 픽셀 단위로 같고 프레임 시간이 늘지 않는지 본다.
+
+### 9.1 결과 (2026-11-13, 실험 코드는 브랜치 `spike/windows-port`, 상세는 그 브랜치의 `spike/RESULTS.md`)
+
+| 실험 | 결과 | 근거 |
+|---|---|---|
+| 1. 컴파일 | 된다. 다만 코드가 층으로 나뉘어 있지 않다 | 윈도우 CI에서 빌드·XCTest 실행. 아래 참고 |
+| 2. 연결 | CI와 맥에서는 된다. **실제 PC 확인이 남았다** | 윈도우 러너에서 알리기→찾기→TLS-PSK→주고받기 성공. 맥에서 같은 TLS 라이브러리로 맥 쪽과 연결 성공 |
+| 3. 그리기 | 된다 | 윈도우 CI가 창 없이 그린 PNG에 타일(선명), Galmuri 한글, Pretendard 이름표, 컬러 이모지, 곱하기 섞기가 모두 나옴 |
+| 4. 맥 광장 | 된다 | 연못 층을 창구로 옮긴 뒤 9장면 픽셀 동일, 속도 차이는 잡음 범위, 연못 테스트 85개 통과 |
+
+실험 1에서 나온 것
+- CI 조합: `windows-latest`(VS 2026) + Swift 6.3.x. Swift 6.1.2는 이 러너에서 swift-crypto를 빌드하지 못한다
+  (VS 2026의 STL이 Clang 20 이상을 요구).
+- Apple 전용 import가 없는 파일은 83개(약 1만 6천 7백 줄)지만, 맥 전용 파일의 타입에 기대지 않고 혼자 빌드되는 것은
+  18개(1,444줄)뿐이다. 윈도우가 거부해서가 아니라 층이 섞여 있어서다. 이음매는 약 12개 파일의 심벌 20개다
+  (`LimitsError`, `CustomScanRoots`, `CompanionStore`, `TeamTransporting`, `UsageStore`, `PlazaWeather` 등).
+  1단계의 첫 일은 이 심벌들을 Apple 프레임워크를 import하는 파일 밖으로 꺼내는 것이다.
+- 윈도우 Foundation에 없는 것: `URLSession`은 `FoundationNetworking` import가 필요, `kill`/`SIGKILL`,
+  `NSData.compressed(using: .zlib)`, `ProcessInfo.beginActivity`, `NSString.abbreviatingWithTildeInPath`.
+- 줄바꿈: 윈도우 체크아웃이 CRLF로 바꾼다. 목록 파일을 읽는 스크립트와 `.gitattributes`를 챙긴다.
+
+실험 2에서 정한 것
+- TLS는 Schannel이 아니라 앱에 넣는 라이브러리(OpenSSL 3, 정적 링크, Apache-2.0)로 한다 **[설계자 판단·미확인]**.
+  Schannel의 PSK는 기본으로 꺼져 있어 관리자 설정이 필요할 가능성이 높고(§2의 실패 조건), 시험하지 않았다.
+  점검 프로그램 기준 실행 파일이 약 5MB 커진다.
+- 찾기는 윈도우 기본 DNS-SD API로 된다(러너 한 대 안에서 확인). 두 대 사이, 일반 계정, 방화벽 창은 PC 확인 대기.
+
+실험 3에서 정한 것
+- Swift가 C 헤더를 가진 C++ 보조 타깃(약 200줄)을 통해 Direct2D·DirectWrite·WIC를 부른다. SwiftPM만으로 빌드된다.
+- 글꼴은 파일에서 앱 전용 컬렉션으로 읽는다(시스템에 설치하지 않는다).
+- 윈도우 CI가 창 없이 그린 PNG를 PR 그림과 맥에서의 확인에 쓸 수 있다(§11의 방법이 성립한다).
 
 넷 중 하나라도 "안 된다"로 끝나면 이 설계로 돌아와 고친다. 특히 2가 막히면 통신 방식 자체를 다시 정해야 하고,
 그것은 맥 쪽 프로토콜 변경이 될 수 있으므로 사용자에게 먼저 묻는다.
