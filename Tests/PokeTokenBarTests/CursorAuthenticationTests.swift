@@ -36,7 +36,11 @@ final class CursorAuthenticationTests: XCTestCase {
         CursorUsageAPI.cacheFileURLForTesting = nil
         CursorUsageAPI.resetCacheForTesting()
         CursorRateLimitsProvider.transportForTesting = nil
-        try FileManager.default.removeItem(at: directory)
+        // TEMP-DIAG
+        for attempt in 0..<5 {
+            do { try FileManager.default.removeItem(at: directory); if attempt > 0 { print("DIAG remove ok after retry \(attempt)") }; break }
+            catch { print("DIAG remove attempt \(attempt) failed: \(error)"); Thread.sleep(forTimeInterval: 0.3); if attempt == 4 { throw error } }
+        }
         directory = nil
         root = nil
     }
@@ -106,9 +110,6 @@ final class CursorAuthenticationTests: XCTestCase {
     }
 
     func testRejectedOverrideNeverRefreshesUnrelatedLocalLogin() async throws {
-        #if os(Windows)
-        throw XCTSkip("removing the open state.vscdb is refused on Windows (file locking); to investigate")
-        #endif
         try seed(root, access: "local-account", refresh: "local-refresh")
         CursorAuthentication.configurationForTesting?.environment = ["CURSOR_SESSION_TOKEN": "other-account::override-jwt"]
         CursorUsageAPI.transportForTesting = { _ in (Data(), 401) }
@@ -163,9 +164,6 @@ final class CursorAuthenticationTests: XCTestCase {
     }
 
     func testRejectedRefreshedTokenCanRefreshAgainUsingRotatedRefreshToken() async throws {
-        #if os(Windows)
-        throw XCTSkip("the scripted refresh never happens on Windows; to investigate")
-        #endif
         try seed(root, access: "expired", refresh: "refresh-one")
         let grants = CallLog()
         CursorAuthentication.transportForTesting = { request in
@@ -318,9 +316,12 @@ final class CursorAuthenticationTests: XCTestCase {
     private func seed(_ root: URL, access: String?, refresh: String?) throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         var db: OpaquePointer?
-        XCTAssertEqual(sqlite3_open(root.appendingPathComponent("state.vscdb").path, &db), SQLITE_OK)
+        let rcOpen = sqlite3_open(root.appendingPathComponent("state.vscdb").path, &db)
+        XCTAssertEqual(rcOpen, SQLITE_OK)
         defer { sqlite3_close(db) }
-        XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE, value BLOB); DELETE FROM ItemTable;", nil, nil, nil), SQLITE_OK)
+        let rcCreate = sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE, value BLOB); DELETE FROM ItemTable;", nil, nil, nil)
+        if rcOpen != SQLITE_OK || rcCreate != SQLITE_OK { print("DIAG seed \(root.path) open=\(rcOpen) create=\(rcCreate) msg=\(db.map { String(cString: sqlite3_errmsg($0)) } ?? "nil")") }
+        XCTAssertEqual(rcCreate, SQLITE_OK)
         for (key, value) in [("cursorAuth/accessToken", access), ("cursorAuth/refreshToken", refresh)] {
             guard let value else { continue }
             XCTAssertEqual(sqlite3_exec(db, "INSERT INTO ItemTable VALUES ('\(key)', '\(value)');", nil, nil, nil), SQLITE_OK)

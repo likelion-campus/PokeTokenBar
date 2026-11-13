@@ -47,8 +47,7 @@ protocol NetworkWatching: Sendable {
 }
 
 enum PlatformLimits {
-    /// Like `zlibDisabledForTesting`: a test may assign its own before any store is built.
-    nonisolated(unsafe) static var current: any LimitsProviderFactory = {
+    static let current: any LimitsProviderFactory = {
         #if os(Windows) || PTB_SHARED_ONLY
         StubLimitsProviders(log: { AppLog.write($0) })
         #else
@@ -58,7 +57,7 @@ enum PlatformLimits {
 }
 
 enum PlatformNetwork {
-    nonisolated(unsafe) static var current: any NetworkWatching = {
+    static let current: any NetworkWatching = {
         #if os(Windows) || PTB_SHARED_ONLY
         StubNetworkWatching(log: { AppLog.write($0) })
         #else

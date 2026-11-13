@@ -3,7 +3,7 @@ import Foundation
 
 /// The drawing side of `PlazaWeatherArt` (the dot grids are in `PlazaWeatherGrids.swift`).
 extension PlazaWeatherArt {
-    static let palette: [Character: (r: UInt8, g: UInt8, b: UInt8)] = [
+    private static let palette: [Character: (r: UInt8, g: UInt8, b: UInt8)] = [
         "W": (0xF6, 0xFA, 0xFF), "S": (0xC6, 0xDA, 0xF0),
         "P": (0xF8, 0xBB, 0xCF), "p": (0xE8, 0x8D, 0xAC),
         "O": (0xE8, 0x83, 0x2A), "o": (0xB4, 0x5E, 0x14),
