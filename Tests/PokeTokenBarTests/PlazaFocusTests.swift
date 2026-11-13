@@ -139,7 +139,7 @@ final class PlazaFocusTests: XCTestCase {
         key(c.scene!, spaceKey)
         key(c.scene!, upKey)
         guard case .campfireMenu(let menu) = c.overlayContent else { return XCTFail("no menu") }
-        XCTAssertEqual(menu.selection, 2, "up from the first wraps to the last")
+        XCTAssertEqual(menu.selection, 3, "up from the first wraps to the fire row")
         key(c.scene!, downKey)
         key(c.scene!, downKey)
         guard case .campfireMenu(let menu2) = c.overlayContent else { return XCTFail("no menu") }
@@ -171,9 +171,11 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertEqual(state?.tile, seat)
         XCTAssertEqual(state?.focusEndsAt, now.addingTimeInterval(3000))
         XCTAssertEqual(c.hint, "🔥 50분 남음 · 방향키로 일어나기")
-        // 앉은 자리에서는 스페이스 대상이 없어(불은 어느 자리에서도 대상이 아니다) 메뉴가 열리지 않고, 다시 시작해도 바뀌지 않는다.
+        // 앉은 자리에서는 스페이스 대상이 없다(불은 어느 자리에서도 대상이 아니다). 불을 켜고 끄는 줄만 있는 메뉴가 열리고,
+        // 다시 시작해도 바뀌지 않는다.
         key(scene, spaceKey)
-        XCTAssertEqual(c.overlayContent, .none)
+        XCTAssertEqual(c.overlayContent, .campfireMenu(PlazaCampfireMenu(isJoin: true, minutes: [], selection: 0, isLit: true, isSeated: true)))
+        key(scene, 53)
         c.startFocus(minutes: 25)
         XCTAssertEqual(c.focus, expected)
         c.handleClose()
@@ -187,7 +189,7 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertTrue(scene.campfireLit)
         XCTAssertEqual(c.hint, "스페이스바를 눌러 같이 집중하기")
         key(scene, spaceKey)
-        XCTAssertEqual(c.overlayContent, .campfireMenu(PlazaCampfireMenu(isJoin: true, minutes: [25, 50, 480], selection: 0)))
+        XCTAssertEqual(c.overlayContent, .campfireMenu(PlazaCampfireMenu(isJoin: true, minutes: [25, 50, 480], selection: 0, isLit: true)))
         key(scene, spaceKey)
         XCTAssertEqual(c.focus, PlazaFocus(endsAt: now.addingTimeInterval(1500), minutes: 25, seat: TilePoint(x: 25, y: 13)))
         c.handleClose()
@@ -208,12 +210,17 @@ final class PlazaFocusTests: XCTestCase {
         key(scene, spaceKey)
         let menu = PlazaCampfireMenu(isJoin: false, minutes: [], selection: 0)
         XCTAssertEqual(c.overlayContent, .campfireMenu(menu))
-        XCTAssertEqual(PlazaCampfireMenuView.rows(menu), ["자리가 없어요"])
-        XCTAssertEqual(PlazaCampfireMenuView.rows(.init(isJoin: false, minutes: [25, 480], selection: 0)), ["25분 집중", "8시간 집중"])
+        XCTAssertEqual(PlazaCampfireMenuView.notice(menu), "자리가 없어요")
+        XCTAssertEqual(PlazaCampfireMenuView.rows(menu), ["불 켜기"])
+        XCTAssertNil(PlazaCampfireMenuView.notice(.init(isJoin: false, minutes: [], selection: 0, isSeated: true)), "I already sit")
+        XCTAssertEqual(PlazaCampfireMenuView.rows(.init(isJoin: false, minutes: [25, 480], selection: 0, isLit: true)),
+                       ["25분 집중", "8시간 집중", "불 끄기"])
         key(scene, downKey)
-        XCTAssertEqual(c.overlayContent, .campfireMenu(menu), "arrows do nothing without rows")
+        XCTAssertEqual(c.overlayContent, .campfireMenu(menu), "the fire row is the only row")
         key(scene, spaceKey)
         XCTAssertEqual(c.overlayContent, .none)
+        XCTAssertTrue(c.isCampfireLit, "the only row lights the fire")
+        XCTAssertFalse(c.isFocusing)
         XCTAssertNil(c.focus)
         key(scene, spaceKey)
         key(scene, returnKey)
@@ -487,6 +494,125 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertFalse(scene.campfireLit)
         c.handleClose()
         await gate.tick()
+    }
+
+    // MARK: - 스위치
+
+    private func chooseFireRow(_ c: PlazaWindowController, line: UInt = #line) {
+        key(c.scene!, spaceKey)
+        guard case .campfireMenu(let menu) = c.overlayContent else { return XCTFail("no menu", line: line) }
+        c.chooseCampfire(index: menu.toggleIndex)
+    }
+
+    func testTheFireRowLightsAndPutsOutAFireNobodyFocusesAt() async {
+        let (_, other, c) = await pair()
+        let scene = c.scene!
+        chooseFireRow(c)
+        XCTAssertTrue(scene.campfireLit)
+        XCTAssertFalse(c.isFocusing, "lighting the fire does not sit me down")
+        XCTAssertEqual(c.hint, "스페이스바를 눌러 모닥불 피우기", "nobody to join")
+        await waitUntil { other.session.members[self.seenID(c)]?.campfire?.lit == true }
+        now = now.addingTimeInterval(86_400)
+        await gate.tick()
+        XCTAssertTrue(scene.campfireLit, "it burns until someone puts it out")
+        chooseFireRow(c)
+        XCTAssertFalse(scene.campfireLit)
+        c.handleClose()
+        await gate.tick()
+    }
+
+    private func seenID(_ c: PlazaWindowController) -> String { c.memberIDForTesting }
+
+    func testTheFireCanBePutOutWhileATeammateFocusesAndANewFocusRelightsIt() async {
+        let (_, other, c) = await pair()
+        let scene = c.scene!
+        await place(other, at: PlazaCampfire.seats[0].tile, focusEnds: now.addingTimeInterval(600), in: c)
+        XCTAssertTrue(scene.campfireLit)
+        chooseFireRow(c)
+        XCTAssertFalse(scene.campfireLit)
+        XCTAssertNotNil(c.scene?.memberTiles[other.settings.memberID], "the teammate keeps focusing")
+        now = now.addingTimeInterval(5)
+        key(scene, spaceKey)
+        c.chooseCampfire(index: 0)
+        XCTAssertTrue(c.isFocusing)
+        XCTAssertTrue(scene.campfireLit, "my new focus lights it again")
+        c.handleClose()
+        await gate.tick()
+    }
+
+    func testPuttingOutMyOwnFireKeepsMyFocus() async {
+        let (_, _, c) = await pair()
+        let scene = c.scene!
+        key(scene, spaceKey)
+        c.chooseCampfire(index: 0)
+        XCTAssertTrue(scene.campfireLit)
+        key(scene, spaceKey)
+        XCTAssertEqual(c.overlayContent, .campfireMenu(PlazaCampfireMenu(isJoin: true, minutes: [], selection: 0, isLit: true, isSeated: true)))
+        c.chooseCampfire(index: 0)
+        XCTAssertFalse(scene.campfireLit)
+        XCTAssertTrue(c.isFocusing)
+        XCTAssertEqual(scene.campfireTimerText, "25:00")
+        c.handleClose()
+        await gate.tick()
+    }
+
+    func testAHandLitFireStaysWhileATeammateStillFocusesThenGoesOut() async {
+        let (_, other, c) = await pair()
+        let scene = c.scene!
+        chooseFireRow(c)
+        key(scene, spaceKey)
+        c.chooseCampfire(index: 0)
+        await place(other, at: PlazaCampfire.seats[5].tile, focusEnds: now.addingTimeInterval(3000), in: c)
+        now = now.addingTimeInterval(1501)
+        await gate.tick()
+        XCTAssertFalse(c.isFocusing)
+        XCTAssertTrue(scene.campfireLit, "a teammate still focuses")
+        now = now.addingTimeInterval(1500)
+        await gate.tick()
+        XCTAssertFalse(scene.campfireLit, "it goes out with the last focus, even if that Mac never says so")
+        c.handleClose()
+        await gate.tick()
+    }
+
+    func testAHandLitFireGoesOutWhenMyFocusWasTheLast() async {
+        let (_, _, c) = await pair()
+        let scene = c.scene!
+        chooseFireRow(c)
+        key(scene, spaceKey)
+        c.chooseCampfire(index: 0)
+        now = now.addingTimeInterval(1501)
+        await gate.tick()
+        XCTAssertFalse(c.isFocusing)
+        XCTAssertFalse(scene.campfireLit)
+        c.handleClose()
+        await gate.tick()
+    }
+
+    func testATeammatesSwitchIsLearnedKeptAndOnlyTheLaterOneWins() async {
+        let me = node("나"), other = node("가")
+        let prefs = prefs()
+        let c = controller(me, prefs: prefs)
+        c.prepareScene()
+        await connect(me, other)
+        let t = now.timeIntervalSince1970
+        other.session.updateCampfire(PlazaCampfireSwitch(lit: true, at: t - 10))
+        await waitUntil { c.isCampfireLit }
+        XCTAssertTrue(c.scene!.campfireLit)
+        XCTAssertEqual(prefs.campfire, PlazaCampfireSwitch(lit: true, at: t - 10))
+        other.session.updateCampfire(PlazaCampfireSwitch(lit: false, at: t - 20))
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertTrue(c.isCampfireLit, "an earlier switch loses")
+        other.session.updateCampfire(PlazaCampfireSwitch(lit: false, at: t + 61))
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertTrue(c.isCampfireLit, "a switch from too far ahead is dropped")
+        other.session.updateCampfire(PlazaCampfireSwitch(lit: false, at: t + 50))
+        await waitUntil { !c.isCampfireLit }
+        c.setCampfire(lit: true)
+        XCTAssertTrue(c.isCampfireLit, "my own switch wins over a clock that runs ahead")
+        c.handleClose()
+        await gate.tick()
+        let again = controller(me, prefs: prefs)
+        XCTAssertTrue(again.isCampfireLit, "kept across a restart")
     }
 
     func testMinimapShowsTheFireOnlyWhileLit() async {

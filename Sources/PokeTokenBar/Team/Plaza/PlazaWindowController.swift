@@ -97,6 +97,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private(set) var activity = PlazaActivity(day: "")
     /// 내가 보냈고 아직 땅에 닿지 않은 깨는 점프. 닿아서 배운 것이 이 가운데 하나일 때만 내가 깬 것으로 센다.
     private var pendingBreaks: [PlazaIceBreak] = []
+    /// 아는 마지막 모닥불 스위치. 창이 닫혀 있어도 배운다.
+    private var campfireSwitch: PlazaCampfireSwitch?
     /// 집중이 끝났다(시간이 다 됐거나 일어섰다). 조용히 끝낼 때는 부르지 않는다.
     var onFocusEnd: ((PlazaFocusEnd) -> Void)?
     /// A failed sprite request is made again after this long, while the plaza stays open.
@@ -286,6 +288,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         session?.updateTakenItemSlot(takenItemSlots.max())
         iceBreak = PlazaIce.accepted(preferences.iceBreak, now: clock(), ponds: Self.icePonds)
         session?.updateIceBreak(iceBreak)
+        campfireSwitch = PlazaCampfire.accepted(preferences.campfire, now: clock())
+        session?.updateCampfire(campfireSwitch)
         activity = (preferences.activity ?? PlazaActivity(day: "")).rolled(to: PlazaActivity.dayKey(clock()))
         session?.updateActivity(activity)
         restoreFocus()
@@ -985,9 +989,15 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 바라보거나 바로 옆에 있는 대상에 말을 건다. 그쪽으로 돌아선 뒤, 소식판이면 소식판을 열고(열 때 모두 읽음),
     /// 팀원이면 인사하기와 포켓몬 보기 메뉴를 띄운다.
     private func handleInteractKey() {
-        guard let scene,
-              let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
-                                                members: scene.interactionTiles) else { return }
+        guard let scene else { return }
+        guard let hit = PlazaInteraction.target(from: scene.walker.tile, facing: scene.walker.facing, map: map,
+                                                members: scene.interactionTiles) else {
+            // 자리는 불에서 떨어져 있어 말을 걸 대상이 없다. 앉은 채로는 불을 켜고 끄는 줄만 있는 모닥불 메뉴를 연다.
+            if isFocusing {
+                openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: true, minutes: [], selection: 0, isLit: isCampfireLit, isSeated: true)))
+            }
+            return
+        }
         if !isFocusing { scene.face(hit.facing) }   // 앉아 있는 동안은 불을 바라본 채로 둔다
         switch hit.target {
         case .board:
@@ -995,8 +1005,9 @@ struct PlazaFocusEnd: Equatable, Sendable {
             openOverlay(.board)
         case .campfire:
             let free = PlazaCampfire.nearestFreeSeat(from: scene.walker.tile, occupied: scene.occupiedTiles()) != nil
-            openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: isCampfireLit, minutes: free ? PlazaCampfire.durations : [],
-                                                         selection: 0)))
+            openOverlay(.campfireMenu(PlazaCampfireMenu(isJoin: isAnyoneFocusing,
+                                                         minutes: free ? PlazaCampfire.durations : [],
+                                                         selection: 0, isLit: isCampfireLit)))
         case .member(let id):
             // 복사본의 메뉴는 따라 한 팀원의 이름과 색으로 연다. 나를 따라 했다면 카드는 없다.
             // 메타몽 모습의 메뉴에는 몸통박치기만 있다.
@@ -1064,13 +1075,15 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
     }
 
-    /// 모닥불 메뉴에서 고른 시간으로 앉는다. 키로 고르든 눌러 고르든 여기로 온다. 고를 시간이 없으면 메뉴만 닫는다.
+    /// 모닥불 메뉴에서 고른 시간으로 앉거나, 마지막 줄이면 불을 켜거나 끈다. 키로 고르든 눌러 고르든 여기로 온다.
     func chooseCampfire(index: Int) {
-        guard case .campfireMenu(let menu) = overlayModel.content, menu.minutes.indices.contains(index) else {
-            return closeOverlay()
-        }
+        guard case .campfireMenu(let menu) = overlayModel.content else { return closeOverlay() }
         closeOverlay()
-        startFocus(minutes: menu.minutes[index])
+        if menu.minutes.indices.contains(index) {
+            startFocus(minutes: menu.minutes[index])
+        } else if index == menu.toggleIndex {
+            setCampfire(lit: !isCampfireLit)
+        }
     }
 
     /// 메뉴에서 고른 일을 한다. 키로 고르든 눌러 고르든 여기로 온다.
@@ -1373,7 +1386,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         } else if let hit = scene?.interactionTarget, overlayModel.content == .none, !chatInput.isOpen {
             switch hit.target {
             case .board: text = L(.ko).plazaBoardHint
-            case .campfire: text = isCampfireLit ? L(.ko).plazaCampfireJoinHint : L(.ko).plazaCampfireLightHint
+            case .campfire: text = isAnyoneFocusing ? L(.ko).plazaCampfireJoinHint : L(.ko).plazaCampfireLightHint
             case .member(let id): text = hintName(of: id).map { L(.ko).plazaMemberHint(nickname: $0) }
             }
         }
@@ -1458,6 +1471,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     var isFocusing: Bool { focus != nil }
     /// 테스트용 읽기 전용 값: 저장된 집중.
     var preferencesFocusForTesting: PlazaFocus? { preferences.focus }
+    var memberIDForTesting: String { memberID() }
     var isCampfireMenuOpen: Bool { if case .campfireMenu = overlayModel.content { true } else { false } }
 
     /// 그 팀원이 아직 집중 중이면 남은 초. 끝 시각은 받을 때만 걸러지므로 지금과 다시 견준다.
@@ -1467,10 +1481,33 @@ struct PlazaFocusEnd: Equatable, Sendable {
         return left > 0 ? left : nil
     }
 
-    /// 내가 앉아 있거나 팀원 중 누가 집중 중이면 불이 켜져 있다. 팀원의 끝 시각은 받을 때만 걸러지므로 지금과 다시 견준다.
-    var isCampfireLit: Bool {
+    /// 내가 앉아 있거나 팀원 중 누가 집중 중이다. 팀원의 끝 시각은 받을 때만 걸러지므로 지금과 다시 견준다.
+    var isAnyoneFocusing: Bool {
         let now = clock()
         return focus?.isActive(at: now) == true || members.values.contains { $0.focusEndsAt.map { $0 > now } ?? false }
+    }
+
+    /// 누가 켜거나 껐으면 그대로, 아니면 집중하는 사람이 있을 때 켜져 있다.
+    var isCampfireLit: Bool { PlazaCampfire.isLit(campfireSwitch, anyoneFocusing: isAnyoneFocusing) }
+
+    /// 내가 스위치를 바꾼다(nil: 손대지 않은 상태로). 저장하고 팀원에게 알리고 불을 맞춘다.
+    func setCampfire(lit: Bool?) {
+        let flipped = PlazaCampfire.flipped(to: lit, after: campfireSwitch, now: clock())
+        campfireSwitch = flipped
+        preferences.campfire = flipped
+        session?.updateCampfire(flipped)
+        refreshCampfire()
+    }
+
+    /// 받은 스위치를 배운다. 걸러서 합친 값이 달라질 때만 저장하고 알리고 불을 맞춘다.
+    private func learnCampfire(_ received: PlazaCampfireSwitch?) {
+        guard let s = PlazaCampfire.accepted(received, now: clock()) else { return }
+        let merged = PlazaCampfire.merged(campfireSwitch, s)
+        guard merged != campfireSwitch else { return }
+        campfireSwitch = merged
+        preferences.campfire = merged
+        session?.updateCampfire(merged)
+        refreshCampfire()
     }
 
     /// 지난 실행에서 저장한 집중을 되살린다. 아직 안 끝났으면 창이 없어도 팀원에게 앉은 모습을 알린다. 끝났으면 지운다.
@@ -1497,6 +1534,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         focus = started
         focusFacing = seat.facing
         preferences.focus = started
+        if campfireSwitch?.lit == false { setCampfire(lit: nil) }   // 꺼 둔 불도 새 집중이 다시 켠다
         session?.updateFocus(endsAt: started.endsAt)   // 자리 위치보다 먼저: 자리만 알리고 끝 시각은 빠진 접속 알림이 나가지 않게
         scene.sit(at: seat)
         sendPosition(inPlaza: true, scene: scene)
@@ -1528,6 +1566,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         focus = nil
         preferences.focus = nil
         session?.updateFocus(endsAt: nil)
+        // 손으로 켠 불도 집중이 끝나면 집중을 따르게 돌린다. 다른 사람이 아직 집중 중이면 켜져 있다가 마지막 집중과 함께 꺼진다.
+        if campfireSwitch?.lit == true { setCampfire(lit: nil) }
         if scene == nil {
             // 창이 닫혀 있는 동안 앉은 모습으로 남아 있었다. 이제 광장을 떠난 것으로 알린다.
             session?.updatePlazaPosition(inPlaza: false, tile: nil, facing: nil, isWalking: false)
@@ -1875,6 +1915,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if session.isIdle && !wasIdle { scene?.stopDance(memberID: nil) }   // 자리비움이 되는 순간만(돌아온 뒤 새 춤은 건드리지 않는다)
         wasIdle = session.isIdle
         if let followed = scene?.followingMember, focusRemaining(of: followed) != nil { scene?.stopWalkingToMember() }
+        for s in current.values.compactMap(\.campfire) { learnCampfire(s) }
         applyMembersToScene()
         endMimicIfDue()
         refreshMyLook()
