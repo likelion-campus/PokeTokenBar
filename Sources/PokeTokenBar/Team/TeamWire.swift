@@ -46,6 +46,9 @@ struct TeamPresence: Codable, Equatable, Sendable {
     @LossyOptional var mimicOf: String?
     /// The last plaza ice break this member knows. Every member passes it on. Left out when none.
     @LossyOptional var iceBreak: PlazaIceBreak?
+    /// The last plaza campfire switch this member knows. Every member passes it on. Left out when none; earlier
+    /// versions ignore it and light the fire while someone focuses.
+    @LossyOptional var campfire: PlazaCampfireSwitch?
     /// What the sender did in the plaza today (their `day`). Left out by earlier versions, which a reader shows as no record.
     @LossyOptional var activity: PlazaActivity?
 }

@@ -109,6 +109,7 @@ extension L {
     func plazaCampfireMenuTitle(isJoin: Bool) -> String { isJoin ? "같이 집중하기" : "모닥불" }
     func plazaCampfireRow(minutes: Int) -> String { "\(plazaFocusDuration(minutes: minutes)) 집중" }
     var plazaCampfireFull: String { "자리가 없어요" }
+    func plazaCampfireToggle(isLit: Bool) -> String { isLit ? "불 끄기" : "불 켜기" }
     func plazaMemberHint(nickname: String) -> String { "스페이스바를 눌러 \(nickname)에게 말 걸기" }
     /// While I am disguised as a teammate: who, and the time left (rounded up, never below 0:00).
     func plazaMimicHint(nickname: String, seconds: TimeInterval) -> String {
