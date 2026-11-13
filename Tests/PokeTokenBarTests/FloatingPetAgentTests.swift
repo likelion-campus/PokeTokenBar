@@ -264,7 +264,6 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         controller.setDisplayAwake(false)
         store.floatingPetEnabled = petEnabled
         return Fixture(controller: controller, store: store, companion: companion, defaults: defaults, cleanUp: {
-            defaults.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: file)
         })
     }

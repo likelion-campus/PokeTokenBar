@@ -4,8 +4,8 @@
 #
 # 사용:  ./scripts/cfprefsd-guard.sh        (team-release.sh 가 테스트 게이트 직후 호출한다)
 #
-# cfprefsd 는 존재하는 plist 마다 디렉터리 fd 를 하나씩 쥔다(~508 에서 막힌다). 테스트가 plist 를
-# 너무 많이 남기면 파일을 지워도 안 풀려서, 앱이 설정을 못 읽고 팀 리스너 없이 뜬다.
+# cfprefsd 의 디렉터리 fd 수는 테스트 프로세스가 새로 만든 plist 가 늘면 같이 오르고, 그 파일을 지우면
+# 내려간다(~508 에서 막힌다). 한도를 넘어 막히면 파일을 지워도 안 풀려서, 앱이 설정을 못 읽고 팀 리스너 없이 뜬다.
 # 정상이면 1~2개다. LIMIT(100)을 넘으면 agent 를 죽이고(launchd 가 되살린다) 내려갈 때까지 기다린다.
 #
 # 테스트용 대체: CFPREFSD_FDS_CMD(fd 수를 출력하는 명령), CFPREFSD_KILL_CMD(재시작 명령),
@@ -22,9 +22,14 @@ dir_fds() {
     return
   fi
   local pid
-  pid=$(pgrep -u "$USER" -x cfprefsd | head -1 || true)
+  pid=$(agent_pid)
   [[ -n "$pid" ]] || { echo 0; return; }
-  lsof -p "$pid" 2>/dev/null | awk '$5=="DIR"' | wc -l | tr -d ' '
+  # lsof 가 실패해도(set -e/pipefail) 조용히 죽지 않게 한다.
+  { lsof -n -P -p "$pid" 2>/dev/null || true; } | awk '$5=="DIR"' | wc -l | tr -d ' '
+}
+
+agent_pid() {
+  pgrep -u "$USER" -x cfprefsd | head -1 || true
 }
 
 restart_agent() {
@@ -32,8 +37,10 @@ restart_agent() {
     eval "$CFPREFSD_KILL_CMD"
     return
   fi
-  # agent(사용자 세션) 만 죽인다. launchd 가 새로 띄운다.
-  pkill -u "$USER" -f 'cfprefsd agent' || true
+  # 사용자 세션의 agent 프로세스만 죽인다. launchd 가 새로 띄운다.
+  local pid
+  pid=$(agent_pid)
+  [[ -z "$pid" ]] || kill "$pid" || true
 }
 
 fds=$(dir_fds)
