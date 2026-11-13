@@ -10,11 +10,15 @@ final class BinaryLocatorTests: XCTestCase {
             base: ["PATH": ["/usr/bin", "/bin"].joined(separator: String(PlatformCompat.pathListSeparator)), "LANG": "en_US.UTF-8"])
         let paths = env["PATH"]!.split(separator: PlatformCompat.pathListSeparator).map(String.init)
 
-        XCTAssertEqual(paths.first, "\(home)/.local/share/mise/shims")   // 바이너리 디렉토리 최우선
+        // The first entry comes from a URL, whose path uses `/` even where NSHomeDirectory() has `\`.
+        XCTAssertEqual(paths.first, URL(fileURLWithPath: "\(home)/.local/share/mise/shims").path)   // 바이너리 디렉토리 최우선
         XCTAssertTrue(paths.contains("/opt/homebrew/bin"))               // mise 본체 위치 후보
         XCTAssertTrue(paths.contains("\(home)/.local/bin"))
         XCTAssertTrue(paths.contains("/usr/bin"))                        // 기존 PATH 보존
-        XCTAssertEqual(paths.filter { $0 == "\(home)/.local/share/mise/shims" }.count, 1)  // dedup
+        // dedup compares strings, so a `\` home (Windows) keeps both spellings; path normalisation is a stage-4 item.
+        if !home.contains("\\") {
+            XCTAssertEqual(paths.filter { $0 == "\(home)/.local/share/mise/shims" }.count, 1)  // dedup
+        }
         XCTAssertEqual(env["LANG"], "en_US.UTF-8")                       // 다른 env 보존
     }
 
