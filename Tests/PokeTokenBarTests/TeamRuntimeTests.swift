@@ -322,28 +322,29 @@ final class TeamRuntimeTests: XCTestCase {
         XCTAssertEqual(plaza.scene?.jumpLift(memberID: nil), 0, "only they jump")
     }
 
-    /// A breaking jump reaches the plaza as a break the controller learns when the landing comes.
-    func testABreakingJumpReachesThePlaza() async {
+    /// A prayer from an egg teammate in the plaza shows over their egg here.
+    func testReceivedPrayShowsOverThatEggTeammate() async {
         let (a, b) = connectedPair()
-        let now = Date(timeIntervalSince1970: 10_000 * 180 + 60)
-        let suite = "ptb.test.team.runtime.icejump.\(UUID().uuidString)"
+        let suite = "ptb.test.team.runtime.pray.\(UUID().uuidString)"
         let plaza = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                           loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                           nickname: { "나" }, memberID: { b.settings.memberID },
-                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session,
-                                          clock: { now })
+                                          subject: { .init(speciesID: 25, isShiny: false) }, session: b.runtime.session)
         b.runtime.plaza = plaza
         plaza.prepareScene()
         let sender = a.settings.memberID
-        await settle { plaza.scene?.memberTiles[sender] != nil }
-        let brk = PlazaIceBreak(pond: TilePoint(x: 5, y: 13), turn: PlazaIce.turn(at: now))
-        a.runtime.session.sendEmote(.jump, target: nil, iceBreak: brk)
-        await settle { (plaza.scene?.iceLandingCount ?? 0) == 1 }
-        var t: TimeInterval = 0
-        plaza.scene?.update(t)
-        while t < 0.5 { t += 0.05; plaza.scene?.update(t) }
-        XCTAssertEqual(plaza.iceBreak, brk)
-        plaza.handleClose()
+        a.runtime.session.updateCharacter(TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil))
+        let tile = TilePoint(x: 30, y: 20)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        // The session learns first and the controller follows a beat later; once the scene has the tile, the controller has it too.
+        await settle {
+            let member = b.runtime.session.members[sender]
+            return member?.inPlaza == true && member?.character.speciesID == nil && plaza.scene?.memberTiles[sender] == tile
+        }
+        a.runtime.session.sendEmote(.pray, target: nil)
+        await settle { plaza.scene?.shownEmote(memberID: sender) == .pray }
+        XCTAssertEqual(plaza.scene?.shownEmote(memberID: sender), .pray)
+        XCTAssertNil(plaza.scene?.shownEmote(memberID: nil), "only over them")
     }
 
     /// A tackle aimed at me pushes me one tile away from the teammate who did it, when they stand right next to me.

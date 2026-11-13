@@ -14,7 +14,7 @@ struct PlazaShortcutGuide: View {
             (l.plazaShortcutArrows, l.plazaShortcutWalk), ("Shift", l.plazaShortcutRun), ("Space", l.plazaShortcutTalk),
             ("Enter", l.plazaShortcutChat), ("1–5", l.plazaShortcutEmotes), ("Z", l.plazaJump),
             ("X", l.plazaMenuGreet), ("C", l.plazaMenuTackle), ("D", l.plazaShortcutDance), ("F", l.plazaShortcutFirework), ("P", l.plazaShortcutPhoto), ("G", l.plazaShortcutGroupPhoto),
-            ("−/+", l.plazaShortcutZoom),
+            ("A", l.plazaShortcutPray), ("−/+", l.plazaShortcutZoom),
         ]
         if isSnowDay, let c = rows.firstIndex(where: { $0.key == "C" }) { rows.insert(("V", l.plazaShortcutSnowball), at: c + 1) }
         return rows

@@ -35,6 +35,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
     private let pokemonTypes: (Int) async -> [String]?
     /// 광장에서 주운 아이템을 가방에 넣는다.
     private let grantItem: (ItemKind) -> Void
+    /// 내 알에 기도 한 번을 더한다(데스크톱 펫에서 알을 누르는 것과 같은 횟수).
+    private let pray: () -> Void
+    /// 지금 알에 쌓인 기도 횟수. 위쪽 안내 줄에 쓴다.
+    private let prayerCount: () -> Int
     /// 누군가 주운 것으로 아는 아이템 칸: 내가 주운 것, 팀원이 알려 온 것, 팀원 presence가 전해 준 것. 저장하고, 가장 최근
     /// 것을 내 presence로 다시 전한다. 그래서 주운 사람이 떠난 뒤 광장을 연 팀원도 그때 있던 누군가에게서 전해 듣는다.
     private var takenItemSlots: Set<Int> = []
@@ -105,8 +109,14 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
     /// 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭, 펼친 단축키 안내가 다 보이는 높이.
-    static let minContentSize = NSSize(width: 600, height: 352)
+    static let minContentSize = NSSize(width: 600, height: 372)
     private var lastEmoteAt: Date?
+    /// 기도 소식 연타 제한: 마지막으로 팀원에게 보낸 시각부터 잰다. 횟수는 제한 없이 센다.
+    private var lastPraySentAt: Date?
+    /// 기도한 직후 위쪽 안내 줄에 횟수를 보여 주는 시간. 알은 걷지 못해 대개 소식판 옆에 서 있고, 그 자리에서는
+    /// 소식판 안내가 늘 떠 있어서 횟수가 가려진다. 그래서 이 동안은 횟수가 다른 안내보다 먼저다.
+    static let prayedHintDuration: TimeInterval = 2
+    private var prayedHintUntil: Date?
     private var lastChatAt: Date?
     private var lastLoudAt: Date?
     static let loudInterval: TimeInterval = 60
@@ -221,6 +231,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
          evolutionStage: @escaping () -> Int = { 1 },
          pokemonTypes: @escaping (Int) async -> [String]? = { _ in nil },
          grantItem: @escaping (ItemKind) -> Void = { _ in },
+         pray: @escaping () -> Void = {},
+         prayerCount: @escaping () -> Int = { 0 },
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -262,6 +274,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         self.evolutionStage = evolutionStage
         self.pokemonTypes = pokemonTypes
         self.grantItem = grantItem
+        self.pray = pray
+        self.prayerCount = prayerCount
         super.init()
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
         takenItemSlots = keptSlots(Set(preferences.takenItemSlots))
@@ -428,6 +442,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
         s.onPhotoModeChange = { [weak self] in self?.photoModeChanged($0) }
         s.onJumpKey = { [weak self] in self?.handleJumpKey() }
+        s.onPrayKey = { [weak self] in self?.handlePrayKey() }
         s.onGreetKey = { [weak self] in
             if let self, let id = self.faceNearbyMember() { self.greet(id) }
         }
@@ -503,6 +518,26 @@ struct PlazaFocusEnd: Equatable, Sendable {
             ? PlazaTargeting.member(from: scene.walker.tile, facing: scene.walker.facing, members: targetTiles) : nil
         if target == PlazaDitto.sceneKey { target = nil }   // 복사본에게 보낸 마음은 진짜 팀원에게 가지 않는다
         session?.sendEmote(kind, target: target)
+    }
+
+    /// 내가 알일 때만 기도한다. 누를 때마다 한 번씩 세고 내 화면에 바로 보이며, 팀원에게 보내는 것만 연타를 제한한다.
+    private func handlePrayKey() {
+        guard let scene, subject().speciesID == nil else { return }
+        pray()
+        scene.playPray(memberID: nil)
+        let now = clock()
+        prayedHintUntil = now.addingTimeInterval(Self.prayedHintDuration)
+        refreshHint()
+        if let last = lastPraySentAt, now.timeIntervalSince(last) < Self.emoteInterval { return }
+        lastPraySentAt = now
+        session?.sendEmote(.pray, target: nil)
+    }
+
+    /// 기도 횟수 안내의 시간이 다 됐으면 평소 안내로 돌아간다. 1초 틱이 부른다(테스트는 직접 부른다).
+    func endPrayedHintIfDue() {
+        guard let until = prayedHintUntil, clock() >= until else { return }
+        prayedHintUntil = nil
+        refreshHint()
     }
 
     private func openChat() {
@@ -656,6 +691,13 @@ struct PlazaFocusEnd: Equatable, Sendable {
         }
         guard let copied = shownDitto?.decoyOf else { return L(.ko).plazaDittoName }
         return copied == memberID() ? nickname() : members[copied]?.nickname
+    }
+
+    /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 기도는 알만 하므로, 알이 아닌 팀원이나
+    /// 광장에 없는 팀원이 보낸 것은 버린다(정직한 앱은 보내지 않는다).
+    func showPray(memberID: String) {
+        guard let member = members[memberID], member.inPlaza, member.character.speciesID == nil else { return }
+        scene?.playPray(memberID: memberID)
     }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다.
@@ -1269,6 +1311,8 @@ struct PlazaFocusEnd: Equatable, Sendable {
         var text: String?
         if isPhotoMode {
             text = nil
+        } else if let until = prayedHintUntil, clock() < until, overlayModel.content == .none, !chatInput.isOpen {
+            text = L(.ko).plazaPrayedHint(prayers: prayerCount())
         } else if let focus, overlayModel.content == .none, !chatInput.isOpen {
             text = L(.ko).plazaFocusHint(remaining: L(.ko).plazaFocusRemaining(seconds: focus.endsAt.timeIntervalSince(clock())))
         } else if let id = scene?.followingMember, overlayModel.content == .none, !chatInput.isOpen {
@@ -1293,6 +1337,10 @@ struct PlazaFocusEnd: Equatable, Sendable {
         if text == nil, !isPhotoMode, let mimic = myMimic, let look = myShownLook, overlayModel.content == .none, !chatInput.isOpen {
             let left = min(PlazaMimic.duration, mimic.since.addingTimeInterval(PlazaMimic.duration).timeIntervalSince(clock()))
             text = L(.ko).plazaMimicHint(nickname: look.name, seconds: left)
+        }
+        // 알일 때의 기도 안내도 다른 안내가 없을 때만 채운다.
+        if text == nil, !isPhotoMode, subject().speciesID == nil, overlayModel.content == .none, !chatInput.isOpen {
+            text = L(.ko).plazaPrayHint(prayers: prayerCount())
         }
         if overlayModel.hint != text { overlayModel.hint = text }
     }
@@ -1465,6 +1513,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
                 guard !Task.isCancelled, let self else { return }
                 self.endFocusIfDue()
                 self.endMimicIfDue()
+                self.endPrayedHintIfDue()
                 self.refreshCampfire()
             }
         }
@@ -2077,6 +2126,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
             scene.onSnowballKey = nil
             scene.onGroupPhotoKey = nil
             scene.onFireworkKey = nil
+            scene.onPrayKey = nil
             scene.onDanceRound = nil
             scene.isFocusing = { false }
             scene.onItemPickup = nil
