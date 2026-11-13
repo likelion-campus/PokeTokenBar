@@ -31,6 +31,7 @@ struct PlazaRosterView: View {
                 }
             }
             .frame(height: PlazaRosterMetrics.headerHeight)
+            let layout = PlazaRoster.listLayout(page.shown, hovered: model.hoveredID, maxHeight: model.maxListHeight)
             VStack(spacing: PlazaRosterMetrics.slotSpacing) {
                 ForEach(page.shown) { entry in
                     PlazaRosterSlot(entry: entry, animating: model.isAnimating, expanded: model.hoveredID == entry.id,
@@ -40,6 +41,11 @@ struct PlazaRosterView: View {
                         .help(entry.isMe || entry.presence == .asleep ? "" : L(.ko).plazaRosterWalkHint)
                 }
             }
+            // 펼친 칸이 작은 지도 밑으로 내려가면 목록을 위로 밀어 그 칸의 아랫줄까지 보이게 한다.
+            .offset(y: -layout.scroll)
+            .frame(height: layout.height, alignment: .top)
+            .clipped()
+            .animation(.easeOut(duration: 0.18), value: model.hoveredID)
             .padding(.top, PlazaRosterMetrics.listTopPadding)
         }
         .padding(PlazaRosterMetrics.padding)

@@ -221,4 +221,46 @@ final class PlazaActivityTests: XCTestCase {
         let mineStale = PlazaRoster.entries(me: entry("me", me: true), myActivity: stale, members: [], now: now)
         XCTAssertNil(mineStale.first?.activity, "mine from before midnight, not yet rolled")
     }
+
+    // MARK: - The expanded slot stays above the minimap
+
+    private func shortList() -> [PlazaRosterEntry] {
+        var a = PlazaActivity(day: "d")
+        a.record(.pickup)
+        return (0..<4).map { entry("m\($0)", activity: a) }
+    }
+
+    func testTheListEndsAboveTheMinimapForTheCapacityItChose() {
+        for height in stride(from: CGFloat(372), through: 900, by: 37) {
+            let slots = CGFloat(PlazaRoster.capacity(forHeight: height))
+            let m = PlazaRosterMetrics.self
+            XCTAssertLessThanOrEqual(slots * m.slotHeight + (slots - 1) * m.slotSpacing, PlazaRoster.maxListHeight(forHeight: height) + 0.5, "\(height)")
+        }
+    }
+
+    func testHoveringTheLastSlotOfAShortWindowScrollsItsRowsIntoView() {
+        let m = PlazaRosterMetrics.self, list = shortList()
+        let limit = PlazaRoster.maxListHeight(forHeight: 460)
+        XCTAssertEqual(PlazaRoster.capacity(forHeight: 460), 4, "test precondition")
+        let rest = PlazaRoster.listLayout(list, hovered: nil, maxHeight: limit)
+        XCTAssertEqual(rest.scroll, 0)
+        let last = PlazaRoster.listLayout(list, hovered: "m3", maxHeight: limit)
+        let bottom = 4 * m.slotHeight + 3 * m.slotSpacing + m.activityHeight(rows: 7)
+        XCTAssertGreaterThan(bottom, limit, "test precondition: it would run past the minimap")
+        XCTAssertEqual(last.height, limit, "the list never grows past the minimap")
+        XCTAssertEqual(bottom - last.scroll, limit, accuracy: 0.01, "the hovered slot's bottom sits on the limit")
+        let first = PlazaRoster.listLayout(list, hovered: "m0", maxHeight: limit)
+        XCTAssertEqual(first.scroll, 0, "room below: nothing moves")
+    }
+
+    func testThePanelNeverReachesTheMinimapEvenWhenTheLastSlotIsHovered() {
+        let windowHeight: CGFloat = 460, m = PlazaRosterMetrics.self
+        let model = PlazaRosterModel()
+        model.entries = shortList()
+        model.capacity = PlazaRoster.capacity(forHeight: windowHeight)
+        model.maxListHeight = PlazaRoster.maxListHeight(forHeight: windowHeight)
+        model.hover("m3", inside: true)
+        let panel = PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
+        XCTAssertLessThanOrEqual(panel, windowHeight - m.margin - m.bottomClearance + 0.5)
+    }
 }
