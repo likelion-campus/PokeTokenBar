@@ -1,4 +1,5 @@
 # Test files NOT built on Windows (relative to this file's directory). Task 7 brings them back one by one.
+# BinaryLocatorTests: testAugmentedEnvironmentPrependsToolPaths expects ':' PATH separators; needs a Windows-aware assertion (Task 7).
 AaaNSCachePressureGuardTests.swift
 AccountSessionKeyTests.swift
 ActivityVisualizationTests.swift
@@ -8,6 +9,7 @@ AntigravityGroupLocalizationTests.swift
 AntigravityRateLimitsProviderTests.swift
 AntigravityUsageTests.swift
 AsideUsageTests.swift
+BinaryLocatorTests.swift
 CatchLogRenderingTests.swift
 ClaudeReportedCostTests.swift
 CodexLargeRolloutPerformanceTests.swift
