@@ -58,6 +58,54 @@ enum PlatformCompat {
         #endif
     }
 
+    /// A path that names a location without a base directory. The Mac and other POSIX systems: a leading `/`.
+    /// Windows also takes a drive path (`C:\x`, `C:/x`) and a UNC path.
+    static func isAbsolutePath(_ path: String) -> Bool {
+        #if os(Windows)
+        if path.hasPrefix("/") || path.hasPrefix("\\") { return true }
+        let u = Array(path.unicodeScalars)
+        return u.count >= 3 && Character(u[0]).isLetter && u[1] == ":" && (u[2] == "/" || u[2] == "\\")
+        #else
+        return path.hasPrefix("/")
+        #endif
+    }
+
+    /// `~` and `~/...` replaced by the home directory. The Mac: `NSString.expandingTildeInPath`, unchanged.
+    static func expandingTilde(_ path: String) -> String {
+        #if os(Windows)
+        if path == "~" { return NSHomeDirectory() }
+        for sep in ["/", "\\"] where path.hasPrefix("~" + sep) { return NSHomeDirectory() + "/" + path.dropFirst(2) }
+        return path
+        #else
+        return NSString(string: path).expandingTildeInPath
+        #endif
+    }
+
+    /// Splits an absolute path into the base `CustomScanRoots` starts from and the rest (slash-separated).
+    /// POSIX: base "" (the root) and the whole path, untouched. Windows: backslashes become slashes, and the
+    /// drive (`C:`) is the base.
+    static func splitRoot(_ absolute: String) -> (base: String, rest: String) {
+        #if os(Windows)
+        let slashed = absolute.replacingOccurrences(of: "\\", with: "/")
+        let u = Array(slashed)
+        if u.count >= 2, u[1] == ":" { return (String(u[0...1]), String(u.dropFirst(2))) }
+        return ("", slashed)
+        #else
+        return ("", absolute)
+        #endif
+    }
+
+    /// The path to list for a base built by `splitRoot` plus segments: "" is the root, and a bare Windows drive
+    /// needs its trailing slash (`C:` alone means the drive's current directory).
+    static func listablePath(_ base: String) -> String {
+        #if os(Windows)
+        if base.isEmpty { return "/" }
+        return base.count == 2 && base.hasSuffix(":") ? base + "/" : base
+        #else
+        return base.isEmpty ? "/" : base
+        #endif
+    }
+
     static func abbreviatingWithTilde(_ path: String) -> String {
         #if os(Windows)
         let home = NSHomeDirectory()

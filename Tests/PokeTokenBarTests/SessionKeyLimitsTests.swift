@@ -549,7 +549,7 @@ final class SessionKeyStoreLocationTests: XCTestCase {
         PlatformCompat.setEnvironment("PTB_STATE_DIR", "   ")
         defer { PlatformCompat.setEnvironment("PTB_STATE_DIR", nil) }
         XCTAssertEqual(SessionKeyStore().fileURL.lastPathComponent, "session-key.json")
-        XCTAssertTrue(SessionKeyStore().fileURL.path.contains("Application Support"),
+        XCTAssertTrue(SessionKeyStore().fileURL.path.hasPrefix(FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].path),
                       "공백 값은 무시하고 기본 위치를 쓴다")
     }
 }

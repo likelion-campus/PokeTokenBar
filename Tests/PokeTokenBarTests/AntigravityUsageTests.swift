@@ -525,6 +525,9 @@ final class AntigravityUsageTests: XCTestCase {
     /// `mode=ro` cannot create the `-shm` file it would need — 28 of the 124 stores on the
     /// machine this was written on fail that way. The reader has to fall back.
     func testCheckpointedWalDatabaseIsStillReadable() throws {
+        #if os(Windows)
+        throw XCTSkip("SQLite on Windows opens the checkpointed WAL read-only, so the fallback this test drives is never reached")
+        #endif
         try writeConversation("c1", records: [
             record(responseID: "r1", model: "gemini-3.6-flash", createdAt: try date("2026-03-04T10:00:00Z"),
                    input: 100, output: 20, cacheRead: 300),

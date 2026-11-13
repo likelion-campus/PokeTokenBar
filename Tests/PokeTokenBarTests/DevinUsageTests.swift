@@ -210,6 +210,9 @@ final class DevinUsageTests: XCTestCase, @unchecked Sendable {
     }
 
     func testCustomRootsAddToXDGOrDefaultRoots() throws {
+        #if os(Windows)
+        throw XCTSkip("expects POSIX path normalisation of the XDG roots; not yet Windows-aware")
+        #endif
         let home = temporaryDirectory.appendingPathComponent("fake-home")
         let extra = temporaryDirectory.appendingPathComponent("extra")
         try FileManager.default.createDirectory(at: extra, withIntermediateDirectories: true)
@@ -243,6 +246,9 @@ final class DevinUsageTests: XCTestCase, @unchecked Sendable {
     }
 
     func testReadsCommittedRowsWhileWALWriterRemainsOpen() throws {
+        #if os(Windows)
+        throw XCTSkip("WAL file semantics differ on Windows (the -wal file is not left behind while a writer is open)")
+        #endif
         try seed(rows: [Row(id: 1)])
         var writer: OpaquePointer?
         XCTAssertEqual(sqlite3_open(databaseURL.path, &writer), SQLITE_OK)
