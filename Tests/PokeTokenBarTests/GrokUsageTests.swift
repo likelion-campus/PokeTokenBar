@@ -517,10 +517,7 @@ final class GrokUsageTests: XCTestCase {
     /// 기본 레지스트리에 Grok 이 등록돼 있어야 팝오버 탭/집계에 나타난다.
     @MainActor
     func testDefaultRegistryIncludesGrok() {
-        let suite = "GrokUsageTests.registry.\(UUID().uuidString)"
-        let defaults = TestDefaults.make(suite: suite)
-        let store = UsageStore(autoRefresh: false, defaults: defaults)
-        XCTAssertTrue(store.registeredProviderIDs.contains("grok"))
+        XCTAssertTrue(UsageStore.defaultProviders().map(\.id).contains("grok"))
     }
 
     /// Grok 을 안 쓰는 사용자(세션 디렉토리 없음)에서 프로바이더는 조용히 비어야 한다 —

@@ -159,7 +159,7 @@ final class CustomScanRootsTests: XCTestCase {
     func testUsageStorePersistsPerProviderAndLeavesOthersAlone() async {
         let suite = "ptb.store.scan.\(UUID().uuidString)"
         let defaults = TestDefaults.make(suite: suite)
-        let store = UsageStore(autoRefresh: false, defaults: defaults)
+        let store = makeHermeticUsageStore(defaults: defaults)
         store.setCustomScanRoots("~/codex-extra", for: "codex")
         XCTAssertEqual(store.customScanRoots(for: "codex"), "~/codex-extra")
         XCTAssertEqual(store.customScanRoots(for: "gemini"), "")
@@ -353,9 +353,7 @@ final class CustomScanRootsTests: XCTestCase {
     /// contamination hazard #177 forbids (Gemini `allowJSON` picking up Claude `.meta.json`).
     @MainActor
     func testEveryRegisteredProviderConsultsItsOwnCustomScanRootsKey() async throws {
-        let suite = "ptb.scan.sweep.\(UUID().uuidString)"
-        let defaults = TestDefaults.make(suite: suite)
-        let ids = UsageStore(autoRefresh: false, defaults: defaults).registeredProviderIDs
+        let ids = UsageStore.defaultProviders().map(\.id)
         XCTAssertFalse(ids.isEmpty)
 
         let sources = URL(fileURLWithPath: #filePath)
