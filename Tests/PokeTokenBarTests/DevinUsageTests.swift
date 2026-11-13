@@ -232,9 +232,7 @@ final class DevinUsageTests: XCTestCase, @unchecked Sendable {
         let provider = LocalDevinProvider()
         XCTAssertEqual(provider.id, "devin")
         XCTAssertEqual(provider.displayName, "Devin")
-        let suite = "DevinRegistration-\(UUID())"
-        let defaults = TestDefaults.make(suite: suite)
-        let ids = UsageStore(providers: UsageStore.defaultProviders(), autoRefresh: false, defaults: defaults).registeredProviderIDs
+        let ids = UsageStore.defaultProviders().map(\.id)
         XCTAssertEqual(ids.last, "devin")
     }
 

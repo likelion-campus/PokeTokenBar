@@ -5,7 +5,7 @@ import XCTest
 /// call re-creates an empty plist), and only the pool's own tests may build a private pool.
 final class TestDefaultsScanTests: XCTestCase {
     func testNoTestCreatesASuiteOutsideTheHelper() throws {
-        let needles = ["UserDefaults(" + "suiteName:", "removePersistent" + "Domain(", "TestDefaults(" + "prefix:"]
+        let needles = ["UserDefaults(" + "suiteName:", "removePersistent" + "Domain(", "TestDefaults(" + "prefix:", "PooledDefaults(" + "suiteName:"]
         let allowedPool = "TestDefaultsPoolTests.swift"
         let testsDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         var offenders: [String] = []

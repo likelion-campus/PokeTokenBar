@@ -56,6 +56,7 @@ final class TestDefaultsPoolTests: XCTestCase {
         let second = pool.open("a")   // the same physical slot, handed on
         let domain = pool.physicalDomains[0]
         XCTAssertFalse(first === second)
+        second.set("kept", forKey: "key")
         // Late writes of every shape the stores use, while the next test runs.
         first.set("late", forKey: "late")
         first.set(5, forKey: "int")
@@ -69,6 +70,7 @@ final class TestDefaultsPoolTests: XCTestCase {
             XCTAssertNil(second.object(forKey: key), key)
             XCTAssertNil(CFPreferencesCopyAppValue(key as CFString, domain as CFString), "cfprefsd: \(key)")
         }
+        XCTAssertEqual(second.string(forKey: "key"), "kept", "a late removeObject must not delete the live test's value")
         XCTAssertEqual(second.string(forKey: "mine"), "mine", "the live object still writes")
         pool.endTestCase()
     }

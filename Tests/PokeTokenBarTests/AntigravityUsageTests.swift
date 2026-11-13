@@ -701,10 +701,7 @@ final class AntigravityUsageTests: XCTestCase {
     /// rather than their spend labelled "Gemini". The two share `~/.gemini/` and nothing else.
     @MainActor
     func testDefaultRegistryIncludesAntigravity() {
-        let suite = "AntigravityUsageTests.registry.\(UUID().uuidString)"
-        let defaults = TestDefaults.make(suite: suite)
-        let store = UsageStore(providers: UsageStore.defaultProviders(), autoRefresh: false, defaults: defaults)
-        XCTAssertTrue(store.registeredProviderIDs.contains("antigravity"))
+        XCTAssertTrue(UsageStore.defaultProviders().map(\.id).contains("antigravity"))
     }
 
     /// The wire schema carries no amount and the rate lookup is short-circuited by the prefix,

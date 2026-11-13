@@ -350,9 +350,7 @@ final class CustomScanRootsTests: XCTestCase {
     /// contamination hazard #177 forbids (Gemini `allowJSON` picking up Claude `.meta.json`).
     @MainActor
     func testEveryRegisteredProviderConsultsItsOwnCustomScanRootsKey() throws {
-        let suite = "ptb.scan.sweep.\(UUID().uuidString)"
-        let defaults = TestDefaults.make(suite: suite)
-        let ids = UsageStore(providers: UsageStore.defaultProviders(), autoRefresh: false, defaults: defaults).registeredProviderIDs
+        let ids = UsageStore.defaultProviders().map(\.id)
         XCTAssertFalse(ids.isEmpty)
 
         let sources = URL(fileURLWithPath: #filePath)

@@ -200,12 +200,8 @@ final class LocalAdditionalUsageTests: XCTestCase {
 
     @MainActor
     func testDefaultRegistryIncludesOnlyRequestedAdditionalProviders() {
-        let suite = "LocalAdditionalUsageTests.registry.\(UUID().uuidString)"
-        let defaults = TestDefaults.make(suite: suite)
-        let store = UsageStore(providers: UsageStore.defaultProviders(), autoRefresh: false, defaults: defaults)
-
         XCTAssertEqual(
-            Set(store.registeredProviderIDs),
+            Set(UsageStore.defaultProviders().map(\.id)),
             Set(["claude_code", "codex", "gemini", "antigravity",
                  "opencode", "hermes", "cursor", "grok", "copilot", "kiro", "pi", "omp", "omo", "aside", "kimi_code",
                  "devin"]))

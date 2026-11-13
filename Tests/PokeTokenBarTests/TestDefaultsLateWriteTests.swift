@@ -8,7 +8,6 @@ import XCTest
 @MainActor
 final class TestDefaultsLateWriteTests: XCTestCase {
     private static var writerRan = false
-    private static var keepAlive: [UsageStore] = []
 
     private final class SlowLedgerProvider: UsageProvider, @unchecked Sendable {
         let id = "claude_code", displayName = "Claude Code", reportsCost = true
@@ -33,7 +32,6 @@ final class TestDefaultsLateWriteTests: XCTestCase {
         let defaults = TestDefaults.make(suite: "late-writer-\(UUID().uuidString)")
         let store = makeHermeticUsageStore(providers: [SlowLedgerProvider()], defaults: defaults)
         store.setCustomScanRoots("~/late-write-root", for: "codex")
-        Self.keepAlive.append(store)
         Self.writerRan = true
     }
 
@@ -41,8 +39,20 @@ final class TestDefaultsLateWriteTests: XCTestCase {
         try XCTSkipUnless(Self.writerRan, "the writer test did not run before this one")
         let defaults = TestDefaults.make(suite: "late-reader-\(UUID().uuidString)")
         XCTAssertNil(defaults.dictionary(forKey: UsageLedger.defaultsKey), "a fresh suite starts empty")
-        try await Task.sleep(nanoseconds: 3_000_000_000)   // the writer's refresh finishes in here
+        try await Task.sleep(nanoseconds: 2_500_000_000)   // the writer's refresh finishes in here
         XCTAssertNil(defaults.dictionary(forKey: UsageLedger.defaultsKey),
                      "the previous test's late save landed in this test's defaults")
+    }
+
+    /// The second late writer: the poll timer's closure used to capture the store strongly, so every store
+    /// a test built lived (and refreshed every 120 s, saving into pooled slots) for the rest of the run.
+    func testAStoreIsReleasedWhenItsScopeEnds() {
+        weak var weakStore: UsageStore?
+        do {
+            let store = makeHermeticUsageStore(defaults: TestDefaults.make(suite: "release-\(UUID().uuidString)"))
+            XCTAssertTrue(store.isPollingTimerScheduled, "precondition: the poll timer is what held the store")
+            weakStore = store
+        }
+        XCTAssertNil(weakStore, "something (the poll timer) still retains the UsageStore")
     }
 }

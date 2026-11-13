@@ -2067,10 +2067,10 @@ read_when:
   테스트가 끝날 때(또는 슬롯이 넘어갈 때) `close()` 해서 이후 `set`/`removeObject` 를 버린다. 물리 도메인은 그대로 풀이라
   cfprefsd 한도는 유지된다(Plaza|Team 1823 개에서 fd 피크 22). 시도하고 버린 안: 테스트마다 유일한 도메인 + 끝/경계마다 plist 삭제 —
   cfprefsd 가 삭제 뒤에도 최근 열린 도메인 fd 를 한동안 쥐어 Plaza|Team 에서 피크 315(>300)로 올랐다. 도메인 수가 아니라 **만들어지는
-  도메인의 속도**에 비례하므로 빠른 슬라이스에서 한도를 넘을 수 있다. 게다가 서브클래스의 락은 재귀여야 한다 — `super.set(Int,…)` 가
+  도메인의 속도**에 비례하는 것으로 보인다(1 회 측정, 다른 세션의 빌드가 겹쳤다) — 빠른 슬라이스에서 한도를 넘을 수 있다. 주의: 서브클래스의 락은 재귀여야 한다 — `super.set(Int,…)` 가
   `set(_:forKey:)` 를 다시 불러 일반 락이면 교착한다. **고침 (원인):** `Tests/` 의 모든 `UsageStore(` 는 `providers:` 를 명시해야 한다 —
   `UsageStoreHermeticityScanTests` 가 어긴 호출을 실패시킨다(레지스트리 확인은 `UsageStore.defaultProviders()` 를 넘기고, 스스로 refresh 하는
   스토어는 `makeHermeticUsageStore` 로 프로바이더·한도·Claude 설정 폴더 탐색을 모두 막는다). **회귀 테스트:** `TestDefaultsLateWriteTests`
   (실제 `UsageStore` 의 늦은 저장이 다음 테스트에 안 보인다), `TestDefaultsPoolTests` 의 늦은 쓰기·외부 링 테스트 — `close()` 를 no-op 으로
-  주입하면 실패, 스캔 테스트는 맨 `UsageStore(` 를 주입하면 실패함을 확인했다. 남은 것: `LocalUsageParityTests` 는 `PTB_PARITY=1` 일 때만
+  주입하면 실패, 스캔 테스트는 맨 `UsageStore(` 를 주입하면 실패함을 확인했다. **두 번째 늦은 쓰기 (리뷰에서 발견):** `UsageStore.reschedule` / `suspendPolling` 의 타이머 클로저가 `{ _ in Task { @MainActor [weak self] in … } }` 였다 — 안쪽 `[weak self]` 는 바깥 클로저의 캡처를 약하게 만들지 못해 바깥 클로저가 `self` 를 **강하게** 쥔다. 타이머가 런루프에 붙어 있으니 테스트가 만든 모든 스토어가 스코프가 끝나도 죽지 않고 120 s 마다 실제 로그를 읽어 풀 슬롯에 원장을 저장했다(보고된 11 일 원장과 더 잘 맞는다). 고침: `{ [weak self] _ in Task { @MainActor in await self?.refresh() } }`(앱 동작 동일 — 앱은 스토어를 평생 쥔다). 같은 패턴 스윕: `Sources/` 의 `Timer(` 4 곳(UsageStore 2 곳이 이 결함, `PokeTokenBarApp.swift:577`·`TeamTransport.swift:187` 은 바깥 클로저에 이미 `[weak self]`)과 NotificationCenter 옵저버(바깥 `[weak self]`) 는 정상. 회귀 테스트 `testAStoreIsReleasedWhenItsScopeEnds`(스코프 뒤 약참조가 nil) — 옛 캡처를 되돌리면 실패. **레지스트리 테스트:** `UsageStore(providers: defaultProviders())` 는 타이머를 통해 실제 로그·Keychain·네트워크를 만지므로 `UsageStore.defaultProviders().map(\.id)` 로 바꿔 스토어를 만들지 않는다(`registeredProviderIDs` 는 `providers.map(\.id)` 일 뿐이라 잃는 것 없음). 스캔은 `defaultProviders` 를 넘기는 `UsageStore(`/`UsageStore.init(` 도, 자기 인자 목록 밖(중첩 호출·문자열)의 `providers:` 도 실패시킨다. 남은 것: `LocalUsageParityTests` 는 `PTB_PARITY=1` 일 때만
   도는 의도적 실제 로그 대조라 `.standard` 를 쓴다(기본 스킵).
