@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// 광장의 날씨. 팀이 정한 대로 광장은 날마다 눈이 온다. 벚꽃·초록 나뭇잎·낙엽 그림은 남겨 두지만 날짜로는 나오지 않는다.
@@ -106,67 +105,4 @@ struct PlazaWeatherField {
         let r = (v - lo).truncatingRemainder(dividingBy: length)
         return lo + (r < 0 ? r + length : r)
     }
-}
-
-/// 입자 그림. 한 칸이 월드 픽셀 하나라 지도 도트와 같은 크기로 보인다. 회전 대신 좌우로 뒤집은 그림을 따로 둔다.
-enum PlazaWeatherArt {
-    private static let palette: [Character: (r: UInt8, g: UInt8, b: UInt8)] = [
-        "W": (0xF6, 0xFA, 0xFF), "S": (0xC6, 0xDA, 0xF0),
-        "P": (0xF8, 0xBB, 0xCF), "p": (0xE8, 0x8D, 0xAC),
-        "O": (0xE8, 0x83, 0x2A), "o": (0xB4, 0x5E, 0x14),
-        "R": (0xD1, 0x43, 0x2E), "r": (0x96, 0x2A, 0x1C),
-        "Y": (0xF2, 0xC2, 0x30), "y": (0xC4, 0x96, 0x1A),
-        // 초록 잎. 풀(밝은 초록) 위에서 보이게 풀보다 훨씬 밝은 연두 잎에 짙은 잎맥을 넣는다.
-        "G": (0xE4, 0xF7, 0x8C), "g": (0x2E, 0x5E, 0x18),
-        "H": (0xC4, 0xEC, 0x5E), "h": (0x24, 0x4C, 0x12),
-    ]
-
-    /// 위에서 아래로 읽는 도트 격자.
-    static func grids(_ kind: PlazaWeather.Kind) -> [[String]] {
-        switch kind {
-        case .clear: []
-        case .snow: [[".W.", "WWW", ".W."], ["WW", "WS"], ["W"]]
-        case .petals: both([".PP", "PPp"])
-        case .greenLeaves: both(["GG.", "GgG", ".GG"]) + both(["HH.", "HhH", ".HH"])
-        case .leaves: both(["OO.", "OoO", ".OO"]) + both(["RR.", "RrR", ".RR"]) + both(["YY.", "YyY", ".YY"])
-        }
-    }
-
-    private static func both(_ grid: [String]) -> [[String]] { [grid, grid.map { String($0.reversed()) }] }
-
-    /// 격자 하나를 칸당 1픽셀 그림으로 만든다(화면은 최근접 보간으로 키운다).
-    static func images(_ kind: PlazaWeather.Kind) -> [CGImage] { grids(kind).map { image($0, palette: palette) } }
-
-    static func image(_ rows: [String], palette: [Character: (r: UInt8, g: UInt8, b: UInt8)]) -> CGImage {
-        let w = rows[0].count, h = rows.count
-        let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        context.setShouldAntialias(false)
-        for (row, line) in rows.enumerated() {
-            for (col, ch) in line.enumerated() {
-                guard let c = palette[ch] else { continue }
-                context.setFillColor(CGColor(srgbRed: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1))
-                context.fill(CGRect(x: col, y: h - 1 - row, width: 1, height: 1))
-            }
-        }
-        return context.makeImage()!
-    }
-}
-
-/// SplitMix64. 씨앗이 같으면 같은 수열이다.
-struct PlazaSplitMix64 {
-    private var state: UInt64
-    init(seed: UInt64) { state = seed }
-
-    mutating func next() -> UInt64 {
-        state = state &+ 0x9E37_79B9_7F4A_7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        return z ^ (z >> 31)
-    }
-
-    /// 0 이상 1 미만.
-    mutating func unit() -> Double { Double(next() >> 11) / Double(1 << 53) }
 }

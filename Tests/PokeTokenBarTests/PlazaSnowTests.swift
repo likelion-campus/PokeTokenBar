@@ -1,5 +1,5 @@
 import XCTest
-import CoreGraphics
+import Foundation
 @testable import PokeTokenBar
 
 final class PlazaSnowTests: XCTestCase {

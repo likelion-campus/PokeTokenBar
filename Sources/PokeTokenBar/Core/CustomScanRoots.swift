@@ -39,7 +39,7 @@ enum CustomScanRoots {
                         guard let names = try? fm.contentsOfDirectory(atPath: base.isEmpty ? "/" : base)
                         else { continue }
                         next.append(contentsOf: names.sorted()
-                            .filter { fnmatch(segment, $0, 0) == 0 }
+                            .filter { PlatformCompat.matchesGlob(segment, $0) }
                             .map { base + "/" + $0 })
                     }
                     paths = next

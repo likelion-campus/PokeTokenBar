@@ -1,70 +1,55 @@
 # Paths (relative to this file's directory) that are NOT built on Windows. A trailing / marks a directory.
-# A file belongs here when it imports an Apple-only framework or needs something that is. See SharedSourcesScanTests.
+# A file belongs here only when it imports an Apple-only framework or draws with CoreGraphics / SpriteKit / AppKit.
+# Everything else is shared; OS calls go through Platform/. See SharedSourcesScanTests.
+#
+# Windowing, menu bar, SwiftUI views, the app entry point
+UI/
+Team/UI/
+PokeTokenBarApp.swift
+# Platform/Mac: the real Mac implementations of the Platform protocols
+Platform/Mac/
+# OS services: Keychain, Security framework, login item, single instance, crash report, updater, NWPathMonitor
 Core/AntigravityRateLimitsProvider.swift
-Core/ClaudeAccountRoots.swift
-Core/ClaudeAccountUsage.swift
-Core/CodexRateLimitsProvider.swift
-Core/CompanionModel.swift
-Core/CompanionStore.swift
 Core/CrashReporter.swift
-Core/CursorAuthentication.swift
-Core/CursorRateLimitsProvider.swift
-Core/CursorUsageAPI.swift
-# CustomScanRoots: no Apple import any more; waits for LocalAdditionalUsageReader (SQLite, task 5)
-Core/CustomScanRoots.swift
-Core/GrokRateLimitsProvider.swift
 Core/KeychainAccess.swift
-# LimitsTypes: pure types moved out of OAuthLimitsProvider; waits for LimitStatus (Models.swift)
-Core/LimitsTypes.swift
-Core/LocalAdditionalUsageProvider.swift
-Core/LocalAntigravityUsageReader.swift
-Core/LocalAsideUsageReader.swift
-Core/LocalUsageCache.swift
-Core/LocalUsageProvider.swift
-Core/LocalUsageReader.swift
-Core/Localization.swift
-Core/LocalizationErrors.swift
 Core/LoginItem.swift
-# Models: waits for UsageCost / CostCoverage (UsageCost.swift)
-Core/Models.swift
 Core/NetworkReachabilityMonitor.swift
 Core/OAuthLimitsProvider.swift
-Core/OpenCodeGoRateLimitsProvider.swift
-Core/PokeAPIClient.swift
-Core/PokedexRegion.swift
-Core/PokemonForm.swift
-# PokemonNameDisplayStore: no Apple import; waits for PokemonNameResource (PokemonNameLocalization.swift)
-Core/PokemonNameDisplayStore.swift
-# PokemonNameLocalization: waits for NameDTO (PokeAPIClient.swift)
-Core/PokemonNameLocalization.swift
-Core/PokemonProfile.swift
-Core/SaveSnapshots.swift
-Core/SaveTransfer.swift
-Core/SessionKeyLimitsProvider.swift
 Core/SingleInstance.swift
 Core/UpdateChecker.swift
-Core/UsageCost.swift
-Core/UsageProvider.swift
-Core/UsageRecap.swift
-Core/UsageStore.swift
-PokeTokenBarApp.swift
-Team/Plaza/
-Team/PlazaSchedule.swift
-Team/TeamEventFactory.swift
-Team/TeamFeedStore.swift
-Team/TeamLocalization.swift
-Team/TeamModels.swift
-Team/TeamNotifications.swift
-Team/TeamProfileBuilder.swift
-Team/TeamRuntime.swift
-Team/TeamSession.swift
-Team/TeamSettings.swift
-# UNUserNotificationCenter poster + delegate
+# Team: system notification poster (UserNotifications) and the Network.framework transport
 Team/TeamNotificationsMac.swift
 Team/TeamTransport.swift
-# TeamMessage lives in TeamWire, which needs the Core model types
-Team/TeamTransporting.swift
-Team/TeamWire.swift
-Team/UI/
-UI/
-Platform/Mac/
+# Plaza: SpriteKit scene, window controller, actors, layers and CoreGraphics art
+Team/Plaza/PlazaActor.swift
+Team/Plaza/PlazaCampfireArt.swift
+Team/Plaza/PlazaCharacterLoader.swift
+Team/Plaza/PlazaChatBubble.swift
+# PlazaChatLog: Line.color is a CGColor
+Team/Plaza/PlazaChatLog.swift
+Team/Plaza/PlazaEmoteArt.swift
+Team/Plaza/PlazaFireworkLayer.swift
+Team/Plaza/PlazaFootprintLayer.swift
+Team/Plaza/PlazaGroundShadow.swift
+Team/Plaza/PlazaIceArt.swift
+Team/Plaza/PlazaIceLayer.swift
+Team/Plaza/PlazaIconLoader.swift
+Team/Plaza/PlazaMinimap.swift
+Team/Plaza/PlazaNameColorCG.swift
+Team/Plaza/PlazaNamePlate.swift
+Team/Plaza/PlazaNestArt.swift
+Team/Plaza/PlazaPhotoRenderer.swift
+Team/Plaza/PlazaPondArt.swift
+Team/Plaza/PlazaPondLayer.swift
+Team/Plaza/PlazaPresentingMac.swift
+Team/Plaza/PlazaResources.swift
+Team/Plaza/PlazaScene.swift
+Team/Plaza/PlazaSnowball.swift
+Team/Plaza/PlazaSnowballLayer.swift
+Team/Plaza/PlazaSnowSheet.swift
+Team/Plaza/PlazaTallGrassArt.swift
+Team/Plaza/PlazaTallGrassLayer.swift
+Team/Plaza/PlazaTileArt.swift
+Team/Plaza/PlazaWeatherArt.swift
+Team/Plaza/PlazaWeatherLayer.swift
+Team/Plaza/PlazaWindowController.swift

@@ -83,4 +83,76 @@ enum PlatformCompat {
         ProcessInfo.processInfo.endActivity(token)
         #endif
     }
+
+    /// `fnmatch(pattern, name, 0) == 0` for one path segment. The Mac and other POSIX systems call fnmatch itself;
+    /// Windows has no fnmatch and uses `globMatch`.
+    static func matchesGlob(_ pattern: String, _ name: String) -> Bool {
+        #if os(Windows)
+        return globMatch(pattern, name)
+        #else
+        return fnmatch(pattern, name, 0) == 0
+        #endif
+    }
+
+    /// Shell-style matching without the C library: `*` (any run, dots included), `?`, `[set]`, `[!set]` / `[^set]`,
+    /// ranges `a-z`, and `\x` for a literal. Compiled on every OS so a Mac test can hold it to `fnmatch`.
+    static func globMatch(_ pattern: String, _ name: String) -> Bool {
+        let p = Array(pattern.unicodeScalars), n = Array(name.unicodeScalars)
+
+        /// Whether `c` is in the set opening at `p[open]` (a `[`), and the index after its `]`; nil when unclosed.
+        func bracket(_ open: Int, _ c: Unicode.Scalar) -> (matched: Bool, next: Int)? {
+            var i = open + 1
+            var negate = false
+            if i < p.count, p[i] == "!" || p[i] == "^" { negate = true; i += 1 }
+            var matched = false
+            var first = true
+            while i < p.count {
+                if p[i] == "]" && !first { return (matched != negate, i + 1) }
+                first = false
+                var lo = p[i]
+                if lo == "\\", i + 1 < p.count { i += 1; lo = p[i] }
+                if i + 2 < p.count, p[i + 1] == "-", p[i + 2] != "]" {
+                    var hi = p[i + 2]
+                    var skip = 3
+                    if hi == "\\", i + 3 < p.count { hi = p[i + 3]; skip = 4 }
+                    if lo.value <= c.value && c.value <= hi.value { matched = true }
+                    i += skip
+                } else {
+                    if lo == c { matched = true }
+                    i += 1
+                }
+            }
+            return nil
+        }
+
+        var pi = 0, ni = 0
+        var starP = -1, starN = 0
+        while ni < n.count {
+            if pi < p.count {
+                switch p[pi] {
+                case "*":
+                    starP = pi; starN = ni; pi += 1
+                    continue
+                case "?":
+                    pi += 1; ni += 1
+                    continue
+                case "[":
+                    // An unclosed `[` matches nothing, as in fnmatch.
+                    if let (matched, next) = bracket(pi, n[ni]), matched { pi = next; ni += 1; continue }
+                case "\\":
+                    if pi + 1 < p.count {
+                        if p[pi + 1] == n[ni] { pi += 2; ni += 1; continue }
+                    } else if n[ni] == "\\" {
+                        pi += 1; ni += 1; continue
+                    }
+                default:
+                    if p[pi] == n[ni] { pi += 1; ni += 1; continue }
+                }
+            }
+            guard starP >= 0 else { return false }
+            starN += 1; ni = starN; pi = starP + 1
+        }
+        while pi < p.count, p[pi] == "*" { pi += 1 }
+        return pi == p.count
+    }
 }

@@ -1,4 +1,4 @@
-import CoreGraphics
+import Foundation
 
 /// 광장 노드를 기기 픽셀 격자에 맞추는 순수 계산.
 /// 노드가 가운데 기준(anchor 0.5)이면 가운데만 맞춰서는 안 된다. 기기 픽셀 폭이 홀수일 때 왼쪽 가장자리가 .5에 놓여

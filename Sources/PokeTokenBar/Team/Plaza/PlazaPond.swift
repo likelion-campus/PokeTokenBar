@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 enum PlazaPondAction: Equatable, Sendable { case jump, shoreJump, plunge(PlazaDirection), dive, surface
     case breakIce, leapOntoIce(PlazaDirection)

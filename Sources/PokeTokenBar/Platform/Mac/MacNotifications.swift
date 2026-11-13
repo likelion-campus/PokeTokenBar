@@ -12,11 +12,15 @@ import UserNotifications
     }
 
     func post(id: String, title: String, body: String, sound: Bool) {
+        UNUserNotificationCenter.current().add(Self.request(id: id, title: title, body: body, sound: sound))
+    }
+
+    /// The request `post` hands to the system. Pure, so a test can check it without a notification center.
+    static func request(id: String, title: String, body: String, sound: Bool) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = sound ? .default : nil
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: id, content: content, trigger: nil))
+        return UNNotificationRequest(identifier: id, content: content, trigger: nil)
     }
 }

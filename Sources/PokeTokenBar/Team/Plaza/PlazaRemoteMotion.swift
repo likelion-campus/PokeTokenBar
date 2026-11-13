@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 /// 팀원 한 명의 화면 위치. 받은 칸을 한 칸씩 부드럽게 따라가며 대각선으로 가로지르지 않는다.
 struct PlazaRemoteMotion: Sendable {

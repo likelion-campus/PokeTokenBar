@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// 모닥불이 밤 장면에 던지는 빛의 수식. SpriteKit과 무관한 순수 계산이다.

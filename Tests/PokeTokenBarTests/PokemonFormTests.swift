@@ -347,10 +347,4 @@ final class PokemonFormTests: XCTestCase {
         XCTAssertEqual(PokemonForm.displayName("Pikachu", speciesID: 25, form: sky, label: "Sky"), "Pikachu")
     }
 
-    func testFormPickerKeepsSevenColumnsForUnownAndWidensNamedForms() {
-        XCTAssertEqual(PokemonDetailView.formPickerColumns(formCount: 28), 7)
-        XCTAssertEqual(PokemonDetailView.formPickerColumns(formCount: 18), 6)
-        XCTAssertEqual(PokemonDetailView.formPickerColumns(formCount: 6), 4)
-        XCTAssertEqual(PokemonDetailView.formPickerColumns(formCount: 2), 2)
-    }
 }

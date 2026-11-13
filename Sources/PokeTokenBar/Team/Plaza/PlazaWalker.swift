@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 enum PlazaDirection: String, CaseIterable, Codable, Sendable { case up, down, left, right }
 

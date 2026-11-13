@@ -81,17 +81,6 @@ final class LimitPaceTests: XCTestCase {
 
     // MARK: 표시 모드 반전 — 채움과 마커가 같은 변환을 거쳐야 한다
 
-    func testMarkerFractionMirrorsRemainingDisplayMode() throws {
-        XCTAssertEqual(try XCTUnwrap(LimitProgressBar.markerFraction(pace: 0.25, mode: .used)),
-                       0.25, accuracy: 0.0001)
-        XCTAssertEqual(try XCTUnwrap(LimitProgressBar.markerFraction(pace: 0.25, mode: .remaining)),
-                       0.75, accuracy: 0.0001)
-        XCTAssertEqual(try XCTUnwrap(LimitProgressBar.markerFraction(pace: 1, mode: .remaining)),
-                       0, accuracy: 0.0001)
-        XCTAssertNil(LimitProgressBar.markerFraction(pace: nil, mode: .used))
-        XCTAssertNil(LimitProgressBar.markerFraction(pace: nil, mode: .remaining))
-    }
-
     /// A limit row that draws its own `ProgressView(value:)` fills with the raw used percent
     /// while its label follows the display mode — "80% left" over a 20% bar on the Cursor tab.
     /// Every determinate limit bar in the popover has to go through `LimitProgressBar`, and

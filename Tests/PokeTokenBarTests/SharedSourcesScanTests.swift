@@ -57,10 +57,13 @@ enum SharedSources {
         }
     }
 
+    /// The one shared file that may import CoreGraphics (guarded by `canImport`); see its header comment.
+    static let coreGraphicsShim = "Platform/MacGeometryImport.swift"
+
     /// One message per Apple-only import in `files`.
     static func importViolations(in files: [URL], root: URL) throws -> [String] {
         var out: [String] = []
-        for url in files {
+        for url in files where relativePath(url, root: root) != coreGraphicsShim {
             for line in try lines(of: url) {
                 for module in importedModules(in: line) where appleOnly.contains(module) {
                     out.append("\(relativePath(url, root: root)) imports \(module). Add it to mac-only.txt, or route the call through Platform.")
