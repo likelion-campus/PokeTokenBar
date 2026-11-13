@@ -955,7 +955,8 @@ struct PlazaSceneMember: Equatable, Sendable {
     static let maxIceLandings = 8
     private let icePonds: [PlazaIce.Pond]
     private let icePondIndex: [TilePoint: Int]
-    private var iceTurn = PlazaIce.turn(at: Date())
+    /// 깨진 뒤 아직 아무 연못도 안 얼었을 때, 다음 연못이 얼기 시작할 벽시계(유닉스 초). 얼어 있거나 모르면 nil.
+    private var freezeDue: Double?
     private var frozenIndex: Int?
     /// 마지막으로 깨진 연못. 어느 연못이 언 채인지는 이것과 차례로 정해진다.
     private(set) var iceBreak: PlazaIceBreak?
@@ -988,14 +989,14 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 아는 마지막 깨짐을 바꾼다. 장면이 멈췄거나 아직 한 프레임도 안 그렸으면 그대로 적용하고, 아니면 깨지는 모습을 거친다.
     /// 받은 값이 내 차례보다 앞서거나 모르는 연못이면 버린다.
     func setIceBreak(_ b: PlazaIceBreak?, hit: TilePoint? = nil) {
-        if let b, PlazaIce.accepted(b, turn: PlazaIce.turn(at: now()), ponds: icePonds) == nil { return }
+        if let b, PlazaIce.accepted(b, now: now(), ponds: icePonds) == nil { return }
         iceBreak = b
         refreshIce(hit: hit)
     }
 
     private func refreshIce(hit: TilePoint?) {
-        iceTurn = PlazaIce.turn(at: now())
-        let target = PlazaIce.frozenIndex(last: iceBreak, turn: iceTurn, ponds: icePonds)
+        let target = PlazaIce.frozenIndex(last: iceBreak, now: now(), ponds: icePonds)
+        freezeDue = target == nil ? iceBreak.map { $0.at + PlazaIce.refreezeDelay } : nil
         guard target != frozenIndex else { drawIce(); return }
         let old = frozenIndex
         frozenIndex = target
@@ -1029,7 +1030,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func drawIce() {
         guard let iceLayer else { return }
         iceDrawCount += 1
-        let alpha = PlazaIce.freezeAlpha(now: now(), last: iceBreak)
+        let alpha = PlazaIce.freezeAlpha(now: now(), last: iceBreak, ponds: icePonds)
         iceFading = frozenIndex != nil && alpha < 1
         iceLayer.show(frozen: frozenIndex, alpha: alpha, breaking: breaking)
     }
@@ -1059,7 +1060,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             }
             if b.elapsed >= PlazaIce.breakEnd { breaking = nil }
         }
-        if !icePonds.isEmpty, PlazaIce.turn(at: now()) != iceTurn { refreshIce(hit: nil) }
+        if let due = freezeDue, now().timeIntervalSince1970 >= due { refreshIce(hit: nil) }
         if breaking != nil || drawn || iceFading { drawIce() }
     }
 

@@ -3,12 +3,12 @@ import XCTest
 
 final class PlazaIceTests: XCTestCase {
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
-    private let T = 9_960_000
+    private let T = 1_800_000_000.0
     private var ponds: [PlazaIce.Pond] { PlazaIce.ponds(in: PlazaMapData.map) }
     private var L: TilePoint { p(5, 13) }
     private var R: TilePoint { p(32, 14) }
     private var B: TilePoint { p(20, 24) }
-    private func br(_ pond: TilePoint, _ turn: Int) -> PlazaIceBreak { PlazaIceBreak(pond: pond, turn: turn) }
+    private func br(_ pond: TilePoint, _ at: Double) -> PlazaIceBreak { PlazaIceBreak(at: at, pond: pond) }
 
     func testPondsAreFoundInRowMajorOrderOfTheirFirstTile() throws {
         let found = ponds
@@ -27,29 +27,38 @@ final class PlazaIceTests: XCTestCase {
         XCTAssertEqual(found.map { $0.tiles.count }, [2, 1, 1])
     }
 
-    func testTheTurnIsThreeMinutesLikeTheItemSlot() {
-        func turn(_ s: Double) -> Int { PlazaIce.turn(at: Date(timeIntervalSince1970: s)) }
-        XCTAssertEqual(turn(0), 0)
-        XCTAssertEqual(turn(179.999), 0)
-        XCTAssertEqual(turn(180), 1)
-        XCTAssertEqual(turn(-0.5), -1)
-    }
+    private func date(_ s: Double) -> Date { Date(timeIntervalSince1970: s) }
 
-    func testTheFrozenPondFollowsTheLastBreak() {
+    func testTheFrozenPondFollowsTheLastBreakAMinuteLater() {
         let ps = ponds
-        XCTAssertEqual(PlazaIce.frozenIndex(last: nil, turn: T, ponds: ps), 0)
-        XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), turn: T, ponds: ps))
-        XCTAssertEqual(PlazaIce.frozenIndex(last: br(L, T), turn: T + 1, ponds: ps), 1)
-        XCTAssertEqual(PlazaIce.frozenIndex(last: br(R, T), turn: T + 1, ponds: ps), 2)
-        XCTAssertEqual(PlazaIce.frozenIndex(last: br(B, T), turn: T + 1, ponds: ps), 0)
-        XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), turn: T + 1, ponds: []))
-        XCTAssertEqual(PlazaIce.frozenIndex(last: br(p(6, 13), T), turn: T + 1, ponds: ps), 0)
+        let late = date(T + 60)
+        XCTAssertEqual(PlazaIce.frozenIndex(last: nil, now: date(T), ponds: ps), 0)
+        XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), now: date(T + 59.9), ponds: ps))
+        XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), now: date(T - 500), ponds: ps))
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(L, T), now: late, ponds: ps), 1)
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(R, T), now: late, ponds: ps), 2)
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(B, T), now: late, ponds: ps), 0)
+        XCTAssertNil(PlazaIce.frozenIndex(last: br(L, T), now: late, ponds: []))
+        XCTAssertNil(PlazaIce.frozenIndex(last: nil, now: late, ponds: []))
+        XCTAssertEqual(PlazaIce.frozenIndex(last: br(p(6, 13), T), now: late, ponds: ps), 0)
     }
 
-    func testMergeKeepsTheLaterTurnThenTheLaterPond() {
+    func testFreezeAlphaFadesInOverASecondFromAtPlusAMinute() {
+        let ps = ponds
+        func alpha(_ s: Double, _ last: PlazaIceBreak?) -> CGFloat { PlazaIce.freezeAlpha(now: date(s), last: last, ponds: ps) }
+        XCTAssertEqual(alpha(T + 60, br(L, T)), 0)
+        XCTAssertEqual(alpha(T + 60.5, br(L, T)), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(alpha(T + 61, br(L, T)), 1)
+        XCTAssertEqual(alpha(T + 300, br(L, T)), 1)
+        XCTAssertEqual(alpha(T, nil), 1)
+        XCTAssertEqual(alpha(T, br(p(6, 13), T)), 1)
+    }
+
+    func testMergeKeepsTheLaterBreakThenTheLaterPond() {
         let ps = ponds
         XCTAssertEqual(PlazaIce.merged(br(L, T), br(R, T - 1), ponds: ps), br(L, T))
-        XCTAssertEqual(PlazaIce.merged(br(L, T), br(R, T), ponds: ps), br(R, T))
+        XCTAssertEqual(PlazaIce.merged(br(L, T - 1), br(R, T), ponds: ps), br(R, T))
+        XCTAssertEqual(PlazaIce.merged(br(L, T), br(R, T), ponds: ps), br(R, T), "equal at: the later pond")
         XCTAssertEqual(PlazaIce.merged(br(B, T), br(R, T), ponds: ps), br(B, T))
         XCTAssertEqual(PlazaIce.merged(nil, br(R, T), ponds: ps), br(R, T))
         XCTAssertEqual(PlazaIce.merged(br(R, T), nil, ponds: ps), br(R, T))
@@ -57,36 +66,29 @@ final class PlazaIceTests: XCTestCase {
         XCTAssertEqual(PlazaIce.merged(br(R, T), br(R, T), ponds: ps), br(R, T))
     }
 
-    func testAcceptedDropsFutureTurnsAndUnknownPonds() {
+    func testThreeBreaksInTheSameMinuteEndOnTheLastOne() {
         let ps = ponds
-        XCTAssertEqual(PlazaIce.accepted(br(L, T + 1), turn: T, ponds: ps), br(L, T + 1))
-        XCTAssertNil(PlazaIce.accepted(br(L, T + 2), turn: T, ponds: ps))
-        XCTAssertNil(PlazaIce.accepted(br(L, Int.max), turn: T, ponds: ps))
-        XCTAssertEqual(PlazaIce.accepted(br(L, Int.min), turn: T, ponds: ps), br(L, Int.min))
-        XCTAssertNil(PlazaIce.accepted(br(p(6, 13), T), turn: T, ponds: ps))
-        XCTAssertNil(PlazaIce.accepted(nil, turn: T, ponds: ps))
-        XCTAssertEqual(PlazaIce.accepted(br(L, Int.max), turn: Int.max, ponds: ps), br(L, Int.max), "no overflow at the top")
+        var last: PlazaIceBreak?
+        for b in [br(L, T), br(R, T + 20), br(B, T + 40)] { last = PlazaIce.merged(last, b, ponds: ps) }
+        XCTAssertEqual(last, br(B, T + 40))
+        XCTAssertEqual(PlazaIce.frozenIndex(last: last, now: date(T + 100), ponds: ps), 0)
     }
 
-    func testMergeKeepsTheLaterOfTheFirstWhenItLeadsAndRanksUnknownPondsLast() {
+    func testAcceptedBoundsTheClockAndDropsUnknownPonds() {
         let ps = ponds
-        XCTAssertEqual(PlazaIce.merged(br(R, T + 1), br(L, T), ponds: ps), br(R, T + 1))
-        XCTAssertEqual(PlazaIce.merged(br(L, T), br(R, T + 1), ponds: ps), br(R, T + 1))
+        let now = Date(timeIntervalSince1970: T)
+        XCTAssertEqual(PlazaIce.accepted(br(L, T + 60), now: now, ponds: ps), br(L, T + 60))
+        XCTAssertNil(PlazaIce.accepted(br(L, T + 61), now: now, ponds: ps))
+        XCTAssertEqual(PlazaIce.accepted(br(L, T - 100_000), now: now, ponds: ps), br(L, T - 100_000))
+        for bad in [Double.nan, .infinity, -.infinity] { XCTAssertNil(PlazaIce.accepted(br(L, bad), now: now, ponds: ps)) }
+        XCTAssertNil(PlazaIce.accepted(br(p(6, 13), T), now: now, ponds: ps))
+        XCTAssertNil(PlazaIce.accepted(nil, now: now, ponds: ps))
+    }
+
+    func testMergeRanksUnknownPondsLastOnATie() {
+        let ps = ponds
         XCTAssertEqual(PlazaIce.merged(br(L, T), br(p(6, 13), T), ponds: ps), br(L, T))
         XCTAssertEqual(PlazaIce.merged(br(p(6, 13), T), br(L, T), ponds: ps), br(L, T))
-    }
-
-    func testFreezeAlphaFadesInOverASecondFromTheBoundary() {
-        let boundary = Double(T + 1) * 180
-        func alpha(_ s: Double, _ last: PlazaIceBreak?) -> CGFloat {
-            PlazaIce.freezeAlpha(now: Date(timeIntervalSince1970: s), last: last)
-        }
-        XCTAssertEqual(alpha(boundary - 1, br(L, T)), 0)
-        XCTAssertEqual(alpha(boundary + 0.25, br(L, T)), 0.25, accuracy: 1e-9)
-        XCTAssertEqual(alpha(boundary + 2, br(L, T)), 1)
-        XCTAssertEqual(alpha(boundary, nil), 1)
-        XCTAssertEqual(alpha(boundary, br(L, Int.min)), 1)
-        XCTAssertEqual(alpha(boundary, br(L, Int.max)), 0)
     }
 
     func testCentreAndNearestTile() {

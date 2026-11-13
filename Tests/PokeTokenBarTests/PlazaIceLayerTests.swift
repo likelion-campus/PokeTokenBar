@@ -6,13 +6,12 @@ import CoreGraphics
 @MainActor
 final class PlazaIceLayerTests: XCTestCase {
     private let map = PlazaMapData.map
-    private static let turn = 9_960_000
-    private var nowSeconds = Double(PlazaIceLayerTests.turn) * 180 + 60
+    private var nowSeconds = 1_800_000_000.0
     private var t: TimeInterval = 0
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
     private var L: TilePoint { p(5, 13) }
     private var R: TilePoint { p(32, 14) }
-    private func brk(_ pond: TilePoint, _ turn: Int = PlazaIceLayerTests.turn) -> PlazaIceBreak { PlazaIceBreak(pond: pond, turn: turn) }
+    private func brk(_ pond: TilePoint, ago: Double = 0) -> PlazaIceBreak { PlazaIceBreak(at: nowSeconds - ago, pond: pond) }
 
     private func layer(art: PlazaIceArt = PlazaIceArt.load(), image: CGImage? = nil) -> PlazaIceLayer {
         PlazaIceLayer(ponds: PlazaIce.ponds(in: map), art: art, mapImage: image ?? PlazaTileArt.plainGrassImage(map),
@@ -36,7 +35,7 @@ final class PlazaIceLayerTests: XCTestCase {
 
     /// R frozen, one frame drawn, then R breaks at `hit`.
     private func breakR(_ s: PlazaScene, hit: TilePoint) {
-        s.setIceBreak(brk(L, Self.turn - 1))
+        s.setIceBreak(brk(L, ago: 100))
         s.update(t)
         s.setIceBreak(brk(R), hit: hit)
     }
@@ -83,11 +82,12 @@ final class PlazaIceLayerTests: XCTestCase {
         XCTAssertEqual(l.nodeCount, 3)
     }
 
-    func testAFreezeFadesInByTheClock() {
+    func testAFreezeFadesInByTheClockFromAtPlusAMinute() throws {
         let s = scene()
         s.setIceBreak(brk(L))
         s.update(0)
-        nowSeconds = Double(Self.turn + 1) * 180 + 0.25
+        XCTAssertNil(s.iceAlpha(pondAnchor: R))
+        nowSeconds += 60.25
         s.update(1)
         XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: R)), 0.25, accuracy: 1e-6)
         nowSeconds += 1
@@ -95,10 +95,9 @@ final class PlazaIceLayerTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: R)), 1, accuracy: 1e-6)
     }
 
-    func testAFreezeLongAgoShowsAtFullOpacity() {
-        nowSeconds = Double(Self.turn + 1) * 180 + 600
+    func testAFreezeLongAgoShowsAtFullOpacity() throws {
         let s = scene()
-        s.setIceBreak(brk(L))
+        s.setIceBreak(brk(L, ago: 600))
         s.update(0)
         XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: R)), 1, accuracy: 1e-6)
     }
@@ -115,7 +114,7 @@ final class PlazaIceLayerTests: XCTestCase {
 
     func testAnIdleFrozenPondDoesNoWorkPerFrame() {
         let s = scene()
-        s.setIceBreak(brk(L, Self.turn - 1))
+        s.setIceBreak(brk(L, ago: 100))
         s.update(0)
         let draws = s.iceDrawCount, nodes = s.iceLayerNodeCount
         let id = s.iceTextureID(pondAnchor: R)

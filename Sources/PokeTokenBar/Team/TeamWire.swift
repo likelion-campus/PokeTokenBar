@@ -178,7 +178,7 @@ struct TeamEmote: Codable, Equatable, Sendable {
     var overDecoy: Bool?
     /// A snowball: the way it was thrown. Left out by every other kind.
     var snowballDirection: PlazaDirection?
-    /// A jump that breaks the plaza ice: the frozen pond and the turn (§6). Left out by every other jump and kind; earlier
+    /// A jump that breaks the plaza ice: the broken pond and the breaker's wall clock (§6). Left out by every other jump and kind; earlier
     /// versions see a plain jump. Unreadable values become nil.
     @LossyOptional var iceBreak: PlazaIceBreak?
 

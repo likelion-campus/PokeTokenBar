@@ -98,7 +98,7 @@ final class TeamWireTests: XCTestCase {
         full.isDiving = true
         full.evolutionStage = 2
         full.mimicOf = "m1"
-        full.iceBreak = PlazaIceBreak(pond: TilePoint(x: 5, y: 13), turn: 9_960_000)
+        full.iceBreak = PlazaIceBreak(at: 1_790_000_000.5, pond: TilePoint(x: 5, y: 13))
         full.schedule = PlazaSchedule(coreStart: 9, coreEnd: 18, seasonPeriod: "week",
                                       changedAt: Date(timeIntervalSince1970: 1_790_000_000.5),
                                       changedBy: "m1", changedByName: "Ash")
@@ -559,7 +559,7 @@ final class TeamWireTests: XCTestCase {
     }
 
     func testIceBreakIsOptionalOnTheWire() throws {
-        let x = PlazaIceBreak(pond: TilePoint(x: 5, y: 13), turn: 9_960_000)
+        let x = PlazaIceBreak(at: 1_790_000_000.5, pond: TilePoint(x: 5, y: 13))
         var decoder = TeamWire.FrameDecoder()
         let breaking = TeamMessage.emote(TeamEmote(kind: .jump, targetMemberID: nil, iceBreak: x))
         XCTAssertEqual(try decoder.append(try TeamWire.encode(breaking)), [breaking])
@@ -576,8 +576,16 @@ final class TeamWireTests: XCTestCase {
 
     func testUnreadableIceBreakDropsOnlyTheBreak() throws {
         var decoder = TeamWire.FrameDecoder()
-        XCTAssertEqual(try decoder.append(frame(#"{"emote":{"_0":{"kind":"jump","iceBreak":{"pond":"x","turn":1}}}}"#)),
+        XCTAssertEqual(try decoder.append(frame(#"{"emote":{"_0":{"kind":"jump","iceBreak":{"pond":"x","at":1}}}}"#)),
                        [.emote(TeamEmote(kind: .jump, targetMemberID: nil))])
+        // A v2.5.630 peer's shape: the pond is readable but the 3-minute turn replaced by `at`, so it reads as no break.
+        XCTAssertEqual(try decoder.append(frame(#"{"emote":{"_0":{"kind":"jump","iceBreak":{"pond":{"x":5,"y":13},"turn":9960000}}}}"#)),
+                       [.emote(TeamEmote(kind: .jump, targetMemberID: nil))])
+        let old = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335,"iceBreak":{"pond":{"x":5,"y":13},"turn":9960000}}}}"#
+        guard case .presence(let q)? = try decoder.append(frame(old)).first else { return XCTFail("old-shape presence dropped") }
+        XCTAssertNil(q.iceBreak)
+        XCTAssertEqual(q.nickname, "Ash")
+        XCTAssertEqual(q.tile, TilePoint(x: 3, y: 4))
         let json = #"{"presence":{"_0":{"nickname":"Ash","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":3,"y":4},"facing":"left","isWalking":true,"nameColor":16752335,"iceBreak":7}}}"#
         guard case .presence(let p)? = try decoder.append(frame(json)).first else { return XCTFail("presence dropped") }
         XCTAssertNil(p.iceBreak)
@@ -599,8 +607,8 @@ final class TeamWireTests: XCTestCase {
     /// bump `TeamWire.protocolVersion` with it, because older Macs would drop or skip what they cannot read.
     func testWireRawValuesArePinned() throws {
         XCTAssertEqual(TeamWire.protocolVersion, 1)
-        let breakJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(PlazaIceBreak(pond: TilePoint(x: 5, y: 13), turn: 1))) as! [String: Any]
-        XCTAssertEqual(Set(breakJSON.keys), ["pond", "turn"])
+        let breakJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(PlazaIceBreak(at: 1, pond: TilePoint(x: 5, y: 13)))) as! [String: Any]
+        XCTAssertEqual(Set(breakJSON.keys), ["at", "pond"])
         XCTAssertEqual(Set(allMessages.map { m -> String in
             let json = try! JSONSerialization.jsonObject(with: TeamWire.encode(m).dropFirst(4)) as! [String: Any]
             return json.keys.first!

@@ -1,10 +1,11 @@
 import Foundation
 import CoreGraphics
 
-/// 마지막으로 깨진 연못: 그 연못의 기준 칸과 깨진 차례. 점프 이모트와 프레즌스에 실려 간다.
+/// 마지막으로 깨진 연못: 깬 사람의 벽시계(유닉스 초, `TeamEmote.danceSince` 와 같은 약속)와 그 연못의 기준 칸.
+/// 점프 이모트와 프레즌스에 실려 간다.
 struct PlazaIceBreak: Codable, Equatable, Sendable {
+    var at: Double
     var pond: TilePoint
-    var turn: Int
 }
 
 /// 언 연못 규칙. SpriteKit과 무관하다.
@@ -64,7 +65,10 @@ enum PlazaIce {
         }
     }
 
-    static let turnLength: TimeInterval = 180
+    /// 연못이 깨진 뒤 다음 연못이 얼기까지(깬 사람의 `at` 부터, 각자 자기 벽시계로 잰다).
+    static let refreezeDelay: TimeInterval = 60
+    /// 받은 깨짐의 `at` 이 내 시계보다 앞서도 봐주는 시계 어긋남.
+    static let clockSlack: TimeInterval = 60
     static let freezeFade: TimeInterval = 1
     static let crackStep: TimeInterval = 0.055, crackSpan: TimeInterval = 0.33
     static let shardStart: TimeInterval = 0.26, shardStagger: TimeInterval = 0.04, shardFrameLength: TimeInterval = 0.07
@@ -73,10 +77,6 @@ enum PlazaIce {
     static let sinkAt: TimeInterval = 0.6
     /// shardStart + 5·shardStagger + 3·shardFrameLength
     static let breakEnd: TimeInterval = 0.67
-
-    static func turn(at date: Date) -> Int {
-        Int((date.timeIntervalSince1970 / turnLength).rounded(.down))
-    }
 
     /// 연못 칸의 상하좌우 연결 묶음, 기준 칸(행 우선) 순서. 물 없는 지도는 [].
     static func ponds(in map: PlazaMap) -> [Pond] {
@@ -103,35 +103,36 @@ enum PlazaIce {
         return result
     }
 
-    /// b.turn <= turn + 1 이고 b.pond 가 연못 기준 칸 중 하나일 때만 b.
-    static func accepted(_ b: PlazaIceBreak?, turn: Int, ponds: [Pond]) -> PlazaIceBreak? {
-        guard let b, ponds.contains(where: { $0.anchor == b.pond }) else { return nil }
-        let limit = turn == Int.max ? Int.max : turn + 1
-        return b.turn <= limit ? b : nil
+    /// b.at 이 유한하고 now + 60초 이하이며 b.pond 가 연못 기준 칸 중 하나일 때만 b.
+    static func accepted(_ b: PlazaIceBreak?, now: Date, ponds: [Pond]) -> PlazaIceBreak? {
+        guard let b, b.at.isFinite, b.at <= now.timeIntervalSince1970 + clockSlack,
+              ponds.contains(where: { $0.anchor == b.pond }) else { return nil }
+        return b
     }
 
-    /// (차례, 연못 순서)가 더 큰 쪽. nil 은 진다. 같으면 a.
+    /// (at, 연못 순서)가 더 큰 쪽. nil 은 진다. 같으면 a.
     static func merged(_ a: PlazaIceBreak?, _ b: PlazaIceBreak?, ponds: [Pond]) -> PlazaIceBreak? {
         guard let a else { return b }
         guard let b else { return a }
         func index(_ x: PlazaIceBreak) -> Int { ponds.firstIndex { $0.anchor == x.pond } ?? -1 }
-        if b.turn != a.turn { return b.turn > a.turn ? b : a }
+        if b.at != a.at { return b.at > a.at ? b : a }
         return index(b) > index(a) ? b : a
     }
 
-    /// 연못 없음: nil. last 가 nil(또는 모르는 기준 칸): 0. turn <= last.turn: nil. 아니면 last 다음 연못(끝이면 처음).
-    static func frozenIndex(last: PlazaIceBreak?, turn: Int, ponds: [Pond]) -> Int? {
+    /// 연못 없음: nil. last 가 nil(또는 모르는 기준 칸): 0. now < last.at + 60: nil. 아니면 last 다음 연못(끝이면 처음).
+    static func frozenIndex(last: PlazaIceBreak?, now: Date, ponds: [Pond]) -> Int? {
         guard !ponds.isEmpty else { return nil }
         guard let last, let i = ponds.firstIndex(where: { $0.anchor == last.pond }) else { return 0 }
-        guard turn > last.turn else { return nil }
+        guard now.timeIntervalSince1970 >= last.at + refreezeDelay else { return nil }
         return (i + 1) % ponds.count
     }
 
-    /// last 가 nil 이면 1. 아니면 clamp((now − (last.turn + 1)·180) / freezeFade, 0, 1). Double 로 계산해 넘치지 않는다.
-    static func freezeAlpha(now: Date, last: PlazaIceBreak?) -> CGFloat {
-        guard let last else { return 1 }
-        let boundary = (Double(last.turn) + 1) * turnLength
-        return CGFloat(min(max((now.timeIntervalSince1970 - boundary) / freezeFade, 0), 1))
+    /// last 가 nil 이거나 모르는 기준 칸이면 1. 아니면 clamp((now − (last.at + 60)) / freezeFade, 0, 1).
+    /// 얼었는지와 같은 시계 조건에서 나오므로 단단한데 안 보이는 얼음은 없다.
+    static func freezeAlpha(now: Date, last: PlazaIceBreak?, ponds: [Pond]) -> CGFloat {
+        guard let last, ponds.contains(where: { $0.anchor == last.pond }) else { return 1 }
+        let start = last.at + refreezeDelay
+        return CGFloat(min(max((now.timeIntervalSince1970 - start) / freezeFade, 0), 1))
     }
 
     static func ring(of t: TilePoint, hit: TilePoint) -> Int {

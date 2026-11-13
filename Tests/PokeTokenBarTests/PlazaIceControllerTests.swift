@@ -14,22 +14,21 @@ final class PlazaIceControllerTests: XCTestCase {
     private var hub: FakeTransportHub!
     private var dirs: [URL] = []
     private var code: TeamCode!
-    private let turn = 10_000
     private var now = Date(timeIntervalSince1970: 0)
     private var t: TimeInterval = 0
     private let zKey: UInt16 = 6, rightKey: UInt16 = 124
 
-    private var T: Int { turn }
+    private var T: Double { now.timeIntervalSince1970 }
     private var leftPond: TilePoint { TilePoint(x: 5, y: 13) }
     private var R: TilePoint { TilePoint(x: 32, y: 14) }
-    private func brk(_ pond: TilePoint, _ turn: Int) -> PlazaIceBreak { PlazaIceBreak(pond: pond, turn: turn) }
+    private func brk(_ pond: TilePoint, _ at: Double) -> PlazaIceBreak { PlazaIceBreak(at: at, pond: pond) }
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
 
     override func setUp() async throws {
         hub = FakeTransportHub()
         var rng = SystemRandomNumberGenerator()
         code = TeamCode.generate(using: &rng)
-        now = Date(timeIntervalSince1970: Double(turn) * 180 + 60)
+        now = Date(timeIntervalSince1970: 1_800_000_000)
         t = 0
     }
 
@@ -148,6 +147,24 @@ final class PlazaIceControllerTests: XCTestCase {
         XCTAssertEqual(w.b.session.members[w.me.id]?.iceBreak, brk(leftPond, T))
         run(w.scene, 0.7)
         XCTAssertTrue(w.scene.isMeInWater)
+        XCTAssertNil(w.scene.frozenPondAnchor, "nothing is frozen for a minute")
+        now = now.addingTimeInterval(60)
+        run(w.scene, 0.1)
+        XCTAssertEqual(w.scene.frozenPondAnchor, R, "the next pond froze a minute after the break")
+    }
+
+    func testAReceivedBreakFreezesTheNextPondAMinuteLater() async {
+        let w = await world(me: p(20, 10))
+        await place(w, p(8, 14))
+        w.c.showJump(memberID: w.b.id, iceBreak: brk(leftPond, T))
+        run(w.scene, 1.2)
+        XCTAssertTrue(w.scene.isWaterNow(p(9, 14)))
+        XCTAssertNil(w.scene.frozenPondAnchor)
+        XCTAssertTrue(w.scene.isWaterNow(p(34, 17)))
+        now = now.addingTimeInterval(60)
+        run(w.scene, 0.1)
+        XCTAssertEqual(w.scene.frozenPondAnchor, R)
+        XCTAssertTrue(w.scene.isWalkableNow(p(34, 17)))
     }
 
     func testZFromTheShoreLeapsOntoTheIceAndBreaksIt() async {
@@ -231,7 +248,7 @@ final class PlazaIceControllerTests: XCTestCase {
         XCTAssertNil(c.scene)
         c.showJump(memberID: "x", iceBreak: brk(leftPond, T))
         XCTAssertEqual(c.iceBreak, brk(leftPond, T))
-        c.showJump(memberID: "x", iceBreak: brk(leftPond, T + 2))
+        c.showJump(memberID: "x", iceBreak: brk(leftPond, T + 61))
         XCTAssertEqual(c.iceBreak, brk(leftPond, T))
     }
 
@@ -241,16 +258,17 @@ final class PlazaIceControllerTests: XCTestCase {
         w.b.session.updateIceBreak(brk(R, T))
         await settle()
         XCTAssertNil(w.scene.breakingHit)
-        XCTAssertNil(w.scene.frozenPondAnchor)
+        XCTAssertNil(w.scene.frozenPondAnchor, "nothing is frozen for a minute after R")
+        XCTAssertTrue(w.scene.isWaterNow(p(6, 14)))
     }
 
     func testARestartKeepsTheLastBreak() async {
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.ice.restart.\(UUID())"))
-        prefs.iceBreak = brk(leftPond, T - 1)
+        prefs.iceBreak = brk(leftPond, T - 100)
         let w = await world(me: p(20, 10), prefs: prefs)
         XCTAssertEqual(w.scene.frozenPondAnchor, R)
         XCTAssertNil(w.scene.breakingHit)
-        XCTAssertEqual(w.b.session.members[w.me.id]?.iceBreak, brk(leftPond, T - 1))
+        XCTAssertEqual(w.b.session.members[w.me.id]?.iceBreak, brk(leftPond, T - 100))
     }
 
     func testThePreferenceRoundTrips() {
@@ -264,14 +282,14 @@ final class PlazaIceControllerTests: XCTestCase {
 
     func testFutureForeignAndImpossibleBreaksAreDropped() async {
         let w = await world(me: p(20, 10))
-        for bad in [brk(leftPond, T + 2), brk(p(6, 13), T), brk(leftPond, Int.max)] {
+        for bad in [brk(leftPond, T + 61), brk(p(6, 13), T), brk(leftPond, .infinity)] {
             w.c.showJump(memberID: w.b.id, iceBreak: bad)
         }
-        w.b.session.updateIceBreak(brk(leftPond, T + 2))
+        w.b.session.updateIceBreak(brk(leftPond, T + 61))
         await settle()
         XCTAssertEqual(w.scene.iceLandingCount, 0)
         XCTAssertNil(w.c.iceBreak)
-        w.c.showJump(memberID: w.b.id, iceBreak: brk(leftPond, T + 1))
+        w.c.showJump(memberID: w.b.id, iceBreak: brk(leftPond, T + 60))
         XCTAssertEqual(w.scene.iceLandingCount, 1)
     }
 

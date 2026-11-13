@@ -280,7 +280,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
         takenItemSlots = keptSlots(Set(preferences.takenItemSlots))
         session?.updateTakenItemSlot(takenItemSlots.max())
-        iceBreak = PlazaIce.accepted(preferences.iceBreak, turn: PlazaIce.turn(at: clock()), ponds: Self.icePonds)
+        iceBreak = PlazaIce.accepted(preferences.iceBreak, now: clock(), ponds: Self.icePonds)
         session?.updateIceBreak(iceBreak)
         restoreFocus()
         chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
@@ -660,7 +660,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 얼음을 깨는 점프: 보내고, 내 착지(0.36초 뒤)에서 깨짐을 배운다. `leap`이 있으면 물가에서 그 칸의 얼음으로 뛰어오른다.
     private func breakIce(_ scene: PlazaScene, now: Date, leap: PlazaDirection?) {
         guard let pond = scene.frozenPondAnchor else { return }
-        let b = PlazaIceBreak(pond: pond, turn: PlazaIce.turn(at: now))
+        let b = PlazaIceBreak(at: now.timeIntervalSince1970, pond: pond)
         scene.stopDance(memberID: nil)
         if let leap { scene.leapOntoIce(leap) } else { scene.playJump(memberID: nil) }
         session?.sendEmote(.jump, target: nil, iceBreak: b)
@@ -704,14 +704,13 @@ struct PlazaFocusEnd: Equatable, Sendable {
     func showJump(memberID: String, iceBreak b: PlazaIceBreak? = nil) {
         scene?.playJump(memberID: memberID)
         startleMe(by: memberID)
-        guard let b = PlazaIce.accepted(b, turn: PlazaIce.turn(at: clock()), ponds: Self.icePonds) else { return }
+        guard let b = PlazaIce.accepted(b, now: clock(), ponds: Self.icePonds) else { return }
         if let scene { scene.queueIceLanding(b, jumper: memberID) } else { learnIceBreak(b) }
     }
 
     /// 받았거나 내가 깬 얼음 깨짐을 배운다. 걸러서 합친 값이 달라질 때만 저장하고 알리고 장면에 넣는다.
     private func learnIceBreak(_ received: PlazaIceBreak?, hit: TilePoint? = nil) {
-        let turn = PlazaIce.turn(at: clock())
-        guard let b = PlazaIce.accepted(received, turn: turn, ponds: Self.icePonds) else { return }
+        guard let b = PlazaIce.accepted(received, now: clock(), ponds: Self.icePonds) else { return }
         let merged = PlazaIce.merged(iceBreak, b, ponds: Self.icePonds)
         guard merged != iceBreak else { return }
         iceBreak = merged
@@ -1912,7 +1911,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
         learnTaken(members.values.compactMap(\.takenItemSlot))
         for b in members.values.compactMap(\.iceBreak) {
             // 내 쪽에서 곧 닿을 점프가 알린 깨짐은 그 착지에서 배운다.
-            if let accepted = PlazaIce.accepted(b, turn: PlazaIce.turn(at: clock()), ponds: Self.icePonds), scene.isIceLandingQueued(accepted) { continue }
+            if let accepted = PlazaIce.accepted(b, now: clock(), ponds: Self.icePonds), scene.isIceLandingQueued(accepted) { continue }
             learnIceBreak(b)
         }
         let list = members.values.sorted { $0.memberID < $1.memberID }

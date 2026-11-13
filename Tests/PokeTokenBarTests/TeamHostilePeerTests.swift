@@ -345,7 +345,7 @@ final class TeamHostilePeerTests: XCTestCase {
         s.isPaused = true
         let before = s.children.count
         let anchor = PlazaIce.ponds(in: map)[0].anchor
-        for _ in 0..<50 { s.queueIceLanding(PlazaIceBreak(pond: anchor, turn: 1), jumper: "A") }
+        for _ in 0..<50 { s.queueIceLanding(PlazaIceBreak(at: 1, pond: anchor), jumper: "A") }
         XCTAssertEqual(s.children.count, before)
         XCTAssertEqual(s.iceLandingCount, 0)
     }
