@@ -106,9 +106,9 @@ struct PlazaSnowballFlight {
         if !f.landed {
             let u = CGFloat(frame) / CGFloat(spec.frames)
             let g = CGPoint(x: spec.start.x + (spec.end.x - spec.start.x) * u, y: spec.start.y + (spec.end.y - spec.start.y) * u)
-            f.ball?.position = CGPoint(x: even(g.x - 4), y: even(worldHeight - g.y + PlazaSnowball.height(at: u, endHeight: spec.endHeight)))
+            f.ball?.position = CGPoint(x: even(g.x - 2 * PlazaSnowball.cell), y: even(worldHeight - g.y + PlazaSnowball.height(at: u, endHeight: spec.endHeight)))
             f.ball?.zPosition = 1 + g.y / worldHeight + 0.0003
-            f.shadow?.position = CGPoint(x: even(g.x - 4), y: even(worldHeight - g.y - 2))
+            f.shadow?.position = CGPoint(x: even(g.x - PlazaSnowball.shadowSize.width / 2), y: even(worldHeight - g.y - PlazaSnowball.shadowSize.height / 2))
             f.shadow?.zPosition = 0.5
             return
         }

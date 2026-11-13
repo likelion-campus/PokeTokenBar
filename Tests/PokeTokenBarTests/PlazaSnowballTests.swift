@@ -87,8 +87,8 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertEqual(PlazaSnowball.bodyHeight(spriteHeight: 80), 24)
     }
 
-    func testBurstPiecesSpreadToSixteenAndStayUpOnAMiss() {
-        let radius: [CGFloat] = [9, 11, 14, 16], drop: [CGFloat] = [0, 1, 4, 8], glyphs = [1, 0, 1, 2]
+    func testBurstPiecesSpreadToThirtyTwoAndStayUpOnAMiss() {
+        let radius: [CGFloat] = [18, 22, 28, 32], drop: [CGFloat] = [0, 2, 8, 16], glyphs = [1, 0, 1, 2]
         for step in 0..<4 {
             let ground = PlazaSnowball.burstPieces(step: step, onGround: true)
             let air = PlazaSnowball.burstPieces(step: step, onGround: false)
@@ -102,10 +102,10 @@ final class PlazaSnowballTests: XCTestCase {
             for piece in air where !(step == 0 && piece.offset == .zero) {
                 XCTAssertEqual(piece.glyph, glyphs[step])
                 XCTAssertEqual(hypot(piece.offset.dx, piece.offset.dy + drop[step]), radius[step], accuracy: 1e-9)
-                XCTAssertLessThanOrEqual(radius[step], 16)
+                XCTAssertLessThanOrEqual(radius[step], 32)
             }
             for piece in ground {
-                XCTAssertLessThanOrEqual(abs(piece.offset.dx), 16)
+                XCTAssertLessThanOrEqual(abs(piece.offset.dx), 32)
                 XCTAssertGreaterThanOrEqual(piece.offset.dy, 0)
             }
         }

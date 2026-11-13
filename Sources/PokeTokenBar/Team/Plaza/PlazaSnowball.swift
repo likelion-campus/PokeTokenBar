@@ -27,10 +27,10 @@ enum PlazaSnowball {
     static let range = 5, reach = 6, maxFrames = 6, burstFrames = 4
     static let frameDuration: TimeInterval = 0.1
     static let handHeight: CGFloat = 14, peak: CGFloat = 16, maxBodyHeight: CGFloat = 24
-    static let handReach: CGFloat = 10      // the ball starts this far ahead of the thrower's feet
+    static let handReach: CGFloat = 16      // the ball starts this far ahead of the thrower's feet
     static let bodyInset: CGFloat = 8       // a hit ends this far short of the target's feet
-    static let cell: CGFloat = 2            // world px per grid cell
-    static let shadowSize = CGSize(width: 8, height: 4)
+    static let cell: CGFloat = 4            // world px per grid cell
+    static let shadowSize = CGSize(width: 16, height: 8)
 
     /// 걸을 수도 물도 아닌 칸: 나무·덤불·게시판·모닥불·지도 밖.
     static func blocksBall(_ t: TilePoint, in map: PlazaMap) -> Bool {
@@ -79,7 +79,7 @@ enum PlazaSnowball {
 
     /// 터짐 `step` 프레임의 조각들(중심 기준, 장면 픽셀, y 위쪽). glyph는 `PlazaSnowballArt.pieces` 색인.
     static func burstPieces(step: Int, onGround: Bool) -> [(offset: CGVector, glyph: Int)] {
-        let radius: [CGFloat] = [9, 11, 14, 16], drop: [CGFloat] = [0, 1, 4, 8], glyph = [1, 0, 1, 2]
+        let radius: [CGFloat] = [18, 22, 28, 32], drop: [CGFloat] = [0, 2, 8, 16], glyph = [1, 0, 1, 2]
         let angles: [Double] = step == 0 ? (onGround ? [0, 45, 135, 180] : [45, 135, 225, 315])
                                          : (onGround ? [0, 45, 90, 135, 180] : [30, 90, 150, 210, 270, 330])
         var pieces: [(offset: CGVector, glyph: Int)] = []
