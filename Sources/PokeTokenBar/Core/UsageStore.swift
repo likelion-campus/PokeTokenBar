@@ -1037,8 +1037,8 @@ final class UsageStore {
         timer?.invalidate()
         timer = nil
         guard !pollingSuspended, refreshInterval > 0 else { return }
-        let t = Timer(timeInterval: refreshInterval, repeats: true) { _ in
-            Task { @MainActor [weak self] in await self?.refresh() }
+        let t = Timer(timeInterval: refreshInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.refresh() }
         }
         t.tolerance = refreshInterval * 0.1
         RunLoop.main.add(t, forMode: .common)
@@ -1055,8 +1055,8 @@ final class UsageStore {
         timer?.invalidate()
         timer = nil
         suspendedProbeTimer?.invalidate()
-        let probe = Timer(timeInterval: Self.suspendedProbeInterval, repeats: true) { _ in
-            Task { @MainActor [weak self] in await self?.runSuspendedPollingProbe() }
+        let probe = Timer(timeInterval: Self.suspendedProbeInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.runSuspendedPollingProbe() }
         }
         probe.tolerance = Self.suspendedProbeInterval * 0.2
         RunLoop.main.add(probe, forMode: .common)
