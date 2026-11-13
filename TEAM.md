@@ -160,3 +160,6 @@ Homebrew로 설치합니다. 경고 없이 바로 열리고, 앱의 업데이트
 - 글꼴: 갈무리 (OFL)
 - 포켓몬 그림: PokéAPI
 - 풀숲 그림: RedVoxel, "Pokemon inspired 16x16 tiles" (CC-BY-SA 3.0, 변경 없이 사용)
+- 얼음 금 그림: CookieEfedu, "Ice Mountains Tileset" (CC-BY 4.0, 실행 중에 금 픽셀만 남기고 색을 바꿈)
+- 얼음 윤기 그림: ChikenwingJJA, "Some 16x16 floor tiles" (CC0)
+- 얼음 파편 그림: Spring Spring, "Shattering Boulder" (CC0)

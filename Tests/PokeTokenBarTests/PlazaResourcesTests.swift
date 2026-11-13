@@ -102,8 +102,47 @@ final class PlazaResourcesTests: XCTestCase {
         XCTAssertNil(PlazaResources.resourceBundle(searching: [missing]))
         XCTAssertNil(PlazaResources.tileSheet(in: nil))
         XCTAssertNil(PlazaResources.tallGrassSheet(in: nil))
+        XCTAssertNil(PlazaResources.iceCrackSheet(in: nil))
+        XCTAssertNil(PlazaResources.iceGlossSheet(in: nil))
+        XCTAssertEqual(PlazaResources.iceShatterFrames(in: nil).count, 0)
         let font = PlazaResources.font(.small, in: nil)
         XCTAssertEqual(font.pointSize, PlazaTextSize.small.points)
         XCTAssertFalse(PlazaResources.registerFonts(in: nil))
+    }
+
+    private static let iceDigests: [(name: String, ext: String, sha: String)] = [
+        ("plaza-ice-cracks", "png", "28faadcc4cddd8cc8a6962bb5c5a5bdd475c4133d174ac979a3d74a309397f3e"),
+        ("plaza-ice-gloss", "png", "9973d4d6674d0f3cb475d33878f832ee05dc057e2adfae006577688c85d01214"),
+        ("plaza-ice-shatter", "gif", "b5907dd9b03aec03bd4a26acb48b125d8af528a7170dbc1326562d88b54587db")
+    ]
+
+    func testIceFilesAreTheUnmodifiedOriginals() throws {
+        let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
+        for file in Self.iceDigests {
+            let url = try XCTUnwrap(PlazaResources.resourceURL(file.name, file.ext, in: bundle), file.name)
+            let digest = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }.joined()
+            XCTAssertEqual(digest, file.sha, file.name)
+        }
+    }
+
+    func testIceFilesLoad() throws {
+        let cracks = try XCTUnwrap(PlazaResources.iceCrackSheet(in: PlazaResources.resourceBundle()))
+        XCTAssertEqual([cracks.width, cracks.height], [256, 256])
+        let gloss = try XCTUnwrap(PlazaResources.iceGlossSheet(in: PlazaResources.resourceBundle()))
+        XCTAssertEqual([gloss.width, gloss.height], [84, 67])
+        let frames = PlazaResources.iceShatterFrames(in: PlazaResources.resourceBundle())
+        XCTAssertEqual(frames.count, 4)
+        XCTAssertTrue(frames.allSatisfy { $0.width == 32 && $0.height == 32 })
+    }
+
+    func testCreditsNameTheIceArtists() throws {
+        let bundle = try XCTUnwrap(PlazaResources.resourceBundle())
+        let url = try XCTUnwrap(PlazaResources.resourceURL("CREDITS", "md", in: bundle))
+        let credits = try String(contentsOf: url, encoding: .utf8)
+        for needle in ["Ice Mountains Tileset", "CookieEfedu", "CC-BY 4.0", "https://creativecommons.org/licenses/by/4.0/",
+                       "https://opengameart.org/content/ice-mountains-tileset", "crack pixels",
+                       "Some 16x16 floor tiles", "ChikenwingJJA", "Shattering Boulder", "Spring Spring"] {
+            XCTAssertTrue(credits.contains(needle), needle)
+        }
     }
 }
