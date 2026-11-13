@@ -2038,7 +2038,7 @@ read_when:
   봤다 — 실행 중 동시 plist 수를 재는 것은 없었다. **고침:** `TestDefaults` 가 UUID 스위트 대신 `ptb.test.pool.<pid>.<n>` 풀(pid 는 동시에 도는 `swift test` 끼리 도메인을 공유하지 않게 한다)을
   재사용한다. 한 테스트 케이스(`testCaseWillStart`~`DidFinish`) 안에서 요청 이름마다 풀 슬롯 하나, 같은 이름은 같은
   `UserDefaults` 객체이고, 슬롯은 내줄 때와 테스트 끝에 비운다. 풀은 한 테스트가 요청하는 서로 다른 이름의 최대 개수까지만
-  자란다(Plaza|Team 1727 개 테스트에서 fd 피크 84). 테스트 밖 요청은 8 슬롯 라운드로빈이다. 한 테스트가 서로 다른 이름을 **32 개** 넘게 열면 `XCTFail` 한다(그래도 쓸 수 있는 저장소는 돌려줘 실행은 이어진다) — 이름을 재사용할 것. 번들 종료 때 이 프로세스의 풀 plist 전부(`ptb.test.pool*.<pid>.*`)를 지우고, 첫 요청 때 죽은 pid 의 잔여 풀 plist 도 지운다. `TestDefaultsScanTests` 는 헬퍼 밖의 `removePersistentDomain(` 과 풀 테스트 밖의 `TestDefaults(prefix:` 도 막는다. `TestDefaultsPoolTests` 가
+  자란다(Plaza|Team 1727 개 테스트에서 fd 피크 22, 32 개 상한을 두기 전에는 84). 테스트 밖 요청은 8 슬롯 라운드로빈이다. 한 테스트가 서로 다른 이름을 **32 개** 넘게 열면 `XCTFail` 한다(그래도 쓸 수 있는 저장소는 돌려줘 실행은 이어진다) — 이름을 재사용할 것. 번들 종료 때 이 프로세스의 풀 plist 전부(`ptb.test.pool*.<pid>.*`)를 지우고, 첫 요청 때 죽은 pid 의 잔여 풀 plist 도 지운다. `TestDefaultsScanTests` 는 헬퍼 밖의 `removePersistentDomain(` 과 풀 테스트 밖의 `TestDefaults(prefix:` 도 막는다. `TestDefaultsPoolTests` 가
   동시 도메인 수 상한·재사용 슬롯 빈 상태·같은 이름 동일 객체를 고정한다(결함 주입으로 각각 실패 확인). **릴리스 안전망:**
   `scripts/cfprefsd-guard.sh` 가 `team-release.sh` 의 테스트 게이트 직후(앱 설치·실행 전) DIR fd 가 100 을 넘으면 경고하고
   `cfprefsd agent` 를 재시작해 내려갈 때까지 기다리며, 회복하지 않으면 릴리스를 중단한다.
