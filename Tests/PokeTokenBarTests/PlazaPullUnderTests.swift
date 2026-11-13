@@ -39,27 +39,118 @@ final class PlazaPullUnderTests: XCTestCase {
         XCTAssertFalse(isWater(p(30, 16)))
     }
 
-    func testADiverTargetsTheShoreNeighbourWhenTheWaterBehindIsFree() {
-        let members = ["shore": p(31, 16), "swimmer": p(32, 15), "far": p(30, 16)]
-        let all = PlazaPullUnder.targets(diver: p(32, 16), members: members, isWater: isWater, isFree: { _ in true })
-        XCTAssertEqual(all, ["shore": p(31, 16)], "not one in the water, not one two tiles off")
-        let blocked = PlazaPullUnder.targets(diver: p(32, 16), members: members, isWater: isWater, isFree: { $0 != self.p(33, 16) })
-        XCTAssertEqual(blocked, [:], "nowhere to back off to")
-        XCTAssertEqual(PlazaPullUnder.targets(diver: p(31, 16), members: ["a": p(30, 16)], isWater: isWater, isFree: { _ in true }), [:],
-                       "a diver is in the water")
+    // A one-row world: water from x=10 on, land before it, `blocked` tiles are bushes, `ice` tiles are land on water.
+    private struct Row {
+        var water: Set<TilePoint> = Set((10...14).map { TilePoint(x: $0, y: 0) })
+        var blocked: Set<TilePoint> = []
+        var occupied: Set<TilePoint> = []
+        func isWater(_ t: TilePoint) -> Bool { water.contains(t) }
+        func isWalkable(_ t: TilePoint) -> Bool { !water.contains(t) && !blocked.contains(t) }
+        func isFree(_ t: TilePoint) -> Bool { !occupied.contains(t) }
+        func target(me: TilePoint, facing: PlazaDirection = .left, _ members: [String: TilePoint])
+            -> (id: String, pull: PlazaPullUnder.Pull)? {
+            PlazaPullUnder.target(me: me, facing: facing, members: members, isWater: isWater, isWalkable: isWalkable, isFree: isFree)
+        }
     }
 
-    func testTheDragGoesTowardsAPullerRightInFrontOrOneBehindThat() {
-        XCTAssertEqual(PlazaPullUnder.drag(victim: p(31, 16), puller: p(32, 16), isWater: isWater), .right)
-        XCTAssertEqual(PlazaPullUnder.drag(victim: p(31, 16), puller: p(33, 16), isWater: isWater), .right)
+    func testTargetsAMateOneTwoOrThreeTilesAheadAndStepsBack() {
+        let row = Row()
+        for k in 1...3 {
+            let hit = row.target(me: p(10, 0), ["m": p(10 - k, 0)])
+            XCTAssertEqual(hit?.id, "m", "\(k) ahead")
+            XCTAssertEqual(hit?.pull, PlazaPullUnder.Pull(direction: .right, tiles: k, landing: p(10, 0), stepsBack: true))
+        }
+        XCTAssertNil(row.target(me: p(10, 0), ["m": p(6, 0)]), "four ahead is out of reach")
+    }
+
+    func testTheNearerMateOnTheLineIsTheOneTargeted() {
+        let hit = Row().target(me: p(10, 0), ["far": p(7, 0), "near": p(8, 0)])
+        XCTAssertEqual(hit?.id, "near")
+    }
+
+    func testABushOnTheWayMeansNoTarget() {
+        var row = Row()
+        row.blocked = [p(9, 0)]
+        XCTAssertNil(row.target(me: p(10, 0), ["m": p(8, 0)]))
+        row.blocked = [p(8, 0)]
+        XCTAssertNil(row.target(me: p(10, 0), ["m": p(7, 0)]))
+    }
+
+    func testAnOccupiedLandingTileMeansNoTarget() {
+        var row = Row()   // I am two tiles into the pond: the landing is the first water tile (10), not my tile
+        row.occupied = [p(10, 0)]
+        XCTAssertNil(row.target(me: p(11, 0), ["m": p(8, 0)]))
+        row.occupied = []
+        let hit = row.target(me: p(11, 0), ["m": p(8, 0)])
+        XCTAssertEqual(hit?.pull, PlazaPullUnder.Pull(direction: .right, tiles: 2, landing: p(10, 0), stepsBack: false))
+    }
+
+    func testPullingOntoMyTileNeedsFreeWaterBehindMe() {
+        var row = Row()
+        row.occupied = [p(11, 0)]
+        XCTAssertNil(row.target(me: p(10, 0), ["m": p(8, 0)]), "someone is behind me")
+        row.occupied = []
+        row.water = [p(10, 0)]
+        XCTAssertNil(row.target(me: p(10, 0), ["m": p(8, 0)]), "no water behind me")
+    }
+
+    func testAMateBesideMeIsTheFallbackWhenTheFacingLineIsEmpty() {
+        var row = Row()
+        row.water = [p(10, 0), p(10, 1)]
+        let hit = row.target(me: p(10, 0), ["m": p(10, -1)])
+        XCTAssertEqual(hit?.pull, PlazaPullUnder.Pull(direction: .down, tiles: 1, landing: p(10, 0), stepsBack: true))
+        row.blocked = [p(8, 0)]
+        XCTAssertEqual(row.target(me: p(10, 0), ["blocked": p(7, 0), "m": p(10, -1)])?.id, "m", "the facing mate cannot be pulled")
+        XCTAssertNil(row.target(me: p(10, 0), ["far": p(10, -2)]), "beside means beside")
+    }
+
+    func testAMateInTheWaterIsNeverPulledAndAMateOnIceIsOnLand() {
+        var row = Row()
+        XCTAssertNil(row.target(me: p(12, 0), ["swimmer": p(11, 0)]))
+        // Ice at 10 and 11, open water at 12 and 13: the mate on the ice falls into 12, the first real water.
+        row.water = [p(12, 0), p(13, 0)]
+        let hit = row.target(me: p(13, 0), ["m": p(11, 0)])
+        XCTAssertEqual(hit?.pull, PlazaPullUnder.Pull(direction: .right, tiles: 1, landing: p(12, 0), stepsBack: false))
+        XCTAssertNil(row.target(me: p(9, 0), ["m": p(8, 0)]), "I am on land")
+    }
+
+    func testTheDragIsTheDirectionAndTileCountToTheFirstWater() {
+        let row = Row()
+        func drag(_ v: Int, _ pl: Int) -> PlazaDirection? {
+            let r = PlazaPullUnder.drag(victim: p(v, 0), puller: p(pl, 0), isWater: row.isWater, isWalkable: row.isWalkable)
+            return r?.direction
+        }
+        func tiles(_ v: Int, _ pl: Int) -> Int? {
+            PlazaPullUnder.drag(victim: p(v, 0), puller: p(pl, 0), isWater: row.isWater, isWalkable: row.isWalkable)?.tiles
+        }
+        XCTAssertEqual(drag(9, 10), .right)
+        for k in 1...3 {
+            XCTAssertEqual(tiles(10 - k, 10), k)
+            XCTAssertEqual(tiles(10 - k, 11), k, "the puller's step back has already arrived")
+        }
+        XCTAssertEqual(tiles(9, 13), 1, "four tiles off still lands in the first water")
     }
 
     func testNoDragFromAnywhereElse() {
-        XCTAssertNil(PlazaPullUnder.drag(victim: p(31, 16), puller: p(34, 16), isWater: isWater), "three tiles off")
-        XCTAssertNil(PlazaPullUnder.drag(victim: p(31, 16), puller: p(32, 17), isWater: isWater), "diagonal")
-        XCTAssertNil(PlazaPullUnder.drag(victim: p(31, 16), puller: p(30, 16), isWater: isWater), "the puller is on land")
-        XCTAssertNil(PlazaPullUnder.drag(victim: p(30, 16), puller: p(32, 16), isWater: isWater), "I am not on the shore")
-        XCTAssertNil(PlazaPullUnder.drag(victim: p(33, 16), puller: p(34, 16), isWater: isWater), "I am already in the water")
+        var row = Row()
+        func drag(_ v: TilePoint, _ pl: TilePoint) -> Bool {
+            PlazaPullUnder.drag(victim: v, puller: pl, isWater: row.isWater, isWalkable: row.isWalkable) != nil
+        }
+        XCTAssertFalse(drag(p(9, 0), p(14, 0)), "five tiles off")
+        XCTAssertFalse(drag(p(6, 0), p(10, 0)), "the first water is four tiles away")
+        XCTAssertFalse(drag(p(9, 0), p(10, 1)), "diagonal")
+        XCTAssertFalse(drag(p(9, 0), p(8, 0)), "the puller is on land")
+        XCTAssertFalse(drag(p(11, 0), p(12, 0)), "I am already in the water")
+        row.blocked = [p(8, 0)]
+        XCTAssertFalse(drag(p(7, 0), p(10, 0)), "a bush on the way")
+    }
+
+    func testTheDragWorksAlongAColumnToo() {
+        var row = Row()
+        row.water = [p(0, 10)]
+        let r = PlazaPullUnder.drag(victim: p(0, 8), puller: p(0, 10), isWater: row.isWater, isWalkable: row.isWalkable)
+        XCTAssertEqual(r?.direction, .down)
+        XCTAssertEqual(r?.tiles, 2)
     }
 
     // MARK: - In the plaza
@@ -169,10 +260,10 @@ final class PlazaPullUnderTests: XCTestCase {
     }
 
     func testAPullOnSomeoneElseOrFromTheWrongPlaceDoesNotMoveMe() async throws {
-        let (c, scene, me, other, _) = try await open(me: p(31, 16), teammate: p(34, 16))
+        let (c, scene, me, other, _) = try await open(me: p(31, 16), teammate: p(36, 16))
         c.showPull(from: other.id, on: me.id)
         run(scene, 1)
-        XCTAssertEqual(scene.walker.tile, p(31, 16), "the sender is three tiles off")
+        XCTAssertEqual(scene.walker.tile, p(31, 16), "the sender is five tiles off")
         other.session.updatePlazaPosition(inPlaza: true, tile: p(32, 16), facing: .down, isWalking: false)
         await settle()
         c.showPull(from: other.id, on: "someone-else")
@@ -197,6 +288,103 @@ final class PlazaPullUnderTests: XCTestCase {
         XCTAssertEqual(body, ["emote": ["_0": ["kind": "pull", "targetMemberID": "m"]]])
     }
 
+    // MARK: - Pulling from range (the right pond is x32-38 y14-20; row 17 east of it, x39-44, is open land)
+
+    /// Plunges in from (39,17) to (38,17), swims `extra` more tiles west and turns to face the shore.
+    private func swimOut(_ scene: PlazaScene, extra: Int = 0) {
+        for _ in 0..<extra {
+            _ = scene.handleKeyDown(keyCode: 123, characters: "", isRepeat: false)
+            run(scene, 0.1)
+            _ = scene.handleKeyUp(keyCode: 123)
+            run(scene, 1)
+        }
+        scene.face(.right)
+    }
+
+    func testTheMapRowAssumedBelowIsOpenLand() {
+        XCTAssertTrue(isWater(p(38, 17)))
+        for x in 39...44 { XCTAssertTrue(map.isWalkable(p(x, 17)), "x=\(x)") }
+    }
+
+    func testCWhileSwimmingPullsAMateThreeTilesAheadWithoutSteppingBack() async throws {
+        let (c, scene, _, other, heard) = try await open(me: p(39, 17), plunging: .left, teammate: p(40, 17))
+        swimOut(scene, extra: 1)
+        XCTAssertEqual(scene.walker.tile, p(37, 17))
+        XCTAssertFalse(scene.isDiving)
+        _ = scene.handleKeyDown(keyCode: cKey, characters: "c", isRepeat: false)
+        await settle()
+        XCTAssertEqual(heard.emotes.map(\.kind), [.pull])
+        XCTAssertEqual(heard.emotes.first?.targetMemberID, other.id)
+        run(scene, 1)
+        XCTAssertEqual(scene.walker.tile, p(37, 17), "the landing is the water tile in front, so I stay")
+        XCTAssertFalse(scene.isDiving)
+        withExtendedLifetime(c) {}
+    }
+
+    func testCWhileSwimmingPullsOntoMyTileAndStepsBack() async throws {
+        let (c, scene, _, other, heard) = try await open(me: p(39, 17), plunging: .left, teammate: p(41, 17))
+        swimOut(scene)
+        _ = scene.handleKeyDown(keyCode: cKey, characters: "c", isRepeat: false)
+        await settle()
+        XCTAssertEqual(heard.emotes.map(\.kind), [.pull])
+        run(scene, 1)
+        XCTAssertEqual(scene.walker.tile, p(37, 17), "I made room")
+        withExtendedLifetime((c, other)) {}
+    }
+
+    func testCWhileDivingPullsFromRangeAndSurfaces() async throws {
+        let (c, scene, _, other, heard) = try await open(me: p(39, 17), plunging: .left, teammate: p(41, 17))
+        swimOut(scene)
+        scene.setDiving(true)
+        _ = scene.handleKeyDown(keyCode: cKey, characters: "c", isRepeat: false)
+        await settle()
+        XCTAssertFalse(scene.isDiving)
+        XCTAssertEqual(heard.emotes.map(\.kind), [.pull])
+        run(scene, 1)
+        XCTAssertEqual(scene.walker.tile, p(37, 17))
+        withExtendedLifetime((c, other)) {}
+    }
+
+    func testCAtAnotherSwimmerStillTackles() async throws {
+        let (c, scene, _, other, heard) = try await open(me: p(39, 17), plunging: .left, teammate: p(37, 17))
+        scene.face(.left)
+        run(scene, 0.1)
+        _ = scene.handleKeyDown(keyCode: cKey, characters: "c", isRepeat: false)
+        await settle()
+        XCTAssertFalse(heard.emotes.isEmpty)
+        XCTAssertFalse(heard.emotes.map(\.kind).contains(.pull), "nobody is on the shore")
+        withExtendedLifetime((c, other)) {}
+    }
+
+    func testAFarPullSlidesMeThreeTilesAndSplashesBig() async throws {
+        let (c, scene, me, other, _) = try await open(me: p(41, 17), teammate: p(38, 17))
+        c.showPull(from: other.id, on: me.id)
+        run(scene, 0.25)
+        XCTAssertFalse(scene.isMeInWater, "still sliding")
+        var splashed = 0
+        for _ in 0..<30 { run(scene, 0.1); splashed = max(splashed, try XCTUnwrap(scene.pondLayer).dropletCount) }
+        XCTAssertEqual(scene.walker.tile, p(38, 17), "the puller's own tile does not stop me")
+        XCTAssertTrue(scene.isMeInWater)
+        XCTAssertEqual(splashed, PlazaPondLayer.bigDroplets, "a big splash")
+        withExtendedLifetime(c) {}
+    }
+
+    func testAPullStopsAtTheFirstWaterTileWhenThePullerIsFurtherOut() async throws {
+        let (c, scene, me, other, _) = try await open(me: p(40, 17), teammate: p(36, 17))
+        c.showPull(from: other.id, on: me.id)
+        run(scene, 2)
+        XCTAssertEqual(scene.walker.tile, p(38, 17))
+    }
+
+    func testNoFarPullInPhotoMode() async throws {
+        let (c, scene, me, other, _) = try await open(me: p(41, 17), teammate: p(38, 17))
+        _ = scene.handleKeyDown(keyCode: 35, characters: "p", isRepeat: false)
+        XCTAssertTrue(c.isPhotoMode)
+        c.showPull(from: other.id, on: me.id)
+        run(scene, 2)
+        XCTAssertEqual(scene.walker.tile, p(41, 17))
+    }
+
     // MARK: - Hints
 
     func testDivingAloneShowsHowToPull() async throws {
@@ -213,6 +401,26 @@ final class PlazaPullUnderTests: XCTestCase {
         XCTAssertEqual(c.hint, L(.ko).plazaPullHint(nickname: "민수"))
         scene.setDiving(false)
         c.refreshHintForTesting()
-        XCTAssertNotEqual(c.hint, L(.ko).plazaPullHint(nickname: "민수"), "swimming on the surface is not an ambush")
+        XCTAssertEqual(c.hint, L(.ko).plazaPullHint(nickname: "민수"), "swimming pulls too now")
+    }
+}
+
+extension PlazaPullUnderTests {
+    func testSwimmingWithAShoreMateAheadShowsThePullHint() async throws {
+        let (c, scene, _, _, _) = try await open(me: p(39, 17), plunging: .left, teammate: p(41, 17))
+        swimOut(scene)
+        c.refreshHintForTesting()
+        XCTAssertEqual(c.hint, L(.ko).plazaPullHint(nickname: "민수"))
+        XCTAssertFalse(scene.isDiving)
+    }
+
+    func testSwimmingWithNobodyToPullAddsNoHintButDivingStillTeaches() async throws {
+        let (c, scene, _, _, _) = try await open(me: p(39, 17), plunging: .left, teammate: p(30, 17))
+        swimOut(scene)
+        c.refreshHintForTesting()
+        XCTAssertNil(c.hint)
+        scene.setDiving(true)
+        c.refreshHintForTesting()
+        XCTAssertEqual(c.hint, L(.ko).plazaDivingHint)
     }
 }

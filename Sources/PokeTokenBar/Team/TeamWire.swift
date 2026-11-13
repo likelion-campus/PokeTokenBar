@@ -120,7 +120,7 @@ enum TeamEmoteKind: String, Codable, CaseIterable, Sendable {
     /// The Ditto copy tackled `TeamEmote.targetMemberID`, sent by the Ditto's host. The target's Mac moves the target one tile
     /// away from the copy. Earlier versions skip it.
     case decoyTackle
-    /// 물귀신 (C while diving): the sender surfaces and drags the target, on the shore beside it, into the water. The target's Mac
+    /// 물귀신 (C in the water): the sender surfaces if diving and drags the target, on land up to three tiles away, into the water. The target's Mac
     /// moves the target. Earlier versions skip it.
     case pull
     /// 눈뭉치 (V on snow days): one ball along `TeamEmote.snowballDirection`. `targetMemberID` is the member or `PlazaDitto.sceneKey` it hits,

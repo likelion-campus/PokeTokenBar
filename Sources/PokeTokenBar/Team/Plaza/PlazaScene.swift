@@ -1222,8 +1222,11 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 다른 팀원이 서 있는(걷는 중이면 도착할) 칸. 나는 이 칸에 들어가지 못한다. 이미 겹쳐 서 있으면 빠져나갈 수는 있다.
     /// 팀원 쪽 Mac도 같은 규칙으로 나를 피하므로 서로 겹치지 않는다(동시에 같은 칸에 들어가면 잠깐 겹칠 수 있다).
     func occupiedTiles(except id: String? = nil) -> Set<TilePoint> {
-        Set(remotes.filter { $0.key != id }.map(\.value.motion.tile))
+        Set(remotes.filter { $0.key != id && $0.key != pullerID }.map(\.value.motion.tile))
     }
+
+    /// 물귀신이 나를 끌어들이는 동안 그 팀원: 물러나는 중인 그의 칸이 내 길을 막지 않는다. 미끄러짐이 끝나면 지워진다.
+    private var pullerID: String?
 
     /// 길은 한 칸 갈 때마다 다시 찾는다. 팀원이 움직이거나 길을 막으면 바로 돌아간다(지도가 작아 금방 찾는다).
     private func advanceWalkToMember() {
@@ -1648,8 +1651,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 몸통박치기에 맞아 `tiles`칸 밀린다. 막힌 칸을 만나면 그 앞에 서고, 땅에서 물로 떨어지면 그 첫 물 칸에서 끝난다(큰 물보라).
     /// 헤엄치는 중에도 밀리고 물 칸을 지나 땅까지 밀려 나올 수 있지만, 잠수 중에는 밀리지 않는다. 알도 밀린다.
     /// 창이 가려져 장면이 멈춰 있으면(`isPaused`) 다음 화면이 오지 않으므로 그 자리에서 다 밀리고 팀원에게 바로 알린다.
-    func pushMe(_ d: PlazaDirection, tiles: Int = 1) {
+    func pushMe(_ d: PlazaDirection, tiles: Int = 1, pulledBy puller: String? = nil) {
         guard !isDiving else { return }
+        pullerID = puller
         let occupied = occupiedTiles()
         let canEnter = canPushTile(occupied: occupied)
         var reach = 0
@@ -1854,6 +1858,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let occupied = occupiedTiles()
         walker.advance(by: dt, canEnterFrom: canEnterTile(occupied: occupied), canPushInto: canPushTile(occupied: occupied),
                        stepDuration: pondStepDuration)
+        if pullerID != nil, !walker.hasPendingMove, !walker.isWalking { pullerID = nil }
         if let owed = plungeJumpOwed, let step = walker.currentStep, step.to == owed {
             plungeJumpOwed = nil
             playJump(memberID: nil)
