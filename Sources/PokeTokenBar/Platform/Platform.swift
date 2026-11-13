@@ -27,6 +27,45 @@ protocol IdleClock: Sendable {
     func secondsSinceLastInput() -> TimeInterval
 }
 
+/// Limits providers whose credentials sit in an OS secret store (the Mac Keychain). Not part of `Platform`: the
+/// default arguments and static helpers that need them are not main-actor isolated.
+protocol LimitsProviderFactory: Sendable {
+    /// Claude Code's login. `configRoot` nil is the default `~/.claude` account.
+    func claudeOAuth(configRoot: URL?) -> any ClaudeLimitsProviding
+    func antigravity() -> any AntigravityLimitsProviding
+}
+
+/// What `NetworkReachabilityMonitor` offers `UsageStore`: a callback when the network comes back.
+protocol ReachabilityMonitoring: AnyObject, Sendable {
+    var onReconnected: (@Sendable () -> Void)? { get set }
+    func start()
+    func stop()
+}
+
+protocol NetworkWatching: Sendable {
+    func makeReachabilityMonitor() -> any ReachabilityMonitoring
+}
+
+enum PlatformLimits {
+    static let current: any LimitsProviderFactory = {
+        #if os(Windows) || PTB_SHARED_ONLY
+        StubLimitsProviders(log: { AppLog.write($0) })
+        #else
+        MacLimitsProviders()
+        #endif
+    }()
+}
+
+enum PlatformNetwork {
+    static let current: any NetworkWatching = {
+        #if os(Windows) || PTB_SHARED_ONLY
+        StubNetworkWatching(log: { AppLog.write($0) })
+        #else
+        MacNetworkWatching()
+        #endif
+    }()
+}
+
 struct Platform {
     let notifications: LocalNotifying
     let secrets: SecretStoring

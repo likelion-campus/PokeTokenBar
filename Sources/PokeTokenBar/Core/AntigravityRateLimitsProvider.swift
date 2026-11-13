@@ -4,16 +4,6 @@ import FoundationNetworking
 #endif
 import Security
 
-/// Antigravity 공식 한도 조회 추상화 — 실 구현 또는 테스트 스텁 주입.
-public protocol AntigravityLimitsProviding: Sendable {
-    var hasTokenFile: Bool { get }
-    func fetch(allowKeychainPrompt: Bool) async throws -> AntigravityRateLimitStatus
-}
-
-extension AntigravityLimitsProviding {
-    public var hasTokenFile: Bool { false }
-}
-
 public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendable {
     public static let primaryURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
     public static let dailyURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
@@ -92,7 +82,7 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
                         return try JSONDecoder().decode(AntigravityRateLimitStatus.self, from: data)
                     }
                     if http.statusCode == 429 {
-                        throw LimitsError.rateLimited(retryAfter: OAuthLimitsProvider.retryAfterSeconds(http))
+                        throw LimitsError.rateLimited(retryAfter: LimitsHTTP.retryAfterSeconds(http))
                     }
                     if http.statusCode == 401 || http.statusCode == 403 {
                         throw LimitsError.httpStatus(http.statusCode)
@@ -272,7 +262,7 @@ actor AntigravityTokenCache {
         let (data, response) = try await urlSession.data(for: request)
         if let http = response as? HTTPURLResponse {
             if http.statusCode == 429 {
-                throw LimitsError.rateLimited(retryAfter: OAuthLimitsProvider.retryAfterSeconds(http))
+                throw LimitsError.rateLimited(retryAfter: LimitsHTTP.retryAfterSeconds(http))
             }
             if (500 ... 599).contains(http.statusCode) {
                 throw LimitsError.httpStatus(http.statusCode)

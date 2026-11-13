@@ -54,7 +54,7 @@ struct URLSessionSessionKeyClient: SessionKeyHTTPClient {
         return SessionKeyHTTPResponse(
             status: http?.statusCode ?? -1,
             data: data,
-            retryAfter: http.flatMap(OAuthLimitsProvider.retryAfterSeconds))
+            retryAfter: http.flatMap(LimitsHTTP.retryAfterSeconds))
     }
 }
 
@@ -312,7 +312,7 @@ struct ChainedLimitsProvider: ClaudeLimitsProviding {
         ChainedLimitsProvider(
             primary: SessionKeyLimitsProvider(
                 store: .forConfigRoot(root, directory: sessionKeyDirectory), http: http),
-            fallback: fallback ?? OAuthLimitsProvider(accessTokenCache: .forConfigRoot(root)))
+            fallback: fallback ?? PlatformLimits.current.claudeOAuth(configRoot: root))
     }
 
     func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {

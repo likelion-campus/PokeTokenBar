@@ -5,13 +5,6 @@ import SpriteKit
 @MainActor protocol PlazaPausableView: AnyObject { var isPaused: Bool { get set } }
 extension SKView: PlazaPausableView {}
 
-/// 집중이 끝났다. `completed`면 시간을 다 채웠고, 아니면 일어선 것이다.
-struct PlazaFocusEnd: Equatable, Sendable {
-    let minutes: Int
-    let elapsedMinutes: Int
-    let completed: Bool
-}
-
 /// 광장 창. 창을 만들지 않고도 장면을 만들 수 있게(`prepareScene`) 나눠 두었다.
 @MainActor final class PlazaWindowController: NSObject, NSWindowDelegate {
     private let map = PlazaMapData.map

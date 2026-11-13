@@ -59,3 +59,32 @@ final class StubIdleClock: IdleClock {
     init(log: @escaping @Sendable (String) -> Void) { once = LogOnce("Platform stub: idle clock reports 0", sink: log) }
     func secondsSinceLastInput() -> TimeInterval { once.fire(); return 0 }
 }
+
+/// Claude and Antigravity limits need a secret store; without one they report "credentials unavailable".
+struct StubLimitsProviders: LimitsProviderFactory {
+    private let once: LogOnce
+    init(log: @escaping @Sendable (String) -> Void) { once = LogOnce("Platform stub: OAuth limits providers unavailable", sink: log) }
+    func claudeOAuth(configRoot: URL?) -> any ClaudeLimitsProviding { once.fire(); return UnavailableClaudeLimits() }
+    func antigravity() -> any AntigravityLimitsProviding { once.fire(); return UnavailableAntigravityLimits() }
+}
+
+struct UnavailableClaudeLimits: ClaudeLimitsProviding {
+    func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus { throw LimitsError.keychainAccessDisabled }
+}
+
+struct UnavailableAntigravityLimits: AntigravityLimitsProviding {
+    func fetch(allowKeychainPrompt: Bool) async throws -> AntigravityRateLimitStatus { throw LimitsError.keychainAccessDisabled }
+}
+
+/// No reachability source: the monitor never reports a reconnect, so the periodic timer is the only refresh.
+struct StubNetworkWatching: NetworkWatching {
+    private let once: LogOnce
+    init(log: @escaping @Sendable (String) -> Void) { once = LogOnce("Platform stub: network reachability never fires", sink: log) }
+    func makeReachabilityMonitor() -> any ReachabilityMonitoring { once.fire(); return StubReachabilityMonitor() }
+}
+
+final class StubReachabilityMonitor: ReachabilityMonitoring, @unchecked Sendable {
+    var onReconnected: (@Sendable () -> Void)?
+    func start() {}
+    func stop() {}
+}

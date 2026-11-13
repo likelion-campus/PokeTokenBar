@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// Ties the companion and the team settings to the `TeamSession`: forwards companion events, keeps the
 /// session's settings and character current, ticks it, and holds an App Nap activity while teammates are online.
@@ -12,7 +13,7 @@ final class TeamRuntime {
 
     let feed: TeamFeedStore
     let session: TeamSession
-    weak var plaza: PlazaWindowController?
+    weak var plaza: (any PlazaPresenting)?
     /// Set by the app only for a bundled build; nil means no notifications (tests, dev runs).
     var notifier: TeamNotifier?
 

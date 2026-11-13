@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// 불꽃 색. 조각 색(`PlazaFireworkArt`)과 땅에 던지는 빛의 색을 함께 정한다.

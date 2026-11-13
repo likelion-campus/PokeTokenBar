@@ -33,7 +33,7 @@ final class PlazaTackleReachTests: XCTestCase {
                               dittoDisguiseRollingEnabled: false, defaults: TestDefaults.make(suite: suite))
     }
 
-    func testEvolutionStageIsThePlaceInItsOwnLine() {
+    func testEvolutionStageIsThePlaceInItsOwnLine() async {
         let s = state()
         XCTAssertEqual(s.evolutionStage(of: 172), 1)
         XCTAssertEqual(s.evolutionStage(of: 25), 2)
@@ -44,7 +44,7 @@ final class PlazaTackleReachTests: XCTestCase {
     }
 
     /// The plaza character is the representative Pokémon: the companion while following it, or a picked dex species.
-    func testRepresentativeEvolutionStageFollowsThePlazaCharacter() throws {
+    func testRepresentativeEvolutionStageFollowsThePlazaCharacter() async throws {
         let s = try store(state())
         XCTAssertEqual(s.representativeSubject.speciesID, 25)
         XCTAssertEqual(s.representativeEvolutionStage, 2, "Pikachu, followed")

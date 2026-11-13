@@ -57,10 +57,22 @@ enum SharedSources {
         }
     }
 
+    /// The one shared file that may import CoreGraphics (guarded by `canImport`); see its header comment.
+    static let coreGraphicsShim = "Platform/MacGeometryImport.swift"
+
+    /// The shim may only be the guarded CoreGraphics import (comments aside). Any other import, or a different guard,
+    /// puts the file back under the normal import check.
+    static func isExactShim(_ url: URL) throws -> Bool {
+        let code = try lines(of: url).map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("//") }
+        return code == ["#if canImport(CoreGraphics)", "import CoreGraphics", "#endif"]
+    }
+
     /// One message per Apple-only import in `files`.
     static func importViolations(in files: [URL], root: URL) throws -> [String] {
         var out: [String] = []
         for url in files {
+            if relativePath(url, root: root) == coreGraphicsShim, try isExactShim(url) { continue }
             for line in try lines(of: url) {
                 for module in importedModules(in: line) where appleOnly.contains(module) {
                     out.append("\(relativePath(url, root: root)) imports \(module). Add it to mac-only.txt, or route the call through Platform.")
@@ -95,6 +107,46 @@ enum SharedSources {
             for (i, l) in ls.enumerated() where !covered.contains(i)
                 && !Set(importedModules(in: l)).isDisjoint(with: ["CryptoKit", "SQLite3"]) {
                 out.append("\(rel):\(i + 1) has `\(l)` outside its import guard.")
+            }
+        }
+        return out
+    }
+
+    /// Windows XCTest cannot discover a synchronous test method that is main-actor isolated (the run dies with
+    /// "0 tests"). `texts` is every test file (rel path, source) so an extension finds its class's isolation;
+    /// only `reportable` files (the ones Windows builds) produce messages.
+    static func syncMainActorTestViolations(texts: [(rel: String, text: String)], reportable: Set<String>) -> [String] {
+        let classRegex = try! NSRegularExpression(pattern: #"^(?:(?:@\w+|private|fileprivate|internal|public|final)\s+)*class\s+(\w+)"#)
+        let extRegex = try! NSRegularExpression(pattern: #"^(?:(?:@\w+|private|fileprivate|internal|public)\s+)*extension\s+(\w+)"#)
+        let funcRegex = try! NSRegularExpression(pattern: #"\bfunc\s+(test\w*)\s*\(\s*\)"#)
+        func name(_ r: NSRegularExpression, _ l: String) -> String? {
+            guard let m = r.firstMatch(in: l, range: NSRange(l.startIndex..., in: l)), let g = Range(m.range(at: 1), in: l) else { return nil }
+            return String(l[g])
+        }
+        let split = texts.map { ($0.rel, $0.text.components(separatedBy: .newlines)) }
+        var isolated = Set<String>()
+        for (_, ls) in split {
+            for (i, l) in ls.enumerated() where !l.hasPrefix(" ") {
+                guard let n = name(classRegex, l) else { continue }
+                if l.contains("@MainActor") || (i > 0 && ls[i - 1].trimmingCharacters(in: .whitespaces) == "@MainActor") { isolated.insert(n) }
+            }
+        }
+        var out: [String] = []
+        for (rel, ls) in split where reportable.contains(rel) {
+            var ownerIsolated = false
+            for (i, l) in ls.enumerated() {
+                if !l.hasPrefix(" ") {
+                    let prevMain = i > 0 && ls[i - 1].trimmingCharacters(in: .whitespaces) == "@MainActor"
+                    if let n = name(classRegex, l) ?? name(extRegex, l) {
+                        ownerIsolated = isolated.contains(n) || l.contains("@MainActor") || prevMain
+                    } else if l.hasPrefix("}") == false, !l.isEmpty, !l.hasPrefix("@"), !l.hasPrefix("//") { ownerIsolated = false }
+                    continue
+                }
+                guard name(funcRegex, l) != nil, !l.contains("async"), !l.contains("nonisolated") else { continue }
+                let trimmedPrev = i > 0 ? ls[i - 1].trimmingCharacters(in: .whitespaces) : ""
+                if ownerIsolated || l.contains("@MainActor") || trimmedPrev == "@MainActor" {
+                    out.append("\(rel):\(i + 1) `\(l.trimmingCharacters(in: .whitespaces))` is a synchronous test on the main actor. Make it async: Windows XCTest does not discover synchronous tests in a @MainActor class and the whole run reports 0 tests.")
+                }
             }
         }
         return out
@@ -175,6 +227,55 @@ final class SharedSourcesScanTests: XCTestCase {
         for line in ["import CryptoKit", "@preconcurrency import CryptoKit", "import SQLite3 // x", "import Foundation; import CryptoKit"] {
             XCTAssertEqual(try scan(line + "\n").guards.count, 1, line)
         }
+    }
+
+    func testNoSynchronousMainActorTestRunsOnWindows() throws {
+        let tests = try SharedSources.macOnly(listURL: SharedSources.testsList)
+        let all = SharedSources.allSwiftFiles(root: SharedSources.testsRoot)
+        let texts = try all.map { (rel: SharedSources.relativePath($0, root: SharedSources.testsRoot), text: try String(contentsOf: $0, encoding: .utf8)) }
+        let reportable = Set(texts.map(\.rel).filter { !SharedSources.isListed($0, in: tests) })
+        XCTAssertEqual(SharedSources.syncMainActorTestViolations(texts: texts, reportable: reportable), [])
+    }
+
+    private func syncViolations(_ files: [(String, String)], reportable: [String]? = nil) -> [String] {
+        SharedSources.syncMainActorTestViolations(texts: files.map { (rel: $0.0, text: $0.1) }, reportable: Set(reportable ?? files.map(\.0)))
+    }
+
+    func testTheScanCatchesSynchronousTestsOnTheMainActor() {
+        XCTAssertEqual(syncViolations([("A.swift", "@MainActor\nfinal class A: XCTestCase {\n    func testX() {\n    }\n}\n")]).count, 1)
+        XCTAssertEqual(syncViolations([("A.swift", "@MainActor final class A: XCTestCase {\n    func testX() throws {\n    }\n}\n")]).count, 1)
+        XCTAssertEqual(syncViolations([("A.swift", "final class A: XCTestCase {\n    @MainActor\n    func testX() {\n    }\n}\n")]).count, 1)
+        XCTAssertEqual(syncViolations([("A.swift", "final class A: XCTestCase {\n    @MainActor func testX() {\n    }\n}\n")]).count, 1)
+        // an extension in another file inherits the class's isolation; an @MainActor extension isolates its members
+        XCTAssertEqual(syncViolations([("A.swift", "@MainActor\nfinal class A: XCTestCase {\n}\n"),
+                                       ("B.swift", "extension A {\n    func testX() {\n    }\n}\n")]).count, 1)
+        XCTAssertEqual(syncViolations([("A.swift", "final class A: XCTestCase {\n}\n"),
+                                       ("B.swift", "@MainActor\nextension A {\n    func testX() {\n    }\n}\n")]).count, 1)
+    }
+
+    func testTheScanAcceptsWhatWindowsCanRun() {
+        XCTAssertEqual(syncViolations([("A.swift", "@MainActor\nfinal class A: XCTestCase {\n    func testX() async {\n    }\n    func testY() async throws {\n    }\n    nonisolated func testZ() {\n    }\n    func helper() {\n    }\n}\n")]), [])
+        XCTAssertEqual(syncViolations([("A.swift", "final class A: XCTestCase {\n    func testX() {\n    }\n}\n")]), [])
+        // a file Windows does not build is not reported
+        XCTAssertEqual(syncViolations([("A.swift", "@MainActor\nfinal class A: XCTestCase {\n    func testX() {\n    }\n}\n")], reportable: []), [])
+        // isolation does not leak into the next, unisolated class
+        XCTAssertEqual(syncViolations([("A.swift", "@MainActor\nfinal class A: XCTestCase {\n}\nfinal class B: XCTestCase {\n    func testX() {\n    }\n}\n")]), [])
+    }
+
+    func testTheCoreGraphicsShimMustStayExactlyTheGuardedImport() throws {
+        func scanShim(_ body: String) throws -> [String] {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-shim-\(UUID().uuidString)")
+            let platform = dir.appendingPathComponent("Platform")
+            try FileManager.default.createDirectory(at: platform, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let file = platform.appendingPathComponent("MacGeometryImport.swift")
+            try body.write(to: file, atomically: true, encoding: .utf8)
+            return try SharedSources.importViolations(in: [file], root: dir)
+        }
+        XCTAssertEqual(try scanShim("#if canImport(CoreGraphics)\n// why\nimport CoreGraphics\n#endif\n"), [])
+        XCTAssertEqual(try scanShim("#if canImport(CoreGraphics)\nimport CoreGraphics\nimport AppKit\n#endif\n").count, 2)
+        XCTAssertEqual(try scanShim("import CoreGraphics\n").count, 1)
+        XCTAssertEqual(try scanShim("#if canImport(CoreGraphics)\nimport CoreGraphics\n#endif\nimport SwiftUI\n").count, 2)
     }
 
     func testSharedSetDoesNotShrink() throws {

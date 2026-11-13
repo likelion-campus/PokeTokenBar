@@ -341,16 +341,21 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(limits.promptFlags.allSatisfy { $0 == false },
                       "자동 폴링은 절대 Keychain 프롬프트 경로(true)를 쓰면 안 된다 — 암호 다이얼로그 유발")
 
+        let before = limits.promptFlags.count
         await store.refreshLimitTokenFromKeychain()
-        XCTAssertEqual(limits.promptFlags.last, true,
+        // A second automatic refresh can still be in flight when the first one returns (observed on Windows: the
+        // coalesced fetch lands after the manual one), so the order of flags is not fixed: the manual refresh must
+        // add exactly one prompting fetch, and nothing else ever prompts.
+        XCTAssertEqual(limits.promptFlags.filter { $0 }.count, 1,
                        "수동 갱신(사용자 버튼)만 프롬프트 허용 경로를 쓴다")
+        XCTAssertTrue(limits.promptFlags[..<before].allSatisfy { $0 == false })
     }
 
     // MARK: 플로팅 펫 설정 (기본값 + 영속)
 
     /// 플로팅 펫은 기본 꺼짐(96px). 토글·크기 변경은 defaults 에 영속돼 재시작 후 유지된다.
     /// Bubble alerts default ON (opt-out), nested under the pet — independent of Notification Center.
-    func testFloatingPetSettingsDefaultAndPersistence() {
+    func testFloatingPetSettingsDefaultAndPersistence() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
         let store = makeStore(providers: [claude])
         XCTAssertFalse(store.floatingPetEnabled, "옵트인 기능 — 기본은 꺼짐")
@@ -371,7 +376,7 @@ final class UsageStoreTests: XCTestCase {
     }
 
     /// Always facing back is a display preference: default off, persisted like the floating pet settings.
-    func testAlwaysFacesBackDefaultsOffAndPersists() {
+    func testAlwaysFacesBackDefaultsOffAndPersists() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
         let store = makeStore(providers: [claude])
         XCTAssertFalse(store.alwaysFacesBack)
@@ -380,7 +385,7 @@ final class UsageStoreTests: XCTestCase {
     }
 
     /// Bubble picker is pure: critical beats warn; within a tier higher utilization wins (stable choice).
-    func testBubbleAlertPicksHighestSeverityThenUtilization() {
+    func testBubbleAlertPicksHighestSeverityThenUtilization() async {
         let warnLow = UsageStore.LimitAlert(key: "a", window: "A", isCritical: false, utilization: 81)
         let warnHigh = UsageStore.LimitAlert(key: "b", window: "B", isCritical: false, utilization: 90)
         let critLow = UsageStore.LimitAlert(key: "c", window: "C", isCritical: true, utilization: 95)
@@ -392,7 +397,7 @@ final class UsageStoreTests: XCTestCase {
     }
 
     /// 6s auto-dismiss is a pure time check — testable without AppKit / Task.sleep.
-    func testBubbleDismissUsesTTL() {
+    func testBubbleDismissUsesTTL() async {
         let shown = Date(timeIntervalSince1970: 1_000)
         XCTAssertFalse(UsageStore.shouldDismissBubble(shownAt: shown, now: shown.addingTimeInterval(5.9)))
         XCTAssertTrue(UsageStore.shouldDismissBubble(shownAt: shown, now: shown.addingTimeInterval(6)))
@@ -431,7 +436,7 @@ final class UsageStoreTests: XCTestCase {
     // MARK: 프로바이더 상태(인시던트) 표시
 
     /// statuspage.io status.json 파싱(순수) — indicator/description 매핑 + 미지값 unknown + malformed nil.
-    func testProviderStatusParse() {
+    func testProviderStatusParse() async {
         let s = StatuspageStatusProvider.parse(Data(#"{"page":{"name":"Claude"},"status":{"indicator":"minor","description":"Partially Degraded Service"}}"#.utf8))
         XCTAssertEqual(s?.indicator, .minor)
         XCTAssertEqual(s?.description, "Partially Degraded Service")
@@ -446,7 +451,7 @@ final class UsageStoreTests: XCTestCase {
 
     /// [회귀] OpenAI 전역 상태가 이미지 생성 장애로 minor 여도 Codex API 구성요소가 정상이면
     /// Codex 탭에 "일부 장애"를 표시하면 안 된다.
-    func testCodexStatusIgnoresUnrelatedGlobalIncident() {
+    func testCodexStatusIgnoresUnrelatedGlobalIncident() async {
         let data = Data(#"""
         {
           "status":{"indicator":"minor","description":"Partial System Degradation"},
@@ -463,7 +468,7 @@ final class UsageStoreTests: XCTestCase {
     }
 
     /// 실제 해당 구성요소가 저하됐을 때는 경고를 유지한다.
-    func testProviderComponentDegradationMapsToIssue() {
+    func testProviderComponentDegradationMapsToIssue() async {
         let data = Data(#"{"components":[{"name":"Claude Code","status":"degraded_performance"}]}"#.utf8)
         let status = StatuspageStatusProvider.parseComponent(data, named: "Claude Code")
         XCTAssertEqual(status?.indicator, .minor)
@@ -501,7 +506,7 @@ final class UsageStoreTests: XCTestCase {
 
     /// 회귀(#사용자리포트): 경고선 80% 로 두면 80·81·84·90·94 매 갱신마다 반복 알림되던 문제.
     /// 이제 같은 tier 유지 중엔 재알림하지 않고, 위험선 통과 시에만 1회 추가 발화.
-    func testLimitAlertFiresOncePerTierNotEveryRefresh() {
+    func testLimitAlertFiresOncePerTierNotEveryRefresh() async {
         var tiers: [String: Int] = [:]
         func eval(_ util: Double) -> [UsageStore.LimitAlert] {
             UsageStore.evaluateLimitAlerts(windows: [("주간", "주간", util)], warn: 80, crit: 95, tiers: &tiers)
@@ -518,7 +523,7 @@ final class UsageStoreTests: XCTestCase {
 
     /// 휘발성 resets_at 회귀 직접 재현: 같은 utilization 을 여러 번(= 매 fetch resets_at 만 달라지던
     /// 상황) 평가해도, 판정이 resets_at 를 아예 받지 않으므로 최초 1회만 발화.
-    func testLimitAlertDoesNotRefireOnRepeatedSameUtilization() {
+    func testLimitAlertDoesNotRefireOnRepeatedSameUtilization() async {
         var tiers: [String: Int] = [:]
         XCTAssertEqual(UsageStore.evaluateLimitAlerts(windows: [("주간", "주간", 90)], warn: 80, crit: 95, tiers: &tiers).count, 1)
         XCTAssertTrue(UsageStore.evaluateLimitAlerts(windows: [("주간", "주간", 90)], warn: 80, crit: 95, tiers: &tiers).isEmpty)
@@ -526,7 +531,7 @@ final class UsageStoreTests: XCTestCase {
     }
 
     /// 경고선 아래로 내려가면(창 리셋 등) 재무장 — 다음 상승 시 새 에피소드로 다시 1회 발화.
-    func testLimitAlertRearmsAfterDroppingBelowWarn() {
+    func testLimitAlertRearmsAfterDroppingBelowWarn() async {
         var tiers: [String: Int] = [:]
         _ = UsageStore.evaluateLimitAlerts(windows: [("주간", "주간", 82)], warn: 80, crit: 95, tiers: &tiers)
         XCTAssertTrue(UsageStore.evaluateLimitAlerts(windows: [("주간", "주간", 40)], warn: 80, crit: 95, tiers: &tiers).isEmpty)
@@ -536,7 +541,7 @@ final class UsageStoreTests: XCTestCase {
     }
 
     /// 여러 창은 독립 추적 — 5h 가 이미 위험 발화해도 주간은 자기 임계값에서 별도 1회.
-    func testLimitAlertTracksWindowsIndependently() {
+    func testLimitAlertTracksWindowsIndependently() async {
         var tiers: [String: Int] = [:]
         let first = UsageStore.evaluateLimitAlerts(
             windows: [("5시간", "5시간", 96), ("주간", "주간", 50)], warn: 80, crit: 95, tiers: &tiers)
@@ -550,7 +555,7 @@ final class UsageStoreTests: XCTestCase {
     /// 과거엔 표시명을 식별자로 써서 Codex 다중 bucket 의 개인 한도(둘 다 "Codex 개인 한도")나
     /// legacy opus 필드 vs weekly_scoped Opus 엔트리가 서로의 tier 를 덮어써 한쪽 알림이 억제됐다.
     /// 이제 key 가 다르면 표시명이 같아도 각자 1회씩 발화한다.
-    func testLimitAlertKeyDisambiguatesDuplicateDisplayNames() {
+    func testLimitAlertKeyDisambiguatesDuplicateDisplayNames() async {
         var tiers: [String: Int] = [:]
         // 같은 표시명("Codex 개인 한도"), 다른 key — 두 bucket 이 동시에 경고선을 넘음.
         let alerts = UsageStore.evaluateLimitAlerts(
@@ -691,7 +696,7 @@ final class UsageStoreTests: XCTestCase {
         }
     }
 
-    func testGrowthSettingPersistsAndSavedGrowthIsAvailableBeforeUsageLoads() {
+    func testGrowthSettingPersistsAndSavedGrowthIsAvailableBeforeUsageLoads() async {
         let store = makeStore(providers: [])
         XCTAssertFalse(store.showGrowthInMenu)
         XCTAssertEqual(store.menuLines, ["—"])
@@ -705,7 +710,7 @@ final class UsageStoreTests: XCTestCase {
     // MARK: 한도 표시 방식 (used / remaining)
 
     /// 표시 변환 순수 판정 — remaining = 100−사용률, 0 하한(사용률 100 초과 시 음수 금지), 경계 포함.
-    func testLimitDisplayPercentModes() {
+    func testLimitDisplayPercentModes() async {
         XCTAssertEqual(UsageStore.displayPercent(40, mode: .used), 40)
         XCTAssertEqual(UsageStore.displayPercent(40, mode: .remaining), 60)
         XCTAssertEqual(UsageStore.displayPercent(0, mode: .remaining), 100)
@@ -735,7 +740,7 @@ final class UsageStoreTests: XCTestCase {
     }
 
     /// 설정 영속 — 기본은 used(기존 사용자 무변화), remaining 선택은 재시작(같은 defaults 재로드) 후 유지.
-    func testLimitDisplayModePersistsAcrossRestart() {
+    func testLimitDisplayModePersistsAcrossRestart() async {
         let s1 = makeStore(providers: [])
         XCTAssertEqual(s1.limitDisplayMode, .used, "기본값 = used(현행 표시 유지)")
         s1.limitDisplayMode = .remaining
@@ -744,7 +749,7 @@ final class UsageStoreTests: XCTestCase {
     }
 
     /// 설정 영속 — 기본은 powerSaver(이 설정 이전의 고정 캡과 동일), 선택은 재시작 후 유지.
-    func testAnimationQualityPersistsAcrossRestart() {
+    func testAnimationQualityPersistsAcrossRestart() async {
         let s1 = makeStore(providers: [])
         XCTAssertEqual(s1.animationQuality, .powerSaver, "기본값 = powerSaver(기존 동작 보존)")
         s1.animationQuality = .smooth
@@ -940,7 +945,7 @@ final class UsageStoreTests: XCTestCase {
     /// The Settings sliders overlap (warn 50…95, crit 80…100). If warn could sit at or above
     /// crit, a window between them would raise a *critical* alert below the warning line and
     /// the warning tier could never fire. Moving either slider pushes the other one past it.
-    func testWarningStaysBelowCritical() {
+    func testWarningStaysBelowCritical() async {
         let store = makeStore(providers: [])
         store.critThreshold = 80
         store.warnThreshold = 95
@@ -957,7 +962,7 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(testDefaults.double(forKey: "critThreshold"), 80)
     }
 
-    func testStoredThresholdsLoadInOrder() {
+    func testStoredThresholdsLoadInOrder() async {
         testDefaults.set(95.0, forKey: "warnThreshold")
         testDefaults.set(80.0, forKey: "critThreshold")
         let store = makeStore(providers: [])
@@ -1247,7 +1252,7 @@ final class UsageStoreTests: XCTestCase {
 
     /// 기본 등록 프로바이더 레지스트리 무결성 — 비어 있지 않고 id 가 유일.
     /// (새 프로바이더를 배열에 등록하는 단일 지점이 살아있는지 최소 보증.)
-    func testDefaultProviderRegistryHasUniqueIds() {
+    func testDefaultProviderRegistryHasUniqueIds() async {
         let store = UsageStore(autoRefresh: false, defaults: testDefaults)
         let ids = store.registeredProviderIDs
         XCTAssertFalse(ids.isEmpty)
@@ -1552,7 +1557,7 @@ final class UsageStoreTests: XCTestCase {
 
     // MARK: friendlyLimitError 매핑
 
-    func testFriendlyLimitErrorMapping() {
+    func testFriendlyLimitErrorMapping() async {
         let l = L(.en)
         XCTAssertEqual(UsageStore.friendlyLimitError(LimitsError.httpStatus(401), l), l.limitRefreshHTTPError(401))
         XCTAssertEqual(UsageStore.friendlyLimitError(LimitsError.httpStatus(500), l), l.limitRefreshHTTPError(500))
@@ -1567,7 +1572,7 @@ final class UsageStoreTests: XCTestCase {
 
     /// 자격증명 항목이 MCP 서버 OAuth 상태만 담고 계정 토큰(`claudeAiOauth`)은 없는 경우
     /// (Claude Code 2.1.x 에서 관측) — 형식 오류로 뭉뚱그리면 "재로그인하면 된다"를 안내 못 한다.
-    func testAccountOAuthMissingIsDistinguishedFromMalformedCredential() {
+    func testAccountOAuthMissingIsDistinguishedFromMalformedCredential() async {
         func data(_ json: String) -> Data { Data(json.utf8) }
 
         XCTAssertTrue(OAuthCredentialData.isAccountOAuthMissing(
@@ -1800,13 +1805,13 @@ extension UsageStoreTests {
         XCTAssertTrue(makeStore(providers: [claude, codex]).isProviderEnabled("codex"))
     }
 
-    func testMenuLimitColorModePersists() {
+    func testMenuLimitColorModePersists() async {
         let store = makeStore(providers: [])
         store.menuLimitColorMode = .attention
         XCTAssertEqual(makeStore(providers: []).menuLimitColorMode, .attention)
     }
 
-    func testDailyTrendWindowDefaultsTo14DaysAndPersists() {
+    func testDailyTrendWindowDefaultsTo14DaysAndPersists() async {
         let store = makeStore(providers: [])
         XCTAssertEqual(store.dailyTrendWindow, .d14, "Default daily trend window must be 14 days")
 
@@ -1872,7 +1877,7 @@ extension UsageStoreTests {
         XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), ["Claude 40%"])
     }
 
-    func testHeadlineWindowPicksTheSessionThenTheWeeklyWindow() throws {
+    func testHeadlineWindowPicksTheSessionThenTheWeeklyWindow() async throws {
         let now = Date()
         let both = try XCTUnwrap(claudeWeekly(66, resetsIn: 3600, fiveHour: 40, now: now).headlineWindow)
         XCTAssertEqual(both.window.utilization, 40)

@@ -1,101 +1,78 @@
-# Test files NOT built on Windows (relative to this file's directory). Task 7 brings them back one by one.
-# BinaryLocatorTests: testAugmentedEnvironmentPrependsToolPaths expects ':' PATH separators; needs a Windows-aware assertion (Task 7).
+# Test files NOT built on Windows (relative to this file's directory). A file is listed when it needs an Apple-only framework
+# (AppKit, SpriteKit, CoreGraphics drawing, ...), a Mac-only type, or when its assertions do not hold on Windows (reason above the entry).
 AaaNSCachePressureGuardTests.swift
-AccountSessionKeyTests.swift
 ActivityVisualizationTests.swift
 AdditionalClaudeAccountsTests.swift
 AgentURLHandlerTests.swift
-AntigravityGroupLocalizationTests.swift
+# AntigravityRateLimitsProviderTests: needs AntigravityTokenCache (Security)
 AntigravityRateLimitsProviderTests.swift
-AntigravityUsageTests.swift
-AsideUsageTests.swift
+AppLogTests.swift
+# BinaryLocatorTests: testAugmentedEnvironmentPrependsToolPaths expects ':' PATH separators; needs a Windows-aware assertion
 BinaryLocatorTests.swift
 CatchLogRenderingTests.swift
-ClaudeReportedCostTests.swift
 CodexLargeRolloutPerformanceTests.swift
-CodexRateLimitsProviderTests.swift
 CollectionReadabilityRenderingTests.swift
-CompanionDisplayStateTests.swift
-CompanionTests.swift
-CopilotUsageTests.swift
+# CompanionTests+Mac: RelativeDateTimeFormatter (missing from Foundation on Windows)
+CompanionTests+Mac.swift
+CorePlatformRoutingTests.swift
+# CredentialSwitchCacheTests: needs KeychainReader (Security)
 CredentialSwitchCacheTests.swift
-CursorAuthenticationTests.swift
-CursorLimitsTests.swift
-CursorUsageTests.swift
-CustomScanRootsTests.swift
 DailyTrendStackTests.swift
-DevinUsageTests.swift
 DexBackNavigationTests.swift
 DexColorRenderingTests.swift
-DexCompletionStoreTests.swift
+# DexEntryLinkCursorTests: needs DexEntryLink (UI)
 DexEntryLinkCursorTests.swift
-DexNameMigrationTests.swift
 DexPageButtonHitAreaTests.swift
 DexScrollPagerTests.swift
-DexSearchAndFilterTests.swift
 DifficultySaveTests.swift
-DifficultyTests.swift
-DittoTests.swift
 EggPrayerRenderTests.swift
+# EggPrayerTests: needs FloatingPetController (UI)
 EggPrayerTests.swift
 EvoLineLayoutTests.swift
-FakeTeamTransport.swift
 FloatingPetAgentTests.swift
 FloatingPetPettingTests.swift
 FormMetadataNoteRenderingTests.swift
-FreshEggTests.swift
-GeminiUsageTests.swift
 GenerationDexScreenshotTests.swift
-GrokLimitsTests.swift
+# GrokUsageTests: NSData zlib in a helper; the cache is stored uncompressed on Windows (needs Windows-aware assertions)
 GrokUsageTests.swift
-IncrementalStoreScanTests.swift
 IndividualPickerRenderingTests.swift
+# KeychainAutoPathTests: needs KeychainReader (Security)
 KeychainAutoPathTests.swift
-KimiCodeUsageTests.swift
-KiroContentBlockTests.swift
-KiroUsageTests.swift
-KoreanParticleTests.swift
 LanguageSurfaceRegressionTests.swift
-LimitPaceTests.swift
+# LimitPaceTests+Mac: needs LimitProgressBar (UI)
+LimitPaceTests+Mac.swift
 LimitProgressRenderingTests.swift
+# LiveCredentialCallGateTests: needs OAuthLimitsProvider and AntigravityRateLimitsProvider (Security)
 LiveCredentialCallGateTests.swift
-LocalAdditionalUsageTests.swift
+# LocalUsageCacheTests: NSData zlib in several helpers and assertions; the cache is stored uncompressed on Windows (needs Windows-aware assertions)
 LocalUsageCacheTests.swift
-LocalUsageParityTests.swift
+# LocalUsageReaderTests: needs Bundle.module fixtures (the Windows build has no test resources)
 LocalUsageReaderTests.swift
-LocalizationErrorsTests.swift
-LocalizationInterpolationTests.swift
 LoginItemTests.swift
 MenuGrowthTests.swift
 MenuLimitColoringTests.swift
-MintTests.swift
-ModelLogicTests.swift
-ModelPricingTests.swift
 MonthDailyTrendTests.swift
 NetworkReachabilityTests.swift
-OmoUsageTests.swift
-OmpUsageTests.swift
-OpenCodeGoLimitsTests.swift
-PaceTierTests.swift
+# PaceTierTests+Mac: needs PaceTier.color (SwiftUI)
+PaceTierTests+Mac.swift
 PerformanceTests.swift
+# PetEventLineTests: needs FloatingPetController (UI)
 PetEventLineTests.swift
-PiUsageTests.swift
+# PlatformGlobFnmatchTests compares globMatch with the C fnmatch, which Windows does not have
+PlatformGlobFnmatchTests.swift
 PlazaBoardTests.swift
-PlazaCameraTests.swift
 PlazaCampfireArtTests.swift
 PlazaCampfireSceneTests.swift
-PlazaCampfireTests.swift
 PlazaCardTests.swift
 PlazaCharacterTests.swift
 PlazaChatTests.swift
+# PlazaCollisionTests: needs PlazaScene (SpriteKit)
 PlazaCollisionTests.swift
 PlazaControllerLifetimeTests.swift
 PlazaDanceTests.swift
 PlazaDaylightTests.swift
-PlazaDittoBrainTests.swift
 PlazaDittoControllerTests.swift
 PlazaDittoSceneTests.swift
-PlazaDittoTests.swift
 PlazaEmoteTests.swift
 PlazaFireworksTests.swift
 PlazaFocusTests.swift
@@ -106,118 +83,93 @@ PlazaIceArtTests.swift
 PlazaIceControllerTests.swift
 PlazaIceLayerTests.swift
 PlazaIceSceneTests.swift
-PlazaIceTests.swift
 PlazaItemsTests.swift
-PlazaMapTests.swift
+# PlazaMapTests+Mac: needs tests that build a PlazaScene (SpriteKit)
+PlazaMapTests+Mac.swift
 PlazaMembersTests.swift
 PlazaMimicControllerTests.swift
 PlazaMimicSceneTests.swift
-PlazaMimicTests.swift
 PlazaNameColorTests.swift
 PlazaNamePlateTests.swift
 PlazaNatureTests.swift
-PlazaPathfinderTests.swift
-PlazaPhotoFrameTests.swift
 PlazaPhotoModeSceneTests.swift
 PlazaPhotoModeTests.swift
 PlazaPhotoOverlayTests.swift
 PlazaPhotoTests.swift
-PlazaPixelSnapTests.swift
 PlazaPondLayerTests.swift
-PlazaPondMapTests.swift
+# PlazaPondMotionTests: needs PlazaScene (SpriteKit)
 PlazaPondMotionTests.swift
 PlazaPondSceneTests.swift
-PlazaPondTests.swift
+# PlazaPondTests+Mac: needs a test that builds a PlazaActor (SpriteKit)
+PlazaPondTests+Mac.swift
 PlazaPrayTests.swift
 PlazaPullUnderTests.swift
-PlazaRemoteMotionTests.swift
 PlazaResourcesTests.swift
 PlazaRosterPagerTests.swift
 PlazaRosterTests.swift
 PlazaScheduleWiringTests.swift
 PlazaSnowSceneTests.swift
 PlazaSnowSheetTests.swift
-PlazaSnowTests.swift
 PlazaSnowballControllerTests.swift
 PlazaSnowballSceneTests.swift
 PlazaSnowballTests.swift
 PlazaStartleControllerTests.swift
-PlazaStartleTests.swift
 PlazaSwimLowerHalfTests.swift
-PlazaTackleReachTests.swift
 PlazaTackleWaterTests.swift
 PlazaTallGrassArtTests.swift
 PlazaTallGrassLayerTests.swift
-PlazaTallGrassMapTests.swift
 PlazaTallGrassSceneTests.swift
-PlazaTallGrassTests.swift
-PlazaTargetingTests.swift
 PlazaTileArtTests.swift
-PlazaWalkerTests.swift
 PlazaWeatherTests.swift
 PlazaWindowTests.swift
 PokeTokenBarTests.swift
-PokedexRegionTests.swift
-PokemonFormTestSupport.swift
-PokemonFormTests.swift
+# PokemonFormTests+Mac: needs PokemonDetailView (UI)
+PokemonFormTests+Mac.swift
 PokemonNameLocalizationTests.swift
-PokemonProfileTests.swift
 PokemonTypeColorTests.swift
+# PopoverNavigationTests: needs PopoverNavigation (UI)
 PopoverNavigationTests.swift
-PreciousCompanionGuardTests.swift
-PremiumEggTests.swift
-ProfileGrowthIntegrationTests.swift
+# ProgressDetailTests: needs CompanionHeader (UI)
 ProgressDetailTests.swift
 ProviderTabLayoutTests.swift
-RareCandyTests.swift
 RepresentativeFooterLayoutTests.swift
-SaveSnapshotTests.swift
-SaveTransferTests.swift
 ScreenshotGenTests.swift
-SessionKeyLimitsTests.swift
 SessionKeySettingsRenderingTests.swift
-ShinyCharmTests.swift
-ShopTests.swift
+SharedSourcesScanTests.swift
+# ShinyCharmTests+Mac: needs SpriteView (UI)
+ShinyCharmTests+Mac.swift
+# SingleInstanceTests: needs SingleInstance (Mac-only)
 SingleInstanceTests.swift
 SnapshotHistoryRenderingTests.swift
 SpriteAnimationPreviewTests.swift
 SpriteAnimationRecoveryTests.swift
 SpriteAspectRatioTests.swift
-SpriteBackURLTests.swift
 SpriteImageCacheTests.swift
 SpriteSubjectTests.swift
 StandardEditMenuTests.swift
 StatusItemMenuTests.swift
 SulkRenderTests.swift
 SulkTests.swift
-TeamCodeTests.swift
-TeamDialPlannerTests.swift
-TeamEventTests.swift
-TeamFeedStoreTests.swift
+# TeamHostilePeerTests: needs PlazaScene (SpriteKit)
 TeamHostilePeerTests.swift
-TeamLocalizationTests.swift
 TeamNotificationsTests.swift
-TeamProfileBuilderTests.swift
 TeamRuntimeTests.swift
 TeamSessionLoopbackTests.swift
-TeamSessionTests.swift
 TeamSettingsTests.swift
 TeamTransportTests.swift
-TeamWireTests.swift
+# TestDefaultsPoolTests reads CFPreferences directly; the pool is a macOS cfprefsd concern
+TestDefaultsPoolTests.swift
 UnownSpriteTests.swift
 UnownSpriteViewTests.swift
-UnownTests.swift
+# UpdateCheckerTests: needs UpdateChecker (Mac-only)
 UpdateCheckerTests.swift
 UsageCostTests.swift
 UsageRecapTests.swift
-UsageStoreTests.swift
 UsageStreakTests.swift
 ZeroUsageHomeRenderingTests.swift
-# TestDefaultsPoolTests reads CFPreferences directly; the pool is a macOS cfprefsd concern
-TestDefaultsPoolTests.swift
-# CorePlatformRoutingTests exercises UsageStore/CompanionStore and the Mac* platform types
-CorePlatformRoutingTests.swift
-# from main after the split; their subjects are still Mac-only
+# from main after the split; not yet tried in the shared set
 ParkedDitto.swift
 PlazaActivityControllerTests.swift
 PlazaActivityTests.swift
+# from main (#134): builds the scene
+PlazaSeasonTests.swift

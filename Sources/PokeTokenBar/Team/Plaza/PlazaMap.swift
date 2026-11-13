@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 /// 광장 지도의 칸 좌표. y는 아래로 증가한다.
 struct TilePoint: Hashable, Codable, Sendable {

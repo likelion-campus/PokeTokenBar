@@ -106,7 +106,10 @@ final class CustomScanRootsTests: XCTestCase {
 
     /// `/` is an ancestor of every curated path, but `extra + "/"` is `"//"` so a naive
     /// prefix check misses it and the refresh would walk the whole disk.
-    func testRootFilesystemCustomDoesNotEvictCuratedDefault() {
+    func testRootFilesystemCustomDoesNotEvictCuratedDefault() throws {
+        #if os(Windows)
+        throw XCTSkip("a custom root of a bare slash has no meaning on Windows (drive roots); not yet Windows-aware")
+        #endif
         let home = tempDir()
         let curated = [home.appendingPathComponent(".claude/projects")]
         try? FileManager.default.createDirectory(at: curated[0], withIntermediateDirectories: true)
@@ -153,7 +156,7 @@ final class CustomScanRootsTests: XCTestCase {
     // MARK: UsageStore persistence
 
     @MainActor
-    func testUsageStorePersistsPerProviderAndLeavesOthersAlone() {
+    func testUsageStorePersistsPerProviderAndLeavesOthersAlone() async {
         let suite = "ptb.store.scan.\(UUID().uuidString)"
         let defaults = TestDefaults.make(suite: suite)
         let store = UsageStore(autoRefresh: false, defaults: defaults)
@@ -349,7 +352,7 @@ final class CustomScanRootsTests: XCTestCase {
     /// Every registered provider must consult its own key. A flat shared list is the
     /// contamination hazard #177 forbids (Gemini `allowJSON` picking up Claude `.meta.json`).
     @MainActor
-    func testEveryRegisteredProviderConsultsItsOwnCustomScanRootsKey() throws {
+    func testEveryRegisteredProviderConsultsItsOwnCustomScanRootsKey() async throws {
         let suite = "ptb.scan.sweep.\(UUID().uuidString)"
         let defaults = TestDefaults.make(suite: suite)
         let ids = UsageStore(autoRefresh: false, defaults: defaults).registeredProviderIDs
@@ -362,7 +365,7 @@ final class CustomScanRootsTests: XCTestCase {
             .appendingPathComponent("Sources/PokeTokenBar")
         var corpus = ""
         let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
+        for case let url as URL in enumerator.allObjects where url.pathExtension == "swift" {
             corpus += (try String(contentsOf: url, encoding: .utf8)) + "\n"
         }
 

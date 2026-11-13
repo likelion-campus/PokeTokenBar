@@ -297,7 +297,7 @@ final class UsageStore {
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
     private var timer: Timer?
-    private var networkMonitor: NetworkReachabilityMonitor?
+    private var networkMonitor: (any ReachabilityMonitoring)?
     private var pollingSuspended = false   // 디스플레이 꺼짐 동안 폴링 정지 (배터리)
     /// 정지 중에만 도는 저빈도 점검. screensDidWake 를 놓치면 폴링이 영영 안 돌아와 마지막 스냅샷
     /// (자정에 기록된 빈 스냅샷 등)이 재시작 전까지 굳었다(#350).
@@ -900,7 +900,7 @@ final class UsageStore {
          // 세션 키 우선, 없거나 죽었으면 기존 Keychain/파일 OAuth 경로. 두 인자는 같은
          // SessionKeyLimitsProvider 인스턴스를 봐야 한다 — 설정 화면이 고른 조직을 조회 경로가 써야 하므로.
          claudeLimitsProvider: any ClaudeLimitsProviding = ChainedLimitsProvider(
-            primary: SessionKeyLimitsProvider.shared, fallback: OAuthLimitsProvider()),
+            primary: SessionKeyLimitsProvider.shared, fallback: PlatformLimits.current.claudeOAuth(configRoot: nil)),
          additionalClaudeLimitsProvider: @escaping @Sendable (URL) -> any ClaudeLimitsProviding = {
             ChainedLimitsProvider.forConfigRoot($0)
          },
@@ -914,7 +914,7 @@ final class UsageStore {
             ClaudePromptHistory.installedPrompts(configDir: $0)
          },
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
-         antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
+         antigravityLimitsProvider: any AntigravityLimitsProviding = PlatformLimits.current.antigravity(),
          cursorLimitsProvider: any CursorLimitsProviding = CursorRateLimitsProvider(),
          openCodeGoLimitsProvider: any OpenCodeGoLimitsProviding = OpenCodeGoRateLimitsProvider(),
          grokLimitsProvider: any GrokLimitsProviding = GrokRateLimitsProvider(),
@@ -1002,7 +1002,7 @@ final class UsageStore {
 
         // 네트워크 재연결 시 즉시 갱신 (오프라인/슬립 복귀/와이파이 전환 후 주기 타이머 대기 없이 한도·부화 갱신)
         if AppEnv.isBundledApp {
-            let net = NetworkReachabilityMonitor()
+            let net = PlatformNetwork.current.makeReachabilityMonitor()
             net.onReconnected = { [weak self] in
                 Task { @MainActor [weak self] in
                     await self?.refresh()
@@ -2083,10 +2083,11 @@ final class UsageStore {
     /// 팝오버 첫 오픈 등 사용자 의도 시점에 1회만 알림 권한 요청(멱등).
     func requestNotificationAuthorizationIfNeeded() {
         guard !notifAuthRequested else { return }
-        guard Platform.current.notifications.isAvailable else { return }
+        let notifications = Platform.current.notifications
+        guard notifications.isAvailable else { return }
         notifAuthRequested = true
         Task {
-            _ = await Platform.current.notifications.requestAuthorization()
+            _ = await notifications.requestAuthorization()
         }
     }
 

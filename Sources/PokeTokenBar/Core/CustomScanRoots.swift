@@ -28,18 +28,19 @@ enum CustomScanRoots {
         for part in raw.split(whereSeparator: { $0 == "," || $0.isNewline }) {
             let pattern = part.trimmingCharacters(in: .whitespaces)
             guard !pattern.isEmpty else { continue }
-            let absolute = NSString(string: pattern).expandingTildeInPath
-            guard absolute.hasPrefix("/") else { continue }
+            let absolute = PlatformCompat.expandingTilde(pattern)
+            guard PlatformCompat.isAbsolutePath(absolute) else { continue }
 
-            var paths = [""]
-            for segment in absolute.split(separator: "/").map(String.init) {
+            let split = PlatformCompat.splitRoot(absolute)
+            var paths = [split.base]
+            for segment in split.rest.split(separator: "/").map(String.init) {
                 if segment.contains("*") || segment.contains("?") || segment.contains("[") {
                     var next: [String] = []
                     for base in paths {
-                        guard let names = try? fm.contentsOfDirectory(atPath: base.isEmpty ? "/" : base)
+                        guard let names = try? fm.contentsOfDirectory(atPath: PlatformCompat.listablePath(base))
                         else { continue }
                         next.append(contentsOf: names.sorted()
-                            .filter { fnmatch(segment, $0, 0) == 0 }
+                            .filter { PlatformCompat.matchesGlob(segment, $0) }
                             .map { base + "/" + $0 })
                     }
                     paths = next
@@ -47,7 +48,7 @@ enum CustomScanRoots {
                     paths = paths.map { $0 + "/" + segment }
                 }
             }
-            if paths == [""] { paths = ["/"] }
+            if paths == [split.base] { paths = [PlatformCompat.listablePath(split.base)] }
             var isDir: ObjCBool = false
             out.append(contentsOf: paths
                 .filter { fm.fileExists(atPath: $0, isDirectory: &isDir) && isDir.boolValue }

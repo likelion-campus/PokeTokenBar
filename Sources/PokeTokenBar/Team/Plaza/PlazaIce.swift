@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 /// 마지막으로 깨진 연못: 깬 사람의 벽시계(유닉스 초, `TeamEmote.danceSince` 와 같은 약속)와 그 연못의 기준 칸.
 /// 점프 이모트와 프레즌스에 실려 간다.

@@ -1,4 +1,8 @@
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 import XCTest
 @testable import PokeTokenBar
 
@@ -199,7 +203,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
     }
 
     @MainActor
-    func testDefaultRegistryIncludesOnlyRequestedAdditionalProviders() {
+    func testDefaultRegistryIncludesOnlyRequestedAdditionalProviders() async {
         let suite = "LocalAdditionalUsageTests.registry.\(UUID().uuidString)"
         let defaults = TestDefaults.make(suite: suite)
         let store = UsageStore(autoRefresh: false, defaults: defaults)

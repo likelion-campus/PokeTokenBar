@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 /// 눈 오는 날 광장의 규칙. SpriteKit과 무관한 값 타입이다.
 enum PlazaSnow {

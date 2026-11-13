@@ -1,5 +1,12 @@
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 import XCTest
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import PokeTokenBar
 
 /// Drive both production fetchers with synthetic SQLite logins and injected network boundaries.
@@ -29,7 +36,12 @@ final class CursorAuthenticationTests: XCTestCase {
         CursorUsageAPI.cacheFileURLForTesting = nil
         CursorUsageAPI.resetCacheForTesting()
         CursorRateLimitsProvider.transportForTesting = nil
-        try FileManager.default.removeItem(at: directory)
+        // Windows can briefly refuse to delete a just-written database (a scanner or the closing handle still holds
+        // it; seen once on CI as "permission denied" on state.vscdb). Retry before failing.
+        for attempt in 0..<5 {
+            do { try FileManager.default.removeItem(at: directory); break }
+            catch { if attempt == 4 { throw error }; Thread.sleep(forTimeInterval: 0.3) }
+        }
         directory = nil
         root = nil
     }
@@ -307,6 +319,7 @@ final class CursorAuthenticationTests: XCTestCase {
         var db: OpaquePointer?
         XCTAssertEqual(sqlite3_open(root.appendingPathComponent("state.vscdb").path, &db), SQLITE_OK)
         defer { sqlite3_close(db) }
+        sqlite3_busy_timeout(db, 2000)   // Windows can report SQLITE_BUSY on a fresh file while it is still being scanned
         XCTAssertEqual(sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS ItemTable (key TEXT UNIQUE, value BLOB); DELETE FROM ItemTable;", nil, nil, nil), SQLITE_OK)
         for (key, value) in [("cursorAuth/accessToken", access), ("cursorAuth/refreshToken", refresh)] {
             guard let value else { continue }

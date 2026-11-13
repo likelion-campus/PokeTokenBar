@@ -355,7 +355,7 @@ private actor SuspendedProfileProvider: PokeProviding, PokemonDetailProviding {
 
 @MainActor
 final class PokemonProfileMigrationTests: XCTestCase {
-    func testCorruptProfileRegeneratesWithoutDroppingPokemon() throws {
+    func testCorruptProfileRegeneratesWithoutDroppingPokemon() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("profile-recovery-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -403,7 +403,7 @@ final class PokemonProfileMigrationTests: XCTestCase {
                        "a migrated individual must not be regenerated on restart")
     }
 
-    func testReleasedLegacyEntryUsesReachedChainAsGrowthUpperBound() throws {
+    func testReleasedLegacyEntryUsesReachedChainAsGrowthUpperBound() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("released-profile-migration-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -428,7 +428,7 @@ final class PokemonProfileMigrationTests: XCTestCase {
         XCTAssertLessThan(profile.level, 100)
     }
 
-    func testPokemonIndividualsIncludesSyntheticActiveAndMatchingStoredIndividuals() throws {
+    func testPokemonIndividualsIncludesSyntheticActiveAndMatchingStoredIndividuals() async throws {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("profile-individuals-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

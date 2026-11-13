@@ -28,51 +28,51 @@ final class PreciousCompanionGuardTests: XCTestCase {
         return CompanionStore(provider: NoOpProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 1))
     }
 
-    func testHighValueCompanionIdentifiesLegendaryNonShiny() {
+    func testHighValueCompanionIdentifiesLegendaryNonShiny() async {
         let s = store(rarity: .legendary, shiny: false)
         XCTAssertEqual(s.rarity, .legendary)
         XCTAssertFalse(s.currentIsShiny)
         XCTAssertTrue(s.isHighValueCompanion, "전설 포켓몬은 비-이로치라도 고가치 개체로 판정되어 2단계 확인을 거친다")
     }
 
-    func testHighValueCompanionIdentifiesShinyNonLegendary() {
+    func testHighValueCompanionIdentifiesShinyNonLegendary() async {
         let s = store(rarity: .common, shiny: true)
         XCTAssertEqual(s.rarity, .common)
         XCTAssertTrue(s.currentIsShiny)
         XCTAssertTrue(s.isHighValueCompanion, "이로치 포켓몬은 일반 등급이라도 고가치 개체로 판정된다")
     }
 
-    func testHighValueCompanionIdentifiesShinyLegendary() {
+    func testHighValueCompanionIdentifiesShinyLegendary() async {
         let s = store(rarity: .legendary, shiny: true)
         XCTAssertEqual(s.rarity, .legendary)
         XCTAssertTrue(s.currentIsShiny)
         XCTAssertTrue(s.isHighValueCompanion, "이로치 전설 포켓몬은 고가치 개체로 판정된다")
     }
 
-    func testHighValueCompanionExcludesCommonNonShiny() {
+    func testHighValueCompanionExcludesCommonNonShiny() async {
         let s = store(rarity: .common, shiny: false)
         XCTAssertFalse(s.isHighValueCompanion, "일반 비-이로치 포켓몬은 2단계 경고 없이 즉시 교체 가능")
     }
 
-    func testHighValueCompanionExcludesUncommonNonShiny() {
+    func testHighValueCompanionExcludesUncommonNonShiny() async {
         let s = store(rarity: .uncommon, shiny: false)
         XCTAssertFalse(s.isHighValueCompanion, "고급 비-이로치 포켓몬은 일반 확인만 거친다")
     }
 
-    func testHighValueCompanionExcludesRareNonShinyToAvoidRerollFatigue() {
+    func testHighValueCompanionExcludesRareNonShinyToAvoidRerollFatigue() async {
         let s = store(rarity: .rare, shiny: false)
         XCTAssertEqual(s.rarity, .rare)
         XCTAssertFalse(s.currentIsShiny)
         XCTAssertFalse(s.isHighValueCompanion, "희귀(rare) 등급은 희귀 알 반복 리롤 피로도를 막기 위해 2단계 경고 대상에서 제외한다")
     }
 
-    func testHighValueCompanionIsFalseWhenNoActive() {
+    func testHighValueCompanionIsFalseWhenNoActive() async {
         let s = store(active: false)
         XCTAssertFalse(s.hasActive)
         XCTAssertFalse(s.isHighValueCompanion)
     }
 
-    func testDisguisedDittoDoesNotLeakHighValueStatusBeforeReveal() {
+    func testDisguisedDittoDoesNotLeakHighValueStatusBeforeReveal() async {
         // 이로치 메타몽이 일반 포켓몬으로 위장 중인 경우
         let s = store(rarity: .common, shiny: true, dittoDisguise: 10, dittoRevealed: false)
         XCTAssertFalse(s.currentIsShiny, "위장 중인 메타몽은 이로치를 숨긴다")
@@ -85,7 +85,7 @@ final class PreciousCompanionGuardTests: XCTestCase {
         XCTAssertTrue(revealed.isHighValueCompanion, "리빌 후에는 이로치가 드러나 고가치 개체로 판정된다")
     }
 
-    func testLocalizationStringsCoverAllSevenLanguages() {
+    func testLocalizationStringsCoverAllSevenLanguages() async {
         for lang in AppLanguage.allCases {
             let l = L(lang)
             XCTAssertFalse(l.freshEggLegendaryWarning.isEmpty, "전설 경고 문구가 모든 언어(\(lang))에 존재해야 함")

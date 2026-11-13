@@ -27,12 +27,12 @@ final class FreshEggTests: XCTestCase {
         return CompanionStore(provider: FreshEggNoProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 7))
     }
 
-    func testPriceIsOneBillion() { XCTAssertEqual(FreshEgg.price, 1_000_000_000) }
+    func testPriceIsOneBillion() async { XCTAssertEqual(FreshEgg.price, 1_000_000_000) }
 
     /// [핵심] 리롤 = 놓아줌: active 사라지고 새 알(eggUsage 0).
     /// 도감에는 **놓아줌 기록으로 남고**, 확률 가중(collectedFinals)은 여전히 불변이다 —
     /// 끝까지 키운 게 아니므로 최종체 완성으로 세지 않는다.
-    func testBuyFreshEggReleasesIntoDexWithoutProbabilityImpact() {
+    func testBuyFreshEggReleasesIntoDexWithoutProbabilityImpact() async {
         let s = store(used: 5_000_000_000, spent: 0)
         let persistedDexBefore = s.state.dex
         let collectedBefore = s.state.collectedFinals
@@ -64,7 +64,7 @@ final class FreshEggTests: XCTestCase {
     /// 이게 이 기능의 존재 이유다. 도감은 "쌓이기만 한다"는 약속을 주는데, 알 구매가 유일하게
     /// 그 약속을 깨는 경로였다 — 현재 개체에서만 오던 종이 통째로 빠져 종 수가 줄었다.
     /// `state.dex` 에 남기는 대신 `state.active = nil` 만 하면 이 테스트가 실패한다(주입 확인함).
-    func testReleasedSpeciesStaysInTheDex() {
+    func testReleasedSpeciesStaysInTheDex() async {
         let s = store()
         XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 }, "육성 중엔 도감에 보인다")
         XCTAssertTrue(s.buyFreshEgg())
@@ -75,7 +75,7 @@ final class FreshEggTests: XCTestCase {
     }
 
     /// 폐기한 개체(baseID 10)의 종은 collectedFinals 에 들어가지 않는다(이후 부화 확률에 영향 없음).
-    func testDiscardedSpeciesNotCollected() {
+    func testDiscardedSpeciesNotCollected() async {
         let s = store()
         XCTAssertTrue(s.buyFreshEgg())
         XCTAssertFalse(s.state.collectedFinals.contains { $0.hasPrefix("10:") },
@@ -83,7 +83,7 @@ final class FreshEggTests: XCTestCase {
     }
 
     /// 알 상태(활성 없음)에선 리롤할 게 없어 불가.
-    func testCannotRerollWhenEgg() {
+    func testCannotRerollWhenEgg() async {
         let s = store(active: false, used: 5_000_000_000)
         XCTAssertFalse(s.hasActive)
         XCTAssertFalse(s.canBuyFreshEgg)
@@ -92,7 +92,7 @@ final class FreshEggTests: XCTestCase {
     }
 
     /// 잔액이 가격 미만이면 불가 — 활성 유지.
-    func testCannotRerollWithoutFunds() {
+    func testCannotRerollWithoutFunds() async {
         let s = store(used: 500_000_000)   // 1B 미만
         XCTAssertFalse(s.canBuyFreshEgg)
         XCTAssertFalse(s.buyFreshEgg())
@@ -101,7 +101,7 @@ final class FreshEggTests: XCTestCase {
     }
 
     /// 이로치도 폐기 가능(추가 경고는 UI 단계, 로직은 동일) — 리롤 후 흔적 없음.
-    func testShinyCanBeRerolled() {
+    func testShinyCanBeRerolled() async {
         let s = store(shiny: true)
         XCTAssertTrue(s.currentIsShiny)
         XCTAssertTrue(s.buyFreshEgg())

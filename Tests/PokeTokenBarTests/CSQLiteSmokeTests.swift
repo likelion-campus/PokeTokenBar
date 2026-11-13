@@ -1,6 +1,10 @@
 import XCTest
 #if canImport(SQLite3)
+#if canImport(SQLite3)
 import SQLite3
+#else
+import CSQLite
+#endif
 #else
 import CSQLite
 #endif

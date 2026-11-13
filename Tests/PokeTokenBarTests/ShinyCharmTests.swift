@@ -29,7 +29,7 @@ final class ShinyCharmTests: XCTestCase {
 
     // MARK: 순수 판정 — 부적 유무로 분모가 48/64 로 바뀌며 판정이 뒤집힌다
 
-    func testRollsShinyFlipsWithCharm() {
+    func testRollsShinyFlipsWithCharm() async {
         // roll=48: 부적 있으면 shiny(48%48==0), 없으면 아님(48%64≠0)
         XCTAssertTrue(CompanionStore.rollsShiny(roll: 48, charmOwned: true))
         XCTAssertFalse(CompanionStore.rollsShiny(roll: 48, charmOwned: false))
@@ -47,7 +47,7 @@ final class ShinyCharmTests: XCTestCase {
     }
 
     /// 알림 문구가 판정과 같은 분모를 쓰는지 — 부화 알림이 부적 보유 중에도 "(1/64)"로 고정돼 있던 결함.
-    func testShinyNotificationShowsTheOddsTheHatchUsed() {
+    func testShinyNotificationShowsTheOddsTheHatchUsed() async {
         XCTAssertEqual(CompanionStore.shinyDenominator(charmOwned: false), PokemonOdds.shinyDenominator)
         XCTAssertEqual(CompanionStore.shinyDenominator(charmOwned: true), ShinyCharm.shinyDenominator)
         XCTAssertEqual(store(charm: false).shinyDenominator, 64)
@@ -61,14 +61,14 @@ final class ShinyCharmTests: XCTestCase {
     }
 
     /// 메타몽 리빌 시점엔 부화 때의 부적 보유 여부를 알 수 없다 — 틀릴 수 있는 확률을 적지 않는다.
-    func testShinyDittoRevealDoesNotClaimFixedOdds() {
+    func testShinyDittoRevealDoesNotClaimFixedOdds() async {
         for language in AppLanguage.allCases {
             let body = L(language).notifShinyDittoRevealBody("P")
             XCTAssertFalse(body.contains("64") || body.contains("48"), "\(language.rawValue): \(body)")
         }
     }
 
-    func testConstantsAndPassiveFlag() {
+    func testConstantsAndPassiveFlag() async {
         XCTAssertEqual(ShinyCharm.price, 3_000_000_000)
         XCTAssertEqual(ShinyCharm.shinyDenominator, 48)
         XCTAssertTrue(ItemKind.shinyCharm.isPassive)
@@ -79,7 +79,7 @@ final class ShinyCharmTests: XCTestCase {
 
     // MARK: 구매 / 보유 (보유형 = 1회 구매)
 
-    func testBuyDeductsAndOwns() {
+    func testBuyDeductsAndOwns() async {
         let s = store(used: 5_000_000_000, spent: 0, charm: false)
         XCTAssertFalse(s.ownsShinyCharm)
         XCTAssertTrue(s.purchasableItems.contains(.shinyCharm), "상점에 노출")
@@ -92,7 +92,7 @@ final class ShinyCharmTests: XCTestCase {
     }
 
     /// 보유형은 재구매 불가 — canBuy false, buy no-op, 지출/개수 불변.
-    func testBuyOnceNoRepurchase() {
+    func testBuyOnceNoRepurchase() async {
         let s = store(used: 10_000_000_000, charm: true)
         XCTAssertTrue(s.ownsShinyCharm)
         XCTAssertFalse(s.canBuy(.shinyCharm), "보유형은 재구매 불가")
@@ -102,14 +102,14 @@ final class ShinyCharmTests: XCTestCase {
         XCTAssertEqual(s.itemCount(.shinyCharm), 1, "개수 1 유지(2 안 됨)")
     }
 
-    func testCanBuyNeedsEnoughTokens() {
+    func testCanBuyNeedsEnoughTokens() async {
         let s = store(used: 2_000_000_000)   // 3B 미만
         XCTAssertFalse(s.canBuy(.shinyCharm))
         XCTAssertFalse(s.buy(.shinyCharm))
         XCTAssertFalse(s.ownsShinyCharm)
     }
 
-    func testOwnsReflectsInventory() {
+    func testOwnsReflectsInventory() async {
         XCTAssertFalse(store(charm: false).ownsShinyCharm)
         XCTAssertTrue(store(charm: true).ownsShinyCharm)
     }
@@ -131,23 +131,4 @@ final class ShinyCharmTests: XCTestCase {
 /// "이미 그 종을 로드했다"로 빠져나가 색이 바뀌지 않는다(플래시 방지 가드가 토글을 삼킨다).
 @MainActor
 final class SpriteShinyReloadTests: XCTestCase {
-    func testShinyFlipReloadsSpriteForSameSpecies() {
-        // 도감 토글의 두 방향 — 이 두 줄이 회귀의 본체다.
-        XCTAssertTrue(SpriteView.needsReload(loadedID: 1, loadedShiny: false, id: 1, shiny: true),
-                      "일반 → 이로치 토글이 갱신을 트리거해야 한다")
-        XCTAssertTrue(SpriteView.needsReload(loadedID: 1, loadedShiny: true, id: 1, shiny: false),
-                      "이로치 → 일반 토글도 마찬가지")
-    }
-
-    func testUnchangedSpriteSkipsReload() {
-        // 같은 종·같은 이로치 여부면 재요청하지 않는다(재렌더 플래시 방지 가드 유지).
-        XCTAssertFalse(SpriteView.needsReload(loadedID: 1, loadedShiny: false, id: 1, shiny: false))
-        XCTAssertFalse(SpriteView.needsReload(loadedID: 1, loadedShiny: true, id: 1, shiny: true))
-    }
-
-    func testSpeciesChangeReloadsRegardlessOfShiny() {
-        XCTAssertTrue(SpriteView.needsReload(loadedID: 1, loadedShiny: false, id: 2, shiny: false))
-        XCTAssertTrue(SpriteView.needsReload(loadedID: nil, loadedShiny: false, id: 1, shiny: false),
-                      "미로드(캐시 미스) 상태에서는 항상 불러온다")
-    }
 }

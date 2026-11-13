@@ -29,8 +29,8 @@ enum ClaudeAccountRoots {
             guard !trimmed.isEmpty else { continue }
             let expanded = trimmed == "~" || trimmed.hasPrefix("~/")
                 ? home.path + trimmed.dropFirst()
-                : NSString(string: trimmed).expandingTildeInPath
-            guard expanded.hasPrefix("/") else { continue }
+                : PlatformCompat.expandingTilde(trimmed)
+            guard PlatformCompat.isAbsolutePath(expanded) else { continue }
             let url = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),

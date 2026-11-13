@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 /// 풀숲 한 칸이 시트에서 쓸 조각. 이웃 풀숲에 따라 3×3 중 하나를 고른다.
 struct PlazaTallGrassSlice: Hashable, Sendable {

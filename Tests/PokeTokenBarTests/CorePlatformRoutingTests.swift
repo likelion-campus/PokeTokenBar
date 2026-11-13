@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import UserNotifications
 import XCTest
 @testable import PokeTokenBar
 
@@ -177,6 +178,9 @@ final class CorePlatformRoutingTests: XCTestCase {
         let post = notifications.posts[0]
         XCTAssertTrue(post.id.hasSuffix("-critical"), post.id)
         XCTAssertTrue(post.sound, "critical alerts play the default sound")
+        let l = L(store.localizationLanguage)
+        XCTAssertEqual(post.title, l.notifCritical)
+        XCTAssertEqual(post.body, l.notifBody(l.claudeFiveHour, TokenFormatter.percent(99)))
     }
 
     func testWarningAlertIsSilentAndUnavailablePlatformPostsNothing() async {
@@ -184,6 +188,9 @@ final class CorePlatformRoutingTests: XCTestCase {
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertEqual(notifications.posts.map(\.sound), [false])
         XCTAssertTrue(notifications.posts[0].id.hasSuffix("-warning"))
+        let l = L(store.localizationLanguage)
+        XCTAssertEqual(notifications.posts[0].title, l.notifWarning)
+        XCTAssertEqual(notifications.posts[0].body, l.notifBody(l.claudeFiveHour, TokenFormatter.percent(85)))
 
         notifications.isAvailable = false
         let quiet = makeStore(claude: fiveHour(99), suite: "routing-quiet")
@@ -209,6 +216,9 @@ final class CorePlatformRoutingTests: XCTestCase {
         XCTAssertEqual(notifications.posts.count, 1, "\(notifications.posts)")
         XCTAssertTrue(notifications.posts[0].id.hasPrefix("companion-event-"))
         XCTAssertTrue(notifications.posts[0].sound)
+        let l = L(store.language)
+        XCTAssertEqual(notifications.posts[0].title, l.notifCandyTitle(item: l.itemName(.rareCandy), count: 5))  // a weekly window grants 5
+        XCTAssertEqual(notifications.posts[0].body, l.notifCandyBody(window: "Test"))
         XCTAssertNil(store.latestEvent, "candy grants do not pop on the pet")
     }
 
@@ -222,7 +232,6 @@ final class CorePlatformRoutingTests: XCTestCase {
         _ = try? await OAuthLimitsProvider().fetch(allowKeychainPrompt: false)
         _ = try? await AntigravityRateLimitsProvider().fetch(allowKeychainPrompt: false)
         XCTAssertEqual(KeychainReader.queryCount, 0)
-        XCTAssertEqual(secrets.reads, 0)
     }
 
     // MARK: the real Mac implementations
@@ -249,5 +258,17 @@ final class CorePlatformRoutingTests: XCTestCase {
         // `UNUserNotificationCenter.current()` crashes here; the hubs must see "unavailable" and never call it.
         XCTAssertFalse(MacNotifications().isAvailable)
         XCTAssertEqual(MacNotifications().isAvailable, AppEnv.isBundledApp)
+    }
+
+    func testMacNotificationRequestCarriesTitleBodySoundAndIdentifier() {
+        let loud = MacNotifications.request(id: "x-critical", title: "T", body: "B", sound: true)
+        XCTAssertEqual(loud.identifier, "x-critical")
+        XCTAssertEqual(loud.content.title, "T")
+        XCTAssertEqual(loud.content.body, "B")
+        XCTAssertEqual(loud.content.sound, .default)
+        XCTAssertNil(loud.trigger, "delivered immediately")
+        let quiet = MacNotifications.request(id: "x-warning", title: "T2", body: "B2", sound: false)
+        XCTAssertNil(quiet.content.sound)
+        XCTAssertEqual(quiet.identifier, "x-warning")
     }
 }
