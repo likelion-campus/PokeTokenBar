@@ -7,5 +7,7 @@ while IFS= read -r f; do [ -z "$f" ] && continue; cp "$root/$f" "$here/Sources/P
 while IFS= read -r f; do [ -z "$f" ] && continue; cp "$root/$f" "$here/Tests/PokeTokenBarTests/$(basename "$f")"; done < <(tr -d "\r" < "$here/tests.txt")
 for f in "$here"/Sources/PokeTokenBar/*.swift "$here"/Tests/PokeTokenBarTests/*.swift; do [ -e "$f" ] || continue
   sed -i.bak -E 's/^([[:space:]]*)import CryptoKit[[:space:]]*$/\1import Crypto/' "$f"; rm -f "$f.bak"
-  perl -0pi -e 's/^[ \t]*import CoreGraphics[ \t]*$/#if canImport(CoreGraphics)\nimport CoreGraphics\n#else\nimport Foundation\n#endif/mg' "$f"; done
+  perl -0pi -e 's/^[ \t]*import CoreGraphics[ \t]*$/#if canImport(CoreGraphics)\nimport CoreGraphics\n#else\nimport Foundation\n#endif/mg' "$f"
+  perl -0pi -e 's/^import Foundation[ \t]*$/import Foundation\n#if canImport(FoundationNetworking)\nimport FoundationNetworking\n#endif/m' "$f"
+  perl -pi -e 's/kill\(([A-Za-z_.]+), SIGKILL\)/spikeKill($1)/' "$f"; done
 [ -d "$here/Stubs" ] && cp "$here"/Stubs/*.swift "$here/Sources/PokeTokenBar/" || true
