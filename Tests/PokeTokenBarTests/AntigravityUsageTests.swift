@@ -704,7 +704,7 @@ final class AntigravityUsageTests: XCTestCase {
     /// Registered in its own right, so someone who runs only Antigravity sees their own tab
     /// rather than their spend labelled "Gemini". The two share `~/.gemini/` and nothing else.
     @MainActor
-    func testDefaultRegistryIncludesAntigravity() {
+    func testDefaultRegistryIncludesAntigravity() async {
         let suite = "AntigravityUsageTests.registry.\(UUID().uuidString)"
         let defaults = TestDefaults.make(suite: suite)
         let store = UsageStore(autoRefresh: false, defaults: defaults)

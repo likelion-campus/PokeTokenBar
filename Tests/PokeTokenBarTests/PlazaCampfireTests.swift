@@ -4,7 +4,7 @@ import XCTest
 @MainActor final class PlazaCampfireTests: XCTestCase {
     private func tile(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
 
-    func testSeatsAreTheEightFromTheSpec() {
+    func testSeatsAreTheEightFromTheSpec() async {
         let expected: [PlazaCampfire.Seat] = [
             .init(tile: tile(22, 13), facing: .down), .init(tile: tile(25, 13), facing: .down),
             .init(tile: tile(19, 13), facing: .right), .init(tile: tile(28, 13), facing: .left),
@@ -15,7 +15,7 @@ import XCTest
         XCTAssertEqual(PlazaCampfire.durations, [25, 50, 480])
     }
 
-    func testNearestFreeSeatSkipsTakenSeatsAndBreaksTiesInListOrder() {
+    func testNearestFreeSeatSkipsTakenSeatsAndBreaksTiesInListOrder() async {
         XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(23, 14), occupied: [])?.tile, tile(22, 13))
         XCTAssertEqual(PlazaCampfire.nearestFreeSeat(from: tile(23, 14), occupied: [tile(22, 13)])?.tile, tile(25, 13))
         let all = Set(PlazaCampfire.seats.map(\.tile))
@@ -26,7 +26,7 @@ import XCTest
     }
 
     /// 자리는 지도의 모닥불 자리에서 도출한다: 구덩이 왼쪽 위 칸 기준 오프셋이 그대로 따라온다.
-    func testSeatsFollowThePitOnTheMap() {
+    func testSeatsFollowThePitOnTheMap() async {
         let origin = PlazaMapData.map.campfireTiles.first!
         XCTAssertEqual(origin, tile(23, 15))
         XCTAssertEqual(PlazaCampfire.seats.first?.tile, tile(origin.x - 1, origin.y - 2))
@@ -34,13 +34,13 @@ import XCTest
     }
 
     /// 모닥불이 옮겨지기 전 버전의 자리(35,21)는 가장 가까운 새 자리로 대응한다. 점유는 보지 않고 동률이면 목록 순서다.
-    func testNearestSeatIgnoresOccupancyAndBreaksTiesInListOrder() {
+    func testNearestSeatIgnoresOccupancyAndBreaksTiesInListOrder() async {
         XCTAssertEqual(PlazaCampfire.nearestSeat(to: tile(35, 21))?.tile, tile(27, 16))
         XCTAssertEqual(PlazaCampfire.nearestSeat(to: tile(22, 13))?.tile, tile(22, 13))
         XCTAssertEqual(PlazaCampfire.nearestSeat(to: tile(18, 15))?.tile, tile(19, 13), "tie with (20,16): the earlier seat wins")
     }
 
-    func testClockFormat() {
+    func testClockFormat() async {
         XCTAssertEqual(PlazaCampfire.clock(1122), "18:42")
         XCTAssertEqual(PlazaCampfire.clock(27730), "7:42:10")
         XCTAssertEqual(PlazaCampfire.clock(0.2), "0:01")
@@ -48,7 +48,7 @@ import XCTest
         XCTAssertEqual(PlazaCampfire.clock(3600), "1:00:00")
     }
 
-    func testRemainingWords() {
+    func testRemainingWords() async {
         XCTAssertEqual(L(.ko).plazaFocusRemaining(seconds: 1122), "19분 남음")
         XCTAssertEqual(L(.ko).plazaFocusRemaining(seconds: 27730), "7시간 43분 남음")
         XCTAssertEqual(L(.ko).plazaFocusRemaining(seconds: 30), "1분 남음")
@@ -58,7 +58,7 @@ import XCTest
         XCTAssertEqual(L(.ko).plazaFocusDuration(minutes: 480), "8시간")
     }
 
-    func testAcceptedEndsAtWindow() {
+    func testAcceptedEndsAtWindow() async {
         let t0 = Date(timeIntervalSince1970: 1_800_000_000)
         XCTAssertNil(PlazaFocus.accepted(nil, now: t0))
         XCTAssertNil(PlazaFocus.accepted(t0.addingTimeInterval(-1), now: t0))
@@ -69,14 +69,14 @@ import XCTest
         XCTAssertNil(PlazaFocus.accepted(.distantFuture, now: t0))
     }
 
-    func testIsActive() {
+    func testIsActive() async {
         let t0 = Date(timeIntervalSince1970: 1_800_000_000)
         let f = PlazaFocus(endsAt: t0, minutes: 25, seat: tile(35, 21))
         XCTAssertTrue(f.isActive(at: t0.addingTimeInterval(-1)))
         XCTAssertFalse(f.isActive(at: t0))
     }
 
-    func testFocusSurvivesPreferencesRoundTrip() {
+    func testFocusSurvivesPreferencesRoundTrip() async {
         let name = "plaza.test.\(UUID())"
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: name))
         XCTAssertNil(prefs.focus)

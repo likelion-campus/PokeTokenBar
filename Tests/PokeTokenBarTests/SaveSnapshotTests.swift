@@ -37,7 +37,7 @@ final class SaveSnapshotTests: XCTestCase {
         return s
     }
 
-    func testSnapshotCreationAndListing() throws {
+    func testSnapshotCreationAndListing() async throws {
         let url = tempURL("create")
         let clock = MutableClock(baseNow)
         var state = sampleState(tokens: 12_500, dexCount: 3)
@@ -58,7 +58,7 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertEqual(store.availableSnapshots.first?.id, snapshot.id)
     }
 
-    func testSnapshotKeepsNonDefaultFormInSummaryAndRestoredState() throws {
+    func testSnapshotKeepsNonDefaultFormInSummaryAndRestoredState() async throws {
         let url = tempURL("form")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let sky = PokemonForm("sky")
@@ -81,7 +81,7 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.active?.isShiny, true)
     }
 
-    func testSnapshotSummariesResolveCurrentAppearanceAcrossLegacyAndEnvelopeFiles() throws {
+    func testSnapshotSummariesResolveCurrentAppearanceAcrossLegacyAndEnvelopeFiles() async throws {
         let cases: [(name: String, speciesID: Int, storedForm: String?, key: String, expected: PokemonForm?)] = [
             ("sky", 492, "sky", "form", PokemonForm("sky")),
             ("missing", 492, nil, "form", PokemonForm("land")),
@@ -125,7 +125,7 @@ final class SaveSnapshotTests: XCTestCase {
     /// A disguised Ditto hides its shiny state until the reveal (`currentIsShiny`). The snapshot
     /// row in Settings renders `SpriteView(shiny: snapshot.currentIsShiny)`, so reading the raw
     /// `isShiny` there spoiled the reveal with a shiny sprite of the disguise species.
-    func testSnapshotDoesNotRevealShinyOfDisguisedDitto() throws {
+    func testSnapshotDoesNotRevealShinyOfDisguisedDitto() async throws {
         let url = tempURL("ditto")
         var state = sampleState(tokens: 1_000, dexCount: 1)
         let trash = PokemonForm("trash")
@@ -155,7 +155,7 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: url).last?.currentForm, trash)
     }
 
-    func testSnapshotPruningKeepsAtMostTen() throws {
+    func testSnapshotPruningKeepsAtMostTen() async throws {
         let url = tempURL("pruning")
         let state = sampleState(tokens: 20_000, dexCount: 2)
         try JSONEncoder().encode(state).write(to: url)
@@ -175,7 +175,7 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshots.last?.date, oldestKeptDate)
     }
 
-    func testAutoSnapshotIntervalGuard() throws {
+    func testAutoSnapshotIntervalGuard() async throws {
         let url = tempURL("autointerval")
         let clock = MutableClock(baseNow)
         let state = sampleState(tokens: 5_000, dexCount: 1)
@@ -196,7 +196,7 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertEqual(store.availableSnapshots.count, 2)
     }
 
-    func testAutoCorruptionRecoveryFromLatestSnapshot() throws {
+    func testAutoCorruptionRecoveryFromLatestSnapshot() async throws {
         let url = tempURL("recovery")
         let clock = MutableClock(baseNow)
         let state = sampleState(tokens: 77_777, dexCount: 5)
@@ -224,7 +224,7 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: corruptBackup, encoding: .utf8), garbage)
     }
 
-    func testRestoreSnapshotRollsBackProgressAndPreservesCurrentAsSnapshot() throws {
+    func testRestoreSnapshotRollsBackProgressAndPreservesCurrentAsSnapshot() async throws {
         let url = tempURL("restore")
         let clock = MutableClock(baseNow)
 
@@ -255,7 +255,7 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshots.contains { $0.lifetimeTokens == 90_000 && $0.dexCount == 4 })
     }
 
-    func testRestoreOldestSnapshotAtRetentionLimit() throws {
+    func testRestoreOldestSnapshotAtRetentionLimit() async throws {
         let url = tempURL("restore-oldest-at-limit")
         let clock = MutableClock(baseNow)
 
@@ -282,7 +282,7 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertTrue(store.availableSnapshots.contains { $0.lifetimeTokens == 99_000 && $0.dexCount == 12 })
     }
 
-    func testRestoreUnreadableSnapshotLeavesStateAndSnapshotsUntouched() throws {
+    func testRestoreUnreadableSnapshotLeavesStateAndSnapshotsUntouched() async throws {
         let url = tempURL("restore-unreadable")
         let clock = MutableClock(baseNow)
 
@@ -309,7 +309,7 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertEqual(Set(after), Set(before).subtracting([selected.id]))
     }
 
-    func testCorruptSnapshotFileIsSkippedGracefully() throws {
+    func testCorruptSnapshotFileIsSkippedGracefully() async throws {
         let url = tempURL("corruptsnapshot")
         let dir = SaveSnapshotManager.snapshotsDirectory(for: url)
         let badURL = dir.appendingPathComponent("companion-snapshot-2026-09-18-120000.json")

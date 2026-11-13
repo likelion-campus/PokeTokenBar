@@ -136,7 +136,7 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - News and reactions
 
-    func testHelloThenInventorySyncFillsMissingEvents() {
+    func testHelloThenInventorySyncFillsMissingEvents() async {
         let a = node("A"), b = node("B")
         a.session.publish(hatch())
         a.session.publish(companion(.graduate))
@@ -146,7 +146,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.bigEvents.count, 0)
     }
 
-    func testLivePublishReachesOthersOnce() {
+    func testLivePublishReachesOthersOnce() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.publish(hatch())
@@ -157,7 +157,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// `publish` sends one event per live frame, so a live frame with more is not a moment that just happened.
-    func testLiveFrameWithSeveralEventsStoresThemButShowsNoneAsBig() {
+    func testLiveFrameWithSeveralEventsStoresThemButShowsNoneAsBig() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
@@ -174,7 +174,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.bigEvents.map(\.id), ["b4"])
     }
 
-    func testDuplicateEventFromTwoPeersFiresOnce() {
+    func testDuplicateEventFromTwoPeersFiresOnce() async {
         let a = node("A"), b = node("B"), c = node("C")
         connect(a, b); connect(a, c)
         let bc = connect(c, b)
@@ -187,7 +187,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.feed.events.count, 1)
     }
 
-    func testEvolveFiresNoBigEvent() {
+    func testEvolveFiresNoBigEvent() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.publish(companion(.evolve))
@@ -196,7 +196,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.feed.events.count, 1)
     }
 
-    func testOfflinePublishIsDayOnlyAndSyncedLaterQuietly() {
+    func testOfflinePublishIsDayOnlyAndSyncedLaterQuietly() async {
         let a = node("A"), b = node("B")
         a.session.publish(hatch())
         XCTAssertNil(a.feed.events[0].occurredAt)
@@ -206,7 +206,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.bigEvents.count, 0)
     }
 
-    func testReactionToMyEventCallsBackOnce() {
+    func testReactionToMyEventCallsBackOnce() async {
         let a = node("A"), b = node("B"), c = node("C")
         connect(a, b); connect(a, c); connect(b, c)
         a.session.publish(hatch())
@@ -221,7 +221,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// R26: a reaction carries the day it was made, never the time, on the wire and in every teammate's file.
-    func testReactionCarriesOnlyTheDayOnWireAndOnDisk() throws {
+    func testReactionCarriesOnlyTheDayOnWireAndOnDisk() async throws {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.publish(hatch())
@@ -240,7 +240,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.feed.reactions(for: a.feed.events[0].id).map(\.createdAt), [dayStart])
     }
 
-    func testReactionWhileAuthorOfflineArrivesLaterQuietly() {
+    func testReactionWhileAuthorOfflineArrivesLaterQuietly() async {
         let a = node("A"), b = node("B"), c = node("C")
         let ab = connect(a, b); let ac = connect(a, c); connect(b, c)
         a.session.publish(hatch())
@@ -253,7 +253,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.reactionsToMine.count, 0)
     }
 
-    func testReconnectResyncsWithoutDuplicates() {
+    func testReconnectResyncsWithoutDuplicates() async {
         let a = node("A"), b = node("B")
         let first = connect(a, b)
         a.session.publish(hatch())
@@ -266,7 +266,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(Set(b.feed.events.map(\.id)), Set(a.feed.events.map(\.id)))
     }
 
-    func testInventorySyncSendsInBatchesOf100() {
+    func testInventorySyncSendsInBatchesOf100() async {
         let a = node("A"), b = node("B")
         for i in 0..<250 {
             a.feed.insert(TeamEvent(id: "e\(i)", authorID: a.memberID, authorNickname: "A", kind: .evolve, speciesID: 25,
@@ -284,7 +284,7 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - Hello rules
 
-    func testProtocolMismatchMarksIncompatibleAndDisconnects() {
+    func testProtocolMismatchMarksIncompatibleAndDisconnects() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
@@ -295,7 +295,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(a.session.members.isEmpty)
     }
 
-    func testOwnMemberIDIsDisconnected() {
+    func testOwnMemberIDIsDisconnected() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
@@ -306,7 +306,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// Another version costs one hello per attempt and never a resync.
-    func testAnotherVersionGetsNothingButAHelloEveryTime() {
+    func testAnotherVersionGetsNothingButAHelloEveryTime() async {
         let a = node("A")
         let id = UUID().uuidString
         for attempt in 1...3 {
@@ -321,7 +321,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// Someone who updates gets straight in, whenever they were last refused.
-    func testAnUpdatedMemberIsServedAtOnce() {
+    func testAnUpdatedMemberIsServedAtOnce() async {
         let a = node("A")
         let id = UUID().uuidString
         let raw = RawPeer(hub: hub)
@@ -334,7 +334,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.session.members.count, 1)
     }
 
-    func testUndecodableFrameIsTreatedLikeARefusal() {
+    func testUndecodableFrameIsTreatedLikeARefusal() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
@@ -350,7 +350,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(a.session.members.isEmpty)
     }
 
-    func testIncompatibleNoticeExpiresTenMinutesAfterTheLastMismatch() {
+    func testIncompatibleNoticeExpiresTenMinutesAfterTheLastMismatch() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
@@ -364,7 +364,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertFalse(a.session.hasIncompatiblePeer)
     }
 
-    func testMessageBeforeHelloIsIgnored() {
+    func testMessageBeforeHelloIsIgnored() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
@@ -376,7 +376,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(a.session.members.isEmpty)
     }
 
-    func testDuplicateConnectionsKeepOneAndBothSidesAgree() {
+    func testDuplicateConnectionsKeepOneAndBothSidesAgree() async {
         let a = node("A"), b = node("B")
         let first = connect(a, b)
         let second = connect(b, a)
@@ -394,7 +394,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.bigEvents.count, 1)
     }
 
-    func testNewerConnectionReplacesStaleOne() {
+    func testNewerConnectionReplacesStaleOne() async {
         let a = node("A"), b = node("B")
         let old = connect(a, b)
         hub.sever(old, silentlyOn: a.transport)   // A's transport forgot the link; B still holds it. Both links are dialed by A, so the newest wins whichever ID is smaller
@@ -422,7 +422,7 @@ final class TeamSessionTests: XCTestCase {
         n.session.applySettings()
     }
 
-    func testStalePreferredConnectionBeatsFreshNonPreferredOneUntilRedialed() {
+    func testStalePreferredConnectionBeatsFreshNonPreferredOneUntilRedialed() async {
         let (lo, hi) = orderedPair()
         let old = connect(lo, hi)   // dialed by lo: the preferred direction
         hub.sever(old, silentlyOn: hi.transport)
@@ -446,7 +446,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(hi.bigEvents.count, 1)
     }
 
-    func testStalePreferredConnectionIsDroppedAfterSilenceAndLaterDialIsKept() {
+    func testStalePreferredConnectionIsDroppedAfterSilenceAndLaterDialIsKept() async {
         let (lo, hi) = orderedPair()
         let old = connect(lo, hi)
         hub.sever(old, silentlyOn: hi.transport)
@@ -464,7 +464,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(lo.transport.disconnectCalls.count, 1)
     }
 
-    func testOnlyConnectionIsKeptEvenIfNotPreferred() {
+    func testOnlyConnectionIsKeptEvenIfNotPreferred() async {
         let a = node("A"), b = node("B")
         let (high, low) = a.memberID > b.memberID ? (a, b) : (b, a)
         connect(high, low)
@@ -477,7 +477,7 @@ final class TeamSessionTests: XCTestCase {
     // MARK: - Pruning
 
     /// Stale rows leave while the app keeps running, not only at launch and on the next event.
-    func testTickPrunesAboutHourly() {
+    func testTickPrunesAboutHourly() async {
         let a = node("A")
         let cal = Calendar.current
         let day = cal.startOfDay(for: clock.now)
@@ -496,7 +496,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertFalse(a.feed.reactionIDs.contains("orphan"))
     }
 
-    func testTurningTheTeamOnPrunes() {
+    func testTurningTheTeamOnPrunes() async {
         let a = node("A")
         let cal = Calendar.current
         a.feed.insert(TeamReaction(id: "orphan", eventID: "nowhere", authorID: "z", authorNickname: "Zed", kind: .cute,
@@ -512,7 +512,7 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - Heartbeat and timeouts
 
-    func testSilentPeerIsDroppedAfterTimeout() {
+    func testSilentPeerIsDroppedAfterTimeout() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         clock.advance(29)
@@ -524,7 +524,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.transport.disconnectCalls.count, 1)
     }
 
-    func testHeartbeatSendsPresence() {
+    func testHeartbeatSendsPresence() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let before = a.presencesSent
@@ -533,7 +533,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.presencesSent, before + 1)
     }
 
-    func testNoHeartbeatBeforeTenSeconds() {
+    func testNoHeartbeatBeforeTenSeconds() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let before = a.presencesSent
@@ -542,7 +542,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.presencesSent, before)
     }
 
-    func testInventoryIsResentEveryFiveMinutes() {
+    func testInventoryIsResentEveryFiveMinutes() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         func inventories() -> Int { a.transport.sentMessages { if case .inventory = $0 { true } else { false } } }
@@ -559,7 +559,7 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - Presence
 
-    func testScheduleChangeReachesTheOtherNode() {
+    func testScheduleChangeReachesTheOtherNode() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
@@ -568,7 +568,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.settings.schedule, a.settings.schedule)
     }
 
-    func testOlderScheduleIsNotAdoptedAndDoesNotRevert() {
+    func testOlderScheduleIsNotAdoptedAndDoesNotRevert() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
@@ -581,7 +581,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.settings.schedule?.coreStart, 8)
     }
 
-    func testTwoChangesASecondApartConvergeOnTheLater() {
+    func testTwoChangesASecondApartConvergeOnTheLater() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
@@ -601,7 +601,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(d.settings.schedule?.coreStart, 12)
     }
 
-    func testScheduleRelaysThroughAMiddleNodeAndReachesALateJoiner() {
+    func testScheduleRelaysThroughAMiddleNodeAndReachesALateJoiner() async {
         let a = node("A"), b = node("B"), c = node("C")
         connect(a, b)
         connect(b, c)            // c has no link to a
@@ -614,7 +614,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// The far-future guard runs against the session's clock, not the wall clock.
-    func testScheduleStampedMoreThanTenMinutesAheadIsNotAdopted() {
+    func testScheduleStampedMoreThanTenMinutesAheadIsNotAdopted() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
@@ -632,7 +632,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// A peer's 900 KB name must not be adopted, or it would ride in every presence and push the frame past the limit.
-    func testScheduleWithAHugeNameIsNeitherAdoptedNorRelayed() {
+    func testScheduleWithAHugeNameIsNeitherAdoptedNorRelayed() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let raw = RawPeer(hub: hub)
@@ -648,7 +648,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// settings.code moves before applySettings runs; the old team's links must not feed the new team's key.
-    func testScheduleIsNotStoredUnderACodeThatTheLinksDoNotBelongTo() {
+    func testScheduleIsNotStoredUnderACodeThatTheLinksDoNotBelongTo() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let oldCode = a.settings.code
@@ -662,7 +662,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// The other direction: in the same window, my presence to the old team's links must not carry the new team's schedule.
-    func testScheduleIsNotSentOnLinksOfAnotherTeam() {
+    func testScheduleIsNotSentOnLinksOfAnotherTeam() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.settings.code = newCode()
@@ -673,7 +673,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(b.settings.schedule, "but without the other team's schedule")
     }
 
-    func testPresenceWithoutScheduleLeavesMineUnchanged() {
+    func testPresenceWithoutScheduleLeavesMineUnchanged() async {
         let a = node("A")
         a.settings.changeSchedule(coreStart: 8, coreEnd: 20, period: .week, now: clock.now)
         let before = a.settings.schedule
@@ -685,7 +685,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.settings.schedule, before)
     }
 
-    func testCharacterChangeIsSentImmediately() {
+    func testCharacterChangeIsSentImmediately() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         XCTAssertEqual(b.session.members[a.memberID]?.character, Node.pikachu)   // from hello, via the profile fallback
@@ -693,7 +693,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.character, Node.eevee)
     }
 
-    func testSameCharacterIsNotResent() {
+    func testSameCharacterIsNotResent() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.updateCharacter(Node.eevee)
@@ -702,14 +702,14 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.presencesSent, before)
     }
 
-    func testHelloCarriesLastGivenCharacter() {
+    func testHelloCarriesLastGivenCharacter() async {
         let a = node("A"), b = node("B")
         a.session.updateCharacter(Node.eevee)
         connect(a, b)
         XCTAssertEqual(b.session.members[a.memberID]?.character, Node.eevee)
     }
 
-    func testPositionChangeReachesOthers() {
+    func testPositionChangeReachesOthers() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .left, isWalking: true)
@@ -724,7 +724,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.presencesSent, before)
     }
 
-    func testLeavingPlazaMarksAway() {
+    func testLeavingPlazaMarksAway() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false)
@@ -736,7 +736,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// Idle is mine, not the plaza's: closing the plaza keeps it, and it is resent only when it changes.
-    func testIdleIsSentWithThePlazaOpenOrClosed() {
+    func testIdleIsSentWithThePlazaOpenOrClosed() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false)
@@ -753,7 +753,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// A received focus end time counts only inside (now, now + 8 h + 600 s] on this Mac's clock.
-    func testReceivedFocusIsKeptOnlyInsideTheWindow() {
+    func testReceivedFocusIsKeptOnlyInsideTheWindow() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let t0 = clock.now
@@ -770,7 +770,7 @@ final class TeamSessionTests: XCTestCase {
                         decoyOf: nil, since: since, restUntil: nil)
     }
 
-    func testPresenceCarriesMyDittoAndReadiness() {
+    func testPresenceCarriesMyDittoAndReadiness() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let s = dittoState(since: clock.now)
@@ -782,7 +782,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.dittoReady, false)
     }
 
-    func testUpdateDittoSendsOnlyOnChange() {
+    func testUpdateDittoSendsOnlyOnChange() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let s = dittoState(since: clock.now)
@@ -798,7 +798,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.presencesSent, before + 2)
     }
 
-    func testPresenceCarriesMyMimic() {
+    func testPresenceCarriesMyMimic() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.updateMimic("x")
@@ -807,7 +807,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(b.session.members[a.memberID]?.mimicOf)
     }
 
-    func testABreakingJumpCarriesItsBreak() {
+    func testABreakingJumpCarriesItsBreak() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let x = PlazaIceBreak(at: 1_790_000_000.5, pond: TilePoint(x: 5, y: 13))
@@ -815,7 +815,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.emotes.first?.emote.iceBreak, x)
     }
 
-    func testMyLastBreakTravelsInPresence() {
+    func testMyLastBreakTravelsInPresence() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let x = PlazaIceBreak(at: 1_790_000_000.5, pond: TilePoint(x: 5, y: 13))
@@ -823,7 +823,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.iceBreak, x)
     }
 
-    func testPresenceCarriesMyUsageAndSendsOnlyOnChange() {
+    func testPresenceCarriesMyUsageAndSendsOnlyOnChange() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         XCTAssertNil(b.session.members[a.memberID]?.usage)
@@ -838,7 +838,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(b.session.members[a.memberID]?.usage)
     }
 
-    func testUpdateMimicSendsOnlyOnChange() {
+    func testUpdateMimicSendsOnlyOnChange() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let before = a.presencesSent
@@ -851,7 +851,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.presencesSent, before + 2)
     }
 
-    func testTheSeenTimeIsTheFirstPresenceWithThatMimic() {
+    func testTheSeenTimeIsTheFirstPresenceWithThatMimic() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let t0 = clock.now
@@ -868,7 +868,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertNil(b.session.members[a.memberID]?.mimicSeenAt)
     }
 
-    func testReceivedDittoIsKeptOnTheMember() {
+    func testReceivedDittoIsKeptOnTheMember() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let s = dittoState(since: clock.now)
@@ -876,7 +876,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.ditto, s)
     }
 
-    func testAHelloClaimingTheDittoKeyIsRefused() {
+    func testAHelloClaimingTheDittoKeyIsRefused() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         hub.connect(raw.transport, to: a.transport)
@@ -885,7 +885,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(a.session.members.isEmpty)
     }
 
-    func testPresenceCarriesDivingAndStage() {
+    func testPresenceCarriesDivingAndStage() async {
         let a = node("A", stage: 3), b = node("B")
         connect(a, b)
         XCTAssertEqual(b.session.members[a.memberID]?.evolutionStage, 3)
@@ -902,7 +902,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.session.members[a.memberID]?.isDiving, false)
     }
 
-    func testReceivedStageIsClampedAndMissingIsOne() {
+    func testReceivedStageIsClampedAndMissingIsOne() async {
         let a = node("A", stage: 7), b = node("B")
         connect(a, b)
         XCTAssertEqual(b.session.members[a.memberID]?.evolutionStage, 3)
@@ -911,7 +911,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(d.session.members[c.memberID]?.evolutionStage, 1)
     }
 
-    func testUpdateFocusSendsPresenceOnlyOnChange() {
+    func testUpdateFocusSendsPresenceOnlyOnChange() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         let before = a.presencesSent
@@ -922,7 +922,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// A teammate whose connection is gone is kept as asleep (their last state) until they connect again.
-    func testDisconnectedMemberIsKeptAsAsleepUntilBack() {
+    func testDisconnectedMemberIsKeptAsAsleepUntilBack() async {
         let a = node("A"), b = node("B")
         let ab = connect(a, b)
         b.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 3, y: 4), facing: .up, isWalking: false)
@@ -936,7 +936,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// The asleep list belongs to one team: a code change or turning the team off forgets it.
-    func testAsleepListIsForgottenWithTheTeam() {
+    func testAsleepListIsForgottenWithTheTeam() async {
         let a = node("A"), b = node("B")
         hub.disconnect(connect(a, b))
         XCTAssertFalse(a.session.asleepMembers.isEmpty, "test precondition")
@@ -950,7 +950,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(c.session.asleepMembers.isEmpty)
     }
 
-    func testDisconnectRemovesMember() {
+    func testDisconnectRemovesMember() async {
         let a = node("A"), b = node("B")
         let ab = connect(a, b)
         XCTAssertTrue(a.session.hasOnlinePeers)
@@ -962,7 +962,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(a.session.members.isEmpty)
     }
 
-    func testDisconnectKeepsMemberWhileAnotherConnectionRemains() {
+    func testDisconnectKeepsMemberWhileAnotherConnectionRemains() async {
         let a = node("A"), b = node("B")
         let old = connect(a, b)
         hub.sever(old, silentlyOn: a.transport)
@@ -973,7 +973,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(b.transport.hasLink(fresh))
     }
 
-    func testNicknameFromPeerIsValidated() {
+    func testNicknameFromPeerIsValidated() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         let id = UUID().uuidString
@@ -990,7 +990,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(a.session.members[id]?.nickname, "New")
     }
 
-    func testInvalidHelloNicknameIsEmptyWhenThereIsNoPrevious() {
+    func testInvalidHelloNicknameIsEmptyWhenThereIsNoPrevious() async {
         let a = node("A")
         let raw = RawPeer(hub: hub)
         let id = UUID().uuidString
@@ -1001,7 +1001,7 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - Chat
 
-    func testChatIsNeitherStoredNorForwarded() {
+    func testChatIsNeitherStoredNorForwarded() async {
         let a = node("A"), b = node("B"), c = node("C")
         connect(a, b); connect(b, c)
         let feedBefore = b.feed.events
@@ -1013,7 +1013,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.transport.sentMessages { if case .chat = $0 { true } else { false } }, 0)
     }
 
-    func testMegaphoneFlagReachesTheTeammate() {
+    func testMegaphoneFlagReachesTheTeammate() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.sendChat("점심!", loud: true)
@@ -1022,7 +1022,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.loudChats, ["점심!"])
     }
 
-    func testLineOutOfFormIsDroppedAndTheLinkStays() {
+    func testLineOutOfFormIsDroppedAndTheLinkStays() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         for bad in ["둘\n줄", "  공백", "", String(repeating: "가", count: TeamChat.maxCharacters + 1)] {
@@ -1035,7 +1035,7 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - Emotes
 
-    func testEmoteIsNeitherStoredNorForwarded() {
+    func testEmoteIsNeitherStoredNorForwarded() async {
         let a = node("A"), b = node("B"), c = node("C")
         connect(a, b); connect(b, c)
         let feedBefore = b.feed.events
@@ -1048,7 +1048,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(b.transport.sentMessages { if case .emote = $0 { true } else { false } }, 0)
     }
 
-    func testASnowballCarriesItsDirectionAndPush() {
+    func testASnowballCarriesItsDirectionAndPush() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.sendEmote(.snowball, target: b.memberID, pushTiles: 3, snowballDirection: .up)
@@ -1116,7 +1116,7 @@ final class TeamSessionTests: XCTestCase {
 
     // MARK: - Settings
 
-    func testDisabledSessionPublishesNothing() {
+    func testDisabledSessionPublishesNothing() async {
         let a = node("A", enabled: false)
         a.session.publish(hatch())
         a.session.react(to: "x", kind: .cute)
@@ -1126,7 +1126,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertFalse(a.transport.isRunning)
     }
 
-    func testChangingTeamCodeClearsFeed() {
+    func testChangingTeamCodeClearsFeed() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.publish(hatch())
@@ -1140,7 +1140,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(a.session.members.isEmpty)
     }
 
-    func testLeavingTeamClearsFeed() {
+    func testLeavingTeamClearsFeed() async {
         let a = node("A")
         a.session.publish(hatch())
         a.settings.leaveTeam()
@@ -1149,7 +1149,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertFalse(a.transport.isRunning)
     }
 
-    func testTurningOffKeepsFeed() {
+    func testTurningOffKeepsFeed() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.session.publish(hatch())
@@ -1164,7 +1164,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertTrue(a.transport.isRunning)
     }
 
-    func testLaunchDoesNotClearFeed() {
+    func testLaunchDoesNotClearFeed() async {
         let defaults = makeDefaults()
         let url = makeFeedURL()
         let first = Node("A", hub: hub, clock: clock, code: code, defaults: defaults, feedURL: url)
@@ -1177,7 +1177,7 @@ final class TeamSessionTests: XCTestCase {
     }
 
     /// A picked name colour goes out at once, and a teammate who connects later gets it with the first presence.
-    func testNameColorChangeSendsPresence() {
+    func testNameColorChangeSendsPresence() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         XCTAssertNil(b.session.members[a.memberID]?.nameColor)
@@ -1192,7 +1192,7 @@ final class TeamSessionTests: XCTestCase {
         XCTAssertEqual(c.session.members[a.memberID]?.nameColor, 0xFF9ECF)
     }
 
-    func testNicknameChangeSendsPresence() {
+    func testNicknameChangeSendsPresence() async {
         let a = node("A"), b = node("B")
         connect(a, b)
         a.settings.nickname = "Renamed"

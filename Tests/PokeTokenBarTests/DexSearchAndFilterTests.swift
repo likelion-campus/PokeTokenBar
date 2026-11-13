@@ -69,7 +69,7 @@ final class DexSearchAndFilterTests: XCTestCase {
     /// Sprite → Pokédex page links. Every dex species (graduated chains and the raising Pokémon's
     /// reached stages) links to its dex cell; an unreached evolution and an uncaught species do
     /// not, so their sprites stay inert. Unown links to its single species cell, not a letter.
-    func testDexLinkTargetsCoverOnlySpeciesInTheDex() {
+    func testDexLinkTargetsCoverOnlySpeciesInTheDex() async {
         let unown = DexEntry(id: "entry-unown", baseID: 201, finalID: 201, chainOrder: [201],
                              rarity: .rare, caughtAt: now, isShiny: false, form: .q)
         let raising = MonState(baseID: 4, pathIDs: [4, 5], plannedPathIDs: [4, 5, 6], stageIndex: 1,
@@ -92,13 +92,13 @@ final class DexSearchAndFilterTests: XCTestCase {
     }
 
     /// An egg has no species, so the Home header sprite gets no link target.
-    func testEggHasNoDexLinkTarget() {
+    func testEggHasNoDexLinkTarget() async {
         let store = makeStore(dex: createTestStore().state.dex)
         XCTAssertTrue(store.isEgg)
         XCTAssertNil(store.currentSpeciesID.flatMap { store.dexLinkTargets[$0] })
     }
 
-    func testDexSpeciesSearchByIDAndName() {
+    func testDexSpeciesSearchByIDAndName() async {
         let store = createTestStore()
 
         // Search by number (exact and with # prefix)
@@ -143,7 +143,7 @@ final class DexSearchAndFilterTests: XCTestCase {
 
     /// Regression: both screens used `localizedCaseInsensitiveContains`, which keeps accents, so
     /// "flabebe" missed Flabébé although the PR promised diacritic-insensitive name search.
-    func testNameSearchIgnoresCaseAndDiacriticsInPokedexAndCatchLog() {
+    func testNameSearchIgnoresCaseAndDiacriticsInPokedexAndCatchLog() async {
         let flabebe = DexEntry(
             id: "entry-flabebe",
             baseID: 669,
@@ -170,7 +170,7 @@ final class DexSearchAndFilterTests: XCTestCase {
         }
     }
 
-    func testDexSpeciesFilterByShinyAndRarity() {
+    func testDexSpeciesFilterByShinyAndRarity() async {
         let store = createTestStore()
 
         // Shiny only
@@ -195,7 +195,7 @@ final class DexSearchAndFilterTests: XCTestCase {
         XCTAssertTrue(shinyLegendary.isEmpty)
     }
 
-    func testDexSpeciesSorting() {
+    func testDexSpeciesSorting() async {
         let store = createTestStore()
 
         // Number Asc
@@ -231,7 +231,7 @@ final class DexSearchAndFilterTests: XCTestCase {
         }
     }
 
-    func testCatchLogSearchAndFilters() {
+    func testCatchLogSearchAndFilters() async {
         let store = createTestStore()
 
         // Search by chain species ID
@@ -255,7 +255,7 @@ final class DexSearchAndFilterTests: XCTestCase {
         XCTAssertEqual(legendaryEntries.first?.baseID, 150)
     }
 
-    func testCatchLogSorting() {
+    func testCatchLogSorting() async {
         let store = createTestStore()
 
         // Recent first
@@ -281,7 +281,7 @@ final class DexSearchAndFilterTests: XCTestCase {
         XCTAssertEqual(rarityDesc.map(\.rarity), [.legendary, .rare, .common])
     }
 
-    func testSortOptionLabelsExistInAllLanguages() {
+    func testSortOptionLabelsExistInAllLanguages() async {
         for lang in AppLanguage.allCases {
             let l = L(lang)
             for option in CompanionStore.DexSortOption.allCases {

@@ -95,7 +95,7 @@ final class ProfileGrowthIntegrationTests: XCTestCase {
         XCTAssertEqual(small.state.active?.profile?.level, large.state.active?.profile?.level)
     }
 
-    func testLegacyStageMigrationUsesBoostAndDifficulty() throws {
+    func testLegacyStageMigrationUsesBoostAndDifficulty() async throws {
         var seed = CompanionState()
         seed.active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3],
                                stageIndex: 1, usedAtStage: 6_250_000, rarity: .common,

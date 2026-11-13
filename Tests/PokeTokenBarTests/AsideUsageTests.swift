@@ -54,7 +54,7 @@ final class AsideUsageTests: XCTestCase, @unchecked Sendable {
     }
 
     @MainActor
-    func testRegisteredAlongsideHermesWithCustomRootSupport() throws {
+    func testRegisteredAlongsideHermesWithCustomRootSupport() async throws {
         let suite = "AsideRegistration-\(UUID())"
         let defaults = try XCTUnwrap(TestDefaults.make(suite: suite))
         let ids = UsageStore(autoRefresh: false, defaults: defaults).registeredProviderIDs

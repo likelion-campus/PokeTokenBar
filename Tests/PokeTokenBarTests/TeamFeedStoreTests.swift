@@ -52,7 +52,7 @@ final class TeamFeedStoreTests: XCTestCase {
         }
     }
 
-    func testEveryStringFieldOfAnEventIsBounded() throws {
+    func testEveryStringFieldOfAnEventIsBounded() async throws {
         let e = TeamEvent(id: "e", authorID: "bob", authorNickname: "bob", kind: .evolve, speciesID: 25, fromSpeciesID: 172,
                           speciesName: "Pikachu", fromSpeciesName: "Pichu", form: PokemonForm("sandy"), isShiny: false,
                           nature: .hardy, rarity: .common, day: dayString(now), occurredAt: now)
@@ -60,14 +60,14 @@ final class TeamFeedStoreTests: XCTestCase {
         try assertEveryStringIsBounded(e) { _ = $1.insert([$0]) }
     }
 
-    func testEveryStringFieldOfAReactionIsBounded() throws {
+    func testEveryStringFieldOfAReactionIsBounded() async throws {
         let r = TeamReaction(id: "r", eventID: "e", authorID: "bob", authorNickname: "bob", kind: .cute, text: "x", createdAt: now)
         XCTAssertEqual(makeStore().insert([r]).count, 1, "the row is fine until a field is blown up")
         try assertEveryStringIsBounded(r) { _ = $1.insert([$0]) }
     }
 
     /// `validNickname` trims before it measures, so the row keeps what the check never saw.
-    func testSpacesDoNotHideANicknamesSize() {
+    func testSpacesDoNotHideANicknamesSize() async {
         let padded = "A" + String(repeating: " ", count: 2000)
         let store = makeStore()
         XCTAssertTrue(store.insert([TeamEvent(id: "e", authorID: "bob", authorNickname: padded, kind: .hatch, speciesID: 25,
@@ -79,7 +79,7 @@ final class TeamFeedStoreTests: XCTestCase {
     }
 
     /// One row too big used to stop its whole batch of 100, so honest news never reached a newcomer.
-    func testAFullBatchOfTheLargestRowsFitsInAFrame() throws {
+    func testAFullBatchOfTheLargestRowsFitsInAFrame() async throws {
         let long = String(repeating: "\"", count: TeamWire.maxFieldBytes)   // a quote costs two bytes in JSON
         let name = String(repeating: "\"", count: 12)
         let events = (0..<TeamSession.batchSize).map { _ in
@@ -94,7 +94,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertNoThrow(try TeamWire.encode(.reactions(reactions, live: false)))
     }
 
-    func testAFrameOfDuplicatesKeepsOneOfEach() {
+    func testAFrameOfDuplicatesKeepsOneOfEach() async {
         let store = makeStore()
         XCTAssertEqual(store.insert([event("a"), event("a"), event("b")]).map(\.id).sorted(), ["a", "b"])
         let r = TeamReaction(id: "r", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .cute, text: nil, createdAt: now)
@@ -103,7 +103,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.insert([r, r, sameSlot, otherKind]).map(\.id), ["r", "r3"])
     }
 
-    func testTwoReactionsWithOneIDInAFrameKeepTheFirst() {
+    func testTwoReactionsWithOneIDInAFrameKeepTheFirst() async {
         let store = makeStore()
         let first = TeamReaction(id: "r", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .cute, text: nil, createdAt: now)
         let reused = TeamReaction(id: "r", eventID: "a", authorID: "bob", authorNickname: "bob", kind: .lol, text: nil, createdAt: now)
@@ -123,7 +123,7 @@ final class TeamFeedStoreTests: XCTestCase {
                      kind: kind, text: text, createdAt: at ?? now)
     }
 
-    func testGregorianDayIsReadOnANonGregorianMac() {
+    func testGregorianDayIsReadOnANonGregorianMac() async {
         let sent = CompanionTeamEvent(kind: .hatch, speciesID: 25, fromSpeciesID: nil, speciesName: "Pikachu",
                                       fromSpeciesName: nil, form: nil, isShiny: false, nature: nil, rarity: .common)
         for identifier in [Calendar.Identifier.buddhist, .japanese] {
@@ -140,7 +140,7 @@ final class TeamFeedStoreTests: XCTestCase {
         }
     }
 
-    func testDuplicateEventIsIgnored() {
+    func testDuplicateEventIsIgnored() async {
         let store = makeStore()
         let e1 = event("e1", at: now)
         XCTAssertTrue(store.insert(e1))
@@ -148,7 +148,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.events.count, 1)
     }
 
-    func testPresetReactionOncePerAuthor() {
+    func testPresetReactionOncePerAuthor() async {
         let store = makeStore()
         store.insert(event("e1", at: now))
         XCTAssertTrue(store.insert(reaction("r1", kind: .cute)))
@@ -159,7 +159,7 @@ final class TeamFeedStoreTests: XCTestCase {
     }
 
     /// R25: no UI draws or sends comments, so one that arrives is dropped (the enum case stays for the wire).
-    func testCommentReactionsAreRejected() {
+    func testCommentReactionsAreRejected() async {
         let store = makeStore()
         store.insert(event("e1", author: "me", at: now))
         XCTAssertFalse(store.insert(reaction("r1", event: "e1", kind: .comment, text: "hi")))
@@ -178,7 +178,7 @@ final class TeamFeedStoreTests: XCTestCase {
                   day: day ?? dayString(at ?? now), occurredAt: at)
     }
 
-    func testEventTextFieldsAreBoundedInBytes() {
+    func testEventTextFieldsAreBoundedInBytes() async {
         let store = makeStore()
         let max = String(repeating: "a", count: 64), over = String(repeating: "a", count: 65)
         XCTAssertTrue(store.insert(eventWith(id: max)))
@@ -193,7 +193,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.events.count, 2)
     }
 
-    func testEventDatesMustBeInsideRetentionAndNextDay() throws {
+    func testEventDatesMustBeInsideRetentionAndNextDay() async throws {
         let store = makeStore()
         XCTAssertFalse(store.insert(eventWith(id: "past", at: now.addingTimeInterval(-8 * 86400))))
         XCTAssertFalse(store.insert(eventWith(id: "future", at: now.addingTimeInterval(2 * 86400))))
@@ -206,7 +206,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(makeStore().events.map(\.id), ["ok"], "the file still decodes on the next launch")
     }
 
-    func testReactionFieldsAndDatesAreValidated() {
+    func testReactionFieldsAndDatesAreValidated() async {
         let store = makeStore()
         let over = String(repeating: "a", count: 65)
         func r(_ id: String, event: String = "e1", author: String = "bob", nick: String = "bob", at: Date) -> TeamReaction {
@@ -223,7 +223,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.reactionIDs, ["ok"])
     }
 
-    func testReactionsAreCappedOldestFirst() {
+    func testReactionsAreCappedOldestFirst() async {
         let store = makeStore()
         let total = TeamFeedStore.maxReactions + 5
         let batch = (0..<total).map { i in
@@ -235,7 +235,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertTrue(store.reactionIDs.contains("r\(total - 1)"))
     }
 
-    func testBatchInsertSavesOncePerFrame() {
+    func testBatchInsertSavesOncePerFrame() async {
         let store = makeStore()
         let before = store.saveCount
         let events = (0..<100).map { eventWith(id: "e\($0)", at: now.addingTimeInterval(Double(-$0))) }
@@ -249,7 +249,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(makeStore().reactionIDs.count, 100)
     }
 
-    func testCutoffDayEventFromFarEastSenderIsAdmitted() {
+    func testCutoffDayEventFromFarEastSenderIsAdmitted() async {
         let store = makeStore()
         let cutoff = calendar.startOfDay(for: now).addingTimeInterval(-7 * 86_400)
         // The sender's local day is the cutoff day, but in this calendar the instant lies before the cutoff.
@@ -261,7 +261,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertFalse(store.insert(oldDay), "the day string decides the lower bound")
     }
 
-    func testOrderingPutsDayOnlyAtStartOfItsDay() {
+    func testOrderingPutsDayOnlyAtStartOfItsDay() async {
         let store = makeStore()
         let todayStart = calendar.startOfDay(for: now)
         let yesterday23 = todayStart.addingTimeInterval(-3600)
@@ -272,7 +272,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.events.map(\.id), ["c", "b", "a"])
     }
 
-    func testUnreadCountsOnlyOthersAfterMarkRead() {
+    func testUnreadCountsOnlyOthersAfterMarkRead() async {
         let store = makeStore()
         store.insert(event("mine", author: "me", at: now))
         XCTAssertEqual(store.unreadCount, 0)
@@ -290,7 +290,7 @@ final class TeamFeedStoreTests: XCTestCase {
 
     private final class ClockBox { var now: Date; init(_ n: Date) { now = n } }
 
-    func testInsertOfAlreadyExpiredEventReturnsFalse() {
+    func testInsertOfAlreadyExpiredEventReturnsFalse() async {
         let store = makeStore()
         let old = event("old", at: now.addingTimeInterval(-8 * 86400))
         XCTAssertFalse(store.insert(old))
@@ -298,7 +298,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertTrue(store.eventIDs.isEmpty)
     }
 
-    func testPruneDropsAgedEventAndItsOldReactions() {
+    func testPruneDropsAgedEventAndItsOldReactions() async {
         let box = ClockBox(now)
         let store = TeamFeedStore(fileURL: url, myMemberID: "me", clock: { box.now }, calendar: calendar)
         XCTAssertTrue(store.insert(event("e1", at: now)))
@@ -309,7 +309,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertFalse(store.reactionIDs.contains("r1"))
     }
 
-    func testPruneKeepsRecentReactionOfDroppedEvent() {
+    func testPruneKeepsRecentReactionOfDroppedEvent() async {
         let box = ClockBox(now)
         let store = TeamFeedStore(fileURL: url, myMemberID: "me", clock: { box.now }, calendar: calendar)
         XCTAssertTrue(store.insert(event("e1", at: now)))
@@ -321,7 +321,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertTrue(store.reactionIDs.contains("r1"))
     }
 
-    func testPruneKeepsFreshOrphanReactionAndCapsEvents() {
+    func testPruneKeepsFreshOrphanReactionAndCapsEvents() async {
         let store = makeStore()
         XCTAssertTrue(store.insert(reaction("orphan", event: "later")))
         store.prune()
@@ -333,12 +333,12 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.events.first?.id, "e0")
     }
 
-    func testFreshStoreWritesNoFile() {
+    func testFreshStoreWritesNoFile() async {
         _ = makeStore()
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
-    func testPersistsAcrossInstances() {
+    func testPersistsAcrossInstances() async {
         let store = makeStore()
         store.insert(event("e1", at: now))
         store.insert(reaction("r1"))
@@ -355,7 +355,7 @@ final class TeamFeedStoreTests: XCTestCase {
         TeamFeedStore(fileURL: url, myMemberID: "me", clock: { box.now }, calendar: calendar)
     }
 
-    func testReactionOnMyEventCountsAsUnread() {
+    func testReactionOnMyEventCountsAsUnread() async {
         let store = makeStore()
         store.insert(event("mine", author: "me", at: now))
         XCTAssertEqual(store.unreadCount, 0)
@@ -363,7 +363,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.unreadCount, 1)
     }
 
-    func testReactionOnOthersEventDoesNotCount() {
+    func testReactionOnOthersEventDoesNotCount() async {
         let box = ClockBox(now)
         let store = makeBoxedStore(box)
         store.insert(event("e1", author: "bob", at: now))
@@ -374,14 +374,14 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.unreadCount, 0)
     }
 
-    func testMyOwnReactionDoesNotCount() {
+    func testMyOwnReactionDoesNotCount() async {
         let store = makeStore()
         store.insert(event("mine", author: "me", at: now))
         store.insert(reaction("r1", event: "mine", author: "me"))
         XCTAssertEqual(store.unreadCount, 0)
     }
 
-    func testMarkAllReadClearsEventsAndReactions() {
+    func testMarkAllReadClearsEventsAndReactions() async {
         let box = ClockBox(now)
         let store = makeBoxedStore(box)
         store.insert(event("mine", author: "me", at: now))
@@ -396,7 +396,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(store.unreadCount, 1)
     }
 
-    func testUnreadReactionSurvivesReload() {
+    func testUnreadReactionSurvivesReload() async {
         let store = makeStore()
         store.insert(event("mine", author: "me", at: now))
         store.insert(reaction("r1", event: "mine", author: "bob"))
@@ -404,7 +404,7 @@ final class TeamFeedStoreTests: XCTestCase {
     }
 
     /// Unread is ordered by a local counter, not a wall clock: a frozen clock must still tell old from new.
-    func testUnreadNeedsNoClock() {
+    func testUnreadNeedsNoClock() async {
         let store = makeStore()   // the clock never moves
         store.insert(event("e1", at: now))
         store.markAllRead()
@@ -418,7 +418,7 @@ final class TeamFeedStoreTests: XCTestCase {
     }
 
     /// R26: nothing on disk says when a reaction was made or received, or when the feed was read.
-    func testStoredReactionHoldsNoTimeOfDay() throws {
+    func testStoredReactionHoldsNoTimeOfDay() async throws {
         let store = makeStore()
         store.insert(event("mine", author: "me", at: now))
         let afternoon = calendar.startOfDay(for: now).addingTimeInterval(15 * 3600 + 123.456)
@@ -436,7 +436,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertEqual(Set(stored.keys), ["reaction", "seq"])
     }
 
-    func testResetClearsEverythingAndPersists() {
+    func testResetClearsEverythingAndPersists() async {
         let store = makeStore()
         store.insert(event("mine", author: "me", at: now))
         store.insert(reaction("r1", event: "mine", author: "bob"))
@@ -455,7 +455,7 @@ final class TeamFeedStoreTests: XCTestCase {
     }
 
     /// The backup of an unreadable file is the old team's feed too.
-    func testResetDeletesTheCorruptBackup() throws {
+    func testResetDeletesTheCorruptBackup() async throws {
         try Data("{not json".utf8).write(to: url)
         let store = makeStore()
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path + ".corrupt"))
@@ -463,7 +463,7 @@ final class TeamFeedStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path + ".corrupt"))
     }
 
-    func testCorruptFileStartsEmptyAndKeepsBackup() throws {
+    func testCorruptFileStartsEmptyAndKeepsBackup() async throws {
         try Data("{not json".utf8).write(to: url)
         let s = makeStore()
         XCTAssertTrue(s.events.isEmpty)

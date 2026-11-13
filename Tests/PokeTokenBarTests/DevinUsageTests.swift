@@ -232,7 +232,7 @@ final class DevinUsageTests: XCTestCase, @unchecked Sendable {
     }
 
     @MainActor
-    func testProviderIsRegisteredWithExpectedIdentity() throws {
+    func testProviderIsRegisteredWithExpectedIdentity() async throws {
         let provider = LocalDevinProvider()
         XCTAssertEqual(provider.id, "devin")
         XCTAssertEqual(provider.displayName, "Devin")

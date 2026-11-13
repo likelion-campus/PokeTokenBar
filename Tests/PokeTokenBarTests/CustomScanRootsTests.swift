@@ -153,7 +153,7 @@ final class CustomScanRootsTests: XCTestCase {
     // MARK: UsageStore persistence
 
     @MainActor
-    func testUsageStorePersistsPerProviderAndLeavesOthersAlone() {
+    func testUsageStorePersistsPerProviderAndLeavesOthersAlone() async {
         let suite = "ptb.store.scan.\(UUID().uuidString)"
         let defaults = TestDefaults.make(suite: suite)
         let store = UsageStore(autoRefresh: false, defaults: defaults)
@@ -349,7 +349,7 @@ final class CustomScanRootsTests: XCTestCase {
     /// Every registered provider must consult its own key. A flat shared list is the
     /// contamination hazard #177 forbids (Gemini `allowJSON` picking up Claude `.meta.json`).
     @MainActor
-    func testEveryRegisteredProviderConsultsItsOwnCustomScanRootsKey() throws {
+    func testEveryRegisteredProviderConsultsItsOwnCustomScanRootsKey() async throws {
         let suite = "ptb.scan.sweep.\(UUID().uuidString)"
         let defaults = TestDefaults.make(suite: suite)
         let ids = UsageStore(autoRefresh: false, defaults: defaults).registeredProviderIDs
@@ -362,7 +362,7 @@ final class CustomScanRootsTests: XCTestCase {
             .appendingPathComponent("Sources/PokeTokenBar")
         var corpus = ""
         let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
+        for case let url as URL in enumerator.allObjects where url.pathExtension == "swift" {
             corpus += (try String(contentsOf: url, encoding: .utf8)) + "\n"
         }
 
