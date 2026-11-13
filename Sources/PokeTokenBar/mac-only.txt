@@ -52,7 +52,11 @@ Team/TeamProfileBuilder.swift
 Team/TeamRuntime.swift
 Team/TeamSession.swift
 Team/TeamSettings.swift
+# UNUserNotificationCenter poster + delegate
+Team/TeamNotificationsMac.swift
 Team/TeamTransport.swift
+# TeamMessage lives in TeamWire, which needs the Core model types
+Team/TeamTransporting.swift
 Team/TeamWire.swift
 Team/UI/
 UI/
