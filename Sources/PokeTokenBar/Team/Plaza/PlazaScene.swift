@@ -958,7 +958,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 깨진 뒤 아직 아무 연못도 안 얼었을 때, 다음 연못이 얼기 시작할 벽시계(유닉스 초). 얼어 있거나 모르면 nil.
     private var freezeDue: Double?
     private var frozenIndex: Int?
-    /// 마지막으로 깨진 연못. 어느 연못이 언 채인지는 이것과 차례로 정해진다.
+    /// 마지막으로 깨진 연못. 어느 연못이 언 채인지는 이것과 내 시계(`at + 60초`)로 정해진다.
     private(set) var iceBreak: PlazaIceBreak?
     private var breaking: (pond: Int, hit: TilePoint, elapsed: TimeInterval)?
     private var landings: [(break: PlazaIceBreak, jumper: String?, remaining: TimeInterval)] = []
@@ -987,7 +987,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     var iceLandingCount: Int { landings.count }
 
     /// 아는 마지막 깨짐을 바꾼다. 장면이 멈췄거나 아직 한 프레임도 안 그렸으면 그대로 적용하고, 아니면 깨지는 모습을 거친다.
-    /// 받은 값이 내 차례보다 앞서거나 모르는 연못이면 버린다.
+    /// 받은 값의 `at` 이 내 시계보다 60초를 넘게 앞서거나 모르는 연못이면 버린다.
     func setIceBreak(_ b: PlazaIceBreak?, hit: TilePoint? = nil) {
         if let b, PlazaIce.accepted(b, now: now(), ponds: icePonds) == nil { return }
         iceBreak = b
