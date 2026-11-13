@@ -117,6 +117,17 @@ final class PlazaIceArtTests: XCTestCase {
         XCTAssertNil(at(0, 0))
     }
 
+    func testAPondAtTheMapCornerIsClippedToTheMap() throws {
+        let map = try PlazaMap(rows: ["SN....", "......", "......", "....ww"])
+        let image = solid(192, 128, 0x6DB955, set: [])
+        let pond = try XCTUnwrap(PlazaIce.ponds(in: map).first)
+        let overlay = PlazaIceArt.overlay(mapImage: image, pond: pond, gloss: nil)
+        XCTAssertEqual([overlay.width, overlay.height], [128, 96])
+        let d = rgba(overlay)
+        XCTAssertEqual(pixel(d, 128, 40, 40), 0xADCDEC)
+        XCTAssertNil(pixel(d, 128, 5, 5))
+    }
+
     private func snowMap() throws -> CGImage {
         let sheet = try XCTUnwrap(PlazaResources.tileSheet())
         let art = PlazaResources.tallGrassSheet().map(PlazaSnowSheet.tallGrass).flatMap(PlazaTallGrassArt.init(sheet:))

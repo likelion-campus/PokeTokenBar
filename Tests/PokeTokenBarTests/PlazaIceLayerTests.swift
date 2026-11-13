@@ -103,6 +103,16 @@ final class PlazaIceLayerTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: R)), 1, accuracy: 1e-6)
     }
 
+    func testALayerWithoutPondsHasNoNodesAndAnswersNilForAnyPond() {
+        let l = PlazaIceLayer(ponds: [], art: PlazaIceArt.none, mapImage: PlazaTileArt.plainGrassImage(map), worldHeight: map.pixelSize.height)
+        l.show(frozen: nil, alpha: 1, breaking: nil)
+        XCTAssertEqual(l.nodeCount, 0)
+        XCTAssertNil(l.iceAlpha(pond: 0))
+        XCTAssertNil(l.iceTextureID(pond: 0))
+        XCTAssertNil(layer().iceAlpha(pond: 99))
+        XCTAssertNil(layer().iceTextureID(pond: 99))
+    }
+
     func testAnIdleFrozenPondDoesNoWorkPerFrame() {
         let s = scene()
         s.setIceBreak(brk(L, Self.turn - 1))

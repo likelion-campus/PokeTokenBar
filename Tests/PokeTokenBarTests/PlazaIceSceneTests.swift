@@ -59,7 +59,7 @@ final class PlazaIceSceneTests: XCTestCase {
 
     private func move(_ s: PlazaScene, _ id: String, _ tile: TilePoint) { add(s, id, tile) }
 
-    /// Runs `seconds` of 1/30 s frames from where the last call stopped.
+    /// Runs `seconds` in 0.05 s frames from where the last call stopped.
     private func run(_ s: PlazaScene, _ seconds: TimeInterval) {
         let end = t + seconds
         while t < end - 1e-9 { t = min(t + 0.05, end); s.update(t) }
@@ -85,6 +85,39 @@ final class PlazaIceSceneTests: XCTestCase {
         XCTAssertNil(s.frozenPondAnchor)
         XCTAssertTrue(s.isWaterNow(p(6, 14)))
         XCTAssertFalse(s.isIce(p(6, 14)))
+    }
+
+    func testASceneWithoutIceArtDropsBreaksAndDrawsNothing() {
+        let s = scene(start: p(4, 14), ice: false)
+        s.update(0)
+        s.setIceBreak(brk(L))
+        XCTAssertNil(s.iceBreak)
+        s.setIceBreak(nil)
+        s.queueIceLanding(brk(L), jumper: nil)
+        s.isPaused = true
+        XCTAssertEqual(s.iceDrawCount, 0, "setIceBreak(nil) reaches drawIce, which stops at the missing layer")
+        XCTAssertEqual([s.shownCrackCount, s.shownShardCount, s.iceLayerNodeCount], [0, 0, 0])
+    }
+
+    func testTheSceneItselfDropsAFutureBreak() {
+        let s = scene(start: p(4, 14))
+        s.update(0)
+        s.setIceBreak(brk(L, Self.turn + 2))
+        XCTAssertNil(s.iceBreak)
+        XCTAssertEqual(s.frozenPondAnchor, L)
+        s.setIceBreak(brk(p(6, 13)))
+        XCTAssertNil(s.iceBreak)
+    }
+
+    func testALandingOnAnUnknownPondIsDropped() {
+        let s = scene(start: p(4, 14))
+        s.update(0)
+        var landed = 0
+        s.onIceLanding = { _, _ in landed += 1 }
+        s.queueIceLanding(brk(p(6, 13)), jumper: nil)
+        run(s, 0.4)
+        XCTAssertEqual(s.iceLandingCount, 0)
+        XCTAssertEqual(landed, 0)
     }
 
     func testAFreshSceneFreezesTheFirstPond() {
@@ -138,6 +171,8 @@ final class PlazaIceSceneTests: XCTestCase {
         XCTAssertEqual(s.pondAction(canMove: true), .jump, "breaking ice")
         run(s, 0.50)
         XCTAssertFalse(s.isMeInWater)
+        XCTAssertEqual(s.pondLayer!.dropletCount, 0, "no splash before the 0.6 s sink")
+        XCTAssertNotEqual(s.isWet(memberID: "c"), true)
         run(s, 0.12)
         XCTAssertTrue(s.isMeInWater)
         XCTAssertEqual(s.memberIsInWater("a"), true)
@@ -293,6 +328,31 @@ final class PlazaIceSceneTests: XCTestCase {
         breakL(s, hit: p(6, 14))
         run(s, 2)
         XCTAssertTrue(map.isWalkable(TilePoint(x: Int(s.myFootPoint.x) / PlazaMap.tileSize, y: Int(s.myFootPoint.y) / PlazaMap.tileSize)))
+    }
+
+    func testAPausedBreakPutsAnEggStandingOnTheIceAshore() {
+        let s = scene(start: p(6, 14))
+        s.canWalk = false
+        s.update(0)
+        XCTAssertTrue(s.isMeOnIce, "test precondition")
+        s.isPaused = true
+        s.setIceBreak(brk(L))
+        XCTAssertNil(s.breakingPondAnchor)
+        XCTAssertFalse(s.isMeInWater)
+        XCTAssertTrue(map.isWalkable(TilePoint(x: Int(s.myFootPoint.x) / PlazaMap.tileSize, y: Int(s.myFootPoint.y) / PlazaMap.tileSize)))
+    }
+
+    func testAJumperWhoLeavesBeforeTheLandingHitsThePondCentre() {
+        let s = scene(start: p(20, 10))
+        add(s, "a", p(8, 14))
+        s.update(0)
+        var hits: [TilePoint] = []
+        s.onIceLanding = { hits.append($1) }
+        s.queueIceLanding(brk(L), jumper: "a")
+        crowd = [:]
+        s.applyMembers([])
+        run(s, 0.4)
+        XCTAssertEqual(hits, [p(9, 14)])
     }
 
     func testAPushSlidesAcrossTheIce() {

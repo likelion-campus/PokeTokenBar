@@ -225,6 +225,16 @@ final class PlazaIceControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.breakingHit, p(8, 14))
     }
 
+    func testAJumpAfterTheWindowClosedStillLearnsTheBreak() {
+        let me = node("나")
+        let c = controller(me, start: p(20, 10), speciesID: 25)
+        XCTAssertNil(c.scene)
+        c.showJump(memberID: "x", iceBreak: brk(leftPond, T))
+        XCTAssertEqual(c.iceBreak, brk(leftPond, T))
+        c.showJump(memberID: "x", iceBreak: brk(leftPond, T + 2))
+        XCTAssertEqual(c.iceBreak, brk(leftPond, T))
+    }
+
     func testAMismatchedBreakTurnsMyIceToWaterAtOnce() async {
         let w = await world(me: p(20, 10))
         XCTAssertEqual(w.scene.frozenPondAnchor, leftPond, "test precondition")
@@ -300,6 +310,7 @@ final class PlazaIceControllerTests: XCTestCase {
         XCTAssertEqual(w.c.hint, L(.ko).plazaMemberHint(nickname: "가"))
         w.c.showJump(memberID: w.b.id, iceBreak: brk(leftPond, T))
         run(w.scene, 1.2)
+        XCTAssertFalse(w.scene.isMeOnIce)
         w.c.refreshHintForTesting()
         XCTAssertNotEqual(w.c.hint, L(.ko).plazaIceHint)
     }

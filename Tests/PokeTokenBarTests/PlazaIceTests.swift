@@ -65,6 +65,15 @@ final class PlazaIceTests: XCTestCase {
         XCTAssertEqual(PlazaIce.accepted(br(L, Int.min), turn: T, ponds: ps), br(L, Int.min))
         XCTAssertNil(PlazaIce.accepted(br(p(6, 13), T), turn: T, ponds: ps))
         XCTAssertNil(PlazaIce.accepted(nil, turn: T, ponds: ps))
+        XCTAssertEqual(PlazaIce.accepted(br(L, Int.max), turn: Int.max, ponds: ps), br(L, Int.max), "no overflow at the top")
+    }
+
+    func testMergeKeepsTheLaterOfTheFirstWhenItLeadsAndRanksUnknownPondsLast() {
+        let ps = ponds
+        XCTAssertEqual(PlazaIce.merged(br(R, T + 1), br(L, T), ponds: ps), br(R, T + 1))
+        XCTAssertEqual(PlazaIce.merged(br(L, T), br(R, T + 1), ponds: ps), br(R, T + 1))
+        XCTAssertEqual(PlazaIce.merged(br(L, T), br(p(6, 13), T), ponds: ps), br(L, T))
+        XCTAssertEqual(PlazaIce.merged(br(p(6, 13), T), br(L, T), ponds: ps), br(L, T))
     }
 
     func testFreezeAlphaFadesInOverASecondFromTheBoundary() {
