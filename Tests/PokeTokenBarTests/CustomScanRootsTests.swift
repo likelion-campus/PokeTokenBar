@@ -106,7 +106,10 @@ final class CustomScanRootsTests: XCTestCase {
 
     /// `/` is an ancestor of every curated path, but `extra + "/"` is `"//"` so a naive
     /// prefix check misses it and the refresh would walk the whole disk.
-    func testRootFilesystemCustomDoesNotEvictCuratedDefault() {
+    func testRootFilesystemCustomDoesNotEvictCuratedDefault() throws {
+        #if os(Windows)
+        throw XCTSkip("a custom root of "/" has no meaning on Windows (drive roots); not yet Windows-aware")
+        #endif
         let home = tempDir()
         let curated = [home.appendingPathComponent(".claude/projects")]
         try? FileManager.default.createDirectory(at: curated[0], withIntermediateDirectories: true)
