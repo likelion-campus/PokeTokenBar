@@ -334,10 +334,12 @@ final class TeamRuntimeTests: XCTestCase {
         plaza.prepareScene()
         let sender = a.settings.memberID
         a.runtime.session.updateCharacter(TeamMonSummary(speciesID: nil, isShiny: false, form: nil, speciesName: nil, gender: nil))
-        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: 30, y: 20), facing: .down, isWalking: false)
+        let tile = TilePoint(x: 30, y: 20)
+        a.runtime.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
+        // The session learns first and the controller follows a beat later; once the scene has the tile, the controller has it too.
         await settle {
             let member = b.runtime.session.members[sender]
-            return member?.inPlaza == true && member?.character.speciesID == nil && plaza.scene?.memberTiles[sender] != nil
+            return member?.inPlaza == true && member?.character.speciesID == nil && plaza.scene?.memberTiles[sender] == tile
         }
         a.runtime.session.sendEmote(.pray, target: nil)
         await settle { plaza.scene?.shownEmote(memberID: sender) == .pray }

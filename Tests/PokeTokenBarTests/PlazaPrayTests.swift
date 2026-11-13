@@ -118,10 +118,11 @@ final class PlazaPrayTests: XCTestCase {
 
     /// 팀원을 광장 안 한 칸에 세우고, 내 장면이 그 팀원을 알 때까지 기다린다.
     private func standInPlaza(_ other: Node, seenBy c: PlazaWindowController, me: Node) async {
-        other.session.updatePlazaPosition(inPlaza: true, tile: TilePoint(x: map.spawn.x + 3, y: map.spawn.y),
-                                          facing: .down, isWalking: false)
+        let tile = TilePoint(x: map.spawn.x + 3, y: map.spawn.y)
+        other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
         let id = other.settings.memberID
-        await waitUntil { me.session.members[id]?.inPlaza == true && c.scene?.memberTiles[id] != nil }
+        // 세션이 먼저 알고 컨트롤러는 한 박자 늦게 따라온다. 장면이 그 칸을 알면 컨트롤러도 안다.
+        await waitUntil { me.session.members[id]?.inPlaza == true && c.scene?.memberTiles[id] == tile }
         await settle()
     }
 
@@ -186,7 +187,7 @@ final class PlazaPrayTests: XCTestCase {
         await settle()
         XCTAssertEqual(other.received.emotes.count, 1, "the burst went out once")
 
-        now = now.addingTimeInterval(PlazaWindowController.emoteInterval)
+        now = now.addingTimeInterval(PlazaWindowController.emoteInterval * 2)
         press(scene, prayKey)
         XCTAssertEqual(prayers.count, 6)
         await waitUntil { other.received.emotes.count == 2 }

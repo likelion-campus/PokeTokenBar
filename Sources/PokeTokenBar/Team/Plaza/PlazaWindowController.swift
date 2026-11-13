@@ -107,7 +107,7 @@ struct PlazaFocusEnd: Equatable, Sendable {
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
     /// 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭, 펼친 단축키 안내가 다 보이는 높이.
-    static let minContentSize = NSSize(width: 600, height: 352)
+    static let minContentSize = NSSize(width: 600, height: 372)
     private var lastEmoteAt: Date?
     /// 기도 소식 연타 제한: 마지막으로 팀원에게 보낸 시각부터 잰다. 횟수는 제한 없이 센다.
     private var lastPraySentAt: Date?
