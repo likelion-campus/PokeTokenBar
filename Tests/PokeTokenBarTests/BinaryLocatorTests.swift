@@ -12,8 +12,12 @@ final class BinaryLocatorTests: XCTestCase {
 
         // The first entry comes from a URL, whose path uses `/` even where NSHomeDirectory() has `\`.
         XCTAssertEqual(paths.first, URL(fileURLWithPath: "\(home)/.local/share/mise/shims").path)   // 바이너리 디렉토리 최우선
+        #if os(Windows)
+        XCTAssertTrue(paths.contains { $0.hasSuffix("\\.local\\bin") })   // the Windows tool directories (PlatformCompat)
+        #else
         XCTAssertTrue(paths.contains("/opt/homebrew/bin"))               // mise 본체 위치 후보
         XCTAssertTrue(paths.contains("\(home)/.local/bin"))
+        #endif
         XCTAssertTrue(paths.contains("/usr/bin"))                        // 기존 PATH 보존
         // dedup compares strings, so a `\` home (Windows) keeps both spellings; path normalisation is a stage-4 item.
         if !home.contains("\\") {
@@ -27,7 +31,9 @@ final class BinaryLocatorTests: XCTestCase {
             binaryPath: "/opt/homebrew/bin/codex", base: [:])
         let paths = env[PlatformCompat.pathVariableKey(in: env)]!.split(separator: PlatformCompat.pathListSeparator).map(String.init)
         XCTAssertEqual(paths.first, "/opt/homebrew/bin")
+        #if !os(Windows)
         XCTAssertTrue(paths.contains("/usr/bin"))   // 기본 PATH 폴백
+        #endif
     }
 
     func testParsesCleanMarkedPath() {
@@ -65,9 +71,15 @@ final class BinaryLocatorTests: XCTestCase {
 
     func testCommonPathsIncludeManagersForBinary() {
         let paths = BinaryLocator.commonNodeToolPaths("ccusage")
+        #if os(Windows)
+        XCTAssertTrue(paths.allSatisfy { $0.contains("ccusage.") }, "every candidate carries an executable extension")
+        XCTAssertTrue(paths.contains { $0.hasSuffix("ccusage.exe") })
+        XCTAssertTrue(paths.contains { $0.hasSuffix("ccusage.cmd") })
+        #else
         XCTAssertTrue(paths.contains("/opt/homebrew/bin/ccusage"))
         XCTAssertTrue(paths.contains { $0.contains("/.local/share/mise/shims/ccusage") })
         XCTAssertTrue(paths.contains { $0.contains("/.asdf/shims/ccusage") })
         XCTAssertTrue(paths.contains { $0.contains("/.volta/bin/ccusage") })
+        #endif
     }
 }

@@ -291,7 +291,8 @@ extension PlatformCompat {
     /// (`.exe` first; `.cmd`, `.bat`, `.com` in PATHEXT order, or that order when PATHEXT is unset). A bare name is
     /// not a candidate: npm also writes an extensionless shell script next to its `.cmd` shim.
     static func executableCandidates(_ path: String) -> [String] {
-        executableCandidates(path, pathExt: ProcessInfo.processInfo.environment["PATHEXT"])
+        let environment = ProcessInfo.processInfo.environment
+        return executableCandidates(path, pathExt: environment["PATHEXT"])
     }
 
     static func executableCandidates(_ path: String, pathExt: String?) -> [String] {
@@ -374,5 +375,34 @@ extension PlatformCompat {
     /// resolves to a `.cmd`/`.bat` shim is launched only with arguments that pass this.
     static func isBatchSafe(_ arg: String) -> Bool {
         !arg.contains { "&|<>^%!\n\r".contains($0) }
+    }
+
+    /// Ends `process`. Mac: `process.terminate()`, verbatim. Windows: also its descendants, because terminating an npm
+    /// `.cmd` shim leaves the program it started running (measured on the CI runner, F19). Descendants come from one
+    /// Toolhelp snapshot taken before anything is killed; they are ended first, then the process itself.
+    static func terminate(_ process: Process) {
+        #if os(Windows)
+        var children: [DWORD: [DWORD]] = [:]
+        let snapshot = CreateToolhelp32Snapshot(DWORD(TH32CS_SNAPPROCESS), 0)
+        if snapshot != INVALID_HANDLE_VALUE {
+            var entry = PROCESSENTRY32W()
+            entry.dwSize = DWORD(MemoryLayout<PROCESSENTRY32W>.size)
+            if Process32FirstW(snapshot, &entry) {
+                repeat { children[entry.th32ParentProcessID, default: []].append(entry.th32ProcessID) }
+                while Process32NextW(snapshot, &entry)
+            }
+            CloseHandle(snapshot)
+        }
+        var descendants: [DWORD] = []
+        var pending = [DWORD(process.processIdentifier)]
+        while let pid = pending.popLast() {
+            for child in children[pid] ?? [] where !descendants.contains(child) {
+                descendants.append(child)
+                pending.append(child)
+            }
+        }
+        for pid in descendants.reversed() { forceKill(pid: Int32(pid)) }
+        #endif
+        process.terminate()
     }
 }

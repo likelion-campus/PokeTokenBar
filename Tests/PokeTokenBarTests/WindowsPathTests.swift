@@ -196,4 +196,18 @@ final class WindowsPathTests: XCTestCase {
         XCTAssertEqual(PlatformCompat.toolDirectories(posix: ["/a", "/b"], environment: ["APPDATA": "x"]), ["/a", "/b"])
         #endif
     }
+
+    /// Mac pin: `terminate` is `process.terminate()` (a plain POSIX fixture, no tool is launched).
+    func testTerminateOnTheMacEndsTheProcess() throws {
+        #if !os(Windows)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        p.arguments = ["30"]
+        try p.run()
+        PlatformCompat.terminate(p)
+        p.waitUntilExit()
+        XCTAssertFalse(p.isRunning)
+        XCTAssertEqual(p.terminationReason, .uncaughtSignal)
+        #endif
+    }
 }

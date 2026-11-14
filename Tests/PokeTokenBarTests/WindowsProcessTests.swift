@@ -64,7 +64,7 @@ final class WindowsProcessTests: XCTestCase {
         defer { PlatformCompat.forceKill(pid: Int32(child)) }
         XCTAssertTrue(isAlive(child))
 
-        p.terminate()
+        PlatformCompat.terminate(p)   // plain `p.terminate()` left the child running (run 43567771725)
         var gone = false
         for _ in 0..<30 where !gone {
             try await Task.sleep(nanoseconds: 100_000_000)
