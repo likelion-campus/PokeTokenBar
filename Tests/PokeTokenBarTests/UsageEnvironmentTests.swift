@@ -126,6 +126,7 @@ final class UsageEnvironmentTests: XCTestCase {
     /// - `OAuthLimitsProvider`: 의도적으로 프로세스 환경만 본다(자동 폴링 경로에서 셸 spawn 금지 —
     ///   해당 함수 주석 참조). 값이 필요한 사용량 스캔 쪽이 이미 셸 조회를 한다.
     /// - `AppEnv`: the `PTB_PARITY` live-check flag — the same QA class as `PTB_STATE_DIR` above.
+    /// - `ClaudeOAuthLimitsProvider`: the file moved out of `OAuthLimitsProvider` keeps its process-environment-only read.
     /// - `WindowsSelftest`: the Windows selftest's own flags (`CI`, `PTB_SELFTEST_*`, `PTB_STATE_DIR`) — QA, not usage locations.
     func testNoProviderReadsUsageLocationEnvDirectly() throws {
         let allowed: Set<String> = [
@@ -136,6 +137,8 @@ final class UsageEnvironmentTests: XCTestCase {
             "OAuthLimitsProvider.swift",
             "AppEnv.swift",
             "WindowsSelftest.swift",
+            "ClaudeOAuthLimitsProvider.swift",   // moved verbatim from OAuthLimitsProvider.swift (same entry above)
+            "WinDefaultsSync.swift",             // PTB_STATE_DIR: the selftest's own settings suite (QA, like CompanionStore)
         ]
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()    // PokeTokenBarTests
