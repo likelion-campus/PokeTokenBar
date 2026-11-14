@@ -66,10 +66,22 @@ enum PlatformPlaza {
         #endif
     }
 
+    #if os(Windows) || PTB_SHARED_ONLY
+    /// Logged once, the first time a bundled art file cannot be read (the stub graphics: Windows until stage 6).
+    private static let missingArtNote: Void = AppLog.write(
+        "PlatformPlaza: no bundled plaza art on this platform yet; the plaza is plain grass without pond visuals, tall grass or ice art")
+
+    private static func bundledImage(_ name: String, ext: String) -> PlazaImage? {
+        let image = graphics.assetURL(name, ext: ext).flatMap { graphics.decodeImage(at: $0) }
+        if image == nil { _ = missingArtNote }
+        return image
+    }
+    #endif
+
     /// The bundled tile sheet. The Mac reads it as it always has (`MacPlazaAssets.swift`); elsewhere through `graphics`.
     static func tileSheet() -> PlazaImage? {
         #if os(Windows) || PTB_SHARED_ONLY
-        graphics.assetURL(PlazaResources.tileSheetName, ext: "png").flatMap { graphics.decodeImage(at: $0) }
+        bundledImage(PlazaResources.tileSheetName, ext: "png")
         #else
         PlazaResources.tileSheet().map(PlazaImage.init(cgImage:))
         #endif
@@ -78,7 +90,7 @@ enum PlatformPlaza {
     /// The bundled tall-grass sheet, read like `tileSheet()`.
     static func tallGrassSheet() -> PlazaImage? {
         #if os(Windows) || PTB_SHARED_ONLY
-        graphics.assetURL(PlazaResources.tallGrassSheetName, ext: "png").flatMap { graphics.decodeImage(at: $0) }
+        bundledImage(PlazaResources.tallGrassSheetName, ext: "png")
         #else
         PlazaResources.tallGrassSheet().map(PlazaImage.init(cgImage:))
         #endif
@@ -96,9 +108,8 @@ enum PlatformPlaza {
     /// The ice gloss, cracks and shatter frames from the bundled files (empty parts when a file is missing).
     static func iceArt() -> PlazaIceArt {
         #if os(Windows) || PTB_SHARED_ONLY
-        let image = { (name: String) in graphics.assetURL(name, ext: "png").flatMap { graphics.decodeImage(at: $0) } }
-        return PlazaIceArt(gloss: image(PlazaResources.iceGlossSheetName).map { PlazaIceArt.gloss(fromSheet: $0) },
-                           cracks: image(PlazaResources.iceCrackSheetName).map { PlazaIceArt.cracks(fromSheet: $0) } ?? [],
+        return PlazaIceArt(gloss: bundledImage(PlazaResources.iceGlossSheetName, ext: "png").map { PlazaIceArt.gloss(fromSheet: $0) },
+                           cracks: bundledImage(PlazaResources.iceCrackSheetName, ext: "png").map { PlazaIceArt.cracks(fromSheet: $0) } ?? [],
                            shards: PlazaIceArt.shards(fromFrames: graphics.assetURL(PlazaResources.iceShatterName, ext: "gif")
                                .map { graphics.decodeImageFrames(at: $0) } ?? []))
         #else
