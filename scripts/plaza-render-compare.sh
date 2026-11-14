@@ -57,8 +57,9 @@ if [ -d "$SPRITES" ]; then export PTB_PLAZA_RENDER_SPRITES="$SPRITES"; else unse
 SWIFT_BUILD_FLAGS=(--build-tests)
 SWIFT_TEST_FLAGS=(--skip-build)
 if [ "$RELEASE" = 1 ]; then
-  SWIFT_BUILD_FLAGS=(-c release --build-tests -Xswiftc -enable-testing)
-  SWIFT_TEST_FLAGS=(-c release --skip-build)
+  # Its own build directory, so no release test bundle is left in .build (test-gate.sh's coverage step reads .build).
+  SWIFT_BUILD_FLAGS=(-c release --build-tests -Xswiftc -enable-testing --build-path .build-release)
+  SWIFT_TEST_FLAGS=(-c release --skip-build --build-path .build-release)
 fi
 
 wait_idle() {

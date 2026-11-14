@@ -1,8 +1,9 @@
-import SpriteKit
+import Foundation
 
 /// 불꽃을 그리는 노드. 시간은 `advance`가 준 간격으로만 흘러 창이 멈추면 불꽃도 멈추고, 타이머는 없다.
-/// 스프라이트는 재사용하고 조각 수는 상한을 넘지 않는다. 빛은 곱해져 겹치면 땅이 낮보다 밝아지므로 한 번에 하나만 켠다.
-@MainActor final class PlazaFireworkLayer: SKNode {
+/// 스프라이트는 재사용하고 조각 수는 상한을 넘지 않는다. 빛은 곱해져 겹치면 땅이 낮보다 밝아지므로 한 번에 하나만 켠다. 노드는 공유 트리(`root`)에 있다.
+@MainActor final class PlazaFireworkLayer {
+    let root = PlazaNode()
     /// 하늘에 함께 있을 수 있는 팀원 불꽃의 조각 수. 넘으면 그 발은 터뜨리지 않는다.
     static let maxPieces = 200
     /// 내 불꽃을 잇달아 쏠 수 있는 최소 간격(층의 시간 기준). 앞의 불꽃이 아직 떠 있어도 이만큼 지나면 다음 발을 쏠 수 있다.
@@ -22,7 +23,7 @@ import SpriteKit
     }
 
     private struct Shown {
-        let image: CGImage
+        let image: PlazaImage
         let position: CGPoint
         let size: CGSize
     }
@@ -39,19 +40,19 @@ import SpriteKit
     }
 
     private var bursts: [Burst] = []
-    private var sprites: [SKSpriteNode] = []
-    private lazy var lightNode: SKSpriteNode = {
-        let node = SKSpriteNode()
+    private var sprites: [PlazaSprite] = []
+    private lazy var lightNode: PlazaSprite = {
+        let node = PlazaSprite()
         node.blendMode = .multiplyX2
         node.zPosition = -1   // 조각(7) 아래, 모닥불빛과 같은 6에서 낮밤 색 위에 곱한다.
         node.isHidden = true
-        addChild(node)
+        root.addChild(node)
         return node
     }()
-    private var images: [PlazaFireworkGlyph: CGImage] = [:]
-    private var textures: [PlazaFireworkGlyph: SKTexture] = [:]
+    private var images: [PlazaFireworkGlyph: PlazaImage] = [:]
+    private var textures: [PlazaFireworkGlyph: PlazaTexture] = [:]
     /// 빛 텍스처. 지금 낮밤 색 하나에 대해서만 쌓고, 색이 바뀌면 비운다.
-    private var lightTextures: (tint: [Int], byLook: [Look: SKTexture])?
+    private var lightTextures: (tint: [Int], byLook: [Look: PlazaTexture])?
     private var shown: [Shown] = []
     private var light: Light?
     private var clock: TimeInterval = 0
@@ -145,21 +146,19 @@ import SpriteKit
         node.isHidden = false
     }
 
-    private func image(_ glyph: PlazaFireworkGlyph) -> CGImage {
+    private func image(_ glyph: PlazaFireworkGlyph) -> PlazaImage {
         if let image = images[glyph] { return image }
-        let image = PlazaFireworkArt.image(glyph).cgImage
-        let texture = SKTexture(cgImage: image)
-        texture.filteringMode = .nearest
+        let image = PlazaFireworkArt.image(glyph)
         images[glyph] = image
-        textures[glyph] = texture
+        textures[glyph] = PlazaTexture(image)
         return image
     }
 
-    private func sprite(_ index: Int) -> SKSpriteNode {
+    private func sprite(_ index: Int) -> PlazaSprite {
         if index < sprites.count { return sprites[index] }
-        let node = SKSpriteNode()
+        let node = PlazaSprite()
         node.anchorPoint = .zero
-        addChild(node)
+        root.addChild(node)
         sprites.append(node)
         return node
     }
@@ -172,7 +171,7 @@ import SpriteKit
         let look = Look(color: light.color, level: light.level)
         if lightTextures?.byLook[look] == nil {
             let rounded = PlazaDaylight.Tint(red: Double(key[0]) / 256, green: Double(key[1]) / 256, blue: Double(key[2]) / 256)
-            lightTextures?.byLook[look] = PlazaScene.lightTexture(tint: rounded, radii: radii, color: light.color.light, level: light.level)
+            lightTextures?.byLook[look] = PlazaTexture(PlazaCampfireLightArt.image(tint: rounded, radii: radii, color: light.color.light, level: light.level))
         }
         lightNode.texture = lightTextures?.byLook[look]
         lightNode.size = CGSize(width: counts.w * 2, height: counts.h * 2)
@@ -183,7 +182,7 @@ import SpriteKit
     /// 지금 보이는 조각을 기념사진 좌표(월드, y 아래로)로 돌려준다.
     func photoParticles(worldHeight: CGFloat) -> [PlazaPhotoParticle] {
         shown.map {
-            PlazaPhotoParticle(image: PlazaImage(cgImage: $0.image), origin: CGPoint(x: $0.position.x, y: worldHeight - $0.position.y - $0.size.height),
+            PlazaPhotoParticle(image: $0.image, origin: CGPoint(x: $0.position.x, y: worldHeight - $0.position.y - $0.size.height),
                                size: $0.size)
         }
     }

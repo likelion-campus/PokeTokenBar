@@ -72,12 +72,9 @@ PlazaDaylightTests.swift
 PlazaDittoControllerTests.swift
 PlazaDittoSceneTests.swift
 PlazaEmoteTests.swift
-PlazaFireworksTests.swift
 PlazaFocusTests.swift
-PlazaFootprintTests.swift
 PlazaGroupPhotoTests.swift
 PlazaIceControllerTests.swift
-PlazaIceLayerTests.swift
 PlazaIceSceneTests.swift
 # PlazaInputMappingTests: maps NSEvent key events and modifier flags (AppKit)
 PlazaInputMappingTests.swift
@@ -96,7 +93,18 @@ PlazaPhotoOverlayTests.swift
 PlazaPhotoTests.swift
 PlazaPhotoTestSupport.swift
 PlazaPhotoParityTests.swift
-PlazaPondLayerTests.swift
+# PlazaPondLayerTests+Mac: the 💧 image needs the Mac text engine (Apple Color Emoji); the Windows stub draws nothing
+PlazaPondLayerTests+Mac.swift
+# PlazaFireworksTests+Mac: the scene and window-controller firework tests (PlazaScene is SpriteKit until the stage lands)
+PlazaFireworksTests+Mac.swift
+# PlazaFootprintTests+Mac: the scene-driven footprint tests (PlazaScene is SpriteKit until the stage lands)
+PlazaFootprintTests+Mac.swift
+# PlazaIceLayerTests+Mac: the scene-driven ice tests, which also read the bundled ice art (ImageIO)
+PlazaIceLayerTests+Mac.swift
+# PlazaTallGrassLayerTests+Mac: reads the bundled tall-grass sheet (ImageIO) and checks pixels through CoreGraphics
+PlazaTallGrassLayerTests+Mac.swift
+# PlazaWeatherTests+Mac: the scene-driven weather tests and the photo pixel checks (PlazaScene, CoreGraphics)
+PlazaWeatherTests+Mac.swift
 # PlazaPondMotionTests: needs PlazaScene (SpriteKit)
 PlazaPondMotionTests.swift
 PlazaPondSceneTests.swift
@@ -125,9 +133,7 @@ PlazaSnowballTests.swift
 PlazaStartleControllerTests.swift
 PlazaSwimLowerHalfTests.swift
 PlazaTackleWaterTests.swift
-PlazaTallGrassLayerTests.swift
 PlazaTallGrassSceneTests.swift
-PlazaWeatherTests.swift
 PlazaWindowTests.swift
 PokeTokenBarTests.swift
 # PokemonFormTests+Mac: needs PokemonDetailView (UI)
@@ -195,3 +201,5 @@ PlazaArtParityPixelArtTests.swift
 PlazaTextArtParityTests.swift
 # AppWiringDriftScanTests: compares source text of the Mac AppDelegate with Platform/AppWiring.swift (Mac-side scan, like WindowsSeamScanTests)
 AppWiringDriftScanTests.swift
+# PlazaGIFDecoderParityTests+Mac: compares against ImageIO (CGImageSource)
+PlazaGIFDecoderParityTests+Mac.swift

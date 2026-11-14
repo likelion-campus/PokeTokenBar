@@ -1,22 +1,25 @@
 import XCTest
-import SpriteKit
 @testable import PokeTokenBar
 
 @MainActor
 final class PlazaTallGrassLayerTests: XCTestCase {
-    private let map = PlazaMapData.map
-    private var H: CGFloat { CGFloat(map.height * PlazaMap.tileSize) }
-    private let a = TilePoint(x: 6, y: 6)
+    /// A flat sheet of the real size (208x144): the layer's logic does not depend on the artist's pixels, and the bundled
+    /// sheet is read by the Mac loader (see the Mac-only `testSetArtRetexturesTheBandsInPlace`).
+    static let fixtureSheet = PlazaImage(bitmap: PlazaBitmap(width: 208, height: 144, fill: PlazaRGBA(r: 80, g: 160, b: 60, a: 255)))
 
-    private func makeLayer() throws -> PlazaTallGrassLayer {
-        PlazaTallGrassLayer(map: map, art: try XCTUnwrap(PlazaTallGrassArt.load()))
+    let map = PlazaMapData.map
+    var H: CGFloat { CGFloat(map.height * PlazaMap.tileSize) }
+    let a = TilePoint(x: 6, y: 6)
+
+    func makeLayer() throws -> PlazaTallGrassLayer {
+        PlazaTallGrassLayer(map: map, art: try XCTUnwrap(PlazaTallGrassArt(sheet: Self.fixtureSheet)))
     }
 
-    private func cue(_ kind: PlazaRustleKind, strong: Bool = true, delay: TimeInterval = 0, at t: TilePoint? = nil) -> PlazaRustleCue {
+    func cue(_ kind: PlazaRustleKind, strong: Bool = true, delay: TimeInterval = 0, at t: TilePoint? = nil) -> PlazaRustleCue {
         PlazaRustleCue(tile: t ?? a, kind: kind, strong: strong, delay: delay)
     }
 
-    func testOneBandPerGrassTileBetweenItsRowAndTheNext() throws {
+    func testOneBandPerGrassTileBetweenItsRowAndTheNext() async throws {
         let layer = try makeLayer()
         XCTAssertEqual(layer.bandCount, 107)
         let z = try XCTUnwrap(layer.bandZ(at: a))
@@ -24,7 +27,7 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertLessThan(z, 1 + (7 * 32 + 28) / H)
     }
 
-    func testSwayLeansTheTipsThenSpringsBack() throws {
+    func testSwayLeansTheTipsThenSpringsBack() async throws {
         let layer = try makeLayer()
         layer.rustle(cue(.sway(1)))
         layer.update(dt: 0.05)
@@ -40,7 +43,7 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertEqual(layer.bandOffset(at: a), .zero)
     }
 
-    func testBounceLiftsTheTileAndItsBand() throws {
+    func testBounceLiftsTheTileAndItsBand() async throws {
         let layer = try makeLayer()
         layer.rustle(cue(.bounce))
         layer.update(dt: 0.05)
@@ -51,7 +54,7 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertEqual(layer.bandOffset(at: a), .zero)
     }
 
-    func testDelayedCueStartsLater() throws {
+    func testDelayedCueStartsLater() async throws {
         let layer = try makeLayer()
         layer.rustle(cue(.sway(1), strong: false, delay: 0.05))
         layer.update(dt: 0.03)
@@ -60,7 +63,7 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertEqual(layer.activeRustles.count, 1)
     }
 
-    func testAStrongRustleThrowsThreeLeavesThatSettle() throws {
+    func testAStrongRustleThrowsThreeLeavesThatSettle() async throws {
         let layer = try makeLayer()
         layer.rustle(cue(.sway(1)))
         layer.update(dt: 0.01)
@@ -72,7 +75,7 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertEqual(layer.leafCount, 0)
     }
 
-    func testRunningAcrossGrassStaysUnderTheCaps() throws {
+    func testRunningAcrossGrassStaysUnderTheCaps() async throws {
         let layer = try makeLayer()
         var tiles: [TilePoint] = []
         for y in 0..<map.height { for x in 0..<map.width where map.tile(at: TilePoint(x: x, y: y)) == .tallGrass { tiles.append(TilePoint(x: x, y: y)) } }
@@ -89,7 +92,7 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertTrue(tiles.allSatisfy { layer.overlayOffset(at: $0) == nil })
     }
 
-    func testBurstOverTheRustleCapEndsTheOldestAndRestoresItsBand() throws {
+    func testBurstOverTheRustleCapEndsTheOldestAndRestoresItsBand() async throws {
         let layer = try makeLayer()
         var tiles: [TilePoint] = []
         for y in 0..<map.height { for x in 0..<map.width where map.tile(at: TilePoint(x: x, y: y)) == .tallGrass { tiles.append(TilePoint(x: x, y: y)) } }
@@ -103,16 +106,16 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertNotNil(layer.overlayOffset(at: tiles[n - 1]))
     }
 
-    func testFinishedOverlaysAndLeavesAreReusedNotRebuilt() throws {
+    func testFinishedOverlaysAndLeavesAreReusedNotRebuilt() async throws {
         let layer = try makeLayer()
         for _ in 0..<50 {
             layer.rustle(cue(.sway(1)))
             layer.update(dt: 0.7)
         }
-        XCTAssertEqual(layer.children.count, layer.bandCount + 1 + 3)
+        XCTAssertEqual(layer.root.children.count, layer.bandCount + 1 + 3)
     }
 
-    func testHidingDropsEverything() throws {
+    func testHidingDropsEverything() async throws {
         let layer = try makeLayer()
         layer.rustle(cue(.bounce))
         layer.rustle(cue(.sway(1), delay: 0.5, at: TilePoint(x: 7, y: 6)))
@@ -121,13 +124,13 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertTrue(layer.activeRustles.isEmpty)
         XCTAssertEqual(layer.leafCount, 0)
         XCTAssertFalse(layer.isGrass(a))
-        XCTAssertTrue(layer.children.filter { $0.zPosition >= 1 && $0.zPosition < 2 }.allSatisfy(\.isHidden))
+        XCTAssertTrue(layer.root.children.filter { $0.zPosition >= 1 && $0.zPosition < 2 }.allSatisfy(\.isHidden))
         layer.rustle(cue(.bounce))
         layer.update(dt: 1)
         XCTAssertTrue(layer.activeRustles.isEmpty)
         layer.setHidden(false)
         XCTAssertTrue(layer.isGrass(a))
-        XCTAssertTrue(layer.children.filter { $0.zPosition >= 1 && $0.zPosition < 2 }.allSatisfy { !$0.isHidden })
+        XCTAssertTrue(layer.root.children.filter { $0.zPosition >= 1 && $0.zPosition < 2 }.allSatisfy { !$0.isHidden })
         XCTAssertEqual(layer.bandOffset(at: a), .zero)
         XCTAssertNil(layer.overlayOffset(at: a))
         // The dropped delayed cue (0.45 s left at hide time) would be running at elapsed 0.05 here.
@@ -136,7 +139,7 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertEqual(layer.leafCount, 0)
     }
 
-    func testCuesOffTheGrassAreIgnored() throws {
+    func testCuesOffTheGrassAreIgnored() async throws {
         let layer = try makeLayer()
         layer.rustle(cue(.bounce, at: TilePoint(x: 0, y: 0)))
         layer.update(dt: 0.05)
@@ -145,37 +148,4 @@ final class PlazaTallGrassLayerTests: XCTestCase {
         XCTAssertNil(layer.overlayOffset(at: TilePoint(x: 0, y: 0)))
     }
 
-    func testSetArtRetexturesTheBandsInPlace() throws {
-        let layer = try makeLayer()
-        let sheet = try XCTUnwrap(PlazaResources.tallGrassSheet())
-        let snowy = try XCTUnwrap(PlazaTallGrassArt(sheet: PlazaSnowSheet.tallGrass(PlazaImage(cgImage: sheet))))
-        let z = try XCTUnwrap(layer.bandZ(at: a))
-        layer.rustle(cue(.bounce))
-        layer.update(dt: 0.05)
-        XCTAssertEqual(layer.activeRustles.count, 1)
-        layer.setArt(snowy)
-        XCTAssertTrue(layer.activeRustles.isEmpty)
-        XCTAssertEqual(layer.bandZ(at: a), z)
-        XCTAssertEqual(layer.bandOffset(at: a), .zero)
-        let image = try XCTUnwrap(layer.bandTexture(at: a)).cgImage()
-        XCTAssertFalse(SnowPixels.contains(image, rgb: [0x99E550, 0x6ABE30]))
-    }
-}
-
-/// Test helper: does an image hold a fully opaque pixel of one of these colours?
-enum SnowPixels {
-    static func contains(_ image: PlazaImage, rgb: Set<UInt32>) -> Bool { contains(image.cgImage, rgb: rgb) }
-
-    static func contains(_ image: CGImage, rgb: Set<UInt32>) -> Bool {
-        let (w, h) = (image.width, image.height)
-        var raw = [UInt8](repeating: 0, count: w * h * 4)
-        let ctx = CGContext(data: &raw, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        for i in stride(from: 0, to: raw.count, by: 4) where raw[i + 3] == 255 {
-            if rgb.contains(UInt32(raw[i]) << 16 | UInt32(raw[i + 1]) << 8 | UInt32(raw[i + 2])) { return true }
-        }
-        return false
-    }
 }

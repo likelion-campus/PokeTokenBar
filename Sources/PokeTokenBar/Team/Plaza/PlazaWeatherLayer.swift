@@ -1,13 +1,14 @@
-import SpriteKit
+import Foundation
 
 /// 날씨 입자를 그리는 노드. 입자는 재사용하는 스프라이트라 날씨 종류나 입자 수가 바뀔 때만 만든다.
-/// 시간은 `update`가 준 간격으로만 흘러 창이 멈추면 입자도 멈추고, 타이머는 없다.
-@MainActor final class PlazaWeatherLayer: SKNode {
+/// 시간은 `update`가 준 간격으로만 흘러 창이 멈추면 입자도 멈추고, 타이머는 없다. 노드는 공유 트리(`root`)에 있다.
+@MainActor final class PlazaWeatherLayer {
+    let root = PlazaNode()
     private(set) var kind = PlazaWeather.Kind.clear
     private var field: PlazaWeatherField?
     private var images: [PlazaImage] = []
-    private var textures: [SKTexture] = []
-    private var sprites: [SKSpriteNode] = []
+    private var textures: [PlazaTexture] = []
+    private var sprites: [PlazaSprite] = []
 
     /// `visible`은 보이는 영역(장면 좌표)이고, `step`은 기기 픽셀 하나의 월드 크기. 숨기면 입자를 걷는다.
     func update(weather: PlazaWeather.Kind, isHidden: Bool, dt: TimeInterval, visible: CGRect, step: CGFloat) {
@@ -22,20 +23,16 @@ import SpriteKit
         if wanted != kind {
             kind = wanted
             images = PlazaWeatherArt.images(wanted)
-            textures = images.map {
-                let t = SKTexture(cgImage: $0.cgImage)
-                t.filteringMode = .nearest
-                return t
-            }
+            textures = images.map { PlazaTexture($0) }
         }
-        removeAllChildren()
+        root.removeAllChildren()
         sprites = []
         guard count > 0 else { field = nil; return }
         let f = PlazaWeatherField(kind: wanted, count: count, in: visible)
         sprites = f.particles.map { p in
-            let node = SKSpriteNode(texture: textures[p.variant], size: CGSize(width: images[p.variant].width, height: images[p.variant].height))
+            let node = PlazaSprite(texture: textures[p.variant], size: CGSize(width: images[p.variant].width, height: images[p.variant].height))
             node.anchorPoint = .zero
-            addChild(node)
+            root.addChild(node)
             return node
         }
         field = f

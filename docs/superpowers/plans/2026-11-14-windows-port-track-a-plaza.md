@@ -159,8 +159,12 @@ protocol PlazaTextEngine: Sendable {
     func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph
 }
 
-// PlazaNode.swift, PlazaTexture.swift (Task 7)
+// PlazaNode.swift, PlazaTexture.swift (Task 7, as built)
 enum PlazaBlendMode: Sendable { case alpha, multiply, multiplyX2 }
+enum PlazaFloat {                                                   // SpriteKit's 32-bit storage, shared
+    static func stored(_ v: CGFloat) -> CGFloat                     // CGFloat(Float(v)); overloads CGPoint, CGRect, PlazaColor
+    static func same(_ a: CGFloat, _ b: CGFloat) -> Bool            // bit-pattern equality; overloads CGPoint, CGRect?, PlazaColor
+}
 @MainActor class PlazaNode {
     init()
     final var name: String?
@@ -169,52 +173,67 @@ enum PlazaBlendMode: Sendable { case alpha, multiply, multiplyX2 }
     final var zRotation: CGFloat
     final private(set) weak var parent: PlazaNode?
     final private(set) var children: [PlazaNode]
-    final func addChild(_ node: PlazaNode)
-    final func removeFromParent()
+    final func addChild(_ node: PlazaNode)                          // precondition: no parent (SpriteKit raises too)
+    final func removeFromParent()                                   // a bridge-mounted root (no shared parent) leaves SpriteKit
     final func removeAllChildren()
     final var descendantCount: Int { get }
-    final var mirror: (any PlazaNodeMirror)? { get }               // set only by a backend
+    final private(set) var mirror: PlazaNodeMirror?                 // a class, see below
+    final func installMirror(_ m: PlazaNodeMirror)                  // backends only, once
 }
 @MainActor final class PlazaSprite: PlazaNode {
-    init(); init(texture: PlazaTexture?, size: CGSize); init(color: PlazaColor, size: CGSize)
+    static let defaultColor: PlazaColor                             // (1,1,1,0), SpriteKit's default
+    override init(); init(texture: PlazaTexture?, size: CGSize); init(color: PlazaColor, size: CGSize)
     var texture: PlazaTexture?
-    var size: CGSize                // SpriteKit semantics, including x/yScale, as pinned by SpriteKitSemanticsTests
+    var size: CGSize                // reads unscaled × |scale|; assigning divides by the scales only while BOTH are positive
+    var unscaledSize: CGSize { get }// what a backend builds a copy with / a renderer stretches the texture to
     var anchorPoint: CGPoint        // default (0.5, 0.5)
-    var color: PlazaColor           // default as SKSpriteNode (pinned)
+    var color: PlazaColor           // default defaultColor; init(color:size:) the given colour
     var colorBlendFactor: CGFloat
     var blendMode: PlazaBlendMode   // default .alpha
-    var frame: CGRect { get }       // same as SKNode.frame for the cases used (pinned)
+    var frame: CGRect { get }       // SpriteKit's, rounded to 1/1000 as SpriteKit does; within 0.001 at half-thousandths; no rotation
 }
 @MainActor final class PlazaCropNode: PlazaNode { var maskRect: CGRect? }   // replaces SKCropNode + white mask sprite
 @MainActor final class PlazaCameraNode: PlazaNode {}
 @MainActor final class PlazaTexture {                               // always nearest filtering
     init(_ image: PlazaImage)
-    init(rect: CGRect, in parent: PlazaTexture)                    // unit rect, origin bottom-left (SKTexture(rect:in:))
+    init(rect: CGRect, in parent: PlazaTexture)                    // unit rect, origin bottom-left; a cut of a cut is a part of the WHOLE image (SpriteKit)
     let image: PlazaImage; let rect: CGRect
-    var pixelSize: CGSize { get }                                  // SKTexture.size()
-    var nativeCache: AnyObject?                                    // the backend's texture
+    let parent: PlazaTexture?                                      // the backend cuts from the parent's own native texture
+    var pixelSize: CGSize { get }                                  // SKTexture.size(): image size × rect, in double
+    var nativeCache: AnyObject?                                    // the backend's texture (Mac: one SKTexture per PlazaTexture)
 }
-@MainActor protocol PlazaNodeMirror: AnyObject {
+@MainActor class PlazaNodeMirror {                                 // a CLASS with no-op defaults that backends override (a class call
+    init()                                                         // is ~2 ns cheaper per write than a protocol-existential call)
     func insertChild(_ child: PlazaNode, at index: Int)            // materializes child's subtree if it has no mirror
     func removeFromParent()
     func setName(_ v: String?); func setPosition(_ v: CGPoint); func setZPosition(_ v: CGFloat)
     func setAlpha(_ v: CGFloat); func setHidden(_ v: Bool); func setScale(x: CGFloat, y: CGFloat); func setZRotation(_ v: CGFloat)
-    func setTexture(_ v: PlazaTexture?); func setSize(_ v: CGSize); func setAnchorPoint(_ v: CGPoint)
+    func setTexture(_ v: PlazaTexture?); func setSize(_ v: CGSize) /* the assigned, scaled value */; func setAnchorPoint(_ v: CGPoint)
     func setColor(_ v: PlazaColor); func setColorBlendFactor(_ v: CGFloat); func setBlendMode(_ v: PlazaBlendMode)
     func setMaskRect(_ v: CGRect?)
 }
-enum PlazaDrawOrder { @MainActor static func flatten(root: PlazaNode, camera: PlazaCameraNode?) -> [PlazaDrawItem] }
+enum PlazaDrawOrder {
+    @MainActor static func flatten(root: PlazaNode, camera: PlazaCameraNode?) -> [PlazaDrawItem]
+    @MainActor static func localTransform(of node: PlazaNode) -> PlazaTransform   // scale, rotate, move
+}
 struct PlazaDrawItem { let sprite: PlazaSprite; let globalZ: CGFloat; let treeIndex: Int; let isScreenSpace: Bool; let clip: CGRect?; let transform: PlazaTransform; let alpha: CGFloat }
-struct PlazaTransform: Equatable { var a, b, c, d, tx, ty: CGFloat }   // own type; no CGAffineTransform in shared code
+// transform maps the unit square (0,0)–(1,1) of the sprite's texture/colour rect (origin bottom-left) to root space, or to
+// camera space (origin at the viewport centre) when isScreenSpace; clip is in that same space
+struct PlazaTransform: Equatable { var a, b, c, d, tx, ty: CGFloat; static let identity; func concatenating(_ outer: PlazaTransform) -> PlazaTransform; func apply(_ p: CGPoint) -> CGPoint }
+// Mac (Platform/Mac/Plaza/SpriteKitBackend.swift): SpriteKitBackend { materialize, texture, blendMode }; SKNodeMirror (plain
+// nodes AND the camera, holding an SKCameraNode; there is no SKCameraMirror), SKSpriteMirror, SKCropMirror; SpriteKitMirrorFaults
+// (debug-only test switches); extension PlazaNode { var skNode: SKNode? (tests/harness only); func mountInSpriteKit(_:) (Tasks 7–9 bridge) }
 
-// PlazaTween.swift (Task 7)
+// PlazaTween.swift (Task 7, as built)
 @MainActor indirect enum PlazaTweenStep {
     case moveBy(dx: CGFloat, dy: CGFloat, duration: TimeInterval), fadeOut(duration: TimeInterval)
     case scaleTo(CGFloat, duration: TimeInterval), wait(TimeInterval), call(@MainActor () -> Void), removeFromParent
     case group([PlazaTweenStep]), sequence([PlazaTweenStep])
 }
 @MainActor final class PlazaTweens {
-    func run(_ step: PlazaTweenStep, on node: PlazaNode?)          // nil node: scene-level (the delayed puff)
+    init(root: PlazaNode)                                          // the stage root: a tween steps only while its node is under it
+    let root: PlazaNode
+    func run(_ step: PlazaTweenStep, on node: PlazaNode?)          // nil node: scene-level (the delayed puff); nodes held weakly
     func advance(by dt: TimeInterval)
     var count: Int { get }
 }
@@ -236,6 +255,7 @@ struct PlazaTransform: Equatable { var a, b, c, d, tx, ty: CGFloat }   // own ty
     var delegate: (any PlazaStageDelegate)? { get set }
     func currentModifiers() -> PlazaModifiers
 }
+@MainActor final class PlazaHeadlessStage: PlazaStage { init(size: CGSize) }   // no clock: never calls stageUpdate; a size change calls stageDidChangeSize
 
 // PlazaWindowShell.swift (Task 12)
 @MainActor protocol PlazaPausableView: AnyObject { var isPaused: Bool { get set } }   // moved from the controller file
@@ -288,7 +308,7 @@ enum PlatformPlaza {
     static let graphics: any PlazaGraphics                          // MacPlazaGraphics | PlazaStubGraphics
     static let clipboard: any ImageClipboarding                     // MacImageClipboard | StubImageClipboard
     @MainActor static func currentModifiers() -> PlazaModifiers
-    @MainActor static func makeStage(size: CGSize) -> any PlazaStage   // SpriteKitStage | PlazaHeadlessStage
+    @MainActor static func makeStage(size: CGSize) -> any PlazaStage   // PlazaHeadlessStage on BOTH OSes until Task 10 adds SpriteKitStage on the Mac
     @MainActor static func makeShell() -> any PlazaWindowShell          // PlazaMacWindow | PlazaHeadlessShell
     @MainActor static func makeChatInput() -> any PlazaChatInputHost    // PlazaChatInput | PlazaStubChatInput
     @MainActor static func spriteFetcher() -> any PlazaSpriteFetching   // LivePlazaSpriteFetcher | stub (empty)
@@ -298,7 +318,7 @@ Selection uses `#if os(Windows) || PTB_SHARED_ONLY` like `PlatformLimits`. Stub 
 
 Direct2D check (stage 6 contract, from Experiment 3): sprites = bitmap draws with nearest interpolation, opacity and an affine transform (flip, `zRotation`, scale about the anchor); `colorBlendFactor` = ColorMatrix effect; `.multiply` = Blend effect; `.multiplyX2` = ArithmeticComposite (C1 = 2); crop = axis-aligned clip; camera = view transform; canvas text = DirectWrite (stroke via glyph-run geometry + round-join stroke style; shadow via Shadow effect); `sourceAtop` = composite mode; PNG = WIC. Nothing in the contract needs a Mac-only capability.
 
-SpriteKit behaviours the shared tree must state (and Windows must reproduce): global z = sum of ancestors' `zPosition`; with `ignoresSiblingOrder = true` exact ties have no defined order (Windows draws ties in tree order; the Task 1 tie audit lists where it matters); camera children are screen-space but sort in the same global z space as world nodes (the daylight tint at camera z 5 lies between characters at z 1–2 and plates at z 10); a crop node's subtree draws as one unit at the crop node's z. Task 1 pins each by a probe.
+SpriteKit behaviours the shared tree must state (and Windows must reproduce): global z = sum of ancestors' `zPosition`; with `ignoresSiblingOrder = true` exact ties have no defined order (Windows draws ties in tree order; the Task 1 tie audit lists where it matters); camera children are screen-space but sort in the same global z space as world nodes (the daylight tint at camera z 5 lies between characters at z 1–2 and plates at z 10); a crop node's subtree draws as one unit at the crop node's z. Task 1 pins each by a probe. Task 7 added (probes, `PlazaNodeTests`, the differential test): every value is stored as a 32-bit float and read back rounded; `size` reads unscaled × |scale| and assigning divides only while both scales are positive; `frame` is rounded to 1/1000; alpha and rotation are not clamped or normalised; a cut of a cut texture is a part of the whole image; `SKAction` arithmetic as listed in `PlazaTween.swift` (32-bit durations, composites re-rounding their children's time, `fma` blends).
 
 ## Verification harness (Task 1 builds it; every later task uses it)
 
@@ -483,7 +503,7 @@ Sources/PokeTokenBar/mac-only.txt, Tests/PokeTokenBarTests/mac-only.txt, Tests/P
 ### Task 7: Node interface, SpriteKit backend, tweens — first layer: the pond **[opus]** — Size L
 
 **Files:**
-- Create: `Team/Plaza/Draw/{PlazaNode,PlazaTexture,PlazaDrawOrder,PlazaTween,PlazaStage,PlazaHeadlessStage}.swift`; `Platform/Mac/Plaza/SpriteKitBackend.swift` (`SKNodeMirror`, `SKSpriteMirror`, `SKCropMirror` (white mask sprite at the rect), `SKCameraMirror`; texture creation `SKTexture(cgImage: image.cgImage)` / `SKTexture(rect:in:)` with `.nearest`, cached in `nativeCache`; materialize order: scale 1 → unscaled size → texture, anchor, colour, factor, blend, position, z, alpha, hidden, name, rotation → scales → mask → children in order); bridge `extension PlazaNode { func mountInSpriteKit(_ parent: SKNode) }` (removed in Task 10); `Tests/.../PlazaRender/{SpriteKitMirrorParityTests,PlazaTweenOracleTests}.swift`
+- Create: `Team/Plaza/Draw/{PlazaNode,PlazaTexture,PlazaDrawOrder,PlazaTween,PlazaStage,PlazaHeadlessStage}.swift`; `Platform/Mac/Plaza/SpriteKitBackend.swift` (`SKNodeMirror`, `SKSpriteMirror`, `SKCropMirror` (white mask sprite at the rect), the camera as an `SKNodeMirror` over an `SKCameraNode` (as built); texture creation `SKTexture(cgImage: image.cgImage)` / `SKTexture(rect:in:)` with `.nearest`, cached in `nativeCache`; materialize order: scale 1 → unscaled size → texture, anchor, colour, factor, blend, position, z, alpha, hidden, name, rotation → scales → mask → children in order); bridge `extension PlazaNode { func mountInSpriteKit(_ parent: SKNode) }` (removed in Task 10); `Tests/.../PlazaRender/{SpriteKitMirrorParityTests,PlazaTweenOracleTests}.swift`
 - Modify: `PlazaPondLayer.swift` (not an `SKNode`; `let root = PlazaNode()`; `PlazaSprite`/`PlazaTexture`), `PlazaScene.swift` (`pondLayer.root.mountInSpriteKit(self)` where it called `addChild(layer)`), `PlazaPondLayerTests.swift` (`layer.root.children`, `as? PlazaSprite`), `PlatformPlaza.swift` (+ `makeStage`, unused until Task 10)
 - Test: `PlazaNodeTests.swift`, `PlazaDrawOrderTests.swift`, `PlazaTweenTests.swift` (shared)
 
@@ -499,6 +519,19 @@ Sources/PokeTokenBar/mac-only.txt, Tests/PokeTokenBarTests/mac-only.txt, Tests/P
 - [ ] **Step 8: PR** `refactor(plaza): add the shared node tree and its SpriteKit mirror`.
 
 ---
+
+### Rules for Tasks 8–10 (from Task 7's report and review)
+
+- Never use `skNode` in app code, and never add SpriteKit nodes under a mirrored node: the shared tree is the truth; `skNode` exists for tests and the harness.
+- Mount where `addChild(layer)` was, in the same order (exact z ties draw in tree order; the harness nudges ties into tree order, so a reordered tie group shows as a diff). `layer.zPosition = …` becomes `layer.root.zPosition = …`.
+- Share a `PlazaTexture` wherever an `SKTexture` was shared (one `SKTexture` per `PlazaTexture`); cut sub-textures from the `PlazaTexture` whose `SKTexture` was the parent.
+- In the harness, add each mounted root to `PlazaRenderHarness.sharedRoots(of:)` (parity after every capture) and its copy's old class name to `legacyClassNames(of:)` (`"PlazaWeatherLayer"`, …; Task 10: the scene), or every capture reports a tree diff.
+- No Double copies of node values: a node reads back SpriteKit's 32-bit value (and SpriteKit's `size`/`frame` rules); keeping a Double copy "to be exact" is what would change pixels.
+- Nodes, textures and tweens are main-actor only.
+- Tween `call` blocks capture `[weak self]` (as the `SKAction.run` block did); `PlazaTweens(root: stage.root)` steps at the end of `PlazaScene.update` with its clamped dt; start a tween exactly where the `run` was.
+- Effect nodes (dust, impact, shutter) stay direct children of the root or the camera, as today.
+- Footprints use `SKColor(red:…)` today and the shared path is sRGB (`PlazaColor.skColor` = `SKColor(srgbRed:)`, equal on this Mac per `SpriteKitSemanticsTests`): the render compare must confirm it for the footprint scenes.
+- A bridge-mounted root leaves SpriteKit with `removeFromParent()` (`PlazaActor.detach()` must call it); mounting it again requires it to be out first.
 
 ### Task 8: The other layers — Size M
 

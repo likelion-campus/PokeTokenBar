@@ -27,6 +27,31 @@ enum PlazaRenderEnv {
 /// The plan's single adapter: the harness reaches the SpriteKit scene only through here, so Task 10 changes one line.
 enum PlazaRenderHarness {
     @MainActor static func skScene(of scene: PlazaScene) -> SKScene { scene }
+
+    /// The shared subtrees mounted into the scene (Track A converts them layer by layer). After every capture each one is
+    /// compared with its SpriteKit copy (`PlazaMirrorParity`).
+    @MainActor static func sharedRoots(of scene: PlazaScene) -> [PlazaNode] { layerRoots(of: scene).map(\.root) }
+
+    /// The class a converted layer's node had before Track A (an `SKNode` subclass; now the plain `SKNode` copy of a shared
+    /// root), so tree dumps still compare with bases from before the conversion. Only the printed class name is mapped.
+    @MainActor static func legacyClassNames(of scene: PlazaScene) -> [ObjectIdentifier: String] {
+        var out: [ObjectIdentifier: String] = [:]
+        for (root, name) in layerRoots(of: scene) { if let sk = root.skNode { out[ObjectIdentifier(sk)] = name } }
+        return out
+    }
+
+    /// Every converted layer's root with the class name its node had before.
+    @MainActor private static func layerRoots(of scene: PlazaScene) -> [(root: PlazaNode, name: String)] {
+        var out: [(root: PlazaNode, name: String)] = []
+        if let l = scene.tallGrassLayer { out.append((l.root, "PlazaTallGrassLayer")) }
+        if let l = scene.pondLayer { out.append((l.root, "PlazaPondLayer")) }
+        if let l = scene.iceLayer { out.append((l.root, "PlazaIceLayer")) }
+        out.append((scene.weatherLayer.root, "PlazaWeatherLayer"))
+        out.append((scene.fireworkLayer.root, "PlazaFireworkLayer"))
+        out.append((scene.footprintLayer.root, "PlazaFootprintLayer"))
+        out.append((scene.snowballLayer.root, "PlazaSnowballLayer"))
+        return out
+    }
 }
 
 /// One `SKRenderer` into a `.bgra8Unorm` texture. Quirks found on the way (hard-won, see the plan's R6):
@@ -100,6 +125,8 @@ struct PlazaRenderCapture {
     let nodes: Int
     let textures: Int
     let ties: [String]
+    /// Where a shared subtree and its SpriteKit copy disagree (must be empty).
+    var parity: [String] = []
 }
 
 @MainActor
@@ -134,6 +161,7 @@ enum PlazaRenderRun {
             renderer.pass(sk, points: scene.viewport, pixels: pixels, time: t)
             if scene.captures.contains(frame) {
                 var dump = PlazaTreeDump()
+                dump.classNames = PlazaRenderHarness.legacyClassNames(of: setup.scene)
                 dump.walk(sk)
                 // Exact z ties between overlapping sprites are drawn in an unspecified order by SKRenderer with ignoresSiblingOrder
                 // (found by the A/A: weather particles flip between runs). The harness resolves them in tree order for the
@@ -149,9 +177,11 @@ enum PlazaRenderRun {
                     renderer.pass(sk, points: scene.viewport, pixels: pixels, time: t, beforeRender: pass == warmUpPasses - 1 ? nudge : nil,
                                   afterRender: pass == warmUpPasses - 1 ? restore : nil)
                 }
-                out.append(PlazaRenderCapture(scene: scene.name, frame: frame, width: pixels.width, height: pixels.height,
-                                              bgra: renderer.bytes(), tree: dump.lines.joined(separator: "\n") + "\n",
-                                              nodes: dump.lines.count, textures: dump.textureCount, ties: dump.ties()))
+                var capture = PlazaRenderCapture(scene: scene.name, frame: frame, width: pixels.width, height: pixels.height,
+                                                 bgra: renderer.bytes(), tree: dump.lines.joined(separator: "\n") + "\n",
+                                                 nodes: dump.lines.count, textures: dump.textureCount, ties: dump.ties())
+                capture.parity = PlazaRenderHarness.sharedRoots(of: setup.scene).flatMap { PlazaMirrorParity.differences($0) }
+                out.append(capture)
             }
         }
         if let observe = photoInputObserver, let input = setup.scene.photoInput() { observe(scene.name, input) }
@@ -213,6 +243,9 @@ struct PlazaTreeDump {
     private var textureHashes: [ObjectIdentifier: String] = [:]
     private var sprites: [(node: SKSpriteNode, path: String, rect: CGRect, z: CGFloat, texture: Int)] = []
     var textureCount: Int { ordinals.count }
+    /// Printed class names for given nodes (`PlazaRenderHarness.legacyClassNames`).
+    var classNames: [ObjectIdentifier: String] = [:]
+    private func className(_ node: SKNode) -> String { classNames[ObjectIdentifier(node)] ?? "\(type(of: node))" }
 
     private func f(_ v: CGFloat) -> String {
         let r = (Double(v) * 10000).rounded() / 10000
@@ -241,7 +274,7 @@ struct PlazaTreeDump {
     mutating func walk(_ node: SKNode, depth: Int = 0, parentZ: CGFloat = 0, path: String = "") {
         let globalZ = parentZ + node.zPosition
         var line = String(repeating: " ", count: depth)
-            + "\(type(of: node)) name=\(node.name ?? "-") p=\(p(node.position)) z=\(f(node.zPosition)) a=\(f(node.alpha))"
+            + "\(className(node)) name=\(node.name ?? "-") p=\(p(node.position)) z=\(f(node.zPosition)) a=\(f(node.alpha))"
             + " h=\(node.isHidden ? 1 : 0) sc=\(f(node.xScale)),\(f(node.yScale)) rot=\(f(node.zRotation))"
         if let sprite = node as? SKSpriteNode {
             line += " size=\(s(sprite.size)) anchor=\(p(sprite.anchorPoint)) color=\(components(sprite.color))"
@@ -250,7 +283,7 @@ struct PlazaTreeDump {
                 let desc = texture(t)
                 line += " \(desc)"
                 if !node.isHidden && node.alpha > 0 && !isUnderHidden(node) {
-                    sprites.append((node: sprite, path: path + "/" + (node.name ?? "\(type(of: node))"), rect: sprite.frame.applying(accumulated(node)), z: globalZ,
+                    sprites.append((node: sprite, path: path + "/" + (node.name ?? className(node)), rect: sprite.frame.applying(accumulated(node)), z: globalZ,
                                     texture: ordinals[ObjectIdentifier(t)] ?? -1))
                 }
             }
@@ -259,7 +292,7 @@ struct PlazaTreeDump {
             line += " mask=\(crop.maskNode.map { "\(type(of: $0)) p=\(p($0.position)) frame=\(f($0.frame.minX)),\(f($0.frame.minY)),\(f($0.frame.width)),\(f($0.frame.height))" } ?? "nil")"
         }
         lines.append(line)
-        for child in node.children { walk(child, depth: depth + 1, parentZ: globalZ, path: path + "/" + (node.name ?? "\(type(of: node))")) }
+        for child in node.children { walk(child, depth: depth + 1, parentZ: globalZ, path: path + "/" + (node.name ?? className(node))) }
     }
 
     private func isUnderHidden(_ node: SKNode) -> Bool {

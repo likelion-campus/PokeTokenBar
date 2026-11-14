@@ -139,9 +139,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var shutterNode: SKSpriteNode?
     private let cameraNode = SKCameraNode()
     /// 계절 날씨 입자. 캐릭터(z 1~2) 위, 낮밤 곱하기(5)와 이름표(10) 아래.
-    private let weatherLayer = PlazaWeatherLayer()
+    let weatherLayer = PlazaWeatherLayer()
     /// 불꽃. 빛이라 낮밤 곱하기(5)와 모닥불빛(6) 위, 이름표(10) 아래.
-    private let fireworkLayer = PlazaFireworkLayer()
+    let fireworkLayer = PlazaFireworkLayer()
     /// 지금 지도에서 아이템이 놓일 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
     private lazy var itemOpenTiles: Set<TilePoint> = PlazaItems.openTiles(in: map)
     /// 누군가 주운 아이템 칸. 창 컨트롤러가 채운다.
@@ -260,8 +260,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
     private var myPrintWatch = PrintWatch()
-    private let footprintLayer: PlazaFootprintLayer
-    private let snowballLayer: PlazaSnowballLayer
+    let footprintLayer: PlazaFootprintLayer
+    let snowballLayer: PlazaSnowballLayer
     var snowballFlightCount: Int { snowballLayer.flightCount }
     var snowballBallSizes: [CGSize] { snowballLayer.ballSizes }
     var snowballNodeCount: Int { snowballLayer.nodeCount }
@@ -326,7 +326,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var myDive = DiveFade()
     private let pondVisuals: Bool
     private(set) var pondLayer: PlazaPondLayer?
-    private var iceLayer: PlazaIceLayer?
+    private(set) var iceLayer: PlazaIceLayer?
     /// 내가 잠수 중이다. 물속에서만 켜진다.
     private(set) var isDiving = false
     private var diveElapsed: TimeInterval = 0
@@ -429,18 +429,18 @@ struct PlazaSceneMember: Equatable, Sendable {
         addChild(mapNode)
         if let tallGrass {
             let layer = PlazaTallGrassLayer(map: map, art: tallGrass)
-            addChild(layer)
+            layer.root.mountInSpriteKit(self)
             tallGrassLayer = layer
         }
 
         if pondVisuals {
             let layer = PlazaPondLayer(map: map)
-            addChild(layer)
+            layer.root.mountInSpriteKit(self)
             pondLayer = layer
         }
         if let iceArt {
             let layer = PlazaIceLayer(ponds: icePonds, art: iceArt, mapImage: mapImage, worldHeight: map.pixelSize.height)
-            addChild(layer)
+            layer.root.mountInSpriteKit(self)
             iceLayer = layer
             drawIce()
         }
@@ -451,12 +451,12 @@ struct PlazaSceneMember: Equatable, Sendable {
         campfireLightNode.zPosition = 6
         campfireLightNode.isHidden = true
         if campfireNode != nil { addChild(campfireLightNode) }
-        weatherLayer.zPosition = 3
-        addChild(weatherLayer)
-        fireworkLayer.zPosition = 7
-        addChild(fireworkLayer)
-        addChild(footprintLayer)
-        addChild(snowballLayer)
+        weatherLayer.root.zPosition = 3
+        weatherLayer.root.mountInSpriteKit(self)
+        fireworkLayer.root.zPosition = 7
+        fireworkLayer.root.mountInSpriteKit(self)
+        footprintLayer.root.mountInSpriteKit(self)
+        snowballLayer.root.mountInSpriteKit(self)
         addChild(cameraNode)
         me.attach(world: self, camera: cameraNode)
         camera = cameraNode
@@ -529,7 +529,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         tallGrassLayer?.setHidden(hidden)
         pondLayer?.setHidden(hidden)
         iceLayer?.setConcealed(hidden)
-        footprintLayer.isHidden = hidden
+        footprintLayer.root.isHidden = hidden
         if hidden { footprintLayer.removeAll() }
         layout()   // 풀숲 가림을 바로 풀어 곧바로 찍는 사진도 숨은 팀원을 그리게 한다
         backgroundColor = hidden ? .clear : Self.forestColor
@@ -1399,7 +1399,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// 테스트용
-    var fireworkZ: CGFloat { fireworkLayer.zPosition }
+    var fireworkZ: CGFloat { fireworkLayer.root.zPosition }
     var fireworkPieceCount: Int { fireworkLayer.shownCount }
     var fireworkLightCount: Int { fireworkLayer.shownLightCount }
     var fireworkPositions: [CGPoint] { fireworkLayer.shownPositions }
