@@ -55,7 +55,8 @@ import WinSDK
             // Only our own windows (and their children, e.g. an edit control), and never while the thread is in a menu or
             // move/size loop: that loop reads the WM_CHAR itself (menu mnemonics, type-to-select) and must not get a
             // WM_NULL instead. Other modal loops (MessageBoxW) own their windows, which are not ours.
-            guard let target = m.pointee.hwnd, IsWindowUnicode(target), WinSinkWindow.owns(target) else { return }
+            guard let target = m.pointee.hwnd, IsWindowUnicode(target), WinSinkWindow.owns(target),
+                  !inMenuOrMoveLoop() else { return }
             var copy = m.pointee
             m.pointee.message = UINT(WM_NULL)
             redispatchedChars += 1
