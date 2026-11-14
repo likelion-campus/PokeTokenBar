@@ -26,24 +26,33 @@ import Foundation
 /// - `call` and `removeFromParent` take no time;
 /// - a tween started during `advance` (from a `call`) takes its first step in that same `advance`, as an action started
 ///   by a scene-level `SKAction.run` block does;
-/// - a tween whose node has left the tree is dropped (SpriteKit stops running a removed node's actions).
+/// - a tween steps only while its node is in the stage's tree (its top ancestor is `root`), as an action runs only while
+///   its node is in the scene; its clock keeps running while the node is out (SpriteKit measures an action against the
+///   scene clock), so a node that comes back is where the clock says; a tween ends with its node (held weakly: a removed
+///   node nobody keeps takes its tweens with it). A tween started on a node outside the tree begins when the node enters.
+/// A paused scene gets no `update`, so its tweens stop; on resume they move on by the first frame's clamped dt, where
+/// SpriteKit's own actions under `SKRenderer` jump to the scene clock (pinned in `PlazaTweenOracleTests`; the plaza
+/// starts no effect while paused, plan D4).
 /// Known differences, none visible in the plaza: SpriteKit's very last `moveBy` step can differ by one float step of
 /// `dx` (every plaza script removes the node in that same frame); with a scene clock below 1 s, a fade inside a nested
 /// sequence can differ by one float step (the app's clock is seconds since boot, the harness's 1000 + t); after a frame
 /// hitch longer than `PlazaScene.maxFrameDelta`, tweens advance by the clamped time, SpriteKit by the real one.
 @MainActor final class PlazaTweens {
     private final class Running {
-        let node: PlazaNode?
+        weak var node: PlazaNode?
+        let isSceneLevel: Bool
         let state: TweenState
         var started = false
         var elapsed: TimeInterval = 0
         var done = false
-        init(node: PlazaNode?, state: TweenState) { self.node = node; self.state = state }
+        init(node: PlazaNode?, state: TweenState) { self.node = node; isSceneLevel = node == nil; self.state = state }
     }
 
     private var running: [Running] = []
+    /// The stage's root: a node steps only while this is its top ancestor.
+    let root: PlazaNode
 
-    init() {}
+    init(root: PlazaNode) { self.root = root }
 
     /// Running tweens, scene-level ones included.
     var count: Int { running.count }
@@ -58,11 +67,20 @@ import Foundation
         while i < running.count {   // `call` may start tweens; they run in this same pass
             let r = running[i]
             i += 1
-            if let node = r.node, node.parent == nil { r.done = true; continue }
-            if r.started { r.elapsed += dt } else { r.started = true }
-            r.done = r.state.step(elapsed: r.elapsed, time: Float(r.elapsed), node: r.node)
+            let node = r.node
+            if !r.isSceneLevel && node == nil { r.done = true; continue }   // the node is gone, and its actions with it
+            if r.started { r.elapsed += dt }
+            if let node, !isInTree(node) { continue }
+            r.started = true
+            r.done = r.state.step(elapsed: r.elapsed, time: Float(r.elapsed), node: node)
         }
         running.removeAll { $0.done }
+    }
+
+    private func isInTree(_ node: PlazaNode) -> Bool {
+        var top = node
+        while let p = top.parent { top = p }
+        return top === root
     }
 }
 

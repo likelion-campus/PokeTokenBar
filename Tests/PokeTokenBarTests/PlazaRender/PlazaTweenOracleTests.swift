@@ -9,8 +9,13 @@ import XCTest
 @MainActor
 final class PlazaTweenOracleTests: XCTestCase {
     private final class OracleScene: SKScene {
-        let tweens = PlazaTweens()
+        let tweens: PlazaTweens
         private var lastTime: TimeInterval?
+        init(size: CGSize, root: PlazaNode) {
+            tweens = PlazaTweens(root: root)
+            super.init(size: size)
+        }
+        required init?(coder: NSCoder) { fatalError("not used") }
         var frameIndex = 0
         var onUpdate: ((Int) -> Void)?
         override func update(_ currentTime: TimeInterval) {
@@ -96,14 +101,16 @@ final class PlazaTweenOracleTests: XCTestCase {
 
     private enum Start { case betweenFrames, insideUpdate }
 
-    /// Runs `script` from `startFrame` over `times`; returns the frames compared.
+    /// Runs `script` from `startFrame` over `times`; `events[f]` runs ahead of frame f (other code: removals, pauses).
+    /// Returns the node-frames compared.
     private func compare(_ name: String, times: [TimeInterval], startFrame: Int, start: Start,
+                         events: [Int: (inout World) -> Void] = [:], expectEnded: Bool = true,
                          script: @escaping (inout World) -> Void) throws -> Int {
         let device = try XCTUnwrap(MTLCreateSystemDefaultDevice(), "no Metal device")
         let renderer = SKRenderer(device: device)
-        let scene = OracleScene(size: CGSize(width: 640, height: 480))
-        renderer.scene = scene
         let root = PlazaNode()
+        let scene = OracleScene(size: CGSize(width: 640, height: 480), root: root)
+        renderer.scene = scene
         root.mountInSpriteKit(scene)
         var world = World(scene: scene, root: root)
         if start == .insideUpdate {
@@ -113,6 +120,7 @@ final class PlazaTweenOracleTests: XCTestCase {
         for (f, t) in times.enumerated() {
             scene.frameIndex = f
             if start == .betweenFrames && f == startFrame { script(&world) }
+            events[f]?(&world)
             renderer.update(atTime: t)
             XCTAssertEqual(world.raw.count, world.shared.count, "\(name) frame \(f): the scripts made different numbers of nodes")
             for (i, (r, s)) in zip(world.raw, world.shared).enumerated() {
@@ -128,8 +136,10 @@ final class PlazaTweenOracleTests: XCTestCase {
                 compared += 1
             }
         }
-        XCTAssertTrue(world.raw.allSatisfy { $0.parent == nil }, "\(name): every SKAction script ended")
-        XCTAssertEqual(scene.tweens.count, 0, "\(name): every tween ended")
+        if expectEnded {
+            XCTAssertTrue(world.raw.allSatisfy { $0.parent == nil }, "\(name): every SKAction script ended")
+            XCTAssertEqual(scene.tweens.count, 0, "\(name): every tween ended")
+        }
         return compared
     }
 
@@ -158,6 +168,131 @@ final class PlazaTweenOracleTests: XCTestCase {
     func testTackleImpactMatchesItsAction() throws { try runAll("impact", impact) }
     func testShutterMatchesItsAction() throws { try runAll("shutter", shutter) }
 
+    /// Other code removes the dust mid-flight (one node comes back later): SpriteKit stops a node's actions while it is
+    /// out of the scene and, when it returns, evaluates them at the scene clock; the tweens do the same.
+    func testANodeRemovedMidTweenMatchesItsAction() throws {
+        var total = 0
+        for (label, times) in [("regular", Self.regular), ("irregular", Self.irregular)] {
+            let events: [Int: (inout World) -> Void] = [
+                9: { w in for i in 0..<2 { w.raw[i].removeFromParent(); w.shared[i].removeFromParent() } },
+                15: { w in w.scene.addChild(w.raw[0]); w.root.addChild(w.shared[0]) },
+            ]
+            total += try compare("removed \(label)", times: times, startFrame: 3, start: .betweenFrames, events: events, expectEnded: false) { w in
+                self.jumpDust(&w)
+            }
+        }
+        print("ORACLE: removed mid-tween: \(total) node-frames bit-equal")
+    }
+
+    /// A tween on a mounted root moves the root itself, as an action on the SpriteKit node would.
+    func testATweenOnAMountedRootMatchesItsAction() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice(), "no Metal device")
+        let renderer = SKRenderer(device: device)
+        let root = PlazaNode()
+        let scene = OracleScene(size: CGSize(width: 640, height: 480), root: root)
+        renderer.scene = scene
+        root.position = CGPoint(x: 33.3, y: 7.7)
+        root.mountInSpriteKit(scene)
+        let raw = SKNode()
+        raw.position = CGPoint(x: 33.3, y: 7.7)
+        scene.addChild(raw)
+        var compared = 0
+        for (f, t) in Self.irregular.enumerated() {
+            if f == 3 {
+                raw.run(.group([.moveBy(x: 10, y: 3, duration: 0.35), .fadeOut(withDuration: 0.35)]))
+                scene.tweens.run(.group([.moveBy(dx: 10, dy: 3, duration: 0.35), .fadeOut(duration: 0.35)]), on: root)
+            }
+            renderer.update(atTime: t)
+            let b = PlazaMirrorParity.bits
+            XCTAssertEqual([b(raw.position.x), b(raw.position.y), b(raw.alpha)], [b(root.position.x), b(root.position.y), b(root.alpha)], "frame \(f)")
+            XCTAssertEqual(PlazaMirrorParity.differences(root), [], "frame \(f): mirror")
+            compared += 1
+        }
+        XCTAssertEqual(root.alpha, 0)
+    }
+
+    /// A second photo while the flash is still fading: the old flash leaves (its fade stops), a new one starts.
+    func testAShutterReplacingARunningOneMatches() throws {
+        var total = 0
+        for (label, times) in [("regular", Self.regular), ("irregular", Self.irregular)] {
+            let events: [Int: (inout World) -> Void] = [7: { w in
+                w.raw[0].removeFromParent(); w.shared[0].removeFromParent()   // playShutterFlash: shutterNode?.removeFromParent()
+                self.shutter(&w)
+            }]
+            total += try compare("shutter twice \(label)", times: times, startFrame: 3, start: .betweenFrames, events: events, expectEnded: false) { w in
+                self.shutter(&w)
+            }
+        }
+        print("ORACLE: shutter replaced: \(total) node-frames bit-equal")
+    }
+
+    /// Pause mid-tween (the window is hidden: SpriteKit stops calling `update` and evaluating actions). On resume
+    /// SpriteKit's actions jump to the scene clock, as if never paused; the tweens resume where they stopped, moved by one
+    /// clamped frame (`maxFrameDelta`), because the scene's own dt is clamped. Both behaviours are pinned here; the plaza
+    /// starts no effect while paused (plan D4).
+    func testPauseMidTweenIsPinned() throws {
+        let device = try XCTUnwrap(MTLCreateSystemDefaultDevice(), "no Metal device")
+        func makeWorld() -> (SKRenderer, World) {
+            let renderer = SKRenderer(device: device)
+            let root = PlazaNode()
+            let scene = OracleScene(size: CGSize(width: 640, height: 480), root: root)
+            renderer.scene = scene
+            root.mountInSpriteKit(scene)
+            return (renderer, World(scene: scene, root: root))
+        }
+        let (pausedRenderer, pausedWorld) = makeWorld()
+        let (plainRenderer, plainWorld) = makeWorld()
+        var paused = pausedWorld, plain = plainWorld
+        // the tweens' own twin, stepped by hand with the dt the paused scene hands them
+        let twinRoot = PlazaNode()
+        let twins = PlazaTweens(root: twinRoot)
+        var twinNodes: [PlazaSprite] = []
+        let times = Self.regular
+        var lastTime: TimeInterval?
+        var frozen: [[UInt64]] = []
+        for (f, t) in times.enumerated() {
+            if f == 3 {
+                jumpDust(&paused)
+                jumpDust(&plain)
+                for s in paused.shared {
+                    let n = PlazaSprite(color: .white, size: s.size)
+                    n.position = s.position; n.xScale = s.xScale; n.zPosition = s.zPosition
+                    twinRoot.addChild(n)
+                    twinNodes.append(n)
+                    twins.run(.sequence([.group([.moveBy(dx: n.xScale * 10, dy: 3, duration: 0.35), .fadeOut(duration: 0.35)]), .removeFromParent]), on: n)
+                }
+            }
+            if f == 8 { paused.scene.isPaused = true }
+            if f == 20 { paused.scene.isPaused = false }
+            pausedRenderer.update(atTime: t)
+            plainRenderer.update(atTime: t)
+            if !(8..<20).contains(f) {   // the paused scene gets no update, so the twin gets no step either
+                let raw = t - (lastTime ?? t)
+                lastTime = t
+                twins.advance(by: min(max(raw, 0), PlazaScene.maxFrameDelta))
+            }
+            let b = PlazaMirrorParity.bits
+            if f == 7 { frozen = paused.raw.map { [b($0.position.x), b($0.alpha)] } }
+            for i in 0..<paused.raw.count where paused.raw[i].parent != nil && plain.raw[i].parent != nil {
+                if (8..<20).contains(f) {
+                    XCTAssertEqual([b(paused.raw[i].position.x), b(paused.raw[i].alpha)], frozen[i], "frame \(f): a paused scene's action does not run")
+                } else {
+                    // progress follows the scene clock: the fade is bit-equal to the never-paused run; the move (incremental)
+                    // took one large step instead of twelve small ones, so it rounds differently in the last bits
+                    XCTAssertEqual(b(paused.raw[i].alpha), b(plain.raw[i].alpha), "frame \(f): on resume SpriteKit's fade is where the scene clock says")
+                    XCTAssertEqual(paused.raw[i].position.x, plain.raw[i].position.x, accuracy: 1e-4, "frame \(f): and so is its move")
+                }
+            }
+            for i in 0..<paused.shared.count where paused.shared[i].parent != nil {
+                XCTAssertEqual([b(paused.shared[i].position.x), b(paused.shared[i].alpha)], [b(twinNodes[i].position.x), b(twinNodes[i].alpha)],
+                               "frame \(f): the tween resumes where it stopped")
+            }
+            if f == 21 {
+                XCTAssertNotEqual(paused.raw[0].alpha, paused.shared[0].alpha, "after the pause the two differ (the pin means something)")
+            }
+        }
+    }
+
     /// The delayed landing puff: a scene-level wait then a block that starts jump dust; the block runs in the same frame
     /// and the dust it starts takes its first step in that frame on both sides.
     func testDelayedCallMatchesItsAction() throws {
@@ -184,9 +319,9 @@ final class PlazaTweenOracleTests: XCTestCase {
     private func comparePuff(_ label: String, times: [TimeInterval]) throws -> Int {
         let device = try XCTUnwrap(MTLCreateSystemDefaultDevice(), "no Metal device")
         let renderer = SKRenderer(device: device)
-        let scene = OracleScene(size: CGSize(width: 640, height: 480))
-        renderer.scene = scene
         let root = PlazaNode()
+        let scene = OracleScene(size: CGSize(width: 640, height: 480), root: root)
+        renderer.scene = scene
         root.mountInSpriteKit(scene)
         var raw: [SKSpriteNode] = [], shared: [PlazaSprite] = []
         let foot = CGPoint(x: 512.25, y: 640.6)

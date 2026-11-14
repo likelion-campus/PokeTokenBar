@@ -26,7 +26,7 @@ final class PlazaTweenTests: XCTestCase {
     func testTweenFirstStepIsProgressZero() async {
         let root = PlazaNode()
         let n = node(in: root)
-        let tweens = PlazaTweens()
+        let tweens = PlazaTweens(root: root)
         var seen: [Int: (CGFloat, CGFloat, CGFloat, Bool)] = [:]
         drive(tweens, through: 24, before: { f in
             if f == 2 {
@@ -54,7 +54,7 @@ final class PlazaTweenTests: XCTestCase {
         let root = PlazaNode()
         let n = node(in: root)
         n.setScale(0.6)
-        let tweens = PlazaTweens()
+        let tweens = PlazaTweens(root: root)
         var seen: [Int: (CGFloat, CGFloat, Bool)] = [:]
         drive(tweens, through: 23, before: { f in
             if f == 1 {
@@ -82,7 +82,7 @@ final class PlazaTweenTests: XCTestCase {
         let root = PlazaNode()
         let n = node(in: root)
         n.alpha = 0.7
-        let tweens = PlazaTweens()
+        let tweens = PlazaTweens(root: root)
         var seen: [Int: (CGFloat, Bool)] = [:]
         drive(tweens, through: 15, before: { f in if f == 1 { tweens.run(.sequence([.fadeOut(duration: 0.2), .removeFromParent]), on: n) } },
               after: { f in seen[f] = (n.alpha, n.parent != nil) })
@@ -95,7 +95,7 @@ final class PlazaTweenTests: XCTestCase {
     }
 
     func testGroupEndsWithItsLongestChild() async {
-        let tweens = PlazaTweens()
+        let tweens = PlazaTweens(root: PlazaNode())
         var calledAt: Int?
         var frame = 0
         drive(tweens, through: 30, before: { f in
@@ -109,7 +109,7 @@ final class PlazaTweenTests: XCTestCase {
     /// The delayed landing puff: a scene-level `call` starts new tweens, which take their first step in that same frame.
     func testACallStartsTweensThatStepInTheSameFrame() async {
         let root = PlazaNode()
-        let tweens = PlazaTweens()
+        let tweens = PlazaTweens(root: root)
         var made: PlazaSprite?
         var xs: [Int: CGFloat] = [:]
         drive(tweens, through: 12, before: { f in
@@ -127,10 +127,12 @@ final class PlazaTweenTests: XCTestCase {
         XCTAssertEqual(xs[11], 0.1666666716337204)
     }
 
-    func testATweenOnARemovedNodeStops() async {
+    /// SpriteKit runs a node's actions only while it is in the scene, against the scene clock: a node out of the tree
+    /// does not change, and when it comes back it is where the clock says.
+    func testATweenWaitsWhileItsNodeIsOutOfTheTreeAndCatchesUp() async {
         let root = PlazaNode()
         let n = node(in: root)
-        let tweens = PlazaTweens()
+        let tweens = PlazaTweens(root: root)
         tweens.run(.fadeOut(duration: 1), on: n)
         tweens.advance(by: 0)
         tweens.advance(by: 0.1)
@@ -138,14 +140,67 @@ final class PlazaTweenTests: XCTestCase {
         XCTAssertLessThan(alpha, 1)
         n.removeFromParent()
         tweens.advance(by: 0.1)
-        XCTAssertEqual(n.alpha, alpha, "SpriteKit does not run the actions of a node that left the tree")
-        XCTAssertEqual(tweens.count, 0)
+        tweens.advance(by: 0.1)
+        XCTAssertEqual(n.alpha, alpha, "not stepped while out of the tree")
+        XCTAssertEqual(tweens.count, 1, "kept while the node lives")
+        root.addChild(n)
+        tweens.advance(by: 0.1)
+        let p = Float(0.1 + 0.1 + 0.1 + 0.1) / Float(1)
+        XCTAssertEqual(n.alpha, CGFloat((Float(0) * p).addingProduct(1, 1 - p)), "back in the tree at the clock's time")
+    }
+
+    func testADetachedSubtreeWaitsTooAndTheRootItselfRuns() async {
+        let root = PlazaNode()
+        let group = PlazaNode()
+        root.addChild(group)
+        let n = node(in: group)
+        let tweens = PlazaTweens(root: root)
+        tweens.run(.moveBy(dx: 10, dy: 0, duration: 1), on: n)
+        tweens.run(.moveBy(dx: 0, dy: 5, duration: 1), on: root)
+        tweens.advance(by: 0)
+        tweens.advance(by: 0.5)
+        group.removeFromParent()
+        let x = n.position.x
+        tweens.advance(by: 0.25)
+        XCTAssertEqual(n.position.x, x, "its parent left the tree, so it waits")
+        XCTAssertEqual(root.position.y, 3.75, "a tween on the root runs")
+        root.addChild(group)
+        tweens.advance(by: 0.25)
+        XCTAssertEqual(n.position.x, 110.5, "and catches up when the subtree comes back")
+    }
+
+    func testATweenEndsWithItsNode() async {
+        let root = PlazaNode()
+        let tweens = PlazaTweens(root: root)
+        var n: PlazaSprite? = node(in: root)
+        weak var gone = n
+        tweens.run(.fadeOut(duration: 1), on: n)
+        tweens.advance(by: 0)
+        n?.removeFromParent()
+        n = nil
+        XCTAssertNil(gone, "tweens do not keep a node alive")
+        tweens.advance(by: 0.1)
+        XCTAssertEqual(tweens.count, 0, "a removed node nobody keeps takes its tweens with it")
+    }
+
+    func testATweenStartedOutsideTheTreeBeginsWhenItsNodeEnters() async {
+        let root = PlazaNode()
+        let tweens = PlazaTweens(root: root)
+        let n = PlazaSprite()
+        tweens.run(.moveBy(dx: 1, dy: 0, duration: 1), on: n)
+        tweens.advance(by: 0.3)
+        tweens.advance(by: 0.3)
+        root.addChild(n)
+        tweens.advance(by: 0.3)
+        XCTAssertEqual(n.position.x, 0, "its first step is at progress 0, in the frame it enters")
+        tweens.advance(by: 0.25)
+        XCTAssertEqual(n.position.x, 0.25)
     }
 
     func testNothingMovesWithoutAFrame() async {
         let root = PlazaNode()
         let n = node(in: root)
-        let tweens = PlazaTweens()
+        let tweens = PlazaTweens(root: root)
         tweens.run(.moveBy(dx: 10, dy: 0, duration: 0.2), on: n)
         XCTAssertEqual(n.position.x, 100.5)
         XCTAssertEqual(tweens.count, 1, "a tween only advances when the scene steps it: a paused or hidden plaza gets no frames")
