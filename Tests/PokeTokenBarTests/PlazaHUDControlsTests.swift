@@ -340,7 +340,7 @@ import Observation
         let c = controller(shell)
         c.show()
         let ids = c.hud.panels.map(\.id)
-        XCTAssertEqual(ids, [.photoFrame, .pills, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+        XCTAssertEqual(ids, [.photoFrame, .menu, .pills, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
         XCTAssertNil(shell.panels.drawings[.photoFrame])
         c.scene?.enterPhotoMode()
         for _ in 0..<20 { await Task.yield() }

@@ -427,7 +427,7 @@ final class CanvasKeepingGraphics: PlazaGraphics, @unchecked Sendable {
         c.show()
         let o = try XCTUnwrap(shell.overlays)
         XCTAssertTrue(o.hud === c.hud)
-        XCTAssertEqual(c.hud.panels.map(\.id), [.photoFrame, .pills, .clock, .shortcuts, .backgroundToggle, .nameColorPicker], "bottom first")
+        XCTAssertEqual(c.hud.panels.map(\.id), [.photoFrame, .menu, .pills, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker], "bottom first")
         XCTAssertTrue(c.hud.host === shell.panels, "the open window shows the panels")
         XCTAssertEqual(c.hud.renderCounts[.clock], 1, "the clock shows at once")
         await settle()
@@ -466,8 +466,8 @@ final class CanvasKeepingGraphics: PlazaGraphics, @unchecked Sendable {
         c.handleClose()
     }
 
-    /// An idle, visible plaza for 60 seconds: the 1 s tick re-renders the clock once, when its minute changes, and
-    /// nothing else renders.
+    /// An idle, visible plaza for 60 seconds: the 1 s tick re-renders the clock once, when its minute changes, and the minimap's
+    /// map once for the new minute's light (the marks layer with it); nothing else renders.
     func testAnIdleMinuteRendersOnlyTheClockOnce() async throws {
         let shell = RecordingPlazaShell()
         let now = Now(noon(minute: 0, second: 30))
@@ -476,15 +476,19 @@ final class CanvasKeepingGraphics: PlazaGraphics, @unchecked Sendable {
         c.show()
         for _ in 0..<400 where tick.count == 0 { await Task.yield() }
         await settle()
-        let before = c.hud.renderCount
+        tick.tick()   // the first tick brings the minimap's marks and view to the scene's state once; idle starts after it
+        for _ in 0..<400 where tick.count == 0 { await Task.yield() }
+        await settle()
+        let before = c.hud.renderCount, minimapBefore = c.hud.renderCounts[.minimap, default: 0]
         for second in 31...90 {
             now.date = noon(minute: second / 60, second: second % 60)
             tick.tick()
             for _ in 0..<400 where tick.count == 0 { await Task.yield() }
         }
         await settle()
-        XCTAssertEqual(c.hud.renderCount - before, 1, "60 idle seconds: one render")
+        XCTAssertEqual(c.hud.renderCount - before, 2, "60 idle seconds: the clock and the minimap's light, once each")
         XCTAssertEqual(c.hud.renderCounts[.clock], 2)
+        XCTAssertEqual(c.hud.renderCounts[.minimap, default: 0] - minimapBefore, 1)
         c.handleClose()
     }
 

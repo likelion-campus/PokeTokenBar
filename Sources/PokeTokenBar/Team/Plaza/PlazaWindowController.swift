@@ -308,6 +308,7 @@ import Observation
         restoreFocus()
         _ = hud   // the pills follow the overlay model from now on
         hud.onAction = { [weak self] id, hit in self?.panelClicked(id, hit) }
+        minimapPanel.update(date: clock())   // the map is lit for the right minute from its first drawing
         self.chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         self.chatInput.onClose = { [weak self] in
             guard let self else { return }
