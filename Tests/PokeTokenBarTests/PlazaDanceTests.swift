@@ -25,7 +25,7 @@ final class PlazaDanceTests: XCTestCase {
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
         ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 48))
-        let f = [PlazaFrame(image: ctx.makeImage()!, delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)]
         var result = PlazaCharacterFrames(front: f, back: f)
         result.isEgg = isEgg
         return result
@@ -701,8 +701,8 @@ final class PlazaDanceTests: XCTestCase {
         run(s, dt)
         let frame = try XCTUnwrap(s.emoteFrame(memberID: nil))
         XCTAssertEqual(frame.size, PlazaEmoteArt.size(large: true))
-        XCTAssertNotEqual(PlazaEmoteArt.image(.dance, scale: 2, large: true).dataProvider?.data as Data?,
-                          PlazaEmoteArt.image(.lol, scale: 2, large: true).dataProvider?.data as Data?)
+        XCTAssertNotEqual(PlazaEmoteArt.image(.dance, scale: 2, large: true).cgImage.dataProvider?.data as Data?,
+                          PlazaEmoteArt.image(.lol, scale: 2, large: true).cgImage.dataProvider?.data as Data?)
     }
 
     func testNotesDoNotReplaceAChatOrEmoteBubble() {
@@ -862,7 +862,7 @@ final class PlazaDanceTests: XCTestCase {
     // MARK: 화면의 노드
 
     private func plain(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> PlazaFrame {
-        PlazaFrame(image: solid(32, 48, r: r, g: g, b: b), delay: 1)
+        PlazaFrame(image: PlazaImage(cgImage: solid(32, 48, r: r, g: g, b: b)), delay: 1)
     }
 
     /// 눌림은 박자마다 한 번 바뀌는 것이지 프레임마다 지워졌다 걸리는 것이 아니다. 이름표는 눌리지 않은 높이에 놓인다.
@@ -902,18 +902,18 @@ final class PlazaDanceTests: XCTestCase {
         s.pickDanceStyle = { _ in .spin }
         wall = grid
         press(s)
-        func shown() throws -> CGImage { try XCTUnwrap(s.photoInput()?.actors.first).image }
-        XCTAssertTrue(try shown() === front.image, "tick 0")
+        func shown() throws -> CGImage { try XCTUnwrap(s.photoInput()?.actors.first).image.cgImage }
+        XCTAssertTrue(try shown() === front.image.cgImage, "tick 0")
         run(s, 0.8)   // tick 8: the back
-        XCTAssertTrue(try shown() === back.image)
+        XCTAssertTrue(try shown() === back.image.cgImage)
         run(s, 0.8)   // the next round starts at once
         XCTAssertTrue(s.isDancing(memberID: nil))
-        XCTAssertTrue(try shown() === front.image, "facing front again")
+        XCTAssertTrue(try shown() === front.image.cgImage, "facing front again")
         wall += PlazaDance.beat
         s.pickDanceStyle = { _ in .twirl }
         press(s)
         run(s, 0.2)   // tick 2 of the next round: the back
-        XCTAssertTrue(try shown() === back.image)
+        XCTAssertTrue(try shown() === back.image.cgImage)
     }
 
     // MARK: 연타 제한
@@ -1118,12 +1118,12 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     private func render(lift: CGFloat = 0, squash: CGFloat = 1, tilt: CGFloat = 0) throws -> CGImage {
-        var a = PlazaPhotoActor(image: solid(10, 20, r: 1, g: 0, b: 0), flipped: false, foot: CGPoint(x: 50, y: 60), scale: 1,
+        var a = PlazaPhotoActor(image: PlazaImage(cgImage: solid(10, 20, r: 1, g: 0, b: 0)), flipped: false, foot: CGPoint(x: 50, y: 60), scale: 1,
                                 shadow: nil, shadowRect: .zero, plate: nil, bubble: nil)
         a.lift = lift; a.squash = squash; a.tilt = tilt
-        let input = PlazaPhotoInput(mapImage: solid(100, 100, r: 0, g: 0.6, b: 0), visibleRect: CGRect(x: 0, y: 0, width: 100, height: 100),
+        let input = PlazaPhotoInput(mapImage: PlazaImage(cgImage: solid(100, 100, r: 0, g: 0.6, b: 0)), visibleRect: CGRect(x: 0, y: 0, width: 100, height: 100),
                                     pixelsPerWorld: 1, actors: [a])
-        return try XCTUnwrap(PlazaPhotoRenderer.render(input))
+        return try XCTUnwrap(PlazaPhotoRenderer.renderCG(input))
     }
 
     func testTheRendererDrawsASquashedDancerShorter() throws {

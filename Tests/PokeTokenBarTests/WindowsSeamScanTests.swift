@@ -47,4 +47,37 @@ final class WindowsSeamScanTests: XCTestCase {
         XCTAssertEqual(try scan("let t = Timer(fire: Date(timeIntervalSinceNow: 1), interval: 1, repeats: true) { _ in }\n// Timer(timeInterval: 1)\n"), 0)
         XCTAssertEqual(try scan("Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in }\n"), 0)
     }
+
+    /// `.libraryDirectory` is not mapped on Windows: `urls(for:)` is empty and `[0]` traps (F1).
+    static func libraryDirectoryViolations(in files: [URL], root: URL) throws -> [String] {
+        var out: [String] = []
+        for url in files {
+            let rel = SharedSources.relativePath(url, root: root)
+            if rel.hasPrefix("Platform/") { continue }
+            for (i, line) in try SharedSources.lines(of: url).enumerated() {
+                let code = line.components(separatedBy: "//").first ?? line
+                if code.contains(".libraryDirectory") {
+                    out.append("\(rel):\(i + 1) asks for .libraryDirectory, which Windows does not map; use PlatformCompat.logsDirectory()")
+                }
+            }
+        }
+        return out
+    }
+
+    func testSharedFilesDoNotAskForTheLibraryDirectory() throws {
+        let files = try SharedSources.sharedFiles(root: SharedSources.sourcesRoot, listURL: SharedSources.sourcesList)
+        XCTAssertFalse(files.isEmpty)
+        XCTAssertEqual(try Self.libraryDirectoryViolations(in: files, root: SharedSources.sourcesRoot), [])
+    }
+
+    func testTheLibraryDirectoryScanCatchesAUse() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-lib-scan-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("Injected.swift")
+        try "let d = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]\n".write(to: f, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.libraryDirectoryViolations(in: [f], root: dir).count, 1)
+        try "let d = 1 // .libraryDirectory\n".write(to: f, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.libraryDirectoryViolations(in: [f], root: dir).count, 0)
+    }
 }

@@ -40,6 +40,18 @@ struct PlazaStubGraphics: PlazaGraphics {
     func encodePNG(_ image: PlazaImage) -> Data? { once.fire(); return nil }
 }
 
+/// The clipboard until an OS implements it: writes nothing, reports false, logs one line the first time.
+struct StubImageClipboard: ImageClipboarding {
+    private let once: PlazaLogOnce
+
+    /// `log` is injectable so a test can count lines without touching the real log.
+    init(log: @escaping @Sendable (String) -> Void) {
+        once = PlazaLogOnce("Plaza stub: image clipboard unavailable", sink: log)
+    }
+
+    func writePNG(_ data: Data) -> Bool { once.fire(); return false }
+}
+
 /// Records every call as one line of text; `makeImage` is always transparent (pixel writes go to a scratch buffer).
 final class PlazaStubCanvas: PlazaCanvas {
     let width: Int, height: Int
@@ -65,6 +77,7 @@ final class PlazaStubCanvas: PlazaCanvas {
     func setAlpha(_ a: CGFloat) { record("alpha \(Self.f(a))") }
     func setBlend(_ b: PlazaCanvasBlend) { record("blend \(b)") }
     func setFillColor(_ c: PlazaColor) { record("fillColor \(Self.c(c))") }
+    func setFillGray(_ gray: CGFloat) { record("fillGray \(Self.f(gray))") }
     func setStrokeColor(_ c: PlazaColor) { record("strokeColor \(Self.c(c))") }
     func setLineWidth(_ w: CGFloat) { record("lineWidth \(Self.f(w))") }
     func setLineJoin(_ j: PlazaLineJoin) { record("lineJoin \(j)") }

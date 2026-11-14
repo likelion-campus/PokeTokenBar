@@ -8,7 +8,7 @@ import SpriteKit
     private let ponds: [PlazaIce.Pond]
     private let art: PlazaIceArt
     private let worldHeight: CGFloat
-    private var iceImages: [CGImage] = []
+    private var iceImages: [PlazaImage] = []
     private var iceNodes: [SKSpriteNode] = []
     private var iceAlphas: [CGFloat?]
     private var crackNodes: [SKSpriteNode] = []
@@ -21,7 +21,7 @@ import SpriteKit
     private(set) var shownShardCount = 0
     private var isConcealed = false
 
-    init(ponds: [PlazaIce.Pond], art: PlazaIceArt, mapImage: CGImage, worldHeight: CGFloat) {
+    init(ponds: [PlazaIce.Pond], art: PlazaIceArt, mapImage: PlazaImage, worldHeight: CGFloat) {
         self.ponds = ponds
         self.art = art
         self.worldHeight = worldHeight
@@ -52,7 +52,7 @@ import SpriteKit
     }
 
     /// 지도 그림이 바뀌면(눈 오는 날) 연못마다 얼음 그림을 다시 만든다.
-    func setMapImage(_ image: CGImage) {
+    func setMapImage(_ image: PlazaImage) {
         iceImages = ponds.map { PlazaIceArt.overlay(mapImage: image, pond: $0, gloss: art.gloss) }
         let tile = PlazaMap.tileSize
         for (i, pond) in ponds.enumerated() {
@@ -160,8 +160,8 @@ import SpriteKit
         shownShardCount = shards.count
     }
 
-    private static func texture(_ image: CGImage) -> SKTexture {
-        let t = SKTexture(cgImage: image)
+    private static func texture(_ image: PlazaImage) -> SKTexture {
+        let t = SKTexture(cgImage: image.cgImage)
         t.filteringMode = .nearest
         return t
     }

@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// 봄과 가을의 시트. 눈 오는 날처럼 정확히 같은 색의 불투명 픽셀만 바꿔 칠한다. 여름은 원본 그대로다.
@@ -40,12 +39,12 @@ enum PlazaSeasonSheet {
         }
     }
 
-    static func tiles(_ sheet: CGImage, season: PlazaSeason) -> CGImage {
+    static func tiles(_ sheet: PlazaImage, season: PlazaSeason) -> PlazaImage {
         let pieces = tilePieces(season)
         return pieces.isEmpty ? sheet : PlazaSnowSheet.recolored(sheet, pieces: pieces)
     }
 
-    static func tallGrass(_ sheet: CGImage, season: PlazaSeason) -> CGImage {
+    static func tallGrass(_ sheet: PlazaImage, season: PlazaSeason) -> PlazaImage {
         let colors = tallGrassColors(season)
         guard !colors.isEmpty else { return sheet }
         let cells = (0..<(sheet.height / 16)).flatMap { row in (0..<(sheet.width / 16)).map { (col: $0, row: row) } }

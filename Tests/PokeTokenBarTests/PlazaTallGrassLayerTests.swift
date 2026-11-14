@@ -148,7 +148,7 @@ final class PlazaTallGrassLayerTests: XCTestCase {
     func testSetArtRetexturesTheBandsInPlace() throws {
         let layer = try makeLayer()
         let sheet = try XCTUnwrap(PlazaResources.tallGrassSheet())
-        let snowy = try XCTUnwrap(PlazaTallGrassArt(sheet: PlazaSnowSheet.tallGrass(sheet)))
+        let snowy = try XCTUnwrap(PlazaTallGrassArt(sheet: PlazaSnowSheet.tallGrass(PlazaImage(cgImage: sheet))))
         let z = try XCTUnwrap(layer.bandZ(at: a))
         layer.rustle(cue(.bounce))
         layer.update(dt: 0.05)
@@ -164,6 +164,8 @@ final class PlazaTallGrassLayerTests: XCTestCase {
 
 /// Test helper: does an image hold a fully opaque pixel of one of these colours?
 enum SnowPixels {
+    static func contains(_ image: PlazaImage, rgb: Set<UInt32>) -> Bool { contains(image.cgImage, rgb: rgb) }
+
     static func contains(_ image: CGImage, rgb: Set<UInt32>) -> Bool {
         let (w, h) = (image.width, image.height)
         var raw = [UInt8](repeating: 0, count: w * h * 4)

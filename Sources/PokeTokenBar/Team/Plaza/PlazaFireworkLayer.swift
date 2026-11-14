@@ -1,44 +1,5 @@
 import SpriteKit
 
-/// 불꽃 조각 그림. 새로 그리지 않고 광장의 반짝임과 눈송이 그림에 색만 바꿔 입힌다. 색도 날씨와 말풍선에 이미 있는 색이다.
-enum PlazaFireworkArt {
-    private typealias RGB = (r: UInt8, g: UInt8, b: UInt8)
-    /// 그림 한 칸의 월드 픽셀. 타일 그림의 점 크기와 같다.
-    static let cell = 2
-    private static let core: RGB = (0xF6, 0xFA, 0xFF)
-
-    private static func edge(_ color: PlazaFireworkColor) -> RGB {
-        switch color {
-        case .gold: (0xF2, 0xC2, 0x30)
-        case .red: (0xD1, 0x43, 0x2E)
-        case .blue: (0x3B, 0x82, 0xF6)
-        case .pink: (0xE8, 0x8D, 0xAC)
-        case .mint: (0x2F, 0xB8, 0xA6)
-        }
-    }
-
-    private static func tail(_ color: PlazaFireworkColor) -> RGB {
-        switch color {
-        case .gold: (0xE8, 0x83, 0x2A)
-        case .red: (0x96, 0x2A, 0x1C)
-        case .blue: (0x9C, 0xC0, 0xEE)
-        case .pink: (0xF8, 0xBB, 0xCF)
-        case .mint: (0xB9, 0xF2, 0xE4)
-        }
-    }
-
-    /// 칸당 1픽셀 그림. 화면은 `cell`배로 키운다.
-    static func image(_ glyph: PlazaFireworkGlyph) -> CGImage {
-        let flakes = PlazaWeatherArt.grids(.snow), edge = edge(glyph.color), tail = tail(glyph.color)
-        return switch glyph.shape {
-        case .spark: PlazaWeatherArt.image(PlazaEmoteArt.spark, palette: ["W": core, "Y": edge])
-        case .plus: PlazaWeatherArt.image(flakes[0], palette: ["W": edge])
-        case .dot: PlazaWeatherArt.image(flakes[1], palette: ["W": tail, "S": tail])
-        case .ember(let n): PlazaWeatherArt.image(flakes[2], palette: ["W": [core, edge, tail][min(n, 2)]])
-        }
-    }
-}
-
 /// 불꽃을 그리는 노드. 시간은 `advance`가 준 간격으로만 흘러 창이 멈추면 불꽃도 멈추고, 타이머는 없다.
 /// 스프라이트는 재사용하고 조각 수는 상한을 넘지 않는다. 빛은 곱해져 겹치면 땅이 낮보다 밝아지므로 한 번에 하나만 켠다.
 @MainActor final class PlazaFireworkLayer: SKNode {
@@ -186,7 +147,7 @@ enum PlazaFireworkArt {
 
     private func image(_ glyph: PlazaFireworkGlyph) -> CGImage {
         if let image = images[glyph] { return image }
-        let image = PlazaFireworkArt.image(glyph)
+        let image = PlazaFireworkArt.image(glyph).cgImage
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         images[glyph] = image
@@ -222,7 +183,7 @@ enum PlazaFireworkArt {
     /// 지금 보이는 조각을 기념사진 좌표(월드, y 아래로)로 돌려준다.
     func photoParticles(worldHeight: CGFloat) -> [PlazaPhotoParticle] {
         shown.map {
-            PlazaPhotoParticle(image: $0.image, origin: CGPoint(x: $0.position.x, y: worldHeight - $0.position.y - $0.size.height),
+            PlazaPhotoParticle(image: PlazaImage(cgImage: $0.image), origin: CGPoint(x: $0.position.x, y: worldHeight - $0.position.y - $0.size.height),
                                size: $0.size)
         }
     }

@@ -1,10 +1,8 @@
-import CoreGraphics
 import Foundation
-import ImageIO
 
 /// 기념사진에 찍히는 캐릭터 하나. 좌표는 월드 픽셀이고 y가 아래로 늘어난다.
 struct PlazaPhotoActor {
-    let image: CGImage
+    let image: PlazaImage
     let flipped: Bool
     /// 발(그림 아래 가운데). 통통 튐은 빼고 둔다. 앞뒤 순서는 이 값으로 정한다.
     let foot: CGPoint
@@ -12,14 +10,14 @@ struct PlazaPhotoActor {
     var bob: CGFloat = 0
     /// 월드 단위로 키우는 배율(1.5).
     let scale: CGFloat
-    let shadow: CGImage?
+    let shadow: PlazaImage?
     /// 그림자 사각형(월드, y 아래로).
     let shadowRect: CGRect
     /// 알 앞에 얹는 둥지 앞 테두리. 그림자와 같은 사각형에 그림 바로 다음에 그린다.
-    var front: CGImage? = nil
+    var front: PlazaImage? = nil
     /// 배율 2로 만든 이름표와 말풍선. 사진 픽셀 그대로 얹는다.
-    let plate: CGImage?
-    let bubble: CGImage?
+    let plate: PlazaImage?
+    let bubble: PlazaImage?
     /// 풀숲에 가려진 만큼 흐리게. 그림·그림자·둥지 앞 테두리에만 주고 이름표와 말풍선은 늘 불투명하다.
     var opacity: CGFloat = 1
     /// 이름표 바닥의 월드 y(아래로). nil이면 머리 위에 둔다.
@@ -40,7 +38,7 @@ struct PlazaPhotoActor {
 
 /// 기념사진에 찍히는 풀숲 앞 띠 한 칸. 좌표는 월드 픽셀이고 y가 아래로 늘어난다.
 struct PlazaPhotoBand {
-    let image: CGImage
+    let image: PlazaImage
     let origin: CGPoint
     let size: CGSize
     /// 캐릭터의 `foot.y` 와 견주는 앞뒤 키(칸 맨 아래 줄).
@@ -49,7 +47,7 @@ struct PlazaPhotoBand {
 
 /// 기념사진에 찍히는 날씨 입자 하나. 좌표는 월드 픽셀이고 y가 아래로 늘어난다(원점은 그림의 왼쪽 위).
 struct PlazaPhotoParticle {
-    let image: CGImage
+    let image: PlazaImage
     let origin: CGPoint
     let size: CGSize
     var alpha: CGFloat = 1
@@ -62,7 +60,7 @@ struct PlazaPhotoProp {
 }
 
 struct PlazaPhotoInput {
-    let mapImage: CGImage
+    let mapImage: PlazaImage
     /// 사진에 담을 월드 영역.
     let visibleRect: CGRect
     /// 월드 픽셀 하나가 차지하는 사진 픽셀(화면 배율 × 2).
@@ -98,24 +96,22 @@ struct PlazaPhotoLight {
     var level = 1.0
 }
 
-/// 기념사진을 CoreGraphics로 합성한다. 창이나 SKView가 필요 없고, 모든 그림은 보간 없이 정수 배율로 찍는다.
+/// 기념사진을 캔버스(`PlazaCanvas`)로 합성한다. 창이나 SKView가 필요 없고, 모든 그림은 보간 없이 정수 배율로 찍는다.
 enum PlazaPhotoRenderer {
     /// 지도 밖은 지도 가장자리 숲과 같은 짙은 초록.
-    private static let outsideColor = CGColor(srgbRed: 0x1E / 255, green: 0x3A / 255, blue: 0x26 / 255, alpha: 1)
+    private static let outsideColor = PlazaColor(srgbRed: 0x1E / 255, green: 0x3A / 255, blue: 0x26 / 255, alpha: 1)
     private static let maxSide = 16_384
     /// 이름표는 스프라이트 머리에서 2픽셀(배율 2의 1포인트) 띄운다.
     private static let plateGap = 2
 
-    static func render(_ input: PlazaPhotoInput) -> CGImage? {
+    static func render(_ input: PlazaPhotoInput, graphics: any PlazaGraphics = PlatformPlaza.graphics) -> PlazaImage? {
         let ppw = CGFloat(input.pixelsPerWorld)
         let rect = input.visibleRect
         guard input.pixelsPerWorld > 0, rect.width.isFinite, rect.height.isFinite, rect.minX.isFinite, rect.minY.isFinite else { return nil }
         let width = Int((rect.width * ppw).rounded()), height = Int((rect.height * ppw).rounded())
         guard width > 0, height > 0, width <= maxSide, height <= maxSide,
-              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.interpolationQuality = .none
+              let context = graphics.makeCanvas(width: width, height: height, colorSpace: .sRGB) else { return nil }
+        context.setInterpolationNone()
         context.setShouldAntialias(false)
 
         /// 위에서 아래로 센 사진 픽셀 사각형을 CoreGraphics 사각형으로 바꾼다.
@@ -123,15 +119,15 @@ enum PlazaPhotoRenderer {
             CGRect(x: x, y: height - top - h, width: w, height: h)
         }
         func px(_ world: CGFloat, origin: CGFloat) -> Int { Int(((world - origin) * ppw).rounded()) }
-        func draw(_ image: CGImage, x: Int, top: Int, w: Int, h: Int, mirrored: Bool = false) {
+        func draw(_ image: PlazaImage, x: Int, top: Int, w: Int, h: Int, mirrored: Bool = false) {
             let dest = cg(x, top, w, h)
             if mirrored {
-                context.saveGState()
-                context.translateBy(x: dest.midX, y: 0)
-                context.scaleBy(x: -1, y: 1)
-                context.translateBy(x: -dest.midX, y: 0)
+                context.saveState()
+                context.translate(x: dest.midX, y: 0)
+                context.scale(x: -1, y: 1)
+                context.translate(x: -dest.midX, y: 0)
                 context.draw(image, in: dest)
-                context.restoreGState()
+                context.restoreState()
             } else {
                 context.draw(image, in: dest)
             }
@@ -180,37 +176,37 @@ enum PlazaPhotoRenderer {
             let footTop = px(a.foot.y - a.bob - a.lift, origin: rect.minY)
             let sunk = a.sink > 0
             if a.eggSunk {
-                if let pond = a.waterClip, let tinted = Self.submerged(a.image) {
+                if let pond = a.waterClip, let tinted = Self.submerged(a.image, graphics: graphics) {
                     let x0 = px(pond.minX, origin: rect.minX), x1 = px(pond.maxX, origin: rect.minX)
                     let y0 = px(pond.minY, origin: rect.minY), y1 = px(pond.maxY, origin: rect.minY)
                     if x1 > x0, y1 > y0 {
-                        context.saveGState()
+                        context.saveState()
                         context.clip(to: cg(x0, y0, x1 - x0, y1 - y0))
                         context.setAlpha(a.opacity * PlazaPondArt.submergedEggAlpha)
                         // 연못 맨 윗줄에서는 화면처럼 꼭대기가 연못 위 가장자리에 닿도록 알 전체를 내려 그린다(자르지 않는다).
                         draw(tinted, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX), top: max(footTop - h, y0), w: w, h: h, mirrored: a.flipped)
-                        context.restoreGState()
+                        context.restoreState()
                     }
                 }
                 return
             }
-            if sunk, let pond = a.waterClip, let tinted = Self.submerged(a.image) {
+            if sunk, let pond = a.waterClip, let tinted = Self.submerged(a.image, graphics: graphics) {
                 // 잠긴 아랫부분: 화면처럼 연못 안, 발 선 아래만 반투명한 물빛으로.
                 let x0 = px(pond.minX, origin: rect.minX), x1 = px(pond.maxX, origin: rect.minX)
                 let y0 = max(px(pond.minY, origin: rect.minY), footTop), y1 = px(pond.maxY, origin: rect.minY)
                 if x1 > x0, y1 > y0 {
-                    context.saveGState()
+                    context.saveState()
                     context.clip(to: cg(x0, y0, x1 - x0, y1 - y0))
                     context.setAlpha(a.opacity * PlazaPondArt.submergedAlpha)
                     draw(tinted, x: px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX),
                          top: footTop - h + Int((a.sink * ppw).rounded()), w: w, h: h, mirrored: a.flipped)
-                    context.restoreGState()
+                    context.restoreState()
                     context.setAlpha(a.opacity)
                 }
             }
             if sunk {
                 // 헤엄: 그림을 sink만큼 내려 그리고 발 선 아래는 자른다(화면이 그림 아래를 잘라 내는 것과 같다).
-                context.saveGState()
+                context.saveState()
                 context.clip(to: CGRect(x: 0, y: height - footTop, width: width, height: footTop))
             }
             let bodyX = px(a.foot.x - CGFloat(a.image.width) * a.scale / 2, origin: rect.minX)
@@ -219,15 +215,15 @@ enum PlazaPhotoRenderer {
             let tilted = a.tilt != 0 || a.squash != 1
             if tilted {
                 let pivot = CGPoint(x: CGFloat(bodyX) + CGFloat(w) / 2, y: CGFloat(height - (bodyTop + h)))
-                context.saveGState()
-                context.translateBy(x: pivot.x, y: pivot.y)
+                context.saveState()
+                context.translate(x: pivot.x, y: pivot.y)
                 context.rotate(by: a.tilt)
-                context.scaleBy(x: 1, y: a.squash)
-                context.translateBy(x: -pivot.x, y: -pivot.y)
+                context.scale(x: 1, y: a.squash)
+                context.translate(x: -pivot.x, y: -pivot.y)
             }
             draw(a.image, x: bodyX, top: bodyTop, w: w, h: h, mirrored: a.flipped)
-            if tilted { context.restoreGState() }
-            if sunk { context.restoreGState() }
+            if tilted { context.restoreState() }
+            if sunk { context.restoreState() }
             if let front = a.front, !sunk {
                 draw(front, x: px(a.shadowRect.minX, origin: rect.minX), top: px(a.shadowRect.minY, origin: rect.minY),
                      w: Int((a.shadowRect.width * ppw).rounded()), h: Int((a.shadowRect.height * ppw).rounded()))
@@ -256,33 +252,33 @@ enum PlazaPhotoRenderer {
 
         if input.tint != .none {
             let t = input.tint
-            context.saveGState()
-            context.setBlendMode(.multiply)
-            context.setFillColor(CGColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: 1))
+            context.saveState()
+            context.setBlend(.multiply)
+            context.setFillColor(PlazaColor(srgbRed: t.red, green: t.green, blue: t.blue, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-            context.restoreGState()
+            context.restoreState()
         }
 
         for light in [input.light, input.fireworkLight].compactMap({ $0 }) {
-            guard let base = context.data else { break }
-            let bytes = base.assumingMemoryBound(to: UInt8.self), stride = context.bytesPerRow
-            let n = PlazaCampfireLight.blockCounts(radii: light.radii)
-            let left = light.center.x - CGFloat(n.w), top = light.center.y - CGFloat(n.h)
-            for j in 0..<n.h {
-                let y0 = max(px(top + CGFloat(2 * j), origin: rect.minY), 0), y1 = min(px(top + CGFloat(2 * j + 2), origin: rect.minY), height)
-                guard y0 < y1 else { continue }
-                for i in 0..<n.w {
-                    let k = PlazaCampfireLight.blockMix(i: i, j: j, radii: light.radii)
-                    guard k > 0 else { continue }
-                    let x0 = max(px(left + CGFloat(2 * i), origin: rect.minX), 0), x1 = min(px(left + CGFloat(2 * i + 2), origin: rect.minX), width)
-                    guard x0 < x1 else { continue }
-                    let m = PlazaCampfireLight.multiplier(tint: light.tint, mix: k * light.level, color: light.color)
-                    for y in y0..<y1 {
-                        for x in x0..<x1 {
-                            let o = y * stride + x * 4
-                            bytes[o] = UInt8(min(255, (Double(bytes[o]) * m.r).rounded()))
-                            bytes[o + 1] = UInt8(min(255, (Double(bytes[o + 1]) * m.g).rounded()))
-                            bytes[o + 2] = UInt8(min(255, (Double(bytes[o + 2]) * m.b).rounded()))
+            context.withPixels { bytes, stride in
+                let n = PlazaCampfireLight.blockCounts(radii: light.radii)
+                let left = light.center.x - CGFloat(n.w), top = light.center.y - CGFloat(n.h)
+                for j in 0..<n.h {
+                    let y0 = max(px(top + CGFloat(2 * j), origin: rect.minY), 0), y1 = min(px(top + CGFloat(2 * j + 2), origin: rect.minY), height)
+                    guard y0 < y1 else { continue }
+                    for i in 0..<n.w {
+                        let k = PlazaCampfireLight.blockMix(i: i, j: j, radii: light.radii)
+                        guard k > 0 else { continue }
+                        let x0 = max(px(left + CGFloat(2 * i), origin: rect.minX), 0), x1 = min(px(left + CGFloat(2 * i + 2), origin: rect.minX), width)
+                        guard x0 < x1 else { continue }
+                        let m = PlazaCampfireLight.multiplier(tint: light.tint, mix: k * light.level, color: light.color)
+                        for y in y0..<y1 {
+                            for x in x0..<x1 {
+                                let o = y * stride + x * 4
+                                bytes[o] = UInt8(min(255, (Double(bytes[o]) * m.r).rounded()))
+                                bytes[o + 1] = UInt8(min(255, (Double(bytes[o + 1]) * m.g).rounded()))
+                                bytes[o + 2] = UInt8(min(255, (Double(bytes[o + 2]) * m.b).rounded()))
+                            }
                         }
                     }
                 }
@@ -319,28 +315,18 @@ enum PlazaPhotoRenderer {
     }
 
     /// 그림에 물빛을 `submergedBlend`만큼 섞은 사본(투명한 곳은 그대로).
-    private static func submerged(_ image: CGImage) -> CGImage? {
-        guard let c = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    private static func submerged(_ image: PlazaImage, graphics: any PlazaGraphics) -> PlazaImage? {
+        guard let c = graphics.makeCanvas(width: image.width, height: image.height, colorSpace: .sRGB) else { return nil }
         let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         c.draw(image, in: rect)
-        c.setBlendMode(.sourceAtop)
+        c.setBlend(.sourceAtop)
         let w = PlazaPondArt.waterColor
-        c.setFillColor(CGColor(srgbRed: w.red, green: w.green, blue: w.blue, alpha: PlazaPondArt.submergedBlend))
+        c.setFillColor(PlazaColor(srgbRed: w.red, green: w.green, blue: w.blue, alpha: PlazaPondArt.submergedBlend))
         c.fill(rect)
         return c.makeImage()
     }
 
-    static func pngData(for input: PlazaPhotoInput) -> Data? {
-        render(input).flatMap(png)
-    }
-
-    static func png(_ image: CGImage) -> Data? {
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else { return nil }
-        return data as Data
+    static func pngData(for input: PlazaPhotoInput, graphics: any PlazaGraphics = PlatformPlaza.graphics) -> Data? {
+        render(input, graphics: graphics).flatMap(graphics.encodePNG)
     }
 }

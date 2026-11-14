@@ -901,7 +901,15 @@ read_when:
   **가드(기계):** `WindowsSeamScanTests.testNoTimerIntervalInitializerInSharedOrWindowsCode` 가 `mac-only.txt` 밖 모든 소스의 해당 생성자를
   실패시키고(맥에서 옛 생성자를 되돌리면 이 스캔이 실패 — 결함 주입으로 확인), `UsageStoreTimerTests.testPollingTimerFirstFiresAfterTheInterval`
   이 양쪽 OS 에서 첫 발화가 간격 뒤임을 고정한다(윈도우에서 옛 생성자는 실패 확인). 스윕: `Sources/` 의 `Timer(timeInterval:` 4 곳 중 `UsageStore` 2 곳만
-  공용이라 고쳤고 `PokeTokenBarApp`·`Team/TeamTransport` 는 맥 전용(`mac-only.txt`)이라 그대로다. 이 부류의 다음 항목(검색 경로·번들·defaults)은 해당 작업이 이 항목 아래에 더한다.
+  공용이라 고쳤고 `PokeTokenBarApp`·`Team/TeamTransport` 는 맥 전용(`mac-only.txt`)이라 그대로다. 이 부류의 다음 항목(defaults)은 해당 작업이 이 항목 아래에 더한다.
+  **검색 경로·번들(Task 3):** 윈도우에서 `urls(for: .libraryDirectory)` 는 매핑이 없어 `[]` 이고(`.applicationSupportDirectory` 는 `%LOCALAPPDATA%`, 슬래시 `/` 구분),
+  `Bundle.main.bundleIdentifier` 는 항상 nil 이라 `AppEnv.isBundledApp` 이 늘 false 다. `AppLog` 의 `[0]` 은 첫 로그에서 트랩인데, `write` 가 번들 밖에서
+  일찍 돌아와 가려져 있었다 — 같은 게이트가 저장·라이브 한도까지 조용히 껐다. **왜 못 걸렀나:** 맥에서는 두 호출이 항상 옳았고, 윈도우에서는 게이트가
+  닫혀 로그 경로 계산에 닿지 않았다(게이트를 열면 비로소 도달 가능). **규칙:** 로그 폴더는 `PlatformCompat.logsDirectory()`, 번들 판정은
+  `PlatformCompat.isBundledApp`(윈도우: exe 옆 `PokeTokenBar.version` 이 비어 있지 않을 때), 윈도우 셸 API 에는 `WinPath.native`, 경로 비교는 `WinPath.sameFile`.
+  **가드(기계):** `WindowsSeamScanTests.testSharedFilesDoNotAskForTheLibraryDirectory`(결함 주입으로 실패 확인), `PlatformCompatTests` 가 맥의 옛 값을 고정,
+  `WindowsFoundationTests` 가 러너에서 실제 동작을 단언. 스윕(`urls(for:in:)[0]`): `.applicationSupportDirectory` 6곳은 매핑돼 안전, `AppLog` 는 고침,
+  `CrashReporter` 는 맥 전용(`mac-only.txt`)이라 그대로, `NSHomeDirectory()` 는 `BinaryLocator`·`PlatformCompat` 에서 정규화돼 쓰이며 하드코딩 `/Library/`·`/tmp` 는 공용 소스에 없다.
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
