@@ -63,6 +63,7 @@ enum WindowsSelftest {
         await loopChecks(r, app)
         await defaultsChecks(r, app)
         await shellChecks(r)
+        await crashChecks(r)
         await singleInstanceCheck(r, app)
         await idleCheck(r, app)
         return r.checks

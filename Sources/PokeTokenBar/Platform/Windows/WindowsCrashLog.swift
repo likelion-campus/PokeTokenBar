@@ -1,0 +1,101 @@
+#if os(Windows)
+import CWinShim
+import Foundation
+import WinSDK
+
+/// What the Mac's `CrashReporter` does, on Windows: a running marker that survives every abnormal exit (so the NEXT
+/// launch says the last session did not end cleanly), a crash record written while dying, and the Swift runtime's
+/// stderr in a file. Everything stays in the app's log folder; nothing is sent anywhere.
+///
+/// The crash record holds the exception code and address, the module and offset, the app version, the OS build, the
+/// process and thread ids and the UTC time. No settings, no file contents, no team code, no paths. The minidump
+/// (`MiniDumpNormal`) is the one artifact that can hold more: thread contexts and stacks. It stays on this machine
+/// and only the newest `keptDumps` are kept.
+///
+/// The filter itself lives in `crash.c` (it must not allocate or take locks). It never writes the settings plist.
+enum WindowsCrashLog {
+    static let markerName = "PokeTokenBar.running"
+    static let crashLogName = "PokeTokenBar.crash.log"
+    static let stderrName = "PokeTokenBar.stderr.log"
+    static let dumpPrefix = "PokeTokenBar-"
+    static let keptDumps = 3
+    static let stderrKeptBytes = 256 * 1024
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var ownedMarkers = Set<String>()
+
+    /// Once, as early as possible at launch (right after the single-instance check).
+    static func install(version: String, logsDirectory: URL = PlatformCompat.logsDirectory(),
+                        log: @escaping (String) -> Void = { AppLog.write($0) }, installHandlers: Bool = true) {
+        prepare(logsDirectory: logsDirectory, log: log)
+        guard installHandlers else { return }
+        version.withCString { ptb_crash_set_version($0) }
+        let crash = WinStr.w(WinPath.native(logsDirectory.appendingPathComponent(crashLogName)))
+        let dumps = WinStr.w(WinPath.native(logsDirectory))
+        let installed = crash.withUnsafeBufferPointer { c in
+            dumps.withUnsafeBufferPointer { d in ptb_crash_install(c.baseAddress, d.baseAddress, nil) }
+        }
+        if installed != 0 { log("crash log: the crash filter was not installed (\(installed))") }
+        let stderrPath = WinStr.w(WinPath.native(logsDirectory.appendingPathComponent(stderrName)))
+        let redirected = stderrPath.withUnsafeBufferPointer { ptb_crash_redirect_stderr($0.baseAddress) }
+        if redirected != 0 { log("crash log: stderr was not redirected (\(redirected))") }
+    }
+
+    /// The file part of `install`, without touching the process (the unit tests call this one).
+    static func prepare(logsDirectory: URL, log: (String) -> Void) {
+        try? FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
+        drainCrashLog(in: logsDirectory, log: log)
+        let marker = logsDirectory.appendingPathComponent(markerName)
+        if FileManager.default.fileExists(atPath: marker.path) {
+            log("previous session did not end cleanly (crash, kill or power loss). The crash record, if any, follows; "
+                + "minidumps are in the log folder.")
+        }
+        _ = FileManager.default.createFile(atPath: marker.path, contents: Data())
+        lock.lock(); ownedMarkers.insert(marker.path); lock.unlock()
+        pruneDumps(in: logsDirectory)
+        trimStderrLog(in: logsDirectory)
+    }
+
+    /// A clean exit: remove the marker, but only the one THIS process wrote (a helper process that exits through
+    /// `WindowsApp.exit` must not clear the running app's marker).
+    static func markClean(logsDirectory: URL = PlatformCompat.logsDirectory()) {
+        let marker = logsDirectory.appendingPathComponent(markerName)
+        lock.lock()
+        let owned = ownedMarkers.remove(marker.path) != nil
+        lock.unlock()
+        guard owned else { return }
+        try? FileManager.default.removeItem(at: marker)
+        AppLog.writeAndFlush("clean shutdown")
+    }
+
+    /// Merges what the last session wrote while dying into the main log, then removes the file.
+    private static func drainCrashLog(in directory: URL, log: (String) -> Void) {
+        let url = directory.appendingPathComponent(crashLogName)
+        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return }
+        let text = String(decoding: data.prefix(16 * 1024), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { log("previous session crash record: \(text)") }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Dump names sort by time (`PokeTokenBar-YYYYMMDD-HHMMSS-<pid>.dmp`): keep the newest `keptDumps`.
+    private static func pruneDumps(in directory: URL) {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        let dumps = names.filter { $0.hasPrefix(dumpPrefix) && $0.hasSuffix(".dmp") }.sorted(by: >)
+        for old in dumps.dropFirst(keptDumps) { try? FileManager.default.removeItem(at: directory.appendingPathComponent(old)) }
+    }
+
+    /// The runtime appends to this file all session long; keep its newest 256 KB at launch.
+    private static func trimStderrLog(in directory: URL) {
+        let url = directory.appendingPathComponent(stderrName)
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int, size > stderrKeptBytes else { return }
+        var kept: Data?
+        if let handle = try? FileHandle(forReadingFrom: url) {
+            try? handle.seek(toOffset: UInt64(size - stderrKeptBytes))
+            kept = try? handle.readToEnd()
+            try? handle.close()
+        }
+        guard let tail = kept else { return }
+        try? tail.write(to: url)
+    }
+}
+#endif

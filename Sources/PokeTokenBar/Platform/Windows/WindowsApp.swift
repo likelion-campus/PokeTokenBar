@@ -28,6 +28,7 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--selftest-defaults-reader") {
             WindowsSelftest.runDefaultsReader(Array(arguments[(i + 1)...]))
         }
+        if let i = arguments.firstIndex(of: "--selftest-crash") { WindowsSelftestCrash.run(Array(arguments[(i + 1)...])) }
         if arguments.contains("--ime-check") { WinImeCheck.run() }
 
         let app = WindowsAppDelegate(arguments: arguments)
@@ -50,6 +51,7 @@ extension WindowsApp {
     /// the log line is lost unless flushed.
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
         WinDefaultsSync.flushNow()
+        WindowsCrashLog.markClean()
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
         // Task 6: remove the tray icon here.
         crtExit(code)
@@ -102,7 +104,7 @@ private func crtExit(_ code: Int32) -> Never {
             AppLog.writeAndFlush("--selftest-second: no running instance held \(mutexName)")
             return false
         }
-        // 3: crash log hook (Task 11).
+        WindowsCrashLog.install(version: WindowsInstall.version ?? "0.0.0-dev")  // 3
         Self.setPerMonitorDpiAwareness()  // 4
         loopStrategy = WinMainLoop.prepare()  // 5
         do {  // 6
