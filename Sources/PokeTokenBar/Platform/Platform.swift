@@ -48,7 +48,9 @@ protocol NetworkWatching: Sendable {
 
 enum PlatformLimits {
     static let current: any LimitsProviderFactory = {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        WindowsPlatform.limitsFactory
+        #elseif PTB_SHARED_ONLY
         StubLimitsProviders(log: { AppLog.write($0) })
         #else
         MacLimitsProviders()
@@ -58,7 +60,9 @@ enum PlatformLimits {
 
 enum PlatformNetwork {
     static let current: any NetworkWatching = {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        WindowsPlatform.networkWatching
+        #elseif PTB_SHARED_ONLY
         StubNetworkWatching(log: { AppLog.write($0) })
         #else
         MacNetworkWatching()
