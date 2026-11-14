@@ -54,7 +54,7 @@ struct PlazaSnowballFlight {
     init(worldHeight: CGFloat) {
         self.worldHeight = worldHeight
         let nearest = Self.nearest
-        shadowTexture = nearest(PlazaGroundShadow.image(width: Int(PlazaSnowball.shadowSize.width), height: Int(PlazaSnowball.shadowSize.height)))
+        shadowTexture = nearest(PlazaGroundShadow.image(width: Int(PlazaSnowball.shadowSize.width), height: Int(PlazaSnowball.shadowSize.height)).cgImage)
         super.init()
         setArt(PlazaSnowballArt.pieces())
     }

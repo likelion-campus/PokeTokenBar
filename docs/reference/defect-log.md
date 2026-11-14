@@ -891,6 +891,18 @@ read_when:
   있어야 함)였다. **규칙:** 목록·설정 파서의 주석 문법을 파일 머리에 적고 그 밖의 형태는 쓰지 않는다. 목록의 항목이 가리키는
   것이 실제로 있는지 확인하는 테스트를 둔다(없는 항목이 조용히 무시되는 목록에는 필수).
 
+- **윈도우의 Foundation은 같은 API를 조용히 다르게 돌린다 (타이머·검색 경로·번들·defaults) — 첫 항목: `Timer(timeInterval:repeats:block:)` 는 윈도우에서 즉시 한 번 발화한다.**
+  swift-corelibs-foundation 은 이 생성자를 `init(fire: Date(), …)` 로 구현해, 맥(첫 발화가 간격 뒤)과 달리 윈도우에서는 만드는 즉시
+  첫 틱이 온다(E1 실측: 윈도우 8 ms, 맥 1009 ms). 공용 `UsageStore.reschedule()` 은 기동·간격 변경마다 즉시 갱신을 한 번 더 돌리고(`autoRefresh` 면
+  기동 때 이중 갱신), `suspendPolling()` 의 프로브는 300 초 뒤가 아니라 디스플레이가 꺼지자마자 로그를 파싱한다. **왜 못 걸렀나:** 맥에서는
+  옛 생성자가 항상 옳게 동작해 어떤 테스트도 실패하지 않았고, 타이머의 *첫 발화 시점*을 기다려 보는 테스트가 없었으며 윈도우 스위트는
+  주입한 프로바이더로 타이밍을 재지 않았다. **규칙:** 공용·윈도우 코드는 `Timer(timeInterval:…)` 대신
+  `Timer(fire: Date(timeIntervalSinceNow: i), interval: i, repeats: …)` 를 쓴다(`Timer.scheduledTimer(withTimeInterval:)` 은 양쪽 모두 간격 뒤라 무방).
+  **가드(기계):** `WindowsSeamScanTests.testNoTimerIntervalInitializerInSharedOrWindowsCode` 가 `mac-only.txt` 밖 모든 소스의 해당 생성자를
+  실패시키고(맥에서 옛 생성자를 되돌리면 이 스캔이 실패 — 결함 주입으로 확인), `UsageStoreTimerTests.testPollingTimerFirstFiresAfterTheInterval`
+  이 양쪽 OS 에서 첫 발화가 간격 뒤임을 고정한다(윈도우에서 옛 생성자는 실패 확인). 스윕: `Sources/` 의 `Timer(timeInterval:` 4 곳 중 `UsageStore` 2 곳만
+  공용이라 고쳤고 `PokeTokenBarApp`·`Team/TeamTransport` 는 맥 전용(`mac-only.txt`)이라 그대로다. 이 부류의 다음 항목(검색 경로·번들·defaults)은 해당 작업이 이 항목 아래에 더한다.
+
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
   윈도우 워크플로는 종료 코드만 봤다. **가드(기계):** `SharedSourcesScanTests` 가 윈도우에서 도는 파일의 `@MainActor`

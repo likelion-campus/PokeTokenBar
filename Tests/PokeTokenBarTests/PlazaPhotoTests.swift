@@ -359,7 +359,7 @@ final class PlazaPhotoTests: XCTestCase {
     // MARK: 키
 
     private func pressP(_ scene: PlazaScene, characters: String? = "ㅔ", isRepeat: Bool = false,
-                        modifiers: NSEvent.ModifierFlags = []) -> PlazaKeyResult {
+                        modifiers: PlazaModifiers = []) -> PlazaKeyResult {
         scene.handleKeyDown(keyCode: photoKey, characters: characters, isRepeat: isRepeat, modifiers: modifiers)
     }
 
@@ -378,7 +378,7 @@ final class PlazaPhotoTests: XCTestCase {
         let scene = newScene()
         var count = 0
         scene.onPhotoKey = { count += 1 }
-        for mod: NSEvent.ModifierFlags in [.command, .control, .option, [.command, .shift]] {
+        for mod: PlazaModifiers in [.command, .control, .option, [.command, .shift]] {
             XCTAssertEqual(pressP(scene, modifiers: mod), .swallowed)
         }
         XCTAssertEqual(pressP(scene, isRepeat: true), .swallowed)

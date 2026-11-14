@@ -52,7 +52,7 @@ final class PlazaDanceTests: XCTestCase {
         }
     }
 
-    private func press(_ s: PlazaScene, _ code: UInt16? = nil, repeats: Bool = false, modifiers: NSEvent.ModifierFlags = []) {
+    private func press(_ s: PlazaScene, _ code: UInt16? = nil, repeats: Bool = false, modifiers: PlazaModifiers = []) {
         s.handleKeyDown(keyCode: code ?? dKey, characters: "d", isRepeat: repeats, modifiers: modifiers)
     }
 
@@ -346,7 +346,7 @@ final class PlazaDanceTests: XCTestCase {
         let s = scene()
         let r = recordRounds(s)
         press(s, repeats: true)
-        for m: NSEvent.ModifierFlags in [.command, .control, .option] { press(s, modifiers: m) }
+        for m: PlazaModifiers in [.command, .control, .option] { press(s, modifiers: m) }
         XCTAssertFalse(s.isDancing(memberID: nil))
         XCTAssertEqual(r.ids, [])
         press(s, modifiers: .shift)
