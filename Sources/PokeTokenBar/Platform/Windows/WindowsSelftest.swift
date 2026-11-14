@@ -41,18 +41,23 @@ enum WindowsSelftest {
 
     @MainActor static func run(_ app: WindowsAppDelegate) async -> [Check] {
         let r = Recorder()
-        // Watches the main thread from launch until the store has settled (the loop checks run meanwhile).
+        // Watches the main thread from launch until the store has settled. The store's refreshes block it now and then:
+        // the companion and parity saves are durable writes on the main actor (FlushFileBuffers on Windows, 146-231 ms
+        // on the runner; defect log). So the loop checks run after that, with the same bounds, and this check reports
+        // the stalls and what held the thread.
         let stalls = MainStallProbe.start(mainThread: WindowsApp.mainThreadID)
         r.add("build.shims", ptb_shim_abi() == 1, "CWinShim abi=\(ptb_shim_abi()) openssl=\(String(cString: ptb_tls_openssl_version()))")
-        await loopChecks(r, app)
         pathChecks(r)
         await storeChecks(r, app)
+        let quiet = await waitStable(timeout: 120, quiet: 1) { !app.store.isRefreshing && !WinDefaultsSync.isSyncPending }
         if let stalls {
             let report = await stalls.stop()
-            r.add("loop.mainThreadStalls", true, report)  // informational: what held the main thread, and for how long
+            r.add("loop.mainThreadStalls", report.longestMs < 1500, report.detail + " (fails over 1500 ms)")
         } else {
             r.add("loop.mainThreadStalls", true, "probe unavailable (thread handle or stack limits)")
         }
+        if !quiet { AppLog.write("selftest: the store did not settle within 120 s; loop checks run anyway") }
+        await loopChecks(r, app)
         await defaultsChecks(r, app)
         await singleInstanceCheck(r, app)
         await idleCheck(r, app)
@@ -849,10 +854,10 @@ private final class MainStallProbe: @unchecked Sendable {
         return probe
     }
 
-    @MainActor func stop() async -> String {
+    @MainActor func stop() async -> (longestMs: Int, detail: String) {
         requestStop()
         _ = await WindowsSelftest.waitUntil(timeout: 5) { self.isFinished }
-        return isFinished ? report() : "probe thread did not stop"
+        return isFinished ? report() : (longestMs: 0, detail: "probe thread did not stop")
     }
 
     private func requestStop() { lock.lock(); stopRequested = true; lock.unlock() }
@@ -908,10 +913,10 @@ private final class MainStallProbe: @unchecked Sendable {
         _ = ResumeThread(mainThread)
     }
 
-    private func report() -> String {
+    private func report() -> (longestMs: Int, detail: String) {
         let durations = stalls.map { Int(($0.end - $0.start).rounded()) }
         guard let longest = stalls.max(by: { $0.end - $0.start < $1.end - $1.start }) else {
-            return "no main-thread stall over \(Int(Self.thresholdMs)) ms between launch and a settled store"
+            return (longestMs: 0, detail: "no main-thread stall over \(Int(Self.thresholdMs)) ms between launch and a settled store")
         }
         let symbols = Symbolizer()
         var frames: [String: Int] = [:]
@@ -938,8 +943,8 @@ private final class MainStallProbe: @unchecked Sendable {
                 .map { "\($0.value)x \($0.key)" }.joined(separator: " | ")
         }
         let start = Int((longest.start - startedAt).rounded())
-        return "stalls_over_\(Int(Self.thresholdMs))ms=\(stalls.count) ms=\(durations) longest=\(durations.max() ?? 0) ms at +\(start) ms "
-            + "samples=\(longest.last - longest.first) leaf=[\(top(leaves, 4))] frames=[\(top(frames, 24))]"
+        return (longestMs: durations.max() ?? 0, detail: "stalls_over_\(Int(Self.thresholdMs))ms=\(stalls.count) ms=\(durations) longest=\(durations.max() ?? 0) ms at +\(start) ms "
+            + "samples=\(longest.last - longest.first) leaf=[\(top(leaves, 4))] frames=[\(top(frames, 24))]")
     }
 }
 

@@ -37,6 +37,9 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
     private(set) static var safetyFires = 0
     nonisolated private static let state = SyncState()
 
+    /// A debounced save is armed and has not run yet.
+    static var isSyncPending: Bool { debounceTimer != nil }
+
     /// How many writes `WinSyncingDefaults` has reported (tests).
     nonisolated static var writeNotes: Int { state.notes }
 
