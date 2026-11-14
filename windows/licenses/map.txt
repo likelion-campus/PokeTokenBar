@@ -1,0 +1,20 @@
+# DLL name pattern (PowerShell -like, case-insensitive) <TAB> licence files in windows/licenses (comma separated) <TAB> component
+# package.ps1 fails when a DLL it ships matches no line here, or a named licence file is missing.
+swift*.dll	swift-apache-2.0-runtime-exception.txt	Swift runtime and standard libraries
+swift_*.dll	swift-apache-2.0-runtime-exception.txt	Swift runtime (concurrency, regex, string processing)
+Foundation.dll	swift-apache-2.0-runtime-exception.txt	swift-corelibs-foundation
+FoundationEssentials.dll	swift-apache-2.0-runtime-exception.txt	swift-foundation
+FoundationInternationalization.dll	swift-apache-2.0-runtime-exception.txt	swift-foundation
+FoundationNetworking.dll	swift-apache-2.0-runtime-exception.txt	swift-corelibs-foundation (URLSession)
+FoundationXML.dll	swift-apache-2.0-runtime-exception.txt	swift-corelibs-foundation (XMLParser)
+_FoundationICU.dll	swift-foundation-icu.txt,unicode-icu.txt	swift-foundation-icu: ICU 7x code and data
+dispatch.dll	swift-apache-2.0-runtime-exception.txt	swift-corelibs-libdispatch
+BlocksRuntime.dll	swift-apache-2.0-runtime-exception.txt	BlocksRuntime (in swift-corelibs-libdispatch, Apache-2.0 with Runtime Library Exception per its file headers)
+libcurl*.dll	curl.txt	libcurl (FoundationNetworking)
+zlib*.dll	zlib.txt	zlib
+libxml2*.dll	libxml2.txt	libxml2 (FoundationXML)
+vcruntime140*.dll	microsoft-vc-redistributable.txt	Microsoft Visual C++ runtime
+msvcp140*.dll	microsoft-vc-redistributable.txt	Microsoft Visual C++ runtime
+concrt140.dll	microsoft-vc-redistributable.txt	Microsoft Visual C++ runtime
+vccorlib140.dll	microsoft-vc-redistributable.txt	Microsoft Visual C++ runtime
+vcomp140.dll	microsoft-vc-redistributable.txt	Microsoft Visual C++ runtime

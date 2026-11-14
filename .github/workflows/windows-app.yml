@@ -14,6 +14,7 @@ on:
       - 'windows/**'
       - 'scripts/windows/**'
       - 'installer/**'
+      - 'assets/AppIcon.ico'
       - '.github/workflows/windows-app.yml'
       - '.github/actions/windows-swift/**'
   workflow_dispatch:
@@ -29,17 +30,26 @@ concurrency:
 jobs:
   app:
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/windows-swift
+      - name: Resources (version info, icon, manifest)
+        id: resources
+        shell: pwsh
+        run: |
+          $res = ./scripts/windows/build-resources.ps1 -Out resources | Select-Object -Last 1
+          "PTB_RES=$($res -replace '\\', '/')" >> $env:GITHUB_ENV
       - name: Build
         shell: bash
-        run: swift build -c release --product PokeTokenBarWin 2>&1 | tee build.log
+        run: swift build -c release --product PokeTokenBarWin -Xlinker "$PTB_RES" 2>&1 | tee build.log
       - name: Package
         id: package
         shell: pwsh
-        run: ./scripts/windows/package.ps1 -Out bundle
+        run: |
+          ./scripts/windows/package.ps1 -Out bundle 2>&1 | Tee-Object -FilePath package.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "PTB_VERSION=$((Get-Content bundle\PokeTokenBar.version -Raw).Trim())" >> $env:GITHUB_ENV
       - name: Selftest fixture
         shell: pwsh
         run: |
@@ -250,6 +260,228 @@ jobs:
           if (Test-Path (Join-Path $logs 'PokeTokenBar.running')) { throw 'the marker is still there after a clean exit' }
           if ((Get-Item (Join-Path $logs 'PokeTokenBar.crash.log')).Length -ne 0) { throw 'the crash record was not drained' }
           'relaunch reported the crash and ended cleanly'
+      - name: Build the installers (this version, and a next one for the upgrade test)
+        id: iscc
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' }
+          if (-not (Test-Path $iscc)) {
+              choco install innosetup -y --no-progress
+              $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          }
+          if (-not (Test-Path $iscc)) { throw 'ISCC.exe not found after choco install innosetup' }
+          $v = (Get-Content bundle\PokeTokenBar.version -Raw).Trim()
+          $next = ($v -replace '\d+$', { [string]([int]$_.Value + 1) })
+          Copy-Item bundle bundle-next -Recurse
+          Set-Content -Path bundle-next\PokeTokenBar.version -Value $next -NoNewline
+          foreach ($job in @(@{ Src = 'bundle'; Ver = $v; Out = 'installer-out' }, @{ Src = 'bundle-next'; Ver = $next; Out = 'installer-next' })) {
+              New-Item -ItemType Directory -Force -Path $job.Out | Out-Null
+              & $iscc /Q "/DSrcDir=$((Resolve-Path $job.Src).Path)" "/DAppVer=$($job.Ver)" "/DOutDir=$((Resolve-Path $job.Out).Path)" installer\PokeTokenBar.iss
+              if ($LASTEXITCODE -ne 0) { throw "ISCC failed for $($job.Ver)" }
+          }
+          "PTB_NEXT_VERSION=$next" >> $env:GITHUB_ENV
+          foreach ($f in Get-ChildItem installer-out, installer-next -Filter *.exe) { '{0}: {1:N0} bytes' -f $f.FullName, $f.Length }
+          'bundle: {0:N0} bytes in {1} files' -f ((Get-ChildItem bundle -Recurse -File | Measure-Object Length -Sum).Sum), (Get-ChildItem bundle -Recurse -File).Count
+          if (-not (Test-Path "installer-out\PokeTokenBar-Setup-$v-win-x64.exe")) { throw 'the installer has not the expected name' }
+      - name: Silent install and what it left
+        id: install
+        if: (success() || failure()) && steps.iscc.outcome == 'success'
+        shell: pwsh
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          # A fresh profile on this throwaway runner: nothing of the earlier steps' settings or state.
+          Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak", (Join-Path $env:LOCALAPPDATA 'PokeTokenBar')
+          $v = $env:PTB_VERSION
+          $setup = Resolve-Path "installer-out\PokeTokenBar-Setup-$v-win-x64.exe"
+          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=$PWD\install.log" -Wait -PassThru
+          Assert-That ($proc.ExitCode -eq 0) 'install.exit' "exit $($proc.ExitCode)"
+          $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
+          Assert-That (Test-Path $exe) 'install.exe' $exe
+          $same = (Get-FileHash $exe).Hash -eq (Get-FileHash bundle\PokeTokenBar.exe).Hash
+          $missing = @(Get-ChildItem bundle -Recurse -File | Where-Object { -not (Test-Path (Join-Path $PtbInstallDir $_.FullName.Substring((Resolve-Path bundle).Path.Length + 1))) })
+          Assert-That ($same -and $missing.Count -eq 0) 'install.files' "exe identical to the bundle's: $same; bundle files missing from the install: $($missing.Count)"
+          Assert-That ((Get-Content (Join-Path $PtbInstallDir 'PokeTokenBar.version') -Raw).Trim() -eq $v) 'install.version' $v
+          Assert-That (Test-Path (Join-Path $PtbInstallDir 'licenses\THIRD-PARTY.txt')) 'install.licenses' 'licenses\THIRD-PARTY.txt'
+          $lnk = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\PokeTokenBar.lnk'
+          Assert-That (Test-Path $lnk) 'install.startMenu' $lnk
+          $shell = New-Object -ComObject Shell.Application
+          $item = $shell.NameSpace((Split-Path $lnk)).ParseName((Split-Path $lnk -Leaf))
+          $aumid = $item.ExtendedProperty('System.AppUserModel.ID')
+          Assert-That ($aumid -eq 'LikelionCampus.PokeTokenBar') 'install.aumid' "shortcut AppUserModelID='$aumid'"
+          $key = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object { $_.PSChildName -like '{6CE57293-9940-4B5E-A604-4C4FEECBF049}*' }
+          Assert-That ($null -ne $key) 'install.uninstallKey' "$($key.PSChildName) DisplayVersion=$($key.GetValue('DisplayVersion'))"
+          Assert-That ($null -eq (Get-RunValue)) 'install.noRunValue' "HKCU Run PokeTokenBar: $(Get-RunValue)"
+          Assert-That (-not (Get-Process PokeTokenBar -ErrorAction SilentlyContinue)) 'install.noLaunchWithFlag' '/NOLAUNCH=1 left no running instance'
+          $item = Get-Item $exe
+          "installed exe: $($item.VersionInfo.FileVersion) $($item.Length) bytes"
+      - name: Upgrade over a running instance keeps settings and memberID
+        id: upgrade
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        shell: pwsh
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
+          $logFile = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log'
+          # vN: run once so the app writes team.memberID, end it, then write a setting into the settings file.
+          $p, $h = Start-App $exe
+          Start-Sleep -Seconds 3
+          $member = Get-MemberId
+          Assert-That ([bool]$member) 'upgrade.memberIdWritten' "team.memberID=$member"
+          Close-App $p $h
+          $xml = Get-Content $PtbPlist -Raw
+          $xml = $xml -replace '<key>statusChecksEnabled</key>\s*<(true|false)/>', ''
+          $xml = $xml -replace '</dict>\s*</plist>\s*$', "<key>statusChecksEnabled</key><false/></dict></plist>"
+          Set-Content -Path $PtbPlist -Value $xml -NoNewline -Encoding utf8NoBOM
+          Assert-That ((Get-Content $PtbPlist -Raw) -match '<key>statusChecksEnabled</key>\s*<false/>') 'upgrade.settingWritten' 'statusChecksEnabled=false in PokeTokenBar.exe.plist'
+          # vN is running when vN+1 is installed: the installer must close it (WM_CLOSE) and start the new one.
+          $old, $oldHandle = Start-App $exe
+          $closeLinesBefore = ([regex]::Matches((Get-Content $logFile -Raw), 'exit code=0 reason=closeRequest')).Count
+          $next = $env:PTB_NEXT_VERSION
+          $setup = Resolve-Path "installer-next\PokeTokenBar-Setup-$next-win-x64.exe"
+          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=$PWD\install-next.log" -Wait -PassThru
+          Assert-That ($proc.ExitCode -eq 0) 'upgrade.exit' "exit $($proc.ExitCode)"
+          Assert-That ($old.HasExited -and $old.ExitCode -eq 0) 'upgrade.oldInstanceClosed' "old instance exited=$($old.HasExited) code=$($old.ExitCode)"
+          $closeLinesAfter = ([regex]::Matches((Get-Content $logFile -Raw), 'exit code=0 reason=closeRequest')).Count
+          Assert-That ($closeLinesAfter -eq $closeLinesBefore + 1) 'upgrade.closedCleanly' "closeRequest exit lines $closeLinesBefore -> $closeLinesAfter"
+          Assert-That ((Get-Content (Join-Path $PtbInstallDir 'PokeTokenBar.version') -Raw).Trim() -eq $next) 'upgrade.filesReplaced' "version file = $next"
+          # The installer launches the new version also when silent.
+          $fresh = $null
+          for ($i = 0; $i -lt 100 -and -not $fresh; $i++) { Start-Sleep -Milliseconds 200; $fresh = Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          Assert-That ($null -ne $fresh) 'upgrade.relaunched' 'a PokeTokenBar process runs after the silent upgrade'
+          $null = $fresh.Handle
+          $h = [IntPtr]::Zero
+          for ($i = 0; $i -lt 100 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 200; $h = Find-Sink }
+          Start-Sleep -Seconds 2
+          $after = Get-MemberId
+          Assert-That ($after -eq $member) 'upgrade.memberIdKept' "before=$member after=$after"
+          Assert-That ((Get-Content $PtbPlist -Raw) -match '<key>statusChecksEnabled</key>\s*<false/>') 'upgrade.settingKept' 'statusChecksEnabled still false after the upgrade'
+          Close-App $fresh $h
+      - name: Installed selftest (stripped Path, from the install folder)
+        id: installed-selftest
+        if: (success() || failure()) && steps.upgrade.outcome != 'skipped'
+        shell: pwsh
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
+          $state = Join-Path $env:PTB_FIXTURE 'state-installed'
+          New-Item -ItemType Directory -Force -Path $state | Out-Null
+          $env:PTB_STATE_DIR = $state
+          $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
+          $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
+          ./scripts/windows/run-selftest.ps1 -Exe $exe -Out st-installed.json -ExpectStrategy cfRunLoopWithMessages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The checks that only mean something from a packaged copy must have run for real, not been skipped.
+          $j = Get-Content st-installed.json -Raw | ConvertFrom-Json
+          foreach ($name in 'packaged.processName', 'packaged.version', 'packaged.modules', 'log.writes') {
+              $c = $j.checks | Where-Object { $_.name -eq $name }
+              Assert-That ($c -and $c.ok -and $c.detail -notlike 'skipped*') "installed.$name" $c.detail
+          }
+          "executed selftest checks: $(@($j.checks).Count)"
+      - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
+        id: idle
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        shell: pwsh
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
+          $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
+          $verdicts = [ordered]@{}
+          $summary = [ordered]@{ version = $env:PTB_VERSION; runner = $env:ImageVersion; windows = [ordered]@{} }
+
+          # 1. A process that only sleeps, and explorer, over the same 120 s, before the app starts.
+          $ps = Join-Path $env:windir 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          $sleeper = Start-Process -FilePath $ps -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 170' -PassThru
+          Start-Sleep -Seconds 5
+          ./scripts/windows/measure-idle.ps1 -ProcessId $sleeper.Id -Seconds 120 -Also explorer -Baseline -Label sleeper -Out idle-sleeper.json
+          Stop-Process -Id $sleeper.Id -Force -ErrorAction SilentlyContinue
+          $base = Get-Content idle-sleeper.json -Raw | ConvertFrom-Json
+          $summary.sleeper = [ordered]@{ cyclesPerSec = $base.processCyclesPerSec; contextSwitchesPerMin = $base.contextSwitchesPerMin; explorerCycles = $base.explorerCycles; explorerContextSwitches = ($base.also | Where-Object name -eq 'explorer').contextSwitches }
+
+          # 2. The installed app, one window per state. Budgets are from the first measured runs, with margin (see the report).
+          function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget) {
+              Remove-Item -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak"
+              if ($Settings) { Set-Content -Path $PtbPlist -Value $Settings -Encoding utf8NoBOM }
+              $state = Join-Path $env:PTB_FIXTURE "state-idle-$Label"
+              New-Item -ItemType Directory -Force -Path $state | Out-Null
+              $env:PTB_STATE_DIR = $state
+              $p, $h = Start-App $exe
+              Start-Sleep -Seconds 30
+              $m = @{ ProcessId = $p.Id; Seconds = $Seconds; Label = $Label; Out = "idle-$Label.json" }
+              foreach ($k in $Budget.Keys) { $m[$k] = $Budget[$k] }
+              ./scripts/windows/measure-idle.ps1 @m
+              $code = $LASTEXITCODE
+              Close-App $p $h
+              $verdicts[$Label] = ($code -eq 0)
+              $j = Get-Content "idle-$Label.json" -Raw | ConvertFrom-Json
+              $summary.windows[$Label] = [ordered]@{ seconds = $Seconds; pass = ($code -eq 0); budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
+          }
+          $off = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>refreshInterval</key><real>0</real></dict></plist>'
+          $offNoStatus = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>refreshInterval</key><real>0</real><key>statusChecksEnabled</key><false/></dict></plist>'
+          $noStatus = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>statusChecksEnabled</key><false/></dict></plist>'
+          $budget = @{ MaxMainCsPerMin = 6; MaxProcessCsPerMin = 400; MaxPrivateGrowthMB = 25; MaxHandleGrowth = 20 }
+          # refreshInterval = 0: nothing is due after the launch refresh (the D8 window), 120 s.
+          Measure-App 'manual-refresh-120s' 120 $off $budget
+          # The normal app: 120 s polling, status checks on. 300 s from 30 s after launch covers the refreshes at +120 s and +240 s.
+          Measure-App 'normal-300s' 300 '' @{ MaxMainCsPerMin = 10; MaxProcessCsPerMin = 400; MaxPrivateGrowthMB = 40; MaxHandleGrowth = 30 }
+          # Hypothesis for the ~1 Hz threads: no status checks (one network user fewer), report only.
+          Measure-App 'no-status-checks-120s' 120 $offNoStatus @{}
+          $summary.verdicts = $verdicts
+          $summary | ConvertTo-Json -Depth 8 | Set-Content idle-gate.json -Encoding utf8
+          Get-Content idle-gate.json
+          if ($verdicts.Values -contains $false) { throw "idle gate FAILED: $(($verdicts.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object Key) -join ', ')" }
+          'PASS idle gate'
+      - name: Waker hunt (the two ~1 Hz threads; diagnostics)
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $state = Join-Path $env:PTB_FIXTURE 'state-hunt'
+          New-Item -ItemType Directory -Force -Path $state | Out-Null
+          $env:PTB_STATE_DIR = $state
+          $out = Join-Path $PWD 'waker-hunt.json'
+          $p = Start-Process -FilePath (Join-Path $PtbInstallDir 'PokeTokenBar.exe') -ArgumentList '--selftest-waker-hunt', $out, '30' -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(900000)) { Stop-Process -Id $p.Id -Force; throw 'the waker hunt did not finish in 15 min' }
+          "exit $($p.ExitCode)"
+          foreach ($ph in (Get-Content $out -Raw | ConvertFrom-Json)) { "== $($ph.phase)"; $ph.detail }
+      - name: Silent uninstall and what it leaves
+        id: uninstall
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        shell: pwsh
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
+          $data = Join-Path $env:LOCALAPPDATA 'PokeTokenBar'
+          # What the app's tray toggle would have written: the Run value that starts THIS install.
+          $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
+          Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'PokeTokenBar' -Value "`"$exe`" --autostart"
+          Assert-That ($null -ne (Get-RunValue)) 'uninstall.runValueSetUp' (Get-RunValue)
+          # Leave something in the app's folder too: the uninstaller takes the folder, not just its own files.
+          Set-Content -Path (Join-Path $PtbInstallDir 'stray.txt') -Value 'x'
+          $before = @(Get-ChildItem $data -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object FullName)
+          $plistBefore = Test-Path $PtbPlist
+          $key = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object { $_.PSChildName -like '{6CE57293-9940-4B5E-A604-4C4FEECBF049}*' }
+          $unins = (Get-Item (Join-Path $PtbInstallDir 'unins000.exe')).FullName
+          $proc = Start-Process -FilePath $unins -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$PWD\uninstall.log" -Wait -PassThru
+          Assert-That ($proc.ExitCode -eq 0) 'uninstall.exit' "exit $($proc.ExitCode)"
+          for ($i = 0; $i -lt 60 -and (Test-Path $PtbInstallDir); $i++) { Start-Sleep -Milliseconds 500 }  # the uninstaller deletes itself after it exits
+          Assert-That (-not (Test-Path $PtbInstallDir)) 'uninstall.appFolderGone' $PtbInstallDir
+          Assert-That ($null -eq (Get-RunValue)) 'uninstall.runValueGone' "Run PokeTokenBar: $(Get-RunValue)"
+          Assert-That (-not (Test-Path (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\PokeTokenBar.lnk'))) 'uninstall.startMenuGone' 'Start-menu shortcut removed'
+          $keyAfter = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object { $_.PSChildName -like '{6CE57293-9940-4B5E-A604-4C4FEECBF049}*' }
+          Assert-That ($null -eq $keyAfter) 'uninstall.keyGone' 'Uninstall registry key removed'
+          $after = @(Get-ChildItem $data -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object FullName)
+          Assert-That ($plistBefore -and (Test-Path $PtbPlist) -and $after.Count -ge $before.Count) 'uninstall.dataKept' "settings plist kept: $(Test-Path $PtbPlist); files under %LOCALAPPDATA%\PokeTokenBar: $($before.Count) before, $($after.Count) after"
+          "left behind: $PtbPlist (+ .bak: $(Test-Path "$PtbPlist.bak")); $data ($($after.Count) files: $((($after | ForEach-Object { Split-Path $_ -Leaf }) | Select-Object -First 12) -join ', '))"
       - name: Collect logs
         if: always()
         shell: pwsh
@@ -257,14 +489,26 @@ jobs:
           New-Item -ItemType Directory -Force -Path collected | Out-Null
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\*') collected
           Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA '*.plist') collected
+          Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log, package.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
+      # The installer is a CI artifact only (short retention): nothing is attached to a release or uploaded elsewhere.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-installer
+          path: installer-out/PokeTokenBar-Setup-*-win-x64.exe
+          retention-days: 3
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-app
+          retention-days: 7
           path: |
             bundle
             st*.json
+            idle*.json
+            waker-hunt.json
             st*.json.lines
             tray-desktop.png
             ui-dump

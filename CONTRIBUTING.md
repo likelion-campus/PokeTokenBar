@@ -79,6 +79,31 @@ On the `windows-port` branch, `Sources/PokeTokenBar` also builds on Windows minu
 
 Pre-check on the Mac: `./scripts/shared-check.sh` and `swift test --filter SharedSourcesScanTests`.
 
+## Building the Windows app
+
+The Windows app (`PokeTokenBar.exe`) is built and tested in CI (`windows.yml` for the library tests, `windows-app.yml` for the executable, installer and idle gate). There is no Windows developer machine in the loop, so push your branch and run `gh workflow run windows-app.yml --ref <branch> --repo likelion-campus/PokeTokenBar`. If you do build locally you need:
+
+- **Windows 10 or newer, x64**, with **Swift 6.3.2** and a Visual Studio install that provides the C++ tools, the Windows SDK (`rc.exe`) and `dumpbin.exe`.
+- **OpenSSL 3, linked statically,** from vcpkg: `vcpkg install --triplet x64-windows-static-md --x-manifest-root=windows`. Point `PTB_OPENSSL_DIR` at the triplet's folder (default `C:/vcpkg/installed/x64-windows-static-md`). No OpenSSL DLL ships.
+- **Inno Setup 6** (`ISCC.exe`) for the installer.
+
+The steps, from the repository root in PowerShell (CI runs exactly these):
+
+```powershell
+$res = ./scripts/windows/build-resources.ps1 -Out resources | Select-Object -Last 1   # version info, icon, manifest
+swift build -c release --product PokeTokenBarWin -Xlinker ($res -replace '\\', '/')
+./scripts/windows/package.ps1 -Out bundle                                             # exe + DLL closure + licences
+./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json          # every selftest group must pass
+ISCC /DSrcDir=bundle /DAppVer=2.5.634 /DOutDir=out installer\PokeTokenBar.iss        # out\PokeTokenBar-Setup-<version>-win-x64.exe
+```
+
+- **The version** comes from `VERSION="x.y.z"` in `scripts/build-app.sh`, the same number the Mac build uses. `package.ps1` stamps it into `PokeTokenBar.version` and the installer name; `build-resources.ps1` stamps it into the exe's version resource. Do not add a second version number.
+- **The executable name is frozen as `PokeTokenBar.exe`** (`WindowsInstall.shippedExecutableName`). The settings file is named after the process (`%LOCALAPPDATA%\PokeTokenBar.exe.plist`), so renaming the exe would orphan every user's settings. `package.ps1` fails on another name and the packaged selftest asserts it. The build target is still called `PokeTokenBarWin` and is renamed at packaging.
+- **DLLs and licences:** `package.ps1` ships the dependency closure of the exe (read with `dumpbin /dependents`), not the whole toolchain, and fails when a DLL has no source or no line in `windows/licenses/map.txt`. Adding a dependency that brings a DLL means adding its licence text under `windows/licenses/` and a line in `map.txt`.
+- **`assets/AppIcon.ico`** is generated from the existing `assets/AppIcon.icns` by `scripts/generate-ico.py` (Pillow); it does not draw anything.
+- **Artifacts:** the `windows-installer` artifact (the setup `.exe`, kept 3 days) and the `windows-app` artifact (bundle, selftest and idle-gate JSON, logs, 7 days) of a run. Download with `gh run download <run-id> -n windows-installer --repo likelion-campus/PokeTokenBar`. Nothing is published to a release by CI, and the installer is unsigned, so Windows SmartScreen warns on first run.
+- **Idle cost is a failure condition:** the idle gate (`scripts/windows/measure-idle.ps1`) measures the installed app with cycles and context switches. A change that adds a timer or a polling wait has to say what wakes it and how often.
+
 ## Code conventions
 
 The app is provider-agnostic by design. When extending it, follow these rules

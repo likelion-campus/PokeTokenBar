@@ -95,6 +95,7 @@ enum WindowsSelftest {
               "\(WinPath.native(real)) and its .bak modified before=\(show(realBefore)) after=\(show(realAfter)); "
                 + "the selftest keeps its settings in suite \(WinDefaultsSync.selftestSuiteName ?? "-")")
         await systemServiceChecks(r)
+        packagedChecks(r)
         await trayChecks(r, app)
         await notifyChecks(r, app)
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
@@ -971,7 +972,7 @@ enum WindowsSelftest {
 
 /// Per-thread context switches (`NtQuerySystemInformation(SystemProcessInformation)`, the wakeup count) and cycles
 /// (`QueryThreadCycleTime`, exact), read only at the window's edges from a thread of its own (F20).
-private enum IdleSampler {
+enum IdleSampler {
     struct Sample: Sendable {
         let layoutOK: Bool
         let mainFound: Bool
@@ -980,6 +981,8 @@ private enum IdleSampler {
         let processCycles: UInt64
         let threadCount: Int
         let busy: String
+        /// Every thread that switched or ran in the window (the waker hunt reads it).
+        let active: [(tid: UInt32, cs: Int, cycles: UInt64)]
     }
 
     private struct Snapshot {
@@ -1021,7 +1024,8 @@ private enum IdleSampler {
         }.joined(separator: "; ")
         return Sample(layoutOK: a.layoutOK && b.layoutOK, mainFound: b.contextSwitches[main] != nil,
                       mainContextSwitches: mainCS, mainCycles: mainCycles,
-                      processCycles: b.processCycles &- a.processCycles, threadCount: b.contextSwitches.count, busy: text)
+                      processCycles: b.processCycles &- a.processCycles, threadCount: b.contextSwitches.count, busy: text,
+                      active: busy.map { (tid: $0.tid, cs: $0.cs, cycles: $0.cycles) })
     }
 
     private typealias QueryThread = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutableRawPointer?, UInt32,
@@ -1030,7 +1034,7 @@ private enum IdleSampler {
 
     /// Who a thread is: its description (`GetThreadDescription`) and the module + offset of its start routine
     /// (`NtQueryInformationThread(ThreadQuerySetWin32StartAddress)`), read after the window closed.
-    private static func label(_ tid: UInt32) -> String {
+    static func label(_ tid: UInt32) -> String {
         guard let h = OpenThread(0x0040 | 0x0800 /* QUERY_INFORMATION | QUERY_LIMITED_INFORMATION */, false, tid) else {
             return "(no access)"
         }
@@ -1256,7 +1260,7 @@ private final class MainStallProbe: @unchecked Sendable {
 }
 
 /// dbghelp names for addresses: `module!symbol+0xoffset`, or `module+0xoffset` without symbols.
-private final class Symbolizer {
+final class Symbolizer {
     private typealias SetOptions = @convention(c) (UInt32) -> UInt32
     private typealias Initialize = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt16>?, Int32) -> Int32
     private typealias FromAddress = @convention(c) (UnsafeMutableRawPointer?, UInt64, UnsafeMutablePointer<UInt64>?,
