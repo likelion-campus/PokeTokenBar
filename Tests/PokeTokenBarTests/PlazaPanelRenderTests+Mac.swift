@@ -450,7 +450,10 @@ import CoreText
         XCTAssertGreaterThan(layers.count, 5, "colour and image layers")
         for layer in layers {
             for key in ["contents", "contentsScale", "position", "bounds", "hidden", "backgroundColor"] {
-                XCTAssertNil(layer.action(forKey: key), "\(key) would animate")
+                // A sublayer of a view's layer animates these implicitly on screen unless its own actions say no (off
+                // screen `action(forKey:)` finds nothing either way, so the table itself is checked).
+                XCTAssertTrue(layer.actions?[key] is NSNull, "\(key) would animate")
+                XCTAssertNil(layer.action(forKey: key))
             }
         }
     }
