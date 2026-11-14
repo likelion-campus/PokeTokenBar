@@ -186,6 +186,9 @@ extension WindowsSelftest {
               "menu: SetTimer \(setNow)x KillTimer ok \(killedNow)x failures=\(WinModalPump.killFailures) exists_after_menu=\(stillThere) depth_after=\(WinModalPump.depth); "
                 + "synthetic WM_ENTERSIZEMOVE: timer_live=\(liveDuring) depth=\(depthDuring) nested_total_sets=\(nestedSets) live_after_one_exit=\(liveAfterOne) gone_after_both=\(gone)")
 
+        // (4b) keys while a tick is running must reach the menu
+        await keyLossCheck(r, app)
+
         // (5) exit requested (from main-queue work) while a menu is open
         await menuExitCheck(r, app)
 
@@ -199,6 +202,61 @@ extension WindowsSelftest {
         } else {
             r.add("modalPump.idle", false, "measurement failed")
         }
+    }
+
+    private final class KeyCounts: @unchecked Sendable {
+        private let lock = NSLock()
+        private var v = (sent: 0, finished: false)
+        func sent(_ n: Int) { lock.lock(); v.sent = n; lock.unlock() }
+        func finish() { lock.lock(); v.finished = true; lock.unlock() }
+        var snapshot: (sent: Int, finished: Bool) { lock.lock(); defer { lock.unlock() }; return v }
+    }
+
+    /// A tick must not take keyboard input away from the menu loop. A tick that finds nothing to run used to poll the
+    /// thread queue (CoreFoundation's own message pump) and a key that arrived in that instant was dispatched to the
+    /// sink instead of the menu. The window is tens of microseconds per 50 ms, so a flood of Down keys at random
+    /// sub-millisecond spacing (6000 over ~3 s) crosses it many times; every key that reaches the sink as a plain
+    /// WM_KEYDOWN was taken from the menu (a key inside the menu loop is translated there and never dispatched).
+    @MainActor private static func keyLossCheck(_ r: Recorder, _ app: WindowsAppDelegate) async {
+        let total = 6000
+        let counts = KeyCounts()
+        let owner = Int(bitPattern: app.sink.hwnd)
+        let items = (1...5).map { TrayMenuModel.Item(title: "Item \($0)", enabled: true, checked: false, action: .none) }
+        var atSink = 0
+        let ticks0 = WinModalPump.ticks
+        let token = app.sink.on(UINT(WM_KEYDOWN)) { _, _ in atSink += 1; return nil }
+        onThread {
+            var waited = 0
+            while WinPopupMenu.openMenuBits == 0, waited < 200 { Thread.sleep(forTimeInterval: 0.05); waited += 1 }
+            guard WinPopupMenu.openMenuBits != 0 else { counts.finish(); return }
+            Thread.sleep(forTimeInterval: 0.4)
+            var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+            for i in 0..<total {
+                _ = PostMessageW(HWND(bitPattern: owner), UINT(WM_KEYDOWN), WPARAM(VK_DOWN), 0)
+                seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                let gapMs = 0.2 + Double(seed >> 40 & 0x3FF) / 1024 * 0.6  // 0.2 ... 0.8 ms, spun (Sleep is ~15 ms)
+                let t0 = WindowsSelftest.nowMs()
+                while WindowsSelftest.nowMs() - t0 < gapMs {}
+                if i % 500 == 499 { Thread.sleep(forTimeInterval: 0.02) }  // let the menu drain its queue now and then
+                counts.sent(i + 1)
+            }
+            Thread.sleep(forTimeInterval: 0.3)
+            _ = PostMessageW(HWND(bitPattern: owner), UINT(WM_KEYDOWN), WPARAM(VK_ESCAPE), 0)
+            _ = PostMessageW(HWND(bitPattern: owner), UINT(WM_KEYUP), WPARAM(VK_ESCAPE), 0)
+            for _ in 0..<40 where WinPopupMenu.openMenuBits != 0 { Thread.sleep(forTimeInterval: 0.2) }
+            counts.finish()
+        }
+        let opener = Timer(fire: Date(timeIntervalSinceNow: 0.05), interval: 0, repeats: false) { _ in
+            MainActor.assumeIsolated { _ = WinPopupMenu.run(items, at: POINT(x: 300, y: 300), owner: app.sink.hwnd) }
+        }
+        RunLoop.main.add(opener, forMode: .common)
+        _ = await waitUntil(timeout: 60) { counts.snapshot.finished }
+        _ = await waitUntil(timeout: 10) { WinPopupMenu.openMenuBits == 0 }
+        app.sink.off(token)
+        let v = counts.snapshot
+        r.add("modalPump.keysReachMenu", v.finished && v.sent == total && atSink == 0,
+              "\(v.sent) of \(total) Down keys posted at 0.2-0.8 ms spacing to an open menu while the pump ticked (\(WinModalPump.ticks - ticks0) ticks): "
+                + "taken from the menu and dispatched to the sink as plain WM_KEYDOWN=\(atSink); strategy=\(WinModalPump.maskStrategy) ticks_skipped_for_input=\(WinModalPump.ticksSkippedForInput)")
     }
 
     /// A child process holds a menu open, schedules `WindowsApp.exit` on the main queue, and only then gets Escape.
