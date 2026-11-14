@@ -44,6 +44,7 @@ Read in source during planning (not run). Each one changes a task.
 
 ## Global Constraints
 
+- **Speed rules (user decision, 2026-11-14) — these override any stricter wording below.** (1) No per-task full Mac gate: a task is verified on the Mac by the filtered suites for what it touched, `./scripts/shared-check.sh`, and (Track A) the render compare; the full gate `./scripts/test-gate.sh` runs only at milestones (Track A: after Tasks 7, 10, 13 and 19; Track B: after Tasks 5, 12, 14 and 19) and before `windows-port` goes to `main`. (2) Do not wait for Windows CI before merging a task into `windows-port`: merge, let the push run CI, and fix forward if it is red. Tasks whose only proof is Windows CI (Windows-only code) still read their run, but batch several changes per push. (3) Reviews: tasks marked for the most capable model keep an independent review; other tasks are read by the session lead. The cost accepted: a break found at a milestone is harder to trace to its task; `windows-port` is not released, so nothing reaches users in between.
 Carried over from stage 1:
 - **The Mac app must not change.** No behaviour, timing or UI difference. Every edit to a shared or upstream-owned file keeps the Mac result byte-identical, and a Mac test pins the old value (named in each task).
 - Work in `.worktrees/<name>` cut from `origin/windows-port`. Never edit the main checkout. No bare `git stash`. Every `gh` call passes `--repo likelion-campus/PokeTokenBar`.
