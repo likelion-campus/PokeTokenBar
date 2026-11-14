@@ -88,7 +88,7 @@ final class TeamHostilePeerTests: XCTestCase {
 
     /// A modified app can send any `danceStyle` and as many dances as it likes. A huge or garbage style plays the default
     /// dance, and a flood only restarts the round: the plaza gains no nodes.
-    func testAHugeDanceStyleAndAFloodOfDancesGrowNothing() {
+    func testAHugeDanceStyleAndAFloodOfDancesGrowNothing() async {
         let map = PlazaMapData.map
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
         scene.size = CGSize(width: 960, height: 640)
@@ -116,13 +116,13 @@ final class TeamHostilePeerTests: XCTestCase {
 
     // MARK: - Sizes
 
-    func testAMemberIDTooLongToBeRealIsRefused() {
+    func testAMemberIDTooLongToBeRealIsRefused() async {
         _ = join(String(repeating: "x", count: TeamWire.maxFieldBytes + 1))
         XCTAssertTrue(session.members.isEmpty)
         XCTAssertEqual(transport.refuseCalls.count, 1)
     }
 
-    func testHostileDittoStatesAreDropped() {
+    func testHostileDittoStatesAreDropped() async {
         let peer = join("hostile")
         let year: TimeInterval = 365 * 86400
         func ditto(decoyOf: String? = nil, since: Date? = nil, restUntil: Date? = nil) -> PlazaDittoState {
@@ -145,7 +145,7 @@ final class TeamHostilePeerTests: XCTestCase {
     }
 
     /// A campfire switch of the wrong shape is dropped without hurting the rest of the presence.
-    func testAMalformedCampfireSwitchIsDropped() throws {
+    func testAMalformedCampfireSwitchIsDropped() async throws {
         let peer = join("hostile")
         for bad in [#"7"#, #"{"lit":"yes","at":1}"#, #"{"lit":true}"#, #"{"lit":true,"at":"now"}"#] {
             let json = #"{"presence":{"_0":{"nickname":"x","character":{"speciesID":25,"isShiny":false,"speciesName":"P"},"inPlaza":true,"tile":{"x":7,"y":8},"facing":"left","isWalking":true,"campfire":\#(bad)}}}"#
@@ -156,7 +156,7 @@ final class TeamHostilePeerTests: XCTestCase {
     }
 
     /// A modified app can send any numbers. They are kept in range.
-    func testAbsurdActivityNumbersAreBounded() {
+    func testAbsurdActivityNumbersAreBounded() async {
         let peer = join("hostile")
         var p = TeamPresence(nickname: "x", character: Self.mon, inPlaza: true, tile: TilePoint(x: 7, y: 8), facing: .left, isWalking: true)
         var a = PlazaActivity(day: "2026-11-13")
@@ -169,7 +169,7 @@ final class TeamHostilePeerTests: XCTestCase {
                        [0, PlazaActivity.maxCount, 0, PlazaActivity.maxCount, 5, 0])
     }
 
-    func testAnOverlongMimicIsDropped() {
+    func testAnOverlongMimicIsDropped() async {
         let peer = join("hostile")
         for length in [TeamWire.maxFieldBytes + 1, 10_000] {
             var p = TeamPresence(nickname: "x", character: Self.mon, inPlaza: true, tile: TilePoint(x: 7, y: 8),
@@ -187,12 +187,12 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(session.members["hostile"]?.mimicOf?.utf8.count, TeamWire.maxFieldBytes)
     }
 
-    func testAMemberIDAtTheLimitIsServed() {
+    func testAMemberIDAtTheLimitIsServed() async {
         _ = join(String(repeating: "x", count: TeamWire.maxFieldBytes))
         XCTAssertEqual(session.members.count, 1)
     }
 
-    func testOversizeCharacterFieldsNeverReachTheMemberTable() throws {
+    func testOversizeCharacterFieldsNeverReachTheMemberTable() async throws {
         let long = String(repeating: "x", count: TeamWire.maxFieldBytes + 1)
         let fat = TeamMonSummary(speciesID: 25, isShiny: true, form: PokemonForm(long), speciesName: long, gender: nil)
         let peer = join("A", current: fat)
@@ -207,7 +207,7 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertNil(kept.form)
     }
 
-    func testCharacterFieldsAtTheLimitAreKept() throws {
+    func testCharacterFieldsAtTheLimitAreKept() async throws {
         let edge = String(repeating: "x", count: TeamWire.maxFieldBytes)
         _ = join("A", current: TeamMonSummary(speciesID: 25, isShiny: false, form: PokemonForm(edge), speciesName: edge, gender: nil))
         let kept = try XCTUnwrap(session.members["A"]?.character)
@@ -215,7 +215,7 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(kept.form, PokemonForm(edge))
     }
 
-    func testAFrameBiggerThanABatchIsIgnored() {
+    func testAFrameBiggerThanABatchIsIgnored() async {
         let peer = join("A")
         let many = TeamSession.batchSize + 1
         say(.events((0..<many).map { event("e\($0)", author: "A") }, live: false), from: peer)
@@ -224,7 +224,7 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertTrue(feed.reactionIDs.isEmpty)
     }
 
-    func testAFullBatchIsStored() {
+    func testAFullBatchIsStored() async {
         let peer = join("A")
         say(.events((0..<TeamSession.batchSize).map { event("e\($0)", author: "B") }, live: false), from: peer)
         say(.reactions((0..<TeamSession.batchSize).map { reaction("r\($0)", on: "e\($0)", author: "B") }, live: false), from: peer)
@@ -239,7 +239,7 @@ final class TeamHostilePeerTests: XCTestCase {
     }
 
     /// One tiny frame asks for the whole feed back, so it is the cheapest way to make this Mac work.
-    func testInventoryFloodIsAnsweredOnlyAFewTimes() {
+    func testInventoryFloodIsAnsweredOnlyAFewTimes() async {
         feed.insert(event("mine", author: "me"))
         let peer = join("A")
         for _ in 0..<50 { say(.inventory(eventIDs: [], reactionIDs: []), from: peer) }
@@ -249,7 +249,7 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(eventReplies(peer), TeamSession.inventoryReplyBurst + 1, "it comes back with time")
     }
 
-    func testProfileFloodIsAnsweredOnlyAFewTimes() {
+    func testProfileFloodIsAnsweredOnlyAFewTimes() async {
         let peer = join("A")
         let before = profilesServed
         for _ in 0..<50 { say(.profileRequest, from: peer) }
@@ -260,7 +260,7 @@ final class TeamHostilePeerTests: XCTestCase {
     }
 
     /// Replies are limited per link, so one member's flood does not cost a teammate their card.
-    func testAnotherMembersRepliesAreUntouched() {
+    func testAnotherMembersRepliesAreUntouched() async {
         let flood = join("A")
         for _ in 0..<50 { say(.profileRequest, from: flood) }
         let other = join("B")
@@ -272,14 +272,14 @@ final class TeamHostilePeerTests: XCTestCase {
     // MARK: - Whose name is on it
 
     /// Anyone can say any member ID, so a refusal must never reach the real member.
-    func testAWrongVersionHelloUnderAMembersIDDoesNotLockThemOut() {
+    func testAWrongVersionHelloUnderAMembersIDDoesNotLockThemOut() async {
         _ = join("B", version: TeamWire.protocolVersion + 1)
         XCTAssertTrue(session.members.isEmpty)
         _ = join("B")
         XCTAssertNotNil(session.members["B"])
     }
 
-    func testABadFrameUnderAMembersIDDoesNotLockThemOut() throws {
+    func testABadFrameUnderAMembersIDDoesNotLockThemOut() async throws {
         let impostor = join("B")
         let link = try XCTUnwrap(transport.peerIDs.first)
         transport.onPeerBadFrame?(link)
@@ -289,14 +289,14 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertNotNil(session.members["B"])
     }
 
-    func testALiveEventUnderAnotherNameIsDropped() {
+    func testALiveEventUnderAnotherNameIsDropped() async {
         let peer = join("A")
         say(.events([event("forged", author: "B")], live: true), from: peer)
         XCTAssertTrue(feed.events.isEmpty, "a live frame is the sender's own news")
         XCTAssertTrue(bigEvents.isEmpty)
     }
 
-    func testALiveEventUnderTheSendersNameGoesThrough() {
+    func testALiveEventUnderTheSendersNameGoesThrough() async {
         let peer = join("A")
         say(.events([event("own", author: "A")], live: true), from: peer)
         XCTAssertEqual(feed.events.map(\.id), ["own"])
@@ -304,14 +304,14 @@ final class TeamHostilePeerTests: XCTestCase {
     }
 
     /// Sync carries other members' news on purpose: it is how someone who was away catches up.
-    func testASyncedEventKeepsItsAuthorAndStaysQuiet() {
+    func testASyncedEventKeepsItsAuthorAndStaysQuiet() async {
         let peer = join("A")
         say(.events([event("theirs", author: "B")], live: false), from: peer)
         XCTAssertEqual(feed.events.map(\.authorID), ["B"])
         XCTAssertTrue(bigEvents.isEmpty)
     }
 
-    func testALiveReactionUnderAnotherNameIsDropped() {
+    func testALiveReactionUnderAnotherNameIsDropped() async {
         feed.insert(event("mine", author: "me"))
         let peer = join("A")
         say(.reactions([reaction("forged", on: "mine", author: "B")], live: true), from: peer)
@@ -319,7 +319,7 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertTrue(reactionsToMine.isEmpty)
     }
 
-    func testALiveReactionUnderTheSendersNameGoesThrough() {
+    func testALiveReactionUnderTheSendersNameGoesThrough() async {
         feed.insert(event("mine", author: "me"))
         let peer = join("A")
         say(.reactions([reaction("own", on: "mine", author: "A")], live: true), from: peer)
@@ -336,7 +336,7 @@ final class TeamHostilePeerTests: XCTestCase {
     }
 
     /// Their removal runs on SKActions and frames, and a covered window has neither, so each one would stay for good.
-    func testEffectsAddNothingWhileTheSceneIsPaused() {
+    func testEffectsAddNothingWhileTheSceneIsPaused() async {
         let s = scene()
         s.isPaused = true
         let before = s.children.count
@@ -349,7 +349,7 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(s.sparkleCount, 0)
     }
 
-    func testIceLandingsAddNothingWhileTheSceneIsPaused() {
+    func testIceLandingsAddNothingWhileTheSceneIsPaused() async {
         let map = PlazaMapData.map
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나",
                            iceArt: PlazaIceArt.none)
@@ -362,7 +362,7 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertEqual(s.iceLandingCount, 0)
     }
 
-    func testEffectsStillPlayOnAVisibleScene() {
+    func testEffectsStillPlayOnAVisibleScene() async {
         let jump = scene(), tackle = scene(), sparkle = scene()
         let before = jump.children.count
         jump.playJump(memberID: "A")
@@ -373,7 +373,7 @@ final class TeamHostilePeerTests: XCTestCase {
         XCTAssertGreaterThan(sparkle.sparkleCount, 0)
     }
 
-    func testTheAsleepListStopsGrowing() {
+    func testTheAsleepListStopsGrowing() async {
         for i in 0..<(TeamSession.maxAsleepMembers + 20) {
             let peer = join("gone-\(i)")
             hub.disconnect(hub.connection(of: peer.transport))

@@ -1,6 +1,4 @@
 import XCTest
-import AppKit
-import CoreGraphics
 @testable import PokeTokenBar
 
 /// D 춤: 박자·동작표·키·멈춤 조건·팀원 춤·♪·사진.
@@ -12,26 +10,22 @@ final class PlazaDanceTests: XCTestCase {
     private let leftKey: UInt16 = 123
     private let photoKey: UInt16 = 35
     /// 0.4초 격자 위의 시각(10000박자째).
-    private let grid = 4000.0
+    let grid = 4000.0
     /// 테스트마다 새 인스턴스라 0에서 시작한다. 동기 `setUp`에서 되돌리지 않는다(CI의 Xcode 16.4에서는 비격리다).
     private var clockTime: TimeInterval = 0
-    private var wall: TimeInterval = 4000.0
-    private let dt = 0.05
+    var wall: TimeInterval = 4000.0
+    let dt = 0.05
 
     // MARK: 도우미
 
     private func frames(isEgg: Bool = false) -> PlazaCharacterFrames {
-        let ctx = CGContext(data: nil, width: 32, height: 48, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
-        ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 48))
-        let f = [PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(bitmap: PlazaTestImages.solid(width: 32, height: 48, PlazaRGBA(r: 255, g: 0, b: 0, a: 255))), delay: 0.1)]
         var result = PlazaCharacterFrames(front: f, back: f)
         result.isEgg = isEgg
         return result
     }
 
-    private func scene(start: TilePoint? = nil, pond: Bool = false) -> PlazaScene {
+    func scene(start: TilePoint? = nil, pond: Bool = false) -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start ?? map.spawn, zoom: 2, nickname: "나",
                            pondVisuals: pond)
         s.size = CGSize(width: 960, height: 640)
@@ -43,7 +37,7 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 장면 시계와 벽시계를 함께 만큼 흘린다.
-    private func run(_ s: PlazaScene, _ seconds: TimeInterval) {
+    func run(_ s: PlazaScene, _ seconds: TimeInterval) {
         let n = Int((seconds / dt).rounded())
         for _ in 0..<n {
             clockTime += dt
@@ -52,7 +46,7 @@ final class PlazaDanceTests: XCTestCase {
         }
     }
 
-    private func press(_ s: PlazaScene, _ code: UInt16? = nil, repeats: Bool = false, modifiers: PlazaModifiers = []) {
+    func press(_ s: PlazaScene, _ code: UInt16? = nil, repeats: Bool = false, modifiers: PlazaModifiers = []) {
         s.handleKeyDown(keyCode: code ?? dKey, characters: "d", isRepeat: repeats, modifiers: modifiers)
     }
 
@@ -213,7 +207,7 @@ final class PlazaDanceTests: XCTestCase {
         ]
     ]
 
-    func testEveryStyleMatchesTheApprovedPoseTable() {
+    func testEveryStyleMatchesTheApprovedPoseTable() async {
         XCTAssertEqual(Set(table.keys), Set(Style.allCases))
         for style in Style.allCases {
             let rows = table[style]!
@@ -226,14 +220,14 @@ final class PlazaDanceTests: XCTestCase {
         }
     }
 
-    func testTheBeatAndStepAreTheApprovedOnes() {
+    func testTheBeatAndStepAreTheApprovedOnes() async {
         XCTAssertEqual(PlazaDance.beat, 0.4)
         XCTAssertEqual(PlazaDance.step, 0.1)
         XCTAssertEqual(PlazaDance.round, 1.6, accuracy: 1e-12)
         XCTAssertEqual(PlazaDance.ticksPerRound, 16)
     }
 
-    func testThePoseIsConstantWithinAStepAndChangesAtTheBoundary() {
+    func testThePoseIsConstantWithinAStepAndChangesAtTheBoundary() async {
         for k in 0..<16 {
             let start = Double(k) * 0.1
             let a = PlazaDancePose.pose(.bigHop, tick: PlazaDance.tick(elapsed: start + 0.001))
@@ -245,7 +239,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(PlazaDance.tick(elapsed: 0.1 + 0.2 - 1e-12), 3)
     }
 
-    func testUnknownStyleIDsPlayTheFirstStyle() {
+    func testUnknownStyleIDsPlayTheFirstStyle() async {
         XCTAssertEqual(Style.style(id: nil), .sway)
         XCTAssertEqual(Style.style(id: "fromANewerVersion"), .sway)
         XCTAssertEqual(Style.style(id: String(repeating: "x", count: 200_000)), .sway)
@@ -253,11 +247,11 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 팀원의 화면이 이름으로 찾으니 내보낸 이름은 바뀌지 않는다.
-    func testShippedStyleIDsAreStable() {
+    func testShippedStyleIDsAreStable() async {
         XCTAssertEqual(Style.allCases.map(\.id), ["sway", "bounce", "spin", "shuffle", "wiggle", "bigHop", "twirl"])
     }
 
-    func testTheNextStyleDiffersFromTheLastAndEveryStyleComesUp() {
+    func testTheNextStyleDiffersFromTheLastAndEveryStyleComesUp() async {
         var rng = SystemRandomNumberGenerator()
         var last: Style?
         var seen = Set<Style>()
@@ -272,7 +266,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 박자 격자
 
-    func testGridOffsetIsTheTimePastTheBeatGrid() {
+    func testGridOffsetIsTheTimePastTheBeatGrid() async {
         func offset(_ t: Double) -> Double { PlazaDance.gridOffset(at: Date(timeIntervalSince1970: t)) }
         XCTAssertEqual(offset(4000.0), 0, accuracy: 1e-9, "on the grid")
         XCTAssertEqual(offset(4000.25), 0.25, accuracy: 1e-6)
@@ -283,7 +277,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(offset(.infinity), 0)
     }
 
-    func testARoundStartedMidBeatEndsItsFirstBeatOnTheGrid() throws {
+    func testARoundStartedMidBeatEndsItsFirstBeatOnTheGrid() async throws {
         let s = scene()
         wall = grid + 0.25
         press(s)
@@ -298,7 +292,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(s.dancePose(memberID: nil), PlazaDancePose.pose(style, tick: 4), "the second beat starts on the grid")
     }
 
-    func testTheRoundEndsOnTheGridToo() {
+    func testTheRoundEndsOnTheGridToo() async {
         let s = scene()
         let r = recordRounds(s)
         wall = grid + 0.25
@@ -311,7 +305,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertLessThan(s.myActor.dance?.elapsed ?? 9, 0.1)
     }
 
-    func testDancersStartedAtDifferentTimesChangePosesOnTheSameFrames() throws {
+    func testDancersStartedAtDifferentTimesChangePosesOnTheSameFrames() async throws {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 1, y: map.spawn.y))])
         s.pickDanceStyle = { _ in .bigHop }
@@ -328,7 +322,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 키
 
-    func testDStartsARoundAndReportsItsStyle() {
+    func testDStartsARoundAndReportsItsStyle() async {
         let s = scene()
         let r = recordRounds(s)
         press(s)
@@ -336,13 +330,13 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids, [s.danceStyle(memberID: nil)?.id])
     }
 
-    func testTheKeyCodeDecidesSoHangulInputWorks() {
+    func testTheKeyCodeDecidesSoHangulInputWorks() async {
         let s = scene()
         s.handleKeyDown(keyCode: dKey, characters: "ㅇ", isRepeat: false)
         XCTAssertTrue(s.isDancing(memberID: nil))
     }
 
-    func testRepeatsAndModifiedPressesDoNothing() {
+    func testRepeatsAndModifiedPressesDoNothing() async {
         let s = scene()
         let r = recordRounds(s)
         press(s, repeats: true)
@@ -353,14 +347,14 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertTrue(s.isDancing(memberID: nil), "Shift still dances")
     }
 
-    func testAnOpenOverlaySwallowsD() {
+    func testAnOpenOverlaySwallowsD() async {
         let s = scene()
         s.isOverlayOpen = true
         press(s)
         XCTAssertFalse(s.isDancing(memberID: nil))
     }
 
-    func testDWorksInPhotoModeToo() {
+    func testDWorksInPhotoModeToo() async {
         let s = scene()
         let r = recordRounds(s)
         s.enterPhotoMode()
@@ -369,7 +363,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids.count, 1)
     }
 
-    func testEachPressPicksAStyleThatDiffersFromMyPreviousOne() {
+    func testEachPressPicksAStyleThatDiffersFromMyPreviousOne() async {
         let s = scene()
         var asked: [Style?] = []
         var seen = Set<Style>()
@@ -393,7 +387,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 이어 추기
 
-    func testADanceLoopsWithANewStyleEachRoundUntilStopped() {
+    func testADanceLoopsWithANewStyleEachRoundUntilStopped() async {
         let s = scene()
         let r = recordRounds(s)
         press(s)
@@ -413,7 +407,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids.count, 6, "a stopped dance never resumes")
     }
 
-    func testTheLoopEndsWhenIcantDanceAnymore() {
+    func testTheLoopEndsWhenIcantDanceAnymore() async {
         let s = scene()
         let r = recordRounds(s)
         press(s)
@@ -425,7 +419,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertNil(s.shownEmote(memberID: nil), "the notes went with the dance")
     }
 
-    func testPressingDWhileDancingSwitchesStyleOncePerBeat() {
+    func testPressingDWhileDancingSwitchesStyleOncePerBeat() async {
         let s = scene()
         let r = recordRounds(s)
         press(s)
@@ -441,7 +435,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertTrue(s.isDancing(memberID: nil), "pressing again does not stop the dance")
     }
 
-    func testAutoRepeatDoesNotStartRoundsByItself() {
+    func testAutoRepeatDoesNotStartRoundsByItself() async {
         let s = scene()
         let r = recordRounds(s)
         press(s)
@@ -449,7 +443,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids.count, 2, "only the loop carries on, not the repeats (2 s: one follow-up round)")
     }
 
-    func testAPressInTheMiddleOfARoundStartsANewOneNow() {
+    func testAPressInTheMiddleOfARoundStartsANewOneNow() async {
         let s = scene()
         let r = recordRounds(s)
         press(s)
@@ -461,7 +455,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 멈춤
 
-    func testAnArrowKeyStopsMyDanceAndItDoesNotResume() {
+    func testAnArrowKeyStopsMyDanceAndItDoesNotResume() async {
         let s = scene()
         let r = recordRounds(s)
         press(s)
@@ -474,7 +468,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids.count, 1, "a stopped dance is not an ended round")
     }
 
-    func testAnEggKeepsDancingWhenAnArrowIsPressedBecauseItCannotMove() {
+    func testAnEggKeepsDancingWhenAnArrowIsPressedBecauseItCannotMove() async {
         let s = scene()
         s.setCharacter(frames(isEgg: true))
         s.canWalk = false
@@ -484,7 +478,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertTrue(s.isDancing(memberID: nil))
     }
 
-    func testDDoesNothingWhileIAmWalking() {
+    func testDDoesNothingWhileIAmWalking() async {
         let s = scene()
         let r = recordRounds(s)
         s.handleKeyDown(keyCode: leftKey, characters: nil, isRepeat: false)
@@ -495,7 +489,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids, [])
     }
 
-    func testBeingPushedStopsTheDance() {
+    func testBeingPushedStopsTheDance() async {
         let s = scene()
         press(s)
         run(s, 0.2)
@@ -503,7 +497,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertFalse(s.isDancing(memberID: nil))
     }
 
-    func testWalkingToAMemberAndFollowingStopTheDance() {
+    func testWalkingToAMemberAndFollowingStopTheDance() async {
         for follow in [false, true] {
             let s = scene()
             add(s, [member("a", TilePoint(x: map.spawn.x + 4, y: map.spawn.y))])
@@ -514,7 +508,7 @@ final class PlazaDanceTests: XCTestCase {
         }
     }
 
-    func testSittingAtTheCampfireStopsTheDance() {
+    func testSittingAtTheCampfireStopsTheDance() async {
         let s = scene()
         press(s)
         s.sit(at: PlazaCampfire.seats[0])
@@ -522,7 +516,7 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 따라가는 중 가만히 서서 춤출 수 있지만, 따라가는 팀원이 떠나 내가 걷기 시작하면 다음 프레임에 멈춘다.
-    func testAFollowerWhoStartsWalkingAgainStopsDancing() {
+    func testAFollowerWhoStartsWalkingAgainStopsDancing() async {
         let s = scene()
         let next = TilePoint(x: map.spawn.x + 1, y: map.spawn.y)
         add(s, [member("a", next)])
@@ -536,7 +530,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertFalse(s.isDancing(memberID: nil))
     }
 
-    func testARemoteThatStartsMovingStopsDancingOnMyScreen() {
+    func testARemoteThatStartsMovingStopsDancingOnMyScreen() async {
         let s = scene()
         let here = TilePoint(x: map.spawn.x + 1, y: map.spawn.y)
         add(s, [member("a", here)])
@@ -548,7 +542,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertFalse(s.isDancing(memberID: "a"))
     }
 
-    func testPausingTheSceneEndsEveryDanceAndTheLoop() {
+    func testPausingTheSceneEndsEveryDanceAndTheLoop() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 1, y: map.spawn.y))])
         let r = recordRounds(s)
@@ -564,7 +558,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 못 추는 때
 
-    func testNothingStartsOrIsSentWhileSwimming() {
+    func testNothingStartsOrIsSentWhileSwimming() async {
         let s = scene(start: TilePoint(x: 34, y: 16), pond: true)
         XCTAssertTrue(s.isMeInWater)
         let r = recordRounds(s)
@@ -573,7 +567,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids, [])
     }
 
-    func testNothingStartsOrIsSentWhileDiving() {
+    func testNothingStartsOrIsSentWhileDiving() async {
         let s = scene(start: TilePoint(x: 34, y: 16), pond: true)
         s.setDiving(true)
         XCTAssertTrue(s.isDiving)
@@ -583,7 +577,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids, [])
     }
 
-    func testNothingStartsOrIsSentWhileFocusing() {
+    func testNothingStartsOrIsSentWhileFocusing() async {
         let s = scene()
         s.isFocusing = { true }
         let r = recordRounds(s)
@@ -592,7 +586,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids, [])
     }
 
-    func testNothingStartsOrIsSentWhilePaused() {
+    func testNothingStartsOrIsSentWhilePaused() async {
         let s = scene()
         s.isPaused = true
         let r = recordRounds(s)
@@ -601,7 +595,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids, [])
     }
 
-    func testAnEggDances() {
+    func testAnEggDances() async {
         let s = scene()
         s.setCharacter(frames(isEgg: true))
         s.canWalk = false
@@ -613,7 +607,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 팀원의 춤
 
-    func testAReceivedDanceKeepsItsStyleUntilTheGraceEnds() {
+    func testAReceivedDanceKeepsItsStyleUntilTheGraceEnds() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         let r = recordRounds(s)
@@ -626,7 +620,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids, [], "a teammate's dance never goes back out")
     }
 
-    func testAnUnknownStyleIDPlaysSway() {
+    func testAnUnknownStyleIDPlaysSway() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         XCTAssertTrue(s.playDance(memberID: "a", style: "moonwalk"))
@@ -635,12 +629,12 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(s.danceStyle(memberID: "a"), .sway)
     }
 
-    func testADanceFromAnUnknownMemberIsIgnored() {
+    func testADanceFromAnUnknownMemberIsIgnored() async {
         let s = scene()
         XCTAssertFalse(s.playDance(memberID: "ghost", style: "sway"))
     }
 
-    func testADanceFromSomeoneInTheWaterIsIgnored() {
+    func testADanceFromSomeoneInTheWaterIsIgnored() async {
         let s = scene(pond: true)
         add(s, [member("swimmer", TilePoint(x: 34, y: 16))])
         XCTAssertEqual(s.memberIsInWater("swimmer"), true)
@@ -648,7 +642,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertFalse(s.isDancing(memberID: "swimmer"))
     }
 
-    func testADanceOnAPausedSceneIsIgnored() {
+    func testADanceOnAPausedSceneIsIgnored() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         s.isPaused = true
@@ -656,7 +650,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertFalse(s.isDancing(memberID: "a"))
     }
 
-    func testADanceFromSomeoneWalkingIsIgnored() {
+    func testADanceFromSomeoneWalkingIsIgnored() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         add(s, [member("a", TilePoint(x: map.spawn.x + 3, y: map.spawn.y), walking: true)])
@@ -665,7 +659,7 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 변조된 앱이 춤을 쉼 없이 보내도 노드는 늘지 않고 한 판을 다시 시작할 뿐이다.
-    func testAFloodOfDancesOnlyRestartsTheRound() {
+    func testAFloodOfDancesOnlyRestartsTheRound() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         run(s, dt)
@@ -684,7 +678,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: ♪
 
-    func testNotesShowOverASoloDancer() {
+    func testNotesShowOverASoloDancer() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         press(s)
@@ -695,17 +689,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(s.shownEmote(memberID: nil), .dance, "never times out while dancing")
     }
 
-    func testNotesAreTheLolStyleBubbleAtTheGreetingSize() throws {
-        let s = scene()
-        press(s)
-        run(s, dt)
-        let frame = try XCTUnwrap(s.emoteFrame(memberID: nil))
-        XCTAssertEqual(frame.size, PlazaEmoteArt.size(large: true))
-        XCTAssertNotEqual(PlazaEmoteArt.image(.dance, scale: 2, large: true).cgImage.dataProvider?.data as Data?,
-                          PlazaEmoteArt.image(.lol, scale: 2, large: true).cgImage.dataProvider?.data as Data?)
-    }
-
-    func testNotesDoNotReplaceAChatOrEmoteBubble() {
+    func testNotesDoNotReplaceAChatOrEmoteBubble() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y)), member("b", TilePoint(x: map.spawn.x + 3, y: map.spawn.y))])
         s.showChat(memberID: "a", text: "안녕")
@@ -717,7 +701,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(s.shownEmote(memberID: "b"), .heart)
     }
 
-    func testNotesReturnAfterAnotherBubbleExpiresWhileDancing() {
+    func testNotesReturnAfterAnotherBubbleExpiresWhileDancing() async {
         let s = scene()
         press(s)
         s.showEmote(memberID: nil, kind: .heart)
@@ -733,7 +717,7 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 프레임을 그린 직후(다음 소식이 오기 전)마다 ♪를 본다. 소식은 한 판 + 0.1초 늦게 온다.
-    func testNotesDoNotFlickerBetweenRounds() {
+    func testNotesDoNotFlickerBetweenRounds() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         press(s)
@@ -752,7 +736,7 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 시계가 어긋나 소식이 격자 경계 바로 앞에 닿고 다음 소식이 한 판 + 조금 뒤에 와도 ♪가 한 프레임도 빠지지 않는다.
-    func testARemoteNotesSurviveAnEmoteArrivingJustBeforeTheGridLine() {
+    func testARemoteNotesSurviveAnEmoteArrivingJustBeforeTheGridLine() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         wall = grid + 0.39
@@ -768,7 +752,7 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 같은 글이 ♪ 뒤에 다시 와도 글 그림을 다시 그린다(말풍선 노드는 하나라 ♪ 그림이 남으면 안 된다).
-    func testTheSameChatAfterNotesDrawsTheChatNotTheNotes() throws {
+    func testTheSameChatAfterNotesDrawsTheChatNotTheNotes() async throws {
         let s = scene()
         s.showChat(memberID: nil, text: "ㅋㅋ")
         run(s, dt)
@@ -786,7 +770,7 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 입력창·방향 없는 키 뗌·수정 키·판 열기는 춤을 멈추지 않는다(예전엔 D를 누르고 있기만 접었다).
-    func testReleasingKeysOrOpeningThingsDoesNotStopTheLoop() {
+    func testReleasingKeysOrOpeningThingsDoesNotStopTheLoop() async {
         let releases: [(String, (PlazaScene) -> Void)] = [
             ("releaseAllKeys", { $0.releaseAllKeys() }), ("clearInput", { $0.clearInput() }),
             ("overlay", { $0.isOverlayOpen = true }), ("command", { $0.currentModifiers = { .command } }),
@@ -805,7 +789,7 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 걷다 멈추기를 기다리던 춤도 그 팀원이 다른 동작을 하면 버려진다.
-    func testAnActionDropsARemotesPendingDance() {
+    func testAnActionDropsARemotesPendingDance() async {
         let s = scene()
         let (_, next) = walkingRemote(s)
         s.playDance(memberID: "a", style: "twirl")
@@ -815,7 +799,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertFalse(s.isDancing(memberID: "a"))
     }
 
-    func testNotesBuildNoNodesAndStopWithThePause() {
+    func testNotesBuildNoNodesAndStopWithThePause() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         run(s, dt)
@@ -827,7 +811,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertNil(s.shownEmote(memberID: "a"), "the pause cleared the notes with the dance")
     }
 
-    func testNotesLeaveTheMomentTheDanceStops() {
+    func testNotesLeaveTheMomentTheDanceStops() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         press(s)
@@ -841,7 +825,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertNil(s.shownEmote(memberID: nil), "walking too")
     }
 
-    func testARemoteDanceKeepsGoingThroughTheGapAndEndsAfterTheGrace() {
+    func testARemoteDanceKeepsGoingThroughTheGapAndEndsAfterTheGrace() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 2, y: map.spawn.y))])
         wall = grid
@@ -859,14 +843,8 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertNil(s.shownEmote(memberID: "a"))
     }
 
-    // MARK: 화면의 노드
-
-    private func plain(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> PlazaFrame {
-        PlazaFrame(image: PlazaImage(cgImage: solid(32, 48, r: r, g: g, b: b)), delay: 1)
-    }
-
     /// 눌림은 박자마다 한 번 바뀌는 것이지 프레임마다 지워졌다 걸리는 것이 아니다. 이름표는 눌리지 않은 높이에 놓인다.
-    func testSquashHoldsAcrossFramesAndThePlateIgnoresIt() {
+    func testSquashHoldsAcrossFramesAndThePlateIgnoresIt() async {
         let s = scene()
         let full = s.myActor.characterSize.height
         XCTAssertEqual(full, 72)
@@ -885,7 +863,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(plateA - plateAtRest0, 4 * CGFloat(s.zoom), accuracy: 1.5, "it only follows the 4 px lift of tick 1")
     }
 
-    func testTheNodeFollowsTheLiftAndTheSidestep() {
+    func testTheNodeFollowsTheLiftAndTheSidestep() async {
         let s = scene()
         let y0 = s.myActor.characterY, x0 = s.myActor.characterX
         s.pickDanceStyle = { _ in .shuffle }
@@ -895,30 +873,9 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(s.myActor.characterX - x0, 8, accuracy: 0.5)
     }
 
-    func testSpinAndTwirlTurnToTheBackFrameAndComeBack() throws {
-        let front = plain(1, 0, 0), back = plain(0, 0, 1)
-        let s = scene()
-        s.setCharacter(PlazaCharacterFrames(front: [front], back: [back]))
-        s.pickDanceStyle = { _ in .spin }
-        wall = grid
-        press(s)
-        func shown() throws -> CGImage { try XCTUnwrap(s.photoInput()?.actors.first).image.cgImage }
-        XCTAssertTrue(try shown() === front.image.cgImage, "tick 0")
-        run(s, 0.8)   // tick 8: the back
-        XCTAssertTrue(try shown() === back.image.cgImage)
-        run(s, 0.8)   // the next round starts at once
-        XCTAssertTrue(s.isDancing(memberID: nil))
-        XCTAssertTrue(try shown() === front.image.cgImage, "facing front again")
-        wall += PlazaDance.beat
-        s.pickDanceStyle = { _ in .twirl }
-        press(s)
-        run(s, 0.2)   // tick 2 of the next round: the back
-        XCTAssertTrue(try shown() === back.image.cgImage)
-    }
-
     // MARK: 연타 제한
 
-    func testNewRoundsAreLimitedToOnePerBeat() {
+    func testNewRoundsAreLimitedToOnePerBeat() async {
         let s = scene()
         let r = recordRounds(s)
         wall = grid
@@ -935,7 +892,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(r.ids.count, 3, "after a beat a press starts a new round")
     }
 
-    func testAPressAfterABeatSendsAnotherRoundWithAnotherStyle() {
+    func testAPressAfterABeatSendsAnotherRoundWithAnotherStyle() async {
         let s = scene()
         let r = recordRounds(s)
         press(s)
@@ -948,7 +905,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 걸을 참
 
-    func testDIsRefusedWhileAMoveIsPending() {
+    func testDIsRefusedWhileAMoveIsPending() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 5, y: map.spawn.y))])
         let r = recordRounds(s)
@@ -961,7 +918,7 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     /// 걸어가는 도중 한 걸음이 막 끝나고 다음 걸음이 시작되기 전의 틈: 걷지 않지만 걸을 참이다.
-    func testDIsRefusedBetweenTwoStepsOfAWalkToAMember() {
+    func testDIsRefusedBetweenTwoStepsOfAWalkToAMember() async {
         let s = scene()
         add(s, [member("a", TilePoint(x: map.spawn.x + 6, y: map.spawn.y))])
         let r = recordRounds(s)
@@ -986,7 +943,7 @@ final class PlazaDanceTests: XCTestCase {
         return (here, next)
     }
 
-    func testADanceReceivedWhileTheSenderIsStillWalkingStartsWhenItStops() {
+    func testADanceReceivedWhileTheSenderIsStillWalkingStartsWhenItStops() async {
         let s = scene()
         let (_, next) = walkingRemote(s)
         wall = grid + 0.2
@@ -1001,7 +958,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertTrue(abs(drift) < 1e-3 || abs(drift - PlazaDance.beat) < 1e-3, "aligned to the grid like any other round: \(drift)")
     }
 
-    func testAPendingDanceIsDroppedAfterABeatAndANewerOneReplacesIt() {
+    func testAPendingDanceIsDroppedAfterABeatAndANewerOneReplacesIt() async {
         let s = scene()
         let (_, next) = walkingRemote(s)
         s.playDance(memberID: "a", style: "twirl")
@@ -1018,7 +975,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertFalse(s2.isDancing(memberID: "a"), "too late: dropped")
     }
 
-    func testAPendingDanceIsNotKeptForWaterAnUnknownMemberOrAPausedScene() {
+    func testAPendingDanceIsNotKeptForWaterAnUnknownMemberOrAPausedScene() async {
         let s = scene(pond: true)
         XCTAssertFalse(s.playDance(memberID: "ghost", style: "sway"))
         add(s, [member("swimmer", TilePoint(x: 34, y: 16))])
@@ -1030,7 +987,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertFalse(s.isDancing(memberID: "swimmer"))
     }
 
-    func testPausingForgetsAPendingDance() {
+    func testPausingForgetsAPendingDance() async {
         let s = scene()
         let (_, next) = walkingRemote(s)
         s.playDance(memberID: "a", style: "twirl")
@@ -1043,7 +1000,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 순간이동
 
-    func testARemoteThatSnapsToAnotherTileStopsDancing() {
+    func testARemoteThatSnapsToAnotherTileStopsDancing() async {
         let s = scene()
         let here = TilePoint(x: map.spawn.x + 2, y: map.spawn.y)
         add(s, [member("a", here)])
@@ -1056,7 +1013,7 @@ final class PlazaDanceTests: XCTestCase {
 
     // MARK: 사진
 
-    func testThePhotoCarriesTheDancePoseOfThatInstant() throws {
+    func testThePhotoCarriesTheDancePoseOfThatInstant() async throws {
         let s = scene()
         s.pickDanceStyle = { _ in .shuffle }
         press(s)
@@ -1072,7 +1029,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(photo.tilt, pose.tilt)
     }
 
-    func testThePhotoCarriesTiltAndSquash() throws {
+    func testThePhotoCarriesTiltAndSquash() async throws {
         let s = scene()
         s.pickDanceStyle = { _ in .wiggle }
         press(s)
@@ -1087,7 +1044,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(scene().photoInput()?.actors.first).squash, 1)
     }
 
-    func testAPhotoInPhotoModeShowsTheDancer() throws {
+    func testAPhotoInPhotoModeShowsTheDancer() async throws {
         let s = scene()
         s.enterPhotoMode()
         s.pickDanceStyle = { _ in .bigHop }
@@ -1098,67 +1055,9 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertGreaterThan(photo.lift, 0)
     }
 
-    // MARK: 사진 합성
-
-    private func solid(_ w: Int, _ h: Int, r: CGFloat, g: CGFloat, b: CGFloat) -> CGImage {
-        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(red: r, green: g, blue: b, alpha: 1)
-        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        return ctx.makeImage()!
-    }
-
-    private func redness(_ img: CGImage, _ x: Int, _ y: Int) -> Bool {
-        var d = [UInt8](repeating: 0, count: img.width * img.height * 4)
-        let ctx = CGContext(data: &d, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: img.width * 4,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
-        let o = (y * img.width + x) * 4
-        return d[o] > 200 && d[o + 1] < 60
-    }
-
-    private func render(lift: CGFloat = 0, squash: CGFloat = 1, tilt: CGFloat = 0) throws -> CGImage {
-        var a = PlazaPhotoActor(image: PlazaImage(cgImage: solid(10, 20, r: 1, g: 0, b: 0)), flipped: false, foot: CGPoint(x: 50, y: 60), scale: 1,
-                                shadow: nil, shadowRect: .zero, plate: nil, bubble: nil)
-        a.lift = lift; a.squash = squash; a.tilt = tilt
-        let input = PlazaPhotoInput(mapImage: PlazaImage(cgImage: solid(100, 100, r: 0, g: 0.6, b: 0)), visibleRect: CGRect(x: 0, y: 0, width: 100, height: 100),
-                                    pixelsPerWorld: 1, actors: [a])
-        return try XCTUnwrap(PlazaPhotoRenderer.renderCG(input))
-    }
-
-    func testTheRendererDrawsASquashedDancerShorter() throws {
-        let plain = try render()
-        XCTAssertTrue(redness(plain, 50, 60 - 18), "20 tall: reaches row 42")
-        let squashed = try render(squash: 0.5)
-        XCTAssertTrue(redness(squashed, 50, 60 - 8), "10 tall")
-        XCTAssertFalse(redness(squashed, 50, 60 - 14), "the top is lower than the plain one")
-        let tall = try render(squash: 1.5)
-        XCTAssertTrue(redness(tall, 50, 60 - 28), "30 tall")
-    }
-
-    func testTheRendererTiltsADancerOnItsFeet() throws {
-        let tilted = try render(tilt: .pi / 2)   // 반시계 90도: 위로 선 몸이 왼쪽으로 눕는다
-        XCTAssertTrue(redness(tilted, 50 - 12, 59), "the body lies to the left of the feet")
-        XCTAssertFalse(redness(tilted, 50, 60 - 12), "nothing is left standing above")
-        let upright = try render()
-        XCTAssertFalse(redness(upright, 50 - 12, 59))
-    }
-
-    func testTheRendererLiftsADancerOffTheGround() throws {
-        let up = try render(lift: 10)
-        XCTAssertFalse(redness(up, 50, 59), "the feet left the ground")
-        XCTAssertTrue(redness(up, 50, 49))
-    }
-
-    // MARK: 안내
-
-    func testTheShortcutGuideListsD() {
-        XCTAssertTrue(PlazaShortcutGuide.entries.contains { $0.key == "D" && $0.label == "춤" })
-    }
-
     // MARK: 같은 춤 맞추기
 
-    func testTheLeaderIsTheNearbyDancerWhoBeganFirst() {
+    func testTheLeaderIsTheNearbyDancerWhoBeganFirst() async {
         let me = TilePoint(x: 10, y: 10), near = TilePoint(x: 11, y: 10)
         func at(_ s: TimeInterval) -> Date { Date(timeIntervalSince1970: 1000 + s) }
         func leader(_ dancers: [String: (tile: TilePoint, since: Date)], since: TimeInterval? = 5, me id: String = "m") -> String? {
@@ -1182,7 +1081,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(leader(["a": (TilePoint(x: 14, y: 10), at(1)), "b": (near, at(4))]), "b", "a far dancer does not lead")
     }
 
-    func testMyDanceBeganWhenIFirstPressedDAndStaysThroughEveryRound() {
+    func testMyDanceBeganWhenIFirstPressedDAndStaysThroughEveryRound() async {
         let s = scene()
         s.pickDanceStyle = { _ in .bounce }
         wall = grid + 0.25
@@ -1200,7 +1099,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(s.danceStartedAt, began)
     }
 
-    func testDancingAgainAfterStoppingBeginsAnew() {
+    func testDancingAgainAfterStoppingBeginsAnew() async {
         let s = scene()
         press(s)
         run(s, 1.0)
@@ -1221,7 +1120,7 @@ final class PlazaDanceTests: XCTestCase {
         return (s, recordRounds(s), lead)
     }
 
-    func testDStartsWithTheLeadersDance() {
+    func testDStartsWithTheLeadersDance() async {
         let t = following()
         t.lead.ids = ["on"]
         t.s.playDance(memberID: "a", style: "spin")
@@ -1230,14 +1129,14 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(t.r.ids, ["spin"], "teammates are told the dance I really do")
     }
 
-    func testWithNoLeaderDIsARandomDance() {
+    func testWithNoLeaderDIsARandomDance() async {
         let t = following()
         t.s.playDance(memberID: "a", style: "spin")
         press(t.s)
         XCTAssertEqual(t.s.danceStyle(memberID: nil), .bounce)
     }
 
-    func testTheLeadersNextRoundRestartsMineWithTheSameDanceAndTheSameMoves() {
+    func testTheLeadersNextRoundRestartsMineWithTheSameDanceAndTheSameMoves() async {
         let t = following()
         t.lead.ids = ["on"]
         t.s.playDance(memberID: "a", style: "spin")
@@ -1256,7 +1155,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(t.r.ids, ["spin", "bigHop"], "a whole round on, mine still waits for their news rather than starting over")
     }
 
-    func testFollowingDoesNothingWhenIAmNotDancing() {
+    func testFollowingDoesNothingWhenIAmNotDancing() async {
         let t = following()
         t.lead.ids = ["on"]
         t.s.playDance(memberID: "a", style: "spin")
@@ -1265,7 +1164,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(t.r.ids, [])
     }
 
-    func testAFloodOfLeaderRoundsRestartsMineOncePerBeat() {
+    func testAFloodOfLeaderRoundsRestartsMineOncePerBeat() async {
         let t = following()
         t.lead.ids = ["on"]
         t.s.playDance(memberID: "a", style: "spin")
@@ -1278,7 +1177,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(t.r.ids, ["spin", "twirl"])
     }
 
-    func testDWhileAlreadyFollowingChangesNothing() {
+    func testDWhileAlreadyFollowingChangesNothing() async {
         let t = following()
         t.lead.ids = ["on"]
         t.s.playDance(memberID: "a", style: "spin")
@@ -1290,7 +1189,7 @@ final class PlazaDanceTests: XCTestCase {
         XCTAssertEqual(t.s.dancePose(memberID: nil), pose, "the round is not started over")
     }
 
-    func testWhenTheLeaderStopsIGoOnWithMyOwnDances() {
+    func testWhenTheLeaderStopsIGoOnWithMyOwnDances() async {
         let t = following()
         t.lead.ids = ["on"]
         t.s.playDance(memberID: "a", style: "spin")
