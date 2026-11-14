@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
@@ -92,7 +91,8 @@ final class PlazaActivityControllerTests: XCTestCase {
                               subject: { .init(speciesID: 25, isShiny: false) },
                               myRosterEntry: { entry }, evolutionStage: { stage }, session: me.session, clock: { [unowned self] in now },
                               focusTickSleep: { [gate] in await gate.sleep($0) },
-                              dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
+                              dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed },
+                                     shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
     private func settle() async { for _ in 0..<20 { await Task.yield() } }

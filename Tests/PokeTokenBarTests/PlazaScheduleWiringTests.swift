@@ -34,10 +34,11 @@ final class PlazaScheduleWiringTests: XCTestCase {
         return PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: suite)),
                                      loader: PlazaCharacterLoader(fetcher: NoSprites()),
                                      nickname: { "나" }, memberID: { "me" },
-                                     subject: { .init(speciesID: 25, isShiny: false) }, schedule: current, clock: now)
+                                     subject: { .init(speciesID: 25, isShiny: false) }, schedule: current, clock: now,
+                                     shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
-    func testApplyScheduleMovesTheDawnAndNullFallsBackToStandard() throws {
+    func testApplyScheduleMovesTheDawnAndNullFallsBackToStandard() async throws {
         var current: PlazaSchedule? = schedule(9, 18)
         let plaza = controller { current }
         plaza.prepareScene()
@@ -51,7 +52,7 @@ final class PlazaScheduleWiringTests: XCTestCase {
         XCTAssertEqual(s.daylightTint, PlazaDaylight.night, "08:30 is night for the default 10-16")
     }
 
-    func testPrepareSceneDrawsTheTeamScheduleFromTheFirstFrame() throws {
+    func testPrepareSceneDrawsTheTeamScheduleFromTheFirstFrame() async throws {
         let plaza = controller(at: { self.date(2026, 11, 5, 8, 30) }) { self.schedule(9, 18) }
         plaza.prepareScene()
         let s = try XCTUnwrap(plaza.scene)
@@ -66,7 +67,7 @@ final class PlazaScheduleWiringTests: XCTestCase {
         XCTAssertEqual(got.blue, want.blue, accuracy: 0.01, msg, file: file, line: line)
     }
 
-    func testSchedulePropertiesRedrawAPausedScene() throws {
+    func testSchedulePropertiesRedrawAPausedScene() async throws {
         let s = scene(at: date(2026, 11, 9, 8, 30))
         s.update(0)   // 한 번은 그려 화면 영역을 정한 뒤, 멈춘 장면에서 바꾼다
         s.isPaused = true
@@ -76,13 +77,13 @@ final class PlazaScheduleWiringTests: XCTestCase {
         assertTint(s.shownDaylight, PlazaDaylight.night)
     }
 
-    func testMinimapModelGetsTheCoreTime() {
+    func testMinimapModelGetsTheCoreTime() async {
         let plaza = controller { self.schedule(8, 20) }
         plaza.prepareScene()
         XCTAssertEqual(plaza.minimapCoreTime, PlazaCoreTime(start: 8, end: 20))
     }
 
-    func testLocalizedStrings() {
+    func testLocalizedStrings() async {
         let l = L(.ko)
         XCTAssertEqual(l.teamHour(1), "1시")
         XCTAssertEqual(l.teamHour(23), "23시")
