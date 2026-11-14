@@ -190,7 +190,10 @@ func runP2(_ s: String) {
         Thread.sleep(forTimeInterval: 2.5)
         _ = e1_post(G.hwnd, 0x0102, 0x41, 0)
         _ = e1_post(G.hwnd, 0x0102, 0xD55C, 0)
+        for _ in 0..<3 { _ = e1_post(G.hwnd, kWM_APP + 5, 0, 0) }  // (l) the hook should eat these
     }.start()
+    // (m) cross-thread SendMessageTimeoutW, 5 times from 0.2 s.
+    e1_start_sender(G.hwnd)
     // (e) PostMessageW from a background thread, 20 times, 100 ms apart (latency measured in the C WndProc).
     e1_start_poster(G.hwnd, 20, 100, 300)
     // (f) withObservationTracking onChange -> Task { @MainActor }; (j) asyncAfter lateness.
@@ -237,8 +240,15 @@ func runP2(_ s: String) {
     var hp: Int32 = 0, hc: Int32 = 0
     var lc: UInt32 = 0
     e1_hook_stats(&hp, &hc, &lc)
-    say("E1.P2[\(s)] (l) \(hook == 0 && hp == 20 ? "PASS" : "FAIL") WH_GETMESSAGE-hook-sees-pumped-messages install=\(hook) "
-        + "posted_seen=\(hp)/20 chars_seen=\(hc) last_char=0x\(String(lc, radix: 16))")
+    let eaten = e1_hook_eaten(), app5 = e1_app5_seen()
+    say("E1.P2[\(s)] (l) \(hook == 0 && hp == 20 && eaten == 3 && app5 == 0 ? "PASS" : "FAIL") WH_GETMESSAGE-hook-sees-and-can-eat "
+        + "install=\(hook) posted_seen=\(hp)/20 remove_flags=\(e1_hook_flags_seen()) chars_seen=\(hc) last_char=0x\(String(lc, radix: 16)) "
+        + "eaten=\(eaten)/3 reached_wndproc=\(app5)")
+    var smx = 0.0
+    var sok: Int32 = 0, sonm: Int32 = 0
+    let sn = e1_sender_stats(&smx, &sok, &sonm)
+    say("E1.P2[\(s)] (m) \(sn == 5 && sok == 5 && sonm == 5 && smx < 50 ? "PASS" : "FAIL") cross-thread-SendMessageTimeoutW "
+        + "n=\(sn)/5 returned_ok=\(sok) wndproc_on_main=\(sonm) max_ms=\(f2(smx))")
 }
 
 func line(_ id: String, _ name: String, _ xs: [Sample], expect: Int, maxLat: Double? = nil, extra: String = "") -> String {

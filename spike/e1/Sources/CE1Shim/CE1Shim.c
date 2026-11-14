@@ -200,6 +200,8 @@ int e1_dispatch_drain(void) {
 #define E1_MAXPOST 256
 
 static e1_msg_cb g_cb;
+static volatile LONG g_app5_seen;
+static volatile LONG g_sent_on_main;
 static volatile LONG g_char_n;
 static uint32_t g_chars[8];
 static double g_post_t0[E1_MAXPOST];
@@ -218,6 +220,12 @@ static LRESULT CALLBACK e1_wndproc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         if (GetCurrentThreadId() == g_ctor_tid) InterlockedIncrement(&g_post_on_main);
         return 0;
     }
+    case WM_APP + 5:
+        InterlockedIncrement(&g_app5_seen);
+        return 0;
+    case WM_APP + 6:
+        if (GetCurrentThreadId() == g_ctor_tid) InterlockedIncrement(&g_sent_on_main);
+        return 0x5151;
     case WM_CHAR: {
         LONG i = InterlockedIncrement(&g_char_n) - 1;
         if (i >= 0 && i < 8) g_chars[i] = (uint32_t)w;
@@ -544,16 +552,26 @@ void e1_tray_probe(void *hwnd) {
 // ---- Unicode and hook probes (P2 k, l) ----------------------------------------
 
 static HHOOK g_hook;
-static volatile LONG g_hook_post, g_hook_char;
+static volatile LONG g_hook_post, g_hook_char, g_hook_eaten;
 static uint32_t g_hook_char_w;
+static volatile LONG g_hook_flags_seen = -1;
 
+// Sees every message a PeekMessage/GetMessage on this thread removes, before it is dispatched. CF's pump passes
+// PM_REMOVE | PM_NOYIELD, so test the bit. Rewriting a message to WM_NULL "eats" it (where IsDialogMessageW would go).
 static LRESULT CALLBACK e1_getmsg_hook(int code, WPARAM w, LPARAM l) {
-    if (code == HC_ACTION && w == PM_REMOVE) {
+    if (code == HC_ACTION && (w & PM_REMOVE)) {
         MSG *m = (MSG *)l;
-        if (m->message == E1_WM_POST) InterlockedIncrement(&g_hook_post);
+        if (m->message == E1_WM_POST) {
+            InterlockedIncrement(&g_hook_post);
+            InterlockedExchange(&g_hook_flags_seen, (LONG)w);
+        }
         if (m->message == WM_CHAR) {
             g_hook_char_w = (uint32_t)m->wParam;
             InterlockedIncrement(&g_hook_char);
+        }
+        if (m->message == WM_APP + 5) {
+            m->message = WM_NULL;
+            InterlockedIncrement(&g_hook_eaten);
         }
     }
     return CallNextHookEx(g_hook, code, w, l);
@@ -568,6 +586,41 @@ void e1_hook_stats(int *posts, int *chars, uint32_t *last_char) {
     *posts = (int)g_hook_post;
     *chars = (int)g_hook_char;
     *last_char = g_hook_char_w;
+}
+
+int e1_hook_flags_seen(void) { return (int)g_hook_flags_seen; }
+int e1_hook_eaten(void) { return (int)g_hook_eaten; }
+
+int e1_app5_seen(void) { return (int)g_app5_seen; }
+
+// (m) cross-thread SendMessageTimeoutW: the WndProc must run on the main thread while the sender blocks.
+static volatile LONG g_sent_n, g_sent_ok;
+static double g_sent_lat[16];
+static DWORD WINAPI e1_sender_main(LPVOID p) {
+    HWND h = (HWND)p;
+    for (int i = 0; i < 5; i++) {
+        Sleep(150);
+        double t0 = e1_now_ms();
+        DWORD_PTR result = 0;
+        LRESULT ok = SendMessageTimeoutW(h, WM_APP + 6, (WPARAM)i, 0, SMTO_NORMAL, 2000, &result);
+        g_sent_lat[i] = e1_now_ms() - t0;
+        if (ok && result == 0x5151) InterlockedIncrement(&g_sent_ok);
+        InterlockedIncrement(&g_sent_n);
+    }
+    return 0;
+}
+void e1_start_sender(void *hwnd) {
+    HANDLE t = CreateThread(NULL, 0, e1_sender_main, hwnd, 0, NULL);
+    if (t) CloseHandle(t);
+}
+int e1_sender_stats(double *maxv, int *ok, int *on_main) {
+    double mx = -1;
+    int n = (int)g_sent_n;
+    for (int i = 0; i < n && i < 16; i++) if (g_sent_lat[i] > mx) mx = g_sent_lat[i];
+    *maxv = mx;
+    *ok = (int)g_sent_ok;
+    *on_main = (int)g_sent_on_main;
+    return n;
 }
 
 int e1_chars(uint32_t *out, int max) {

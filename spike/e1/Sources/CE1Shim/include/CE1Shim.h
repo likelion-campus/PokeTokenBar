@@ -90,6 +90,14 @@ void e1_hook_stats(int *posts, int *chars, uint32_t *last_char);
 /// WM_CHAR wParams the WndProc received, in order. Returns the count.
 int e1_chars(uint32_t *out, int max);
 int e1_is_window_unicode(void *hwnd);
+/// Raw wParam (remove flags) the hook saw for the last WM_APP+1, or -1.
+int e1_hook_flags_seen(void);
+/// How many WM_APP+5 the hook rewrote to WM_NULL, and how many still reached the WndProc.
+int e1_hook_eaten(void);
+int e1_app5_seen(void);
+/// (m) A background thread sends WM_APP+6 five times with SendMessageTimeoutW (2 s), 150 ms apart.
+void e1_start_sender(void *hwnd);
+int e1_sender_stats(double *maxv, int *ok, int *on_main);
 uint32_t e1_acp(void);
 
 /// GetModuleFileNameW(NULL) as UTF-8.
