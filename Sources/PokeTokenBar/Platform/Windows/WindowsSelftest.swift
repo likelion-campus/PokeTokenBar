@@ -51,7 +51,7 @@ enum WindowsSelftest {
         // companion and parity saves flushed to disk on the main actor (FlushFileBuffers, 146-231 ms on the runner;
         // defect log), so the loop checks still run after the store settles, with the same bounds. This check reports
         // the stalls and what held the thread, and fails above `launchStallFailMs`.
-        let realPlistBefore = Self.modification(of: WinDefaultsSync.expectedPlistURL())
+        let realBefore = Self.modification(of: WinDefaultsSync.expectedPlistURL())
         let stalls = MainStallProbe.start(mainThread: WindowsApp.mainThreadID)
         r.add("build.shims", ptb_shim_abi() == 1, "CWinShim abi=\(ptb_shim_abi()) openssl=\(String(cString: ptb_tls_openssl_version()))")
         pathChecks(r)
