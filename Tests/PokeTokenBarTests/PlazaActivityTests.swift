@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import AppKit
 @testable import PokeTokenBar
 
@@ -136,70 +137,6 @@ final class PlazaActivityTests: XCTestCase {
                          presence: .online, isMe: me, activity: activity)
     }
 
-    func testHoveringASlotSelectsItAndLeavingClearsIt() {
-        let model = PlazaRosterModel()
-        XCTAssertNil(model.hoveredID)
-        model.hover("a", inside: true)
-        XCTAssertEqual(model.hoveredID, "a")
-        model.hover("a", inside: false)
-        XCTAssertNil(model.hoveredID, "the mouse-out collapses it")
-    }
-
-    func testALateLeaveFromTheOldSlotDoesNotCollapseTheNewOne() {
-        let model = PlazaRosterModel()
-        model.hover("a", inside: true)
-        model.hover("b", inside: true)
-        model.hover("a", inside: false)
-        XCTAssertEqual(model.hoveredID, "b")
-    }
-
-    func testTurningThePageDropsTheHover() {
-        let model = PlazaRosterModel()
-        model.entries = (0..<8).map { entry("m\($0)") }
-        model.hover("m0", inside: true)
-        model.turnPage(by: 1)
-        XCTAssertNil(model.hoveredID)
-    }
-
-    /// A new view per case: without a window, macOS 15 does not refresh `fittingSize` after a second change to the model.
-    private func height(hovering: String?, activity: PlazaActivity?) -> CGFloat {
-        let model = PlazaRosterModel()
-        model.entries = [entry("me", me: true), entry("a", activity: activity), entry("b")]
-        if let hovering { model.hover(hovering, inside: true) }
-        return PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
-    }
-
-    func testHoveringGrowsTheSlotDownwardByTheSevenRowsAndPushesTheRestDown() {
-        var a = PlazaActivity(day: "d")
-        a.record(.firework)
-        let rest = height(hovering: nil, activity: a)
-        let grown = height(hovering: "a", activity: a)
-        XCTAssertEqual(grown - rest, PlazaRosterMetrics.activityHeight(rows: 7), accuracy: 1)
-        XCTAssertEqual(PlazaActivity.rows(a).count, 7)
-        XCTAssertEqual(height(hovering: "b", activity: a) - rest, PlazaRosterMetrics.activityHeight(rows: 0), accuracy: 1,
-                       "a slot with no record grows by its one line")
-    }
-
-    func testASlotWithNoRecordGrowsByOneLine() {
-        let rest = height(hovering: nil, activity: nil)
-        XCTAssertEqual(height(hovering: "a", activity: nil) - rest, PlazaRosterMetrics.activityHeight(rows: 0), accuracy: 1)
-        XCTAssertLessThan(PlazaRosterMetrics.activityHeight(rows: 0), PlazaRosterMetrics.activityHeight(rows: 7))
-    }
-
-    func testMouseOutCollapsesTheSlotBack() {
-        let model = PlazaRosterModel()
-        var a = PlazaActivity(day: "d")
-        a.record(.pickup)
-        model.entries = [entry("a", activity: a)]
-        let rest = PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
-        model.hover("a", inside: true)
-        let grown = PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
-        model.hover("a", inside: false)
-        let back = PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
-        XCTAssertGreaterThan(grown, rest)
-        XCTAssertEqual(back, rest, accuracy: 1)
-    }
-
     func testEntriesShowTodaysActivityAndNoRecordForOtherDaysAndOldVersions() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let today = PlazaActivity.dayKey(now)
@@ -222,45 +159,49 @@ final class PlazaActivityTests: XCTestCase {
         XCTAssertNil(mineStale.first?.activity, "mine from before midnight, not yet rolled")
     }
 
-    // MARK: - The expanded slot stays above the minimap
+    // MARK: - The member card's 오늘 광장 section
 
-    private func shortList() -> [PlazaRosterEntry] {
-        var a = PlazaActivity(day: "d")
-        a.record(.pickup)
-        return (0..<4).map { entry("m\($0)", activity: a) }
+    private func member(_ id: String, _ a: PlazaActivity?) -> TeamMemberState {
+        var m = TeamMemberState(memberID: id, nickname: id, character: TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "P", gender: nil),
+                                inPlaza: true, tile: nil, facing: nil, isWalking: false)
+        m.activity = a
+        return m
     }
 
-    func testTheListEndsAboveTheMinimapForTheCapacityItChose() {
-        for height in stride(from: CGFloat(372), through: 900, by: 37) {
-            let slots = CGFloat(PlazaRoster.capacity(forHeight: height))
-            let m = PlazaRosterMetrics.self
-            XCTAssertLessThanOrEqual(slots * m.slotHeight + (slots - 1) * m.slotSpacing, PlazaRoster.maxListHeight(forHeight: height) + 0.5, "\(height)")
+    func testCardShowsTheSevenValuesOfATeammateWithTodaysActivity() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var a = PlazaActivity(day: PlazaActivity.dayKey(now))
+        a.seconds = 3_660; a.record(.iceBreak); a.record(.firework); a.record(.tackle); a.record(.snowballHit); a.record(.greeting); a.record(.pickup)
+        let state = PlazaCardState.loading(member("지아", a))
+        XCTAssertEqual(state.todayActivity(now: now), a)
+        XCTAssertEqual(PlazaActivity.rows(state.todayActivity(now: now)).map(\.label),
+                       ["접속시간", "얼음 깬 횟수", "폭죽", "몸통박치기", "던져서 맞힌 횟수", "인사", "주운 아이템"])
+        XCTAssertEqual(PlazaActivity.rows(state.todayActivity(now: now)).first?.value, "1시간 1분")
+    }
+
+    func testCardSaysNoRecordWithoutActivityOrFromAnotherDay() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertNil(PlazaCardState.failed(member("민수", nil)).todayActivity(now: now), "an older version")
+        XCTAssertNil(PlazaCardState.failed(member("서연", PlazaActivity(day: "1999-01-01"))).todayActivity(now: now), "another day")
+        XCTAssertEqual(L(.ko).plazaActivityNone, "기록 없음")
+    }
+
+    /// The card is an overlay with a fixed panel: the section's height must not depend on how many rows it has.
+    @MainActor func testCardHeightDoesNotDependOnTheActivity() {
+        let now = Date()
+        var a = PlazaActivity(day: PlazaActivity.dayKey(now)); a.record(.pickup)
+        func height(_ a: PlazaActivity?) -> CGFloat {
+            NSHostingView(rootView: PlazaCardView(state: .failed(member("지아", a)))).fittingSize.height
         }
+        XCTAssertEqual(height(a), height(nil), accuracy: 0.5)
     }
 
-    func testHoveringTheLastSlotOfAShortWindowScrollsItsRowsIntoView() {
-        let m = PlazaRosterMetrics.self, list = shortList()
-        let limit = PlazaRoster.maxListHeight(forHeight: 460)
-        XCTAssertEqual(PlazaRoster.capacity(forHeight: 460), 4, "test precondition")
-        let rest = PlazaRoster.listLayout(list, hovered: nil, maxHeight: limit)
-        XCTAssertEqual(rest.scroll, 0)
-        let last = PlazaRoster.listLayout(list, hovered: "m3", maxHeight: limit)
-        let bottom = 4 * m.slotHeight + 3 * m.slotSpacing + m.activityHeight(rows: 7)
-        XCTAssertGreaterThan(bottom, limit, "test precondition: it would run past the minimap")
-        XCTAssertEqual(last.height, limit, "the list never grows past the minimap")
-        XCTAssertEqual(bottom - last.scroll, limit, accuracy: 0.01, "the hovered slot's bottom sits on the limit")
-        let first = PlazaRoster.listLayout(list, hovered: "m0", maxHeight: limit)
-        XCTAssertEqual(first.scroll, 0, "room below: nothing moves")
-    }
-
-    func testThePanelNeverReachesTheMinimapEvenWhenTheLastSlotIsHovered() {
-        let windowHeight: CGFloat = 460, m = PlazaRosterMetrics.self
-        let model = PlazaRosterModel()
-        model.entries = shortList()
-        model.capacity = PlazaRoster.capacity(forHeight: windowHeight)
-        model.maxListHeight = PlazaRoster.maxListHeight(forHeight: windowHeight)
-        model.hover("m3", inside: true)
-        let panel = PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
-        XCTAssertLessThanOrEqual(panel, windowHeight - m.margin - m.bottomClearance + 0.5)
+    /// The fixed 380x460 card keeps its header and a usable dex window (two rows of cells) next to the activity section.
+    func testProfileCardContentFitsTheFixedPanel() {
+        let m = PlazaCardMetrics.self
+        let inner = m.panelSize.height - 2 * m.panelInset
+        let used = m.spriteSide + m.stackSpacing + m.activityHeight + m.stackSpacing
+        XCTAssertGreaterThanOrEqual(inner - used, 2 * m.cellSize.height + m.spacing, "two dex rows stay visible")
+        XCTAssertLessThanOrEqual(m.columns * Int(m.cellSize.width) + (m.columns - 1) * Int(m.spacing), Int(m.panelSize.width - 2 * m.panelInset))
     }
 }

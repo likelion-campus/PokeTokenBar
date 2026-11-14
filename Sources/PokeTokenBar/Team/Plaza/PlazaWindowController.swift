@@ -420,7 +420,6 @@ struct PlazaFocusEnd: Equatable, Sendable {
     static func restoreFrame(_ w: NSWindow, into roster: PlazaRosterModel, autosaveName: String = frameAutosaveName) {
         w.setFrameAutosaveName(autosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
         roster.capacity = PlazaRoster.capacity(forHeight: w.contentView?.bounds.height ?? 0)
-        roster.maxListHeight = PlazaRoster.maxListHeight(forHeight: w.contentView?.bounds.height ?? 0)
     }
 
     /// 창 없이 장면만 만든다. 창이 열려 있을 때만 불러야 한다(`show()`뿐): 여기서 메타몽 준비를 알리면 이 Mac이 호스트 후보가 된다.
@@ -2236,7 +2235,6 @@ struct PlazaFocusEnd: Equatable, Sendable {
         scene = nil
         rosterModel.entries = []
         rosterModel.page = 0
-        rosterModel.hoveredID = nil
         rosterModel.isAnimating = true
         myEntryCache = nil
         refreshGeneration += 1
@@ -2343,7 +2341,6 @@ struct PlazaFocusEnd: Equatable, Sendable {
     func windowDidResize(_ notification: Notification) {
         guard let height = window?.contentView?.bounds.height else { return }
         rosterModel.capacity = PlazaRoster.capacity(forHeight: height)
-        rosterModel.maxListHeight = PlazaRoster.maxListHeight(forHeight: height)
         refreshMinimap()
     }
     func windowDidMiniaturize(_ notification: Notification) { setRendering(visible: false) }
