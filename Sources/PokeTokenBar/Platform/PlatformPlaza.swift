@@ -48,6 +48,64 @@ enum PlatformPlaza {
         #endif
     }
 
+    /// The plaza window: AppKit + `SKView` + SwiftUI HUD on the Mac (`PlazaMacWindow`), nothing elsewhere until stage 6.
+    @MainActor static func makeShell() -> any PlazaWindowShell {
+        #if os(Windows) || PTB_SHARED_ONLY
+        PlazaHeadlessShell(log: { AppLog.write($0) })
+        #else
+        PlazaMacWindow()
+        #endif
+    }
+
+    /// The one-line chat field: the AppKit field on the Mac, a state-only stub elsewhere.
+    @MainActor static func makeChatInput() -> any PlazaChatInputHost {
+        #if os(Windows) || PTB_SHARED_ONLY
+        PlazaStubChatInput(log: { AppLog.write($0) })
+        #else
+        PlazaChatInput()
+        #endif
+    }
+
+    /// The bundled tile sheet. The Mac reads it as it always has (`MacPlazaAssets.swift`); elsewhere through `graphics`.
+    static func tileSheet() -> PlazaImage? {
+        #if os(Windows) || PTB_SHARED_ONLY
+        graphics.assetURL(PlazaResources.tileSheetName, ext: "png").flatMap { graphics.decodeImage(at: $0) }
+        #else
+        PlazaResources.tileSheet().map(PlazaImage.init(cgImage:))
+        #endif
+    }
+
+    /// The bundled tall-grass sheet, read like `tileSheet()`.
+    static func tallGrassSheet() -> PlazaImage? {
+        #if os(Windows) || PTB_SHARED_ONLY
+        graphics.assetURL(PlazaResources.tallGrassSheetName, ext: "png").flatMap { graphics.decodeImage(at: $0) }
+        #else
+        PlazaResources.tallGrassSheet().map(PlazaImage.init(cgImage:))
+        #endif
+    }
+
+    /// The tall-grass pieces cut from the bundled sheet; nil when the sheet is missing.
+    static func tallGrassArt() -> PlazaTallGrassArt? {
+        #if os(Windows) || PTB_SHARED_ONLY
+        tallGrassSheet().flatMap(PlazaTallGrassArt.init(sheet:))
+        #else
+        PlazaTallGrassArt.load()
+        #endif
+    }
+
+    /// The ice gloss, cracks and shatter frames from the bundled files (empty parts when a file is missing).
+    static func iceArt() -> PlazaIceArt {
+        #if os(Windows) || PTB_SHARED_ONLY
+        let image = { (name: String) in graphics.assetURL(name, ext: "png").flatMap { graphics.decodeImage(at: $0) } }
+        return PlazaIceArt(gloss: image(PlazaResources.iceGlossSheetName).map { PlazaIceArt.gloss(fromSheet: $0) },
+                           cracks: image(PlazaResources.iceCrackSheetName).map { PlazaIceArt.cracks(fromSheet: $0) } ?? [],
+                           shards: PlazaIceArt.shards(fromFrames: graphics.assetURL(PlazaResources.iceShatterName, ext: "gif")
+                               .map { graphics.decodeImageFrames(at: $0) } ?? []))
+        #else
+        return PlazaIceArt.load()
+        #endif
+    }
+
     /// Where character sprites come from: `SpriteLoader`/`SpriteStore` on the Mac, nothing (the placeholder) elsewhere.
     @MainActor static func spriteFetcher() -> any PlazaSpriteFetching {
         #if os(Windows) || PTB_SHARED_ONLY

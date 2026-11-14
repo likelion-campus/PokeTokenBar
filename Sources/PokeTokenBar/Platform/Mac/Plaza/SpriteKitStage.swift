@@ -6,7 +6,7 @@ import SpriteKit
 /// scene (`size`, `isPaused`), since SpriteKit changes them itself (`.resizeFill`, `presentScene`).
 @MainActor final class SpriteKitStage: PlazaStage {
     let root = PlazaNode()
-    /// What the window's `SKView` presents (`PlazaWindowController.show`) and the render harness renders.
+    /// What the window's `SKView` presents (`PlazaMacWindow.open`) and the render harness renders.
     let skScene: PlazaSKScene
     weak var delegate: (any PlazaStageDelegate)?
     /// True while the stage itself writes `skScene.isPaused`, so the scene does not report the change back.

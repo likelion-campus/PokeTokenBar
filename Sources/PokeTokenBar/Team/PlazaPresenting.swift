@@ -1,7 +1,7 @@
 import Foundation
 
-/// What `TeamRuntime` asks of the plaza window. `PlazaWindowController` (Mac, draws with SpriteKit) conforms in
-/// `PlazaPresentingMac.swift`; the shared runtime holds only this protocol.
+/// What `TeamRuntime` asks of the plaza window. The shared `PlazaWindowController` conforms (its window is the platform's
+/// `PlazaWindowShell`); the shared runtime holds only this protocol.
 @MainActor protocol PlazaPresenting: AnyObject {
     var onFocusEnd: ((PlazaFocusEnd) -> Void)? { get set }
     var isFocusing: Bool { get }

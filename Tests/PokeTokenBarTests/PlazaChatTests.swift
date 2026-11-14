@@ -489,7 +489,7 @@ final class PlazaChatTests: XCTestCase {
     }
 
     private func submit(_ c: PlazaWindowController, _ text: String) -> Bool {
-        let input = c.chatInputForTesting
+        let input = c.chatInputForTesting as! PlazaChatInput   // the Mac's AppKit field
         let editor = NSTextView()
         editor.string = text
         XCTAssertTrue(input.control(input.field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
@@ -632,7 +632,7 @@ final class PlazaChatTests: XCTestCase {
     // MARK: 확성기와 기록 패널
 
     private func submitLoud(_ c: PlazaWindowController, _ text: String) -> Bool {
-        let input = c.chatInputForTesting
+        let input = c.chatInputForTesting as! PlazaChatInput   // the Mac's AppKit field
         let editor = NSTextView()
         editor.string = text
         if !input.isLoud { _ = input.control(input.field, textView: editor, doCommandBy: #selector(NSResponder.insertTab(_:))) }
@@ -653,7 +653,7 @@ final class PlazaChatTests: XCTestCase {
         scene.handleKeyDown(keyCode: returnKey, characters: nil, isRepeat: false)
         XCTAssertFalse(submitLoud(c, "또"), "the field keeps the line")
         XCTAssertEqual(c.banner, L(.ko).plazaLoudTooSoon)
-        let input = c.chatInputForTesting
+        let input = c.chatInputForTesting as! PlazaChatInput   // the Mac's AppKit field
         _ = input.control(input.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertTab(_:)))
         XCTAssertFalse(input.isLoud)
         XCTAssertTrue(submit(c, "보통 말은 돼요"), "an ordinary line is not limited")
