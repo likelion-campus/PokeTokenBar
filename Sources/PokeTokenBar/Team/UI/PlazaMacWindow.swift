@@ -138,7 +138,6 @@ extension SKView: PlazaPausableView {}
     static func restoreFrame(_ w: NSWindow, into roster: PlazaRosterModel, autosaveName: String = frameAutosaveName) {
         w.setFrameAutosaveName(autosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
         roster.capacity = PlazaRoster.capacity(forHeight: w.contentView?.bounds.height ?? 0)
-        roster.maxListHeight = PlazaRoster.maxListHeight(forHeight: w.contentView?.bounds.height ?? 0)
     }
 
     /// 창에 올리는 목록. 칸은 그 팀원에게 걸어가고, < > 는 페이지를 넘긴다.
