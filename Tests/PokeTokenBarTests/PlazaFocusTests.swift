@@ -762,7 +762,7 @@ final class PlazaFocusTests: XCTestCase {
         await place(other, at: from, in: c)
         let before = scene.walker.tile
         c.showTackle(from: other.settings.memberID, on: me.settings.memberID)
-        XCTAssertEqual(scene.impactCount, 1, "the impact always plays")
+        XCTAssertEqual(scene.impactsShown, 1, "the impact always plays")
         for i in 1...20 { scene.update(Double(i) * 0.05) }
         c.handleClose()
         await gate.tick()

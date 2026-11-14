@@ -99,7 +99,7 @@ enum PlazaMirrorParity {
                 check(c.maskRect == nil && crop.maskNode == nil, "mask nil-ness")
             }
         case is PlazaCameraNode: check(sk is SKCameraNode, "class")
-        default: check(type(of: sk) == SKNode.self, "class")
+        default: check(type(of: sk) == SKNode.self || (node.parent == nil && sk is PlazaSKScene), "class")   // a stage root's copy is its SKScene
         }
         check(sk.children.count == node.children.count, "children count \(sk.children.count) vs \(node.children.count)")
         for (i, child) in node.children.enumerated() {
@@ -109,6 +109,70 @@ enum PlazaMirrorParity {
         return out
     }
 }
+
+/// What `testActorPlacementMatchesTheLegacyActor` drives and reads; `PlazaActor` and `LegacyPlazaActor` both have it.
+@MainActor
+protocol PlazaActorUnderTest: AnyObject {
+    func setFrames(_ f: PlazaCharacterFrames)
+    func setName(_ name: String, color: PlazaColor)
+    func setTitle(_ title: String?)
+    func showEmote(_ kind: TeamEmoteKind)
+    func showChat(_ text: String)
+    func showWet()
+    func jump()
+    func lunge(toward d: PlazaDirection)
+    func wobble()
+    func startDance(_ style: PlazaDance.Style, offset: TimeInterval, length: TimeInterval)
+    func stopDance()
+    func takeFinishedDance() -> Bool
+    func animate(by dt: TimeInterval, useBack: Bool)
+    func place(foot: CGPoint, pose: PlazaSpriteChoice, in context: PlazaActorContext, concealment: CGFloat, isMe: Bool,
+               swimSink: CGFloat, waterRect: CGRect?)
+    func photoActor(foot rawFoot: CGPoint, pose: PlazaSpriteChoice, waterClip: CGRect?) -> PlazaPhotoActor?
+    var isWet: Bool { get }
+    var emoteKind: TeamEmoteKind? { get }
+    var chatText: String? { get }
+    var name: String { get }
+    var title: String? { get }
+    var nameColor: PlazaColor { get }
+    var wobbleTilt: CGFloat { get }
+    var isDancing: Bool { get }
+    var isBubbleShown: Bool { get }
+    var dancePose: PlazaDancePose { get }
+    var jumpLift: CGFloat { get }
+    var lungeOffset: CGPoint { get }
+    var concealment: CGFloat { get }
+    var isMeForConcealment: Bool { get }
+    var cameraLift: CGFloat { get }
+    var groundShadowSize: (width: Int, height: Int) { get }
+    var isOnNest: Bool { get }
+    var nestFrontIsInFront: Bool { get }
+    var groundShadowY: CGFloat { get }
+    var characterX: CGFloat { get }
+    var characterY: CGFloat { get }
+    var characterZ: CGFloat { get }
+    var characterOpacity: CGFloat { get }
+    var nestFrontOpacity: CGFloat { get }
+    var shadowOpacity: CGFloat { get }
+    var visibleSpriteHeight: CGFloat { get }
+    var isSubmergedBodyVisible: Bool { get }
+    var submergedBodyAlpha: CGFloat { get }
+    var submergedBodyTopY: CGFloat { get }
+    var submergedBodySize: CGSize { get }
+    var submergedBodyTextureRect: CGRect { get }
+    var submergedBodyClip: CGRect? { get }
+    var isSwimRingVisible: Bool { get }
+    var swimRingY: CGFloat { get }
+    var fullSpriteHeight: CGFloat { get }
+    var characterSize: CGSize { get }
+    var namePlatePosition: CGPoint { get }
+    var namePlateWidth: CGFloat { get }
+    var namePlateTop: CGFloat { get }
+    var emoteFrame: CGRect? { get }
+    var isNamePlateVisible: Bool { get }
+}
+extension PlazaActor: PlazaActorUnderTest {}
+extension LegacyPlazaActor: PlazaActorUnderTest {}
 
 @MainActor
 final class SpriteKitMirrorParityTests: XCTestCase {
@@ -499,6 +563,324 @@ final class SpriteKitMirrorParityTests: XCTestCase {
             XCTAssertTrue(scene.children.first === layer.root.skNode)
             XCTAssertGreaterThan(layer.root.children.count, 10)
         }
+    }
+
+    /// Task 9: the actor on the shared node tree, mounted through the bridge, leaves the same SpriteKit nodes with the same
+    /// values as the SpriteKit actor before it (`LegacyPlazaActor`), frame by frame, through every state it draws:
+    /// walking and turning (flip, back), every dance style (tilt, squash, lift, flip, side step), jump, lunge, wobble, a
+    /// swim in and between two ponds and outside one (cut, ghost crop, ring), an egg on its nest and sunk, tall-grass
+    /// concealment (mine and a teammate's), wet, emotes, wide and short chat bubbles, name and title changes, an empty name,
+    /// backing 1 and 2, an odd viewport and two form changes. Textures must be shared exactly where the old ones were
+    /// (a one-to-one map between the two worlds' textures), and every accessor and photo value must be bit-equal.
+    func testActorPlacementMatchesTheLegacyActor() {
+        let legacyWorld = SKNode(), legacyCamera = SKCameraNode()
+        let world = SKNode(), camera = SKCameraNode()
+        let a = LegacyPlazaActor(name: "Ash", color: PlazaNameColor.palette[2])
+        let b = PlazaActor(name: "Ash", color: PlazaNameColor.palette[2])
+        a.attach(world: legacyWorld, camera: legacyCamera)
+        b.attach(world: world, camera: camera)
+        let actors: [any PlazaActorUnderTest] = [a, b]
+        func all(_ body: (any PlazaActorUnderTest) -> Void) { actors.forEach(body) }
+
+        // a one-to-one map legacy texture <-> new texture, made on first sight when the pictures are equal; every texture
+        // seen is kept so a freed one's address cannot come back as another texture
+        var forward: [ObjectIdentifier: SKTexture] = [:], backward: [ObjectIdentifier: SKTexture] = [:], kept: [SKTexture] = []
+        func picture(_ t: SKTexture) -> Data? { let i = t.cgImage(); return (i.dataProvider?.data as Data?).map { Data("\(i.width)x\(i.height)".utf8) + $0 } }
+        func same(_ x: SKTexture, _ y: SKTexture) -> Bool {
+            if let m = forward[ObjectIdentifier(x)] { return m === y }
+            guard backward[ObjectIdentifier(y)] == nil, picture(x) == picture(y) else { return false }
+            forward[ObjectIdentifier(x)] = y; backward[ObjectIdentifier(y)] = x; kept += [x, y]
+            return true
+        }
+
+        let normal = Self.oddFrames(), egg = PlazaRenderScenes.frames(.egg), other = PlazaRenderScenes.frames(.brock)
+        let pond = CGRect(x: 40.3, y: 300.7, width: 160.1, height: 48.45), pond2 = CGRect(x: 36.6, y: 296.2, width: 170.9, height: 60.35)
+        let palette = PlazaNameColor.palette
+        let styles = PlazaDance.Style.allCases
+        var facing = PlazaDirection.down, walking = false, foot = CGPoint(x: 120.25, y: 400.5)
+        var swim = false, water: CGRect?, concealment: CGFloat = 0, isMe = false, backing: CGFloat = 2
+        var viewport = CGSize(width: 640, height: 480)
+        var checkedPhotos = 0, swimFrames = 0, flippedFrames = 0, tiltedFrames = 0
+        for f in 0..<540 {
+            switch f {
+            case 0: all { $0.setFrames(normal); $0.setTitle("Brave") }
+            case 6: all { $0.showEmote(.heart) }
+            case 20: facing = .right; walking = true
+            case 24: all { $0.showChat("hello there, a bubble wide enough to be pushed back in") }
+            case 40: all { $0.jump() }
+            case 55: all { $0.lunge(toward: .left) }; facing = .up
+            case 66: all { $0.showChat("ok") }
+            case 70: walking = false; facing = .down
+            case 280: all { $0.stopDance() }
+            case 290: swim = true; water = pond; walking = true; facing = .left
+            case 300: all { $0.showWet() }
+            case 315: water = pond2
+            case 330: water = nil
+            case 340: water = pond; facing = .right
+            case 350: swim = false; water = nil; walking = false
+            case 360: concealment = 0.5
+            case 370: isMe = true
+            case 380: concealment = 1; isMe = false
+            case 390: concealment = 0
+            case 395: all { $0.setName("", color: palette[3]) }
+            case 405: all { $0.setName("Misty", color: palette[4]); $0.setTitle(nil) }
+            case 410: backing = 1; viewport = CGSize(width: 641, height: 481)
+            case 420: all { $0.setFrames(egg) }
+            case 430: all { $0.wobble() }
+            case 450: swim = true; water = pond
+            case 470: water = pond2
+            case 480: swim = false; water = nil
+            case 490: all { $0.setFrames(other) }; backing = 2; viewport = CGSize(width: 640, height: 480)
+            case 500: all { $0.wobble(); $0.jump() }; facing = .left; walking = true
+            case 520: all { $0.startDance(.twirl, offset: 0, length: 0.5) }
+            default: break
+            }
+            if f >= 70, f < 280, (f - 70) % 30 == 0 { all { $0.startDance(styles[(f - 70) / 30 % styles.count], offset: 0.05, length: PlazaDance.round) } }
+            if walking { foot.x += facing == .left ? -0.73 : 0.61; foot.y += 0.17 }
+            let pose = PlazaPose.choice(facing: facing, isWalking: walking, clock: Double(f) / 60)
+            all { $0.animate(by: 1.0 / 60, useBack: pose.useBack) }
+            XCTAssertEqual(a.takeFinishedDance(), b.takeFinishedDance(), "frame \(f): dance end")
+            let sink = swim ? PlazaPond.swimSink(spriteHeight: b.fullSpriteHeight) : 0
+            let context = PlazaActorContext(worldHeight: 1024, cameraPosition: CGPoint(x: foot.x + 13.5, y: 1024 - foot.y + 20.25),
+                                            zoom: 2, backing: backing, viewport: viewport)
+            all { $0.place(foot: foot, pose: pose, in: context, concealment: concealment, isMe: isMe, swimSink: sink, waterRect: water) }
+
+            var diffs = PlazaMirrorParity.treeDifferences(legacyWorld, world, sameTexture: same)
+                + PlazaMirrorParity.treeDifferences(legacyCamera, camera, sameTexture: same)
+                + (b.worldNodes + b.cameraNodes).flatMap { PlazaMirrorParity.differences($0) }
+            for (x, y) in zip(Self.readings(a), Self.readings(b)) where x != y { diffs.append("accessor \(x) | \(y)") }
+            if f % 9 == 0 {
+                let pa = a.photoActor(foot: foot, pose: pose, waterClip: water), pb = b.photoActor(foot: foot, pose: pose, waterClip: water)
+                if Self.photoReadings(pa) != Self.photoReadings(pb) {
+                    diffs.append("photo \(Self.photoReadings(pa)) | \(Self.photoReadings(pb))")
+                }
+                checkedPhotos += 1
+            }
+            guard diffs.isEmpty else { return XCTFail("frame \(f):\n" + diffs.prefix(6).joined(separator: "\n")) }
+            if b.isSubmergedBodyVisible { swimFrames += 1 }
+            if world.children[1].xScale < 0 { flippedFrames += 1 }
+            if world.children[1].zRotation != 0 { tiltedFrames += 1 }
+        }
+        XCTAssertGreaterThan(swimFrames, 50, "the ghost crop was drawn")
+        XCTAssertGreaterThan(flippedFrames, 20, "the picture was flipped")
+        XCTAssertGreaterThan(tiltedFrames, 20, "the picture was tilted")
+        XCTAssertGreaterThan(checkedPhotos, 50)
+        XCTAssertGreaterThan(forward.count, 20, "textures were compared")
+        print("ACTOR PARITY: 540 frames, \(forward.count) textures mapped, \(swimFrames) swim frames, \(checkedPhotos) photo checks")
+    }
+
+    /// Review points on Task 9 (states the first script never reached): `place` before any frames arrive (on land and in
+    /// a pond), frames arriving while swimming, facing back while swimming, frames of different sizes in one list, a form
+    /// change in the water, lunges to the right, up and down, and the dance ♪ (the first script's chat hid it). Same
+    /// checks as `testActorPlacementMatchesTheLegacyActor`, every frame.
+    func testActorEdgeStatesMatchTheLegacyActor() {
+        let legacyWorld = SKNode(), legacyCamera = SKCameraNode()
+        let world = SKNode(), camera = SKCameraNode()
+        let a = LegacyPlazaActor(name: "Misty", color: PlazaNameColor.palette[3])
+        let b = PlazaActor(name: "Misty", color: PlazaNameColor.palette[3])
+        a.attach(world: legacyWorld, camera: legacyCamera)
+        b.attach(world: world, camera: camera)
+        let actors: [any PlazaActorUnderTest] = [a, b]
+        func all(_ body: (any PlazaActorUnderTest) -> Void) { actors.forEach(body) }
+        var forward: [ObjectIdentifier: SKTexture] = [:], backward: [ObjectIdentifier: SKTexture] = [:], kept: [SKTexture] = []
+        func picture(_ t: SKTexture) -> Data? { let i = t.cgImage(); return (i.dataProvider?.data as Data?).map { Data("\(i.width)x\(i.height)".utf8) + $0 } }
+        func same(_ x: SKTexture, _ y: SKTexture) -> Bool {
+            if let m = forward[ObjectIdentifier(x)] { return m === y }
+            guard backward[ObjectIdentifier(y)] == nil, picture(x) == picture(y) else { return false }
+            forward[ObjectIdentifier(x)] = y; backward[ObjectIdentifier(y)] = x; kept += [x, y]
+            return true
+        }
+        func image(_ w: Int, _ h: Int, _ seed: Int) -> PlazaImage {
+            var px = [UInt8](repeating: 0, count: w * h * 4)
+            for y in 1..<h { for x in 0..<w where (x * 5 + y * 3 + seed) % 4 != 0 {
+                let i = (y * w + x) * 4
+                px[i] = UInt8((x * 11 + seed * 50) % 256); px[i + 1] = UInt8((y * 9) % 256); px[i + 2] = 90; px[i + 3] = 255
+            } }
+            return PlazaImage(cgImage: PlazaRenderScenes.image(px, width: w, height: h))
+        }
+        let mixed = PlazaCharacterFrames(front: [PlazaFrame(image: image(27, 33, 0), delay: 0.05), PlazaFrame(image: image(25, 31, 1), delay: 0.05),
+                                                 PlazaFrame(image: image(29, 35, 2), delay: 0.05)],
+                                         back: [PlazaFrame(image: image(31, 29, 3), delay: 0.07), PlazaFrame(image: image(27, 33, 4), delay: 0.07)])
+        let other = PlazaRenderScenes.frames(.dawn)
+        let pond = CGRect(x: 40.3, y: 300.7, width: 160.1, height: 48.45)
+        var facing = PlazaDirection.down, walking = false, foot = CGPoint(x: 120.25, y: 330.5)
+        var swim = false, water: CGRect?
+        var notes = 0, backSwim = 0, swimFrames = 0, lunges = Set<String>(), sizes = Set<String>()
+        for f in 0..<260 {
+            switch f {
+            case 12: swim = true; water = pond   // placed in the water before any frames
+            case 20: all { $0.setFrames(mixed) }   // frames arrive while swimming
+            case 30: facing = .up; walking = true
+            case 60: walking = false
+            case 70: all { $0.setFrames(other) }   // a form change in the water
+            case 90: facing = .left; walking = true
+            case 110: swim = false; water = nil; walking = false; facing = .down; all { $0.setFrames(mixed) }
+            case 120: all { $0.lunge(toward: .right) }
+            case 140: all { $0.lunge(toward: .up) }
+            case 160: all { $0.lunge(toward: .down) }
+            case 180: all { $0.startDance(.wiggle, offset: 0.05, length: PlazaDance.round) }
+            case 220: all { $0.startDance(.spin, offset: 0, length: 0.6) }
+            default: break
+            }
+            if walking { foot.x += facing == .left ? -0.73 : 0.37; foot.y += facing == .up ? -0.29 : 0 }
+            let pose = PlazaPose.choice(facing: facing, isWalking: walking, clock: Double(f) / 60)
+            all { $0.animate(by: 1.0 / 60, useBack: pose.useBack) }
+            XCTAssertEqual(a.takeFinishedDance(), b.takeFinishedDance(), "frame \(f): dance end")
+            let sink = swim ? PlazaPond.swimSink(spriteHeight: b.fullSpriteHeight) : 0
+            let context = PlazaActorContext(worldHeight: 1024, cameraPosition: CGPoint(x: foot.x + 13.5, y: 1024 - foot.y + 20.25),
+                                            zoom: 2, backing: 2, viewport: CGSize(width: 640, height: 480))
+            all { $0.place(foot: foot, pose: pose, in: context, concealment: 0, isMe: false, swimSink: sink, waterRect: water) }
+            var diffs = PlazaMirrorParity.treeDifferences(legacyWorld, world, sameTexture: same)
+                + PlazaMirrorParity.treeDifferences(legacyCamera, camera, sameTexture: same)
+                + (b.worldNodes + b.cameraNodes).flatMap { PlazaMirrorParity.differences($0) }
+            for (x, y) in zip(Self.readings(a), Self.readings(b)) where x != y { diffs.append("accessor \(x) | \(y)") }
+            if f % 7 == 0, Self.photoReadings(a.photoActor(foot: foot, pose: pose, waterClip: water)) != Self.photoReadings(b.photoActor(foot: foot, pose: pose, waterClip: water)) {
+                diffs.append("photo")
+            }
+            guard diffs.isEmpty else { return XCTFail("frame \(f):\n" + diffs.prefix(6).joined(separator: "\n")) }
+            if b.emoteKind == .dance { notes += 1 }
+            if b.isSubmergedBodyVisible { swimFrames += 1; if pose.useBack { backSwim += 1 } }
+            if b.lungeOffset != .zero { lunges.insert("\(b.lungeOffset.x.sign)\(b.lungeOffset.x == 0)\(b.lungeOffset.y.sign)") }
+            sizes.insert("\(b.characterSize)")
+        }
+        XCTAssertGreaterThan(notes, 20, "the dance ♪ was drawn")
+        XCTAssertGreaterThan(swimFrames, 60)
+        XCTAssertGreaterThan(backSwim, 20, "swimming facing back")
+        XCTAssertGreaterThanOrEqual(lunges.count, 3, "lunges in three directions: \(lunges)")
+        XCTAssertGreaterThanOrEqual(sizes.count, 4, "frames of different sizes: \(sizes)")
+    }
+
+    /// Three front and two back frames of an odd size (27x33), so the picture lands on half pixels.
+    private static func oddFrames() -> PlazaCharacterFrames {
+        func image(_ seed: Int) -> PlazaImage {
+            let (w, h) = (27, 33)
+            var px = [UInt8](repeating: 0, count: w * h * 4)
+            for y in 2..<h { for x in 1..<(w - 1) where (x * 7 + y * 3 + seed) % 5 != 0 {
+                let i = (y * w + x) * 4
+                px[i] = UInt8((x * 9 + seed * 40) % 256); px[i + 1] = UInt8((y * 7) % 256); px[i + 2] = UInt8((seed * 60) % 256); px[i + 3] = 255
+            } }
+            return PlazaImage(cgImage: PlazaRenderScenes.image(px, width: w, height: h))
+        }
+        return PlazaCharacterFrames(front: (0..<3).map { PlazaFrame(image: image($0), delay: 0.05) },
+                                    back: (3..<5).map { PlazaFrame(image: image($0), delay: 0.07) })
+    }
+
+    /// Every accessor of an actor as exact text (Double descriptions round-trip).
+    private static func readings(_ x: any PlazaActorUnderTest) -> [String] {
+        ["isWet \(x.isWet)", "emoteKind \(String(describing: x.emoteKind))", "chatText \(String(describing: x.chatText))",
+         "name \(x.name)", "title \(String(describing: x.title))", "nameColor \(x.nameColor)", "wobbleTilt \(x.wobbleTilt)",
+         "isDancing \(x.isDancing)", "isBubbleShown \(x.isBubbleShown)", "dancePose \(x.dancePose)", "jumpLift \(x.jumpLift)",
+         "lungeOffset \(x.lungeOffset)", "concealment \(x.concealment) \(x.isMeForConcealment)", "cameraLift \(x.cameraLift)",
+         "groundShadowSize \(x.groundShadowSize)", "isOnNest \(x.isOnNest)", "nestFrontIsInFront \(x.nestFrontIsInFront)",
+         "groundShadowY \(x.groundShadowY)", "character \(x.characterX) \(x.characterY) \(x.characterZ) \(x.characterSize)",
+         "opacity \(x.characterOpacity) \(x.nestFrontOpacity) \(x.shadowOpacity)", "visibleSpriteHeight \(x.visibleSpriteHeight)",
+         "submerged \(x.isSubmergedBodyVisible) \(x.submergedBodyAlpha) \(x.submergedBodyTopY) \(x.submergedBodySize)",
+         "submergedBodyTextureRect \(x.submergedBodyTextureRect)", "submergedBodyClip \(String(describing: x.submergedBodyClip))",
+         "swimRing \(x.isSwimRingVisible) \(x.swimRingY)", "fullSpriteHeight \(x.fullSpriteHeight)",
+         "plate \(x.namePlatePosition) \(x.namePlateWidth) \(x.namePlateTop) \(x.isNamePlateVisible)",
+         "emoteFrame \(String(describing: x.emoteFrame))"]
+    }
+
+    private static func photoReadings(_ p: PlazaPhotoActor?) -> [String] {
+        guard let p else { return ["no photo"] }
+        func picture(_ i: PlazaImage?) -> String {
+            guard let c = i?.cgImage else { return "nil" }
+            return "\(c.width)x\(c.height) \(c.bitmapInfo.rawValue) \(c.colorSpace?.name.map { $0 as String } ?? "-") \(PlazaRenderRun.hex(Array((c.dataProvider?.data as Data?) ?? Data())))"
+        }
+        return ["image \(ObjectIdentifier(p.image.cgImage))", "shadow \(picture(p.shadow))", "front \(picture(p.front))",
+                "plate \(picture(p.plate))", "bubble \(picture(p.bubble))",
+                "flipped \(p.flipped) foot \(p.foot) bob \(p.bob) scale \(p.scale) shadowRect \(p.shadowRect)",
+                "opacity \(p.opacity) plateBaseY \(String(describing: p.plateBaseY)) sink \(p.sink) waterClip \(String(describing: p.waterClip))",
+                "eggSunk \(p.eggSunk) lift \(p.lift) squash \(p.squash) tilt \(p.tilt)"]
+    }
+
+    /// Task 9 cost check: what one actor's frame (`animate` + `place`) costs on the shared tree against the SpriteKit
+    /// actor before it, 13 actors x 3,000 frames, per state (idle, walking, swimming between two ponds, dancing), best
+    /// of 5 alternating rounds. `PTB_PLAZA_ACTORCOST_OUT=<file>` appends the result line.
+    func testActorFrameCost() throws {
+        guard let out = PlazaRenderEnv.value("PTB_PLAZA_ACTORCOST_OUT") else { throw XCTSkip("PTB_PLAZA_ACTORCOST_OUT not set") }
+        let clock = ContinuousClock()
+        func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1e3 + Double(d.components.attoseconds) / 1e15 }
+        let frames = Self.oddFrames(), count = 13, steps = 3_000
+        let pond = CGRect(x: 40.3, y: 300.7, width: 160.1, height: 48.45)
+        func run(_ actors: [any PlazaActorUnderTest], state: String) -> Double {
+            ms(clock.measure {
+                for f in 0..<steps {
+                    let walking = state == "walking" || state == "swimming"
+                    let pose = PlazaPose.choice(facing: f / 120 % 2 == 0 ? .left : .right, isWalking: walking, clock: Double(f) / 60)
+                    let context = PlazaActorContext(worldHeight: 1024, cameraPosition: CGPoint(x: 300, y: 600), zoom: 2, backing: 2,
+                                                    viewport: CGSize(width: 640, height: 480))
+                    for (i, a) in actors.enumerated() {
+                        a.animate(by: 1.0 / 60, useBack: pose.useBack)
+                        let x = 100 + CGFloat(i) * 30 + (walking ? CGFloat(f % 240) * 0.25 : 0)
+                        let swim = state == "swimming"
+                        a.place(foot: CGPoint(x: x, y: 400 + CGFloat(i) * 7), pose: pose, in: context, concealment: 0, isMe: i == 0,
+                                swimSink: swim ? 20 : 0, waterRect: swim ? (f / 60 % 2 == 0 ? pond : pond.insetBy(dx: 2, dy: 2)) : nil)
+                    }
+                }
+            })
+        }
+        var line = ""
+        for state in ["idle", "walking", "swimming", "dancing"] {
+            var best = (legacy: Double.infinity, shared: Double.infinity)
+            for _ in 0..<5 {
+                let legacyScene = SKScene(size: CGSize(width: 64, height: 64)), sharedScene = SKScene(size: CGSize(width: 64, height: 64))
+                let legacyCamera = SKCameraNode(), sharedCamera = SKCameraNode()
+                legacyScene.addChild(legacyCamera); sharedScene.addChild(sharedCamera)
+                let legacy = (0..<count).map { _ in LegacyPlazaActor(name: "a", color: PlazaNameColor.palette[0]) }
+                let shared = (0..<count).map { _ in PlazaActor(name: "a", color: PlazaNameColor.palette[0]) }
+                for a in legacy { a.attach(world: legacyScene, camera: legacyCamera); a.setFrames(frames) }
+                for a in shared { a.attach(world: sharedScene, camera: sharedCamera); a.setFrames(frames) }
+                if state == "dancing" {
+                    for a in legacy { a.startDance(.wiggle, offset: 0, length: 1e9) }
+                    for a in shared { a.startDance(.wiggle, offset: 0, length: 1e9) }
+                }
+                best.legacy = min(best.legacy, run(legacy, state: state))
+                best.shared = min(best.shared, run(shared, state: state))
+            }
+            let per = { (v: Double) in v * 1e6 / Double(count * steps) }   // ns per actor-frame
+            line += String(format: "%@ legacy %.0f ns shared %.0f ns ratio %.3f  ", state, per(best.legacy), per(best.shared), best.shared / best.legacy)
+        }
+        print("ACTORCOST: " + line)
+        let url = URL(fileURLWithPath: out)
+        let old = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        try (old + line + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// The defect the Task 7 review predicted: a member who leaves, and the Ditto when it goes, must take every node of
+    /// its actor out of the SpriteKit tree, not only out of the shared one. Through the scene's own calls.
+    func testADetachedActorIsGoneFromTheSpriteKitTree() throws {
+        let s = PlazaRenderScenes.stage()
+        s.put([PlazaRenderScenes.member("ash", "Ash", 21, 10), PlazaRenderScenes.member("swim", "Swim", 9, 14)],
+              looks: ["ash": .ash, "swim": .misty])
+        s.scene.applyDitto(PlazaDittoShown(tile: TilePoint(x: 17, y: 10), facing: .down, isWalking: false, isRunning: false,
+                                           name: "Ditto", nameColor: PlazaNameColor.palette[1], title: nil, isDecoy: false))
+        s.scene.setMemberFrames(PlazaDitto.sceneKey, PlazaRenderScenes.frames(.ditto))
+        s.scene.showChat(memberID: "swim", text: "bye")
+        s.scene.memberActor("ash")?.showWet()
+        for f in 0..<6 { s.scene.update(Double(f) / 60) }
+        let sk = PlazaRenderHarness.skScene(of: s.scene)   // the host's SKScene: the SpriteKit tree the window draws
+        let camera = try XCTUnwrap(sk.camera)
+        let leaving = ["ash", "swim", PlazaDitto.sceneKey].compactMap { s.scene.memberActor($0) }
+        XCTAssertEqual(leaving.count, 3)
+        XCTAssertTrue(try XCTUnwrap(s.scene.memberActor("swim")).isSubmergedBodyVisible, "the swimmer's ghost crop is drawn")
+        let world = leaving.flatMap(\.worldNodes), hud = leaving.flatMap(\.cameraNodes)
+        XCTAssertTrue(world.allSatisfy { $0.skNode?.parent === sk } && hud.allSatisfy { $0.skNode?.parent === camera }, "mounted while present")
+        let (sceneCount, cameraCount) = (sk.children.count, camera.children.count)
+
+        s.put([])
+        s.scene.applyDitto(nil)
+        for node in world + hud {
+            XCTAssertNil(node.skNode?.parent, "\(type(of: node)) left the SpriteKit tree")
+            XCTAssertNil(node.parent)
+        }
+        XCTAssertEqual(sk.children.count, sceneCount - world.count)
+        XCTAssertEqual(camera.children.count, cameraCount - hud.count)
+        for f in 6..<12 { s.scene.update(Double(f) / 60) }
+        XCTAssertTrue((world + hud).allSatisfy { $0.skNode?.parent == nil }, "and stay out while the scene runs")
+        XCTAssertTrue(s.scene.myActor.worldNodes.allSatisfy { $0.skNode?.parent === sk }, "my actor stays")
+        XCTAssertEqual(PlazaRenderHarness.actorMountDifferences(of: s.scene), [])
+        XCTAssertEqual(PlazaMirrorParity.differences(s.scene.root), [])
     }
 
     /// Risk R1: what a write costs through `PlazaSprite` and its mirror against the same write straight to an

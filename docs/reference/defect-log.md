@@ -929,6 +929,20 @@ read_when:
   (`Platform/Windows/Team/**`)은 `DispatchQueue.main.async` 블록 안에서만 `MainActor.assumeIsolated` 를 쓴다. **가드(기계):**
   `testWindowsMainIsSynchronous`·`testNoAssumeIsolatedInPoolThreadCallbacks`(각각 주입 테스트 포함)와 셀프테스트 `loop.*`(스레드 id·지연·
   `SendMessageTimeoutW`·게시/입력한 U+D55C 가 그대로 도착) — XCTest 는 런루프를 제 방식으로 돌리므로 이 검사는 배포 루프 안에서만 의미가 있다.
+  **메인 스레드의 파일 쓰기(Task 5 관찰, 미해결 — 결정 필요):** 윈도우의 FoundationEssentials `Data.write(to:options: .atomic)` 은 임시 파일을
+  `FlushFileBuffers` 로 디스크까지 내린 뒤 바꿔 넣는다(맥은 fsync 하지 않는다). `@MainActor` 인 `CompanionStore.save()`(갱신마다, 기동 갱신 한 번에
+  11 회)와 `UsageStore.writeParitySnapshot()`(갱신마다 2 회)이 이를 메인 스레드에서 부르므로, 러너에서 메인 스레드가 한 번에 146–231 ms 멈췄다
+  (셀프테스트 스톨 프로브: 17 개 표본 모두 `ntdll!ZwFlushBuffersFile` ← `KERNELBASE!FlushFileBuffers` ← `Data.write(to:options:)` ← 앱 코드).
+  그 순간 겹친 `loop.*` 검사가 두 번 실패했다(run 1 의 Task 557 ms, run 3 의 0.2 s 타이머 506 ms). **왜 못 걸렀나:** 맥에서는 같은 쓰기가 짧고,
+  XCTest 는 메인 스레드 지연을 재지 않는다. **가드(기계):** 셀프테스트 `loop.mainThreadStalls` 가 기동 갱신 동안의 정지 길이와 프레임을 매번
+  보고한다(1500 ms 넘으면 실패). loop 검사는 이제 갱신·저장이 조용해진 뒤 같은 기준으로 잰다. **남은 결정:** 쓰기를 메인 밖으로 옮길지(순서와
+  종료 전 비우기 필요), 윈도우에서 flush 없는 원자 교체로 바꿀지(전원 차단 시 내구성 손실) — 둘 다 업스트림 `Core` 수정이다.
+  **Observation 재수출(Track A Task 12):** 맥의 Foundation 은 Observation 을 다시 내보내 `withObservationTracking`·`@Observable` 이
+  `import Observation` 없이도 빌드되지만, 윈도우의 corelibs Foundation 은 내보내지 않는다. 공용으로 옮긴 `PlazaWindowController` 가 윈도우에서만
+  `cannot find 'withObservationTracking' in scope` 로 실패했다. **왜 못 걸렀나:** `shared-check.sh` 는 공용 집합을 맥의 Foundation 으로
+  빌드하므로 재수출이 그대로 보인다. **가드(기계):** `WindowsSeamScanTests.testSharedFilesThatObserveImportObservation`(고치기 전 트리에서
+  실패 확인). 스윕: `withObservationTracking` 을 쓰는 소스 4곳 중 공용은 `TeamRuntime`(이미 import)과 이 컨트롤러뿐이고, `@Observable` 을 쓰는
+  공용 파일은 모두 `import Observation` 이 있다(스캔이 확인).
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,

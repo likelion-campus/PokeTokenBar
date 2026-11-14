@@ -156,7 +156,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         let w = NSWindow(contentRect: rect(640), styleMask: [.titled, .resizable], backing: .buffered, defer: true)
         w.isReleasedWhenClosed = false
         let model = PlazaRosterModel()
-        PlazaWindowController.restoreFrame(w, into: model, autosaveName: name)
+        PlazaMacWindow.restoreFrame(w, into: model, autosaveName: name)
         XCTAssertEqual(w.contentView?.bounds.height, 320, "the fixture must restore the saved size")
         XCTAssertEqual(model.capacity, PlazaRoster.capacity(forHeight: 320))
         XCTAssertNotEqual(model.capacity, PlazaRoster.capacity(forHeight: 640), "the fixture must tell the sizes apart")
@@ -711,13 +711,13 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         c.toggleBackground()
         XCTAssertTrue(c.scene!.isBackgroundHidden)
         XCTAssertTrue(c.isBackgroundHidden)
-        XCTAssertEqual(c.scene!.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(c.scene!.backgroundColor.alpha, 0)
         let reopened = controller(d)
         reopened.prepareScene()
         XCTAssertTrue(reopened.scene!.isBackgroundHidden, "the choice is kept")
         reopened.toggleBackground()
         XCTAssertFalse(reopened.scene!.isBackgroundHidden)
-        XCTAssertEqual(reopened.scene!.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(reopened.scene!.backgroundColor.alpha, 1)
     }
 
     func testCameraLooksAboveFeetForBigSprite() {

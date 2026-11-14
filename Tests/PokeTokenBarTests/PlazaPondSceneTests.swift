@@ -1,5 +1,4 @@
 import XCTest
-import CoreGraphics
 @testable import PokeTokenBar
 
 /// Swimmers and divers in the plaza scene, on the real map: x32-37 y17-19 is water, (31,18) shore, (30,18) land.
@@ -20,11 +19,7 @@ final class PlazaPondSceneTests: XCTestCase {
     }
 
     private func frames() -> PlazaCharacterFrames {
-        let ctx = CGContext(data: nil, width: 32, height: 48, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
-        ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 48))
-        let f = [PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(bitmap: PlazaTestImages.solid(width: 32, height: 48, PlazaRGBA(r: 255, g: 0, b: 0, a: 255))), delay: 0.1)]
         return PlazaCharacterFrames(front: f, back: f)
     }
 
@@ -47,7 +42,7 @@ final class PlazaPondSceneTests: XCTestCase {
         return t
     }
 
-    func testSwimmersShowOnlyTheirTop() throws {
+    func testSwimmersShowOnlyTheirTop() async throws {
         let s = scene(start: p(20, 22))
         add(s, "a", p(34, 18))
         run(s, 0.1)
@@ -63,7 +58,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(s.memberShadowOpacity("a")), 0)
     }
 
-    func testPlungeStaysUncutUntilItLandsInTheWater() {
+    func testPlungeStaysUncutUntilItLandsInTheWater() async {
         let s = scene(start: p(20, 22))
         add(s, "a", p(31, 18))
         var t = run(s, 0.1)
@@ -78,7 +73,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.memberSwimRingVisible("a"), true)
     }
 
-    func testClimbingOutIsUncutFromTheStepStart() {
+    func testClimbingOutIsUncutFromTheStepStart() async {
         let s = scene(start: p(32, 18))
         var t = run(s, 0.1)
         XCTAssertEqual(s.myVisibleHeight, 72 * 0.45, accuracy: 1)
@@ -89,14 +84,14 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.myVisibleHeight, 72, "mid-step out of the water")
     }
 
-    func testMeSwimmingIsCutToo() {
+    func testMeSwimmingIsCutToo() async {
         let s = scene(start: p(33, 18))
         run(s, 0.1)
         XCTAssertEqual(s.myVisibleHeight, 72 * 0.45, accuracy: 1)
         XCTAssertEqual(s.myShadowOpacity, 0)
     }
 
-    func testDivingHidesAndTimesOut() {
+    func testDivingHidesAndTimesOut() async {
         let s = scene(start: p(33, 18))
         var calls: [Bool] = []
         s.onDivingChange = { calls.append($0) }
@@ -113,7 +108,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(calls, [false])
     }
 
-    func testWaterTypeDivesLonger() {
+    func testWaterTypeDivesLonger() async {
         let s = scene(start: p(33, 18))
         s.diveLimit = 15
         var calls: [Bool] = []
@@ -128,7 +123,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(calls, [false])
     }
 
-    func testLeavingTheWaterEndsTheDive() {
+    func testLeavingTheWaterEndsTheDive() async {
         let s = scene(start: p(32, 18))
         var calls: [Bool] = []
         s.onDivingChange = { calls.append($0) }
@@ -146,7 +141,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.myOpacity, 1)
     }
 
-    func testSetDivingIsQuietAndNeedsWater() {
+    func testSetDivingIsQuietAndNeedsWater() async {
         let land = scene(start: p(30, 18))
         land.setDiving(true)
         XCTAssertFalse(land.isDiving, "no dive on land")
@@ -159,7 +154,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(calls, 0, "controller-initiated changes do not call back")
     }
 
-    func testTeammateDivingFollowsPresence() throws {
+    func testTeammateDivingFollowsPresence() async throws {
         let s = scene(start: p(20, 22))
         add(s, "a", p(34, 18))
         var t = run(s, 0.1)
@@ -190,7 +185,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.memberOpacity("a"), 1)
     }
 
-    func testBackgroundHiddenShowsDiversAndRestores() throws {
+    func testBackgroundHiddenShowsDiversAndRestores() async throws {
         let s = scene(start: p(33, 18))
         add(s, "a", p(34, 18), diving: true)
         var t = run(s, 0.1)
@@ -217,7 +212,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.myVisibleHeight, 72 * 0.45, accuracy: 1)
     }
 
-    func testWithoutPondVisualsNothingIsCut() {
+    func testWithoutPondVisualsNothingIsCut() async {
         let s = scene(start: p(33, 18), pondVisuals: false)
         add(s, "a", p(34, 18), diving: true)
         var t = run(s, 0.1)
@@ -247,7 +242,7 @@ final class PlazaPondSceneTests: XCTestCase {
         for m in members { s.setMemberFrames(m.memberID, frames()) }
     }
 
-    func testPlungeSplashesBigAndWetsByStage() throws {
+    func testPlungeSplashesBigAndWetsByStage() async throws {
         let s = scene(start: p(31, 18))
         s.myEvolutionStage = 3
         addAll(s, [at("near", p(29, 18)), at("edge", p(30, 20)), at("far", p(28, 18))])   // distance 3, 3, 4 from (32,18)
@@ -269,34 +264,34 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: nil), false, "the splasher stays dry")
     }
 
-    /// The landing puff is a scheduled SKAction, which does not tick without a view; `playJump` puffs once at take-off
-    /// and once more from that action through the same `puffDust`, so the water rule is pinned on the take-off puff.
-    func testNoDustOnWaterButStillOnLand() {
+    /// The landing puff comes 0.36 s later (a tween that only `update` steps); `playJump` puffs once at take-off and
+    /// once more from that tween through the same `puffDust`, so the water rule is pinned on the take-off puff.
+    func testNoDustOnWaterButStillOnLand() async {
         let land = scene(start: p(30, 18))
         land.playJump(memberID: nil)
-        XCTAssertEqual(land.dustCount, 2, "a land jump still dusts")
+        XCTAssertEqual(land.dustShown, 2, "a land jump still dusts")
 
         let swimmer = scene(start: p(34, 18))
         swimmer.playJump(memberID: nil)
-        XCTAssertEqual(swimmer.dustCount, 0, "no dust on water")
+        XCTAssertEqual(swimmer.dustShown, 0, "no dust on water")
 
         let s = scene(start: p(20, 22))
         add(s, "wet", p(33, 18))
         add(s, "dry", p(30, 18))
         s.playJump(memberID: "wet")
-        XCTAssertEqual(s.dustCount, 0, "a teammate in the water raises none either")
+        XCTAssertEqual(s.dustShown, 0, "a teammate in the water raises none either")
         s.playJump(memberID: "dry")
-        XCTAssertEqual(s.dustCount, 2)
+        XCTAssertEqual(s.dustShown, 2)
 
         let plunger = scene(start: p(31, 18))
         plunger.face(.right)
         plunger.plunge(.right)
         plunger.update(0)
         plunger.update(1.0 / 30)
-        XCTAssertEqual(plunger.dustCount, 2, "the take-off of a plunge is still on land")
+        XCTAssertEqual(plunger.dustShown, 2, "the take-off of a plunge is still on land")
     }
 
-    func testAnEggInTheWaterClimbsOutByItselfThenStaysOnLand() {
+    func testAnEggInTheWaterClimbsOutByItselfThenStaysOnLand() async {
         let s = scene(start: p(32, 18))
         var t = run(s, 0.1)
         s.canWalk = false   // graduated, released or unpinned while swimming
@@ -308,7 +303,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.walker.tile, p(31, 18), "on land an egg cannot walk")
     }
 
-    func testAnEggInTheWaterCannotSwimAround() {
+    func testAnEggInTheWaterCannotSwimAround() async {
         // In the middle of the pond, a held key toward open water is ignored: every step heads for the nearest shore.
         let s = scene(start: p(34, 18))
         var t = run(s, 0.1)
@@ -323,7 +318,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(visited, [p(34, 18), p(34, 19), p(34, 20), p(34, 21)], "it swam where the key said, not ashore")
     }
 
-    func testAnEggClimbsOutBesideATeammateOnTheNearestShore() {
+    func testAnEggClimbsOutBesideATeammateOnTheNearestShore() async {
         let s = scene(start: p(32, 18))
         add(s, "a", p(31, 18))
         let t = run(s, 0.1)
@@ -332,7 +327,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.walker.tile, p(31, 17), "the taken shore tile sent it one tile up the shore")
     }
 
-    func testShoreJumpSplashesSmall() throws {
+    func testShoreJumpSplashesSmall() async throws {
         let s = scene(start: p(31, 18))
         addAll(s, [at("near", p(31, 19)), at("far", p(30, 18))])   // distance 1 and 2 from (32,18)
         s.face(.down)
@@ -349,7 +344,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: "far"), false)
     }
 
-    func testTeammateShoreJumpSplashesToo() throws {
+    func testTeammateShoreJumpSplashesToo() async throws {
         let s = scene(start: p(20, 22))
         addAll(s, [at("a", p(31, 18)), at("b", p(31, 19))])
         var t = run(s, 0.1)
@@ -361,7 +356,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: "a"), false)
     }
 
-    func testSurfacingSplashesButLeavingTheWaterDoesNot() throws {
+    func testSurfacingSplashesButLeavingTheWaterDoesNot() async throws {
         let s = scene(start: p(33, 18))
         s.myEvolutionStage = 2
         addAll(s, [at("a", p(31, 18))])   // distance 2 from (33,18)
@@ -398,7 +393,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(peak, 0)
     }
 
-    func testTeammateSurfacingSplashesWithTheirStage() throws {
+    func testTeammateSurfacingSplashesWithTheirStage() async throws {
         let s = scene(start: p(20, 22))
         addAll(s, [at("a", p(34, 19), stage: 2, diving: true), at("in", p(34, 21)), at("out", p(34, 22))])   // distance 2 and 3
         var t = run(s, 0.3)
@@ -412,7 +407,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: "a"), false)
     }
 
-    func testTeammateClimbingOutWhileSurfacingMakesNoSplash() throws {
+    func testTeammateClimbingOutWhileSurfacingMakesNoSplash() async throws {
         let s = scene(start: p(20, 22))
         addAll(s, [at("a", p(32, 18), stage: 3, diving: true), at("b", p(31, 19))])
         var t = run(s, 0.3)
@@ -425,7 +420,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: "b"), false)
     }
 
-    func testDiversBlowBubbles() throws {
+    func testDiversBlowBubbles() async throws {
         let s = scene(start: p(33, 18))
         addAll(s, [at("a", p(35, 18), diving: true)])
         var t = run(s, 0.1)
@@ -443,7 +438,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(layer.bubbleCount, 0, "surfaced swimmers blow none")
     }
 
-    func testWetDoesNotClearAChatBubble() {
+    func testWetDoesNotClearAChatBubble() async {
         let s = scene(start: p(31, 18))
         addAll(s, [at("a", p(31, 19))])
         s.face(.down)
@@ -457,7 +452,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: "a"), false, "the drop lasts two seconds")
     }
 
-    func testPlungeIsBlockedBySwimmer() throws {
+    func testPlungeIsBlockedBySwimmer() async throws {
         let s = scene(start: p(31, 18))
         addAll(s, [at("swimmer", p(32, 18))])
         s.face(.right)
@@ -475,7 +470,7 @@ final class PlazaPondSceneTests: XCTestCase {
     }
 
     /// Z pressed in the middle of a land step: the arc must wait for the plunge step, not start with the old step.
-    func testPlungeArcWaitsForThePlungeStep() {
+    func testPlungeArcWaitsForThePlungeStep() async {
         let s = scene(start: p(30, 18))
         s.face(.right)
         var t = run(s, 0.1)
@@ -501,7 +496,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(liftAt ?? -1, startedAt ?? 99)
     }
 
-    func testPlungeFromStandstillLiftsOnTheNextUpdate() {
+    func testPlungeFromStandstillLiftsOnTheNextUpdate() async {
         let s = scene(start: p(31, 18))
         s.face(.right)
         let t = run(s, 0.1)
@@ -512,7 +507,7 @@ final class PlazaPondSceneTests: XCTestCase {
     }
 
     /// A snap (here: going away to the shelter) removes the plunge step without it ever landing: no splash.
-    func testNoSplashFromAPlungeThatNeverLanded() throws {
+    func testNoSplashFromAPlungeThatNeverLanded() async throws {
         let s = scene(start: p(20, 22))
         addAll(s, [at("a", p(31, 18)), at("neighbour", p(31, 17))])
         let layer = try XCTUnwrap(s.pondLayer)
@@ -530,7 +525,7 @@ final class PlazaPondSceneTests: XCTestCase {
     }
 
     /// Holding the arrow starts the next swim step in the same frame the plunge lands; that still splashes.
-    func testAPlungeFollowedAtOnceByAHeldSwimStepStillSplashes() throws {
+    func testAPlungeFollowedAtOnceByAHeldSwimStepStillSplashes() async throws {
         let s = scene(start: p(31, 18))
         s.face(.right)
         let layer = try XCTUnwrap(s.pondLayer)
@@ -543,7 +538,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(peak, PlazaPondLayer.bigDroplets)
     }
 
-    func testWaterlineRingStaysOnTheWaterWhileASwimmerJumps() throws {
+    func testWaterlineRingStaysOnTheWaterWhileASwimmerJumps() async throws {
         let s = scene(start: p(20, 22))
         add(s, "a", p(34, 18))
         var t = run(s, 0.1)
@@ -561,7 +556,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertTrue(sawLift)
     }
 
-    func testWalkingToAMemberInTheWaterStopsOnTheNearSide() {
+    func testWalkingToAMemberInTheWaterStopsOnTheNearSide() async {
         let s = scene(start: p(31, 17))
         addAll(s, [at("swimmer", p(33, 17))])
         let t = run(s, 0.1)
@@ -572,7 +567,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.walker.facing, .right)
     }
 
-    func testPlungingWhileWalkingToAMemberStopsTheWalk() {
+    func testPlungingWhileWalkingToAMemberStopsTheWalk() async {
         let s = scene(start: p(31, 18))
         addAll(s, [at("far", p(20, 22))])
         s.face(.right)
@@ -585,7 +580,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.walker.tile, p(32, 18))
     }
 
-    func testNoParticlesOrWetWithoutPondVisualsOrWithTheBackgroundHidden() throws {
+    func testNoParticlesOrWetWithoutPondVisualsOrWithTheBackgroundHidden() async throws {
         let plain = scene(start: p(31, 18), pondVisuals: false)
         addAll(plain, [at("a", p(31, 19))])
         plain.face(.right)
@@ -618,7 +613,7 @@ final class PlazaPondSceneTests: XCTestCase {
 
     // MARK: paused scene
 
-    func testAPausedSceneMovesAnEggAshoreAtOnceWhenIBecomeAnEgg() {
+    func testAPausedSceneMovesAnEggAshoreAtOnceWhenIBecomeAnEgg() async {
         let s = scene(start: p(32, 18))
         run(s, 0.1)
         var reported: [TilePoint] = []
@@ -629,7 +624,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(reported.last, p(31, 18), "teammates are told")
     }
 
-    func testAPausedPushIntoTheWaterLeavesAnEggOnTheShore() {
+    func testAPausedPushIntoTheWaterLeavesAnEggOnTheShore() async {
         let s = scene(start: p(31, 18))
         run(s, 0.1)
         s.canWalk = false
@@ -641,7 +636,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(Array(reported.suffix(2)), [p(32, 18), p(31, 18)], "teammates see the fall, then the climb")
     }
 
-    func testAPausedEggWithNoFreeShoreWaitsInTheWater() {
+    func testAPausedEggWithNoFreeShoreWaitsInTheWater() async {
         let s = scene(start: p(34, 18))
         run(s, 0.1)
         var members: [PlazaSceneMember] = []
@@ -659,7 +654,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertFalse(s.isMeInWater, "once the plaza runs and a shore frees, update finishes the climb")
     }
 
-    func testAPlazaThatPausesWithMyEggStillInTheWaterClimbsItOut() {
+    func testAPlazaThatPausesWithMyEggStillInTheWaterClimbsItOut() async {
         let s = scene(start: p(35, 16))
         run(s, 0.1)
         s.canWalk = false   // an egg now, mid-pond, climbing by update
@@ -672,7 +667,7 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(reported.last.map { !map.isWater($0) }, true)
     }
 
-    func testAPausedEggWhoseRouteIsBlockedByASwimmerStaysAndDoesNotHang() {
+    func testAPausedEggWhoseRouteIsBlockedByASwimmerStaysAndDoesNotHang() async {
         let s = scene(start: p(33, 18))
         run(s, 0.1)
         add(s, "blocker", p(32, 18))   // on the first tile of the way to the free shore at (31,18)

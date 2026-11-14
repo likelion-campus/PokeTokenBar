@@ -1,5 +1,4 @@
 import XCTest
-import CoreGraphics
 @testable import PokeTokenBar
 
 /// The scene-driven footprint tests: `PlazaScene` is a SpriteKit scene until the plaza stage lands.
@@ -45,7 +44,7 @@ extension PlazaFootprintTests {
                         name: "d", nameColor: PlazaColor(srgbRed: 1, green: 0, blue: 0), title: nil, isDecoy: false)
     }
 
-    func testWalkingOnASnowDayLeavesMarksThatFadeAway() {
+    func testWalkingOnASnowDayLeavesMarksThatFadeAway() async {
         let e = Env(map: map)
         e.walkRight()
         e.frames(0.2)
@@ -57,7 +56,7 @@ extension PlazaFootprintTests {
         XCTAssertEqual(e.scene.footprintCount, 0)
     }
 
-    func testAPushLeavesNoMarks() {
+    func testAPushLeavesNoMarks() async {
         let e = Env(map: map)
         e.scene.pushMe(.right, tiles: 2)
         e.frames(1)
@@ -65,7 +64,7 @@ extension PlazaFootprintTests {
         XCTAssertEqual(e.scene.footprintCount, 0)
     }
 
-    func testAWalkingTeammateAndTheDittoLeaveMarks() {
+    func testAWalkingTeammateAndTheDittoLeaveMarks() async {
         let e = Env(map: map)
         e.scene.applyMembers([member("a", p(14, 10))])
         e.frames(0.3)
@@ -82,7 +81,7 @@ extension PlazaFootprintTests {
         XCTAssertEqual(e.scene.footprintCount, 4)
     }
 
-    func testAHiddenBackgroundClearsAndMakesNoMarks() {
+    func testAHiddenBackgroundClearsAndMakesNoMarks() async {
         let e = Env(map: map)
         e.walkRight()
         e.frames(0.2)

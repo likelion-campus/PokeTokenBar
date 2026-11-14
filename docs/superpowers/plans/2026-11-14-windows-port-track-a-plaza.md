@@ -257,18 +257,27 @@ struct PlazaTransform: Equatable { var a, b, c, d, tx, ty: CGFloat; static let i
 }
 @MainActor final class PlazaHeadlessStage: PlazaStage { init(size: CGSize) }   // no clock: never calls stageUpdate; a size change calls stageDidChangeSize
 
-// PlazaWindowShell.swift (Task 12)
+// PlazaWindowShell.swift (Task 12, as built)
 @MainActor protocol PlazaPausableView: AnyObject { var isPaused: Bool { get set } }   // moved from the controller file
 @MainActor protocol PlazaWindowEvents: AnyObject {
     func contentHeightDidChange(_ height: CGFloat)
     func setRendering(visible: Bool)
-    func handleResignKey(); func handleBecomeKey(); func handleClose()
+    func didResignKey(); func didBecomeKey()                       // the old delegate bodies: handleResignKey/BecomeKey + the state log line
+    func handleClose()
 }
-struct PlazaOverlayBindings { /* the @Observable models and action closures the Mac SwiftUI views need; listed in Task 12 */ }
+struct PlazaOverlayBindings {                                       // the controller's `overlayBindings`; closures hold it weakly
+    let rosterModel, overlayModel, feed, myMemberID, chatLog, minimap, backgroundModel, shortcutModel, nameColorModel
+    let mapImage: PlazaImage, worldSize: CGSize
+    let chatInput: any PlazaChatInputHost                           // the Mac shell casts it to PlazaChatInput for .view/.field
+    let walkToMember, turnRosterPage, react, chooseMenu, closeOverlay, chooseCampfire, toggleChatLog, toggleShortcuts,
+        toggleBackground, toggleNameColorPicker, pickNameColor
+}
 @MainActor protocol PlazaWindowShell: AnyObject {
     var events: (any PlazaWindowEvents)? { get set }
     func open(stage: any PlazaStage, title: String, overlays: PlazaOverlayBindings)
-    func bringToFront(); func requestClose(); func dismantle()
+    func bringToFront(); func requestClose()
+    func stopPresenting()                                           // before the controller lets go of the stage's scene (`scene` willSet)
+    func dismantle()                                                // after stopPresenting: window delegate/content released
     func setTitle(_ title: String); func setTransparent(_ transparent: Bool); func setHUDHidden(_ hidden: Bool)
     func focusScene(); func focusChatInput(); func setChatLogAboveInput(_ above: Bool)
     var isFrontmost: Bool { get }; var isInLiveResize: Bool { get }
@@ -280,6 +289,10 @@ struct PlazaOverlayBindings { /* the @Observable models and action closures the 
     func open(); func close()
     var onSubmit: ((String) -> Bool)? { get set }; var onClose: (() -> Void)? { get set }
 }
+// Every shell call is a no-op while no window is open. Mac: Team/UI/PlazaMacWindow.swift (init(autosaveName:styleMask:front:), the
+// last three for tests; also the Mac-only `PlazaWindowController.rosterView()` and `shortcutThrowLabel`). Headless:
+// PlazaHeadlessShell + PlazaStubChatInput (Team/Plaza/Draw/PlazaHeadlessShell.swift). The HUD toggle models PlazaBackgroundModel,
+// PlazaNameColorModel and PlazaShortcutGuideModel are shared in Team/Plaza/PlazaHUDModels.swift.
 protocol ImageClipboarding: Sendable { func writePNG(_ data: Data) -> Bool }   // declared in PlatformPlaza.swift (Task 6)
 
 // HUD/ (Task 14), in Sources/PokeTokenBar/Team/Plaza/HUD/
@@ -311,6 +324,8 @@ enum PlatformPlaza {
     @MainActor static func makeStage(size: CGSize) -> any PlazaStage   // PlazaHeadlessStage on BOTH OSes until Task 10 adds SpriteKitStage on the Mac
     @MainActor static func makeShell() -> any PlazaWindowShell          // PlazaMacWindow | PlazaHeadlessShell
     @MainActor static func makeChatInput() -> any PlazaChatInputHost    // PlazaChatInput | PlazaStubChatInput
+    static func tileSheet() -> PlazaImage?; static func tallGrassSheet() -> PlazaImage?   // Task 12: the controller's art loaders; the Mac
+    static func tallGrassArt() -> PlazaTallGrassArt?; static func iceArt() -> PlazaIceArt // calls today's loaders, elsewhere `graphics`
     @MainActor static func spriteFetcher() -> any PlazaSpriteFetching   // LivePlazaSpriteFetcher | stub (empty)
 }
 ```
@@ -616,6 +631,7 @@ Sources/PokeTokenBar/mac-only.txt, Tests/PokeTokenBarTests/mac-only.txt, Tests/P
 **Files:** `Tests/PokeTokenBarTests/mac-only.txt`; `PlazaDittoControllerTests`, `PlazaMimicControllerTests`, `PlazaFocusTests`, `PlazaIceControllerTests`, `PlazaSnowballControllerTests`, `PlazaStartleControllerTests`, `PlazaPullUnderTests`, `PlazaPrayTests`, `PlazaItemsTests`, `PlazaMembersTests`, `PlazaGroupPhotoTests`, `PlazaActivityControllerTests`, `PlazaActivityTests`, `PlazaBoardTests` (SwiftUI parts `+Mac`), `PlazaCardTests` (`ImageRenderer` parts `+Mac`), `PlazaWindowTests` (`restoreFrame`, `NSWindow` parts `+Mac`), `PlazaChatTests` (AppKit field parts stay Mac-only), `PlazaControllerLifetimeTests`, `PlazaScheduleWiringTests`, `PlazaPhotoModeTests`, `PlazaPhotoTests` (input parts), `ParkedDitto.swift`
 
 - [ ] **Step 1:** Async conversion where synchronous; tests construct the controller with `shell: PlazaHeadlessShell()` only where the default would not compile on Windows (the default already is the headless shell there).
+- Note (Task 12): until stage 6 the Windows controller's scenes differ from the Mac's: `PlatformPlaza.tileSheet()`/`tallGrassSheet()` return nil through the stub graphics (one `AppLog` line the first time), so the map is plain grass, `pondVisuals` is false, tall-grass art is nil and the ice art is empty. Tests that depend on pond visuals, tall grass or ice art read different scenes there (fix the test assumption or keep the assertion in `+Mac`).
 - [ ] **Step 2:** Remove from the list, push, triage as in Task 11.
 - [ ] **Step 3: Verify** — Mac gate green; Windows CI green; the Windows executed-test count is reported to the lead so Track B raises the workflow floor.
 - [ ] **Step 4: PR** `test(plaza): run the plaza controller tests on Windows`.

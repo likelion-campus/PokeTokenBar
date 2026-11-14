@@ -44,7 +44,7 @@ final class PlazaCollisionTests: XCTestCase {
 
     private func right(_ p: TilePoint, _ n: Int = 1) -> TilePoint { TilePoint(x: p.x + n, y: p.y) }
 
-    func testATeammateBlocksTheTileTheyStandOn() throws {
+    func testATeammateBlocksTheTileTheyStandOn() async throws {
         let p = try openSpot()
         let s = scene(start: p)
         s.applyMembers([member("a", right(p))])
@@ -56,7 +56,7 @@ final class PlazaCollisionTests: XCTestCase {
     }
 
     /// A teammate who is walking blocks the tile they are walking into.
-    func testATeammateWalkingInBlocksWhereTheyAreGoing() throws {
+    func testATeammateWalkingInBlocksWhereTheyAreGoing() async throws {
         let p = try openSpot()
         let s = scene(start: p)
         s.applyMembers([member("a", right(p, 2))])
@@ -70,7 +70,7 @@ final class PlazaCollisionTests: XCTestCase {
     }
 
     /// When we start on the same tile (everyone opens the plaza at the same spot), I can still step off it.
-    func testICanStepOffATileIShare() throws {
+    func testICanStepOffATileIShare() async throws {
         let p = try openSpot()
         let s = scene(start: p)
         s.applyMembers([member("a", p)])
@@ -81,7 +81,7 @@ final class PlazaCollisionTests: XCTestCase {
     }
 
     /// Walking to a teammate from the roster goes around another teammate standing on the straight way.
-    func testWalkingToATeammateGoesAroundAnotherOne() throws {
+    func testWalkingToATeammateGoesAroundAnotherOne() async throws {
         let p = try openSpot()
         let s = scene(start: p)
         s.applyMembers([member("target", right(p, 4)), member("blocker", right(p))])
@@ -93,7 +93,7 @@ final class PlazaCollisionTests: XCTestCase {
     }
 
     /// Without a way through, the walk stops instead of pushing into a teammate.
-    func testWalkingToAWalledInTeammateStops() throws {
+    func testWalkingToAWalledInTeammateStops() async throws {
         let p = try openSpot()
         let target = right(p, 3)
         let s = scene(start: p)
@@ -107,7 +107,7 @@ final class PlazaCollisionTests: XCTestCase {
 
     // MARK: - Pushed by a tackle
 
-    func testPushMovesOneTileWithoutTurning() {
+    func testPushMovesOneTileWithoutTurning() async {
         var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
         w.push(.right)
         w.advance(by: 1) { _ in true }
@@ -115,7 +115,7 @@ final class PlazaCollisionTests: XCTestCase {
         XCTAssertEqual(w.facing, .left, "still facing whoever pushed")
     }
 
-    func testPushIntoABlockedTileStays() {
+    func testPushIntoABlockedTileStays() async {
         var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
         w.push(.right)
         w.advance(by: 1) { _ in false }
@@ -125,7 +125,7 @@ final class PlazaCollisionTests: XCTestCase {
     }
 
     /// A stronger tackle slides several tiles in a row, still facing the same way.
-    func testPushSlidesSeveralTiles() {
+    func testPushSlidesSeveralTiles() async {
         var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
         w.push(.right, tiles: 3)
         w.advance(by: PlazaWalker.stepDuration * 1.5) { _ in true }
@@ -136,7 +136,7 @@ final class PlazaCollisionTests: XCTestCase {
     }
 
     /// A slide stops in front of the first blocked tile, and the tiles left over are dropped.
-    func testPushStopsAtTheFirstBlockedTile() {
+    func testPushStopsAtTheFirstBlockedTile() async {
         var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
         w.push(.right, tiles: 3)
         w.advance(by: 1) { $0 != TilePoint(x: 7, y: 5) }
@@ -146,7 +146,7 @@ final class PlazaCollisionTests: XCTestCase {
     }
 
     /// A push slides at walking pace even while Shift is held.
-    func testPushKeepsWalkingPaceWhileRunning() {
+    func testPushKeepsWalkingPaceWhileRunning() async {
         var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .left)
         w.wantsToRun = true
         w.push(.right)
@@ -156,7 +156,7 @@ final class PlazaCollisionTests: XCTestCase {
     }
 
     /// Being pushed beats a held arrow: the push step comes first, then walking goes on.
-    func testPushGoesBeforeAHeldKey() {
+    func testPushGoesBeforeAHeldKey() async {
         var w = PlazaWalker(tile: TilePoint(x: 5, y: 5), facing: .up)
         w.press(.up)
         w.push(.right)
@@ -167,7 +167,7 @@ final class PlazaCollisionTests: XCTestCase {
     }
 
     /// A teammate resting in the shelter never wanders onto a blocked tile, and stays put when every way is blocked.
-    func testShelterWandererAvoidsBlockedTiles() {
+    func testShelterWandererAvoidsBlockedTiles() async {
         let shelter = map.shelterTiles
         var free = PlazaShelterWanderer(memberID: "m", shelter: shelter)
         var blockedOnce = PlazaShelterWanderer(memberID: "m", shelter: shelter)

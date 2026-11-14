@@ -1,4 +1,4 @@
-import SpriteKit
+import Foundation
 
 /// `PlazaActor.place`가 위치를 계산하는 데 필요한 장면 쪽 값.
 struct PlazaActorContext {
@@ -21,37 +21,32 @@ struct PlazaActorContext {
     /// 캐릭터 그림을 월드 단위로 키우는 배율. 발 위치(아래 가운데)는 그대로이고 이름·그림자는 키운 크기에 맞춘다.
     static let characterScale: CGFloat = 1.5
 
-    private let characterNode = SKSpriteNode()
-    private let plateNode = SKSpriteNode()
-    private let shadowNode = SKSpriteNode()
+    private let characterNode = PlazaSprite()
+    private let plateNode = PlazaSprite()
+    private let shadowNode = PlazaSprite()
     /// 헤엄칠 때 몸이 물에 잠기는 높이에 얹는 물결 고리.
-    private let swimRingNode = SKSpriteNode()
+    private let swimRingNode = PlazaSprite()
     /// 물에 잠긴 아랫부분(알은 몸통 전체)을 물 아래에 비치게 그리는 반투명 스프라이트. 연못 사각형으로 자르는 크롭 노드 안에 둔다.
-    private let ghostCrop = SKCropNode()
-    private let ghostNode = SKSpriteNode()
-    private let ghostMask = SKSpriteNode(color: .white, size: .zero)
+    private let ghostCrop = PlazaCropNode()
+    private let ghostNode = PlazaSprite()
     /// 아래쪽 월드 픽셀을 잘라 낸 양(헤엄). 0이면 온전하다. 알은 자르지 않아도 0보다 크면 물에 든 것이다.
     private var swimSink: CGFloat = 0
     /// 알이 물에 들었다(헤엄 높이가 있는 알). 알은 자르지 않고 통째로 물빛에 잠긴다.
     private var eggSunk: Bool { shadowIsNest && swimSink > 0 }
     /// 알일 때 알 앞에 얹는 둥지 앞 테두리. 알이 둥지 안에 앉아 보이게 한다.
-    private let nestFrontNode = SKSpriteNode()
-    private var nestFrontImage: CGImage?
+    private let nestFrontNode = PlazaSprite()
+    private var nestFrontImage: PlazaImage?
     /// 말풍선은 이름표처럼 카메라 공간에 둔다.
-    private let emoteNode = SKSpriteNode()
+    private let emoteNode = PlazaSprite()
     /// 물보라에 젖었을 때 이름표 옆에 잠깐 뜨는 💧. 말풍선과 별개의 노드라 말풍선을 지우지도 가리지도 않는다.
-    private let wetNode = SKSpriteNode()
+    private let wetNode = PlazaSprite()
     private var wetRemaining: TimeInterval = 0
     private static let wetSize = CGSize(width: 16, height: 16)
-    private static let wetTexture: SKTexture = {
-        let texture = SKTexture(cgImage: PlazaPondArt.wetImage(scale: 4).cgImage)
-        texture.filteringMode = .nearest
-        return texture
-    }()
+    private static let wetTexture = PlazaTexture(PlazaPondArt.wetImage(scale: 4))
     /// 그림자 텍스처는 크기가 바뀔 때만 다시 만든다.
     private var shadowTextureSize: (width: Int, height: Int)?
     /// 발밑 그림: 그림자나 알의 둥지. 기념사진도 같은 그림을 쓴다.
-    private var shadowImage: CGImage?
+    private var shadowImage: PlazaImage?
     private var shadowIsNest = false
     /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
     private var plateKey: (nickname: String, title: String?, backing: CGFloat, color: PlazaColor)?
@@ -94,7 +89,7 @@ struct PlazaActorContext {
     private var showingBack = false
     private var frameIndex = 0
     private var frameElapsed: TimeInterval = 0
-    private var textureCache: [ObjectIdentifier: SKTexture] = [:]
+    private var textureCache: [ObjectIdentifier: PlazaTexture] = [:]
 
     init(name: String, color: PlazaColor) {
         self.name = name
@@ -106,10 +101,9 @@ struct PlazaActorContext {
         swimRingNode.size = CGSize(width: 24, height: 6)   // 12×3 시트 픽셀 × 2
         swimRingNode.isHidden = true
         ghostNode.anchorPoint = CGPoint(x: 0.5, y: 1)
-        ghostNode.color = PlazaPondArt.waterColor.skColor
+        ghostNode.color = PlazaPondArt.waterColor
         ghostNode.colorBlendFactor = PlazaPondArt.submergedBlend
         ghostCrop.isHidden = true
-        ghostMask.anchorPoint = .zero
         ghostCrop.addChild(ghostNode)
         nestFrontNode.anchorPoint = .zero
         nestFrontNode.isHidden = true
@@ -128,16 +122,15 @@ struct PlazaActorContext {
         wetNode.isHidden = true
     }
 
-    func attach(world: SKNode, camera: SKCameraNode) {
-        world.addChild(shadowNode)
-        world.addChild(characterNode)
-        world.addChild(swimRingNode)
-        world.addChild(ghostCrop)
-        world.addChild(nestFrontNode)
-        camera.addChild(plateNode)
-        camera.addChild(emoteNode)
-        camera.addChild(wetNode)
+    func attach(world: PlazaNode, camera: PlazaNode) {
+        for node in worldNodes { world.addChild(node) }
+        for node in cameraNodes { camera.addChild(node) }
     }
+
+    /// What `attach` adds to the world, in this order: shadow, character, swim ring, submerged ghost (in its crop), nest rim.
+    var worldNodes: [PlazaNode] { [shadowNode, characterNode, swimRingNode, ghostCrop, nestFrontNode] }
+    /// What `attach` adds to the camera, in this order: name plate, bubble, 💧.
+    var cameraNodes: [PlazaNode] { [plateNode, emoteNode, wetNode] }
 
     func detach() {
         shadowNode.removeFromParent()
@@ -388,9 +381,7 @@ struct PlazaActorContext {
                                          : characterNode.position
             ghostNode.alpha = (eggSunk ? PlazaPondArt.submergedEggAlpha : PlazaPondArt.submergedAlpha) * alpha
             ghostCrop.zPosition = characterNode.zPosition + 0.0001
-            ghostMask.position = r.origin
-            ghostMask.size = r.size
-            ghostCrop.maskNode = ghostMask
+            ghostCrop.maskRect = r
         } else {
             ghostCrop.isHidden = true
         }
@@ -417,8 +408,8 @@ struct PlazaActorContext {
         // 춤의 옆걸음은 그림자도 함께 간다(화면의 `place`와 같다).
         let dancePose = dancePose
         let foot = CGPoint(x: rawFoot.x + dancePose.offsetX, y: rawFoot.y)
-        let image = list[frameIndex % list.count].image.cgImage
-        var shadow: CGImage?
+        let image = list[frameIndex % list.count].image
+        var shadow: PlazaImage?
         var shadowRect = CGRect.zero
         if let size = shadowTextureSize {
             shadow = shadowImage
@@ -434,9 +425,9 @@ struct PlazaActorContext {
             let height = CGFloat(image.height) * Self.characterScale - (eggSunk ? 0 : swimSink)
             if !isMeForConcealment { plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2)) }
         }
-        return PlazaPhotoActor(image: PlazaImage(cgImage: image), flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
-                               scale: Self.characterScale, shadow: shadow.map(PlazaImage.init(cgImage:)), shadowRect: shadowRect,
-                               front: shadowIsNest && !eggSunk ? nestFrontImage.map(PlazaImage.init(cgImage:)) : nil,
+        return PlazaPhotoActor(image: image, flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
+                               scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
+                               front: shadowIsNest && !eggSunk ? nestFrontImage : nil,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
@@ -467,8 +458,8 @@ struct PlazaActorContext {
     var submergedBodyAlpha: CGFloat { ghostNode.alpha }
     var submergedBodyTopY: CGFloat { ghostNode.position.y }
     var submergedBodySize: CGSize { ghostNode.size }
-    var submergedBodyTextureRect: CGRect { ghostNode.texture?.textureRect() ?? .zero }
-    var submergedBodyClip: CGRect? { ghostCrop.isHidden || ghostCrop.maskNode == nil ? nil : CGRect(origin: ghostMask.position, size: ghostMask.size) }
+    var submergedBodyTextureRect: CGRect { ghostNode.texture?.rect ?? .zero }
+    var submergedBodyClip: CGRect? { ghostCrop.isHidden ? nil : ghostCrop.maskRect }
     var isSwimRingVisible: Bool { !swimRingNode.isHidden }
     var swimRingY: CGFloat { swimRingNode.position.y }
     /// 자르기 전 지금 그림의 높이(월드 픽셀). 그림이 없으면 0.
@@ -499,13 +490,13 @@ struct PlazaActorContext {
         if let text = chatText {
             if chatKey?.text != text || chatKey?.backing != backing {
                 chatKey = (text, backing)
-                guard let image = PlazaChatBubble.image(text: text, scale: backing)?.cgImage else { return hideEmote() }
+                guard let image = PlazaChatBubble.image(text: text, scale: backing) else { return hideEmote() }
                 setBubble(image, backing: backing)
             }
         } else if let kind = emoteKind {
             if emoteKey?.kind != kind || emoteKey?.backing != backing {
                 emoteKey = (kind, backing)
-                setBubble(PlazaEmoteArt.image(kind, scale: backing, large: true).cgImage, backing: backing)
+                setBubble(PlazaEmoteArt.image(kind, scale: backing, large: true), backing: backing)
             }
         } else {
             return
@@ -530,9 +521,8 @@ struct PlazaActorContext {
                        y: min(origin.y, halfH - size.height - margin))
     }
 
-    private func setBubble(_ image: CGImage, backing: CGFloat) {
-        let texture = SKTexture(cgImage: image)
-        texture.filteringMode = .nearest
+    private func setBubble(_ image: PlazaImage, backing: CGFloat) {
+        let texture = PlazaTexture(image)
         emoteNode.texture = texture
         emoteNode.size = CGSize(width: CGFloat(image.width) / backing, height: CGFloat(image.height) / backing)
     }
@@ -550,12 +540,11 @@ struct PlazaActorContext {
     private func applyFrame() {
         guard let list = currentFrames, !list.isEmpty else { return }
         let image = list[frameIndex % list.count].image
-        let texture: SKTexture
+        let texture: PlazaTexture
         if let cached = textureCache[ObjectIdentifier(image)] {
             texture = cached
         } else {
-            texture = SKTexture(cgImage: image.cgImage)
-            texture.filteringMode = .nearest
+            texture = PlazaTexture(image)
             textureCache[ObjectIdentifier(image)] = texture
         }
         let full = Self.scaledSize(of: image)
@@ -564,12 +553,10 @@ struct PlazaActorContext {
         let cut = swimSink > 0 && !shadowIsNest ? min((swimSink / Self.characterScale).rounded(), CGFloat(image.height) - 1) : 0   // 그림 줄 단위로 자른다
         if cut > 0 {
             let f = cut / CGFloat(image.height)
-            let top = SKTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: texture)
-            top.filteringMode = .nearest
+            let top = PlazaTexture(rect: CGRect(x: 0, y: f, width: 1, height: 1 - f), in: texture)
             characterNode.texture = top
             characterNode.size = CGSize(width: full.width, height: full.height - cut * Self.characterScale)
-            let low = SKTexture(rect: CGRect(x: 0, y: 0, width: 1, height: f), in: texture)   // 잘려 나간 아래 줄
-            low.filteringMode = .nearest
+            let low = PlazaTexture(rect: CGRect(x: 0, y: 0, width: 1, height: f), in: texture)   // 잘려 나간 아래 줄
             ghostNode.texture = low
             ghostNode.size = CGSize(width: full.width, height: cut * Self.characterScale)
         } else {
@@ -582,11 +569,7 @@ struct PlazaActorContext {
         }
     }
 
-    private static let swimRingTexture: SKTexture = {
-        let t = SKTexture(cgImage: PlazaPondArt.swimRing().cgImage)
-        t.filteringMode = .nearest
-        return t
-    }()
+    private static let swimRingTexture = PlazaTexture(PlazaPondArt.swimRing())
 
     private func refreshShadow() {
         guard let frames, let first = frames.front.first else { return }
@@ -595,18 +578,16 @@ struct PlazaActorContext {
         if let old = shadowTextureSize, old == size, shadowIsNest == frames.isEgg { return }
         shadowTextureSize = size
         shadowIsNest = frames.isEgg
-        let image = frames.isEgg ? PlazaNestArt.image().cgImage : PlazaGroundShadow.image(width: size.width, height: size.height).cgImage
+        let image = frames.isEgg ? PlazaNestArt.image() : PlazaGroundShadow.image(width: size.width, height: size.height)
         shadowImage = image
-        nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage().cgImage : nil
+        nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage() : nil
         nestFrontNode.isHidden = !frames.isEgg
         if let front = nestFrontImage {
-            let texture = SKTexture(cgImage: front)
-            texture.filteringMode = .nearest
+            let texture = PlazaTexture(front)
             nestFrontNode.texture = texture
             nestFrontNode.size = CGSize(width: size.width, height: size.height)
         }
-        let texture = SKTexture(cgImage: image)
-        texture.filteringMode = .nearest
+        let texture = PlazaTexture(image)
         shadowNode.texture = texture
         shadowNode.size = CGSize(width: size.width, height: size.height)
     }
@@ -616,15 +597,14 @@ struct PlazaActorContext {
         if name.isEmpty { return }
         if let key = plateKey, key.nickname == name, key.title == title, key.backing == backing, key.color == nameColor { return }
         plateKey = (name, title, backing, nameColor)
-        guard let image = PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: backing)?.cgImage else {
+        guard let image = PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: backing) else {
             // The next frame un-hides the node before the key check, so nothing of the old name may remain.
             plateNode.isHidden = true
             plateNode.texture = nil
             plateNode.size = .zero
             return
         }
-        let texture = SKTexture(cgImage: image)
-        texture.filteringMode = .nearest
+        let texture = PlazaTexture(image)
         plateNode.texture = texture
         plateNode.size = CGSize(width: CGFloat(image.width) / backing, height: CGFloat(image.height) / backing)
     }
