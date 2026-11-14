@@ -38,9 +38,15 @@ enum PlatformPlaza {
         #endif
     }
 
-    /// Where the scene draws. The headless stage on both OSes until Task 10 adds the Mac's SpriteKit stage; nothing
-    /// calls it before then.
-    @MainActor static func makeStage(size: CGSize) -> any PlazaStage { PlazaHeadlessStage(size: size) }
+    /// Where the scene draws: SpriteKit on the Mac (`SpriteKitStage`, whose `SKScene` the window's `SKView` presents),
+    /// the headless stage elsewhere (no drawing, no frame clock: the scene gets no `update` until stage 6 adds one).
+    @MainActor static func makeStage(size: CGSize) -> any PlazaStage {
+        #if os(Windows) || PTB_SHARED_ONLY
+        PlazaHeadlessStage(size: size)
+        #else
+        SpriteKitStage(size: size)
+        #endif
+    }
 
     /// Where character sprites come from: `SpriteLoader`/`SpriteStore` on the Mac, nothing (the placeholder) elsewhere.
     @MainActor static func spriteFetcher() -> any PlazaSpriteFetching {

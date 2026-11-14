@@ -389,7 +389,7 @@ extension SKView: PlazaPausableView {}
             w.contentView = container
             w.center()
             Self.restoreFrame(w, into: rosterModel)
-            view.presentScene(scene)
+            view.presentScene((scene.stage as! SpriteKitStage).skScene)
             w.makeFirstResponder(view)
             skView = view
             renderLoop = view

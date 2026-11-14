@@ -123,9 +123,9 @@ final class PlazaDittoSceneTests: XCTestCase {
         s.applyDitto(shown())
         s.isPaused = true
         s.playDittoPoof()
-        XCTAssertEqual(s.dustCount, 0)
+        XCTAssertEqual(s.dustShown, 0)
         s.isPaused = false
         s.playDittoPoof()
-        XCTAssertGreaterThan(s.dustCount, 0)
+        XCTAssertGreaterThan(s.dustShown, 0)
     }
 }

@@ -89,7 +89,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         s.update(0.05)   // the lunge starts at 0 and grows with the first frame
         XCTAssertNotEqual(s.lungeOffset(memberID: "a"), .zero)
         run(s, 0.5, from: 0.05)
-        XCTAssertEqual(s.impactCount, 1)
+        XCTAssertEqual(s.impactsShown, 1)
     }
 
     func testAMissInTheWaterSplashesInsteadOfBursting() {
@@ -114,7 +114,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         s.playSnowball(by: "a", shot: hitShot) { landed += 1 }
         XCTAssertEqual(landed, 1)
         XCTAssertEqual(s.snowballSpriteCount, 0)
-        XCTAssertEqual(s.impactCount, 0)
+        XCTAssertEqual(s.impactsShown, 0)
         XCTAssertEqual(s.children.count, before)
     }
 
@@ -124,7 +124,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         s.update(0)
         s.playSnowball(by: "a", shot: hitShot) {}
         run(s, 0.9)
-        XCTAssertEqual(s.impactCount, 0)
+        XCTAssertEqual(s.impactsShown, 0)
     }
 
     func testPausingMidFlightLandsEveryBallAtOnce() {
@@ -149,7 +149,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         for _ in 0..<(PlazaSnowballLayer.maxFlights + 5) { s.playSnowball(by: "a", shot: hitShot) { landed += 1 } }
         XCTAssertEqual(s.snowballFlightCount, PlazaSnowballLayer.maxFlights)
         XCTAssertEqual(landed, 5)
-        XCTAssertEqual(s.impactCount, 0, "a refused flight lands at once without an impact node")
+        XCTAssertEqual(s.impactsShown, 0, "a refused flight lands at once without an impact node")
     }
 
     func testNodesAreReused() {

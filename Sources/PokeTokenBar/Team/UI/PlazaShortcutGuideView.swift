@@ -20,8 +20,8 @@ struct PlazaShortcutGuide: View {
         return rows
     }
 
-    /// 창 왼쪽 끝에서 펼친 안내판의 오른쪽 끝까지(포인트).
-    static let coveredWidth: CGFloat = 130
+    /// 창 왼쪽 끝에서 펼친 안내판의 오른쪽 끝까지(포인트). 장면도 읽으므로 값은 공유 코드에 있다.
+    static let coveredWidth: CGFloat = PlazaShortcutGuideMetrics.coveredWidth
 
     let model: PlazaShortcutGuideModel
     let toggle: () -> Void

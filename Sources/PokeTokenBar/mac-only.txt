@@ -20,8 +20,7 @@ Core/UpdateChecker.swift
 # Team: system notification poster (UserNotifications) and the Network.framework transport
 Team/TeamNotificationsMac.swift
 Team/TeamTransport.swift
-# Plaza: SpriteKit scene, window controller, actors, layers and CoreGraphics art
+# Plaza: the window controller (AppKit window, SKView, SwiftUI overlays), its presenting glue and the icon loader
 Team/Plaza/PlazaIconLoader.swift
 Team/Plaza/PlazaPresentingMac.swift
-Team/Plaza/PlazaScene.swift
 Team/Plaza/PlazaWindowController.swift

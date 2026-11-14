@@ -24,33 +24,34 @@ enum PlazaRenderEnv {
     }
 }
 
-/// The plan's single adapter: the harness reaches the SpriteKit scene only through here, so Task 10 changes one line.
+/// The plan's single adapter: the harness reaches the SpriteKit scene only through here.
 enum PlazaRenderHarness {
-    @MainActor static func skScene(of scene: PlazaScene) -> SKScene { scene }
+    /// The `SKScene` the Mac's stage draws the shared scene into (what the window's `SKView` presents).
+    @MainActor static func skScene(of scene: PlazaScene) -> SKScene { (scene.stage as! SpriteKitStage).skScene }
 
-    /// The shared subtrees mounted into the scene (Track A converts them layer by layer). After every capture each one is
-    /// compared with its SpriteKit copy (`PlazaMirrorParity`).
-    @MainActor static func sharedRoots(of scene: PlazaScene) -> [PlazaNode] {
-        layerRoots(of: scene).map(\.root) + actors(of: scene).flatMap { $0.worldNodes + $0.cameraNodes }
-    }
+    /// The shared tree, compared with its SpriteKit copy after every capture (`PlazaMirrorParity`). Since Task 10 the
+    /// whole scene is one shared tree under the stage root, whose copy is the `SKScene` itself.
+    @MainActor static func sharedRoots(of scene: PlazaScene) -> [PlazaNode] { [scene.root] }
 
-    /// Every actor of the scene: mine, the teammates' and the Ditto's (Task 9: their nodes are shared roots too).
+    /// Every actor of the scene: mine, the teammates' and the Ditto's.
     @MainActor static func actors(of scene: PlazaScene) -> [PlazaActor] {
         [scene.myActor] + (scene.memberTiles.keys.sorted() + [PlazaDitto.sceneKey]).compactMap(scene.memberActor)
     }
 
-    /// An actor's node whose SpriteKit copy is not where `attach` put it (world nodes in the scene, the rest in the camera).
+    /// An actor's node whose SpriteKit copy is not where `attach` put it (world nodes straight in the `SKScene`, the
+    /// rest in its camera). Kept beside the root parity: it names the actor when a detach or an attach goes wrong.
     @MainActor static func actorMountDifferences(of scene: PlazaScene) -> [String] {
-        actors(of: scene).flatMap { actor in
-            actor.worldNodes.filter { $0.skNode?.parent !== scene }.map { "actor \(actor.name): \(type(of: $0)) is not in the scene" }
-                + actor.cameraNodes.filter { $0.skNode?.parent !== scene.camera }.map { "actor \(actor.name): \(type(of: $0)) is not in the camera" }
+        let sk = skScene(of: scene)
+        return actors(of: scene).flatMap { actor in
+            actor.worldNodes.filter { $0.skNode?.parent !== sk }.map { "actor \(actor.name): \(type(of: $0)) is not in the scene" }
+                + actor.cameraNodes.filter { sk.camera == nil || $0.skNode?.parent !== sk.camera }.map { "actor \(actor.name): \(type(of: $0)) is not in the camera" }
         }
     }
 
-    /// The class a converted layer's node had before Track A (an `SKNode` subclass; now the plain `SKNode` copy of a shared
-    /// root), so tree dumps still compare with bases from before the conversion. Only the printed class name is mapped.
+    /// The class a node had before Track A (an `SKNode` subclass; now the copy of a shared node), so tree dumps still
+    /// compare with bases from before the conversion. Only the printed class name is mapped.
     @MainActor static func legacyClassNames(of scene: PlazaScene) -> [ObjectIdentifier: String] {
-        var out: [ObjectIdentifier: String] = [:]
+        var out: [ObjectIdentifier: String] = [ObjectIdentifier(skScene(of: scene)): "PlazaScene"]
         for (root, name) in layerRoots(of: scene) { if let sk = root.skNode { out[ObjectIdentifier(sk)] = name } }
         return out
     }

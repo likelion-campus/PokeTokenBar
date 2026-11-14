@@ -207,7 +207,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         scene.campfireLit = true
         scene.update(0)
         let tint = scene.daylightTint
-        let image = try XCTUnwrap(scene.campfireLightImage)
+        let image = try XCTUnwrap(scene.campfireLightImage?.cgImage)
         let radii = PlazaCampfireLight.radii(phase: 0)
         let n = PlazaCampfireLight.blockCounts(radii: radii)
         XCTAssertEqual(image.width, n.w)

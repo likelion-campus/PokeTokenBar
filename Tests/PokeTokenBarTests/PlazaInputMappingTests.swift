@@ -37,9 +37,10 @@ final class PlazaInputMappingTests: XCTestCase {
         let scene = makeScene()
         var closes = 0
         scene.onCloseRequest = { closes += 1 }
-        scene.keyDown(with: try key(PlazaKeyCode.w, "w", flags: .command))
+        let host = (scene.stage as! SpriteKitStage).skScene   // the SKScene the SKView sends keys to
+        host.keyDown(with: try key(PlazaKeyCode.w, "w", flags: .command))
         XCTAssertEqual(closes, 1)
-        scene.keyDown(with: try key(PlazaKeyCode.w, "w"))
+        host.keyDown(with: try key(PlazaKeyCode.w, "w"))
         XCTAssertEqual(closes, 1, "plain W does not close")
     }
 
