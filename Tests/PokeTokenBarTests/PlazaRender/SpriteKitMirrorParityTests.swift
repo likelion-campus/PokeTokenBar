@@ -99,7 +99,7 @@ enum PlazaMirrorParity {
                 check(c.maskRect == nil && crop.maskNode == nil, "mask nil-ness")
             }
         case is PlazaCameraNode: check(sk is SKCameraNode, "class")
-        default: check(type(of: sk) == SKNode.self, "class")
+        default: check(type(of: sk) == SKNode.self || (node.parent == nil && sk is PlazaSKScene), "class")   // a stage root's copy is its SKScene
         }
         check(sk.children.count == node.children.count, "children count \(sk.children.count) vs \(node.children.count)")
         for (i, child) in node.children.enumerated() {
@@ -669,6 +669,87 @@ final class SpriteKitMirrorParityTests: XCTestCase {
         print("ACTOR PARITY: 540 frames, \(forward.count) textures mapped, \(swimFrames) swim frames, \(checkedPhotos) photo checks")
     }
 
+    /// Review points on Task 9 (states the first script never reached): `place` before any frames arrive (on land and in
+    /// a pond), frames arriving while swimming, facing back while swimming, frames of different sizes in one list, a form
+    /// change in the water, lunges to the right, up and down, and the dance ♪ (the first script's chat hid it). Same
+    /// checks as `testActorPlacementMatchesTheLegacyActor`, every frame.
+    func testActorEdgeStatesMatchTheLegacyActor() {
+        let legacyWorld = SKNode(), legacyCamera = SKCameraNode()
+        let world = SKNode(), camera = SKCameraNode()
+        let a = LegacyPlazaActor(name: "Misty", color: PlazaNameColor.palette[3])
+        let b = PlazaActor(name: "Misty", color: PlazaNameColor.palette[3])
+        a.attach(world: legacyWorld, camera: legacyCamera)
+        b.attach(world: world, camera: camera)
+        let actors: [any PlazaActorUnderTest] = [a, b]
+        func all(_ body: (any PlazaActorUnderTest) -> Void) { actors.forEach(body) }
+        var forward: [ObjectIdentifier: SKTexture] = [:], backward: [ObjectIdentifier: SKTexture] = [:], kept: [SKTexture] = []
+        func picture(_ t: SKTexture) -> Data? { let i = t.cgImage(); return (i.dataProvider?.data as Data?).map { Data("\(i.width)x\(i.height)".utf8) + $0 } }
+        func same(_ x: SKTexture, _ y: SKTexture) -> Bool {
+            if let m = forward[ObjectIdentifier(x)] { return m === y }
+            guard backward[ObjectIdentifier(y)] == nil, picture(x) == picture(y) else { return false }
+            forward[ObjectIdentifier(x)] = y; backward[ObjectIdentifier(y)] = x; kept += [x, y]
+            return true
+        }
+        func image(_ w: Int, _ h: Int, _ seed: Int) -> PlazaImage {
+            var px = [UInt8](repeating: 0, count: w * h * 4)
+            for y in 1..<h { for x in 0..<w where (x * 5 + y * 3 + seed) % 4 != 0 {
+                let i = (y * w + x) * 4
+                px[i] = UInt8((x * 11 + seed * 50) % 256); px[i + 1] = UInt8((y * 9) % 256); px[i + 2] = 90; px[i + 3] = 255
+            } }
+            return PlazaImage(cgImage: PlazaRenderScenes.image(px, width: w, height: h))
+        }
+        let mixed = PlazaCharacterFrames(front: [PlazaFrame(image: image(27, 33, 0), delay: 0.05), PlazaFrame(image: image(25, 31, 1), delay: 0.05),
+                                                 PlazaFrame(image: image(29, 35, 2), delay: 0.05)],
+                                         back: [PlazaFrame(image: image(31, 29, 3), delay: 0.07), PlazaFrame(image: image(27, 33, 4), delay: 0.07)])
+        let other = PlazaRenderScenes.frames(.dawn)
+        let pond = CGRect(x: 40.3, y: 300.7, width: 160.1, height: 48.45)
+        var facing = PlazaDirection.down, walking = false, foot = CGPoint(x: 120.25, y: 330.5)
+        var swim = false, water: CGRect?
+        var notes = 0, backSwim = 0, swimFrames = 0, lunges = Set<String>(), sizes = Set<String>()
+        for f in 0..<260 {
+            switch f {
+            case 12: swim = true; water = pond   // placed in the water before any frames
+            case 20: all { $0.setFrames(mixed) }   // frames arrive while swimming
+            case 30: facing = .up; walking = true
+            case 60: walking = false
+            case 70: all { $0.setFrames(other) }   // a form change in the water
+            case 90: facing = .left; walking = true
+            case 110: swim = false; water = nil; walking = false; facing = .down; all { $0.setFrames(mixed) }
+            case 120: all { $0.lunge(toward: .right) }
+            case 140: all { $0.lunge(toward: .up) }
+            case 160: all { $0.lunge(toward: .down) }
+            case 180: all { $0.startDance(.wiggle, offset: 0.05, length: PlazaDance.round) }
+            case 220: all { $0.startDance(.spin, offset: 0, length: 0.6) }
+            default: break
+            }
+            if walking { foot.x += facing == .left ? -0.73 : 0.37; foot.y += facing == .up ? -0.29 : 0 }
+            let pose = PlazaPose.choice(facing: facing, isWalking: walking, clock: Double(f) / 60)
+            all { $0.animate(by: 1.0 / 60, useBack: pose.useBack) }
+            XCTAssertEqual(a.takeFinishedDance(), b.takeFinishedDance(), "frame \(f): dance end")
+            let sink = swim ? PlazaPond.swimSink(spriteHeight: b.fullSpriteHeight) : 0
+            let context = PlazaActorContext(worldHeight: 1024, cameraPosition: CGPoint(x: foot.x + 13.5, y: 1024 - foot.y + 20.25),
+                                            zoom: 2, backing: 2, viewport: CGSize(width: 640, height: 480))
+            all { $0.place(foot: foot, pose: pose, in: context, concealment: 0, isMe: false, swimSink: sink, waterRect: water) }
+            var diffs = PlazaMirrorParity.treeDifferences(legacyWorld, world, sameTexture: same)
+                + PlazaMirrorParity.treeDifferences(legacyCamera, camera, sameTexture: same)
+                + (b.worldNodes + b.cameraNodes).flatMap { PlazaMirrorParity.differences($0) }
+            for (x, y) in zip(Self.readings(a), Self.readings(b)) where x != y { diffs.append("accessor \(x) | \(y)") }
+            if f % 7 == 0, Self.photoReadings(a.photoActor(foot: foot, pose: pose, waterClip: water)) != Self.photoReadings(b.photoActor(foot: foot, pose: pose, waterClip: water)) {
+                diffs.append("photo")
+            }
+            guard diffs.isEmpty else { return XCTFail("frame \(f):\n" + diffs.prefix(6).joined(separator: "\n")) }
+            if b.emoteKind == .dance { notes += 1 }
+            if b.isSubmergedBodyVisible { swimFrames += 1; if pose.useBack { backSwim += 1 } }
+            if b.lungeOffset != .zero { lunges.insert("\(b.lungeOffset.x.sign)\(b.lungeOffset.x == 0)\(b.lungeOffset.y.sign)") }
+            sizes.insert("\(b.characterSize)")
+        }
+        XCTAssertGreaterThan(notes, 20, "the dance ♪ was drawn")
+        XCTAssertGreaterThan(swimFrames, 60)
+        XCTAssertGreaterThan(backSwim, 20, "swimming facing back")
+        XCTAssertGreaterThanOrEqual(lunges.count, 3, "lunges in three directions: \(lunges)")
+        XCTAssertGreaterThanOrEqual(sizes.count, 4, "frames of different sizes: \(sizes)")
+    }
+
     /// Three front and two back frames of an odd size (27x33), so the picture lands on half pixels.
     private static func oddFrames() -> PlazaCharacterFrames {
         func image(_ seed: Int) -> PlazaImage {
@@ -778,13 +859,14 @@ final class SpriteKitMirrorParityTests: XCTestCase {
         s.scene.showChat(memberID: "swim", text: "bye")
         s.scene.memberActor("ash")?.showWet()
         for f in 0..<6 { s.scene.update(Double(f) / 60) }
-        let camera = try XCTUnwrap(s.scene.camera)
+        let sk = PlazaRenderHarness.skScene(of: s.scene)   // the host's SKScene: the SpriteKit tree the window draws
+        let camera = try XCTUnwrap(sk.camera)
         let leaving = ["ash", "swim", PlazaDitto.sceneKey].compactMap { s.scene.memberActor($0) }
         XCTAssertEqual(leaving.count, 3)
         XCTAssertTrue(try XCTUnwrap(s.scene.memberActor("swim")).isSubmergedBodyVisible, "the swimmer's ghost crop is drawn")
         let world = leaving.flatMap(\.worldNodes), hud = leaving.flatMap(\.cameraNodes)
-        XCTAssertTrue(world.allSatisfy { $0.skNode?.parent === s.scene } && hud.allSatisfy { $0.skNode?.parent === camera }, "mounted while present")
-        let (sceneCount, cameraCount) = (s.scene.children.count, camera.children.count)
+        XCTAssertTrue(world.allSatisfy { $0.skNode?.parent === sk } && hud.allSatisfy { $0.skNode?.parent === camera }, "mounted while present")
+        let (sceneCount, cameraCount) = (sk.children.count, camera.children.count)
 
         s.put([])
         s.scene.applyDitto(nil)
@@ -792,12 +874,13 @@ final class SpriteKitMirrorParityTests: XCTestCase {
             XCTAssertNil(node.skNode?.parent, "\(type(of: node)) left the SpriteKit tree")
             XCTAssertNil(node.parent)
         }
-        XCTAssertEqual(s.scene.children.count, sceneCount - world.count)
+        XCTAssertEqual(sk.children.count, sceneCount - world.count)
         XCTAssertEqual(camera.children.count, cameraCount - hud.count)
         for f in 6..<12 { s.scene.update(Double(f) / 60) }
         XCTAssertTrue((world + hud).allSatisfy { $0.skNode?.parent == nil }, "and stay out while the scene runs")
-        XCTAssertTrue(s.scene.myActor.worldNodes.allSatisfy { $0.skNode?.parent === s.scene }, "my actor stays")
+        XCTAssertTrue(s.scene.myActor.worldNodes.allSatisfy { $0.skNode?.parent === sk }, "my actor stays")
         XCTAssertEqual(PlazaRenderHarness.actorMountDifferences(of: s.scene), [])
+        XCTAssertEqual(PlazaMirrorParity.differences(s.scene.root), [])
     }
 
     /// Risk R1: what a write costs through `PlazaSprite` and its mirror against the same write straight to an

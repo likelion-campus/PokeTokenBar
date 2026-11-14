@@ -387,7 +387,7 @@ final class PlazaCardTests: XCTestCase {
         space(c.scene!)
         XCTAssertEqual(c.overlayContent, .none)
         XCTAssertFalse(c.scene!.isOverlayOpen)
-        XCTAssertEqual(c.scene!.dustCount, 0, "Space is for talking only; jumping is Z")
+        XCTAssertEqual(c.scene!.dustShown, 0, "Space is for talking only; jumping is Z")
     }
 
     /// X and C need a teammate beside me. Alone, they show and send nothing.
@@ -403,7 +403,7 @@ final class PlazaCardTests: XCTestCase {
         key(scene, xKey)
         key(scene, cKey)
         XCTAssertNil(scene.shownEmote(memberID: nil))
-        XCTAssertEqual(scene.impactCount, 0)
+        XCTAssertEqual(scene.impactsShown, 0)
         XCTAssertEqual(c.overlayContent, .none)
         try? await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(received, [])
@@ -579,7 +579,7 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertEqual(scene.emoteFrame(memberID: nil)?.size, PlazaEmoteArt.size(large: true), "my key bubble")
         XCTAssertEqual(scene.emoteFrame(memberID: id)?.size, PlazaEmoteArt.size(large: true), "a received bubble")
         scene.setBoardMarker(visible: true)
-        let marker = scene.children.compactMap { $0 as? SKSpriteNode }.first { $0.zPosition == 5 && !$0.isHidden }
+        let marker = scene.children.compactMap { $0 as? PlazaSprite }.first { $0.zPosition == 5 && !$0.isHidden }
         XCTAssertEqual(marker?.size, PlazaEmoteArt.size, "the board marker keeps the normal size")
     }
 
@@ -603,7 +603,7 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertEqual(menu.selection, .tackle)
         space(scene)
         XCTAssertEqual(c.overlayContent, .none)
-        XCTAssertEqual(scene.impactCount, 1)
+        XCTAssertEqual(scene.impactsShown, 1)
         step(scene, seconds: PlazaActor.lungeDuration / 2)
         XCTAssertGreaterThan(scene.lungeOffset(memberID: nil)?.y ?? 0, 0, "I lunge down, toward them")
         XCTAssertEqual(scene.walker.tile, map.spawn, "and stay on my tile")
@@ -670,7 +670,7 @@ final class PlazaCardTests: XCTestCase {
         key(scene, cKey)
         XCTAssertEqual(c.overlayContent, .none, "no menu")
         XCTAssertEqual(scene.walker.facing, .left, "turned to them")
-        XCTAssertEqual(scene.impactCount, 1)
+        XCTAssertEqual(scene.impactsShown, 1)
         step(scene, seconds: PlazaActor.lungeDuration / 2)
         XCTAssertLessThan(scene.lungeOffset(memberID: nil)?.x ?? 0, 0, "I lunge left, toward them")
         await waitUntil { !received.isEmpty }
@@ -835,7 +835,7 @@ final class PlazaCardTests: XCTestCase {
         let groundY = scene.characterY, shadowY = scene.groundShadowY
         key(scene, zKey)
         key(scene, zKey)
-        XCTAssertEqual(scene.dustCount, 2, "dust on both sides of my feet, once")
+        XCTAssertEqual(scene.dustShown, 2, "dust on both sides of my feet, once")
         var t: TimeInterval = 0
         scene.update(t)
         while t < PlazaActor.jumpDuration / 2 { t += 1.0 / 60; scene.update(t) }

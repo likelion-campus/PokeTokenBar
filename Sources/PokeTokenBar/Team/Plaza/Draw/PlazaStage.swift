@@ -1,6 +1,6 @@
 import Foundation
 
-/// What a stage tells the scene that draws on it (Task 10 makes `PlazaScene` this delegate).
+/// What a stage tells the scene that draws on it (`PlazaScene`).
 @MainActor protocol PlazaStageDelegate: AnyObject {
     /// One frame. Not called while the stage is paused or hidden.
     func stageUpdate(_ currentTime: TimeInterval)
@@ -11,7 +11,8 @@ import Foundation
     func stagePausedChanged(_ paused: Bool)
 }
 
-/// Where the shared tree is drawn: SpriteKit on the Mac (Task 10), nothing in headless tests and on Windows until stage 6.
+/// Where the shared tree is drawn: SpriteKit on the Mac (`SpriteKitStage`), nothing in headless tests and on Windows until
+/// stage 6.
 @MainActor protocol PlazaStage: AnyObject {
     var root: PlazaNode { get }
     var camera: PlazaCameraNode? { get set }

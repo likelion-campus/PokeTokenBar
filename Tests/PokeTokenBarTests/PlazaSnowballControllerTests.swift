@@ -221,7 +221,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         w.scene.handleKeyUp(keyCode: key)
         run(w.scene, 1.2)
         XCTAssertEqual(w.scene.walker.tile, side, "walked off, not pushed along the row")
-        XCTAssertEqual(w.scene.impactCount, 0, "no star on a tile the ball never touched")
+        XCTAssertEqual(w.scene.impactsShown, 0, "no star on a tile the ball never touched")
     }
 
     func testAHitFromOutOfLineOrTooFarOnlyBursts() async {
@@ -233,7 +233,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
             w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 2, direction: direction)
             run(w.scene, 1.5)
             XCTAssertEqual(w.scene.walker.tile, me, name)
-            XCTAssertEqual(w.scene.impactCount, 1, name)
+            XCTAssertEqual(w.scene.impactsShown, 1, name)
         }
     }
 
@@ -263,7 +263,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         await place(w, from)
         w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: d)
         run(w.scene, 1.0)
-        XCTAssertEqual(w.scene.impactCount, 1, "the impact always plays")
+        XCTAssertEqual(w.scene.impactsShown, 1, "the impact always plays")
         let moved = w.scene.walker.tile != spot
         w.c.handleClose()
         return moved
@@ -308,12 +308,12 @@ final class PlazaSnowballControllerTests: XCTestCase {
         press(w.scene, zKey)
         run(w.scene, 0.3)
         XCTAssertTrue(w.scene.isDiving, "test precondition")
-        let before = w.scene.impactCount
+        let before = w.scene.impactsShown
         w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .left)
         run(w.scene, 1.0)
         XCTAssertEqual(w.scene.walker.tile, p(14, 14))
-        XCTAssertEqual(w.scene.impactCount, before)
-        XCTAssertEqual(w.scene.impactCount, 0)
+        XCTAssertEqual(w.scene.impactsShown, before)
+        XCTAssertEqual(w.scene.impactsShown, 0)
     }
 
     // MARK: - Frames only a modified app sends
@@ -324,7 +324,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.snowballFlightCount, 0)
         run(w.scene, 1.0)
         XCTAssertEqual(w.scene.walker.tile, p(14, 12))
-        XCTAssertEqual(w.scene.impactCount, 0)
+        XCTAssertEqual(w.scene.impactsShown, 0)
     }
 
     func testAnUnknownOrHugeTargetFliesAsAMiss() async {
@@ -333,7 +333,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.snowballFlightCount, 1)
         run(w.scene, 1.0)
         XCTAssertEqual(w.scene.walker.tile, p(14, 12))
-        XCTAssertEqual(w.scene.impactCount, 0)
+        XCTAssertEqual(w.scene.impactsShown, 0)
     }
 
     func testAFloodOfSnowballsStaysUnderTheCap() async {
@@ -341,7 +341,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         for _ in 0..<500 { w.c.showSnowball(from: w.b.id, on: w.me.id, tiles: 1, direction: .right) }
         XCTAssertLessThanOrEqual(w.scene.snowballFlightCount, PlazaSnowballLayer.maxFlights)
         XCTAssertLessThanOrEqual(w.scene.snowballNodeCount, PlazaSnowballLayer.maxFlights * 8)
-        XCTAssertEqual(w.scene.impactCount, 0, "refused flights draw no impact")
+        XCTAssertEqual(w.scene.impactsShown, 0, "refused flights draw no impact")
     }
 
     // MARK: - A covered window

@@ -269,31 +269,31 @@ final class PlazaPondSceneTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: nil), false, "the splasher stays dry")
     }
 
-    /// The landing puff is a scheduled SKAction, which does not tick without a view; `playJump` puffs once at take-off
-    /// and once more from that action through the same `puffDust`, so the water rule is pinned on the take-off puff.
+    /// The landing puff comes 0.36 s later (a tween that only `update` steps); `playJump` puffs once at take-off and
+    /// once more from that tween through the same `puffDust`, so the water rule is pinned on the take-off puff.
     func testNoDustOnWaterButStillOnLand() {
         let land = scene(start: p(30, 18))
         land.playJump(memberID: nil)
-        XCTAssertEqual(land.dustCount, 2, "a land jump still dusts")
+        XCTAssertEqual(land.dustShown, 2, "a land jump still dusts")
 
         let swimmer = scene(start: p(34, 18))
         swimmer.playJump(memberID: nil)
-        XCTAssertEqual(swimmer.dustCount, 0, "no dust on water")
+        XCTAssertEqual(swimmer.dustShown, 0, "no dust on water")
 
         let s = scene(start: p(20, 22))
         add(s, "wet", p(33, 18))
         add(s, "dry", p(30, 18))
         s.playJump(memberID: "wet")
-        XCTAssertEqual(s.dustCount, 0, "a teammate in the water raises none either")
+        XCTAssertEqual(s.dustShown, 0, "a teammate in the water raises none either")
         s.playJump(memberID: "dry")
-        XCTAssertEqual(s.dustCount, 2)
+        XCTAssertEqual(s.dustShown, 2)
 
         let plunger = scene(start: p(31, 18))
         plunger.face(.right)
         plunger.plunge(.right)
         plunger.update(0)
         plunger.update(1.0 / 30)
-        XCTAssertEqual(plunger.dustCount, 2, "the take-off of a plunge is still on land")
+        XCTAssertEqual(plunger.dustShown, 2, "the take-off of a plunge is still on land")
     }
 
     func testAnEggInTheWaterClimbsOutByItselfThenStaysOnLand() {

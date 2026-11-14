@@ -782,18 +782,18 @@ final class PlazaMimicControllerTests: XCTestCase {
         let a = await join(w, "에이", Self.ditto, at: row(12))   // next to 도윤 (row 11)
         let far = await join(w, "비", Self.ditto, at: row(18))
         let start = w.scene.walker.tile
-        var before = w.scene.impactCount
+        var before = w.scene.impactsShown
         w.c.showMimicTackle(from: a.id, on: doyun.id)
         run(w, 1)
-        XCTAssertEqual(w.scene.impactCount, before + 1, "next to them")
-        before = w.scene.impactCount
+        XCTAssertEqual(w.scene.impactsShown, before + 1, "next to them")
+        before = w.scene.impactsShown
         w.c.showMimicTackle(from: far.id, on: doyun.id)
         run(w, 1)
-        XCTAssertEqual(w.scene.impactCount, before + 1, "from afar")
-        before = w.scene.impactCount
+        XCTAssertEqual(w.scene.impactsShown, before + 1, "from afar")
+        before = w.scene.impactsShown
         w.c.showMimicTackle(from: a.id, on: "nobody")
         run(w, 1)
-        XCTAssertEqual(w.scene.impactCount, before, "a target this scene doesn't draw")
+        XCTAssertEqual(w.scene.impactsShown, before, "a target this scene doesn't draw")
         XCTAssertNotNil(w.c.mimicking)
         XCTAssertEqual(w.scene.walker.tile, start)
     }
@@ -815,18 +815,18 @@ final class PlazaMimicControllerTests: XCTestCase {
         w.c.showMimicTackle(from: a.id, on: w.me.id)
         run(w, 1)
         XCTAssertEqual(w.scene.walker.tile, start)
-        XCTAssertEqual(w.scene.impactCount, 1)
+        XCTAssertEqual(w.scene.impactsShown, 1)
     }
 
     func testATackleFromAfarOnlyShowsTheStar() async {
         let (w, _, doyun, log) = await disguisedWorld(doyunAt: row(7))
         let start = w.scene.walker.tile
-        let before = w.scene.impactCount
+        let before = w.scene.impactsShown
         w.c.showTackle(from: doyun.id, on: w.me.id)
         run(w, 1)
         XCTAssertNotNil(w.c.mimicking)
         XCTAssertEqual(w.scene.walker.tile, start)
-        XCTAssertEqual(w.scene.impactCount, before + 1)
+        XCTAssertEqual(w.scene.impactsShown, before + 1)
         await settle()
         XCTAssertTrue(founds(log).isEmpty)
     }

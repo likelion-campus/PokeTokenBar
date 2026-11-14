@@ -711,13 +711,13 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         c.toggleBackground()
         XCTAssertTrue(c.scene!.isBackgroundHidden)
         XCTAssertTrue(c.isBackgroundHidden)
-        XCTAssertEqual(c.scene!.backgroundColor.alphaComponent, 0)
+        XCTAssertEqual(c.scene!.backgroundColor.alpha, 0)
         let reopened = controller(d)
         reopened.prepareScene()
         XCTAssertTrue(reopened.scene!.isBackgroundHidden, "the choice is kept")
         reopened.toggleBackground()
         XCTAssertFalse(reopened.scene!.isBackgroundHidden)
-        XCTAssertEqual(reopened.scene!.backgroundColor.alphaComponent, 1)
+        XCTAssertEqual(reopened.scene!.backgroundColor.alpha, 1)
     }
 
     func testCameraLooksAboveFeetForBigSprite() {
