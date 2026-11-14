@@ -2220,3 +2220,13 @@ read_when:
   창 이동·크기, `MessageBoxW`)를 시작하는 코드는 호출 전 `WinModalPump.begin(_:)`, 호출 뒤 `defer { end(_:) }` 를 부른다. 이동·크기 루프는 싱크로 오는 `WM_ENTERSIZEMOVE`/`WM_EXITSIZEMOVE` 가
   자동으로 begin/end 한다(다른 창은 같은 `WinSinkWindow` 라우팅이라 그대로). **회귀 점검:** `modalPump.*` 자가 점검(메뉴를 1.5 s 열어 둔 채 큐·타이머·Task 가 도는가, 재진입, 풍선, 타이머 수명, 메뉴 안에서
   `WindowsApp.exit`, 유휴) — 펌프를 끈 상태로 먼저 실행해 실패함을 확인했다.
+  **두 번째 결함 (같은 항목, 2026-11-15): 펌프 틱이 메뉴의 키 입력을 가로챘다.** 틱이 부른 `RunLoop.main.run(mode:before:)` 는 CoreFoundation 의 Windows 루프라 입력이 있다고 나오면
+  스스로 `PeekMessage(PM_REMOVE)` 로 메시지 하나를 꺼내 창에 디스패치한다 — 메뉴의 모달 루프가 막 읽으려던 키가 그 한 개였다면 메뉴는 그 키를 못 받는다(사용자 눈에는 "메뉴에서 키를 눌렀는데 가끔
+  아무 일도 안 일어난다"; CI 의 `tray.menuKeys` 가 간헐 실패: Return 이 안 닿아 `action=none`). **왜 못 걸렀나:** 첫 수정의 점검은 키를 틱이 *돌지 않을 때* 보냈다 — 틱이 일을 하는 동안 큐에 키가
+  있는 순간(수십 µs/50 ms)을 밟는 점검이 없었다. 처음 시도한 결정적 재현(30 ms 짜리 블록 안에서 키 전송)은 틱이 디스패치 포트 경로로 나가 `PeekMessage` 를 건너뛰어 0 건이라 틀린 가설이었다 —
+  재현은 **6000 개 Down 키를 0.2–0.8 ms 무작위 간격으로 쏟아붓고, 싱크에 평범한 `WM_KEYDOWN` 으로 도착한 수**(메뉴 안의 키는 메뉴가 번역해 디스패치되지 않는다)를 세는 것이다: 옛 틱 13/6000 유실.
+  시도하고 버린 안: ① CF 의 모드별 메시지 큐 마스크 SPI(`_CFRunLoopSetWindowsMessageQueueMask`)를 0 으로 — Foundation.dll 이 내보내지 않고 `CoreFoundation` 모듈도 임포트되지 않는다(러너에서 확인).
+  ② 틱 직전 `GetQueueStatus` 로 입력이 없을 때만 — 검사와 CF 의 `PeekMessage` 사이 경합이 남는다(10–15/6000). **고침:** 틱이 (1) `_dispatch_main_queue_callback_4CF`(`dispatch.dll`)로 메인 큐·main-actor Task 를
+  직접 비우고(메시지 큐 무관), (2) 런루프 패스 직전에 싱크로 미끼 `WM_NULL` 을 포스트한 뒤 큐의 첫 메시지가 그 미끼일 때만 패스를 돈다 — 포스트된 메시지는 포스트 순서로, 하드웨어 입력보다 먼저 나가므로
+  CF 가 꺼내는 한 개는 미끼다; 앞에 다른 메시지가 있으면 그 틱을 건너뛴다(다음 틱은 50 ms 뒤). 결과: 6000 키 유실 0, `modalPump.*` 전부 통과, 유휴 불변. **규칙:** 모달 루프 안에서 일을 돌리는 코드는
+  메시지 큐에서 아무것도 꺼내지 않아야 한다 — 입력 경합은 "가끔 한 개"라 통과가 증거가 아니므로 **유실 수를 세는 폭주 점검**(`modalPump.keysReachMenu`)으로 막는다.
