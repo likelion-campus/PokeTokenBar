@@ -103,17 +103,9 @@ enum WindowsSelftest {
               "strategy=\(app.loopStrategy.rawValue) expected=\(expected.rawValue)")
 
         let main = WindowsApp.mainThreadID
-        let taskHits = Box<Hit>()
-        onThread {
-            for _ in 0..<10 {
-                let t0 = nowMs()
-                Task { @MainActor in taskHits.append(Hit(tid: GetCurrentThreadId(), ms: nowMs() - t0)) }
-                Thread.sleep(forTimeInterval: 0.01)
-            }
-        }
-        let tasksDone = await waitUntil(timeout: 3) { taskHits.values.count >= 10 }
-        r.add("loop.mainActorTask", tasksDone && onMain(taskHits.values, main) && maxMs(taskHits.values) < 50,
-              "Task { @MainActor } from a thread: " + summary(taskHits.values, main, of: 10))
+        // Right after launch the store's first refresh is running; the brief's bound here is the thread only.
+        let burst = await taskBurst()
+        r.add("loop.mainActorTask", burst.complete && onMain(burst.task, main), burst.detail)
 
         let queueHits = Box<Hit>()
         onThread {
@@ -190,6 +182,32 @@ enum WindowsSelftest {
               "posted [0x41, 0xd55c] got=\(hex(chars.values)) redispatched=\(redispatched) acp=\(GetACP())")
 
         await typedCharCheck(r)
+    }
+
+    /// Ten rounds, from one plain thread, of a `Task { @MainActor }`, a `Task.detached` (the cooperative pool) and a
+    /// `DispatchQueue.main.async`, so a slow main-actor task can be told apart: a busy main thread delays the main
+    /// queue too, a busy pool delays the detached task too.
+    @MainActor private static func taskBurst() async -> (task: [Hit], complete: Bool, detail: String) {
+        let task = Box<Hit>(), detached = Box<Hit>(), queue = Box<Hit>()
+        onThread {
+            for _ in 0..<10 {
+                let t0 = nowMs()
+                Task { @MainActor in task.append(Hit(tid: GetCurrentThreadId(), ms: nowMs() - t0)) }
+                Task.detached { detached.append(Hit(tid: GetCurrentThreadId(), ms: nowMs() - t0)) }
+                DispatchQueue.main.async { queue.append(Hit(tid: GetCurrentThreadId(), ms: nowMs() - t0)) }
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+        }
+        let complete = await waitUntil(timeout: 5) {
+            task.values.count >= 10 && detached.values.count >= 10 && queue.values.count >= 10
+        }
+        let main = WindowsApp.mainThreadID
+        let pool = detached.values.map(\.ms).sorted()
+        let detail = "Task { @MainActor } from a thread: " + summary(task.values, main, of: 10)
+            + "; same rounds: DispatchQueue.main " + summary(queue.values, main, of: 10)
+            + "; Task.detached (pool) n=\(pool.count) median_ms=\(f2(pool.isEmpty ? -1 : pool[pool.count / 2])) "
+            + "max_ms=\(f2(pool.last ?? -1))"
+        return (task.values, complete, detail)
     }
 
     /// Real typed input: `SendInput(KEYEVENTF_UNICODE)` to a shown foreground window (F15). CI only, so a user's own
@@ -446,7 +464,12 @@ enum WindowsSelftest {
     @MainActor private static func idleCheck(_ r: Recorder, _ app: WindowsAppDelegate) async {
         let seconds = Double(ProcessInfo.processInfo.environment["PTB_SELFTEST_IDLE_SECONDS"] ?? "") ?? 60
         _ = await waitStable(timeout: 120, quiet: 2) { !app.store.isRefreshing }
-        let c0 = (WinDefaultsSync.safetyFires, WinDefaultsSync.debounceFires, app.refreshCount, WinMainLoop.iterations)
+        let settled = await taskBurst()
+        r.add("loop.mainActorTaskSettled",
+              settled.complete && onMain(settled.task, WindowsApp.mainThreadID) && maxMs(settled.task) < 50,
+              "store idle; " + settled.detail)
+        _ = await waitStable(timeout: 10, quiet: 2) { !app.store.isRefreshing }
+        let c0 =(WinDefaultsSync.safetyFires, WinDefaultsSync.debounceFires, app.refreshCount, WinMainLoop.iterations)
         let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
         let safety = WinDefaultsSync.safetyFires - c0.0, debounce = WinDefaultsSync.debounceFires - c0.1
         let refreshes = app.refreshCount - c0.2, iterations = WinMainLoop.iterations - c0.3
@@ -656,12 +679,12 @@ private enum IdleSampler {
                 guard let a = snapshot() else { continuation.resume(returning: nil); return }
                 Thread.sleep(forTimeInterval: seconds)
                 guard let b = snapshot() else { continuation.resume(returning: nil); return }
-                continuation.resume(returning: diff(a, b, mainThread: mainThread))
+                continuation.resume(returning: diff(a, b, mainThread: mainThread, sampler: GetCurrentThreadId()))
             }.start()
         }
     }
 
-    private static func diff(_ a: Snapshot, _ b: Snapshot, mainThread: DWORD) -> Sample {
+    private static func diff(_ a: Snapshot, _ b: Snapshot, mainThread: DWORD, sampler: DWORD) -> Sample {
         var busy: [(tid: UInt32, cs: Int, cycles: UInt64)] = []
         for (tid, cs) in b.contextSwitches {
             let dcs = Int(cs) - Int(a.contextSwitches[tid] ?? 0)
@@ -672,11 +695,55 @@ private enum IdleSampler {
         let main = UInt32(mainThread)
         let mainCS = b.contextSwitches[main].map { Int($0) - Int(a.contextSwitches[main] ?? 0) } ?? -1
         let mainCycles = (b.cycles[main] ?? 0) &- (a.cycles[main] ?? 0)
-        let text = busy.prefix(10).map { "\($0.tid == main ? "main" : String($0.tid)):cs=\($0.cs),cycles=\($0.cycles)\(a.contextSwitches[$0.tid] == nil ? ",new" : "")" }
-            .joined(separator: "; ")
+        let text = busy.prefix(10).map { t -> String in
+            let who = t.tid == main ? "main" : t.tid == UInt32(sampler) ? "sampler" : "\(t.tid) \(label(t.tid))"
+            return "\(who):cs=\(t.cs),cycles=\(t.cycles)\(a.contextSwitches[t.tid] == nil ? ",new" : "")"
+        }.joined(separator: "; ")
         return Sample(layoutOK: a.layoutOK && b.layoutOK, mainFound: b.contextSwitches[main] != nil,
                       mainContextSwitches: mainCS, mainCycles: mainCycles,
                       processCycles: b.processCycles &- a.processCycles, threadCount: b.contextSwitches.count, busy: text)
+    }
+
+    private typealias QueryThread = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafeMutableRawPointer?, UInt32,
+                                                    UnsafeMutablePointer<UInt32>?) -> Int32
+    private typealias ThreadDescription = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<PWSTR?>?) -> Int32
+
+    /// Who a thread is: its description (`GetThreadDescription`) and the module + offset of its start routine
+    /// (`NtQueryInformationThread(ThreadQuerySetWin32StartAddress)`), read after the window closed.
+    private static func label(_ tid: UInt32) -> String {
+        guard let h = OpenThread(0x0040 | 0x0800 /* QUERY_INFORMATION | QUERY_LIMITED_INFORMATION */, false, tid) else {
+            return "(no access)"
+        }
+        defer { _ = CloseHandle(h) }
+        var parts: [String] = []
+        if let describe = WinDynamic.symbol("kernel32.dll", "GetThreadDescription", as: ThreadDescription.self) {
+            var text: PWSTR?
+            if describe(h, &text) >= 0, let text {
+                let name = String(decodingCString: text, as: UTF16.self)
+                if !name.isEmpty { parts.append("'\(name)'") }
+                _ = LocalFree(text)
+            }
+        }
+        if let query = WinDynamic.symbol("ntdll.dll", "NtQueryInformationThread", as: QueryThread.self) {
+            var start: UInt = 0
+            if query(h, 9 /* ThreadQuerySetWin32StartAddress */, &start, UInt32(MemoryLayout<UInt>.size), nil) >= 0, start != 0 {
+                parts.append("start=" + moduleOffset(start))
+            }
+        }
+        return parts.isEmpty ? "(unnamed)" : parts.joined(separator: " ")
+    }
+
+    private static func moduleOffset(_ address: UInt) -> String {
+        var module: HMODULE?
+        // GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT
+        guard GetModuleHandleExW(0x4 | 0x2, UnsafePointer<WCHAR>(bitPattern: address), &module), let module else {
+            return "0x" + String(address, radix: 16)
+        }
+        var buffer = [UInt16](repeating: 0, count: 1024)
+        let n = Int(GetModuleFileNameW(module, &buffer, DWORD(buffer.count)))
+        let path = String(decoding: buffer.prefix(n), as: UTF16.self)
+        let name = path.split(separator: "\\").last.map(String.init) ?? path
+        return name + "+0x" + String(address &- UInt(bitPattern: module), radix: 16)
     }
 
     private static func snapshot() -> Snapshot? {

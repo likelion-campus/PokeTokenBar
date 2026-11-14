@@ -33,6 +33,7 @@ jobs:
         shell: bash
         run: swift build -c release --product PokeTokenBarWin 2>&1 | tee build.log
       - name: Package
+        id: package
         shell: pwsh
         run: ./scripts/windows/package.ps1 -Out bundle
       - name: Selftest fixture
@@ -56,6 +57,7 @@ jobs:
           $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages
       - name: Selftest on the dispatch-handle loop (diagnostic fallback, informational)
+        if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
         continue-on-error: true
         shell: pwsh
         run: |
@@ -67,6 +69,7 @@ jobs:
           $env:PTB_SELFTEST_IDLE_SECONDS = '20'
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st-dispatch.json -ExpectStrategy dispatchHandle
       - name: Kill and exit paths of the full app
+        if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
         shell: pwsh
         run: |
           # The app writes team.memberID at launch and saves it right after the stores are built. Kill it
@@ -130,6 +133,7 @@ jobs:
           }
           'log has both exit lines'
       - name: Version flag (informational)
+        if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
         continue-on-error: true
         shell: pwsh
         run: |
