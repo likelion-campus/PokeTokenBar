@@ -54,6 +54,7 @@ enum WindowsSelftest {
         let flush = detail.contains("FlushBuffersFile") || detail.contains("FlushFileBuffers")
         let cf = detail.contains("_CFWriteBytesToFile") || detail.contains("CFURLWriteDataAndPropertiesToResource")
             || detail.contains("CFPreferences") || detail.contains("CFXMLPreferences")
+            || detail.contains("UserDefaultsC11synchronize")  // seen on the runner (run 43608614954): the 2 s settings sync, 83 ms
         return flush && !cf
     }
 
