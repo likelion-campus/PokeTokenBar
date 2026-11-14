@@ -702,14 +702,19 @@ final class WindowsSocketLoopTests: XCTestCase {
         XCTAssertTrue(healed, "got \(String(decoding: server.rec.data(sid), as: UTF8.self))")
         XCTAssertEqual(client.loop.wakeResends, 1)
 
-        client.loop.injectWakeFaults(drop: 0, fail: 1)
-        client.loop.send(Data("C".utf8), on: cid)
-        try await Task.sleep(nanoseconds: 300_000_000)
-        XCTAssertEqual(server.rec.data(sid), Data("AB".utf8), "the failed wake left the loop asleep")
-        client.loop.send(Data("D".utf8), on: cid)   // the failed wake was not claimed: this one sends it
-        let retried = await waitUntil(5) { server.rec.data(sid) == Data("ABCD".utf8) }
-        XCTAssertTrue(retried, "got \(String(decoding: server.rec.data(sid), as: UTF8.self))")
-        XCTAssertEqual(client.loop.wakeFailures, 1)
+        // A failed send, on a fresh loop: the next command must try again at once, not wait out wakeResendMs.
+        let other = side()
+        defer { other.loop.shutdown() }
+        let (sid2, cid2) = try await link(server, other, port: try XCTUnwrap(server.rec.port))
+        other.loop.send(Data("X".utf8), on: cid2)
+        let first = await waitUntil(5) { server.rec.data(sid2) == Data("X".utf8) }   // the loop has taken its wake
+        XCTAssertTrue(first)
+        other.loop.injectWakeFaults(drop: 0, fail: 1)
+        other.loop.send(Data("C".utf8), on: cid2)   // its wake fails
+        other.loop.send(Data("D".utf8), on: cid2)   // the wake was left unclaimed: this one sends it
+        let retried = await waitUntil(5) { server.rec.data(sid2) == Data("XCD".utf8) }
+        XCTAssertTrue(retried, "got \(String(decoding: server.rec.data(sid2), as: UTF8.self))")
+        XCTAssertEqual(other.loop.wakeFailures, 1)
     }
 
     func testAnUnansweredAcceptIsClosedByTheLoop() async throws {
