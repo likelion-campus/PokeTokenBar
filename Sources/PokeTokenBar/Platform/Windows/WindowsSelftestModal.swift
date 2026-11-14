@@ -241,7 +241,7 @@ extension WindowsSelftest {
         WinDefaultsSync.makeAppDefaults().set("v1", forKey: key)
         signalReady()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            MainActor.assumeIsolated { WindowsApp.exit(0, .helper) }
+            MainActor.assumeIsolated { () -> Void in WindowsApp.exit(0, .helper) }
         }
         let items = [TrayMenuModel.Item(title: "Self-test", enabled: true, checked: false, action: .none)]
         _ = WinPopupMenu.run(items, at: POINT(x: 300, y: 300), owner: window.hwnd)

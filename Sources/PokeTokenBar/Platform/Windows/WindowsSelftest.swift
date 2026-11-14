@@ -948,7 +948,7 @@ enum WindowsSelftest {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
     }
 
-    private static func plistValue(_ url: URL, _ key: String) -> String? {
+    static func plistValue(_ url: URL, _ key: String) -> String? {
         guard let data = try? Data(contentsOf: url),
               let dict = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any]
         else { return nil }
