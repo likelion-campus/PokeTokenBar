@@ -265,12 +265,15 @@ final class WindowsTLSTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: log) }
         let proc = try launch(exe, ["s_client", "-connect", "127.0.0.1:\(l.port)", "-tls1_2", "-cipher", "PSK-AES128-GCM-SHA256",
                                     "-psk", keyHex(), "-psk_identity", "ptb-team-v1", "-quiet", "-msg"], stdin: stdin, log: log)
-        defer { proc.terminate() }
+        defer { if proc.isRunning { proc.terminate() } }
         let accepted = try XCTUnwrap(acceptOne(l.socket), "s_client never connected")
         let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: UInt(accepted))
         var step = server.handshake()
         for _ in 0..<5000 where !isTerminal(step) { Thread.sleep(forTimeInterval: 0.002); step = server.handshake() }
-        if step != .done { print("s_client output: \((try? String(contentsOf: log, encoding: .utf8)) ?? "?")") }
+        if step != .done {
+            server.close()
+            print("s_client output: \(endAndRead(proc, log).text)")
+        }
         XCTAssertEqual(step, .done)
         XCTAssertEqual(server.cipher, "PSK-AES128-GCM-SHA256")
         XCTAssertEqual(server.version, "TLSv1.2")
@@ -280,7 +283,18 @@ final class WindowsTLSTests: XCTestCase {
             if let d = server.read(max: 64).0 { got.append(d) } else { Thread.sleep(forTimeInterval: 0.002) }
         }
         XCTAssertEqual(String(decoding: got, as: UTF8.self), "ping\n")
-        server.close()
+        server.close()   // close_notify: s_client ends by itself and flushes its log
+        let (exited, text) = endAndRead(proc, log)
+        XCTAssertTrue(exited, "s_client did not end after close_notify")
+        XCTAssertTrue(text.contains("ServerHello"), "s_client -msg log: \(text)")
+        XCTAssertFalse(text.contains("NewSessionTicket"), "our server issued a session ticket (SSL_OP_NO_TICKET): \(text)")
+    }
+
+    /// s_client writes its `-msg` log through buffered stdio, which a terminated process never flushes. Waits for it
+    /// to end by itself (after our close_notify or a failed handshake), then reads the log.
+    private func endAndRead(_ proc: Process, _ log: URL) -> (exited: Bool, text: String) {
+        for _ in 0..<300 where proc.isRunning { Thread.sleep(forTimeInterval: 0.02) }
+        return (!proc.isRunning, (try? String(contentsOf: log, encoding: .utf8)) ?? "")
     }
 }
 #endif
