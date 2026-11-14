@@ -273,3 +273,96 @@ enum PlatformCompat {
         return pi == p.count
     }
 }
+
+// MARK: - Tool directories and launching (stage 4, Task 4)
+
+extension PlatformCompat {
+    /// The environment key that holds the search path. Mac: "PATH". Windows: the key already in `env` that equals
+    /// "PATH" ignoring case ("Path" in practice, since the process environment is case-insensitive), else "Path".
+    static func pathVariableKey(in env: [String: String]) -> String {
+        #if os(Windows)
+        return env.keys.first { $0.caseInsensitiveCompare("PATH") == .orderedSame } ?? "Path"
+        #else
+        return "PATH"
+        #endif
+    }
+
+    /// The names `path` may be launched under. Mac: `[path]`. Windows: `path` + each launchable PATHEXT extension
+    /// (`.exe` first; `.cmd`, `.bat`, `.com` in PATHEXT order, or that order when PATHEXT is unset). A bare name is
+    /// not a candidate: npm also writes an extensionless shell script next to its `.cmd` shim.
+    static func executableCandidates(_ path: String) -> [String] {
+        executableCandidates(path, pathExt: ProcessInfo.processInfo.environment["PATHEXT"])
+    }
+
+    static func executableCandidates(_ path: String, pathExt: String?) -> [String] {
+        #if os(Windows)
+        let launchable = [".cmd", ".bat", ".com"]
+        var extensions = [".exe"]
+        let listed = (pathExt ?? "").split(separator: ";").map { $0.lowercased() }.filter(launchable.contains)
+        for e in (listed.isEmpty ? launchable : listed) where !extensions.contains(e) { extensions.append(e) }
+        return extensions.map { path + $0 }
+        #else
+        return [path]
+        #endif
+    }
+
+    /// Mac: `posix`, unchanged. Windows: the package-manager and version-manager folders whose base variable is set.
+    static func toolDirectories(posix: [String]) -> [String] {
+        toolDirectories(posix: posix, environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func toolDirectories(posix: [String], environment: [String: String]) -> [String] {
+        #if os(Windows)
+        func value(_ name: String) -> String? {
+            environment.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }.map(\.value).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        var out: [String] = []
+        func add(_ base: String?, _ rest: String) { if let base { out.append(base + "\\" + rest) } }
+        add(value("APPDATA"), "npm")                              // npm global prefix
+        add(value("LOCALAPPDATA"), "pnpm")                        // pnpm's default PNPM_HOME
+        add(value("LOCALAPPDATA"), "Microsoft\\WinGet\\Links")    // winget portable links
+        add(value("USERPROFILE"), "scoop\\shims")
+        add(value("USERPROFILE"), ".bun\\bin")
+        add(value("LOCALAPPDATA"), "Volta\\bin")                  // likely
+        add(value("LOCALAPPDATA"), "mise\\shims")                 // likely
+        if let nvm = value("NVM_SYMLINK") { out.append(nvm) }     // nvm-windows' active-version link
+        add(value("USERPROFILE"), ".local\\bin")
+        return out
+        #else
+        return posix
+        #endif
+    }
+
+    /// Where per-user application data lives. Mac: `home/Library/Application Support`. Windows: `home/AppData/Roaming`
+    /// (`%APPDATA%`, which Electron apps such as Claude Desktop and Cursor use for their user data).
+    static func userApplicationSupport(home: URL) -> URL {
+        #if os(Windows)
+        return home.appendingPathComponent("AppData/Roaming")
+        #else
+        return home.appendingPathComponent("Library/Application Support")
+        #endif
+    }
+
+    /// Mac: nil (the Mac keeps its login-shell lookup). Windows: the first launchable candidate in the Path entries.
+    static func searchProcessPath(_ binary: String, environment: [String: String]) -> String? {
+        #if os(Windows)
+        guard let list = environment[pathVariableKey(in: environment)] else { return nil }
+        let fm = FileManager.default
+        for entry in list.split(separator: ";") {
+            let dir = entry.trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
+            if dir.isEmpty { continue }
+            for candidate in executableCandidates(dir + "\\" + binary, pathExt: environment["PATHEXT"])
+            where fm.isExecutableFile(atPath: candidate) { return candidate }
+        }
+        return nil
+        #else
+        return nil
+        #endif
+    }
+
+    /// True when `arg` can pass through cmd.exe unchanged: none of `& | < > ^ % !` and no newline (F19). A tool that
+    /// resolves to a `.cmd`/`.bat` shim is launched only with arguments that pass this.
+    static func isBatchSafe(_ arg: String) -> Bool {
+        !arg.contains { "&|<>^%!\n\r".contains($0) }
+    }
+}

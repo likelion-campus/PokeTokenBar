@@ -119,7 +119,7 @@ enum LocalUsageReader {
         roots.append(home.appendingPathComponent(Self.configRelativeProjectsPath))
         roots.append(home.appendingPathComponent(Self.defaultRelativeProjectsPath))
 
-        let desktop = home.appendingPathComponent("Library/Application Support/Claude")
+        let desktop = PlatformCompat.userApplicationSupport(home: home).appendingPathComponent("Claude")
         for store in ["local-agent-mode-sessions", "claude-code-sessions"] {
             roots.append(contentsOf: embeddedClaudeProjectRoots(under: desktop.appendingPathComponent(store)))
         }

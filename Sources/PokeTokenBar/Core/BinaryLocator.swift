@@ -39,13 +39,14 @@ enum BinaryLocator {
                                      base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var paths = [URL(fileURLWithPath: binaryPath).deletingLastPathComponent().path]
         paths.append(contentsOf: commonToolDirectories())
-        for entry in (base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: PlatformCompat.pathListSeparator) {
+        let pathKey = PlatformCompat.pathVariableKey(in: base)
+        for entry in (base[pathKey] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: PlatformCompat.pathListSeparator) {
             paths.append(String(entry))
         }
         var seen = Set<String>()
         let merged = paths.filter { seen.insert($0).inserted }.joined(separator: String(PlatformCompat.pathListSeparator))
         var env = base
-        env["PATH"] = merged
+        env[pathKey] = merged
         return env
     }
 
@@ -60,7 +61,7 @@ enum BinaryLocator {
     /// 새 버전매니저 지원 시 여기 한 곳만 추가하면 두 경로 모두에 반영된다.
     static func commonToolDirectories() -> [String] {
         let home = NSHomeDirectory()
-        return [
+        return PlatformCompat.toolDirectories(posix: [
             "/opt/homebrew/bin",                 // Homebrew (Apple Silicon)
             "/usr/local/bin",                    // Homebrew (Intel) / npm prefix
             "\(home)/.local/share/mise/shims",   // mise (shims 모드)
@@ -70,12 +71,12 @@ enum BinaryLocator {
             "\(home)/.npm-global/bin",           // npm prefix=~/.npm-global
             "\(home)/.local/bin",
             "/usr/bin",
-        ]
+        ])
     }
 
     /// 버전매니저 공통 shim/bin 경로 + 주어진 정적 경로. (절대경로 우선 탐색용)
     static func commonNodeToolPaths(_ binary: String) -> [String] {
-        commonToolDirectories().map { "\($0)/\(binary)" }
+        commonToolDirectories().flatMap { PlatformCompat.executableCandidates("\($0)/\(binary)") }
     }
 
     private static func locate(_ binary: String, staticPaths: [String]) -> String? {
@@ -90,7 +91,7 @@ enum BinaryLocator {
             return hit
         }
         // 2) 로그인+인터랙티브 셸 PATH 해석 (mise activate / nvm / fnm 등은 .zshrc 에서 PATH 주입)
-        return shellResolve(binary)
+        return PlatformCompat.searchProcessPath(binary, environment: ProcessInfo.processInfo.environment) ?? shellResolve(binary)
     }
 
     /// 사용자 로그인 셸을 인터랙티브+로그인으로 띄워 `command -v <binary>` 결과를 받는다.

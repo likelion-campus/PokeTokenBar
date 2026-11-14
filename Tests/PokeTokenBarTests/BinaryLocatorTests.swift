@@ -8,7 +8,7 @@ final class BinaryLocatorTests: XCTestCase {
         let env = BinaryLocator.augmentedEnvironment(
             binaryPath: "\(home)/.local/share/mise/shims/codex",
             base: ["PATH": ["/usr/bin", "/bin"].joined(separator: String(PlatformCompat.pathListSeparator)), "LANG": "en_US.UTF-8"])
-        let paths = env["PATH"]!.split(separator: PlatformCompat.pathListSeparator).map(String.init)
+        let paths = env[PlatformCompat.pathVariableKey(in: env)]!.split(separator: PlatformCompat.pathListSeparator).map(String.init)
 
         // The first entry comes from a URL, whose path uses `/` even where NSHomeDirectory() has `\`.
         XCTAssertEqual(paths.first, URL(fileURLWithPath: "\(home)/.local/share/mise/shims").path)   // 바이너리 디렉토리 최우선
@@ -25,7 +25,7 @@ final class BinaryLocatorTests: XCTestCase {
     func testAugmentedEnvironmentWithoutBasePath() {
         let env = BinaryLocator.augmentedEnvironment(
             binaryPath: "/opt/homebrew/bin/codex", base: [:])
-        let paths = env["PATH"]!.split(separator: PlatformCompat.pathListSeparator).map(String.init)
+        let paths = env[PlatformCompat.pathVariableKey(in: env)]!.split(separator: PlatformCompat.pathListSeparator).map(String.init)
         XCTAssertEqual(paths.first, "/opt/homebrew/bin")
         XCTAssertTrue(paths.contains("/usr/bin"))   // 기본 PATH 폴백
     }
