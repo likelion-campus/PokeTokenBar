@@ -80,7 +80,6 @@ enum BinaryLocator {
     }
 
     private static func locate(_ binary: String, staticPaths: [String]) -> String? {
-        let fm = FileManager.default
         // 0) 사용자 수동 지정
         if let override = UserDefaults.standard.string(forKey: "\(binary)Path"),
            !override.isEmpty, PlatformCompat.isExecutableFile(atPath: override) {

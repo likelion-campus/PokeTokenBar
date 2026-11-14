@@ -220,8 +220,10 @@ final class WindowsPathTests: XCTestCase {
         let missing = dir.appendingPathComponent("nothere.cmd").path
         XCTAssertFalse(PlatformCompat.isExecutableFile(atPath: missing))
         XCTAssertFalse(PlatformCompat.isExecutableFile(atPath: dir.path), "a folder is not an executable")
+        #if os(Windows)
         let name = "ptb-no-such-tool-\(UUID().uuidString)"
         XCTAssertNil(BinaryLocator.resolve(name, staticPaths: [missing, dir.appendingPathComponent(name + ".exe").path]))
+        #endif
         let present = dir.appendingPathComponent("tool.cmd")
         try "@echo off\r\n".write(to: present, atomically: true, encoding: .utf8)
         #if os(Windows)
