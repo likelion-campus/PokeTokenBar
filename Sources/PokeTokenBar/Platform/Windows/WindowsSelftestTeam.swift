@@ -86,7 +86,9 @@ extension WindowsSelftest {
     /// for the redial timers (15 s each, as on the Mac) and DNS-SD's own repeats.
     @MainActor private static func teamIdleCheck(_ r: Recorder, _ a: SelftestMember, _ b: SelftestMember) async {
         let seconds = WindowsSelftest.idleSeconds
-        try? await Task.sleep(nanoseconds: 2_000_000_000)   // let the presence and the sync settle
+        // Steady state only: every dial so far resolved through DNS-SD, and each resolve leaves a one-shot timeout
+        // block on the main queue `resolveTimeout` later (a no-op once answered). Start after the last of them.
+        try? await Task.sleep(nanoseconds: UInt64((WinDNSSD.resolveTimeout + 1) * 1_000_000_000))
         let w0 = (a.transport.socketLoop?.wakeups ?? 0, b.transport.socketLoop?.wakeups ?? 0)
         let e0 = (a.transport.redialFires + b.transport.redialFires, a.transport.discoveryEvents + b.transport.discoveryEvents)
         let threads = (a.transport.socketLoop?.ioThreadID ?? 0, b.transport.socketLoop?.ioThreadID ?? 0)
