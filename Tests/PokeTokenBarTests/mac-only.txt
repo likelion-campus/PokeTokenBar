@@ -201,5 +201,7 @@ ToolLaunchArgumentScanTests.swift
 # PlazaArtParityPixelArtTests: legacy-versus-new byte oracles for the pixel art and character frames (CoreGraphics, ImageIO)
 PlazaArtParityPixelArtTests.swift
 PlazaTextArtParityTests.swift
+# AppWiringDriftScanTests: compares source text of the Mac AppDelegate with Platform/AppWiring.swift (Mac-side scan, like WindowsSeamScanTests)
+AppWiringDriftScanTests.swift
 # PlazaGIFDecoderParityTests+Mac: compares against ImageIO (CGImageSource)
 PlazaGIFDecoderParityTests+Mac.swift
