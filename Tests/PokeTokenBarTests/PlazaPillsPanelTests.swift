@@ -31,7 +31,15 @@ import XCTest
 
         // Drawn in that order, each as fill, text, stroke; CoreGraphics' y runs up from the image's bottom.
         let graphics = CanvasKeepingGraphics()
-        XCTAssertNotNil(p.render(scale: 2, viewport: window, graphics: graphics))
+        let drawing = p.render(scale: 2, viewport: window, graphics: graphics)
+        XCTAssertEqual(drawing.layers.count, 1, "one image of the whole panel")
+        XCTAssertFalse(drawing.tracksMouse)
+        // One static text per pill, top to bottom, over each pill (1 point of stroke room in).
+        XCTAssertEqual(drawing.accessibility, [
+            PlazaAccessibilityItem(frame: CGRect(x: 135.5, y: 1, width: 91, height: 31), role: .staticText, label: "단체 사진 5"),
+            PlazaAccessibilityItem(frame: CGRect(x: 1, y: 40, width: 360, height: 31), role: .staticText, label: "배너"),
+            PlazaAccessibilityItem(frame: CGRect(x: 142, y: 79, width: 78, height: 27), role: .staticText, label: "안내 한 줄"),
+        ])
         let calls = try XCTUnwrap(graphics.canvases.first).calls
         XCTAssertEqual(calls.first, "scale 2.0 2.0")
         let drawn = calls.filter { $0.hasPrefix("fillRoundedRect") || $0.hasPrefix("line") || $0.hasPrefix("strokeRoundedRect") }
@@ -62,6 +70,56 @@ import XCTest
         let broken = panel(banner: "📢 " + word).0.stack(in: window, scale: 2, text: text).pills[0]
         XCTAssertEqual(broken.lines.map { ($0.line.native as! PlazaStubText).text.count }, [1, 36, 14],
                        "the long word starts a line of its own, 36 characters fill a line")
+    }
+
+    /// VoiceOver reads a cut pill's whole text, as SwiftUI's `Text` did (the cut is only drawn).
+    func testACutPillIsReadWhole() async {
+        let long = String(repeating: "가", count: 100)
+        let drawing = panel(hint: long).0.render(scale: 2, viewport: CGSize(width: 600, height: 372), graphics: PlazaStubGraphics(log: { _ in }))
+        XCTAssertEqual(drawing.accessibility.map(\.label), [long])
+    }
+
+    /// The banner is wrapped once per render: the HUD's size, the render and the overlay's menu room share one layout.
+    func testTheBannerIsLaidOutOncePerRender() async {
+        let text = CountingTextEngine()
+        let graphics = CountingGraphics(text: text)
+        let (p, model) = panel(banner: "가나다라 " + String(repeating: "마바사 ", count: 30))
+        let hud = PlazaHUD(panels: [p], graphics: graphics)
+        hud.setViewport(window, scale: 2)
+        let host = RecordingPanelHost()   // the HUD holds its host weakly: keep it alive
+        hud.host = host
+        XCTAssertEqual(hud.renderCount, 1)
+        XCTAssertEqual(text.wrapped, 1, "one wrap for size and render")
+        _ = p.stack(in: window, scale: 2, text: text)
+        XCTAssertEqual(text.wrapped, 1, "the overlay's menu room reuses it")
+        hud.setViewport(CGSize(width: 1000, height: 700), scale: 2)
+        XCTAssertEqual(text.wrapped, 2, "a new width lays out again (a one-line pill may cut differently)")
+        model.banner = "다른 배너"
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(text.wrapped, 3)
+    }
+
+    /// Joined emoji (a family, a flag, a skin tone) are one character each: wrapping never splits one.
+    func testJoinedEmojiStayWhole() async {
+        let family = "👨‍👩‍👧‍👦", flag = "🇰🇷", thumb = "👍🏽"
+        let banner = panel(banner: String(repeating: family + flag + thumb, count: 20)).0.stack(in: window, scale: 2, text: text).pills[0]
+        XCTAssertEqual(banner.lines.map { ($0.line.native as! PlazaStubText).text.count }, [36, 24], "60 characters: 36 fill a line")
+        XCTAssertEqual(banner.lines.map { ($0.line.native as! PlazaStubText).text }.joined(), String(repeating: family + flag + thumb, count: 20))
+        let hint = panel(hint: family + flag + thumb).0.stack(in: window, scale: 2, text: text).pills[0]
+        XCTAssertEqual(hint.frame.width, 3 * 9 + 24)
+    }
+
+    /// Inputs no caller can produce (every hint, banner and countdown is a non-empty one-line string: nicknames are
+    /// rejected with a line break by `TeamSettings.validNickname`, chat lines lose theirs in `TeamChat.prepared`), pinned
+    /// so a change is seen: an empty text keeps one line's height (SwiftUI's empty `Text` was 14 points, not 18); a
+    /// one-line pill stays one line whatever its text holds.
+    func testInputsNoCallerProduces() async {
+        let empty = panel(hint: "").0.stack(in: window, scale: 2, text: text).pills[0]
+        XCTAssertEqual(empty.frame.size, CGSize(width: 24, height: 27))
+        let newline = panel(countdown: "첫 줄\n둘째 줄").0.stack(in: window, scale: 2, text: text).pills[0]
+        XCTAssertEqual(newline.lines.count, 1)
+        let emptyBanner = panel(banner: "").0.stack(in: window, scale: 2, text: text).pills[0]
+        XCTAssertEqual(emptyBanner.lines.count, 1)
     }
 
     /// The hint and the countdown stay one line (`lineLimit(1)`): cut with "…" to the window's width less the padding.
@@ -131,4 +189,37 @@ import XCTest
         for _ in 0..<20 { await Task.yield() }
         XCTAssertEqual(changes, 2, "the rest of the model is not the pills'")
     }
+}
+
+/// The stub text engine, counting how often it wraps.
+final class CountingTextEngine: PlazaTextEngine, @unchecked Sendable {
+    private let base = PlazaStubTextEngine()
+    private(set) var wrapped = 0
+    func metrics(_ font: PlazaFont) -> PlazaFontMetrics { base.metrics(font) }
+    func line(_ text: String, font: PlazaFont) -> PlazaTextLine { base.line(text, font: font) }
+    func truncated(_ line: PlazaTextLine, width: CGFloat, ellipsis: PlazaTextLine) -> PlazaTextLine? {
+        base.truncated(line, width: width, ellipsis: ellipsis)
+    }
+    func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph {
+        base.paragraph(text, font: font, alignment: alignment)
+    }
+    func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine] {
+        wrapped += 1
+        return base.wrappedLines(text, font: font, width: width)
+    }
+}
+
+/// The stub graphics with a given text engine.
+struct CountingGraphics: PlazaGraphics {
+    let text: any PlazaTextEngine
+    private let base = PlazaStubGraphics(log: { _ in })
+    init(text: any PlazaTextEngine) { self.text = text }
+    func makeCanvas(width: Int, height: Int, colorSpace: PlazaColorSpace) -> (any PlazaCanvas)? {
+        base.makeCanvas(width: width, height: height, colorSpace: colorSpace)
+    }
+    func assetURL(_ name: String, ext: String) -> URL? { nil }
+    func decodeImage(at url: URL) -> PlazaImage? { nil }
+    func decodeImage(_ data: Data) -> PlazaImage? { nil }
+    func decodeImageFrames(at url: URL) -> [PlazaImage] { [] }
+    func encodePNG(_ image: PlazaImage) -> Data? { nil }
 }
