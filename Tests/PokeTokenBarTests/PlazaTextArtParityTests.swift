@@ -97,4 +97,20 @@ final class PlazaTextArtParityTests: XCTestCase {
         }
         XCTAssertEqual(PlazaEmoteArt.size(large: true), LegacyPlazaEmoteArt.size(large: true))
     }
+
+    /// `CTLineGetImageBounds` is shifted by the text position that a drawn line leaves behind; the canvas must not leak it.
+    func testImageBoundsDoNotDependOnWhatWasDrawnBefore() throws {
+        let graphics = PlatformPlaza.graphics
+        for font in [PlazaFont.plaza(.body), .system(size: 15, weight: .bold), .emoji(size: 12)] {
+            for text in ["Name", "도토리", "🔥🔥", ""] {
+                let line = graphics.text.line(text, font: font)
+                let canvas = try XCTUnwrap(graphics.makeCanvas(width: 200, height: 60, colorSpace: .sRGB))
+                let first = canvas.imageBounds(of: line)
+                canvas.draw(line, at: CGPoint(x: 37, y: 11))
+                XCTAssertEqual(canvas.imageBounds(of: line), first, "\(text) after drawing it")
+                canvas.draw(graphics.text.line("second", font: .plaza(.small)), at: CGPoint(x: 5, y: 40))
+                XCTAssertEqual(canvas.imageBounds(of: line), first, "\(text) after a second line")
+            }
+        }
+    }
 }

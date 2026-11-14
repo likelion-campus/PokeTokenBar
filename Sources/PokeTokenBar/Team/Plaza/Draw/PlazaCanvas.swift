@@ -43,7 +43,8 @@ protocol PlazaCanvas: AnyObject {
     func draw(_ line: PlazaTextLine, at textPosition: CGPoint)
     /// Lays the paragraph out in `rect` and draws it (`CTFramesetterCreateFrame` + `CTFrameDraw`).
     func draw(_ paragraph: PlazaParagraph, in rect: CGRect)
-    /// The line's glyph bounds as this canvas would draw them (`CTLineGetImageBounds(line, context)`).
+    /// The line's glyph bounds as this canvas would draw them (`CTLineGetImageBounds(line, context)`), relative to the
+    /// origin: the same whatever was drawn before.
     func imageBounds(of line: PlazaTextLine) -> CGRect
     /// The canvas's own premultiplied RGBA8 bytes, row 0 at the top. `bytesPerRow` may be larger than `width * 4`.
     func withPixels(_ body: (_ bytes: UnsafeMutablePointer<UInt8>, _ bytesPerRow: Int) -> Void)
