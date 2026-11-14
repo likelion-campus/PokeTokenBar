@@ -205,3 +205,7 @@ PlazaRosterHoverLayoutTests.swift
 PlazaHUDControlRenderTests+Mac.swift
 # PlazaHUDMenuRenderTests+Mac: the canvas-drawn menus and minimap against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) through the AppKit panel hosts
 PlazaHUDMenuRenderTests+Mac.swift
+# PlazaTextRunsTests+Mac: text made of runs through the real CoreText/TextKit engine (CTLine, NSLayoutManager)
+PlazaTextRunsTests+Mac.swift
+# PlazaChatLogPanelRenderTests+Mac: the canvas-drawn chat log against the SwiftUI PlazaChatLogView (NSHostingView in an unshown window, CoreText, TextKit) through the AppKit panel host
+PlazaChatLogPanelRenderTests+Mac.swift

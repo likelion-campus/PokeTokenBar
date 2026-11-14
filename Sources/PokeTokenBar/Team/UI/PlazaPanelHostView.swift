@@ -16,7 +16,7 @@ import QuartzCore
 /// constraint pass).
 ///
 /// The mouse: only a drawing that `tracksMouse` (a panel with a hover or pressed look) gets a tracking area, over the
-/// panel's frame, for moves and exits; other panels add nothing. A scroll no panel takes goes on up the responder chain.
+/// panel's frame, for moves and exits; other panels add nothing. A scroll goes to the panel (a scrolling one takes it while it can move that way); one no panel takes goes on up the responder chain.
 @MainActor final class PlazaPanelHostView: NSView {
     let panelID: PlazaPanelID
     private let hud: PlazaHUD
@@ -208,8 +208,13 @@ import QuartzCore
     override func mouseEntered(with event: NSEvent) { forward(.moved, event) }
     override func mouseExited(with event: NSEvent) { forward(.exited, event) }
 
+    /// A notched wheel reports whole lines, a trackpad points. A line is taken as this many points (AppKit's
+    /// `NSScrollView` default line scroll; not measured against SwiftUI's `ScrollView`).
+    static let lineScrollStep: CGFloat = 10
+
     override func scrollWheel(with event: NSEvent) {
-        if !forward(.scroll(dx: event.scrollingDeltaX, dy: event.scrollingDeltaY), event) { super.scrollWheel(with: event) }
+        let k = event.hasPreciseScrollingDeltas ? 1 : Self.lineScrollStep
+        if !forward(.scroll(dx: event.scrollingDeltaX * k, dy: event.scrollingDeltaY * k), event) { super.scrollWheel(with: event) }
     }
 }
 

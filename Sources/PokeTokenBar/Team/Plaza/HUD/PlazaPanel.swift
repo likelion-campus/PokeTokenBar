@@ -1,8 +1,8 @@
 import Foundation
 
-/// The overlay panels the plaza draws through the canvas (Track A Tasks 14–16). The scrolling panels (roster, chat log,
-/// board, card) are not here: they stay SwiftUI on the Mac until the Task 17 decision.
-enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap }
+/// The overlay panels the plaza draws through the canvas (Track A Tasks 14–17). The Mac still shows the roster, chat log,
+/// board and card as SwiftUI until the user decides (Task 17); the chat log panel exists here for Windows.
+enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog }
 
 /// The window edge a panel keeps its distance from, as its old Auto Layout constraints did. `offset.x` is the distance
 /// from the leading or trailing edge (unused by `topCenter`, which centres), `offset.y` from the top or bottom edge.
@@ -94,9 +94,15 @@ struct PlazaPanelInteraction: Equatable, Sendable {
     /// Hover and press on this panel (only for a drawing that `tracksMouse`). Panels without a hover or pressed look
     /// leave the default, which ignores it.
     var interaction: PlazaPanelInteraction { get set }
+    /// A wheel or trackpad scroll over the panel at `point` (panel points, origin top-left; `scrollingDeltaX/Y` as the
+    /// system sends them, momentum included). True when the panel scrolls with it, so it goes no further; false passes it
+    /// on. The default passes everything on.
+    func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool
 }
 
 extension PlazaPanel {
+    func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool { false }
+
     func offset(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGPoint { offset }
 
     var interaction: PlazaPanelInteraction {

@@ -80,17 +80,55 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
     /// TextKit finds the breaks with SwiftUI's line-break strategy (`.standard`: CoreText alone ignores it and breaks
     /// Korean words); the lines are cut from one typesetter over the whole text, so each keeps its direction.
     func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine] {
+        let attributed = NSAttributedString(string: text, attributes: Self.attributes(font))
+        let ranges = Self.breaks(attributed, width: width)
+        guard !ranges.isEmpty else { return [line("", font: font)] }
+        let typesetter = CTTypesetterCreateWithAttributedString(attributed)
+        return ranges.map { Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: $0.location, length: $0.length))) }
+    }
+
+    /// A run's attributes: its font as `attributes` makes it, with the run's own colour instead of the context's.
+    private static func attributes(_ run: PlazaTextRun) -> [NSAttributedString.Key: Any] {
+        var a = attributes(run.font)
+        a[NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String)] = nil
+        a[NSAttributedString.Key(kCTForegroundColorAttributeName as String)] = run.color.cgColor
+        return a
+    }
+
+    private static func attributed(_ runs: [PlazaTextRun]) -> NSAttributedString {
+        let out = NSMutableAttributedString()
+        for run in runs { out.append(NSAttributedString(string: run.text, attributes: attributes(run))) }
+        return out
+    }
+
+    func line(_ runs: [PlazaTextRun]) -> PlazaTextLine {
+        Self.wrap(CTLineCreateWithAttributedString(Self.attributed(runs)), runs: runs)
+    }
+
+    func wrappedLines(_ runs: [PlazaTextRun], width: CGFloat) -> [PlazaTextLine] {
+        let attributed = Self.attributed(runs)
+        let ranges = Self.breaks(attributed, width: width)
+        guard !ranges.isEmpty else { return [line([])] }
+        let typesetter = CTTypesetterCreateWithAttributedString(attributed)
+        return ranges.map { range in
+            Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: range.length)),
+                      runs: Self.pieces(of: runs, in: range))
+        }
+    }
+
+    /// The line ranges (UTF-16, trailing white space left off) TextKit breaks `attributed` into at `width`.
+    private static func breaks(_ attributed: NSAttributedString, width: CGFloat) -> [NSRange] {
         let style = NSMutableParagraphStyle()
         style.lineBreakStrategy = .standard
-        var attributes = Self.attributes(font)
-        attributes[.paragraphStyle] = style
-        let storage = NSTextStorage(string: text, attributes: attributes)
+        let styled = NSMutableAttributedString(attributedString: attributed)
+        styled.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: styled.length))
+        let storage = NSTextStorage(attributedString: styled)
         let layout = NSLayoutManager()
         let container = NSTextContainer(size: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
         layout.addTextContainer(container)
         storage.addLayoutManager(layout)
-        let utf16 = text as NSString
+        let utf16 = attributed.string as NSString
         var ranges: [NSRange] = []
         layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, _, _, glyphs, _ in
             var r = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
@@ -98,14 +136,29 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
                   CharacterSet.whitespacesAndNewlines.contains(last) { r.length -= 1 }
             ranges.append(r)
         }
-        guard !ranges.isEmpty else { return [line("", font: font)] }
-        let typesetter = CTTypesetterCreateWithAttributedString(NSAttributedString(string: text, attributes: Self.attributes(font)))
-        return ranges.map { Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: $0.location, length: $0.length))) }
+        return ranges
     }
 
-    private static func wrap(_ line: CTLine) -> PlazaTextLine {
+    /// The parts of `runs` inside `range` (UTF-16 offsets into the runs' joined text).
+    private static func pieces(of runs: [PlazaTextRun], in range: NSRange) -> [PlazaTextRun] {
+        var out: [PlazaTextRun] = []
+        var start = 0
+        for run in runs {
+            let ns = run.text as NSString
+            let overlap = NSIntersectionRange(NSRange(location: start, length: ns.length), range)
+            if overlap.length > 0 {
+                var piece = run
+                piece.text = ns.substring(with: NSRange(location: overlap.location - start, length: overlap.length))
+                out.append(piece)
+            }
+            start += ns.length
+        }
+        return out
+    }
+
+    private static func wrap(_ line: CTLine, runs: [PlazaTextRun] = []) -> PlazaTextLine {
         var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
         let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-        return PlazaTextLine(width: width, ascent: ascent, descent: descent, leading: leading, native: Line(line))
+        return PlazaTextLine(width: width, ascent: ascent, descent: descent, leading: leading, native: Line(line), runs: runs)
     }
 }
