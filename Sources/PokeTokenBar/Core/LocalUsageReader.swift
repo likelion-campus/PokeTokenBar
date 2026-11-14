@@ -120,7 +120,7 @@ enum LocalUsageReader {
         roots.append(home.appendingPathComponent(Self.defaultRelativeProjectsPath))
 
         let desktop = PlatformCompat.userApplicationSupport(home: home).appendingPathComponent("Claude")
-        for store in ["local-agent-mode-sessions", "claude-code-sessions"] {
+        for store in PlatformCompat.claudeDesktopSessionStores(["local-agent-mode-sessions", "claude-code-sessions"]) {
             roots.append(contentsOf: embeddedClaudeProjectRoots(under: desktop.appendingPathComponent(store)))
         }
         // Custom roots are unioned *after* curated defaults so an ancestor extra cannot

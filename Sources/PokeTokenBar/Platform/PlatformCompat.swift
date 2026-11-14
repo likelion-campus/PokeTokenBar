@@ -319,12 +319,12 @@ extension PlatformCompat {
         var out: [String] = []
         func add(_ base: String?, _ rest: String) { if let base { out.append(base + "\\" + rest) } }
         add(value("APPDATA"), "npm")                              // npm global prefix
-        add(value("LOCALAPPDATA"), "pnpm")                        // pnpm's default PNPM_HOME
+        if let pnpm = value("PNPM_HOME") { out.append(pnpm) }     // pnpm's documented home (`pnpm setup`)
         add(value("LOCALAPPDATA"), "Microsoft\\WinGet\\Links")    // winget portable links
         add(value("USERPROFILE"), "scoop\\shims")
         add(value("USERPROFILE"), ".bun\\bin")
-        add(value("LOCALAPPDATA"), "Volta\\bin")                  // likely
-        add(value("LOCALAPPDATA"), "mise\\shims")                 // likely
+        add(value("LOCALAPPDATA"), "Volta\\bin")                  // volta: data_local_dir/Volta, shims in bin/
+        add(value("LOCALAPPDATA"), "mise\\shims")                 // mise: %LOCALAPPDATA%\\mise data dir, shims/
         if let nvm = value("NVM_SYMLINK") { out.append(nvm) }     // nvm-windows' active-version link
         add(value("USERPROFILE"), ".local\\bin")
         return out
@@ -340,6 +340,16 @@ extension PlatformCompat {
         return home.appendingPathComponent("AppData/Roaming")
         #else
         return home.appendingPathComponent("Library/Application Support")
+        #endif
+    }
+
+    /// The Claude Desktop session folders under its application-data folder. Mac: both, as before. Windows: none, because
+    /// the folder names inside `%APPDATA%\\Claude` are not documented anywhere checkable, so no root is guessed.
+    static func claudeDesktopSessionStores(_ stores: [String]) -> [String] {
+        #if os(Windows)
+        return []
+        #else
+        return stores
         #endif
     }
 

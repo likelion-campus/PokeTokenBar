@@ -146,7 +146,12 @@ final class WindowsPathTests: XCTestCase {
         let projects = app.appendingPathComponent("local-agent-mode-sessions/s1/.claude/projects")
         try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
         let roots = LocalUsageReader.computeClaudeProjectRoots(configDirValue: nil, customRootsValue: nil, accountRoots: [], home: home)
-        XCTAssertTrue(roots.contains { $0.standardizedFileURL.path == projects.standardizedFileURL.path }, "\(roots.map(\.path))")
+        let found = roots.contains { $0.standardizedFileURL.path == projects.standardizedFileURL.path }
+        #if os(Windows)
+        XCTAssertFalse(found, "Windows has no verified Claude Desktop session layout, so no root is read")
+        #else
+        XCTAssertTrue(found, "\(roots.map(\.path))")
+        #endif
     }
 
     func testClaudeDesktopRootOnTheMacIsUnchanged() {
@@ -183,8 +188,8 @@ final class WindowsPathTests: XCTestCase {
     func testWindowsToolDirectoriesComeFromTheEnvironment() {
         #if os(Windows)
         let dirs = PlatformCompat.toolDirectories(posix: ["/never"], environment: [
-            "APPDATA": "C:\\R", "LOCALAPPDATA": "C:\\L", "USERPROFILE": "C:\\U", "NVM_SYMLINK": "C:\\nodejs"])
-        XCTAssertEqual(dirs, ["C:\\R\\npm", "C:\\L\\pnpm", "C:\\L\\Microsoft\\WinGet\\Links", "C:\\U\\scoop\\shims",
+            "APPDATA": "C:\\R", "LOCALAPPDATA": "C:\\L", "USERPROFILE": "C:\\U", "NVM_SYMLINK": "C:\\nodejs", "PNPM_HOME": "C:\\P"])
+        XCTAssertEqual(dirs, ["C:\\R\\npm", "C:\\P", "C:\\L\\Microsoft\\WinGet\\Links", "C:\\U\\scoop\\shims",
                               "C:\\U\\.bun\\bin", "C:\\L\\Volta\\bin", "C:\\L\\mise\\shims", "C:\\nodejs", "C:\\U\\.local\\bin"])
         XCTAssertEqual(PlatformCompat.toolDirectories(posix: [], environment: [:]), [])
         #else
