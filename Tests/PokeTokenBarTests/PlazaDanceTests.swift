@@ -903,17 +903,17 @@ final class PlazaDanceTests: XCTestCase {
         wall = grid
         press(s)
         func shown() throws -> CGImage { try XCTUnwrap(s.photoInput()?.actors.first).image }
-        XCTAssertTrue(try shown() === front.image, "tick 0")
+        XCTAssertTrue(try shown() === front.image.cgImage, "tick 0")
         run(s, 0.8)   // tick 8: the back
-        XCTAssertTrue(try shown() === back.image)
+        XCTAssertTrue(try shown() === back.image.cgImage)
         run(s, 0.8)   // the next round starts at once
         XCTAssertTrue(s.isDancing(memberID: nil))
-        XCTAssertTrue(try shown() === front.image, "facing front again")
+        XCTAssertTrue(try shown() === front.image.cgImage, "facing front again")
         wall += PlazaDance.beat
         s.pickDanceStyle = { _ in .twirl }
         press(s)
         run(s, 0.2)   // tick 2 of the next round: the back
-        XCTAssertTrue(try shown() === back.image)
+        XCTAssertTrue(try shown() === back.image.cgImage)
     }
 
     // MARK: 연타 제한
