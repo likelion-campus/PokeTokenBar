@@ -358,12 +358,11 @@ extension PlatformCompat {
     static func searchProcessPath(_ binary: String, environment: [String: String]) -> String? {
         #if os(Windows)
         guard let list = environment[pathVariableKey(in: environment)] else { return nil }
-        let fm = FileManager.default
         for entry in list.split(separator: ";") {
             let dir = entry.trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
             if dir.isEmpty { continue }
             for candidate in executableCandidates(dir + "\\" + binary, pathExt: environment["PATHEXT"])
-            where fm.isExecutableFile(atPath: candidate) { return candidate }
+            where isExecutableFile(atPath: candidate) { return candidate }
         }
         return nil
         #else
@@ -404,5 +403,18 @@ extension PlatformCompat {
         for pid in descendants.reversed() { forceKill(pid: Int32(pid)) }
         #endif
         process.terminate()
+    }
+
+    /// Whether `path` is an existing launchable file. Mac: `FileManager.isExecutableFile`, verbatim. On Windows that
+    /// call looks only at the extension (it answers true for a `.cmd` or `.exe` that does not exist; CI run 43581978271),
+    /// so the file must also exist and not be a folder.
+    static func isExecutableFile(atPath path: String) -> Bool {
+        #if os(Windows)
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && !isDirectory.boolValue
+            && FileManager.default.isExecutableFile(atPath: path)
+        #else
+        return FileManager.default.isExecutableFile(atPath: path)
+        #endif
     }
 }

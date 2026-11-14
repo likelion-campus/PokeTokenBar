@@ -19,7 +19,7 @@ enum BinaryLocator {
         if let hit = cache[binary] {
             if let path = hit.path {
                 // stale 방어 — 해석 후 앱 삭제/교체(Codex.app 업데이트 등)로 경로 소멸 시 재해석.
-                if FileManager.default.isExecutableFile(atPath: path) { return path }
+                if PlatformCompat.isExecutableFile(atPath: path) { return path }
                 AppLog.write("\(binary) cached path gone, re-resolving: \(path)")
             } else if Date().timeIntervalSince(hit.at) < notFoundTTL {
                 return nil   // 최근 미탐지 — TTL 내엔 셸 resolve 비용 회피
@@ -83,11 +83,11 @@ enum BinaryLocator {
         let fm = FileManager.default
         // 0) 사용자 수동 지정
         if let override = UserDefaults.standard.string(forKey: "\(binary)Path"),
-           !override.isEmpty, fm.isExecutableFile(atPath: override) {
+           !override.isEmpty, PlatformCompat.isExecutableFile(atPath: override) {
             return override
         }
         // 1) 정적 경로 (서브프로세스 없이 빠르게)
-        if let hit = staticPaths.first(where: { fm.isExecutableFile(atPath: $0) }) {
+        if let hit = staticPaths.first(where: { PlatformCompat.isExecutableFile(atPath: $0) }) {
             return hit
         }
         // 2) 로그인+인터랙티브 셸 PATH 해석 (mise activate / nvm / fnm 등은 .zshrc 에서 PATH 주입)
@@ -101,7 +101,7 @@ enum BinaryLocator {
         guard let path = shellMarkedValue(
             script: #"printf '<<<BIN:%s:BIN>>>' "$(command -v "$1" 2>/dev/null)""#,
             argument: binary, label: "\(binary) shell resolve"),
-            FileManager.default.isExecutableFile(atPath: path)
+            PlatformCompat.isExecutableFile(atPath: path)
         else { return nil }
         return path
     }

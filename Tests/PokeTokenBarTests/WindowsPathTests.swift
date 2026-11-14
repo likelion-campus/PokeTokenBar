@@ -210,4 +210,22 @@ final class WindowsPathTests: XCTestCase {
         XCTAssertEqual(p.terminationReason, .uncaughtSignal)
         #endif
     }
+
+    /// Trigger: Windows `FileManager.isExecutableFile` is true for a missing `.cmd`/`.exe`, so a static path list
+    /// (now carrying extension candidates) used to "resolve" to a file that does not exist.
+    func testAMissingExecutableIsNeverFound() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-missing-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let missing = dir.appendingPathComponent("nothere.cmd").path
+        XCTAssertFalse(PlatformCompat.isExecutableFile(atPath: missing))
+        XCTAssertFalse(PlatformCompat.isExecutableFile(atPath: dir.path), "a folder is not an executable")
+        let name = "ptb-no-such-tool-\(UUID().uuidString)"
+        XCTAssertNil(BinaryLocator.resolve(name, staticPaths: [missing, dir.appendingPathComponent(name + ".exe").path]))
+        let present = dir.appendingPathComponent("tool.cmd")
+        try "@echo off\r\n".write(to: present, atomically: true, encoding: .utf8)
+        #if os(Windows)
+        XCTAssertTrue(PlatformCompat.isExecutableFile(atPath: present.path))
+        #endif
+    }
 }
