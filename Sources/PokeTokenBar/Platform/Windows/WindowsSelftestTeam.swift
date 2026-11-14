@@ -66,7 +66,7 @@ extension WindowsSelftest {
               "c failed handshakes with both=\(failed) (dials \(c.dialCount)); held off for the cooldown=\(heldOff); "
                 + "messages or members from c=\(leaked); a and b still linked=\(others)")
 
-        await teamIdleCheck(r, a, b)
+        await teamIdleCheck(r, app, a, b)
 
         // Stop: the teammate hears the link end at once (close_notify), and DNS-SD's goodbye removes the service.
         let goneName = a.transport.advertisedName ?? "-"
@@ -84,11 +84,14 @@ extension WindowsSelftest {
 
     /// Two linked transports, nothing to send: the socket threads must not wake at all, and the main thread only
     /// for the redial timers (15 s each, as on the Mac) and DNS-SD's own repeats.
-    @MainActor private static func teamIdleCheck(_ r: Recorder, _ a: SelftestMember, _ b: SelftestMember) async {
+    @MainActor private static func teamIdleCheck(_ r: Recorder, _ app: WindowsAppDelegate, _ a: SelftestMember,
+                                                 _ b: SelftestMember) async {
         let seconds = WindowsSelftest.idleSeconds
         // Steady state only: every dial so far resolved through DNS-SD, and each resolve leaves a one-shot timeout
         // block on the main queue `resolveTimeout` later (a no-op once answered). Start after the last of them.
         try? await Task.sleep(nanoseconds: UInt64((WinDNSSD.resolveTimeout + 1) * 1_000_000_000))
+        _ = await waitUntil(timeout: 30) { !app.store.isRefreshing }
+        let refreshes0 = app.refreshCount
         let w0 = (a.transport.socketLoop?.wakeups ?? 0, b.transport.socketLoop?.wakeups ?? 0)
         let e0 = (a.transport.redialFires + b.transport.redialFires, a.transport.discoveryEvents + b.transport.discoveryEvents)
         let threads = (a.transport.socketLoop?.ioThreadID ?? 0, b.transport.socketLoop?.ioThreadID ?? 0)
@@ -97,16 +100,19 @@ extension WindowsSelftest {
         let wakes = ((a.transport.socketLoop?.wakeups ?? 0) - w0.0, (b.transport.socketLoop?.wakeups ?? 0) - w0.1)
         let redials = a.transport.redialFires + b.transport.redialFires - e0.0
         let discovery = a.transport.discoveryEvents + b.transport.discoveryEvents - e0.1
+        // The app's own 120 s usage refresh may land in the window: budgeted as the app's idle check does.
+        let refreshes = app.refreshCount - refreshes0
         guard let sample else {
             r.add("team.idle", false, "measurement failed (NtQuerySystemInformation / QueryThreadCycleTime unavailable)")
             return
         }
-        let budget = 3 + 3 * (redials + discovery)
+        let budget = 3 + 3 * (redials + discovery) + 60 * refreshes
         let linked = a.transport.linkCount == 1 && b.transport.linkCount == 1
         r.add("team.idle", linked && wakes.0 == 0 && wakes.1 == 0 && sample.mainContextSwitches <= budget,
               "\(Int(seconds)) s, two linked transports, no traffic: socket_thread_wakeups=[\(wakes.0), \(wakes.1)] "
                 + "(threads \(threads.0), \(threads.1)) main_thread_cs=\(sample.mainContextSwitches) budget_cs=\(budget) "
-                + "known_wakes={redial:\(redials), dnssd_events:\(discovery)} dnssd_repeats_dropped_off_main=\(WinDNSSD.repeatsDropped - r0) "
+                + "known_wakes={redial:\(redials), dnssd_events:\(discovery), store_refresh:\(refreshes)} "
+                + "dnssd_repeats_dropped_off_main=\(WinDNSSD.repeatsDropped - r0) "
                 + "main_cycles=\(sample.mainCycles) "
                 + "still_linked=\(linked) busy_threads=[\(sample.busy)]")
     }
