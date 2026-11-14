@@ -2190,3 +2190,8 @@ read_when:
   `arguments: ["…"]` 리터럴이 전부 안전한 고정 문자열이고, `Process` 의 `.arguments =` 지점이 `BinaryLocator`·`ProcessRunner` 둘뿐임을 고정; 맥 전용). 규칙은 `provider-extension.md`.
 - **위치를 확인하지 못한 도구 경로를 추측으로 채우지 않는다.** 윈도우 로그 루트·도구 디렉터리는 도구의 공개 문서·소스·문서화된 환경변수로 확인된 것만 넣고, 나머지는 비워 "데이터 없음"으로 둔다
   (Claude Desktop 세션 폴더가 그 예: `claudeDesktopSessionStores` 는 윈도우에서 `[]`).
+- **병렬 브랜치가 각자 통과해도 합친 결과는 실패할 수 있다 — 맥 전용 스캔은 윈도우 CI 가 못 본다.** 도구 경로 작업이 넣은 `ToolLaunchArgumentScanTests`(실행 지점 허용 목록)와 앱 중심부 작업이
+  넣은 `WindowsSelftest`(자기 실행 파일을 띄움)가 따로 통과한 뒤, 합쳐진 `windows-port` 의 전체 게이트에서 실패했다. 스캔이 `.arguments =` 문자열만 봐서 `self.arguments = arguments`(실행
+  아님, `WindowsApp`)까지 잡은 것도 겹쳤다. **왜 못 걸렀나:** 속도 규칙상 작업별로 걸러 돌린 묶음에 상대 브랜치의 새 스캔이 없었고, 이 스캔은 맥 전용이라 윈도우 CI 도 돌리지 않는다.
+  **고침:** 스캔이 `Process()` 와 `.arguments =` 가 함께 있는 파일만 실행 지점으로 보고, 자가 점검을 허용 목록에 넣었다(shim 이 아닌 자기 실행 파일, 인자는 스스로 만든 플래그).
+  **규칙:** `windows-port` 로 합치기 전에 `swift test --filter 'ScanTests'` 를 합친 트리에서 돌린다(몇 초). 전체 게이트는 계속 중간 점검 지점에서만.

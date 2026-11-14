@@ -44,4 +44,14 @@ final class TeamTokenBucketTests: XCTestCase {
         XCTAssertTrue(b.take(2, now: t0))
         XCTAssertFalse(b.take(now: t0.addingTimeInterval(-100)))
     }
+
+    /// The transport's receive budget: 4 MiB burst, 256 KiB/s. The burst is spendable to the byte, then the next byte waits.
+    func testTheReceiveBudgetBurstEdge() {
+        let t0 = Date(timeIntervalSince1970: 0)
+        var bucket = TeamTokenBucket(capacity: 4.0 * 1_048_576, perSecond: 256.0 * 1024)
+        XCTAssertTrue(bucket.take(4.0 * 1_048_576, now: t0))
+        XCTAssertFalse(bucket.take(1, now: t0))
+        XCTAssertTrue(bucket.take(256.0 * 1024, now: t0.addingTimeInterval(1)))
+        XCTAssertFalse(bucket.take(1, now: t0.addingTimeInterval(1)))
+    }
 }

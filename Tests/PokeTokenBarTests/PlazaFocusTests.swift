@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
@@ -41,7 +40,7 @@ final class PlazaFocusTests: XCTestCase {
         dirs = []
     }
 
-    private struct Node {
+    struct Node {
         let settings: TeamSettings
         let session: TeamSession
         let transport: FakeTeamTransport
@@ -52,7 +51,7 @@ final class PlazaFocusTests: XCTestCase {
 
     private static let pikachu = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
 
-    private func node(_ name: String) -> Node {
+    func node(_ name: String) -> Node {
         let suite = "plaza.focus.\(UUID())"
         let settings = TeamSettings(defaults: TestDefaults.make(suite: suite))
         settings.code = code
@@ -78,7 +77,7 @@ final class PlazaFocusTests: XCTestCase {
         return PlazaPreferences(defaults: TestDefaults.make(suite: name))
     }
 
-    private func controller(_ me: Node, prefs: PlazaPreferences? = nil, start: TilePoint? = TilePoint(x: 23, y: 14),
+    func controller(_ me: Node, prefs: PlazaPreferences? = nil, start: TilePoint? = TilePoint(x: 23, y: 14),
                             speciesID: Int? = 25, myEntry: PlazaRosterEntry? = nil,
                             onEnd: ((PlazaFocusEnd) -> Void)? = nil, dittoSeed: UInt64? = nil) -> PlazaWindowController {
         let prefs = prefs ?? self.prefs()
@@ -89,12 +88,13 @@ final class PlazaFocusTests: XCTestCase {
                                       myRosterEntry: { myEntry }, session: me.session, clock: { [unowned self] in now },
                                       focusTickSleep: { [gate] in await gate.sleep($0) },
                                       dittoLoopSleep: ParkedDitto.loopSleep,
-                                      dittoSeed: { dittoSeed ?? ParkedDitto.seed })
+                                      dittoSeed: { dittoSeed ?? ParkedDitto.seed },
+                                      shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
         c.onFocusEnd = onEnd
         return c
     }
 
-    private func connect(_ a: Node, _ b: Node) async {
+    func connect(_ a: Node, _ b: Node) async {
         hub.connect(a.transport, to: b.transport)
         for _ in 0..<20 { await Task.yield() }
     }
@@ -104,7 +104,7 @@ final class PlazaFocusTests: XCTestCase {
         XCTAssertTrue(condition(), "condition not reached", line: line)
     }
 
-    private func key(_ scene: PlazaScene, _ code: UInt16) {
+    func key(_ scene: PlazaScene, _ code: UInt16) {
         scene.handleKeyDown(keyCode: code, characters: "", isRepeat: false)
     }
 
@@ -118,7 +118,7 @@ final class PlazaFocusTests: XCTestCase {
     }
 
     /// 팀원이 그 칸에 서 있고 내 장면이 그걸 본다.
-    private func place(_ other: Node, at tile: TilePoint, focusEnds: Date? = nil, in c: PlazaWindowController) async {
+    func place(_ other: Node, at tile: TilePoint, focusEnds: Date? = nil, in c: PlazaWindowController) async {
         other.session.updatePlazaPosition(inPlaza: true, tile: tile, facing: .down, isWalking: false)
         other.session.updateFocus(endsAt: focusEnds)
         await waitUntil { c.scene?.memberTiles[other.settings.memberID] == tile }
@@ -197,41 +197,6 @@ final class PlazaFocusTests: XCTestCase {
         c.handleClose()
     }
 
-    func testNoFreeSeatShowsOnlyTheNotice() async {
-        let me = node("나")
-        let c = controller(me)
-        c.prepareScene()
-        var others: [Node] = []
-        for (i, seat) in PlazaCampfire.seats.enumerated() {
-            let n = node("팀\(i)")
-            others.append(n)
-            await connect(me, n)
-            await place(n, at: seat.tile, in: c)
-        }
-        let scene = c.scene!
-        key(scene, spaceKey)
-        let menu = PlazaCampfireMenu(isJoin: false, minutes: [], selection: 0)
-        XCTAssertEqual(c.overlayContent, .campfireMenu(menu))
-        XCTAssertEqual(PlazaCampfireMenuView.notice(menu), "자리가 없어요")
-        XCTAssertEqual(PlazaCampfireMenuView.rows(menu), ["불 켜기"])
-        XCTAssertNil(PlazaCampfireMenuView.notice(.init(isJoin: false, minutes: [], selection: 0, isSeated: true)), "I already sit")
-        XCTAssertEqual(PlazaCampfireMenuView.rows(.init(isJoin: false, minutes: [25, 480], selection: 0, isLit: true)),
-                       ["25분 집중", "8시간 집중", "불 끄기"])
-        key(scene, downKey)
-        XCTAssertEqual(c.overlayContent, .campfireMenu(menu), "the fire row is the only row")
-        key(scene, spaceKey)
-        XCTAssertEqual(c.overlayContent, .none)
-        XCTAssertTrue(c.isCampfireLit, "the only row lights the fire")
-        XCTAssertFalse(c.isFocusing)
-        XCTAssertNil(c.focus)
-        key(scene, spaceKey)
-        key(scene, returnKey)
-        XCTAssertEqual(c.overlayContent, .none, "enter closes it too")
-        XCTAssertNil(c.focus)
-        c.startFocus(minutes: 25)
-        XCTAssertNil(c.focus, "a seat taken after the menu opened still starts nothing")
-        c.handleClose()
-    }
 
     // MARK: - 일어서기와 끝
 
@@ -647,7 +612,7 @@ final class PlazaFocusTests: XCTestCase {
     private var spawn: TilePoint { TilePoint(x: 10, y: 10) }
     private var beside: TilePoint { TilePoint(x: 11, y: 10) }
 
-    private func menu(_ c: PlazaWindowController) -> PlazaMemberMenu? {
+    func menu(_ c: PlazaWindowController) -> PlazaMemberMenu? {
         if case .memberMenu(let m) = c.overlayContent { m } else { nil }
     }
 
