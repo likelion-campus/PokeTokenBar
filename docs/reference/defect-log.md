@@ -2205,6 +2205,12 @@ read_when:
   아님, `WindowsApp`)까지 잡은 것도 겹쳤다. **왜 못 걸렀나:** 속도 규칙상 작업별로 걸러 돌린 묶음에 상대 브랜치의 새 스캔이 없었고, 이 스캔은 맥 전용이라 윈도우 CI 도 돌리지 않는다.
   **고침:** 스캔이 `Process()` 와 `.arguments =` 가 함께 있는 파일만 실행 지점으로 보고, 자가 점검을 허용 목록에 넣었다(shim 이 아닌 자기 실행 파일, 인자는 스스로 만든 플래그).
   **규칙:** `windows-port` 로 합치기 전에 `swift test --filter 'ScanTests'` 를 합친 트리에서 돌린다(몇 초). 전체 게이트는 계속 중간 점검 지점에서만.
+
+- **패널이 같은 값을 다시 쓰는 모델 변화에도 그려진다 / 테스트가 약하게 쥔 객체를 곧바로 놓는다 (Track A Task 15–16).** `@Observable` 은 값이 같아도 쓰기마다 알린다 — 컨트롤러가 창이 이미 보여 주는 값을
+  다시 쓰면(열 때 `backgroundModel.isHidden = …`) 패널이 두 번 그려졌다(이름 색 패널 2회; "열 때 패널마다 한 번" 테스트가 잡았다). **고침:** 패널은 마지막으로 그린 상태와 다를 때만 `onChange` 를 부른다(`PlazaPillsPanel`
+  과 같은 규칙, 이제 `PlazaChangeObserver` + `rendered` 로 모든 패널). 같은 부류 — HUD 는 호스트와 패널의 `onChange` 를 약하게 쥔다: 테스트가 `let (hud, _, …) = rig()` 처럼 호스트를 `_` 로 받으면 곧바로 사라져 이후
+  렌더가 조용히 멈추고 단언이 엉뚱한 곳에서 깨진다(Task 14 에서도 한 번). 규칙: 약하게 쥐는 객체는 지역 변수로 붙든다. **영구 캡처:** `testControlsRenderOnlyWhenTheirContentChanges`, `testMinimapRendersOncePerMinuteAtMost`.
+
 - **윈도우 모달 루프(트레이 메뉴 `TrackPopupMenu`, `MessageBoxW`, 창 이동·크기 조절 루프)가 열려 있는 동안 메인 큐가 멈춘다.** 모달 루프는 메인 스레드에서 자기 메시지 루프를
   돌며 창 메시지만 디스패치한다. 앱의 메인 루프(`RunLoop.main.run`)가 돌려 주던 `DispatchQueue.main`·`RunLoop` 타이머·`@MainActor` Task 는 메뉴가 닫힐 때까지 서 있다 —
   스토어 갱신 없음, 팀 링크가 생기면 하트비트도 없어 30 s 뒤 팀원이 이 멤버를 내린다. 맥은 메뉴가 열려 있어도 메인 큐를 계속 돌린다. **왜 못 걸렀나:** CI 자가 점검은 메뉴를 열 때

@@ -92,6 +92,21 @@ final class PlazaStubCanvas: PlazaCanvas {
     func clip(to rect: CGRect) { record("clip \(Self.r(rect))") }
     func fill(_ rect: CGRect) { record("fill \(Self.r(rect))") }
     func fillEllipse(in rect: CGRect) { record("fillEllipse \(Self.r(rect))") }
+    func strokeEllipse(in rect: CGRect, lineWidth: CGFloat) { record("strokeEllipse \(Self.r(rect)) \(Self.f(lineWidth))") }
+    func fillPath(_ path: PlazaPath) { record("fillPath \(Self.path(path))") }
+    func strokePath(_ path: PlazaPath, lineWidth: CGFloat, cap: PlazaLineCap) {
+        record("strokePath \(Self.path(path)) \(Self.f(lineWidth)) \(cap)")
+    }
+    func clip(toRoundedRect rect: CGRect, radius: CGFloat) { record("clipRoundedRect \(Self.r(rect)) \(Self.f(radius))") }
+    private static func path(_ p: PlazaPath) -> String {
+        p.elements.map { e in
+            switch e {
+            case .move(let q): "M\(f(q.x)),\(f(q.y))"
+            case .line(let q): "L\(f(q.x)),\(f(q.y))"
+            case .close: "Z"
+            }
+        }.joined(separator: " ")
+    }
     func fillRoundedRect(_ rect: CGRect, radius: CGFloat) { record("fillRoundedRect \(Self.r(rect)) \(Self.f(radius))") }
     func strokeRoundedRect(_ rect: CGRect, radius: CGFloat, lineWidth: CGFloat) {
         record("strokeRoundedRect \(Self.r(rect)) \(Self.f(radius)) \(Self.f(lineWidth))")

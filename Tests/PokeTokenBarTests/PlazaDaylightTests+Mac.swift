@@ -8,22 +8,20 @@ extension PlazaDaylightTests {
     /// The minimap's map follows the time like the plaza: darker, bluer and greyer at night. With the background
     /// hidden it does not change, as the plaza does not.
     func testMinimapMapFollowsTheTime() throws {
-        let map = NSImage(size: NSSize(width: 48, height: 32), flipped: false) { rect in
-            NSColor(srgbRed: 0.43, green: 0.73, blue: 0.33, alpha: 1).setFill(); rect.fill(); return true
-        }
+        var green = PlazaBitmap(width: 48, height: 32, fill: PlazaRGBA(r: 110, g: 186, b: 84, a: 255))
+        green.colorSpace = .sRGB
+        let map = PlazaImage(bitmap: green)
         func corner(hour: Int, hidden: Bool = false) throws -> (r: Int, g: Int, b: Int) {
             let background = PlazaBackgroundModel()
             background.isHidden = hidden
-            let view = PlazaMinimapView(model: PlazaMinimapModel(), background: background, mapImage: map,
-                                        worldSize: PlazaMapData.map.pixelSize, fixedDate: at(hour, 0))
-            let image = try XCTUnwrap(ImageRenderer(content: view).cgImage)
-            var px = [UInt8](repeating: 0, count: image.width * image.height * 4)
-            let ctx = try XCTUnwrap(CGContext(data: &px, width: image.width, height: image.height, bitsPerComponent: 8,
-                                              bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            let i = (12 * image.width + 12) * 4   // inside the map, clear of the frame and any dot
-            return (Int(px[i]), Int(px[i + 1]), Int(px[i + 2]))
+            let panel = PlazaMinimapPanel(model: PlazaMinimapModel(), background: background, worldSize: PlazaMapData.map.pixelSize,
+                                          mapImage: { map })
+            panel.update(date: at(hour, 0))
+            let drawing = panel.render(scale: 1, viewport: .zero, graphics: PlatformPlaza.graphics)
+            guard case .image(let image, _)? = drawing.layers.first else { throw XCTSkip("no plate") }
+            let px = image.pixels
+            let p = px[13 + 12, 13 + 12]   // inside the map, clear of the frame and any dot (a point of the map at (12, 12))
+            return (Int(p.r), Int(p.g), Int(p.b))
         }
         let noon = try corner(hour: 12), night = try corner(hour: 22)
         XCTAssertLessThan(night.g, noon.g - 40, "darker at night")

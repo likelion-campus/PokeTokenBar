@@ -66,21 +66,19 @@ extension SKView: PlazaPausableView {}
             roster.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
             roster.widthAnchor.constraint(equalToConstant: PlazaRosterMetrics.width),
         ])
-        let hud = overlays.hud, pillsPanel = overlays.pills
+        let hud = overlays.hud
         let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlays.overlayModel, feed: overlays.feed,
                                                                    myMemberID: overlays.myMemberID,
-                                                                   onReact: overlays.react,
-                                                                   onMenuChoose: overlays.chooseMenu,
-                                                                   onMenuCancel: overlays.closeOverlay,
-                                                                   onCampfireChoose: overlays.chooseCampfire,
-                                                                   pillsSize: { [weak hud, weak pillsPanel] in
-                                                                       guard let hud, let pillsPanel else { return .zero }
-                                                                       return pillsPanel.stack(in: hud.viewport, scale: hud.scale,
-                                                                                               text: hud.graphics.text).size
-                                                                   }),
+                                                                   onReact: overlays.react),
                                             model: overlays.overlayModel)
         overlay.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
+        let photoFrame = PlazaPanelHostView(hud: hud, panel: .photoFrame)
+        photoFrame.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(photoFrame)   // 판 위, 안내 줄 아래: 사진 모드의 틀. 아무것도 클릭을 받지 않는다.
+        let menu = PlazaPanelHostView(hud: hud, panel: .menu)
+        menu.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(menu)   // 사진 틀 위, 안내 줄 아래: 메뉴와 메뉴 밖을 눌러 닫는 자리. 이 위의 지도·안내판·버튼은 눌림을 먼저 받는다.
         let pills = PlazaPanelHostView(hud: hud, panel: .pills)
         pills.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(pills)   // 판 바로 위: 안내 줄들은 판의 맨 위에 그려졌다. 입력은 받지 않는다.
@@ -88,25 +86,19 @@ extension SKView: PlazaPausableView {}
                                                   log: overlays.chatLog)
         chatLogView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(chatLogView)   // 입력은 받지 않는다.
-        let map = PlazaMinimapHostingView(rootView: PlazaMinimapView(
-            model: overlays.minimap, background: overlays.backgroundModel, mapImage: overlays.mapImage.nsImage,
-            worldSize: overlays.worldSize))
+        let map = PlazaPanelHostView(hud: hud, panel: .minimap)
         map.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(map)   // 입력은 받지 않는다.
+        container.addSubview(map)   // 입력은 받지 않는다(지도는 클릭을 받지 않는다).
         let clock = PlazaPanelHostView(hud: hud, panel: .clock)
         clock.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(clock)   // 작은 지도 위. 입력은 받지 않는다.
-        let shortcuts = PlazaShortcutGuideHostingView(rootView: PlazaShortcutGuide(
-            model: overlays.shortcutModel, toggle: overlays.toggleShortcuts))
+        let shortcuts = PlazaPanelHostView(hud: hud, panel: .shortcuts)
         shortcuts.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(shortcuts)
-        let toggle = PlazaBackgroundToggleHostingView(rootView: PlazaBackgroundToggle(
-            model: overlays.backgroundModel, toggle: overlays.toggleBackground))
+        container.addSubview(shortcuts)   // 왼쪽 위 안내판. 머리줄 단추만 누를 수 있다.
+        let toggle = PlazaPanelHostView(hud: hud, panel: .backgroundToggle)
         toggle.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(toggle)
-        let colorPicker = PlazaNameColorPickerHostingView(rootView: PlazaNameColorPicker(
-            model: overlays.nameColorModel, toggle: overlays.toggleNameColorPicker,
-            choose: overlays.pickNameColor))
+        let colorPicker = PlazaPanelHostView(hud: hud, panel: .nameColorPicker)
         colorPicker.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(colorPicker)
         let chatBar = chatInput.view
@@ -125,17 +117,9 @@ extension SKView: PlazaPausableView {}
             chatBar.widthAnchor.constraint(equalToConstant: PlazaChatLog.width),
             chatLogView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
             chatLogAtBottom,
-            map.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
-            map.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-            toggle.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
-            toggle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PlazaRosterMetrics.margin),
-            shortcuts.topAnchor.constraint(equalTo: toggle.bottomAnchor, constant: 6),
-            shortcuts.leadingAnchor.constraint(equalTo: toggle.leadingAnchor),
-            colorPicker.topAnchor.constraint(equalTo: toggle.topAnchor),
-            colorPicker.leadingAnchor.constraint(equalTo: toggle.trailingAnchor, constant: 8),
         ])
-        // The panel hosts cover the window; the HUD places each panel (the clock on the minimap, as its constraints did).
-        for host in [pills, clock] {
+        // The panel hosts cover the window; the HUD places each panel (the clock on the minimap, the guide under the toggle and the picker beside it, as their constraints did).
+        for host in [photoFrame, menu, pills, map, clock, shortcuts, toggle, colorPicker] {
             NSLayoutConstraint.activate([
                 host.topAnchor.constraint(equalTo: container.topAnchor),
                 host.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -147,7 +131,8 @@ extension SKView: PlazaPausableView {}
         w.contentView = container
         w.center()
         Self.restoreFrame(w, into: overlays.rosterModel, autosaveName: autosaveName)
-        panelHosts = [.pills: pills, .clock: clock]
+        panelHosts = [.photoFrame: photoFrame, .menu: menu, .pills: pills, .minimap: map, .clock: clock, .shortcuts: shortcuts, .backgroundToggle: toggle,
+                      .nameColorPicker: colorPicker]
         self.hud = hud
         hud.setViewport(container.bounds.size, scale: w.backingScaleFactor)
         hud.host = self   // renders the visible panels once

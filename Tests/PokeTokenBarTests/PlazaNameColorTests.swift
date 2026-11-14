@@ -36,18 +36,21 @@ final class PlazaNameColorTests: XCTestCase {
 
     /// The picker is one button; opened, it unfolds every palette colour below it in rows of six.
     @MainActor
-    func testPickerUnfoldsThePaletteBelowTheButton() {
+    func testPickerUnfoldsThePaletteBelowTheButton() async {
         let model = PlazaNameColorModel()
+        let panel = PlazaNameColorPickerPanel(model: model, toggle: PlazaBackgroundTogglePanel(model: PlazaBackgroundModel()),
+                                              background: PlazaBackgroundModel())
+        let text = PlazaStubGraphics(log: { _ in }).text
         func size() -> CGSize {
-            NSHostingController(rootView: PlazaNameColorPicker(model: model, toggle: {}, choose: { _ in }))
-                .sizeThatFits(in: CGSize(width: 1000, height: 1000))
+            let s = panel.size(in: .zero, scale: 1, text: text)
+            return CGSize(width: s.width - 2 * PlazaPanelStyle.strokeRoom, height: s.height - 2 * PlazaPanelStyle.strokeRoom)
         }
         let closed = size()
         model.isOpen = true
         let open = size()
-        let rows = CGFloat((PlazaNameColor.hexes.count + PlazaNameColorPicker.columns - 1) / PlazaNameColorPicker.columns)
-        XCTAssertGreaterThanOrEqual(open.height, closed.height + rows * PlazaNameColorPicker.swatch)
-        XCTAssertGreaterThanOrEqual(open.width, CGFloat(PlazaNameColorPicker.columns) * PlazaNameColorPicker.swatch)
+        let rows = CGFloat((PlazaNameColor.hexes.count + PlazaNameColorPickerPanel.columns - 1) / PlazaNameColorPickerPanel.columns)
+        XCTAssertGreaterThanOrEqual(open.height, closed.height + rows * PlazaNameColorPickerPanel.swatch)
+        XCTAssertGreaterThanOrEqual(open.width, CGFloat(PlazaNameColorPickerPanel.columns) * PlazaNameColorPickerPanel.swatch)
     }
 
     private func rgb(_ color: PlazaColor) -> [CGFloat] {

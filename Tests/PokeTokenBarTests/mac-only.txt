@@ -87,13 +87,12 @@ PlazaGroupPhotoTests+Mac.swift
 PlazaPullUnderTests+Mac.swift
 # PlazaStartleControllerTests: every test hides in the bundled tall grass (the controller reads it through the Mac loader; the Windows stub has none, so the map is plain grass)
 PlazaStartleControllerTests.swift
-# PlazaFocusTests+Mac: the campfire menu test asserts the SwiftUI menu view's rows (PlazaCampfireMenuView)
+# PlazaFocusTests+Mac: the campfire menu test asserts the menu rows and notice (PlazaMenuText) in a controller flow that needs the Mac scene
 PlazaFocusTests+Mac.swift
 # PlazaSnowballControllerTests+Mac: shortcutThrowLabel reads the SwiftUI shortcut guide (its entries move to shared code in a later task)
 PlazaSnowballControllerTests+Mac.swift
 # PlazaPhotoModeTests+Mac: the photo written to the clipboard needs a PNG codec (NSBitmapImageRep decodes it; the Windows stub writes none)
 PlazaPhotoModeTests+Mac.swift
-PlazaPhotoOverlayTests.swift
 PlazaPhotoTests.swift
 PlazaPhotoTestSupport.swift
 PlazaPhotoParityTests.swift
@@ -202,3 +201,7 @@ PlazaPanelRenderTests+Mac.swift
 ReachabilityParityTests.swift
 # PlazaRosterHoverLayoutTests: hosts the SwiftUI roster in an AppKit window (NSHostingView, Auto Layout)
 PlazaRosterHoverLayoutTests.swift
+# PlazaHUDControlRenderTests+Mac: the canvas-drawn guide, toggle, picker and photo frame against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) through the AppKit panel hosts
+PlazaHUDControlRenderTests+Mac.swift
+# PlazaHUDMenuRenderTests+Mac: the canvas-drawn menus and minimap against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) through the AppKit panel hosts
+PlazaHUDMenuRenderTests+Mac.swift

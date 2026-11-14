@@ -149,7 +149,7 @@ import Foundation
 
     private func frame(of panel: any PlazaPanel, viewport: CGSize, scale: CGFloat) -> CGRect {
         let size = panel.size(in: viewport, scale: scale, text: graphics.text)
-        let o = panel.offset, w = viewport.width, h = viewport.height
+        let o = panel.offset(in: viewport, scale: scale, text: graphics.text), w = viewport.width, h = viewport.height
         let origin: CGPoint
         switch panel.anchor {
         case .topLeading: origin = CGPoint(x: o.x, y: o.y)
