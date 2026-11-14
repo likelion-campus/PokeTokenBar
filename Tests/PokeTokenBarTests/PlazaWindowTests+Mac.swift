@@ -163,6 +163,76 @@ private struct NoSprites: PlazaSpriteFetching {
         c.handleClose()
     }
 
+    /// Each SwiftUI view gets its own action: the no-argument closures all have the same type, so a swap would still compile.
+    func testEachOverlayViewCallsItsOwnAction() async throws {
+        let name = "PlazaWindowMacShellTests.\(UUID())"
+        defer { NSWindow.removeFrame(usingName: name) }
+        let c = controller(shell: RecordingPlazaShell())
+        c.prepareScene()
+        let scene = try XCTUnwrap(c.scene)
+        let shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("this test never brings a window forward") })
+        shell.open(stage: scene.stage, title: "t", overlays: c.overlayBindings)
+        let subs = try XCTUnwrap(shell.windowForTesting?.contentView).subviews
+        guard subs.count == 10 else { return XCTFail("\(subs)") }
+        let roster = try XCTUnwrap(subs[1] as? PlazaRosterHostingView)
+        let overlay = try XCTUnwrap(subs[2] as? PlazaOverlayHostingView)
+        let chatLog = try XCTUnwrap(subs[3] as? PlazaChatLogHostingView)
+        let guide = try XCTUnwrap(subs[6] as? PlazaShortcutGuideHostingView)
+        let background = try XCTUnwrap(subs[7] as? PlazaBackgroundToggleHostingView)
+        let picker = try XCTUnwrap(subs[8] as? PlazaNameColorPickerHostingView)
+        func state() -> [Bool] { [c.isChatLogExpanded, c.areShortcutsFolded, c.isBackgroundHidden, c.isNameColorPickerOpen] }
+        XCTAssertEqual(state(), [false, false, false, false])
+        chatLog.rootView.toggle()
+        XCTAssertEqual(state(), [true, false, false, false], "the chat log's button expands the log")
+        guide.rootView.toggle()
+        XCTAssertEqual(state(), [true, true, false, false], "the guide's header folds the guide")
+        background.rootView.toggle()
+        XCTAssertEqual(state(), [true, true, true, false], "the eye button hides the background")
+        picker.rootView.toggle()
+        XCTAssertEqual(state(), [true, true, true, true], "the colour button opens the palette")
+        picker.rootView.choose(PlazaNameColor.hexes[2])
+        XCTAssertEqual(c.shownNameColor, PlazaNameColor.hexes[2])
+        XCTAssertFalse(c.isNameColorPickerOpen)
+        scene.isOverlayOpen = true
+        overlay.rootView.onMenuCancel()
+        XCTAssertFalse(scene.isOverlayOpen, "a click outside a menu closes the overlay")
+        c.rosterModel.entries = (0..<7).map {
+            PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
+                             isShiny: false, presence: .idle, isMe: false)
+        }
+        roster.rootView.onTurn(1)
+        XCTAssertEqual(c.rosterModel.page, 1, "the roster's arrows turn its page")
+        shell.stopPresenting()
+        shell.dismantle()
+        c.handleClose()
+    }
+
+    /// `open` centres the window before restoring the saved frame, so a saved position wins. Observable on a window that
+    /// is never shown: the saved frame is applied when the autosave name is set.
+    func testASavedFrameWinsOverCentring() async throws {
+        let name = "PlazaWindowMacShellTests.\(UUID())"
+        defer { NSWindow.removeFrame(usingName: name) }
+        let saved = NSWindow(contentRect: NSRect(x: 120, y: 140, width: 700, height: 500),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: true)
+        saved.isReleasedWhenClosed = false
+        saved.saveFrame(usingName: name)
+        let c = controller(shell: RecordingPlazaShell())
+        c.prepareScene()
+        let shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("this test never brings a window forward") })
+        shell.open(stage: try XCTUnwrap(c.scene).stage, title: "t", overlays: c.overlayBindings)
+        let w = try XCTUnwrap(shell.windowForTesting)
+        XCTAssertEqual(w.frame, saved.frame, "the saved frame, not the centred one")
+        let centred = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
+                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: true)
+        centred.isReleasedWhenClosed = false
+        centred.center()
+        XCTAssertNotEqual(saved.frame.origin, centred.frame.origin, "the fixture tells the two apart")
+        XCTAssertEqual(c.rosterModel.capacity, PlazaRoster.capacity(forHeight: 500), "the roster fits the restored height")
+        shell.stopPresenting()
+        shell.dismantle()
+        c.handleClose()
+    }
+
     /// Through `show()`: the window's `SKView` presents the scene's stage and its key and frame events reach the
     /// controller's scene; closing stops the presentation, then the scene and its `SKScene` are freed.
     func testTheMacShellPresentsTheStageUntilTheSceneIsLetGo() async throws {

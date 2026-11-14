@@ -500,13 +500,20 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         c.handleClose()
     }
 
-    func testATeammateJoiningAndLeavingTouchesNoShell() async throws {
+    /// Two sessions on a fake transport; my controller is wired to the first. The directory is removed at teardown.
+    private struct TeamPair {
+        let hub: FakeTransportHub
+        let me: TeamSession, meT: FakeTeamTransport, meS: TeamSettings
+        let other: TeamSession, otherT: FakeTeamTransport, otherS: TeamSettings
+    }
+
+    private func teamPair() throws -> TeamPair {
         let hub = FakeTransportHub()
         var rng = SystemRandomNumberGenerator()
         let code = TeamCode.generate(using: &rng)
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("PlazaWindowShellTests-\(UUID())")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
         let mon = TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "Pikachu", gender: nil)
         func node(_ name: String) -> (TeamSession, FakeTeamTransport, TeamSettings) {
             let settings = TeamSettings(defaults: TestDefaults.make(suite: "plaza.shell.team.\(UUID())"))
@@ -523,23 +530,74 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         }
         let (me, meT, meS) = node("나")
         let (other, otherT, otherS) = node("가")
-        defer { withExtendedLifetime(other) {} }
+        return TeamPair(hub: hub, me: me, meT: meT, meS: meS, other: other, otherT: otherT, otherS: otherS)
+    }
+
+    func testATeammateJoiningAndLeavingTouchesNoShell() async throws {
+        let t = try teamPair()
         let shell = RecordingPlazaShell()
-        let c = controller(shell, session: me, memberID: meS.memberID)
+        let c = controller(shell, session: t.me, memberID: t.meS.memberID)
         c.show()
         _ = shell.take()
-        let link = hub.connect(meT, to: otherT)
-        other.updatePlazaPosition(inPlaza: true, tile: PlazaMapData.map.spawn, facing: .down, isWalking: false)
+        let link = t.hub.connect(t.meT, to: t.otherT)
+        t.other.updatePlazaPosition(inPlaza: true, tile: PlazaMapData.map.spawn, facing: .down, isWalking: false)
         let scene = try XCTUnwrap(c.scene)
-        await settle { scene.memberTiles[otherS.memberID] != nil }
-        XCTAssertNotNil(scene.memberTiles[otherS.memberID], "the teammate walked in")
-        XCTAssertTrue(c.rosterEntries.contains { $0.id == otherS.memberID })
-        XCTAssertTrue(c.minimapDots.contains { $0.id == otherS.memberID })
-        hub.disconnect(link)
-        await settle { me.members[otherS.memberID] == nil }
-        await settle { scene.memberTiles[otherS.memberID] == nil }
-        XCTAssertNil(scene.memberTiles[otherS.memberID], "the teammate left")
+        let otherID = t.otherS.memberID
+        await settle { scene.memberTiles[otherID] != nil }
+        XCTAssertNotNil(scene.memberTiles[otherID], "the teammate walked in")
+        XCTAssertTrue(c.rosterEntries.contains { $0.id == otherID })
+        XCTAssertTrue(c.minimapDots.contains { $0.id == otherID })
+        t.hub.disconnect(link)
+        await settle { t.me.members[otherID] == nil }
+        await settle { scene.memberTiles[otherID] == nil }
+        XCTAssertNil(scene.memberTiles[otherID], "the teammate left")
         XCTAssertEqual(shell.take(), [], "member sync draws through the scene and the models only")
+        c.handleClose()
+    }
+
+    /// What teammates and timers trigger (`PlazaPresenting`, member sync, the 1 s tick) never brings the plaza forward or
+    /// moves the keyboard focus: the plaza comes forward only when the user opens it.
+    func testWhatTeammatesAndTimersTriggerNeverBringsThePlazaForward() async throws {
+        let t = try teamPair()
+        let shell = RecordingPlazaShell()
+        let tick = ShellTestGate()
+        let c = controller(shell, session: t.me, memberID: t.meS.memberID, focusTickSleep: { _ in await tick.sleep() })
+        c.show()
+        _ = shell.take()
+        _ = t.hub.connect(t.meT, to: t.otherT)
+        let scene = try XCTUnwrap(c.scene)
+        let me = t.meS.memberID, otherID = t.otherS.memberID
+        let beside = TilePoint(x: scene.walker.tile.x + 1, y: scene.walker.tile.y)
+        t.other.updatePlazaPosition(inPlaza: true, tile: beside, facing: .left, isWalking: false)
+        await settle { scene.memberTiles[otherID] == beside }
+        XCTAssertEqual(scene.memberTiles[otherID], beside, "test precondition: the teammate stands beside me")
+        let presenting: any PlazaPresenting = c
+        presenting.showEmote(memberID: otherID, kind: .heart, alsoOver: me, overDecoy: false)
+        presenting.showChat(memberID: otherID, text: "안녕", isLoud: true)
+        presenting.showJump(memberID: otherID, iceBreak: nil)
+        presenting.showDance(memberID: otherID, style: nil, since: nil)
+        presenting.stopDance(memberID: otherID)
+        presenting.showFirework(memberID: otherID, style: nil)
+        presenting.showTackle(from: otherID, on: me, tiles: 1)
+        presenting.showSnowball(from: otherID, on: me, tiles: 1, direction: .left)
+        presenting.showPull(from: otherID, on: me)
+        presenting.showPickup(from: otherID, slot: 0)
+        presenting.showGroupPhoto(from: otherID)
+        presenting.applySchedule()
+        presenting.endFocusIfDue()
+        c.showBanner("배너")
+        for _ in 0..<3 {
+            await settle { tick.count == 1 }
+            tick.tick()
+        }
+        var time = 0.0
+        scene.update(time)
+        while time < 2 { time += 1.0 / 30; scene.update(time) }
+        let calls = shell.take()
+        XCTAssertFalse(calls.contains(.bringToFront), "\(calls)")
+        XCTAssertFalse(calls.contains(.focusScene), "\(calls)")
+        XCTAssertFalse(calls.contains(.focusChatInput), "\(calls)")
+        XCTAssertEqual(calls, [], "teammates and timers make no window call at all")
         c.handleClose()
     }
 }
