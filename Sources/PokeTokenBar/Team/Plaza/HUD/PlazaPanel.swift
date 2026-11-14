@@ -94,13 +94,14 @@ struct PlazaPanelInteraction: Equatable, Sendable {
     /// Hover and press on this panel (only for a drawing that `tracksMouse`). Panels without a hover or pressed look
     /// leave the default, which ignores it.
     var interaction: PlazaPanelInteraction { get set }
-    /// A wheel or trackpad scroll over the panel (`scrollingDeltaX/Y` as the system sends them, momentum included). True
-    /// when the panel scrolls with it, so it goes no further; false passes it on. The default passes everything on.
-    func scroll(dx: CGFloat, dy: CGFloat) -> Bool
+    /// A wheel or trackpad scroll over the panel at `point` (panel points, origin top-left; `scrollingDeltaX/Y` as the
+    /// system sends them, momentum included). True when the panel scrolls with it, so it goes no further; false passes it
+    /// on. The default passes everything on.
+    func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool
 }
 
 extension PlazaPanel {
-    func scroll(dx: CGFloat, dy: CGFloat) -> Bool { false }
+    func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool { false }
 
     func offset(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGPoint { offset }
 

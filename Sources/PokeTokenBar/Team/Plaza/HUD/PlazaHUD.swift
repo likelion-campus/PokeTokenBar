@@ -130,8 +130,8 @@ import Foundation
             updateInteraction()
             return false
         case .scroll(let dx, let dy):
-            guard hit != nil, let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return false }
-            return panel.scroll(dx: dx, dy: dy)
+            guard hit != nil, let frame = shown[id]?.frame, let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return false }
+            return panel.scroll(dx: dx, dy: dy, at: CGPoint(x: e.location.x - frame.minX, y: e.location.y - frame.minY))
         }
     }
 
