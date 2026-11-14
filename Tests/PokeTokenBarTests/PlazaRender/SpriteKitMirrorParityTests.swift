@@ -127,11 +127,25 @@ final class SpriteKitMirrorParityTests: XCTestCase {
         return false
     }
 
+    /// What one differential run found: the first difference (nil: none) and how much it exercised.
+    struct FuzzResult { var failure: String?; var operations = 0; var nodes = 0; var mostMounted = 0; var frames = 0; var exactFrames = 0; var rootMoves = 0 }
+
     /// Seeded random node operations applied to shared nodes (whose SpriteKit copies the backend keeps) and, the same
     /// way, to SpriteKit nodes built by hand as the plaza built them; the two SpriteKit trees must stay equal, and every
-    /// shared value must read back what the hand-built SpriteKit node reads.
+    /// shared value must read back what the hand-built SpriteKit node reads. Two roots are mounted late, then unmounted,
+    /// remounted and moved under each other (the bridge's mount and remove paths).
     func testRandomOperationsLeaveTheSameSpriteKitTree() {
-        var rng = PlazaSplitMix64(seed: 0x7_1E57_AB1E)
+        let r = runFuzz(seed: 0x7_1E57_AB1E, operations: 2_000)
+        XCTAssertNil(r.failure, r.failure ?? "")
+        XCTAssertGreaterThan(r.mostMounted, 20, "the mounted trees grew (the operations did something)")
+        XCTAssertGreaterThan(r.rootMoves, 10, "roots were unmounted, remounted and moved")
+        XCTAssertGreaterThan(Double(r.exactFrames), 0.95 * Double(r.frames), "frame is bit-equal but for half-thousandths")
+        print("PARITY: \(r.operations) operations, \(r.nodes) nodes, up to \(r.mostMounted) mounted, \(r.rootMoves) root moves; frames bit-equal \(r.exactFrames) of \(r.frames)")
+    }
+
+    func runFuzz(seed: UInt64, operations: Int) -> FuzzResult {
+        var result = FuzzResult()
+        var rng = PlazaSplitMix64(seed: seed)
         func unit() -> Double { rng.unit() }
         func int(_ n: Int) -> Int { Int(rng.next() % UInt64(n)) }
         func value(_ lo: Double, _ hi: Double) -> CGFloat { CGFloat(lo + (hi - lo) * unit()) }
@@ -159,8 +173,9 @@ final class SpriteKitMirrorParityTests: XCTestCase {
                 textures.append(nested); rawTextures.append(rawNested)
             }
         }
-        for (t, raw) in zip(textures, rawTextures) {
-            XCTAssertEqual(t.pixelSize, raw.size(), "pixelSize is SKTexture.size()")
+        for (i, (t, raw)) in zip(textures, rawTextures).enumerated() where t.pixelSize != raw.size() {
+            result.failure = "texture \(i): pixelSize \(t.pixelSize) is not SKTexture.size() \(raw.size())"
+            return result
         }
         func sameTexture(_ a: SKTexture, _ b: SKTexture) -> Bool {
             guard let i = textures.firstIndex(where: { $0.nativeCache === a }) else { return false }
@@ -169,13 +184,14 @@ final class SpriteKitMirrorParityTests: XCTestCase {
 
         var w = Worlds()
         var frames = 0, exactFrames = 0
-        let sharedRoot = PlazaNode(), rawRoot = SKNode()
+        // nodes 0 and 1 are roots: mounted straight into SpriteKit (`containerA`), as the bridge mounts layers
+        for _ in 0..<2 { w.shared.append(PlazaNode()); w.raw.append(SKNode()) }
         let containerA = SKNode(), containerB = SKNode()
-        w.shared.append(sharedRoot); w.raw.append(rawRoot)
-        containerB.addChild(rawRoot)
-        var mounted = false
+        var mountedRoots = [false, false]   // the root's copy is a direct child of containerA
         var ops = 0
         var mostMounted = 0
+        func mount(_ r: Int) { w.shared[r].mountInSpriteKit(containerA); containerB.addChild(w.raw[r]); mountedRoots[r] = true }
+        func unmount(_ r: Int) { w.shared[r].removeFromParent(); w.raw[r].removeFromParent(); mountedRoots[r] = false }
 
         func create() {
             switch [Kind.node, .sprite, .spriteTexture, .spriteColor, .sprite, .spriteTexture, .crop, .camera][int(8)] {
@@ -275,45 +291,86 @@ final class SpriteKitMirrorParityTests: XCTestCase {
         }
 
         for _ in 0..<12 { create() }
-        while ops < 2_000 {
+        while ops < operations {
             ops += 1
             switch int(20) {
             case 0, 1: create()
             case 2, 3, 4:   // add (to a mounted or to a detached parent: materialize-on-attach both ways)
-                let free = (1..<w.shared.count).filter { w.shared[$0].parent == nil }
+                let free = (2..<w.shared.count).filter { w.shared[$0].parent == nil }
                 guard let c = free.isEmpty ? nil : free[int(free.count)] else { continue }
                 let parents = (0..<w.shared.count).filter { !isAncestor(w.shared[c], of: w.shared[$0]) }
                 let p = parents[int(parents.count)]
                 w.shared[p].addChild(w.shared[c]); w.raw[p].addChild(w.raw[c])
             case 5:   // remove; it may come back later (re-add)
-                let attached = (1..<w.shared.count).filter { w.shared[$0].parent != nil }
+                let attached = (2..<w.shared.count).filter { w.shared[$0].parent != nil }
                 guard !attached.isEmpty else { continue }
                 let c = attached[int(attached.count)]
                 w.shared[c].removeFromParent(); w.raw[c].removeFromParent()
             case 6:
                 if int(10) == 0 { let p = int(w.shared.count); w.shared[p].removeAllChildren(); w.raw[p].removeAllChildren() }
-            case 7:
-                if !mounted, ops > 300 { sharedRoot.mountInSpriteKit(containerA); mounted = true }   // a built tree, mounted late
+            case 7 where ops > 300:   // the roots: built first, mounted late, then unmounted, remounted, moved
+                if !mountedRoots[0] && !mountedRoots[1] && result.rootMoves == 0 { mount(0); mount(1); result.rootMoves += 1; break }
+                let r = int(2), other = 1 - r
+                result.rootMoves += 1
+                if w.shared[r].parent != nil {   // under the other root: take it out and mount it again
+                    w.shared[r].removeFromParent(); w.raw[r].removeFromParent(); mount(r)
+                } else if !mountedRoots[r] {
+                    mount(r)
+                } else if int(2) == 0 {
+                    unmount(r)
+                } else if !isAncestor(w.shared[r], of: w.shared[other]) {   // move under the other root (mirrored or not)
+                    unmount(r)
+                    w.shared[other].addChild(w.shared[r]); w.raw[other].addChild(w.raw[r])
+                }
             default:
                 setProperty(int(w.shared.count))
             }
+            func fail(_ message: String) -> FuzzResult {
+                result.failure = "op \(ops): " + message
+                result.operations = ops
+                return result
+            }
             for i in 0..<w.shared.count {
                 let bad = readBack(i)
-                if !bad.isEmpty { XCTFail("op \(ops): \(bad.joined(separator: "; "))\n" + (history[i] ?? []).suffix(8).joined(separator: "\n")); return }
+                if !bad.isEmpty { return fail(bad.joined(separator: "; ") + "\n" + (history[i] ?? []).suffix(8).joined(separator: "\n")) }
             }
-            if mounted {
-                guard let a = sharedRoot.skNode else { XCTFail("mounted root has no copy"); return }
-                let diff = PlazaMirrorParity.treeDifferences(a, rawRoot, sameTexture: sameTexture)
-                if !diff.isEmpty { XCTFail("op \(ops): SpriteKit trees differ:\n" + diff.prefix(5).joined(separator: "\n")); return }
-                let own = PlazaMirrorParity.differences(sharedRoot)
-                if !own.isEmpty { XCTFail("op \(ops): shared tree and its copy differ:\n" + own.prefix(5).joined(separator: "\n")); return }
-                mostMounted = max(mostMounted, sharedRoot.descendantCount)
+            let diff = PlazaMirrorParity.treeDifferences(containerA, containerB, sameTexture: sameTexture)
+            if !diff.isEmpty { return fail("SpriteKit trees differ:\n" + diff.prefix(5).joined(separator: "\n")) }
+            for r in 0..<2 where mountedRoots[r] {
+                let own = PlazaMirrorParity.differences(w.shared[r])
+                if !own.isEmpty { return fail("root \(r) and its copy differ:\n" + own.prefix(5).joined(separator: "\n")) }
             }
+            mostMounted = max(mostMounted, (0..<2).filter { mountedRoots[$0] }.reduce(0) { $0 + w.shared[$1].descendantCount })
         }
-        XCTAssertTrue(mounted)
-        XCTAssertGreaterThan(mostMounted, 20, "the mounted tree grew (the operations did something)")
-        print("PARITY: \(ops) operations, \(w.shared.count) nodes, up to \(mostMounted) mounted; frames bit-equal \(exactFrames) of \(frames)")
-        XCTAssertGreaterThan(Double(exactFrames), 0.95 * Double(frames), "frame is bit-equal but for half-thousandths")
+        result.operations = ops
+        result.nodes = w.shared.count
+        result.mostMounted = mostMounted
+        result.frames = frames
+        result.exactFrames = exactFrames
+        return result
+    }
+
+    /// The bridge (Tasks 7–9): a root mounted straight into SpriteKit can be taken out again, mounted again and moved
+    /// under a mounted shared parent; each time the SpriteKit tree follows.
+    func testAMountedRootRemovedFromItsParentIsGoneFromTheSpriteKitTree() {
+        let scene = SKScene(size: CGSize(width: 64, height: 64))
+        let root = PlazaNode(), child = PlazaSprite(color: .white, size: CGSize(width: 4, height: 4))
+        root.addChild(child)
+        root.mountInSpriteKit(scene)
+        XCTAssertTrue(root.skNode?.parent === scene)
+        root.removeFromParent()
+        XCTAssertNil(root.skNode?.parent, "a mounted root removed from its parent is gone from the SpriteKit tree")
+        XCTAssertTrue(scene.children.isEmpty)
+        guard root.skNode?.parent == nil else { return }   // mounting again would raise in SpriteKit
+        root.mountInSpriteKit(scene)
+        XCTAssertTrue(root.skNode?.parent === scene, "a removed root mounts again")
+        let other = PlazaNode()
+        other.mountInSpriteKit(scene)
+        root.removeFromParent()
+        other.addChild(root)
+        XCTAssertTrue(root.skNode?.parent === other.skNode, "a removed root moves under a mounted shared parent")
+        XCTAssertEqual(scene.children.count, 1)
+        XCTAssertEqual(PlazaMirrorParity.differences(other), [])
     }
 
     /// The pond layer's tree and its SpriteKit copy agree through splashes, bubbles, hiding and reuse, whether it was

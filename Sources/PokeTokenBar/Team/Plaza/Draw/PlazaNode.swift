@@ -153,8 +153,13 @@ enum PlazaFloat {
         mirror?.insertChild(node, at: children.count - 1)
     }
 
+    /// Leaves the parent. A root mounted straight into a backend tree (the SpriteKit bridge, Tasks 7–9) has no shared
+    /// parent; removing it takes its copy out of that tree.
     final func removeFromParent() {
-        guard let p = parent else { return }
+        guard let p = parent else {
+            mirror?.removeFromParent()
+            return
+        }
         if let i = p.children.firstIndex(where: { $0 === self }) { p.children.remove(at: i) }
         parent = nil
         mirror?.removeFromParent()

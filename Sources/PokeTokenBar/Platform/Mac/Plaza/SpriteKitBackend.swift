@@ -62,7 +62,9 @@ enum SpriteKitBackend {
     }
 
     final override func insertChild(_ child: PlazaNode, at index: Int) {
-        node.insertChild((child.mirror as? SKNodeMirror ?? SpriteKitBackend.materialize(child)).node, at: index)
+        let copy = (child.mirror as? SKNodeMirror ?? SpriteKitBackend.materialize(child)).node
+        precondition(copy.parent == nil, "PlazaNode.addChild: the node is still mounted in SpriteKit (mountInSpriteKit); removeFromParent() it first")
+        node.insertChild(copy, at: index)
     }
 
     final override func removeFromParent() { node.removeFromParent() }
@@ -123,7 +125,11 @@ extension PlazaNode {
 
     /// Bridge while the scene is still an `SKScene` (Tasks 7–9; removed in Task 10): builds this shared subtree's
     /// SpriteKit copy and appends it to `parent`'s children, where `parent.addChild(layer)` put the layer before.
+    /// Only a root mounts; `removeFromParent()` takes it out again (and then it can mount again or join a shared parent).
     func mountInSpriteKit(_ parent: SKNode) {
-        parent.addChild((mirror as? SKNodeMirror ?? SpriteKitBackend.materialize(self)).node)
+        precondition(self.parent == nil, "mountInSpriteKit: the node has a shared parent; only a root mounts")
+        let copy = (mirror as? SKNodeMirror ?? SpriteKitBackend.materialize(self)).node
+        precondition(copy.parent == nil, "mountInSpriteKit: the node is already mounted; removeFromParent() it first")
+        parent.addChild(copy)
     }
 }
