@@ -910,6 +910,25 @@ read_when:
   **가드(기계):** `WindowsSeamScanTests.testSharedFilesDoNotAskForTheLibraryDirectory`(결함 주입으로 실패 확인), `PlatformCompatTests` 가 맥의 옛 값을 고정,
   `WindowsFoundationTests` 가 러너에서 실제 동작을 단언. 스윕(`urls(for:in:)[0]`): `.applicationSupportDirectory` 6곳은 매핑돼 안전, `AppLog` 는 고침,
   `CrashReporter` 는 맥 전용(`mac-only.txt`)이라 그대로, `NSHomeDirectory()` 는 `BinaryLocator`·`PlatformCompat` 에서 정규화돼 쓰이며 하드코딩 `/Library/`·`/tmp` 는 공용 소스에 없다.
+  **defaults(Task 5):** 윈도우의 `UserDefaults` 는 `set` 이 메모리만 바꾸고 디스크(`<프로필 폴더>\<사용자 이름>\AppData\Local\<프로세스 이름>.plist`,
+  프로세스 이름에 `.exe` 포함)에는 `synchronize()` 때만 쓴다. `TerminateProcess` 는 물론 정상 `exit(0)` 에서도, 타이머로도 저장되지 않는다(E1 P9).
+  맥은 cfprefsd 가 알아서 저장하므로 공용 코드 어디에도 `synchronize` 가 없고, 그대로면 설정과 `team.memberID` 가 매 종료마다 사라진다.
+  **왜 못 걸렀나:** 맥 테스트는 cfprefsd 가 저장해 주는 환경이고, 윈도우 스위트는 한 프로세스 안에서 쓰고 읽어(메모리 캐시) 디스크를 보지
+  않았으며, 앱 실행 파일이 없어 "끄고 다시 켜기" 를 할 대상이 없었다. **규칙:** 윈도우 앱은 공용 init 의 `defaults:` 에 `WinSyncingDefaults`
+  (쓰기마다 2 초 뒤 저장)를 넣고, 30 초 안전 저장·스토어 생성 직후 저장을 두며, 프로세스는 `WindowsApp.exit` 로만 끝낸다(먼저 저장한다).
+  **가드(기계):** `WindowsSeamScanTests.testWindowsCodeExitsOnlyThroughWindowsAppExit`(`Platform/Windows/**` 의 다른 `exit(`·`ExitProcess(`·
+  `TerminateProcess(GetCurrentProcess` 를 실패시킨다, 주입 테스트 포함), `WindowsShellTests.testSyncingDefaultsSeesTypedSetters`(타입별 setter 도 저장
+  예약에 닿음, G-i), 셀프테스트의 자식 프로세스 검사 `defaults.persist.debounce`·`defaults.persist.restart`(쓰고 3 초 뒤 강제 종료 → 새 프로세스가
+  읽음)·`defaults.persist.exit`·`exit.closeRequest`·`exit.endSession`·`defaults.control`(정상 `exit(0)` 은 여전히 잃는다는 대조), 그리고
+  `windows-app` 의 전체 앱 kill 단계. 스윕: 공용 소스의 `synchronize(` 호출은 0 곳(맥은 필요 없음)이고, 공용 코드가 `.standard` 에 직접 쓰는 곳도 없다
+  (`BinaryLocator`·`KeychainAccessGate`·`CompanionStore` 는 읽기만 한다). 앞으로 생길 직접 쓰기는 30 초 안전 저장이 덮는다. 설정 파일 이름이 exe 이름에 묶이므로 배포 exe 이름(`PokeTokenBar.exe`)은 고정이다.
+  **메인 스레드·메시지 펌프(Task 5):** 윈도우에서는 `RunLoop.main` 을 창보다 먼저 만져야 CF 가 Win32 메시지를 펌프하고(늦으면 그 창은 메시지를
+  못 받고 스레드 간 `SendMessageTimeoutW` 가 막힌다), `async` main 은 첫 `await` 뒤 메인 액터 코드를 풀 스레드로 옮기며 창을 잃고, CF 의 펌프는
+  ANSI 라 코드 페이지 밖 문자(예: U+D55C)가 `?` 로 온다(E1 P2, P6, TEXT). **규칙:** `main.swift` 는 동기, `WindowsApp.main()` 은 첫 줄에서
+  `RunLoop.main` 을 만지고, 스레드 로컬 `WH_GETMESSAGE` 훅이 유니코드 창의 문자 메시지를 `DispatchMessageW` 로 다시 보낸다. 풀 스레드 콜백
+  (`Platform/Windows/Team/**`)은 `DispatchQueue.main.async` 블록 안에서만 `MainActor.assumeIsolated` 를 쓴다. **가드(기계):**
+  `testWindowsMainIsSynchronous`·`testNoAssumeIsolatedInPoolThreadCallbacks`(각각 주입 테스트 포함)와 셀프테스트 `loop.*`(스레드 id·지연·
+  `SendMessageTimeoutW`·게시/입력한 U+D55C 가 그대로 도착) — XCTest 는 런루프를 제 방식으로 돌리므로 이 검사는 배포 루프 안에서만 의미가 있다.
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
