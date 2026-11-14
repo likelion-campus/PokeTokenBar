@@ -226,7 +226,7 @@ final class PlazaEmoteTests: XCTestCase {
             XCTAssertGreaterThan(one.width, 0)
             XCTAssertEqual(two.width, one.width * 2, "\(kind)")
             XCTAssertEqual(two.height, one.height * 2, "\(kind)")
-            let data = one.dataProvider?.data as Data? ?? Data()
+            let data = one.cgImage.dataProvider?.data as Data? ?? Data()
             XCTAssertTrue(data.contains { $0 != 0 }, "\(kind) draws something")
             pixels.append(data)
         }
@@ -260,7 +260,7 @@ final class PlazaEmoteTests: XCTestCase {
         for kind in [TeamEmoteKind.heart, .party, .exclaim, .question] {
             let small = PlazaEmoteArt.image(kind, scale: 2), large = PlazaEmoteArt.image(kind, scale: 2, large: true)
             XCTAssertEqual(large.width * 2, small.width * 3, "\(kind)")
-            let s = pixels(small), l = pixels(large)
+            let s = pixels(small.cgImage), l = pixels(large.cgImage)
             // Half-dot blocks: 3x3 pixels in the large bubble map to 2x2 in the normal one.
             var same = true
             for y in 0..<(large.height) where same {
@@ -275,7 +275,7 @@ final class PlazaEmoteTests: XCTestCase {
 
     /// Reads the bubble's inside (the cells clear of border and tail) as ink/white pixels at 1 px per point.
     private func interiorInk(_ kind: TeamEmoteKind) -> (ink: Set<[Int]>, onlyInkAndWhite: Bool) {
-        let image = PlazaEmoteArt.image(kind, scale: 1)
+        let image = PlazaEmoteArt.image(kind, scale: 1).cgImage
         var raw = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let ctx = CGContext(data: &raw, width: image.width, height: image.height, bitsPerComponent: 8,
                             bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,

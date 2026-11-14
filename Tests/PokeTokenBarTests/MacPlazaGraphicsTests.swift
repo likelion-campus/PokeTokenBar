@@ -278,11 +278,13 @@ final class MacPlazaGraphicsTests: XCTestCase {
         CTFrameDraw(CTFramesetterCreateFrame(ctFramesetter("안녕 hello 🔥 긴 줄은 접힌다"), CFRange(),
                                              CGPath(rect: CGRect(x: 2, y: 2, width: 44, height: 40), transform: nil), nil), c)
         let small = ctLine("Zz", PlazaResources.font(.small))
+        c.textPosition = .zero   // image bounds are relative to the origin (the canvas measures from .zero)
         let b = CTLineGetImageBounds(small, c)
         c.textPosition = CGPoint(x: (40 - b.midX).rounded(), y: (10 - b.midY).rounded())
         CTLineDraw(small, c)
         c.setShouldAntialias(true)
         let drop = ctEmojiLine("💧", size: 12)
+        c.textPosition = .zero
         let e = CTLineGetImageBounds(drop, c)
         c.textPosition = CGPoint(x: 52 - e.midX, y: 40 - e.midY)
         CTLineDraw(drop, c)
@@ -400,7 +402,7 @@ final class MacPlazaGraphicsTests: XCTestCase {
         XCTAssertEqual(graphics.decodeImageFrames(at: URL(fileURLWithPath: "/nonexistent.gif")).count, 0)
 
         for image in [decoded, PlazaGroundShadow.image(width: 40, height: 12)] {
-            XCTAssertEqual(graphics.encodePNG(image), PlazaPhotoRenderer.png(image.cgImage))
+            XCTAssertEqual(graphics.encodePNG(image), LegacyPlazaPhotoRenderer.png(image.cgImage))
         }
     }
 

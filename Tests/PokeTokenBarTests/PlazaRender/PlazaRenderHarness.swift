@@ -129,6 +129,9 @@ enum PlazaRenderRun {
 
     struct Photo { let png: Data; let rgbaSHA256: String }
 
+    /// Set by the photo parity test: sees the photo input of every scene at the end of its run (scene name, input).
+    static var photoInputObserver: ((String, PlazaPhotoInput) -> Void)?
+
     static func run(_ scene: PlazaRenderScene, renderer: PlazaOffscreenRenderer) -> (captures: [PlazaRenderCapture], photo: Photo?) {
         renderer.startFresh()
         let setup = scene.build()
@@ -168,9 +171,10 @@ enum PlazaRenderRun {
                 out.append(capture)
             }
         }
+        if let observe = photoInputObserver, let input = setup.scene.photoInput() { observe(scene.name, input) }
         var photo: Photo?
         if setup.photo, let input = setup.scene.photoInput(), let image = PlazaPhotoRenderer.render(input),
-           let png = PlazaPhotoRenderer.png(image), let data = image.dataProvider?.data as Data? {
+           let png = PlatformPlaza.graphics.encodePNG(image), let data = image.cgImage.dataProvider?.data as Data? {
             photo = Photo(png: png, rgbaSHA256: hex(Array(data)))
         }
         return (out, photo)

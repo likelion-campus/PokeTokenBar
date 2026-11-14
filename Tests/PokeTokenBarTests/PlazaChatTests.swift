@@ -86,7 +86,7 @@ final class PlazaChatBubbleTests: XCTestCase {
         var pixels = [UInt8](repeating: 0, count: w * h * 4)
         let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.draw(image.cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
         // 테두리(2pt)와 꼬리(4pt)를 뺀 안쪽에 어두운 픽셀이 있으면 글자다.
         let dark = (6..<(h - 14)).reduce(0) { sum, y in
             sum + (6..<(w - 6)).filter { pixels[(y * w + $0) * 4] < 128 }.count

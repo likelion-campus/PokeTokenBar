@@ -94,6 +94,8 @@ PlazaPhotoModeSceneTests.swift
 PlazaPhotoModeTests.swift
 PlazaPhotoOverlayTests.swift
 PlazaPhotoTests.swift
+PlazaPhotoTestSupport.swift
+PlazaPhotoParityTests.swift
 # PlazaPondLayerTests+Mac: the 💧 image needs the Mac text engine (Apple Color Emoji); the Windows stub draws nothing
 PlazaPondLayerTests+Mac.swift
 # PlazaPondMotionTests: needs PlazaScene (SpriteKit)
@@ -191,3 +193,4 @@ Legacy/
 PlazaArtParityTests.swift
 # PlazaArtParityPixelArtTests: legacy-versus-new byte oracles for the pixel art and character frames (CoreGraphics, ImageIO)
 PlazaArtParityPixelArtTests.swift
+PlazaTextArtParityTests.swift

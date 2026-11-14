@@ -73,8 +73,13 @@ final class CGPlazaCanvas: PlazaCanvas {
                     context)
     }
 
+    /// `CTLineGetImageBounds` shifts its result by the context's text position, which `draw(_:at:)` leaves moved past the
+    /// line. Measure from the origin so the result does not depend on what was drawn before.
     func imageBounds(of line: PlazaTextLine) -> CGRect {
-        CTLineGetImageBounds(CoreTextPlazaEngine.ctLine(line)!, context)
+        let saved = context.textPosition
+        context.textPosition = .zero
+        defer { context.textPosition = saved }
+        return CTLineGetImageBounds(CoreTextPlazaEngine.ctLine(line)!, context)
     }
 
     func withPixels(_ body: (_ bytes: UnsafeMutablePointer<UInt8>, _ bytesPerRow: Int) -> Void) {

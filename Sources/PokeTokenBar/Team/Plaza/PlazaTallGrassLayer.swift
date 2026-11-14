@@ -114,7 +114,7 @@ import SpriteKit
         for (p, node) in bands {
             let origin = CGPoint(x: node.position.x, y: worldHeight - node.position.y - tile)
             guard CGRect(origin: origin, size: CGSize(width: tile, height: tile)).intersects(visible) else { continue }
-            result.append(PlazaPhotoBand(image: art.front(slices[p]!).cgImage, origin: origin, size: CGSize(width: tile, height: tile),
+            result.append(PlazaPhotoBand(image: art.front(slices[p]!), origin: origin, size: CGSize(width: tile, height: tile),
                                          sortY: CGFloat(p.y) * tile + 31))
         }
         return result

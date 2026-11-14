@@ -111,13 +111,13 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
 
     /// World 128x128 of plain blue "water"; the pond is the top 64 rows. Swimmer foot at world y=`footY`.
     private func render(footY: CGFloat) throws -> CGImage {
-        var a = PlazaPhotoActor(image: solid(32, 48), flipped: false, foot: CGPoint(x: 64, y: footY), scale: 1.5,
+        var a = PlazaPhotoActor(image: PlazaImage(cgImage: solid(32, 48)), flipped: false, foot: CGPoint(x: 64, y: footY), scale: 1.5,
                                 shadow: nil, shadowRect: .zero, plate: nil, bubble: nil)
         a.sink = 39.6
         a.waterClip = CGRect(x: 0, y: 0, width: 128, height: 64)
-        let input = PlazaPhotoInput(mapImage: solid(128, 128, r: 0, g: 0.5, b: 0.7), visibleRect: CGRect(x: 0, y: 0, width: 128, height: 128),
+        let input = PlazaPhotoInput(mapImage: PlazaImage(cgImage: solid(128, 128, r: 0, g: 0.5, b: 0.7)), visibleRect: CGRect(x: 0, y: 0, width: 128, height: 128),
                                     pixelsPerWorld: 2, actors: [a])
-        return try XCTUnwrap(PlazaPhotoRenderer.render(input))
+        return try XCTUnwrap(PlazaPhotoRenderer.renderCG(input))
     }
 
     func testPhotoDrawsTheSubmergedBodyInsideThePond() throws {
@@ -208,13 +208,13 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
         XCTAssertEqual(a.sink, 0, "the whole egg stands in place")
         XCTAssertNil(a.front)
         // Pixels: world 128x128 of blue water; the egg stands on foot y=100 in a pond covering the whole picture.
-        var e = PlazaPhotoActor(image: solid(32, 48), flipped: false, foot: CGPoint(x: 64, y: 100), scale: 1.5,
+        var e = PlazaPhotoActor(image: PlazaImage(cgImage: solid(32, 48)), flipped: false, foot: CGPoint(x: 64, y: 100), scale: 1.5,
                                 shadow: nil, shadowRect: .zero, plate: nil, bubble: nil)
         e.eggSunk = true
         e.waterClip = CGRect(x: 0, y: 0, width: 128, height: 128)
-        let pic = PlazaPhotoInput(mapImage: solid(128, 128, r: 0, g: 0.5, b: 0.7), visibleRect: CGRect(x: 0, y: 0, width: 128, height: 128),
+        let pic = PlazaPhotoInput(mapImage: PlazaImage(cgImage: solid(128, 128, r: 0, g: 0.5, b: 0.7)), visibleRect: CGRect(x: 0, y: 0, width: 128, height: 128),
                                   pixelsPerWorld: 2, actors: [e])
-        let img = try XCTUnwrap(PlazaPhotoRenderer.render(pic))
+        let img = try XCTUnwrap(PlazaPhotoRenderer.renderCG(pic))
         let top = pixel(img, 64 * 2, (100 - 72 + 4) * 2)   // just under the egg's top
         let foot = pixel(img, 64 * 2, (100 - 4) * 2)
         XCTAssertGreaterThan(top.r, 40, "the egg shows through the water at its top")
@@ -254,13 +254,13 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
 
     func testPhotoClipsASunkEggToThePondAndKeepsItWholeAtTheTopEdge() throws {
         // Pond = world rows 40..128. The egg (72 tall, foot 100) would top out at 28, above the pond: it sinks to row 40 whole.
-        var e = PlazaPhotoActor(image: solid(32, 48), flipped: false, foot: CGPoint(x: 64, y: 100), scale: 1.5,
+        var e = PlazaPhotoActor(image: PlazaImage(cgImage: solid(32, 48)), flipped: false, foot: CGPoint(x: 64, y: 100), scale: 1.5,
                                 shadow: nil, shadowRect: .zero, plate: nil, bubble: nil)
         e.eggSunk = true
         e.waterClip = CGRect(x: 50, y: 40, width: 48, height: 88)
-        let pic = PlazaPhotoInput(mapImage: solid(128, 128, r: 0, g: 0.5, b: 0.7), visibleRect: CGRect(x: 0, y: 0, width: 128, height: 128),
+        let pic = PlazaPhotoInput(mapImage: PlazaImage(cgImage: solid(128, 128, r: 0, g: 0.5, b: 0.7)), visibleRect: CGRect(x: 0, y: 0, width: 128, height: 128),
                                   pixelsPerWorld: 2, actors: [e])
-        let img = try XCTUnwrap(PlazaPhotoRenderer.render(pic))
+        let img = try XCTUnwrap(PlazaPhotoRenderer.renderCG(pic))
         let plain = pixel(img, 8, 60 * 2)
         XCTAssertEqual(pixel(img, 64 * 2, 36 * 2).r, plain.r, "nothing above the pond's top edge")
         XCTAssertGreaterThan(pixel(img, 64 * 2, 44 * 2).r, plain.r + 20, "the egg's top is just inside the pond")
