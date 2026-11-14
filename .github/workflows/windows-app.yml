@@ -341,7 +341,10 @@ jobs:
           $closeLinesBefore = ([regex]::Matches((Get-Content $logFile -Raw), 'exit code=0 reason=closeRequest')).Count
           $next = $env:PTB_NEXT_VERSION
           $setup = Resolve-Path "installer-next\PokeTokenBar-Setup-$next-win-x64.exe"
-          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=$PWD\install-next.log" -Wait -PassThru
+          # No -Wait: it also waits for the app the installer starts. The setup itself must end by itself.
+          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=$PWD\install-next.log" -PassThru
+          $null = $proc.Handle
+          if (-not $proc.WaitForExit(180000)) { Stop-Process -Id $proc.Id -Force; Get-Content install-next.log -ErrorAction SilentlyContinue | Select-Object -Last 40; throw 'the upgrade setup did not end in 180 s' }
           Assert-That ($proc.ExitCode -eq 0) 'upgrade.exit' "exit $($proc.ExitCode)"
           Assert-That ($old.HasExited -and $old.ExitCode -eq 0) 'upgrade.oldInstanceClosed' "old instance exited=$($old.HasExited) code=$($old.ExitCode)"
           $closeLinesAfter = ([regex]::Matches((Get-Content $logFile -Raw), 'exit code=0 reason=closeRequest')).Count

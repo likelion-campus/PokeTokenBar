@@ -98,6 +98,7 @@ while ($queue.Count -gt 0) {
             if (-not $src) { Fail "$dep (imported by $(Split-Path $file -Leaf)): not an OS DLL and no source in the Swift SDK or the VC redist"; continue }
             $origin = "Swift SDK $((Split-Path $src -Parent).Substring($sdk.Length + 1))"
         }
+        $src = (Get-ChildItem -LiteralPath (Split-Path $src -Parent) -Filter (Split-Path $src -Leaf) | Select-Object -First 1).FullName  # the file's own letter case
         $dest = Join-Path $Out (Split-Path $src -Leaf)
         Copy-Item $src $dest
         $shipped[$dep] = @{ Name = (Split-Path $src -Leaf); Source = $src; Origin = $origin }
