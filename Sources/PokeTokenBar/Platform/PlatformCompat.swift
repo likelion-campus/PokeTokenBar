@@ -281,7 +281,7 @@ extension PlatformCompat {
     /// "PATH" ignoring case ("Path" in practice, since the process environment is case-insensitive), else "Path".
     static func pathVariableKey(in env: [String: String]) -> String {
         #if os(Windows)
-        return env.keys.first { $0.caseInsensitiveCompare("PATH") == .orderedSame } ?? "Path"
+        return "PATH" // FAULT-INJECTION
         #else
         return "PATH"
         #endif
