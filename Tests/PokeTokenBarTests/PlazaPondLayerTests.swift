@@ -27,7 +27,7 @@ final class PlazaPondLayerTests: XCTestCase {
         let images = [PlazaPondArt.droplet(), PlazaPondArt.bubble(), PlazaPondArt.swimRing()]
             + (2...14).map { PlazaPondArt.ring(radius: $0) }
         for image in images {
-            let colours = opaqueColours(image)
+            let colours = opaqueColours(image.cgImage)
             XCTAssertFalse(colours.isEmpty)
             XCTAssertTrue(colours.isSubset(of: allowed), "\(colours.subtracting(allowed))")
         }
@@ -220,7 +220,7 @@ final class PlazaPondLayerTests: XCTestCase {
             let image = PlazaPondArt.wetImage(scale: scale)
             XCTAssertEqual(image.width, Int(16 * scale))
             XCTAssertEqual(image.height, Int(16 * scale))
-            XCTAssertTrue(hasAnyAlpha(image))
+            XCTAssertTrue(hasAnyAlpha(image.cgImage))
         }
     }
 

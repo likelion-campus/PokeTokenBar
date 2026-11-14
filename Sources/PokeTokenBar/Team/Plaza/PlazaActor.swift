@@ -44,7 +44,7 @@ struct PlazaActorContext {
     private var wetRemaining: TimeInterval = 0
     private static let wetSize = CGSize(width: 16, height: 16)
     private static let wetTexture: SKTexture = {
-        let texture = SKTexture(cgImage: PlazaPondArt.wetImage(scale: 4))
+        let texture = SKTexture(cgImage: PlazaPondArt.wetImage(scale: 4).cgImage)
         texture.filteringMode = .nearest
         return texture
     }()
@@ -106,7 +106,7 @@ struct PlazaActorContext {
         swimRingNode.size = CGSize(width: 24, height: 6)   // 12×3 시트 픽셀 × 2
         swimRingNode.isHidden = true
         ghostNode.anchorPoint = CGPoint(x: 0.5, y: 1)
-        ghostNode.color = PlazaPondArt.waterColor
+        ghostNode.color = PlazaPondArt.waterColor.skColor
         ghostNode.colorBlendFactor = PlazaPondArt.submergedBlend
         ghostCrop.isHidden = true
         ghostMask.anchorPoint = .zero
@@ -583,7 +583,7 @@ struct PlazaActorContext {
     }
 
     private static let swimRingTexture: SKTexture = {
-        let t = SKTexture(cgImage: PlazaPondArt.swimRing())
+        let t = SKTexture(cgImage: PlazaPondArt.swimRing().cgImage)
         t.filteringMode = .nearest
         return t
     }()
@@ -595,7 +595,7 @@ struct PlazaActorContext {
         if let old = shadowTextureSize, old == size, shadowIsNest == frames.isEgg { return }
         shadowTextureSize = size
         shadowIsNest = frames.isEgg
-        let image = frames.isEgg ? PlazaNestArt.image() : PlazaGroundShadow.image(width: size.width, height: size.height)
+        let image = frames.isEgg ? PlazaNestArt.image() : PlazaGroundShadow.image(width: size.width, height: size.height).cgImage
         shadowImage = image
         nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage() : nil
         nestFrontNode.isHidden = !frames.isEgg

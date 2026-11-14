@@ -28,7 +28,6 @@ Team/Plaza/PlazaChatBubble.swift
 Team/Plaza/PlazaEmoteArt.swift
 Team/Plaza/PlazaFireworkLayer.swift
 Team/Plaza/PlazaFootprintLayer.swift
-Team/Plaza/PlazaGroundShadow.swift
 Team/Plaza/PlazaIceArt.swift
 Team/Plaza/PlazaIceLayer.swift
 Team/Plaza/PlazaIconLoader.swift
@@ -36,10 +35,8 @@ Team/Plaza/PlazaMinimap.swift
 Team/Plaza/PlazaNamePlate.swift
 Team/Plaza/PlazaNestArt.swift
 Team/Plaza/PlazaPhotoRenderer.swift
-Team/Plaza/PlazaPondArt.swift
 Team/Plaza/PlazaPondLayer.swift
 Team/Plaza/PlazaPresentingMac.swift
-Team/Plaza/PlazaResources.swift
 Team/Plaza/PlazaScene.swift
 Team/Plaza/PlazaSnowball.swift
 Team/Plaza/PlazaSnowballLayer.swift

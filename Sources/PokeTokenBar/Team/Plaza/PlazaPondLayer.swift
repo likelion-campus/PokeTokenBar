@@ -42,8 +42,8 @@ import SpriteKit
     private var ringPool: [SKSpriteNode] = []
     private var bubblePool: [SKSpriteNode] = []
     private var ringTextures: [Int: SKTexture] = [:]   // 반지름(시트 픽셀)마다 하나
-    private let dropletTexture = PlazaPondLayer.texture(PlazaPondArt.droplet())
-    private let bubbleTexture = PlazaPondLayer.texture(PlazaPondArt.bubble())
+    private let dropletTexture = PlazaPondLayer.texture(PlazaPondArt.droplet().cgImage)
+    private let bubbleTexture = PlazaPondLayer.texture(PlazaPondArt.bubble().cgImage)
     private var isConcealed = false
     private var bubbleSerial = 0
 
@@ -174,7 +174,7 @@ import SpriteKit
         let span = r.toRadius - Self.ringFromRadius
         let radius = Self.ringFromRadius + Int((CGFloat(span) * k).rounded())
         let texture = ringTextures[radius] ?? {
-            let t = Self.texture(PlazaPondArt.ring(radius: radius))
+            let t = Self.texture(PlazaPondArt.ring(radius: radius).cgImage)
             ringTextures[radius] = t
             return t
         }()

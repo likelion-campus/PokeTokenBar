@@ -47,6 +47,8 @@ LocalUsageCacheTests.swift
 # LocalUsageReaderTests: needs Bundle.module fixtures (the Windows build has no test resources)
 LocalUsageReaderTests.swift
 LoginItemTests.swift
+# MacPlazaGraphicsTests: the CoreGraphics / CoreText / ImageIO backend against direct CG calls (Mac only)
+MacPlazaGraphicsTests.swift
 MenuGrowthTests.swift
 MenuLimitColoringTests.swift
 MonthDailyTrendTests.swift
@@ -75,7 +77,6 @@ PlazaEmoteTests.swift
 PlazaFireworksTests.swift
 PlazaFocusTests.swift
 PlazaFootprintTests.swift
-PlazaGroundShadowTests.swift
 PlazaGroupPhotoTests.swift
 PlazaIceArtTests.swift
 PlazaIceControllerTests.swift
@@ -178,3 +179,6 @@ TestDefaultsLateWriteTests.swift
 # plaza offscreen render harness (Track A): SpriteKit + Metal, Mac only
 PlazaRenderScenes.swift
 PlazaRender/
+# Track A legacy art oracles: verbatim pre-conversion CoreGraphics art and the CGImage byte comparison (deleted in Task 19)
+Legacy/
+PlazaArtParityTests.swift
