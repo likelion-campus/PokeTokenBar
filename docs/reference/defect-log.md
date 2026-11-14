@@ -2220,6 +2220,12 @@ read_when:
   창 이동·크기, `MessageBoxW`)를 시작하는 코드는 호출 전 `WinModalPump.begin(_:)`, 호출 뒤 `defer { end(_:) }` 를 부른다. 이동·크기 루프는 싱크로 오는 `WM_ENTERSIZEMOVE`/`WM_EXITSIZEMOVE` 가
   자동으로 begin/end 한다(다른 창은 같은 `WinSinkWindow` 라우팅이라 그대로). **회귀 점검:** `modalPump.*` 자가 점검(메뉴를 1.5 s 열어 둔 채 큐·타이머·Task 가 도는가, 재진입, 풍선, 타이머 수명, 메뉴 안에서
   `WindowsApp.exit`, 유휴) — 펌프를 끈 상태로 먼저 실행해 실패함을 확인했다.
+
+- **"전/후" 비교의 *전* 쪽이 틀렸다 — `NSHostingView` + `cacheDisplay` 는 SwiftUI `.shadow(y:)` 를 위아래 뒤집어 그린다.** 같은 `Text.shadow(radius: 0, x: 1, y: 1)` 이 `ImageRenderer` 에서는 오른쪽 아래, 창 안
+  호스팅 뷰 캡처에서는 오른쪽 *위*에 생긴다(1x 에서 확인, `testWhereSwiftUIPutsTheTextShadow`). 그림자 있는 글자가 많은 로스터·카드는 호스팅 캡처로 비교하면 글자마다 수백 픽셀이 틀려 보여 패널이 틀린 줄
+  알게 된다(Task 17c–d 에서 한동안 그렇게 읽었다). **왜 못 걸렀나:** 17b 채팅 기록에는 그림자가 없어 호스팅 캡처가 맞았고, 그 방법을 그대로 물려받았다. **규칙:** `ScrollView` 가 없는 뷰는 `ImageRenderer`,
+  있는 뷰는 `ImageRenderer` 그림에 스크롤 영역만 호스팅 캡처를 덧댄다(`ContentRig.renderedWithPatch`). 새 비교 방법을 쓸 때는 먼저 알려진 모양(그림자·둥근 모서리) 하나로 그 방법 자체를 확인한다.
+  같은 부류: SwiftUI 느슨한 스택(`LazyVStack/LazyVGrid`)은 건너뛴 행을 어림잡은 높이로 쳐서, 한 번에 끝까지 스크롤하면 실제 끝을 지나 빈 칸이 보인다 — 비교는 100pt 씩 나눠 스크롤하고 패널이 갈 수 있는 끝까지만 간다.
   **두 번째 결함 (같은 항목, 2026-11-15): 펌프 틱이 메뉴의 키 입력을 가로챘다.** 틱이 부른 `RunLoop.main.run(mode:before:)` 는 CoreFoundation 의 Windows 루프라 입력이 있다고 나오면
   스스로 `PeekMessage(PM_REMOVE)` 로 메시지 하나를 꺼내 창에 디스패치한다 — 메뉴의 모달 루프가 막 읽으려던 키가 그 한 개였다면 메뉴는 그 키를 못 받는다(사용자 눈에는 "메뉴에서 키를 눌렀는데 가끔
   아무 일도 안 일어난다"; CI 의 `tray.menuKeys` 가 간헐 실패: Return 이 안 닿아 `action=none`). **왜 못 걸렀나:** 첫 수정의 점검은 키를 틱이 *돌지 않을 때* 보냈다 — 틱이 일을 하는 동안 큐에 키가

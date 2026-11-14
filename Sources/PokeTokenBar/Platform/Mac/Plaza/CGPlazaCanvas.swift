@@ -119,6 +119,35 @@ final class CGPlazaCanvas: PlazaCanvas {
         context.strokePath()
         context.restoreGState()
     }
+    /// SwiftUI's own path for `UnevenRoundedRectangle` (continuous corners), built top-left and turned over into the canvas
+    /// (origin bottom-left, so the shape's top is the rect's `maxY`).
+    static func unevenRoundedRect(_ rect: CGRect, radii: PlazaCornerRadii) -> CGPath {
+        let shape = UnevenRoundedRectangle(topLeadingRadius: radii.topLeading, bottomLeadingRadius: radii.bottomLeading,
+                                           bottomTrailingRadius: radii.bottomTrailing, topTrailingRadius: radii.topTrailing,
+                                           style: .continuous)
+        let path = shape.path(in: CGRect(origin: .zero, size: rect.size)).cgPath
+        var flip = CGAffineTransform(translationX: rect.minX, y: rect.maxY).scaledBy(x: 1, y: -1)
+        return path.copy(using: &flip) ?? path
+    }
+
+    func clip(toUnevenRoundedRect rect: CGRect, radii: PlazaCornerRadii) {
+        context.addPath(Self.unevenRoundedRect(rect, radii: radii))
+        context.clip()
+    }
+
+    func fillUnevenRoundedRect(_ rect: CGRect, radii: PlazaCornerRadii) {
+        context.addPath(Self.unevenRoundedRect(rect, radii: radii))
+        context.fillPath()
+    }
+
+    func strokeUnevenRoundedRect(_ rect: CGRect, radii: PlazaCornerRadii, lineWidth: CGFloat) {
+        context.saveGState()
+        context.setLineWidth(lineWidth)
+        context.addPath(Self.unevenRoundedRect(rect, radii: radii))
+        context.strokePath()
+        context.restoreGState()
+    }
+
     func draw(_ image: PlazaImage, in rect: CGRect) { context.draw(image.cgImage, in: rect) }
 
     func draw(_ line: PlazaTextLine, at textPosition: CGPoint) {

@@ -2,12 +2,13 @@ import Foundation
 
 /// The overlay panels the plaza draws through the canvas (Track A Tasks 14–17). The Mac still shows the roster, chat log,
 /// board and card as SwiftUI until the user decides (Task 17); the chat log panel exists here for Windows.
-enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog }
+enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog, roster, board, card }
 
 /// The window edge a panel keeps its distance from, as its old Auto Layout constraints did. `offset.x` is the distance
 /// from the leading or trailing edge (unused by `topCenter`, which centres), `offset.y` from the top or bottom edge.
-/// `fill` covers the window and ignores `offset`.
-enum PlazaPanelAnchor: Sendable { case topLeading, topTrailing, topCenter, bottomLeading, bottomTrailing, fill }
+/// `center` puts the panel in the middle of the window (both axes, on whole device pixels), ignoring `offset`. `fill` covers
+/// the window and ignores `offset`.
+enum PlazaPanelAnchor: Sendable { case topLeading, topTrailing, topCenter, bottomLeading, bottomTrailing, center, fill }
 
 /// What a click on a panel picks: `action` names it for whoever owns the panel, `index` the row or swatch, if any.
 struct PlazaPanelHit: Equatable, Sendable {
@@ -27,6 +28,12 @@ struct PlazaAccessibilityItem: Equatable, Sendable {
     var value: String?
     /// Pressing it (VoiceOver's press) does what a click on it does: `PlazaHUD.press` reports this hit to `onAction`.
     var action: PlazaPanelHit?
+
+    /// The same item at another place: what a scroll step changes. A host updates frames in place for such a change and
+    /// only rebuilds (and announces) its elements when the items differ otherwise.
+    func sameExceptFrame(_ other: PlazaAccessibilityItem) -> Bool {
+        role == other.role && label == other.label && value == other.value && action == other.action
+    }
 
     init(frame: CGRect, role: Role, label: String, value: String? = nil, action: PlazaPanelHit? = nil) {
         self.frame = frame
@@ -60,6 +67,15 @@ struct PlazaPanelDrawing {
     var layers: [PlazaPanelLayer] = []
     var accessibility: [PlazaAccessibilityItem] = []
     var tracksMouse = false
+    /// Hover texts (SwiftUI's `.help`): a rectangle in panel points (origin top-left) and the text the system shows after
+    /// the mouse rests on it. The window shows them (the Mac: `NSView.addToolTip`); a panel with none leaves it empty.
+    var tooltips: [PlazaTooltip] = []
+}
+
+/// A hover text over a part of a panel (`PlazaPanelDrawing.tooltips`).
+struct PlazaTooltip: Equatable, Sendable {
+    var frame: CGRect
+    var text: String
 }
 
 /// The hit under the mouse and the hit held down, on one panel. The HUD sets it on a panel whose drawing `tracksMouse`

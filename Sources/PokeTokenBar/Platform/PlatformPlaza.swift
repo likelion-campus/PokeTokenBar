@@ -137,4 +137,14 @@ enum PlatformPlaza {
         LivePlazaSpriteFetcher()
         #endif
     }
+
+    /// Where the roster and card panels get their Pokémon pictures: `PlazaIconLoader`/`SpriteLoader` on the Mac
+    /// (`MacPlazaIcons`), nothing elsewhere (the panels draw their placeholders until stage 6).
+    @MainActor static func iconSource() -> any PlazaIconSource {
+        #if os(Windows) || PTB_SHARED_ONLY
+        PlazaStubIconSource()
+        #else
+        MacPlazaIcons()
+        #endif
+    }
 }
