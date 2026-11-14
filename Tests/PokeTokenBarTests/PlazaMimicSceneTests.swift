@@ -25,7 +25,7 @@ final class PlazaMimicSceneTests: XCTestCase {
         PlazaNameColor.color(forMemberID: "m-\(name)", chosen: 0xFF9ECF)
     }
 
-    func testADisguiseShowsTheirNameColourAndTitle() {
+    func testADisguiseShowsTheirNameColourAndTitle() async {
         let s = scene()
         s.setMyDisguise(look("지아", hex: 0xFF9ECF, nature: .timid))
         XCTAssertEqual(s.myShownName, "지아")
@@ -35,7 +35,7 @@ final class PlazaMimicSceneTests: XCTestCase {
         XCTAssertEqual(s.nameColor, palette[2])
     }
 
-    func testMyOwnChangesWaitUnderTheDisguise() {
+    func testMyOwnChangesWaitUnderTheDisguise() async {
         let s = scene()
         s.setMyDisguise(look("지아", hex: 0xFF9ECF, nature: .timid))
         s.setNickname("새이름")
@@ -50,7 +50,7 @@ final class PlazaMimicSceneTests: XCTestCase {
         XCTAssertEqual(s.myTitle, L(.ko).plazaNatureTitle(.bold))
     }
 
-    func testADisguiseWithoutANatureHasNoTitle() {
+    func testADisguiseWithoutANatureHasNoTitle() async {
         let s = scene()
         s.setMyDisguise(look("지아", hex: 0xFF9ECF, nature: nil))
         XCTAssertNil(s.myTitle)

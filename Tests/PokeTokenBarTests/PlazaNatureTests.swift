@@ -8,7 +8,7 @@ final class PlazaNatureTests: XCTestCase {
 
     // MARK: - 문구
 
-    func testEveryNatureReadsBeforeAName() {
+    func testEveryNatureReadsBeforeAName() async {
         let expected: [PokemonNature: String] = [
             .hardy: "노력하는", .lonely: "외로운", .brave: "용감한", .adamant: "고집스러운", .naughty: "개구쟁이",
             .bold: "대담한", .docile: "온순한", .relaxed: "무사태평한", .impish: "장난꾸러기", .lax: "촐랑대는",
@@ -34,7 +34,7 @@ final class PlazaNatureTests: XCTestCase {
                  totalForms: path.count, nature: nature, form: form)
     }
 
-    func testLatestNaturePrefersTheRaisedIndividual() {
+    func testLatestNaturePrefersTheRaisedIndividual() async {
         var state = CompanionState()
         state.active = raised([1, 2, 3], stage: 1, .bold)
         state.dex = [graduate([1, 2, 3], .brave, day: 9)]
@@ -42,21 +42,21 @@ final class PlazaNatureTests: XCTestCase {
         XCTAssertEqual(state.latestNature(of: 1), .bold, "an earlier stage of the raised line")
     }
 
-    func testLatestNatureSkipsAStageTheRaisedIndividualHasNotReached() {
+    func testLatestNatureSkipsAStageTheRaisedIndividualHasNotReached() async {
         var state = CompanionState()
         state.active = raised([1, 2, 3], stage: 0, .bold)
         state.dex = [graduate([1, 2, 3], .brave, day: 9)]
         XCTAssertEqual(state.latestNature(of: 3), .brave)
     }
 
-    func testLatestNatureTakesTheNewestGraduate() {
+    func testLatestNatureTakesTheNewestGraduate() async {
         var state = CompanionState()
         state.dex = [graduate([25], .quiet, day: nil), graduate([25], .calm, day: 2), graduate([25], .sassy, day: 5),
                      graduate([25], .timid, day: 3), graduate([25], .lax, day: nil)]
         XCTAssertEqual(state.latestNature(of: 25), .sassy)
     }
 
-    func testLatestNatureSkipsRecordsWithoutOne() {
+    func testLatestNatureSkipsRecordsWithoutOne() async {
         var state = CompanionState()
         state.active = raised([25], stage: 0, nil)
         state.dex = [graduate([25], .calm, day: 2), graduate([25], nil, day: 5)]
@@ -64,7 +64,7 @@ final class PlazaNatureTests: XCTestCase {
         XCTAssertNil(CompanionState().latestNature(of: 25))
     }
 
-    func testLatestNatureMatchesTheChosenForm() {
+    func testLatestNatureMatchesTheChosenForm() async {
         var state = CompanionState()
         state.active = raised([201], stage: 0, .bold, form: .b)
         state.dex = [graduate([201], .calm, day: 2, form: .a), graduate([201], .sassy, day: 1, form: .c)]
@@ -85,7 +85,7 @@ final class PlazaNatureTests: XCTestCase {
         return CompanionStore(fileURL: url)
     }
 
-    func testRepresentativeNatureFollowsTheRaisedOneUntilASpeciesIsChosen() throws {
+    func testRepresentativeNatureFollowsTheRaisedOneUntilASpeciesIsChosen() async throws {
         let companion = try store(nature: "adamant", dex: [graduate([25], .calm, day: 2)])
         XCTAssertEqual(companion.representativeNature, .adamant)
         XCTAssertTrue(companion.setRepresentativeSpeciesID(25))
@@ -94,28 +94,28 @@ final class PlazaNatureTests: XCTestCase {
         XCTAssertEqual(companion.representativeNature, .adamant)
     }
 
-    func testRepresentativeNatureFollowsTheChosenForm() throws {
+    func testRepresentativeNatureFollowsTheChosenForm() async throws {
         let companion = try store(nature: "adamant", dex: [graduate([201], .calm, day: 5, form: .a),
                                                            graduate([201], .sassy, day: 1, form: .c)])
         XCTAssertTrue(companion.setRepresentativeSpeciesID(201, form: .c))
         XCTAssertEqual(companion.representativeNature, .sassy)
     }
 
-    func testAnEggHasNoNature() throws {
+    func testAnEggHasNoNature() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("nature-egg-\(UUID().uuidString).json")
         XCTAssertNil(CompanionStore(fileURL: url).representativeNature)
     }
 
     // MARK: - 내 칸
 
-    func testMyEntryCarriesTheRepresentativeNature() throws {
+    func testMyEntryCarriesTheRepresentativeNature() async throws {
         let name = "plaza.nature.\(UUID())"
         let settings = TeamSettings(defaults: TestDefaults.make(suite: name))
         let companion = try store(nature: "naive")
         XCTAssertEqual(PlazaRoster.myEntry(companion: companion, teamSettings: settings).nature, .naive)
     }
 
-    func testCharacterCarriesTheNatureButAnEggDoesNot() {
+    func testCharacterCarriesTheNatureButAnEggDoesNot() async {
         func entry(species: Int?) -> PlazaRosterEntry {
             PlazaRosterEntry(id: "m", nickname: "나", speciesID: species, speciesName: "x", gender: nil, isShiny: false,
                              presence: .online, isMe: true, nature: .naive)
@@ -125,7 +125,7 @@ final class PlazaNatureTests: XCTestCase {
         XCTAssertNil(PlazaRoster.character(entry: entry(species: nil), subject: subject).nature)
     }
 
-    func testRosterEntriesKeepTheNature() {
+    func testRosterEntriesKeepTheNature() async {
         let me = PlazaRosterEntry(id: "me", nickname: "나", speciesID: 25, speciesName: "x", gender: nil, isShiny: false,
                                   presence: .online, isMe: true, nature: .calm)
         let member = TeamMemberState(memberID: "a", nickname: "민지",
@@ -151,16 +151,11 @@ final class PlazaNatureTests: XCTestCase {
     }
 
     private func frames() -> PlazaCharacterFrames {
-        let context = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
-        let frame = [PlazaFrame(image: PlazaImage(cgImage: context.makeImage()!), delay: 1)]
+        let frame = [PlazaFrame(image: PlazaImage(bitmap: PlazaTestImages.solid(width: 8, height: 8, PlazaRGBA(r: 255, g: 0, b: 0, a: 255))), delay: 1)]
         return PlazaCharacterFrames(front: frame, back: frame)
     }
 
-    func testATeammatesPlateGrowsUpwardWithTheNatureAndShrinksWithoutIt() throws {
+    func testATeammatesPlateGrowsUpwardWithTheNatureAndShrinksWithoutIt() async throws {
         let s = scene()
         s.applyMembers([member(nil)])
         s.update(0)
@@ -178,13 +173,13 @@ final class PlazaNatureTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(s.memberNamePlateTop("a")), plain, accuracy: 0.001)
     }
 
-    func testANewTeammateArrivesWithTheNature() {
+    func testANewTeammateArrivesWithTheNature() async {
         let s = scene()
         s.applyMembers([member(.calm)])
         XCTAssertEqual(s.memberTitle("a"), "차분한")
     }
 
-    func testMyPlateFollowsMyNature() {
+    func testMyPlateFollowsMyNature() async {
         let s = scene()
         s.update(0)
         let plain = s.myNamePlateTop
@@ -198,7 +193,7 @@ final class PlazaNatureTests: XCTestCase {
         XCTAssertEqual(s.myNamePlateTop, plain, accuracy: 0.001)
     }
 
-    func testRenamingAndRecolouringKeepTheNature() {
+    func testRenamingAndRecolouringKeepTheNature() async {
         let s = scene()
         s.setNature(.calm)
         s.setNickname("도토리")
@@ -206,7 +201,7 @@ final class PlazaNatureTests: XCTestCase {
         XCTAssertEqual(s.myTitle, "차분한")
     }
 
-    func testTheBubbleSitsAboveTheNature() throws {
+    func testTheBubbleSitsAboveTheNature() async throws {
         let s = scene()
         s.applyMembers([member(.naive)])
         s.showEmote(memberID: "a", kind: .heart)
@@ -216,7 +211,7 @@ final class PlazaNatureTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(frame.minY, try XCTUnwrap(s.memberNamePlateTop("a")))
     }
 
-    func testThePhotoPlateCarriesTheNature() throws {
+    func testThePhotoPlateCarriesTheNature() async throws {
         let s = scene()
         s.setCharacter(frames())
         s.update(0)
