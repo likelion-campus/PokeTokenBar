@@ -132,6 +132,8 @@ PlazaSwimLowerHalfTests+Mac.swift
 # PlazaTallGrassSceneTests+Mac: the scene tests that need the bundled tall-grass sheet (ImageIO)
 PlazaTallGrassSceneTests+Mac.swift
 PlazaWindowTests.swift
+# PlazaWindowTests+Mac: the Mac shell's NSWindow, SKView and SwiftUI hosting views (AppKit, SpriteKit)
+PlazaWindowTests+Mac.swift
 PokeTokenBarTests.swift
 # PokemonFormTests+Mac: needs PokemonDetailView (UI)
 PokemonFormTests+Mac.swift

@@ -1,12 +1,10 @@
-import AppKit
-import SpriteKit
-
-/// 그리기 루프를 멈출 수 있는 뷰. 테스트에서 창 없이 바꿔 끼운다.
-@MainActor protocol PlazaPausableView: AnyObject { var isPaused: Bool { get set } }
-extension SKView: PlazaPausableView {}
+import Foundation
+import Observation
 
 /// 광장 창. 창을 만들지 않고도 장면을 만들 수 있게(`prepareScene`) 나눠 두었다.
-@MainActor final class PlazaWindowController: NSObject, NSWindowDelegate {
+/// Shared: every plaza decision lives here. The window itself (AppKit, `SKView`, the SwiftUI HUD) is the platform's
+/// `PlazaWindowShell` (`PlazaMacWindow` on the Mac), which only shows what this controller says and reports its events.
+@MainActor final class PlazaWindowController {
     private let map = PlazaMapData.map
     private let session: TeamSession?
     private let preferences: PlazaPreferences
@@ -42,8 +40,8 @@ extension SKView: PlazaPausableView {}
     private let clock: () -> Date
     private let profileTimeout: Duration
     private let overlayModel = PlazaOverlayModel()
-    /// 사진 모드에서 숨기는 HUD 뷰. 판과 대화 입력창은 넣지 않는다.
-    private var hudViews: [NSView] = []
+    /// The window on this platform. It holds this controller weakly (`events`).
+    private let shell: any PlazaWindowShell
     private let feed: TeamFeedStore?
     /// 큰 소식 배너를 보여 주는 시간.
     static let bannerDuration: Duration = .seconds(4)
@@ -108,7 +106,7 @@ extension SKView: PlazaPausableView {}
     /// 말풍선 연타 제한: 마지막으로 받아들인 키의 시각부터 잰다.
     static let emoteInterval: TimeInterval = 0.3
     /// 왼쪽 아래 대화 기록과 오른쪽 아래 작은 지도가 겹치지 않는 폭, 펼친 단축키 안내가 다 보이는 높이.
-    static let minContentSize = NSSize(width: 600, height: 372)
+    static let minContentSize = CGSize(width: 600, height: 372)
     private var lastEmoteAt: Date?
     /// 기도 소식 연타 제한: 마지막으로 팀원에게 보낸 시각부터 잰다. 횟수는 제한 없이 센다.
     private var lastPraySentAt: Date?
@@ -120,22 +118,16 @@ extension SKView: PlazaPausableView {}
     private var lastLoudAt: Date?
     static let loudInterval: TimeInterval = 60
     private let minimap = PlazaMinimapModel()
-    private let chatInput = PlazaChatInput()
+    private let chatInput: any PlazaChatInputHost
     private let chatLog = PlazaChatLog()
     private let backgroundModel = PlazaBackgroundModel()
     private let shortcutModel = PlazaShortcutGuideModel()
-    /// 입력창이 열리면 대화 기록을 입력창 위로 올린다.
-    private var chatLogAboveInput: NSLayoutConstraint?
-    private var chatLogAtBottom: NSLayoutConstraint?
     /// 사진 PNG를 내보낸다. 성공하면 true. 테스트가 클립보드를 건드리지 않게 바꿔 끼운다.
     private let photoWriter: (Data) -> Bool
     /// 인사하기로 띄우는 말풍선. 누를 때마다 이 가운데 하나를 고른다.
     static let greetingKinds: [TeamEmoteKind] = [.heart, .party]
     /// 테스트에서 고정한다.
     private let greetingKind: () -> TeamEmoteKind
-
-    /// 창 위치·크기 기억용 이름. 사용자에게 보이는 글이 아니다.
-    private static let frameAutosaveName = "TeamPlazaWindow"
 
     /// 프로세스에서 한 번만 만든다. 다시 열 때(와 테스트마다) 메인 스레드에서 지도를 다시 그리지 않는다. 앱의 지도는 하나뿐이다.
     /// 시트를 못 읽으면 단색 잔디로 대신한다.
@@ -149,7 +141,7 @@ extension SKView: PlazaPausableView {}
     private static var cachedIceArt: PlazaIceArt?
     private static func iceArt() -> PlazaIceArt {
         if let art = cachedIceArt { return art }
-        let art = PlazaIceArt.load()
+        let art = PlatformPlaza.iceArt()
         cachedIceArt = art
         return art
     }
@@ -157,7 +149,7 @@ extension SKView: PlazaPausableView {}
 
     private static func tallGrassArt() -> PlazaTallGrassArt? {
         if let loaded = cachedTallGrass { return loaded }
-        let art = PlazaTallGrassArt.load()
+        let art = PlatformPlaza.tallGrassArt()
         cachedTallGrass = .some(art)
         return art
     }
@@ -168,9 +160,9 @@ extension SKView: PlazaPausableView {}
     private static func seasonLook(for map: PlazaMap, season: PlazaSeason) -> PlazaSnowLook? {
         if let built = cachedSeasonLooks[season] { return built }
         var look: PlazaSnowLook?
-        if season != .summer, let sheet = PlazaResources.tileSheet() {
-            let art = PlazaResources.tallGrassSheet().map { PlazaSeasonSheet.tallGrass(PlazaImage(cgImage: $0), season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
-            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(PlazaImage(cgImage: sheet), season: season), tallGrass: art),
+        if season != .summer, let sheet = PlatformPlaza.tileSheet() {
+            let art = PlatformPlaza.tallGrassSheet().map { PlazaSeasonSheet.tallGrass($0, season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
+            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art),
                                  tallGrass: art)
         }
         cachedSeasonLooks[season] = .some(look)
@@ -182,24 +174,26 @@ extension SKView: PlazaPausableView {}
         shortcutModel.season = season
     }
 
-    /// 테스트용: 단축키 안내의 V 줄에 적힌 던지는 것.
-    var shortcutThrowLabel: String? { PlazaShortcutGuide.entries(season: shortcutModel.season).first { $0.key == "V" }?.label }
+    /// The season the shortcut guide shows (its V line names what is thrown; `shortcutThrowLabel` reads it on the Mac).
+    var shortcutSeason: PlazaSeason { shortcutModel.season }
 
     var minimapShowsSnow: Bool { minimap.seasonMapImage != nil && scene?.isSnowShown == true }
 
     private var mapImage: PlazaImage {
         if let cached = Self.cachedMapImage { return cached }
         let tallGrass = Self.tallGrassArt()
-        let sheet = PlazaResources.tileSheet().map(PlazaImage.init(cgImage:))
+        let sheet = PlatformPlaza.tileSheet()
         let image = sheet.map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: tallGrass) } ?? PlazaTileArt.plainGrassImage(map)
         Self.cachedMapImage = image
         Self.cachedHasTileSheet = sheet != nil
         return image
     }
 
-    private var window: NSWindow?
-    private var skView: SKView?
-    /// 가려지면 멈추는 그리기 루프. 창을 열면 `skView`가 들어간다.
+    /// The shell's window is open (what `window != nil` was).
+    private var isWindowOpen = false
+    /// The shell draws the scene's stage. Set by `show()`; `scene`'s `willSet` clears it.
+    private var isPresenting = false
+    /// 가려지면 멈추는 그리기 루프. 창을 열면 셸의 그리기 루프(`SKView`)가 들어간다.
     var renderLoop: (any PlazaPausableView)?
     private var refreshGeneration = 0
     /// 팀원 관찰의 세대. 닫거나 다시 열면 올려서 낡은 관찰 콜백을 버린다.
@@ -216,7 +210,16 @@ extension SKView: PlazaPausableView {}
     /// 장면에 들어간 팀원 그림의 종 번호를 순서대로 남긴다(테스트용 읽기 전용).
     private var appliedMemberLoads: [(id: String, speciesID: Int?)] = []
     /// 닫혀 있으면 nil
-    private(set) var scene: PlazaScene?
+    /// The Mac's `SKView` retains only the stage's SpriteKit scene, not this scene (the stage's delegate, held weakly):
+    /// a released scene would leave the window frozen and swallowing keys. So the shell stops presenting before the
+    /// scene is let go of or replaced.
+    private(set) var scene: PlazaScene? {
+        willSet {
+            guard isPresenting, newValue !== scene else { return }
+            isPresenting = false
+            shell.stopPresenting()
+        }
+    }
 
     init(preferences: PlazaPreferences,
          loader: PlazaCharacterLoader,
@@ -246,7 +249,11 @@ extension SKView: PlazaPausableView {}
          focusTickSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          dittoLoopSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          dittoSeed: @escaping () -> UInt64 = { UInt64.random(in: .min ... .max) },
-         isFrontmost: (@MainActor () -> Bool)? = nil) {
+         isFrontmost: (@MainActor () -> Bool)? = nil,
+         shell: (any PlazaWindowShell)? = nil,
+         chatInput: (any PlazaChatInputHost)? = nil) {
+        self.shell = shell ?? PlatformPlaza.makeShell()
+        self.chatInput = chatInput ?? PlatformPlaza.makeChatInput()
         self.frontmostOverride = isFrontmost
         self.focusTickSleep = focusTickSleep
         self.dittoLoopSleep = dittoLoopSleep
@@ -276,7 +283,7 @@ extension SKView: PlazaPausableView {}
         self.grantItem = grantItem
         self.pray = pray
         self.prayerCount = prayerCount
-        super.init()
+        self.shell.events = self
         // 다시 켜도 주운 것으로 아는 아이템을 기억하고 팀원에게 전한다.
         takenItemSlots = keptSlots(Set(preferences.takenItemSlots))
         session?.updateTakenItemSlot(takenItemSlots.max())
@@ -287,133 +294,55 @@ extension SKView: PlazaPausableView {}
         activity = (preferences.activity ?? PlazaActivity(day: "")).rolled(to: PlazaActivity.dayKey(clock()))
         session?.updateActivity(activity)
         restoreFocus()
-        chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
-        chatInput.onClose = { [weak self] in
+        self.chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
+        self.chatInput.onClose = { [weak self] in
             guard let self else { return }
-            setChatLogAboveInput(false)
+            self.shell.setChatLogAboveInput(false)
             refreshHint()
-            if let skView { window?.makeFirstResponder(skView) }
+            self.shell.focusScene()
         }
     }
 
     /// 창이 없으면 만들고, 앱을 앞으로 가져와 창을 앞에 둔다. 이미 열려 있으면 앞으로만.
     func show() {
-        if window == nil {
+        if !isWindowOpen {
             prepareScene()
             guard let scene else { return }
-            let view = SKView(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
-            view.ignoresSiblingOrder = true
-            view.allowsTransparency = true   // 배경 숨기기
-            let w = NSWindow(contentRect: view.frame,
-                             styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                             backing: .buffered, defer: false)
-            w.title = title
-            w.contentMinSize = Self.minContentSize
-            w.isReleasedWhenClosed = false
-            w.level = .normal
-            w.delegate = self
-            let container = NSView(frame: view.frame)
-            view.frame = container.bounds
-            view.autoresizingMask = [.width, .height]
-            container.addSubview(view)
-            let roster = PlazaRosterHostingView(rootView: rosterView())
-            roster.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(roster)   // SKView 위. 입력은 받지 않고 SKView가 첫 응답자를 유지한다.
-            NSLayoutConstraint.activate([
-                roster.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
-                roster.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
-                roster.widthAnchor.constraint(equalToConstant: PlazaRosterMetrics.width),
-            ])
-            let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlayModel, feed: feed, myMemberID: memberID(),
-                                                                       onReact: { [weak self] in self?.session?.react(to: $0, kind: $1) },
-                                                                       onMenuChoose: { [weak self] in self?.chooseMenu($0, memberID: $1) },
-                                                                       onMenuCancel: { [weak self] in self?.closeOverlay() },
-                                                                       onCampfireChoose: { [weak self] in self?.chooseCampfire(index: $0) }),
-                                                model: overlayModel)
-            overlay.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
-            let chatLogView = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: chatLog, toggle: { [weak self] in
-                self?.toggleChatLog()
-            }), log: chatLog)
-            chatLogView.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(chatLogView)   // 입력은 받지 않는다.
-            let map = PlazaMinimapHostingView(rootView: PlazaMinimapView(
-                model: minimap, background: backgroundModel, mapImage: mapImage.nsImage,
-                worldSize: self.map.pixelSize))
-            map.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(map)   // 입력은 받지 않는다.
-            let clock = PlazaClockHostingView(rootView: PlazaClock(model: minimap))
-            clock.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(clock)   // 입력은 받지 않는다.
-            let shortcuts = PlazaShortcutGuideHostingView(rootView: PlazaShortcutGuide(
-                model: shortcutModel, toggle: { [weak self] in self?.toggleShortcuts() }))
-            shortcuts.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(shortcuts)
-            let toggle = PlazaBackgroundToggleHostingView(rootView: PlazaBackgroundToggle(
-                model: backgroundModel, toggle: { [weak self] in self?.toggleBackground() }))
-            toggle.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(toggle)
-            let colorPicker = PlazaNameColorPickerHostingView(rootView: PlazaNameColorPicker(
-                model: nameColorModel, toggle: { [weak self] in self?.toggleNameColorPicker() },
-                choose: { [weak self] in self?.pickNameColor($0) }))
-            colorPicker.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(colorPicker)
-            let chatBar = chatInput.view
-            chatBar.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(chatBar)   // 판 위. 열린 동안에만 입력창이 첫 응답자가 된다.
-            let chatLogAtBottom = chatLogView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16)
-            self.chatLogAtBottom = chatLogAtBottom
-            chatLogAboveInput = chatLogView.bottomAnchor.constraint(equalTo: chatBar.topAnchor, constant: -8)
-            NSLayoutConstraint.activate([
-                overlay.topAnchor.constraint(equalTo: container.topAnchor),
-                overlay.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-                overlay.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                overlay.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                chatBar.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-                chatBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-                chatBar.widthAnchor.constraint(equalToConstant: PlazaChatLog.width),
-                chatLogView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-                chatLogAtBottom,
-                map.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
-                map.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-                clock.trailingAnchor.constraint(equalTo: map.trailingAnchor),
-                clock.bottomAnchor.constraint(equalTo: map.topAnchor, constant: -6),
-                toggle.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
-                toggle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PlazaRosterMetrics.margin),
-                shortcuts.topAnchor.constraint(equalTo: toggle.bottomAnchor, constant: 6),
-                shortcuts.leadingAnchor.constraint(equalTo: toggle.leadingAnchor),
-                colorPicker.topAnchor.constraint(equalTo: toggle.topAnchor),
-                colorPicker.leadingAnchor.constraint(equalTo: toggle.trailingAnchor, constant: 8),
-            ])
-            hudViews = [roster, chatLogView, map, clock, shortcuts, toggle, colorPicker]
-            w.contentView = container
-            w.center()
-            Self.restoreFrame(w, into: rosterModel)
-            view.presentScene((scene.stage as! SpriteKitStage).skScene)
-            w.makeFirstResponder(view)
-            skView = view
-            renderLoop = view
-            window = w
+            shell.open(stage: scene.stage, title: title, overlays: overlayBindings)
+            isPresenting = true
+            renderLoop = shell.renderLoop
+            isWindowOpen = true
             startRenderWatchdog()
             applyBackground()
             Task { await refreshCharacter() }
         }
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
+        shell.bringToFront()
+    }
+
+    /// What the shell's overlay views read and call. The actions hold the controller weakly.
+    var overlayBindings: PlazaOverlayBindings {
+        PlazaOverlayBindings(
+            rosterModel: rosterModel, overlayModel: overlayModel, feed: feed, myMemberID: memberID(), chatLog: chatLog,
+            minimap: minimap, backgroundModel: backgroundModel, shortcutModel: shortcutModel, nameColorModel: nameColorModel,
+            mapImage: mapImage, worldSize: map.pixelSize, chatInput: chatInput,
+            walkToMember: { [weak self] in self?.walkToMember($0) },
+            turnRosterPage: { [weak self] in self?.turnRosterPage(by: $0) },
+            react: { [weak self] in self?.session?.react(to: $0, kind: $1) },
+            chooseMenu: { [weak self] in self?.chooseMenu($0, memberID: $1) },
+            closeOverlay: { [weak self] in self?.closeOverlay() },
+            chooseCampfire: { [weak self] in self?.chooseCampfire(index: $0) },
+            toggleChatLog: { [weak self] in self?.toggleChatLog() },
+            toggleShortcuts: { [weak self] in self?.toggleShortcuts() },
+            toggleBackground: { [weak self] in self?.toggleBackground() },
+            toggleNameColorPicker: { [weak self] in self?.toggleNameColorPicker() },
+            pickNameColor: { [weak self] in self?.pickNameColor($0) })
     }
 
     /// 창 제목. 팀 이름이 바뀌면 `refreshTitle`로 다시 붙인다.
     var title: String { L(.ko).plazaWindowTitle(teamName: teamName()) }
 
     func refreshTitle() {
-        window?.title = title
-    }
-
-    /// 저장된 창 크기를 되살린 뒤에 목록 칸 수를 잰다. 되살리는 동안의 windowDidResize 는 `window` 가 아직 nil 이라 못 잰다.
-    static func restoreFrame(_ w: NSWindow, into roster: PlazaRosterModel, autosaveName: String = frameAutosaveName) {
-        w.setFrameAutosaveName(autosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
-        roster.capacity = PlazaRoster.capacity(forHeight: w.contentView?.bounds.height ?? 0)
-        roster.maxListHeight = PlazaRoster.maxListHeight(forHeight: w.contentView?.bounds.height ?? 0)
+        shell.setTitle(title)
     }
 
     /// 창 없이 장면만 만든다. 창이 열려 있을 때만 불러야 한다(`show()`뿐): 여기서 메타몽 준비를 알리면 이 Mac이 호스트 후보가 된다.
@@ -441,7 +370,7 @@ extension SKView: PlazaPausableView {}
             preferences.zoom = $0
             self?.refreshMinimap()
         }
-        s.onCloseRequest = { [weak self] in self?.window?.performClose(nil) }
+        s.onCloseRequest = { [weak self] in self?.shell.requestClose() }
         s.onEmoteKey = { [weak self] in self?.handleEmoteKey($0) }
         s.onInteractKey = { [weak self] in self?.handleInteractKey() }
         s.onPhotoKey = { [weak self] in self?.handlePhotoKey() }
@@ -551,19 +480,14 @@ extension SKView: PlazaPausableView {}
         scene.clearInput()
         chatInput.open()
         refreshHint()
-        setChatLogAboveInput(true)
-        window?.makeFirstResponder(chatInput.field)
-    }
-
-    private func setChatLogAboveInput(_ above: Bool) {
-        chatLogAtBottom?.isActive = !above
-        chatLogAboveInput?.isActive = above
+        shell.setChatLogAboveInput(true)
+        shell.focusChatInput()
     }
 
     /// 이름 색 팔레트를 펼치거나 접는다. 누른 뒤에도 키는 장면이 받는다.
     func toggleNameColorPicker() {
         nameColorModel.isOpen.toggle()
-        if let skView { window?.makeFirstResponder(skView) }
+        shell.focusScene()
     }
 
     /// 고른 색을 저장하고 내 이름표에 바로 칠한 뒤 팔레트를 접는다. 팀원에게는 세션이 다음 위치 소식으로 보낸다.
@@ -574,7 +498,7 @@ extension SKView: PlazaPausableView {}
         scene?.setNameColor(PlazaNameColor.color(forMemberID: memberID(), chosen: hex))
         redrawCopiesOfMe()
         refreshMinimap()
-        if let skView { window?.makeFirstResponder(skView) }
+        shell.focusScene()
     }
 
     /// 테스트용 읽기 전용 값.
@@ -585,14 +509,14 @@ extension SKView: PlazaPausableView {}
     func toggleBackground() {
         preferences.isBackgroundHidden.toggle()
         applyBackground()
-        if let skView { window?.makeFirstResponder(skView) }
+        shell.focusScene()
     }
 
     /// 단축키 안내를 접거나 펼치고 기억한다.
     func toggleShortcuts() {
         preferences.areShortcutsFolded.toggle()
         shortcutModel.isFolded = preferences.areShortcutsFolded
-        if let skView { window?.makeFirstResponder(skView) }
+        shell.focusScene()
     }
 
     /// 테스트용 읽기 전용 값.
@@ -602,10 +526,7 @@ extension SKView: PlazaPausableView {}
         let hidden = preferences.isBackgroundHidden
         backgroundModel.isHidden = hidden
         scene?.setBackgroundHidden(hidden)
-        guard let window else { return }
-        window.isOpaque = !hidden
-        window.backgroundColor = hidden ? .clear : .windowBackgroundColor
-        window.hasShadow = !hidden
+        shell.setTransparent(hidden)
     }
 
     /// 테스트용 읽기 전용 값.
@@ -857,7 +778,7 @@ extension SKView: PlazaPausableView {}
     /// 사진 모드를 열고 닫을 때: 틀을 그리고 HUD를 숨기거나 되살린다.
     private func photoModeChanged(_ on: Bool) {
         overlayModel.isPhotoMode = on
-        for view in hudViews { view.isHidden = on }
+        shell.setHUDHidden(on)
         refreshHint()
         refreshCountdown()
         refreshMinimap()   // 나가면 지도의 보이는 영역도 따라가기 화면으로 돌아와야 한다(1초 뒤 틱을 기다리지 않는다)
@@ -1347,7 +1268,7 @@ extension SKView: PlazaPausableView {}
         overlayModel.content = .none
         scene?.isOverlayOpen = false
         refreshHint()
-        if let skView { window?.makeFirstResponder(skView) }
+        shell.focusScene()
     }
 
     /// 물속에서 C로 끌어들일 팀원이 있으면 그 안내, 잠수 중이면 방법 안내, 헤엄만 치면 nil.
@@ -1396,11 +1317,11 @@ extension SKView: PlazaPausableView {}
     func refreshHintForTesting() { refreshHint() }
 
     /// 앱이 앞이고 광장 창이 키 창이다. 알림 대신 광장 안 안내를 쓸지 가른다.
-    var isFrontmost: Bool { frontmostOverride?() ?? (NSApp.isActive && window?.isKeyWindow == true) }
+    var isFrontmost: Bool { frontmostOverride?() ?? shell.isFrontmost }
 
     /// 테스트용 읽기 전용 값.
     var overlayContent: PlazaOverlayContent { overlayModel.content }
-    var chatInputForTesting: PlazaChatInput { chatInput }
+    var chatInputForTesting: any PlazaChatInputHost { chatInput }
 
     /// 런타임이 부른다. 창이 닫혀 있으면(장면이 없으면) 아무것도 안 한다. 인사하기(`other`가 있다)면 받는 팀원(나일 수도
     /// 있다) 위에도 띄운다.
@@ -1426,30 +1347,24 @@ extension SKView: PlazaPausableView {}
         // The same while someone is disguised as them or they are disguised as someone (me included).
         if shownDitto?.decoyOf == id || shownMimics[id] != nil || shownMimics.values.contains(id) || myMimic?.of == id {
             handleEmoteKey(.question)
-            if let skView { window?.makeFirstResponder(skView) }
+            shell.focusScene()
             return
         }
         standUp()
         scene?.walk(toMember: id)
-        if let skView { window?.makeFirstResponder(skView) }
-    }
-
-    /// 창에 올리는 목록. 칸은 그 팀원에게 걸어가고, < > 는 페이지를 넘긴다.
-    func rosterView() -> PlazaRosterView {
-        PlazaRosterView(model: rosterModel, onSelect: { [weak self] in self?.walkToMember($0) },
-                        onTurn: { [weak self] in self?.turnRosterPage(by: $0) })
+        shell.focusScene()
     }
 
     /// 목록 페이지를 넘긴다. 누른 뒤에도 키는 장면이 받는다.
     func turnRosterPage(by delta: Int) {
         rosterModel.turnPage(by: delta)
-        if let skView { window?.makeFirstResponder(skView) }
+        shell.focusScene()
     }
 
     /// 대화 기록을 펼치거나 접는다. 누른 뒤에도 키는 장면이 받는다.
     func toggleChatLog() {
         chatLog.isExpanded.toggle()
-        if let skView { window?.makeFirstResponder(skView) }
+        shell.focusScene()
     }
 
     var isChatLogExpanded: Bool { chatLog.isExpanded }
@@ -2121,7 +2036,7 @@ extension SKView: PlazaPausableView {}
 
     /// 목록을 다시 만든다. 내 칸은 캐시를 쓴다. 창이 닫혀 있으면 아무것도 안 한다.
     func refreshRoster() {
-        guard window != nil || scene != nil else { return }
+        guard isWindowOpen || scene != nil else { return }
         let me = myEntryCache ?? myRosterEntry()
         myEntryCache = .some(me)
         scene?.setNature(me?.nature)
@@ -2180,7 +2095,6 @@ extension SKView: PlazaPausableView {}
         overlayModel.content = .none
         overlayModel.hint = nil
         overlayModel.isPhotoMode = false
-        hudViews = []
         members = [:]
         memberSubjects = [:]
         shownMimics = [:]
@@ -2217,27 +2131,22 @@ extension SKView: PlazaPausableView {}
             scene.onInteractionTargetChange = nil
             scene.isOverlayOpen = false
         }
-        skView?.presentScene(nil)
-        skView = nil
         renderLoop = nil
-        scene = nil
+        scene = nil   // the shell stops presenting first (`scene`'s willSet)
         rosterModel.entries = []
         rosterModel.page = 0
         rosterModel.hoveredID = nil
         rosterModel.isAnimating = true
         myEntryCache = nil
         refreshGeneration += 1
-        if let w = window {
-            w.delegate = nil
-            w.contentView = nil
-        }
-        window = nil
+        shell.dismantle()
+        isWindowOpen = false
     }
 
     /// 장면이 있으면 지금 칸을 저장한다. 아무것도 해제하지 않는다(앱 종료 때도 부른다).
     /// 창이 있으면 닫는다(`performClose`). 팀 준비가 풀릴 때 부른다.
     func closeIfOpen() {
-        window?.performClose(nil)
+        shell.requestClose()
     }
 
     func persistState() {
@@ -2267,8 +2176,9 @@ extension SKView: PlazaPausableView {}
 
     private func logState(_ event: String) {
         func text(_ b: Bool?) -> String { b.map { "\($0)" } ?? "-" }
-        stateLog("plaza \(event): occlusionVisible=\(text(window?.occlusionState.contains(.visible))) "
-            + "key=\(text(window?.isKeyWindow)) viewPaused=\(text(renderLoop?.isPaused)) "
+        let window = shell.diagnostics
+        stateLog("plaza \(event): occlusionVisible=\(text(window.occlusionVisible)) "
+            + "key=\(text(window.isKey)) viewPaused=\(text(renderLoop?.isPaused)) "
             + "scenePaused=\(text(scene?.isPaused)) updates=\(scene?.updateCount ?? 0) "
             + "t=\(scene?.lastFrameTime.map { String(format: "%.2f", $0) } ?? "-")")
     }
@@ -2300,7 +2210,7 @@ extension SKView: PlazaPausableView {}
     /// 하지 않는다. 창이 다시 가려졌다 보여 일시정지를 한 번 더 오가야 돌아왔다. 창 크기를 바꾸는 동안에는 SpriteKit이
     /// 일부러 그리지 않으므로 보지 않는다. 처음 세 번과 그 뒤 60번마다만 남긴다.
     func checkRendering() {
-        guard let scene, let loop = renderLoop, !loop.isPaused, !scene.isPaused, window?.inLiveResize != true else {
+        guard let scene, let loop = renderLoop, !loop.isPaused, !scene.isPaused, !shell.isInLiveResize else {
             lastRenderCheckCount = nil
             return
         }
@@ -2327,24 +2237,21 @@ extension SKView: PlazaPausableView {}
         refreshCountdown()
     }
 
-    func windowDidResize(_ notification: Notification) {
-        guard let height = window?.contentView?.bounds.height else { return }
+    func contentHeightDidChange(_ height: CGFloat) {
         rosterModel.capacity = PlazaRoster.capacity(forHeight: height)
         rosterModel.maxListHeight = PlazaRoster.maxListHeight(forHeight: height)
         refreshMinimap()
     }
-    func windowDidMiniaturize(_ notification: Notification) { setRendering(visible: false) }
-    func windowDidDeminiaturize(_ notification: Notification) { setRendering(visible: true) }
-    func windowDidChangeOcclusionState(_ notification: Notification) {
-        setRendering(visible: window?.occlusionState.contains(.visible) ?? true)
-    }
-    func windowWillClose(_ notification: Notification) { handleClose() }
-    func windowDidResignKey(_ notification: Notification) {
+    func didResignKey() {
         handleResignKey()
         logState("resigned key")
     }
-    func windowDidBecomeKey(_ notification: Notification) {
+    func didBecomeKey() {
         handleBecomeKey()
         logState("became key")
     }
 }
+
+extension PlazaWindowController: PlazaWindowEvents {}
+
+extension PlazaWindowController: PlazaPresenting {}

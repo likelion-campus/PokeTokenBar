@@ -60,12 +60,6 @@ struct PlazaShortcutGuide: View {
     }
 }
 
-@MainActor @Observable
-final class PlazaShortcutGuideModel {
-    var isFolded = false
-    var season = PlazaSeason.winter
-}
-
 /// 머리줄 단추만 누를 수 있다. 키는 받지 않아 장면이 첫 응답자를 유지한다.
 final class PlazaShortcutGuideHostingView: NSHostingView<PlazaShortcutGuide> {
     override var acceptsFirstResponder: Bool { false }

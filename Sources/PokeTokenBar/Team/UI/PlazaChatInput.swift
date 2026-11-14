@@ -202,6 +202,9 @@ import AppKit
     }
 }
 
+/// The Mac's chat field behind the shared controller (`PlatformPlaza.makeChatInput`).
+extension PlazaChatInput: PlazaChatInputHost {}
+
 final class PlazaChatTextField: NSTextField {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard let editor = currentEditor(),

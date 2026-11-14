@@ -92,11 +92,6 @@ struct PlazaBackgroundToggle: View {
     }
 }
 
-@MainActor @Observable
-final class PlazaBackgroundModel {
-    var isHidden = false
-}
-
 final class PlazaBackgroundToggleHostingView: NSHostingView<PlazaBackgroundToggle> {
     override var acceptsFirstResponder: Bool { false }
 }
@@ -148,13 +143,6 @@ struct PlazaNameColorPicker: View {
             }
         }
     }
-}
-
-@MainActor @Observable
-final class PlazaNameColorModel {
-    /// 지금 이름표 색(RGB). 고르지 않았으면 멤버 ID의 색.
-    var current: UInt32 = PlazaNameColor.hexes[0]
-    var isOpen = false
 }
 
 final class PlazaNameColorPickerHostingView: NSHostingView<PlazaNameColorPicker> {

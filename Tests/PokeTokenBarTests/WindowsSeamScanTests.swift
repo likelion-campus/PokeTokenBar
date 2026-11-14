@@ -48,6 +48,40 @@ final class WindowsSeamScanTests: XCTestCase {
         XCTAssertEqual(try scan("Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in }\n"), 0)
     }
 
+    /// macOS Foundation re-exports Observation; corelibs Foundation does not. A shared file that uses it without
+    /// `import Observation` builds on the Mac, even in `shared-check.sh`, and fails only on Windows (Track A Task 12).
+    static func observationImportViolations(in files: [URL], root: URL) throws -> [String] {
+        var out: [String] = []
+        for url in files {
+            let code = try SharedSources.lines(of: url).map { $0.components(separatedBy: "//").first ?? $0 }
+            guard let i = code.firstIndex(where: { l in ["withObservationTracking", "@Observable", "@ObservationIgnored"].contains { l.contains($0) } }),
+                  !code.contains(where: { $0.trimmingCharacters(in: .whitespaces) == "import Observation" }) else { continue }
+            out.append("\(SharedSources.relativePath(url, root: root)):\(i + 1) uses Observation without `import Observation`, which only the Mac's Foundation re-exports")
+        }
+        return out
+    }
+
+    func testSharedFilesThatObserveImportObservation() throws {
+        let files = try SharedSources.sharedFiles(root: SharedSources.sourcesRoot, listURL: SharedSources.sourcesList)
+        XCTAssertFalse(files.isEmpty)
+        XCTAssertEqual(try Self.observationImportViolations(in: files, root: SharedSources.sourcesRoot), [])
+    }
+
+    func testTheObservationScanCatchesAMissingImport() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-observation-scan-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func scan(_ text: String) throws -> Int {
+            let f = dir.appendingPathComponent("Injected.swift")
+            try text.write(to: f, atomically: true, encoding: .utf8)
+            return try Self.observationImportViolations(in: [f], root: dir).count
+        }
+        XCTAssertEqual(try scan("import Foundation\nlet v = withObservationTracking { 1 } onChange: {}\n"), 1)
+        XCTAssertEqual(try scan("import Foundation\n@Observable final class M {}\n"), 1)
+        XCTAssertEqual(try scan("import Foundation\nimport Observation\n@Observable final class M {}\n"), 0)
+        XCTAssertEqual(try scan("import Foundation\n// withObservationTracking in a comment\n"), 0)
+    }
+
     /// `.libraryDirectory` is not mapped on Windows: `urls(for:)` is empty and `[0]` traps (F1).
     static func libraryDirectoryViolations(in files: [URL], root: URL) throws -> [String] {
         var out: [String] = []

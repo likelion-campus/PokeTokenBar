@@ -87,7 +87,7 @@ final class PlazaOffscreenRenderer {
         self.device = device
         self.queue = queue
         renderer = SKRenderer(device: device)
-        renderer.ignoresSiblingOrder = true   // the app's SKView sets it (PlazaWindowController)
+        renderer.ignoresSiblingOrder = true   // the app's SKView sets it (PlazaMacWindow)
     }
 
     /// A new `SKRenderer` for the next scene: one renderer keeps a monotonic time base, so reusing it after a run that
