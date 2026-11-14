@@ -7,9 +7,6 @@ import WinSDK
 /// CURRENT executable: a value that points somewhere else (the folder was moved, the app was reinstalled elsewhere)
 /// reads as off, and only the user's toggle ever writes or removes it. First run leaves the key alone.
 @MainActor struct WindowsLoginItem {
-    /// The tray menu's `TrayMenuModel.LoginState` has these same four cases.
-    enum State: Equatable { case on, off, disabledByUser, unavailable }
-
     static let defaultRunKey = #"Software\Microsoft\Windows\CurrentVersion\Run"#
     static let defaultApprovedKey = #"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"#
     static let defaultValueName = "PokeTokenBar"
@@ -40,7 +37,7 @@ import WinSDK
 
     /// Reads only. `StartupApproved\Run` is what Task Manager's Startup tab writes: an odd first byte (0x03) means
     /// the user turned the entry off there (community-known, undocumented), no entry means enabled.
-    var state: State {
+    var state: TrayMenuModel.LoginState {
         switch WinRegistry.string(runKey, valueName) {
         case .failed: return .unavailable
         case .missing: return .off

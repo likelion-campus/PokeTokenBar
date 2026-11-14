@@ -23,14 +23,26 @@ import WinSDK
 /// process while it is idle.
 @MainActor enum WindowsUpdates {
     private(set) static var checker: UpdateChecker?
+    /// False under `--selftest`: nothing there may ask the network.
+    private(set) static var liveChecks = false
 
     @discardableResult
     static func start(defaults: UserDefaults, checkNow: Bool) -> UpdateChecker {
         let made = UpdateChecker(currentVersion: WindowsInstall.version ?? "0.0.0", defaults: defaults,
                                  fetchLatest: { await InstallerReleaseFeed.latest() })
         checker = made
+        liveChecks = checkNow
         if checkNow { Task { await made.check() } }
         return made
+    }
+
+    /// The release the tray menu offers (the Mac banner's `available`; a skipped release is not offered here).
+    static var available: (version: String, url: String)? { checker?.available.map { ($0.version, $0.url) } }
+
+    /// The tray menu opened: the Mac re-checks when its popover opens, behind the same 30-minute cooldown.
+    static func menuOpened() {
+        guard liveChecks, let checker else { return }
+        Task { await checker.check() }
     }
 }
 #endif
