@@ -2327,3 +2327,13 @@ struct PlazaDittoShown: Equatable {
     var title: String?
     var isDecoy: Bool
 }
+
+/// Bridge while the scene is still an `SKScene` (Track A Task 9; Task 10 attaches the actor to the stage's world and
+/// camera instead): the actor's shared nodes mount into SpriteKit where `attach` added its SpriteKit nodes before, in the
+/// same order, and `detach` takes them out again.
+extension PlazaActor {
+    func attach(world: SKNode, camera: SKCameraNode) {
+        for node in worldNodes { node.mountInSpriteKit(world) }
+        for node in cameraNodes { node.mountInSpriteKit(camera) }
+    }
+}
