@@ -49,4 +49,80 @@ final class AppWiringDriftScanTests: XCTestCase {
                           Self.arguments(of: "companion.update(", in: mac))
         XCTAssertNil(Self.arguments(of: "companion.update(", in: "companion.other()"))
     }
+
+    // MARK: - the tray's text and its observed values
+
+    private static func read(_ path: String) throws -> String {
+        try String(contentsOf: sources.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    /// The `_ = ...` lines (comments cut) of the `withObservationTracking` block inside `function`.
+    static func trackedValues(of function: String, in text: String) -> [String]? {
+        guard let start = text.range(of: "func \(function)(") else { return nil }
+        let body = text[start.upperBound...]
+        guard let end = body.range(of: "} onChange") else { return nil }
+        return body[..<end.lowerBound].split(separator: "\n").compactMap { line -> String? in
+            var t = line.trimmingCharacters(in: .whitespaces)
+            guard t.hasPrefix("_ = ") else { return nil }
+            if let c = t.range(of: "//") { t = String(t[..<c.lowerBound]).trimmingCharacters(in: .whitespaces) }
+            return t
+        }
+    }
+
+    /// The text of `function`'s braces, whitespace collapsed.
+    static func body(of function: String, in text: String) -> String? {
+        guard let start = text.range(of: "func \(function)("), let open = text[start.upperBound...].range(of: "{") else { return nil }
+        var depth = 1
+        var i = open.upperBound
+        var out = ""
+        while i < text.endIndex {
+            let c = text[i]
+            if c == "{" { depth += 1 }
+            if c == "}" { depth -= 1; if depth == 0 { break } }
+            out.append(c)
+            i = text.index(after: i)
+        }
+        return out.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    func testTheTraySummaryIsTheMacMenusSummary() throws {
+        let mac = try Self.read("UI/StatusItemMenu.swift")
+        let tray = try Self.read("Platform/TrayMenuModel.swift")
+        let macBody = try XCTUnwrap(Self.body(of: "summary", in: mac))
+        XCTAssertEqual(try XCTUnwrap(Self.body(of: "summary", in: tray)), macBody,
+                       "StatusItemMenu.summary changed: copy it into TrayMenuModel.summary")
+    }
+
+    func testTheWindowsAppObservesWhatTheMacMenuBarTextReads() throws {
+        let mac = try Self.read("PokeTokenBarApp.swift")
+        let windows = try Self.read("Platform/Windows/WindowsApp.swift")
+        let content = try Self.read("UI/MenuBarContent.swift")
+        // The Windows app inlines MenuBarContent.lines (it lives in UI/): the expression must stay the same.
+        let lines = try XCTUnwrap(Self.body(of: "lines", in: content))
+        XCTAssertTrue(lines.contains("store.menuLines(growthText: store.showGrowthInMenu ? companion.menuGrowthText : nil)"))
+        let expression = "store.menuLines(growthText: store.showGrowthInMenu ? companion.menuGrowthText : nil)"
+        XCTAssertTrue(windows.contains("_ = \(expression)"), "MenuBarContent.lines changed: update WindowsApp.observeStore")
+        let macTracked = try XCTUnwrap(Self.trackedValues(of: "observeStore", in: mac)).filter { !$0.contains("MenuBarContent.lines") }
+        let winTracked = try XCTUnwrap(Self.trackedValues(of: "observeStore", in: windows)).filter { !$0.contains("menuLines(") }
+        XCTAssertFalse(macTracked.isEmpty)
+        XCTAssertEqual(winTracked, macTracked, "AppDelegate.observeStore tracks different values than the Windows app")
+    }
+
+    func testTheTrayIconObservesTheMacMenuSpriteKeys() throws {
+        let mac = try Self.read("PokeTokenBarApp.swift")
+        let tray = try Self.read("Platform/Windows/WinTrayHost.swift")
+        let macTracked = try XCTUnwrap(Self.trackedValues(of: "observeCompanionSprite", in: mac))
+        let winTracked = try XCTUnwrap(Self.trackedValues(of: "observeCompanionSprite", in: tray))
+        XCTAssertFalse(winTracked.isEmpty)
+        // The animation setting (`store.animationQuality`) is the only Mac key the static icon leaves out.
+        XCTAssertEqual(winTracked, macTracked.filter { $0 != "_ = store.animationQuality" },
+                       "AppDelegate.observeCompanionSprite tracks different keys than the tray icon")
+    }
+
+    func testTheTrackedValueScanSeesADroppedKey() {
+        let a = "func observeStore() {\n withObservationTracking {\n _ = a // x\n _ = b\n } onChange: {}"
+        XCTAssertEqual(Self.trackedValues(of: "observeStore", in: a), ["_ = a", "_ = b"])
+        XCTAssertNotEqual(Self.trackedValues(of: "observeStore", in: a.replacingOccurrences(of: " _ = b\n", with: "")),
+                          Self.trackedValues(of: "observeStore", in: a))
+    }
 }

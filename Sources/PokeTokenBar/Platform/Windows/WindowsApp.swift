@@ -47,6 +47,9 @@ public enum WindowsApp {
 }
 
 extension WindowsApp {
+    /// Set at launch; `exit` takes the icon out of the notification area on every exit path.
+    @MainActor static var trayToRemove: WinTray?
+
     enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed }
 
     /// The only way Windows code leaves the process (scan-enforced): settings are lost unless synchronized (F2), and
@@ -54,7 +57,7 @@ extension WindowsApp {
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
         WinDefaultsSync.flushNow()
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
-        // Task 6: remove the tray icon here.
+        trayToRemove?.remove()
         crtExit(code)
     }
 
@@ -70,7 +73,7 @@ private func crtExit(_ code: Int32) -> Never {
 }
 
 /// The Windows counterpart of the Mac's `AppDelegate`: builds the stores in the Mac's order and keeps them running
-/// under the main loop. No tray or UI yet (Tasks 6 and 7).
+/// under the main loop. The tray icon is Task 6; the popover comes with Task 7.
 @MainActor final class WindowsAppDelegate {
     let arguments: [String]
     private(set) var store: UsageStore!
@@ -79,6 +82,7 @@ private func crtExit(_ code: Int32) -> Never {
     private(set) var teamSettings: TeamSettings!
     private(set) var defaults: WinSyncingDefaults!
     private(set) var sink: WinSinkWindow!
+    private(set) var tray: WinTrayHost?
     private(set) var loopStrategy: WinMainLoop.Strategy = .cfRunLoopWithMessages
     private(set) var mutexName = ""
     private(set) var yielded = false
@@ -116,7 +120,8 @@ private func crtExit(_ code: Int32) -> Never {
         }
         Self.installExitHandlers(on: sink)
         sink.on(WinSingleInstance.showMessage) { [weak self] _, _ in
-            self?.showRequests += 1  // Task 6: the "already running" balloon
+            self?.showRequests += 1
+            self?.tray?.showAlreadyRunning()
             return 0
         }
         if !WinMessageHook.install() { AppLog.write("text input stays ANSI: no WH_GETMESSAGE hook") }  // 7
@@ -133,10 +138,16 @@ private func crtExit(_ code: Int32) -> Never {
         let companion = CompanionStore(defaults: defaults)
         self.store = store
         self.companion = companion
+        // Task 10: UpdateChecker (the tray menu's update entry reads it; `WinTrayHost.availableUpdate`).
+        // Task 19: TeamRuntime (the team link and the plaza feed).
         Task { await companion.preparePokemonProfiles() }
         store.localizationLanguage = companion.language
         store.onRefresh = { [weak self] in self?.storeRefreshed() }
         teamSettings = TeamSettings(defaults: Self.teamDefaults(fallback: defaults))  // 11
+        let tray = WinTrayHost(window: sink, store: store, companion: companion, defaults: defaults)
+        self.tray = tray
+        WindowsApp.trayToRemove = tray.tray
+        tray.start(showFirstRunHint: !arguments.contains("--selftest"))
         WinDefaultsSync.flushNow()  // 12: a fresh team.memberID survives an early crash
         WinDefaultsSync.start()
         observeStore()  // 13
@@ -198,7 +209,7 @@ private func crtExit(_ code: Int32) -> Never {
     private func applyState() {
         noteCompanionInputs()
         AppWiring.updateCompanion(companion, from: store)
-        // Task 6: tray icon and tooltip.
+        tray?.refresh()
     }
 
     private func storeRefreshed() {

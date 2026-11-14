@@ -90,6 +90,7 @@ enum WindowsSelftest {
               "\(WinPath.native(real)) and its .bak modified before=\(show(realBefore)) after=\(show(realAfter)); "
                 + "the selftest keeps its settings in suite \(WinDefaultsSync.selftestSuiteName ?? "-")")
         await systemServiceChecks(r)
+        await trayChecks(r, app)
         await idleCheck(r, app)
         return r.checks
     }
@@ -175,7 +176,7 @@ enum WindowsSelftest {
 
         let sinkBits = Int(bitPattern: app.sink.hwnd)
         let posted = Box<Hit>()
-        app.sink.on(postedMessage) { wParam, _ in
+        let postedToken = app.sink.on(postedMessage) { wParam, _ in
             posted.append(Hit(tid: GetCurrentThreadId(), ms: nowMs() - Double(bitPattern: UInt64(wParam))))
             return 0
         }
@@ -186,13 +187,13 @@ enum WindowsSelftest {
             }
         }
         let postedDone = await waitUntil(timeout: 3) { posted.values.count >= 20 }
-        app.sink.off(postedMessage)
+        app.sink.off(postedToken)
         r.add("loop.postedMessage", postedDone && onMain(posted.values, main) && maxMs(posted.values) < 50,
               "PostMessageW from a thread: " + summary(posted.values, main, of: 20))
 
         let sentOnMain = Box<Hit>()
         let sends = Box<Hit>()  // tid = 1 when the send returned OK with our reply
-        app.sink.on(sentMessage) { _, _ in
+        let sentToken = app.sink.on(sentMessage) { _, _ in
             sentOnMain.append(Hit(tid: GetCurrentThreadId(), ms: 0))
             return 0x5151
         }
@@ -206,7 +207,7 @@ enum WindowsSelftest {
             }
         }
         let sendsDone = await waitUntil(timeout: 15) { sends.values.count >= 5 }
-        app.sink.off(sentMessage)
+        app.sink.off(sentToken)
         let sendOK = sends.values.filter { $0.tid == 1 }.count
         r.add("loop.crossThreadSend",
               sendsDone && sendOK == 5 && onMain(sentOnMain.values, main) && maxMs(sends.values) < 50,
@@ -214,12 +215,12 @@ enum WindowsSelftest {
                 + "wndproc_on_main=\(sentOnMain.values.filter { $0.tid == main }.count) max_ms=\(f2(maxMs(sends.values)))")
 
         let chars = Box<UInt32>()
-        app.sink.on(UINT(WM_CHAR)) { wParam, _ in chars.append(UInt32(truncatingIfNeeded: wParam)); return 0 }
+        let charToken = app.sink.on(UINT(WM_CHAR)) { wParam, _ in chars.append(UInt32(truncatingIfNeeded: wParam)); return 0 }
         let before = WinMessageHook.redispatchedChars
         _ = PostMessageW(app.sink.hwnd, UINT(WM_CHAR), 0x41, 0)
         _ = PostMessageW(app.sink.hwnd, UINT(WM_CHAR), 0xD55C, 0)
         _ = await waitUntil(timeout: 2) { chars.values.count >= 2 }
-        app.sink.off(UINT(WM_CHAR))
+        app.sink.off(charToken)
         let redispatched = WinMessageHook.redispatchedChars - before
         r.add("loop.postedUnicodeChar", chars.values == [0x41, 0xD55C] && redispatched >= 2,
               "posted [0x41, 0xd55c] got=\(hex(chars.values)) redispatched=\(redispatched) acp=\(GetACP())")
@@ -547,6 +548,173 @@ enum WindowsSelftest {
         } catch {
             r.add("singleInstance.second", false, "\(error)")
         }
+    }
+
+    // MARK: - tray (Task 6): the runner has a working shell tray, so add / modify / rect / re-add / delete are real
+
+    @MainActor private static func trayChecks(_ r: Recorder, _ app: WindowsAppDelegate) async {
+        guard let host = app.tray else {
+            r.add("tray.add", false, "the app has no tray host")
+            return
+        }
+        let tray = host.tray
+        r.add("tray.add", tray.isPresent && tray.lastAddOK && tray.lastVersionOK,
+              "NIM_ADD=\(tray.lastAddOK) NIM_SETVERSION(4)=\(tray.lastVersionOK) adds=\(tray.addCount) present=\(tray.isPresent)")
+
+        let long = "selftest 한국어 😀 " + String(repeating: "x", count: 200)
+        tray.setTip(long)
+        let clippedUnits = tray.lastTipUnits
+        let modifiedLong = tray.lastModifyOK
+        let fixture = WinIcon(png: WinIcon.fixturePNG, size: 16)
+        tray.setIcon(fixture)
+        let modifiedIcon = tray.lastModifyOK
+        host.refresh()
+        let compact = TokenFormatter.compact(app.store.todayTotalTokens)
+        r.add("tray.modify", modifiedLong && modifiedIcon && fixture != nil && clippedUnits == TrayMenuModel.tipLimit,
+              "tip \(long.utf16.count) -> \(clippedUnits) units (limit \(TrayMenuModel.tipLimit)) NIM_MODIFY tip=\(modifiedLong) icon=\(modifiedIcon) fixtureIcon=\(fixture != nil)")
+        r.add("tray.tooltip", host.lastTip.contains(compact) && host.lastTip.utf16.count <= TrayMenuModel.tipLimit,
+              "tip=\(host.lastTip.debugDescription) units=\(host.lastTip.utf16.count) expects \(compact)")
+
+        let rect = tray.anchorRect()
+        r.add("tray.anchorRect", rect != nil,
+              "Shell_NotifyIconGetRect hr=0x\(String(UInt32(bitPattern: tray.lastAnchorResult), radix: 16)) rect=\(rect.map { "(\($0.left),\($0.top),\($0.right),\($0.bottom))" } ?? "nil")")
+
+        let iconName = "tray.icon"
+        let loaded = await waitUntil(timeout: 20) { host.iconLoads > 0 }
+        if loaded {
+            r.add(iconName, host.iconPixels > 0, "sprite icon from \(host.iconSource) at \(host.iconPixels) px, loads=\(host.iconLoads)")
+        } else {
+            let egg = await SpriteStore.shared.eggData()
+            r.add(iconName, egg == nil, egg == nil ? "offline: no sprite could be fetched; the generic icon stays (honest fallback)"
+                  : "the egg sprite is available but no icon was set within 20 s")
+        }
+        let dpiSize = host.iconPixelSize()
+        r.add("tray.iconSize", (16...64).contains(dpiSize), "SM_CXSMICON for the window's DPI = \(dpiSize) px")
+
+        // Explorer restart: TaskbarCreated reaches the sink, which adds the icon again.
+        let before = tray.addCount
+        let created = RegisterWindowMessageW(WinStr.w("TaskbarCreated"))
+        _ = SendMessageW(app.sink.hwnd, created, 0, 0)
+        r.add("tray.reAddOnTaskbarCreated", created != 0 && tray.addCount == before + 1 && tray.lastAddOK && tray.isPresent,
+              "message=\(created) adds \(before) -> \(tray.addCount) NIM_ADD=\(tray.lastAddOK) NIM_SETVERSION=\(tray.lastVersionOK)")
+
+        await menuKeysCheck(r, app, host, name: "tray.menuKeys", mnemonic: false)
+        await menuKeysCheck(r, app, host, name: "tray.menuMnemonic", mnemonic: true)
+
+        // Several parties register for one message on the sink: all run in order, and off removes only its own.
+        let probe = UINT(WM_APP) + 0x22
+        var order: [Int] = []
+        let first = app.sink.on(probe) { _, _ in order.append(1); return nil }
+        let second = app.sink.on(probe) { _, _ in order.append(2); return 7 }
+        let both = SendMessageW(app.sink.hwnd, probe, 0, 0)
+        let orderBoth = order
+        app.sink.off(first)
+        order = []
+        _ = SendMessageW(app.sink.hwnd, probe, 0, 0)
+        let orderOne = order
+        app.sink.off(second)
+        let none = SendMessageW(app.sink.hwnd, probe, 0, 0)
+        r.add("sink.handlerList", orderBoth == [1, 2] && both == 7 && orderOne == [2] && none == 0,
+              "two handlers: order=\(orderBoth) result=\(both); after off(first): \(orderOne); after off(second): result=\(none)")
+
+        if ProcessInfo.processInfo.environment["CI"] != nil {
+            let ok = tray.showBalloon(title: "PokeTokenBar", body: "selftest", sound: false)
+            r.add("tray.balloon", ok, "NIM_MODIFY with NIF_INFO returned \(ok)")
+        } else {
+            r.add("tray.balloon", true, "skipped (not CI): a balloon would show on this PC")
+        }
+
+        // Tray and system events are both registered on the live sink: one WM_TIMECHANGE must reach every party.
+        let timeChange = UINT(WM_TIMECHANGE)
+        var probeHits = 0
+        let probeToken = app.sink.on(timeChange) { _, _ in probeHits += 1; return nil }
+        let events = Platform.current.events as? WindowsSystemEvents
+        let eventsBefore = events?.timeChangeCount ?? -1
+        _ = SendMessageW(app.sink.hwnd, timeChange, 0, 0)
+        app.sink.off(probeToken)
+        r.add("sink.sharedWithSystemEvents", events != nil && probeHits == 1 && events!.timeChangeCount == eventsBefore + 1 && tray.isPresent,
+              "WM_TIMECHANGE to the live sink: probe handler hits=\(probeHits) system-events handler runs \(eventsBefore) -> \(events?.timeChangeCount ?? -1) tray present=\(tray.isPresent)")
+
+        tray.remove()
+        let removed = tray.lastDeleteOK && !tray.isPresent
+        let readded = tray.add()
+        host.refresh()
+        r.add("tray.remove", removed && readded, "NIM_DELETE=\(tray.lastDeleteOK) present after=\(!removed ? "?" : "false") then NIM_ADD again=\(readded)")
+    }
+
+    private final class KeyDriver: @unchecked Sendable {
+        private let lock = NSLock()
+        private var log: [String] = []
+        private var finished = false
+        func note(_ s: String) { lock.lock(); log.append(s); lock.unlock() }
+        func finish() { lock.lock(); finished = true; lock.unlock() }
+        var isFinished: Bool { lock.lock(); defer { lock.unlock() }; return finished }
+        var text: String { lock.lock(); defer { lock.unlock() }; return log.joined(separator: ",") }
+    }
+
+    /// Opens the real menu from a timer, drives it with posted keys (Down until "Refresh" is highlighted, then Return)
+    /// and asserts the store refreshed. A helper thread does the key work because the menu loop blocks the main thread.
+    @MainActor private static func menuKeysCheck(_ r: Recorder, _ app: WindowsAppDelegate, _ host: WinTrayHost,
+                                                   name: String, mnemonic: Bool) async {
+        let items = host.menuItems()
+        guard let target = items.firstIndex(where: { $0?.action == .refresh }) else {
+            r.add(name, false, "no Refresh item in the menu")
+            return
+        }
+        // The letter to type: the first letter of the title, which must pick exactly one enabled item.
+        let letter = items[target]?.title.first.map { String($0).lowercased() } ?? ""
+        let candidates = items.compactMap { $0 }.filter { $0.enabled && $0.title.lowercased().hasPrefix(letter) }
+        if mnemonic, letter.isEmpty || candidates.count != 1 {
+            r.add(name, false, "first letter '\(letter)' of the Refresh title does not pick exactly one item (\(candidates.count))")
+            return
+        }
+        let code = letter.utf16.first ?? 0
+        _ = await waitUntil(timeout: 60) { !app.store.isRefreshing }
+        host.resetLastAction()
+        let refreshesBefore = app.refreshCount
+        let driver = KeyDriver()
+        let owner = Int(bitPattern: app.sink.hwnd)
+        let count = items.count
+        onThread {
+            func post(_ message: Int32, _ key: Int32) {
+                _ = PostMessageW(HWND(bitPattern: owner), UINT(message), WPARAM(key), 0)
+            }
+            var waited = 0
+            while WinPopupMenu.openMenuBits == 0, waited < 200 { Thread.sleep(forTimeInterval: 0.05); waited += 1 }
+            let bits = WinPopupMenu.openMenuBits
+            guard bits != 0 else { driver.note("menu never opened"); driver.finish(); return }
+            Thread.sleep(forTimeInterval: 0.4)
+            if mnemonic {
+                post(WM_CHAR, Int32(code))  // the letter the menu loop reads as type-to-select / mnemonic
+                driver.note("char=\(code)")
+            } else {
+                var presses = 0
+                while WinPopupMenu.highlightedIndex(menuBits: bits, count: count) != target, presses < count + 2 {
+                    post(WM_KEYDOWN, Int32(VK_DOWN)); post(WM_KEYUP, Int32(VK_DOWN))
+                    presses += 1
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+                driver.note("down=\(presses) highlighted=\(WinPopupMenu.highlightedIndex(menuBits: bits, count: count).map(String.init) ?? "none")")
+                post(WM_KEYDOWN, Int32(VK_RETURN)); post(WM_KEYUP, Int32(VK_RETURN))
+            }
+            for _ in 0..<40 where WinPopupMenu.openMenuBits != 0 { Thread.sleep(forTimeInterval: 0.2) }
+            if WinPopupMenu.openMenuBits != 0 {  // the keys did not work: do not hang the run
+                driver.note("still open after Return; Escape")
+                post(WM_KEYDOWN, Int32(VK_ESCAPE)); post(WM_KEYUP, Int32(VK_ESCAPE))
+            }
+            driver.finish()
+        }
+        let timer = Timer(fire: Date(timeIntervalSinceNow: 0.05), interval: 0, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                driver.note("timer fired")
+                host.openMenu(at: POINT(x: 300, y: 300))
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        let finished = await waitUntil(timeout: 30) { driver.isFinished }
+        let ran = await waitUntil(timeout: 30) { app.refreshCount > refreshesBefore }
+        r.add(name, finished && driver.text.contains("timer fired") && host.lastAction == .refresh && ran,
+              "menu opened from a timer; keys: \(driver.text) action=\(host.lastAction) store refreshes \(refreshesBefore) -> \(app.refreshCount)")
     }
 
     // MARK: - idle (D8): cycles and context switches, never GetProcessTimes (F20)
