@@ -141,7 +141,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 계절 날씨 입자. 캐릭터(z 1~2) 위, 낮밤 곱하기(5)와 이름표(10) 아래.
     let weatherLayer = PlazaWeatherLayer()
     /// 불꽃. 빛이라 낮밤 곱하기(5)와 모닥불빛(6) 위, 이름표(10) 아래.
-    private let fireworkLayer = PlazaFireworkLayer()
+    let fireworkLayer = PlazaFireworkLayer()
     /// 지금 지도에서 아이템이 놓일 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
     private lazy var itemOpenTiles: Set<TilePoint> = PlazaItems.openTiles(in: map)
     /// 누군가 주운 아이템 칸. 창 컨트롤러가 채운다.
@@ -453,8 +453,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         if campfireNode != nil { addChild(campfireLightNode) }
         weatherLayer.root.zPosition = 3
         weatherLayer.root.mountInSpriteKit(self)
-        fireworkLayer.zPosition = 7
-        addChild(fireworkLayer)
+        fireworkLayer.root.zPosition = 7
+        fireworkLayer.root.mountInSpriteKit(self)
         footprintLayer.root.mountInSpriteKit(self)
         snowballLayer.root.mountInSpriteKit(self)
         addChild(cameraNode)
@@ -1399,7 +1399,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// 테스트용
-    var fireworkZ: CGFloat { fireworkLayer.zPosition }
+    var fireworkZ: CGFloat { fireworkLayer.root.zPosition }
     var fireworkPieceCount: Int { fireworkLayer.shownCount }
     var fireworkLightCount: Int { fireworkLayer.shownLightCount }
     var fireworkPositions: [CGPoint] { fireworkLayer.shownPositions }
