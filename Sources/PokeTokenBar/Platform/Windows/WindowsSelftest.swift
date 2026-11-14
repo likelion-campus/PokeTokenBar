@@ -469,7 +469,7 @@ enum WindowsSelftest {
               settled.complete && onMain(settled.task, WindowsApp.mainThreadID) && maxMs(settled.task) < 50,
               "store idle; " + settled.detail)
         _ = await waitStable(timeout: 10, quiet: 2) { !app.store.isRefreshing }
-        let c0 =(WinDefaultsSync.safetyFires, WinDefaultsSync.debounceFires, app.refreshCount, WinMainLoop.iterations)
+        let c0 = (WinDefaultsSync.safetyFires, WinDefaultsSync.debounceFires, app.refreshCount, WinMainLoop.iterations)
         let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
         let safety = WinDefaultsSync.safetyFires - c0.0, debounce = WinDefaultsSync.debounceFires - c0.1
         let refreshes = app.refreshCount - c0.2, iterations = WinMainLoop.iterations - c0.3
