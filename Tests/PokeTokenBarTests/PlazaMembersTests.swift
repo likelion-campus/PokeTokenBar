@@ -16,12 +16,12 @@ private final class CountingFetcher: PlazaSpriteFetching, @unchecked Sendable {
     /// A picture that loads, so the plaza's own Ditto (which a lone host now shows as soon as a teammate arrives) never joins
     /// a retry the test is counting. An instance property, not a file-scope `let`: `NSImage` is not `Sendable` in the
     /// macOS 15 SDK, so a global of it does not compile on CI (Xcode 16.4).
-    private let dittoPicture: NSImage = {
+    private let dittoPicture: PlazaImage = {
         let ctx = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
-        return NSImage(cgImage: ctx.makeImage()!, size: NSSize(width: 2, height: 2))
+        return PlazaImage(cgImage: ctx.makeImage()!)
     }()
     private let lock = NSLock()
     private var gates: [Int: CheckedContinuation<Void, Never>] = [:]
@@ -35,40 +35,40 @@ private final class CountingFetcher: PlazaSpriteFetching, @unchecked Sendable {
         c?.resume()
     }
 
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] {
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] {
         calls.add(speciesID)
         if isSlow(speciesID) { await withCheckedContinuation { park(speciesID, $0) } }
         return []
     }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? {
         speciesID == PlazaDitto.speciesID ? dittoPicture : nil
     }
-    func egg() async -> NSImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// 앞모습은 항상 주고, 뒷모습은 `backAfter`번 실패한 뒤에 준다. nil이면 끝내 주지 않는다.
 private final class BacklessFetcher: PlazaSpriteFetching {
-    private let image: NSImage = {
+    private let image: PlazaImage = {
         let ctx = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceRGB(),
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
-        return NSImage(cgImage: ctx.makeImage()!, size: NSSize(width: 2, height: 2))
+        return PlazaImage(cgImage: ctx.makeImage()!)
     }()
     private let backAfter: Int?
     private(set) var backRequests = 0
 
     init(backAfter: Int? = nil) { self.backAfter = backAfter }
 
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? {
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? {
         guard back, speciesID != PlazaDitto.speciesID else { return image }
         backRequests += 1
         if let backAfter, backRequests > backAfter { return image }
         return nil
     }
-    func egg() async -> NSImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// Holds the retry timer until the test fires it.

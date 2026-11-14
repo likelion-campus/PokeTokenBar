@@ -156,7 +156,7 @@ final class PlazaNatureTests: XCTestCase {
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
-        let frame = [PlazaFrame(image: context.makeImage()!, delay: 1)]
+        let frame = [PlazaFrame(image: PlazaImage(cgImage: context.makeImage()!), delay: 1)]
         return PlazaCharacterFrames(front: frame, back: frame)
     }
 

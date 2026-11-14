@@ -25,7 +25,7 @@ final class PlazaDanceTests: XCTestCase {
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
         ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 48))
-        let f = [PlazaFrame(image: ctx.makeImage()!, delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)]
         var result = PlazaCharacterFrames(front: f, back: f)
         result.isEgg = isEgg
         return result
@@ -862,7 +862,7 @@ final class PlazaDanceTests: XCTestCase {
     // MARK: 화면의 노드
 
     private func plain(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> PlazaFrame {
-        PlazaFrame(image: solid(32, 48, r: r, g: g, b: b), delay: 1)
+        PlazaFrame(image: PlazaImage(cgImage: solid(32, 48, r: r, g: g, b: b)), delay: 1)
     }
 
     /// 눌림은 박자마다 한 번 바뀌는 것이지 프레임마다 지워졌다 걸리는 것이 아니다. 이름표는 눌리지 않은 높이에 놓인다.

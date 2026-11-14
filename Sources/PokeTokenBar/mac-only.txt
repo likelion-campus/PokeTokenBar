@@ -22,30 +22,18 @@ Team/TeamNotificationsMac.swift
 Team/TeamTransport.swift
 # Plaza: SpriteKit scene, window controller, actors, layers and CoreGraphics art
 Team/Plaza/PlazaActor.swift
-Team/Plaza/PlazaCampfireArt.swift
-Team/Plaza/PlazaCharacterLoader.swift
 Team/Plaza/PlazaChatBubble.swift
 Team/Plaza/PlazaEmoteArt.swift
 Team/Plaza/PlazaFireworkLayer.swift
 Team/Plaza/PlazaFootprintLayer.swift
-Team/Plaza/PlazaIceArt.swift
 Team/Plaza/PlazaIceLayer.swift
 Team/Plaza/PlazaIconLoader.swift
-Team/Plaza/PlazaMinimap.swift
 Team/Plaza/PlazaNamePlate.swift
-Team/Plaza/PlazaNestArt.swift
 Team/Plaza/PlazaPhotoRenderer.swift
 Team/Plaza/PlazaPondLayer.swift
 Team/Plaza/PlazaPresentingMac.swift
 Team/Plaza/PlazaScene.swift
-Team/Plaza/PlazaSnowball.swift
 Team/Plaza/PlazaSnowballLayer.swift
-Team/Plaza/PlazaSnowSheet.swift
-Team/Plaza/PlazaTallGrassArt.swift
 Team/Plaza/PlazaTallGrassLayer.swift
-Team/Plaza/PlazaTileArt.swift
-Team/Plaza/PlazaWeatherArt.swift
 Team/Plaza/PlazaWeatherLayer.swift
 Team/Plaza/PlazaWindowController.swift
-# the CGImage recolouring split out of PlazaSeason.swift (main #134)
-Team/Plaza/PlazaSeasonSheet.swift
