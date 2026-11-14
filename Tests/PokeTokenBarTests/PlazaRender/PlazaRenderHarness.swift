@@ -30,7 +30,22 @@ enum PlazaRenderHarness {
 
     /// The shared subtrees mounted into the scene (Track A converts them layer by layer). After every capture each one is
     /// compared with its SpriteKit copy (`PlazaMirrorParity`).
-    @MainActor static func sharedRoots(of scene: PlazaScene) -> [PlazaNode] { layerRoots(of: scene).map(\.root) }
+    @MainActor static func sharedRoots(of scene: PlazaScene) -> [PlazaNode] {
+        layerRoots(of: scene).map(\.root) + actors(of: scene).flatMap { $0.worldNodes + $0.cameraNodes }
+    }
+
+    /// Every actor of the scene: mine, the teammates' and the Ditto's (Task 9: their nodes are shared roots too).
+    @MainActor static func actors(of scene: PlazaScene) -> [PlazaActor] {
+        [scene.myActor] + (scene.memberTiles.keys.sorted() + [PlazaDitto.sceneKey]).compactMap(scene.memberActor)
+    }
+
+    /// An actor's node whose SpriteKit copy is not where `attach` put it (world nodes in the scene, the rest in the camera).
+    @MainActor static func actorMountDifferences(of scene: PlazaScene) -> [String] {
+        actors(of: scene).flatMap { actor in
+            actor.worldNodes.filter { $0.skNode?.parent !== scene }.map { "actor \(actor.name): \(type(of: $0)) is not in the scene" }
+                + actor.cameraNodes.filter { $0.skNode?.parent !== scene.camera }.map { "actor \(actor.name): \(type(of: $0)) is not in the camera" }
+        }
+    }
 
     /// The class a converted layer's node had before Track A (an `SKNode` subclass; now the plain `SKNode` copy of a shared
     /// root), so tree dumps still compare with bases from before the conversion. Only the printed class name is mapped.
@@ -181,6 +196,7 @@ enum PlazaRenderRun {
                                                  bgra: renderer.bytes(), tree: dump.lines.joined(separator: "\n") + "\n",
                                                  nodes: dump.lines.count, textures: dump.textureCount, ties: dump.ties())
                 capture.parity = PlazaRenderHarness.sharedRoots(of: setup.scene).flatMap { PlazaMirrorParity.differences($0) }
+                    + PlazaRenderHarness.actorMountDifferences(of: setup.scene)
                 out.append(capture)
             }
         }

@@ -106,6 +106,31 @@ final class PlazaCharacterTests: XCTestCase {
         XCTAssertTrue(failed.isEgg, "an egg whose picture failed still sits on a nest")
     }
 
+    func testOnlyEggsSitOnANest() async {
+        var f = CharacterFakeFetcher()
+        f.stillFront = characterTestImage()
+        let mon = await PlazaCharacterLoader(fetcher: f).frames(for: .init(speciesID: 400, isShiny: false))
+        XCTAssertFalse(mon.isEgg)
+        let actor = PlazaActor(name: "a", color: PlazaNameColor.palette[0])
+        actor.setFrames(mon)
+        XCTAssertFalse(actor.isOnNest)
+        var egg = mon
+        egg.isEgg = true
+        actor.setFrames(egg)
+        XCTAssertTrue(actor.isOnNest)
+        XCTAssertTrue(actor.groundShadowSize == PlazaNestArt.size)
+        let photo = actor.photoActor(foot: CGPoint(x: 100, y: 100), pose: PlazaPose.choice(facing: .down, isWalking: false, clock: 0))
+        XCTAssertEqual(photo?.shadow?.pixels, PlazaNestArt.image().pixels, "the photo shows the nest too")
+        XCTAssertEqual(photo?.front?.pixels, PlazaNestArt.frontImage().pixels, "and its front rim over the egg")
+        let context = PlazaActorContext(worldHeight: 400, cameraPosition: .zero, zoom: 2, backing: 2, viewport: CGSize(width: 400, height: 300))
+        actor.place(foot: CGPoint(x: 100, y: 100), pose: PlazaPose.choice(facing: .down, isWalking: false, clock: 0), in: context)
+        XCTAssertTrue(actor.nestFrontIsInFront, "the rim is drawn in front of the egg")
+        actor.setFrames(mon)
+        XCTAssertFalse(actor.isOnNest, "a hatched egg leaves the nest")
+        XCTAssertFalse(actor.nestFrontIsInFront)
+        XCTAssertNil(actor.photoActor(foot: CGPoint(x: 100, y: 100), pose: PlazaPose.choice(facing: .down, isWalking: false, clock: 0))?.front)
+    }
+
     /// The front rim is the lower part of the nest only, and never covers the hollow the egg sits in.
     func testNestFrontIsTheLowerRimOnly() async {
         XCTAssertTrue(PlazaNestArt.grid.allSatisfy { $0.count == PlazaNestArt.cols })

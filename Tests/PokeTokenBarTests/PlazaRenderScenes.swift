@@ -581,6 +581,29 @@ enum PlazaRenderScenes {
                     }
                 }
             },
+            // Members leave (the actor's detach): a swimmer with a chat bubble (ghost crop showing) and a wet walker go,
+            // the Ditto changes form and then goes, and a late member joins after them.
+            scene("member-leave", captures: [8, 16, 24, 32]) {
+                var o = Options(); o.me = TilePoint(x: 12, y: 12)
+                let s = stage(o)
+                let stay = member("ash", "Ash", 13, 12, facing: .left)
+                s.put([stay, member("swimmer", "Swimmer", 9, 14), member("wet", "Wet", 10, 12, facing: .right, walking: true)],
+                      looks: ["ash": .ash, "swimmer": .misty, "wet": .brock])
+                s.scene.memberActor("wet")?.showWet()
+                s.scene.applyDitto(PlazaDittoShown(tile: TilePoint(x: 11, y: 11), facing: .down, isWalking: false, isRunning: false,
+                                                   name: "Ditto", nameColor: PlazaNameColor.palette[1], title: nil, isDecoy: false))
+                s.scene.setMemberFrames(PlazaDitto.sceneKey, frames(.ditto))
+                return setup(s) { f in
+                    switch f {
+                    case 1: s.scene.showChat(memberID: "swimmer", text: "bye for now")
+                    case 10: s.put([stay])
+                    case 12: s.scene.setMemberFrames(PlazaDitto.sceneKey, frames(.dawn))
+                    case 18: s.scene.applyDitto(nil)
+                    case 20: s.put([stay, member("late", "Late", 14, 11)], looks: ["late": .dawn])
+                    default: break
+                    }
+                }
+            },
         ]
         if spritesDir != nil, realFrames(realSpecies[0]) != nil {
             out.append(scene("real-sprites", captures: [10, 30]) {
