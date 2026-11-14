@@ -2,7 +2,7 @@ name: windows-app
 # Builds and self-tests the Windows app executable. Informational: not a required check.
 on:
   push:
-    branches: [windows-port, build/windows-app-skeleton]
+    branches: [windows-port]
   pull_request:
     paths:
       - 'Sources/PokeTokenBar/Platform/**'

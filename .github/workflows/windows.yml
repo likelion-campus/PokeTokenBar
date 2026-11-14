@@ -2,7 +2,7 @@ name: windows
 # Builds and tests the shared (non-Apple) part of the app on Windows. Informational: not a required check.
 on:
   push:
-    branches: [main, windows-port, build/windows-app-skeleton]
+    branches: [main, windows-port]
   pull_request:
   workflow_dispatch:
 permissions:
