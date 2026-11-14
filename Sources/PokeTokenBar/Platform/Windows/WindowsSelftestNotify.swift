@@ -10,7 +10,7 @@ extension WindowsSelftest {
             return
         }
         let tray = host.tray, presenter = notifier.presenter
-        let ci = ProcessInfo.processInfo.environment["CI"] != nil
+        let ci = onCI
 
         let authorized = await notifier.requestAuthorization()
         r.add("notify.permission", notifier.isAvailable == tray.isPresent && authorized == tray.isPresent && tray.isPresent,
