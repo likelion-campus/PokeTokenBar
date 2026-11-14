@@ -8,6 +8,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   core:
+    if: false  # paused for experiment E1; code kept
     strategy:
       fail-fast: false
       matrix:
@@ -44,6 +45,7 @@ jobs:
           name: core-log-${{ matrix.os }}
           path: spike/core/*.log
   probe:
+    if: false  # paused for experiment E1; code kept
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -76,6 +78,7 @@ jobs:
           name: ptbprobe-win-x64
           path: spike/probe/ptbprobe.exe
   draw:
+    if: false  # paused for experiment E1; code kept
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -108,6 +111,7 @@ jobs:
           name: draw-bundle
           path: bundle
   bundle:
+    if: false  # paused for experiment E1; code kept
     needs: [probe, draw]
     runs-on: ubuntu-latest
     steps:
@@ -119,3 +123,54 @@ jobs:
         with:
           name: ptb-windows-check
           path: ptb-windows-check
+  e1:
+    # Track B experiment E1: the main loop and Foundation-on-Windows facts. Probes record FAIL; the job stays green.
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
+      - name: Build
+        shell: bash
+        run: |
+          cd spike/e1
+          set +e
+          swift build -c release --product ptbe1 -Xswiftc -continue-building-after-errors > build.log 2>&1; a=$?
+          swift build -c release --product ptbe1async -Xswiftc -continue-building-after-errors > build-async.log 2>&1; b=$?
+          grep -E "error|warning" build.log build-async.log | tr -d '\r' | head -150
+          tail -5 build.log build-async.log
+          ls -la .build/release/*.exe
+          test $a -eq 0 -a $b -eq 0
+      - name: Probes
+        shell: bash
+        run: bash spike/e1/run-probes.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e1-report
+          path: |
+            e1-report.txt
+            spike/e1/*.log
+  e1cov:
+    # Track B experiment E1, P12: WinSDK import + link coverage, one executable per API.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: compnerd/gha-setup-swift@main
+        with:
+          branch: swift-6.3.2-release
+          tag: 6.3.2-RELEASE
+      - name: WinSDK coverage
+        shell: bash
+        run: bash spike/e1/run-cov.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e1-cov
+          path: |
+            e1-cov.txt
+            spike/e1/cov-*.log
