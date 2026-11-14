@@ -199,3 +199,5 @@ PlazaArtParityTests.swift
 # PlazaArtParityPixelArtTests: legacy-versus-new byte oracles for the pixel art and character frames (CoreGraphics, ImageIO)
 PlazaArtParityPixelArtTests.swift
 PlazaTextArtParityTests.swift
+# PlazaGIFDecoderParityTests+Mac: compares against ImageIO (CGImageSource)
+PlazaGIFDecoderParityTests+Mac.swift
