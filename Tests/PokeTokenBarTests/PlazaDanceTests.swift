@@ -902,7 +902,7 @@ final class PlazaDanceTests: XCTestCase {
         s.pickDanceStyle = { _ in .spin }
         wall = grid
         press(s)
-        func shown() throws -> CGImage { try XCTUnwrap(s.photoInput()?.actors.first).image }
+        func shown() throws -> CGImage { try XCTUnwrap(s.photoInput()?.actors.first).image.cgImage }
         XCTAssertTrue(try shown() === front.image, "tick 0")
         run(s, 0.8)   // tick 8: the back
         XCTAssertTrue(try shown() === back.image)
@@ -1118,12 +1118,12 @@ final class PlazaDanceTests: XCTestCase {
     }
 
     private func render(lift: CGFloat = 0, squash: CGFloat = 1, tilt: CGFloat = 0) throws -> CGImage {
-        var a = PlazaPhotoActor(image: solid(10, 20, r: 1, g: 0, b: 0), flipped: false, foot: CGPoint(x: 50, y: 60), scale: 1,
+        var a = PlazaPhotoActor(image: PlazaImage(cgImage: solid(10, 20, r: 1, g: 0, b: 0)), flipped: false, foot: CGPoint(x: 50, y: 60), scale: 1,
                                 shadow: nil, shadowRect: .zero, plate: nil, bubble: nil)
         a.lift = lift; a.squash = squash; a.tilt = tilt
-        let input = PlazaPhotoInput(mapImage: solid(100, 100, r: 0, g: 0.6, b: 0), visibleRect: CGRect(x: 0, y: 0, width: 100, height: 100),
+        let input = PlazaPhotoInput(mapImage: PlazaImage(cgImage: solid(100, 100, r: 0, g: 0.6, b: 0)), visibleRect: CGRect(x: 0, y: 0, width: 100, height: 100),
                                     pixelsPerWorld: 1, actors: [a])
-        return try XCTUnwrap(PlazaPhotoRenderer.render(input))
+        return try XCTUnwrap(PlazaPhotoRenderer.renderCG(input))
     }
 
     func testTheRendererDrawsASquashedDancerShorter() throws {

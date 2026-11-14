@@ -236,7 +236,7 @@ extension SKView: PlazaPausableView {}
          session: TeamSession? = nil,
          feed: TeamFeedStore? = nil,
          clock: @escaping () -> Date = Date.init,
-         photoWriter: @escaping (Data) -> Bool = PlazaWindowController.writePhotoToClipboard,
+         photoWriter: @escaping (Data) -> Bool = { PlatformPlaza.clipboard.writePNG($0) },
          greetingKind: @escaping () -> TeamEmoteKind = { PlazaWindowController.greetingKinds.randomElement() ?? .heart },
          profileTimeout: Duration = .seconds(5),
          bannerSleep: @escaping @MainActor (Duration) async -> Void = { try? await Task.sleep(for: $0) },
@@ -973,12 +973,6 @@ extension SKView: PlazaPausableView {}
 
     /// 테스트용 읽기 전용 값.
     var countdown: String? { overlayModel.countdown }
-
-    nonisolated private static func writePhotoToClipboard(_ png: Data) -> Bool {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        return pasteboard.setData(png, forType: .png)
-    }
 
     /// 바라보거나 바로 옆에 있는 대상에 말을 건다. 그쪽으로 돌아선 뒤, 소식판이면 소식판을 열고(열 때 모두 읽음),
     /// 팀원이면 인사하기와 포켓몬 보기 메뉴를 띄운다.

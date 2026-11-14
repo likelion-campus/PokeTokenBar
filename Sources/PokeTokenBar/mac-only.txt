@@ -34,7 +34,6 @@ Team/Plaza/PlazaIconLoader.swift
 Team/Plaza/PlazaMinimap.swift
 Team/Plaza/PlazaNamePlate.swift
 Team/Plaza/PlazaNestArt.swift
-Team/Plaza/PlazaPhotoRenderer.swift
 Team/Plaza/PlazaPondLayer.swift
 Team/Plaza/PlazaPresentingMac.swift
 Team/Plaza/PlazaScene.swift

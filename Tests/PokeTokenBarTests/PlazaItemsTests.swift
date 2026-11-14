@@ -149,10 +149,10 @@ final class PlazaItemsTests: XCTestCase {
         s.update(0)
         let input = try XCTUnwrap(s.photoInput())
         XCTAssertEqual(input.items.count, 1)
-        let withItem = try XCTUnwrap(PlazaPhotoRenderer.render(input))
+        let withItem = try XCTUnwrap(PlazaPhotoRenderer.renderCG(input))
         var bare = input
         bare.items = []
-        let without = try XCTUnwrap(PlazaPhotoRenderer.render(bare))
+        let without = try XCTUnwrap(PlazaPhotoRenderer.renderCG(bare))
         XCTAssertNotEqual(withItem.dataProvider?.data as Data?, without.dataProvider?.data as Data?)
     }
 

@@ -162,11 +162,11 @@ final class PlazaDaylightTests: XCTestCase {
             return ctx.makeImage()!
         }
         let white = solid(4, 2, (255, 255, 255))
-        let actor = PlazaPhotoActor(image: solid(2, 2, (255, 255, 255)), flipped: false, foot: CGPoint(x: 10, y: 15), scale: 1,
-                                    shadow: nil, shadowRect: .zero, plate: white, bubble: nil)
-        let input = PlazaPhotoInput(mapImage: solid(20, 20, (255, 255, 255)), visibleRect: CGRect(x: 0, y: 0, width: 20, height: 20),
+        let actor = PlazaPhotoActor(image: PlazaImage(cgImage: solid(2, 2, (255, 255, 255))), flipped: false, foot: CGPoint(x: 10, y: 15), scale: 1,
+                                    shadow: nil, shadowRect: .zero, plate: PlazaImage(cgImage: white), bubble: nil)
+        let input = PlazaPhotoInput(mapImage: PlazaImage(cgImage: solid(20, 20, (255, 255, 255))), visibleRect: CGRect(x: 0, y: 0, width: 20, height: 20),
                                     pixelsPerWorld: 1, actors: [actor], tint: D.night)
-        let photo = try XCTUnwrap(PlazaPhotoRenderer.render(input))
+        let photo = try XCTUnwrap(PlazaPhotoRenderer.renderCG(input))
         var px = [UInt8](repeating: 0, count: photo.width * photo.height * 4)
         let ctx = CGContext(data: &px, width: photo.width, height: photo.height, bitsPerComponent: 8, bytesPerRow: photo.width * 4,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!

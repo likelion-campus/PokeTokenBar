@@ -1,5 +1,12 @@
 import Foundation
 
+/// The OS clipboard for the plaza photo. The Mac writes the PNG to the general pasteboard; Windows implements it in
+/// `Platform/Windows/` later, and until then the stub reports "unavailable".
+protocol ImageClipboarding: Sendable {
+    /// Puts the PNG on the clipboard (replacing what was there). False when it could not be written.
+    func writePNG(_ data: Data) -> Bool
+}
+
 /// The plaza's OS edge: the one place that picks the Mac backend or the headless stub. The Mac types live in
 /// `Platform/Mac/Plaza/`; selection follows `PlatformLimits` (`PTB_SHARED_ONLY` is the Mac checking the Windows set).
 enum PlatformPlaza {
@@ -9,6 +16,15 @@ enum PlatformPlaza {
         PlazaStubGraphics(log: { AppLog.write($0) })
         #else
         MacPlazaGraphics()
+        #endif
+    }()
+
+    /// The photo clipboard: the general pasteboard on the Mac, the logging stub elsewhere.
+    static let clipboard: any ImageClipboarding = {
+        #if os(Windows) || PTB_SHARED_ONLY
+        StubImageClipboard(log: { AppLog.write($0) })
+        #else
+        MacImageClipboard()
         #endif
     }()
 

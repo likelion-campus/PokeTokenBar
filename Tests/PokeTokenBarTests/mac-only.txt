@@ -97,6 +97,8 @@ PlazaPhotoModeSceneTests.swift
 PlazaPhotoModeTests.swift
 PlazaPhotoOverlayTests.swift
 PlazaPhotoTests.swift
+PlazaPhotoTestSupport.swift
+PlazaPhotoParityTests.swift
 PlazaPondLayerTests.swift
 # PlazaPondMotionTests: needs PlazaScene (SpriteKit)
 PlazaPondMotionTests.swift

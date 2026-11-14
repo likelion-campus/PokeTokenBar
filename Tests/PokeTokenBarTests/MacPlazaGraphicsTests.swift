@@ -402,7 +402,7 @@ final class MacPlazaGraphicsTests: XCTestCase {
         XCTAssertEqual(graphics.decodeImageFrames(at: URL(fileURLWithPath: "/nonexistent.gif")).count, 0)
 
         for image in [decoded, PlazaGroundShadow.image(width: 40, height: 12)] {
-            XCTAssertEqual(graphics.encodePNG(image), PlazaPhotoRenderer.png(image.cgImage))
+            XCTAssertEqual(graphics.encodePNG(image), LegacyPlazaPhotoRenderer.png(image.cgImage))
         }
     }
 
