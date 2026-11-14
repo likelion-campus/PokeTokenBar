@@ -288,6 +288,8 @@ final class WindowsSeamScanTests: XCTestCase {
         ("Core/CompanionStore.swift", "data.write(to: backup, options: .atomic)"),
         ("Core/UsageStore.swift", nil),
         ("Team/TeamFeedStore.swift", nil),
+        // CompanionStore.update -> autoSnapshotIfNeeded (main actor, at most every 12 h) -> createManualSnapshot
+        ("Core/SaveSnapshots.swift", nil),
     ]
 
     static func directAtomicWrites(_ text: String, allowed: String?) -> [String] {

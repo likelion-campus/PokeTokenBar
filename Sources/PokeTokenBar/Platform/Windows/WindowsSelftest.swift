@@ -47,13 +47,24 @@ enum WindowsSelftest {
     /// 4x the worst noise seen). The measured number is in the check's detail either way.
     static let launchStallFailMs = 1000
 
+    /// The longest stall's top frames show `FlushFileBuffers` under a Foundation file write that is not CoreFoundation's
+    /// preferences writer (`_CFWriteBytesToFile` flushes on Windows, corelibs CFFileUtilities.c; the 2 s settings sync
+    /// runs on the main thread inside the probe window and is a separate known cost).
+    static func stallIsOurFlush(_ detail: String) -> Bool {
+        let flush = detail.contains("FlushBuffersFile") || detail.contains("FlushFileBuffers")
+        let cf = detail.contains("_CFWriteBytesToFile") || detail.contains("CFURLWriteDataAndPropertiesToResource")
+            || detail.contains("CFPreferences") || detail.contains("CFXMLPreferences")
+        return flush && !cf
+    }
+
     @MainActor static func run(_ app: WindowsAppDelegate) async -> [Check] {
         let r = Recorder()
         // Watches the main thread from launch until the store has settled. Before PlatformCompat.atomicWrite the
         // companion and parity saves flushed to disk on the main actor (FlushFileBuffers, 146-231 ms on the runner;
         // defect log), so the loop checks still run after the store settles, with the same bounds. This check reports
         // the stalls and what held the thread, and fails above `launchStallFailMs`.
-        let realBefore = Self.modification(of: WinDefaultsSync.expectedPlistURL())
+        let realBefore = [Self.modification(of: WinDefaultsSync.expectedPlistURL()),
+                          Self.modification(of: SettingsPlistGuard.backupURL(for: WinDefaultsSync.expectedPlistURL()))]
         let stalls = MainStallProbe.start(mainThread: WindowsApp.mainThreadID)
         r.add("build.shims", ptb_shim_abi() == 1, "CWinShim abi=\(ptb_shim_abi()) openssl=\(String(cString: ptb_tls_openssl_version()))")
         pathChecks(r)
@@ -61,7 +72,7 @@ enum WindowsSelftest {
         let quiet = await waitStable(timeout: 120, quiet: 1) { !app.store.isRefreshing && !WinDefaultsSync.isSyncPending }
         if let stalls {
             let report = await stalls.stop()
-            r.add("loop.mainThreadStalls", report.longestMs < launchStallFailMs && !report.detail.contains("FlushBuffersFile") && !report.detail.contains("FlushFileBuffers"), report.detail + " (fails over \(launchStallFailMs) ms or on any sample in FlushFileBuffers)")
+            r.add("loop.mainThreadStalls", report.longestMs < launchStallFailMs && !Self.stallIsOurFlush(report.detail), report.detail + " (fails over \(launchStallFailMs) ms, or when the longest stall's top frames are a Foundation Data.write inside FlushFileBuffers; CoreFoundation's own plist write flushes too and is not counted)")
         } else {
             r.add("loop.mainThreadStalls", true, "probe unavailable (thread handle or stack limits)")
         }
@@ -72,9 +83,10 @@ enum WindowsSelftest {
         await singleInstanceCheck(r, app)
         await guardChecks(r)
         let real = WinDefaultsSync.expectedPlistURL()
-        let realAfter = Self.modification(of: real)
+        let realAfter = [Self.modification(of: real), Self.modification(of: SettingsPlistGuard.backupURL(for: real))]
+        func show(_ d: [Date?]) -> String { d.map { $0.map { "\($0)" } ?? "absent" }.joined(separator: " / ") }
         r.add("defaults.realSettingsUntouched", realBefore == realAfter,
-              "\(WinPath.native(real)) modified before=\(realBefore.map { "\($0)" } ?? "absent") after=\(realAfter.map { "\($0)" } ?? "absent"); "
+              "\(WinPath.native(real)) and its .bak modified before=\(show(realBefore)) after=\(show(realAfter)); "
                 + "the selftest keeps its settings in suite \(WinDefaultsSync.selftestSuiteName ?? "-")")
         await systemServiceChecks(r)
         await idleCheck(r, app)
@@ -480,7 +492,8 @@ enum WindowsSelftest {
         func plistData(_ value: String) -> Data {
             (try? PropertyListSerialization.data(fromPropertyList: [key: value, "team.memberID": "M-\(value)"], format: .xml, options: 0)) ?? Data()
         }
-        func scenario(_ name: String, current: Data?, backup: Data?, expect: String?) async {
+        func scenario(_ name: String, current: Data?, backup: Data?, expect: String?, touch: Bool = false,
+                      bakMember: String?? = nil) async {
             let suite = "ptb.selftest.guard." + String(UUID().uuidString.prefix(8))
             let plist = folder.appendingPathComponent(suite + ".plist")
             let bak = SettingsPlistGuard.backupURL(for: plist)
@@ -488,11 +501,17 @@ enum WindowsSelftest {
             if let current { try? current.write(to: plist) }
             if let backup { try? backup.write(to: bak) }
             do {
-                let child = try Helper.start(["--selftest-guard-reader", suite, key, expect ?? "-"], ready: false)
+                let child = try Helper.start(["--selftest-guard-reader", suite, key, expect ?? "-"] + (touch ? ["touch"] : []), ready: false)
                 let code = await child.waitExit(timeout: 30)
                 child.close()
                 let onDisk = (try? Data(contentsOf: plist)).map { SettingsPlistGuard.parses($0) } ?? false
-                r.add("defaults.guard.\(name)", code == 0, "child exit=\(describe(code)) expected value=\(expect ?? "absent") plist parses afterwards=\(onDisk)")
+                // The backup afterwards: its team.memberID, or nil when there is none.
+                let member = (try? Data(contentsOf: bak)).flatMap {
+                    (try? PropertyListSerialization.propertyList(from: $0, options: [], format: nil)) as? [String: Any]
+                }?["team.memberID"] as? String
+                let bakOK = bakMember.map { $0 == member } ?? true
+                r.add("defaults.guard.\(name)", code == 0 && bakOK, "child exit=\(describe(code)) expected value=\(expect ?? "absent") plist parses afterwards=\(onDisk) "
+                      + "backup memberID afterwards=\(member ?? "none")\(bakMember.map { " (expected \($0 ?? "none"))" } ?? "")")
             } catch {
                 r.add("defaults.guard.\(name)", false, "\(error)")
             }
@@ -503,6 +522,13 @@ enum WindowsSelftest {
         await scenario("missing", current: nil, backup: good, expect: "saved")
         await scenario("noBackup", current: Data("garbage".utf8), backup: nil, expect: nil)
         await scenario("goodNotOverwritten", current: plistData("new"), backup: plistData("old"), expect: "new")
+        // Backups: a sync after a write backs a good plist up, but never over another team.memberID, and never at all in a
+        // session whose launch could not establish a good plist.
+        await scenario("backupFollowsGoodSettings", current: plistData("new"), backup: nil, expect: "new", touch: true, bakMember: .some("M-new"))
+        await scenario("backupKeepsTheOldMemberID", current: plistData("new"), backup: plistData("old"), expect: "new", touch: true,
+                       bakMember: .some("M-old"))
+        await scenario("noBackupsAfterAFailedStart", current: Data("garbage".utf8), backup: nil, expect: nil, touch: true,
+                       bakMember: .some(nil))
     }
 
     // MARK: - single instance
@@ -528,6 +554,9 @@ enum WindowsSelftest {
     /// Unpackaged: the gate stops it (`liveFetchNotPermitted`). Packaged: the fixture token goes to the real endpoint
     /// and is refused (401/403), which is recorded, not a failure. Offline is recorded too: the file was read.
     @MainActor private static func limitsCheck(_ r: Recorder) async {
+        // `PlatformLimits.current` is a `static let`: touched before WindowsApp set the factory it would keep the stubs.
+        let live = PlatformLimits.current is WindowsLimitsProviders
+        r.add("limits.factory", live, "PlatformLimits.current is \(type(of: PlatformLimits.current))")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-selftest-claude-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }
         let expiresAt = Int((Date().timeIntervalSince1970 + 3600) * 1000)
@@ -612,12 +641,17 @@ enum WindowsSelftest {
         }
     }
 
-    /// `--selftest-guard-reader <suite> <key> <expected|->`: the launch guard on `<suite>.plist`, then a read through a
+    /// `--selftest-guard-reader <suite> <key> <expected|-> [touch]`: the launch guard on `<suite>.plist`, then a read through a
     /// fresh `UserDefaults(suiteName:)`. Exit 0 when the value is `expected` (`-`: absent).
     @MainActor static func runGuardReader(_ args: [String]) -> Never {
         guard args.count >= 3 else { WindowsApp.exit(2, .helper) }
         WinDefaultsSync.guardAtLaunch(suites: [args[0]])
-        let value = UserDefaults(suiteName: args[0])?.string(forKey: args[1])
+        let touching = WinSyncingDefaults(suiteName: args[0])
+        let value = touching?.string(forKey: args[1])
+        if args.count >= 4, args[3] == "touch" {  // a write, then the sync that backs the plist up (or refuses to)
+            touching?.set("1", forKey: "ptb.selftest.touch")
+            WinDefaultsSync.flushNow()
+        }
         WindowsApp.exit(value == (args[2] == "-" ? nil : args[2]) ? 0 : 1, .helper)
     }
 

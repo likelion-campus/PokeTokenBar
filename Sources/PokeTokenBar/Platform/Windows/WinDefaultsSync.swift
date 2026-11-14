@@ -107,15 +107,22 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
     }
 
     private static var guardedSuites: [String?] = []
+    private static var backupBlocked = Set<String>()
+    private static var backupRefusalLogged = Set<String>()
     private static var backedUpStamp: [String: Date] = [:]
 
     /// Launch step before the first read of defaults: restores a missing or unreadable plist from its backup.
-    /// `suites` are the domains the app will use (nil = standard).
+    /// `suites` are the domains the app will use (nil = standard). A suite whose launch could not establish a good plist
+    /// gets no backups this session.
     static func guardAtLaunch(suites: [String?]) {
         var seen = Set<String>()
         guardedSuites = suites.filter { seen.insert($0 ?? "").inserted }
+        backupBlocked = []
         for suite in guardedSuites {
-            _ = SettingsPlistGuard.restoreIfNeeded(plist: plistURL(suite: suite)) { AppLog.write($0) }
+            let url = plistURL(suite: suite)
+            if !SettingsPlistGuard.restoreIfNeeded(plist: url, log: { AppLog.write($0) }).allowsBackups {
+                backupBlocked.insert(url.path)
+            }
         }
         if let local = localAppDataFolder(), !WinPath.sameFile(expectedPlistURL().deletingLastPathComponent(), local) {
             AppLog.write("settings: CoreFoundation writes plists to \(WinPath.native(expectedPlistURL().deletingLastPathComponent())), "
@@ -132,23 +139,17 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
         backedUpAtNote = writeNotes
         for suite in guardedSuites {
             let url = plistURL(suite: suite)
+            guard !backupBlocked.contains(url.path) else { continue }
             let stamp = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
             guard let stamp, backedUpStamp[url.path] != stamp else { continue }
-            if SettingsPlistGuard.backUpIfValid(plist: url) { backedUpStamp[url.path] = stamp }
-        }
-    }
-
-    private static func armDebounce() {
-        guard debounceTimer == nil else { return }
-        let timer = Timer(fire: Date(timeIntervalSinceNow: debounce), interval: 0, repeats: false) { _ in
-            MainActor.assumeIsolated {
-                debounceTimer = nil
-                debounceFires += 1
-                flushNow()
+            switch SettingsPlistGuard.backUp(plist: url) {
+            case .written: backedUpStamp[url.path] = stamp
+            case .invalid: break
+            case .refused(let why):
+                backedUpStamp[url.path] = stamp
+                if backupRefusalLogged.insert(url.path).inserted { AppLog.write("settings backup refused: \(why)") }
             }
         }
-        RunLoop.main.add(timer, forMode: .common)
-        debounceTimer = timer
     }
 
     /// Where CoreFoundation writes the standard domain: `<GetProfilesDirectoryW>\<GetUserNameW>\AppData\Local\

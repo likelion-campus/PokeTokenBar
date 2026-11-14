@@ -3,8 +3,9 @@ import Foundation
 import WinSDK
 
 /// `PlatformCompat.atomicWrite` on Windows: temporary file in the same folder, then `MoveFileExW(REPLACE_EXISTING)`.
-/// No FlushFileBuffers and no MOVEFILE_WRITE_THROUGH: a power cut right after a save can lose that save, the previous
-/// file stays intact (the same durability the Mac has). MoveFileExW rather than ReplaceFileW: ReplaceFileW needs the
+/// No FlushFileBuffers and no MOVEFILE_WRITE_THROUGH: a power cut right after a save can lose that save, and without a
+/// flush NTFS may even commit the rename before the data reaches the disk (the same exposure as `Data.write(.atomic)`
+/// on the Mac, accepted by the ruling); a crash or kill never leaves a half-written destination. MoveFileExW rather than ReplaceFileW: ReplaceFileW needs the
 /// destination to exist (a first save would need a second path) and it merges attributes and ACLs we do not use; both
 /// replace the file in one directory operation on NTFS.
 enum WinAtomicWrite {
@@ -18,8 +19,8 @@ enum WinAtomicWrite {
         let target = WinPath.native(url)
         let folder = WinPath.native(url.deletingLastPathComponent())
         let temp = folder + "\\." + url.lastPathComponent + "." + UUID().uuidString.prefix(8) + ".tmp"
+        try writeFile(data, atPath: temp)  // CREATE_NEW: a failure here means we created nothing, so nothing to delete
         do {
-            try writeFile(data, atPath: temp)
             try PlatformCompat.atomicWriteFaultForTesting?()
             try replace(temp, with: target)
         } catch {
@@ -33,7 +34,9 @@ enum WinAtomicWrite {
             CreateFileW($0, DWORD(GENERIC_WRITE), 0, nil, DWORD(CREATE_NEW), DWORD(FILE_ATTRIBUTE_NORMAL), nil)
         }
         guard let handle, handle != INVALID_HANDLE_VALUE else { throw Failure(step: "create", code: GetLastError()) }
-        defer { CloseHandle(handle) }
+        // Past this point the file is ours: a failed write removes it.
+        var complete = false
+        defer { CloseHandle(handle); if !complete { _ = path.withCString(encodedAs: UTF16.self) { DeleteFileW($0) } } }
         var offset = 0
         try data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             while offset < raw.count {
@@ -45,6 +48,7 @@ enum WinAtomicWrite {
                 offset += Int(written)
             }
         }
+        complete = true
     }
 
     /// A reader (the antivirus, a second writer finishing its own rename) can hold the target for a moment:

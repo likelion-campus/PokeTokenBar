@@ -124,7 +124,9 @@ private func crtExit(_ code: Int32) -> Never {
         WindowsPlatform.limitsFactory = WindowsLimitsProviders()  // 8: Claude limits from the credentials file
 
         let teamSuite = TeamSettings.suiteName(for: AppStatePaths.directory(), defaultDirectory: Self.defaultStateDirectory)
-        WinDefaultsSync.guardAtLaunch(suites: [WinDefaultsSync.selftestSuiteName, teamSuite])  // 8b: before the first read of defaults
+        var guarded: [String?] = [nil, teamSuite]  // 8b: before the first read of defaults
+        if let own = WinDefaultsSync.selftestSuiteName { guarded = [own, teamSuite] }  // the selftest never guards the real plist
+        WinDefaultsSync.guardAtLaunch(suites: guarded.filter { $0 != nil || WinDefaultsSync.selftestSuiteName == nil })
         let defaults = WinDefaultsSync.makeAppDefaults()  // 9
         self.defaults = defaults
         let store = UsageStore(defaults: defaults)  // 10
