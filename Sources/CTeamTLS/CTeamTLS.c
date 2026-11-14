@@ -75,6 +75,10 @@ ptb_tls_ctx *ptb_tls_ctx_new(int server, const uint8_t psk[32], const char *iden
         || SSL_CTX_set_max_proto_version(c->ssl_ctx, TLS1_2_VERSION) != 1) { set_error("cannot pin TLS 1.2", 0); goto fail; }
     if (SSL_CTX_set_cipher_list(c->ssl_ctx, "PSK-AES128-GCM-SHA256") != 1) { set_error("cipher list rejected", 0); goto fail; }
     SSL_CTX_set_mode(c->ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+    /* Beyond the stage-0 probe (verified against a Mac): no renegotiation, no session tickets and no server
+       session cache, so every link runs a full PSK handshake. Not yet run against Apple's stack on a real Mac. */
+    SSL_CTX_set_options(c->ssl_ctx, SSL_OP_NO_RENEGOTIATION | SSL_OP_NO_TICKET);
+    SSL_CTX_set_session_cache_mode(c->ssl_ctx, SSL_SESS_CACHE_OFF);
     if (SSL_CTX_set_app_data(c->ssl_ctx, c) != 1) { set_error("cannot attach key to context", 0); goto fail; }
     if (server) SSL_CTX_set_psk_server_callback(c->ssl_ctx, psk_server);
     else SSL_CTX_set_psk_client_callback(c->ssl_ctx, psk_client);
