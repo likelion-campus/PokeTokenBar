@@ -167,7 +167,7 @@ final class UpdateCheckerTests: XCTestCase {
     /// "Skip this version" hides the banner, but a later check must still know
     /// the release exists. Settings must not treat that as "already latest".
     @MainActor
-    func testSkippedReleaseStaysVisibleAndANewerOneReturnsToTheBanner() {
+    func testSkippedReleaseStaysVisibleAndANewerOneReturnsToTheBanner() async {
         let suite = "UpdateCheckerTests.skip.\(UUID().uuidString)"
         let box = TestDefaults.make(suite: suite)
         let checker = UpdateChecker(currentVersion: "2.5.3", defaults: box)
@@ -197,7 +197,7 @@ final class UpdateCheckerTests: XCTestCase {
     }
 
     @MainActor
-    func testShowAgainRestoresTheBannerAndUpdateUsesTheSkippedRelease() {
+    func testShowAgainRestoresTheBannerAndUpdateUsesTheSkippedRelease() async {
         let suite = "UpdateCheckerTests.restore.\(UUID().uuidString)"
         let box = TestDefaults.make(suite: suite)
         let checker = UpdateChecker(currentVersion: "2.5.3", defaults: box)
@@ -234,6 +234,9 @@ final class UpdateCheckerTests: XCTestCase {
     }
 
     func testBuildScriptDeclaresLocalNetworkUsage() throws {
+        #if os(Windows)
+        throw XCTSkip("reads the Mac build script; a CRLF checkout would not split into lines the way this does")
+        #endif
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let script = try String(contentsOf: repoRoot.appendingPathComponent("scripts/build-app.sh"), encoding: .utf8)
@@ -247,6 +250,9 @@ final class UpdateCheckerTests: XCTestCase {
     }
 
     func testDetachedUpgradeReopensAppEvenWhenLegacyJobCanBeSubmitted() throws {
+        #if os(Windows)
+        throw XCTSkip("runs the Mac upgrade script under /bin/sh")
+        #endif
         let bundlePath = "/fake directory/PokeTokenBar.app"
         let process = Process()
         let output = Pipe()
@@ -266,5 +272,34 @@ final class UpdateCheckerTests: XCTestCase {
         process.waitUntilExit()
 
         XCTAssertEqual(reopenedPath, bundlePath)
+    }
+
+    // MARK: - applyUpdate goes through PlatformShell
+
+    @MainActor
+    private final class RecordingShell: PlatformShellService {
+        var opened: [URL] = []
+        var terminations = 0
+        func open(_ url: URL) { opened.append(url) }
+        func terminate() { terminations += 1 }
+    }
+
+    /// No brew (every Windows machine; a Mac without the team cask): the release page opens through the shell and
+    /// the app is not ended. The brew lookup is injected, so a Mac that does have the cask cannot upgrade itself here.
+    @MainActor
+    func testApplyOpensTheReleasePageWhenBrewIsMissing() async {
+        let shell = RecordingShell()
+        let previous = PlatformShell.current
+        PlatformShell.current = shell
+        defer { PlatformShell.current = previous }
+        let checker = UpdateChecker(currentVersion: "2.5.3", defaults: isolatedDefaults(),
+                                    fetchLatest: { UpdateChecker.LatestRelease(tag: "v2.5.5", url: Self.releaseURL) },
+                                    brewLocator: { nil })
+        await checker.check()
+        checker.applyUpdate()
+        for _ in 0..<150 where shell.opened.isEmpty { try? await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(shell.opened, [URL(string: Self.releaseURL)!])
+        XCTAssertEqual(shell.terminations, 0)
+        XCTAssertFalse(checker.isUpdating, "the page opened; nothing is still updating")
     }
 }

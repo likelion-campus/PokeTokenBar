@@ -169,8 +169,6 @@ TeamTransportTests.swift
 TestDefaultsPoolTests.swift
 UnownSpriteTests.swift
 UnownSpriteViewTests.swift
-# UpdateCheckerTests: needs UpdateChecker (Mac-only)
-UpdateCheckerTests.swift
 UsageCostTests.swift
 UsageRecapTests.swift
 UsageStreakTests.swift

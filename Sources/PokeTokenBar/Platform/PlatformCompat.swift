@@ -6,6 +6,8 @@ import WinSDK
 /// The Security framework's status code type; `LimitsError.keychainUnavailable` carries one on every OS.
 #if !canImport(Darwin)
 typealias OSStatus = Int32
+/// `UpdateChecker.launchDetachedUpgrade` (Mac-only at run time, compiled everywhere) names it.
+typealias pid_t = Int32
 /// Security framework codes `UsageStore.isKeychainPromptDeclined` compares against.
 let errSecUserCanceled: OSStatus = -128
 let errSecAuthFailed: OSStatus = -25293
