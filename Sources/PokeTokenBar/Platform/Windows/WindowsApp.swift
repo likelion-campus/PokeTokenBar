@@ -25,6 +25,9 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--selftest-defaults-writer") {
             WindowsSelftest.runDefaultsWriter(Array(arguments[(i + 1)...]))
         }
+        if let i = arguments.firstIndex(of: "--selftest-menu-exit") {
+            WindowsSelftest.runMenuExit(Array(arguments[(i + 1)...]))
+        }
         if let i = arguments.firstIndex(of: "--selftest-guard-reader") {
             WindowsSelftest.runGuardReader(Array(arguments[(i + 1)...]))
         }
@@ -56,6 +59,7 @@ extension WindowsApp {
     /// The only way Windows code leaves the process (scan-enforced): settings are lost unless synchronized (F2), and
     /// the log line is lost unless flushed.
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
+        WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
         WinDefaultsSync.flushNow()
         WindowsCrashLog.markClean()
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
@@ -121,6 +125,7 @@ private func crtExit(_ code: Int32) -> Never {
             return false
         }
         Self.installExitHandlers(on: sink)
+        WinModalPump.install(on: sink)
         sink.on(WinSingleInstance.showMessage) { [weak self] _, _ in
             self?.showRequests += 1
             self?.tray?.showAlreadyRunning()

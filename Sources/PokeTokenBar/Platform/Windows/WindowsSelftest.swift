@@ -96,6 +96,7 @@ enum WindowsSelftest {
                 + "the selftest keeps its settings in suite \(WinDefaultsSync.selftestSuiteName ?? "-")")
         await systemServiceChecks(r)
         await trayChecks(r, app)
+        await modalPumpChecks(r, app)
         await notifyChecks(r, app)
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
         await idleCheck(r, app)
@@ -837,7 +838,7 @@ enum WindowsSelftest {
         WindowsApp.exit(WinDefaultsSync.makeAppDefaults().string(forKey: args[0]) == args[1] ? 0 : 1, .helper)
     }
 
-    private static func signalReady() {
+    static func signalReady() {
         guard let name = ProcessInfo.processInfo.environment["PTB_SELFTEST_READY_EVENT"],
               let event = OpenEventW(0x0002 /* EVENT_MODIFY_STATE */, false, WinStr.w(name)) else { return }
         _ = SetEvent(event)
@@ -915,7 +916,7 @@ enum WindowsSelftest {
         return Double(counter.QuadPart) * 1000 / Double(frequency.QuadPart)
     }
 
-    private static func onThread(_ body: @escaping @Sendable () -> Void) { Thread(block: body).start() }
+    static func onThread(_ body: @escaping @Sendable () -> Void) { Thread(block: body).start() }
 
     @MainActor static func waitUntil(timeout: TimeInterval, poll: TimeInterval = 0.02, _ condition: () -> Bool) async -> Bool {
         let deadline = Date(timeIntervalSinceNow: timeout)
@@ -927,7 +928,7 @@ enum WindowsSelftest {
     }
 
     /// Waits until `condition` has held for `quiet` seconds in a row.
-    @MainActor private static func waitStable(timeout: TimeInterval, quiet: TimeInterval, _ condition: () -> Bool) async -> Bool {
+    @MainActor static func waitStable(timeout: TimeInterval, quiet: TimeInterval, _ condition: () -> Bool) async -> Bool {
         let deadline = Date(timeIntervalSinceNow: timeout)
         var since: Date?
         while Date() < deadline {
@@ -966,12 +967,12 @@ enum WindowsSelftest {
 
     private static func f2(_ value: Double) -> String { String(format: "%.2f", value) }
     private static func hex(_ values: [UInt32]) -> String { "[" + values.map { "0x" + String($0, radix: 16) }.joined(separator: ", ") + "]" }
-    private static func describe(_ code: DWORD?) -> String { code.map { String($0) } ?? "still running" }
+    static func describe(_ code: DWORD?) -> String { code.map { String($0) } ?? "still running" }
 }
 
 /// Per-thread context switches (`NtQuerySystemInformation(SystemProcessInformation)`, the wakeup count) and cycles
 /// (`QueryThreadCycleTime`, exact), read only at the window's edges from a thread of its own (F20).
-private enum IdleSampler {
+enum IdleSampler {
     struct Sample: Sendable {
         let layoutOK: Bool
         let mainFound: Bool
