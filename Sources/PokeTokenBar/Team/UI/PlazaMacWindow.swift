@@ -15,7 +15,7 @@ extension SKView: PlazaPausableView {}
 
     private let autosaveName: String
     private let styleMask: NSWindow.StyleMask
-    private let front: @MainActor (NSWindow?) -> Void
+    private let front: @MainActor (NSWindow) -> Void
     private var window: NSWindow?
     private var skView: SKView?
     private var chatInput: PlazaChatInput?
@@ -25,10 +25,11 @@ extension SKView: PlazaPausableView {}
     private var chatLogAboveInput: NSLayoutConstraint?
     private var chatLogAtBottom: NSLayoutConstraint?
 
-    /// `autosaveName`, `styleMask` and `front` are for tests (a borderless window placed off screen, no activation).
+    /// `autosaveName`, `styleMask` and `front` are for tests (a borderless window placed off screen, no activation). `front`
+    /// is the only place that activates the app, and it runs only with a window.
     init(autosaveName: String = PlazaMacWindow.frameAutosaveName,
          styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable],
-         front: @escaping @MainActor (NSWindow?) -> Void = { NSApp.activate(ignoringOtherApps: true); $0?.makeKeyAndOrderFront(nil) }) {
+         front: @escaping @MainActor (NSWindow) -> Void = { NSApp.activate(ignoringOtherApps: true); $0.makeKeyAndOrderFront(nil) }) {
         self.autosaveName = autosaveName
         self.styleMask = styleMask
         self.front = front
@@ -145,7 +146,9 @@ extension SKView: PlazaPausableView {}
         PlazaRosterView(model: overlays.rosterModel, onSelect: overlays.walkToMember, onTurn: overlays.turnRosterPage)
     }
 
+    /// No window, nothing to bring forward: the app is not activated.
     func bringToFront() {
+        guard let window else { return }
         front(window)
     }
 

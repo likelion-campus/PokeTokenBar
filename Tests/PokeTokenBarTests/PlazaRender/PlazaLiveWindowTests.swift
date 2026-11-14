@@ -101,8 +101,8 @@ private struct LiveNoSprites: PlazaSpriteFetching {
         var opens = 0
         let shell = PlazaMacWindow(autosaveName: autosave, styleMask: [.borderless], front: { w in
             opens += 1
-            w?.setFrameOrigin(offscreen)
-            w?.orderFront(nil)   // not key, not activated
+            w.setFrameOrigin(offscreen)
+            w.orderFront(nil)   // not key, not activated
         })
         var log: [String] = []
         let c = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.live.\(UUID())")),

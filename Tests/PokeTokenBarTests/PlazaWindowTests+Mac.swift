@@ -197,8 +197,22 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertNil(host, "the old SKScene is freed")
     }
 
+    /// With no window, bringing the plaza forward does nothing: the activation (the injected `front`) is never reached, so a
+    /// stray caller can't steal focus. Nothing is really activated here.
+    func testBringToFrontWithoutAWindowDoesNotActivate() async {
+        var activations = 0
+        let shell = PlazaMacWindow(autosaveName: "unused", front: { _ in activations += 1 })
+        shell.bringToFront()
+        XCTAssertEqual(activations, 0)
+        let c = controller(shell: shell)
+        c.closeIfOpen()
+        shell.bringToFront()
+        XCTAssertEqual(activations, 0, "a controller that never showed the plaza brings nothing forward")
+    }
+
     func testTheMacShellIsInertWithoutAWindow() async {
         let shell = PlazaMacWindow(autosaveName: "unused", front: { _ in XCTFail("nothing to bring forward") })
+        shell.bringToFront()
         shell.focusScene()
         shell.focusChatInput()
         shell.setTitle("x")
