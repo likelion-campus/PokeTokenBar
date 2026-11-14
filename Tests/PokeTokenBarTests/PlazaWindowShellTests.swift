@@ -363,7 +363,6 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         let events = try XCTUnwrap(shell.events)
         events.contentHeightDidChange(320)
         XCTAssertEqual(c.rosterModel.capacity, PlazaRoster.capacity(forHeight: 320))
-        XCTAssertEqual(c.rosterModel.maxListHeight, PlazaRoster.maxListHeight(forHeight: 320))
         events.contentHeightDidChange(900)
         XCTAssertEqual(c.rosterModel.capacity, PlazaRoster.capacity(forHeight: 900))
         XCTAssertNotEqual(PlazaRoster.capacity(forHeight: 320), PlazaRoster.capacity(forHeight: 900), "the fixture tells the sizes apart")

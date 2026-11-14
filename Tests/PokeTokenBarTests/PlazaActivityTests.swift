@@ -1,7 +1,7 @@
 import XCTest
 @testable import PokeTokenBar
 
-/// Today's plaza activity: the counters, the day it belongs to, what a teammate may send, and the roster hover that shows it.
+/// Today's plaza activity: the counters, the day it belongs to, what a teammate may send, and the member card section that shows it.
 @MainActor
 final class PlazaActivityTests: XCTestCase {
     private static let calendar: Calendar = {
@@ -135,31 +135,6 @@ final class PlazaActivityTests: XCTestCase {
                          presence: .online, isMe: me, activity: activity)
     }
 
-    func testHoveringASlotSelectsItAndLeavingClearsIt() async {
-        let model = PlazaRosterModel()
-        XCTAssertNil(model.hoveredID)
-        model.hover("a", inside: true)
-        XCTAssertEqual(model.hoveredID, "a")
-        model.hover("a", inside: false)
-        XCTAssertNil(model.hoveredID, "the mouse-out collapses it")
-    }
-
-    func testALateLeaveFromTheOldSlotDoesNotCollapseTheNewOne() async {
-        let model = PlazaRosterModel()
-        model.hover("a", inside: true)
-        model.hover("b", inside: true)
-        model.hover("a", inside: false)
-        XCTAssertEqual(model.hoveredID, "b")
-    }
-
-    func testTurningThePageDropsTheHover() async {
-        let model = PlazaRosterModel()
-        model.entries = (0..<8).map { entry("m\($0)") }
-        model.hover("m0", inside: true)
-        model.turnPage(by: 1)
-        XCTAssertNil(model.hoveredID)
-    }
-
     func testEntriesShowTodaysActivityAndNoRecordForOtherDaysAndOldVersions() async {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let today = PlazaActivity.dayKey(now)
@@ -182,26 +157,30 @@ final class PlazaActivityTests: XCTestCase {
         XCTAssertNil(mineStale.first?.activity, "mine from before midnight, not yet rolled")
     }
 
-    // MARK: - The expanded slot stays above the minimap
+    // MARK: - The member card's 오늘 광장 section
 
-    func shortList() -> [PlazaRosterEntry] {
-        var a = PlazaActivity(day: "d")
-        a.record(.pickup)
-        return (0..<4).map { entry("m\($0)", activity: a) }
+    func member(_ id: String, _ a: PlazaActivity?) -> TeamMemberState {
+        var m = TeamMemberState(memberID: id, nickname: id, character: TeamMonSummary(speciesID: 25, isShiny: false, form: nil, speciesName: "P", gender: nil),
+                                inPlaza: true, tile: nil, facing: nil, isWalking: false)
+        m.activity = a
+        return m
     }
 
-    func testHoveringTheLastSlotOfAShortWindowScrollsItsRowsIntoView() async {
-        let m = PlazaRosterMetrics.self, list = shortList()
-        let limit = PlazaRoster.maxListHeight(forHeight: 460)
-        XCTAssertEqual(PlazaRoster.capacity(forHeight: 460), 4, "test precondition")
-        let rest = PlazaRoster.listLayout(list, hovered: nil, maxHeight: limit)
-        XCTAssertEqual(rest.scroll, 0)
-        let last = PlazaRoster.listLayout(list, hovered: "m3", maxHeight: limit)
-        let bottom = 4 * m.slotHeight + 3 * m.slotSpacing + m.activityHeight(rows: 7)
-        XCTAssertGreaterThan(bottom, limit, "test precondition: it would run past the minimap")
-        XCTAssertEqual(last.height, limit, "the list never grows past the minimap")
-        XCTAssertEqual(bottom - last.scroll, limit, accuracy: 0.01, "the hovered slot's bottom sits on the limit")
-        let first = PlazaRoster.listLayout(list, hovered: "m0", maxHeight: limit)
-        XCTAssertEqual(first.scroll, 0, "room below: nothing moves")
+    func testCardShowsTheSevenValuesOfATeammateWithTodaysActivity() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var a = PlazaActivity(day: PlazaActivity.dayKey(now))
+        a.seconds = 3_660; a.record(.iceBreak); a.record(.firework); a.record(.tackle); a.record(.snowballHit); a.record(.greeting); a.record(.pickup)
+        let state = PlazaCardState.loading(member("지아", a))
+        XCTAssertEqual(state.todayActivity(now: now), a)
+        XCTAssertEqual(PlazaActivity.rows(state.todayActivity(now: now)).map(\.label),
+                       ["접속시간", "얼음 깬 횟수", "폭죽", "몸통박치기", "던져서 맞힌 횟수", "인사", "주운 아이템"])
+        XCTAssertEqual(PlazaActivity.rows(state.todayActivity(now: now)).first?.value, "1시간 1분")
+    }
+
+    func testCardSaysNoRecordWithoutActivityOrFromAnotherDay() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertNil(PlazaCardState.failed(member("민수", nil)).todayActivity(now: now), "an older version")
+        XCTAssertNil(PlazaCardState.failed(member("서연", PlazaActivity(day: "1999-01-01"))).todayActivity(now: now), "another day")
+        XCTAssertEqual(L(.ko).plazaActivityNone, "기록 없음")
     }
 }
