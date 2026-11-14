@@ -10,6 +10,7 @@ on:
       - 'Sources/CTeamTLS/**'
       - 'Sources/PokeTokenBarWin/**'
       - 'Tests/PokeTokenBarTests/Windows*'
+      - 'Tests/PokeTokenBarTests/Fixtures/windows-selftest/**'
       - 'Package.swift'
       - 'windows/**'
       - 'scripts/windows/**'
@@ -35,25 +36,121 @@ jobs:
       - name: Package
         shell: pwsh
         run: ./scripts/windows/package.ps1 -Out bundle
-      - name: Selftest with a stripped Path
-        shell: cmd
-        run: |
-          set "Path=C:\Windows\System32;C:\Windows"
-          bundle\PokeTokenBar.exe --selftest --selftest-out st.json
-          echo exit=%ERRORLEVEL%
-          if errorlevel 1 exit /b 1
-      - name: Assert
+      - name: Selftest fixture
         shell: pwsh
         run: |
-          Get-Content st.json
-          $j = Get-Content st.json -Raw | ConvertFrom-Json
-          if ($j.result -ne 'pass') { throw "selftest result: $($j.result)" }
-          if ($j.openssl -notlike 'OpenSSL 3.*') { throw "unexpected openssl: $($j.openssl)" }
+          # Claude Code logs dated "today", so the store's refresh has a known total; a fresh state folder.
+          $fx = Join-Path $env:RUNNER_TEMP 'ptb-selftest'
+          $proj = Join-Path $fx 'claude\projects\p'
+          New-Item -ItemType Directory -Force -Path $proj, (Join-Path $fx 'state'), (Join-Path $fx 'state-dispatch') | Out-Null
+          $ts = (Get-Date).ToUniversalTime().AddSeconds(-30).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+          (Get-Content 'Tests\PokeTokenBarTests\Fixtures\windows-selftest\claude\projects\p\s.jsonl' -Raw).Replace('__TIMESTAMP__', $ts) |
+            Set-Content -NoNewline -Encoding utf8NoBOM -Path (Join-Path $proj 's.jsonl')
+          "PTB_FIXTURE=$fx" >> $env:GITHUB_ENV
+      - name: Selftest with a stripped Path
+        shell: pwsh
+        run: |
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
+          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state'
+          # The fixture's usage after (message.id, requestId) dedup: 1000+200+30+4 + 2000+400+60+8.
+          $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
+          ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages
+      - name: Selftest on the dispatch-handle loop (diagnostic fallback, informational)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
+          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-dispatch'
+          $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
+          $env:PTB_WIN_LOOP = 'dispatch'
+          $env:PTB_SELFTEST_IDLE_SECONDS = '20'
+          ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st-dispatch.json -ExpectStrategy dispatchHandle
+      - name: Kill and exit paths of the full app
+        shell: pwsh
+        run: |
+          # The app writes team.memberID at launch and saves it right after the stores are built. Kill it
+          # (TerminateProcess), start it again: the same memberID must come back. Then WM_CLOSE and
+          # WM_ENDSESSION must each end it through WindowsApp.exit with exit code 0.
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class PtbWin {
+              [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
+              [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
+              [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeoutW(IntPtr h, uint msg, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+          }
+          '@
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
+          $plist = Join-Path $env:LOCALAPPDATA 'PokeTokenBar.exe.plist'
+          $title = 'Local\PokeTokenBar-Team'
+          function MemberId {
+              if (-not (Test-Path $plist)) { return $null }
+              $m = [regex]::Match((Get-Content $plist -Raw), '<key>team\.memberID</key>\s*<string>([^<]+)</string>')
+              if ($m.Success) { return $m.Groups[1].Value } else { return $null }
+          }
+          function Start-App {
+              $p = Start-Process -FilePath $exe -PassThru
+              $null = $p.Handle
+              for ($i = 0; $i -lt 150; $i++) {
+                  $h = [PtbWin]::FindWindowW('PokeTokenBarSink', $title)
+                  if ($h -ne [IntPtr]::Zero) { return @($p, $h) }
+                  Start-Sleep -Milliseconds 200
+              }
+              throw 'the app made no sink window in 30 s'
+          }
+          "memberID before the first start: $(MemberId)"
+          $p, $h = Start-App
+          Start-Sleep -Seconds 2
+          $first = MemberId
+          Stop-Process -Id $p.Id -Force
+          $null = $p.WaitForExit(10000)
+          "killed (exit $($p.ExitCode)): memberID on disk = $first"
+          if (-not $first) { throw 'team.memberID was not on disk 2 s after launch' }
+          $p, $h = Start-App
+          Start-Sleep -Seconds 2
+          $second = MemberId
+          "restarted: memberID on disk = $second"
+          if ($second -ne $first) { throw "memberID changed across the kill: $first -> $second" }
+          $null = [PtbWin]::PostMessageW($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)  # WM_CLOSE
+          if (-not $p.WaitForExit(15000)) { throw 'WM_CLOSE did not end the app' }
+          "WM_CLOSE: exit $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "WM_CLOSE: exit code $($p.ExitCode)" }
+          $p, $h = Start-App
+          Start-Sleep -Seconds 1
+          $reply = [IntPtr]::Zero
+          $null = [PtbWin]::SendMessageTimeoutW($h, 0x0016, [IntPtr]1, [IntPtr]::Zero, 0, 5000, [ref]$reply)  # WM_ENDSESSION(TRUE)
+          if (-not $p.WaitForExit(15000)) { throw 'WM_ENDSESSION did not end the app' }
+          "WM_ENDSESSION: exit $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "WM_ENDSESSION: exit code $($p.ExitCode)" }
+          $log = Get-Content (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log') -Raw
+          foreach ($reason in 'closeRequest', 'endSession') {
+              if ($log -notmatch "exit code=0 reason=$reason") { throw "no 'reason=$reason' exit line in the log" }
+          }
+          'log has both exit lines'
+      - name: Version flag (informational)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $v = & bundle\PokeTokenBar.exe --version | Out-String
+          "--version printed: '$($v.Trim())'"
+      - name: Collect logs
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path collected | Out-Null
+          Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\*') collected
+          Copy-Item -ErrorAction SilentlyContinue (Join-Path $env:LOCALAPPDATA '*.plist') collected
+          Get-ChildItem collected | ForEach-Object { $_.Name }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-app
           path: |
             bundle
-            st.json
+            st*.json
+            st*.json.lines
+            collected
             build.log
