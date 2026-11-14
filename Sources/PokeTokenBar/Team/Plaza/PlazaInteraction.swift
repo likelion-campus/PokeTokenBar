@@ -52,6 +52,11 @@ enum PlazaCardState: Equatable {
         }
     }
 
+    /// 카드에 보이는 오늘 광장에서 한 일. 오늘 기록이 아니거나 이전 버전 팀원이면 nil(기록 없음).
+    func todayActivity(now: Date = Date()) -> PlazaActivity? {
+        member.activity?.shown(on: PlazaActivity.dayKey(now))
+    }
+
     /// 광장 캐릭터의 이름. 알이면 "알", 이름을 모르면 nil.
     var characterName: String? {
         let c = member.character

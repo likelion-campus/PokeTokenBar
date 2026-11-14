@@ -929,14 +929,21 @@ read_when:
   (`Platform/Windows/Team/**`)은 `DispatchQueue.main.async` 블록 안에서만 `MainActor.assumeIsolated` 를 쓴다. **가드(기계):**
   `testWindowsMainIsSynchronous`·`testNoAssumeIsolatedInPoolThreadCallbacks`(각각 주입 테스트 포함)와 셀프테스트 `loop.*`(스레드 id·지연·
   `SendMessageTimeoutW`·게시/입력한 U+D55C 가 그대로 도착) — XCTest 는 런루프를 제 방식으로 돌리므로 이 검사는 배포 루프 안에서만 의미가 있다.
-  **메인 스레드의 파일 쓰기(Task 5 관찰, 미해결 — 결정 필요):** 윈도우의 FoundationEssentials `Data.write(to:options: .atomic)` 은 임시 파일을
-  `FlushFileBuffers` 로 디스크까지 내린 뒤 바꿔 넣는다(맥은 fsync 하지 않는다). `@MainActor` 인 `CompanionStore.save()`(갱신마다, 기동 갱신 한 번에
-  11 회)와 `UsageStore.writeParitySnapshot()`(갱신마다 2 회)이 이를 메인 스레드에서 부르므로, 러너에서 메인 스레드가 한 번에 146–231 ms 멈췄다
-  (셀프테스트 스톨 프로브: 17 개 표본 모두 `ntdll!ZwFlushBuffersFile` ← `KERNELBASE!FlushFileBuffers` ← `Data.write(to:options:)` ← 앱 코드).
-  그 순간 겹친 `loop.*` 검사가 두 번 실패했다(run 1 의 Task 557 ms, run 3 의 0.2 s 타이머 506 ms). **왜 못 걸렀나:** 맥에서는 같은 쓰기가 짧고,
-  XCTest 는 메인 스레드 지연을 재지 않는다. **가드(기계):** 셀프테스트 `loop.mainThreadStalls` 가 기동 갱신 동안의 정지 길이와 프레임을 매번
-  보고한다(1500 ms 넘으면 실패). loop 검사는 이제 갱신·저장이 조용해진 뒤 같은 기준으로 잰다. **남은 결정:** 쓰기를 메인 밖으로 옮길지(순서와
-  종료 전 비우기 필요), 윈도우에서 flush 없는 원자 교체로 바꿀지(전원 차단 시 내구성 손실) — 둘 다 업스트림 `Core` 수정이다.
+  **메인 스레드의 파일 쓰기(Task 5 관찰 → 수정됨):** 윈도우의 FoundationEssentials `Data.write(to:options: .atomic)` 은 임시 파일을
+  `FlushFileBuffers` 로 디스크까지 내린 뒤 바꿔 넣는다(맥은 fsync 하지 않는다). `@MainActor` 인 `CompanionStore.save()`(기동 갱신 한 번에 11 회)와
+  `UsageStore.writeParitySnapshot()`(2 회)이 이를 메인 스레드에서 불러 러너에서 메인 스레드가 한 번에 146–231 ms 멈췄다(스톨 프로브: 17 개 표본
+  모두 `ZwFlushBuffersFile` ← `FlushFileBuffers` ← `Data.write(to:options:)`). **왜 못 걸렀나:** 맥에서는 같은 쓰기가 짧고, XCTest 는 메인 스레드
+  지연을 재지 않는다. **수정:** `PlatformCompat.atomicWrite` — 맥은 예전 호출 그대로, 윈도우는 같은 폴더의 임시 파일에 쓴 뒤 `MoveFileExW(REPLACE_EXISTING)`
+  로 바꿔 넣는다(flush·WRITE_THROUGH 없음. `ReplaceFileW` 는 대상이 있어야 하고 쓰지 않는 속성·ACL 병합을 해서 고르지 않았다). 내구성은 맥과 같다:
+  전원이 끊기면 마지막 저장은 잃을 수 있어도 이전 파일은 온전하다. **스윕:** `.atomic` 쓰기 20곳 — 메인 액터인 `CompanionStore.save`·`UsageStore.writeParitySnapshot`·
+  `TeamFeedStore.save`·`SaveSnapshotManager.createSnapshot`(`update` 끝의 `autoSnapshotIfNeeded` 가 12 시간마다 메인 액터에서 부른다. 처음엔 "드물고 사용자가 시작"이라 잘못 분류했다: 호출자를 따라가야 한다)를 옮겼고(각 한 줄), actor 캐시(`LocalUsageCache`·`SpriteStore`·`PokeAPIClient`·`PokemonNameClient`)·드물고 사용자가 시작하는 쓰기
+  (`CompanionStore.backupStateBeforeImport`)·자격증명 파일(`SessionKeyLimitsProvider`, 0600 보장이 먼저)·맥 전용(`CrashReporter`, `PlazaIconLoader`)은 그대로 뒀다.
+  **가드(기계):** `AtomicWriteTests`(양쪽: 왕복·교체·임시 파일 없음·동시 쓰기자), `WinAtomicWriteTests`(주입한 실패 뒤 이전 파일 유지), `WindowsSeamScanTests.testMainActorStoresWriteThroughPlatformCompat`,
+  셀프테스트 `loop.mainThreadStalls`(FlushFileBuffers 안의 표본이 하나라도 있거나 1000 ms 넘으면 실패. 수정 뒤 8 회 기동은 프로브 하한 30 ms 미만이었으나 이후 실행에서 로그 쓰기·파일 열기에 157·221 ms 가 한 번씩 나왔다(디스크 지연, flush 아님): 시간 상한만으로는 잡음에 걸리므로 원인을 이름으로 잡는다. 전에는 231·146 ms). **규칙:** 메인 액터나 갱신 경로의 파일 쓰기는 `PlatformCompat.atomicWrite` 로.
+  **설정 plist(같은 부류의 반대편):** CF 는 plist 를 제자리에 쓴다(임시 파일·rename 없음, `CFURLWriteDataAndPropertiesToResource`; corelibs `CFXMLPreferencesDomain.c` 로 확인).
+  읽을 때 파싱이 3 번 실패하면 **빈 사전**을 쓰므로, 쓰는 도중 kill·정전이 나면 다음 동기화가 바뀐 키만 써서 모든 설정과 `team.memberID` 가 사라질 수 있다. 3 s 뒤 kill 하는 CI 테스트는
+  쓰는 도중을 못 친다. **수정:** `SettingsPlistGuard` — 동기화 뒤 plist 가 파싱될 때만 `<plist>.bak` 를 `atomicWrite` 로 남기고, 기동 시 첫 읽기 전에 없거나 파싱 안 되면 백업을 되돌린다
+  (멀쩡한 plist 는 옛 백업으로 덮지 않는다). `synchronize()` 가 false 면 한 번 로그. 셀프테스트는 자기 suite 를 써서 실제 `PokeTokenBar.exe.plist` 를 건드리지 않는다.
   **Observation 재수출(Track A Task 12):** 맥의 Foundation 은 Observation 을 다시 내보내 `withObservationTracking`·`@Observable` 이
   `import Observation` 없이도 빌드되지만, 윈도우의 corelibs Foundation 은 내보내지 않는다. 공용으로 옮긴 `PlazaWindowController` 가 윈도우에서만
   `cannot find 'withObservationTracking' in scope` 로 실패했다. **왜 못 걸렀나:** `shared-check.sh` 는 공용 집합을 맥의 Foundation 으로
@@ -1644,6 +1651,16 @@ read_when:
   부류 스윕: `members[`/`memberTiles`/`remotes[` 쓰임을 전수 확인했다. 몸통박치기를 받는 쪽(`showTackle`)과 `dittoWorld`·미니맵 점은
   진짜 팀원만 다루거나 복사본 점을 따로 더하므로 키를 일부러 빼고, 메뉴·카드·걷기·이모트·따라가기는 키를 이미 처리한다.
   새 UI 경로가 멤버를 이름으로 찾으면 키 처리가 필요한지 먼저 묻는다.
+- **`NSHostingView` 안의 SwiftUI 뷰가 호버로 제 높이를 애니메이션하면 AppKit 이 제약 갱신을 되풀이하다 앱을 죽인다.** 광장 오른쪽
+  팀원 목록 칸에 마우스를 올리면 칸이 아래로 늘어나게 했더니(#129) 앱이 튕겼다(2.5.633 크래시 리포트: `_NSViewUpdateConstraints` →
+  `NSApplication _crashOnException:`). 목록의 호스팅 뷰는 Auto Layout(위·오른쪽 고정, 폭 제약)에 intrinsic 크기로 높이를 맡기는데,
+  `.animation` 이 그 높이를 틱마다 바꿔 호스팅 뷰가 제약을 다시 무효화했다 — 오프스크린 실측으로 호버 한 번에 `updateConstraints`
+  1000회 이상(애니메이션을 빼면 약 20회). 창의 뷰 수만큼의 추가 패스를 넘기면 AppKit 이 예외를 던진다. **테스트가 못 걸러낸 이유:** #129
+  의 테스트는 `listLayout` 수식과 제약 없는 호스팅 뷰의 `fittingSize` 만 봤지, 제약에 묶인 호스팅 뷰의 레이아웃 주기를 돌려 본 적이 없다.
+  수정: 호버로 크기가 변하지 않게 하고 오늘 한 일은 팀원 카드("오늘 광장")로 옮겼다. 가드: `PlazaRosterHoverLayoutTests` 가 실제와 같은
+  제약의 호스팅 뷰에서 `updateConstraints` 횟수와 높이를 센다(오프스크린이라 실제 포인터 호버는 못 만들어서, 높이를 애니메이션하는
+  변경을 되살리면 잡는 쪽이지 호버 자체를 재현하지는 않는다). 호스팅 뷰 안에서 크기가 바뀌는 UI(호버로 펼침·툴팁)를 더할 때는 크기를
+  고정하거나 별도 오버레이로 띄운다.
 
 ## 에너지 (상시 표시 애니메이션)
 
