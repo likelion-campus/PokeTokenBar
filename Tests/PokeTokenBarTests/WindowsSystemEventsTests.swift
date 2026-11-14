@@ -80,7 +80,7 @@ final class WindowsSystemEventsTests: XCTestCase {
         XCTAssertFalse(e.displaysAreAsleep)
     }
 
-    func testPowerSettingPayloadIsParsed() {
+    func testPowerSettingPayloadIsParsed() async {
         func buffer(guid: GUID, length: UInt32, value: UInt32) -> [UInt8] {
             var bytes: [UInt8] = []
             withUnsafeBytes(of: guid) { bytes += $0 }
@@ -142,13 +142,13 @@ final class WindowsSystemEventsTests: XCTestCase {
         XCTAssertNil(e.armedFireDate)
     }
 
-    func testIdleSecondsAreFiniteAndNonNegative() {
+    func testIdleSecondsAreFiniteAndNonNegative() async {
         let s = WindowsIdleClock().secondsSinceLastInput()
         XCTAssertTrue(s.isFinite)
         XCTAssertGreaterThanOrEqual(s, 0)
     }
 
-    func testIdleArithmeticSurvivesTheTickWrap() {
+    func testIdleArithmeticSurvivesTheTickWrap() async {
         XCTAssertEqual(WindowsIdleClock.seconds(lastInputTick: 1_000, nowTick: 4_500), 3.5)
         // 49.7 days of uptime: now wrapped past zero, the last input did not.
         XCTAssertEqual(WindowsIdleClock.seconds(lastInputTick: 0xFFFF_FF00, nowTick: 0x100), 0.512, accuracy: 1e-9)
@@ -158,7 +158,7 @@ final class WindowsSystemEventsTests: XCTestCase {
         XCTAssertEqual(WindowsIdleClock.seconds(lastInputTick: 0, nowTick: 0), 0)
     }
 
-    func testConnectivityLevelsMapToSatisfied() {
+    func testConnectivityLevelsMapToSatisfied() async {
         XCTAssertEqual((0...5).map(winConnectivityIsSatisfied), [false, false, false, true, true, false])
     }
 
