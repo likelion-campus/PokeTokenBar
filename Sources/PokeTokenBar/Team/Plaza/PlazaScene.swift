@@ -435,7 +435,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
         if pondVisuals {
             let layer = PlazaPondLayer(map: map)
-            addChild(layer)
+            layer.root.mountInSpriteKit(self)
             pondLayer = layer
         }
         if let iceArt {

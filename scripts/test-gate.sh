@@ -79,9 +79,11 @@ LOGIC_CORE=(
 echo "▶ swift test (--enable-code-coverage)"
 swift test --enable-code-coverage
 
-PROF=$(find .build -name 'default.profdata' | head -1)
+# 방금 만든 프로파일과 같은 (debug) 빌드 디렉터리만 본다. .build 에 release 테스트 번들이 남아 있으면 그걸 집어 실패했다.
+BIN_PATH=$(swift build --show-bin-path)
+PROF=$(find "$BIN_PATH/" -name 'default.profdata' | head -1)
 # dSYM 안에도 같은 이름의 DWARF 바이너리가 있어 head -1 이 그걸 집으면 llvm-cov 가 실패한다 → 제외.
-BIN=$(find .build -name 'PokeTokenBarPackageTests' -type f ! -path '*.dSYM/*' | head -1)
+BIN=$(find "$BIN_PATH/" -name 'PokeTokenBarPackageTests' -type f ! -path '*.dSYM/*' | head -1)
 if [[ -z "$PROF" || -z "$BIN" ]]; then
   echo "✗ 커버리지 산출물(profdata/binary)을 찾지 못했습니다." >&2
   exit 1

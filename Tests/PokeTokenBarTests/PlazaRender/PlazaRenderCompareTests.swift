@@ -25,6 +25,7 @@ final class PlazaRenderCompareTests: XCTestCase {
             XCTAssertEqual(photo?.rgbaSHA256, photoAgain?.rgbaSHA256, "in-process A/A photo \(scene.name)")
             XCTAssertEqual(captures.count, scene.captures.count, scene.name)
             for c in captures where !c.bgra.contains(where: { $0 != 0 }) { XCTFail("\(c.scene)@\(c.frame) is all zero (black/empty)") }
+            for c in captures where !c.parity.isEmpty { XCTFail("\(c.scene)@\(c.frame): shared tree and SpriteKit differ:\n" + c.parity.prefix(5).joined(separator: "\n")) }
             try PlazaRenderRun.write(captures, to: dir)
             if let photo {
                 try photo.png.write(to: dir.appendingPathComponent("photo-\(scene.name).png"))
