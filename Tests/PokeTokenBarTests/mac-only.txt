@@ -205,3 +205,4 @@ PlazaTextArtParityTests.swift
 AppWiringDriftScanTests.swift
 # PlazaGIFDecoderParityTests+Mac: compares against ImageIO (CGImageSource)
 PlazaGIFDecoderParityTests+Mac.swift
+ReachabilityParityTests.swift
