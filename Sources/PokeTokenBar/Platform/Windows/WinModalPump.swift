@@ -37,7 +37,41 @@ import WinSDK
     private(set) static var delivered: [UINT: Int] = [:]
     private(set) static var beginsWithoutWindow = 0
     /// How a tick keeps CoreFoundation away from the thread's input queue (the selftest prints it).
-    private(set) static var maskStrategy = "none (ROUND A: old tick)"
+    private(set) static var maskStrategy = "unresolved"
+
+    /// CoreFoundation's per-mode Win32 message-queue mask (`_CFRunLoopSetWindowsMessageQueueMask`). With the mask 0 a
+    /// run loop pass services timers, sources and the main dispatch queue but never calls `PeekMessage`, so it cannot
+    /// pull the menu's keystrokes out of the thread queue. Foundation sets the default mode's mask to `QS_ALLINPUT`
+    /// when `RunLoop.main` is first touched; the tick sets it to 0 for its own pass and puts the old value back.
+    private struct MaskSPI {
+        typealias GetMain = @convention(c) () -> UnsafeMutableRawPointer?
+        typealias GetMask = @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?) -> UInt32
+        typealias SetMask = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeRawPointer?) -> Void
+        let getMain: GetMain, getMask: GetMask, setMask: SetMask
+        let defaultMode: UnsafeRawPointer
+
+        init?() {
+            let cf = "CoreFoundation.dll"
+            guard let getMain = WinDynamic.symbol(cf, "CFRunLoopGetMain", as: GetMain.self),
+                  let getMask = WinDynamic.symbol(cf, "_CFRunLoopGetWindowsMessageQueueMask", as: GetMask.self),
+                  let setMask = WinDynamic.symbol(cf, "_CFRunLoopSetWindowsMessageQueueMask", as: SetMask.self),
+                  let modeVar = WinDynamic.symbol(cf, "kCFRunLoopDefaultMode", as: UnsafePointer<UnsafeRawPointer?>.self),
+                  let mode = modeVar.pointee
+            else { return nil }
+            self.getMain = getMain
+            self.getMask = getMask
+            self.setMask = setMask
+            defaultMode = mode
+        }
+    }
+
+    private static var maskSPI: MaskSPI?
+    private static func resolveMaskSPI() {
+        maskSPI = MaskSPI()
+        maskStrategy = maskSPI == nil ? "fallback: tick skipped while input is pending (CoreFoundation SPI not found)"
+            : "CoreFoundation message-queue mask 0 for the tick"
+        if maskSPI == nil { AppLog.write("modal pump: \(maskStrategy)") }
+    }
 
     /// Verified on the runner: a tray menu opened with `TPM_NONOTIFY` delivers neither WM_ENTERMENULOOP nor
     /// WM_EXITMENULOOP to the owner, so `WinPopupMenu.run` calls `begin`/`end` itself. The size/move pair is the
@@ -45,6 +79,7 @@ import WinSDK
     /// Registers the timer and the size/move notifications on the window that owns the modal loops (the sink).
     static func install(on sink: WinSinkWindow) {
         window = sink
+        resolveMaskSPI()  // resolve now, on the main thread, never inside a modal loop
         sink.on(UINT(WM_TIMER)) { wParam, _ in
             guard wParam == WPARAM(timerID) else { return nil }
             tick()
@@ -97,6 +132,16 @@ import WinSDK
         inTick = true
         defer { inTick = false }
         ticks += 1
+        guard let spi = maskSPI else {
+            // No SPI: never run a pass while input waits for the modal loop (a remaining race, logged at startup).
+            if GetQueueStatus(0x0407 /* QS_INPUT */) >> 16 != 0 { return }
+            _ = RunLoop.main.run(mode: .default, before: Date())
+            return
+        }
+        let main = spi.getMain()
+        let saved = spi.getMask(main, spi.defaultMode)
+        spi.setMask(main, 0, spi.defaultMode)
+        defer { spi.setMask(main, saved, spi.defaultMode) }
         _ = RunLoop.main.run(mode: .default, before: Date())
     }
 }
