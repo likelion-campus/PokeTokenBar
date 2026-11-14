@@ -112,6 +112,7 @@ enum WindowsSelftestWakers {
         default: break
         }
         if mode == "timer", args.count >= 3, let interval = Double(args[1]), let tolerance = Double(args[2]) {
+            if args.count > 3, args[3] == "task" { Task.detached {} }  // the global executor in use, as in the app
             let timer = Timer(fire: Date(timeIntervalSinceNow: interval), interval: interval, repeats: true) { _ in }
             timer.tolerance = tolerance
             RunLoop.main.add(timer, forMode: .default)

@@ -103,11 +103,11 @@ end;
 
 { Launch at login is the app's own setting (HKCU Run value PokeTokenBar, written by the tray toggle). Uninstall removes it
   only when it starts THIS install's exe. State, settings and logs under %LOCALAPPDATA%\PokeTokenBar are kept. }
-procedure CurrentUninstallStepChanged(CurUninstallStep: TUninstallStep);
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Command: String;
 begin
-  Log('CurrentUninstallStepChanged ' + IntToStr(Ord(CurUninstallStep)));
+  Log('CurUninstallStepChanged ' + IntToStr(Ord(CurUninstallStep)));
   if CurUninstallStep <> usUninstall then Exit;
   if RegQueryStringValue(HKCU, RunKey, RunValue, Command) then begin
     Log('Run value: ' + Command + ' ; this install: ' + ExpandConstant('{app}\PokeTokenBar.exe'));

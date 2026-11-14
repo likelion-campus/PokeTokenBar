@@ -471,7 +471,8 @@ jobs:
               'none' = @('none'); 'distant' = @('distant'); 'task' = @('task'); 'taskmain' = @('taskmain'); 'tasksleep' = @('tasksleep');
               'thread' = @('thread'); 'globalqueue' = @('globalqueue'); 'mainqueue' = @('mainqueue'); 'asyncafter' = @('asyncafter');
               'dispatchtimer' = @('dispatchtimer');
-              'timer-20-2' = @('timer', '20', '2'); 'timer-20-0' = @('timer', '20', '0')
+              'timer-20-2' = @('timer', '20', '2'); 'timer-20-0' = @('timer', '20', '0');
+              'timertask-20-2' = @('timer', '20', '2', 'task'); 'timertask-20-0' = @('timer', '20', '0', 'task')
           }
           $procs = @{}
           foreach ($k in $modes.Keys) { $procs[$k] = Start-Process -FilePath $exe -ArgumentList (@('--selftest-park') + $modes[$k]) -PassThru }
