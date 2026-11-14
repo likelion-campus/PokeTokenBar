@@ -38,6 +38,10 @@ import WinSDK
     private(set) static var beginsWithoutWindow = 0
     /// How a tick keeps CoreFoundation away from the menu's input (the selftest prints it).
     static let maskStrategy = "decoy WM_NULL first in the queue, tick skipped when anything else is ahead of it"
+    /// libdispatch's own drain of the main queue (what CoreFoundation calls; `DispatchHandleLoop` uses it too). It
+    /// runs queued blocks and main-actor tasks without touching the window message queue.
+    private typealias DrainFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    private static var drainMainQueue: DrainFn?
     /// Ticks skipped because a message other than the decoy was first in the thread's queue.
     private(set) static var ticksSkippedForInput = 0
 
@@ -47,6 +51,8 @@ import WinSDK
     /// Registers the timer and the size/move notifications on the window that owns the modal loops (the sink).
     static func install(on sink: WinSinkWindow) {
         window = sink
+        drainMainQueue = WinDynamic.symbol("dispatch.dll", "_dispatch_main_queue_callback_4CF", as: DrainFn.self)
+        if drainMainQueue == nil { AppLog.write("modal pump: dispatch.dll does not export the main queue drain; blocks wait for the run loop pass") }
         sink.on(UINT(WM_TIMER)) { wParam, _ in
             guard wParam == WPARAM(timerID) else { return nil }
             tick()
@@ -105,6 +111,7 @@ import WinSDK
         // exported from Foundation.dll). Posted messages leave the queue in posting order and before hardware
         // input, so a decoy WM_NULL posted now is the one CoreFoundation removes, unless something is already
         // ahead of it: then this tick is skipped (the next one is 50 ms away) instead of risking that message.
+        drainMainQueue?(nil)  // blocks and main-actor tasks: no message queue involved
         guard let hwnd = window?.hwnd else { return }
         _ = PostMessageW(hwnd, UINT(WM_NULL), 0, 0)
         var head = MSG()
