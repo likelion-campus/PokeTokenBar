@@ -133,6 +133,9 @@ private func crtExit(_ code: Int32) -> Never {
         WinDefaultsSync.start()
         observeStore()  // 13
         applyState()
+        // 14: the update check (Mac: `updater.check()` at launch; the tray menu re-checks when it opens). The selftest
+        // never asks the network. Launch at login is not touched here: only the tray toggle writes it (off by default).
+        WindowsUpdates.start(defaults: defaults, checkNow: !arguments.contains("--selftest"))
         AppLog.write("windows app launched pid=\(GetCurrentProcessId()) loop=\(loopStrategy.rawValue) "
             + "mutex=\(mutexName)\(arguments.contains("--autostart") ? " autostart" : "")")
         return true

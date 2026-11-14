@@ -26,6 +26,9 @@ enum WindowsSelftest {
 
     nonisolated(unsafe) private static var progressURL: URL?
 
+    /// `CI` is set on the runner; checks that touch real per-user state run only there.
+    static var runsOnCI: Bool { ProcessInfo.processInfo.environment["CI"] != nil }
+
     /// Starts the run on the main actor once the loop turns, then exits with its result.
     @MainActor static func start(_ app: WindowsAppDelegate, writingTo url: URL) {
         let progress = url.appendingPathExtension("lines")
@@ -59,6 +62,7 @@ enum WindowsSelftest {
         if !quiet { AppLog.write("selftest: the store did not settle within 120 s; loop checks run anyway") }
         await loopChecks(r, app)
         await defaultsChecks(r, app)
+        await shellChecks(r)
         await singleInstanceCheck(r, app)
         await idleCheck(r, app)
         return r.checks
@@ -72,7 +76,7 @@ enum WindowsSelftest {
         try encoder.encode(report).write(to: url)
     }
 
-    @MainActor private final class Recorder {
+    @MainActor final class Recorder {
         private(set) var checks: [Check] = []
 
         func add(_ name: String, _ ok: Bool, _ detail: String) {
@@ -542,7 +546,7 @@ enum WindowsSelftest {
     }
 
     /// A child copy of this exe, waited on through its process handle.
-    @MainActor private final class Helper {
+    @MainActor final class Helper {
         let pid: Int32
         private let handle: HANDLE
         private let ready: HANDLE?
