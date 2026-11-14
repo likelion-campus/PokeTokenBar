@@ -43,7 +43,7 @@ final class PlazaFootprintTests: XCTestCase {
 
     private func shown(_ tile: TilePoint, bouncing: Bool = false) -> PlazaDittoShown {
         PlazaDittoShown(tile: tile, facing: .right, isWalking: false, isRunning: false, isBouncing: bouncing,
-                        name: "d", nameColor: CGColor(red: 1, green: 0, blue: 0, alpha: 1), title: nil, isDecoy: false)
+                        name: "d", nameColor: PlazaColor(srgbRed: 1, green: 0, blue: 0), title: nil, isDecoy: false)
     }
 
     func testWalkingOnASnowDayLeavesMarksThatFadeAway() {

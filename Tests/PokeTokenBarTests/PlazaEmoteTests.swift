@@ -149,7 +149,7 @@ final class PlazaEmoteTests: XCTestCase {
         for (code, hangul) in [(UInt16(6), "ㅋ"), (7, "ㅌ"), (8, "ㅊ"), (5, "ㅎ")] {
             XCTAssertEqual(scene.handleKeyDown(keyCode: code, characters: hangul, isRepeat: false), .swallowed)
             scene.handleKeyDown(keyCode: code, characters: hangul, isRepeat: true)
-            for mod: NSEvent.ModifierFlags in [.command, .control, .option] {
+            for mod: PlazaModifiers in [.command, .control, .option] {
                 scene.handleKeyDown(keyCode: code, characters: hangul, isRepeat: false, modifiers: mod)
             }
         }
@@ -203,7 +203,7 @@ final class PlazaEmoteTests: XCTestCase {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
         var pressed: [TeamEmoteKind] = []
         scene.onEmoteKey = { pressed.append($0) }
-        for mod: NSEvent.ModifierFlags in [.command, .control, .option, [.command, .shift]] {
+        for mod: PlazaModifiers in [.command, .control, .option, [.command, .shift]] {
             XCTAssertEqual(scene.handleKeyDown(keyCode: heartKey, characters: "1", isRepeat: false, modifiers: mod), .swallowed)
         }
         XCTAssertEqual(pressed, [], "Cmd, Ctrl and Opt combinations are not emotes")

@@ -8,7 +8,7 @@ final class PlazaMinimapModel {
     struct Dot: Equatable, Identifiable {
         let id: String
         let tile: TilePoint
-        let color: CGColor
+        let color: PlazaColor
         let isMe: Bool
         let isAway: Bool
     }

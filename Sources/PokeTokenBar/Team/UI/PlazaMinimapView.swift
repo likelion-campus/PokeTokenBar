@@ -55,7 +55,7 @@ struct PlazaMinimapView: View {
                     let center = CGPoint(x: (CGFloat(dot.tile.x) + 0.5) * tile, y: (CGFloat(dot.tile.y) + 0.5) * tile)
                     let circle = Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2))
                     context.opacity = dot.isAway ? 0.45 : 1
-                    context.fill(circle, with: .color(Color(cgColor: dot.color)))
+                    context.fill(circle, with: .color(Color(plaza: dot.color)))
                     context.stroke(circle, with: .color(dot.isMe ? .white : Color(hex: 0x14161F)), lineWidth: dot.isMe ? 1.5 : 1)
                 }
             }

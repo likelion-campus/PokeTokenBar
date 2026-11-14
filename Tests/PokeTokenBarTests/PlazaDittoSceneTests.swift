@@ -25,7 +25,7 @@ final class PlazaDittoSceneTests: XCTestCase {
     }
 
     private func shown(_ tile: TilePoint = TilePoint(x: 22, y: 22), name: String = "메타몽", title: String? = nil,
-                       decoy: Bool = false, color: CGColor = CGColor(red: 1, green: 0, blue: 0, alpha: 1)) -> PlazaDittoShown {
+                       decoy: Bool = false, color: PlazaColor = PlazaColor(srgbRed: 1, green: 0, blue: 0)) -> PlazaDittoShown {
         PlazaDittoShown(tile: tile, facing: .down, isWalking: false, isRunning: false,
                         name: name, nameColor: color, title: title, isDecoy: decoy)
     }
@@ -65,7 +65,7 @@ final class PlazaDittoSceneTests: XCTestCase {
 
     func testTheCopyShowsTheGivenNameColourAndTitle() {
         let s = scene()
-        let c = CGColor(red: 0, green: 1, blue: 0, alpha: 1)
+        let c = PlazaColor(srgbRed: 0, green: 1, blue: 0)
         s.applyDitto(shown(name: "재헌", title: "천진난만한", decoy: true, color: c))
         XCTAssertEqual(s.memberName(key), "재헌")
         XCTAssertEqual(s.memberNameColor(key), c)

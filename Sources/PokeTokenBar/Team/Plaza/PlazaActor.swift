@@ -44,7 +44,7 @@ struct PlazaActorContext {
     private var wetRemaining: TimeInterval = 0
     private static let wetSize = CGSize(width: 16, height: 16)
     private static let wetTexture: SKTexture = {
-        let texture = SKTexture(cgImage: PlazaPondArt.wetImage(scale: 4))
+        let texture = SKTexture(cgImage: PlazaPondArt.wetImage(scale: 4).cgImage)
         texture.filteringMode = .nearest
         return texture
     }()
@@ -54,7 +54,7 @@ struct PlazaActorContext {
     private var shadowImage: CGImage?
     private var shadowIsNest = false
     /// 이름판은 닉네임이나 배율이 바뀔 때만 다시 만든다.
-    private var plateKey: (nickname: String, title: String?, backing: CGFloat, color: CGColor)?
+    private var plateKey: (nickname: String, title: String?, backing: CGFloat, color: PlazaColor)?
     /// 말풍선을 보여 주는 시간.
     static let emoteDuration: TimeInterval = 2.5
     private var emoteKey: (kind: TeamEmoteKind, backing: CGFloat)?
@@ -66,7 +66,7 @@ struct PlazaActorContext {
     private(set) var chatText: String?
     private(set) var name: String
     private(set) var title: String?
-    private(set) var nameColor: CGColor
+    private(set) var nameColor: PlazaColor
 
     /// 점프: 그림과 이름표가 위로 폴짝 뛰었다 내려온다. 그림자는 땅에 남는다.
     static let jumpDuration: TimeInterval = 0.36
@@ -96,7 +96,7 @@ struct PlazaActorContext {
     private var frameElapsed: TimeInterval = 0
     private var textureCache: [ObjectIdentifier: SKTexture] = [:]
 
-    init(name: String, color: CGColor) {
+    init(name: String, color: PlazaColor) {
         self.name = name
         self.nameColor = color
         shadowNode.anchorPoint = .zero
@@ -106,7 +106,7 @@ struct PlazaActorContext {
         swimRingNode.size = CGSize(width: 24, height: 6)   // 12×3 시트 픽셀 × 2
         swimRingNode.isHidden = true
         ghostNode.anchorPoint = CGPoint(x: 0.5, y: 1)
-        ghostNode.color = PlazaPondArt.waterColor
+        ghostNode.color = PlazaPondArt.waterColor.skColor
         ghostNode.colorBlendFactor = PlazaPondArt.submergedBlend
         ghostCrop.isHidden = true
         ghostMask.anchorPoint = .zero
@@ -186,7 +186,7 @@ struct PlazaActorContext {
         applyFrame()
     }
 
-    func setName(_ name: String, color: CGColor) {
+    func setName(_ name: String, color: PlazaColor) {
         self.name = name
         self.nameColor = color
     }
@@ -583,7 +583,7 @@ struct PlazaActorContext {
     }
 
     private static let swimRingTexture: SKTexture = {
-        let t = SKTexture(cgImage: PlazaPondArt.swimRing())
+        let t = SKTexture(cgImage: PlazaPondArt.swimRing().cgImage)
         t.filteringMode = .nearest
         return t
     }()
@@ -595,7 +595,7 @@ struct PlazaActorContext {
         if let old = shadowTextureSize, old == size, shadowIsNest == frames.isEgg { return }
         shadowTextureSize = size
         shadowIsNest = frames.isEgg
-        let image = frames.isEgg ? PlazaNestArt.image() : PlazaGroundShadow.image(width: size.width, height: size.height)
+        let image = frames.isEgg ? PlazaNestArt.image() : PlazaGroundShadow.image(width: size.width, height: size.height).cgImage
         shadowImage = image
         nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage() : nil
         nestFrontNode.isHidden = !frames.isEgg

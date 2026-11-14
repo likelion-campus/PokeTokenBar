@@ -76,7 +76,7 @@ extension SKView: PlazaPausableView {}
 
     private struct DittoLook: Equatable {
         var name: String
-        var color: CGColor
+        var color: PlazaColor
         var title: String?
         var subject: CompanionStore.RepresentativeSubject
     }

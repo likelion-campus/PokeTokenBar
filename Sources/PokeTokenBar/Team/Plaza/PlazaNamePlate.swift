@@ -15,7 +15,7 @@ enum PlazaNamePlate {
     private static let shadowBlur: CGFloat = 2
 
     /// `scale`은 포인트당 기기 픽셀 수. 크기는 포인트 단위로 정수가 되도록 올린다.
-    static func image(text: String, title: String? = nil, color: CGColor, scale: CGFloat) -> CGImage? {
+    static func image(text: String, title: String? = nil, color: PlazaColor, scale: CGFloat) -> CGImage? {
         let scale = max(scale, 1)
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
@@ -75,7 +75,7 @@ enum PlazaNamePlate {
         drawLines()
         context.setShadow(offset: .zero, blur: 0, color: nil)
         context.setTextDrawingMode(.fill)
-        context.setFillColor(color)
+        context.setFillColor(color.cgColor)
         drawLines()
         return context.makeImage()
     }

@@ -4,7 +4,7 @@ import XCTest
 @testable import PokeTokenBar
 
 final class PlazaNamePlateTests: XCTestCase {
-    private let white = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+    private let white = PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
 
     private func pixels(_ image: CGImage) -> [UInt8] {
         var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
@@ -17,7 +17,7 @@ final class PlazaNamePlateTests: XCTestCase {
 
     // MARK: - 성격 줄
 
-    private let red = CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+    private let red = PlazaColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
 
     /// 글자 채움(순수한 빨강) 픽셀의 x 범위. `rows`는 위에서부터 센 줄이다.
     private func fillSpan(_ image: CGImage, rows: Range<Int>) -> ClosedRange<Int>? {
@@ -87,7 +87,7 @@ final class PlazaNamePlateTests: XCTestCase {
     }
 
     func testPlateUsesRequestedFillColorAndDarkOutline() throws {
-        let red = CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1), blue = CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
+        let red = PlazaColor(srgbRed: 1, green: 0, blue: 0, alpha: 1), blue = PlazaColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
         let a = try XCTUnwrap(PlazaNamePlate.image(text: "도토리", color: red, scale: 2))
         let b = try XCTUnwrap(PlazaNamePlate.image(text: "도토리", color: blue, scale: 2))
         let pa = pixels(a), pb = pixels(b)

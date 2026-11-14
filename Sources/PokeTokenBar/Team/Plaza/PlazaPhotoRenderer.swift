@@ -327,7 +327,7 @@ enum PlazaPhotoRenderer {
         c.draw(image, in: rect)
         c.setBlendMode(.sourceAtop)
         let w = PlazaPondArt.waterColor
-        c.setFillColor(CGColor(srgbRed: w.redComponent, green: w.greenComponent, blue: w.blueComponent, alpha: PlazaPondArt.submergedBlend))
+        c.setFillColor(CGColor(srgbRed: w.red, green: w.green, blue: w.blue, alpha: PlazaPondArt.submergedBlend))
         c.fill(rect)
         return c.makeImage()
     }

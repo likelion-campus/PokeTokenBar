@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 import Observation
 
 /// 광장 왼쪽 아래 대화 기록. 광장이 열려 있을 때 오간 한마디만 담고, 앱이 켜져 있는 동안 메모리에만 둔다(파일에 쓰지 않는다).
@@ -10,7 +9,7 @@ final class PlazaChatLog {
         let time: Date
         let name: String
         let text: String
-        let color: CGColor
+        let color: PlazaColor
         var isLoud = false
     }
 
@@ -26,7 +25,7 @@ final class PlazaChatLog {
 
     var visible: [Line] { Array(lines.suffix(Self.visibleCount)) }
 
-    func append(time: Date, name: String, text: String, color: CGColor, isLoud: Bool = false) {
+    func append(time: Date, name: String, text: String, color: PlazaColor, isLoud: Bool = false) {
         lines.append(Line(id: nextID, time: time, name: name, text: text, color: color, isLoud: isLoud))
         nextID += 1
         if lines.count > Self.capacity { lines.removeFirst(lines.count - Self.capacity) }
