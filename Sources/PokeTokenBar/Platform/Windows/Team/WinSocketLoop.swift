@@ -444,6 +444,8 @@ final class WinSocketLoop: @unchecked Sendable {
                 owners.append(c)
             }
             let timeout = pollTimeout()
+            // Published right before blocking: commands at the top of this pass may have closed some.
+            lock.lock(); openConnections = conns.count; lock.unlock()
             let n = fds.withUnsafeMutableBufferPointer { WSAPoll($0.baseAddress, ULONG($0.count), timeout) }
             lock.lock(); pollReturns += 1; lock.unlock()
             if n < 0 {
@@ -458,7 +460,6 @@ final class WinSocketLoop: @unchecked Sendable {
                 handle(c, revents: fds[i].revents)
             }
             expireDeadlines()
-            lock.lock(); openConnections = conns.count; lock.unlock()
         }
         for c in Array(conns.values) { closeConn(c, reason: nil) }
         if let l = listener { Sock.closeNow(l.socket) }
