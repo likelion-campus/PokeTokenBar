@@ -277,7 +277,7 @@ final class WinDNSSD: @unchecked Sendable {
         guard browsing == nil else { return }
         let context = BrowseContext(deliver: deliver)
         context.request.pointee.Version = 1
-        context.request.pointee.QueryName = UnsafePointer(context.queryName.pointer)
+        context.request.pointee.QueryName = context.queryName.pointer
         context.request.pointee.pBrowseCallback = { status, rawContext, records in
             handleBrowse(status, rawContext, UnsafeMutableRawPointer(records))
         }
@@ -303,7 +303,7 @@ final class WinDNSSD: @unchecked Sendable {
     func resolve(instance: String, _ done: @escaping @MainActor ([WinSocketAddress]) -> Void) {
         let context = ResolveContext(instance: instance, done: done)
         context.request.pointee.Version = 1
-        context.request.pointee.QueryName = UnsafePointer(context.queryName.pointer)
+        context.request.pointee.QueryName = context.queryName.pointer
         context.request.pointee.pResolveCompletionCallback = { status, rawContext, inst in
             handleResolve(status, rawContext, UnsafeMutableRawPointer(inst))
         }
