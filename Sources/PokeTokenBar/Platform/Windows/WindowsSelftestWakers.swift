@@ -82,6 +82,25 @@ enum WindowsSelftestWakers {
         WindowsApp.exit(0, .helper)
     }
 
+    /// `--selftest-park <none|distant|finite|timer <interval> <tolerance>>`: a process that only parks its main thread, so an
+    /// outside `measure-idle.ps1` sees what each way of waiting costs by itself (no sampler thread, no app code):
+    ///   none     `Thread.sleep`, the run loop never touched
+    ///   distant  `RunLoop.main.run(mode:before: .distantFuture)` in a loop, as `WinMainLoop` does
+    ///   finite   the same with a one hour limit
+    ///   timer    `distant` plus a repeating `Timer` with the given interval and tolerance (the settings safety sync is 30 s / 10 s,
+    ///            the store refresh 120 s / 12 s)
+    @MainActor static func park(_ args: [String]) -> Never {
+        let mode = args.first ?? "none"
+        if mode == "none" { while true { Thread.sleep(forTimeInterval: 3600) } }
+        _ = WinMainLoop.prepare()
+        if mode == "timer", args.count >= 3, let interval = Double(args[1]), let tolerance = Double(args[2]) {
+            let timer = Timer(fire: Date(timeIntervalSinceNow: interval), interval: interval, repeats: true) { _ in }
+            timer.tolerance = tolerance
+            RunLoop.main.add(timer, forMode: .default)
+        }
+        while true { _ = RunLoop.main.run(mode: .default, before: mode == "finite" ? Date(timeIntervalSinceNow: 3600) : .distantFuture) }
+    }
+
     private static func fetch(_ session: URLSession, _ url: String) async -> String {
         var request = URLRequest(url: URL(string: url)!)
         request.timeoutInterval = 15

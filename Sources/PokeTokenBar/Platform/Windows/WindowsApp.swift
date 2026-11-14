@@ -32,6 +32,7 @@ public enum WindowsApp {
             WindowsSelftest.runDefaultsReader(Array(arguments[(i + 1)...]))
         }
         if let i = arguments.firstIndex(of: "--selftest-waker-hunt") { WindowsSelftestWakers.run(Array(arguments[(i + 1)...])) }
+        if let i = arguments.firstIndex(of: "--selftest-park") { WindowsSelftestWakers.park(Array(arguments[(i + 1)...])) }
         if let i = arguments.firstIndex(of: "--selftest-crash") { WindowsSelftestCrash.run(Array(arguments[(i + 1)...])) }
         if arguments.contains("--ime-check") { WinImeCheck.run() }
 

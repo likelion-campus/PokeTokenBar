@@ -106,9 +106,12 @@ var
   Command: String;
 begin
   if CurUninstallStep <> usUninstall then Exit;
-  if RegQueryStringValue(HKCU, RunKey, RunValue, Command) then
+  if RegQueryStringValue(HKCU, RunKey, RunValue, Command) then begin
+    Log('Run value: ' + Command + ' ; this install: ' + ExpandConstant('{app}\PokeTokenBar.exe'));
     if Pos(Lowercase(ExpandConstant('{app}\PokeTokenBar.exe')), Lowercase(Command)) > 0 then begin
-      RegDeleteValue(HKCU, RunKey, RunValue);
+      Log('Run value starts this install: deleting it, result ' + IntToStr(Ord(RegDeleteValue(HKCU, RunKey, RunValue))));
       RegDeleteValue(HKCU, ApprovedKey, RunValue);
     end;
+  end else
+    Log('No Run value PokeTokenBar to remove');
 end;

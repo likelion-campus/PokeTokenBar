@@ -456,6 +456,27 @@ jobs:
           if (-not $p.WaitForExit(900000)) { Stop-Process -Id $p.Id -Force; throw 'the waker hunt did not finish in 15 min' }
           "exit $($p.ExitCode)"
           foreach ($ph in (Get-Content $out -Raw | ConvertFrom-Json)) { "== $($ph.phase)"; $ph.detail }
+      - name: Waker modes (what each way of waiting costs on its own; diagnostics)
+        if: (success() || failure()) && steps.install.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
+          $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
+          $modes = [ordered]@{
+              'none' = @('none'); 'distant' = @('distant'); 'finite' = @('finite');
+              'timer-30-10' = @('timer', '30', '10'); 'timer-30-0' = @('timer', '30', '0');
+              'timer-120-12' = @('timer', '120', '12'); 'timer-120-0' = @('timer', '120', '0')
+          }
+          $procs = @{}
+          foreach ($k in $modes.Keys) { $procs[$k] = Start-Process -FilePath $exe -ArgumentList (@('--selftest-park') + $modes[$k]) -PassThru }
+          Start-Sleep -Seconds 20
+          foreach ($k in $modes.Keys) {
+              if ($procs[$k].HasExited) { "mode ${k}: exited early ($($procs[$k].ExitCode))"; continue }
+              ./scripts/windows/measure-idle.ps1 -ProcessId $procs[$k].Id -Seconds 45 -Label "park-$k" -Out "idle-park-$k.json"
+          }
+          foreach ($k in $modes.Keys) { Stop-Process -Id $procs[$k].Id -Force -ErrorAction SilentlyContinue }
       - name: Silent uninstall and what it leaves
         id: uninstall
         if: (success() || failure()) && steps.install.outcome == 'success'
