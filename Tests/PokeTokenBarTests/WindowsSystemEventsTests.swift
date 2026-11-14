@@ -1,5 +1,6 @@
 #if os(Windows)
 import XCTest
+import WinSDK
 @testable import PokeTokenBar
 
 /// Counts calls made from `@Sendable` handlers (they run synchronously on the main actor here).

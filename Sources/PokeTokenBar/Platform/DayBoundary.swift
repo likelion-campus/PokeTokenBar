@@ -11,8 +11,13 @@ enum DayBoundary {
         return midnight > after ? midnight : after.addingTimeInterval(86_400)
     }
 
-    /// The local day as `yyyy-MM-dd`, the same key `LocalUsageReader.todayKey()` uses.
+    /// The local day as `yyyy-MM-dd`, the same key `LocalUsageReader.todayKey()` uses. Built from the calendar's own
+    /// time zone (Gregorian), not a `DateFormatter`, so it agrees with `nextLocalMidnight` to the second (a formatter
+    /// can round a zone offset that is not whole minutes).
     static func dayKey(_ date: Date, calendar: Calendar) -> String {
-        LocalUsageReader.localDayFormatter(timeZone: calendar.timeZone).string(from: date)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let c = gregorian.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 }
