@@ -713,6 +713,59 @@ final class SpriteKitMirrorParityTests: XCTestCase {
                 "eggSunk \(p.eggSunk) lift \(p.lift) squash \(p.squash) tilt \(p.tilt)"]
     }
 
+    /// Task 9 cost check: what one actor's frame (`animate` + `place`) costs on the shared tree against the SpriteKit
+    /// actor before it, 13 actors x 3,000 frames, per state (idle, walking, swimming between two ponds, dancing), best
+    /// of 5 alternating rounds. `PTB_PLAZA_ACTORCOST_OUT=<file>` appends the result line.
+    func testActorFrameCost() throws {
+        guard let out = PlazaRenderEnv.value("PTB_PLAZA_ACTORCOST_OUT") else { throw XCTSkip("PTB_PLAZA_ACTORCOST_OUT not set") }
+        let clock = ContinuousClock()
+        func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1e3 + Double(d.components.attoseconds) / 1e15 }
+        let frames = Self.oddFrames(), count = 13, steps = 3_000
+        let pond = CGRect(x: 40.3, y: 300.7, width: 160.1, height: 48.45)
+        func run(_ actors: [any PlazaActorUnderTest], state: String) -> Double {
+            ms(clock.measure {
+                for f in 0..<steps {
+                    let walking = state == "walking" || state == "swimming"
+                    let pose = PlazaPose.choice(facing: f / 120 % 2 == 0 ? .left : .right, isWalking: walking, clock: Double(f) / 60)
+                    let context = PlazaActorContext(worldHeight: 1024, cameraPosition: CGPoint(x: 300, y: 600), zoom: 2, backing: 2,
+                                                    viewport: CGSize(width: 640, height: 480))
+                    for (i, a) in actors.enumerated() {
+                        a.animate(by: 1.0 / 60, useBack: pose.useBack)
+                        let x = 100 + CGFloat(i) * 30 + (walking ? CGFloat(f % 240) * 0.25 : 0)
+                        let swim = state == "swimming"
+                        a.place(foot: CGPoint(x: x, y: 400 + CGFloat(i) * 7), pose: pose, in: context, concealment: 0, isMe: i == 0,
+                                swimSink: swim ? 20 : 0, waterRect: swim ? (f / 60 % 2 == 0 ? pond : pond.insetBy(dx: 2, dy: 2)) : nil)
+                    }
+                }
+            })
+        }
+        var line = ""
+        for state in ["idle", "walking", "swimming", "dancing"] {
+            var best = (legacy: Double.infinity, shared: Double.infinity)
+            for _ in 0..<5 {
+                let legacyScene = SKScene(size: CGSize(width: 64, height: 64)), sharedScene = SKScene(size: CGSize(width: 64, height: 64))
+                let legacyCamera = SKCameraNode(), sharedCamera = SKCameraNode()
+                legacyScene.addChild(legacyCamera); sharedScene.addChild(sharedCamera)
+                let legacy = (0..<count).map { _ in LegacyPlazaActor(name: "a", color: PlazaNameColor.palette[0]) }
+                let shared = (0..<count).map { _ in PlazaActor(name: "a", color: PlazaNameColor.palette[0]) }
+                for a in legacy { a.attach(world: legacyScene, camera: legacyCamera); a.setFrames(frames) }
+                for a in shared { a.attach(world: sharedScene, camera: sharedCamera); a.setFrames(frames) }
+                if state == "dancing" {
+                    for a in legacy { a.startDance(.wiggle, offset: 0, length: 1e9) }
+                    for a in shared { a.startDance(.wiggle, offset: 0, length: 1e9) }
+                }
+                best.legacy = min(best.legacy, run(legacy, state: state))
+                best.shared = min(best.shared, run(shared, state: state))
+            }
+            let per = { (v: Double) in v * 1e6 / Double(count * steps) }   // ns per actor-frame
+            line += String(format: "%@ legacy %.0f ns shared %.0f ns ratio %.3f  ", state, per(best.legacy), per(best.shared), best.shared / best.legacy)
+        }
+        print("ACTORCOST: " + line)
+        let url = URL(fileURLWithPath: out)
+        let old = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        try (old + line + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
     /// The defect the Task 7 review predicted: a member who leaves, and the Ditto when it goes, must take every node of
     /// its actor out of the SpriteKit tree, not only out of the shared one. Through the scene's own calls.
     func testADetachedActorIsGoneFromTheSpriteKitTree() throws {
