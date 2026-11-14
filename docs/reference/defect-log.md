@@ -2205,3 +2205,12 @@ read_when:
   아님, `WindowsApp`)까지 잡은 것도 겹쳤다. **왜 못 걸렀나:** 속도 규칙상 작업별로 걸러 돌린 묶음에 상대 브랜치의 새 스캔이 없었고, 이 스캔은 맥 전용이라 윈도우 CI 도 돌리지 않는다.
   **고침:** 스캔이 `Process()` 와 `.arguments =` 가 함께 있는 파일만 실행 지점으로 보고, 자가 점검을 허용 목록에 넣었다(shim 이 아닌 자기 실행 파일, 인자는 스스로 만든 플래그).
   **규칙:** `windows-port` 로 합치기 전에 `swift test --filter 'ScanTests'` 를 합친 트리에서 돌린다(몇 초). 전체 게이트는 계속 중간 점검 지점에서만.
+- **윈도우 모달 루프(트레이 메뉴 `TrackPopupMenu`, `MessageBoxW`, 창 이동·크기 조절 루프)가 열려 있는 동안 메인 큐가 멈춘다.** 모달 루프는 메인 스레드에서 자기 메시지 루프를
+  돌며 창 메시지만 디스패치한다. 앱의 메인 루프(`RunLoop.main.run`)가 돌려 주던 `DispatchQueue.main`·`RunLoop` 타이머·`@MainActor` Task 는 메뉴가 닫힐 때까지 서 있다 —
+  스토어 갱신 없음, 팀 링크가 생기면 하트비트도 없어 30 s 뒤 팀원이 이 멤버를 내린다. 맥은 메뉴가 열려 있어도 메인 큐를 계속 돌린다. **왜 못 걸렀나:** CI 자가 점검은 메뉴를 열 때
+  메인 큐 일이 필요하지 않았다 — 메뉴 키 점검(`tray.menuKeys`)은 메뉴가 닫힌 뒤 갱신이 돌았는지만 보았다. 결함 트리거(메뉴가 *열려 있는 동안* 일이 도는가)를 밟는 점검이 없었다.
+  **고침:** `WinModalPump`(`Platform/Windows/WinModalPump.swift`) — 모달 루프가 하나라도 활성인 동안만 싱크 창에 50 ms `SetTimer`, `WM_TIMER` 핸들러가 `RunLoop.main.run(mode: .default,
+  before: Date())` 를 한 번 돈다(재진입 가드: 이미 틱 안이면 건너뜀). 마지막 `end` 에서 `KillTimer` — 모달 루프가 없을 때는 타이머도 깨움도 없다(유휴 비용 0). **규칙:** 새 모달 루프(대화상자,
+  창 이동·크기, `MessageBoxW`)를 시작하는 코드는 호출 전 `WinModalPump.begin(_:)`, 호출 뒤 `defer { end(_:) }` 를 부른다. 이동·크기 루프는 싱크로 오는 `WM_ENTERSIZEMOVE`/`WM_EXITSIZEMOVE` 가
+  자동으로 begin/end 한다(다른 창은 같은 `WinSinkWindow` 라우팅이라 그대로). **회귀 점검:** `modalPump.*` 자가 점검(메뉴를 1.5 s 열어 둔 채 큐·타이머·Task 가 도는가, 재진입, 풍선, 타이머 수명, 메뉴 안에서
+  `WindowsApp.exit`, 유휴) — 펌프를 끈 상태로 먼저 실행해 실패함을 확인했다.
