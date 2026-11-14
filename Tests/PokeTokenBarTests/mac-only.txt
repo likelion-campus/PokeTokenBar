@@ -196,6 +196,8 @@ PlazaRender/
 # Track A legacy art oracles: verbatim pre-conversion CoreGraphics art and the CGImage byte comparison (deleted in Task 19)
 Legacy/
 PlazaArtParityTests.swift
+# ToolLaunchArgumentScanTests: scans the source tree with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
+ToolLaunchArgumentScanTests.swift
 # PlazaArtParityPixelArtTests: legacy-versus-new byte oracles for the pixel art and character frames (CoreGraphics, ImageIO)
 PlazaArtParityPixelArtTests.swift
 PlazaTextArtParityTests.swift
