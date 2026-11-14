@@ -184,7 +184,7 @@ PlazaActivityControllerTests.swift
 # PlazaActivityTests+Mac: the SwiftUI roster view (PlazaRosterView)
 PlazaActivityTests+Mac.swift
 # from main (#134): builds the scene
-# PlazaSeasonTests+Mac: the controller tests and the scene tests that read the bundled ice art (ImageIO)
+# PlazaSeasonTests+Mac: the controller tests, the scene tests that read the bundled ice art (ImageIO), and the two that assert the bundled water balloon PNG size (14x18; the Windows stub has no decoder for it)
 PlazaSeasonTests+Mac.swift
 # from main (#140): pins the macOS defaults pool against late writers; its tests must stay synchronous
 TestDefaultsLateWriteTests.swift

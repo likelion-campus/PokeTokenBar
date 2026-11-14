@@ -100,36 +100,6 @@ final class PlazaSeasonTests: XCTestCase {
         }
     }
 
-    /// 장면이 처음 보이는 계절은 여름(원본 지도)이다. 팀이 여름을 골라 둔 광장을 열면 계절이 "바뀌지" 않으므로,
-    /// 던지는 것도 처음부터 여름 것이어야 한다.
-    func testAPlazaOpenedInSummerThrowsTheBalloonFromTheStart() async {
-        let s = scene()
-        s.seasonChoice = .summer
-        s.refreshSnowDay()
-        s.update(0)
-        s.playSnowball(by: nil, shot: PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))) {}
-        XCTAssertEqual(s.snowballBallSizes, [CGSize(width: 14, height: 18)])
-    }
-
-    func testTheFlyingThingChangesWithTheSeason() async throws {
-        let s = scene()
-        s.refreshSnowDay()
-        s.update(0)
-        func ballSize() throws -> CGSize {
-            let shot = PlazaSnowballShot(from: map.spawn, direction: .up, end: .ground(TilePoint(x: map.spawn.x, y: map.spawn.y - 3)))
-            let before = Set(s.snowballBallSizes.map { "\($0)" })
-            s.playSnowball(by: nil, shot: shot) {}
-            return try XCTUnwrap(s.snowballBallSizes.first { !before.contains("\($0)") } ?? s.snowballBallSizes.last)
-        }
-        XCTAssertEqual(try ballSize(), CGSize(width: 16, height: 16), "a snowball is a 4×4 grid of 4-pixel cells")
-        s.seasonChoice = .summer
-        XCTAssertEqual(s.snowballBallSizes, [CGSize(width: 14, height: 18)], "the ball already in the air turns too")
-        XCTAssertEqual(try ballSize(), CGSize(width: 14, height: 18))
-        s.seasonChoice = .autumn
-        XCTAssertEqual(Set(s.snowballBallSizes.map { "\($0)" }).count, 1)
-        XCTAssertEqual(s.snowballBallSizes.first, CGSize(width: 16, height: 16))
-    }
-
     func schedule(_ word: String) -> PlazaSchedule {
         PlazaSchedule(coreStart: 10, coreEnd: 16, seasonPeriod: word, changedAt: Date(timeIntervalSince1970: 1_700_000_000),
                       changedBy: "m", changedByName: "민수")
