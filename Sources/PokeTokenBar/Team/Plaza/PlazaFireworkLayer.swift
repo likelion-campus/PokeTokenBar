@@ -183,7 +183,7 @@ import SpriteKit
     /// 지금 보이는 조각을 기념사진 좌표(월드, y 아래로)로 돌려준다.
     func photoParticles(worldHeight: CGFloat) -> [PlazaPhotoParticle] {
         shown.map {
-            PlazaPhotoParticle(image: $0.image, origin: CGPoint(x: $0.position.x, y: worldHeight - $0.position.y - $0.size.height),
+            PlazaPhotoParticle(image: PlazaImage(cgImage: $0.image), origin: CGPoint(x: $0.position.x, y: worldHeight - $0.position.y - $0.size.height),
                                size: $0.size)
         }
     }

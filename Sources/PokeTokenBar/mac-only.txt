@@ -26,7 +26,6 @@ Team/Plaza/PlazaFireworkLayer.swift
 Team/Plaza/PlazaFootprintLayer.swift
 Team/Plaza/PlazaIceLayer.swift
 Team/Plaza/PlazaIconLoader.swift
-Team/Plaza/PlazaPhotoRenderer.swift
 Team/Plaza/PlazaPondLayer.swift
 Team/Plaza/PlazaPresentingMac.swift
 Team/Plaza/PlazaScene.swift

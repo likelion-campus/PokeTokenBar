@@ -38,5 +38,14 @@ struct MacPlazaGraphics: PlazaGraphics {
             .map(PlazaImage.init(cgImage:))
     }
 
-    func encodePNG(_ image: PlazaImage) -> Data? { PlazaPhotoRenderer.png(image.cgImage) }
+    func encodePNG(_ image: PlazaImage) -> Data? { Self.png(image.cgImage) }
+
+    /// ImageIO PNG with the default settings (the bytes the photo has always had).
+    static func png(_ image: CGImage) -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
+    }
 }

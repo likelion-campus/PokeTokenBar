@@ -50,7 +50,7 @@ final class PlazaSnowSceneTests: XCTestCase {
         let e = Env(map: map, now: date(5, 23, 59, 59))
         e.scene.refreshSnowDay()
         XCTAssertTrue(e.scene.shownMapImage === e.snow)
-        XCTAssertTrue(try XCTUnwrap(e.scene.photoInput()).mapImage === e.snow.cgImage)
+        XCTAssertTrue(try XCTUnwrap(e.scene.photoInput()).mapImage.cgImage === e.snow.cgImage)
         e.now = date(6, 0, 0, 0)
         e.scene.update(1)
         e.now = date(7, 0, 0, 0)
@@ -67,7 +67,7 @@ final class PlazaSnowSceneTests: XCTestCase {
         let e = Env(map: map, now: date(5, 12, 0, 0), tallGrass: normal, snowTallGrass: snowy)
         let layer = try XCTUnwrap(e.scene.tallGrassLayer)
         let whole = CGRect(origin: .zero, size: map.pixelSize)
-        func hasGreen() -> Bool { layer.photoBands(in: whole).contains { SnowPixels.contains($0.image, rgb: greens) } }
+        func hasGreen() -> Bool { layer.photoBands(in: whole).contains { SnowPixels.contains($0.image.cgImage, rgb: greens) } }
         e.scene.update(1)
         XCTAssertFalse(hasGreen())
     }

@@ -109,11 +109,11 @@ import SpriteKit
         for (i, pond) in ponds.enumerated() {
             guard let a = iceAlphas[i] else { continue }
             let image = iceImages[i]
-            out.append(PlazaPhotoParticle(image: image.cgImage, origin: CGPoint(x: CGFloat(pond.minX - 1) * tile, y: CGFloat(pond.minY - 1) * tile),
+            out.append(PlazaPhotoParticle(image: image, origin: CGPoint(x: CGFloat(pond.minX - 1) * tile, y: CGFloat(pond.minY - 1) * tile),
                                           size: CGSize(width: image.width, height: image.height), alpha: a))
         }
         for c in shownCracks {
-            out.append(PlazaPhotoParticle(image: art.cracks[c.cell].cgImage, origin: CGPoint(x: CGFloat(c.tile.x) * tile, y: CGFloat(c.tile.y) * tile),
+            out.append(PlazaPhotoParticle(image: art.cracks[c.cell], origin: CGPoint(x: CGFloat(c.tile.x) * tile, y: CGFloat(c.tile.y) * tile),
                                           size: CGSize(width: tile, height: tile), alpha: crackAlpha))
         }
         return out

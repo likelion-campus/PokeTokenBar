@@ -434,12 +434,12 @@ struct PlazaActorContext {
             let height = CGFloat(image.height) * Self.characterScale - (eggSunk ? 0 : swimSink)
             if !isMeForConcealment { plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2)) }
         }
-        return PlazaPhotoActor(image: image, flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
-                               scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
-                               front: shadowIsNest && !eggSunk ? nestFrontImage : nil,
-                               plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2)?.cgImage,
-                               bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2)?.cgImage }
-                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true).cgImage },
+        return PlazaPhotoActor(image: PlazaImage(cgImage: image), flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
+                               scale: Self.characterScale, shadow: shadow.map(PlazaImage.init(cgImage:)), shadowRect: shadowRect,
+                               front: shadowIsNest && !eggSunk ? nestFrontImage.map(PlazaImage.init(cgImage:)) : nil,
+                               plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
+                               bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
+                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
                                opacity: opacity, plateBaseY: plateBaseY, sink: eggSunk ? 0 : swimSink, waterClip: swimSink > 0 ? waterClip : nil, eggSunk: eggSunk,
                                lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt)
     }

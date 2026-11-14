@@ -19,8 +19,8 @@ extension PlazaCharacterTests {
         XCTAssertTrue(actor.groundShadowSize == PlazaNestArt.size)
         let photo = actor.photoActor(foot: CGPoint(x: 100, y: 100), pose: PlazaPose.choice(facing: .down, isWalking: false, clock: 0))
         let bytes = { (i: CGImage?) in i?.dataProvider?.data as Data? }
-        XCTAssertEqual(bytes(photo?.shadow), bytes(PlazaNestArt.image().cgImage), "the photo shows the nest too")
-        XCTAssertEqual(bytes(photo?.front), bytes(PlazaNestArt.frontImage().cgImage), "and its front rim over the egg")
+        XCTAssertEqual(bytes(photo?.shadow?.cgImage), bytes(PlazaNestArt.image().cgImage), "the photo shows the nest too")
+        XCTAssertEqual(bytes(photo?.front?.cgImage), bytes(PlazaNestArt.frontImage().cgImage), "and its front rim over the egg")
         let context = PlazaActorContext(worldHeight: 400, cameraPosition: .zero, zoom: 2, backing: 2, viewport: CGSize(width: 400, height: 300))
         actor.place(foot: CGPoint(x: 100, y: 100), pose: PlazaPose.choice(facing: .down, isWalking: false, clock: 0), in: context)
         XCTAssertTrue(actor.nestFrontIsInFront, "the rim is drawn in front of the egg")

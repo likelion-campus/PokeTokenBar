@@ -1303,7 +1303,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                                           waterClip: photoWaterClip(foot: r.motion.footPoint)))
         }
         let tint = daylightTint
-        return PlazaPhotoInput(mapImage: mapImage.cgImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
+        return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
                                tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
                                items: itemPhotoParticles,
                                ice: iceLayer?.photoParticles() ?? [],
@@ -1940,7 +1940,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var itemPhotoParticles: [PlazaPhotoParticle] {
         guard let spawn = shownItem, let node = itemNode else { return [] }
         let size = PlazaEmoteArt.itemSize(spawn.kind)
-        return [PlazaPhotoParticle(image: PlazaEmoteArt.itemImage(spawn.kind, scale: 8).cgImage,
+        return [PlazaPhotoParticle(image: PlazaEmoteArt.itemImage(spawn.kind, scale: 8),
                                    origin: CGPoint(x: node.position.x - size.width / 2, y: worldSize.height - node.position.y - size.height),
                                    size: size)]
     }
@@ -2304,7 +2304,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let state = campfireState
         let frames = PlazaCampfireArt.frames(state)
         let size = PlazaCampfireArt.worldSize
-        let particle = PlazaPhotoParticle(image: frames[state == .ready ? 0 : campfirePhase].cgImage,
+        let particle = PlazaPhotoParticle(image: frames[state == .ready ? 0 : campfirePhase],
                                           origin: CGPoint(x: base.x - size.width / 2, y: base.y - size.height), size: size)
         return [PlazaPhotoProp(particle: particle, baseY: base.y - 4)]
     }

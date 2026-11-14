@@ -53,7 +53,7 @@ import SpriteKit
     func photoParticles(worldHeight: CGFloat) -> [PlazaPhotoParticle] {
         guard let particles = field?.particles else { return [] }
         return zip(sprites, particles).map { node, p in
-            PlazaPhotoParticle(image: images[p.variant].cgImage,
+            PlazaPhotoParticle(image: images[p.variant],
                                origin: CGPoint(x: node.position.x, y: worldHeight - node.position.y - node.size.height),
                                size: node.size)
         }
