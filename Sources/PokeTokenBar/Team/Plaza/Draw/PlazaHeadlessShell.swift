@@ -2,26 +2,36 @@ import Foundation
 
 /// The plaza window where there is none: headless tests and Windows until stage 6 brings its window. Nothing is shown,
 /// nothing is drawn and nothing ticks; it reports "unavailable" (not frontmost, no drawing loop, no diagnostics) and
-/// logs once when a plaza is opened on it.
+/// logs once when a plaza is opened on it. It keeps the window's lifecycle, though: between `open` and `dismantle` it is
+/// "open", and `requestClose` then reports `handleClose` at once, as the Mac's `performClose` does.
 @MainActor final class PlazaHeadlessShell: PlazaWindowShell {
     weak var events: (any PlazaWindowEvents)?
     private let log: (String) -> Void
     private var logged = false
+    /// Between `open` and `dismantle`.
+    private(set) var isOpen = false
+    /// The stage `open` was given, held until `stopPresenting` (as the Mac's `SKView` holds its `SKScene`).
+    private(set) var presentedStage: (any PlazaStage)?
 
     init(log: @escaping (String) -> Void = { _ in }) {
         self.log = log
     }
 
     func open(stage: any PlazaStage, title: String, overlays: PlazaOverlayBindings) {
+        isOpen = true
+        presentedStage = stage
         guard !logged else { return }
         logged = true
         log("PlazaHeadlessShell: no plaza window on this platform yet")
     }
 
     func bringToFront() {}
-    func requestClose() {}
-    func stopPresenting() {}
-    func dismantle() {}
+    func requestClose() {
+        guard isOpen else { return }
+        events?.handleClose()
+    }
+    func stopPresenting() { presentedStage = nil }
+    func dismantle() { isOpen = false }
     func setTitle(_ title: String) {}
     func setTransparent(_ transparent: Bool) {}
     func setHUDHidden(_ hidden: Bool) {}

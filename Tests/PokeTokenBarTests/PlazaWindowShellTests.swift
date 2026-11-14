@@ -74,7 +74,7 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
 @MainActor final class PlazaWindowShellTests: XCTestCase {
     private static let park: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
 
-    private func controller(_ shell: RecordingPlazaShell, chat: PlazaStubChatInput = PlazaStubChatInput(),
+    private func controller(_ shell: any PlazaWindowShell, chat: PlazaStubChatInput = PlazaStubChatInput(),
                             subject: @escaping () -> CompanionStore.RepresentativeSubject = { .init(speciesID: 25, isShiny: false) },
                             session: TeamSession? = nil, memberID: String = "member-1", teamName: String? = "개발팀",
                             renderCheckSleep: @escaping @MainActor (Duration) async -> Void = park,
@@ -234,6 +234,34 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         c.prepareScene()
         c.handleClose()
         XCTAssertEqual(shell.take(), [.dismantle], "nothing was presented, so nothing stops presenting")
+    }
+
+    /// On the headless shell (Windows until stage 6) ⌘W and leaving the team (`closeIfOpen`) close the plaza as on the Mac: the
+    /// shell reports `handleClose` at once, which stops the presentation and lets go of the scene. (The order — presentation
+    /// stopped while the scene lives — is the controller's and is pinned with the recording shell above.)
+    func testTheHeadlessShellClosesThePlazaOnRequest() async throws {
+        let shell = PlazaHeadlessShell()
+        let c = controller(shell)
+        c.closeIfOpen()   // nothing open: nothing happens
+        XCTAssertFalse(shell.isOpen)
+        c.show()
+        XCTAssertTrue(shell.isOpen)
+        XCTAssertTrue(shell.presentedStage === c.scene?.stage)
+        weak var scene = c.scene
+        key(try XCTUnwrap(c.scene), PlazaKeyCode.w, .command)
+        XCTAssertNil(c.scene, "⌘W closed the plaza")
+        XCTAssertNil(c.renderLoop)
+        XCTAssertNil(shell.presentedStage, "the presentation was stopped")
+        XCTAssertFalse(shell.isOpen, "the window was dismantled")
+        for _ in 0..<50 { await Task.yield() }
+        XCTAssertNil(scene, "the scene is let go of")
+        c.show()
+        XCTAssertTrue(shell.isOpen, "a closed plaza opens again")
+        XCTAssertNotNil(c.scene)
+        c.closeIfOpen()   // leaving the team
+        XCTAssertNil(c.scene)
+        XCTAssertFalse(shell.isOpen)
+        XCTAssertNil(shell.presentedStage)
     }
 
     func testCloseRequestGoesThroughTheShell() async throws {

@@ -54,7 +54,8 @@ struct PlazaOverlayBindings {
     func open(stage: any PlazaStage, title: String, overlays: PlazaOverlayBindings)
     /// Brings the app forward and the window to the front (the only call that activates the app).
     func bringToFront()
-    /// Closes the window the way the close button does; the shell then reports `handleClose`.
+    /// Closes the window the way the close button does: while a window is open, the shell reports `handleClose` before
+    /// this returns (AppKit's `performClose` sends `windowWillClose` synchronously); without a window it does nothing.
     func requestClose()
     /// Stops drawing the presented stage. Called before the controller lets go of the stage's scene.
     func stopPresenting()
