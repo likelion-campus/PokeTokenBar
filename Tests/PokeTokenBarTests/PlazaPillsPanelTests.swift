@@ -89,6 +89,30 @@ import XCTest
         XCTAssertTrue(p.isVisible)
     }
 
+    /// What the window already rendered (the model written before it opened) is not rendered again when the model's
+    /// change arrives; showing the same text again after it was hidden is a change.
+    func testWhatIsAlreadyShownIsNotRenderedAgain() async {
+        let (p, model) = panel()
+        model.hint = "안내"
+        let hud = PlazaHUD(panels: [p], graphics: PlazaStubGraphics(log: { _ in }))
+        let host = RecordingPanelHost()
+        hud.setViewport(window, scale: 2)
+        hud.host = host
+        XCTAssertEqual(hud.renderCount, 1)
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(hud.renderCount, 1, "the pending change is what was rendered")
+        model.hint = "안내"
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(hud.renderCount, 1, "the same text again")
+        model.hint = nil
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(host.take().last, .hide(.pills))
+        model.hint = "안내"
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(hud.renderCount, 2, "shown again")
+        XCTAssertNotNil(host.images[.pills])
+    }
+
     /// The panel follows the model itself (as the SwiftUI view did): one change report per turn, however many writes.
     func testThePanelFollowsItsModel() async {
         let (p, model) = panel()

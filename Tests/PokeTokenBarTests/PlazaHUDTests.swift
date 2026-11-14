@@ -215,6 +215,8 @@ final class CanvasKeepingGraphics: PlazaGraphics, @unchecked Sendable {
         XCTAssertEqual(c.hud.panels.map(\.id), [.pills, .clock], "bottom first")
         XCTAssertTrue(c.hud.host === shell.panels, "the open window shows the panels")
         XCTAssertEqual(c.hud.renderCounts[.clock], 1, "the clock shows at once")
+        await settle()
+        XCTAssertTrue(c.hud.renderCounts.values.allSatisfy { $0 == 1 }, "opening renders each visible panel once: \(c.hud.renderCounts)")
         c.handleClose()
         XCTAssertNil(c.hud.host, "the closed window lets go of them")
     }

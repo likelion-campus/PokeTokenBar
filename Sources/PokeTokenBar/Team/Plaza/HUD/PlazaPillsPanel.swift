@@ -83,6 +83,12 @@ struct PlazaPill {
     var onChange: (() -> Void)?
     private let model: PlazaOverlayModel
 
+    private struct Content: Equatable { let countdown: String?, banner: String?, hint: String? }
+    private var content: Content { Content(countdown: model.countdown, banner: model.banner, hint: model.hint) }
+    /// The content last rendered or reported: a model write that changes nothing since (the same value again, or a
+    /// change the window already rendered when it opened) is not reported.
+    private var reported: Content?
+
     init(model: PlazaOverlayModel) {
         self.model = model
         observe()
@@ -124,6 +130,7 @@ struct PlazaPill {
     }
 
     func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaImage? {
+        reported = content
         let (s, pills) = stack(in: viewport, scale: scale, text: graphics.text)
         let room = PlazaPanelStyle.strokeRoom
         let shifted = pills.map { p -> PlazaPill in var p = p; p.frame = p.frame.offsetBy(dx: room, dy: room); return p }
@@ -143,6 +150,9 @@ struct PlazaPill {
             Task { @MainActor in
                 guard let self else { return }
                 self.observe()
+                let now = self.content
+                guard now != self.reported else { return }
+                self.reported = now
                 self.onChange?()
             }
         }
