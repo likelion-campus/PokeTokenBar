@@ -260,7 +260,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
     private var myPrintWatch = PrintWatch()
-    private let footprintLayer: PlazaFootprintLayer
+    let footprintLayer: PlazaFootprintLayer
     private let snowballLayer: PlazaSnowballLayer
     var snowballFlightCount: Int { snowballLayer.flightCount }
     var snowballBallSizes: [CGSize] { snowballLayer.ballSizes }
@@ -455,7 +455,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         addChild(weatherLayer)
         fireworkLayer.zPosition = 7
         addChild(fireworkLayer)
-        addChild(footprintLayer)
+        footprintLayer.root.mountInSpriteKit(self)
         addChild(snowballLayer)
         addChild(cameraNode)
         me.attach(world: self, camera: cameraNode)
@@ -529,7 +529,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         tallGrassLayer?.setHidden(hidden)
         pondLayer?.setHidden(hidden)
         iceLayer?.setConcealed(hidden)
-        footprintLayer.isHidden = hidden
+        footprintLayer.root.isHidden = hidden
         if hidden { footprintLayer.removeAll() }
         layout()   // 풀숲 가림을 바로 풀어 곧바로 찍는 사진도 숨은 팀원을 그리게 한다
         backgroundColor = hidden ? .clear : Self.forestColor

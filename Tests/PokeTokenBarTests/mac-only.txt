@@ -74,7 +74,6 @@ PlazaDittoSceneTests.swift
 PlazaEmoteTests.swift
 PlazaFireworksTests.swift
 PlazaFocusTests.swift
-PlazaFootprintTests.swift
 PlazaGroupPhotoTests.swift
 PlazaIceControllerTests.swift
 PlazaIceSceneTests.swift
@@ -101,6 +100,8 @@ PlazaPondLayerTests+Mac.swift
 PlazaTallGrassLayerTests+Mac.swift
 # PlazaIceLayerTests+Mac: the scene-driven ice tests, which also read the bundled ice art (ImageIO)
 PlazaIceLayerTests+Mac.swift
+# PlazaFootprintTests+Mac: the scene-driven footprint tests (PlazaScene is SpriteKit until the stage lands)
+PlazaFootprintTests+Mac.swift
 # PlazaPondMotionTests: needs PlazaScene (SpriteKit)
 PlazaPondMotionTests.swift
 PlazaPondSceneTests.swift

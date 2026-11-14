@@ -23,7 +23,6 @@ Team/TeamTransport.swift
 # Plaza: SpriteKit scene, window controller, actors, layers and CoreGraphics art
 Team/Plaza/PlazaActor.swift
 Team/Plaza/PlazaFireworkLayer.swift
-Team/Plaza/PlazaFootprintLayer.swift
 Team/Plaza/PlazaIconLoader.swift
 Team/Plaza/PlazaPresentingMac.swift
 Team/Plaza/PlazaScene.swift
