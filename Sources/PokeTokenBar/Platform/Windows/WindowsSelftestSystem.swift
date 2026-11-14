@@ -122,7 +122,7 @@ extension WindowsSelftest {
                 + "timer_fires=\(events.dayTimerFires) rearmed_in_h=\(String(format: "%.1f", rearmedIn / 3600))")
     }
 
-    private static func idleValueCheck(_ r: Recorder) {
+    @MainActor private static func idleValueCheck(_ r: Recorder) {
         let seconds = WindowsIdleClock().secondsSinceLastInput()
         var info = LASTINPUTINFO()
         info.cbSize = UINT(MemoryLayout<LASTINPUTINFO>.size)
