@@ -137,6 +137,9 @@ final class SettingsPlistGuardTests: XCTestCase {
 
     /// The exact sequence: the launch could not restore, the session then writes a new id.
     func testSequenceFailedLaunchThenANewIDLeavesTheGoodBackup() throws {
+        #if os(Windows)
+        throw XCTSkip("POSIX permission bits do not make a file unreadable on Windows")
+        #endif
         try plist(["team.memberID": "A", "k": "good"]).write(to: SettingsPlistGuard.backupURL(for: plist))
         try Data("garbage".utf8).write(to: plist)
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: SettingsPlistGuard.backupURL(for: plist).path)
