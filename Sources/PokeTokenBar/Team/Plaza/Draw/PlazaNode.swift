@@ -39,20 +39,20 @@ enum PlazaFloat {
 /// safe. Draw order (`PlazaDrawOrder`): global z is the sum of the ancestors' `zPosition`; `isHidden` hides the
 /// subtree; `alpha` multiplies down the tree.
 @MainActor class PlazaNode {
-    private var _name: String?
-    private var _position = CGPoint.zero
-    private var _zPosition: CGFloat = 0
-    private var _alpha: CGFloat = 1
-    private var _isHidden = false
-    private var _xScale: CGFloat = 1
-    private var _yScale: CGFloat = 1
-    private var _zRotation: CGFloat = 0
+    @exclusivity(unchecked) private var _name: String?
+    @exclusivity(unchecked) private var _position = CGPoint.zero
+    @exclusivity(unchecked) private var _zPosition: CGFloat = 0
+    @exclusivity(unchecked) private var _alpha: CGFloat = 1
+    @exclusivity(unchecked) private var _isHidden = false
+    @exclusivity(unchecked) private var _xScale: CGFloat = 1
+    @exclusivity(unchecked) private var _yScale: CGFloat = 1
+    @exclusivity(unchecked) private var _zRotation: CGFloat = 0
 
     final private(set) weak var parent: PlazaNode?
     final private(set) var children: [PlazaNode] = []
     /// The backend's copy of this node. Set once, by a backend (`installMirror`); kept when the node leaves the tree,
     /// so a node that comes back is not built again.
-    final private(set) var mirror: (any PlazaNodeMirror)?
+    @exclusivity(unchecked) final private(set) var mirror: PlazaNodeMirror?
 
     init() {}
 
@@ -173,7 +173,7 @@ enum PlazaFloat {
     final var descendantCount: Int { children.reduce(children.count) { $0 + $1.descendantCount } }
 
     /// For backends only: attach the backend's copy of this node. A backend calls it once, when it first builds the copy.
-    final func installMirror(_ m: any PlazaNodeMirror) {
+    final func installMirror(_ m: PlazaNodeMirror) {
         precondition(mirror == nil, "PlazaNode.installMirror: the node already has a mirror")
         mirror = m
     }
@@ -188,13 +188,13 @@ enum PlazaFloat {
     /// SpriteKit's default sprite colour: white with alpha 0 (not black, not clear black).
     static let defaultColor = PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0)
 
-    private var _texture: PlazaTexture?
-    private var _unscaledWidth: CGFloat = 0
-    private var _unscaledHeight: CGFloat = 0
-    private var _anchorPoint = CGPoint(x: 0.5, y: 0.5)
-    private var _color = PlazaSprite.defaultColor
-    private var _colorBlendFactor: CGFloat = 0
-    private var _blendMode = PlazaBlendMode.alpha
+    @exclusivity(unchecked) private var _texture: PlazaTexture?
+    @exclusivity(unchecked) private var _unscaledWidth: CGFloat = 0
+    @exclusivity(unchecked) private var _unscaledHeight: CGFloat = 0
+    @exclusivity(unchecked) private var _anchorPoint = CGPoint(x: 0.5, y: 0.5)
+    @exclusivity(unchecked) private var _color = PlazaSprite.defaultColor
+    @exclusivity(unchecked) private var _colorBlendFactor: CGFloat = 0
+    @exclusivity(unchecked) private var _blendMode = PlazaBlendMode.alpha
 
     override init() { super.init() }
 
@@ -302,7 +302,7 @@ enum PlazaFloat {
 /// Draws its subtree clipped to `maskRect` (in its own coordinates), as one unit at its own z: what the plaza did with
 /// an `SKCropNode` and a white mask sprite (anchor at the origin) placed at the rect. `nil`: no mask.
 @MainActor final class PlazaCropNode: PlazaNode {
-    private var _maskRect: CGRect?
+    @exclusivity(unchecked) private var _maskRect: CGRect?
 
     var maskRect: CGRect? {
         get { _maskRect }
@@ -319,24 +319,28 @@ enum PlazaFloat {
 /// global z space as the world.
 @MainActor final class PlazaCameraNode: PlazaNode {}
 
-/// A backend's copy of one node. Each call carries a value that changed (already in stored form).
-@MainActor protocol PlazaNodeMirror: AnyObject {
+/// A backend's copy of one node: the backend subclasses this and overrides what its node kind needs; the defaults do
+/// nothing. Each call carries a value that changed, already in stored form. A class rather than a protocol because
+/// every changed write goes through it: a class method call measured about 2 ns cheaper per write than a call through
+/// a protocol existential (Task 7, risk R1), on a write that costs SpriteKit itself about 4 ns.
+@MainActor class PlazaNodeMirror {
+    init() {}
     /// `child` was added to this node's children at `index`; builds the child's copy (and its subtree's) when it has none.
-    func insertChild(_ child: PlazaNode, at index: Int)
-    func removeFromParent()
-    func setName(_ v: String?)
-    func setPosition(_ v: CGPoint)
-    func setZPosition(_ v: CGFloat)
-    func setAlpha(_ v: CGFloat)
-    func setHidden(_ v: Bool)
-    func setScale(x: CGFloat, y: CGFloat)
-    func setZRotation(_ v: CGFloat)
-    func setTexture(_ v: PlazaTexture?)
+    func insertChild(_ child: PlazaNode, at index: Int) {}
+    func removeFromParent() {}
+    func setName(_ v: String?) {}
+    func setPosition(_ v: CGPoint) {}
+    func setZPosition(_ v: CGFloat) {}
+    func setAlpha(_ v: CGFloat) {}
+    func setHidden(_ v: Bool) {}
+    func setScale(x: CGFloat, y: CGFloat) {}
+    func setZRotation(_ v: CGFloat) {}
+    func setTexture(_ v: PlazaTexture?) {}
     /// The value assigned to `size` (scaled, as assigned); the backend applies its own scale rule, which is the shared one.
-    func setSize(_ v: CGSize)
-    func setAnchorPoint(_ v: CGPoint)
-    func setColor(_ v: PlazaColor)
-    func setColorBlendFactor(_ v: CGFloat)
-    func setBlendMode(_ v: PlazaBlendMode)
-    func setMaskRect(_ v: CGRect?)
+    func setSize(_ v: CGSize) {}
+    func setAnchorPoint(_ v: CGPoint) {}
+    func setColor(_ v: PlazaColor) {}
+    func setColorBlendFactor(_ v: CGFloat) {}
+    func setBlendMode(_ v: PlazaBlendMode) {}
+    func setMaskRect(_ v: CGRect?) {}
 }

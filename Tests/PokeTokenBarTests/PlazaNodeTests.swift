@@ -5,25 +5,25 @@ import XCTest
 @MainActor
 final class PlazaRecordingMirror: PlazaNodeMirror {
     private(set) var calls: [String] = []
-    func insertChild(_ child: PlazaNode, at index: Int) {
+    override func insertChild(_ child: PlazaNode, at index: Int) {
         calls.append("insert \(index)")
         if child.mirror == nil { child.installMirror(PlazaRecordingMirror()) }
     }
-    func removeFromParent() { calls.append("remove") }
-    func setName(_ v: String?) { calls.append("name \(v ?? "-")") }
-    func setPosition(_ v: CGPoint) { calls.append("position \(v.x),\(v.y)") }
-    func setZPosition(_ v: CGFloat) { calls.append("z \(v)") }
-    func setAlpha(_ v: CGFloat) { calls.append("alpha \(v)") }
-    func setHidden(_ v: Bool) { calls.append("hidden \(v)") }
-    func setScale(x: CGFloat, y: CGFloat) { calls.append("scale \(x),\(y)") }
-    func setZRotation(_ v: CGFloat) { calls.append("rotation \(v)") }
-    func setTexture(_ v: PlazaTexture?) { calls.append(v == nil ? "texture nil" : "texture") }
-    func setSize(_ v: CGSize) { calls.append("size \(v.width)x\(v.height)") }
-    func setAnchorPoint(_ v: CGPoint) { calls.append("anchor \(v.x),\(v.y)") }
-    func setColor(_ v: PlazaColor) { calls.append("color") }
-    func setColorBlendFactor(_ v: CGFloat) { calls.append("factor \(v)") }
-    func setBlendMode(_ v: PlazaBlendMode) { calls.append("blend \(v)") }
-    func setMaskRect(_ v: CGRect?) { calls.append("mask") }
+    override func removeFromParent() { calls.append("remove") }
+    override func setName(_ v: String?) { calls.append("name \(v ?? "-")") }
+    override func setPosition(_ v: CGPoint) { calls.append("position \(v.x),\(v.y)") }
+    override func setZPosition(_ v: CGFloat) { calls.append("z \(v)") }
+    override func setAlpha(_ v: CGFloat) { calls.append("alpha \(v)") }
+    override func setHidden(_ v: Bool) { calls.append("hidden \(v)") }
+    override func setScale(x: CGFloat, y: CGFloat) { calls.append("scale \(x),\(y)") }
+    override func setZRotation(_ v: CGFloat) { calls.append("rotation \(v)") }
+    override func setTexture(_ v: PlazaTexture?) { calls.append(v == nil ? "texture nil" : "texture") }
+    override func setSize(_ v: CGSize) { calls.append("size \(v.width)x\(v.height)") }
+    override func setAnchorPoint(_ v: CGPoint) { calls.append("anchor \(v.x),\(v.y)") }
+    override func setColor(_ v: PlazaColor) { calls.append("color") }
+    override func setColorBlendFactor(_ v: CGFloat) { calls.append("factor \(v)") }
+    override func setBlendMode(_ v: PlazaBlendMode) { calls.append("blend \(v)") }
+    override func setMaskRect(_ v: CGRect?) { calls.append("mask") }
 }
 
 @MainActor

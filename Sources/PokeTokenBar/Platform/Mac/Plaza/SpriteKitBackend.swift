@@ -56,27 +56,23 @@ enum SpriteKitBackend {
 @MainActor class SKNodeMirror: PlazaNodeMirror {
     let node: SKNode
 
-    init(node: SKNode) { self.node = node }
+    init(node: SKNode) {
+        self.node = node
+        super.init()
+    }
 
-    final func insertChild(_ child: PlazaNode, at index: Int) {
+    final override func insertChild(_ child: PlazaNode, at index: Int) {
         node.insertChild((child.mirror as? SKNodeMirror ?? SpriteKitBackend.materialize(child)).node, at: index)
     }
 
-    final func removeFromParent() { node.removeFromParent() }
-    final func setName(_ v: String?) { node.name = v }
-    final func setPosition(_ v: CGPoint) { node.position = v }
-    final func setZPosition(_ v: CGFloat) { node.zPosition = v }
-    final func setAlpha(_ v: CGFloat) { node.alpha = v }
-    final func setHidden(_ v: Bool) { node.isHidden = v }
-    final func setScale(x: CGFloat, y: CGFloat) { node.xScale = x; node.yScale = y }
-    final func setZRotation(_ v: CGFloat) { node.zRotation = v }
-    func setTexture(_ v: PlazaTexture?) {}
-    func setSize(_ v: CGSize) {}
-    func setAnchorPoint(_ v: CGPoint) {}
-    func setColor(_ v: PlazaColor) {}
-    func setColorBlendFactor(_ v: CGFloat) {}
-    func setBlendMode(_ v: PlazaBlendMode) {}
-    func setMaskRect(_ v: CGRect?) {}
+    final override func removeFromParent() { node.removeFromParent() }
+    final override func setName(_ v: String?) { node.name = v }
+    final override func setPosition(_ v: CGPoint) { node.position = v }
+    final override func setZPosition(_ v: CGFloat) { node.zPosition = v }
+    final override func setAlpha(_ v: CGFloat) { node.alpha = v }
+    final override func setHidden(_ v: Bool) { node.isHidden = v }
+    final override func setScale(x: CGFloat, y: CGFloat) { node.xScale = x; node.yScale = y }
+    final override func setZRotation(_ v: CGFloat) { node.zRotation = v }
 }
 
 /// A sprite's copy: an `SKSpriteNode` built in the materialize order.
