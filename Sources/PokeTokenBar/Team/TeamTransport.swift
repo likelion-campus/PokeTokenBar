@@ -7,24 +7,16 @@ import Security
 /// actor; Network.framework runs on `.main` and hops in through `MainActor.assumeIsolated`.
 @MainActor
 final class BonjourTeamTransport: TeamTransporting {
-    static let serviceType = "_ptbteam._tcp"
-    private static let handshakeTimeout: TimeInterval = 10
-    private static let redialInterval: TimeInterval = 15
-    private static let listenerRetryDelay: TimeInterval = 5
-    /// Inbound links that have not finished their handshake. Anyone on the network can open these without
-    /// the team code, so the rest are cancelled.
-    static let maxUnfinishedInbound = 32
-    /// Dials that have not finished their handshake. Anyone on the network can advertise any number of services
-    /// without the team code, and every dial holds a file handle until it fails.
-    static let maxUnfinishedOutbound = 32
-    /// Links in any state. Each holds a file handle and an app starts with 256, which it also needs for its saves.
-    static let maxLinks = 128
-    /// What one link may send. An honest app sends a few KB a second and under 1 MB for a full sync, so only a flood
-    /// reaches this, and a flood holds the main thread because that is where frames are decoded.
-    nonisolated static let receiveBurst = 4.0 * 1_048_576
-    nonisolated static let receivePerSecond = 256.0 * 1024
-    /// Each frame counts for this many bytes on top of its own: tiny frames are cheap to send and not to handle.
-    static let frameCost = 1024
+    static let serviceType = TeamTransportRules.serviceType
+    private static let handshakeTimeout = TeamTransportRules.handshakeTimeout
+    private static let redialInterval = TeamTransportRules.redialInterval
+    private static let listenerRetryDelay = TeamTransportRules.listenerRetryDelay
+    static let maxUnfinishedInbound = TeamTransportRules.maxUnfinishedInbound
+    static let maxUnfinishedOutbound = TeamTransportRules.maxUnfinishedOutbound
+    static let maxLinks = TeamTransportRules.maxLinks
+    nonisolated static let receiveBurst = TeamTransportRules.receiveBurst
+    nonisolated static let receivePerSecond = TeamTransportRules.receivePerSecond
+    static let frameCost = TeamTransportRules.frameCost
 
     var onPeerConnected: ((TeamPeerID, Bool) -> Void)?
     var onPeerDisconnected: ((TeamPeerID) -> Void)?
@@ -34,8 +26,7 @@ final class BonjourTeamTransport: TeamTransporting {
     private final class Link {
         let connection: NWConnection
         let initiatedByMe: Bool
-        var decoder = TeamWire.FrameDecoder()
-        var budget = TeamTokenBucket(capacity: BonjourTeamTransport.receiveBurst, perSecond: BonjourTeamTransport.receivePerSecond)
+        var receiver = TeamLinkReceiver()
         var isReady = false
         var handshakeTimer: DispatchWorkItem?
         init(connection: NWConnection, initiatedByMe: Bool) {
@@ -159,7 +150,7 @@ final class BonjourTeamTransport: TeamTransporting {
     private func begin() {
         guard let code else { return }
         running = true
-        instanceName = "ptb-" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(12))
+        instanceName = TeamTransportRules.newInstanceName()
         planner = TeamDialPlanner()
         endpoints = [:]
         let generation = generation
@@ -338,7 +329,7 @@ final class BonjourTeamTransport: TeamTransporting {
     private func dialDue() {
         var rng = SystemRandomNumberGenerator()
         let unfinished = links.values.filter { $0.initiatedByMe && !$0.isReady }.count
-        let room = min(Self.maxUnfinishedOutbound - unfinished, linkLimit - links.count)
+        let room = TeamTransportRules.dialRoom(unfinishedOutbound: unfinished, linkCount: links.count, linkLimit: linkLimit)
         guard room > 0 else { return }   // every new name lands here, and a flood of them must not cost a scan each
         for name in planner.dialPicks(now: Date(), limit: room, using: &rng) {
             guard let endpoint = endpoints[name], let peer = dial(endpoint) else { continue }
@@ -357,8 +348,10 @@ final class BonjourTeamTransport: TeamTransporting {
     @discardableResult
     private func adopt(_ connection: NWConnection, initiatedByMe: Bool, generation: Int) -> TeamPeerID {
         let id = UUID().uuidString
-        if !initiatedByMe, links.count >= linkLimit
-            || links.values.filter({ !$0.initiatedByMe && !$0.isReady }).count >= Self.maxUnfinishedInbound {
+        if !initiatedByMe, !TeamTransportRules.admitsInbound(
+            linkCount: links.count,
+            unfinishedInbound: links.values.filter({ !$0.initiatedByMe && !$0.isReady }).count,
+            linkLimit: linkLimit) {
             connection.cancel()
             return id
         }
@@ -405,18 +398,20 @@ final class BonjourTeamTransport: TeamTransporting {
 
     private func receive(_ id: TeamPeerID, generation: Int) {
         guard let link = links[id] else { return }
-        link.connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+        link.connection.receive(minimumIncompleteLength: 1, maximumLength: TeamTransportRules.maxReadChunk) { [weak self] data, _, isComplete, error in
             MainActor.assumeIsolated {
                 guard let self, self.generation == generation, let link = self.links[id] else { return }
                 if let data, !data.isEmpty {
                     let messages: [TeamMessage]
-                    do { messages = try link.decoder.append(data) } catch {
+                    switch link.receiver.receive(data, now: Date()) {
+                    case .messages(let decoded):
+                        messages = decoded
+                    case .badFrame(let error):
                         AppLog.write("team: dropped a connection after a bad frame (\(error))")
                         self.onPeerBadFrame?(id)
                         self.finish(id, handshakeFailed: false, refused: true)
                         return
-                    }
-                    guard link.budget.take(Double(data.count + messages.count * Self.frameCost), now: Date()) else {
+                    case .flood:
                         AppLog.write("team: dropped a connection that sent too much")
                         self.onPeerBadFrame?(id)
                         self.finish(id, handshakeFailed: false, refused: true)
