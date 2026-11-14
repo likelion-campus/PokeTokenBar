@@ -48,7 +48,7 @@ final class BalloonQueueTests: XCTestCase {
         XCTAssertTrue(jamoCut.dropLast().allSatisfy { $0 == Character("\u{1112}\u{1161}\u{11AB}") })
         // A surrogate pair straddling the limit goes whole; so does a ZWJ emoji sequence.
         let emoji = String(repeating: "a", count: 253) + "😀😀"
-        XCTAssertEqual(BalloonQueue.clipped(emoji, limit: BalloonQueue.bodyLimit), String(repeating: "a", count: 254) + "…")
+        XCTAssertEqual(BalloonQueue.clipped(emoji, limit: BalloonQueue.bodyLimit), String(repeating: "a", count: 253) + "…")
         let family = "👨‍👩‍👧"  // 8 units, one character
         let cutFamily = BalloonQueue.clipped(String(repeating: "a", count: 250) + family, limit: BalloonQueue.bodyLimit)
         XCTAssertEqual(cutFamily, String(repeating: "a", count: 250) + "…")

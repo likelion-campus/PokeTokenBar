@@ -19,7 +19,7 @@ final class WindowsNotificationsTests: XCTestCase {
         window.destroy()
     }
 
-    func testPostCallsShellNotifyIconWithInfo() throws {
+    func testPostCallsShellNotifyIconWithInfo() async throws {
         XCTAssertTrue(tray.add())
         XCTAssertTrue(tray.showBalloon(title: "PokeTokenBar test", body: "body", sound: false))
         XCTAssertTrue(tray.lastBalloonOK, "NIM_MODIFY with NIF_INFO returns TRUE on the runner")
@@ -67,7 +67,7 @@ final class WindowsNotificationsTests: XCTestCase {
         XCTAssertEqual(presenter.shownCount, 3)
     }
 
-    func testBalloonTextIsClippedBeforeTheShellSeesIt() {
+    func testBalloonTextIsClippedBeforeTheShellSeesIt() async {
         XCTAssertTrue(tray.add())
         let presenter = WinBalloonPresenter(tray: tray)
         XCTAssertTrue(presenter.post(.init(id: "c", title: String(repeating: "한", count: 90),
