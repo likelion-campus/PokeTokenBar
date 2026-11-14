@@ -128,7 +128,7 @@ final class SpriteKitMirrorParityTests: XCTestCase {
     }
 
     /// What one differential run found: the first difference (nil: none) and how much it exercised.
-    struct FuzzResult { var failure: String?; var operations = 0; var nodes = 0; var mostMounted = 0; var frames = 0; var exactFrames = 0; var rootMoves = 0 }
+    struct FuzzResult { var failure: String?; var operations = 0; var nodes = 0; var mostMounted = 0; var frames = 0; var exactFrames = 0; var rootMoves = 0; var detachedChecks = 0 }
 
     /// Seeded random node operations applied to shared nodes (whose SpriteKit copies the backend keeps) and, the same
     /// way, to SpriteKit nodes built by hand as the plaza built them; the two SpriteKit trees must stay equal, and every
@@ -140,7 +140,8 @@ final class SpriteKitMirrorParityTests: XCTestCase {
         XCTAssertGreaterThan(r.mostMounted, 20, "the mounted trees grew (the operations did something)")
         XCTAssertGreaterThan(r.rootMoves, 10, "roots were unmounted, remounted and moved")
         XCTAssertGreaterThan(Double(r.exactFrames), 0.95 * Double(r.frames), "frame is bit-equal but for half-thousandths")
-        print("PARITY: \(r.operations) operations, \(r.nodes) nodes, up to \(r.mostMounted) mounted, \(r.rootMoves) root moves; frames bit-equal \(r.exactFrames) of \(r.frames)")
+        XCTAssertGreaterThan(r.detachedChecks, 1_000, "detached subtrees with copies were compared")
+        print("PARITY: \(r.operations) operations, \(r.nodes) nodes, up to \(r.mostMounted) mounted, \(r.rootMoves) root moves, \(r.detachedChecks) detached-copy checks; frames bit-equal \(r.exactFrames) of \(r.frames)")
     }
 
     func runFuzz(seed: UInt64, operations: Int) -> FuzzResult {
@@ -340,6 +341,15 @@ final class SpriteKitMirrorParityTests: XCTestCase {
                 let own = PlazaMirrorParity.differences(w.shared[r])
                 if !own.isEmpty { return fail("root \(r) and its copy differ:\n" + own.prefix(5).joined(separator: "\n")) }
             }
+            // detached subtrees that keep their copies (removed, or never mounted since): compared before they come back
+            for i in 0..<w.shared.count where w.shared[i].parent == nil && !(i < 2 && mountedRoots[i]) {
+                guard let copy = w.shared[i].skNode else { continue }
+                if copy.parent != nil { return fail("node \(i) is detached but its copy is still in a SpriteKit tree") }
+                let d = PlazaMirrorParity.treeDifferences(copy, w.raw[i], sameTexture: sameTexture)
+                    + PlazaMirrorParity.differences(w.shared[i])
+                if !d.isEmpty { return fail("detached node \(i) and its copy differ:\n" + d.prefix(5).joined(separator: "\n")) }
+                result.detachedChecks += 1
+            }
             mostMounted = max(mostMounted, (0..<2).filter { mountedRoots[$0] }.reduce(0) { $0 + w.shared[$1].descendantCount })
         }
         result.operations = ops
@@ -366,6 +376,81 @@ final class SpriteKitMirrorParityTests: XCTestCase {
         #else
         throw XCTSkip("the write-through fault switches exist in debug builds only")
         #endif
+    }
+
+    /// Releasing a mounted root without `removeFromParent()` leaves its copy drawn, as releasing the reference to an
+    /// `SKNode` layer did (SpriteKit owns what is in its tree); a detached node's copy goes with the node.
+    func testReleasingASharedNodeLeavesWhatSpriteKitOwns() {
+        let scene = SKScene(size: CGSize(width: 64, height: 64))
+        weak var sharedRoot: PlazaNode?
+        weak var rootCopy: SKNode?
+        weak var detachedCopy: SKNode?
+        autoreleasepool {
+            let root = PlazaNode()
+            let s = PlazaSprite(color: .white, size: CGSize(width: 4, height: 4))
+            s.position = CGPoint(x: 3, y: 4)
+            root.addChild(s)
+            root.mountInSpriteKit(scene)
+            let gone = PlazaSprite()
+            root.addChild(gone)
+            detachedCopy = gone.skNode
+            gone.removeFromParent()
+            sharedRoot = root
+            rootCopy = root.skNode
+        }
+        XCTAssertNil(sharedRoot, "SpriteKit keeps no shared node alive")
+        XCTAssertNil(detachedCopy, "a detached node's copy goes with the node")
+        XCTAssertTrue(rootCopy?.parent === scene, "the mounted copy stays in the scene")
+        XCTAssertEqual(rootCopy?.children.count, 1)
+        XCTAssertEqual(rootCopy?.children.first?.position, CGPoint(x: 3, y: 4), "as it was last written")
+    }
+
+    /// The camera's copy is an `SKCameraNode` and works as the scene's camera: the same pixels as a hand-built camera,
+    /// before and after it moves and zooms.
+    func testTheCameraCopyWorksAsTheScenesCamera() throws {
+        let rendererA = try XCTUnwrap(PlazaOffscreenRenderer(), "no Metal device")
+        let rendererB = try XCTUnwrap(PlazaOffscreenRenderer(), "no Metal device")
+        let red = PlazaColor(srgbRed: 1, green: 0, blue: 0), blue = PlazaColor(srgbRed: 0, green: 0, blue: 1)
+        let a = SKScene(size: CGSize(width: 64, height: 64)), b = SKScene(size: CGSize(width: 64, height: 64))
+        let root = PlazaNode()
+        let world = PlazaSprite(color: red, size: CGSize(width: 20, height: 20))
+        world.position = CGPoint(x: 40, y: 30); world.zPosition = 1
+        let camera = PlazaCameraNode()
+        camera.position = CGPoint(x: 40, y: 30)
+        let hud = PlazaSprite(color: blue, size: CGSize(width: 8, height: 8))
+        hud.position = CGPoint(x: -20, y: -20); hud.zPosition = 5
+        camera.addChild(hud)
+        root.addChild(world); root.addChild(camera)
+        root.mountInSpriteKit(a)
+        a.camera = camera.skNode as? SKCameraNode
+        XCTAssertNotNil(a.camera, "the camera's copy is an SKCameraNode")
+        let rawWorld = SKSpriteNode(color: red.skColor, size: CGSize(width: 20, height: 20))
+        rawWorld.position = CGPoint(x: 40, y: 30); rawWorld.zPosition = 1
+        let rawCamera = SKCameraNode()
+        rawCamera.position = CGPoint(x: 40, y: 30)
+        let rawHud = SKSpriteNode(color: blue.skColor, size: CGSize(width: 8, height: 8))
+        rawHud.position = CGPoint(x: -20, y: -20); rawHud.zPosition = 5
+        rawCamera.addChild(rawHud)
+        let rawRoot = SKNode()
+        rawRoot.addChild(rawWorld); rawRoot.addChild(rawCamera)
+        b.addChild(rawRoot)
+        b.camera = rawCamera
+        func render() -> ([UInt8], [UInt8]) {
+            for _ in 0..<6 {
+                rendererA.pass(a, points: a.size, pixels: (64, 64), time: 0)
+                rendererB.pass(b, points: b.size, pixels: (64, 64), time: 0)
+            }
+            return (rendererA.bytes(), rendererB.bytes())
+        }
+        var (pa, pb) = render()
+        XCTAssertEqual(pa, pb, "same pixels as a hand-built camera")
+        XCTAssertTrue(stride(from: 0, to: pa.count, by: 4).contains { pa[$0] == 255 && pa[$0 + 2] == 0 }, "the screen-space sprite is drawn")
+        XCTAssertTrue(stride(from: 0, to: pa.count, by: 4).contains { pa[$0 + 2] == 255 && pa[$0] == 0 }, "the world sprite is drawn")
+        camera.position = CGPoint(x: 30, y: 20); camera.setScale(0.5)
+        rawCamera.position = CGPoint(x: 30, y: 20); rawCamera.setScale(0.5)
+        (pa, pb) = render()
+        XCTAssertEqual(pa, pb, "and after the camera moves and zooms")
+        XCTAssertEqual(PlazaMirrorParity.differences(root), [])
     }
 
     /// The bridge (Tasks 7–9): a root mounted straight into SpriteKit can be taken out again, mounted again and moved
