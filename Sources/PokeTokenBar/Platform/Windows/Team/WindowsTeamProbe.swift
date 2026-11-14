@@ -243,6 +243,8 @@ import WinSDK
     private(set) var listened = false
     private var kindsSeen: [TeamPeerID: Set<String>] = [:]
     private var ttlPrinted: [String: UInt32] = [:]
+    /// This probe's own DNS-SD names (kept after the transport stopped, for the summary).
+    private var ownNames = Set<String>()
 
     init(_ inner: WindowsTeamTransport, _ log: ProbeLog) {
         self.inner = inner
@@ -261,7 +263,7 @@ import WinSDK
 
     static func short(_ id: TeamPeerID) -> String { String(id.prefix(8)) }
 
-    var foundOthers: Int { found.filter { $0 != inner.advertisedName }.count }
+    var foundOthers: Int { found.filter { !ownNames.contains($0) && $0 != inner.advertisedName }.count }
 
     private static func kind(_ m: TeamMessage) -> String {
         switch m {
@@ -307,10 +309,13 @@ import WinSDK
         case .listenFailed(let code):
             log.line("LISTEN-FAILED winsock=\(code)")
         case .registering(let name, let port):
+            ownNames.insert(name)
             log.line("ADVERTISE name=\(name) port=\(port) type=\(TeamTransportRules.serviceType)")
         case .discovery(let event):
             switch event {
-            case .registered(let name): log.line("REGISTERED name=\(name)")
+            case .registered(let name):
+                ownNames.insert(name)
+                log.line("REGISTERED name=\(name)")
             case .registerFailed(let code): log.line("REGISTER-FAILED dns_sd=\(code)")
             case .browseFailed(let code): log.line("BROWSE-FAILED dns_sd=\(code)")
             case .found(let name):

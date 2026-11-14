@@ -544,7 +544,7 @@ final class WindowsTeamTransportTests: XCTestCase {
         let n = retries.count
         let next = await contractWaitUntil(3) { retries.count > n }
         XCTAssertTrue(next)
-        XCTAssertEqual(retries[n].1, 1, "after a wake the backoff starts over: \(retries)")
+        XCTAssertEqual(retries.dropFirst(n).first?.1, 1, "after a wake the backoff starts over: \(retries)")
         _ = fake
     }
 
