@@ -46,7 +46,7 @@ import Foundation
         }
         let clipped = BalloonQueue.Item(id: item.id,
                                         title: BalloonQueue.clipped(item.title, limit: BalloonQueue.titleLimit),
-                                        body: BalloonQueue.clipped(item.body, limit: BalloonQueue.bodyLimit),
+                                        body: item.body,
                                         sound: item.sound, kind: item.kind)
         guard var next = queue.offer(clipped) else { return true }  // queued behind the one on screen
         var accepted = false
@@ -62,7 +62,7 @@ import Foundation
     func handle(_ event: WinTray.BalloonEvent) {
         guard let current = queue.inFlight else { return }  // a late event for a balloon already ended by the watchdog
         if event == .clicked { onClick?(current.kind) }
-        advance()
+        _ = current
     }
 
     // MARK: -

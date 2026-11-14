@@ -15,7 +15,7 @@ import Foundation
 
     var isAvailable: Bool { tray.isPresent }
 
-    func requestAuthorization() async -> Bool { tray.isPresent }
+    func requestAuthorization() async -> Bool { true }
 
     func post(id: String, title: String, body: String, sound: Bool) {
         presenter.post(.init(id: id, title: title, body: body, sound: sound, kind: .app))
