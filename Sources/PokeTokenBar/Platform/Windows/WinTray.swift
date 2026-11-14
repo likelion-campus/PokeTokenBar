@@ -39,7 +39,7 @@ import WinSDK
             return 0
         }
         // Explorer restarted: its icons are gone, ours must be added again.
-        window.onRegistered("TaskbarCreated") { [weak self] in self?.readd() }
+        
     }
 
     @discardableResult
