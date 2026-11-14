@@ -3,6 +3,34 @@ import AppKit
 import SpriteKit
 @testable import PokeTokenBar
 
+// The live-window check of Track A Task 12 (plan Task 12 Step 3; the Task 10 ledger's checklist): the real Mac shell's
+// `SKView` in a real window, which the offscreen `SKRenderer` harness cannot show. Mac only (PlazaRender/ is Mac-only) and
+// skipped unless PTB_PLAZA_LIVE_WINDOW=<dir> is set. Run it only with the user's hands-off time:
+//
+//   cd /Users/simu/Documents/GitHub/PokeTokenBar/.worktrees/wa-t12 && \
+//   while pgrep -x swift-build >/dev/null || pgrep -x swift-test >/dev/null || pgrep -x xctest >/dev/null; do sleep 10; done && \
+//   swift build --build-tests && \
+//   PTB_PLAZA_LIVE_WINDOW=/private/tmp/claude-501/-Users-simu-Documents-GitHub-PokeTokenBar/91160cc1-46af-46c5-90bf-69dfeff21416/scratchpad/plaza-live \
+//   swift test --skip-build --filter PlazaLiveWindowTests
+//
+// How it stays out of the way: `NSApplication.shared` is touched once, after the env check, and never launched, run or
+// activated; the shell is borderless and its "bring to front" orders it front at x -10000 (`orderFront(nil)`: not key, not
+// main); before that the test skips if any screen reaches that rect; after every run-loop slice it checks that the frontmost
+// app is unchanged, this process is not active and no window of it is key or main, and on any change it tears down at once
+// and fails. Teardown (order out, stop presenting, release) also runs when an assertion throws. Files are written only into
+// <dir> (findings.txt and PNGs); no window frame is saved; the plaza preferences go to the test defaults pool
+// (`TestDefaults`), like every plaza test.
+//
+// What it covers: the production `show()` path minus activation; backing scale; frames on a real SKView (if SpriteKit draws
+// off screen at all — recorded either way); the view's pause reaching SpriteKit's scene and the plaza scene's pause work
+// before the controller's write and its log line; a pause/resume kick restarting frames; window/SKView background colour,
+// opaque and shadow with the map shown and hidden; `.resizeFill` and a zoom change during a programmatic resize; ordering
+// out and in; a hidden plaza getting no frames; close through the window delegate freeing the old SKScene and scene;
+// reopening; frame pacing by SpriteKit's clock and main-thread CPU per update.
+// What it cannot cover: app hide, display sleep, real occlusion (an off-screen window is never "visible"), live resize by
+// drag (`inLiveResize`), moving between displays and backing scale changes, real display-link stalls, the production
+// `bringToFront` (activation + `makeKeyAndOrderFront`), titled-window behaviour (title bar, frame constraints, autosave).
+
 private struct LiveNoSprites: PlazaSpriteFetching {
     func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
     func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
@@ -26,21 +54,45 @@ private struct LiveNoSprites: PlazaSpriteFetching {
     }
 }
 
-/// The live-window check of Track A Task 12 (the plan's Task 12 Step 3 and the Task 10 ledger's checklist): the real Mac
-/// shell's `SKView` in a real window, which `SKRenderer` cannot show. Skipped unless `PTB_PLAZA_LIVE_WINDOW=<dir>` is set.
-/// Run it only with the user's hands-off time. It never activates the app and never makes a window key: the shell is
-/// borderless and its "bring to front" orders it front at x -10000, off every screen. Findings (one line each) and PNGs
-/// go to <dir>; assertions are only on what must hold whatever the window server does.
+private struct FocusGuardTripped: Error, CustomStringConvertible { let description: String }
+
 @MainActor final class PlazaLiveWindowTests: XCTestCase {
     private var lines: [String] = []
     private var out = URL(fileURLWithPath: "/dev/null")
+    private var app: NSApplication?
+    private var frontmostPID: pid_t?
+    /// Every window this test ordered in.
+    private var windows: [NSWindow] = []
+    private var teardown: () -> Void = {}
+    private var lastFocusCheck = Date.distantPast
 
     private func note(_ s: String) {
         lines.append(s)
         print("PLAZA-LIVE: \(s)")
     }
 
-    private func spin(_ seconds: TimeInterval) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+    /// The frontmost app is the one from the start, this process is not active, and no window of it is key or main.
+    /// Otherwise: tear down at once and fail.
+    private func checkFocus(_ at: String) throws {
+        lastFocusCheck = Date()
+        let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        var problems: [String] = []
+        if pid != frontmostPID { problems.append("frontmost app changed from pid \(frontmostPID.map(String.init) ?? "-") to \(pid.map(String.init) ?? "-")") }
+        if app?.isActive == true { problems.append("this test process became active") }
+        if windows.contains(where: { $0.isKeyWindow || $0.isMainWindow }) { problems.append("a test window became key or main") }
+        guard !problems.isEmpty else { return }
+        teardown()
+        note("ABORTED at \(at): \(problems.joined(separator: "; "))")
+        throw FocusGuardTripped(description: "focus guard tripped at \(at): \(problems.joined(separator: "; "))")
+    }
+
+    private func spin(_ seconds: TimeInterval, _ at: String) throws {
+        let end = Date().addingTimeInterval(seconds)
+        repeat {
+            RunLoop.main.run(until: min(end, Date().addingTimeInterval(0.05)))
+            try checkFocus(at)
+        } while Date() < end
+    }
 
     private func png(_ rep: NSBitmapImageRep?, _ name: String) {
         guard let data = rep?.representation(using: .png, properties: [:]) else { return note("\(name): no image") }
@@ -71,7 +123,7 @@ private struct LiveNoSprites: PlazaSpriteFetching {
     }
 
     /// Updates SpriteKit gives the scene over `seconds`, the frame intervals by SpriteKit's own clock, and main-thread CPU.
-    private func frames(_ scene: PlazaScene, _ seconds: TimeInterval, _ label: String) -> Int {
+    private func frames(_ scene: PlazaScene, _ seconds: TimeInterval, _ label: String) throws -> Int {
         let start = scene.updateCount
         let cpu0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
         var times: [TimeInterval] = []
@@ -80,7 +132,9 @@ private struct LiveNoSprites: PlazaSpriteFetching {
         while Date() < end {
             RunLoop.main.run(until: Date().addingTimeInterval(1.0 / 480))
             if let t = scene.lastFrameTime, t != last { times.append(t); last = t }
+            if Date().timeIntervalSince(lastFocusCheck) > 0.05 { try checkFocus(label) }
         }
+        try checkFocus(label)
         let cpu = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - cpu0) / 1e6
         let n = scene.updateCount - start
         let gaps = zip(times.dropFirst(), times).map { ($0 - $1) * 1000 }.sorted()
@@ -92,25 +146,40 @@ private struct LiveNoSprites: PlazaSpriteFetching {
 
     func testLiveWindowChecklist() throws {
         guard let dir = PlazaRenderEnv.value("PTB_PLAZA_LIVE_WINDOW") else { throw XCTSkip("PTB_PLAZA_LIVE_WINDOW not set (needs the user's hands-off time)") }
+        let app = NSApplication.shared   // the one deliberate touch; never finishLaunching, run or activate
+        self.app = app
         out = URL(fileURLWithPath: dir, isDirectory: true)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         defer { try? (lines.joined(separator: "\n") + "\n").write(to: out.appendingPathComponent("findings.txt"), atomically: true, encoding: .utf8) }
-        let autosave = "PlazaLiveWindowTests.\(UUID())"
-        defer { NSWindow.removeFrame(usingName: autosave) }
+
         let offscreen = NSPoint(x: -10000, y: -10000)
-        var opens = 0
-        let shell = PlazaMacWindow(autosaveName: autosave, styleMask: [.borderless], front: { w in
-            opens += 1
+        let reach = NSRect(origin: offscreen, size: NSSize(width: 1400, height: 1000))   // the largest window size used below
+        if let screen = NSScreen.screens.first(where: { $0.frame.intersects(reach) }) {
+            throw XCTSkip("a screen (\(screen.localizedName) \(NSStringFromRect(screen.frame))) reaches \(NSStringFromRect(reach)); the window would be visible")
+        }
+        frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        note("frontmost app at start: \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "-") pid \(frontmostPID.map(String.init) ?? "-"); this process active \(app.isActive)")
+        XCTAssertFalse(app.isActive)
+
+        let shell = PlazaMacWindow(autosaveName: "", styleMask: [.borderless], front: { [weak self] w in
+            self?.windows.append(w)
             w.setFrameOrigin(offscreen)
-            w.orderFront(nil)   // not key, not activated
+            w.orderFront(nil)   // not key, not main, not activated
         })
         var log: [String] = []
         let c = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.live.\(UUID())")),
                                       loader: PlazaCharacterLoader(fetcher: LiveNoSprites()),
                                       nickname: { "tester" }, memberID: { "member-1" }, subject: { .init(speciesID: 25, isShiny: false) },
                                       dittoSeed: { 7 }, shell: shell)
-        c.stateLog = { log.append($0); self.note("state log: \($0)") }
-        note("app active before: \(NSApp.isActive)")
+        teardown = { [weak self, weak c, weak shell] in
+            for w in self?.windows ?? [] { w.orderOut(nil) }
+            c?.handleClose()      // stops presenting, dismantles the window
+            shell?.stopPresenting()
+            shell?.dismantle()
+            self?.windows = []
+        }
+        defer { teardown() }
+        c.stateLog = { [weak self] in log.append($0); self?.note("state log: \($0)") }
 
         // Open through the production path (show), minus activation.
         c.show()
@@ -118,22 +187,20 @@ private struct LiveNoSprites: PlazaSpriteFetching {
         let view = try XCTUnwrap(shell.skViewForTesting)
         let container = try XCTUnwrap(w.contentView)
         var scene = try XCTUnwrap(c.scene)
-        spin(1)
-        note("opened: frame \(NSStringFromRect(w.frame)) screen \(w.screen?.localizedName ?? "none") visible \(w.isVisible) key \(w.isKeyWindow) "
-            + "occlusionVisible \(w.occlusionState.contains(.visible)) app active \(NSApp.isActive) brought forward \(opens)x")
-        XCTAssertFalse(w.isKeyWindow, "never key")
-        note("watchdog/occlusion state lines so far: \(log.count)")
+        try spin(1, "open")
+        note("opened: frame \(NSStringFromRect(w.frame)) screen \(w.screen?.localizedName ?? "none") visible \(w.isVisible) key \(w.isKeyWindow) main \(w.isMainWindow) "
+            + "occlusionVisible \(w.occlusionState.contains(.visible))")
+        note("state lines so far (occlusion reports, watchdog): \(log.count)")
 
         // Backing scale.
         note("backing: window \(w.backingScaleFactor) screen \(w.screen?.backingScaleFactor.description ?? "-") stage \(scene.stage.backingScale?.description ?? "nil") "
             + "screens \(NSScreen.screens.map { "\($0.localizedName)@\($0.backingScaleFactor)" })")
         XCTAssertEqual(scene.stage.backingScale, w.backingScaleFactor, "the scene reads the window's backing scale")
 
-        // Make sure rendering is on whatever occlusion said, then measure real frames.
+        // Rendering on whatever occlusion said, then real frames.
         c.setRendering(visible: true)
-        let drawn = frames(scene, 2, "rendering on (offscreen window)")
-        let drawsOffscreen = drawn > 0
-        if !drawsOffscreen { note("FINDING: the SKView draws no frames in a window off every screen; display-link, pacing and resize-frame checks below are not observable this way") }
+        let drawsOffscreen = try frames(scene, 2, "rendering on (offscreen window)") > 0
+        if !drawsOffscreen { note("FINDING: the SKView draws no frames in a window off every screen; display-link, pacing and frame-dependent checks below are not observable this way") }
 
         // 1. The view's pause reaches the scene's setter before the controller writes it, then the log line.
         let probe = LiveProbeLoop(view: view)
@@ -151,14 +218,15 @@ private struct LiveNoSprites: PlazaSpriteFetching {
         XCTAssertTrue(order.first?.contains("SKScene.isPaused=true") == true, "SpriteKit pauses its scene with the view")
         XCTAssertTrue(order.count >= 2 && order[1].hasPrefix("log: plaza rendering visible=false"), "the log line follows the view's pause")
         c.renderLoop = view
-        c.stateLog = { log.append($0); self.note("state log: \($0)") }
+        c.stateLog = { [weak self] in log.append($0); self?.note("state log: \($0)") }
+        try checkFocus("pause order")
 
         // 2. Display-link stall recovery through the host: what the watchdog's kick does to a running view.
         if drawsOffscreen {
             view.isPaused = true
-            let paused = frames(scene, 0.5, "view paused")
+            let paused = try frames(scene, 0.5, "view paused")
             view.isPaused = false
-            let resumed = frames(scene, 1, "after one pause/resume kick")
+            let resumed = try frames(scene, 1, "after one pause/resume kick")
             XCTAssertEqual(paused, 0)
             XCTAssertGreaterThan(resumed, 0, "a pause and resume of the view brings frames back")
         }
@@ -170,7 +238,7 @@ private struct LiveNoSprites: PlazaSpriteFetching {
         note(String(format: "default: window opaque %@ shadow %@ bg %@ allowsTransparency %@ SKScene bg alpha %.2f",
                     "\(w.isOpaque)", "\(w.hasShadow)", "\(w.backgroundColor)", "\(view.allowsTransparency)", view.scene?.backgroundColor.alphaComponent ?? -1))
         c.toggleBackground()
-        spin(0.5)
+        try spin(0.5, "background hidden")
         XCTAssertFalse(w.isOpaque)
         XCTAssertFalse(w.hasShadow)
         XCTAssertEqual(view.scene?.backgroundColor.alphaComponent, 0)
@@ -179,15 +247,15 @@ private struct LiveNoSprites: PlazaSpriteFetching {
         note(String(format: "hidden: window opaque %@ shadow %@ bg %@ SKScene bg alpha %.2f", "\(w.isOpaque)", "\(w.hasShadow)", "\(w.backgroundColor)",
                     view.scene?.backgroundColor.alphaComponent ?? -1))
         c.toggleBackground()
-        spin(0.3)
+        try spin(0.3, "background shown")
 
         // 4. Resize: .resizeFill keeps SpriteKit's scene at the view's size, and a zoom change during a resize lays out once more.
         for (i, size) in [NSSize(width: 600, height: 372), NSSize(width: 1201, height: 801), NSSize(width: 961, height: 641)].enumerated() {
             w.setFrame(NSRect(origin: offscreen, size: size), display: true)
             if i == 1 { scene.zoom = 3 }
-            spin(0.3)
+            try spin(0.3, "resize \(i)")
             if i == 1 { scene.zoom = 1 }
-            spin(0.2)
+            try spin(0.2, "resize \(i) zoom back")
             note("resize \(Int(size.width))x\(Int(size.height)): view \(NSStringFromSize(view.bounds.size)) SKScene \(NSStringFromSize(view.scene?.size ?? .zero)) "
                 + "scene \(NSStringFromSize(scene.size)) zoom \(scene.zoom) visibleWorld \(NSStringFromRect(scene.visibleWorldRect)) liveResize \(shell.isInLiveResize) "
                 + "roster capacity \(c.rosterModel.capacity)")
@@ -196,42 +264,40 @@ private struct LiveNoSprites: PlazaSpriteFetching {
         }
         _ = snapshot(container, "after-resize-window.png")
 
-        // 5. Hide (ordered out) and show again; then the controller's own hide.
+        // 5. Ordered out and in again (no activation); then the controller's own hide.
         w.orderOut(nil)
-        spin(1)
+        try spin(1, "ordered out")
         note("ordered out: occlusionVisible \(w.occlusionState.contains(.visible)) view paused \(view.isPaused) scene paused \(scene.isPaused)")
         w.orderFront(nil)
-        spin(1)
-        note("ordered front again: occlusionVisible \(w.occlusionState.contains(.visible)) view paused \(view.isPaused) scene paused \(scene.isPaused)")
+        try spin(1, "ordered in")
+        note("ordered in again: occlusionVisible \(w.occlusionState.contains(.visible)) view paused \(view.isPaused) scene paused \(scene.isPaused)")
         c.setRendering(visible: false)
-        let hidden = frames(scene, 1, "hidden by setRendering(false)")
-        XCTAssertEqual(hidden, 0, "a hidden plaza gets no frames")
+        XCTAssertEqual(try frames(scene, 1, "hidden by setRendering(false)"), 0, "a hidden plaza gets no frames")
         c.setRendering(visible: true)
-        _ = frames(scene, 1, "shown by setRendering(true)")
+        _ = try frames(scene, 1, "shown by setRendering(true)")
 
-        // 6. Close (through the window, so the delegate path runs) and reopen: the old SKScene is freed.
+        // 6. Close through the window (the delegate path) and reopen: the old SKScene is freed.
         weak var oldHost = view.scene
         weak var oldScene = c.scene
+        w.orderOut(nil)
         w.close()
         autoreleasepool {}
-        spin(0.5)
-        note("closed: scene \(c.scene == nil ? "released" : "kept") old SKScene \(oldHost == nil ? "freed" : "alive") old PlazaScene \(oldScene == nil ? "freed" : "alive") "
-            + "window visible \(w.isVisible)")
+        try spin(0.5, "closed")
+        note("closed: scene \(c.scene == nil ? "released" : "kept") old SKScene \(oldHost == nil ? "freed" : "alive") old PlazaScene \(oldScene == nil ? "freed" : "alive")")
         XCTAssertNil(c.scene)
         XCTAssertNil(oldScene, "the closed plaza's scene is freed")
         XCTAssertNil(oldHost, "the closed plaza's SKScene is freed")
         c.show()
-        let w2 = try XCTUnwrap(shell.windowForTesting)
         let view2 = try XCTUnwrap(shell.skViewForTesting)
         scene = try XCTUnwrap(c.scene)
         XCTAssertFalse(view2.scene === oldHost)
         c.setRendering(visible: true)
 
         // 7. Frame pacing under the real SKView.
-        _ = frames(scene, 3, "pacing after reopen")
-        note("app active after: \(NSApp.isActive) (must equal before)")
-        w2.close()
-        spin(0.3)
-        XCTAssertNil(c.scene)
+        _ = try frames(scene, 3, "pacing after reopen")
+        try checkFocus("end")
+        XCTAssertFalse(app.isActive)
+        XCTAssertEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, frontmostPID, "the frontmost app never changed")
+        note("end: frontmost \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "-"), this process active \(app.isActive)")
     }
 }
