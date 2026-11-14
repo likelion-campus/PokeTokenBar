@@ -60,6 +60,7 @@ enum WindowsSelftest {
         await loopChecks(r, app)
         await defaultsChecks(r, app)
         await singleInstanceCheck(r, app)
+        await systemServiceChecks(r)
         await idleCheck(r, app)
         return r.checks
     }
@@ -72,7 +73,7 @@ enum WindowsSelftest {
         try encoder.encode(report).write(to: url)
     }
 
-    @MainActor private final class Recorder {
+    @MainActor final class Recorder {
         private(set) var checks: [Check] = []
 
         func add(_ name: String, _ ok: Bool, _ detail: String) {
@@ -482,6 +483,7 @@ enum WindowsSelftest {
               settled.complete && onMain(settled.task, WindowsApp.mainThreadID) && maxMs(settled.task) < 50,
               "store idle; " + settled.detail)
         _ = await waitStable(timeout: 10, quiet: 2) { !app.store.isRefreshing }
+        let dayFires0 = (Platform.current.events as? WindowsSystemEvents)?.dayTimerFires ?? 0
         let c0 = (WinDefaultsSync.safetyFires, WinDefaultsSync.debounceFires, app.refreshCount, WinMainLoop.iterations)
         let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
         let safety = WinDefaultsSync.safetyFires - c0.0, debounce = WinDefaultsSync.debounceFires - c0.1
@@ -491,12 +493,13 @@ enum WindowsSelftest {
             return
         }
         // A wake by a known timer costs a few context switches; anything else showing up here is a busy loop.
-        let explained = safety + debounce
+        let dayFires = ((Platform.current.events as? WindowsSystemEvents)?.dayTimerFires ?? 0) - dayFires0
+        let explained = safety + debounce + dayFires
         let budget = 3 + 3 * explained + 60 * refreshes
         r.add("idle.window", sample.layoutOK && sample.mainFound && sample.mainContextSwitches <= budget,
               "\(Int(seconds)) s idle: main_thread_cs=\(sample.mainContextSwitches) main_thread_cycles=\(sample.mainCycles) "
                 + "process_cycles=\(sample.processCycles) budget_cs=\(budget) known_wakes={safety_sync:\(safety), "
-                + "debounce_sync:\(debounce), store_refresh:\(refreshes)} loop_iterations=\(iterations) "
+                + "debounce_sync:\(debounce), store_refresh:\(refreshes), day_timer:\(dayFires)} loop_iterations=\(iterations) "
                 + "loop_finished_returns=\(WinMainLoop.finishedReturns) layout_ok=\(sample.layoutOK) threads=\(sample.threadCount) "
                 + "busy_threads=[\(sample.busy)]")
     }
