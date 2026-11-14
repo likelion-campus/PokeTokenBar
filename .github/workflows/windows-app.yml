@@ -157,3 +157,4 @@ jobs:
             st*.json.lines
             collected
             build.log
+            .build/*/release/PokeTokenBarWin.pdb

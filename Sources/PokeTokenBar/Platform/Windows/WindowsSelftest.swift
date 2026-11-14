@@ -41,10 +41,18 @@ enum WindowsSelftest {
 
     @MainActor static func run(_ app: WindowsAppDelegate) async -> [Check] {
         let r = Recorder()
+        // Watches the main thread from launch until the store has settled (the loop checks run meanwhile).
+        let stalls = MainStallProbe.start(mainThread: WindowsApp.mainThreadID)
         r.add("build.shims", ptb_shim_abi() == 1, "CWinShim abi=\(ptb_shim_abi()) openssl=\(String(cString: ptb_tls_openssl_version()))")
         await loopChecks(r, app)
         pathChecks(r)
         await storeChecks(r, app)
+        if let stalls {
+            let report = await stalls.stop()
+            r.add("loop.mainThreadStalls", true, report)  // informational: what held the main thread, and for how long
+        } else {
+            r.add("loop.mainThreadStalls", true, "probe unavailable (thread handle or stack limits)")
+        }
         await defaultsChecks(r, app)
         await singleInstanceCheck(r, app)
         await idleCheck(r, app)
@@ -727,23 +735,10 @@ private enum IdleSampler {
         if let query = WinDynamic.symbol("ntdll.dll", "NtQueryInformationThread", as: QueryThread.self) {
             var start: UInt = 0
             if query(h, 9 /* ThreadQuerySetWin32StartAddress */, &start, UInt32(MemoryLayout<UInt>.size), nil) >= 0, start != 0 {
-                parts.append("start=" + moduleOffset(start))
+                parts.append("start=" + winModuleOffset(start))
             }
         }
         return parts.isEmpty ? "(unnamed)" : parts.joined(separator: " ")
-    }
-
-    private static func moduleOffset(_ address: UInt) -> String {
-        var module: HMODULE?
-        // GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT
-        guard GetModuleHandleExW(0x4 | 0x2, UnsafePointer<WCHAR>(bitPattern: address), &module), let module else {
-            return "0x" + String(address, radix: 16)
-        }
-        var buffer = [UInt16](repeating: 0, count: 1024)
-        let n = Int(GetModuleFileNameW(module, &buffer, DWORD(buffer.count)))
-        let path = String(decoding: buffer.prefix(n), as: UTF16.self)
-        let name = path.split(separator: "\\").last.map(String.init) ?? path
-        return name + "+0x" + String(address &- UInt(bitPattern: module), radix: 16)
     }
 
     private static func snapshot() -> Snapshot? {
@@ -793,6 +788,214 @@ private enum IdleSampler {
         var cycles: UInt64 = 0
         if processCycles(GetCurrentProcess(), &cycles) != 0 { snap.processCycles = cycles }
         return snap
+    }
+}
+
+/// The loaded module an address falls in, and the offset: `Foundation.dll+0x1a2b`.
+private func winModule(_ address: UInt) -> (name: String, base: UInt)? {
+    var module: HMODULE?
+    // GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT
+    guard GetModuleHandleExW(0x4 | 0x2, UnsafePointer<WCHAR>(bitPattern: address), &module), let module else { return nil }
+    var buffer = [UInt16](repeating: 0, count: 1024)
+    let n = Int(GetModuleFileNameW(module, &buffer, DWORD(buffer.count)))
+    let path = String(decoding: buffer.prefix(n), as: UTF16.self)
+    return (path.split(separator: "\\").last.map(String.init) ?? path, UInt(bitPattern: module))
+}
+
+private func winModuleOffset(_ address: UInt) -> String {
+    guard let module = winModule(address) else { return "0x" + String(address, radix: 16) }
+    return module.name + "+0x" + String(address &- module.base, radix: 16)
+}
+
+/// Finds what holds the main thread. A ping goes to the main queue every few milliseconds; while one is overdue by
+/// more than 30 ms the main thread is stalled, and the probe copies its instruction pointer and the top of its stack.
+/// The thread is suspended only for that copy, and nothing is allocated meanwhile, so a heap lock the main thread
+/// holds cannot deadlock the probe. `stop()` symbolizes the copies (dbghelp, with the exe's PDB when present): the
+/// frames seen in most samples of the longest stall name the work.
+private final class MainStallProbe: @unchecked Sendable {
+    private static let thresholdMs = 30.0
+    private static let maxSamples = 400
+    private static let stackBytes = 16 * 1024
+    private static let slotBytes = 16 + stackBytes
+
+    private typealias StackLimits = @convention(c) (UnsafeMutablePointer<UInt>?, UnsafeMutablePointer<UInt>?) -> Void
+
+    private let mainThread: HANDLE
+    private let stackHigh: UInt
+    private let startedAt = WindowsSelftest.nowMs()
+    private let samples = UnsafeMutableRawPointer.allocate(byteCount: maxSamples * slotBytes, alignment: 16)
+    private let lock = NSLock()
+    private var stopRequested = false
+    private var finished = false
+    private var serviced = 0
+    // Written by the probe thread only; read after `finished`.
+    private var sampleCount = 0
+    private var stalls: [(start: Double, end: Double, first: Int, last: Int)] = []
+
+    private init(mainThread: HANDLE, stackHigh: UInt) {
+        self.mainThread = mainThread
+        self.stackHigh = stackHigh
+    }
+
+    /// On the main thread: it reads its own stack limits.
+    @MainActor static func start(mainThread id: DWORD) -> MainStallProbe? {
+        guard let limits = WinDynamic.symbol("kernel32.dll", "GetCurrentThreadStackLimits", as: StackLimits.self),
+              let handle = OpenThread(0x0002 | 0x0008 | 0x0040, false, id)  // SUSPEND_RESUME | GET_CONTEXT | QUERY_INFORMATION
+        else { return nil }
+        var low: UInt = 0, high: UInt = 0
+        limits(&low, &high)
+        let probe = MainStallProbe(mainThread: handle, stackHigh: high)
+        Thread { probe.loop() }.start()
+        return probe
+    }
+
+    @MainActor func stop() async -> String {
+        lock.lock(); stopRequested = true; lock.unlock()
+        _ = await WindowsSelftest.waitUntil(timeout: 5) { self.isFinished }
+        return isFinished ? report() : "probe thread did not stop"
+    }
+
+    private var isFinished: Bool { lock.lock(); defer { lock.unlock() }; return finished }
+    private var isStopping: Bool { lock.lock(); defer { lock.unlock() }; return stopRequested }
+    private func markServiced(_ seq: Int) { lock.lock(); serviced = max(serviced, seq); lock.unlock() }
+    private func hasServiced(_ seq: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return serviced >= seq }
+
+    private func loop() {
+        let context = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<CONTEXT>.size, alignment: 64)
+            .bindMemory(to: CONTEXT.self, capacity: 1)
+        context.initialize(to: CONTEXT())
+        defer { context.deallocate() }
+        var seq = 0
+        var sentAt = 0.0
+        var stallStart: Double?
+        var stallFirst = 0
+        while !isStopping {
+            let now = WindowsSelftest.nowMs()
+            if seq == 0 || hasServiced(seq) {
+                if let start = stallStart {
+                    stalls.append((start, now, stallFirst, sampleCount))
+                    stallStart = nil
+                }
+                seq += 1
+                let ping = seq
+                sentAt = now
+                DispatchQueue.main.async { self.markServiced(ping) }
+            } else if now - sentAt > Self.thresholdMs {
+                if stallStart == nil { stallStart = sentAt; stallFirst = sampleCount }
+                if sampleCount < Self.maxSamples { capture(context) }
+            }
+            Sleep(2)
+        }
+        if let start = stallStart { stalls.append((start, WindowsSelftest.nowMs(), stallFirst, sampleCount)) }
+        lock.lock(); finished = true; lock.unlock()
+    }
+
+    /// No allocation between SuspendThread and ResumeThread.
+    private func capture(_ context: UnsafeMutablePointer<CONTEXT>) {
+        let slot = samples + sampleCount * Self.slotBytes
+        context.pointee = CONTEXT()
+        context.pointee.ContextFlags = 0x0010_000B  // CONTEXT_FULL (AMD64)
+        guard SuspendThread(mainThread) != DWORD.max else { return }
+        if GetThreadContext(mainThread, context) {
+            let rsp = UInt(context.pointee.Rsp)
+            let n = rsp < stackHigh ? min(UInt(Self.stackBytes), stackHigh - rsp) : 0
+            if n > 0, let source = UnsafeRawPointer(bitPattern: rsp) { (slot + 16).copyMemory(from: source, byteCount: Int(n)) }
+            slot.storeBytes(of: UInt64(context.pointee.Rip), as: UInt64.self)
+            slot.storeBytes(of: UInt64(n), toByteOffset: 8, as: UInt64.self)
+            sampleCount += 1
+        }
+        _ = ResumeThread(mainThread)
+    }
+
+    private func report() -> String {
+        let durations = stalls.map { Int(($0.end - $0.start).rounded()) }
+        guard let longest = stalls.max(by: { $0.end - $0.start < $1.end - $1.start }) else {
+            return "no main-thread stall over \(Int(Self.thresholdMs)) ms between launch and a settled store"
+        }
+        let symbols = Symbolizer()
+        var frames: [String: Int] = [:]
+        var leaves: [String: Int] = [:]
+        for i in longest.first..<longest.last {
+            let slot = samples + i * Self.slotBytes
+            let leaf = symbols.name(UInt(slot.load(as: UInt64.self)))
+            leaves[leaf, default: 0] += 1
+            var seen: Set<String> = [leaf]
+            let n = Int(slot.load(fromByteOffset: 8, as: UInt64.self))
+            var offset = 0
+            var found = 0
+            while offset + 8 <= n, found < 40 {  // return addresses into code, nearest frames first (a heuristic scan)
+                let value = UInt((slot + 16).loadUnaligned(fromByteOffset: offset, as: UInt64.self))
+                offset += 8
+                guard symbols.isCode(value) else { continue }
+                found += 1
+                seen.insert(symbols.name(value))
+            }
+            for frame in seen { frames[frame, default: 0] += 1 }
+        }
+        func top(_ counts: [String: Int], _ k: Int) -> String {
+            counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(k)
+                .map { "\($0.value)x \($0.key)" }.joined(separator: " | ")
+        }
+        let start = Int((longest.start - startedAt).rounded())
+        return "stalls_over_\(Int(Self.thresholdMs))ms=\(stalls.count) ms=\(durations) longest=\(durations.max() ?? 0) ms at +\(start) ms "
+            + "samples=\(longest.last - longest.first) leaf=[\(top(leaves, 4))] frames=[\(top(frames, 24))]"
+    }
+}
+
+/// dbghelp names for addresses: `module!symbol+0xoffset`, or `module+0xoffset` without symbols.
+private final class Symbolizer {
+    private typealias SetOptions = @convention(c) (UInt32) -> UInt32
+    private typealias Initialize = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt16>?, Int32) -> Int32
+    private typealias FromAddress = @convention(c) (UnsafeMutableRawPointer?, UInt64, UnsafeMutablePointer<UInt64>?,
+                                                    UnsafeMutableRawPointer?) -> Int32
+    private static let maxName = 1024
+    private let fromAddress: FromAddress?
+    private let process = GetCurrentProcess()
+    private let info = UnsafeMutableRawPointer.allocate(byteCount: 88 + 2 * maxName, alignment: 8)  // SYMBOL_INFOW
+    private var names: [UInt: String] = [:]
+    private var codePages: [UInt: Bool] = [:]
+
+    init() {
+        if let setOptions = WinDynamic.symbol("dbghelp.dll", "SymSetOptions", as: SetOptions.self),
+           let initialize = WinDynamic.symbol("dbghelp.dll", "SymInitializeW", as: Initialize.self) {
+            _ = setOptions(0x2 | 0x4 | 0x200 | 0x8_0000)  // UNDNAME | DEFERRED_LOADS | FAIL_CRITICAL_ERRORS | NO_PROMPTS
+            fromAddress = initialize(process, nil, 1) != 0
+                ? WinDynamic.symbol("dbghelp.dll", "SymFromAddrW", as: FromAddress.self) : nil
+        } else {
+            fromAddress = nil
+        }
+    }
+
+    deinit { info.deallocate() }
+
+    /// Executable memory of a loaded image (a candidate return address).
+    func isCode(_ address: UInt) -> Bool {
+        let page = address >> 12
+        if let known = codePages[page] { return known }
+        var mbi = MEMORY_BASIC_INFORMATION()
+        let ok = VirtualQuery(UnsafeRawPointer(bitPattern: address), &mbi, SIZE_T(MemoryLayout<MEMORY_BASIC_INFORMATION>.size)) != 0
+            && mbi.State == 0x1000 /* MEM_COMMIT */ && mbi.Type == 0x100_0000 /* MEM_IMAGE */ && mbi.Protect & 0xF0 != 0
+        codePages[page] = ok
+        return ok
+    }
+
+    func name(_ address: UInt) -> String {
+        if let known = names[address] { return known }
+        var text = winModuleOffset(address)
+        if let fromAddress {
+            info.initializeMemory(as: UInt8.self, repeating: 0, count: 88)
+            info.storeBytes(of: UInt32(88), as: UInt32.self)  // SizeOfStruct
+            info.storeBytes(of: UInt32(Self.maxName), toByteOffset: 80, as: UInt32.self)  // MaxNameLen
+            var displacement: UInt64 = 0
+            if fromAddress(process, UInt64(address), &displacement, info) != 0 {
+                let length = min(Int(info.load(fromByteOffset: 76, as: UInt32.self)), Self.maxName)  // NameLen
+                let chars = UnsafeBufferPointer(start: (info + 84).assumingMemoryBound(to: UInt16.self), count: length)
+                text = (winModule(address)?.name ?? "?") + "!" + String(decoding: chars, as: UTF16.self)
+                    + "+0x" + String(displacement, radix: 16)
+            }
+        }
+        names[address] = text
+        return text
     }
 }
 #endif
