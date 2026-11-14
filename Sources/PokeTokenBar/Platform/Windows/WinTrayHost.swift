@@ -36,8 +36,8 @@ import WinSDK
         tray = WinTray(window: window)
         tray.onActivate = { [weak self] in self?.openMenu(at: Self.cursor()) }
         tray.onContextMenu = { [weak self] point in self?.openMenu(at: point) }
-        window.observe(0x02E0 /* WM_DPICHANGED */) { [weak self] _, _ in self?.reloadIcon() }
-        window.observe(UINT(WM_SETTINGCHANGE)) { [weak self] _, _ in self?.reloadIcon() }
+        window.on(0x02E0 /* WM_DPICHANGED */) { [weak self] _, _ in self?.reloadIcon(); return nil }
+        window.on(UINT(WM_SETTINGCHANGE)) { [weak self] _, _ in self?.reloadIcon(); return nil }
     }
 
     func start(showFirstRunHint: Bool) {
@@ -77,6 +77,8 @@ import WinSDK
         menuOpen = false
         if let chosen, let item = items[chosen] { perform(item.action) }
     }
+
+    func resetLastAction() { lastAction = .none }
 
     func perform(_ action: TrayMenuModel.Action) {
         lastAction = action

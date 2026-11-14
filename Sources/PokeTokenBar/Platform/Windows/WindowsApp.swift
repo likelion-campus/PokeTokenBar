@@ -130,6 +130,8 @@ private func crtExit(_ code: Int32) -> Never {
         let companion = CompanionStore(defaults: defaults)
         self.store = store
         self.companion = companion
+        // Task 10: UpdateChecker (the tray menu's update entry reads it; `WinTrayHost.availableUpdate`).
+        // Task 19: TeamRuntime (the team link and the plaza feed).
         Task { await companion.preparePokemonProfiles() }
         store.localizationLanguage = companion.language
         store.onRefresh = { [weak self] in self?.storeRefreshed() }
