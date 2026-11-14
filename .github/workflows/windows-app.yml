@@ -17,6 +17,10 @@ on:
       - '.github/workflows/windows-app.yml'
       - '.github/actions/windows-swift/**'
   workflow_dispatch:
+    inputs:
+      stall_hunt:
+        description: 'Extra selftest launches that report main-thread stalls (diagnostics; 0 = none)'
+        default: '0'
 permissions:
   contents: read
 concurrency:
@@ -132,6 +136,30 @@ jobs:
               if ($log -notmatch "exit code=0 reason=$reason") { throw "no 'reason=$reason' exit line in the log" }
           }
           'log has both exit lines'
+      - name: Stall hunt (diagnostics, workflow_dispatch input)
+        if: (success() || failure()) && steps.package.outcome == 'success' && github.event_name == 'workflow_dispatch' && inputs.stall_hunt != '0'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # Fresh launches, each with its own state folder, so each has a launch refresh to watch.
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
+          $env:PTB_SELFTEST_IDLE_SECONDS = '1'
+          $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
+          for ($i = 1; $i -le [int]'${{ inputs.stall_hunt }}'; $i++) {
+              $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE "state-hunt-$i"
+              New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
+              $out = Join-Path $PWD "st-hunt-$i.json"
+              $p = Start-Process -FilePath $exe -ArgumentList @('--selftest', '--selftest-out', $out) -PassThru
+              $null = $p.Handle
+              if (-not $p.WaitForExit(600000)) { Stop-Process -Id $p.Id -Force; "hunt ${i}: timed out"; continue }
+              $j = Get-Content $out -Raw | ConvertFrom-Json
+              foreach ($c in $j.checks) {
+                  if ($c.name -eq 'loop.mainThreadStalls' -or -not $c.ok) {
+                      "hunt {0} {1} {2}: {3}" -f $i, $(if ($c.ok) { 'PASS' } else { 'FAIL' }), $c.name, $c.detail
+                  }
+              }
+          }
       - name: Version flag (informational)
         if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
         continue-on-error: true
