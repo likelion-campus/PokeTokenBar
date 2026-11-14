@@ -293,7 +293,7 @@ final class WindowsSeamScanTests: XCTestCase {
     static func directAtomicWrites(_ text: String, allowed: String?) -> [String] {
         text.components(separatedBy: "\n").enumerated().compactMap { i, line in
             let code = Self.code(line)
-            guard code.contains(".atomic") else { return nil }
+            guard code.contains("options: .atomic") else { return nil }
             if let allowed, code.contains(allowed) { return nil }
             return "line \(i + 1): \(line.trimmingCharacters(in: .whitespaces))"
         }

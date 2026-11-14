@@ -10,7 +10,7 @@ import WinSDK
 final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
     override init?(suiteName suitename: String?) {
         super.init(suiteName: suitename)
-        if suitename != nil { WinDefaultsSync.register(self) }
+        if let suitename { WinDefaultsSync.register(self, name: suitename) }
     }
 
     override func set(_ value: Any?, forKey defaultName: String) {
@@ -65,11 +65,72 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
 
     static func flushNow() {
         flushes += 1
-        _ = UserDefaults.standard.synchronize()
-        for suite in state.suites { _ = suite.synchronize() }
+        var failed: [String] = []
+        if !selftestOwnsSettings {
+            if !UserDefaults.standard.synchronize() { failed.append("standard") }
+        }
+        for (name, suite) in state.suites where !suite.synchronize() { failed.append(name) }
+        if !failed.isEmpty, !state.loggedSyncFailure {
+            state.loggedSyncFailure = true
+            AppLog.write("settings: synchronize() returned false for \(failed); expected plist folder "
+                + "\(WinPath.native(expectedPlistURL().deletingLastPathComponent())) (R9 if that is not the profile's AppData\\Local)")
+        }
+        backUpChangedPlists()
     }
 
-    nonisolated fileprivate static func register(_ suite: UserDefaults) { state.register(suite) }
+    nonisolated fileprivate static func register(_ suite: UserDefaults, name: String) { state.register(suite, name: name) }
+
+    // MARK: settings plist safety (see SettingsPlistGuard)
+
+    /// The selftest and its helper processes keep their settings in their own suite, so they never write the user's real
+    /// `PokeTokenBar.exe.plist` (a PC run included). Nil for the real app.
+    static var selftestSuiteName: String? {
+        guard ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--selftest") }) else { return nil }
+        let dir = (ProcessInfo.processInfo.environment["PTB_STATE_DIR"] ?? "").trimmingCharacters(in: .whitespaces)
+        let team = dir.isEmpty ? nil
+            : TeamSettings.suiteName(for: URL(fileURLWithPath: dir), defaultDirectory: URL(fileURLWithPath: "/ptb-no-default"))
+        return (team ?? "ptb.team.default") + ".settings"
+    }
+
+    static var selftestOwnsSettings: Bool { selftestSuiteName != nil }
+
+    /// The `UserDefaults` the app's stores use: the selftest's own suite, else `.standard`'s domain.
+    static func makeAppDefaults() -> WinSyncingDefaults {
+        if let name = selftestSuiteName, let suite = WinSyncingDefaults(suiteName: name) { return suite }
+        return WinSyncingDefaults()
+    }
+
+    /// `<folder CF uses>\<domain>.plist` for a suite; the process-named plist for the standard domain (nil).
+    nonisolated static func plistURL(suite: String?) -> URL {
+        guard let suite else { return expectedPlistURL() }
+        return expectedPlistURL().deletingLastPathComponent().appendingPathComponent(suite + ".plist")
+    }
+
+    private static var guardedSuites: [String?] = []
+    private static var backedUpStamp: [String: Date] = [:]
+
+    /// Launch step before the first read of defaults: restores a missing or unreadable plist from its backup.
+    /// `suites` are the domains the app will use (nil = standard).
+    static func guardAtLaunch(suites: [String?]) {
+        var seen = Set<String>()
+        guardedSuites = suites.filter { seen.insert($0 ?? "").inserted }
+        for suite in guardedSuites {
+            _ = SettingsPlistGuard.restoreIfNeeded(plist: plistURL(suite: suite)) { AppLog.write($0) }
+        }
+        if let local = localAppDataFolder(), !WinPath.sameFile(expectedPlistURL().deletingLastPathComponent(), local) {
+            AppLog.write("settings: CoreFoundation writes plists to \(WinPath.native(expectedPlistURL().deletingLastPathComponent())), "
+                + "not FOLDERID_LocalAppData \(WinPath.native(local)) (R9)")
+        }
+    }
+
+    private static func backUpChangedPlists() {
+        for suite in guardedSuites {
+            let url = plistURL(suite: suite)
+            let stamp = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
+            guard let stamp, backedUpStamp[url.path] != stamp else { continue }
+            if SettingsPlistGuard.backUpIfValid(plist: url) { backedUpStamp[url.path] = stamp }
+        }
+    }
 
     private static func armDebounce() {
         guard debounceTimer == nil else { return }
@@ -125,11 +186,12 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
 private final class SyncState: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
-    private var registered: [UserDefaults] = []
+    private var registered: [(String, UserDefaults)] = []
+    var loggedSyncFailure = false
 
     var notes: Int { lock.lock(); defer { lock.unlock() }; return count }
-    var suites: [UserDefaults] { lock.lock(); defer { lock.unlock() }; return registered }
+    var suites: [(String, UserDefaults)] { lock.lock(); defer { lock.unlock() }; return registered }
     func noteWrite() { lock.lock(); count += 1; lock.unlock() }
-    func register(_ suite: UserDefaults) { lock.lock(); registered.append(suite); lock.unlock() }
+    func register(_ suite: UserDefaults, name: String) { lock.lock(); registered.append((name, suite)); lock.unlock() }
 }
 #endif

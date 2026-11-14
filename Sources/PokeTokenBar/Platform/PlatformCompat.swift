@@ -9,6 +9,7 @@ typealias OSStatus = Int32
 /// Security framework codes `UsageStore.isKeychainPromptDeclined` compares against.
 let errSecUserCanceled: OSStatus = -128
 let errSecAuthFailed: OSStatus = -25293
+let errSecItemNotFound: OSStatus = -25300
 #endif
 
 #if os(Windows)

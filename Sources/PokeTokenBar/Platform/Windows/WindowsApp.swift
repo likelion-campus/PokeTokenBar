@@ -25,6 +25,9 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--selftest-defaults-writer") {
             WindowsSelftest.runDefaultsWriter(Array(arguments[(i + 1)...]))
         }
+        if let i = arguments.firstIndex(of: "--selftest-guard-reader") {
+            WindowsSelftest.runGuardReader(Array(arguments[(i + 1)...]))
+        }
         if let i = arguments.firstIndex(of: "--selftest-defaults-reader") {
             WindowsSelftest.runDefaultsReader(Array(arguments[(i + 1)...]))
         }
@@ -118,8 +121,11 @@ private func crtExit(_ code: Int32) -> Never {
         }
         if !WinMessageHook.install() { AppLog.write("text input stays ANSI: no WH_GETMESSAGE hook") }  // 7
         Platform.current = WindowsPlatform.live(window: sink)  // 8
+        WindowsPlatform.limitsFactory = WindowsLimitsProviders()  // 8: Claude limits from the credentials file
 
-        let defaults = WinSyncingDefaults()  // 9
+        let teamSuite = TeamSettings.suiteName(for: AppStatePaths.directory(), defaultDirectory: Self.defaultStateDirectory)
+        WinDefaultsSync.guardAtLaunch(suites: [WinDefaultsSync.selftestSuiteName, teamSuite])  // 8b: before the first read of defaults
+        let defaults = WinDefaultsSync.makeAppDefaults()  // 9
         self.defaults = defaults
         let store = UsageStore(defaults: defaults)  // 10
         let companion = CompanionStore(defaults: defaults)
