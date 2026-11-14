@@ -12,6 +12,11 @@ import Observation
     private let toggle: PlazaBackgroundTogglePanel
     private var observer: PlazaChangeObserver?
 
+    /// Pressed on the header: the header's title and chevron are drawn dimmed (the button's label).
+    var interaction = PlazaPanelInteraction() {
+        didSet { if PlazaBackgroundTogglePanel.isPressed(oldValue) != PlazaBackgroundTogglePanel.isPressed(interaction) { onChange?() } }
+    }
+
     /// The chevrons' advance in the header (`chevron.right` measured; `chevron.down` is wider).
     static let chevronWidth: CGFloat = 7.125, chevronDownWidth: CGFloat = 10.5
     static let chipMinWidth: CGFloat = 16, chipHeight: CGFloat = 16, rowGap: CGFloat = 4
@@ -98,6 +103,8 @@ import Observation
             let pill = space.canvas(PlazaControlStyle.snapped(CGRect(origin: o, size: l.size), scale: scale))
             canvas.setFillColor(style.fill)
             canvas.fillRoundedRect(pill, radius: style.cornerRadius)
+            canvas.saveState()
+            if PlazaBackgroundTogglePanel.isPressed(interaction) { canvas.setAlpha(PlazaPanelStyle.pressedOpacity) }
             canvas.setFillColor(style.text)
             canvas.draw(l.title, at: at(l.header.minX, l.header.minY))
             canvas.setStrokeColor(style.text)
@@ -105,6 +112,7 @@ import Observation
             let cx = l.header.minX + PlazaPanelStyle.pixelUp(l.title.width, scale: scale) + 4
             canvas.strokePath(PlazaControlStyle.canvasPath(PlazaControlStyle.chevron(folded: l.folded, at: cx, centreY: l.header.midY),
                                                            in: space, origin: o), lineWidth: 1.5, cap: .round)
+            canvas.restoreState()
             for row in l.rows {
                 let chip = space.canvas(PlazaControlStyle.snapped(row.chip.offsetBy(dx: o.x, dy: o.y), scale: scale))
                 canvas.setFillColor(PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.15))

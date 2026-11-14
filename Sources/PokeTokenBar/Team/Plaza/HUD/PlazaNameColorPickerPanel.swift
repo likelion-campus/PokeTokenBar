@@ -13,6 +13,12 @@ import Observation
     private var observer: PlazaChangeObserver?
     private var toggleObserver: PlazaChangeObserver?
 
+    /// The hit held down while the mouse is still over it: that button's content is drawn dimmed (`.buttonStyle(.plain)`).
+    var interaction = PlazaPanelInteraction() {
+        didSet { if Self.held(oldValue) != Self.held(interaction) { onChange?() } }
+    }
+    static func held(_ i: PlazaPanelInteraction) -> PlazaPanelHit? { i.pressed != nil && i.pressed == i.hovered ? i.pressed : nil }
+
     static let columns = 6, swatch: CGFloat = 20, cell: CGFloat = 24, cellGap: CGFloat = 4
     private static let dark = PlazaColor(hex: 0x14161F)
 
@@ -85,6 +91,9 @@ import Observation
         let m = graphics.text.metrics(style.font)
         let current = model.current
         let image = space.image(scale: scale, graphics: graphics) { canvas in
+            let held = Self.held(interaction)
+            canvas.saveState()
+            if held?.action == "toggle" { canvas.setAlpha(PlazaPanelStyle.pressedOpacity) }
             let b = space.canvas(l.button)
             canvas.setFillColor(style.fill)
             canvas.fillRoundedRect(b, radius: style.cornerRadius)
@@ -97,6 +106,7 @@ import Observation
             canvas.draw(l.line, at: space.canvas(PlazaControlStyle.snapped(CGPoint(x: 8 + 12 + 6, y: 5 + m.ascender), scale: scale)))
             canvas.setStrokeColor(style.stroke)
             canvas.strokeRoundedRect(b, radius: style.cornerRadius, lineWidth: style.lineWidth)
+            canvas.restoreState()
             if let grid = l.grid {
                 let g = space.canvas(grid)
                 canvas.setFillColor(style.fill)
@@ -104,6 +114,8 @@ import Observation
                 for (i, hex) in PlazaNameColor.hexes.enumerated() {
                     let cell = swatchRect(i, grid: grid)
                     let c = space.canvas(CGRect(x: cell.minX + 2, y: cell.minY + 2, width: Self.swatch, height: Self.swatch))
+                    canvas.saveState()
+                    if held == PlazaPanelHit(action: "choose", index: i) { canvas.setAlpha(PlazaPanelStyle.pressedOpacity) }
                     canvas.setFillColor(PlazaColor(hex: hex))
                     canvas.fillEllipse(in: c)
                     canvas.setStrokeColor(Self.dark)
@@ -112,6 +124,7 @@ import Observation
                         canvas.setStrokeColor(.white)
                         canvas.strokeEllipse(in: space.canvas(cell), lineWidth: 2)
                     }
+                    canvas.restoreState()
                 }
                 canvas.setStrokeColor(style.stroke)
                 canvas.strokeRoundedRect(g, radius: style.cornerRadius, lineWidth: style.lineWidth)
@@ -138,7 +151,11 @@ import Observation
         guard let grid = l.grid else { return nil }
         for i in PlazaNameColor.hexes.indices {
             let c = space.panel(swatchRect(i, grid: grid))
-            if hypot(point.x - c.midX, point.y - c.midY) <= Self.cell / 2 { return PlazaPanelHit(action: "choose", index: i) }
+            // The label is a `Circle` fill (20 pt) with its 1.5 stroke overlay, then `.padding(2)` (no `contentShape`, so the
+            // padding is not clickable) and, for the current colour, the 2-pt white ring: the circle out to the stroke's outer
+            // edge, out to the ring's for the current one (PlazaChatLogView.swift, the picker's `ForEach`, before Task 15).
+            let radius: CGFloat = PlazaNameColor.hexes[i] == model.current ? Self.cell / 2 + 1 : Self.swatch / 2 + 0.75
+            if hypot(point.x - c.midX, point.y - c.midY) <= radius { return PlazaPanelHit(action: "choose", index: i) }
         }
         return nil
     }

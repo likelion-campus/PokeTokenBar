@@ -36,6 +36,10 @@ enum PlazaPanelStyle {
     /// The banner pill is this wide (`.frame(maxWidth: 360)` in a window that is always wider) and wraps inside it.
     static let bannerWidth: CGFloat = 360
 
+    /// A button's content while the mouse is down on it (and still inside it). SwiftUI's `.buttonStyle(.plain)` dims a pressed
+    /// label; its factor cannot be measured off screen. Matches SwiftUI .plain by eye — to be confirmed in a live window.
+    static let pressedOpacity: CGFloat = 0.6
+
     /// Room kept around the pills in a panel image for the half of a stroke that falls outside: the most any pill needs
     /// (2 / 2), and a whole number of device pixels at 1x, 2x and 3x (the 1.5 strokes' 0.75 rounds up to it).
     static let strokeRoom: CGFloat = 1

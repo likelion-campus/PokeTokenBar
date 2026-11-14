@@ -44,10 +44,6 @@ struct PlazaOverlayBindings {
     let closeOverlay: () -> Void
     let chooseCampfire: (_ index: Int) -> Void
     let toggleChatLog: () -> Void
-    let toggleShortcuts: () -> Void
-    let toggleBackground: () -> Void
-    let toggleNameColorPicker: () -> Void
-    let pickNameColor: (UInt32) -> Void
 }
 
 /// The plaza window on one OS: the window, the view that draws the stage, the overlay views and focus. The Mac's is

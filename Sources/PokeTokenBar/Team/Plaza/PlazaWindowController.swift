@@ -342,11 +342,7 @@ import Observation
             chooseMenu: { [weak self] in self?.chooseMenu($0, memberID: $1) },
             closeOverlay: { [weak self] in self?.closeOverlay() },
             chooseCampfire: { [weak self] in self?.chooseCampfire(index: $0) },
-            toggleChatLog: { [weak self] in self?.toggleChatLog() },
-            toggleShortcuts: { [weak self] in self?.toggleShortcuts() },
-            toggleBackground: { [weak self] in self?.toggleBackground() },
-            toggleNameColorPicker: { [weak self] in self?.toggleNameColorPicker() },
-            pickNameColor: { [weak self] in self?.pickNameColor($0) })
+            toggleChatLog: { [weak self] in self?.toggleChatLog() })
     }
 
     /// 창 제목. 팀 이름이 바뀌면 `refreshTitle`로 다시 붙인다.

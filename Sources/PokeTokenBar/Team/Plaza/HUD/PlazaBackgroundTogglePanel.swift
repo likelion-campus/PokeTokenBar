@@ -51,6 +51,12 @@ enum PlazaControlStyle {
     private let model: PlazaBackgroundModel
     private var observer: PlazaChangeObserver?
 
+    /// Pressed (mouse down on the pill and still over it): the pill is drawn dimmed (`.buttonStyle(.plain)`).
+    var interaction = PlazaPanelInteraction() {
+        didSet { if Self.isPressed(oldValue) != Self.isPressed(interaction) { onChange?() } }
+    }
+    static func isPressed(_ i: PlazaPanelInteraction) -> Bool { i.pressed != nil && i.pressed == i.hovered }
+
     /// The icon's advance plus its gap to the text (measured from `Label(…, systemImage:)` in Galmuri 12).
     static let iconSlot: CGFloat = 26.625
     /// `eye.slash` is taller than the text line, `eye` is not (measured): the row's height and the text's drop.
@@ -104,16 +110,24 @@ enum PlazaControlStyle {
         let style = PlazaControlStyle.pill
         let m = graphics.text.metrics(style.font)
         let hidden = model.isHidden
+        let symbol = PlatformPlaza.symbolImage(named: hidden ? "eye" : "eye.slash", pointSize: 12, weight: .regular, scale: scale, color: style.text)
         let image = space.image(scale: scale, graphics: graphics) { canvas in
+            canvas.saveState()
+            if Self.isPressed(interaction) { canvas.setAlpha(PlazaPanelStyle.pressedOpacity) }
             let r = space.canvas(PlazaControlStyle.snapped(CGRect(origin: o, size: l.content), scale: scale))
             canvas.setFillColor(style.fill)
             canvas.fillRoundedRect(r, radius: style.cornerRadius)
             canvas.setFillColor(style.text)
             let top = 5 + (hidden ? 0 : Self.slashExtra)
             canvas.draw(l.line, at: space.canvas(PlazaControlStyle.snapped(CGPoint(x: o.x + 8 + Self.iconSlot, y: o.y + top + m.ascender), scale: scale)))
-            Self.drawEye(on: canvas, space: space, origin: o, slash: !hidden, style: style)
+            if let symbol {
+                canvas.draw(symbol.image, in: space.canvas(CGRect(x: o.x + 8.6, y: o.y + 4.75, width: symbol.size.width, height: symbol.size.height)))
+            } else {
+                Self.drawEye(on: canvas, space: space, origin: o, slash: !hidden, style: style)
+            }
             canvas.setStrokeColor(style.stroke)
             canvas.strokeRoundedRect(r, radius: style.cornerRadius, lineWidth: style.lineWidth)
+            canvas.restoreState()
         }
         let item = PlazaAccessibilityItem(frame: space.panel(CGRect(origin: o, size: l.content)), role: .button, label: l.title,
                                           action: PlazaPanelHit(action: "toggle", index: nil))
@@ -121,7 +135,8 @@ enum PlazaControlStyle {
                                  accessibility: [item])
     }
 
-    /// `eye` / `eye.slash` as chrome: an almond outline, an iris ring and a pupil, and for the slash a diagonal with a
+    /// The fallback where there are no SF Symbols (`PlatformPlaza.symbolImage` is nil: Windows until stage 6, which supplies its own
+    /// glyph): `eye` / `eye.slash` as chrome: an almond outline, an iris ring and a pupil, and for the slash a diagonal with a
     /// gap in the pill's colour, in the ink boxes the SF Symbols measured (x 9.25–25.25; y 6.4–16.4, slash 6.9–17.5).
     private static func drawEye(on canvas: any PlazaCanvas, space: PlazaPanelSpace, origin o: CGPoint, slash: Bool, style: PlazaPanelStyle.Pill) {
         let cx: CGFloat = 17.25, cy: CGFloat = slash ? 11.9 : 11.375

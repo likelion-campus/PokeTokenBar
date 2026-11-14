@@ -150,6 +150,58 @@ import Observation
         XCTAssertEqual(guide.minY, toggle.maxY + PlazaControlStyle.guideGap - 2 * PlazaPanelStyle.strokeRoom, "6 points under it")
     }
 
+    // MARK: press
+
+    /// A control is dimmed while the mouse is down on it and still over it (`.buttonStyle(.plain)`); the action fires on a
+    /// mouse-up inside it only, so releasing outside cancels it.
+    func testAPressDimsTheButtonAndReleasingOutsideCancels() async throws {
+        let graphics = CanvasKeepingGraphics()
+        let background = PlazaBackgroundModel(), color = PlazaNameColorModel(), guide = PlazaShortcutGuideModel()
+        color.isOpen = true
+        let toggle = PlazaBackgroundTogglePanel(model: background)
+        let panels: [any PlazaPanel] = [PlazaShortcutGuidePanel(model: guide, toggle: toggle), toggle,
+                                        PlazaNameColorPickerPanel(model: color, toggle: toggle, background: background)]
+        let hud = PlazaHUD(panels: panels, graphics: graphics)
+        let host = RecordingPanelHost()
+        var actions: [String] = []
+        hud.onAction = { id, hit in actions.append("\(id) \(hit.action) \(hit.index.map(String.init) ?? "-")") }
+        hud.setViewport(viewport, scale: 2)
+        hud.host = host
+        func dimmed(after work: () -> Void) async -> Bool {
+            let before = graphics.canvases.count
+            work()
+            await flush()
+            return graphics.canvases.dropFirst(before).last?.calls.contains("alpha \(Double(PlazaPanelStyle.pressedOpacity))") ?? false
+        }
+        func at(_ id: PlazaPanelID, _ p: CGPoint) -> CGPoint {
+            let f = hud.layout(viewport: viewport, scale: 2)[id]!
+            return CGPoint(x: f.minX + p.x, y: f.minY + p.y)
+        }
+        // The toggle.
+        let inside = at(.backgroundToggle, CGPoint(x: 40, y: 12)), outside = at(.backgroundToggle, CGPoint(x: 400, y: 300))
+        var look = await dimmed { _ = hud.handleMouse(PlazaMouseEvent(kind: .down, location: inside), in: .backgroundToggle) }
+        XCTAssertTrue(look, "dimmed while pressed")
+        look = await dimmed { _ = hud.handleMouse(PlazaMouseEvent(kind: .moved, location: outside), in: .backgroundToggle) }
+        XCTAssertFalse(look, "dragged off the button: not dimmed")
+        look = await dimmed { _ = hud.handleMouse(PlazaMouseEvent(kind: .moved, location: inside), in: .backgroundToggle) }
+        XCTAssertTrue(look, "dragged back: dimmed again")
+        look = await dimmed { _ = hud.handleMouse(PlazaMouseEvent(kind: .moved, location: outside), in: .backgroundToggle)
+            _ = hud.handleMouse(PlazaMouseEvent(kind: .up, location: outside), in: .backgroundToggle) }
+        XCTAssertFalse(look)
+        XCTAssertEqual(actions, [], "released outside: no action")
+        _ = hud.handleMouse(PlazaMouseEvent(kind: .down, location: inside), in: .backgroundToggle)
+        _ = hud.handleMouse(PlazaMouseEvent(kind: .up, location: inside), in: .backgroundToggle)
+        XCTAssertEqual(actions, ["backgroundToggle toggle -"], "released inside: the action")
+        await flush()
+        // A swatch dims only itself.
+        let grid = try XCTUnwrap(host.drawings[.nameColorPicker]?.accessibility.dropFirst().first).frame
+        let swatch = at(.nameColorPicker, CGPoint(x: grid.midX, y: grid.midY))
+        look = await dimmed { _ = hud.handleMouse(PlazaMouseEvent(kind: .down, location: swatch), in: .nameColorPicker) }
+        XCTAssertTrue(look)
+        _ = hud.handleMouse(PlazaMouseEvent(kind: .up, location: at(.nameColorPicker, CGPoint(x: 3, y: 90))), in: .nameColorPicker)
+        XCTAssertEqual(actions.count, 1, "released off the swatch: nothing picked")
+    }
+
     // MARK: the photo frame
 
     func testPhotoFrameMatchesViewRect() async throws {

@@ -145,6 +145,31 @@ import SwiftUI
         XCTAssertEqual(swiftUIFrames(Case(name: "o", open: true)).picker.size, CGSize(width: 180, height: 98))
     }
 
+    /// The dim outside the photo frame (colour and opacity) equals SwiftUI's: the largest channel difference in plain strips of
+    /// the dimmed area (away from the brackets and the guide text) is at most one level.
+    func testThePhotoDimIsSwiftUIsDim() async throws {
+        for c in Self.cases where c.photo {
+            for scale in [CGFloat(1), 2] {
+                let b = K.rgba(try before(c, scale: scale)), a = K.rgba(try after(c, scale: scale))
+                let w = Int(c.viewport.width * scale), h = Int(c.viewport.height * scale)
+                let hole = try XCTUnwrap(PlazaPhotoFrame.viewRect(in: c.viewport))
+                let strips = [(0, 0, w, Int(20 * scale)),                                                     // top margin
+                              (0, Int(60 * scale), Int(20 * scale), Int((hole.height - 80) * scale)),        // left margin
+                              (w - Int(20 * scale), Int(60 * scale), Int(20 * scale), Int((hole.height - 80) * scale)),
+                              (0, Int((hole.maxY + 2) * scale), w, Int(6 * scale))]                            // under the frame
+                var worst = 0
+                for (x0, y0, sw, sh) in strips {
+                    for y in y0..<(y0 + sh) { for x in x0..<(x0 + sw) {
+                        let i = (y * w + x) * 4
+                        for k in 0..<4 { worst = max(worst, abs(Int(b[i + k]) - Int(a[i + k]))) }
+                    } }
+                }
+                XCTAssertLessThanOrEqual(worst, 1, "\(c.name)@\(scale): dim differs by \(worst) levels")
+                print("PHOTODIM \(c.name)@\(Int(scale))x worst \(worst) h \(h)")
+            }
+        }
+    }
+
     /// The pixels in a window against SwiftUI's at 1x and 2x: only antialiasing differs (the bounds are what the first run
     /// measured, and a regression in a position or size shows as a jump).
     func testPanelsLookLikeTheirSwiftUIOriginals() async throws {
