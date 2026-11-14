@@ -219,7 +219,9 @@ final class WindowsPathTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let missing = dir.appendingPathComponent("nothere.cmd").path
         XCTAssertFalse(PlatformCompat.isExecutableFile(atPath: missing))
+        #if os(Windows)
         XCTAssertFalse(PlatformCompat.isExecutableFile(atPath: dir.path), "a folder is not an executable")
+        #endif
         #if os(Windows)
         let name = "ptb-no-such-tool-\(UUID().uuidString)"
         XCTAssertNil(BinaryLocator.resolve(name, staticPaths: [missing, dir.appendingPathComponent(name + ".exe").path]))
