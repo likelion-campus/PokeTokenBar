@@ -1,0 +1,33 @@
+name: windows-swift
+description: Swift 6.3.2 plus a cached static OpenSSL (vcpkg x64-windows-static-md); sets PTB_OPENSSL_DIR.
+runs:
+  using: composite
+  steps:
+    - uses: compnerd/gha-setup-swift@main
+      with:
+        swift-version: swift-6.3.2-release
+        swift-build: 6.3.2-RELEASE
+    - run: swift --version
+      shell: bash
+    - id: vcpkg-cache
+      uses: actions/cache@v4
+      with:
+        path: C:/vcpkg/installed
+        key: vcpkg-openssl-x64-windows-static-md-${{ runner.os }}-${{ env.ImageVersion }}-${{ hashFiles('windows/vcpkg.json') }}
+    - name: Install OpenSSL
+      shell: pwsh
+      env:
+        CACHE_HIT: ${{ steps.vcpkg-cache.outputs.cache-hit }}
+      run: |
+        $t = Get-Date
+        if ($env:CACHE_HIT -eq 'true') {
+          Write-Host "vcpkg cache: HIT"
+        } else {
+          Write-Host "vcpkg cache: MISS"
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install --triplet x64-windows-static-md --x-manifest-root="$env:GITHUB_WORKSPACE\windows" --x-install-root=C:\vcpkg\installed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
+        Write-Host ("vcpkg step took {0:N0}s" -f ((Get-Date) - $t).TotalSeconds)
+        $dir = "C:/vcpkg/installed/x64-windows-static-md"
+        if (-not (Test-Path "$dir/lib/libssl.lib")) { Write-Error "libssl.lib missing under $dir"; exit 1 }
+        "PTB_OPENSSL_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
