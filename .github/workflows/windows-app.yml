@@ -10,7 +10,6 @@ on:
       - 'Sources/CTeamTLS/**'
       - 'Sources/PokeTokenBarWin/**'
       - 'Tests/PokeTokenBarTests/Windows*'
-      - 'Tests/PokeTokenBarTests/Fixtures/windows-selftest/**'
       - 'Package.swift'
       - 'windows/**'
       - 'scripts/windows/**'
@@ -44,7 +43,7 @@ jobs:
           $proj = Join-Path $fx 'claude\projects\p'
           New-Item -ItemType Directory -Force -Path $proj, (Join-Path $fx 'state'), (Join-Path $fx 'state-dispatch') | Out-Null
           $ts = (Get-Date).ToUniversalTime().AddSeconds(-30).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-          (Get-Content 'Tests\PokeTokenBarTests\Fixtures\windows-selftest\claude\projects\p\s.jsonl' -Raw).Replace('__TIMESTAMP__', $ts) |
+          (Get-Content 'windows\selftest\claude\projects\p\s.jsonl' -Raw).Replace('__TIMESTAMP__', $ts) |
             Set-Content -NoNewline -Encoding utf8NoBOM -Path (Join-Path $proj 's.jsonl')
           "PTB_FIXTURE=$fx" >> $env:GITHUB_ENV
       - name: Selftest with a stripped Path
