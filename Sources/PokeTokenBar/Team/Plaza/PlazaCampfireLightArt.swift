@@ -8,8 +8,8 @@ enum PlazaCampfireLightArt {
                       level: Double = 1) -> PlazaImage {
         let n = PlazaCampfireLight.blockCounts(radii: radii)
         var rings: [Double: [UInt8]] = [:]
-        var bitmap = PlazaBitmap(width: n.w, height: n.h, fill: PlazaRGBA(r: 255, g: 255, b: 255, a: 255))
-        bitmap.alpha = .noneSkipLast
+        // Built per frame while a firework glows (its level changes), so plain byte writes, not per-pixel bitmap calls.
+        var data = [UInt8](repeating: 255, count: n.w * n.h * 4)
         for j in 0..<n.h {
             for i in 0..<n.w {
                 let k = PlazaCampfireLight.blockMix(i: i, j: j, radii: radii)
@@ -17,9 +17,13 @@ enum PlazaCampfireLightArt {
                     let m = PlazaCampfireLight.multiplier(tint: tint, mix: k * level, color: color)
                     rings[k] = [m.r, m.g, m.b].map { UInt8(min(255, max(0, ($0 / 2 * 255).rounded()))) }
                 }
-                bitmap[i, j] = PlazaRGBA(r: rings[k]![0], g: rings[k]![1], b: rings[k]![2], a: 255)
+                let o = (j * n.w + i) * 4
+                data[o] = rings[k]![0]; data[o + 1] = rings[k]![1]; data[o + 2] = rings[k]![2]
             }
         }
+        var bitmap = PlazaBitmap(width: n.w, height: n.h)
+        bitmap.alpha = .noneSkipLast
+        bitmap.bytes = data
         return PlazaImage(bitmap: bitmap)
     }
 }
