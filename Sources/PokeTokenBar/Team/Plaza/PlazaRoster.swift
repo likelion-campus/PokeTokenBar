@@ -31,16 +31,6 @@ enum PlazaRosterMetrics {
     static let listTopPadding: CGFloat = 6
     static let slotHeight: CGFloat = 44
     static let slotSpacing: CGFloat = 4
-    /// 펼친 칸 아래 오늘 한 일의 줄 높이와 줄 간격, 위 여백, 아래 여백.
-    static let activityRowHeight: CGFloat = 14
-    static let activityRowGap: CGFloat = 1
-    static let activityTopPadding: CGFloat = 0
-    static let activityBottomPadding: CGFloat = 8
-    /// 줄이 `rows`개(기록이 없으면 0개이고 한 줄)일 때 칸이 아래로 늘어나는 높이.
-    static func activityHeight(rows: Int) -> CGFloat {
-        let n = CGFloat(max(rows, 1))
-        return activityTopPadding + n * activityRowHeight + (n - 1) * activityRowGap + activityBottomPadding
-    }
     /// 한 페이지의 최대 칸 수. 포켓몬 게임의 파티가 여섯 마리인 데서 왔다.
     static let pageSize = 6
     /// 머리줄 < > 단추의 누르는 영역(한 변).
@@ -59,19 +49,9 @@ enum PlazaRosterMetrics {
     var capacity = PlazaRosterMetrics.pageSize
     /// 보고 있는 페이지(0부터). 인원이 줄어 없어진 페이지면 그릴 때 마지막 페이지로 본다.
     var page = 0
-    /// 마우스가 올라와 아래로 펼쳐진 칸의 팀원 ID.
-    var hoveredID: String?
-    /// 목록 칸들이 쓸 수 있는 가장 큰 높이. 작은 지도와 시계 위에서 끝나게 창 크기가 바뀔 때 정한다.
-    var maxListHeight: CGFloat = .infinity
-
-    /// 마우스가 칸에 들어오거나 나갔다. 다른 칸으로 옮겨 간 뒤 늦게 오는 나감은 새 칸을 접지 않는다.
-    func hover(_ id: String, inside: Bool) {
-        if inside { hoveredID = id } else if hoveredID == id { hoveredID = nil }
-    }
 
     /// 보이는 페이지에서 앞이나 뒤로 넘긴다. 끝에서는 그대로다.
     func turnPage(by delta: Int) {
-        hoveredID = nil
         let now = PlazaRoster.page(entries, index: page, size: capacity)
         page = min(max(now.index + delta, 0), now.count - 1)
     }
@@ -129,25 +109,6 @@ enum PlazaRoster {
         let available = height - m.margin - m.bottomClearance - 2 * m.padding - m.headerHeight - m.listTopPadding
         let slots = Int(((available + m.slotSpacing) / (m.slotHeight + m.slotSpacing)).rounded(.down))
         return min(m.pageSize, max(1, slots))
-    }
-
-    /// 창 높이(포인트)에서 칸들이 쓸 수 있는 높이. 판 안쪽 여백, 머리줄과 그 아래 간격을 뺀 값이다.
-    static func maxListHeight(forHeight height: CGFloat) -> CGFloat {
-        let m = PlazaRosterMetrics.self
-        return max(0, height - m.margin - m.bottomClearance - 2 * m.padding - m.headerHeight - m.listTopPadding)
-    }
-
-    /// 보이는 칸들을 쌓은 높이와, 마우스를 올려 펼친 칸의 아랫줄이 `maxHeight` 안에 들어오도록 목록을 위로 밀 거리.
-    /// 펼친 칸 아래 칸들은 잘려도 괜찮지만 그 칸의 줄은 작은 지도에 가려지면 안 된다.
-    static func listLayout(_ shown: [PlazaRosterEntry], hovered: String?, maxHeight: CGFloat) -> (height: CGFloat, scroll: CGFloat) {
-        let m = PlazaRosterMetrics.self
-        var y: CGFloat = 0, hoveredBottom: CGFloat = 0
-        for (i, e) in shown.enumerated() {
-            if i > 0 { y += m.slotSpacing }
-            y += m.slotHeight
-            if e.id == hovered { y += m.activityHeight(rows: PlazaActivity.rows(e.activity).count); hoveredBottom = y }
-        }
-        return (min(y, maxHeight), max(0, hoveredBottom - maxHeight))
     }
 
     /// 정렬된 목록을 `size`칸씩 나눈 한 페이지. 없어진 페이지를 달라고 하면 마지막 페이지를 준다.

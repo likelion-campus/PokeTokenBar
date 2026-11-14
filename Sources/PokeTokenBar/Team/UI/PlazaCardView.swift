@@ -25,6 +25,7 @@ struct PlazaCardView: View {
         let l = L(.ko)
         VStack(spacing: 8) {
             header
+            PlazaCardActivity(activity: state.todayActivity())
             switch state {
             case .loading:
                 message(l.plazaCardLoading)
@@ -79,6 +80,42 @@ struct PlazaCardView: View {
             .font(Font(PlazaResources.font(.body)))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// 오늘 광장에서 한 일. 줄마다 이름표와 값이고, 기록이 없으면 한 줄이다. 줄 수가 달라도 높이는 일곱 줄로 고정이다.
+@MainActor
+private struct PlazaCardActivity: View {
+    let activity: PlazaActivity?
+    static let rowHeight: CGFloat = 14
+    static let height: CGFloat = 16 + 7 * rowHeight + 6   // 제목 한 줄과 일곱 줄
+
+    var body: some View {
+        let l = L(.ko)
+        let rows = PlazaActivity.rows(activity)
+        VStack(alignment: .leading, spacing: 0) {
+            Text(l.plazaCardActivityTitle)
+                .font(Font(PlazaResources.font(.body)))
+                .frame(height: 16)
+            if rows.isEmpty {
+                Text(l.plazaActivityNone).frame(height: Self.rowHeight)
+            }
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 4) {
+                    Text(row.label).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(row.value).lineLimit(1)
+                }
+                .frame(height: Self.rowHeight)
+            }
+        }
+        .font(Font(PlazaResources.font(.small)))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: Self.height, alignment: .top)
+        .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

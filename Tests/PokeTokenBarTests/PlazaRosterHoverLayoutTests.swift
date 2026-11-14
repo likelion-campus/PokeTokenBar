@@ -18,18 +18,17 @@ final class PlazaRosterHoverLayoutTests: XCTestCase {
         override var acceptsFirstResponder: Bool { false }
     }
 
-    /// A hover animates the hosted roster's height, so its intrinsic size changes on every animation tick. Measured on the
-    /// real layout (pinned top-trailing, width constraint): ~1000+ `updateConstraints` calls per expand or collapse, against
-    /// ~20 with the animation removed. AppKit stops a window after (number of views) extra passes, which crashes the app
-    /// with `_NSViewUpdateConstraints` / `_crashOnException:`. Offscreen window, ordered front only, never key; the run loop
-    /// is pumped 20 ms at a time. The app's own crash itself was not reproduced (no real pointer offscreen); this checks the
-    /// pass count. Expected failure until the form of the expansion is settled.
+    /// Guard for the #129 crash: a roster that changed its own height with an animation made the NSHostingView (Auto Layout,
+    /// intrinsic size, pinned top-trailing with a width constraint) re-invalidate its constraints on every tick, ~1000+
+    /// `updateConstraints` calls per hover against ~20 without the animation; AppKit then raised from
+    /// `_NSViewUpdateConstraints` and the app quit. The hover no longer changes the roster, so this checks that the
+    /// hosted roster stays at one size and quiet. Offscreen window, ordered front only, never key; the run loop is pumped
+    /// 20 ms at a time. A real pointer can't be driven offscreen (synthesized events do not fire `.onHover`).
     func testHoverDoesNotFloodConstraintUpdates() throws {
         let model = PlazaRosterModel()
         model.entries = (0..<6).map { busy("m\($0)") }
-        let height: CGFloat = 400   // short window: 3 slots, the list scrolls
+        let height: CGFloat = 400   // short window: 3 slots
         model.capacity = PlazaRoster.capacity(forHeight: height)
-        model.maxListHeight = PlazaRoster.maxListHeight(forHeight: height)
         let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 700, height: height), styleMask: .borderless,
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -52,14 +51,11 @@ final class PlazaRosterHoverLayoutTests: XCTestCase {
             }
         }
         pump(5)
-        let before = host.updates
-        for id in ["m0", "m2"] {
-            model.hoveredID = id; pump(30)
-            model.hoveredID = nil; pump(30)
-        }
+        let before = host.updates, restHeight = host.frame.height
+        // The old hover grew the slot; now a hover changes nothing the hosting view can see. Slots still animate their icons.
+        for _ in 0..<2 { pump(30) }
         let used = host.updates - before
-        XCTExpectFailure("hover animates the hosting view's size; see the defect log") {
-            XCTAssertLessThan(used, 100, "updateConstraints calls for two hover round trips")
-        }
+        XCTAssertEqual(host.frame.height, restHeight)
+        XCTAssertLessThan(used, 100, "updateConstraints calls over 1.2 s")
     }
 }
