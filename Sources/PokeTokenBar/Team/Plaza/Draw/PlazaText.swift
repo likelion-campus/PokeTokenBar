@@ -59,4 +59,9 @@ protocol PlazaTextEngine: Sendable {
     /// `line` cut at the end to `width` with `ellipsis` (`CTLineCreateTruncatedLine`); nil when that is impossible.
     func truncated(_ line: PlazaTextLine, width: CGFloat, ellipsis: PlazaTextLine) -> PlazaTextLine?
     func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph
+    /// `text` broken into lines at most `width` wide the way SwiftUI's `Text` wraps (the overlay panels' text): at word
+    /// boundaries — a Korean word stays whole, where `paragraph` would break between its syllables —, after hyphens,
+    /// between emoji, and a word wider than a line between its characters. Trailing spaces are not part of a line. Each
+    /// line keeps the whole text's direction. An empty text is one empty line.
+    func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine]
 }

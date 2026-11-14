@@ -5,9 +5,10 @@ import SwiftUI
 extension SKView: PlazaPausableView {}
 
 /// The Mac's plaza window (Track A Task 12): the `NSWindow`, the `SKView` that presents the stage's `SKScene`, the SwiftUI
-/// HUD and overlay views over the controller's models, their constraints, first responder, transparency and the saved
-/// frame. Window events go to `events` (the controller); this type decides nothing about the plaza.
-@MainActor final class PlazaMacWindow: NSObject, NSWindowDelegate, PlazaWindowShell {
+/// HUD and overlay views over the controller's models, the hosts of the canvas-drawn panels (`PlazaPanelHostView`, Task
+/// 14), their constraints, first responder, transparency and the saved frame. Window events go to `events` (the
+/// controller); this type decides nothing about the plaza.
+@MainActor final class PlazaMacWindow: NSObject, NSWindowDelegate, PlazaWindowShell, PlazaPanelHost {
     weak var events: (any PlazaWindowEvents)?
 
     /// 창 위치·크기 기억용 이름. 사용자에게 보이는 글이 아니다.
@@ -24,6 +25,9 @@ extension SKView: PlazaPausableView {}
     /// 입력창이 열리면 대화 기록을 입력창 위로 올린다.
     private var chatLogAboveInput: NSLayoutConstraint?
     private var chatLogAtBottom: NSLayoutConstraint?
+    /// The open window's panel hosts and the HUD they show.
+    private var panelHosts: [PlazaPanelID: PlazaPanelHostView] = [:]
+    private weak var hud: PlazaHUD?
 
     /// `autosaveName`, `styleMask` and `front` are for tests (a borderless window placed off screen, no activation). `front`
     /// is the only place that activates the app, and it runs only with a window.
@@ -62,15 +66,24 @@ extension SKView: PlazaPausableView {}
             roster.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
             roster.widthAnchor.constraint(equalToConstant: PlazaRosterMetrics.width),
         ])
+        let hud = overlays.hud, pillsPanel = overlays.pills
         let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlays.overlayModel, feed: overlays.feed,
                                                                    myMemberID: overlays.myMemberID,
                                                                    onReact: overlays.react,
                                                                    onMenuChoose: overlays.chooseMenu,
                                                                    onMenuCancel: overlays.closeOverlay,
-                                                                   onCampfireChoose: overlays.chooseCampfire),
+                                                                   onCampfireChoose: overlays.chooseCampfire,
+                                                                   pillsSize: { [weak hud, weak pillsPanel] in
+                                                                       guard let hud, let pillsPanel else { return .zero }
+                                                                       return pillsPanel.stack(in: hud.viewport, scale: hud.scale,
+                                                                                               text: hud.graphics.text).size
+                                                                   }),
                                             model: overlays.overlayModel)
         overlay.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(overlay)   // 목록 위. 마우스만 받고 SKView가 첫 응답자를 유지한다.
+        let pills = PlazaPanelHostView(hud: hud, panel: .pills)
+        pills.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(pills)   // 판 바로 위: 안내 줄들은 판의 맨 위에 그려졌다. 입력은 받지 않는다.
         let chatLogView = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: overlays.chatLog, toggle: overlays.toggleChatLog),
                                                   log: overlays.chatLog)
         chatLogView.translatesAutoresizingMaskIntoConstraints = false
@@ -80,9 +93,9 @@ extension SKView: PlazaPausableView {}
             worldSize: overlays.worldSize))
         map.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(map)   // 입력은 받지 않는다.
-        let clock = PlazaClockHostingView(rootView: PlazaClock(model: overlays.minimap))
+        let clock = PlazaPanelHostView(hud: hud, panel: .clock)
         clock.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(clock)   // 입력은 받지 않는다.
+        container.addSubview(clock)   // 작은 지도 위. 입력은 받지 않는다.
         let shortcuts = PlazaShortcutGuideHostingView(rootView: PlazaShortcutGuide(
             model: overlays.shortcutModel, toggle: overlays.toggleShortcuts))
         shortcuts.translatesAutoresizingMaskIntoConstraints = false
@@ -114,8 +127,6 @@ extension SKView: PlazaPausableView {}
             chatLogAtBottom,
             map.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
             map.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-            clock.trailingAnchor.constraint(equalTo: map.trailingAnchor),
-            clock.bottomAnchor.constraint(equalTo: map.topAnchor, constant: -6),
             toggle.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
             toggle.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: PlazaRosterMetrics.margin),
             shortcuts.topAnchor.constraint(equalTo: toggle.bottomAnchor, constant: 6),
@@ -123,10 +134,23 @@ extension SKView: PlazaPausableView {}
             colorPicker.topAnchor.constraint(equalTo: toggle.topAnchor),
             colorPicker.leadingAnchor.constraint(equalTo: toggle.trailingAnchor, constant: 8),
         ])
+        // The panel hosts cover the window; the HUD places each panel (the clock on the minimap, as its constraints did).
+        for host in [pills, clock] {
+            NSLayoutConstraint.activate([
+                host.topAnchor.constraint(equalTo: container.topAnchor),
+                host.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                host.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                host.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            ])
+        }
         hudViews = [roster, chatLogView, map, clock, shortcuts, toggle, colorPicker]
         w.contentView = container
         w.center()
         Self.restoreFrame(w, into: overlays.rosterModel, autosaveName: autosaveName)
+        panelHosts = [.pills: pills, .clock: clock]
+        self.hud = hud
+        hud.setViewport(container.bounds.size, scale: w.backingScaleFactor)
+        hud.host = self   // renders the visible panels once
         view.presentScene((stage as! SpriteKitStage).skScene)
         w.makeFirstResponder(view)
         self.chatInput = chatInput
@@ -138,7 +162,6 @@ extension SKView: PlazaPausableView {}
     static func restoreFrame(_ w: NSWindow, into roster: PlazaRosterModel, autosaveName: String = frameAutosaveName) {
         w.setFrameAutosaveName(autosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
         roster.capacity = PlazaRoster.capacity(forHeight: w.contentView?.bounds.height ?? 0)
-        roster.maxListHeight = PlazaRoster.maxListHeight(forHeight: w.contentView?.bounds.height ?? 0)
     }
 
     /// 창에 올리는 목록. 칸은 그 팀원에게 걸어가고, < > 는 페이지를 넘긴다.
@@ -163,6 +186,9 @@ extension SKView: PlazaPausableView {}
 
     func dismantle() {
         hudViews = []
+        hud?.host = nil
+        hud = nil
+        panelHosts = [:]
         if let w = window {
             w.delegate = nil
             w.contentView = nil
@@ -191,6 +217,14 @@ extension SKView: PlazaPausableView {}
 
     func focusChatInput() {
         if let field = chatInput?.field { window?.makeFirstResponder(field) }
+    }
+
+    func show(_ id: PlazaPanelID, image: PlazaImage, frame: CGRect, scale: CGFloat) {
+        panelHosts[id]?.show(image: image.cgImage, frame: frame, scale: scale)
+    }
+
+    func hide(_ id: PlazaPanelID) {
+        panelHosts[id]?.hide()
     }
 
     func setChatLogAboveInput(_ above: Bool) {

@@ -21,6 +21,14 @@ struct PlazaKeyEvent: Equatable, Sendable {
     let modifiers: PlazaModifiers
 }
 
+/// A mouse event over the HUD's panels (`PlazaHUD.handleMouse`); the scene itself takes no mouse. `location` is in
+/// window points, origin top-left.
+struct PlazaMouseEvent: Equatable, Sendable {
+    enum Kind: Equatable, Sendable { case down, up, moved, exited, scroll(dx: CGFloat, dy: CGFloat) }
+    let kind: Kind
+    let location: CGPoint
+}
+
 /// The macOS virtual key numbers the scene names.
 enum PlazaKeyCode {
     static let a: UInt16 = 0

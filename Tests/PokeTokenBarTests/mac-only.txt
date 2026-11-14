@@ -175,7 +175,7 @@ UsageStreakTests.swift
 # WindowsSeamScanTests: scans the source tree with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
 WindowsSeamScanTests.swift
 ZeroUsageHomeRenderingTests.swift
-# PlazaActivityTests+Mac: the SwiftUI roster view (PlazaRosterView)
+# PlazaActivityTests+Mac: the SwiftUI member card (NSHostingView of PlazaCardView) and PlazaCardMetrics (Mac-only view file)
 PlazaActivityTests+Mac.swift
 # from main (#134): builds the scene
 # PlazaSeasonTests+Mac: the water balloon PNG size (14x18; the Windows stub has no decoder, so the ball is 16x16 there; six tests), the recoloured tile and tall-grass sheets (CGImage) and shortcutThrowLabel (the SwiftUI shortcut guide)
@@ -197,4 +197,8 @@ PlazaTextArtParityTests.swift
 AppWiringDriftScanTests.swift
 # PlazaGIFDecoderParityTests+Mac: compares against ImageIO (CGImageSource)
 PlazaGIFDecoderParityTests+Mac.swift
+# PlazaPanelRenderTests+Mac: the canvas-drawn HUD panels against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) and the AppKit panel host view
+PlazaPanelRenderTests+Mac.swift
 ReachabilityParityTests.swift
+# PlazaRosterHoverLayoutTests: hosts the SwiftUI roster in an AppKit window (NSHostingView, Auto Layout)
+PlazaRosterHoverLayoutTests.swift

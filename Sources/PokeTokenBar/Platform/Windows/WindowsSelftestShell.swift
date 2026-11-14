@@ -15,7 +15,7 @@ extension WindowsSelftest {
 
     /// The app has been running for the whole selftest and nothing but the tray toggle writes the Run value.
     @MainActor private static func loginFirstRunCheck(_ r: Recorder) {
-        guard runsOnCI else {
+        guard onCI else {
             r.add("login.firstRunOff", true, "skipped (CI not set): a person's PC may have launch at login on")
             return
         }
@@ -26,7 +26,7 @@ extension WindowsSelftest {
     }
 
     @MainActor private static func loginRealKeyCheck(_ r: Recorder) {
-        guard runsOnCI else {
+        guard onCI else {
             r.add("login.realKey", true, "skipped (CI not set)")
             return
         }

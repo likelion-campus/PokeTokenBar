@@ -2289,7 +2289,7 @@ final class UsageStore {
             "lastError": lastErrorDescription ?? "",
         ]
         if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
-            try? data.write(to: dir.appendingPathComponent("last-snapshot.json"), options: .atomic)
+            try? PlatformCompat.atomicWrite(data, to: dir.appendingPathComponent("last-snapshot.json"))
         }
     }
 }

@@ -282,6 +282,6 @@ final class TeamFeedStore {
         let contents = FileContents(events: stored, reactions: allReactions, lastReadSeq: lastReadSeq, nextSeq: nextSeq)
         guard let data = try? Self.makeEncoder().encode(contents) else { return }
         try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: fileURL, options: .atomic)
+        try? PlatformCompat.atomicWrite(data, to: fileURL)
     }
 }

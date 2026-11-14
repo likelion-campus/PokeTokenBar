@@ -59,7 +59,7 @@ jobs:
           $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state'
           # The fixture's usage after (message.id, requestId) dedup: 1000+200+30+4 + 2000+400+60+8.
           $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
-          ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages
+          ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages -DumpUi (Join-Path $PWD 'ui-dump')
       - name: Selftest on the dispatch-handle loop (diagnostic fallback, informational)
         if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
         continue-on-error: true
@@ -257,6 +257,7 @@ jobs:
             st*.json
             st*.json.lines
             tray-desktop.png
+            ui-dump
             collected
             build.log
             .build/*/release/PokeTokenBarWin.pdb

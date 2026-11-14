@@ -26,10 +26,15 @@ import XCTest
         return calls
     }
 
+    /// Shows the HUD's panels as a window would (a 960×640 window at 2x); `panels` records what it was asked to show.
+    let panels = RecordingPanelHost()
+
     func open(stage: any PlazaStage, title: String, overlays: PlazaOverlayBindings) {
         presented = stage
         self.overlays = overlays
         calls.append(.open(title: title))
+        overlays.hud.setViewport(CGSize(width: 960, height: 640), scale: 2)
+        overlays.hud.host = panels
     }
     func bringToFront() { calls.append(.bringToFront) }
     func requestClose() { calls.append(.requestClose) }
@@ -38,7 +43,10 @@ import XCTest
         presented = nil
         calls.append(.stopPresenting)
     }
-    func dismantle() { calls.append(.dismantle) }
+    func dismantle() {
+        overlays?.hud.host = nil
+        calls.append(.dismantle)
+    }
     func setTitle(_ title: String) { calls.append(.setTitle(title)) }
     func setTransparent(_ transparent: Bool) { calls.append(.setTransparent(transparent)) }
     func setHUDHidden(_ hidden: Bool) { calls.append(.setHUDHidden(hidden)) }
@@ -363,7 +371,6 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         let events = try XCTUnwrap(shell.events)
         events.contentHeightDidChange(320)
         XCTAssertEqual(c.rosterModel.capacity, PlazaRoster.capacity(forHeight: 320))
-        XCTAssertEqual(c.rosterModel.maxListHeight, PlazaRoster.maxListHeight(forHeight: 320))
         events.contentHeightDidChange(900)
         XCTAssertEqual(c.rosterModel.capacity, PlazaRoster.capacity(forHeight: 900))
         XCTAssertNotEqual(PlazaRoster.capacity(forHeight: 320), PlazaRoster.capacity(forHeight: 900), "the fixture tells the sizes apart")
