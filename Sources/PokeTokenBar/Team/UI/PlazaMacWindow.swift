@@ -219,8 +219,8 @@ extension SKView: PlazaPausableView {}
         if let field = chatInput?.field { window?.makeFirstResponder(field) }
     }
 
-    func show(_ id: PlazaPanelID, image: PlazaImage, frame: CGRect, scale: CGFloat) {
-        panelHosts[id]?.show(image: image.cgImage, frame: frame, scale: scale)
+    func show(_ id: PlazaPanelID, drawing: PlazaPanelDrawing, frame: CGRect, scale: CGFloat) {
+        panelHosts[id]?.show(drawing: drawing, frame: frame, scale: scale)
     }
 
     func hide(_ id: PlazaPanelID) {

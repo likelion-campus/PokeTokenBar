@@ -32,16 +32,13 @@ import Foundation
     }
 
     func size(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGSize {
-        let s = pill(scale, text).frame.size
-        return CGSize(width: s.width + 2 * PlazaPanelStyle.strokeRoom, height: s.height + 2 * PlazaPanelStyle.strokeRoom)
+        PlazaPanelSpace(content: pill(scale, text).frame.size).size
     }
 
-    func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaImage? {
-        var p = pill(scale, graphics.text)
-        let room = PlazaPanelStyle.strokeRoom
-        p.frame.origin = CGPoint(x: room, y: room)
-        return PlazaPill.image([p], size: CGSize(width: p.frame.width + 2 * room, height: p.frame.height + 2 * room),
-                               scale: scale, graphics: graphics)
+    /// One image and one static text read as the clock's text (`PlazaClock` was one `Text`).
+    func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
+        let p = pill(scale, graphics.text)
+        return PlazaPill.drawing([p], content: p.frame.size, scale: scale, graphics: graphics)
     }
 
     func hit(_ point: CGPoint) -> PlazaPanelHit? { nil }
