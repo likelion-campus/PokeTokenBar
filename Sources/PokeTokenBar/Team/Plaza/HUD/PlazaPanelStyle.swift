@@ -55,8 +55,10 @@ enum PlazaPanelStyle {
         (v * scale).rounded() / scale
     }
 
-    /// `v` rounded up to whole device pixels (a text's size, as SwiftUI sizes a `Text`).
+    /// `v` rounded up to whole device pixels (a text's size, as SwiftUI sizes a `Text`). A width within a thousandth of
+    /// a pixel above a boundary is that boundary (CoreText's sums of fractional advances land just above it; SwiftUI does
+    /// not add a pixel for them).
     static func pixelUp(_ v: CGFloat, scale: CGFloat) -> CGFloat {
-        (v * scale).rounded(.up) / scale
+        (v * scale - 0.001).rounded(.up) / scale
     }
 }

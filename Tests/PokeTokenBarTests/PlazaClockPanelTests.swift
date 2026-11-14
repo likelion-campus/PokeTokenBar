@@ -6,6 +6,10 @@ import XCTest
 @MainActor final class PlazaClockPanelTests: XCTestCase {
     private let stub = PlazaStubGraphics(log: { _ in })
 
+    private func settle() async {
+        for _ in 0..<20 { await Task.yield() }
+    }
+
     func testClockRendersOnlyWhenItsTextChanges() async {
         let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
         let hud = PlazaHUD(panels: [clock], graphics: stub)
@@ -15,10 +19,15 @@ import XCTest
         XCTAssertEqual(hud.renderCount, 0, "no text yet: nothing to show")
         XCTAssertFalse(clock.isVisible)
         clock.update("밤 21:34")
+        await settle()
         XCTAssertEqual(hud.renderCounts, [.clock: 1])
-        for _ in 0..<59 { clock.update("밤 21:34") }   // the 1 s tick within the minute
+        for _ in 0..<59 {   // the 1 s tick within the minute
+            clock.update("밤 21:34")
+            await settle()
+        }
         XCTAssertEqual(hud.renderCounts, [.clock: 1])
         clock.update("밤 21:35")
+        await settle()
         XCTAssertEqual(hud.renderCounts, [.clock: 2])
         let shown = host.take().compactMap { call -> PlazaPanelID? in
             if case .show(let id, _, _) = call { return id }
@@ -35,7 +44,11 @@ import XCTest
         XCTAssertEqual(clock.size(in: CGSize(width: 960, height: 640), scale: 1, text: stub.text), CGSize(width: 69, height: 24))
         XCTAssertEqual(clock.size(in: CGSize(width: 960, height: 640), scale: 2, text: stub.text), CGSize(width: 68.5, height: 24))
         let graphics = CanvasKeepingGraphics()
-        XCTAssertNotNil(clock.render(scale: 1, viewport: CGSize(width: 960, height: 640), graphics: graphics))
+        let drawing = clock.render(scale: 1, viewport: CGSize(width: 960, height: 640), graphics: graphics)
+        XCTAssertEqual(drawing.layers.count, 1, "one image")
+        XCTAssertEqual(drawing.accessibility, [PlazaAccessibilityItem(frame: CGRect(x: 1, y: 1, width: 67, height: 22), role: .staticText,
+                                                                      label: "밤 21:34")],
+                       "one static text, as PlazaClock's Text, over the pill")
         let calls = try XCTUnwrap(graphics.canvases.first).calls
         XCTAssertTrue(calls.contains("fillColor (\(29.0 / 255), \(79.0 / 255), \(92.0 / 255), 0.9)"), "\(calls)")
         XCTAssertTrue(calls.contains { $0.hasPrefix("fillRoundedRect (1.0, 1.0, 67.0, 22.0)") && $0.hasSuffix(" 6.0") }, "\(calls)")
