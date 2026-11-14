@@ -230,3 +230,4 @@ Check "processCyclesPerSec" $result.processCyclesPerSec $MaxProcessCyclesPerSec
 Check "privateGrowthMB" ($result.privateMBEnd - $result.privateMBStart) $MaxPrivateGrowthMB
 Check "handleGrowth" ($b.Handles - $a.Handles) $MaxHandleGrowth
 if ($failed) { exit 1 }
+exit 0
