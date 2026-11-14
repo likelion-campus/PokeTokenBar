@@ -21,8 +21,6 @@ import WinSDK
     static let enterMenuLoop: UINT = 0x0211, exitMenuLoop: UINT = 0x0212
     static let enterSizeMove: UINT = 0x0231, exitSizeMove: UINT = 0x0232
 
-    /// ROUND 1 ONLY (tests first): the pump is off, to record what the menu loop starves.
-    static let enabled = false
     private static var window: WinSinkWindow?
     private static var inTick = false
 
@@ -39,6 +37,9 @@ import WinSDK
     private(set) static var delivered: [UINT: Int] = [:]
     private(set) static var beginsWithoutWindow = 0
 
+    /// Verified on the runner: a tray menu opened with `TPM_NONOTIFY` delivers neither WM_ENTERMENULOOP nor
+    /// WM_EXITMENULOOP to the owner, so `WinPopupMenu.run` calls `begin`/`end` itself. The size/move pair is the
+    /// generic hook for windows of ours.
     /// Registers the timer and the size/move notifications on the window that owns the modal loops (the sink).
     static func install(on sink: WinSinkWindow) {
         window = sink
@@ -55,7 +56,7 @@ import WinSDK
 
     static func begin(_ reason: String) {
         depth += 1
-        guard depth == 1, enabled else { return }
+        guard depth == 1 else { return }
         guard let hwnd = window?.hwnd else { beginsWithoutWindow += 1; return }
         guard SetTimer(hwnd, timerID, interval, nil) != 0 else {
             AppLog.write("modal pump: SetTimer failed (\(reason)): \(GetLastError())")
