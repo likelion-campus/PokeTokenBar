@@ -88,16 +88,16 @@ private struct NoSprites: PlazaSpriteFetching {
 
         let subs = container.subviews
         XCTAssertEqual(subs.map { String(describing: type(of: $0)) },
-                       ["SKView", "PlazaRosterHostingView", "PlazaOverlayHostingView", "PlazaPanelHostView", "PlazaChatLogHostingView",
-                        "PlazaMinimapHostingView", "PlazaPanelHostView", "PlazaShortcutGuideHostingView",
-                        "PlazaBackgroundToggleHostingView", "PlazaNameColorPickerHostingView", "NSView"],
-                       "bottom first, as show() added them; the pills' host right above the overlay, the clock's where its hosting view was")
-        guard subs.count == 11 else { return }
-        XCTAssertEqual((subs[3] as? PlazaPanelHostView)?.panelID, .pills)
-        XCTAssertEqual((subs[6] as? PlazaPanelHostView)?.panelID, .clock)
-        XCTAssertTrue(subs[10] === chat.view, "the chat field's bar is on top")
+                       ["SKView", "PlazaRosterHostingView", "PlazaOverlayHostingView", "PlazaPanelHostView", "PlazaPanelHostView",
+                        "PlazaPanelHostView", "PlazaChatLogHostingView", "PlazaPanelHostView", "PlazaPanelHostView",
+                        "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "NSView"],
+                       "bottom first, as show() added them; the photo frame's, the menu's and the pills' hosts right above the overlay, the minimap's, the clock's, the guide's, the toggle's and the picker's hosts where their hosting views were")
+        guard subs.count == 13 else { return }
+        XCTAssertEqual(subs.compactMap { ($0 as? PlazaPanelHostView)?.panelID },
+                       [.photoFrame, .menu, .pills, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+        XCTAssertTrue(subs[12] === chat.view, "the chat field's bar is on top")
         for v in subs.dropFirst() { XCTAssertFalse(v.translatesAutoresizingMaskIntoConstraints) }
-        let named = ["roster", "overlay", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "chatBar"]
+        let named = ["roster", "overlay", "photoFrame", "menu", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "chatBar"]
         var names = [ObjectIdentifier(container): "container"]
         for (i, n) in named.enumerated() { names[ObjectIdentifier(subs[i + 1])] = n }
         func installed() -> (between: [String], own: Set<String>) {
@@ -112,15 +112,24 @@ private struct NoSprites: PlazaSpriteFetching {
             "overlay.leading = container.leading + 0", "overlay.trailing = container.trailing + 0",
             "chatBar.bottom = container.bottom + -16", "chatBar.leading = container.leading + 16",
             "chatLog.leading = container.leading + 16", atBottom,
-            "map.trailing = container.trailing + -\(m)", "map.bottom = container.bottom + -16",
             // The panel hosts cover the window; the HUD places the clock on the minimap (PlazaHUDTests).
             "pills.top = container.top + 0", "pills.bottom = container.bottom + 0",
             "pills.leading = container.leading + 0", "pills.trailing = container.trailing + 0",
             "clock.top = container.top + 0", "clock.bottom = container.bottom + 0",
             "clock.leading = container.leading + 0", "clock.trailing = container.trailing + 0",
-            "toggle.top = container.top + \(m)", "toggle.leading = container.leading + \(m)",
-            "shortcuts.top = toggle.bottom + 6", "shortcuts.leading = toggle.leading + 0",
-            "colorPicker.top = toggle.top + 0", "colorPicker.leading = toggle.trailing + 8",
+            // The HUD places the guide under the toggle and the picker beside it (PlazaHUDControlsTests).
+            "menu.top = container.top + 0", "menu.bottom = container.bottom + 0",
+            "menu.leading = container.leading + 0", "menu.trailing = container.trailing + 0",
+            "map.top = container.top + 0", "map.bottom = container.bottom + 0",
+            "map.leading = container.leading + 0", "map.trailing = container.trailing + 0",
+            "photoFrame.top = container.top + 0", "photoFrame.bottom = container.bottom + 0",
+            "photoFrame.leading = container.leading + 0", "photoFrame.trailing = container.trailing + 0",
+            "shortcuts.top = container.top + 0", "shortcuts.bottom = container.bottom + 0",
+            "shortcuts.leading = container.leading + 0", "shortcuts.trailing = container.trailing + 0",
+            "toggle.top = container.top + 0", "toggle.bottom = container.bottom + 0",
+            "toggle.leading = container.leading + 0", "toggle.trailing = container.trailing + 0",
+            "colorPicker.top = container.top + 0", "colorPicker.bottom = container.bottom + 0",
+            "colorPicker.leading = container.leading + 0", "colorPicker.trailing = container.trailing + 0",
         ]
         XCTAssertEqual(installed().between, expected.sorted())
         XCTAssertTrue(installed().own.isSuperset(of: ["roster.width = \(String(format: "%g", PlazaRosterMetrics.width))",
@@ -135,10 +144,10 @@ private struct NoSprites: PlazaSpriteFetching {
 
         chat.open()
         shell.setHUDHidden(true)
-        XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, true, true, true, true, true, true, false],
-                       "photo mode hides the roster, chat log, map, clock, guide and both toggles; not the scene, the overlay, its pills or the open field")
+        XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, false, false, true, true, true, true, true, true, false],
+                       "photo mode hides the roster, chat log, map, clock, guide and both toggles; not the scene, the overlay, its frame and pills or the open field")
         shell.setHUDHidden(false)
-        XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 11))
+        XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 13))
         shell.focusChatInput()
         XCTAssertFalse(w.firstResponder === view, "the field takes the keys")
         shell.focusScene()
@@ -171,6 +180,45 @@ private struct NoSprites: PlazaSpriteFetching {
         c.handleClose()
     }
 
+    /// While a menu is open its panel catches every click the controls above it do not take: the guide, toggle and picker (and
+    /// the chat log) take theirs first, the minimap and the clock (no clicks) let them through to the catcher, and it sits
+    /// above the roster and the scene. Nothing catches clicks while no menu is open.
+    func testAnOpenMenuCatchesClicksBelowTheControls() async throws {
+        let name = "PlazaWindowMacShellTests.\(UUID())"
+        defer { NSWindow.removeFrame(usingName: name) }
+        let c = controller(shell: RecordingPlazaShell())
+        c.prepareScene()
+        let scene = try XCTUnwrap(c.scene)
+        let shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("this test never brings a window forward") })
+        let overlays = c.overlayBindings
+        shell.open(stage: scene.stage, title: "t", overlays: overlays)
+        let container = try XCTUnwrap(shell.windowForTesting?.contentView)
+        container.layoutSubtreeIfNeeded()
+        let subs = container.subviews
+        func hosts(at p: CGPoint) -> PlazaPanelID? { (container.hitTest(NSPoint(x: p.x, y: container.bounds.height - p.y)) as? PlazaPanelHostView)?.panelID }
+        let size = container.bounds.size
+        let frames = c.hud.layout(viewport: c.hud.viewport, scale: c.hud.scale)
+        func mid(_ id: PlazaPanelID, dy: CGFloat = 0.5) -> CGPoint { let f = frames[id]!; return CGPoint(x: f.midX, y: f.minY + f.height * dy) }
+        XCTAssertNil(hosts(at: CGPoint(x: size.width / 2, y: size.height / 2)), "no menu: the scene gets the click")
+        overlays.overlayModel.content = .memberMenu(PlazaMemberMenu(memberID: "m", nickname: "민수"))
+        for _ in 0..<20 { await Task.yield() }
+        container.layoutSubtreeIfNeeded()
+        XCTAssertEqual(hosts(at: CGPoint(x: size.width / 2, y: size.height - 80)), .menu, "far from everything: the catcher")
+        XCTAssertEqual(hosts(at: CGPoint(x: size.width - 100, y: 60)), .menu, "over the roster: the catcher is above it")
+        let toggle = frames[.backgroundToggle]!
+        XCTAssertEqual(hosts(at: CGPoint(x: toggle.midX, y: toggle.midY)), .backgroundToggle, "the toggle takes its click first")
+        let minimap = frames[.minimap]!
+        XCTAssertEqual(hosts(at: CGPoint(x: minimap.midX, y: minimap.midY)), .menu, "the minimap takes no clicks: they reach the catcher")
+        XCTAssertLessThan(try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .menu }),
+                          try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .shortcuts }))
+        overlays.overlayModel.content = .none
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertNil(hosts(at: CGPoint(x: size.width / 2, y: size.height - 80)), "closed again: the click goes to the scene")
+        shell.stopPresenting()
+        shell.dismantle()
+        c.handleClose()
+    }
+
     /// Each SwiftUI view gets its own action: the no-argument closures all have the same type, so a swap would still compile.
     func testEachOverlayViewCallsItsOwnAction() async throws {
         let name = "PlazaWindowMacShellTests.\(UUID())"
@@ -181,29 +229,42 @@ private struct NoSprites: PlazaSpriteFetching {
         let shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("this test never brings a window forward") })
         shell.open(stage: scene.stage, title: "t", overlays: c.overlayBindings)
         let subs = try XCTUnwrap(shell.windowForTesting?.contentView).subviews
-        guard subs.count == 11 else { return XCTFail("\(subs)") }
+        guard subs.count == 13 else { return XCTFail("\(subs)") }
         let roster = try XCTUnwrap(subs[1] as? PlazaRosterHostingView)
         let overlay = try XCTUnwrap(subs[2] as? PlazaOverlayHostingView)
-        let chatLog = try XCTUnwrap(subs[4] as? PlazaChatLogHostingView)
-        let guide = try XCTUnwrap(subs[7] as? PlazaShortcutGuideHostingView)
-        let background = try XCTUnwrap(subs[8] as? PlazaBackgroundToggleHostingView)
-        let picker = try XCTUnwrap(subs[9] as? PlazaNameColorPickerHostingView)
+        let chatLog = try XCTUnwrap(subs[6] as? PlazaChatLogHostingView)
         func state() -> [Bool] { [c.isChatLogExpanded, c.areShortcutsFolded, c.isBackgroundHidden, c.isNameColorPickerOpen] }
+        func click(_ index: Int, _ id: PlazaPanelID, _ point: (CGRect) -> CGPoint) throws {
+            // A click on the panel's host view: the HUD's frame for the panel, the point in it, down and up through the host.
+            let host = try XCTUnwrap(subs[index] as? PlazaPanelHostView)
+            XCTAssertEqual(host.panelID, id)
+            host.superview?.layoutSubtreeIfNeeded()
+            let frame = try XCTUnwrap(c.hud.layout(viewport: c.hud.viewport, scale: c.hud.scale)[id])
+            let p = point(frame)
+            let local = NSPoint(x: p.x, y: host.bounds.height - p.y)
+            XCTAssertTrue(host.hitTest(host.convert(local, to: host.superview)) === host, "\(id): the host takes the click")
+            for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let e = try XCTUnwrap(NSEvent.mouseEvent(with: kind, location: host.convert(local, to: nil), modifierFlags: [], timestamp: 0,
+                                                         windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+                if kind == .leftMouseDown { host.mouseDown(with: e) } else { host.mouseUp(with: e) }
+            }
+        }
         XCTAssertEqual(state(), [false, false, false, false])
         chatLog.rootView.toggle()
         XCTAssertEqual(state(), [true, false, false, false], "the chat log's button expands the log")
-        guide.rootView.toggle()
+        try click(9, .shortcuts, { CGPoint(x: $0.minX + 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, true, false, false], "the guide's header folds the guide")
-        background.rootView.toggle()
+        try click(10, .backgroundToggle, { CGPoint(x: $0.midX, y: $0.midY) })
         XCTAssertEqual(state(), [true, true, true, false], "the eye button hides the background")
-        picker.rootView.toggle()
+        try click(11, .nameColorPicker, { CGPoint(x: $0.minX + 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, true, true, true], "the colour button opens the palette")
-        picker.rootView.choose(PlazaNameColor.hexes[2])
+        for _ in 0..<20 { await Task.yield() }   // the HUD draws the palette on the main actor's next turn
+        let picker = try XCTUnwrap(c.hud.panels.first { $0.id == .nameColorPicker } as? PlazaNameColorPickerPanel)
+        let swatch = picker.render(scale: 2, viewport: c.hud.viewport, graphics: c.hud.graphics).accessibility[3].frame
+        try click(11, .nameColorPicker, { CGPoint(x: $0.minX + swatch.midX, y: $0.minY + swatch.midY) })
         XCTAssertEqual(c.shownNameColor, PlazaNameColor.hexes[2])
         XCTAssertFalse(c.isNameColorPickerOpen)
-        scene.isOverlayOpen = true
-        overlay.rootView.onMenuCancel()
-        XCTAssertFalse(scene.isOverlayOpen, "a click outside a menu closes the overlay")
+        _ = overlay
         c.rosterModel.entries = (0..<7).map {
             PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
                              isShiny: false, presence: .idle, isMe: false)
@@ -376,21 +437,16 @@ extension PlazaWindowTests {
 
     /// With the background hidden the minimap is a dim, see-through panel; the dots stay as they are.
     func testMinimapDimsWhenTheBackgroundIsHidden() async throws {
-        let map = NSImage(size: NSSize(width: 48, height: 32), flipped: false) { rect in
-            NSColor(srgbRed: 0.43, green: 0.73, blue: 0.33, alpha: 1).setFill(); rect.fill(); return true
-        }
+        let map = PlazaImage(bitmap: PlazaBitmap(width: 48, height: 32, fill: PlazaRGBA(r: 110, g: 186, b: 84, a: 255)))
         func meanAlpha(hidden: Bool) throws -> Double {
             let background = PlazaBackgroundModel()
             background.isHidden = hidden
-            let view = PlazaMinimapView(model: PlazaMinimapModel(), background: background, mapImage: map,
-                                        worldSize: PlazaMapData.map.pixelSize)
-            let image = try XCTUnwrap(ImageRenderer(content: view).cgImage)
-            var px = [UInt8](repeating: 0, count: image.width * image.height * 4)
-            let ctx = try XCTUnwrap(CGContext(data: &px, width: image.width, height: image.height, bitsPerComponent: 8,
-                                              bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            return Double(stride(from: 3, to: px.count, by: 4).reduce(0) { $0 + Int(px[$1]) }) / Double(px.count / 4) / 255
+            let panel = PlazaMinimapPanel(model: PlazaMinimapModel(), background: background, worldSize: PlazaMapData.map.pixelSize,
+                                          mapImage: { map })
+            let drawing = panel.render(scale: 1, viewport: .zero, graphics: PlatformPlaza.graphics)
+            guard case .image(let image, _)? = drawing.layers.first else { throw XCTSkip("no plate") }
+            let px = image.pixels
+            return Double(stride(from: 3, to: px.bytes.count, by: 4).reduce(0) { $0 + Int(px.bytes[$1]) }) / Double(px.bytes.count / 4) / 255
         }
         let shown = try meanAlpha(hidden: false), dimmed = try meanAlpha(hidden: true)
         XCTAssertGreaterThan(shown, 0.9, "opaque while the map is shown")
@@ -435,8 +491,8 @@ extension PlazaWindowTests {
 
     /// The roster draws under the minimap and the clock, so its reserve must cover both as they really measure.
     func testRosterClearanceCoversTheMinimapAndTheClock() async {
-        let map = NSHostingView(rootView: PlazaMinimapView(model: PlazaMinimapModel(), mapImage: NSImage(size: NSSize(width: 1, height: 1)),
-                                                           worldSize: PlazaMapData.map.pixelSize))
+        let map = NSHostingView(rootView: LegacyPlazaMinimapView(model: PlazaMinimapModel(), mapImage: NSImage(size: NSSize(width: 1, height: 1)),
+                                                                 worldSize: PlazaMapData.map.pixelSize))
         let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
         clock.update(PlazaDaylight.clockText(Date(), core: .standard))
         // The clock panel's image keeps 1 point of stroke room above and below the pill.

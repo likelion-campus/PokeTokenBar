@@ -207,6 +207,11 @@ final class CountingTextEngine: PlazaTextEngine, @unchecked Sendable {
         wrapped += 1
         return base.wrappedLines(text, font: font, width: width)
     }
+    func line(_ runs: [PlazaTextRun]) -> PlazaTextLine { base.line(runs) }
+    func wrappedLines(_ runs: [PlazaTextRun], width: CGFloat) -> [PlazaTextLine] {
+        wrapped += 1
+        return base.wrappedLines(runs, width: width)
+    }
 }
 
 /// The stub graphics with a given text engine.

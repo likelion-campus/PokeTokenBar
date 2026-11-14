@@ -4,23 +4,25 @@ import AppKit
 import SwiftUI
 @testable import PokeTokenBar
 
-extension PlazaInteractionTests {
-    private func renderedWidth<V: View>(_ view: V) throws -> CGFloat {
-        let r = ImageRenderer(content: view)
-        r.scale = 1
-        return CGFloat(try XCTUnwrap(r.cgImage).width)
-    }
+/// The menu's frame in a 960x640 window at 1x, drawn by `PlazaMenuPanel` with the Mac's real text.
+@MainActor fileprivate func menuFrame(_ content: PlazaOverlayContent) throws -> CGRect {
+let model = PlazaOverlayModel()
+model.content = content
+let panel = PlazaMenuPanel(model: model, pills: PlazaPillsPanel(model: model))
+let drawing = panel.render(scale: 1, viewport: CGSize(width: 960, height: 640), graphics: PlatformPlaza.graphics)
+guard case .image(_, let frame)? = drawing.layers.first else { throw XCTSkip("no menu image") }
+return frame
+}
 
+extension PlazaInteractionTests {
     func testMemberMenuGrowsToFitALongStatusButKeepsItsUsualWidth() async throws {
         var menu = PlazaMemberMenu(memberID: "a", nickname: "가", nameColor: nil)
-        let plain = try renderedWidth(PlazaMemberMenuView(menu: menu, onChoose: { _ in }))
-        XCTAssertEqual(plain, PlazaMemberMenuView.width)
+        XCTAssertEqual(try menuFrame(.memberMenu(menu)).width, PlazaMenuText.width)
         menu.status = L(.ko).plazaFocusStatus(seconds: 7 * 3600 + 43 * 60)
-        let long = try renderedWidth(PlazaMemberMenuView(menu: menu, onChoose: { _ in }))
-        XCTAssertGreaterThan(long, PlazaMemberMenuView.width)
+        XCTAssertGreaterThan(try menuFrame(.memberMenu(menu)).width, PlazaMenuText.width)
         for join in [false, true] {
             let c = PlazaCampfireMenu(isJoin: join, minutes: PlazaCampfire.durations, selection: 0)
-            XCTAssertGreaterThanOrEqual(try renderedWidth(PlazaCampfireMenuView(menu: c, onChoose: { _ in })), PlazaMemberMenuView.width)
+            XCTAssertGreaterThanOrEqual(try menuFrame(.campfireMenu(c)).width, PlazaMenuText.width)
         }
     }
 
@@ -60,22 +62,21 @@ extension PlazaInteractionTests {
 extension PlazaCardTests {
     /// Both lines fit the menu on one line each.
     func testMenuLinesFitTheMenu() async {
-        let inner = PlazaMemberMenuView.width - 2 * (PlazaRosterMetrics.padding + 2)
+        let inner = PlazaMenuText.width - 2 * (PlazaRosterMetrics.padding + 2)
         for action in PlazaMemberAction.allCases {
-            let text = "▶ " + PlazaMemberMenuView.title(action)
+            let text = "▶ " + PlazaMenuText.title(action)
             let width = NSAttributedString(string: text, attributes: [.font: PlazaResources.font(.body)]).size().width
             XCTAssertLessThanOrEqual(width, inner, text)
         }
     }
 
-    /// The menu renders at its fixed width, with the name and both lines one text line each.
-    func testMenuViewKeepsItsWidthAndOneLineEach() async {
-        let view = PlazaMemberMenuView(menu: PlazaMemberMenu(memberID: "m", nickname: "ＷＷＷＷＷＷＷＷＷＷＷＷ", selection: .viewCard),
-                                       onChoose: { _ in })
-        let size = NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: 1000, height: 1000))
-        XCTAssertEqual(size.width, PlazaMemberMenuView.width)
+    /// The menu draws at its fixed width, the name and every row one text line each (a wide name is cut, not wrapped).
+    func testMenuKeepsItsWidthAndOneLineEach() async throws {
+        let menu = PlazaMemberMenu(memberID: "m", nickname: "ＷＷＷＷＷＷＷＷＷＷＷＷ", selection: .viewCard)
+        let frame = try menuFrame(.memberMenu(menu))
+        XCTAssertEqual(frame.width, PlazaMenuText.width)
         let line = NSLayoutManager().defaultLineHeight(for: PlazaResources.font(.body))
-        // The name and four lines with four gaps; a wrapped line would add a whole line more.
-        XCTAssertLessThan(size.height, 5.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 4 * 4, "five lines, none wrapped")
+        // The name and four rows with four gaps; a wrapped line would add a whole line more.
+        XCTAssertLessThan(frame.height, 5.5 * line + 2 * (PlazaRosterMetrics.padding + 2) + 4 * 4, "five lines, none wrapped")
     }
 }

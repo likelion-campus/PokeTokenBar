@@ -1,4 +1,4 @@
-// PlazaEmoteTests+Mac: the SwiftUI shortcut guide and CGImage pixel reads of the emote art
+// PlazaEmoteTests+Mac: the shortcut guide's real-text size and CGImage pixel reads of the emote art
 import XCTest
 import SwiftUI
 import AppKit
@@ -38,8 +38,8 @@ extension PlazaEmoteTests {
         func height(folded: Bool) throws -> CGFloat {
             let model = PlazaShortcutGuideModel()
             model.isFolded = folded
-            let r = ImageRenderer(content: PlazaShortcutGuide(model: model, toggle: {}))
-            return try XCTUnwrap(r.nsImage).size.height
+            let panel = PlazaShortcutGuidePanel(model: model, toggle: PlazaBackgroundTogglePanel(model: PlazaBackgroundModel()))
+            return panel.size(in: .zero, scale: 1, text: PlatformPlaza.graphics.text).height - 2 * PlazaPanelStyle.strokeRoom
         }
         let folded = try height(folded: true), open = try height(folded: false)
         XCTAssertLessThan(folded, 40, "one line")

@@ -92,6 +92,21 @@ final class PlazaStubCanvas: PlazaCanvas {
     func clip(to rect: CGRect) { record("clip \(Self.r(rect))") }
     func fill(_ rect: CGRect) { record("fill \(Self.r(rect))") }
     func fillEllipse(in rect: CGRect) { record("fillEllipse \(Self.r(rect))") }
+    func strokeEllipse(in rect: CGRect, lineWidth: CGFloat) { record("strokeEllipse \(Self.r(rect)) \(Self.f(lineWidth))") }
+    func fillPath(_ path: PlazaPath) { record("fillPath \(Self.path(path))") }
+    func strokePath(_ path: PlazaPath, lineWidth: CGFloat, cap: PlazaLineCap) {
+        record("strokePath \(Self.path(path)) \(Self.f(lineWidth)) \(cap)")
+    }
+    func clip(toRoundedRect rect: CGRect, radius: CGFloat) { record("clipRoundedRect \(Self.r(rect)) \(Self.f(radius))") }
+    private static func path(_ p: PlazaPath) -> String {
+        p.elements.map { e in
+            switch e {
+            case .move(let q): "M\(f(q.x)),\(f(q.y))"
+            case .line(let q): "L\(f(q.x)),\(f(q.y))"
+            case .close: "Z"
+            }
+        }.joined(separator: " ")
+    }
     func fillRoundedRect(_ rect: CGRect, radius: CGFloat) { record("fillRoundedRect \(Self.r(rect)) \(Self.f(radius))") }
     func strokeRoundedRect(_ rect: CGRect, radius: CGFloat, lineWidth: CGFloat) {
         record("strokeRoundedRect \(Self.r(rect)) \(Self.f(radius)) \(Self.f(lineWidth))")
@@ -167,25 +182,75 @@ struct PlazaStubTextEngine: PlazaTextEngine {
 
     /// Breaks at spaces only (greedy); a word wider than a line breaks between characters.
     func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine] {
-        let size = Self.size(font)
-        func fits(_ s: String) -> Bool { Self.line(s, size: size).width <= width }
-        var lines: [String] = []
-        var current = ""
+        wrappedLines([PlazaTextRun(text: text, font: font, color: .white)], width: width).map {
+            Self.line($0.native.flatMap { ($0 as? PlazaStubText)?.text } ?? "", size: Self.size(font))
+        }
+    }
+
+    func line(_ runs: [PlazaTextRun]) -> PlazaTextLine {
+        Self.line(runs.map { Piece(text: $0.text, run: $0) })
+    }
+
+    /// The same rules over runs: a space (or a run boundary after one) ends a word; the pieces of a line are the runs'
+    /// characters, runs of one colour and font joined; a space that a break swallows is not in any line.
+    func wrappedLines(_ runs: [PlazaTextRun], width: CGFloat) -> [PlazaTextLine] {
+        struct Element { let ch: Character; let run: Int }
+        let elements = runs.enumerated().flatMap { i, r in r.text.map { Element(ch: $0, run: i) } }
+        var words: [[Element]] = [], word: [Element] = [], gaps: [Int] = []   // gaps[i]: the run of the space before words[i]
+        var gap = 0
+        for e in elements {
+            if e.ch == " " {
+                if !word.isEmpty { words.append(word); word = [] }
+                gap = e.run
+            } else {
+                if word.isEmpty { gaps.append(gap) }
+                word.append(e)
+            }
+        }
+        if !word.isEmpty { words.append(word) }
+        func fits(_ line: [Element]) -> Bool {   // 0.6 × size × count per run: one run is exactly `line(_:size:)`'s width
+            var counts: [Int: Int] = [:]
+            for e in line { counts[e.run, default: 0] += 1 }
+            return counts.keys.sorted().reduce(CGFloat(0)) { $0 + 0.6 * Self.size(runs[$1].font) * CGFloat(counts[$1]!) } <= width
+        }
+        var lines: [[Element]] = [], current: [Element] = []
         func flush() {
             if !current.isEmpty { lines.append(current) }
-            current = ""
+            current = []
         }
-        for word in text.split(separator: " ").map(String.init) {
-            let candidate = current.isEmpty ? word : current + " " + word
+        for (i, w) in words.enumerated() {
+            let candidate = current.isEmpty ? w : current + [Element(ch: " ", run: gaps[i])] + w
             if fits(candidate) { current = candidate; continue }
             flush()
-            for ch in word {
-                if !current.isEmpty, !fits(current + String(ch)) { flush() }
-                current.append(ch)
+            for e in w {
+                if !current.isEmpty, !fits(current + [e]) { flush() }
+                current.append(e)
             }
         }
         flush()
-        return (lines.isEmpty ? [""] : lines).map { Self.line($0, size: size) }
+        let source = runs.first ?? PlazaTextRun(text: "", font: .plaza(.body), color: .white)
+        guard !lines.isEmpty else { return [Self.line([Piece(text: "", run: source)])] }
+        return lines.map { l in
+            var pieces: [Piece] = []
+            for e in l {
+                if let last = pieces.last, last.run.font == runs[e.run].font, last.run.color == runs[e.run].color {
+                    pieces[pieces.count - 1].text.append(e.ch)
+                } else {
+                    pieces.append(Piece(text: String(e.ch), run: runs[e.run]))
+                }
+            }
+            return Self.line(pieces)
+        }
+    }
+
+    private struct Piece { var text: String; var run: PlazaTextRun }
+
+    private static func line(_ pieces: [Piece]) -> PlazaTextLine {
+        let width = pieces.reduce(CGFloat(0)) { $0 + 0.6 * size($1.run.font) * CGFloat($1.text.count) }
+        let tallest = pieces.map { size($0.run.font) }.max() ?? size(.plaza(.body))
+        return PlazaTextLine(width: width, ascent: 0.8 * tallest, descent: 0.2 * tallest, leading: 0,
+                             native: PlazaStubText(text: pieces.map(\.text).joined(), size: tallest),
+                             runs: pieces.map { var r = $0.run; r.text = $0.text; return r })
     }
 
     func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph {

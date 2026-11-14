@@ -63,6 +63,44 @@ final class CGPlazaCanvas: PlazaCanvas {
     func fill(_ rect: CGRect) { context.fill(rect) }
     func fillEllipse(in rect: CGRect) { context.fillEllipse(in: rect) }
 
+    func strokeEllipse(in rect: CGRect, lineWidth: CGFloat) {
+        context.saveGState()
+        context.setLineWidth(lineWidth)
+        context.strokeEllipse(in: rect)
+        context.restoreGState()
+    }
+
+    private static func cgPath(_ path: PlazaPath) -> CGPath {
+        let p = CGMutablePath()
+        for e in path.elements {
+            switch e {
+            case .move(let point): p.move(to: point)
+            case .line(let point): p.addLine(to: point)
+            case .close: p.closeSubpath()
+            }
+        }
+        return p
+    }
+
+    func fillPath(_ path: PlazaPath) {
+        context.addPath(Self.cgPath(path))
+        context.fillPath()
+    }
+
+    func strokePath(_ path: PlazaPath, lineWidth: CGFloat, cap: PlazaLineCap) {
+        context.saveGState()
+        context.setLineWidth(lineWidth)
+        context.setLineCap(cap == .round ? .round : .butt)
+        context.addPath(Self.cgPath(path))
+        context.strokePath()
+        context.restoreGState()
+    }
+
+    func clip(toRoundedRect rect: CGRect, radius: CGFloat) {
+        context.addPath(Self.roundedRect(rect, radius: radius))
+        context.clip()
+    }
+
     /// SwiftUI's own path for `RoundedRectangle(cornerRadius:)` (its default `.continuous` corners), so a panel's pill has
     /// the corners the SwiftUI view had.
     static func roundedRect(_ rect: CGRect, radius: CGFloat) -> CGPath {
