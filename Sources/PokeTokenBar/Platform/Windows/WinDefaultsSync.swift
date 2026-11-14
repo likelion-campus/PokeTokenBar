@@ -152,6 +152,19 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
         }
     }
 
+    private static func armDebounce() {
+        guard debounceTimer == nil else { return }
+        let timer = Timer(fire: Date(timeIntervalSinceNow: debounce), interval: 0, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                debounceTimer = nil
+                debounceFires += 1
+                flushNow()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        debounceTimer = timer
+    }
+
     /// Where CoreFoundation writes the standard domain: `<GetProfilesDirectoryW>\<GetUserNameW>\AppData\Local\
     /// <ProcessInfo.processName>.plist`, and the process name keeps `.exe` (F2). It is built from the user *name*,
     /// not the profile path, so it can miss the real profile (R9; the selftest's `defaults.location`).
