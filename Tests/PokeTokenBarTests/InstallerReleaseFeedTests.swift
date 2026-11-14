@@ -79,6 +79,33 @@ final class InstallerReleaseFeedTests: XCTestCase {
         XCTAssertNil(macOnly, "the Mac release is not an update for Windows")
     }
 
+    func testOutcomeTellsNothingForWindowsApartFromACouldNotAsk() async {
+        FeedStubProtocol.status = 200
+        FeedStubProtocol.body = release(assets: ["PokeTokenBar-2.6.0.zip"])
+        let none = await InstallerReleaseFeed.outcome(session: stubbedSession())
+        XCTAssertEqual(none, .noInstaller)
+        FeedStubProtocol.status = 403
+        let failed = await InstallerReleaseFeed.outcome(session: stubbedSession())
+        XCTAssertEqual(failed, .failed, "a rate-limit answer is a failed check, retried at once like the Mac")
+        FeedStubProtocol.status = 200
+        FeedStubProtocol.body = Data("not json".utf8)
+        let garbage = await InstallerReleaseFeed.outcome(session: stubbedSession())
+        XCTAssertEqual(garbage, .failed)
+        FeedStubProtocol.body = release(assets: ["PokeTokenBar-Setup-2.6.0-win-x64.exe"])
+        let found = await InstallerReleaseFeed.outcome(session: stubbedSession())
+        XCTAssertEqual(found, .release(UpdateChecker.LatestRelease(tag: "v2.6.0", url: "https://github.com/likelion-campus/PokeTokenBar/releases/tag/v2.6.0")))
+    }
+
+    func testAnEmptyAnswerHoldsTheNextRequestForThirtyMinutes() {
+        var cooldown = InstallerReleaseFeed.EmptyAnswerCooldown()
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertTrue(cooldown.mayAsk(now: t0), "nothing asked yet")
+        cooldown.noteEmptyAnswer(now: t0)
+        XCTAssertFalse(cooldown.mayAsk(now: t0.addingTimeInterval(5)), "a menu open right after is not a request")
+        XCTAssertFalse(cooldown.mayAsk(now: t0.addingTimeInterval(1799)))
+        XCTAssertTrue(cooldown.mayAsk(now: t0.addingTimeInterval(1800)), "same 30 minutes as UpdateChecker.check")
+    }
+
     @MainActor
     func testTheCheckerOffersAWindowsReleaseOnlyThroughTheFeed() async {
         let defaults = TestDefaults.make(suite: "InstallerReleaseFeedTests.\(UUID().uuidString)")

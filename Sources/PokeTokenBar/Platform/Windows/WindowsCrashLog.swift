@@ -8,9 +8,13 @@ import WinSDK
 /// stderr in a file. Everything stays in the app's log folder; nothing is sent anywhere.
 ///
 /// The crash record holds the exception code and address, the module and offset, the app version, the OS build, the
-/// process and thread ids and the UTC time. No settings, no file contents, no team code, no paths. The minidump
-/// (`MiniDumpNormal`) is the one artifact that can hold more: thread contexts and stacks. It stays on this machine
-/// and only the newest `keptDumps` are kept.
+/// process and thread ids and the UTC time. No settings, no file contents, no team code, no paths. A minidump
+/// (`MiniDumpNormal`, opt-in only) is the one artifact that can hold more: thread contexts and stacks. It stays on
+/// this machine and only the newest `keptDumps` are kept.
+///
+/// Minidumps are OFF by default and written only when the environment variable `PTB_CRASH_DUMPS=1` is set at launch
+/// (no UI yet); the decision is read once at install, never in the filter. Existing dump files are never deleted
+/// when the variable is off.
 ///
 /// The filter itself lives in `crash.c` (it must not allocate or take locks). It never writes the settings plist.
 enum WindowsCrashLog {
@@ -21,13 +25,16 @@ enum WindowsCrashLog {
     static let keptDumps = 3
     static let stderrKeptBytes = 256 * 1024
 
+    /// `PTB_CRASH_DUMPS=1` in this process's environment right now (install reads it once).
+    static var dumpsOptedIn: Bool { ptb_crash_dumps_opted_in() != 0 }
+
     private static let lock = NSLock()
     nonisolated(unsafe) private static var ownedMarkers = Set<String>()
 
     /// Once, as early as possible at launch (right after the single-instance check).
     static func install(version: String, logsDirectory: URL = PlatformCompat.logsDirectory(),
                         log: @escaping (String) -> Void = { AppLog.write($0) }, installHandlers: Bool = true) {
-        prepare(logsDirectory: logsDirectory, log: log)
+        prepare(logsDirectory: logsDirectory, dumpsOptedIn: dumpsOptedIn, log: log)
         guard installHandlers else { return }
         version.withCString { ptb_crash_set_version($0) }
         let crash = WinStr.w(WinPath.native(logsDirectory.appendingPathComponent(crashLogName)))
@@ -42,17 +49,18 @@ enum WindowsCrashLog {
     }
 
     /// The file part of `install`, without touching the process (the unit tests call this one).
-    static func prepare(logsDirectory: URL, log: (String) -> Void) {
+    static func prepare(logsDirectory: URL, dumpsOptedIn: Bool, log: (String) -> Void) {
         try? FileManager.default.createDirectory(at: logsDirectory, withIntermediateDirectories: true)
         drainCrashLog(in: logsDirectory, log: log)
         let marker = logsDirectory.appendingPathComponent(markerName)
         if FileManager.default.fileExists(atPath: marker.path) {
             log("previous session did not end cleanly (crash, kill or power loss). The crash record, if any, follows; "
-                + "minidumps are in the log folder.")
+                + "minidumps (only when PTB_CRASH_DUMPS=1) are in the log folder.")
         }
         _ = FileManager.default.createFile(atPath: marker.path, contents: Data())
         lock.lock(); ownedMarkers.insert(marker.path); lock.unlock()
-        pruneDumps(in: logsDirectory)
+        // Existing dumps are the user's (an earlier opted-in run): left alone unless dumps are on, then newest three.
+        if dumpsOptedIn { pruneDumps(in: logsDirectory) }
         trimStderrLog(in: logsDirectory)
     }
 

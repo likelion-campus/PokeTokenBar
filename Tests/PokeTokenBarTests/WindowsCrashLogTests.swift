@@ -1,4 +1,5 @@
 #if os(Windows)
+import WinSDK
 import XCTest
 @testable import PokeTokenBar
 
@@ -17,8 +18,8 @@ final class WindowsCrashLogTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
-    private func prepare() {
-        WindowsCrashLog.prepare(logsDirectory: dir) { self.lines.append($0) }
+    private func prepare(dumps: Bool = true) {
+        WindowsCrashLog.prepare(logsDirectory: dir, dumpsOptedIn: dumps) { self.lines.append($0) }
     }
 
     private func exists(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path) }
@@ -86,6 +87,25 @@ final class WindowsCrashLogTests: XCTestCase {
                        ["PokeTokenBar-20261114-100000-12.dmp", "PokeTokenBar-20261114-100000-14.dmp", "PokeTokenBar-20261114-100000-15.dmp"],
                        "the three most recently written")
         XCTAssertTrue(exists("unrelated.dmp"), "only our own dump names are pruned")
+    }
+
+    func testWithoutTheOptInExistingDumpsAreLeftAlone() throws {
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dumps = (1...5).map { "PokeTokenBar-20261114-10000\($0)-1\($0).dmp" }
+        for name in dumps { try Data("MDMP".utf8).write(to: dir.appendingPathComponent(name)) }
+        prepare(dumps: false)
+        XCTAssertEqual(names().filter { $0.hasSuffix(".dmp") }, dumps, "an earlier opted-in run's dumps are the user's")
+    }
+
+    func testTheOptInIsReadFromTheEnvironmentOnlyWhenExactlyOne() throws {
+        let name = "PTB_CRASH_DUMPS"
+        defer { _ = SetEnvironmentVariableW(WinStr.w(name), nil) }
+        _ = SetEnvironmentVariableW(WinStr.w(name), nil)
+        XCTAssertEqual(WindowsCrashLog.dumpsOptedIn, false)
+        _ = SetEnvironmentVariableW(WinStr.w(name), WinStr.w("0"))
+        XCTAssertEqual(WindowsCrashLog.dumpsOptedIn, false)
+        _ = SetEnvironmentVariableW(WinStr.w(name), WinStr.w("1"))
+        XCTAssertEqual(WindowsCrashLog.dumpsOptedIn, true)
     }
 
     func testTheStderrLogIsCutToItsNewestBytes() throws {

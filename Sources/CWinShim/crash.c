@@ -40,6 +40,7 @@ static volatile LONG g_busy;
 static EXCEPTION_POINTERS *g_ep;
 static DWORD g_crash_tid;
 static SYSTEMTIME g_time;
+static int g_dumps;                 // minidumps are opt-in (PTB_CRASH_DUMPS=1), decided once at install
 
 static void log_write(const char *s, size_t n) {
     DWORD written = 0;
@@ -154,7 +155,12 @@ static DWORD WINAPI extras_thread(LPVOID unused) {
         if (t) { WaitForSingleObject(t, 500); CloseHandle(t); }
     }
     if (g_ep) put_module();
-    put_dump();
+    if (g_dumps) {
+        put_dump();
+    } else {
+        static const char off[] = "[CRASH] dump=off (minidumps are opt-in: set PTB_CRASH_DUMPS=1)\n";
+        log_write(off, sizeof off - 1);
+    }
     return 0;
 }
 
@@ -197,6 +203,12 @@ void ptb_crash_set_version(const char *utf8) {
     g_version[n] = 0;
 }
 
+int ptb_crash_dumps_opted_in(void) {
+    wchar_t value[8];
+    DWORD n = GetEnvironmentVariableW(L"PTB_CRASH_DUMPS", value, 8);
+    return n == 1 && value[0] == L'1';
+}
+
 int ptb_crash_install(const uint16_t *crash_log_path, const uint16_t *dump_dir, ptb_crash_hook before_dump) {
     if (g_log != INVALID_HANDLE_VALUE) return 0;
     g_log = CreateFileW((const wchar_t *)crash_log_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -206,6 +218,7 @@ int ptb_crash_install(const uint16_t *crash_log_path, const uint16_t *dump_dir, 
     for (; dump_dir && dump_dir[i] && i < 519; i++) g_dump_dir[i] = (wchar_t)dump_dir[i];
     g_dump_dir[i] = 0;
     g_hook = before_dump;
+    g_dumps = ptb_crash_dumps_opted_in();
 
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
     g_pc_to_header = ntdll ? (pc_to_header_fn)(void *)GetProcAddress(ntdll, "RtlPcToFileHeader") : NULL;

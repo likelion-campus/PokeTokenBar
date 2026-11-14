@@ -34,11 +34,36 @@ enum InstallerReleaseFeed {
     /// Same endpoint, header and timeout as the Mac's `UpdateChecker.liveLatestRelease`. nil on any transport or
     /// payload failure (the checker treats that as "no check happened": no banner, no cooldown).
     static func latest(repo: String = UpdateChecker.releaseRepo, session: URLSession = .shared) async -> UpdateChecker.LatestRelease? {
-        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return nil }
+        if case .release(let release) = await outcome(repo: repo, session: session) { return release }
+        return nil
+    }
+
+    enum Outcome: Equatable {
+        case release(UpdateChecker.LatestRelease)
+        /// GitHub answered (200) but the latest release has no Windows installer: a successful check with nothing to offer.
+        case noInstaller
+        case failed
+    }
+
+    /// Same request as `latest`, but tells "answered, nothing for Windows" apart from "could not ask".
+    static func outcome(repo: String = UpdateChecker.releaseRepo, session: URLSession = .shared) async -> Outcome {
+        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return .failed }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         guard let (data, resp) = try? await session.data(for: req),
-              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-        return parse(data)
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return .failed }
+        if let release = parse(data) { return .release(release) }
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], json["tag_name"] is String { return .noInstaller }
+        return .failed
+    }
+
+    /// The Mac stamps a 30-minute cooldown after every SUCCESSFUL check (`UpdateChecker.check`) and retries failures at
+    /// once. Here "answered, no installer" is a successful check that the shared checker cannot see as one (the feed
+    /// hands it nil), so this keeps the same 30 minutes: no request while the last answer was "nothing for Windows".
+    struct EmptyAnswerCooldown {
+        static let interval: TimeInterval = 1800
+        private var lastEmpty: Date?
+        func mayAsk(now: Date) -> Bool { lastEmpty.map { now.timeIntervalSince($0) >= Self.interval } ?? true }
+        mutating func noteEmptyAnswer(now: Date) { lastEmpty = now }
     }
 }

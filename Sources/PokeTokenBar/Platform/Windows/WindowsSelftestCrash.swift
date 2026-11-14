@@ -3,7 +3,7 @@ import CWinShim
 import Foundation
 import WinSDK
 
-/// `--selftest-crash <mode> [<logs folder>]`: installs the crash log like the app does, then dies on purpose.
+/// `--selftest-crash <mode> [<logs folder> [dumps]]` (`dumps` = run as if `PTB_CRASH_DUMPS=1`): installs the crash log like the app does, then dies on purpose.
 /// Modes: `av` (write through a bad pointer), `fatalError`, `precondition`, `overflow`, `abort`, `clean` (a normal
 /// exit through `WindowsApp.exit`). With a folder the helper works there and logs to `<folder>\child.log`; without
 /// one it uses the real log folder (the workflow's crash-then-relaunch step). `SetErrorMode` is for this child only,
@@ -12,6 +12,8 @@ enum WindowsSelftestCrash {
     @MainActor static func run(_ args: [String]) -> Never {
         let mode = args.first ?? "clean"
         let scratch = args.count > 1 ? URL(fileURLWithPath: args[1], isDirectory: true) : nil
+        // Dumps are opt-in through the environment: a child asks for them with a third argument, else the variable is cleared (with no folder the real environment decides).
+        if scratch != nil { _ = SetEnvironmentVariableW(WinStr.w("PTB_CRASH_DUMPS"), args.count > 2 && args[2] == "dumps" ? WinStr.w("1") : nil) }
         _ = SetErrorMode(0x0001 | 0x0002)  // SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX
         WindowsCrashLog.install(version: "selftest-crash", logsDirectory: scratch ?? PlatformCompat.logsDirectory(), log: { line in
             guard let scratch else { AppLog.write(line); return }
@@ -44,12 +46,13 @@ extension WindowsSelftest {
     @MainActor static func crashChecks(_ r: Recorder) async {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-crash-\(UUID().uuidString.prefix(8))", isDirectory: true)
         let fresh = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-crash-\(UUID().uuidString.prefix(8))", isDirectory: true)
-        for dir in [scratch, fresh] { try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
-        defer { for dir in [scratch, fresh] { try? FileManager.default.removeItem(at: dir) } }
+        let optIn = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-crash-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        for dir in [scratch, fresh, optIn] { try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        defer { for dir in [scratch, fresh, optIn] { try? FileManager.default.removeItem(at: dir) } }
 
-        func child(_ mode: String, in dir: URL) async -> DWORD? {
+        func child(_ mode: String, in dir: URL, dumps: Bool = false) async -> DWORD? {
             do {
-                let process = try Helper.start(["--selftest-crash", mode, dir.path], ready: false)
+                let process = try Helper.start(["--selftest-crash", mode, dir.path] + (dumps ? ["dumps"] : []), ready: false)
                 let code = await process.waitExit(timeout: 60)
                 if code == nil { process.kill() }
                 process.close()
@@ -75,9 +78,6 @@ extension WindowsSelftest {
         let c1 = await child("av", in: scratch)
         let rec1 = text(crashLog)
         let dumps1 = dumps()
-        let dumpName = dumps1.first ?? ""
-        let magic = (try? Data(contentsOf: scratch.appendingPathComponent(dumpName)).prefix(4)).map { String(decoding: $0, as: UTF8.self) } ?? ""
-        let dumpSize = (try? FileManager.default.attributesOfItem(atPath: scratch.appendingPathComponent(dumpName).path)[.size] as? Int) ?? 0
         let moduleLine = rec1.split(separator: "\n").first { $0.hasPrefix("[CRASH] module=") }.map(String.init) ?? "none"
         let hasVersion = rec1.contains(" version=selftest-crash"), hasOS = rec1.contains(" os=10.")
         let markerLeft = FileManager.default.fileExists(atPath: marker.path)
@@ -88,8 +88,9 @@ extension WindowsSelftest {
         r.add("crash.access", c1 == 0xC000_0005 && avLines && moduleOK && hasVersion && hasOS && identity && markerLeft,
               "exit=\(hex(c1)) first_line=\(rec1.split(separator: "\n").first.map(String.init) ?? "none") \(moduleLine) "
                 + "has_version=\(hasVersion) has_os=\(hasOS) marker_left=\(markerLeft)")
-        r.add("crash.dump", dumps1.count == 1 && magic == "MDMP" && dumpSize > 0 && rec1.contains("[CRASH] dump=\(dumpName)"),
-              "dumps=\(dumps1) magic=\(magic) bytes=\(dumpSize) named_in_record=\(rec1.contains("[CRASH] dump=\(dumpName)"))")
+        let dumpOff = rec1.contains("[CRASH] dump=off")
+        r.add("crash.dump", dumps1.isEmpty && dumpOff && rec1.contains("[CRASH] exception") && !rec1.contains("[CRASH] dump=PokeTokenBar-"),
+              "default run (PTB_CRASH_DUMPS unset): dump files=\(dumps1) text_log_says_off=\(dumpOff) text_record_present=\(rec1.contains("[CRASH] exception"))")
 
         // 2. the next launch notices (and a second crash does not overwrite the first)
         let c2 = await child("av", in: scratch)
@@ -99,8 +100,8 @@ extension WindowsSelftest {
         r.add("crash.previous", count("previous session did not end cleanly", in: childLog) == 1
               && childLog.contains("previous session crash record:") && childLog.contains("[CRASH] exception 0xC0000005"),
               "next launch logged unclean=\(count("previous session did not end cleanly", in: childLog)) (expected 1) drained_record=\(childLog.contains("[CRASH] exception 0xC0000005")) exit=\(hex(c2))")
-        r.add("crash.twice", dumps2.count == 2 && Set(dumps2).count == 2 && dumps2.contains(dumpName) && rec2.contains("[CRASH] exception 0xC0000005"),
-              "dumps=\(dumps2) first_record_kept_in_child_log=\(childLog.contains("[CRASH] exception")) second_record_in_crash_log=\(rec2.contains("[CRASH] exception"))")
+        r.add("crash.twice", rec2.contains("[CRASH] exception 0xC0000005") && childLog.contains("[CRASH] exception 0xC0000005") && dumps2.isEmpty,
+              "first_record_kept_in_child_log=\(childLog.contains("[CRASH] exception")) second_record_in_crash_log=\(rec2.contains("[CRASH] exception")) dumps=\(dumps2.count)")
 
         // 3. the Swift runtime's own traps
         let c3 = await child("fatalError", in: scratch)
@@ -124,12 +125,23 @@ extension WindowsSelftest {
         r.add("crash.abort", c6 != 0 && c6 != nil && rec6.contains("[CRASH] fatal signal SIGABRT"),
               "exit=\(hex(c6)) record=\(rec6.split(separator: "\n").first.map(String.init) ?? "none")")
 
-        // 4. the folder stays bounded: seven crashes so far, one more
-        let beforeLast = dumps().count
-        _ = await child("av", in: scratch)
-        let all = dumps()
-        r.add("crash.bounded", all.count <= WindowsCrashLog.keptDumps + 1 && all.count >= WindowsCrashLog.keptDumps && !all.contains(dumpName),
-              "crashes=7 dumps_before_last=\(beforeLast) dumps_after=\(all.count) (limit \(WindowsCrashLog.keptDumps) kept + the new one) oldest_gone=\(!all.contains(dumpName))")
+        // 4. opted in (PTB_CRASH_DUMPS=1): a dump per crash, two crashes keep both, the folder stays bounded
+        _ = await child("av", in: optIn, dumps: true)
+        let optRec1 = text(crashLog, in: optIn)
+        let optDumps1 = dumps(in: optIn)
+        let firstDump = optDumps1.first ?? ""
+        let magic = (try? Data(contentsOf: optIn.appendingPathComponent(firstDump)).prefix(4)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        let dumpSize = (try? FileManager.default.attributesOfItem(atPath: optIn.appendingPathComponent(firstDump).path)[.size] as? Int) ?? 0
+        r.add("crash.dumpOptIn", optDumps1.count == 1 && magic == "MDMP" && dumpSize > 0 && optRec1.contains("[CRASH] dump=\(firstDump)"),
+              "PTB_CRASH_DUMPS=1: dumps=\(optDumps1) magic=\(magic) bytes=\(dumpSize) named_in_record=\(optRec1.contains("[CRASH] dump=\(firstDump)"))")
+        _ = await child("av", in: optIn, dumps: true)
+        let optDumps2 = dumps(in: optIn)
+        r.add("crash.twiceDumps", optDumps2.count == 2 && Set(optDumps2).count == 2 && optDumps2.contains(firstDump),
+              "dumps=\(optDumps2) (two crashes, two distinct files, the first kept)")
+        for _ in 0..<5 { _ = await child("av", in: optIn, dumps: true) }
+        let all = dumps(in: optIn)
+        r.add("crash.bounded", all.count <= WindowsCrashLog.keptDumps + 1 && all.count >= WindowsCrashLog.keptDumps && !all.contains(firstDump),
+              "opted in, crashes=7 dumps_after=\(all.count) (limit \(WindowsCrashLog.keptDumps) kept + the new one) oldest_gone=\(!all.contains(firstDump))")
 
         // 5. a normal exit leaves nothing behind, and the next launch has nothing to report
         let e1 = await child("clean", in: fresh)

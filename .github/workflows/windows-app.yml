@@ -213,9 +213,19 @@ jobs:
           $record = Get-Content (Join-Path $logs 'PokeTokenBar.crash.log') -Raw
           $record
           if ($record -notmatch '\[CRASH\] exception 0x[0-9A-F]{8} at 0x') { throw 'no crash record' }
+          if ($record -notmatch '\[CRASH\] dump=off') { throw 'the record does not say dumps are off' }
+          if (@(Get-ChildItem $logs -Filter 'PokeTokenBar-*.dmp').Count -ne 0) { throw 'a minidump was written without PTB_CRASH_DUMPS=1' }
+          'no dump by default: ok'
+          # Opted in: the same crash now also leaves a minidump.
+          $env:PTB_CRASH_DUMPS = '1'
+          $p = Start-Process -FilePath $exe -ArgumentList @('--selftest-crash', 'av') -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; throw 'the opted-in crash child did not end in 60 s' }
+          Remove-Item Env:PTB_CRASH_DUMPS
+          'opted-in crash child exit: 0x{0:X8}' -f $p.ExitCode
           $dumps = @(Get-ChildItem $logs -Filter 'PokeTokenBar-*.dmp')
           "dumps: $($dumps.Name -join ', ') ($($dumps | ForEach-Object Length))"
-          if ($dumps.Count -lt 1 -or $dumps[0].Length -le 0) { throw 'no minidump' }
+          if ($dumps.Count -ne 1 -or $dumps[0].Length -le 0) { throw 'no minidump with PTB_CRASH_DUMPS=1' }
           if (-not (Test-Path (Join-Path $logs 'PokeTokenBar.running'))) { throw 'the running marker is gone after a crash' }
           if ((Get-Content (Join-Path $logs 'PokeTokenBar.stderr.log') -Raw) -notmatch 'selftest crash') { throw 'stderr.log lacks the fatalError message' }
           $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-crash'

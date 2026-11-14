@@ -29,11 +29,24 @@ import WinSDK
     @discardableResult
     static func start(defaults: UserDefaults, checkNow: Bool) -> UpdateChecker {
         let made = UpdateChecker(currentVersion: WindowsInstall.version ?? "0.0.0", defaults: defaults,
-                                 fetchLatest: { await InstallerReleaseFeed.latest() })
+                                 fetchLatest: { await fetchRespectingCooldown() })
         checker = made
         liveChecks = checkNow
         if checkNow { Task { await made.check() } }
         return made
+    }
+
+    private static var emptyAnswers = InstallerReleaseFeed.EmptyAnswerCooldown()
+
+    /// What the checker's fetch does: skip the request while the last answer was "no Windows installer" (30 minutes, the
+    /// Mac's cooldown after a successful check); otherwise ask.
+    private static func fetchRespectingCooldown() async -> UpdateChecker.LatestRelease? {
+        guard emptyAnswers.mayAsk(now: Date()) else { return nil }
+        switch await InstallerReleaseFeed.outcome() {
+        case .release(let release): return release
+        case .noInstaller: emptyAnswers.noteEmptyAnswer(now: Date()); return nil
+        case .failed: return nil
+        }
     }
 
     /// The release the tray menu offers (the Mac banner's `available`; a skipped release is not offered here).

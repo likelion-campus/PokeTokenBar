@@ -24,6 +24,10 @@ int ptb_crash_install(const uint16_t *crash_log_path, const uint16_t *dump_dir, 
 /// lands in a file: the app is a GUI-subsystem exe and has no console. 0 on success, else an error code.
 int ptb_crash_redirect_stderr(const uint16_t *path);
 
+/// 1 when the environment variable `PTB_CRASH_DUMPS` is `1`: minidumps are OFF unless the user opted in (a dump holds
+/// thread stacks, which can hold tokens or file contents). `ptb_crash_install` reads it once; the filter never does.
+int ptb_crash_dumps_opted_in(void);
+
 /// Selftest only: 0 = write through a bad pointer, 1 = read through one, 2 = abort().
 void ptb_crash_selftest_trigger(int mode);
 
