@@ -21,7 +21,14 @@ struct WinError: Error, CustomStringConvertible {
     nonisolated static let className = "PokeTokenBarSink"
 
     let hwnd: HWND
-    private var handlers: [UINT: @MainActor (WPARAM, LPARAM) -> LRESULT?] = [:]
+    typealias Handler = @MainActor (WPARAM, LPARAM) -> LRESULT?
+    /// One registration; `off(_:)` removes exactly this one.
+    struct Token: Hashable {
+        let message: UINT
+        fileprivate let id: Int
+    }
+    private var handlers: [UINT: [(id: Int, handler: Handler)]] = [:]
+    private var nextID = 0
     private static var windows: [Int: WinSinkWindow] = [:]
     private static var registeredClasses: Set<String> = []
 
@@ -44,18 +51,33 @@ struct WinError: Error, CustomStringConvertible {
         Self.windows[Int(bitPattern: h)] = self
     }
 
-    /// One handler per message; a non-nil result is returned to Windows, nil falls through to `DefWindowProcW`.
-    func on(_ message: UINT, _ handler: @escaping @MainActor (WPARAM, LPARAM) -> LRESULT?) {
-        handlers[message] = handler
+    /// Adds a handler for a message. Every handler of a message runs, in registration order; the first non-nil
+    /// result is returned to Windows, and nil from all falls through to `DefWindowProcW`. Several parties
+    /// (tray, system events, the selftest) register for the same messages, so none replaces another.
+    @discardableResult
+    func on(_ message: UINT, _ handler: @escaping Handler) -> Token {
+        nextID += 1
+        handlers[message, default: []].append((nextID, handler))
+        return Token(message: message, id: nextID)
     }
 
-    func off(_ message: UINT) { handlers[message] = nil }
+    /// Removes only the registration the token came from.
+    func off(_ token: Token) {
+        handlers[token.message]?.removeAll { $0.id == token.id }
+        if handlers[token.message]?.isEmpty == true { handlers[token.message] = nil }
+    }
 
     /// A message registered by name (`RegisterWindowMessageW`), e.g. the shell's `TaskbarCreated`.
-    func onRegistered(_ name: String, _ handler: @escaping @MainActor () -> Void) {
+    @discardableResult
+    func onRegistered(_ name: String, _ handler: @escaping @MainActor () -> Void) -> Token? {
         let id = RegisterWindowMessageW(WinStr.w(name))
-        guard id != 0 else { AppLog.write("RegisterWindowMessageW(\(name)) failed: \(GetLastError())"); return }
-        on(id) { _, _ in handler(); return 0 }
+        guard id != 0 else { AppLog.write("RegisterWindowMessageW(\(name)) failed: \(GetLastError())"); return nil }
+        return on(id) { _, _ in handler(); return 0 }
+    }
+
+    /// Whether `hwnd` is one of our windows or a child of one (the message hook re-dispatches characters for those only).
+    static func owns(_ hwnd: HWND) -> Bool {
+        windows[Int(bitPattern: hwnd)] != nil || GetAncestor(hwnd, UINT(GA_ROOT)).map { windows[Int(bitPattern: $0)] != nil } == true
     }
 
     func destroy() {
@@ -81,8 +103,13 @@ struct WinError: Error, CustomStringConvertible {
     }
 
     fileprivate static func route(_ bits: Int, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT? {
-        guard let handler = windows[bits]?.handlers[message] else { return nil }
-        return handler(wParam, lParam)
+        guard let list = windows[bits]?.handlers[message] else { return nil }
+        var result: LRESULT?
+        for entry in list {  // a copy: a handler may add or remove registrations
+            let r = entry.handler(wParam, lParam)
+            if result == nil { result = r }
+        }
+        return result
     }
 }
 
