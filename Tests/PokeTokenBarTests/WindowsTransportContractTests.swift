@@ -725,9 +725,11 @@ final class WindowsTeamTransportTests: XCTestCase {
         defer { browser.stopBrowsing() }
         browser.browse()
         let a = WindowsTeamTransport(advertise: true, reachability: QuietReachability())
+        var completed = false
+        a.trace = { if case .discovery(.registered) = $0 { completed = true } }
         a.start(code: Self.newCode())
         let name = try XCTUnwrap(a.advertisedName)
-        let registered = await contractWaitUntil(30) { seen.events.contains(.found(name)) }
+        let registered = await contractWaitUntil(30) { seen.events.contains(.found(name)) && completed }
         XCTAssertTrue(registered, "\(seen.events)")
         let t0 = Date()
         a.shutdown()

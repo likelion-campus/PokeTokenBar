@@ -41,7 +41,7 @@ enum WindowsSelftest {
         // Created here, before `run` opens the stall probe's window: on Windows a Foundation `Data.write` flushes
         // (FlushFileBuffers), and the first `Recorder.add` used to create the file that way inside the window, so a
         // slow disk failed `loop.mainThreadStalls` by name (85 ms, run 43649753131). Appends go through FileHandle.
-        FileManager.default.createFile(atPath: progress.path, contents: nil)
+        _ = FileManager.default.createFile(atPath: progress.path, contents: nil)
         progressURL = progress
         Task { @MainActor in
             let checks = await run(app)

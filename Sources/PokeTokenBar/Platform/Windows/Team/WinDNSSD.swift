@@ -362,13 +362,12 @@ final class WinDNSSD: @unchecked Sendable {
     func deregister() { deregisterNow() }
 
     /// `deregister()`, then waits up to `seconds` for its completion callback, so a process about to exit does not end
-    /// before the goodbye leaves. nil when nothing was announced (no registration, or one that never completed); true
-    /// when the completion came in time. Blocks the calling (main) thread: for exit only.
+    /// before the goodbye leaves. nil when nothing is registered; true when the completion came in time. A registration
+    /// whose own completion has not arrived yet is waited for too: browsers may already have its announcement (seen on
+    /// the runner, run 43652917639). Blocks the calling (main) thread: for exit only.
     func deregister(waitingUpTo seconds: TimeInterval) -> Bool? {
         guard let context = registration else { return nil }
-        let announced = context.isCompleted
         deregisterNow()
-        guard announced else { return nil }
         return context.goodbye.wait(timeout: .now() + seconds) == .success
     }
 
