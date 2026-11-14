@@ -373,6 +373,28 @@ final class TeamTransportTests: XCTestCase {
         XCTAssertEqual(b.plannedDials(now: Date()), [], "no redial inside the cooldown")
     }
 
+    /// A bad frame refuses the dialed name: no redial for five minutes, even when the name is discovered again.
+    func testABadFrameHoldsTheNameOffForFiveMinutes() async throws {
+        let code = newCode()
+        let a = makeTransport(), b = makeTransport()
+        var aPeer: TeamPeerID?
+        var bBad = 0
+        a.onPeerConnected = { id, _ in aPeer = id }
+        b.onPeerBadFrame = { _ in bBad += 1 }
+        a.start(code: code); b.start(code: code)
+        b.injectDiscovered("x", endpoint: try await loopback(a))
+        let up = await waitUntil(5) { aPeer != nil && b.linkCount == 1 }
+        XCTAssertTrue(up)
+        a.sendRaw(Data([0xFF, 0xFF, 0xFF, 0xFF]), to: try XCTUnwrap(aPeer))
+        let dropped = await waitUntil(5) { bBad == 1 && b.linkCount == 0 }
+        XCTAssertTrue(dropped)
+
+        b.injectDiscovered("x", endpoint: try await loopback(a))
+        XCTAssertEqual(b.linkCount, 0, "rediscovery inside the hold-off dials nothing")
+        XCTAssertEqual(b.plannedDials(now: Date().addingTimeInterval(TeamDialPlanner.refusalCooldown - 5)), [])
+        XCTAssertEqual(b.plannedDials(now: Date().addingTimeInterval(TeamDialPlanner.refusalCooldown + 5)), ["x"])
+    }
+
     func testDisconnectCoveredByKeptConnectionStopsRedialUntilKeptEnds() async throws {
         let code = newCode()
         let a = makeTransport(), b = makeTransport()
