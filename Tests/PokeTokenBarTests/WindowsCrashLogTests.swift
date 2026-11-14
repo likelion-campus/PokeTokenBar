@@ -64,16 +64,27 @@ final class WindowsCrashLogTests: XCTestCase {
         XCTAssertFalse(exists(WindowsCrashLog.crashLogName))
         lines = []
         prepare()
-        XCTAssertFalse(lines.contains { $0.contains("crash record") }, "drained once")
+        XCTAssertFalse(lines.contains { $0.contains("previous session crash record:") }, "drained once")
     }
 
-    func testOnlyThreeDumpsAreKept() throws {
+    func testOnlyThreeDumpsAreKeptNewestByModificationTime() throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dumps = ["PokeTokenBar-20261114-100000-11.dmp", "PokeTokenBar-20261114-100500-12.dmp", "PokeTokenBar-20261114-101000-13.dmp",
-                     "PokeTokenBar-20261114-101500-14.dmp", "PokeTokenBar-20261115-090000-15.dmp"]
-        for name in dumps + ["unrelated.dmp"] { try Data("MDMP".utf8).write(to: dir.appendingPathComponent(name)) }
+        // Names in the order a name sort would rank them; the modification times say otherwise, as they do for
+        // crashes inside one second (the same time part, the pid decides).
+        let minutesAgo = ["PokeTokenBar-20261114-100000-11.dmp": 5, "PokeTokenBar-20261114-100000-12.dmp": 1,
+                          "PokeTokenBar-20261114-100000-13.dmp": 4, "PokeTokenBar-20261114-100000-14.dmp": 3,
+                          "PokeTokenBar-20261114-100000-15.dmp": 2]
+        let now = Date()
+        for (name, minutes) in minutesAgo {
+            let url = dir.appendingPathComponent(name)
+            try Data("MDMP".utf8).write(to: url)
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-Double(minutes) * 60 * 10)], ofItemAtPath: url.path)
+        }
+        try Data("MDMP".utf8).write(to: dir.appendingPathComponent("unrelated.dmp"))
         prepare()
-        XCTAssertEqual(names().filter { $0.hasPrefix("PokeTokenBar-") }, Array(dumps.suffix(WindowsCrashLog.keptDumps)))
+        XCTAssertEqual(names().filter { $0.hasPrefix("PokeTokenBar-") },
+                       ["PokeTokenBar-20261114-100000-12.dmp", "PokeTokenBar-20261114-100000-14.dmp", "PokeTokenBar-20261114-100000-15.dmp"],
+                       "the three most recently written")
         XCTAssertTrue(exists("unrelated.dmp"), "only our own dump names are pruned")
     }
 

@@ -56,15 +56,21 @@ enum WindowsCrashLog {
         trimStderrLog(in: logsDirectory)
     }
 
-    /// A clean exit: remove the marker, but only the one THIS process wrote (a helper process that exits through
-    /// `WindowsApp.exit` must not clear the running app's marker).
-    static func markClean(logsDirectory: URL = PlatformCompat.logsDirectory()) {
-        let marker = logsDirectory.appendingPathComponent(markerName)
+    /// A clean exit: remove the marker(s) THIS process wrote (a helper process that exits through `WindowsApp.exit`
+    /// must not clear the running app's marker). With a folder, only that folder's marker.
+    static func markClean(logsDirectory: URL? = nil) {
+        var markers: [String] = []
         lock.lock()
-        let owned = ownedMarkers.remove(marker.path) != nil
+        if let logsDirectory {
+            let path = logsDirectory.appendingPathComponent(markerName).path
+            if ownedMarkers.remove(path) != nil { markers = [path] }
+        } else {
+            markers = Array(ownedMarkers)
+            ownedMarkers.removeAll()
+        }
         lock.unlock()
-        guard owned else { return }
-        try? FileManager.default.removeItem(at: marker)
+        guard !markers.isEmpty else { return }
+        for marker in markers { try? FileManager.default.removeItem(atPath: marker) }
         AppLog.writeAndFlush("clean shutdown")
     }
 
@@ -77,11 +83,15 @@ enum WindowsCrashLog {
         try? FileManager.default.removeItem(at: url)
     }
 
-    /// Dump names sort by time (`PokeTokenBar-YYYYMMDD-HHMMSS-<pid>.dmp`): keep the newest `keptDumps`.
+    /// Keep the newest `keptDumps` of our own dumps (`PokeTokenBar-YYYYMMDD-HHMMSS-<pid>.dmp`) by modification time:
+    /// several crashes inside one second share the name's time part, so the name only breaks ties.
     private static func pruneDumps(in directory: URL) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        let dumps = names.filter { $0.hasPrefix(dumpPrefix) && $0.hasSuffix(".dmp") }.sorted(by: >)
-        for old in dumps.dropFirst(keptDumps) { try? FileManager.default.removeItem(at: directory.appendingPathComponent(old)) }
+        let dumps = names.filter { $0.hasPrefix(dumpPrefix) && $0.hasSuffix(".dmp") }.map { name -> (name: String, modified: Date) in
+            let attributes = try? FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent(name).path)
+            return (name, (attributes?[.modificationDate] as? Date) ?? .distantPast)
+        }.sorted { $0.modified != $1.modified ? $0.modified > $1.modified : $0.name > $1.name }
+        for old in dumps.dropFirst(keptDumps) { try? FileManager.default.removeItem(at: directory.appendingPathComponent(old.name)) }
     }
 
     /// The runtime appends to this file all session long; keep its newest 256 KB at launch.

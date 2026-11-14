@@ -226,7 +226,7 @@ jobs:
           for ($i = 0; $i -lt 150 -and $h -eq [IntPtr]::Zero; $i++) {
               Start-Sleep -Milliseconds 200
               if ($app.HasExited) { throw 'the relaunched app exited early' }
-              $h = [PtbCrashWin]::FindWindowW('PokeTokenBarSink', $null)
+              $h = [PtbCrashWin]::FindWindowW('PokeTokenBarSink', [NullString]::Value)
           }
           if ($h -eq [IntPtr]::Zero) { throw 'the relaunched app made no sink window' }
           Start-Sleep -Seconds 2

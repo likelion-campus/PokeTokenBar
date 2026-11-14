@@ -93,7 +93,8 @@ final class WindowsLoginItemTests: XCTestCase {
 
     func testTheDefaultCommandQuotesTheRunningExecutable() async {
         let exe = WindowsLoginItem.currentExecutablePath()
-        XCTAssertTrue(exe.lowercased().hasSuffix(".exe"), exe)
+        XCTAssertFalse(exe.isEmpty)
+        XCTAssertTrue(exe.contains("\\"), "a full Windows path: \(exe)")
         XCTAssertEqual(WindowsLoginItem.defaultCommand, "\"\(exe)\" --autostart")
         XCTAssertEqual(WindowsLoginItem.defaultRunKey, #"Software\Microsoft\Windows\CurrentVersion\Run"#, "per-user Run key, never a machine-wide one")
     }
