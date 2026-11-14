@@ -85,15 +85,50 @@ import QuartzCore
                 l.backgroundColor = color.cgColor
             }
         }
-        let itemsChanged = drawing.accessibility != self.drawing.accessibility || panelFrame == nil
+        let old = self.drawing.accessibility
+        let itemsChanged = panelFrame == nil || old.count != drawing.accessibility.count
+            || !zip(old, drawing.accessibility).allSatisfy { $0.sameExceptFrame($1) }
+        let tooltipsChanged = panelFrame == nil || drawing.tooltips != self.drawing.tooltips || panelFrame != frame
         self.drawing = drawing
         panelFrame = frame
         if itemsChanged { rebuildElements() }
         place()
+        if tooltipsChanged { placeTooltips() }
         updateTrackingAreas()
     }
 
+    // MARK: tooltips
+
+    /// What the window shows when the mouse rests on a tooltip rectangle: the host is the owner, `userData` the index.
+    private var tooltipTags: [NSView.ToolTipTag] = []
+    private var tooltipTexts: [String] = []
+
+    private func placeTooltips() {
+        removeAllToolTips()
+        tooltipTags = []
+        tooltipTexts = []
+        guard let f = panelFrame else { return }
+        for tip in drawing.tooltips where !tip.text.isEmpty {
+            tooltipTexts.append(tip.text)
+            let rect = local(tip.frame.offsetBy(dx: f.minX, dy: f.minY))
+            tooltipTags.append(addToolTip(rect, owner: self, userData: UnsafeMutableRawPointer(bitPattern: tooltipTexts.count)))
+        }
+    }
+
+    /// For tests: the hover text at a window point (top-left), as the window would ask for it.
+    func tooltipForTesting(at point: CGPoint) -> String? {
+        guard let f = panelFrame else { return nil }
+        let p = CGPoint(x: point.x - f.minX, y: point.y - f.minY)
+        return drawing.tooltips.first { !$0.text.isEmpty && $0.frame.contains(p) }?.text
+    }
+
+    /// For tests: how many tooltip rectangles the view registered with AppKit.
+    var tooltipCountForTesting: Int { tooltipTags.count }
+
     func hide() {
+        removeAllToolTips()
+        tooltipTags = []
+        tooltipTexts = []
         for l in sublayers { l.removeFromSuperlayer() }
         sublayers = []
         let hadItems = !drawing.accessibility.isEmpty
@@ -215,6 +250,15 @@ import QuartzCore
     override func scrollWheel(with event: NSEvent) {
         let k = event.hasPreciseScrollingDeltas ? 1 : Self.lineScrollStep
         if !forward(.scroll(dx: event.scrollingDeltaX * k, dy: event.scrollingDeltaY * k), event) { super.scrollWheel(with: event) }
+    }
+}
+
+extension PlazaPanelHostView: NSViewToolTipOwner {
+    nonisolated func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+        let index = Int(bitPattern: data) - 1
+        return MainActor.assumeIsolated {
+            return tooltipTexts.indices.contains(index) ? tooltipTexts[index] : ""
+        }
     }
 }
 
