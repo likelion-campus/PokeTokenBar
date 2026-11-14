@@ -17,6 +17,13 @@ extension WindowsSelftest {
                 + "listener=\(own?.listenerPort.map { String($0) } ?? "none") (no team: no thread, no socket, no firewall prompt)")
 
         var rng = SystemRandomNumberGenerator()
+        // OpenSSL never reads a configuration file: with OPENSSL_CONF pointing at one that breaks it when loaded (the
+        // workflow's), a TLS context still builds, and every team check below runs TLS through it.
+        let conf = WindowsSelftest.opensslConf
+        let built = (try? WinTLSContext(code: TeamCode.generate(using: &rng), role: .server)) != nil
+        r.add("tls.noConfigFile", built,
+              "OPENSSL_CONF=\(conf ?? "unset")\(conf != nil ? " (breaks OpenSSL if loaded)" : ""); TLS context built=\(built); "
+                + "baked-in OPENSSLDIR=\(WinTLS.configDirectory) (never read: OPENSSL_INIT_NO_LOAD_CONFIG)")
         let code = TeamCode.generate(using: &rng)
         let a = SelftestMember("SelfA", code: code), b = SelftestMember("SelfB", code: code)
         defer { a.end(); b.end() }

@@ -30,6 +30,8 @@ enum WindowsSelftest {
     static var onCI: Bool { ProcessInfo.processInfo.environment["CI"] != nil }
     /// Length of the idle windows (`PTB_SELFTEST_IDLE_SECONDS`, default 60), read here for the other selftest files too.
     static var idleSeconds: Double { Double(ProcessInfo.processInfo.environment["PTB_SELFTEST_IDLE_SECONDS"] ?? "") ?? 60 }
+    /// `OPENSSL_CONF` as the process sees it (the workflow points it at a poisoned file; OpenSSL must never read it).
+    static var opensslConf: String? { ProcessInfo.processInfo.environment["OPENSSL_CONF"] }
 
     /// Starts the run on the main actor once the loop turns, then exits with its result.
     @MainActor static func start(_ app: WindowsAppDelegate, writingTo url: URL) {

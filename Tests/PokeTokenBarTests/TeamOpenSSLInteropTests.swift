@@ -240,17 +240,18 @@ final class TeamOpenSSLInteropTests: XCTestCase {
 
     // MARK: - the key fingerprint
 
-    /// `scripts/team-interop-check.sh --fingerprint` (OpenSSL's HMAC) prints what `TeamCode.keyFingerprint` (and so the
-    /// Windows probe) prints, for every spelling of a code that `TeamCode(parsing:)` accepts.
+    /// `scripts/team-interop-check.sh --fingerprint` prints what `TeamCode.keyFingerprint` (and so the Windows probe)
+    /// prints, for every spelling of a code that `TeamCode(parsing:)` accepts. The code goes in on stdin only (it
+    /// is computed by Python reading stdin, so it is in no process's arguments).
     func testTheScriptFingerprintIsTheProbeFingerprint() throws {
-        let openssl = try Self.openssl()
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("no /usr/bin/python3") }
         let script = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("scripts/team-interop-check.sh").path
         for spelling in ["PTB-AAAA-BBBB-CCCC", "aaaabbbbcccc", " ptb aaaa-bbbb cccc \n"] {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/bin/bash")
             p.arguments = [script, "--fingerprint"]
-            p.environment = ["PTB_OPENSSL": openssl, "PATH": "/usr/bin:/bin"]
+            p.environment = ["PATH": "/usr/bin:/bin"]
             let input = Pipe(), output = Pipe()
             p.standardInput = input
             p.standardOutput = output
