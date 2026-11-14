@@ -189,6 +189,8 @@ extension WindowsSelftest {
         // (4b) keys while a tick is running must reach the menu
         await keyLossCheck(r, app)
 
+        exportsProbe(r)
+
         // (5) exit requested (from main-queue work) while a menu is open
         await menuExitCheck(r, app)
 
@@ -258,6 +260,40 @@ extension WindowsSelftest {
               "\(v.sent) of \(total) Down keys posted at 0.2-0.8 ms spacing to an open menu while the pump ticked (\(WinModalPump.ticks - ticks0) ticks): "
                 + "taken from the menu and dispatched to the sink as plain WM_KEYDOWN=\(atSink); mask_strategy=\(WinModalPump.maskStrategy)")
     }
+
+    /// Diagnostic: which loaded modules export the CoreFoundation run-loop message-queue SPI.
+    @MainActor private static func exportsProbe(_ r: Recorder) {
+        var found: [String] = [], modules: [String] = []
+        let snap = CreateToolhelp32Snapshot(DWORD(TH32CS_SNAPMODULE), GetCurrentProcessId())
+        guard snap != INVALID_HANDLE_VALUE else { r.add("modalPump.exports", true, "no module snapshot \(GetLastError())"); return }
+        defer { _ = CloseHandle(snap) }
+        var entry = MODULEENTRY32W()
+        entry.dwSize = DWORD(MemoryLayout<MODULEENTRY32W>.size)
+        var ok = Module32FirstW(snap, &entry)
+        while ok {
+            let name = withUnsafePointer(to: &entry.szModule) { $0.withMemoryRebound(to: UInt16.self, capacity: 256) { String(decoding: UnsafeBufferPointer(start: $0, count: wcslen_(UnsafePointer($0))), as: UTF16.self) } }
+            modules.append(name)
+            if let base = entry.modBaseAddr {
+                let raw = UnsafeRawPointer(base)
+                let lfanew = Int(raw.load(fromByteOffset: 0x3C, as: UInt32.self))
+                let exportRVA = Int(raw.load(fromByteOffset: lfanew + 24 + 112, as: UInt32.self))
+                if exportRVA != 0 {
+                    let dir = raw + exportRVA
+                    let count = Int(dir.load(fromByteOffset: 24, as: UInt32.self))
+                    let names = raw + Int(dir.load(fromByteOffset: 32, as: UInt32.self))
+                    for i in 0..<count {
+                        let rva = Int(names.load(fromByteOffset: i * 4, as: UInt32.self))
+                        let s = String(cString: (raw + rva).assumingMemoryBound(to: CChar.self))
+                        if s.contains("WindowsMessageQueue") || s == "CFRunLoopGetMain" || s == "kCFRunLoopDefaultMode" { found.append("\(name):\(s)") }
+                    }
+                }
+            }
+            ok = Module32NextW(snap, &entry)
+        }
+        r.add("modalPump.exports", true, "modules=\(modules.joined(separator: ",")) exports=\(found)")
+    }
+
+    private static func wcslen_(_ p: UnsafePointer<UInt16>) -> Int { var n = 0; while p[n] != 0 { n += 1 }; return n }
 
     /// A child process holds a menu open, schedules `WindowsApp.exit` on the main queue, and only then gets Escape.
     /// With the pump the exit runs inside the menu loop (exit 0, setting saved). Without it the menu returns first (exit 5).
