@@ -118,6 +118,11 @@ import Observation
     private var lastLoudAt: Date?
     static let loudInterval: TimeInterval = 60
     private let minimap = PlazaMinimapModel()
+    /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
+    /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
+    private(set) lazy var hud = PlazaHUD(panels: [pillsPanel, clockPanel])
+    private lazy var pillsPanel = PlazaPillsPanel(model: overlayModel)
+    private lazy var clockPanel = PlazaClockPanel(worldSize: map.pixelSize)
     private let chatInput: any PlazaChatInputHost
     private let chatLog = PlazaChatLog()
     private let backgroundModel = PlazaBackgroundModel()
@@ -294,6 +299,7 @@ import Observation
         activity = (preferences.activity ?? PlazaActivity(day: "")).rolled(to: PlazaActivity.dayKey(clock()))
         session?.updateActivity(activity)
         restoreFocus()
+        _ = hud   // the pills follow the overlay model from now on
         self.chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         self.chatInput.onClose = { [weak self] in
             guard let self else { return }
@@ -324,7 +330,7 @@ import Observation
         PlazaOverlayBindings(
             rosterModel: rosterModel, overlayModel: overlayModel, feed: feed, myMemberID: memberID(), chatLog: chatLog,
             minimap: minimap, backgroundModel: backgroundModel, shortcutModel: shortcutModel, nameColorModel: nameColorModel,
-            mapImage: mapImage, worldSize: map.pixelSize, chatInput: chatInput,
+            mapImage: mapImage, worldSize: map.pixelSize, hud: hud, pills: pillsPanel, chatInput: chatInput,
             walkToMember: { [weak self] in self?.walkToMember($0) },
             turnRosterPage: { [weak self] in self?.turnRosterPage(by: $0) },
             react: { [weak self] in self?.session?.react(to: $0, kind: $1) },
@@ -1506,6 +1512,7 @@ import Observation
                 self.endPrayedHintIfDue()
                 self.tickActivity()
                 self.refreshCampfire()
+                self.refreshClock()
             }
         }
     }
@@ -1773,6 +1780,12 @@ import Observation
         if minimap.coreTime != core { minimap.coreTime = core }
         scene?.coreTime = core
         scene?.seasonChoice = current?.season ?? .winter
+        refreshClock()
+    }
+
+    /// The clock's text for now. The panel renders only when it changed, so the 1 s tick renders it once a minute.
+    private func refreshClock() {
+        clockPanel.update(PlazaDaylight.clockText(clock(), core: minimap.coreTime))
     }
 
     /// 작은 지도의 점과 보이는 영역을 지금 상태로 맞춘다.
@@ -2140,6 +2153,7 @@ import Observation
         myEntryCache = nil
         refreshGeneration += 1
         shell.dismantle()
+        hud.isRendering = true   // the next window starts drawing, as its render loop does (the old window has let go)
         isWindowOpen = false
     }
 
@@ -2157,6 +2171,7 @@ import Observation
     func setRendering(visible: Bool) {
         rosterModel.isAnimating = visible
         renderLoop?.isPaused = !visible
+        hud.isRendering = visible   // hidden: no panel renders; shown: the panels that changed render once
         guard let scene else { return }
         if !visible { scene.releaseAllKeys() }
         // 가려진 동안은 장면이 돌지 않아 잠수 제한 시간이 흐르지 않는다. 숨기면 잠수를 끝낸다.

@@ -12,42 +12,18 @@ struct PlazaOverlayView: View {
     /// 메뉴 밖을 눌렀다.
     var onMenuCancel: () -> Void = {}
     var onCampfireChoose: (_ index: Int) -> Void = { _ in }
+    /// The countdown, banner and hint pills' stack (the shared `PlazaPillsPanel`, drawn above this view). A menu still
+    /// opens below them, so the stack keeps their room.
+    var pillsSize: () -> CGSize = { .zero }
 
     var body: some View {
         ZStack(alignment: .top) {
             content
             if model.isPhotoMode { photoFrame }
             VStack(spacing: 8) {
-                if let countdown = model.countdown {
-                    Text(countdown)
-                        .font(Font(PlazaResources.font(.body)))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(Color(hex: 0x1D4F55).opacity(0.92), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0xF2C14E), lineWidth: 2))
-                        .allowsHitTesting(false)
-                }
-                if let banner = model.banner {
-                    Text(banner)
-                        .font(Font(PlazaResources.font(.body)))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .frame(maxWidth: 360)
-                        .background(Color(hex: 0x1D4F55).opacity(0.92), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: 0x5FB7BD), lineWidth: 2))
-                        .allowsHitTesting(false)
-                }
-                if let hint = model.hint {
-                    Text(hint)
-                        .font(Font(PlazaResources.font(.body)))
-                        .foregroundStyle(Color(hex: 0xF8F8F0))
-                        .lineLimit(1)
-                        .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1D4F5C).opacity(0.9)))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.5), lineWidth: 1.5))
-                        .allowsHitTesting(false)
+                let pills = pillsSize()
+                if pills.height > 0 {
+                    Color.clear.frame(width: pills.width, height: pills.height).allowsHitTesting(false)
                 }
                 // 안내가 있던 자리에 뜬다(메뉴가 열리면 안내는 숨는다).
                 if case .memberMenu(let menu) = model.content {
