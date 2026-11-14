@@ -1,12 +1,11 @@
 import XCTest
-import CoreGraphics
 @testable import PokeTokenBar
 
 final class PlazaSnowballTests: XCTestCase {
     private let map = PlazaMapData.map
     private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
 
-    func testAimHitsTheFirstTargetAhead() {
+    func testAimHitsTheFirstTargetAhead() async {
         let a = PlazaSnowball.aim(from: p(10, 12), facing: .right, targets: ["a": p(14, 12), "b": p(12, 12)], map: map)
         XCTAssertEqual(a?.end, .actor(id: "b", tile: p(12, 12)))
         XCTAssertEqual(a?.frames, 2)
@@ -24,7 +23,7 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertEqual(d?.end, .actor(id: "a", tile: p(12, 12)))
     }
 
-    func testAimStopsBeforeObstaclesAndFliesOverWater() {
+    func testAimStopsBeforeObstaclesAndFliesOverWater() async {
         let a = PlazaSnowball.aim(from: p(12, 17), facing: .right, targets: ["m": p(16, 17)], map: map)
         XCTAssertEqual(a?.end, .ground(p(14, 17)))
         let b = PlazaSnowball.aim(from: p(17, 14), facing: .left, targets: [:], map: map)
@@ -33,7 +32,7 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertEqual(c?.end, .actor(id: "s", tile: p(13, 14)))
     }
 
-    func testVerticalThrowsAimAlongTheColumn() {
+    func testVerticalThrowsAimAlongTheColumn() async {
         // Column 10: grass at row 11-12, pond rows 13-15, grass again at row 16.
         let down = PlazaSnowball.aim(from: p(10, 11), facing: .down, targets: [:], map: map)
         XCTAssertEqual(down?.end, .ground(p(10, 21)))   // over the pond, ten tiles on
@@ -49,13 +48,13 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertNil(PlazaSnowball.aim(from: p(15, 16), facing: .down, targets: [:], map: map)) // the bush at (15,17)
     }
 
-    func testFacingAnObstacleOrTheEdgeThrowsNothing() {
+    func testFacingAnObstacleOrTheEdgeThrowsNothing() async {
         XCTAssertNil(PlazaSnowball.aim(from: p(3, 12), facing: .left, targets: [:], map: map))
         XCTAssertNil(PlazaSnowball.aim(from: p(44, 12), facing: .right, targets: [:], map: map))
         XCTAssertNil(PlazaSnowball.aim(from: p(14, 17), facing: .right, targets: [:], map: map))
     }
 
-    func testHitsNeedTheSameLineTheRightWayWithinEleven() {
+    func testHitsNeedTheSameLineTheRightWayWithinEleven() async {
         XCTAssertTrue(PlazaSnowball.hits(thrower: p(10, 12), target: p(14, 12), direction: .right))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(10, 12), target: p(14, 12), direction: .left))
         XCTAssertTrue(PlazaSnowball.hits(thrower: p(3, 12), target: p(14, 12), direction: .right))
@@ -64,7 +63,7 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(14, 12), target: p(14, 12), direction: .right))
     }
 
-    func testVerticalHitsNeedTheSameColumnTheRightWayWithinEleven() {
+    func testVerticalHitsNeedTheSameColumnTheRightWayWithinEleven() async {
         XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 9), direction: .down))
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 1), direction: .down))
         XCTAssertTrue(PlazaSnowball.hits(thrower: p(5, 5), target: p(5, 16), direction: .down))
@@ -77,13 +76,13 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertFalse(PlazaSnowball.hits(thrower: p(5, 12), target: p(4, 8), direction: .up))
     }
 
-    func testFramesAreTheTileCountFromOneToTen() {
+    func testFramesAreTheTileCountFromOneToTen() async {
         XCTAssertEqual(PlazaSnowballShot(from: p(0, 0), direction: .down, end: .actor(id: nil, tile: p(0, 10))).frames, 10)
         XCTAssertEqual(PlazaSnowballShot(from: p(0, 0), direction: .down, end: .actor(id: nil, tile: p(0, 14))).frames, 10)
         XCTAssertEqual(PlazaSnowballShot(from: p(0, 0), direction: .right, end: .ground(p(1, 0))).frames, 1)
     }
 
-    func testTheArcStartsAtTheHandPeaksAndEndsOnTheBodyOrTheGround() {
+    func testTheArcStartsAtTheHandPeaksAndEndsOnTheBodyOrTheGround() async {
         XCTAssertEqual(PlazaSnowball.height(at: 0, endHeight: 24), 14)
         XCTAssertEqual(PlazaSnowball.height(at: 1, endHeight: 24), 24)
         XCTAssertEqual(PlazaSnowball.height(at: 1, endHeight: 0), 0)
@@ -93,7 +92,7 @@ final class PlazaSnowballTests: XCTestCase {
         XCTAssertEqual(PlazaSnowball.bodyHeight(spriteHeight: 80), 24)
     }
 
-    func testBurstPiecesSpreadToThirtyTwoAndStayUpOnAMiss() {
+    func testBurstPiecesSpreadToThirtyTwoAndStayUpOnAMiss() async {
         let radius: [CGFloat] = [18, 22, 28, 32], drop: [CGFloat] = [0, 2, 8, 16], glyphs = [1, 0, 1, 2]
         for step in 0..<4 {
             let ground = PlazaSnowball.burstPieces(step: step, onGround: true)
@@ -117,39 +116,9 @@ final class PlazaSnowballTests: XCTestCase {
         }
     }
 
-    func testShadedGridsAddTheShadeRightAndBelow() {
+    func testShadedGridsAddTheShadeRightAndBelow() async {
         XCTAssertEqual(PlazaSnowballArt.shaded([".W.", "WWW", ".W."]), [".Wo.", "WWWo", "oWo.", ".o.."])
         XCTAssertEqual(PlazaSnowballArt.shaded(["WW", "WS"]), ["WWo", "WSo", "oo."])
         XCTAssertEqual(PlazaSnowballArt.shaded(["W"]), ["Wo", "o."])
-    }
-
-    func testSnowballArtUsesOnlySnowColours() {
-        let allowed: Set<UInt32> = [0xF6FAFF, 0xC6DAF0, 0x8DA3BF]
-        let pieces = PlazaSnowballArt.pieces().map(\.image.cgImage)
-        XCTAssertEqual(PlazaSnowballArt.pieces().map(\.scale), [4, 4, 4])
-        XCTAssertEqual(pieces.count, 3)
-        for image in pieces {
-            let w = image.width, h = image.height
-            var data = [UInt8](repeating: 0, count: w * h * 4)
-            let ctx = CGContext(data: &data, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-            for i in 0..<(w * h) where data[i * 4 + 3] != 0 {
-                XCTAssertEqual(data[i * 4 + 3], 255)
-                let rgb = UInt32(data[i * 4]) << 16 | UInt32(data[i * 4 + 1]) << 8 | UInt32(data[i * 4 + 2])
-                XCTAssertTrue(allowed.contains(rgb), String(rgb, radix: 16))
-            }
-        }
-        let ball = pieces[0]
-        XCTAssertEqual(ball.width, 4)
-        XCTAssertEqual(ball.height, 4)
-        var data = [UInt8](repeating: 0, count: 64)
-        let ctx = CGContext(data: &data, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(ball, in: CGRect(x: 0, y: 0, width: 4, height: 4))
-        let shade = (0..<16).filter { data[$0 * 4 + 3] == 255 && data[$0 * 4] == 0x8D && data[$0 * 4 + 1] == 0xA3 && data[$0 * 4 + 2] == 0xBF }
-        XCTAssertEqual(shade.count, 5)
     }
 }

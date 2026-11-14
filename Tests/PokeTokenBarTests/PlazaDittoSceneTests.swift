@@ -1,5 +1,4 @@
 import XCTest
-import CoreGraphics
 @testable import PokeTokenBar
 
 @MainActor
@@ -16,11 +15,7 @@ final class PlazaDittoSceneTests: XCTestCase {
     }
 
     private func frames() -> PlazaCharacterFrames {
-        let ctx = CGContext(data: nil, width: 32, height: 48, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
-        ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 48))
-        let f = [PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(bitmap: PlazaTestImages.solid(width: 32, height: 48, PlazaRGBA(r: 255, g: 0, b: 0, a: 255))), delay: 0.1)]
         return PlazaCharacterFrames(front: f, back: f)
     }
 
@@ -30,7 +25,7 @@ final class PlazaDittoSceneTests: XCTestCase {
                         name: name, nameColor: color, title: title, isDecoy: decoy)
     }
 
-    func testApplyDittoShowsAndRemovesIt() {
+    func testApplyDittoShowsAndRemovesIt() async {
         let s = scene()
         s.applyDitto(shown())
         XCTAssertEqual(s.memberName(key), "메타몽")
@@ -40,21 +35,21 @@ final class PlazaDittoSceneTests: XCTestCase {
         XCTAssertNil(s.dittoTile)
     }
 
-    func testMembersUpdateLeavesTheDittoAlone() {
+    func testMembersUpdateLeavesTheDittoAlone() async {
         let s = scene()
         s.applyDitto(shown())
         s.applyMembers([])
         XCTAssertEqual(s.memberName(key), "메타몽")
     }
 
-    func testTheDittoIsNotAMemberTargetButBlocksItsTile() throws {
+    func testTheDittoIsNotAMemberTargetButBlocksItsTile() async throws {
         let s = scene()
         s.applyDitto(shown())
         XCTAssertNil(s.memberTiles[key])
         XCTAssertTrue(s.occupiedTiles().contains(try XCTUnwrap(s.dittoTile)))
     }
 
-    func testDecoyTileOnlyWhileACopy() {
+    func testDecoyTileOnlyWhileACopy() async {
         let s = scene()
         XCTAssertNil(s.decoyTile)
         s.applyDitto(shown())
@@ -63,7 +58,7 @@ final class PlazaDittoSceneTests: XCTestCase {
         XCTAssertEqual(s.decoyTile, p(22, 22))
     }
 
-    func testTheCopyShowsTheGivenNameColourAndTitle() {
+    func testTheCopyShowsTheGivenNameColourAndTitle() async {
         let s = scene()
         let c = PlazaColor(srgbRed: 0, green: 1, blue: 0)
         s.applyDitto(shown(name: "재헌", title: "천진난만한", decoy: true, color: c))
@@ -72,7 +67,7 @@ final class PlazaDittoSceneTests: XCTestCase {
         XCTAssertEqual(s.memberTitle(key), "천진난만한")
     }
 
-    func testAFarJumpSnapsAtOnce() throws {
+    func testAFarJumpSnapsAtOnce() async throws {
         let s = scene()
         s.applyDitto(shown(p(22, 22)))
         s.applyDitto(shown(p(23, 22)))
@@ -83,7 +78,7 @@ final class PlazaDittoSceneTests: XCTestCase {
         XCTAssertEqual(foot, s.memberFoot(key))
     }
 
-    func testAQueuedTwoStepWalkGlidesInsteadOfSnapping() throws {
+    func testAQueuedTwoStepWalkGlidesInsteadOfSnapping() async throws {
         let s = scene()
         s.applyDitto(shown(p(22, 22)))
         let start = try XCTUnwrap(s.memberFoot(key))
@@ -97,7 +92,7 @@ final class PlazaDittoSceneTests: XCTestCase {
 
     /// A dance that arrives while the Ditto is walking waits for it to stop; if it moves on to another tile meanwhile, the
     /// dance (decided for the old tile) is dropped.
-    func testAParkedDanceIsDroppedWhenTheDittoMovesOn() {
+    func testAParkedDanceIsDroppedWhenTheDittoMovesOn() async {
         let s = scene()
         s.applyDitto(shown(p(22, 22)))
         s.setMemberFrames(key, frames())
@@ -109,7 +104,7 @@ final class PlazaDittoSceneTests: XCTestCase {
         XCTAssertFalse(s.isDancing(memberID: key))
     }
 
-    func testThePhotoIncludesTheDitto() throws {
+    func testThePhotoIncludesTheDitto() async throws {
         let s = scene()
         s.setCharacter(frames())
         let before = try XCTUnwrap(s.photoInput()).actors.count
@@ -118,14 +113,14 @@ final class PlazaDittoSceneTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(s.photoInput()).actors.count, before + 1)
     }
 
-    func testPoofMakesNoNodesWhilePaused() {
+    func testPoofMakesNoNodesWhilePaused() async {
         let s = scene()
         s.applyDitto(shown())
         s.isPaused = true
         s.playDittoPoof()
-        XCTAssertEqual(s.dustCount, 0)
+        XCTAssertEqual(s.dustShown, 0)
         s.isPaused = false
         s.playDittoPoof()
-        XCTAssertGreaterThan(s.dustCount, 0)
+        XCTAssertGreaterThan(s.dustShown, 0)
     }
 }

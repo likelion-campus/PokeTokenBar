@@ -20,8 +20,8 @@ struct PlazaShortcutGuide: View {
         return rows
     }
 
-    /// 창 왼쪽 끝에서 펼친 안내판의 오른쪽 끝까지(포인트).
-    static let coveredWidth: CGFloat = 130
+    /// 창 왼쪽 끝에서 펼친 안내판의 오른쪽 끝까지(포인트). 장면도 읽으므로 값은 공유 코드에 있다.
+    static let coveredWidth: CGFloat = PlazaShortcutGuideMetrics.coveredWidth
 
     let model: PlazaShortcutGuideModel
     let toggle: () -> Void
@@ -58,12 +58,6 @@ struct PlazaShortcutGuide: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0x1D4F5C).opacity(0.9)))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.5), lineWidth: 1.5))
     }
-}
-
-@MainActor @Observable
-final class PlazaShortcutGuideModel {
-    var isFolded = false
-    var season = PlazaSeason.winter
 }
 
 /// 머리줄 단추만 누를 수 있다. 키는 받지 않아 장면이 첫 응답자를 유지한다.

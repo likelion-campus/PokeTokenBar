@@ -1,19 +1,18 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 @MainActor
 final class PlazaCampfireSceneTests: XCTestCase {
-    private let map = PlazaMapData.map
+    let map = PlazaMapData.map
 
-    private func newScene() -> PlazaScene {
+    func newScene() -> PlazaScene {
         let scene = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: map.spawn, zoom: 2, nickname: "나")
         scene.backingOverride = 2
         scene.size = CGSize(width: 800, height: 600)
         return scene
     }
 
-    private func at(hour: Int) -> Date {
+    func at(hour: Int) -> Date {
         Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date())!
     }
 
@@ -26,7 +25,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         return t
     }
 
-    func testPitIsReadyUntilLitAndFlickersByFrameTime() {
+    func testPitIsReadyUntilLitAndFlickersByFrameTime() async {
         let scene = newScene()
         scene.update(0)
         XCTAssertEqual(scene.campfireState, .ready)
@@ -47,7 +46,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
     }
 
     /// A paused (hidden) scene never saw the fire go out, so it must not queue smoke for whenever it is shown next.
-    func testNoSmokeQueuesWhileThePausedSceneLosesTheFire() {
+    func testNoSmokeQueuesWhileThePausedSceneLosesTheFire() async {
         let scene = newScene()
         scene.update(0)
         scene.campfireLit = true
@@ -57,7 +56,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertEqual(scene.campfireState, .ready)
     }
 
-    func testSmokeShowsFifteenSecondsAfterTheFireGoesOut() {
+    func testSmokeShowsFifteenSecondsAfterTheFireGoesOut() async {
         let scene = newScene()
         scene.update(0)
         scene.campfireLit = true
@@ -71,7 +70,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
     }
 
     /// Lighting the fire again and putting it out starts a fresh 15 s smoke, not the rest of the first one.
-    func testASecondExtinguishStartsAFreshSmoke() {
+    func testASecondExtinguishStartsAFreshSmoke() async {
         let scene = newScene()
         scene.update(0)
         scene.campfireLit = true
@@ -87,14 +86,14 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertEqual(scene.campfireState, .ready)
     }
 
-    func testAFireThatWasNeverLitShowsNoSmoke() {
+    func testAFireThatWasNeverLitShowsNoSmoke() async {
         let scene = newScene()
         scene.update(0)
         scene.campfireLit = false
         XCTAssertEqual(scene.campfireState, .ready)
     }
 
-    func testPitDrawsBehindCharactersInFrontOfIt() throws {
+    func testPitDrawsBehindCharactersInFrontOfIt() async throws {
         let scene = newScene()
         scene.applyMembers([
             PlazaSceneMember(memberID: "front", nickname: "front", isAway: false, tile: TilePoint(x: 23, y: 18), facing: .down, isWalking: false),
@@ -107,7 +106,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertLessThan(try XCTUnwrap(scene.memberZ("back")), pit)
     }
 
-    func testLightOnlyAtDuskAndNightWhileLit() {
+    func testLightOnlyAtDuskAndNightWhileLit() async {
         let scene = newScene()
         scene.now = { self.at(hour: 13) }
         scene.campfireLit = true
@@ -127,7 +126,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertFalse(scene.isCampfirePitShown)
     }
 
-    func testSitSnapsToTheSeatAndFacesTheFire() {
+    func testSitSnapsToTheSeatAndFacesTheFire() async {
         let scene = newScene()
         scene.update(0)
         var reports: [(TilePoint, PlazaDirection, Bool)] = []
@@ -141,7 +140,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertEqual(reports.first?.0, seat.tile)
     }
 
-    func testSitStopsAutoWalk() {
+    func testSitStopsAutoWalk() async {
         let scene = newScene()
         scene.applyMembers([PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 23, y: 18), facing: .down, isWalking: false)])
         XCTAssertTrue(scene.follow(member: "a"))
@@ -150,7 +149,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertNil(scene.walkingToMember)
     }
 
-    func testArrowKeyCallsOnWalkKeyEvenForAnEgg() {
+    func testArrowKeyCallsOnWalkKeyEvenForAnEgg() async {
         let scene = newScene()
         scene.canWalk = false
         var calls = 0
@@ -166,7 +165,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertEqual(calls, 1, "an open overlay swallows the arrow before it reaches the walk hook")
     }
 
-    func testTimerLabelAppearsRedrawsOnChangeAndHides() {
+    func testTimerLabelAppearsRedrawsOnChangeAndHides() async {
         let scene = newScene()
         scene.update(0)
         XCTAssertFalse(scene.isCampfireTimerShown)
@@ -187,7 +186,7 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertFalse(scene.isCampfireTimerShown)
     }
 
-    func testLightTextureIsReusedWithinAFrameAndRebuiltOnPhaseChange() {
+    func testLightTextureIsReusedWithinAFrameAndRebuiltOnPhaseChange() async {
         let scene = newScene()
         scene.now = { self.at(hour: 21) }
         scene.campfireLit = true
@@ -200,49 +199,8 @@ final class PlazaCampfireSceneTests: XCTestCase {
         XCTAssertNotEqual(scene.campfireLightTextureID, a)
     }
 
-    /// The light texture holds `multiplier / 2` per ring, neutral grey outside the ellipse, laid out on the 2 px block grid.
-    func testLightTextureHoldsTheRingsOnTheBlockGrid() throws {
-        let scene = newScene()
-        scene.now = { self.at(hour: 21) }
-        scene.campfireLit = true
-        scene.update(0)
-        let tint = scene.daylightTint
-        let image = try XCTUnwrap(scene.campfireLightImage)
-        let radii = PlazaCampfireLight.radii(phase: 0)
-        let n = PlazaCampfireLight.blockCounts(radii: radii)
-        XCTAssertEqual(image.width, n.w)
-        XCTAssertEqual(image.height, n.h)
-        var data = [UInt8](repeating: 0, count: n.w * n.h * 4)
-        let ctx = CGContext(data: &data, width: n.w, height: n.h, bitsPerComponent: 8, bytesPerRow: n.w * 4,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: n.w, height: n.h))
-        func texel(_ i: Int, _ j: Int) -> [Int] { (0..<3).map { Int(data[(j * n.w + i) * 4 + $0]) } }   // j = 0 is the top row
-        func expected(_ mix: Double) -> [Int] {
-            let m = PlazaCampfireLight.multiplier(tint: tint, mix: mix)
-            return [m.r, m.g, m.b].map { Int(($0 / 2 * 255).rounded()) }
-        }
-        func assertTexel(_ i: Int, _ j: Int, mix: Double, _ what: String) {
-            for (got, want) in zip(texel(i, j), expected(mix)) { XCTAssertEqual(got, want, accuracy: 2, what) }
-        }
-        let mid = n.w / 2
-        assertTexel(mid, n.h / 2, mix: 1, "centre texel is ring 1")
-        assertTexel(mid, n.h / 2 - 1, mix: 1, "the texel just above the centre is ring 1")
-        assertTexel(0, 0, mix: 0, "the corner is outside the ellipse, so neutral")
-        XCTAssertEqual(texel(0, 0), [128, 128, 128].map { $0 }, "neutral is 0.5")
-        assertTexel(mid, 0, mix: PlazaCampfireLight.blockMix(i: mid, j: 0, radii: radii), "top middle follows the maths")
-        XCTAssertEqual(PlazaCampfireLight.blockMix(i: mid, j: 0, radii: radii), 0.26, "top middle sits in ring 4")
-        // World placement: the box is centred on the light centre, 2 world px per texel.
-        let center = try XCTUnwrap(PlazaCampfireLight.center(campfireTiles: map.campfireTiles))
-        let frame = scene.campfireLightFrame
-        XCTAssertEqual(frame.width, CGFloat(2 * n.w))
-        XCTAssertEqual(frame.height, CGFloat(2 * n.h))
-        XCTAssertEqual(frame.midX, center.x, accuracy: 0.001)
-        XCTAssertEqual(map.pixelSize.height - frame.midY, center.y, accuracy: 0.001)
-        XCTAssertEqual(map.pixelSize.height - frame.maxY, center.y - CGFloat(n.h), accuracy: 0.001, "the top row is the north edge")
-    }
-
     /// The tint is read once per update: moving `now` without an update does not move the light.
-    func testLightFollowsTheTintOnlyOnUpdate() {
+    func testLightFollowsTheTintOnlyOnUpdate() async {
         let scene = newScene()
         scene.now = { self.at(hour: 21) }
         scene.campfireLit = true

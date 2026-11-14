@@ -23,6 +23,8 @@ struct PlazaRenderSetup {
 
 enum PlazaRenderLook: Hashable {
     case me, ash, brock, misty, dawn, ditto, egg
+    /// Frames of three sizes: front steps 28x32 and 26x30, back 30x34.
+    case mixed
     /// A real cached sprite by species id (`real-sprites` only).
     case real(Int)
 }
@@ -51,7 +53,7 @@ enum PlazaRenderScenes {
     }
 
     private static func body(_ look: PlazaRenderLook, front: Bool, step: Int) -> CGImage {
-        let (w, h) = look == .egg ? (20, 26) : (28, 32)
+        let (w, h) = look == .egg ? (20, 26) : look == .mixed ? (front ? (step == 0 ? (28, 32) : (26, 30)) : (30, 34)) : (28, 32)
         let colour: (UInt8, UInt8, UInt8) = switch look {
         case .me: (230, 80, 60)
         case .ash: (60, 120, 230)
@@ -60,6 +62,7 @@ enum PlazaRenderScenes {
         case .dawn: (200, 90, 200)
         case .ditto: (190, 150, 220)
         case .egg: (245, 240, 220)
+        case .mixed: (240, 200, 70)
         case .real: (128, 128, 128)
         }
         var px = [UInt8](repeating: 0, count: w * h * 4)
@@ -577,6 +580,66 @@ enum PlazaRenderScenes {
                     case 8: press(s, right)
                     case 20: release(s, right); press(s, up)
                     case 28: release(s, up)
+                    default: break
+                    }
+                }
+            },
+            // Members leave (the actor's detach): a swimmer with a chat bubble (ghost crop showing) and a wet walker go,
+            // the Ditto changes form and then goes, and a late member joins after them.
+            scene("member-leave", captures: [8, 16, 24, 32]) {
+                var o = Options(); o.me = TilePoint(x: 12, y: 12)
+                let s = stage(o)
+                let stay = member("ash", "Ash", 13, 12, facing: .left)
+                s.put([stay, member("swimmer", "Swimmer", 9, 14), member("wet", "Wet", 10, 12, facing: .right, walking: true)],
+                      looks: ["ash": .ash, "swimmer": .misty, "wet": .brock])
+                s.scene.memberActor("wet")?.showWet()
+                s.scene.applyDitto(PlazaDittoShown(tile: TilePoint(x: 11, y: 11), facing: .down, isWalking: false, isRunning: false,
+                                                   name: "Ditto", nameColor: PlazaNameColor.palette[1], title: nil, isDecoy: false))
+                s.scene.setMemberFrames(PlazaDitto.sceneKey, frames(.ditto))
+                return setup(s) { f in
+                    switch f {
+                    case 1: s.scene.showChat(memberID: "swimmer", text: "bye for now")
+                    case 10: s.put([stay])
+                    case 12: s.scene.setMemberFrames(PlazaDitto.sceneKey, frames(.dawn))
+                    case 18: s.scene.applyDitto(nil)
+                    case 20: s.put([stay, member("late", "Late", 14, 11)], looks: ["late": .dawn])
+                    default: break
+                    }
+                }
+            },
+            // A swimmer whose pond rect changes (the ghost crop's mask moves: pond A -> C -> A), one facing back in the
+            // water, the Ditto changing form while it swims, and a swimmer whose frames arrive late (placed before).
+            scene("pond-hop", captures: [4, 10, 16, 28]) {
+                var o = Options(); o.zoom = 1; o.me = TilePoint(x: 14, y: 19)
+                let s = stage(o)
+                s.applied.insert("late")   // its frames arrive at frame 6
+                s.put([member("hopper", "Hopper", 7, 14), member("back", "Back", 10, 14, facing: .up),
+                       member("late", "Late", 20, 24)], looks: ["hopper": .misty, "back": .ash])
+                s.scene.applyDitto(PlazaDittoShown(tile: TilePoint(x: 13, y: 14), facing: .left, isWalking: false, isRunning: false,
+                                                   name: "Ditto", nameColor: PlazaNameColor.palette[1], title: nil, isDecoy: false))
+                s.scene.setMemberFrames(PlazaDitto.sceneKey, frames(.ditto))
+                return setup(s) { f in
+                    switch f {
+                    case 6: s.scene.setMemberFrames("late", frames(.brock))
+                    case 8: s.scene.setMemberFrames(PlazaDitto.sceneKey, frames(.dawn))
+                    case 12: s.move("hopper", to: TilePoint(x: 22, y: 25))
+                    case 24: s.move("hopper", to: TilePoint(x: 6, y: 15))
+                    default: break
+                    }
+                }
+            },
+            // Lunges to the right, up and down (the effect scenes only lunge left), and frames of three sizes walking.
+            scene("lunges", captures: [3, 9, 15, 24]) {
+                let s = stage()
+                s.put([member("ash", "Ash", 17, 10, facing: .right), member("misty", "Misty", 21, 9),
+                       member("dawn", "Dawn", 21, 11, facing: .up), member("mix", "Mix", 16, 12)],
+                      looks: ["ash": .ash, "misty": .misty, "dawn": .dawn, "mix": .mixed])
+                return setup(s) { f in
+                    switch f {
+                    case 1: s.scene.playTackle(by: "ash", on: nil, direction: .right); s.move("mix", to: TilePoint(x: 17, y: 12), walking: true)
+                    case 7: s.scene.playTackle(by: "dawn", on: "misty", direction: .up)
+                    case 9: s.move("mix", to: TilePoint(x: 17, y: 11), facing: .up, walking: true)
+                    case 13: s.scene.playTackle(by: "misty", on: "dawn", direction: .down)
                     default: break
                     }
                 }
