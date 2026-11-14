@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SpriteKit
+import SwiftUI
 @testable import PokeTokenBar
 
 private struct NoSprites: PlazaSpriteFetching {
@@ -347,5 +348,115 @@ private struct NoSprites: PlazaSpriteFetching {
         XCTAssertEqual(c.banner, L(.ko).plazaPhotoCopied)
         XCTAssertEqual(shell.take(), [.setHUDHidden(true)])
         c.handleClose()
+    }
+}
+
+extension PlazaWindowTests {
+    func testRosterCapacityUsesTheRestoredWindowHeight() async {
+        let name = "PlazaWindowTests.\(UUID())"
+        defer { NSWindow.removeFrame(usingName: name) }
+        let rect = { (height: CGFloat) in NSRect(x: 100, y: 100, width: 960, height: height) }
+        NSWindow(contentRect: rect(320), styleMask: [.titled, .resizable], backing: .buffered, defer: true)
+            .saveFrame(usingName: name)
+        let w = NSWindow(contentRect: rect(640), styleMask: [.titled, .resizable], backing: .buffered, defer: true)
+        w.isReleasedWhenClosed = false
+        let model = PlazaRosterModel()
+        PlazaMacWindow.restoreFrame(w, into: model, autosaveName: name)
+        XCTAssertEqual(w.contentView?.bounds.height, 320, "the fixture must restore the saved size")
+        XCTAssertEqual(model.capacity, PlazaRoster.capacity(forHeight: 320))
+        XCTAssertNotEqual(model.capacity, PlazaRoster.capacity(forHeight: 640), "the fixture must tell the sizes apart")
+    }
+
+    /// With the background hidden the minimap is a dim, see-through panel; the dots stay as they are.
+    func testMinimapDimsWhenTheBackgroundIsHidden() async throws {
+        let map = NSImage(size: NSSize(width: 48, height: 32), flipped: false) { rect in
+            NSColor(srgbRed: 0.43, green: 0.73, blue: 0.33, alpha: 1).setFill(); rect.fill(); return true
+        }
+        func meanAlpha(hidden: Bool) throws -> Double {
+            let background = PlazaBackgroundModel()
+            background.isHidden = hidden
+            let view = PlazaMinimapView(model: PlazaMinimapModel(), background: background, mapImage: map,
+                                        worldSize: PlazaMapData.map.pixelSize)
+            let image = try XCTUnwrap(ImageRenderer(content: view).cgImage)
+            var px = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let ctx = try XCTUnwrap(CGContext(data: &px, width: image.width, height: image.height, bitsPerComponent: 8,
+                                              bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return Double(stride(from: 3, to: px.count, by: 4).reduce(0) { $0 + Int(px[$1]) }) / Double(px.count / 4) / 255
+        }
+        let shown = try meanAlpha(hidden: false), dimmed = try meanAlpha(hidden: true)
+        XCTAssertGreaterThan(shown, 0.9, "opaque while the map is shown")
+        XCTAssertLessThan(dimmed, 0.7, "see-through while the background is hidden")
+    }
+
+    /// Each status reads and looks different, and a roster with all three lays out one row per teammate.
+    func testRosterShowsThreeDistinctStatuses() async {
+        let badges = [PlazaPresence.online, .idle, .asleep].map(\.badge)
+        XCTAssertEqual(badges.map(\.text), ["접속", "자리비움", "잠"])
+        XCTAssertEqual(Set(badges.map(\.color)).count, 3)
+        func entry(_ id: String, _ p: PlazaPresence, me: Bool = false) -> PlazaRosterEntry {
+            PlazaRosterEntry(id: id, nickname: id, speciesID: 25, speciesName: "피카츄", gender: nil, isShiny: false,
+                             presence: p, isMe: me)
+        }
+        let model = PlazaRosterModel()
+        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
+        model.entries = [entry("me", .online, me: true)]
+        let one = view.fittingSize.height
+        model.entries = [entry("me", .idle, me: true), entry("a", .online), entry("b", .idle), entry("c", .asleep)]
+        view.layoutSubtreeIfNeeded()
+        let slot = PlazaRosterMetrics.slotHeight + PlazaRosterMetrics.slotSpacing
+        XCTAssertEqual(view.fittingSize.height - one, 3 * slot, accuracy: 1)
+    }
+
+    /// A new view per case: without a window, macOS 15 does not refresh `fittingSize` after a second change to the model.
+    func testRosterPanelHoldsOnePage() async {
+        func height(people count: Int, page: Int = 0) -> CGFloat {
+            let model = PlazaRosterModel()
+            model.entries = (0..<count).map {
+                PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
+                                 isShiny: false, presence: .idle, isMe: false)
+            }
+            model.page = page
+            return PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
+        }
+        let six = height(people: 6)
+        XCTAssertEqual(height(people: 7), six, accuracy: 1, "the seventh person goes to the next page")
+        let slot = PlazaRosterMetrics.slotHeight + PlazaRosterMetrics.slotSpacing
+        XCTAssertEqual(six - height(people: 7, page: 1), 5 * slot, accuracy: 1)
+    }
+
+    /// The roster draws under the minimap and the clock, so its reserve must cover both as they really measure.
+    func testRosterClearanceCoversTheMinimapAndTheClock() async {
+        let map = NSHostingView(rootView: PlazaMinimapView(model: PlazaMinimapModel(), mapImage: NSImage(size: NSSize(width: 1, height: 1)),
+                                                           worldSize: PlazaMapData.map.pixelSize))
+        let clock = NSHostingView(rootView: PlazaClock(model: PlazaMinimapModel()))
+        // 16 below the map and 6 between the map and the clock, as the window lays them out.
+        XCTAssertLessThanOrEqual(16 + map.fittingSize.height + 6 + clock.fittingSize.height, PlazaRosterMetrics.bottomClearance)
+    }
+
+    func testRosterPageTurnsFromTheControllerAndResetsOnClose() async {
+        let c = controller(defaults())
+        c.prepareScene()
+        c.rosterModel.entries = (0..<7).map {
+            PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
+                             isShiny: false, presence: .idle, isMe: false)
+        }
+        c.rosterView().onTurn(1)
+        XCTAssertEqual(c.rosterModel.page, 1, "the arrows are wired to the window's list")
+        c.handleClose()
+        XCTAssertEqual(c.rosterModel.page, 0, "reopening starts from the first page")
+    }
+
+    /// The roster takes clicks so a teammate can be chosen, but never the keyboard.
+    func testRosterTakesClicksButNotKeys() async {
+        let model = PlazaRosterModel()
+        model.entries = [PlazaRosterEntry(id: "m", nickname: "민수", speciesID: 25, speciesName: "피카츄", gender: nil,
+                                          isShiny: false, presence: .online, isMe: false)]
+        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
+        view.frame = NSRect(x: 0, y: 0, width: PlazaRosterMetrics.width, height: 120)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertNotNil(view.hitTest(NSPoint(x: 100, y: 60)))
+        XCTAssertFalse(view.acceptsFirstResponder)
     }
 }

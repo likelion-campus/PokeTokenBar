@@ -1,6 +1,4 @@
 import XCTest
-import AppKit
-import SwiftUI
 @testable import PokeTokenBar
 
 private final class SeenIDs: @unchecked Sendable {
@@ -20,7 +18,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 }
 
 @MainActor final class PlazaWindowTests: XCTestCase {
-    private func defaults() -> UserDefaults {
+    func defaults() -> UserDefaults {
         let name = "plaza.test.\(UUID())"
         return TestDefaults.make(suite: name)
     }
@@ -32,7 +30,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         return options.first { map.isWalkable(.init(x: start.x + $0.1, y: start.y + $0.2)) }
     }
 
-    private func controller(_ d: UserDefaults,
+    func controller(_ d: UserDefaults,
                             fetcher: PlazaSpriteFetching = RecordingFetcher(),
                             nickname: @escaping () -> String = { "tester" },
                             subject: @escaping () -> CompanionStore.RepresentativeSubject = { .init(speciesID: 25, isShiny: false) },
@@ -41,7 +39,8 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     ) -> PlazaWindowController {
         PlazaWindowController(preferences: PlazaPreferences(defaults: d),
                               loader: PlazaCharacterLoader(fetcher: fetcher),
-                              nickname: nickname, memberID: memberID, subject: subject, myRosterEntry: myEntry)
+                              nickname: nickname, memberID: memberID, subject: subject, myRosterEntry: myEntry,
+                              shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
     /// 장면 update를 시각을 늘려 가며 부른다.
@@ -51,7 +50,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         while t < start + seconds { t += 1.0 / 30; scene.update(t) }
     }
 
-    func testEggCannotWalk() {
+    func testEggCannotWalk() async {
         let c = controller(defaults(), subject: { .init(speciesID: nil, isShiny: false) })
         c.prepareScene()
         guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { return XCTFail("no scene") }
@@ -100,7 +99,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertFalse(scene.walker.isWalking)
     }
 
-    func testInvalidSavedTileFallsBackToSpawn() {
+    func testInvalidSavedTileFallsBackToSpawn() async {
         let p = PlazaPreferences(defaults: defaults()), map = PlazaMapData.map
         XCTAssertEqual(p.lastTile(validIn: map), map.spawn)
         p.saveLastTile(.init(x: 0, y: 0)); XCTAssertEqual(p.lastTile(validIn: map), map.spawn)
@@ -108,13 +107,13 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         let ok = map.shelterTiles.last!; p.saveLastTile(ok); XCTAssertEqual(p.lastTile(validIn: map), ok)
     }
 
-    func testZoomIsClampedAndPersisted() {
+    func testZoomIsClampedAndPersisted() async {
         let d = defaults(); let p = PlazaPreferences(defaults: d)
         XCTAssertEqual(p.zoom, 2); p.zoom = 7
         XCTAssertEqual(PlazaPreferences(defaults: d).zoom, 3)
     }
 
-    func testClosingReleasesSceneAndSavesTile() {
+    func testClosingReleasesSceneAndSavesTile() async {
         let d = defaults(); let map = PlazaMapData.map
         let c = controller(d)
         c.prepareScene()
@@ -135,7 +134,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(PlazaPreferences(defaults: d).lastTile(validIn: map), expected)
     }
 
-    func testResignKeyReleasesHeldKeys() {
+    func testResignKeyReleasesHeldKeys() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
@@ -147,20 +146,6 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertLessThanOrEqual(abs(scene.walker.tile.x - start.x) + abs(scene.walker.tile.y - start.y), 1)
     }
 
-    func testRosterCapacityUsesTheRestoredWindowHeight() {
-        let name = "PlazaWindowTests.\(UUID())"
-        defer { NSWindow.removeFrame(usingName: name) }
-        let rect = { (height: CGFloat) in NSRect(x: 100, y: 100, width: 960, height: height) }
-        NSWindow(contentRect: rect(320), styleMask: [.titled, .resizable], backing: .buffered, defer: true)
-            .saveFrame(usingName: name)
-        let w = NSWindow(contentRect: rect(640), styleMask: [.titled, .resizable], backing: .buffered, defer: true)
-        w.isReleasedWhenClosed = false
-        let model = PlazaRosterModel()
-        PlazaMacWindow.restoreFrame(w, into: model, autosaveName: name)
-        XCTAssertEqual(w.contentView?.bounds.height, 320, "the fixture must restore the saved size")
-        XCTAssertEqual(model.capacity, PlazaRoster.capacity(forHeight: 320))
-        XCTAssertNotEqual(model.capacity, PlazaRoster.capacity(forHeight: 640), "the fixture must tell the sizes apart")
-    }
 
     func testRefreshCharacterLoadsCurrentSubject() async {
         let fetcher = RecordingFetcher()
@@ -181,14 +166,11 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertTrue(fetcher.seen.all.isEmpty)
     }
 
-    func testShadowStaysOnGroundWhileBobbing() {
+    func testShadowStaysOnGroundWhileBobbing() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { return XCTFail("setup") }
-        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
-        let ctx = CGContext(data: nil, width: 50, height: 50, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let frame = PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 1)
+        let frame = PlazaFrame(image: PlazaImage(bitmap: PlazaBitmap(width: 50, height: 50)), delay: 1)
         scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
         XCTAssertEqual(scene.groundShadowSize.width, 54)
         XCTAssertEqual(scene.groundShadowSize.height, 17)
@@ -207,7 +189,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertGreaterThan(maxY - minY, 0.5, "the character y must vary across frames while walking")
     }
 
-    func testRefreshNicknameUpdatesScene() {
+    func testRefreshNicknameUpdatesScene() async {
         var name = "first"
         let c = controller(defaults(), nickname: { name })
         c.prepareScene()
@@ -217,7 +199,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(c.scene?.nickname, "second")
     }
 
-    func testArrowRepeatIsIgnored() {
+    func testArrowRepeatIsIgnored() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
@@ -228,7 +210,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertFalse(scene.walker.isWalking)
     }
 
-    func testZoomKeysChangeZoomAndNotify() {
+    func testZoomKeysChangeZoomAndNotify() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
@@ -244,7 +226,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(seen, [1, 2, 3])
     }
 
-    func testZoomChangeIsPersistedThroughController() {
+    func testZoomChangeIsPersistedThroughController() async {
         let d = defaults()
         let c = controller(d)
         c.prepareScene()
@@ -252,7 +234,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(PlazaPreferences(defaults: d).zoom, 1)
     }
 
-    func testHugeFrameDeltaIsClamped() {
+    func testHugeFrameDeltaIsClamped() async {
         let map = PlazaMapData.map
         let c = controller(defaults())
         c.prepareScene()
@@ -269,7 +251,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertTrue(scene.walker.isWalking)
     }
 
-    func testUnhandledKeysAreSwallowedWithoutClose() {
+    func testUnhandledKeysAreSwallowedWithoutClose() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
@@ -285,7 +267,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertFalse(scene.walker.isWalking)
     }
 
-    func testCmdWAndEscapeRequestClose() {
+    func testCmdWAndEscapeRequestClose() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
@@ -296,7 +278,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(closes, 2)
     }
 
-    func testCommandArrowDoesNotStartWalking() {
+    func testCommandArrowDoesNotStartWalking() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { return XCTFail("setup") }
@@ -307,7 +289,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertFalse(scene.walker.isWalking)
     }
 
-    func testCommandHeldDuringUpdateStopsWalking() {
+    func testCommandHeldDuringUpdateStopsWalking() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene, let (key, _, _) = walkableKey(from: scene.walker.tile) else { return XCTFail("setup") }
@@ -327,7 +309,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     /// Holding Shift while walking runs: twice the tiles in the same time. Without Shift it walks.
-    func testShiftHeldDuringUpdateRuns() {
+    func testShiftHeldDuringUpdateRuns() async {
         func walked(_ modifiers: PlazaModifiers) -> (tiles: Int, ran: Bool) {
             let c = controller(defaults())
             c.prepareScene()
@@ -349,7 +331,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 
     /// A frame can never cover two tiles, even a slow one while running, so every tile I pass is reported and
     /// teammates never see me jump two tiles. The frame cap stays below the running step for that.
-    func testASlowFrameWhileRunningReportsEveryTile() {
+    func testASlowFrameWhileRunningReportsEveryTile() async {
         XCTAssertLessThan(PlazaScene.maxFrameDelta, PlazaWalker.runStepDuration)
         let c = controller(defaults())
         c.prepareScene()
@@ -368,7 +350,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     /// Folding the shortcut guide is remembered the next time the plaza opens.
-    func testShortcutGuideFoldIsRemembered() {
+    func testShortcutGuideFoldIsRemembered() async {
         let d = defaults()
         let c = controller(d)
         c.prepareScene()
@@ -384,7 +366,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 
     /// Pausing and resuming leave a state line in the log, with the scene's update count, so a frozen plaza can be
     /// told apart: paused while visible, or running but not updating.
-    func testPausingAndResumingLeaveStateLines() {
+    func testPausingAndResumingLeaveStateLines() async {
         let c = controller(defaults())
         c.prepareScene()
         var lines: [String] = []
@@ -403,7 +385,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     /// If SpriteKit keeps calling update with a frame clock that does not move, nobody moves while the update count
     /// still grows. That leaves a line when it starts and one when the clock moves again, and closing the window (how
     /// people recover) leaves the state at that moment.
-    func testAStalledFrameClockAndClosingLeaveStateLines() {
+    func testAStalledFrameClockAndClosingLeaveStateLines() async {
         let c = controller(defaults())
         c.prepareScene()
         var lines: [String] = []
@@ -423,7 +405,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertTrue(lines[2].contains("updates=\(PlazaScene.stalledFramesForLog * 2 + 2) t=10.03"), lines[2])
     }
 
-    func testPersistStateSavesTileWithoutTearingDown() {
+    func testPersistStateSavesTileWithoutTearingDown() async {
         let d = defaults()
         let c = controller(d)
         c.prepareScene()
@@ -438,7 +420,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
                        TilePoint(x: start.x + dx, y: start.y + dy))
     }
 
-    func testSetRenderingPausesAndResumesScene() {
+    func testSetRenderingPausesAndResumesScene() async {
         let c = controller(defaults())
         c.setRendering(visible: false)   // 장면이 없어도 안전
         c.prepareScene()
@@ -471,7 +453,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     /// SpriteKit sometimes leaves its frame signal off after the view is resumed: the view says it is not paused, but
     /// update is never called and nobody moves until the window is hidden and shown again. A second with rendering on
     /// and no update pauses and resumes the view to restart it, and says so in the log, then says when it moves again.
-    func testAStalledRenderLoopIsWokenAndLogged() {
+    func testAStalledRenderLoopIsWokenAndLogged() async {
         let c = controller(defaults())
         c.prepareScene()
         let loop = RecordingRenderLoop()
@@ -499,7 +481,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     /// A plaza we paused ourselves (hidden) is left alone, and the first look after resuming only takes the count.
-    func testAPausedPlazaIsNotWoken() {
+    func testAPausedPlazaIsNotWoken() async {
         let c = controller(defaults())
         c.prepareScene()
         let loop = RecordingRenderLoop()
@@ -515,7 +497,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     /// A plaza that stays stuck keeps being woken every second, but the log gets only the first three and every 60th.
-    func testAStuckPlazaLogsOnlyNowAndThen() {
+    func testAStuckPlazaLogsOnlyNowAndThen() async {
         let c = controller(defaults())
         c.prepareScene()
         let loop = RecordingRenderLoop()
@@ -531,7 +513,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     /// A reopened plaza has a new scene, so the watchdog forgets the last look: the first one only takes the count.
-    func testAReopenedPlazaStartsWatchingAfresh() {
+    func testAReopenedPlazaStartsWatchingAfresh() async {
         let c = controller(defaults())
         c.prepareScene()
         c.renderLoop = RecordingRenderLoop()
@@ -557,7 +539,8 @@ private struct RecordingFetcher: PlazaSpriteFetching {
                                       loader: PlazaCharacterLoader(fetcher: RecordingFetcher()),
                                       nickname: { "tester" }, memberID: { "member-1" },
                                       subject: { .init(speciesID: 25, isShiny: false) },
-                                      renderCheckSleep: { _ in await gate.sleep() })
+                                      renderCheckSleep: { _ in await gate.sleep() },
+                                      shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
         c.prepareScene()
         let loop = RecordingRenderLoop()
         c.renderLoop = loop
@@ -574,7 +557,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(gate.count, 0, "closed: no more looks")
     }
 
-    func testHidingPausesTheViewToo() {
+    func testHidingPausesTheViewToo() async {
         let c = controller(defaults())
         let loop = FakeRenderLoop()
         c.prepareScene()
@@ -587,31 +570,22 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(c.scene?.isPaused, false)
     }
 
-    func testCharacterDrawnAtOnePointFiveScale() {
+    func testCharacterDrawnAtOnePointFiveScale() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
         XCTAssertEqual(PlazaScene.characterScale, 1.5)
-        let ctx = CGContext(data: nil, width: 40, height: 30, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let frame = PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 1)
+        let frame = PlazaFrame(image: PlazaImage(bitmap: PlazaBitmap(width: 40, height: 30)), delay: 1)
         scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
         XCTAssertEqual(scene.characterSize, CGSize(width: 60, height: 45))
         // Odd sizes keep the exact 1.5x factor (no rounding distortion).
-        let odd = CGContext(data: nil, width: 41, height: 31, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let oddFrame = PlazaFrame(image: PlazaImage(cgImage: odd.makeImage()!), delay: 1)
+        let oddFrame = PlazaFrame(image: PlazaImage(bitmap: PlazaBitmap(width: 41, height: 31)), delay: 1)
         scene.setCharacter(PlazaCharacterFrames(front: [oddFrame], back: [oddFrame]))
         XCTAssertEqual(scene.characterSize, CGSize(width: 61.5, height: 46.5))
     }
 
     private func blankFrames(width: Int, height: Int) -> PlazaCharacterFrames {
-        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let frame = PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 1)
+        let frame = PlazaFrame(image: PlazaImage(bitmap: PlazaBitmap(width: width, height: height)), delay: 1)
         return PlazaCharacterFrames(front: [frame], back: [frame])
     }
 
@@ -621,7 +595,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     /// 1x display, odd window, odd sprite and plate widths: every edge must land on a device pixel.
-    func testLayoutPutsEdgesOnDeviceGridOnOneXDisplay() {
+    func testLayoutPutsEdgesOnDeviceGridOnOneXDisplay() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
@@ -643,7 +617,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
     }
 
     /// Retina zoom 3 also gives an odd device width (61.5 x 6 = 369).
-    func testLayoutSnapsOddSpriteAtRetinaZoomThree() {
+    func testLayoutSnapsOddSpriteAtRetinaZoomThree() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
@@ -655,7 +629,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 
     /// The camera looks above the feet by half the front sprite, so a big Pokémon keeps its head on screen.
     /// The camera used to centre the character in the part beside the roster, so it sat left of centre.
-    func testWideViewCentersMyCharacter() {
+    func testWideViewCentersMyCharacter() async {
         let c = controller(defaults())
         c.prepareScene()
         guard let scene = c.scene else { return XCTFail("scene missing") }
@@ -667,12 +641,13 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(screenX, 600, accuracy: 1)
     }
 
-    func testWindowTitleCarriesTheTeamName() {
+    func testWindowTitleCarriesTheTeamName() async {
         var name: String? = "개발팀"
         let c = PlazaWindowController(preferences: PlazaPreferences(defaults: defaults()),
                                       loader: PlazaCharacterLoader(fetcher: RecordingFetcher()),
                                       nickname: { "tester" }, memberID: { "member-1" },
-                                      subject: { .init(speciesID: 25, isShiny: false) }, teamName: { name })
+                                      subject: { .init(speciesID: 25, isShiny: false) }, teamName: { name },
+                                      shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
         XCTAssertEqual(c.title, "팀 광장 · 개발팀")
         name = "디자인팀"
         XCTAssertEqual(c.title, "팀 광장 · 디자인팀", "a rename or a team switch shows on the next refresh")
@@ -680,30 +655,8 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(c.title, "팀 광장")
     }
 
-    /// With the background hidden the minimap is a dim, see-through panel; the dots stay as they are.
-    func testMinimapDimsWhenTheBackgroundIsHidden() throws {
-        let map = NSImage(size: NSSize(width: 48, height: 32), flipped: false) { rect in
-            NSColor(srgbRed: 0.43, green: 0.73, blue: 0.33, alpha: 1).setFill(); rect.fill(); return true
-        }
-        func meanAlpha(hidden: Bool) throws -> Double {
-            let background = PlazaBackgroundModel()
-            background.isHidden = hidden
-            let view = PlazaMinimapView(model: PlazaMinimapModel(), background: background, mapImage: map,
-                                        worldSize: PlazaMapData.map.pixelSize)
-            let image = try XCTUnwrap(ImageRenderer(content: view).cgImage)
-            var px = [UInt8](repeating: 0, count: image.width * image.height * 4)
-            let ctx = try XCTUnwrap(CGContext(data: &px, width: image.width, height: image.height, bitsPerComponent: 8,
-                                              bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            return Double(stride(from: 3, to: px.count, by: 4).reduce(0) { $0 + Int(px[$1]) }) / Double(px.count / 4) / 255
-        }
-        let shown = try meanAlpha(hidden: false), dimmed = try meanAlpha(hidden: true)
-        XCTAssertGreaterThan(shown, 0.9, "opaque while the map is shown")
-        XCTAssertLessThan(dimmed, 0.7, "see-through while the background is hidden")
-    }
 
-    func testBackgroundToggleHidesTheMapAndIsRemembered() {
+    func testBackgroundToggleHidesTheMapAndIsRemembered() async {
         let d = defaults()
         let c = controller(d)
         c.prepareScene()
@@ -720,7 +673,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(reopened.scene!.backgroundColor.alpha, 1)
     }
 
-    func testCameraLooksAboveFeetForBigSprite() {
+    func testCameraLooksAboveFeetForBigSprite() async {
         let d = defaults()
         PlazaPreferences(defaults: d).saveLastTile(TilePoint(x: 23, y: 14))   // 쉼터는 지도 위쪽 끝이라 카메라가 막힌다: 가운데에서 시작
         let c = controller(d)
@@ -731,7 +684,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(scene.cameraPosition.y - before, 72, accuracy: 0.5)   // 96 x 1.5 / 2
     }
 
-    func testSetRenderingTogglesRosterAnimation() {
+    func testSetRenderingTogglesRosterAnimation() async {
         let c = controller(defaults())
         XCTAssertTrue(c.rosterIsAnimating)
         c.prepareScene()
@@ -741,7 +694,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertTrue(c.rosterIsAnimating)
     }
 
-    func testRosterLifecyclePrepareFillsMeAndCloseClears() {
+    func testRosterLifecyclePrepareFillsMeAndCloseClears() async {
         let me = PlazaRosterEntry(id: "me", nickname: "나", speciesID: 25, speciesName: "x", gender: nil,
                                   isShiny: false, presence: .online, isMe: true)
         let c = controller(defaults(), myEntry: { me })
@@ -756,7 +709,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertTrue(c.rosterEntries.isEmpty)
     }
 
-    func testEmptyNicknameHidesNamePlate() {
+    func testEmptyNicknameHidesNamePlate() async {
         var name = ""
         let c = controller(defaults(), nickname: { name })
         c.prepareScene()
@@ -769,75 +722,6 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         XCTAssertEqual(c.scene?.isNamePlateVisible, false)
     }
 
-    /// Each status reads and looks different, and a roster with all three lays out one row per teammate.
-    func testRosterShowsThreeDistinctStatuses() {
-        let badges = [PlazaPresence.online, .idle, .asleep].map(\.badge)
-        XCTAssertEqual(badges.map(\.text), ["접속", "자리비움", "잠"])
-        XCTAssertEqual(Set(badges.map(\.color)).count, 3)
-        func entry(_ id: String, _ p: PlazaPresence, me: Bool = false) -> PlazaRosterEntry {
-            PlazaRosterEntry(id: id, nickname: id, speciesID: 25, speciesName: "피카츄", gender: nil, isShiny: false,
-                             presence: p, isMe: me)
-        }
-        let model = PlazaRosterModel()
-        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
-        model.entries = [entry("me", .online, me: true)]
-        let one = view.fittingSize.height
-        model.entries = [entry("me", .idle, me: true), entry("a", .online), entry("b", .idle), entry("c", .asleep)]
-        view.layoutSubtreeIfNeeded()
-        let slot = PlazaRosterMetrics.slotHeight + PlazaRosterMetrics.slotSpacing
-        XCTAssertEqual(view.fittingSize.height - one, 3 * slot, accuracy: 1)
-    }
-
-    /// A new view per case: without a window, macOS 15 does not refresh `fittingSize` after a second change to the model.
-    func testRosterPanelHoldsOnePage() {
-        func height(people count: Int, page: Int = 0) -> CGFloat {
-            let model = PlazaRosterModel()
-            model.entries = (0..<count).map {
-                PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
-                                 isShiny: false, presence: .idle, isMe: false)
-            }
-            model.page = page
-            return PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
-        }
-        let six = height(people: 6)
-        XCTAssertEqual(height(people: 7), six, accuracy: 1, "the seventh person goes to the next page")
-        let slot = PlazaRosterMetrics.slotHeight + PlazaRosterMetrics.slotSpacing
-        XCTAssertEqual(six - height(people: 7, page: 1), 5 * slot, accuracy: 1)
-    }
-
-    /// The roster draws under the minimap and the clock, so its reserve must cover both as they really measure.
-    func testRosterClearanceCoversTheMinimapAndTheClock() {
-        let map = NSHostingView(rootView: PlazaMinimapView(model: PlazaMinimapModel(), mapImage: NSImage(size: NSSize(width: 1, height: 1)),
-                                                           worldSize: PlazaMapData.map.pixelSize))
-        let clock = NSHostingView(rootView: PlazaClock(model: PlazaMinimapModel()))
-        // 16 below the map and 6 between the map and the clock, as the window lays them out.
-        XCTAssertLessThanOrEqual(16 + map.fittingSize.height + 6 + clock.fittingSize.height, PlazaRosterMetrics.bottomClearance)
-    }
-
-    func testRosterPageTurnsFromTheControllerAndResetsOnClose() {
-        let c = controller(defaults())
-        c.prepareScene()
-        c.rosterModel.entries = (0..<7).map {
-            PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
-                             isShiny: false, presence: .idle, isMe: false)
-        }
-        c.rosterView().onTurn(1)
-        XCTAssertEqual(c.rosterModel.page, 1, "the arrows are wired to the window's list")
-        c.handleClose()
-        XCTAssertEqual(c.rosterModel.page, 0, "reopening starts from the first page")
-    }
-
-    /// The roster takes clicks so a teammate can be chosen, but never the keyboard.
-    func testRosterTakesClicksButNotKeys() {
-        let model = PlazaRosterModel()
-        model.entries = [PlazaRosterEntry(id: "m", nickname: "민수", speciesID: 25, speciesName: "피카츄", gender: nil,
-                                          isShiny: false, presence: .online, isMe: false)]
-        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
-        view.frame = NSRect(x: 0, y: 0, width: PlazaRosterMetrics.width, height: 120)
-        view.layoutSubtreeIfNeeded()
-        XCTAssertNotNil(view.hitTest(NSPoint(x: 100, y: 60)))
-        XCTAssertFalse(view.acceptsFirstResponder)
-    }
 
     // MARK: - Pond: Z routing, tackle and menu rules, dive limit
 
@@ -891,7 +775,8 @@ private struct RecordingFetcher: PlazaSpriteFetching {
                                       pokemonTypes: types,
                                       session: me.session, clock: { [unowned self] in pondNow },
                                       spriteRetrySleep: retrySleep,
-                                      dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
+                                      dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed },
+                                      shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
         c.prepareScene()
         pondHub.connect(me.transport, to: other.transport)
         await waitUntil { me.session.members[other.settings.memberID] != nil }
