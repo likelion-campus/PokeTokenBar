@@ -1,6 +1,7 @@
 #if os(Windows)
 import Foundation
 import WinSDK
+import CTeamTLS
 
 /// Names one connection of a `WinSocketLoop`. Never reused in a process, so a stale id can never reach a newer
 /// connection, even when Windows hands the newer one the same SOCKET value.
@@ -22,8 +23,11 @@ enum WinCloseReason: Sendable, Equatable {
 }
 
 enum WinSocketEvent: Sendable, Equatable {
+    /// `.listenFailed` comes instead of `.listening`, or later when a working listener breaks; either way the
+    /// listener is closed and nothing retries it: listen again (the Mac transport waits 5 s).
     case listening(port: UInt16), listenFailed(Int32)
-    /// An inbound connection. Answer it with `admit(_:)` (TLS starts) or `close(_:)` (refused, nothing allocated).
+    /// An inbound connection. Answer it inside the handler with `admit(_:)` (TLS starts) or `close(_:)` (refused,
+    /// nothing allocated). A handler that does neither gets it closed by the loop (counted, logged once).
     case accepted(WinConnID)
     case ready(WinConnID)
     /// At most `TeamTransportRules.maxReadChunk` bytes; then reading pauses until `receiveNext`.
@@ -52,20 +56,139 @@ enum WinSocketEvent: Sendable, Equatable {
 /// Receive is pulled, like Network.framework's: after `.ready`, each `receiveNext(id)` delivers at most one
 /// `.data` of up to `maxReadChunk` bytes and then stops reading that socket, so TCP holds a fast sender back.
 ///
+/// Lifecycle: one `start()`, one `shutdown()` (it joins the thread). A loop does not start again: `start()` after
+/// `shutdown()` logs and returns false. Releasing the last reference without `shutdown()` shuts it down then.
+///
 /// Call the methods from the main thread (they are lock-safe from any thread, but the order of events relative
-/// to calls is defined for one calling thread). `start()` once, `shutdown()` once; `shutdown()` joins the thread.
+/// to calls is defined for one calling thread).
 final class WinSocketLoop: @unchecked Sendable {
     /// How long one dial attempt may stay in TCP connect before the next address is tried.
     static let connectAttemptTimeout: TimeInterval = 4
     /// Bytes queued for one link and not yet taken by the socket. Twice the receive burst: an honest receiver
     /// cuts a sender off long before this, so only a peer that stopped reading reaches it.
     static let maxQueuedBytes = 2 * Int(TeamTransportRules.receiveBurst)
-    /// Inbound connections reported but not yet admitted or closed. At this many, the listener is not polled, so a
-    /// connection flood waits in the kernel backlog (and is refused there) instead of becoming sockets of ours.
+    /// Inbound connections reported but not yet answered. At this many (only while the main thread is behind), the
+    /// listener is not polled, so a connection flood waits in the kernel backlog instead of becoming sockets of ours.
     static let maxAwaitingAdmission = 64
     /// `.listenFailed` code when the TLS context could not be built (no Winsock code applies).
     static let tlsSetupFailed: Int32 = -1
+
+    private let engine: WinSocketEngine
+
+    /// - Parameter deliver: runs on the main queue, once per event, in order.
+    init(deliver: @escaping @MainActor (WinSocketEvent) -> Void,
+         connectTimeout: TimeInterval = WinSocketLoop.connectAttemptTimeout,
+         maxQueuedBytes: Int = WinSocketLoop.maxQueuedBytes) {
+        engine = WinSocketEngine(deliver: deliver, connectTimeoutMs: UInt64(max(1, connectTimeout * 1000)),
+                                 maxQueued: maxQueuedBytes)
+    }
+
+    /// The I/O thread holds the engine, not this handle, so dropping the handle cannot leave the thread running.
+    deinit { engine.shutdown() }
+
+    /// Starts Winsock (once per loop, paired with `shutdown`) and the I/O thread. Commands given before it run then.
+    /// False when Winsock could not start (logged; listens and dials then report failure) or after `shutdown()`.
+    @discardableResult func start() -> Bool { engine.start() }
+
+    /// Closes every socket without reporting it, waits until the I/O thread has exited, and releases Winsock.
+    /// Nothing is delivered afterwards. Calls made later do nothing.
+    func shutdown() { engine.shutdown() }
+
+    /// Listens on dual-stack `[::]:0` (IPv4 arrives mapped) with `SO_EXCLUSIVEADDRUSE`. Replaces an earlier listener.
+    /// Reports `.listening(port:)` with the bound port, or `.listenFailed(code)`.
+    func listen(code: TeamCode) { engine.listen(code: code, port: 0) }
+
+    /// Test seam: a fixed port, to prove a taken port is reported.
+    func listen(code: TeamCode, port: UInt16) { engine.listen(code: code, port: port) }
+
+    /// Closes the listener. No listener event of earlier `listen` calls is delivered afterwards.
+    /// Connections already accepted stay.
+    func stopListening() { engine.stopListening() }
+
+    /// Stops taking connections off the listener (they wait in, and past its size are refused by, the kernel
+    /// backlog) until `resumeAccepting()`. For a transport at its link limit: a flood then costs no main-thread hop.
+    func pauseAccepting() { engine.setAcceptPaused(true) }
+    func resumeAccepting() { engine.setAcceptPaused(false) }
+
+    /// Connects to the addresses in order (each attempt gets `connectTimeout`), then runs the TLS client handshake.
+    /// Reports `.ready(id)`, or `.closed(id, .unreachable(code))` when no address connects, or
+    /// `.closed(id, .handshakeFailed(text))`.
+    func dial(_ addresses: [WinSocketAddress], code: TeamCode) -> WinConnID { engine.dial(addresses, code: code) }
+
+    /// Starts the TLS server handshake on an `.accepted` connection. Until then the loop reads nothing from it.
+    func admit(_ id: WinConnID) { engine.admit(id) }
+
+    /// Asks for the next `.data` of a link (after `.ready`; one asked before `.ready` is kept for it).
+    func receiveNext(_ id: WinConnID) { engine.receiveNext(id) }
+
+    /// Queues bytes for a link; written once it is ready. Past `maxQueuedBytes` unsent, the link is closed with
+    /// `.error(10055)` (reported).
+    func send(_ data: Data, on id: WinConnID) { engine.send(data, on: id) }
+
+    /// Closes one connection, silently. Unknown or already closed ids are ignored.
+    func close(_ id: WinConnID) { engine.close(id) }
+
+    /// Closes every connection that exists now, silently (the listener stays).
+    func closeAll() { engine.closeAll() }
+
+    // MARK: test seams
+
+    /// The I/O thread (0 before `start`).
+    var ioThreadID: DWORD { engine.counters.threadID }
+    /// How many times `WSAPoll` has returned: each one is a wakeup of the I/O thread.
+    var wakeups: Int { engine.counters.pollReturns }
+    /// Connections the I/O thread holds a socket for, as of its last pass.
+    var connectionCount: Int { engine.counters.openConnections }
+    /// `.accepted` connections the owner's handler left unanswered, closed by the loop.
+    var unansweredAccepts: Int { engine.counters.unanswered }
+    /// Wake datagrams sent again because the previous one had not woken the loop after `wakeResendMs`.
+    var wakeResends: Int { engine.counters.wakeResends }
+    /// Wake datagrams whose `send` failed.
+    var wakeFailures: Int { engine.counters.wakeFailures }
+    /// The two local ports of the wake pair (receiver, sender), 0 before `start`.
+    var wakePorts: (UInt16, UInt16) { engine.counters.wakePorts }
+    /// The next `drop` wake datagrams count as sent but are never sent; the next `fail` ones fail.
+    func injectWakeFaults(drop: Int, fail: Int) { engine.injectWakeFaults(drop: drop, fail: fail) }
+    /// The next `accept` on a readable listener fails with `code`, as a listener that broke would.
+    func injectAcceptFailure(_ code: Int32) { engine.injectAcceptFailure(code) }
+
+    /// A `sockaddr_in` (16 bytes) or `sockaddr_in6` (28 bytes) for numeric host text: IPv4 dotted, IPv6 in any
+    /// form, optionally in brackets, with an optional numeric `%<interface index>` scope for link-local IPv6
+    /// (`fe80::1%7` or `[fe80::1%7]`).
+    static func socketAddress(_ a: WinSocketAddress) -> [UInt8]? {
+        var host = Substring(a.host)
+        if host.hasPrefix("["), host.hasSuffix("]") { host = host.dropFirst().dropLast() }
+        var scope: UInt32 = 0
+        if let percent = host.firstIndex(of: "%") {
+            guard let s = UInt32(host[host.index(after: percent)...]) else { return nil }
+            scope = s
+            host = host[..<percent]
+        }
+        let text = String(host)
+        if text.contains(":") {
+            var b = [UInt8](repeating: 0, count: 28)
+            b[0] = UInt8(WS.afInet6)
+            b[2] = UInt8(a.port >> 8); b[3] = UInt8(a.port & 0xff)
+            let parsed = b.withUnsafeMutableBytes { inet_pton(WS.afInet6, text, $0.baseAddress! + 8) }
+            guard parsed == 1 else { return nil }
+            for i in 0..<4 { b[24 + i] = UInt8((scope >> (8 * UInt32(i))) & 0xff) }
+            return b
+        }
+        guard scope == 0 else { return nil }
+        var b = [UInt8](repeating: 0, count: 16)
+        b[0] = UInt8(WS.afInet)
+        b[2] = UInt8(a.port >> 8); b[3] = UInt8(a.port & 0xff)
+        let parsed = b.withUnsafeMutableBytes { inet_pton(WS.afInet, text, $0.baseAddress! + 4) }
+        return parsed == 1 ? b : nil
+    }
+}
+
+/// The loop itself: owned by the I/O thread while it runs and by the `WinSocketLoop` handle.
+private final class WinSocketEngine: @unchecked Sendable {
     private static let writeSlice = 65_536
+    /// A wake datagram that has not woken the loop after this long is sent again by the next command. The loop takes
+    /// commands within microseconds; only a lost datagram (or a loop busy for this long) gets here.
+    static let wakeResendMs: UInt64 = 100
 
     private let deliver: @MainActor (WinSocketEvent) -> Void
     private let connectTimeoutMs: UInt64
@@ -77,6 +200,7 @@ final class WinSocketLoop: @unchecked Sendable {
     private var state = State.idle
     private var commands: [Command] = []
     private var wakePending = false
+    private var wakeSentAt: UInt64 = 0
     private var wakeSender = SOCKET.max
     private var mailbox: [Posted] = []
     private var flushScheduled = false
@@ -85,69 +209,93 @@ final class WinSocketLoop: @unchecked Sendable {
     /// Bumped by `closeAll`; a connection born before the bump is closed by it, a later one is not.
     private var epoch = 0
     private var listenGeneration = 0
-    private var threadID: DWORD = 0
-    private var pollReturns = 0
-    private var openConnections = 0
+    /// The `.accepted` being delivered right now, and whether its handler answered it.
+    private var answering: WinConnID?
+    private var answered = false
+    private var dropWakes = 0
+    private var failWakes = 0
+    struct Counters {
+        var threadID: DWORD = 0
+        var pollReturns = 0
+        var openConnections = 0
+        var unanswered = 0
+        var wakeResends = 0
+        var wakeFailures = 0
+        var wakePorts: (UInt16, UInt16) = (0, 0)
+    }
+    private var counts = Counters()
 
     // The I/O thread only.
     private var wakeReceiver = SOCKET.max
     private var conns: [WinConnID: Conn] = [:]
     private var listener: Listener?
-    private var listenerRetryAt: UInt64?
+    private var acceptPaused = false
+    private var injectedAcceptFailure: Int32?
     private var clientContext: (code: TeamCode, context: WinTLSContext)?
     private var awaitingAdmission = 0
     private var stopping = false
     private var toFlush: [Conn] = []
+    private var loggedPollFailure = false
 
-    // The calling thread only.
+    // The thread that calls start/shutdown.
     private var threadHandle: HANDLE?
     private let finished = DispatchSemaphore(value: 0)
 
-    /// - Parameter deliver: runs on the main queue, once per event, in order.
-    init(deliver: @escaping @MainActor (WinSocketEvent) -> Void,
-         connectTimeout: TimeInterval = WinSocketLoop.connectAttemptTimeout,
-         maxQueuedBytes: Int = WinSocketLoop.maxQueuedBytes) {
+    init(deliver: @escaping @MainActor (WinSocketEvent) -> Void, connectTimeoutMs: UInt64, maxQueued: Int) {
         self.deliver = deliver
-        connectTimeoutMs = UInt64(max(1, connectTimeout * 1000))
-        maxQueued = maxQueuedBytes
+        self.connectTimeoutMs = connectTimeoutMs
+        self.maxQueued = maxQueued
     }
 
-    // MARK: API
+    var counters: Counters { locked { counts } }
 
-    /// Starts Winsock (once per loop, paired with `shutdown`) and the I/O thread. Commands given before it run then.
-    func start() {
+    // MARK: lifecycle
+
+    func start() -> Bool {
         lock.lock()
-        guard case .idle = state else { lock.unlock(); return }
-        lock.unlock()
+        switch state {
+        case .idle:
+            lock.unlock()
+        case .running:
+            lock.unlock()
+            return true
+        case .failed:
+            lock.unlock()
+            return false
+        case .stopped:
+            lock.unlock()
+            AppLog.write("team: a socket loop was started again after shutdown; ignored (one start, one shutdown)")
+            return false
+        }
         var data = WSADATA()
         let started = WSAStartup(0x0202, &data)
-        guard started == 0 else { fail(started); return }
+        guard started == 0 else { fail(started); return false }
         guard let pair = Self.wakePair() else {
             let code = WSAGetLastError()
             _ = WSACleanup()
             fail(code)
-            return
+            return false
         }
         wakeReceiver = pair.receiver
         lock.lock()
         wakeSender = pair.sender
+        counts.wakePorts = (pair.receiverPort, pair.senderPort)
         state = .running
         lock.unlock()
         let ready = DispatchSemaphore(value: 0)
         let thread = Thread { [self] in
             let tid = GetCurrentThreadId()
-            self.lock.lock(); self.threadID = tid; self.lock.unlock()
+            self.lock.lock(); self.counts.threadID = tid; self.lock.unlock()
             ready.signal()
             self.run()
         }
         thread.name = "PokeTokenBar team sockets"
         thread.start()
         ready.wait()
-        threadHandle = OpenThread(DWORD(0x0010_0000 | 0x0800), false, ioThreadID)  // SYNCHRONIZE | QUERY_LIMITED_INFORMATION
+        threadHandle = OpenThread(DWORD(0x0010_0000 | 0x0800), false, counters.threadID)  // SYNCHRONIZE | QUERY_LIMITED_INFORMATION
+        return true
     }
 
-    /// Closes every socket without reporting it, waits until the I/O thread has exited, and releases Winsock.
-    /// Nothing is delivered afterwards. Calls made later do nothing.
     func shutdown() {
         lock.lock()
         let wasRunning: Bool
@@ -175,26 +323,20 @@ final class WinSocketLoop: @unchecked Sendable {
         if wasRunning { _ = WSACleanup() }
     }
 
-    /// Listens on dual-stack `[::]:0` (IPv4 arrives mapped) with `SO_EXCLUSIVEADDRUSE`. Replaces an earlier listener.
-    /// Reports `.listening(port:)` with the bound port, or `.listenFailed(code)`.
-    func listen(code: TeamCode) { listen(code: code, port: 0) }
+    // MARK: API
 
-    /// Test seam: a fixed port, to prove a taken port is reported.
     func listen(code: TeamCode, port: UInt16) {
         let generation = locked { () -> Int in listenGeneration += 1; return listenGeneration }
         enqueue(.listen(code, port, generation))
     }
 
-    /// Closes the listener. No listener event of earlier `listen` calls is delivered afterwards.
-    /// Connections already accepted stay.
     func stopListening() {
         locked { listenGeneration += 1 }
         enqueue(.stopListening)
     }
 
-    /// Connects to the addresses in order (each attempt gets `connectTimeout`), then runs the TLS client handshake.
-    /// Reports `.ready(id)`, or `.closed(id, .unreachable(code))` when no address connects, or
-    /// `.closed(id, .handshakeFailed(text))`.
+    func setAcceptPaused(_ paused: Bool) { enqueue(.pauseAccepting(paused)) }
+
     func dial(_ addresses: [WinSocketAddress], code: TeamCode) -> WinConnID {
         let id = Self.newID()
         let e = locked { () -> Int in live.insert(id); return epoch }
@@ -202,77 +344,45 @@ final class WinSocketLoop: @unchecked Sendable {
         return id
     }
 
-    /// Starts the TLS server handshake on an `.accepted` connection. Until then the loop reads nothing from it.
-    func admit(_ id: WinConnID) { enqueue(.admit(id)) }
+    func admit(_ id: WinConnID) {
+        locked { if answering == id { answered = true } }
+        enqueue(.admit(id))
+    }
 
-    /// Asks for the next `.data` of a link (after `.ready`; one asked before `.ready` is kept for it).
     func receiveNext(_ id: WinConnID) { enqueue(.receiveNext(id)) }
 
-    /// Queues bytes for a link; written once it is ready. Past `maxQueuedBytes` unsent, the link is closed with
-    /// `.error(10055)` (reported).
     func send(_ data: Data, on id: WinConnID) { enqueue(.send(id, data)) }
 
-    /// Closes one connection, silently. Unknown or already closed ids are ignored.
     func close(_ id: WinConnID) {
-        locked { _ = live.remove(id) }
+        locked {
+            live.remove(id)
+            if answering == id { answered = true }
+        }
         enqueue(.close(id))
     }
 
-    /// Closes every connection that exists now, silently (the listener stays).
     func closeAll() {
         let below = locked { () -> Int in epoch += 1; live.removeAll(); return epoch }
         enqueue(.closeAll(below))
     }
 
-    // MARK: test seams
+    func injectWakeFaults(drop: Int, fail: Int) { locked { dropWakes = drop; failWakes = fail } }
 
-    /// The I/O thread (0 before `start`).
-    var ioThreadID: DWORD { locked { threadID } }
-    /// How many times `WSAPoll` has returned: each one is a wakeup of the I/O thread.
-    var wakeups: Int { locked { pollReturns } }
-    /// Connections the I/O thread holds a socket for, as of its last pass.
-    var connectionCount: Int { locked { openConnections } }
-
-    /// A `sockaddr_in` (16 bytes) or `sockaddr_in6` (28 bytes) for numeric host text: IPv4 dotted, IPv6 in any
-    /// form, optionally in brackets, with an optional numeric `%<interface index>` scope for link-local IPv6.
-    static func socketAddress(_ a: WinSocketAddress) -> [UInt8]? {
-        var host = Substring(a.host)
-        var scope: UInt32 = 0
-        if let percent = host.firstIndex(of: "%") {
-            guard let s = UInt32(host[host.index(after: percent)...]) else { return nil }
-            scope = s
-            host = host[..<percent]
-        }
-        if host.hasPrefix("["), host.hasSuffix("]") { host = host.dropFirst().dropLast() }
-        let text = String(host)
-        if text.contains(":") {
-            var b = [UInt8](repeating: 0, count: 28)
-            b[0] = UInt8(WS.afInet6)
-            b[2] = UInt8(a.port >> 8); b[3] = UInt8(a.port & 0xff)
-            let parsed = b.withUnsafeMutableBytes { inet_pton(WS.afInet6, text, $0.baseAddress! + 8) }
-            guard parsed == 1 else { return nil }
-            for i in 0..<4 { b[24 + i] = UInt8((scope >> (8 * UInt32(i))) & 0xff) }
-            return b
-        }
-        guard scope == 0 else { return nil }
-        var b = [UInt8](repeating: 0, count: 16)
-        b[0] = UInt8(WS.afInet)
-        b[2] = UInt8(a.port >> 8); b[3] = UInt8(a.port & 0xff)
-        let parsed = b.withUnsafeMutableBytes { inet_pton(WS.afInet, text, $0.baseAddress! + 4) }
-        return parsed == 1 ? b : nil
-    }
+    func injectAcceptFailure(_ code: Int32) { enqueue(.injectAcceptFailure(code)) }
 
     // MARK: commands and the mailbox
 
     private enum Command {
         case listen(TeamCode, UInt16, Int)
         case stopListening
+        case pauseAccepting(Bool)
         case dial(WinConnID, Int, [WinSocketAddress], TeamCode)
         case admit(WinConnID)
         case receiveNext(WinConnID)
         case send(WinConnID, Data)
         case close(WinConnID)
         case closeAll(Int)
+        case injectAcceptFailure(Int32)
         case stop
     }
 
@@ -297,6 +407,9 @@ final class WinSocketLoop: @unchecked Sendable {
         return WinConnID(raw: lastID)
     }
 
+    /// The wake: one datagram per empty → non-empty command queue. A datagram that has not woken the loop after
+    /// `wakeResendMs` is sent again by the next command (a filter may drop loopback datagrams), and a failed send
+    /// leaves the wake unclaimed so the next command tries again. No timer: an idle loop stays asleep.
     private func enqueue(_ command: Command) {
         lock.lock()
         switch state {
@@ -310,12 +423,32 @@ final class WinSocketLoop: @unchecked Sendable {
             lock.unlock()
         case .running:
             commands.append(command)
-            if !wakePending {   // one datagram per empty → non-empty queue
-                wakePending = true
-                Sock.sendByte(wakeSender)
+            var failure: Int32?
+            let now = GetTickCount64()
+            if !wakePending || now &- wakeSentAt >= Self.wakeResendMs {
+                if wakePending { counts.wakeResends += 1 }
+                let code = sendWake()
+                if code == 0 {
+                    wakePending = true
+                    wakeSentAt = now
+                } else {
+                    wakePending = false
+                    counts.wakeFailures += 1
+                    if counts.wakeFailures == 1 { failure = code }
+                }
             }
             lock.unlock()
+            if let failure {
+                AppLog.write("team: the socket loop's wake datagram was not sent (Winsock \(failure)); the next command retries")
+            }
         }
+    }
+
+    /// Under `lock`. 0 when the datagram went out.
+    private func sendWake() -> Int32 {
+        if dropWakes > 0 { dropWakes -= 1; return 0 }
+        if failWakes > 0 { failWakes -= 1; return WS.noBufs }
+        return Sock.sendByte(wakeSender)
     }
 
     /// Winsock or the wake pair could not start: say so once, and fail what needs an answer.
@@ -368,7 +501,24 @@ final class WinSocketLoop: @unchecked Sendable {
         flushScheduled = false
         lock.unlock()
         for posted in batch where stillWanted(posted) {
+            guard case .accepted(let id) = posted.event else {
+                deliver(posted.event)
+                continue
+            }
+            locked { answering = id; answered = false }
             deliver(posted.event)
+            let unanswered = locked { () -> Bool in
+                defer { answering = nil }
+                guard !answered, live.remove(id) != nil else { return false }
+                counts.unanswered += 1
+                return true
+            }
+            if unanswered {
+                enqueue(.close(id))
+                if counters.unanswered == 1 {
+                    AppLog.write("team: an inbound connection was neither admitted nor closed by its handler; closed")
+                }
+            }
         }
     }
 
@@ -419,9 +569,11 @@ final class WinSocketLoop: @unchecked Sendable {
     private final class Listener {
         let socket: SOCKET
         let context: WinTLSContext
-        init(socket: SOCKET, context: WinTLSContext) {
+        let generation: Int
+        init(socket: SOCKET, context: WinTLSContext, generation: Int) {
             self.socket = socket
             self.context = context
+            self.generation = generation
         }
     }
 
@@ -432,7 +584,7 @@ final class WinSocketLoop: @unchecked Sendable {
             var fds = [WSAPOLLFD(fd: wakeReceiver, events: WS.pollRdNorm, revents: 0)]
             var owners: [Conn?] = [nil]
             var listenerIndex = -1
-            if let l = listener, listenerRetryAt == nil, awaitingAdmission < Self.maxAwaitingAdmission {
+            if let l = listener, !acceptPaused, awaitingAdmission < WinSocketLoop.maxAwaitingAdmission {
                 listenerIndex = fds.count
                 fds.append(WSAPOLLFD(fd: l.socket, events: WS.pollRdNorm, revents: 0))
                 owners.append(nil)
@@ -445,15 +597,26 @@ final class WinSocketLoop: @unchecked Sendable {
             }
             let timeout = pollTimeout()
             // Published right before blocking: commands at the top of this pass may have closed some.
-            lock.lock(); openConnections = conns.count; lock.unlock()
+            lock.lock(); counts.openConnections = conns.count; lock.unlock()
             let n = fds.withUnsafeMutableBufferPointer { WSAPoll($0.baseAddress, ULONG($0.count), timeout) }
-            lock.lock(); pollReturns += 1; lock.unlock()
+            lock.lock(); counts.pollReturns += 1; lock.unlock()
             if n < 0 {
+                if !loggedPollFailure {
+                    loggedPollFailure = true
+                    AppLog.write("team: WSAPoll failed (Winsock \(WSAGetLastError())); retrying every 50 ms")
+                }
                 Sleep(50)   // never seen; if WSAPoll keeps failing this bounds the cost to 20 wakeups a second
                 continue
             }
             if fds[0].revents != 0 { Sock.drain(wakeReceiver) }
-            if listenerIndex >= 0, fds[listenerIndex].revents != 0 { acceptPending() }
+            if listenerIndex >= 0, fds[listenerIndex].revents != 0 {
+                if fds[listenerIndex].revents & (WS.pollErr | WS.pollHup | WS.pollNval) != 0 {
+                    let code = listener.map { Sock.pendingError($0.socket) } ?? 0
+                    listenerFailed(code != 0 ? code : WS.notSock)   // a broken listener with no error of its own
+                } else {
+                    acceptPending()
+                }
+            }
             for i in 1..<fds.count where i != listenerIndex && fds[i].revents != 0 {
                 // By object, never by SOCKET value: a value closed above may already belong to a newer socket.
                 guard let c = owners[i], !c.closed else { continue }
@@ -467,7 +630,8 @@ final class WinSocketLoop: @unchecked Sendable {
         clientContext = nil   // every SSL_CTX is freed on this thread
         Sock.closeNow(wakeReceiver)
         wakeReceiver = SOCKET.max
-        lock.lock(); openConnections = 0; lock.unlock()
+        lock.lock(); counts.openConnections = 0; lock.unlock()
+        ptb_tls_thread_stop()   // static OpenSSL: this thread's error queue and DRBG are not freed otherwise
         finished.signal()
     }
 
@@ -493,6 +657,8 @@ final class WinSocketLoop: @unchecked Sendable {
             openListener(code: code, port: port, generation: generation)
         case .stopListening:
             closeListener()
+        case .pauseAccepting(let paused):
+            acceptPaused = paused
         case .dial(let id, let e, let addresses, let code):
             startDial(id, epoch: e, addresses: addresses, code: code)
         case .admit(let id):
@@ -512,6 +678,8 @@ final class WinSocketLoop: @unchecked Sendable {
             if let c = conns[id] { closeConn(c, reason: nil) }
         case .closeAll(let below):
             for c in Array(conns.values) where c.epoch < below { closeConn(c, reason: nil) }
+        case .injectAcceptFailure(let code):
+            injectedAcceptFailure = code
         case .stop:
             stopping = true
         }
@@ -533,20 +701,22 @@ final class WinSocketLoop: @unchecked Sendable {
         }
     }
 
-    /// INFINITE unless a dial attempt is connecting or the listener is paused: nothing else is ever due.
+    /// INFINITE unless a dial attempt is connecting: nothing else is ever due.
     private func pollTimeout() -> Int32 {
-        var next = listenerRetryAt
+        var next: UInt64?
         for c in conns.values where c.phase == .connecting { next = min(next ?? c.deadline, c.deadline) }
         guard let next else { return -1 }
         let now = GetTickCount64()
         return next <= now ? 0 : Int32(clamping: next - now)
     }
 
+    /// An attempt at its deadline is charged what the socket says (a refusal WSAPoll did not report: builds before
+    /// Windows 10 2004 never report a failed connect), else WSAETIMEDOUT.
     private func expireDeadlines() {
         let now = GetTickCount64()
-        if let t = listenerRetryAt, t <= now { listenerRetryAt = nil }
         for c in Array(conns.values) where !c.closed && c.phase == .connecting && c.deadline <= now {
-            attemptFailed(c, WS.timedOut)
+            let code = Sock.pendingError(c.socket)
+            attemptFailed(c, code != 0 ? code : WS.timedOut)
         }
     }
 
@@ -556,7 +726,7 @@ final class WinSocketLoop: @unchecked Sendable {
         closeListener()
         let context: WinTLSContext
         do { context = try WinTLSContext(code: code, role: .server) } catch {
-            post(.listenFailed(Self.tlsSetupFailed), listenGeneration: generation)
+            post(.listenFailed(WinSocketLoop.tlsSetupFailed), listenGeneration: generation)
             return
         }
         let s = Sock.open(WS.afInet6, WS.sockStream, WS.ipprotoTCP)
@@ -578,8 +748,7 @@ final class WinSocketLoop: @unchecked Sendable {
             post(.listenFailed(code), listenGeneration: generation)
             return
         }
-        listener = Listener(socket: s, context: context)
-        listenerRetryAt = nil
+        listener = Listener(socket: s, context: context, generation: generation)
         post(.listening(port: bound), listenGeneration: generation)
     }
 
@@ -589,15 +758,29 @@ final class WinSocketLoop: @unchecked Sendable {
         listener = nil
     }
 
+    /// A listener that broke after `.listening`: closed and reported once, like a listener that never started, so
+    /// the owner restarts it on its own schedule instead of the loop retrying it.
+    private func listenerFailed(_ code: Int32) {
+        guard let l = listener else { return }
+        Sock.closeNow(l.socket)
+        listener = nil
+        post(.listenFailed(code), listenGeneration: l.generation)
+    }
+
     private func acceptPending() {
         guard let l = listener else { return }
-        while awaitingAdmission < Self.maxAwaitingAdmission {
+        if let code = injectedAcceptFailure {
+            injectedAcceptFailure = nil
+            listenerFailed(code)
+            return
+        }
+        while awaitingAdmission < WinSocketLoop.maxAwaitingAdmission {
             let s = Sock.acceptOne(l.socket)
             if s == SOCKET.max {
                 let code = WSAGetLastError()
                 if code == WS.wouldBlock { return }
                 if code == WS.connReset { continue }   // gone before we took it
-                listenerRetryAt = GetTickCount64() + 100   // e.g. out of buffers: retry shortly instead of spinning
+                listenerFailed(code)
                 return
             }
             guard Sock.nonBlocking(s) else {
@@ -631,7 +814,7 @@ final class WinSocketLoop: @unchecked Sendable {
             closeConn(c, reason: .handshakeFailed("TLS setup failed: \(error)"))
             return
         }
-        c.attempts = addresses.compactMap(Self.socketAddress)
+        c.attempts = addresses.compactMap(WinSocketLoop.socketAddress)
         c.lastError = c.attempts.count < addresses.count ? WS.inval : WS.addrNotAvail
         nextAttempt(c)
     }
@@ -866,18 +1049,21 @@ final class WinSocketLoop: @unchecked Sendable {
         if let reason { post(.closed(c.id, reason)) }
     }
 
-    /// A UDP pair on 127.0.0.1, each end connected to the other, so only our own datagrams wake the loop.
-    private static func wakePair() -> (receiver: SOCKET, sender: SOCKET)? {
+    /// A UDP pair on 127.0.0.1, each end connected to the other (only our own datagrams wake the loop) and bound with
+    /// SO_EXCLUSIVEADDRUSE (no other socket can bind either port and take the datagrams).
+    private static func wakePair() -> (receiver: SOCKET, sender: SOCKET, receiverPort: UInt16, senderPort: UInt16)? {
         let r = Sock.open(WS.afInet, WS.sockDgram, WS.ipprotoUDP)
         let s = Sock.open(WS.afInet, WS.sockDgram, WS.ipprotoUDP)
         let any = Sock.loopback4(port: 0)
         if r != SOCKET.max, s != SOCKET.max,
+           Sock.setOption(r, WS.solSocket, WS.soExclusiveAddrUse, 1),
+           Sock.setOption(s, WS.solSocket, WS.soExclusiveAddrUse, 1),
            Sock.bindTo(r, any), let rp = Sock.localPort(r),
            Sock.bindTo(s, any), let sp = Sock.localPort(s),
            Sock.connectTo(r, Sock.loopback4(port: sp)) == 0,
            Sock.connectTo(s, Sock.loopback4(port: rp)) == 0,
            Sock.nonBlocking(r), Sock.nonBlocking(s) {
-            return (r, s)
+            return (r, s, rp, sp)
         }
         if r != SOCKET.max { Sock.closeNow(r) }
         if s != SOCKET.max { Sock.closeNow(s) }
@@ -898,7 +1084,7 @@ private enum WS {
     static let somaxconn: Int32 = 0x7fff_ffff
     static let pollRdNorm: Int16 = 0x0100, pollWrNorm: Int16 = 0x0010
     static let pollErr: Int16 = 0x0001, pollHup: Int16 = 0x0002, pollNval: Int16 = 0x0004
-    static let inval: Int32 = 10022, wouldBlock: Int32 = 10035, addrNotAvail: Int32 = 10049
+    static let inval: Int32 = 10022, wouldBlock: Int32 = 10035, notSock: Int32 = 10038, addrNotAvail: Int32 = 10049
     static let connReset: Int32 = 10054, noBufs: Int32 = 10055, timedOut: Int32 = 10060, connRefused: Int32 = 10061
 }
 
@@ -958,9 +1144,10 @@ private enum Sock {
         [UInt8(WS.afInet), 0, UInt8(port >> 8), UInt8(port & 0xff), 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
     }
 
-    static func sendByte(_ s: SOCKET) {
+    /// 0 when the datagram went out, else the Winsock error.
+    static func sendByte(_ s: SOCKET) -> Int32 {
         var byte: CChar = 1
-        _ = send(s, &byte, 1, 0)
+        return send(s, &byte, 1, 0) == 1 ? 0 : WSAGetLastError()
     }
 
     static func drain(_ s: SOCKET) {

@@ -269,6 +269,8 @@ final class WindowsSocketLoopTests: XCTestCase {
         let done = await waitUntil(10) { client.rec.closed(id) != nil }
         XCTAssertTrue(done)
         let elapsed = Date().timeIntervalSince(start)
+        // 10061 on every build: WSAPoll reports the refusal (about 2 s here), and where it does not (before Windows 10
+        // 2004) the attempt's deadline reads SO_ERROR instead of assuming a timeout.
         XCTAssertEqual(client.rec.of(id), [.closed(id, .unreachable(10061))], "WSAECONNREFUSED")
         print("SOCKETLOOP-REPORT refused dial: \(client.rec.of(id)) after \(String(format: "%.2f", elapsed)) s")
 
@@ -327,9 +329,12 @@ final class WindowsSocketLoopTests: XCTestCase {
         let dcy = zip(cy1, cy0).map { $0 &- $1 }
         print("SOCKETLOOP-REPORT idle 5 s, 16 ready link ends + 2 silent TCP + listener: wakeups=\(dw) "
               + "context_switches=\(dcs) cycles=\(dcy) (server, client)")
+        // Our code runs only when WSAPoll returns, so the loop's own count is the strict check. A context switch with
+        // no WSAPoll return is the scheduler (an APC, a sampler), not this loop waking: a few are tolerated, and the
+        // cycles bound follows from that.
         XCTAssertEqual(dw, [0, 0], "WSAPoll returned while idle")
-        XCTAssertEqual(dcs, [0, 0], "the I/O threads were switched in while idle")
-        XCTAssertTrue(dcy.allSatisfy { $0 < 100_000 }, "cycles \(dcy)")
+        XCTAssertTrue(dcs.allSatisfy { $0 <= 2 }, "context switches without a WSAPoll return: \(dcs)")
+        XCTAssertTrue(dcy.allSatisfy { $0 < 1_000_000 }, "cycles \(dcy)")
 
         // The links were idle, not dead.
         client.loop.send(Data("after".utf8), on: links[0].client)
@@ -369,18 +374,20 @@ final class WindowsSocketLoopTests: XCTestCase {
     func testAnInboundLinkGetsNoTLSUntilAdmitted() async throws {
         let server = side(), client = side()
         defer { server.loop.shutdown(); client.loop.shutdown() }
-        server.rec.autoAdmit = false
         let port = try await listening(server)
+        // The main thread is held, so the server's .accepted cannot reach the handler that admits it: the server
+        // loop holds the connection with no TLS, and the client, its ClientHello sent, hears nothing back.
         let cid = client.loop.dial([v4(port)], code: Self.code)
-        let accepted = await waitUntil(5) { server.rec.accepted.count == 1 }
-        XCTAssertTrue(accepted)
-        try await Task.sleep(nanoseconds: 1_000_000_000)
-        let sid = server.rec.accepted[0]
-        XCTAssertEqual(client.rec.of(cid), [], "the server sent nothing before admit")
-        XCTAssertEqual(server.rec.of(sid), [.accepted(sid)])
-        server.loop.admit(sid)
-        let up = await waitUntil(5) { client.rec.isReady(cid) && server.rec.isReady(sid) }
+        let taken = holdMain(3) { server.loop.connectionCount == 1 }
+        XCTAssertTrue(taken)
+        holdMain(0.2) { false }
+        let quiet0 = client.loop.wakeups
+        holdMain(1) { false }
+        XCTAssertEqual(client.loop.wakeups, quiet0, "the server sent nothing before admit")
+        let up = await waitUntil(5) { client.rec.isReady(cid) && server.rec.readyIDs.count == 1 }
         XCTAssertTrue(up)
+        let sid = try XCTUnwrap(server.rec.readyIDs.first)
+        XCTAssertEqual(Array(server.rec.of(sid).prefix(2)), [.accepted(sid), .ready(sid)])
     }
 
     func testBytesOpenSSLAlreadyHoldsAreDeliveredOnReceiveNext() async throws {
@@ -528,7 +535,9 @@ final class WindowsSocketLoopTests: XCTestCase {
         try await Task.sleep(nanoseconds: 300_000_000)
         let handles1 = try XCTUnwrap(ThreadStats.handleCount())
         print("SOCKETLOOP-REPORT flood: \(socks.count) connections refused; process handles \(handles0) -> \(handles1)")
-        XCTAssertLessThanOrEqual(Int(handles1) - Int(handles0), 10, "no handle per refused connection")
+        // A leak per refused connection would show as >= socks.count; a tenth of it leaves room for the runtime's own
+        // handles (threads, events) without hiding a per-connection leak.
+        XCTAssertLessThan(Int(handles1) - Int(handles0), socks.count / 10, "no handle per refused connection")
         XCTAssertTrue(server.rec.events.allSatisfy {
             switch $0 { case .ready, .data, .closed: false; default: true }
         }, "a refused connection is never heard of again")
@@ -537,20 +546,20 @@ final class WindowsSocketLoopTests: XCTestCase {
     func testTheListenerPausesWhileAdmissionsAreOwed() async throws {
         let server = side()
         defer { server.loop.shutdown() }
-        server.rec.autoAdmit = false
+        server.rec.refuseAll = true
         let port = try await listening(server)
-        let socks = await rawConnections(100, port: port)   // the kernel backlog completes them without us
+        // The main thread is held (a stall, as a long main-thread write would cause): every .accepted waits
+        // unanswered, so only the cap stops the loop. The kernel backlog completes the connects without us.
+        let socks = (0..<100).compactMap { _ in Raw.connectTCP(port) }
         defer { socks.forEach(Raw.closeSocket) }
         XCTAssertEqual(socks.count, 100)
         let cap = WinSocketLoop.maxAwaitingAdmission
-        let full = await waitUntil(5) { server.rec.accepted.count >= cap }
+        let full = holdMain(5) { server.loop.connectionCount >= cap }
         XCTAssertTrue(full)
-        try await Task.sleep(nanoseconds: 500_000_000)
-        XCTAssertEqual(server.rec.accepted.count, cap, "no more sockets of ours while admissions are owed")
-        XCTAssertEqual(server.loop.connectionCount, cap)
-        server.rec.refuseAll = true
-        for id in server.rec.accepted { server.loop.close(id) }
-        let rest = await waitUntil(5) { server.rec.accepted.count == 100 }
+        holdMain(0.5) { false }
+        XCTAssertEqual(server.loop.connectionCount, cap, "no more sockets of ours while 64 answers are owed")
+        XCTAssertEqual(server.rec.accepted.count, 0, "nothing was delivered while the main thread was held")
+        let rest = await waitUntil(10) { server.rec.accepted.count == 100 }
         XCTAssertTrue(rest, "accepting resumes: \(server.rec.accepted.count)")
         let drained = await waitUntil(5) { server.loop.connectionCount == 0 }
         XCTAssertTrue(drained)
@@ -564,6 +573,14 @@ final class WindowsSocketLoopTests: XCTestCase {
             let code = Raw.bindWithReuse(host, port)
             print("SOCKETLOOP-REPORT hijack bind \(host):\(port) with SO_REUSEADDR -> \(code)")
             XCTAssertNotEqual(code, 0, "\(host): another socket bound our port")
+        }
+        // The wake pair: a socket that took either port with SO_REUSEADDR would receive (steal) the wake datagrams.
+        let (receiver, sender) = server.loop.wakePorts
+        XCTAssertTrue(receiver != 0 && sender != 0)
+        for wake in [receiver, sender] {
+            let code = Raw.bindWithReuse("127.0.0.1", wake, udp: true)
+            print("SOCKETLOOP-REPORT hijack bind of the wake port 127.0.0.1:\(wake) with SO_REUSEADDR -> \(code)")
+            XCTAssertNotEqual(code, 0, "another socket bound a wake port")
         }
     }
 
@@ -622,6 +639,7 @@ final class WindowsSocketLoopTests: XCTestCase {
         XCTAssertEqual(Array(scoped[24..<28]), [7, 0, 0, 0], "the scope id (interface index) of a link-local address")
         XCTAssertEqual(parse("fe80:0:0:0:0:0:0:1%7"), scoped, "the uncompressed form WinDNSSD produces")
         XCTAssertEqual(parse("[::1]")?.count, 28)
+        XCTAssertEqual(parse("[fe80::1%7]"), scoped, "brackets around a scoped address")
         XCTAssertEqual(parse("192.168.0.9").map { Array($0[0..<8]) }, [2, 0, 0x12, 0x34, 192, 168, 0, 9])
         XCTAssertNil(parse("fe80::1%eth0"))
         XCTAssertNil(parse("10.0.0.1%3"))
@@ -633,15 +651,27 @@ final class WindowsSocketLoopTests: XCTestCase {
         defer { server.loop.shutdown(); client.loop.shutdown() }
         let port = try await listening(server)
         let dead = Raw.freePort()
-        // Windows answers a refused loopback connect only after retrying its SYN (see testRefusedDial…), so an
-        // attempt with a 0.3 s deadline ends by the deadline.
+        // A connect that hangs is needed. Windows answers a refused loopback connect only after retrying its SYN
+        // (about 2 s on the runner), which is long enough; a build that refuses at once cannot show the deadline here.
         var start = Date()
+        let probe = side()
+        let measured = probe.loop.dial([v4(dead)], code: Self.code)
+        _ = await waitUntil(10) { probe.rec.closed(measured) != nil }
+        let refusal = Date().timeIntervalSince(start)
+        probe.loop.shutdown()
+        if refusal < 0.6 {
+            throw XCTSkip("a refused loopback connect took \(refusal) s on this build: no hanging connect to cut")
+        }
+        start = Date()
         let lone = client.loop.dial([v4(dead)], code: Self.code)
         let done = await waitUntil(5) { client.rec.closed(lone) != nil }
         XCTAssertTrue(done)
         let loneTime = Date().timeIntervalSince(start)
-        XCTAssertEqual(client.rec.closed(lone), .unreachable(10060), "WSAETIMEDOUT: the attempt deadline")
-        XCTAssertLessThan(loneTime, 1.5)
+        // The deadline cut it: well before the refusal measured above. The code is what SO_ERROR says at the deadline
+        // (0 mid-retry gives WSAETIMEDOUT; a build that already knows the refusal says 10061).
+        XCTAssertLessThan(loneTime, min(1.5, refusal - 0.2), "the attempt deadline, not the refusal, ended it")
+        XCTAssertTrue([.unreachable(10060), .unreachable(10061)].contains(client.rec.closed(lone)),
+                      "\(String(describing: client.rec.closed(lone)))")
         start = Date()
         let id = client.loop.dial([v4(dead), v4(port)], code: Self.code)
         let up = await waitUntil(5) { client.rec.isReady(id) }
@@ -653,6 +683,170 @@ final class WindowsSocketLoopTests: XCTestCase {
         let w0 = client.loop.wakeups
         try await Task.sleep(nanoseconds: 1_000_000_000)
         XCTAssertEqual(client.loop.wakeups, w0, "no timeout left behind")
+    }
+
+    // MARK: review round
+
+    /// A wake datagram that is dropped (a loopback filter) or whose send fails must not leave the loop deaf.
+    func testALostWakeIsHealedByTheNextCommand() async throws {
+        let server = side(), client = side()
+        defer { server.loop.shutdown(); client.loop.shutdown() }
+        let (sid, cid) = try await link(server, client, port: try await listening(server))
+
+        client.loop.injectWakeFaults(drop: 1, fail: 0)
+        client.loop.send(Data("A".utf8), on: cid)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(server.rec.data(sid), Data(), "the dropped wake left the loop asleep")
+        client.loop.send(Data("B".utf8), on: cid)   // more than wakeResendMs later: the wake goes out again
+        let healed = await waitUntil(5) { server.rec.data(sid) == Data("AB".utf8) }
+        XCTAssertTrue(healed, "got \(String(decoding: server.rec.data(sid), as: UTF8.self))")
+        XCTAssertEqual(client.loop.wakeResends, 1)
+
+        client.loop.injectWakeFaults(drop: 0, fail: 1)
+        client.loop.send(Data("C".utf8), on: cid)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(server.rec.data(sid), Data("AB".utf8), "the failed wake left the loop asleep")
+        client.loop.send(Data("D".utf8), on: cid)   // the failed wake was not claimed: this one sends it
+        let retried = await waitUntil(5) { server.rec.data(sid) == Data("ABCD".utf8) }
+        XCTAssertTrue(retried, "got \(String(decoding: server.rec.data(sid), as: UTF8.self))")
+        XCTAssertEqual(client.loop.wakeFailures, 1)
+    }
+
+    func testAnUnansweredAcceptIsClosedByTheLoop() async throws {
+        let server = side()
+        defer { server.loop.shutdown() }
+        server.rec.autoAdmit = false   // the handler neither admits nor closes
+        let port = try await listening(server)
+        let socks = await rawConnections(100, port: port)
+        defer { socks.forEach(Raw.closeSocket) }
+        XCTAssertEqual(socks.count, 100)
+        let all = await waitUntil(10) { server.rec.accepted.count == 100 }
+        XCTAssertTrue(all, "a forgotten answer must not stop the listener at 64: \(server.rec.accepted.count)")
+        let drained = await waitUntil(5) { server.loop.connectionCount == 0 }
+        XCTAssertTrue(drained, "connections held: \(server.loop.connectionCount)")
+        XCTAssertEqual(server.loop.unansweredAccepts, 100)
+        XCTAssertTrue(server.rec.events.allSatisfy { switch $0 { case .ready, .data, .closed: false; default: true } })
+        // One answered inside the handler is kept and not counted.
+        server.rec.autoAdmit = true
+        let kept = try XCTUnwrap(Raw.connectTCP(port))
+        defer { Raw.closeSocket(kept) }
+        let held = await waitUntil(5) { server.loop.connectionCount == 1 }
+        XCTAssertTrue(held)
+        XCTAssertEqual(server.loop.unansweredAccepts, 100)
+    }
+
+    func testABrokenListenerIsReportedOnceAndNotRetried() async throws {
+        let server = side()
+        defer { server.loop.shutdown() }
+        let port = try await listening(server)
+        server.loop.injectAcceptFailure(10050)   // WSAENETDOWN from accept, as a listener that broke after .listening
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let s = try XCTUnwrap(Raw.connectTCP(port))   // makes the listener readable
+        defer { Raw.closeSocket(s) }
+        let failed = await waitUntil(5) { server.rec.listenFailures == [10050] }
+        XCTAssertTrue(failed, "\(server.rec.events)")
+        let w0 = server.loop.wakeups
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        XCTAssertLessThanOrEqual(server.loop.wakeups - w0, 1, "nothing retries the broken listener")
+        XCTAssertEqual(server.rec.accepted, [])
+        let before = server.rec.events.count
+        server.loop.listen(code: Self.code)
+        let again = await waitUntil(5) {
+            server.rec.events.dropFirst(before).contains { if case .listening = $0 { true } else { false } }
+        }
+        XCTAssertTrue(again, "the owner listens again: \(server.rec.events.suffix(2))")
+    }
+
+    func testStartAfterShutdownFailsAndReleasingTheLoopShutsItDown() async throws {
+        let b = side()
+        defer { b.loop.shutdown() }
+        let port = try await listening(b)
+        var thread: HANDLE?
+        var sid: WinConnID?
+        do {
+            let a = side()   // dropped at the end of this scope without shutdown()
+            sid = try await link(b, a, port: port).server
+            thread = OpenThread(DWORD(0x0010_0800), false, a.loop.ioThreadID)   // SYNCHRONIZE | QUERY_LIMITED_INFORMATION
+        }
+        let h = try XCTUnwrap(thread)
+        defer { _ = CloseHandle(h) }
+        XCTAssertEqual(WaitForSingleObject(h, 0), DWORD(0), "releasing the loop joined its thread (WAIT_OBJECT_0)")
+        let bSide = try XCTUnwrap(sid)
+        let ended = await waitUntil(5) { b.rec.closed(bSide) != nil }
+        XCTAssertTrue(ended)
+        XCTAssertEqual(b.rec.closed(bSide), .remoteClosed, "its links were closed as by shutdown()")
+
+        let c = side()
+        c.loop.shutdown()
+        XCTAssertFalse(c.loop.start(), "a loop does not start again after shutdown")
+        c.loop.listen(code: Self.code)
+        _ = c.loop.dial([v4(port)], code: Self.code)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(c.rec.events, [])
+        XCTAssertEqual(c.loop.connectionCount, 0)
+    }
+
+    func testPauseAcceptingLeavesConnectionsToTheKernel() async throws {
+        let server = side()
+        defer { server.loop.shutdown() }
+        server.rec.refuseAll = true
+        let port = try await listening(server)
+        server.loop.pauseAccepting()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let w0 = server.loop.wakeups
+        let socks = await rawConnections(5, port: port)
+        defer { socks.forEach(Raw.closeSocket) }
+        XCTAssertEqual(socks.count, 5, "the kernel backlog completes them")
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertEqual(server.loop.wakeups, w0, "a paused listener costs the loop nothing")
+        XCTAssertEqual(server.rec.accepted.count, 0)
+        server.loop.resumeAccepting()
+        let resumed = await waitUntil(5) { server.rec.accepted.count == 5 }
+        XCTAssertTrue(resumed)
+    }
+
+    /// On Wi-Fi a 16 KB record arrives in many pieces; loopback delivers it whole. A relay that forwards one byte per
+    /// send (TCP_NODELAY) makes every TLS record, handshake ones included, arrive a byte at a time.
+    func testTLSThroughAByteAtATimeRelay() async throws {
+        let server = side(), client = side()
+        defer { server.loop.shutdown(); client.loop.shutdown() }
+        let port = try await listening(server)
+        let relay = try XCTUnwrap(ByteRelay(target: port))
+        defer { relay.stop() }
+        let w0 = server.loop.wakeups
+        let start = Date()
+        let cid = client.loop.dial([v4(relay.port)], code: Self.code)
+        let up = await waitUntil(20) { client.rec.isReady(cid) && server.rec.readyIDs.count == 1 }
+        XCTAssertTrue(up, "client \(client.rec.of(cid)) server \(server.rec.events)")
+        let sid = try XCTUnwrap(server.rec.readyIDs.first)
+        let upward = Data((0..<40_000).map { UInt8(truncatingIfNeeded: $0 &* 7 &+ 1) })     // three records
+        let downward = Data((0..<40_000).map { UInt8(truncatingIfNeeded: $0 &* 13 &+ 5) })
+        client.loop.send(upward, on: cid)
+        server.loop.send(downward, on: sid)
+        let moved = await waitUntil(60) {
+            server.rec.byteCount(sid) == upward.count && client.rec.byteCount(cid) == downward.count
+        }
+        XCTAssertTrue(moved, "server \(server.rec.byteCount(sid)) client \(client.rec.byteCount(cid))")
+        XCTAssertEqual(server.rec.data(sid), upward)
+        XCTAssertEqual(client.rec.data(cid), downward)
+        let stats = relay.stats
+        let wakes = server.loop.wakeups - w0
+        print("SOCKETLOOP-REPORT byte relay: \(stats.writes) one-byte sends for \(stats.bytes) B in "
+              + "\(String(format: "%.2f", Date().timeIntervalSince(start))) s; server wakeups=\(wakes), "
+              + "server chunks=\(server.rec.chunks(sid).count)")
+        XCTAssertEqual(stats.writes, stats.bytes, "the relay sent every byte on its own")
+        XCTAssertGreaterThan(wakes, 100, "the server read records in pieces, not whole")
+    }
+
+    /// Holds the main thread (no event can be delivered) until `condition` or `seconds`; the I/O threads run on.
+    @discardableResult
+    private func holdMain(_ seconds: Double, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if condition() { return true }
+            Sleep(5)
+        }
+        return condition()
     }
 
     // MARK: raw peers
@@ -681,7 +875,9 @@ private enum Raw {
         WinSocketLoop.socketAddress(WinSocketAddress(family: host.contains(":") ? .ipv6 : .ipv4, host: host, port: port))!
     }
 
-    private static func setNonBlocking(_ s: SOCKET) {
+    static func noDelay(_ s: SOCKET) { setOption(s, 6, 1, 1) }   // IPPROTO_TCP, TCP_NODELAY
+
+    static func setNonBlocking(_ s: SOCKET) {
         var mode: u_long = 1
         _ = ioctlsocket(s, Int32(bitPattern: 0x8004_667E), &mode)
     }
@@ -719,14 +915,14 @@ private enum Raw {
 
     static func closeSocket(_ s: SOCKET) { _ = closesocket(s) }
 
-    private static func boundPort(_ s: SOCKET) -> UInt16 {
+    static func boundPort(_ s: SOCKET) -> UInt16 {
         var buffer = [UInt8](repeating: 0, count: 128)
         var length: Int32 = 128
         _ = buffer.withUnsafeMutableBytes { getsockname(s, $0.baseAddress!.assumingMemoryBound(to: sockaddr.self), &length) }
         return UInt16(buffer[2]) << 8 | UInt16(buffer[3])
     }
 
-    private static func bindTo(_ s: SOCKET, _ a: [UInt8]) -> Int32 {
+    static func bindTo(_ s: SOCKET, _ a: [UInt8]) -> Int32 {
         let r = a.withUnsafeBytes { bind(s, $0.baseAddress!.assumingMemoryBound(to: sockaddr.self), Int32($0.count)) }
         return r == 0 ? 0 : WSAGetLastError()
     }
@@ -746,9 +942,9 @@ private enum Raw {
     }
 
     /// 0 when a socket with SO_REUSEADDR could bind host:port, else the Winsock error.
-    static func bindWithReuse(_ host: String, _ port: UInt16) -> Int32 {
+    static func bindWithReuse(_ host: String, _ port: UInt16, udp: Bool = false) -> Int32 {
         let a = address(host, port)
-        let s = socket(a.count == 28 ? 23 : 2, 1, 6)
+        let s = socket(a.count == 28 ? 23 : 2, udp ? 2 : 1, udp ? 17 : 6)
         defer { _ = closesocket(s) }
         setOption(s, 0xffff, 4, 1)   // SO_REUSEADDR
         return bindTo(s, a)
@@ -763,6 +959,83 @@ private enum Raw {
         setOption(s, 0xffff, ~4, 1)   // SO_EXCLUSIVEADDRUSE
         guard bindTo(s, address("::", 0)) == 0, listen(s, 4) == 0 else { _ = closesocket(s); return nil }
         return (s, boundPort(s))
+    }
+}
+
+/// A TCP relay on 127.0.0.1 for one connection: whatever arrives on one side leaves on the other one byte per send,
+/// with TCP_NODELAY, so the far end receives every record in pieces as on a slow Wi-Fi. Its own thread.
+private final class ByteRelay: @unchecked Sendable {
+    let port: UInt16
+    private let listener: SOCKET
+    private let target: UInt16
+    private let lock = NSLock()
+    private var stopping = false
+    private var counted = (bytes: 0, writes: 0)
+    private let done = DispatchSemaphore(value: 0)
+
+    init?(target: UInt16) {
+        _ = Raw.started
+        let s = socket(2, 1, 6)
+        guard s != SOCKET.max else { return nil }
+        guard Raw.bindTo(s, Raw.address("127.0.0.1", 0)) == 0, listen(s, 4) == 0 else { _ = closesocket(s); return nil }
+        Raw.setNonBlocking(s)
+        listener = s
+        port = Raw.boundPort(s)
+        self.target = target
+        Thread { [self] in self.run() }.start()
+    }
+
+    var stats: (bytes: Int, writes: Int) { lock.lock(); defer { lock.unlock() }; return counted }
+    private var isStopping: Bool { lock.lock(); defer { lock.unlock() }; return stopping }
+
+    func stop() {
+        lock.lock(); stopping = true; lock.unlock()
+        done.wait()
+        _ = closesocket(listener)
+    }
+
+    private func run() {
+        defer { done.signal() }
+        var a = SOCKET.max
+        while a == SOCKET.max, !isStopping {
+            a = accept(listener, nil, nil)
+            if a == SOCKET.max { Sleep(2) }
+        }
+        guard a != SOCKET.max else { return }
+        guard let b = Raw.connectTCP(target) else { _ = closesocket(a); return }
+        defer { _ = closesocket(a); _ = closesocket(b) }
+        Raw.setNonBlocking(a)
+        Raw.noDelay(a)
+        Raw.noDelay(b)
+        var open = [true, true]   // a → b, b → a
+        var buffer = [CChar](repeating: 0, count: 4096)
+        while (open[0] || open[1]), !isStopping {
+            var fds = [WSAPOLLFD(fd: a, events: open[0] ? 0x0100 : 0, revents: 0),
+                       WSAPOLLFD(fd: b, events: open[1] ? 0x0100 : 0, revents: 0)]
+            _ = fds.withUnsafeMutableBufferPointer { WSAPoll($0.baseAddress, 2, 20) }
+            for i in 0..<2 where open[i] && fds[i].revents != 0 {
+                let (from, to) = i == 0 ? (a, b) : (b, a)
+                let n = recv(from, &buffer, 4096, 0)
+                if n > 0 {
+                    forward(buffer, Int(n), to)
+                } else if n == 0 || WSAGetLastError() != 10035 {
+                    open[i] = false
+                    _ = shutdown(to, 1)   // SD_SEND: pass the end on
+                }
+            }
+        }
+    }
+
+    private func forward(_ buffer: [CChar], _ count: Int, _ to: SOCKET) {
+        buffer.withUnsafeBufferPointer { p in
+            for i in 0..<count {
+                while send(to, p.baseAddress! + i, 1, 0) != 1 {
+                    if WSAGetLastError() != 10035 || isStopping { return }
+                    Sleep(1)
+                }
+                lock.lock(); counted.bytes += 1; counted.writes += 1; lock.unlock()
+            }
+        }
     }
 }
 
