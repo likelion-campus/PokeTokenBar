@@ -1,5 +1,6 @@
 #if os(Windows)
 import Foundation
+import Observation
 import WinSDK
 
 /// The team transport inside the shipped loop (Task 19). The app's own runtime has no team code here, so it must have
@@ -92,6 +93,10 @@ extension WindowsSelftest {
         try? await Task.sleep(nanoseconds: UInt64((WinDNSSD.resolveTimeout + 1) * 1_000_000_000))
         _ = await waitUntil(timeout: 30) { !app.store.isRefreshing }
         let refreshes0 = app.refreshCount
+        // A refresh that starts in the window and ends after it is not in `refreshCount` yet: watch its start
+        // (Observation calls back on the change itself, so watching costs no wake).
+        let refreshStarted = SeenFlag()
+        withObservationTracking { _ = app.store.isRefreshing } onChange: { refreshStarted.set() }
         let w0 = (a.transport.socketLoop?.wakeups ?? 0, b.transport.socketLoop?.wakeups ?? 0)
         let e0 = (a.transport.redialFires + b.transport.redialFires, a.transport.discoveryEvents + b.transport.discoveryEvents)
         let threads = (a.transport.socketLoop?.ioThreadID ?? 0, b.transport.socketLoop?.ioThreadID ?? 0)
@@ -101,7 +106,7 @@ extension WindowsSelftest {
         let redials = a.transport.redialFires + b.transport.redialFires - e0.0
         let discovery = a.transport.discoveryEvents + b.transport.discoveryEvents - e0.1
         // The app's own 120 s usage refresh may land in the window: budgeted as the app's idle check does.
-        let refreshes = app.refreshCount - refreshes0
+        let refreshes = max(app.refreshCount - refreshes0, refreshStarted.value ? 1 : 0)
         guard let sample else {
             r.add("team.idle", false, "measurement failed (NtQuerySystemInformation / QueryThreadCycleTime unavailable)")
             return
@@ -200,6 +205,14 @@ extension WindowsSelftest {
             if case .closed(let p, let reason) = $0, peers.contains(p), reason.hasPrefix("TLS handshake failed") { true } else { false }
         }.count
     }
+}
+
+/// Set once from whatever thread changes the observed value.
+private final class SeenFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seen = false
+    func set() { lock.lock(); seen = true; lock.unlock() }
+    var value: Bool { lock.lock(); defer { lock.unlock() }; return seen }
 }
 
 /// Never reports a reconnect (the selftest's members restart only when a check says so).
