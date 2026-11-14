@@ -13,6 +13,13 @@ enum PlazaCardMetrics {
     static let cellSize = CGSize(width: 64, height: 66)
     static let columns = 5
     static let spacing: CGFloat = 4
+    /// 오늘 광장 칸: 제목, 두 열 네 줄, 위아래 여백. 줄 수가 달라도 고정이다.
+    static let activityRowHeight: CGFloat = 16
+    static let activityTitleHeight: CGFloat = 18
+    static let activityPadding: CGFloat = 8
+    static let activityHeight: CGFloat = activityPadding + activityTitleHeight + 4 * activityRowHeight + activityPadding
+    /// 카드 안쪽 세로 간격(머리, 오늘 광장 칸, 도감 격자 사이).
+    static let stackSpacing: CGFloat = 8
 }
 
 /// 팀원 카드: 누구의 카드인지, 광장 캐릭터(크게, 이로치·희귀도 표시), 도감 격자(이로치 ★, 전설 표시).
@@ -23,8 +30,9 @@ struct PlazaCardView: View {
 
     var body: some View {
         let l = L(.ko)
-        VStack(spacing: 8) {
+        VStack(spacing: PlazaCardMetrics.stackSpacing) {
             header
+            PlazaCardActivity(activity: state.todayActivity())
             switch state {
             case .loading:
                 message(l.plazaCardLoading)
@@ -79,6 +87,51 @@ struct PlazaCardView: View {
             .font(Font(PlazaResources.font(.body)))
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// 오늘 광장에서 한 일. 일곱 줄을 두 열(왼쪽 4, 오른쪽 3)로 놓아 카드의 도감 칸을 덜 가린다. 기록이 없어도 높이는 같다.
+@MainActor
+private struct PlazaCardActivity: View {
+    let activity: PlazaActivity?
+
+    var body: some View {
+        let l = L(.ko)
+        let rows = PlazaActivity.rows(activity)
+        VStack(alignment: .leading, spacing: 0) {
+            Text(l.plazaCardActivityTitle)
+                .frame(height: PlazaCardMetrics.activityTitleHeight, alignment: .leading)
+            if rows.isEmpty {
+                Text(l.plazaActivityNone).frame(height: PlazaCardMetrics.activityRowHeight)
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    column(Array(rows.prefix(4)))
+                    column(Array(rows.dropFirst(4)))
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .font(Font(PlazaResources.font(.small)))
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
+        .padding(.horizontal, 10).padding(.vertical, PlazaCardMetrics.activityPadding)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .frame(height: PlazaCardMetrics.activityHeight, alignment: .top)
+        .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func column(_ rows: [PlazaActivity.Row]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 4) {
+                    Text(row.label).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text(row.value).lineLimit(1)
+                }
+                .frame(height: PlazaCardMetrics.activityRowHeight)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 }
 
