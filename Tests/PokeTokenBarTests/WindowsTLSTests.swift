@@ -215,12 +215,19 @@ final class WindowsTLSTests: XCTestCase {
 
     private func keyHex() -> String { code.pskKey.withUnsafeBytes { $0.map { String(format: "%02x", $0) }.joined() } }
 
-    private func launch(_ exe: URL, _ args: [String], stdin: Pipe? = nil) throws -> Process {
+    private func launch(_ exe: URL, _ args: [String], stdin: Pipe? = nil, log: URL? = nil) throws -> Process {
         let p = Process()
         p.executableURL = exe
         p.arguments = args
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
+        if let log {
+            FileManager.default.createFile(atPath: log.path, contents: nil)
+            let h = try FileHandle(forWritingTo: log)
+            p.standardOutput = h
+            p.standardError = h
+        } else {
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+        }
         if let stdin { p.standardInput = stdin }
         try p.run()
         return p
@@ -254,13 +261,16 @@ final class WindowsTLSTests: XCTestCase {
         guard let exe = opensslExecutable() else { throw XCTSkip("openssl.exe not found") }
         let l = listener()
         let stdin = Pipe()
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-sclient-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: log) }
         let proc = try launch(exe, ["s_client", "-connect", "127.0.0.1:\(l.port)", "-tls1_2", "-cipher", "PSK-AES128-GCM-SHA256",
-                                    "-psk", keyHex(), "-psk_identity", "ptb-team-v1", "-quiet"], stdin: stdin)
+                                    "-psk", keyHex(), "-psk_identity", "ptb-team-v1", "-quiet", "-msg"], stdin: stdin, log: log)
         defer { proc.terminate() }
         let accepted = try XCTUnwrap(acceptOne(l.socket), "s_client never connected")
         let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: UInt(accepted))
         var step = server.handshake()
         for _ in 0..<5000 where !isTerminal(step) { Thread.sleep(forTimeInterval: 0.002); step = server.handshake() }
+        if step != .done { print("s_client output: \((try? String(contentsOf: log, encoding: .utf8)) ?? "?")") }
         XCTAssertEqual(step, .done)
         XCTAssertEqual(server.cipher, "PSK-AES128-GCM-SHA256")
         XCTAssertEqual(server.version, "TLSv1.2")
