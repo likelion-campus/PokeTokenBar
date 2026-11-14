@@ -21,13 +21,14 @@ final class PlazaRosterHoverLayoutTests: XCTestCase {
     /// Guard for the #129 crash: a roster that changed its own height with an animation made the NSHostingView (Auto Layout,
     /// intrinsic size, pinned top-trailing with a width constraint) re-invalidate its constraints on every tick, ~1000+
     /// `updateConstraints` calls per hover against ~20 without the animation; AppKit then raised from
-    /// `_NSViewUpdateConstraints` and the app quit. The hover no longer changes the roster, so this checks that the
-    /// hosted roster stays at one size and quiet. Offscreen window, ordered front only, never key; the run loop is pumped
+    /// `_NSViewUpdateConstraints` and the app quit. The hover no longer changes the roster, so this drives the state changes that
+    /// do move its height (members joining and leaving, page turns) and checks they stay quiet. Injecting
+    /// `.animation(.easeOut(0.18), value: model.entries)` on the list makes it fail with ~9500 calls (clean: 36). Offscreen window, ordered front only, never key; the run loop is pumped
     /// 20 ms at a time. A real pointer can't be driven offscreen (synthesized events do not fire `.onHover`).
     func testHoverDoesNotFloodConstraintUpdates() throws {
         let model = PlazaRosterModel()
         model.entries = (0..<6).map { busy("m\($0)") }
-        let height: CGFloat = 400   // short window: 3 slots
+        let height: CGFloat = 600   // room for all six slots, so the entry count sets the height
         model.capacity = PlazaRoster.capacity(forHeight: height)
         let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 700, height: height), styleMask: .borderless,
                               backing: .buffered, defer: false)
@@ -51,11 +52,20 @@ final class PlazaRosterHoverLayoutTests: XCTestCase {
             }
         }
         pump(5)
-        let before = host.updates, restHeight = host.frame.height
-        // The old hover grew the slot; now a hover changes nothing the hosting view can see. Slots still animate their icons.
-        for _ in 0..<2 { pump(30) }
+        let before = host.updates
+        // Real state changes that move the roster's height: members joining and leaving, and a page turn.
+        var heights = Set<CGFloat>()
+        for round in 0..<4 {
+            model.entries = (0..<(round % 2 == 0 ? 2 : 6)).map { busy("m\($0)") }
+            pump(15)
+            heights.insert(host.frame.height)
+        }
+        model.entries = (0..<8).map { busy("m\($0)") }   // two pages
+        pump(15)
+        model.turnPage(by: 1); pump(15)
+        model.turnPage(by: -1); pump(15)
         let used = host.updates - before
-        XCTAssertEqual(host.frame.height, restHeight)
-        XCTAssertLessThan(used, 100, "updateConstraints calls over 1.2 s")
+        XCTAssertGreaterThan(heights.count, 1, "test precondition: the changes really change the height")
+        XCTAssertLessThan(used, 100, "updateConstraints calls over the state changes")
     }
 }
