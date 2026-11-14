@@ -5,4 +5,8 @@ let f = GetLastInputInfo
 var info = LASTINPUTINFO()
 info.cbSize = UINT(MemoryLayout<LASTINPUTINFO>.size)
 withExtendedLifetime((f, info)) {}
+// Forces a real symbol reference the optimizer cannot drop (never true at runtime).
+if CommandLine.arguments.count > 1000 {
+    _ = GetLastInputInfo(nil)
+}
 print("cov GetLastInputInfo linked")

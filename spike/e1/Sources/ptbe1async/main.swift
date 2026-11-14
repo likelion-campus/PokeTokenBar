@@ -14,6 +14,10 @@ let alive = e1_thread_alive(ctor)
 let isWin = e1_is_window(hwnd)
 e1_log("E1.P6 VALUE after-first-await tid=\(after) on_main=\(after == ctor) on_creator=\(after == creator) "
     + "ctor_thread_alive=\(alive) creator_alive=\(e1_thread_alive(creator)) isWindow=\(isWin) window_thread=\(e1_window_thread(hwnd))")
+try? await Task.sleep(nanoseconds: 2_500_000_000)
+let alive2 = e1_thread_alive(ctor)
+let isWin2 = e1_is_window(hwnd)
+e1_log("E1.P6 VALUE 2.8 s after start tid=\(e1_tid()) ctor_thread_alive=\(alive2) isWindow=\(isWin2)")
 e1_start_poster(hwnd, 3, 50, 0)
 try? await Task.sleep(nanoseconds: 1_000_000_000)
 var med = 0.0, mx = 0.0

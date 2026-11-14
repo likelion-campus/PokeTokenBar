@@ -200,6 +200,8 @@ int e1_dispatch_drain(void) {
 #define E1_MAXPOST 256
 
 static e1_msg_cb g_cb;
+static volatile LONG g_char_n;
+static uint32_t g_chars[8];
 static double g_post_t0[E1_MAXPOST];
 static double g_post_lat[E1_MAXPOST];
 static volatile LONG g_post_delivered, g_post_on_main;
@@ -216,10 +218,20 @@ static LRESULT CALLBACK e1_wndproc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         if (GetCurrentThreadId() == g_ctor_tid) InterlockedIncrement(&g_post_on_main);
         return 0;
     }
+    case WM_CHAR: {
+        LONG i = InterlockedIncrement(&g_char_n) - 1;
+        if (i >= 0 && i < 8) g_chars[i] = (uint32_t)w;
+        return 0;
+    }
     case WM_TIMER:
         if (w == 1) {
             KillTimer(h, 1);
             EndMenu();
+        }
+        if (w == 4) {
+            KillTimer(h, 4);
+            PostMessageW(h, WM_KEYDOWN, VK_DOWN, 0);
+            PostMessageW(h, WM_KEYDOWN, VK_RETURN, 0);
         }
         if (g_cb) g_cb(msg, w, l);
         return 0;
@@ -388,9 +400,13 @@ static ULONG64 e1_thread_cycles(DWORD tid) {
     return c;
 }
 
-void e1_cpu_now(e1_cpu *o) {
+int e1_thread_count(void) {
     DWORD tids[E1_MAXT];
-    o->threads = e1_enum_threads(tids, E1_MAXT);  // before the clocks, so its own cost is outside a later delta
+    return e1_enum_threads(tids, E1_MAXT);
+}
+
+void e1_cpu_now(e1_cpu *o) {
+    o->threads = 0;  // clocks only: thread enumeration is expensive and would land inside a delta
     FILETIME c, e, k, u;
     GetProcessTimes(GetCurrentProcess(), &c, &e, &k, &u);
     o->user_ms = e1_ft_ms(u);
@@ -431,7 +447,7 @@ void e1_threads_report(const char *prefix) {
 
 // ---- P7 menu / P8 tray --------------------------------------------------------
 
-int e1_track_menu(void *hwnd, int cancel_ms, int drain_ms, double *t_call, double *t_return, unsigned long *err) {
+int e1_track_menu(void *hwnd, int cancel_ms, int drain_ms, int keys_ms, double *t_call, double *t_return, unsigned long *err) {
     HWND h = (HWND)hwnd;
     HMENU m = CreatePopupMenu();
     AppendMenuW(m, MF_STRING, 1, L"One");
@@ -439,6 +455,7 @@ int e1_track_menu(void *hwnd, int cancel_ms, int drain_ms, double *t_call, doubl
     SetForegroundWindow(h);
     SetTimer(h, 1, (UINT)cancel_ms, NULL);
     if (drain_ms > 0) SetTimer(h, 3, (UINT)drain_ms, NULL);
+    if (keys_ms > 0) SetTimer(h, 4, (UINT)keys_ms, NULL);
     *t_call = e1_now_ms();
     SetLastError(0);
     int r = (int)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, 100, 100, h, NULL);
@@ -446,6 +463,7 @@ int e1_track_menu(void *hwnd, int cancel_ms, int drain_ms, double *t_call, doubl
     *t_return = e1_now_ms();
     KillTimer(h, 1);
     KillTimer(h, 3);
+    KillTimer(h, 4);
     PostMessageW(h, WM_NULL, 0, 0);
     DestroyMenu(m);
     return r;
@@ -522,6 +540,44 @@ void e1_tray_probe(void *hwnd) {
              (unsigned long)eInfo, (unsigned long)hr, r.left, r.top, r.right, r.bottom, del, (unsigned long)eDel);
     e1_log(line);
 }
+
+// ---- Unicode and hook probes (P2 k, l) ----------------------------------------
+
+static HHOOK g_hook;
+static volatile LONG g_hook_post, g_hook_char;
+static uint32_t g_hook_char_w;
+
+static LRESULT CALLBACK e1_getmsg_hook(int code, WPARAM w, LPARAM l) {
+    if (code == HC_ACTION && w == PM_REMOVE) {
+        MSG *m = (MSG *)l;
+        if (m->message == E1_WM_POST) InterlockedIncrement(&g_hook_post);
+        if (m->message == WM_CHAR) {
+            g_hook_char_w = (uint32_t)m->wParam;
+            InterlockedIncrement(&g_hook_char);
+        }
+    }
+    return CallNextHookEx(g_hook, code, w, l);
+}
+
+int e1_install_getmsg_hook(void) {
+    g_hook = SetWindowsHookExW(WH_GETMESSAGE, e1_getmsg_hook, NULL, GetCurrentThreadId());
+    return g_hook ? 0 : (int)GetLastError();
+}
+
+void e1_hook_stats(int *posts, int *chars, uint32_t *last_char) {
+    *posts = (int)g_hook_post;
+    *chars = (int)g_hook_char;
+    *last_char = g_hook_char_w;
+}
+
+int e1_chars(uint32_t *out, int max) {
+    int n = (int)g_char_n;
+    for (int i = 0; i < n && i < max && i < 8; i++) out[i] = g_chars[i];
+    return n;
+}
+
+int e1_is_window_unicode(void *hwnd) { return IsWindowUnicode((HWND)hwnd) ? 1 : 0; }
+uint32_t e1_acp(void) { return GetACP(); }
 
 void e1_kill_self(unsigned int code) { TerminateProcess(GetCurrentProcess(), code); }
 

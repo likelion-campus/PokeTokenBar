@@ -16,7 +16,8 @@ case "pread": runPRead(Array(a.dropFirst(2)))
 case "argv": for x in a.dropFirst(2) { say("ARGV " + x) }
 case "process": runProcess()
 case "net": runNet()
+case "timers": runTimers()
 default:
-    say("usage: ptbe1 symbols | p2 <cf|cfh|cf0|dh|poll> | p3 <variant> | idle <strategy> <secs> | modal <plain|rl|dq> | tray | "
+    say("usage: ptbe1 symbols | p2 <cf|cfh|cf0|cur|dh|dhc|poll> | p3 <variant> | idle <strategy> <secs> | modal <plain|rl|dq>[keys] | timers | tray | "
         + "facts | pchild <key> <mode> | pread <key=present|absent|info>... | argv ... | process | net")
 }

@@ -43,8 +43,13 @@ enum G {
     nonisolated(unsafe) static var menuEnter: Double = -1
     nonisolated(unsafe) static var menuExit: Double = -1
     nonisolated(unsafe) static var drainMode = ""
+    nonisolated(unsafe) static var keysMs: Int32 = 0
     nonisolated(unsafe) static var drainCalls = 0
+    /// cur / dhc: never touch RunLoop.main (whose first use turns on CF's Win32 message mask); use RunLoop.current.
+    nonisolated(unsafe) static var useCurrent = false
 }
+
+func rl() -> RunLoop { G.useCurrent ? RunLoop.current : RunLoop.main }
 
 @MainActor enum MainState {
     static var counter = 0
@@ -58,8 +63,10 @@ enum G {
 
 /// cf = CF run loop + message mask (CF's one-message pump); cfh = + drain-all pump handler; cf0 = control, no mask;
 /// dh = own MsgWait loop on the dispatch main-queue handle; poll = GetMessageW + 250 ms SetTimer.
+/// cur = control: RunLoop.current on the main thread, RunLoop.main never touched; dhc = dh with RunLoop.current.
 func setup(_ s: String) -> String {
     var notes: [String] = []
+    G.useCurrent = s == "cur" || s == "dhc"
     switch s {
     case "cf":
         notes.append("set_mask=\(e1_cf_set_mask(e1_qs_allinput()))")
@@ -74,23 +81,23 @@ func setup(_ s: String) -> String {
 }
 
 func timersPass() -> Double {
-    guard let d = RunLoop.main.limitDate(forMode: .default) else { return -1 }
+    guard let d = rl().limitDate(forMode: .default) else { return -1 }
     return d.timeIntervalSinceNow * 1000
 }
 
 func pollPass() {
-    _ = RunLoop.main.run(mode: .default, before: Date())
+    _ = rl().run(mode: .default, before: Date())
 }
 
 func runLoop(_ s: String) {
     switch s {
-    case "dh":
+    case "dh", "dhc":
         if e1_run_dispatch_loop(timersPass) < 0 { say("E1 dh loop: dispatch handle missing") }
     case "poll":
         _ = e1_run_polling_loop(pollPass, 250)
     default:
         while e1_is_done() == 0 {
-            _ = RunLoop.main.run(mode: .default, before: .distantFuture)
+            _ = rl().run(mode: .default, before: .distantFuture)
         }
     }
 }
@@ -103,6 +110,7 @@ func onMessage(_ msg: UInt32, _ w: UInt, _ l: Int) {
         startMenu()
     case kWM_TIMER where w == 3:
         G.drainCalls += 1
+        MainActor.assumeIsolated { MainState.counter += 1 }  // inside a Win32 modal loop: still the main actor
         if G.drainMode == "rl" {
             _ = RunLoop.main.run(mode: .default, before: Date())
         } else if G.drainMode == "dq" {
@@ -175,7 +183,14 @@ func runP2(_ s: String) {
     }.start()
     // (d) A 200 ms repeating Timer on RunLoop.main in .common.
     let timer = Timer(timeInterval: 0.2, repeats: true) { _ in rec.add("d", e1_now_ms()) }
-    RunLoop.main.add(timer, forMode: .common)
+    rl().add(timer, forMode: .common)
+    // (k) WM_CHAR 'A' and U+D55C posted with PostMessageW; (l) a WH_GETMESSAGE hook on the main thread.
+    let hook = e1_install_getmsg_hook()
+    Thread {
+        Thread.sleep(forTimeInterval: 2.5)
+        _ = e1_post(G.hwnd, 0x0102, 0x41, 0)
+        _ = e1_post(G.hwnd, 0x0102, 0xD55C, 0)
+    }.start()
     // (e) PostMessageW from a background thread, 20 times, 100 ms apart (latency measured in the C WndProc).
     e1_start_poster(G.hwnd, 20, 100, 300)
     // (f) withObservationTracking onChange -> Task { @MainActor }; (j) asyncAfter lateness.
@@ -210,8 +225,20 @@ func runP2(_ s: String) {
     let loopStart = e1_now_ms()
     runLoop(s)
     timer.invalidate()
-    say("E1.P2[\(s)] VALUE loop_ms=\(f2(e1_now_ms() - loopStart)) wakeups=\(e1_wakeups()) pump_calls=\(e1_pump_calls()) pumped=\(e1_pumped())")
+    say("E1.P2[\(s)] VALUE loop_ms=\(f2(e1_now_ms() - loopStart)) wakeups=\(e1_wakeups()) pump_calls=\(e1_pump_calls()) "
+        + "pumped_by_our_W_pump=\(e1_pumped()) (posted 20 + 2 WM_CHAR)")
     reportP2(s)
+    var chars = [UInt32](repeating: 0, count: 8)
+    let n = e1_chars(&chars, 8)
+    let got = chars.prefix(Int(n)).map { "0x" + String($0, radix: 16) }
+    let kPass = n == 2 && chars[0] == 0x41 && chars[1] == 0xD55C
+    say("E1.P2[\(s)] (k) \(kPass ? "PASS" : "FAIL") WM_CHAR-unicode-through-the-pump sent=[0x41,0xd55c] got=\(got) "
+        + "IsWindowUnicode=\(e1_is_window_unicode(G.hwnd)) ACP=\(e1_acp())")
+    var hp: Int32 = 0, hc: Int32 = 0
+    var lc: UInt32 = 0
+    e1_hook_stats(&hp, &hc, &lc)
+    say("E1.P2[\(s)] (l) \(hook == 0 && hp == 20 ? "PASS" : "FAIL") WH_GETMESSAGE-hook-sees-pumped-messages install=\(hook) "
+        + "posted_seen=\(hp)/20 chars_seen=\(hc) last_char=0x\(String(lc, radix: 16))")
 }
 
 func line(_ id: String, _ name: String, _ xs: [Sample], expect: Int, maxLat: Double? = nil, extra: String = "") -> String {
@@ -302,8 +329,9 @@ func runIdle(_ s: String, _ secs: Double) {
     let notes = setup(s)
     e1_set_msg_callback(onMessage)
     G.hwnd = e1_make_window(0)
-    let t = Timer(timeInterval: 120, repeats: true) { _ in say("E1.P4[\(s)] VALUE the 120 s timer fired") }
-    RunLoop.main.add(t, forMode: .common)
+    // Timer(fire:) because corelibs' Timer(timeInterval:repeats:block:) fires at once (see the timers probe).
+    let t = Timer(fire: Date(timeIntervalSinceNow: 120), interval: 120, repeats: true) { _ in say("E1.P4[\(s)] VALUE the 120 s timer fired") }
+    rl().add(t, forMode: .common)
     Task { @MainActor in }
     Task.detached {}
     say("E1.P4[\(s)] VALUE \(notes)")
@@ -317,6 +345,7 @@ func runIdle(_ s: String, _ secs: Double) {
 }
 
 func measureIdle(_ s: String, _ secs: Double) {
+    let threadsBefore = e1_thread_count()
     e1_threads_mark()
     var a = e1_cpu()
     e1_cpu_now(&a)
@@ -325,18 +354,36 @@ func measureIdle(_ s: String, _ secs: Double) {
     var b = e1_cpu()
     e1_cpu_now(&b)
     let w1 = e1_wakeups()
+    let threadsAfter = e1_thread_count()
     let user = b.user_ms - a.user_ms, kernel = b.kernel_ms - a.kernel_ms
     let cpu = user + kernel
     let pass = cpu < 50 * secs / 30
     say("E1.P4[\(s)] \(pass ? "PASS" : "FAIL") idle_secs=\(Int(secs)) cpu_ms=\(f2(cpu)) user_ms=\(f2(user)) kernel_ms=\(f2(kernel)) "
-        + "cycles=\(b.cycles &- a.cycles) main_thread_cycles=\(b.main_cycles &- a.main_cycles) loop_wakeups=\(w1 - w0) threads=\(a.threads)->\(b.threads)")
+        + "cycles=\(b.cycles &- a.cycles) main_thread_cycles=\(b.main_cycles &- a.main_cycles) loop_wakeups=\(w1 - w0) threads=\(threadsBefore)->\(threadsAfter)")
     e1_threads_report("E1.P4[\(s)] THREAD")
+    guard s != "baseline" else { return }
+    // Wake latency right after the idle stretch: 3 posted messages and 3 main-queue blocks, interleaved.
+    let rec = G.rec
+    e1_start_poster(G.hwnd, 3, 700, 0)
+    for _ in 0..<3 {
+        Thread.sleep(forTimeInterval: 0.35)
+        let t = e1_now_ms()
+        DispatchQueue.main.async { rec.add("idle-dq", e1_now_ms() - t) }
+        Thread.sleep(forTimeInterval: 0.35)
+    }
+    Thread.sleep(forTimeInterval: 0.5)
+    var med = 0.0, mx = 0.0
+    var onm: Int32 = 0
+    let delivered = e1_poster_stats(&med, &mx, &onm)
+    say("E1.P4[\(s)] VALUE wake-after-idle PostMessageW n=\(delivered)/3 on_main=\(onm) median_ms=\(f2(med)) max_ms=\(f2(mx))")
+    say(line("E1.P4[\(s)]", "wake-after-idle DispatchQueue.main.async", rec.get("idle-dq"), expect: 3, maxLat: 50))
 }
 
 // MARK: - P7
 
 func runModal(_ variant: String) {
-    G.drainMode = variant
+    G.drainMode = variant.hasSuffix("keys") ? String(variant.dropLast(4)) : variant
+    G.keysMs = variant.hasSuffix("keys") ? 300 : 0
     let notes = setup("cfh")
     e1_set_msg_callback(onMessage)
     G.hwnd = e1_make_window(0)
@@ -367,9 +414,12 @@ func startMenu() {
     var tc = 0.0, tr = 0.0
     var err: CUnsignedLong = 0
     let drainMs: Int32 = G.drainMode == "plain" ? 0 : 16
-    let r = e1_track_menu(G.hwnd, 1000, drainMs, &tc, &tr, &err)
-    let v = G.drainMode
+    let r = e1_track_menu(G.hwnd, 1000, drainMs, G.keysMs, &tc, &tr, &err)
+    let v = G.drainMode + (G.keysMs > 0 ? "keys" : "")
     let callT = tc, retT = tr
+    if G.keysMs > 0 {
+        say("E1.P7[\(v)] \(r == 1 ? "PASS" : "FAIL") menu-receives-keys-posted-at-300ms TrackPopupMenuEx=\(r) (1 = item chosen by VK_DOWN+VK_RETURN)")
+    }
     say("E1.P7[\(v)] VALUE TrackPopupMenuEx=\(r) err=\(err) menu_ms=\(f2(retT - callT)) entered_menu_loop=\(G.menuEnter >= 0) "
         + "drain_timer_calls=\(G.drainCalls)")
     Thread {
@@ -582,4 +632,32 @@ func runNet() {
         sem.signal()
     }.resume()
     if sem.wait(timeout: .now() + 30) == .timedOut { say("E1.P11 FAIL timeout after 30 s") }
+}
+
+// MARK: - Timer first-fire semantics (Darwin: Timer(timeInterval:) first fires after the interval)
+
+func runTimers() {
+    _ = setup("cf")
+    let rec = G.rec
+    let t0 = e1_now_ms()
+    RunLoop.main.add(Timer(timeInterval: 1.0, repeats: false) { _ in rec.add("A", e1_now_ms() - t0) }, forMode: .common)
+    RunLoop.main.add(Timer(timeInterval: 1.0, repeats: true) { _ in rec.add("B", e1_now_ms() - t0) }, forMode: .common)
+    _ = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in rec.add("C", e1_now_ms() - t0) }
+    RunLoop.main.add(Timer(fire: Date(timeIntervalSinceNow: 1.0), interval: 1.0, repeats: true) { _ in rec.add("D", e1_now_ms() - t0) },
+                     forMode: .common)
+    Thread {
+        Thread.sleep(forTimeInterval: 2.5)
+        DispatchQueue.main.async { e1_set_done() }
+    }.start()
+    runLoop("cf")
+    let cases = [
+        ("A", "Timer(timeInterval:1,repeats:false)+add"), ("B", "Timer(timeInterval:1,repeats:true)+add"),
+        ("C", "Timer.scheduledTimer(withTimeInterval:1)"), ("D", "Timer(fire:now+1,interval:1)+add"),
+    ]
+    for (key, name) in cases {
+        let fires = rec.get(key).map(\.value)
+        let first = fires.first ?? -1
+        let darwinLike = first > 900 && first < 1200
+        say("E1.TIMER \(darwinLike ? "PASS" : "FAIL") \(name) first_fire_ms=\(f2(first)) fires_ms=\(fires.map { f2($0) }) (Darwin: first fire ~1000)")
+    }
 }

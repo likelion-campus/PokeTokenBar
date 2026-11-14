@@ -5,4 +5,9 @@ let f = DnsServiceBrowse
 let r = DnsServiceResolve
 let t = DNS_SERVICE_BROWSE_REQUEST.self
 withExtendedLifetime((f, r, t)) {}
+// Forces a real symbol reference the optimizer cannot drop (never true at runtime).
+if CommandLine.arguments.count > 1000 {
+    _ = DnsServiceBrowse(nil, nil)
+    _ = DnsServiceResolve(nil, nil)
+}
 print("cov DnsServiceBrowse linked")
