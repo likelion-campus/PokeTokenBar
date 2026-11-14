@@ -120,12 +120,15 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [photoFramePanel, pillsPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [photoFramePanel, menuPanel, pillsPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
     private lazy var photoFramePanel = PlazaPhotoFramePanel(model: overlayModel)
     private lazy var shortcutsPanel = PlazaShortcutGuidePanel(model: shortcutModel, toggle: togglePanel)
     private lazy var togglePanel = PlazaBackgroundTogglePanel(model: backgroundModel)
     private lazy var pickerPanel = PlazaNameColorPickerPanel(model: nameColorModel, toggle: togglePanel, background: backgroundModel)
     private lazy var pillsPanel = PlazaPillsPanel(model: overlayModel)
+    private lazy var menuPanel = PlazaMenuPanel(model: overlayModel, pills: pillsPanel)
+    private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
+                                                      mapImage: { [unowned self] in mapImage })
     private lazy var clockPanel = PlazaClockPanel(worldSize: map.pixelSize)
     private let chatInput: any PlazaChatInputHost
     private let chatLog = PlazaChatLog()
@@ -334,14 +337,10 @@ import Observation
     var overlayBindings: PlazaOverlayBindings {
         PlazaOverlayBindings(
             rosterModel: rosterModel, overlayModel: overlayModel, feed: feed, myMemberID: memberID(), chatLog: chatLog,
-            minimap: minimap, backgroundModel: backgroundModel, shortcutModel: shortcutModel, nameColorModel: nameColorModel,
-            mapImage: mapImage, worldSize: map.pixelSize, hud: hud, pills: pillsPanel, chatInput: chatInput,
+            hud: hud, chatInput: chatInput,
             walkToMember: { [weak self] in self?.walkToMember($0) },
             turnRosterPage: { [weak self] in self?.turnRosterPage(by: $0) },
             react: { [weak self] in self?.session?.react(to: $0, kind: $1) },
-            chooseMenu: { [weak self] in self?.chooseMenu($0, memberID: $1) },
-            closeOverlay: { [weak self] in self?.closeOverlay() },
-            chooseCampfire: { [weak self] in self?.chooseCampfire(index: $0) },
             toggleChatLog: { [weak self] in self?.toggleChatLog() })
     }
 
@@ -494,6 +493,14 @@ import Observation
     /// A click (or VoiceOver's press) on a panel: what the SwiftUI buttons of the HUD controls did.
     private func panelClicked(_ id: PlazaPanelID, _ hit: PlazaPanelHit) {
         switch (id, hit.action) {
+        case (.menu, "choose"):
+            guard let i = hit.index else { break }
+            switch overlayModel.content {
+            case .memberMenu(let menu): if menu.actions.indices.contains(i) { chooseMenu(menu.actions[i], memberID: menu.memberID) }
+            case .campfireMenu: chooseCampfire(index: i)
+            default: break
+            }
+        case (.menu, "cancel"): closeOverlay()   // a click outside the menu (the old tap-outside area)
         case (.shortcuts, "toggle"): toggleShortcuts()
         case (.backgroundToggle, "toggle"): toggleBackground()
         case (.nameColorPicker, "toggle"): toggleNameColorPicker()
@@ -1799,6 +1806,7 @@ import Observation
     /// The clock's text for now. The panel renders only when it changed, so the 1 s tick renders it once a minute.
     private func refreshClock() {
         clockPanel.update(PlazaDaylight.clockText(clock(), core: minimap.coreTime))
+        minimapPanel.update(date: clock())
     }
 
     /// 작은 지도의 점과 보이는 영역을 지금 상태로 맞춘다.

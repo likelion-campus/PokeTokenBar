@@ -122,8 +122,8 @@ import CoreText
         let clockModel = PlazaMinimapModel()
         let date = Self.date(hour: 21, minute: 34)
         let fitting = NSHostingView(rootView: LegacyPlazaClock(model: clockModel, date: date)).fittingSize
-        let map = NSHostingView(rootView: PlazaMinimapView(model: PlazaMinimapModel(), mapImage: NSImage(size: NSSize(width: 1, height: 1)),
-                                                           worldSize: PlazaMapData.map.pixelSize)).fittingSize
+        let map = NSHostingView(rootView: LegacyPlazaMinimapView(model: PlazaMinimapModel(), mapImage: NSImage(size: NSSize(width: 1, height: 1)),
+                                                                 worldSize: PlazaMapData.map.pixelSize)).fittingSize
         let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
         clock.update(PlazaDaylight.clockText(date, core: clockModel.coreTime))
         let hud = PlazaHUD(panels: [clock], graphics: graphics)
@@ -337,10 +337,13 @@ import CoreText
         func index<T>(_ type: T.Type) -> Int? { subs.firstIndex { $0 is T } }
         let pills = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .pills })
         let clock = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .clock })
-        XCTAssertEqual(pills, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 2, "above the photo frame's host, which is right above the overlay")
+        XCTAssertEqual(pills, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 3, "above the menu's host and the photo frame's, which are right above the overlay")
+        XCTAssertEqual(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .menu }, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 2)
         XCTAssertEqual(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .photoFrame }, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 1)
         XCTAssertLessThan(pills, try XCTUnwrap(index(PlazaChatLogHostingView.self)), "below the chat log")
-        XCTAssertEqual(clock, try XCTUnwrap(index(PlazaMinimapHostingView.self)) + 1, "right above the minimap")
+        let minimap = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .minimap })
+        XCTAssertEqual(clock, minimap + 1, "right above the minimap")
+        XCTAssertGreaterThan(minimap, try XCTUnwrap(index(PlazaChatLogHostingView.self)), "the minimap is above the chat log")
         XCTAssertLessThan(clock, try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .shortcuts }))
         XCTAssertTrue(c.hud.host === shell, "the window shows the controller's panels")
         XCTAssertEqual(c.hud.renderCounts[.clock], 1, "the clock is drawn once on opening")
@@ -350,21 +353,21 @@ import CoreText
         c.handleClose()
     }
 
-    /// The SwiftUI overlay still opens a member menu below the pills, as when they were in its stack: the menu moves down
-    /// by the pills' height and the 8-point gap (a banner: 34 + 8; a countdown and a banner: 2 × (34 + 8)).
+    /// A member menu still opens below the pills, as when they were in its stack: the menu moves down by the pills' height
+    /// and the 8-point gap (a banner: 34 + 8; a countdown and a banner: 2 × (34 + 8)).
     func testAMenuStillOpensBelowThePills() async throws {
-        func menuTop(countdown: String?, banner: String?) throws -> Int {
+        func menuTop(countdown: String?, banner: String?) throws -> CGFloat {
             let m = model(countdown: countdown, banner: banner)
             m.content = .memberMenu(PlazaMemberMenu(memberID: "m", nickname: "민수"))
-            let pills = PlazaPillsPanel(model: m)
-            let viewport = CGSize(width: 600, height: 372)
-            let view = PlazaOverlayView(model: m, pillsSize: { pills.stack(in: viewport, scale: 2, text: PlatformPlaza.graphics.text).size })
-            let image = try XCTUnwrap(Self.render(view.frame(width: viewport.width, height: viewport.height), scale: 2))
-            return Int(try XCTUnwrap(Self.boxes(image).first).minY)   // the pills are not in the overlay: the menu is its first ink
+            let panel = PlazaMenuPanel(model: m, pills: PlazaPillsPanel(model: m))
+            let drawing = panel.render(scale: 2, viewport: CGSize(width: 600, height: 372), graphics: graphics)
+            guard case .image(_, let frame)? = drawing.layers.first else { throw XCTSkip("no menu image") }
+            return frame.minY
         }
         let alone = try menuTop(countdown: nil, banner: nil)
-        XCTAssertEqual(try menuTop(countdown: nil, banner: "배너") - alone, 2 * (34 + 8))
-        XCTAssertEqual(try menuTop(countdown: "단체 사진 5", banner: "배너") - alone, 2 * (34 + 8 + 34 + 8))
+        XCTAssertEqual(alone, PlazaRosterMetrics.margin)
+        XCTAssertEqual(try menuTop(countdown: nil, banner: "배너") - alone, 34 + 8)
+        XCTAssertEqual(try menuTop(countdown: "단체 사진 5", banner: "배너") - alone, 2 * (34 + 8))
     }
 
     /// A host's frame is the window's (four constraints, no intrinsic size): a panel growing and shrinking — a banner of
@@ -386,7 +389,7 @@ import CoreText
         let container = try XCTUnwrap(shell.windowForTesting?.contentView)
         container.layoutSubtreeIfNeeded()
         let hosts = container.subviews.compactMap { $0 as? PlazaPanelHostView }
-        XCTAssertEqual(hosts.map(\.panelID), [.photoFrame, .pills, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+        XCTAssertEqual(hosts.map(\.panelID), [.photoFrame, .menu, .pills, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
         let clock = try XCTUnwrap(c.hud.panels.first { $0.id == .clock } as? PlazaClockPanel)
         for host in hosts {
             XCTAssertEqual(host.intrinsicContentSize, NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric))
@@ -399,10 +402,14 @@ import CoreText
             overlays.overlayModel.countdown = i % 3 == 0 ? "단체 사진 \(i)" : nil
             clock.update(i % 2 == 0 ? "밤 21:34" : "새벽 0:00 · 아주 긴 시계")
             // Task 15: the guide folds, the picker opens, the toggle changes its width, photo mode comes and goes.
-            overlays.shortcutModel.isFolded = i % 2 == 1
-            overlays.nameColorModel.isOpen = i % 3 == 0
-            overlays.backgroundModel.isHidden = i % 2 == 0
+            if c.areShortcutsFolded != (i % 2 == 1) { c.toggleShortcuts() }
+            if c.isNameColorPickerOpen != (i % 3 == 0) { c.toggleNameColorPicker() }
+            if c.isBackgroundHidden != (i % 2 == 0) { c.toggleBackground() }
             overlays.overlayModel.isPhotoMode = i % 4 == 1
+            // Task 16: the menu opens (180 wide, then wider for a long status) and closes; the minimap's marks move.
+            var menu = PlazaMemberMenu(memberID: "m", nickname: "민수", actions: [.greet, .tackle])
+            if i % 3 == 1 { menu.status = L(.ko).plazaFocusStatus(seconds: 7 * 3600 + 43 * 60) }
+            overlays.overlayModel.content = i % 3 == 0 ? .none : .memberMenu(menu)
             for _ in 0..<20 { await Task.yield() }
             container.layoutSubtreeIfNeeded()
             for host in hosts {
@@ -416,6 +423,7 @@ import CoreText
         XCTAssertEqual(sizes[.nameColorPicker]?.count, 2, "the picker really opened and closed")
         XCTAssertEqual(sizes[.backgroundToggle]?.count, 2, "the toggle really changed size")
         XCTAssertNotNil(sizes[.photoFrame], "the photo frame really came")
+        XCTAssertNotNil(sizes[.menu], "the menu really came")
         for (i, host) in hosts.enumerated() {
             XCTAssertLessThanOrEqual(host.layoutPassesForTesting - passes[i], 1, "\(host.panelID): no layout pass per change")
             XCTAssertEqual(host.intrinsicInvalidationsForTesting, invalidations[i], "\(host.panelID): a change never asks for an intrinsic size")

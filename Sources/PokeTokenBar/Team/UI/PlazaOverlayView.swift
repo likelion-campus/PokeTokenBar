@@ -8,31 +8,10 @@ struct PlazaOverlayView: View {
     var feed: TeamFeedStore?
     var myMemberID = ""
     var onReact: (_ eventID: String, _ kind: TeamReactionKind) -> Void = { _, _ in }
-    var onMenuChoose: (_ action: PlazaMemberAction, _ memberID: String) -> Void = { _, _ in }
-    /// 메뉴 밖을 눌렀다.
-    var onMenuCancel: () -> Void = {}
-    var onCampfireChoose: (_ index: Int) -> Void = { _ in }
-    /// The countdown, banner and hint pills' stack (the shared `PlazaPillsPanel`, drawn above this view). A menu still
-    /// opens below them, so the stack keeps their room.
-    var pillsSize: () -> CGSize = { .zero }
 
     var body: some View {
         ZStack(alignment: .top) {
             content
-            VStack(spacing: 8) {
-                let pills = pillsSize()
-                if pills.height > 0 {
-                    Color.clear.frame(width: pills.width, height: pills.height).allowsHitTesting(false)
-                }
-                // 안내가 있던 자리에 뜬다(메뉴가 열리면 안내는 숨는다).
-                if case .memberMenu(let menu) = model.content {
-                    PlazaMemberMenuView(menu: menu, onChoose: { onMenuChoose($0, menu.memberID) })
-                }
-                if case .campfireMenu(let menu) = model.content {
-                    PlazaCampfireMenuView(menu: menu, onChoose: onCampfireChoose)
-                }
-            }
-            .padding(.top, PlazaRosterMetrics.margin)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -49,7 +28,7 @@ struct PlazaOverlayView: View {
         case .card(let state):
             panel(PlazaCardMetrics.panelSize) { PlazaCardView(state: state) }
         case .memberMenu, .campfireMenu:
-            Color.clear.contentShape(Rectangle()).onTapGesture(perform: onMenuCancel)
+            Color.clear   // the menus and their tap-outside area are the shared `PlazaMenuPanel`
         }
     }
 
@@ -74,7 +53,12 @@ final class PlazaOverlayHostingView: NSHostingView<PlazaOverlayView> {
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        MainActor.assumeIsolated { model.content == .none ? nil : super.hitTest(point) }
+        MainActor.assumeIsolated {
+            switch model.content {
+            case .none, .memberMenu, .campfireMenu: nil   // menus are panels (their own host takes the clicks)
+            case .board, .card: super.hitTest(point)
+            }
+        }
     }
     override var acceptsFirstResponder: Bool { false }
 }

@@ -360,6 +360,21 @@ struct PlazaPanelSpace {                                             // the by-h
 // paddings, margins, strokeRoom = 1, pixel rounding). Controller: PlazaWindowController.hud; PlazaOverlayBindings.hud and .pills.
 // Mac: Team/UI/PlazaPanelHostView (a full-window layer-backed view per panel at the old hosting view's subview index, one sublayer
 // per drawing layer, NSAccessibilityElement children, a tracking area only for tracksMouse; PlazaMacWindow is the PlazaPanelHost).
+// Tasks 15-16 (as built): PlazaCanvas gained PlazaPath (move/line/close only; a curve is sampled by the caller), fillPath,
+// strokePath(_:lineWidth:cap:), strokeEllipse(in:lineWidth:), clip(toRoundedRect:radius:). PlazaPanel.offset(in:scale:text:) (default
+// `offset`) places a panel by measured text (the picker beside the toggle, the guide under it). Panels, Team/Plaza/HUD/:
+// PlazaBackgroundTogglePanel, PlazaShortcutGuidePanel (+ PlazaShortcutGuide entries), PlazaNameColorPickerPanel, PlazaPhotoFramePanel
+// (four colour rectangles + four bracket images + the guide text shrunk to 0.7, then cut), PlazaMenuPanel (+ PlazaMenuText,
+// PlazaMenuBackground: the menus AND the tap-outside area: hits "choose"/index, "menu" (the body: inert), "cancel" everywhere else;
+// anchor .fill; its host sits below the guide/toggle/picker/chat log/minimap, above the overlay and the roster), PlazaMinimapPanel
+// (two layers: plate+map made per minute/season map/hidden/scale, marks made per change) over PlazaMinimapPixels (box downscale,
+// tint, Rec. 709 saturation on a PlazaBitmap). Pressed look: the control's content at PlazaPanelStyle.pressedOpacity while the mouse is
+// down on it and over it (the HUD's interaction; no tracking area, so no hover); a release elsewhere cancels. PlazaChangeObserver:
+// panels follow their models and report only a state that differs from the last render (observation fires on equal writes).
+// Controller: HUD panels [photoFrame, menu, pills, minimap, clock, shortcuts, backgroundToggle, nameColorPicker]; hud.onAction runs
+// the old button actions; PlazaOverlayBindings lost every model/closure the panels replaced. Symbols: PlatformPlaza.symbolImage
+// (named:pointSize:weight:scale:color:) -> (image, size)? — the Mac draws the real SF Symbol; elsewhere nil and the panel falls back to its own
+// drawing of the glyph (the toggle's eye): WINDOWS SUPPLIES ITS OWN GLYPH IN STAGE 6.
 
 // Platform/PlatformPlaza.swift (Tasks 2, 3, 6, 7, 12) — the only #if file of this track
 enum PlatformPlaza {

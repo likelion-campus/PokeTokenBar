@@ -129,7 +129,6 @@ private struct NoSpritesFetcher: PlazaSpriteFetching {
         let o = try XCTUnwrap(shell.overlays)
         XCTAssertTrue(o.rosterModel === c.rosterModel)
         XCTAssertEqual(o.myMemberID, "member-1")
-        XCTAssertEqual(o.worldSize, PlazaMapData.map.pixelSize)
         XCTAssertTrue(o.chatInput === c.chatInputForTesting)
         _ = shell.take()
         o.hud.press(PlazaPanelHit(action: "toggle", index: nil), in: .shortcuts)

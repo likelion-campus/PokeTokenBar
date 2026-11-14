@@ -53,8 +53,9 @@ import SwiftUI
         let ctx = K.context(Int(v.width * scale), Int(v.height * scale))
         func put<V: View>(_ view: V, _ r: CGRect) throws {
             // The hosting view centres its content in its frame; rendering the view in a frame of that size does the same.
-            let image = try XCTUnwrap(K.render(view.frame(width: r.width, height: r.height), scale: scale))
-            ctx.draw(image, in: CGRect(x: r.minX * scale, y: (v.height - r.maxY) * scale, width: r.width * scale, height: r.height * scale))
+            // The strokes overhang the view by half their width; ImageRenderer crops to the view, so the view gets 2 points of room.
+            let image = try XCTUnwrap(K.render(view.frame(width: r.width, height: r.height).padding(2), scale: scale))
+            ctx.draw(image, in: CGRect(x: (r.minX - 2) * scale, y: (v.height - r.maxY - 2) * scale, width: (r.width + 4) * scale, height: (r.height + 4) * scale))
         }
         if c.parts.contains("guide") { try put(LegacyPlazaShortcutGuide(model: gm, toggle: {}), f.guide) }
         if c.parts.contains("toggle") { try put(LegacyPlazaBackgroundToggle(model: bg, toggle: {}), f.toggle) }
