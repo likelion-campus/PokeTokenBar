@@ -186,6 +186,70 @@ jobs:
         run: |
           $v = & bundle\PokeTokenBar.exe --version | Out-String
           "--version printed: '$($v.Trim())'"
+      - name: Crash on purpose, then relaunch (default log folder)
+        if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
+        shell: pwsh
+        run: |
+          # A child of the packaged exe installs the crash log like the app does and dies of a Swift fatalError (the
+          # error mode is set in that child only). The log folder must then hold a crash record, a minidump and the
+          # runtime's message; the next normal start must report the unclean end and take the record into the main log.
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class PtbCrashWin {
+              [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
+              [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
+          }
+          '@
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
+          $logs = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs'
+          Remove-Item -ErrorAction SilentlyContinue (Join-Path $logs 'PokeTokenBar-*.dmp'), (Join-Path $logs 'PokeTokenBar.crash.log'), (Join-Path $logs 'PokeTokenBar.running')
+          $p = Start-Process -FilePath $exe -ArgumentList @('--selftest-crash', 'fatalError') -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; throw 'the crash child did not end in 60 s' }
+          'crash child exit: 0x{0:X8}' -f $p.ExitCode
+          if ($p.ExitCode -eq 0) { throw 'the crash child exited 0' }
+          $record = Get-Content (Join-Path $logs 'PokeTokenBar.crash.log') -Raw
+          $record
+          if ($record -notmatch '\[CRASH\] exception 0x[0-9A-F]{8} at 0x') { throw 'no crash record' }
+          if ($record -notmatch '\[CRASH\] dump=off') { throw 'the record does not say dumps are off' }
+          if (@(Get-ChildItem $logs -Filter 'PokeTokenBar-*.dmp').Count -ne 0) { throw 'a minidump was written without PTB_CRASH_DUMPS=1' }
+          'no dump by default: ok'
+          # Opted in: the same crash now also leaves a minidump.
+          $env:PTB_CRASH_DUMPS = '1'
+          $p = Start-Process -FilePath $exe -ArgumentList @('--selftest-crash', 'av') -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; throw 'the opted-in crash child did not end in 60 s' }
+          Remove-Item Env:PTB_CRASH_DUMPS
+          'opted-in crash child exit: 0x{0:X8}' -f $p.ExitCode
+          $dumps = @(Get-ChildItem $logs -Filter 'PokeTokenBar-*.dmp')
+          "dumps: $($dumps.Name -join ', ') ($($dumps | ForEach-Object Length))"
+          if ($dumps.Count -ne 1 -or $dumps[0].Length -le 0) { throw 'no minidump with PTB_CRASH_DUMPS=1' }
+          if (-not (Test-Path (Join-Path $logs 'PokeTokenBar.running'))) { throw 'the running marker is gone after a crash' }
+          if ((Get-Content (Join-Path $logs 'PokeTokenBar.stderr.log') -Raw) -notmatch 'selftest crash') { throw 'stderr.log lacks the fatalError message' }
+          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-crash'
+          New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
+          $app = Start-Process -FilePath $exe -PassThru
+          $null = $app.Handle
+          $h = [IntPtr]::Zero
+          for ($i = 0; $i -lt 150 -and $h -eq [IntPtr]::Zero; $i++) {
+              Start-Sleep -Milliseconds 200
+              if ($app.HasExited) { throw 'the relaunched app exited early' }
+              $h = [PtbCrashWin]::FindWindowW('PokeTokenBarSink', [NullString]::Value)
+          }
+          if ($h -eq [IntPtr]::Zero) { throw 'the relaunched app made no sink window' }
+          Start-Sleep -Seconds 2
+          $null = [PtbCrashWin]::PostMessageW($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)  # WM_CLOSE
+          if (-not $app.WaitForExit(20000)) { Stop-Process -Id $app.Id -Force; throw 'WM_CLOSE did not end the relaunched app' }
+          "relaunched app exit: $($app.ExitCode)"
+          $main = Get-Content (Join-Path $logs 'PokeTokenBar.log') -Raw
+          foreach ($needle in 'previous session did not end cleanly', 'previous session crash record: [CRASH] exception') {
+              if ($main -notmatch [regex]::Escape($needle)) { throw "the main log lacks: $needle" }
+          }
+          if (Test-Path (Join-Path $logs 'PokeTokenBar.running')) { throw 'the marker is still there after a clean exit' }
+          if ((Get-Item (Join-Path $logs 'PokeTokenBar.crash.log')).Length -ne 0) { throw 'the crash record was not drained' }
+          'relaunch reported the crash and ended cleanly'
       - name: Collect logs
         if: always()
         shell: pwsh

@@ -7,7 +7,7 @@ import WinSDK
 enum WinDynamic {
     static func symbol<T>(_ module: String, _ name: String, as type: T.Type) -> T? {
         let wide = WinStr.w(module)
-        guard let handle = GetModuleHandleW(wide) ?? LoadLibraryW(wide), let proc = GetProcAddress(handle, name)
+        guard let handle = GetModuleHandleW(wide) ?? LoadLibraryExW(wide, nil, 0x0A00 /* LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32 */), let proc = GetProcAddress(handle, name)
         else { return nil }
         return unsafeBitCast(proc, to: type)
     }

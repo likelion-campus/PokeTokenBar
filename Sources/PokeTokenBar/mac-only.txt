@@ -16,7 +16,6 @@ Core/LoginItem.swift
 Core/NetworkReachabilityMonitor.swift
 Core/OAuthLimitsProvider.swift
 Core/SingleInstance.swift
-Core/UpdateChecker.swift
 # Team: system notification poster (UserNotifications) and the Network.framework transport
 Team/TeamNotificationsMac.swift
 Team/TeamTransport.swift
