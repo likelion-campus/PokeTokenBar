@@ -316,6 +316,31 @@ final class SpriteKitMirrorParityTests: XCTestCase {
         XCTAssertGreaterThan(Double(exactFrames), 0.95 * Double(frames), "frame is bit-equal but for half-thousandths")
     }
 
+    /// The pond layer's tree and its SpriteKit copy agree through splashes, bubbles, hiding and reuse, whether it was
+    /// mounted before the nodes were made or after.
+    func testMountedLayerMatchesItsMirror() throws {
+        let tile = TilePoint(x: 5, y: 8)
+        for mountFirst in [true, false] {
+            let scene = SKScene(size: CGSize(width: 64, height: 64))
+            let layer = PlazaPondLayer()
+            if mountFirst { layer.root.mountInSpriteKit(scene) }
+            layer.splash(at: tile, big: true)
+            layer.bubble(at: tile)
+            layer.update(dt: 0.1)
+            if !mountFirst { layer.root.mountInSpriteKit(scene) }
+            for step in 0..<40 {
+                if step % 9 == 0 { layer.splash(at: tile, big: step % 2 == 0) }
+                if step % 4 == 0 { layer.bubble(at: tile) }
+                if step == 20 { layer.setHidden(true) }
+                if step == 24 { layer.setHidden(false) }
+                layer.update(dt: 1.0 / 60)
+                XCTAssertEqual(PlazaMirrorParity.differences(layer.root), [], "step \(step), mounted first: \(mountFirst)")
+            }
+            XCTAssertTrue(scene.children.first === layer.root.skNode)
+            XCTAssertGreaterThan(layer.root.children.count, 10)
+        }
+    }
+
     /// Risk R1: what a write costs through `PlazaSprite` and its mirror against the same write straight to an
     /// `SKSpriteNode`. 2,000 writes per frame (400 sprites x 5 properties), 3,000 frames. Two mixes: every write a new
     /// value (the worst case: compare and call on top of SpriteKit's own write), and one write in five new (a layout

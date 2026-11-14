@@ -1,20 +1,13 @@
 import XCTest
-import SpriteKit
 @testable import PokeTokenBar
 
 @MainActor
 final class PlazaPondLayerTests: XCTestCase {
     private let tile = TilePoint(x: 5, y: 8)
 
-    private func opaqueColours(_ image: CGImage) -> Set<UInt32> {
-        let w = image.width, h = image.height
-        var data = [UInt8](repeating: 0, count: w * h * 4)
-        data.withUnsafeMutableBytes { buf in
-            let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        }
+    /// Premultiplied sRGB RGBA, row 0 at the top: what drawing the image into such a context gave before.
+    private func opaqueColours(_ image: PlazaImage) -> Set<UInt32> {
+        let data = image.pixels.bytes
         var set = Set<UInt32>()
         for i in stride(from: 0, to: data.count, by: 4) where data[i + 3] == 255 {
             set.insert(UInt32(data[i]) << 16 | UInt32(data[i + 1]) << 8 | UInt32(data[i + 2]))
@@ -22,12 +15,12 @@ final class PlazaPondLayerTests: XCTestCase {
         return set
     }
 
-    func testArtUsesOnlyPondColours() {
+    func testArtUsesOnlyPondColours() async {
         let allowed: Set<UInt32> = [0x1E7CB8, 0x2996DB, 0x5AAEE4, 0xFFFFFF, 0x165C88]
         let images = [PlazaPondArt.droplet(), PlazaPondArt.bubble(), PlazaPondArt.swimRing()]
             + (2...14).map { PlazaPondArt.ring(radius: $0) }
         for image in images {
-            let colours = opaqueColours(image.cgImage)
+            let colours = opaqueColours(image)
             XCTAssertFalse(colours.isEmpty)
             XCTAssertTrue(colours.isSubset(of: allowed), "\(colours.subtracting(allowed))")
         }
@@ -37,7 +30,7 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertEqual(PlazaPondArt.swimRing().width, 12)
     }
 
-    func testSmallAndBigSplash() {
+    func testSmallAndBigSplash() async {
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: false)
         XCTAssertEqual(layer.dropletCount, PlazaPondLayer.smallDroplets)
@@ -61,11 +54,11 @@ final class PlazaPondLayerTests: XCTestCase {
     }
     private var waterlineX: CGFloat { PlazaWalker.footPoint(from: tile, to: tile, progress: 0).x }
 
-    private func visible(_ layer: PlazaPondLayer, z: CGFloat) -> [SKNode] {
-        layer.children.filter { !$0.isHidden && abs($0.zPosition - z) < 0.001 }
+    private func visible(_ layer: PlazaPondLayer, z: CGFloat) -> [PlazaNode] {
+        layer.root.children.filter { !$0.isHidden && abs($0.zPosition - z) < 0.001 }
     }
 
-    func testBigSplashFansOutAndRises() {
+    func testBigSplashFansOutAndRises() async {
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: true)
         layer.update(dt: 0.25)
@@ -80,7 +73,7 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertEqual(layer.dropletCount, 0)
     }
 
-    func testSmallSplashStaysLowerThanABigOne() {
+    func testSmallSplashStaysLowerThanABigOne() async {
         func top(big: Bool) -> CGFloat {
             let layer = PlazaPondLayer()
             layer.splash(at: tile, big: big)
@@ -91,12 +84,12 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertLessThanOrEqual(top(big: false), 24)
     }
 
-    func testRingsSitOnTheWaterlineAndGrow() {
+    func testRingsSitOnTheWaterlineAndGrow() async {
         func width(big: Bool) -> (y: CGFloat, w: CGFloat) {
             let layer = PlazaPondLayer()
             layer.splash(at: tile, big: big)
             layer.update(dt: 0.5)   // late in a 0.6 s life
-            let ring = visible(layer, z: 0.06).first as! SKSpriteNode
+            let ring = visible(layer, z: 0.06).first as! PlazaSprite
             return (ring.position.y, ring.size.width)
         }
         let big = width(big: true), small = width(big: false)
@@ -106,20 +99,20 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertLessThan(small.w, 32)
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: true)
-        XCTAssertEqual((visible(layer, z: 0.06).first as! SKSpriteNode).position.x, waterlineX, accuracy: 2)
+        XCTAssertEqual((visible(layer, z: 0.06).first as! PlazaSprite).position.x, waterlineX, accuracy: 2)
     }
 
-    func testDropletNodesAreSixWorldPixels() {
+    func testDropletNodesAreSixWorldPixels() async {
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: true)
         layer.update(dt: 1)
         layer.splash(at: tile, big: false)   // reused nodes
-        let sizes = visible(layer, z: 2.5).map { ($0 as! SKSpriteNode).size }
+        let sizes = visible(layer, z: 2.5).map { ($0 as! PlazaSprite).size }
         XCTAssertEqual(sizes.count, PlazaPondLayer.smallDroplets)
         XCTAssertTrue(sizes.allSatisfy { $0 == CGSize(width: 6, height: 6) })
     }
 
-    func testBubblesRiseAndFade() {
+    func testBubblesRiseAndFade() async {
         let layer = PlazaPondLayer()
         for _ in 0..<3 { layer.bubble(at: tile) }
         XCTAssertEqual(layer.bubbleCount, 3)
@@ -137,7 +130,7 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertEqual(layer.bubbleCount, 0)
     }
 
-    func testCapsHoldUnderABurst() {
+    func testCapsHoldUnderABurst() async {
         let layer = PlazaPondLayer()
         for _ in 0..<20 { layer.splash(at: tile, big: true) }
         for _ in 0..<20 { layer.bubble(at: tile) }
@@ -153,7 +146,7 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertEqual(layer.bubbleCount, 0)
     }
 
-    func testHidingDropsEverything() {
+    func testHidingDropsEverything() async {
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: true)
         layer.bubble(at: tile)
@@ -176,31 +169,31 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertEqual(layer.dropletCount, PlazaPondLayer.smallDroplets)
     }
 
-    func testNodesAreReused() {
+    func testNodesAreReused() async {
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: true)
         layer.bubble(at: tile)
         layer.update(dt: 0.2)   // both rings are out now
-        let first = layer.children.count
+        let first = layer.root.children.count
         layer.update(dt: 1)
         layer.splash(at: tile, big: true)
         layer.bubble(at: tile)
         layer.update(dt: 0.2)
-        XCTAssertEqual(layer.children.count, first)
+        XCTAssertEqual(layer.root.children.count, first)
     }
 
-    func testPositionsSnapToTwoPixelGrid() {
+    func testPositionsSnapToTwoPixelGrid() async {
         let layer = PlazaPondLayer()
         layer.splash(at: tile, big: true)
         layer.bubble(at: tile)
         layer.update(dt: 0.2)
-        for node in layer.children where !node.isHidden {
+        for node in layer.root.children where !node.isHidden {
             XCTAssertEqual(node.position.x.truncatingRemainder(dividingBy: 2), 0)
             XCTAssertEqual(node.position.y.truncatingRemainder(dividingBy: 2), 0)
         }
     }
 
-    func testQueuedSplashesAreBoundedWholeAndDrain() {
+    func testQueuedSplashesAreBoundedWholeAndDrain() async {
         let layer = PlazaPondLayer()
         for _ in 0..<100 { layer.splash(at: tile, big: true) }
         XCTAssertLessThanOrEqual(layer.pendingCount, PlazaPondLayer.maxPending)
@@ -213,26 +206,5 @@ final class PlazaPondLayerTests: XCTestCase {
         XCTAssertEqual(layer.pendingCount, 0)
         XCTAssertEqual(layer.dropletCount, 0)
         XCTAssertEqual(layer.ringCount, 0)
-    }
-
-    func testWetImageHasContentAtBothScales() {
-        for scale in [CGFloat(1), 2] {
-            let image = PlazaPondArt.wetImage(scale: scale)
-            XCTAssertEqual(image.width, Int(16 * scale))
-            XCTAssertEqual(image.height, Int(16 * scale))
-            XCTAssertTrue(hasAnyAlpha(image.cgImage))
-        }
-    }
-
-    private func hasAnyAlpha(_ image: CGImage) -> Bool {
-        let w = image.width, h = image.height
-        var data = [UInt8](repeating: 0, count: w * h * 4)
-        data.withUnsafeMutableBytes { buf in
-            let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        }
-        return stride(from: 3, to: data.count, by: 4).contains { data[$0] > 0 }
     }
 }

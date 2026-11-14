@@ -30,7 +30,6 @@ Team/Plaza/PlazaIceLayer.swift
 Team/Plaza/PlazaIconLoader.swift
 Team/Plaza/PlazaNamePlate.swift
 Team/Plaza/PlazaPhotoRenderer.swift
-Team/Plaza/PlazaPondLayer.swift
 Team/Plaza/PlazaPresentingMac.swift
 Team/Plaza/PlazaScene.swift
 Team/Plaza/PlazaSnowballLayer.swift

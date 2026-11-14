@@ -94,7 +94,8 @@ PlazaPhotoModeSceneTests.swift
 PlazaPhotoModeTests.swift
 PlazaPhotoOverlayTests.swift
 PlazaPhotoTests.swift
-PlazaPondLayerTests.swift
+# PlazaPondLayerTests+Mac: the 💧 image needs the Mac text engine (Apple Color Emoji); the Windows stub draws nothing
+PlazaPondLayerTests+Mac.swift
 # PlazaPondMotionTests: needs PlazaScene (SpriteKit)
 PlazaPondMotionTests.swift
 PlazaPondSceneTests.swift
