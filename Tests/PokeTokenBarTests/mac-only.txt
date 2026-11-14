@@ -219,3 +219,5 @@ PlazaBoardPanelRenderTests+Mac.swift
 PlazaCardPanelRenderTests+Mac.swift
 # PlazaContentPanelsMacTests+Mac: the roster/board/card panels in the AppKit panel host (tooltips, accessibility elements, hitTest of the SwiftUI roster, real timer and CoreText costs)
 PlazaContentPanelsMacTests+Mac.swift
+# TeamOpenSSLInteropTests: the Mac's Network.framework TLS-PSK against the OpenSSL command line (scripts/team-interop-check.sh)
+TeamOpenSSLInteropTests.swift

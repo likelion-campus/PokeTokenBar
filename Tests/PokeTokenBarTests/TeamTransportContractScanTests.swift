@@ -3,8 +3,8 @@ import XCTest
 /// Keeps the transport contract honest: every scenario has a wrapper per transport, and the Windows transport
 /// goes through the shared rules instead of re-implementing them.
 final class TeamTransportContractScanTests: XCTestCase {
-    /// Flipped to `true` by the task that adds the Windows transport and its `WindowsTransportContractTests.swift`.
-    static let windowsWrapperRequired = false
+    /// `true` since the Windows transport and its `WindowsTransportContractTests.swift` exist (Task 19).
+    static let windowsWrapperRequired = true
 
     private static let testsRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     private static let windowsTransport = testsRoot.deletingLastPathComponent().deletingLastPathComponent()

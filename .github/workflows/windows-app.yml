@@ -136,6 +136,54 @@ jobs:
               if ($log -notmatch "exit code=0 reason=$reason") { throw "no 'reason=$reason' exit line in the log" }
           }
           'log has both exit lines'
+      - name: Two-transport selftest (team probes over DNS-SD and TLS-PSK)
+        if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
+        shell: pwsh
+        run: |
+          # Two --team-probe processes with one code find each other by real DNS-SD on this runner, link over TLS-PSK and
+          # join as teammates (hello, presence); a third with another code must fail every handshake, deliver nothing and
+          # wait out the 60 s cooldown (one dial per name). Codes go in on stdin only and must appear in no output.
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
+          $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+          function New-Code { -join (1..12 | ForEach-Object { $alphabet[(Get-Random -Maximum 32)] }) }
+          $code = New-Code; $other = New-Code
+          Set-Content -NoNewline -Path probe-code.txt -Value "PTB-$($code.Substring(0,4))-$($code.Substring(4,4))-$($code.Substring(8,4))"
+          Set-Content -NoNewline -Path probe-other.txt -Value $other.ToLower()
+          function Start-Probe($name, $codeFile, $seconds) {
+              $p = Start-Process -FilePath $exe -PassThru -RedirectStandardInput $codeFile -RedirectStandardOutput "probe-$name.out" `
+                  -ArgumentList @('--team-probe', '--code-stdin', '--seconds', "$seconds", '--selftest-out', (Join-Path $PWD "probe-$name.txt"))
+              $null = $p.Handle
+              return $p
+          }
+          $a = Start-Probe 'a' probe-code.txt 30
+          $b = Start-Probe 'b' probe-code.txt 30
+          $c = Start-Probe 'c' probe-other.txt 25
+          foreach ($p in $a, $b, $c) { if (-not $p.WaitForExit(120000)) { Stop-Process -Id $p.Id -Force; "probe $($p.Id) timed out" } }
+          $fail = @()
+          foreach ($n in 'a', 'b', 'c') {
+              "----- probe $n (exit $((Get-Variable $n).Value.ExitCode)) -----"
+              $text = Get-Content "probe-$n.txt" -Raw
+              $text
+              if ($text -match $code -or $text -match $other -or $text -match $other.ToLower()) { $fail += "probe $n printed a team code" }
+              if ((Get-Content "probe-$n.out" -Raw) -match $code) { $fail += "probe $n stdout has the code" }
+          }
+          foreach ($n in 'a', 'b') {
+              $text = Get-Content "probe-$n.txt" -Raw
+              if ($text -notmatch 'RESULT PASS') { $fail += "probe $n did not pass" }
+              if ($text -notmatch 'READY peer=\S+ dir=\S+ tls=TLSv1\.2 cipher=PSK-AES128-GCM-SHA256') { $fail += "probe ${n}: no TLSv1.2 PSK-AES128-GCM-SHA256 link" }
+              if ($text -notmatch 'MSG peer=\S+ kind=hello') { $fail += "probe ${n}: no hello received" }
+          }
+          if ($a.ExitCode -ne 0 -or $b.ExitCode -ne 0) { $fail += "probe exit codes a=$($a.ExitCode) b=$($b.ExitCode)" }
+          $ctext = Get-Content probe-c.txt -Raw
+          if ($c.ExitCode -ne 1 -or $ctext -notmatch 'RESULT FAIL teammates=0') { $fail += 'the wrong-code probe joined or did not end with RESULT FAIL' }
+          if ($ctext -notmatch 'messages=0 ') { $fail += 'the wrong-code probe received a message' }
+          if ($ctext -notmatch 'handshake_failures=[1-9]') { $fail += 'the wrong-code probe saw no handshake failure' }
+          if ($ctext -notmatch 'dials_per_name_max=1 ') { $fail += 'the wrong-code probe dialled a name twice inside the cooldown' }
+          $log = Get-Content (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log') -Raw
+          if ($log -match $code -or $log -match $other) { $fail += 'the app log has a team code' }
+          if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL team.twoProcesses: $_" }; exit 1 }
+          'PASS team.twoProcesses: a and b linked and joined over TLSv1.2 PSK-AES128-GCM-SHA256; c (other code) refused, no message, one dial per name; no code in any output'
       - name: Tray screenshot (informational)
         if: (success() || failure()) && steps.package.outcome == 'success'
         continue-on-error: true
@@ -267,6 +315,7 @@ jobs:
             st*.json
             st*.json.lines
             tray-desktop.png
+            probe-*.txt
             ui-dump
             collected
             build.log
