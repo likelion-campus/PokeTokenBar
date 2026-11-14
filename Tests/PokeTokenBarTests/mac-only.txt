@@ -209,3 +209,13 @@ PlazaHUDMenuRenderTests+Mac.swift
 PlazaTextRunsTests+Mac.swift
 # PlazaChatLogPanelRenderTests+Mac: the canvas-drawn chat log against the SwiftUI PlazaChatLogView (NSHostingView in an unshown window, CoreText, TextKit) through the AppKit panel host
 PlazaChatLogPanelRenderTests+Mac.swift
+# PlazaContentRig+Mac: shared helpers of the roster/board/card render tests (SwiftUI hosting views in unshown windows, NSBitmapImageRep sample pictures, URLProtocol)
+PlazaContentRig+Mac.swift
+# PlazaRosterPanelRenderTests+Mac: the canvas-drawn roster against the SwiftUI PlazaRosterView (NSHostingView in an unshown window, CoreText) through the AppKit panel host
+PlazaRosterPanelRenderTests+Mac.swift
+# PlazaBoardPanelRenderTests+Mac: the canvas-drawn board against PlazaBoardView in PlazaOverlayView (NSHostingView, NSScrollView in an unshown window, CoreText) through the AppKit panel host
+PlazaBoardPanelRenderTests+Mac.swift
+# PlazaCardPanelRenderTests+Mac: the canvas-drawn member card against PlazaCardView in PlazaOverlayView (NSHostingView, NSScrollView in an unshown window, CoreText, sample pictures in SpriteLoader's cache) through the AppKit panel host
+PlazaCardPanelRenderTests+Mac.swift
+# PlazaContentPanelsMacTests+Mac: the roster/board/card panels in the AppKit panel host (tooltips, accessibility elements, hitTest of the SwiftUI roster, real timer and CoreText costs)
+PlazaContentPanelsMacTests+Mac.swift

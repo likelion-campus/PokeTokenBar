@@ -107,6 +107,12 @@ final class PlazaStubCanvas: PlazaCanvas {
             }
         }.joined(separator: " ")
     }
+    func clip(toUnevenRoundedRect rect: CGRect, radii: PlazaCornerRadii) { record("clipUnevenRoundedRect \(Self.r(rect)) \(Self.radii(radii))") }
+    func fillUnevenRoundedRect(_ rect: CGRect, radii: PlazaCornerRadii) { record("fillUnevenRoundedRect \(Self.r(rect)) \(Self.radii(radii))") }
+    func strokeUnevenRoundedRect(_ rect: CGRect, radii: PlazaCornerRadii, lineWidth: CGFloat) {
+        record("strokeUnevenRoundedRect \(Self.r(rect)) \(Self.radii(radii)) \(Self.f(lineWidth))")
+    }
+    private static func radii(_ r: PlazaCornerRadii) -> String { "\(f(r.topLeading)),\(f(r.bottomLeading)),\(f(r.bottomTrailing)),\(f(r.topTrailing))" }
     func fillRoundedRect(_ rect: CGRect, radius: CGFloat) { record("fillRoundedRect \(Self.r(rect)) \(Self.f(radius))") }
     func strokeRoundedRect(_ rect: CGRect, radius: CGFloat, lineWidth: CGFloat) {
         record("strokeRoundedRect \(Self.r(rect)) \(Self.f(radius)) \(Self.f(lineWidth))")
