@@ -3,9 +3,9 @@ import AppKit
 @testable import PokeTokenBar
 
 private final class NoSprites: PlazaSpriteFetching, @unchecked Sendable {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// 물귀신 at the right pond (x32-38 y14-20 is water, (31,16) is its shore): a diver pulls the teammate on the shore beside it in.

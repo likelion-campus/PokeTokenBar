@@ -3,9 +3,9 @@ import AppKit
 @testable import PokeTokenBar
 
 private struct NoSprites: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 private struct OfflineLineProvider: PokeProviding {
@@ -149,10 +149,10 @@ final class PlazaItemsTests: XCTestCase {
         s.update(0)
         let input = try XCTUnwrap(s.photoInput())
         XCTAssertEqual(input.items.count, 1)
-        let withItem = try XCTUnwrap(PlazaPhotoRenderer.render(input))
+        let withItem = try XCTUnwrap(PlazaPhotoRenderer.renderCG(input))
         var bare = input
         bare.items = []
-        let without = try XCTUnwrap(PlazaPhotoRenderer.render(bare))
+        let without = try XCTUnwrap(PlazaPhotoRenderer.renderCG(bare))
         XCTAssertNotEqual(withItem.dataProvider?.data as Data?, without.dataProvider?.data as Data?)
     }
 

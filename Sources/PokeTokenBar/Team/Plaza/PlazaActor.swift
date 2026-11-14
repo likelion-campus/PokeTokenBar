@@ -417,7 +417,7 @@ struct PlazaActorContext {
         // 춤의 옆걸음은 그림자도 함께 간다(화면의 `place`와 같다).
         let dancePose = dancePose
         let foot = CGPoint(x: rawFoot.x + dancePose.offsetX, y: rawFoot.y)
-        let image = list[frameIndex % list.count].image
+        let image = list[frameIndex % list.count].image.cgImage
         var shadow: CGImage?
         var shadowRect = CGRect.zero
         if let size = shadowTextureSize {
@@ -434,9 +434,9 @@ struct PlazaActorContext {
             let height = CGFloat(image.height) * Self.characterScale - (eggSunk ? 0 : swimSink)
             if !isMeForConcealment { plateBaseY = foot.y - (height - (height - PlazaTallGrass.hiddenPlateLift) * min(1, concealment * 2)) }
         }
-        return PlazaPhotoActor(image: image, flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
-                               scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
-                               front: shadowIsNest && !eggSunk ? nestFrontImage : nil,
+        return PlazaPhotoActor(image: PlazaImage(cgImage: image), flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
+                               scale: Self.characterScale, shadow: shadow.map(PlazaImage.init(cgImage:)), shadowRect: shadowRect,
+                               front: shadowIsNest && !eggSunk ? nestFrontImage.map(PlazaImage.init(cgImage:)) : nil,
                                plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
                                bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
                                    ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
@@ -499,13 +499,13 @@ struct PlazaActorContext {
         if let text = chatText {
             if chatKey?.text != text || chatKey?.backing != backing {
                 chatKey = (text, backing)
-                guard let image = PlazaChatBubble.image(text: text, scale: backing) else { return hideEmote() }
+                guard let image = PlazaChatBubble.image(text: text, scale: backing)?.cgImage else { return hideEmote() }
                 setBubble(image, backing: backing)
             }
         } else if let kind = emoteKind {
             if emoteKey?.kind != kind || emoteKey?.backing != backing {
                 emoteKey = (kind, backing)
-                setBubble(PlazaEmoteArt.image(kind, scale: backing, large: true), backing: backing)
+                setBubble(PlazaEmoteArt.image(kind, scale: backing, large: true).cgImage, backing: backing)
             }
         } else {
             return
@@ -543,7 +543,7 @@ struct PlazaActorContext {
     }
 
     /// 배율을 적용한 그림 크기. 정확한 배율을 쓰고(반올림하면 홀수 크기에서 도트가 일그러진다) 위치만 기기 픽셀에 맞춘다.
-    private static func scaledSize(of image: CGImage) -> CGSize {
+    private static func scaledSize(of image: PlazaImage) -> CGSize {
         CGSize(width: CGFloat(image.width) * characterScale, height: CGFloat(image.height) * characterScale)
     }
 
@@ -554,7 +554,7 @@ struct PlazaActorContext {
         if let cached = textureCache[ObjectIdentifier(image)] {
             texture = cached
         } else {
-            texture = SKTexture(cgImage: image)
+            texture = SKTexture(cgImage: image.cgImage)
             texture.filteringMode = .nearest
             textureCache[ObjectIdentifier(image)] = texture
         }
@@ -595,9 +595,9 @@ struct PlazaActorContext {
         if let old = shadowTextureSize, old == size, shadowIsNest == frames.isEgg { return }
         shadowTextureSize = size
         shadowIsNest = frames.isEgg
-        let image = frames.isEgg ? PlazaNestArt.image() : PlazaGroundShadow.image(width: size.width, height: size.height).cgImage
+        let image = frames.isEgg ? PlazaNestArt.image().cgImage : PlazaGroundShadow.image(width: size.width, height: size.height).cgImage
         shadowImage = image
-        nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage() : nil
+        nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage().cgImage : nil
         nestFrontNode.isHidden = !frames.isEgg
         if let front = nestFrontImage {
             let texture = SKTexture(cgImage: front)
@@ -616,7 +616,7 @@ struct PlazaActorContext {
         if name.isEmpty { return }
         if let key = plateKey, key.nickname == name, key.title == title, key.backing == backing, key.color == nameColor { return }
         plateKey = (name, title, backing, nameColor)
-        guard let image = PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: backing) else {
+        guard let image = PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: backing)?.cgImage else {
             // The next frame un-hides the node before the key check, so nothing of the old name may remain.
             plateNode.isHidden = true
             plateNode.texture = nil

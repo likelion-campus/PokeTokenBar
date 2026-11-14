@@ -61,10 +61,8 @@ PetEventLineTests.swift
 # PlatformGlobFnmatchTests compares globMatch with the C fnmatch, which Windows does not have
 PlatformGlobFnmatchTests.swift
 PlazaBoardTests.swift
-PlazaCampfireArtTests.swift
 PlazaCampfireSceneTests.swift
 PlazaCardTests.swift
-PlazaCharacterTests.swift
 PlazaChatTests.swift
 # PlazaCollisionTests: needs PlazaScene (SpriteKit)
 PlazaCollisionTests.swift
@@ -74,13 +72,9 @@ PlazaDaylightTests.swift
 PlazaDittoControllerTests.swift
 PlazaDittoSceneTests.swift
 PlazaEmoteTests.swift
-PlazaFireworksTests.swift
 PlazaFocusTests.swift
-PlazaFootprintTests.swift
 PlazaGroupPhotoTests.swift
-PlazaIceArtTests.swift
 PlazaIceControllerTests.swift
-PlazaIceLayerTests.swift
 PlazaIceSceneTests.swift
 # PlazaInputMappingTests: maps NSEvent key events and modifier flags (AppKit)
 PlazaInputMappingTests.swift
@@ -97,12 +91,35 @@ PlazaPhotoModeSceneTests.swift
 PlazaPhotoModeTests.swift
 PlazaPhotoOverlayTests.swift
 PlazaPhotoTests.swift
-PlazaPondLayerTests.swift
+PlazaPhotoTestSupport.swift
+PlazaPhotoParityTests.swift
+# PlazaPondLayerTests+Mac: the 💧 image needs the Mac text engine (Apple Color Emoji); the Windows stub draws nothing
+PlazaPondLayerTests+Mac.swift
+# PlazaFireworksTests+Mac: the scene and window-controller firework tests (PlazaScene is SpriteKit until the stage lands)
+PlazaFireworksTests+Mac.swift
+# PlazaFootprintTests+Mac: the scene-driven footprint tests (PlazaScene is SpriteKit until the stage lands)
+PlazaFootprintTests+Mac.swift
+# PlazaIceLayerTests+Mac: the scene-driven ice tests, which also read the bundled ice art (ImageIO)
+PlazaIceLayerTests+Mac.swift
+# PlazaTallGrassLayerTests+Mac: reads the bundled tall-grass sheet (ImageIO) and checks pixels through CoreGraphics
+PlazaTallGrassLayerTests+Mac.swift
+# PlazaWeatherTests+Mac: the scene-driven weather tests and the photo pixel checks (PlazaScene, CoreGraphics)
+PlazaWeatherTests+Mac.swift
 # PlazaPondMotionTests: needs PlazaScene (SpriteKit)
 PlazaPondMotionTests.swift
 PlazaPondSceneTests.swift
 # PlazaPondTests+Mac: needs a test that builds a PlazaActor (SpriteKit)
 PlazaPondTests+Mac.swift
+# PlazaCharacterTests+Mac: builds a PlazaActor (SpriteKit)
+PlazaCharacterTests+Mac.swift
+# PlazaIceArtTests+Mac: reads the bundled ice files and builds the snow map (ImageIO)
+PlazaIceArtTests+Mac.swift
+# PlazaSnowSheetTests+Mac: reads the bundled tile and tall-grass sheets (ImageIO)
+PlazaSnowSheetTests+Mac.swift
+# PlazaTallGrassArtTests+Mac: reads the bundled tall-grass sheet (ImageIO)
+PlazaTallGrassArtTests+Mac.swift
+# PlazaTileArtTests+Mac: reads the bundled tile sheet (ImageIO)
+PlazaTileArtTests+Mac.swift
 PlazaPrayTests.swift
 PlazaPullUnderTests.swift
 PlazaResourcesTests.swift
@@ -110,18 +127,13 @@ PlazaRosterPagerTests.swift
 PlazaRosterTests.swift
 PlazaScheduleWiringTests.swift
 PlazaSnowSceneTests.swift
-PlazaSnowSheetTests.swift
 PlazaSnowballControllerTests.swift
 PlazaSnowballSceneTests.swift
 PlazaSnowballTests.swift
 PlazaStartleControllerTests.swift
 PlazaSwimLowerHalfTests.swift
 PlazaTackleWaterTests.swift
-PlazaTallGrassArtTests.swift
-PlazaTallGrassLayerTests.swift
 PlazaTallGrassSceneTests.swift
-PlazaTileArtTests.swift
-PlazaWeatherTests.swift
 PlazaWindowTests.swift
 PokeTokenBarTests.swift
 # PokemonFormTests+Mac: needs PokemonDetailView (UI)
@@ -186,3 +198,8 @@ Legacy/
 PlazaArtParityTests.swift
 # ToolLaunchArgumentScanTests: scans the source tree with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
 ToolLaunchArgumentScanTests.swift
+# PlazaArtParityPixelArtTests: legacy-versus-new byte oracles for the pixel art and character frames (CoreGraphics, ImageIO)
+PlazaArtParityPixelArtTests.swift
+PlazaTextArtParityTests.swift
+# PlazaGIFDecoderParityTests+Mac: compares against ImageIO (CGImageSource)
+PlazaGIFDecoderParityTests+Mac.swift

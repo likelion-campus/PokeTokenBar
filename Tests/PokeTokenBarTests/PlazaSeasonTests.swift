@@ -4,9 +4,9 @@ import SpriteKit
 @testable import PokeTokenBar
 
 private struct SeasonNoSprites: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 @MainActor
@@ -28,7 +28,7 @@ final class PlazaSeasonTests: XCTestCase {
     func testEachSeasonShowsItsOwnMapAndWeatherAndSummerIsTheOriginal() {
         let s = scene()
         let original = s.shownMapImage
-        var looks: [PlazaSeason: CGImage] = [:]
+        var looks: [PlazaSeason: PlazaImage] = [:]
         for season in [PlazaSeason.spring, .autumn, .winter] { looks[season] = PlazaTileArt.plainGrassImage(map) }
         var seen: [PlazaSeason] = []
         s.seasonLook = { season in looks[season].map { PlazaSnowLook(mapImage: $0, tallGrass: nil) } }
@@ -144,12 +144,8 @@ final class PlazaSeasonTests: XCTestCase {
 
     // MARK: 던지는 것
 
-    private func colours(_ image: CGImage) -> Set<UInt32> {
-        let (w, h) = (image.width, image.height)
-        var raw = [UInt8](repeating: 0, count: w * h * 4)
-        let ctx = CGContext(data: &raw, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+    private func colours(_ image: PlazaImage) -> Set<UInt32> {
+        let raw = image.pixels.bytes
         var found = Set<UInt32>()
         for i in stride(from: 0, to: raw.count, by: 4) where raw[i + 3] == 255 {
             found.insert(UInt32(raw[i]) << 16 | UInt32(raw[i + 1]) << 8 | UInt32(raw[i + 2]))
@@ -171,7 +167,7 @@ final class PlazaSeasonTests: XCTestCase {
     }
 
     func testSummerThrowsTheWaterBalloonPictureAsItIsAndOnlyInSummer() throws {
-        let balloon = try XCTUnwrap(PlazaResources.waterBalloon(), "the bundled picture loads")
+        let balloon = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.waterBalloon(), "the bundled picture loads"))
         XCTAssertEqual([balloon.width, balloon.height], [14, 18])
         let summer = PlazaSnowballArt.pieces(.summer, balloon: balloon)
         XCTAssertTrue(summer[0].image === balloon)
@@ -214,7 +210,7 @@ final class PlazaSeasonTests: XCTestCase {
     // MARK: 색
 
     func testSpringAndAutumnRecolourTheSheetAndSummerLeavesItAlone() throws {
-        let sheet = try XCTUnwrap(PlazaResources.tileSheet())
+        let sheet = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tileSheet()))
         XCTAssertTrue(PlazaSeasonSheet.tiles(sheet, season: .summer) === sheet)
         let spring = PlazaSeasonSheet.tiles(sheet, season: .spring), autumn = PlazaSeasonSheet.tiles(sheet, season: .autumn)
         XCTAssertTrue(SnowPixels.contains(spring, rgb: [0xF8BBCF, 0xFDDCE6, 0xE88DAC]), "pink trees")
@@ -235,7 +231,7 @@ final class PlazaSeasonTests: XCTestCase {
     }
 
     func testTallGrassTurnsGoldInAutumnAndStaysGreenInSpringAndSummer() throws {
-        let sheet = try XCTUnwrap(PlazaResources.tallGrassSheet())
+        let sheet = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tallGrassSheet()))
         XCTAssertTrue(PlazaSeasonSheet.tallGrass(sheet, season: .spring) === sheet)
         XCTAssertTrue(PlazaSeasonSheet.tallGrass(sheet, season: .summer) === sheet)
         let autumn = PlazaSeasonSheet.tallGrass(sheet, season: .autumn)

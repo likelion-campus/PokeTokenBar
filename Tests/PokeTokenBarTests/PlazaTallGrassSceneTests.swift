@@ -28,7 +28,7 @@ final class PlazaTallGrassSceneTests: XCTestCase {
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
         ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 48))
-        let f = [PlazaFrame(image: ctx.makeImage()!, delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)]
         var result = PlazaCharacterFrames(front: f, back: f)
         result.isEgg = egg
         return result

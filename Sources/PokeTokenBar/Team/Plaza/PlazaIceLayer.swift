@@ -1,27 +1,28 @@
-import SpriteKit
+import Foundation
 
 /// 언 연못의 얼음, 금, 파편을 그리는 노드. 풀에서 꺼내 쓰는 스프라이트이고, 시간은 장면이 넘겨 주는 `elapsed` 로만 흐른다.
-/// 타이머도 `SKAction` 도 없다. 노드는 연못 수 + 가장 큰 연못의 칸 수(금) + 6(파편)을 넘지 않는다.
-@MainActor final class PlazaIceLayer: SKNode {
+/// 타이머도 `SKAction` 도 없다. 노드는 연못 수 + 가장 큰 연못의 칸 수(금) + 6(파편)을 넘지 않는다. 노드는 공유 트리(`root`)에 있다.
+@MainActor final class PlazaIceLayer {
     static let iceZ: CGFloat = 0.02, crackZ: CGFloat = 0.025, shardZ: CGFloat = 0.045
 
+    let root = PlazaNode()
     private let ponds: [PlazaIce.Pond]
     private let art: PlazaIceArt
     private let worldHeight: CGFloat
-    private var iceImages: [CGImage] = []
-    private var iceNodes: [SKSpriteNode] = []
+    private var iceImages: [PlazaImage] = []
+    private var iceNodes: [PlazaSprite] = []
     private var iceAlphas: [CGFloat?]
-    private var crackNodes: [SKSpriteNode] = []
-    private var shardNodes: [SKSpriteNode] = []
-    private let crackTextures: [SKTexture]
-    private let shardTextures: [SKTexture]
+    private var crackNodes: [PlazaSprite] = []
+    private var shardNodes: [PlazaSprite] = []
+    private let crackTextures: [PlazaTexture]
+    private let shardTextures: [PlazaTexture]
     private let crackCap: Int
     private var shownCracks: [(tile: TilePoint, cell: Int)] = []
     private var crackAlpha: CGFloat = 0
     private(set) var shownShardCount = 0
     private var isConcealed = false
 
-    init(ponds: [PlazaIce.Pond], art: PlazaIceArt, mapImage: CGImage, worldHeight: CGFloat) {
+    init(ponds: [PlazaIce.Pond], art: PlazaIceArt, mapImage: PlazaImage, worldHeight: CGFloat) {
         self.ponds = ponds
         self.art = art
         self.worldHeight = worldHeight
@@ -29,21 +30,18 @@ import SpriteKit
         self.crackTextures = art.cracks.map(Self.texture)
         self.shardTextures = art.shards.map(Self.texture)
         self.crackCap = ponds.map(\.tiles.count).max() ?? 0
-        super.init()
         for _ in ponds {
-            let node = SKSpriteNode()
+            let node = PlazaSprite()
             node.anchorPoint = .zero
             node.zPosition = Self.iceZ
             node.isHidden = true
-            addChild(node)
+            root.addChild(node)
             iceNodes.append(node)
         }
         setMapImage(mapImage)
     }
 
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    var nodeCount: Int { children.count }
+    var nodeCount: Int { root.children.count }
     var shownCrackCount: Int { shownCracks.count }
 
     func iceAlpha(pond: Int) -> CGFloat? { iceAlphas.indices.contains(pond) ? iceAlphas[pond] : nil }
@@ -52,7 +50,7 @@ import SpriteKit
     }
 
     /// 지도 그림이 바뀌면(눈 오는 날) 연못마다 얼음 그림을 다시 만든다.
-    func setMapImage(_ image: CGImage) {
+    func setMapImage(_ image: PlazaImage) {
         iceImages = ponds.map { PlazaIceArt.overlay(mapImage: image, pond: $0, gloss: art.gloss) }
         let tile = PlazaMap.tileSize
         for (i, pond) in ponds.enumerated() {
@@ -98,7 +96,7 @@ import SpriteKit
 
     func setConcealed(_ hidden: Bool) {
         isConcealed = hidden
-        isHidden = hidden
+        root.isHidden = hidden
     }
 
     /// 보이는 얼음과 금(알파 포함). 파편은 찍지 않는다. 가려져 있으면 없다.
@@ -124,11 +122,11 @@ import SpriteKit
     private func placeCracks() {
         let tile = CGFloat(PlazaMap.tileSize)
         while crackNodes.count < min(shownCracks.count, crackCap) {
-            let node = SKSpriteNode()
+            let node = PlazaSprite()
             node.anchorPoint = .zero
             node.size = CGSize(width: tile, height: tile)
             node.zPosition = Self.crackZ
-            addChild(node)
+            root.addChild(node)
             crackNodes.append(node)
         }
         for (i, node) in crackNodes.enumerated() {
@@ -144,10 +142,10 @@ import SpriteKit
     private func placeShards(_ shards: [(tile: TilePoint, frame: Int)]) {
         let tile = CGFloat(PlazaMap.tileSize)
         while shardNodes.count < shards.count {
-            let node = SKSpriteNode()
+            let node = PlazaSprite()
             node.size = CGSize(width: 64, height: 64)
             node.zPosition = Self.shardZ
-            addChild(node)
+            root.addChild(node)
             shardNodes.append(node)
         }
         for (i, node) in shardNodes.enumerated() {
@@ -160,9 +158,7 @@ import SpriteKit
         shownShardCount = shards.count
     }
 
-    private static func texture(_ image: CGImage) -> SKTexture {
-        let t = SKTexture(cgImage: image)
-        t.filteringMode = .nearest
-        return t
+    private static func texture(_ image: PlazaImage) -> PlazaTexture {
+        PlazaTexture(image)
     }
 }

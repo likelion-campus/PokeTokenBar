@@ -1,8 +1,8 @@
-import SpriteKit
+import Foundation
 
 /// 풀숲의 앞 띠, 흔들리는 겹침 그림, 흩날리는 잎을 그리는 노드. 겹침 그림과 잎은 풀에서 꺼내 쓰는 스프라이트이고,
-/// 시간은 `update(dt:)` 로만 흐른다. 타이머는 없다.
-@MainActor final class PlazaTallGrassLayer: SKNode {
+/// 시간은 `update(dt:)` 로만 흐른다. 타이머는 없다. 노드는 공유 트리(`root`)에 있고, 장면이 그 트리를 그린다.
+@MainActor final class PlazaTallGrassLayer {
     static let maxRustles = 24, maxLeaves = 36
     private static let overlayZ: CGFloat = 0.05
     private static let leafZ: CGFloat = 2.5
@@ -18,27 +18,28 @@ import SpriteKit
         let kind: PlazaRustleKind
         let strong: Bool
         var elapsed: TimeInterval
-        let node: SKSpriteNode
+        let node: PlazaSprite
     }
     private struct Leaf {
         let start: CGPoint   // 월드 좌표(y 아래로)
         let vx: CGFloat, vy: CGFloat
         var age: TimeInterval
-        let node: SKSpriteNode
+        let node: PlazaSprite
     }
 
+    let root = PlazaNode()
     private let map: PlazaMap
     private var art: PlazaTallGrassArt
     private let worldHeight: CGFloat
-    private var bands: [TilePoint: SKSpriteNode] = [:]
+    private var bands: [TilePoint: PlazaSprite] = [:]
     private var slices: [TilePoint: PlazaTallGrassSlice] = [:]
     private var running: [Running] = []   // 시작 순서(앞이 가장 오래됨)
     private var pending: [(cue: PlazaRustleCue, wait: TimeInterval)] = []
     private var leaves: [Leaf] = []
-    private var overlayPool: [SKSpriteNode] = []
-    private var leafPool: [SKSpriteNode] = []
-    private var textureCache: [String: SKTexture] = [:]
-    private var leafTextures: [SKTexture]
+    private var overlayPool: [PlazaSprite] = []
+    private var leafPool: [PlazaSprite] = []
+    private var textureCache: [String: PlazaTexture] = [:]
+    private var leafTextures: [PlazaTexture]
     private var isConcealed = false
     private var leafSpawned = 0
 
@@ -47,7 +48,6 @@ import SpriteKit
         self.art = art
         self.worldHeight = CGFloat(map.height * PlazaMap.tileSize)
         self.leafTextures = art.leaves.map(Self.texture)
-        super.init()
         let tile = CGFloat(PlazaMap.tileSize)
         for y in 0..<map.height {
             for x in 0..<map.width {
@@ -55,17 +55,15 @@ import SpriteKit
                 guard map.tile(at: p) == .tallGrass else { continue }
                 let slice = PlazaTallGrass.slice(at: p) { map.tile(at: $0) == .tallGrass }
                 slices[p] = slice
-                let node = SKSpriteNode(texture: cachedTexture("front", slice) { art.front($0) }, size: CGSize(width: tile, height: tile))
+                let node = PlazaSprite(texture: cachedTexture("front", slice) { art.front($0) }, size: CGSize(width: tile, height: tile))
                 node.anchorPoint = .zero
                 node.position = basePosition(p)
                 node.zPosition = 1 + (CGFloat(y) * tile + 31) / worldHeight
-                addChild(node)
+                root.addChild(node)
                 bands[p] = node
             }
         }
     }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     var bandCount: Int { bands.count }
     var leafCount: Int { leaves.count }
@@ -76,7 +74,7 @@ import SpriteKit
     }
 
     /// 테스트용: 띠가 지금 쓰는 텍스처.
-    func bandTexture(at p: TilePoint) -> SKTexture? { bands[p]?.texture }
+    func bandTexture(at p: TilePoint) -> PlazaTexture? { bands[p]?.texture }
 
     /// 그림을 바꿔 끼운다(눈 오는 날). 도는 흔들림은 끝내고, 텍스처 캐시를 비우고, 모든 띠를 새 그림으로 다시 입힌다.
     func setArt(_ art: PlazaTallGrassArt) {
@@ -178,11 +176,11 @@ import SpriteKit
             running.remove(at: 0)
         }
         let node = overlayPool.popLast() ?? {
-            let n = SKSpriteNode()
+            let n = PlazaSprite()
             n.anchorPoint = .zero
             n.size = CGSize(width: PlazaMap.tileSize, height: PlazaMap.tileSize)
             n.zPosition = Self.overlayZ
-            addChild(n)
+            root.addChild(n)
             return n
         }()
         let slice = slices[cue.tile]!
@@ -212,7 +210,7 @@ import SpriteKit
         bands[r.tile]?.position = basePosition(r.tile)
     }
 
-    private func cachedTexture(_ kind: String, _ s: PlazaTallGrassSlice, _ make: (PlazaTallGrassSlice) -> CGImage) -> SKTexture {
+    private func cachedTexture(_ kind: String, _ s: PlazaTallGrassSlice, _ make: (PlazaTallGrassSlice) -> PlazaImage) -> PlazaTexture {
         let key = "\(kind)-\(s.col)-\(s.row)"
         if let t = textureCache[key] { return t }
         let t = Self.texture(make(s))
@@ -227,10 +225,10 @@ import SpriteKit
         if case .sway(let dir) = cue.kind { bias = 12 * CGFloat(dir) }
         for i in 0..<PlazaTallGrass.leavesPerRustle where leaves.count < Self.maxLeaves {
             let node = leafPool.popLast() ?? {
-                let n = SKSpriteNode()
+                let n = PlazaSprite()
                 n.size = CGSize(width: Self.leafSize, height: Self.leafSize)
                 n.zPosition = Self.leafZ
-                addChild(n)
+                root.addChild(n)
                 return n
             }()
             node.texture = leafTextures[(leafSpawned + i) % leafTextures.count]
@@ -251,14 +249,12 @@ import SpriteKit
         l.node.position = CGPoint(x: (x / g).rounded() * g, y: ((worldHeight - y) / g).rounded() * g)
     }
 
-    private func recycleLeaf(_ node: SKSpriteNode) {
+    private func recycleLeaf(_ node: PlazaSprite) {
         node.isHidden = true
         leafPool.append(node)
     }
 
-    private static func texture(_ image: CGImage) -> SKTexture {
-        let t = SKTexture(cgImage: image)
-        t.filteringMode = .nearest
-        return t
+    private static func texture(_ image: PlazaImage) -> PlazaTexture {
+        PlazaTexture(image)
     }
 }

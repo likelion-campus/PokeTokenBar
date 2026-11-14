@@ -3,9 +3,9 @@ import AppKit
 @testable import PokeTokenBar
 
 private struct NoPraySprites: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// A의 keyCode.
@@ -307,7 +307,7 @@ final class PlazaPrayTests: XCTestCase {
 
     /// The prayer bubble has its own picture, not another kind's.
     func testThePrayerBubbleHasItsOwnArt() {
-        func pixels(_ kind: TeamEmoteKind) -> Data? { PlazaEmoteArt.image(kind, scale: 1).dataProvider?.data as Data? }
+        func pixels(_ kind: TeamEmoteKind) -> Data? { PlazaEmoteArt.image(kind, scale: 1).cgImage.dataProvider?.data as Data? }
         XCTAssertNotNil(pixels(.pray))
         for other: TeamEmoteKind in [.heart, .party, .exclaim, .question] {
             XCTAssertNotEqual(pixels(.pray), pixels(other), "\(other)")

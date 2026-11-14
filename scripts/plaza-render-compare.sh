@@ -57,14 +57,15 @@ if [ -d "$SPRITES" ]; then export PTB_PLAZA_RENDER_SPRITES="$SPRITES"; else unse
 SWIFT_BUILD_FLAGS=(--build-tests)
 SWIFT_TEST_FLAGS=(--skip-build)
 if [ "$RELEASE" = 1 ]; then
-  SWIFT_BUILD_FLAGS=(-c release --build-tests -Xswiftc -enable-testing)
-  SWIFT_TEST_FLAGS=(-c release --skip-build)
+  # Its own build directory, so no release test bundle is left in .build (test-gate.sh's coverage step reads .build).
+  SWIFT_BUILD_FLAGS=(-c release --build-tests -Xswiftc -enable-testing --build-path .build-release)
+  SWIFT_TEST_FLAGS=(-c release --skip-build --build-path .build-release)
 fi
 
 wait_idle() {
   # One swift build/test at a time on this Mac, shared with other sessions: wait, never start on top.
   local waited=0
-  while pgrep -lf 'swift-build|swift-test|swift-frontend|xctest' >/dev/null; do
+  while pgrep -x swift-build >/dev/null || pgrep -x swift-test >/dev/null || pgrep -x xctest >/dev/null; do
     [ $waited -eq 0 ] && echo "waiting for another swift build/test to finish..."
     sleep 10; waited=$((waited + 10))
     if [ $waited -gt 3600 ]; then echo "gave up waiting for an idle machine" >&2; exit 2; fi

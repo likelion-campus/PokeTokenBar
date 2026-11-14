@@ -1,8 +1,8 @@
-import SpriteKit
+import Foundation
 
 /// 연못의 물보라 방울, 물결 고리, 거품을 그리는 노드. 모두 풀에서 꺼내 쓰는 스프라이트이고,
-/// 시간은 `update(dt:)` 로만 흐른다. 타이머는 없다.
-@MainActor final class PlazaPondLayer: SKNode {
+/// 시간은 `update(dt:)` 로만 흐른다. 타이머는 없다. 노드는 공유 트리(`root`)에 있고, 장면이 그 트리를 그린다.
+@MainActor final class PlazaPondLayer {
     static let maxDroplets = 48, maxRings = 12, maxBubbles = 24, maxPending = 32
     static let secondRingDelay: TimeInterval = 0.12
     private static let dropletLife: TimeInterval = 0.5, ringLife: TimeInterval = 0.6, bubbleLife: TimeInterval = 0.6
@@ -24,7 +24,7 @@ import SpriteKit
         var height: CGFloat = 0   // 방울: 가장 높이 오르는 높이
         var toRadius = 0   // 고리: 끝 반지름(시트 픽셀)
         var age: TimeInterval
-        let node: SKSpriteNode
+        let node: PlazaSprite
     }
     /// 대기열에는 큰 물보라의 두 번째 고리만 들어간다.
     private struct Pending {
@@ -38,21 +38,19 @@ import SpriteKit
     private var rings: [Particle] = []
     private var bubbles: [Particle] = []
     private var pending: [Pending] = []
-    private var dropletPool: [SKSpriteNode] = []
-    private var ringPool: [SKSpriteNode] = []
-    private var bubblePool: [SKSpriteNode] = []
-    private var ringTextures: [Int: SKTexture] = [:]   // 반지름(시트 픽셀)마다 하나
-    private let dropletTexture = PlazaPondLayer.texture(PlazaPondArt.droplet().cgImage)
-    private let bubbleTexture = PlazaPondLayer.texture(PlazaPondArt.bubble().cgImage)
+    private var dropletPool: [PlazaSprite] = []
+    private var ringPool: [PlazaSprite] = []
+    private var bubblePool: [PlazaSprite] = []
+    private var ringTextures: [Int: PlazaTexture] = [:]   // 반지름(시트 픽셀)마다 하나
+    let root = PlazaNode()
+    private let dropletTexture = PlazaTexture(PlazaPondArt.droplet())
+    private let bubbleTexture = PlazaTexture(PlazaPondArt.bubble())
     private var isConcealed = false
     private var bubbleSerial = 0
 
     init(map: PlazaMap = PlazaMapData.map) {
         worldHeight = CGFloat(map.height * PlazaMap.tileSize)
-        super.init()
     }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     var dropletCount: Int { droplets.count }
     var ringCount: Int { rings.count }
@@ -140,16 +138,16 @@ import SpriteKit
         placeRing(r)
     }
 
-    private func makeNode(z: CGFloat, size: CGFloat) -> SKSpriteNode {
-        let n = SKSpriteNode()
+    private func makeNode(z: CGFloat, size: CGFloat) -> PlazaSprite {
+        let n = PlazaSprite()
         n.size = CGSize(width: size * Self.scale, height: size * Self.scale)
         n.zPosition = z
-        addChild(n)
+        root.addChild(n)
         return n
     }
 
     private func advance(_ list: [Particle], life: TimeInterval, dt: TimeInterval, place: (Particle) -> Void,
-                         recycle done: (SKSpriteNode) -> Void) -> [Particle] {
+                         recycle done: (PlazaSprite) -> Void) -> [Particle] {
         var alive: [Particle] = []
         for var p in list {
             p.age += dt
@@ -158,7 +156,7 @@ import SpriteKit
         return alive
     }
 
-    private func recycle(_ node: SKSpriteNode, into pool: inout [SKSpriteNode]) {
+    private func recycle(_ node: PlazaSprite, into pool: inout [PlazaSprite]) {
         node.isHidden = true
         pool.append(node)
     }
@@ -174,12 +172,12 @@ import SpriteKit
         let span = r.toRadius - Self.ringFromRadius
         let radius = Self.ringFromRadius + Int((CGFloat(span) * k).rounded())
         let texture = ringTextures[radius] ?? {
-            let t = Self.texture(PlazaPondArt.ring(radius: radius).cgImage)
+            let t = PlazaTexture(PlazaPondArt.ring(radius: radius))
             ringTextures[radius] = t
             return t
         }()
         r.node.texture = texture
-        r.node.size = CGSize(width: texture.size().width * Self.scale, height: texture.size().height * Self.scale)
+        r.node.size = CGSize(width: texture.pixelSize.width * Self.scale, height: texture.pixelSize.height * Self.scale)
         r.node.alpha = 1 - k
         r.node.position = snap(r.start)
     }
@@ -188,11 +186,5 @@ import SpriteKit
         let k = CGFloat(b.age / Self.bubbleLife)
         b.node.alpha = 1 - k
         b.node.position = snap(CGPoint(x: b.start.x, y: b.start.y + Self.bubbleRise * k))
-    }
-
-    private static func texture(_ image: CGImage) -> SKTexture {
-        let t = SKTexture(cgImage: image)
-        t.filteringMode = .nearest
-        return t
     }
 }

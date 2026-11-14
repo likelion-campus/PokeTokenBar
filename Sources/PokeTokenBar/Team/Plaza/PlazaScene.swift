@@ -116,9 +116,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
     var backingOverride: CGFloat?
 
-    private(set) var mapImage: CGImage
+    private(set) var mapImage: PlazaImage
     /// 처음 받은 지도 그림과 풀숲 그림(눈 오는 날이 아닌 모습).
-    private let normalMapImage: CGImage
+    private let normalMapImage: PlazaImage
     private let normalTallGrass: PlazaTallGrassArt?
     /// 멈추면 모든 춤을 끝낸다. 멈춘 동안 시계만 흘러 되살아난 춤이 박자 격자에서 어긋나기 때문이다.
     /// 그리기 감시가 멈춘 그림을 깨우려고 뷰를 껐다 켜도(`checkRendering`) 장면이 멈췄다 풀리므로 춤이 끝난다. 의도한 동작이다.
@@ -139,9 +139,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var shutterNode: SKSpriteNode?
     private let cameraNode = SKCameraNode()
     /// 계절 날씨 입자. 캐릭터(z 1~2) 위, 낮밤 곱하기(5)와 이름표(10) 아래.
-    private let weatherLayer = PlazaWeatherLayer()
+    let weatherLayer = PlazaWeatherLayer()
     /// 불꽃. 빛이라 낮밤 곱하기(5)와 모닥불빛(6) 위, 이름표(10) 아래.
-    private let fireworkLayer = PlazaFireworkLayer()
+    let fireworkLayer = PlazaFireworkLayer()
     /// 지금 지도에서 아이템이 놓일 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
     private lazy var itemOpenTiles: Set<TilePoint> = PlazaItems.openTiles(in: map)
     /// 누군가 주운 아이템 칸. 창 컨트롤러가 채운다.
@@ -260,8 +260,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
     }
     private var myPrintWatch = PrintWatch()
-    private let footprintLayer: PlazaFootprintLayer
-    private let snowballLayer: PlazaSnowballLayer
+    let footprintLayer: PlazaFootprintLayer
+    let snowballLayer: PlazaSnowballLayer
     var snowballFlightCount: Int { snowballLayer.flightCount }
     var snowballBallSizes: [CGSize] { snowballLayer.ballSizes }
     var snowballNodeCount: Int { snowballLayer.nodeCount }
@@ -326,7 +326,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var myDive = DiveFade()
     private let pondVisuals: Bool
     private(set) var pondLayer: PlazaPondLayer?
-    private var iceLayer: PlazaIceLayer?
+    private(set) var iceLayer: PlazaIceLayer?
     /// 내가 잠수 중이다. 물속에서만 켜진다.
     private(set) var isDiving = false
     private var diveElapsed: TimeInterval = 0
@@ -391,7 +391,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private(set) var campfireTimerText: String?
     private var campfireTimerDrawn: (text: String, backing: CGFloat)?
 
-    init(map: PlazaMap, mapImage: CGImage, start: TilePoint, zoom: Int, nickname: String, tallGrass: PlazaTallGrassArt? = nil,
+    init(map: PlazaMap, mapImage: PlazaImage, start: TilePoint, zoom: Int, nickname: String, tallGrass: PlazaTallGrassArt? = nil,
          pondVisuals: Bool = false, iceArt: PlazaIceArt? = nil) {
         self.map = map
         self.icePonds = iceArt == nil ? [] : PlazaIce.ponds(in: map)
@@ -414,7 +414,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.normalTallGrass = tallGrass
         self.visibleRect = CGRect(origin: .zero, size: map.pixelSize)
         self.zoom = PlazaCamera.clampedZoom(zoom)
-        let texture = SKTexture(cgImage: mapImage)
+        let texture = SKTexture(cgImage: mapImage.cgImage)
         texture.filteringMode = .nearest
         self.mapNode = SKSpriteNode(texture: texture, size: map.pixelSize)
         self.campfireNode = Self.makeCampfireNode(map: map)
@@ -429,18 +429,18 @@ struct PlazaSceneMember: Equatable, Sendable {
         addChild(mapNode)
         if let tallGrass {
             let layer = PlazaTallGrassLayer(map: map, art: tallGrass)
-            addChild(layer)
+            layer.root.mountInSpriteKit(self)
             tallGrassLayer = layer
         }
 
         if pondVisuals {
             let layer = PlazaPondLayer(map: map)
-            addChild(layer)
+            layer.root.mountInSpriteKit(self)
             pondLayer = layer
         }
         if let iceArt {
             let layer = PlazaIceLayer(ponds: icePonds, art: iceArt, mapImage: mapImage, worldHeight: map.pixelSize.height)
-            addChild(layer)
+            layer.root.mountInSpriteKit(self)
             iceLayer = layer
             drawIce()
         }
@@ -451,12 +451,12 @@ struct PlazaSceneMember: Equatable, Sendable {
         campfireLightNode.zPosition = 6
         campfireLightNode.isHidden = true
         if campfireNode != nil { addChild(campfireLightNode) }
-        weatherLayer.zPosition = 3
-        addChild(weatherLayer)
-        fireworkLayer.zPosition = 7
-        addChild(fireworkLayer)
-        addChild(footprintLayer)
-        addChild(snowballLayer)
+        weatherLayer.root.zPosition = 3
+        weatherLayer.root.mountInSpriteKit(self)
+        fireworkLayer.root.zPosition = 7
+        fireworkLayer.root.mountInSpriteKit(self)
+        footprintLayer.root.mountInSpriteKit(self)
+        snowballLayer.root.mountInSpriteKit(self)
         addChild(cameraNode)
         me.attach(world: self, camera: cameraNode)
         camera = cameraNode
@@ -529,7 +529,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         tallGrassLayer?.setHidden(hidden)
         pondLayer?.setHidden(hidden)
         iceLayer?.setConcealed(hidden)
-        footprintLayer.isHidden = hidden
+        footprintLayer.root.isHidden = hidden
         if hidden { footprintLayer.removeAll() }
         layout()   // 풀숲 가림을 바로 풀어 곧바로 찍는 사진도 숨은 팀원을 그리게 한다
         backgroundColor = hidden ? .clear : Self.forestColor
@@ -686,7 +686,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func playDittoPoof() {
         guard !isPaused, let r = remotes[PlazaDitto.sceneKey] else { return }
         let foot = r.motion.footPoint
-        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
+        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2).cgImage)
         texture.filteringMode = .nearest
         let count = 5
         for i in 0..<count {
@@ -1332,7 +1332,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func setBoardMarker(visible: Bool) {
         if boardMarker == nil {
             guard visible else { return }
-            let image = PlazaEmoteArt.image(.exclaim, scale: 2)
+            let image = PlazaEmoteArt.image(.exclaim, scale: 2).cgImage
             let texture = SKTexture(cgImage: image)
             texture.filteringMode = .nearest
             let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.size)
@@ -1358,7 +1358,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let originY = memberID != nil && actor.concealment > 0.5 ? worldSize.height - foot.y + PlazaTallGrass.hiddenPlateLift
             : worldSize.height - foot.y + max(actor.characterSize.height, 24) * 0.6
         let origin = CGPoint(x: foot.x.rounded(), y: originY.rounded())
-        let image = PlazaEmoteArt.sparkImage(scale: 2)
+        let image = PlazaEmoteArt.sparkImage(scale: 2).cgImage
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         for velocity in Self.sparkleVelocities {
@@ -1399,7 +1399,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     /// 테스트용
-    var fireworkZ: CGFloat { fireworkLayer.zPosition }
+    var fireworkZ: CGFloat { fireworkLayer.root.zPosition }
     var fireworkPieceCount: Int { fireworkLayer.shownCount }
     var fireworkLightCount: Int { fireworkLayer.shownLightCount }
     var fireworkPositions: [CGPoint] { fireworkLayer.shownPositions }
@@ -1425,7 +1425,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         let center = CGPoint(x: (foot.x + back.x).rounded(),
                              y: (worldSize.height - foot.y + back.y + max(hit.characterSize.height, 24) * 0.55).rounded())
-        let texture = SKTexture(cgImage: PlazaEmoteArt.impactImage(scale: 2))
+        let texture = SKTexture(cgImage: PlazaEmoteArt.impactImage(scale: 2).cgImage)
         texture.filteringMode = .nearest
         let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.impactSize)
         node.position = center
@@ -1630,7 +1630,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let tile = memberID.flatMap { remotes[$0]?.motion.tile } ?? walker.currentStep?.from ?? walker.tile
         if isWaterNow(tile) { return }   // 물 위에는 먼지가 일지 않는다
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
-        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
+        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2).cgImage)
         texture.filteringMode = .nearest
         for side in [-1.0, 1.0] {
             let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.dustSize)
@@ -1917,7 +1917,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         defer { onItemChange?(spawn) }
         guard let spawn else { return }
         // 가장 큰 배율(배율 4 × 화면 2)로 그려 두면 어느 배율에서도 정수배로 줄어든다.
-        let texture = SKTexture(cgImage: PlazaEmoteArt.itemImage(spawn.kind, scale: 8))
+        let texture = SKTexture(cgImage: PlazaEmoteArt.itemImage(spawn.kind, scale: 8).cgImage)
         texture.filteringMode = .nearest
         let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.itemSize(spawn.kind))
         node.anchorPoint = CGPoint(x: 0.5, y: 0)
@@ -1967,9 +1967,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     private(set) var shownSeason = PlazaSeason.summer
     var isSnowShown: Bool { shownSeason == .winter }
     /// 테스트용: 지금 그리는 지도 그림.
-    var shownMapImage: CGImage { mapImage }
+    var shownMapImage: PlazaImage { mapImage }
 
-    private static let waterBalloon = PlazaResources.waterBalloon()
+    private static let waterBalloon = PlazaResources.waterBalloon().map(PlazaImage.init(cgImage:))
 
     /// 계절과 보이는 모습을 맞춘다. `update`(달력을 따르는 계절은 날이 바뀌며 바뀐다)와 계절 변경, 컨트롤러가 부른다.
     func refreshSnowDay() {
@@ -1981,7 +1981,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             image = look.mapImage
             grass = look.tallGrass ?? normalTallGrass
         }
-        let texture = SKTexture(cgImage: image)
+        let texture = SKTexture(cgImage: image.cgImage)
         texture.filteringMode = .nearest
         mapNode.texture = texture
         mapImage = image
@@ -2180,7 +2180,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func campfireTexture(_ state: PlazaCampfireArt.State, _ index: Int) -> SKTexture {
         if campfireTextures[state] == nil {
             campfireTextures[state] = PlazaCampfireArt.frames(state).map {
-                let texture = SKTexture(cgImage: $0)
+                let texture = SKTexture(cgImage: $0.cgImage)
                 texture.filteringMode = .nearest
                 return texture
             }
@@ -2247,29 +2247,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         campfireLightNode.position = CGPoint(x: center.x, y: worldSize.height - center.y)
     }
 
-    /// 2 세계 px당 텍셀 하나. 값은 `multiplier / 2`(곱하기X2가 두 배로 되돌린다). 타원 밖은 (0.5, 0.5, 0.5)라 그대로다.
-    /// `color`와 `level`은 빛의 색과 세기로, 불꽃이 제 값을 넘긴다.
+    /// 밤빛 텍스처. 그림은 `PlazaCampfireLightArt`가 만든다.
     static func lightTexture(tint: PlazaDaylight.Tint, radii: CGSize, color: (r: Double, g: Double, b: Double) = PlazaCampfireLight.warm,
                              level: Double = 1) -> SKTexture {
-        let n = PlazaCampfireLight.blockCounts(radii: radii)
-        var rings: [Double: [UInt8]] = [:]
-        var data = [UInt8](repeating: 255, count: n.w * n.h * 4)
-        for j in 0..<n.h {
-            for i in 0..<n.w {
-                let k = PlazaCampfireLight.blockMix(i: i, j: j, radii: radii)
-                if rings[k] == nil {
-                    let m = PlazaCampfireLight.multiplier(tint: tint, mix: k * level, color: color)
-                    rings[k] = [m.r, m.g, m.b].map { UInt8(min(255, max(0, ($0 / 2 * 255).rounded()))) }
-                }
-                let o = (j * n.w + i) * 4
-                data[o] = rings[k]![0]; data[o + 1] = rings[k]![1]; data[o + 2] = rings[k]![2]
-            }
-        }
-        let image = CGImage(width: n.w, height: n.h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n.w * 4,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
-                            provider: CGDataProvider(data: Data(data) as CFData)!, decode: nil, shouldInterpolate: false,
-                            intent: .defaultIntent)!
+        let image = PlazaCampfireLightArt.image(tint: tint, radii: radii, color: color, level: level).cgImage
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         return texture
@@ -2286,7 +2267,7 @@ struct PlazaSceneMember: Equatable, Sendable {
               let base = Self.campfireBase(map) else { campfireTimerNode?.isHidden = true; return }
         let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
         if campfireTimerDrawn?.text != text || campfireTimerDrawn?.backing != backing {
-            guard let image = PlazaNamePlate.image(text: text, color: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), scale: backing) else {
+            guard let image = PlazaNamePlate.image(text: text, color: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), scale: backing)?.cgImage else {
                 campfireTimerNode?.isHidden = true
                 return
             }

@@ -4,9 +4,9 @@ import SpriteKit
 @testable import PokeTokenBar
 
 private struct SnowEmptyFetcher: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 @MainActor
@@ -28,7 +28,7 @@ final class PlazaSnowSceneTests: XCTestCase {
         var now: Date
         var asked = 0
         var seen: [Bool] = []
-        let plain: CGImage, snow: CGImage
+        let plain: PlazaImage, snow: PlazaImage
         let scene: PlazaScene
         init(map: PlazaMap, now: Date, tallGrass: PlazaTallGrassArt? = nil, snowTallGrass: PlazaTallGrassArt? = nil, hasSnow: Bool = true) {
             self.now = now
@@ -50,7 +50,7 @@ final class PlazaSnowSceneTests: XCTestCase {
         let e = Env(map: map, now: date(5, 23, 59, 59))
         e.scene.refreshSnowDay()
         XCTAssertTrue(e.scene.shownMapImage === e.snow)
-        XCTAssertTrue(try XCTUnwrap(e.scene.photoInput()).mapImage === e.snow)
+        XCTAssertTrue(try XCTUnwrap(e.scene.photoInput()).mapImage.cgImage === e.snow.cgImage)
         e.now = date(6, 0, 0, 0)
         e.scene.update(1)
         e.now = date(7, 0, 0, 0)
@@ -63,11 +63,11 @@ final class PlazaSnowSceneTests: XCTestCase {
     func testTheTallGrassTurnsSnowyWithTheMap() throws {
         let normal = try XCTUnwrap(PlazaTallGrassArt.load())
         let sheet = try XCTUnwrap(PlazaResources.tallGrassSheet())
-        let snowy = try XCTUnwrap(PlazaTallGrassArt(sheet: PlazaSnowSheet.tallGrass(sheet)))
+        let snowy = try XCTUnwrap(PlazaTallGrassArt(sheet: PlazaSnowSheet.tallGrass(PlazaImage(cgImage: sheet))))
         let e = Env(map: map, now: date(5, 12, 0, 0), tallGrass: normal, snowTallGrass: snowy)
         let layer = try XCTUnwrap(e.scene.tallGrassLayer)
         let whole = CGRect(origin: .zero, size: map.pixelSize)
-        func hasGreen() -> Bool { layer.photoBands(in: whole).contains { SnowPixels.contains($0.image, rgb: greens) } }
+        func hasGreen() -> Bool { layer.photoBands(in: whole).contains { SnowPixels.contains($0.image.cgImage, rgb: greens) } }
         e.scene.update(1)
         XCTAssertFalse(hasGreen())
     }
