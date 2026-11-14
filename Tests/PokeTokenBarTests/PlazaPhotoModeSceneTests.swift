@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 @MainActor
@@ -36,7 +35,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         PlazaPhotoFrame.layout(center: c, viewport: size, zoom: zoom, backingScale: 2, world: map.pixelSize)
     }
 
-    func testEnteringKeepsTheViewAndFramesIt() throws {
+    func testEnteringKeepsTheViewAndFramesIt() async throws {
         let scene = newScene()
         var reports: [Bool] = []
         scene.onPhotoModeChange = { reports.append($0) }
@@ -54,7 +53,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(reports, [true])
     }
 
-    func testEnteringDoesNotMoveTheViewAtOtherZoomsToo() throws {
+    func testEnteringDoesNotMoveTheViewAtOtherZoomsToo() async throws {
         for z in [1, 3] {
             let scene = newScene()
             scene.zoom = z
@@ -67,7 +66,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         }
     }
 
-    func testATapPendingAtEntryNeverMovesMe() throws {
+    func testATapPendingAtEntryNeverMovesMe() async throws {
         let scene = newScene()
         _ = down(scene, 126)           // 위로 한 칸 출발
         run(scene, seconds: 0.05)      // 한 칸(0.15초) 도중
@@ -81,7 +80,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertFalse(scene.walker.isWalking)
     }
 
-    func testZoomingOutAndBackKeepsAFramePannedToTheCorner() throws {
+    func testZoomingOutAndBackKeepsAFramePannedToTheCorner() async throws {
         let scene = newScene()
         scene.enterPhotoMode()
         _ = down(scene, 123)
@@ -98,7 +97,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(scene.photoFrame, corner)
     }
 
-    func testArrowsSlideTheFrameNotMe() throws {
+    func testArrowsSlideTheFrameNotMe() async throws {
         let scene = newScene()
         scene.enterPhotoMode()
         let tile = scene.walker.tile
@@ -119,7 +118,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(scene.photoCenter).y - y0, 256, accuracy: 1)
     }
 
-    func testCommandArrivingAfterTheArrowDropsThePan() throws {
+    func testCommandArrivingAfterTheArrowDropsThePan() async throws {
         let scene = newScene()
         scene.enterPhotoMode()
         let c0 = try XCTUnwrap(scene.photoCenter)
@@ -131,7 +130,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(c1.y, c0.y, accuracy: 0.01)
     }
 
-    func testUpArrowPansTheFrameUp() throws {
+    func testUpArrowPansTheFrameUp() async throws {
         let scene = newScene()
         scene.enterPhotoMode()
         let y0 = try XCTUnwrap(scene.photoCenter).y
@@ -140,7 +139,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(scene.photoCenter).y - y0, -128, accuracy: 1)
     }
 
-    func testShiftLeftPansTheFrameFastLeft() throws {
+    func testShiftLeftPansTheFrameFastLeft() async throws {
         let scene = newScene()
         scene.enterPhotoMode()
         scene.currentModifiers = { .shift }
@@ -150,7 +149,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(scene.photoCenter).x - x0, -256, accuracy: 1)
     }
 
-    func testArrowsInPhotoModeNeverCallOnWalkKey() {
+    func testArrowsInPhotoModeNeverCallOnWalkKey() async {
         let scene = newScene()
         var walks = 0
         scene.onWalkKey = { walks += 1 }
@@ -163,7 +162,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(walks, 1)
     }
 
-    func testHoldingAtTheEdgeDoesNotPileUp() throws {
+    func testHoldingAtTheEdgeDoesNotPileUp() async throws {
         let scene = newScene()
         scene.enterPhotoMode()
         _ = down(scene, 123)
@@ -175,7 +174,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(scene.photoFrame).minX, 128, accuracy: 1)
     }
 
-    func testCommandArrowAndReleaseAllStopThePan() throws {
+    func testCommandArrowAndReleaseAllStopThePan() async throws {
         let scene = newScene()
         scene.enterPhotoMode()
         let c0 = try XCTUnwrap(scene.photoCenter)
@@ -192,7 +191,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(scene.photoCenter, c0)
     }
 
-    func testZoomKeepsTheCentreAndIsNotReported() throws {
+    func testZoomKeepsTheCentreAndIsNotReported() async throws {
         let scene = newScene()
         var zooms: [Int] = []
         scene.onZoomChange = { zooms.append($0) }
@@ -210,7 +209,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(zooms, [2])
     }
 
-    func testPhotoInputTakesTheFrame() throws {
+    func testPhotoInputTakesTheFrame() async throws {
         let scene = newScene()
         scene.enterPhotoMode()
         let input = try XCTUnwrap(scene.photoInput())
@@ -220,7 +219,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(input.visibleRect.height * 4, 1144)
     }
 
-    func testKeysInPhotoMode() {
+    func testKeysInPhotoMode() async {
         let scene = newScene()
         var c = (photo: 0, interact: 0, chat: 0, tackle: 0, group: 0, jump: 0, greet: 0, firework: 0, emote: 0, close: 0)
         scene.onPhotoKey = { c.photo += 1 }
@@ -251,7 +250,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
         XCTAssertEqual(c.close, 1)
     }
 
-    func testLeavingPutsTheCameraBackOnMe() {
+    func testLeavingPutsTheCameraBackOnMe() async {
         let scene = newScene()
         let before = scene.visibleWorldRect
         scene.enterPhotoMode()

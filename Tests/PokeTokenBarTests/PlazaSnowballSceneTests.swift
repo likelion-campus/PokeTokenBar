@@ -1,6 +1,4 @@
 import XCTest
-import AppKit
-import CoreGraphics
 @testable import PokeTokenBar
 
 /// Snowballs in the scene: the pooled flight layer, the burst, the landing callback and the V key.
@@ -18,11 +16,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
     }
 
     private func frames() -> PlazaCharacterFrames {
-        let ctx = CGContext(data: nil, width: 32, height: 48, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
-        ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 48))
-        let f = [PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(bitmap: PlazaTestImages.solid(width: 32, height: 48, PlazaRGBA(r: 255, g: 0, b: 0, a: 255))), delay: 0.1)]
         return PlazaCharacterFrames(front: f, back: f)
     }
 
@@ -50,7 +44,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         PlazaSnowballShot(from: p(10, 12), direction: .right, end: .actor(id: nil, tile: p(14, 12)))
     }
 
-    func testABallFliesATileATenthAndLandsOnce() {
+    func testABallFliesATileATenthAndLandsOnce() async {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])
         s.update(0)
@@ -69,7 +63,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(landed, 1)
     }
 
-    func testABallAtAMemberWhoLeftStillFliesAndLandsOnce() {
+    func testABallAtAMemberWhoLeftStillFliesAndLandsOnce() async {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])
         s.update(0)
@@ -81,7 +75,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.snowballFlightCount, 0)
     }
 
-    func testAHitShowsTheImpactStarAndTheThrowerLunges() {
+    func testAHitShowsTheImpactStarAndTheThrowerLunges() async {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])
         s.update(0)
@@ -92,7 +86,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.impactsShown, 1)
     }
 
-    func testAMissInTheWaterSplashesInsteadOfBursting() {
+    func testAMissInTheWaterSplashesInsteadOfBursting() async {
         let s = scene(start: p(19, 14))
         addAll(s, [member("w", p(15, 14))])
         s.update(0)
@@ -104,7 +98,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: "w"), false)
     }
 
-    func testAPausedSceneDrawsNothingAndLandsAtOnce() {
+    func testAPausedSceneDrawsNothingAndLandsAtOnce() async {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])
         s.update(0)
@@ -118,7 +112,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.children.count, before)
     }
 
-    func testABallLandingWhereItsTargetNoLongerStandsShowsNoStar() {
+    func testABallLandingWhereItsTargetNoLongerStandsShowsNoStar() async {
         let s = scene(start: p(14, 13))   // I stand beside the aimed tile (14,12)
         addAll(s, [member("a", p(10, 12))])
         s.update(0)
@@ -127,7 +121,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.impactsShown, 0)
     }
 
-    func testPausingMidFlightLandsEveryBallAtOnce() {
+    func testPausingMidFlightLandsEveryBallAtOnce() async {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])
         s.update(0)
@@ -141,7 +135,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.snowballSpriteCount, 0)
     }
 
-    func testFlightsBeyondTheCapLandAtOnce() {
+    func testFlightsBeyondTheCapLandAtOnce() async {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])
         s.update(0)
@@ -152,7 +146,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(s.impactsShown, 0, "a refused flight lands at once without an impact node")
     }
 
-    func testNodesAreReused() {
+    func testNodesAreReused() async {
         let s = scene()
         addAll(s, [member("a", p(10, 12))])
         var t = 0.0
@@ -165,7 +159,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertLessThanOrEqual(s.snowballNodeCount, 8)
     }
 
-    func testVIsTheSnowballKeyOutsidePhotoModeAndOverlays() {
+    func testVIsTheSnowballKeyOutsidePhotoModeAndOverlays() async {
         let s = scene()
         var fired = 0
         s.onSnowballKey = { fired += 1 }
@@ -183,7 +177,7 @@ final class PlazaSnowballSceneTests: XCTestCase {
         XCTAssertEqual(fired, 1)
     }
 
-    func testSnowballTargetsSkipDivers() {
+    func testSnowballTargetsSkipDivers() async {
         let s = scene()
         addAll(s, [member("d", p(13, 14), diving: true), member("s", p(12, 14))])
         s.update(0)

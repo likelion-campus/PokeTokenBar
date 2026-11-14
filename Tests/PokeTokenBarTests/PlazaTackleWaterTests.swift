@@ -1,5 +1,4 @@
 import XCTest
-import CoreGraphics
 @testable import PokeTokenBar
 
 /// Pushes at the right pond (x32-38 y14-20 is water): into it, inside it, and out of it. Bushes block (24,15) and (24,16).
@@ -17,11 +16,7 @@ final class PlazaTackleWaterTests: XCTestCase {
     }
 
     private func frames() -> PlazaCharacterFrames {
-        let ctx = CGContext(data: nil, width: 32, height: 48, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
-        ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 48))
-        let f = [PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(bitmap: PlazaTestImages.solid(width: 32, height: 48, PlazaRGBA(r: 255, g: 0, b: 0, a: 255))), delay: 0.1)]
         return PlazaCharacterFrames(front: f, back: f)
     }
 
@@ -47,7 +42,7 @@ final class PlazaTackleWaterTests: XCTestCase {
         return t
     }
 
-    func testPushFromLandEndsOnTheFirstWaterTileWithABigSplash() {
+    func testPushFromLandEndsOnTheFirstWaterTileWithABigSplash() async {
         let s = scene(start: p(30, 16))
         s.myEvolutionStage = 3
         addAll(s, [member("near", p(31, 14)), member("far", p(27, 16))])   // 3 and 5 tiles from (32,16)
@@ -63,7 +58,7 @@ final class PlazaTackleWaterTests: XCTestCase {
         XCTAssertEqual(s.isWet(memberID: nil), false, "the faller stays dry")
     }
 
-    func testPushedSwimmerMovesThroughTheWater() {
+    func testPushedSwimmerMovesThroughTheWater() async {
         let s = scene(start: p(33, 16))
         run(s, 0.1)
         s.pushMe(.right, tiles: 2)
@@ -72,7 +67,7 @@ final class PlazaTackleWaterTests: XCTestCase {
         XCTAssertTrue(s.isMeInWater)
     }
 
-    func testPushedSwimmerLeavesOntoLandAndStopsBeforeABush() {
+    func testPushedSwimmerLeavesOntoLandAndStopsBeforeABush() async {
         let s = scene(start: p(33, 16))
         run(s, 0.1)
         s.pushMe(.left, tiles: 20)
@@ -86,7 +81,7 @@ final class PlazaTackleWaterTests: XCTestCase {
         XCTAssertEqual(short.walker.tile, p(30, 16), "out of the water and on for what remained")
     }
 
-    func testPushIntoTheWaterWhileHidden() {
+    func testPushIntoTheWaterWhileHidden() async {
         let s = scene(start: p(30, 16))
         run(s, 0.1)
         s.isPaused = true
@@ -103,7 +98,7 @@ final class PlazaTackleWaterTests: XCTestCase {
         XCTAssertEqual(swimmer.walker.tile, p(36, 16), "swim steps are slower than the time a land push would allow")
     }
 
-    func testADiverIsNotPushed() {
+    func testADiverIsNotPushed() async {
         let s = scene(start: p(33, 16))
         run(s, 0.1)
         s.setDiving(true)
@@ -113,7 +108,7 @@ final class PlazaTackleWaterTests: XCTestCase {
         XCTAssertEqual(s.walker.tile, p(33, 16))
     }
 
-    func testAnEggPushedIntoTheWaterClimbsOutByItself() {
+    func testAnEggPushedIntoTheWaterClimbsOutByItself() async {
         let s = scene(start: p(30, 16))
         s.canWalk = false
         var t = run(s, 0.1)
@@ -124,7 +119,7 @@ final class PlazaTackleWaterTests: XCTestCase {
         XCTAssertEqual(s.walker.tile, p(31, 16), "back on the nearest shore")
     }
 
-    func testATeammatePushedIntoTheWaterSplashesOnMyScreen() throws {
+    func testATeammatePushedIntoTheWaterSplashesOnMyScreen() async throws {
         let s = scene(start: p(20, 22))
         addAll(s, [member("a", p(31, 16)), member("wet", p(30, 16))])
         var peak = 0
