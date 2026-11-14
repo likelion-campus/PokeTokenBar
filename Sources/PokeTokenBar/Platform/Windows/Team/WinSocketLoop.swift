@@ -96,10 +96,12 @@ final class WinSocketLoop: @unchecked Sendable {
 
     /// Listens on dual-stack `[::]:0` (IPv4 arrives mapped) with `SO_EXCLUSIVEADDRUSE`. Replaces an earlier listener.
     /// Reports `.listening(port:)` with the bound port, or `.listenFailed(code)`.
-    func listen(code: TeamCode) { engine.listen(code: code, port: 0) }
+    /// Returns this listener's generation: every connection it accepts carries it (`listenerGeneration(of:)`), so the
+    /// owner can drop an `.accepted` that a listener of an earlier `listen` took after the owner moved on.
+    @discardableResult func listen(code: TeamCode) -> Int { engine.listen(code: code, port: 0) }
 
     /// Test seam: a fixed port, to prove a taken port is reported.
-    func listen(code: TeamCode, port: UInt16) { engine.listen(code: code, port: port) }
+    @discardableResult func listen(code: TeamCode, port: UInt16) -> Int { engine.listen(code: code, port: port) }
 
     /// Closes the listener. No listener event of earlier `listen` calls is delivered afterwards.
     /// Connections already accepted stay.
@@ -129,6 +131,10 @@ final class WinSocketLoop: @unchecked Sendable {
     /// The TLS version, cipher and remote address of a ready link: recorded on the I/O thread before `.ready` is
     /// posted, dropped when the link closes. nil before `.ready` and for unknown ids.
     func negotiated(_ id: WinConnID) -> Negotiated? { engine.negotiated(id) }
+
+    /// The generation (the `listen` return value) of the listener that accepted `id`; nil for dials and closed ids.
+    /// Recorded before `.accepted` is posted.
+    func listenerGeneration(of id: WinConnID) -> Int? { engine.listenerGeneration(of: id) }
 
     /// Asks for the next `.data` of a link (after `.ready`; one asked before `.ready` is kept for it).
     func receiveNext(_ id: WinConnID) { engine.receiveNext(id) }
@@ -228,6 +234,8 @@ private final class WinSocketEngine: @unchecked Sendable {
     private var failWakes = 0
     /// Written by the I/O thread at handshake end and at close, read by the owner (`negotiated`).
     private var negotiatedByID: [WinConnID: WinSocketLoop.Negotiated] = [:]
+    /// Which listener generation accepted each live inbound connection (written by the I/O thread at accept).
+    private var acceptedBy: [WinConnID: Int] = [:]
     struct Counters {
         var threadID: DWORD = 0
         var pollReturns = 0
@@ -264,6 +272,8 @@ private final class WinSocketEngine: @unchecked Sendable {
     var counters: Counters { locked { counts } }
 
     func negotiated(_ id: WinConnID) -> WinSocketLoop.Negotiated? { locked { negotiatedByID[id] } }
+
+    func listenerGeneration(of id: WinConnID) -> Int? { locked { acceptedBy[id] } }
 
     // MARK: lifecycle
 
@@ -344,9 +354,10 @@ private final class WinSocketEngine: @unchecked Sendable {
 
     // MARK: API
 
-    func listen(code: TeamCode, port: UInt16) {
+    func listen(code: TeamCode, port: UInt16) -> Int {
         let generation = locked { () -> Int in listenGeneration += 1; return listenGeneration }
         enqueue(.listen(code, port, generation))
+        return generation
     }
 
     func stopListening() {
@@ -501,10 +512,11 @@ private final class WinSocketEngine: @unchecked Sendable {
 
     /// I/O thread: a new inbound connection is registered as live and announced in one step, so a `closeAll` on
     /// the main thread either covers it (epoch) or comes after the owner heard of it.
-    private func announce(_ id: WinConnID) -> Int {
+    private func announce(_ id: WinConnID, listener generation: Int) -> Int {
         lock.lock()
         let e = epoch
         live.insert(id)
+        acceptedBy[id] = generation
         mailbox.append(Posted(event: .accepted(id), listenGeneration: nil))
         let schedule = !flushScheduled
         flushScheduled = true
@@ -808,7 +820,7 @@ private final class WinSocketEngine: @unchecked Sendable {
                 continue
             }
             let id = Self.newID()
-            let c = Conn(id: id, epoch: announce(id), phase: .awaitingAdmission)
+            let c = Conn(id: id, epoch: announce(id, listener: l.generation), phase: .awaitingAdmission)
             c.socket = s
             c.context = l.context
             conns[id] = c
@@ -1047,7 +1059,7 @@ private final class WinSocketEngine: @unchecked Sendable {
         guard !c.closed else { return }
         c.closed = true
         conns[c.id] = nil
-        if c.phase == .ready { locked { negotiatedByID[c.id] = nil } }
+        locked { negotiatedByID[c.id] = nil; acceptedBy[c.id] = nil }
         if c.phase == .awaitingAdmission { awaitingAdmission -= 1 }
         let graceful: Bool
         switch reason {

@@ -222,6 +222,43 @@ final class WindowsTransportContractTests: XCTestCase {
 
 }
 
+@MainActor final class DNSSDSeen { var events: [WinDNSSD.Event] = [] }
+
+/// DNS-SD for the failure tests: each registration and browse can be made to fail, with the codes WinDNSSD reports.
+@MainActor final class FakeDiscovery: WinTeamDiscovery {
+    let deliver: @MainActor (WinDNSSD.Event) -> Void
+    var failRegister: Int32?
+    var failBrowse: Int32?
+    private(set) var registers: [Date] = []
+    private(set) var browses: [Date] = []
+    private var instance: String?
+
+    init(_ deliver: @escaping @MainActor (WinDNSSD.Event) -> Void) { self.deliver = deliver }
+
+    func register(instance: String, port: UInt16) {
+        registers.append(Date())
+        self.instance = instance
+        let failure = failRegister
+        DispatchQueue.main.async { self.deliver(failure.map { WinDNSSD.Event.registerFailed($0) } ?? .registered(instance)) }
+    }
+    func deregister() {}
+    func deregister(waitingUpTo seconds: TimeInterval) -> Bool? { nil }
+    /// A working browse finds this run's own service, as a real one does.
+    func browse() {
+        browses.append(Date())
+        let failure = failBrowse, own = instance
+        DispatchQueue.main.async {
+            if let failure { self.deliver(.browseFailed(failure)) } else if let own { self.deliver(.found(own)) }
+        }
+    }
+    func stopBrowsing() {}
+    func resolve(instance: String, _ done: @escaping @MainActor ([WinSocketAddress]) -> Void) {
+        DispatchQueue.main.async { done([]) }
+    }
+    func lastAnswer(_ name: String) -> Date? { nil }
+    func forget(_ name: String) {}
+}
+
 /// The Windows transport's own decisions (the contract covers the shared ones): address order and scope, DNS-SD
 /// resolve as part of a dial, repeated discovery events, the failures that restart, the order of a teardown, and
 /// that nothing is opened before `start`.
@@ -400,18 +437,308 @@ final class WindowsTeamTransportTests: XCTestCase {
         XCTAssertEqual(t.advertisedName, "ptb-renamed")
     }
 
-    func testRegistrationAndBrowseFailuresRestartLikeAListenerFailure() async throws {
-        harness.listenerRetryDelay = 0.5
-        for failure in [WinDNSSD.Event.registerFailed(9002), .browseFailed(1460)] {
-            let (a, _, aPeer, _) = try await contractConnectedPair(harness)
-            var down: [TeamPeerID] = []
-            a.onPeerDisconnected = { down.append($0) }
-            a.handleDiscovery(failure)
-            XCTAssertEqual(down, [aPeer], "\(failure)")
-            XCTAssertNil(a.listenerPort)
-            let back = await contractWaitUntil(3) { a.listenerPort != nil }
-            XCTAssertTrue(back, "\(failure): back after the retry delay")
+    // MARK: review round: DNS-SD failures, aging, old listeners, read order, production timing, goodbye
+
+    /// Registration fails every time while a link is up: the link and the listener stay, only the registration is
+    /// retried, after 1, 2, 4, 8 base delays capped (here 0.05 s doubling to 0.4 s), one log line per backoff step.
+    func testRegistrationFailuresBackOffAndTheLinksStay() async throws {
+        var fake: FakeDiscovery?
+        var lines: [String] = []
+        let code = Self.newCode()
+        let a = WindowsTeamTransport(advertise: true, reachability: QuietReachability(),
+                                     discovery: { deliver in let f = FakeDiscovery(deliver); f.failRegister = 9002; fake = f; return f },
+                                     discoveryRetryBase: 0.05, discoveryRetryCap: 0.4, log: { lines.append($0) })
+        harness.keep(a)
+        let b = make()
+        var aPeer: TeamPeerID?, aDown = 0
+        a.onPeerConnected = { id, _ in aPeer = id }
+        a.onPeerDisconnected = { _ in aDown += 1 }
+        a.start(code: code); b.start(code: code)
+        b.connect(to: try await harness.loopbackEndpoint(of: a))
+        let up = await contractWaitUntil(5) { aPeer != nil }
+        XCTAssertTrue(up)
+        let tried = await contractWaitUntil(6) { (fake?.registers.count ?? 0) >= 8 }
+        XCTAssertTrue(tried, "registrations: \(fake?.registers.count ?? 0)")
+        XCTAssertEqual(aDown, 0, "a registration failure tears no link down")
+        XCTAssertEqual(a.linkCount, 1)
+        XCTAssertNotNil(a.listenerPort)
+        let r = try XCTUnwrap(fake).registers
+        let gaps = zip(r.dropFirst(), r).map { $0.timeIntervalSince($1) }
+        print("TEAMTRANSPORT-REPORT registration retry gaps \(gaps.map { String(format: "%.2f", $0) })")
+        for (gap, expected) in zip(gaps, [0.05, 0.1, 0.2, 0.4, 0.4, 0.4, 0.4]) {
+            XCTAssertGreaterThanOrEqual(gap, expected * 0.8, "\(gaps)")
+            XCTAssertLessThan(gap, expected + 0.35, "\(gaps)")
         }
+        let failLines = lines.filter { $0.contains("DNS-SD registration failed") }
+        XCTAssertEqual(failLines.count, 4, "one line per step (0.05, 0.1, 0.2, then the cap): \(lines)")
+        XCTAssertTrue(failLines.last?.contains("not logged again until it works") == true, "\(failLines)")
+        // Success resets: one more retry succeeds, nothing is retried after it, and the recovery is logged once.
+        try XCTUnwrap(fake).failRegister = nil
+        let works = await contractWaitUntil(2) { lines.contains { $0.contains("registration works again") } }
+        XCTAssertTrue(works, "\(lines)")
+        let settled = try XCTUnwrap(fake).registers.count
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        XCTAssertEqual(try XCTUnwrap(fake).registers.count, settled, "no retry after a success")
+        XCTAssertEqual(aDown, 0)
+    }
+
+    /// The Mac restarts everything on a failed browser (`BonjourTeamTransport.browserStateChanged(.failed)`): so does the
+    /// first failure here (the contract's `failedDiscoveryRestartsLikeAFailedListener`). If browsing fails again after
+    /// that restart, only the browse is retried, with the backoff; the listener and the links stay.
+    func testAFailedBrowseRestartsOnceThenOnlyTheBrowseRetries() async throws {
+        var fake: FakeDiscovery?
+        var lines: [String] = []
+        let code = Self.newCode()
+        let a = WindowsTeamTransport(advertise: true, reachability: QuietReachability(),
+                                     discovery: { deliver in let f = FakeDiscovery(deliver); fake = f; return f },
+                                     listenerRetryDelay: 0.3, discoveryRetryBase: 0.05, discoveryRetryCap: 0.4,
+                                     log: { lines.append($0) })
+        harness.keep(a)
+        let b = make()
+        var aPeers: [TeamPeerID] = [], aDown: [TeamPeerID] = []
+        a.onPeerConnected = { id, _ in aPeers.append(id) }
+        a.onPeerDisconnected = { aDown.append($0) }
+        a.start(code: code); b.start(code: code)
+        b.connect(to: try await harness.loopbackEndpoint(of: a))
+        let up = await contractWaitUntil(5) { aPeers.count == 1 }
+        XCTAssertTrue(up)
+        try XCTUnwrap(fake).failBrowse = 1460
+        a.handleDiscovery(.browseFailed(1460))
+        XCTAssertEqual(aDown, aPeers, "the first failure: the Mac's restart")
+        XCTAssertNil(a.listenerPort)
+        let back = await contractWaitUntil(3) { a.listenerPort != nil }
+        XCTAssertTrue(back)
+        b.connect(to: try await harness.loopbackEndpoint(of: a))
+        let again = await contractWaitUntil(5) { aPeers.count == 2 }
+        XCTAssertTrue(again)
+        let browses0 = try XCTUnwrap(fake).browses.count
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertEqual(aDown.count, 1, "repeated browse failures tear nothing down: \(lines)")
+        XCTAssertEqual(a.linkCount, 1)
+        let browses = try XCTUnwrap(fake).browses
+        XCTAssertGreaterThanOrEqual(browses.count - browses0, 3, "the browse is retried")
+        let gaps = zip(browses.dropFirst(), browses).map { $0.timeIntervalSince($1) }
+        print("TEAMTRANSPORT-REPORT browse retry gaps \(gaps.map { String(format: "%.2f", $0) })")
+        XCTAssertEqual(lines.filter { $0.contains("team: browser failed") }.count, 1, "\(lines)")
+        XCTAssertEqual(lines.filter { $0.contains("DNS-SD browse failed") }.count, 4, "one per step: \(lines)")
+        // Browsing works again (it finds this run's own service): the recovery is logged and the retries stop.
+        try XCTUnwrap(fake).failBrowse = nil
+        let works = await contractWaitUntil(2) { lines.contains { $0.contains("browse works again") } }
+        XCTAssertTrue(works, "\(lines)")
+    }
+
+    /// A wake (and a network change) gives DNS-SD a fresh start: the next failure waits the base delay again.
+    func testAWakeResetsTheBackoff() async throws {
+        var fake: FakeDiscovery?
+        var retries: [(String, Int)] = []
+        let a = WindowsTeamTransport(advertise: true, reachability: QuietReachability(),
+                                     discovery: { deliver in let f = FakeDiscovery(deliver); f.failRegister = 9002; fake = f; return f },
+                                     discoveryRetryBase: 0.05, discoveryRetryCap: 0.4, log: { _ in })
+        harness.keep(a)
+        a.trace = { if case .retrying(let what, let attempt, _) = $0 { retries.append((what, attempt)) } }
+        a.start(code: Self.newCode())
+        let climbed = await contractWaitUntil(3) { retries.count >= 4 }
+        XCTAssertTrue(climbed)
+        a.handleWillSleep()
+        a.handleDidWake()
+        let n = retries.count
+        let next = await contractWaitUntil(3) { retries.count > n }
+        XCTAssertTrue(next)
+        XCTAssertEqual(retries[n].1, 1, "after a wake the backoff starts over: \(retries)")
+        _ = fake
+    }
+
+    /// A name whose dials keep finding no service (Windows drops a name only on a goodbye packet, which Wi-Fi may
+    /// lose) is forgotten after three in a row with no DNS-SD answer for it in between: no more resolves, no dial
+    /// slot. Its next real announcement makes it new again.
+    func testANameThatKeepsFindingNoServiceIsForgottenAndComesBackWhenItAnnounces() async throws {
+        var now = Date()
+        var asked = 0
+        var forgotten: [String] = []
+        let t = WindowsTeamTransport(advertise: false, reachability: QuietReachability(),
+                                     resolve: { _, done in asked += 1; DispatchQueue.main.async { done([]) } },
+                                     clock: { now })
+        harness.keep(t)
+        t.trace = { if case .forgotten(let n) = $0 { forgotten.append(n) } }
+        t.start(code: Self.newCode())
+        _ = try await harness.loopbackEndpoint(of: t)
+        t.handleDiscovery(.found("ptb-gone"))
+        for attempt in 1...3 {
+            let ended = await contractWaitUntil(2) { asked == attempt && t.linkCount == 0 }
+            XCTAssertTrue(ended, "attempt \(attempt)")
+            guard attempt < 3 else { break }
+            XCTAssertEqual(forgotten, [])
+            XCTAssertEqual(t.plannedDials(now: now), [], "inside the cooldown")
+            now = now.addingTimeInterval(TeamDialPlanner.handshakeRetryCooldown + 1)
+            t.redialNow()
+        }
+        XCTAssertEqual(forgotten, ["ptb-gone"])
+        // Forgotten: however long it waits, it costs no resolve (no mDNS query) and no dial slot.
+        for _ in 0..<5 {
+            now = now.addingTimeInterval(3600)
+            t.redialNow()
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(asked, 3)
+        XCTAssertEqual(t.linkCount, 0)
+        XCTAssertEqual(t.plannedDials(now: now), [])
+        // Its next announcement is new: found and dialled again.
+        t.handleDiscovery(.found("ptb-gone"))
+        let back = await contractWaitUntil(2) { asked == 4 }
+        XCTAssertTrue(back)
+    }
+
+    /// An answer for the name between two failed dials is a sign of life: the count starts over.
+    func testAnAnswerBetweenFailedDialsKeepsTheName() async throws {
+        var now = Date()
+        var asked = 0
+        var forgotten: [String] = []
+        let t = WindowsTeamTransport(advertise: false, reachability: QuietReachability(),
+                                     resolve: { _, done in asked += 1; DispatchQueue.main.async { done([]) } },
+                                     clock: { now })
+        harness.keep(t)
+        t.trace = { if case .forgotten(let n) = $0 { forgotten.append(n) } }
+        t.start(code: Self.newCode())
+        _ = try await harness.loopbackEndpoint(of: t)
+        t.handleDiscovery(.found("ptb-flaky"))
+        for attempt in 1...4 {
+            let ended = await contractWaitUntil(2) { asked == attempt && t.linkCount == 0 }
+            XCTAssertTrue(ended, "attempt \(attempt)")
+            if attempt == 1 {
+                now = now.addingTimeInterval(1)
+                t.handleDiscovery(.found("ptb-flaky"))   // DNS-SD heard it after the first failure
+            }
+            if attempt == 3 { XCTAssertEqual(forgotten, [], "three failures, but an answer after the first") }
+            guard attempt < 4 else { break }
+            now = now.addingTimeInterval(TeamDialPlanner.handshakeRetryCooldown + 1)
+            t.redialNow()
+        }
+        XCTAssertEqual(forgotten, ["ptb-flaky"], "three in a row after the answer")
+    }
+
+    /// A TLS failure means something answered (another team): it never counts toward forgetting.
+    func testAServiceOfAnotherTeamIsNeverForgotten() async throws {
+        var now = Date()
+        var forgotten: [String] = []
+        let other = make()
+        other.start(code: Self.newCode())
+        let otherEndpoint = try await harness.loopbackEndpoint(of: other)
+        let t = WindowsTeamTransport(advertise: false, reachability: QuietReachability(), clock: { now })
+        harness.keep(t)
+        t.trace = { if case .forgotten(let n) = $0 { forgotten.append(n) } }
+        t.start(code: Self.newCode())
+        _ = try await harness.loopbackEndpoint(of: t)
+        t.injectDiscovered("ptb-other-team", endpoint: otherEndpoint)
+        for attempt in 1...4 {
+            let ended = await contractWaitUntil(5) { t.linkCount == 0 }
+            XCTAssertTrue(ended, "attempt \(attempt)")
+            now = now.addingTimeInterval(TeamDialPlanner.handshakeRetryCooldown + 1)
+            t.redialNow()
+        }
+        XCTAssertEqual(forgotten, [])
+    }
+
+    /// A stop and a start with another code in one turn (a team-code change): a connection the OLD listener took before
+    /// the loop saw the change is refused, never admitted with the old code's key. The wake for the stop is dropped, so
+    /// the loop keeps polling the old listener while the transport already runs the new code.
+    func testAConnectionTheOldListenerTookIsNeverAdmittedAfterACodeChange() async throws {
+        let old = Self.newCode(), new = Self.newCode()
+        let a = make()
+        var connected = 0
+        var refused = 0
+        a.onPeerConnected = { _, _ in connected += 1 }
+        a.trace = { if case .refusedInbound = $0 { refused += 1 } }
+        a.start(code: old)
+        _ = try await harness.loopbackEndpoint(of: a)
+        let oldPort = try XCTUnwrap(a.listenerPort)
+        let loop = try XCTUnwrap(a.socketLoop)
+        loop.injectWakeFaults(drop: 1, fail: 0)
+        a.stop()
+        a.start(code: new)
+        let peer = WindowsTransportHarness.RawPeer()
+        let raw = WinSocketLoop(deliver: { peer.events.append($0) })
+        XCTAssertTrue(raw.start())
+        defer { raw.shutdown() }
+        let id = raw.dial([WinSocketAddress(family: .ipv4, host: "127.0.0.1", port: oldPort)], code: old)
+        let answered = await contractWaitUntil(3) { refused > 0 || connected > 0 || a.linkCount > 0 }
+        XCTAssertTrue(answered, "the old listener's accept reached the transport")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        loop.receiveNext(WinConnID(raw: .max))   // any later command sends the wake again: the queue runs
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        print("TEAMTRANSPORT-REPORT old-listener accept: refused=\(refused) connected=\(connected) raw=\(peer.events)")
+        XCTAssertEqual(connected, 0, "a peer with the old code joined through the old listener")
+        XCTAssertFalse(peer.events.contains(.ready(id)), "the old code's TLS finished")
+        XCTAssertEqual(refused, 1)
+    }
+
+    /// Asking for the next chunk earlier (read-ahead) could not reorder messages or get past the receive budget:
+    /// chunks of a link arrive in order, each is charged and decoded before its messages are delivered, and one taken
+    /// over the budget ends the link. Here the receiving main thread is held while thousands of frames pile up.
+    func testHeldBackChunksArriveInOrderAndTheBudgetStillCuts() async throws {
+        let (receiver, sender, _, peer) = try await contractConnectedPair(harness)
+        let linkedAt = Date()
+        var got: [String] = [], cost = 0, bad = 0
+        receiver.onMessage = { _, m in
+            if case .chat(let c) = m { got.append(c.text) }
+            cost += ((try? TeamWire.encode(m))?.count ?? 0) + TeamTransportRules.frameCost
+        }
+        receiver.onPeerBadFrame = { _ in bad += 1 }
+        var pour = Data()
+        for i in 0..<3000 { pour.append(try TeamWire.encode(.chat(TeamChat(text: String(format: "%05d", i), isLoud: nil)))) }
+        harness.sendRaw(sender, pour, to: peer)
+        Sleep(300)   // the main thread is held: the bytes wait in the socket and in OpenSSL
+        let all = await contractWaitUntil(5) { got.count == 3000 || bad > 0 }
+        XCTAssertTrue(all)
+        XCTAssertEqual(got, (0..<3000).map { String(format: "%05d", $0) }, "order")
+        var flood = Data()
+        let tiny = try TeamWire.encode(.emote(TeamEmote(kind: .jump, targetMemberID: nil)))
+        for _ in 0..<6000 { flood.append(tiny) }
+        harness.sendRaw(sender, flood, to: peer)
+        Sleep(300)
+        let cut = await contractWaitUntil(5) { bad == 1 }
+        XCTAssertTrue(cut)
+        let bound = TeamTransportRules.receiveBurst + TeamTransportRules.receivePerSecond * Date().timeIntervalSince(linkedAt)
+        print("TEAMTRANSPORT-REPORT delivered cost \(cost) of a bound \(Int(bound))")
+        XCTAssertLessThanOrEqual(Double(cost), bound, "messages past the budget were delivered")
+    }
+
+    /// The production values are the shared rules' (the contract only bounds them from above).
+    func testProductionTimingIsTheSharedRules() async throws {
+        let t = WindowsTeamTransport(advertise: false, reachability: QuietReachability())
+        harness.keep(t)
+        XCTAssertEqual(t.timing, .init(handshakeTimeout: TeamTransportRules.handshakeTimeout,
+                                       listenerRetryDelay: TeamTransportRules.listenerRetryDelay,
+                                       discoveryRetryBase: TeamTransportRules.listenerRetryDelay,
+                                       discoveryRetryCap: 300))
+        XCTAssertEqual(WindowsTeamTransport.absentDialsBeforeForgetting, 3)
+        t.start(code: Self.newCode())
+        XCTAssertEqual(t.redialTimerInterval, TeamTransportRules.redialInterval)
+        XCTAssertEqual(WindowsTeamTransport.backoff(attempt: 1, base: 5, cap: 300), 5)
+        XCTAssertEqual((1...8).map { WindowsTeamTransport.backoff(attempt: $0, base: 5, cap: 300) },
+                       [5, 10, 20, 40, 80, 160, 300, 300])
+    }
+
+    /// A clean exit withdraws the advertisement and waits for the goodbye: another browser sees the service go at once.
+    func testShutdownSendsTheGoodbyeBeforeItReturns() async throws {
+        let seen = DNSSDSeen()
+        let browser = WinDNSSD(deliver: { seen.events.append($0) })
+        defer { browser.stopBrowsing() }
+        browser.browse()
+        let a = WindowsTeamTransport(advertise: true, reachability: QuietReachability())
+        a.start(code: Self.newCode())
+        let name = try XCTUnwrap(a.advertisedName)
+        let registered = await contractWaitUntil(30) { seen.events.contains(.found(name)) }
+        XCTAssertTrue(registered, "\(seen.events)")
+        let t0 = Date()
+        a.shutdown()
+        let waited = Date().timeIntervalSince(t0)
+        let gone = await contractWaitUntil(5) { seen.events.contains(.lost(name)) }
+        let after = Date().timeIntervalSince(t0)
+        print("TEAMTRANSPORT-REPORT goodbye confirmed=\(String(describing: a.lastGoodbye)) shutdown \(Int(waited * 1000)) ms, lost seen after \(Int(after * 1000)) ms")
+        XCTAssertEqual(a.lastGoodbye, true, "the deregistration completed within the wait")
+        XCTAssertLessThan(waited, WindowsTeamTransport.goodbyeWait + 0.4)
+        XCTAssertTrue(gone)
+        XCTAssertLessThan(after, 1.5, "the browser saw the removal within a second")
     }
 
     func testABrokenListenerRestartsAfterTheRetryDelay() async throws {
