@@ -36,6 +36,8 @@ import WinSDK
     /// Notifications that reached the sink, by message (the selftest reports which a tray menu delivers).
     private(set) static var delivered: [UINT: Int] = [:]
     private(set) static var beginsWithoutWindow = 0
+    /// How a tick keeps CoreFoundation away from the thread's input queue (the selftest prints it).
+    private(set) static var maskStrategy = "none (ROUND A: old tick)"
 
     /// Verified on the runner: a tray menu opened with `TPM_NONOTIFY` delivers neither WM_ENTERMENULOOP nor
     /// WM_EXITMENULOOP to the owner, so `WinPopupMenu.run` calls `begin`/`end` itself. The size/move pair is the
