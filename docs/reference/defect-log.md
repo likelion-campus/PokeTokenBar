@@ -939,7 +939,7 @@ read_when:
   `TeamFeedStore.save` 를 옮겼고(각 한 줄), actor 캐시(`LocalUsageCache`·`SpriteStore`·`PokeAPIClient`·`PokemonNameClient`)·드물고 사용자가 시작하는 쓰기
   (`CompanionStore.backupStateBeforeImport`, `SaveSnapshotManager`)·자격증명 파일(`SessionKeyLimitsProvider`, 0600 보장이 먼저)·맥 전용(`CrashReporter`, `PlazaIconLoader`)은 그대로 뒀다.
   **가드(기계):** `AtomicWriteTests`(양쪽: 왕복·교체·임시 파일 없음·동시 쓰기자), `WinAtomicWriteTests`(주입한 실패 뒤 이전 파일 유지), `WindowsSeamScanTests.testMainActorStoresWriteThroughPlatformCompat`,
-  셀프테스트 `loop.mainThreadStalls`(CI 150 ms, PC 1000 ms 에서 실패. 수정 뒤 8 회 기동 모두 프로브 하한 30 ms 미만, 전에는 231·146 ms). **규칙:** 메인 액터나 갱신 경로의 파일 쓰기는 `PlatformCompat.atomicWrite` 로.
+  셀프테스트 `loop.mainThreadStalls`(FlushFileBuffers 안의 표본이 하나라도 있거나 1000 ms 넘으면 실패. 수정 뒤 8 회 기동은 프로브 하한 30 ms 미만이었으나 이후 실행에서 로그 쓰기·파일 열기에 157·221 ms 가 한 번씩 나왔다(디스크 지연, flush 아님): 시간 상한만으로는 잡음에 걸리므로 원인을 이름으로 잡는다. 전에는 231·146 ms). **규칙:** 메인 액터나 갱신 경로의 파일 쓰기는 `PlatformCompat.atomicWrite` 로.
   **설정 plist(같은 부류의 반대편):** CF 는 plist 를 제자리에 쓴다(임시 파일·rename 없음, `CFURLWriteDataAndPropertiesToResource`; corelibs `CFXMLPreferencesDomain.c` 로 확인).
   읽을 때 파싱이 3 번 실패하면 **빈 사전**을 쓰므로, 쓰는 도중 kill·정전이 나면 다음 동기화가 바뀐 키만 써서 모든 설정과 `team.memberID` 가 사라질 수 있다. 3 s 뒤 kill 하는 CI 테스트는
   쓰는 도중을 못 친다. **수정:** `SettingsPlistGuard` — 동기화 뒤 plist 가 파싱될 때만 `<plist>.bak` 를 `atomicWrite` 로 남기고, 기동 시 첫 읽기 전에 없거나 파싱 안 되면 백업을 되돌린다

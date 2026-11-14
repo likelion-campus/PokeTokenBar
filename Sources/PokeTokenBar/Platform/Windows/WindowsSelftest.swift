@@ -39,11 +39,13 @@ enum WindowsSelftest {
         }
     }
 
-    /// Longest launch-refresh stall the selftest accepts. The flushed writes it guards against took 146-231 ms on the CI
-    /// runner; after `PlatformCompat.atomicWrite` 8 launches showed none over the probe's 30 ms. CI (`CI` set) fails at
-    /// 150 ms (5x the probe floor, under the old 231). A real PC may scan every new temp file (Defender) and stall longer,
-    /// so there it only fails at 1000 ms and the measured number is reported either way (user's-PC checklist).
-    static let launchStallFailMs = ProcessInfo.processInfo.environment["CI"] != nil ? 150 : 1000
+    /// Longest launch-refresh stall the selftest accepts, in ms. The flushed writes it guards against took 146-231 ms on the
+    /// CI runner, and after `PlatformCompat.atomicWrite` 8 launches showed none over the probe's 30 ms. But the same runner
+    /// also showed single 157 and 221 ms stalls on plain log writes and file opens in later runs (disk latency, nothing of
+    /// ours), and a real PC may scan every new file (Defender). A tight time bound would fail on that noise, so the
+    /// regression itself is caught by name (any sample inside FlushFileBuffers fails) and the time bound is generous (1000 ms,
+    /// 4x the worst noise seen). The measured number is in the check's detail either way.
+    static let launchStallFailMs = 1000
 
     @MainActor static func run(_ app: WindowsAppDelegate) async -> [Check] {
         let r = Recorder()
@@ -59,7 +61,7 @@ enum WindowsSelftest {
         let quiet = await waitStable(timeout: 120, quiet: 1) { !app.store.isRefreshing && !WinDefaultsSync.isSyncPending }
         if let stalls {
             let report = await stalls.stop()
-            r.add("loop.mainThreadStalls", report.longestMs < launchStallFailMs, report.detail + " (fails over \(launchStallFailMs) ms)")
+            r.add("loop.mainThreadStalls", report.longestMs < launchStallFailMs && !report.detail.contains("FlushBuffersFile") && !report.detail.contains("FlushFileBuffers"), report.detail + " (fails over \(launchStallFailMs) ms or on any sample in FlushFileBuffers)")
         } else {
             r.add("loop.mainThreadStalls", true, "probe unavailable (thread handle or stack limits)")
         }
