@@ -199,6 +199,7 @@ extension L {
     var plazaActivityGreetings: String { "인사" }
     var plazaActivityPickups: String { "주운 아이템" }
     var plazaActivityNone: String { "기록 없음" }
+    var plazaCardActivityTitle: String { "오늘 광장" }
     func plazaActivityDuration(hours: Int, minutes: Int) -> String { hours > 0 ? "\(hours)시간 \(minutes)분" : "\(minutes)분" }
     var plazaChatLogExpand: String { "펼치기 ▴" }
     var plazaChatLogCollapse: String { "접기 ▾" }

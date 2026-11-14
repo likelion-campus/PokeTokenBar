@@ -76,7 +76,7 @@ extension PlazaActivity {
         let value: String
     }
 
-    /// The seven lines under a roster slot, in order. Empty when there is nothing to show (the slot says 기록 없음).
+    /// The seven lines of the member card's 오늘 광장 section, in order. Empty when there is nothing to show (the card says 기록 없음).
     static func rows(_ activity: PlazaActivity?) -> [Row] {
         guard let a = activity else { return [] }
         let l = L(.ko), minutes = a.seconds / 60

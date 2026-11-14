@@ -2148,7 +2148,6 @@ import Observation
         scene = nil   // the shell stops presenting first (`scene`'s willSet)
         rosterModel.entries = []
         rosterModel.page = 0
-        rosterModel.hoveredID = nil
         rosterModel.isAnimating = true
         myEntryCache = nil
         refreshGeneration += 1
@@ -2254,7 +2253,6 @@ import Observation
 
     func contentHeightDidChange(_ height: CGFloat) {
         rosterModel.capacity = PlazaRoster.capacity(forHeight: height)
-        rosterModel.maxListHeight = PlazaRoster.maxListHeight(forHeight: height)
         refreshMinimap()
     }
     func didResignKey() {
