@@ -35,7 +35,9 @@ extension SKView: PlazaPausableView {}
     }
 
     func open(stage: any PlazaStage, title: String, overlays: PlazaOverlayBindings) {
-        let chatInput = overlays.chatInput as! PlazaChatInput   // PlatformPlaza pairs this shell with the AppKit field
+        guard let chatInput = overlays.chatInput as? PlazaChatInput else {
+            preconditionFailure("PlazaMacWindow needs the AppKit chat field PlazaChatInput (PlatformPlaza.makeChatInput()), got \(type(of: overlays.chatInput))")
+        }
         let view = SKView(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
         view.ignoresSiblingOrder = true
         view.allowsTransparency = true   // 배경 숨기기
