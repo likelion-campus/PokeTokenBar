@@ -89,10 +89,28 @@ enum WindowsSelftestWakers {
     ///   finite   the same with a one hour limit
     ///   timer    `distant` plus a repeating `Timer` with the given interval and tolerance (the settings safety sync is 30 s / 10 s,
     ///            the store refresh 120 s / 12 s)
+    nonisolated(unsafe) private static var keep: AnyObject?
+
     @MainActor static func park(_ args: [String]) -> Never {
         let mode = args.first ?? "none"
         if mode == "none" { while true { Thread.sleep(forTimeInterval: 3600) } }
         _ = WinMainLoop.prepare()
+        switch mode {
+        case "task": Task.detached {}
+        case "taskmain": Task { @MainActor in }
+        case "tasksleep": Task.detached { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+        case "thread": Thread {}.start()
+        case "globalqueue": DispatchQueue.global().async {}
+        case "mainqueue": DispatchQueue.main.async {}
+        case "asyncafter": DispatchQueue.global().asyncAfter(deadline: .now() + 2) {}
+        case "dispatchtimer":
+            let source = DispatchSource.makeTimerSource(queue: .global())
+            source.schedule(deadline: .now() + 2)
+            source.setEventHandler {}
+            source.resume()
+            keep = source
+        default: break
+        }
         if mode == "timer", args.count >= 3, let interval = Double(args[1]), let tolerance = Double(args[2]) {
             let timer = Timer(fire: Date(timeIntervalSinceNow: interval), interval: interval, repeats: true) { _ in }
             timer.tolerance = tolerance

@@ -19,6 +19,9 @@ on:
       - '.github/actions/windows-swift/**'
   workflow_dispatch:
     inputs:
+      fast:
+        description: 'Skip the long idle gate and the waker hunt (true/false)'
+        default: 'false'
       stall_hunt:
         description: 'Extra selftest launches that report main-thread stalls (diagnostics; 0 = none)'
         default: '0'
@@ -387,7 +390,7 @@ jobs:
           "executed selftest checks: $(@($j.checks).Count)"
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
         id: idle
-        if: (success() || failure()) && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.fast != 'true'
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -440,7 +443,7 @@ jobs:
           if ($verdicts.Values -contains $false) { throw "idle gate FAILED: $(($verdicts.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object Key) -join ', ')" }
           'PASS idle gate'
       - name: Waker hunt (the two ~1 Hz threads; diagnostics)
-        if: (success() || failure()) && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.fast != 'true'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -465,17 +468,22 @@ jobs:
           Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
           $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
           $modes = [ordered]@{
-              'none' = @('none'); 'distant' = @('distant'); 'finite' = @('finite');
-              'timer-30-10' = @('timer', '30', '10'); 'timer-30-0' = @('timer', '30', '0');
-              'timer-120-12' = @('timer', '120', '12'); 'timer-120-0' = @('timer', '120', '0')
+              'none' = @('none'); 'distant' = @('distant'); 'task' = @('task'); 'taskmain' = @('taskmain'); 'tasksleep' = @('tasksleep');
+              'thread' = @('thread'); 'globalqueue' = @('globalqueue'); 'mainqueue' = @('mainqueue'); 'asyncafter' = @('asyncafter');
+              'dispatchtimer' = @('dispatchtimer');
+              'timer-20-2' = @('timer', '20', '2'); 'timer-20-0' = @('timer', '20', '0')
           }
           $procs = @{}
           foreach ($k in $modes.Keys) { $procs[$k] = Start-Process -FilePath $exe -ArgumentList (@('--selftest-park') + $modes[$k]) -PassThru }
-          Start-Sleep -Seconds 20
+          Start-Sleep -Seconds 15
+          # All windows at once, each measured by its own pwsh, so the whole set costs one window.
+          $meas = @{}
           foreach ($k in $modes.Keys) {
               if ($procs[$k].HasExited) { "mode ${k}: exited early ($($procs[$k].ExitCode))"; continue }
-              ./scripts/windows/measure-idle.ps1 -ProcessId $procs[$k].Id -Seconds 45 -Label "park-$k" -Out "idle-park-$k.json"
+              $meas[$k] = Start-Process -FilePath pwsh -ArgumentList '-NoProfile', '-File', (Resolve-Path ./scripts/windows/measure-idle.ps1).Path, '-ProcessId', $procs[$k].Id, '-Seconds', 90, '-Label', "park-$k", '-Out', "idle-park-$k.json" -RedirectStandardOutput "park-$k.txt" -PassThru
           }
+          foreach ($k in $meas.Keys) { $null = $meas[$k].WaitForExit(300000) }
+          foreach ($k in $modes.Keys) { if (Test-Path "park-$k.txt") { Get-Content "park-$k.txt" } }
           foreach ($k in $modes.Keys) { Stop-Process -Id $procs[$k].Id -Force -ErrorAction SilentlyContinue }
       - name: Silent uninstall and what it leaves
         id: uninstall

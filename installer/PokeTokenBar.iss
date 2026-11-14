@@ -87,6 +87,7 @@ end;
 
 function InitializeSetup: Boolean;
 begin
+  Log('InitializeSetup: app mutex held = ' + IntToStr(Ord(CheckForMutexes(MutexName))));
   Result := CloseRunningApp;
   if not Result then
     MsgBox('PokeTokenBar is running and did not close. Quit it from its tray icon, then run Setup again.', mbError, MB_OK);
@@ -94,6 +95,7 @@ end;
 
 function InitializeUninstall: Boolean;
 begin
+  Log('InitializeUninstall: app mutex held = ' + IntToStr(Ord(CheckForMutexes(MutexName))));
   Result := CloseRunningApp;
   if not Result then
     MsgBox('PokeTokenBar is running and did not close. Quit it from its tray icon, then run Uninstall again.', mbError, MB_OK);
@@ -105,6 +107,7 @@ procedure CurrentUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Command: String;
 begin
+  Log('CurrentUninstallStepChanged ' + IntToStr(Ord(CurUninstallStep)));
   if CurUninstallStep <> usUninstall then Exit;
   if RegQueryStringValue(HKCU, RunKey, RunValue, Command) then begin
     Log('Run value: ' + Command + ' ; this install: ' + ExpandConstant('{app}\PokeTokenBar.exe'));
