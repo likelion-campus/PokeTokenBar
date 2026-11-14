@@ -717,6 +717,26 @@ final class WindowsSocketLoopTests: XCTestCase {
         XCTAssertEqual(other.loop.wakeFailures, 1)
     }
 
+    /// shutdown() is the last command: if its wake is lost, nothing later would send another. Run off the main thread
+    /// with a time limit, so a regression fails here instead of hanging the suite.
+    func testShutdownRightAfterALostWakeStillJoins() async throws {
+        let loop = side().loop
+        loop.injectWakeFaults(drop: 2, fail: 0)   // the shutdown's own wake and the one before it are lost
+        loop.closeAll()
+        let joined = await withCheckedContinuation { (continuation: CheckedContinuation<Double?, Never>) in
+            let done = DispatchSemaphore(value: 0)
+            let start = Date()
+            Thread { loop.shutdown(); done.signal() }.start()
+            Thread {
+                let ok = done.wait(timeout: .now() + 5) == .success
+                continuation.resume(returning: ok ? Date().timeIntervalSince(start) : nil)
+            }.start()
+        }
+        let seconds = try XCTUnwrap(joined, "shutdown() never returned after a lost wake")
+        print("SOCKETLOOP-REPORT shutdown after two lost wakes joined in \(String(format: "%.2f", seconds)) s")
+        XCTAssertLessThan(seconds, 2)
+    }
+
     func testAnUnansweredAcceptIsClosedByTheLoop() async throws {
         let server = side()
         defer { server.loop.shutdown() }

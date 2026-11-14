@@ -303,7 +303,10 @@ private final class WinSocketEngine: @unchecked Sendable {
         lock.unlock()
         if wasRunning {
             enqueue(.stop)
-            finished.wait()
+            // `.stop` is the last command, so no later one would resend a lost wake: wait in slices and resend it.
+            while finished.wait(timeout: .now() + .milliseconds(100)) == .timedOut {
+                lock.lock(); _ = sendWake(); lock.unlock()
+            }
             if let h = threadHandle {
                 _ = WaitForSingleObject(h, DWORD(0xFFFF_FFFF))   // INFINITE: the thread object is signalled once it has exited
                 _ = CloseHandle(h)
