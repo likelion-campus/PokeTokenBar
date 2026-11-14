@@ -77,7 +77,6 @@ PlazaFocusTests.swift
 PlazaFootprintTests.swift
 PlazaGroupPhotoTests.swift
 PlazaIceControllerTests.swift
-PlazaIceLayerTests.swift
 PlazaIceSceneTests.swift
 # PlazaInputMappingTests: maps NSEvent key events and modifier flags (AppKit)
 PlazaInputMappingTests.swift
@@ -100,6 +99,8 @@ PlazaPhotoParityTests.swift
 PlazaPondLayerTests+Mac.swift
 # PlazaTallGrassLayerTests+Mac: reads the bundled tall-grass sheet (ImageIO) and checks pixels through CoreGraphics
 PlazaTallGrassLayerTests+Mac.swift
+# PlazaIceLayerTests+Mac: the scene-driven ice tests, which also read the bundled ice art (ImageIO)
+PlazaIceLayerTests+Mac.swift
 # PlazaPondMotionTests: needs PlazaScene (SpriteKit)
 PlazaPondMotionTests.swift
 PlazaPondSceneTests.swift

@@ -24,7 +24,6 @@ Team/TeamTransport.swift
 Team/Plaza/PlazaActor.swift
 Team/Plaza/PlazaFireworkLayer.swift
 Team/Plaza/PlazaFootprintLayer.swift
-Team/Plaza/PlazaIceLayer.swift
 Team/Plaza/PlazaIconLoader.swift
 Team/Plaza/PlazaPresentingMac.swift
 Team/Plaza/PlazaScene.swift

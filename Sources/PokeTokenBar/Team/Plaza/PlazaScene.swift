@@ -326,7 +326,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var myDive = DiveFade()
     private let pondVisuals: Bool
     private(set) var pondLayer: PlazaPondLayer?
-    private var iceLayer: PlazaIceLayer?
+    private(set) var iceLayer: PlazaIceLayer?
     /// 내가 잠수 중이다. 물속에서만 켜진다.
     private(set) var isDiving = false
     private var diveElapsed: TimeInterval = 0
@@ -440,7 +440,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         if let iceArt {
             let layer = PlazaIceLayer(ponds: icePonds, art: iceArt, mapImage: mapImage, worldHeight: map.pixelSize.height)
-            addChild(layer)
+            layer.root.mountInSpriteKit(self)
             iceLayer = layer
             drawIce()
         }
