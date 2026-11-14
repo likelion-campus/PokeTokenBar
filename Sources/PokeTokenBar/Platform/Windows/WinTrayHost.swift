@@ -18,6 +18,8 @@ import WinSDK
     var loginState: TrayMenuModel.LoginState = .unavailable
     var loginItem = WindowsLoginItem()
     var availableUpdate: (version: String, url: String)?
+    /// Teammates linked right now, nil while the team is off (set by the app once the team runtime exists).
+    var teammatesOnline: @MainActor () -> Int? = { nil }
 
     private(set) var menuOpen = false
     private(set) var lastAction: TrayMenuModel.Action = .none
@@ -65,7 +67,7 @@ import WinSDK
     func menuItems() -> [TrayMenuModel.Item?] {
         TrayMenuModel.items(l: companion.l, todayTokens: store.todayTotalTokens,
                             todayCost: store.showsCost ? store.todayUsageCost : nil,
-                            login: loginState, update: availableUpdate?.version)
+                            login: loginState, update: availableUpdate?.version, teammatesOnline: teammatesOnline())
     }
 
     /// Blocks in the system menu loop until it is dismissed (no drain timer meanwhile; F17), then runs the action.

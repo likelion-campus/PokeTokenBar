@@ -117,6 +117,18 @@ enum PlatformPlaza {
         #endif
     }
 
+    /// An SF Symbol as an image (`size` in points) for the overlay panels' icons, set as the SwiftUI views set it. The Mac
+    /// draws the real symbol; elsewhere nil, and the panel falls back to its own drawing of the glyph (Windows supplies its
+    /// own glyph in stage 6).
+    static func symbolImage(named name: String, pointSize: CGFloat, weight: PlazaFontWeight, scale: CGFloat,
+                            color: PlazaColor) -> (image: PlazaImage, size: CGSize)? {
+        #if os(Windows) || PTB_SHARED_ONLY
+        nil
+        #else
+        MacPlazaSymbols.image(named: name, pointSize: pointSize, weight: weight, scale: scale, color: color)
+        #endif
+    }
+
     /// Where character sprites come from: `SpriteLoader`/`SpriteStore` on the Mac, nothing (the placeholder) elsewhere.
     @MainActor static func spriteFetcher() -> any PlazaSpriteFetching {
         #if os(Windows) || PTB_SHARED_ONLY

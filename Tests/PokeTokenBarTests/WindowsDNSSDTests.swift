@@ -58,9 +58,22 @@ final class WindowsDNSSDTests: XCTestCase {
         print("DNSSD-REPORT resolve \(name) -> \(addresses)")
         XCTAssertFalse(addresses.isEmpty, "resolve gave no address")
         XCTAssertTrue(addresses.allSatisfy { $0.port == 45124 }, "\(addresses)")
+        XCTAssertTrue(addresses.allSatisfy { $0.interfaceIndex != 0 }, "the interface index a link-local dial needs: \(addresses)")
         if let firstV6 = addresses.firstIndex(where: { $0.family == .ipv6 }) {
             XCTAssertTrue(addresses[..<firstV6].allSatisfy { $0.family == .ipv4 }, "IPv4 must come first: \(addresses)")
         }
+    }
+
+    /// Windows repeats browse answers (four in a row, and a steady stream while other browsers query); only changes
+    /// reach the main thread.
+    func testRepeatedBrowseAnswersAreDroppedAndChangesPass() async {
+        var known = Set<String>()
+        let first: [WinDNSSD.Event] = [.found("a"), .found("a"), .found("b"), .found("a")]
+        XCTAssertEqual(WinDNSSD.changes(first, known: &known), [.found("a"), .found("b")])
+        XCTAssertEqual(WinDNSSD.changes([.found("b"), .lost("c")], known: &known), [], "a repeat, and a loss of a name never found")
+        XCTAssertEqual(WinDNSSD.changes([.lost("a"), .lost("a"), .found("a"), .browseFailed(5)], known: &known),
+                       [.lost("a"), .found("a"), .browseFailed(5)], "found after lost is a change; failures always pass")
+        XCTAssertEqual(known, ["a", "b"])
     }
 
     func testResolveOfAnUnknownNameReturnsEmpty() async {

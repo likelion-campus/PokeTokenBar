@@ -1,4 +1,4 @@
-// PlazaFocusTests+Mac: the campfire menu test asserts the SwiftUI menu view's rows and notice (PlazaCampfireMenuView)
+// PlazaFocusTests+Mac: the campfire menu test asserts the SwiftUI menu view's rows and notice (PlazaMenuText)
 import XCTest
 import AppKit
 import SwiftUI
@@ -22,10 +22,10 @@ extension PlazaFocusTests {
         key(scene, spaceKey)
         let menu = PlazaCampfireMenu(isJoin: false, minutes: [], selection: 0)
         XCTAssertEqual(c.overlayContent, .campfireMenu(menu))
-        XCTAssertEqual(PlazaCampfireMenuView.notice(menu), "자리가 없어요")
-        XCTAssertEqual(PlazaCampfireMenuView.rows(menu), ["불 켜기"])
-        XCTAssertNil(PlazaCampfireMenuView.notice(.init(isJoin: false, minutes: [], selection: 0, isSeated: true)), "I already sit")
-        XCTAssertEqual(PlazaCampfireMenuView.rows(.init(isJoin: false, minutes: [25, 480], selection: 0, isLit: true)),
+        XCTAssertEqual(PlazaMenuText.notice(menu), "자리가 없어요")
+        XCTAssertEqual(PlazaMenuText.rows(menu), ["불 켜기"])
+        XCTAssertNil(PlazaMenuText.notice(.init(isJoin: false, minutes: [], selection: 0, isSeated: true)), "I already sit")
+        XCTAssertEqual(PlazaMenuText.rows(.init(isJoin: false, minutes: [25, 480], selection: 0, isLit: true)),
                        ["25분 집중", "8시간 집중", "불 끄기"])
         key(scene, downKey)
         XCTAssertEqual(c.overlayContent, .campfireMenu(menu), "the fire row is the only row")

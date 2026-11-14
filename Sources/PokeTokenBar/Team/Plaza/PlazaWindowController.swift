@@ -120,8 +120,15 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [pillsPanel, clockPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [photoFramePanel, menuPanel, pillsPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private lazy var photoFramePanel = PlazaPhotoFramePanel(model: overlayModel)
+    private lazy var shortcutsPanel = PlazaShortcutGuidePanel(model: shortcutModel, toggle: togglePanel)
+    private lazy var togglePanel = PlazaBackgroundTogglePanel(model: backgroundModel)
+    private lazy var pickerPanel = PlazaNameColorPickerPanel(model: nameColorModel, toggle: togglePanel, background: backgroundModel)
     private lazy var pillsPanel = PlazaPillsPanel(model: overlayModel)
+    private lazy var menuPanel = PlazaMenuPanel(model: overlayModel, pills: pillsPanel)
+    private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
+                                                      mapImage: { [unowned self] in mapImage })
     private lazy var clockPanel = PlazaClockPanel(worldSize: map.pixelSize)
     private let chatInput: any PlazaChatInputHost
     private let chatLog = PlazaChatLog()
@@ -300,6 +307,8 @@ import Observation
         session?.updateActivity(activity)
         restoreFocus()
         _ = hud   // the pills follow the overlay model from now on
+        hud.onAction = { [weak self] id, hit in self?.panelClicked(id, hit) }
+        minimapPanel.update(date: clock())   // the map is lit for the right minute from its first drawing
         self.chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         self.chatInput.onClose = { [weak self] in
             guard let self else { return }
@@ -329,19 +338,11 @@ import Observation
     var overlayBindings: PlazaOverlayBindings {
         PlazaOverlayBindings(
             rosterModel: rosterModel, overlayModel: overlayModel, feed: feed, myMemberID: memberID(), chatLog: chatLog,
-            minimap: minimap, backgroundModel: backgroundModel, shortcutModel: shortcutModel, nameColorModel: nameColorModel,
-            mapImage: mapImage, worldSize: map.pixelSize, hud: hud, pills: pillsPanel, chatInput: chatInput,
+            hud: hud, chatInput: chatInput,
             walkToMember: { [weak self] in self?.walkToMember($0) },
             turnRosterPage: { [weak self] in self?.turnRosterPage(by: $0) },
             react: { [weak self] in self?.session?.react(to: $0, kind: $1) },
-            chooseMenu: { [weak self] in self?.chooseMenu($0, memberID: $1) },
-            closeOverlay: { [weak self] in self?.closeOverlay() },
-            chooseCampfire: { [weak self] in self?.chooseCampfire(index: $0) },
-            toggleChatLog: { [weak self] in self?.toggleChatLog() },
-            toggleShortcuts: { [weak self] in self?.toggleShortcuts() },
-            toggleBackground: { [weak self] in self?.toggleBackground() },
-            toggleNameColorPicker: { [weak self] in self?.toggleNameColorPicker() },
-            pickNameColor: { [weak self] in self?.pickNameColor($0) })
+            toggleChatLog: { [weak self] in self?.toggleChatLog() })
     }
 
     /// 창 제목. 팀 이름이 바뀌면 `refreshTitle`로 다시 붙인다.
@@ -488,6 +489,26 @@ import Observation
         refreshHint()
         shell.setChatLogAboveInput(true)
         shell.focusChatInput()
+    }
+
+    /// A click (or VoiceOver's press) on a panel: what the SwiftUI buttons of the HUD controls did.
+    private func panelClicked(_ id: PlazaPanelID, _ hit: PlazaPanelHit) {
+        switch (id, hit.action) {
+        case (.menu, "choose"):
+            guard let i = hit.index else { break }
+            switch overlayModel.content {
+            case .memberMenu(let menu): if menu.actions.indices.contains(i) { chooseMenu(menu.actions[i], memberID: menu.memberID) }
+            case .campfireMenu: chooseCampfire(index: i)
+            default: break
+            }
+        case (.menu, "cancel"): closeOverlay()   // a click outside the menu (the old tap-outside area)
+        case (.shortcuts, "toggle"): toggleShortcuts()
+        case (.backgroundToggle, "toggle"): toggleBackground()
+        case (.nameColorPicker, "toggle"): toggleNameColorPicker()
+        case (.nameColorPicker, "choose"):
+            if let i = hit.index, PlazaNameColor.hexes.indices.contains(i) { pickNameColor(PlazaNameColor.hexes[i]) }
+        default: break
+        }
     }
 
     /// 이름 색 팔레트를 펼치거나 접는다. 누른 뒤에도 키는 장면이 받는다.
@@ -1786,6 +1807,7 @@ import Observation
     /// The clock's text for now. The panel renders only when it changed, so the 1 s tick renders it once a minute.
     private func refreshClock() {
         clockPanel.update(PlazaDaylight.clockText(clock(), core: minimap.coreTime))
+        minimapPanel.update(date: clock())
     }
 
     /// 작은 지도의 점과 보이는 영역을 지금 상태로 맞춘다.

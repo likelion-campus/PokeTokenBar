@@ -193,6 +193,45 @@ final class PlazaCardTests: XCTestCase {
         XCTAssertNil(c.hint)
     }
 
+    /// A click on a menu row chooses it, a click on the menu's body does nothing, a click anywhere else closes the menu: the
+    /// panel's hits reach the controller (Track A Task 16), which does what the SwiftUI buttons and the tap-outside area did.
+    func testMenuClicksReachTheController() async {
+        let me = node("나"), other = node("민수")
+        let start = TilePoint(x: 10, y: 10), beside = TilePoint(x: 11, y: 10)
+        let c = controller(me, start: start)
+        c.prepareScene()
+        hub.connect(me.transport, to: other.transport)
+        await waitUntil { me.session.members[other.settings.memberID] != nil }
+        other.session.updatePlazaPosition(inPlaza: true, tile: beside, facing: .down, isWalking: false)
+        let id = other.settings.memberID
+        await waitUntil { me.session.members[id]?.tile == beside && c.scene?.memberTiles[id] == beside }
+        let scene = c.scene!
+        let host = RecordingPanelHost()
+        c.hud.setViewport(CGSize(width: 960, height: 640), scale: 2)
+        c.hud.host = host
+        func settleHUD() async { for _ in 0..<20 { await Task.yield() } }
+        func click(_ p: CGPoint) {
+            _ = c.hud.handleMouse(PlazaMouseEvent(kind: .down, location: p), in: .menu)
+            _ = c.hud.handleMouse(PlazaMouseEvent(kind: .up, location: p), in: .menu)
+        }
+        space(scene)
+        await settleHUD()
+        guard case .memberMenu = c.overlayContent, let drawing = host.drawings[.menu] else { return XCTFail("the menu is not shown") }
+        let rows = drawing.accessibility.filter { $0.role == .menuItem }
+        XCTAssertEqual(rows.count, 4)
+        click(CGPoint(x: 480, y: 300 + 100))   // below the menu: outside it
+        XCTAssertEqual(c.overlayContent, .none, "a click outside closes the menu")
+        XCTAssertFalse(scene.isOverlayOpen)
+        space(scene)
+        await settleHUD()
+        let body = drawing.accessibility.first!.frame   // the name line: the menu's body
+        click(CGPoint(x: body.midX, y: body.midY))
+        guard case .memberMenu = c.overlayContent else { return XCTFail("a click on the menu's body must keep it open") }
+        click(CGPoint(x: rows[0].frame.midX, y: rows[0].frame.midY))   // 인사하기
+        XCTAssertEqual(c.overlayContent, .none, "choosing a row runs it and closes the menu")
+        c.handleClose()
+    }
+
     func testHintHidesWhileTheChatInputIsOpen() async {
         let me = node("나")
         let c = controller(me, start: aboveBoard)

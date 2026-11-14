@@ -8,69 +8,12 @@ struct PlazaOverlayView: View {
     var feed: TeamFeedStore?
     var myMemberID = ""
     var onReact: (_ eventID: String, _ kind: TeamReactionKind) -> Void = { _, _ in }
-    var onMenuChoose: (_ action: PlazaMemberAction, _ memberID: String) -> Void = { _, _ in }
-    /// 메뉴 밖을 눌렀다.
-    var onMenuCancel: () -> Void = {}
-    var onCampfireChoose: (_ index: Int) -> Void = { _ in }
-    /// The countdown, banner and hint pills' stack (the shared `PlazaPillsPanel`, drawn above this view). A menu still
-    /// opens below them, so the stack keeps their room.
-    var pillsSize: () -> CGSize = { .zero }
 
     var body: some View {
         ZStack(alignment: .top) {
             content
-            if model.isPhotoMode { photoFrame }
-            VStack(spacing: 8) {
-                let pills = pillsSize()
-                if pills.height > 0 {
-                    Color.clear.frame(width: pills.width, height: pills.height).allowsHitTesting(false)
-                }
-                // 안내가 있던 자리에 뜬다(메뉴가 열리면 안내는 숨는다).
-                if case .memberMenu(let menu) = model.content {
-                    PlazaMemberMenuView(menu: menu, onChoose: { onMenuChoose($0, menu.memberID) })
-                }
-                if case .campfireMenu(let menu) = model.content {
-                    PlazaCampfireMenuView(menu: menu, onChoose: onCampfireChoose)
-                }
-            }
-            .padding(.top, PlazaRosterMetrics.margin)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// 사진 모드의 틀. 사진에 담기는 영역은 창에서 여백(포인트)을 뺀 사각형이다. 아무것도 클릭을 받지 않는다.
-    private var photoFrame: some View {
-        GeometryReader { geo in
-            if let frame = PlazaPhotoFrame.viewRect(in: geo.size) {
-            ZStack(alignment: .topLeading) {
-                Path { p in
-                    p.addRect(CGRect(origin: .zero, size: geo.size))
-                    p.addRect(frame)
-                }
-                .fill(Color.black.opacity(0.5), style: FillStyle(eoFill: true))
-                Path { p in
-                    // 선이 틀 안쪽에 놓이도록 선 두께의 절반만큼 들여 그린다.
-                    let arm = PlazaPhotoFrame.bracketArm, h = PlazaPhotoFrame.bracketWidth / 2
-                    let r = frame.insetBy(dx: h, dy: h)
-                    for (corner, dx, dy) in [(CGPoint(x: r.minX, y: r.minY), 1.0, 1.0), (CGPoint(x: r.maxX, y: r.minY), -1.0, 1.0),
-                                             (CGPoint(x: r.minX, y: r.maxY), 1.0, -1.0), (CGPoint(x: r.maxX, y: r.maxY), -1.0, -1.0)] {
-                        p.move(to: CGPoint(x: corner.x, y: corner.y + dy * arm))
-                        p.addLine(to: corner)
-                        p.addLine(to: CGPoint(x: corner.x + dx * arm, y: corner.y))
-                    }
-                }
-                .stroke(Color.white, style: StrokeStyle(lineWidth: PlazaPhotoFrame.bracketWidth, lineCap: .butt, lineJoin: .miter))
-                Text(L(.ko).plazaPhotoGuide)
-                    .font(Font(PlazaResources.font(.body)))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .frame(width: frame.width, height: PlazaPhotoFrame.bottomInset, alignment: .center)
-                    .position(x: geo.size.width / 2, y: geo.size.height - PlazaPhotoFrame.bottomInset / 2)
-            }
-            }
-        }
-        .allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -85,7 +28,7 @@ struct PlazaOverlayView: View {
         case .card(let state):
             panel(PlazaCardMetrics.panelSize) { PlazaCardView(state: state) }
         case .memberMenu, .campfireMenu:
-            Color.clear.contentShape(Rectangle()).onTapGesture(perform: onMenuCancel)
+            Color.clear   // the menus and their tap-outside area are the shared `PlazaMenuPanel`
         }
     }
 
@@ -110,7 +53,12 @@ final class PlazaOverlayHostingView: NSHostingView<PlazaOverlayView> {
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        MainActor.assumeIsolated { model.content == .none ? nil : super.hitTest(point) }
+        MainActor.assumeIsolated {
+            switch model.content {
+            case .none, .memberMenu, .campfireMenu: nil   // menus are panels (their own host takes the clicks)
+            case .board, .card: super.hitTest(point)
+            }
+        }
     }
     override var acceptsFirstResponder: Bool { false }
 }

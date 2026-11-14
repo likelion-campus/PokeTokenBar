@@ -36,5 +36,7 @@ const char  *ptb_tls_version_name(ptb_tls *);  // e.g. "TLSv1.2"
 const char  *ptb_tls_last_error(void);
 /// HMAC-SHA256 one-shot, for cross-checking the key derivation against Swift Crypto. 0 on success.
 int          ptb_tls_hmac_sha256(const uint8_t *key, size_t klen, const uint8_t *msg, size_t mlen, uint8_t out[32]);
+/// Frees the calling thread's OpenSSL state (OPENSSL_thread_stop). Call last on a thread that used TLS (CTeamTLSThread.c).
+void         ptb_tls_thread_stop(void);
 
 #endif

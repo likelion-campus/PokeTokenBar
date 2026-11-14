@@ -3,6 +3,29 @@ import Foundation
 enum PlazaCanvasBlend: Sendable { case normal, multiply, sourceAtop }
 enum PlazaLineJoin: Sendable { case miter, round }
 enum PlazaTextDrawingMode: Sendable { case fill, stroke }
+enum PlazaLineCap: Sendable { case butt, round }
+
+/// A polygon or polyline: straight segments only (the overlay panels' chevron, eye and minimap diamond need nothing
+/// else; a curve is sampled into line segments by whoever builds the path). Coordinates are the canvas's.
+struct PlazaPath: Equatable, Sendable {
+    enum Element: Equatable, Sendable { case move(CGPoint), line(CGPoint), close }
+    var elements: [Element] = []
+
+    mutating func move(to p: CGPoint) { elements.append(.move(p)) }
+    mutating func line(to p: CGPoint) { elements.append(.line(p)) }
+    mutating func close() { elements.append(.close) }
+
+    /// `points` joined by lines, closed when `closed`.
+    init(points: [CGPoint], closed: Bool = false) {
+        for (i, p) in points.enumerated() { elements.append(i == 0 ? .move(p) : .line(p)) }
+        if closed { elements.append(.close) }
+    }
+
+    init() {}
+
+    init(rect r: CGRect) { self.init(points: [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
+                                              CGPoint(x: r.maxX, y: r.maxY), CGPoint(x: r.minX, y: r.maxY)], closed: true) }
+}
 
 /// A drop shadow. Offset and blur are in device pixels: like `CGContext.setShadow`, the CTM does not scale them.
 struct PlazaShadow: Sendable {
@@ -42,6 +65,16 @@ protocol PlazaCanvas: AnyObject {
     func clip(to rect: CGRect)
     func fill(_ rect: CGRect)
     func fillEllipse(in rect: CGRect)
+    /// The ellipse's outline stroked with the stroke colour, the line centred on it; the canvas's own line width is
+    /// unchanged.
+    func strokeEllipse(in rect: CGRect, lineWidth: CGFloat)
+    /// `path` filled with the fill colour (non-zero winding).
+    func fillPath(_ path: PlazaPath)
+    /// `path` stroked with the stroke colour and the canvas's line join, the line centred on it; the canvas's own line
+    /// width is unchanged.
+    func strokePath(_ path: PlazaPath, lineWidth: CGFloat, cap: PlazaLineCap)
+    /// Later drawing is clipped to the rounded rectangle (the same outline as `fillRoundedRect`).
+    func clip(toRoundedRect rect: CGRect, radius: CGFloat)
     /// A rectangle with corners of `radius`, filled with the fill colour. The corners are SwiftUI's default
     /// `RoundedRectangle` corners (`.continuous`: the curve starts a little before the radius and eases into the edge;
     /// the Mac uses SwiftUI's own path), which the overlay panels had. A circular corner of the same radius differs by

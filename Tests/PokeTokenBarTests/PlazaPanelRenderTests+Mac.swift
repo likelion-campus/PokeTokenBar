@@ -16,13 +16,13 @@ import CoreText
 
     private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
-    private static func context(_ w: Int, _ h: Int) -> CGContext {
+    static func context(_ w: Int, _ h: Int) -> CGContext {
         CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: sRGB,
                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     }
 
     /// Premultiplied sRGB RGBA, row 0 at the top.
-    private static func rgba(_ image: CGImage) -> [UInt8] {
+    static func rgba(_ image: CGImage) -> [UInt8] {
         let ctx = context(image.width, image.height)
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         let data = ctx.data!.assumingMemoryBound(to: UInt8.self)
@@ -30,7 +30,7 @@ import CoreText
     }
 
     /// The pixel boxes of what is drawn (any alpha), one per run of rows with ink: the pills are 8 points apart.
-    private static func boxes(_ image: CGImage) -> [CGRect] {
+    static func boxes(_ image: CGImage) -> [CGRect] {
         let px = rgba(image), w = image.width, h = image.height
         func ink(_ x: Int, _ y: Int) -> Bool { px[(y * w + x) * 4 + 3] > 0 }
         var result: [CGRect] = []
@@ -48,7 +48,7 @@ import CoreText
         return result
     }
 
-    private static func render<V: View>(_ view: V, scale: CGFloat) -> CGImage? {
+    static func render<V: View>(_ view: V, scale: CGFloat) -> CGImage? {
         let r = ImageRenderer(content: view)
         r.scale = scale
         return r.cgImage
@@ -122,8 +122,8 @@ import CoreText
         let clockModel = PlazaMinimapModel()
         let date = Self.date(hour: 21, minute: 34)
         let fitting = NSHostingView(rootView: LegacyPlazaClock(model: clockModel, date: date)).fittingSize
-        let map = NSHostingView(rootView: PlazaMinimapView(model: PlazaMinimapModel(), mapImage: NSImage(size: NSSize(width: 1, height: 1)),
-                                                           worldSize: PlazaMapData.map.pixelSize)).fittingSize
+        let map = NSHostingView(rootView: LegacyPlazaMinimapView(model: PlazaMinimapModel(), mapImage: NSImage(size: NSSize(width: 1, height: 1)),
+                                                                 worldSize: PlazaMapData.map.pixelSize)).fittingSize
         let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
         clock.update(PlazaDaylight.clockText(date, core: clockModel.coreTime))
         let hud = PlazaHUD(panels: [clock], graphics: graphics)
@@ -140,14 +140,43 @@ import CoreText
         }
     }
 
-    /// The panel's pills as the window shows them: the panel image at its HUD frame in a transparent window-sized image.
+    /// The panel's pills as the window shows them, through the host: its layer tree rendered off screen.
     private func panelWindow(_ m: PlazaOverlayModel, viewport: CGSize, scale: CGFloat) throws -> CGImage {
-        let panel = PlazaPillsPanel(model: m)
-        let frame = try XCTUnwrap(PlazaHUD(panels: [panel], graphics: graphics).layout(viewport: viewport, scale: scale)[.pills])
-        let image = try XCTUnwrap(panel.render(scale: scale, viewport: viewport, graphics: graphics))
+        try throughHosts([PlazaPillsPanel(model: m)], viewport: viewport, scale: scale)
+    }
+
+    /// `panels` shown by their hosts in a container of `viewport` points, and the hosts' layer trees rendered off screen
+    /// (`CALayer.render(in:)`, no window) at `scale`, bottom host first: what the window composites.
+    private func throughHosts(_ panels: [any PlazaPanel], viewport: CGSize, scale: CGFloat) throws -> CGImage {
+        let (hud, hosts, _) = hostWithPanels(panels, size: viewport)
+        let shell = Shell()
+        for h in hosts { shell.hosts[h.panelID] = h }
+        hud.setViewport(viewport, scale: scale)
+        hud.host = shell
         let ctx = Self.context(Int(viewport.width * scale), Int(viewport.height * scale))
-        ctx.draw(image.cgImage, in: CGRect(x: frame.minX * scale, y: (viewport.height - frame.maxY) * scale, width: frame.width * scale,
-                                           height: frame.height * scale))
+        ctx.scaleBy(x: scale, y: scale)
+        for h in hosts { try XCTUnwrap(h.layer).render(in: ctx) }
+        return try XCTUnwrap(ctx.makeImage())
+    }
+
+    /// The panels' drawings composed by hand at their HUD frames: the expectation for `throughHosts`.
+    private func composed(_ panels: [any PlazaPanel], viewport: CGSize, scale: CGFloat) throws -> CGImage {
+        let hud = PlazaHUD(panels: panels, graphics: graphics)
+        let frames = hud.layout(viewport: viewport, scale: scale)
+        let ctx = Self.context(Int(viewport.width * scale), Int(viewport.height * scale))
+        for panel in panels {
+            let f = try XCTUnwrap(frames[panel.id])
+            for layer in panel.render(scale: scale, viewport: viewport, graphics: graphics).layers {
+                func bottomLeft(_ r: CGRect) -> CGRect {
+                    let w = r.offsetBy(dx: f.minX, dy: f.minY)
+                    return CGRect(x: w.minX * scale, y: (viewport.height - w.maxY) * scale, width: w.width * scale, height: w.height * scale)
+                }
+                switch layer {
+                case .image(let image, let r): ctx.draw(image.cgImage, in: bottomLeft(r))
+                case .color(let c, let r): ctx.setFillColor(c.cgColor); ctx.fill(bottomLeft(r))
+                }
+            }
+        }
         return try XCTUnwrap(ctx.makeImage())
     }
 
@@ -202,9 +231,9 @@ import CoreText
 
     // MARK: the host view
 
-    private func hostWithPanels(_ panels: [any PlazaPanel]) -> (PlazaHUD, [PlazaPanelHostView], NSView) {
+    private func hostWithPanels(_ panels: [any PlazaPanel], size: CGSize = CGSize(width: 960, height: 640)) -> (PlazaHUD, [PlazaPanelHostView], NSView) {
         let hud = PlazaHUD(panels: panels, graphics: graphics)
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
         let hosts = panels.map { PlazaPanelHostView(hud: hud, panel: $0.id) }
         for h in hosts {
             h.frame = container.bounds
@@ -215,7 +244,9 @@ import CoreText
 
     @MainActor private final class Shell: PlazaPanelHost {
         var hosts: [PlazaPanelID: PlazaPanelHostView] = [:]
-        func show(_ id: PlazaPanelID, image: PlazaImage, frame: CGRect, scale: CGFloat) { hosts[id]?.show(image: image.cgImage, frame: frame, scale: scale) }
+        func show(_ id: PlazaPanelID, drawing: PlazaPanelDrawing, frame: CGRect, scale: CGFloat) {
+            hosts[id]?.show(drawing: drawing, frame: frame, scale: scale)
+        }
         func hide(_ id: PlazaPanelID) { hosts[id]?.hide() }
     }
 
@@ -234,7 +265,9 @@ import CoreText
         let frames = hud.layout(viewport: container.bounds.size, scale: 2)
         for host in hosts {
             let f = try XCTUnwrap(frames[host.panelID])
-            let layer = host.panelLayerForTesting
+            XCTAssertEqual(host.panelLayersForTesting.count, 1, "one image")
+            let layer = try XCTUnwrap(host.panelLayersForTesting.first)
+            XCTAssertTrue(layer.superlayer === host.layer, "in the host's layer tree")
             XCTAssertFalse(layer.isHidden)
             XCTAssertNotNil(layer.contents)
             XCTAssertEqual(layer.contentsScale, 2)
@@ -250,15 +283,15 @@ import CoreText
         m.banner = nil
         m.hint = nil
         for _ in 0..<20 { await Task.yield() }
-        XCTAssertTrue(hosts[0].panelLayerForTesting.isHidden, "nothing to show: hidden")
-        XCTAssertNil(hosts[0].panelLayerForTesting.contents)
+        XCTAssertEqual(hosts[0].panelLayersForTesting.count, 0, "nothing to show: no layer")
+        XCTAssertNil(hosts[0].layer?.sublayers?.first { $0.contents != nil }, "and no image left behind")
         // The host follows its own size: a taller window keeps a top panel's top edge.
         m.hint = "안내"
         for _ in 0..<20 { await Task.yield() }
         let top = try XCTUnwrap(hosts[0].panelFrame)
         container.setFrameSize(NSSize(width: 960, height: 700))
         for h in hosts { h.setFrameSize(NSSize(width: 960, height: 700)) }
-        XCTAssertEqual(hosts[0].panelLayerForTesting.frame.maxY, 700 - top.minY)
+        XCTAssertEqual(hosts[0].panelLayersForTesting.first?.frame.maxY, 700 - top.minY)
     }
 
     /// A panel with a button takes the click through its host, and only on the button; the click reaches the HUD.
@@ -304,10 +337,14 @@ import CoreText
         func index<T>(_ type: T.Type) -> Int? { subs.firstIndex { $0 is T } }
         let pills = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .pills })
         let clock = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .clock })
-        XCTAssertEqual(pills, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 1, "right above the overlay")
+        XCTAssertEqual(pills, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 3, "above the menu's host and the photo frame's, which are right above the overlay")
+        XCTAssertEqual(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .menu }, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 2)
+        XCTAssertEqual(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .photoFrame }, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 1)
         XCTAssertLessThan(pills, try XCTUnwrap(index(PlazaChatLogHostingView.self)), "below the chat log")
-        XCTAssertEqual(clock, try XCTUnwrap(index(PlazaMinimapHostingView.self)) + 1, "right above the minimap")
-        XCTAssertLessThan(clock, try XCTUnwrap(index(PlazaShortcutGuideHostingView.self)))
+        let minimap = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .minimap })
+        XCTAssertEqual(clock, minimap + 1, "right above the minimap")
+        XCTAssertGreaterThan(minimap, try XCTUnwrap(index(PlazaChatLogHostingView.self)), "the minimap is above the chat log")
+        XCTAssertLessThan(clock, try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .shortcuts }))
         XCTAssertTrue(c.hud.host === shell, "the window shows the controller's panels")
         XCTAssertEqual(c.hud.renderCounts[.clock], 1, "the clock is drawn once on opening")
         shell.stopPresenting()
@@ -316,21 +353,21 @@ import CoreText
         c.handleClose()
     }
 
-    /// The SwiftUI overlay still opens a member menu below the pills, as when they were in its stack: the menu moves down
-    /// by the pills' height and the 8-point gap (a banner: 34 + 8; a countdown and a banner: 2 × (34 + 8)).
+    /// A member menu still opens below the pills, as when they were in its stack: the menu moves down by the pills' height
+    /// and the 8-point gap (a banner: 34 + 8; a countdown and a banner: 2 × (34 + 8)).
     func testAMenuStillOpensBelowThePills() async throws {
-        func menuTop(countdown: String?, banner: String?) throws -> Int {
+        func menuTop(countdown: String?, banner: String?) throws -> CGFloat {
             let m = model(countdown: countdown, banner: banner)
             m.content = .memberMenu(PlazaMemberMenu(memberID: "m", nickname: "민수"))
-            let pills = PlazaPillsPanel(model: m)
-            let viewport = CGSize(width: 600, height: 372)
-            let view = PlazaOverlayView(model: m, pillsSize: { pills.stack(in: viewport, scale: 2, text: PlatformPlaza.graphics.text).size })
-            let image = try XCTUnwrap(Self.render(view.frame(width: viewport.width, height: viewport.height), scale: 2))
-            return Int(try XCTUnwrap(Self.boxes(image).first).minY)   // the pills are not in the overlay: the menu is its first ink
+            let panel = PlazaMenuPanel(model: m, pills: PlazaPillsPanel(model: m))
+            let drawing = panel.render(scale: 2, viewport: CGSize(width: 600, height: 372), graphics: graphics)
+            guard case .image(_, let frame)? = drawing.layers.first else { throw XCTSkip("no menu image") }
+            return frame.minY
         }
         let alone = try menuTop(countdown: nil, banner: nil)
-        XCTAssertEqual(try menuTop(countdown: nil, banner: "배너") - alone, 2 * (34 + 8))
-        XCTAssertEqual(try menuTop(countdown: "단체 사진 5", banner: "배너") - alone, 2 * (34 + 8 + 34 + 8))
+        XCTAssertEqual(alone, PlazaRosterMetrics.margin)
+        XCTAssertEqual(try menuTop(countdown: nil, banner: "배너") - alone, 34 + 8)
+        XCTAssertEqual(try menuTop(countdown: "단체 사진 5", banner: "배너") - alone, 2 * (34 + 8))
     }
 
     /// A host's frame is the window's (four constraints, no intrinsic size): a panel growing and shrinking — a banner of
@@ -352,7 +389,7 @@ import CoreText
         let container = try XCTUnwrap(shell.windowForTesting?.contentView)
         container.layoutSubtreeIfNeeded()
         let hosts = container.subviews.compactMap { $0 as? PlazaPanelHostView }
-        XCTAssertEqual(hosts.map(\.panelID), [.pills, .clock])
+        XCTAssertEqual(hosts.map(\.panelID), [.photoFrame, .menu, .pills, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
         let clock = try XCTUnwrap(c.hud.panels.first { $0.id == .clock } as? PlazaClockPanel)
         for host in hosts {
             XCTAssertEqual(host.intrinsicContentSize, NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric))
@@ -364,6 +401,15 @@ import CoreText
             overlays.overlayModel.banner = i % 2 == 0 ? "짧은 배너" : Self.banners[1]
             overlays.overlayModel.countdown = i % 3 == 0 ? "단체 사진 \(i)" : nil
             clock.update(i % 2 == 0 ? "밤 21:34" : "새벽 0:00 · 아주 긴 시계")
+            // Task 15: the guide folds, the picker opens, the toggle changes its width, photo mode comes and goes.
+            if c.areShortcutsFolded != (i % 2 == 1) { c.toggleShortcuts() }
+            if c.isNameColorPickerOpen != (i % 3 == 0) { c.toggleNameColorPicker() }
+            if c.isBackgroundHidden != (i % 2 == 0) { c.toggleBackground() }
+            overlays.overlayModel.isPhotoMode = i % 4 == 1
+            // Task 16: the menu opens (180 wide, then wider for a long status) and closes; the minimap's marks move.
+            var menu = PlazaMemberMenu(memberID: "m", nickname: "민수", actions: [.greet, .tackle])
+            if i % 3 == 1 { menu.status = L(.ko).plazaFocusStatus(seconds: 7 * 3600 + 43 * 60) }
+            overlays.overlayModel.content = i % 3 == 0 ? .none : .memberMenu(menu)
             for _ in 0..<20 { await Task.yield() }
             container.layoutSubtreeIfNeeded()
             for host in hosts {
@@ -373,6 +419,11 @@ import CoreText
         }
         XCTAssertGreaterThanOrEqual(sizes[.pills]?.count ?? 0, 3, "the pills really changed size")
         XCTAssertEqual(sizes[.clock]?.count, 2, "the clock really changed size")
+        XCTAssertEqual(sizes[.shortcuts]?.count, 2, "the guide really folded and unfolded")
+        XCTAssertEqual(sizes[.nameColorPicker]?.count, 2, "the picker really opened and closed")
+        XCTAssertEqual(sizes[.backgroundToggle]?.count, 2, "the toggle really changed size")
+        XCTAssertNotNil(sizes[.photoFrame], "the photo frame really came")
+        XCTAssertNotNil(sizes[.menu], "the menu really came")
         for (i, host) in hosts.enumerated() {
             XCTAssertLessThanOrEqual(host.layoutPassesForTesting - passes[i], 1, "\(host.panelID): no layout pass per change")
             XCTAssertEqual(host.intrinsicInvalidationsForTesting, invalidations[i], "\(host.panelID): a change never asks for an intrinsic size")
@@ -383,6 +434,207 @@ import CoreText
         c.handleClose()
     }
 
+    // MARK: the host: drawing, VoiceOver, mouse (fix round)
+
+    /// What the window composites — the hosts' layer trees, rendered off screen — is the panels' drawings at their HUD
+    /// frames, upright: the pills, the clock and a full-window dim with brackets (colour layers and small images).
+    func testTheHostDrawsThePanelsWhereTheyBelong() async throws {
+        let m = model(countdown: Self.all.countdown, banner: Self.all.banner, hint: Self.all.hint)
+        let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
+        clock.update("밤 21:34")
+        for scale in [CGFloat(1), 2] {
+            let viewport = CGSize(width: 600, height: 372)
+            let panels: [any PlazaPanel] = [DimPanel(), PlazaPillsPanel(model: m), clock]
+            let host = Self.rgba(try throughHosts(panels, viewport: viewport, scale: scale))
+            let expected = Self.rgba(try composed(panels, viewport: viewport, scale: scale))
+            let worst = zip(host, expected).map { abs(Int($0) - Int($1)) }.max() ?? 0
+            XCTAssertLessThanOrEqual(worst, 1, "@\(scale): the host shows the drawings unmoved, unflipped, unscaled")
+            // Upright: the countdown pill (the top one) is near the top of the window.
+            let w = Int(viewport.width * scale)
+            let topRow = Int(20 * scale), midX = w / 2
+            XCTAssertGreaterThan(host[(topRow * w + midX) * 4 + 3], 200, "the top pill is at the top")
+        }
+    }
+
+    /// Every sublayer the host makes has no implicit animation for what the host sets.
+    func testTheHostNeverAnimatesItsLayers() async throws {
+        let m = model(hint: "안내")
+        let (hud, hosts, container) = hostWithPanels([DimPanel(), PlazaPillsPanel(model: m)])
+        let shell = Shell()
+        for h in hosts { shell.hosts[h.panelID] = h }
+        hud.setViewport(container.bounds.size, scale: 2)
+        hud.host = shell
+        let layers = hosts.flatMap(\.panelLayersForTesting)
+        XCTAssertGreaterThan(layers.count, 5, "colour and image layers")
+        for layer in layers {
+            for key in ["contents", "contentsScale", "position", "bounds", "hidden", "backgroundColor"] {
+                // A sublayer of a view's layer animates these implicitly on screen unless its own actions say no (off
+                // screen `action(forKey:)` finds nothing either way, so the table itself is checked).
+                XCTAssertTrue(layer.actions?[key] is NSNull, "\(key) would animate")
+                XCTAssertNil(layer.action(forKey: key))
+            }
+        }
+    }
+
+    /// A new backing scale (the window moved to another display) renders the panels again at that scale.
+    func testANewBackingScaleRendersAgain() async throws {
+        let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
+        clock.update("밤 21:34")
+        let (hud, hosts, container) = hostWithPanels([clock])
+        let window = NSWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        defer { window.contentView = nil }
+        let shell = Shell()
+        shell.hosts[.clock] = hosts[0]
+        hud.setViewport(container.bounds.size, scale: 7)   // as if the last display had been 7x
+        hud.host = shell
+        XCTAssertEqual(hosts[0].panelLayersForTesting.first?.contentsScale, 7)
+        let before = hud.renderCounts[.clock] ?? 0
+        hosts[0].viewDidChangeBackingProperties()
+        XCTAssertEqual(hud.renderCounts[.clock], before + 1)
+        XCTAssertEqual(hosts[0].panelLayersForTesting.first?.contentsScale, window.backingScaleFactor)
+        XCTAssertEqual(hud.scale, window.backingScaleFactor)
+    }
+
+    /// VoiceOver finds the four texts as before: one static text per pill and one for the clock, read as their whole
+    /// text, over each pill, in window coordinates; a pill that goes away leaves; a move announces nothing.
+    func testVoiceOverReadsThePanels() async throws {
+        let m = model(countdown: Self.all.countdown, banner: Self.all.banner, hint: Self.all.hint)
+        let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
+        clock.update("밤 21:34")
+        let pills = PlazaPillsPanel(model: m)
+        let (hud, hosts, container) = hostWithPanels([pills, clock])
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 300, width: 960, height: 640), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        defer { window.contentView = nil }
+        let shell = Shell()
+        for h in hosts { shell.hosts[h.panelID] = h }
+        hud.setViewport(container.bounds.size, scale: 2)
+        hud.host = shell
+        func children(_ host: PlazaPanelHostView) -> [NSAccessibilityElement] { (host.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement } }
+        func windowFrame(_ e: NSAccessibilityElement) -> CGRect { window.convertFromScreen(e.accessibilityFrame()) }
+        XCTAssertFalse(hosts[0].isAccessibilityElement(), "the host is a container, not an element")
+        let frames = hud.layout(viewport: container.bounds.size, scale: 2)
+        let stack = pills.stack(in: container.bounds.size, scale: 2, text: graphics.text).pills
+        let p = try XCTUnwrap(frames[.pills])
+        XCTAssertEqual(children(hosts[0]).map { $0.accessibilityRole() }, [.staticText, .staticText, .staticText])
+        XCTAssertEqual(children(hosts[0]).map { $0.accessibilityLabel() }, [Self.all.countdown, Self.all.banner, Self.all.hint])
+        for (e, pill) in zip(children(hosts[0]), stack) {
+            let f = pill.frame.offsetBy(dx: p.minX + 1, dy: p.minY + 1)
+            XCTAssertEqual(windowFrame(e), CGRect(x: f.minX, y: 640 - f.maxY, width: f.width, height: f.height), "over the pill")
+        }
+        let c = try XCTUnwrap(frames[.clock])
+        XCTAssertEqual(children(hosts[1]).map { $0.accessibilityLabel() }, ["밤 21:34"])
+        XCTAssertEqual(children(hosts[1]).map(windowFrame), [CGRect(x: c.minX + 1, y: 640 - c.maxY + 1, width: c.width - 2, height: c.height - 2)])
+        let announced = hosts[0].accessibilityChangesForTesting
+        m.banner = nil
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(children(hosts[0]).map { $0.accessibilityLabel() }, [Self.all.countdown, Self.all.hint], "the banner left")
+        XCTAssertEqual(hosts[0].accessibilityChangesForTesting, announced + 1)
+        container.setFrameSize(NSSize(width: 1000, height: 700))
+        for h in hosts { h.setFrameSize(NSSize(width: 1000, height: 700)) }
+        hud.setViewport(CGSize(width: 1000, height: 700), scale: 2)
+        XCTAssertEqual(hosts[0].accessibilityChangesForTesting, announced + 1, "moving is no change to announce")
+        let moved = try XCTUnwrap(hud.layout(viewport: CGSize(width: 1000, height: 700), scale: 2)[.pills])
+        XCTAssertEqual(windowFrame(children(hosts[0])[0]).midX, moved.midX, accuracy: 0.5, "the elements moved with the pills")
+        m.countdown = nil
+        m.hint = nil
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(children(hosts[0]).count, 0, "no pills, nothing to read")
+    }
+
+    /// VoiceOver's press on a button item goes where a click on it goes.
+    func testAVoiceOverPressIsAClick() async throws {
+        let button = ButtonPanel()
+        let (hud, hosts, container) = hostWithPanels([button])
+        let shell = Shell()
+        shell.hosts[button.id] = hosts[0]
+        hud.setViewport(container.bounds.size, scale: 2)
+        hud.host = shell
+        var actions: [PlazaPanelHit] = []
+        hud.onAction = { actions.append($1) }
+        let element = try XCTUnwrap(hosts[0].accessibilityChildren()?.first as? NSAccessibilityElement)
+        XCTAssertEqual(element.accessibilityRole(), .button)
+        XCTAssertEqual(element.accessibilityLabel(), "토글")
+        XCTAssertTrue(element.accessibilityPerformPress())
+        XCTAssertEqual(actions, [ButtonPanel.toggle])
+    }
+
+    private final class ScrollRecorder: NSView {
+        var scrolls = 0
+        override func scrollWheel(with event: NSEvent) { scrolls += 1 }
+    }
+
+    /// A scroll over a panel no panel takes goes on to the next responder (the views below get it as before).
+    func testAnUnhandledScrollGoesOn() async throws {
+        let button = ButtonPanel()
+        let hud = PlazaHUD(panels: [button], graphics: graphics)
+        let container = ScrollRecorder(frame: NSRect(x: 0, y: 0, width: 960, height: 640))
+        let host = PlazaPanelHostView(hud: hud, panel: button.id)
+        host.frame = container.bounds
+        container.addSubview(host)
+        let shell = Shell()
+        shell.hosts[button.id] = host
+        hud.setViewport(container.bounds.size, scale: 2)
+        hud.host = shell
+        let cg = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: 3, wheel2: 0, wheel3: 0))
+        host.scrollWheel(with: try XCTUnwrap(NSEvent(cgEvent: cg)))
+        XCTAssertEqual(container.scrolls, 1)
+    }
+
+    /// Only a panel whose drawing tracks the mouse gets a tracking area (over its frame); its moves reach the panel.
+    func testOnlyATrackingPanelFollowsTheMouse() async throws {
+        let m = model(hint: "안내")
+        let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
+        clock.update("밤 21:34")
+        let button = ButtonPanel(tracksMouse: true)
+        let (hud, hosts, container) = hostWithPanels([PlazaPillsPanel(model: m), clock, button])
+        let window = NSWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        defer { window.contentView = nil }
+        let shell = Shell()
+        for h in hosts { shell.hosts[h.panelID] = h }
+        hud.setViewport(container.bounds.size, scale: 2)
+        hud.host = shell
+        XCTAssertEqual(hosts.map(\.hasTrackingAreaForTesting), [false, false, true])
+        XCTAssertEqual(hosts[0].trackingAreas.count, 0, "the pills cost nothing")
+        XCTAssertEqual(hosts[2].trackingAreas.first?.rect, CGRect(x: 10, y: 640 - 30, width: 40, height: 20), "over the panel")
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: NSPoint(x: 15, y: 640 - 15), modifierFlags: [], timestamp: 0,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        hosts[2].mouseMoved(with: event)
+        XCTAssertEqual(button.interaction.hovered, ButtonPanel.toggle)
+    }
+
+    /// Joined emoji (a family, a flag, a skin tone) wrap and size as SwiftUI's did; right-to-left one-line pills size as
+    /// SwiftUI's, and a right-to-left text too long for one is cut to within a device pixel of SwiftUI's width (TextKit,
+    /// which cut SwiftUI's, and CoreText pick cuts a fraction of a point apart: Arabic letters change shape at the cut).
+    /// No caller can make that cut: a nickname has at most 12 characters and 12 Arabic letters never fill a pill.
+    func testJoinedEmojiAndRightToLeftCutLikeSwiftUI() async throws {
+        let viewport = CGSize(width: 600, height: 372)
+        let family = "👨‍👩‍👧‍👦", flag = "🇰🇷", thumb = "👍🏽"
+        let banners = ["📢 \(family)\(flag)\(thumb): " + String(repeating: "\(family) \(flag) \(thumb) 축하해요 ", count: 4),
+                       String(repeating: family + flag + thumb, count: 12)]
+        for banner in banners {
+            let m = model(banner: banner)
+            XCTAssertEqual(try panelPills(m, viewport: viewport, scale: 2), try swiftUIPills(m, viewport: viewport, scale: 2), banner)
+        }
+        for m in [model(countdown: "مرحبا بالعالم님의 단체 사진 5"), model(hint: "שלום עולם 따라가는 중"),
+                  model(hint: "\(family)\(flag)\(thumb) 따라가는 중 · 방향키로 멈추기")] {
+            XCTAssertEqual(try panelPills(m, viewport: viewport, scale: 2), try swiftUIPills(m, viewport: viewport, scale: 2), "\(m.countdown ?? m.hint ?? "")")
+        }
+        let rtl = String(repeating: "مرحبا بالعالم هذا نص طويل ", count: 4) + "님의 단체 사진 5"
+        for m in [model(countdown: rtl), model(hint: rtl)] {
+            let panel = try XCTUnwrap(try panelPills(m, viewport: viewport, scale: 2).first)
+            let swiftUI = try XCTUnwrap(try swiftUIPills(m, viewport: viewport, scale: 2).first)
+            XCTAssertEqual(panel.width, swiftUI.width, accuracy: 0.5, "cut within a device pixel of SwiftUI's")
+            XCTAssertEqual(panel.height, swiftUI.height)
+            XCTAssertLessThanOrEqual(panel.width, viewport.width, "cut to the window")
+        }
+    }
+
     // MARK: images for the PR
 
     private struct Shot {
@@ -391,7 +643,8 @@ import CoreText
         let model: PlazaOverlayModel?   // nil: the clock
     }
 
-    /// Before (the SwiftUI views) and after (the panels as the window shows them), window-sized and transparent.
+    /// Before (the SwiftUI views) and after (the panels as the window shows them: their hosts' layer trees rendered off
+    /// screen), window-sized and transparent.
     private func beforeAfter(_ shot: Shot, scale: CGFloat) throws -> (before: CGImage, after: CGImage, crop: CGRect) {
         let v = shot.viewport, w = Int(v.width * scale), h = Int(v.height * scale)
         let after = Self.context(w, h)
@@ -401,9 +654,7 @@ import CoreText
             before = try XCTUnwrap(Self.render(LegacyPlazaPills(model: m).frame(width: v.width, height: v.height), scale: scale))
             let panel = PlazaPillsPanel(model: m)
             frame = try XCTUnwrap(PlazaHUD(panels: [panel], graphics: graphics).layout(viewport: v, scale: scale)[.pills])
-            let image = try XCTUnwrap(panel.render(scale: scale, viewport: v, graphics: graphics))
-            after.draw(image.cgImage, in: CGRect(x: frame.minX * scale, y: (v.height - frame.maxY) * scale, width: frame.width * scale,
-                                                 height: frame.height * scale))
+            after.draw(try throughHosts([panel], viewport: v, scale: scale), in: CGRect(x: 0, y: 0, width: w, height: h))
         } else {
             let date = Self.date(hour: 21, minute: 34)
             let clockModel = PlazaMinimapModel()
@@ -418,9 +669,7 @@ import CoreText
             let clock = PlazaClockPanel(worldSize: PlazaMapData.map.pixelSize)
             clock.update(PlazaDaylight.clockText(date, core: clockModel.coreTime))
             frame = try XCTUnwrap(PlazaHUD(panels: [clock], graphics: graphics).layout(viewport: v, scale: scale)[.clock])
-            let image = try XCTUnwrap(clock.render(scale: scale, viewport: v, graphics: graphics))
-            after.draw(image.cgImage, in: CGRect(x: frame.minX * scale, y: (v.height - frame.maxY) * scale, width: frame.width * scale,
-                                                 height: frame.height * scale))
+            after.draw(try throughHosts([clock], viewport: v, scale: scale), in: CGRect(x: 0, y: 0, width: w, height: h))
         }
         let crop = frame.insetBy(dx: -12, dy: -10).intersection(CGRect(origin: .zero, size: v))
         return (before, try XCTUnwrap(after.makeImage()), crop)
@@ -428,7 +677,7 @@ import CoreText
 
     /// `image` cropped to `crop` (points, top-left) over `background` (the plaza map, or a checkerboard for transparency),
     /// magnified `zoom` times nearest.
-    private static func cell(_ image: CGImage, crop: CGRect, scale: CGFloat, background: CGImage?, zoom: Int) -> CGImage {
+    static func cell(_ image: CGImage, crop: CGRect, scale: CGFloat, background: CGImage?, zoom: Int) -> CGImage {
         let px = CGRect(x: crop.minX * scale, y: crop.minY * scale, width: crop.width * scale, height: crop.height * scale).integral
         let w = Int(px.width), h = Int(px.height)
         let ctx = context(w * zoom, h * zoom)
@@ -451,7 +700,7 @@ import CoreText
     }
 
     /// Magenta where any channel differs by more than 8, else a dim copy of `a`; and the counts.
-    private static func diff(_ a: CGImage, _ b: CGImage) -> (image: CGImage, over8: Int, over64: Int, max: Int) {
+    static func diff(_ a: CGImage, _ b: CGImage) -> (image: CGImage, over8: Int, over64: Int, max: Int) {
         let pa = rgba(a), pb = rgba(b)
         var out = [UInt8](repeating: 0, count: pa.count)
         var over8 = 0, over64 = 0, mx = 0
@@ -471,7 +720,7 @@ import CoreText
         return (ctx.makeImage()!, over8, over64, mx)
     }
 
-    private static func write(_ image: CGImage, _ url: URL) throws {
+    static func write(_ image: CGImage, _ url: URL) throws {
         let data = try XCTUnwrap(MacPlazaGraphics.png(image))
         try data.write(to: url)
     }
@@ -538,7 +787,7 @@ import CoreText
     }
 
     /// Rows of cells under column titles, each row labelled.
-    private static func sheet(_ rows: [(label: String, cells: [CGImage])], columns: [String]) -> CGImage {
+    static func sheet(_ rows: [(label: String, cells: [CGImage])], columns: [String]) -> CGImage {
         let gap = 16, label = 34, header = 44
         let widths = columns.indices.map { c in rows.map { $0.cells[c].width }.max() ?? 0 }
         let heights = rows.map { ($0.cells.map(\.height).max() ?? 0) + label }
@@ -571,7 +820,7 @@ import CoreText
         return ctx.makeImage()!
     }
 
-    private static func date(hour: Int, minute: Int) -> Date {
+    static func date(hour: Int, minute: Int) -> Date {
         var c = DateComponents()
         (c.year, c.month, c.day, c.hour, c.minute) = (2026, 11, 14, hour, minute)
         return Calendar.current.date(from: c)!

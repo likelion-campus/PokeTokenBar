@@ -165,6 +165,7 @@ import WinSDK
 
     /// Index into `items` of the chosen entry, nil when dismissed.
     static func run(_ items: [TrayMenuModel.Item?], at point: POINT, owner: HWND) -> Int? {
+        guard openMenuBits == 0 else { return nil }  // a menu is already open: ignore the request
         guard let menu = CreatePopupMenu() else { return nil }
         defer { openMenuBits = 0; DestroyMenu(menu) }
         for (index, item) in items.enumerated() {
@@ -181,6 +182,8 @@ import WinSDK
         // The SDK import turns BOOL into Bool, which would lose the command id TPM_RETURNCMD returns: call it as Int32.
         typealias TrackFn = @convention(c) (HMENU?, UINT, Int32, Int32, Int32, HWND?, UnsafePointer<RECT>?) -> Int32
         guard let track = WinDynamic.symbol("user32.dll", "TrackPopupMenu", as: TrackFn.self) else { return nil }
+        WinModalPump.begin("menu")  // the menu's modal loop starves the main queue; the pump serves it meanwhile
+        defer { WinModalPump.end("menu") }
         let command = track(menu, UINT(TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY | TPM_BOTTOMALIGN),
                             point.x, point.y, 0, owner, nil)
         _ = PostMessageW(owner, UINT(WM_NULL), 0, 0)
