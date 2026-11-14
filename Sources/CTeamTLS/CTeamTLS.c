@@ -27,7 +27,17 @@ struct ptb_tls {
 #endif
 static PTB_THREAD_LOCAL char g_error[320];
 
-const char *ptb_tls_openssl_version(void) { return OpenSSL_version(OPENSSL_VERSION); }
+/* Every entry point initialises OpenSSL first, without its configuration file: neither OPENSSL_CONF nor the
+   OPENSSLDIR the vcpkg build baked in (a directory another local user may be able to write) is ever read, so
+   nothing outside this binary can change the team link's TLS settings. The first OPENSSL_init_* call decides
+   (later default loads become no-ops), which is why it runs before anything else touches OpenSSL. */
+static int ptb_init(void) {
+    return OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG, NULL) == 1
+        && OPENSSL_init_ssl(OPENSSL_INIT_NO_LOAD_CONFIG, NULL) == 1;
+}
+
+const char *ptb_tls_openssl_version(void) { ptb_init(); return OpenSSL_version(OPENSSL_VERSION); }
+const char *ptb_tls_config_dir(void) { ptb_init(); return OPENSSL_info(OPENSSL_INFO_CONFIG_DIR); }
 const char *ptb_tls_last_error(void) { return g_error; }
 
 /// Records `stage` plus the queued OpenSSL errors (library/reason strings only, never key bytes).
@@ -63,7 +73,7 @@ static unsigned int psk_server(SSL *ssl, const char *identity, unsigned char *ps
 ptb_tls_ctx *ptb_tls_ctx_new(int server, const uint8_t psk[32], const char *identity) {
     g_error[0] = 0;
     if (!psk || !identity || strlen(identity) >= PTB_IDENTITY_MAX) { set_error("bad PSK arguments", 0); return NULL; }
-    if (OPENSSL_init_ssl(0, NULL) != 1) { set_error("OpenSSL init failed", 0); return NULL; }  // one-time, thread-safe
+    if (!ptb_init()) { set_error("OpenSSL init failed", 0); return NULL; }  // one-time, thread-safe
     ptb_tls_ctx *c = (ptb_tls_ctx *)calloc(1, sizeof *c);
     if (!c) { set_error("out of memory", 0); return NULL; }
     memcpy(c->key, psk, 32);
@@ -163,5 +173,6 @@ const char *ptb_tls_version_name(ptb_tls *t) {
 
 int ptb_tls_hmac_sha256(const uint8_t *key, size_t klen, const uint8_t *msg, size_t mlen, uint8_t out[32]) {
     unsigned int n = 0;
+    if (!ptb_init()) return -1;
     return HMAC(EVP_sha256(), key, (int)klen, msg, mlen, out, &n) && n == 32 ? 0 : -1;
 }
