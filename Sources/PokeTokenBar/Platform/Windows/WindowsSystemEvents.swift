@@ -27,6 +27,8 @@ import WinSDK
     private var closed = false
     private var screensAsleep = false
     private weak var window: WinSinkWindow?
+    private var sinkTokens: [WinSinkWindow.Token] = []
+    private(set) var timeChangeCount = 0
     private var suspendRegistration: UnsafeMutableRawPointer?
     private var displayRegistration: UnsafeMutableRawPointer?
 
@@ -86,6 +88,7 @@ import WinSDK
     /// `WM_TIMECHANGE`: the clock or the time zone changed.
     func handleTimeChange() {
         guard !closed else { return }
+        timeChangeCount += 1
         if followsSystemTimeZone {
             NSTimeZone.resetSystemTimeZone()
             calendar = .current
@@ -102,8 +105,7 @@ import WinSDK
         dayTimer = nil
         armedFireDate = nil
         if let window {
-            window.off(UINT(WM_POWERBROADCAST))
-            window.off(UINT(WM_TIMECHANGE))
+            for token in sinkTokens { window.off(token) }
         }
         if let r = suspendRegistration { _ = UnregisterSuspendResumeNotification(r) }
         if let r = displayRegistration { _ = UnregisterPowerSettingNotification(r) }
@@ -142,17 +144,17 @@ import WinSDK
     // MARK: registration
 
     private func register(on window: WinSinkWindow) {
-        window.on(UINT(WM_POWERBROADCAST)) { [weak self] wParam, lParam in
+        sinkTokens.append(window.on(UINT(WM_POWERBROADCAST)) { [weak self] wParam, lParam in
             let event = UInt32(truncatingIfNeeded: wParam)
             let state = event == Self.pbtPowerSettingChange
                 ? Self.displayState(fromPowerSetting: UnsafeRawPointer(bitPattern: Int(lParam))) : nil
             self?.handlePowerBroadcast(event: event, displayState: state)
             return 1  // TRUE: handled
-        }
-        window.on(UINT(WM_TIMECHANGE)) { [weak self] _, _ in
+        })
+        sinkTokens.append(window.on(UINT(WM_TIMECHANGE)) { [weak self] _, _ in
             self?.handleTimeChange()
             return 0
-        }
+        })
         suspendRegistration = RegisterSuspendResumeNotification(window.hwnd, 0 /* DEVICE_NOTIFY_WINDOW_HANDLE */)
         suspendResumeRegistered = suspendRegistration != nil
         if !suspendResumeRegistered {

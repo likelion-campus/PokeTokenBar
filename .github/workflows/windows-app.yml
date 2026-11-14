@@ -136,6 +136,25 @@ jobs:
               if ($log -notmatch "exit code=0 reason=$reason") { throw "no 'reason=$reason' exit line in the log" }
           }
           'log has both exit lines'
+      - name: Tray screenshot (informational)
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # The runner's desktop with the app running: whether the icon is visible there (Windows 11 may put it in the overflow).
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-shot'
+          New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
+          $p = Start-Process -FilePath (Resolve-Path bundle\PokeTokenBar.exe).Path -PassThru
+          Start-Sleep -Seconds 15
+          $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size)
+          $bmp.Save((Join-Path $PWD 'tray-desktop.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+          "screenshot $($b.Width)x$($b.Height)"
+          Stop-Process -Id $p.Id -Force
       - name: Stall hunt (diagnostics, workflow_dispatch input)
         if: (success() || failure()) && steps.package.outcome == 'success' && github.event_name == 'workflow_dispatch' && inputs.stall_hunt != '0'
         continue-on-error: true
@@ -183,6 +202,7 @@ jobs:
             bundle
             st*.json
             st*.json.lines
+            tray-desktop.png
             collected
             build.log
             .build/*/release/PokeTokenBarWin.pdb

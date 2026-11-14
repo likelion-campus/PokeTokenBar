@@ -74,7 +74,8 @@ if windowsBuild {
             .target(
                 name: "CWinShim",  // Win32/WIC glue the Swift side cannot import; placeholder until the Windows services land
                 path: "Sources/CWinShim",
-                linkerSettings: [.linkedLibrary("windowscodecs"), .linkedLibrary("ole32"), .linkedLibrary("dbghelp")]
+                linkerSettings: [.linkedLibrary("windowscodecs"), .linkedLibrary("ole32"), .linkedLibrary("dbghelp"),
+                                .linkedLibrary("gdi32"), .linkedLibrary("user32")]
             ),
             .target(
                 name: "CTeamTLS",  // OpenSSL (vcpkg, static) for the team link

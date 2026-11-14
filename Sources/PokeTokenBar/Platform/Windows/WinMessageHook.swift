@@ -29,6 +29,14 @@ import WinSDK
         if !dialogs.contains(bits) { dialogs.append(bits) }
     }
 
+    /// `GUI_INMOVESIZE | GUI_INMENUMODE | GUI_SYSTEMMENUMODE | GUI_POPUPMENUMODE` for this thread.
+    private static func inMenuOrMoveLoop() -> Bool {
+        var info = GUITHREADINFO()
+        info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+        guard GetGUIThreadInfo(GetCurrentThreadId(), &info) else { return false }
+        return info.flags & 0x1E != 0
+    }
+
     fileprivate static func removed(_ messageBits: Int) {
         guard let m = UnsafeMutablePointer<MSG>(bitPattern: messageBits) else { return }
         let message = m.pointee.message
@@ -44,7 +52,11 @@ import WinSDK
         }
         switch message {
         case UINT(WM_CHAR), UINT(WM_SYSCHAR), UINT(WM_DEADCHAR), UINT(WM_SYSDEADCHAR):
-            guard let target = m.pointee.hwnd, IsWindowUnicode(target) else { return }
+            // Only our own windows (and their children, e.g. an edit control), and never while the thread is in a menu or
+            // move/size loop: that loop reads the WM_CHAR itself (menu mnemonics, type-to-select) and must not get a
+            // WM_NULL instead. Other modal loops (MessageBoxW) own their windows, which are not ours.
+            guard let target = m.pointee.hwnd, IsWindowUnicode(target), WinSinkWindow.owns(target),
+                  !inMenuOrMoveLoop() else { return }
             var copy = m.pointee
             m.pointee.message = UINT(WM_NULL)
             redispatchedChars += 1
