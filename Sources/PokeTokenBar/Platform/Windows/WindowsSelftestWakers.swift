@@ -89,7 +89,7 @@ enum WindowsSelftestWakers {
     ///   finite   the same with a one hour limit
     ///   timer    `distant` plus a repeating `Timer` with the given interval and tolerance (the settings safety sync is 30 s / 10 s,
     ///            the store refresh 120 s / 12 s)
-    nonisolated(unsafe) private static var keep: AnyObject?
+    nonisolated(unsafe) private static var keep: Any?
 
     @MainActor static func park(_ args: [String]) -> Never {
         let mode = args.first ?? "none"
