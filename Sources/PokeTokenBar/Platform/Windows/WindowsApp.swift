@@ -36,6 +36,8 @@ public enum WindowsApp {
         }
         if let i = arguments.firstIndex(of: "--selftest-crash") { WindowsSelftestCrash.run(Array(arguments[(i + 1)...])) }
         if arguments.contains("--ime-check") { WinImeCheck.run() }
+        if arguments.contains("--team-probe") { WindowsTeamProbe.main(arguments) }  // Task 19: the PC check's team probe
+        if arguments.contains("--set-team-code") || arguments.contains("--clear-team-code") { WindowsTeamCodeTool.run(arguments) }
 
         let app = WindowsAppDelegate(arguments: arguments)
         guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
@@ -53,6 +55,8 @@ public enum WindowsApp {
 extension WindowsApp {
     /// Set at launch; `exit` takes the icon out of the notification area on every exit path.
     @MainActor static var trayToRemove: WinTray?
+    /// Set at launch; `exit` closes the team links (close_notify, DNS-SD goodbye) and joins the socket thread, once.
+    @MainActor static var teamTransportToShutdown: WindowsTeamTransport?
 
     enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed }
 
@@ -64,6 +68,8 @@ extension WindowsApp {
         WindowsCrashLog.markClean()
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
         trayToRemove?.remove()
+        teamTransportToShutdown?.shutdown()
+        teamTransportToShutdown = nil
         crtExit(code)
     }
 
@@ -86,6 +92,10 @@ private func crtExit(_ code: Int32) -> Never {
     private(set) var companion: CompanionStore!
     /// Built in `launch()`, after the single-instance check, so a yielding second start writes nothing.
     private(set) var teamSettings: TeamSettings!
+    /// The team link and the plaza feed (`PokeTokenBarApp`'s `teamRuntime`). The transport opens nothing until the
+    /// user has a team: `TeamSession` starts it only when `teamSettings.isReady`.
+    private(set) var teamRuntime: TeamRuntime!
+    private(set) var teamTransport: WindowsTeamTransport!
     private(set) var defaults: WinSyncingDefaults!
     private(set) var sink: WinSinkWindow!
     private(set) var tray: WinTrayHost?
@@ -146,7 +156,6 @@ private func crtExit(_ code: Int32) -> Never {
         self.store = store
         self.companion = companion
         // The update check starts at step 14 (`WindowsUpdates`); the tray menu reads it.
-        // Task 19: TeamRuntime (the team link and the plaza feed).
         Task { await companion.preparePokemonProfiles() }
         store.localizationLanguage = companion.language
         store.onRefresh = { [weak self] in self?.storeRefreshed() }
@@ -154,7 +163,9 @@ private func crtExit(_ code: Int32) -> Never {
         let tray = WinTrayHost(window: sink, store: store, companion: companion, defaults: defaults)
         self.tray = tray
         WindowsApp.trayToRemove = tray.tray
-        WindowsNotifications.install(presenter: WinBalloonPresenter(tray: tray.tray), tray: tray.tray)  // Task 8
+        let balloons = WinBalloonPresenter(tray: tray.tray)
+        WindowsNotifications.install(presenter: balloons, tray: tray.tray)  // Task 8
+        startTeam(balloons: balloons, tray: tray)  // 11b (Task 19)
         tray.start(showFirstRunHint: !arguments.contains("--selftest"))
         WinDefaultsSync.flushNow()  // 12: a fresh team.memberID survives an early crash
         WinDefaultsSync.start()
@@ -183,8 +194,25 @@ private func crtExit(_ code: Int32) -> Never {
             .appendingPathComponent("PokeTokenBar", isDirectory: true)
     }
 
+    /// The Mac's team wiring (`PokeTokenBarApp`): the runtime with the platform transport, the notifier, then
+    /// `start()`; `AppWiringDriftScanTests` holds the two to the same arguments and order. The Mac posts only from a
+    /// bundled app (its notification center crashes without a bundle); balloons have no such limit. The tray shows
+    /// the teammates line while the team is on.
+    private func startTeam(balloons: WinBalloonPresenter, tray: WinTrayHost) {
+        let transport = WindowsTeamTransport(events: Platform.current.events as? WindowsSystemEvents)
+        teamTransport = transport
+        WindowsApp.teamTransportToShutdown = transport
+        teamRuntime = TeamRuntime(settings: teamSettings, companion: companion, transport: transport)
+        teamRuntime.notifier = TeamNotifier(
+            settings: teamSettings, poster: WindowsTeamNotificationPoster(presenter: balloons),
+            isPlazaFrontmost: { false }, showInPlaza: { _ in })
+        teamRuntime.start()
+        let settings = teamSettings!, session = teamRuntime.session
+        tray.teammatesOnline = { settings.isReady ? session.members.count : nil }
+    }
+
     /// The Mac's `TeamSettings.defaultStore()` choice (standard, or a per-state-folder suite), as a syncing defaults.
-    private static func teamDefaults(fallback: WinSyncingDefaults) -> WinSyncingDefaults {
+    static func teamDefaults(fallback: WinSyncingDefaults) -> WinSyncingDefaults {
         guard let suite = TeamSettings.suiteName(for: AppStatePaths.directory(), defaultDirectory: defaultStateDirectory)
         else { return fallback }
         return WinSyncingDefaults(suiteName: suite) ?? fallback

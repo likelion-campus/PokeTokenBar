@@ -118,6 +118,18 @@ final class WinSocketLoop: @unchecked Sendable {
     /// Starts the TLS server handshake on an `.accepted` connection. Until then the loop reads nothing from it.
     func admit(_ id: WinConnID) { engine.admit(id) }
 
+    /// What a link negotiated, read by the team probe and the selftest (never by the link logic).
+    struct Negotiated: Sendable, Equatable {
+        let version: String
+        let cipher: String
+        /// The remote address and port, numeric (`WinSocketAddress` text form, `%<scope>` on link-local IPv6).
+        let peer: String
+    }
+
+    /// The TLS version, cipher and remote address of a ready link: recorded on the I/O thread before `.ready` is
+    /// posted, dropped when the link closes. nil before `.ready` and for unknown ids.
+    func negotiated(_ id: WinConnID) -> Negotiated? { engine.negotiated(id) }
+
     /// Asks for the next `.data` of a link (after `.ready`; one asked before `.ready` is kept for it).
     func receiveNext(_ id: WinConnID) { engine.receiveNext(id) }
 
@@ -214,6 +226,8 @@ private final class WinSocketEngine: @unchecked Sendable {
     private var answered = false
     private var dropWakes = 0
     private var failWakes = 0
+    /// Written by the I/O thread at handshake end and at close, read by the owner (`negotiated`).
+    private var negotiatedByID: [WinConnID: WinSocketLoop.Negotiated] = [:]
     struct Counters {
         var threadID: DWORD = 0
         var pollReturns = 0
@@ -248,6 +262,8 @@ private final class WinSocketEngine: @unchecked Sendable {
     }
 
     var counters: Counters { locked { counts } }
+
+    func negotiated(_ id: WinConnID) -> WinSocketLoop.Negotiated? { locked { negotiatedByID[id] } }
 
     // MARK: lifecycle
 
@@ -920,6 +936,9 @@ private final class WinSocketEngine: @unchecked Sendable {
         case .done:
             c.phase = .ready
             c.handshakeWants = 0
+            let info = WinSocketLoop.Negotiated(version: session.version ?? "?", cipher: session.cipher ?? "?",
+                                                peer: Sock.peerText(c.socket) ?? "?")
+            locked { negotiatedByID[c.id] = info }
             post(.ready(c.id))
             flushOutbox(c)
             if !c.closed, c.readArmed { tryRead(c) }
@@ -1028,6 +1047,7 @@ private final class WinSocketEngine: @unchecked Sendable {
         guard !c.closed else { return }
         c.closed = true
         conns[c.id] = nil
+        if c.phase == .ready { locked { negotiatedByID[c.id] = nil } }
         if c.phase == .awaitingAdmission { awaitingAdmission -= 1 }
         let graceful: Bool
         switch reason {
@@ -1141,6 +1161,19 @@ private enum Sock {
         let r = buffer.withUnsafeMutableBytes { getsockname(s, $0.baseAddress!.assumingMemoryBound(to: sockaddr.self), &length) }
         guard r == 0 else { return nil }
         return UInt16(buffer[2]) << 8 | UInt16(buffer[3])
+    }
+
+    /// The connected peer as numeric text with its port (`192.168.0.5:51234`, `[fe80:0:0:0:1:2:3:4%7]:51234`).
+    static func peerText(_ s: SOCKET) -> String? {
+        var buffer = [UInt8](repeating: 0, count: 128)
+        var length: Int32 = 128
+        let r = buffer.withUnsafeMutableBytes { getpeername(s, $0.baseAddress!.assumingMemoryBound(to: sockaddr.self), &length) }
+        guard r == 0, let a = buffer.withUnsafeBytes({ WinSocketAddress(sockaddr: $0.baseAddress!, length: Int(length)) })
+        else { return nil }
+        switch a.family {
+        case .ipv4: return "\(a.host):\(a.port)"
+        case .ipv6: return "[\(a.host)\(a.interfaceIndex != 0 ? "%\(a.interfaceIndex)" : "")]:\(a.port)"
+        }
     }
 
     static func loopback4(port: UInt16) -> [UInt8] {

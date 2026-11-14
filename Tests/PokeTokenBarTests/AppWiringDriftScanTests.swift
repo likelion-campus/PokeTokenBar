@@ -119,6 +119,41 @@ final class AppWiringDriftScanTests: XCTestCase {
                        "AppDelegate.observeCompanionSprite tracks different keys than the tray icon")
     }
 
+    // MARK: - the team runtime
+
+    /// The labels of the first `call`'s arguments, in order (`settings`, `companion`, ...).
+    static func labels(of call: String, in text: String) -> [String]? {
+        arguments(of: call, in: text)?.map { $0.components(separatedBy: ":").first ?? $0 }
+    }
+
+    /// The Windows app builds the team runtime the way `AppDelegate` does: the same `TeamRuntime` and `TeamNotifier`
+    /// arguments (the transport and the poster are the platform's), the same settings and companion, the notifier set
+    /// before `teamRuntime.start()`. A new argument or a new step on the Mac fails here until Windows has it too.
+    func testTheWindowsAppBuildsTheTeamRuntimeLikeTheMac() throws {
+        let mac = try Self.read("PokeTokenBarApp.swift")
+        let windows = try Self.read("Platform/Windows/WindowsApp.swift")
+        for call in ["TeamRuntime(", "TeamNotifier("] {
+            let macLabels = try XCTUnwrap(Self.labels(of: call, in: mac), "PokeTokenBarApp.swift has no \(call)")
+            XCTAssertEqual(Self.labels(of: call, in: windows), macLabels, "\(call) drifted from AppDelegate")
+        }
+        let macRuntime = try XCTUnwrap(Self.arguments(of: "TeamRuntime(", in: mac))
+        let winRuntime = try XCTUnwrap(Self.arguments(of: "TeamRuntime(", in: windows))
+        XCTAssertEqual(Array(winRuntime.prefix(2)), Array(macRuntime.prefix(2)), "the settings and the companion")
+        XCTAssertEqual(Self.arguments(of: "TeamNotifier(", in: windows)?.first, Self.arguments(of: "TeamNotifier(", in: mac)?.first)
+        for (name, text) in [("mac", mac), ("windows", windows)] {
+            let notifier = try XCTUnwrap(text.range(of: "teamRuntime.notifier = TeamNotifier("), name)
+            let start = try XCTUnwrap(text.range(of: "teamRuntime.start()"), name)
+            XCTAssertLessThan(notifier.lowerBound, start.lowerBound, "\(name): the notifier is set before the runtime starts")
+        }
+    }
+
+    func testTheLabelScanSeesANewArgument() {
+        XCTAssertEqual(Self.labels(of: "TeamRuntime(", in: "TeamRuntime(settings: s, companion: c, transport: T())"),
+                       ["settings", "companion", "transport"])
+        XCTAssertNotEqual(Self.labels(of: "TeamRuntime(", in: "TeamRuntime(settings: s, companion: c, transport: T(), feed: f)"),
+                          Self.labels(of: "TeamRuntime(", in: "TeamRuntime(settings: s, companion: c, transport: T())"))
+    }
+
     func testTheTrackedValueScanSeesADroppedKey() {
         let a = "func observeStore() {\n withObservationTracking {\n _ = a // x\n _ = b\n } onChange: {}"
         XCTAssertEqual(Self.trackedValues(of: "observeStore", in: a), ["_ = a", "_ = b"])

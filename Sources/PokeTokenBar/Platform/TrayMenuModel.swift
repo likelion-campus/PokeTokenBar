@@ -17,8 +17,10 @@ enum TrayMenuModel {
     /// The shell shows at most 127 UTF-16 units of a tooltip (`szTip` is 128 including the terminator).
     static let tipLimit = 127
 
-    /// `update` is the version of an available release (Task 10 supplies it); nil hides the entry.
-    static func items(l: L, todayTokens: Int, todayCost: UsageCost?, login: LoginState, update: String?) -> [Item?] {
+    /// `update` is the version of an available release (Task 10 supplies it); nil hides the entry. `teammatesOnline` is
+    /// the number of teammates linked right now, nil while the team is off (no team code, or turned off).
+    static func items(l: L, todayTokens: Int, todayCost: UsageCost?, login: LoginState, update: String?,
+                      teammatesOnline: Int? = nil) -> [Item?] {
         let loginItem: Item
         switch login {
         case .on:
@@ -34,6 +36,11 @@ enum TrayMenuModel {
         var rows: [Item?] = [
             Item(title: summary(l: l, todayTokens: todayTokens, todayCost: todayCost), enabled: false, checked: false,
                  action: .none),
+        ]
+        if let teammatesOnline {
+            rows.append(Item(title: l.teammatesOnline(teammatesOnline), enabled: false, checked: false, action: .none))
+        }
+        rows += [
             nil,
             Item(title: l.refreshNow, enabled: true, checked: false, action: .refresh),
             loginItem,
@@ -95,6 +102,11 @@ extension L {
           "O PokeTokenBar está em execução na área de notificação. Se não vir o ícone, clique em ^ para mostrar os ícones ocultos e arraste-o para a barra de tarefas.",
           "PokeTokenBar läuft im Infobereich. Wenn das Symbol fehlt, klicke auf ^, um ausgeblendete Symbole anzuzeigen, und ziehe es auf die Taskleiste.",
           "PokeTokenBar работает в области уведомлений. Если значка не видно, нажмите ^, чтобы показать скрытые значки, и перетащите его на панель задач.")
+    }
+    /// The tray's team line. The team UI itself is Korean only (`TeamLocalization`); the tray speaks every app language.
+    func teammatesOnline(_ n: Int) -> String {
+        t("접속 중인 팀원 \(n)명", "Teammates online: \(n)", "オンラインのチームメイト: \(n)", "Compañeros conectados: \(n)",
+          "Coéquipiers en ligne : \(n)", "Colegas online: \(n)", "Teammitglieder online: \(n)", "Участники команды в сети: \(n)")
     }
     var alreadyRunning: String {
         t("이미 실행 중이에요", "Already running", "すでに実行中です", "Ya se está ejecutando", "Déjà en cours d'exécution",
