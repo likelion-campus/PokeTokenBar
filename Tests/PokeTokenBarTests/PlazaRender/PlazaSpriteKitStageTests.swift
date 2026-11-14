@@ -146,6 +146,7 @@ final class PlazaSpriteKitStageTests: XCTestCase {
             view.isPaused = paused
             XCTAssertEqual(recorder.paused, old.changes, "view.isPaused = \(paused)")
         }
+        print("PROBE: scene pause changes after presenting and toggling a window-less SKView's isPaused: \(old.changes)")
         old.changes = []; recorder.paused = []
         old.isPaused = true; stage.skScene.isPaused = true   // SpriteKit (or anything else) writing the scene directly
         XCTAssertEqual(old.changes, [true])
