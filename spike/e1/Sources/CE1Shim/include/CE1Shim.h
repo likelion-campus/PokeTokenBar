@@ -95,6 +95,13 @@ int e1_hook_flags_seen(void);
 /// How many WM_APP+5 the hook rewrote to WM_NULL, and how many still reached the WndProc.
 int e1_hook_eaten(void);
 int e1_app5_seen(void);
+/// Text probe: the hook re-dispatches WM_CHAR with DispatchMessageW and hands CF's pump a WM_NULL.
+void e1_set_hook_redispatch(int on);
+int e1_hook_redispatched(void);
+void *e1_make_visible_window(void);
+int e1_is_foreground(void *hwnd);
+/// SendInput key down + up with KEYEVENTF_UNICODE (arrives as VK_PACKET -> WM_CHAR). Returns events injected.
+int e1_send_unicode_input(uint32_t ch);
 /// (m) A background thread sends WM_APP+6 five times with SendMessageTimeoutW (2 s), 150 ms apart.
 void e1_start_sender(void *hwnd);
 int e1_sender_stats(double *maxv, int *ok, int *on_main);

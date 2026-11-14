@@ -671,3 +671,42 @@ func runTimers() {
         say("E1.TIMER \(darwinLike ? "PASS" : "FAIL") \(name) first_fire_ms=\(f2(first)) fires_ms=\(fires.map { f2($0) }) (Darwin: first fire ~1000)")
     }
 }
+
+// MARK: - Text through the loop (stages 6-7 need it): posted WM_CHAR and SendInput(KEYEVENTF_UNICODE)
+
+/// cf = CF's pump; cfhook = CF's pump + a WH_GETMESSAGE hook that re-dispatches WM_CHAR with DispatchMessageW;
+/// dhc = own PeekMessageW pump.
+func runText(_ mode: String) {
+    let strategy = mode == "dhc" ? "dhc" : "cf"
+    let notes = setup(strategy)
+    e1_set_msg_callback(onMessage)
+    G.hwnd = e1_make_visible_window()
+    let hook = e1_install_getmsg_hook()
+    if mode == "cfhook" { e1_set_hook_redispatch(1) }
+    say("E1.TEXT[\(mode)] VALUE \(notes) hook=\(hook) foreground=\(e1_is_foreground(G.hwnd)) ACP=\(e1_acp())")
+    Thread {
+        Thread.sleep(forTimeInterval: 0.3)
+        _ = e1_post(G.hwnd, 0x0102, 0xD55C, 0)  // posted path
+        Thread.sleep(forTimeInterval: 0.3)
+        let fg = e1_is_foreground(G.hwnd)
+        let a = e1_send_unicode_input(0x42)  // input path: 'B' then U+D55C
+        let b = e1_send_unicode_input(0xD55C)
+        say("E1.TEXT[\(mode)] VALUE SendInput injected=\(a)+\(b) foreground_at_send=\(fg)")
+        Thread.sleep(forTimeInterval: 0.6)
+        DispatchQueue.main.async { e1_set_done() }
+    }.start()
+    Thread {
+        Thread.sleep(forTimeInterval: 10)
+        say("E1.TEXT[\(mode)] WATCHDOG")
+        exit(4)
+    }.start()
+    runLoop(strategy)
+    var chars = [UInt32](repeating: 0, count: 8)
+    let n = e1_chars(&chars, 8)
+    let got = chars.prefix(Int(min(n, 8))).map { "0x" + String($0, radix: 16) }
+    let posted = got.first == "0xd55c"
+    let typed = Array(got.dropFirst()) == ["0x42", "0xd55c"]
+    say("E1.TEXT[\(mode)] \(posted ? "PASS" : "FAIL") posted-WM_CHAR got_first=\(got.first ?? "none")")
+    say("E1.TEXT[\(mode)] \(typed ? "PASS" : "FAIL") SendInput-unicode got_rest=\(Array(got.dropFirst())) want=[0x42, 0xd55c] "
+        + "hook_redispatched=\(e1_hook_redispatched())")
+}

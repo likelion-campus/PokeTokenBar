@@ -20,6 +20,7 @@ echo "E1.ENV explorer: $(tasklist //FI "IMAGENAME eq explorer.exe" //NH 2>&1 | t
 
 run symbols
 run timers
+for m in cf cfhook dhc; do run text "$m"; done
 for s in cf cur dh dhc; do run p2 "$s"; done
 for v in toplevel direct pump timer dispatch task bg; do run p3 "$v"; done
 for v in plain rl dq plainkeys rlkeys dqkeys; do run modal "$v"; done

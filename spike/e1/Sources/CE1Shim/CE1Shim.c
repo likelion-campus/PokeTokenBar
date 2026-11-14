@@ -555,6 +555,7 @@ static HHOOK g_hook;
 static volatile LONG g_hook_post, g_hook_char, g_hook_eaten;
 static uint32_t g_hook_char_w;
 static volatile LONG g_hook_flags_seen = -1;
+static volatile LONG g_hook_redispatch, g_hook_redispatched;
 
 // Sees every message a PeekMessage/GetMessage on this thread removes, before it is dispatched. CF's pump passes
 // PM_REMOVE | PM_NOYIELD, so test the bit. Rewriting a message to WM_NULL "eats" it (where IsDialogMessageW would go).
@@ -568,6 +569,13 @@ static LRESULT CALLBACK e1_getmsg_hook(int code, WPARAM w, LPARAM l) {
         if (m->message == WM_CHAR) {
             g_hook_char_w = (uint32_t)m->wParam;
             InterlockedIncrement(&g_hook_char);
+            if (g_hook_redispatch) {
+                // Deliver the Unicode form ourselves, then let CF's ANSI DispatchMessage see only WM_NULL.
+                MSG copy = *m;
+                m->message = WM_NULL;
+                DispatchMessageW(&copy);
+                InterlockedIncrement(&g_hook_redispatched);
+            }
         }
         if (m->message == WM_APP + 5) {
             m->message = WM_NULL;
@@ -589,6 +597,30 @@ void e1_hook_stats(int *posts, int *chars, uint32_t *last_char) {
 }
 
 int e1_hook_flags_seen(void) { return (int)g_hook_flags_seen; }
+void e1_set_hook_redispatch(int on) { InterlockedExchange(&g_hook_redispatch, on); }
+int e1_hook_redispatched(void) { return (int)g_hook_redispatched; }
+
+// Text probe: a shown window that takes focus, and real input through SendInput(KEYEVENTF_UNICODE) -> VK_PACKET.
+void *e1_make_visible_window(void) {
+    HWND h = (HWND)e1_make_window(0);
+    if (!h) return NULL;
+    SetWindowPos(h, HWND_TOP, 40, 40, 200, 120, SWP_SHOWWINDOW);
+    ShowWindow(h, SW_SHOW);
+    SetForegroundWindow(h);
+    SetFocus(h);
+    return h;
+}
+int e1_is_foreground(void *hwnd) { return GetForegroundWindow() == (HWND)hwnd ? 1 : 0; }
+int e1_send_unicode_input(uint32_t ch) {
+    INPUT in[2];
+    memset(in, 0, sizeof in);
+    in[0].type = INPUT_KEYBOARD;
+    in[0].ki.wScan = (WORD)ch;
+    in[0].ki.dwFlags = KEYEVENTF_UNICODE;
+    in[1] = in[0];
+    in[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+    return (int)SendInput(2, in, sizeof(INPUT));
+}
 int e1_hook_eaten(void) { return (int)g_hook_eaten; }
 
 int e1_app5_seen(void) { return (int)g_app5_seen; }

@@ -17,6 +17,7 @@ case "argv": for x in a.dropFirst(2) { say("ARGV " + x) }
 case "process": runProcess()
 case "net": runNet()
 case "timers": runTimers()
+case "text": runText(a[2])
 default:
     say("usage: ptbe1 symbols | p2 <cf|cfh|cf0|cur|dh|dhc|poll> | p3 <variant> | idle <strategy> <secs> | modal <plain|rl|dq>[keys] | timers | tray | "
         + "facts | pchild <key> <mode> | pread <key=present|absent|info>... | argv ... | process | net")
