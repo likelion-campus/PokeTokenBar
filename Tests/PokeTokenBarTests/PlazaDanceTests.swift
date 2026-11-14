@@ -701,8 +701,8 @@ final class PlazaDanceTests: XCTestCase {
         run(s, dt)
         let frame = try XCTUnwrap(s.emoteFrame(memberID: nil))
         XCTAssertEqual(frame.size, PlazaEmoteArt.size(large: true))
-        XCTAssertNotEqual(PlazaEmoteArt.image(.dance, scale: 2, large: true).dataProvider?.data as Data?,
-                          PlazaEmoteArt.image(.lol, scale: 2, large: true).dataProvider?.data as Data?)
+        XCTAssertNotEqual(PlazaEmoteArt.image(.dance, scale: 2, large: true).cgImage.dataProvider?.data as Data?,
+                          PlazaEmoteArt.image(.lol, scale: 2, large: true).cgImage.dataProvider?.data as Data?)
     }
 
     func testNotesDoNotReplaceAChatOrEmoteBubble() {

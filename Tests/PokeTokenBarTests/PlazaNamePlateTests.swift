@@ -6,7 +6,8 @@ import XCTest
 final class PlazaNamePlateTests: XCTestCase {
     private let white = PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
 
-    private func pixels(_ image: CGImage) -> [UInt8] {
+    private func pixels(_ plaza: PlazaImage) -> [UInt8] {
+        let image = plaza.cgImage
         var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let context = CGContext(data: &data, width: image.width, height: image.height, bitsPerComponent: 8,
                                 bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
@@ -20,7 +21,7 @@ final class PlazaNamePlateTests: XCTestCase {
     private let red = PlazaColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
 
     /// 글자 채움(순수한 빨강) 픽셀의 x 범위. `rows`는 위에서부터 센 줄이다.
-    private func fillSpan(_ image: CGImage, rows: Range<Int>) -> ClosedRange<Int>? {
+    private func fillSpan(_ image: PlazaImage, rows: Range<Int>) -> ClosedRange<Int>? {
         let data = pixels(image)
         var low: Int?, high: Int?
         for y in rows {
@@ -135,7 +136,7 @@ final class PlazaNamePlateTests: XCTestCase {
         let context = CGContext(data: &data, width: image.width, height: image.height, bitsPerComponent: 8,
                                 bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.draw(image.cgImage, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         func rgba(_ x: Int, _ y: Int) -> [UInt8] { let i = (y * image.width + x) * 4; return Array(data[i..<i + 4]) }
         for (x, y) in [(0, 0), (image.width - 1, 0), (0, image.height - 1), (image.width - 1, image.height - 1)] {
             XCTAssertEqual(rgba(x, y)[3], 0, "corner (\(x),\(y)) must be transparent: no plate")

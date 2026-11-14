@@ -686,7 +686,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func playDittoPoof() {
         guard !isPaused, let r = remotes[PlazaDitto.sceneKey] else { return }
         let foot = r.motion.footPoint
-        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
+        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2).cgImage)
         texture.filteringMode = .nearest
         let count = 5
         for i in 0..<count {
@@ -1332,7 +1332,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     func setBoardMarker(visible: Bool) {
         if boardMarker == nil {
             guard visible else { return }
-            let image = PlazaEmoteArt.image(.exclaim, scale: 2)
+            let image = PlazaEmoteArt.image(.exclaim, scale: 2).cgImage
             let texture = SKTexture(cgImage: image)
             texture.filteringMode = .nearest
             let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.size)
@@ -1358,7 +1358,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let originY = memberID != nil && actor.concealment > 0.5 ? worldSize.height - foot.y + PlazaTallGrass.hiddenPlateLift
             : worldSize.height - foot.y + max(actor.characterSize.height, 24) * 0.6
         let origin = CGPoint(x: foot.x.rounded(), y: originY.rounded())
-        let image = PlazaEmoteArt.sparkImage(scale: 2)
+        let image = PlazaEmoteArt.sparkImage(scale: 2).cgImage
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         for velocity in Self.sparkleVelocities {
@@ -1425,7 +1425,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         }
         let center = CGPoint(x: (foot.x + back.x).rounded(),
                              y: (worldSize.height - foot.y + back.y + max(hit.characterSize.height, 24) * 0.55).rounded())
-        let texture = SKTexture(cgImage: PlazaEmoteArt.impactImage(scale: 2))
+        let texture = SKTexture(cgImage: PlazaEmoteArt.impactImage(scale: 2).cgImage)
         texture.filteringMode = .nearest
         let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.impactSize)
         node.position = center
@@ -1630,7 +1630,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let tile = memberID.flatMap { remotes[$0]?.motion.tile } ?? walker.currentStep?.from ?? walker.tile
         if isWaterNow(tile) { return }   // 물 위에는 먼지가 일지 않는다
         let foot = memberID.flatMap { remotes[$0]?.motion.footPoint } ?? walker.footPoint
-        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2))
+        let texture = SKTexture(cgImage: PlazaEmoteArt.dustImage(scale: 2).cgImage)
         texture.filteringMode = .nearest
         for side in [-1.0, 1.0] {
             let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.dustSize)
@@ -1917,7 +1917,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         defer { onItemChange?(spawn) }
         guard let spawn else { return }
         // 가장 큰 배율(배율 4 × 화면 2)로 그려 두면 어느 배율에서도 정수배로 줄어든다.
-        let texture = SKTexture(cgImage: PlazaEmoteArt.itemImage(spawn.kind, scale: 8))
+        let texture = SKTexture(cgImage: PlazaEmoteArt.itemImage(spawn.kind, scale: 8).cgImage)
         texture.filteringMode = .nearest
         let node = SKSpriteNode(texture: texture, size: PlazaEmoteArt.itemSize(spawn.kind))
         node.anchorPoint = CGPoint(x: 0.5, y: 0)
@@ -1940,7 +1940,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var itemPhotoParticles: [PlazaPhotoParticle] {
         guard let spawn = shownItem, let node = itemNode else { return [] }
         let size = PlazaEmoteArt.itemSize(spawn.kind)
-        return [PlazaPhotoParticle(image: PlazaEmoteArt.itemImage(spawn.kind, scale: 8),
+        return [PlazaPhotoParticle(image: PlazaEmoteArt.itemImage(spawn.kind, scale: 8).cgImage,
                                    origin: CGPoint(x: node.position.x - size.width / 2, y: worldSize.height - node.position.y - size.height),
                                    size: size)]
     }
@@ -2286,7 +2286,7 @@ struct PlazaSceneMember: Equatable, Sendable {
               let base = Self.campfireBase(map) else { campfireTimerNode?.isHidden = true; return }
         let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
         if campfireTimerDrawn?.text != text || campfireTimerDrawn?.backing != backing {
-            guard let image = PlazaNamePlate.image(text: text, color: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), scale: backing) else {
+            guard let image = PlazaNamePlate.image(text: text, color: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), scale: backing)?.cgImage else {
                 campfireTimerNode?.isHidden = true
                 return
             }

@@ -1,5 +1,4 @@
-import AppKit
-import CoreText
+import Foundation
 
 /// 감정 말풍선 그림: 흰 바탕, 어두운 테두리, 아래 꼬리. 도트 격자와 갈무리 글꼴만 쓰고 이모지 글꼴은 쓰지 않는다.
 /// CoreGraphics/CoreText만 쓰므로 창 없이 만들 수 있다.
@@ -73,20 +72,20 @@ enum PlazaEmoteArt {
         "..##..",
         "..##..",
     ]
-    private static let ink = CGColor(srgbRed: 0x14 / 255, green: 0x16 / 255, blue: 0x1F / 255, alpha: 1)
-    private static let palette: [Character: CGColor] = [
+    private static let ink = PlazaColor(srgbRed: 0x14 / 255, green: 0x16 / 255, blue: 0x1F / 255, alpha: 1)
+    private static let palette: [Character: PlazaColor] = [
         "#": ink,
-        "W": CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1),
-        "R": CGColor(srgbRed: 0xE5 / 255, green: 0x48 / 255, blue: 0x4D / 255, alpha: 1),
-        "Y": CGColor(srgbRed: 0xF5 / 255, green: 0xC4 / 255, blue: 0x2B / 255, alpha: 1),
-        "G": CGColor(srgbRed: 0x3F / 255, green: 0xB9 / 255, blue: 0x50 / 255, alpha: 1),
-        "B": CGColor(srgbRed: 0x3B / 255, green: 0x82 / 255, blue: 0xF6 / 255, alpha: 1),
-        "O": CGColor(srgbRed: 0xF0 / 255, green: 0x8A / 255, blue: 0x24 / 255, alpha: 1),
-        "U": CGColor(srgbRed: 0xF2 / 255, green: 0xEE / 255, blue: 0xE2 / 255, alpha: 1),
-        "V": CGColor(srgbRed: 0xC4 / 255, green: 0xBC / 255, blue: 0xAA / 255, alpha: 1),
+        "W": PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 1),
+        "R": PlazaColor(srgbRed: 0xE5 / 255, green: 0x48 / 255, blue: 0x4D / 255, alpha: 1),
+        "Y": PlazaColor(srgbRed: 0xF5 / 255, green: 0xC4 / 255, blue: 0x2B / 255, alpha: 1),
+        "G": PlazaColor(srgbRed: 0x3F / 255, green: 0xB9 / 255, blue: 0x50 / 255, alpha: 1),
+        "B": PlazaColor(srgbRed: 0x3B / 255, green: 0x82 / 255, blue: 0xF6 / 255, alpha: 1),
+        "O": PlazaColor(srgbRed: 0xF0 / 255, green: 0x8A / 255, blue: 0x24 / 255, alpha: 1),
+        "U": PlazaColor(srgbRed: 0xF2 / 255, green: 0xEE / 255, blue: 0xE2 / 255, alpha: 1),
+        "V": PlazaColor(srgbRed: 0xC4 / 255, green: 0xBC / 255, blue: 0xAA / 255, alpha: 1),
         // 민트: 풀밭(초록) 위에서 보이도록 청록과 밝은 청록.
-        "M": CGColor(srgbRed: 0x2F / 255, green: 0xB8 / 255, blue: 0xA6 / 255, alpha: 1),
-        "L": CGColor(srgbRed: 0xB9 / 255, green: 0xF2 / 255, blue: 0xE4 / 255, alpha: 1),
+        "M": PlazaColor(srgbRed: 0x2F / 255, green: 0xB8 / 255, blue: 0xA6 / 255, alpha: 1),
+        "L": PlazaColor(srgbRed: 0xB9 / 255, green: 0xF2 / 255, blue: 0xE4 / 255, alpha: 1),
     ]
 
     /// 포인트 단위 크기. 이미지 픽셀 크기는 여기에 배율을 곱한 값이다.
@@ -98,21 +97,21 @@ enum PlazaEmoteArt {
     }
 
     /// `scale`은 포인트당 기기 픽셀 수. `large`는 인사하기 말풍선(1.5배).
-    static func image(_ kind: TeamEmoteKind, scale: CGFloat, large: Bool = false) -> CGImage {
+    static func image(_ kind: TeamEmoteKind, scale: CGFloat, large: Bool = false,
+                      graphics: any PlazaGraphics = PlatformPlaza.graphics) -> PlazaImage {
         let scale = max(scale, 1)
         let dot = large ? largeDot : dot, size = size(large: large)
-        let context = CGContext(data: nil, width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()),
-                                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let context = graphics.makeCanvas(width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()),
+                                           colorSpace: .sRGB)!
         context.setShouldAntialias(false)
-        context.scaleBy(x: scale, y: scale)
+        context.scale(x: scale, y: scale)
         drawGrid(bubble, cell: dot, origin: .zero, in: context)
         // 몸통 안쪽의 가운데(위에서 다섯 도트 반)에 내용을 둔다.
         let center = CGPoint(x: size.width / 2, y: size.height - 5.5 * dot)
         switch kind {
         case .heart: drawGrid(heart, cell: dot, centeredAt: center, in: context)
         case .party: drawGrid(party, cell: dot, centeredAt: center, in: context)
-        case .lol: drawText(L(.ko).plazaEmoteLol, size: large ? .body : .small, centeredAt: center, in: context)
+        case .lol: drawText(L(.ko).plazaEmoteLol, size: large ? .body : .small, centeredAt: center, in: context, graphics: graphics)
         case .exclaim: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
         case .question: drawGrid(question, cell: dot, centeredAt: center, in: context)
         case .tackle: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)
@@ -127,7 +126,7 @@ enum PlazaEmoteArt {
         case .mimicTackle: drawGrid(impact, cell: dot / 2, centeredAt: center, in: context)   // never shown as a bubble
         case .mimicFound: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)   // never shown as a bubble
         case .pull: drawGrid(exclaim, cell: dot, centeredAt: center, in: context)
-        case .dance: drawText(L(.ko).plazaEmoteDance, size: large ? .body : .small, centeredAt: center, in: context)
+        case .dance: drawText(L(.ko).plazaEmoteDance, size: large ? .body : .small, centeredAt: center, in: context, graphics: graphics)
         case .pray: drawGrid(pray, cell: dot, centeredAt: center, in: context)
         }
         return context.makeImage()!
@@ -155,13 +154,12 @@ enum PlazaEmoteArt {
     /// 충격 그림의 포인트 단위 크기. 이미지 픽셀 크기는 여기에 배율을 곱한 값이다.
     static let impactSize = CGSize(width: CGFloat(impact[0].count) * dot, height: CGFloat(impact.count) * dot)
 
-    static func impactImage(scale: CGFloat) -> CGImage {
+    static func impactImage(scale: CGFloat, graphics: any PlazaGraphics = PlatformPlaza.graphics) -> PlazaImage {
         let scale = max(scale, 1)
-        let context = CGContext(data: nil, width: Int((impactSize.width * scale).rounded()), height: Int((impactSize.height * scale).rounded()),
-                                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let context = graphics.makeCanvas(width: Int((impactSize.width * scale).rounded()), height: Int((impactSize.height * scale).rounded()),
+                                           colorSpace: .sRGB)!
         context.setShouldAntialias(false)
-        context.scaleBy(x: scale, y: scale)
+        context.scale(x: scale, y: scale)
         drawGrid(impact, cell: dot, origin: .zero, in: context)
         return context.makeImage()!
     }
@@ -186,13 +184,12 @@ enum PlazaEmoteArt {
 
     static let dustSize = CGSize(width: CGFloat(dust[0].count) * dot, height: CGFloat(dust.count) * dot)
 
-    static func dustImage(scale: CGFloat) -> CGImage {
+    static func dustImage(scale: CGFloat, graphics: any PlazaGraphics = PlatformPlaza.graphics) -> PlazaImage {
         let scale = max(scale, 1)
-        let context = CGContext(data: nil, width: Int((dustSize.width * scale).rounded()), height: Int((dustSize.height * scale).rounded()),
-                                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let context = graphics.makeCanvas(width: Int((dustSize.width * scale).rounded()), height: Int((dustSize.height * scale).rounded()),
+                                           colorSpace: .sRGB)!
         context.setShouldAntialias(false)
-        context.scaleBy(x: scale, y: scale)
+        context.scale(x: scale, y: scale)
         drawGrid(dust, cell: dot, origin: .zero, in: context)
         return context.makeImage()!
     }
@@ -235,13 +232,12 @@ enum PlazaEmoteArt {
         return CGSize(width: CGFloat(grid[0].count) * dot, height: CGFloat(grid.count) * dot)
     }
 
-    static func itemImage(_ kind: ItemKind, scale: CGFloat) -> CGImage {
+    static func itemImage(_ kind: ItemKind, scale: CGFloat, graphics: any PlazaGraphics = PlatformPlaza.graphics) -> PlazaImage {
         let scale = max(scale, 1), size = itemSize(kind)
-        let context = CGContext(data: nil, width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()),
-                                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let context = graphics.makeCanvas(width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()),
+                                           colorSpace: .sRGB)!
         context.setShouldAntialias(false)
-        context.scaleBy(x: scale, y: scale)
+        context.scale(x: scale, y: scale)
         drawGrid(itemGrid(kind), cell: dot, origin: .zero, in: context)
         return context.makeImage()!
     }
@@ -249,19 +245,18 @@ enum PlazaEmoteArt {
     /// 큰 소식 반짝임 조각 하나. 포인트 단위 크기는 `sparkSize`.
     static let sparkSize = CGSize(width: 5 * dot, height: 5 * dot)
 
-    static func sparkImage(scale: CGFloat) -> CGImage {
+    static func sparkImage(scale: CGFloat, graphics: any PlazaGraphics = PlatformPlaza.graphics) -> PlazaImage {
         let scale = max(scale, 1)
-        let context = CGContext(data: nil, width: Int((sparkSize.width * scale).rounded()), height: Int((sparkSize.height * scale).rounded()),
-                                bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let context = graphics.makeCanvas(width: Int((sparkSize.width * scale).rounded()), height: Int((sparkSize.height * scale).rounded()),
+                                           colorSpace: .sRGB)!
         context.setShouldAntialias(false)
-        context.scaleBy(x: scale, y: scale)
+        context.scale(x: scale, y: scale)
         drawGrid(spark, cell: dot, origin: .zero, in: context)
         return context.makeImage()!
     }
 
     /// 위에서 아래로 읽는 격자를 그린다. `origin`은 격자 왼쪽 아래 모서리(CG 좌표).
-    private static func drawGrid(_ rows: [String], cell: CGFloat, origin: CGPoint, in context: CGContext) {
+    private static func drawGrid(_ rows: [String], cell: CGFloat, origin: CGPoint, in context: any PlazaCanvas) {
         for (row, line) in rows.enumerated() {
             for (col, ch) in line.enumerated() {
                 guard let color = palette[ch] else { continue }
@@ -272,21 +267,17 @@ enum PlazaEmoteArt {
         }
     }
 
-    private static func drawGrid(_ rows: [String], cell: CGFloat, centeredAt center: CGPoint, in context: CGContext) {
+    private static func drawGrid(_ rows: [String], cell: CGFloat, centeredAt center: CGPoint, in context: any PlazaCanvas) {
         let w = CGFloat(rows.map(\.count).max() ?? 0) * cell, h = CGFloat(rows.count) * cell
         drawGrid(rows, cell: cell, origin: CGPoint(x: center.x - w / 2, y: center.y - h / 2), in: context)
     }
 
-    private static func drawText(_ text: String, size: PlazaTextSize, centeredAt center: CGPoint, in context: CGContext) {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: PlazaResources.font(size),
-            NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true,
-        ]
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
-        let bounds = CTLineGetImageBounds(line, context)
+    private static func drawText(_ text: String, size: PlazaTextSize, centeredAt center: CGPoint, in context: any PlazaCanvas,
+                                 graphics: any PlazaGraphics) {
+        let line = graphics.text.line(text, font: .plaza(size))
+        let bounds = context.imageBounds(of: line)
         context.setShouldSmoothFonts(false)
         context.setFillColor(ink)
-        context.textPosition = CGPoint(x: (center.x - bounds.midX).rounded(), y: (center.y - bounds.midY).rounded())
-        CTLineDraw(line, context)
+        context.draw(line, at: CGPoint(x: (center.x - bounds.midX).rounded(), y: (center.y - bounds.midY).rounded()))
     }
 }

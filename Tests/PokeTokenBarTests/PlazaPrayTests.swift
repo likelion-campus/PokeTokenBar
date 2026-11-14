@@ -307,7 +307,7 @@ final class PlazaPrayTests: XCTestCase {
 
     /// The prayer bubble has its own picture, not another kind's.
     func testThePrayerBubbleHasItsOwnArt() {
-        func pixels(_ kind: TeamEmoteKind) -> Data? { PlazaEmoteArt.image(kind, scale: 1).dataProvider?.data as Data? }
+        func pixels(_ kind: TeamEmoteKind) -> Data? { PlazaEmoteArt.image(kind, scale: 1).cgImage.dataProvider?.data as Data? }
         XCTAssertNotNil(pixels(.pray))
         for other: TeamEmoteKind in [.heart, .party, .exclaim, .question] {
             XCTAssertNotEqual(pixels(.pray), pixels(other), "\(other)")

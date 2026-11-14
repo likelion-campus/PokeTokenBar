@@ -182,3 +182,4 @@ PlazaRender/
 # Track A legacy art oracles: verbatim pre-conversion CoreGraphics art and the CGImage byte comparison (deleted in Task 19)
 Legacy/
 PlazaArtParityTests.swift
+PlazaTextArtParityTests.swift
