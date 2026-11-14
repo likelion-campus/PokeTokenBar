@@ -1,6 +1,5 @@
-// PlazaFireworksTests+Mac: the firework tests that need the SwiftUI shortcut guide or its render
+// PlazaFireworksTests+Mac: the firework tests that need the shortcut guide's size (the panel, measured with the Mac's real text)
 import XCTest
-import SwiftUI
 import AppKit
 @testable import PokeTokenBar
 
@@ -8,9 +7,9 @@ extension PlazaFireworksTests {
     private func guideSize(snowDay: Bool = false) throws -> CGSize {
         let model = PlazaShortcutGuideModel()
         model.season = snowDay ? .winter : .summer
-        let renderer = ImageRenderer(content: PlazaShortcutGuide(model: model, toggle: {}))
-        renderer.scale = 1
-        return try XCTUnwrap(renderer.nsImage?.size)
+        let panel = PlazaShortcutGuidePanel(model: model, toggle: PlazaBackgroundTogglePanel(model: PlazaBackgroundModel()))
+        let size = panel.size(in: .zero, scale: 1, text: PlatformPlaza.graphics.text)
+        return CGSize(width: size.width - 2 * PlazaPanelStyle.strokeRoom, height: size.height - 2 * PlazaPanelStyle.strokeRoom)
     }
 
     /// `coveredWidth` is written by hand, so a longer row must not outgrow it unnoticed.

@@ -88,16 +88,16 @@ private struct NoSprites: PlazaSpriteFetching {
 
         let subs = container.subviews
         XCTAssertEqual(subs.map { String(describing: type(of: $0)) },
-                       ["SKView", "PlazaRosterHostingView", "PlazaOverlayHostingView", "PlazaPanelHostView", "PlazaChatLogHostingView",
-                        "PlazaMinimapHostingView", "PlazaPanelHostView", "PlazaShortcutGuideHostingView",
-                        "PlazaBackgroundToggleHostingView", "PlazaNameColorPickerHostingView", "NSView"],
-                       "bottom first, as show() added them; the pills' host right above the overlay, the clock's where its hosting view was")
-        guard subs.count == 11 else { return }
-        XCTAssertEqual((subs[3] as? PlazaPanelHostView)?.panelID, .pills)
-        XCTAssertEqual((subs[6] as? PlazaPanelHostView)?.panelID, .clock)
-        XCTAssertTrue(subs[10] === chat.view, "the chat field's bar is on top")
+                       ["SKView", "PlazaRosterHostingView", "PlazaOverlayHostingView", "PlazaPanelHostView", "PlazaPanelHostView",
+                        "PlazaChatLogHostingView", "PlazaMinimapHostingView", "PlazaPanelHostView", "PlazaPanelHostView",
+                        "PlazaPanelHostView", "PlazaPanelHostView", "NSView"],
+                       "bottom first, as show() added them; the photo frame and the pills' hosts right above the overlay, the clock's where its hosting view was, the guide, toggle and picker hosts where theirs were")
+        guard subs.count == 12 else { return }
+        XCTAssertEqual(subs.compactMap { ($0 as? PlazaPanelHostView)?.panelID },
+                       [.photoFrame, .pills, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+        XCTAssertTrue(subs[11] === chat.view, "the chat field's bar is on top")
         for v in subs.dropFirst() { XCTAssertFalse(v.translatesAutoresizingMaskIntoConstraints) }
-        let named = ["roster", "overlay", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "chatBar"]
+        let named = ["roster", "overlay", "photoFrame", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "chatBar"]
         var names = [ObjectIdentifier(container): "container"]
         for (i, n) in named.enumerated() { names[ObjectIdentifier(subs[i + 1])] = n }
         func installed() -> (between: [String], own: Set<String>) {
@@ -118,9 +118,15 @@ private struct NoSprites: PlazaSpriteFetching {
             "pills.leading = container.leading + 0", "pills.trailing = container.trailing + 0",
             "clock.top = container.top + 0", "clock.bottom = container.bottom + 0",
             "clock.leading = container.leading + 0", "clock.trailing = container.trailing + 0",
-            "toggle.top = container.top + \(m)", "toggle.leading = container.leading + \(m)",
-            "shortcuts.top = toggle.bottom + 6", "shortcuts.leading = toggle.leading + 0",
-            "colorPicker.top = toggle.top + 0", "colorPicker.leading = toggle.trailing + 8",
+            // The HUD places the guide under the toggle and the picker beside it (PlazaHUDControlsTests).
+            "photoFrame.top = container.top + 0", "photoFrame.bottom = container.bottom + 0",
+            "photoFrame.leading = container.leading + 0", "photoFrame.trailing = container.trailing + 0",
+            "shortcuts.top = container.top + 0", "shortcuts.bottom = container.bottom + 0",
+            "shortcuts.leading = container.leading + 0", "shortcuts.trailing = container.trailing + 0",
+            "toggle.top = container.top + 0", "toggle.bottom = container.bottom + 0",
+            "toggle.leading = container.leading + 0", "toggle.trailing = container.trailing + 0",
+            "colorPicker.top = container.top + 0", "colorPicker.bottom = container.bottom + 0",
+            "colorPicker.leading = container.leading + 0", "colorPicker.trailing = container.trailing + 0",
         ]
         XCTAssertEqual(installed().between, expected.sorted())
         XCTAssertTrue(installed().own.isSuperset(of: ["roster.width = \(String(format: "%g", PlazaRosterMetrics.width))",
@@ -135,10 +141,10 @@ private struct NoSprites: PlazaSpriteFetching {
 
         chat.open()
         shell.setHUDHidden(true)
-        XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, true, true, true, true, true, true, false],
-                       "photo mode hides the roster, chat log, map, clock, guide and both toggles; not the scene, the overlay, its pills or the open field")
+        XCTAssertEqual(subs.map(\.isHidden), [false, true, false, false, false, true, true, true, true, true, true, false],
+                       "photo mode hides the roster, chat log, map, clock, guide and both toggles; not the scene, the overlay, its frame and pills or the open field")
         shell.setHUDHidden(false)
-        XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 11))
+        XCTAssertEqual(subs.map(\.isHidden), Array(repeating: false, count: 12))
         shell.focusChatInput()
         XCTAssertFalse(w.firstResponder === view, "the field takes the keys")
         shell.focusScene()
@@ -181,24 +187,39 @@ private struct NoSprites: PlazaSpriteFetching {
         let shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("this test never brings a window forward") })
         shell.open(stage: scene.stage, title: "t", overlays: c.overlayBindings)
         let subs = try XCTUnwrap(shell.windowForTesting?.contentView).subviews
-        guard subs.count == 11 else { return XCTFail("\(subs)") }
+        guard subs.count == 12 else { return XCTFail("\(subs)") }
         let roster = try XCTUnwrap(subs[1] as? PlazaRosterHostingView)
         let overlay = try XCTUnwrap(subs[2] as? PlazaOverlayHostingView)
-        let chatLog = try XCTUnwrap(subs[4] as? PlazaChatLogHostingView)
-        let guide = try XCTUnwrap(subs[7] as? PlazaShortcutGuideHostingView)
-        let background = try XCTUnwrap(subs[8] as? PlazaBackgroundToggleHostingView)
-        let picker = try XCTUnwrap(subs[9] as? PlazaNameColorPickerHostingView)
+        let chatLog = try XCTUnwrap(subs[5] as? PlazaChatLogHostingView)
         func state() -> [Bool] { [c.isChatLogExpanded, c.areShortcutsFolded, c.isBackgroundHidden, c.isNameColorPickerOpen] }
+        func click(_ index: Int, _ id: PlazaPanelID, _ point: (CGRect) -> CGPoint) throws {
+            // A click on the panel's host view: the HUD's frame for the panel, the point in it, down and up through the host.
+            let host = try XCTUnwrap(subs[index] as? PlazaPanelHostView)
+            XCTAssertEqual(host.panelID, id)
+            host.superview?.layoutSubtreeIfNeeded()
+            let frame = try XCTUnwrap(c.hud.layout(viewport: c.hud.viewport, scale: c.hud.scale)[id])
+            let p = point(frame)
+            let local = NSPoint(x: p.x, y: host.bounds.height - p.y)
+            XCTAssertTrue(host.hitTest(host.convert(local, to: host.superview)) === host, "\(id): the host takes the click")
+            for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let e = try XCTUnwrap(NSEvent.mouseEvent(with: kind, location: host.convert(local, to: nil), modifierFlags: [], timestamp: 0,
+                                                         windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+                if kind == .leftMouseDown { host.mouseDown(with: e) } else { host.mouseUp(with: e) }
+            }
+        }
         XCTAssertEqual(state(), [false, false, false, false])
         chatLog.rootView.toggle()
         XCTAssertEqual(state(), [true, false, false, false], "the chat log's button expands the log")
-        guide.rootView.toggle()
+        try click(8, .shortcuts, { CGPoint(x: $0.minX + 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, true, false, false], "the guide's header folds the guide")
-        background.rootView.toggle()
+        try click(9, .backgroundToggle, { CGPoint(x: $0.midX, y: $0.midY) })
         XCTAssertEqual(state(), [true, true, true, false], "the eye button hides the background")
-        picker.rootView.toggle()
+        try click(10, .nameColorPicker, { CGPoint(x: $0.minX + 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, true, true, true], "the colour button opens the palette")
-        picker.rootView.choose(PlazaNameColor.hexes[2])
+        for _ in 0..<20 { await Task.yield() }   // the HUD draws the palette on the main actor's next turn
+        let picker = try XCTUnwrap(c.hud.panels.first { $0.id == .nameColorPicker } as? PlazaNameColorPickerPanel)
+        let swatch = picker.render(scale: 2, viewport: c.hud.viewport, graphics: c.hud.graphics).accessibility[3].frame
+        try click(10, .nameColorPicker, { CGPoint(x: $0.minX + swatch.midX, y: $0.minY + swatch.midY) })
         XCTAssertEqual(c.shownNameColor, PlazaNameColor.hexes[2])
         XCTAssertFalse(c.isNameColorPickerOpen)
         scene.isOverlayOpen = true

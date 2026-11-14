@@ -93,7 +93,6 @@ PlazaFocusTests+Mac.swift
 PlazaSnowballControllerTests+Mac.swift
 # PlazaPhotoModeTests+Mac: the photo written to the clipboard needs a PNG codec (NSBitmapImageRep decodes it; the Windows stub writes none)
 PlazaPhotoModeTests+Mac.swift
-PlazaPhotoOverlayTests.swift
 PlazaPhotoTests.swift
 PlazaPhotoTestSupport.swift
 PlazaPhotoParityTests.swift
@@ -202,3 +201,5 @@ PlazaPanelRenderTests+Mac.swift
 ReachabilityParityTests.swift
 # PlazaRosterHoverLayoutTests: hosts the SwiftUI roster in an AppKit window (NSHostingView, Auto Layout)
 PlazaRosterHoverLayoutTests.swift
+# PlazaHUDControlRenderTests+Mac: the canvas-drawn guide, toggle, picker and photo frame against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) through the AppKit panel hosts
+PlazaHUDControlRenderTests+Mac.swift

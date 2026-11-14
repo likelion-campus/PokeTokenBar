@@ -77,6 +77,9 @@ struct PlazaPanelInteraction: Equatable, Sendable {
     var anchor: PlazaPanelAnchor { get }
     /// Points between the panel's frame and the anchored edges (see `PlazaPanelAnchor`).
     var offset: CGPoint { get }
+    /// The same, for a panel whose place depends on text that is measured (the name-colour picker sits right of the
+    /// background toggle, whose width is its text's). The default is `offset`.
+    func offset(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGPoint
     /// Nothing to show: the HUD hides it, does not render it, and it takes no clicks.
     var isVisible: Bool { get }
     /// The panel's frame size in points, a whole number of device pixels at `scale`. `text` measures; it is the engine
@@ -94,6 +97,8 @@ struct PlazaPanelInteraction: Equatable, Sendable {
 }
 
 extension PlazaPanel {
+    func offset(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGPoint { offset }
+
     var interaction: PlazaPanelInteraction {
         get { PlazaPanelInteraction() }
         set {}

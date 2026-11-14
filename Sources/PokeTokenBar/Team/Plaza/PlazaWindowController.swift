@@ -120,7 +120,11 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [pillsPanel, clockPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [photoFramePanel, pillsPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private lazy var photoFramePanel = PlazaPhotoFramePanel(model: overlayModel)
+    private lazy var shortcutsPanel = PlazaShortcutGuidePanel(model: shortcutModel, toggle: togglePanel)
+    private lazy var togglePanel = PlazaBackgroundTogglePanel(model: backgroundModel)
+    private lazy var pickerPanel = PlazaNameColorPickerPanel(model: nameColorModel, toggle: togglePanel, background: backgroundModel)
     private lazy var pillsPanel = PlazaPillsPanel(model: overlayModel)
     private lazy var clockPanel = PlazaClockPanel(worldSize: map.pixelSize)
     private let chatInput: any PlazaChatInputHost
@@ -300,6 +304,7 @@ import Observation
         session?.updateActivity(activity)
         restoreFocus()
         _ = hud   // the pills follow the overlay model from now on
+        hud.onAction = { [weak self] id, hit in self?.panelClicked(id, hit) }
         self.chatInput.onSubmit = { [weak self] in self?.submitChat($0) ?? true }
         self.chatInput.onClose = { [weak self] in
             guard let self else { return }
@@ -488,6 +493,18 @@ import Observation
         refreshHint()
         shell.setChatLogAboveInput(true)
         shell.focusChatInput()
+    }
+
+    /// A click (or VoiceOver's press) on a panel: what the SwiftUI buttons of the HUD controls did.
+    private func panelClicked(_ id: PlazaPanelID, _ hit: PlazaPanelHit) {
+        switch (id, hit.action) {
+        case (.shortcuts, "toggle"): toggleShortcuts()
+        case (.backgroundToggle, "toggle"): toggleBackground()
+        case (.nameColorPicker, "toggle"): toggleNameColorPicker()
+        case (.nameColorPicker, "choose"):
+            if let i = hit.index, PlazaNameColor.hexes.indices.contains(i) { pickNameColor(PlazaNameColor.hexes[i]) }
+        default: break
+        }
     }
 
     /// 이름 색 팔레트를 펼치거나 접는다. 누른 뒤에도 키는 장면이 받는다.

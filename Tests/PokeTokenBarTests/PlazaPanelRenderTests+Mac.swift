@@ -16,13 +16,13 @@ import CoreText
 
     private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
 
-    private static func context(_ w: Int, _ h: Int) -> CGContext {
+    static func context(_ w: Int, _ h: Int) -> CGContext {
         CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: sRGB,
                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     }
 
     /// Premultiplied sRGB RGBA, row 0 at the top.
-    private static func rgba(_ image: CGImage) -> [UInt8] {
+    static func rgba(_ image: CGImage) -> [UInt8] {
         let ctx = context(image.width, image.height)
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         let data = ctx.data!.assumingMemoryBound(to: UInt8.self)
@@ -30,7 +30,7 @@ import CoreText
     }
 
     /// The pixel boxes of what is drawn (any alpha), one per run of rows with ink: the pills are 8 points apart.
-    private static func boxes(_ image: CGImage) -> [CGRect] {
+    static func boxes(_ image: CGImage) -> [CGRect] {
         let px = rgba(image), w = image.width, h = image.height
         func ink(_ x: Int, _ y: Int) -> Bool { px[(y * w + x) * 4 + 3] > 0 }
         var result: [CGRect] = []
@@ -48,7 +48,7 @@ import CoreText
         return result
     }
 
-    private static func render<V: View>(_ view: V, scale: CGFloat) -> CGImage? {
+    static func render<V: View>(_ view: V, scale: CGFloat) -> CGImage? {
         let r = ImageRenderer(content: view)
         r.scale = scale
         return r.cgImage
@@ -337,10 +337,11 @@ import CoreText
         func index<T>(_ type: T.Type) -> Int? { subs.firstIndex { $0 is T } }
         let pills = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .pills })
         let clock = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .clock })
-        XCTAssertEqual(pills, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 1, "right above the overlay")
+        XCTAssertEqual(pills, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 2, "above the photo frame's host, which is right above the overlay")
+        XCTAssertEqual(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .photoFrame }, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 1)
         XCTAssertLessThan(pills, try XCTUnwrap(index(PlazaChatLogHostingView.self)), "below the chat log")
         XCTAssertEqual(clock, try XCTUnwrap(index(PlazaMinimapHostingView.self)) + 1, "right above the minimap")
-        XCTAssertLessThan(clock, try XCTUnwrap(index(PlazaShortcutGuideHostingView.self)))
+        XCTAssertLessThan(clock, try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .shortcuts }))
         XCTAssertTrue(c.hud.host === shell, "the window shows the controller's panels")
         XCTAssertEqual(c.hud.renderCounts[.clock], 1, "the clock is drawn once on opening")
         shell.stopPresenting()
@@ -385,7 +386,7 @@ import CoreText
         let container = try XCTUnwrap(shell.windowForTesting?.contentView)
         container.layoutSubtreeIfNeeded()
         let hosts = container.subviews.compactMap { $0 as? PlazaPanelHostView }
-        XCTAssertEqual(hosts.map(\.panelID), [.pills, .clock])
+        XCTAssertEqual(hosts.map(\.panelID), [.photoFrame, .pills, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
         let clock = try XCTUnwrap(c.hud.panels.first { $0.id == .clock } as? PlazaClockPanel)
         for host in hosts {
             XCTAssertEqual(host.intrinsicContentSize, NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric))
@@ -397,6 +398,11 @@ import CoreText
             overlays.overlayModel.banner = i % 2 == 0 ? "짧은 배너" : Self.banners[1]
             overlays.overlayModel.countdown = i % 3 == 0 ? "단체 사진 \(i)" : nil
             clock.update(i % 2 == 0 ? "밤 21:34" : "새벽 0:00 · 아주 긴 시계")
+            // Task 15: the guide folds, the picker opens, the toggle changes its width, photo mode comes and goes.
+            overlays.shortcutModel.isFolded = i % 2 == 1
+            overlays.nameColorModel.isOpen = i % 3 == 0
+            overlays.backgroundModel.isHidden = i % 2 == 0
+            overlays.overlayModel.isPhotoMode = i % 4 == 1
             for _ in 0..<20 { await Task.yield() }
             container.layoutSubtreeIfNeeded()
             for host in hosts {
@@ -406,6 +412,10 @@ import CoreText
         }
         XCTAssertGreaterThanOrEqual(sizes[.pills]?.count ?? 0, 3, "the pills really changed size")
         XCTAssertEqual(sizes[.clock]?.count, 2, "the clock really changed size")
+        XCTAssertEqual(sizes[.shortcuts]?.count, 2, "the guide really folded and unfolded")
+        XCTAssertEqual(sizes[.nameColorPicker]?.count, 2, "the picker really opened and closed")
+        XCTAssertEqual(sizes[.backgroundToggle]?.count, 2, "the toggle really changed size")
+        XCTAssertNotNil(sizes[.photoFrame], "the photo frame really came")
         for (i, host) in hosts.enumerated() {
             XCTAssertLessThanOrEqual(host.layoutPassesForTesting - passes[i], 1, "\(host.panelID): no layout pass per change")
             XCTAssertEqual(host.intrinsicInvalidationsForTesting, invalidations[i], "\(host.panelID): a change never asks for an intrinsic size")
@@ -659,7 +669,7 @@ import CoreText
 
     /// `image` cropped to `crop` (points, top-left) over `background` (the plaza map, or a checkerboard for transparency),
     /// magnified `zoom` times nearest.
-    private static func cell(_ image: CGImage, crop: CGRect, scale: CGFloat, background: CGImage?, zoom: Int) -> CGImage {
+    static func cell(_ image: CGImage, crop: CGRect, scale: CGFloat, background: CGImage?, zoom: Int) -> CGImage {
         let px = CGRect(x: crop.minX * scale, y: crop.minY * scale, width: crop.width * scale, height: crop.height * scale).integral
         let w = Int(px.width), h = Int(px.height)
         let ctx = context(w * zoom, h * zoom)
@@ -682,7 +692,7 @@ import CoreText
     }
 
     /// Magenta where any channel differs by more than 8, else a dim copy of `a`; and the counts.
-    private static func diff(_ a: CGImage, _ b: CGImage) -> (image: CGImage, over8: Int, over64: Int, max: Int) {
+    static func diff(_ a: CGImage, _ b: CGImage) -> (image: CGImage, over8: Int, over64: Int, max: Int) {
         let pa = rgba(a), pb = rgba(b)
         var out = [UInt8](repeating: 0, count: pa.count)
         var over8 = 0, over64 = 0, mx = 0
@@ -702,7 +712,7 @@ import CoreText
         return (ctx.makeImage()!, over8, over64, mx)
     }
 
-    private static func write(_ image: CGImage, _ url: URL) throws {
+    static func write(_ image: CGImage, _ url: URL) throws {
         let data = try XCTUnwrap(MacPlazaGraphics.png(image))
         try data.write(to: url)
     }
@@ -769,7 +779,7 @@ import CoreText
     }
 
     /// Rows of cells under column titles, each row labelled.
-    private static func sheet(_ rows: [(label: String, cells: [CGImage])], columns: [String]) -> CGImage {
+    static func sheet(_ rows: [(label: String, cells: [CGImage])], columns: [String]) -> CGImage {
         let gap = 16, label = 34, header = 44
         let widths = columns.indices.map { c in rows.map { $0.cells[c].width }.max() ?? 0 }
         let heights = rows.map { ($0.cells.map(\.height).max() ?? 0) + label }
@@ -802,7 +812,7 @@ import CoreText
         return ctx.makeImage()!
     }
 
-    private static func date(hour: Int, minute: Int) -> Date {
+    static func date(hour: Int, minute: Int) -> Date {
         var c = DateComponents()
         (c.year, c.month, c.day, c.hour, c.minute) = (2026, 11, 14, hour, minute)
         return Calendar.current.date(from: c)!

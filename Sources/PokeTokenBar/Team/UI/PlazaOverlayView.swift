@@ -19,7 +19,6 @@ struct PlazaOverlayView: View {
     var body: some View {
         ZStack(alignment: .top) {
             content
-            if model.isPhotoMode { photoFrame }
             VStack(spacing: 8) {
                 let pills = pillsSize()
                 if pills.height > 0 {
@@ -36,41 +35,6 @@ struct PlazaOverlayView: View {
             .padding(.top, PlazaRosterMetrics.margin)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// 사진 모드의 틀. 사진에 담기는 영역은 창에서 여백(포인트)을 뺀 사각형이다. 아무것도 클릭을 받지 않는다.
-    private var photoFrame: some View {
-        GeometryReader { geo in
-            if let frame = PlazaPhotoFrame.viewRect(in: geo.size) {
-            ZStack(alignment: .topLeading) {
-                Path { p in
-                    p.addRect(CGRect(origin: .zero, size: geo.size))
-                    p.addRect(frame)
-                }
-                .fill(Color.black.opacity(0.5), style: FillStyle(eoFill: true))
-                Path { p in
-                    // 선이 틀 안쪽에 놓이도록 선 두께의 절반만큼 들여 그린다.
-                    let arm = PlazaPhotoFrame.bracketArm, h = PlazaPhotoFrame.bracketWidth / 2
-                    let r = frame.insetBy(dx: h, dy: h)
-                    for (corner, dx, dy) in [(CGPoint(x: r.minX, y: r.minY), 1.0, 1.0), (CGPoint(x: r.maxX, y: r.minY), -1.0, 1.0),
-                                             (CGPoint(x: r.minX, y: r.maxY), 1.0, -1.0), (CGPoint(x: r.maxX, y: r.maxY), -1.0, -1.0)] {
-                        p.move(to: CGPoint(x: corner.x, y: corner.y + dy * arm))
-                        p.addLine(to: corner)
-                        p.addLine(to: CGPoint(x: corner.x + dx * arm, y: corner.y))
-                    }
-                }
-                .stroke(Color.white, style: StrokeStyle(lineWidth: PlazaPhotoFrame.bracketWidth, lineCap: .butt, lineJoin: .miter))
-                Text(L(.ko).plazaPhotoGuide)
-                    .font(Font(PlazaResources.font(.body)))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .frame(width: frame.width, height: PlazaPhotoFrame.bottomInset, alignment: .center)
-                    .position(x: geo.size.width / 2, y: geo.size.height - PlazaPhotoFrame.bottomInset / 2)
-            }
-            }
-        }
-        .allowsHitTesting(false)
     }
 
     @ViewBuilder
