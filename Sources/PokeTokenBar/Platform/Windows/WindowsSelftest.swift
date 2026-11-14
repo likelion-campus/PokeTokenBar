@@ -850,11 +850,12 @@ private final class MainStallProbe: @unchecked Sendable {
     }
 
     @MainActor func stop() async -> String {
-        lock.lock(); stopRequested = true; lock.unlock()
+        requestStop()
         _ = await WindowsSelftest.waitUntil(timeout: 5) { self.isFinished }
         return isFinished ? report() : "probe thread did not stop"
     }
 
+    private func requestStop() { lock.lock(); stopRequested = true; lock.unlock() }
     private var isFinished: Bool { lock.lock(); defer { lock.unlock() }; return finished }
     private var isStopping: Bool { lock.lock(); defer { lock.unlock() }; return stopRequested }
     private func markServiced(_ seq: Int) { lock.lock(); serviced = max(serviced, seq); lock.unlock() }
