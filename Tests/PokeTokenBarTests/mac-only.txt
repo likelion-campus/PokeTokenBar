@@ -209,3 +209,5 @@ PlazaHUDMenuRenderTests+Mac.swift
 PlazaTextRunsTests+Mac.swift
 # PlazaChatLogPanelRenderTests+Mac: the canvas-drawn chat log against the SwiftUI PlazaChatLogView (NSHostingView in an unshown window, CoreText, TextKit) through the AppKit panel host
 PlazaChatLogPanelRenderTests+Mac.swift
+# TeamOpenSSLInteropTests: the Mac's Network.framework TLS-PSK against the OpenSSL command line (scripts/team-interop-check.sh)
+TeamOpenSSLInteropTests.swift

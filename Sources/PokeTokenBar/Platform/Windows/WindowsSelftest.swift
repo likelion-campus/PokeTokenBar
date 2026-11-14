@@ -28,6 +28,8 @@ enum WindowsSelftest {
 
     /// CI runs may show balloons and type into windows; a person's PC may not (this file is on the env-read allow-list).
     static var onCI: Bool { ProcessInfo.processInfo.environment["CI"] != nil }
+    /// Length of the idle windows (`PTB_SELFTEST_IDLE_SECONDS`, default 60), read here for the other selftest files too.
+    static var idleSeconds: Double { Double(ProcessInfo.processInfo.environment["PTB_SELFTEST_IDLE_SECONDS"] ?? "") ?? 60 }
 
     /// Starts the run on the main actor once the loop turns, then exits with its result.
     @MainActor static func start(_ app: WindowsAppDelegate, writingTo url: URL) {
@@ -99,6 +101,7 @@ enum WindowsSelftest {
         await modalPumpChecks(r, app)
         await notifyChecks(r, app)
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
+        await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window
         await idleCheck(r, app)
         return r.checks
     }

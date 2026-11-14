@@ -37,6 +37,17 @@ final class TrayMenuModelTests: XCTestCase {
         XCTAssertEqual(some.last??.action, .quit)
     }
 
+    func testTeammatesLineShowsOnlyWhileTheTeamIsOn() {
+        let off = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil)
+        XCTAssertEqual(off, TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, teammatesOnline: nil))
+        XCTAssertFalse(off.contains { $0?.title.contains("Teammates") == true })
+        let on = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, teammatesOnline: 3)
+        XCTAssertEqual(on[1], .init(title: "Teammates online: 3", enabled: false, checked: false, action: .none))
+        XCTAssertEqual(on.map { $0?.action }, [TrayMenuModel.Action.none, TrayMenuModel.Action.none, nil, .refresh, .toggleLaunchAtLogin, .openLogFolder, nil, .quit])
+        XCTAssertEqual(TrayMenuModel.items(l: L(.ko), todayTokens: 0, todayCost: nil, login: .off, update: nil,
+                                           teammatesOnline: 0)[1]?.title, "접속 중인 팀원 0명")
+    }
+
     func testTooltipIsClippedToTheShellLimitWithoutSplittingCharacters() {
         let long = String(repeating: "한", count: 200)
         let clipped = TrayMenuModel.clipped(long)
