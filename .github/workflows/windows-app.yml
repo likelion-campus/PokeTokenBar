@@ -1,0 +1,59 @@
+name: windows-app
+# Builds and self-tests the Windows app executable. Informational: not a required check.
+on:
+  push:
+    branches: [windows-port, build/windows-app-skeleton]
+  pull_request:
+    paths:
+      - 'Sources/PokeTokenBar/Platform/**'
+      - 'Sources/CWinShim/**'
+      - 'Sources/CTeamTLS/**'
+      - 'Sources/PokeTokenBarWin/**'
+      - 'Tests/PokeTokenBarTests/Windows*'
+      - 'Package.swift'
+      - 'windows/**'
+      - 'scripts/windows/**'
+      - 'installer/**'
+      - '.github/workflows/windows-app.yml'
+      - '.github/actions/windows-swift/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-app-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  app:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/windows-swift
+      - name: Build
+        shell: bash
+        run: swift build -c release --product PokeTokenBarWin 2>&1 | tee build.log
+      - name: Package
+        shell: pwsh
+        run: ./scripts/windows/package.ps1 -Out bundle
+      - name: Selftest with a stripped Path
+        shell: cmd
+        run: |
+          set "Path=C:\Windows\System32;C:\Windows"
+          bundle\PokeTokenBar.exe --selftest --selftest-out st.json
+          echo exit=%ERRORLEVEL%
+          if errorlevel 1 exit /b 1
+      - name: Assert
+        shell: pwsh
+        run: |
+          Get-Content st.json
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          if ($j.result -ne 'pass') { throw "selftest result: $($j.result)" }
+          if ($j.openssl -notlike 'OpenSSL 3.*') { throw "unexpected openssl: $($j.openssl)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-app
+          path: |
+            bundle
+            st.json
+            build.log

@@ -1,0 +1,5 @@
+{
+  "name": "poketokenbar-windows",
+  "version-string": "0",
+  "dependencies": ["openssl"]
+}

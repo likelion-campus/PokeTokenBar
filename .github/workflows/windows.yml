@@ -2,7 +2,7 @@ name: windows
 # Builds and tests the shared (non-Apple) part of the app on Windows. Informational: not a required check.
 on:
   push:
-    branches: [main, windows-port]
+    branches: [main, windows-port, build/windows-app-skeleton]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -15,11 +15,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: compnerd/gha-setup-swift@main
-        with:
-          swift-version: swift-6.3.2-release
-          swift-build: 6.3.2-RELEASE
-      - run: swift --version
+      - uses: ./.github/actions/windows-swift
       - name: Build
         shell: bash
         run: swift build 2>&1 | tee build.log
