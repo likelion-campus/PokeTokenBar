@@ -52,3 +52,26 @@ final class PlatformCompatTests: XCTestCase {
         PlatformCompat.endActivity(nil)
     }
 }
+
+extension PlatformCompatTests {
+    func testBundledAppRuleOnTheMacIsUnchanged() {
+        #if !os(Windows)
+        XCTAssertEqual(PlatformCompat.isBundledApp,
+                       Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app"))
+        XCTAssertEqual(AppEnv.isBundledApp, PlatformCompat.isBundledApp)
+        #endif
+    }
+
+    func testLogsDirectoryOnTheMacIsLibraryLogs() {
+        #if !os(Windows)
+        let old = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs")
+        XCTAssertEqual(PlatformCompat.logsDirectory().path, old.path)
+        XCTAssertEqual(AppLog.logFileURL.path, old.appendingPathComponent("PokeTokenBar.log").path)
+        #endif
+    }
+
+    func testNotBundledUnderSwiftTest() {
+        XCTAssertFalse(PlatformCompat.isBundledApp)
+        XCTAssertFalse(AppEnv.isBundledApp)
+    }
+}
