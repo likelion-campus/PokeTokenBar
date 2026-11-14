@@ -1,81 +1,11 @@
+// PlazaSeasonTests+Mac: the water balloon PNG size (14x18, no decoder on the Windows stub), the recoloured tile and tall-grass sheets (CGImage) and shortcutThrowLabel (the SwiftUI shortcut guide)
 import XCTest
 import AppKit
 import SpriteKit
 @testable import PokeTokenBar
 
-private struct SeasonNoSprites: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
-    func egg() async -> PlazaImage? { nil }
-}
-
 extension PlazaSeasonTests {
-
-    // MARK: 연못
-
-    func testThePondFreezesOnlyInWinter() throws {
-        let s = scene(ice: true, iceArt: PlazaIceArt.load())
-        s.setIceBreak(nil)
-        s.update(0)
-        let anchor = try XCTUnwrap(s.frozenPondAnchor)
-        XCTAssertTrue(s.isWalkableNow(anchor))
-        for choice in [PlazaSeasonChoice.spring, .summer, .autumn] {
-            s.seasonChoice = choice
-            XCTAssertNil(s.frozenPondAnchor, "\(choice)")
-            XCTAssertFalse(s.isWalkableNow(anchor), "\(choice)")
-            XCTAssertTrue(s.isWaterNow(anchor), "\(choice)")
-            s.seasonChoice = .winter
-            XCTAssertEqual(s.frozenPondAnchor, anchor, "back in winter")
-        }
-    }
-
-    func testAWarmSeasonSetBeforeTheFirstFrameNeverShowsIce() {
-        let s = scene(ice: true, iceArt: PlazaIceArt.load())
-        s.seasonChoice = .summer
-        s.setIceBreak(nil)
-        s.update(0)
-        XCTAssertNil(s.frozenPondAnchor)
-        s.update(1)
-        XCTAssertNil(s.frozenPondAnchor)
-    }
-
-    func testAnIceBreakLearnedInAWarmSeasonDoesNotFreezeOrKeepRedrawing() throws {
-        let s = scene(ice: true, iceArt: PlazaIceArt.load())
-        s.seasonChoice = .summer
-        let pond = try XCTUnwrap(PlazaIce.ponds(in: map).first)
-        s.setIceBreak(PlazaIceBreak(at: now.timeIntervalSince1970 - 3600, pond: pond.anchor))
-        s.update(0)
-        let drawn = s.iceDrawCount
-        for i in 1...10 { s.update(Double(i) / 60) }
-        XCTAssertNil(s.frozenPondAnchor)
-        XCTAssertEqual(s.iceDrawCount, drawn, "a refreeze that is long due must not redraw the ice every frame")
-    }
-
-    func testThePondFreezesWhenTheCalendarTurnsToWinter() {
-        let s = scene(ice: true, iceArt: PlazaIceArt.load())
-        s.seasonChoice = .auto
-        s.setIceBreak(nil)
-        s.update(0)
-        XCTAssertNil(s.frozenPondAnchor, "30 November")
-        now = now.addingTimeInterval(1)
-        s.update(1)
-        XCTAssertNotNil(s.frozenPondAnchor, "1 December")
-    }
-
-    func testWhoStandsOnTheIceFallsInWhenTheSeasonTurns() throws {
-        let probe = scene(ice: true, iceArt: PlazaIceArt.load())
-        probe.setIceBreak(nil)
-        let anchor = try XCTUnwrap(probe.frozenPondAnchor)
-        let s = scene(ice: true, start: anchor, iceArt: PlazaIceArt.load())
-        s.setIceBreak(nil)
-        s.update(0)
-        XCTAssertTrue(s.isMeOnIce)
-        s.seasonChoice = .spring
-        XCTAssertFalse(s.isMeOnIce)
-        XCTAssertTrue(s.isMeInWater)
-    }
-
-    func testSummerThrowsTheWaterBalloonPictureAsItIsAndOnlyInSummer() throws {
+    func testSummerThrowsTheWaterBalloonPictureAsItIsAndOnlyInSummer() async throws {
         let balloon = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.waterBalloon(), "the bundled picture loads"))
         XCTAssertEqual([balloon.width, balloon.height], [14, 18])
         let summer = PlazaSnowballArt.pieces(.summer, balloon: balloon)
@@ -86,9 +16,7 @@ extension PlazaSeasonTests {
         }
     }
 
-    // MARK: 색
-
-    func testSpringAndAutumnRecolourTheSheetAndSummerLeavesItAlone() throws {
+    func testSpringAndAutumnRecolourTheSheetAndSummerLeavesItAlone() async throws {
         let sheet = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tileSheet()))
         XCTAssertTrue(PlazaSeasonSheet.tiles(sheet, season: .summer) === sheet)
         let spring = PlazaSeasonSheet.tiles(sheet, season: .spring), autumn = PlazaSeasonSheet.tiles(sheet, season: .autumn)
@@ -109,7 +37,7 @@ extension PlazaSeasonTests {
         }
     }
 
-    func testTallGrassTurnsGoldInAutumnAndStaysGreenInSpringAndSummer() throws {
+    func testTallGrassTurnsGoldInAutumnAndStaysGreenInSpringAndSummer() async throws {
         let sheet = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tallGrassSheet()))
         XCTAssertTrue(PlazaSeasonSheet.tallGrass(sheet, season: .spring) === sheet)
         XCTAssertTrue(PlazaSeasonSheet.tallGrass(sheet, season: .summer) === sheet)
@@ -119,16 +47,7 @@ extension PlazaSeasonTests {
         XCTAssertFalse(SnowPixels.contains(PlazaSeasonSheet.tallGrass(sheet, season: .winter), rgb: [0x99E550, 0x6ABE30]))
     }
 
-    // MARK: 팀 설정
-
-    private func controller(_ current: @escaping () -> PlazaSchedule?) -> PlazaWindowController {
-        PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: "ptb.test.season.\(UUID().uuidString)")),
-                              loader: PlazaCharacterLoader(fetcher: SeasonNoSprites()),
-                              nickname: { "나" }, memberID: { "me" },
-                              subject: { .init(speciesID: 25, isShiny: false) }, schedule: current, clock: { [unowned self] in now })
-    }
-
-    func testTheTeamsSeasonReachesThePlazaAndNamesWhatVThrows() throws {
+    func testTheTeamsSeasonReachesThePlazaAndNamesWhatVThrows() async throws {
         var current: PlazaSchedule? = schedule("summer")
         let plaza = controller { current }
         plaza.prepareScene()
@@ -158,8 +77,9 @@ extension PlazaSeasonTests {
         XCTAssertEqual(s.shownSeason, .winter, "never chosen")
         plaza.handleClose()
     }
+}
 
-
+extension PlazaSeasonTests {
     /// 장면이 처음 보이는 계절은 여름(원본 지도)이다. 팀이 여름을 골라 둔 광장을 열면 계절이 "바뀌지" 않으므로,
     /// 던지는 것도 처음부터 여름 것이어야 한다.
     func testAPlazaOpenedInSummerThrowsTheBalloonFromTheStart() async {

@@ -3,7 +3,7 @@ import Foundation
 /// How a team instance is named in DNS-SD. Pure string work shared by every transport: the Mac advertises the bare
 /// label (`ptb-<12 hex>`) and the Windows `windns` API speaks full names (`<label>._ptbteam._tcp.local`).
 enum DNSSDName {
-    static let defaultServiceType = "_ptbteam._tcp"
+    static let defaultServiceType = TeamTransportRules.serviceType
 
     /// `ptb-ab12._ptbteam._tcp.local` (with or without the trailing dot, any letter case) gives `ptb-ab12`.
     /// A name of another service, or one with no label in front of the suffix, gives nil.

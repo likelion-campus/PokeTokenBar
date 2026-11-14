@@ -60,43 +60,46 @@ PerformanceTests.swift
 PetEventLineTests.swift
 # PlatformGlobFnmatchTests compares globMatch with the C fnmatch, which Windows does not have
 PlatformGlobFnmatchTests.swift
-# PlazaBoardTests+Mac: the SwiftUI board row (PlazaBoardRow) and the controller tests (PlazaWindowController is Mac-only)
+# PlazaBoardTests+Mac: the SwiftUI board row (PlazaBoardRow)
 PlazaBoardTests+Mac.swift
 # PlazaCampfireSceneTests+Mac: reads the light texture through CoreGraphics (campfireLightImage?.cgImage)
 PlazaCampfireSceneTests+Mac.swift
-# PlazaCardTests+Mac: the controller tests (PlazaWindowController), NSAttributedString font metrics and SwiftUI ImageRenderer
+# PlazaCardTests+Mac: NSAttributedString / NSLayoutManager font metrics, NSHostingController sizing and SwiftUI ImageRenderer
 PlazaCardTests+Mac.swift
-# PlazaChatTests+Mac: the chat input field (NSTextView, NSWindow, NSEvent), the controller tests and CoreGraphics pixel reads
+# PlazaChatTests+Mac: the AppKit chat input field (NSTextView, NSWindow, NSEvent; also the controller tests that type into it) and CoreGraphics pixel reads
 PlazaChatTests+Mac.swift
-# PlazaCollisionTests: needs PlazaScene (SpriteKit)
-PlazaControllerLifetimeTests.swift
 # PlazaDanceTests+Mac: CoreGraphics pixel reads of the photo and the SwiftUI shortcut guide
 PlazaDanceTests+Mac.swift
 # PlazaDaylightTests+Mac: the minimap (NSImage, SwiftUI ImageRenderer) and the CoreGraphics photo tint check
 PlazaDaylightTests+Mac.swift
-PlazaDittoControllerTests.swift
-# PlazaEmoteTests+Mac: the controller tests, the SwiftUI shortcut guide and CGImage pixel reads of the emote art
+# PlazaEmoteTests+Mac: the SwiftUI shortcut guide and CGImage pixel reads of the emote art
 PlazaEmoteTests+Mac.swift
-PlazaFocusTests.swift
-PlazaGroupPhotoTests.swift
-PlazaIceControllerTests.swift
 # PlazaInputMappingTests: maps NSEvent key events and modifier flags (AppKit)
 PlazaInputMappingTests.swift
-# PlazaItemsTests+Mac: the controller tests and the CoreGraphics photo render
+# PlazaItemsTests+Mac: the CoreGraphics photo render
 PlazaItemsTests+Mac.swift
-PlazaMembersTests.swift
-PlazaMimicControllerTests.swift
 PlazaNameColorTests.swift
 # PlazaNamePlateTests+Mac: NSFont metrics and CGImage pixel reads of the name plate
 PlazaNamePlateTests+Mac.swift
-PlazaPhotoModeTests.swift
+# PlazaGroupPhotoTests+Mac: the tests that expect the photo on the clipboard writer; that needs a PNG codec, which the Windows stub graphics do not have
+PlazaGroupPhotoTests+Mac.swift
+# PlazaPullUnderTests+Mac: the splash reads the pond layer, which exists only when the bundled tile sheet loads (pond visuals; the Windows stub has none)
+PlazaPullUnderTests+Mac.swift
+# PlazaStartleControllerTests: every test hides in the bundled tall grass (the controller reads it through the Mac loader; the Windows stub has none, so the map is plain grass)
+PlazaStartleControllerTests.swift
+# PlazaFocusTests+Mac: the campfire menu test asserts the SwiftUI menu view's rows (PlazaCampfireMenuView)
+PlazaFocusTests+Mac.swift
+# PlazaSnowballControllerTests+Mac: shortcutThrowLabel reads the SwiftUI shortcut guide (its entries move to shared code in a later task)
+PlazaSnowballControllerTests+Mac.swift
+# PlazaPhotoModeTests+Mac: the photo written to the clipboard needs a PNG codec (NSBitmapImageRep decodes it; the Windows stub writes none)
+PlazaPhotoModeTests+Mac.swift
 PlazaPhotoOverlayTests.swift
 PlazaPhotoTests.swift
 PlazaPhotoTestSupport.swift
 PlazaPhotoParityTests.swift
 # PlazaPondLayerTests+Mac: the 💧 image needs the Mac text engine (Apple Color Emoji); the Windows stub draws nothing
 PlazaPondLayerTests+Mac.swift
-# PlazaFireworksTests+Mac: the firework tests that need the window controller, the SwiftUI shortcut guide or its render
+# PlazaFireworksTests+Mac: the firework tests that need the SwiftUI shortcut guide or its render
 PlazaFireworksTests+Mac.swift
 # PlazaIceLayerTests+Mac: the scene-driven ice tests, which read the bundled ice art (ImageIO)
 PlazaIceLayerTests+Mac.swift
@@ -113,26 +116,20 @@ PlazaSnowSheetTests+Mac.swift
 PlazaTallGrassArtTests+Mac.swift
 # PlazaTileArtTests+Mac: reads the bundled tile sheet (ImageIO)
 PlazaTileArtTests+Mac.swift
-# PlazaPrayTests+Mac: the controller tests (PlazaWindowController is Mac-only) and a CGImage compare
+# PlazaPrayTests+Mac: a CGImage compare of the prayer bubble art
 PlazaPrayTests+Mac.swift
-# PlazaPullUnderTests+Mac: the controller tests (PlazaWindowController is Mac-only)
-PlazaPullUnderTests+Mac.swift
 PlazaResourcesTests.swift
 PlazaRosterPagerTests.swift
 PlazaRosterTests.swift
-PlazaScheduleWiringTests.swift
-# PlazaSnowSceneTests+Mac: the controller tests and the CGImage compares against the bundled tall-grass art
+# PlazaSnowSceneTests+Mac: the tall-grass snow test reads the bundled sheet (ImageIO) and compares pixels through CGImage; the minimap test needs the bundled tile sheet to build the snow map
 PlazaSnowSceneTests+Mac.swift
-PlazaSnowballControllerTests.swift
 # PlazaSnowballTests+Mac: a CGImage pixel read of the snowball art
 PlazaSnowballTests+Mac.swift
-PlazaStartleControllerTests.swift
 # PlazaSwimLowerHalfTests+Mac: the photo pixel checks through CoreGraphics (renderCG)
 PlazaSwimLowerHalfTests+Mac.swift
 # PlazaTallGrassSceneTests+Mac: the scene tests that need the bundled tall-grass sheet (ImageIO)
 PlazaTallGrassSceneTests+Mac.swift
-PlazaWindowTests.swift
-# PlazaWindowTests+Mac: the Mac shell's NSWindow, SKView and SwiftUI hosting views (AppKit, SpriteKit)
+# PlazaWindowTests+Mac: the Mac shell's NSWindow, SKView and SwiftUI hosting views, and the roster / minimap view tests (AppKit, SpriteKit, SwiftUI)
 PlazaWindowTests+Mac.swift
 PokeTokenBarTests.swift
 # PokemonFormTests+Mac: needs PokemonDetailView (UI)
@@ -180,13 +177,10 @@ UsageStreakTests.swift
 # WindowsSeamScanTests: scans the source tree with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
 WindowsSeamScanTests.swift
 ZeroUsageHomeRenderingTests.swift
-# from main after the split; not yet tried in the shared set
-ParkedDitto.swift
-PlazaActivityControllerTests.swift
 # PlazaActivityTests+Mac: the SwiftUI roster view (PlazaRosterView)
 PlazaActivityTests+Mac.swift
 # from main (#134): builds the scene
-# PlazaSeasonTests+Mac: the controller tests, the scene tests that read the bundled ice art (ImageIO), and the two that assert the bundled water balloon PNG size (14x18; the Windows stub has no decoder for it)
+# PlazaSeasonTests+Mac: the water balloon PNG size (14x18; the Windows stub has no decoder, so the ball is 16x16 there; six tests), the recoloured tile and tall-grass sheets (CGImage) and shortcutThrowLabel (the SwiftUI shortcut guide)
 PlazaSeasonTests+Mac.swift
 # from main (#140): pins the macOS defaults pool against late writers; its tests must stay synchronous
 TestDefaultsLateWriteTests.swift

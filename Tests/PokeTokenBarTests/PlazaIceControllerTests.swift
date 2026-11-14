@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
@@ -75,7 +74,8 @@ final class PlazaIceControllerTests: XCTestCase {
         return PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: EmptyFetcher()),
                                      nickname: { "나" }, memberID: { me.settings.memberID },
                                      subject: { .init(speciesID: speciesID, isShiny: false) },
-                                     myRosterEntry: { nil }, session: me.session, clock: { [unowned self] in now })
+                                     myRosterEntry: { nil }, session: me.session, clock: { [unowned self] in now },
+                                     shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
     private func settle() async { for _ in 0..<20 { await Task.yield() } }
@@ -243,7 +243,7 @@ final class PlazaIceControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.breakingHit, p(8, 14))
     }
 
-    func testAJumpAfterTheWindowClosedStillLearnsTheBreak() {
+    func testAJumpAfterTheWindowClosedStillLearnsTheBreak() async {
         let me = node("나")
         let c = controller(me, start: p(20, 10), speciesID: 25)
         XCTAssertNil(c.scene)
@@ -272,7 +272,7 @@ final class PlazaIceControllerTests: XCTestCase {
         XCTAssertEqual(w.b.session.members[w.me.id]?.iceBreak, brk(leftPond, T - 100))
     }
 
-    func testThePreferenceRoundTrips() {
+    func testThePreferenceRoundTrips() async {
         let prefs = PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.ice.roundtrip.\(UUID())"))
         XCTAssertNil(prefs.iceBreak)
         prefs.iceBreak = brk(R, 7)
