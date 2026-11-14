@@ -437,9 +437,9 @@ struct PlazaActorContext {
         return PlazaPhotoActor(image: image, flipped: pose.flipped != dancePose.flipped, foot: foot, bob: CGFloat(pose.bob),
                                scale: Self.characterScale, shadow: shadow, shadowRect: shadowRect,
                                front: shadowIsNest && !eggSunk ? nestFrontImage : nil,
-                               plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2),
-                               bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2) }
-                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true) },
+                               plate: name.isEmpty ? nil : PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: 2)?.cgImage,
+                               bubble: chatText.flatMap { PlazaChatBubble.image(text: $0, scale: 2)?.cgImage }
+                                   ?? emoteKind.map { PlazaEmoteArt.image($0, scale: 2, large: true).cgImage },
                                opacity: opacity, plateBaseY: plateBaseY, sink: eggSunk ? 0 : swimSink, waterClip: swimSink > 0 ? waterClip : nil, eggSunk: eggSunk,
                                lift: dancePose.lift, squash: dancePose.squash, tilt: dancePose.tilt)
     }
@@ -499,13 +499,13 @@ struct PlazaActorContext {
         if let text = chatText {
             if chatKey?.text != text || chatKey?.backing != backing {
                 chatKey = (text, backing)
-                guard let image = PlazaChatBubble.image(text: text, scale: backing) else { return hideEmote() }
+                guard let image = PlazaChatBubble.image(text: text, scale: backing)?.cgImage else { return hideEmote() }
                 setBubble(image, backing: backing)
             }
         } else if let kind = emoteKind {
             if emoteKey?.kind != kind || emoteKey?.backing != backing {
                 emoteKey = (kind, backing)
-                setBubble(PlazaEmoteArt.image(kind, scale: backing, large: true), backing: backing)
+                setBubble(PlazaEmoteArt.image(kind, scale: backing, large: true).cgImage, backing: backing)
             }
         } else {
             return
@@ -616,7 +616,7 @@ struct PlazaActorContext {
         if name.isEmpty { return }
         if let key = plateKey, key.nickname == name, key.title == title, key.backing == backing, key.color == nameColor { return }
         plateKey = (name, title, backing, nameColor)
-        guard let image = PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: backing) else {
+        guard let image = PlazaNamePlate.image(text: name, title: title, color: nameColor, scale: backing)?.cgImage else {
             // The next frame un-hides the node before the key check, so nothing of the old name may remain.
             plateNode.isHidden = true
             plateNode.texture = nil

@@ -22,13 +22,10 @@ Team/TeamNotificationsMac.swift
 Team/TeamTransport.swift
 # Plaza: SpriteKit scene, window controller, actors, layers and CoreGraphics art
 Team/Plaza/PlazaActor.swift
-Team/Plaza/PlazaChatBubble.swift
-Team/Plaza/PlazaEmoteArt.swift
 Team/Plaza/PlazaFireworkLayer.swift
 Team/Plaza/PlazaFootprintLayer.swift
 Team/Plaza/PlazaIceLayer.swift
 Team/Plaza/PlazaIconLoader.swift
-Team/Plaza/PlazaNamePlate.swift
 Team/Plaza/PlazaPhotoRenderer.swift
 Team/Plaza/PlazaPondLayer.swift
 Team/Plaza/PlazaPresentingMac.swift
