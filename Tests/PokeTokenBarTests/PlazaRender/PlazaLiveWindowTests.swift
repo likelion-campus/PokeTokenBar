@@ -183,10 +183,11 @@ private struct FocusGuardTripped: Error, CustomStringConvertible { let descripti
 
         // Open through the production path (show), minus activation.
         c.show()
-        let w = try XCTUnwrap(shell.windowForTesting)
-        let view = try XCTUnwrap(shell.skViewForTesting)
-        let container = try XCTUnwrap(w.contentView)
-        var scene = try XCTUnwrap(c.scene)
+        // Implicitly unwrapped so step 6 can drop the test's own strong references before asking whether the closed scene is freed.
+        var w: NSWindow! = try XCTUnwrap(shell.windowForTesting)
+        var view: SKView! = try XCTUnwrap(shell.skViewForTesting)
+        var container: NSView! = try XCTUnwrap(w.contentView)
+        var scene: PlazaScene! = try XCTUnwrap(c.scene)
         try spin(1, "open")
         note("opened: frame \(NSStringFromRect(w.frame)) screen \(w.screen?.localizedName ?? "none") visible \(w.isVisible) key \(w.isKeyWindow) main \(w.isMainWindow) "
             + "occlusionVisible \(w.occlusionState.contains(.visible))")
@@ -281,6 +282,8 @@ private struct FocusGuardTripped: Error, CustomStringConvertible { let descripti
         weak var oldScene = c.scene
         w.orderOut(nil)
         w.close()
+        // The first run reported both alive only because these locals still held them.
+        scene = nil; view = nil; container = nil; w = nil
         autoreleasepool {}
         try spin(0.5, "closed")
         note("closed: scene \(c.scene == nil ? "released" : "kept") old SKScene \(oldHost == nil ? "freed" : "alive") old PlazaScene \(oldScene == nil ? "freed" : "alive")")
