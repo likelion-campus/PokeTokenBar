@@ -261,7 +261,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
     private var myPrintWatch = PrintWatch()
     let footprintLayer: PlazaFootprintLayer
-    private let snowballLayer: PlazaSnowballLayer
+    let snowballLayer: PlazaSnowballLayer
     var snowballFlightCount: Int { snowballLayer.flightCount }
     var snowballBallSizes: [CGSize] { snowballLayer.ballSizes }
     var snowballNodeCount: Int { snowballLayer.nodeCount }
@@ -456,7 +456,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         fireworkLayer.zPosition = 7
         addChild(fireworkLayer)
         footprintLayer.root.mountInSpriteKit(self)
-        addChild(snowballLayer)
+        snowballLayer.root.mountInSpriteKit(self)
         addChild(cameraNode)
         me.attach(world: self, camera: cameraNode)
         camera = cameraNode

@@ -1,4 +1,4 @@
-import SpriteKit
+import Foundation
 
 /// 날아가는 눈덩이 하나. 지면 위 점(월드 px, y 아래로)과 높이로 그려진다.
 struct PlazaSnowballFlight {
@@ -11,7 +11,7 @@ struct PlazaSnowballFlight {
 
 /// 눈덩이·그림자·터짐 조각. 시간은 `advance`가 준 간격으로만 흐르고 타이머와 액션은 없다.
 /// 노드는 모두 풀에서 꺼내 쓰고, 동시에 날 수 있는 수는 `maxFlights`로 막는다.
-@MainActor final class PlazaSnowballLayer: SKNode {
+@MainActor final class PlazaSnowballLayer {
     static let maxFlights = 24
 
     private struct Flight {
@@ -19,24 +19,23 @@ struct PlazaSnowballFlight {
         let onLand: @MainActor () -> Void
         var age: TimeInterval = 0
         var landed = false
-        var ball: SKSpriteNode?
-        var shadow: SKSpriteNode?
-        var pieces: [SKSpriteNode] = []
+        var ball: PlazaSprite?
+        var shadow: PlazaSprite?
+        var pieces: [PlazaSprite] = []
     }
 
+    let root = PlazaNode()
     private let worldHeight: CGFloat
     private var flights: [Flight] = []
-    private var pool: [SKSpriteNode] = []
+    private var pool: [PlazaSprite] = []
     private var created = 0
-    private var textures: [SKTexture] = []
+    private var textures: [PlazaTexture] = []
     /// 그림마다, 그림 한 픽셀의 월드 픽셀 수.
     private var scales: [CGFloat] = []
-    private let shadowTexture: SKTexture
+    private let shadowTexture: PlazaTexture
 
-    private static func nearest(_ image: PlazaImage) -> SKTexture {
-        let t = SKTexture(cgImage: image.cgImage)
-        t.filteringMode = .nearest
-        return t
+    private static func nearest(_ image: PlazaImage) -> PlazaTexture {
+        PlazaTexture(image)
     }
 
     /// 던지는 것과 터짐 그림을 바꾼다(계절이 바뀔 때). 이미 날고 있는 것은 다음 프레임부터 새 그림이다.
@@ -46,26 +45,23 @@ struct PlazaSnowballFlight {
         for f in flights { f.ball.map { resize($0, glyph: 0) } }
     }
 
-    private func resize(_ node: SKSpriteNode, glyph: Int) {
+    private func resize(_ node: PlazaSprite, glyph: Int) {
         node.texture = textures[glyph]
-        node.size = CGSize(width: textures[glyph].size().width * scales[glyph], height: textures[glyph].size().height * scales[glyph])
+        node.size = CGSize(width: textures[glyph].pixelSize.width * scales[glyph], height: textures[glyph].pixelSize.height * scales[glyph])
     }
 
     init(worldHeight: CGFloat) {
         self.worldHeight = worldHeight
         let nearest = Self.nearest
         shadowTexture = nearest(PlazaGroundShadow.image(width: Int(PlazaSnowball.shadowSize.width), height: Int(PlazaSnowball.shadowSize.height)))
-        super.init()
         setArt(PlazaSnowballArt.pieces())
     }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     var flightCount: Int { flights.count }
     /// 테스트용: 날고 있는 것들의 크기(월드 픽셀).
     var ballSizes: [CGSize] { flights.compactMap { $0.ball?.size } }
     var nodeCount: Int { created }
-    var shownSpriteCount: Int { children.filter { !$0.isHidden }.count }
+    var shownSpriteCount: Int { root.children.filter { !$0.isHidden }.count }
 
     /// false when `maxFlights` are already up (the caller lands it at once).
     func launch(_ flight: PlazaSnowballFlight, onLand: @escaping @MainActor () -> Void) -> Bool {
@@ -149,28 +145,28 @@ struct PlazaSnowballFlight {
         }
     }
 
-    private func take(texture: SKTexture, anchor: CGPoint) -> SKSpriteNode {
-        let node: SKSpriteNode
+    private func take(texture: PlazaTexture, anchor: CGPoint) -> PlazaSprite {
+        let node: PlazaSprite
         if let n = pool.popLast() {
             node = n
         } else {
-            node = SKSpriteNode()
+            node = PlazaSprite()
             created += 1
-            addChild(node)
+            root.addChild(node)
         }
         node.texture = texture
-        node.size = CGSize(width: texture.size().width * PlazaSnowball.cell, height: texture.size().height * PlazaSnowball.cell)
+        node.size = CGSize(width: texture.pixelSize.width * PlazaSnowball.cell, height: texture.pixelSize.height * PlazaSnowball.cell)
         node.anchorPoint = anchor
         node.isHidden = false
         return node
     }
 
-    private func give(_ node: SKSpriteNode) {
+    private func give(_ node: PlazaSprite) {
         node.isHidden = true
         pool.append(node)
     }
 
-    private func release(_ node: inout SKSpriteNode?) {
+    private func release(_ node: inout PlazaSprite?) {
         if let n = node { give(n) }
         node = nil
     }
