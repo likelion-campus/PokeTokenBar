@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// 광장 창. 창을 만들지 않고도 장면을 만들 수 있게(`prepareScene`) 나눠 두었다.
 /// Shared: every plaza decision lives here. The window itself (AppKit, `SKView`, the SwiftUI HUD) is the platform's

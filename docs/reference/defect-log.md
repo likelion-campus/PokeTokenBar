@@ -910,6 +910,12 @@ read_when:
   **가드(기계):** `WindowsSeamScanTests.testSharedFilesDoNotAskForTheLibraryDirectory`(결함 주입으로 실패 확인), `PlatformCompatTests` 가 맥의 옛 값을 고정,
   `WindowsFoundationTests` 가 러너에서 실제 동작을 단언. 스윕(`urls(for:in:)[0]`): `.applicationSupportDirectory` 6곳은 매핑돼 안전, `AppLog` 는 고침,
   `CrashReporter` 는 맥 전용(`mac-only.txt`)이라 그대로, `NSHomeDirectory()` 는 `BinaryLocator`·`PlatformCompat` 에서 정규화돼 쓰이며 하드코딩 `/Library/`·`/tmp` 는 공용 소스에 없다.
+  **Observation 재수출(Track A Task 12):** 맥의 Foundation 은 Observation 을 다시 내보내 `withObservationTracking`·`@Observable` 이
+  `import Observation` 없이도 빌드되지만, 윈도우의 corelibs Foundation 은 내보내지 않는다. 공용으로 옮긴 `PlazaWindowController` 가 윈도우에서만
+  `cannot find 'withObservationTracking' in scope` 로 실패했다. **왜 못 걸렀나:** `shared-check.sh` 는 공용 집합을 맥의 Foundation 으로
+  빌드하므로 재수출이 그대로 보인다. **가드(기계):** `WindowsSeamScanTests.testSharedFilesThatObserveImportObservation`(고치기 전 트리에서
+  실패 확인). 스윕: `withObservationTracking` 을 쓰는 소스 4곳 중 공용은 `TeamRuntime`(이미 import)과 이 컨트롤러뿐이고, `@Observable` 을 쓰는
+  공용 파일은 모두 `import Observation` 이 있다(스캔이 확인).
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
