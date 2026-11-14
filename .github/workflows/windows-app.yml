@@ -171,8 +171,8 @@ jobs:
           foreach ($n in 'a', 'b') {
               $text = Get-Content "probe-$n.txt" -Raw
               if ($text -notmatch 'RESULT PASS') { $fail += "probe $n did not pass" }
-              if ($text -notmatch 'READY peer=\S+ dir=\S+ tls=TLSv1\.2 cipher=PSK-AES128-GCM-SHA256') { $fail += "probe $n: no TLSv1.2 PSK-AES128-GCM-SHA256 link" }
-              if ($text -notmatch 'MSG peer=\S+ kind=hello') { $fail += "probe $n: no hello received" }
+              if ($text -notmatch 'READY peer=\S+ dir=\S+ tls=TLSv1\.2 cipher=PSK-AES128-GCM-SHA256') { $fail += "probe ${n}: no TLSv1.2 PSK-AES128-GCM-SHA256 link" }
+              if ($text -notmatch 'MSG peer=\S+ kind=hello') { $fail += "probe ${n}: no hello received" }
           }
           if ($a.ExitCode -ne 0 -or $b.ExitCode -ne 0) { $fail += "probe exit codes a=$($a.ExitCode) b=$($b.ExitCode)" }
           $ctext = Get-Content probe-c.txt -Raw

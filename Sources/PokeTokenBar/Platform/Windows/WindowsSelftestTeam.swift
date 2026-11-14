@@ -40,10 +40,12 @@ extension WindowsSelftest {
         guard joined else { return }
 
         // A restart (as on a network change): b hears the link end, both find the new name and link again.
+        // DNS-SD answers from its cache, so a relinks within milliseconds: watch b's disconnect, not an empty roster.
         let oldName = a.transport.advertisedName ?? "-"
         let t1 = Date()
+        let downs = b.disconnects
         a.transport.restart()
-        let dropped = await waitUntil(timeout: 5) { b.session.members.isEmpty }
+        let dropped = await waitUntil(timeout: 5) { b.disconnects > downs }
         let relinked = await waitUntil(timeout: 30) { a.session.members.count == 1 && b.session.members.count == 1 }
         let newName = a.transport.advertisedName ?? "-"
         r.add("team.restartRelinks", dropped && relinked && newName != oldName,
@@ -88,6 +90,7 @@ extension WindowsSelftest {
         let w0 = (a.transport.socketLoop?.wakeups ?? 0, b.transport.socketLoop?.wakeups ?? 0)
         let e0 = (a.transport.redialFires + b.transport.redialFires, a.transport.discoveryEvents + b.transport.discoveryEvents)
         let threads = (a.transport.socketLoop?.ioThreadID ?? 0, b.transport.socketLoop?.ioThreadID ?? 0)
+        let r0 = WinDNSSD.repeatsDropped
         let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
         let wakes = ((a.transport.socketLoop?.wakeups ?? 0) - w0.0, (b.transport.socketLoop?.wakeups ?? 0) - w0.1)
         let redials = a.transport.redialFires + b.transport.redialFires - e0.0
@@ -101,7 +104,8 @@ extension WindowsSelftest {
         r.add("team.idle", linked && wakes.0 == 0 && wakes.1 == 0 && sample.mainContextSwitches <= budget,
               "\(Int(seconds)) s, two linked transports, no traffic: socket_thread_wakeups=[\(wakes.0), \(wakes.1)] "
                 + "(threads \(threads.0), \(threads.1)) main_thread_cs=\(sample.mainContextSwitches) budget_cs=\(budget) "
-                + "known_wakes={redial:\(redials), dnssd_events:\(discovery)} main_cycles=\(sample.mainCycles) "
+                + "known_wakes={redial:\(redials), dnssd_events:\(discovery)} dnssd_repeats_dropped_off_main=\(WinDNSSD.repeatsDropped - r0) "
+                + "main_cycles=\(sample.mainCycles) "
                 + "still_linked=\(linked) busy_threads=[\(sample.busy)]")
     }
 
@@ -120,6 +124,7 @@ extension WindowsSelftest {
     private var traces: [WindowsTeamTransport.Trace] = []
     private var ownNamesSeen = Set<String>()
     private(set) var messages = 0
+    private(set) var disconnects = 0
     private var ended = false
 
     init(_ name: String, code: TeamCode) {
@@ -142,6 +147,11 @@ extension WindowsSelftest {
         transport.onMessage = { [weak self] id, m in
             self?.messages += 1
             inner?(id, m)
+        }
+        let innerDown = transport.onPeerDisconnected
+        transport.onPeerDisconnected = { [weak self] id in
+            self?.disconnects += 1
+            innerDown?(id)
         }
         transport.trace = { [weak self] t in
             guard let self else { return }

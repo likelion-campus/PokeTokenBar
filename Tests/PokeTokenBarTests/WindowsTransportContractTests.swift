@@ -246,7 +246,7 @@ final class WindowsTeamTransportTests: XCTestCase {
         return t
     }
 
-    func testDialOrderPutsIPv4FirstAndScopesLinkLocalIPv6() {
+    func testDialOrderPutsIPv4FirstAndScopesLinkLocalIPv6() async {
         let resolved = [
             WinSocketAddress(family: .ipv6, host: "fe80:0:0:0:1c2b:3a4d:5e6f:7a8b", port: 5000, interfaceIndex: 7),
             WinSocketAddress(family: .ipv6, host: "2001:db8:0:0:0:0:0:1", port: 5000, interfaceIndex: 7),
@@ -265,7 +265,7 @@ final class WindowsTeamTransportTests: XCTestCase {
         XCTAssertEqual(bytes.map { Array($0[24..<28]) }, [7, 0, 0, 0])
     }
 
-    func testANumericSockaddrReadsBackInTheDNSSDForm() {
+    func testANumericSockaddrReadsBackInTheDNSSDForm() async {
         let v4: [UInt8] = [2, 0, 0x1f, 0x90, 10, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0]
         let a = v4.withUnsafeBytes { WinSocketAddress(sockaddr: $0.baseAddress!, length: 16) }
         XCTAssertEqual(a, WinSocketAddress(family: .ipv4, host: "10.0.0.7", port: 8080))

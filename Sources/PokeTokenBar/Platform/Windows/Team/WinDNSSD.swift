@@ -95,9 +95,26 @@ private final class BrowseContext: CallbackContext {
     }
     deinit { request.deallocate(); cancel.deallocate() }
 
-    /// Pool thread. Drops the event when the browse was stopped; checked again on the main queue.
-    func post(_ events: [WinDNSSD.Event]) {
-        guard isOpen, !events.isEmpty else { return }
+    private let namesLock = NSLock()
+    private var known = Set<String>()
+
+    /// Pool thread. Drops the event when the browse was stopped; checked again on the main queue. Windows repeats
+    /// answers (the same `.found` or `.lost` four times in a row, and a steady stream while other browsers on the
+    /// network query): a repeat changes nothing, so it is dropped here and never wakes the main thread. A `.found`
+    /// after a `.lost` (and the reverse) is a change and goes through.
+    func post(_ incoming: [WinDNSSD.Event]) {
+        guard isOpen, !incoming.isEmpty else { return }
+        namesLock.lock()
+        let events = incoming.filter { event in
+            switch event {
+            case .found(let name): return known.insert(name).inserted
+            case .lost(let name): return known.remove(name) != nil
+            default: return true
+            }
+        }
+        namesLock.unlock()
+        WinDNSSD.noteRepeats(incoming.count - events.count)
+        guard !events.isEmpty else { return }
         let deliver = self.deliver
         DispatchQueue.main.async {
             for event in events {
@@ -260,6 +277,15 @@ final class WinDNSSD: @unchecked Sendable {
     /// A resolve that Windows never answers is cancelled and reported as `[]` after this long.
     static let resolveTimeout: TimeInterval = 8
 
+    nonisolated(unsafe) private static let repeatsLock = NSLock()
+    nonisolated(unsafe) private static var repeats = 0
+    /// Browse answers dropped as repeats on the pool thread, process-wide (the selftest's idle report).
+    static var repeatsDropped: Int { repeatsLock.lock(); defer { repeatsLock.unlock() }; return repeats }
+    fileprivate static func noteRepeats(_ n: Int) {
+        guard n > 0 else { return }
+        repeatsLock.lock(); repeats += n; repeatsLock.unlock()
+    }
+
     private let deliver: @MainActor (Event) -> Void
     private var registration: RegisterContext?
     private var browsing: BrowseContext?
@@ -303,9 +329,9 @@ final class WinDNSSD: @unchecked Sendable {
     /// Withdraws the advertisement (Windows sends the goodbye record). Quiet when nothing is registered. Main thread.
     func deregister() { deregisterNow() }
 
-    /// Starts browsing `_ptbteam._tcp.local`. Reports `.found(label)` for every PTR with a TTL above 0 (repeats are
-    /// passed through, and your own instance is included) and `.lost(label)` for TTL 0. No-op while already
-    /// browsing. Main thread.
+    /// Starts browsing `_ptbteam._tcp.local`. Reports `.found(label)` for a PTR with a TTL above 0 and `.lost(label)`
+    /// for TTL 0, each only when it changes what this browse knows (repeats are dropped before the main thread; your
+    /// own instance is included). No-op while already browsing. Main thread.
     func browse() {
         guard browsing == nil else { return }
         let context = BrowseContext(deliver: deliver)
