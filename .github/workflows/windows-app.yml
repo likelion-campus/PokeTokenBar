@@ -458,7 +458,7 @@ jobs:
           "exit $($p.ExitCode)"
           foreach ($ph in (Get-Content $out -Raw | ConvertFrom-Json)) { "== $($ph.phase)"; $ph.detail }
       - name: Timeline of the installed app (when does a waker start; diagnostics)
-        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.fast != 'true'
+        if: (success() || failure()) && steps.install.outcome == 'success'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -476,7 +476,7 @@ jobs:
               $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE "state-$k"
               New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
               $p, $h = Start-App $exe
-              "== $k: app started $((Get-Date).ToUniversalTime().ToString('HH:mm:ss')) UTC"
+              "== ${k}: app started $((Get-Date).ToUniversalTime().ToString('HH:mm:ss')) UTC"
               ./scripts/windows/measure-idle.ps1 -ProcessId $p.Id -Seconds 330 -SliceSeconds 15 -Label $k -Out "idle-$k.json"
               Close-App $p $h
               Get-Content (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log') | Select-String 'refresh done|launched' | Select-Object -Last 4
