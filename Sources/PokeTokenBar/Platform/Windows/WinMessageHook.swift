@@ -33,7 +33,7 @@ import WinSDK
     private static func inMenuOrMoveLoop() -> Bool {
         var info = GUITHREADINFO()
         info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
-        guard GetGUIThreadInfo(GetCurrentThreadId(), &info) != 0 else { return false }
+        guard GetGUIThreadInfo(GetCurrentThreadId(), &info) else { return false }
         return info.flags & 0x1E != 0
     }
 

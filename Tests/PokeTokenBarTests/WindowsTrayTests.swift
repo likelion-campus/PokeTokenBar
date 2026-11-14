@@ -20,7 +20,7 @@ final class WindowsTrayTests: XCTestCase {
     func testIconMakesAnHICON() throws {
         let icon = try XCTUnwrap(WinIcon(png: WinIcon.fixturePNG, size: 16))
         var info = ICONINFO()
-        XCTAssertNotEqual(GetIconInfo(icon.handle, &info), 0)
+        XCTAssertTrue(GetIconInfo(icon.handle, &info))
         defer { DeleteObject(info.hbmColor); DeleteObject(info.hbmMask) }
         var bitmap = BITMAP()
         XCTAssertGreaterThan(GetObjectW(info.hbmColor, Int32(MemoryLayout<BITMAP>.size), &bitmap), 0)

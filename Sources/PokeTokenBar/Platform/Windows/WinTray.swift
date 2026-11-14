@@ -49,14 +49,14 @@ import WinSDK
         nid.hIcon = icon?.handle ?? Self.defaultIcon
         fill(&nid.szTip, tip, capacity: 128)
         lastTipUnits = min(tip.utf16.count, TrayMenuModel.tipLimit)
-        let ok = Shell_NotifyIconW(DWORD(NIM_ADD), &nid) != 0
+        let ok = Shell_NotifyIconW(DWORD(NIM_ADD), &nid)
         addCount += 1
         lastAddOK = ok
         if !ok { AppLog.write("tray: NIM_ADD failed: \(GetLastError())") }
         isPresent = ok
         if ok {
             nid.uVersion = UINT(NOTIFYICON_VERSION_4)
-            lastVersionOK = Shell_NotifyIconW(DWORD(NIM_SETVERSION), &nid) != 0
+            lastVersionOK = Shell_NotifyIconW(DWORD(NIM_SETVERSION), &nid)
             if !lastVersionOK { AppLog.write("tray: NIM_SETVERSION failed: \(GetLastError())") }
         }
         return ok
@@ -65,7 +65,7 @@ import WinSDK
     func remove() {
         guard isPresent else { return }
         var nid = base(0)
-        lastDeleteOK = Shell_NotifyIconW(DWORD(NIM_DELETE), &nid) != 0
+        lastDeleteOK = Shell_NotifyIconW(DWORD(NIM_DELETE), &nid)
         isPresent = false
     }
 
@@ -82,7 +82,7 @@ import WinSDK
         guard isPresent else { return }
         var nid = base(NIF_ICON)
         nid.hIcon = icon?.handle ?? Self.defaultIcon
-        lastModifyOK = Shell_NotifyIconW(DWORD(NIM_MODIFY), &nid) != 0
+        lastModifyOK = Shell_NotifyIconW(DWORD(NIM_MODIFY), &nid)
     }
 
     /// Clipped to 127 UTF-16 units.
@@ -92,7 +92,7 @@ import WinSDK
         guard isPresent else { return }
         var nid = base(NIF_TIP | 0x80 /* NIF_SHOWTIP */)
         fill(&nid.szTip, tip, capacity: 128)
-        lastModifyOK = Shell_NotifyIconW(DWORD(NIM_MODIFY), &nid) != 0
+        lastModifyOK = Shell_NotifyIconW(DWORD(NIM_MODIFY), &nid)
     }
 
     func showBalloon(title: String, body: String, sound: Bool) -> Bool {
@@ -101,7 +101,7 @@ import WinSDK
         fill(&nid.szInfoTitle, title, capacity: 64)
         fill(&nid.szInfo, body, capacity: 256)
         nid.dwInfoFlags = DWORD(NIIF_INFO) | (sound ? 0 : DWORD(NIIF_NOSOUND))
-        lastBalloonOK = Shell_NotifyIconW(DWORD(NIM_MODIFY), &nid) != 0
+        lastBalloonOK = Shell_NotifyIconW(DWORD(NIM_MODIFY), &nid)
         return lastBalloonOK
     }
 
@@ -174,8 +174,11 @@ import WinSDK
         }
         _ = SetForegroundWindow(owner)
         openMenuBits = Int(bitPattern: menu)
-        let command = TrackPopupMenu(menu, UINT(TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY | TPM_BOTTOMALIGN),
-                                     point.x, point.y, 0, owner, nil)
+        // The SDK import turns BOOL into Bool, which would lose the command id TPM_RETURNCMD returns: call it as Int32.
+        typealias TrackFn = @convention(c) (HMENU?, UINT, Int32, Int32, Int32, HWND?, UnsafePointer<RECT>?) -> Int32
+        guard let track = WinDynamic.symbol("user32.dll", "TrackPopupMenu", as: TrackFn.self) else { return nil }
+        let command = track(menu, UINT(TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY | TPM_BOTTOMALIGN),
+                            point.x, point.y, 0, owner, nil)
         _ = PostMessageW(owner, UINT(WM_NULL), 0, 0)
         return command > 0 ? Int(command) - 1 : nil
     }
