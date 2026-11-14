@@ -6,6 +6,12 @@ import QuartzCore
 /// (`contents` = the panel's `CGImage`, `contentsScale` = the backing scale, nearest magnification, no implicit
 /// animations). Clicks reach it only where the HUD reports an interactive hit on its panel (`hitTest`); everywhere else
 /// they go to the views below (the scene). It never takes the keyboard, so the scene or the chat field keeps it.
+///
+/// Sizing: four constraints pin it to the window's content view and it has no intrinsic size, so its frame never depends
+/// on what the panel shows. A panel that grows or shrinks (a banner wrapping to three lines, a countdown coming and
+/// going) only changes the sublayer's frame and contents in one step, without implicit animation, never invalidating
+/// the view's layout or intrinsic size (the roster's hosting view on `main` crashed by re-invalidating inside the
+/// constraint pass).
 @MainActor final class PlazaPanelHostView: NSView {
     let panelID: PlazaPanelID
     private let hud: PlazaHUD
@@ -29,6 +35,25 @@ import QuartzCore
 
     /// The sublayer, for tests.
     var panelLayerForTesting: CALayer { panelLayer }
+    /// For tests: layout passes this view went through, intrinsic-size invalidations (AppKit sends a couple while the
+    /// window is set up; a panel's change must send none) and those that came inside a layout pass (never).
+    private(set) var layoutPassesForTesting = 0
+    private(set) var intrinsicInvalidationsForTesting = 0
+    private(set) var intrinsicInvalidationsInLayoutForTesting = 0
+    private var isInLayout = false
+
+    override func layout() {
+        isInLayout = true
+        super.layout()
+        isInLayout = false
+        layoutPassesForTesting += 1
+    }
+
+    override func invalidateIntrinsicContentSize() {
+        intrinsicInvalidationsForTesting += 1
+        if isInLayout { intrinsicInvalidationsInLayoutForTesting += 1 }
+        super.invalidateIntrinsicContentSize()
+    }
 
     func show(image: CGImage, frame: CGRect, scale: CGFloat) {
         panelLayer.contents = image

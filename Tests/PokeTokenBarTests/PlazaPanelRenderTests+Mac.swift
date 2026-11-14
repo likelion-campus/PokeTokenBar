@@ -316,6 +316,73 @@ import CoreText
         c.handleClose()
     }
 
+    /// The SwiftUI overlay still opens a member menu below the pills, as when they were in its stack: the menu moves down
+    /// by the pills' height and the 8-point gap (a banner: 34 + 8; a countdown and a banner: 2 × (34 + 8)).
+    func testAMenuStillOpensBelowThePills() async throws {
+        func menuTop(countdown: String?, banner: String?) throws -> Int {
+            let m = model(countdown: countdown, banner: banner)
+            m.content = .memberMenu(PlazaMemberMenu(memberID: "m", nickname: "민수"))
+            let pills = PlazaPillsPanel(model: m)
+            let viewport = CGSize(width: 600, height: 372)
+            let view = PlazaOverlayView(model: m, pillsSize: { pills.stack(in: viewport, scale: 2, text: PlatformPlaza.graphics.text).size })
+            let image = try XCTUnwrap(Self.render(view.frame(width: viewport.width, height: viewport.height), scale: 2))
+            return Int(try XCTUnwrap(Self.boxes(image).first).minY)   // the pills are not in the overlay: the menu is its first ink
+        }
+        let alone = try menuTop(countdown: nil, banner: nil)
+        XCTAssertEqual(try menuTop(countdown: nil, banner: "배너") - alone, 2 * (34 + 8))
+        XCTAssertEqual(try menuTop(countdown: "단체 사진 5", banner: "배너") - alone, 2 * (34 + 8 + 34 + 8))
+    }
+
+    /// A host's frame is the window's (four constraints, no intrinsic size): a panel growing and shrinking — a banner of
+    /// one line and of three, a countdown coming and going, the clock's text getting wider — only moves and resizes the
+    /// host's layer, so the hosts are not laid out again per change and never ask for an intrinsic size. (On `main` the
+    /// roster's hosting view, sized by its content, crashed AppKit by re-invalidating inside the constraint pass.)
+    func testPanelSizeChangesDoNotRelayoutTheirHosts() async throws {
+        let name = "PlazaPanelRenderTests.\(UUID())"
+        defer { NSWindow.removeFrame(usingName: name) }
+        let c = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.panels.\(UUID())")),
+                                      loader: PlazaCharacterLoader(fetcher: RenderTestNoSprites()),
+                                      nickname: { "tester" }, memberID: { "member-1" }, subject: { .init(speciesID: 25, isShiny: false) },
+                                      renderCheckSleep: Self.park, focusTickSleep: Self.park, dittoLoopSleep: Self.park, dittoSeed: { 7 },
+                                      shell: RecordingPlazaShell())
+        c.prepareScene()
+        let shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("never brought forward") })
+        let overlays = c.overlayBindings
+        shell.open(stage: try XCTUnwrap(c.scene).stage, title: "t", overlays: overlays)
+        let container = try XCTUnwrap(shell.windowForTesting?.contentView)
+        container.layoutSubtreeIfNeeded()
+        let hosts = container.subviews.compactMap { $0 as? PlazaPanelHostView }
+        XCTAssertEqual(hosts.map(\.panelID), [.pills, .clock])
+        let clock = try XCTUnwrap(c.hud.panels.first { $0.id == .clock } as? PlazaClockPanel)
+        for host in hosts {
+            XCTAssertEqual(host.intrinsicContentSize, NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric))
+            XCTAssertEqual(host.frame, container.bounds)
+        }
+        let passes = hosts.map(\.layoutPassesForTesting), invalidations = hosts.map(\.intrinsicInvalidationsForTesting)
+        var sizes: [PlazaPanelID: Set<CGFloat>] = [:]
+        for i in 0..<12 {
+            overlays.overlayModel.banner = i % 2 == 0 ? "짧은 배너" : Self.banners[1]
+            overlays.overlayModel.countdown = i % 3 == 0 ? "단체 사진 \(i)" : nil
+            clock.update(i % 2 == 0 ? "밤 21:34" : "새벽 0:00 · 아주 긴 시계")
+            for _ in 0..<20 { await Task.yield() }
+            container.layoutSubtreeIfNeeded()
+            for host in hosts {
+                XCTAssertEqual(host.frame, container.bounds, "the host keeps the window's frame")
+                if let f = host.panelFrame { sizes[host.panelID, default: []].insert(f.height * 1000 + f.width) }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(sizes[.pills]?.count ?? 0, 3, "the pills really changed size")
+        XCTAssertEqual(sizes[.clock]?.count, 2, "the clock really changed size")
+        for (i, host) in hosts.enumerated() {
+            XCTAssertLessThanOrEqual(host.layoutPassesForTesting - passes[i], 1, "\(host.panelID): no layout pass per change")
+            XCTAssertEqual(host.intrinsicInvalidationsForTesting, invalidations[i], "\(host.panelID): a change never asks for an intrinsic size")
+            XCTAssertEqual(host.intrinsicInvalidationsInLayoutForTesting, 0, "\(host.panelID): nothing invalidates inside a layout pass")
+        }
+        shell.stopPresenting()
+        shell.dismantle()
+        c.handleClose()
+    }
+
     // MARK: images for the PR
 
     private struct Shot {
