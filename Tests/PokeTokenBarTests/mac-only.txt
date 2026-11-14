@@ -131,6 +131,8 @@ PlazaSwimLowerHalfTests.swift
 PlazaTackleWaterTests.swift
 PlazaTallGrassSceneTests.swift
 PlazaWindowTests.swift
+# PlazaWindowTests+Mac: the Mac shell's NSWindow, SKView and SwiftUI hosting views (AppKit, SpriteKit)
+PlazaWindowTests+Mac.swift
 PokeTokenBarTests.swift
 # PokemonFormTests+Mac: needs PokemonDetailView (UI)
 PokemonFormTests+Mac.swift
