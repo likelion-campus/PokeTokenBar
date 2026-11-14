@@ -19,7 +19,7 @@ enum BinaryLocator {
         if let hit = cache[binary] {
             if let path = hit.path {
                 // stale 방어 — 해석 후 앱 삭제/교체(Codex.app 업데이트 등)로 경로 소멸 시 재해석.
-                if FileManager.default.isExecutableFile(atPath: path) { return path }
+                if PlatformCompat.isExecutableFile(atPath: path) { return path }
                 AppLog.write("\(binary) cached path gone, re-resolving: \(path)")
             } else if Date().timeIntervalSince(hit.at) < notFoundTTL {
                 return nil   // 최근 미탐지 — TTL 내엔 셸 resolve 비용 회피
@@ -39,13 +39,14 @@ enum BinaryLocator {
                                      base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var paths = [URL(fileURLWithPath: binaryPath).deletingLastPathComponent().path]
         paths.append(contentsOf: commonToolDirectories())
-        for entry in (base["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: PlatformCompat.pathListSeparator) {
+        let pathKey = PlatformCompat.pathVariableKey(in: base)
+        for entry in (base[pathKey] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: PlatformCompat.pathListSeparator) {
             paths.append(String(entry))
         }
         var seen = Set<String>()
         let merged = paths.filter { seen.insert($0).inserted }.joined(separator: String(PlatformCompat.pathListSeparator))
         var env = base
-        env["PATH"] = merged
+        env[pathKey] = merged
         return env
     }
 
@@ -60,7 +61,7 @@ enum BinaryLocator {
     /// 새 버전매니저 지원 시 여기 한 곳만 추가하면 두 경로 모두에 반영된다.
     static func commonToolDirectories() -> [String] {
         let home = NSHomeDirectory()
-        return [
+        return PlatformCompat.toolDirectories(posix: [
             "/opt/homebrew/bin",                 // Homebrew (Apple Silicon)
             "/usr/local/bin",                    // Homebrew (Intel) / npm prefix
             "\(home)/.local/share/mise/shims",   // mise (shims 모드)
@@ -70,27 +71,26 @@ enum BinaryLocator {
             "\(home)/.npm-global/bin",           // npm prefix=~/.npm-global
             "\(home)/.local/bin",
             "/usr/bin",
-        ]
+        ])
     }
 
     /// 버전매니저 공통 shim/bin 경로 + 주어진 정적 경로. (절대경로 우선 탐색용)
     static func commonNodeToolPaths(_ binary: String) -> [String] {
-        commonToolDirectories().map { "\($0)/\(binary)" }
+        commonToolDirectories().flatMap { PlatformCompat.executableCandidates("\($0)/\(binary)") }
     }
 
     private static func locate(_ binary: String, staticPaths: [String]) -> String? {
-        let fm = FileManager.default
         // 0) 사용자 수동 지정
         if let override = UserDefaults.standard.string(forKey: "\(binary)Path"),
-           !override.isEmpty, fm.isExecutableFile(atPath: override) {
+           !override.isEmpty, PlatformCompat.isExecutableFile(atPath: override) {
             return override
         }
         // 1) 정적 경로 (서브프로세스 없이 빠르게)
-        if let hit = staticPaths.first(where: { fm.isExecutableFile(atPath: $0) }) {
+        if let hit = staticPaths.first(where: { PlatformCompat.isExecutableFile(atPath: $0) }) {
             return hit
         }
         // 2) 로그인+인터랙티브 셸 PATH 해석 (mise activate / nvm / fnm 등은 .zshrc 에서 PATH 주입)
-        return shellResolve(binary)
+        return PlatformCompat.searchProcessPath(binary, environment: ProcessInfo.processInfo.environment) ?? shellResolve(binary)
     }
 
     /// 사용자 로그인 셸을 인터랙티브+로그인으로 띄워 `command -v <binary>` 결과를 받는다.
@@ -100,7 +100,7 @@ enum BinaryLocator {
         guard let path = shellMarkedValue(
             script: #"printf '<<<BIN:%s:BIN>>>' "$(command -v "$1" 2>/dev/null)""#,
             argument: binary, label: "\(binary) shell resolve"),
-            FileManager.default.isExecutableFile(atPath: path)
+            PlatformCompat.isExecutableFile(atPath: path)
         else { return nil }
         return path
     }
