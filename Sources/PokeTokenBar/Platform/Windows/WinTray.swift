@@ -13,6 +13,8 @@ import WinSDK
     private static let ninSelect: UInt32 = 0x400, ninKeySelect: UInt32 = 0x401
     private static let ninBalloonHide: UInt32 = 0x403, ninBalloonTimeout: UInt32 = 0x404, ninBalloonUserClick: UInt32 = 0x405
 
+    /// NIIF_RESPECT_QUIET_TIME: no balloon during the user's quiet time.
+    static let niifRespectQuietTime: DWORD = 0x80
     private let window: WinSinkWindow
     private var icon: WinIcon?
     private var tip = ""
@@ -31,6 +33,9 @@ import WinSDK
     private(set) var lastAnchorResult: Int32 = -1
     private(set) var lastTipUnits = 0
     private(set) var lastBalloonOK = false
+    private(set) var lastBalloonFlags: DWORD = 0
+    /// The icon the shell shows (the selftest's image dump renders this handle).
+    var currentIcon: WinIcon? { icon }
 
     init(window: WinSinkWindow) {
         self.window = window
@@ -100,7 +105,8 @@ import WinSDK
         var nid = base(NIF_INFO)
         fill(&nid.szInfoTitle, title, capacity: 64)
         fill(&nid.szInfo, body, capacity: 256)
-        nid.dwInfoFlags = DWORD(NIIF_INFO) | (sound ? 0 : DWORD(NIIF_NOSOUND))
+        nid.dwInfoFlags = DWORD(NIIF_INFO) | Self.niifRespectQuietTime | (sound ? 0 : DWORD(NIIF_NOSOUND))
+        lastBalloonFlags = nid.dwInfoFlags
         lastBalloonOK = Shell_NotifyIconW(DWORD(NIM_MODIFY), &nid)
         return lastBalloonOK
     }

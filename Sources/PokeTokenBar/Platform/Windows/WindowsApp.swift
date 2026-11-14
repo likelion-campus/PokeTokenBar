@@ -139,6 +139,7 @@ private func crtExit(_ code: Int32) -> Never {
         let tray = WinTrayHost(window: sink, store: store, companion: companion, defaults: defaults)
         self.tray = tray
         WindowsApp.trayToRemove = tray.tray
+        WindowsNotifications.install(presenter: WinBalloonPresenter(tray: tray.tray), tray: tray.tray)  // Task 8
         tray.start(showFirstRunHint: !arguments.contains("--selftest"))
         WinDefaultsSync.flushNow()  // 12: a fresh team.memberID survives an early crash
         WinDefaultsSync.start()

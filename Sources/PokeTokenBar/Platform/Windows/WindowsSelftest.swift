@@ -62,6 +62,8 @@ enum WindowsSelftest {
         await singleInstanceCheck(r, app)
         await systemServiceChecks(r)
         await trayChecks(r, app)
+        await notifyChecks(r, app)
+        if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
         await idleCheck(r, app)
         return r.checks
     }
