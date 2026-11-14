@@ -21,12 +21,15 @@ final class ToolLaunchArgumentScanTests: XCTestCase {
                 }
                 lists.append(elements.map { String($0.dropFirst().dropLast()) })
             }
-            if text.contains(".arguments =") { assignmentFiles.insert(rel) }
+            // A launch site creates a Process and sets its arguments; `self.arguments = arguments` alone is not one.
+            if text.contains("Process()"), text.contains(".arguments =") { assignmentFiles.insert(rel) }
         }
         XCTAssertTrue(lists.contains(["app-server", "--stdio"]), "the Codex argument list was not found: \(lists)")
         for list in lists { for arg in list { XCTAssertTrue(PlatformCompat.isBatchSafe(arg), arg) } }
-        // Direct Process launches: the shell lookup (a shell, never a shim) and the JSON-RPC runner (receives the lists above).
-        XCTAssertEqual(assignmentFiles, ["Core/BinaryLocator.swift", "Core/ProcessRunner.swift"],
+        // Direct Process launches: the shell lookup (a shell, never a shim), the JSON-RPC runner (receives the lists above),
+        // and the Windows selftest, which starts copies of its own executable (never a shim) with flags it builds itself.
+        XCTAssertEqual(assignmentFiles, ["Core/BinaryLocator.swift", "Core/ProcessRunner.swift",
+                                         "Platform/Windows/WindowsSelftest.swift"],
                        "a new Process launch site: check its arguments against the batch-shim rule (F19) and add it here")
     }
 }
