@@ -350,6 +350,24 @@ final class SpriteKitMirrorParityTests: XCTestCase {
         return result
     }
 
+    /// Every write-through, switched off in turn (debug builds only), must make the differential test fail: proof that
+    /// the operation mix exercises every mirrored property and both tree operations.
+    func testEveryMissedWriteIsNoticed() throws {
+        #if DEBUG
+        var caught: [String] = []
+        for write in SpriteKitMirrorFaults.Write.allCases {
+            SpriteKitMirrorFaults.dropped = [write]
+            let r = runFuzz(seed: 0x7_1E57_AB1E, operations: 2_000)
+            SpriteKitMirrorFaults.dropped = []
+            XCTAssertNotNil(r.failure, "a missed \(write) write went unnoticed")
+            if let f = r.failure { caught.append("\(write) at \(f.prefix(while: { $0 != ":" }))") }
+        }
+        print("FAULTS caught: " + caught.joined(separator: ", "))
+        #else
+        throw XCTSkip("the write-through fault switches exist in debug builds only")
+        #endif
+    }
+
     /// The bridge (Tasks 7–9): a root mounted straight into SpriteKit can be taken out again, mounted again and moved
     /// under a mounted shared parent; each time the SpriteKit tree follows.
     func testAMountedRootRemovedFromItsParentIsGoneFromTheSpriteKitTree() {
