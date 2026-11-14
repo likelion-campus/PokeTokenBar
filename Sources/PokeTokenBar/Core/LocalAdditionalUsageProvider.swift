@@ -778,10 +778,10 @@ enum LocalAdditionalUsageReader {
 
     static var defaultCursorRoots: [URL] {
         environmentPaths("CURSOR_DATA_DIR") ?? [
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage"),
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/Cursor Nightly/User/globalStorage"),
+            PlatformCompat.userApplicationSupport(home: FileManager.default.homeDirectoryForCurrentUser)
+                .appendingPathComponent("Cursor/User/globalStorage"),
+            PlatformCompat.userApplicationSupport(home: FileManager.default.homeDirectoryForCurrentUser)
+                .appendingPathComponent("Cursor Nightly/User/globalStorage"),
         ]
     }
 
@@ -790,8 +790,8 @@ enum LocalAdditionalUsageReader {
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
         let curated = environmentPaths("CURSOR_DATA_DIR") ?? [
-            home.appendingPathComponent("Library/Application Support/Cursor/User/globalStorage"),
-            home.appendingPathComponent("Library/Application Support/Cursor Nightly/User/globalStorage"),
+            PlatformCompat.userApplicationSupport(home: home).appendingPathComponent("Cursor/User/globalStorage"),
+            PlatformCompat.userApplicationSupport(home: home).appendingPathComponent("Cursor Nightly/User/globalStorage"),
         ]
         return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
     }

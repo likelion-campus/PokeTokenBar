@@ -63,7 +63,7 @@ enum ProcessRunner {
         }
         defer {
             closeStdin()
-            if process.isRunning { process.terminate() }
+            if process.isRunning { PlatformCompat.terminate(process) }
         }
 
         do {
@@ -98,7 +98,7 @@ enum ProcessRunner {
         }
 
         if process.isRunning {
-            process.terminate()
+            PlatformCompat.terminate(process)
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                 if process.isRunning {
                     PlatformCompat.forceKill(pid: process.processIdentifier)

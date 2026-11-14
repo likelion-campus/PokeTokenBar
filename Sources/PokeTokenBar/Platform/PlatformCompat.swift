@@ -273,3 +273,148 @@ enum PlatformCompat {
         return pi == p.count
     }
 }
+
+// MARK: - Tool directories and launching (stage 4, Task 4)
+
+extension PlatformCompat {
+    /// The environment key that holds the search path. Mac: "PATH". Windows: the key already in `env` that equals
+    /// "PATH" ignoring case ("Path" in practice, since the process environment is case-insensitive), else "Path".
+    static func pathVariableKey(in env: [String: String]) -> String {
+        #if os(Windows)
+        return env.keys.first { $0.caseInsensitiveCompare("PATH") == .orderedSame } ?? "Path"
+        #else
+        return "PATH"
+        #endif
+    }
+
+    /// The names `path` may be launched under. Mac: `[path]`. Windows: `path` + each launchable PATHEXT extension
+    /// (`.exe` first; `.cmd`, `.bat`, `.com` in PATHEXT order, or that order when PATHEXT is unset). A bare name is
+    /// not a candidate: npm also writes an extensionless shell script next to its `.cmd` shim.
+    static func executableCandidates(_ path: String) -> [String] {
+        let environment = ProcessInfo.processInfo.environment
+        return executableCandidates(path, pathExt: environment["PATHEXT"])
+    }
+
+    static func executableCandidates(_ path: String, pathExt: String?) -> [String] {
+        #if os(Windows)
+        let launchable = [".cmd", ".bat", ".com"]
+        var extensions = [".exe"]
+        let listed = (pathExt ?? "").split(separator: ";").map { $0.lowercased() }.filter(launchable.contains)
+        for e in (listed.isEmpty ? launchable : listed) where !extensions.contains(e) { extensions.append(e) }
+        return extensions.map { path + $0 }
+        #else
+        return [path]
+        #endif
+    }
+
+    /// Mac: `posix`, unchanged. Windows: the package-manager and version-manager folders whose base variable is set.
+    static func toolDirectories(posix: [String]) -> [String] {
+        toolDirectories(posix: posix, environment: ProcessInfo.processInfo.environment)
+    }
+
+    static func toolDirectories(posix: [String], environment: [String: String]) -> [String] {
+        #if os(Windows)
+        func value(_ name: String) -> String? {
+            environment.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }.map(\.value).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        var out: [String] = []
+        func add(_ base: String?, _ rest: String) { if let base { out.append(base + "\\" + rest) } }
+        add(value("APPDATA"), "npm")                              // npm global prefix
+        if let pnpm = value("PNPM_HOME") { out.append(pnpm) }     // pnpm's documented home (`pnpm setup`)
+        add(value("LOCALAPPDATA"), "Microsoft\\WinGet\\Links")    // winget portable links
+        add(value("USERPROFILE"), "scoop\\shims")
+        add(value("USERPROFILE"), ".bun\\bin")
+        add(value("LOCALAPPDATA"), "Volta\\bin")                  // volta: data_local_dir/Volta, shims in bin/
+        add(value("LOCALAPPDATA"), "mise\\shims")                 // mise: %LOCALAPPDATA%\\mise data dir, shims/
+        if let nvm = value("NVM_SYMLINK") { out.append(nvm) }     // nvm-windows' active-version link
+        add(value("USERPROFILE"), ".local\\bin")
+        return out
+        #else
+        return posix
+        #endif
+    }
+
+    /// Where per-user application data lives. Mac: `home/Library/Application Support`. Windows: `home/AppData/Roaming`
+    /// (`%APPDATA%`, which Electron apps such as Claude Desktop and Cursor use for their user data).
+    static func userApplicationSupport(home: URL) -> URL {
+        #if os(Windows)
+        return home.appendingPathComponent("AppData/Roaming")
+        #else
+        return home.appendingPathComponent("Library/Application Support")
+        #endif
+    }
+
+    /// The Claude Desktop session folders under its application-data folder. Mac: both, as before. Windows: none, because
+    /// the folder names inside `%APPDATA%\\Claude` are not documented anywhere checkable, so no root is guessed.
+    static func claudeDesktopSessionStores(_ stores: [String]) -> [String] {
+        #if os(Windows)
+        return []
+        #else
+        return stores
+        #endif
+    }
+
+    /// Mac: nil (the Mac keeps its login-shell lookup). Windows: the first launchable candidate in the Path entries.
+    static func searchProcessPath(_ binary: String, environment: [String: String]) -> String? {
+        #if os(Windows)
+        guard let list = environment[pathVariableKey(in: environment)] else { return nil }
+        for entry in list.split(separator: ";") {
+            let dir = entry.trimmingCharacters(in: CharacterSet(charactersIn: "\" "))
+            if dir.isEmpty { continue }
+            for candidate in executableCandidates(dir + "\\" + binary, pathExt: environment["PATHEXT"])
+            where isExecutableFile(atPath: candidate) { return candidate }
+        }
+        return nil
+        #else
+        return nil
+        #endif
+    }
+
+    /// True when `arg` can pass through cmd.exe unchanged: none of `& | < > ^ % !` and no newline (F19). A tool that
+    /// resolves to a `.cmd`/`.bat` shim is launched only with arguments that pass this.
+    static func isBatchSafe(_ arg: String) -> Bool {
+        !arg.contains { "&|<>^%!\n\r".contains($0) }
+    }
+
+    /// Ends `process`. Mac: `process.terminate()`, verbatim. Windows: also its descendants, because terminating an npm
+    /// `.cmd` shim leaves the program it started running (measured on the CI runner, F19). Descendants come from one
+    /// Toolhelp snapshot taken before anything is killed; they are ended first, then the process itself.
+    static func terminate(_ process: Process) {
+        #if os(Windows)
+        var children: [DWORD: [DWORD]] = [:]
+        let snapshot = CreateToolhelp32Snapshot(DWORD(TH32CS_SNAPPROCESS), 0)
+        if snapshot != INVALID_HANDLE_VALUE {
+            var entry = PROCESSENTRY32W()
+            entry.dwSize = DWORD(MemoryLayout<PROCESSENTRY32W>.size)
+            if Process32FirstW(snapshot, &entry) {
+                repeat { children[entry.th32ParentProcessID, default: []].append(entry.th32ProcessID) }
+                while Process32NextW(snapshot, &entry)
+            }
+            CloseHandle(snapshot)
+        }
+        var descendants: [DWORD] = []
+        var pending = [DWORD(process.processIdentifier)]
+        while let pid = pending.popLast() {
+            for child in children[pid] ?? [] where !descendants.contains(child) {
+                descendants.append(child)
+                pending.append(child)
+            }
+        }
+        for pid in descendants.reversed() { forceKill(pid: Int32(pid)) }
+        #endif
+        process.terminate()
+    }
+
+    /// Whether `path` is an existing launchable file. Mac: `FileManager.isExecutableFile`, verbatim. On Windows that
+    /// call looks only at the extension (it answers true for a `.cmd` or `.exe` that does not exist; CI run 43581978271),
+    /// so the file must also exist and not be a folder.
+    static func isExecutableFile(atPath path: String) -> Bool {
+        #if os(Windows)
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && !isDirectory.boolValue
+            && FileManager.default.isExecutableFile(atPath: path)
+        #else
+        return FileManager.default.isExecutableFile(atPath: path)
+        #endif
+    }
+}

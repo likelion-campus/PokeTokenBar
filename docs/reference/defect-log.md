@@ -2170,3 +2170,16 @@ read_when:
   (실제 `UsageStore` 의 늦은 저장이 다음 테스트에 안 보인다), `TestDefaultsPoolTests` 의 늦은 쓰기·외부 링 테스트 — `close()` 를 no-op 으로
   주입하면 실패, 스캔 테스트는 맨 `UsageStore(` 를 주입하면 실패함을 확인했다. **두 번째 늦은 쓰기 (리뷰에서 발견):** `UsageStore.reschedule` / `suspendPolling` 의 타이머 클로저가 `{ _ in Task { @MainActor [weak self] in … } }` 였다 — 안쪽 `[weak self]` 는 바깥 클로저의 캡처를 약하게 만들지 못해 바깥 클로저가 `self` 를 **강하게** 쥔다. 타이머가 런루프에 붙어 있으니 테스트가 만든 모든 스토어가 스코프가 끝나도 죽지 않고 120 s 마다 실제 로그를 읽어 풀 슬롯에 원장을 저장했다(보고된 11 일 원장과 더 잘 맞는다). 고침: `{ [weak self] _ in Task { @MainActor in await self?.refresh() } }`(앱 동작 동일 — 앱은 스토어를 평생 쥔다). 같은 패턴 스윕: `Sources/` 의 `Timer(` 4 곳(UsageStore 2 곳이 이 결함, `PokeTokenBarApp.swift:577`·`TeamTransport.swift:187` 은 바깥 클로저에 이미 `[weak self]`)과 NotificationCenter 옵저버(바깥 `[weak self]`) 는 정상. 회귀 테스트 `testAStoreIsReleasedWhenItsScopeEnds`(스코프 뒤 약참조가 nil) — 옛 캡처를 되돌리면 실패. **레지스트리 테스트:** `UsageStore(providers: defaultProviders())` 는 타이머를 통해 실제 로그·Keychain·네트워크를 만지므로 `UsageStore.defaultProviders().map(\.id)` 로 바꿔 스토어를 만들지 않는다(`registeredProviderIDs` 는 `providers.map(\.id)` 일 뿐이라 잃는 것 없음). 스캔은 `defaultProviders` 를 넘기는 `UsageStore(`/`UsageStore.init(` 도, 자기 인자 목록 밖(중첩 호출·문자열)의 `providers:` 도 실패시킨다. 남은 것: `LocalUsageParityTests` 는 `PTB_PARITY=1` 일 때만
   도는 의도적 실제 로그 대조라 `.standard` 를 쓴다(기본 스킵).
+
+- **윈도우 프로세스 환경의 검색 경로 키는 `Path` 인데 코드는 `"PATH"` 만 읽고 썼다.** `BinaryLocator.augmentedEnvironment` 가 `base["PATH"]`(nil)를
+  읽고 `env["PATH"]` 를 써서, 자식 프로세스 환경에 `Path` 와 `PATH` 가 둘 다 생겼다(어느 쪽이 이기는지 미정의). 도달 경로: Codex 한도 조회 등
+  `augmentedEnvironment` 를 쓰는 모든 자식 프로세스. **왜 못 걸렀나:** `testAugmentedPathUsesThePlatformSeparator` 는 `["PATH": …]` 를 주입했다 —
+  실제 윈도우 프로세스의 `Path` 키가 아니라 결함 트리거와 *다른 경로*로 통과했다. **고침:** `PlatformCompat.pathVariableKey(in:)`(윈도우: 이미 있는 키를 대소문자 무시로
+  찾고 없으면 `Path`; 맥: `"PATH"`). **부류 스윕:** 공용 소스의 `["PATH"]`·`"PATH"` 사용처 전수 — `BinaryLocator` 외에 없다. 같은 부류로 `.cmd` 해석(`PATHEXT`,
+  `executableCandidates`)과 앱 데이터 폴더(`userApplicationSupport(home:)`)도 PlatformCompat 로 모았다. **회귀 테스트:** `WindowsPathTests.testAugmentedEnvironmentKeepsOnePathKey`
+  (`Path` 만 있는 기반 환경 → 키가 하나; 맥은 옛 출력 고정). `pathVariableKey` 가 `"PATH"` 를 돌려주게 주입해 윈도우 CI 에서 실패하는지 확인.
+- **npm `.cmd` shim 은 cmd.exe 가 실행하므로 인자의 `& | < > ^ % !` 가 해석된다 (F19).** 오늘 shim 에 가는 인자는 Codex 의 `["app-server", "--stdio"]` 뿐이라 도달 가능한 결함은
+  없다 — 런타임 가드는 두지 않고 규칙만 고정했다. **가드(기계):** `PlatformCompat.isBatchSafe` + `ToolLaunchArgumentTests`(문자 거부), `ToolLaunchArgumentScanTests`(공용 소스의
+  `arguments: ["…"]` 리터럴이 전부 안전한 고정 문자열이고, `Process` 의 `.arguments =` 지점이 `BinaryLocator`·`ProcessRunner` 둘뿐임을 고정; 맥 전용). 규칙은 `provider-extension.md`.
+- **위치를 확인하지 못한 도구 경로를 추측으로 채우지 않는다.** 윈도우 로그 루트·도구 디렉터리는 도구의 공개 문서·소스·문서화된 환경변수로 확인된 것만 넣고, 나머지는 비워 "데이터 없음"으로 둔다
+  (Claude Desktop 세션 폴더가 그 예: `claudeDesktopSessionStores` 는 윈도우에서 `[]`).
