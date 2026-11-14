@@ -1,4 +1,7 @@
-import AppKit
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Observation
 
 /// GitHub 릴리스 최신 버전을 확인해 새 버전이 있으면 팝오버에 알린다.
@@ -31,6 +34,8 @@ final class UpdateChecker {
     private let defaults: UserDefaults
     /// Injected so tests can fail or succeed without hitting the network.
     private let fetchLatest: () async -> LatestRelease?
+    /// Injected so a test can say "no brew" without asking the machine it runs on.
+    private let locateBrew: @Sendable () -> String?
     private var lastChecked: Date?
     /// Overlapping popover opens must not stack concurrent GitHub calls once the early
     /// cooldown stamp is gone (a failed check no longer blocks the next attempt).
@@ -44,12 +49,13 @@ final class UpdateChecker {
     nonisolated static let brewCask = "poke-token-bar-team"
 
     init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init, defaults: UserDefaults = .standard,
-         fetchLatest: (() async -> LatestRelease?)? = nil) {
+         fetchLatest: (() async -> LatestRelease?)? = nil, brewLocator: (@Sendable () -> String?)? = nil) {
         self.currentVersion = currentVersion
             ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
         self.clock = clock
         self.defaults = defaults
         self.fetchLatest = fetchLatest ?? { await Self.liveLatestRelease(repo: Self.releaseRepo) }
+        self.locateBrew = brewLocator ?? { Self.brewCaskPath() }
     }
 
     var settingsNotice: SettingsNotice {
@@ -154,14 +160,14 @@ final class UpdateChecker {
         Task { @MainActor in
             // brew cask 설치본이면 분리(detached) 스크립트가 앱 종료 후 tap 갱신→업그레이드→재오픈.
             // 그 외(brew 미설치/비-cask 설치)면 릴리스 페이지를 연다.
-            let brew = await Task.detached { Self.brewCaskPath() }.value
+            let brew = await Task.detached { [locateBrew] in locateBrew() }.value
             if let brew {
                 Self.launchDetachedUpgrade(brew: brew)
-                NSApp.terminate(nil)
+                PlatformShell.current.terminate()
             } else {
                 isUpdating = false
                 AppLog.write("update: brew cask 아님/brew 미설치 → 릴리스 페이지 열기")
-                if let u = URL(string: update.url) { NSWorkspace.shared.open(u) }
+                if let u = URL(string: update.url) { PlatformShell.current.open(u) }
             }
         }
     }

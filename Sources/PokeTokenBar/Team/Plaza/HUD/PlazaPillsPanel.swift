@@ -1,12 +1,14 @@
 import Foundation
 import Observation
 
-/// One pill laid out in its panel: the frame (panel points, origin top-left, strokes not included) and its text lines,
-/// each with the point where it is drawn (x from the pill's left edge, the baseline's y from the pill's top edge).
+/// One pill laid out in its panel: the frame (content points, origin top-left, strokes not included — see
+/// `PlazaPanelSpace`), its text lines, each with the point where it is drawn (x from the pill's left edge, the
+/// baseline's y from the pill's top edge), and the whole text (what VoiceOver reads, also when the pill cuts it).
 struct PlazaPill {
     let style: PlazaPanelStyle.Pill
     var frame: CGRect
     let lines: [(line: PlazaTextLine, at: CGPoint)]
+    let text: String
 
     /// A one-line pill (`lineLimit(1)`): the text is cut at the end with "…" when it is wider than `maxTextWidth`.
     static func oneLine(_ string: String, style: PlazaPanelStyle.Pill, maxTextWidth: CGFloat, scale: CGFloat,
@@ -19,7 +21,7 @@ struct PlazaPill {
         let width = PlazaPanelStyle.pixelUp(box.width, scale: scale)
         let size = CGSize(width: width + 2 * style.padding.width, height: box.height + 2 * style.padding.height)
         return PlazaPill(style: style, frame: CGRect(origin: .zero, size: size),
-                         lines: [(line, CGPoint(x: style.padding.width, y: style.padding.height + box.baselines[0]))])
+                         lines: [(line, CGPoint(x: style.padding.width, y: style.padding.height + box.baselines[0]))], text: string)
     }
 
     /// A centred, wrapping pill `width` wide (the banner): the lines break as SwiftUI's `Text` breaks them
@@ -36,7 +38,7 @@ struct PlazaPill {
         let placed = zip(lines, box.baselines).map { line, baseline in
             (line, CGPoint(x: textX + (textWidth - line.width) / 2, y: style.padding.height + baseline))
         }
-        return PlazaPill(style: style, frame: CGRect(origin: .zero, size: size), lines: placed)
+        return PlazaPill(style: style, frame: CGRect(origin: .zero, size: size), lines: placed, text: string)
     }
 
     /// The text's size and each line's baseline from its top, as SwiftUI's `Text` lays a font's lines out (measured):
@@ -50,27 +52,34 @@ struct PlazaPill {
         return (width, CGFloat(lines.count) * lineHeight, baselines)
     }
 
-    /// Fill, text, then the stroke on top (SwiftUI's background, the `Text`, the overlay). `height` is the canvas's
-    /// height in points: the canvas has CoreGraphics' origin at the bottom.
-    func draw(on canvas: any PlazaCanvas, height: CGFloat) {
-        let r = CGRect(x: frame.minX, y: height - frame.maxY, width: frame.width, height: frame.height)
+    /// Fill, text, then the stroke on top (SwiftUI's background, the `Text`, the overlay).
+    func draw(on canvas: any PlazaCanvas, in space: PlazaPanelSpace) {
+        let r = space.canvas(frame)
         canvas.setFillColor(style.fill)
         canvas.fillRoundedRect(r, radius: style.cornerRadius)
         canvas.setFillColor(style.text)
         for (line, at) in lines {
-            canvas.draw(line, at: CGPoint(x: frame.minX + at.x, y: height - (frame.minY + at.y)))
+            canvas.draw(line, at: space.canvas(CGPoint(x: frame.minX + at.x, y: frame.minY + at.y)))
         }
         canvas.setStrokeColor(style.stroke)
         canvas.strokeRoundedRect(r, radius: style.cornerRadius, lineWidth: style.lineWidth)
     }
 
-    /// `pills` drawn into one image of `size` points at `scale`.
-    static func image(_ pills: [PlazaPill], size: CGSize, scale: CGFloat, graphics: any PlazaGraphics) -> PlazaImage? {
-        guard let canvas = graphics.makeCanvas(width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()),
-                                               colorSpace: .sRGB) else { return nil }
-        canvas.scale(x: scale, y: scale)
-        for pill in pills { pill.draw(on: canvas, height: size.height) }
-        return canvas.makeImage()
+    /// One static text per pill, read as its whole text, over the pill (SwiftUI's `Text` with its padding and
+    /// background was one element; the pills were separate elements, none combined).
+    func accessibilityItem(in space: PlazaPanelSpace) -> PlazaAccessibilityItem {
+        PlazaAccessibilityItem(frame: space.panel(frame), role: .staticText, label: text)
+    }
+
+    /// `pills` (laid out in a content of `content` points) as a panel's drawing: one image of the whole panel, strokes'
+    /// room included, and one accessibility item per pill, top to bottom.
+    static func drawing(_ pills: [PlazaPill], content: CGSize, scale: CGFloat, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
+        let space = PlazaPanelSpace(content: content)
+        let image = space.image(scale: scale, graphics: graphics) { canvas in
+            for pill in pills { pill.draw(on: canvas, in: space) }
+        }
+        return PlazaPanelDrawing(layers: image.map { [.image($0, frame: CGRect(origin: .zero, size: space.size))] } ?? [],
+                                 accessibility: pills.map { $0.accessibilityItem(in: space) })
     }
 }
 
@@ -85,6 +94,10 @@ struct PlazaPill {
 
     private struct Content: Equatable { let countdown: String?, banner: String?, hint: String? }
     private var content: Content { Content(countdown: model.countdown, banner: model.banner, hint: model.hint) }
+    /// The last layout: `size`, the overlay's menu room and `render` ask for the same one, and the banner's wrapping
+    /// (TextKit on the Mac) is the costly part.
+    private struct StackKey: Equatable { let content: Content, width: CGFloat, scale: CGFloat, engine: String }
+    private var laidOut: (key: StackKey, size: CGSize, pills: [PlazaPill])?
     /// The content last rendered or reported: a model write that changes nothing since (the same value again, or a
     /// change the window already rendered when it opened) is not reported.
     private var reported: Content?
@@ -98,6 +111,8 @@ struct PlazaPill {
 
     /// The pills as the old `VStack` placed them: frames relative to the stack's top-left corner, strokes not included.
     func stack(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> (size: CGSize, pills: [PlazaPill]) {
+        let key = StackKey(content: content, width: viewport.width, scale: scale, engine: String(describing: type(of: text)))
+        if let laidOut, laidOut.key == key { return (laidOut.size, laidOut.pills) }
         // A one-line pill is cut to the window's width (SwiftUI offered it the whole width); before the window has
         // reported its size (the SwiftUI overlay can ask that early) nothing is cut.
         func room(_ style: PlazaPanelStyle.Pill) -> CGFloat {
@@ -121,20 +136,19 @@ struct PlazaPill {
             pills[i].frame.origin = CGPoint(x: PlazaPanelStyle.pixel((width - pills[i].frame.width) / 2, scale: scale), y: y)
             y += pills[i].frame.height
         }
-        return (CGSize(width: width, height: y), pills)
+        let size = CGSize(width: width, height: y)
+        laidOut = (key, size, pills)
+        return (size, pills)
     }
 
     func size(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGSize {
-        let s = stack(in: viewport, scale: scale, text: text).size
-        return CGSize(width: s.width + 2 * PlazaPanelStyle.strokeRoom, height: s.height + 2 * PlazaPanelStyle.strokeRoom)
+        PlazaPanelSpace(content: stack(in: viewport, scale: scale, text: text).size).size
     }
 
-    func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaImage? {
+    func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
         reported = content
-        let (s, pills) = stack(in: viewport, scale: scale, text: graphics.text)
-        let room = PlazaPanelStyle.strokeRoom
-        let shifted = pills.map { p -> PlazaPill in var p = p; p.frame = p.frame.offsetBy(dx: room, dy: room); return p }
-        return PlazaPill.image(shifted, size: CGSize(width: s.width + 2 * room, height: s.height + 2 * room), scale: scale, graphics: graphics)
+        let (size, pills) = stack(in: viewport, scale: scale, text: graphics.text)
+        return PlazaPill.drawing(pills, content: size, scale: scale, graphics: graphics)
     }
 
     func hit(_ point: CGPoint) -> PlazaPanelHit? { nil }

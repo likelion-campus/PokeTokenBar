@@ -1,10 +1,11 @@
 import Foundation
 
 /// The overlay panels over the plaza scene, in z order (bottom first), and when they render. A panel renders only when
-/// it changed (`PlazaPanel.onChange`), the backing scale changed or its size changed, and only while `isRendering` and a
-/// host is attached; anything else (a window resize that keeps its size) only moves the image it already has. While the
-/// plaza is hidden (`isRendering == false`) changes are only remembered, and the changed panels render once when it
-/// shows again. The controller's `setRendering` is the one switch, with the render loop and the scene.
+/// it changed (`PlazaPanel.onChange`; reports in one turn of the main actor render once), the backing scale changed or
+/// its size changed, and only while `isRendering` and a host is attached; anything else (a window resize that keeps its
+/// size) only moves the drawing it already has. While the plaza is hidden (`isRendering == false`) changes are only
+/// remembered, and the changed panels render once when it shows again. The controller's `setRendering` is the one
+/// switch, with the render loop and the scene.
 @MainActor final class PlazaHUD {
     let panels: [any PlazaPanel]
     let graphics: any PlazaGraphics
@@ -32,18 +33,20 @@ import Foundation
     private(set) var renderCounts: [PlazaPanelID: Int] = [:]
     var renderCount: Int { renderCounts.values.reduce(0, +) }
 
-    /// A click (down and up on the same hit) on a panel.
+    /// A click (down and up on the same hit) on a panel, or VoiceOver's press on an item with that action.
     var onAction: ((PlazaPanelID, PlazaPanelHit) -> Void)?
 
     private struct Shown {
-        let image: PlazaImage
+        let drawing: PlazaPanelDrawing
         let frame: CGRect
         let scale: CGFloat
     }
 
     private var dirty: Set<PlazaPanelID>
     private var shown: [PlazaPanelID: Shown] = [:]
+    private var flushScheduled = false
     private var pressed: (id: PlazaPanelID, hit: PlazaPanelHit)?
+    private var hovered: (id: PlazaPanelID, hit: PlazaPanelHit)?
 
     init(panels: [any PlazaPanel], graphics: any PlazaGraphics = PlatformPlaza.graphics) {
         self.panels = panels
@@ -55,7 +58,8 @@ import Foundation
         }
     }
 
-    /// The host reports its size and backing scale; panels move, and re-render only if their size or the scale changed.
+    /// The host reports its size and backing scale; panels move at once, and re-render only if their size or the scale
+    /// changed.
     func setViewport(_ size: CGSize, scale: CGFloat) {
         guard size != viewport || scale != self.scale else { return }
         viewport = size
@@ -63,10 +67,17 @@ import Foundation
         flush()
     }
 
-    /// The panel's content changed: it renders now if the plaza is shown, else when it is shown again.
+    /// The panel's content changed: it renders on the main actor's next turn if the plaza is shown (several reports
+    /// before then render once), else when it is shown again.
     func setNeedsRender(_ id: PlazaPanelID) {
         dirty.insert(id)
-        if let panel = panels.first(where: { $0.id == id }) { update(panel) }
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.flushScheduled = false
+            self.flush()
+        }
     }
 
     /// Where each visible panel goes in a window of `viewport` points (origin top-left), on whole device pixels.
@@ -83,7 +94,8 @@ import Foundation
         return panel.hit(CGPoint(x: point.x - frame.minX, y: point.y - frame.minY))
     }
 
-    /// The top-most shown panel that takes a click at `point`.
+    /// The top-most shown panel, in this HUD's order, that takes a click at `point`: for a window that draws every
+    /// panel itself in that order. A window that stacks its own views per panel (the Mac) asks per panel instead.
     func hit(at point: CGPoint) -> (id: PlazaPanelID, hit: PlazaPanelHit)? {
         for panel in panels.reversed() {
             if let hit = hit(at: point, in: panel.id) { return (panel.id, hit) }
@@ -91,20 +103,47 @@ import Foundation
         return nil
     }
 
-    /// true when a panel takes the event (the scene must not get it). A click is a down and an up on the same hit;
-    /// it goes to `onAction`.
-    func handleMouse(_ e: PlazaMouseEvent) -> Bool {
+    /// A mouse event the window delivered to panel `id` (its view got it). true when the panel takes it, so it goes no
+    /// further. A down and an up on the same hit is a click (`onAction`); moves and presses update the panel's
+    /// `interaction` (only panels whose drawing `tracksMouse` get moves). No panel takes the scroll wheel (the scrolling
+    /// panels stay SwiftUI), so a scroll is never taken.
+    func handleMouse(_ e: PlazaMouseEvent, in id: PlazaPanelID) -> Bool {
+        let hit = self.hit(at: e.location, in: id)
         switch e.kind {
         case .down:
-            pressed = hit(at: e.location)
-            return pressed != nil
+            pressed = hit.map { (id, $0) }
+            hovered = hit.map { (id, $0) }
+            updateInteraction()
+            return hit != nil
         case .up:
-            defer { pressed = nil }
             guard let p = pressed else { return false }
-            if let now = hit(at: e.location), now == p { onAction?(p.id, p.hit) }
+            pressed = nil
+            updateInteraction()
+            if p.id == id, let hit, hit == p.hit { onAction?(id, hit) }
             return true
-        case .moved, .exited, .scroll:
-            return hit(at: e.location) != nil
+        case .moved:
+            hovered = hit.map { (id, $0) }
+            updateInteraction()
+            return hit != nil
+        case .exited:
+            if hovered?.id == id { hovered = nil }
+            updateInteraction()
+            return false
+        case .scroll:
+            return false
+        }
+    }
+
+    /// VoiceOver pressed an item of panel `id`: the same as a click on that hit.
+    func press(_ hit: PlazaPanelHit, in id: PlazaPanelID) {
+        onAction?(id, hit)
+    }
+
+    private func updateInteraction() {
+        for panel in panels {
+            let now = PlazaPanelInteraction(hovered: hovered?.id == panel.id ? hovered?.hit : nil,
+                                            pressed: pressed?.id == panel.id ? pressed?.hit : nil)
+            if panel.interaction != now { panel.interaction = now }
         }
     }
 
@@ -133,22 +172,21 @@ import Foundation
         guard panel.isVisible else {
             dirty.remove(id)
             if shown.removeValue(forKey: id) != nil { host.hide(id) }
+            if pressed?.id == id { pressed = nil }
+            if hovered?.id == id { hovered = nil }
             return
         }
         let frame = frame(of: panel, viewport: viewport, scale: scale)
         if !dirty.contains(id), let s = shown[id], s.scale == scale, s.frame.size == frame.size {
             guard s.frame != frame else { return }
-            shown[id] = Shown(image: s.image, frame: frame, scale: scale)
-            host.show(id, image: s.image, frame: frame, scale: scale)
+            shown[id] = Shown(drawing: s.drawing, frame: frame, scale: scale)
+            host.show(id, drawing: s.drawing, frame: frame, scale: scale)
             return
         }
         dirty.remove(id)
         renderCounts[id, default: 0] += 1
-        guard let image = panel.render(scale: scale, viewport: viewport, graphics: graphics) else {
-            if shown.removeValue(forKey: id) != nil { host.hide(id) }
-            return
-        }
-        shown[id] = Shown(image: image, frame: frame, scale: scale)
-        host.show(id, image: image, frame: frame, scale: scale)
+        let drawing = panel.render(scale: scale, viewport: viewport, graphics: graphics)
+        shown[id] = Shown(drawing: drawing, frame: frame, scale: scale)
+        host.show(id, drawing: drawing, frame: frame, scale: scale)
     }
 }

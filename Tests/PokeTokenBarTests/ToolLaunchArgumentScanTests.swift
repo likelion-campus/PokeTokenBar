@@ -27,8 +27,9 @@ final class ToolLaunchArgumentScanTests: XCTestCase {
         XCTAssertTrue(lists.contains(["app-server", "--stdio"]), "the Codex argument list was not found: \(lists)")
         for list in lists { for arg in list { XCTAssertTrue(PlatformCompat.isBatchSafe(arg), arg) } }
         // Direct Process launches: the shell lookup (a shell, never a shim), the JSON-RPC runner (receives the lists above),
-        // and the Windows selftest, which starts copies of its own executable (never a shim) with flags it builds itself.
-        XCTAssertEqual(assignmentFiles, ["Core/BinaryLocator.swift", "Core/ProcessRunner.swift",
+        // the Windows selftest, which starts copies of its own executable (never a shim) with flags it builds itself, and
+        // the updater's brew calls (fixed literals; they run only where `brew` is found, which is never on Windows).
+        XCTAssertEqual(assignmentFiles, ["Core/BinaryLocator.swift", "Core/ProcessRunner.swift", "Core/UpdateChecker.swift",
                                          "Platform/Windows/WindowsSelftest.swift"],
                        "a new Process launch site: check its arguments against the batch-shim rule (F19) and add it here")
     }

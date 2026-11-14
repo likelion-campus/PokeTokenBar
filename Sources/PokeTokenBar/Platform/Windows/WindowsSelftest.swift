@@ -26,6 +26,9 @@ enum WindowsSelftest {
 
     nonisolated(unsafe) private static var progressURL: URL?
 
+    /// CI runs may show balloons and type into windows; a person's PC may not (this file is on the env-read allow-list).
+    static var onCI: Bool { ProcessInfo.processInfo.environment["CI"] != nil }
+
     /// Starts the run on the main actor once the loop turns, then exits with its result.
     @MainActor static func start(_ app: WindowsAppDelegate, writingTo url: URL) {
         let progress = url.appendingPathExtension("lines")
@@ -81,6 +84,8 @@ enum WindowsSelftest {
         await loopChecks(r, app)
         await limitsCheck(r)
         await defaultsChecks(r, app)
+        await shellChecks(r)
+        await crashChecks(r)
         await singleInstanceCheck(r, app)
         await guardChecks(r)
         let real = WinDefaultsSync.expectedPlistURL()
@@ -91,6 +96,8 @@ enum WindowsSelftest {
                 + "the selftest keeps its settings in suite \(WinDefaultsSync.selftestSuiteName ?? "-")")
         await systemServiceChecks(r)
         await trayChecks(r, app)
+        await notifyChecks(r, app)
+        if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
         await idleCheck(r, app)
         return r.checks
     }
@@ -838,7 +845,7 @@ enum WindowsSelftest {
     }
 
     /// A child copy of this exe, waited on through its process handle.
-    @MainActor private final class Helper {
+    @MainActor final class Helper {
         let pid: Int32
         private let handle: HANDLE
         private let ready: HANDLE?
