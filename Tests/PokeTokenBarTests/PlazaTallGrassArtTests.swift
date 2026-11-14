@@ -1,34 +1,21 @@
 import XCTest
-import CoreGraphics
 @testable import PokeTokenBar
 
 final class PlazaTallGrassArtTests: XCTestCase {
-    private func pixels(_ image: CGImage) -> [UInt8] {
-        let w = image.width, h = image.height
-        var data = [UInt8](repeating: 0, count: w * h * 4)
-        data.withUnsafeMutableBytes { buf in
-            let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.interpolationQuality = .none
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        }
-        return data
-    }
+    private func pixels(_ image: PlazaImage) -> [UInt8] { image.pixels.bytes }
 
-    private func art() throws -> PlazaTallGrassArt { try XCTUnwrap(PlazaTallGrassArt.load()) }
+    /// A synthetic 208x144 sheet where every pixel differs, so a slice that reads the wrong cell cannot pass.
+    private static let sheet = PlazaImage(bitmap: PlazaTestImages.patterned(width: 208, height: 144))
+    private func art() throws -> PlazaTallGrassArt { try XCTUnwrap(PlazaTallGrassArt(sheet: Self.sheet)) }
     private let allSlices = (0...2).flatMap { c in (0...2).map { PlazaTallGrassSlice(col: c, row: $0) } }
 
     func testInitRejectsAnotherSheet() throws {
-        let ctx = CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        XCTAssertNil(PlazaTallGrassArt(sheet: try XCTUnwrap(ctx.makeImage())))
-        XCTAssertNotNil(PlazaTallGrassArt.load())
+        XCTAssertNil(PlazaTallGrassArt(sheet: PlazaImage(bitmap: PlazaBitmap(width: 16, height: 16))))
+        XCTAssertNotNil(PlazaTallGrassArt(sheet: Self.sheet))
     }
 
     func testEachSliceIsItsSheetCell() throws {
-        let sheet = try XCTUnwrap(PlazaResources.tallGrassSheet())
+        let sheet = Self.sheet
         let sheetPx = pixels(sheet), art = try art()
         for s in allSlices {
             let t = pixels(art.tile(s))

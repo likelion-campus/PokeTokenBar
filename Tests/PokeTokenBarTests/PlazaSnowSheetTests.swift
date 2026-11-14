@@ -1,23 +1,13 @@
 import XCTest
-import CoreGraphics
 @testable import PokeTokenBar
 
 final class PlazaSnowSheetTests: XCTestCase {
-    private struct Pixels {
+    struct Pixels {
         let width: Int, height: Int
         var bytes: [UInt8]
-        init(_ image: CGImage) {
+        init(_ image: PlazaImage) {
             width = image.width; height = image.height
-            var data = [UInt8](repeating: 0, count: width * height * 4)
-            let (w, h) = (width, height)
-            data.withUnsafeMutableBytes { buf in
-                let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8,
-                                    bytesPerRow: w * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-                ctx.interpolationQuality = .none
-                ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-            }
-            bytes = data
+            bytes = image.pixels.bytes
         }
         init(width: Int, height: Int) {
             self.width = width; self.height = height
@@ -55,12 +45,10 @@ final class PlazaSnowSheetTests: XCTestCase {
             }
             return out
         }
-        func image() -> CGImage {
-            CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                    bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                    provider: CGDataProvider(data: Data(bytes) as CFData)!, decode: nil,
-                    shouldInterpolate: false, intent: .defaultIntent)!
+        func image() -> PlazaImage {
+            var bitmap = PlazaBitmap(width: width, height: height)
+            bitmap.bytes = bytes
+            return PlazaImage(bitmap: bitmap)
         }
     }
 
@@ -106,31 +94,5 @@ final class PlazaSnowSheetTests: XCTestCase {
         XCTAssertEqual(out.rgba(2, 0), px.rgba(2, 0))
         XCTAssertEqual(out.rgba(3, 0), [0, 0, 0, 0])
         XCTAssertEqual(out.rgba(16, 0), [0x3A, 0xBE, 0x41, 255])
-    }
-
-    func testSnowTilesKeepWaterLiliesAndEveryAlpha() throws {
-        let sheet = try XCTUnwrap(PlazaResources.tileSheet())
-        let before = Pixels(sheet), after = Pixels(PlazaSnowSheet.tiles(sheet))
-        XCTAssertEqual(before.width, after.width); XCTAssertEqual(before.height, after.height)
-        for cell in [(3, 7), (2, 0), (4, 0), (5, 0)] {
-            XCTAssertEqual(before.cellBytes(cell), after.cellBytes(cell), "\(cell)")
-        }
-        for i in stride(from: 3, to: before.bytes.count, by: 4) {
-            if before.bytes[i] != after.bytes[i] { XCTFail("alpha differs at \(i / 4)"); break }
-        }
-        XCTAssertEqual(after.count(0x3ABE41, cell: (0, 9)), 0)
-        XCTAssertGreaterThan(after.count(0xC6DAF0, cell: (0, 9)), 0)
-        XCTAssertEqual(after.count(0x2D5B43, cell: (5, 17)), before.count(0x2D5B43, cell: (5, 17)))
-        XCTAssertEqual(after.count(0x885040, cell: (34, 2)), before.count(0x885040, cell: (34, 2)))
-    }
-
-    func testSnowTallGrassKeepsTheDarkBladesAndOutline() throws {
-        let sheet = try XCTUnwrap(PlazaResources.tallGrassSheet())
-        let before = Pixels(sheet), after = Pixels(PlazaSnowSheet.tallGrass(sheet))
-        XCTAssertEqual(after.count(0x99E550), 0)
-        XCTAssertEqual(after.count(0x6ABE30), 0)
-        XCTAssertEqual(after.count(0x4B692F), before.count(0x4B692F))
-        XCTAssertEqual(after.count(0x222034), before.count(0x222034))
-        XCTAssertNotNil(PlazaTallGrassArt(sheet: PlazaSnowSheet.tallGrass(sheet)))
     }
 }

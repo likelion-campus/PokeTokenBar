@@ -7,12 +7,12 @@ private final class RecordingFetcher: PlazaSpriteFetching, @unchecked Sendable {
     private let lock = NSLock()
     private var ids: [Int] = []
     private func add(_ id: Int) { lock.lock(); ids.append(id); lock.unlock() }
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] {
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] {
         add(speciesID)
         return []
     }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 @MainActor

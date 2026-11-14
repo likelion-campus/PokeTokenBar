@@ -12,11 +12,11 @@ private final class SeenIDs: @unchecked Sendable {
 
 private struct RecordingFetcher: PlazaSpriteFetching {
     let seen = SeenIDs()
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] {
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] {
         seen.add(speciesID); return []
     }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 @MainActor final class PlazaWindowTests: XCTestCase {
@@ -188,7 +188,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
         let ctx = CGContext(data: nil, width: 50, height: 50, bitsPerComponent: 8, bytesPerRow: 0, space: cs,
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let frame = PlazaFrame(image: ctx.makeImage()!, delay: 1)
+        let frame = PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 1)
         scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
         XCTAssertEqual(scene.groundShadowSize.width, 54)
         XCTAssertEqual(scene.groundShadowSize.height, 17)
@@ -595,14 +595,14 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         let ctx = CGContext(data: nil, width: 40, height: 30, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let frame = PlazaFrame(image: ctx.makeImage()!, delay: 1)
+        let frame = PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 1)
         scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
         XCTAssertEqual(scene.characterSize, CGSize(width: 60, height: 45))
         // Odd sizes keep the exact 1.5x factor (no rounding distortion).
         let odd = CGContext(data: nil, width: 41, height: 31, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let oddFrame = PlazaFrame(image: odd.makeImage()!, delay: 1)
+        let oddFrame = PlazaFrame(image: PlazaImage(cgImage: odd.makeImage()!), delay: 1)
         scene.setCharacter(PlazaCharacterFrames(front: [oddFrame], back: [oddFrame]))
         XCTAssertEqual(scene.characterSize, CGSize(width: 61.5, height: 46.5))
     }
@@ -611,7 +611,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
         let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let frame = PlazaFrame(image: ctx.makeImage()!, delay: 1)
+        let frame = PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 1)
         return PlazaCharacterFrames(front: [frame], back: [frame])
     }
 

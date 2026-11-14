@@ -90,8 +90,8 @@ enum PlazaRenderScenes {
 
     static func frames(_ look: PlazaRenderLook) -> PlazaCharacterFrames {
         if case .real(let id) = look, let real = realFrames(id) { return real }
-        let front = (0..<2).map { PlazaFrame(image: body(look, front: true, step: $0), delay: 0.2) }
-        let back = (0..<2).map { PlazaFrame(image: body(look, front: false, step: $0), delay: 0.2) }
+        let front = (0..<2).map { PlazaFrame(image: PlazaImage(cgImage: body(look, front: true, step: $0)), delay: 0.2) }
+        let back = (0..<2).map { PlazaFrame(image: PlazaImage(cgImage: body(look, front: false, step: $0)), delay: 0.2) }
         var f = PlazaCharacterFrames(front: front, back: back)
         f.isEgg = look == .egg
         return f
@@ -110,7 +110,7 @@ enum PlazaRenderScenes {
             let props = CGImageSourceCopyPropertiesAtIndex(source, i, nil) as? [CFString: Any]
             let gifProps = props?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
             let delay = (gifProps?[kCGImagePropertyGIFUnclampedDelayTime] as? Double) ?? (gifProps?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
-            out.append(PlazaFrame(image: image, delay: max(delay, 0.02)))
+            out.append(PlazaFrame(image: PlazaImage(cgImage: image), delay: max(delay, 0.02)))
         }
         return out.isEmpty ? nil : out
     }
@@ -130,14 +130,14 @@ enum PlazaRenderScenes {
         if let built = looks[season] { return built }
         var look: PlazaSnowLook?
         if season != .summer, let sheet = PlazaResources.tileSheet() {
-            let art = PlazaResources.tallGrassSheet().map { PlazaSeasonSheet.tallGrass($0, season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
-            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art), tallGrass: art)
+            let art = PlazaResources.tallGrassSheet().map { PlazaSeasonSheet.tallGrass(PlazaImage(cgImage: $0), season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
+            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(PlazaImage(cgImage: sheet), season: season), tallGrass: art), tallGrass: art)
         }
         looks[season] = .some(look)
         return look
     }
 
-    private static var summerMap: CGImage?
+    private static var summerMap: PlazaImage?
     private static var tallGrass: PlazaTallGrassArt??
     private static var iceArt: PlazaIceArt?
 
@@ -211,7 +211,7 @@ enum PlazaRenderScenes {
             let grass = PlazaTallGrassArt.load()
             tallGrass = .some(grass)
             iceArt = PlazaIceArt.load()
-            let sheet = PlazaResources.tileSheet()
+            let sheet = PlazaResources.tileSheet().map(PlazaImage.init(cgImage:))
             summerMap = sheet.map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: grass) } ?? PlazaTileArt.plainGrassImage(map)
         }
         let scene = PlazaScene(map: map, mapImage: summerMap!, start: o.me, zoom: o.zoom, nickname: o.nickname,
