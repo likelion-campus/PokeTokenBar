@@ -123,7 +123,13 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
         }
     }
 
+    private static var backedUpAtNote = -1
+
+    /// Only after a write was reported since the last backup: the idle safety sync must stay free of file reads (the
+    /// idle gate counts context switches).
     private static func backUpChangedPlists() {
+        guard writeNotes != backedUpAtNote else { return }
+        backedUpAtNote = writeNotes
         for suite in guardedSuites {
             let url = plistURL(suite: suite)
             let stamp = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
