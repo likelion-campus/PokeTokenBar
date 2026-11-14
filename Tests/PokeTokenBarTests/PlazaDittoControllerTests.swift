@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 /// Records which species were asked for, so a test can see a frame load start without any network.
@@ -97,7 +96,8 @@ final class PlazaDittoControllerTests: XCTestCase {
                               dittoLoopSleep: { d in
                                   if let gate { await gate.sleep(d) } else { try? await Task.sleep(for: .seconds(3600)) }
                               },
-                              dittoSeed: { seed })
+                              dittoSeed: { seed },
+                                     shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
     private func settle() async {
