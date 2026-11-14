@@ -14,14 +14,14 @@ final class WindowsTLSTests: XCTestCase {
 
     private let code = TeamCode(parsing: "PTB-AAAA-BBBB-CCCC")!
     private let otherCode = TeamCode(parsing: "PTB-DDDD-EEEE-FFFF")!
-    private var sockets: [UInt] = []
+    private var sockets: [SOCKET] = []
 
     override func setUp() { XCTAssertTrue(Self.wsaStarted) }
     override func tearDown() { for s in sockets { closesocket(s) }; sockets = [] }
 
     // MARK: socket helpers
 
-    private func setNonBlocking(_ s: UInt) {
+    private func setNonBlocking(_ s: SOCKET) {
         var mode: u_long = 1
         ioctlsocket(s, Int32(bitPattern: 0x8004667E), &mode)  // FIONBIO (a macro the importer cannot see)
     }
@@ -34,9 +34,9 @@ final class WindowsTLSTests: XCTestCase {
         return a
     }
 
-    private func listener() -> (socket: UInt, port: UInt16) {
+    private func listener() -> (socket: SOCKET, port: UInt16) {
         let s = socket(AF_INET, Int32(SOCK_STREAM), Int32(IPPROTO_TCP.rawValue))
-        XCTAssertNotEqual(s, UInt.max)
+        XCTAssertNotEqual(s, SOCKET.max)
         sockets.append(s)
         var a = loopbackAddress(port: 0)
         let size = Int32(MemoryLayout<sockaddr_in>.size)
@@ -49,7 +49,7 @@ final class WindowsTLSTests: XCTestCase {
     }
 
     /// Blocking connect to 127.0.0.1:port, then non-blocking. nil if nothing listens yet.
-    private func connectLoopback(port: UInt16) -> UInt? {
+    private func connectLoopback(port: UInt16) -> SOCKET? {
         let s = socket(AF_INET, Int32(SOCK_STREAM), Int32(IPPROTO_TCP.rawValue))
         var a = loopbackAddress(port: port)
         let r = withUnsafePointer(to: &a) {
@@ -61,18 +61,18 @@ final class WindowsTLSTests: XCTestCase {
         return s
     }
 
-    private func acceptOne(_ listener: UInt, seconds: Double = 15) -> UInt? {
+    private func acceptOne(_ listener: SOCKET, seconds: Double = 15) -> SOCKET? {
         let end = Date().addingTimeInterval(seconds)
         setNonBlocking(listener)
         while Date() < end {
             let c = accept(listener, nil, nil)
-            if c != UInt.max { sockets.append(c); setNonBlocking(c); return c }
+            if c != SOCKET.max { sockets.append(c); setNonBlocking(c); return c }
             Thread.sleep(forTimeInterval: 0.05)
         }
         return nil
     }
 
-    private func socketPair() -> (client: UInt, server: UInt) {
+    private func socketPair() -> (client: SOCKET, server: SOCKET) {
         let l = listener()
         let c = connectLoopback(port: l.port)!
         return (c, acceptOne(l.socket)!)
@@ -97,8 +97,8 @@ final class WindowsTLSTests: XCTestCase {
 
     private func connected(clientCode: TeamCode? = nil) throws -> Pair {
         let (cs, ss) = socketPair()
-        let client = WinTLSSession(context: try WinTLSContext(code: clientCode ?? code, role: .client), socket: cs)
-        let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: ss)
+        let client = WinTLSSession(context: try WinTLSContext(code: clientCode ?? code, role: .client), socket: UInt(cs))
+        let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: UInt(ss))
         let (a, b) = handshake(client, server)
         XCTAssertEqual(a, .done)
         XCTAssertEqual(b, .done)
@@ -133,8 +133,8 @@ final class WindowsTLSTests: XCTestCase {
 
     func testDifferentCodeFailsOnBothSides() throws {
         let (cs, ss) = socketPair()
-        let client = WinTLSSession(context: try WinTLSContext(code: otherCode, role: .client), socket: cs)
-        let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: ss)
+        let client = WinTLSSession(context: try WinTLSContext(code: otherCode, role: .client), socket: UInt(cs))
+        let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: UInt(ss))
         let (a, b) = handshake(client, server)
         let ca = try XCTUnwrap(failureText(a), "client: \(a)"), cb = try XCTUnwrap(failureText(b), "server: \(b)")
         for text in [ca, cb] {
@@ -148,8 +148,8 @@ final class WindowsTLSTests: XCTestCase {
     func testWrongIdentityIsRefused() throws {
         let (cs, ss) = socketPair()
         let key = code.pskKey.withUnsafeBytes { Array($0) }
-        let client = WinTLSSession(context: try WinTLSContext(key: key, identity: "ptb-team-v2", role: .client), socket: cs)
-        let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: ss)
+        let client = WinTLSSession(context: try WinTLSContext(key: key, identity: "ptb-team-v2", role: .client), socket: UInt(cs))
+        let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: UInt(ss))
         let (a, b) = handshake(client, server)
         XCTAssertNotNil(failureText(a), "client: \(a)")
         XCTAssertNotNil(failureText(b), "server: \(b)")
@@ -234,13 +234,13 @@ final class WindowsTLSTests: XCTestCase {
         let server = try launch(exe, ["s_server", "-psk", keyHex(), "-psk_identity", "ptb-team-v1",
                                       "-cipher", "PSK-AES128-GCM-SHA256", "-tls1_2", "-nocert", "-accept", String(free.port)])
         defer { server.terminate() }
-        var sock: UInt?
+        var sock: SOCKET?
         for _ in 0..<100 where sock == nil {
             sock = connectLoopback(port: free.port)
             if sock == nil { Thread.sleep(forTimeInterval: 0.2) }
         }
         let s = try XCTUnwrap(sock, "s_server never listened")
-        let client = WinTLSSession(context: try WinTLSContext(code: code, role: .client), socket: s)
+        let client = WinTLSSession(context: try WinTLSContext(code: code, role: .client), socket: UInt(s))
         var step = client.handshake()
         for _ in 0..<5000 where !isTerminal(step) { Thread.sleep(forTimeInterval: 0.002); step = client.handshake() }
         XCTAssertEqual(step, .done)
@@ -258,7 +258,7 @@ final class WindowsTLSTests: XCTestCase {
                                     "-psk", keyHex(), "-psk_identity", "ptb-team-v1", "-quiet"], stdin: stdin)
         defer { proc.terminate() }
         let accepted = try XCTUnwrap(acceptOne(l.socket), "s_client never connected")
-        let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: accepted)
+        let server = WinTLSSession(context: try WinTLSContext(code: code, role: .server), socket: UInt(accepted))
         var step = server.handshake()
         for _ in 0..<5000 where !isTerminal(step) { Thread.sleep(forTimeInterval: 0.002); step = server.handshake() }
         XCTAssertEqual(step, .done)
