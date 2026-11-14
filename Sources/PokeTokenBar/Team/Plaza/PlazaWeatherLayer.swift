@@ -5,7 +5,7 @@ import SpriteKit
 @MainActor final class PlazaWeatherLayer: SKNode {
     private(set) var kind = PlazaWeather.Kind.clear
     private var field: PlazaWeatherField?
-    private var images: [CGImage] = []
+    private var images: [PlazaImage] = []
     private var textures: [SKTexture] = []
     private var sprites: [SKSpriteNode] = []
 
@@ -23,7 +23,7 @@ import SpriteKit
             kind = wanted
             images = PlazaWeatherArt.images(wanted)
             textures = images.map {
-                let t = SKTexture(cgImage: $0)
+                let t = SKTexture(cgImage: $0.cgImage)
                 t.filteringMode = .nearest
                 return t
             }
@@ -53,7 +53,7 @@ import SpriteKit
     func photoParticles(worldHeight: CGFloat) -> [PlazaPhotoParticle] {
         guard let particles = field?.particles else { return [] }
         return zip(sprites, particles).map { node, p in
-            PlazaPhotoParticle(image: PlazaImage(cgImage: images[p.variant]),
+            PlazaPhotoParticle(image: images[p.variant],
                                origin: CGPoint(x: node.position.x, y: worldHeight - node.position.y - node.size.height),
                                size: node.size)
         }

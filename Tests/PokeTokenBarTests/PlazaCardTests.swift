@@ -5,9 +5,9 @@ import SpriteKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 private let spaceKey: UInt16 = 49, escKey: UInt16 = 53, wKey: UInt16 = 13, rightKey: UInt16 = 124, heartKey: UInt16 = 18

@@ -77,6 +77,7 @@ final class PlazaStubCanvas: PlazaCanvas {
     func setAlpha(_ a: CGFloat) { record("alpha \(Self.f(a))") }
     func setBlend(_ b: PlazaCanvasBlend) { record("blend \(b)") }
     func setFillColor(_ c: PlazaColor) { record("fillColor \(Self.c(c))") }
+    func setFillGray(_ gray: CGFloat) { record("fillGray \(Self.f(gray))") }
     func setStrokeColor(_ c: PlazaColor) { record("strokeColor \(Self.c(c))") }
     func setLineWidth(_ w: CGFloat) { record("lineWidth \(Self.f(w))") }
     func setLineJoin(_ j: PlazaLineJoin) { record("lineJoin \(j)") }

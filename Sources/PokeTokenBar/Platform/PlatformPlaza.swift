@@ -37,4 +37,13 @@ enum PlatformPlaza {
         MacPlazaInput.currentModifiers()
         #endif
     }
+
+    /// Where character sprites come from: `SpriteLoader`/`SpriteStore` on the Mac, nothing (the placeholder) elsewhere.
+    @MainActor static func spriteFetcher() -> any PlazaSpriteFetching {
+        #if os(Windows) || PTB_SHARED_ONLY
+        PlazaStubSpriteFetcher(log: { AppLog.write($0) })
+        #else
+        LivePlazaSpriteFetcher()
+        #endif
+    }
 }

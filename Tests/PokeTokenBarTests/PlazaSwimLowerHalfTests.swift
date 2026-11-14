@@ -17,7 +17,7 @@ final class PlazaSwimLowerHalfTests: XCTestCase {
     }
 
     private func frames() -> PlazaCharacterFrames {
-        let f = [PlazaFrame(image: solid(32, 48), delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(cgImage: solid(32, 48)), delay: 0.1)]
         return PlazaCharacterFrames(front: f, back: f)
     }
 

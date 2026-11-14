@@ -1,17 +1,9 @@
-import CoreGraphics
 import XCTest
 @testable import PokeTokenBar
 
 final class PlazaCampfireArtTests: XCTestCase {
     /// RGBA 바이트(위에서 아래). 비투명 픽셀의 색은 알파가 255일 때만 정확하다.
-    private func pixels(_ image: CGImage) -> [UInt8] {
-        var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
-        let ctx = CGContext(data: &data, width: image.width, height: image.height, bitsPerComponent: 8,
-                            bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        return data
-    }
+    private func pixels(_ image: PlazaImage) -> [UInt8] { image.pixels.bytes }
 
     private func color(_ p: [UInt8], _ i: Int) -> UInt32 {
         UInt32(p[i * 4]) << 16 | UInt32(p[i * 4 + 1]) << 8 | UInt32(p[i * 4 + 2])
@@ -41,7 +33,7 @@ final class PlazaCampfireArtTests: XCTestCase {
     }
 
     /// 아래에서 센 칸 줄 번호가 rows 범위 안인 곳에 껍질 색이 있는지.
-    private func hasBark(_ image: CGImage, rows: ClosedRange<Int>) -> Bool {
+    private func hasBark(_ image: PlazaImage, rows: ClosedRange<Int>) -> Bool {
         let p = pixels(image)
         for py in 0..<image.height {
             let row = image.height - 1 - py

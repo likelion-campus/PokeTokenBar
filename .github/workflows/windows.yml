@@ -15,11 +15,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: compnerd/gha-setup-swift@main
-        with:
-          swift-version: swift-6.3.2-release
-          swift-build: 6.3.2-RELEASE
-      - run: swift --version
+      - uses: ./.github/actions/windows-swift
       - name: Build
         shell: bash
         run: swift build 2>&1 | tee build.log

@@ -14,7 +14,7 @@ final class PlazaIceLayerTests: XCTestCase {
     private var B: TilePoint { p(20, 24) }
     private func brk(_ pond: TilePoint, ago: Double = 0) -> PlazaIceBreak { PlazaIceBreak(at: nowSeconds - ago, pond: pond) }
 
-    private func layer(art: PlazaIceArt = PlazaIceArt.load(), image: CGImage? = nil) -> PlazaIceLayer {
+    private func layer(art: PlazaIceArt = PlazaIceArt.load(), image: PlazaImage? = nil) -> PlazaIceLayer {
         PlazaIceLayer(ponds: PlazaIce.ponds(in: map), art: art, mapImage: image ?? PlazaTileArt.plainGrassImage(map),
                       worldHeight: map.pixelSize.height)
     }

@@ -362,13 +362,13 @@ final class PlazaWeatherTests: XCTestCase {
             ctx.fill(CGRect(x: 0, y: 0, width: 9, height: 8))
             return ctx.makeImage()!
         }()
-        s.setCharacter(PlazaCharacterFrames(front: [PlazaFrame(image: red, delay: 0.1)], back: [PlazaFrame(image: red, delay: 0.1)]))
+        s.setCharacter(PlazaCharacterFrames(front: [PlazaFrame(image: PlazaImage(cgImage: red), delay: 0.1)], back: [PlazaFrame(image: PlazaImage(cgImage: red), delay: 0.1)]))
         s.update(0)
         var input = try XCTUnwrap(s.photoInput())
         input.weather = []
         let base = try XCTUnwrap(PlazaPhotoRenderer.renderCG(input))
         let blanket = PlazaWeatherArt.images(.snow)[2]   // 흰 한 칸
-        input.weather = [PlazaPhotoParticle(image: PlazaImage(cgImage: blanket), origin: input.visibleRect.origin, size: input.visibleRect.size)]
+        input.weather = [PlazaPhotoParticle(image: blanket, origin: input.visibleRect.origin, size: input.visibleRect.size)]
         let covered = try XCTUnwrap(PlazaPhotoRenderer.renderCG(input))
         var plateOnTop = 0, whites = 0
         for y in stride(from: 0, to: base.height, by: 2) {

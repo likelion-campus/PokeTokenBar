@@ -1,4 +1,3 @@
-import CoreGraphics
 import Foundation
 
 /// The drawing side of `PlazaWeatherArt` (the dot grids are in `PlazaWeatherGrids.swift`).
@@ -15,21 +14,17 @@ extension PlazaWeatherArt {
     ]
 
     /// 격자 하나를 칸당 1픽셀 그림으로 만든다(화면은 최근접 보간으로 키운다).
-    static func images(_ kind: PlazaWeather.Kind) -> [CGImage] { grids(kind).map { image($0, palette: palette) } }
+    static func images(_ kind: PlazaWeather.Kind) -> [PlazaImage] { grids(kind).map { image($0, palette: palette) } }
 
-    static func image(_ rows: [String], palette: [Character: (r: UInt8, g: UInt8, b: UInt8)]) -> CGImage {
+    static func image(_ rows: [String], palette: [Character: (r: UInt8, g: UInt8, b: UInt8)]) -> PlazaImage {
         let w = rows[0].count, h = rows.count
-        let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        context.setShouldAntialias(false)
+        var bitmap = PlazaBitmap(width: w, height: h)
         for (row, line) in rows.enumerated() {
             for (col, ch) in line.enumerated() {
                 guard let c = palette[ch] else { continue }
-                context.setFillColor(CGColor(srgbRed: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1))
-                context.fill(CGRect(x: col, y: h - 1 - row, width: 1, height: 1))
+                bitmap[col, row] = PlazaRGBA(r: c.r, g: c.g, b: c.b, a: 255)
             }
         }
-        return context.makeImage()!
+        return PlazaImage(bitmap: bitmap)
     }
 }

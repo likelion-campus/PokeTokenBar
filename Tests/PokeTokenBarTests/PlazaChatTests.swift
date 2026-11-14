@@ -3,9 +3,9 @@ import AppKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 private let returnKey: UInt16 = 36, keypadEnterKey: UInt16 = 76, rightKey: UInt16 = 124
@@ -86,7 +86,7 @@ final class PlazaChatBubbleTests: XCTestCase {
         var pixels = [UInt8](repeating: 0, count: w * h * 4)
         let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.draw(image.cgImage, in: CGRect(x: 0, y: 0, width: w, height: h))
         // 테두리(2pt)와 꼬리(4pt)를 뺀 안쪽에 어두운 픽셀이 있으면 글자다.
         let dark = (6..<(h - 14)).reduce(0) { sum, y in
             sum + (6..<(w - 6)).filter { pixels[(y * w + $0) * 4] < 128 }.count
@@ -726,7 +726,7 @@ final class PlazaChatTests: XCTestCase {
         let ctx = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 0,
                             space: CGColorSpaceCreateDeviceRGB(),
                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let frame = PlazaFrame(image: ctx.makeImage()!, delay: 0.1)
+        let frame = PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)
         scene.setCharacter(PlazaCharacterFrames(front: [frame], back: [frame]))
         scene.showChat(memberID: nil, text: "안녕")
         scene.update(0)

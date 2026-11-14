@@ -139,7 +139,7 @@ extension SKView: PlazaPausableView {}
 
     /// 프로세스에서 한 번만 만든다. 다시 열 때(와 테스트마다) 메인 스레드에서 지도를 다시 그리지 않는다. 앱의 지도는 하나뿐이다.
     /// 시트를 못 읽으면 단색 잔디로 대신한다.
-    private static var cachedMapImage: CGImage?
+    private static var cachedMapImage: PlazaImage?
     /// 연못 그림은 타일 시트의 물 칸을 쓰므로 시트를 읽었을 때만 켠다. `mapImage`가 채운다.
     private static var cachedHasTileSheet = false
     /// 풀숲 조각 그림도 프로세스당 한 번만 읽는다. 못 읽으면 바깥 nil(=읽어 봤지만 없음)로 기억한다.
@@ -169,8 +169,8 @@ extension SKView: PlazaPausableView {}
         if let built = cachedSeasonLooks[season] { return built }
         var look: PlazaSnowLook?
         if season != .summer, let sheet = PlazaResources.tileSheet() {
-            let art = PlazaResources.tallGrassSheet().map { PlazaSeasonSheet.tallGrass($0, season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
-            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art),
+            let art = PlazaResources.tallGrassSheet().map { PlazaSeasonSheet.tallGrass(PlazaImage(cgImage: $0), season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
+            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(PlazaImage(cgImage: sheet), season: season), tallGrass: art),
                                  tallGrass: art)
         }
         cachedSeasonLooks[season] = .some(look)
@@ -178,7 +178,7 @@ extension SKView: PlazaPausableView {}
     }
 
     private func seasonChanged(_ season: PlazaSeason) {
-        minimap.seasonMapImage = Self.seasonLook(for: map, season: season).map { NSImage(cgImage: $0.mapImage, size: .zero) }
+        minimap.seasonMapImage = Self.seasonLook(for: map, season: season)?.mapImage
         shortcutModel.season = season
     }
 
@@ -187,10 +187,10 @@ extension SKView: PlazaPausableView {}
 
     var minimapShowsSnow: Bool { minimap.seasonMapImage != nil && scene?.isSnowShown == true }
 
-    private var mapImage: CGImage {
+    private var mapImage: PlazaImage {
         if let cached = Self.cachedMapImage { return cached }
         let tallGrass = Self.tallGrassArt()
-        let sheet = PlazaResources.tileSheet()
+        let sheet = PlazaResources.tileSheet().map(PlazaImage.init(cgImage:))
         let image = sheet.map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: tallGrass) } ?? PlazaTileArt.plainGrassImage(map)
         Self.cachedMapImage = image
         Self.cachedHasTileSheet = sheet != nil
@@ -338,7 +338,7 @@ extension SKView: PlazaPausableView {}
             chatLogView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(chatLogView)   // 입력은 받지 않는다.
             let map = PlazaMinimapHostingView(rootView: PlazaMinimapView(
-                model: minimap, background: backgroundModel, mapImage: NSImage(cgImage: mapImage, size: .zero),
+                model: minimap, background: backgroundModel, mapImage: mapImage.nsImage,
                 worldSize: self.map.pixelSize))
             map.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(map)   // 입력은 받지 않는다.
