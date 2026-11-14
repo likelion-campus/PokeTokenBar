@@ -30,6 +30,11 @@ struct PlazaOverlayBindings {
     let nameColorModel: PlazaNameColorModel
     let mapImage: PlazaImage
     let worldSize: CGSize
+    /// The panels drawn through the canvas (the pills, the clock). The shell shows them (`PlazaHUD.host`) and reports
+    /// its size and backing scale (`setViewport`).
+    let hud: PlazaHUD
+    /// The pills' panel: the SwiftUI overlay still opens its menus below the pills (until the menus are panels too).
+    let pills: PlazaPillsPanel
     /// The native one-line field (per OS); the shell puts its view in the window and focuses it.
     let chatInput: any PlazaChatInputHost
     let walkToMember: (String) -> Void

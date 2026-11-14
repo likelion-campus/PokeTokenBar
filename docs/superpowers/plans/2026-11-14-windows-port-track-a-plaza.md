@@ -140,7 +140,9 @@ protocol PlazaCanvas: AnyObject {                                  // CG convent
     func imageBounds(of line: PlazaTextLine) -> CGRect             // CTLineGetImageBounds(line, context)
     func withPixels(_ body: (_ bytes: UnsafeMutablePointer<UInt8>, _ bytesPerRow: Int) -> Void)
     func makeImage() -> PlazaImage?
-    // Task 14 adds, when the first panel needs them: fillRoundedRect, strokeRoundedRect, fillPath, strokePath
+    func fillRoundedRect(_ rect: CGRect, radius: CGFloat)           // Task 14 (as built): SwiftUI's continuous corners (the Mac uses
+    func strokeRoundedRect(_ rect: CGRect, radius: CGFloat, lineWidth: CGFloat)   // SwiftUI's own path); the stroke is centred
+    // Task 15 adds fillPath, strokePath when the first panel needs them
 }
 enum PlazaFontWeight: Sendable { case regular, semibold, bold }
 enum PlazaFont: Hashable, Sendable { case plaza(PlazaTextSize), system(size: CGFloat, weight: PlazaFontWeight), emoji(size: CGFloat) }
@@ -157,7 +159,8 @@ protocol PlazaTextEngine: Sendable {
     func line(_ text: String, font: PlazaFont) -> PlazaTextLine
     func truncated(_ line: PlazaTextLine, width: CGFloat, ellipsis: PlazaTextLine) -> PlazaTextLine?
     func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph
-}
+    func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine]   // Task 14: SwiftUI Text's breaks (Korean
+}                                                                  // words whole; the Mac asks TextKit, .standard strategy)
 
 // PlazaNode.swift, PlazaTexture.swift (Task 7, as built)
 enum PlazaBlendMode: Sendable { case alpha, multiply, multiplyX2 }
@@ -299,22 +302,36 @@ protocol ImageClipboarding: Sendable { func writePNG(_ data: Data) -> Bool }   /
 enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap }
 enum PlazaPanelAnchor: Sendable { case topLeading, topTrailing, topCenter, bottomLeading, bottomTrailing, fill }
 struct PlazaPanelHit: Equatable, Sendable { let action: String; let index: Int? }
-@MainActor protocol PlazaPanel: AnyObject {
+@MainActor protocol PlazaPanel: AnyObject {                       // (Task 14, as built)
     var id: PlazaPanelID { get }
-    var anchor: PlazaPanelAnchor { get }; var offset: CGPoint { get }   // margins as today's constraints
+    var anchor: PlazaPanelAnchor { get }; var offset: CGPoint { get }   // image edges from the anchored window edges
     var isVisible: Bool { get }
-    func size(in viewport: CGSize) -> CGSize
+    func size(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGSize   // whole device pixels at scale
     func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaImage?
-    func hit(_ point: CGPoint) -> PlazaPanelHit?                     // panel points, origin top-left
+    func hit(_ point: CGPoint) -> PlazaPanelHit?                     // panel points, origin top-left; nil lets the click through
+    var onChange: (() -> Void)? { get set }                          // set by the HUD; the panel calls it when its content changed
 }
 @MainActor final class PlazaHUD {
-    init(panels: [any PlazaPanel])                                   // z order, bottom first
-    var isRendering: Bool                                            // false while hidden: no renders
-    func layout(viewport: CGSize) -> [PlazaPanelID: CGRect]
-    func handleMouse(_ e: PlazaMouseEvent) -> Bool
-    var onNeedsRender: ((PlazaPanelID) -> Void)?
+    init(panels: [any PlazaPanel], graphics: any PlazaGraphics = PlatformPlaza.graphics)   // z order, bottom first
+    let panels: [any PlazaPanel]; let graphics: any PlazaGraphics
+    weak var host: (any PlazaPanelHost)?                             // the open window; attaching renders the visible panels once
+    var isRendering: Bool                                            // false while hidden: no renders; true renders what changed
+    private(set) var viewport: CGSize; private(set) var scale: CGFloat
+    func setViewport(_ size: CGSize, scale: CGFloat)                 // the host's content size and backing scale: moves, re-renders
+    func setNeedsRender(_ id: PlazaPanelID)                          //   only on a new size or scale
+    func layout(viewport: CGSize, scale: CGFloat) -> [PlazaPanelID: CGRect]   // visible panels, origin top-left, on the pixel grid
+    func hit(at point: CGPoint, in id: PlazaPanelID) -> PlazaPanelHit?        // the Mac host's hitTest
+    func hit(at point: CGPoint) -> (id: PlazaPanelID, hit: PlazaPanelHit)?   // the top-most shown panel's
+    func handleMouse(_ e: PlazaMouseEvent) -> Bool                   // a panel took it; a down+up on the same hit -> onAction
+    var onAction: ((PlazaPanelID, PlazaPanelHit) -> Void)?
+    private(set) var renderCounts: [PlazaPanelID: Int]; var renderCount: Int { get }   // tests and the idle check
 }
 @MainActor protocol PlazaPanelHost: AnyObject { func show(_ id: PlazaPanelID, image: PlazaImage, frame: CGRect, scale: CGFloat); func hide(_ id: PlazaPanelID) }
+// Panels (Task 14): PlazaPillsPanel(model: PlazaOverlayModel) (countdown, banner, hint; follows the model; stack(in:scale:text:) for
+// the SwiftUI overlay's menu room), PlazaClockPanel(worldSize:) (update(_ text:) from the 1 s tick), PlazaPill (one pill: oneLine /
+// wrapped / draw / image), PlazaPanelStyle (colours, radii, strokes, paddings, margins, strokeRoom = 1, pixel rounding).
+// Controller: PlazaWindowController.hud; PlazaOverlayBindings.hud and .pills. Mac: Team/UI/PlazaPanelHostView (a full-window
+// layer-backed view per panel at the old hosting view's subview index; PlazaMacWindow is the PlazaPanelHost).
 
 // Platform/PlatformPlaza.swift (Tasks 2, 3, 6, 7, 12) — the only #if file of this track
 enum PlatformPlaza {

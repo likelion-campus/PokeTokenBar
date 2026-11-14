@@ -1,5 +1,6 @@
 import CoreGraphics
 import CoreText
+import SwiftUI   // only for the continuous rounded rectangle's path (`Path(roundedRect:cornerRadius:style:)`)
 
 /// `PlazaCanvas` over a `CGContext`: each method is exactly the one CoreGraphics / CoreText call the art files made.
 /// Text must come from `CoreTextPlazaEngine` (the Mac's `PlatformPlaza.graphics.text`).
@@ -61,6 +62,25 @@ final class CGPlazaCanvas: PlazaCanvas {
     func clip(to rect: CGRect) { context.clip(to: rect) }
     func fill(_ rect: CGRect) { context.fill(rect) }
     func fillEllipse(in rect: CGRect) { context.fillEllipse(in: rect) }
+
+    /// SwiftUI's own path for `RoundedRectangle(cornerRadius:)` (its default `.continuous` corners), so a panel's pill has
+    /// the corners the SwiftUI view had.
+    static func roundedRect(_ rect: CGRect, radius: CGFloat) -> CGPath {
+        Path(roundedRect: rect, cornerRadius: radius, style: .continuous).cgPath
+    }
+
+    func fillRoundedRect(_ rect: CGRect, radius: CGFloat) {
+        context.addPath(Self.roundedRect(rect, radius: radius))
+        context.fillPath()
+    }
+
+    func strokeRoundedRect(_ rect: CGRect, radius: CGFloat, lineWidth: CGFloat) {
+        context.saveGState()
+        context.setLineWidth(lineWidth)
+        context.addPath(Self.roundedRect(rect, radius: radius))
+        context.strokePath()
+        context.restoreGState()
+    }
     func draw(_ image: PlazaImage, in rect: CGRect) { context.draw(image.cgImage, in: rect) }
 
     func draw(_ line: PlazaTextLine, at textPosition: CGPoint) {
