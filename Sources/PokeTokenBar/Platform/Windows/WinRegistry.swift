@@ -6,7 +6,7 @@ import WinSDK
 /// returns the Win32 status instead of throwing: callers decide what a failure means.
 enum WinRegistry {
     /// `HKEY_CURRENT_USER` is `(HKEY)(ULONG_PTR)(LONG)0x80000001`, a sign-extended constant Swift cannot import.
-    static let currentUser = HKEY(bitPattern: UInt(bitPattern: Int(Int32(bitPattern: 0x8000_0001))))!
+    static var currentUser: HKEY { HKEY(bitPattern: UInt(bitPattern: Int(Int32(bitPattern: 0x8000_0001))))! }
 
     private static let keyQueryValue: DWORD = 0x0001, keySetValue: DWORD = 0x0002, keyCreateSubKey: DWORD = 0x0004
     private static let regSZ: DWORD = 1, regBinary: DWORD = 3
