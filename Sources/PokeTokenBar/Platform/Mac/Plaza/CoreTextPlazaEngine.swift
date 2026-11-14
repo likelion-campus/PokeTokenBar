@@ -77,6 +77,32 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
             })
     }
 
+    /// TextKit finds the breaks with SwiftUI's line-break strategy (`.standard`: CoreText alone ignores it and breaks
+    /// Korean words); the lines are cut from one typesetter over the whole text, so each keeps its direction.
+    func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine] {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakStrategy = .standard
+        var attributes = Self.attributes(font)
+        attributes[.paragraphStyle] = style
+        let storage = NSTextStorage(string: text, attributes: attributes)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        let utf16 = text as NSString
+        var ranges: [NSRange] = []
+        layout.enumerateLineFragments(forGlyphRange: layout.glyphRange(for: container)) { _, _, _, glyphs, _ in
+            var r = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+            while r.length > 0, let last = Unicode.Scalar(utf16.character(at: r.location + r.length - 1)),
+                  CharacterSet.whitespacesAndNewlines.contains(last) { r.length -= 1 }
+            ranges.append(r)
+        }
+        guard !ranges.isEmpty else { return [line("", font: font)] }
+        let typesetter = CTTypesetterCreateWithAttributedString(NSAttributedString(string: text, attributes: Self.attributes(font)))
+        return ranges.map { Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: $0.location, length: $0.length))) }
+    }
+
     private static func wrap(_ line: CTLine) -> PlazaTextLine {
         var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
         let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
