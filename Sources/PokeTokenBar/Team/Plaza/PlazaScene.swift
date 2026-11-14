@@ -429,7 +429,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         addChild(mapNode)
         if let tallGrass {
             let layer = PlazaTallGrassLayer(map: map, art: tallGrass)
-            addChild(layer)
+            layer.root.mountInSpriteKit(self)
             tallGrassLayer = layer
         }
 

@@ -98,6 +98,8 @@ PlazaPhotoTestSupport.swift
 PlazaPhotoParityTests.swift
 # PlazaPondLayerTests+Mac: the 💧 image needs the Mac text engine (Apple Color Emoji); the Windows stub draws nothing
 PlazaPondLayerTests+Mac.swift
+# PlazaTallGrassLayerTests+Mac: reads the bundled tall-grass sheet (ImageIO) and checks pixels through CoreGraphics
+PlazaTallGrassLayerTests+Mac.swift
 # PlazaPondMotionTests: needs PlazaScene (SpriteKit)
 PlazaPondMotionTests.swift
 PlazaPondSceneTests.swift
@@ -126,7 +128,6 @@ PlazaSnowballTests.swift
 PlazaStartleControllerTests.swift
 PlazaSwimLowerHalfTests.swift
 PlazaTackleWaterTests.swift
-PlazaTallGrassLayerTests.swift
 PlazaTallGrassSceneTests.swift
 PlazaWeatherTests.swift
 PlazaWindowTests.swift
