@@ -92,6 +92,10 @@ final class PlazaStubCanvas: PlazaCanvas {
     func clip(to rect: CGRect) { record("clip \(Self.r(rect))") }
     func fill(_ rect: CGRect) { record("fill \(Self.r(rect))") }
     func fillEllipse(in rect: CGRect) { record("fillEllipse \(Self.r(rect))") }
+    func fillRoundedRect(_ rect: CGRect, radius: CGFloat) { record("fillRoundedRect \(Self.r(rect)) \(Self.f(radius))") }
+    func strokeRoundedRect(_ rect: CGRect, radius: CGFloat, lineWidth: CGFloat) {
+        record("strokeRoundedRect \(Self.r(rect)) \(Self.f(radius)) \(Self.f(lineWidth))")
+    }
     func draw(_ image: PlazaImage, in rect: CGRect) { record("image \(image.width)x\(image.height) \(Self.r(rect))") }
     func draw(_ line: PlazaTextLine, at textPosition: CGPoint) {
         record("line \(Self.text(line)) at \(Self.f(textPosition.x)) \(Self.f(textPosition.y))")
@@ -159,6 +163,29 @@ struct PlazaStubTextEngine: PlazaTextEngine {
         guard room >= 0 else { return nil }
         let kept = Int((room / (0.6 * l.size)).rounded(.down))
         return Self.line(String(l.text.prefix(kept)) + e.text, size: l.size)
+    }
+
+    /// Breaks at spaces only (greedy); a word wider than a line breaks between characters.
+    func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine] {
+        let size = Self.size(font)
+        func fits(_ s: String) -> Bool { Self.line(s, size: size).width <= width }
+        var lines: [String] = []
+        var current = ""
+        func flush() {
+            if !current.isEmpty { lines.append(current) }
+            current = ""
+        }
+        for word in text.split(separator: " ").map(String.init) {
+            let candidate = current.isEmpty ? word : current + " " + word
+            if fits(candidate) { current = candidate; continue }
+            flush()
+            for ch in word {
+                if !current.isEmpty, !fits(current + String(ch)) { flush() }
+                current.append(ch)
+            }
+        }
+        flush()
+        return (lines.isEmpty ? [""] : lines).map { Self.line($0, size: size) }
     }
 
     func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph {
