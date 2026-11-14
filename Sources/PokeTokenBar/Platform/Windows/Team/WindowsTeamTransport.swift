@@ -200,14 +200,10 @@ final class WindowsTeamTransport: TeamTransporting {
         guard startListener(code: code) else { return }
         if advertise { discovery().browse() }
         let interval = TeamTransportRules.redialInterval
-        let timer = Timer(fire: Date(timeIntervalSinceNow: interval), interval: interval, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.redialTick(generation) }
-            }
+        // A redial check can wait a few seconds (tolerance); let the system coalesce it.
+        redialTimer = WinMainThread.repeatingTimer(every: interval, tolerance: interval / 5) { [weak self] in
+            self?.redialTick(generation)
         }
-        timer.tolerance = interval / 5   // a redial check can wait a few seconds; let the system coalesce it
-        RunLoop.main.add(timer, forMode: .common)
-        redialTimer = timer
     }
 
     private func redialTick(_ generation: Int) {

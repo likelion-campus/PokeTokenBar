@@ -105,13 +105,7 @@ private final class BrowseContext: CallbackContext {
     func post(_ incoming: [WinDNSSD.Event]) {
         guard isOpen, !incoming.isEmpty else { return }
         namesLock.lock()
-        let events = incoming.filter { event in
-            switch event {
-            case .found(let name): return known.insert(name).inserted
-            case .lost(let name): return known.remove(name) != nil
-            default: return true
-            }
-        }
+        let events = WinDNSSD.changes(incoming, known: &known)
         namesLock.unlock()
         WinDNSSD.noteRepeats(incoming.count - events.count)
         guard !events.isEmpty else { return }
@@ -279,6 +273,18 @@ final class WinDNSSD: @unchecked Sendable {
 
     nonisolated(unsafe) private static let repeatsLock = NSLock()
     nonisolated(unsafe) private static var repeats = 0
+    /// The events that change what a browse knows (`known`, updated): a `.found` of a new name, a `.lost` of a known
+    /// one, and every failure. Repeats are left out.
+    static func changes(_ events: [Event], known: inout Set<String>) -> [Event] {
+        events.filter { event in
+            switch event {
+            case .found(let name): return known.insert(name).inserted
+            case .lost(let name): return known.remove(name) != nil
+            default: return true
+            }
+        }
+    }
+
     /// Browse answers dropped as repeats on the pool thread, process-wide (the selftest's idle report).
     static var repeatsDropped: Int { repeatsLock.lock(); defer { repeatsLock.unlock() }; return repeats }
     fileprivate static func noteRepeats(_ n: Int) {
