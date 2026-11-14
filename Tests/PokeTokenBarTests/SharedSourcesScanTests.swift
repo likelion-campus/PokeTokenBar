@@ -152,6 +152,35 @@ enum SharedSources {
         return out
     }
 
+    /// The shared node storage marked `@exclusivity(unchecked)` (Team/Plaza/Draw/PlazaNode.swift) must stay plain: no
+    /// observers or accessors on the declaration, never passed `inout`, no `_modify` in the file (comments aside).
+    /// Returns the unchecked names found and one message per violation.
+    static func uncheckedStorageViolations(in text: String, file: String) -> (names: [String], violations: [String]) {
+        let ls = text.components(separatedBy: .newlines)
+        let decl = try! NSRegularExpression(pattern: #"@exclusivity\(unchecked\).*\bvar\s+(\w+)"#)
+        var names: [String] = [], out: [String] = []
+        for (i, l) in ls.enumerated() where l.contains("@exclusivity(unchecked)") {
+            guard let m = decl.firstMatch(in: l, range: NSRange(l.startIndex..., in: l)), let r = Range(m.range(at: 1), in: l) else {
+                out.append("\(file):\(i + 1) @exclusivity(unchecked) is not on a var")
+                continue
+            }
+            let name = String(l[r])
+            names.append(name)
+            let next = ls[(i + 1)...].first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }?.trimmingCharacters(in: .whitespaces) ?? ""
+            if l.contains("{") || ["{", "didSet", "willSet", "_modify"].contains(where: { next.hasPrefix($0) }) {
+                out.append("\(file):\(i + 1) `\(name)` has observers or accessors")
+            }
+        }
+        for (i, l) in ls.enumerated() {
+            let code = l.components(separatedBy: "//").first ?? l
+            if code.contains("_modify") { out.append("\(file):\(i + 1) has `_modify`") }
+            for name in names where code.contains("&\(name)") || code.contains("&self.\(name)") {
+                out.append("\(file):\(i + 1) passes `\(name)` inout")
+            }
+        }
+        return (names, out)
+    }
+
     static func lineCount(of files: [URL]) throws -> Int {
         try files.reduce(0) { $0 + (try String(contentsOf: $1, encoding: .utf8).split(whereSeparator: \.isNewline).count) }
     }
@@ -276,6 +305,26 @@ final class SharedSourcesScanTests: XCTestCase {
         XCTAssertEqual(try scanShim("#if canImport(CoreGraphics)\nimport CoreGraphics\nimport AppKit\n#endif\n").count, 2)
         XCTAssertEqual(try scanShim("import CoreGraphics\n").count, 1)
         XCTAssertEqual(try scanShim("#if canImport(CoreGraphics)\nimport CoreGraphics\n#endif\nimport SwiftUI\n").count, 2)
+    }
+
+    func testUncheckedNodeStorageStaysPlain() throws {
+        let rel = "Team/Plaza/Draw/PlazaNode.swift"
+        let text = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent(rel), encoding: .utf8)
+        let r = SharedSources.uncheckedStorageViolations(in: text, file: rel)
+        XCTAssertEqual(r.violations, [])
+        XCTAssertEqual(r.names.count, 17, "the node storage marked unchecked: \(r.names)")
+    }
+
+    func testTheUncheckedStorageScanCatchesEachKind() {
+        let head = "@exclusivity(unchecked) private var _x = 0\n"
+        func count(_ text: String) -> Int { SharedSources.uncheckedStorageViolations(in: text, file: "T.swift").violations.count }
+        XCTAssertEqual(count("@exclusivity(unchecked) private var _x = 0 { didSet {} }\n"), 1, "observer on the declaration line")
+        XCTAssertEqual(count(head + "    {\n        didSet {}\n    }\n"), 1, "observer block on the next line")
+        XCTAssertEqual(count(head + "    willSet { }\n"), 1, "willSet on the next line")
+        XCTAssertEqual(count(head + "func f() { g(&_x) }\n"), 1, "passed inout")
+        XCTAssertEqual(count(head + "var y: Int { _modify { yield &y } }\n"), 1, "a _modify accessor")
+        XCTAssertEqual(count(head + "// _modify in a comment, &_x too\nvar y: Int { get { _x } set { _x = newValue } }\n"), 0, "plain accessors pass")
+        XCTAssertEqual(count("@exclusivity(unchecked) func f() {}\n"), 1, "not on a var")
     }
 
     func testSharedSetDoesNotShrink() throws {

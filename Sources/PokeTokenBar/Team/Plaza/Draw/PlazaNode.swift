@@ -39,6 +39,9 @@ enum PlazaFloat {
 /// safe. Draw order (`PlazaDrawOrder`): global z is the sum of the ancestors' `zPosition`; `isHidden` hides the
 /// subtree; `alpha` multiplies down the tree.
 @MainActor class PlazaNode {
+    // Unchecked storage: these are read and written only by plain loads and stores in this file's get/set accessors,
+    // on the main actor; never passed inout, no observers, no modify accessors. Overlapping access cannot happen, so
+    // the dynamic exclusivity checks (about 2 ns a write, Task 7) are left out. SharedSourcesScanTests checks it.
     @exclusivity(unchecked) private var _name: String?
     @exclusivity(unchecked) private var _position = CGPoint.zero
     @exclusivity(unchecked) private var _zPosition: CGFloat = 0
@@ -51,7 +54,7 @@ enum PlazaFloat {
     final private(set) weak var parent: PlazaNode?
     final private(set) var children: [PlazaNode] = []
     /// The backend's copy of this node. Set once, by a backend (`installMirror`); kept when the node leaves the tree,
-    /// so a node that comes back is not built again.
+    /// so a node that comes back is not built again. Unchecked storage, as above.
     @exclusivity(unchecked) final private(set) var mirror: PlazaNodeMirror?
 
     init() {}
@@ -193,6 +196,9 @@ enum PlazaFloat {
     /// SpriteKit's default sprite colour: white with alpha 0 (not black, not clear black).
     static let defaultColor = PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0)
 
+    // Unchecked storage: these are read and written only by plain loads and stores in this file's get/set accessors,
+    // on the main actor; never passed inout, no observers, no modify accessors. Overlapping access cannot happen, so
+    // the dynamic exclusivity checks (about 2 ns a write, Task 7) are left out. SharedSourcesScanTests checks it.
     @exclusivity(unchecked) private var _texture: PlazaTexture?
     @exclusivity(unchecked) private var _unscaledWidth: CGFloat = 0
     @exclusivity(unchecked) private var _unscaledHeight: CGFloat = 0
@@ -307,6 +313,9 @@ enum PlazaFloat {
 /// Draws its subtree clipped to `maskRect` (in its own coordinates), as one unit at its own z: what the plaza did with
 /// an `SKCropNode` and a white mask sprite (anchor at the origin) placed at the rect. `nil`: no mask.
 @MainActor final class PlazaCropNode: PlazaNode {
+    // Unchecked storage: these are read and written only by plain loads and stores in this file's get/set accessors,
+    // on the main actor; never passed inout, no observers, no modify accessors. Overlapping access cannot happen, so
+    // the dynamic exclusivity checks (about 2 ns a write, Task 7) are left out. SharedSourcesScanTests checks it.
     @exclusivity(unchecked) private var _maskRect: CGRect?
 
     var maskRect: CGRect? {
