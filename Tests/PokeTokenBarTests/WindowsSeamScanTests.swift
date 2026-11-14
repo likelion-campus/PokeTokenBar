@@ -279,4 +279,36 @@ final class WindowsSeamScanTests: XCTestCase {
         XCTAssertEqual(try scan("func wndProc() {\n    MainActor.assumeIsolated { f() }\n}\n",
                                 in: team.deletingLastPathComponent()), 0, "WndProcs (outside Team/) run on the main thread")
     }
+
+    // MARK: - main-actor atomic writes (defect log: Windows flushes in .atomic)
+
+    /// Files whose `.atomic` writes run on the main actor. Windows' `.atomic` flushes to disk (100-230 ms), so they go
+    /// through `PlatformCompat.atomicWrite`. `allowed` is the rare, user-initiated write left alone on purpose.
+    static let mainActorWriters: [(file: String, allowed: String?)] = [
+        ("Core/CompanionStore.swift", "data.write(to: backup, options: .atomic)"),
+        ("Core/UsageStore.swift", nil),
+        ("Team/TeamFeedStore.swift", nil),
+    ]
+
+    static func directAtomicWrites(_ text: String, allowed: String?) -> [String] {
+        text.components(separatedBy: "\n").enumerated().compactMap { i, line in
+            let code = Self.code(line)
+            guard code.contains(".atomic") else { return nil }
+            if let allowed, code.contains(allowed) { return nil }
+            return "line \(i + 1): \(line.trimmingCharacters(in: .whitespaces))"
+        }
+    }
+
+    func testMainActorStoresWriteThroughPlatformCompat() throws {
+        for (file, allowed) in Self.mainActorWriters {
+            let text = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent(file), encoding: .utf8)
+            XCTAssertEqual(Self.directAtomicWrites(text, allowed: allowed), [], file)
+            XCTAssertTrue(text.contains("PlatformCompat.atomicWrite("), "\(file) lost its routed write")
+        }
+    }
+
+    func testTheAtomicWriteScanCatchesADirectCall() {
+        XCTAssertEqual(Self.directAtomicWrites("try? data.write(to: u, options: .atomic)\n", allowed: nil).count, 1)
+        XCTAssertEqual(Self.directAtomicWrites("try? PlatformCompat.atomicWrite(data, to: u) // .atomic\n", allowed: nil).count, 0)
+    }
 }

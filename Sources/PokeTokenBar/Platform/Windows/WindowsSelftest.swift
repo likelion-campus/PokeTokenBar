@@ -39,12 +39,15 @@ enum WindowsSelftest {
         }
     }
 
+    /// Longest launch-refresh stall the selftest accepts. The flushed writes it guards against took 146-231 ms.
+    static let launchStallFailMs = 150
+
     @MainActor static func run(_ app: WindowsAppDelegate) async -> [Check] {
         let r = Recorder()
-        // Watches the main thread from launch until the store has settled. The store's refreshes block it now and then:
-        // the companion and parity saves are durable writes on the main actor (FlushFileBuffers on Windows, 146-231 ms
-        // on the runner; defect log). So the loop checks run after that, with the same bounds, and this check reports
-        // the stalls and what held the thread.
+        // Watches the main thread from launch until the store has settled. Before PlatformCompat.atomicWrite the
+        // companion and parity saves flushed to disk on the main actor (FlushFileBuffers, 146-231 ms on the runner;
+        // defect log), so the loop checks still run after the store settles, with the same bounds. This check reports
+        // the stalls and what held the thread, and fails above `launchStallFailMs`.
         let stalls = MainStallProbe.start(mainThread: WindowsApp.mainThreadID)
         r.add("build.shims", ptb_shim_abi() == 1, "CWinShim abi=\(ptb_shim_abi()) openssl=\(String(cString: ptb_tls_openssl_version()))")
         pathChecks(r)
@@ -52,7 +55,7 @@ enum WindowsSelftest {
         let quiet = await waitStable(timeout: 120, quiet: 1) { !app.store.isRefreshing && !WinDefaultsSync.isSyncPending }
         if let stalls {
             let report = await stalls.stop()
-            r.add("loop.mainThreadStalls", report.longestMs < 1500, report.detail + " (fails over 1500 ms)")
+            r.add("loop.mainThreadStalls", report.longestMs < launchStallFailMs, report.detail + " (fails over \(launchStallFailMs) ms)")
         } else {
             r.add("loop.mainThreadStalls", true, "probe unavailable (thread handle or stack limits)")
         }
