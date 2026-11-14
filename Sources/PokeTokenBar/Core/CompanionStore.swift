@@ -2337,6 +2337,6 @@ final class CompanionStore {
         refreshRepresentativeSubject()
         checkDexCompletions()   // 보유 성장분이 영속되는 매 지점에서 세대 완성 알림을 한 번만 띄운다
         guard let data = try? JSONEncoder().encode(state) else { return }
-        try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지(펫 상태)
+        try? PlatformCompat.atomicWrite(data, to: fileURL)   // 부분 쓰기 손상 방지(펫 상태)
     }
 }

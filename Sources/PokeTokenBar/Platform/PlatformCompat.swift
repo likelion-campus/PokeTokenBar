@@ -9,6 +9,7 @@ typealias OSStatus = Int32
 /// Security framework codes `UsageStore.isKeychainPromptDeclined` compares against.
 let errSecUserCanceled: OSStatus = -128
 let errSecAuthFailed: OSStatus = -25293
+let errSecItemNotFound: OSStatus = -25300
 #endif
 
 #if os(Windows)
@@ -415,6 +416,21 @@ extension PlatformCompat {
             && FileManager.default.isExecutableFile(atPath: path)
         #else
         return FileManager.default.isExecutableFile(atPath: path)
+        #endif
+    }
+
+    /// Test seam: runs on Windows between the temporary file being complete and the rename. Tests inject a failure.
+    nonisolated(unsafe) static var atomicWriteFaultForTesting: (() throws -> Void)?
+
+    /// Writes `data` so a reader sees the old file or the new one, never half of it. Mac: `Data.write(options: .atomic)`,
+    /// unchanged. Windows: Foundation's atomic write also calls FlushFileBuffers, which blocks the calling thread for
+    /// 100-230 ms on a CI disk (the Mac does not flush), so the main-actor stores write a temporary file next to the
+    /// target and rename it over the target without flushing (`WinAtomicWrite`).
+    static func atomicWrite(_ data: Data, to url: URL) throws {
+        #if os(Windows)
+        try WinAtomicWrite.write(data, to: url)
+        #else
+        try data.write(to: url, options: .atomic)
         #endif
     }
 }
