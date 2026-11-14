@@ -37,14 +37,14 @@ import WinSDK
             r.add("ui.dump.icons", false, "no tray host")
             return
         }
-        await iconDump(r, host, dir)
+        await iconDump(r, dir)
         await menuDump(r, app, host, dir)
         await balloonDump(r, host, dir)
     }
 
     // MARK: - icons
 
-    private static func iconDump(_ r: WindowsSelftest.Recorder, _ host: WinTrayHost, _ dir: URL) async {
+    private static func iconDump(_ r: WindowsSelftest.Recorder, _ dir: URL) async {
         let sizes = [16, 24, 32]
         var rows: [(String, [Bitmap])] = []
         var notes: [String] = []
@@ -65,11 +65,6 @@ import WinSDK
                 bitmaps.append(bitmap)
             }
             rows.append((name, bitmaps))
-        }
-        if let live = host.tray.currentIcon, let bitmap = bitmap(of: live),
-           write(bitmap, to: dir.appendingPathComponent("icon-live-\(bitmap.width).png")) == 0 {
-            written += 1
-            notes.append("live tray icon \(bitmap.width) px from \(host.iconSource)")
         }
         let sheet = contactSheet(rows.map(\.1))
         let sheetOK = sheet.map { write($0, to: dir.appendingPathComponent("icons-sheet.png")) == 0 } ?? false

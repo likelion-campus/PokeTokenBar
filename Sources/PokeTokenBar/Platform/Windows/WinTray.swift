@@ -34,8 +34,6 @@ import WinSDK
     private(set) var lastTipUnits = 0
     private(set) var lastBalloonOK = false
     private(set) var lastBalloonFlags: DWORD = 0
-    /// The icon the shell shows (the selftest's image dump renders this handle).
-    var currentIcon: WinIcon? { icon }
 
     init(window: WinSinkWindow) {
         self.window = window
