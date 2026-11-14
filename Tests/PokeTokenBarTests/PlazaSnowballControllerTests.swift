@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
@@ -14,10 +13,10 @@ final class PlazaSnowballControllerTests: XCTestCase {
     private var hub: FakeTransportHub!
     private var dirs: [URL] = []
     private var code: TeamCode!
-    private var now = PlazaSnowballControllerTests.day(6)
+    var now = PlazaSnowballControllerTests.day(6)
     private var t: TimeInterval = 0
     private let map = PlazaMapData.map
-    private let vKey: UInt16 = 9, zKey: UInt16 = 6, spaceKey: UInt16 = 49
+    let vKey: UInt16 = 9, zKey: UInt16 = 6, spaceKey: UInt16 = 49
 
     static func day(_ day: Int, _ hour: Int = 12, _ minute: Int = 0, _ second: Int = 0) -> Date {
         PlazaWeather.gregorian.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour, minute: minute, second: second))!
@@ -36,7 +35,7 @@ final class PlazaSnowballControllerTests: XCTestCase {
         dirs = []
     }
 
-    @MainActor private struct Node {
+    @MainActor struct Node {
         let settings: TeamSettings
         let session: TeamSession
         let transport: FakeTeamTransport
@@ -82,30 +81,31 @@ final class PlazaSnowballControllerTests: XCTestCase {
                                      nickname: { "나" }, memberID: { me.settings.memberID },
                                      subject: { .init(speciesID: speciesID, isShiny: false) },
                                      myRosterEntry: { nil }, evolutionStage: { stage }, session: me.session, clock: { [unowned self] in now },
-                                     dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed })
+                                     dittoLoopSleep: ParkedDitto.loopSleep, dittoSeed: { ParkedDitto.seed },
+                                     shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
     }
 
-    private func settle() async {
+    func settle() async {
         for _ in 0..<20 { await Task.yield() }
     }
 
-    private func run(_ scene: PlazaScene, _ seconds: TimeInterval) {
+    func run(_ scene: PlazaScene, _ seconds: TimeInterval) {
         let end = t + seconds
         scene.update(t)
         while t < end - 1e-9 { t += 0.05; scene.update(t) }
     }
 
-    private func press(_ scene: PlazaScene, _ key: UInt16) {
+    func press(_ scene: PlazaScene, _ key: UInt16) {
         scene.handleKeyDown(keyCode: key, characters: "ㅁ", isRepeat: false)
     }
 
-    @MainActor private struct World {
+    @MainActor struct World {
         let c: PlazaWindowController, me: Node, b: Node
         var scene: PlazaScene { c.scene! }
     }
 
     /// Me at `mine` facing `facing`, teammate b (when given) at `bTile`, the plaza scene seeing both.
-    private func world(me mine: TilePoint, b bTile: TilePoint? = nil, facing: PlazaDirection = .right, stage: Int = 1,
+    func world(me mine: TilePoint, b bTile: TilePoint? = nil, facing: PlazaDirection = .right, stage: Int = 1,
                        speciesID: Int? = 25) async -> World {
         let me = node("나"), b = node("가")
         let c = controller(me, start: mine, speciesID: speciesID, stage: stage)
@@ -125,9 +125,9 @@ final class PlazaSnowballControllerTests: XCTestCase {
         XCTAssertEqual(w.scene.memberTiles[w.b.id], tile, "test precondition")
     }
 
-    private func snowballs(_ n: Node) -> [TeamEmote] { n.received.emotes.filter { $0.kind == .snowball } }
+    func snowballs(_ n: Node) -> [TeamEmote] { n.received.emotes.filter { $0.kind == .snowball } }
 
-    private func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
+    func p(_ x: Int, _ y: Int) -> TilePoint { TilePoint(x: x, y: y) }
 
     // MARK: - Throwing
 
@@ -174,17 +174,6 @@ final class PlazaSnowballControllerTests: XCTestCase {
         await assertNothing("a tree ahead", await world(me: p(3, 12), b: p(7, 12), facing: .left))
     }
 
-    func testVThrowsOnAnyDate() async {
-        now = Self.day(7, 23, 59, 59)
-        let w = await world(me: p(10, 12), b: p(14, 12))
-        XCTAssertEqual(w.c.shortcutThrowLabel, "눈뭉치")
-        press(w.scene, vKey)
-        await settle()
-        XCTAssertEqual(snowballs(w.b).count, 1)
-        now = Self.day(20, 0, 0, 0)
-        run(w.scene, 0.1)
-        XCTAssertEqual(w.c.shortcutThrowLabel, "눈뭉치")
-    }
 
     func testVIsLimitedLikeTheOtherKeys() async {
         let w = await world(me: p(10, 12), b: p(14, 12))

@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 /// A fetcher that never delivers, so every frame set is a placeholder and the retry chain keeps asking.
@@ -44,7 +43,8 @@ final class PlazaControllerLifetimeTests: XCTestCase {
                                           loader: PlazaCharacterLoader(fetcher: NeverDeliversFetcher()),
                                           nickname: { "나" }, memberID: { meS.memberID },
                                           subject: { .init(speciesID: 25, isShiny: false) },
-                                          myRosterEntry: { nil }, session: me, clock: { Date() })
+                                          myRosterEntry: { nil }, session: me, clock: { Date() },
+                                          shell: PlazaHeadlessShell(), chatInput: PlazaStubChatInput())
             c.prepareScene()
             _ = hub.connect(meT, to: otherT)
             let s = try XCTUnwrap(c.scene)
