@@ -139,7 +139,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private var shutterNode: SKSpriteNode?
     private let cameraNode = SKCameraNode()
     /// 계절 날씨 입자. 캐릭터(z 1~2) 위, 낮밤 곱하기(5)와 이름표(10) 아래.
-    private let weatherLayer = PlazaWeatherLayer()
+    let weatherLayer = PlazaWeatherLayer()
     /// 불꽃. 빛이라 낮밤 곱하기(5)와 모닥불빛(6) 위, 이름표(10) 아래.
     private let fireworkLayer = PlazaFireworkLayer()
     /// 지금 지도에서 아이템이 놓일 수 있는 칸. 지도가 바뀌지 않으니 한 번만 센다.
@@ -451,8 +451,8 @@ struct PlazaSceneMember: Equatable, Sendable {
         campfireLightNode.zPosition = 6
         campfireLightNode.isHidden = true
         if campfireNode != nil { addChild(campfireLightNode) }
-        weatherLayer.zPosition = 3
-        addChild(weatherLayer)
+        weatherLayer.root.zPosition = 3
+        weatherLayer.root.mountInSpriteKit(self)
         fireworkLayer.zPosition = 7
         addChild(fireworkLayer)
         footprintLayer.root.mountInSpriteKit(self)

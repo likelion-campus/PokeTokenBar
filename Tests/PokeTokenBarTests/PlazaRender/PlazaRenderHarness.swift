@@ -46,6 +46,7 @@ enum PlazaRenderHarness {
         if let l = scene.tallGrassLayer { out.append((l.root, "PlazaTallGrassLayer")) }
         if let l = scene.pondLayer { out.append((l.root, "PlazaPondLayer")) }
         if let l = scene.iceLayer { out.append((l.root, "PlazaIceLayer")) }
+        out.append((scene.weatherLayer.root, "PlazaWeatherLayer"))
         out.append((scene.footprintLayer.root, "PlazaFootprintLayer"))
         out.append((scene.snowballLayer.root, "PlazaSnowballLayer"))
         return out

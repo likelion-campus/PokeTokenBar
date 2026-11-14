@@ -102,6 +102,8 @@ PlazaTallGrassLayerTests+Mac.swift
 PlazaIceLayerTests+Mac.swift
 # PlazaFootprintTests+Mac: the scene-driven footprint tests (PlazaScene is SpriteKit until the stage lands)
 PlazaFootprintTests+Mac.swift
+# PlazaWeatherTests+Mac: the scene-driven weather tests and the photo pixel checks (PlazaScene, CoreGraphics)
+PlazaWeatherTests+Mac.swift
 # PlazaPondMotionTests: needs PlazaScene (SpriteKit)
 PlazaPondMotionTests.swift
 PlazaPondSceneTests.swift
@@ -131,7 +133,6 @@ PlazaStartleControllerTests.swift
 PlazaSwimLowerHalfTests.swift
 PlazaTackleWaterTests.swift
 PlazaTallGrassSceneTests.swift
-PlazaWeatherTests.swift
 PlazaWindowTests.swift
 PokeTokenBarTests.swift
 # PokemonFormTests+Mac: needs PokemonDetailView (UI)
