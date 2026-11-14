@@ -26,6 +26,9 @@ enum WindowsSelftest {
 
     nonisolated(unsafe) private static var progressURL: URL?
 
+    /// CI runs may show balloons and type into windows; a person's PC may not (this file is on the env-read allow-list).
+    static var onCI: Bool { ProcessInfo.processInfo.environment["CI"] != nil }
+
     /// Starts the run on the main actor once the loop turns, then exits with its result.
     @MainActor static func start(_ app: WindowsAppDelegate, writingTo url: URL) {
         let progress = url.appendingPathExtension("lines")
@@ -91,6 +94,8 @@ enum WindowsSelftest {
                 + "the selftest keeps its settings in suite \(WinDefaultsSync.selftestSuiteName ?? "-")")
         await systemServiceChecks(r)
         await trayChecks(r, app)
+        await notifyChecks(r, app)
+        if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
         await idleCheck(r, app)
         return r.checks
     }

@@ -21,6 +21,15 @@ void ptb_free(void *p);
 /// the artwork, then scaled nearest-neighbour. NULL on failure. The caller owns the icon (DestroyIcon).
 void *ptb_icon_from_bgra(const uint8_t *bgra, uint32_t w, uint32_t h, uint32_t size);
 
+/// Reads an HICON's color bitmap as straight-alpha BGRA, top-down. 0 on success; free `*bgra` with `ptb_free`.
+int ptb_icon_to_bgra(void *hicon, uint32_t *w, uint32_t *h, uint8_t **bgra);
+
+/// Copies a rectangle of the screen (virtual-screen coordinates) as opaque BGRA. 0 on success; free with `ptb_free`.
+int ptb_capture_screen(int32_t x, int32_t y, uint32_t w, uint32_t h, uint8_t **bgra);
+
+/// Writes straight-alpha BGRA as a PNG file (WIC). `path` is NUL-terminated UTF-16. 0 on success.
+int ptb_png_write_bgra(const uint16_t *path, const uint8_t *bgra, uint32_t w, uint32_t h);
+
 #ifdef __cplusplus
 }
 #endif

@@ -141,3 +141,129 @@ extern "C" void *ptb_icon_from_bgra(const uint8_t *bgra, uint32_t w, uint32_t h,
     DeleteObject(color);
     return icon;
 }
+
+// ---- CI image dumps (`--dump-ui`): icon pixels, screen captures, PNG files ----
+
+extern "C" int ptb_icon_to_bgra(void *hicon, uint32_t *w, uint32_t *h, uint8_t **bgra) {
+    if (!hicon || !w || !h || !bgra) return static_cast<int>(E_INVALIDARG);
+    ICONINFO info = {};
+    if (!GetIconInfo(static_cast<HICON>(hicon), &info)) return static_cast<int>(E_FAIL);
+    int result = static_cast<int>(E_FAIL);
+    BITMAP bm = {};
+    if (info.hbmColor && GetObjectW(info.hbmColor, sizeof(bm), &bm) > 0 && bm.bmWidth > 0 && bm.bmHeight > 0) {
+        const LONG bw = bm.bmWidth, bh = bm.bmHeight;
+        BITMAPINFO bi = {};
+        bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bi.bmiHeader.biWidth = bw;
+        bi.bmiHeader.biHeight = -bh;  // top-down
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
+        const size_t bytes = static_cast<size_t>(bw) * bh * 4;
+        uint8_t *buffer = static_cast<uint8_t *>(std::malloc(bytes));
+        if (buffer) {
+            HDC dc = GetDC(nullptr);
+            const int lines = GetDIBits(dc, info.hbmColor, 0, static_cast<UINT>(bh), buffer, &bi, DIB_RGB_COLORS);
+            ReleaseDC(nullptr, dc);
+            if (lines == bh) {
+                bool anyAlpha = false;
+                for (size_t i = 3; i < bytes; i += 4) if (buffer[i]) { anyAlpha = true; break; }
+                if (!anyAlpha) for (size_t i = 3; i < bytes; i += 4) buffer[i] = 255;
+                *w = static_cast<uint32_t>(bw);
+                *h = static_cast<uint32_t>(bh);
+                *bgra = buffer;
+                result = 0;
+            } else {
+                std::free(buffer);
+            }
+        } else {
+            result = static_cast<int>(E_OUTOFMEMORY);
+        }
+    }
+    if (info.hbmColor) DeleteObject(info.hbmColor);
+    if (info.hbmMask) DeleteObject(info.hbmMask);
+    return result;
+}
+
+extern "C" int ptb_capture_screen(int32_t x, int32_t y, uint32_t w, uint32_t h, uint8_t **bgra) {
+    if (!bgra || w == 0 || h == 0 || w > 16384 || h > 16384) return static_cast<int>(E_INVALIDARG);
+    HDC screen = GetDC(nullptr);
+    if (!screen) return static_cast<int>(E_FAIL);
+    HDC mem = CreateCompatibleDC(screen);
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = static_cast<LONG>(w);
+    bi.bmiHeader.biHeight = -static_cast<LONG>(h);
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    HBITMAP dib = mem ? CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0) : nullptr;
+    int result = static_cast<int>(E_FAIL);
+    if (dib && bits) {
+        HGDIOBJ old = SelectObject(mem, dib);
+        if (BitBlt(mem, 0, 0, static_cast<int>(w), static_cast<int>(h), screen, x, y, SRCCOPY | CAPTUREBLT)) {
+            const size_t bytes = static_cast<size_t>(w) * h * 4;
+            uint8_t *buffer = static_cast<uint8_t *>(std::malloc(bytes));
+            if (buffer) {
+                std::memcpy(buffer, bits, bytes);
+                for (size_t i = 3; i < bytes; i += 4) buffer[i] = 255;  // the screen has no alpha
+                *bgra = buffer;
+                result = 0;
+            } else {
+                result = static_cast<int>(E_OUTOFMEMORY);
+            }
+        }
+        SelectObject(mem, old);
+    }
+    if (dib) DeleteObject(dib);
+    if (mem) DeleteDC(mem);
+    ReleaseDC(nullptr, screen);
+    return result;
+}
+
+namespace {
+
+const GUID kContainerFormatPng = {0x1b7cfaf4, 0x713f, 0x473c, {0xbb, 0xcd, 0x61, 0x37, 0x42, 0x5f, 0xae, 0xaf}};
+
+int writePng(const wchar_t *path, const uint8_t *bgra, uint32_t w, uint32_t h) {
+    Com<IWICImagingFactory> factory;
+    HRESULT hr = CoCreateInstance(kClsidImagingFactory, nullptr, CLSCTX_INPROC_SERVER, kIidImagingFactory,
+                                  reinterpret_cast<void **>(factory.out()));
+    if (FAILED(hr)) return hr;
+    Com<IWICStream> stream;
+    hr = factory->CreateStream(stream.out());
+    if (FAILED(hr)) return hr;
+    hr = stream->InitializeFromFilename(path, GENERIC_WRITE);
+    if (FAILED(hr)) return hr;
+    Com<IWICBitmapEncoder> encoder;
+    hr = factory->CreateEncoder(kContainerFormatPng, nullptr, encoder.out());
+    if (FAILED(hr)) return hr;
+    hr = encoder->Initialize(stream.p, WICBitmapEncoderNoCache);
+    if (FAILED(hr)) return hr;
+    Com<IWICBitmapFrameEncode> frame;
+    hr = encoder->CreateNewFrame(frame.out(), nullptr);
+    if (FAILED(hr)) return hr;
+    hr = frame->Initialize(nullptr);
+    if (FAILED(hr)) return hr;
+    hr = frame->SetSize(w, h);
+    if (FAILED(hr)) return hr;
+    WICPixelFormatGUID format = kPixelFormat32bppBGRA;
+    hr = frame->SetPixelFormat(&format);
+    if (FAILED(hr)) return hr;
+    hr = frame->WritePixels(h, w * 4, w * h * 4, const_cast<BYTE *>(bgra));
+    if (FAILED(hr)) return hr;
+    hr = frame->Commit();
+    if (FAILED(hr)) return hr;
+    return encoder->Commit();
+}
+
+}  // namespace
+
+extern "C" int ptb_png_write_bgra(const uint16_t *path, const uint8_t *bgra, uint32_t w, uint32_t h) {
+    if (!path || !bgra || w == 0 || h == 0 || w > 16384 || h > 16384) return static_cast<int>(E_INVALIDARG);
+    const HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const int result = writePng(reinterpret_cast<const wchar_t *>(path), bgra, w, h);
+    if (SUCCEEDED(init)) CoUninitialize();
+    return result;
+}

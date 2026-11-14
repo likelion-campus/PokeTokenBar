@@ -5,13 +5,16 @@ param(
     [Parameter(Mandatory)][string]$Exe,
     [Parameter(Mandatory)][string]$Out,
     [string]$ExpectStrategy = "",
-    [int]$TimeoutSec = 600
+    [int]$TimeoutSec = 600,
+    [string]$DumpUi = ""
 )
 $ErrorActionPreference = "Stop"
 $Out = [System.IO.Path]::GetFullPath($Out)
 $lines = "$Out.lines"
 Remove-Item -ErrorAction SilentlyContinue $Out, $lines
-$p = Start-Process -FilePath (Resolve-Path $Exe).Path -ArgumentList @("--selftest", "--selftest-out", $Out) -PassThru
+$selftestArgs = @("--selftest", "--selftest-out", $Out)
+if ($DumpUi) { $selftestArgs += @("--dump-ui", [System.IO.Path]::GetFullPath($DumpUi)) }
+$p = Start-Process -FilePath (Resolve-Path $Exe).Path -ArgumentList $selftestArgs -PassThru
 $null = $p.Handle  # keeps ExitCode readable after the process ends
 if (-not $p.WaitForExit($TimeoutSec * 1000)) {
     Stop-Process -Id $p.Id -Force
