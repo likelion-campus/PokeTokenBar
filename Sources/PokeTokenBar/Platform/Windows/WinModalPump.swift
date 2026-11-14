@@ -50,14 +50,24 @@ import WinSDK
         let getMain: GetMain, getMask: GetMask, setMask: SetMask
         let defaultMode: UnsafeRawPointer
 
+        /// What the lookup found, for the log and the selftest line.
+        nonisolated(unsafe) static var report = ""
+
         init?() {
-            let cf = "CoreFoundation.dll"
-            guard let getMain = WinDynamic.symbol(cf, "CFRunLoopGetMain", as: GetMain.self),
-                  let getMask = WinDynamic.symbol(cf, "_CFRunLoopGetWindowsMessageQueueMask", as: GetMask.self),
-                  let setMask = WinDynamic.symbol(cf, "_CFRunLoopSetWindowsMessageQueueMask", as: SetMask.self),
-                  let modeVar = WinDynamic.symbol(cf, "kCFRunLoopDefaultMode", as: UnsafePointer<UnsafeRawPointer?>.self),
-                  let mode = modeVar.pointee
-            else { return nil }
+            var seen: [String] = []
+            func find<T>(_ name: String, as type: T.Type) -> T? {
+                for module in ["CoreFoundation.dll", "Foundation.dll"] {
+                    if let found = WinDynamic.symbol(module, name, as: type) { seen.append("\(name)@\(module)"); return found }
+                }
+                seen.append("\(name)=missing")
+                return nil
+            }
+            let getMain = find("CFRunLoopGetMain", as: GetMain.self)
+            let getMask = find("_CFRunLoopGetWindowsMessageQueueMask", as: GetMask.self)
+            let setMask = find("_CFRunLoopSetWindowsMessageQueueMask", as: SetMask.self)
+            let modeVar = find("kCFRunLoopDefaultMode", as: UnsafePointer<UnsafeRawPointer?>.self)
+            Self.report = seen.joined(separator: " ")
+            guard let getMain, let getMask, let setMask, let mode = modeVar?.pointee else { return nil }
             self.getMain = getMain
             self.getMask = getMask
             self.setMask = setMask
@@ -68,8 +78,8 @@ import WinSDK
     private static var maskSPI: MaskSPI?
     private static func resolveMaskSPI() {
         maskSPI = MaskSPI()
-        maskStrategy = maskSPI == nil ? "fallback: tick skipped while input is pending (CoreFoundation SPI not found)"
-            : "CoreFoundation message-queue mask 0 for the tick"
+        maskStrategy = (maskSPI == nil ? "fallback: tick skipped while input is pending (CoreFoundation SPI not found)"
+            : "CoreFoundation message-queue mask 0 for the tick") + " [\(MaskSPI.report)]"
         if maskSPI == nil { AppLog.write("modal pump: \(maskStrategy)") }
     }
 
