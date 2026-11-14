@@ -31,6 +31,7 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--selftest-defaults-reader") {
             WindowsSelftest.runDefaultsReader(Array(arguments[(i + 1)...]))
         }
+        if let i = arguments.firstIndex(of: "--selftest-crash") { WindowsSelftestCrash.run(Array(arguments[(i + 1)...])) }
         if arguments.contains("--ime-check") { WinImeCheck.run() }
 
         let app = WindowsAppDelegate(arguments: arguments)
@@ -56,6 +57,7 @@ extension WindowsApp {
     /// the log line is lost unless flushed.
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
         WinDefaultsSync.flushNow()
+        WindowsCrashLog.markClean()
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
         trayToRemove?.remove()
         crtExit(code)
@@ -109,7 +111,7 @@ private func crtExit(_ code: Int32) -> Never {
             AppLog.writeAndFlush("--selftest-second: no running instance held \(mutexName)")
             return false
         }
-        // 3: crash log hook (Task 11).
+        WindowsCrashLog.install(version: WindowsInstall.version ?? "0.0.0-dev")  // 3
         Self.setPerMonitorDpiAwareness()  // 4
         loopStrategy = WinMainLoop.prepare()  // 5
         do {  // 6
@@ -138,7 +140,7 @@ private func crtExit(_ code: Int32) -> Never {
         let companion = CompanionStore(defaults: defaults)
         self.store = store
         self.companion = companion
-        // Task 10: UpdateChecker (the tray menu's update entry reads it; `WinTrayHost.availableUpdate`).
+        // The update check starts at step 14 (`WindowsUpdates`); the tray menu reads it.
         // Task 19: TeamRuntime (the team link and the plaza feed).
         Task { await companion.preparePokemonProfiles() }
         store.localizationLanguage = companion.language
@@ -153,6 +155,9 @@ private func crtExit(_ code: Int32) -> Never {
         WinDefaultsSync.start()
         observeStore()  // 13
         applyState()
+        // 14: the update check (Mac: `updater.check()` at launch; the tray menu re-checks when it opens). The selftest
+        // never asks the network. Launch at login is not touched here: only the tray toggle writes it (off by default).
+        WindowsUpdates.start(defaults: defaults, checkNow: !arguments.contains("--selftest"))
         AppLog.write("windows app launched pid=\(GetCurrentProcessId()) loop=\(loopStrategy.rawValue) "
             + "mutex=\(mutexName)\(arguments.contains("--autostart") ? " autostart" : "")")
         return true

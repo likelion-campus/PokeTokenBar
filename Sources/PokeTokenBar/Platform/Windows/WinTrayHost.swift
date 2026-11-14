@@ -14,8 +14,9 @@ import WinSDK
     private let companion: CompanionStore
     private let defaults: UserDefaults
 
-    /// Task 10 fills these; until then the login item is disabled and no update entry shows.
+    /// Filled by `refreshShellState()` each time the menu opens (WinTrayShellWiring.swift).
     var loginState: TrayMenuModel.LoginState = .unavailable
+    var loginItem = WindowsLoginItem()
     var availableUpdate: (version: String, url: String)?
 
     private(set) var menuOpen = false
@@ -72,6 +73,7 @@ import WinSDK
         guard !menuOpen else { return }  // the shell sends several events for one click, queued behind the menu
         menuOpen = true
         store.requestNotificationAuthorizationIfNeeded()  // as the Mac does when the popover opens
+        refreshShellState()
         let items = menuItems()
         let chosen = WinPopupMenu.run(items, at: point, owner: window.hwnd)
         menuOpen = false
@@ -93,7 +95,9 @@ import WinSDK
             if let url = availableUpdate?.url { Self.open(url) }
         case .quit:
             WindowsApp.exit(0, .menu)
-        case .toggleLaunchAtLogin, .none:
+        case .toggleLaunchAtLogin:
+            toggleLaunchAtLogin()
+        case .none:
             break
         }
     }

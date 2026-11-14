@@ -84,6 +84,8 @@ enum WindowsSelftest {
         await loopChecks(r, app)
         await limitsCheck(r)
         await defaultsChecks(r, app)
+        await shellChecks(r)
+        await crashChecks(r)
         await singleInstanceCheck(r, app)
         await guardChecks(r)
         let real = WinDefaultsSync.expectedPlistURL()
@@ -843,7 +845,7 @@ enum WindowsSelftest {
     }
 
     /// A child copy of this exe, waited on through its process handle.
-    @MainActor private final class Helper {
+    @MainActor final class Helper {
         let pid: Int32
         private let handle: HANDLE
         private let ready: HANDLE?
