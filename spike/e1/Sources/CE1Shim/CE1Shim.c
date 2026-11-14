@@ -601,12 +601,34 @@ void e1_set_hook_redispatch(int on) { InterlockedExchange(&g_hook_redispatch, on
 int e1_hook_redispatched(void) { return (int)g_hook_redispatched; }
 
 // Text probe: a shown window that takes focus, and real input through SendInput(KEYEVENTF_UNICODE) -> VK_PACKET.
+// The foreground lock refuses SetForegroundWindow to a process that did not get the last input; a synthetic Alt
+// press (sent before our window is up front, so it lands on the previous foreground window) lifts it.
+static void e1_force_foreground(HWND h) {
+    SetForegroundWindow(h);
+    if (GetForegroundWindow() == h) return;
+    INPUT alt[2];
+    memset(alt, 0, sizeof alt);
+    alt[0].type = INPUT_KEYBOARD;
+    alt[0].ki.wVk = VK_MENU;
+    alt[1] = alt[0];
+    alt[1].ki.dwFlags = KEYEVENTF_KEYUP;
+    SendInput(2, alt, sizeof(INPUT));
+    SetForegroundWindow(h);
+    if (GetForegroundWindow() == h) return;
+    HWND fg = GetForegroundWindow();
+    DWORD fgTid = fg ? GetWindowThreadProcessId(fg, NULL) : 0, me = GetCurrentThreadId();
+    if (fgTid && fgTid != me) AttachThreadInput(me, fgTid, TRUE);
+    BringWindowToTop(h);
+    SetForegroundWindow(h);
+    if (fgTid && fgTid != me) AttachThreadInput(me, fgTid, FALSE);
+}
+
 void *e1_make_visible_window(void) {
     HWND h = (HWND)e1_make_window(0);
     if (!h) return NULL;
     SetWindowPos(h, HWND_TOP, 40, 40, 200, 120, SWP_SHOWWINDOW);
     ShowWindow(h, SW_SHOW);
-    SetForegroundWindow(h);
+    e1_force_foreground(h);
     SetFocus(h);
     return h;
 }
