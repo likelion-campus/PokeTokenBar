@@ -30,13 +30,26 @@ enum PlazaRenderHarness {
 
     /// The shared subtrees mounted into the scene (Track A converts them layer by layer). After every capture each one is
     /// compared with its SpriteKit copy (`PlazaMirrorParity`).
-    @MainActor static func sharedRoots(of scene: PlazaScene) -> [PlazaNode] { [scene.pondLayer?.root].compactMap { $0 } }
+    @MainActor static func sharedRoots(of scene: PlazaScene) -> [PlazaNode] { layerRoots(of: scene).map(\.root) }
 
     /// The class a converted layer's node had before Track A (an `SKNode` subclass; now the plain `SKNode` copy of a shared
     /// root), so tree dumps still compare with bases from before the conversion. Only the printed class name is mapped.
     @MainActor static func legacyClassNames(of scene: PlazaScene) -> [ObjectIdentifier: String] {
         var out: [ObjectIdentifier: String] = [:]
-        if let pond = scene.pondLayer?.root.skNode { out[ObjectIdentifier(pond)] = "PlazaPondLayer" }
+        for (root, name) in layerRoots(of: scene) { if let sk = root.skNode { out[ObjectIdentifier(sk)] = name } }
+        return out
+    }
+
+    /// Every converted layer's root with the class name its node had before.
+    @MainActor private static func layerRoots(of scene: PlazaScene) -> [(root: PlazaNode, name: String)] {
+        var out: [(root: PlazaNode, name: String)] = []
+        if let l = scene.tallGrassLayer { out.append((l.root, "PlazaTallGrassLayer")) }
+        if let l = scene.pondLayer { out.append((l.root, "PlazaPondLayer")) }
+        if let l = scene.iceLayer { out.append((l.root, "PlazaIceLayer")) }
+        out.append((scene.weatherLayer.root, "PlazaWeatherLayer"))
+        out.append((scene.fireworkLayer.root, "PlazaFireworkLayer"))
+        out.append((scene.footprintLayer.root, "PlazaFootprintLayer"))
+        out.append((scene.snowballLayer.root, "PlazaSnowballLayer"))
         return out
     }
 }
