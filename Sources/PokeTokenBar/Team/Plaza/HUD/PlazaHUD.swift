@@ -105,8 +105,8 @@ import Foundation
 
     /// A mouse event the window delivered to panel `id` (its view got it). true when the panel takes it, so it goes no
     /// further. A down and an up on the same hit is a click (`onAction`); moves and presses update the panel's
-    /// `interaction` (only panels whose drawing `tracksMouse` get moves). No panel takes the scroll wheel (the scrolling
-    /// panels stay SwiftUI), so a scroll is never taken.
+    /// `interaction` (only panels whose drawing `tracksMouse` get moves). A scroll goes to the panel under the mouse
+    /// (`PlazaPanel.scroll`): taken while that panel scrolls that way, else passed on.
     func handleMouse(_ e: PlazaMouseEvent, in id: PlazaPanelID) -> Bool {
         let hit = self.hit(at: e.location, in: id)
         switch e.kind {
@@ -129,8 +129,9 @@ import Foundation
             if hovered?.id == id { hovered = nil }
             updateInteraction()
             return false
-        case .scroll:
-            return false
+        case .scroll(let dx, let dy):
+            guard hit != nil, let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return false }
+            return panel.scroll(dx: dx, dy: dy)
         }
     }
 
