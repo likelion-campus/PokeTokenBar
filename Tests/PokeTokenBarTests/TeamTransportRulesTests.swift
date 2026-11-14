@@ -102,4 +102,22 @@ final class TeamTransportRulesTests: XCTestCase {
         for _ in 0..<300 { if case .messages(let m) = r.receive(step, now: t0) { delivered += m.count } else { return XCTFail("dropped a run") } }
         XCTAssertEqual(delivered, 333)
     }
+
+    /// A frame of exactly the maximum size is handled; one byte more is a bad frame, reported before any budget is spent.
+    func testTheReceiverPassesAMaxSizeFrameAndRejectsOneMore() async throws {
+        var body = try TeamWire.encode(.profileRequest).dropFirst(4)
+        body.append(Data(repeating: 0x20, count: TeamWire.maxFrameBytes - body.count))   // JSON ignores trailing spaces
+        XCTAssertEqual(body.count, TeamWire.maxFrameBytes)
+        func frame(length: Int, _ payload: Data) -> Data {
+            var len = UInt32(length).bigEndian
+            return Data(bytes: &len, count: 4) + payload
+        }
+        var ok = TeamLinkReceiver()
+        XCTAssertEqual(ok.receive(frame(length: body.count, Data(body)), now: t0), .messages([.profileRequest]))
+
+        var tooBig = TeamLinkReceiver()
+        guard case .badFrame = tooBig.receive(frame(length: TeamWire.maxFrameBytes + 1, Data()), now: t0) else {
+            return XCTFail("a frame one byte over the limit must be a bad frame")
+        }
+    }
 }
