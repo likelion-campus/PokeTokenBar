@@ -9,6 +9,32 @@ struct WinSocketAddress: Equatable, Sendable {
     let family: Family
     let host: String
     let port: UInt16
+    /// The interface DNS-SD answered on (`DNS_SERVICE_INSTANCE.dwInterfaceIndex`, or the scope of a parsed
+    /// `sockaddr_in6`); 0 when unknown. A link-local IPv6 address is dialled as `fe80::…%<index>`
+    /// (`WindowsTeamTransport.dialOrder`); without the index Windows cannot tell which interface it is on.
+    var interfaceIndex: UInt32 = 0
+}
+
+extension WinSocketAddress {   // an extension, so the memberwise initializer stays
+    /// A numeric address from a `sockaddr_in` / `sockaddr_in6` (`getaddrinfo`, `getpeername`, adapter lists), in the
+    /// same text form DNS-SD results use. nil for any other family or a short buffer.
+    init?(sockaddr p: UnsafeRawPointer, length: Int, port: UInt16? = nil) {
+        guard length >= 16 else { return nil }
+        let b = UnsafeRawBufferPointer(start: p, count: length)
+        let family = UInt16(b[0]) | UInt16(b[1]) << 8
+        let wirePort = UInt16(b[2]) << 8 | UInt16(b[3])
+        switch family {
+        case 2:   // AF_INET
+            self.init(family: .ipv4, host: (4..<8).map { String(b[$0]) }.joined(separator: "."), port: port ?? wirePort)
+        case 23 where length >= 28:   // AF_INET6
+            let host = stride(from: 8, to: 24, by: 2).map { String(UInt16(b[$0]) << 8 | UInt16(b[$0 + 1]), radix: 16) }
+                .joined(separator: ":")
+            let scope = (0..<4).reduce(UInt32(0)) { $0 | UInt32(b[24 + $1]) << (8 * UInt32($1)) }
+            self.init(family: .ipv6, host: host, port: port ?? wirePort, interfaceIndex: scope)
+        default:
+            return nil
+        }
+    }
 }
 
 // MARK: - callback contexts
@@ -192,17 +218,24 @@ private func handleResolve(_ status: UInt32, _ rawContext: UnsafeMutableRawPoint
     defer { context.releaseRetain() }   // one-shot: nothing of ours is referenced after this returns
     guard status == 0, let instance else { context.finish([]); return }
     let port = instance.pointee.wPort
+    let index = instance.pointee.dwInterfaceIndex
     var addresses: [WinSocketAddress] = []
     if let p4 = instance.pointee.ip4Address {
         let text = withUnsafeBytes(of: p4.pointee) { $0.map { String($0) }.joined(separator: ".") }   // bytes are in address order
-        addresses.append(WinSocketAddress(family: .ipv4, host: text, port: port))
+        addresses.append(WinSocketAddress(family: .ipv4, host: text, port: port, interfaceIndex: index))
     }
     if let p6 = instance.pointee.ip6Address {
         let text = withUnsafeBytes(of: p6.pointee) { raw -> String in
             let b = Array(raw.prefix(16))
             return stride(from: 0, to: 16, by: 2).map { String(UInt16(b[$0]) << 8 | UInt16(b[$0 + 1]), radix: 16) }.joined(separator: ":")
         }
-        addresses.append(WinSocketAddress(family: .ipv6, host: text, port: port))
+        addresses.append(WinSocketAddress(family: .ipv6, host: text, port: port, interfaceIndex: index))
+    }
+    // An answer with the SRV but no A/AAAA (seen with Macs in the stage-0 probe): look the host name up instead.
+    if addresses.isEmpty, let host = instance.pointee.pszHostName {
+        let name = String(decodingCString: UnsafePointer(host), as: UTF16.self)
+        DispatchQueue.global().async { context.finish(WinDNSSD.hostAddresses(name, port: port)) }
+        return
     }
     context.finish(addresses)
 }
@@ -298,8 +331,9 @@ final class WinDNSSD: @unchecked Sendable {
     func stopBrowsing() { stopBrowsingNow() }
 
     /// Looks up the port and addresses of `<instance>._ptbteam._tcp.local`. `done` runs once on the main queue with
-    /// IPv4 addresses first, then IPv6; `[]` when it fails, finds no address, or takes longer than `resolveTimeout`.
-    /// Main thread.
+    /// IPv4 addresses first, then IPv6, each with the interface index DNS-SD answered on; `[]` when it fails, finds no
+    /// address, or takes longer than `resolveTimeout`. An answer without addresses falls back to `hostAddresses` of
+    /// the SRV target (`<host>.local`), within the same timeout. Main thread.
     func resolve(instance: String, _ done: @escaping @MainActor ([WinSocketAddress]) -> Void) {
         let context = ResolveContext(instance: instance, done: done)
         context.request.pointee.Version = 1
@@ -320,6 +354,30 @@ final class WinDNSSD: @unchecked Sendable {
             _ = DnsServiceResolveCancel(context.cancel)
             context.releaseRetainAfterGrace()
         }
+    }
+
+    /// The numeric addresses `getaddrinfo` gives for `host` (Windows 10+ answers `.local` names over mDNS), IPv4
+    /// first, each with `port`. Blocking: call it off the main thread. `[]` when nothing is found.
+    static func hostAddresses(_ host: String, port: UInt16) -> [WinSocketAddress] {
+        var wsa = WSADATA()
+        guard WSAStartup(0x0202, &wsa) == 0 else { return [] }   // refcounted; getaddrinfo needs Winsock started
+        defer { WSACleanup() }
+        var hints = ADDRINFOA()
+        hints.ai_socktype = 1   // SOCK_STREAM: one entry per address
+        var list: UnsafeMutablePointer<ADDRINFOA>?
+        guard getaddrinfo(host, nil, &hints, &list) == 0 else { return [] }
+        defer { freeaddrinfo(list) }
+        var out: [WinSocketAddress] = []
+        var node = list
+        while let n = node {
+            if let sa = n.pointee.ai_addr,
+               let a = WinSocketAddress(sockaddr: UnsafeRawPointer(sa), length: Int(n.pointee.ai_addrlen), port: port),
+               !out.contains(a) {
+                out.append(a)
+            }
+            node = n.pointee.ai_next
+        }
+        return out.filter { $0.family == .ipv4 } + out.filter { $0.family == .ipv6 }
     }
 
     // MARK: private

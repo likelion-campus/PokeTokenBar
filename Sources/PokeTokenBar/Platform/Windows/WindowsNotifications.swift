@@ -28,4 +28,20 @@ import Foundation
                                     secrets: current.secrets, events: current.events, idle: current.idle)
     }
 }
+
+/// The Windows `TeamNotificationPosting` (the Mac's is `LiveTeamNotificationPoster`): team notices as tray balloons
+/// in the same queue as the app's, silent like the Mac's (`content.sound = nil`). What is posted and when is
+/// `TeamNotifier`'s, shared with the Mac (notifications setting, team on, batching). A balloon needs no consent, so
+/// there is nothing to request. A click on a team balloon does nothing until the plaza exists on Windows (stage 6).
+@MainActor final class WindowsTeamNotificationPoster: TeamNotificationPosting {
+    private let presenter: WinBalloonPresenter
+
+    init(presenter: WinBalloonPresenter) { self.presenter = presenter }
+
+    func post(id: String, title: String, body: String) {
+        presenter.post(.init(id: id, title: title, body: body, sound: false, kind: .team))
+    }
+
+    func requestAuthorization() {}
+}
 #endif
