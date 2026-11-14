@@ -11,6 +11,8 @@ enum PlazaBoardStyle {
     static let body = PlazaFont.plaza(.body), small = PlazaFont.plaza(.small)
     static let ink = PlazaColor(hex: 0x2D4048), cream = PlazaColor(hex: 0xF8F8F0), yellow = PlazaColor(hex: 0xFFE060)
     static let shadow = 0.45
+    /// What `.disabled(true)` does to a `.plain` button's label (measured: the pill's 0.4 fill and the text both come out at 0.44 of it).
+    static let disabledOpacity: CGFloat = 0.44
     /// The scrolling list: inside the plate's inset, under the title and its gap.
     static var list: CGRect {
         CGRect(x: inset, y: inset + titleHeight + gap, width: size.width - 2 * inset, height: size.height - 2 * inset - titleHeight - gap)
@@ -224,6 +226,7 @@ enum PlazaBoardStyle {
                 for (k, b) in row.buttons.enumerated() {
                     let mine = row.row.mine.contains(b.kind)
                     canvas.saveState()
+                    if mine { canvas.setAlpha(s.disabledOpacity) }   // a disabled plain button dims its whole label
                     if pressed.contains(k) && !mine { canvas.setAlpha(PlazaPanelStyle.pressedOpacity) }
                     small.fill(b.frame, PlazaColor(hex: 0xF8F8F0, alpha: mine ? 0.4 : 1), radius: s.buttonRadius)
                     small.line(b.line, x: b.frame.minX + (b.frame.width - b.line.width) / 2, top: b.frame.minY + s.buttonPadding, color: s.ink)

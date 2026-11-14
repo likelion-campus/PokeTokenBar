@@ -6,7 +6,7 @@ import XCTest
 @MainActor final class PlazaAnimationClockTests: XCTestCase {
     private func flush() async { for _ in 0..<20 { await Task.yield() } }
 
-    func testTheClockIsATimerOnlyWhileItRuns() {
+    func testTheClockIsATimerOnlyWhileItRuns() async {
         let beat = ManualBeat()
         var ticks = 0
         let clock = PlazaAnimationClock(interval: 0.5, schedule: { beat.schedule($0, $1) })
