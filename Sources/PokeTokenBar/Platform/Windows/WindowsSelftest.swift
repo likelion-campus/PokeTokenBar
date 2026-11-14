@@ -60,6 +60,7 @@ enum WindowsSelftest {
         await loopChecks(r, app)
         await defaultsChecks(r, app)
         await singleInstanceCheck(r, app)
+        await trayChecks(r, app)
         await idleCheck(r, app)
         return r.checks
     }
@@ -470,6 +471,130 @@ enum WindowsSelftest {
         } catch {
             r.add("singleInstance.second", false, "\(error)")
         }
+    }
+
+    // MARK: - tray (Task 6): the runner has a working shell tray, so add / modify / rect / re-add / delete are real
+
+    @MainActor private static func trayChecks(_ r: Recorder, _ app: WindowsAppDelegate) async {
+        guard let host = app.tray else {
+            r.add("tray.add", false, "the app has no tray host")
+            return
+        }
+        let tray = host.tray
+        r.add("tray.add", tray.isPresent && tray.lastAddOK && tray.lastVersionOK,
+              "NIM_ADD=\(tray.lastAddOK) NIM_SETVERSION(4)=\(tray.lastVersionOK) adds=\(tray.addCount) present=\(tray.isPresent)")
+
+        let long = "selftest 한국어 😀 " + String(repeating: "x", count: 200)
+        tray.setTip(long)
+        let clippedUnits = tray.lastTipUnits
+        let modifiedLong = tray.lastModifyOK
+        let fixture = WinIcon(png: WinIcon.fixturePNG, size: 16)
+        tray.setIcon(fixture)
+        let modifiedIcon = tray.lastModifyOK
+        host.refresh()
+        let compact = TokenFormatter.compact(app.store.todayTotalTokens)
+        r.add("tray.modify", modifiedLong && modifiedIcon && fixture != nil && clippedUnits == TrayMenuModel.tipLimit,
+              "tip \(long.utf16.count) -> \(clippedUnits) units (limit \(TrayMenuModel.tipLimit)) NIM_MODIFY tip=\(modifiedLong) icon=\(modifiedIcon) fixtureIcon=\(fixture != nil)")
+        r.add("tray.tooltip", host.lastTip.contains(compact) && host.lastTip.utf16.count <= TrayMenuModel.tipLimit,
+              "tip=\(host.lastTip.debugDescription) units=\(host.lastTip.utf16.count) expects \(compact)")
+
+        let rect = tray.anchorRect()
+        r.add("tray.anchorRect", rect != nil,
+              "Shell_NotifyIconGetRect hr=0x\(String(UInt32(bitPattern: tray.lastAnchorResult), radix: 16)) rect=\(rect.map { "(\($0.left),\($0.top),\($0.right),\($0.bottom))" } ?? "nil")")
+
+        let iconName = "tray.icon"
+        let loaded = await waitUntil(timeout: 20) { host.iconLoads > 0 }
+        if loaded {
+            r.add(iconName, host.iconPixels > 0, "sprite icon from \(host.iconSource) at \(host.iconPixels) px, loads=\(host.iconLoads)")
+        } else {
+            let egg = await SpriteStore.shared.eggData()
+            r.add(iconName, egg == nil, egg == nil ? "offline: no sprite could be fetched; the generic icon stays (honest fallback)"
+                  : "the egg sprite is available but no icon was set within 20 s")
+        }
+        let dpiSize = host.iconPixelSize()
+        r.add("tray.iconSize", (16...64).contains(dpiSize), "SM_CXSMICON for the window's DPI = \(dpiSize) px")
+
+        // Explorer restart: TaskbarCreated reaches the sink, which adds the icon again.
+        let before = tray.addCount
+        let created = RegisterWindowMessageW(WinStr.w("TaskbarCreated"))
+        _ = SendMessageW(app.sink.hwnd, created, 0, 0)
+        r.add("tray.reAddOnTaskbarCreated", created != 0 && tray.addCount == before + 1 && tray.lastAddOK && tray.isPresent,
+              "message=\(created) adds \(before) -> \(tray.addCount) NIM_ADD=\(tray.lastAddOK) NIM_SETVERSION=\(tray.lastVersionOK)")
+
+        await menuKeysCheck(r, app, host)
+
+        if ProcessInfo.processInfo.environment["CI"] != nil {
+            let ok = tray.showBalloon(title: "PokeTokenBar", body: "selftest", sound: false)
+            r.add("tray.balloon", ok, "NIM_MODIFY with NIF_INFO returned \(ok)")
+        } else {
+            r.add("tray.balloon", true, "skipped (not CI): a balloon would show on this PC")
+        }
+
+        tray.remove()
+        let removed = tray.lastDeleteOK && !tray.isPresent
+        let readded = tray.add()
+        host.refresh()
+        r.add("tray.remove", removed && readded, "NIM_DELETE=\(tray.lastDeleteOK) present after=\(!removed ? "?" : "false") then NIM_ADD again=\(readded)")
+    }
+
+    private final class KeyDriver: @unchecked Sendable {
+        private let lock = NSLock()
+        private var log: [String] = []
+        private var finished = false
+        func note(_ s: String) { lock.lock(); log.append(s); lock.unlock() }
+        func finish() { lock.lock(); finished = true; lock.unlock() }
+        var isFinished: Bool { lock.lock(); defer { lock.unlock() }; return finished }
+        var text: String { lock.lock(); defer { lock.unlock() }; return log.joined(separator: ",") }
+    }
+
+    /// Opens the real menu from a timer, drives it with posted keys (Down until "Refresh" is highlighted, then Return)
+    /// and asserts the store refreshed. A helper thread does the key work because the menu loop blocks the main thread.
+    @MainActor private static func menuKeysCheck(_ r: Recorder, _ app: WindowsAppDelegate, _ host: WinTrayHost) async {
+        let items = host.menuItems()
+        guard let target = items.firstIndex(where: { $0?.action == .refresh }) else {
+            r.add("tray.menuKeys", false, "no Refresh item in the menu")
+            return
+        }
+        _ = await waitUntil(timeout: 60) { !app.store.isRefreshing }
+        let refreshesBefore = app.refreshCount
+        let driver = KeyDriver()
+        let owner = Int(bitPattern: app.sink.hwnd)
+        let count = items.count
+        onThread {
+            func post(_ message: Int32, _ key: Int32) {
+                _ = PostMessageW(HWND(bitPattern: owner), UINT(message), WPARAM(key), 0)
+            }
+            var waited = 0
+            while WinPopupMenu.openMenuBits == 0, waited < 200 { Thread.sleep(forTimeInterval: 0.05); waited += 1 }
+            let bits = WinPopupMenu.openMenuBits
+            guard bits != 0 else { driver.note("menu never opened"); driver.finish(); return }
+            Thread.sleep(forTimeInterval: 0.4)
+            var presses = 0
+            while WinPopupMenu.highlightedIndex(menuBits: bits, count: count) != target, presses < count + 2 {
+                post(WM_KEYDOWN, Int32(VK_DOWN)); post(WM_KEYUP, Int32(VK_DOWN))
+                presses += 1
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+            driver.note("down=\(presses) highlighted=\(WinPopupMenu.highlightedIndex(menuBits: bits, count: count).map(String.init) ?? "none")")
+            post(WM_KEYDOWN, Int32(VK_RETURN)); post(WM_KEYUP, Int32(VK_RETURN))
+            for _ in 0..<40 where WinPopupMenu.openMenuBits != 0 { Thread.sleep(forTimeInterval: 0.2) }
+            if WinPopupMenu.openMenuBits != 0 {  // the keys did not work: do not hang the run
+                driver.note("still open after Return; Escape")
+                post(WM_KEYDOWN, Int32(VK_ESCAPE)); post(WM_KEYUP, Int32(VK_ESCAPE))
+            }
+            driver.finish()
+        }
+        let timer = Timer(fire: Date(timeIntervalSinceNow: 0.05), interval: 0, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                driver.note("timer fired")
+                host.openMenu(at: POINT(x: 300, y: 300))
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        let finished = await waitUntil(timeout: 30) { driver.isFinished }
+        let ran = await waitUntil(timeout: 30) { app.refreshCount > refreshesBefore }
+        r.add("tray.menuKeys", finished && driver.text.contains("timer fired") && host.lastAction == .refresh && ran,
+              "menu opened from a timer; keys: \(driver.text) action=\(host.lastAction) store refreshes \(refreshesBefore) -> \(app.refreshCount)")
     }
 
     // MARK: - idle (D8): cycles and context switches, never GetProcessTimes (F20)

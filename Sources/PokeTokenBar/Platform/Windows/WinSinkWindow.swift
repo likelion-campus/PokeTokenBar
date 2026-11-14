@@ -22,6 +22,7 @@ struct WinError: Error, CustomStringConvertible {
 
     let hwnd: HWND
     private var handlers: [UINT: @MainActor (WPARAM, LPARAM) -> LRESULT?] = [:]
+    private var observers: [UINT: [@MainActor (WPARAM, LPARAM) -> Void]] = [:]
     private static var windows: [Int: WinSinkWindow] = [:]
     private static var registeredClasses: Set<String> = []
 
@@ -50,6 +51,12 @@ struct WinError: Error, CustomStringConvertible {
     }
 
     func off(_ message: UINT) { handlers[message] = nil }
+
+    /// Additional listeners for a message another task may already handle with `on`; they run first and cannot
+    /// change the result.
+    func observe(_ message: UINT, _ observer: @escaping @MainActor (WPARAM, LPARAM) -> Void) {
+        observers[message, default: []].append(observer)
+    }
 
     /// A message registered by name (`RegisterWindowMessageW`), e.g. the shell's `TaskbarCreated`.
     func onRegistered(_ name: String, _ handler: @escaping @MainActor () -> Void) {
@@ -81,8 +88,9 @@ struct WinError: Error, CustomStringConvertible {
     }
 
     fileprivate static func route(_ bits: Int, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT? {
-        guard let handler = windows[bits]?.handlers[message] else { return nil }
-        return handler(wParam, lParam)
+        guard let window = windows[bits] else { return nil }
+        for observer in window.observers[message] ?? [] { observer(wParam, lParam) }
+        return window.handlers[message]?(wParam, lParam)
     }
 }
 
