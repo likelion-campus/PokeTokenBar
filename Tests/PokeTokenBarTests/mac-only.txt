@@ -173,3 +173,6 @@ PlazaActivityTests.swift
 PlazaSeasonTests.swift
 # from main (#140): pins the macOS defaults pool against late writers; its tests must stay synchronous
 TestDefaultsLateWriteTests.swift
+# plaza offscreen render harness (Track A): SpriteKit + Metal, Mac only
+PlazaRenderScenes.swift
+PlazaRender/
