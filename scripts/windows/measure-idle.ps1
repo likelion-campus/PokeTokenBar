@@ -5,6 +5,8 @@
 # other processes by name (-Also explorer). Threads are named by GetThreadDescription and by the module + offset of their
 # Win32 start routine, which is how the two ~1 Hz waker threads were attributed.
 #
+# -SliceSeconds n (diagnostics only, not for the gate): also reads the thread counters every n seconds and prints the
+#   per-slice context switches of the busiest threads, to see WHEN a waker starts.
 # Usage: measure-idle.ps1 -ProcessId <pid> -Seconds 120 [-Also explorer] [-Baseline] [-Out idle.json] [-Label name]
 #        [-MaxMainCsPerMin n] [-MaxProcessCsPerMin n] [-MaxPrivateGrowthMB n] [-MaxHandleGrowth n] [-MaxProcessCyclesPerSec n]
 # A -Max* value >= 0 is asserted (PASS/FAIL line each, exit 1 on any FAIL); the default -1 only reports.
@@ -15,6 +17,7 @@ param(
     [switch]$Baseline,
     [string]$Out = "",
     [string]$Label = "",
+    [int]$SliceSeconds = 0,
     [double]$MaxMainCsPerMin = -1,
     [double]$MaxProcessCsPerMin = -1,
     [double]$MaxPrivateGrowthMB = -1,
@@ -132,7 +135,22 @@ function Others() {
 $startedAt = (Get-Date).ToUniversalTime().ToString("o")
 $a = Edge $ProcessId $false
 $oa = Others
-Start-Sleep -Seconds $Seconds
+$slices = @()
+if ($SliceSeconds -gt 0) {
+    $prev = $a.Threads; $elapsed = 0
+    while ($elapsed + $SliceSeconds -lt $Seconds) {
+        Start-Sleep -Seconds $SliceSeconds; $elapsed += $SliceSeconds
+        $now = [PtbIdle]::Threads([uint32]$ProcessId, $false)
+        $before = @{}; foreach ($t in $prev) { $before[$t.Tid] = $t.ContextSwitches }
+        $top = $now | ForEach-Object { [pscustomobject]@{ tid = $_.Tid; cs = [int]($_.ContextSwitches - $(if ($before.ContainsKey($_.Tid)) { $before[$_.Tid] } else { 0 })) } } | Sort-Object cs -Descending | Select-Object -First 3
+        $slices += [pscustomobject]@{ at = $elapsed; top = @($top) }
+        Write-Host ("  slice +{0,3} s: {1}" -f $elapsed, (($top | ForEach-Object { "tid $($_.tid) cs=$($_.cs)" }) -join "; "))
+        $prev = $now
+    }
+    Start-Sleep -Seconds ($Seconds - $elapsed)
+} else {
+    Start-Sleep -Seconds $Seconds
+}
 $b = Edge $ProcessId $true
 $ob = Others
 $mods = @()
@@ -180,6 +198,7 @@ $result = [ordered]@{
     threadsEnd = $b.Threads.Count
     threadsGone = $gone
     threads = @($rows | Sort-Object contextSwitches -Descending)
+    slices = $slices
     privateMBStart = [math]::Round($a.PrivateBytes / 1MB, 2)
     privateMBEnd = [math]::Round($b.PrivateBytes / 1MB, 2)
     handlesStart = $a.Handles
