@@ -3,9 +3,9 @@ import AppKit
 @testable import PokeTokenBar
 
 private struct EmptyFetcher: PlazaSpriteFetching {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 private typealias RGBA = (r: UInt8, g: UInt8, b: UInt8, a: UInt8)
@@ -348,7 +348,7 @@ final class PlazaPhotoTests: XCTestCase {
     }
 
     private func frames() -> PlazaCharacterFrames {
-        let f = [PlazaFrame(image: solid(9, 8, red), delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(cgImage: solid(9, 8, red)), delay: 0.1)]
         return PlazaCharacterFrames(front: f, back: f)
     }
 
@@ -585,7 +585,7 @@ final class PlazaPhotoTests: XCTestCase {
                            nickname: "me", tallGrass: art)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
-        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]   // 72 world px tall at x1.5
+        let tall = [PlazaFrame(image: PlazaImage(cgImage: solid(32, 48, red)), delay: 0.1)]   // 72 world px tall at x1.5
         s.setCharacter(PlazaCharacterFrames(front: tall, back: tall))
         s.applyMembers([PlazaSceneMember(memberID: "a", nickname: "a", isAway: false, tile: TilePoint(x: 7, y: 6), facing: .down, isWalking: false)])
         s.setMemberFrames("a", PlazaCharacterFrames(front: tall, back: tall))
@@ -613,7 +613,7 @@ final class PlazaPhotoTests: XCTestCase {
                            nickname: "me", tallGrass: art)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
-        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]
+        let tall = [PlazaFrame(image: PlazaImage(cgImage: solid(32, 48, red)), delay: 0.1)]
         s.setCharacter(PlazaCharacterFrames(front: tall, back: tall))
         var t: TimeInterval = 0
         s.update(t)
@@ -724,12 +724,12 @@ final class PlazaPhotoTests: XCTestCase {
     /// returns the pixels where both the member and the pit show: there the full photo says which one is in front.
     private func overlap(memberTile: TilePoint) throws -> (full: [RGBA], member: [RGBA], pit: [RGBA]) {
         let scene = newScene()
-        scene.setCharacter(PlazaCharacterFrames(front: [PlazaFrame(image: solid(100, 60, red), delay: 0.1)],
-                                                back: [PlazaFrame(image: solid(100, 60, red), delay: 0.1)]))
+        scene.setCharacter(PlazaCharacterFrames(front: [PlazaFrame(image: PlazaImage(cgImage: solid(100, 60, red)), delay: 0.1)],
+                                                back: [PlazaFrame(image: PlazaImage(cgImage: solid(100, 60, red)), delay: 0.1)]))
         scene.sit(at: PlazaCampfire.seats[4])
         scene.applyMembers([PlazaSceneMember(memberID: "m", nickname: "m", isAway: false, tile: memberTile, facing: .down, isWalking: false)])
-        scene.setMemberFrames("m", PlazaCharacterFrames(front: [PlazaFrame(image: solid(100, 60, red), delay: 0.1)],
-                                                        back: [PlazaFrame(image: solid(100, 60, red), delay: 0.1)]))
+        scene.setMemberFrames("m", PlazaCharacterFrames(front: [PlazaFrame(image: PlazaImage(cgImage: solid(100, 60, red)), delay: 0.1)],
+                                                        back: [PlazaFrame(image: PlazaImage(cgImage: solid(100, 60, red)), delay: 0.1)]))
         scene.update(0)
         XCTAssertEqual(scene.memberTiles["m"], memberTile, "the tile is walkable, so the member stands there")
         let input = try XCTUnwrap(scene.photoInput())
@@ -798,7 +798,7 @@ final class PlazaPhotoTests: XCTestCase {
                            nickname: "me", pondVisuals: true)
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
-        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]
+        let tall = [PlazaFrame(image: PlazaImage(cgImage: solid(32, 48, red)), delay: 0.1)]
         s.setCharacter(PlazaCharacterFrames(front: tall, back: tall))
         return s
     }
@@ -809,7 +809,7 @@ final class PlazaPhotoTests: XCTestCase {
             m.isDiving = $0.diving
             return m
         })
-        let tall = [PlazaFrame(image: solid(32, 48, red), delay: 0.1)]
+        let tall = [PlazaFrame(image: PlazaImage(cgImage: solid(32, 48, red)), delay: 0.1)]
         for m in list { s.setMemberFrames(m.id, PlazaCharacterFrames(front: tall, back: tall)) }
     }
 

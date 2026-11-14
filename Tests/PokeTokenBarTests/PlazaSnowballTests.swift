@@ -125,7 +125,7 @@ final class PlazaSnowballTests: XCTestCase {
 
     func testSnowballArtUsesOnlySnowColours() {
         let allowed: Set<UInt32> = [0xF6FAFF, 0xC6DAF0, 0x8DA3BF]
-        let pieces = PlazaSnowballArt.pieces().map(\.image)
+        let pieces = PlazaSnowballArt.pieces().map(\.image.cgImage)
         XCTAssertEqual(PlazaSnowballArt.pieces().map(\.scale), [4, 4, 4])
         XCTAssertEqual(pieces.count, 3)
         for image in pieces {

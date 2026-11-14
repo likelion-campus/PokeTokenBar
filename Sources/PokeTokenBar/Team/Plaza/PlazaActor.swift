@@ -417,7 +417,7 @@ struct PlazaActorContext {
         // 춤의 옆걸음은 그림자도 함께 간다(화면의 `place`와 같다).
         let dancePose = dancePose
         let foot = CGPoint(x: rawFoot.x + dancePose.offsetX, y: rawFoot.y)
-        let image = list[frameIndex % list.count].image
+        let image = list[frameIndex % list.count].image.cgImage
         var shadow: CGImage?
         var shadowRect = CGRect.zero
         if let size = shadowTextureSize {
@@ -543,7 +543,7 @@ struct PlazaActorContext {
     }
 
     /// 배율을 적용한 그림 크기. 정확한 배율을 쓰고(반올림하면 홀수 크기에서 도트가 일그러진다) 위치만 기기 픽셀에 맞춘다.
-    private static func scaledSize(of image: CGImage) -> CGSize {
+    private static func scaledSize(of image: PlazaImage) -> CGSize {
         CGSize(width: CGFloat(image.width) * characterScale, height: CGFloat(image.height) * characterScale)
     }
 
@@ -554,7 +554,7 @@ struct PlazaActorContext {
         if let cached = textureCache[ObjectIdentifier(image)] {
             texture = cached
         } else {
-            texture = SKTexture(cgImage: image)
+            texture = SKTexture(cgImage: image.cgImage)
             texture.filteringMode = .nearest
             textureCache[ObjectIdentifier(image)] = texture
         }
@@ -595,9 +595,9 @@ struct PlazaActorContext {
         if let old = shadowTextureSize, old == size, shadowIsNest == frames.isEgg { return }
         shadowTextureSize = size
         shadowIsNest = frames.isEgg
-        let image = frames.isEgg ? PlazaNestArt.image() : PlazaGroundShadow.image(width: size.width, height: size.height).cgImage
+        let image = frames.isEgg ? PlazaNestArt.image().cgImage : PlazaGroundShadow.image(width: size.width, height: size.height).cgImage
         shadowImage = image
-        nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage() : nil
+        nestFrontImage = frames.isEgg ? PlazaNestArt.frontImage().cgImage : nil
         nestFrontNode.isHidden = !frames.isEgg
         if let front = nestFrontImage {
             let texture = SKTexture(cgImage: front)

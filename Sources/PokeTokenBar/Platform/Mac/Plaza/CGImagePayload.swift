@@ -50,7 +50,9 @@ extension PlazaImage {
     var cgImage: CGImage {
         if let payload = native as? CGImagePayload { return payload.image }
         if let cached = backendCache as? CGImagePayload { return cached.image }
-        let made = CGImagePayload.makeImage(bitmap ?? pixels)
+        // The Mac never rebuilds a native image from pixels: a native image here is always a CGImagePayload.
+        guard let bitmap else { preconditionFailure("PlazaImage.cgImage: a native image that is not a CGImage (\(String(describing: native)))") }
+        let made = CGImagePayload.makeImage(bitmap)
         backendCache = CGImagePayload(made)
         return made
     }

@@ -3,9 +3,9 @@ import AppKit
 @testable import PokeTokenBar
 
 private final class NoSprites: PlazaSpriteFetching, @unchecked Sendable {
-    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: NSImage, delay: TimeInterval)] { [] }
-    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> NSImage? { nil }
-    func egg() async -> NSImage? { nil }
+    func animated(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> [(image: PlazaImage, delay: TimeInterval)] { [] }
+    func still(speciesID: Int, shiny: Bool, form: PokemonForm?, back: Bool) async -> PlazaImage? { nil }
+    func egg() async -> PlazaImage? { nil }
 }
 
 /// A teammate jumping out of the tall grass beside me makes my Mac hop me. Patch A covers x 5-11, y 5-8; row 4 is open ground.

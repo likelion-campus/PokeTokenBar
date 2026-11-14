@@ -116,9 +116,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
     var backingOverride: CGFloat?
 
-    private(set) var mapImage: CGImage
+    private(set) var mapImage: PlazaImage
     /// 처음 받은 지도 그림과 풀숲 그림(눈 오는 날이 아닌 모습).
-    private let normalMapImage: CGImage
+    private let normalMapImage: PlazaImage
     private let normalTallGrass: PlazaTallGrassArt?
     /// 멈추면 모든 춤을 끝낸다. 멈춘 동안 시계만 흘러 되살아난 춤이 박자 격자에서 어긋나기 때문이다.
     /// 그리기 감시가 멈춘 그림을 깨우려고 뷰를 껐다 켜도(`checkRendering`) 장면이 멈췄다 풀리므로 춤이 끝난다. 의도한 동작이다.
@@ -391,7 +391,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private(set) var campfireTimerText: String?
     private var campfireTimerDrawn: (text: String, backing: CGFloat)?
 
-    init(map: PlazaMap, mapImage: CGImage, start: TilePoint, zoom: Int, nickname: String, tallGrass: PlazaTallGrassArt? = nil,
+    init(map: PlazaMap, mapImage: PlazaImage, start: TilePoint, zoom: Int, nickname: String, tallGrass: PlazaTallGrassArt? = nil,
          pondVisuals: Bool = false, iceArt: PlazaIceArt? = nil) {
         self.map = map
         self.icePonds = iceArt == nil ? [] : PlazaIce.ponds(in: map)
@@ -414,7 +414,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         self.normalTallGrass = tallGrass
         self.visibleRect = CGRect(origin: .zero, size: map.pixelSize)
         self.zoom = PlazaCamera.clampedZoom(zoom)
-        let texture = SKTexture(cgImage: mapImage)
+        let texture = SKTexture(cgImage: mapImage.cgImage)
         texture.filteringMode = .nearest
         self.mapNode = SKSpriteNode(texture: texture, size: map.pixelSize)
         self.campfireNode = Self.makeCampfireNode(map: map)
@@ -1303,7 +1303,7 @@ struct PlazaSceneMember: Equatable, Sendable {
                                           waterClip: photoWaterClip(foot: r.motion.footPoint)))
         }
         let tint = daylightTint
-        return PlazaPhotoInput(mapImage: mapImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
+        return PlazaPhotoInput(mapImage: mapImage.cgImage, visibleRect: rect, pixelsPerWorld: zoom * 2, actors: actors.compactMap { $0 },
                                tint: tint, weather: weatherLayer.photoParticles(worldHeight: worldSize.height),
                                items: itemPhotoParticles,
                                ice: iceLayer?.photoParticles() ?? [],
@@ -1967,9 +1967,9 @@ struct PlazaSceneMember: Equatable, Sendable {
     private(set) var shownSeason = PlazaSeason.summer
     var isSnowShown: Bool { shownSeason == .winter }
     /// 테스트용: 지금 그리는 지도 그림.
-    var shownMapImage: CGImage { mapImage }
+    var shownMapImage: PlazaImage { mapImage }
 
-    private static let waterBalloon = PlazaResources.waterBalloon()
+    private static let waterBalloon = PlazaResources.waterBalloon().map(PlazaImage.init(cgImage:))
 
     /// 계절과 보이는 모습을 맞춘다. `update`(달력을 따르는 계절은 날이 바뀌며 바뀐다)와 계절 변경, 컨트롤러가 부른다.
     func refreshSnowDay() {
@@ -1981,7 +1981,7 @@ struct PlazaSceneMember: Equatable, Sendable {
             image = look.mapImage
             grass = look.tallGrass ?? normalTallGrass
         }
-        let texture = SKTexture(cgImage: image)
+        let texture = SKTexture(cgImage: image.cgImage)
         texture.filteringMode = .nearest
         mapNode.texture = texture
         mapImage = image
@@ -2180,7 +2180,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     private func campfireTexture(_ state: PlazaCampfireArt.State, _ index: Int) -> SKTexture {
         if campfireTextures[state] == nil {
             campfireTextures[state] = PlazaCampfireArt.frames(state).map {
-                let texture = SKTexture(cgImage: $0)
+                let texture = SKTexture(cgImage: $0.cgImage)
                 texture.filteringMode = .nearest
                 return texture
             }
@@ -2247,29 +2247,10 @@ struct PlazaSceneMember: Equatable, Sendable {
         campfireLightNode.position = CGPoint(x: center.x, y: worldSize.height - center.y)
     }
 
-    /// 2 세계 px당 텍셀 하나. 값은 `multiplier / 2`(곱하기X2가 두 배로 되돌린다). 타원 밖은 (0.5, 0.5, 0.5)라 그대로다.
-    /// `color`와 `level`은 빛의 색과 세기로, 불꽃이 제 값을 넘긴다.
+    /// 밤빛 텍스처. 그림은 `PlazaCampfireLightArt`가 만든다.
     static func lightTexture(tint: PlazaDaylight.Tint, radii: CGSize, color: (r: Double, g: Double, b: Double) = PlazaCampfireLight.warm,
                              level: Double = 1) -> SKTexture {
-        let n = PlazaCampfireLight.blockCounts(radii: radii)
-        var rings: [Double: [UInt8]] = [:]
-        var data = [UInt8](repeating: 255, count: n.w * n.h * 4)
-        for j in 0..<n.h {
-            for i in 0..<n.w {
-                let k = PlazaCampfireLight.blockMix(i: i, j: j, radii: radii)
-                if rings[k] == nil {
-                    let m = PlazaCampfireLight.multiplier(tint: tint, mix: k * level, color: color)
-                    rings[k] = [m.r, m.g, m.b].map { UInt8(min(255, max(0, ($0 / 2 * 255).rounded()))) }
-                }
-                let o = (j * n.w + i) * 4
-                data[o] = rings[k]![0]; data[o + 1] = rings[k]![1]; data[o + 2] = rings[k]![2]
-            }
-        }
-        let image = CGImage(width: n.w, height: n.h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n.w * 4,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
-                            provider: CGDataProvider(data: Data(data) as CFData)!, decode: nil, shouldInterpolate: false,
-                            intent: .defaultIntent)!
+        let image = PlazaCampfireLightArt.image(tint: tint, radii: radii, color: color, level: level).cgImage
         let texture = SKTexture(cgImage: image)
         texture.filteringMode = .nearest
         return texture
@@ -2323,7 +2304,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         let state = campfireState
         let frames = PlazaCampfireArt.frames(state)
         let size = PlazaCampfireArt.worldSize
-        let particle = PlazaPhotoParticle(image: frames[state == .ready ? 0 : campfirePhase],
+        let particle = PlazaPhotoParticle(image: frames[state == .ready ? 0 : campfirePhase].cgImage,
                                           origin: CGPoint(x: base.x - size.width / 2, y: base.y - size.height), size: size)
         return [PlazaPhotoProp(particle: particle, baseY: base.y - 4)]
     }

@@ -115,9 +115,7 @@ final class MacPlazaGraphicsTests: XCTestCase {
                 }
             }
         }
-        // a native image that is not a CGImage (none on the Mac today) goes through its pixels
-        let fake = PlazaTestImages.patterned(width: 5, height: 3)
-        PlazaArtParity.assertIdentical(PlazaImage(bitmap: fake).cgImage, PlazaImage(native: PlazaTestImages.FakeNative(fake)), "other native")
+        // (a native image that is not a CGImage no longer reaches cgImage: it is a preconditionFailure on the Mac)
         var device = PlazaTestImages.patterned(width: 4, height: 4)
         device.colorSpace = .deviceRGB
         XCTAssertEqual(PlazaImage(bitmap: device).cgImage.colorSpace?.model, .rgb)

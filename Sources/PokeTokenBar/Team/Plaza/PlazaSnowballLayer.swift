@@ -33,8 +33,8 @@ struct PlazaSnowballFlight {
     private var scales: [CGFloat] = []
     private let shadowTexture: SKTexture
 
-    private static func nearest(_ image: CGImage) -> SKTexture {
-        let t = SKTexture(cgImage: image)
+    private static func nearest(_ image: PlazaImage) -> SKTexture {
+        let t = SKTexture(cgImage: image.cgImage)
         t.filteringMode = .nearest
         return t
     }
@@ -54,7 +54,7 @@ struct PlazaSnowballFlight {
     init(worldHeight: CGFloat) {
         self.worldHeight = worldHeight
         let nearest = Self.nearest
-        shadowTexture = nearest(PlazaGroundShadow.image(width: Int(PlazaSnowball.shadowSize.width), height: Int(PlazaSnowball.shadowSize.height)).cgImage)
+        shadowTexture = nearest(PlazaGroundShadow.image(width: Int(PlazaSnowball.shadowSize.width), height: Int(PlazaSnowball.shadowSize.height)))
         super.init()
         setArt(PlazaSnowballArt.pieces())
     }

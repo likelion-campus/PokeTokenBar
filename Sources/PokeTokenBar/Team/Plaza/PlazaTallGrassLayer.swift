@@ -114,7 +114,7 @@ import SpriteKit
         for (p, node) in bands {
             let origin = CGPoint(x: node.position.x, y: worldHeight - node.position.y - tile)
             guard CGRect(origin: origin, size: CGSize(width: tile, height: tile)).intersects(visible) else { continue }
-            result.append(PlazaPhotoBand(image: art.front(slices[p]!), origin: origin, size: CGSize(width: tile, height: tile),
+            result.append(PlazaPhotoBand(image: art.front(slices[p]!).cgImage, origin: origin, size: CGSize(width: tile, height: tile),
                                          sortY: CGFloat(p.y) * tile + 31))
         }
         return result
@@ -212,7 +212,7 @@ import SpriteKit
         bands[r.tile]?.position = basePosition(r.tile)
     }
 
-    private func cachedTexture(_ kind: String, _ s: PlazaTallGrassSlice, _ make: (PlazaTallGrassSlice) -> CGImage) -> SKTexture {
+    private func cachedTexture(_ kind: String, _ s: PlazaTallGrassSlice, _ make: (PlazaTallGrassSlice) -> PlazaImage) -> SKTexture {
         let key = "\(kind)-\(s.col)-\(s.row)"
         if let t = textureCache[key] { return t }
         let t = Self.texture(make(s))
@@ -256,8 +256,8 @@ import SpriteKit
         leafPool.append(node)
     }
 
-    private static func texture(_ image: CGImage) -> SKTexture {
-        let t = SKTexture(cgImage: image)
+    private static func texture(_ image: PlazaImage) -> SKTexture {
+        let t = SKTexture(cgImage: image.cgImage)
         t.filteringMode = .nearest
         return t
     }

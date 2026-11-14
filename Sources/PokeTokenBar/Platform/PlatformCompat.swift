@@ -32,6 +32,33 @@ enum PlatformCompat {
     /// Makes both zlib functions report "unavailable", as on Windows. Tests only.
     nonisolated(unsafe) static var zlibDisabledForTesting = false
 
+    /// Whether this process is the installed app (the single gate for logging, persistence and live limits).
+    /// Mac: `Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app")`, computed per call.
+    /// Windows: `bundleIdentifier` is always nil there, so the installed layout (a version file next to the exe) decides.
+    static var isBundledApp: Bool {
+        #if os(Windows)
+        return windowsPackagedLayout
+        #else
+        return Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app")
+        #endif
+    }
+
+    #if os(Windows)
+    private static let windowsPackagedLayout = WindowsInstall.isPackagedLayout
+    #endif
+
+    /// The folder `AppLog` writes to. Mac: `~/Library/Logs`. Windows has no Library folder (the search path
+    /// returns nothing and `[0]` traps), so it is `%LOCALAPPDATA%\PokeTokenBar\Logs`.
+    static func logsDirectory() -> URL {
+        #if os(Windows)
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PokeTokenBar").appendingPathComponent("Logs")
+        #else
+        return FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs")
+        #endif
+    }
+
     /// Ends a process that ignored a polite terminate.
     static func forceKill(pid: Int32) {
         #if os(Windows)

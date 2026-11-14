@@ -25,6 +25,10 @@ protocol PlazaCanvas: AnyObject {
     func setAlpha(_ a: CGFloat)
     func setBlend(_ b: PlazaCanvasBlend)
     func setFillColor(_ c: PlazaColor)
+    /// An opaque device-gray fill (`CGColor(gray:alpha: 1)`), for the one fill that is not sRGB: the character
+    /// placeholder, a gray in a device RGB canvas. On the Mac gray 0.55 lands on 158 per channel (sRGB 0.55 would be
+    /// 140); a Windows canvas writes that byte value (158) for 0.55 so the placeholder looks the same.
+    func setFillGray(_ gray: CGFloat)
     func setStrokeColor(_ c: PlazaColor)
     func setLineWidth(_ w: CGFloat)
     func setLineJoin(_ j: PlazaLineJoin)

@@ -25,7 +25,7 @@ final class PlazaDanceTests: XCTestCase {
                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
         ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 48))
-        let f = [PlazaFrame(image: ctx.makeImage()!, delay: 0.1)]
+        let f = [PlazaFrame(image: PlazaImage(cgImage: ctx.makeImage()!), delay: 0.1)]
         var result = PlazaCharacterFrames(front: f, back: f)
         result.isEgg = isEgg
         return result
@@ -862,7 +862,7 @@ final class PlazaDanceTests: XCTestCase {
     // MARK: 화면의 노드
 
     private func plain(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> PlazaFrame {
-        PlazaFrame(image: solid(32, 48, r: r, g: g, b: b), delay: 1)
+        PlazaFrame(image: PlazaImage(cgImage: solid(32, 48, r: r, g: g, b: b)), delay: 1)
     }
 
     /// 눌림은 박자마다 한 번 바뀌는 것이지 프레임마다 지워졌다 걸리는 것이 아니다. 이름표는 눌리지 않은 높이에 놓인다.
@@ -903,17 +903,17 @@ final class PlazaDanceTests: XCTestCase {
         wall = grid
         press(s)
         func shown() throws -> CGImage { try XCTUnwrap(s.photoInput()?.actors.first).image }
-        XCTAssertTrue(try shown() === front.image, "tick 0")
+        XCTAssertTrue(try shown() === front.image.cgImage, "tick 0")
         run(s, 0.8)   // tick 8: the back
-        XCTAssertTrue(try shown() === back.image)
+        XCTAssertTrue(try shown() === back.image.cgImage)
         run(s, 0.8)   // the next round starts at once
         XCTAssertTrue(s.isDancing(memberID: nil))
-        XCTAssertTrue(try shown() === front.image, "facing front again")
+        XCTAssertTrue(try shown() === front.image.cgImage, "facing front again")
         wall += PlazaDance.beat
         s.pickDanceStyle = { _ in .twirl }
         press(s)
         run(s, 0.2)   // tick 2 of the next round: the back
-        XCTAssertTrue(try shown() === back.image)
+        XCTAssertTrue(try shown() === back.image.cgImage)
     }
 
     // MARK: 연타 제한

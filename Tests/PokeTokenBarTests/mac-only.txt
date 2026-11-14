@@ -61,10 +61,8 @@ PetEventLineTests.swift
 # PlatformGlobFnmatchTests compares globMatch with the C fnmatch, which Windows does not have
 PlatformGlobFnmatchTests.swift
 PlazaBoardTests.swift
-PlazaCampfireArtTests.swift
 PlazaCampfireSceneTests.swift
 PlazaCardTests.swift
-PlazaCharacterTests.swift
 PlazaChatTests.swift
 # PlazaCollisionTests: needs PlazaScene (SpriteKit)
 PlazaCollisionTests.swift
@@ -78,7 +76,6 @@ PlazaFireworksTests.swift
 PlazaFocusTests.swift
 PlazaFootprintTests.swift
 PlazaGroupPhotoTests.swift
-PlazaIceArtTests.swift
 PlazaIceControllerTests.swift
 PlazaIceLayerTests.swift
 PlazaIceSceneTests.swift
@@ -103,6 +100,16 @@ PlazaPondMotionTests.swift
 PlazaPondSceneTests.swift
 # PlazaPondTests+Mac: needs a test that builds a PlazaActor (SpriteKit)
 PlazaPondTests+Mac.swift
+# PlazaCharacterTests+Mac: builds a PlazaActor (SpriteKit)
+PlazaCharacterTests+Mac.swift
+# PlazaIceArtTests+Mac: reads the bundled ice files and builds the snow map (ImageIO)
+PlazaIceArtTests+Mac.swift
+# PlazaSnowSheetTests+Mac: reads the bundled tile and tall-grass sheets (ImageIO)
+PlazaSnowSheetTests+Mac.swift
+# PlazaTallGrassArtTests+Mac: reads the bundled tall-grass sheet (ImageIO)
+PlazaTallGrassArtTests+Mac.swift
+# PlazaTileArtTests+Mac: reads the bundled tile sheet (ImageIO)
+PlazaTileArtTests+Mac.swift
 PlazaPrayTests.swift
 PlazaPullUnderTests.swift
 PlazaResourcesTests.swift
@@ -110,17 +117,14 @@ PlazaRosterPagerTests.swift
 PlazaRosterTests.swift
 PlazaScheduleWiringTests.swift
 PlazaSnowSceneTests.swift
-PlazaSnowSheetTests.swift
 PlazaSnowballControllerTests.swift
 PlazaSnowballSceneTests.swift
 PlazaSnowballTests.swift
 PlazaStartleControllerTests.swift
 PlazaSwimLowerHalfTests.swift
 PlazaTackleWaterTests.swift
-PlazaTallGrassArtTests.swift
 PlazaTallGrassLayerTests.swift
 PlazaTallGrassSceneTests.swift
-PlazaTileArtTests.swift
 PlazaWeatherTests.swift
 PlazaWindowTests.swift
 PokeTokenBarTests.swift
@@ -167,6 +171,8 @@ UpdateCheckerTests.swift
 UsageCostTests.swift
 UsageRecapTests.swift
 UsageStreakTests.swift
+# WindowsSeamScanTests: scans the source tree with SharedSources (SharedSourcesScanTests.swift), which is Mac-only
+WindowsSeamScanTests.swift
 ZeroUsageHomeRenderingTests.swift
 # from main after the split; not yet tried in the shared set
 ParkedDitto.swift
@@ -182,4 +188,6 @@ PlazaRender/
 # Track A legacy art oracles: verbatim pre-conversion CoreGraphics art and the CGImage byte comparison (deleted in Task 19)
 Legacy/
 PlazaArtParityTests.swift
+# PlazaArtParityPixelArtTests: legacy-versus-new byte oracles for the pixel art and character frames (CoreGraphics, ImageIO)
+PlazaArtParityPixelArtTests.swift
 PlazaTextArtParityTests.swift

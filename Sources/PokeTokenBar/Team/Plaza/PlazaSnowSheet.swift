@@ -1,5 +1,4 @@
 import Foundation
-import CoreGraphics
 
 /// 눈 오는 날의 시트. 실행 중에 정확히 같은 색의 불투명 픽셀만 바꿔 칠하고, 모양·알파·나머지 픽셀은 그대로 둔다.
 /// 번들 PNG는 바뀌지 않는다.
@@ -33,23 +32,16 @@ enum PlazaSnowSheet {
         ]
     }
 
-    static func tiles(_ sheet: CGImage) -> CGImage { recolored(sheet, pieces: tilePieces) }
+    static func tiles(_ sheet: PlazaImage) -> PlazaImage { recolored(sheet, pieces: tilePieces) }
 
-    static func tallGrass(_ sheet: CGImage) -> CGImage {
+    static func tallGrass(_ sheet: PlazaImage) -> PlazaImage {
         let cells = (0..<(sheet.height / cell)).flatMap { row in (0..<(sheet.width / cell)).map { (col: $0, row: row) } }
         return recolored(sheet, pieces: [(tallGrassColors, cells)])
     }
 
-    static func recolored(_ sheet: CGImage, pieces: [Piece]) -> CGImage {
+    static func recolored(_ sheet: PlazaImage, pieces: [Piece]) -> PlazaImage {
         let (w, h) = (sheet.width, sheet.height)
-        var data = [UInt8](repeating: 0, count: w * h * 4)
-        data.withUnsafeMutableBytes { buf in
-            let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8,
-                                bytesPerRow: w * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.interpolationQuality = .none
-            ctx.draw(sheet, in: CGRect(x: 0, y: 0, width: w, height: h))
-        }
+        var data = sheet.pixels.bytes
         let source = data
         for piece in pieces {
             for c in piece.cells {
@@ -66,16 +58,14 @@ enum PlazaSnowSheet {
                 }
             }
         }
-        let provider = CGDataProvider(data: Data(data) as CFData)!
-        let info = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-        return CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4,
-                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: info, provider: provider,
-                       decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        var bitmap = PlazaBitmap(width: w, height: h)
+        bitmap.bytes = data
+        return PlazaImage(bitmap: bitmap)
     }
 }
 
 /// 눈 오는 날의 지도 그림과 풀숲 그림.
 struct PlazaSnowLook {
-    let mapImage: CGImage
+    let mapImage: PlazaImage
     let tallGrass: PlazaTallGrassArt?
 }

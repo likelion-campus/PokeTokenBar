@@ -27,6 +27,7 @@ final class CGPlazaCanvas: PlazaCanvas {
     }
 
     func setFillColor(_ c: PlazaColor) { context.setFillColor(c.cgColor) }
+    func setFillGray(_ gray: CGFloat) { context.setFillColor(CGColor(gray: gray, alpha: 1)) }
     func setStrokeColor(_ c: PlazaColor) { context.setStrokeColor(c.cgColor) }
     func setLineWidth(_ w: CGFloat) { context.setLineWidth(w) }
 
