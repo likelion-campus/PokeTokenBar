@@ -432,7 +432,7 @@ final class WindowsSocketLoopTests: XCTestCase {
             let have = server.rec.of(sid).count
             server.loop.receiveNext(sid)
             calls += 1
-            _ = await waitUntil(2) { server.rec.of(sid).count > have }
+            guard await waitUntil(2, { server.rec.of(sid).count > have }) else { XCTFail("no event for read #\(calls)"); break }
         }
         let reasons = server.rec.closings(sid)
         print("SOCKETLOOP-REPORT reset mid-read: \(reasons) after \(server.rec.byteCount(sid)) B in \(calls) more reads")
@@ -504,7 +504,7 @@ final class WindowsSocketLoopTests: XCTestCase {
             let have = server.rec.of(sid).count
             server.loop.receiveNext(sid)
             calls += 1
-            _ = await waitUntil(2) { server.rec.of(sid).count > have }
+            guard await waitUntil(2, { server.rec.of(sid).count > have }) else { XCTFail("no event for read #\(calls)"); break }
         }
         XCTAssertEqual(server.rec.data(sid), payload, "every byte before the FIN")
         XCTAssertEqual(server.rec.of(sid).last, .closed(sid, .remoteClosed))
