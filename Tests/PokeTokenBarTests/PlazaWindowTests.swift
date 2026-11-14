@@ -328,7 +328,7 @@ private struct RecordingFetcher: PlazaSpriteFetching {
 
     /// Holding Shift while walking runs: twice the tiles in the same time. Without Shift it walks.
     func testShiftHeldDuringUpdateRuns() {
-        func walked(_ modifiers: NSEvent.ModifierFlags) -> (tiles: Int, ran: Bool) {
+        func walked(_ modifiers: PlazaModifiers) -> (tiles: Int, ran: Bool) {
             let c = controller(defaults())
             c.prepareScene()
             guard let scene = c.scene, let key = clearRun(from: scene.walker.tile, count: 6) else { XCTFail("setup"); return (0, false) }

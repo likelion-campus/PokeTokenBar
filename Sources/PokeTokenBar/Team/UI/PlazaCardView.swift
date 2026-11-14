@@ -52,7 +52,7 @@ struct PlazaCardView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(l.plazaCardTitle(nickname: member.nickname))
                     .font(Font(PlazaResources.font(.body)))
-                    .foregroundStyle(Color(cgColor: PlazaNameColor.color(forMemberID: member.memberID, chosen: member.nameColor)))
+                    .foregroundStyle(Color(plaza: PlazaNameColor.color(forMemberID: member.memberID, chosen: member.nameColor)))
                     .shadow(color: .black.opacity(0.45), radius: 0, x: 1, y: 1)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 if let name = state.characterName {

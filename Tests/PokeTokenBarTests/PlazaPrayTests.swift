@@ -137,7 +137,7 @@ final class PlazaPrayTests: XCTestCase {
         XCTAssertEqual(scene.handleKeyDown(keyCode: prayKey, characters: "ㅁ", isRepeat: false), .swallowed)
         XCTAssertEqual(presses, 1)
         scene.handleKeyDown(keyCode: prayKey, characters: "ㅁ", isRepeat: true)
-        for mod: NSEvent.ModifierFlags in [.command, .control, .option] {
+        for mod: PlazaModifiers in [.command, .control, .option] {
             scene.handleKeyDown(keyCode: prayKey, characters: "ㅁ", isRepeat: false, modifiers: mod)
         }
         XCTAssertEqual(presses, 1, "a held key or a shortcut is not a prayer")

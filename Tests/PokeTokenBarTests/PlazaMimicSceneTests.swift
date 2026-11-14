@@ -21,7 +21,7 @@ final class PlazaMimicSceneTests: XCTestCase {
                        subject: .init(speciesID: 25, isShiny: false))
     }
 
-    private func pink(_ name: String = "지아") -> CGColor {
+    private func pink(_ name: String = "지아") -> PlazaColor {
         PlazaNameColor.color(forMemberID: "m-\(name)", chosen: 0xFF9ECF)
     }
 

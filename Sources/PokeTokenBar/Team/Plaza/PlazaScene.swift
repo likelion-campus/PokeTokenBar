@@ -112,7 +112,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 따라가기를 시작하거나 멈췄다. 따라가는 팀원(멈췄으면 nil)을 넘긴다.
     var onFollowChange: ((String?) -> Void)?
     /// 키 뗌 이벤트는 Command가 눌린 동안 오지 않으므로 update마다 수정 키를 확인한다. 테스트에서 바꿔 끼운다.
-    var currentModifiers: () -> NSEvent.ModifierFlags = { NSEvent.modifierFlags }
+    var currentModifiers: () -> PlazaModifiers = { PlatformPlaza.currentModifiers() }
     /// 창 없는 테스트에서 화면 배율을 정한다. 창이 없으면 기본값은 2라 1배 화면 경로를 밟지 못한다.
     var backingOverride: CGFloat?
 
@@ -173,7 +173,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 팀원 한 명의 장면 쪽 상태. 그림은 내 캐릭터와 같은 `PlazaActor`를 쓴다.
     private struct Remote {
         let actor: PlazaActor
-        var color: CGColor
+        var color: PlazaColor
         var nickname: String
         var isAway: Bool
         var isIdle = false
@@ -545,7 +545,7 @@ struct PlazaSceneMember: Equatable, Sendable {
         applyMyPlate()
     }
 
-    func setNameColor(_ color: CGColor) {
+    func setNameColor(_ color: PlazaColor) {
         guard color != nameColor else { return }
         nameColor = color
         applyMyPlate()
@@ -567,7 +567,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     }
 
     var myShownName: String { me.name }
-    var myShownNameColor: CGColor { me.nameColor }
+    var myShownNameColor: PlazaColor { me.nameColor }
 
     private func applyMyPlate() {
         if let d = disguise {
@@ -723,7 +723,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     @discardableResult
     func handleKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
-                       modifiers: NSEvent.ModifierFlags = []) -> PlazaKeyResult {
+                       modifiers: PlazaModifiers = []) -> PlazaKeyResult {
         if keyCode == Self.wKeyCode && modifiers.contains(.command) {
             onCloseRequest?()
             return .closeRequested
@@ -773,7 +773,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 평소와 사진 모드가 함께 쓰는 키: Z/X/G/F(불꽃놀이)/A(기도)/D(춤), 말풍선, 확대. 수정 키가 눌렸거나 자동 반복이면 보내지 않는다.
     /// 사진 모드에서만 다른 키(방향키, Space/P, C, Enter, Esc)는 호출하기 전에 각자 처리한다.
     private func handleSharedKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
-                                     modifiers: NSEvent.ModifierFlags) -> PlazaKeyResult {
+                                     modifiers: PlazaModifiers) -> PlazaKeyResult {
         let plain = !isRepeat && modifiers.isDisjoint(with: Self.emoteBlockingModifiers)
         if keyCode == Self.dKeyCode {
             if plain { pressDance() }
@@ -799,7 +799,7 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// 사진 모드의 키. 전부 삼킨다. 방향키는 걷기가 아니라 틀을 민다.
     private func handlePhotoModeKeyDown(keyCode: UInt16, characters: String?, isRepeat: Bool,
-                                        modifiers: NSEvent.ModifierFlags) -> PlazaKeyResult {
+                                        modifiers: PlazaModifiers) -> PlazaKeyResult {
         if keyCode == Self.escapeKeyCode {
             if !isRepeat { exitPhotoMode() }
             return .swallowed
@@ -1734,22 +1734,22 @@ struct PlazaSceneMember: Equatable, Sendable {
         return remotes[memberID]?.actor
     }
 
-    private static let escapeKeyCode: UInt16 = 53
-    private static let wKeyCode: UInt16 = 13
-    private static let spaceKeyCode: UInt16 = 49
-    private static let pKeyCode: UInt16 = 35
-    private static let zKeyCode: UInt16 = 6
-    private static let xKeyCode: UInt16 = 7
-    private static let cKeyCode: UInt16 = 8
-    private static let vKeyCode: UInt16 = 9
-    private static let gKeyCode: UInt16 = 5
-    private static let fKeyCode: UInt16 = 3
-    private static let dKeyCode: UInt16 = 2
-    private static let aKeyCode: UInt16 = 0
-    private static let returnKeyCode: UInt16 = 36
-    private static let keypadEnterKeyCode: UInt16 = 76
+    private static let escapeKeyCode: UInt16 = PlazaKeyCode.escape
+    private static let wKeyCode: UInt16 = PlazaKeyCode.w
+    private static let spaceKeyCode: UInt16 = PlazaKeyCode.space
+    private static let pKeyCode: UInt16 = PlazaKeyCode.p
+    private static let zKeyCode: UInt16 = PlazaKeyCode.z
+    private static let xKeyCode: UInt16 = PlazaKeyCode.x
+    private static let cKeyCode: UInt16 = PlazaKeyCode.c
+    private static let vKeyCode: UInt16 = PlazaKeyCode.v
+    private static let gKeyCode: UInt16 = PlazaKeyCode.g
+    private static let fKeyCode: UInt16 = PlazaKeyCode.f
+    private static let dKeyCode: UInt16 = PlazaKeyCode.d
+    private static let aKeyCode: UInt16 = PlazaKeyCode.a
+    private static let returnKeyCode: UInt16 = PlazaKeyCode.returnKey
+    private static let keypadEnterKeyCode: UInt16 = PlazaKeyCode.keypadEnter
 
-    private static let emoteBlockingModifiers: NSEvent.ModifierFlags = [.command, .control, .option]
+    private static let emoteBlockingModifiers: PlazaModifiers = [.command, .control, .option]
 
     private static func emoteKind(_ keyCode: UInt16) -> TeamEmoteKind? {
         switch keyCode {
@@ -1787,8 +1787,9 @@ struct PlazaSceneMember: Equatable, Sendable {
 
     /// `super`를 부르면 처리하지 않은 키가 경고음을 내므로 모든 키를 여기서 삼킨다.
     override func keyDown(with event: NSEvent) {
-        handleKeyDown(keyCode: event.keyCode, characters: event.characters, isRepeat: event.isARepeat,
-                      modifiers: event.modifierFlags)
+        let e = PlazaKeyEvent(event)
+        handleKeyDown(keyCode: e.keyCode, characters: e.characters, isRepeat: e.isRepeat,
+                      modifiers: e.modifiers)
     }
 
     override func keyUp(with event: NSEvent) {
@@ -2121,7 +2122,7 @@ struct PlazaSceneMember: Equatable, Sendable {
     /// 테스트용
     func memberFoot(_ id: String) -> CGPoint? { remotes[id]?.motion.footPoint }
     func memberName(_ id: String) -> String? { remotes[id]?.displayName }
-    func memberNameColor(_ id: String) -> CGColor? { remotes[id]?.color }
+    func memberNameColor(_ id: String) -> PlazaColor? { remotes[id]?.color }
     func memberIsAway(_ id: String) -> Bool? { remotes[id]?.isAway }
     func shownChat(memberID: String?) -> String? { actor(memberID)?.chatText }
     func shownEmote(memberID: String?) -> TeamEmoteKind? { actor(memberID)?.emoteKind }
@@ -2285,7 +2286,7 @@ struct PlazaSceneMember: Equatable, Sendable {
               let base = Self.campfireBase(map) else { campfireTimerNode?.isHidden = true; return }
         let backing = backingOverride ?? view?.window?.backingScaleFactor ?? 2
         if campfireTimerDrawn?.text != text || campfireTimerDrawn?.backing != backing {
-            guard let image = PlazaNamePlate.image(text: text, color: CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), scale: backing) else {
+            guard let image = PlazaNamePlate.image(text: text, color: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 1), scale: backing) else {
                 campfireTimerNode?.isHidden = true
                 return
             }
@@ -2341,7 +2342,7 @@ struct PlazaDittoShown: Equatable {
     var isRunning: Bool
     var isBouncing: Bool = false
     var name: String
-    var nameColor: CGColor
+    var nameColor: PlazaColor
     var title: String?
     var isDecoy: Bool
 }

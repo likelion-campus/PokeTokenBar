@@ -81,6 +81,8 @@ PlazaIceArtTests.swift
 PlazaIceControllerTests.swift
 PlazaIceLayerTests.swift
 PlazaIceSceneTests.swift
+# PlazaInputMappingTests: maps NSEvent key events and modifier flags (AppKit)
+PlazaInputMappingTests.swift
 PlazaItemsTests.swift
 # PlazaMapTests+Mac: needs tests that build a PlazaScene (SpriteKit)
 PlazaMapTests+Mac.swift

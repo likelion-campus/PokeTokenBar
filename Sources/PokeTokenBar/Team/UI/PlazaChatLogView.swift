@@ -44,7 +44,7 @@ struct PlazaChatLogView: View {
     private func lineView(_ line: PlazaChatLog.Line) -> some View {
         (Text(PlazaChatLog.timeText(line.time) + " ").foregroundStyle(Color(hex: 0xF8F8F0).opacity(0.6))
             + Text(line.isLoud ? "📢 " : "")
-            + Text(line.name + ": ").foregroundStyle(Color(cgColor: line.color))
+            + Text(line.name + ": ").foregroundStyle(Color(plaza: line.color))
             + Text(line.text).foregroundStyle(line.isLoud ? Color(hex: 0xFFE060) : Color(hex: 0xF8F8F0)))
             .font(Font(PlazaResources.font(.body)))
             .fixedSize(horizontal: false, vertical: true)

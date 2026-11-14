@@ -50,7 +50,8 @@ final class PlazaNameColorTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(open.width, CGFloat(PlazaNameColorPicker.columns) * PlazaNameColorPicker.swatch)
     }
 
-    private func rgb(_ c: CGColor) -> [CGFloat] {
+    private func rgb(_ color: PlazaColor) -> [CGFloat] {
+        let c = color.cgColor
         let s = c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)!
         return Array(s.components!.prefix(3))
     }

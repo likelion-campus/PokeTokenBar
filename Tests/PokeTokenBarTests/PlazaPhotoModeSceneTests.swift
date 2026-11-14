@@ -28,7 +28,7 @@ final class PlazaPhotoModeSceneTests: XCTestCase {
     }
 
     private func down(_ scene: PlazaScene, _ code: UInt16, _ chars: String? = nil,
-                      modifiers: NSEvent.ModifierFlags = []) -> PlazaKeyResult {
+                      modifiers: PlazaModifiers = []) -> PlazaKeyResult {
         scene.handleKeyDown(keyCode: code, characters: chars, isRepeat: false, modifiers: modifiers)
     }
 
