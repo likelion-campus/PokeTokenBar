@@ -10,6 +10,15 @@ let windowsBuild = true
 #else
 let windowsBuild = sharedOnly
 #endif
+// Real Windows only: the Windows-only targets (C shims, OpenSSL, the app executable) are never declared on the
+// Mac, not even under PTB_SHARED_ONLY, so scripts/shared-check.sh never sees them.
+#if os(Windows)
+let onWindows = true
+#else
+let onWindows = false
+#endif
+// Static OpenSSL from vcpkg (x64-windows-static-md: static libs, dynamic CRT). CI sets PTB_OPENSSL_DIR.
+let opensslDir = ProcessInfo.processInfo.environment["PTB_OPENSSL_DIR"] ?? "C:/vcpkg/installed/x64-windows-static-md"
 
 /// Entries of a mac-only.txt next to the manifest-relative directory. Strips CR (Windows checkouts) and comments.
 func macOnlyList(_ dir: String) -> [String] {
@@ -27,6 +36,7 @@ if windowsBuild {
     package = Package(
         name: "PokeTokenBar",
         platforms: [.macOS(.v14)],  // ignored on Windows; keeps the Mac pre-check on the same deployment target
+        products: onWindows ? [.executable(name: "PokeTokenBarWin", targets: ["PokeTokenBarWin"])] : [],
         dependencies: [
             .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
         ],
@@ -43,10 +53,16 @@ if windowsBuild {
             ),
             .target(
                 name: "PokeTokenBar",
-                dependencies: [.product(name: "Crypto", package: "swift-crypto"), "CSQLite"],
+                dependencies: [.product(name: "Crypto", package: "swift-crypto"), "CSQLite"]
+                    + (onWindows ? ["CWinShim", "CTeamTLS"] : []),
                 path: "Sources/PokeTokenBar",
                 exclude: macOnlyList("Sources/PokeTokenBar") + ["mac-only.txt", "Resources"],
-                swiftSettings: [.define("PTB_SHARED_ONLY")]  // Platform.current takes the stubs in the shared build
+                swiftSettings: [.define("PTB_SHARED_ONLY")],  // Platform.current takes the stubs in the shared build
+                linkerSettings: onWindows ? [
+                    .linkedLibrary("dnsapi"), .linkedLibrary("iphlpapi"), .linkedLibrary("user32"),
+                    .linkedLibrary("shell32"), .linkedLibrary("advapi32"), .linkedLibrary("ws2_32"),
+                    .linkedLibrary("dbghelp"),
+                ] : []
             ),
             .testTarget(
                 name: "PokeTokenBarTests",
@@ -54,7 +70,30 @@ if windowsBuild {
                 path: "Tests/PokeTokenBarTests",
                 exclude: macOnlyList("Tests/PokeTokenBarTests") + ["mac-only.txt", "shared-floor.txt", "Fixtures"]
             ),
-        ]
+        ] + (onWindows ? [
+            .target(
+                name: "CWinShim",  // Win32/WIC glue the Swift side cannot import; placeholder until the Windows services land
+                path: "Sources/CWinShim",
+                linkerSettings: [.linkedLibrary("windowscodecs"), .linkedLibrary("ole32"), .linkedLibrary("dbghelp")]
+            ),
+            .target(
+                name: "CTeamTLS",  // OpenSSL (vcpkg, static) for the team link
+                path: "Sources/CTeamTLS",
+                cSettings: [.unsafeFlags(["-I\(opensslDir)/include"])],
+                linkerSettings: [
+                    .unsafeFlags(["-L\(opensslDir)/lib"]),
+                    .linkedLibrary("libssl"), .linkedLibrary("libcrypto"), .linkedLibrary("crypt32"),
+                    .linkedLibrary("ws2_32"), .linkedLibrary("advapi32"), .linkedLibrary("user32"),
+                ]
+            ),
+            .executableTarget(
+                name: "PokeTokenBarWin",
+                dependencies: ["PokeTokenBar"],
+                path: "Sources/PokeTokenBarWin",
+                linkerSettings: [.unsafeFlags(["-Xlinker", "/SUBSYSTEM:WINDOWS", "-Xlinker", "/ENTRY:mainCRTStartup"])]
+            ),
+        ] : []),
+        cxxLanguageStandard: onWindows ? .cxx17 : nil  // the later WIC file in CWinShim
     )
 } else {
     package = Package(
