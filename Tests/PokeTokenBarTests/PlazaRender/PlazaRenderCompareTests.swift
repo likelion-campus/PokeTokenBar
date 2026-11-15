@@ -8,6 +8,7 @@ final class PlazaRenderCompareTests: XCTestCase {
     /// Renders every scene of `PlazaRenderScenes.all` into `PTB_PLAZA_RENDER_OUT`.
     func testRenderAllScenes() throws {
         guard let out = PlazaRenderEnv.value("PTB_PLAZA_RENDER_OUT") else { throw XCTSkip("PTB_PLAZA_RENDER_OUT not set") }
+        PlazaRenderScenes.installMacHooks()
         let dir = URL(fileURLWithPath: out)
         let renderer = try XCTUnwrap(PlazaOffscreenRenderer(), "no Metal device")
         XCTAssertNotNil(PlazaResources.tileSheet(), "the tile sheet must load, or every scene falls back to plain grass")
