@@ -6,7 +6,7 @@ import Foundation
 /// full script) has text in it, which Windows cannot draw until the DirectWrite engine; these cases are what pins the rest.
 /// `exact` cases use only integer-aligned, opaque or hard-edged drawing, where a canvas has no room for a different answer.
 enum PlazaCanvasShapes {
-    struct Case {
+    struct Case: @unchecked Sendable {
         let name: String
         let exact: Bool
         let run: (any PlazaCanvas) -> Void

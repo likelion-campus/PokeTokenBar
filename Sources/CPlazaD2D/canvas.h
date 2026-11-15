@@ -9,6 +9,9 @@
 #ifndef CPLAZAD2D_CANVAS_H
 #define CPLAZAD2D_CANVAS_H
 
+#ifndef NOMINMAX
+#define NOMINMAX  // windows.h must not turn std::min / std::max into macros
+#endif
 #include "internal.h"
 
 #include <d2d1.h>
