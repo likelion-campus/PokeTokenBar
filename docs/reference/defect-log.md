@@ -951,6 +951,44 @@ read_when:
   실패 확인). 스윕: `withObservationTracking` 을 쓰는 소스 4곳 중 공용은 `TeamRuntime`(이미 import)과 이 컨트롤러뿐이고, `@Observable` 을 쓰는
   공용 파일은 모두 `import Observation` 이 있다(스캔이 확인).
 
+- **윈도우 URLSession 은 새 연결의 전송이 끝날 때까지 디스패치 스레드 둘이 서로를 깨운다 (상태 확인 버스트, 유휴 게이트 간헐 실패).**
+  **증상:** `windows-port` 의 유휴 게이트(설치 앱, 300 s 창에 스토어 갱신 2 회)가 간헐 실패했다 — 7209 cs/분(예산 4000; 이전 4 회 1568–2598). 갱신(120 s)마다
+  15 s 조각 하나에서 디스패치 스레드 하나가 4500–8000 회 깨어났고, 프로바이더 상태 확인을 끄면 33–44 회였다. CPU 는 작았다(300 s 에 0.5 s).
+  **원인(업스트림 소스로 확인, swift-6.3.2-RELEASE):** corelibs `FoundationNetworking/URLSession/libcurl/MultiHandle.swift` 는 curl 소켓을 디스패치
+  소스로 감시한다(윈도우는 `makeReadSource/makeWriteSource(handle:)`, 527–549행). `register`(110–140행)는 curl 이 관심을 바꿀 때 없는 소스만 만들고,
+  두 소스를 함께 치우는 건 `CURL_POLL_REMOVE`(125–131·551–577행)뿐이다 — 연결(connect)·TLS 때 만든 쓰기 소스가 curl 이 읽기만 원하게 된 뒤에도
+  전송이 끝날 때까지 남는다. 윈도우 libdispatch(`src/event/event_windows.c`)는 소켓 쓰기 소스를 레벨 트리거처럼 흉내 내려고 다시 무장할 때마다
+  0 바이트 `send()` 를 하고 성공하면 곧바로 "쓰기 가능" 을 IOCP 에 올린다(487–505행; 재무장은 `_dispatch_unote_resume_muxed`, 581–588행).
+  연결된 소켓은 늘 쓰기 가능하므로: 발화 → `performAction` → `curl_multi_socket_action(socket, 0)`(MultiHandle 288–303행), 쓸 것 없음 → 재무장 → 0 바이트
+  `send` 성공 → 발화 … 이벤트 루프 스레드(`GetQueuedCompletionStatus`)와 루트 큐 워커 사이를 전송 내내 오간다. **새 연결에서만** 생긴다: 재사용된
+  keep-alive 연결은 curl 이 쓰기 관심을 묻지 않아 조용하다(루프백 2 s 대기: 새 연결 2007 ms 내내 50,793 회/s, 프로세스 204k cs / 재사용 19 cs).
+  앱의 120 s 갱신은 libcurl 의 유휴 연결 재사용 한도 118 s(curl 8.9.1 `url.c` 481행 `maxage_conn = 118`, 722–733행; corelibs 는 바꾸지 않는다)를 넘겨
+  매번 새로 연결한다. 실측(러너): status.openai.com 새 연결 한 번 19.9k cs(279 ms),
+  status.claude.com 2.8k cs(165 ms); XCTest 프로세스에서 2 s 응답을 1.5 s 기다리는 동안 가장 바쁜 스레드 71,386 cs. 스택 표본 150 개 중
+  3 개가 `dispatch.dll` 이 부른 `WS2_32!send`(curl 은 보낼 게 없다). 같은 run 에서 corelibs 의 10 s 요청 타임아웃은 멈춘 본문을 10 s 에 끝내지
+  못했다(서버가 20 s 에 닫아서야 끝남) — 새 연결에서 응답이 멈추면 버스트는 서버가 포기할 때까지 간다.
+  **왜 게이트가 운으로 통과했나:** ① 버스트 양 = 러너에서 두 상태 호스트로의 새 HTTPS 전송 시간(DNS·TCP·TLS·서버 응답) × 루프 속도다. 앱 코드가 아니라
+  네트워크 타이밍이 정하는 값을 4 회 표본의 1.5 배로 예산을 잡았고, 응답이 느린 run(≈0.7 s)이 넘었다. ② 게이트(`measure-idle.ps1`)는 창 끝에 살아
+  있는 스레드만 센다 — 짝 워커는 갱신마다 새로 생겼다 사라져(타임라인의 tid 8792→5540) 버스트의 절반가량이 보이지 않았다(사이클 합계는 죽은 스레드도
+  포함한다). ③ 셀프테스트의 유휴 창은 갱신을 빼고 쟀고, 전송 한 번의 깨움을 재는 테스트가 없었으며, CI 픽스처에는 자격증명이 없어 같은 버스트를
+  내는 한도 조회가 한 번도 돌지 않았다.
+  **고침:** `PlatformCompat.oneShotData(for:)` — 맥은 `URLSession.shared.data(for:)` 그대로, 윈도우는 평범한 GET 을 자기 스레드에서 WinHTTP 동기 호출로
+  보낸다(`Platform/Windows/WinHTTPFetch.swift`: 커널에서 블록, 폴링 없음). 요청은 같다: 헤더·`timeoutInterval`(resolve·connect·send·receive), Schannel
+  인증서 검증 + 폐기 확인(curl Schannel 기본값, `schannel.c` 8.9.1 493–495행), gzip/deflate 해제, 리디렉션(WinHTTP 기본: 최대 10, HTTPS→HTTP 금지),
+  크기 제한 없음(전과 같음), 직접 연결(corelibs 의 libcurl 도 윈도우 프록시 설정을 읽지 않는다). `http_proxy`·`https_proxy`·`all_proxy` 가 있으면
+  libcurl 이 그걸 따르므로 URLSession 을 그대로 쓴다(POST 등·WinHTTP 로드 실패도). 업스트림 줄 하나: `ProviderStatusChecker.swift` `fetchOne` 의 호출.
+  결과(유휴 게이트 정상 300 s): 176 cs/분, 1.04 M 사이클/s, CPU 0.062 s(전: 1568–7209 cs/분, 3.3–5.5 M, 0.53–0.59 s). WinHTTP 로딩으로 비공유 메모리
+  +2.4 MB·핸들 +100 이 한 번 늘고 창 안에서는 줄어든다.
+  **규칙:** 윈도우에서 도는 코드의 주기적·백그라운드 HTTP 는 `PlatformCompat.oneShotData` 로 보낸다. 새 URLSession 사용처는 무엇을 얼마나 자주
+  가져오는지와 함께 `WindowsSeamScanTests.knownURLSessionSites` 에 올린다(일회성·캐시만 남는다). 깨움을 잴 때는 창 안에서 끝난 스레드도 센다.
+  **가드(기계):** `WindowsSeamScanTests.testEveryURLSessionSiteThatRunsOnWindowsIsKnown`·`testTheStatusChecksStayOnTheSeam`·`testTheURLSessionScanCatchesEachForm`
+  (호출부를 URLSession 으로 되돌리고 맥 분기를 ephemeral 세션으로 바꾸는 결함 주입으로 셋 다 실패 확인), `OneShotDataMacTests`(맥 분기가 공유 세션을
+  그대로 쓰는지, `URLProtocol` 스텁), `WindowsHTTPFetchTests.testAWaitingTransferThroughTheSeamDoesNotKeepAThreadAwake`(2 s 전송의 1.5 s 동안 가장 바쁜 스레드
+  < 150 cs; 같은 잣대로 URLSession 대조군은 71,386), 다시 잡은 유휴 게이트 예산, 진단 `--selftest-net-burst`(`windows-app` 의 `net_burst` 입력).
+  **스윕:** 윈도우에서 도는 앱 코드의 URLSession 사용처 13 곳(이음매 자신·진단 도우미 제외) — 한도 조회(Claude OAuth·세션 키·Cursor·Grok·OpenCode Go)는 설정돼 있으면 갱신마다 돌아 같은 버스트를
+  낸다(api.anthropic.com 한 번 6.6k cs, 자격증명 없이 401) → 열린 결정. 업데이트 피드(30 분에 한 번 이하, 13.2k cs)·스프라이트·PokeAPI·플라자 아이콘
+  (요청 시, 캐시)은 일회성이라 그대로. 맥 전용(`AntigravityRateLimitsProvider`, `PlazaIconLoader`)은 해당 없음.
+
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
   윈도우 워크플로는 종료 코드만 봤다. **가드(기계):** `SharedSourcesScanTests` 가 윈도우에서 도는 파일의 `@MainActor`
