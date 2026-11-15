@@ -19,6 +19,7 @@ public enum WindowsApp {
     }
 
     @MainActor private static func run(_ arguments: [String]) -> Never {
+        WinTimeZone.publishSystemZone()  // before anything reads TimeZone.current (its own Windows lookup fails on a localized zone name)
         if arguments.contains("--version") {
             try? FileHandle.standardOutput.write(contentsOf: Data(((WindowsInstall.version ?? "0.0.0-dev") + "\n").utf8))
             WindowsApp.exit(0, .helper)

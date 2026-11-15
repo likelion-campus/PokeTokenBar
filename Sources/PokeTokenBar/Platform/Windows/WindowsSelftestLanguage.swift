@@ -15,6 +15,8 @@ enum WindowsSelftestLanguage {
             ("Locale.current.regionCode", Locale.current.region?.identifier ?? "-"),
             ("Calendar.current.firstWeekday", "\(Calendar.current.firstWeekday)"),
             ("TimeZone.current", TimeZone.current.identifier),
+            ("env TZ (published)", "\(env["TZ"] ?? "-") (\(WinTimeZone.published ?? "-"))"),
+            ("Windows zone key -> IANA", "\(WinTimeZone.windowsKeyName() ?? "-") -> \(WinTimeZone.windowsKeyName().flatMap { WinTimeZone.iana(forWindowsID: $0) } ?? "-")"),
             ("TimeZone.current.offsetMinutes", "\(TimeZone.current.secondsFromGMT() / 60)"),
             ("env LANG", env["LANG"] ?? "-"),
             ("GetUserPreferredUILanguages", WinUILanguage.win32UILanguages().description),
@@ -48,6 +50,13 @@ enum WindowsSelftestLanguage {
         let first = ui.first ?? WinUILanguage.win32LocaleName()
         r.add("language.detect", AppLanguage.systemDefault == AppLanguage.systemDefault(for: first) && expected == AppLanguage.systemDefault,
               "app language=\(app.companion.language.rawValue) detected=\(AppLanguage.systemDefault.rawValue); " + detail)
+        var tz = DYNAMIC_TIME_ZONE_INFORMATION()
+        let zoneState = GetDynamicTimeZoneInformation(&tz)
+        let win32Minutes = -(Int(tz.Bias) + Int(zoneState == TIME_ZONE_ID_DAYLIGHT ? tz.DaylightBias : tz.StandardBias))
+        let foundationMinutes = TimeZone.current.secondsFromGMT() / 60
+        r.add("timezone.matchesWindows", win32Minutes == foundationMinutes,
+              "Windows says UTC\(win32Minutes >= 0 ? "+" : "")\(win32Minutes) min, Foundation TimeZone.current=\(TimeZone.current.identifier) \(foundationMinutes) min; "
+              + "TZ published=\(WinTimeZone.published ?? "none") (without it Foundation falls back to GMT on a localized zone name)")
         AppLog.write("language: ui=\(ui) detected=\(AppLanguage.systemDefault.rawValue) app=\(app.companion.language.rawValue)")
     }
 

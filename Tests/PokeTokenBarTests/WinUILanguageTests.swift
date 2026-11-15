@@ -51,3 +51,31 @@ final class WinUILanguageTests: XCTestCase {
     }
 }
 #endif
+
+#if os(Windows)
+import XCTest
+@testable import PokeTokenBar
+
+/// Defect found with the language one: Foundation's Windows `TimeZone.current` feeds the LOCALIZED zone name to ICU.
+@MainActor
+final class WinTimeZoneTests: XCTestCase {
+    func testIcuKnowsTheEnglishZoneIdButNotTheLocalizedName() async {
+        XCTAssertEqual(WinTimeZone.iana(forWindowsID: "Korea Standard Time"), "Asia/Seoul")
+        XCTAssertEqual(WinTimeZone.iana(forWindowsID: "UTC"), "Etc/UTC", "a zone whose StandardName differs from its id")
+        XCTAssertNil(WinTimeZone.iana(forWindowsID: "대한민국 표준시"), "the Korean StandardName: why Foundation falls back to GMT")
+        XCTAssertNil(WinTimeZone.iana(forWindowsID: "Coordinated Universal Time"), "UTC's English StandardName fails the same way")
+    }
+
+    func testPublishedZoneBecomesTimeZoneCurrentAndAUserTZWins() async {
+        let saved = ProcessInfo.processInfo.environment["TZ"]
+        defer { PlatformCompat.setEnvironment("TZ", saved); NSTimeZone.resetSystemTimeZone() }
+        PlatformCompat.setEnvironment("TZ", nil)
+        guard let iana = WinTimeZone.publishSystemZone() else { return XCTFail("the OS ICU resolves this machine's zone") }
+        NSTimeZone.resetSystemTimeZone()
+        XCTAssertEqual(TimeZone.current.identifier, iana)
+        PlatformCompat.setEnvironment("TZ", "Asia/Seoul")  // set by the user, not by us
+        XCTAssertNil(WinTimeZone.publishSystemZone())
+        XCTAssertEqual(ProcessInfo.processInfo.environment["TZ"], "Asia/Seoul")
+    }
+}
+#endif
