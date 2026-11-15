@@ -232,3 +232,5 @@ PlazaBoardWindowTests+Mac.swift
 PlazaCardWindowTests+Mac.swift
 # PlazaCanvasShapesMacTests: writes and re-checks the CoreGraphics goldens of the text-free canvas scripts
 PlazaCanvasShapesMacTests.swift
+# PlazaTextFrameTests+Mac: the shared CoreText frame and truncation rules against live CTFramesetter / CTLineCreateTruncatedLine (CoreText, fallback fonts)
+PlazaTextFrameTests+Mac.swift
