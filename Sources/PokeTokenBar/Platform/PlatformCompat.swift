@@ -356,10 +356,22 @@ extension PlatformCompat {
     /// (`%APPDATA%`, which Electron apps such as Claude Desktop and Cursor use for their user data).
     static func userApplicationSupport(home: URL) -> URL {
         #if os(Windows)
-        return home.appendingPathComponent("AppData/Roaming")
+        let environment = ProcessInfo.processInfo.environment   // %APPDATA% is the OS's, not a usage override
+        return windowsRoamingAppData(home: home, appData: environment["APPDATA"],
+                                     currentHome: FileManager.default.homeDirectoryForCurrentUser)
         #else
         return home.appendingPathComponent("Library/Application Support")
         #endif
+    }
+
+    /// `%APPDATA%` for the current user's own home (an enterprise setup may redirect it away from `home\AppData\Roaming`;
+    /// Electron's `userData` follows the variable). Any other `home` (a fixture, an injected root) keeps the default layout.
+    /// Pure, so both systems test it; only the Windows branch of `userApplicationSupport` calls it.
+    static func windowsRoamingAppData(home: URL, appData: String?, currentHome: URL) -> URL {
+        let fallback = home.appendingPathComponent("AppData/Roaming")
+        guard let appData = appData?.trimmingCharacters(in: .whitespacesAndNewlines), !appData.isEmpty,
+              home.standardizedFileURL.path == currentHome.standardizedFileURL.path else { return fallback }
+        return URL(fileURLWithPath: appData)
     }
 
     /// The Claude Desktop session folders under its application-data folder. Mac: both, as before. Windows: none, because

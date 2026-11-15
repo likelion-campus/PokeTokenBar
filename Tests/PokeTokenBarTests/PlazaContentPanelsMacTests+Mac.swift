@@ -13,7 +13,7 @@ import SwiftUI
     private func flush() async { for _ in 0..<30 { await Task.yield() } }
 
     override func setUp() async throws {
-        Rig.blockNetwork()
+        Rig.blockNetwork(for: self)
         await Rig.seedIcons(Array(900_001...900_006))
         for id in 900_001...900_006 { Rig.seedSprite(id) }
     }

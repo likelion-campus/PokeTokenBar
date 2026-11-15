@@ -1779,6 +1779,19 @@ read_when:
   변경을 되살리면 잡는 쪽이지 호버 자체를 재현하지는 않는다). 호스팅 뷰 안에서 크기가 바뀌는 UI(호버로 펼침·툴팁)를 더할 때는 크기를
   고정하거나 별도 오버레이로 띄운다.
 
+- **윈도 팝오버 키트(Stage 7 Task 3): 창이 보이기 전에 숨긴 줄이 보였고, 150 % 글자 크기에서 줄 라벨이 0 px 로 눌렸다 — 둘 다 점검이
+  못 봤다.** (출시 전, 키트 갤러리 캡처를 직접 열어보다 발견.) ① `WinKit.setVisible` 이 `IsWindowVisible(child) != visible` 로 바뀔
+  때만 움직였는데, `IsWindowVisible` 은 조상 창이 숨겨져 있으면 자식에게도 false 다 — 팝오버는 보이기 전에 페이지를 배치하므로 그때
+  "숨김"은 아무 일도 안 하고 `WS_VISIBLE` 이 남아, 창이 뜨면 숨긴 줄이 보인다. ② 컨트롤이 줄 폭 대부분을 차지하면(윈도 "텍스트 크기"
+  150 %, 긴 링크) 라벨 폭이 0 이 됐다. **왜 못 걸렀나:** ① 갤러리 페이지에 숨긴 줄이 하나도 없어 그 가지를 밟지 않았다. ② 라벨이
+  잘렸는지 보는 트리 점검이 *라벨 자기 폭에서* 글을 재서, 폭 0 에서도 `DrawTextW(DT_WORDBREAK)` 는 "한 줄"을 돌려줘 맞는다고
+  판정했다 — 같은 측정이 원인과 판정을 함께 지나쳤다. **고침:** ① 창 자신의 `WS_VISIBLE` 비트로 판단. ② 라벨이 있는 줄에서 컨트롤이
+  60 %를 넘으면 라벨을 위로 쌓는다(공유 `PopoverStackLayout`, 테스트). 점검은 "가장 긴 낱말보다 좁은 라벨"을 잡고, 네 가지 캡처
+  (100 %, 144 dpi, 글자 150 %, 고대비) 모두 통과해야 한다. **스윕:** 남은 `IsWindowVisible` 은 최상위 창(광장 가림 판정, 광장 자가
+  점검)에만 쓰여 그 창 자신의 상태다. **규칙:** 자식 창의 표시 여부는 `WS_VISIBLE` 로 판단하고, 키트 페이지는 숨긴 줄·넓은 컨트롤·큰
+  글자로도 캡처해 본다. **회귀 점검:** `ui.kit.capture`/`ui.kit.tree` (갤러리의 숨긴 줄, 눌린 라벨) — 옛 `setVisible` 과 쌓기 없는
+  배치를 되살린 실행에서 "a hidden row shows", "labels squeezed: 'Nickname' 37 px < its widest word 87 px" 로 실패함을 확인했다.
+
 ## 에너지 (상시 표시 애니메이션)
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
@@ -2055,9 +2068,13 @@ read_when:
   낮 장면에 노드가 하나 더 생겼다(스테이지 6 작업 4 에서 발견). **왜 못 걸렀나:** 렌더 비교는 같은 기계 두 커밋만 비교했고, 두 OS 를 비교한 적이 없었다(같은 기계에서는 시간대가 같다).
   **고침:** `PlazaFixtureTime` 이 고정 오프셋(+09:00, DST 없음, 시간대 DB 불필요)을 실행 동안 `NSTimeZone.default` 로 걸고 `Calendar.current` 가 따라오는지 `precondition` 으로 확인한다(KST Mac 의 렌더는 그대로).
   **규칙:** 시각을 쓰는 하니스는 시간대를 명시적으로 고정한다; 두 OS 렌더 비교(`scripts/plaza-render-cross.sh`, 윈도 `render` 잡)가 트리를 줄 단위로 비교하므로 순간이 어긋나면 노드 수 차이로 바로 드러난다.
-- **두 OS 렌더 비교가 찾은 Direct2D 결함은 `PlazaCrossCompare.knownRendererBugs` 에 이유와 함께 적고, 고치면 목록에서 지운다.** 불꽃놀이 장면 60프레임(`fireworks-*@60`)에서 프레임 맨 아래 64 디바이스 행이 투명 검정으로 나온다
-  (불꽃 빛 multiplyX2 스프라이트가 프레임 아래 끝을 넘는 경우로 추정, 원인 미확정). **왜 못 걸렀나:** Task 4 의 장면 비교는 5개 장면만 봤고 불꽃놀이는 10·30 프레임만 찍었다.
-  **규칙:** 목록에 있는 캡처가 통과하면 테스트가 실패해 목록이 썩지 않는다.
+- **Direct2D `DrawImage(..., SOURCE_COPY)` 는 `imageRect` 가 아니라 이미지 전체 경계를 덮어쓴다 — 영역에 쓰는 복사는 클립으로 가둔다.** 불꽃놀이 장면 60프레임(`fireworks-*@60`)에서 프레임 맨 아래 64 디바이스 행이
+  투명 검정으로 나왔다(Mac 은 지도). 원인: 곱하기 효과(`scene_device.cpp` `drawEffect`)가 결과를 `SOURCE_COPY` 로 프레임에 그리는데, 효과 이미지는 프레임 크기 스크래치 비트맵이라
+  `region`(스프라이트 자기 픽셀, 불꽃 빛은 0..896행) 밖의 행(896..959)까지 투명 검정으로 교체됐다. 진단: CI 에서 빛 명령의 `region=(-344,-384,1416,896)` 과 완전 투명 행 `896...959` 가 정확히 맞물림.
+  **왜 못 걸렀나:** 일광·모닥불 곱하기 스프라이트는 프레임 전체를 덮어 영역 밖이 없었고, 작업별 골든은 스프라이트 안쪽 셀만 비교했다. 영역이 프레임보다 작은 곱하기는 두 OS 하니스가 처음 밟았다.
+  **고침:** `copyRegion` 이 `PushAxisAlignedClip(region)` 안에서만 `SOURCE_COPY` 한다(두 곳: 색 곱하기·산술 합성). **부류 스윕:** `scene_device.cpp` 의 `DrawImage` 는 `SOURCE_OVER`(영향 없음)와 이 두 곳뿐,
+  `window_surface.cpp` 의 프레임→백버퍼 복사는 전체 프레임 복사라 의도대로. **가드:** 하니스의 두 캡처(`knownRendererBugs` 에서 제거, 목록은 이제 비어 있고 목록 메커니즘은 대역 스템으로 단위 테스트),
+  `testAMultiplySpriteThatEndsInsideTheFrameLeavesTheRestAlone`. **규칙:** 목록에 있는 캡처가 통과하면 테스트가 실패해 목록이 썩지 않는다.
 
 ## 프로세스 제어·업데이트
 
@@ -2394,6 +2411,10 @@ read_when:
   코드를 넣었다가, 펌프 틱 수를 세는 진단을 붙이고서야 타이머가 정상으로 돈다는 것을 보았다 — 우회는 지웠다. **스윕:** 제품 코드에서 모달 루프에 들어가는 곳은
   트레이 메뉴(`WinTray` 콜백, 창 메시지) 하나라 안전하다. **규칙:** 모달 루프(대화상자·메시지 상자·메뉴·창 이동)는 창 메시지에서 연다. `Task`·`DispatchQueue.main`
   블록 안에서 열면 그동안 메인 큐 전체가 선다. 점검도 사용자와 같은 경로(포스트된 메시지)로 연다.
+  **네 번째 (Stage 7 Task 3, 팝오버 키트):** 메뉴로도 같다 — `ui.kit.menuKeys` 의 첫 판(셀프테스트 Task 안에서 `TrackPopupMenu`)은 메인 큐 블록 0/10, 창 메시지로
+  열면 10/10. 점검은 두 숫자를 다 찍는다(Task 안의 것은 정보용). 팝오버는 같은 훅 안에서 `IsDialogMessageW` 로 키를 나눠 주므로, **모달 루프가 도는 동안
+  (`WinModalPump.depth > 0` 이거나 메뉴·이동 모드) 훅은 대화상자 경로를 건너뛴다** — 안 그러면 메뉴·스크롤 막대 끌기 루프가 읽을 키와 마우스를 훅이 먼저
+  디스패치해 루프가 입력을 잃는다. 팝오버의 모달 루프(스크롤 막대 끌기 `WinScrollArea`, 이후 메뉴·대화상자)는 모두 `WinModalPump.begin/end` 안에서 돈다.
 
 - **맥 `CoreTextPlazaEngine.wrappedLines` 가 빈 줄을 "글 나머지 전부"로 바꿨다 — `CFRange` 길이 0 은 "끝까지"다.** `"a\n\nbcd"` 가 `a`, `bcd`, `bcd` 세 줄로 그려졌다(`bcd` 두 번). TextKit 이 빈 줄의 줄 조각을
   주면(끝의 공백·개행을 뗀 뒤 길이 0) 그 범위를 `CTTypesetterCreateLine(typesetter, CFRange(location:, length: 0))` 에 그대로 넘겼고, CoreText 는 길이 0 을 "location 부터 끝까지"로 읽는다.
@@ -2465,6 +2486,13 @@ read_when:
   프로세스가 `SetCurrentProcessExplicitAppUserModelID` 로 바로가기와 같은 ID 를 설정하고(스캔 테스트가 `.iss`·Swift 상수를 대조), `NIN_BALLOONSHOW` 를 처리·로그하며 10초 안에 쉘이 "표시됨"을 안 보내면 한 번 "not shown by Windows" 로 남긴다.
   첫 실행 안내도 같은 큐를 탄다. **규칙:** OS 에 맡긴 표시는 반환값이 아니라 OS 의 통지(또는 화면)로만 "보였다"고 쓴다; 셀프테스트 `notify.state`/`notify.shown` 이 사용자 로그에 설정 상태와 통지를 남긴다.
 
+- **전체 테스트 실행에서만 `RedirectHeadersMacTests` 3개가 `-1009`(인터넷 없음)로 실패했다 — 플라자 렌더 테스트가 등록한 `NoNetwork` URLProtocol 이 해제되지 않았다.** `URLProtocol.registerClass` 는
+  프로세스 전역이고 `URLSession.shared` 는 그것을 따른다. `PlazaContentRig+Mac.swift` 의 `blockNetwork()` 가 `NoNetwork`(모든 요청을 `notConnectedToInternet` 으로 거절)를 등록만 하고
+  풀지 않아, 이후에 도는 스위트의 loopback 요청이 0.000 초에 거절됐다. 알파벳 순으로 `Plaza*` 가 `Redirect*` 보다 앞서 도는 전체 실행에서만 드러난다(`--filter 'PlazaContentPanelsMacTests|RedirectHeadersMacTests'` 로 재현).
+  **왜 못 걸렀나:** 각 스위트는 단독(필터) 실행에서 통과했고, 오염 쪽 테스트는 자기 렌더만 검증해 누수를 볼 수 없었으며, 피해 쪽은 등록이 없는 상태에서만 정상이라 순서 의존을 드러낼 기회가 전체 실행뿐이었다.
+  **고침:** `blockNetwork(for: self)` 가 `addTeardownBlock` 으로 해제를 건다(호출 4곳). **부류 스윕:** 나머지 `registerClass` 사용처(`ClaudeOAuthFileCredentialTests`, `SpriteAnimationRecoveryTests`,
+  `OneShotDataMacTests`, `CredentialSwitchCacheTests`)는 모두 같은 파일에서 `unregisterClass` 한다 — 오염원은 `NoNetwork` 하나였다.
+  **영구 캡처:** `NetworkProtocolScanTests` — `registerClass` 가 있는 테스트 파일에 `unregisterClass` 가 없으면 실패(해제를 지우는 주입으로 실패 확인). **규칙:** 프로세스 전역 상태(URLProtocol 등록·환경변수·공유 훅)는 설정하는 쪽이 같은 테스트 안에서 되돌린다.
 - **IME 가 끝낸 한글 음절이 `?` 로 들어올 자리였다 — `WH_GETMESSAGE` 훅이 `WM_CHAR` 류만 유니코드로 다시 보내고 `WM_IME_CHAR` 는 CF 의 ANSI 펌프에 맡겼다.** (stage 6 Task 11, D13)
   CF 의 펌프는 `PeekMessageA`/`DispatchMessageA` 라, 게시된 `WM_IME_CHAR`(IME 가 끝낸 음절을 앱이 직접 처리하지 않을 때 DefWindowProc 경로로 오는 메시지)의 U+D55C 가 코드 페이지 1252 에서
   `?` 로 바뀐 채 유니코드 창에 도착한다. 러너 실측(ACP 1252, 같은 실행): 우리 창의 입력칸은 "한", 훅이 손대지 않는 창(= 고치기 전 경로)의 같은 EDIT 는 "?".

@@ -421,6 +421,34 @@ final class WindowsPlazaRendererTests: XCTestCase {
         XCTAssertEqual(r.renderer.stats.failedFrames, 0)
     }
 
+    /// A multiply sprite that ends inside the frame must leave the rest of the frame alone (firework light strip defect: the
+    /// effect copy replaced the whole bitmap bounds, so every row outside the sprite's region came out transparent black).
+    func testAMultiplySpriteThatEndsInsideTheFrameLeavesTheRestAlone() async throws {
+        let device = try makeDevice()
+        let r = try rig(device, points: CGSize(width: 32, height: 32), backing: 2)
+        r.stage.root.addChild(sprite(PlazaColor(srgbRed: 0.8, green: 0.4, blue: 0.2), 0, 0, 32, 32))
+        var light = PlazaBitmap(width: 4, height: 4, fill: PlazaRGBA(r: 128, g: 128, b: 128, a: 255))
+        light.alpha = .noneSkipLast
+        let lamp = PlazaSprite(texture: PlazaTexture(PlazaImage(bitmap: light)), size: CGSize(width: 16, height: 8))
+        lamp.anchorPoint = .zero
+        lamp.position = CGPoint(x: 8, y: 12)   // device rows 24..39 of 64, columns 16..47 of 64
+        lamp.blendMode = .multiplyX2
+        lamp.zPosition = 6
+        r.stage.root.addChild(lamp)
+        let paint = PlazaSprite(color: PlazaColor(srgbRed: 0.5, green: 0.6, blue: 0.9), size: CGSize(width: 32, height: 6))
+        paint.anchorPoint = .zero
+        paint.position = CGPoint(x: 0, y: 26)   // a plain multiply over the top rows (view y up): device rows 0..11
+        paint.blendMode = .multiply
+        paint.zPosition = 7
+        r.stage.root.addChild(paint)
+        let rgba = frame(r)
+        for (x, y) in [(2, 50), (60, 60), (2, 20), (60, 45), (10, 63)] {
+            XCTAssertEqual(pixel(rgba, width: 64, x, y)[3], 255, "outside every multiply region (\(x), \(y)) keeps the map")
+        }
+        XCTAssertEqual(pixel(rgba, width: 64, 20, 30)[3], 255, "inside the lamp")
+        print("MULTIPLYREGION outside rows opaque: \(pixel(rgba, width: 64, 2, 50)[3] == 255)")
+    }
+
     func testDeviceLossRebuildsAndRedraws() async throws {
         let device = try makeDevice()
         let r = try rig(device, points: CGSize(width: 32, height: 32), backing: 2)

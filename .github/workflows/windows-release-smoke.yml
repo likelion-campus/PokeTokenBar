@@ -1,0 +1,88 @@
+name: windows-release-smoke
+# Post-release smoke on a clean runner: take a released (or CI-built) Windows installer, check it is the file it claims to be
+# (sha256 against what GitHub reports for the release asset, or the manifest of the artifact), install it, check the version
+# stamped in it, run the INSTALLED app's own selftest from the install folder with a stripped Path, uninstall, confirm it is gone.
+# Dispatched by `scripts/team_release.py smoke`. Read-only: it never writes a release.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'x.y.z of the release to check'
+        required: true
+      source:
+        description: 'release (default: the published GitHub release v<version>) or artifact (the windows-release artifact of run_id)'
+        type: choice
+        options: [release, artifact]
+        default: release
+      run_id:
+        description: 'source=artifact: the release-mode windows-app run whose windows-release artifact to check'
+        default: ''
+permissions:
+  contents: read
+  actions: read   # read-only; download-artifact needs it to fetch an artifact of another run
+concurrency:
+  group: windows-release-smoke-${{ inputs.version }}
+  cancel-in-progress: false
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Inputs
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE: ${{ inputs.source }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          fail() { echo "::error::$1"; echo "FAIL smoke.inputs: $1"; echo "### Smoke FAILED"$'\n\n'"**smoke.inputs**: $1" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version must be x.y.z, got '$VERSION'"
+          if [ "$SOURCE" = artifact ]; then [[ "$RUN_ID" =~ ^[0-9]+$ ]] || fail "source=artifact needs a numeric run_id, got '$RUN_ID'"; fi
+      - uses: actions/checkout@v5   # the dispatched ref: the scripts that find and verify the installer
+      - name: Get the installer from the release
+        if: inputs.source == 'release'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}   # only for the API rate limit; the asset is downloaded without it
+        run: ./scripts/windows/release-smoke.ps1 -Phase Acquire -Version '${{ inputs.version }}' -Source release
+      - name: Get the installer from the artifact
+        if: inputs.source == 'artifact'
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: artifact-in
+      - name: Check the artifact's installer
+        if: inputs.source == 'artifact'
+        shell: pwsh
+        run: ./scripts/windows/release-smoke.ps1 -Phase Acquire -Version '${{ inputs.version }}' -Source artifact -ArtifactDir artifact-in
+      - name: Check out the release's tag (fixtures for its selftest)
+        if: inputs.source == 'release'
+        uses: actions/checkout@v5
+        with:
+          ref: v${{ inputs.version }}
+          path: tag
+      - name: Install, selftest the installed app, uninstall
+        shell: pwsh
+        run: |
+          $fx = if ('${{ inputs.source }}' -eq 'release') { 'tag' } else { '.' }
+          ./scripts/windows/release-smoke.ps1 -Phase Verify -Version '${{ inputs.version }}' -FixtureSrc $fx
+      - name: Uninstall again if a step failed
+        if: always()
+        shell: pwsh
+        run: |
+          Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
+          $u = Join-Path $env:LOCALAPPDATA 'Programs\PokeTokenBar\unins000.exe'
+          if (Test-Path $u) { Start-Process -FilePath $u -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait }
+      - name: Collect logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs
+          path: |
+            collected
+            smoke/st-installed.json
+            smoke/st-installed.json.lines
+          if-no-files-found: ignore
+          retention-days: 3

@@ -29,6 +29,19 @@ import WinSDK
         if !dialogs.contains(bits) { dialogs.append(bits) }
     }
 
+    /// Stage 7 Task 3: the window is being destroyed; its messages take the normal path again. A handle left here would
+    /// send a later window that reuses the value through `IsDialogMessageW` of a window that no longer exists.
+    static func unregisterDialogWindow(_ hwnd: HWND) {
+        let bits = Int(bitPattern: hwnd)
+        dialogs.removeAll { $0 == bits }
+    }
+
+    /// What the selftest reads: registered dialog windows, messages `IsDialogMessageW` took, and the ones left to a modal
+    /// loop (a menu, a scroll bar's thumb drag, a dialog) instead.
+    static var dialogWindowCount: Int { dialogs.count }
+    private(set) static var dialogMessages = 0
+    private(set) static var dialogMessagesLeftToModalLoop = 0
+
     /// `GUI_INMOVESIZE | GUI_INMENUMODE | GUI_SYSTEMMENUMODE | GUI_POPUPMENUMODE` for this thread.
     private static func inMenuOrMoveLoop() -> Bool {
         var info = GUITHREADINFO()
@@ -43,9 +56,17 @@ import WinSDK
         if !dialogs.isEmpty, let target = m.pointee.hwnd {
             for bits in dialogs {
                 guard let dialog = HWND(bitPattern: bits), dialog == target || IsChild(dialog, target) else { continue }
+                // The hook runs inside every message removal of the thread, also the ones a modal loop makes for itself
+                // (a menu's, a scroll bar thumb drag's, a dialog's; all of ours run between WinModalPump.begin/end). Those
+                // loops read their own keys and mouse messages: dispatching them here would take the loop's input away.
+                if WinModalPump.depth > 0 || inMenuOrMoveLoop() {
+                    dialogMessagesLeftToModalLoop += 1
+                    break
+                }
                 var copy = m.pointee
                 if IsDialogMessageW(dialog, &copy) {
                     m.pointee.message = UINT(WM_NULL)
+                    dialogMessages += 1
                     return
                 }
             }

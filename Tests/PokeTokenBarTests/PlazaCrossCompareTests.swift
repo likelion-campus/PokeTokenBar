@@ -129,7 +129,10 @@ final class PlazaCrossCompareTests: XCTestCase {
         mac.stem = "base-noon-1.25x@10"; win.stem = mac.stem
         XCTAssertTrue(PlazaCrossCompare.compare(mac: mac, win: win).pixelsPass, "but inside the fractional-scale bound")
         // a listed known bug that passes is reported as a failure of the list; one that fails is acceptable
-        let name = PlazaCrossCompare.knownRendererBugs.keys.sorted()[0]
+        let saved = PlazaCrossCompare.knownRendererBugs
+        defer { PlazaCrossCompare.knownRendererBugs = saved }
+        let name = "listed-stem@1"   // the real list is empty now; the mechanism is tested with a stand-in
+        PlazaCrossCompare.knownRendererBugs = [name: "stand-in"]
         mac.stem = name; win.stem = name
         let failing = PlazaCrossCompare.compare(mac: mac, win: capture([root()], rgba: [UInt8](repeating: 0, count: w * h * 4), w: w, h: h))
         var failingNamed = failing; failingNamed.stem = name
