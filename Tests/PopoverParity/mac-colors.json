@@ -1,0 +1,143 @@
+{
+  "heatmap" : {
+    "dark" : [
+      "#161B22FF",
+      "#0E4429FF",
+      "#006D32FF",
+      "#26A641FF",
+      "#39D353FF"
+    ],
+    "light" : [
+      "#EBEDF0FF",
+      "#9BE9A8FF",
+      "#40C463FF",
+      "#30A14EFF",
+      "#216E39FF"
+    ]
+  },
+  "named" : {
+    "dark" : {
+      "accent" : "#0091FFFF",
+      "primary" : "#FFFFFFD8",
+      "secondary" : "#FFFFFF8C",
+      "systemBlue" : "#0091FFFF",
+      "systemGray" : "#98989DFF",
+      "systemGreen" : "#30D158FF",
+      "systemOrange" : "#FF9230FF",
+      "systemRed" : "#FF4245FF",
+      "systemTeal" : "#00D2E0FF",
+      "systemYellow" : "#FFD600FF",
+      "tertiary" : "#FFFFFF3F"
+    },
+    "light" : {
+      "accent" : "#0088FFFF",
+      "primary" : "#000000D8",
+      "secondary" : "#0000007F",
+      "systemBlue" : "#0088FFFF",
+      "systemGray" : "#8E8E93FF",
+      "systemGreen" : "#34C759FF",
+      "systemOrange" : "#FF8D28FF",
+      "systemRed" : "#FF383CFF",
+      "systemTeal" : "#00C3D0FF",
+      "systemYellow" : "#FFCC00FF",
+      "tertiary" : "#00000042"
+    }
+  },
+  "note" : "Measured by PopoverGoldens+Mac (PTB_WRITE_POPOVER_COLORS=1): sRGB #RRGGBBAA. accent = the default (Multicolor) accent.",
+  "palette" : {
+    "dark" : [
+      "#D97857FF",
+      "#5C9EF2FF",
+      "#73C785FF",
+      "#C78CEBFF",
+      "#F2C252FF",
+      "#59C7CCFF",
+      "#ED82ADFF",
+      "#9EA3B2FF",
+      "#E0CC99FF",
+      "#B2D161FF",
+      "#996B4CFF",
+      "#4C998CFF",
+      "#CC5966FF",
+      "#667ACCFF",
+      "#F59438FF",
+      "#C29461FF"
+    ],
+    "light" : [
+      "#D97857FF",
+      "#5C9EF2FF",
+      "#73C785FF",
+      "#C78CEBFF",
+      "#F2C252FF",
+      "#59C7CCFF",
+      "#ED82ADFF",
+      "#9EA3B2FF",
+      "#E0CC99FF",
+      "#B2D161FF",
+      "#996B4CFF",
+      "#4C998CFF",
+      "#CC5966FF",
+      "#667ACCFF",
+      "#F59438FF",
+      "#C29461FF"
+    ]
+  },
+  "rarity" : {
+    "dark" : {
+      "common" : "#98989DFF",
+      "legendary" : "#FF9230FF",
+      "none" : "#98989DFF",
+      "rare" : "#0091FFFF",
+      "uncommon" : "#30D158FF"
+    },
+    "light" : {
+      "common" : "#8E8E93FF",
+      "legendary" : "#FF8D28FF",
+      "none" : "#8E8E93FF",
+      "rare" : "#0088FFFF",
+      "uncommon" : "#34C759FF"
+    }
+  },
+  "types" : {
+    "dark" : {
+      "bug" : "#AABB22FF",
+      "dark" : "#775544FF",
+      "dragon" : "#7766EEFF",
+      "electric" : "#FFCC33FF",
+      "fairy" : "#EE99EEFF",
+      "fighting" : "#BB5544FF",
+      "fire" : "#FF4422FF",
+      "flying" : "#8899FFFF",
+      "ghost" : "#6666BBFF",
+      "grass" : "#77CC55FF",
+      "ground" : "#DDBB55FF",
+      "ice" : "#66CCFFFF",
+      "normal" : "#AAAA99FF",
+      "poison" : "#AA5599FF",
+      "psychic" : "#FF5599FF",
+      "rock" : "#BBAA66FF",
+      "steel" : "#AAAABBFF",
+      "water" : "#3399FFFF"
+    },
+    "light" : {
+      "bug" : "#AABB22FF",
+      "dark" : "#775544FF",
+      "dragon" : "#7766EEFF",
+      "electric" : "#FFCC33FF",
+      "fairy" : "#EE99EEFF",
+      "fighting" : "#BB5544FF",
+      "fire" : "#FF4422FF",
+      "flying" : "#8899FFFF",
+      "ghost" : "#6666BBFF",
+      "grass" : "#77CC55FF",
+      "ground" : "#DDBB55FF",
+      "ice" : "#66CCFFFF",
+      "normal" : "#AAAA99FF",
+      "poison" : "#AA5599FF",
+      "psychic" : "#FF5599FF",
+      "rock" : "#BBAA66FF",
+      "steel" : "#AAAABBFF",
+      "water" : "#3399FFFF"
+    }
+  }
+}
