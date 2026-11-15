@@ -251,7 +251,7 @@ Invoke-Scenario 'lockedFile' {
         Assert-That ($code -eq 5) 'lockedFile.exit' "exit $code"
         Assert-OldClosed 'lockedFile' $old $closes
         $changed = Compare-FolderFileIds $ids (Get-FolderFileIds $PtbInstallDir)
-        Assert-That ($changed -notcontains 'PokeTokenBar.exe' -and $changed -notcontains 'PokeTokenBar.version') 'lockedFile.exeAndVersionKept' "replaced in place before the failure and left so (Inno keeps no copy): $($changed.Count) of $($ids.Count) files ($(($changed | Select-Object -First 8) -join ', ')); the exe and the version file are the previous ones"
+        Assert-That ($changed -notcontains 'PokeTokenBar.exe' -and $changed -notcontains 'PokeTokenBar.version') 'lockedFile.exeAndVersionKept' "exe replaced: $($changed -contains 'PokeTokenBar.exe'); version file replaced: $($changed -contains 'PokeTokenBar.version'); replaced in place before the failure and left so (Inno keeps no copy): $($changed.Count) of $($ids.Count) files ($(($changed | Select-Object -First 8) -join ', '))"
     } finally {
         Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
     }

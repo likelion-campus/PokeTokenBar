@@ -135,32 +135,73 @@ function Compare-FolderFileIds($Before, $After) {
     @(@($Before.Keys) + @($After.Keys) | Sort-Object -Unique | Where-Object { $Before[$_] -ne $After[$_] })
 }
 
-# Runs a setup exe with its wizard (a double-click; only /LOG added) and clicks it through with UI Automation:
-# Next on every page, Install, Finish (the Finish page's launch box stays as Setup sets it). Exit code.
+# Runs a setup exe with its wizard (a double-click; only /LOG added) and clicks it through: Next on every page, Install,
+# Finish (the Finish page's launch box stays as Setup sets it). A click is WM_COMMAND/BN_CLICKED posted to the button's
+# parent, which the VCL routes to the button by its handle; no focus or foreground needed. Exit code.
+if (-not ([System.Management.Automation.PSTypeName]'PtbCiWizard').Type) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class PtbCiWizard {
+    delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr parent, EnumProc f, IntPtr l);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr h, StringBuilder sb, int n);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, StringBuilder sb, int n);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] static extern bool IsWindowEnabled(IntPtr h);
+    [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr h);
+    [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr h);
+    [DllImport("user32.dll")] static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
+    static string Cls(IntPtr h) { var sb = new StringBuilder(256); GetClassNameW(h, sb, 256); return sb.ToString(); }
+    static string Text(IntPtr h) { var sb = new StringBuilder(256); GetWindowTextW(h, sb, 256); return sb.ToString(); }
+    static IntPtr Find(string cls) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((h, l) => { if (IsWindowVisible(h) && Cls(h) == cls) { found = h; return false; } return true; }, IntPtr.Zero);
+        return found;
+    }
+    // The visible top-level windows and the wizard's child controls, for a failure message.
+    public static string Describe(string cls) {
+        var lines = new List<string>();
+        EnumWindows((h, l) => { if (IsWindowVisible(h)) lines.Add(Cls(h) + " '" + Text(h) + "'"); return true; }, IntPtr.Zero);
+        IntPtr w = Find(cls);
+        if (w != IntPtr.Zero)
+            EnumChildWindows(w, (h, l) => { lines.Add("  child " + Cls(h) + " '" + Text(h) + "' visible=" + IsWindowVisible(h) + " enabled=" + IsWindowEnabled(h)); return true; }, IntPtr.Zero);
+        return string.Join(" | ", lines);
+    }
+    // Clicks the first visible, enabled button of the visible window of class cls whose text without '&' starts with one
+    // of the prefixes (in their order). The text clicked, or null.
+    public static string Click(string cls, string[] prefixes) {
+        IntPtr w = Find(cls);
+        if (w == IntPtr.Zero) return null;
+        var buttons = new List<IntPtr>();
+        EnumChildWindows(w, (h, l) => { if (IsWindowVisible(h) && IsWindowEnabled(h) && Cls(h).IndexOf("Button", StringComparison.OrdinalIgnoreCase) >= 0) buttons.Add(h); return true; }, IntPtr.Zero);
+        foreach (var prefix in prefixes)
+            foreach (var b in buttons) {
+                var t = Text(b).Replace("&", "");
+                if (t.StartsWith(prefix)) { PostMessageW(GetParent(b), 0x0111, (IntPtr)GetDlgCtrlID(b), b); return t; }  // WM_COMMAND, BN_CLICKED (0)
+            }
+        return null;
+    }
+}
+'@
+}
 function Invoke-SetupWizard([string]$Setup, [string]$LogFile, [int]$TimeoutSec = 180) {
-    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-    $ae = [System.Windows.Automation.AutomationElement]
     $p = Start-Process -FilePath $Setup -ArgumentList "/LOG=`"$LogFile`"" -PassThru
     $null = $p.Handle
-    $wizardCond = New-Object System.Windows.Automation.PropertyCondition($ae::ClassNameProperty, 'TWizardForm')
-    $buttonCond = New-Object System.Windows.Automation.PropertyCondition($ae::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
     $clicked = @()
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while (-not $p.HasExited) {
-        if ((Get-Date) -gt $deadline) { Stop-Process -Id $p.Id -Force; throw "the wizard did not finish in $TimeoutSec s (clicked: $($clicked -join ', '))" }
-        $wizard = $ae::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $wizardCond)
-        if ($wizard) {
-            $buttons = @($wizard.FindAll([System.Windows.Automation.TreeScope]::Descendants, $buttonCond) |
-                Where-Object { $_.Current.IsEnabled -and -not $_.Current.IsOffscreen -and $_.Current.Name -match '^&?(Next|Install|Finish)' })
-            if ($buttons.Count) {
-                $b = $buttons[0]
-                $clicked += $b.Current.Name
-                $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-                Start-Sleep -Milliseconds 800
-                continue
-            }
+        if ((Get-Date) -gt $deadline) {
+            $windows = [PtbCiWizard]::Describe('TWizardForm')
+            Stop-Process -Id $p.Id -Force
+            Get-Process -Name 'PokeTokenBar-Setup-*' -ErrorAction SilentlyContinue | Stop-Process -Force  # the wizard's own process (.tmp)
+            throw "the wizard did not finish in $TimeoutSec s (clicked: $($clicked -join ', ')); windows: $windows"
         }
-        Start-Sleep -Milliseconds 300
+        $t = [PtbCiWizard]::Click('TWizardForm', [string[]]@('Finish', 'Install', 'Next'))
+        if ($t) { $clicked += $t; Start-Sleep -Milliseconds 1500 } else { Start-Sleep -Milliseconds 300 }
     }
     "wizard buttons clicked: $($clicked -join ' > ')" | Write-Host
     $p.ExitCode
