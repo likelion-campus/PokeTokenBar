@@ -101,6 +101,21 @@ jobs:
           (Get-Content 'windows\selftest\claude\projects\p\s.jsonl' -Raw).Replace('__TIMESTAMP__', $ts) |
             Set-Content -NoNewline -Encoding utf8NoBOM -Path (Join-Path $proj 's.jsonl')
           "PTB_FIXTURE=$fx" >> $env:GITHUB_ENV
+      - name: Visual C++ redistribution terms on this image (informational)
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # Which licence files sit next to the redistributable the bundle copies (names only; the notice file cites them).
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * -property installationPath
+          "VS: $vs ($(& $vswhere -latest -products * -property catalog_productDisplayVersion))"
+          Get-ChildItem (Join-Path $vs 'VC\Redist\MSVC') -Directory | ForEach-Object { "redist dir: $($_.Name)"; Get-ChildItem $_.FullName -File | ForEach-Object { "  file: $($_.Name) $($_.Length)" } }
+          $places = @($vs, (Join-Path $vs 'Licenses'), (Join-Path $vs 'VC'), (Join-Path $vs 'VC\Redist'), (Join-Path $vs 'VC\Redist\MSVC')) | Where-Object { Test-Path $_ }
+          $terms = foreach ($p in $places) { Get-ChildItem $p -File -Depth 2 -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '(?i)redist.*\.txt|license|eula' } }
+          $terms | Sort-Object FullName -Unique | Select-Object -First 40 | ForEach-Object { "terms: $($_.FullName.Substring($vs.Length)) $($_.Length)" }
+          $redist = $terms | Where-Object { $_.Name -match '(?i)^redist.*\.txt$' } | Select-Object -First 1
+          if ($redist) { "---- $($redist.Name), first lines:"; Get-Content $redist.FullName -TotalCount 25 }
       - name: Network burst (what one HTTP fetch costs in wakeups, per thread; diagnostics)
         if: (success() || failure()) && steps.package.outcome == 'success' && inputs.net_burst == true
         continue-on-error: true
