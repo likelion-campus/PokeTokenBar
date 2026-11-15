@@ -85,19 +85,18 @@ import SwiftUI
         let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: 2)
         await flush()
         let announced = a.host.accessibilityChangesForTesting
-        let before = try XCTUnwrap(a.host.accessibilityChildren() as? [NSAccessibilityElement]).map { $0.accessibilityFrameInParentSpace() }
+        let before = a.host.accessibilityElementsForTesting.map { $0.hostFrame }
         XCTAssertTrue(panel.scroll(dx: 0, dy: -1, at: CGPoint(x: 100, y: 100)))
         await flush()
         XCTAssertEqual(a.host.accessibilityChangesForTesting, announced, "one point of scroll: the same items, no announcement")
-        let after = try XCTUnwrap(a.host.accessibilityChildren() as? [NSAccessibilityElement]).map { $0.accessibilityFrameInParentSpace() }
+        let after = a.host.accessibilityElementsForTesting.map { $0.hostFrame }
         XCTAssertEqual(before.count, after.count)
         XCTAssertNotEqual(before, after, "but the frames moved with the rows")
         for _ in 0..<10 {
             XCTAssertTrue(panel.scroll(dx: 0, dy: -37, at: CGPoint(x: 100, y: 100)))
             await flush()
         }
-        XCTAssertGreaterThan(a.host.accessibilityChangesForTesting, announced, "other rows came into view: one announcement per change of the items")
-        XCTAssertLessThan(a.host.accessibilityChangesForTesting - announced, 10, "not one per scroll step")
+        XCTAssertEqual(a.host.accessibilityChangesForTesting, announced, "every note is always an element: scrolling never changes the items, so VoiceOver is never told")
     }
 
     // MARK: the roster's bounce

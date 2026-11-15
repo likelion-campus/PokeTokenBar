@@ -156,6 +156,23 @@ func samplePicture(_ w: Int = 40, _ h: Int = 30) -> PlazaImage {
 
     // MARK: clicks
 
+    /// Review item 8: the hit carries WHO was pressed. A member joining between the press and the release shifts the slots; the release lands on
+    /// another member and acts on nothing.
+    func testAFeedUpdateBetweenPressAndReleaseCancelsTheClick() async {
+        let r = rig([entry(0), entry(1)])
+        let slots = r.panel.layout(scale: 2, text: r.graphics.text).slots
+        let p = CGPoint(x: r.hud.layout(viewport: r.hud.viewport, scale: r.hud.scale)[.roster]!.minX + slots[0].frame.midX,
+                        y: r.hud.layout(viewport: r.hud.viewport, scale: r.hud.scale)[.roster]!.minY + slots[0].frame.midY)
+        _ = r.hud.handleMouse(PlazaMouseEvent(kind: .down, location: p), in: .roster)
+        r.model.entries = [entry(7)] + r.model.entries   // someone joins on top: slot 0 is now m7
+        await flush()
+        _ = r.hud.handleMouse(PlazaMouseEvent(kind: .up, location: p), in: .roster)
+        XCTAssertEqual(r.actions.list, [], "the release was on another member: nothing happens")
+        // The same press and release with nothing changed does act.
+        click(r, CGPoint(x: slots[0].frame.midX, y: slots[0].frame.midY))
+        XCTAssertEqual(r.actions.list, ["roster select 0"])
+    }
+
     func testASlotSelectsItsMemberAndTheMeSlotAndPlateOnlyTakeTheClick() async {
         let r = rig([entry(0, me: true), entry(1), entry(2, .asleep)])
         let slots = r.panel.layout(scale: 2, text: r.graphics.text).slots
@@ -195,11 +212,11 @@ func samplePicture(_ w: Int = 40, _ h: Int = 30) -> PlazaImage {
         let d = r.host.drawings[.roster]!
         XCTAssertEqual(d.accessibility.map(\.label), ["팀원", "접속 2 / 4", "나, 피카츄, 접속", "민수, 파이리, 접속", "바다, 피카츄, 잠", "하늘, 피카츄, 자리비움"])
         XCTAssertEqual(d.accessibility.map(\.role), [.staticText, .staticText, .staticText, .button, .button, .button])
-        XCTAssertEqual(d.accessibility[3].action, PlazaPanelHit(action: "select", index: 1))
+        XCTAssertEqual(d.accessibility[3].action, PlazaPanelHit(action: "select", index: 1, target: "m1"))
         let slots = r.panel.layout(scale: 2, text: r.graphics.text).slots
         // The walk hint on every slot you can walk to: not mine, not an asleep member's.
         XCTAssertEqual(d.tooltips, [PlazaTooltip(frame: slots[1].frame, text: "누르면 이 팀원에게 걸어가요"), PlazaTooltip(frame: slots[3].frame, text: "누르면 이 팀원에게 걸어가요")])
-        r.hud.press(PlazaPanelHit(action: "select", index: 1), in: .roster)
+        r.hud.press(PlazaPanelHit(action: "select", index: 1, target: "m1"), in: .roster)
         XCTAssertEqual(r.actions.list, ["roster select 1"])
     }
 

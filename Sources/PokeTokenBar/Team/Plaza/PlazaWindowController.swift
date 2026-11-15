@@ -345,13 +345,7 @@ import Observation
 
     /// What the shell's overlay views read and call. The actions hold the controller weakly.
     var overlayBindings: PlazaOverlayBindings {
-        PlazaOverlayBindings(
-            rosterModel: rosterModel, overlayModel: overlayModel, feed: feed, myMemberID: memberID(), chatLog: chatLog,
-            hud: hud, chatInput: chatInput,
-            walkToMember: { [weak self] in self?.walkToMember($0) },
-            turnRosterPage: { [weak self] in self?.turnRosterPage(by: $0) },
-            react: { [weak self] in self?.session?.react(to: $0, kind: $1) },
-            toggleChatLog: { [weak self] in self?.toggleChatLog() })
+        PlazaOverlayBindings(rosterModel: rosterModel, overlayModel: overlayModel, chatLog: chatLog, hud: hud, chatInput: chatInput)
     }
 
     /// 창 제목. 팀 이름이 바뀌면 `refreshTitle`로 다시 붙인다.

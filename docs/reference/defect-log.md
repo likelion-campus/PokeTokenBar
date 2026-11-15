@@ -2313,3 +2313,13 @@ read_when:
   직접 비우고(메시지 큐 무관), (2) 런루프 패스 직전에 싱크로 미끼 `WM_NULL` 을 포스트한 뒤 큐의 첫 메시지가 그 미끼일 때만 패스를 돈다 — 포스트된 메시지는 포스트 순서로, 하드웨어 입력보다 먼저 나가므로
   CF 가 꺼내는 한 개는 미끼다; 앞에 다른 메시지가 있으면 그 틱을 건너뛴다(다음 틱은 50 ms 뒤). 결과: 6000 키 유실 0, `modalPump.*` 전부 통과, 유휴 불변. **규칙:** 모달 루프 안에서 일을 돌리는 코드는
   메시지 큐에서 아무것도 꺼내지 않아야 한다 — 입력 경합은 "가끔 한 개"라 통과가 증거가 아니므로 **유실 수를 세는 폭주 점검**(`modalPump.keysReachMenu`)으로 막는다.
+
+- **맥 `CoreTextPlazaEngine.wrappedLines` 가 빈 줄을 "글 나머지 전부"로 바꿨다 — `CFRange` 길이 0 은 "끝까지"다.** `"a\n\nbcd"` 가 `a`, `bcd`, `bcd` 세 줄로 그려졌다(`bcd` 두 번). TextKit 이 빈 줄의 줄 조각을
+  주면(끝의 공백·개행을 뗀 뒤 길이 0) 그 범위를 `CTTypesetterCreateLine(typesetter, CFRange(location:, length: 0))` 에 그대로 넘겼고, CoreText 는 길이 0 을 "location 부터 끝까지"로 읽는다.
+  글이 개행으로 끝나는 경우도 같은 부류의 빠짐이었다: SwiftUI `Text` 는 끝 개행 뒤에 빈 줄 하나를 더 보이는데 TextKit 은 그것을 줄 조각이 아니라 `extraLineFragmentRect` 로만 알려서 줄이 하나 모자랐다.
+  **닿는 입력:** 채팅은 `TeamChat.prepared` 가 개행을 공백으로 바꿔 닿지 않는다. 닉네임(`TeamSettings`)도 개행을 거절한다. 닿는 것은 피어가 보낸 `TeamEvent` 의 `speciesName`·`authorNickname`·
+  반응 닉네임(길이만 제한, 개행은 거르지 않음) — 정상 클라이언트는 개행을 보내지 않으므로 악의적·이상한 피어에서만 보인다. 지워진 SwiftUI 뷰는 같은 글에서 빈 줄을 제대로 보였으므로 패널 전환이 만든
+  회귀다(낮은 심각도). **왜 못 걸렀나:** 줄바꿈 말뭉치(`PlazaBreakCorpus`)에는 `"안녕\n두 번째 줄\n\n네 번째 줄"` 이 이미 있었지만 맥 쪽 골든은 TextKit/`CTFramesetter`(`paragraph` 경로)를
+  재서 `wrappedLines` 의 타입세터 경로는 밟지 않았다 — 같은 글이 다른 코드 경로로 통과해 안심을 줬다. **고침:** 길이 0 범위는 빈 줄(`line("", font:)` / `line([])`)로, 글 끝 개행은 `extraLineFragmentRect`
+  가 비어 있지 않을 때 빈 줄 하나를 더한다. 줄 수는 같은 글의 SwiftUI `Text` 높이/줄 높이와 맞춘다. **규칙:** `CFRange`/`NSRange` 의 길이 0 을 "빈 구간"으로 믿지 않는다 — CoreText 는 "끝까지"로 읽는다.
+  **회귀 점검:** `PlazaBlankLineTests`(빈 줄, 연속·앞·끝 빈 줄, 색 조각 버전, SwiftUI `Text` 줄 수와 일치) — 고침을 빼고 실패함을 확인했다. 윈도 엔진은 이미 진짜 빈 줄을 만든다.

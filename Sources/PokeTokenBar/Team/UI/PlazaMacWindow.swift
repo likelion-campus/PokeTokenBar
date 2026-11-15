@@ -57,7 +57,7 @@ extension SKView: PlazaPausableView {}
         w.isReleasedWhenClosed = false
         w.level = .normal
         w.delegate = self
-        let container = NSView(frame: view.frame)
+        let container = PlazaWindowContentView(frame: view.frame)
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
@@ -119,6 +119,8 @@ extension SKView: PlazaPausableView {}
         w.contentView = container
         w.center()
         Self.restoreFrame(w, into: overlays.rosterModel, autosaveName: autosaveName)
+        board.swallowsWholeWindow = true
+        card.swallowsWholeWindow = true
         panelHosts = [.roster: roster, .board: board, .card: card, .photoFrame: photoFrame, .menu: menu, .pills: pills, .chatLog: chatLogView, .minimap: map, .clock: clock, .shortcuts: shortcuts, .backgroundToggle: toggle,
                       .nameColorPicker: colorPicker]
         self.hud = hud
@@ -126,7 +128,7 @@ extension SKView: PlazaPausableView {}
         self.chatInput = chatInput
         chatBar.postsFrameChangedNotifications = true
         chatBarObserver = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: chatBar, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.placeChatLog() }
+            MainActor.assumeIsolated { self?.placeChatLog(forceLayout: false) }   // read the frame only: this can run inside a layout pass
         }
         window = w
         watchScrollers(w)
@@ -188,6 +190,7 @@ extension SKView: PlazaPausableView {}
 
     func setHUDHidden(_ hidden: Bool) {
         for view in hudViews { view.isHidden = hidden }
+        hud?.hiddenPanels = hidden ? Set(hudViews.compactMap { ($0 as? PlazaPanelHostView)?.panelID }) : []
     }
 
     func focusScene() {
@@ -200,22 +203,31 @@ extension SKView: PlazaPausableView {}
 
     func show(_ id: PlazaPanelID, drawing: PlazaPanelDrawing, frame: CGRect, scale: CGFloat) {
         panelHosts[id]?.show(drawing: drawing, frame: frame, scale: scale)
+        if id == .board || id == .card { coverRoster() }
     }
 
     func hide(_ id: PlazaPanelID) {
         panelHosts[id]?.hide()
+        if id == .board || id == .card { coverRoster() }
+    }
+
+    /// An open board or card covers the roster: no tooltips under it.
+    private func coverRoster() {
+        panelHosts[.roster]?.tooltipsSuspended = [PlazaPanelID.board, .card].contains { panelHosts[$0]?.panelFrame != nil }
     }
 
     func setChatLogAboveInput(_ above: Bool) {
         chatLogAbove = above
-        placeChatLog()
+        placeChatLog(forceLayout: true)
     }
 
     /// The log sits above the chat field's top (16 + the field's height + 8 from the bottom) while the field is open.
-    private func placeChatLog() {
+    /// Layout is forced only at the explicit moment the field opens, and never from inside a layout pass (the emoji panel resizes the bar
+    /// DURING the window's pass; forcing layout from that notification re-entered it: the #169 class).
+    private func placeChatLog(forceLayout: Bool) {
         guard let panel = hud?.panels.first(where: { $0.id == .chatLog }) as? PlazaChatLogPanel else { return }
         if chatLogAbove, let bar = chatInput?.view {
-            window?.contentView?.layoutSubtreeIfNeeded()
+            if forceLayout, let content = window?.contentView as? PlazaWindowContentView, !content.isInLayout { content.layoutSubtreeIfNeeded() }
             panel.inputHeight = bar.frame.height
         } else {
             panel.inputHeight = nil
@@ -266,4 +278,23 @@ extension SKView: PlazaPausableView {}
 extension PlazaWindowController {
     /// 테스트용: 단축키 안내의 V 줄에 적힌 던지는 것.
     var shortcutThrowLabel: String? { PlazaShortcutGuide.entries(season: shortcutSeason).first { $0.key == "V" }?.label }
+}
+
+/// The window's content view. It only counts (for tests) the layout calls made while it is laying out: nothing may force layout from inside
+/// a pass.
+final class PlazaWindowContentView: NSView {
+    private(set) var isInLayout = false
+    private(set) var forcedLayoutsDuringLayoutForTesting = 0
+
+    override func layout() {
+        let was = isInLayout
+        isInLayout = true
+        super.layout()
+        isInLayout = was
+    }
+
+    override func layoutSubtreeIfNeeded() {
+        if isInLayout { forcedLayoutsDuringLayoutForTesting += 1 }
+        super.layoutSubtreeIfNeeded()
+    }
 }

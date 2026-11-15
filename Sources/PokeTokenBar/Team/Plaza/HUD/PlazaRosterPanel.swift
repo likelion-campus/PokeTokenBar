@@ -60,7 +60,7 @@ enum PlazaRosterStyle {
     var onChange: (() -> Void)?
     let isVisible = true
     private let model: PlazaRosterModel
-    private let pictures: PlazaPictureCache
+    let pictures: PlazaPictureCache
     private let clock: PlazaAnimationClock
     private var observer: PlazaChangeObserver?
 
@@ -85,7 +85,13 @@ enum PlazaRosterStyle {
 
     private var rendered: String?
     private var state: String { "\(model.entries) \(model.page) \(model.capacity) \(model.isAnimating)" }
+    /// The shown page and who is on it: a page turn or a new member is a slot appearing, so failed pictures get another try.
+    private var shownSlots = ""
+    func didAppear() { pictures.forgetFailures() }
+
     private func modelChanged() {
+        let slots = "\(page.index) \(page.shown.map(\.id))"
+        if slots != shownSlots { shownSlots = slots; pictures.forgetFailures() }
         if !model.isAnimating { clock.setRunning(false) }
         if rendered != state { onChange?() }
     }
@@ -205,7 +211,8 @@ enum PlazaRosterStyle {
                               statusFrame: CGRect(x: slotWidth - s.statusTrailing - statusWidth,
                                                   y: PlazaPanelStyle.pixel((m.slotHeight - statusSize.height) / 2, scale: scale),
                                                   width: statusWidth, height: statusSize.height),
-                              label: [entry.nickname, entry.speciesName, entry.presence.badge.text].joined(separator: ", ")))
+                              label: [[entry.nickname] + (PlazaRosterStyle.gender(entry.gender).map { [$0.text] } ?? []) + (entry.isShiny ? ["★"] : []), [entry.speciesName],
+                                      [entry.presence.badge.text]].map { $0.joined(separator: " ") }.joined(separator: ", ")))
         }
         let n = CGFloat(slots.count)
         let height = m.padding + m.headerHeight + m.listTopPadding + n * m.slotHeight + max(0, n - 1) * m.slotSpacing + m.padding
@@ -316,13 +323,13 @@ enum PlazaRosterStyle {
                                             role: .staticText, label: L(.ko).plazaRosterCount(online: l.online, total: l.total))]
         for a in l.arrows where true {
             items.append(PlazaAccessibilityItem(frame: a.frame, role: .button, label: a.delta < 0 ? "<" : ">",
-                                                action: a.enabled ? PlazaPanelHit(action: a.delta < 0 ? "previous" : "next", index: nil) : nil))
+                                                action: a.enabled ? PlazaPanelHit(action: a.delta < 0 ? "previous" : "next", index: nil) : nil, isEnabled: a.enabled))
         }
         var tips: [PlazaTooltip] = []
         for (i, slot) in l.slots.enumerated() {
             let selectable = !slot.entry.isMe
             items.append(PlazaAccessibilityItem(frame: slot.frame, role: selectable ? .button : .staticText, label: slot.label,
-                                                action: selectable ? PlazaPanelHit(action: "select", index: i) : nil))
+                                                action: selectable ? PlazaPanelHit(action: "select", index: i, target: slot.entry.id) : nil))
             if selectable && slot.entry.presence != .asleep { tips.append(PlazaTooltip(frame: slot.frame, text: L(.ko).plazaRosterWalkHint)) }
         }
         return PlazaPanelDrawing(layers: image.map { [.image($0, frame: CGRect(origin: .zero, size: l.size))] } ?? [], accessibility: items, tooltips: tips)
@@ -353,7 +360,7 @@ enum PlazaRosterStyle {
             return a.enabled ? PlazaPanelHit(action: a.delta < 0 ? "previous" : "next", index: nil) : PlazaPanelHit(action: "roster", index: nil)
         }
         for (i, slot) in l.slots.enumerated() where slot.frame.contains(point) {
-            return slot.entry.isMe ? PlazaPanelHit(action: "me", index: nil) : PlazaPanelHit(action: "select", index: i)
+            return slot.entry.isMe ? PlazaPanelHit(action: "me", index: nil) : PlazaPanelHit(action: "select", index: i, target: slot.entry.id)
         }
         return PlazaPanelHit(action: "roster", index: nil)   // the plate takes the click and does nothing
     }

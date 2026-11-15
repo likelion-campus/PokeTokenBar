@@ -128,6 +128,22 @@ import XCTest
 
     // MARK: buttons
 
+    /// Review item 8: a note arriving between the press and the release shifts the rows; the release is on another note's button and acts on nothing.
+    func testAFeedUpdateBetweenPressAndReleaseCancelsTheReaction() async {
+        let r = rig(events: 2)
+        await flush()
+        let rows = r.panel.layout(scale: 2, text: r.graphics.text).rows
+        let b = rows[0].buttons[0].frame
+        let local = CGPoint(x: PlazaBoardStyle.list.minX + b.midX, y: PlazaBoardStyle.list.minY + rows[0].frame.minY + b.midY)
+        let f = frame(r) ?? .zero
+        let at = CGPoint(x: f.minX + local.x, y: f.minY + local.y)
+        _ = r.hud.handleMouse(PlazaMouseEvent(kind: .down, location: at), in: .board)
+        r.feed.insert(event("newest", age: 0))   // a newer note lands on top: row 0 is another note now
+        await flush()
+        _ = r.hud.handleMouse(PlazaMouseEvent(kind: .up, location: at), in: .board)
+        XCTAssertEqual(r.actions.list, [], "the release was on another note's button: nothing is sent")
+    }
+
     func testAReactionButtonReactsAndMyOwnIsInert() async {
         let r = rig(events: 2)
         r.feed.insert(reaction("mine", on: "e0", by: "나", .lol, author: "me"))
@@ -198,7 +214,11 @@ import XCTest
             XCTAssertGreaterThanOrEqual(f.minY, list.minY - 0.001)
             XCTAssertLessThanOrEqual(f.maxY, list.maxY + 0.001, "cut at the list's edges")
         }
-        XCTAssertTrue(d.accessibility.allSatisfy { $0.frame.minY >= list.minY - 0.001 || $0.label == "소식판" })
+        // VoiceOver: every note is an element (the ones scrolled out lie outside the list), inside a scroll area; nothing is dropped.
+        XCTAssertEqual(d.accessibility.first { $0.role == .scrollArea }?.frame, list)
+        XCTAssertGreaterThanOrEqual(d.accessibility.filter(\.inScrollArea).count, 30 * 5, "text, date, three buttons per note, all of them")
+        XCTAssertTrue(d.accessibility.contains { $0.inScrollArea && $0.frame.minY < list.minY }, "scrolled out above")
+        XCTAssertTrue(d.accessibility.contains { $0.inScrollArea && $0.frame.minY > list.maxY }, "and below")
     }
 
     func testEachOpeningStartsAtTheTop() async {
@@ -240,6 +260,6 @@ import XCTest
         // The board has no text field: nothing to reserve for a platform control (the keys that close it are the scene's).
         let r = rig(events: 3)
         let roles = Set(r.host.drawings[.board]!.accessibility.map(\.role))
-        XCTAssertEqual(roles, [.staticText, .button])
+        XCTAssertEqual(roles, [.staticText, .button, .scrollArea])
     }
 }
