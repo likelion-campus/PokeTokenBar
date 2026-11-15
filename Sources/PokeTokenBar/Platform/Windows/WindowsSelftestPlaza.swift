@@ -38,7 +38,7 @@ extension WindowsSelftest {
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: PlazaStubSpriteFetcher(log: { _ in })),
                                       nickname: { "selftest" }, memberID: { "selftest-me" },
                                       subject: { .init(speciesID: 25, isShiny: false) }, teamName: { "selftest" }, feed: feed,
-                                      shell: shell, chatInput: PlazaStubChatInput())
+                                      shell: shell, chatInput: WinPlazaChatInput())   // Task 11: the real field
         await plazaStaticChecks(r, defaults: defaults, events: events, overlays: c.overlayBindings)
         await plazaLiveChecks(r, c, shell, app, feed: feed, bytesBefore: bytesBefore, handlesBefore: handlesBefore)
     }
@@ -115,6 +115,8 @@ extension WindowsSelftest {
               "a still tree, visible, 10 s: ticks=\(ticks) draws=\(s1.draws - s0.draws) presents=\(s1.presents - s0.presents) clean=\(s1.cleanTicks - s0.cleanTicks) "
                 + "WM_PAINT=\(paints) (ZERO presents when nothing changed; the clock still runs the scene's update every frame; an unvalidated "
                 + "WM_PAINT would come back at once, forever)")
+        // plaza.chatIdle (Task 11): the chat line open and focused in the same still window draws nothing more.
+        await plazaChatIdleCheck(r, shell)
 
         // Device loss: at EndDraw (the renderer's path) and at Present (the window's), each redrawn with the same pixels.
         if let device = shell.deviceForTesting, let before = shell.frameRGBAForTesting() {
@@ -275,6 +277,8 @@ extension WindowsSelftest {
         await plazaPanelChecks(r, c, shell, hwnd, feed: feed)
         // plaza.keys / repeat / walk / altAlone / altGr / resignReleasesKeys / imeOff / click: Task 6's keyboard and mouse.
         if let s = scene { await plazaInputChecks(r, shell, hwnd, scene: s) }
+        // plaza.chat* / plaza.imeChar: Task 11's chat line (the native field, the IME path, focus moves, the tray menu).
+        await plazaChatChecks(r, c, shell, hwnd, app: app)
         scene = nil   // the selftest's own reference: the close check below asks whether the controller let go of it
         // plaza.ctrlW closes the window (through the shared path) and reopens it: the close checks below use the fresh one.
         let liveHwnd = await plazaCtrlWCheck(r, c, shell, hwnd)
