@@ -22,7 +22,7 @@ final class WindowsPlazaCanvasTests: XCTestCase {
     }
 
     private func assertPixel(_ image: PlazaImage, _ x: Int, _ y: Int, _ r: Int, _ g: Int, _ b: Int, _ a: Int, tol: Int = 0,
-                             _ note: String = "", file: StaticString = #filePath, line: UInt = #line) {
+                             note: String = "", file: StaticString = #filePath, line: UInt = #line) {
         let p = pixel(image, x, y)
         let ok = abs(Int(p.r) - r) <= tol && abs(Int(p.g) - g) <= tol && abs(Int(p.b) - b) <= tol && abs(Int(p.a) - a) <= tol
         XCTAssertTrue(ok, "\(note) pixel (\(x), \(y)) = \(p.r),\(p.g),\(p.b),\(p.a), expected \(r),\(g),\(b),\(a) +-\(tol)", file: file, line: line)
@@ -226,7 +226,7 @@ final class WindowsPlazaCanvasTests: XCTestCase {
                 let image = try XCTUnwrap(c.makeImage())
                 let want = expectedBlend(mode, src: fg, alpha: alpha, dst: bg, dstAlpha: bgAlpha)
                 // the background was stored premultiplied by its own alpha, so the formula's destination is that premultiplied value
-                assertPixel(image, 0, 0, want[0], want[1], want[2], want[3], tol: 2, "\(mode) alpha \(alpha) on bg alpha \(bgAlpha):")
+                assertPixel(image, 0, 0, want[0], want[1], want[2], want[3], tol: 2, note: "\(mode) alpha \(alpha) on bg alpha \(bgAlpha):")
                 XCTAssertEqual(c.failureCount, 0)
             }
         }
