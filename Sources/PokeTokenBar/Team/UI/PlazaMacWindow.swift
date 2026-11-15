@@ -1,6 +1,5 @@
 import AppKit
 import SpriteKit
-import SwiftUI
 
 extension SKView: PlazaPausableView {}
 
@@ -69,9 +68,9 @@ extension SKView: PlazaPausableView {}
         let board = PlazaPanelHostView(hud: hud, panel: .board)
         board.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(board)   // 목록 위: 소식판. 반응 단추와 스크롤만 받고 SKView가 첫 응답자를 유지한다.
-        let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlays.overlayModel), model: overlays.overlayModel)
-        overlay.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(overlay)   // 소식판 위: 팀원 카드. 마우스만 받고 SKView가 첫 응답자를 유지한다.
+        let card = PlazaPanelHostView(hud: hud, panel: .card)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(card)   // 소식판 위: 팀원 카드. 스크롤만 받고 SKView가 첫 응답자를 유지한다.
         let photoFrame = PlazaPanelHostView(hud: hud, panel: .photoFrame)
         photoFrame.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(photoFrame)   // 판 위, 안내 줄 아래: 사진 모드의 틀. 아무것도 클릭을 받지 않는다.
@@ -103,16 +102,12 @@ extension SKView: PlazaPausableView {}
         chatBar.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(chatBar)   // 판 위. 열린 동안에만 입력창이 첫 응답자가 된다.
         NSLayoutConstraint.activate([
-            overlay.topAnchor.constraint(equalTo: container.topAnchor),
-            overlay.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            overlay.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            overlay.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             chatBar.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
             chatBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
             chatBar.widthAnchor.constraint(equalToConstant: PlazaChatLog.width),
         ])
         // The panel hosts cover the window; the HUD places each panel (the clock on the minimap, the guide under the toggle and the picker beside it, as their constraints did).
-        for host in [roster, board, photoFrame, menu, pills, chatLogView, map, clock, shortcuts, toggle, colorPicker] {
+        for host in [roster, board, card, photoFrame, menu, pills, chatLogView, map, clock, shortcuts, toggle, colorPicker] {
             NSLayoutConstraint.activate([
                 host.topAnchor.constraint(equalTo: container.topAnchor),
                 host.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -124,7 +119,7 @@ extension SKView: PlazaPausableView {}
         w.contentView = container
         w.center()
         Self.restoreFrame(w, into: overlays.rosterModel, autosaveName: autosaveName)
-        panelHosts = [.roster: roster, .board: board, .photoFrame: photoFrame, .menu: menu, .pills: pills, .chatLog: chatLogView, .minimap: map, .clock: clock, .shortcuts: shortcuts, .backgroundToggle: toggle,
+        panelHosts = [.roster: roster, .board: board, .card: card, .photoFrame: photoFrame, .menu: menu, .pills: pills, .chatLog: chatLogView, .minimap: map, .clock: clock, .shortcuts: shortcuts, .backgroundToggle: toggle,
                       .nameColorPicker: colorPicker]
         self.hud = hud
         hud.setViewport(container.bounds.size, scale: w.backingScaleFactor)
@@ -232,6 +227,7 @@ extension SKView: PlazaPausableView {}
         func apply() {
             let always = NSScroller.preferredScrollerStyle == .legacy
             let dark = w.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            (hud?.panels.first { $0.id == .card } as? PlazaCardPanel)?.isDark = dark   // the card's rarity colours are adaptive system colours
             for case let panel as any PlazaScrollIndicating in hud?.panels ?? [] {
                 panel.scrollIndicator.alwaysVisible = always
                 panel.scrollIndicator.isDark = dark

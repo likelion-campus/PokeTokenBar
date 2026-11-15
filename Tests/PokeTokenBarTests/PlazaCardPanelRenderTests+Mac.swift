@@ -16,6 +16,7 @@ import SwiftUI
         var state: PlazaCardState
         var scroll: CGFloat = 0
         var viewport = CGSize(width: 960, height: 640)
+        var dark = false   // the SwiftUI view in the dark colour scheme, the panel with `isDark`
     }
 
     static func activity(_ n: Int = 1) -> PlazaActivity {
@@ -65,6 +66,9 @@ import SwiftUI
             Case(name: "dex-many-930", state: .loaded(m, profile(m, dex: dex(80))), scroll: 930),
             Case(name: "dex-many-bottom", state: .loaded(m, profile(m, dex: dex(80))), scroll: 100_000),
             Case(name: "small-window", state: .loaded(m, profile(m, dex: dex(20))), viewport: CGSize(width: 600, height: 460)),
+            Case(name: "large-window", state: .loaded(m, profile(m, dex: dex(80))), scroll: 150, viewport: CGSize(width: 1920, height: 1080)),
+            Case(name: "dark-header", state: .loaded(longMember, profile(longMember, dex: dex(12), current: other)), dark: true),
+            Case(name: "dark-dex", state: .loaded(m, profile(m, dex: dex(80))), scroll: 150, dark: true),
         ]
     }()
 
@@ -85,7 +89,7 @@ import SwiftUI
     private func before(_ c: Case, scale: CGFloat, limit: CGFloat = .infinity) async throws -> (image: CGImage, scrolled: CGFloat) {
         let model = PlazaOverlayModel()
         model.content = .card(c.state)
-        let b = Rig.Before(LegacyPlazaOverlayView(model: model), viewport: c.viewport, scale: scale, fill: true)
+        let b = Rig.Before(LegacyPlazaOverlayView(model: model).environment(\.colorScheme, c.dark ? .dark : .light), viewport: c.viewport, scale: scale, fill: true)
         await Rig.settle(400)
         var scrolled: CGFloat = 0
         if c.scroll > 0, let sv = findScroll(b.host) {
@@ -104,7 +108,7 @@ import SwiftUI
         let size: CGSize = PlazaCardMetrics.panelSize
         let origin = CGPoint(x: (c.viewport.width - size.width) / 2, y: (c.viewport.height - size.height) / 2)
         let list = PlazaCardStyle.lower
-        return (try Rig.renderedWithPatch(LegacyPlazaOverlayView(model: model), viewport: c.viewport, scale: scale, hosted: hosted,
+        return (try Rig.renderedWithPatch(LegacyPlazaOverlayView(model: model).environment(\.colorScheme, c.dark ? .dark : .light), viewport: c.viewport, scale: scale, hosted: hosted,
                                           patch: list.offsetBy(dx: origin.x, dy: origin.y)), scrolled)
     }
 
@@ -113,6 +117,7 @@ import SwiftUI
         model.content = .card(c.state)
         let panel = PlazaCardPanel(model: model)
         panel.scrollIndicator.isDisabled = true   // the SwiftUI original draws no scroller off screen; the indicator has its own tests
+        panel.isDark = c.dark
         let a = Rig.After(panel, viewport: c.viewport, scale: scale)
         for _ in 0..<20 { await Task.yield() }
         let dy = scrolled ?? c.scroll
@@ -133,6 +138,22 @@ import SwiftUI
             XCTAssertEqual(Int(px[0]), Int((want.red * 255).rounded()), accuracy: 1, "\(r) red")
             XCTAssertEqual(Int(px[1]), Int((want.green * 255).rounded()), accuracy: 1, "\(r) green")
             XCTAssertEqual(Int(px[2]), Int((want.blue * 255).rounded()), accuracy: 1, "\(r) blue")
+        }
+    }
+
+    /// The SwiftUI card's rarity colours followed dark mode (`.green`, `.blue`, `.orange` and `.gray` are adaptive system colours): the
+    /// panel's dark set is what SwiftUI resolves in the dark colour scheme, and its light set is unchanged.
+    func testRarityColoursFollowTheAppearanceAsSwiftUIsDid() throws {
+        for dark in [false, true] {
+            for r in [Rarity.common, .uncommon, .rare, .legendary] {
+                let image = try XCTUnwrap(K.render(Rectangle().fill(rarityColor(r)).frame(width: 4, height: 4).environment(\.colorScheme, dark ? .dark : .light), scale: 1))
+                let px = K.rgba(image)
+                let want = PlazaCardStyle.rarity(r, dark: dark)
+                print("RARITY \(dark ? "dark" : "light") \(r) swiftui \(px[0]) \(px[1]) \(px[2]) panel \(Int((want.red * 255).rounded())) \(Int((want.green * 255).rounded())) \(Int((want.blue * 255).rounded()))")
+                XCTAssertEqual(Int(px[0]), Int((want.red * 255).rounded()), accuracy: 1, "\(dark) \(r) red")
+                XCTAssertEqual(Int(px[1]), Int((want.green * 255).rounded()), accuracy: 1, "\(dark) \(r) green")
+                XCTAssertEqual(Int(px[2]), Int((want.blue * 255).rounded()), accuracy: 1, "\(dark) \(r) blue")
+            }
         }
     }
 

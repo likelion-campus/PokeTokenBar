@@ -19,12 +19,12 @@ private struct RigNoSprites: PlazaSpriteFetching {
     private static let park: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
 
     /// `feed`: the team's news feed (nil: no board).
-    init(feed: TeamFeedStore? = nil) throws {
+    init(feed: TeamFeedStore? = nil, icons: any PlazaIconSource = PlazaStubIconSource()) throws {
         controller = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.rig.\(UUID())")),
                                            loader: PlazaCharacterLoader(fetcher: RigNoSprites()),
                                            nickname: { "tester" }, memberID: { "member-1" }, subject: { .init(speciesID: 25, isShiny: false) },
                                            feed: feed, renderCheckSleep: Self.park, focusTickSleep: Self.park, dittoLoopSleep: Self.park, dittoSeed: { 7 },
-                                           shell: RecordingPlazaShell())
+                                           shell: RecordingPlazaShell(), icons: icons)
         controller.prepareScene()
         shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("the rig never brings a window forward") })
         overlays = controller.overlayBindings

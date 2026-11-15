@@ -229,3 +229,4 @@ PlazaWindowRig+Mac.swift
 PlazaChatLogWindowTests+Mac.swift
 PlazaRosterWindowTests+Mac.swift
 PlazaBoardWindowTests+Mac.swift
+PlazaCardWindowTests+Mac.swift

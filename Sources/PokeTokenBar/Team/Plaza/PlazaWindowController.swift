@@ -120,10 +120,13 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [photoFramePanel, menuPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
-    private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel)
+    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    /// The pictures the roster and the card show (the platform's loaders; a test hands in its own).
+    private let iconSource: any PlazaIconSource
+    private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel, icons: iconSource)
     /// The news board (no feed, no board: the plaza of a test that has none). It knows my member ID from when the HUD is made.
     private lazy var boardPanel: PlazaBoardPanel? = feed.map { PlazaBoardPanel(model: overlayModel, feed: $0, myMemberID: memberID()) }
+    private lazy var cardPanel = PlazaCardPanel(model: overlayModel, icons: iconSource)
     private lazy var photoFramePanel = PlazaPhotoFramePanel(model: overlayModel)
     private lazy var shortcutsPanel = PlazaShortcutGuidePanel(model: shortcutModel, toggle: togglePanel)
     private lazy var togglePanel = PlazaBackgroundTogglePanel(model: backgroundModel)
@@ -267,7 +270,9 @@ import Observation
          dittoSeed: @escaping () -> UInt64 = { UInt64.random(in: .min ... .max) },
          isFrontmost: (@MainActor () -> Bool)? = nil,
          shell: (any PlazaWindowShell)? = nil,
-         chatInput: (any PlazaChatInputHost)? = nil) {
+         chatInput: (any PlazaChatInputHost)? = nil,
+         icons: (any PlazaIconSource)? = nil) {
+        self.iconSource = icons ?? PlatformPlaza.iconSource()
         self.shell = shell ?? PlatformPlaza.makeShell()
         self.chatInput = chatInput ?? PlatformPlaza.makeChatInput()
         self.frontmostOverride = isFrontmost

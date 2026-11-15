@@ -5,15 +5,8 @@ import AppKit
 
 extension PlazaActivityTests {
 
-    /// The card is an overlay with a fixed panel: the section's height must not depend on how many rows it has.
-    @MainActor func testCardHeightDoesNotDependOnTheActivity() {
-        let now = Date()
-        var a = PlazaActivity(day: PlazaActivity.dayKey(now)); a.record(.pickup)
-        func height(_ a: PlazaActivity?) -> CGFloat {
-            NSHostingView(rootView: LegacyPlazaCardView(state: .failed(member("지아", a)))).fittingSize.height
-        }
-        XCTAssertEqual(height(a), height(nil), accuracy: 0.5)
-    }
+    // The card's height not depending on the activity is pinned on the panel: `PlazaCardPanelTests.testTheCardIsTheFixedPanelInTheMiddleInEveryState`
+    // (it replaced the SwiftUI view's `testCardHeightDoesNotDependOnTheActivity`).
 
     /// The fixed 380x460 card keeps its header and a usable dex window (two rows of cells) next to the activity section.
     func testProfileCardContentFitsTheFixedPanel() {

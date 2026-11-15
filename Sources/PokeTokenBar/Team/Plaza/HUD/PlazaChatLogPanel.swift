@@ -17,7 +17,7 @@ enum PlazaChatLogStyle {
     static let rowFont = PlazaFont.plaza(.body)
 }
 
-/// The chat log at the window's bottom left (`PlazaChatLogView`, SwiftUI, which the Mac still shows): a header with the
+/// The chat log at the window's bottom left (`PlazaChatLogView`, SwiftUI, replaced by this panel on the Mac and kept in Tests/Legacy): a header with the
 /// title and the fold button, and under it the last `PlazaChatLog.visibleCount` lines, or, unfolded, a
 /// `PlazaChatLog.expandedHeight` window onto all the kept lines that scrolls (`PlazaScrollState`). A line is one wrapped
 /// paragraph of runs: time (dimmed), a loud line's 📢, "name: " in the member's colour, the text. Nothing shows while the

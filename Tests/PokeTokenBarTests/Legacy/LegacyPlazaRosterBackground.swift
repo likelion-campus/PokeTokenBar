@@ -1,8 +1,9 @@
+// The striped plate the SwiftUI roster, board and card stood on (`PlazaRosterBackground`, from PlazaRosterView.swift), kept so the panels' render tests can
+// draw their "before" from the real views and the menus' legacy copies keep their look. Deleted in Task 19 with the rest of `Legacy/`.
 import SwiftUI
 import AppKit
+@testable import PokeTokenBar
 
-// Moved verbatim from PlazaRosterView.swift (Track A Task 17w; the roster itself is the shared PlazaRosterPanel now): the striped plate the
-// overlay's board and card still stand on, and the `Color(hex:)` helper.
 @MainActor
 struct PlazaRosterBackground: View {
     var body: some View {
@@ -28,13 +29,6 @@ struct PlazaRosterBackground: View {
         // 바깥 선(0–3pt)을 먼저 그리고 안쪽 선(3–5pt)을 그 위에 그려 2pt 전체가 보이게 한다.
         .overlay(shape.inset(by: 1.5).stroke(Color(hex: 0x1D4F55), lineWidth: 3))
         .overlay(shape.inset(by: 4).stroke(Color(hex: 0x5FB7BD), lineWidth: 2))
-    }
-}
-
-extension Color {
-    init(hex: UInt32) {
-        self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255)
     }
 }
 
