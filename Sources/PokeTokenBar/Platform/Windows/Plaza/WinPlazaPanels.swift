@@ -40,13 +40,10 @@ import Foundation
 ///
 /// It owns no timer and draws nothing itself. Main thread only.
 @MainActor final class WinPlazaPanels: PlazaPanelHost {
-    /// Bottom first: the order `PlazaMacWindow.open` adds its panel hosts to the window.
-    static let zOrder: [PlazaPanelID] = [.roster, .board, .card, .photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts,
-                                         .backgroundToggle, .nameColorPicker]
-    /// The hosts that take every click, hover and scroll over the whole window while shown (`swallowsWholeWindow`).
-    static let swallowing: Set<PlazaPanelID> = [.board, .card]
-    /// What photo mode hides (`PlazaMacWindow.hudViews`): the photo frame, menu, pills, board and card stay.
-    static let hiddenInPhotoMode: Set<PlazaPanelID> = [.roster, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker]
+    /// The shared lists the Mac window builds its hosts from (`PlazaPanelID`), so a reorder there moves both windows.
+    static let zOrder = PlazaPanelID.stackOrder
+    static let swallowing = PlazaPanelID.swallowingWholeWindow
+    static let hiddenInPhotoMode = PlazaPanelID.hiddenInPhotoMode
 
     struct Entry {
         var drawing: PlazaPanelDrawing
@@ -247,6 +244,9 @@ import Foundation
     func tracks(_ point: CGPoint) -> Bool { !trackingHosts(at: point).isEmpty || !hovered.isEmpty }
 
     /// `WinPlazaInputRouter.onMouse`: true when a panel took the event.
+    ///
+    /// The FIRST click on an inactive plaza window acts (the press reaches its panel at once, as in every Windows app); on the Mac the
+    /// first click only activates (`acceptsFirstMouse` is false). Intended per-OS difference: no handler.
     @discardableResult
     func mouse(_ e: PlazaMouseEvent) -> Bool {
         switch e.kind {

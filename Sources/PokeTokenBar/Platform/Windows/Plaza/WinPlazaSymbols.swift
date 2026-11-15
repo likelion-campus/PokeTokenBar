@@ -12,10 +12,10 @@ enum WinPlazaSymbols {
     /// Fluent first, MDL2 when only it exists, nil when neither does.
     static func family(fluent: Bool, mdl2: Bool) -> Family? { fluent ? .fluent : (mdl2 ? .mdl2 : nil) }
 
-    /// `eye` = View (E7B3), `eye.slash` = Hide (ED1A); nothing else is drawn from the symbol font.
+    /// `eye` = View (E890), `eye.slash` = Hide (ED1A); E7B3 is "RedEye" (upper lid and pupil only), not the plain eye; nothing else is drawn from the symbol font.
     static func glyph(for name: String) -> String? {
         switch name {
-        case "eye": "\u{E7B3}"
+        case "eye": "\u{E890}"
         case "eye.slash": "\u{ED1A}"
         default: nil
         }

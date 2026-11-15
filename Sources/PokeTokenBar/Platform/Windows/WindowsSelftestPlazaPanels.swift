@@ -37,15 +37,16 @@ extension WindowsSelftest {
         _ = SendMessageW(hwnd, 0x0202, 0, l)
     }
 
-    /// The buttons of the panel's drawing that carry an action, as window points (the centre of each item). Items of a scroll
-    /// area count only when their centre is inside the area's frame (the rest is scrolled out of sight).
-    @MainActor private static func buttons(_ panels: WinPlazaPanels, _ id: PlazaPanelID) -> [(centre: CGPoint, hit: PlazaPanelHit, enabled: Bool, label: String)] {
+    /// The buttons of the panel's drawing (enabled ones carry an action, disabled ones none), as window points (the centre of each
+    /// item). Items of a scroll area count only when their centre is inside the area's frame (the rest is scrolled out of sight).
+    @MainActor private static func buttons(_ panels: WinPlazaPanels, _ id: PlazaPanelID) -> [(centre: CGPoint, hit: PlazaPanelHit?, enabled: Bool, label: String)] {
         guard let e = panels.entries[id] else { return [] }
-        var out: [(CGPoint, PlazaPanelHit, Bool, String)] = []
+        var out: [(CGPoint, PlazaPanelHit?, Bool, String)] = []
         var area: CGRect?
         for item in e.drawing.accessibility {
             if item.role == .scrollArea { area = item.frame; continue }
-            guard let hit = item.action else { continue }
+            guard item.action != nil || (item.role == .button && !item.isEnabled) else { continue }
+            let hit = item.action
             let centre = CGPoint(x: item.frame.midX, y: item.frame.midY)
             if item.inScrollArea, let area, !area.contains(centre) { continue }
             out.append((CGPoint(x: e.frame.minX + centre.x, y: e.frame.minY + centre.y), hit, item.isEnabled, item.label))
@@ -78,6 +79,15 @@ extension WindowsSelftest {
             await pumpPanels(0.3)
         }
         b.rosterModel.entries = fixtureRoster
+        // The controller's refresh writes the roster from its (empty) session whenever it differs; this selftest is the second writer for
+        // its length, so the fixture survives every check (the cover check below no longer depends on winning a race).
+        let keeper = Task { @MainActor in
+            while !Task.isCancelled {
+                if b.rosterModel.entries != fixtureRoster { b.rosterModel.entries = fixtureRoster }
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+        }
+        defer { keeper.cancel() }
         for i in 0..<40 {
             b.chatLog.append(time: Date(timeIntervalSince1970: 1_800_000_000 + Double(i) * 60), name: i % 2 == 0 ? "Fixture 1" : "selftest",
                              text: "line \(i) 안녕하세요 hello world, a longer line that wraps around the log's width", color: PlazaColor(hex: 0x66CCFF))
@@ -85,12 +95,15 @@ extension WindowsSelftest {
         if c.areShortcutsFolded { c.toggleShortcuts() }
         model.banner = "selftest banner 소식"
         await pumpPanels(0.5)
+        // ev0 is the newest row and MINE; I have already given it a "cute", so that button is disabled; the others are enabled.
+        let now = Date()
         let seed = (0..<14).map { i in
-            TeamEvent(id: "ev\(i)", authorID: "a\(i % 3)", authorNickname: "민수\(i % 3)", kind: .hatch, speciesID: 25, fromSpeciesID: nil,
-                      speciesName: "깨봉이", fromSpeciesName: nil, form: nil, isShiny: i == 3, nature: nil, rarity: .common,
-                      day: PlazaActivity.dayKey(Date()), occurredAt: Date())
+            TeamEvent(id: "ev\(i)", authorID: i == 0 ? "selftest-me" : "a\(i % 3)", authorNickname: i == 0 ? "selftest" : "민수\(i % 3)", kind: .hatch,
+                      speciesID: 25, fromSpeciesID: nil, speciesName: "깨봉이", fromSpeciesName: nil, form: nil, isShiny: i == 3, nature: nil,
+                      rarity: .common, day: PlazaActivity.dayKey(now), occurredAt: now.addingTimeInterval(-Double(i) * 60))
         }
         let inserted = feed.insert(seed).count
+        _ = feed.insert(TeamReaction(id: "r-mine", eventID: "ev0", authorID: "selftest-me", authorNickname: "selftest", kind: .cute, text: nil, createdAt: now))
         let boardPanel = hud.panels.first(where: { $0.id == .board }) as? PlazaBoardPanel
 
         func shot(_ name: String) -> String {
@@ -146,20 +159,24 @@ extension WindowsSelftest {
         hud.onAction = { id, hit in log.append((id, hit)) }
         var clickLines: [String] = [], clicksOK = true
         func clickAll(_ id: PlazaPanelID) async {
-            var matched = 0, total = 0, disabledActions = 0
-            for item in buttons(panels, id) {
+            var matched = 0, total = 0, disabledActed = 0, disabledSeen = 0
+            let items = buttons(panels, id)
+            for item in items {
                 log.removeAll()
                 clickPixel(hwnd, pixel(shell, item.centre))
                 total += 1
-                if item.enabled {
-                    if log.contains(where: { $0.0 == id && $0.1 == item.hit }) { matched += 1 }
-                } else if !log.isEmpty { disabledActions += 1 }
+                if item.enabled, let hit = item.hit {
+                    if log.contains(where: { $0.0 == id && $0.1 == hit }) { matched += 1 }
+                } else {
+                    disabledSeen += 1
+                    // A disabled item may be taken (the inert "board" / "log" hits) but must not DO anything.
+                    if log.contains(where: { $0.1.action != "board" && $0.1.action != "log" }) { disabledActed += 1 }
+                }
             }
-            let allEnabled = buttons(panels, id).filter(\.enabled).count
-            clicksOK = clicksOK && total > 0 && matched == allEnabled
-            clickLines.append("\(id): \(matched)/\(allEnabled) enabled items acted (\(total) items, disabled that acted: \(disabledActions))")
+            let enabledCount = items.filter { $0.enabled && $0.hit != nil }.count
+            clicksOK = clicksOK && total > 0 && matched == enabledCount && disabledActed == 0
+            clickLines.append("\(id): \(matched)/\(enabledCount) enabled items acted, \(disabledSeen) disabled clicked and \(disabledActed) of them acted (\(total) items)")
         }
-        await seedRoster()
         for id in [PlazaPanelID.backgroundToggle, .shortcuts, .roster, .chatLog] { await clickAll(id) }
         c.toggleNameColorPicker()
         await pumpPanels(0.3)
@@ -168,6 +185,13 @@ extension WindowsSelftest {
         model.content = .memberMenu(PlazaMemberMenu(memberID: "fixture-1", nickname: "Fixture 1"))
         await pumpPanels(0.3)
         await clickAll(.menu)
+        model.content = .board
+        await pumpPanels(0.4)
+        let boardItems = buttons(panels, .board)
+        let boardEnabled = boardItems.filter { $0.enabled && $0.hit != nil }.count, boardDisabled = boardItems.filter { !$0.enabled }.count
+        await clickAll(.board)
+        clicksOK = clicksOK && boardEnabled >= 2 && boardDisabled >= 1   // the fixture really has enabled and disabled reactions
+        clickLines.append("board fixture: \(boardEnabled) enabled and \(boardDisabled) disabled reaction buttons (one of them on my own event)")
         model.content = .card(.loaded(withActivity, TeamMemberProfile(memberID: me.memberID, nickname: "Fixture 1", current: me.character, dex: [])))
         await pumpPanels(0.3)
         let cardItems = buttons(panels, .card).count
@@ -181,7 +205,7 @@ extension WindowsSelftest {
         model.content = .card(.loading(me))
         await pumpPanels(0.35)
         log.removeAll()
-        var coverOK = !rosterButtons.isEmpty
+        var coverOK = rosterButtons.filter({ $0.hit != nil }).count >= 2   // the fixture is still there
         for item in rosterButtons {
             clickPixel(hwnd, pixel(shell, item.centre))
             coverOK = coverOK && !log.contains { $0.0 == .roster } && panels.host(at: item.centre) == .card
@@ -222,14 +246,19 @@ extension WindowsSelftest {
         if let chat = panels.entries[.chatLog], let logPanel = hud.panels.first(where: { $0.id == .chatLog }) as? PlazaChatLogPanel {
             let centre = pixel(shell, CGPoint(x: chat.frame.midX, y: chat.frame.midY))
             for _ in 0..<60 { wheelMessage(hwnd, -120, at: centre) }   // to the bottom
+            await pumpPanels(0.2)
             let p0 = panels.counts.scrollsPassedOn
-            wheelMessage(hwnd, -120, at: centre)   // down at the bottom already: nothing to move
+            let bottom = logPanel.scrollState.offset
+            wheelMessage(hwnd, -120, at: centre)   // down at the bottom already: nothing to move, passed on
             let passedAtEnd = panels.counts.scrollsPassedOn - p0
-            wheelMessage(hwnd, 120, at: centre)    // up: the log moves
+            let stayed = logPanel.scrollState.offset == bottom
+            wheelMessage(hwnd, 120, at: centre)    // up: the log moves by one notch (30 points)
+            let up = logPanel.scrollState.offset
             wheelMessage(hwnd, 120, at: centre)
-            let moved = panels.counts.scrollsPassedOn - p0 == passedAtEnd
-            wheelOK = passedAtEnd == 1 && moved
-            wheelLine = "chat log expanded (\(Int(chat.frame.width))x\(Int(chat.frame.height))): wheel down at its end passed on \(passedAtEnd) time(s), wheel up moved it: \(moved) (\(String(describing: type(of: logPanel))))"
+            let up2 = logPanel.scrollState.offset
+            let moved = up < bottom && up2 < up && panels.counts.scrollsPassedOn - p0 == passedAtEnd
+            wheelOK = passedAtEnd == 1 && stayed && moved && logPanel.scrollState.canScroll
+            wheelLine = "chat log expanded (\(Int(chat.frame.width))x\(Int(chat.frame.height))): offset at the bottom \(bottom) (max \(logPanel.scrollState.maxOffset)); wheel down at its end passed on \(passedAtEnd) time(s) and left the offset: \(stayed); wheel up \(bottom) -> \(up) -> \(up2)"
         } else {
             wheelLine = "no chat log panel shown"
         }
@@ -323,9 +352,14 @@ extension WindowsSelftest {
             let scale = CGFloat(dpi) / 96
             let rendered = hud.renderCount - r0
             let scales = panels.entries.values.allSatisfy { $0.scale == scale }
-            let toolsOK = shell.tooltipsForTesting?.count == panels.tips.count
+            // The rectangles themselves, in client pixels at the new scale, worked out here from the panels' tips (a stale or unscaled tool fails).
+            let expectedRects: [[Int32]] = panels.tips.map { t in
+                [Int32(t.frame.minX * scale), Int32(t.frame.minY * scale), Int32((t.frame.maxX * scale).rounded(.up)), Int32((t.frame.maxY * scale).rounded(.up))]
+            }
+            let toolRects = shell.tooltipsForTesting?.tips.map(\.rect) ?? []
+            let toolsOK = !expectedRects.isEmpty && toolRects == expectedRects && shell.tooltipsForTesting?.count == expectedRects.count
             dpiOK = dpiOK && scales && rendered >= shownCount && rendered <= shownCount + 3 && toolsOK && hud.scale == scale
-            dpiLines.append("\(dpi) dpi: renders \(rendered) for \(shownCount) shown panels, all at scale \(scale): \(scales), tools follow: \(toolsOK) \(shot("plaza-panels-\(dpi)dpi.png"))")
+            dpiLines.append("\(dpi) dpi: renders \(rendered) for \(shownCount) shown panels, all at scale \(scale): \(scales), tool rectangles follow (\(expectedRects.count) tools, first \(expectedRects.first ?? [])): \(toolsOK) \(shot("plaza-panels-\(dpi)dpi.png"))")
         }
         var back = original
         _ = withUnsafeMutablePointer(to: &back) { SendMessageW(hwnd, 0x02E0, WPARAM(96 | (96 << 16)), LPARAM(Int(bitPattern: $0))) }
