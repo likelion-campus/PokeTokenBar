@@ -97,10 +97,15 @@ extension WindowsSelftest {
         await pumpPanels(0.5)
         // ev0 is the newest row and MINE; I have already given it a "cute", so that button is disabled; the others are enabled.
         let now = Date()
-        let seed = (0..<14).map { i in
-            TeamEvent(id: "ev\(i)", authorID: i == 0 ? "selftest-me" : "a\(i % 3)", authorNickname: i == 0 ? "selftest" : "민수\(i % 3)", kind: .hatch,
-                      speciesID: 25, fromSpeciesID: nil, speciesName: "깨봉이", fromSpeciesName: nil, form: nil, isShiny: i == 3, nature: nil,
-                      rarity: .common, day: PlazaActivity.dayKey(now), occurredAt: now.addingTimeInterval(-Double(i) * 60))
+        let dayKey: String = PlazaActivity.dayKey(now)
+        var seed: [TeamEvent] = []
+        for i in 0..<14 {
+            let author: String = i == 0 ? "selftest-me" : "a\(i % 3)"
+            let nick: String = i == 0 ? "selftest" : "민수\(i % 3)"
+            let when: Date = now.addingTimeInterval(-Double(i) * 60)
+            seed.append(TeamEvent(id: "ev\(i)", authorID: author, authorNickname: nick, kind: .hatch, speciesID: 25, fromSpeciesID: nil,
+                                  speciesName: "깨봉이", fromSpeciesName: nil, form: nil, isShiny: i == 3, nature: nil, rarity: .common,
+                                  day: dayKey, occurredAt: when))
         }
         let inserted = feed.insert(seed).count
         _ = feed.insert(TeamReaction(id: "r-mine", eventID: "ev0", authorID: "selftest-me", authorNickname: "selftest", kind: .cute, text: nil, createdAt: now))
