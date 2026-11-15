@@ -49,8 +49,6 @@ struct WinRenderStats: Equatable, Sendable {
 @MainActor final class WinPlazaRenderer {
     let surface: WinGfxSurface
     private(set) var stats = WinRenderStats()
-    /// Debug: draw bitmaps through a bitmap-brush fill instead of `DrawBitmap` (both are checked against the goldens).
-    var usesBitmapBrush = false
 
     private var commands: [PTBDrawCmd] = []
     private var clear: [Float] = [0, 0, 0, 0]
@@ -84,7 +82,7 @@ struct WinRenderStats: Equatable, Sendable {
         clear[1] = Float(background.green)
         clear[2] = Float(background.blue)
         clear[3] = Float(background.alpha)
-        device.setOptions((WinRenderFaults.has(.bilinear) ? 1 : 0) | (usesBitmapBrush ? 2 : 0))
+        device.setOptions(WinRenderFaults.has(.bilinear) ? 1 : 0)
         let code = clear.withUnsafeBufferPointer { c in
             commands.withUnsafeBufferPointer { ptb_gfx_frame(surface.handle.raw, c.baseAddress, $0.baseAddress, UInt32($0.count)) }
         }

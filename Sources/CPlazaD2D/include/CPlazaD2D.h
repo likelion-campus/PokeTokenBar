@@ -155,8 +155,7 @@ int ptb_gfx_finish(PTBGfxDevice *device);
 /* Test and selftest switches. kind 1: the next ptb_gfx_frame's EndDraw reports D2DERR_RECREATE_TARGET (the device is then
  * lost, as after a driver reset). */
 void ptb_gfx_inject_fault(PTBGfxDevice *device, int kind);
-/* Debug options (bit flags): 1 = linear instead of nearest sampling (fault injection), 2 = draw bitmaps through a
- * bitmap brush fill instead of DrawBitmap. 0 = the defaults. */
+/* Debug options (bit flags): 1 = linear instead of nearest sampling (fault injection). 0 = the default. */
 void ptb_gfx_set_options(PTBGfxDevice *device, uint32_t flags);
 /* The process's private bytes (PROCESS_MEMORY_COUNTERS_EX.PrivateUsage), for the frame-cost evidence; 0 on failure. */
 uint64_t ptb_gfx_process_private_bytes(void);

@@ -67,7 +67,6 @@ struct Device {
     Ref<ID2D1Device> d2d;
     Ref<ID2D1DeviceContext> ctx;
     Ref<ID2D1SolidColorBrush> brush;
-    Ref<ID2D1BitmapBrush1> bitmapBrush;
     Ref<ID2D1Effect> tint, dst, arith;
     Ref<ID2D1Image> tintOut, dstOut, arithOut;
     // Bitmap table: handle = slot + 1. A free slot holds nullptr.
@@ -154,7 +153,6 @@ void releaseDeviceObjects(Device *d) {
     d->arith.reset();
     d->dst.reset();
     d->tint.reset();
-    d->bitmapBrush.reset();
     d->brush.reset();
     releaseBitmaps(d);
     d->ctx.reset();
@@ -320,30 +318,19 @@ HRESULT drawPlain(Device *d, const PTBDrawCmd &k, float opacity, const char **st
         (d->options & 1u) ? D2D1_INTERPOLATION_MODE_LINEAR : D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR;
     const float sx = k.src[0], sy = k.src[1], sw = k.src[2], sh = k.src[3];
     if (sw <= 0 || sh <= 0) return S_OK;
-    if (d->options & 2u) {
-        if (!d->bitmapBrush.p) {
-            D2D1_BITMAP_BRUSH_PROPERTIES1 bp;
-            bp.extendModeX = D2D1_EXTEND_MODE_CLAMP;
-            bp.extendModeY = D2D1_EXTEND_MODE_CLAMP;
-            bp.interpolationMode = D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR;
-            HRESULT hr = c->CreateBitmapBrush(bitmap, &bp, nullptr, d->bitmapBrush.out());
-            if (FAILED(hr)) {
-                *stage = "CreateBitmapBrush";
-                return hr;
-            }
-        }
-        ID2D1BitmapBrush1 *b = d->bitmapBrush.p;
-        b->SetBitmap(bitmap);
-        b->SetInterpolationMode1(mode);
-        b->SetOpacity(opacity);
-        // Brush space is the bitmap's texels; the brush transform maps them onto the unit square.
-        const D2D1_MATRIX_3X2_F bt = matrix(1 / sw, 0, 0, 1 / sh, -sx / sw, -sy / sh);
-        b->SetTransform(&bt);
-        c->SetTransform(&m);
-        c->FillRectangle(&unit, b);
-        return S_OK;
+    // SpriteKit's tie rule (measured, plain and mirrored): a pixel centre exactly on a texel edge takes the texel to its
+    // right and below ON SCREEN (left and top edges inclusive, like the pixel coverage). WARP's interpolation lands such a
+    // centre a hair before the edge. Sampling 1/256 device pixel right of and below the centre gives SpriteKit's texel at
+    // a tie and the same texel everywhere else: the source rect moves by that offset, taken back through the transform
+    // into texels (so a mirrored sprite moves the other way, and a cut never reaches its neighbour at a mirrored edge).
+    float du = 0, dv = 0;
+    const float det = k.m[0] * k.m[3] - k.m[1] * k.m[2];
+    if (det != 0) {
+        const float e = 1.0f / 256;
+        du = (k.m[3] * e - k.m[2] * e) / det * sw;
+        dv = (k.m[0] * e - k.m[1] * e) / det * sh;
     }
-    const D2D1_RECT_F src = {sx, sy, sx + sw, sy + sh};
+    const D2D1_RECT_F src = {sx + du, sy + dv, sx + sw + du, sy + sh + dv};
     c->SetTransform(&m);
     c->DrawBitmap(bitmap, &unit, opacity, mode, &src, nullptr);
     return S_OK;
@@ -372,7 +359,10 @@ HRESULT drawEffect(Device *d, Surface *s, const PTBDrawCmd &k, const char **stag
 
     if (k.kind == PTB_CMD_COLOR) {
         // Only the multiply modes come here (a plain colour needs no effect): rgb = kx * colour * dst, alpha = colour alpha.
-        c->SetTarget(s->scratchA.p);  // the frame must not be the target while it is copied
+        // CopyFromBitmap does not run the context's batched drawing first: flush, or the copy reads a stale frame
+        // (every multiply came out black before this). The frame must not be the target while it is copied.
+        c->Flush();
+        c->SetTarget(s->scratchA.p);
         hr = s->scratchB->CopyFromBitmap(&copyAt, s->frame.p, &copyRect);
         c->SetTarget(s->frame.p);
         if (FAILED(hr)) {
@@ -421,6 +411,7 @@ HRESULT drawEffect(Device *d, Surface *s, const PTBDrawCmd &k, const char **stag
         c->Flush();
         return S_OK;
     }
+    c->Flush();  // as above: the frame's pending drawing (and the sprite in scratch A) must have run before the copy
     hr = s->scratchB->CopyFromBitmap(&copyAt, s->frame.p, &copyRect);  // scratch A is the target, not the frame
     c->SetTarget(s->frame.p);
     if (FAILED(hr)) {

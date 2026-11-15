@@ -6,7 +6,10 @@ import XCTest
 
 /// Stage 6 Task 4 on Windows: the shared plaza tree drawn by Direct2D, offscreen on WARP (no window, no swap chain), against
 /// SpriteKit's measured pixels (`spritekit-swatches.json`) and against analytic expectations where the golden cannot
-/// speak (rotation: the golden's rotated cases equal the unrotated sprite, see `testRotationGoldenIsUnrotated`).
+/// speak. Rotation: the golden's two 7° cases are drawn at one texel per pixel, where a 7° turn of an 8-pixel sprite moves
+/// every pixel centre by less than half a texel, so SpriteKit's pixels equal the unrotated sprite's (probed on the Mac: a
+/// plain `SKSpriteNode` gives the same, 30° turns visibly). They are matched like the other groups, and larger angles at
+/// scale 3 and backing 1.5 are checked analytically (`rotationErrors`).
 @MainActor
 final class WindowsPlazaRendererTests: XCTestCase {
     // MARK: Rig
@@ -61,12 +64,11 @@ final class WindowsPlazaRendererTests: XCTestCase {
     // MARK: Checks (each returns what is wrong, so the fault test can run them too)
 
     /// The worst channel difference per golden group, and where it was.
-    private func swatchErrors(_ device: WinGfxDevice, brush: Bool = false, groups: Set<String>? = nil) throws -> (worst: [String: Int], at: [String: String]) {
+    private func swatchErrors(_ device: WinGfxDevice, groups: Set<String>? = nil) throws -> (worst: [String: Int], at: [String: String]) {
         let file = try PlazaParityGoldens.load(PlazaSwatchFile.self, "spritekit-swatches.json")
         var worst: [String: Int] = [:], at: [String: String] = [:]
         for c in file.cases where groups?.contains(c.group) ?? true {
             let r = try rig(device, points: CGSize(width: c.width, height: c.height), backing: 1)
-            r.renderer.usesBitmapBrush = brush
             r.stage.root.addChild(file.tree(of: c))
             let got = frame(r)
             let want = PlazaParityGoldens.bytes(fromHex: c.rgba)
@@ -80,10 +82,10 @@ final class WindowsPlazaRendererTests: XCTestCase {
         return (worst, at)
     }
 
-    private static let swatchTolerance = ["colorBlend": 1, "multiply": 1, "daylight": 1, "nearest": 1, "multiplyX2": 2]
+    private static let swatchTolerance = ["colorBlend": 1, "multiply": 1, "daylight": 1, "nearest": 1, "rotation": 1, "multiplyX2": 2]
 
-    private func swatchFailures(_ device: WinGfxDevice, brush: Bool = false) throws -> [String] {
-        let (worst, at) = try swatchErrors(device, brush: brush, groups: Set(Self.swatchTolerance.keys))
+    private func swatchFailures(_ device: WinGfxDevice) throws -> [String] {
+        let (worst, at) = try swatchErrors(device, groups: Set(Self.swatchTolerance.keys))
         return Self.swatchTolerance.keys.sorted().compactMap { g in
             (worst[g] ?? 255) > Self.swatchTolerance[g]! ? "swatch \(g): \(worst[g] ?? -1) (\(at[g] ?? "no case"))" : nil
         }
@@ -127,7 +129,8 @@ final class WindowsPlazaRendererTests: XCTestCase {
 
     /// An 8 × 8 texture of distinct opaque texels, rotated, at scale 3: each pixel whose centre is clearly inside shows the
     /// texel under its centre (nearest), each clearly outside stays empty. Derived from SpriteKit's placement rule (scale,
-    /// rotate about the anchor, move), not from the renderer's code. Pixels within 1/1000 texel of an edge are not judged.
+    /// rotate about the anchor, move), not from the renderer's code. Pixels whose centre is within 0.02 device pixel of an
+    /// edge or a texel edge are not judged (the rasterizer snaps vertices to 1/256 pixel; ties are the swatches' business).
     private func rotationErrors(_ device: WinGfxDevice) throws -> [String] {
         var grid = PlazaBitmap(width: 8, height: 8)
         for y in 0..<8 { for x in 0..<8 { grid[x, y] = PlazaRGBA(r: UInt8(x * 30 + 10), g: UInt8(y * 30 + 10), b: 128, a: 255) } }
@@ -151,7 +154,7 @@ final class WindowsPlazaRendererTests: XCTestCase {
                     let lx = (cos(-theta) * dx - sin(-theta) * dy) / sc, ly = (sin(-theta) * dx + cos(-theta) * dy) / sc
                     let u = lx / 8 + 0.5, v = 1 - (ly / 8 + 0.5)   // v from the top of the texture
                     let tu = u * 8, tv = v * 8
-                    func near(_ t: Double) -> Bool { abs(t - t.rounded()) < 1e-3 }
+                    func near(_ t: Double) -> Bool { abs(t - t.rounded()) < 0.02 / (sc * bk) }
                     guard !near(tu), !near(tv) else { continue }
                     judged += 1
                     let got = pixel(px, width: w, pxx, py)
@@ -247,8 +250,9 @@ final class WindowsPlazaRendererTests: XCTestCase {
 
     /// Tiles of 16 pt with 8 x 8 textures, one device pixel in from the corner (on the device grid, not on whole points
     /// at fractional scales): no pixel inside the tiles is left empty or drawn twice over, and every covered pixel shows the
-    /// texel under its centre. At 1.25 some pixel centres fall on a texel edge up to the 32-bit storage of the position;
-    /// those few are not judged (the exact tie rule is the golden's `nearest x+0.5` case).
+    /// texel under its centre. At 1.25 many pixel centres sit exactly on a texel edge (1 + 2.5 k device pixels): those take
+    /// the texel to their right / below, SpriteKit's rule (the golden's `nearest x+0.5` cases), so the expectation is read
+    /// 1/1024 pixel right of and below the centre (well inside the 32-bit storage error of the position, 2e-8 px).
     private func seamErrors(_ device: WinGfxDevice, backing s: CGFloat) throws -> [String] {
         let r = try rig(device, points: CGSize(width: 64, height: 48), backing: s)
         var tiles: [(bitmap: PlazaBitmap, origin: CGPoint)] = []   // index i * 3 + j
@@ -266,31 +270,32 @@ final class WindowsPlazaRendererTests: XCTestCase {
         let px = frame(r)
         let w = r.surface.width, h = r.surface.height, sd = Double(s)
         var gaps = 0, wrong = 0, ties = 0, first = ""
+        let lean = 1.0 / 1024
         for py in 0..<h {
             for x in 0..<w {
                 let cx = Double(x) + 0.5, cy = Double(py) + 0.5
                 let got = pixel(px, width: w, x, py)
                 var want: [UInt8] = [0, 0, 0, 0]
-                var inside = false, tie = false
+                var inside = false
                 for tile in tiles {
                     let x0 = Double(tile.origin.x) * sd, x1 = x0 + 16 * sd
                     let yb = Double(h) - Double(tile.origin.y) * sd, yt = yb - 16 * sd
                     guard cx >= x0, cx < x1, cy >= yt, cy < yb else { continue }
                     inside = true
-                    let u = (cx - x0) / (2 * sd), v = (cy - yt) / (2 * sd)
-                    tie = abs(u - u.rounded()) < 1e-4 || abs(v - v.rounded()) < 1e-4
+                    let u0 = (cx - x0) / (2 * sd), v0 = (cy - yt) / (2 * sd)   // texels from the tile's top-left
+                    if abs(u0 - u0.rounded()) < 1e-4 || abs(v0 - v0.rounded()) < 1e-4 { ties += 1 }
+                    let u = u0 + lean / (2 * sd), v = v0 + lean / (2 * sd)
                     let c = tile.bitmap[min(7, Int(u.rounded(.down))), min(7, Int(v.rounded(.down)))]
                     want = [c.r, c.g, c.b, c.a]
                 }
                 if inside, got.count == 4, got[3] == 0 { gaps += 1 }
-                if tie { ties += 1; continue }
                 if zip(got, want).contains(where: { abs(Int($0) - Int($1)) > 1 }) {
                     wrong += 1
                     if first.isEmpty { first = "(\(x),\(py)) \(got) vs \(want)" }
                 }
             }
         }
-        print("SEAMS backing=\(s) pixels=\(w)x\(h) gaps=\(gaps) wrongTexel=\(wrong) notJudgedTies=\(ties)")
+        print("SEAMS backing=\(s) pixels=\(w)x\(h) gaps=\(gaps) wrongTexel=\(wrong) tiesJudged=\(ties)")
         return gaps + wrong == 0 ? [] : ["backing \(s): \(gaps) empty pixels inside the tiles, \(wrong) pixels not the texel under their centre, first \(first)"]
     }
 
@@ -299,41 +304,20 @@ final class WindowsPlazaRendererTests: XCTestCase {
     func testSwatchesMatchSpriteKit() async throws {
         let device = try makeDevice()
         print("RENDERER device adapter=\"\(device.adapter)\" warp=\(device.isWarp)")
-        for brush in [false, true] {
-            let (worst, at) = try swatchErrors(device, brush: brush)
-            for g in worst.keys.sorted() { print("SWATCH path=\(brush ? "bitmapBrush" : "drawBitmap") group=\(g) maxDelta=\(worst[g]!) worst=\(at[g] ?? "")") }
-            if !brush { XCTAssertEqual(try swatchFailures(device), []) }
-            else { print("SWATCH bitmapBrush failures: \(try swatchFailures(device, brush: true))") }
-        }
-    }
-
-    /// The golden's two rotated cases are pixel for pixel the UNROTATED sprite (the SpriteKit writer did not rotate them,
-    /// found by this task; reported to the lead). Rotation is therefore checked analytically (`rotationErrors`). This test
-    /// pins the finding, so it fails once the golden is regenerated with a real rotation and the swatch check can take it.
-    func testRotationGoldenIsUnrotated() async throws {
-        let file = try PlazaParityGoldens.load(PlazaSwatchFile.self, "spritekit-swatches.json")
-        let rotated = file.cases.filter { $0.group == "rotation" }
-        XCTAssertEqual(rotated.count, 2)
-        for c in rotated {
-            var plain = c
-            plain.sprites = c.sprites.map { var s = $0; s.rotationDegrees = 0; return s }
-            let device = try makeDevice()
-            let r = try rig(device, points: CGSize(width: c.width, height: c.height), backing: 1)
-            r.stage.root.addChild(file.tree(of: plain))
-            let unrotated = frame(r)
-            let want = PlazaParityGoldens.bytes(fromHex: c.rgba)
-            XCTAssertEqual(zip(unrotated, want).map { abs(Int($0) - Int($1)) }.max() ?? 255, 0, "\(c.name): the golden now differs from the unrotated sprite")
-        }
+        let (worst, at) = try swatchErrors(device)
+        for g in worst.keys.sorted() { print("SWATCH group=\(g) maxDelta=\(worst[g]!) worst=\(at[g] ?? "")") }
+        XCTAssertEqual(try swatchFailures(device), [])
     }
 
     func testNearestSamplingAndEdges() async throws {
         let device = try makeDevice()
-        let (worst, at) = try swatchErrors(device, groups: ["nearest"])
+        let (worst, at) = try swatchErrors(device, groups: ["nearest", "rotation"])
         XCTAssertLessThanOrEqual(worst["nearest"] ?? 255, 1, at["nearest"] ?? "")
+        XCTAssertLessThanOrEqual(worst["rotation"] ?? 255, 1, at["rotation"] ?? "")
         let bleed = try bleedErrors(device), rotation = try rotationErrors(device)
         XCTAssertEqual(bleed, [])
         XCTAssertEqual(rotation, [])
-        print("NEAREST maxDelta=\(worst["nearest"] ?? -1) bleedFailures=\(bleed.count) rotationFailures=\(rotation.count)")
+        print("NEAREST maxDelta=\(worst["nearest"] ?? -1) rotationGolden=\(worst["rotation"] ?? -1) bleedFailures=\(bleed.count) rotationFailures=\(rotation.count)")
     }
 
     func testDrawOrderIsFlattensOrder() async throws {
@@ -455,6 +439,7 @@ final class WindowsPlazaRendererTests: XCTestCase {
         XCTAssertEqual(device.stats.liveBitmaps, 3)
 
         device.injectDeviceLoss()
+        r.stage.setNeedsDraw()   // the loss shows on the next frame, and a frame runs only when something changed
         XCTAssertEqual(r.renderer.drawIfNeeded(stage: r.stage, transparent: true), .deviceLost)
         XCTAssertEqual(device.generation, gen + 1, "rebuilt with a new generation")
         XCTAssertTrue(r.stage.needsDraw, "the lost frame stays dirty")
@@ -474,6 +459,7 @@ final class WindowsPlazaRendererTests: XCTestCase {
         for _ in 0..<3 {
             _ = frame(h)
             hardware.injectDeviceLoss()
+            h.stage.setNeedsDraw()
             XCTAssertEqual(h.renderer.drawIfNeeded(stage: h.stage, transparent: true), .deviceLost)
         }
         XCTAssertTrue(hardware.wantsWarp)
@@ -485,11 +471,14 @@ final class WindowsPlazaRendererTests: XCTestCase {
 
     /// Each parity rule broken once on purpose: some check above must notice. The lines name the checks that caught it.
     func testEachInjectedFaultIsCaught() async throws {
-        let device = try makeDevice()
         defer { WinRenderFaults.active = [] }
+        let cleanDevice = try makeDevice()
+        let duskClean = try await duskCapture(cleanDevice)
         for fault in WinRenderFaults.Fault.allCases {
+            let device = try makeDevice()   // fresh: no upload made under an earlier fault is reused
             WinRenderFaults.active = [fault]
             var caught: [String] = []
+            if try await duskCapture(device) != duskClean { caught.append("duskPreview") }
             let swatches = try swatchFailures(device)
             if !swatches.isEmpty { caught.append("swatches[" + swatches.map { String($0.prefix(while: { $0 != ":" })) }.joined(separator: ", ") + "]") }
             if !(try bleedErrors(device)).isEmpty { caught.append("bleed") }
@@ -500,6 +489,21 @@ final class WindowsPlazaRendererTests: XCTestCase {
             print("FAULT \(fault): caught by \(caught.isEmpty ? "NOTHING" : caught.joined(separator: " "))")
             XCTAssertFalse(caught.isEmpty, "\(fault) went unnoticed")
         }
+    }
+
+    /// The `dusk` preview's one capture, drawn on `device`.
+    private func duskCapture(_ device: WinGfxDevice) async throws -> [UInt8] {
+        guard let scene = PlazaPreviewScenes.all.first(where: { $0.name == "dusk" }) else { return [] }
+        let stage = WinPlazaStage(size: CGSize(width: 960, height: 640))
+        stage.setBackingScale(scene.backing)
+        let surface = try WinGfxSurface.offscreen(device: device, width: Int(640 * scene.backing), height: Int(480 * scene.backing)).get()
+        let renderer = WinPlazaRenderer(surface: surface)
+        var out: [UInt8] = []
+        await PlazaPreviewScenes.run(scene, stage: stage) { _, _ in
+            _ = renderer.drawIfNeeded(stage: stage, transparent: true)
+            out = surface.readRGBA() ?? []
+        }
+        return out
     }
 
     // MARK: Real scenes
