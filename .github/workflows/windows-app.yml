@@ -841,6 +841,13 @@ jobs:
           $after = @(Get-ChildItem $data -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object FullName)
           Assert-That ($plistBefore -and (Test-Path $PtbPlist) -and $after.Count -ge $before.Count) 'uninstall.dataKept' "settings plist kept: $(Test-Path $PtbPlist); files under %LOCALAPPDATA%\PokeTokenBar: $($before.Count) before, $($after.Count) after"
           "left behind: $PtbPlist (+ .bak: $(Test-Path "$PtbPlist.bak")); $data ($($after.Count) files: $((($after | ForEach-Object { Split-Path $_ -Leaf }) | Select-Object -First 12) -join ', '))"
+      # ---- failed-update-relaunch: Setup run as the in-app update runs it (/PTBRELAUNCHONFAIL=1); setup logs in collected\failed-update ----
+      - name: A failed update brings the old app back
+        id: failed-update-relaunch
+        if: (success() || failure()) && steps.iscc.outcome == 'success' && env.PTB_LEVEL == 'full'
+        shell: pwsh
+        run: ./scripts/windows/failed-update-relaunch.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
+      # ---- end failed-update-relaunch ----
       - name: Collect logs
         if: always()
         shell: pwsh
