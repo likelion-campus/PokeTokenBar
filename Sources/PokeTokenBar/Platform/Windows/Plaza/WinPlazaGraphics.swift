@@ -2,8 +2,8 @@
 import CPlazaD2D
 import Foundation
 
-/// The plaza's graphics on Windows: bundled assets and image codecs are real (this task); canvases and text are still the
-/// headless stub's until stage 6 brings the Direct2D canvas and the DirectWrite engine.
+/// The plaza's graphics on Windows: bundled assets and image codecs are real (this task); canvases are Direct2D (`WinPlazaCanvas`); text is still the
+/// headless stub's until the DirectWrite engine.
 ///
 /// Availability: the Direct2D / DirectWrite / WIC factories are created only when something asks (`availability`, the
 /// first decode), never at launch. When one cannot be made the property says so, one line goes to the log, and the
@@ -36,7 +36,10 @@ final class WinPlazaGraphics: PlazaGraphics, @unchecked Sendable {
     var text: any PlazaTextEngine { stub.text }
 
     func makeCanvas(width: Int, height: Int, colorSpace: PlazaColorSpace) -> (any PlazaCanvas)? {
-        stub.makeCanvas(width: width, height: height, colorSpace: colorSpace)
+        guard width > 0, height > 0 else { return nil }
+        let a = Self.availability
+        guard a.wic >= 0, a.d2d >= 0 else { return nil }   // the canvas needs WIC and Direct2D, not DirectWrite
+        return WinPlazaCanvas(width: width, height: height, colorSpace: colorSpace)
     }
 
     static func resourceDirectories(environment: [String: String], executableDirectory: URL) -> [URL] {

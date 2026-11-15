@@ -227,3 +227,5 @@ PlazaDecodeGoldensMacTests.swift
 PlazaParityGoldens+Mac.swift
 # PlazaStoreSpriteParityTests+Mac: the shared sprite/icon loaders against LivePlazaSpriteFetcher, PlazaIconLoader and SpriteLoader (AppKit, ImageIO)
 PlazaStoreSpriteParityTests+Mac.swift
+# PlazaCanvasShapesMacTests: writes and re-checks the CoreGraphics goldens of the text-free canvas scripts
+PlazaCanvasShapesMacTests.swift
