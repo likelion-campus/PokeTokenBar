@@ -88,7 +88,8 @@ import XCTest
         XCTAssertEqual(WinPlazaInput.wheel(delta: -120, horizontal: false, linesPerNotch: 3).dy, -30)
         XCTAssertEqual(WinPlazaInput.wheel(delta: 120, horizontal: false, linesPerNotch: 1).dy, 10, "the system's lines per notch")
         // a precision touchpad's small deltas add up to the same distance
-        let small = (0..<8).reduce(CGFloat(0)) { $0 + WinPlazaInput.wheel(delta: 15, horizontal: false, linesPerNotch: 3).dy }
+        var small = CGFloat(0)
+        for _ in 0..<8 { small += WinPlazaInput.wheel(delta: 15, horizontal: false, linesPerNotch: 3).dy }
         XCTAssertEqual(small, 30)
     }
 
@@ -106,7 +107,7 @@ import XCTest
         }
     }
 
-    func testCharactersDoNotEatDeadKeys() async {
+    func testCharactersDoNotEatDeadKeys() async throws {
         // US International has dead keys: ' is an accent, then a gives á. With flag 0x4 the keyboard's state is left alone.
         let klid = Array("00020409".utf16) + [0]
         guard let layout = klid.withUnsafeBufferPointer({ ptb_input_load_layout($0.baseAddress) }) else {
