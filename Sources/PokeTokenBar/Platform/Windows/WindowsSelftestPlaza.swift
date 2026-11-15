@@ -109,9 +109,11 @@ extension WindowsSelftest {
         _ = await waitUntil(timeout: 10) { false }
         let s1 = shell.stats
         let ticks = s1.ticks - s0.ticks
-        r.add("plaza.idleStatic", s1.presents == s0.presents && s1.draws == s0.draws && ticks >= 500,
+        let paints = s1.paints - s0.paints
+        r.add("plaza.idleStatic", s1.presents == s0.presents && s1.draws == s0.draws && ticks >= 500 && paints <= 10,
               "a still tree, visible, 10 s: ticks=\(ticks) draws=\(s1.draws - s0.draws) presents=\(s1.presents - s0.presents) clean=\(s1.cleanTicks - s0.cleanTicks) "
-                + "(ZERO presents when nothing changed; the clock still runs the scene's update every frame)")
+                + "WM_PAINT=\(paints) (ZERO presents when nothing changed; the clock still runs the scene's update every frame; an unvalidated "
+                + "WM_PAINT would come back at once, forever)")
 
         // Device loss: at EndDraw (the renderer's path) and at Present (the window's), each redrawn with the same pixels.
         if let device = shell.deviceForTesting, let before = shell.frameRGBAForTesting() {
