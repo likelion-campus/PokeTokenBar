@@ -1,0 +1,5 @@
+# Shared copies of pure logic that stays in upstream UI files (stage 7, D8). The scan compares the two bodies with
+# comments and white space dropped and the renames applied; PopoverTwinEquivalenceTests+Mac drives both.
+#   Mac file#Type | shared file#Type | renames (Mac=shared, comma-separated)
+
+UI/PopoverView.swift#PopoverNavigation | Popover/PopoverState.swift#PopoverState | PopoverTab=Tab
