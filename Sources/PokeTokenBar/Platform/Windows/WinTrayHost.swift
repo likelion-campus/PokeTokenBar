@@ -27,6 +27,9 @@ import WinSDK
     private(set) var iconPixels = 0
     private(set) var iconSource = "none"
     private(set) var iconLoads = 0
+    /// Set by the app before `start`: the hint and "already running" balloons go through the same queue (and the same
+    /// shown / not-shown bookkeeping) as every other balloon. Without it (tests) they go straight to the tray.
+    var balloons: WinBalloonPresenter?
     private var iconKey: String?
     private var iconGeneration = 0
     private var loggedIconFailure = false
@@ -48,7 +51,7 @@ import WinSDK
         tray.add()
         if showFirstRunHint, tray.isPresent, !defaults.bool(forKey: Self.hintKey) {
             defaults.set(true, forKey: Self.hintKey)
-            _ = tray.showBalloon(title: "PokeTokenBar", body: companion.l.trayFirstRunHint, sound: false)
+            postBalloon(id: "first-run-hint", body: companion.l.trayFirstRunHint)
         }
         reloadIcon()
         observeCompanionSprite()
@@ -61,7 +64,15 @@ import WinSDK
     }
 
     func showAlreadyRunning() {
-        _ = tray.showBalloon(title: "PokeTokenBar", body: companion.l.alreadyRunning, sound: false)
+        postBalloon(id: "already-running", body: companion.l.alreadyRunning)
+    }
+
+    private func postBalloon(id: String, body: String) {
+        if let balloons {
+            balloons.post(.init(id: id, title: "PokeTokenBar", body: body, sound: false, kind: .hint))
+        } else {
+            _ = tray.showBalloon(title: "PokeTokenBar", body: body, sound: false, kind: .hint)
+        }
     }
 
     func menuItems() -> [TrayMenuModel.Item?] {

@@ -39,6 +39,7 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--selftest-park") { WindowsSelftestWakers.park(Array(arguments[(i + 1)...])) }
         if let i = arguments.firstIndex(of: "--selftest-net-burst") { WindowsSelftestNetBurst.run(Array(arguments[(i + 1)...])) }
         if let i = arguments.firstIndex(of: "--selftest-crash") { WindowsSelftestCrash.run(Array(arguments[(i + 1)...])) }
+        if arguments.contains("--language-probe") { WindowsSelftestLanguage.runProbe(arguments) }  // CI: facts under another language
         if arguments.contains("--ime-check") { WinImeCheck.run() }
         if arguments.contains("--team-probe") { WindowsTeamProbe.main(arguments) }  // Task 19: the PC check's team probe
         if arguments.contains("--set-team-code") || arguments.contains("--clear-team-code") { WindowsTeamCodeTool.run(arguments) }
@@ -146,6 +147,7 @@ private func crtExit(_ code: Int32) -> Never {
             return 0
         }
         if !WinMessageHook.install() { AppLog.write("text input stays ANSI: no WH_GETMESSAGE hook") }  // 7
+        WinAppUserModelID.set()  // before any notification: the toast is attributed to the id the installer put on the shortcut
         Platform.current = WindowsPlatform.live(window: sink)  // 8
         WindowsPlatform.limitsFactory = WindowsLimitsProviders()  // 8: Claude limits from the credentials file
 
@@ -157,6 +159,7 @@ private func crtExit(_ code: Int32) -> Never {
         self.defaults = defaults
         let store = UsageStore(defaults: defaults)  // 10
         let companion = CompanionStore(defaults: defaults)
+        WinUILanguage.migrateStoredLanguage(companion: companion, defaults: defaults)  // before the first read of companion.language
         self.store = store
         self.companion = companion
         // The update check starts at step 14 (`WindowsUpdates`); the tray menu reads it.
@@ -168,6 +171,7 @@ private func crtExit(_ code: Int32) -> Never {
         self.tray = tray
         WindowsApp.trayToRemove = tray.tray
         let balloons = WinBalloonPresenter(tray: tray.tray)
+        tray.balloons = balloons
         WindowsNotifications.install(presenter: balloons, tray: tray.tray)  // Task 8
         startTeam(balloons: balloons, tray: tray)  // 11b (Task 19)
         tray.start(showFirstRunHint: !arguments.contains("--selftest"))

@@ -109,6 +109,7 @@ enum WindowsSelftest {
         await trayChecks(r, app)
         await modalPumpChecks(r, app)
         await notifyChecks(r, app)
+        WindowsSelftestLanguage.checks(r, app)
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
         await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window
         await idleCheck(r, app)

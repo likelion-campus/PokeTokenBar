@@ -165,25 +165,44 @@ import WinSDK
             return
         }
         let w = Int(GetSystemMetrics(SM_CXSCREEN)), h = Int(GetSystemMetrics(SM_CYSCREEN))
-        let before = screenshot(x: 0, y: 0, w: w, h: h)
-        notifier.post(id: "ui-dump", title: "PokeTokenBar", body: "Sample balloon from the CI runner · 샘플 알림 😀", sound: false)
-        _ = await WindowsSelftest.waitUntil(timeout: 3) { false }  // let the shell show it
-        let after = screenshot(x: 0, y: 0, w: w, h: h)
-        notifier.presenter.handle(.hidden)
-        var changed = -1
-        if let before, let after, before.bgra.count == after.bgra.count {
-            changed = 0
+        func changedPixels(_ before: Bitmap?, _ after: Bitmap?) -> Int {
+            guard let before, let after, before.bgra.count == after.bgra.count else { return -1 }
+            var changed = 0
             var i = 0
             while i < before.bgra.count {
                 if before.bgra[i] != after.bgra[i] || before.bgra[i + 1] != after.bgra[i + 1] || before.bgra[i + 2] != after.bgra[i + 2] { changed += 1 }
                 i += 4
             }
+            return changed
         }
+        // 1: the balloon exactly as the app posts it (no quiet-time flag).
+        let before = screenshot(x: 0, y: 0, w: w, h: h)
+        let shell0 = notifier.presenter.shellShownCount
+        notifier.post(id: "ui-dump", title: "PokeTokenBar", body: "Sample balloon from the CI runner · 샘플 알림 😀", sound: false)
+        _ = await WindowsSelftest.waitUntil(timeout: 3) { false }  // let the shell show it
+        let after = screenshot(x: 0, y: 0, w: w, h: h)
+        let flags = host.tray.lastBalloonFlags
+        let shellShown = notifier.presenter.shellShownCount > shell0
+        notifier.presenter.handle(.hidden)
+        let changed = changedPixels(before, after)
         var wrote: Int32 = -1
         if let after { wrote = write(after, to: dir.appendingPathComponent("balloon-screen.png")) }
+        // 2: the control the old code was: the same balloon with NIIF_RESPECT_QUIET_TIME. Lets the log show whether the
+        // flag alone hides it (a new runner profile is in quiet time). Direct tray call: the app never sends this flag.
+        _ = await WindowsSelftest.waitUntil(timeout: 9) { false }  // the first banner must be gone
+        let before2 = screenshot(x: 0, y: 0, w: w, h: h)
+        let ok2 = host.tray.showBalloon(title: "PokeTokenBar (quiet-time control)", body: "Same balloon with NIIF_RESPECT_QUIET_TIME", sound: false,
+                                        kind: .app, extraInfoFlags: BalloonFlags.respectQuietTime)
+        _ = await WindowsSelftest.waitUntil(timeout: 3) { false }
+        let after2 = screenshot(x: 0, y: 0, w: w, h: h)
+        let changed2 = changedPixels(before2, after2)
+        var wrote2: Int32 = -1
+        if let after2 { wrote2 = write(after2, to: dir.appendingPathComponent("balloon-screen-quiet-control.png")) }
         // The call succeeding says nothing about visibility; the pixel difference is the only evidence here.
-        r.add("ui.dump.balloon", wrote == 0 && notifier.presenter.lastShown?.id == "ui-dump",
-              "screen \(w)x\(h) write=\(wrote) shell accepted=\(host.tray.lastBalloonOK) pixels changed vs before the post=\(changed) (informational; visibility is a PC check)")
+        r.add("ui.dump.balloon", wrote == 0 && wrote2 == 0 && notifier.presenter.lastShown?.id == "ui-dump" && ok2,
+              "screen \(w)x\(h) write=\(wrote)/\(wrote2) app balloon flags=0x\(String(flags, radix: 16)): shell accepted=\(host.tray.lastBalloonOK) "
+              + "NIN_BALLOONSHOW=\(shellShown) pixels changed=\(changed); quiet-time control flags=0x\(String(host.tray.lastBalloonFlags, radix: 16)) pixels changed=\(changed2) "
+              + "(informational; visibility is a PC check)")
     }
 
     // MARK: - pixels and files
