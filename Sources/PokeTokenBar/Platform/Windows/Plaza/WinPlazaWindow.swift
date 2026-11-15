@@ -14,7 +14,9 @@ import WinSDK
 /// `handleClose` to the controller; the controller then calls `stopPresenting` and `dismantle`, which joins the clock
 /// thread, removes the hooks, releases the swap chain and the device and destroys the window. The app keeps running.
 ///
-/// Not drawn yet (honest stubs, logged once): the HUD panels and the overlays (stage 6 Task 10) and the chat field (Task 11).
+/// The HUD's panels (stage 6 Task 10) are drawn into the same frame after the scene by `WinPlazaPanels`, which also routes the mouse
+/// to them as the Mac's per-panel views do; their hover texts are a system tooltip control (`WinPlazaTooltips`). Not drawn yet (an
+/// honest stub, logged once): the chat field (Task 11).
 /// Keyboard and mouse (Task 6) arrive through `inputHandler`: every input message of the window is handed to it unchanged.
 @MainActor final class WinPlazaWindow: PlazaWindowShell {
     static let className = "PokeTokenBarPlaza"
@@ -62,7 +64,8 @@ import WinSDK
     private var renderer: WinPlazaRenderer?
     private var view: WinPlazaView?
     private(set) var visibility = WinPlazaVisibility(hookMessage: WinPlazaWindow.hookMessage)
-    private weak var hud: PlazaHUD?
+    private var panels: WinPlazaPanels?
+    private var tooltips: WinPlazaTooltips?
     private var dpi: UInt32 = 96
     private var transparent = false
     private(set) var isHUDHidden = false
@@ -153,16 +156,25 @@ import WinSDK
         imeWanted = false
         _ = ptb_window_ime_set(UnsafeMutableRawPointer(hwnd), 0)   // D6: no IME context on the scene, so a Hangul-mode key stays a key
         register(made)
-        hud = overlays.hud
+        let panels = WinPlazaPanels(hud: overlays.hud)
+        self.panels = panels
+        tooltips = WinPlazaTooltips(owner: hwnd)
+        router.onMouse = { [weak panels] e in panels?.mouse(e) ?? false }
+        router.tracksMouse = { [weak panels] p in panels?.tracks(p) ?? false }
+        panels.onChange = { [weak self] in self?.panelsChanged() }
+        panels.applyScrollers(alwaysVisible: WinPlazaPanels.alwaysShowScrollbars())
         contentHeight = 0
         layoutForClient()   // reports the content height once: what `restoreFrame` does on the Mac (the roster's page size)
+        panels.setHidden(isHUDHidden)
+        panels.setChatLogAbove(isChatLogAboveInput)
+        panels.attach()     // every visible panel renders once, before the first frame
         visibility = WinPlazaVisibility(hookMessage: Self.hookMessage)
         visibility.onChange = { [weak self] visible in self?.events?.setRendering(visible: visible) }
         visibility.start(window: hwnd, displaysAsleep: systemEvents?.displaysAreAsleep ?? false)
         WinPlazaLive.current = self
         if !loggedStubs {
             loggedStubs = true
-            AppLog.write("plaza window: the HUD panels, the overlays (roster, board, card, chat log) and the chat field are not drawn on Windows yet (stage 6 Tasks 10-11)")
+            AppLog.write("plaza window: the chat field is not available on Windows yet (stage 6 Task 11)")
         }
         AppLog.write("plaza window open: adapter='\(device.adapter)' warp=\(device.isWarp) clock=\(clock.map { "\($0.source)" } ?? "none") "
             + "dpi=\(dpi) client=\(pw)x\(ph) placement=\(place.restored ? "restored" : "centred")\(place.maximized ? " maximized" : "")")
@@ -212,10 +224,13 @@ import WinSDK
         stage = nil
         let joined = view?.stop() ?? true
         view = nil
+        tooltips?.destroy()
+        tooltips = nil
+        panels?.detach()
+        panels = nil
         renderer = nil
         surface = nil
         device = nil
-        hud = nil
         lastClosed = (stats, joined)
         if WinPlazaLive.current === self { WinPlazaLive.current = nil }
         self.window = nil
@@ -236,8 +251,11 @@ import WinSDK
         stage?.setNeedsDraw()
     }
 
-    /// Kept for the panels (Task 10); nothing is drawn yet.
-    func setHUDHidden(_ hidden: Bool) { isHUDHidden = hidden }
+    /// Photo mode: the panels the Mac hides are neither drawn nor hit (the flag is kept for a window opened later).
+    func setHUDHidden(_ hidden: Bool) {
+        isHUDHidden = hidden
+        panels?.setHidden(hidden)
+    }
 
     /// The IME on the scene window: off while the scene has the keyboard; Task 11 turns it on for the chat field's focus.
     func setIMEEnabled(_ on: Bool) {
@@ -264,7 +282,10 @@ import WinSDK
         AppLog.write("plaza window: no chat field on Windows yet (stage 6 Task 11); the keys stay with the scene")
     }
 
-    func setChatLogAboveInput(_ above: Bool) { isChatLogAboveInput = above }
+    func setChatLogAboveInput(_ above: Bool) {
+        isChatLogAboveInput = above
+        panels?.setChatLogAbove(above)
+    }
 
     var isFrontmost: Bool { window.map { GetForegroundWindow() == $0.hwnd } ?? false }
     /// Windows keeps drawing while the window is resized (the tick is a posted message the modal loop dispatches; D4).
@@ -283,6 +304,8 @@ import WinSDK
     var deviceForTesting: WinGfxDevice? { device }
     var surfaceForTesting: WinGfxSurface? { surface }
     var rendererStatsForTesting: WinRenderStats? { renderer?.stats }
+    var panelsForTesting: WinPlazaPanels? { panels }
+    var tooltipsForTesting: WinPlazaTooltips? { tooltips }
     var clockStatsForTesting: PTBClockStats? { view?.clock?.stats() }
     var dpiForTesting: UInt32 { dpi }
     func frameRGBAForTesting() -> [UInt8]? { surface?.readRGBA() }
@@ -371,6 +394,7 @@ import WinSDK
                     events?.didResignKey()
                 }
             } else {
+                panels?.applyScrollers(alwaysVisible: WinPlazaPanels.alwaysShowScrollbars())   // a change made while another window was active
                 events?.didBecomeKey()
             }
             visibility.checkCoverNow()
@@ -384,6 +408,10 @@ import WinSDK
             return nil   // DefWindowProc sends WM_SIZE and WM_MOVE from it
         }
         w.on(Msg.displayChange) { [weak self] _, _ in self?.followMonitor(force: true); return nil }
+        w.on(0x001A /* WM_SETTINGCHANGE */) { [weak self] _, _ in
+            self?.panels?.applyScrollers(alwaysVisible: WinPlazaPanels.alwaysShowScrollbars())   // as the Mac follows its scroller style live
+            return nil
+        }
         w.on(Msg.session) { [weak self] wParam, _ in
             if wParam == 7 || wParam == 2 || wParam == 4 { self?.input?.releaseAll() }   // lock, console / remote disconnect
             self?.visibility.sessionChanged(Int(wParam))
@@ -397,6 +425,7 @@ import WinSDK
         for message in Self.inputMessages {
             w.on(message) { [weak self] wParam, lParam in
                 guard let self else { return nil }
+                if message >= 0x0200 && message <= 0x0208 { tooltips?.relay(message, wParam, lParam) }   // the control times its rest delay
                 return inputHandler?(message, wParam, lParam) ?? input?.handle(message, wParam, lParam)
             }
         }
@@ -408,6 +437,7 @@ import WinSDK
         stats.ticks += 1
         guard let stage, let view, view.isRunning else { return }
         stage.tick(at: WinPlazaClock.seconds())
+        panels?.frame()
         drawFrame(waitMs: 0)
     }
 
@@ -418,7 +448,7 @@ import WinSDK
             return
         }
         let t0 = WinPlazaClock.seconds()
-        switch renderer.drawIfNeeded(stage: stage, panels: [], transparent: transparent) {
+        switch renderer.drawIfNeeded(stage: stage, panels: panels?.drawList ?? [], transparent: transparent) {
         case .clean:
             stats.cleanTicks += 1
         case .gpuBusy:
@@ -465,11 +495,29 @@ import WinSDK
         stage.setBackingScale(scale)
         stage.size = size
         stage.setNeedsDraw()
-        hud?.setViewport(size, scale: scale)
+        panels?.report(size: size, scale: scale)
+        updateTooltips()
         if size.height != contentHeight {
             contentHeight = size.height
             events?.contentHeightDidChange(size.height)
         }
+    }
+
+    /// A panel's drawing, frame or visibility changed: the frame is drawn again and the tooltip tools follow.
+    private func panelsChanged() {
+        stage?.setNeedsDraw()
+        updateTooltips()
+    }
+
+    /// The shown panels' hover texts as tools in client pixels (replaced only when the list differs).
+    private func updateTooltips() {
+        guard let tooltips, let panels else { return }
+        let scale = CGFloat(dpi) / 96
+        tooltips.set(panels.tips.map { tip in
+            WinPlazaTooltips.Tip(rect: [Int32(tip.frame.minX * scale), Int32(tip.frame.minY * scale),
+                                        Int32((tip.frame.maxX * scale).rounded(.up)), Int32((tip.frame.maxY * scale).rounded(.up))],
+                                 text: tip.text)
+        })
     }
 
     private func followMonitor(force: Bool = false) {
