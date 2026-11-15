@@ -24,6 +24,7 @@ extension WindowsSelftest {
     static func run(_ r: WindowsSelftest.Recorder) async {
         let start = KitResources.now()
         await keyboardChecks(r)
+        await multiLineKeysCheck(r)
         await galleryChecks(r)
         await openCloseCheck(r, start: start)
     }
@@ -303,6 +304,8 @@ extension WindowsSelftest {
         await drawnChecks(r, w, page)
         tooltipCheck(r, w, page)
         await scrollChecks(r, w, page)
+        await partResizeCheck(r, w, page)
+        await scrollClickChecks(r, w, page)
         await dpiCheck(r, w, page)
         await idleCheck(r, w, page)
         w.destroy()
@@ -668,6 +671,179 @@ extension WindowsSelftest {
         var ranCount: Int { lock.lock(); defer { lock.unlock() }; return ran.count }
     }
 
+    // MARK: - post-merge review: tracking loops, multi-line keys, parts that change size
+
+    /// Review finding 1: a scroll bar's own tracking loop (`DefWindowProc` on a non-client click) must see its mouse input and
+    /// leave the main queue running: a double click on the page's down arrow (the second click is `WM_NCLBUTTONDBLCLK`) and
+    /// one click on a multi-line field's own arrow. A stuck loop is freed by a watchdog (`WM_CANCELMODE` sent to the window
+    /// holding the capture), so the selftest goes on and reports it.
+    private static func scrollClickChecks(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard WindowsSelftest.onCI else {
+            r.add("ui.kit.scrollClicks", true, "skipped: CI not set")
+            return
+        }
+        guard let area = w.scroll, let field = page.lastField else {
+            r.add("ui.kit.scrollClicks", false, "no scroll area or multi-line field")
+            return
+        }
+        WindowsSelftest.forceForeground(w.hwnd)
+        let line = w.ctx.px(WinScrollArea.lineDIP)
+        area.scroll(to: 0)
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        var page1 = SCROLLBARINFO()
+        page1.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
+        _ = GetScrollBarInfo(area.viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB) /* OBJID_VSCROLL */, &page1)
+        let arrow = POINT(x: (page1.rcScrollBar.left + page1.rcScrollBar.right) / 2, y: page1.rcScrollBar.bottom - page1.dxyLineButton / 2)
+        let double = await clickRun(at: arrow, clicks: 2)
+        let pageOffset = area.offset
+        let pageCapture = GetCapture()
+        // The multi-line field: twelve lines in a three-line box, scrolled into view, its own scroll bar's down arrow once.
+        field.text = (1...12).map { "C:\\folder\\\($0)" }.joined(separator: "\r\n")
+        WinKit.send(field.hwnd, 0x00B1 /* EM_SETSEL */, 0, 0)
+        WinKit.send(field.hwnd, 0x00B7 /* EM_SCROLLCARET */)
+        let fr = WinKit.rect(field.hwnd, in: area.content.hwnd)
+        area.reveal(top: fr.top, bottom: fr.bottom)
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        var bar = SCROLLBARINFO()
+        bar.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
+        _ = GetScrollBarInfo(field.hwnd, Int32(bitPattern: 0xFFFF_FFFB), &bar)
+        let firstBefore = WinKit.send(field.hwnd, 0x00CE /* EM_GETFIRSTVISIBLELINE */)
+        let one = await clickRun(at: POINT(x: (bar.rcScrollBar.left + bar.rcScrollBar.right) / 2, y: bar.rcScrollBar.bottom - bar.dxyLineButton / 2), clicks: 1)
+        let firstAfter = WinKit.send(field.hwnd, 0x00CE)
+        let fieldCapture = GetCapture()
+        field.text = ""
+        let ok = pageOffset == 2 * line && pageCapture == nil && !double.stuck && double.blockRan
+            && firstAfter == firstBefore + 1 && fieldCapture == nil && !one.stuck && one.blockRan
+        r.add("ui.kit.scrollClicks", ok,
+              "double click on the page's down arrow at (\(arrow.x),\(arrow.y)): offset 0 -> \(pageOffset) (expected \(2 * line), two lines), capture after=\(pageCapture == nil ? "none" : "kept"), "
+              + "\(double.detail); one click on the multi-line field's own down arrow: first visible line \(firstBefore) -> \(firstAfter) (expected +1), "
+              + "capture after=\(fieldCapture == nil ? "none" : "kept"), \(one.detail)")
+    }
+
+    private struct ClickResult { var stuck: Bool, blockRan: Bool, detail: String }
+
+    /// Clicks at a screen point from another thread, then posts a main-queue block and waits for it. When the main thread
+    /// still holds the mouse capture without serving that block, the loop is stuck: the watchdog frees it.
+    private static func clickRun(at p: POINT, clicks: Int) async -> ClickResult {
+        let box = ClickBox()
+        let main = WindowsApp.mainThreadID
+        let px = p.x, py = p.y
+        Thread {
+            mouse(x: px, y: py, flags: 0x0001 | 0x8000)
+            Thread.sleep(forTimeInterval: 0.08)
+            for _ in 0..<clicks {
+                mouse(x: px, y: py, flags: 0x0002)  // LEFTDOWN
+                Thread.sleep(forTimeInterval: 0.03)
+                mouse(x: px, y: py, flags: 0x0004)  // LEFTUP
+                Thread.sleep(forTimeInterval: 0.06)
+            }
+            Thread.sleep(forTimeInterval: 0.4)
+            DispatchQueue.main.async { box.ran() }
+            for _ in 0..<100 where !box.blockRan { Thread.sleep(forTimeInterval: 0.02) }
+            var info = GUITHREADINFO()
+            info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+            _ = GetGUIThreadInfo(main, &info)
+            let held = info.hwndCapture.map { Int(bitPattern: $0) } ?? 0
+            var freed = 0
+            if !box.blockRan || held != 0 {
+                for _ in 0..<10 {
+                    var now = GUITHREADINFO()
+                    now.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+                    _ = GetGUIThreadInfo(main, &now)
+                    guard let capture = now.hwndCapture else { break }
+                    var reply: DWORD_PTR = 0
+                    _ = SendMessageTimeoutW(capture, 0x001F /* WM_CANCELMODE */, 0, 0, UINT(SMTO_ABORTIFHUNG), 2000, &reply)
+                    freed += 1
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+            }
+            box.finish(stuck: !box.blockRan || held != 0, detail: "main-queue block ran within 2 s=\(box.blockRan), capture still held then=\(held != 0), watchdog WM_CANCELMODE x\(freed)")
+        }.start()
+        _ = await WindowsSelftest.waitUntil(timeout: 30) { box.isDone }
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        return ClickResult(stuck: box.stuck, blockRan: box.blockRan, detail: box.detail)
+    }
+
+    private final class ClickBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _ran = false, _done = false, _stuck = false, _detail = ""
+        func ran() { lock.lock(); _ran = true; lock.unlock() }
+        func finish(stuck: Bool, detail: String) { lock.lock(); _stuck = stuck; _detail = detail; _done = true; lock.unlock() }
+        var blockRan: Bool { lock.lock(); defer { lock.unlock() }; return _ran }
+        var isDone: Bool { lock.lock(); defer { lock.unlock() }; return _done }
+        var stuck: Bool { lock.lock(); defer { lock.unlock() }; return _stuck }
+        var detail: String { lock.lock(); defer { lock.unlock() }; return _detail }
+    }
+
+    /// Review finding 2: in a multi-line field Tab and Shift+Tab move the focus, Esc reaches the window (and destroys
+    /// nothing), Enter commits.
+    static func multiLineKeysCheck(_ r: WindowsSelftest.Recorder) async {
+        guard WindowsSelftest.onCI else {
+            r.add("ui.kit.multiLineKeys", true, "skipped: CI not set")
+            return
+        }
+        var madeField: WinControl?, madeAfter: WinControl?
+        guard let w = KitWindow(heightDIP: 260, build: { _, s in
+            let section = s.addSection("Multi-line")
+            madeField = section.addRow("Scan folders", style: .stacked) { pane, ctx in WinControls.edit(.multiLine(lines: 3, cue: nil), in: pane, ctx: ctx) }.control
+            madeAfter = section.addRow("Next") { pane, ctx in WinControls.button("After", in: pane, ctx: ctx) }.control
+        }), let field = madeField, let after = madeAfter else {
+            r.add("ui.kit.multiLineKeys", false, "the window could not be made")
+            return
+        }
+        defer { if !w.isDestroyed { w.destroy() } }
+        w.show(activate: true)
+        let pane = w.scroll?.content.hwnd
+        _ = SetFocus(field.hwnd)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { GetFocus() == field.hwnd }
+        tap(0x09)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { GetFocus() != field.hwnd }
+        let tabTo = GetFocus() == after.hwnd ? "the next button" : (GetFocus() == field.hwnd ? "stayed in the field" : "elsewhere")
+        tap(0x09, shift: true)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { GetFocus() == field.hwnd }
+        let backTo = GetFocus() == field.hwnd ? "the field" : "elsewhere"
+        var commits: [String] = []
+        field.onCommit = { commits.append($0) }
+        typeUnicode(0x61)
+        tap(0x0D)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { !commits.isEmpty }
+        let escapes0 = w.escapes
+        tap(0x1B)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { w.escapes > escapes0 }
+        _ = await WindowsSelftest.waitUntil(timeout: 0.5) { false }
+        let paneAlive = pane.map { IsWindow($0) } ?? false, fieldAlive = IsWindow(field.hwnd)
+        r.add("ui.kit.multiLineKeys", tabTo == "the next button" && backTo == "the field" && commits == ["a"] && w.escapes == escapes0 + 1 && paneAlive && fieldAlive,
+              "multi-line field: Tab -> \(tabTo); Shift+Tab -> \(backTo); Enter -> onCommit \(commits); Esc -> IDCANCEL to the window +\(w.escapes - escapes0), "
+              + "content pane alive=\(paneAlive) field alive=\(fieldAlive)")
+    }
+
+    /// Review finding 3: a drawn part whose height follows its state and its width: the page lays itself out again, so the
+    /// row under it never overlaps it (or leaves a gap).
+    private static func partResizeCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard let view = page.growing, let part = page.growingPart, let below = page.belowGrowing, let area = w.scroll, let stack = w.stack else {
+            r.add("ui.kit.partResize", false, "no growing part on the page")
+            return
+        }
+        func measure() -> (partBottom: Int32, belowTop: Int32, partH: Int32, rowH: Int32, frameH: Int32) {
+            let p = WinKit.rect(view.hwnd, in: area.content.hwnd), b = WinKit.rect(below.hwnd, in: area.content.hwnd)
+            let row = stack.frames?.sections.compactMap { $0 }.flatMap { $0.rows.compactMap { $0 } }.first { $0.control.map { Int32($0.minY) == p.top } ?? false }
+            return (p.bottom, b.top, p.bottom - p.top, Int32(row?.frame.height ?? -1), Int32(row?.control?.height ?? -1))
+        }
+        _ = await WindowsSelftest.waitUntil(timeout: 0.5) { false }
+        let first = measure()
+        part.toggle()
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
+        let grown = measure()
+        part.toggle()
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
+        let back = measure()
+        func ok(_ m: (partBottom: Int32, belowTop: Int32, partH: Int32, rowH: Int32, frameH: Int32)) -> Bool { m.belowTop >= m.partBottom && m.frameH == m.partH }
+        r.add("ui.kit.partResize", ok(first) && ok(grown) && ok(back) && grown.partH > first.partH && grown.belowTop - first.belowTop == grown.partH - first.partH,
+              "part measured at 400 DIP, placed in a narrower row: part \(first.partH) px high (layout's frame \(first.frameH)), its bottom \(first.partBottom), the next row's top \(first.belowTop); "
+              + "grown: \(grown.partH) px (frame \(grown.frameH)), bottom \(grown.partBottom), next top \(grown.belowTop); back: \(back.partH) px, next top \(back.belowTop); "
+              + "layouts=\(stack.layouts) renders=\(view.stats.renders)")
+    }
+
     private final class DepthBox: @unchecked Sendable {
         private let lock = NSLock()
         private var items: [Int] = []
@@ -852,6 +1028,9 @@ struct KitResources: CustomStringConvertible {
 @MainActor final class GalleryPage {
     var styleLabel: WinControl?, firstField: WinControl?, lastField: WinControl?, firstButton: WinControl?
     var drawn: WinDrawnView?
+    var growing: WinDrawnView?
+    var growingPart: KitGrowingPart?
+    var belowGrowing: WinControl?
     var part: KitFixturePart?
     var tooltipCount = 0
 
@@ -906,6 +1085,17 @@ struct KitResources: CustomStringConvertible {
             return view.control
         }
         tooltipCount += 1
+        drawnSection.addRow(nil, style: .full) { [weak self] pane, ctx in
+            guard let self, let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
+            let part = KitGrowingPart()
+            view.host(part, width: 400)  // measured wider than its row: the row's width re-renders it at another height
+            self.growing = view
+            self.growingPart = part
+            return view.control
+        }
+        belowGrowing = drawnSection.addRow("Below the growing part", make: { pane, ctx in
+            WinControls.button("After", in: pane, ctx: ctx)
+        }).control
         let plain = s.addSection(nil, card: false)
         plain.addRow(nil, style: .full) { pane, ctx in
             WinControls.label("A section without a card: rows stacked plainly (Home's parts)", style: .caption, role: .secondary, wraps: false, in: pane, ctx: ctx)
@@ -982,6 +1172,39 @@ struct KitResources: CustomStringConvertible {
     func hit(_ point: CGPoint) -> PlazaPanelHit? {
         button.contains(point) ? PlazaPanelHit(action: "countUp", index: nil) : nil
     }
+}
+
+/// A FIXTURE part whose height follows its state (toggled) and its width (narrower than 300 DIP: one more line), the case
+/// of the companion header, the recap card and a limit row with a second line.
+@MainActor final class KitGrowingPart: PopoverPart {
+    var onChange: (() -> Void)?
+    private(set) var expanded = false
+    private var width: CGFloat = 400
+
+    func toggle() {
+        expanded.toggle()
+        onChange?()
+    }
+
+    func size(width: CGFloat, scale: CGFloat, text: any PlazaTextEngine) -> CGSize {
+        self.width = width
+        return CGSize(width: width, height: 30 + (expanded ? 40 : 0) + (width < 300 ? 18 : 0))
+    }
+
+    func render(scale: CGFloat, graphics: any PlazaGraphics) -> PopoverDrawing {
+        let height = 30 + (expanded ? 40 : 0) + (width < 300 ? 18 : 0)
+        let layers: [PlazaPanelLayer] = [
+            .color(PlazaColor(srgbRed: 0, green: 0.48, blue: 1, alpha: 0.12), frame: CGRect(x: 0, y: 0, width: width, height: CGFloat(height))),
+            .color(PlazaColor(hex: 0x007AFF), frame: CGRect(x: 0, y: 0, width: 4, height: CGFloat(height))),
+        ]
+        let drawing = PlazaPanelDrawing(layers: layers, accessibility: [
+            PlazaAccessibilityItem(frame: CGRect(x: 8, y: 4, width: width - 16, height: 20), role: .staticText,
+                                   label: "Growing part", value: expanded ? "expanded" : "collapsed"),
+        ])
+        return PopoverDrawing(drawing: drawing)
+    }
+
+    func hit(_ point: CGPoint) -> PlazaPanelHit? { nil }
 }
 
 /// What reached an edit: characters, IME characters, key-downs and composition messages (a second subclass on top of the
