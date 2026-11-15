@@ -10,7 +10,7 @@ extension PlazaActivityTests {
         let now = Date()
         var a = PlazaActivity(day: PlazaActivity.dayKey(now)); a.record(.pickup)
         func height(_ a: PlazaActivity?) -> CGFloat {
-            NSHostingView(rootView: PlazaCardView(state: .failed(member("지아", a)))).fittingSize.height
+            NSHostingView(rootView: LegacyPlazaCardView(state: .failed(member("지아", a)))).fittingSize.height
         }
         XCTAssertEqual(height(a), height(nil), accuracy: 0.5)
     }

@@ -389,7 +389,7 @@ import CoreText
         let container = try XCTUnwrap(shell.windowForTesting?.contentView)
         container.layoutSubtreeIfNeeded()
         let hosts = container.subviews.compactMap { $0 as? PlazaPanelHostView }
-        XCTAssertEqual(hosts.map(\.panelID), [.roster, .photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+        XCTAssertEqual(hosts.map(\.panelID), [.roster, .board, .photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
         let clock = try XCTUnwrap(c.hud.panels.first { $0.id == .clock } as? PlazaClockPanel)
         for host in hosts {
             XCTAssertEqual(host.intrinsicContentSize, NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric))

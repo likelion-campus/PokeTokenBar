@@ -45,6 +45,7 @@ import SwiftUI
         Case(name: "emoji", events: [Ev(id: "a", species: "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀", reactions: [("🐶🐱", .cute, false)]), Ev(id: "b", species: "🔥 불꽃 🐕 and 😀")]),
         Case(name: "rtl", events: [Ev(id: "a", species: "שלום עולם זה טקסט ארוך מאוד בעברית"), Ev(id: "b", species: "English ואז עברית then 한국어", reactions: [("שלום", .lol, false)])]),
         Case(name: "small-window", events: many(6), viewport: CGSize(width: 600, height: 380)),
+        Case(name: "large-window", events: many(30), scroll: 200, viewport: CGSize(width: 1920, height: 1080)),
     ]
 
     private func feed(_ c: Case) -> TeamFeedStore {
@@ -81,7 +82,7 @@ import SwiftUI
         let model = PlazaOverlayModel()
         model.content = .board
         let theFeed = feed(c)
-        let b = Rig.Before(PlazaOverlayView(model: model, feed: theFeed, myMemberID: "me"), viewport: c.viewport, scale: scale, fill: true)
+        let b = Rig.Before(LegacyPlazaOverlayView(model: model, feed: theFeed, myMemberID: "me"), viewport: c.viewport, scale: scale, fill: true)
         await Rig.settle()
         var scrolled: CGFloat = 0
         if c.scroll > 0, let sv = findScroll(b.host) {
@@ -100,7 +101,7 @@ import SwiftUI
         let size: CGSize = CGSize(width: 340, height: 380)
         let origin = CGPoint(x: (c.viewport.width - size.width) / 2, y: (c.viewport.height - size.height) / 2)
         let list = PlazaBoardStyle.list
-        return (try Rig.renderedWithPatch(PlazaOverlayView(model: model, feed: theFeed, myMemberID: "me"), viewport: c.viewport, scale: scale, hosted: hosted,
+        return (try Rig.renderedWithPatch(LegacyPlazaOverlayView(model: model, feed: theFeed, myMemberID: "me"), viewport: c.viewport, scale: scale, hosted: hosted,
                                           patch: list.offsetBy(dx: origin.x, dy: origin.y)), scrolled)
     }
 

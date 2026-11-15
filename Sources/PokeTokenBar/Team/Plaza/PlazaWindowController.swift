@@ -120,8 +120,10 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel, photoFramePanel, menuPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [photoFramePanel, menuPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
     private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel)
+    /// The news board (no feed, no board: the plaza of a test that has none). It knows my member ID from when the HUD is made.
+    private lazy var boardPanel: PlazaBoardPanel? = feed.map { PlazaBoardPanel(model: overlayModel, feed: $0, myMemberID: memberID()) }
     private lazy var photoFramePanel = PlazaPhotoFramePanel(model: overlayModel)
     private lazy var shortcutsPanel = PlazaShortcutGuidePanel(model: shortcutModel, toggle: togglePanel)
     private lazy var togglePanel = PlazaBackgroundTogglePanel(model: backgroundModel)
@@ -508,6 +510,8 @@ import Observation
             if let entry = rosterPanel.entry(forHit: hit) { walkToMember(entry.id) }
         case (.roster, "previous"): turnRosterPage(by: -1)
         case (.roster, "next"): turnRosterPage(by: 1)
+        case (.board, "react"):   // the other board clicks ("board": the plate, my own reaction) are taken and do nothing
+            if let r = boardPanel?.reaction(forHit: hit) { session?.react(to: r.eventID, kind: r.kind) }
         case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
         case (.backgroundToggle, "toggle"): toggleBackground()

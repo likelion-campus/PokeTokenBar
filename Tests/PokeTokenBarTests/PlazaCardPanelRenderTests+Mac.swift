@@ -85,7 +85,7 @@ import SwiftUI
     private func before(_ c: Case, scale: CGFloat, limit: CGFloat = .infinity) async throws -> (image: CGImage, scrolled: CGFloat) {
         let model = PlazaOverlayModel()
         model.content = .card(c.state)
-        let b = Rig.Before(PlazaOverlayView(model: model), viewport: c.viewport, scale: scale, fill: true)
+        let b = Rig.Before(LegacyPlazaOverlayView(model: model), viewport: c.viewport, scale: scale, fill: true)
         await Rig.settle(400)
         var scrolled: CGFloat = 0
         if c.scroll > 0, let sv = findScroll(b.host) {
@@ -104,7 +104,7 @@ import SwiftUI
         let size: CGSize = PlazaCardMetrics.panelSize
         let origin = CGPoint(x: (c.viewport.width - size.width) / 2, y: (c.viewport.height - size.height) / 2)
         let list = PlazaCardStyle.lower
-        return (try Rig.renderedWithPatch(PlazaOverlayView(model: model), viewport: c.viewport, scale: scale, hosted: hosted,
+        return (try Rig.renderedWithPatch(LegacyPlazaOverlayView(model: model), viewport: c.viewport, scale: scale, hosted: hosted,
                                           patch: list.offsetBy(dx: origin.x, dy: origin.y)), scrolled)
     }
 

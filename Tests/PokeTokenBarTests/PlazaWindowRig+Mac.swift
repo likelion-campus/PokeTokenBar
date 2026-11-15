@@ -18,11 +18,12 @@ private struct RigNoSprites: PlazaSpriteFetching {
 
     private static let park: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
 
-    init() throws {
+    /// `feed`: the team's news feed (nil: no board).
+    init(feed: TeamFeedStore? = nil) throws {
         controller = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.rig.\(UUID())")),
                                            loader: PlazaCharacterLoader(fetcher: RigNoSprites()),
                                            nickname: { "tester" }, memberID: { "member-1" }, subject: { .init(speciesID: 25, isShiny: false) },
-                                           renderCheckSleep: Self.park, focusTickSleep: Self.park, dittoLoopSleep: Self.park, dittoSeed: { 7 },
+                                           feed: feed, renderCheckSleep: Self.park, focusTickSleep: Self.park, dittoLoopSleep: Self.park, dittoSeed: { 7 },
                                            shell: RecordingPlazaShell())
         controller.prepareScene()
         shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("the rig never brings a window forward") })
@@ -69,6 +70,18 @@ private struct RigNoSprites: PlazaSpriteFetching {
     @discardableResult
     func click(_ id: PlazaPanelID, at p: CGPoint) throws -> NSView? {
         let w = try XCTUnwrap(windowPoint(id, p))
+        let target = container.hitTest(container.convert(w, from: nil))
+        for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let e = try XCTUnwrap(NSEvent.mouseEvent(with: kind, location: w, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                                     eventNumber: 0, clickCount: 1, pressure: 1))
+            if kind == .leftMouseDown { target?.mouseDown(with: e) } else { target?.mouseUp(with: e) }
+        }
+        return target
+    }
+
+    /// A click at a window point (y up).
+    @discardableResult
+    func click(atWindow w: NSPoint) throws -> NSView? {
         let target = container.hitTest(container.convert(w, from: nil))
         for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             let e = try XCTUnwrap(NSEvent.mouseEvent(with: kind, location: w, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,

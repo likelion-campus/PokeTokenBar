@@ -51,11 +51,11 @@ extension PlazaInteractionTests {
         XCTAssertEqual(loaded.characterBadges, [.shiny, .rarity(.legendary)], "test precondition")
         XCTAssertNotNil(loaded.differingCurrent, "test precondition")
         let proposal = CGSize(width: inner, height: m.panelSize.height - 2 * m.panelInset)
-        let fit = NSHostingController(rootView: PlazaCardView(state: loaded)).sizeThatFits(in: proposal)
+        let fit = NSHostingController(rootView: LegacyPlazaCardView(state: loaded)).sizeThatFits(in: proposal)
         XCTAssertLessThanOrEqual(fit.width, inner, "a 12-character nickname wraps instead of widening the card")
         let egg = TeamMemberState(memberID: "e", nickname: "알", character: TeamMonSummary(speciesID: nil, isShiny: false, form: nil,
                                   speciesName: nil, gender: nil), inPlaza: true, tile: nil, facing: nil, isWalking: false)
-        XCTAssertLessThanOrEqual(NSHostingController(rootView: PlazaCardView(state: .loading(egg))).sizeThatFits(in: proposal).width, inner)
+        XCTAssertLessThanOrEqual(NSHostingController(rootView: LegacyPlazaCardView(state: .loading(egg))).sizeThatFits(in: proposal).width, inner)
     }
 }
 

@@ -5,9 +5,6 @@ import AppKit
 @MainActor
 struct PlazaOverlayView: View {
     let model: PlazaOverlayModel
-    var feed: TeamFeedStore?
-    var myMemberID = ""
-    var onReact: (_ eventID: String, _ kind: TeamReactionKind) -> Void = { _, _ in }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -22,9 +19,7 @@ struct PlazaOverlayView: View {
         case .none:
             Color.clear
         case .board:
-            panel(CGSize(width: 340, height: 380)) {
-                if let feed { PlazaBoardView(feed: feed, myMemberID: myMemberID, onReact: onReact) }
-            }
+            Color.clear   // the board is the shared `PlazaBoardPanel`
         case .card(let state):
             panel(PlazaCardMetrics.panelSize) { PlazaCardView(state: state) }
         case .memberMenu, .campfireMenu:
@@ -55,8 +50,8 @@ final class PlazaOverlayHostingView: NSHostingView<PlazaOverlayView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
         MainActor.assumeIsolated {
             switch model.content {
-            case .none, .memberMenu, .campfireMenu: nil   // menus are panels (their own host takes the clicks)
-            case .board, .card: super.hitTest(point)
+            case .none, .board, .memberMenu, .campfireMenu: nil   // the board and the menus are panels (their own host takes the clicks)
+            case .card: super.hitTest(point)
             }
         }
     }
