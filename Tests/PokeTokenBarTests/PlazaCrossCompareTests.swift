@@ -17,7 +17,7 @@ final class PlazaCrossCompareTests: XCTestCase {
         PlazaCrossCapture(stem: "t@1", kind: .scene, width: w, height: h, rgba: rgba ?? [UInt8](repeating: 120, count: w * h * 4), lines: lines)
     }
 
-    func testIdenticalCapturesPass() {
+    func testIdenticalCapturesPass() async {
         let c = capture([root(), sprite(origin: "p"), sprite(origin: "t")])
         let r = PlazaCrossCompare.compare(mac: c, win: c)
         XCTAssertTrue(r.passed)
@@ -25,7 +25,7 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertEqual(r.pixels.differingAll, 0)
     }
 
-    func testTextTextureSizeAndHashAreAllowed() {
+    func testTextTextureSizeAndHashAreAllowed() async {
         let mac = capture([root(), sprite(origin: "t", w: 33, h: 28, hash: "aaaa")])
         let win = capture([root(), sprite(origin: "t", w: 28, h: 25, hash: "bbbb")])
         let r = PlazaCrossCompare.compare(mac: mac, win: win)
@@ -33,7 +33,7 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertEqual(r.allowed.filter { $0.cls == "a" }.count, 2, "size and texture")
     }
 
-    func testPositionMovesAreBoundedByTheSiblingsTextDelta() {
+    func testPositionMovesAreBoundedByTheSiblingsTextDelta() async {
         // plate (text, 5 wider, 3 taller), emote (no texture), wet mark: the wet mark moves 3 pt in x (<= 5 + 1)
         let plateMac = sprite(origin: "t", w: 33, h: 28), plateWin = sprite(origin: "t", w: 28, h: 25)
         let wetMac = sprite(origin: "t", x: 18, y: 61.5, w: 16, h: 16, hash: "cccc", ordinal: 1)
@@ -47,24 +47,24 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertEqual(PlazaCrossCompare.compare(mac: capture([root(), plateMac, wetMac]), win: capture([root(), plateWin, wetWin])).treeFailures.count, 1)
     }
 
-    func testAMovedNodeWithoutTextNearbyFailsBeyondOnePoint() {
+    func testAMovedNodeWithoutTextNearbyFailsBeyondOnePoint() async {
         let a = sprite(origin: "p", x: 10, y: 10)
         XCTAssertTrue(PlazaCrossCompare.compare(mac: capture([root(), a]), win: capture([root(), sprite(origin: "p", x: 10.5, y: 10)])).treeFailures.isEmpty)
         XCTAssertEqual(PlazaCrossCompare.compare(mac: capture([root(), a]), win: capture([root(), sprite(origin: "p", x: 12, y: 10)])).treeFailures.count, 1)
     }
 
-    func testCanvasWithoutTextMayChangeItsHashButNotItsSize() {
+    func testCanvasWithoutTextMayChangeItsHashButNotItsSize() async {
         let mac = capture([root(), sprite(origin: "c", w: 16, h: 16, hash: "aaaa")])
         XCTAssertTrue(PlazaCrossCompare.compare(mac: mac, win: capture([root(), sprite(origin: "c", w: 16, h: 16, hash: "bbbb")])).treeFailures.isEmpty)
         XCTAssertFalse(PlazaCrossCompare.compare(mac: mac, win: capture([root(), sprite(origin: "c", w: 17, h: 16, hash: "aaaa")])).treeFailures.isEmpty)
     }
 
-    func testPixelArtMustMatchExactly() {
+    func testPixelArtMustMatchExactly() async {
         let mac = capture([root(), sprite(origin: "p", hash: "aaaa")])
         XCTAssertFalse(PlazaCrossCompare.compare(mac: mac, win: capture([root(), sprite(origin: "p", hash: "bbbb")])).treeFailures.isEmpty)
     }
 
-    func testADroppedNodeAndAChangedOriginFail() {
+    func testADroppedNodeAndAChangedOriginFail() async {
         let a = capture([root(), sprite(origin: "p"), sprite(origin: "p", x: 5)])
         let dropped = capture([root(), sprite(origin: "p")])
         let r = PlazaCrossCompare.compare(mac: a, win: dropped)
@@ -73,13 +73,13 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertFalse(PlazaCrossCompare.compare(mac: capture([root(), sprite(origin: "t")]), win: capture([root(), sprite(origin: "c")])).treeFailures.isEmpty)
     }
 
-    func testAnUnexpectedFieldFails() {
+    func testAnUnexpectedFieldFails() async {
         var other = sprite(origin: "p")
         other.text = other.text.replacingOccurrences(of: "z=10.0000", with: "z=11.0000")
         XCTAssertFalse(PlazaCrossCompare.compare(mac: capture([root(), sprite(origin: "p")]), win: capture([root(), other])).treeFailures.isEmpty)
     }
 
-    func testPixelToleranceAndTheMasks() {
+    func testPixelToleranceAndTheMasks() async {
         let w = 100, h = 100
         let base = [UInt8](repeating: 100, count: w * h * 4)
         func shifted(by d: UInt8, pixels: Int) -> [UInt8] {
@@ -100,7 +100,7 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertEqual(r.pixels.worst?.x, 0)
     }
 
-    func testMasksCoverTextRectanglesOnBothSidesGrown() {
+    func testMasksCoverTextRectanglesOnBothSidesGrown() async {
         let w = 100, h = 100
         let base = [UInt8](repeating: 100, count: w * h * 4)
         var win = base
@@ -118,7 +118,7 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertEqual(plain.pixels.over, 200)
     }
 
-    func testAOnePixelShiftIsCaught() {
+    func testAOnePixelShiftIsCaught() async {
         let w = 64, h = 48
         var base = [UInt8](repeating: 0, count: w * h * 4)
         for y in 0..<h { for x in 0..<w { let v = UInt8((x / 4 + y / 4) % 2 * 200 + 20); for c in 0..<3 { base[(y * w + x) * 4 + c] = v }; base[(y * w + x) * 4 + 3] = 255 } }
@@ -128,7 +128,7 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertFalse(PlazaCrossCompare.compare(mac: capture(lines, rgba: base, w: w, h: h), win: capture(lines, rgba: shifted, w: w, h: h)).passed)
     }
 
-    func testReferenceRoundTripsAndDeduplicates() throws {
+    func testReferenceRoundTripsAndDeduplicates() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-cross-\(ProcessInfo.processInfo.processIdentifier)")
         try? FileManager.default.removeItem(at: dir)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -153,7 +153,7 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertLessThanOrEqual(atlas, 5 * 3 + 1 + 2, "a@1 and b@2 share every block but one")
     }
 
-    func testTheReportNamesTheWorstCapturesAndSkips() throws {
+    func testTheReportNamesTheWorstCapturesAndSkips() async throws {
         let w = 64, h = 48
         let base = [UInt8](repeating: 100, count: w * h * 4)
         var bad = base
