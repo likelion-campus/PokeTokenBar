@@ -35,9 +35,11 @@ enum PlatformPlaza {
     }()
 
     /// The modifier keys held right now. The scene polls it every frame (key-up events do not arrive while Command
-    /// is held). Windows reads its keyboard in stage 6; until then nothing is held there.
+    /// is held). Windows reads `GetKeyState` (Ctrl as ⌘, Alt as ⌥).
     @MainActor static func currentModifiers() -> PlazaModifiers {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        WinPlazaInput.currentModifiers()
+        #elseif PTB_SHARED_ONLY
         []
         #else
         MacPlazaInput.currentModifiers()

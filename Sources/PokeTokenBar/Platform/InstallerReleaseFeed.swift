@@ -50,7 +50,7 @@ enum InstallerReleaseFeed {
         guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return .failed }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        guard let (data, resp) = try? await session.data(for: req),
+        guard let (data, resp) = try? await PlatformCompat.oneShotData(for: req, session: session),
               (resp as? HTTPURLResponse)?.statusCode == 200 else { return .failed }
         if let release = parse(data) { return .release(release) }
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], json["tag_name"] is String { return .noInstaller }

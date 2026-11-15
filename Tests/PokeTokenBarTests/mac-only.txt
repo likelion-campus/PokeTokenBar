@@ -220,6 +220,8 @@ PlazaDecodeGoldensMacTests.swift
 PlazaParityGoldens+Mac.swift
 # PlazaStoreSpriteParityTests+Mac: the shared sprite/icon loaders against LivePlazaSpriteFetcher, PlazaIconLoader and SpriteLoader (AppKit, ImageIO)
 PlazaStoreSpriteParityTests+Mac.swift
+# RedirectHeadersMacTests: what the Mac's URLSession re-sends on a redirect (Darwin sockets; the Windows seam follows these rules)
+RedirectHeadersMacTests.swift
 # OneShotDataMacTests: pins the Mac branch of PlatformCompat.oneShotData to URLSession.shared (a URLProtocol stub; Windows takes WinHTTP, WindowsHTTPFetchTests)
 OneShotDataMacTests.swift
 # PlazaWindowRig+Mac, PlazaChatLogWindowTests+Mac: the real PlazaMacWindow (never shown) over a real controller, driven through its panel hosts (Task 17w)

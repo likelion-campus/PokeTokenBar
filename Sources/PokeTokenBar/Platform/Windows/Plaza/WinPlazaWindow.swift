@@ -28,7 +28,8 @@ import WinSDK
     /// The keyboard, mouse and focus messages handed to `inputHandler` (Task 6).
     static let inputMessages: [UINT] = [0x0100, 0x0101, 0x0102, 0x0103, 0x0104, 0x0105, 0x0106, 0x0107,  // keys, chars
                                         0x0200, 0x0201, 0x0202, 0x0204, 0x0205, 0x0207, 0x0208, 0x020A, 0x020E, 0x02A3,  // mouse
-                                        0x0007, 0x0008]  // WM_SETFOCUS, WM_KILLFOCUS
+                                        0x0007, 0x0008,  // WM_SETFOCUS, WM_KILLFOCUS
+                                        0x0112, 0x0211, 0x001F, 0x0215, 0x0051]  // WM_SYSCOMMAND, WM_ENTERMENULOOP, WM_CANCELMODE, WM_CAPTURECHANGED, WM_INPUTLANGCHANGE
 
     private enum Msg {
         static let close: UINT = 0x0010, paint: UINT = 0x000F, eraseBackground: UINT = 0x0014, setCursor: UINT = 0x0020
@@ -44,8 +45,11 @@ import WinSDK
     }
 
     weak var events: (any PlazaWindowEvents)?
-    /// Task 6: the window's input messages (`inputMessages`), raw. nil → `DefWindowProc`.
+    /// A hook that sees the window's input messages (`inputMessages`) raw before `input` does; a non-nil result wins.
     var inputHandler: ((UINT, WPARAM, LPARAM) -> LRESULT?)?
+    /// Task 6 (D7): keys, mouse and wheel of the open window; nil without a window.
+    private(set) var input: WinPlazaInputRouter?
+    private var imeWanted = false
 
     private let placementKey: String
     private let defaults: UserDefaults
@@ -143,6 +147,11 @@ import WinSDK
         stage.onPauseChange = { [weak self] in self?.view?.update() }
         showMaximized = place.maximized
         stats = Stats()
+        let router = WinPlazaInputRouter(hwnd: hwnd, stage: { [weak self] in self?.stage }, scale: { [weak self] in CGFloat(self?.dpi ?? 96) / 96 })
+        router.reassertIME = { [weak self] in self?.reassertIME() }
+        input = router
+        imeWanted = false
+        _ = ptb_window_ime_set(UnsafeMutableRawPointer(hwnd), 0)   // D6: no IME context on the scene, so a Hangul-mode key stays a key
         register(made)
         hud = overlays.hud
         contentHeight = 0
@@ -196,6 +205,8 @@ import WinSDK
     func dismantle() {
         guard let window else { return }
         savePlacement()
+        input?.releaseAll()
+        input = nil
         visibility.stop()
         stage?.onPauseChange = nil
         stage = nil
@@ -227,6 +238,20 @@ import WinSDK
 
     /// Kept for the panels (Task 10); nothing is drawn yet.
     func setHUDHidden(_ hidden: Bool) { isHUDHidden = hidden }
+
+    /// The IME on the scene window: off while the scene has the keyboard; Task 11 turns it on for the chat field's focus.
+    func setIMEEnabled(_ on: Bool) {
+        guard let hwnd = window?.hwnd else { return }
+        imeWanted = on
+        _ = ptb_window_ime_set(UnsafeMutableRawPointer(hwnd), on ? 1 : 0)
+    }
+
+    var imeHasContext: Bool { window.map { ptb_window_ime_has_context(UnsafeMutableRawPointer($0.hwnd)) == 1 } ?? false }
+
+    private func reassertIME() {
+        guard !imeWanted, let hwnd = window?.hwnd, ptb_window_ime_has_context(UnsafeMutableRawPointer(hwnd)) == 1 else { return }
+        _ = ptb_window_ime_set(UnsafeMutableRawPointer(hwnd), 0)
+    }
 
     func focusScene() {
         guard let window, isFrontmost, GetFocus() != window.hwnd else { return }
@@ -303,6 +328,7 @@ import WinSDK
         w.on(Msg.size) { [weak self] wParam, _ in
             guard let self else { return nil }
             if wParam == WPARAM(SIZE_MINIMIZED) {
+                input?.releaseAll()
                 visibility.setMinimized(true)
                 return 0
             }
@@ -325,7 +351,11 @@ import WinSDK
             followMonitor()
             return 0
         }
-        w.on(WinModalPump.enterSizeMove) { _, _ in WinModalPump.begin("sizemove"); return nil }
+        w.on(WinModalPump.enterSizeMove) { [weak self] _, _ in
+            self?.input?.releaseAll()   // the move/size loop swallows key-ups
+            WinModalPump.begin("sizemove")
+            return nil
+        }
         w.on(WinModalPump.exitSizeMove) { [weak self] _, _ in
             WinModalPump.end("sizemove")
             self?.savePlacement()
@@ -336,7 +366,10 @@ import WinSDK
             if wParam & 0xFFFF == 0 /* WA_INACTIVE */ {
                 let other = HWND(bitPattern: Int(lParam))
                 let ours = other.map { GetAncestor($0, UINT(GA_ROOTOWNER)) == window?.hwnd } ?? false
-                if !ours { events?.didResignKey() }
+                if !ours {
+                    input?.releaseAll()
+                    events?.didResignKey()
+                }
             } else {
                 events?.didBecomeKey()
             }
@@ -351,14 +384,21 @@ import WinSDK
             return nil   // DefWindowProc sends WM_SIZE and WM_MOVE from it
         }
         w.on(Msg.displayChange) { [weak self] _, _ in self?.followMonitor(force: true); return nil }
-        w.on(Msg.session) { [weak self] wParam, _ in self?.visibility.sessionChanged(Int(wParam)); return 0 }
+        w.on(Msg.session) { [weak self] wParam, _ in
+            if wParam == 7 || wParam == 2 || wParam == 4 { self?.input?.releaseAll() }   // lock, console / remote disconnect
+            self?.visibility.sessionChanged(Int(wParam))
+            return 0
+        }
         w.on(Msg.timer) { [weak self] wParam, _ in
             guard wParam == WPARAM(WinPlazaVisibility.coverTimerID) else { return nil }
             self?.visibility.checkCoverNow()
             return 0
         }
         for message in Self.inputMessages {
-            w.on(message) { [weak self] wParam, lParam in self?.inputHandler?(message, wParam, lParam) }
+            w.on(message) { [weak self] wParam, lParam in
+                guard let self else { return nil }
+                return inputHandler?(message, wParam, lParam) ?? input?.handle(message, wParam, lParam)
+            }
         }
     }
 

@@ -57,7 +57,7 @@ actor SpriteStore {
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
         if confirmedMissing.contains(key) { return nil }
         let url = Self.spriteURL(speciesID: speciesID, animated: animated, shiny: shiny, form: form, back: back)
-        guard let (d, resp) = try? await URLSession.shared.data(from: url) else { return nil }
+        guard let (d, resp) = try? await PlatformCompat.oneShotData(from: url) else { return nil }
         let status = (resp as? HTTPURLResponse)?.statusCode
         if back, status == 404 { confirmedMissing.insert(key) }
         guard status == 200, !d.isEmpty else { return nil }
@@ -80,7 +80,7 @@ actor SpriteStore {
         let file = directory.appendingPathComponent("\(key).png")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
         guard let url = URL(string: "\(itemBase)/\(itemName).png"),
-              let (d, resp) = try? await URLSession.shared.data(from: url),
+              let (d, resp) = try? await PlatformCompat.oneShotData(from: url),
               (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
         try? d.write(to: file, options: .atomic)
         remember(key, d)
@@ -94,7 +94,7 @@ actor SpriteStore {
         let file = directory.appendingPathComponent("egg.png")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
         guard let url = URL(string: "\(Self.base)/egg.png"),
-              let (d, resp) = try? await URLSession.shared.data(from: url),
+              let (d, resp) = try? await PlatformCompat.oneShotData(from: url),
               (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
         try? d.write(to: file, options: .atomic)
         remember(key, d)
