@@ -2405,6 +2405,29 @@ read_when:
   가 비어 있지 않을 때 빈 줄 하나를 더한다. 줄 수는 같은 글의 SwiftUI `Text` 높이/줄 높이와 맞춘다. **규칙:** `CFRange`/`NSRange` 의 길이 0 을 "빈 구간"으로 믿지 않는다 — CoreText 는 "끝까지"로 읽는다.
   **회귀 점검:** `PlazaBlankLineTests`(빈 줄, 연속·앞·끝 빈 줄, 색 조각 버전, SwiftUI `Text` 줄 수와 일치) — 고침을 빼고 실패함을 확인했다. 윈도 엔진은 이미 진짜 빈 줄을 만든다.
 
+- **기본 상한은 그 값을 정한 호출부의 크기다 — API 응답용 32 MiB 본문 상한과 31.6 MiB 설치 파일 사이 여유가 1.3% 뿐이었다 (stage 8, 잠복).**
+  윈도의 원샷 요청 이음매(`WinHTTPFetch.data`)는 본문을 `maxBodyBytes` 로 묶고, 기본값 `defaultMaxBodyBytes` 는 32 MiB 다. 그 값은
+  "가장 큰 응답이 1 MB 미만"인 API 호출부를 보고 정했고(`WinHTTPFetch.swift` 39·63), `PlatformCompat.oneShotData` 가 그 기본값을 그대로
+  물려준다. 앱 안 업데이트(stage 8 Task 6)가 이 이음매로 설치 파일을 받으면 상한을 따로 적지 않는 한 이 기본값을 받는다. 설치 파일은 stage 6
+  Task 2 이후 31.6 MiB(2.5.634 CI 빌드 33,121,702 B, windows-app run 43736993382)이고 상한 33,554,432 B 와의 여유는 432,730 B(1.3%)다 — 글꼴이나
+  그림 묶음 하나로 넘는다. 넘으면 `.dataLengthExceedsMaximum` → 다운로드 실패 → 릴리스 페이지가 열리고 로그 한 줄만 남아, 업데이트가 조용히
+  죽는다. 계획 단계에서 찾았고(stage 8 계획 F13) 다운로드 코드가 아직 없어 사용자 영향은 없다.
+  **왜 못 걸렀나:** ① 상한 테스트(`WindowsHTTPFetchTests`, 230 B gzip → 200,000 B)는 작은 `maxBodyBytes` 를 직접 넣어 "상한이 작동하는가"만
+  봤고, 기본값과 실제로 가장 큰 페이로드의 관계는 아무것도 묶지 않았다. ② 설치 파일 크기는 워크플로 로그(`windows-app.yml` 의 바이트 출력)에만
+  있고 Swift 상수와 이어진 곳이 없다. ③ 이음매 리뷰(status-burst 와 그 후속)는 그때의 호출부만 봤다 — 그들에게는 맞는 값이었지만 다음에 올
+  호출부를 위한 값은 아니었다.
+  **부류 스윕(고정 상한 ↔ 실제 크기):** `WinHTTPFetch.defaultMaxBodyBytes` 32 MiB ↔ 이음매의 모든 호출부(상태·한도·릴리스 JSON, PokeAPI
+  REST·GraphQL, 이름표, 스프라이트·아이콘): 모두 1 MB 미만. `TeamWire.maxFrameBytes` 1 MiB ↔ 팀 프레임: 필드별 상한으로 이미 묶였다
+  (§팀 네트워크 "저장하는 값을 재야 한다"). `SaveTransfer.maxFileBytes` 8 MiB, `PlazaGIFDecoder.maxOutputBytes` 256 MiB, `CPlazaD2D` 디코드
+  512 MiB, `codexProbeByteLimit` 1 MiB(첫 줄만 찾는다), `AppLog.maxBytes` 2 MiB(회전이지 막지 않는다): 실제 크기 근처가 아니다. 이 작업의 새 상한
+  `InstallerReleaseFeed.installerBytes`(1–200 MiB)는 실제의 6 배다. 실제 크기 근처의 고정 상한은 이음매 기본값 하나뿐이다.
+  **가드(기계): 미정(PENDING) — Task 6.** 트리거 브랜치는 아직 없는 다운로드 자체다: 다운로드 이음매
+  `oneShotDownload(for:maxBytes:deadline:)` 가 기본값 없이 자산의 `size` 를 상한으로 받고(D19), Task 6 의 길이 테스트가 32 MiB 를 넘는 본문으로
+  그 경로를 밟아야 이 항목이 닫힌다. Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
+  않는다 — 다른 경로로 통과하는 테스트를 가드라고 부르지 않는다(처음 넣었던 32 MiB + 1 B 테스트 둘은 그래서 뺐다).
+  **규칙:** 새 다운로드(기존 이음매의 새 호출부도)는 자기 상한과 마감을 이름으로 적는다 — 다른 호출부를 보고 정한 기본값을 물려받지 않는다.
+  상한을 정할 때는 실제로 가장 큰 페이로드를 재서 값과 출처를 적고, 여유가 2 배 미만이면 그 자리에서 고친다.
+
 ## 윈도 로케일·알림 (windows-port)
 
 - **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**
