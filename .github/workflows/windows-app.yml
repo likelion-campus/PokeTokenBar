@@ -43,6 +43,10 @@ on:
       stall_hunt:
         description: 'Extra selftest launches that report main-thread stalls (diagnostics; 0 = none)'
         default: '0'
+      net_burst:
+        description: 'Also run the network-burst helper: what one HTTP fetch costs in wakeups (diagnostics, ~4 min)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -97,6 +101,29 @@ jobs:
           (Get-Content 'windows\selftest\claude\projects\p\s.jsonl' -Raw).Replace('__TIMESTAMP__', $ts) |
             Set-Content -NoNewline -Encoding utf8NoBOM -Path (Join-Path $proj 's.jsonl')
           "PTB_FIXTURE=$fx" >> $env:GITHUB_ENV
+      - name: Network burst (what one HTTP fetch costs in wakeups, per thread; diagnostics)
+        if: (success() || failure()) && steps.package.outcome == 'success' && inputs.net_burst == true
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-net-burst'
+          New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
+          $out = Join-Path $PWD 'net-burst.json'
+          $p = Start-Process -FilePath bundle\PokeTokenBar.exe -ArgumentList '--selftest-net-burst', $out -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(600000)) { Stop-Process -Id $p.Id -Force; 'the net-burst helper did not finish in 10 min' }
+          "exit $($p.ExitCode)"
+          if (-not (Test-Path $out)) { throw 'no net-burst.json' }
+          $j = Get-Content $out -Raw | ConvertFrom-Json
+          $j.notes | ForEach-Object { "note: $_" }
+          foreach ($r in $j.results) {
+              "NETBURST {0}: req={1} ms busy={2} ms (+{3}..+{4}) hot_cs={5} ({6}/s) partner_cs={7} process_cs={8} tail_cs={9} cycles={10:N0} | {11}" -f `
+                  $r.name, $r.requestMs, $r.busyMs, $r.busyStartMs, $r.busyEndMs, $r.hotCs, $r.hotWakesPerSec, $r.partnerCs, $r.processCs, $r.tailCs, $r.processCycles, $r.outcome
+              "    hot=$($r.hot) | partner=$($r.partner)"
+              "    top: $($r.top)"
+          }
+          foreach ($s in $j.stacks) { "== stacks $($s.name)"; $s.detail }
       - name: Selftest with a stripped Path
         shell: pwsh
         run: |
@@ -795,6 +822,7 @@ jobs:
             st*.json
             idle*.json
             waker-hunt.json
+            net-burst.json
             st*.json.lines
             tray-desktop.png
             probe-*.txt
