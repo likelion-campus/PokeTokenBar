@@ -43,4 +43,63 @@ final class PopoverFormatterProbeTests: XCTestCase {
             print("FORMATTER-PROBE|\(Self.system)|-|\(name)|\(value)")
         }
     }
+    /// The Mac's outputs (measured with this probe on macOS 26, 2026-11-16) for the formats the popover uses: the day
+    /// stamp, the reset clocks, the recap titles and the relative-time units. The first Windows run gave the same
+    /// strings for every one of them (stage 7 Task 1 report), so the Windows popover calls the same formatters with the
+    /// app language's locale; this keeps it that way on both systems. Escapes as `FormatterProbe.visible` writes them.
+    static let macGoldens: [String: [String: String]] = [
+        "ko": [
+            "units.wide.2h5m5s": "2시간 5분",
+            "units.wide.3m10s": "3분 10초",
+            "units.wide.45s": "45초",
+            "dateInterval.dMMMy.7days": "2026년 9월 10일~16일",
+            "template.MdE": "9. 10. (목)",
+            "template.HHmm": "19:26",
+            "template.EEEEdHHmm": "10일 목요일 19:26",
+            "template.EEEE d MMM": "9월 10일 목요일",
+            "template.MMMM y": "2026년 9월",
+        ],
+        "en": [
+            "units.wide.2h5m5s": "2 hours, 5 minutes",
+            "units.wide.3m10s": "3 minutes, 10 seconds",
+            "units.wide.45s": "45 seconds",
+            "dateInterval.dMMMy.7days": "Sep 10<U+2009>–<U+2009>16, 2026",
+            "template.MdE": "Thu, 9/10",
+            "template.HHmm": "19:26",
+            "template.EEEEdHHmm": "Thursday 10, 19:26",
+            "template.EEEE d MMM": "Thursday, Sep 10",
+            "template.MMMM y": "September 2026",
+        ],
+        "ja": [
+            "units.wide.2h5m5s": "2時間 5分",
+            "units.wide.3m10s": "3分 10秒",
+            "units.wide.45s": "45秒",
+            "dateInterval.dMMMy.7days": "2026年9月10日～16日",
+            "template.MdE": "9/10(木)",
+            "template.HHmm": "19:26",
+            "template.EEEEdHHmm": "10日木曜日 19:26",
+            "template.EEEE d MMM": "9月10日 木曜日",
+            "template.MMMM y": "2026年9月",
+        ],
+        "fr": [
+            "units.wide.2h5m5s": "2<U+A0>heures et 5 minutes",
+            "units.wide.3m10s": "3 minutes et 10<U+A0>secondes",
+            "units.wide.45s": "45<U+A0>secondes",
+            "dateInterval.dMMMy.7days": "10–16 sept. 2026",
+            "template.MdE": "jeu. 10/09",
+            "template.HHmm": "19:26",
+            "template.EEEEdHHmm": "jeudi 10 19:26",
+            "template.EEEE d MMM": "jeudi 10 sept.",
+            "template.MMMM y": "septembre 2026",
+        ],
+    ]
+
+    func testThePopoversFormatsAreTheMacs() {
+        for (language, expected) in Self.macGoldens {
+            let lines = Dictionary(uniqueKeysWithValues: FormatterProbe.lines(language: AppLanguage(rawValue: language)!).map { ($0.0, $0.1) })
+            for (name, value) in expected {
+                XCTAssertEqual(lines[name], value, "\(language) \(name)")
+            }
+        }
+    }
 }
