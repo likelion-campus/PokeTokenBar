@@ -97,4 +97,52 @@ final class PlazaGIFDecoderParityTests: XCTestCase {
         for d in differences.prefix(40) { print("  DIFF \(d)") }
         XCTAssertTrue(differences.isEmpty, "\(differences.count) of \(files.count) files differ; first: \(differences.first.map(\.description) ?? "")")
     }
+
+    // MARK: Delays against UI/GIFDecoder
+
+    private func delayFixtures() -> [(String, [UInt8])] {
+        func frame(_ delay: Int, disposal: Int = 1, transparent: Int? = nil) -> Fx.Frame {
+            var f = Fx.Frame(width: 2, height: 2, indices: [0, 1, 2, 3]); f.delay = delay; f.disposal = disposal; f.transparent = transparent; return f
+        }
+        var bare = Fx.Frame(width: 2, height: 2, indices: [0, 1, 2, 3]); bare.delay = 0   // no graphic control extension
+        return [
+            ("delays 0 1 2 3 10 7 100 65535", Fx.gif(width: 2, height: 2, frames: [0, 1, 2, 3, 10, 7, 100, 65535].map { frame($0) })),
+            ("transparent colour declared", Fx.gif(width: 2, height: 2, frames: [frame(0, transparent: 3), frame(2), frame(30)])),
+            ("a frame without an extension", Fx.gif(width: 2, height: 2, frames: [frame(50), bare, frame(25)])),
+            ("all default", Fx.gif(width: 2, height: 2, frames: [bare, bare, bare])),
+        ]
+    }
+
+    private func delayDifference(_ data: Data, name: String) -> String? {
+        let mac = GIFDecoder.frames(from: data).map(\.delay)   // [] for one frame: ImageIO count > 1 is its rule, not a delay's
+        let shared = PlazaGIFDecoder.framesWithDelays(from: data).map(\.delay)
+        if mac.isEmpty { return shared.count <= 1 ? nil : "\(name): ImageIO gave no frames, shared \(shared.count)" }
+        guard mac.count == shared.count else { return "\(name): \(mac.count) delays from UI/GIFDecoder, \(shared.count) shared" }
+        for (i, pair) in zip(mac, shared).enumerated() where abs(pair.0 - pair.1) > 1e-12 {
+            return "\(name) frame \(i): UI/GIFDecoder \(pair.0), shared \(pair.1)"
+        }
+        return nil
+    }
+
+    func testDelaysMatchUIGIFDecoder() {
+        let differences = delayFixtures().compactMap { delayDifference(Data($0.1), name: $0.0) }
+        XCTAssertTrue(differences.isEmpty, differences.joined(separator: "\n"))
+    }
+
+    /// Every GIF in the local sprite cache (read-only); skipped without one, like the pixel pass above.
+    func testEveryCachedSpriteHasTheDelaysUIGIFDecoderGives() throws {
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/PokeTokenBar/sprites")
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else {
+            throw XCTSkip("no local sprite cache at \(dir.path)")
+        }
+        let files = names.filter { $0.hasSuffix(".gif") }.sorted()
+        guard !files.isEmpty else { throw XCTSkip("no GIFs in \(dir.path)") }
+        var differences: [String] = []
+        for name in files {
+            if let d = delayDifference(try Data(contentsOf: dir.appendingPathComponent(name)), name: name) { differences.append(d) }
+        }
+        print("PlazaGIFDecoder delays vs UI/GIFDecoder (sprite cache): \(files.count) files, \(differences.count) differ")
+        XCTAssertTrue(differences.isEmpty, differences.prefix(20).joined(separator: "\n"))
+    }
 }
