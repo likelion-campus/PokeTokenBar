@@ -165,6 +165,7 @@ final class UpdateChecker {
                 Self.launchDetachedUpgrade(brew: brew)
                 PlatformShell.current.terminate()
             } else {
+                if await PlatformShell.current.installUpdate(version: update.version) { return }
                 isUpdating = false
                 AppLog.write("update: brew cask 아님/brew 미설치 → 릴리스 페이지 열기")
                 if let u = URL(string: update.url) { PlatformShell.current.open(u) }

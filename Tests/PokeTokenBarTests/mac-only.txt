@@ -244,5 +244,11 @@ PlazaNoWindowsOrderedInScanTests+Mac.swift
 PlazaLegacyScrollerControlTests+Mac.swift
 # PlazaTextFrameTests+Mac: the shared CoreText frame and truncation rules against live CTFramesetter / CTLineCreateTruncatedLine (CoreText, fallback fonts)
 PlazaTextFrameTests+Mac.swift
+# PopoverParityScanTests: compares the Mac popover's sources with Tests/PopoverParity (a Mac-side source scan, like WindowsSeamScanTests; its extractor, loader and rules are shared and tested on both systems in PopoverParityTests)
+PopoverParityScanTests.swift
+# PopoverTwinEquivalenceTests+Mac: drives the Mac originals (PopoverNavigation, LimitProgressBar, verbatim copies of private PopoverView members) against their shared twins
+PopoverTwinEquivalenceTests+Mac.swift
 # PlazaPhotoGoldensMacTests: writes and re-checks the Mac's own photo goldens (what the Windows photo is compared with)
 PlazaPhotoGoldensMacTests.swift
+# PopoverGoldens+Mac: resolves the SwiftUI / AppKit colours of the Mac popover (NSColor, NSAppearance) and writes or re-checks Tests/PopoverParity/mac-colors.json
+PopoverGoldens+Mac.swift
