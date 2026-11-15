@@ -84,6 +84,8 @@ final class ScrollRecorder: NSView {
         Case(name: "expanded-long", lines: lines(20) { Line(name: "나\($0)", text: $0 % 3 == 0 ? korean : "줄 \($0)", color: $0 % 12, loud: $0 % 5 == 1) }, expanded: true),
         Case(name: "expanded-append", lines: lines(30), expanded: true, append: Line(name: "새", text: "방금 온 줄입니다", color: 4)),
         Case(name: "small-window", lines: lines(4), viewport: CGSize(width: 600, height: 372)),
+        Case(name: "large-window", lines: lines(40), expanded: true, viewport: CGSize(width: 1920, height: 1080)),
+        Case(name: "small-window-above-input", lines: lines(4), viewport: CGSize(width: 600, height: 372), aboveInput: 28),
     ]
 
     private func log(_ c: Case) -> PlazaChatLog {
@@ -102,10 +104,10 @@ final class ScrollRecorder: NSView {
     // MARK: before: the SwiftUI view
 
     @MainActor final class Before {
-        let host: NSHostingView<PlazaChatLogView>, window: ScaledWindow, log: PlazaChatLog
+        let host: NSHostingView<LegacyPlazaChatLogView>, window: ScaledWindow, log: PlazaChatLog
         init(_ log: PlazaChatLog, scale: CGFloat) {
             self.log = log
-            host = NSHostingView(rootView: PlazaChatLogView(log: log))
+            host = NSHostingView(rootView: LegacyPlazaChatLogView(log: log))
             window = ScaledWindow(scale: scale, size: host.fittingSize)
             window.contentView = host
             host.frame = CGRect(origin: .zero, size: host.fittingSize)
@@ -151,6 +153,7 @@ final class ScrollRecorder: NSView {
         init(_ log: PlazaChatLog, viewport: CGSize, scale: CGFloat, aboveInput: CGFloat?, graphics: any PlazaGraphics) {
             self.log = log
             panel = PlazaChatLogPanel(log: log)
+            panel.scrollIndicator.isDisabled = true
             panel.inputHeight = aboveInput
             hud = PlazaHUD(panels: [panel], graphics: graphics)
             container = NSView(frame: CGRect(origin: .zero, size: viewport))
@@ -285,7 +288,7 @@ final class ScrollRecorder: NSView {
     func testClicksLandWhereTheyDidOnTheSwiftUIView() async throws {
         for c in [Self.cases[1], Self.cases[2], Self.cases[11], Self.cases[12]] {
             let log = log(c)
-            let host = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: log), log: log)
+            let host = LegacyPlazaChatLogHostingView(rootView: LegacyPlazaChatLogView(log: log), log: log)
             let window = ScaledWindow(scale: 2, size: c.viewport)
             let container = NSView(frame: CGRect(origin: .zero, size: c.viewport))
             window.contentView = container
@@ -309,7 +312,7 @@ final class ScrollRecorder: NSView {
             print("CLICK \(c.name) both \(both) swiftuiOnly \(swiftOnly) panelOnly \(panelOnly) \(sample)")
         }
         let empty = PlazaChatLog()
-        let host = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: empty), log: empty)
+        let host = LegacyPlazaChatLogHostingView(rootView: LegacyPlazaChatLogView(log: empty), log: empty)
         host.frame = CGRect(x: 16, y: 16, width: 360, height: 100)
         XCTAssertNil(host.hitTest(NSPoint(x: 100, y: 50)), "an empty log let clicks through")
         XCTAssertFalse(PlazaChatLogPanel(log: empty).isVisible, "and the panel takes none")
@@ -482,6 +485,18 @@ final class ScrollRecorder: NSView {
                                     scale: scale, background: nil, zoom: zoom)
                 rows.append((line, cells + [zoomed]))
             }
+        }
+        // The scroll indicator (shown for good, as with "Always show scroll bars") on the unfolded log, at both scales.
+        for scale in [CGFloat(2), 1] {
+            let c = Self.cases.first { $0.name == "expanded-50" }!
+            let a = After(log(c), viewport: c.viewport, scale: scale, aboveInput: nil, graphics: graphics)
+            a.panel.scrollIndicator.isDisabled = false
+            a.panel.scrollIndicator.alwaysVisible = true
+            for _ in 0..<20 { await Task.yield() }
+            let f = try XCTUnwrap(a.frame)
+            let crop = CGRect(x: f.minX - 8, y: f.minY - 8, width: f.width + 16, height: f.height + 16)
+            try K.write(K.cell(try a.image(c.viewport, scale: scale), crop: crop, scale: scale, background: background(c.viewport, scale), zoom: scale == 1 ? 2 : 1),
+                        out.appendingPathComponent("after-indicator-expanded-50@\(Int(scale))x-default.png"))
         }
         try summary.joined(separator: "\n").write(to: out.appendingPathComponent("summary.txt"), atomically: true, encoding: .utf8)
         try K.write(K.sheet(rows, columns: ["before · plaza", "after · plaza", "before · transparent", "after · transparent",

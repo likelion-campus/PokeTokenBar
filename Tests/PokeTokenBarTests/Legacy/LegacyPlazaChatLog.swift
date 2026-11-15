@@ -1,9 +1,13 @@
+// The SwiftUI chat log as the Mac window showed it before Track A Task 17w switched the window to the shared `PlazaChatLogPanel`:
+// `PlazaChatLogView.swift` verbatim (types renamed). Kept so the panel's render tests can draw their "before" from the real
+// view and the click tests can compare hit regions. Deleted in Task 19 with the rest of `Legacy/`.
 import SwiftUI
 import AppKit
+@testable import PokeTokenBar
 
 /// 광장 왼쪽 아래 대화 기록. 접으면 마지막 몇 줄, 펼치면 담아 둔 줄을 모두 스크롤해서 본다.
 @MainActor
-struct PlazaChatLogView: View {
+struct LegacyPlazaChatLogView: View {
     let log: PlazaChatLog
     var toggle: () -> Void = {}
 
@@ -53,15 +57,15 @@ struct PlazaChatLogView: View {
 }
 
 /// 기록이 있을 때만 마우스를 받는다(펼치기 단추와 스크롤). 키는 받지 않아 장면이 계속 받는다.
-final class PlazaChatLogHostingView: NSHostingView<PlazaChatLogView> {
+final class LegacyPlazaChatLogHostingView: NSHostingView<LegacyPlazaChatLogView> {
     private let log: PlazaChatLog
 
-    init(rootView: PlazaChatLogView, log: PlazaChatLog) {
+    init(rootView: LegacyPlazaChatLogView, log: PlazaChatLog) {
         self.log = log
         super.init(rootView: rootView)
     }
 
-    @available(*, unavailable) required init(rootView: PlazaChatLogView) { fatalError("use init(rootView:log:)") }
+    @available(*, unavailable) required init(rootView: LegacyPlazaChatLogView) { fatalError("use init(rootView:log:)") }
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func hitTest(_ point: NSPoint) -> NSView? {

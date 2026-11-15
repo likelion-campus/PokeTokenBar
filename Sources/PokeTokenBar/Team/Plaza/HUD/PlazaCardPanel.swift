@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The look of the member card, copied from `PlazaCardView` / `PlazaOverlayView` (SwiftUI, which the Mac still shows).
+/// The look of the member card, copied from `PlazaCardView` / `PlazaOverlayView` (SwiftUI, replaced by this panel on the Mac; the view is kept in Tests/Legacy).
 enum PlazaCardStyle {
     static let body = PlazaFont.plaza(.body), small = PlazaFont.plaza(.small)
     static let ink = PlazaColor(hex: 0x2D4048), yellow = PlazaColor(hex: 0xFFE060)
@@ -14,13 +14,21 @@ enum PlazaCardStyle {
     static let titleLines = 2
 
     /// SwiftUI's `rarityColor` (`.green`, `.blue`, `.orange`, `.gray`) as an `ImageRenderer` resolves them on this macOS
-    /// (pinned by `testRarityColoursAreSwiftUIs`); the panel does not follow dark mode.
-    static func rarity(_ r: Rarity?) -> PlazaColor {
+    /// (pinned by `testRarityColoursAreSwiftUIs`); `dark` is the dark appearance's set, which the panel follows (`PlazaCardPanel.isDark`).
+    static func rarity(_ r: Rarity?, dark: Bool = false) -> PlazaColor {
+        if dark {   // what SwiftUI resolves in the dark colour scheme (pinned by `testRarityColoursFollowTheAppearanceAsSwiftUIsDid`)
+            switch r {
+            case .uncommon: return PlazaColor(srgbRed: 48.0 / 255, green: 209.0 / 255, blue: 88.0 / 255)
+            case .rare: return PlazaColor(srgbRed: 0, green: 145.0 / 255, blue: 1)
+            case .legendary: return PlazaColor(srgbRed: 1, green: 146.0 / 255, blue: 48.0 / 255)
+            default: return PlazaColor(srgbRed: 152.0 / 255, green: 152.0 / 255, blue: 157.0 / 255)
+            }
+        }
         switch r {
-        case .uncommon: PlazaColor(srgbRed: 0.204, green: 0.780, blue: 0.349)
-        case .rare: PlazaColor(srgbRed: 0, green: 136.0 / 255, blue: 1)
-        case .legendary: PlazaColor(srgbRed: 1, green: 141.0 / 255, blue: 40.0 / 255)
-        default: PlazaColor(srgbRed: 0.557, green: 0.557, blue: 0.576)
+        case .uncommon: return PlazaColor(srgbRed: 0.204, green: 0.780, blue: 0.349)
+        case .rare: return PlazaColor(srgbRed: 0, green: 136.0 / 255, blue: 1)
+        case .legendary: return PlazaColor(srgbRed: 1, green: 141.0 / 255, blue: 40.0 / 255)
+        default: return PlazaColor(srgbRed: 0.557, green: 0.557, blue: 0.576)
         }
     }
 
@@ -43,7 +51,7 @@ enum PlazaCardStyle {
     }
 }
 
-/// The member card (`PlazaCardView`, SwiftUI, which the Mac still shows) as a panel: the striped plate `PlazaCardMetrics.panelSize`,
+/// The member card (`PlazaCardView`, SwiftUI, replaced by this panel on the Mac and kept in Tests/Legacy) as a panel: the striped plate `PlazaCardMetrics.panelSize`,
 /// centred in the window, with a header (the character's picture, "닉네임의 포켓몬" in the member's name colour, the
 /// character's name, 이로치 / rarity pills, and the Pokémon in hand when it differs), the "오늘 광장" box (seven values in two
 /// columns, or "기록 없음"; always the same height), and under it "불러오는 중…" while the dex loads, "도감을 받지 못했어요"
@@ -51,7 +59,7 @@ enum PlazaCardStyle {
 /// legendary pill and outline) that scrolls. Hovering a cell shows the species name. The card has no buttons and no input:
 /// a click anywhere on the plate is `("card")` (taken, nothing happens), outside it nothing; Space/Esc close it through the
 /// scene. Pictures arrive through the `PlazaIconSource` (grey placeholders until then).
-@MainActor final class PlazaCardPanel: PlazaPanel {
+@MainActor final class PlazaCardPanel: PlazaPanel, PlazaScrollIndicating {
     let id = PlazaPanelID.card
     let anchor = PlazaPanelAnchor.center
     let offset = CGPoint.zero
@@ -61,6 +69,10 @@ enum PlazaCardStyle {
     private var observer: PlazaChangeObserver?
     private let now: () -> Date
     private(set) var scrollState = PlazaScrollState()
+    let scrollIndicator = PlazaScrollIndicator()
+    /// The window's dark appearance: the rarity colours (SwiftUI's adaptive `.green`, `.blue`, `.orange`, `.gray`) are the dark set, and the
+    /// card renders again when it changes.
+    var isDark = false { didSet { if isDark != oldValue { onChange?() } } }
     /// The card the scroll position belongs to: another card (a different member, or one that finished loading) starts at the top,
     /// as a new `ScrollView` did.
     private var scrollOwner: PlazaCardState?
@@ -70,6 +82,7 @@ enum PlazaCardStyle {
         self.now = now
         pictures = PlazaPictureCache(source: icons)
         observer = PlazaChangeObserver(track: { _ = model.content }, changed: { [weak self] in self?.modelChanged() })
+        scrollIndicator.onChange = { [weak self] in self?.onChange?() }
         pictures.onArrival = { [weak self] in self?.onChange?() }
     }
 
@@ -80,7 +93,7 @@ enum PlazaCardStyle {
 
     private var rendered: PlazaCardState??
     private func modelChanged() {
-        if state == nil { scrollOwner = nil; scrollState = PlazaScrollState(); rowImages = [:] }
+        if state == nil { scrollOwner = nil; scrollState = PlazaScrollState(); rowImages = [:]; scrollIndicator.reset() }
         if rendered != .some(state) { onChange?() }
     }
 
@@ -118,14 +131,14 @@ enum PlazaCardStyle {
         }
     }
 
-    private struct LayoutKey: Equatable { let state: PlazaCardState, day: String, scale: CGFloat, engine: String }
+    private struct LayoutKey: Equatable { let state: PlazaCardState, day: String, scale: CGFloat, engine: String, dark: Bool }
     private var laidOut: (key: LayoutKey, layout: Layout)?
 
     func layout(scale: CGFloat, text: any PlazaTextEngine) -> Layout? {
         guard let state else { return nil }
         let day = PlazaActivity.dayKey(now())
         let engine = String(describing: type(of: text))
-        let key = LayoutKey(state: state, day: day, scale: scale, engine: engine)
+        let key = LayoutKey(state: state, day: day, scale: scale, engine: engine, dark: isDark)
         if let laidOut, laidOut.key == key { return laidOut.layout }
         let s = PlazaCardStyle.self, m = PlazaCardMetrics.self
         let l = L(.ko)
@@ -160,7 +173,7 @@ enum PlazaCardStyle {
             for badge in badges {
                 let (string, fill, ink): (String, PlazaColor, PlazaColor) = switch badge {
                 case .shiny: (l.plazaCardShiny, s.yellow, s.ink)
-                case .rarity(let r): (l.rarityLabel(r), s.rarity(r), .white)
+                case .rarity(let r): (l.rarityLabel(r), s.rarity(r, dark: isDark), .white)
                 }
                 let line = text.line(string, font: s.small)
                 let w = up(line.width) + 2 * s.pillPadding.width
@@ -188,7 +201,7 @@ enum PlazaCardStyle {
         }
         let legendaryLine = text.line(l.rarityLabel(.legendary), font: s.small)
         let legendary = Pill(line: legendaryLine, frame: CGRect(x: 2, y: 2, width: up(legendaryLine.width) + 2 * s.pillPadding.width, height: pillHeight),
-                             fill: s.rarity(.legendary), ink: .white, text: l.rarityLabel(.legendary))
+                             fill: s.rarity(.legendary, dark: isDark), ink: .white, text: l.rarityLabel(.legendary))
         let rowCount = (dex.count + m.columns - 1) / m.columns
         let content = rowCount == 0 ? 0 : CGFloat(rowCount) * m.cellSize.height + CGFloat(rowCount - 1) * m.spacing
         let message: PlazaTextLine? = switch state {
@@ -226,7 +239,7 @@ enum PlazaCardStyle {
         guard let state, let l = layout(scale: scale, text: text) else { return PlazaPanelDrawing() }
         let s = PlazaCardStyle.self, m = PlazaCardMetrics.self
         let lower = s.lower
-        if scrollOwner != state { scrollOwner = state; scrollState = PlazaScrollState() }
+        if scrollOwner != state { scrollOwner = state; scrollState = PlazaScrollState(); scrollIndicator.reset() }
         scrollState.setMetrics(content: l.content, viewport: lower.height)
         let sprite = pictures.sprite(state.member.character)
         let current = state.differingCurrent.flatMap { pictures.icon($0.speciesID) }
@@ -236,7 +249,7 @@ enum PlazaCardStyle {
         var tips: [PlazaTooltip] = []
 
         // Plate, header, activity and the message: one image, drawn again when a picture arrives.
-        let key = "\(scale) \(String(describing: type(of: text))) \(state) \(PlazaActivity.dayKey(now())) \(sprite != nil) \(current != nil)"
+        let key = "\(scale) \(String(describing: type(of: text))) \(state) \(PlazaActivity.dayKey(now())) \(sprite != nil) \(current != nil) \(isDark)"
         if staticImage.key != key {
             let space = PlazaPanelSpace(content: l.size, room: 0)
             staticImage = (key, space.image(scale: scale, graphics: graphics) { canvas in
@@ -319,7 +332,7 @@ enum PlazaCardStyle {
         let offset = PlazaPanelStyle.pixel(scrollState.offset, scale: scale)
         drawnOffset = offset
         let gridX = PlazaPanelStyle.pixel((lower.width - s.gridWidth) / 2, scale: scale)
-        let imageKey = "\(scale) \(String(describing: type(of: text)))"
+        let imageKey = "\(scale) \(String(describing: type(of: text))) \(isDark)"
         if rowImageKey != imageKey { rowImageKey = imageKey; rowImages = [:] }
         var kept: [String: PlazaImage] = [:]
         let frames = l.rowFrames
@@ -342,7 +355,7 @@ enum PlazaCardStyle {
                     let name = l.names[index]
                     smallPen.line(name, x: cell.minX + 2 + PlazaPanelStyle.pixel((m.cellSize.width - 4 - name.width) / 2, scale: scale), top: contentTop + m.iconSize.height + 1, color: .white)
                     if species.rarity == .legendary {
-                        canvas.setStrokeColor(s.rarity(.legendary))
+                        canvas.setStrokeColor(s.rarity(.legendary, dark: isDark))
                         canvas.strokeRoundedRect(space.canvas(cell), radius: s.cellRadius, lineWidth: 1.5)
                         if let pill = l.legendary {
                             let f = pill.frame.offsetBy(dx: cell.minX, dy: cell.minY)
@@ -375,6 +388,7 @@ enum PlazaCardStyle {
             }
         }
         rowImages = kept
+        layers += scrollIndicator.layers(state: scrollState, offset: offset, viewport: lower, scale: scale, graphics: graphics)
         return PlazaPanelDrawing(layers: layers, accessibility: items, tooltips: tips)
     }
 
@@ -388,6 +402,7 @@ enum PlazaCardStyle {
     /// Only the dex grid takes the wheel (a `ScrollView` under the activity box): elsewhere it goes on.
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool {
         guard isVisible, PlazaCardStyle.lower.contains(point), scrollState.scroll(deltaY: dy) else { return false }
+        scrollIndicator.scrolled()
         onChange?()
         return true
     }

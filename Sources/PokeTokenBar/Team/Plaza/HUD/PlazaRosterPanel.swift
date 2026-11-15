@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The roster's look, copied from `PlazaRosterView` (SwiftUI, which the Mac still shows): colours, radii, paddings.
+/// The roster's look, copied from `PlazaRosterView` (SwiftUI, replaced by this panel on the Mac; the view is kept in Tests/Legacy): colours, radii, paddings.
 enum PlazaRosterStyle {
     static let ink = PlazaColor(hex: 0x2D4048)
     static let cream = PlazaColor(hex: 0xF8F8F0)
@@ -44,7 +44,7 @@ enum PlazaRosterStyle {
     static func bounces(_ e: PlazaRosterEntry) -> Bool { e.presence == .online || e.presence == .focus }
 }
 
-/// The party-style member list at the window's top right (`PlazaRosterView`, SwiftUI, which the Mac still shows): a plate
+/// The party-style member list at the window's top right (`PlazaRosterView`, SwiftUI, replaced by this panel on the Mac and kept in Tests/Legacy): a plate
 /// `PlazaRosterMetrics.width` wide with a header (title, "접속 n / m" count, and < > when there is more than a page) and,
 /// under it, one slot per member of the shown page (`PlazaRosterModel.capacity` slots at most): a box icon, the nickname
 /// with gender and shiny marks, the species name, and the state's badge. The slot's colours follow the state. A click on a

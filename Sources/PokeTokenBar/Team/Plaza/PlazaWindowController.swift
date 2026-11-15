@@ -120,12 +120,19 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [photoFramePanel, menuPanel, pillsPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel] + [boardPanel].compactMap { $0 } + [cardPanel, photoFramePanel, menuPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    /// The pictures the roster and the card show (the platform's loaders; a test hands in its own).
+    private let iconSource: any PlazaIconSource
+    private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel, icons: iconSource)
+    /// The news board (no feed, no board: the plaza of a test that has none). It knows my member ID from when the HUD is made.
+    private lazy var boardPanel: PlazaBoardPanel? = feed.map { PlazaBoardPanel(model: overlayModel, feed: $0, myMemberID: memberID()) }
+    private lazy var cardPanel = PlazaCardPanel(model: overlayModel, icons: iconSource)
     private lazy var photoFramePanel = PlazaPhotoFramePanel(model: overlayModel)
     private lazy var shortcutsPanel = PlazaShortcutGuidePanel(model: shortcutModel, toggle: togglePanel)
     private lazy var togglePanel = PlazaBackgroundTogglePanel(model: backgroundModel)
     private lazy var pickerPanel = PlazaNameColorPickerPanel(model: nameColorModel, toggle: togglePanel, background: backgroundModel)
     private lazy var pillsPanel = PlazaPillsPanel(model: overlayModel)
+    private lazy var chatLogPanel = PlazaChatLogPanel(log: chatLog)
     private lazy var menuPanel = PlazaMenuPanel(model: overlayModel, pills: pillsPanel)
     private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
                                                       mapImage: { [unowned self] in mapImage })
@@ -263,7 +270,9 @@ import Observation
          dittoSeed: @escaping () -> UInt64 = { UInt64.random(in: .min ... .max) },
          isFrontmost: (@MainActor () -> Bool)? = nil,
          shell: (any PlazaWindowShell)? = nil,
-         chatInput: (any PlazaChatInputHost)? = nil) {
+         chatInput: (any PlazaChatInputHost)? = nil,
+         icons: (any PlazaIconSource)? = nil) {
+        self.iconSource = icons ?? PlatformPlaza.iconSource()
         self.shell = shell ?? PlatformPlaza.makeShell()
         self.chatInput = chatInput ?? PlatformPlaza.makeChatInput()
         self.frontmostOverride = isFrontmost
@@ -502,6 +511,13 @@ import Observation
             default: break
             }
         case (.menu, "cancel"): closeOverlay()   // a click outside the menu (the old tap-outside area)
+        case (.roster, "select"):   // a teammate's slot walks to them; my slot and the plate take the click and do nothing
+            if let entry = rosterPanel.entry(forHit: hit) { walkToMember(entry.id) }
+        case (.roster, "previous"): turnRosterPage(by: -1)
+        case (.roster, "next"): turnRosterPage(by: 1)
+        case (.board, "react"):   // the other board clicks ("board": the plate, my own reaction) are taken and do nothing
+            if let r = boardPanel?.reaction(forHit: hit) { session?.react(to: r.eventID, kind: r.kind) }
+        case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
         case (.backgroundToggle, "toggle"): toggleBackground()
         case (.nameColorPicker, "toggle"): toggleNameColorPicker()

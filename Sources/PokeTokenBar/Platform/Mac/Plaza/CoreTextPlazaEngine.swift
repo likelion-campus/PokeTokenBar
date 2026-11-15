@@ -57,7 +57,25 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
     func truncated(_ line: PlazaTextLine, width: CGFloat, ellipsis: PlazaTextLine) -> PlazaTextLine? {
         guard let l = Self.ctLine(line), let e = Self.ctLine(ellipsis),
               let cut = CTLineCreateTruncatedLine(l, Double(width), .end, e) else { return nil }
-        return Self.wrap(cut)
+        guard !line.runs.isEmpty else { return Self.wrap(cut) }
+        return Self.wrap(cut, runs: Self.truncatedRuns(line, cut: cut, ellipsis: ellipsis))
+    }
+
+    /// The runs of a cut line: the original's runs up to the character the cut line ends its text at (the cut line is as wide
+    /// as that text and the ellipsis together), then the ellipsis in the last kept run's font and colour.
+    private static func truncatedRuns(_ line: PlazaTextLine, cut: CTLine, ellipsis: PlazaTextLine) -> [PlazaTextRun] {
+        guard let original = ctLine(line) else { return line.runs }
+        let textWidth = CTLineGetTypographicBounds(cut, nil, nil, nil) - ellipsis.width
+        var index = CTLineGetStringIndexForPosition(original, CGPoint(x: textWidth, y: 0))
+        if index == kCFNotFound { index = 0 }
+        while index > 0, CTLineGetOffsetForStringIndex(original, index, nil) > textWidth + 0.01 { index -= 1 }
+        var kept = pieces(of: line.runs, in: NSRange(location: 0, length: max(0, index)))
+        let source = kept.last ?? line.runs[0]
+        // The ellipsis token's own text is not kept on a native line: it is the one character the callers pass (`…`).
+        var mark = source
+        mark.text = "…"
+        kept.append(mark)
+        return kept
     }
 
     func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph {
