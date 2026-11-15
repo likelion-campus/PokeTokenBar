@@ -3,7 +3,7 @@ import AppKit
 /// PokéAPI 7세대 박스 아이콘을 받아 스프라이트 캐시 폴더에 `icon-<id>.png`로 둔다.
 enum PlazaIconLoader {
     static func url(speciesID: Int) -> URL {
-        URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-vii/icons/\(speciesID).png")!
+        PlazaIconStore.url(speciesID: speciesID)
     }
 
     /// 이번 실행에서 그린 아이콘. 페이지를 넘겨 새로 생긴 칸이 받기를 기다리지 않고 첫 그림부터 쓴다.
@@ -23,7 +23,7 @@ enum PlazaIconLoader {
 
     /// 파일·네트워크는 메인 액터 밖에서 처리하고, 격리 경계는 `NSImage` 대신 `Data`로 넘는다.
     private static func iconData(speciesID: Int) async -> Data? {
-        let file = SpriteStore.shared.directory.appendingPathComponent("icon-\(speciesID).png")
+        let file = SpriteStore.shared.directory.appendingPathComponent(PlazaIconStore.fileName(speciesID: speciesID))
         if let cached = try? Data(contentsOf: file), NSImage(data: cached) != nil { return cached }
         guard let (data, response) = try? await URLSession.shared.data(from: url(speciesID: speciesID)),
               (response as? HTTPURLResponse)?.statusCode == 200,
