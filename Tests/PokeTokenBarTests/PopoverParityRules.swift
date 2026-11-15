@@ -108,14 +108,35 @@ enum PopoverParityRules {
     // MARK: - twins (rule 5)
 
     /// The braces' content of the type `name` declared in `text` (comments dropped, string literals kept), or nil.
-    static func body(ofType name: String, in text: String) -> String? {
+    static func body(ofType name: String, in text: String) -> String? { body(of: name, in: text) }
+
+    /// The braces' content of the declaration `name` in `text`: a type (`Type`), or a function or computed var
+    /// (`Type.member`; overloads joined in source order with " ¦ "). Comments dropped, string literals kept; nil when
+    /// nothing has that name. A function's body is what follows the first `{` after `func`, so a signature must not hold
+    /// a brace (a closure default).
+    static func body(of name: String, in text: String) -> String? {
         let lexed = PopoverParityExtractor.lex(text)
         var code = lexed.code
         let original = Array(text.utf8)
         for l in lexed.literals { for i in l.start..<l.end { code[i] = original[i] } }   // put the literals back
-        guard let declaration = PopoverParityExtractor.declarations(in: lexed.code).first(where: { $0.kind == .type && $0.name == name }),
-              let range = declaration.body, let open = code[range].firstIndex(of: 123) else { return nil }
-        return String(decoding: code[(open + 1)..<(range.upperBound - 1)], as: UTF8.self)
+        let bodies = PopoverParityExtractor.declarations(in: lexed.code)
+            .filter { $0.kind != .extensionBody && $0.name == name }
+            .compactMap { declaration -> String? in
+                guard let range = declaration.body, let open = lexed.code[range].firstIndex(of: 123) else { return nil }
+                return String(decoding: code[(open + 1)..<(range.upperBound - 1)], as: UTF8.self)
+            }
+        return bodies.isEmpty ? nil : bodies.joined(separator: " ¦ ")
+    }
+
+    /// FNV-1a (64 bit) of `text`'s UTF-8, as 16 hex digits: the `pin` a twins.txt row holds for a Mac body.
+    static func pin(_ text: String) -> String {
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x0000_0100_0000_01B3
+        }
+        let hex = String(hash, radix: 16)
+        return String(repeating: "0", count: 16 - hex.count) + hex
     }
 
     /// White space collapsed to single spaces and `renames` applied as whole words.
@@ -141,7 +162,9 @@ enum PopoverParityRules {
         return out + rest
     }
 
-    /// `file#Type` of a twin row, read through `read` (a path relative to `Sources/PokeTokenBar`).
+    /// Rule 5 over every twin row, each side `file#symbol` read through `read` (a path relative to `Sources/PokeTokenBar`,
+    /// or to the repository for `Tests/…`): a renamed twin reads as its original; a pinned one's original still hashes to
+    /// the pin.
     static func twins(_ inventory: PopoverParity.Inventory, read: (String) -> String?) -> [String] {
         var out: [String] = []
         for twin in inventory.twins {
@@ -150,8 +173,15 @@ enum PopoverParityRules {
             guard let macText = read(sides[0][0]), let sharedText = read(sides[1][0]) else {
                 out.append("twins.txt: \(sides[0][0]) or \(sides[1][0]) does not exist"); continue
             }
-            guard let mac = body(ofType: sides[0][1], in: macText) else { out.append("twins.txt: \(twin.mac) is not declared"); continue }
-            guard let shared = body(ofType: sides[1][1], in: sharedText) else { out.append("twins.txt: \(twin.shared) is not declared"); continue }
+            guard let mac = body(of: sides[0][1], in: macText) else { out.append("twins.txt: \(twin.mac) is not declared"); continue }
+            guard let shared = body(of: sides[1][1], in: sharedText) else { out.append("twins.txt: \(twin.shared) is not declared"); continue }
+            if let expected = twin.pin {
+                let now = pin(normalized(mac, renames: [:]))
+                if now != expected {
+                    out.append("twins.txt: \(twin.mac) changed since its twin \(twin.shared) was written (pin \(expected), now \(now)). Carry the Mac change into the twin and its tests, then write `pin \(now)`")
+                }
+                continue
+            }
             let a = normalized(mac, renames: twin.renames), b = normalized(shared, renames: [:])
             if a != b {
                 let common = zip(a, b).prefix { $0 == $1 }.count

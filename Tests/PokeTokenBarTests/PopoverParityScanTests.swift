@@ -24,8 +24,10 @@ final class PopoverParityScanTests: XCTestCase {
     static let windowsPopoverRoots = ["Popover", "Platform/Windows/Popover"]
     static let windowsPopoverFiles = ["Platform/TrayMenuModel.swift", "Platform/WindowsPopoverStrings.swift"]
 
+    /// A file relative to `Sources/PokeTokenBar`, or to the repository for `Tests/…` (a twin's verbatim Mac copy).
     static func read(_ relative: String) -> String? {
-        try? String(contentsOf: sources.appendingPathComponent(relative), encoding: .utf8)
+        let url = relative.hasPrefix("Tests/") ? root.appendingPathComponent(relative) : sources.appendingPathComponent(relative)
+        return try? String(contentsOf: url, encoding: .utf8)
     }
 
     /// Every source file that declares `struct L` or an `extension L`.
@@ -156,5 +158,22 @@ final class PopoverParityScanTests: XCTestCase {
         print("PARITY-TEETH twin:\n" + findings.joined(separator: "\n"))
         XCTAssertEqual(findings.count, 1)
         XCTAssertTrue(findings.first?.hasPrefix("twins.txt: Popover/PopoverState.swift#PopoverState no longer matches UI/PopoverView.swift#PopoverNavigation") == true)
+    }
+
+    /// A Mac change to a view body rebuilt as values (pinned) or to a private helper copied into the Mac test fails until
+    /// the twin has it too; the finding names the new pin.
+    func testTheScanNamesAChangedViewBodyAndAChangedPrivateHelper() throws {
+        let inventory = try PopoverParity.load()
+        let findings = PopoverParityRules.twins(inventory) { path in
+            guard let text = Self.read(path) else { return nil }
+            guard path == "UI/PopoverView.swift" else { return text }
+            return text.replacingOccurrences(of: "Text(name).font(.callout)", with: "Text(name).font(.body)")
+                .replacingOccurrences(of: "return store.limitDisplayMode == .remaining ? l.percentRemaining(text) : text",
+                                      with: "return text")
+        }
+        print("PARITY-TEETH view body and helper:\n" + findings.joined(separator: "\n"))
+        XCTAssertEqual(findings.count, 2, findings.joined(separator: "\n"))
+        XCTAssertTrue(findings.contains { $0.hasPrefix("twins.txt: UI/PopoverView.swift#PopoverView.quotaRow changed since its twin Popover/LimitsModel.swift#LimitsBuilder.quotaRow was written (pin ") })
+        XCTAssertTrue(findings.contains { $0.hasPrefix("twins.txt: Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.limitPercentText no longer matches UI/PopoverView.swift#PopoverView.limitPercentText") })
     }
 }

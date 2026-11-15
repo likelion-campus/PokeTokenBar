@@ -529,3 +529,18 @@ extension PlatformCompat {
         #endif
     }
 }
+
+// MARK: - The popover's platform facts (stage 7, D8)
+
+extension PlatformCompat {
+    /// The facts the shared Home models read. Mac: exactly what `PopoverView` assumes (`PopoverPlatformFacts.mac`; the
+    /// Mac app does not call the shared models). Windows: no Keychain, no Antigravity limits source, no floating pet
+    /// yet, and the region seams above in the current time zone.
+    @MainActor static var popoverFacts: PopoverPlatformFacts {
+        #if os(Windows)
+        return .windows(regionLocale: regionLocale, regionCalendar: regionCalendar(timeZone: .current))
+        #else
+        return .mac
+        #endif
+    }
+}
