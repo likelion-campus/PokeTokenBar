@@ -55,16 +55,12 @@ function Assert-That([bool]$ok, [string]$name, [string]$detail) {
 if (-not ([System.Management.Automation.PSTypeName]'PtbCiProc').Type) {
     Add-Type -TypeDefinition @'
 using System;
-using System.IO;
 using System.Runtime.InteropServices;
-using Microsoft.Win32.SafeHandles;
 public static class PtbCiProc {
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
     [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
     [DllImport("advapi32.dll", SetLastError = true)] static extern bool GetTokenInformation(IntPtr token, int cls, out int value, int length, out int returned);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
-    [StructLayout(LayoutKind.Sequential)] struct ByHandleInfo { public uint Attrs, C1, C2, A1, A2, W1, W2, Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow; }
-    [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetFileInformationByHandle(SafeFileHandle h, out ByHandleInfo info);
     // "elevated=<0|1> type=<1 default|2 full|3 limited>" of a process's token (TokenElevation 20, TokenElevationType 18).
     public static string Elevation(int pid) {
         IntPtr p = OpenProcess(0x1000, false, pid);  // PROCESS_QUERY_LIMITED_INFORMATION
@@ -79,15 +75,6 @@ public static class PtbCiProc {
                 return "elevated=" + elevated + " type=" + type;
             } finally { CloseHandle(t); }
         } finally { CloseHandle(p); }
-    }
-    // The NTFS file id: a file Setup replaced (new file renamed over the name) gets a new one; tunnelling keeps the
-    // creation time of a name deleted and re-created within 15 s, so the creation time cannot tell.
-    public static string FileId(string path) {
-        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
-            ByHandleInfo i;
-            if (!GetFileInformationByHandle(fs.SafeFileHandle, out i)) return "unknown";
-            return i.IndexHigh.ToString("x8") + i.IndexLow.ToString("x8");
-        }
     }
 }
 '@
@@ -123,18 +110,24 @@ function Get-ProcessIdentity([int]$ProcessId) {
     "$($owner.Domain)\$($owner.User) $([PtbCiProc]::Elevation($ProcessId))"
 }
 
-# Relative path -> NTFS file id of every file under a folder.
-function Get-FolderFileIds([string]$Dir) {
-    $ids = @{}
+# Relative path -> SHA-256 of every file under a folder.
+function Get-FolderHashes([string]$Dir) {
+    $hashes = @{}
     $root = (Resolve-Path $Dir).Path
-    foreach ($f in Get-ChildItem $root -Recurse -File) { $ids[$f.FullName.Substring($root.Length + 1)] = [PtbCiProc]::FileId($f.FullName) }
-    $ids
+    foreach ($f in Get-ChildItem $root -Recurse -File) {
+        $s = [System.IO.File]::Open($f.FullName, 'Open', 'Read', 'ReadWrite, Delete')
+        try { $hashes[$f.FullName.Substring($root.Length + 1)] = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($s)) } finally { $s.Close() }
+    }
+    $hashes
 }
 
-# The relative paths whose file id differs, appeared or went away between two Get-FolderFileIds results.
-function Compare-FolderFileIds($Before, $After) {
+# The relative paths whose contents differ, appeared or went away between two Get-FolderHashes results.
+function Compare-FolderHashes($Before, $After) {
     @(@($Before.Keys) + @($After.Keys) | Sort-Object -Unique | Where-Object { $Before[$_] -ne $After[$_] })
 }
+
+# Every PokeTokenBar Setup process: the loader and the Setup it extracted (a .tmp exe).
+function Stop-Setups { Get-Process -Name 'PokeTokenBar-Setup-*' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
 
 # Runs a setup exe with its wizard (a double-click; only /LOG added) and clicks it through: Next on every page, Install,
 # Finish (the Finish page's launch box stays as Setup sets it), and records the page title after each click. Exit code.
