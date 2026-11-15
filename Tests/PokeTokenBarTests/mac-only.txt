@@ -221,5 +221,7 @@ PlazaCardPanelRenderTests+Mac.swift
 PlazaContentPanelsMacTests+Mac.swift
 # TeamOpenSSLInteropTests: the Mac's Network.framework TLS-PSK against the OpenSSL command line (scripts/team-interop-check.sh)
 TeamOpenSSLInteropTests.swift
+# PlazaParityGoldens+Mac: the Mac's side of the stage 6 parity goldens (SKRenderer swatches, CoreGraphics premultiply and gray tables, CoreText/TextKit breaks and font metrics, SwiftUI corners)
+PlazaParityGoldens+Mac.swift
 # PlazaStoreSpriteParityTests+Mac: the shared sprite/icon loaders against LivePlazaSpriteFetcher, PlazaIconLoader and SpriteLoader (AppKit, ImageIO)
 PlazaStoreSpriteParityTests+Mac.swift

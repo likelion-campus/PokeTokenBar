@@ -117,7 +117,7 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
     }
 
     /// The line ranges (UTF-16, trailing white space left off) TextKit breaks `attributed` into at `width`.
-    private static func breaks(_ attributed: NSAttributedString, width: CGFloat) -> [NSRange] {
+    static func breaks(_ attributed: NSAttributedString, width: CGFloat) -> [NSRange] {
         let style = NSMutableParagraphStyle()
         style.lineBreakStrategy = .standard
         let styled = NSMutableAttributedString(attributedString: attributed)

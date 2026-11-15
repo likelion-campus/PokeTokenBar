@@ -11,6 +11,10 @@ protocol PlazaNativeImage: AnyObject, Sendable {
     func cropping(to rect: PlazaPixelRect) -> (any PlazaNativeImage)?
 }
 
+/// Where an image came from, for the cross-OS render compare (a canvas image's size and hash may differ between OSes
+/// when text is in it). It has no effect on any pixel.
+enum PlazaImageOrigin: Sendable { case pixels, canvas, canvasWithText }
+
 /// A plaza image: either a shared `PlazaBitmap` or a native image. Immutable; the two caches are lock-guarded so an
 /// image can be built and read off the main actor.
 final class PlazaImage: @unchecked Sendable {
@@ -18,19 +22,22 @@ final class PlazaImage: @unchecked Sendable {
     /// The source, when the image was made from a bitmap.
     let bitmap: PlazaBitmap?
     let native: (any PlazaNativeImage)?
+    let origin: PlazaImageOrigin
 
     private let lock = NSLock()
     private var nativePixels: PlazaBitmap?
     private var backend: AnyObject?
 
-    init(bitmap: PlazaBitmap) {
+    init(bitmap: PlazaBitmap, origin: PlazaImageOrigin = .pixels) {
+        self.origin = origin
         width = bitmap.width
         height = bitmap.height
         self.bitmap = bitmap
         native = nil
     }
 
-    init(native: any PlazaNativeImage) {
+    init(native: any PlazaNativeImage, origin: PlazaImageOrigin = .pixels) {
+        self.origin = origin
         width = native.width
         height = native.height
         bitmap = nil
@@ -53,9 +60,9 @@ final class PlazaImage: @unchecked Sendable {
     func cropping(to rect: PlazaPixelRect) -> PlazaImage? {
         if let bitmap {
             let cropped = bitmap.cropped(to: rect)
-            return cropped.width > 0 && cropped.height > 0 ? PlazaImage(bitmap: cropped) : nil
+            return cropped.width > 0 && cropped.height > 0 ? PlazaImage(bitmap: cropped, origin: origin) : nil
         }
-        return native!.cropping(to: rect).map(PlazaImage.init(native:))
+        return native!.cropping(to: rect).map { PlazaImage(native: $0, origin: origin) }
     }
 
     /// What the backend made from this image (the Mac keeps the `CGImage` built from a bitmap here).
