@@ -88,13 +88,13 @@ private struct NoSprites: PlazaSpriteFetching {
 
         let subs = container.subviews
         XCTAssertEqual(subs.map { String(describing: type(of: $0)) },
-                       ["SKView", "PlazaRosterHostingView", "PlazaOverlayHostingView", "PlazaPanelHostView", "PlazaPanelHostView",
+                       ["SKView", "PlazaPanelHostView", "PlazaOverlayHostingView", "PlazaPanelHostView", "PlazaPanelHostView",
                         "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView",
                         "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "NSView"],
                        "bottom first, as show() added them; the photo frame's, the menu's and the pills' hosts right above the overlay, the minimap's, the clock's, the guide's, the toggle's and the picker's hosts where their hosting views were")
         guard subs.count == 13 else { return }
         XCTAssertEqual(subs.compactMap { ($0 as? PlazaPanelHostView)?.panelID },
-                       [.photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+                       [.roster, .photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
         XCTAssertTrue(subs[12] === chat.view, "the chat field's bar is on top")
         for v in subs.dropFirst() { XCTAssertFalse(v.translatesAutoresizingMaskIntoConstraints) }
         let named = ["roster", "overlay", "photoFrame", "menu", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "chatBar"]
@@ -104,9 +104,9 @@ private struct NoSprites: PlazaSpriteFetching {
             let all = ([container] + subs).flatMap(\.constraints).compactMap { describe($0, names) }
             return (all.filter { $0.contains(" + ") }.sorted(), Set(all.filter { !$0.contains(" + ") }))
         }
-        let m = String(format: "%g", PlazaRosterMetrics.margin)
         let expected = [
-            "roster.top = container.top + \(m)", "roster.trailing = container.trailing + -\(m)",
+            "roster.top = container.top + 0", "roster.bottom = container.bottom + 0",
+            "roster.leading = container.leading + 0", "roster.trailing = container.trailing + 0",
             "overlay.top = container.top + 0", "overlay.bottom = container.bottom + 0",
             "overlay.leading = container.leading + 0", "overlay.trailing = container.trailing + 0",
             "chatBar.bottom = container.bottom + -16", "chatBar.leading = container.leading + 16",
@@ -132,8 +132,7 @@ private struct NoSprites: PlazaSpriteFetching {
             "colorPicker.leading = container.leading + 0", "colorPicker.trailing = container.trailing + 0",
         ]
         XCTAssertEqual(installed().between, expected.sorted())
-        XCTAssertTrue(installed().own.isSuperset(of: ["roster.width = \(String(format: "%g", PlazaRosterMetrics.width))",
-                                                      "chatBar.width = \(String(format: "%g", PlazaChatLog.width))"]),
+        XCTAssertTrue(installed().own.isSuperset(of: ["chatBar.width = \(String(format: "%g", PlazaChatLog.width))"]),
                       "\(installed().own)")
 
         // The chat log is a panel now: above the field is the panel's offset, not a constraint (no constraint changes at all).
@@ -230,7 +229,6 @@ private struct NoSprites: PlazaSpriteFetching {
         shell.open(stage: scene.stage, title: "t", overlays: c.overlayBindings)
         let subs = try XCTUnwrap(shell.windowForTesting?.contentView).subviews
         guard subs.count == 13 else { return XCTFail("\(subs)") }
-        let roster = try XCTUnwrap(subs[1] as? PlazaRosterHostingView)
         let overlay = try XCTUnwrap(subs[2] as? PlazaOverlayHostingView)
         func state() -> [Bool] { [c.isChatLogExpanded, c.areShortcutsFolded, c.isBackgroundHidden, c.isNameColorPickerOpen] }
         func click(_ index: Int, _ id: PlazaPanelID, _ point: (CGRect) -> CGPoint) throws {
@@ -270,7 +268,9 @@ private struct NoSprites: PlazaSpriteFetching {
             PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
                              isShiny: false, presence: .idle, isMe: false)
         }
-        roster.rootView.onTurn(1)
+        for _ in 0..<20 { await Task.yield() }
+        let m = PlazaRosterMetrics.self
+        try click(1, .roster, { CGPoint(x: $0.maxX - m.padding - m.pagerHitSize / 2, y: $0.minY + m.padding + m.headerHeight / 2) })
         XCTAssertEqual(c.rosterModel.page, 1, "the roster's arrows turn its page")
         shell.stopPresenting()
         shell.dismantle()
@@ -454,41 +454,7 @@ extension PlazaWindowTests {
         XCTAssertLessThan(dimmed, 0.7, "see-through while the background is hidden")
     }
 
-    /// Each status reads and looks different, and a roster with all three lays out one row per teammate.
-    func testRosterShowsThreeDistinctStatuses() async {
-        let badges = [PlazaPresence.online, .idle, .asleep].map(\.badge)
-        XCTAssertEqual(badges.map(\.text), ["접속", "자리비움", "잠"])
-        XCTAssertEqual(Set(badges.map(\.color)).count, 3)
-        func entry(_ id: String, _ p: PlazaPresence, me: Bool = false) -> PlazaRosterEntry {
-            PlazaRosterEntry(id: id, nickname: id, speciesID: 25, speciesName: "피카츄", gender: nil, isShiny: false,
-                             presence: p, isMe: me)
-        }
-        let model = PlazaRosterModel()
-        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
-        model.entries = [entry("me", .online, me: true)]
-        let one = view.fittingSize.height
-        model.entries = [entry("me", .idle, me: true), entry("a", .online), entry("b", .idle), entry("c", .asleep)]
-        view.layoutSubtreeIfNeeded()
-        let slot = PlazaRosterMetrics.slotHeight + PlazaRosterMetrics.slotSpacing
-        XCTAssertEqual(view.fittingSize.height - one, 3 * slot, accuracy: 1)
-    }
 
-    /// A new view per case: without a window, macOS 15 does not refresh `fittingSize` after a second change to the model.
-    func testRosterPanelHoldsOnePage() async {
-        func height(people count: Int, page: Int = 0) -> CGFloat {
-            let model = PlazaRosterModel()
-            model.entries = (0..<count).map {
-                PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
-                                 isShiny: false, presence: .idle, isMe: false)
-            }
-            model.page = page
-            return PlazaRosterHostingView(rootView: PlazaRosterView(model: model)).fittingSize.height
-        }
-        let six = height(people: 6)
-        XCTAssertEqual(height(people: 7), six, accuracy: 1, "the seventh person goes to the next page")
-        let slot = PlazaRosterMetrics.slotHeight + PlazaRosterMetrics.slotSpacing
-        XCTAssertEqual(six - height(people: 7, page: 1), 5 * slot, accuracy: 1)
-    }
 
     /// The roster draws under the minimap and the clock, so its reserve must cover both as they really measure.
     func testRosterClearanceCoversTheMinimapAndTheClock() async {
@@ -510,21 +476,10 @@ extension PlazaWindowTests {
             PlazaRosterEntry(id: "m\($0)", nickname: "m\($0)", speciesID: 25, speciesName: "피카츄", gender: nil,
                              isShiny: false, presence: .idle, isMe: false)
         }
-        c.rosterView().onTurn(1)
+        c.turnRosterPage(by: 1)
         XCTAssertEqual(c.rosterModel.page, 1, "the arrows are wired to the window's list")
         c.handleClose()
         XCTAssertEqual(c.rosterModel.page, 0, "reopening starts from the first page")
     }
 
-    /// The roster takes clicks so a teammate can be chosen, but never the keyboard.
-    func testRosterTakesClicksButNotKeys() async {
-        let model = PlazaRosterModel()
-        model.entries = [PlazaRosterEntry(id: "m", nickname: "민수", speciesID: 25, speciesName: "피카츄", gender: nil,
-                                          isShiny: false, presence: .online, isMe: false)]
-        let view = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
-        view.frame = NSRect(x: 0, y: 0, width: PlazaRosterMetrics.width, height: 120)
-        view.layoutSubtreeIfNeeded()
-        XCTAssertNotNil(view.hitTest(NSPoint(x: 100, y: 60)))
-        XCTAssertFalse(view.acceptsFirstResponder)
-    }
 }

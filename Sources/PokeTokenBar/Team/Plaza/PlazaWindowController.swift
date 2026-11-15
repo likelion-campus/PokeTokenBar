@@ -120,7 +120,8 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [photoFramePanel, menuPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [rosterPanel, photoFramePanel, menuPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private lazy var rosterPanel = PlazaRosterPanel(model: rosterModel)
     private lazy var photoFramePanel = PlazaPhotoFramePanel(model: overlayModel)
     private lazy var shortcutsPanel = PlazaShortcutGuidePanel(model: shortcutModel, toggle: togglePanel)
     private lazy var togglePanel = PlazaBackgroundTogglePanel(model: backgroundModel)
@@ -503,6 +504,10 @@ import Observation
             default: break
             }
         case (.menu, "cancel"): closeOverlay()   // a click outside the menu (the old tap-outside area)
+        case (.roster, "select"):   // a teammate's slot walks to them; my slot and the plate take the click and do nothing
+            if let entry = rosterPanel.entry(forHit: hit) { walkToMember(entry.id) }
+        case (.roster, "previous"): turnRosterPage(by: -1)
+        case (.roster, "next"): turnRosterPage(by: 1)
         case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
         case (.backgroundToggle, "toggle"): toggleBackground()

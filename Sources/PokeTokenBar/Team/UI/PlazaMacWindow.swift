@@ -62,15 +62,10 @@ extension SKView: PlazaPausableView {}
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
-        let roster = PlazaRosterHostingView(rootView: Self.rosterView(overlays))
-        roster.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(roster)   // SKView 위. 입력은 받지 않고 SKView가 첫 응답자를 유지한다.
-        NSLayoutConstraint.activate([
-            roster.topAnchor.constraint(equalTo: container.topAnchor, constant: PlazaRosterMetrics.margin),
-            roster.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -PlazaRosterMetrics.margin),
-            roster.widthAnchor.constraint(equalToConstant: PlazaRosterMetrics.width),
-        ])
         let hud = overlays.hud
+        let roster = PlazaPanelHostView(hud: hud, panel: .roster)
+        roster.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(roster)   // SKView 위. 칸과 페이지 단추만 받고, SKView가 첫 응답자를 유지한다.
         let overlay = PlazaOverlayHostingView(rootView: PlazaOverlayView(model: overlays.overlayModel, feed: overlays.feed,
                                                                    myMemberID: overlays.myMemberID,
                                                                    onReact: overlays.react),
@@ -117,7 +112,7 @@ extension SKView: PlazaPausableView {}
             chatBar.widthAnchor.constraint(equalToConstant: PlazaChatLog.width),
         ])
         // The panel hosts cover the window; the HUD places each panel (the clock on the minimap, the guide under the toggle and the picker beside it, as their constraints did).
-        for host in [photoFrame, menu, pills, chatLogView, map, clock, shortcuts, toggle, colorPicker] {
+        for host in [roster, photoFrame, menu, pills, chatLogView, map, clock, shortcuts, toggle, colorPicker] {
             NSLayoutConstraint.activate([
                 host.topAnchor.constraint(equalTo: container.topAnchor),
                 host.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -129,7 +124,7 @@ extension SKView: PlazaPausableView {}
         w.contentView = container
         w.center()
         Self.restoreFrame(w, into: overlays.rosterModel, autosaveName: autosaveName)
-        panelHosts = [.photoFrame: photoFrame, .menu: menu, .pills: pills, .chatLog: chatLogView, .minimap: map, .clock: clock, .shortcuts: shortcuts, .backgroundToggle: toggle,
+        panelHosts = [.roster: roster, .photoFrame: photoFrame, .menu: menu, .pills: pills, .chatLog: chatLogView, .minimap: map, .clock: clock, .shortcuts: shortcuts, .backgroundToggle: toggle,
                       .nameColorPicker: colorPicker]
         self.hud = hud
         hud.setViewport(container.bounds.size, scale: w.backingScaleFactor)
@@ -150,11 +145,6 @@ extension SKView: PlazaPausableView {}
     static func restoreFrame(_ w: NSWindow, into roster: PlazaRosterModel, autosaveName: String = frameAutosaveName) {
         w.setFrameAutosaveName(autosaveName)   // center 뒤에 불러야 저장된 위치가 이긴다
         roster.capacity = PlazaRoster.capacity(forHeight: w.contentView?.bounds.height ?? 0)
-    }
-
-    /// 창에 올리는 목록. 칸은 그 팀원에게 걸어가고, < > 는 페이지를 넘긴다.
-    static func rosterView(_ overlays: PlazaOverlayBindings) -> PlazaRosterView {
-        PlazaRosterView(model: overlays.rosterModel, onSelect: overlays.walkToMember, onTurn: overlays.turnRosterPage)
     }
 
     /// No window, nothing to bring forward: the app is not activated.
@@ -276,14 +266,8 @@ extension SKView: PlazaPausableView {}
     func windowDidBecomeKey(_ notification: Notification) { events?.didBecomeKey() }
 }
 
-/// Mac-only conveniences of the shared controller (the SwiftUI roster and the shortcut guide's text live here).
+/// Mac-only conveniences of the shared controller (the shortcut guide's text lives here).
 extension PlazaWindowController {
-    /// 창에 올리는 목록. 칸은 그 팀원에게 걸어가고, < > 는 페이지를 넘긴다(테스트용; 창은 `overlayBindings`로 같은 것을 만든다).
-    func rosterView() -> PlazaRosterView {
-        PlazaRosterView(model: rosterModel, onSelect: { [weak self] in self?.walkToMember($0) },
-                        onTurn: { [weak self] in self?.turnRosterPage(by: $0) })
-    }
-
     /// 테스트용: 단축키 안내의 V 줄에 적힌 던지는 것.
     var shortcutThrowLabel: String? { PlazaShortcutGuide.entries(season: shortcutSeason).first { $0.key == "V" }?.label }
 }

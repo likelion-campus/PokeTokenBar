@@ -115,7 +115,7 @@ import SwiftUI
             return -1
         }
         for scale in [CGFloat(1), 2] {
-            let view = PlazaRosterView(model: rosterModel(2, animating: true))
+            let view = LegacyPlazaRosterView(model: rosterModel(2, animating: true))
             let b = Rig.Before(view, viewport: CGSize(width: 960, height: 640), scale: scale)
             await Rig.settle(250)
             let down = iconTop(try b.placed(at: CGPoint(x: 960 - 14 - 232, y: 14)), scale: scale)
@@ -142,7 +142,7 @@ import SwiftUI
     /// the panel. Prints the mismatches.
     func testClicksLandWhereTheyDidOnTheSwiftUIRoster() async throws {
         let model = rosterModel(4)
-        let host = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
+        let host = LegacyPlazaRosterHostingView(rootView: LegacyPlazaRosterView(model: model))
         let viewport = CGSize(width: 960, height: 640)
         let window = ScaledWindow(scale: 2, size: viewport)
         let container = NSView(frame: CGRect(origin: .zero, size: viewport))
