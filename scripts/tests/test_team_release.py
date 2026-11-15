@@ -697,6 +697,9 @@ class CollectTests(HelperTest):
             "a failed gate": (lambda m: m["gates"].update(idle="failure"), "gate idle is \"failure\""),
             "a skipped gate": (lambda m: m["gates"].update(uninstall="skipped"), "gate uninstall"),
             "a missing gate": (lambda m: m["gates"].pop("installedSelftest"), "no gate installedSelftest"),
+            "no failed-update gate": (lambda m: m["gates"].pop("failedUpdateRelaunch"), "no gate failedUpdateRelaunch"),
+            "a failed failed-update gate": (lambda m: m["gates"].update(failedUpdateRelaunch="failure"),
+                                            "gate failedUpdateRelaunch is \"failure\""),
             "an extra failed gate": (lambda m: m["gates"].update(inAppUpdate="failure"), "gate inAppUpdate"),
             "upgrade first on another gate": (lambda m: m["gates"].update(upgrade="first"), "gate upgrade is"),
             "an extra ISCC define": (lambda m: m["installer"]["isccDefines"].append("PTBTestFailInstall"), "isccDefines"),
@@ -1319,6 +1322,21 @@ class SmokeTests(HelperTest):
 
 
 # ── call sites ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+class GateMapTests(unittest.TestCase):
+    """REQUIRED_GATES and the manifest's gate map (release-manifest.ps1) name the same gates."""
+
+    def test_required_gates_are_the_manifest_gate_map(self):
+        text = (ROOT / "scripts/windows/release-manifest.ps1").read_text()
+        block = re.search(r"\$gateSteps = \[ordered\]@\{(.*?)\n\}", text, re.S)
+        self.assertIsNotNone(block)
+        mapped = re.findall(r"^\s*(\w+)\s*=\s*'([\w-]+)'\s*$", block.group(1), re.M)
+        self.assertEqual(list(tr.REQUIRED_GATES), [name for name, _ in mapped])
+        self.assertIn(("failedUpdateRelaunch", "failed-update-relaunch"), mapped)
+        workflow = (ROOT / ".github/workflows/windows-app.yml").read_text()
+        for _, step in mapped:
+            self.assertIn("id: " + step + "\n", workflow, step)
 
 
 class CallSiteScanTests(unittest.TestCase):
