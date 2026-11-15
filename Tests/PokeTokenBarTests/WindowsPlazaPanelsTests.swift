@@ -122,11 +122,11 @@ import XCTest
     func testTheShellBuildsTheContentPanelsFromTheBindings() async {
         let with = controller(feed: true)
         let ids = Set(with.overlayBindings.hud.panels.map(\.id))
-        XCTAssertTrue([.roster, .board, .card, .chatLog].isSubset(of: ids))
+        XCTAssertTrue(Set<PlazaPanelID>([.roster, .board, .card, .chatLog]).isSubset(of: ids))
         XCTAssertEqual(ids, Set(WinPlazaPanels.zOrder))
         let without = Set(controller(feed: false).overlayBindings.hud.panels.map(\.id))
         XCTAssertFalse(without.contains(.board), "no feed, no board")
-        XCTAssertTrue([.roster, .card, .chatLog].isSubset(of: without))
+        XCTAssertTrue(Set<PlazaPanelID>([.roster, .card, .chatLog]).isSubset(of: without))
         // attached to a viewport, the host shows what the HUD renders, in z order and nothing else
         let hud = with.overlayBindings.hud
         let panels = WinPlazaPanels(hud: hud)
