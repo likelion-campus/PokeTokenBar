@@ -47,7 +47,7 @@ enum WindowsSelftestNetBurst {
                 output.notes.append("loopback server did not start: WSA \(WSAGetLastError())"); save(); WindowsApp.exit(1, .helper)
             }
             let lo = "http://127.0.0.1:\(server.port)"
-            output.notes.append("loopback server on \(lo); curl proxy variable set: \(WinHTTPFetch.curlProxyConfigured())")
+            output.notes.append("loopback server on \(lo); route there: \(WinProxyRoute.route(for: URL(string: lo)!))")
             // Warm the dispatch threads, the shared session and WinHTTP once, so the cases see the steady state.
             // The first WinHTTP fetch of the process through the Windows proxy settings (cold: any detection happens here).
             let coldStart = WindowsSelftest.nowMs()
@@ -186,7 +186,7 @@ enum WindowsSelftestNetBurst {
 
     private static func callerShapes(_ lo: String) -> [Shape] {
         func request(_ path: String, _ timeout: TimeInterval, _ method: String = "GET", _ body: String? = nil,
-                     _ headers: [String: String] = [:]) -> URLRequest {
+                     headers: [String: String] = [:]) -> URLRequest {
             var r = URLRequest(url: URL(string: lo + path)!, timeoutInterval: timeout)
             r.httpMethod = method
             r.httpBody = body.map { Data($0.utf8) }
@@ -208,11 +208,11 @@ enum WindowsSelftestNetBurst {
                 "Cookie": "sessionKey=fixture", "Accept": "application/json", "User-Agent": browser,
                 "Referer": "https://claude.ai", "Origin": "https://claude.ai"]), configuration: nil, fromURL: false),
             Shape(name: "cursor-token-refresh", request: request("/delay/200", 10, "POST", #"{"grant_type":"refresh_token"}"#,
-                ["Content-Type": "application/json"]), configuration: ephemeral(10), fromURL: false),
-            Shape(name: "cursor-usage", request: request("/delay/200", 10, "POST", "{}", [
+                headers: ["Content-Type": "application/json"]), configuration: ephemeral(10), fromURL: false),
+            Shape(name: "cursor-usage", request: request("/delay/200", 10, "POST", "{}", headers: [
                 "Content-Type": "application/json", "User-Agent": "Mozilla/5.0", "Origin": "https://cursor.com",
                 "Cookie": "WorkosCursorSessionToken=fixture"]), configuration: ephemeral(10), fromURL: false),
-            Shape(name: "cursor-limits", request: request("/delay/200", 10, "POST", "{}", [
+            Shape(name: "cursor-limits", request: request("/delay/200", 10, "POST", "{}", headers: [
                 "Content-Type": "application/json", "Connect-Protocol-Version": "1", "Authorization": "Bearer fixture"]),
                 configuration: ephemeral(10), fromURL: false),
             Shape(name: "grok-and-opencode-limits", request: request("/delay/200", 10, headers: [
@@ -221,7 +221,7 @@ enum WindowsSelftestNetBurst {
                   configuration: nil, fromURL: false),
             Shape(name: "pokeapi-rest-and-names", request: request("/delay/200", 15), configuration: nil, fromURL: false),
             Shape(name: "pokeapi-graphql", request: request("/delay/200", 15, "POST", #"{"query":"{ x }"}"#,
-                ["Content-Type": "application/json"]), configuration: nil, fromURL: false),
+                headers: ["Content-Type": "application/json"]), configuration: nil, fromURL: false),
             Shape(name: "sprite-and-icon", request: URLRequest(url: URL(string: lo + "/big/40000")!), configuration: nil, fromURL: true),
         ]
     }
