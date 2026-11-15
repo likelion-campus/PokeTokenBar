@@ -56,30 +56,32 @@ enum WindowsSelftestNetBurst {
 
             let claude = "https://status.claude.com/api/v2/summary.json"
             let openai = "https://status.openai.com/api/v2/summary.json"
+            // URLSession cases on a "fresh" connection use a new ephemeral session each (curl connects); "reused" ones follow
+            // a fetch to the same host on the same session within seconds (curl takes the cached connection). The app's
+            // refresh comes every 120 s, past libcurl's 118 s connection age limit, so it connects afresh every time.
             let cases: [(String, @MainActor () async -> String)] = [
-                ("lo-immediate", { await get(URLSession.shared, lo + "/delay/0", timeout: 10) }),
-                ("lo-delay-2s", { await get(URLSession.shared, lo + "/delay/2000", timeout: 30) }),
-                ("lo-delay-10s", { await get(URLSession.shared, lo + "/delay/10000", timeout: 30) }),
-                ("lo-hang-timeout-10s", { await get(URLSession.shared, lo + "/hang", timeout: 10) }),
-                ("lo-8MB", { await get(URLSession.shared, lo + "/big/8388608", timeout: 30) }),
-                ("lo-delay-2s-connection-close", { await get(URLSession.shared, lo + "/delay/2000", timeout: 30, close: true) }),
-                ("lo-delay-2s-own-ephemeral-session", {
-                    let session = URLSession(configuration: .ephemeral)
-                    let r = await get(session, lo + "/delay/2000", timeout: 30)
-                    session.finishTasksAndInvalidate()
-                    return r
-                }),
+                ("lo-fresh-immediate", { await fresh(lo + "/delay/0", timeout: 10) }),
+                ("lo-fresh-delay-2s", { await fresh(lo + "/delay/2000", timeout: 30) }),
+                ("lo-fresh-delay-10s", { await fresh(lo + "/delay/10000", timeout: 30) }),
+                ("lo-fresh-hang-timeout-10s", { await fresh(lo + "/hang", timeout: 10) }),
+                ("lo-fresh-8MB", { await fresh(lo + "/big/8388608", timeout: 30) }),
+                ("lo-fresh-delay-2s-connection-close", { await fresh(lo + "/delay/2000", timeout: 30, close: true) }),
+                ("lo-shared-immediate", { await get(URLSession.shared, lo + "/delay/0", timeout: 10) }),
+                ("lo-shared-reused-delay-2s", { await get(URLSession.shared, lo + "/delay/2000", timeout: 30) }),
                 ("winhttp-lo-immediate", { await winhttp(lo + "/delay/0", timeout: 10) }),
                 ("winhttp-lo-delay-2s", { await winhttp(lo + "/delay/2000", timeout: 30) }),
                 ("winhttp-lo-delay-10s", { await winhttp(lo + "/delay/10000", timeout: 30) }),
                 ("winhttp-lo-hang-timeout-10s", { await winhttp(lo + "/hang", timeout: 10) }),
                 ("winhttp-lo-8MB", { await winhttp(lo + "/big/8388608", timeout: 30) }),
-                ("https-claude-urlsession", { await get(URLSession.shared, claude, timeout: 10) }),
-                ("https-openai-urlsession", { await get(URLSession.shared, openai, timeout: 10) }),
-                ("https-claude-winhttp", { await winhttp(claude, timeout: 10) }),
-                ("https-openai-winhttp", { await winhttp(openai, timeout: 10) }),
+                // The first contact with the status hosts in this process: the old path connects afresh on URLSession.shared.
                 ("status-check-old-path-urlsession", { await oldStatusPath() }),
                 ("status-check-app-path", { await appStatusPath() }),
+                ("https-claude-urlsession-reused", { await get(URLSession.shared, claude, timeout: 10) }),
+                ("https-openai-urlsession-reused", { await get(URLSession.shared, openai, timeout: 10) }),
+                ("https-claude-urlsession-fresh", { await fresh(claude, timeout: 10) }),
+                ("https-openai-urlsession-fresh", { await fresh(openai, timeout: 10) }),
+                ("https-claude-winhttp", { await winhttp(claude, timeout: 10) }),
+                ("https-openai-winhttp", { await winhttp(openai, timeout: 10) }),
                 ("update-feed-urlsession", {
                     let t0 = WindowsSelftest.nowMs()
                     let outcome = await InstallerReleaseFeed.outcome()
@@ -131,6 +133,14 @@ enum WindowsSelftestNetBurst {
         }
     }
 
+    /// On a new ephemeral session, so libcurl opens a new connection.
+    private static func fresh(_ url: String, timeout: TimeInterval, close: Bool = false) async -> String {
+        let session = URLSession(configuration: .ephemeral)
+        let outcome = await get(session, url, timeout: timeout, close: close)
+        session.finishTasksAndInvalidate()
+        return outcome
+    }
+
     private static func winhttp(_ url: String, timeout: TimeInterval) async -> String {
         guard let u = URL(string: url) else { return "bad url" }
         var request = URLRequest(url: u, timeoutInterval: timeout)
@@ -146,19 +156,26 @@ enum WindowsSelftestNetBurst {
         }
     }
 
-    /// `StatuspageStatusProvider.fetch()` as it was before the route: both endpoints at once on `URLSession.shared`.
+    /// `StatuspageStatusProvider.fetch()` as it was before the route: both endpoints at once on `URLSession.shared`, the
+    /// same request (10 s, User-Agent), status 200 and component parse, so its statuses compare with the app path's.
     private static func oldStatusPath() async -> String {
-        await withTaskGroup(of: String.self) { group in
+        let t0 = WindowsSelftest.nowMs()
+        let parts = await withTaskGroup(of: String.self) { group in
             for endpoint in StatuspageStatusProvider.endpoints {
                 group.addTask {
-                    let outcome = await get(URLSession.shared, endpoint.url.absoluteString, timeout: 10)
-                    return endpoint.id + ": " + outcome
+                    var request = URLRequest(url: endpoint.url, timeoutInterval: 10)
+                    request.setValue("PokeTokenBar", forHTTPHeaderField: "User-Agent")
+                    guard let (data, response) = try? await URLSession.shared.data(for: request) else { return endpoint.id + ": failed" }
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    let parsed = code == 200 ? StatuspageStatusProvider.parseComponent(data, named: endpoint.componentName) : nil
+                    return endpoint.id + "=" + (parsed?.indicator.rawValue ?? "nil(HTTP \(code) \(data.count) B)")
                 }
             }
             var parts: [String] = []
             for await part in group { parts.append(part) }
-            return parts.sorted().joined(separator: "; ")
+            return parts.sorted()
         }
+        return "in \(Int(WindowsSelftest.nowMs() - t0)) ms: " + parts.joined(separator: " ")
     }
 
     /// The app's code path as built: `StatuspageStatusProvider.fetch()` (through `PlatformCompat.oneShotData`).
@@ -193,14 +210,32 @@ enum WindowsSelftestNetBurst {
               let doneIndex = points.firstIndex(where: { $0.ms >= t1 }) ?? (points.isEmpty ? nil : points.count - 1)
         else { return empty }
         let window = Array(points[startIndex...])
-        guard let a = window.first, let b = window.last, window.count >= 2 else { return empty }
+        guard window.count >= 2, let b = window.last else { return empty }
         let main = UInt32(WindowsApp.mainThreadID)
-        func delta(_ x: Recorder.Point, _ y: Recorder.Point, _ tid: UInt32) -> Int { Int(y.cs[tid] ?? 0) - Int(x.cs[tid] ?? 0) }
-        var totals: [(tid: UInt32, cs: Int, cycles: UInt64)] = []
-        for tid in Set(a.cs.keys).union(b.cs.keys) where tid != recorder {
-            let cs = delta(a, b, tid)
-            let cycles = (b.cycles[tid] ?? 0) &- (a.cycles[tid] ?? 0)
-            if cs > 0 || cycles > 0 { totals.append((tid, cs, cycles)) }
+        // Per 20 ms bucket: a thread present at both edges counts its growth, a thread born inside counts from zero, a thread
+        // that ended inside counts nothing for that bucket. Summed over the buckets, so short-lived threads are not lost
+        // (the gate's edge-only reading loses a thread that ends inside its window).
+        func delta(_ x: Recorder.Point, _ y: Recorder.Point, _ tid: UInt32) -> Int {
+            guard let now = y.cs[tid] else { return 0 }
+            return max(0, Int(now) - Int(x.cs[tid] ?? 0))
+        }
+        func cyclesDelta(_ x: Recorder.Point, _ y: Recorder.Point, _ tid: UInt32) -> UInt64 {
+            guard let now = y.cycles[tid] else { return 0 }
+            let before = x.cycles[tid] ?? 0
+            return now >= before ? now - before : 0
+        }
+        var csByThread: [UInt32: Int] = [:]
+        var cyclesByThread: [UInt32: UInt64] = [:]
+        for i in 0..<(window.count - 1) {
+            let x = window[i], y = window[i + 1]
+            for tid in y.cs.keys where tid != recorder {
+                csByThread[tid, default: 0] += delta(x, y, tid)
+                cyclesByThread[tid, default: 0] &+= cyclesDelta(x, y, tid)
+            }
+        }
+        var totals: [(tid: UInt32, cs: Int, cycles: UInt64)] = csByThread.compactMap { entry in
+            let cycles = cyclesByThread[entry.key] ?? 0
+            return entry.value > 0 || cycles > 0 ? (entry.key, entry.value, cycles) : nil
         }
         totals.sort { $0.cs != $1.cs ? $0.cs > $1.cs : $0.cycles > $1.cycles }
         func who(_ tid: UInt32) -> String { tid == main ? "main" : "\(tid) \(IdleSampler.label(tid))" }

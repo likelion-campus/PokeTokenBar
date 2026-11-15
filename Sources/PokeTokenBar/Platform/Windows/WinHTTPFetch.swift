@@ -10,9 +10,11 @@ import WinSDK
 /// asks for write readiness and cancels it only when curl removes the socket (`register`, lines 119-138: `.registerRead`
 /// after `.registerReadAndWrite` leaves the write source alive). libdispatch on Windows emulates a level-triggered write
 /// source with a zero-byte `send()` on every re-arm and posts "writable" at once when it succeeds (`event_windows.c`,
-/// lines 487-505; re-armed through `_dispatch_unote_resume_muxed`, 582-588). A connected socket is always writable, so the
-/// source fires, curl finds nothing to write, the source re-arms and fires again, between two dispatch threads, for as long
-/// as the transfer lasts. WinHTTP's synchronous calls on a thread of our own block in the kernel until data arrives.
+/// lines 487-505; re-armed through `_dispatch_unote_resume_muxed`, 581-588). A connected socket is always writable, so the
+/// source fires, curl finds nothing to write, the source re-arms and fires again, between two dispatch threads, from the
+/// connect until the transfer ends: 25,000-50,000 wakeups a second on the CI runner. A reused keep-alive connection is quiet
+/// (curl never asks for write readiness), but a store refresh every 120 s is past libcurl's 118 s reuse limit (curl 8.9.1
+/// `url.c` line 481), so it always connects afresh. WinHTTP's synchronous calls on a thread of our own block in the kernel.
 ///
 /// Same request as before: method GET, the request's headers, its `timeoutInterval` (for resolve, connect, send and each
 /// receive, like curl's idle timer that every received chunk resets), TLS verified by Schannel against the Windows store with
