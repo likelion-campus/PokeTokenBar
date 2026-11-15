@@ -868,32 +868,47 @@ extension WindowsSelftest {
         bar.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
         _ = GetScrollBarInfo(field.hwnd, Int32(bitPattern: 0xFFFF_FFFB), &bar)
         let firstBefore = WinKit.send(field.hwnd, 0x00CE /* EM_GETFIRSTVISIBLELINE */)
-        let one = await clickRun(at: POINT(x: (bar.rcScrollBar.left + bar.rcScrollBar.right) / 2, y: bar.rcScrollBar.bottom - bar.dxyLineButton / 2), clicks: 1)
+        let fieldArrow = POINT(x: (bar.rcScrollBar.left + bar.rcScrollBar.right) / 2, y: bar.rcScrollBar.bottom - bar.dxyLineButton / 2)
+        let one = await clickRun(at: fieldArrow, clicks: 1)
         let firstAfter = WinKit.send(field.hwnd, 0x00CE)
         let fieldCapture = GetCapture()
+        // Held down 0.8 s (the arrow repeats): the field's arrow (the kit subclass's tracking loop), then the second press
+        // of a double click on the page's arrow (WM_NCLBUTTONDBLCLK): the main queue keeps running inside WinModalPump.
+        let heldField = await clickRun(at: fieldArrow, clicks: 1, holdLast: true)
+        let heldPage = await clickRun(at: arrow, clicks: 2, holdLast: true)
         field.text = ""
+        area.scroll(to: 0)
         let ok = pageOffset == 2 * line && pageCapture == nil && !double.stuck && double.blockRan
             && firstAfter == firstBefore + 1 && fieldCapture == nil && !one.stuck && one.blockRan
+            && heldField.heldRan && !heldField.stuck && heldPage.heldRan && !heldPage.stuck
         r.add("ui.kit.scrollClicks", ok,
               "double click on the page's down arrow at (\(arrow.x),\(arrow.y)): offset 0 -> \(pageOffset) (expected \(2 * line), two lines), capture after=\(pageCapture == nil ? "none" : "kept"), "
               + "\(double.detail); one click on the multi-line field's own down arrow: first visible line \(firstBefore) -> \(firstAfter) (expected +1), "
-              + "capture after=\(fieldCapture == nil ? "none" : "kept"), \(one.detail)")
+              + "capture after=\(fieldCapture == nil ? "none" : "kept"), \(one.detail); held on the field's arrow: \(heldField.detail); "
+              + "double click held on the page's arrow: \(heldPage.detail)")
     }
 
-    private struct ClickResult { var stuck: Bool, blockRan: Bool, detail: String }
+    private struct ClickResult { var stuck: Bool, blockRan: Bool, heldRan: Bool, detail: String }
 
     /// Clicks at a screen point from another thread, then posts a main-queue block and waits for it. When the main thread
     /// still holds the mouse capture without serving that block, the loop is stuck: the watchdog frees it.
-    private static func clickRun(at p: POINT, clicks: Int) async -> ClickResult {
+    /// `holdLast`: the last press stays down while a main-queue block is posted (0.8 s at most), as a user holds an arrow.
+    private static func clickRun(at p: POINT, clicks: Int, holdLast: Bool = false) async -> ClickResult {
         let box = ClickBox()
         let main = WindowsApp.mainThreadID
         let px = p.x, py = p.y
         Thread {
             mouse(x: px, y: py, flags: 0x0001 | 0x8000)
             Thread.sleep(forTimeInterval: 0.08)
-            for _ in 0..<clicks {
+            for click in 0..<clicks {
                 mouse(x: px, y: py, flags: 0x0002)  // LEFTDOWN
                 Thread.sleep(forTimeInterval: 0.03)
+                if holdLast, click == clicks - 1 {
+                    Thread.sleep(forTimeInterval: 0.1)
+                    DispatchQueue.main.async { box.heldBlockRan() }
+                    for _ in 0..<40 where !box.heldRan { Thread.sleep(forTimeInterval: 0.02) }
+                    box.released()  // what ran before the button went up (a stuck loop serves the block only after it)
+                }
                 mouse(x: px, y: py, flags: 0x0004)  // LEFTUP
                 Thread.sleep(forTimeInterval: 0.06)
             }
@@ -917,17 +932,23 @@ extension WindowsSelftest {
                     Thread.sleep(forTimeInterval: 0.2)
                 }
             }
-            box.finish(stuck: !box.blockRan || held != 0, detail: "main-queue block ran within 2 s=\(box.blockRan), capture still held then=\(held != 0), watchdog WM_CANCELMODE x\(freed)")
+            let heldPart = holdLast ? "main-queue block ran while the button was held=\(box.ranWhileHeld), " : ""
+            box.finish(stuck: !box.blockRan || held != 0,
+                       detail: heldPart + "main-queue block ran within 2 s=\(box.blockRan), capture still held then=\(held != 0), watchdog WM_CANCELMODE x\(freed)")
         }.start()
         _ = await WindowsSelftest.waitUntil(timeout: 30) { box.isDone }
         _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
-        return ClickResult(stuck: box.stuck, blockRan: box.blockRan, detail: box.detail)
+        return ClickResult(stuck: box.stuck, blockRan: box.blockRan, heldRan: box.ranWhileHeld, detail: box.detail)
     }
 
     private final class ClickBox: @unchecked Sendable {
         private let lock = NSLock()
-        private var _ran = false, _done = false, _stuck = false, _detail = ""
+        private var _ran = false, _heldRan = false, _ranWhileHeld = false, _done = false, _stuck = false, _detail = ""
         func ran() { lock.lock(); _ran = true; lock.unlock() }
+        func heldBlockRan() { lock.lock(); _heldRan = true; lock.unlock() }
+        func released() { lock.lock(); _ranWhileHeld = _heldRan; lock.unlock() }
+        var heldRan: Bool { lock.lock(); defer { lock.unlock() }; return _heldRan }
+        var ranWhileHeld: Bool { lock.lock(); defer { lock.unlock() }; return _ranWhileHeld }
         func finish(stuck: Bool, detail: String) { lock.lock(); _stuck = stuck; _detail = detail; _done = true; lock.unlock() }
         var blockRan: Bool { lock.lock(); defer { lock.unlock() }; return _ran }
         var isDone: Bool { lock.lock(); defer { lock.unlock() }; return _done }
