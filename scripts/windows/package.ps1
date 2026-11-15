@@ -7,6 +7,7 @@
 #   3. a file in the Swift SDK (Runtimes\*\usr\bin and Toolchains\*\usr\bin; dispatch.dll and BlocksRuntime.dll are in the
 #      latter, F21)                                         -> shipped
 #   anything else -> exit 1 ("no source"). A shipped DLL must match a line of windows\licenses\map.txt -> else exit 1.
+# The plaza's art and fonts go to Resources\Plaza (every file must match a line of map.txt too).
 # Also fails when the bundled exe is not named like WindowsInstall.shippedExecutableName, when an OpenSSL DLL would ship
 # (OpenSSL is linked statically), or when the exe lacks the version resource for -Version.
 # Usage: package.ps1 -Out bundle [-Version 2.5.634] [-Exe .build\release\PokeTokenBarWin.exe]
@@ -127,12 +128,38 @@ foreach ($entry in $shipped.Values) {
     $line = $map | Where-Object { $entry.Name -like $_.Pattern } | Select-Object -First 1
     if (-not $line) { Fail "$($entry.Name) ($($entry.Origin)) matches no line in windows\licenses\map.txt"; continue }
     foreach ($l in $line.Licenses) {
+        if ($l -eq '-') { continue }
         $p = Join-Path windows\licenses $l
         if (-not (Test-Path $p)) { Fail "$($entry.Name): licence file windows\licenses\$l is missing"; continue }
         Copy-Item $p (Join-Path $licenseDir $l) -Force
     }
     $index.Add(("{0}  [{1}]  {2}  licence: {3}" -f $entry.Name, $entry.Origin, $line.Component, ($line.Licenses -join ', ')))
 }
+# --- the plaza's bundled art and fonts: Resources\Plaza next to the exe. The app finds them there (the Windows build has no
+# SwiftPM resources); every file needs a line in map.txt, like a DLL. Two source folders: the files the Mac bundles, and the
+# Windows-only ones (Pretendard).
+$resDir = Join-Path $Out "Resources\Plaza"
+New-Item -ItemType Directory -Force -Path $resDir | Out-Null
+$index.Add("")
+$index.Add("Resources\Plaza (art and fonts the plaza draws with)")
+foreach ($srcDir in @("Sources\PokeTokenBar\Resources\Plaza", "windows\resources\Plaza")) {
+    if (-not (Test-Path $srcDir)) { Fail "resource folder $srcDir is missing"; continue }
+    foreach ($f in Get-ChildItem $srcDir -File | Sort-Object Name) {
+        if (Test-Path (Join-Path $resDir $f.Name)) { Fail "Resources\Plaza\$($f.Name) exists in two source folders"; continue }
+        $line = $map | Where-Object { $f.Name -like $_.Pattern } | Select-Object -First 1
+        if (-not $line) { Fail "Resources\Plaza\$($f.Name) matches no line in windows\licenses\map.txt"; continue }
+        foreach ($l in $line.Licenses) {
+            if ($l -eq '-') { continue }
+            $p = Join-Path windows\licenses $l
+            if (-not (Test-Path $p)) { Fail "$($f.Name): licence file windows\licenses\$l is missing"; continue }
+            Copy-Item $p (Join-Path $licenseDir $l) -Force
+        }
+        Copy-Item $f.FullName $resDir
+        $index.Add(("{0}  [{1}]  {2}  licence: {3}" -f $f.Name, $srcDir, $line.Component, ($line.Licenses -join ', ')))
+    }
+}
+Write-Host ("PASS resources: {0} files in Resources\Plaza" -f @(Get-ChildItem $resDir -File).Count)
+
 Copy-Item LICENSE (Join-Path $licenseDir "PokeTokenBar-LICENSE.txt")
 Copy-Item windows\licenses\openssl-LICENSE.txt (Join-Path $licenseDir "openssl-LICENSE.txt")
 Set-Content -Path (Join-Path $licenseDir "THIRD-PARTY.txt") -Value $index -Encoding utf8

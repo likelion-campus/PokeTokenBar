@@ -79,6 +79,7 @@ enum WindowsSelftest {
                           Self.modification(of: SettingsPlistGuard.backupURL(for: WinDefaultsSync.expectedPlistURL()))]
         let stalls = MainStallProbe.start(mainThread: WindowsApp.mainThreadID)
         r.add("build.shims", ptb_shim_abi() == 1, "CWinShim abi=\(ptb_shim_abi()) openssl=\(String(cString: ptb_tls_openssl_version()))")
+        graphicsLazinessCheck(r)  // stage 6 task 2 (WindowsSelftestGraphics.swift): before anything asks for Direct2D
         pathChecks(r)
         await storeChecks(r, app)
         let quiet = await waitStable(timeout: 120, quiet: 1) { !app.store.isRefreshing && !WinDefaultsSync.isSyncPending }
@@ -104,6 +105,7 @@ enum WindowsSelftest {
                 + "the selftest keeps its settings in suite \(WinDefaultsSync.selftestSuiteName ?? "-")")
         await systemServiceChecks(r)
         packagedChecks(r)
+        await plazaGraphicsChecks(r)  // stage 6 task 2
         await trayChecks(r, app)
         await modalPumpChecks(r, app)
         await notifyChecks(r, app)

@@ -950,6 +950,16 @@ read_when:
   빌드하므로 재수출이 그대로 보인다. **가드(기계):** `WindowsSeamScanTests.testSharedFilesThatObserveImportObservation`(고치기 전 트리에서
   실패 확인). 스윕: `withObservationTracking` 을 쓰는 소스 4곳 중 공용은 `TeamRuntime`(이미 import)과 이 컨트롤러뿐이고, `@Observable` 을 쓰는
   공용 파일은 모두 `import Observation` 이 있다(스캔이 확인).
+  **COM 아파트(Stage 6 Task 2, S10):** 윈도우 앱은 UI 스레드(프로세스 메인 스레드)의 COM 아파트를 어디서도 정하지 않았다. `CWinShim` 의 WIC 호출은 호출한
+  스레드에서 `CoInitializeEx(MTA)` 를 하고 끝나면 `CoUninitialize` 하므로(트레이 아이콘 디코드가 메인 스레드에서 돈다), 그 스레드는 평소 아파트 없음/묵시적 MTA 이고
+  첫 WIC 호출 동안만 MTA 다. 한글 IME(TSF)·이모지 패널·드래그 앤 드롭은 창을 소유한 스레드가 STA 이기를 기대한다. **왜 못 걸렀나:** 어떤 검사도 아파트를
+  읽지 않았고(`tray.icon` 은 디코드가 *되는지*만 본다 — MTA 든 STA 든 WIC 는 돈다), 입력 쪽 결함은 IME 로 한글을 칠 때 비로소 보이는데 그 경로는 PC 에서만 돈다.
+  **수정:** `WindowsApp.main` 의 첫 줄이 `ptb_com_init_sta`(`CoInitializeEx(STA | DISABLE_OLE1DDE)`)를 부른다. `CPlazaD2D` 의 WIC 는 스레드마다 처음 한 번 MTA 를
+  얻고(이미 STA 인 메인 스레드는 `RPC_E_CHANGED_MODE` 라 그대로 쓴다), shim 의 옛 호출도 같은 이유로 STA 에서 계속 동작한다. **가드(기계):** 셀프테스트
+  `com.uiThreadSTA`(기동 직후·초기화 뒤·트레이 디코드와 WIC 디코드 뒤의 `CoGetApartmentType` 을 한 줄에 — STA 또는 main STA 여야 통과; 첫 STA 는 main STA 로 보고된다),
+  `com.workerThreads`(새 스레드에서 두 경로가 되고 스레드가 끝난 뒤에도 메인이 STA), XCTest `testAThreadThatIsAnSTAStillDecodes`/`testAThreadWithoutCOMGetsAnMTAFromTheCodec`.
+  **스윕:** `Sources/` 의 `CoInitializeEx` 는 `CWinShim/wic.cpp` 2곳(둘 다 MTA 요청 뒤 성공했을 때만 `CoUninitialize`, `RPC_E_CHANGED_MODE` 는 무시)과 `CPlazaD2D` 뿐이고,
+  `CoCreateInstance` 는 모두 WIC 팩토리다. COM 을 쓰는 다른 호출(`Shell_NotifyIconW`, 레지스트리, 소켓)은 아파트가 필요 없다.
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
