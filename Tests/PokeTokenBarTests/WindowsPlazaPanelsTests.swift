@@ -265,8 +265,9 @@ import XCTest
         chat.canScroll = false
         XCTAssertFalse(rig.panels.mouse(PlazaMouseEvent(kind: .scroll(dx: 0, dy: 30), location: CGPoint(x: 20, y: 500))))
         XCTAssertEqual(rig.panels.counts.scrollsPassedOn, 1)
-        // over nothing
-        XCTAssertFalse(rig.panels.mouse(PlazaMouseEvent(kind: .scroll(dx: 0, dy: 30), location: CGPoint(x: 600, y: 580))))
+        // over nothing but the cover: swallowed, the scene gets none
+        XCTAssertTrue(rig.panels.mouse(PlazaMouseEvent(kind: .scroll(dx: 0, dy: 30), location: CGPoint(x: 600, y: 580))))
+        XCTAssertEqual(rig.panels.counts.swallowed, 2)
     }
 
     // MARK: tooltips
