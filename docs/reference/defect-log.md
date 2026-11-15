@@ -2454,6 +2454,15 @@ read_when:
   **회귀 점검:** `windows-app.yml` 단계 `failed-update-relaunch`(`fromAppFolder`, `inAppOrder`, `failDuringCopy`, `backupFails`, `failedRestore`, `twoSetups`, `staleComplete`,
   `staleIncomplete`, `killedMidCopy`) — 결함 주입(되돌리기 제거, 뮤텍스 검사 제거, 되돌리기 실패 뒤 재실행, 남은 사본 되돌리기 제거, 복사 실패 무시)이 각각 해당 줄을 FAIL 로 만든다.
   셀프테스트 `packaged.workingFolder` 는 작업 폴더 옮기기를 빼면 FAIL.
+  **2차 리뷰 — 같은 상태를 두 규칙이 다르게 읽었다.** 완료 표시가 있는 남은 사본은 "앱 폴더에 exe 와 버전 파일이 있으면" 지웠는데, 표시된 사본이 남는 상태(쓰는 중·되돌리는 중
+  강제 종료, 되돌리기 실패)는 모두 exe 와 버전 파일을 가진 *섞인* 폴더다 — 다음 Setup 이 하나뿐인 온전한 사본을 지우고 섞인 폴더를 백업했고, 그 Setup 이 실패했다면 앞 Setup 이
+  켜기를 거부한 폴더를 되돌려 켰을 것이다. 이제 사본은 앱 폴더의 버전 파일이 사본과 *다를* 때만 지운다(버전 파일은 맨 마지막에 쓰고 되돌릴 때는 맨 먼저 되돌린다). 남은 사본을
+  못 되돌려 멈출 때도 `RestoreFailed` 로 켜지 않는다. **그리고 "바뀌지 않았다"는 내용으로 판단한다:** 크기·시각만 보던 규칙은 하네스에서 간헐적으로 vN+1 버전 파일을 vN 것으로
+  봤다 — Inno 는 설치 파일 시각을 2 초로 반올림하고(`TimeStampRounding`) 버전 파일은 버전 사이에 길이가 같다. `RestoreFile` 은 SHA-256 을 비교한다.
+  **왜 못 걸렀나:** 남은 사본 시나리오가 "앱 폴더와 같은 내용의 사본"만 만들어 두 규칙이 갈리는 상태(섞인 폴더 + 같은 버전)를 한 번도 만들지 않았고, 테스트 페이로드가 모든 파일의
+  크기를 바꿔 시각 비교를 시험하지 않았다. 간헐 실패는 결함 주입 실행에서만 보였다 — 주입과 상관없는 시나리오가 깨지면 플레이크로 넘기지 말고 원인을 찾는다.
+  **회귀 점검(추가):** `failLate`(버전 파일까지 쓴 뒤 실패), `killedDuringRestore`, `killedFirstEntry`, `leftOverRestoreFails`, `noVersionFile`, `partialCopy`, `appFolderMissing`; 페이로드의
+  `THIRD-PARTY.txt` 는 크기·시각이 같고 내용만 다르다. 결함 주입: 옛 규칙, `RestoreFailed` 빼기, 폴더 다시 만들기 빼기, 크기·시각 비교, 버전 파일 먼저 빼기, exe 만으로 "온전".
 
 ## 윈도 로케일·알림 (windows-port)
 
