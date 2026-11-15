@@ -309,11 +309,22 @@ class FakeGitHub:
         return ok("%s\t%s\n" % (self.tags[tag], ref) if tag in self.tags else "")
 
 
+class SignalNotTaken(Exception):
+    """Raised by the test's own SIGTERM/SIGHUP handler: the helper did not install its handler."""
+
+
+def _not_taken(signum, frame):
+    raise SignalNotTaken(signum)
+
+
 class HelperTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
         self.gh, self.clock = FakeGitHub(), FakeClock()
+        # A signal the helper does not handle must fail the test, not kill the test run.
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.addCleanup(signal.signal, sig, signal.signal(sig, _not_taken))
 
     def run_helper(self, *argv):
         out, err = io.StringIO(), io.StringIO()
@@ -1142,9 +1153,8 @@ class PublishTests(HelperTest):
         self.assertEqual([], self.gh.calls_of("release", "create"))
 
     def test_main_restores_the_signal_handlers(self):
-        before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP))
         self.publish()
-        self.assertEqual(before, (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP)))
+        self.assertEqual((_not_taken, _not_taken), (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP)))
 
     def test_a_second_signal_during_cleanup_says_a_draft_may_remain(self):
         self.gh.on(lambda argv: argv[0] == "git" and self.gh.tagged(TAG), self.interrupt("SIGTERM"))
@@ -1192,6 +1202,18 @@ class PublishTests(HelperTest):
         self.assertFalse(self.gh.find(TAG)["draft"])
         self.assertEqual(3, self.gh.compact()[9:].count("gh api releases/latest"))
         self.assertEqual([10, 10], self.clock.sleeps)
+
+    def test_latest_must_be_this_runs_release_not_just_its_tag(self):
+        # Another session's release vV became latest (same tag, its own zip); this run's edit did not publish.
+        def theirs_instead(argv):
+            self.gh.add_release(TAG, False, assets=[dict(asset) for asset in self.gh.tagged(TAG)[0]["assets"]])
+            self.gh.tagged(TAG)[1]["assets"][0]["digest"] = "sha256:" + "9" * 64
+            return ok()
+        self.gh.on(is_call("release", "edit"), theirs_instead)
+        self.assertExit(6, self.publish())
+        self.assertIn("releases/latest is %s (id %d), not this run's %s (id %d)" % (
+            TAG, self.gh.tagged(TAG)[1]["id"], TAG, self.gh.tagged(TAG)[0]["id"]), self.err)
+        self.assertEqual([], self.gh.calls_of("release", "delete"))
 
     def test_latest_shows_after_a_moment(self):
         def stale(argv):
