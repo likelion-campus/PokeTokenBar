@@ -1,7 +1,7 @@
 import Foundation
 
-/// The OS clipboard for the plaza photo. The Mac writes the PNG to the general pasteboard; Windows implements it in
-/// `Platform/Windows/` later, and until then the stub reports "unavailable".
+/// The OS clipboard for the plaza photo. The Mac writes the PNG to the general pasteboard; Windows puts the PNG and a DIBV5 on
+/// the clipboard (`WinImageClipboard`); the stub (shared-only check) reports "unavailable".
 protocol ImageClipboarding: Sendable {
     /// Puts the PNG on the clipboard (replacing what was there). False when it could not be written.
     func writePNG(_ data: Data) -> Bool
@@ -22,9 +22,12 @@ enum PlatformPlaza {
         #endif
     }()
 
-    /// The photo clipboard: the general pasteboard on the Mac, the logging stub elsewhere.
+    /// The photo clipboard: the general pasteboard on the Mac, the Windows clipboard (PNG + DIBV5) in the Windows app, the
+    /// logging stub in the shared-only check.
     static let clipboard: any ImageClipboarding = {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        WinImageClipboard()
+        #elseif PTB_SHARED_ONLY
         StubImageClipboard(log: { AppLog.write($0) })
         #else
         MacImageClipboard()

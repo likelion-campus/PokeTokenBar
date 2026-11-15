@@ -295,6 +295,29 @@ int ptb_canvas_draw_image(PTBCanvas *c, uint32_t id, double x, double y, double 
 int ptb_canvas_read_pixels(PTBCanvas *c, uint8_t *rgba);
 int ptb_canvas_write_pixels(PTBCanvas *c, const uint8_t *rgba);
 
+/* ---- clipboard (Task 12; clipboard.cpp) ------------------------------------------------------------------------------
+ * Every writer opens the clipboard on a hidden message-only window of its own (a NULL owner makes SetClipboardData fail),
+ * retries every 10 ms while another window has it open until `timeoutMs`, empties it, sets real data (never delayed
+ * rendering) and closes it; the window is destroyed before the call returns. A GlobalAlloc block belongs to the system once
+ * SetClipboardData succeeds and is freed here when it fails. On any failure the clipboard is left empty rather than half
+ * written and the result is negative. Main thread or any thread (no message pump needed). */
+
+/* The registered clipboard format "PNG" (what browsers, Office, Slack and chat apps read). */
+unsigned ptb_clipboard_png_format(void);
+
+/* Replaces the clipboard with the photo in two formats: the PNG bytes under "PNG" (straight alpha as PNG stores it) and the same
+ * pixels as CF_DIBV5 (32-bit BI_BITFIELDS BGRA, bottom-up, STRAIGHT alpha). `rgba` is w*h*4 straight RGBA, row 0 at the top. */
+int ptb_clipboard_set_image(const uint8_t *png, size_t pngLen, const uint8_t *rgba, uint32_t w, uint32_t h, uint32_t timeoutMs);
+
+/* Replaces the clipboard with CF_UNICODETEXT (UTF-16, `count` code units, no terminator needed). */
+int ptb_clipboard_set_text(const uint16_t *text, size_t count, uint32_t timeoutMs);
+
+/* Tests and the selftest only (the app never reads the clipboard): copies one format's bytes out. Free with ptb_plaza_free. */
+int ptb_clipboard_read(unsigned format, uint8_t **bytes, size_t *len, uint32_t timeoutMs);
+
+/* Tests only: another thread opens the clipboard and keeps it open for `ms`; returns once it is held (negative: could not). */
+int ptb_clipboard_hold(uint32_t ms);
+
 #ifdef __cplusplus
 }
 #endif
