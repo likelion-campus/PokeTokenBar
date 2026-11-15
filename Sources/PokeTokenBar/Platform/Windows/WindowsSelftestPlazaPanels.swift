@@ -317,6 +317,18 @@ extension WindowsSelftest {
         }
         r.add("plaza.hover", hoverOK, hoverLine)
 
+        // plaza.eyeGlyphs: which symbol font this machine has and what its candidate eye code points look like (one PNG each, to be read by eye).
+        var surveyed = 0
+        for code in Array(0xE7B0...0xE7B7) + Array(0xE880...0xE89F) + Array(0xED10...0xED1F) + [0xE8F4, 0xE8F5, 0xE7F7, 0xE9A9] {
+            guard let scalar = Unicode.Scalar(UInt32(code)),
+                  let g = WinPlazaSymbols.image(glyph: String(Character(scalar)), pointSize: 24, scale: 2, color: PlazaColor(srgbRed: 1, green: 1, blue: 1)),
+                  let png = WinPlazaGraphics.shared.encodePNG(g.image) else { continue }
+            try? png.write(to: selftestOutDirectory().appendingPathComponent("plaza-glyph-\(String(code, radix: 16, uppercase: true)).png"))
+            surveyed += 1
+        }
+        r.add("plaza.eyeGlyphs", WinPlazaSymbols.installed != nil,
+              "symbol font used: \(WinPlazaSymbols.installed.map { "\($0)" } ?? "none"); \(surveyed) candidate glyphs written as plaza-glyph-XXXX.png")
+
         // plaza.transparent: the background hidden (the toggle shows its other state); plaza.sizes: the minimum and a large window.
         c.toggleBackground()
         await pumpPanels(0.5)

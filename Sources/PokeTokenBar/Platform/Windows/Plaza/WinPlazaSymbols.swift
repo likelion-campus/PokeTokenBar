@@ -39,7 +39,13 @@ enum WinPlazaSymbols {
 
     static func image(named name: String, pointSize: CGFloat, scale: CGFloat, color: PlazaColor,
                       family: Family?) -> (image: PlazaImage, size: CGSize)? {
-        guard family != nil, let glyph = glyph(for: name), scale > 0,
+        guard family != nil, let glyph = glyph(for: name) else { return nil }
+        return image(glyph: glyph, pointSize: pointSize, scale: scale, color: color)
+    }
+
+    /// One glyph of the symbol font as an image (the ink box); `image(named:)` and the selftest's glyph survey use it.
+    static func image(glyph: String, pointSize: CGFloat, scale: CGFloat, color: PlazaColor) -> (image: PlazaImage, size: CGSize)? {
+        guard scale > 0,
               let engine = WinPlazaGraphics.shared.text as? WinPlazaTextEngine,
               let line = engine.symbolLine(glyph, size: Double(pointSize * 1.25)) else { return nil }
         // The ink box comes from a scratch canvas: bounds are relative to the origin, y up.
