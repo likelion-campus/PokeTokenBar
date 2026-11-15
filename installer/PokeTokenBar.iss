@@ -11,12 +11,15 @@
 ; A finished install starts the new app through [Run]. Exit codes: 0 finished; 1 did not start (Windows too old or not
 ; x64-capable, checked before any [Code], so nothing is closed or restarted; another PokeTokenBar Setup is running; or
 ; the app did not close in 15 s); 5 stopped while installing (previous files put back); 7 stopped before installing
-; (no copy of the app could be made, or a test build).
+; (no copy of the app could be made, a copy an earlier Setup left could not be put back, or a test build).
 ; Test builds only, never shipped: their file name and FileDescription say TESTFAIL (stage 8 Task 1's release
 ; manifest is to refuse any ISCC define but SrcDir, AppVer and OutDir):
 ;   /DPTBTestFailInstall=1  PrepareToInstall fails after the copy was made: the app closed, no file of it touched.
-;   /DPTBTestFailCopy=1     a missing source fails the copy after the exe was written, before the version file;
-;                           with /PTBTESTPAUSE=<folder> it first waits after the exe for <folder>\resume.
+;   /DPTBTestFailCopy=1     a missing source fails the copy after the exe was written, before the version file.
+;   /DPTBTestFailLate=1     a missing source fails the copy after every file, the version file too, was written.
+;                           Both: /PTBTESTPAUSE=<folder> waits for <folder>\resume at /PTBTESTPAUSEAT=exe (after the
+;                           exe, the default), first (after 5 files of the first entry) or restore (after the first
+;                           file put back), so CI can hold a file, start a second Setup or kill this one there.
 ;   /DPTBTestBuild=1        nothing else (CI probes built from this script).
 #ifndef SrcDir
   #error Pass /DSrcDir=<the folder package.ps1 wrote>
@@ -27,8 +30,11 @@
 #ifndef OutDir
   #define OutDir "out"
 #endif
-#if Defined(PTBTestFailInstall) || Defined(PTBTestFailCopy) || Defined(PTBTestBuild)
+#if Defined(PTBTestFailInstall) || Defined(PTBTestFailCopy) || Defined(PTBTestFailLate) || Defined(PTBTestBuild)
   #define PTBTest
+#endif
+#if Defined(PTBTestFailCopy) || Defined(PTBTestFailLate)
+  #define PTBTestPause
 #endif
 
 [Setup]
@@ -75,16 +81,20 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked
 [Files]
 ; The exe and then the version file go last: a Setup killed part way through the copy leaves the previous exe and
 ; version file, so the app still starts and reports the old version (the next update copies everything again).
-Source: "{#SrcDir}\*"; Excludes: "\PokeTokenBar.exe,\PokeTokenBar.version"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-#ifdef PTBTestFailCopy
+#ifdef PTBTestPause
+Source: "{#SrcDir}\*"; Excludes: "\PokeTokenBar.exe,\PokeTokenBar.version"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; AfterInstall: TestPauseAfterFile
 Source: "{#SrcDir}\PokeTokenBar.exe"; DestDir: "{app}"; Flags: ignoreversion; AfterInstall: TestPauseAfterExe
 #else
+Source: "{#SrcDir}\*"; Excludes: "\PokeTokenBar.exe,\PokeTokenBar.version"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SrcDir}\PokeTokenBar.exe"; DestDir: "{app}"; Flags: ignoreversion
 #endif
 #ifdef PTBTestFailCopy
 Source: "{tmp}\PTBTestFailCopy-missing-file"; DestDir: "{app}"; Flags: external
 #endif
 Source: "{#SrcDir}\PokeTokenBar.version"; DestDir: "{app}"; Flags: ignoreversion
+#ifdef PTBTestFailLate
+Source: "{tmp}\PTBTestFailLate-missing-file"; DestDir: "{app}"; Flags: external
+#endif
 
 [Icons]
 Name: "{userprograms}\PokeTokenBar"; Filename: "{app}\PokeTokenBar.exe"; AppUserModelID: "LikelionCampus.PokeTokenBar"
@@ -203,6 +213,50 @@ begin
   Result := FileExists(Dir + '\PokeTokenBar.exe') and FileExists(Dir + '\PokeTokenBar.version');
 end;
 
+// The version a folder's version file names; empty without one.
+function VersionIn(const Dir: String): String;
+var
+  S: AnsiString;
+begin
+  Result := '';
+  if LoadStringFromFile(Dir + '\PokeTokenBar.version', S) then Result := Trim(String(S));
+end;
+
+#ifdef PTBTestPause
+var
+  TestFilesSeen: Integer;
+  TestRestorePaused: Boolean;
+
+// Test builds only: with /PTBTESTPAUSE=<folder>, wait at the point /PTBTESTPAUSEAT names until <folder>\resume exists
+// (120 s), so CI can hold a file, start a second Setup or kill this one there.
+procedure TestPause(const Point: String);
+var
+  Dir: String;
+  I: Integer;
+begin
+  Dir := ExpandConstant('{param:PTBTESTPAUSE|}');
+  if (Dir = '') or (CompareText(ExpandConstant('{param:PTBTESTPAUSEAT|exe}'), Point) <> 0) then Exit;
+  SaveStringToFile(Dir + '\paused', Point, False);
+  Log('PTBTest: paused at ' + Point + '; waiting for ' + Dir + '\resume');
+  for I := 1 to 1200 do begin
+    if FileExists(Dir + '\resume') then Break;
+    Sleep(100);
+  end;
+  Log('PTBTest: going on');
+end;
+
+procedure TestPauseAfterExe;
+begin
+  TestPause('exe');
+end;
+
+procedure TestPauseAfterFile;
+begin
+  TestFilesSeen := TestFilesSeen + 1;
+  if TestFilesSeen = 5 then TestPause('first');
+end;
+#endif
+
 function SameSizeAndTime(const A, B: String): Boolean;
 var
   FA, FB: TFindRec;
@@ -247,41 +301,59 @@ begin
   end;
 end;
 
-// Puts every file of the copy Src back into Dst: a file with the copy's size and time is the previous one and stays; any
-// other is copied back, retried for about 3 s (antivirus holds fresh files briefly). Goes on after a failure and
+// One file of the copy back into the app folder: one with the copy's size and time is the previous one and stays; any
+// other is copied back, retried for about 3 s (antivirus holds fresh files briefly). False if it could not be put back.
+function RestoreFile(const Src, Dst: String; var Copied, Kept: Integer): Boolean;
+var
+  I: Integer;
+begin
+  Result := SameSizeAndTime(Src, Dst);
+  if Result then
+    Kept := Kept + 1
+  else begin
+    for I := 1 to 10 do begin
+      if CopyFile(Src, Dst, False) then begin
+        Result := True;
+        Break;
+      end;
+      Sleep(300);
+    end;
+    if Result then
+      Copied := Copied + 1
+    else
+      Log('PTB update: could not put back ' + Dst);
+  end;
+#ifdef PTBTestPause
+  if not TestRestorePaused then begin
+    TestRestorePaused := True;
+    TestPause('restore');
+  end;
+#endif
+end;
+
+// Puts every file of the copy Src back into Dst (created if it is gone). At the top the version file goes first: a
+// Setup stopped while putting files back then leaves the copy's version in the folder, so the next Setup puts the copy
+// back again instead of taking the folder for a finished install (HandleLeftOverBackup). Goes on after a failure and
 // returns False if any file could not be put back.
-function RestoreTree(const Src, Dst: String; var Copied, Kept: Integer): Boolean;
+function RestoreTree(const Src, Dst: String; var Copied, Kept: Integer; const Top: Boolean): Boolean;
 var
   F: TFindRec;
-  I: Integer;
-  Done: Boolean;
 begin
-  Result := True;
+  Result := ForceDirectories(Dst);
+  if not Result then begin
+    Log('PTB update: could not create ' + Dst);
+    Exit;
+  end;
+  if Top and FileExists(Src + '\PokeTokenBar.version') then
+    if not RestoreFile(Src + '\PokeTokenBar.version', Dst + '\PokeTokenBar.version', Copied, Kept) then Result := False;
   if FindFirst(Src + '\*', F) then
   try
     repeat
-      if (F.Name <> '.') and (F.Name <> '..') and (F.Name <> BackupMarker) then begin
+      if (F.Name <> '.') and (F.Name <> '..') and (F.Name <> BackupMarker) and not (Top and (CompareText(F.Name, 'PokeTokenBar.version') = 0)) then begin
         if (F.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then begin
-          ForceDirectories(Dst + '\' + F.Name);
-          if not RestoreTree(Src + '\' + F.Name, Dst + '\' + F.Name, Copied, Kept) then Result := False;
-        end else if SameSizeAndTime(Src + '\' + F.Name, Dst + '\' + F.Name) then
-          Kept := Kept + 1
-        else begin
-          Done := False;
-          for I := 1 to 10 do begin
-            if CopyFile(Src + '\' + F.Name, Dst + '\' + F.Name, False) then begin
-              Done := True;
-              Break;
-            end;
-            Sleep(300);
-          end;
-          if Done then
-            Copied := Copied + 1
-          else begin
-            Log('PTB update: could not put back ' + Dst + '\' + F.Name);
-            Result := False;
-          end;
-        end;
+          if not RestoreTree(Src + '\' + F.Name, Dst + '\' + F.Name, Copied, Kept, False) then Result := False;
+        end else if not RestoreFile(Src + '\' + F.Name, Dst + '\' + F.Name, Copied, Kept) then
+          Result := False;
       end;
     until not FindNext(F);
   finally
@@ -289,45 +361,57 @@ begin
   end;
 end;
 
-// A copy left by an earlier Setup that did not end (killed, or its restore failed). When the app folder is complete it
-// is stale and goes; when the folder is not complete and the copy is, the copy is put back first, so the folder starts
-// again. False: a complete copy that could not be put back, which must not be replaced by a copy of a broken folder.
-function HandleLeftOverBackup(const AppDir, Aside: String): Boolean;
+// A copy left by an earlier Setup that did not end cleanly. Without its marker, that Setup stopped while making it,
+// before it touched the app folder: the copy goes. With the marker the copy is complete, and it goes only when the app
+// folder is complete and names ANOTHER version: the version file is written last (and put back first), so the install
+// that made the copy wrote every file (a finished install whose copy could not be deleted, or one stopped after its
+// last file). Otherwise (an incomplete folder, or the copy's own version: that Setup stopped while writing files or
+// while putting them back, so the folder may be mixed) the copy is put back first. A finished reinstall of the same
+// version whose copy could not be deleted also lands here; putting back that version's own files is harmless.
+// Empty: go on. Otherwise why Setup stops (RestoreFailed is set: nothing is started).
+function HandleLeftOverBackup(const AppDir, Aside: String): String;
 var
   Copied, Kept: Integer;
+  AppVersion, CopyVersion: String;
 begin
-  Result := True;
+  Result := '';
   if not DirExists(Aside) then Exit;
-  if IsCompleteApp(AppDir) then
-    Log('PTB update: removing a left-over copy ' + Aside + ' (the app folder is complete), result ' + IntToStr(Ord(DelTree(Aside, True, True, True))))
-  else if FileExists(Aside + '\' + BackupMarker) and FileExists(Aside + '\PokeTokenBar.exe') then begin
-    Copied := 0;
-    Kept := 0;
-    if RestoreTree(Aside, AppDir, Copied, Kept) then
-      Log('PTB update: the app folder was incomplete; put the left-over copy back (' + IntToStr(Copied) + ' files copied back, ' +
-        IntToStr(Kept) + ' unchanged), removing it: ' + IntToStr(Ord(DelTree(Aside, True, True, True))))
-    else begin
-      Log('PTB update: the app folder is incomplete and the left-over copy ' + Aside + ' could not be put back; both stay');
-      Result := False;
-    end;
-  end else
-    Log('PTB update: the app folder is incomplete and ' + Aside + ' is not a complete copy; removing it: ' + IntToStr(Ord(DelTree(Aside, True, True, True))));
+  if not (FileExists(Aside + '\' + BackupMarker) and FileExists(Aside + '\PokeTokenBar.exe')) then begin
+    Log('PTB update: removing a partial left-over copy ' + Aside + ', result ' + IntToStr(Ord(DelTree(Aside, True, True, True))));
+    Exit;
+  end;
+  AppVersion := VersionIn(AppDir);
+  CopyVersion := VersionIn(Aside);
+  if IsCompleteApp(AppDir) and (AppVersion <> CopyVersion) then begin
+    Log('PTB update: removing a left-over copy of ' + CopyVersion + ' (the app folder has all of ' + AppVersion + '), result ' +
+      IntToStr(Ord(DelTree(Aside, True, True, True))));
+    Exit;
+  end;
+  Copied := 0;
+  Kept := 0;
+  if RestoreTree(Aside, AppDir, Copied, Kept, True) then
+    Log('PTB update: put the left-over copy back (app folder version "' + AppVersion + '", copy "' + CopyVersion + '"; ' +
+      IntToStr(Copied) + ' files copied back, ' + IntToStr(Kept) + ' unchanged), removing it: ' + IntToStr(Ord(DelTree(Aside, True, True, True))))
+  else begin
+    RestoreFailed := True;
+    Log('PTB update: could not put the left-over copy back; it stays in ' + Aside);
+    Result := 'Setup could not put back the copy of PokeTokenBar an earlier Setup left in ' + Aside +
+      ', so it stopped. Close any program using files of PokeTokenBar, then run Setup again.';
+  end;
 end;
 
-// The copy every update makes before it touches the app folder. False: there is an app and no complete copy of it.
-function BackUpPreviousApp: Boolean;
+// The copy every update makes before it touches the app folder. Empty: go on (copied, or no previous app). Otherwise
+// why Setup stops.
+function BackUpPreviousApp: String;
 var
   AppDir, Aside: String;
   Files: Integer;
   Bytes: Int64;
 begin
-  Result := True;
   AppDir := ExpandConstant('{app}');
   Aside := AppDir + '.previous';
-  if not HandleLeftOverBackup(AppDir, Aside) then begin
-    Result := False;
-    Exit;
-  end;
+  Result := HandleLeftOverBackup(AppDir, Aside);
+  if Result <> '' then Exit;
   if not FileExists(AppDir + '\PokeTokenBar.exe') then begin
     Log('PTB update: no previous app in ' + AppDir);
     Exit;
@@ -343,17 +427,14 @@ begin
   end else begin
     Log('PTB update: could not copy the previous app to ' + Aside + '; nothing is changed, removing the partial copy: ' +
       IntToStr(Ord(DelTree(Aside, True, True, True))));
-    Result := False;
+    Result := 'Setup could not keep a copy of the installed PokeTokenBar (is the disk full?), so it changed nothing.';
   end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
-  Result := '';
-  if not BackUpPreviousApp then begin
-    Result := 'Setup could not keep a copy of the installed PokeTokenBar (is the disk full?), so it changed nothing.';
-    Exit;
-  end;
+  Result := BackUpPreviousApp;
+  if Result <> '' then Exit;
 #ifdef PTBTestFailInstall
   Log('PTBTestFailInstall: stopping in PrepareToInstall (test build)');
   Result := 'PTBTestFailInstall: this test build stops before installing.';
@@ -373,7 +454,7 @@ begin
   end;
   Copied := 0;
   Kept := 0;
-  if RestoreTree(BackupDir, AppDir, Copied, Kept) then
+  if RestoreTree(BackupDir, AppDir, Copied, Kept, True) then
     Log('PTB update: put the previous app back from ' + BackupDir + ' (' + IntToStr(Copied) + ' files copied back, ' +
       IntToStr(Kept) + ' unchanged), removing the copy: ' + IntToStr(Ord(DelTree(BackupDir, True, True, True))))
   else begin
@@ -449,23 +530,3 @@ begin
   else
     Log('PTB relaunch: could not start ' + Exe + ': ' + SysErrorMessage(Code));
 end;
-
-#ifdef PTBTestFailCopy
-// Test builds only: with /PTBTESTPAUSE=<folder>, wait after the exe was written until <folder>\resume exists (120 s),
-// so CI can hold a file, start a second Setup or kill this one at this point.
-procedure TestPauseAfterExe;
-var
-  Dir: String;
-  I: Integer;
-begin
-  Dir := ExpandConstant('{param:PTBTESTPAUSE|}');
-  if Dir = '' then Exit;
-  SaveStringToFile(Dir + '\paused', 'paused', False);
-  Log('PTBTestFailCopy: paused after the exe; waiting for ' + Dir + '\resume');
-  for I := 1 to 1200 do begin
-    if FileExists(Dir + '\resume') then Break;
-    Sleep(100);
-  end;
-  Log('PTBTestFailCopy: going on');
-end;
-#endif

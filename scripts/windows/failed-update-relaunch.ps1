@@ -18,12 +18,22 @@
 #                     next Setup recovers.
 #   twoSetups         a second Setup while the first is in the copy: the second stops (exit 1) and starts nothing; the
 #                     first fails and brings vN back.
-#   staleComplete     a left-over copy next to a complete app folder: removed, the update goes on.
+#   staleComplete     a left-over copy of another version next to a complete app folder: removed, the update goes on.
 #   staleIncomplete   a left-over copy next to a folder without the exe: put back first, the app starts again.
-#   killedMidCopy     Setup killed after the exe was written: the folder still starts; the next Setup finishes.
+#   killedMidCopy     Setup killed after the exe was written: the folder still starts; the next Setup puts the copy
+#                     back first (same version in both) and finishes.
+#   failLate          a failure after every file, the version file too, was written: all of it comes back.
+#   leftOverRestoreFails  a complete left-over copy that cannot be put back: exit 7, nothing installed or started.
+#   noVersionFile     an exe without a version file next to a complete copy: put back first.
+#   partialCopy       the copy fails part way: the partial copy goes, exit 7, nothing touched, vN again.
+#   appFolderMissing  the app folder gone next to a complete copy: put back whole into a new folder.
+#   killedFirstEntry  Setup killed after 5 files of the first [Files] entry: the folder starts; the next Setup finishes.
+#   killedDuringRestore  Setup killed while putting files back after a late failure: the version file went back
+#                     first, so the next Setup puts the copy back again (and, failing too, leaves vN).
 #   updateOk          the shipped vN+1 installer: exit 0, one vN+1 process from [Run], the copy removed; its time and size.
-# The test builds install bundle-test: vN+1 with one byte appended to every file but the version file, so "the previous
-# contents came back" is a SHA-256 comparison (a file copied back keeps the file id of the one Setup wrote).
+# The test builds install bundle-test: vN+1 with one byte appended to every file but the version file and THIRD-PARTY.txt
+# (same size, another first byte, a new time), so "the previous contents came back" is a SHA-256 comparison (a file
+# copied back keeps the file id of the one Setup wrote) and the restore's size-or-time rule is tested on time alone too.
 # Every check prints one PASS/FAIL line. A failed scenario is reported and the next one still runs; the script fails at
 # the end. From the repository root, after the full-level installer step (bundle-next, installer-out, installer-next):
 #   ./scripts/windows/failed-update-relaunch.ps1 -Version <vN> -NextVersion <vN+1>
@@ -73,6 +83,22 @@ function Set-StatusChecksOff {
     Set-Content -Path $PtbPlist -Value $xml -NoNewline -Encoding utf8NoBOM
 }
 function Test-StatusChecksOff { (Get-Content $PtbPlist -Raw) -match '<key>statusChecksEnabled</key>\s*<false/>' }
+# A copy as a Setup that did not end leaves it: the app folder, marked complete; -CopyVersion gives its version file another.
+function New-LeftOverCopy([string]$CopyVersion = '') {
+    Copy-Item $PtbInstallDir $aside -Recurse
+    Set-Content -Path (Join-Path $aside 'PTB-backup-complete.txt') -Value 'left over'
+    if ($CopyVersion) { Set-Content -Path (Join-Path $aside 'PokeTokenBar.version') -Value $CopyVersion -NoNewline }
+}
+# A process that holds a file open: -Share Read lets others read it (not write), None lets nobody open it.
+function Start-Holder([string]$Path, [string]$Share = 'Read') {
+    $h = Start-Process pwsh -ArgumentList '-NoProfile', '-Command', "`$f = [System.IO.File]::Open('$Path', 'Open', 'Read', '$Share'); Start-Sleep -Seconds 600" -PassThru -WindowStyle Hidden
+    for ($i = 0; $i -lt 50; $i++) {
+        Start-Sleep -Milliseconds 200
+        try { ([System.IO.File]::Open($Path, 'Open', 'ReadWrite', 'ReadWrite')).Close() } catch { return $h }
+    }
+    Stop-Process -Id $h.Id -Force -ErrorAction SilentlyContinue
+    throw "could not hold $Path open"
+}
 function Test-CompleteCopy { (Test-Path (Join-Path $aside 'PTB-backup-complete.txt')) -and (Test-Path (Join-Path $aside 'PokeTokenBar.exe')) }
 
 # vN installed (an update vN over vN through the same Setup), nothing running, no copy left.
@@ -90,10 +116,11 @@ function Start-Installed {
 }
 
 # A test build started with the pause switch (no wait): it stops after the exe was written until Resume-Setup.
-function Start-PausedSetup([string]$Setup, [string]$LogFile, [string]$WorkingDirectory = $root) {
+# -At: exe (after the exe), first (after 5 files of the first [Files] entry) or restore (after the first file put back).
+function Start-PausedSetup([string]$Setup, [string]$LogFile, [string]$WorkingDirectory = $root, [string]$At = 'exe') {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $pauseDir
     New-Item -ItemType Directory -Force -Path $pauseDir | Out-Null
-    $p = Start-Process -FilePath $Setup -ArgumentList ((Get-UpdateSetupArgs $LogFile) + "/PTBTESTPAUSE=`"$pauseDir`"") -WorkingDirectory $WorkingDirectory -PassThru
+    $p = Start-Process -FilePath $Setup -ArgumentList ((Get-UpdateSetupArgs $LogFile) + "/PTBTESTPAUSE=`"$pauseDir`"" + "/PTBTESTPAUSEAT=$At") -WorkingDirectory $WorkingDirectory -PassThru
     $null = $p.Handle
     for ($i = 0; $i -lt 450 -and -not (Test-Path (Join-Path $pauseDir 'paused')); $i++) {
         if ($p.HasExited) { throw "the paused Setup ended early (exit $($p.ExitCode))" }
@@ -154,18 +181,25 @@ $iscc = Get-Iscc
 "ISCC: $iscc (the Inno version is the 'Setup version' line of each setup log)"
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue bundle-test
 Copy-Item bundle-next bundle-test -Recurse
-foreach ($f in Get-ChildItem bundle-test -Recurse -File | Where-Object Name -ne 'PokeTokenBar.version') {
+# Every file but the version file gets one byte more; THIRD-PARTY.txt keeps its size and gets another first byte (and a
+# new time), so the restore's "differs" rule is tested on time alone too (PE files are padded, version files are equal
+# in length between versions).
+$sameSize = Join-Path $root 'bundle-test\licenses\THIRD-PARTY.txt'
+foreach ($f in Get-ChildItem bundle-test -Recurse -File | Where-Object { $_.Name -ne 'PokeTokenBar.version' -and $_.FullName -ne $sameSize }) {
     $s = [System.IO.File]::Open($f.FullName, 'Append'); try { $s.WriteByte(0) } finally { $s.Close() }
 }
+$s = [System.IO.File]::Open($sameSize, 'Open', 'ReadWrite'); try { $b = $s.ReadByte(); $s.Position = 0; $s.WriteByte(($b + 1) % 256) } finally { $s.Close() }
+(Get-Item $sameSize).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(5)
 $shipped = Get-Content (Join-Path $root 'installer\PokeTokenBar.iss') -Raw
 $probeIss = Join-Path $root 'installer\ptb-minversion-probe.iss'
 Set-Content -Path $probeIss -NoNewline -Value ($shipped -replace '(?m)^MinVersion=10\.0\.19045(\r?)$', "MinVersion=10.0.$($build + 1)`$1")
 $builds = @(
     @{ Name = 'fail-prepare'; Src = 'bundle-test'; Defines = @('/DPTBTestFailInstall=1'); Iss = (Join-Path $root 'installer\PokeTokenBar.iss') },
     @{ Name = 'fail-copy'; Src = 'bundle-test'; Defines = @('/DPTBTestFailCopy=1'); Iss = (Join-Path $root 'installer\PokeTokenBar.iss') },
+    @{ Name = 'fail-late'; Src = 'bundle-test'; Defines = @('/DPTBTestFailLate=1'); Iss = (Join-Path $root 'installer\PokeTokenBar.iss') },
     @{ Name = 'minversion-probe'; Src = 'bundle-next'; Defines = @('/DPTBTestBuild=1'); Iss = $probeIss }
 )
-$compiled = $builds | ForEach-Object -ThrottleLimit 3 -Parallel {
+$compiled = $builds | ForEach-Object -ThrottleLimit 4 -Parallel {
     $out = (New-Item -ItemType Directory -Force -Path (Join-Path $using:root "installer-$($_.Name)")).FullName
     $src = Join-Path $using:root $_.Src
     # Every /D goes through $isccArgs (the rule of the installer step): iscc-defines.json records them per output folder.
@@ -184,12 +218,13 @@ $out = @{}; foreach ($c in $compiled) { $out[$c.Name] = $c.Out }
 $testName = "PokeTokenBar-Setup-$NextVersion-win-x64-TESTFAIL.exe"
 $failPrepare = Join-Path $out['fail-prepare'] $testName
 $failCopy = Join-Path $out['fail-copy'] $testName
+$failLate = Join-Path $out['fail-late'] $testName
 $probe = Join-Path $out['minversion-probe'] $testName
 # Inno pads the strings of Setup's version resource with spaces (the loader's resource is patched in place): compare trimmed.
 $tests = foreach ($c in $compiled) { foreach ($f in Get-ChildItem $c.Out -Filter *.exe) { [pscustomobject]@{ Name = $f.Name; Description = $f.VersionInfo.FileDescription.TrimEnd() } } }
 $shippedDescriptions = foreach ($f in (Get-Item $setupV), (Get-Item $setupNext)) { $f.VersionInfo.FileDescription.TrimEnd() }
 "raw FileDescription of the shipped installer: '$((Get-Item $setupNext).VersionInfo.FileDescription)' ($((Get-Item $setupNext).VersionInfo.FileDescription.Length) characters)"
-Assert-That (@($tests).Count -eq 3 -and -not ($tests | Where-Object { $_.Name -ne $testName -or $_.Description -ne 'PokeTokenBar Setup TESTFAIL' }) -and
+Assert-That (@($tests).Count -eq 4 -and -not ($tests | Where-Object { $_.Name -ne $testName -or $_.Description -ne 'PokeTokenBar Setup TESTFAIL' }) -and
     -not ($shippedDescriptions | Where-Object { $_ -ne 'PokeTokenBar Setup' })) 'build.testInstallersMarked' "test builds: $(($tests | ForEach-Object { "$($_.Name) '$($_.Description)'" }) -join '; '); shipped FileDescription: '$($shippedDescriptions -join "', '")'"
 
 Invoke-Scenario 'wizard' {
@@ -394,7 +429,7 @@ Invoke-Scenario 'failedRestore' {
     $log2 = Join-Path $LogDir 'failed-restore-next.log'
     $code2 = Invoke-Setup $setupV @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=`"$log2`"")
     $text2 = Read-SetupLog $log2
-    Assert-That ($code2 -eq 0 -and $text2 -match 'PTB update: removing a left-over copy') 'failedRestore.nextSetupRecovers' "exit $code2; the left-over copy removed (the app folder is complete)"
+    Assert-That ($code2 -eq 0 -and $text2 -match 'PTB update: put the left-over copy back \(app folder version "2\.5\.\d+", copy "2\.5\.\d+"; [1-9]\d* files copied back') 'failedRestore.nextSetupRecovers' "exit $code2; the kept copy put back first (same version in both: the folder was mixed), then the install finished"
     Assert-PreviousContents 'failedRestore.afterNextSetup' $before -AfterFinishedSetup
 }
 
@@ -419,29 +454,27 @@ Invoke-Scenario 'twoSetups' {
 
 Invoke-Scenario 'staleComplete' {
     Install-Baseline 'staleComplete'
-    Copy-Item $PtbInstallDir $aside -Recurse
-    Set-Content -Path (Join-Path $aside 'PTB-backup-complete.txt') -Value 'left over'
+    New-LeftOverCopy -CopyVersion '2.5.1'  # an older version's copy: the install after it wrote every file
     $old, $null = Start-Installed
     $log = Join-Path $LogDir 'stale-complete.log'
     $code = Invoke-Setup $setupNext (Get-UpdateSetupArgs $log)
     $text = Read-SetupLog $log
     Assert-That ($code -eq 0 -and -not (Test-Path $aside)) 'staleComplete.updated' "exit $code; copy left: $(Test-Path $aside)"
-    Assert-That ($text -match 'PTB update: removing a left-over copy .*\(the app folder is complete\), result 1' -and $text -match 'PTB update: copied the previous app to') 'staleComplete.setupLog' 'removing a left-over copy (the app folder is complete); then the update copied the folder again'
+    Assert-That ($text -match "PTB update: removing a left-over copy of 2\.5\.1 \(the app folder has all of $([regex]::Escape($Version))\), result 1" -and $text -match 'PTB update: copied the previous app to') 'staleComplete.setupLog' "removing a left-over copy of 2.5.1 (the app folder has all of $Version); then the update copied the folder again"
     Assert-Started 'staleComplete' $old $NextVersion
 }
 
 Invoke-Scenario 'staleIncomplete' {
     Install-Baseline 'staleIncomplete'
     $before = Get-FolderHashes $PtbInstallDir
-    Copy-Item $PtbInstallDir $aside -Recurse
-    Set-Content -Path (Join-Path $aside 'PTB-backup-complete.txt') -Value 'left over'
+    New-LeftOverCopy
     Remove-Item -Force $exe  # as a Setup killed between deleting the exe and writing the new one would leave it
     $log = Join-Path $LogDir 'stale-incomplete.log'
     $code = Invoke-Setup $failPrepare (Get-UpdateSetupArgs $log)
     $text = Read-SetupLog $log
     Assert-That ($code -eq 7) 'staleIncomplete.exit' "exit $code"
     Assert-PreviousContents 'staleIncomplete' $before
-    Assert-That ($text -match 'PTB update: the app folder was incomplete; put the left-over copy back' -and $text -match 'PTB relaunch: started') 'staleIncomplete.setupLog' 'the app folder was incomplete; put the left-over copy back; relaunch: started'
+    Assert-That ($text -match 'PTB update: put the left-over copy back \(app folder version' -and $text -match 'PTB relaunch: started') 'staleIncomplete.setupLog' 'put the left-over copy back (the exe was missing); relaunch: started'
     Assert-Started 'staleIncomplete' $null $Version
 }
 
@@ -462,8 +495,142 @@ Invoke-Scenario 'killedMidCopy' {
     $log2 = Join-Path $LogDir 'killed-mid-copy-next.log'
     $code = Invoke-Setup $setupNext (Get-UpdateSetupArgs $log2)
     $text2 = Read-SetupLog $log2
-    Assert-That ($code -eq 0 -and -not (Test-Path $aside) -and $text2 -match 'PTB update: removing a left-over copy') 'killedMidCopy.nextSetupFinishes' "next Setup exit $code; the left-over copy removed; copy left: $(Test-Path $aside)"
+    Assert-That ($code -eq 0 -and -not (Test-Path $aside) -and $text2 -match 'PTB update: put the left-over copy back \(app folder version') 'killedMidCopy.nextSetupFinishes' "next Setup exit $code; the left-over copy put back first (the folder had the copy's version), then the update finished; copy left: $(Test-Path $aside)"
     Assert-Started 'killedMidCopy' $old $NextVersion
+}
+
+# The install fails after every file, the version file too, was written: all of it comes back.
+Invoke-Scenario 'failLate' {
+    Install-Baseline 'failLate'
+    $old, $null = Start-Installed
+    $closes = Get-AppLogCount 'exit code=0 reason=closeRequest'
+    $before = Get-FolderHashes $PtbInstallDir
+    $log = Join-Path $LogDir 'fail-late.log'
+    $code = Invoke-Setup $failLate (Get-UpdateSetupArgs $log)
+    $text = Read-SetupLog $log
+    Assert-That ($code -eq 5) 'failLate.exit' "exit $code"
+    Assert-OldClosed 'failLate' $old $closes
+    Assert-PreviousContents 'failLate' $before
+    Assert-Started 'failLate' $old $Version
+    Assert-That ($text -match 'Dest filename: .*\\PokeTokenBar\.version' -and $text -match 'PTB update: put the previous app back') 'failLate.setupLog' 'the version file was written before the failure; put the previous app back'
+}
+
+# A complete left-over copy whose putting back fails: Setup stops (exit 7) before installing and starts nothing.
+Invoke-Scenario 'leftOverRestoreFails' {
+    Install-Baseline 'leftOverRestoreFails'
+    New-LeftOverCopy  # the same version as the folder: put back first
+    $differs = Join-Path $aside 'licenses\THIRD-PARTY.txt'
+    $s = [System.IO.File]::Open($differs, 'Append'); try { $s.WriteByte(0) } finally { $s.Close() }  # so it must be copied back
+    $old, $null = Start-Installed
+    $holder = Start-Holder (Join-Path $PtbInstallDir 'licenses\THIRD-PARTY.txt') 'Read'
+    try {
+        $log = Join-Path $LogDir 'left-over-restore-fails.log'
+        $code = Invoke-Setup $setupNext (Get-UpdateSetupArgs $log)
+        $text = Read-SetupLog $log
+        Assert-That ($code -eq 7) 'leftOverRestoreFails.exit' "exit $code"
+        Start-Sleep -Seconds 5
+        $running = @(Get-Process PokeTokenBar -ErrorAction SilentlyContinue)
+        Assert-That ($running.Count -eq 0) 'leftOverRestoreFails.notStarted' "PokeTokenBar processes after the refusal: $($running.Count)"
+        Assert-That (Test-CompleteCopy) 'leftOverRestoreFails.copyKept' "the complete copy stays in $aside"
+        Assert-That ($text -match 'PTB update: could not put the left-over copy back; it stays' -and $text -notmatch 'Dest filename:' -and $text -match 'PTB relaunch: no \(the previous app could not be put back\)') 'leftOverRestoreFails.setupLog' 'could not put the left-over copy back; nothing installed; relaunch: no (the previous app could not be put back)'
+    } finally {
+        Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# An exe without a version file next to a complete copy: the folder is not complete, so the copy is put back first.
+Invoke-Scenario 'noVersionFile' {
+    Install-Baseline 'noVersionFile'
+    $before = Get-FolderHashes $PtbInstallDir
+    New-LeftOverCopy
+    Remove-Item -Force $versionFile
+    $log = Join-Path $LogDir 'no-version-file.log'
+    $code = Invoke-Setup $failPrepare (Get-UpdateSetupArgs $log)
+    $text = Read-SetupLog $log
+    Assert-That ($code -eq 7) 'noVersionFile.exit' "exit $code"
+    Assert-PreviousContents 'noVersionFile' $before
+    Assert-That ($text -match 'PTB update: put the left-over copy back \(app folder version "",') 'noVersionFile.setupLog' 'put the left-over copy back (the folder had no version file)'
+    Assert-Started 'noVersionFile' $null $Version
+}
+
+# The copy fails part way (a licence file nobody may open): the partial copy goes, nothing is touched, the old app again.
+Invoke-Scenario 'partialCopy' {
+    Install-Baseline 'partialCopy'
+    $old, $null = Start-Installed
+    $before = Get-FolderHashes $PtbInstallDir
+    $holder = Start-Holder (Join-Path $PtbInstallDir 'licenses\THIRD-PARTY.txt') 'None'
+    try {
+        $log = Join-Path $LogDir 'partial-copy.log'
+        $code = Invoke-Setup $setupNext (Get-UpdateSetupArgs $log)
+        $text = Read-SetupLog $log
+    } finally {
+        Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 1
+    Assert-That ($code -eq 7) 'partialCopy.exit' "exit $code"
+    $copied = [regex]::Matches($text, 'PTB update: could not copy .*THIRD-PARTY\.txt').Count
+    Assert-That ($copied -eq 1 -and $text -match 'removing the partial copy: 1' -and $text -notmatch 'Dest filename:') 'partialCopy.setupLog' 'could not copy THIRD-PARTY.txt (after the files before it); removing the partial copy: 1; nothing installed'
+    Assert-PreviousContents 'partialCopy' $before
+    Assert-Started 'partialCopy' $old $Version
+}
+
+# The app folder gone next to a complete copy (deleted by hand after a failed restore): the copy is put back whole.
+Invoke-Scenario 'appFolderMissing' {
+    Install-Baseline 'appFolderMissing'
+    $before = Get-FolderHashes $PtbInstallDir
+    New-LeftOverCopy
+    Remove-Item -Recurse -Force $PtbInstallDir
+    $log = Join-Path $LogDir 'app-folder-missing.log'
+    $code = Invoke-Setup $failPrepare (Get-UpdateSetupArgs $log)
+    $text = Read-SetupLog $log
+    Assert-That ($code -eq 7) 'appFolderMissing.exit' "exit $code"
+    Assert-PreviousContents 'appFolderMissing' $before
+    Assert-That ($text -match 'PTB update: put the left-over copy back \(app folder version "",') 'appFolderMissing.setupLog' 'put the left-over copy back into the recreated folder'
+    Assert-Started 'appFolderMissing' $null $Version
+}
+
+# Setup killed inside the first [Files] entry (5 files written): the folder still starts; the next Setup puts the copy
+# back first and finishes.
+Invoke-Scenario 'killedFirstEntry' {
+    Install-Baseline 'killedFirstEntry'
+    $old, $null = Start-Installed
+    $log = Join-Path $LogDir 'killed-first-entry.log'
+    $setup = Start-PausedSetup $failCopy $log -At 'first'
+    Stop-Setups
+    Start-Sleep -Seconds 2
+    $written = ([regex]::Matches((Read-SetupLog $log), 'Successfully installed the file')).Count
+    Assert-That ((Test-Path $exe) -and (Get-InstalledVersion) -eq $Version -and (Test-CompleteCopy) -and $written -ge 5) 'killedFirstEntry.folderLeft' "after the kill: $written files written; exe present: $(Test-Path $exe); version file $(Get-InstalledVersion); complete copy beside it: $(Test-CompleteCopy)"
+    $p, $h = Start-App $exe
+    Start-Sleep -Seconds 2
+    Assert-That (-not $p.HasExited) 'killedFirstEntry.folderStarts' "the half-updated folder starts (pid $($p.Id))"
+    Close-App $p $h
+    $old, $null = Start-Installed
+    $log2 = Join-Path $LogDir 'killed-first-entry-next.log'
+    $code = Invoke-Setup $setupNext (Get-UpdateSetupArgs $log2)
+    $text2 = Read-SetupLog $log2
+    Assert-That ($code -eq 0 -and -not (Test-Path $aside) -and $text2 -match 'PTB update: put the left-over copy back \(app folder version') 'killedFirstEntry.nextSetupFinishes' "next Setup exit $code; the copy put back first, then the update finished; copy left: $(Test-Path $aside)"
+    Assert-Started 'killedFirstEntry' $old $NextVersion
+}
+
+# Setup killed while putting files back after a late failure (every file, the version file too, had been written): the
+# version file goes back first, so the next Setup takes the folder for a mixed one and puts the copy back again.
+Invoke-Scenario 'killedDuringRestore' {
+    Install-Baseline 'killedDuringRestore'
+    $old, $null = Start-Installed
+    $before = Get-FolderHashes $PtbInstallDir
+    $log = Join-Path $LogDir 'killed-during-restore.log'
+    $setup = Start-PausedSetup $failLate $log -At 'restore'
+    Stop-Setups
+    Start-Sleep -Seconds 2
+    $text = Read-SetupLog $log
+    $changed = Compare-FolderHashes $before (Get-FolderHashes $PtbInstallDir)
+    Assert-That ((Get-InstalledVersion) -eq $Version -and (Test-CompleteCopy) -and $changed.Count -gt 1) 'killedDuringRestore.folderLeft' "after the kill: version file $(Get-InstalledVersion) (put back first); $($changed.Count) files still the update's; complete copy beside it: $(Test-CompleteCopy)"
+    $log2 = Join-Path $LogDir 'killed-during-restore-next.log'
+    $code = Invoke-Setup $failPrepare (Get-UpdateSetupArgs $log2)  # the next Setup fails too: what it puts back must be vN
+    $text2 = Read-SetupLog $log2
+    Assert-That ($code -eq 7 -and $text2 -match 'PTB update: put the left-over copy back \(app folder version') 'killedDuringRestore.nextSetupPutsBack' "next Setup exit $code; put the left-over copy back"
+    Assert-PreviousContents 'killedDuringRestore' $before
+    Assert-Started 'killedDuringRestore' $null $Version
 }
 
 Invoke-Scenario 'updateOk' {
