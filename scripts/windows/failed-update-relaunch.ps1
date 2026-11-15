@@ -176,8 +176,10 @@ $testName = "PokeTokenBar-Setup-$NextVersion-win-x64-TESTFAIL.exe"
 $failPrepare = Join-Path $out['fail-prepare'] $testName
 $failCopy = Join-Path $out['fail-copy'] $testName
 $probe = Join-Path $out['minversion-probe'] $testName
-$tests = foreach ($c in $compiled) { foreach ($f in Get-ChildItem $c.Out -Filter *.exe) { [pscustomobject]@{ Name = $f.Name; Description = $f.VersionInfo.FileDescription } } }
-$shippedDescriptions = foreach ($f in (Get-Item $setupV), (Get-Item $setupNext)) { $f.VersionInfo.FileDescription }
+# Inno pads the strings of Setup's version resource with spaces (the loader's resource is patched in place): compare trimmed.
+$tests = foreach ($c in $compiled) { foreach ($f in Get-ChildItem $c.Out -Filter *.exe) { [pscustomobject]@{ Name = $f.Name; Description = $f.VersionInfo.FileDescription.TrimEnd() } } }
+$shippedDescriptions = foreach ($f in (Get-Item $setupV), (Get-Item $setupNext)) { $f.VersionInfo.FileDescription.TrimEnd() }
+"raw FileDescription of the shipped installer: '$((Get-Item $setupNext).VersionInfo.FileDescription)' ($((Get-Item $setupNext).VersionInfo.FileDescription.Length) characters)"
 Assert-That (@($tests).Count -eq 3 -and -not ($tests | Where-Object { $_.Name -ne $testName -or $_.Description -ne 'PokeTokenBar Setup TESTFAIL' }) -and
     -not ($shippedDescriptions | Where-Object { $_ -ne 'PokeTokenBar Setup' })) 'build.testInstallersMarked' "test builds: $(($tests | ForEach-Object { "$($_.Name) '$($_.Description)'" }) -join '; '); shipped FileDescription: '$($shippedDescriptions -join "', '")'"
 
