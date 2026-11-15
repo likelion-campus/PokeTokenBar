@@ -13,7 +13,7 @@ import XCTest
     @MainActor final class Box { var sent: [String] = []; var closes = 0; var accept = true }
     @MainActor final class FakeIME { var composition = ""; var result = ""; var finishes: [Bool] = [] }
 
-    private struct Rig {
+    @MainActor private struct Rig {
         let input: WinPlazaChatInput, box: Box, ime: FakeIME, parent: WinSinkWindow
         var edit: HWND { input.editHWND! }
     }
