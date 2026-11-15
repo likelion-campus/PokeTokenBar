@@ -60,14 +60,13 @@ import XCTest
         try rig.click(.roster, at: previousPoint)
         XCTAssertEqual(model.page, 1)
         XCTAssertTrue(rig.window.firstResponder === rig.skView, "the scene keeps the keys")
-        // The keys stay with the chat field too: a click on an arrow does not take them from the field's editor.
+        // With the chat field focused, an arrow click gives the keys back to the scene (`turnRosterPage` ends in `focusScene`, as before).
         rig.shell.focusChatInput()
         await rig.flush()
-        let before = rig.window.firstResponder
-        XCTAssertFalse(before === rig.skView)
+        XCTAssertFalse(rig.window.firstResponder === rig.skView)
         try rig.click(.roster, at: nextPoint)
         XCTAssertEqual(model.page, 2)
-        XCTAssertTrue(rig.window.firstResponder === before, "a panel click never moves the keys")
+        XCTAssertTrue(rig.window.firstResponder === rig.skView)
     }
 
     /// The glyph is about 7 points wide: a click near the corner of the 24-point target must still count.

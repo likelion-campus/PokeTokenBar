@@ -15,24 +15,34 @@ private struct RigNoSprites: PlazaSpriteFetching {
     let shell: PlazaMacWindow
     let overlays: PlazaOverlayBindings
     private let name = "PlazaWindowRig.\(UUID())"
+    /// The app is never activated: the first click of a test goes through `NSWindow.sendEvent` like any other.
 
     private static let park: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
 
     /// `feed`: the team's news feed (nil: no board).
     init(feed: TeamFeedStore? = nil, icons: any PlazaIconSource = PlazaStubIconSource()) throws {
-        controller = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.rig.\(UUID())")),
+        // The controller drives the REAL shell (never shown, never activated: the front closure does nothing), so `setChatLogAboveInput`,
+        // `setHUDHidden`, `focusScene` and the rest reach the window the way the app's calls do.
+        // A borderless window cannot become key, so `sendEvent` below never activates anything.
+        let shell = PlazaMacWindow(autosaveName: name, styleMask: [.borderless], front: { _ in })
+        self.shell = shell
+        let controller = PlazaWindowController(preferences: PlazaPreferences(defaults: TestDefaults.make(suite: "plaza.rig.\(UUID())")),
                                            loader: PlazaCharacterLoader(fetcher: RigNoSprites()),
                                            nickname: { "tester" }, memberID: { "member-1" }, subject: { .init(speciesID: 25, isShiny: false) },
                                            feed: feed, renderCheckSleep: Self.park, focusTickSleep: Self.park, dittoLoopSleep: Self.park, dittoSeed: { 7 },
-                                           shell: RecordingPlazaShell(), icons: icons)
-        controller.prepareScene()
-        shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("the rig never brings a window forward") })
+                                           shell: shell, icons: icons)
+        self.controller = controller
+        controller.show()
         overlays = controller.overlayBindings
-        shell.open(stage: try XCTUnwrap(controller.scene).stage, title: "t", overlays: overlays)
+        // `NSWindow.sendEvent` drops mouse events for a window that is not on the window server, so the (borderless, never-key) window is
+        // ordered in FAR off every screen, where nothing can see it; the app is never activated.
+        window.setFrameOrigin(NSPoint(x: -30000, y: -30000))
+        window.orderFront(nil)
         container.layoutSubtreeIfNeeded()
     }
 
     func close() {
+        window.orderOut(nil)
         shell.stopPresenting()
         shell.dismantle()
         controller.handleClose()
@@ -66,27 +76,21 @@ private struct RigNoSprites: PlazaSpriteFetching {
         return container.hitTest(container.convert(w, from: nil))
     }
 
-    /// A click (down and up) at a panel point, delivered to the view `hitTest` finds there, as the window would.
+    /// A click (down and up) at a panel point, through `NSWindow.sendEvent` as the window receives a mouse. Returns the view `hitTest` finds.
     @discardableResult
     func click(_ id: PlazaPanelID, at p: CGPoint) throws -> NSView? {
-        let w = try XCTUnwrap(windowPoint(id, p))
-        let target = container.hitTest(container.convert(w, from: nil))
-        for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let e = try XCTUnwrap(NSEvent.mouseEvent(with: kind, location: w, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
-                                                     eventNumber: 0, clickCount: 1, pressure: 1))
-            if kind == .leftMouseDown { target?.mouseDown(with: e) } else { target?.mouseUp(with: e) }
-        }
-        return target
+        try click(atWindow: try XCTUnwrap(windowPoint(id, p)))
     }
 
-    /// A click at a window point (y up).
+    /// A click at a window point (y up) through `NSWindow.sendEvent` (never shown, never key). Returns the view `hitTest` finds there.
     @discardableResult
     func click(atWindow w: NSPoint) throws -> NSView? {
         let target = container.hitTest(container.convert(w, from: nil))
         for kind in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let e = try XCTUnwrap(NSEvent.mouseEvent(with: kind, location: w, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
-                                                     eventNumber: 0, clickCount: 1, pressure: 1))
-            if kind == .leftMouseDown { target?.mouseDown(with: e) } else { target?.mouseUp(with: e) }
+            let e = try XCTUnwrap(NSEvent.mouseEvent(with: kind, location: w, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                                     pressure: kind == .leftMouseDown ? 1 : 0))
+            window.sendEvent(e)
         }
         return target
     }
