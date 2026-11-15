@@ -70,9 +70,12 @@ final class WinTimeZoneTests: XCTestCase {
         let saved = ProcessInfo.processInfo.environment["TZ"]
         defer { PlatformCompat.setEnvironment("TZ", saved); NSTimeZone.resetSystemTimeZone() }
         PlatformCompat.setEnvironment("TZ", nil)
-        guard let iana = WinTimeZone.publishSystemZone() else { return XCTFail("the OS ICU resolves this machine's zone") }
+        guard let name = WinTimeZone.publishSystemZone() else { return XCTFail("the OS ICU resolves this machine's zone") }
         NSTimeZone.resetSystemTimeZone()
-        XCTAssertEqual(TimeZone.current.identifier, iana)
+        XCTAssertEqual(TimeZone.current.identifier, name)
+        // The trigger of the launch crash: a DateFormatter on the published zone must not trap.
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current
+        XCTAssertFalse(f.string(from: Date()).isEmpty)
         PlatformCompat.setEnvironment("TZ", "Asia/Seoul")  // set by the user, not by us
         XCTAssertNil(WinTimeZone.publishSystemZone())
         XCTAssertEqual(ProcessInfo.processInfo.environment["TZ"], "Asia/Seoul")

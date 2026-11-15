@@ -84,3 +84,27 @@ final class WindowsAppUserModelIDScanTests: XCTestCase {
         for line in shortcuts { XCTAssertTrue(line.contains("AppUserModelID: \"\(id)\""), "\(line)") }
     }
 }
+
+/// Defect: publishing the IANA name `Etc/UTC` crashed the app at launch (corelibs DateFormatter traps on `Etc/` names).
+final class TimeZoneNamesTests: XCTestCase {
+    func testEtcNamesBecomeNamesDateFormatterAccepts() {
+        XCTAssertEqual(TimeZoneNames.foundationSafe("Etc/UTC"), "UTC")
+        XCTAssertEqual(TimeZoneNames.foundationSafe("Etc/GMT"), "UTC")
+        XCTAssertEqual(TimeZoneNames.foundationSafe("Etc/GMT+11"), "GMT-1100", "POSIX sign: Windows UTC-11")
+        XCTAssertEqual(TimeZoneNames.foundationSafe("Etc/GMT-12"), "GMT+1200", "Windows UTC+12")
+        XCTAssertEqual(TimeZoneNames.foundationSafe("Etc/GMT+2"), "GMT-0200")
+        XCTAssertEqual(TimeZoneNames.foundationSafe("Etc/GMT-13"), "GMT+1300")
+    }
+
+    func testOtherNamesAreKept() {
+        for name in ["Asia/Seoul", "America/Los_Angeles", "Europe/Berlin", "Etc/Unknown", "Etc/GMT+99"] {
+            XCTAssertEqual(TimeZoneNames.foundationSafe(name), name)
+        }
+    }
+
+    func testTheResultsAreZonesFoundationKnows() {
+        for name in ["Etc/UTC", "Etc/GMT+11", "Etc/GMT-12", "Etc/GMT+2"] {
+            XCTAssertNotNil(TimeZone(identifier: TimeZoneNames.foundationSafe(name)), name)
+        }
+    }
+}

@@ -119,7 +119,7 @@ enum WindowsSelftestLanguage {
             ("DateFormatter GMT+0900", { formatted(TimeZone(identifier: "GMT+0900")) }),
             ("DateFormatter secondsFromGMT 32400", { formatted(TimeZone(secondsFromGMT: 32400)) }),
             ("DateFormatter Asia/Seoul", { formatted(TimeZone(identifier: "Asia/Seoul")) }),
-            ("DateFormatter Etc/UTC", { formatted(TimeZone(identifier: "Etc/UTC")) }),
+            ("DateFormatter GMT-1100", { formatted(TimeZone(identifier: "GMT-1100")) }),
             ("DateFormatter UTC", { formatted(TimeZone(identifier: "UTC")) }),
             ("DateFormatter TimeZone.current", { formatted(.current) }),
             ("LocalUsageReader.todayKey", { LocalUsageReader.todayKey() }),

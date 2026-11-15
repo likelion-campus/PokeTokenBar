@@ -2343,6 +2343,9 @@ read_when:
   러너 실측: UTC 존의 `StandardName`("Coordinated Universal Time")이 ID("UTC")와 달라 `TimeZone.current=GMT` 였고(영어 OS 에서도 일치하지 않는 존은 같은 결과), `Asia/Seoul` 은 영어 이름이 ID 와 같아 통과했다.
   한국어 PC 에서는 서울 시각 00:00~09:00 에 "오늘"이 어제로 나왔을 것이다(일일 합계·`day_timer`·`localDay`). **왜 못 걸렀나:** CI 가 영어 OS 라 존 이름이 우연히 ID 와 같았고, 서울 시간대 테스트도 영어 이름으로 통과했다.
   **고침:** `WinTimeZone.publishSystemZone()` — 현지화되지 않는 `TimeZoneKeyName` 을 OS 의 `icu.dll` 로 IANA 이름으로 바꿔 프로세스 환경 `TZ` 에 올린다(Foundation 은 `TZ` 를 먼저 읽는다; C 런타임의 사본은 안 건드려 `localtime` 은 그대로). 사용자가 직접 둔 `TZ` 는 건드리지 않는다.
+  **첫 시도는 앱을 시작 직후 죽였다:** UTC 존의 ICU 이름 `Etc/UTC` 를 그대로 올리자 `DateFormatter(timeZone: .current)`(= `LocalUsageReader.localDayFormatter`, 기동 경로) 가 Foundation.dll 안에서 트랩했다
+  (`0xC000001D`). 단계별 사냥(`--tz-hunt`)으로 좁힌 결과 `GMT`·`GMT+0900`·`secondsFromGMT`·`Asia/Seoul`·`UTC` 는 통과하고 `Etc/UTC` 만 죽는다 — corelibs 가 `Etc/` 이름을 모른다. 윈도 존 UTC 와 "UTC-11"…"UTC+13" 이 그 이름으로 매핑된다.
+  그래서 `TimeZoneNames.foundationSafe` 가 `Etc/UTC`→`UTC`, `Etc/GMT+11`→`GMT-1100` 으로 바꾼다. **교훈:** "다른 OS 설정으로 한 번도 안 돌려본 경로"(CI 는 늘 UTC=GMT)는 값을 바꾸는 순간 처음 실행되는 코드다 — 설정을 바꾼 자식 프로세스로 기동 경로 전체를 돌려야 한다(`check-language.ps1` 의 `timezone.noTrap.*`).
   시작 시, 그리고 `WM_TIMECHANGE` 에서 `resetSystemTimeZone()` 직전에 호출한다. **회귀 점검:** `WinTimeZoneTests`(ICU 는 영어 ID 만 알고 "대한민국 표준시" 는 모른다; 게시 후 `TimeZone.current` 일치; 사용자 `TZ` 우선), 셀프테스트 `timezone.matchesWindows`(Win32 오프셋과 대조), `check-language.ps1`(서울·UTC).
 
 - **트레이 풍선이 첫 실행에 사라졌다 — `NIIF_RESPECT_QUIET_TIME` 은 "조용한 시간" 풍선을 큐에 넣지 않고 버린다.** Microsoft 문서(NOTIFYICONDATAW): 새 사용자가 처음 로그인한 뒤 1시간과 OS 설치·업그레이드 뒤에는 이 플래그가 붙은 풍선이

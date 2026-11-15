@@ -28,7 +28,7 @@ $oldTz = (Get-TimeZone).Id
 try {
     # 1. as provisioned (English)
     $en = Probe 'english' @('--seed-language', 'en')
-    Check 'timezone.utc' ($en['env TZ (published)'] -like 'Etc/UTC*' -and $en['TimeZone.current.offsetMinutes'] -eq '0') "UTC runner: TimeZone.current=$($en['TimeZone.current']) TZ=$($en['env TZ (published)']) (Foundation alone gave GMT here: the zone's English StandardName 'Coordinated Universal Time' is not a Windows zone id)"
+    Check 'timezone.utc' ($en['env TZ (published)'] -like 'UTC*' -and $en['TimeZone.current.offsetMinutes'] -eq '0') "UTC runner: TimeZone.current=$($en['TimeZone.current']) TZ=$($en['env TZ (published)']) (Foundation alone gave GMT here: the zone's English StandardName 'Coordinated Universal Time' is not a Windows zone id)"
     Check 'language.en.detect' ($en['AppLanguage.systemDefault'] -eq 'en' -and $en['migration.after'] -eq 'en') "systemDefault=$($en['AppLanguage.systemDefault']) migration $($en['migration.before'])->$($en['migration.after'])"
     # 2. The whole app-side chain for a Korean display language. The runner has no Korean language pack, so its
     #    GetUserPreferredUILanguages cannot be switched (tried below, informational): the first Win32 value is injected.
@@ -64,11 +64,13 @@ try {
         Write-Host "HUNT $label crashes: $(if ($crashes) { $crashes -join ' | ' } else { 'none' })"
         $crashes
     }
-    $null = Hunt 'utc'
+    $crashesUtc = Hunt 'utc'
+    Check 'timezone.noTrap.utc' (-not $crashesUtc) "calls that trap under the published UTC zone: $($crashesUtc -join ' | ')"
     # 3. time zone: the day boundary follows TimeZone.current
     & tzutil /s 'Korea Standard Time'
     $tz = Probe 'korea-tz'
-    $null = Hunt 'seoul'
+    $crashesSeoul = Hunt 'seoul'
+    Check 'timezone.noTrap.seoul' (-not $crashesSeoul) "calls that trap under the published Seoul zone: $($crashesSeoul -join ' | ')"
     Check 'timezone.seoul' ($tz['TimeZone.current'] -eq 'Asia/Seoul' -and $tz['TimeZone.current.offsetMinutes'] -eq '540' -and $tz['env TZ (published)'] -like 'Asia/Seoul*') "TimeZone.current=$($tz['TimeZone.current']) offset=$($tz['TimeZone.current.offsetMinutes']) Win32 key=$($tz['Win32 TimeZoneKeyName'])"
 } finally {
     if ($oldUi) { Set-ItemProperty $desktop PreferredUILanguages ([string[]]$oldUi) -Type MultiString } else { Remove-ItemProperty $desktop PreferredUILanguages -ErrorAction SilentlyContinue }

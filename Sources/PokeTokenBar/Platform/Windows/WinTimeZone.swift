@@ -8,7 +8,8 @@ import WinSDK
 /// the lookup fails and `TimeZone.current` becomes GMT, so "today", the day timer and every day key would be computed in
 /// GMT. Foundation reads the `TZ` variable first, so this publishes the IANA name there (the process environment only: the
 /// C runtime's own copy, which `localtime` reads, is untouched). The IANA name comes from the OS's own ICU
-/// (`icu.dll`, Windows 10 1903+) for the zone's `TimeZoneKeyName`, which is never localized.
+/// (`icu.dll`, Windows 10 1903+) for the zone's `TimeZoneKeyName`, which is never localized, renamed by `TimeZoneNames` where
+/// corelibs' `DateFormatter` would trap on the ICU name.
 enum WinTimeZone {
     private typealias WindowsIDFn = @convention(c) (UnsafePointer<UInt16>?, Int32, UnsafePointer<CChar>?,
                                                     UnsafeMutablePointer<UInt16>?, Int32, UnsafeMutablePointer<Int32>?) -> Int32
@@ -44,9 +45,10 @@ enum WinTimeZone {
         let env = ProcessInfo.processInfo.environment
         if let current = env["TZ"], current != published { return nil }  // the user's own TZ wins, as it does in Foundation
         guard let key = windowsKeyName(), let iana = iana(forWindowsID: key) else { return nil }
-        PlatformCompat.setEnvironment("TZ", iana)
-        published = iana
-        return iana
+        let name = TimeZoneNames.foundationSafe(iana)
+        PlatformCompat.setEnvironment("TZ", name)
+        published = name
+        return name
     }
 }
 #endif
