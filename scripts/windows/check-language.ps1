@@ -28,25 +28,30 @@ $oldTz = (Get-TimeZone).Id
 try {
     # 1. as provisioned (English)
     $en = Probe 'english' @('--seed-language', 'en')
+    Check 'timezone.utc' ($en['env TZ (published)'] -like 'Etc/UTC*' -and $en['TimeZone.current.offsetMinutes'] -eq '0') "UTC runner: TimeZone.current=$($en['TimeZone.current']) TZ=$($en['env TZ (published)']) (Foundation alone gave GMT here: the zone's English StandardName 'Coordinated Universal Time' is not a Windows zone id)"
     Check 'language.en.detect' ($en['AppLanguage.systemDefault'] -eq 'en' -and $en['migration.after'] -eq 'en') "systemDefault=$($en['AppLanguage.systemDefault']) migration $($en['migration.before'])->$($en['migration.after'])"
-    # 2. display language Korean (the user's PC): the per-user value GetUserPreferredUILanguages reads
-    Set-ItemProperty $desktop PreferredUILanguages ([string[]]@('ko-KR')) -Type MultiString
-    Set-ItemProperty $intl LocaleName 'ko-KR'
-    $ko = Probe 'korean' @('--seed-language', 'en')
-    $api = $ko['GetUserPreferredUILanguages']
-    Write-Host "corelibs Locale.preferredLanguages under Korean: $($ko['Locale.preferredLanguages']) ; Locale.current=$($ko['Locale.current'])"
-    if ($api -like '*ko*') {
-        Check 'language.ko.detect' ($ko['AppLanguage.systemDefault'] -eq 'ko') "GetUserPreferredUILanguages=$api systemDefault=$($ko['AppLanguage.systemDefault'])"
-        Check 'language.ko.tray' ($ko['tray.titles'] -like '*지금 새로고침*') "tray: $($ko['tray.titles'])"
-        Check 'language.ko.migration' ($ko['migration.before'] -eq 'en' -and $ko['migration.after'] -eq 'ko') "saved en -> $($ko['migration.before'])->$($ko['migration.after'])"
-    } else {
-        Write-Host "::warning::the runner's GetUserPreferredUILanguages did not follow HKCU PreferredUILanguages (got '$api'); the Korean child cannot be forced here, the mapping is covered by injected-value tests"
-        Check 'language.ko.forced' $false "GetUserPreferredUILanguages=$api after setting HKCU PreferredUILanguages=ko-KR"
-    }
+    # 2. The whole app-side chain for a Korean display language. The runner has no Korean language pack, so its
+    #    GetUserPreferredUILanguages cannot be switched (tried below, informational): the first Win32 value is injected.
+    $ko = Probe 'korean-injected' @('--seed-language', 'en', '--inject-ui-language', 'ko-KR')
+    Check 'language.ko.detect' ($ko['inject.detected'] -eq 'ko') "ko-KR -> $($ko['inject.detected'])"
+    Check 'language.ko.tray' ($ko['inject.tray.titles'] -like '*지금 새로고침*' -and $ko['inject.tray.titles'] -like '*종료*') "tray: $($ko['inject.tray.titles'])"
+    Check 'language.ko.firstRunHint' ($ko['inject.firstRunHint'] -like 'PokeTokenBar가*') "hint: $($ko['inject.firstRunHint'])"
+    Check 'language.ko.migration' ($ko['migration.before'] -eq 'en' -and $ko['migration.after'] -eq 'ko') "saved en -> $($ko['migration.before'])->$($ko['migration.after'])"
+    $ja = Probe 'japanese-injected' @('--inject-ui-language', 'ja-JP')
+    Check 'language.ja.detect' ($ja['inject.detected'] -eq 'ja') "ja-JP -> $($ja['inject.detected'])"
+    $zh = Probe 'chinese-injected' @('--inject-ui-language', 'zh-Hans-CN')
+    Check 'language.zh.detect' ($zh['inject.detected'] -eq 'en') "zh-Hans-CN -> $($zh['inject.detected']) (unsupported: English, as on the Mac)"
+    # Informational: can HKCU alone change what the real API returns? (Needs the language pack; expected not.)
+    try {
+        Set-ItemProperty $desktop PreferredUILanguages ([string[]]@('ko-KR')) -Type MultiString
+        Set-ItemProperty $intl LocaleName 'ko-KR'
+        $real = Probe 'korean-hkcu'
+        Write-Host "INFO real GetUserPreferredUILanguages after HKCU PreferredUILanguages=ko-KR: $($real['GetUserPreferredUILanguages']); GetUserDefaultLocaleName=$($real['GetUserDefaultLocaleName']); corelibs Locale.preferredLanguages=$($real['Locale.preferredLanguages']) Locale.current=$($real['Locale.current'])"
+    } catch { Write-Host "INFO could not set the HKCU language values: $_" }
     # 3. time zone: the day boundary follows TimeZone.current
     & tzutil /s 'Korea Standard Time'
     $tz = Probe 'korea-tz'
-    Check 'timezone.seoul' ($tz['TimeZone.current'] -eq 'Asia/Seoul' -and $tz['TimeZone.current.offsetMinutes'] -eq '540') "TimeZone.current=$($tz['TimeZone.current']) offset=$($tz['TimeZone.current.offsetMinutes']) Win32 key=$($tz['Win32 TimeZoneKeyName'])"
+    Check 'timezone.seoul' ($tz['TimeZone.current'] -eq 'Asia/Seoul' -and $tz['TimeZone.current.offsetMinutes'] -eq '540' -and $tz['env TZ (published)'] -like 'Asia/Seoul*') "TimeZone.current=$($tz['TimeZone.current']) offset=$($tz['TimeZone.current.offsetMinutes']) Win32 key=$($tz['Win32 TimeZoneKeyName'])"
 } finally {
     if ($oldUi) { Set-ItemProperty $desktop PreferredUILanguages ([string[]]$oldUi) -Type MultiString } else { Remove-ItemProperty $desktop PreferredUILanguages -ErrorAction SilentlyContinue }
     Set-ItemProperty $intl LocaleName $oldLocale

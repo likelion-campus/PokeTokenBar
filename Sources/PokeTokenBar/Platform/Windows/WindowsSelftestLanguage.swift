@@ -62,8 +62,20 @@ enum WindowsSelftestLanguage {
 
     /// `--language-probe <out> [--seed-language en]`: facts, tray strings, and (seeded) the one-time migration.
     @MainActor static func runProbe(_ args: [String]) -> Never {
+        var injectedLanguage: AppLanguage?
         var lines = facts().map { "\($0.0)=\($0.1)" }
         lines.append("tray.titles=" + trayTitles(.systemDefault).joined(separator: " | "))
+        // `--inject-ui-language ko-KR`: the whole app-side chain for a display language this runner cannot be switched to
+        // (no language pack installed): mapping, tray strings, the first-run hint, and the one-time correction of a saved "en".
+        if let i = args.firstIndex(of: "--inject-ui-language"), i + 1 < args.count {
+            let tag = args[i + 1]
+            let list = WinUILanguage.preferred(.init(uiLanguages: { [tag] }, localeName: { nil }))
+            let detected = AppLanguage.systemDefault(for: list.first)
+            lines.append("inject.detected=\(detected.rawValue)")
+            lines.append("inject.tray.titles=" + trayTitles(detected).joined(separator: " | "))
+            lines.append("inject.firstRunHint=" + L(detected).trayFirstRunHint)
+            injectedLanguage = detected
+        }
         if let i = args.firstIndex(of: "--seed-language"), i + 1 < args.count {
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-language-probe-\(UUID().uuidString)")
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -73,7 +85,7 @@ enum WindowsSelftestLanguage {
             let defaults = UserDefaults(suiteName: suite)!
             let store = CompanionStore(fileURL: file, defaults: defaults)
             let before = store.language.rawValue
-            WinUILanguage.migrateStoredLanguage(companion: store, defaults: defaults)
+            WinUILanguage.migrateStoredLanguage(companion: store, defaults: defaults, detected: injectedLanguage ?? .systemDefault)
             lines.append("migration.before=\(before)")
             lines.append("migration.after=\(store.language.rawValue)")
             defaults.removePersistentDomain(forName: suite)

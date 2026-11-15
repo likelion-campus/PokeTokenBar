@@ -32,6 +32,8 @@ import WinSDK
     private(set) var lastTipUnits = 0
     private(set) var lastBalloonOK = false
     private(set) var lastBalloonFlags: DWORD = 0
+    /// NIN_BALLOONSHOW notifications received, whatever balloon they were for (the selftest's control experiment).
+    private(set) var shownEventCount = 0
 
     init(window: WinSinkWindow) {
         self.window = window
@@ -147,7 +149,9 @@ import WinSDK
         case UInt32(WM_CONTEXTMENU):
             let x = Int16(truncatingIfNeeded: wParam & 0xFFFF), y = Int16(truncatingIfNeeded: (wParam >> 16) & 0xFFFF)
             onContextMenu?(POINT(x: Int32(x), y: Int32(y)))
-        case Self.ninBalloonShow: onBalloonEvent?(.shown)
+        case Self.ninBalloonShow:
+            shownEventCount += 1
+            onBalloonEvent?(.shown)
         case Self.ninBalloonUserClick: onBalloonEvent?(.clicked)
         case Self.ninBalloonHide: onBalloonEvent?(.hidden)
         case Self.ninBalloonTimeout: onBalloonEvent?(.timedOut)
