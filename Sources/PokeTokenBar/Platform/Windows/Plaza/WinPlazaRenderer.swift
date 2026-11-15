@@ -42,7 +42,8 @@ struct WinRenderStats: Equatable, Sendable {
 /// - position, scales (negative = flips), zRotation, anchor, unscaled size: `flatten`'s unit-square transform, then the
 ///   camera's inverse (world items) or the viewport centre (camera children), then the y-flip and `backingScale`.
 /// - texture: the root image's bitmap, uploaded once per `PlazaImage`; a cut texture is a source rect into it (edges
-///   within 1/1000 of a texel snap to it), sampled nearest-neighbour; untextured sprites are coloured rectangles.
+///   within 1/1000 of a texel snap to it), sampled nearest-neighbour with SpriteKit's tie rule (a pixel centre on a
+///   texel edge takes the texel to its right / below on screen); untextured sprites are coloured rectangles.
 /// - colour blend (textured sprites): each colour channel × (1 − f + f · colour), alpha kept, then × alpha (measured).
 /// - `.multiply` / `.multiplyX2` (measured): rgb = k · src · dst (clamped), alpha = src alpha, inside the sprite's pixels.
 /// - crop masks: an axis-aligned clip of the mask's box, snapped by pixel centres (left/top inclusive).
