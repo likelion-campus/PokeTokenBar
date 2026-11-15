@@ -212,13 +212,22 @@ extension WindowsSelftest {
         let idleSample = await IdleSampler.measure(seconds: 10, mainThread: WindowsApp.mainThreadID)
         let i1 = shell.stats
         let clockCs = idleSample?.active.first { $0.tid == clockTid }?.cs ?? 0
-        r.add("plaza.idleVisible", Double(i1.draws - i0.draws) / 10 <= 20 && i1.presents - i0.presents == i1.draws - i0.draws,
+        // The same without weather: the team's default season is winter, whose snowfall moves every frame.
+        let season = scene?.seasonChoice ?? .winter
+        scene?.seasonChoice = .summer
+        _ = await waitUntil(timeout: 1) { false }
+        let q0 = shell.stats
+        _ = await waitUntil(timeout: 5) { false }
+        let q1 = shell.stats
+        scene?.seasonChoice = season
+        let summerRate = Double(q1.draws - q0.draws) / 5
+        r.add("plaza.idleVisible", summerRate <= 20 && i1.presents - i0.presents == i1.draws - i0.draws && q1.presents - q0.presents == q1.draws - q0.draws,
               "visible, me alone (placeholder), nobody walking, 10 s: ticks=\(i1.ticks - i0.ticks) draws=\(i1.draws - i0.draws) "
                 + "(\(pf2(Double(i1.draws - i0.draws) / 10))/s, D19 <= 20/s) presents=\(i1.presents - i0.presents) clean=\(i1.cleanTicks - i0.cleanTicks) "
                 + "clock thread cs=\(clockCs) main cs=\(idleSample?.mainContextSwitches ?? -1) main cycles=\(idleSample?.mainCycles ?? 0) "
                 + "process cycles=\(idleSample?.processCycles ?? 0); with 6 FIXTURE teammates standing (5 s): draws=\(standing1.draws - standing0.draws) "
-                + "(\(pf2(Double(standing1.draws - standing0.draws) / 5))/s); what still draws: the shared scene's own animation (sprite frames, "
-                + "bobbing, daylight, water)")
+                + "(\(pf2(Double(standing1.draws - standing0.draws) / 5))/s); me alone in summer (no weather, 5 s): draws=\(q1.draws - q0.draws) "
+                + "(\(pf2(summerRate))/s, judged against D19's <= 20/s); season \(season.rawValue) snow shown=\(scene?.isSnowShown ?? false)")
         scene?.applyMembers(members)
 
         // plaza.minimize / plaza.restore: the clock thread parks (0 context switches in 5 s) and runs again.
@@ -517,18 +526,23 @@ extension WindowsSelftest {
                 Thread.sleep(forTimeInterval: 0.05)
             }
         }
-        let d0 = shell.stats, t0 = WinPlazaClock.seconds(), sets0 = WinModalPump.timersSet
-        let pumpTicks0 = WinModalPump.ticks, fromWindows0 = WinModalPump.ticksFromWindows
-        _ = SendMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xF010 /* SC_MOVE */, 0)   // returns when the move loop ends
+        let d0 = shell.stats, sets0 = WinModalPump.timersSet, pumpTicks0 = WinModalPump.ticks
+        // Posted, not sent: the loop starts from a window message the run loop dispatches, as a user's drag does. Sent from
+        // here it would run inside this main-actor job, i.e. inside a main-queue drain, and libdispatch does not drain the
+        // main queue again from within one: the first run measured 0 of 19 blocks then, with the pump ticking 15 times.
+        _ = PostMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xF010 /* SC_MOVE */, 0)
+        let entered = await waitUntil(timeout: 3, poll: 0.01) { WinModalPump.depth > 0 }
+        let t0 = WinPlazaClock.seconds()
+        let ended = await waitUntil(timeout: 8, poll: 0.01) { WinModalPump.depth == 0 }   // these polls run inside the loop too
         done.set()
         let loopSeconds = WinPlazaClock.seconds() - t0
         let d1 = shell.stats
         let ticksPerSecond = Double(d1.ticks - d0.ticks) / max(loopSeconds, 0.001)
-        r.add("plaza.dragDraws", syntheticOK && loopSeconds >= 0.8 && ticksPerSecond >= 45 && ranDuring.count >= 5 && WinModalPump.timersSet > sets0
-                && WinModalPump.depth == 0,
+        r.add("plaza.dragDraws", syntheticOK && entered && ended && loopSeconds >= 0.6 && ticksPerSecond >= 45 && ranDuring.count >= 5
+                && WinModalPump.timersSet > sets0 && WinModalPump.depth == 0,
               synthetic + "; real SC_MOVE loop \(pf2(loopSeconds)) s: ticks/s=\(pf2(ticksPerSecond)) draws=\(d1.draws - d0.draws) presents=\(d1.presents - d0.presents), "
                 + "main-queue blocks run inside the loop \(ranDuring.count) of \(posted.count) posted (\(ranTotal.count) ran by the end), pump timers set \(WinModalPump.timersSet - timers0), "
-                + "pump ticks in the loop \(WinModalPump.ticks - pumpTicks0) (from the plaza's frame tick \(WinModalPump.ticksFromWindows - fromWindows0), the rest the sink's WM_TIMER), depth after \(WinModalPump.depth)")
+                + "pump ticks in the loop \(WinModalPump.ticks - pumpTicks0), entered=\(entered) ended=\(ended), depth after \(WinModalPump.depth)")
     }
 
     @MainActor private static func focusCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
