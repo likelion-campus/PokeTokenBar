@@ -137,7 +137,7 @@ struct RecapPeriod: Equatable, Sendable {
     static func calendar(timeZone: TimeZone = .current) -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
-        calendar.firstWeekday = Calendar.current.firstWeekday
+        calendar.firstWeekday = PlatformCompat.firstWeekday
         return calendar
     }
 }

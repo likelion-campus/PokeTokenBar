@@ -490,3 +490,57 @@ extension PlatformCompat {
         #endif
     }
 }
+
+// MARK: - The user's regional format (stage 7, D11)
+
+extension PlatformCompat {
+    /// The locale of the user's regional format (number grouping). Mac: exactly `Locale.current`. Windows: corelibs
+    /// answers `Locale.current` with `en_001` for everyone, so it is the `GetUserDefaultLocaleName` locale
+    /// (`RegionFormat.locale(windowsName:)`), falling back to `Locale.current`. Read per call: a region change applies
+    /// to the next text.
+    static var regionLocale: Locale {
+        #if os(Windows)
+        return RegionFormat.locale(windowsName: WinUILanguage.win32LocaleName()) ?? Locale.current
+        #else
+        return Locale.current
+        #endif
+    }
+
+    /// The first day of the user's week, as `Calendar.firstWeekday` (1 = Sunday). Mac: exactly
+    /// `Calendar.current.firstWeekday`. Windows: corelibs answers 2 (Monday) for everyone, so it is
+    /// `GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_IFIRSTDAYOFWEEK)`, falling back to `Calendar.current`.
+    static var firstWeekday: Int {
+        #if os(Windows)
+        return RegionFormat.firstWeekday(windowsText: WinUILanguage.win32LocaleInfo(LCTYPE(LOCALE_IFIRSTDAYOFWEEK)))
+            ?? Calendar.current.firstWeekday
+        #else
+        return Calendar.current.firstWeekday
+        #endif
+    }
+
+    /// The calendar the heatmap and the recap count weeks in: gregorian, in `timeZone`, starting on `firstWeekday`.
+    /// Mac: exactly `RecapPeriod.calendar(timeZone:)` (no locale set). Windows: the same, with `regionLocale` for the
+    /// weekend rules (the Mac's calendar takes them from the system locale).
+    static func regionCalendar(timeZone: TimeZone) -> Calendar {
+        #if os(Windows)
+        return RegionFormat.calendar(timeZone: timeZone, firstWeekday: firstWeekday, locale: regionLocale)
+        #else
+        return RegionFormat.calendar(timeZone: timeZone, firstWeekday: Calendar.current.firstWeekday, locale: nil)
+        #endif
+    }
+}
+
+// MARK: - The popover's platform facts (stage 7, D8)
+
+extension PlatformCompat {
+    /// The facts the shared Home models read. Mac: exactly what `PopoverView` assumes (`PopoverPlatformFacts.mac`; the
+    /// Mac app does not call the shared models). Windows: no Keychain, no Antigravity limits source, no floating pet
+    /// yet, and the region seams above in the current time zone.
+    @MainActor static var popoverFacts: PopoverPlatformFacts {
+        #if os(Windows)
+        return .windows(regionLocale: regionLocale, regionCalendar: regionCalendar(timeZone: .current))
+        #else
+        return .mac
+        #endif
+    }
+}
