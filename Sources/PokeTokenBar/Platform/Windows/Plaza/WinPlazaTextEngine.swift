@@ -213,8 +213,9 @@ final class WinTextLine: @unchecked Sendable {
 /// Grapheme clusters measured by DirectWrite, made the way the Mac's builder makes them (`PlazaParityGoldensMacTests
 /// .clusters(of:font:)`): Swift `Character`s; each DirectWrite cluster's advance goes to the character its first unit is in
 /// (a ligature's whole advance to its first character, as CoreText gives a glyph's advance to its string index); a line may
-/// end after a character when the DirectWrite cluster that ends with it may wrap after (UAX #14 as DirectWrite reads it);
-/// white space, newline, Hangul and word-character from the scalars, as on the Mac.
+/// end after a character when the DirectWrite cluster that ends with it may wrap after (UAX #14 as DirectWrite reads it),
+/// corrected by the two UAX #14 rules DirectWrite's analyser does not apply and CoreText (ICU) does, measured on the corpus
+/// (`breakCorrected`); white space, newline, Hangul and word-character from the scalars, as on the Mac.
 struct WinMeasured: Sendable {
     let clusters: [PlazaBreakCluster]
     let metrics: [PlazaFontMetrics]
@@ -233,6 +234,40 @@ struct WinMeasured: Sendable {
         }
     }
 
+    /// UAX #14 classes PR (prefix: currency, `+`, `\`, `±`, `№` …) and PO (postfix: `%`, `‰`, `°`, `¢`, primes …).
+    static let prefixOrPostfix: Set<UInt32> = Set<UInt32>([
+        0x24, 0x2B, 0x5C, 0xA3, 0xA4, 0xA5, 0xB1, 0x58F, 0x7FE, 0x7FF, 0x9FB, 0xAF1, 0xBF9, 0xE3F, 0x17DB, 0x2116, 0x2212, 0x2213,
+        0xFE69, 0xFF04, 0xFFE1, 0xFFE5, 0xFFE6,
+        0x25, 0xA2, 0xB0, 0x60B, 0x66A, 0x9F2, 0x9F3, 0x9F9, 0xD79, 0x2103, 0x2109, 0xA838, 0xFDFC, 0xFE6A, 0xFF05, 0xFFE0,
+    ]).union(UInt32(0x20A0)...UInt32(0x20CF)).union(UInt32(0x2030)...UInt32(0x2037))
+
+    /// A letter of UAX #14 class AL or HL: alphabetic, not Hangul, not ideographic, not kana, not a South-East Asian script
+    /// (class SA, broken by dictionary).
+    static func isAlphabeticLetter(_ s: Unicode.Scalar) -> Bool {
+        let v = s.value
+        guard s.properties.isAlphabetic, !s.properties.isIdeographic, !isHangul(s) else { return false }
+        if (0x0E00...0x0EFF).contains(v) || (0x1000...0x109F).contains(v) || (0x1780...0x17FF).contains(v) || (0x3040...0x31FF).contains(v)
+            || (0xFF66...0xFF9F).contains(v) { return false }
+        switch s.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter: return true
+        default: return false
+        }
+    }
+
+    static func isRegionalIndicator(_ s: Unicode.Scalar) -> Bool { (0x1F1E6...0x1F1FF).contains(s.value) }
+
+    /// DirectWrite's opportunity after `current`, corrected where its analyser predates UAX #14 (CoreText follows it):
+    /// - LB24 `(AL | HL) × (PR | PO)`: no break between a letter and a prefix or postfix after it (`Users\name`, `a+b`);
+    /// - LB30a: a break between two flags (regional-indicator pairs).
+    static func breakCorrected(_ directWrite: Bool, current: Character, next: Character?) -> Bool {
+        guard let next, let last = current.unicodeScalars.last, let first = next.unicodeScalars.first else { return directWrite }
+        if directWrite, isAlphabeticLetter(last), prefixOrPostfix.contains(first.value) { return false }
+        if !directWrite, current.unicodeScalars.count == 2, current.unicodeScalars.allSatisfy(isRegionalIndicator), isRegionalIndicator(first) {
+            return true
+        }
+        return directWrite
+    }
+
     static func make(_ text: String, _ handle: WinTextHandle) -> WinMeasured {
         let units = text.utf16.count
         let dw = handle.clusters()
@@ -248,7 +283,8 @@ struct WinMeasured: Sendable {
         var clusters: [PlazaBreakCluster] = [], metrics: [PlazaFontMetrics] = []
         clusters.reserveCapacity(text.count)
         u = 0
-        for ch in text {
+        let characters = Array(text)
+        for (index, ch) in characters.enumerated() {
             let end = u + ch.utf16.count
             var width = 0.0
             var ascent = 0.0, descent = 0.0, leading = 0.0
@@ -261,7 +297,8 @@ struct WinMeasured: Sendable {
                 utf16: u..<end, width: CGFloat(width),
                 isWhitespace: scalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) && ![0xA0, 0x2007, 0x202F].contains($0.value) },
                 isNewline: scalars.contains { "\n\r\u{2028}\u{2029}\u{85}".unicodeScalars.contains($0) },
-                canBreakAfter: end <= units && breakAfter[end], isHangul: scalars.first.map(isHangul) ?? false,
+                canBreakAfter: breakCorrected(end <= units && breakAfter[end], current: ch, next: index + 1 < characters.count ? characters[index + 1] : nil),
+                isHangul: scalars.first.map(isHangul) ?? false,
                 isWordCharacter: scalars.first.map(isWordCharacter) ?? false))
             metrics.append(PlazaFontMetrics(ascender: CGFloat(ascent), descender: -CGFloat(descent), leading: CGFloat(leading)))
             u = end
@@ -337,15 +374,32 @@ struct WinPlazaTextEngine: PlazaTextEngine {
 
     // MARK: making lines
 
+    /// `spec` cut where a character asks for emoji presentation (U+FE0F, or a keycap U+20E3): those are drawn in the emoji
+    /// font even when the spec's font has the base character (`©️`, `1️⃣`), as CoreText draws them in Apple Color Emoji.
+    static func fontRuns(_ spec: WinTextSpec) -> [(length: Int, font: PlazaFont)] {
+        let emoji = PlazaFont.emoji(size: CGFloat(WinTextFonts.spec(spec.font).size))
+        var out: [(length: Int, font: PlazaFont)] = []
+        for ch in spec.text {
+            let font = ch.unicodeScalars.contains { $0.value == 0xFE0F || $0.value == 0x20E3 } ? emoji : spec.font
+            if let last = out.last, last.font == font { out[out.count - 1].length += ch.utf16.count } else { out.append((ch.utf16.count, font)) }
+        }
+        return out
+    }
+
     /// A DirectWrite line of `specs`, or nil (logged once) when the engine cannot make one.
     func native(_ specs: [WinTextSpec], rightToLeft: Bool) -> WinTextLine? {
         guard let engine = fonts.handle else { return nil }
         var units: [UInt16] = [], runs: [PTBTextRun] = []
         for s in specs {
-            let u = Array(s.text.utf16), f = WinTextFonts.spec(s.font), c = s.color
-            runs.append(PTBTextRun(start: UInt32(units.count), length: UInt32(u.count), font: f.font, weight: f.weight, size: f.size,
-                                   ownColor: c == nil ? 0 : 1, r: c?.red ?? 0, g: c?.green ?? 0, b: c?.blue ?? 0, a: c?.alpha ?? 1))
-            units += u
+            let c = s.color
+            var start = units.count
+            for piece in Self.fontRuns(s) {
+                let f = WinTextFonts.spec(piece.font)
+                runs.append(PTBTextRun(start: UInt32(start), length: UInt32(piece.length), font: f.font, weight: f.weight, size: f.size,
+                                       ownColor: c == nil ? 0 : 1, r: c?.red ?? 0, g: c?.green ?? 0, b: c?.blue ?? 0, a: c?.alpha ?? 1))
+                start += piece.length
+            }
+            units += Array(s.text.utf16)
         }
         let allSpecs = specs.isEmpty ? [WinTextSpec(text: "", font: .plaza(.body), color: nil)] : specs
         if runs.isEmpty {

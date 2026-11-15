@@ -364,7 +364,7 @@ final class WindowsPlazaTextTests: XCTestCase {
                                            PlazaTextRun(text: "마바 사아", font: .plaza(.body), color: blue)], width: 50)
         let pieces = wrapped.map { $0.runs.map { "\($0.text)|\($0.color == red ? "r" : "b")" } }
         print("TEXT-RUNS wrapped at 50: \(pieces) widths \(wrapped.map(\.width))")
-        XCTAssertEqual(pieces.flatMap { $0 }.map { $0.split(separator: "|").last.map(String.init) ?? "" }, ["r", "r", "b", "b"])
+        XCTAssertEqual(pieces, [["가나|r"], ["다라|r"], ["마바|b"], ["사아|b"]], "the space a break swallows is in no line")
         for (i, l) in wrapped.enumerated() {
             let k = try canvas(80, 24)
             k.setFillColor(green)
@@ -431,6 +431,21 @@ final class WindowsPlazaTextTests: XCTestCase {
             }
             XCTAssertGreaterThan(chromatic, 4, "\(text): colour pixels inside the glyph box")
         }
+    }
+
+    /// A character with U+FE0F (or a keycap) asks for emoji presentation: drawn in the emoji font even where Galmuri has the
+    /// base character, as CoreText draws `©️` and `1️⃣` in Apple Color Emoji.
+    func testEmojiPresentationUsesTheEmojiFont() throws {
+        try requireResources()
+        for text in ["©️", "1️⃣", "™️"] {
+            let n = try native(engine.line(text, font: .plaza(.body)))
+            let fams = n.segments.flatMap { $0.handle.pieceFamilies() }
+            print("TEXT-EMOJI-PRESENTATION \(text.debugDescription): fonts \(fams.map { $0.family + ($0.color ? " (colour)" : "") }) width \(engine.line(text, font: .plaza(.body)).width)")
+            XCTAssertTrue(fams.contains { $0.family == "Segoe UI Emoji" }, "\(text) in the emoji font")
+            XCTAssertFalse(fams.contains { $0.family.hasPrefix("Galmuri") }, "\(text) not in Galmuri")
+        }
+        XCTAssertTrue(try native(engine.line("©", font: .plaza(.body))).segments[0].handle.pieceFamilies().allSatisfy { $0.family == "Galmuri14" },
+                      "without the selector Galmuri's own © is used")
     }
 
     func testStrokeModeSkipsColourGlyphs() throws {
