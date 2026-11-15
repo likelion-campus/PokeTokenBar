@@ -6,7 +6,8 @@ import XCTest
 /// The Windows chat field (stage 6 Task 11, D13): the Mac field's rules (`PlazaChatInputTests` in `PlazaChatTests+Mac`) on the real
 /// `EDIT` control, its messages sent to it directly (no message pump in XCTest: `--selftest` drives the real pump, the hook and the
 /// keyboard on the runner). What a real IME reports is a script (`FakeIME`): its composition string, and on "finish" what IMM does
-/// synchronously (the result, the end, the characters).
+/// synchronously (the result, the end, the characters). The field's host is the plain child here: a layered child window needs the
+/// app's Windows 8+ manifest, which the XCTest process does not have (the app's host is checked on screen by `plaza.chatChildVisible`).
 @MainActor final class WindowsPlazaChatInputTests: XCTestCase {
     private func flush() async { for _ in 0..<20 { await Task.yield() } }
 
@@ -14,14 +15,21 @@ import XCTest
     @MainActor final class FakeIME { var composition = ""; var result = ""; var finishes: [Bool] = [] }
 
     @MainActor private struct Rig {
-        let input: WinPlazaChatInput, box: Box, ime: FakeIME, parent: WinSinkWindow
-        var edit: HWND { input.editHWND! }
+        let input: WinPlazaChatInput, box: Box, ime: FakeIME, parent: WinSinkWindow, edit: HWND
     }
 
     private var parents: [WinSinkWindow] = []
     private var inputs: [WinPlazaChatInput] = []
 
+    private var shippedHost = WinPlazaChatInput.fieldHost
+
+    override func setUp() async throws {
+        shippedHost = WinPlazaChatInput.fieldHost
+        WinPlazaChatInput.fieldHost = .child
+    }
+
     override func tearDown() async throws {
+        WinPlazaChatInput.fieldHost = shippedHost
         WinChatFaults.active = []
         for i in inputs { i.detach() }   // the field first, then its window
         inputs = []
@@ -36,6 +44,7 @@ import XCTest
         let input = WinPlazaChatInput()
         inputs.append(input)
         XCTAssertTrue(input.attach(parent: parent.hwnd))
+        let edit = try XCTUnwrap(input.editHWND, "the field was not made")
         input.report(size: CGSize(width: 640, height: 400), scale: 1)
         let ime = FakeIME()
         input.ime = .init(composition: { _ in ime.composition }, result: { _ in ime.result }, finish: { h, cancel in
@@ -56,7 +65,7 @@ import XCTest
         input.onSubmit = { box.sent.append($0); return box.accept }
         input.onClose = { box.closes += 1 }
         if open { input.open() }
-        return Rig(input: input, box: box, ime: ime, parent: parent)
+        return Rig(input: input, box: box, ime: ime, parent: parent, edit: edit)
     }
 
     private func type(_ r: Rig, _ text: String) {
@@ -328,7 +337,10 @@ extension PlazaChatTests {
         let parent = try WinSinkWindow(className: "PTBTestChatController", title: "chat", style: DWORD(WS_OVERLAPPED), exStyle: 0,
                                        x: 0, y: 0, width: 640, height: 400)
         let input = WinPlazaChatInput()
+        let shipped = WinPlazaChatInput.fieldHost
+        WinPlazaChatInput.fieldHost = .child   // a layered child needs the app's manifest (see WindowsPlazaChatInputTests)
         XCTAssertTrue(input.attach(parent: parent.hwnd))
+        WinPlazaChatInput.fieldHost = shipped
         input.report(size: CGSize(width: 640, height: 400), scale: 1)
         return (input, parent)
     }
