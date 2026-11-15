@@ -26,6 +26,8 @@ extension WindowsSelftest {
         await keyboardChecks(r)
         await multiLineKeysCheck(r)
         await galleryChecks(r)
+        await registriesCheck(r)
+        await noLeakCheck(r)
         await openCloseCheck(r, start: start)
     }
 
@@ -308,6 +310,10 @@ extension WindowsSelftest {
         await scrollClickChecks(r, w, page)
         await dpiCheck(r, w, page)
         await idleCheck(r, w, page)
+        await settingChangeCheck(r, w, page)
+        await editMenuCheck(r, w, page)
+        await codePasteCheck(r, w, page)
+        ampersandCheck(r, w)
         w.destroy()
 
         // Full-height pages for the captures and the tree checks.
@@ -570,7 +576,7 @@ extension WindowsSelftest {
 
     private static func openCloseCheck(_ r: WindowsSelftest.Recorder, start: KitResources) async {
         var cycles: [KitResources] = []
-        for _ in 0..<4 {
+        for _ in 0..<6 {
             let page = GalleryPage()
             guard let w = KitWindow(heightDIP: 520, build: { _, s in page.build(s) }) else { break }
             w.show(activate: false)
@@ -579,16 +585,16 @@ extension WindowsSelftest {
             _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
             cycles.append(KitResources.now())
         }
-        guard let warm = cycles.first, cycles.count == 4 else {
+        guard let warm = cycles.first, cycles.count == 6 else {
             r.add("ui.kit.openClose3", false, "the window could not be made")
             return
         }
-        let last = cycles[3]
-        let ok = last.gdi - warm.gdi <= 5 && last.user - warm.user <= 5 && last.handles - warm.handles <= 10 && last.controls == 0 && last.dialogs == start.dialogs
-            && last.pumpDepth == 0 && !WinModalPump.timerLive
+        let rest = cycles.dropFirst()
+        let ok = rest.allSatisfy { $0.gdi == warm.gdi && $0.user == warm.user && $0.handles - warm.handles <= 10 && $0.controls == 0
+            && $0.dialogs == start.dialogs && $0.areas == 0 && $0.pumpDepth == 0 } && !WinModalPump.timerLive
         r.add("ui.kit.openClose3", ok,
-              "before the group: \(start); after a warm-up open/close: \(warm); after 3 more: \(cycles.dropFirst().map { "\($0)" }.joined(separator: " / ")) "
-              + "(budget over the warm-up: GDI +5, USER +5, handles +10; no kit control, dialog registration or pump timer left)")
+              "before the group: \(start); after a warm-up open/close: \(warm); after 5 more: \(rest.map { "\($0)" }.joined(separator: " / ")) "
+              + "(over the warm-up: GDI and USER objects +0 after every cycle, handles +10 at most; no kit control, dialog registration, scroll area or pump timer left)")
     }
 
     // MARK: - the idle gate's probe
@@ -669,6 +675,160 @@ extension WindowsSelftest {
         }
         func ranWhileOpen(_ i: Int) { lock.lock(); ran.insert(i); lock.unlock() }
         var ranCount: Int { lock.lock(); defer { lock.unlock() }; return ran.count }
+    }
+
+    // MARK: - post-merge review: the minor findings
+
+    /// Review 14: setting broadcasts that change nothing the page was made from do not rebuild it (focus, scroll and an IME
+    /// composition survive).
+    private static func settingChangeCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard let field = page.firstField, let area = w.scroll else { r.add("ui.kit.settingChange", false, "no page"); return }
+        _ = SetFocus(field.hwnd)
+        area.scroll(to: 40)
+        let rebuilds0 = w.rebuilds, messages0 = w.settingMessages, offset0 = area.offset
+        WinKit.send(w.hwnd, 0x001A /* WM_SETTINGCHANGE */, 0, text: "ImmersiveColorSet")
+        WinKit.send(w.hwnd, 0x001A, 0x0068 /* SPI_SETWHEELSCROLLLINES */, 0)
+        WinKit.send(w.hwnd, 0x0015 /* WM_SYSCOLORCHANGE */)
+        WinKit.send(w.hwnd, 0x031A /* WM_THEMECHANGED */)
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        let focusKept = GetFocus() == page.firstField?.hwnd, offsetKept = w.scroll?.offset == offset0
+        r.add("ui.kit.settingChange", w.rebuilds == rebuilds0 && w.settingMessages == messages0 + 4 && focusKept && offsetKept && !w.ctx.needsRebuild(),
+              "4 setting broadcasts that change nothing the page was made from: rebuilds +\(w.rebuilds - rebuilds0) (expected 0), focus kept=\(focusKept), "
+              + "scroll offset kept=\(offsetKept) (\(offset0)); needsRebuild()=\(w.ctx.needsRebuild()), needsRebuild(dpi: 144)=\(w.ctx.needsRebuild(dpi: 144))")
+    }
+
+    /// Review 6: an edit's own context menu runs inside WinModalPump (the main queue keeps running).
+    private static func editMenuCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard WindowsSelftest.onCI else { r.add("ui.kit.editMenu", true, "skipped: CI not set"); return }
+        guard let field = page.firstField else { r.add("ui.kit.editMenu", false, "no field"); return }
+        WindowsSelftest.forceForeground(w.hwnd)
+        _ = SetFocus(field.hwnd)
+        let state = MenuState()
+        let main = WindowsApp.mainThreadID
+        Thread {
+            func inMenu() -> Bool {
+                var info = GUITHREADINFO()
+                info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+                _ = GetGUIThreadInfo(main, &info)
+                return info.flags & 0x0010 /* GUI_POPUPMENUMODE */ != 0
+            }
+            var waited = 0
+            while !inMenu(), waited < 150 { Thread.sleep(forTimeInterval: 0.02); waited += 1 }
+            state.open = inMenu()
+            Thread.sleep(forTimeInterval: 0.2)
+            for i in 0..<10 {
+                DispatchQueue.main.async { if state.open { state.ranWhileOpen(i) } }
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+            Thread.sleep(forTimeInterval: 0.3)
+            for _ in 0..<5 where inMenu() {
+                WindowsSelftestPopover.keyFromThread(0x1B)
+                Thread.sleep(forTimeInterval: 0.3)
+            }
+            state.open = false
+        }.start()
+        _ = PostMessageW(field.hwnd, 0x007B /* WM_CONTEXTMENU */, WPARAM(UInt(bitPattern: Int(bitPattern: field.hwnd))), LPARAM(-1))
+        _ = await WindowsSelftest.waitUntil(timeout: 6) { false }
+        r.add("ui.kit.editMenu", state.ranCount > 0, "the field's own context menu (posted WM_CONTEXTMENU): main-queue blocks run while open=\(state.ranCount)/10")
+    }
+
+    nonisolated static func keyFromThread(_ vk: UInt16) {
+        var inputs = [INPUT(), INPUT()]
+        inputs[0].type = DWORD(INPUT_KEYBOARD)
+        inputs[0].ki.wVk = vk
+        inputs[1] = inputs[0]
+        inputs[1].ki.dwFlags = DWORD(KEYEVENTF_KEYUP)
+        _ = SendInput(2, &inputs, Int32(MemoryLayout<INPUT>.stride))
+    }
+
+    /// Review 11: a paste into a code field drops spaces and line breaks; with no text on the clipboard it is the edit's own
+    /// paste (the selection stays).
+    private static func codePasteCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard WindowsSelftest.onCI else { r.add("ui.kit.codePaste", true, "skipped: CI not set (the check writes the clipboard)"); return }
+        guard let code = page.codeField else { r.add("ui.kit.codePaste", false, "no code field"); return }
+        code.text = ""
+        let put = setClipboard(" PTB-ABCDE-\r\nFGHIJ\n", owner: w.hwnd)
+        WinKit.send(code.hwnd, 0x0302 /* WM_PASTE */)
+        let pasted = code.text
+        code.text = "KEEP"
+        WinKit.send(code.hwnd, 0x00B1 /* EM_SETSEL */, 0, -1)
+        let emptied = setClipboard(nil, owner: w.hwnd)
+        WinKit.send(code.hwnd, 0x0302)
+        let kept = code.text
+        code.text = ""
+        r.add("ui.kit.codePaste", put && emptied && pasted == "PTB-ABCDE-FGHIJ" && kept == "KEEP",
+              "paste of \" PTB-ABCDE-\\r\\nFGHIJ\\n\" -> '\(pasted)'; with an empty clipboard over a selected 'KEEP' -> '\(kept)' (clipboard set=\(put), emptied=\(emptied))")
+    }
+
+    static func setClipboard(_ text: String?, owner: HWND) -> Bool {
+        guard OpenClipboard(owner) else { return false }
+        defer { _ = CloseClipboard() }
+        _ = EmptyClipboard()
+        guard let text else { return true }
+        let units = Array(text.utf16) + [0]
+        guard let memory = GlobalAlloc(UINT(0x0002) /* GMEM_MOVEABLE */, SIZE_T(units.count * 2)), let p = GlobalLock(memory) else { return false }
+        units.withUnsafeBytes { p.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        _ = GlobalUnlock(memory)
+        return SetClipboardData(13 /* CF_UNICODETEXT */, memory) != nil
+    }
+
+    /// Review 7: "&" in the app's strings (About & Support, Backup & Transfer, Claude & GPT Models) shows as "&" in every
+    /// control that reads access keys, and the control's text gives the string back.
+    private static func ampersandCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow) {
+        guard let pane = w.scroll?.content.hwnd else { r.add("ui.kit.ampersand", false, "no pane"); return }
+        var bad: [String] = []
+        var checked = 0
+        for language in AppLanguage.allCases {
+            let l = L(language)
+            for text in [l.aboutSupportSectionTitle, l.transferSectionTitle, l.antigravityThirdPartyGroup] where text.contains("&") {
+                let made = [WinControls.button(text, in: pane, ctx: w.ctx), WinControls.checkbox(text, isOn: false, in: pane, ctx: w.ctx),
+                            WinControls.radioGroup([text, "x"], selected: 0, in: pane, ctx: w.ctx),
+                            WinControls.glyphButton(symbol: "gearshape", label: text, in: pane, ctx: w.ctx)].compactMap { $0 }
+                for c in made {
+                    checked += 1
+                    let raw = WinKit.text(of: c.hwnd)
+                    if raw != text.replacingOccurrences(of: "&", with: "&&") || c.text != text { bad.append("\(c.kind) '\(raw)'") }
+                    c.destroy()
+                }
+            }
+        }
+        r.add("ui.kit.ampersand", bad.isEmpty && checked > 0, "\(checked) controls titled with the app's strings that contain '&' (8 languages): window text doubles it, the control's text gives it back; wrong=\(bad)")
+    }
+
+    /// Review 8: a kit window closed without the kit's own destroy (Alt+F4, a default WM_CLOSE) leaves no dialog
+    /// registration and no scroll area behind.
+    private static func registriesCheck(_ r: WindowsSelftest.Recorder) async {
+        let before = (WinMessageHook.dialogWindowCount, WinScrollArea.liveCount)
+        guard let w = KitWindow(heightDIP: 200, build: { _, s in s.addSection("Close").addToggle("Toggle", isOn: false) }) else {
+            r.add("ui.kit.registries", false, "no window")
+            return
+        }
+        let open = (WinMessageHook.dialogWindowCount, WinScrollArea.liveCount)
+        _ = DestroyWindow(w.hwnd)
+        let after = (WinMessageHook.dialogWindowCount, WinScrollArea.liveCount)
+        w.destroy()
+        r.add("ui.kit.registries", after == before && open.0 == before.0 + 1 && open.1 == before.1 + 1,
+              "dialog registrations / scroll areas: before \(before.0)/\(before.1), open \(open.0)/\(open.1), after a plain DestroyWindow \(after.0)/\(after.1)")
+    }
+
+    /// Review 9: a page that captures itself in a control's callback is freed when its window closes.
+    private static func noLeakCheck(_ r: WindowsSelftest.Recorder) async {
+        final class SelfCapturing { var button: WinControl?; var clicks = 0 }
+        weak var weakPage: SelfCapturing?
+        do {
+            let page = SelfCapturing()
+            weakPage = page
+            guard let w = KitWindow(heightDIP: 200, build: { _, s in
+                page.button = s.addSection("Leak").addRow("Button") { pane, ctx in WinControls.button("Press", in: pane, ctx: ctx) }.control
+                page.button?.onClick = { page.clicks += 1 }  // the page -> its control -> this closure -> the page
+            }) else {
+                r.add("ui.kit.noLeak", false, "no window")
+                return
+            }
+            w.destroy()
+        }
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        r.add("ui.kit.noLeak", weakPage == nil, "a page held by its own control's onClick: freed after its window closed=\(weakPage == nil)")
     }
 
     // MARK: - post-merge review: tracking loops, multi-line keys, parts that change size
@@ -857,16 +1017,16 @@ extension WindowsSelftest {
 
 /// GDI and USER objects, handles, kit controls, dialog registrations and the pump: what a popover must give back on close.
 struct KitResources: CustomStringConvertible {
-    var gdi: Int, user: Int, handles: Int, controls: Int, dialogs: Int, pumpDepth: Int
+    var gdi: Int, user: Int, handles: Int, controls: Int, dialogs: Int, areas: Int, pumpDepth: Int
 
     @MainActor static func now() -> KitResources {
         let process = GetCurrentProcess()
         return KitResources(gdi: Int(GetGuiResources(process, 0 /* GR_GDIOBJECTS */)), user: Int(GetGuiResources(process, 1 /* GR_USEROBJECTS */)),
                             handles: Int(ptb_process_handle_count()), controls: WinControl.liveCount, dialogs: WinMessageHook.dialogWindowCount,
-                            pumpDepth: WinModalPump.depth)
+                            areas: WinScrollArea.liveCount, pumpDepth: WinModalPump.depth)
     }
 
-    var description: String { "gdi=\(gdi) user=\(user) handles=\(handles) controls=\(controls) dialogs=\(dialogs)" }
+    var description: String { "gdi=\(gdi) user=\(user) handles=\(handles) controls=\(controls) dialogs=\(dialogs) areas=\(areas)" }
 }
 
 /// A top-level kit window of the selftest: the popover's window style (a tool window: no taskbar button, not in Alt+Tab),
@@ -887,7 +1047,7 @@ struct KitResources: CustomStringConvertible {
     private var heightDIP: CGFloat
     private let textScale: Double?, highContrast: Bool?
     let isRegistered: Bool
-    private(set) var escapes = 0, oks = 0, rebuilds = 0
+    private(set) var escapes = 0, oks = 0, rebuilds = 0, settingMessages = 0
     var onMenuMessage: (() -> Void)?
     private(set) var isDestroyed = false
 
@@ -929,7 +1089,8 @@ struct KitResources: CustomStringConvertible {
         for message: UINT in [0x001A /* WM_SETTINGCHANGE */, 0x0015 /* WM_SYSCOLORCHANGE */, 0x031A /* WM_THEMECHANGED */] {
             made.on(message) { [weak self] _, _ in
                 guard let self else { return nil }
-                self.rebuild(dpi: self.ctx.dpi)  // high contrast, the accent and the text size are read again
+                self.settingMessages += 1
+                if self.ctx.needsRebuild() { self.rebuild(dpi: self.ctx.dpi) }  // only when what the page was built from changed
                 return nil
             }
         }
@@ -1028,6 +1189,7 @@ struct KitResources: CustomStringConvertible {
 @MainActor final class GalleryPage {
     var styleLabel: WinControl?, firstField: WinControl?, lastField: WinControl?, firstButton: WinControl?
     var drawn: WinDrawnView?
+    var codeField: WinControl?, lateToggle: WinControl?
     var growing: WinDrawnView?
     var growingPart: KitGrowingPart?
     var belowGrowing: WinControl?
@@ -1068,7 +1230,9 @@ struct KitResources: CustomStringConvertible {
         }
         let fields = s.addSection("Fields")
         firstField = fields.addRow("Nickname") { pane, ctx in WinControls.edit(.text(cue: "Nickname"), width: 160, in: pane, ctx: ctx) }.control
-        fields.addRow("Team code") { pane, ctx in WinControls.edit(.code(cue: "PTB-XXXXX-XXXXX"), width: 170, in: pane, ctx: ctx) }
+        codeField = fields.addRow("Team code") { pane, ctx in WinControls.edit(.code(cue: "PTB-XXXXX-XXXXX"), width: 170, in: pane, ctx: ctx) }.control
+        fields.addRow(nil, style: .full, accessibleName: "Search the fields") { pane, ctx in WinControls.edit(.text(cue: "Search (no label: an accessible name)"), in: pane, ctx: ctx) }
+        lateToggle = toggles.addToggle("Late toggle (added after the Fields section)", isOn: false).control
         fields.addRow("Session key", style: .stacked) { pane, ctx in WinControls.edit(.password(cue: "sk-ant-sid01-…"), text: "fixture", in: pane, ctx: ctx) }
         lastField = fields.addRow("Scan folders", hint: "One folder per line: Enter saves, Ctrl+Enter adds a line", style: .stacked) { pane, ctx in
             WinControls.edit(.multiLine(lines: 3, cue: "C:\\Users\\you\\.claude"), in: pane, ctx: ctx)
@@ -1331,7 +1495,7 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
         }
         if !overlaps.isEmpty { problems.append("overlaps: \(overlaps.prefix(6))") }
         var clipped: [String] = []
-        for (node, h) in zip(nodes, handles) where node.cls == "Static" && node.visible && !node.text.isEmpty {
+        for (node, h) in zip(nodes, handles) where node.cls == "Static" && node.visible && !node.text.isEmpty && node.w > 0 && node.h > 0 {
             let style = GetWindowLongW(h, -16)
             guard style & 0x1F != 0x0D /* SS_OWNERDRAW */, style & 0x4000 == 0 /* SS_ENDELLIPSIS */ else { continue }
             let font = HFONT(bitPattern: WinKit.send(h, 0x0031))
@@ -1342,7 +1506,7 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
         // A label squeezed narrower than its widest word: its height still "fits" (one word a line), so the check above
         // misses it (seen at 150 % text: a row's label at 0 px beside a wide control).
         var squeezed: [String] = []
-        for (node, h) in zip(nodes, handles) where node.cls == "Static" && node.visible && !node.text.isEmpty {
+        for (node, h) in zip(nodes, handles) where node.cls == "Static" && node.visible && !node.text.isEmpty && node.w > 0 && node.h > 0 {
             let style = GetWindowLongW(h, -16)
             guard style & 0x1F != 0x0D, style & 0x4000 == 0 else { continue }
             let font = HFONT(bitPattern: WinKit.send(h, 0x0031))
@@ -1354,13 +1518,19 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
             n.tabStop && n.visible && (n.x < -0.5 || n.y < -0.5 || CGFloat(n.x + n.w) * s > CGFloat(client.cx) + 1 || CGFloat(n.y + n.h) * s > CGFloat(client.cy) + 1)
         }.map { "\($0.0.cls) '\($0.0.text.prefix(16))'" }
         if !outside.isEmpty { problems.append("outside the window: \(outside)") }
+        // An edit, a combo box or a slider is named by the static just before it (MSAA): a field without one is read without a name.
+        let unnamed = zip(nodes, handles).filter { n, _ in n.visible && ["Edit", "ComboBox", "msctls_trackbar32"].contains(n.cls) }.compactMap { n, h -> String? in
+            guard let prev = GetWindow(h, 3 /* GW_HWNDPREV */), WinKit.className(prev) == "Static", !WinKit.text(of: prev).isEmpty else { return "\(n.cls) '\(n.text.prefix(16))'" }
+            return nil
+        }
+        if !unnamed.isEmpty { problems.append("fields without a label before them: \(unnamed)") }
         let shownHidden = nodes.filter { $0.text == Self.hiddenMarker && $0.visible }.count
         if shownHidden > 0 { problems.append("a hidden row shows (\(shownHidden) windows)") }
         let hangul = Set(nodes.flatMap { $0.text.unicodeScalars.filter { (0xAC00...0xD7A3).contains($0.value) }.map { UInt16($0.value) } })
         let missingHangul = Self.missingGlyphs(Array(hangul), face: "Malgun Gothic")
         // R9: a machine without Malgun Gothic (a server image) draws Hangul as boxes: reported, not failed; with the font, a missing glyph fails.
         if !missingHangul.isEmpty, WinFonts.isInstalled("Malgun Gothic") { problems.append("Hangul without a glyph in Malgun Gothic: \(missingHangul.count)") }
-        let summary = "hidden row windows shown=\(shownHidden) of \(nodes.filter { $0.text == Self.hiddenMarker }.count); \(stops.count) Tab stops, \(tabOrder.count) reached in reading order=\(PopoverStackLayout.isReadingOrder(tabRects)); "
+        let summary = "unlabelled fields=\(unnamed.count); hidden row windows shown=\(shownHidden) of \(nodes.filter { $0.text == Self.hiddenMarker }.count); \(stops.count) Tab stops, \(tabOrder.count) reached in reading order=\(PopoverStackLayout.isReadingOrder(tabRects)); "
             + "\(leaves.count) visible controls; \(hangul.count) Hangul syllables, \(missingHangul.count) without a glyph in Malgun Gothic (GDI's link for Hangul, "
             + "installed=\(WinFonts.isInstalled("Malgun Gothic"))); problems=\(problems.isEmpty ? "none" : problems.joined(separator: "; "))"
         return Result(ok: problems.isEmpty, summary: summary)

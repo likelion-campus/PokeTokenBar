@@ -153,6 +153,71 @@ final class WindowsPopoverKitTests: XCTestCase {
         XCTAssertNil(WinEditKind.password(cue: nil).cue)
     }
 
+    /// Review 10: the fonts follow the user's smoothing setting (DEFAULT_QUALITY), not ClearType forced.
+    func testFontsUseTheUsersSmoothing() async {
+        let fonts = WinFonts(dpi: 96, textScale: 1)
+        defer { fonts.destroy() }
+        XCTAssertEqual(logFont(fonts.font(.body)).lfQuality, 0)
+        XCTAssertEqual(logFont(fonts.icon(size: 16)).lfQuality, 0)
+    }
+
+    /// Review 7: titles double "&" for controls that read access keys, and give it back.
+    func testAmpersandsInTitlesAreDoubled() async {
+        let l = L(.en)
+        XCTAssertEqual(WinKit.title(l.aboutSupportSectionTitle), "About && Support")
+        XCTAssertEqual(WinKit.plainTitle(WinKit.title(l.transferSectionTitle)), l.transferSectionTitle)
+        XCTAssertEqual(WinKit.title("no ampersand"), "no ampersand")
+    }
+
+    /// Review 4: every label of the Mac's Settings rows (the real `L` strings), in every language, at Windows text sizes 100,
+    /// 125 and 150 %, beside controls 60 to 180 DIP wide: the label is never narrower than its widest word (it wraps, or
+    /// goes above the control). Measured with GDI in the kit's own font.
+    func testNoSettingsLabelIsCutInAnyLanguageOrTextSize() async throws {
+        let labels: [KeyPath<L, String>] = [
+            \.additionalClaudeAccountsLabel, \.checkForUpdatesLabel, \.critical, \.customScanRootsLabel, \.dailyTrendPeriod,
+            \.exportSaveLabel, \.floatingPetAgentActivityLabel, \.floatingPetEnableLabel, \.floatingPetSizeLabel, \.importSaveLabel,
+            \.language, \.launchAtLogin, \.limitDisplayModeLabel, \.refreshInterval, \.refreshLimitToken, \.reportProblem,
+            \.representativePokemonLabel, \.sessionKeyOrganizationLabel, \.showLogFile, \.statusChecksLabel, \.warning,
+            \.companionNotificationsLabel, \.limitNotificationsLabel, \.updateNotificationsLabel,
+        ]
+        let dc = try XCTUnwrap(CreateCompatibleDC(nil))
+        defer { _ = DeleteDC(dc) }
+        func measure(_ text: String, width: Int32?) -> CGSize {
+            var r = RECT(left: 0, top: 0, right: width ?? 0x7FFF, bottom: 0)
+            let flags = UINT(DT_CALCRECT | DT_NOPREFIX) | (width == nil ? UINT(DT_SINGLELINE) : UINT(DT_WORDBREAK))
+            _ = WinStr.w(text).withUnsafeBufferPointer { DrawTextW(dc, $0.baseAddress, -1, &r, flags) }
+            return CGSize(width: CGFloat(r.right - r.left), height: CGFloat(r.bottom - r.top))
+        }
+        var cut: [String] = []
+        var checked = 0, stacked = 0
+        for scale in [1.0, 1.25, 1.5] {
+            let fonts = WinFonts(dpi: 96, textScale: scale)
+            let old = SelectObject(dc, UnsafeMutableRawPointer(fonts.font(.body)))
+            for language in AppLanguage.allCases {
+                let l = L(language)
+                for path in labels {
+                    let text = l[keyPath: path]
+                    let widest = text.split(separator: " ").map { measure(String($0), width: nil).width }.max() ?? 0
+                    for control in [60, 90, 120, 150, 180] as [CGFloat] {
+                        let row = PopoverStackRow(style: .trailing, control: CGSize(width: control * CGFloat(scale), height: 24)) { w in
+                            (measure(text, width: Int32(w)), nil)
+                        }
+                        let frames = PopoverStackLayout.layout([PopoverStackSection(rows: [row])], width: 343, metrics: .settings)
+                        let row0 = try XCTUnwrap(frames.sections[0]?.rows[0])
+                        let label = try XCTUnwrap(row0.label)
+                        checked += 1
+                        if let c = row0.control, c.minY > label.minY { stacked += 1 }
+                        if label.width + 1 < widest { cut.append("\(language) '\(text)' at \(Int(scale * 100)) % beside \(Int(control)) DIP: \(Int(label.width)) < \(Int(widest)) px") }
+                    }
+                }
+            }
+            _ = SelectObject(dc, old)
+            fonts.destroy()
+        }
+        print("POPOVER-LABEL-SWEEP \(checked) rows, \(stacked) stacked, \(cut.count) cut")
+        XCTAssertEqual(cut, [])
+    }
+
     func testTheTooltipDelayIsTheMacApps() async {
         XCTAssertEqual(WinTooltips.initialDelayMs, 600)
     }
