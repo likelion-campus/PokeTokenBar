@@ -72,7 +72,8 @@ final class WinTimeZoneTests: XCTestCase {
         PlatformCompat.setEnvironment("TZ", nil)
         guard let name = WinTimeZone.publishSystemZone() else { return XCTFail("the OS ICU resolves this machine's zone") }
         NSTimeZone.resetSystemTimeZone()
-        XCTAssertEqual(TimeZone.current.identifier, name)
+        XCTAssertEqual(TimeZone.current.secondsFromGMT(), TimeZone(identifier: name)?.secondsFromGMT(), "UTC is spelled GMT by Foundation: compare the offset")
+        XCTAssertNotEqual(TimeZone.current.identifier, "")
         // The trigger of the launch crash: a DateFormatter on the published zone must not trap.
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current
         XCTAssertFalse(f.string(from: Date()).isEmpty)
