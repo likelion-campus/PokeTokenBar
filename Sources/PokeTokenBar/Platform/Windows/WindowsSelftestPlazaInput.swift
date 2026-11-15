@@ -397,12 +397,13 @@ extension WindowsSelftest {
             router.mouseObserver = { events.append($0) }
         }
         let kinds = real.map { $0.kind }
-        let realOK = !onCI || (captured && capturedOutside && GetCapture() != hwnd && kinds.first == .down && kinds.last == .up
-            && (real.last?.location.x ?? 0) < 0 && real.first?.location == CGPoint(x: 200, y: 150))
+        let upEvent = real.last { $0.kind == .up }   // the pointer's exit (hover ends) may follow the release
+        let realOK = !onCI || (captured && capturedOutside && GetCapture() != hwnd && kinds.first == .down && upEvent != nil
+            && (upEvent?.location.x ?? 0) < 0 && real.first?.location == CGPoint(x: 200, y: 150))
         r.add("plaza.click", dpiOK && wheelOK && cancelled && realOK,
               "points at dpi [\(dpiLines.joined(separator: "; "))]; right button ignored; wheel notch dy=\(n?.1 ?? -1) (\(lines) lines x 10), 8 x 15/120 notches sum=\(fractions), "
                 + "horizontal dx=\(h?.0 ?? -1) (\(chars) chars, sign flipped), at (\(n?.2.x ?? -1),\(n?.2.y ?? -1)), Ctrl+wheel ignored=\(pinchIgnored); lost capture cancels the press=\(cancelled); "
-                + (onCI ? "real press dragged outside: captured=\(captured) still captured outside=\(capturedOutside) events \(kinds.count) first \(kinds.first.map { "\($0)" } ?? "-") last \(kinds.last.map { "\($0)" } ?? "-") up at x=\(real.last?.location.x ?? 0)"
+                + (onCI ? "real press dragged outside: captured=\(captured) still captured outside=\(capturedOutside) events \(kinds.count) first \(kinds.first.map { "\($0)" } ?? "-") last \(kinds.last.map { "\($0)" } ?? "-") up at x=\(upEvent?.location.x ?? 0)"
                         : "real press skipped (not CI)"))
     }
 
