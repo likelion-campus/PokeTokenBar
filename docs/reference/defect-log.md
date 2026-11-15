@@ -997,15 +997,20 @@ read_when:
   1.5 배; 처음 잡은 2.75 M 은 넷째 run 의 2.03 M 에 여유가 1.35 배뿐이라 넓혔다; 주 스레드 30·메모리 5 MB·핸들 10 은 그대로) — 이런 갱신 하나(≥ 6k cs)면 그것만으로 실패한다. 갱신 없는 120 s 창은 이 결함과 무관해 Task 12 값
   그대로다(133–134.5 cs/분·198–214 k 사이클/s; 대조 125.5–126·167–174 k 에 WinHTTP 가 남기는 스레드 풀 깨움이 120 s 에 12–19 회 더해진다 — 시스템
   DLL 의 타이머로 6–10 s 에 한 번, 언로드 없이는 못 끈다). WinHTTP 로딩으로 비공유 메모리 +2.4 MB·핸들 +100 이 한 번 늘고(세션을 닫으면 핸들은 창 안에서 줄어든다) 그 뒤로 자라지 않는다.
-  **규칙:** 윈도우에서 도는 코드의 주기적·백그라운드 HTTP 는 `PlatformCompat.oneShotData` 로 보낸다. 새 URLSession 사용처는 무엇을 얼마나 자주
-  가져오는지와 함께 `WindowsSeamScanTests.knownURLSessionSites` 에 올린다(일회성·캐시만 남는다). 깨움을 잴 때는 창 안에서 끝난 스레드도 센다.
-  **가드(기계):** `WindowsSeamScanTests.testEveryURLSessionSiteThatRunsOnWindowsIsKnown`·`testTheStatusChecksStayOnTheSeam`·`testTheURLSessionScanCatchesEachForm`
-  (호출부를 URLSession 으로 되돌리고 맥 분기를 ephemeral 세션으로 바꾸는 결함 주입으로 셋 다 실패 확인), `OneShotDataMacTests`(맥 분기가 공유 세션을
-  그대로 쓰는지, `URLProtocol` 스텁), `WindowsHTTPFetchTests.testAWaitingTransferThroughTheSeamDoesNotKeepAThreadAwake`(2 s 전송의 1.5 s 동안 가장 바쁜 스레드
-  < 150 cs; 같은 잣대로 URLSession 대조군은 42–71k), 다시 잡은 유휴 게이트 예산, 진단 `--selftest-net-burst`(`windows-app` 의 `net_burst` 입력).
-  **스윕:** 윈도우에서 도는 앱 코드의 URLSession 사용처 13 곳(이음매 자신·진단 도우미 제외) — 한도 조회(Claude OAuth·세션 키·Cursor·Grok·OpenCode Go)는 설정돼 있으면 갱신마다 돌아 같은 버스트를
-  낸다(api.anthropic.com 한 번 1.7–6.6k cs, 자격증명 없이 401) → 열린 결정. 업데이트 피드(30 분에 한 번 이하, 4.7–13.2k cs)·스프라이트·PokeAPI·플라자 아이콘
-  (요청 시, 캐시)은 일회성이라 그대로. 맥 전용(`AntigravityRateLimitsProvider`, `PlazaIconLoader`)은 해당 없음.
+  **규칙:** 윈도우에서 도는 코드는 URLSession 으로 직접 요청하지 않는다 — 모든 일회성 HTTP 는 `PlatformCompat.oneShotData(for:session:)` 또는
+  `oneShotData(from:)` 로 보낸다(맥은 호출부가 쓰던 바로 그 URLSession 호출). 깨움을 잴 때는 창 안에서 끝난 스레드도 센다.
+  **가드(기계):** `WindowsSeamScanTests.testNoRequestOutsideTheSeamInCodeThatRunsOnWindows`(직접 요청은 이음매·진단 도우미에만)·
+  `testEveryRoutedSiteStaysOnTheSeam`(경유한 호출부마다 횟수 고정)·`testTheRequestScanCatchesEachForm`(첫 판의 세 스캔은 호출부를 URLSession 으로 되돌리고
+  맥 분기를 ephemeral 세션으로 바꾸는 결함 주입으로 실패 확인), `OneShotDataMacTests`(맥 분기 셋: 공유 세션, 호출부 자신의 세션, `data(from:)`; `URLProtocol`
+  스텁), `WindowsHTTPFetchTests`(대조군 URLSession 과 같은 답: 헤더·본문·리디렉션·압축·청크·10 MB·204/304·오류·취소·프록시, 그리고
+  `testAWaitingTransferThroughTheSeamDoesNotKeepAThreadAwake`: 2 s 전송의 1.5 s 동안 가장 바쁜 스레드 < 150 cs, URLSession 대조군은 42–71k),
+  `WindowsProxyRouteTests`(libcurl 의 프록시 변수 규칙), 다시 잡은 유휴 게이트 예산, 진단 `--selftest-net-burst`(`windows-app` 의 `net_burst` 입력).
+  **스윕(후속, 같은 날):** 윈도우에서 도는 앱 코드의 직접 요청 14 곳(상태 확인 포함)을 모두 이음매로 옮겼다 — 한도(Claude 사용량·프로필, 세션 키,
+  Cursor 토큰·사용량·한도, Grok, OpenCode Go: 갱신마다), 업데이트 피드 둘, PokeAPI 둘, 이름 표, 스프라이트 셋, 플라자 아이콘. 각 업스트림 줄은 한 줄 호출 교체다.
+  스트리밍·웹소켓·백그라운드 세션은 없다. 맥 전용(`AntigravityRateLimitsProvider`, `PlazaIconLoader`)은 해당 없음. 같은 결함의 두 번째 공백:
+  **CI 픽스처에 자격증명이 없어 갱신마다 도는 한도 조회가 게이트에서 한 번도 돌지 않았다**. Claude 한도 URL 은 업스트림의 `private static let` 이라
+  루프백으로 돌릴 이음매가 없고 업스트림에 새로 만들지 않는다 — 그 요청 모양(헤더·토큰·타임아웃)을 셀프테스트(`--selftest-net-burst`)에서 잰다.
+  __FOLLOWUP_NUMBERS__
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
