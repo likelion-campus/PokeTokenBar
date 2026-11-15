@@ -160,3 +160,36 @@ import XCTest
         rig.hud.isRendering = true
     }
 }
+
+/// Task 17w review item 4: the chat bar's frame change (the emoji panel opening resizes it DURING the window's layout pass) must never force
+/// layout again, and the log still rides above the bar.
+@MainActor final class PlazaChatLogLayoutTests: XCTestCase {
+    func testTheEmojiPanelResizingTheBarNeverForcesLayoutInsideALayoutPass() async throws {
+        let rig = try PlazaWindowRig()
+        defer { rig.close() }
+        rig.overlays.chatLog.append(time: Date(), name: "팀원", text: "안녕", color: PlazaNameColor.palette[0])
+        await rig.flush()
+        let content = try XCTUnwrap(rig.window.contentView as? PlazaWindowContentView)
+        let chat = try XCTUnwrap(rig.overlays.chatInput as? PlazaChatInput)
+        chat.open()
+        rig.shell.setChatLogAboveInput(true)
+        rig.container.layoutSubtreeIfNeeded()
+        await rig.flush()
+        let h = rig.container.bounds.height
+        let closedBar = chat.view.frame.height
+        XCTAssertEqual(try XCTUnwrap(rig.frame(.chatLog)).maxY, h - 16 - closedBar - 8, accuracy: 0.001)
+        // The emoji panel opens: the bar grows inside the next layout pass.
+        chat.emojiButton.performClick(nil)
+        XCTAssertTrue(chat.isEmojiPanelOpen)
+        rig.container.needsLayout = true
+        rig.container.layoutSubtreeIfNeeded()
+        await rig.flush()
+        XCTAssertGreaterThan(chat.view.frame.height, closedBar, "the bar really grew")
+        XCTAssertEqual(content.forcedLayoutsDuringLayoutForTesting, 0, "layout was never forced from inside a layout pass")
+        XCTAssertEqual(try XCTUnwrap(rig.frame(.chatLog)).maxY, h - 16 - chat.view.frame.height - 8, accuracy: 0.001, "the log moved up with the bar")
+        chat.close()
+        rig.shell.setChatLogAboveInput(false)
+        await rig.flush()
+        XCTAssertEqual(try XCTUnwrap(rig.frame(.chatLog)).maxY, h - 16, accuracy: 0.001)
+    }
+}

@@ -88,7 +88,9 @@ import XCTest
             for y in stride(from: 0, to: Int(size.height), by: 4) {
                 let p = NSPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)
                 let l = legacy.hitTest(box.convert(p, to: legacy.superview)) != nil
-                let n = rig.container.hitTest(rig.container.convert(p, from: nil)) === host
+                let hit = rig.container.hitTest(rig.container.convert(p, from: nil))
+                // Taken by this host, or by a panel ABOVE it (the chat log, minimap, guide, toggles: they were above the SwiftUI overlay too).
+                let n = hit === host || (hit is PlazaPanelHostView && hit !== rig.host(.roster))
                 if l && n { both += 1 } else if l { legacyOnly += 1 } else if n { panelOnly += 1 }
             }
         }
