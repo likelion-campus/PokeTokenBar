@@ -92,6 +92,14 @@ enum PlazaCardStyle {
     var isVisible: Bool { state != nil }
 
     private var rendered: PlazaCardState??
+    /// A number for the card state that changes when the state does: a cache key must not interpolate the whole card (a dex of a thousand
+    /// species) into a string each render. Equal states share their dex storage, so the comparison is cheap in the usual case.
+    private var keyedState: PlazaCardState?
+    private var keyedID = 0
+    private func stateID(_ state: PlazaCardState) -> Int {
+        if keyedState != state { keyedState = state; keyedID += 1 }
+        return keyedID
+    }
     func didAppear() { pictures.forgetFailures() }
 
     private func modelChanged() {
@@ -257,7 +265,7 @@ enum PlazaCardStyle {
         var tips: [PlazaTooltip] = []
 
         // Plate, header, activity and the message: one image, drawn again when a picture arrives.
-        let key = "\(scale) \(String(describing: type(of: text))) \(state) \(PlazaActivity.dayKey(now())) \(sprite != nil) \(current != nil) \(isDark)"
+        let key = "\(scale) \(String(describing: type(of: text))) \(stateID(state)) \(PlazaActivity.dayKey(now())) \(sprite != nil) \(current != nil) \(isDark)"
         if staticImage.key != key {
             let space = PlazaPanelSpace(content: l.size, room: 0)
             staticImage = (key, space.image(scale: scale, graphics: graphics) { canvas in

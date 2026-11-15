@@ -49,14 +49,26 @@ enum PlazaBoardStyle {
         self.feed = feed
         self.myMemberID = myMemberID
         scrollIndicator.onChange = { [weak self] in self?.onChange?() }
-        observer = PlazaChangeObserver(track: { _ = model.content; _ = PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID) },
+        observer = PlazaChangeObserver(track: { _ = model.content; _ = feed.revision },
                                        changed: { [weak self] in self?.modelChanged() })
     }
 
     var isVisible: Bool { model.content == .board }
 
     private var rendered: String?
-    private var state: String { "\(model.content == .board) \(PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID))" }
+    /// For tests (cost): how many times this panel rendered.
+    private(set) var renderCountForTesting = 0
+    /// What the board shows is the open state and the feed's revision: no row is built to find out whether anything changed.
+    private var state: String { "\(model.content == .board) \(feed.revision)" }
+
+    /// The rows of the feed, built once per revision (text, dates and reactions of every note).
+    private var rowsCache: (revision: Int, rows: [PlazaBoardRow])?
+    private func currentRows() -> [PlazaBoardRow] {
+        if let rowsCache, rowsCache.revision == feed.revision { return rowsCache.rows }
+        let rows = PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID)
+        rowsCache = (feed.revision, rows)
+        return rows
+    }
     private func modelChanged() {
         if !isVisible { scrollState = PlazaScrollState(); rowImages = [:]; scrollIndicator.reset() }   // each opening starts at the top (a new ScrollView)
         if rendered != state { onChange?() }
@@ -83,14 +95,14 @@ enum PlazaBoardStyle {
         let bodyHeight: CGFloat, smallHeight: CGFloat
     }
 
-    private struct LayoutKey: Equatable { let rows: [PlazaBoardRow], scale: CGFloat, engine: String }
+    private struct LayoutKey: Equatable { let revision: Int, scale: CGFloat, engine: String }
     private var laidOut: (key: LayoutKey, layout: Layout)?
 
     func layout(scale: CGFloat, text: any PlazaTextEngine) -> Layout {
-        let rows = PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID)
         let engine = String(describing: type(of: text))
-        let key = LayoutKey(rows: rows, scale: scale, engine: engine)
+        let key = LayoutKey(revision: feed.revision, scale: scale, engine: engine)
         if let laidOut, laidOut.key == key { return laidOut.layout }
+        let rows = currentRows()
         let s = PlazaBoardStyle.self
         let l = L(.ko)
         let body = text.metrics(s.body), small = text.metrics(s.small)
@@ -162,6 +174,7 @@ enum PlazaBoardStyle {
 
     func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
         rendered = state
+        renderCountForTesting += 1
         let text = graphics.text
         let l = layout(scale: scale, text: text)
         let s = PlazaBoardStyle.self
