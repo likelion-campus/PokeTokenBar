@@ -72,3 +72,11 @@ UI/PopoverView.swift#PopoverView.openCodeGoLimitsContent | Popover/LimitsModel.s
 UI/PopoverView.swift#PopoverView.openCodeGoLimitRow | Popover/LimitsModel.swift#LimitsBuilder.openCodeGoLimitRow | pin e0cf4520ce8391be
 UI/PopoverView.swift#PopoverView.grokLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.grokLimitsContent | pin a44000bb85ea1ce0
 UI/PopoverView.swift#PopoverMetrics | Popover/PopoverWindowMetrics.swift#PopoverWindowMetrics | PopoverMetrics=PopoverWindowMetrics
+
+# The companion sprite's frame-selection rules (Task 8, D16): the subject transitions and the SpriteView statics over
+# PlazaImage; driven against the Mac originals by PopoverTwinEquivalenceTests+Mac.
+UI/CompanionView.swift#SpriteSubject | Popover/PopoverSpriteSubject.swift#PopoverSpriteSubject | SpriteSubject=PopoverSpriteSubject, NSImage=PlazaImage
+UI/CompanionView.swift#SpriteView.frameTaskID | Popover/PopoverSpriteSubject.swift#PopoverSpriteRules.frameTaskID
+UI/CompanionView.swift#SpriteView.framesToApply | Popover/PopoverSpriteSubject.swift#PopoverSpriteRules.framesToApply
+UI/CompanionView.swift#SpriteView.needsReload | Popover/PopoverSpriteSubject.swift#PopoverSpriteRules.needsReload
+UI/SpriteLoader.swift#SpriteFit.size | Popover/PopoverSpriteSubject.swift#PopoverSpriteFit.size

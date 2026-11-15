@@ -61,6 +61,7 @@ public enum WindowsApp {
             WindowsSelftest.startPlazaIdle(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "visible")
         }
         if arguments.contains("--popover-kit-idle-probe") { WindowsSelftest.startPopoverKitIdle() }  // stage 7 Task 3: the gate's open-kit window
+        if arguments.contains("--popover-sprite-idle-probe") { WindowsSelftestPopover.startSpriteIdle() }  // stage 7 Task 8: an animating sprite open
         WinMainLoop.run(app.loopStrategy) { false }
         WindowsApp.exit(0, .menu)  // not reached: the loop only ends through an exit
     }

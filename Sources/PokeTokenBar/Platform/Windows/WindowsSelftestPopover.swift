@@ -25,6 +25,7 @@ extension WindowsSelftest {
         let start = KitResources.now()
         await keyboardChecks(r)
         await galleryChecks(r)
+        await spriteChecks(r)  // Task 8 (WindowsSelftestPopoverSprites.swift)
         await openCloseCheck(r, start: start)
     }
 
@@ -555,7 +556,7 @@ extension WindowsSelftest {
         return "focus capture after Tab x2: focus on '\(focused)' png=\(png == 0 ? "kit-focus-100.png" : "FAILED \(png)")"
     }
 
-    private static func capture(_ w: KitWindow) -> WinUIDump.Bitmap? {
+    static func capture(_ w: KitWindow) -> WinUIDump.Bitmap? {
         var width: UInt32 = 0, height: UInt32 = 0
         var out: UnsafeMutablePointer<UInt8>?
         guard ptb_window_print(UnsafeMutableRawPointer(w.hwnd), &width, &height, &out) == 0, let out else { return nil }
