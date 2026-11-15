@@ -251,6 +251,8 @@ enum PlazaCardStyle {
 
     /// The backing scale of the last render (the scroller's knob sits on its device pixels).
     private var renderedScale: CGFloat = 1
+    /// For tests: where the first dex column starts (the grid's left edge in the dex window).
+    private(set) var dexCellOriginForTesting: CGPoint?
 
     func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
         renderedScale = scale
@@ -354,6 +356,7 @@ enum PlazaCardStyle {
         // "Always show scroll bars": the legacy scroller takes its width from the dex window when the grid overflows it; the grid centres in the rest.
         let reserve = scrollState.canScroll ? scrollIndicator.reservedWidth : 0
         let gridX = PlazaPanelStyle.pixel((lower.width - reserve - s.gridWidth) / 2, scale: scale)
+        dexCellOriginForTesting = CGPoint(x: gridX, y: 0)
         let imageKey = "\(scale) \(String(describing: type(of: text))) \(isDark) \(reserve)"
         if rowImageKey != imageKey { rowImageKey = imageKey; rowImages = [:] }
         var kept: [String: PlazaImage] = [:]
