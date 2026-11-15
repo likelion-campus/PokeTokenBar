@@ -50,4 +50,30 @@ enum PlazaDecodeGoldens {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0, 64, 64, 0, 64,
     ]
+
+    /// A second fixture whose colour bytes are not 0 or 255, so a different rounding (floor, ceiling) changes 43 of its 96
+    /// colour bytes: 8 x 4 pixels, alphas 0...255, made on the Mac by ImageIO from `fixture2Straight` (a straight-alpha
+    /// CGImage), then read back by ImageIO and drawn into a premultiplied context: `fixture2Premultiplied`.
+    static let fixture2PNGBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAECAYAAACzzX7wAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAACKADAAQAAAABAAAABAAAAABQdJZTAAAAZ0lEQVQIHWPkZj3BoBptyoiE+YBsASCWB2JeFo0bK1JUo+9Kq95Ywah6A6TwrqjqjbtGQL6YRrSpAkjBbKAAGxCHAgWjgIpsgFhKA6zorg1IwUKgwE6gcSJARSDMpRG9Qg4oxgXE3wCr2i9At57eMAAAAABJRU5ErkJggg=="
+    static let fixture2Size = (width: 8, height: 4)
+    static let fixture2Straight: [UInt8] = [
+        11, 5, 200, 0, 48, 96, 253, 1, 85, 187, 50, 2, 122, 22, 103, 3,
+        159, 113, 156, 17, 196, 204, 209, 33, 233, 39, 6, 64, 14, 130, 59, 77,
+        51, 221, 112, 100, 88, 56, 165, 127, 125, 147, 218, 128, 162, 238, 15, 129,
+        199, 73, 68, 150, 236, 164, 121, 200, 17, 255, 174, 222, 54, 90, 227, 254,
+        91, 181, 24, 255, 128, 16, 77, 5, 165, 107, 130, 90, 202, 198, 183, 180,
+        239, 33, 236, 240, 20, 124, 33, 10, 57, 215, 86, 60, 94, 50, 139, 120,
+        131, 141, 192, 160, 168, 232, 245, 190, 205, 67, 42, 210, 242, 158, 95, 230,
+        23, 249, 148, 250, 60, 84, 201, 40, 97, 175, 254, 70, 134, 10, 51, 110,
+    ]
+    static let fixture2Premultiplied: [UInt8] = [
+        0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 2, 1, 0, 1, 3,
+        11, 8, 10, 17, 25, 26, 27, 33, 58, 10, 2, 64, 4, 39, 18, 77,
+        20, 87, 44, 100, 44, 28, 82, 127, 63, 74, 109, 128, 82, 120, 8, 129,
+        117, 43, 40, 150, 185, 129, 95, 200, 15, 222, 151, 222, 54, 90, 226, 254,
+        91, 181, 24, 255, 3, 0, 2, 5, 58, 38, 46, 90, 143, 140, 129, 180,
+        225, 31, 222, 240, 1, 5, 1, 10, 13, 51, 20, 60, 44, 24, 65, 120,
+        82, 88, 120, 160, 125, 173, 183, 190, 169, 55, 35, 210, 218, 143, 86, 230,
+        23, 244, 145, 250, 9, 13, 32, 40, 27, 48, 70, 70, 58, 4, 22, 110,
+    ]
 }

@@ -113,9 +113,16 @@ extension WindowsSelftest {
 
         // --- PNG: semi-transparent fixture equals the Mac's bytes; round trip keeps pixels and alpha-0 rows
         var parity = "decode failed", parityOK = false
-        if let image = graphics.decodeImage(fixture) {
-            parityOK = image.pixels.bytes == PlazaDecodeGoldens.fixturePremultiplied
-            parity = "premultiplied == Mac: \(parityOK) alpha=\(image.pixels.bytes.enumerated().filter { $0.offset % 4 == 3 && $0.element != 0 }.map(\.element))"
+        let fixture2 = Data(base64Encoded: PlazaDecodeGoldens.fixture2PNGBase64) ?? Data()
+        if let image = graphics.decodeImage(fixture), let image2 = graphics.decodeImage(fixture2) {
+            let straight2 = WinPlazaCodecs.decodeStraight(fixture2)
+            var straightOK = false
+            if case .success(let d) = straight2 { straightOK = d.rgba == PlazaDecodeGoldens.fixture2Straight }
+            let one = image.pixels.bytes == PlazaDecodeGoldens.fixturePremultiplied
+            let two = image2.pixels.bytes == PlazaDecodeGoldens.fixture2Premultiplied
+            parityOK = one && two && straightOK
+            parity = "4x4 (alpha 255/128/64/0) premultiplied == Mac: \(one); 8x4 (32 alphas, mid-range colours) premultiplied == Mac: \(two), "
+                + "WIC bytes are the stored straight values: \(straightOK)"
         }
         var roundTrip = "no image", roundTripOK = false
         if let image = graphics.decodeImage(fixture), let png = graphics.encodePNG(image), let back = graphics.decodeImage(png) {

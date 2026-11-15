@@ -111,6 +111,20 @@ final class WindowsPlazaGraphicsTests: XCTestCase {
         XCTAssertEqual(image.pixels.bytes, PlazaDecodeGoldens.fixturePremultiplied, "premultiplied with CoreGraphics' rounding")
     }
 
+    /// 8 x 4, alphas 0...255, colour bytes in the middle of the range: a different rounding changes 43 of its 96 colour bytes.
+    func testMidRangeSemiTransparentFixtureMatchesTheMac() throws {
+        let png = try XCTUnwrap(Data(base64Encoded: PlazaDecodeGoldens.fixture2PNGBase64))
+        let straight = try WinPlazaCodecs.decodeStraight(png).get()
+        XCTAssertEqual(straight.width, PlazaDecodeGoldens.fixture2Size.width)
+        XCTAssertEqual(straight.height, PlazaDecodeGoldens.fixture2Size.height)
+        XCTAssertEqual(straight.rgba, PlazaDecodeGoldens.fixture2Straight, "WIC returns the stored straight bytes, no colour management")
+        let image = try XCTUnwrap(graphics.decodeImage(png))
+        XCTAssertEqual(image.pixels.bytes, PlazaDecodeGoldens.fixture2Premultiplied, "premultiplied bytes equal what ImageIO + CoreGraphics make")
+        // and back: premultiplied -> PNG -> premultiplied stays within one step, alpha 0 stays transparent black
+        let again = try XCTUnwrap(graphics.decodeImage(try XCTUnwrap(graphics.encodePNG(image)))).pixels.bytes
+        XCTAssertLessThanOrEqual(zip(again, image.pixels.bytes).map { abs(Int($0) - Int($1)) }.max() ?? 99, 1)
+    }
+
     // MARK: PNG
 
     func testPNGRoundTripKeepsPixels() throws {

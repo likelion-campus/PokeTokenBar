@@ -44,4 +44,12 @@ final class PlazaDecodeGoldensMacTests: XCTestCase {
         XCTAssertEqual(image.width, PlazaDecodeGoldens.fixtureSize)
         XCTAssertEqual(image.pixels.bytes, PlazaDecodeGoldens.fixturePremultiplied)
     }
+
+    func testMidRangeFixturePremultipliedBytesAreWhatTheMacDecodes() throws {
+        let png = try XCTUnwrap(Data(base64Encoded: PlazaDecodeGoldens.fixture2PNGBase64))
+        let image = try XCTUnwrap(graphics.decodeImage(png))
+        XCTAssertEqual(image.width, PlazaDecodeGoldens.fixture2Size.width)
+        XCTAssertEqual(image.height, PlazaDecodeGoldens.fixture2Size.height)
+        XCTAssertEqual(image.pixels.bytes, PlazaDecodeGoldens.fixture2Premultiplied)
+    }
 }
