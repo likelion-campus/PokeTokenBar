@@ -2431,17 +2431,25 @@ read_when:
 - **Inno Setup 의 롤백은 덮어쓴 파일을 되돌리지 않는다 — "업데이트가 실패하면 이전 앱이 돌아온다"(8단계 계획 D8 7단계)는 전제가 틀렸다 (출시 전 발견).**
   Inno 6.7.1 소스(`Setup.Install.pas`, `Setup.UninstallLog.pas`): 기존 파일은 `DeleteFile` 한 뒤 임시 파일을 `MoveFile` 로 들이고(사본을 두지 않는다), 중단 때의
   롤백(`PerformUninstall(False)`)은 이번 설치가 *새로 만든* 파일만 지운다 — 덮어쓴 파일에는 `utDeleteFile_ExistedBeforeInstall` 이 붙어 새 내용 그대로 남는다.
-  러너 실측(옆으로 옮기기를 뺀 결함 주입, exe 를 쓴 뒤 복사 실패): 47개 중 44개가 새 파일 ID 로 남았고, 폴더 안 파일 하나가 열려 있어 제자리로 업데이트하다 멈춘 경우도 26/47 이
-  새 파일이었다. 복사 도중 멈춘 업데이트는 섞인 설치(DLL 일부는 새 것, exe·버전 파일은 옛 것, 또는 그 반대)를 남기고, 버전 파일이 먼저 바뀌면 앱이 실패를 성공으로 읽는다.
-  **왜 못 걸렀나:** CI 업그레이드 단계는 성공 경로만 밟았고, 계획은 문서의 "rolls back" 을 "원래대로 돌린다"로 읽었다 — 실패를 일부러 일으켜 실패 뒤 디스크를 본 적이 없었다.
-  **고침:** `CurStepChanged(ssInstall)` 이 첫 파일을 쓰기 직전 이전 앱 폴더를 통째로 `…\PokeTokenBar.previous` 로 이름만 바꾸고(같은 볼륨, 한 번), 설치는 새 폴더에 쓴다.
-  Inno 롤백이 새 파일을 모두 지우고 `DeinitializeSetup` 이 이전 폴더를 되돌린다. 끝나면(`ssDone`) 옮겨 둔 폴더를 지운다. 이름 바꾸기가 실패하면(폴더 안 파일이 열려 있음)
-  예전처럼 제자리로 업데이트하고, `[Files]` 순서(exe, 그다음 버전 파일이 맨 끝)가 exe 와 버전 파일만 지킨다 — 그래서 다음 실행은 옛 버전을 보고 업데이트를 다시 제안한다.
-  **같은 부류 스윕:** Inno 의 실패 의미에 기대는 곳은 D8 7단계(Task 6 의 재실행·`reportAtLaunch`)와 D11(이전 릴리스 설치 프로그램으로 내리기) — 둘 다 같은 Setup 경로라 옆으로
-  옮기기가 적용된다. `MinVersion`·아키텍처 거절은 `[Code]` 가 돌기 전이라 아무것도 닫지도 다시 켜지도 않는다(러너 실측, exit 1).
-  **규칙:** 외부 도구의 실패 의미(롤백·원자성)는 문서 문장이 아니라 소스와 강제 실패로 확인하고, 실패 경로 테스트는 "실패했다"가 아니라 "실패 뒤 디스크에 무엇이 있나"(파일 ID)를 본다.
-  **회귀 점검:** `windows-app.yml` 단계 `failed-update-relaunch`(`failDuringCopy`: 47/47 같은 파일 ID, `lockedFile`: exe·버전 파일 유지). 결함 주입 셋 — 재실행 제거, 옆으로 옮기기 제거,
-  파일 순서 제거 — 이 각각 `*.started`, `failDuringCopy.previousFolderBack`, `lockedFile.exeAndVersionKept` 를 FAIL 로 만든다.
+  러너 실측(보호를 뺀 결함 주입, exe 를 쓴 뒤 복사 실패): 47개 중 44개가 새 파일로 남았다. 복사 도중 멈춘 업데이트는 섞인 설치를 남기고, 버전 파일이 먼저 바뀌면 앱이 실패를 성공으로 읽는다.
+  **첫 고침도 틀렸다 — 보호가 "누가 Setup 을 시작했나"에 달려 있었다 (리뷰가 찾음).** 처음엔 `ssInstall` 에서 앱 폴더를 `.previous` 로 *이름만 바꿨다*. 그런데 앱은
+  설치 폴더를 작업 폴더로 갖고 시작되고(`[Run]`·시작 메뉴 바로 가기·재실행 모두), 앱이 시작하는 Setup 의 로더도 그 폴더를 물려받아 끝까지 쥔다 — 어떤 프로세스의 작업 폴더인
+  폴더는 이름을 바꿀 수 없다. 러너에서 Setup 을 설치 폴더에서 시작하자(`-WorkingDirectory`) "could not move … updating in place" 와 47개 중 44개 새 파일
+  (run 43755066548, 고치기 전). 또 이름 바꾸기와 복사 끝 사이에 Setup 이 죽으면(전원, "그래도 종료") 앱 폴더가 비어 실행할 앱이 아예 없었다.
+  **왜 못 걸렀나:** CI 업그레이드 단계는 성공 경로만 밟았고 계획은 문서의 "rolls back" 을 "원래대로"로 읽었다. 첫 고침의 시나리오는 모두 pwsh 가 작업 공간에서 Setup 을
+  시작했다 — 실제 경로(앱이 자기 폴더에서 시작)와 다른 경로로 통과해 안심을 줬다. "죽은 Setup" 은 시나리오에 없었다.
+  **고침:** `PrepareToInstall` 이 앱 폴더를 `…\PokeTokenBar.previous` 로 *복사*하고(완료 표시 파일을 마지막에), 복사를 못 하면 아무것도 건드리지 않고 멈춘다(exit 7, 옛 앱 재실행).
+  Inno 는 제자리로 업데이트하고 exe 와 버전 파일이 맨 끝이다 — 앱 폴더는 이름이 바뀌거나 비지 않아 중간에 죽어도 실행된다. 끝나지 못한 설치는 바뀐 파일만 사본에서 되돌리고
+  (크기·시각이 같으면 그대로, 다르면 300 ms × 10 재시도), 되돌리기에 실패하면 앱을 켜지 않고 사본을 남긴다. 남은 사본은 앱 폴더가 온전하면 지우고, 아니면 먼저 되돌린다.
+  두 Setup 이 서로의 사본을 지우지 않게 `Local\PokeTokenBar-Setup` 뮤텍스를 앱을 닫기 *전에* 검사한다(Inno 의 `SetupMutex` 지시어는 `InitializeSetup` 뒤, 앱을 이미 닫은 뒤에 검사한다).
+  앱은 시작하자마자 작업 폴더를 로그 폴더로 옮긴다(`WindowsInstall.leaveInstallFolder`) — 브라우저·CLI·Setup 이 설치 폴더를 물려받지 않는다.
+  **같은 부류 스윕:** 호출자의 작업 폴더에 기대는 곳 — 앱의 `ShellExecuteW`(폴더 인자 없음)·`Process` 실행·Task 6 의 Setup 실행이 모두 작업 폴더를 물려준다(앱 쪽 고침으로 닫힘;
+  Task 6 은 Setup 에 설치 폴더 밖 작업 폴더를 명시한다). 폴더 이름 바꾸기에 기대는 코드는 이제 없다. `MinVersion`·아키텍처 거절은 `[Code]` 전이라 아무것도 닫지도 켜지도 않는다(exit 1).
+  **규칙:** 외부 도구의 실패 의미(롤백·원자성)는 소스와 강제 실패로 확인하고, 실패 경로 테스트는 "실패 뒤 디스크에 무엇이 있나"(내용 해시)를 본다. 시나리오는 실제 호출자와
+  같은 조건(작업 폴더, 앱이 이미 끝난 순서, 동시 실행, 강제 종료)에서 돌린다.
+  **회귀 점검:** `windows-app.yml` 단계 `failed-update-relaunch`(`fromAppFolder`, `inAppOrder`, `failDuringCopy`, `backupFails`, `failedRestore`, `twoSetups`, `staleComplete`,
+  `staleIncomplete`, `killedMidCopy`) — 결함 주입(되돌리기 제거, 뮤텍스 검사 제거, 되돌리기 실패 뒤 재실행, 남은 사본 되돌리기 제거, 복사 실패 무시)이 각각 해당 줄을 FAIL 로 만든다.
+  셀프테스트 `packaged.workingFolder` 는 작업 폴더 옮기기를 빼면 FAIL.
 
 ## 윈도 로케일·알림 (windows-port)
 
