@@ -252,3 +252,5 @@ PopoverTwinEquivalenceTests+Mac.swift
 PlazaPhotoGoldensMacTests.swift
 # PopoverGoldens+Mac: resolves the SwiftUI / AppKit colours of the Mac popover (NSColor, NSAppearance) and writes or re-checks Tests/PopoverParity/mac-colors.json
 PopoverGoldens+Mac.swift
+# PlazaChatBarPanelTests+Mac: the shared chat bar against the AppKit chat bar it copies (PlazaChatInput laid out by Auto Layout in an unshown NSWindow, CALayer colours)
+PlazaChatBarPanelTests+Mac.swift

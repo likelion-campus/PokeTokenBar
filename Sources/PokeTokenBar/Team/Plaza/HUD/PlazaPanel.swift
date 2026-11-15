@@ -1,7 +1,8 @@
 import Foundation
 
 /// The overlay panels the plaza draws through the canvas (Track A Tasks 14–17w): the Mac and Windows both show them.
-enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog, roster, board, card }
+/// `chatBar` is Windows' chat line chrome (`PlazaChatBarPanel`, around the native field); the Mac's chat bar is the AppKit `PlazaChatInput`.
+enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog, roster, board, card, chatBar }
 
 /// The window edge a panel keeps its distance from, as its old Auto Layout constraints did. `offset.x` is the distance
 /// from the leading or trailing edge (unused by `topCenter`, which centres), `offset.y` from the top or bottom edge.
