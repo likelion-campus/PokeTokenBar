@@ -102,7 +102,7 @@ left_behind() {
     2) echo "  남은 것: Windows 실행이 시작됐을 수 있습니다(혼자 끝나고, 같은 커밋으로 다시 실행하면 재사용). /Applications 는 그대로이고 공개한 것은 없습니다." ;;
     3) echo "  남은 것: Windows 실행($WINDOWS_RUNS)은 GitHub 에서 혼자 끝나고, 같은 커밋으로 다시 실행하면 재사용합니다. /Applications 는 그대로이고 공개한 것은 없습니다. 테스트가 중간에 끊겼다면 ./scripts/cfprefsd-guard.sh 를 한 번 실행하세요." ;;
     4) echo "  남은 것: /Applications 가 새 빌드로 바뀌었을 수 있습니다(지금까지와 같음). Windows 실행($WINDOWS_RUNS)은 혼자 끝납니다. 공개한 것은 없습니다." ;;
-    5|6) echo "  남은 것: /Applications 의 새 빌드(지금까지와 같음)와 Windows 실행($WINDOWS_RUNS). 공개한 것은 없습니다. 고친 뒤 같은 VERSION 으로 다시 실행하면 같은 커밋의 Windows 실행을 재사용합니다." ;;
+    5|6) echo "  남은 것: /Applications 의 새 빌드(지금까지와 같음)와 Windows 실행($WINDOWS_RUNS). 공개한 것은 없습니다. 같은 커밋으로 다시 실행하면 성공한 Windows 실행은 재사용하고, 실패한 실행이면 2단계에서 멈춥니다." ;;
     7) left_at_publish ;;
     9) echo "  남은 것: 공개된 v$VERSION (자산 두 개, 확인됨). 탭은 갱신되지 않았을 수 있습니다: $TAP_REPO 의 $CASK_PATH 가 version $VERSION, sha256 $(zip_sha) 인지 확인해 아니면 고치고, 그다음 python3 scripts/team_release.py smoke --version $VERSION 을 실행하세요." ;;
     10) echo "  남은 것: 공개된 v$VERSION 과 갱신된 탭. smoke 만 남았습니다: python3 scripts/team_release.py smoke --version $VERSION" ;;
@@ -217,7 +217,7 @@ esac
 git fetch --quiet --tags origin || fail "origin 을 가져오지 못했습니다. 네트워크를 확인하고 다시 실행하세요."
 LOCAL_HEAD=$(git rev-parse HEAD || true)
 REMOTE_HEAD=$(git rev-parse --verify --quiet "origin/$BRANCH" || true)
-[[ -n "$LOCAL_HEAD" && "$LOCAL_HEAD" == "$REMOTE_HEAD" ]] || fail "로컬 $BRANCH 가 origin/$BRANCH 와 다릅니다. git pull 로 맞춘 뒤 다시 실행하세요(이 스크립트는 푸시하지 않습니다). Windows 는 GitHub 에 있는 커밋만 빌드합니다."
+[[ -n "$LOCAL_HEAD" && "$LOCAL_HEAD" == "$REMOTE_HEAD" ]] || fail "로컬 $BRANCH 가 origin/$BRANCH 와 다릅니다(로컬 $LOCAL_HEAD, origin ${REMOTE_HEAD:-없음}). git pull 로 맞춘 뒤 다시 실행하세요(이 스크립트는 푸시하지 않습니다). Windows 는 GitHub 에 있는 커밋만 빌드합니다."
 echo "  확인: $BRANCH = origin/$BRANCH = $LOCAL_HEAD"
 
 if git show-ref --verify --quiet "refs/tags/v$VERSION"; then
@@ -305,7 +305,7 @@ else
   BUILT_LEAF=$(/usr/bin/openssl x509 -inform der -in "$CERT_DIR/cert0" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g' | tr 'a-f' 'A-F' || true)
   [[ "$BUILT_LEAF" == "$TEAM_EXPECTED_LEAF" ]] || fail "빌드된 앱의 서명 leaf($BUILT_LEAF)가 고정값과 다릅니다. 릴리스는 만들지 않았습니다. 서명 신원을 확인하세요."
   rm -f "$ZIP"
-  ditto -c -k --keepParent build/PokeTokenBar.app "$ZIP"
+  ditto -c -k --keepParent build/PokeTokenBar.app "$ZIP" || fail "zip 을 만들지 못했습니다. 릴리스는 만들지 않았습니다."
   lipo "$BINARY" -verify_arch arm64 x86_64 || fail "universal(arm64 + x86_64) 바이너리가 아닙니다. 릴리스는 만들지 않았습니다."
 fi
 

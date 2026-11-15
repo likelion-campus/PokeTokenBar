@@ -298,6 +298,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
 
         for (key, before, phrase) in [("CFPREFSD", "build-app.sh", "cfprefsd 를 회복하지 못했습니다"),
                                       ("BUILD", "codesign", "빌드가 실패했습니다"),
+                                      ("DITTO", "lipo", "zip 을 만들지 못했습니다"),
                                       ("LIPO", "team_release.py collect", "universal")] {
             try setRelease("none")
             let run = try release(nil, ["FAKE_RC_" + key: "1"])
@@ -514,7 +515,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
       codesign)
         for a in "$@"; do case "$a" in --extract-certificates=*) cp "$FAKE_CERT" "${a#--extract-certificates=}0" ;; esac; done
         finish CODESIGN ;;
-      ditto) for last in "$@"; do :; done; mkdir -p "$(dirname "$last")"; printf 'zip %s\n' "$FAKE_HEAD" > "$last" ;;
+      ditto) for last in "$@"; do :; done; mkdir -p "$(dirname "$last")"; printf 'zip %s\n' "$FAKE_HEAD" > "$last"; finish DITTO ;;
       lipo) finish LIPO ;;
       test-gate.sh) interrupt_if gate; finish GATE ;;
       cfprefsd-guard.sh) finish CFPREFSD ;;
