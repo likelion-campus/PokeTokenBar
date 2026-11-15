@@ -13,6 +13,9 @@ enum PlazaPanelAnchor: Sendable { case topLeading, topTrailing, topCenter, botto
 struct PlazaPanelHit: Equatable, Sendable {
     let action: String
     let index: Int?
+    /// WHO the hit is about, captured when the hit is made (a member's id, a note and its reaction): a click is a down and an up on an equal hit,
+    /// so if the list changed between them (a feed update, a member leaving) the up is another target and acts on nothing.
+    var target: String? = nil
 }
 
 /// What assistive technology (VoiceOver) finds on a panel. Every panel supplies its items with its drawing, the way its

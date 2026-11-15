@@ -77,7 +77,7 @@ import XCTest
         XCTAssertTrue(rig.window.firstResponder === rig.skView)
         let target = try XCTUnwrap(rig.click(atWindow: centre(bs[1])))
         XCTAssertTrue(target === rig.host(.board))
-        XCTAssertEqual(actions, [PlazaPanelHit(action: "react", index: 1)], "the first row's second button (index 1)")
+        XCTAssertEqual(actions, [PlazaPanelHit(action: "react", index: 1, target: "e0:lol")], "the first row's second button (index 1)")
         let board = try XCTUnwrap(rig.panel(.board, as: PlazaBoardPanel.self))
         let r = try XCTUnwrap(board.reaction(forHit: actions[0]))
         XCTAssertEqual(r.eventID, "e0")

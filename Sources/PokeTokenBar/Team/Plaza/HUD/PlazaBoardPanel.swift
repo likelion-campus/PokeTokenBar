@@ -273,7 +273,7 @@ enum PlazaBoardStyle {
             for (k, b) in row.buttons.enumerated() {
                 let mine = row.row.mine.contains(b.kind)
                 add(b.frame, role: .button, label: L(.ko).teamReactionLabel(b.kind), key: "button-\(b.kind.rawValue)",
-                    action: mine ? nil : PlazaPanelHit(action: "react", index: i * 3 + k), enabled: !mine)
+                    action: mine ? nil : PlazaPanelHit(action: "react", index: i * 3 + k, target: "\(row.row.id):\(b.kind.rawValue)"), enabled: !mine)
             }
         }
         return PlazaPanelDrawing(layers: layers, accessibility: items)
@@ -307,7 +307,7 @@ enum PlazaBoardStyle {
             let x = point.x - list.minX
             for (i, row) in l.rows.enumerated() where row.frame.minY <= y && y < row.frame.maxY {
                 for (k, b) in row.buttons.enumerated() where b.frame.offsetBy(dx: 0, dy: row.frame.minY).contains(CGPoint(x: x, y: y)) {
-                    return row.row.mine.contains(b.kind) ? PlazaPanelHit(action: "board", index: nil) : PlazaPanelHit(action: "react", index: i * 3 + k)
+                    return row.row.mine.contains(b.kind) ? PlazaPanelHit(action: "board", index: nil) : PlazaPanelHit(action: "react", index: i * 3 + k, target: "\(row.row.id):\(b.kind.rawValue)")
                 }
             }
         }

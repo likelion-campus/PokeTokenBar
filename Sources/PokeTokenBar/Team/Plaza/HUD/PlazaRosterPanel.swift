@@ -329,7 +329,7 @@ enum PlazaRosterStyle {
         for (i, slot) in l.slots.enumerated() {
             let selectable = !slot.entry.isMe
             items.append(PlazaAccessibilityItem(frame: slot.frame, role: selectable ? .button : .staticText, label: slot.label,
-                                                action: selectable ? PlazaPanelHit(action: "select", index: i) : nil))
+                                                action: selectable ? PlazaPanelHit(action: "select", index: i, target: slot.entry.id) : nil))
             if selectable && slot.entry.presence != .asleep { tips.append(PlazaTooltip(frame: slot.frame, text: L(.ko).plazaRosterWalkHint)) }
         }
         return PlazaPanelDrawing(layers: image.map { [.image($0, frame: CGRect(origin: .zero, size: l.size))] } ?? [], accessibility: items, tooltips: tips)
@@ -360,7 +360,7 @@ enum PlazaRosterStyle {
             return a.enabled ? PlazaPanelHit(action: a.delta < 0 ? "previous" : "next", index: nil) : PlazaPanelHit(action: "roster", index: nil)
         }
         for (i, slot) in l.slots.enumerated() where slot.frame.contains(point) {
-            return slot.entry.isMe ? PlazaPanelHit(action: "me", index: nil) : PlazaPanelHit(action: "select", index: i)
+            return slot.entry.isMe ? PlazaPanelHit(action: "me", index: nil) : PlazaPanelHit(action: "select", index: i, target: slot.entry.id)
         }
         return PlazaPanelHit(action: "roster", index: nil)   // the plate takes the click and does nothing
     }
