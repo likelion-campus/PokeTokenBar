@@ -8,6 +8,7 @@ import io
 import json
 import re
 import shutil
+import sys
 import tempfile
 import unittest
 import urllib.parse
@@ -402,6 +403,16 @@ class StartTests(HelperTest):
         self.assertEqual(late, self.runs_file()["runs"]["windows-app.yml"])
         self.assertEqual(["windows-app.yml", "windows.yml"], [argv[3] for argv in self.gh.calls_of("workflow", "run")])
 
+    def test_a_failed_run_list_or_dispatch_exits_1(self):
+        self.gh.on(lambda argv: argv[1:3] == ["run", "list"], lambda argv: tr.Result(1, "", "HTTP 401: Bad credentials\n"))
+        self.assertExit(1, self.start())
+        self.assertIn("Bad credentials", self.err)
+        self.gh = FakeGitHub()
+        self.gh.on(lambda argv: argv[1:3] == ["workflow", "run"], lambda argv: tr.Result(1, "", "HTTP 422: Unexpected inputs\n"))
+        self.assertExit(1, self.start())
+        self.assertIn("Unexpected inputs", self.err)
+        self.assertFalse((self.tmp / "build/windows-release/runs.json").exists())
+
     def test_dry_run_prints_the_dispatch_and_writes_nothing(self):
         app = self.gh.add_run("windows-app.yml")
         self.assertExit(0, self.start("--dry-run"))
@@ -606,6 +617,20 @@ class CollectTests(HelperTest):
         self.gh.add_release("v2.5.639", False, assets=[{"name": "PokeTokenBar.zip"},
                                                        {"name": "PokeTokenBar-Setup-2.5.639-win-x64.exe"}])
         self.assertIn("upgradeFromRelease is first, but v2.5.639 has a Windows installer", self.mismatch(first))
+
+    def test_a_manifest_that_is_not_json(self):
+        self.set_artifacts(release_manifest(self.app), tests_manifest())
+        self.gh.artifacts[(self.tests, "windows-tests")] = {"windows-tests.json": b"{not json"}
+        self.assertExit(4, self.collect())
+        self.assertIn("cannot read windows-tests.json", self.err)
+
+    def test_first_is_refused_when_the_releases_cannot_be_read(self):
+        release = release_manifest(self.app)
+        release["gates"]["upgradeFromRelease"] = "first"
+        self.set_artifacts(release, tests_manifest())
+        self.gh.on(lambda argv: argv[1] == "api", lambda argv: tr.Result(1, "", "HTTP 502\n"))
+        self.assertExit(4, self.collect())
+        self.assertIn("cannot check that no earlier Windows release exists", self.err)
 
     def test_a_hash_or_size_mismatch_after_the_download(self):
         tampered = INSTALLER_BYTES[:-1] + b"X"
@@ -830,6 +855,47 @@ class PublishTests(HelperTest):
         self.assertIsNone(self.gh.find(TAG))
         self.assertNothingPublished()
 
+    def test_a_failed_existence_check_creates_nothing(self):
+        self.gh.on(self.nth_call(1, "release", "view"), lambda argv: tr.Result(1, "", "HTTP 502\n"))
+        self.assertExit(5, self.publish())
+        self.assertEqual(["gh release view"], self.gh.compact())
+
+    def test_a_failed_read_after_create_deletes_the_draft(self):
+        self.gh.on(self.nth_call(2, "release", "view"), lambda argv: tr.Result(1, "", "HTTP 502\n"))
+        self.assertExit(5, self.publish())
+        self.assertEqual(["gh release create", "gh release view", "gh release view", "gh release delete"],
+                         self.gh.compact()[2:])
+        self.assertIsNone(self.gh.find(TAG))
+        self.assertNothingPublished()
+
+    def test_a_failed_tag_read_on_the_draft_deletes_the_draft(self):
+        self.gh.on(lambda argv: argv[0] == "git" and self.gh.find(TAG) is not None,
+                   lambda argv: tr.Result(128, "", "fatal: unable to access\n"))
+        self.assertExit(5, self.publish())
+        self.assertIn("unable to access", self.err)
+        self.assertIsNone(self.gh.find(TAG))
+
+    def test_a_draft_that_cannot_be_read_after_create(self):
+        self.gh.on(self.nth_call(2, "release", "view"), lambda argv: tr.Result(1, "", "release not found\n"))
+        self.assertExit(5, self.publish())
+        self.assertIn("look for a leftover draft", self.err)
+        self.assertEqual([], self.gh.calls_of("release", "edit"))
+
+    def test_an_interruption_after_publishing_exits_6(self):
+        def interrupt(argv):
+            raise KeyboardInterrupt
+        self.gh.on(lambda argv: argv[1:3] == ["api", API + "releases/latest"], interrupt)
+        self.assertExit(6, self.publish())
+        self.assertIn("interrupted while checking", self.err)
+        self.assertEqual([], self.gh.calls_of("release", "delete"))
+        self.assertFalse(self.gh.find(TAG)["draft"])
+
+    def test_latest_that_cannot_be_read_exits_6(self):
+        self.gh.on(lambda argv: argv[1:3] == ["api", API + "releases/latest"], lambda argv: tr.Result(1, "", "HTTP 502\n"))
+        self.assertExit(6, self.publish())
+        self.assertEqual(3, self.gh.compact().count("gh api releases/latest"))
+        self.assertEqual([], self.gh.calls_of("release", "delete"))
+
     def test_a_rerun_after_an_interruption_that_left_a_draft_is_refused(self):
         self.gh.on(self.nth_call(1, "release", "delete"), lambda argv: tr.Result(1, "", "killed\n"))
         self.gh.upload_fails_after = 1
@@ -879,6 +945,9 @@ class PublishTests(HelperTest):
             "the tag": (lambda: self.gh.on(lambda argv: argv[1:3] == ["release", "edit"],
                                            lambda argv: self.gh.tags.update({TAG: OTHER_SHA})),
                         "tag %s points at %s" % (TAG, OTHER_SHA)),
+            "the target": (lambda: self.gh.on(lambda argv: argv[1:3] == ["release", "edit"],
+                                              lambda argv: self.gh.find(TAG).update(target=OTHER_SHA)),
+                           "releases/latest targets " + OTHER_SHA),
         }
         for name, (inject, expected) in cases.items():
             with self.subTest(name):
@@ -923,6 +992,22 @@ class SmokeTests(HelperTest):
         run_id = self.gh.runs["windows-release-smoke.yml"][-1]["databaseId"]
         self.assertNotEqual(earlier, run_id)
         self.assertEqual("https://github.com/likelion-campus/PokeTokenBar/actions/runs/%d\n" % run_id, self.out)
+
+    def test_a_smoke_run_that_does_not_show_prints_the_workflow_page(self):
+        self.gh.workflow_files.add(("main", "windows-release-smoke.yml"))
+        self.gh.appear_after = None
+        self.assertExit(0, self.run_helper("smoke", "--version", V))
+        self.assertEqual("https://github.com/likelion-campus/PokeTokenBar/actions/workflows/windows-release-smoke.yml\n",
+                         self.out)
+
+    def test_a_failed_smoke_dispatch_or_check_exits_1(self):
+        self.gh.workflow_files.add(("main", "windows-release-smoke.yml"))
+        self.gh.on(lambda argv: argv[1:3] == ["workflow", "run"], lambda argv: tr.Result(1, "", "HTTP 422\n"))
+        self.assertExit(1, self.run_helper("smoke", "--version", V))
+        self.gh = FakeGitHub()
+        self.gh.on(lambda argv: argv[1] == "api", lambda argv: tr.Result(1, "", "HTTP 401: Bad credentials\n"))
+        self.assertExit(1, self.run_helper("smoke", "--version", V))
+        self.assertIn("Bad credentials", self.err)
 
     def test_a_branch_ref_is_quoted(self):
         self.gh.workflow_files.add(("ci/x", "windows-release-smoke.yml"))
@@ -1040,6 +1125,11 @@ class CallSiteScanTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 gh.run(*write)
         self.assertEqual([], seen)
+
+    def test_run_process_reports_output_and_a_missing_program(self):
+        self.assertEqual(tr.Result(3, "out\n", "err\n"), tr.run_process(
+            [sys.executable, "-I", "-c", "import sys; print('out'); print('err', file=sys.stderr); sys.exit(3)"]))
+        self.assertEqual(127, tr.run_process(["/nonexistent/gh-for-the-test"]).code)
 
     def test_an_annotated_tag_reads_as_its_commit(self):
         out = "1111111111111111111111111111111111111111\trefs/tags/%s\n%s\trefs/tags/%s^{}\n" % (TAG, SHA, TAG)
