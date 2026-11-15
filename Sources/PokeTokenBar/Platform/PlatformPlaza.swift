@@ -42,18 +42,24 @@ enum PlatformPlaza {
     }
 
     /// Where the scene draws: SpriteKit on the Mac (`SpriteKitStage`, whose `SKScene` the window's `SKView` presents),
-    /// the headless stage elsewhere (no drawing, no frame clock: the scene gets no `update` until stage 6 adds one).
+    /// Direct2D in the Windows app (`WinPlazaStage`, once the app installed `WinPlazaLive`), the headless stage in tests and
+    /// the shared-only check (no drawing, no frame clock: the scene gets no `update`).
     @MainActor static func makeStage(size: CGSize) -> any PlazaStage {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        WinPlazaLive.isInstalled ? WinPlazaStage(size: size) : PlazaHeadlessStage(size: size)
+        #elseif PTB_SHARED_ONLY
         PlazaHeadlessStage(size: size)
         #else
         SpriteKitStage(size: size)
         #endif
     }
 
-    /// The plaza window: AppKit + `SKView` + SwiftUI HUD on the Mac (`PlazaMacWindow`), nothing elsewhere until stage 6.
+    /// The plaza window: AppKit + `SKView` + SwiftUI HUD on the Mac (`PlazaMacWindow`), the Direct2D window in the Windows
+    /// app (`WinPlazaWindow`), nothing in tests and the shared-only check.
     @MainActor static func makeShell() -> any PlazaWindowShell {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        WinPlazaLive.isInstalled ? WinPlazaLive.makeShell() : PlazaHeadlessShell(log: { AppLog.write($0) })
+        #elseif PTB_SHARED_ONLY
         PlazaHeadlessShell(log: { AppLog.write($0) })
         #else
         PlazaMacWindow()

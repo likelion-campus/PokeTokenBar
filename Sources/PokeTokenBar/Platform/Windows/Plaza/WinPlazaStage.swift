@@ -49,7 +49,14 @@ import Foundation
         didSet { if backgroundColor != oldValue { flag.isSet = true } }
     }
 
-    var isPaused = false
+    /// The scene's own pause (the controller's `setRendering`, its close). The window's frame clock follows it (Task 5).
+    var isPaused = false {
+        didSet { if isPaused != oldValue { onPauseChange?() } }
+    }
+
+    /// Called when `isPaused` changes (the window parks or runs its frame clock). Not a `PlazaStageDelegate` call: the
+    /// scene's pause writes are never echoed back to it.
+    var onPauseChange: (() -> Void)?
 
     func currentModifiers() -> PlazaModifiers { PlatformPlaza.currentModifiers() }
 

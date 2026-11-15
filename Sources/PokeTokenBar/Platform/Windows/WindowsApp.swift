@@ -42,6 +42,7 @@ public enum WindowsApp {
         if arguments.contains("--ime-check") { WinImeCheck.run() }
         if arguments.contains("--team-probe") { WindowsTeamProbe.main(arguments) }  // Task 19: the PC check's team probe
         if arguments.contains("--set-team-code") || arguments.contains("--clear-team-code") { WindowsTeamCodeTool.run(arguments) }
+        if let i = arguments.firstIndex(of: "--selftest-plaza-placement") { WindowsSelftest.runPlazaPlacement(Array(arguments[(i + 1)...])) }
 
         let app = WindowsAppDelegate(arguments: arguments)
         guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
@@ -50,6 +51,11 @@ public enum WindowsApp {
                 .map { URL(fileURLWithPath: $0) }
                 ?? FileManager.default.temporaryDirectory.appendingPathComponent("PokeTokenBar-selftest.json")
             WindowsSelftest.start(app, writingTo: out)
+        }
+        // The idle gate's plaza windows (WindowsSelftestPlaza.swift). Not a `--selftest…` flag on purpose: those switch the app to
+        // the selftest's own settings suite, and the gate's settings (refresh off) are in the app's plist.
+        if let i = arguments.firstIndex(of: "--plaza-idle-probe") {
+            WindowsSelftest.startPlazaIdle(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "visible")
         }
         WinMainLoop.run(app.loopStrategy) { false }
         WindowsApp.exit(0, .menu)  // not reached: the loop only ends through an exit
@@ -70,6 +76,7 @@ extension WindowsApp {
         WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
         WinDefaultsSync.flushNow()
         WindowsCrashLog.markClean()
+        if let line = WinPlazaLive.openPlazaLine { AppLog.write(line) }  // an open plaza's counters (idle measurements read them)
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
         trayToRemove?.remove()
         teamTransportToShutdown?.shutdown()
@@ -100,6 +107,10 @@ private func crtExit(_ code: Int32) -> Never {
     /// user has a team: `TeamSession` starts it only when `teamSettings.isReady`.
     private(set) var teamRuntime: TeamRuntime!
     private(set) var teamTransport: WindowsTeamTransport!
+    /// The plaza (`PokeTokenBarApp`'s `plaza`): built at launch with the Mac's arguments, its window only on the user's action.
+    private(set) var plaza: PlazaWindowController!
+    /// The team settings' store, which the plaza's preferences share (the Mac's `TeamSettings.defaultStore()`).
+    private(set) var teamSettingsDefaults: WinSyncingDefaults!
     private(set) var defaults: WinSyncingDefaults!
     private(set) var sink: WinSinkWindow!
     private(set) var tray: WinTrayHost?
@@ -163,24 +174,39 @@ private func crtExit(_ code: Int32) -> Never {
         Task { await companion.preparePokemonProfiles() }
         store.localizationLanguage = companion.language
         store.onRefresh = { [weak self] in self?.storeRefreshed() }
-        teamSettings = TeamSettings(defaults: Self.teamDefaults(fallback: defaults))  // 11
+        teamSettingsDefaults = Self.teamDefaults(fallback: defaults)
+        teamSettings = TeamSettings(defaults: teamSettingsDefaults)  // 11
         let tray = WinTrayHost(window: sink, store: store, companion: companion, defaults: defaults)
         self.tray = tray
         WindowsApp.trayToRemove = tray.tray
         let balloons = WinBalloonPresenter(tray: tray.tray)
         WindowsNotifications.install(presenter: balloons, tray: tray.tray)  // Task 8
-        startTeam(balloons: balloons, tray: tray)  // 11b (Task 19)
+        WinPlazaLive.install(defaults: defaults, events: Platform.current.events as? WindowsSystemEvents)  // stage 6: before the plaza
+        startTeam(balloons: balloons, tray: tray)  // 11b (Task 19); the plaza (stage 6 Task 5)
         tray.start(showFirstRunHint: !arguments.contains("--selftest"))
         WinDefaultsSync.flushNow()  // 12: a fresh team.memberID survives an early crash
         WinDefaultsSync.start()
         observeStore()  // 13
+        observePlaza()
+        observePlazaNickname()
+        observePlazaTeamName()
+        observePlazaRoster()
         applyState()
         // 14: the update check (Mac: `updater.check()` at launch; the tray menu re-checks when it opens). The selftest
         // never asks the network. Launch at login is not touched here: only the tray toggle writes it (off by default).
         WindowsUpdates.start(defaults: defaults, checkNow: !arguments.contains("--selftest"))
         AppLog.write("windows app launched pid=\(GetCurrentProcessId()) loop=\(loopStrategy.rawValue) "
             + "mutex=\(mutexName)\(arguments.contains("--autostart") ? " autostart" : "")")
+        // The Mac's plaza-dev.sh flag: opens the plaza at launch (a user's own command line, so it may come forward).
+        if arguments.contains("--open-plaza") { openPlaza() }
         return true
+    }
+
+    /// The Mac's `openPlaza`: only while the team is ready (a notification can outlive the team); a second call brings the
+    /// open window forward. The tray's "광장 열기", a team balloon's click and `--open-plaza` come here, nothing else.
+    func openPlaza() {
+        guard teamSettings.isReady else { return }
+        plaza.show()
     }
 
     /// `WM_CLOSE` (Restart Manager, the installer) and `WM_ENDSESSION(TRUE)` (sign-out, shutdown) leave through
@@ -207,12 +233,93 @@ private func crtExit(_ code: Int32) -> Never {
         teamTransport = transport
         WindowsApp.teamTransportToShutdown = transport
         teamRuntime = TeamRuntime(settings: teamSettings, companion: companion, transport: transport)
+        makePlaza()
+        teamRuntime.plaza = plaza
         teamRuntime.notifier = TeamNotifier(
             settings: teamSettings, poster: WindowsTeamNotificationPoster(presenter: balloons),
-            isPlazaFrontmost: { false }, showInPlaza: { _ in })
+            isPlazaFrontmost: { [weak plaza] in plaza?.isFrontmost ?? false },
+            showInPlaza: { [weak plaza] in plaza?.showBanner($0) })
         teamRuntime.start()
-        let settings = teamSettings!, session = teamRuntime.session
+        let settings = teamSettings!, session = teamRuntime.session, feed = teamRuntime.feed
         tray.teammatesOnline = { settings.isReady ? session.members.count : nil }
+        tray.plazaUnread = { settings.isReady ? feed.unreadCount : nil }   // the Mac's plazaAvailable / plazaUnread
+        tray.onOpenPlaza = { [weak self] in self?.openPlaza() }
+        balloons.onClick = { [weak self] kind in if kind == .team { self?.openPlaza() } }   // the Mac's team notification delegate
+    }
+
+    /// The Mac's plaza controller, built with the AppDelegate's arguments (`AppWiringDriftScanTests` holds them); the preferences
+    /// live in the team settings' syncing store, where the Mac's `PlazaPreferences()` default puts them.
+    private func makePlaza() {
+        // Named and typed as the Mac's AppDelegate has them, so the call below is its text (the drift scan compares it).
+        let teamSettings: TeamSettings = self.teamSettings, companion: CompanionStore? = self.companion
+        plaza = PlazaWindowController(
+            preferences: PlazaPreferences(defaults: teamSettingsDefaults), loader: PlazaCharacterLoader(),
+            nickname: { [teamSettings] in TeamSettings.validNickname(teamSettings.nickname) ?? "" },
+            memberID: { [teamSettings] in teamSettings.memberID },
+            subject: { [companion] in companion!.representativeSubject },
+            myRosterEntry: { [companion, teamSettings] in
+                PlazaRoster.myEntry(companion: companion!, teamSettings: teamSettings) },
+            teamName: { [teamSettings] in teamSettings.currentTeam?.name },
+            nameColor: { [teamSettings] in teamSettings.nameColor },
+            chooseNameColor: { [teamSettings] in teamSettings.nameColor = $0 },
+            schedule: { [teamSettings] in teamSettings.schedule },
+            evolutionStage: { [companion] in companion!.representativeEvolutionStage },
+            pokemonTypes: { try? await PokeAPIClient.shared.pokemonDetails(speciesID: $0).types },
+            grantItem: { [companion] in companion!.receivePlazaItem($0) },
+            pray: { [companion] in companion!.pray() },
+            prayerCount: { [companion] in companion!.state.eggPrayers?.count ?? 0 },
+            session: teamRuntime.session, feed: teamRuntime.feed)
+    }
+
+    /// 광장 캐릭터는 플로팅 펫과 같은 대표 대상을 따른다. 광장이 닫혀 있으면 두 호출 모두 아무 일도 안 한다. (The Mac's.)
+    private func observePlaza() {
+        withObservationTracking {
+            _ = companion.representativeSubject
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observePlaza()
+                await self.plaza.refreshCharacter()
+            }
+        }
+    }
+
+    /// 내 칸에 쓰이는 모든 입력이 바뀌면 목록을 다시 만든다. (The Mac's.)
+    private func observePlazaRoster() {
+        withObservationTracking {
+            _ = PlazaRoster.myEntry(companion: companion, teamSettings: teamSettings)
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observePlazaRoster()
+                self.plaza.refreshMyEntry()
+            }
+        }
+    }
+
+    private func observePlazaNickname() {
+        withObservationTracking {
+            _ = teamSettings.nickname
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observePlazaNickname()
+                self.plaza.refreshNickname()
+            }
+        }
+    }
+
+    /// 팀 이름을 바꾸거나 다른 팀으로 옮기면 광장 창 제목도 바꾼다. (The Mac's.)
+    private func observePlazaTeamName() {
+        withObservationTracking {
+            _ = teamSettings.currentTeam?.name
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.observePlazaTeamName()
+                self.plaza.refreshTitle()
+            }
+        }
     }
 
     /// The Mac's `TeamSettings.defaultStore()` choice (standard, or a per-state-folder suite), as a syncing defaults.
