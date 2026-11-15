@@ -46,7 +46,8 @@ enum PlazaLineBreaker {
         var lines: [Range<Int>] = []
         var start = 0, used: CGFloat = 0
         for unit in units {
-            if start != unit.clusters.lowerBound && used + unit.ink > width {
+            // white space at the end of a line hangs: a unit of nothing else never starts a new line
+            if unit.ink > 0 && start != unit.clusters.lowerBound && used + unit.ink > width {
                 lines.append(start..<unit.clusters.lowerBound)
                 start = unit.clusters.lowerBound
                 used = 0

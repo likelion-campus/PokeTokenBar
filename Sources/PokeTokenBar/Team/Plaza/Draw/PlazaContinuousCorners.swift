@@ -18,7 +18,9 @@ enum PlazaCurveElement: Equatable, Sendable {
 /// - the first curve starts `t·r` from the corner with `t = min(1.528665, share / r)`; for `t < 1.528665` the first
 ///   control points are interpolated linearly between their `t = 1` and `t = 1.528665` values.
 /// The result is bit-equal to SwiftUI wherever `t` is 1 or 1.528665 on both legs of every corner; between, SwiftUI's
-/// single-precision intermediates differ from ours by at most one `Float` step (about 1e-7 relative).
+/// single-precision intermediates differ from ours by at most one `Float` step (about 1e-7 relative). Known gap: four
+/// radii that together overfill a small rectangle (sides about the radii: 8 of 20,000 random shapes with radii up to 30)
+/// are shared out by SwiftUI in a way the neighbour rule above does not always reproduce.
 enum PlazaContinuousCorners {
     private static let tMax = Float(1.528665)
     private static let k1Max = Float(1.08849), k2Max = Float(0.868407)

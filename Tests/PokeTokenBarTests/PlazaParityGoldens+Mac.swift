@@ -32,7 +32,7 @@ final class PlazaParityGoldensMacTests: XCTestCase {
     }
 
     /// What a premultiplied sRGB RGBA context makes of every straight (colour, alpha) pair: row = alpha, column = colour.
-    private func coreGraphicsPremultiplyTable() throws -> [UInt8] {
+    fileprivate func coreGraphicsPremultiplyTable() throws -> [UInt8] {
         let n = 256
         var straight = [UInt8](repeating: 0, count: n * n * 4)
         for a in 0..<n { for c in 0..<n { let i = (a * n + c) * 4; straight[i] = UInt8(c); straight[i + 1] = UInt8(c); straight[i + 2] = UInt8(c); straight[i + 3] = UInt8(a) } }
@@ -120,16 +120,16 @@ final class PlazaParityGoldensMacTests: XCTestCase {
         return out
     }
 
-    private func swiftUIRounded(_ rect: CGRect, _ r: CGFloat) -> [PlazaCurveElement] {
+    fileprivate func swiftUIRounded(_ rect: CGRect, _ r: CGFloat) -> [PlazaCurveElement] {
         swiftUIElements(Path(roundedRect: rect, cornerRadius: r, style: .continuous))
     }
 
-    private func swiftUIUneven(_ rect: CGRect, _ r: [CGFloat]) -> [PlazaCurveElement] {
+    fileprivate func swiftUIUneven(_ rect: CGRect, _ r: [CGFloat]) -> [PlazaCurveElement] {
         swiftUIElements(CGPlazaCanvas.unevenRoundedRect(rect, radii: PlazaCornerRadii(topLeading: r[0], bottomLeading: r[1], bottomTrailing: r[2], topTrailing: r[3])).swiftUIPath)
     }
 
     /// The largest coordinate difference between two element lists (infinity when their shapes differ).
-    private func distance(_ a: [PlazaCurveElement], _ b: [PlazaCurveElement]) -> Double {
+    fileprivate func distance(_ a: [PlazaCurveElement], _ b: [PlazaCurveElement]) -> Double {
         guard a.count == b.count else { return .infinity }
         func pts(_ e: PlazaCurveElement) -> [CGPoint] {
             switch e {
@@ -226,7 +226,7 @@ final class PlazaParityGoldensMacTests: XCTestCase {
         return out
     }
 
-    private func trimmedRanges(_ ranges: [NSRange], in ns: NSString) -> [Range<Int>] {
+    fileprivate func trimmedRanges(_ ranges: [NSRange], in ns: NSString) -> [Range<Int>] {
         var out = ranges.map { r -> Range<Int> in
             var r = r
             while r.length > 0, let last = Unicode.Scalar(ns.character(at: r.location + r.length - 1)),
@@ -285,7 +285,7 @@ final class PlazaParityGoldensMacTests: XCTestCase {
     private func swatchTextures() -> [String: PlazaSwatchFile.Texture] {
         var straight = [UInt8]()
         let alphas: [UInt8] = [255, 255, 192, 128, 128, 64, 32, 0]
-        for y in 0..<8 { for x in 0..<8 { straight += [UInt8(x * 36 + 10), UInt8(y * 36 + 10), UInt8(((x + y) * 18 + 30) & 255), alphas[(x + 2 * y) % 8]] } }
+        for y in 0..<8 { for x in 0..<8 { straight += [UInt8(x * 32 + 10), UInt8(y * 32 + 10), UInt8(((x + y) * 18 + 30) & 255), alphas[(x + 2 * y) % 8]] } }
         let grid = PlazaPremultiply.bitmap(straight: straight, width: 8, height: 8)
         var light = [UInt8]()
         for y in 0..<8 { for x in 0..<8 { light += [UInt8(96 + x * 8), UInt8(160 - y * 8), UInt8(128 + ((x + y) % 2) * 32), 255] } }
@@ -450,6 +450,143 @@ final class PlazaParityGoldensMacTests: XCTestCase {
             XCTAssertEqual(image.pixels, golden, "canvas-script/\(name) changed")
         }
     }
+}
+
+
+// MARK: Mac tests of the shared code against the platform it copies
+
+extension PlazaParityGoldensMacTests {
+    /// The shared formula equals CoreGraphics for all 65,536 pairs, and every bundled PNG, decoded as straight alpha and
+    /// premultiplied by the shared code, gives `PlazaImage.pixels` (what a context draw makes) byte for byte.
+    func testPremultiplyReproducesCoreGraphics() throws {
+        let table = try coreGraphicsPremultiplyTableForTests()
+        for a in 0..<256 {
+            for c in 0..<256 where PlazaPremultiply.premultiplied(UInt8(c), alpha: UInt8(a)) != table[a * 256 + c] {
+                XCTFail("colour \(c) alpha \(a): CoreGraphics \(table[a * 256 + c]), PlazaPremultiply \(PlazaPremultiply.premultiplied(UInt8(c), alpha: UInt8(a)))")
+                return
+            }
+        }
+        var checked = 0
+        for (name, ext) in [("plaza-tiles", "png"), ("plaza-water-balloon", "png"), ("plaza-tallgrass", "png"), ("plaza-ice-cracks", "png"), ("plaza-ice-gloss", "png")] {
+            let url = try XCTUnwrap(PlatformPlaza.graphics.assetURL(name, ext: ext))
+            let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
+            let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            XCTAssertEqual(image.alphaInfo, .last, "\(name): ImageIO hands the PNG over as straight alpha")
+            XCTAssertEqual(image.bitsPerPixel, 32, name)
+            let data = try XCTUnwrap(image.dataProvider?.data as Data?)
+            var straight = [UInt8]()
+            straight.reserveCapacity(image.width * image.height * 4)
+            for y in 0..<image.height { straight += data[(y * image.bytesPerRow)..<(y * image.bytesPerRow + image.width * 4)] }
+            let made = PlazaPremultiply.bitmap(straight: straight, width: image.width, height: image.height)
+            XCTAssertEqual(made.bytes, PlazaImage(cgImage: image).pixels.bytes, "\(name): PlazaPremultiply equals the context draw")
+            checked += 1
+        }
+        XCTAssertEqual(checked, 5)
+    }
+
+    /// `PlazaPremultiply.straight` is what ImageIO writes: every premultiplied (colour <= alpha, alpha) pair through a
+    /// PNG encode and decode.
+    func testStraightReproducesImageIOsPNGWriter() throws {
+        let n = 256
+        var premultiplied = [UInt8](repeating: 0, count: n * n * 4)
+        for a in 0..<n { for c in 0..<n { let i = (a * n + c) * 4, v = UInt8(min(c, a)); premultiplied[i] = v; premultiplied[i + 1] = v; premultiplied[i + 2] = v; premultiplied[i + 3] = UInt8(a) } }
+        var bitmap = PlazaBitmap(width: n, height: n)
+        bitmap.bytes = premultiplied
+        let png = try XCTUnwrap(PlatformPlaza.graphics.encodePNG(PlazaImage(bitmap: bitmap)))
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(png as CFData, nil))
+        let decoded = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        XCTAssertEqual(decoded.alphaInfo, .last)
+        let data = try XCTUnwrap(decoded.dataProvider?.data as Data?)
+        let mine = PlazaPremultiply.straight(bitmap)
+        for a in 0..<n {
+            for c in 0..<n {
+                let at = a * decoded.bytesPerRow + c * 4
+                if a == 0 { continue }   // alpha 0 carries no colour; ImageIO writes whatever it likes
+                XCTAssertEqual(mine[(a * n + c) * 4], data[at], "premultiplied \(min(c, a)) alpha \(a)")
+                if mine[(a * n + c) * 4] != data[at] { return }
+            }
+        }
+    }
+
+    /// `PlazaContinuousCorners` against SwiftUI itself over a seeded random matrix (the golden pins a fixed one): within
+    /// SwiftUI's single-precision step everywhere, bit-exact (1e-9) on uniform rectangles where the arithmetic is the same.
+    func testContinuousCornersEqualSwiftUI() throws {
+        var rng = SplitMix(seed: 20_261_115)
+        var exact = 0, band = 0
+        var unevenGaps: [String] = []
+        for _ in 0..<1500 {
+            let rect = CGRect(x: Double(rng.int(0, 20)), y: Double(rng.int(0, 20)), width: Double(rng.int(4, 400)), height: Double(rng.int(4, 400)))
+            let r = CGFloat([0, Double(rng.int(1, 30)), Double(rng.int(1, 120))][rng.int(0, 2)])
+            let theirs = swiftUIRounded(rect, r)
+            let mine = PlazaContinuousCorners.roundedRect(rect, radius: r)
+            let d = distance(mine, theirs)
+            if PlazaContinuousCornersTests.exactRegime(rect, [Double(r)]) { exact += 1; XCTAssertLessThanOrEqual(d, 1e-9, "uniform \(rect) r \(r)") }
+            else { band += 1; XCTAssertLessThanOrEqual(d, 3e-5, "uniform \(rect) r \(r)") }
+            let radii = (0..<4).map { _ in CGFloat([0, Double(rng.int(1, 30)), Double(rng.int(1, 30))][rng.int(0, 2)]) }
+            let uneven = PlazaContinuousCorners.unevenRoundedRect(rect, radii: PlazaCornerRadii(topLeading: radii[0], bottomLeading: radii[1], bottomTrailing: radii[2], topTrailing: radii[3]))
+            if distance(uneven, swiftUIUneven(rect, radii)) > 3e-5 { unevenGaps.append("\(rect) \(radii)") }
+        }
+        XCTAssertGreaterThan(exact, 500)
+        XCTAssertGreaterThan(band, 100)
+        // Known gap: four radii that together overfill a small rectangle (sides about the radii) are shared out by SwiftUI in
+        // a way the cap rule does not always reproduce (8 of 20,000 in an offline run); the golden's cases all match.
+        XCTAssertLessThanOrEqual(unevenGaps.count, 5, "uneven shapes beyond the single-precision step: \(unevenGaps.prefix(5))")
+    }
+
+    /// The breaker, run on live CoreText clusters (not the golden) for a text the golden does not hold.
+    func testLineBreakerOnLiveClusters() throws {
+        let text = "토큰을 오늘 많이 썼어요 정말로요 그래서 조금 쉬어갈게요"
+        for size in PlazaTextSize.allCases {
+            let font = PlazaResources.font(size)
+            let attributed = NSAttributedString(string: text, attributes: CoreTextPlazaEngine.attributes(.plaza(size)))
+            let cl = clusters(of: text, font: font)
+            for width in [60.0, 90, 130, 180, 260] {
+                XCTAssertEqual(PlazaLineBreaker.lines(cl, width: CGFloat(width), rule: .swiftUIText), textKitLines(attributed, width: CGFloat(width)), "TextKit \(size) \(width)")
+                XCTAssertEqual(PlazaLineBreaker.lines(cl, width: CGFloat(width), rule: .coreTextFrame), frameLines(attributed, width: CGFloat(width)), "CTFramesetter \(size) \(width)")
+            }
+        }
+    }
+
+    /// `CGPlazaCanvas.makeImage` tags what it made: no text, text, and a crop keeps the tag.
+    func testCanvasImagesCarryTheirOrigin() throws {
+        let plain = try XCTUnwrap(PlatformPlaza.graphics.makeCanvas(width: 8, height: 8, colorSpace: .sRGB))
+        plain.setFillColor(PlazaColor(hex: 0xFF0000))
+        plain.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        _ = plain.imageBounds(of: PlatformPlaza.graphics.text.line("Ab", font: .plaza(.small)))   // measuring draws nothing
+        let image = try XCTUnwrap(plain.makeImage())
+        XCTAssertEqual(image.origin, .canvas)
+        XCTAssertEqual(image.cropping(to: PlazaPixelRect(x: 0, y: 0, width: 4, height: 4))?.origin, .canvas)
+        let texty = try XCTUnwrap(PlatformPlaza.graphics.makeCanvas(width: 24, height: 16, colorSpace: .sRGB))
+        texty.draw(PlatformPlaza.graphics.text.line("Ab", font: .plaza(.small)), at: CGPoint(x: 1, y: 3))
+        XCTAssertEqual(try XCTUnwrap(texty.makeImage()).origin, .canvasWithText)
+        let paragraphs = try XCTUnwrap(PlatformPlaza.graphics.makeCanvas(width: 24, height: 16, colorSpace: .sRGB))
+        paragraphs.draw(PlatformPlaza.graphics.text.paragraph("Ab", font: .plaza(.small), alignment: .natural), in: CGRect(x: 0, y: 0, width: 24, height: 16))
+        XCTAssertEqual(try XCTUnwrap(paragraphs.makeImage()).origin, .canvasWithText)
+        XCTAssertEqual(PlazaImage(bitmap: PlazaTestImages.solid(width: 1, height: 1, PlazaRGBA(r: 0, g: 0, b: 0, a: 0))).origin, .pixels)
+        XCTAssertEqual(try XCTUnwrap(PlatformPlaza.graphics.decodeImage(try XCTUnwrap(PlatformPlaza.graphics.encodePNG(image)))).origin, .pixels)
+        // real art: the plate and the bubble carry text, the emote does not
+        XCTAssertEqual(PlazaNamePlate.image(text: "Ab", color: PlazaColor(hex: 0xFFFFFF), scale: 1)?.origin, .canvasWithText)
+        XCTAssertEqual(PlazaChatBubble.image(text: "Ab", scale: 1)?.origin, .canvasWithText)
+        XCTAssertEqual(PlazaEmoteArt.image(.heart, scale: 1).origin, .canvas)
+    }
+}
+
+extension PlazaParityGoldensMacTests {
+    fileprivate func coreGraphicsPremultiplyTableForTests() throws -> [UInt8] { try coreGraphicsPremultiplyTable() }
+}
+
+/// A seeded generator, so the random matrix is the same on every run.
+private struct SplitMix {
+    var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+    mutating func int(_ lo: Int, _ hi: Int) -> Int { lo + Int(next() % UInt64(hi - lo + 1)) }
 }
 
 private extension CGPath {
