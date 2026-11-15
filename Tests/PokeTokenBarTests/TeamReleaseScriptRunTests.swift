@@ -409,16 +409,19 @@ final class TeamReleaseScriptRunTests: XCTestCase {
     /// (bash runs the trap then). Either way the message says what is left.
     func testAnInterruptionAtAnyStepSaysWhatIsLeft() throws {
         let cases: [(at: String, signal: String, status: Int32, says: [String], never: String)] = [
+            ("view", "INT", 130, ["INT 신호를 받았습니다([0/10]", "남은 것: 없음"], "security"),
             ("docs", "INT", 130, ["INT 신호를 받았습니다([1/10]", "남은 것: 없음"], "team_release.py start"),
             ("start", "INT", 130, ["[2/10]", "Windows 실행이 시작됐을 수 있습니다"], "test-gate.sh"),
             ("gate", "INT", 130, ["[3/10]", "actions/runs/4101", "/Applications 는 그대로", "cfprefsd-guard.sh"], "build-app.sh"),
             ("build", "TERM", 143, ["TERM 신호를", "[4/10]", "/Applications 가 새 빌드로 바뀌었을 수 있습니다"], "codesign"),
             ("collect", "HUP", 129, ["HUP 신호를", "[5/10]", "공개한 것은 없습니다"], "team_notes.py fill"),
+            ("fill", "TERM", 143, ["[6/10]", "/Applications 의 새 빌드", "공개한 것은 없습니다"], "team_release.py publish"),
             ("publish", "INT", 130, ["[7/10]", "마지막 명령의 코드 5", "v\(Self.releaseVersion) 릴리스가 없습니다(방금 읽음)"], "gh api GET"),
             ("publish", "TERM", 143, ["[7/10]", "마지막 명령의 코드 0", "publish 가 확인까지 마쳤습니다. 탭은 갱신하지 않았습니다",
                                       "smoke --version \(Self.releaseVersion)"], "gh api GET"),
             ("tap", "INT", 130, ["[9/10]", "공개된 v\(Self.releaseVersion)", "탭은 갱신되지 않았을 수 있습니다", "version \(Self.releaseVersion), sha256 "],
              "team_release.py smoke"),
+            ("smoke", "INT", 130, ["[10/10]", "공개된 v\(Self.releaseVersion) 과 갱신된 탭", "smoke 만 남았습니다"], "none"),
         ]
         for c in cases {
             try setRelease("none")
@@ -478,6 +481,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
         case "$1 $2" in
           "auth status") finish AUTH ;;
           "release view")
+            interrupt_if view
             case "$(release)" in
               none) echo "release not found" >&2; exit 1 ;;
               draft) echo true ;;
@@ -547,6 +551,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
     SHA256=$(printf '%064d' 7)}"
             finish COLLECT ;;
           "team_notes.py fill")
+            interrupt_if fill
             out=$(arg_after --out "$@")
             [[ "$(rc_of FILL)" != 0 ]] || printf 'filled %s\n' "$(arg_after --sha256 "$@")" > "$out"
             finish FILL ;;
@@ -560,6 +565,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
             elif [[ "$rc" == 0 || "$rc" == 6 ]]; then echo public > "$FAKE_STATE/release"; fi
             exit "$rc" ;;
           "team_release.py smoke")
+            interrupt_if smoke
             echo "https://github.com/likelion-campus/PokeTokenBar/actions/runs/4303"
             finish SMOKE ;;
           *) echo "fake python3: unexpected call: $*" >&2; exit 97 ;;
