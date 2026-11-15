@@ -677,7 +677,10 @@ extension WindowsSelftest {
                 if let name = n.name { names.append(name) }
                 node = n.parent
             }
-            return names.isEmpty ? "unnamed \(sprite.texture == nil ? "colour" : "texture") sprite" : names.joined(separator: "<")
+            guard names.isEmpty else { return names.joined(separator: "<") }
+            // Unnamed: the sheet it is cut from (W x H of the whole image) and its global z, which tell the layers apart.
+            let sheet = sprite.texture.map { "\($0.image.width)x\($0.image.height) sheet" } ?? "colour"
+            return "unnamed \(sheet)"
         }
         func snapshot() -> (items: [ObjectIdentifier: (String, Look)], camera: CGPoint?) {
             guard let stage = shell.stageForTesting else { return ([:], nil) }
@@ -695,7 +698,15 @@ extension WindowsSelftest {
             _ = await waitUntil(timeout: 0.016) { false }
             let now = snapshot()
             var changed = Set<String>()
-            for (key, value) in now.items where previous.items[key]?.1 != value.1 { changed.insert(value.0) }
+            for (key, value) in now.items {
+                guard let before = previous.items[key]?.1, before != value.1 else {
+                    if previous.items[key] == nil { changed.insert(value.0 + " (new)") }
+                    continue
+                }
+                let what = before.transform != value.1.transform ? "moved" : before.texture != value.1.texture ? "frame"
+                    : before.alpha != value.1.alpha ? "alpha" : "colour"
+                changed.insert(value.0 + " " + what)
+            }
             for (key, value) in previous.items where now.items[key] == nil { changed.insert(value.0 + " (gone)") }
             if now.camera != previous.camera { changed.insert("camera") }
             for name in changed { counts[name, default: 0] += 1 }
