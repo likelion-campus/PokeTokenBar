@@ -30,7 +30,7 @@ import XCTest
         guard let dir = ProcessInfo.processInfo.environment["PTB_PLAZA_HUD_OUT"] else { throw XCTSkip("PTB_PLAZA_HUD_OUT not set") }
         let out = URL(fileURLWithPath: dir)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        Rig.blockNetwork()
+        Rig.blockNetwork(for: self)
         let seeded = Array(900_001...900_006)
         await Rig.seedIcons(seeded)
         for id in seeded { Rig.seedSprite(id); Rig.seedSprite(id, shiny: true) }
