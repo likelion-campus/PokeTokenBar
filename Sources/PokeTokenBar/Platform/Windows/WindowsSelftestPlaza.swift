@@ -270,13 +270,17 @@ extension WindowsSelftest {
         await dragCheck(r, shell, hwnd)
         // plaza.focus: what teammates and timers trigger never brings the plaza forward.
         if let s = scene { await focusCheck(r, c, shell, hwnd, scene: s, members: members) }
+        // plaza.keys / repeat / walk / altAlone / altGr / resignReleasesKeys / imeOff / click: Task 6's keyboard and mouse.
+        if let s = scene { await plazaInputChecks(r, shell, hwnd, scene: s) }
         scene = nil   // the selftest's own reference: the close check below asks whether the controller let go of it
+        // plaza.ctrlW closes the window (through the shared path) and reopens it: the close checks below use the fresh one.
+        let liveHwnd = await plazaCtrlWCheck(r, c, shell, hwnd)
 
         // plaza.close (x3 open/close cycles), plaza.reopen, plaza.placement (a child process restores the saved frame).
         let closeFrame = WinPlazaWindow.frame(shell.dpiForTesting, 700, 500)   // inside the work area: kept as it is
-        _ = SetWindowPos(hwnd, nil, 60, 50, closeFrame.width, closeFrame.height, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
+        _ = SetWindowPos(liveHwnd, nil, 60, 50, closeFrame.width, closeFrame.height, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
         var saved = RECT()
-        _ = GetWindowRect(hwnd, &saved)
+        _ = GetWindowRect(liveHwnd, &saved)
         let clockTidAtClose = shell.clockStatsForTesting?.threadId ?? 0
         shell.requestClose()
         _ = await waitUntil(timeout: 1) { false }
