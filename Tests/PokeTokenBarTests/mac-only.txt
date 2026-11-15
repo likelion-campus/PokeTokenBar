@@ -252,3 +252,5 @@ PopoverTwinEquivalenceTests+Mac.swift
 PlazaPhotoGoldensMacTests.swift
 # PopoverGoldens+Mac: resolves the SwiftUI / AppKit colours of the Mac popover (NSColor, NSAppearance) and writes or re-checks Tests/PopoverParity/mac-colors.json
 PopoverGoldens+Mac.swift
+# PopoverTextStyleGoldensMacTests: measures the Mac's text styles and label colours (AppKit NSFont / NSColor, no window) into Tests/PopoverParity/mac-text-styles.json; the Windows kit's font table is held to that file on both systems by PopoverTextStyleTests
+PopoverTextStyleGoldensMacTests.swift

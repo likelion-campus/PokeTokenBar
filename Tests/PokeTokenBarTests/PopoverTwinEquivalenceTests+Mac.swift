@@ -354,6 +354,15 @@ final class PopoverTwinEquivalenceTests: XCTestCase {
                                        state: { fixture.state.providerID = "codex"; return fixture.state }(), facts: .mac,
                                        now: Date()).statusBanner, "the codex incident shows")
     }
+
+    /// Stage 7 Task 3: the Windows kit's popover metrics are the Mac's (`PopoverMetrics`, twinned as `PopoverWindowMetrics`).
+    func testThePopoverMetricsTwinHasTheMacsNumbers() async {
+        XCTAssertEqual(PopoverWindowMetrics.width, PopoverMetrics.width)
+        XCTAssertEqual(PopoverWindowMetrics.padding, PopoverMetrics.padding)
+        XCTAssertEqual(PopoverWindowMetrics.contentWidth, PopoverMetrics.contentWidth)
+        XCTAssertEqual(PopoverWindowMetrics.scrollerInset, PopoverMetrics.scrollerInset)
+        XCTAssertEqual(PopoverWindowMetrics.scrollContentWidth, PopoverMetrics.scrollContentWidth)
+    }
 }
 
 // MARK: - Verbatim copies of private PopoverView members (twins.txt holds each body to the Mac's)

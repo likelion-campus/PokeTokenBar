@@ -61,6 +61,7 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--plaza-idle-probe") {
             WindowsSelftest.startPlazaIdle(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "visible")
         }
+        if arguments.contains("--popover-kit-idle-probe") { WindowsSelftest.startPopoverKitIdle() }  // stage 7 Task 3: the gate's open-kit window
         WinMainLoop.run(app.loopStrategy) { false }
         WindowsApp.exit(0, .menu)  // not reached: the loop only ends through an exit
     }
