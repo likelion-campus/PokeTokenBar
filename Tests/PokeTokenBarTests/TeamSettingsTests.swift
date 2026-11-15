@@ -292,13 +292,13 @@ final class TeamSettingsTests: XCTestCase {
     func testDraftCommitStoresAValidNameAndKeepsAnInvalidOne() {
         let suite = "ptb.test.team.draft.\(UUID().uuidString)"
         let team = TeamSettings(defaults: TestDefaults.make(suite: suite))
-        XCTAssertNil(TeamSettingsSection.committedDraft(nil, into: team))
-        XCTAssertEqual(TeamSettingsSection.committedDraft("", into: team), "")
+        XCTAssertNil(TeamSetup.committedDraft(nil, into: team))
+        XCTAssertEqual(TeamSetup.committedDraft("", into: team), "")
         XCTAssertEqual(team.nickname, "")
-        XCTAssertNil(TeamSettingsSection.committedDraft(" 다람 ", into: team))
+        XCTAssertNil(TeamSetup.committedDraft(" 다람 ", into: team))
         XCTAssertEqual(team.nickname, "다람")
         let tooLong = String(repeating: "가", count: 13)
-        XCTAssertEqual(TeamSettingsSection.committedDraft(tooLong, into: team), tooLong)
+        XCTAssertEqual(TeamSetup.committedDraft(tooLong, into: team), tooLong)
         XCTAssertEqual(team.nickname, "다람", "an invalid draft never replaces the stored name")
     }
 
@@ -308,13 +308,13 @@ final class TeamSettingsTests: XCTestCase {
         team.isEnabled = true
         var rng = SystemRandomNumberGenerator()
         let code = TeamCode.generate(using: &rng)
-        XCTAssertEqual(TeamSettingsSection.join("PTB-nope", into: team), .invalid)
+        XCTAssertEqual(TeamSetup.join("PTB-nope", into: team), .invalid)
         XCTAssertNil(team.code)
-        XCTAssertEqual(TeamSettingsSection.join(code.display, into: team), .needsNickname)
+        XCTAssertEqual(TeamSetup.join(code.display, into: team), .needsNickname)
         XCTAssertEqual(team.code, code)
         team.stepOut()
         team.nickname = "다람"
-        XCTAssertEqual(TeamSettingsSection.join(" \(code.display) ", into: team), .openPlaza)
+        XCTAssertEqual(TeamSetup.join(" \(code.display) ", into: team), .openPlaza)
         XCTAssertTrue(team.isReady)
     }
 

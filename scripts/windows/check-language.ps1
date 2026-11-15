@@ -47,7 +47,15 @@ try {
         Set-ItemProperty $intl LocaleName 'ko-KR'
         $real = Probe 'korean-hkcu'
         Write-Host "INFO real GetUserPreferredUILanguages after HKCU PreferredUILanguages=ko-KR: $($real['GetUserPreferredUILanguages']); GetUserDefaultLocaleName=$($real['GetUserDefaultLocaleName']); corelibs Locale.preferredLanguages=$($real['Locale.preferredLanguages']) Locale.current=$($real['Locale.current'])"
+        # Stage 7 (D11): the region seams follow the regional format HKCU now names, where corelibs stays en_001 / Monday.
+        Check 'region.ko.seams' ($real['region.locale'] -like 'ko*' -and $real['region.grouped'] -eq $real['region.win32.numberInteger'] -and $real['region.firstWeekday'] -match '^[1-7]$') "HKCU LocaleName=ko-KR: region.locale=$($real['region.locale']) firstWeekday=$($real['region.firstWeekday']) (Win32 IFIRSTDAYOFWEEK=$($real['region.win32.IFIRSTDAYOFWEEK']), corelibs $($real['region.foundation.firstWeekday'])) grouped=$($real['region.grouped']) Windows=$($real['region.win32.number']) corelibs Locale.current grouped=$($real['region.foundation.grouped'])"
     } catch { Write-Host "INFO could not set the HKCU language values: $_" }
+    # Stage 7 (R4): what Foundation's formatters write in the app language each display language maps to. Informational:
+    # a formatter that traps ends only its own child process.
+    foreach ($tag in @('ko-KR', 'ja-JP', 'en-US')) {
+        try { $null = Probe "formatters-$tag" @('--inject-ui-language', $tag, '--formatter-probe') }
+        catch { Write-Host "INFO formatter probe ${tag}: $_" }
+    }
     # 2b. diagnostics: which time-zone calls trap in this build, one by one. Each crash is recorded and the run restarted past it.
     function Hunt([string]$label) {
         $hunt = Join-Path (Resolve-Path $OutDir).Path "tz-hunt-$label.txt"
