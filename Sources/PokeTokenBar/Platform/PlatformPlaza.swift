@@ -132,9 +132,17 @@ enum PlatformPlaza {
         #endif
     }
 
-    /// Where character sprites come from: `SpriteLoader`/`SpriteStore` on the Mac, nothing (the placeholder) elsewhere.
+    #if os(Windows)
+    /// Windows keeps its sprites in the app's state folder (`PTB_STATE_DIR` honoured), never outside it.
+    private static let spriteStore = SpriteStore(directory: AppStatePaths.directory().appendingPathComponent("sprites", isDirectory: true))
+    #endif
+
+    /// Where character sprites come from: `SpriteLoader`/`SpriteStore` on the Mac, `SpriteStore` through the shared
+    /// loader on Windows, nothing (the placeholder) in the shared-only check.
     @MainActor static func spriteFetcher() -> any PlazaSpriteFetching {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        PlazaStoreSpriteFetcher(store: spriteStore, graphics: graphics)
+        #elseif PTB_SHARED_ONLY
         PlazaStubSpriteFetcher(log: { AppLog.write($0) })
         #else
         LivePlazaSpriteFetcher()
@@ -142,9 +150,11 @@ enum PlatformPlaza {
     }
 
     /// Where the roster and card panels get their Pokémon pictures: `PlazaIconLoader`/`SpriteLoader` on the Mac
-    /// (`MacPlazaIcons`), nothing elsewhere (the panels draw their placeholders until stage 6).
+    /// (`MacPlazaIcons`), the same store through the shared loader on Windows, nothing in the shared-only check.
     @MainActor static func iconSource() -> any PlazaIconSource {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        PlazaStoreIconSource(store: spriteStore, graphics: graphics)
+        #elseif PTB_SHARED_ONLY
         PlazaStubIconSource()
         #else
         MacPlazaIcons()

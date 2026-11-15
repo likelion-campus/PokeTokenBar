@@ -6,6 +6,8 @@
 
 /// The version string of the OpenSSL this binary was linked against (static, from vcpkg).
 const char *ptb_tls_openssl_version(void);
+/// The OPENSSLDIR baked into that build. Never read: OpenSSL is initialised with OPENSSL_INIT_NO_LOAD_CONFIG.
+const char *ptb_tls_config_dir(void);
 
 /// TLS 1.2 + TLS_PSK_WITH_AES_128_GCM_SHA256 only, the team link's wire suite (matches the Mac's
 /// BonjourTeamTransport.parameters). Swift never sees OpenSSL headers; everything below is plain C.

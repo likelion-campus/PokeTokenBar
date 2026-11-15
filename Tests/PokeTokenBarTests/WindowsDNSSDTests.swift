@@ -76,6 +76,25 @@ final class WindowsDNSSDTests: XCTestCase {
         XCTAssertEqual(known, ["a", "b"])
     }
 
+    /// The aging rule's other half: a name the transport forgot is reported again on its next answer (here the
+    /// registration's own repeated announcements), so a teammate that comes back is found at once.
+    func testAForgottenNameIsFoundAgainOnItsNextAnswer() async {
+        let name = uniqueName()
+        let seen = Recorder()
+        let registrar = makeBrowser(Recorder()), browser = makeBrowser(seen)
+        defer { registrar.deregister(); browser.stopBrowsing() }
+        browser.browse()
+        registrar.register(instance: name, port: 45126)
+        let found = await waitUntil(30) { seen.found.contains(name) }
+        XCTAssertTrue(found, "browse never found \(name)")
+        XCTAssertNotNil(browser.lastAnswer(name), "the answer time is kept for the aging rule")
+        browser.forget(name)
+        XCTAssertNil(browser.lastAnswer(name))
+        let again = await waitUntil(15) { seen.found.filter { $0 == name }.count >= 2 }
+        print("DNSSD-REPORT forget: found \(seen.found.filter { $0 == name }.count)x, events \(seen.events)")
+        XCTAssertTrue(again, "a forgotten name came back with its next answer")
+    }
+
     func testResolveOfAnUnknownNameReturnsEmpty() async {
         let result = Recorder()
         let resolver = makeBrowser(Recorder())

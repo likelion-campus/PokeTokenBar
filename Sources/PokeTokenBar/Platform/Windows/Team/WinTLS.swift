@@ -102,6 +102,9 @@ final class WinTLSSession {
 }
 
 enum WinTLS {
+    /// The OPENSSLDIR the static OpenSSL was built with; its `openssl.cnf` is never loaded (nor `OPENSSL_CONF`).
+    static var configDirectory: String { String(cString: ptb_tls_config_dir()) }
+
     /// OpenSSL's HMAC-SHA256, exposed so a test can cross-check the key derivation against Swift Crypto.
     static func hmacSHA256(key: Data, message: Data) -> Data? {
         var out = [UInt8](repeating: 0, count: 32)

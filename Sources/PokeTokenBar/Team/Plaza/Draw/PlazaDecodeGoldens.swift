@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the Mac's decoder (ImageIO + the CoreGraphics draw in `CGImagePayload.pixels()`) makes of the repo's own art, as a
-/// few small values. The Windows decoder (WIC + `WinPlazaCodecs.premultiply`) must give the same bytes: the Windows
+/// few small values. The Windows decoder (WIC + the shared `PlazaPremultiply`) must give the same bytes: the Windows
 /// self-test and `WindowsPlazaGraphicsTests` compare against this table, and `PlazaDecodeGoldensMacTests` re-measures it on
 /// the Mac so it cannot drift from what the Mac really does. Data only; no code reads a file.
 enum PlazaDecodeGoldens {

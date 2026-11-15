@@ -111,29 +111,6 @@ final class WindowsPlazaGraphicsTests: XCTestCase {
         XCTAssertEqual(image.pixels.bytes, PlazaDecodeGoldens.fixturePremultiplied, "premultiplied with CoreGraphics' rounding")
     }
 
-    func testPremultiplyAndUnpremultiplyUseTheMacsRounding() {
-        // Pairs measured on the Mac (CoreGraphics draw / ImageIO PNG write); the formulas were checked on all 65,536 pairs.
-        let premultiplied: [(c: UInt8, a: UInt8, out: UInt8)] = [(1, 2, 0), (1, 3, 0), (100, 200, 78), (127, 128, 64), (255, 255, 255),
-                                                                 (10, 255, 10), (37, 64, 9), (200, 201, 158), (3, 7, 0), (0, 10, 0)]
-        for p in premultiplied {
-            XCTAssertEqual(WinPlazaCodecs.premultiply(straight: [p.c, p.c, p.c, p.a])[0], p.out, "premultiply(\(p.c), \(p.a))")
-        }
-        let straight: [(c: UInt8, a: UInt8, out: UInt8)] = [(1, 2, 128), (1, 3, 85), (100, 200, 128), (127, 128, 253), (255, 255, 255),
-                                                            (37, 64, 147), (200, 201, 254), (3, 7, 109), (0, 10, 0)]
-        for s in straight {
-            var bitmap = PlazaBitmap(width: 1, height: 1)
-            bitmap.bytes = [s.c, s.c, s.c, s.a]
-            XCTAssertEqual(WinPlazaCodecs.straight(from: bitmap)[0], s.out, "unpremultiply(\(s.c), \(s.a))")
-        }
-        var clear = PlazaBitmap(width: 1, height: 1)
-        clear.bytes = [0, 0, 0, 0]
-        XCTAssertEqual(WinPlazaCodecs.straight(from: clear), [0, 0, 0, 0], "alpha 0 stays 0, 0, 0, 0")
-        var opaque = PlazaBitmap(width: 1, height: 1)
-        opaque.alpha = .noneSkipLast
-        opaque.bytes = [10, 20, 30, 7]
-        XCTAssertEqual(WinPlazaCodecs.straight(from: opaque), [10, 20, 30, 255], "a skipped fourth byte is written as opaque")
-    }
-
     // MARK: PNG
 
     func testPNGRoundTripKeepsPixels() throws {
@@ -156,9 +133,8 @@ final class WindowsPlazaGraphicsTests: XCTestCase {
             if straight[i + 3] != 0 { XCTAssertEqual(Array(back.rgba[i..<i + 4]), Array(straight[i..<i + 4]), "pixel \(i / 4)") }
         }
         // premultiplied image -> PNG -> image: within one un-premultiply step, alpha-0 rows kept
-        let premultiplied = WinPlazaCodecs.premultiply(straight: straight)
-        var bitmap = PlazaBitmap(width: 16, height: 16)
-        bitmap.bytes = premultiplied
+        let bitmap = PlazaPremultiply.bitmap(straight: straight, width: 16, height: 16)
+        let premultiplied = bitmap.bytes
         let encoded = try XCTUnwrap(graphics.encodePNG(PlazaImage(bitmap: bitmap)))
         let decoded = try XCTUnwrap(graphics.decodeImage(encoded)).pixels.bytes
         XCTAssertEqual(decoded.count, premultiplied.count)

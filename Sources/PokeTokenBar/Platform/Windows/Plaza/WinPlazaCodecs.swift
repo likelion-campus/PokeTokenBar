@@ -7,10 +7,10 @@ import Foundation
 ///
 /// Alpha and colour, stated once:
 /// - WIC hands back STRAIGHT 8-bit RGBA with no colour management and no gamma (the stored values as they are).
-/// - Every `PlazaBitmap` the plaza uses is PREMULTIPLIED, so decode premultiplies with CoreGraphics' rounding,
-///   `(c * a + 127) / 255` (measured on the Mac over all 65,536 (c, a) pairs), which makes `pixels` byte-equal to the Mac's.
-/// - Encode un-premultiplies the way ImageIO does when it writes a PNG, `min(255, (c * 255 + a / 2) / a)` (measured the same
-///   way), and alpha 0 gives 0, 0, 0, 0. A bitmap that is `.noneSkipLast` is opaque: its fourth byte is padding, written as 255.
+/// - Every `PlazaBitmap` the plaza uses is PREMULTIPLIED, so decode premultiplies with the shared `PlazaPremultiply` (CoreGraphics'
+///   rounding, `(c * a + 127) / 255`, measured on the Mac over all 65,536 (c, a) pairs), which makes `pixels` byte-equal to the Mac's.
+/// - Encode un-premultiplies the way ImageIO does when it writes a PNG (`PlazaPremultiply.straight`), alpha 0 gives 0, 0, 0, 0.
+///   A bitmap that is `.noneSkipLast` is opaque: its fourth byte is padding, written as 255.
 enum WinPlazaCodecs {
     struct Failure: Error, CustomStringConvertible {
         let hresult: Int32
@@ -22,49 +22,6 @@ enum WinPlazaCodecs {
     static func lastError() -> String {
         guard let c = ptb_plaza_last_error() else { return "" }
         return String(cString: c)
-    }
-
-    // MARK: Premultiplication (CoreGraphics' bytes)
-
-    static func premultiply(straight: [UInt8]) -> [UInt8] {
-        var out = straight
-        out.withUnsafeMutableBufferPointer { p in
-            var i = 0
-            while i + 3 < p.count {
-                let a = Int(p[i + 3])
-                if a != 255 {
-                    p[i] = UInt8((Int(p[i]) * a + 127) / 255)
-                    p[i + 1] = UInt8((Int(p[i + 1]) * a + 127) / 255)
-                    p[i + 2] = UInt8((Int(p[i + 2]) * a + 127) / 255)
-                }
-                i += 4
-            }
-        }
-        return out
-    }
-
-    static func straight(from bitmap: PlazaBitmap) -> [UInt8] {
-        var out = bitmap.bytes
-        let opaque = bitmap.alpha == .noneSkipLast
-        out.withUnsafeMutableBufferPointer { p in
-            var i = 0
-            while i + 3 < p.count {
-                if opaque {
-                    p[i + 3] = 255
-                } else {
-                    let a = Int(p[i + 3])
-                    if a == 0 {
-                        p[i] = 0; p[i + 1] = 0; p[i + 2] = 0
-                    } else if a != 255 {
-                        p[i] = UInt8(min(255, (Int(p[i]) * 255 + a / 2) / a))
-                        p[i + 1] = UInt8(min(255, (Int(p[i + 1]) * 255 + a / 2) / a))
-                        p[i + 2] = UInt8(min(255, (Int(p[i + 2]) * 255 + a / 2) / a))
-                    }
-                }
-                i += 4
-            }
-        }
-        return out
     }
 
     // MARK: WIC
@@ -122,9 +79,7 @@ enum WinPlazaCodecs {
         switch decodeStraight(data) {
         case .failure(let f): return .failure(f)
         case .success(let d):
-            var bitmap = PlazaBitmap(width: d.width, height: d.height)
-            bitmap.bytes = premultiply(straight: d.rgba)
-            return .success(PlazaImage(bitmap: bitmap))
+            return .success(PlazaImage(bitmap: PlazaPremultiply.bitmap(straight: d.rgba, width: d.width, height: d.height)))
         }
     }
 
@@ -138,7 +93,7 @@ enum WinPlazaCodecs {
 
     static func encodePNG(_ image: PlazaImage) -> Result<Data, Failure> {
         let bitmap = image.pixels
-        return encodePNG(straight: straight(from: bitmap), width: bitmap.width, height: bitmap.height)
+        return encodePNG(straight: PlazaPremultiply.straight(bitmap), width: bitmap.width, height: bitmap.height)
     }
 }
 #endif

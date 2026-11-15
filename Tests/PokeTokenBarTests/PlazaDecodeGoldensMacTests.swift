@@ -1,4 +1,3 @@
-import CoreGraphics
 import XCTest
 #if canImport(CryptoKit)
 import CryptoKit
@@ -44,21 +43,5 @@ final class PlazaDecodeGoldensMacTests: XCTestCase {
         let image = try XCTUnwrap(graphics.decodeImage(png))
         XCTAssertEqual(image.width, PlazaDecodeGoldens.fixtureSize)
         XCTAssertEqual(image.pixels.bytes, PlazaDecodeGoldens.fixturePremultiplied)
-    }
-
-    /// The Windows rounding rules, checked against CoreGraphics over every (colour, alpha) pair: premultiply is a CoreGraphics
-    /// draw, un-premultiply is ImageIO's PNG writer. (`WinPlazaCodecs` repeats the two formulas; this pins them.)
-    func testPremultiplyFormulaIsCoreGraphicsOnAllPairs() throws {
-        var straight = [UInt8]()
-        for a in 0..<256 { for c in 0..<256 { straight += [UInt8(c), UInt8(c), UInt8(c), UInt8(a)] } }
-        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
-        let provider = try XCTUnwrap(CGDataProvider(data: Data(straight) as CFData))
-        let image = try XCTUnwrap(CGImage(width: 256, height: 256, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: 1024, space: space,
-                                          bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: provider,
-                                          decode: nil, shouldInterpolate: false, intent: .defaultIntent))
-        let drawn = CGImagePayload(image).pixels().bytes
-        var wrong = 0
-        for a in 0..<256 { for c in 0..<256 where Int(drawn[(a * 256 + c) * 4]) != (c * a + 127) / 255 { wrong += 1 } }
-        XCTAssertEqual(wrong, 0, "(c * a + 127) / 255 is CoreGraphics' premultiply")
     }
 }

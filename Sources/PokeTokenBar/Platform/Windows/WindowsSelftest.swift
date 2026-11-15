@@ -30,12 +30,18 @@ enum WindowsSelftest {
     static var onCI: Bool { ProcessInfo.processInfo.environment["CI"] != nil }
     /// Length of the idle windows (`PTB_SELFTEST_IDLE_SECONDS`, default 60), read here for the other selftest files too.
     static var idleSeconds: Double { Double(ProcessInfo.processInfo.environment["PTB_SELFTEST_IDLE_SECONDS"] ?? "") ?? 60 }
+    /// `OPENSSL_CONF` as the process sees it (the workflow points it at a poisoned file; OpenSSL must never read it).
+    static var opensslConf: String? { ProcessInfo.processInfo.environment["OPENSSL_CONF"] }
 
     /// Starts the run on the main actor once the loop turns, then exits with its result.
     @MainActor static func start(_ app: WindowsAppDelegate, writingTo url: URL) {
         let progress = url.appendingPathExtension("lines")
         try? FileManager.default.removeItem(at: progress)
         try? FileManager.default.removeItem(at: url)
+        // Created here, before `run` opens the stall probe's window: on Windows a Foundation `Data.write` flushes
+        // (FlushFileBuffers), and the first `Recorder.add` used to create the file that way inside the window, so a
+        // slow disk failed `loop.mainThreadStalls` by name (85 ms, run 43649753131). Appends go through FileHandle.
+        _ = FileManager.default.createFile(atPath: progress.path, contents: nil)
         progressURL = progress
         Task { @MainActor in
             let checks = await run(app)

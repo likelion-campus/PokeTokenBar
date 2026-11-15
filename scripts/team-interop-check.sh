@@ -9,7 +9,8 @@
 #   scripts/team-interop-check.sh --fingerprint   read a team code on stdin, print the key fingerprint
 #
 # The fingerprint is what the Windows probe (PokeTokenBar.exe --team-probe) prints as key_fingerprint: 8 hex digits of
-# SHA-256 over the derived PSK. Equal on both machines = the same team code. The code itself is never printed.
+# SHA-256 over the derived PSK. Equal on both machines = the same team code. The code itself is never printed, and
+# never passed to a command line (it goes through stdin only):
 #   pbpaste | scripts/team-interop-check.sh --fingerprint
 set -euo pipefail
 
@@ -22,18 +23,19 @@ find_openssl() {
 }
 
 if [ "${1:-}" = "--fingerprint" ]; then
-  openssl=$(find_openssl)
-  IFS= read -r raw || true
-  # TeamCode(parsing:): trim, upper-case, drop a leading "PTB" followed by "-" or a space, drop "-" and spaces.
-  code=$(printf '%s' "$raw" | tr '[:lower:]' '[:upper:]' | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/^PTB[-[:space:]]//; s/[-[:space:]]//g')
-  if ! printf '%s' "$code" | grep -Eq '^([A-Z2-7]{12}|[A-Z2-7]{26})$'; then
-    echo "not a team code (12 or 26 base32 characters after PTB-)" >&2
-    exit 2
-  fi
-  key=$(printf '%s' 'poketokenbar.team.psk.v1' | "$openssl" dgst -sha256 -mac HMAC -macopt "key:$code" -r | cut -d' ' -f1)
-  fp=$(printf '%s' "$key" | xxd -r -p | "$openssl" dgst -sha256 -r | cut -c1-8)
-  echo "key_fingerprint=$fp"
-  exit 0
+  # The code goes from stdin straight into Python's stdin: it is in no process's arguments or environment (ps shows
+  # neither). Same rules as TeamCode(parsing:) and TeamCode.keyFingerprint.
+  exec /usr/bin/python3 -I -c '
+import hashlib, hmac, re, sys
+raw = sys.stdin.readline().strip().upper()
+raw = re.sub(r"^PTB[-\s]", "", raw)
+code = re.sub(r"[-\s]", "", raw)
+if not re.fullmatch(r"[A-Z2-7]{12}|[A-Z2-7]{26}", code):
+    sys.stderr.write("not a team code (12 or 26 base32 characters after PTB-)\n")
+    sys.exit(2)
+key = hmac.new(code.encode(), b"poketokenbar.team.psk.v1", hashlib.sha256).digest()
+print("key_fingerprint=" + hashlib.sha256(key).hexdigest()[:8])
+'
 fi
 
 cd "$(dirname "$0")/.."
