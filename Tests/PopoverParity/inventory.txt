@@ -21,14 +21,15 @@ A3d | 3 | pending T20 | UI/StatusItemMenu.swift | Right-click menu: Pokédex (d)
 A3p | 3 | pending T22 | UI/StatusItemMenu.swift | Right-click menu: show / hide the floating pet
 A4 | 3 | pending T23 | PokeTokenBarApp.swift | poketokenbar://agent URL events feed the floating pet's agent activity
 A5 | - | n/a: native EDIT controls have Ctrl+C/V/X/A without a menu | UI/StandardEditMenu.swift, PokeTokenBarApp.swift | Edit menu installed so Cmd+C/V reach text fields in an accessory app
-A5t | 1 | pending T3 | PokeTokenBarApp.swift | Tooltips show after 600 ms (NSInitialToolTipDelay registered default)
+A5t | 1 | done Platform/Windows/Popover/WinTooltips.swift | PokeTokenBarApp.swift | Tooltips show after 600 ms (NSInitialToolTipDelay registered default)
 A5m | - | n/a: no TokenMac install on Windows; the Windows state folder starts new | PokeTokenBarApp.swift | Legacy TokenMac folder migration at launch
 A6 | 1 | pending T4 | PokeTokenBarApp.swift | Second launch yields to the running instance (Windows: opens the popover, ruling 3)
 A7 | 1 | elsewhere Platform/Windows/WindowsApp.swift: the app's launch, stores, updater, team runtime, plaza and their observers (AppWiringDriftScanTests holds the two copies together) | PokeTokenBarApp.swift | App lifecycle and wiring: launch order, crash reporter, SIGPIPE, login-item migration, stores, update check at launch, companion feed, team runtime, plaza controller, notifications, store observers, terminate
 P1 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Update banner: "vX available (current vY)", Skip this version, Update; "Updating…" with a spinner; only with update notifications on
 P2 | 1 | pending T5 | UI/PopoverView.swift | Main tab bar (Home, Shop, Bag, Collection; segmented); Windows shows it once a second tab exists
 P3 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Open-plaza button (map glyph, red unread dot, tooltip), team ready only; closes the popover and opens the plaza
-P4 | 1 | pending T3 | UI/PopoverView.swift | Popover metrics: 360 wide, 14 padding, scroller lane 12, Home content 520 high and scrolling; Settings and Recap replace the content in place
+P4 | 1 | done Popover/PopoverWindowMetrics.swift | UI/PopoverView.swift | Popover metrics: 360 wide, 14 padding, content 332, scroller lane 12 kept clear (the kit's scroll areas always reserve the bar), twinned
+P4w | 1 | pending T4 | UI/PopoverView.swift | The popover's pages: Home content 520 high and scrolling; Settings and Recap replace the content in place
 P5 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift, UI/UsageCostText.swift | Today header: caption, compact total (28 pt bold, monospaced), grouped digits from 1,000 (region grouping), today's cost when shown
 P6 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Week and month totals with cost; two lines when narrow
 P7 | 2 | pending T12 | UI/StreakBadge.swift | Streak badge: flame + days from 2 days, orange when today counts, tooltip and accessibility label
@@ -143,7 +144,7 @@ UI/FloatingPetPanel.swift | F1
 UI/MenuBarContent.swift | A1t
 UI/MenuLimitColoring.swift | A1t
 UI/PokemonNameLabel.swift | C4
-UI/PopoverView.swift | P4
+UI/PopoverView.swift | P4w
 UI/SettingsView.swift | G0
 UI/ShopView.swift | H1
 UI/SpriteAnimation.swift | S1
@@ -466,9 +467,9 @@ UI/PopoverView.swift#PopoverNavigation.reset | P30
 UI/PopoverView.swift#PopoverNavigation.openSessionKeySettings | P30
 UI/PopoverView.swift#PopoverNavigation.openDexEntry | P30
 UI/PopoverView.swift#PopoverNavigation.openRepresentativeDex | P30
-UI/PopoverView.swift#PopoverView | P4
+UI/PopoverView.swift#PopoverView | P4w
 UI/PopoverView.swift#PopoverView.l | P31
-UI/PopoverView.swift#PopoverView.body | P4
+UI/PopoverView.swift#PopoverView.body | P4w
 UI/PopoverView.swift#PopoverView.updateBanner | P1
 UI/PopoverView.swift#PopoverView.mainContent | P2
 UI/PopoverView.swift#PopoverView.header | P5

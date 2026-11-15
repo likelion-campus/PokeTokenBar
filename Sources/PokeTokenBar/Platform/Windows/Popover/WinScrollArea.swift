@@ -1,0 +1,172 @@
+#if os(Windows)
+import Foundation
+import WinSDK
+
+/// A scrolling page (stage 7 D6): a viewport with a vertical scroll bar and, inside it, the content pane the page's
+/// controls live in, moved up and down as one window. The bar is always there (`SIF_DISABLENOSCROLL`), so the content's
+/// width never changes with its height, as the Mac keeps its scroller lane clear. The wheel and a precision touchpad
+/// scroll it (`SPI_GETWHEELSCROLLLINES` lines of 16 DIP a notch, fractions kept); a control the keyboard focuses is
+/// brought into view; a thumb drag (the scroll bar's own modal loop) runs inside `WinModalPump`, so team links keep their
+/// heartbeats. No timer: it moves only on input.
+@MainActor final class WinScrollArea {
+    static let className = "PokeTokenBarScroll"
+    static let lineDIP: CGFloat = 16
+
+    let viewport: WinSinkWindow
+    let content: WinPane
+    let ctx: WinUIContext
+    private(set) var offset: Int32 = 0
+    private(set) var contentHeight: Int32 = 0
+    private var wheel = PopoverWheel()
+
+    struct Stats: Equatable {
+        var wheelMessages = 0, thumbDrags = 0, reveals = 0, moves = 0
+        /// `WinModalPump.depth` seen while a thumb drag's loop ran (the selftest's evidence that the pump served it).
+        var pumpDepthDuringDrag = 0
+    }
+    private(set) var stats = Stats()
+    private static var areas: [Int: WinScrollArea] = [:]
+
+    init(parent: HWND, ctx: WinUIContext, rect: RECT) throws {
+        self.ctx = ctx
+        let style: DWORD = 0x4000_0000 | 0x1000_0000 | 0x0020_0000 | 0x0200_0000  // WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_CLIPCHILDREN
+        let made = try WinSinkWindow(className: Self.className, title: "", style: style, exStyle: 0x0001_0000 /* WS_EX_CONTROLPARENT */,
+                                     x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top, parent: parent)
+        Self.updateBar(made.hwnd, height: 0, page: 1, offset: 0)  // shows the (disabled) bar, so the client width below is final
+        var client = RECT()
+        _ = GetClientRect(made.hwnd, &client)
+        let pane: WinPane
+        do {
+            pane = try WinPane(parent: made.hwnd, ctx: ctx, rect: RECT(left: 0, top: 0, right: client.right, bottom: client.bottom))
+        } catch {
+            made.destroy()
+            throw error
+        }
+        viewport = made
+        content = pane
+        Self.areas[Int(bitPattern: content.hwnd)] = self
+        viewport.on(0x0115 /* WM_VSCROLL */) { [weak self] wParam, lParam in
+            guard lParam == 0, let self else { return nil }  // a scroll bar control's WM_VSCROLL is the router's
+            self.vscroll(WinKit.loWord(wParam))
+            return 0
+        }
+        viewport.on(0x020A /* WM_MOUSEWHEEL */) { [weak self] wParam, _ in
+            guard let self else { return nil }
+            self.stats.wheelMessages += 1
+            var lines: UINT = 3
+            _ = SystemParametersInfoW(0x0068 /* SPI_GETWHEELSCROLLLINES */, 0, &lines, 0)
+            let change = self.wheel.offsetChange(delta: WinKit.signedHiWord(wParam), lines: lines, lineHeight: CGFloat(ctx.px(Self.lineDIP)),
+                                                 page: CGFloat(self.viewportHeight))
+            self.scroll(to: self.offset + Int32(change))
+            return 0
+        }
+        viewport.on(0x00A1 /* WM_NCLBUTTONDOWN */) { [weak self] wParam, lParam in
+            guard wParam == 7 /* HTVSCROLL */, let self else { return nil }
+            self.stats.thumbDrags += 1
+            WinModalPump.begin("scroll")  // the scroll bar's tracking loop starves the main queue otherwise (R11)
+            defer { WinModalPump.end("scroll") }
+            return DefWindowProcW(self.viewport.hwnd, 0x00A1, wParam, lParam)
+        }
+        viewport.on(0x0014 /* WM_ERASEBKGND */) { [weak self] wParam, _ in
+            guard let self, let dc = HDC(bitPattern: UInt(wParam)) else { return nil }
+            var r = RECT()
+            _ = GetClientRect(self.viewport.hwnd, &r)
+            _ = FillRect(dc, &r, ctx.colors.brush(ctx.colors.palette.window))
+            return 1
+        }
+        viewport.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
+    }
+
+    /// The content's width in pixels (the viewport beside its scroll bar).
+    var contentWidth: Int32 {
+        var r = RECT()
+        _ = GetClientRect(viewport.hwnd, &r)
+        return r.right
+    }
+
+    var viewportHeight: Int32 {
+        var r = RECT()
+        _ = GetClientRect(viewport.hwnd, &r)
+        return r.bottom
+    }
+
+    /// The page's height (pixels): the bar's range, the pane's size (never shorter than the viewport) and a kept offset.
+    func setContentHeight(_ height: Int32) {
+        contentHeight = max(0, height)
+        offset = Int32(PopoverScrollMath.clamped(CGFloat(offset), content: CGFloat(contentHeight), viewport: CGFloat(viewportHeight)))
+        WinKit.move(content.hwnd, RECT(left: 0, top: -offset, right: contentWidth, bottom: -offset + max(contentHeight, viewportHeight)))
+        Self.updateBar(viewport.hwnd, height: contentHeight, page: viewportHeight, offset: offset)
+    }
+
+    func scroll(to y: Int32) {
+        let next = Int32(PopoverScrollMath.clamped(CGFloat(y), content: CGFloat(contentHeight), viewport: CGFloat(viewportHeight)))
+        guard next != offset else { return }
+        offset = next
+        stats.moves += 1
+        _ = SetWindowPos(content.hwnd, nil, 0, -offset, 0, 0, UINT(SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
+        Self.updateBar(viewport.hwnd, height: contentHeight, page: viewportHeight, offset: offset)
+    }
+
+    /// Scrolls so the rect (content pixels) is visible with a 8 DIP margin; no move when it already is.
+    func reveal(top: Int32, bottom: Int32) {
+        stats.reveals += 1
+        let y = PopoverScrollMath.revealing(top: CGFloat(top), bottom: CGFloat(bottom), offset: CGFloat(offset),
+                                            viewport: CGFloat(viewportHeight), content: CGFloat(contentHeight), margin: CGFloat(ctx.px(8)))
+        scroll(to: Int32(y))
+    }
+
+    /// The keyboard moved the focus to `hwnd`: the scroll area it is in (if any) brings it into view.
+    static func reveal(_ hwnd: HWND) {
+        var node: HWND? = GetParent(hwnd)
+        while let n = node {
+            if let area = areas[Int(bitPattern: n)] {
+                let r = WinKit.rect(hwnd, in: n)
+                area.reveal(top: r.top, bottom: r.bottom)
+                return
+            }
+            node = GetParent(n)
+        }
+    }
+
+    func move(_ r: RECT) {
+        WinKit.move(viewport.hwnd, r)
+        setContentHeight(contentHeight)
+    }
+
+    func destroy() {
+        Self.areas[Int(bitPattern: content.hwnd)] = nil
+        content.destroy()
+        viewport.destroy()
+    }
+
+    private func vscroll(_ code: Int) {
+        let line = ctx.px(Self.lineDIP), page = max(line, viewportHeight - line)
+        switch code {
+        case 0: scroll(to: offset - line)  // SB_LINEUP
+        case 1: scroll(to: offset + line)  // SB_LINEDOWN
+        case 2: scroll(to: offset - page)  // SB_PAGEUP
+        case 3: scroll(to: offset + page)  // SB_PAGEDOWN
+        case 4, 5:  // SB_THUMBPOSITION, SB_THUMBTRACK: the 32-bit track position
+            if WinModalPump.depth > 0 { stats.pumpDepthDuringDrag = max(stats.pumpDepthDuringDrag, WinModalPump.depth) }
+            var si = SCROLLINFO()
+            si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
+            si.fMask = 0x0010  // SIF_TRACKPOS
+            if GetScrollInfo(viewport.hwnd, 1 /* SB_VERT */, &si) { scroll(to: si.nTrackPos) }
+        case 6: scroll(to: 0)  // SB_TOP
+        case 7: scroll(to: contentHeight)  // SB_BOTTOM
+        default: break
+        }
+    }
+
+    private static func updateBar(_ hwnd: HWND, height: Int32, page: Int32, offset: Int32) {
+        var si = SCROLLINFO()
+        si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
+        si.fMask = 0x0001 | 0x0002 | 0x0004 | 0x0008  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL
+        si.nMin = 0
+        si.nMax = max(0, height - 1)
+        si.nPage = UINT(max(1, page))
+        si.nPos = offset
+        _ = SetScrollInfo(hwnd, 1 /* SB_VERT */, &si, true)
+    }
+}
+#endif

@@ -1,0 +1,53 @@
+{
+  "labels" : {
+    "primary" : 0.8471,
+    "secondary" : 0.498,
+    "separator" : 0.098,
+    "tertiary" : 0.2588
+  },
+  "measured" : "NSFont.preferredFont(forTextStyle:) (body, callout, caption1, caption2, headline, title3) and NSFont.systemFont(ofSize: 28, weight: .bold); the weight from the font's name; label alphas of NSColor in the aqua appearance (black at that alpha)",
+  "styles" : [
+    {
+      "font" : ".SFNS-Regular",
+      "name" : "body",
+      "size" : 13,
+      "weight" : 400
+    },
+    {
+      "font" : ".SFNS-Regular",
+      "name" : "callout",
+      "size" : 12,
+      "weight" : 400
+    },
+    {
+      "font" : ".SFNS-Regular",
+      "name" : "caption",
+      "size" : 10,
+      "weight" : 400
+    },
+    {
+      "font" : ".SFNS-Medium",
+      "name" : "caption2",
+      "size" : 10,
+      "weight" : 500
+    },
+    {
+      "font" : ".SFNS-Bold",
+      "name" : "headline",
+      "size" : 13,
+      "weight" : 700
+    },
+    {
+      "font" : ".SFNS-Regular",
+      "name" : "title3",
+      "size" : 15,
+      "weight" : 400
+    },
+    {
+      "font" : ".AppleSystemUIFontBold",
+      "name" : "largeBold",
+      "size" : 28,
+      "weight" : 700
+    }
+  ]
+}
