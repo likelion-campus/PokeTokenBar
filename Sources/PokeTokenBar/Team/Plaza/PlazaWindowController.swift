@@ -120,12 +120,13 @@ import Observation
     private let minimap = PlazaMinimapModel()
     /// The panels drawn through the canvas over the scene, bottom first: the countdown/banner/hint pills (above the
     /// overlay) and the clock on the minimap. `setRendering` switches their rendering with the scene's.
-    private(set) lazy var hud = PlazaHUD(panels: [photoFramePanel, menuPanel, pillsPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
+    private(set) lazy var hud = PlazaHUD(panels: [photoFramePanel, menuPanel, pillsPanel, chatLogPanel, minimapPanel, clockPanel, shortcutsPanel, togglePanel, pickerPanel])
     private lazy var photoFramePanel = PlazaPhotoFramePanel(model: overlayModel)
     private lazy var shortcutsPanel = PlazaShortcutGuidePanel(model: shortcutModel, toggle: togglePanel)
     private lazy var togglePanel = PlazaBackgroundTogglePanel(model: backgroundModel)
     private lazy var pickerPanel = PlazaNameColorPickerPanel(model: nameColorModel, toggle: togglePanel, background: backgroundModel)
     private lazy var pillsPanel = PlazaPillsPanel(model: overlayModel)
+    private lazy var chatLogPanel = PlazaChatLogPanel(log: chatLog)
     private lazy var menuPanel = PlazaMenuPanel(model: overlayModel, pills: pillsPanel)
     private lazy var minimapPanel = PlazaMinimapPanel(model: minimap, background: backgroundModel, worldSize: map.pixelSize,
                                                       mapImage: { [unowned self] in mapImage })
@@ -502,6 +503,7 @@ import Observation
             default: break
             }
         case (.menu, "cancel"): closeOverlay()   // a click outside the menu (the old tap-outside area)
+        case (.chatLog, "toggle"): toggleChatLog()   // the log's own clicks ("log") are taken and do nothing
         case (.shortcuts, "toggle"): toggleShortcuts()
         case (.backgroundToggle, "toggle"): toggleBackground()
         case (.nameColorPicker, "toggle"): toggleNameColorPicker()

@@ -427,7 +427,7 @@ final class CanvasKeepingGraphics: PlazaGraphics, @unchecked Sendable {
         c.show()
         let o = try XCTUnwrap(shell.overlays)
         XCTAssertTrue(o.hud === c.hud)
-        XCTAssertEqual(c.hud.panels.map(\.id), [.photoFrame, .menu, .pills, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker], "bottom first")
+        XCTAssertEqual(c.hud.panels.map(\.id), [.photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker], "bottom first")
         XCTAssertTrue(c.hud.host === shell.panels, "the open window shows the panels")
         XCTAssertEqual(c.hud.renderCounts[.clock], 1, "the clock shows at once")
         await settle()

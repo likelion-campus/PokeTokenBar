@@ -227,3 +227,6 @@ PlazaDecodeGoldensMacTests.swift
 PlazaParityGoldens+Mac.swift
 # PlazaStoreSpriteParityTests+Mac: the shared sprite/icon loaders against LivePlazaSpriteFetcher, PlazaIconLoader and SpriteLoader (AppKit, ImageIO)
 PlazaStoreSpriteParityTests+Mac.swift
+# PlazaWindowRig+Mac, PlazaChatLogWindowTests+Mac: the real PlazaMacWindow (never shown) over a real controller, driven through its panel hosts (Task 17w)
+PlazaWindowRig+Mac.swift
+PlazaChatLogWindowTests+Mac.swift

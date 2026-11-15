@@ -30,7 +30,7 @@ import XCTest
 
     // MARK: geometry
 
-    func testThumbLengthIsTheWindowsShareOfTheContentWithAMinimum() {
+    func testThumbLengthIsTheWindowsShareOfTheContentWithAMinimum() async {
         let i = PlazaScrollIndicator()
         let half = i.thumb(state: state(content: 480, viewport: 240, offset: 0), offset: 0, viewport: window, scale: 2)
         XCTAssertEqual(half?.height, 120)
@@ -40,7 +40,7 @@ import XCTest
         XCTAssertEqual(half?.maxX, window.maxX - PlazaScrollIndicator.inset, "on the trailing edge, over the content")
     }
 
-    func testThumbPositionFollowsTheOffsetFromTopToBottom() {
+    func testThumbPositionFollowsTheOffsetFromTopToBottom() async {
         let i = PlazaScrollIndicator()
         let top = i.thumb(state: state(content: 480, viewport: 240, offset: 0), offset: 0, viewport: window, scale: 2)
         let middle = i.thumb(state: state(content: 480, viewport: 240, offset: 120), offset: 120, viewport: window, scale: 2)
@@ -50,7 +50,7 @@ import XCTest
         XCTAssertEqual(bottom?.maxY, window.maxY, "at the end the thumb meets the window's end")
     }
 
-    func testNoThumbWhileTheContentFits() {
+    func testNoThumbWhileTheContentFits() async {
         let i = PlazaScrollIndicator()
         XCTAssertNil(i.thumb(state: state(content: 200, viewport: 240, offset: 0), offset: 0, viewport: window, scale: 2))
         XCTAssertNil(i.thumb(state: state(content: 240, viewport: 240, offset: 0), offset: 0, viewport: window, scale: 2))
@@ -59,7 +59,7 @@ import XCTest
 
     // MARK: time
 
-    func testItAppearsOnAScrollHoldsThenFadesAndTheTimersEnd() {
+    func testItAppearsOnAScrollHoldsThenFadesAndTheTimersEnd() async {
         let t = ManualTimers()
         let i = PlazaScrollIndicator(schedule: { t.schedule($0, $1) })
         var changes = 0
@@ -82,7 +82,7 @@ import XCTest
         XCTAssertLessThanOrEqual(changes, Int((PlazaScrollIndicator.fadeSeconds / fade).rounded(.up)) + 1, "the fade is about 12 renders, not more")
     }
 
-    func testAScrollDuringTheFadeBringsItBack() {
+    func testAScrollDuringTheFadeBringsItBack() async {
         let t = ManualTimers()
         let i = PlazaScrollIndicator(schedule: { t.schedule($0, $1) })
         i.scrolled(); t.beat(hold); t.beat(fade); t.beat(fade)
@@ -92,7 +92,7 @@ import XCTest
         XCTAssertEqual(t.running, [hold], "the fade timer stopped, the pause starts over")
     }
 
-    func testAlwaysShowingStaysAndRunsNothing() {
+    func testAlwaysShowingStaysAndRunsNothing() async {
         let t = ManualTimers()
         let i = PlazaScrollIndicator(schedule: { t.schedule($0, $1) })
         i.alwaysVisible = true
@@ -106,7 +106,7 @@ import XCTest
                        "back to the overlay style: nothing until a scroll")
     }
 
-    func testTheThumbIsASolidMiddleBetweenTwoCachedEndsAndFadesWithTheOpacity() {
+    func testTheThumbIsASolidMiddleBetweenTwoCachedEndsAndFadesWithTheOpacity() async {
         let t = ManualTimers()
         let i = PlazaScrollIndicator(schedule: { t.schedule($0, $1) })
         let g = PlazaStubGraphics(log: { _ in })
@@ -130,7 +130,7 @@ import XCTest
         XCTAssertTrue(i.layers(state: s, offset: 60, viewport: window, scale: 2, graphics: g).isEmpty, "faded out: no layers")
     }
 
-    func testTheKnobIsLightInTheDarkAppearance() {
+    func testTheKnobIsLightInTheDarkAppearance() async {
         let i = PlazaScrollIndicator()
         i.alwaysVisible = true
         let g = PlazaStubGraphics(log: { _ in })

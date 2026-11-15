@@ -22,9 +22,13 @@ extension SKView: PlazaPausableView {}
     private var chatInput: PlazaChatInput?
     /// 사진 모드에서 숨기는 HUD 뷰. 판과 대화 입력창은 넣지 않는다.
     private var hudViews: [NSView] = []
-    /// 입력창이 열리면 대화 기록을 입력창 위로 올린다.
-    private var chatLogAboveInput: NSLayoutConstraint?
-    private var chatLogAtBottom: NSLayoutConstraint?
+    /// While the chat field is open the chat log sits above it (the panel's `inputHeight`); the field's frame changes (its emoji
+    /// panel opening) move the log with it.
+    private var chatLogAbove = false
+    private var chatBarObserver: (any NSObjectProtocol)?
+    /// The system's scroller style and the window's appearance, as the scrolling panels' indicators show them.
+    private var scrollerObservers: [any NSObjectProtocol] = []
+    private var appearanceObservation: NSKeyValueObservation?
     /// The open window's panel hosts and the HUD they show.
     private var panelHosts: [PlazaPanelID: PlazaPanelHostView] = [:]
     private weak var hud: PlazaHUD?
@@ -82,10 +86,9 @@ extension SKView: PlazaPausableView {}
         let pills = PlazaPanelHostView(hud: hud, panel: .pills)
         pills.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(pills)   // 판 바로 위: 안내 줄들은 판의 맨 위에 그려졌다. 입력은 받지 않는다.
-        let chatLogView = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: overlays.chatLog, toggle: overlays.toggleChatLog),
-                                                  log: overlays.chatLog)
+        let chatLogView = PlazaPanelHostView(hud: hud, panel: .chatLog)
         chatLogView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(chatLogView)   // 입력은 받지 않는다.
+        container.addSubview(chatLogView)   // 펼치기 단추와 스크롤만 받는다. 키는 받지 않는다.
         let map = PlazaPanelHostView(hud: hud, panel: .minimap)
         map.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(map)   // 입력은 받지 않는다(지도는 클릭을 받지 않는다).
@@ -104,9 +107,6 @@ extension SKView: PlazaPausableView {}
         let chatBar = chatInput.view
         chatBar.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(chatBar)   // 판 위. 열린 동안에만 입력창이 첫 응답자가 된다.
-        let chatLogAtBottom = chatLogView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16)
-        self.chatLogAtBottom = chatLogAtBottom
-        chatLogAboveInput = chatLogView.bottomAnchor.constraint(equalTo: chatBar.topAnchor, constant: -8)
         NSLayoutConstraint.activate([
             overlay.topAnchor.constraint(equalTo: container.topAnchor),
             overlay.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -115,11 +115,9 @@ extension SKView: PlazaPausableView {}
             chatBar.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
             chatBar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
             chatBar.widthAnchor.constraint(equalToConstant: PlazaChatLog.width),
-            chatLogView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            chatLogAtBottom,
         ])
         // The panel hosts cover the window; the HUD places each panel (the clock on the minimap, the guide under the toggle and the picker beside it, as their constraints did).
-        for host in [photoFrame, menu, pills, map, clock, shortcuts, toggle, colorPicker] {
+        for host in [photoFrame, menu, pills, chatLogView, map, clock, shortcuts, toggle, colorPicker] {
             NSLayoutConstraint.activate([
                 host.topAnchor.constraint(equalTo: container.topAnchor),
                 host.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -131,16 +129,21 @@ extension SKView: PlazaPausableView {}
         w.contentView = container
         w.center()
         Self.restoreFrame(w, into: overlays.rosterModel, autosaveName: autosaveName)
-        panelHosts = [.photoFrame: photoFrame, .menu: menu, .pills: pills, .minimap: map, .clock: clock, .shortcuts: shortcuts, .backgroundToggle: toggle,
+        panelHosts = [.photoFrame: photoFrame, .menu: menu, .pills: pills, .chatLog: chatLogView, .minimap: map, .clock: clock, .shortcuts: shortcuts, .backgroundToggle: toggle,
                       .nameColorPicker: colorPicker]
         self.hud = hud
         hud.setViewport(container.bounds.size, scale: w.backingScaleFactor)
+        self.chatInput = chatInput
+        chatBar.postsFrameChangedNotifications = true
+        chatBarObserver = NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: chatBar, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.placeChatLog() }
+        }
+        window = w
+        watchScrollers(w)
         hud.host = self   // renders the visible panels once
         view.presentScene((stage as! SpriteKitStage).skScene)
         w.makeFirstResponder(view)
-        self.chatInput = chatInput
         skView = view
-        window = w
     }
 
     /// 저장된 창 크기를 되살린 뒤에 목록 칸 수를 잰다. 되살리는 동안의 windowDidResize 는 `window` 가 아직 nil 이라 못 잰다.
@@ -171,6 +174,12 @@ extension SKView: PlazaPausableView {}
 
     func dismantle() {
         hudViews = []
+        if let chatBarObserver { NotificationCenter.default.removeObserver(chatBarObserver) }
+        chatBarObserver = nil
+        scrollerObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        scrollerObservers = []
+        appearanceObservation = nil
+        chatLogAbove = false
         hud?.host = nil
         hud = nil
         panelHosts = [:]
@@ -213,8 +222,35 @@ extension SKView: PlazaPausableView {}
     }
 
     func setChatLogAboveInput(_ above: Bool) {
-        chatLogAtBottom?.isActive = !above
-        chatLogAboveInput?.isActive = above
+        chatLogAbove = above
+        placeChatLog()
+    }
+
+    /// The log sits above the chat field's top (16 + the field's height + 8 from the bottom) while the field is open.
+    private func placeChatLog() {
+        guard let panel = hud?.panels.first(where: { $0.id == .chatLog }) as? PlazaChatLogPanel else { return }
+        if chatLogAbove, let bar = chatInput?.view {
+            window?.contentView?.layoutSubtreeIfNeeded()
+            panel.inputHeight = bar.frame.height
+        } else {
+            panel.inputHeight = nil
+        }
+    }
+
+    /// "Always show scroll bars" keeps the indicator on; the dark appearance makes it light. Both follow changes while open.
+    private func watchScrollers(_ w: NSWindow) {
+        func apply() {
+            let always = NSScroller.preferredScrollerStyle == .legacy
+            let dark = w.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            for case let panel as any PlazaScrollIndicating in hud?.panels ?? [] {
+                panel.scrollIndicator.alwaysVisible = always
+                panel.scrollIndicator.isDark = dark
+            }
+        }
+        apply()
+        scrollerObservers = [NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil,
+                                                                    queue: .main) { _ in MainActor.assumeIsolated { apply() } }]
+        appearanceObservation = w.observe(\.effectiveAppearance) { _, _ in MainActor.assumeIsolated { apply() } }
     }
 
     var isFrontmost: Bool { NSApp.isActive && window?.isKeyWindow == true }

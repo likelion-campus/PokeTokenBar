@@ -89,12 +89,12 @@ private struct NoSprites: PlazaSpriteFetching {
         let subs = container.subviews
         XCTAssertEqual(subs.map { String(describing: type(of: $0)) },
                        ["SKView", "PlazaRosterHostingView", "PlazaOverlayHostingView", "PlazaPanelHostView", "PlazaPanelHostView",
-                        "PlazaPanelHostView", "PlazaChatLogHostingView", "PlazaPanelHostView", "PlazaPanelHostView",
+                        "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView",
                         "PlazaPanelHostView", "PlazaPanelHostView", "PlazaPanelHostView", "NSView"],
                        "bottom first, as show() added them; the photo frame's, the menu's and the pills' hosts right above the overlay, the minimap's, the clock's, the guide's, the toggle's and the picker's hosts where their hosting views were")
         guard subs.count == 13 else { return }
         XCTAssertEqual(subs.compactMap { ($0 as? PlazaPanelHostView)?.panelID },
-                       [.photoFrame, .menu, .pills, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+                       [.photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
         XCTAssertTrue(subs[12] === chat.view, "the chat field's bar is on top")
         for v in subs.dropFirst() { XCTAssertFalse(v.translatesAutoresizingMaskIntoConstraints) }
         let named = ["roster", "overlay", "photoFrame", "menu", "pills", "chatLog", "map", "clock", "shortcuts", "toggle", "colorPicker", "chatBar"]
@@ -105,13 +105,13 @@ private struct NoSprites: PlazaSpriteFetching {
             return (all.filter { $0.contains(" + ") }.sorted(), Set(all.filter { !$0.contains(" + ") }))
         }
         let m = String(format: "%g", PlazaRosterMetrics.margin)
-        let atBottom = "chatLog.bottom = container.bottom + -16", aboveInput = "chatLog.bottom = chatBar.top + -8"
         let expected = [
             "roster.top = container.top + \(m)", "roster.trailing = container.trailing + -\(m)",
             "overlay.top = container.top + 0", "overlay.bottom = container.bottom + 0",
             "overlay.leading = container.leading + 0", "overlay.trailing = container.trailing + 0",
             "chatBar.bottom = container.bottom + -16", "chatBar.leading = container.leading + 16",
-            "chatLog.leading = container.leading + 16", atBottom,
+            "chatLog.top = container.top + 0", "chatLog.bottom = container.bottom + 0",
+            "chatLog.leading = container.leading + 0", "chatLog.trailing = container.trailing + 0",
             // The panel hosts cover the window; the HUD places the clock on the minimap (PlazaHUDTests).
             "pills.top = container.top + 0", "pills.bottom = container.bottom + 0",
             "pills.leading = container.leading + 0", "pills.trailing = container.trailing + 0",
@@ -136,9 +136,9 @@ private struct NoSprites: PlazaSpriteFetching {
                                                       "chatBar.width = \(String(format: "%g", PlazaChatLog.width))"]),
                       "\(installed().own)")
 
+        // The chat log is a panel now: above the field is the panel's offset, not a constraint (no constraint changes at all).
         shell.setChatLogAboveInput(true)
-        XCTAssertTrue(installed().between.contains(aboveInput))
-        XCTAssertFalse(installed().between.contains(atBottom))
+        XCTAssertEqual(installed().between, expected.sorted())
         shell.setChatLogAboveInput(false)
         XCTAssertEqual(installed().between, expected.sorted())
 
@@ -232,7 +232,6 @@ private struct NoSprites: PlazaSpriteFetching {
         guard subs.count == 13 else { return XCTFail("\(subs)") }
         let roster = try XCTUnwrap(subs[1] as? PlazaRosterHostingView)
         let overlay = try XCTUnwrap(subs[2] as? PlazaOverlayHostingView)
-        let chatLog = try XCTUnwrap(subs[6] as? PlazaChatLogHostingView)
         func state() -> [Bool] { [c.isChatLogExpanded, c.areShortcutsFolded, c.isBackgroundHidden, c.isNameColorPickerOpen] }
         func click(_ index: Int, _ id: PlazaPanelID, _ point: (CGRect) -> CGPoint) throws {
             // A click on the panel's host view: the HUD's frame for the panel, the point in it, down and up through the host.
@@ -250,7 +249,9 @@ private struct NoSprites: PlazaSpriteFetching {
             }
         }
         XCTAssertEqual(state(), [false, false, false, false])
-        chatLog.rootView.toggle()
+        _ = c.chatInputForTesting.onSubmit?("안녕")   // a line in the log: nothing shows (or takes clicks) while it is empty
+        for _ in 0..<20 { await Task.yield() }
+        try click(6, .chatLog, { CGPoint(x: $0.maxX - 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, false, false, false], "the chat log's button expands the log")
         try click(9, .shortcuts, { CGPoint(x: $0.minX + 20, y: $0.minY + 14) })
         XCTAssertEqual(state(), [true, true, false, false], "the guide's header folds the guide")

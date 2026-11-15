@@ -340,10 +340,10 @@ import CoreText
         XCTAssertEqual(pills, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 3, "above the menu's host and the photo frame's, which are right above the overlay")
         XCTAssertEqual(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .menu }, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 2)
         XCTAssertEqual(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .photoFrame }, try XCTUnwrap(index(PlazaOverlayHostingView.self)) + 1)
-        XCTAssertLessThan(pills, try XCTUnwrap(index(PlazaChatLogHostingView.self)), "below the chat log")
+        XCTAssertLessThan(pills, try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .chatLog }), "below the chat log")
         let minimap = try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .minimap })
         XCTAssertEqual(clock, minimap + 1, "right above the minimap")
-        XCTAssertGreaterThan(minimap, try XCTUnwrap(index(PlazaChatLogHostingView.self)), "the minimap is above the chat log")
+        XCTAssertGreaterThan(minimap, try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .chatLog }), "the minimap is above the chat log")
         XCTAssertLessThan(clock, try XCTUnwrap(subs.firstIndex { ($0 as? PlazaPanelHostView)?.panelID == .shortcuts }))
         XCTAssertTrue(c.hud.host === shell, "the window shows the controller's panels")
         XCTAssertEqual(c.hud.renderCounts[.clock], 1, "the clock is drawn once on opening")
@@ -389,7 +389,7 @@ import CoreText
         let container = try XCTUnwrap(shell.windowForTesting?.contentView)
         container.layoutSubtreeIfNeeded()
         let hosts = container.subviews.compactMap { $0 as? PlazaPanelHostView }
-        XCTAssertEqual(hosts.map(\.panelID), [.photoFrame, .menu, .pills, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
+        XCTAssertEqual(hosts.map(\.panelID), [.photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker])
         let clock = try XCTUnwrap(c.hud.panels.first { $0.id == .clock } as? PlazaClockPanel)
         for host in hosts {
             XCTAssertEqual(host.intrinsicContentSize, NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric))
@@ -406,6 +406,9 @@ import CoreText
             if c.isNameColorPickerOpen != (i % 3 == 0) { c.toggleNameColorPicker() }
             if c.isBackgroundHidden != (i % 2 == 0) { c.toggleBackground() }
             overlays.overlayModel.isPhotoMode = i % 4 == 1
+            // Task 17w: the chat log grows with lines (wrapped to more rows), folds and unfolds.
+            overlays.chatLog.append(time: Date(), name: "나", text: String(repeating: "길게 ", count: i * 8), color: PlazaNameColor.palette[0])
+            if c.isChatLogExpanded != (i % 2 == 1) { c.toggleChatLog() }
             // Task 16: the menu opens (180 wide, then wider for a long status) and closes; the minimap's marks move.
             var menu = PlazaMemberMenu(memberID: "m", nickname: "민수", actions: [.greet, .tackle])
             if i % 3 == 1 { menu.status = L(.ko).plazaFocusStatus(seconds: 7 * 3600 + 43 * 60) }
@@ -422,6 +425,7 @@ import CoreText
         XCTAssertEqual(sizes[.shortcuts]?.count, 2, "the guide really folded and unfolded")
         XCTAssertEqual(sizes[.nameColorPicker]?.count, 2, "the picker really opened and closed")
         XCTAssertEqual(sizes[.backgroundToggle]?.count, 2, "the toggle really changed size")
+        XCTAssertGreaterThanOrEqual(sizes[.chatLog]?.count ?? 0, 4, "the chat log really grew and folded")
         XCTAssertNotNil(sizes[.photoFrame], "the photo frame really came")
         XCTAssertNotNil(sizes[.menu], "the menu really came")
         for (i, host) in hosts.enumerated() {

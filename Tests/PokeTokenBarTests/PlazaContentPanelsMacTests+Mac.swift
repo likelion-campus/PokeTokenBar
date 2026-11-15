@@ -56,6 +56,7 @@ import SwiftUI
         let model = PlazaOverlayModel()
         model.content = .card(.loaded(m, TeamMemberProfile(memberID: "m", nickname: "", current: m.character, dex: dex)))
         let panel = PlazaCardPanel(model: model)
+        panel.scrollIndicator.isDisabled = true   // these tests count renders; the indicator's fade has its own
         let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: 2)
         await flush()
         let f = try XCTUnwrap(a.frame)
@@ -80,6 +81,7 @@ import SwiftUI
         let model = PlazaOverlayModel()
         model.content = .board
         let panel = PlazaBoardPanel(model: model, feed: feed, myMemberID: "me")
+        panel.scrollIndicator.isDisabled = true   // these tests count renders; the indicator's fade has its own
         let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: 2)
         await flush()
         let announced = a.host.accessibilityChangesForTesting
@@ -270,6 +272,7 @@ import SwiftUI
         model.content = .board
         let t0 = clock.now
         let panel = PlazaBoardPanel(model: model, feed: feed, myMemberID: "me")
+        panel.scrollIndicator.isDisabled = true   // these tests count renders; the indicator's fade has its own
         let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: 2)
         print("COST board cold open (60 events: wrap all, draw the rows in view, host): \(String(format: "%.1f", ms(t0.duration(to: clock.now)))) ms")
         await flush()
@@ -303,6 +306,7 @@ import SwiftUI
         cardModel.content = .card(.loaded(m, TeamMemberProfile(memberID: "m", nickname: "", current: m.character, dex: dex)))
         let c0 = clock.now
         let card = PlazaCardPanel(model: cardModel)
+        card.scrollIndicator.isDisabled = true   // these tests count renders; the indicator's fade has its own
         let b = Rig.After(card, viewport: CGSize(width: 960, height: 640), scale: 2)
         print("COST card cold open (120 species: header, activity, the rows in view, host): \(String(format: "%.1f", ms(c0.duration(to: clock.now)))) ms")
         await flush()
