@@ -79,7 +79,7 @@ final class WindowsAppUserModelIDScanTests: XCTestCase {
         let start = try XCTUnwrap(swift.range(of: marker)).upperBound
         let id = String(swift[start...].prefix { $0 != "\"" })
         XCTAssertFalse(id.isEmpty)
-        let shortcuts = iss.split(separator: "\n").filter { $0.hasPrefix("Name: \"{user") }
+        let shortcuts = iss.components(separatedBy: .newlines).filter { $0.hasPrefix("Name: \"{user") }  // .newlines: a Windows checkout has CRLF
         XCTAssertFalse(shortcuts.isEmpty)
         for line in shortcuts { XCTAssertTrue(line.contains("AppUserModelID: \"\(id)\""), "\(line)") }
     }

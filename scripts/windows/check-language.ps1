@@ -48,15 +48,27 @@ try {
         $real = Probe 'korean-hkcu'
         Write-Host "INFO real GetUserPreferredUILanguages after HKCU PreferredUILanguages=ko-KR: $($real['GetUserPreferredUILanguages']); GetUserDefaultLocaleName=$($real['GetUserDefaultLocaleName']); corelibs Locale.preferredLanguages=$($real['Locale.preferredLanguages']) Locale.current=$($real['Locale.current'])"
     } catch { Write-Host "INFO could not set the HKCU language values: $_" }
-    # 2b. diagnostics: the time-zone calls the app makes at launch, one by one (the last "start" line names a crash)
-    $hunt = Join-Path (Resolve-Path $OutDir).Path 'tz-hunt.txt'
-    $hp = Start-Process -FilePath $Exe -ArgumentList @('--tz-hunt', $hunt) -PassThru; $null = $hp.Handle
-    if (-not $hp.WaitForExit(60000)) { Stop-Process -Id $hp.Id -Force }
-    Write-Host "---- tz-hunt (exit $($hp.ExitCode))"; if (Test-Path $hunt) { Get-Content $hunt | ForEach-Object { Write-Host "  $_" } }
-    Check 'timezone.hunt' ($hp.ExitCode -eq 0) "exit $($hp.ExitCode); last line: $((Get-Content $hunt | Select-Object -Last 1))"
+    # 2b. diagnostics: which time-zone calls trap in this build, one by one. Each crash is recorded and the run restarted past it.
+    function Hunt([string]$label) {
+        $hunt = Join-Path (Resolve-Path $OutDir).Path "tz-hunt-$label.txt"
+        $from = 0; $crashes = @()
+        for ($round = 0; $round -lt 20; $round++) {
+            $hp = Start-Process -FilePath $Exe -ArgumentList @('--tz-hunt', $hunt, '--from', "$from") -PassThru; $null = $hp.Handle
+            if (-not $hp.WaitForExit(60000)) { Stop-Process -Id $hp.Id -Force }
+            $last = (Get-Content $hunt | Where-Object { $_ -like 'start *' } | Select-Object -Last 1)
+            if ($hp.ExitCode -eq 0) { break }
+            $crashes += "$last (exit $($hp.ExitCode))"
+            $from = [int]($last -split ' ')[1] + 1
+        }
+        Write-Host "---- tz-hunt $label"; Get-Content $hunt | ForEach-Object { Write-Host "  $_" }
+        Write-Host "HUNT $label crashes: $(if ($crashes) { $crashes -join ' | ' } else { 'none' })"
+        $crashes
+    }
+    $null = Hunt 'utc'
     # 3. time zone: the day boundary follows TimeZone.current
     & tzutil /s 'Korea Standard Time'
     $tz = Probe 'korea-tz'
+    $null = Hunt 'seoul'
     Check 'timezone.seoul' ($tz['TimeZone.current'] -eq 'Asia/Seoul' -and $tz['TimeZone.current.offsetMinutes'] -eq '540' -and $tz['env TZ (published)'] -like 'Asia/Seoul*') "TimeZone.current=$($tz['TimeZone.current']) offset=$($tz['TimeZone.current.offsetMinutes']) Win32 key=$($tz['Win32 TimeZoneKeyName'])"
 } finally {
     if ($oldUi) { Set-ItemProperty $desktop PreferredUILanguages ([string[]]$oldUi) -Type MultiString } else { Remove-ItemProperty $desktop PreferredUILanguages -ErrorAction SilentlyContinue }

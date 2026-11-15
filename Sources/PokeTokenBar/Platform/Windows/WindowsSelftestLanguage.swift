@@ -97,43 +97,53 @@ enum WindowsSelftestLanguage {
         WindowsApp.exit(0, .helper)
     }
 
-    /// `--tz-hunt <out>`: runs, one at a time and each logged BEFORE it runs, the time-zone-dependent calls the app makes at
-    /// launch, with the zone published as the app does. The last line of `<out>` after a crash names the call.
+    /// `--tz-hunt <out> [--from N]`: runs, one at a time and each logged BEFORE it runs, the time-zone-dependent calls the
+    /// app makes (and DateFormatter with several zone spellings), skipping the first N. The last "start" line of `<out>`
+    /// after a crash names the call; the CI script restarts with `--from` past it until every step ran.
     @MainActor static func runTimeZoneHunt(_ args: [String]) -> Never {
         guard let i = args.firstIndex(of: "--tz-hunt"), i + 1 < args.count else { WindowsApp.exit(2, .helper) }
         let url = URL(fileURLWithPath: args[i + 1])
-        _ = FileManager.default.createFile(atPath: url.path, contents: nil)
-        func step(_ name: String, _ body: () -> String) {
-            if let h = try? FileHandle(forWritingTo: url) {
-                _ = try? h.seekToEnd(); try? h.write(contentsOf: Data("start \(name)\n".utf8)); try? h.close()
-            }
-            let result = body()
-            if let h = try? FileHandle(forWritingTo: url) {
-                _ = try? h.seekToEnd(); try? h.write(contentsOf: Data("done  \(name): \(result)\n".utf8)); try? h.close()
-            }
+        let from = args.firstIndex(of: "--from").flatMap { $0 + 1 < args.count ? Int(args[$0 + 1]) : nil } ?? 0
+        if from == 0 { _ = FileManager.default.createFile(atPath: url.path, contents: nil) }
+        func formatted(_ zone: TimeZone?) -> String {
+            guard let zone else { return "no such zone" }
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"; f.timeZone = zone; f.locale = Locale(identifier: "en_US_POSIX")
+            return f.string(from: Date(timeIntervalSince1970: 1_800_000_000))
         }
-        step("TimeZone.current") { "\(TimeZone.current.identifier) \(TimeZone.current.secondsFromGMT())" }
-        step("Calendar.current.startOfDay") { "\(Calendar.current.startOfDay(for: Date()))" }
-        step("Calendar.current.timeZone") { Calendar.current.timeZone.identifier }
-        step("NSTimeZone.default") { NSTimeZone.default.identifier }
-        step("DateFormatter(current tz).string") {
-            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current; f.locale = Locale(identifier: "en_US_POSIX")
-            return f.string(from: Date())
-        }
-        step("LocalUsageReader.todayKey") { LocalUsageReader.todayKey() }
-        step("LocalUsageReader.startOfMonth") { "\(LocalUsageReader.startOfMonth(Date()))" }
-        step("ISO8601DateFormatter") { ISO8601DateFormatter().string(from: Date()) }
-        step("DayBoundary.nextLocalMidnight") { "\(DayBoundary.nextLocalMidnight(after: Date(), calendar: .current))" }
-        step("WindowsSystemEvents") { let e = WindowsSystemEvents(window: nil); e.shutdown(); return "ok" }
         let suite = "ptb.selftest.tzhunt.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
-        step("UsageStore.init") { _ = UsageStore(defaults: defaults); return "ok" }
-        step("CompanionStore.init") {
-            _ = CompanionStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("ptb-tzhunt-\(UUID().uuidString).json"), defaults: defaults)
-            return "ok"
+        let steps: [(String, () -> String)] = [
+            ("TimeZone.current", { "\(TimeZone.current.identifier) \(TimeZone.current.secondsFromGMT())" }),
+            ("Calendar.current.startOfDay", { "\(Calendar.current.startOfDay(for: Date()))" }),
+            ("DateFormatter GMT", { formatted(TimeZone(identifier: "GMT")) }),
+            ("DateFormatter GMT+0900", { formatted(TimeZone(identifier: "GMT+0900")) }),
+            ("DateFormatter secondsFromGMT 32400", { formatted(TimeZone(secondsFromGMT: 32400)) }),
+            ("DateFormatter Asia/Seoul", { formatted(TimeZone(identifier: "Asia/Seoul")) }),
+            ("DateFormatter Etc/UTC", { formatted(TimeZone(identifier: "Etc/UTC")) }),
+            ("DateFormatter UTC", { formatted(TimeZone(identifier: "UTC")) }),
+            ("DateFormatter TimeZone.current", { formatted(.current) }),
+            ("LocalUsageReader.todayKey", { LocalUsageReader.todayKey() }),
+            ("LocalUsageReader.startOfMonth", { "\(LocalUsageReader.startOfMonth(Date()))" }),
+            ("ISO8601DateFormatter", { ISO8601DateFormatter().string(from: Date()) }),
+            ("DayBoundary.nextLocalMidnight", { "\(DayBoundary.nextLocalMidnight(after: Date(), calendar: .current))" }),
+            ("WindowsSystemEvents", { let e = WindowsSystemEvents(window: nil); e.shutdown(); return "ok" }),
+            ("UsageStore.init", { _ = UsageStore(defaults: defaults); return "ok" }),
+            ("CompanionStore.init", {
+                _ = CompanionStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("ptb-tzhunt-\(UUID().uuidString).json"), defaults: defaults)
+                return "ok"
+            }),
+        ]
+        func append(_ text: String) {
+            if let h = try? FileHandle(forWritingTo: url) { _ = try? h.seekToEnd(); try? h.write(contentsOf: Data((text + "\n").utf8)); try? h.close() }
+        }
+        if from == 0 { append("steps=\(steps.count)") }
+        for (n, step) in steps.enumerated() where n >= from {
+            append("start \(n) \(step.0)")
+            let result = step.1()
+            append("done  \(n) \(step.0): \(result)")
         }
         defaults.removePersistentDomain(forName: suite)
-        step("end") { "all done" }
+        append("end")
         WindowsApp.exit(0, .helper)
     }
 }
