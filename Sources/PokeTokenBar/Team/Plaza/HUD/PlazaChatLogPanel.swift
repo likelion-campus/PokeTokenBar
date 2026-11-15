@@ -98,10 +98,10 @@ enum PlazaChatLogStyle {
         }
     }
 
-    private struct LayoutKey: Equatable { let observed: Observed, scale: CGFloat, engine: String }
+    private struct LayoutKey: Equatable { let observed: Observed, scale: CGFloat, engine: String, reserved: CGFloat }
     private var laidOut: (key: LayoutKey, layout: Layout)?
     /// The wrapping of each line (the costly part, TextKit on the Mac), kept while its line is in the log.
-    private var wrapped: (engine: String, lines: [Int: [PlazaTextLine]]) = ("", [:])
+    private var wrapped: (engine: String, width: CGFloat, lines: [Int: [PlazaTextLine]]) = ("", 0, [:])
 
     static func runs(_ line: PlazaChatLog.Line) -> [PlazaTextRun] {
         let font = PlazaChatLogStyle.rowFont
@@ -114,28 +114,36 @@ enum PlazaChatLogStyle {
 
     func layout(scale: CGFloat, text: any PlazaTextEngine) -> Layout {
         let engine = String(describing: type(of: text))
-        let key = LayoutKey(observed: observed, scale: scale, engine: engine)
+        let key = LayoutKey(observed: observed, scale: scale, engine: engine, reserved: scrollIndicator.reservedWidth)
         if let laidOut, laidOut.key == key { return laidOut.layout }
         let small = text.metrics(PlazaChatLogStyle.headerFont), body = text.metrics(PlazaChatLogStyle.rowFont)
         let headerHeight = (small.ascender - small.descender).rounded(), lineHeight = (body.ascender - body.descender).rounded()
         let l = L(.ko)
         let expanded = log.isExpanded
         let shown = expanded ? log.lines : log.visible
-        if wrapped.engine != engine { wrapped = (engine, [:]) }
-        var keep: [Int: [PlazaTextLine]] = [:]
-        var rows: [Row] = []
-        var y: CGFloat = 0
-        for line in shown {
-            if !rows.isEmpty { y += PlazaChatLogStyle.rowGap }
-            let runs = Self.runs(line)
-            let lines = wrapped.lines[line.id] ?? text.wrappedLines(runs, width: Layout.innerWidth)
-            keep[line.id] = lines
-            let height = CGFloat(lines.count) * lineHeight
-            rows.append(Row(id: line.id, lines: lines, baselines: lines.indices.map { CGFloat($0) * lineHeight + body.ascender },
-                            frame: CGRect(x: 0, y: y, width: Layout.innerWidth, height: height), label: runs.map(\.text).joined()))
-            y += height
+        func build(width: CGFloat) -> (rows: [Row], height: CGFloat) {
+            if wrapped.engine != engine || wrapped.width != width { wrapped = (engine, width, [:]) }
+            var keep: [Int: [PlazaTextLine]] = [:]
+            var rows: [Row] = []
+            var y: CGFloat = 0
+            for line in shown {
+                if !rows.isEmpty { y += PlazaChatLogStyle.rowGap }
+                let runs = Self.runs(line)
+                let lines = wrapped.lines[line.id] ?? text.wrappedLines(runs, width: width)
+                keep[line.id] = lines
+                let height = CGFloat(lines.count) * lineHeight
+                rows.append(Row(id: line.id, lines: lines, baselines: lines.indices.map { CGFloat($0) * lineHeight + body.ascender },
+                                frame: CGRect(x: 0, y: y, width: width, height: height), label: runs.map(\.text).joined()))
+                y += height
+            }
+            wrapped.lines = keep
+            return (rows, y)
         }
-        wrapped.lines = keep
+        // "Always show scroll bars": the legacy scroller takes its width from the scrolling window when the lines overflow it (as the SwiftUI
+        // `ScrollView` did: the lines wrap narrower).
+        var built = build(width: Layout.innerWidth)
+        if expanded, scrollIndicator.reservedWidth > 0, built.height > PlazaChatLog.expandedHeight { built = build(width: Layout.innerWidth - scrollIndicator.reservedWidth) }
+        let rows = built.rows, y = built.height
         let bodyHeight = expanded ? PlazaChatLog.expandedHeight : y
         let button = text.line(expanded ? l.plazaChatLogCollapse : l.plazaChatLogExpand, font: PlazaChatLogStyle.headerFont)
         let bodyTop = PlazaChatLogStyle.padding.height + headerHeight + PlazaChatLogStyle.headerGap

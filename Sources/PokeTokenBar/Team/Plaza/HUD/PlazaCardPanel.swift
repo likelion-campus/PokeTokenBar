@@ -347,8 +347,10 @@ enum PlazaCardStyle {
         guard !l.dex.isEmpty else { return PlazaPanelDrawing(layers: layers, accessibility: items, tooltips: tips) }
         let offset = PlazaPanelStyle.pixel(scrollState.offset, scale: scale)
         drawnOffset = offset
-        let gridX = PlazaPanelStyle.pixel((lower.width - s.gridWidth) / 2, scale: scale)
-        let imageKey = "\(scale) \(String(describing: type(of: text))) \(isDark)"
+        // "Always show scroll bars": the legacy scroller takes its width from the dex window when the grid overflows it; the grid centres in the rest.
+        let reserve = scrollState.canScroll ? scrollIndicator.reservedWidth : 0
+        let gridX = PlazaPanelStyle.pixel((lower.width - reserve - s.gridWidth) / 2, scale: scale)
+        let imageKey = "\(scale) \(String(describing: type(of: text))) \(isDark) \(reserve)"
         if rowImageKey != imageKey { rowImageKey = imageKey; rowImages = [:] }
         var kept: [String: PlazaImage] = [:]
         let frames = l.rowFrames

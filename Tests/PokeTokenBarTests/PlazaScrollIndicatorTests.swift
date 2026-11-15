@@ -100,7 +100,7 @@ import XCTest
         XCTAssertTrue(t.running.isEmpty)
         let g = PlazaStubGraphics(log: { _ in })
         let layers = i.layers(state: state(content: 480, viewport: 240, offset: 0), offset: 0, viewport: window, scale: 2, graphics: g)
-        XCTAssertEqual(layers.count, 3, "two ends and a middle")
+        XCTAssertEqual(layers.count, 7, "the legacy track (strip and its line), two ends and a middle of an edge, the knob and an edge")
         i.alwaysVisible = false
         XCTAssertEqual(i.layers(state: state(content: 480, viewport: 240, offset: 0), offset: 0, viewport: window, scale: 2, graphics: g).count, 0,
                        "back to the overlay style: nothing until a scroll")
@@ -113,18 +113,19 @@ import XCTest
         i.scrolled()
         let s = state(content: 480, viewport: 240, offset: 60)
         let full = i.layers(state: s, offset: 60, viewport: window, scale: 2, graphics: g)
-        guard full.count == 3, case .image(let topA, let topFrame) = full[0], case .color(let tint, let mid) = full[1], case .image(let bottomA, let bottomFrame) = full[2] else {
+        guard full.count == 5, case .image(let topA, let topFrame) = full[0], case .color(_, let edgeFrame) = full[1], case .color(let tint, let mid) = full[2], case .image(let bottomA, let bottomFrame) = full[4] else {
             return XCTFail("expected end, middle, end: \(full)")
         }
-        XCTAssertEqual(topFrame.maxY, mid.minY)
+        XCTAssertEqual(topFrame.maxY, edgeFrame.minY)
+        XCTAssertEqual(mid.minX, edgeFrame.maxX, "the knob sits inside its edge")
         XCTAssertEqual(mid.maxY, bottomFrame.minY)
         XCTAssertEqual(tint.alpha, PlazaScrollIndicator.strength, accuracy: 0.001)
         let again = i.layers(state: s, offset: 60, viewport: window, scale: 2, graphics: g)
-        guard case .image(let topB, _) = again[0], case .image(let bottomB, _) = again[2] else { return XCTFail() }
+        guard case .image(let topB, _) = again[0], case .image(let bottomB, _) = again[4] else { return XCTFail() }
         XCTAssertTrue(topA === topB && bottomA === bottomB, "a scroll step reuses the cached ends (no bitmap per step)")
         t.beat(hold); t.beat(fade); t.beat(fade); t.beat(fade)
         let faded = i.layers(state: s, offset: 60, viewport: window, scale: 2, graphics: g)
-        guard case .color(let dim, _) = faded[1] else { return XCTFail() }
+        guard case .color(let dim, _) = faded[2] else { return XCTFail() }
         XCTAssertLessThan(dim.alpha, tint.alpha)
         for _ in 0..<20 { t.beat(fade) }
         XCTAssertTrue(i.layers(state: s, offset: 60, viewport: window, scale: 2, graphics: g).isEmpty, "faded out: no layers")
@@ -135,9 +136,9 @@ import XCTest
         i.alwaysVisible = true
         let g = PlazaStubGraphics(log: { _ in })
         let s = state(content: 480, viewport: 240, offset: 0)
-        guard case .color(let dark, _) = i.layers(state: s, offset: 0, viewport: window, scale: 1, graphics: g)[1] else { return XCTFail() }
+        guard case .color(let dark, _) = i.layers(state: s, offset: 0, viewport: window, scale: 1, graphics: g)[4] else { return XCTFail() }
         i.isDark = true
-        guard case .color(let light, _) = i.layers(state: s, offset: 0, viewport: window, scale: 1, graphics: g)[1] else { return XCTFail() }
+        guard case .color(let light, _) = i.layers(state: s, offset: 0, viewport: window, scale: 1, graphics: g)[4] else { return XCTFail() }
         XCTAssertEqual(dark.red, 0); XCTAssertEqual(light.red, 1)
     }
 
@@ -151,11 +152,11 @@ import XCTest
         let g = PlazaStubGraphics(log: { _ in })
         let size = CGSize(width: 960, height: 640)
         func thumbLayers() -> Int { panel.render(scale: 2, viewport: size, graphics: g).layers.filter { if case .color = $0 { true } else { false } }.count }
-        XCTAssertEqual(thumbLayers(), 1, "opening scrolls to the end: the scroller flashes, as SwiftUI's did")
+        XCTAssertEqual(thumbLayers(), 3, "opening scrolls to the end: the scroller flashes, as SwiftUI's did")
         panel.scrollIndicator.reset()
         XCTAssertEqual(thumbLayers(), 0, "after the fade nothing shows")
         panel.scrollIndicator.alwaysVisible = true
-        XCTAssertEqual(thumbLayers(), 1, "always show scroll bars: it stays")
+        XCTAssertEqual(thumbLayers(), 5, "always show scroll bars: it stays")
         log.isExpanded = false
         XCTAssertEqual(thumbLayers(), 0, "a folded log fits: no thumb")
     }

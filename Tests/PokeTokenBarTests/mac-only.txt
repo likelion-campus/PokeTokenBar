@@ -236,3 +236,4 @@ PlazaFirstMouseTests+Mac.swift
 PlazaHiddenPanelsTests+Mac.swift
 PlazaOverlayCoverTests+Mac.swift
 PlazaPanelCostTests+Mac.swift
+PlazaLegacyScrollerTests+Mac.swift

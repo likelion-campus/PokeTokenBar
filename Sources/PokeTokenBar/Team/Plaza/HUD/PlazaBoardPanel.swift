@@ -95,56 +95,63 @@ enum PlazaBoardStyle {
         let bodyHeight: CGFloat, smallHeight: CGFloat
     }
 
-    private struct LayoutKey: Equatable { let revision: Int, scale: CGFloat, engine: String }
+    private struct LayoutKey: Equatable { let revision: Int, scale: CGFloat, engine: String, reserved: CGFloat }
     private var laidOut: (key: LayoutKey, layout: Layout)?
 
     func layout(scale: CGFloat, text: any PlazaTextEngine) -> Layout {
         let engine = String(describing: type(of: text))
-        let key = LayoutKey(revision: feed.revision, scale: scale, engine: engine)
+        let key = LayoutKey(revision: feed.revision, scale: scale, engine: engine, reserved: scrollIndicator.reservedWidth)
         if let laidOut, laidOut.key == key { return laidOut.layout }
         let rows = currentRows()
         let s = PlazaBoardStyle.self
         let l = L(.ko)
         let body = text.metrics(s.body), small = text.metrics(s.small)
         let bodyH = (body.ascender - body.descender).rounded(), smallH = (small.ascender - small.descender).rounded()
-        let inner = s.list.width - 2 * s.rowPadding
-        var placed: [Row] = []
-        var y: CGFloat = 0
-        for (n, row) in rows.enumerated() {
-            if n > 0 { y += s.rowGap }
-            let lines = text.wrappedLines((row.isShiny ? "★ " : "") + row.text, font: s.body, width: inner)
-            let date = text.line(row.date, font: s.small)
-            var cursor = s.rowPadding
-            let textTop = cursor
-            cursor += CGFloat(lines.count) * bodyH + s.lineGap
-            let dateTop = cursor
-            cursor += smallH
-            var reactionLines: [[PlazaTextLine]] = []
-            let reactionTop = cursor + s.lineGap
-            if !row.reactions.isEmpty {
-                cursor += s.lineGap
-                for (i, r) in row.reactions.enumerated() {
-                    if i > 0 { cursor += s.reactionGap }
-                    let wrapped = text.wrappedLines(l.teamReactionLabel(r.kind) + " " + r.nicknames.joined(separator: ", "), font: s.small, width: inner)
-                    reactionLines.append(wrapped)
-                    cursor += CGFloat(wrapped.count) * smallH
+        func build(reserve: CGFloat) -> (placed: [Row], height: CGFloat) {
+            let inner = s.list.width - reserve - 2 * s.rowPadding
+            var placed: [Row] = []
+            var y: CGFloat = 0
+            for (n, row) in rows.enumerated() {
+                if n > 0 { y += s.rowGap }
+                let lines = text.wrappedLines((row.isShiny ? "★ " : "") + row.text, font: s.body, width: inner)
+                let date = text.line(row.date, font: s.small)
+                var cursor = s.rowPadding
+                let textTop = cursor
+                cursor += CGFloat(lines.count) * bodyH + s.lineGap
+                let dateTop = cursor
+                cursor += smallH
+                var reactionLines: [[PlazaTextLine]] = []
+                let reactionTop = cursor + s.lineGap
+                if !row.reactions.isEmpty {
+                    cursor += s.lineGap
+                    for (i, r) in row.reactions.enumerated() {
+                        if i > 0 { cursor += s.reactionGap }
+                        let wrapped = text.wrappedLines(l.teamReactionLabel(r.kind) + " " + r.nicknames.joined(separator: ", "), font: s.small, width: inner)
+                        reactionLines.append(wrapped)
+                        cursor += CGFloat(wrapped.count) * smallH
+                    }
                 }
+                cursor += s.lineGap
+                var buttons: [(TeamReactionKind, PlazaTextLine, CGRect)] = []
+                var x = s.rowPadding
+                for kind in PlazaBoardRow.buttonKinds {
+                    let line = text.line(l.teamReactionLabel(kind), font: s.small)
+                    let width = max(s.buttonMinWidth, PlazaPanelStyle.pixelUp(line.width, scale: scale))
+                    buttons.append((kind, line, CGRect(x: x, y: cursor, width: width, height: smallH + 2 * s.buttonPadding)))
+                    x += width + s.buttonGap
+                }
+                cursor += smallH + 2 * s.buttonPadding + s.rowPadding
+                let label = ([lines.isEmpty ? "" : (row.isShiny ? "★ " : "") + row.text, row.date]).joined(separator: ", ")
+                placed.append(Row(row: row, frame: CGRect(x: 0, y: y, width: s.list.width - reserve, height: cursor), text: lines, date: date, reactions: reactionLines,
+                                  buttons: buttons.map { ($0.0, $0.1, $0.2) }, textTop: textTop, dateTop: dateTop, reactionTop: reactionTop, label: label))
+                y += cursor
             }
-            cursor += s.lineGap
-            var buttons: [(TeamReactionKind, PlazaTextLine, CGRect)] = []
-            var x = s.rowPadding
-            for kind in PlazaBoardRow.buttonKinds {
-                let line = text.line(l.teamReactionLabel(kind), font: s.small)
-                let width = max(s.buttonMinWidth, PlazaPanelStyle.pixelUp(line.width, scale: scale))
-                buttons.append((kind, line, CGRect(x: x, y: cursor, width: width, height: smallH + 2 * s.buttonPadding)))
-                x += width + s.buttonGap
-            }
-            cursor += smallH + 2 * s.buttonPadding + s.rowPadding
-            let label = ([lines.isEmpty ? "" : (row.isShiny ? "★ " : "") + row.text, row.date]).joined(separator: ", ")
-            placed.append(Row(row: row, frame: CGRect(x: 0, y: y, width: s.list.width, height: cursor), text: lines, date: date, reactions: reactionLines,
-                              buttons: buttons.map { ($0.0, $0.1, $0.2) }, textTop: textTop, dateTop: dateTop, reactionTop: reactionTop, label: label))
-            y += cursor
+            return (placed, y)
         }
+        // "Always show scroll bars": the legacy scroller takes its width from the list when the notes overflow it, so they wrap narrower.
+        var built = build(reserve: 0)
+        if scrollIndicator.reservedWidth > 0, built.height > s.list.height { built = build(reserve: scrollIndicator.reservedWidth) }
+        let placed = built.placed, y = built.height
         let result = Layout(title: text.line(l.plazaBoardTitle, font: s.body), empty: text.line(l.plazaBoardEmpty, font: s.body), rows: placed, content: y,
                             body: body, small: small, bodyHeight: bodyH, smallHeight: smallH)
         laidOut = (key, result)
