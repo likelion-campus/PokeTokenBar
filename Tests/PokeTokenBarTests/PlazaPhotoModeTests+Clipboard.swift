@@ -1,9 +1,7 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
-/// The photo path needs a PNG codec (CoreGraphics / ImageIO): the Windows stub graphics write no PNG, so the controller
-/// never hands a photo to the clipboard writer there.
+/// The photo path needs a PNG codec: ImageIO on the Mac, WIC on Windows (`PlatformPlaza.graphics` decodes what the writer got).
 extension PlazaPhotoModeTests {
     func testSpaceShootsOnlyInPhotoMode() async throws {
         var written: [Data] = []
@@ -17,8 +15,8 @@ extension PlazaPhotoModeTests {
         key(scene, pKey, "p")
         key(scene, spaceKey)
         XCTAssertEqual(written.count, 1)
-        let rep = try XCTUnwrap(NSBitmapImageRep(data: try XCTUnwrap(written.first)))
-        XCTAssertEqual(rep.pixelsWide, 1824)
-        XCTAssertEqual(rep.pixelsHigh, 1144)
+        let photo = try XCTUnwrap(PlatformPlaza.graphics.decodeImage(try XCTUnwrap(written.first)))
+        XCTAssertEqual(photo.width, 1824)
+        XCTAssertEqual(photo.height, 1144)
     }
 }

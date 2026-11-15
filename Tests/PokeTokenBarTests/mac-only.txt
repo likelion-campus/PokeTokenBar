@@ -81,8 +81,6 @@ PlazaItemsTests+Mac.swift
 PlazaNameColorTests.swift
 # PlazaNamePlateTests+Mac: NSFont metrics and CGImage pixel reads of the name plate
 PlazaNamePlateTests+Mac.swift
-# PlazaGroupPhotoTests+Mac: the tests that expect the photo on the clipboard writer; that needs a PNG codec, which the Windows stub graphics do not have
-PlazaGroupPhotoTests+Mac.swift
 # PlazaPullUnderTests+Mac: the splash reads the pond layer, which exists only when the bundled tile sheet loads (pond visuals; the Windows stub has none)
 PlazaPullUnderTests+Mac.swift
 # PlazaStartleControllerTests: every test hides in the bundled tall grass (the controller reads it through the Mac loader; the Windows stub has none, so the map is plain grass)
@@ -91,8 +89,6 @@ PlazaStartleControllerTests.swift
 PlazaFocusTests+Mac.swift
 # PlazaSnowballControllerTests+Mac: shortcutThrowLabel reads the SwiftUI shortcut guide (its entries move to shared code in a later task)
 PlazaSnowballControllerTests+Mac.swift
-# PlazaPhotoModeTests+Mac: the photo written to the clipboard needs a PNG codec (NSBitmapImageRep decodes it; the Windows stub writes none)
-PlazaPhotoModeTests+Mac.swift
 PlazaPhotoTests.swift
 PlazaPhotoTestSupport.swift
 PlazaPhotoParityTests.swift
@@ -180,8 +176,8 @@ PlazaActivityTests+Mac.swift
 PlazaSeasonTests+Mac.swift
 # from main (#140): pins the macOS defaults pool against late writers; its tests must stay synchronous
 TestDefaultsLateWriteTests.swift
-# plaza offscreen render harness (Track A): SpriteKit + Metal, Mac only
-PlazaRenderScenes.swift
+# plaza offscreen render harness (Track A): SpriteKit + Metal, Mac only. The scenes themselves are shared (PlazaRenderScenes.swift); +Mac holds the CGImage fixtures and the real-sprites scene
+PlazaRenderScenes+Mac.swift
 PlazaRender/
 # Track A legacy art oracles: verbatim pre-conversion CoreGraphics art and the CGImage byte comparison (deleted in Task 19)
 Legacy/
@@ -224,6 +220,8 @@ PlazaDecodeGoldensMacTests.swift
 PlazaParityGoldens+Mac.swift
 # PlazaStoreSpriteParityTests+Mac: the shared sprite/icon loaders against LivePlazaSpriteFetcher, PlazaIconLoader and SpriteLoader (AppKit, ImageIO)
 PlazaStoreSpriteParityTests+Mac.swift
+# RedirectHeadersMacTests: what the Mac's URLSession re-sends on a redirect (Darwin sockets; the Windows seam follows these rules)
+RedirectHeadersMacTests.swift
 # OneShotDataMacTests: pins the Mac branch of PlatformCompat.oneShotData to URLSession.shared (a URLProtocol stub; Windows takes WinHTTP, WindowsHTTPFetchTests)
 OneShotDataMacTests.swift
 # PlazaWindowRig+Mac, PlazaChatLogWindowTests+Mac: the real PlazaMacWindow (never shown) over a real controller, driven through its panel hosts (Task 17w)
@@ -246,3 +244,11 @@ PlazaNoWindowsOrderedInScanTests+Mac.swift
 PlazaLegacyScrollerControlTests+Mac.swift
 # PlazaTextFrameTests+Mac: the shared CoreText frame and truncation rules against live CTFramesetter / CTLineCreateTruncatedLine (CoreText, fallback fonts)
 PlazaTextFrameTests+Mac.swift
+# PopoverParityScanTests: compares the Mac popover's sources with Tests/PopoverParity (a Mac-side source scan, like WindowsSeamScanTests; its extractor, loader and rules are shared and tested on both systems in PopoverParityTests)
+PopoverParityScanTests.swift
+# PopoverTwinEquivalenceTests+Mac: drives the Mac originals (PopoverNavigation, LimitProgressBar, verbatim copies of private PopoverView members) against their shared twins
+PopoverTwinEquivalenceTests+Mac.swift
+# PlazaPhotoGoldensMacTests: writes and re-checks the Mac's own photo goldens (what the Windows photo is compared with)
+PlazaPhotoGoldensMacTests.swift
+# PopoverGoldens+Mac: resolves the SwiftUI / AppKit colours of the Mac popover (NSColor, NSAppearance) and writes or re-checks Tests/PopoverParity/mac-colors.json
+PopoverGoldens+Mac.swift

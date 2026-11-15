@@ -109,7 +109,7 @@ final class UpdateChecker {
         guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return nil }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+        guard let (data, resp) = try? await PlatformCompat.oneShotData(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = json["tag_name"] as? String,
@@ -165,6 +165,7 @@ final class UpdateChecker {
                 Self.launchDetachedUpgrade(brew: brew)
                 PlatformShell.current.terminate()
             } else {
+                if await PlatformShell.current.installUpdate(version: update.version) { return }
                 isUpdating = false
                 AppLog.write("update: brew cask 아님/brew 미설치 → 릴리스 페이지 열기")
                 if let u = URL(string: update.url) { PlatformShell.current.open(u) }

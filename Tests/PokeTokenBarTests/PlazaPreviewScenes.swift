@@ -191,6 +191,7 @@ enum PlazaPreviewScenes {
     static func press(_ r: Rig, _ code: UInt16) { r.scene.handleKeyDown(keyCode: code, characters: nil, isRepeat: false) }
     static func release(_ r: Rig, _ code: UInt16) { r.scene.handleKeyUp(keyCode: code) }
     static let right: UInt16 = 124
+    static let left: UInt16 = 123
 
     // MARK: Scenes (as `PlazaRenderScenes`)
 
@@ -256,6 +257,55 @@ enum PlazaPreviewScenes {
             }
         },
     ]
+
+    /// The four more harness scenes whose photos the photo goldens cover (stage 6 Task 12), built as `PlazaRenderScenes` builds them.
+    /// Not in `all`: the preview/dump tests and the renderer artifacts keep their five.
+    static let photoExtras: [Scene] = [
+        Scene(name: "night", backing: 2, captures: [10]) { stage in
+            var o = Options(); o.hour = 23
+            let r = rig(o, stage: stage)
+            r.put(crowd(o.me), looks: crowdLooks)
+            return setup(r)
+        },
+        Scene(name: "winter-snow", backing: 2, captures: [10, 60]) { stage in
+            var o = Options(); o.season = .winter
+            let r = rig(o, stage: stage)
+            r.put(crowd(o.me), looks: crowdLooks)
+            return setup(r)
+        },
+        Scene(name: "fireworks-night", backing: 2, captures: [10, 30, 60]) { stage in
+            var o = Options(); o.hour = 23
+            let r = rig(o, stage: stage)
+            r.put(crowd(o.me), looks: crowdLooks)
+            return setup(r) { f in
+                switch f {
+                case 1: _ = r.scene.playFirework(memberID: nil, style: "ring")
+                case 8: _ = r.scene.playFirework(memberID: "ash", style: "willow")
+                case 20: _ = r.scene.playFirework(memberID: "misty", style: "heartShape")
+                default: break
+                }
+            }
+        },
+        Scene(name: "tall-grass", backing: 2, captures: [5, 20, 50]) { stage in
+            var o = Options(); o.me = TilePoint(x: 12, y: 7)
+            let r = rig(o, stage: stage)
+            r.put([member("ash", "Ash", 8, 6), member("brock", "Brock", 9, 7, facing: .right, walking: true)], looks: crowdLooks)
+            return setup(r) { f in
+                switch f {
+                case 2: press(r, left)
+                case 30: release(r, left)
+                case 3: r.move("brock", to: TilePoint(x: 10, y: 7), walking: true)
+                default: break
+                }
+            }
+        },
+    ]
+
+    /// The scenes that have a photo in the harness, in the harness's order (the ninth, `real-sprites`, needs cached Pokémon art).
+    static var photoScenes: [Scene] {
+        let byName = Dictionary(uniqueKeysWithValues: (all + photoExtras).map { ($0.name, $0) })
+        return ["base-noon", "night", "winter-snow", "campfire-lit-night", "pond-swim", "fireworks-night", "tall-grass", "dance"].compactMap { byName[$0] }
+    }
 
     /// D19's busy case: twelve teammates walking around a lit campfire at night in winter (snow), fireworks going up.
     static let rushHour = Scene(name: "rush-hour", backing: 2, captures: [30, 120]) { stage in

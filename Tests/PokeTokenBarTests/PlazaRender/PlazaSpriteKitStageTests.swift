@@ -258,7 +258,7 @@ final class PlazaSpriteKitStageTests: XCTestCase {
         XCTAssertEqual(scenes.count, names.count)
         var compared = 0
         for rs in scenes {
-            let setup = rs.build()
+            let setup = rs.build(PlatformPlaza.makeStage(size: CGSize(width: 960, height: 640)))
             let s = setup.scene
             for f in 0...(rs.captures.max() ?? 0) {
                 setup.step(f)

@@ -455,17 +455,92 @@ extension PlatformCompat {
 // MARK: - One-shot HTTP fetches
 
 extension PlatformCompat {
-    /// One HTTP request for the app's small periodic fetches (today the provider status checks, `ProviderStatusChecker`).
-    /// Mac: `URLSession.shared.data(for:)`, verbatim. Windows: a plain GET goes through WinHTTP on a thread that blocks in
-    /// the kernel (`WinHTTPFetch`), because URLSession there keeps two dispatch threads waking each other from the connect
-    /// until the transfer ends (the defect log, "윈도우 URLSession"). URLSession stays in use for anything else, when a
-    /// libcurl proxy variable is set and when WinHTTP cannot load.
-    static func oneShotData(for request: URLRequest) async throws -> (Data, URLResponse) {
+    /// Tests that fake the network with a `URLProtocol` registered through `URLProtocol.registerClass` (only URLSession consults
+    /// it, and corelibs offers no way to see the registered classes) set this so the Windows branch keeps URLSession. A stub in
+    /// the caller's own session configuration needs nothing: `WinHTTPFetch.handles` sees it. The Mac branch ignores it.
+    nonisolated(unsafe) static var oneShotStaysOnURLSessionForTesting = false
+
+    /// One HTTP request for the app's one-shot fetches (status checks, limits, update feed, PokeAPI, names).
+    /// Mac: `session.data(for:)`, verbatim (the caller's own session, `URLSession.shared` by default). Windows: WinHTTP on a
+    /// thread that blocks in the kernel (`WinHTTPFetch`, with the session's timeout and extra headers), because URLSession
+    /// there keeps two dispatch threads waking each other from the connect until the transfer ends (the defect log,
+    /// "윈도우 URLSession"). URLSession stays in use for a body stream, a proxy variable WinHTTP cannot use the way libcurl
+    /// would, and when WinHTTP cannot load.
+    static func oneShotData(for request: URLRequest, session: URLSession = .shared) async throws -> (Data, URLResponse) {
         #if os(Windows)
-        if WinHTTPFetch.handles(request) { return try await WinHTTPFetch.data(for: request) }
-        return try await URLSession.shared.data(for: request)
+        if !oneShotStaysOnURLSessionForTesting, WinHTTPFetch.handles(request, session: session) {
+            return try await WinHTTPFetch.data(for: request, configuration: session.configuration)
+        }
+        return try await session.data(for: request)
         #else
-        return try await URLSession.shared.data(for: request)
+        return try await session.data(for: request)
+        #endif
+    }
+
+    /// The same for `URLSession.shared.data(from:)` (sprites, icons). Mac: that call, verbatim.
+    static func oneShotData(from url: URL) async throws -> (Data, URLResponse) {
+        #if os(Windows)
+        let request = URLRequest(url: url)
+        if !oneShotStaysOnURLSessionForTesting, WinHTTPFetch.handles(request, session: .shared) {
+            return try await WinHTTPFetch.data(for: request, configuration: URLSession.shared.configuration)
+        }
+        return try await URLSession.shared.data(from: url)
+        #else
+        return try await URLSession.shared.data(from: url)
+        #endif
+    }
+}
+
+// MARK: - The user's regional format (stage 7, D11)
+
+extension PlatformCompat {
+    /// The locale of the user's regional format (number grouping). Mac: exactly `Locale.current`. Windows: corelibs
+    /// answers `Locale.current` with `en_001` for everyone, so it is the `GetUserDefaultLocaleName` locale
+    /// (`RegionFormat.locale(windowsName:)`), falling back to `Locale.current`. Read per call: a region change applies
+    /// to the next text.
+    static var regionLocale: Locale {
+        #if os(Windows)
+        return RegionFormat.locale(windowsName: WinUILanguage.win32LocaleName()) ?? Locale.current
+        #else
+        return Locale.current
+        #endif
+    }
+
+    /// The first day of the user's week, as `Calendar.firstWeekday` (1 = Sunday). Mac: exactly
+    /// `Calendar.current.firstWeekday`. Windows: corelibs answers 2 (Monday) for everyone, so it is
+    /// `GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_IFIRSTDAYOFWEEK)`, falling back to `Calendar.current`.
+    static var firstWeekday: Int {
+        #if os(Windows)
+        return RegionFormat.firstWeekday(windowsText: WinUILanguage.win32LocaleInfo(LCTYPE(LOCALE_IFIRSTDAYOFWEEK)))
+            ?? Calendar.current.firstWeekday
+        #else
+        return Calendar.current.firstWeekday
+        #endif
+    }
+
+    /// The calendar the heatmap and the recap count weeks in: gregorian, in `timeZone`, starting on `firstWeekday`.
+    /// Mac: exactly `RecapPeriod.calendar(timeZone:)` (no locale set). Windows: the same, with `regionLocale` for the
+    /// weekend rules (the Mac's calendar takes them from the system locale).
+    static func regionCalendar(timeZone: TimeZone) -> Calendar {
+        #if os(Windows)
+        return RegionFormat.calendar(timeZone: timeZone, firstWeekday: firstWeekday, locale: regionLocale)
+        #else
+        return RegionFormat.calendar(timeZone: timeZone, firstWeekday: Calendar.current.firstWeekday, locale: nil)
+        #endif
+    }
+}
+
+// MARK: - The popover's platform facts (stage 7, D8)
+
+extension PlatformCompat {
+    /// The facts the shared Home models read. Mac: exactly what `PopoverView` assumes (`PopoverPlatformFacts.mac`; the
+    /// Mac app does not call the shared models). Windows: no Keychain, no Antigravity limits source, no floating pet
+    /// yet, and the region seams above in the current time zone.
+    @MainActor static var popoverFacts: PopoverPlatformFacts {
+        #if os(Windows)
+        return .windows(regionLocale: regionLocale, regionCalendar: regionCalendar(timeZone: .current))
+        #else
+        return .mac
         #endif
     }
 }

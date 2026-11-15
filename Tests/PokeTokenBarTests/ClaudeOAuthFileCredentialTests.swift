@@ -18,6 +18,7 @@ final class ClaudeOAuthFileCredentialTests: XCTestCase {
 
     override func tearDownWithError() throws {
         URLProtocol.unregisterClass(FileOAuthStubProtocol.self)
+        PlatformCompat.oneShotStaysOnURLSessionForTesting = false
         FileOAuthStubProtocol.reset()
         AppEnv.allowLiveFetchForTesting = false
         try? FileManager.default.removeItem(at: root)
@@ -34,6 +35,7 @@ final class ClaudeOAuthFileCredentialTests: XCTestCase {
     private func openGateWithStub() {
         AppEnv.allowLiveFetchForTesting = true
         URLProtocol.registerClass(FileOAuthStubProtocol.self)
+        PlatformCompat.oneShotStaysOnURLSessionForTesting = true  // a registered stub: only URLSession sees it (Windows)
     }
 
     func testFileTokenIsUsedWithoutTheKeychain() async throws {

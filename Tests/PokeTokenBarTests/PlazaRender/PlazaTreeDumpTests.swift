@@ -10,6 +10,7 @@ final class PlazaRenderTreeDumpTests: XCTestCase {
     func testSharedDumpEqualsTheSpriteKitDumpOnEveryHarnessCapture() throws {
         let renderer = try XCTUnwrap(PlazaOffscreenRenderer(), "no Metal device")
         var captures = 0, lines = 0
+        PlazaRenderScenes.installMacHooks()
         for scene in PlazaRenderScenes.all {
             for c in PlazaRenderRun.run(scene, renderer: renderer).captures {
                 captures += 1

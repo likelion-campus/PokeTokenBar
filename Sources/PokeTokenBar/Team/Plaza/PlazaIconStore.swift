@@ -15,7 +15,7 @@ enum PlazaIconStore {
 
     /// The body of a 200 answer; nil on any other status or on a network failure.
     static func download(_ url: URL) async -> Data? {
-        guard let (data, response) = try? await URLSession.shared.data(from: url),
+        guard let (data, response) = try? await PlatformCompat.oneShotData(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return data
     }

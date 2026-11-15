@@ -5,7 +5,7 @@ swift_*.dll	swift-apache-2.0-runtime-exception.txt	Swift runtime (concurrency, r
 Foundation.dll	swift-apache-2.0-runtime-exception.txt	swift-corelibs-foundation
 FoundationEssentials.dll	swift-apache-2.0-runtime-exception.txt	swift-foundation
 FoundationInternationalization.dll	swift-apache-2.0-runtime-exception.txt	swift-foundation
-FoundationNetworking.dll	swift-apache-2.0-runtime-exception.txt	swift-corelibs-foundation (URLSession)
+FoundationNetworking.dll	swift-apache-2.0-runtime-exception.txt,curl.txt,zlib.txt,brotli.txt	swift-corelibs-foundation (URLSession), with libcurl 8.9.1 (Schannel), zlib 1.3.1 and the brotli 1.1.0 decoder linked in statically (swiftlang/swift utils/build.ps1 at swift-6.3.2-RELEASE: Build-CURL BUILD_SHARED_LIBS=NO, CURL_BROTLI=YES, CURL_ZLIB=YES, CURL_ZSTD=NO, USE_NGHTTP2=NO; the DLL holds "8.9.1-DEV", zlib inflate messages and the brotli dictionary)
 FoundationXML.dll	swift-apache-2.0-runtime-exception.txt	swift-corelibs-foundation (XMLParser)
 _FoundationICU.dll	swift-foundation-icu.txt,unicode-icu.txt	swift-foundation-icu: ICU 7x code and data
 dispatch.dll	swift-apache-2.0-runtime-exception.txt	swift-corelibs-libdispatch
