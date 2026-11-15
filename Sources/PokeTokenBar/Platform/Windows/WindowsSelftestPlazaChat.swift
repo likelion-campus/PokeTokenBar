@@ -224,7 +224,9 @@ extension WindowsSelftest {
 
     /// D13's defect check: WM_IME_CHAR (what the IME sends for a finished syllable in an app that leaves it to DefWindowProc) posted
     /// to the field arrives whole; the same message to an EDIT under a window that is NOT ours (the hook leaves it to
-    /// CoreFoundation's ANSI pump, i.e. the app before the fix) arrives as "?" on a code page without Hangul.
+    /// CoreFoundation's ANSI pump, i.e. the app before the fix) arrives as "?" on a code page without Hangul. And exactly once in the
+    /// popover kit's edit too: its window is registered as a dialog window, so `IsDialogMessageW` dispatches it before the hook's
+    /// re-dispatch line is reached (the chat field is not a dialog window: it takes the re-dispatch).
     @MainActor private static func imeCharCheck(_ r: Recorder, _ c: PlazaWindowController, _ chat: WinPlazaChatInput) async {
         await chatOpen(c, chat)
         guard let e = chat.editHWND else { r.add("plaza.imeChar", false, "no field"); return }
@@ -247,10 +249,26 @@ extension WindowsSelftest {
             _ = DestroyWindow(parent)
         }
         let hangulCodePage = acp == 949 || acp == 1361 || acp == 65001
+        var kitText = "-", kitDialog = 0, kitRedispatch = 0
+        let page = KeyPage()
+        if let kit = KitWindow(heightDIP: 230, build: { _, s in page.build(s) }) {
+            kit.show(activate: false)
+            if let kitEdit = page.edit {
+                let d0 = WinMessageHook.dialogMessages, h0 = WinMessageHook.redispatchedChars
+                chatPost(kitEdit.hwnd, 0x0286, 0xD55C)
+                await chatPump(0.3)
+                kitText = kitEdit.text
+                kitDialog = WinMessageHook.dialogMessages - d0
+                kitRedispatch = WinMessageHook.redispatchedChars - h0
+            }
+            kit.destroy()
+        }
         await chatClose(chat)
-        r.add("plaza.imeChar", ours == "한" && redispatched >= 1 && chat.counts.imeChars > imeChars0 && (hangulCodePage || foreignText == "?"),
+        r.add("plaza.imeChar", ours == "한" && redispatched >= 1 && chat.counts.imeChars > imeChars0 && (hangulCodePage || foreignText == "?")
+                && kitText == "한" && kitDialog >= 1 && kitRedispatch == 0,
               "ACP \(acp); posted WM_IME_CHAR U+D55C to the field: text=\(q(ours)) (hook re-dispatched \(redispatched), the field saw WM_IME_CHAR "
-                + "\(chat.counts.imeChars - imeChars0)x); the same to an EDIT outside our windows (no re-dispatch, the pre-fix path): \(q(foreignText))"
+                + "\(chat.counts.imeChars - imeChars0)x); the popover kit's edit (a registered dialog window): \(q(kitText)) through IsDialogMessageW "
+                + "\(kitDialog)x, hook re-dispatch \(kitRedispatch); the same to an EDIT outside our windows (no re-dispatch, the pre-fix path): \(q(foreignText))"
                 + (hangulCodePage ? " (this code page holds Hangul: the defect cannot show here)" : ""))
     }
 
