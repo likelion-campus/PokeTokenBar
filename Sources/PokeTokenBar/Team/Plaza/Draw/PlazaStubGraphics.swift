@@ -183,7 +183,17 @@ struct PlazaStubTextEngine: PlazaTextEngine {
         let room = width - ellipsis.width
         guard room >= 0 else { return nil }
         let kept = Int((room / (0.6 * l.size)).rounded(.down))
-        return Self.line(String(l.text.prefix(kept)) + e.text, size: l.size)
+        guard !line.runs.isEmpty else { return Self.line(String(l.text.prefix(kept)) + e.text, size: l.size) }
+        // A line made of runs keeps them: the runs' characters up to the cut, then the ellipsis in the last kept run's font and colour.
+        var pieces: [Piece] = [], left = kept
+        for run in line.runs where left > 0 {
+            let take = min(left, run.text.count)
+            pieces.append(Piece(text: String(run.text.prefix(take)), run: run))
+            left -= take
+        }
+        let source = ellipsis.runs.first ?? pieces.last?.run ?? line.runs[0]
+        pieces.append(Piece(text: e.text, run: ellipsis.runs.first ?? source))
+        return Self.line(pieces)
     }
 
     /// Breaks at spaces only (greedy); a word wider than a line breaks between characters.

@@ -53,7 +53,7 @@
 
 **D8. Overlays are canvas-rendered panels, stacked by the shell in today's order.** A shared `PlazaPanel` lays out, renders itself to a `PlazaImage` through the canvas and hit-tests; the Mac shell shows each panel in a layer-backed `NSView` inserted at the subview index where today's hosting view sits, so z-order against the SwiftUI panels that remain is unchanged and no display link is added. Panels never re-render while the plaza is hidden.
 
-**D9 (proposed deviation from spec §6, for the user to decide at Task 17).** The four scrolling panels — roster, chat log, board, card — stay SwiftUI on the Mac over shared view models in this track. They need a scroll container with wheel input, multi-colour wrapped text runs, hover-expand animation, bouncing sprite icons, tooltips and sprite images in the HUD: in effect a small UI toolkit (guess: 2,500 shared lines and new interface features: attributed text runs, scroll clipping, panel animation), and the Mac look would change. They changed 3–9 times in the last six weeks against 56–68 for the scene and controller, and a typical new feature reaches them only through data that is already shared (`PlazaActivity.rows`, `PlazaRosterEntry`). Everything else in spec §6 goes through the interface in Tasks 14–16. Cost of the deviation: stage 6 must build these four for Windows (drawn through the same panels, or Win32), and changes to them need a Windows edit until they move. Task 17 is the decision point with measured numbers from Tasks 14–16.
+**D9 (decided by the user, 2026-11-15: "switch the Mac to the shared panels, with scroll indicators").** The four scrolling panels — roster, chat log, board, card — are the shared `PlazaRosterPanel`, `PlazaChatLogPanel`, `PlazaBoardPanel` and `PlazaCardPanel` on the Mac as well (Task 17w), hosted by `PlazaPanelHostView` at the subview index their SwiftUI views had; the SwiftUI views are deleted (verbatim copies live in `Tests/PokeTokenBarTests/Legacy/` until Task 19 for the before/after renders). The Mac user sees the same pixels except: no overscroll bounce, the scroll indicator is drawn by `PlazaScrollIndicator` (overlay style, fades; always visible without narrowing the content when the system asks for "always show scroll bars"), a notched wheel steps 10 points per line, colour emoji sit one device pixel higher, the roster's icons bounce on one shared beat, the card's rarity colours follow the window's light/dark appearance (SwiftUI's adaptive set, pinned by tests). The scene's mouse handling is unchanged (none): the SwiftUI overlay used to swallow a click anywhere in the window while the board or card was open, the panels take only their plate. The chat INPUT field stays the native `PlazaChatInput`.
 
 ## Interfaces (the contract later tasks rely on)
 
@@ -358,6 +358,9 @@ struct PlazaPanelSpace {                                             // the by-h
 // cached per content/width/scale, also feeds the SwiftUI overlay's menu room), PlazaClockPanel(worldSize:) (update(_ text:) from the
 // 1 s tick), PlazaPill (oneLine / wrapped / draw(on:in:) / accessibilityItem / drawing), PlazaPanelStyle (colours, radii, strokes,
 // paddings, margins, strokeRoom = 1, pixel rounding). Controller: PlazaWindowController.hud; PlazaOverlayBindings.hud and .pills.
+// Task 17w: the roster, chat log, board and card panels are hosted on the Mac too (PlazaMacWindow, subview order: scene, roster, board, card, photo frame, menu, pills, chat log, minimap, clock, guide, toggle, picker, chat field).
+// Scrolling panels own a PlazaScrollIndicator (`scrollIndicator`, PlazaScrollIndicating): a thumb of one solid .color layer between two cached cap images, hold timer then 30 Hz fade timer
+// (PlazaAnimationClock) that exist only for ~1 s after a scroll; `alwaysVisible` (system "always show scroll bars") and `isDark` are set by the window; `isDisabled` is for tests.
 // Mac: Team/UI/PlazaPanelHostView (a full-window layer-backed view per panel at the old hosting view's subview index, one sublayer
 // per drawing layer, NSAccessibilityElement children, a tracking area only for tracksMouse; PlazaMacWindow is the PlazaPanelHost).
 // Tasks 15-16 (as built): PlazaCanvas gained PlazaPath (move/line/close only; a curve is sampled by the caller), fillPath,
@@ -748,7 +751,7 @@ Sources/PokeTokenBar/mac-only.txt, Tests/PokeTokenBarTests/mac-only.txt, Tests/P
 
 - [ ] **Step 1:** Report to the lead, for the user, in Korean: lines and days Tasks 14–16 actually took; what 17a–d would add to the interface (attributed text runs with several colours, scroll clipping with wheel input and scroll-to-bottom, hover-expand animation, sprite icons in panels, tooltips); the visible-change risk; the D9 alternative and what it costs stage 6.
 - [ ] **Step 2 (go):** 17a scroll container + attributed runs (L), 17b chat log (M), 17c roster (L, includes `PlazaIconLoader` through `PlazaImage`), 17d board and card (L). Each follows Task 14's pattern and PR rules.
-- [ ] **Step 2 (keep, the D9 deviation):** record the decision in spec §6; leave the four SwiftUI views on the Mac; add `testOverlayModelsAreShared` (a scan: every `@Observable` model those views read lives outside `Team/UI/`).
+- [ ] **Step 2 (keep, the D9 deviation) — NOT TAKEN (the user chose go, 2026-11-15; Task 17w switched the Mac):** record the decision in spec §6; leave the four SwiftUI views on the Mac; add `testOverlayModelsAreShared` (a scan: every `@Observable` model those views read lives outside `Team/UI/`).
 
 ---
 

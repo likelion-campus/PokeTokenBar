@@ -50,12 +50,24 @@ extension PlazaInteractionTests {
         let loaded = PlazaCardState.loaded(long, TeamMemberProfile(memberID: "m", nickname: "", current: current, dex: dex))
         XCTAssertEqual(loaded.characterBadges, [.shiny, .rarity(.legendary)], "test precondition")
         XCTAssertNotNil(loaded.differingCurrent, "test precondition")
-        let proposal = CGSize(width: inner, height: m.panelSize.height - 2 * m.panelInset)
-        let fit = NSHostingController(rootView: PlazaCardView(state: loaded)).sizeThatFits(in: proposal)
-        XCTAssertLessThanOrEqual(fit.width, inner, "a 12-character nickname wraps instead of widening the card")
         let egg = TeamMemberState(memberID: "e", nickname: "알", character: TeamMonSummary(speciesID: nil, isShiny: false, form: nil,
                                   speciesName: nil, gender: nil), inPlaza: true, tile: nil, facing: nil, isWalking: false)
-        XCTAssertLessThanOrEqual(NSHostingController(rootView: PlazaCardView(state: .loading(egg))).sizeThatFits(in: proposal).width, inner)
+        // The panel keeps every layer inside its fixed box: a 12-character nickname wraps instead of widening the card.
+        func layerFrames(_ state: PlazaCardState) -> [CGRect] {
+            let model = PlazaOverlayModel()
+            model.content = .card(state)
+            let panel = PlazaCardPanel(model: model, icons: PlazaStubIconSource())
+            panel.scrollIndicator.isDisabled = true
+            return panel.render(scale: 2, viewport: CGSize(width: 960, height: 640), graphics: PlatformPlaza.graphics).layers.map {
+                switch $0 { case .image(_, let f), .color(_, let f): f }
+            }
+        }
+        let box = CGRect(origin: .zero, size: m.panelSize)
+        for state in [loaded, PlazaCardState.loading(egg)] {
+            let frames = layerFrames(state)
+            XCTAssertFalse(frames.isEmpty)
+            XCTAssertTrue(frames.allSatisfy { box.contains($0) }, "\(frames.filter { !box.contains($0) })")
+        }
     }
 }
 

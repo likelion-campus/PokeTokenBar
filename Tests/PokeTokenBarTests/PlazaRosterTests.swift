@@ -232,35 +232,6 @@ extension PlazaRosterTests {
         XCTAssertNotNil(retried)
     }
 
-    /// Turning a page mounts new rows. A remembered icon must be there on the first frame, not after a blank one.
-    /// The icon draws with green under 0.5, the blank placeholder as r0.73 g0.75. Only macOS 15 tells them apart without
-    /// the row's own lookup: there `.task` runs after the first frame, while on macOS 26 it has already finished.
-    @MainActor func testRememberedIconDrawsOnTheFirstFrame() async throws {
-        let id = 987_656
-        let png = try XCTUnwrap(Self.solidPNG(red: 1))
-        _ = await PlazaIconLoader.icon(speciesID: id) { _ in png }
-        let model = PlazaRosterModel()
-        model.entries = [PlazaRosterEntry(id: "a", nickname: "a", speciesID: id, speciesName: "x", gender: nil,
-                                          isShiny: false, presence: .idle, isMe: false)]
-        // A real host, drawn before the run loop turns: `.task` has not had its chance yet.
-        let host = NSHostingView(rootView: PlazaRosterView(model: model))
-        host.frame = NSRect(origin: .zero, size: host.fittingSize)
-        let window = NSWindow(contentRect: host.frame.offsetBy(dx: -10000, dy: -10000), styleMask: .borderless,
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = host
-        window.orderFront(nil)
-        defer { window.close() }
-        host.layoutSubtreeIfNeeded()
-        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: rep)
-        let scale = CGFloat(rep.pixelsWide) / host.bounds.width
-        let m = PlazaRosterMetrics.self
-        let y = Int(m.padding + m.headerHeight + m.listTopPadding + m.slotHeight / 2)
-        let color = try XCTUnwrap(rep.colorAt(x: Int((m.padding + 26) * scale), y: Int(CGFloat(y) * scale))?.usingColorSpace(.deviceRGB))
-        XCTAssertGreaterThan(color.redComponent, 0.8)
-        XCTAssertLessThan(color.greenComponent, 0.5, "the icon, not the blank placeholder")
-    }
 
     static func solidPNG(red: CGFloat) -> Data? {
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 30, bitsPerSample: 8, samplesPerPixel: 4,

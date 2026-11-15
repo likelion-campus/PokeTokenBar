@@ -1,9 +1,13 @@
+// The SwiftUI roster as the Mac window showed it before Track A Task 17w switched the window to the shared `PlazaRosterPanel`:
+// `PlazaRosterView.swift` verbatim (types renamed, the striped plate and `Color(hex:)` stay in Sources). Kept so the panel's render
+// tests can draw their "before" from the real view. Deleted in Task 19 with the rest of `Legacy/`.
 import SwiftUI
 import AppKit
+@testable import PokeTokenBar
 
 /// 광장 오른쪽 위 참여자 목록(파티 화면 느낌). 칸과 페이지 단추는 누를 수 있고, 키는 받지 않는다.
 @MainActor
-struct PlazaRosterView: View {
+struct LegacyPlazaRosterView: View {
     let model: PlazaRosterModel
     /// 팀원 칸을 누르면 그 팀원의 ID. 내 칸은 누를 수 없다.
     var onSelect: (String) -> Void = { _ in }
@@ -27,13 +31,13 @@ struct PlazaRosterView: View {
                     .font(Font(PlazaResources.font(.body)))
                     .foregroundStyle(Color(hex: 0xF8F8F0))
                 if page.count > 1 {
-                    PlazaRosterPager(hasPrevious: page.index > 0, hasNext: page.index < page.count - 1, turn: onTurn)
+                    LegacyPlazaRosterPager(hasPrevious: page.index > 0, hasNext: page.index < page.count - 1, turn: onTurn)
                 }
             }
             .frame(height: PlazaRosterMetrics.headerHeight)
             VStack(spacing: PlazaRosterMetrics.slotSpacing) {
                 ForEach(page.shown) { entry in
-                    PlazaRosterSlot(entry: entry, animating: model.isAnimating)
+                    LegacyPlazaRosterSlot(entry: entry, animating: model.isAnimating)
                         .contentShape(Rectangle())
                         .onTapGesture { if !entry.isMe { onSelect(entry.id) } }
                         .help(entry.isMe || entry.presence == .asleep ? "" : L(.ko).plazaRosterWalkHint)
@@ -48,35 +52,7 @@ struct PlazaRosterView: View {
 }
 
 @MainActor
-struct PlazaRosterBackground: View {
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 10)
-        Canvas { ctx, size in
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(hex: 0x2D7F87)))
-            // 135° 줄무늬: 6pt 두께 두 색 교대
-            let alt = Color(hex: 0x2A7880)
-            var x = -size.height
-            var odd = false
-            while x < size.width {
-                if odd {
-                    var p = Path()
-                    p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x + 6, y: 0))
-                    p.addLine(to: CGPoint(x: x + 6 + size.height, y: size.height))
-                    p.addLine(to: CGPoint(x: x + size.height, y: size.height)); p.closeSubpath()
-                    ctx.fill(p, with: .color(alt))
-                }
-                odd.toggle(); x += 6
-            }
-        }
-        .clipShape(shape)
-        // 바깥 선(0–3pt)을 먼저 그리고 안쪽 선(3–5pt)을 그 위에 그려 2pt 전체가 보이게 한다.
-        .overlay(shape.inset(by: 1.5).stroke(Color(hex: 0x1D4F55), lineWidth: 3))
-        .overlay(shape.inset(by: 4).stroke(Color(hex: 0x5FB7BD), lineWidth: 2))
-    }
-}
-
-@MainActor
-private struct PlazaRosterSlot: View {
+private struct LegacyPlazaRosterSlot: View {
     let entry: PlazaRosterEntry
     let animating: Bool
 
@@ -94,7 +70,7 @@ private struct PlazaRosterSlot: View {
                                            bottomTrailingRadius: 8, topTrailingRadius: 8)
         // 칸의 크기는 마우스를 올려도 변하지 않는다. 호스팅 뷰의 크기가 바뀌면 AppKit 이 제약 갱신을 되풀이한다(defect-log).
         HStack(spacing: 4) {
-            PlazaRosterIcon(speciesID: entry.speciesID, bounces: (entry.presence == .online || entry.presence == .focus) && animating)
+            LegacyPlazaRosterIcon(speciesID: entry.speciesID, bounces: (entry.presence == .online || entry.presence == .focus) && animating)
                 .frame(width: 40, height: 30)
                 .padding(.leading, 6)
             VStack(alignment: .leading, spacing: 1) {
@@ -140,7 +116,7 @@ private struct PlazaRosterSlot: View {
 
 /// 머리줄의 < > 단추. 페이지 번호가 없어서, 끝 쪽 단추가 흐려지는 것이 지금 위치를 알려 준다.
 @MainActor
-private struct PlazaRosterPager: View {
+private struct LegacyPlazaRosterPager: View {
     let hasPrevious: Bool
     let hasNext: Bool
     let turn: (Int) -> Void
@@ -169,7 +145,7 @@ private struct PlazaRosterPager: View {
 /// 박스 아이콘. 받는 동안과 실패했을 때는 빈 자리표시, 알은 알 그림. 접속 중이면 0.5초마다 2pt씩 튄다
 /// (애니메이션 없이 정수 위치를 번갈아 바꿔 초당 2번만 다시 그린다).
 @MainActor
-private struct PlazaRosterIcon: View {
+private struct LegacyPlazaRosterIcon: View {
     let speciesID: Int?
     let bounces: Bool
     @State private var image: NSImage?
@@ -220,14 +196,7 @@ private struct PlazaRosterIcon: View {
     }
 }
 
-extension Color {
-    init(hex: UInt32) {
-        self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255)
-    }
-}
-
 /// 팀원 칸을 누를 수 있게 마우스는 받고, 키는 받지 않아 장면이 계속 받는다.
-final class PlazaRosterHostingView: NSHostingView<PlazaRosterView> {
+final class LegacyPlazaRosterHostingView: NSHostingView<LegacyPlazaRosterView> {
     override var acceptsFirstResponder: Bool { false }
 }

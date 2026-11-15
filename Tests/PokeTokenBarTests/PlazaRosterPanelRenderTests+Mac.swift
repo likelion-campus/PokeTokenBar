@@ -78,7 +78,7 @@ import SwiftUI
     /// `cacheDisplay` turns them over (see `ContentRig.renderedWithPatch`). Its icons are the ones in `PlazaIconLoader`'s memory;
     /// the bounce (a task in a window) is not run, so this is the "down" state; `testTheBounceMovesTheIconAsSwiftUIDid` has the rest.
     private func before(_ c: Case, scale: CGFloat) async throws -> (image: CGImage, size: CGSize) {
-        let view = PlazaRosterView(model: model(c))
+        let view = LegacyPlazaRosterView(model: model(c))
         let shown = try XCTUnwrap(K.render(view, scale: scale))
         let size = CGSize(width: CGFloat(shown.width) / scale, height: CGFloat(shown.height) / scale)
         let ctx = K.context(Int(c.viewport.width * scale), Int(c.viewport.height * scale))

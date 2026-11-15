@@ -32,6 +32,7 @@ import XCTest
         let model = PlazaOverlayModel()
         if let state { model.content = .card(state) }
         let panel = PlazaCardPanel(model: model, icons: icons, now: { self.now })
+        panel.scrollIndicator.isDisabled = true   // the SwiftUI original draws no scroller off screen; the indicator has its own tests
         let graphics = CanvasKeepingGraphics()
         let hud = PlazaHUD(panels: [panel], graphics: graphics)
         let host = RecordingPanelHost(), actions = PlazaBoardPanelTests.Actions()
