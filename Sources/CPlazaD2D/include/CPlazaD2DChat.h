@@ -67,6 +67,9 @@ int ptb_ime_set_composition(void *hwnd, const uint16_t *text, uint32_t len);
 int ptb_ime_korean(int activate, uint16_t *out, int cap);
 /* Puts back the keyboard profile that was active before ptb_ime_korean(1). */
 int ptb_ime_korean_restore(void);
+/* The visible top-level windows on the desktop whose class names an IME or candidate UI ("Cand", "IME", "TextInput"; any process),
+ * as "class@l,t,r,b; ..." (UTF-16, NUL-terminated) into out: where the Hanja list really is (selftest). Returns the count. */
+int ptb_ime_candidate_windows(uint16_t *out, int cap);
 
 /* The field's paste reads the clipboard's CF_UNICODETEXT with Task 12's ptb_clipboard_read (CPlazaD2D.h). */
 

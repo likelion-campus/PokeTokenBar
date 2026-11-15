@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cwchar>
+#include <cwctype>
 #include <string>
 
 #pragma comment(lib, "imm32.lib")
@@ -449,6 +450,35 @@ int ptb_ime_korean(int activate, uint16_t *out, int cap) {
     mgr->Release();
     copyOut(report, out, cap);
     return result;
+}
+
+namespace {
+struct CandidateScan {
+    std::wstring text;
+    int count = 0;
+};
+
+BOOL CALLBACK collectCandidate(HWND hwnd, LPARAM param) {
+    if (!IsWindowVisible(hwnd)) return TRUE;
+    wchar_t cls[128] = {0};
+    if (GetClassNameW(hwnd, cls, 128) <= 0) return TRUE;
+    std::wstring lower(cls);
+    for (auto &ch : lower) ch = static_cast<wchar_t>(towlower(ch));
+    if (lower.find(L"cand") == std::wstring::npos && lower.find(L"ime") == std::wstring::npos && lower.find(L"textinput") == std::wstring::npos) return TRUE;
+    RECT r;
+    if (!GetWindowRect(hwnd, &r) || r.right <= r.left || r.bottom <= r.top) return TRUE;
+    auto *scan = reinterpret_cast<CandidateScan *>(param);
+    if (scan->count++ > 0) scan->text += L"; ";
+    appendf(scan->text, L"%s@%ld,%ld,%ld,%ld", cls, r.left, r.top, r.right, r.bottom);
+    return TRUE;
+}
+}  // namespace
+
+int ptb_ime_candidate_windows(uint16_t *out, int cap) {
+    CandidateScan scan;
+    EnumWindows(collectCandidate, reinterpret_cast<LPARAM>(&scan));
+    copyOut(scan.text, out, cap);
+    return scan.count;
 }
 
 int ptb_ime_korean_restore(void) {

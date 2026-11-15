@@ -3,6 +3,34 @@ import CPlazaD2D
 import Foundation
 import WinSDK
 
+/// Test-only switches that break one rule of the chat field each, so the tests prove they notice
+/// (`WindowsPlazaChatInputTests.testEachInjectedFaultIsCaught`). Debug builds only; in a release build `has` is always false.
+@MainActor enum WinChatFaults {
+    enum Fault: CaseIterable, Sendable {
+        /// Enter sends while a syllable is still being composed.
+        case sendWhileComposing
+        /// A held Enter (repeat bit) sends.
+        case sendOnRepeat
+        /// The line is cut to the limit while a syllable is being composed.
+        case cutWhileComposing
+        /// A paste keeps its line breaks and tabs.
+        case pasteKeepsLineBreaks
+        /// Closing leaves the composition in the IME (it comes back as a ghost on the next open).
+        case keepCompositionOnClose
+        /// A click on the bar's emoji grid does not finish the syllable first.
+        case insertOverComposition
+    }
+    static var active: Set<Fault> = []
+
+    @inline(__always) static func has(_ f: Fault) -> Bool {
+        #if DEBUG
+        return !active.isEmpty && active.contains(f)
+        #else
+        return false
+        #endif
+    }
+}
+
 /// The plaza's chat line on Windows (D13), the `PlazaChatInputHost` the shared controller talks to, as AppKit's `PlazaChatInput`
 /// is on the Mac. The text area is the system's own one-line `EDIT` control (in a small host window, a child of the plaza
 /// window, over the composition), so the IME, Hangul composition in place, the candidate and Hanja windows, the emoji panel
@@ -15,10 +43,12 @@ import WinSDK
 ///
 /// It owns no timer and no thread: it runs only inside the field's and the window's messages. Main thread only.
 @MainActor final class WinPlazaChatInput: PlazaChatInputHost, PlazaPanelHost {
-    /// Where the field lives: a plain child of the plaza window, or a layered child (the fallback when a plain child is not composed
-    /// over a `WS_EX_NOREDIRECTIONBITMAP` window: the selftest's `plaza.chatChildVisible` decides which one ships).
+    /// Where the field lives. A plain child of the plaza window is NOT composed over its `WS_EX_NOREDIRECTIONBITMAP` parent (the
+    /// screen shows the plate drawn under it and no text: `plaza.chatChildVisible` on the runner, captures in the task 11 report);
+    /// a `WS_EX_LAYERED` child host (opaque, Windows 8+) gets its own redirection surface and is composed above the visual tree. The
+    /// layered host ships; the plain child stays only for the selftest's comparison.
     enum FieldHost: Int, Sendable { case child = 0, layered = 1 }
-    static var fieldHost: FieldHost = .child
+    static var fieldHost: FieldHost = .layered
 
     /// What the IME holds, read from the field's input context; the tests put in what a real IME would report.
     struct IME {
@@ -34,6 +64,7 @@ import WinSDK
         var submits = 0, refused = 0, repeatsIgnored = 0, completesAsked = 0, cancelsAsked = 0, cuts = 0, pastes = 0, picks = 0
         var compositionStarts = 0, compositionUpdates = 0, compositionEnds = 0, imeChars = 0, chars = 0, charsSwallowed = 0
         var closesByFocus = 0, keptOnFocusLoss = 0, focusRestores = 0, loudToggles = 0, imePlacements = 0, menuPumps = 0, selectAlls = 0
+        var candidateOpens = 0
     }
 
     /// The bar and its HUD are made on first use (the plaza window opening): the controller exists from launch, and measuring the
@@ -73,6 +104,7 @@ import WinSDK
     private static var fontLoaded: Bool?
     private let graphics: any PlazaGraphics
     private var madeParts: (bar: PlazaChatBarPanel, hud: PlazaHUD)?
+    private var retained: Unmanaged<WinPlazaChatInput>?
 
     init(graphics: any PlazaGraphics = PlatformPlaza.graphics) {
         self.graphics = graphics
@@ -97,12 +129,16 @@ import WinSDK
     @discardableResult
     func attach(parent: HWND) -> Bool {
         guard editRaw == nil else { return true }
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        // The field's procedure calls back into this object until `detach`: it holds it (released there), so no message can reach a
+        // freed input (a window destroyed with its parent sends its last messages after the owner let go).
+        let context = Unmanaged.passRetained(self)
         guard let made = ptb_chat_edit_create(UnsafeMutableRawPointer(parent), Int32(Self.fieldHost.rawValue),
-                                              { ctx, m, w, l, handled in winChatRoute(ctx, m, w, l, handled) }, context) else {
+                                              { ctx, m, w, l, handled in winChatRoute(ctx, m, w, l, handled) }, context.toOpaque()) else {
+            context.release()
             AppLog.write("plaza chat: the field could not be made (\(GetLastError())); the chat line is not available")
             return false
         }
+        retained = context
         editRaw = made
         self.parent = parent
         styledScale = 0
@@ -120,6 +156,8 @@ import WinSDK
         if madeParts?.hud.host === self { madeParts?.hud.host = nil }
         if let e = editRaw { ptb_chat_edit_destroy(e) }
         editRaw = nil
+        retained?.release()
+        retained = nil
         parent = nil
         drawing = nil
         barFrame = nil
@@ -251,7 +289,7 @@ import WinSDK
     /// Puts `text` at the caret, replacing the selection. A syllable being composed is finished first (the Mac's `unmarkText`).
     func insert(_ text: String) {
         guard let h = editHWND else { return }
-        if isComposing { finish(h, cancel: false) }
+        if isComposing, !WinChatFaults.has(.insertOverComposition) { finish(h, cancel: false) }
         replaceSelection(h, text)
         counts.picks += 1
         applyLimitIfDue()
@@ -299,7 +337,7 @@ import WinSDK
     /// Empty, with no composition left behind (a cancelled syllable must not come back on the next open).
     private func resetField() {
         guard let h = editHWND else { return }
-        if !ime.composition(h).isEmpty { finish(h, cancel: true) }
+        if !ime.composition(h).isEmpty, !WinChatFaults.has(.keepCompositionOnClose) { finish(h, cancel: true) }
         applyingLimit = true
         setText(h, "")
         applyingLimit = false
@@ -372,6 +410,8 @@ import WinSDK
             return r
         case 0x0008:   // WM_KILLFOCUS
             return killFocus(w, l)
+        case 0x0282:   // WM_IME_NOTIFY: count the candidate list opening (Hanja), then the EDIT's own handling
+            if w == 0x0005 /* IMN_OPENCANDIDATE */ { counts.candidateOpens += 1 }
         case 0x0201:   // WM_LBUTTONDOWN in the field: a syllable being composed is finished where it is, then the caret moves
             if let h = editHWND, !ime.composition(h).isEmpty { finish(h, cancel: false) }
         default:
@@ -405,9 +445,9 @@ import WinSDK
         let bits = WinPlazaInput.KeyBits(lParam: LPARAM(l))
         switch vk {
         case 0x0D:   // Enter and the keypad's Enter
-            if bits.isRepeat { counts.repeatsIgnored += 1; return 0 }   // the Enter that opened the field, still held
+            if bits.isRepeat, !WinChatFaults.has(.sendOnRepeat) { counts.repeatsIgnored += 1; return 0 }   // the Enter that opened the field, still held
             guard let h = editHWND else { return 0 }
-            if !ime.composition(h).isEmpty {   // the Mac: only the syllable is finished, nothing is sent
+            if !ime.composition(h).isEmpty, !WinChatFaults.has(.sendWhileComposing) {   // the Mac: only the syllable is finished, nothing is sent
                 finish(h, cancel: false)
                 return 0
             }
@@ -472,7 +512,7 @@ import WinSDK
     private func paste() {
         guard let h = editHWND, let raw = clipboardText() else { return }
         if isComposing { finish(h, cancel: false) }
-        replaceSelection(h, Self.pastable(raw))
+        replaceSelection(h, WinChatFaults.has(.pasteKeepsLineBreaks) ? raw : Self.pastable(raw))
         counts.pastes += 1
     }
 
@@ -494,7 +534,7 @@ import WinSDK
     private func applyLimitIfDue() {
         guard limitPending, !applyingLimit, let h = editHWND else { return }
         limitPending = false
-        guard ime.composition(h).isEmpty else { return }
+        guard ime.composition(h).isEmpty || WinChatFaults.has(.cutWhileComposing) else { return }
         let line = text(h)
         guard line.count > TeamChat.maxCharacters else { return }
         let caret = selectionStart

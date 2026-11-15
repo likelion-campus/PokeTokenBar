@@ -19,8 +19,12 @@ import XCTest
     }
 
     private var parents: [WinSinkWindow] = []
+    private var inputs: [WinPlazaChatInput] = []
 
     override func tearDown() async throws {
+        WinChatFaults.active = []
+        for i in inputs { i.detach() }   // the field first, then its window
+        inputs = []
         for p in parents { p.destroy() }
         parents = []
     }
@@ -30,6 +34,7 @@ import XCTest
                                        x: 0, y: 0, width: 640, height: 400)
         parents.append(parent)
         let input = WinPlazaChatInput()
+        inputs.append(input)
         XCTAssertTrue(input.attach(parent: parent.hwnd))
         input.report(size: CGSize(width: 640, height: 400), scale: 1)
         let ime = FakeIME()
@@ -276,6 +281,33 @@ import XCTest
         XCTAssertEqual(r.input.drawList.count, 0)
         r.input.detach()
         XCTAssertNil(r.input.editHWND)
+    }
+
+    /// Each rule above, broken on purpose (`WinChatFaults`, debug builds), is noticed by its scenario; with no fault every scenario holds.
+    func testEachInjectedFaultIsCaught() async throws {
+        defer { WinChatFaults.active = [] }
+        let scenarios: [(WinChatFaults.Fault, @MainActor () throws -> Bool)] = [
+            (.sendWhileComposing, { [self] in
+                let r = try rig(); compose(r, ["ㅎ", "하"]); key(r, 0x0D); return r.box.sent.isEmpty && r.input.isOpen }),
+            (.sendOnRepeat, { [self] in
+                let r = try rig(); type(r, "a"); key(r, 0x0D, repeat: true); return r.box.sent.isEmpty }),
+            (.cutWhileComposing, { [self] in
+                let r = try rig(); type(r, String(repeating: "가", count: TeamChat.maxCharacters)); compose(r, ["나"]); type(r, "나")
+                return r.input.text.count == TeamChat.maxCharacters + 1 }),
+            (.pasteKeepsLineBreaks, { [self] in
+                let r = try rig(); r.input.clipboardText = { "a\r\nb\tc" }; _ = SendMessageW(r.edit, 0x0302, 0, 0); return r.input.text == "a b c" }),
+            (.keepCompositionOnClose, { [self] in
+                let r = try rig(); compose(r, ["ㄱ"]); key(r, 0x1B); return r.ime.finishes == [true] }),
+            (.insertOverComposition, { [self] in
+                let r = try rig(); compose(r, ["가"]); r.input.insert("😀"); return r.input.text == "가😀" }),
+        ]
+        XCTAssertEqual(Set(scenarios.map(\.0)), Set(WinChatFaults.Fault.allCases), "every fault has its scenario")
+        for (fault, scenario) in scenarios {
+            WinChatFaults.active = []
+            XCTAssertTrue(try scenario(), "\(fault): the scenario holds without the fault")
+            WinChatFaults.active = [fault]
+            XCTAssertFalse(try scenario(), "\(fault): the injected fault is caught")
+        }
     }
 
     /// At 150 % the field is in device pixels and the font is the body size at that scale.

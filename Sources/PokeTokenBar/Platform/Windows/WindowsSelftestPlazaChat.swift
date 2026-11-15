@@ -99,6 +99,18 @@ extension WindowsSelftest {
 
     private static func q(_ s: String) -> String { "'" + s + "'" }
 
+    /// The screen over the shown bar (and 8 px around it) as a PNG next to the selftest output: the native field over the drawn plate.
+    @MainActor @discardableResult
+    private static func chatCapture(_ shell: WinPlazaWindow, _ hwnd: HWND, _ chat: WinPlazaChatInput, _ name: String) -> Bool {
+        guard let bf = chat.barFrame else { return false }
+        let s = CGFloat(shell.dpiForTesting) / 96
+        var o = POINT(x: Int32((bf.minX * s).rounded()), y: Int32((bf.minY * s).rounded()))
+        _ = ClientToScreen(hwnd, &o)
+        guard let shot = WinUIDump.screenshot(x: Int(o.x) - 8, y: Int(o.y) - 8, w: Int((bf.width * s).rounded()) + 16,
+                                              h: Int((bf.height * s).rounded()) + 16) else { return false }
+        return WinUIDump.write(shot, to: selftestOutDirectory().appendingPathComponent(name)) == 0
+    }
+
     // MARK: - the checks in the live plaza window
 
     @MainActor static func plazaChatChecks(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
@@ -118,7 +130,7 @@ extension WindowsSelftest {
         await imeCharCheck(r, c, chat)
         await chatOpenCloseCheck(r, c, shell, hwnd, chat)
         await chatSubmitCheck(r, c, chat)
-        await chatTabCheck(r, c, chat)
+        await chatTabCheck(r, c, shell, hwnd, chat)
         await chatEmojiGridCheck(r, c, shell, hwnd, chat)
         await chatFocusOwnChildCheck(r, c, shell, hwnd, chat)
         await chatCompositionCheck(r, c, chat)
@@ -301,14 +313,17 @@ extension WindowsSelftest {
                 + "closed=\(!chat.isOpen); field counts submits=\(chat.counts.submits) repeatsIgnored=\(chat.counts.repeatsIgnored)")
     }
 
-    @MainActor private static func chatTabCheck(_ r: Recorder, _ c: PlazaWindowController, _ chat: WinPlazaChatInput) async {
+    @MainActor private static func chatTabCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
+                                                _ chat: WinPlazaChatInput) async {
         await chatOpen(c, chat)
         guard let e = chat.editHWND else { r.add("plaza.chatTab", false, "no field"); return }
         chatPostText(e, "확성기")
         await chatPump(0.2)
         let renders0 = chat.hud.renderCount
+        chatCapture(shell, hwnd, chat, "plaza-chat-open.png")
         chatPost(e, 0x0100, 0x09)
         await chatPump(0.3)
+        chatCapture(shell, hwnd, chat, "plaza-chat-loud.png")
         let on = chat.isLoud, orange = chat.bar.borderColor == PlazaChatBarPanel.loudBorder, renders = chat.hud.renderCount - renders0
         chatPost(e, 0x0100, 0x09)
         await chatPump(0.3)
@@ -338,6 +353,7 @@ extension WindowsSelftest {
         chatClick(shell, hwnd, at: CGPoint(x: bar.minX + button.midX, y: bar.minY + button.midY))
         await chatPump(0.3)
         let unfolded = chat.bar.isEmojiOpen
+        chatCapture(shell, hwnd, chat, "plaza-chat-emoji.png")
         let grown = chat.barFrame?.height ?? 0
         let logAbove = chatLogInputHeight(shell)
         let y1 = chat.fieldPixels?.y
@@ -695,7 +711,7 @@ extension WindowsSelftest {
         script.install(on: chat)
         script.composition = "가"
         let editBits = Int(bitPattern: e), sinkBits = Int(bitPattern: app.sink.hwnd)
-        let hookBefore = WinMessageHook.redispatchedChars
+        let hookBefore = WinMessageHook.redispatchedChars, charsBefore = chat.counts.chars
         let finished = PlazaTally(), sawMenu = PlazaTally()
         onThread {
             var waited = 0
@@ -726,6 +742,7 @@ extension WindowsSelftest {
         await chatPump(0.2)
         let duringMenu = chat.text
         let hookDuring = WinMessageHook.redispatchedChars - hookBefore
+        let fieldChars = chat.counts.chars - charsBefore - script.finishes.filter { !$0 }.count   // besides the finished syllable
         let stayedOpen = chat.isOpen
         forceForeground(hwnd)
         await chatPump(0.3)
@@ -735,10 +752,11 @@ extension WindowsSelftest {
         let final = chat.text
         await chatClose(chat)
         chat.ime = .system
-        r.add("plaza.chatMenu", sawMenu.isSet && stayedOpen && duringMenu == "ab가" && hookDuring == 0 && back && final == "ab가c" && script.finishes == [false],
+        r.add("plaza.chatMenu", sawMenu.isSet && stayedOpen && duringMenu == "ab가" && fieldChars == 0 && back && final == "ab가c" && script.finishes == [false],
               "tray menu opened=\(sawMenu.isSet) over the open line (composing 가): the syllable finished into the line once when the menu took the keyboard "
-                + "(\(script.finishes)); 2 real Down keys and a posted 한 during the menu: field \(q(duringMenu)) (the menu took them, as natively), hook "
-                + "re-dispatches during the menu +\(hookDuring); line open=\(stayedOpen); plaza active again: keyboard back in the field=\(back); typed c: \(q(final))")
+                + "(\(script.finishes)); 2 real Down keys and a posted 한 during the menu: field \(q(duringMenu)), characters reaching the field +\(fieldChars) "
+                + "(the menu took them, as natively; hook re-dispatches meanwhile +\(hookDuring), none to the field); line open=\(stayedOpen); plaza active "
+                + "again: keyboard back in the field=\(back); typed c: \(q(final))")
     }
 
     /// The field's own context menu (right click) is a modal loop of the EDIT: the main queue is served meanwhile (WinModalPump).
@@ -796,7 +814,11 @@ extension WindowsSelftest {
         guard let e = chat.editHWND else { r.add("plaza.chatRealIME", false, "no field"); return }
         _ = chat.focus()
         var act = [UInt16](repeating: 0, count: 1024)
-        let activated = ptb_ime_korean(1, &act, Int32(act.count))
+        var activated = ptb_ime_korean(1, &act, Int32(act.count))
+        await chatPump(0.5)
+        // Enabling the profile for the user takes effect after the thread has pumped: activate once more (the second process of a run
+        // found it enabled and active at once).
+        activated = ptb_ime_korean(1, &act, Int32(act.count))
         let actText = String(decoding: act.prefix { $0 != 0 }, as: UTF16.self)
         defer { _ = ptb_ime_korean_restore() }
         await chatPump(0.3)
@@ -846,9 +868,26 @@ extension WindowsSelftest {
         trace.append("ekfr \(state())")
         await chatTap(0x23)   // h
         trace.append("+h \(state())")
+        // Hanja: a fresh 한 composing, the Hanja key opens the candidate list next to the line, the first candidate replaces it.
+        _ = WinStr.w("").withUnsafeBufferPointer { SendMessageW(e, 0x000C, 0, LPARAM(Int(bitPattern: $0.baseAddress))) }
+        for s: UInt32 in [0x22, 0x25, 0x1F] { await chatTap(s) }
+        let opens0 = chat.counts.candidateOpens
         await chatVirtualKey(0x19)   // VK_HANJA
+        await chatPump(0.4)
+        var listing = [UInt16](repeating: 0, count: 2048)
+        _ = ptb_ime_candidate_windows(&listing, Int32(listing.count))
+        let candidates = String(decoding: listing.prefix { $0 != 0 }, as: UTF16.self)
+        var fieldTop = POINT(x: chat.fieldPixels?.x ?? 0, y: chat.fieldPixels?.y ?? 0)
+        _ = ClientToScreen(hwnd, &fieldTop)
+        var form = [Int32](repeating: 0, count: 10)
+        _ = ptb_ime_windows(raw, &form)
+        trace.append("Hanja: candidate list opened +\(chat.counts.candidateOpens - opens0), windows [\(candidates)], field at screen (\(fieldTop.x),\(fieldTop.y)) "
+            + "height \(chat.fieldPixels?.h ?? 0), our candidate form style 0x\(String(form[3], radix: 16)) at (\(form[4]),\(form[5])) excluding (\(form[6]),\(form[7]))-(\(form[8]),\(form[9]))")
+        await chatTap(0x02)   // the first candidate
         await chatPump(0.3)
-        trace.append("Hanja \(state())")
+        let hanja = chat.text
+        let isHan = hanja.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) || (0xF900...0xFAFF).contains($0.value) }
+        trace.append("1 -> \(q(hanja)) (a Han character: \(isHan))")
         await chatTap(0x01)
         trace.append("Esc open=\(chat.isOpen)")
         await chatClose(chat)

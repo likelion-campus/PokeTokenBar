@@ -2464,3 +2464,15 @@ read_when:
   API 는 쉘이 호출을 받았다는 뜻일 뿐 보였다는 뜻이 아니다. **고침:** 어떤 종류도 `NIIF_RESPECT_QUIET_TIME` 을 쓰지 않는다(`BalloonFlags.infoFlags`; 방해 금지/집중 지원은 윈도가 토스트를 알림 센터로 조용히 보내므로 플래그가 필요 없다),
   프로세스가 `SetCurrentProcessExplicitAppUserModelID` 로 바로가기와 같은 ID 를 설정하고(스캔 테스트가 `.iss`·Swift 상수를 대조), `NIN_BALLOONSHOW` 를 처리·로그하며 10초 안에 쉘이 "표시됨"을 안 보내면 한 번 "not shown by Windows" 로 남긴다.
   첫 실행 안내도 같은 큐를 탄다. **규칙:** OS 에 맡긴 표시는 반환값이 아니라 OS 의 통지(또는 화면)로만 "보였다"고 쓴다; 셀프테스트 `notify.state`/`notify.shown` 이 사용자 로그에 설정 상태와 통지를 남긴다.
+
+- **IME 가 끝낸 한글 음절이 `?` 로 들어올 자리였다 — `WH_GETMESSAGE` 훅이 `WM_CHAR` 류만 유니코드로 다시 보내고 `WM_IME_CHAR` 는 CF 의 ANSI 펌프에 맡겼다.** (stage 6 Task 11, D13)
+  CF 의 펌프는 `PeekMessageA`/`DispatchMessageA` 라, 게시된 `WM_IME_CHAR`(IME 가 끝낸 음절을 앱이 직접 처리하지 않을 때 DefWindowProc 경로로 오는 메시지)의 U+D55C 가 코드 페이지 1252 에서
+  `?` 로 바뀐 채 유니코드 창에 도착한다. 러너 실측(ACP 1252, 같은 실행): 우리 창의 입력칸은 "한", 훅이 손대지 않는 창(= 고치기 전 경로)의 같은 EDIT 는 "?".
+  **왜 못 걸렀나:** Track B 의 문자 검사는 `SendInput(VK_PACKET)`·게시 `WM_CHAR` 로만 돌았고(러너에 쓸 수 있는 한국어 IME 가 없었다), 광장에는 글을 받는 창이 아직 없어
+  IME 메시지를 보낼 대상이 없었다 — `WM_IME_*` 는 "관찰만" 하는 범위(0x0281…0x0291)에 들어 있어 통과가 곧 미검증이었다. **고침:** 훅의 재전송 목록에 `WM_IME_CHAR`(0x0286) 한 줄.
+  **스윕:** 문자를 wParam 에 실어 *게시*되는 메시지는 `WM_CHAR`·`WM_SYSCHAR`·`WM_DEADCHAR`·`WM_SYSDEADCHAR`·`WM_IME_CHAR` 다섯이고 이제 모두 재전송한다. `WM_IME_COMPOSITION` 의 wParam
+  (마지막 변경 문자)도 ANSI 로 바뀌지만 EDIT 는 문자열을 입력 컨텍스트에서 `ImmGetCompositionStringW` 로 읽어 영향이 없다. `WM_MENUCHAR`·`WM_CHARTOITEM`·`EM_*` 는 *보내지는* 메시지라 펌프를 거치지 않는다.
+  메뉴 루프 안(`inMenuOrMoveLoop`)에서는 지금처럼 다시 보내지 않는다: 팝업 메뉴는 그 동안 스레드의 키보드 메시지를 모두 메뉴 입력으로 읽는다(셀프테스트 `plaza.chatMenu`: 메뉴가 열린 동안
+  게시한 문자는 메뉴가 가져가고 훅 재전송 +0).
+  **가드(기계):** 셀프테스트 `plaza.imeChar` — 같은 실행에서 우리 필드는 "한", 우리 창이 아닌 EDIT 는 "?" 여야 PASS(ACP 를 함께 남기고, 한글 코드 페이지에서는 결함이 드러날 수 없다고 적는다).
+  `plaza.chatTyping`(VK_PACKET 16 단위: 서로게이트·ZWJ 포함, 훅 재전송 16 = 필드 WM_CHAR 16, 중복 0).
