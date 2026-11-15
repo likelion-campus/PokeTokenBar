@@ -333,7 +333,7 @@ extension WindowsSelftest {
         var origin = POINT(x: 100, y: 100)
         _ = ClientToScreen(hwnd, &origin)
         let screen = LPARAM(Int(UInt32(UInt16(truncatingIfNeeded: origin.y)) << 16 | UInt32(UInt16(truncatingIfNeeded: origin.x))))
-        func wheel(_ delta: Int16, _ message: UINT, keys: UInt = 0) {
+        func wheel(_ delta: Int16, _ message: UINT, keys: UInt64 = 0) {
             _ = SendMessageW(hwnd, message, (WPARAM(UInt16(bitPattern: delta)) << 16) | keys, screen)
         }
         let lines = Int(ptb_input_wheel_lines(0)), chars = Int(ptb_input_wheel_lines(1))
