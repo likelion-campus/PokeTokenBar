@@ -37,11 +37,17 @@ import WinSDK
 /// nothing of WinHTTP stays open between fetches (a process-wide session kept a pooled connection and a thread-pool worker
 /// waking every 2-3 s); cross-session pooling is switched off where Windows offers the option.
 enum WinHTTPFetch {
-    /// Whether this request goes through WinHTTP: http(s), WinHTTP loaded, no body stream, a route WinHTTP can take.
-    static func handles(_ request: URLRequest) -> Bool {
+    /// Whether this request goes through WinHTTP: http(s), WinHTTP loaded, no body stream, a route WinHTTP can take, and no
+    /// protocol of the caller's own in its session (a `URLProtocol` subclass in `protocolClasses` that takes the request is the
+    /// caller's chosen transport, e.g. a test stub; corelibs' built-in protocols do not count).
+    static func handles(_ request: URLRequest, session: URLSession? = nil) -> Bool {
         guard api != nil, request.httpBodyStream == nil, let url = request.url,
               let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http"
         else { return false }
+        if let classes = session?.configuration.protocolClasses, classes.contains(where: { candidate in
+            guard let type = candidate as? URLProtocol.Type, !String(reflecting: type).hasPrefix("FoundationNetworking.") else { return false }
+            return type.canInit(with: request)
+        }) { return false }
         if case .urlSession = WinProxyRoute.route(for: url) { return false }
         return true
     }

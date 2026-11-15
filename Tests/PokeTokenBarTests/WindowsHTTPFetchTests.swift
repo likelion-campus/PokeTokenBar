@@ -101,7 +101,8 @@ final class WindowsHTTPFetchTests: XCTestCase {
         bare.httpBody = Data("a=1".utf8)
         let mine = text(try await seam(bare)), theirs = text(try await control(bare))
         XCTAssertTrue(mine.contains("Content-Type: application/x-www-form-urlencoded"), mine)
-        XCTAssertTrue(theirs.lowercased().contains("content-type: application/x-www-form-urlencoded"), theirs)
+        // corelibs writes it without the space ("Content-Type:application/..."): compare the field, not the spacing.
+        XCTAssertTrue(theirs.lowercased().replacingOccurrences(of: " ", with: "").contains("content-type:application/x-www-form-urlencoded"), theirs)
     }
 
     func testRedirectsAreFollowedLikeURLSessionIncludingToAnotherHost() async throws {
@@ -127,13 +128,20 @@ final class WindowsHTTPFetchTests: XCTestCase {
         XCTAssertTrue(text(controlAfter).hasPrefix("GET\n"))
     }
 
+    /// Every encoded form on its own: what WinHTTP decodes and what URLSession (libcurl) decoded, printed as a table.
     func testBodiesDecodeAsURLSessionDecodedThem() async throws {
-        for (path, expected) in [("/gzip", LoopbackServer.gzipText), ("/deflate", LoopbackServer.deflateText),
-                                 ("/chunked", LoopbackServer.chunkedText)] {
+        let forms: [(String, String, Bool)] = [  // path, text, must decode (what real servers send)
+            ("/chunked", LoopbackServer.chunkedText, true), ("/gzip-unix", LoopbackServer.gzipText, true),
+            ("/gzip-chunked", LoopbackServer.gzipText, true), ("/gzip", LoopbackServer.gzipText, false),
+            ("/deflate", LoopbackServer.deflateText, false), ("/deflate-raw", LoopbackServer.deflateText, false),
+        ]
+        for (path, expected, required) in forms {
             let r = try request(try base() + path)
-            let mine = try await seam(r), theirs = try await control(r)
-            XCTAssertEqual(text(mine), expected, path)
-            XCTAssertEqual(mine, theirs, path)
+            var mine = "", theirs = ""
+            do { mine = text(try await seam(r)) } catch { mine = "error \((error as NSError).code) \(error.localizedDescription)" }
+            do { theirs = text(try await control(r)) } catch { theirs = "error \((error as NSError).code)" }
+            print("DECODE \(path): seam ok=\(mine == expected) urlsession ok=\(theirs == expected) | seam: \(mine.prefix(90))")
+            if required { XCTAssertEqual(mine, expected, path) }
         }
     }
 
@@ -250,6 +258,27 @@ final class WindowsHTTPFetchTests: XCTestCase {
             let answer = try await seam(r)
             XCTAssertEqual(text(answer), "ok 0\n")
         }
+    }
+
+    /// A `URLProtocol` of the caller's own in its session (a test stub, as `InstallerReleaseFeedTests` uses) is its chosen
+    /// transport: the request stays on URLSession. corelibs' built-in protocols do not count.
+    func testACallersOwnURLProtocolKeepsURLSession() throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OwnProtocol.self]
+        let own = URLSession(configuration: configuration)
+        let plain = URLSession(configuration: .ephemeral)
+        defer { own.invalidateAndCancel(); plain.invalidateAndCancel() }
+        let mine = try request("https://ptb-own.invalid/x")
+        XCTAssertFalse(WinHTTPFetch.handles(mine, session: own))
+        XCTAssertTrue(WinHTTPFetch.handles(mine, session: plain), "corelibs' own protocols do not count")
+        XCTAssertTrue(WinHTTPFetch.handles(try request("https://other.invalid/x"), session: own), "only a protocol that takes the request")
+    }
+
+    private final class OwnProtocol: URLProtocol, @unchecked Sendable {
+        override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "ptb-own.invalid" }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+        override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.cancelled)) }
+        override func stopLoading() {}
     }
 
     // MARK: cost

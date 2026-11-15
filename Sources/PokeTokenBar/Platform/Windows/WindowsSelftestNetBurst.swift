@@ -416,8 +416,8 @@ private final class Recorder: @unchecked Sendable {
 /// 1000 body bytes, then nothing until the client closes; `/cut` sends the same 10 bytes and closes; `/silent` reads the
 /// request and never answers; `/echo` answers with the method, the header block and the body it received;
 /// `/redirect` is a 302 to `/delay/0`; `/redirect-to/<port>` a 302 to `http://localhost:<port>/echo` (another host);
-/// `/see-other` a 303 to `/echo`; `/status/<code>` that status (204 and 304 without a body); `/gzip`, `/deflate` a fixed
-/// body with that Content-Encoding; `/chunked` three chunks. A request in absolute form (`GET http://host/path`, the way a
+/// `/see-other` a 303 to `/echo`; `/status/<code>` that status (204 and 304 without a body); `/gzip`, `/gzip-unix`,
+/// `/gzip-chunked`, `/deflate` (zlib-wrapped), `/deflate-raw` a fixed body with that Content-Encoding; `/chunked` three chunks. A request in absolute form (`GET http://host/path`, the way a
 /// client talks to a proxy) is answered `proxied <target>` plus the header block. Connections stay open (keep-alive)
 /// unless the client asked for `Connection: close`; 20 s of silence closes them.
 final class LoopbackServer: @unchecked Sendable {
@@ -463,6 +463,12 @@ final class LoopbackServer: @unchecked Sendable {
         0xc8, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x48, 0x2b, 0xca, 0xcf, 0x55, 0x28, 0xc9, 0x48, 0x55, 0xc8, 0xc9, 0xcf, 0x2f, 0x48, 0x4a,
         0x4c, 0xce, 0x56, 0x28, 0x4e, 0x2d, 0x2a, 0x4b, 0x2d, 0xe2, 0x02, 0x00, 0x7c, 0xf7, 0x10, 0x73]
     static let deflateText = "deflate body: hello from the loopback server\n"
+    /// The same gzip with the OS byte 3 (Unix), as zlib-based servers write it (Python's default above is 255).
+    static let gzipUnixBody: [UInt8] = { var b = LoopbackServer.gzipBody; b[9] = 3; return b }()
+    /// The deflate text as a raw deflate stream (no zlib wrapper), as some servers send "deflate".
+    static let rawDeflateBody: [UInt8] = [0x4b, 0x49, 0x4d, 0xcb, 0x49, 0x2c, 0x49, 0x55, 0x48, 0xca, 0x4f, 0xa9, 0xb4, 0x52, 0xc8, 0x48,
+        0xcd, 0xc9, 0xc9, 0x57, 0x48, 0x2b, 0xca, 0xcf, 0x55, 0x28, 0xc9, 0x48, 0x55, 0xc8, 0xc9, 0xcf, 0x2f, 0x48, 0x4a, 0x4c, 0xce,
+        0x56, 0x28, 0x4e, 0x2d, 0x2a, 0x4b, 0x2d, 0xe2, 0x02, 0x00]
     static let chunkedText = "first chunk, second chunk, third chunk\n"
 
     private static func serve(_ c: SOCKET) {
@@ -524,12 +530,17 @@ final class LoopbackServer: @unchecked Sendable {
                     let line = "HTTP/1.1 \(arg) Status\r\nContent-Type: text/plain\r\nContent-Length: \(body.count)\r\n\r\n"
                     guard NB.put(c, Array(line.utf8) + body) else { return }
                 }
-            case "gzip", "deflate":
-                let gzip = parts.first == "gzip"
-                let body = gzip ? gzipBody : deflateBody
-                let line = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: \(gzip ? "gzip" : "deflate")\r\n"
-                    + "Content-Length: \(body.count)\r\n\r\n"
-                guard NB.put(c, Array(line.utf8) + body) else { return }
+            case "gzip", "gzip-unix", "deflate", "deflate-raw", "gzip-chunked":
+                let name = parts.first ?? ""
+                let body = name == "gzip" ? gzipBody : name == "deflate" ? deflateBody : name == "deflate-raw" ? rawDeflateBody : gzipUnixBody
+                let encoding = name.hasPrefix("gzip") ? "gzip" : "deflate"
+                var out = Array("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: \(encoding)\r\n".utf8)
+                if name == "gzip-chunked" {
+                    out += Array("Transfer-Encoding: chunked\r\n\r\n\(String(body.count, radix: 16))\r\n".utf8) + body + Array("\r\n0\r\n\r\n".utf8)
+                } else {
+                    out += Array("Content-Length: \(body.count)\r\n\r\n".utf8) + body
+                }
+                guard NB.put(c, out) else { return }
             case "chunked":
                 var out = Array("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n".utf8)
                 for piece in ["first chunk, ", "second chunk, ", "third chunk\n"] {

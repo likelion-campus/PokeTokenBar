@@ -443,6 +443,11 @@ extension PlatformCompat {
 // MARK: - One-shot HTTP fetches
 
 extension PlatformCompat {
+    /// Tests that fake the network with a `URLProtocol` registered through `URLProtocol.registerClass` (only URLSession consults
+    /// it, and corelibs offers no way to see the registered classes) set this so the Windows branch keeps URLSession. A stub in
+    /// the caller's own session configuration needs nothing: `WinHTTPFetch.handles` sees it. The Mac branch ignores it.
+    nonisolated(unsafe) static var oneShotStaysOnURLSessionForTesting = false
+
     /// One HTTP request for the app's one-shot fetches (status checks, limits, update feed, PokeAPI, names).
     /// Mac: `session.data(for:)`, verbatim (the caller's own session, `URLSession.shared` by default). Windows: WinHTTP on a
     /// thread that blocks in the kernel (`WinHTTPFetch`, with the session's timeout and extra headers), because URLSession
@@ -451,7 +456,9 @@ extension PlatformCompat {
     /// would, and when WinHTTP cannot load.
     static func oneShotData(for request: URLRequest, session: URLSession = .shared) async throws -> (Data, URLResponse) {
         #if os(Windows)
-        if WinHTTPFetch.handles(request) { return try await WinHTTPFetch.data(for: request, configuration: session.configuration) }
+        if !oneShotStaysOnURLSessionForTesting, WinHTTPFetch.handles(request, session: session) {
+            return try await WinHTTPFetch.data(for: request, configuration: session.configuration)
+        }
         return try await session.data(for: request)
         #else
         return try await session.data(for: request)
@@ -462,7 +469,7 @@ extension PlatformCompat {
     static func oneShotData(from url: URL) async throws -> (Data, URLResponse) {
         #if os(Windows)
         let request = URLRequest(url: url)
-        if WinHTTPFetch.handles(request) {
+        if !oneShotStaysOnURLSessionForTesting, WinHTTPFetch.handles(request, session: .shared) {
             return try await WinHTTPFetch.data(for: request, configuration: URLSession.shared.configuration)
         }
         return try await URLSession.shared.data(from: url)
