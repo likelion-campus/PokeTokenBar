@@ -263,7 +263,10 @@ struct WinRenderStats: Equatable, Sendable {
          int32((r.maxX - 0.5).rounded(.up)), int32((r.maxY - 0.5).rounded(.up)))
     }
 
-    static func int32(_ v: CGFloat) -> Int32 { Int32(max(min(v, 1 << 24), -(1 << 24))) }
+    static func int32(_ v: CGFloat) -> Int32 {
+        let limit = CGFloat(1 << 24)
+        return Int32(max(min(v, limit), -limit))
+    }
 
     /// Fault injection only: every run of equal global z drawn in reverse.
     private static func reverseTies(_ items: inout [PlazaDrawItem]) {
