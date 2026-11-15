@@ -225,3 +225,5 @@ TeamOpenSSLInteropTests.swift
 PlazaParityGoldens+Mac.swift
 # PlazaStoreSpriteParityTests+Mac: the shared sprite/icon loaders against LivePlazaSpriteFetcher, PlazaIconLoader and SpriteLoader (AppKit, ImageIO)
 PlazaStoreSpriteParityTests+Mac.swift
+# OneShotDataMacTests: pins the Mac branch of PlatformCompat.oneShotData to URLSession.shared (a URLProtocol stub; Windows takes WinHTTP, WindowsHTTPFetchTests)
+OneShotDataMacTests.swift
