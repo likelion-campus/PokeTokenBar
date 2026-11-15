@@ -97,6 +97,26 @@ private final class BrowseContext: CallbackContext {
 
     private let namesLock = NSLock()
     private var known = Set<String>()
+    /// When each known name was last answered for (repeats included): the transport's sign of life for a name
+    /// whose dials keep failing (`WindowsTeamTransport` forgets one that fails with no answer in between).
+    private var answeredAt: [String: Date] = [:]
+
+    /// Pool thread: every PTR of a callback, before repeats are dropped.
+    func noteAnswers(_ answers: [(name: String, ttl: UInt32)]) {
+        guard !answers.isEmpty else { return }
+        let now = Date()
+        namesLock.lock()
+        for a in answers { answeredAt[a.name] = a.ttl > 0 ? now : nil }
+        namesLock.unlock()
+        if let observe = WinDNSSD.answerObserver { for a in answers { observe(a.name, a.ttl) } }
+    }
+
+    func lastAnswer(_ name: String) -> Date? { namesLock.lock(); defer { namesLock.unlock() }; return answeredAt[name] }
+
+    /// Forgets `name`: its next answer is a `.found` again.
+    func forget(_ name: String) {
+        namesLock.lock(); known.remove(name); answeredAt[name] = nil; namesLock.unlock()
+    }
 
     /// Pool thread. Drops the event when the browse was stopped; checked again on the main queue. Windows repeats
     /// answers (the same `.found` or `.lost` four times in a row, and a steady stream while other browsers on the
@@ -125,6 +145,8 @@ private final class RegisterContext: CallbackContext {
     let fullName: WideString
     let hostName: WideString
     var serviceInstance: UnsafeMutablePointer<DNS_SERVICE_INSTANCE>?
+    /// Signalled by the completion callback that follows `DnsServiceDeRegister` (the goodbye has gone out).
+    let goodbye = DispatchSemaphore(value: 0)
     let request = UnsafeMutablePointer<DNS_SERVICE_REGISTER_REQUEST>.allocate(capacity: 1)
     let cancel = UnsafeMutablePointer<DNS_SERVICE_CANCEL>.allocate(capacity: 1)
     private let stateLock = NSLock()
@@ -193,14 +215,17 @@ private func handleBrowse(_ status: UInt32, _ rawContext: UnsafeMutableRawPointe
     guard context.isOpen else { return }
     if status != 0 { context.post([.browseFailed(Int32(bitPattern: status))]); return }
     var events: [WinDNSSD.Event] = []
+    var answers: [(name: String, ttl: UInt32)] = []
     var node = rawRecords?.assumingMemoryBound(to: DNS_RECORDW.self)   // the service API always returns wide records
     while let record = node {
         if record.pointee.wType == 12, let host = record.pointee.Data.PTR.pNameHost,   // DNS_TYPE_PTR
            let label = DNSSDName.instanceLabel(fromPTR: String(decodingCString: UnsafePointer(host), as: UTF16.self)) {
             events.append(record.pointee.dwTtl == 0 ? .lost(label) : .found(label))
+            answers.append((label, record.pointee.dwTtl))
         }
         node = record.pointee.pNext
     }
+    context.noteAnswers(answers)
     context.post(events)
 }
 
@@ -208,8 +233,9 @@ private func handleRegister(_ status: UInt32, _ rawContext: UnsafeMutableRawPoin
     guard let rawContext else { return }
     let context = Unmanaged<RegisterContext>.fromOpaque(rawContext).takeUnretainedValue()
     context.markCompleted()
-    // A callback after deregister is ignored without freeing: it may be handed our own instance back.
-    guard context.isOpen else { return }
+    // A callback after deregister is ignored without freeing: it may be handed our own instance back. It is the
+    // deregistration's completion: the goodbye has gone out.
+    guard context.isOpen else { context.goodbye.signal(); return }
     let instance = rawInstance?.assumingMemoryBound(to: DNS_SERVICE_INSTANCE.self)
     defer { if let instance { DnsServiceFreeInstance(instance) } }
     if status != 0 { context.post(.registerFailed(Int32(bitPattern: status))); return }
@@ -334,6 +360,31 @@ final class WinDNSSD: @unchecked Sendable {
 
     /// Withdraws the advertisement (Windows sends the goodbye record). Quiet when nothing is registered. Main thread.
     func deregister() { deregisterNow() }
+
+    /// `deregister()`, then waits up to `seconds` for its completion callback, so a process about to exit does not end
+    /// before the goodbye leaves. nil when nothing is registered; true when the completion came in time. A registration
+    /// whose own completion has not arrived yet is waited for too: browsers may already have its announcement (seen on
+    /// the runner, run 43652917639). Blocks the calling (main) thread: for exit only.
+    func deregister(waitingUpTo seconds: TimeInterval) -> Bool? {
+        guard let context = registration else { return nil }
+        deregisterNow()
+        return context.goodbye.wait(timeout: .now() + seconds) == .success
+    }
+
+    /// When the current browse last heard an answer for `name` (repeats included); nil when it has none.
+    func lastAnswer(_ name: String) -> Date? { browsing?.lastAnswer(name) }
+
+    /// Forgets `name` in the current browse, so its next announcement is reported as `.found` again.
+    func forget(_ name: String) { browsing?.forget(name) }
+
+    nonisolated(unsafe) private static let observerLock = NSLock()
+    nonisolated(unsafe) private static var observer: (@Sendable (String, UInt32) -> Void)?
+    /// Diagnostics (the team probe): called on a pool thread with the name and TTL of every PTR answer, repeats
+    /// included. Nil in the app.
+    static var answerObserver: (@Sendable (String, UInt32) -> Void)? {
+        get { observerLock.lock(); defer { observerLock.unlock() }; return observer }
+        set { observerLock.lock(); observer = newValue; observerLock.unlock() }
+    }
 
     /// Starts browsing `_ptbteam._tcp.local`. Reports `.found(label)` for a PTR with a TTL above 0 and `.lost(label)`
     /// for TTL 0, each only when it changes what this browse knows (repeats are dropped before the main thread; your
