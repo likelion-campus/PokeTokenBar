@@ -194,9 +194,16 @@ extension WindowsSelftest {
         // plaza.capture: what the screen shows over the window equals the frame bitmap (R3: is DComp content captured?).
         await captureCheck(r, shell, hwnd)
 
-        // plaza.idleVisible: nobody moves (the fixtures stand still), visible: what the shared scene itself still changes.
+        // plaza.idleVisible: visible, nobody moves. First the FIXTURE teammates standing (each a 2-frame 5 Hz animation in its
+        // own phase: informational), then me alone with the placeholder (judged against D19's draws <= 20/s): what the shared
+        // scene itself still changes every second.
         members = members.map { PlazaSceneMember(memberID: $0.memberID, nickname: $0.nickname, isAway: false, tile: $0.tile, facing: $0.facing, isWalking: false) }
         scene?.applyMembers(members)
+        _ = await waitUntil(timeout: 1.5) { false }
+        let standing0 = shell.stats
+        _ = await waitUntil(timeout: 5) { false }
+        let standing1 = shell.stats
+        scene?.applyMembers([])
         _ = await waitUntil(timeout: 2) { false }
         let clockTid = shell.clockStatsForTesting?.threadId ?? 0
         let i0 = shell.stats
@@ -204,10 +211,13 @@ extension WindowsSelftest {
         let i1 = shell.stats
         let clockCs = idleSample?.active.first { $0.tid == clockTid }?.cs ?? 0
         r.add("plaza.idleVisible", Double(i1.draws - i0.draws) / 10 <= 20 && i1.presents - i0.presents == i1.draws - i0.draws,
-              "visible, nobody walking, 10 s: ticks=\(i1.ticks - i0.ticks) draws=\(i1.draws - i0.draws) (\(pf2(Double(i1.draws - i0.draws) / 10))/s, D19 <= 20/s) "
-                + "presents=\(i1.presents - i0.presents) clean=\(i1.cleanTicks - i0.cleanTicks) clock thread cs=\(clockCs) main cs=\(idleSample?.mainContextSwitches ?? -1) "
-                + "main cycles=\(idleSample?.mainCycles ?? 0) process cycles=\(idleSample?.processCycles ?? 0); what still draws: the shared scene's own "
-                + "animation (sprite frames, bobbing, daylight, water)")
+              "visible, me alone (placeholder), nobody walking, 10 s: ticks=\(i1.ticks - i0.ticks) draws=\(i1.draws - i0.draws) "
+                + "(\(pf2(Double(i1.draws - i0.draws) / 10))/s, D19 <= 20/s) presents=\(i1.presents - i0.presents) clean=\(i1.cleanTicks - i0.cleanTicks) "
+                + "clock thread cs=\(clockCs) main cs=\(idleSample?.mainContextSwitches ?? -1) main cycles=\(idleSample?.mainCycles ?? 0) "
+                + "process cycles=\(idleSample?.processCycles ?? 0); with 6 FIXTURE teammates standing (5 s): draws=\(standing1.draws - standing0.draws) "
+                + "(\(pf2(Double(standing1.draws - standing0.draws) / 5))/s); what still draws: the shared scene's own animation (sprite frames, "
+                + "bobbing, daylight, water)")
+        scene?.applyMembers(members)
 
         // plaza.minimize / plaza.restore: the clock thread parks (0 context switches in 5 s) and runs again.
         await pauseCheck(r, "plaza.minimize", "plaza.restore", shell, clockTid: clockTid, measure: true,
@@ -243,8 +253,8 @@ extension WindowsSelftest {
         scene = nil   // the selftest's own reference: the close check below asks whether the controller let go of it
 
         // plaza.close (x3 open/close cycles), plaza.reopen, plaza.placement (a child process restores the saved frame).
-        let closeFrame = WinPlazaWindow.frame(shell.dpiForTesting, 1000, 660)
-        _ = SetWindowPos(hwnd, nil, 100, 120, closeFrame.width, closeFrame.height, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
+        let closeFrame = WinPlazaWindow.frame(shell.dpiForTesting, 700, 500)   // inside the work area: kept as it is
+        _ = SetWindowPos(hwnd, nil, 60, 50, closeFrame.width, closeFrame.height, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
         var saved = RECT()
         _ = GetWindowRect(hwnd, &saved)
         let clockTidAtClose = shell.clockStatsForTesting?.threadId ?? 0
@@ -256,9 +266,13 @@ extension WindowsSelftest {
         _ = await waitUntil(timeout: 10) { false }   // D19: "private bytes within +20 MB after 10 s"
         let bytesClosed = ptb_gfx_process_private_bytes(), handlesClosed = ptb_process_handle_count()
         var cycles: [(handles: UInt32, bytes: UInt64, presented: Bool, joined: Bool)] = []
+        var reopenedAt: [RECT] = []
         for _ in 0..<3 {
             c.show()
             let opened = await waitUntil(timeout: 3) { shell.stats.presents >= 1 }
+            var at = RECT()
+            if let h = shell.hwndForTesting { _ = GetWindowRect(h, &at) }
+            reopenedAt.append(at)
             shell.requestClose()
             _ = await waitUntil(timeout: 0.5) { false }
             cycles.append((ptb_process_handle_count(), ptb_gfx_process_private_bytes(), opened, shell.lastClosed?.clockJoined == true))
@@ -272,8 +286,10 @@ extension WindowsSelftest {
                 + "after close \(handlesClosed), after cycles \(cycles.map { $0.handles }) (growth over cycles \(leak), budget 10); private MB before "
                 + "\(pmb(bytesBefore)) open \(pmb(bytesOpen)) closed+10s \(pmb(bytesClosed)) cycles \(cycles.map { pmb($0.bytes) }) "
                 + "(closed - before \(pmb(bytesClosed &- bytesBefore)) MB: graphics DLLs and WARP stay loaded); 3 open/close cycles presented=\(cycles.map { $0.presented })")
-        r.add("plaza.reopen", cycles.count == 3 && cycles.allSatisfy { $0.presented },
-              "three reopenings each presented a first frame: \(cycles.map { $0.presented })")
+        let samePlace = reopenedAt.allSatisfy { $0.left == saved.left && $0.top == saved.top && $0.right == saved.right && $0.bottom == saved.bottom }
+        r.add("plaza.reopen", cycles.count == 3 && cycles.allSatisfy { $0.presented } && samePlace,
+              "three reopenings each presented a first frame: \(cycles.map { $0.presented }); reopened where it was closed "
+                + "(\(saved.left),\(saved.top),\(saved.right),\(saved.bottom)): \(samePlace) \(reopenedAt.map { "(\($0.left),\($0.top),\($0.right),\($0.bottom))" })")
         await placementCheck(r, expected: saved)
     }
 
@@ -325,9 +341,8 @@ extension WindowsSelftest {
         }
         let viaScreen = compare(screen), viaPrint = compare(printed)
         let dir = selftestOutDirectory()
-        var bgra = [UInt8](repeating: 0, count: frame.count)
-        for i in stride(from: 0, to: frame.count, by: 4) { bgra[i] = frame[i + 2]; bgra[i + 1] = frame[i + 1]; bgra[i + 2] = frame[i]; bgra[i + 3] = 255 }
-        let wroteFrame = WinUIDump.write(WinUIDump.Bitmap(width: w, height: h, bgra: bgra), to: dir.appendingPathComponent("plaza-frame.png"))
+        let wroteFrame = writeFrame(frame, w, h, "plaza-frame.png")
+        let notOpaque = stride(from: 3, to: frame.count, by: 4).reduce(0) { $0 + (frame[$1] < 255 ? 1 : 0) }
         let wroteScreen = screen.map { WinUIDump.write($0, to: dir.appendingPathComponent("plaza-capture.png")) } ?? -1
         let wrotePrint = printed.map { WinUIDump.write($0, to: dir.appendingPathComponent("plaza-printwindow.png")) } ?? -1
         // The brief's evidence is the screen; PrintWindow is the R3 fallback when GDI cannot see the composition.
@@ -335,7 +350,7 @@ extension WindowsSelftest {
               "client \(w)x\(h) at (\(origin.x),\(origin.y)); screen (BitBlt CAPTUREBLT) vs frame bitmap over 160x120 map px: "
                 + "\(viaScreen.map { "worst |d|=\($0.worst), \($0.over) px over 2" } ?? "no capture"); PrintWindow(PW_RENDERFULLCONTENT): "
                 + "\(viaPrint.map { "worst |d|=\($0.worst), \($0.over) px over 2" } ?? "no capture"); PNGs written frame=\(wroteFrame) "
-                + "screen=\(wroteScreen) print=\(wrotePrint) in \(WinPath.native(dir))")
+                + "screen=\(wroteScreen) print=\(wrotePrint) in \(WinPath.native(dir)); frame pixels not opaque=\(notOpaque)")
     }
 
     /// `hide` must stop the frames (the view paused, the clock parked) within 1.5 s; `show` must bring them back.
@@ -435,7 +450,7 @@ extension WindowsSelftest {
     }
 
     @MainActor private static func resizeCheck(_ r: Recorder, _ shell: WinPlazaWindow, _ hwnd: HWND) async {
-        let f = WinPlazaWindow.frame(shell.dpiForTesting, 1100, 700)
+        let f = WinPlazaWindow.frame(shell.dpiForTesting, 820, 560)   // fits the runner's 1024 x 768 screen (a window never outgrows it)
         let p0 = shell.stats.presents, resizes0 = shell.surfaceForTesting?.windowStats.resizes ?? 0
         _ = SetWindowPos(hwnd, nil, 0, 0, f.width, f.height, UINT(SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE))
         _ = await waitUntil(timeout: 1) { shell.stats.presents > p0 }
@@ -448,10 +463,13 @@ extension WindowsSelftest {
             let i = ((h - 2) * w + (w - 2)) * 4
             return px.count == w * h * 4 ? px[i + 3] : nil
         }
-        r.add("plaza.resize", client.right == 1100 && client.bottom == 700 && ws.bufferWidth == 1100 && ws.bufferHeight == 700
-                && shell.stats.presents > p0 && corner == 255,
+        let transparent = frame.map { px in stride(from: 3, to: px.count, by: 4).reduce(0) { $0 + (px[$1] < 255 ? 1 : 0) } } ?? -1
+        if let frame, frame.count == w * h * 4 { writeFrame(frame, w, h, "plaza-resized.png") }
+        r.add("plaza.resize", client.right == 820 && client.bottom == 560 && ws.bufferWidth == 820 && ws.bufferHeight == 560
+                && shell.stats.presents > p0 && corner == 255 && transparent == 0,
               "client=\(client.right)x\(client.bottom) buffers=\(ws.bufferWidth)x\(ws.bufferHeight) ResizeBuffers calls +\(ws.resizes - resizes0) "
-                + "presents+\(shell.stats.presents - p0) frame bottom-right alpha=\(corner.map { "\($0)" } ?? "-") (opaque: drawn at the new size)")
+                + "presents+\(shell.stats.presents - p0) frame bottom-right alpha=\(corner.map { "\($0)" } ?? "-"), pixels not opaque=\(transparent) "
+                + "(opaque: drawn at the new size; background \(shell.stageForTesting.map { "\($0.backgroundColor)" } ?? "-"))")
     }
 
     /// The window's modal move loop (WM_SYSCOMMAND SC_MOVE, ended by a posted Escape; CI only) and a synthetic
@@ -498,6 +516,7 @@ extension WindowsSelftest {
             }
         }
         let d0 = shell.stats, t0 = WinPlazaClock.seconds(), sets0 = WinModalPump.timersSet
+        let pumpTicks0 = WinModalPump.ticks, fromWindows0 = WinModalPump.ticksFromWindows
         _ = SendMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xF010 /* SC_MOVE */, 0)   // returns when the move loop ends
         done.set()
         let loopSeconds = WinPlazaClock.seconds() - t0
@@ -506,7 +525,8 @@ extension WindowsSelftest {
         r.add("plaza.dragDraws", syntheticOK && loopSeconds >= 0.8 && ticksPerSecond >= 45 && ranDuring.count >= 5 && WinModalPump.timersSet > sets0
                 && WinModalPump.depth == 0,
               synthetic + "; real SC_MOVE loop \(pf2(loopSeconds)) s: ticks/s=\(pf2(ticksPerSecond)) draws=\(d1.draws - d0.draws) presents=\(d1.presents - d0.presents), "
-                + "main-queue blocks run inside the loop \(ranDuring.count) of \(posted.count) posted, pump timers set \(WinModalPump.timersSet - timers0), depth after \(WinModalPump.depth)")
+                + "main-queue blocks run inside the loop \(ranDuring.count) of \(posted.count) posted (\(ranTotal.count) ran by the end), pump timers set \(WinModalPump.timersSet - timers0), "
+                + "pump ticks in the loop \(WinModalPump.ticks - pumpTicks0) (from the plaza's frame tick \(WinModalPump.ticksFromWindows - fromWindows0), the rest the sink's WM_TIMER), depth after \(WinModalPump.depth)")
     }
 
     @MainActor private static func focusCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
@@ -600,6 +620,18 @@ extension WindowsSelftest {
     }
 
     // MARK: - small helpers
+
+    /// The frame bitmap (premultiplied RGBA) as a PNG next to the selftest output, its alpha kept (a see-through pixel shows).
+    @discardableResult
+    static func writeFrame(_ rgba: [UInt8], _ w: Int, _ h: Int, _ name: String) -> Int32 {
+        var bgra = [UInt8](repeating: 0, count: rgba.count)
+        for i in stride(from: 0, to: rgba.count, by: 4) {
+            let a = Int(rgba[i + 3])
+            func straight(_ c: UInt8) -> UInt8 { a == 0 ? 0 : UInt8(min(255, (Int(c) * 255 + a / 2) / a)) }
+            bgra[i] = straight(rgba[i + 2]); bgra[i + 1] = straight(rgba[i + 1]); bgra[i + 2] = straight(rgba[i]); bgra[i + 3] = rgba[i + 3]
+        }
+        return WinUIDump.write(WinUIDump.Bitmap(width: w, height: h, bgra: bgra), to: selftestOutDirectory().appendingPathComponent(name))
+    }
 
     static func selftestOutDirectory() -> URL {
         let args = CommandLine.arguments

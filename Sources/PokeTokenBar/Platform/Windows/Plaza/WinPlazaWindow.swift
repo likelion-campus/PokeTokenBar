@@ -366,6 +366,7 @@ import WinSDK
     private func tick() {
         view?.clock?.ack()
         stats.ticks += 1
+        WinModalPump.serviceIfDue()   // inside a move/size loop the frame ticks can starve the pump's WM_TIMER
         guard let stage, let view, view.isRunning else { return }
         stage.tick(at: WinPlazaClock.seconds())
         drawFrame(waitMs: 0)

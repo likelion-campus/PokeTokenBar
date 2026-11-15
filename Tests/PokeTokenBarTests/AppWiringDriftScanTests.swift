@@ -166,8 +166,10 @@ final class AppWiringDriftScanTests: XCTestCase {
         let macNotifier = try XCTUnwrap(Self.arguments(of: "TeamNotifier(", in: mac))
         XCTAssertEqual(Self.arguments(of: "TeamNotifier(", in: windows)?.suffix(2), macNotifier.suffix(2),
                        "isPlazaFrontmost / showInPlaza differ from AppDelegate's")
+        XCTAssertTrue(windows.contains("plaza = PlazaWindowController("), "WindowsApp.makePlaza builds the controller")
         for (name, text) in [("mac", mac), ("windows", windows)] {
-            let made = try XCTUnwrap(text.range(of: "plaza = PlazaWindowController("), name)
+            // The Mac builds it inline; Windows in makePlaza(), called from startTeam.
+            let made = try XCTUnwrap(text.range(of: name == "mac" ? "plaza = PlazaWindowController(" : "        makePlaza()\n"), name)
             let handed = try XCTUnwrap(text.range(of: "teamRuntime.plaza = plaza"), name)
             let notifier = try XCTUnwrap(text.range(of: "teamRuntime.notifier = TeamNotifier("), name)
             XCTAssertLessThan(made.lowerBound, notifier.lowerBound, "\(name): the plaza exists before the notifier reads it")

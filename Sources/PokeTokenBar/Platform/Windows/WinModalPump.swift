@@ -44,6 +44,9 @@ import WinSDK
     private static var drainMainQueue: DrainFn?
     /// Ticks skipped because a message other than the decoy was first in the thread's queue.
     private(set) static var ticksSkippedForInput = 0
+    /// Ticks run by `serviceIfDue` (a window's own message inside a modal loop) rather than by the sink's WM_TIMER.
+    private(set) static var ticksFromWindows = 0
+    private static var lastTickAt: TimeInterval = 0
 
     /// Verified on the runner: a tray menu opened with `TPM_NONOTIFY` delivers neither WM_ENTERMENULOOP nor
     /// WM_EXITMENULOOP to the owner, so `WinPopupMenu.run` calls `begin`/`end` itself. The size/move pair is the
@@ -92,6 +95,17 @@ import WinSDK
         if depth > 0 { _ = EndMenu() }
     }
 
+    /// Runs a tick now if a modal loop is active and the last one is at least one interval old. For windows whose own
+    /// posted messages keep arriving during the loop (the plaza's frame tick, 60 a second): in the first CI run of stage 6
+    /// Task 5 none of 19 main-queue blocks ran during a 1 s move loop of the plaza window while its ticks kept coming.
+    /// WM_TIMER is made only when nothing else is queued, so the likely cause is the stream of posted ticks starving the
+    /// sink's timer; the selftest (`plaza.dragDraws`) reports which of the two drives the ticks.
+    static func serviceIfDue() {
+        guard depth > 0, ProcessInfo.processInfo.systemUptime - lastTickAt >= Double(interval) / 1000 else { return }
+        ticksFromWindows += 1
+        tick()
+    }
+
     /// Selftest probe: whether the pump's timer still exists (it is killed by this call when it does).
     static func probeTimerExists() -> Bool {
         guard let hwnd = window?.hwnd else { return false }
@@ -105,6 +119,7 @@ import WinSDK
         inTick = true
         defer { inTick = false }
         ticks += 1
+        lastTickAt = ProcessInfo.processInfo.systemUptime
         // CoreFoundation's run loop answers "input is available" by removing ONE message from the thread queue
         // (`PeekMessage(PM_REMOVE)`) and dispatching it to its window, which can be a key the menu's modal loop was
         // about to read (swift-corelibs-foundation on Windows: no API turns this off, the queue-mask SPI is not

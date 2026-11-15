@@ -244,7 +244,7 @@ private func crtExit(_ code: Int32) -> Never {
         balloons.onClick = { [weak self] kind in if kind == .team { self?.openPlaza() } }   // the Mac's team notification delegate
     }
 
-    /// The Mac's `PlazaWindowController(...)` call (`AppWiringDriftScanTests` holds the arguments to it); the preferences
+    /// The Mac's plaza controller, built with the AppDelegate's arguments (`AppWiringDriftScanTests` holds them); the preferences
     /// live in the team settings' syncing store, where the Mac's `PlazaPreferences()` default puts them.
     private func makePlaza() {
         // Named and typed as the Mac's AppDelegate has them, so the call below is its text (the drift scan compares it).
