@@ -136,8 +136,8 @@ function Compare-FolderFileIds($Before, $After) {
 }
 
 # Runs a setup exe with its wizard (a double-click; only /LOG added) and clicks it through: Next on every page, Install,
-# Finish (the Finish page's launch box stays as Setup sets it). A click is WM_COMMAND/BN_CLICKED posted to the button's
-# parent, which the VCL routes to the button by its handle; no focus or foreground needed. Exit code.
+# Finish (the Finish page's launch box stays as Setup sets it). Clicks alternate BM_CLICK and a posted WM_COMMAND and
+# record the page title after each one. Exit code.
 if (-not ([System.Management.Automation.PSTypeName]'PtbCiWizard').Type) {
     Add-Type -TypeDefinition @'
 using System;
@@ -155,6 +155,8 @@ public static class PtbCiWizard {
     [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr h);
     [DllImport("user32.dll")] static extern int GetDlgCtrlID(IntPtr h);
     [DllImport("user32.dll")] static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
+    [DllImport("user32.dll")] static extern IntPtr SendMessageTimeoutW(IntPtr h, uint msg, IntPtr w, IntPtr l, uint flags, uint ms, out IntPtr result);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
     static string Cls(IntPtr h) { var sb = new StringBuilder(256); GetClassNameW(h, sb, 256); return sb.ToString(); }
     static string Text(IntPtr h) { var sb = new StringBuilder(256); GetWindowTextW(h, sb, 256); return sb.ToString(); }
     static IntPtr Find(string cls) {
@@ -171,9 +173,18 @@ public static class PtbCiWizard {
             EnumChildWindows(w, (h, l) => { lines.Add("  child " + Cls(h) + " '" + Text(h) + "' visible=" + IsWindowVisible(h) + " enabled=" + IsWindowEnabled(h)); return true; }, IntPtr.Zero);
         return string.Join(" | ", lines);
     }
+    // The first visible static text of the window of class cls: the wizard page's title.
+    public static string Title(string cls) {
+        IntPtr w = Find(cls);
+        string title = null;
+        if (w != IntPtr.Zero)
+            EnumChildWindows(w, (h, l) => { if (IsWindowVisible(h) && Cls(h) == "TNewStaticText" && Text(h).Length > 0) { title = Text(h); return false; } return true; }, IntPtr.Zero);
+        return title;
+    }
     // Clicks the first visible, enabled button of the visible window of class cls whose text without '&' starts with one
-    // of the prefixes (in their order). The text clicked, or null.
-    public static string Click(string cls, string[] prefixes) {
+    // of the prefixes (in their order): method 0 = BM_CLICK sent to the button (2 s timeout: Install runs the whole
+    // installation inside the click), 1 = WM_COMMAND/BN_CLICKED posted to its parent. The text clicked, or null.
+    public static string Click(string cls, string[] prefixes, int method) {
         IntPtr w = Find(cls);
         if (w == IntPtr.Zero) return null;
         var buttons = new List<IntPtr>();
@@ -181,7 +192,11 @@ public static class PtbCiWizard {
         foreach (var prefix in prefixes)
             foreach (var b in buttons) {
                 var t = Text(b).Replace("&", "");
-                if (t.StartsWith(prefix)) { PostMessageW(GetParent(b), 0x0111, (IntPtr)GetDlgCtrlID(b), b); return t; }  // WM_COMMAND, BN_CLICKED (0)
+                if (!t.StartsWith(prefix)) continue;
+                IntPtr r;
+                if (method == 0) { SetForegroundWindow(w); SendMessageTimeoutW(b, 0x00F5, IntPtr.Zero, IntPtr.Zero, 0x0002, 2000, out r); }  // BM_CLICK, SMTO_ABORTIFHUNG
+                else PostMessageW(GetParent(b), 0x0111, (IntPtr)GetDlgCtrlID(b), b);  // WM_COMMAND, BN_CLICKED (0)
+                return t;
             }
         return null;
     }
@@ -198,10 +213,14 @@ function Invoke-SetupWizard([string]$Setup, [string]$LogFile, [int]$TimeoutSec =
             $windows = [PtbCiWizard]::Describe('TWizardForm')
             Stop-Process -Id $p.Id -Force
             Get-Process -Name 'PokeTokenBar-Setup-*' -ErrorAction SilentlyContinue | Stop-Process -Force  # the wizard's own process (.tmp)
-            throw "the wizard did not finish in $TimeoutSec s (clicked: $($clicked -join ', ')); windows: $windows"
+            throw "the wizard did not finish in $TimeoutSec s ($($clicked.Count) clicks, the first: $(($clicked | Select-Object -First 8) -join ', ')); windows: $windows"
         }
-        $t = [PtbCiWizard]::Click('TWizardForm', [string[]]@('Finish', 'Install', 'Next'))
-        if ($t) { $clicked += $t; Start-Sleep -Milliseconds 1500 } else { Start-Sleep -Milliseconds 300 }
+        $method = $clicked.Count % 2
+        $t = [PtbCiWizard]::Click('TWizardForm', [string[]]@('Finish', 'Install', 'Next'), $method)
+        if ($t) {
+            Start-Sleep -Milliseconds 1500
+            $clicked += "$t(by $(@('BM_CLICK', 'WM_COMMAND')[$method]); page now '$([PtbCiWizard]::Title('TWizardForm'))')"
+        } else { Start-Sleep -Milliseconds 300 }
     }
     "wizard buttons clicked: $($clicked -join ' > ')" | Write-Host
     $p.ExitCode
