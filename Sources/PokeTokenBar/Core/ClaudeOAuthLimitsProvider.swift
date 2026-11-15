@@ -59,7 +59,7 @@ struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await PlatformCompat.oneShotData(for: request)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 {
             if http.statusCode == 429 {
                 throw LimitsError.rateLimited(retryAfter: LimitsHTTP.retryAfterSeconds(http))
@@ -100,7 +100,7 @@ actor OAuthProfileCache {
         var request = URLRequest(url: profileURL, timeoutInterval: 15)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        guard let (data, response) = try? await PlatformCompat.oneShotData(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return OAuthProfileData.identity(from: data)
     }
