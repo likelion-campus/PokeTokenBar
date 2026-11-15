@@ -11,7 +11,6 @@ import FoundationNetworking
 
 /// Where Cursor, Grok and OpenCode Go keep the login their limits use, on both systems, with fake values only.
 /// The user-name folder is non-ASCII on purpose: a path that round-trips through the Windows wide APIs must still open.
-@MainActor
 final class OtherProviderLimitsLocationTests: XCTestCase {
     private var directory: URL!
     private var home: URL { directory.appendingPathComponent("사용자-ユーザー", isDirectory: true) }

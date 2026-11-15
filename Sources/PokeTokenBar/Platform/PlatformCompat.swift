@@ -356,7 +356,8 @@ extension PlatformCompat {
     /// (`%APPDATA%`, which Electron apps such as Claude Desktop and Cursor use for their user data).
     static func userApplicationSupport(home: URL) -> URL {
         #if os(Windows)
-        return windowsRoamingAppData(home: home, appData: ProcessInfo.processInfo.environment["APPDATA"],
+        let environment = ProcessInfo.processInfo.environment   // %APPDATA% is the OS's, not a usage override
+        return windowsRoamingAppData(home: home, appData: environment["APPDATA"],
                                      currentHome: FileManager.default.homeDirectoryForCurrentUser)
         #else
         return home.appendingPathComponent("Library/Application Support")
