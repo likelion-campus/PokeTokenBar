@@ -90,6 +90,7 @@ import WinSDK
         guard !closed else { return }
         timeChangeCount += 1
         if followsSystemTimeZone {
+            WinTimeZone.publishSystemZone()  // Foundation's own Windows lookup yields GMT on a localized zone name
             NSTimeZone.resetSystemTimeZone()
             calendar = .current
         }

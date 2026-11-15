@@ -11,6 +11,12 @@ extension WindowsSelftest {
         }
         let tray = host.tray, presenter = notifier.presenter
         let ci = onCI
+        let balloonOnThisPC = CommandLine.arguments.contains("--selftest-balloon")
+
+        // Read-only facts for a log from a PC where no balloon was seen.
+        r.add("notify.state", WinAppUserModelID.current() == WinAppUserModelID.id,
+              "app id set=\(WinAppUserModelID.lastHResult == 0) \(WinNotificationState.describe())")
+        AppLog.write("notify state: \(WinNotificationState.describe())")
 
         let authorized = await notifier.requestAuthorization()
         r.add("notify.permission", notifier.isAvailable == tray.isPresent && authorized == tray.isPresent && tray.isPresent,
@@ -38,8 +44,23 @@ extension WindowsSelftest {
             r.add("notify.clip", presenter.lastTitleUnits <= BalloonQueue.titleLimit && presenter.lastBodyUnits <= BalloonQueue.bodyLimit && tray.lastBalloonOK,
                   "title 90 -> \(presenter.lastTitleUnits) units (limit \(BalloonQueue.titleLimit)), body 400 -> \(presenter.lastBodyUnits) (limit \(BalloonQueue.bodyLimit)) shell=\(tray.lastBalloonOK)")
             presenter.handle(.hidden)
+        }
+        if ci || balloonOnThisPC {
+            // The one signal Windows gives about visibility: NIN_BALLOONSHOW. Informational (PASS carries the measurement):
+            // whether the OS shows it depends on settings no test may change.
+            let before = presenter.shellShownCount
+            notifier.post(id: "selftest-shown", title: "PokeTokenBar self-test", body: "Does Windows report this balloon as shown?", sound: false)
+            var waited = 0.0
+            while presenter.shellShownCount == before && waited < 12 {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                waited += 0.25
+            }
+            let reported = presenter.shellShownCount > before
+            r.add("notify.shown", true, "NIN_BALLOONSHOW reported=\(reported) after \(waited) s (flags=0x\(String(tray.lastBalloonFlags, radix: 16))); "
+                  + "not-shown count=\(presenter.notShownCount) (a balloon with no show report within \(Int(WinBalloonPresenter.shownWithinSeconds)) s)")
+            presenter.handle(.hidden)
         } else {
-            r.add("notify.post", true, "skipped (not CI): a balloon would show on this PC")
+            r.add("notify.post", true, "skipped (not CI): a balloon would show on this PC; add --selftest-balloon to post one")
         }
 
         // No tray icon: the notifier says so and claims nothing.

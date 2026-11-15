@@ -4,17 +4,15 @@ import WinSDK
 
 /// The notification-area icon (one per app, id 1) on the sink window, in `NOTIFYICON_VERSION_4` behaviour.
 @MainActor final class WinTray {
-    enum BalloonEvent { case clicked, hidden, timedOut }
+    enum BalloonEvent { case shown, clicked, hidden, timedOut }
 
     /// Must not collide with `WM_APP + 1` (`WinSingleInstance.showMessage`) or the selftest's `+0x20/+0x21`.
     static let callbackMessage = UINT(WM_APP) + 0x30
     private static let iconID: UINT = 1
     // Tray notification codes (v4): the low word of lParam.
     private static let ninSelect: UInt32 = 0x400, ninKeySelect: UInt32 = 0x401
-    private static let ninBalloonHide: UInt32 = 0x403, ninBalloonTimeout: UInt32 = 0x404, ninBalloonUserClick: UInt32 = 0x405
+    private static let ninBalloonShow: UInt32 = 0x402, ninBalloonHide: UInt32 = 0x403, ninBalloonTimeout: UInt32 = 0x404, ninBalloonUserClick: UInt32 = 0x405
 
-    /// NIIF_RESPECT_QUIET_TIME: no balloon during the user's quiet time.
-    static let niifRespectQuietTime: DWORD = 0x80
     private let window: WinSinkWindow
     private var icon: WinIcon?
     private var tip = ""
@@ -34,6 +32,8 @@ import WinSDK
     private(set) var lastTipUnits = 0
     private(set) var lastBalloonOK = false
     private(set) var lastBalloonFlags: DWORD = 0
+    /// NIN_BALLOONSHOW notifications received, whatever balloon they were for (the selftest's control experiment).
+    private(set) var shownEventCount = 0
 
     init(window: WinSinkWindow) {
         self.window = window
@@ -98,12 +98,12 @@ import WinSDK
         lastModifyOK = Shell_NotifyIconW(DWORD(NIM_MODIFY), &nid)
     }
 
-    func showBalloon(title: String, body: String, sound: Bool) -> Bool {
+    func showBalloon(title: String, body: String, sound: Bool, kind: BalloonQueue.Kind = .app, extraInfoFlags: DWORD = 0) -> Bool {
         guard isPresent else { return false }
         var nid = base(NIF_INFO)
         fill(&nid.szInfoTitle, title, capacity: 64)
         fill(&nid.szInfo, body, capacity: 256)
-        nid.dwInfoFlags = DWORD(NIIF_INFO) | Self.niifRespectQuietTime | (sound ? 0 : DWORD(NIIF_NOSOUND))
+        nid.dwInfoFlags = BalloonFlags.infoFlags(kind: kind, sound: sound) | extraInfoFlags  // extra: CI control experiments only
         lastBalloonFlags = nid.dwInfoFlags
         lastBalloonOK = Shell_NotifyIconW(DWORD(NIM_MODIFY), &nid)
         return lastBalloonOK
@@ -149,6 +149,9 @@ import WinSDK
         case UInt32(WM_CONTEXTMENU):
             let x = Int16(truncatingIfNeeded: wParam & 0xFFFF), y = Int16(truncatingIfNeeded: (wParam >> 16) & 0xFFFF)
             onContextMenu?(POINT(x: Int32(x), y: Int32(y)))
+        case Self.ninBalloonShow:
+            shownEventCount += 1
+            onBalloonEvent?(.shown)
         case Self.ninBalloonUserClick: onBalloonEvent?(.clicked)
         case Self.ninBalloonHide: onBalloonEvent?(.hidden)
         case Self.ninBalloonTimeout: onBalloonEvent?(.timedOut)

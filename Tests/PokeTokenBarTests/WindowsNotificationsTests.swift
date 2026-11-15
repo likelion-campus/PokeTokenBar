@@ -24,10 +24,10 @@ final class WindowsNotificationsTests: XCTestCase {
         XCTAssertTrue(tray.showBalloon(title: "PokeTokenBar test", body: "body", sound: false))
         XCTAssertTrue(tray.lastBalloonOK, "NIM_MODIFY with NIF_INFO returns TRUE on the runner")
         XCTAssertNotEqual(tray.lastBalloonFlags & DWORD(NIIF_NOSOUND), 0, "sound == false")
-        XCTAssertNotEqual(tray.lastBalloonFlags & WinTray.niifRespectQuietTime, 0)
+        XCTAssertEqual(tray.lastBalloonFlags & BalloonFlags.respectQuietTime, 0, "quiet time must not drop the balloon")
         XCTAssertTrue(tray.showBalloon(title: "PokeTokenBar test", body: "body", sound: true))
         XCTAssertEqual(tray.lastBalloonFlags & DWORD(NIIF_NOSOUND), 0, "sound == true")
-        XCTAssertNotEqual(tray.lastBalloonFlags & WinTray.niifRespectQuietTime, 0, "quiet time is respected either way")
+        XCTAssertEqual(tray.lastBalloonFlags & BalloonFlags.respectQuietTime, 0)
     }
 
     func testNoTrayMeansNotAvailableAndNoDeliveryClaim() async {
@@ -75,6 +75,35 @@ final class WindowsNotificationsTests: XCTestCase {
         XCTAssertLessThanOrEqual(presenter.lastTitleUnits, BalloonQueue.titleLimit)
         XCTAssertLessThanOrEqual(presenter.lastBodyUnits, BalloonQueue.bodyLimit)
         XCTAssertTrue(presenter.lastShown?.body.hasSuffix("…") == true)
+    }
+
+    func testShellShownReportIsCountedAndDoesNotAdvanceTheQueue() async {
+        XCTAssertTrue(tray.add())
+        let presenter = WinBalloonPresenter(tray: tray)
+        presenter.post(.init(id: "1", title: "t", body: "b", sound: false, kind: .hint))
+        presenter.post(.init(id: "2", title: "t", body: "b", sound: false, kind: .app))
+        XCTAssertTrue(presenter.isShownWatchArmed, "armed while a balloon is up")
+        presenter.handle(.shown)
+        XCTAssertEqual(presenter.shellShownCount, 1)
+        XCTAssertFalse(presenter.isShownWatchArmed, "shown: nothing left to wait for")
+        XCTAssertEqual(presenter.inFlight?.id, "1", "shown means still on screen: the next one waits")
+        presenter.handle(.hidden)
+        XCTAssertEqual(presenter.inFlight?.id, "2")
+        presenter.handle(.hidden)
+        XCTAssertFalse(presenter.isShownWatchArmed)
+        XCTAssertEqual(presenter.notShownCount, 0)
+    }
+
+    func testABalloonTheShellNeverReportsIsCountedNotShown() async {
+        XCTAssertTrue(tray.add())
+        let presenter = WinBalloonPresenter(tray: tray)
+        presenter.post(.init(id: "1", title: "t", body: "b", sound: false, kind: .app))
+        XCTAssertEqual(presenter.notShownCount, 0)
+        let deadline = Date().addingTimeInterval(WinBalloonPresenter.shownWithinSeconds + 3)
+        while presenter.notShownCount == 0 && presenter.shellShownCount == 0 && Date() < deadline { try? await Task.sleep(nanoseconds: 200_000_000) }
+        // Exactly one of the two outcomes: a runner that can show toasts reports it shown (no flake either way).
+        XCTAssertEqual(presenter.notShownCount + presenter.shellShownCount, 1, "shown reported, or counted not shown after the window")
+        presenter.handle(.hidden)
     }
 }
 #endif

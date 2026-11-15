@@ -154,7 +154,15 @@ jobs:
               'providers = ptb_providers', '[ptb_providers]', 'ptbpoison = ptb_poison_provider', '[ptb_poison_provider]',
               'module = C:\ptb\no-such-provider.dll', 'activate = 1')
           $env:OPENSSL_CONF = $conf
+          # TEST ONLY, runner profile only: the app never writes these (the balloon screenshot needs toasts switched on).
+          $pn = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications'
+          if (-not (Test-Path $pn)) { New-Item $pn | Out-Null }
+          Set-ItemProperty $pn ToastEnabled 1 -Type DWord
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages -DumpUi (Join-Path $PWD 'ui-dump')
+      - name: Language and time zone in child processes (Korean display language, Seoul time zone)
+        if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
+        shell: pwsh
+        run: ./scripts/windows/check-language.ps1 -Exe bundle\PokeTokenBar.exe -OutDir lang-probe
       - name: Selftest on the dispatch-handle loop (diagnostic fallback, informational)
         if: (success() || failure()) && steps.package.outcome == 'success' && env.PTB_LEVEL == 'full'  # independent evidence, also after a selftest failure
         continue-on-error: true
@@ -866,6 +874,7 @@ jobs:
             plaza-*.png
             probe-*.txt
             ui-dump
+            lang-probe
             collected
             build.log
             .build/*/release/PokeTokenBarWin.pdb

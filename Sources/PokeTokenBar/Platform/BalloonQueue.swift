@@ -6,7 +6,7 @@ import Foundation
 /// Rule: the first item shows at once; later ones wait in arrival order; at `capacity` waiting items the OLDEST
 /// waiting one is dropped (the newest is the most relevant) and counted in `dropped`.
 struct BalloonQueue {
-    enum Kind: Equatable { case app, team }
+    enum Kind: Equatable, CaseIterable { case app, team, hint }
     struct Item: Equatable {
         let id: String
         let title: String
@@ -60,5 +60,26 @@ struct BalloonQueue {
             units += n
         }
         return out + "…"
+    }
+}
+
+/// `NOTIFYICONDATAW.dwInfoFlags` for a tray balloon. Pure, so both systems pin the choice.
+///
+/// No kind sets `NIIF_RESPECT_QUIET_TIME` (0x80). Per Microsoft's documentation that flag suppresses the balloon during
+/// "quiet time" (the first hour after a user signs in for the first time, and after an OS install or upgrade) and a
+/// suppressed balloon is dropped, never kept in the notification centre. A fresh install on a new PC is exactly that
+/// hour, so the first-run hint and every alert sent in it vanished. Focus assist / Do not disturb needs no flag: Windows
+/// applies it to the toast it makes of every balloon (silently into the notification centre).
+enum BalloonFlags {
+    static let info: UInt32 = 0x1, noSound: UInt32 = 0x10, respectQuietTime: UInt32 = 0x80
+
+    static func infoFlags(kind: BalloonQueue.Kind, sound: Bool) -> UInt32 {
+        let quiet: UInt32
+        switch kind {
+        case .hint: quiet = 0   // the one chance to find the icon: must show even in the first hour
+        case .app: quiet = 0    // limit alerts and companion events: a dropped one is lost for good
+        case .team: quiet = 0   // team notices: same
+        }
+        return info | quiet | (sound ? 0 : noSound)
     }
 }

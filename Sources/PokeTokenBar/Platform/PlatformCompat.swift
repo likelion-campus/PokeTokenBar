@@ -65,6 +65,18 @@ enum PlatformCompat {
         #endif
     }
 
+    /// The user's preferred UI languages, most preferred first, as BCP-47 tags (`AppLanguage.systemDefault` reads the first).
+    /// Mac: exactly `Locale.preferredLanguages`. Windows: swift-corelibs `Locale.preferredLanguages` reads the
+    /// `AppleLanguages` preference, which nothing sets on Windows (it is empty), so the display-language list comes from
+    /// `GetUserPreferredUILanguages` (falling back to the user locale name).
+    static var preferredUILanguages: [String] {
+        #if os(Windows)
+        return WinUILanguage.preferred()
+        #else
+        return Locale.preferredLanguages
+        #endif
+    }
+
     /// Ends a process that ignored a polite terminate.
     static func forceKill(pid: Int32) {
         #if os(Windows)
