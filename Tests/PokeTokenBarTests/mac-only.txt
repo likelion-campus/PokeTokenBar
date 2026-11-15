@@ -242,3 +242,5 @@ PlazaBlankLineTests+Mac.swift
 PlazaLiveSendEventTests+Mac.swift
 PlazaNoWindowsOrderedInScanTests+Mac.swift
 PlazaLegacyScrollerControlTests+Mac.swift
+# PlazaTextFrameTests+Mac: the shared CoreText frame and truncation rules against live CTFramesetter / CTLineCreateTruncatedLine (CoreText, fallback fonts)
+PlazaTextFrameTests+Mac.swift

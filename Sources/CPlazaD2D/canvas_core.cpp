@@ -48,6 +48,9 @@ D2D1_COLOR_F color(const Rgba &c) {
 
 }  // namespace
 
+// The text engine's glyph geometries must come from the factory the canvases draw with (declared in text.h).
+int sharedD2DFactory(Ref<ID2D1Factory> &out) { return sharedFactory(out); }
+
 // ---------------------------------------------------------------------------------------------------------------------------
 // Creation
 
