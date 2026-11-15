@@ -241,11 +241,7 @@ enum WinHTTPFetch {
         func resetPeak() { lock.lock(); peak = busy; lock.unlock() }
 
         func acquire() async throws {
-            lock.lock()
-            nextID += 1
-            let id = nextID
-            waiters[id] = .pending
-            lock.unlock()
+            let id = register()
             try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                     self.lock.lock()
@@ -302,6 +298,15 @@ enum WinHTTPFetch {
         }
 
         private func grantLocked() { busy += 1; peak = max(peak, busy) }
+
+        /// Synchronous: `NSLock` is unavailable from async code.
+        private func register() -> UInt64 {
+            lock.lock()
+            defer { lock.unlock() }
+            nextID += 1
+            waiters[nextID] = .pending
+            return nextID
+        }
     }
 
     static let gate = Gate(slots: maxConcurrentFetches)

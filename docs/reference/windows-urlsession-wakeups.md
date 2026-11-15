@@ -91,3 +91,10 @@ the Mac exactly the URLSession call the caller made before; on Windows a WinHTTP
 the kernel (`Platform/Windows/WinHTTPFetch.swift`), one session per fetch, closed with it. Every one-shot request of the app that
 runs on Windows goes through it (`WindowsSeamScanTests.testNoRequestOutsideTheSeamInCodeThatRunsOnWindows`). The installed app's
 idle gate went from 1,568-7,209 to 166-186 context switches a minute in a 300 s window with two store refreshes.
+
+What the replacement had to match, or chose to do differently from corelibs (the comment on `WinHTTPFetch` has the details and
+citations): redirects are followed by our code (`WINHTTP_OPTION_REDIRECT_POLICY_NEVER`) with the Mac's header rules, which
+`RedirectHeadersMacTests` pins (the Mac's URLSession drops `Authorization` on every hop; corelibs keeps every header), and a
+request with a `Cookie` does not follow a redirect to another origin; a server's NTLM/Negotiate challenge is never answered with
+the Windows logon (`WINHTTP_DISABLE_AUTHENTICATION`, logon policy HIGH), only a proxy's 407; TLS 1.2 and 1.3 only; a total
+deadline, which corelibs never had for a body that keeps trickling in.
