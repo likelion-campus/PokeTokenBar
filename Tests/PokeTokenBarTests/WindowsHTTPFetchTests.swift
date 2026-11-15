@@ -60,6 +60,8 @@ final class WindowsHTTPFetchTests: XCTestCase {
         let mine = text(try await seam(plain)), theirs = text(try await control(plain))
         print("default headers, seam:\n\(mine)\ncontrol (URLSession):\n\(theirs)")
         XCTAssertTrue(mine.contains("User-Agent: "), mine)
+        XCTAssertTrue(mine.contains("Accept-Encoding: gzip"), mine)
+        XCTAssertFalse(mine.lowercased().contains("deflate"), "deflate is not asked for: \(mine)")
         XCTAssertEqual(mine.contains("Accept-Language: "), theirs.contains("Accept-Language: "), "Accept-Language as URLSession sent it")
     }
 
@@ -83,7 +85,7 @@ final class WindowsHTTPFetchTests: XCTestCase {
         } catch let error as URLError {
             XCTAssertEqual(error.code, .timedOut, "\(error)")
         }
-        XCTAssertLessThan(Date().timeIntervalSince(t0), 5)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 3, "the idle timer ends a silent server on time")
     }
 
     func testABodyIsSentAsGivenAndAPostWithoutContentTypeGetsURLSessionsDefault() async throws {
@@ -132,7 +134,8 @@ final class WindowsHTTPFetchTests: XCTestCase {
     func testBodiesDecodeAsURLSessionDecodedThem() async throws {
         let forms: [(String, String, Bool)] = [  // path, text, must decode (what real servers send)
             ("/chunked", LoopbackServer.chunkedText, true), ("/gzip-unix", LoopbackServer.gzipText, true),
-            ("/gzip-chunked", LoopbackServer.gzipText, true), ("/gzip", LoopbackServer.gzipText, false),
+            ("/gzip-chunked", LoopbackServer.gzipText, true), ("/gzip", LoopbackServer.gzipText, true),
+            // deflate is no longer asked for (Accept-Encoding: gzip); a server that sends it anyway: printed, not required.
             ("/deflate", LoopbackServer.deflateText, false), ("/deflate-raw", LoopbackServer.deflateText, false),
         ]
         for (path, expected, required) in forms {

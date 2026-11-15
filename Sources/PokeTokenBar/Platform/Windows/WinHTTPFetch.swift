@@ -21,10 +21,12 @@ import WinSDK
 ///   `Accept-Language` when absent (corelibs' defaults, with "WinHTTP" where corelibs names its curl version); a POST body
 ///   without a `Content-Type` gets `application/x-www-form-urlencoded`, as corelibs does.
 /// - the timeout: the request's `timeoutInterval`, or the session's `timeoutIntervalForRequest` when the request kept the
-///   default 60 s, for resolve, connect, send and each receive (an idle timer, like corelibs'). `timeoutIntervalForResource`
+///   default 60 s, for resolve, connect, send and each receive, plus an idle timer of our own that ends a silent server on
+///   time (WinHTTP notices its receive timeout only when data arrives). `timeoutIntervalForResource`
 ///   is not enforced (corelibs does not either; the one caller that sets it keeps its own deadline).
 /// - TLS by Schannel against the Windows store with revocation checked (curl's Schannel default, `schannel.c` 8.9.1 493-495).
-/// - gzip and deflate decoded (curl decoded those and brotli; WinHTTP asks only for what it can decode).
+/// - gzip decoded (curl asked for deflate, gzip and br; WinHTTP asks for gzip only, the one form it decodes as libcurl did:
+///   its "deflate" decoder takes only raw deflate, not the zlib-wrapped form).
 /// - redirects followed up to 20 as corelibs did (`HTTPURLProtocol.swift` 459-466), also to another host; never from HTTPS to
 ///   HTTP (WinHTTP's default policy; corelibs followed those, and a bearer token would then travel in clear text).
 /// - no cookies kept or sent by WinHTTP (`WINHTTP_DISABLE_COOKIES`); a `Cookie` header the caller sets is sent as given.
@@ -150,12 +152,18 @@ enum WinHTTPFetch {
         private let lock = NSLock()
         private var request: Handle?
         private var cancelled = false
+        private var cancelCode = URLError.Code.cancelled
+        /// The idle timer (worker thread only): armed before the send, re-armed after every chunk. WinHTTP checks its own
+        /// receive timeout only when data arrives, so a silent server ran 5.4 s past a 1 s timeout; this ends it on time.
+        /// It exists only while a fetch runs.
+        private var watchdog: DispatchSourceTimer?
 
         init(api: API, plan: Plan) { self.api = api; self.plan = plan }
 
-        func cancel() {
+        /// Task cancellation (`.cancelled`) or the idle timer (`.timedOut`); the first reason wins.
+        func cancel(_ code: URLError.Code = .cancelled) {
             lock.lock()
-            cancelled = true
+            if !cancelled { cancelled = true; cancelCode = code }
             let handle = request
             request = nil
             lock.unlock()
@@ -163,6 +171,22 @@ enum WinHTTPFetch {
         }
 
         private var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+        private var cancelReason: URLError.Code { lock.lock(); defer { lock.unlock() }; return cancelCode }
+
+        private func armIdleTimer() {
+            let deadline = DispatchTime.now() + .milliseconds(Int(plan.timeoutMs))
+            if let watchdog { watchdog.schedule(deadline: deadline); return }
+            let timer = DispatchSource.makeTimerSource(queue: .global())
+            timer.setEventHandler { [weak self] in self?.cancel(.timedOut) }
+            timer.schedule(deadline: deadline)
+            timer.resume()
+            watchdog = timer
+        }
+
+        private func disarmIdleTimer() {
+            watchdog?.cancel()
+            watchdog = nil
+        }
 
         private func adopt(_ handle: Handle) -> Bool {
             lock.lock()
@@ -204,10 +228,12 @@ enum WinHTTPFetch {
             guard api.setOption(handle, WinHTTPFetch.optionDisableFeature, &noCookies, 4) != 0 else { throw failure("WINHTTP_DISABLE_COOKIES") }
             var redirects: UInt32 = 20
             _ = api.setOption(handle, WinHTTPFetch.optionMaxRedirects, &redirects, 4)
-            var decompression = WinHTTPFetch.decompressGzipDeflate
+            var decompression = WinHTTPFetch.decompressGzip
             _ = api.setOption(handle, WinHTTPFetch.optionDecompression, &decompression, 4)  // without it the body arrives undecoded, as sent
 
             let headers = WinStr.w(plan.headers)
+            armIdleTimer()
+            defer { disarmIdleTimer() }
             let sent: Int32
             if let body = plan.body, !body.isEmpty {
                 sent = body.withUnsafeBytes { raw in
@@ -231,6 +257,7 @@ enum WinHTTPFetch {
                 let ok = chunk.withUnsafeMutableBytes { api.read(handle, $0.baseAddress, UInt32($0.count), &got) }
                 guard ok != 0 else { throw failure("WinHttpReadData") }
                 if got == 0 { break }
+                armIdleTimer()
                 body.append(contentsOf: chunk[0..<Int(got)])
             }
 
@@ -291,7 +318,8 @@ enum WinHTTPFetch {
         /// The step and the WinHTTP code stay in the description; no header, body or query.
         private func failure(_ step: String) -> URLError {
             let code = GetLastError()
-            if isCancelled || code == 12017 { return URLError(.cancelled) }
+            if isCancelled { return URLError(cancelReason) }
+            if code == 12017 { return URLError(.cancelled) }
             return URLError(WinHTTPFetch.urlErrorCode(code), userInfo: [NSLocalizedDescriptionKey: "\(step) failed: WinHTTP error \(code)"])
         }
     }
@@ -335,7 +363,9 @@ enum WinHTTPFetch {
     private static let enableSSLRevocation: UInt32 = 0x1     // WINHTTP_ENABLE_SSL_REVOCATION
     private static let optionMaxRedirects: UInt32 = 89       // WINHTTP_OPTION_MAX_HTTP_AUTOMATIC_REDIRECTS (default 10)
     private static let optionDecompression: UInt32 = 118     // WINHTTP_OPTION_DECOMPRESSION (Windows 8.1+)
-    private static let decompressGzipDeflate: UInt32 = 0x3   // WINHTTP_DECOMPRESSION_FLAG_ALL = GZIP | DEFLATE
+    /// GZIP only: WinHTTP decodes "deflate" only as a raw stream, not the zlib-wrapped form RFC 9110 defines and libcurl decoded
+    /// (it failed with E_ABORT on the loopback test), so deflate is not asked for.
+    private static let decompressGzip: UInt32 = 0x1          // WINHTTP_DECOMPRESSION_FLAG_GZIP
     private static let optionDisableGlobalPooling: UInt32 = 195  // WINHTTP_OPTION_DISABLE_GLOBAL_POOLING
 
     private static let api: API? = load()
