@@ -104,6 +104,7 @@ extension WindowsSelftest {
         var lines: [String] = []
         var ok = true
         func expect(_ state: String, present: [PlazaPanelID], absent: [PlazaPanelID] = [], png: String) async {
+            b.rosterModel.entries = fixtureRoster
             await pumpPanels(0.35)
             let have = Set(panels.entries.keys)
             let missing = present.filter { !have.contains($0) }, extra = absent.filter { have.contains($0) }
