@@ -8,10 +8,17 @@ name: windows-app
 #   gh workflow run windows-app.yml --ref <branch> -f level=full --repo likelion-campus/PokeTokenBar
 # The three wake-up diagnostics (Waker hunt, Timeline, Waker modes) run only with `-f diagnostics=true`, at any level.
 # A new push cancels the running workflow of a work branch; on windows-port a running run finishes and one is queued.
+# main (after the merge) runs light on every push.
+# Release mode (stage 8; scripts/team_release.py dispatches it): -f release_sha=<40 hex> -f release_version=<x.y.z>.
+#   Builds exactly that commit at level full, with diagnostics, fast, stall_hunt and net_burst forced off. The "Release pin"
+#   step fails unless the commit carries that VERSION and this workflow and .github/actions/windows-swift are identical at the
+#   commit and at the dispatched ref. Its own concurrency group is never cancelled. A run that passed every gate ends with
+#   the artifact windows-release (the installer and windows-release.json, 7 days). CI never touches a release.
 # Builds and self-tests the Windows app executable. Informational: not a required check.
+run-name: ${{ inputs.release_sha != '' && format('release {0} {1}', inputs.release_version, inputs.release_sha) || '' }}
 on:
   push:
-    branches: [windows-port]
+    branches: [windows-port, main]
   pull_request:
     paths:
       - 'Sources/PokeTokenBar/Platform/**'
@@ -47,19 +54,58 @@ on:
         description: 'Also run the network-burst helper: what one HTTP fetch costs in wakeups (diagnostics, ~4 min)'
         type: boolean
         default: false
+      release_sha:
+        description: 'Release mode: the 40-hex commit to build (set by team_release.py)'
+        default: ''
+      release_version:
+        description: 'Release mode: the x.y.z that commit carries in scripts/build-app.sh'
+        default: ''
 permissions:
   contents: read
 concurrency:
-  group: windows-app-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/windows-port' }}
+  group: ${{ inputs.release_sha != '' && format('windows-app-release-{0}', inputs.release_sha) || format('windows-app-{0}', github.ref) }}
+  cancel-in-progress: ${{ inputs.release_sha == '' && github.ref != 'refs/heads/windows-port' }}
 jobs:
   app:
     runs-on: windows-latest
     timeout-minutes: 90
     env:
-      PTB_LEVEL: ${{ (github.ref == 'refs/heads/windows-port' || inputs.level == 'full') && 'full' || 'light' }}
+      PTB_LEVEL: ${{ (github.ref == 'refs/heads/windows-port' || inputs.level == 'full' || inputs.release_sha != '') && 'full' || 'light' }}
+      # The switches that skip or add steps, as this run uses them: release mode forces them off (the idle gate always runs).
+      PTB_DIAGNOSTICS: ${{ inputs.release_sha == '' && inputs.diagnostics == true }}
+      PTB_FAST: ${{ inputs.release_sha == '' && inputs.fast == 'true' }}
+      PTB_STALL_HUNT: ${{ inputs.release_sha == '' && inputs.stall_hunt || '0' }}
+      PTB_NET_BURST: ${{ inputs.release_sha == '' && inputs.net_burst == true }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
+      - name: Release pin
+        if: inputs.release_sha != '' || inputs.release_version != ''
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          PIN_WORKFLOW: .github/workflows/windows-app.yml
+        run: |
+          # Release mode builds exactly release_sha. The steps below come from this workflow (the dispatched ref, GITHUB_SHA),
+          # the files they run from the checkout (release_sha): the two must agree on the workflow and the toolchain action.
+          fail() { echo "::error::Release pin: $1"; echo "FAIL release.pin: $1"; exit 1; }
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "release_sha must be 40 lowercase hex characters, got '$RELEASE_SHA'"
+          head=$(git rev-parse HEAD)
+          [ "$head" = "$RELEASE_SHA" ] || fail "checked out $head, not release_sha $RELEASE_SHA"
+          version=$(sed -nE 's/^VERSION="([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' scripts/build-app.sh)
+          [ -n "$RELEASE_VERSION" ] && [ "$version" = "$RELEASE_VERSION" ] || fail "scripts/build-app.sh at $RELEASE_SHA has VERSION=\"$version\", not release_version '$RELEASE_VERSION'"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          rc=0; git diff --quiet "$GITHUB_SHA" "$RELEASE_SHA" -- "$PIN_WORKFLOW" .github/actions/windows-swift || rc=$?
+          if [ "$rc" -eq 1 ]; then
+              git diff --stat "$GITHUB_SHA" "$RELEASE_SHA" -- "$PIN_WORKFLOW" .github/actions/windows-swift
+              fail "main moved and changed the workflow; start the release again"
+          fi
+          [ "$rc" -eq 0 ] || fail "git diff $GITHUB_SHA $RELEASE_SHA failed ($rc)"
+          line="PASS release.pin: building $RELEASE_SHA as v$RELEASE_VERSION; $PIN_WORKFLOW and .github/actions/windows-swift identical at the dispatched $GITHUB_SHA"
+          echo "$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
       - name: Level of this run (job summary)
         shell: pwsh
         run: |
@@ -70,7 +116,8 @@ jobs:
               $lines += '**Light run, not a full one.** Skipped step groups: dispatch-loop fallback selftest, upgrade test, idle gate, uninstall check.'
               $lines += 'Ask for the full run with `gh workflow run windows-app.yml --ref <branch> -f level=full`.'
           }
-          $lines += ('Diagnostics (waker hunt, timeline, waker modes): ' + $(if ('${{ inputs.diagnostics }}' -eq 'true') { 'ran' } else { 'skipped (`-f diagnostics=true` to run)' }))
+          $lines += ('Diagnostics (waker hunt, timeline, waker modes): ' + $(if ($env:PTB_DIAGNOSTICS -eq 'true') { 'ran' } else { 'skipped (`-f diagnostics=true` to run)' }))
+          if ('${{ inputs.release_sha }}') { $lines += "Release mode: level full; diagnostics, fast, stall_hunt and net_burst forced off (diagnostics=$env:PTB_DIAGNOSTICS fast=$env:PTB_FAST stall_hunt=$env:PTB_STALL_HUNT net_burst=$env:PTB_NET_BURST)." }
           $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           $lines
       - uses: ./.github/actions/windows-swift
@@ -117,7 +164,7 @@ jobs:
           $redist = $terms | Where-Object { $_.Name -match '(?i)^redist.*\.txt$' } | Select-Object -First 1
           if ($redist) { "---- $($redist.Name), first lines:"; Get-Content $redist.FullName -TotalCount 25 }
       - name: Network burst (what one HTTP fetch costs in wakeups, per thread; diagnostics)
-        if: (success() || failure()) && steps.package.outcome == 'success' && inputs.net_burst == true
+        if: (success() || failure()) && steps.package.outcome == 'success' && env.PTB_NET_BURST == 'true'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -140,6 +187,7 @@ jobs:
           }
           foreach ($s in $j.stacks) { "== stacks $($s.name)"; $s.detail }
       - name: Selftest with a stripped Path
+        id: bundle-selftest
         shell: pwsh
         run: |
           $env:Path = 'C:\Windows\System32;C:\Windows'
@@ -432,7 +480,7 @@ jobs:
           "screenshot $($b.Width)x$($b.Height)"
           Stop-Process -Id $p.Id -Force
       - name: Stall hunt (diagnostics, workflow_dispatch input)
-        if: (success() || failure()) && steps.package.outcome == 'success' && github.event_name == 'workflow_dispatch' && inputs.stall_hunt != '0'
+        if: (success() || failure()) && steps.package.outcome == 'success' && github.event_name == 'workflow_dispatch' && env.PTB_STALL_HUNT != '0'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -441,7 +489,7 @@ jobs:
           $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
           $env:PTB_SELFTEST_IDLE_SECONDS = '1'
           $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
-          for ($i = 1; $i -le [int]'${{ inputs.stall_hunt }}'; $i++) {
+          for ($i = 1; $i -le [int]$env:PTB_STALL_HUNT; $i++) {
               $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE "state-hunt-$i"
               New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
               $out = Join-Path $PWD "st-hunt-$i.json"
@@ -546,15 +594,26 @@ jobs:
               Set-Content -Path bundle-next\PokeTokenBar.version -Value $next -NoNewline
               $jobs += @{ Src = 'bundle-next'; Ver = $next; Out = 'installer-next' }
           }
+          $defines = [ordered]@{}
           foreach ($job in $jobs) {
               New-Item -ItemType Directory -Force -Path $job.Out | Out-Null
-              & $iscc /Q "/DSrcDir=$((Resolve-Path $job.Src).Path)" "/DAppVer=$($job.Ver)" "/DOutDir=$((Resolve-Path $job.Out).Path)" installer\PokeTokenBar.iss
+              # Every /D goes through $isccArgs: iscc-defines.json records them per output folder, and the release manifest
+              # asserts that the shipped installer (installer-out) had exactly SrcDir, AppVer and OutDir.
+              $isccArgs = @("/DSrcDir=$((Resolve-Path $job.Src).Path)", "/DAppVer=$($job.Ver)", "/DOutDir=$((Resolve-Path $job.Out).Path)")
+              $defines[$job.Out] = @($isccArgs | Where-Object { $_ -like '/D*' } | ForEach-Object { ($_ -replace '^/D', '') -replace '=.*$', '' })
+              & $iscc /Q @isccArgs installer\PokeTokenBar.iss
               if ($LASTEXITCODE -ne 0) { throw "ISCC failed for $($job.Ver)" }
           }
+          $defines | ConvertTo-Json | Set-Content iscc-defines.json -Encoding utf8NoBOM
           "PTB_NEXT_VERSION=$next" >> $env:GITHUB_ENV
           foreach ($f in Get-ChildItem installer-out, installer-next -Filter *.exe -ErrorAction SilentlyContinue) { '{0}: {1:N0} bytes' -f $f.FullName, $f.Length }
           'bundle: {0:N0} bytes in {1} files' -f ((Get-ChildItem bundle -Recurse -File | Measure-Object Length -Sum).Sum), (Get-ChildItem bundle -Recurse -File).Count
           if (-not (Test-Path "installer-out\PokeTokenBar-Setup-$v-win-x64.exe")) { throw 'the installer has not the expected name' }
+          # Inno pads its version strings with blanks: compare them trimmed.
+          $vi = (Get-Item "installer-out\PokeTokenBar-Setup-$v-win-x64.exe").VersionInfo
+          $fv, $pv, $fd = $vi.FileVersion, $vi.ProductVersion, $vi.FileDescription | ForEach-Object { "$_".Trim([char[]]@([char]32, [char]0)) }
+          . ./scripts/windows/ci-helpers.ps1
+          Assert-That ($fv -eq "$v.0" -and $pv -eq $v) 'iscc.versionInfo' "setup FileVersion='$fv' ProductVersion='$pv' FileDescription='$fd'; expected $v.0 / $v"
       - name: Silent install and what it left
         id: install
         if: (success() || failure()) && steps.iscc.outcome == 'success'
@@ -583,10 +642,14 @@ jobs:
           Assert-That ($aumid -eq 'LikelionCampus.PokeTokenBar') 'install.aumid' "shortcut AppUserModelID='$aumid'"
           $key = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object { $_.PSChildName -like '{6CE57293-9940-4B5E-A604-4C4FEECBF049}*' }
           Assert-That ($null -ne $key) 'install.uninstallKey' "$($key.PSChildName) DisplayVersion=$($key.GetValue('DisplayVersion'))"
+          Assert-That ($key.GetValue('DisplayVersion') -eq $v) 'install.displayVersion' "Uninstall DisplayVersion=$($key.GetValue('DisplayVersion')), expected $v"
           Assert-That ($null -eq (Get-RunValue)) 'install.noRunValue' "HKCU Run PokeTokenBar: $(Get-RunValue)"
           Assert-That (-not (Get-Process PokeTokenBar -ErrorAction SilentlyContinue)) 'install.noLaunchWithFlag' '/NOLAUNCH=1 left no running instance'
           $item = Get-Item $exe
           "installed exe: $($item.VersionInfo.FileVersion) $($item.Length) bytes"
+          # What the install showed, for the release manifest (the install folder is gone by then).
+          [ordered]@{ fileVersion = $item.VersionInfo.FileVersion; versionFile = (Get-Content (Join-Path $PtbInstallDir 'PokeTokenBar.version') -Raw).Trim()
+                      uninstallDisplayVersion = $key.GetValue('DisplayVersion') } | ConvertTo-Json | Set-Content install-stamps.json -Encoding utf8NoBOM
       - name: Upgrade over a running instance keeps settings and memberID
         id: upgrade
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full'
@@ -666,7 +729,7 @@ jobs:
           "executed selftest checks: $(@($j.checks).Count)"
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
         id: idle
-        if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full' && inputs.fast != 'true'
+        if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full' && env.PTB_FAST != 'true'
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -744,7 +807,7 @@ jobs:
           if ($verdicts.Values -contains $false) { throw "idle gate FAILED: $(($verdicts.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object Key) -join ', ')" }
           'PASS idle gate'
       - name: Waker hunt (the two ~1 Hz threads; diagnostics)
-        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.diagnostics == true && inputs.fast != 'true'
+        if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_DIAGNOSTICS == 'true' && env.PTB_FAST != 'true'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -761,7 +824,7 @@ jobs:
           "exit $($p.ExitCode)"
           foreach ($ph in (Get-Content $out -Raw | ConvertFrom-Json)) { "== $($ph.phase)"; $ph.detail }
       - name: Timeline of the installed app (when does a waker start; diagnostics)
-        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.diagnostics == true
+        if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_DIAGNOSTICS == 'true'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -785,7 +848,7 @@ jobs:
               Get-Content (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log') | Select-String 'refresh done|launched' | Select-Object -Last 4
           }
       - name: Waker modes (what each way of waiting costs on its own; diagnostics)
-        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.diagnostics == true
+        if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_DIAGNOSTICS == 'true'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -841,6 +904,14 @@ jobs:
           $after = @(Get-ChildItem $data -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object FullName)
           Assert-That ($plistBefore -and (Test-Path $PtbPlist) -and $after.Count -ge $before.Count) 'uninstall.dataKept' "settings plist kept: $(Test-Path $PtbPlist); files under %LOCALAPPDATA%\PokeTokenBar: $($before.Count) before, $($after.Count) after"
           "left behind: $PtbPlist (+ .bak: $(Test-Path "$PtbPlist.bak")); $data ($($after.Count) files: $((($after | ForEach-Object { Split-Path $_ -Leaf }) | Select-Object -First 12) -join ', '))"
+      - name: Upgrade from the previous published Windows release
+        id: upgrade-from-release
+        if: (success() || failure()) && steps.uninstall.outcome == 'success' && env.PTB_LEVEL == 'full'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}  # read-only, for the API rate limit
+        run: ./scripts/windows/upgrade-from-release.ps1 -Version $env:PTB_VERSION -Installer "installer-out\PokeTokenBar-Setup-$env:PTB_VERSION-win-x64.exe"
+      # New gate steps go above this line ("Collect logs"); the two release-mode steps stay last.
       - name: Collect logs
         if: always()
         shell: pwsh
@@ -878,3 +949,19 @@ jobs:
             collected
             build.log
             .build/*/release/PokeTokenBarWin.pdb
+      # Release mode, last: only a run where every step above passed leaves windows-release (installer + manifest).
+      - name: Release manifest
+        if: success() && inputs.release_sha != ''
+        shell: pwsh
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          PTB_STEPS: ${{ toJSON(steps) }}
+        run: ./scripts/windows/release-manifest.ps1 -Out windows-release
+      - uses: actions/upload-artifact@v4
+        if: success() && inputs.release_sha != ''
+        with:
+          name: windows-release
+          path: windows-release/
+          retention-days: 7
+          if-no-files-found: error
