@@ -1,0 +1,6 @@
+# Provenance of the Windows captures in this directory (checked by scripts/team_docs_check.py).
+# One line per PNG, four fields separated by " | ":
+#   <file name in this directory> | <CI run id or URL> | <command that made it> | <label>
+# The label must contain "Windows CI runner", e.g. "Sample-data capture, Windows CI runner".
+# Captures come from the real app with fixture data; nothing is drawn on top of the pixels.
+# Lines starting with # and blank lines are ignored. Every assets/windows/*.png must be listed.
