@@ -1990,6 +1990,14 @@ read_when:
   `testPhotoClipsASunkEggToThePondAndKeepsItWholeAtTheTopEdge`, `testAJumpingSunkEggStaysSunk`,
   `testAPlazaThatPausesWithMyEggStillInTheWaterClimbsItOut`, `testAPausedEggWhoseRouteIsBlockedByASwimmerStaysAndDoesNotHang`.
 
+- **렌더 하니스의 가짜 시각(시간대)은 고정한다.** 하니스 시계를 `Calendar.current` 로 만들면 같은 "6월 15일 12시"가 KST Mac 과 UTC 러너에서 다른 순간이 되어, 순간에서 정해지는 아이템 스케줄이 달라져
+  낮 장면에 노드가 하나 더 생겼다(스테이지 6 작업 4 에서 발견). **왜 못 걸렀나:** 렌더 비교는 같은 기계 두 커밋만 비교했고, 두 OS 를 비교한 적이 없었다(같은 기계에서는 시간대가 같다).
+  **고침:** `PlazaFixtureTime` 이 고정 오프셋(+09:00, DST 없음, 시간대 DB 불필요)을 실행 동안 `NSTimeZone.default` 로 걸고 `Calendar.current` 가 따라오는지 `precondition` 으로 확인한다(KST Mac 의 렌더는 그대로).
+  **규칙:** 시각을 쓰는 하니스는 시간대를 명시적으로 고정한다; 두 OS 렌더 비교(`scripts/plaza-render-cross.sh`, 윈도 `render` 잡)가 트리를 줄 단위로 비교하므로 순간이 어긋나면 노드 수 차이로 바로 드러난다.
+- **두 OS 렌더 비교가 찾은 Direct2D 결함은 `PlazaCrossCompare.knownRendererBugs` 에 이유와 함께 적고, 고치면 목록에서 지운다.** 불꽃놀이 장면 60프레임(`fireworks-*@60`)에서 프레임 맨 아래 64 디바이스 행이 투명 검정으로 나온다
+  (불꽃 빛 multiplyX2 스프라이트가 프레임 아래 끝을 넘는 경우로 추정, 원인 미확정). **왜 못 걸렀나:** Task 4 의 장면 비교는 5개 장면만 봤고 불꽃놀이는 10·30 프레임만 찍었다.
+  **규칙:** 목록에 있는 캡처가 통과하면 테스트가 실패해 목록이 썩지 않는다.
+
 ## 프로세스 제어·업데이트
 
 - **"나중에"는 이 버전을 다시 안 보여 주는 스킵이지, 다음에 또 물어보기가 아니다.** `skipCurrent()` 가
