@@ -7,6 +7,9 @@ import SwiftUI   // only for the continuous rounded rectangle's path (`Path(roun
 final class CGPlazaCanvas: PlazaCanvas {
     let context: CGContext
 
+    /// Whether any text was drawn: `makeImage` tags the image `.canvasWithText` (cross-OS compare only).
+    private var drewText = false
+
     init(context: CGContext) { self.context = context }
 
     var width: Int { context.width }
@@ -151,11 +154,13 @@ final class CGPlazaCanvas: PlazaCanvas {
     func draw(_ image: PlazaImage, in rect: CGRect) { context.draw(image.cgImage, in: rect) }
 
     func draw(_ line: PlazaTextLine, at textPosition: CGPoint) {
+        drewText = true
         context.textPosition = textPosition
         CTLineDraw(CoreTextPlazaEngine.ctLine(line)!, context)
     }
 
     func draw(_ paragraph: PlazaParagraph, in rect: CGRect) {
+        drewText = true
         CTFrameDraw(CTFramesetterCreateFrame(CoreTextPlazaEngine.framesetter(paragraph)!, CFRange(), CGPath(rect: rect, transform: nil), nil),
                     context)
     }
@@ -173,5 +178,5 @@ final class CGPlazaCanvas: PlazaCanvas {
         body(context.data!.assumingMemoryBound(to: UInt8.self), context.bytesPerRow)
     }
 
-    func makeImage() -> PlazaImage? { context.makeImage().map(PlazaImage.init(cgImage:)) }
+    func makeImage() -> PlazaImage? { context.makeImage().map { PlazaImage(cgImage: $0, origin: drewText ? .canvasWithText : .canvas) } }
 }

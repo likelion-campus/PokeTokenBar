@@ -138,6 +138,10 @@ struct PlazaRenderCapture {
     let height: Int
     let bgra: [UInt8]
     let tree: String
+    /// The same dump made from the shared tree (`PlazaTreeDump`); must equal `tree`.
+    var sharedTree = ""
+    /// `tree` with each texture hash taken over the cut's own pixels (what the shared dump hashes).
+    var skRegionTree = ""
     let nodes: Int
     let textures: Int
     let ties: [String]
@@ -176,7 +180,7 @@ enum PlazaRenderRun {
             let t = Double(frame) / 60
             renderer.pass(sk, points: scene.viewport, pixels: pixels, time: t)
             if scene.captures.contains(frame) {
-                var dump = PlazaTreeDump()
+                var dump = PlazaSKTreeDump()
                 dump.classNames = PlazaRenderHarness.legacyClassNames(of: setup.scene)
                 dump.walk(sk)
                 // Exact z ties between overlapping sprites are drawn in an unspecified order by SKRenderer with ignoresSiblingOrder
@@ -196,6 +200,9 @@ enum PlazaRenderRun {
                 var capture = PlazaRenderCapture(scene: scene.name, frame: frame, width: pixels.width, height: pixels.height,
                                                  bgra: renderer.bytes(), tree: dump.lines.joined(separator: "\n") + "\n",
                                                  nodes: dump.lines.count, textures: dump.textureCount, ties: dump.ties())
+                capture.skRegionTree = dump.regionLines.joined(separator: "\n") + "\n"
+                capture.sharedTree = PlazaTreeDump.lines(root: setup.scene.root, camera: setup.scene.stage.camera,
+                                                         classNames: PlazaTreeDump.classNames(of: setup.scene)).joined(separator: "\n") + "\n"
                 capture.parity = PlazaRenderHarness.sharedRoots(of: setup.scene).flatMap { PlazaMirrorParity.differences($0) }
                     + PlazaRenderHarness.actorMountDifferences(of: setup.scene)
                 out.append(capture)
@@ -252,10 +259,13 @@ enum PlazaRenderRun {
     }
 }
 
-/// One line per SpriteKit node. Deterministic text: fixed number formats, texture ordinals by first appearance.
+/// One line per SpriteKit node (the shared tree's `PlazaTreeDump` writes the same lines). Deterministic text: fixed number formats, texture ordinals by first appearance.
 @MainActor
-struct PlazaTreeDump {
+struct PlazaSKTreeDump {
     private(set) var lines: [String] = []
+    /// `lines` with every texture hash replaced by the hash of that texture's own pixels (`PlazaImage(cgImage:).pixels`).
+    private(set) var regionLines: [String] = []
+    private var regionHashes: [ObjectIdentifier: String] = [:]
     private var ordinals: [ObjectIdentifier: Int] = [:]
     private var textureHashes: [ObjectIdentifier: String] = [:]
     private var sprites: [(node: SKSpriteNode, path: String, rect: CGRect, z: CGFloat, texture: Int)] = []
@@ -276,7 +286,7 @@ struct PlazaTreeDump {
         return "\(f(c.redComponent)),\(f(c.greenComponent)),\(f(c.blueComponent)),\(f(c.alphaComponent))"
     }
 
-    private mutating func texture(_ t: SKTexture) -> String {
+    private mutating func texture(_ t: SKTexture) -> (desc: String, region: String) {
         let id = ObjectIdentifier(t)
         let ordinal: Int
         if let o = ordinals[id] { ordinal = o } else { ordinal = ordinals.count; ordinals[id] = ordinal }
@@ -284,8 +294,9 @@ struct PlazaTreeDump {
             let image = t.cgImage()
             let data = image.dataProvider?.data as Data?
             textureHashes[id] = "\(image.width)x\(image.height)#" + String(PlazaRenderRun.hex(Array(data ?? Data())).prefix(16))
+            regionHashes[id] = "\(image.width)x\(image.height)#" + String(PlazaRenderRun.hex(PlazaImage(cgImage: image).pixels.bytes).prefix(16))
         }
-        return "tex\(ordinal):\(textureHashes[id]!)"
+        return ("tex\(ordinal):\(textureHashes[id]!)", "tex\(ordinal):\(regionHashes[id]!)")
     }
 
     mutating func walk(_ node: SKNode, depth: Int = 0, parentZ: CGFloat = 0, path: String = "") {
@@ -293,12 +304,15 @@ struct PlazaTreeDump {
         var line = String(repeating: " ", count: depth)
             + "\(className(node)) name=\(node.name ?? "-") p=\(p(node.position)) z=\(f(node.zPosition)) a=\(f(node.alpha))"
             + " h=\(node.isHidden ? 1 : 0) sc=\(f(node.xScale)),\(f(node.yScale)) rot=\(f(node.zRotation))"
+        var regionLine = line
         if let sprite = node as? SKSpriteNode {
             line += " size=\(s(sprite.size)) anchor=\(p(sprite.anchorPoint)) color=\(components(sprite.color))"
                 + " cbf=\(f(sprite.colorBlendFactor)) blend=\(sprite.blendMode.rawValue)"
+            regionLine = line
             if let t = sprite.texture {
-                let desc = texture(t)
+                let (desc, region) = texture(t)
                 line += " \(desc)"
+                regionLine += " \(region)"
                 if !node.isHidden && node.alpha > 0 && !isUnderHidden(node) {
                     sprites.append((node: sprite, path: path + "/" + (node.name ?? className(node)), rect: sprite.frame.applying(accumulated(node)), z: globalZ,
                                     texture: ordinals[ObjectIdentifier(t)] ?? -1))
@@ -306,9 +320,12 @@ struct PlazaTreeDump {
             }
         }
         if let crop = node as? SKCropNode {
-            line += " mask=\(crop.maskNode.map { "\(type(of: $0)) p=\(p($0.position)) frame=\(f($0.frame.minX)),\(f($0.frame.minY)),\(f($0.frame.width)),\(f($0.frame.height))" } ?? "nil")"
+            let mask = " mask=\(crop.maskNode.map { "\(type(of: $0)) p=\(p($0.position)) frame=\(f($0.frame.minX)),\(f($0.frame.minY)),\(f($0.frame.width)),\(f($0.frame.height))" } ?? "nil")"
+            line += mask
+            regionLine += mask
         }
         lines.append(line)
+        regionLines.append(regionLine)
         for child in node.children { walk(child, depth: depth + 1, parentZ: globalZ, path: path + "/" + (node.name ?? className(node))) }
     }
 

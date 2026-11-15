@@ -44,6 +44,7 @@ final class CGImagePayload: PlazaNativeImage, @unchecked Sendable {
 
 extension PlazaImage {
     convenience init(cgImage: CGImage) { self.init(native: CGImagePayload(cgImage)) }
+    convenience init(cgImage: CGImage, origin: PlazaImageOrigin) { self.init(native: CGImagePayload(cgImage), origin: origin) }
 
     /// What SpriteKit and CoreGraphics get: the native `CGImage` itself, or one built from the bitmap once and kept
     /// in `backendCache`.
