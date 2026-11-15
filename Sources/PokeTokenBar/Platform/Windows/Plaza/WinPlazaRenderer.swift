@@ -199,6 +199,7 @@ struct WinRenderStats: Equatable, Sendable {
             }
             cmd.region = (region.l, region.t, region.r, region.b)
             stats.effectDraws += 1
+            if cmd.blend != 0 { print("FXDIAG cmd blend=\(cmd.blend) kind=\(cmd.kind) region=\(cmd.region) hasClip=\(cmd.hasClip) clip=\(cmd.clip) m=\(cmd.m)") }
         }
         commands.append(cmd)
     }

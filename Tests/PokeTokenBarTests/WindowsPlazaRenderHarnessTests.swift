@@ -53,6 +53,11 @@ final class WindowsPlazaRenderHarnessTests: XCTestCase {
                 XCTAssertEqual(renderer.drawIfNeeded(stage: stage, transparent: true), .drawn, "\(scene.name)@\(frame)")
                 device.finish()
                 let rgba = try XCTUnwrap(surface.readRGBA(), "\(scene.name)@\(frame): no pixels")
+                if scene.name.hasPrefix("fireworks"), frame == 60 {
+                    var rows: [Int] = []
+                    for y in 0..<h where (0..<w).allSatisfy({ rgba[(y * w + $0) * 4 + 3] == 0 }) { rows.append(y) }
+                    print("FXDIAG \(scene.name)@\(frame) size=\(w)x\(h) fullyTransparentRows=\(rows.first ?? -1)...\(rows.last ?? -1) count=\(rows.count)")
+                }
                 XCTAssertTrue(rgba.contains { $0 != 0 }, "\(scene.name)@\(frame) is all zero")
                 XCTAssertEqual(renderer.stats.failedFrames, 0, WinPlazaCodecs.lastError())
                 out.captures.append(PlazaCrossCapture(stem: "\(scene.name)@\(frame)", kind: .scene, width: w, height: h, rgba: rgba,
