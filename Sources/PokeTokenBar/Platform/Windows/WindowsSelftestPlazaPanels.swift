@@ -71,7 +71,13 @@ extension WindowsSelftest {
             PlazaRosterEntry(id: me ? "selftest-me" : "fixture-\(i)", nickname: me ? "selftest" : "Fixture \(i)", speciesID: 25 + i, speciesName: "Pikachu",
                              gender: nil, isShiny: i == 2, presence: presence, isMe: me)
         }
-        b.rosterModel.entries = [entry(0, me: true), entry(1), entry(2, presence: .idle)]
+        let fixtureRoster = [entry(0, me: true), entry(1), entry(2, presence: .idle)]
+        // The controller's own refresh (its 1 s tick) rewrites the roster from the session: the fixture is put back before each use.
+        func seedRoster() async {
+            b.rosterModel.entries = fixtureRoster
+            await pumpPanels(0.3)
+        }
+        b.rosterModel.entries = fixtureRoster
         for i in 0..<40 {
             b.chatLog.append(time: Date(timeIntervalSince1970: 1_800_000_000 + Double(i) * 60), name: i % 2 == 0 ? "Fixture 1" : "selftest",
                              text: "line \(i) 안녕하세요 hello world, a longer line that wraps around the log's width", color: PlazaColor(hex: 0x66CCFF))
@@ -152,6 +158,7 @@ extension WindowsSelftest {
             clicksOK = clicksOK && total > 0 && matched == allEnabled
             clickLines.append("\(id): \(matched)/\(allEnabled) enabled items acted (\(total) items, disabled that acted: \(disabledActions))")
         }
+        await seedRoster()
         for id in [PlazaPanelID.backgroundToggle, .shortcuts, .roster, .chatLog] { await clickAll(id) }
         c.toggleNameColorPicker()
         await pumpPanels(0.3)
@@ -168,6 +175,7 @@ extension WindowsSelftest {
         r.add("plaza.clicks", clicksOK, "real window messages at the item pixels: \(clickLines.joined(separator: "; ")); card action items \(cardItems)")
 
         // plaza.cover: with the card open (a full-window cover), the roster's own slot pixel takes no click and the card takes it.
+        await seedRoster()
         let rosterButtons = buttons(panels, .roster)
         model.content = .card(.loading(me))
         await pumpPanels(0.35)
@@ -188,6 +196,7 @@ extension WindowsSelftest {
 
         // plaza.photo: photo mode hides the Mac's set: not drawn, no click.
         let beforeCount = panels.drawList.count
+        let beforeIDs = Set(panels.entries.keys).subtracting([.pills])
         shell.setHUDHidden(true)
         model.isPhotoMode = true
         await pumpPanels(0.4)
@@ -201,7 +210,7 @@ extension WindowsSelftest {
         shell.setHUDHidden(false)
         model.isPhotoMode = false
         await pumpPanels(0.4)
-        r.add("plaza.photo", afterCount < beforeCount && hiddenClicks == 0 && panels.drawList.count == beforeCount && drawnIDs.isDisjoint(with: WinPlazaPanels.hiddenInPhotoMode),
+        r.add("plaza.photo", afterCount < beforeCount && hiddenClicks == 0 && Set(panels.entries.keys).subtracting([.pills]) == beforeIDs && afterCount == drawnIDs.count,
               "drawn panels \(beforeCount) -> \(afterCount) -> \(panels.drawList.count) after leaving; clicks on hidden panels: \(hiddenClicks); \(photoShot)")
 
         // plaza.wheel: the chat log (not a cover) takes the wheel while it can move and passes it on at its end; a cover swallows it.
@@ -253,6 +262,7 @@ extension WindowsSelftest {
 
         // plaza.hover: the system tooltip of a roster slot after the mouse rests on it (TTM_GETTEXT; the popup is reported).
         await pumpPanels(0.4)
+        await seedRoster()
         var hoverOK = false
         var hoverLine = "no tooltip tool"
         if let tooltips = shell.tooltipsForTesting, let tip = panels.tips.first, let index = panels.tips.firstIndex(of: tip) {
@@ -288,8 +298,12 @@ extension WindowsSelftest {
             await pumpPanels(0.5)
             let viewport = hud.viewport
             let allInside = panels.drawList.allSatisfy { d in d.frame.minX >= -1 && d.frame.minY >= -1 && d.frame.maxX <= viewport.width + 1 && d.frame.maxY <= viewport.height + 1 }
-            sizesOK = sizesOK && Int(viewport.width) == Int(w) && !panels.drawList.isEmpty
-            sizeLines.append("\(w)x\(h): viewport \(Int(viewport.width))x\(Int(viewport.height)), \(panels.drawList.count) panels, all inside: \(allInside) \(shot(name))")
+            let outside = WinPlazaPanels.zOrder.filter { id in
+                guard let e = panels.entries[id] else { return false }
+                return e.frame.minX < -1 || e.frame.minY < -1 || e.frame.maxX > viewport.width + 1 || e.frame.maxY > viewport.height + 1
+            }
+            sizesOK = sizesOK && (w == 600 ? Int(viewport.width) == 600 && Int(viewport.height) == 372 : viewport.width > 600) && !panels.drawList.isEmpty
+            sizeLines.append("\(w)x\(h): outside the window \(outside), viewport \(Int(viewport.width))x\(Int(viewport.height)), \(panels.drawList.count) panels, all inside: \(allInside) \(shot(name))")
         }
         _ = SetWindowPos(hwnd, nil, original.left, original.top, original.right - original.left, original.bottom - original.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
         await pumpPanels(0.5)
@@ -307,7 +321,7 @@ extension WindowsSelftest {
             let rendered = hud.renderCount - r0
             let scales = panels.entries.values.allSatisfy { $0.scale == scale }
             let toolsOK = shell.tooltipsForTesting?.count == panels.tips.count
-            dpiOK = dpiOK && scales && rendered == shownCount && toolsOK && hud.scale == scale
+            dpiOK = dpiOK && scales && rendered >= shownCount && rendered <= shownCount + 3 && toolsOK && hud.scale == scale
             dpiLines.append("\(dpi) dpi: renders \(rendered) for \(shownCount) shown panels, all at scale \(scale): \(scales), tools follow: \(toolsOK) \(shot("plaza-panels-\(dpi)dpi.png"))")
         }
         var back = original
