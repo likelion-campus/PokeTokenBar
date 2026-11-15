@@ -11,7 +11,7 @@ import XCTest
 final class WindowsPlazaRendererTests: XCTestCase {
     // MARK: Rig
 
-    private struct Rig {
+    @MainActor private struct Rig {
         let stage: WinPlazaStage
         let surface: WinGfxSurface
         let renderer: WinPlazaRenderer
