@@ -102,8 +102,9 @@ function Get-Iscc {
 }
 
 # Starts a setup exe and waits for IT only (Start-Process -Wait would also wait for the app Setup starts). Exit code.
-function Invoke-Setup([string]$Setup, [string[]]$SetupArgs, [int]$TimeoutSec = 180) {
-    $p = Start-Process -FilePath $Setup -ArgumentList $SetupArgs -PassThru
+# -WorkingDirectory: the folder Setup inherits as its working folder (the app starts it from its own folder).
+function Invoke-Setup([string]$Setup, [string[]]$SetupArgs, [int]$TimeoutSec = 180, [string]$WorkingDirectory = '') {
+    $p = if ($WorkingDirectory) { Start-Process -FilePath $Setup -ArgumentList $SetupArgs -WorkingDirectory $WorkingDirectory -PassThru } else { Start-Process -FilePath $Setup -ArgumentList $SetupArgs -PassThru }
     $null = $p.Handle
     if (-not $p.WaitForExit($TimeoutSec * 1000)) { Stop-Process -Id $p.Id -Force; throw "$Setup did not end in $TimeoutSec s" }
     $p.ExitCode

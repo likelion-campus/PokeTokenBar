@@ -129,6 +129,19 @@ $probe = Join-Path $out['minversion-probe'] "PokeTokenBar-Setup-$NextVersion-win
 $names = foreach ($c in $compiled) { (Get-ChildItem $c.Out -Filter *.exe).Name -join ',' }
 Assert-That ((Test-Path $failPrepare) -and (Test-Path $failCopy) -and (Test-Path $probe)) 'build.testInstallers' "test builds carry TESTFAIL in the name: $($names -join '; ')"
 
+# Started the way the app will start it: Setup's working folder is the install folder.
+Invoke-Scenario 'fromAppFolder' {
+    Install-Baseline 'fromAppFolder'
+    $old, $null = Start-Installed
+    $ids = Get-FolderFileIds $PtbInstallDir
+    $log = Join-Path $LogDir 'from-app-folder.log'
+    $code = Invoke-Setup $failCopy (Get-UpdateSetupArgs $log) -WorkingDirectory $PtbInstallDir
+    $text = Read-SetupLog $log
+    $changed = Compare-FolderFileIds $ids (Get-FolderFileIds $PtbInstallDir)
+    Assert-That ($code -eq 5) 'fromAppFolder.exit' "exit $code"
+    Assert-That ($changed.Count -eq 0) 'fromAppFolder.previousFolderBack' "files with a new id: $($changed.Count) of $($ids.Count); moved aside: $($text -match 'PTB update: moved the previous app aside'); in place: $($text -match 'PTB update: could not move')"
+}
+
 Invoke-Scenario 'wizard' {
     Stop-Apps
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $PtbInstallDir, $aside
