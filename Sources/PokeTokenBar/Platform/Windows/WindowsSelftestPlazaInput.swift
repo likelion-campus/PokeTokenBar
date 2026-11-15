@@ -136,6 +136,12 @@ extension WindowsSelftest {
             return (t1.x - t0.x, t1.y - t0.y)
         }
         let start = scene.walker.tile
+        func capture(_ name: String) -> String {
+            shell.drawForTesting()
+            guard let rgba = shell.frameRGBAForTesting(), let ws = shell.surfaceForTesting?.windowStats else { return "no frame" }
+            return "\(name) written=\(writeFrame(rgba, Int(ws.bufferWidth), Int(ws.bufferHeight), name))"
+        }
+        let beforeShot = capture("plaza-input-before.png")
         var log: [String] = []
         // horizontal pair, vertical pair: the first tap may meet an obstacle, then the pair is walked from the other side
         var free: [UInt16: Bool] = [:]
@@ -205,11 +211,12 @@ extension WindowsSelftest {
         await pumpFor(0.1); await settle()
         let leadMoved = leading.y != beforeBoth.y && leading.x == beforeBoth.x
         let followed = after.x != leading.x || stillHolding   // the open way may end at a wall: the earlier key stays held either way
+        let afterShot = capture("plaza-input-after.png")
         r.add("plaza.walk", pairsOK && wsNoWalk && !walkedRunning && ranRunning && heldBoth && leadMoved && followed && foreground,
               "start \(tileText(start)); taps: \(log.joined(separator: "; ")); W and S taps walked nothing=\(wsNoWalk) (A is prayer and D dance on the Mac; only arrows walk); "
                 + "running while holding \(dirName(hDir)) without Shift=\(walkedRunning), with Shift on \(dirName(vDir))=\(ranRunning); "
                 + "\(dirName(hDir))+\(dirName(vDir)) both held=\(heldBoth) (\(router.held.sorted())): the last leads \(tileText(beforeBoth))->\(tileText(leading)) (moved=\(leadMoved)), "
-                + "then \(dirName(hDir)) alone \(tileText(leading))->\(tileText(after)) (followed=\(followed))")
+                + "then \(dirName(hDir)) alone \(tileText(leading))->\(tileText(after)) (followed=\(followed)); frames \(beforeShot) at \(tileText(start)), \(afterShot) at \(tileText(scene.walker.tile))")
 
         // plaza.altAlone: a lone Alt press must not put the window in menu mode (the next key would go to the system menu).
         var gui = GUITHREADINFO()
