@@ -81,8 +81,6 @@ PlazaItemsTests+Mac.swift
 PlazaNameColorTests.swift
 # PlazaNamePlateTests+Mac: NSFont metrics and CGImage pixel reads of the name plate
 PlazaNamePlateTests+Mac.swift
-# PlazaGroupPhotoTests+Mac: the tests that expect the photo on the clipboard writer; that needs a PNG codec, which the Windows stub graphics do not have
-PlazaGroupPhotoTests+Mac.swift
 # PlazaPullUnderTests+Mac: the splash reads the pond layer, which exists only when the bundled tile sheet loads (pond visuals; the Windows stub has none)
 PlazaPullUnderTests+Mac.swift
 # PlazaStartleControllerTests: every test hides in the bundled tall grass (the controller reads it through the Mac loader; the Windows stub has none, so the map is plain grass)
@@ -91,8 +89,6 @@ PlazaStartleControllerTests.swift
 PlazaFocusTests+Mac.swift
 # PlazaSnowballControllerTests+Mac: shortcutThrowLabel reads the SwiftUI shortcut guide (its entries move to shared code in a later task)
 PlazaSnowballControllerTests+Mac.swift
-# PlazaPhotoModeTests+Mac: the photo written to the clipboard needs a PNG codec (NSBitmapImageRep decodes it; the Windows stub writes none)
-PlazaPhotoModeTests+Mac.swift
 PlazaPhotoTests.swift
 PlazaPhotoTestSupport.swift
 PlazaPhotoParityTests.swift
@@ -252,3 +248,5 @@ PlazaTextFrameTests+Mac.swift
 PopoverParityScanTests.swift
 # PopoverTwinEquivalenceTests+Mac: drives the Mac originals (PopoverNavigation in UI/) against their shared twins
 PopoverTwinEquivalenceTests+Mac.swift
+# PlazaPhotoGoldensMacTests: writes and re-checks the Mac's own photo goldens (what the Windows photo is compared with)
+PlazaPhotoGoldensMacTests.swift
