@@ -2386,6 +2386,10 @@ read_when:
   코드를 넣었다가, 펌프 틱 수를 세는 진단을 붙이고서야 타이머가 정상으로 돈다는 것을 보았다 — 우회는 지웠다. **스윕:** 제품 코드에서 모달 루프에 들어가는 곳은
   트레이 메뉴(`WinTray` 콜백, 창 메시지) 하나라 안전하다. **규칙:** 모달 루프(대화상자·메시지 상자·메뉴·창 이동)는 창 메시지에서 연다. `Task`·`DispatchQueue.main`
   블록 안에서 열면 그동안 메인 큐 전체가 선다. 점검도 사용자와 같은 경로(포스트된 메시지)로 연다.
+  **네 번째 (Stage 7 Task 3, 팝오버 키트):** 메뉴로도 같다 — `ui.kit.menuKeys` 의 첫 판(셀프테스트 Task 안에서 `TrackPopupMenu`)은 메인 큐 블록 0/10, 창 메시지로
+  열면 10/10. 점검은 두 숫자를 다 찍는다(Task 안의 것은 정보용). 팝오버는 같은 훅 안에서 `IsDialogMessageW` 로 키를 나눠 주므로, **모달 루프가 도는 동안
+  (`WinModalPump.depth > 0` 이거나 메뉴·이동 모드) 훅은 대화상자 경로를 건너뛴다** — 안 그러면 메뉴·스크롤 막대 끌기 루프가 읽을 키와 마우스를 훅이 먼저
+  디스패치해 루프가 입력을 잃는다. 팝오버의 모달 루프(스크롤 막대 끌기 `WinScrollArea`, 이후 메뉴·대화상자)는 모두 `WinModalPump.begin/end` 안에서 돈다.
 
 - **맥 `CoreTextPlazaEngine.wrappedLines` 가 빈 줄을 "글 나머지 전부"로 바꿨다 — `CFRange` 길이 0 은 "끝까지"다.** `"a\n\nbcd"` 가 `a`, `bcd`, `bcd` 세 줄로 그려졌다(`bcd` 두 번). TextKit 이 빈 줄의 줄 조각을
   주면(끝의 공백·개행을 뗀 뒤 길이 0) 그 범위를 `CTTypesetterCreateLine(typesetter, CFRange(location:, length: 0))` 에 그대로 넘겼고, CoreText 는 길이 0 을 "location 부터 끝까지"로 읽는다.

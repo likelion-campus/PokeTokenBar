@@ -137,7 +137,8 @@ import WinSDK
         stats.composes += 1
         let w = Int(pixelSize.cx), h = Int(pixelSize.cy)
         guard w > 0, h > 0 else { releaseBitmap(); return }
-        if bitmap == nil || Self.size(of: bitmap) != pixelSize { makeBitmap() }
+        let made = Self.size(of: bitmap)
+        if bitmap == nil || made.cx != pixelSize.cx || made.cy != pixelSize.cy { makeBitmap() }
         guard let bits else { return }
         let bytes = PopoverComposite.compose(layers, width: w, height: h, scale: ctx.scale)
         _ = GdiFlush()
