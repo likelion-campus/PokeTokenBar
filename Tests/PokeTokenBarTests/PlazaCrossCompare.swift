@@ -32,7 +32,7 @@ enum PlazaCrossCompare {
     /// Captures whose failure is a Windows renderer defect found by this harness and not yet fixed (stem -> what is wrong). They
     /// are reported as `known` and do not fail the job; a listed capture that starts passing fails the test until it is
     /// removed here, so the list cannot rot.
-    static var knownRendererBugs: [String: String] = [:]
+    nonisolated(unsafe) static var knownRendererBugs: [String: String] = [:]
 
     struct Allowed {
         let cls: Character
