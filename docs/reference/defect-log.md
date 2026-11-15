@@ -971,14 +971,16 @@ read_when:
   0 바이트 `send()` 를 하고 성공하면 곧바로 "쓰기 가능" 을 IOCP 에 올린다(487–505행; 재무장은 `_dispatch_unote_resume_muxed`, 581–588행).
   연결된 소켓은 늘 쓰기 가능하므로: 발화 → `performAction` → `curl_multi_socket_action(socket, 0)`(MultiHandle 288–303행), 쓸 것 없음 → 재무장 → 0 바이트
   `send` 성공 → 발화 … 이벤트 루프 스레드(`GetQueuedCompletionStatus`)와 루트 큐 워커 사이를 전송 내내 오간다. **새 연결에서만** 생긴다: 재사용된
-  keep-alive 연결은 curl 이 쓰기 관심을 묻지 않아 조용하다(루프백 2 s 대기: 새 연결 2007 ms 내내 50,793 회/s, 프로세스 204k cs / 재사용 19 cs).
+  keep-alive 연결은 curl 이 쓰기 관심을 묻지 않아 조용하다(루프백 2 s 대기: 새 연결 2027 ms 내내 41,104 회/s, 프로세스 167k cs·4.1 G 사이클 /
+  재사용 48 cs; 10 s 대기 843k cs; 8 MB 를 한 번에 받기 1,035 cs — 양이 아니라 기다린 시간에 비례한다).
   앱의 120 s 갱신은 libcurl 의 유휴 연결 재사용 한도 118 s(curl 8.9.1 `url.c` 481행 `maxage_conn = 118`, 722–733행; corelibs 는 바꾸지 않는다)를 넘겨
-  매번 새로 연결한다. 실측(러너): status.openai.com 새 연결 한 번 19.9k cs(279 ms),
-  status.claude.com 2.8k cs(165 ms); XCTest 프로세스에서 2 s 응답을 1.5 s 기다리는 동안 가장 바쁜 스레드 71,386 cs. 스택 표본 150 개 중
-  3 개가 `dispatch.dll` 이 부른 `WS2_32!send`(curl 은 보낼 게 없다). 같은 run 에서 corelibs 의 10 s 요청 타임아웃은 멈춘 본문을 10 s 에 끝내지
-  못했다(서버가 20 s 에 닫아서야 끝남) — 새 연결에서 응답이 멈추면 버스트는 서버가 포기할 때까지 간다.
+  매번 새로 연결한다. 실측(러너): 앱의 상태 확인 경로(두 호스트 동시, 새 연결) 한 번 18,811 cs·478 M 사이클(369 ms), status.openai.com 한 번
+  6–20k cs(142–279 ms); XCTest 프로세스에서 2 s 응답을 1.5 s 기다리는 동안 가장 바쁜 스레드 42–71k cs. 스택 표본 150 개 중 3–6 개가 `dispatch.dll`
+  이 부른 `WS2_32!send`(curl 은 보낼 게 없다), 짝 워커는 `dispatch_semaphore_wait` 에서 깨어 `FoundationNetworking.dll` 을 거쳐 IOCP 에 다시 올린다.
+  corelibs 의 10 s 요청 타임아웃은 멈춘 본문을 끝내지 못했다(서버가 20 s 에 닫아서야 끝남: 1.71 M cs·41.5 G 사이클) — 새 연결에서 응답이
+  멈추면 버스트는 서버가 포기할 때까지 한 코어를 쓴다.
   **왜 게이트가 운으로 통과했나:** ① 버스트 양 = 러너에서 두 상태 호스트로의 새 HTTPS 전송 시간(DNS·TCP·TLS·서버 응답) × 루프 속도다. 앱 코드가 아니라
-  네트워크 타이밍이 정하는 값을 4 회 표본의 1.5 배로 예산을 잡았고, 응답이 느린 run(≈0.7 s)이 넘었다. ② 게이트(`measure-idle.ps1`)는 창 끝에 살아
+  네트워크 타이밍이 정하는 값을 4 회 표본의 1.5 배로 예산을 잡았고, 응답이 느린 run(갱신마다 한 스레드에 17.8k cs, 전송 0.4–0.7 s 에 해당)이 넘었다. ② 게이트(`measure-idle.ps1`)는 창 끝에 살아
   있는 스레드만 센다 — 짝 워커는 갱신마다 새로 생겼다 사라져(타임라인의 tid 8792→5540) 버스트의 절반가량이 보이지 않았다(사이클 합계는 죽은 스레드도
   포함한다). ③ 셀프테스트의 유휴 창은 갱신을 빼고 쟀고, 전송 한 번의 깨움을 재는 테스트가 없었으며, CI 픽스처에는 자격증명이 없어 같은 버스트를
   내는 한도 조회가 한 번도 돌지 않았다.
@@ -987,16 +989,22 @@ read_when:
   인증서 검증 + 폐기 확인(curl Schannel 기본값, `schannel.c` 8.9.1 493–495행), gzip/deflate 해제, 리디렉션(WinHTTP 기본: 최대 10, HTTPS→HTTP 금지),
   크기 제한 없음(전과 같음), 직접 연결(corelibs 의 libcurl 도 윈도우 프록시 설정을 읽지 않는다). `http_proxy`·`https_proxy`·`all_proxy` 가 있으면
   libcurl 이 그걸 따르므로 URLSession 을 그대로 쓴다(POST 등·WinHTTP 로드 실패도). 업스트림 줄 하나: `ProviderStatusChecker.swift` `fetchOne` 의 호출.
-  결과(유휴 게이트 정상 300 s): 176 cs/분, 1.04 M 사이클/s, CPU 0.062 s(전: 1568–7209 cs/분, 3.3–5.5 M, 0.53–0.59 s). WinHTTP 로딩으로 비공유 메모리
-  +2.4 MB·핸들 +100 이 한 번 늘고 창 안에서는 줄어든다.
+  **같은 부류, 고치다 생긴 것:** 처음엔 WinHTTP 세션을 프로세스에 하나 두었더니 기동 때의 연결이 풀에 남아 스레드 풀 워커가 2–3 s 마다 깼다(갱신 없는
+  120 s 창에서 43–59 회, 고치기 전엔 없던 스레드). 120 s 뒤의 다음 요청은 어차피 새로 연결하므로(libcurl 도 그랬다) 요청마다 세션을 열고 마지막에
+  닫는다 — 그 창은 다시 두 스레드(libdispatch 1 Hz 쌍)뿐이다. 상태 확인 한 번: 129 cs·70 M 사이클(253 ms), 뒤 30 s 에 남는 것 없음.
+  결과: 유휴 게이트 정상 300 s(같은 머리 d46c7b3 에서 연속 3 회) 166–186 cs/분·1.39–1.81 M 사이클/s·CPU 0.14–0.17 s — 같은 날 `windows-port` 대조
+  3 회는 2148–2620 cs/분·3.3–4.1 M·0.44–0.64 s(실패한 run 7209). 예산을 다시 잡았다: 정상 창 4000 → 280 cs/분, 6 M → 2.75 M 사이클/s(세 run 최악의
+  1.5 배; 주 스레드 30·메모리 5 MB·핸들 10 은 그대로) — 이런 갱신 하나(≥ 6k cs)면 그것만으로 실패한다. 갱신 없는 120 s 창은 이 결함과 무관해 Task 12 값
+  그대로다(133–134.5 cs/분·198–214 k 사이클/s; 대조 125.5–126·167–174 k 에 WinHTTP 가 남기는 스레드 풀 깨움이 120 s 에 12–19 회 더해진다 — 시스템
+  DLL 의 타이머로 6–10 s 에 한 번, 언로드 없이는 못 끈다). WinHTTP 로딩으로 비공유 메모리 +2.4 MB·핸들 +100 이 한 번 늘고(세션을 닫으면 핸들은 창 안에서 줄어든다) 그 뒤로 자라지 않는다.
   **규칙:** 윈도우에서 도는 코드의 주기적·백그라운드 HTTP 는 `PlatformCompat.oneShotData` 로 보낸다. 새 URLSession 사용처는 무엇을 얼마나 자주
   가져오는지와 함께 `WindowsSeamScanTests.knownURLSessionSites` 에 올린다(일회성·캐시만 남는다). 깨움을 잴 때는 창 안에서 끝난 스레드도 센다.
   **가드(기계):** `WindowsSeamScanTests.testEveryURLSessionSiteThatRunsOnWindowsIsKnown`·`testTheStatusChecksStayOnTheSeam`·`testTheURLSessionScanCatchesEachForm`
   (호출부를 URLSession 으로 되돌리고 맥 분기를 ephemeral 세션으로 바꾸는 결함 주입으로 셋 다 실패 확인), `OneShotDataMacTests`(맥 분기가 공유 세션을
   그대로 쓰는지, `URLProtocol` 스텁), `WindowsHTTPFetchTests.testAWaitingTransferThroughTheSeamDoesNotKeepAThreadAwake`(2 s 전송의 1.5 s 동안 가장 바쁜 스레드
-  < 150 cs; 같은 잣대로 URLSession 대조군은 71,386), 다시 잡은 유휴 게이트 예산, 진단 `--selftest-net-burst`(`windows-app` 의 `net_burst` 입력).
+  < 150 cs; 같은 잣대로 URLSession 대조군은 42–71k), 다시 잡은 유휴 게이트 예산, 진단 `--selftest-net-burst`(`windows-app` 의 `net_burst` 입력).
   **스윕:** 윈도우에서 도는 앱 코드의 URLSession 사용처 13 곳(이음매 자신·진단 도우미 제외) — 한도 조회(Claude OAuth·세션 키·Cursor·Grok·OpenCode Go)는 설정돼 있으면 갱신마다 돌아 같은 버스트를
-  낸다(api.anthropic.com 한 번 6.6k cs, 자격증명 없이 401) → 열린 결정. 업데이트 피드(30 분에 한 번 이하, 13.2k cs)·스프라이트·PokeAPI·플라자 아이콘
+  낸다(api.anthropic.com 한 번 1.7–6.6k cs, 자격증명 없이 401) → 열린 결정. 업데이트 피드(30 분에 한 번 이하, 4.7–13.2k cs)·스프라이트·PokeAPI·플라자 아이콘
   (요청 시, 캐시)은 일회성이라 그대로. 맥 전용(`AntigravityRateLimitsProvider`, `PlazaIconLoader`)은 해당 없음.
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의

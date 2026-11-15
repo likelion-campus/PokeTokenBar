@@ -688,10 +688,12 @@ jobs:
           # refreshInterval = 0: nothing is due after the launch refresh (the D8 window), 120 s.
           Measure-App 'manual-refresh-120s' 120 $off $budget
           # The normal app: 120 s polling, status checks on. 300 s from 30 s after launch covers the refreshes at +120 s and +240 s.
-          # Budgets: measured on the runner in 4 runs, then ~1.5x. Main thread 20/min (2.5/min idle + ~40 per refresh). Process 1568-2598 cs/min and
-          # 3.3-4.4 M cycles/s: each refresh's status check (URLSession, libcurl) makes the dispatch worker wake ~4500-8000 times in a few
-          # seconds (see the timeline step: nothing of the kind with status checks off).
-          Measure-App 'normal-300s' 300 '' @{ MaxMainCsPerMin = 30; MaxProcessCsPerMin = 4000; MaxProcessCyclesPerSec = 6000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+          # Budgets: 1.5x the worst of 3 runs at d46c7b3 (status checks through WinHTTP, PlatformCompat.oneShotData): main thread 19-20/min
+          # (2.5/min idle + ~40 per refresh), process 166-186 cs/min and 1.39-1.81 M cycles/s; private and handles are leak bounds.
+          # Before (URLSession): every refresh connected afresh and two dispatch threads woke each other 25-50k times a second for the
+          # whole transfer, 1568-7209 cs/min and 3.3-5.5 M cycles/s, under a budget of 4000 (defect log, "윈도우 URLSession"). One such
+          # refresh (>= 6k cs) now fails the cs budget on its own.
+          Measure-App 'normal-300s' 300 '' @{ MaxMainCsPerMin = 30; MaxProcessCsPerMin = 280; MaxProcessCyclesPerSec = 2750000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
           $summary.verdicts = $verdicts
           $summary | ConvertTo-Json -Depth 8 | Set-Content idle-gate.json -Encoding utf8
           Get-Content idle-gate.json
