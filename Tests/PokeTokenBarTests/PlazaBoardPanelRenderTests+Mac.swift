@@ -108,6 +108,7 @@ import SwiftUI
         let model = PlazaOverlayModel()
         model.content = .board
         let panel = PlazaBoardPanel(model: model, feed: feed(c), myMemberID: "me")
+        panel.scrollIndicator.isDisabled = true   // the SwiftUI original draws no scroller off screen; the indicator has its own tests
         let a = Rig.After(panel, viewport: c.viewport, scale: scale)
         for _ in 0..<20 { await Task.yield() }
         let dy = scrolled ?? c.scroll

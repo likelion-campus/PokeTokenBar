@@ -23,7 +23,7 @@ enum PlazaChatLogStyle {
 /// paragraph of runs: time (dimmed), a loud line's 📢, "name: " in the member's colour, the text. Nothing shows while the
 /// log is empty. Only the visible lines are drawn: one image per line, cut at the viewport's edges, never the whole
 /// content. A click anywhere on the log is taken (nothing passes through to the scene); the header button toggles.
-@MainActor final class PlazaChatLogPanel: PlazaPanel {
+@MainActor final class PlazaChatLogPanel: PlazaPanel, PlazaScrollIndicating {
     let id = PlazaPanelID.chatLog
     let anchor = PlazaPanelAnchor.bottomLeading
     var onChange: (() -> Void)?
@@ -46,6 +46,7 @@ enum PlazaChatLogStyle {
     }
 
     private(set) var scrollState = PlazaScrollState()
+    let scrollIndicator = PlazaScrollIndicator()
     /// Unfolding and a new last line scroll to the end (SwiftUI's `onAppear` and `onChange(of: last id)`: always, whatever
     /// the user had scrolled to); it happens when the panel next lays out.
     private var scrollToEnd = true
@@ -56,6 +57,7 @@ enum PlazaChatLogStyle {
 
     init(log: PlazaChatLog) {
         self.log = log
+        scrollIndicator.onChange = { [weak self] in self?.onChange?() }
         observer = PlazaChangeObserver(track: { _ = log.lines; _ = log.isExpanded }, changed: { [weak self] in self?.modelChanged() })
     }
 
@@ -169,7 +171,12 @@ enum PlazaChatLogStyle {
         rendered = observed
         let l = layout(scale: scale, text: graphics.text)
         scrollState.setMetrics(content: l.content, viewport: l.bodyHeight)
-        if scrollToEnd { scrollState.scrollToBottom(); scrollToEnd = false }
+        if scrollToEnd {
+            let before = scrollState.offset
+            scrollState.scrollToBottom()
+            scrollToEnd = false
+            if scrollState.offset != before { scrollIndicator.scrolled() }
+        }
         let pad = PlazaChatLogStyle.padding
         var layers: [PlazaPanelLayer] = []
         var items: [PlazaAccessibilityItem] = []
@@ -226,6 +233,9 @@ enum PlazaChatLogStyle {
             layers.append(.image(picture, frame: shown.offsetBy(dx: pad.width, dy: l.bodyTop)))
         }
         rowImages.images = kept
+        layers += scrollIndicator.layers(state: scrollState, offset: offset,
+                                         viewport: CGRect(x: pad.width, y: l.bodyTop, width: Layout.innerWidth, height: l.bodyHeight),
+                                         scale: scale, graphics: graphics)
         for row in l.rows {
             let rect = scrollState.visible(row.frame, offset: offset)
                 ?? CGRect(x: 0, y: row.frame.maxY <= offset ? 0 : l.bodyHeight, width: row.frame.width, height: 0)
@@ -246,6 +256,7 @@ enum PlazaChatLogStyle {
         guard isVisible, let l = laidOut?.layout, l.expanded,
               CGRect(x: PlazaChatLogStyle.padding.width, y: l.bodyTop, width: Layout.innerWidth, height: l.bodyHeight).contains(point),
               scrollState.scroll(deltaY: dy) else { return false }
+        scrollIndicator.scrolled()
         onChange?()
         return true
     }

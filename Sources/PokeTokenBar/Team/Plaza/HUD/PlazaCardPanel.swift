@@ -51,7 +51,7 @@ enum PlazaCardStyle {
 /// legendary pill and outline) that scrolls. Hovering a cell shows the species name. The card has no buttons and no input:
 /// a click anywhere on the plate is `("card")` (taken, nothing happens), outside it nothing; Space/Esc close it through the
 /// scene. Pictures arrive through the `PlazaIconSource` (grey placeholders until then).
-@MainActor final class PlazaCardPanel: PlazaPanel {
+@MainActor final class PlazaCardPanel: PlazaPanel, PlazaScrollIndicating {
     let id = PlazaPanelID.card
     let anchor = PlazaPanelAnchor.center
     let offset = CGPoint.zero
@@ -61,6 +61,7 @@ enum PlazaCardStyle {
     private var observer: PlazaChangeObserver?
     private let now: () -> Date
     private(set) var scrollState = PlazaScrollState()
+    let scrollIndicator = PlazaScrollIndicator()
     /// The card the scroll position belongs to: another card (a different member, or one that finished loading) starts at the top,
     /// as a new `ScrollView` did.
     private var scrollOwner: PlazaCardState?
@@ -70,6 +71,7 @@ enum PlazaCardStyle {
         self.now = now
         pictures = PlazaPictureCache(source: icons)
         observer = PlazaChangeObserver(track: { _ = model.content }, changed: { [weak self] in self?.modelChanged() })
+        scrollIndicator.onChange = { [weak self] in self?.onChange?() }
         pictures.onArrival = { [weak self] in self?.onChange?() }
     }
 
@@ -80,7 +82,7 @@ enum PlazaCardStyle {
 
     private var rendered: PlazaCardState??
     private func modelChanged() {
-        if state == nil { scrollOwner = nil; scrollState = PlazaScrollState(); rowImages = [:] }
+        if state == nil { scrollOwner = nil; scrollState = PlazaScrollState(); rowImages = [:]; scrollIndicator.reset() }
         if rendered != .some(state) { onChange?() }
     }
 
@@ -226,7 +228,7 @@ enum PlazaCardStyle {
         guard let state, let l = layout(scale: scale, text: text) else { return PlazaPanelDrawing() }
         let s = PlazaCardStyle.self, m = PlazaCardMetrics.self
         let lower = s.lower
-        if scrollOwner != state { scrollOwner = state; scrollState = PlazaScrollState() }
+        if scrollOwner != state { scrollOwner = state; scrollState = PlazaScrollState(); scrollIndicator.reset() }
         scrollState.setMetrics(content: l.content, viewport: lower.height)
         let sprite = pictures.sprite(state.member.character)
         let current = state.differingCurrent.flatMap { pictures.icon($0.speciesID) }
@@ -375,6 +377,7 @@ enum PlazaCardStyle {
             }
         }
         rowImages = kept
+        layers += scrollIndicator.layers(state: scrollState, offset: offset, viewport: lower, scale: scale, graphics: graphics)
         return PlazaPanelDrawing(layers: layers, accessibility: items, tooltips: tips)
     }
 
@@ -388,6 +391,7 @@ enum PlazaCardStyle {
     /// Only the dex grid takes the wheel (a `ScrollView` under the activity box): elsewhere it goes on.
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool {
         guard isVisible, PlazaCardStyle.lower.contains(point), scrollState.scroll(deltaY: dy) else { return false }
+        scrollIndicator.scrolled()
         onChange?()
         return true
     }

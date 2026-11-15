@@ -27,7 +27,7 @@ enum PlazaBoardStyle {
 /// reaction button is `("react", row * 3 + kind)` (the owner reacts with `reaction(forHit:)`), anywhere else on the plate
 /// `("board")` (taken, nothing happens); outside the plate nothing. The keys that close it (Space/Esc) go through the scene as
 /// before. There is no text input.
-@MainActor final class PlazaBoardPanel: PlazaPanel {
+@MainActor final class PlazaBoardPanel: PlazaPanel, PlazaScrollIndicating {
     let id = PlazaPanelID.board
     let anchor = PlazaPanelAnchor.center
     let offset = CGPoint.zero
@@ -42,11 +42,13 @@ enum PlazaBoardStyle {
     }
 
     private(set) var scrollState = PlazaScrollState()
+    let scrollIndicator = PlazaScrollIndicator()
 
     init(model: PlazaOverlayModel, feed: TeamFeedStore, myMemberID: String) {
         self.model = model
         self.feed = feed
         self.myMemberID = myMemberID
+        scrollIndicator.onChange = { [weak self] in self?.onChange?() }
         observer = PlazaChangeObserver(track: { _ = model.content; _ = PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID) },
                                        changed: { [weak self] in self?.modelChanged() })
     }
@@ -56,7 +58,7 @@ enum PlazaBoardStyle {
     private var rendered: String?
     private var state: String { "\(model.content == .board) \(PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID))" }
     private func modelChanged() {
-        if !isVisible { scrollState = PlazaScrollState(); rowImages = [:] }   // each opening starts at the top (a new ScrollView)
+        if !isVisible { scrollState = PlazaScrollState(); rowImages = [:]; scrollIndicator.reset() }   // each opening starts at the top (a new ScrollView)
         if rendered != state { onChange?() }
     }
 
@@ -243,6 +245,7 @@ enum PlazaBoardStyle {
             if let p = picture { layers.append(.image(p, frame: shown.offsetBy(dx: list.minX, dy: list.minY))) }
         }
         rowImages = kept
+        layers += scrollIndicator.layers(state: scrollState, offset: offset, viewport: list, scale: scale, graphics: graphics)
 
         // VoiceOver: the shown rows' texts and buttons, frames cut to the list.
         for (i, row) in l.rows.enumerated() {
@@ -303,6 +306,7 @@ enum PlazaBoardStyle {
     /// Only the list takes the wheel: over the title, the plate's margin or outside it goes on.
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool {
         guard isVisible, PlazaBoardStyle.list.contains(point), scrollState.scroll(deltaY: dy) else { return false }
+        scrollIndicator.scrolled()
         onChange?()
         return true
     }

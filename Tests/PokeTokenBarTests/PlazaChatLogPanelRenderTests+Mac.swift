@@ -151,6 +151,7 @@ final class ScrollRecorder: NSView {
         init(_ log: PlazaChatLog, viewport: CGSize, scale: CGFloat, aboveInput: CGFloat?, graphics: any PlazaGraphics) {
             self.log = log
             panel = PlazaChatLogPanel(log: log)
+            panel.scrollIndicator.isDisabled = true
             panel.inputHeight = aboveInput
             hud = PlazaHUD(panels: [panel], graphics: graphics)
             container = NSView(frame: CGRect(origin: .zero, size: viewport))
