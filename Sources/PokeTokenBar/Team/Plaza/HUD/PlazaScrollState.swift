@@ -41,6 +41,15 @@ struct PlazaScrollState: Equatable, Sendable {
         return true
     }
 
+    /// Sets the offset (kept inside the range); true when it moved.
+    @discardableResult
+    mutating func scrollTo(offset target: CGFloat) -> Bool {
+        let clamped = min(max(target, 0), maxOffset)
+        guard clamped != offset else { return false }
+        offset = clamped
+        return true
+    }
+
     /// Scrolls the least that brings `rect` (content points) inside the viewport; true when the offset moved.
     @discardableResult
     mutating func scrollToVisible(_ rect: CGRect) -> Bool {

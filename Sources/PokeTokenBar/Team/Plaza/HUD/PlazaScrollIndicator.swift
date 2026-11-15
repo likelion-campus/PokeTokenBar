@@ -74,6 +74,46 @@ import Foundation
         opacity = 0
     }
 
+    // MARK: the legacy scroller as a control ("always show scroll bars")
+
+    /// `AppleScrollerPagingBehavior`: 0 (the default) a click in the track pages by one viewport toward the click; 1 jumps to the spot clicked.
+    /// Read from the global preferences when the mouse goes down (`UserDefaults.standard` searches the global domain).
+    var pagingBehavior: () -> Int = { UserDefaults.standard.integer(forKey: "AppleScrollerPagingBehavior") }
+    /// While the knob is held: how far below the knob's top the press was, and what the offset and the pointer were at the press.
+    private var grab: (inside: CGFloat, y: CGFloat, offset: CGFloat)?
+    var isDragging: Bool { grab != nil }
+
+    /// The legacy scroller's track (the full-height strip at the window's trailing edge) holds `point`.
+    func tracks(_ point: CGPoint, state: PlazaScrollState, viewport: CGRect) -> Bool {
+        alwaysVisible && state.canScroll && CGRect(x: viewport.maxX - Self.legacyWidth, y: viewport.minY, width: Self.legacyWidth, height: viewport.height).contains(point)
+    }
+
+    /// Mouse down in the track: on the knob it is picked up (dragging follows); above or below it the content pages one viewport that way, or,
+    /// with the "jump to the spot that's clicked" preference, the knob jumps to the click. True when the offset moved.
+    func scrollerDown(at point: CGPoint, state: inout PlazaScrollState, viewport: CGRect, scale: CGFloat) -> Bool {
+        guard let knob = thumb(state: state, offset: state.offset, viewport: viewport, scale: scale) else { return false }
+        if point.y >= knob.minY && point.y <= knob.maxY {
+            grab = (point.y - knob.minY, point.y, state.offset)
+            return false
+        }
+        let travel = viewport.height - knob.height
+        if pagingBehavior() == 1, travel > 0 {
+            let fraction = min(max((point.y - viewport.minY - knob.height / 2) / travel, 0), 1)
+            return state.scrollTo(offset: fraction * state.maxOffset)
+        }
+        return state.scrollTo(offset: state.offset + (point.y < knob.minY ? -viewport.height : viewport.height))
+    }
+
+    /// The knob follows the pointer in proportion (the knob's travel is the content's range), wherever the pointer is, even outside the track.
+    func scrollerDrag(to point: CGPoint, state: inout PlazaScrollState, viewport: CGRect, scale: CGFloat) -> Bool {
+        guard let grab, let knob = thumb(state: state, offset: state.offset, viewport: viewport, scale: scale) else { return false }
+        let travel = viewport.height - knob.height
+        guard travel > 0 else { return false }
+        return state.scrollTo(offset: grab.offset + (point.y - grab.y) / travel * state.maxOffset)
+    }
+
+    func scrollerUp() { grab = nil }
+
     /// The thumb's rectangle in the window's coordinates (`viewport`: the scrolling window in panel points, `offset` the
     /// drawn offset), on whole device pixels; nil while the content fits.
     func thumb(state: PlazaScrollState, offset: CGFloat, viewport: CGRect, scale: CGFloat) -> CGRect? {

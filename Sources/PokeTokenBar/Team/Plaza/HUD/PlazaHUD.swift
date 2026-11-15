@@ -56,6 +56,7 @@ import Foundation
     private var shown: [PlazaPanelID: Shown] = [:]
     private var flushScheduled = false
     private var pressed: (id: PlazaPanelID, hit: PlazaPanelHit)?
+    private var scrollerCapture: PlazaPanelID?
     private var hovered: (id: PlazaPanelID, hit: PlazaPanelHit)?
 
     init(panels: [any PlazaPanel], graphics: any PlazaGraphics = PlatformPlaza.graphics) {
@@ -121,6 +122,24 @@ import Foundation
     /// `interaction` (only panels whose drawing `tracksMouse` get moves). A scroll goes to the panel under the mouse
     /// (`PlazaPanel.scroll`): taken while that panel scrolls that way, else passed on.
     func handleMouse(_ e: PlazaMouseEvent, in id: PlazaPanelID) -> Bool {
+        // The legacy scroller is a control: a press on its track is captured, the drags go to the panel wherever the pointer is, the release ends it.
+        if let panel = panels.first(where: { $0.id == id }), let frame = shown[id]?.frame, !hiddenPanels.contains(id), panel.isVisible {
+            let local = CGPoint(x: e.location.x - frame.minX, y: e.location.y - frame.minY)
+            switch e.kind {
+            case .down where frame.contains(e.location) && panel.scrollerContains(local):
+                scrollerCapture = id
+                panel.scrollerMouse(.down, at: local)
+                return true
+            case .moved where scrollerCapture == id:
+                panel.scrollerMouse(.drag, at: local)
+                return true
+            case .up where scrollerCapture == id:
+                scrollerCapture = nil
+                panel.scrollerMouse(.up, at: local)
+                return true
+            default: break
+            }
+        }
         let hit = self.hit(at: e.location, in: id)
         switch e.kind {
         case .down:

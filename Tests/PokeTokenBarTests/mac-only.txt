@@ -239,3 +239,5 @@ PlazaPanelCostTests+Mac.swift
 PlazaLegacyScrollerTests+Mac.swift
 PlazaTwoOverlaysImageTests+Mac.swift
 PlazaBlankLineTests+Mac.swift
+PlazaLiveSendEventTests+Mac.swift
+PlazaNoWindowsOrderedInScanTests+Mac.swift

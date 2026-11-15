@@ -179,7 +179,11 @@ enum PlazaBoardStyle {
         return i == index
     }
 
+    /// The backing scale of the last render (the scroller's knob sits on its device pixels).
+    private var renderedScale: CGFloat = 1
+
     func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
+        renderedScale = scale
         rendered = state
         renderCountForTesting += 1
         let text = graphics.text
@@ -306,6 +310,28 @@ enum PlazaBoardStyle {
         guard let rect = accessibilityContent[index], scrollState.scrollToVisible(rect) else { return false }
         scrollIndicator.scrolled()
         return true
+    }
+
+
+    // MARK: the legacy scroller as a control
+
+    private func scrollerViewport() -> CGRect? { isVisible ? PlazaBoardStyle.list : nil }
+
+    func scrollerContains(_ point: CGPoint) -> Bool {
+        guard let v = scrollerViewport() else { return false }
+        return scrollIndicator.tracks(point, state: scrollState, viewport: v)
+    }
+
+    func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint) {
+        guard let v = scrollerViewport() else { return }
+        let scale = renderedScale
+        let moved: Bool
+        switch phase {
+        case .down: moved = scrollIndicator.scrollerDown(at: point, state: &scrollState, viewport: v, scale: scale)
+        case .drag: moved = scrollIndicator.scrollerDrag(to: point, state: &scrollState, viewport: v, scale: scale)
+        case .up: scrollIndicator.scrollerUp(); moved = false
+        }
+        if moved { onChange?() }
     }
 
     // MARK: input

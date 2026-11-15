@@ -100,6 +100,8 @@ struct PlazaPanelInteraction: Equatable, Sendable {
     var pressed: PlazaPanelHit?
 }
 
+enum PlazaScrollerPhase: Sendable { case down, drag, up }
+
 /// One overlay panel: lays itself out, draws itself (layers and accessibility items) and says where it can be clicked.
 /// It renders only when the HUD asks, which happens only after `onChange`, a new size or a new backing scale (and never
 /// while the plaza is hidden).
@@ -129,6 +131,10 @@ struct PlazaPanelInteraction: Equatable, Sendable {
     /// system sends them, momentum included). True when the panel scrolls with it, so it goes no further; false passes it
     /// on. The default passes everything on.
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool
+    /// The legacy scroller ("always show scroll bars") as a control: `scrollerContains` says a press at `point` (panel points) lands on a scrolling
+    /// panel's track; the HUD then sends that press, the drags that follow (wherever the pointer goes) and the release to `scrollerMouse`.
+    func scrollerContains(_ point: CGPoint) -> Bool
+    func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint)
     /// VoiceOver focused accessibility item `index` of the last drawing (`AXScrollToVisible`): scroll so it is inside the scrolling window.
     /// True when the panel moved. The default does nothing.
     func scrollAccessibilityItemIntoView(_ index: Int) -> Bool
@@ -140,6 +146,9 @@ extension PlazaPanel {
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool { false }
 
     func didAppear() {}
+
+    func scrollerContains(_ point: CGPoint) -> Bool { false }
+    func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint) {}
 
     func scrollAccessibilityItemIntoView(_ index: Int) -> Bool { false }
 
