@@ -1010,7 +1010,20 @@ read_when:
   스트리밍·웹소켓·백그라운드 세션은 없다. 맥 전용(`AntigravityRateLimitsProvider`, `PlazaIconLoader`)은 해당 없음. 같은 결함의 두 번째 공백:
   **CI 픽스처에 자격증명이 없어 갱신마다 도는 한도 조회가 게이트에서 한 번도 돌지 않았다**. Claude 한도 URL 은 업스트림의 `private static let` 이라
   루프백으로 돌릴 이음매가 없고 업스트림에 새로 만들지 않는다 — 그 요청 모양(헤더·토큰·타임아웃)을 셀프테스트(`--selftest-net-burst`)에서 잰다.
-  __FOLLOWUP_NUMBERS__
+  측정(러너, 루프백, 200 ms 뒤 응답, run 43704153204): 호출부마다 요청 한 번 — URLSession(새 연결) 18,969–21,254 cs·390–406 M 사이클 → 이음매
+  61–70 cs·6–8 M (Claude 사용량·프로필, 세션 키, Cursor 토큰·사용량·한도, Grok·OpenCode, 업데이트 피드, PokeAPI REST·GraphQL·이름). 바로 답하는
+  스프라이트(40 KB)는 기다림이 없어 둘 다 55 cs. 윈도우 프록시 설정(`WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`) 대 직접: 루프백 중앙값 2.3 대 0.9 ms,
+  status.claude.com 32.1 대 29.3 ms, 프로세스 첫 요청 9.3 ms — 캐시는 두지 않는다(세션을 오래 두면 유휴 깨움이 돌아온다). 교차 세션 연결 풀을
+  끄자(`WINHTTP_OPTION_DISABLE_GLOBAL_POOLING`) 갱신 없는 120 s 창이 112.5 cs/분(대조 125.5–126)으로, WinHTTP 가 남기던 스레드 풀 깨움이 사라졌다.
+  **WinHTTP 가 libcurl 과 다르게 하던 것(루프백에서 URLSession 대조로 확인):** zlib 로 감싼 deflate 를 못 풀어(`E_ABORT`) gzip 만 요청한다; 수신
+  타임아웃을 데이터가 올 때만 확인해 1 s 타임아웃이 5.4 s 걸렸다 → 요청 동안만 있는 우리 유휴 타이머가 끝낸다; 본문이 Content-Length 보다 일찍 끊겨도
+  오류 없이 멈출 수 있어 길이를 대조해 `.networkConnectionLost` 로 알린다. 같은 것: 교차 호스트 리디렉션(Authorization 도 둘 다 넘긴다), 303 뒤 GET,
+  청크·gzip·10 MB·204/304. 오류 코드(이음매/libcurl): 시간 초과 -1001/(libcurl 은 끝내지 못함), 중간 끊김 -1005/-1, 거부 -1004/-1001, 이름 없음
+  -1003/-1003, TLS 실패 -1200/-1 — 공용 코드는 `NSURLErrorDomain` 도메인만 보고(`LocalizationErrors.swift` 7행) 호출부는 코드로 분기하지 않는다.
+  **테스트의 가짜도 같은 부류다:** `URLProtocol` 스텁은 URLSession 만 본다. 이음매를 처음 넓혔을 때 `InstallerReleaseFeedTests` 가 스텁 대신 실제
+  api.github.com 으로 나갔고(윈도우 CI), `ClaudeOAuthFileCredentialTests` 가 실패했다. 호출부 세션의 `protocolClasses` 에 자기 프로토콜이 있으면
+  URLSession 을 쓰고(`WinHTTPFetch.handles`), 전역 등록 스텁(corelibs 는 목록을 내주지 않는다)을 쓰는 테스트는
+  `PlatformCompat.oneShotStaysOnURLSessionForTesting` 을 켠다. **규칙 추가:** 네트워크를 바꾸는 이음매는 기존 가짜 경로가 여전히 가짜에 닿는지 윈도우 CI 에서 본다.
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
