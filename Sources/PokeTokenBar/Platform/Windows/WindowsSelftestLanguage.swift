@@ -58,9 +58,44 @@ enum WindowsSelftestLanguage {
               "Windows says UTC\(win32Minutes >= 0 ? "+" : "")\(win32Minutes) min, Foundation TimeZone.current=\(TimeZone.current.identifier) \(foundationMinutes) min; "
               + "TZ published=\(WinTimeZone.published ?? "none") (without it Foundation falls back to GMT on a localized zone name)")
         AppLog.write("language: ui=\(ui) detected=\(AppLanguage.systemDefault.rawValue) app=\(app.companion.language.rawValue)")
+        regionCheck(r)
     }
 
-    /// `--language-probe <out> [--seed-language en]`: facts, tray strings, and (seeded) the one-time migration.
+    /// `locale.region` (stage 7, D11): the region seams against Windows' own answer. The grouping of 1234567 through
+    /// `PlatformCompat.regionLocale` must be how `GetNumberFormatEx` writes it (its decimals cut), and the first weekday
+    /// must be `LOCALE_IFIRSTDAYOFWEEK` converted, whatever corelibs' `en_001` says.
+    @MainActor static func regionCheck(_ r: WindowsSelftest.Recorder) {
+        let facts = regionFacts()
+        let value = { (key: String) in facts.first { $0.0 == key }?.1 ?? "-" }
+        let grouped = value("region.grouped")
+        let windows = value("region.win32.numberInteger")
+        let weekday = value("region.firstWeekday")
+        let expectedWeekday = RegionFormat.firstWeekday(windowsText: WinUILanguage.win32LocaleInfo(LCTYPE(LOCALE_IFIRSTDAYOFWEEK)))
+        r.add("locale.region", grouped == windows && weekday == expectedWeekday.map(String.init),
+              facts.map { "\($0.0)=\($0.1)" }.joined(separator: "; "))
+    }
+
+    /// The region seams and the Win32 values they come from, escaped for a log line (`FormatterProbe.visible`).
+    static func regionFacts() -> [(String, String)] {
+        let decimal = WinUILanguage.win32LocaleInfo(LCTYPE(LOCALE_SDECIMAL)) ?? "."
+        let number = WinUILanguage.win32NumberFormat("1234567") ?? "-"
+        let integer = number.components(separatedBy: decimal).first ?? number
+        return [
+            ("region.win32.localeName", WinUILanguage.win32LocaleName() ?? "-"),
+            ("region.locale", PlatformCompat.regionLocale.identifier),
+            ("region.win32.IFIRSTDAYOFWEEK", WinUILanguage.win32LocaleInfo(LCTYPE(LOCALE_IFIRSTDAYOFWEEK)) ?? "-"),
+            ("region.firstWeekday", "\(PlatformCompat.firstWeekday)"),
+            ("region.foundation.firstWeekday", "\(Calendar.current.firstWeekday)"),
+            ("region.calendar.firstWeekday", "\(PlatformCompat.regionCalendar(timeZone: .current).firstWeekday)"),
+            ("region.grouped", TokenFormatter.grouped(1_234_567, locale: PlatformCompat.regionLocale)),
+            ("region.foundation.grouped", TokenFormatter.grouped(1_234_567)),
+            ("region.win32.number", number),
+            ("region.win32.numberInteger", integer),
+        ].map { ($0.0, FormatterProbe.visible($0.1)) }
+    }
+
+    /// `--language-probe <out> [--seed-language en] [--inject-ui-language ko-KR] [--formatter-probe] [--formatter-trap]`:
+    /// facts, tray strings, the region seams, (seeded) the one-time migration, and (opt-in) the formatter outputs.
     @MainActor static func runProbe(_ args: [String]) -> Never {
         var injectedLanguage: AppLanguage?
         var lines = facts().map { "\($0.0)=\($0.1)" }
@@ -75,6 +110,24 @@ enum WindowsSelftestLanguage {
             lines.append("inject.tray.titles=" + trayTitles(detected).joined(separator: " | "))
             lines.append("inject.firstRunHint=" + L(detected).trayFirstRunHint)
             injectedLanguage = detected
+        }
+        lines += regionFacts().map { "\($0.0)=\($0.1)" }
+        // `--formatter-probe`: what the popover's date, duration and number texts would be in the app language that
+        // display language maps to (stage 7, R4). Opt-in, so a formatter that traps cannot take the language checks down.
+        if args.contains("--formatter-probe") {
+            let language = injectedLanguage ?? .systemDefault
+            lines.append("format.language=\(language.rawValue)")
+            lines += FormatterProbe.lines(language: language).map { "format.\($0.0)=\($0.1)" }
+            lines += FormatterProbe.regionLines().map { "format.\($0.0)=\($0.1)" }
+        }
+        let out = args.firstIndex(of: "--language-probe").flatMap { $0 + 1 < args.count ? URL(fileURLWithPath: args[$0 + 1]) : nil }
+        // `--formatter-trap`: write what we have, then call DateComponentsFormatter, which corelibs leaves `NSUnsupported()`.
+        // The last line says whether this process survived it.
+        if args.contains("--formatter-trap"), let out {
+            try? Data((lines.joined(separator: "\n") + "\ntrap.start=DateComponentsFormatter\n").utf8).write(to: out)
+            let value = FormatterProbe.dateComponentsAbbreviated(7505, language: injectedLanguage ?? .en)
+            lines.append("trap.start=DateComponentsFormatter")
+            lines.append("trap.survived=DateComponentsFormatter returned \(value)")
         }
         if let i = args.firstIndex(of: "--seed-language"), i + 1 < args.count {
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-language-probe-\(UUID().uuidString)")
