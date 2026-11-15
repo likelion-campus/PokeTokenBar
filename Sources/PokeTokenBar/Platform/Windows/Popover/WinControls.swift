@@ -246,8 +246,8 @@ enum WinEditKind: Equatable, Sendable {
     }
 
     /// The kit's subclass of every control window. nil = the control's own handling.
-    fileprivate static func subclassed(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT? {
-        guard let hwnd, let c = control(hwnd) else { return nil }
+    fileprivate static func subclassed(_ bits: Int, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT? {
+        guard let hwnd = HWND(bitPattern: bits), let c = control(hwnd) else { return nil }
         let isMultiLine: Bool = { if case .multiLine? = c.editKind { return true }; return false }()
         let isCode: Bool = { if case .code? = c.editKind { return true }; return false }()
         let ctrlDown = GetKeyState(0x11 /* VK_CONTROL */) < 0
@@ -316,8 +316,10 @@ enum WinEditKind: Equatable, Sendable {
 /// One function pointer for SetWindowSubclass and RemoveWindowSubclass (a subclass is identified by it and the id).
 nonisolated(unsafe) private let winKitSubclass: SUBCLASSPROC = { h, m, w, l, _, _ in winKitSubclassProc(h, m, w, l) }
 
+/// The window's handle crosses into the main actor as its bits (`HWND` is not Sendable), as the message hook does.
 private func winKitSubclassProc(_ hwnd: HWND?, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT {
-    if let r = MainActor.assumeIsolated({ WinControl.subclassed(hwnd, message, wParam, lParam) }) { return r }
+    let bits = Int(bitPattern: hwnd)
+    if let r = MainActor.assumeIsolated({ WinControl.subclassed(bits, message, wParam, lParam) }) { return r }
     return DefSubclassProc(hwnd, message, wParam, lParam)
 }
 

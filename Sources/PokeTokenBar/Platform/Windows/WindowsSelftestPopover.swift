@@ -198,6 +198,7 @@ extension WindowsSelftest {
             _ = WinStr.w(title).withUnsafeBufferPointer { AppendMenuW(menu, 0 /* MF_STRING */, UINT_PTR(i + 1), $0.baseAddress) }
         }
         let state = MenuState()
+        let ownerBits = Int(bitPattern: w.hwnd)
         Thread {
             var waited = 0
             while !state.open, waited < 300 { Thread.sleep(forTimeInterval: 0.01); waited += 1 }
@@ -214,9 +215,10 @@ extension WindowsSelftest {
             _ = PostMessageW(edit, UINT(WM_KEYDOWN), WPARAM(VK_RETURN), 0)
             _ = PostMessageW(edit, UINT(WM_KEYUP), WPARAM(VK_RETURN), LPARAM(Int(bitPattern: UInt(0xC000_0001))))
             Thread.sleep(forTimeInterval: 1.5)
-            if state.open {
-                _ = PostMessageW(edit, UINT(WM_KEYDOWN), WPARAM(VK_ESCAPE), 0)
-                _ = PostMessageW(edit, UINT(WM_KEYDOWN), WPARAM(VK_ESCAPE), 0)
+            // The keys never reached the menu: WM_CANCELMODE to the owner ends menu mode whoever reads the queue.
+            for _ in 0..<5 where state.open {
+                _ = PostMessageW(HWND(bitPattern: ownerBits), 0x001F /* WM_CANCELMODE */, 0, 0)
+                Thread.sleep(forTimeInterval: 0.5)
             }
         }.start()
         typealias TrackFn = @convention(c) (HMENU?, UINT, Int32, Int32, Int32, HWND?, UnsafePointer<RECT>?) -> Int32
