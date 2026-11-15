@@ -221,7 +221,7 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
         let maxID = PokemonAssets.animatedSpeciesIDs.upperBound
         let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(PokemonOdds.dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate } }"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        let (data, resp) = try await PlatformCompat.oneShotData(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         let decoded = try JSONDecoder().decode(GraphQLBaseResponse.self, from: data)
         let entries = decoded.data.pokemonspecies.map { BaseSpecies(id: $0.id, captureRate: $0.capture_rate) }
@@ -248,7 +248,7 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
     private func get<T: Decodable>(_ url: URL) async throws -> T {
         var req = URLRequest(url: url)
         req.timeoutInterval = 15
-        let (data, _) = try await URLSession.shared.data(for: req)
+        let (data, _) = try await PlatformCompat.oneShotData(for: req)
         return try JSONDecoder().decode(T.self, from: data)
     }
 

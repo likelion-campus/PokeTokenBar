@@ -49,7 +49,7 @@ struct URLSessionSessionKeyClient: SessionKeyHTTPClient {
         request.setValue("https://claude.ai", forHTTPHeaderField: "Referer")
         request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await PlatformCompat.oneShotData(for: request)
         let http = response as? HTTPURLResponse
         return SessionKeyHTTPResponse(
             status: http?.statusCode ?? -1,
