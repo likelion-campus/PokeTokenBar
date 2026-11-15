@@ -25,36 +25,36 @@ A5t | 1 | pending T3 | PokeTokenBarApp.swift | Tooltips show after 600 ms (NSIni
 A5m | - | n/a: no TokenMac install on Windows; the Windows state folder starts new | PokeTokenBarApp.swift | Legacy TokenMac folder migration at launch
 A6 | 1 | pending T4 | PokeTokenBarApp.swift | Second launch yields to the running instance (Windows: opens the popover, ruling 3)
 A7 | 1 | elsewhere Platform/Windows/WindowsApp.swift: the app's launch, stores, updater, team runtime, plaza and their observers (AppWiringDriftScanTests holds the two copies together) | PokeTokenBarApp.swift | App lifecycle and wiring: launch order, crash reporter, SIGPIPE, login-item migration, stores, update check at launch, companion feed, team runtime, plaza controller, notifications, store observers, terminate
-P1 | 1 | pending T5 | UI/PopoverView.swift | Update banner: "vX available (current vY)", Skip this version, Update; "Updating…" with a spinner; only with update notifications on
+P1 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Update banner: "vX available (current vY)", Skip this version, Update; "Updating…" with a spinner; only with update notifications on
 P2 | 1 | pending T5 | UI/PopoverView.swift | Main tab bar (Home, Shop, Bag, Collection; segmented); Windows shows it once a second tab exists
-P3 | 1 | pending T5 | UI/PopoverView.swift | Open-plaza button (map glyph, red unread dot, tooltip), team ready only; closes the popover and opens the plaza
+P3 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Open-plaza button (map glyph, red unread dot, tooltip), team ready only; closes the popover and opens the plaza
 P4 | 1 | pending T3 | UI/PopoverView.swift | Popover metrics: 360 wide, 14 padding, scroller lane 12, Home content 520 high and scrolling; Settings and Recap replace the content in place
-P5 | 1 | pending T5 | UI/PopoverView.swift, UI/UsageCostText.swift | Today header: caption, compact total (28 pt bold, monospaced), grouped digits from 1,000 (region grouping), today's cost when shown
-P6 | 1 | pending T5 | UI/PopoverView.swift | Week and month totals with cost; two lines when narrow
+P5 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift, UI/UsageCostText.swift | Today header: caption, compact total (28 pt bold, monospaced), grouped digits from 1,000 (region grouping), today's cost when shown
+P6 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Week and month totals with cost; two lines when narrow
 P7 | 2 | pending T12 | UI/StreakBadge.swift | Streak badge: flame + days from 2 days, orange when today counts, tooltip and accessibility label
 P8 | 2 | pending T13 | UI/PopoverView.swift | Recap button (chart glyph + "Details"), opens the recap page
 P9 | 2 | pending T12 | UI/ActivityVisualization.swift | Activity panel: a click cycles the visualization (bars, heatmap), tooltip, page dots
 P10 | 2 | pending T12 | UI/PopoverView.swift | Monthly bars: window menu (7/14/21 days, this month), today readout, peak, provider-stacked bars + legend, hover card (day, tokens, cost, per provider), weekend ticks, axis labels, future days
 P11 | 2 | pending T12 | UI/ActivityHeatmap.swift | 16-week heatmap: weekday labels from the region's first weekday, 5 green levels, today outline, hover readout, peak, recorded-since
-P12 | 1 | pending T5 | UI/PopoverView.swift | Provider tabs (capsules, horizontal scroll) when more than one provider has usage today; the choice is kept across openings
-P13 | 1 | pending T5 | UI/PopoverView.swift | Provider row: name, today's tokens, cost when the provider reports one, input/output/cache-write/cache-read, per-model lines (more than one model, sorted, last path part, middle truncation)
-P14 | 1 | pending T5 | UI/PopoverView.swift | Provider status banner: coloured dot, indicator label, incident description (only with an incident)
-P15 | 1 | pending T5 | UI/PopoverView.swift | Limits caption "Official limits"
+P12 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Provider tabs (capsules, horizontal scroll) when more than one provider has usage today; the choice is kept across openings
+P13 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Provider row: name, today's tokens, cost when the provider reports one, input/output/cache-write/cache-read, per-model lines (more than one model, sorted, last path part, middle truncation)
+P14 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Provider status banner: coloured dot, indicator label, incident description (only with an incident)
+P15 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Limits caption "Official limits"
 P15h | 2 | pending T14 | UI/PopoverView.swift | Claude Keychain help (?) popover with "Register session key"; Windows replaces the Keychain wording (D13)
-P16 | 1 | pending T2 | UI/PopoverView.swift | The limits section's gate per provider (selectedProviderHasLimits); on Windows a provider with no limits source shows no section (PopoverPlatformFacts)
+P16 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | The limits section's gate per provider (selectedProviderHasLimits); on Windows a provider with no limits source shows no section (PopoverPlatformFacts)
 P17 | 2 | pending T14 | UI/PopoverView.swift | Session-key-expired notice (key glyph, title, Settings button that opens Advanced expanded, hint)
-P18 | 1 | pending T5 | UI/PopoverView.swift | Claude auth-expired notice with Retry (spinner) and hint (Windows wording, D13)
-P19 | 1 | pending T5 | UI/PopoverView.swift | Claude refresh row: "Load official limits" or "stale · relative", Refresh (spinner), the refresh error; with no credentials file Windows says "try again shortly" today (P14: Task 6 fixes the wording)
-P20 | 1 | pending T5 | UI/PopoverView.swift | Claude account tabs (title, help = account, dot on the tracked one) and the "unattributed usage" note
-P21 | 1 | pending T5 | UI/PopoverView.swift | Per-account block: expired additional-account notice (session key or retry), stale badge, plan, account label, the account's today/month usage (+cost), dimmed when expired
-P22 | 1 | pending T5 | UI/PopoverView.swift | Claude rows: 5 h (not-started hint), the forecast (tracked account), weekly, weekly Opus, weekly Sonnet, scoped entries, current 5 h block (tokens, reset relative + clock)
-P23 | 1 | pending T5 | UI/PopoverView.swift | Quota row (every provider): name, detail, reset relative + clock suffix (HH:mm within 6 h or today, else weekday-day-time, app language, 24 h), idle hint, used or remaining percent, percent colour, progress bar with pace marker, tooltip (tier, delta, pace hint)
-P24 | 1 | pending T5 | UI/PopoverView.swift | Codex: plan, "limit reached" (red), stale badge; per bucket (label when more than one): primary and secondary windows, personal spend limit (used / limit)
+P18 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Claude auth-expired notice with Retry (spinner) and hint (Windows wording, D13)
+P19 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Claude refresh row: "Load official limits" or "stale · relative", Refresh (spinner), the refresh error; with no credentials file Windows says "try again shortly" today (P14: Task 6 fixes the wording)
+P20 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Claude account tabs (title, help = account, dot on the tracked one) and the "unattributed usage" note
+P21 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Per-account block: expired additional-account notice (session key or retry), stale badge, plan, account label, the account's today/month usage (+cost), dimmed when expired
+P22 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Claude rows: 5 h (not-started hint), the forecast (tracked account), weekly, weekly Opus, weekly Sonnet, scoped entries, current 5 h block (tokens, reset relative + clock)
+P23 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Quota row (every provider): name, detail, reset relative + clock suffix (HH:mm within 6 h or today, else weekday-day-time, app language, 24 h), idle hint, used or remaining percent, percent colour, progress bar with pace marker, tooltip (tier, delta, pace hint)
+P24 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Codex: plan, "limit reached" (red), stale badge; per bucket (label when more than one): primary and secondary windows, personal spend limit (used / limit)
 P25 | - | n/a: Antigravity limits have no source on Windows (WindowsLimitsProviders: unavailable); with the Mac predicate the section would show a "Load official limits" row whose Refresh does nothing visible, so the Windows facts hide it (Task 2) | UI/PopoverView.swift | Antigravity: auth-expired notice + Retry, refresh row ("Load official limits" / stale), groups of buckets
-P26 | 1 | pending T5 | UI/PopoverView.swift | Cursor: auth-expired notice, stale badge, message, monthly included (used %, cycle end), remaining spend, auto and API usage
-P27 | 1 | pending T5 | UI/PopoverView.swift | OpenCode Go: auth-expired notice, stale badge, 5 h / weekly / monthly
-P28 | 1 | pending T5 | UI/PopoverView.swift | Grok: auth-expired notice, stale badge, credit period row, used products line (product name map)
-P29 | 1 | pending T5 | UI/PopoverView.swift | Footer: Refresh (Home only), "Updated <relative>", error triangle with the error as tooltip, Settings, Quit
+P26 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Cursor: auth-expired notice, stale badge, message, monthly included (used %, cycle end), remaining spend, auto and API usage
+P27 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | OpenCode Go: auth-expired notice, stale badge, 5 h / weekly / monthly
+P28 | 1 | done Popover/LimitsModel.swift | UI/PopoverView.swift | Grok: auth-expired notice, stale badge, credit period row, used products line (product name map)
+P29 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Footer: Refresh (Home only), "Updated <relative>", error triangle with the error as tooltip, Settings, Quit
 P29e | 3 | pending T22 | UI/PopoverView.swift | Footer eye button: show / hide the floating pet
 P30 | 1 | done Popover/PopoverState.swift | UI/PopoverView.swift | Navigation state: tab, settings, recap, collection segment, Pokédex detail page, provider and account tabs (kept), expand-advanced, open-plaza action; reset and the routes (session-key settings, Pokédex entry, representative)
 P31 | 1 | pending T5 | UI/PopoverView.swift | Dates and relative texts follow the app language (the popover's locale environment), not the region

@@ -1,5 +1,73 @@
-# Shared copies of pure logic that stays in upstream UI files (stage 7, D8). The scan compares the two bodies with
-# comments and white space dropped and the renames applied; PopoverTwinEquivalenceTests+Mac drives both.
-#   Mac file#Type | shared file#Type | renames (Mac=shared, comma-separated)
+# Shared copies of logic that stays in upstream UI files (stage 7, D8). A side is `file#Type` or `file#Type.member`
+# (a function or computed var; overloads count together). PopoverParityScanTests checks every row:
+#   Mac file#symbol | shared file#symbol | renames (Mac=shared, comma-separated)
+#       the two bodies, comments and white space dropped and the renames applied, must read the same. The shared side may
+#       be a verbatim copy of a private Mac member inside a Mac test (Tests/…): PopoverTwinEquivalenceTests+Mac then
+#       drives that copy and the shared twin over the same inputs.
+#   Mac file#symbol | shared file#symbol | pin <16 hex>
+#       a Mac body that cannot read as its twin (a SwiftUI view body rebuilt as values): it must still hash to the pin
+#       (PopoverParityRules.pin of the normalized body). When it fails, carry the Mac change into the twin and its
+#       tests, then write the new pin the finding prints.
 
 UI/PopoverView.swift#PopoverNavigation | Popover/PopoverState.swift#PopoverState | PopoverTab=Tab
+
+# Pure helpers whose twin reads as the original (colour names map to PopoverColorRole).
+UI/PopoverView.swift#PopoverView.grokProductName | Popover/PopoverFormat.swift#PopoverFormat.grokProductName
+UI/PopoverView.swift#LimitProgressBar.markerFraction | Popover/PopoverFormat.swift#PopoverFormat.markerFraction
+UI/PopoverView.swift#PopoverView.statusColor | Popover/PopoverFormat.swift#PopoverFormat.statusColor | green=systemGreen, yellow=systemYellow, orange=systemOrange, red=systemRed, gray=systemGray
+UI/PopoverView.swift#PaceTier.color | Popover/PopoverFormat.swift#PopoverFormat.paceColor | self=tier, blue=systemBlue, teal=systemTeal, green=systemGreen, yellow=systemYellow, orange=systemOrange, red=systemRed
+UI/PopoverView.swift#PaceTier.percentColor | Popover/PopoverFormat.swift#PopoverFormat.percentColor | self=tier, color=paceColor(tier)
+
+# Private PopoverView members that read the view's environment: a verbatim copy in the Mac test, driven against the
+# shared twin (PopoverFormat, LimitsBuilder) by PopoverTwinEquivalenceTests+Mac.
+UI/PopoverView.swift#PopoverView.selectedSnapshot | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.selectedSnapshot
+UI/PopoverView.swift#PopoverView.selectedProviderHasLimits | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.selectedProviderHasLimits
+UI/PopoverView.swift#PopoverView.limitPercentText | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.limitPercentText
+UI/PopoverView.swift#PopoverView.resetClockSuffix | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.resetClockSuffix
+UI/PopoverView.swift#PopoverView.paceFraction | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.paceFraction
+UI/PopoverView.swift#PopoverView.paceHelp | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.paceHelp
+UI/PopoverView.swift#PopoverView.selectedClaudeAccount | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacPopoverOracle.selectedClaudeAccount
+
+# View bodies rebuilt as values in HomeModel / LimitsModel (one model function per Mac function; fixture tests pin the
+# values on both systems).
+UI/PopoverView.swift#PopoverView.updateBanner | Popover/HomeModel.swift#HomeBuilder.updateBanner | pin 5858c719f44a819d
+UI/PopoverView.swift#PopoverView.mainContent | Popover/HomeModel.swift#HomeBuilder.plazaButton | pin 3960c17f4130f22e
+UI/PopoverView.swift#PopoverView.header | Popover/HomeModel.swift#HomeBuilder.header | pin 16d000fbf7d40d19
+UI/PopoverView.swift#PopoverView.periodTotals | Popover/HomeModel.swift#HomeBuilder.header | pin 9dbda48338ab0d38
+UI/PopoverView.swift#PopoverView.periodLabels | Popover/HomeModel.swift#HomeBuilder.header | pin 64792a31672afa46
+UI/PopoverView.swift#PopoverView.periodLabel | Popover/HomeModel.swift#HomeModel.periodLabel | pin 72de60fd2b31dd85
+UI/PopoverView.swift#PopoverView.providerTabBar | Popover/HomeModel.swift#HomeBuilder.providerTabBar | pin 431d6883cb2e9bc9
+UI/PopoverView.swift#ProviderTabBar.body | Popover/HomeModel.swift#HomeBuilder.providerTabBar | pin 5126050317cefe83
+UI/PopoverView.swift#CapsuleTabBar.body | Popover/LimitsModel.swift#CapsuleTab | pin 681f71c45cd11384
+UI/PopoverView.swift#PopoverView.providerRow | Popover/HomeModel.swift#HomeBuilder.providerRow | pin 6087c095f3a1c401
+UI/PopoverView.swift#PopoverView.tokenTypeLabel | Popover/HomeModel.swift#HomeBuilder.providerRow | pin e1ddd03278b4c088
+UI/PopoverView.swift#PopoverView.providerStatusBanner | Popover/HomeModel.swift#HomeBuilder.providerStatusBanner | pin 246c370d0dc0956f
+UI/PopoverView.swift#PopoverView.footer | Popover/HomeModel.swift#HomeBuilder.footer | pin ecdd77c53dabceed
+UI/PopoverView.swift#PopoverView.limitsSection | Popover/LimitsModel.swift#LimitsBuilder.limitsSection | pin d5b3f10e54221905
+UI/PopoverView.swift#PopoverView.claudeKeychainHelpButton | Popover/LimitsModel.swift#LimitsBuilder.claudeKeychainHelpButton | pin ecc94551d83b71ca
+UI/PopoverView.swift#PopoverView.sessionKeyExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.sessionKeyExpiredNotice | pin aeb9bff3801f2bdd
+UI/PopoverView.swift#PopoverView.authExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.authExpiredNotice | pin ee2c8ee36509b7a5
+UI/PopoverView.swift#PopoverView.claudeAuthExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.claudeAuthExpiredNotice | pin e4b92393c60c8612
+UI/PopoverView.swift#PopoverView.claudeLimitsRefreshRow | Popover/LimitsModel.swift#LimitsBuilder.claudeLimitsRefreshRow | pin 76f67cf69da417d7
+UI/PopoverView.swift#PopoverView.claudeAccountsContent | Popover/LimitsModel.swift#LimitsBuilder.claudeAccountsContent | pin b15cb4b55d307214
+UI/PopoverView.swift#PopoverView.claudeAccountLimits | Popover/LimitsModel.swift#LimitsBuilder.claudeAccountLimits | pin 91cadcc1708a6c48
+UI/PopoverView.swift#PopoverView.staleBadge | Popover/LimitsModel.swift#LimitsBuilder.staleBadge | pin e284a137432ef2d6
+UI/PopoverView.swift#PopoverView.limitRow | Popover/LimitsModel.swift#LimitsBuilder.limitRow | pin 3340b50caacf582c
+UI/PopoverView.swift#PopoverView.forecastRow | Popover/LimitsModel.swift#LimitsBuilder.forecastRow | pin d7196529c2fbd382
+UI/PopoverView.swift#PopoverView.quotaRow | Popover/LimitsModel.swift#LimitsBuilder.quotaRow | pin 9029482b41cd2921
+UI/PopoverView.swift#PopoverView.resetLabel | Popover/LimitsModel.swift#LimitsBuilder.quotaRow | pin 2f0134d39cf8a92f
+UI/PopoverView.swift#View.helpIfPresent | Popover/LimitsModel.swift#LimitsBuilder.quotaRow | pin d645ad9196bd46e2
+UI/PopoverView.swift#LimitProgressBar.body | Popover/LimitsModel.swift#LimitsBuilder.quotaRow | pin 5d5e46b856ae3dc7
+UI/PopoverView.swift#PopoverView.codexMetaRow | Popover/LimitsModel.swift#LimitsBuilder.codexMetaRow | pin 49947b0f1aeb63cc
+UI/PopoverView.swift#PopoverView.codexLimitRow | Popover/LimitsModel.swift#LimitsBuilder.codexLimitRow | pin 29fba9d99317a91e
+UI/PopoverView.swift#PopoverView.codexSpendLimitRow | Popover/LimitsModel.swift#LimitsBuilder.codexSpendLimitRow | pin f73d6f131b21e859
+UI/PopoverView.swift#PopoverView.antigravityLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.antigravityLimitsContent | pin 74c23d09d98f2b05
+UI/PopoverView.swift#PopoverView.antigravityBucketRow | Popover/LimitsModel.swift#LimitsBuilder.antigravityBucketRow | pin b507aff34f3667f8
+UI/PopoverView.swift#PopoverView.antigravityRefreshRow | Popover/LimitsModel.swift#LimitsBuilder.antigravityRefreshRow | pin b69aceadacd7bcf5
+UI/PopoverView.swift#PopoverView.antigravityAuthExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.antigravityAuthExpiredNotice | pin 9b69de5a91cf144f
+UI/PopoverView.swift#PopoverView.cursorLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.cursorLimitsContent | pin 450cc87ae75a573f
+UI/PopoverView.swift#PopoverView.cursorLimitRow | Popover/LimitsModel.swift#LimitsBuilder.cursorLimitRow | pin 035ed3ed9b7b274a
+UI/PopoverView.swift#PopoverView.cursorAuthExpiredNotice | Popover/LimitsModel.swift#LimitsBuilder.cursorAuthExpiredNotice | pin 5c3d5fb2e7d20511
+UI/PopoverView.swift#PopoverView.openCodeGoLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.openCodeGoLimitsContent | pin 07f319d952d35566
+UI/PopoverView.swift#PopoverView.openCodeGoLimitRow | Popover/LimitsModel.swift#LimitsBuilder.openCodeGoLimitRow | pin e0cf4520ce8391be
+UI/PopoverView.swift#PopoverView.grokLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.grokLimitsContent | pin a44000bb85ea1ce0
