@@ -96,5 +96,45 @@ enum WindowsSelftestLanguage {
         }
         WindowsApp.exit(0, .helper)
     }
+
+    /// `--tz-hunt <out>`: runs, one at a time and each logged BEFORE it runs, the time-zone-dependent calls the app makes at
+    /// launch, with the zone published as the app does. The last line of `<out>` after a crash names the call.
+    @MainActor static func runTimeZoneHunt(_ args: [String]) -> Never {
+        guard let i = args.firstIndex(of: "--tz-hunt"), i + 1 < args.count else { WindowsApp.exit(2, .helper) }
+        let url = URL(fileURLWithPath: args[i + 1])
+        _ = FileManager.default.createFile(atPath: url.path, contents: nil)
+        func step(_ name: String, _ body: () -> String) {
+            if let h = try? FileHandle(forWritingTo: url) {
+                _ = try? h.seekToEnd(); try? h.write(contentsOf: Data("start \(name)\n".utf8)); try? h.close()
+            }
+            let result = body()
+            if let h = try? FileHandle(forWritingTo: url) {
+                _ = try? h.seekToEnd(); try? h.write(contentsOf: Data("done  \(name): \(result)\n".utf8)); try? h.close()
+            }
+        }
+        step("TimeZone.current") { "\(TimeZone.current.identifier) \(TimeZone.current.secondsFromGMT())" }
+        step("Calendar.current.startOfDay") { "\(Calendar.current.startOfDay(for: Date()))" }
+        step("Calendar.current.timeZone") { Calendar.current.timeZone.identifier }
+        step("NSTimeZone.default") { NSTimeZone.default.identifier }
+        step("DateFormatter(current tz).string") {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; f.timeZone = .current; f.locale = Locale(identifier: "en_US_POSIX")
+            return f.string(from: Date())
+        }
+        step("LocalUsageReader.todayKey") { LocalUsageReader.todayKey() }
+        step("LocalUsageReader.startOfMonth") { "\(LocalUsageReader.startOfMonth(Date()))" }
+        step("ISO8601DateFormatter") { ISO8601DateFormatter().string(from: Date()) }
+        step("DayBoundary.nextLocalMidnight") { "\(DayBoundary.nextLocalMidnight(after: Date(), calendar: .current))" }
+        step("WindowsSystemEvents") { let e = WindowsSystemEvents(window: nil); e.shutdown(); return "ok" }
+        let suite = "ptb.selftest.tzhunt.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        step("UsageStore.init") { _ = UsageStore(defaults: defaults); return "ok" }
+        step("CompanionStore.init") {
+            _ = CompanionStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("ptb-tzhunt-\(UUID().uuidString).json"), defaults: defaults)
+            return "ok"
+        }
+        defaults.removePersistentDomain(forName: suite)
+        step("end") { "all done" }
+        WindowsApp.exit(0, .helper)
+    }
 }
 #endif

@@ -48,6 +48,12 @@ try {
         $real = Probe 'korean-hkcu'
         Write-Host "INFO real GetUserPreferredUILanguages after HKCU PreferredUILanguages=ko-KR: $($real['GetUserPreferredUILanguages']); GetUserDefaultLocaleName=$($real['GetUserDefaultLocaleName']); corelibs Locale.preferredLanguages=$($real['Locale.preferredLanguages']) Locale.current=$($real['Locale.current'])"
     } catch { Write-Host "INFO could not set the HKCU language values: $_" }
+    # 2b. diagnostics: the time-zone calls the app makes at launch, one by one (the last "start" line names a crash)
+    $hunt = Join-Path (Resolve-Path $OutDir).Path 'tz-hunt.txt'
+    $hp = Start-Process -FilePath $Exe -ArgumentList @('--tz-hunt', $hunt) -PassThru; $null = $hp.Handle
+    if (-not $hp.WaitForExit(60000)) { Stop-Process -Id $hp.Id -Force }
+    Write-Host "---- tz-hunt (exit $($hp.ExitCode))"; if (Test-Path $hunt) { Get-Content $hunt | ForEach-Object { Write-Host "  $_" } }
+    Check 'timezone.hunt' ($hp.ExitCode -eq 0) "exit $($hp.ExitCode); last line: $((Get-Content $hunt | Select-Object -Last 1))"
     # 3. time zone: the day boundary follows TimeZone.current
     & tzutil /s 'Korea Standard Time'
     $tz = Probe 'korea-tz'
