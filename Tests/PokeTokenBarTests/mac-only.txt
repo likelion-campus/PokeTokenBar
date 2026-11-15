@@ -176,8 +176,8 @@ PlazaActivityTests+Mac.swift
 PlazaSeasonTests+Mac.swift
 # from main (#140): pins the macOS defaults pool against late writers; its tests must stay synchronous
 TestDefaultsLateWriteTests.swift
-# plaza offscreen render harness (Track A): SpriteKit + Metal, Mac only
-PlazaRenderScenes.swift
+# plaza offscreen render harness (Track A): SpriteKit + Metal, Mac only. The scenes themselves are shared (PlazaRenderScenes.swift); +Mac holds the CGImage fixtures and the real-sprites scene
+PlazaRenderScenes+Mac.swift
 PlazaRender/
 # Track A legacy art oracles: verbatim pre-conversion CoreGraphics art and the CGImage byte comparison (deleted in Task 19)
 Legacy/
