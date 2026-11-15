@@ -195,7 +195,10 @@ final class WindowsPlazaTextTests: XCTestCase {
         XCTAssertEqual(galmuriDiffer, [], "every text drawn in Galmuri alone gives the Mac's clusters (boundaries, advances, flags)")
     }
 
-    private enum Cause: String { case same, ruleGap = "rule gap (pinned by Task 1)", boundary = "cluster boundary", width = "width", flags = "flags", engine = "engine" }
+    private enum Cause: String {
+        case same, ruleGap = "rule gap (pinned by Task 1)", boundary = "cluster boundary", width = "width", flags = "flags", engine = "engine"
+        case size = "same lines, other size (the fallback font's advances or line metrics)"
+    }
 
     private func cause(mine: [Range<Int>], mac: [Range<Int>], goldenRule: [Range<Int>], diff: ClusterDiff) -> Cause {
         if mine == mac { return .same }
@@ -265,7 +268,7 @@ final class WindowsPlazaTextTests: XCTestCase {
             var why = cause(mine: mine, mac: mac, goldenRule: PlazaLineBreaker.lines(macClusters, width: width, rule: .coreTextFrame),
                             diff: compare(p.whole.measured.clusters, macClusters, text))
             let sizeSame = [Double(fit.width), Double(fit.height)] == c.suggested && visible == c.visible
-            if why == .same && !sizeSame { why = .engine }   // same lines, other metrics: a line's height (fallback fonts)
+            if why == .same && !sizeSame { why = .size }
             let fallback = PlazaBreakCorpus.usesFallback(text: c.text, font: c.font)
             counts[(fallback ? "fallback " : "galmuri ") + why.rawValue, default: 0] += 1
             if why != .same {
@@ -694,12 +697,19 @@ final class WindowsPlazaTextTests: XCTestCase {
     func testFontsAndLinesCostAndLeak() throws {
         try requireResources()
         var made: [Double] = []
+        let start = WindowsPlazaTextTests.privateBytes() ?? 0
+        var kept: [WinTextFonts] = []
         for _ in 0..<3 {
             let f = WinTextFonts(directories: WinPlazaAssets.directories, measuringMode: 0, log: { _ in })
-            _ = WinPlazaTextEngine(fonts: f).line("가 A", font: .plaza(.body))
+            for font in [PlazaFont.plaza(.small), .plaza(.body), .system(size: 15, weight: .bold), .emoji(size: 12)] {
+                _ = WinPlazaTextEngine(fonts: f).line("가 A 🔥", font: font)
+            }
             made.append(f.creationMilliseconds)
+            kept.append(f)
         }
-        print("TEXT-COST font collection (5 files): first in this process \(fonts.creationMilliseconds) ms, fresh ones \(made) ms")
+        let held = (WindowsPlazaTextTests.privateBytes() ?? 0) - start
+        print("TEXT-COST font collection (5 files): first in this process \(fonts.creationMilliseconds) ms, fresh ones \(made) ms; three fresh collections, each used in every font, hold \(held / 3) private bytes each (font files are mapped, not copied)")
+        kept.removeAll()
         guard let before = WindowsPlazaTextTests.privateBytes() else { throw XCTSkip("process counters unavailable") }
         for i in 0..<200 { _ = engine.line("warm \(i) 가나다", font: .plaza(.body)) }
         guard let warm = WindowsPlazaTextTests.privateBytes() else { return }
