@@ -350,12 +350,17 @@ extension WindowsSelftest {
         var dpiLines: [String] = [], dpiOK = true
         for dpi: UInt32 in [120, 144] {
             let shownCount = panels.entries.count
-            let r0 = hud.renderCount
+            let r0 = hud.renderCount, per0 = hud.renderCounts
+            let shownIDs = Array(panels.entries.keys)
             var rect = original
             _ = withUnsafeMutablePointer(to: &rect) { SendMessageW(hwnd, 0x02E0, WPARAM(dpi | (dpi << 16)), LPARAM(Int(bitPattern: $0))) }
             await pumpPanels(0.5)
             let scale = CGFloat(dpi) / 96
             let rendered = hud.renderCount - r0
+            // every shown panel rendered at the new scale at least once; more than 3 times would be a render storm (the roster and chat log
+            // follow the changed content height once more: shared layout, not the host)
+            let perPanel = shownIDs.map { (hud.renderCounts[$0] ?? 0) - (per0[$0] ?? 0) }
+            let eachOK = perPanel.allSatisfy { $0 >= 1 && $0 <= 3 }
             let scales = panels.entries.values.allSatisfy { $0.scale == scale }
             // The rectangles themselves, in client pixels at the new scale, worked out here from the panels' tips (a stale or unscaled tool fails).
             let expectedRects: [[Int32]] = panels.tips.map { t in
@@ -363,8 +368,8 @@ extension WindowsSelftest {
             }
             let toolRects = shell.tooltipsForTesting?.tips.map(\.rect) ?? []
             let toolsOK = !expectedRects.isEmpty && toolRects == expectedRects && shell.tooltipsForTesting?.count == expectedRects.count
-            dpiOK = dpiOK && scales && rendered >= shownCount && rendered <= shownCount + 3 && toolsOK && hud.scale == scale
-            dpiLines.append("\(dpi) dpi: renders \(rendered) for \(shownCount) shown panels, all at scale \(scale): \(scales), tool rectangles follow (\(expectedRects.count) tools, first \(expectedRects.first ?? [])): \(toolsOK) \(shot("plaza-panels-\(dpi)dpi.png"))")
+            dpiOK = dpiOK && scales && eachOK && toolsOK && hud.scale == scale
+            dpiLines.append("\(dpi) dpi: renders \(rendered) for \(shownCount) shown panels (per panel \(perPanel)), all at scale \(scale): \(scales), tool rectangles follow (\(expectedRects.count) tools, first \(expectedRects.first ?? [])): \(toolsOK) \(shot("plaza-panels-\(dpi)dpi.png"))")
         }
         var back = original
         _ = withUnsafeMutablePointer(to: &back) { SendMessageW(hwnd, 0x02E0, WPARAM(96 | (96 << 16)), LPARAM(Int(bitPattern: $0))) }
