@@ -43,6 +43,8 @@ final class TeamReleaseScriptRunTests: XCTestCase {
     private var notes: URL { root.appendingPathComponent("notes.md") }
     /// A throwaway certificate, made once: the fake codesign hands it out as the built app's leaf.
     private static let cert: (der: URL, leaf: String)? = try? makeCertificate()
+    /// Another one: a built app signed by a different leaf than the pin.
+    private static let otherCert: (der: URL, leaf: String)? = try? makeCertificate()
 
     private static func makeCertificate() throws -> (der: URL, leaf: String) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-release-cert-\(UUID().uuidString)")
@@ -130,7 +132,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
         var env = ["HOME": root.path, "PATH": root.appendingPathComponent("bin").path,
                    "FAKE_BIN": root.appendingPathComponent("bin").path, "FAKE_STATE": state.path,
                    "FAKE_CERT": try Self.throwawayCertificate().der.path, "FAKE_LEAF": try Self.throwawayCertificate().leaf,
-                   "FAKE_HEAD": Self.head]
+                   "FAKE_HEAD": Self.head, "FAKE_VERSION": Self.releaseVersion]
         env.merge(scenario) { $1 }
         p.environment = env
         p.standardOutput = try FileHandle(forWritingTo: outURL)
@@ -155,9 +157,9 @@ final class TeamReleaseScriptRunTests: XCTestCase {
     // MARK: - expected call sequences
 
     static let checks = ["gh auth status", "git rev-parse", "git status", "git remote", "git fetch", "git rev-parse",
-                         "git rev-parse", "git show-ref", "gh release view", "security",
+                         "git rev-parse", "git show-ref", "gh release view", "gh release view", "security",
                          "python3 unittest", "team_notes.py check", "team_docs_check.py"]
-    static let macHalf = ["test-gate.sh", "cfprefsd-guard.sh", "build-app.sh", "codesign", "ditto", "lipo"]
+    static let macHalf = ["test-gate.sh", "cfprefsd-guard.sh", "build-app.sh", "git rev-parse", "git status", "codesign", "ditto", "lipo"]
     static let windowsHalf = ["team_release.py collect", "team_notes.py fill"]
     static let fullRelease = checks + ["team_release.py start"] + macHalf + windowsHalf
         + ["team_release.py publish", "gh api GET", "gh api GET", "gh api PUT", "team_release.py smoke"]
@@ -228,7 +230,10 @@ final class TeamReleaseScriptRunTests: XCTestCase {
             XCTAssertTrue(run.out.contains(label), label)
         }
         XCTAssertEqual(run.out.components(separatedBy: "SKIPPED (리허설)").count - 1, 5)
-        XCTAssertTrue(run.out.contains("    python3 scripts/team_release.py publish --sha \(Self.head) --version \(Self.releaseVersion) --zip build/PokeTokenBar.zip"))
+        XCTAssertTrue(run.out.contains("    # python3 scripts/team_release.py publish --sha \(Self.head) --version \(Self.releaseVersion) --zip build/PokeTokenBar.zip"),
+                      "printed as a comment only")
+        XCTAssertTrue(run.out.contains("손으로 실행하지 마세요"))
+        XCTAssertFalse(run.out.contains("\n    python3 scripts/team_release.py publish"), "never as a line ready to paste")
         XCTAssertFalse(FileManager.default.fileExists(atPath: state.appendingPathComponent("put-content").path))
     }
 
@@ -242,9 +247,9 @@ final class TeamReleaseScriptRunTests: XCTestCase {
         XCTAssertTrue(released.out.contains("리허설: 태그 v\(Self.releaseVersion) 이 이미 있습니다"))
 
         let docs = try release(["--rehearse", notes.path], ["FAKE_BRANCH": "feat/x", "FAKE_RC_DOCS": "2"])
-        XCTAssertEqual(docs.status, 1, docs.text)
+        XCTAssertEqual(docs.status, 3, "a rehearsal that a release would stop on ends with its own code: \(docs.text)")
         XCTAssertEqual(docs.verbs, Self.rehearsal, "the Windows half still runs")
-        XCTAssertTrue(docs.err.contains("실제 릴리스는 멈췄을 것입니다: [1/10] 문서 게이트가 멈췄습니다"), docs.err)
+        XCTAssertTrue(docs.err.contains("실제 릴리스는 멈췄을 것입니다(종료 코드 3): [1/10] 문서 게이트가 멈췄습니다"), docs.err)
         assertNothingPublic(docs)
     }
 
@@ -361,7 +366,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
     func testPublishExit6And7NeverReachTheTap() throws {
         let six = try release(nil, ["FAKE_RC_PUBLISH": "6"])
         assertStopped(six, before: "gh api GET", says: ["확인이 실패했습니다", "다시 실행하지 말고",
-                                                        "digest 가 sha256:", "일 때만 탭을"])
+                                                        "digest 가 sha256:", "때만 탭을"])
         XCTAssertFalse(six.verbs.contains("team_release.py smoke"))
         let rerun = try release()
         assertStopped(rerun, before: "python3 unittest", says: ["태그 v\(Self.releaseVersion) 이 이미 있습니다"])
@@ -370,7 +375,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
         try setRelease("none")
         let seven = try release(nil, ["FAKE_RC_PUBLISH": "7", "FAKE_LEAVES": "public"])
         assertStopped(seven, before: "gh api GET", says: ["이미 공개돼 있었습니다", "이 실행의 zip 으로 탭을 고치지 마세요"])
-        XCTAssertFalse(seven.err.contains("일 때만 탭을"), "no tap values for someone else's release")
+        XCTAssertFalse(seven.err.contains("때만 탭을"), "no tap values for someone else's release")
     }
 
     func testAnUnknownPublishExitIsNeverTakenForSuccess() throws {
@@ -454,6 +459,103 @@ final class TeamReleaseScriptRunTests: XCTestCase {
         XCTAssertTrue(rehearsal.err.contains("남은 것: 리허설이라 빌드, 공개, 탭은 하지 않았습니다"), rehearsal.err)
     }
 
+    // MARK: - review round: guards each scenario reaches
+
+    /// Step 0's own stops, each before the next command it guards.
+    func testStepZeroStopsOnEachOfItsChecks() throws {
+        let other = String(repeating: "A", count: 40)
+        for (scenario, before, phrase) in [
+            (["FAKE_RC_AUTH": "1"], "git rev-parse", "gh 에 로그인되어 있지 않습니다"),
+            (["FAKE_ORIGIN": "https://github.com/chattymin/PokeTokenBar.git"], "git fetch", "origin 이 likelion-campus/PokeTokenBar 가 아닙니다"),
+            (["FAKE_RC_FETCH": "1"], "git show-ref", "origin 을 가져오지 못했습니다"),
+            (["FAKE_LEAF": other], "python3 unittest", "인증서 leaf 가 다릅니다(현재 \(other)"),
+            (["FAKE_LATEST": "error"], "security", "releases/latest 를 읽지 못했습니다"),
+            (["FAKE_LATEST": "v2.5.641"], "security", "releases/latest 가 v2.5.641 로 v\(Self.releaseVersion) 보다 새롭습니다"),
+        ] as [([String: String], String, String)] {
+            let run = try release(nil, scenario)
+            assertStopped(run, before: before, says: [phrase, "남은 것: 없음"])
+        }
+        // A release state that cannot be read is never taken for "no release".
+        try setRelease("error")
+        let unknown = try release()
+        assertStopped(unknown, before: "security", says: ["릴리스가 있는지 확인하지 못했습니다"])
+        // The first release ever: no releases/latest at all is fine.
+        try setRelease("none")
+        let first = try release(nil, ["FAKE_LATEST": "none"])
+        XCTAssertEqual(first.status, 0, first.text)
+        // A rehearsal only notes a newer latest (a bump fixes it) and goes on.
+        try setRelease("none")
+        let rehearsal = try release(["--rehearse", notes.path], ["FAKE_BRANCH": "feat/x", "FAKE_LATEST": "v2.5.641"])
+        XCTAssertEqual(rehearsal.status, 0, rehearsal.text)
+        XCTAssertTrue(rehearsal.out.contains("리허설: releases/latest 가 v2.5.641 로"), rehearsal.out)
+    }
+
+    /// M5: the zip is made only from the commit and version that were checked.
+    func testTheBuiltAppMustBeTheCheckedCommitAndVersion() throws {
+        let other = try XCTUnwrap(Self.otherCert, "a second throwaway certificate")
+        for (scenario, before, phrase) in [
+            (["FAKE_BUILD_MOVES_HEAD": "1"], "codesign", "HEAD 가 바뀌었습니다(\(Self.head) → 9999"),
+            (["FAKE_BUILD_WRITES": "1"], "codesign", "작업 트리가 바뀌었습니다: ?? Sources/Generated.swift"),
+            (["FAKE_BUILT_VERSION": "2.5.639"], "codesign", "CFBundleShortVersionString 이 '2.5.639' 입니다(기대 \(Self.releaseVersion))"),
+            (["FAKE_CERT": other.der.path], "ditto", "빌드된 앱의 서명 leaf(\(other.leaf))가 고정값과 다릅니다"),
+        ] as [([String: String], String, String)] {
+            try? FileManager.default.removeItem(at: state.appendingPathComponent("head"))
+            try? FileManager.default.removeItem(at: repo.appendingPathComponent("Sources"))
+            let run = try release(nil, scenario)
+            assertStopped(run, before: before, says: [phrase, "/Applications 가 새 빌드로 바뀌었을 수 있습니다"])
+            assertNothingPublic(run)
+        }
+    }
+
+    /// M1: a green run that cannot be used (artifact expired, attempt 2, manifest mismatch) needs the workflow named.
+    func testTheRetryAdviceCoversGreenRunsToo() throws {
+        let both = "--new windows-app.yml --new windows.yml"
+        let collect = try release(nil, ["FAKE_RC_COLLECT": "4"])
+        assertStopped(collect, before: "team_notes.py fill", says: ["--new failed", both, "아티팩트 7일 만료"])
+        let start = try release(nil, ["FAKE_RC_START": "3"])
+        assertStopped(start, before: "test-gate.sh", says: ["--new failed", both])
+        let fill = try release(nil, ["FAKE_RC_FILL": "1"])
+        assertStopped(fill, before: "team_release.py publish", says: [both])
+    }
+
+    /// M2: the tap is set by hand only when this version is latest and the cask is not newer; the automatic
+    /// update never moves the cask back either.
+    func testTheTapNeverMovesBackToAnOlderVersion() throws {
+        let only = "releases/latest 가 v\(Self.releaseVersion) 이고 cask 의 version 이 \(Self.releaseVersion) 보다 새롭지 않을 때만"
+        let six = try release(nil, ["FAKE_RC_PUBLISH": "6"])
+        assertStopped(six, before: "gh api GET", says: [only])
+        try setRelease("none")
+        let term = try release(nil, ["FAKE_INTERRUPT": "publish", "FAKE_SIGNAL": "TERM"])
+        XCTAssertTrue(term.err.contains(only), term.err)
+        try setRelease("none")
+        let put = try release(nil, ["FAKE_RC_TAP_PUT": "1"])
+        assertStopped(put, before: "team_release.py smoke", says: [only])
+
+        try setRelease("none")
+        let newer = try release(nil, ["FAKE_CASK_VERSION": "2.5.641"])
+        assertStopped(newer, before: "gh api PUT", says: ["탭이 이미 2.5.641 을 가리킵니다", "되돌리지 않았습니다"])
+        try setRelease("none")
+        let broken = try release(nil, ["FAKE_CASK": "broken"])
+        assertStopped(broken, before: "gh api PUT", says: ["Homebrew 탭을 갱신하지 못했습니다"])
+    }
+
+    /// M6: when publish stops because another session's newer release is latest, the advice is a bump, not a re-run.
+    func testPublishStoppedByANewerLatestAsksForABump() throws {
+        let run = try release(nil, ["FAKE_RC_PUBLISH": "5", "FAKE_LEAVES_LATEST": "v2.5.641"])
+        assertStopped(run, before: "gh api GET", says: ["releases/latest 가 v2.5.641 로 v\(Self.releaseVersion) 보다 새롭습니다",
+                                                        "올리는 PR을 병합한 뒤 실행하세요"])
+        XCTAssertFalse(run.err.contains("원인을 고친 뒤 같은 VERSION 으로 다시 실행하세요"), run.err)
+        let rerun = try release()
+        assertStopped(rerun, before: "security", says: ["releases/latest 가 v2.5.641 로"])
+    }
+
+    /// The release state read after a stop in publish: unreadable is reported as unknown, never as nothing public.
+    func testAnUnreadableStateAfterPublishIsReportedAsUnknown() throws {
+        let run = try release(nil, ["FAKE_RC_PUBLISH": "5", "FAKE_LEAVES": "error"])
+        assertStopped(run, before: "gh api GET", says: ["남은 것: 알 수 없음. GitHub 에서 v\(Self.releaseVersion) 을 읽지 못했습니다"])
+        XCTAssertFalse(run.err.contains("릴리스가 없습니다(방금 읽음)"))
+    }
+
     // MARK: - the fake
 
     /// One fake for every outside command. It logs `name args…` to $FAKE_STATE/calls.log and acts as FAKE_* say:
@@ -477,6 +579,12 @@ final class TeamReleaseScriptRunTests: XCTestCase {
     }
     arg_after() { local want=$1; shift; while [[ $# -gt 0 ]]; do [[ "$1" == "$want" ]] && { echo "$2"; return; }; shift; done; }
     release() { cat "$FAKE_STATE/release" 2>/dev/null || echo none; }
+    # releases/latest: what publish left, else this version once public, else FAKE_LATEST (none = no release at all).
+    latest() {
+      if [[ -f "$FAKE_STATE/latest" ]]; then cat "$FAKE_STATE/latest"
+      elif [[ "$(release)" == public ]]; then echo "v$FAKE_VERSION"
+      else echo "${FAKE_LATEST:-v2.5.634}"; fi
+    }
 
     case "$name" in
       gh)
@@ -484,12 +592,17 @@ final class TeamReleaseScriptRunTests: XCTestCase {
           "auth status") finish AUTH ;;
           "release view")
             interrupt_if view
-            case "$(release)" in
+            if [[ "$3" == v* ]]; then
+              st=$(release); json="--json isDraft --jq .isDraft"; tag=$3
+              case "$st" in draft) value=true ;; public) value=false ;; *) value= ;; esac
+            else
+              st=$(latest); json="--json tagName --jq .tagName"; tag=$st; value=$st
+            fi
+            case "$st" in
               none) echo "release not found" >&2; exit 1 ;;
-              draft) echo true ;;
-              public) echo false ;;
-              *) echo "HTTP 502: Bad Gateway" >&2; exit 1 ;;
-            esac ;;
+              error) echo "HTTP 502: Bad Gateway" >&2; exit 1 ;;
+            esac
+            if [[ "$*" == *"$json"* ]]; then echo "$value"; else printf 'title:\t%s\ntag:\t%s\n' "$tag" "$tag"; fi ;;
           "api -X")
             interrupt_if tap
             for a in "$@"; do case "$a" in content=*) printf '%s' "${a#content=}" > "$FAKE_STATE/put-content" ;; esac; done
@@ -497,7 +610,9 @@ final class TeamReleaseScriptRunTests: XCTestCase {
           "api repos/likelion-campus/homebrew-tap/contents/Casks/poke-token-bar-team.rb")
             case "$*" in
               *.sha*) echo "blob0123" ;;
-              *.content*) printf 'cask "poke-token-bar-team" do\n  version "2.5.634"\n  sha256 "%064d"\nend\n' 0 | base64 ;;
+              *.content*)
+                if [[ "${FAKE_CASK:-}" == broken ]]; then printf 'cask "poke-token-bar-team" do\nend\n' | base64
+                else printf 'cask "poke-token-bar-team" do\n  version "%s"\n  sha256 "%064d"\nend\n' "${FAKE_CASK_VERSION:-2.5.634}" 0 | base64; fi ;;
             esac
             finish TAP_GET ;;
           *) echo "fake gh: unexpected call: $*" >&2; exit 97 ;;
@@ -507,11 +622,14 @@ final class TeamReleaseScriptRunTests: XCTestCase {
           rev-parse)
             case "$2" in
               --abbrev-ref) echo "${FAKE_BRANCH:-main}" ;;
-              HEAD) echo "$FAKE_HEAD" ;;
+              HEAD) cat "$FAKE_STATE/head" 2>/dev/null || echo "$FAKE_HEAD" ;;
               --verify) echo "${FAKE_REMOTE_HEAD:-$FAKE_HEAD}" ;;
               *) exit 97 ;;
             esac ;;
-          status) if [[ -d scripts/__pycache__ ]]; then echo "?? scripts/__pycache__/"; else printf '%s' "${FAKE_DIRTY:-}"; fi ;;
+          status)
+            [[ ! -d scripts/__pycache__ ]] || echo "?? scripts/__pycache__/"
+            [[ ! -f Sources/Generated.swift ]] || echo "?? Sources/Generated.swift"
+            printf '%s' "${FAKE_DIRTY:-}" ;;
           remote) echo "${FAKE_ORIGIN:-https://github.com/likelion-campus/PokeTokenBar.git}" ;;
           fetch) finish FETCH ;;
           show-ref) [[ "$(release)" == public ]]; exit $? ;;
@@ -525,7 +643,14 @@ final class TeamReleaseScriptRunTests: XCTestCase {
       lipo) finish LIPO ;;
       test-gate.sh) interrupt_if gate; finish GATE ;;
       cfprefsd-guard.sh) finish CFPREFSD ;;
-      build-app.sh) interrupt_if build; finish BUILD ;;
+      build-app.sh)
+        interrupt_if build
+        mkdir -p build/PokeTokenBar.app/Contents
+        printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>%s</string></dict></plist>\n' \
+          "${FAKE_BUILT_VERSION:-$FAKE_VERSION}" > build/PokeTokenBar.app/Contents/Info.plist
+        [[ -z "${FAKE_BUILD_MOVES_HEAD:-}" ]] || echo 9999999999999999999999999999999999999999 > "$FAKE_STATE/head"
+        [[ -z "${FAKE_BUILD_WRITES:-}" ]] || { mkdir -p Sources; : > Sources/Generated.swift; }
+        finish BUILD ;;
       python3)
         # Like Python: importing a module writes its bytecode next to it unless PYTHONDONTWRITEBYTECODE is set.
         [[ -n "${PYTHONDONTWRITEBYTECODE:-}" ]] || { mkdir -p scripts/__pycache__; : > scripts/__pycache__/team_release.cpython-39.pyc; }
@@ -565,6 +690,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
               interrupt_if publish
             fi
             rc=$(rc_of PUBLISH)
+            [[ -z "${FAKE_LEAVES_LATEST:-}" ]] || echo "$FAKE_LEAVES_LATEST" > "$FAKE_STATE/latest"
             if [[ -n "${FAKE_LEAVES:-}" ]]; then echo "$FAKE_LEAVES" > "$FAKE_STATE/release"
             elif [[ "$rc" == 0 || "$rc" == 6 ]]; then echo public > "$FAKE_STATE/release"; fi
             exit "$rc" ;;

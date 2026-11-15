@@ -28,6 +28,12 @@
 # 테스트 게이트, 빌드, publish, 탭, smoke 는 SKIPPED 로 찍는다. 실제 릴리스라면 멈췄을 문서 게이트도 끝까지
 # 보고 끝에서 알린다. 아무것도 빌드하거나 공개하지 않는다.
 #
+# 이 스크립트의 종료 코드:
+#   0    릴리스 완료(리허설: 실제 릴리스도 끝까지 갔을 것)
+#   1    멈춤. 마지막 "남은 것:" 줄이 무엇이 남았고 무엇을 할지 말한다
+#   3    리허설만: 끝까지 돌았지만 실제 릴리스는 멈췄을 것(문서 게이트). 이유는 마지막 줄에
+#   130/143/129  INT/TERM/HUP 로 멈춤. "남은 것:" 줄은 같다
+#
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # 도우미 자체 시험(1단계)이 clone 에 __pycache__ 를 남기면, 같은 clone 에서 다시 실행할 때 깨끗한 트리 확인에서 멈춘다.
@@ -51,6 +57,40 @@ LOCAL_HEAD=""
 WINDOWS_RUNS=""
 PUBLISH_RC=""
 WOULD_STOP=""
+
+# vX.Y.Z / X.Y.Z 를 비교할 수 있는 수로. 그런 모양이 아니면 아무것도 찍지 않는다.
+version_number() {
+  [[ "$1" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 0
+  printf '%d%06d%06d' "$((10#${BASH_REMATCH[1]}))" "$((10#${BASH_REMATCH[2]}))" "$((10#${BASH_REMATCH[3]}))"
+}
+
+# A 가 B 보다 새로운 버전이면 참. 둘 중 하나라도 버전 모양이 아니면 거짓.
+newer_than() {
+  local a b
+  a=$(version_number "$1")
+  b=$(version_number "$2")
+  [[ -n "$a" && -n "$b" ]] && (( a > b ))
+}
+
+# releases/latest 의 태그(릴리스가 하나도 없으면 빈 문자열). 읽지 못하면 실패한다. 읽기만 한다.
+latest_tag() {
+  local out
+  if out=$(gh release view --repo likelion-campus/PokeTokenBar --json tagName --jq .tagName 2>&1); then
+    printf '%s' "$out"
+  elif [[ "$out" != *"release not found"* ]]; then
+    return 1
+  fi
+}
+
+# Windows 실행을 새로 시작하는 방법. 실패한 실행과, 성공했지만 쓸 수 없는 실행은 고치는 옵션이 다르다.
+retry_advice() {
+  echo "고칠 것이면 고쳐 병합하고 다시 실행하세요. 알려진 흔들림(flake)으로 실패한 실행이면 python3 scripts/team_release.py start --sha $LOCAL_HEAD --version $VERSION --ref $BRANCH --new failed, 성공했지만 쓸 수 없는 실행(아티팩트 7일 만료, 재실행 attempt 2, 매니페스트·해시 불일치)이면 그 workflow 를 이름으로(--new windows-app.yml, --new windows.yml; 둘 다면 --new windows-app.yml --new windows.yml) 새로 시작한 뒤 이 스크립트를 다시 실행하세요."
+}
+
+# 탭을 손으로 고쳐도 되는 조건. 두 세션이 잇달아 공개하면 탭이 옛 버전으로 돌아갈 수 있다.
+tap_only_if() {
+  printf '%s' "releases/latest 가 v$VERSION 이고 cask 의 version 이 $VERSION 보다 새롭지 않을 때만"
+}
 
 # ── 남은 것: 멈춘 단계에서 무엇이 바뀌었는지 ───────────────
 zip_sha() {
@@ -83,11 +123,11 @@ left_at_publish() {
       echo "  남은 것: v$VERSION draft 가 있습니다(방금 읽음, 공개 아님). $REPO_URL/releases 에서 확인하고, 이 실행이 남긴 것이면 지운 뒤 다시 실행하세요. 탭은 그대로입니다." ;;
     public)
       if [[ "$PUBLISH_RC" == 0 ]]; then
-        echo "  남은 것: v$VERSION 이 공개됐고 publish 가 확인까지 마쳤습니다. 탭은 갱신하지 않았습니다: $TAP_REPO 의 $CASK_PATH 에서 version 을 $VERSION, sha256 을 $(zip_sha) 로 고치고, python3 scripts/team_release.py smoke --version $VERSION 을 실행하세요."
+        echo "  남은 것: v$VERSION 이 공개됐고 publish 가 확인까지 마쳤습니다. 탭은 갱신하지 않았습니다: $(tap_only_if) $TAP_REPO 의 $CASK_PATH 에서 version 을 $VERSION, sha256 을 $(zip_sha) 로 고치고, python3 scripts/team_release.py smoke --version $VERSION 을 실행하세요."
       elif [[ "$PUBLISH_RC" == 7 ]]; then
         echo "  남은 것: v$VERSION 은 이 실행 전부터 공개돼 있던 릴리스입니다. 이 실행은 아무것도 만들지 않았습니다. 이 실행의 zip 으로 탭을 고치지 마세요. 그 릴리스와 탭이 맞는지 손으로 확인하세요."
       else
-        echo "  남은 것: v$VERSION 이 공개돼 있습니다(방금 읽음). 탭은 갱신하지 않았습니다. $REPO_URL/releases/tag/v$VERSION 에서 자산 두 개, digest, 태그 위치($LOCAL_HEAD)를 손으로 확인하세요. PokeTokenBar.zip 의 digest 가 sha256:$(zip_sha) 일 때만 탭을 version $VERSION, sha256 $(zip_sha) 로 고치고 smoke 를 실행하세요."
+        echo "  남은 것: v$VERSION 이 공개돼 있습니다(방금 읽음). 탭은 갱신하지 않았습니다. $REPO_URL/releases/tag/v$VERSION 에서 자산 두 개, digest, 태그 위치($LOCAL_HEAD)를 손으로 확인하세요. PokeTokenBar.zip 의 digest 가 sha256:$(zip_sha) 이고, $(tap_only_if) 탭을 version $VERSION, sha256 $(zip_sha) 로 고치고 smoke 를 실행하세요."
       fi ;;
     *)
       echo "  남은 것: 알 수 없음. GitHub 에서 v$VERSION 을 읽지 못했습니다. $REPO_URL/releases 를 손으로 확인하세요. 탭은 갱신하지 않았습니다." ;;
@@ -104,9 +144,9 @@ left_behind() {
     2) echo "  남은 것: Windows 실행이 시작됐을 수 있습니다(혼자 끝나고, 같은 커밋으로 다시 실행하면 재사용). /Applications 는 그대로이고 공개한 것은 없습니다." ;;
     3) echo "  남은 것: Windows 실행($WINDOWS_RUNS)은 GitHub 에서 혼자 끝나고, 같은 커밋으로 다시 실행하면 재사용합니다. /Applications 는 그대로이고 공개한 것은 없습니다. 테스트가 중간에 끊겼다면 ./scripts/cfprefsd-guard.sh 를 한 번 실행하세요." ;;
     4) echo "  남은 것: /Applications 가 새 빌드로 바뀌었을 수 있습니다(지금까지와 같음). Windows 실행($WINDOWS_RUNS)은 혼자 끝납니다. 공개한 것은 없습니다." ;;
-    5|6) echo "  남은 것: /Applications 의 새 빌드(지금까지와 같음)와 Windows 실행($WINDOWS_RUNS). 공개한 것은 없습니다. 같은 커밋으로 다시 실행하면 성공한 Windows 실행은 재사용하고, 실패한 실행이면 2단계에서 멈춥니다." ;;
+    5|6) echo "  남은 것: /Applications 의 새 빌드(지금까지와 같음)와 Windows 실행($WINDOWS_RUNS). 공개한 것은 없습니다. 같은 커밋으로 다시 실행하면 성공한 Windows 실행은 재사용하고, 실패한 실행이면 2단계에서 멈춥니다. $(retry_advice)" ;;
     7) left_at_publish ;;
-    9) echo "  남은 것: 공개된 v$VERSION (자산 두 개, 확인됨). 탭은 갱신되지 않았을 수 있습니다: $TAP_REPO 의 $CASK_PATH 가 version $VERSION, sha256 $(zip_sha) 인지 확인해 아니면 고치고, 그다음 python3 scripts/team_release.py smoke --version $VERSION 을 실행하세요." ;;
+    9) echo "  남은 것: 공개된 v$VERSION (자산 두 개, 확인됨). 탭은 갱신되지 않았을 수 있습니다: $TAP_REPO 의 $CASK_PATH 가 version $VERSION, sha256 $(zip_sha) 인지 확인해, 아니면 $(tap_only_if) 고치고, 그다음 python3 scripts/team_release.py smoke --version $VERSION 을 실행하세요." ;;
     10) echo "  남은 것: 공개된 v$VERSION 과 갱신된 탭. smoke 만 남았습니다: python3 scripts/team_release.py smoke --version $VERSION" ;;
   esac
 }
@@ -231,6 +271,10 @@ case "$(release_state)" in
   public) exists "릴리스 v$VERSION 이 이미 공개돼 있습니다. 새 릴리스라면 버전을 올리는 PR을 먼저 병합하세요." ;;
   *) fail "릴리스가 있는지 확인하지 못했습니다(네트워크나 권한 문제일 수 있습니다). gh auth status 와 연결을 확인하고 다시 실행하세요." ;;
 esac
+LATEST_TAG=$(latest_tag) || fail "releases/latest 를 읽지 못했습니다(네트워크나 권한 문제일 수 있습니다). 연결을 확인하고 다시 실행하세요."
+if newer_than "$LATEST_TAG" "$VERSION"; then
+  exists "releases/latest 가 $LATEST_TAG 로 v$VERSION 보다 새롭습니다. 그보다 큰 버전으로 올리는 PR을 병합한 뒤 실행하세요(이대로면 publish 가 Windows 를 50분 기다린 뒤 멈춥니다)."
+fi
 
 LEAF=$(security find-identity -v -p codesigning | awk -v id="\"$SIGN_IDENTITY\"" '$0 ~ id {print $2; exit}' || true)
 [[ -n "$LEAF" ]] || fail "서명 신원 '$SIGN_IDENTITY' 이 없습니다. ./scripts/create-signing-cert.sh 를 직접 실행한 뒤 다시 시도하세요(이 스크립트는 인증서를 만들지 않습니다)."
@@ -273,7 +317,7 @@ START_RC=0
 START_OUT=$(python3 scripts/team_release.py start --sha "$LOCAL_HEAD" --version "$VERSION" --ref "$BRANCH") || START_RC=$?
 case "$START_RC" in
   0) ;;
-  3) fail "이 커밋의 가장 최근 Windows 릴리스 실행이 성공하지 못했습니다(위 URL). 실패를 먼저 읽으세요. 고칠 것이면 고쳐 병합하고 다시 실행하세요. 알려진 흔들림(flake)일 때만 python3 scripts/team_release.py start --sha $LOCAL_HEAD --version $VERSION --ref $BRANCH --new failed 로 새로 시작한 뒤 다시 실행하세요." ;;
+  3) fail "이 커밋의 가장 최근 Windows 릴리스 실행이 성공하지 못했습니다(위 URL). 실패를 먼저 읽으세요. $(retry_advice)" ;;
   1) fail "Windows 실행을 찾거나 시작하지 못했습니다(gh 호출 실패, 또는 시작한 실행이 60초 안에 보이지 않음, 위 출력). 다시 실행하면 이미 시작된 실행을 재사용합니다." ;;
   2) fail "team_release.py start 가 인자를 거부했습니다(이 스크립트의 결함)." ;;
   *) fail "team_release.py start 가 예상하지 못한 코드 $START_RC 로 끝났습니다(위 출력)." ;;
@@ -300,6 +344,14 @@ else
   export PTB_REQUIRE_STABLE_SIGN=1
   export CODESIGN_IDENTITY="$SIGN_IDENTITY"
   ./scripts/build-app.sh || fail "빌드가 실패했습니다. 위 출력을 확인하세요. 릴리스는 만들지 않았습니다."
+  # 테스트 게이트와 빌드 사이에 커밋이나 추적 파일이 바뀌었으면, 이 앱은 확인한 커밋의 것이 아닐 수 있다.
+  # (빌드가 쓰는 build/, .build/ 는 무시되는 경로라 git status 에 나오지 않는다.)
+  BUILT_HEAD=$(git rev-parse HEAD || true)
+  [[ "$BUILT_HEAD" == "$LOCAL_HEAD" ]] || fail "테스트와 빌드 사이에 HEAD 가 바뀌었습니다($LOCAL_HEAD → ${BUILT_HEAD:-읽지 못함}). 이 빌드는 확인한 커밋의 것이 아닐 수 있습니다. 릴리스는 만들지 않았습니다."
+  BUILT_DIRTY=$(git status --porcelain || echo "(git status 실패)")
+  [[ -z "$BUILT_DIRTY" ]] || fail "테스트와 빌드 사이에 작업 트리가 바뀌었습니다: $BUILT_DIRTY. 이 빌드는 확인한 커밋의 것이 아닐 수 있습니다. 릴리스는 만들지 않았습니다."
+  BUILT_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/PokeTokenBar.app/Contents/Info.plist 2>/dev/null || true)
+  [[ "$BUILT_VERSION" == "$VERSION" ]] || fail "빌드된 앱의 CFBundleShortVersionString 이 '$BUILT_VERSION' 입니다(기대 $VERSION). 릴리스는 만들지 않았습니다."
 
   CERT_DIR=$(mktemp -d) || fail "임시 폴더를 만들지 못했습니다. 릴리스는 만들지 않았습니다."
   trap 'rm -rf "$CERT_DIR"' EXIT
@@ -317,7 +369,7 @@ COLLECT_RC=0
 COLLECT_OUT=$(python3 scripts/team_release.py collect --sha "$LOCAL_HEAD" --version "$VERSION" --out build/windows-release) || COLLECT_RC=$?
 case "$COLLECT_RC" in
   0) ;;
-  4) fail "Windows 결과가 이 릴리스의 조건을 통과하지 못했습니다(위 이유와 URL: 실행 실패, 시간 초과, 재실행, 매니페스트나 해시 불일치). 실패를 먼저 읽으세요. 고칠 것이면 고쳐 병합하고 다시 실행하세요. 알려진 흔들림(flake)일 때만 python3 scripts/team_release.py start --sha $LOCAL_HEAD --version $VERSION --ref $BRANCH --new failed 로 새로 시작한 뒤 다시 실행하세요." ;;
+  4) fail "Windows 결과가 이 릴리스의 조건을 통과하지 못했습니다(위 이유와 URL: 실행 실패, 시간 초과, 재실행, 매니페스트나 해시 불일치). 실패를 먼저 읽으세요. $(retry_advice)" ;;
   2) fail "team_release.py collect 가 인자를 거부했습니다(이 스크립트의 결함)." ;;
   *) fail "team_release.py collect 가 예상하지 못한 코드 $COLLECT_RC 로 끝났습니다(위 출력)." ;;
 esac
@@ -339,17 +391,18 @@ esac
 
 if [[ "$MODE" == rehearse ]]; then
   skipped 7-8 "GitHub 릴리스 v$VERSION (publish)"
-  echo "  실제 릴리스라면 실행할 명령:"
+  echo "  실제 릴리스라면 실행할 명령(주석으로만 찍습니다. zip 은 실제 릴리스의 4단계에서 만듭니다. 손으로 실행하지 마세요:"
+  echo "  이 clone 의 $ZIP 는 이 커밋의 빌드가 아닐 수 있고, 그대로 올리면 옛 맥 앱이 새 버전으로 나갑니다):"
   # 명령은 찍기만 한다. publish 를 실행하는 줄은 아래 한 줄뿐이다.
-  printf '    python3 scripts/team_release.py %s --sha %s --version %s --zip %s --installer %s --notes %s\n' \
+  printf '    # python3 scripts/team_release.py %s --sha %s --version %s --zip %s --installer %s --notes %s\n' \
     publish "$LOCAL_HEAD" "$VERSION" "$ZIP" "$INSTALLER" build/release-notes.md
   skipped 9 "Homebrew 탭"
   skipped 10 "smoke"
   echo ""
   if [[ -n "$WOULD_STOP" ]]; then
-    echo "리허설 끝(총 $(mmss "$SECONDS")): Windows 결과와 노트는 준비됐지만, 실제 릴리스는 멈췄을 것입니다:$WOULD_STOP" >&2
+    echo "리허설 끝(총 $(mmss "$SECONDS")): Windows 결과와 노트는 준비됐지만, 실제 릴리스는 멈췄을 것입니다(종료 코드 3):$WOULD_STOP" >&2
     left_behind >&2
-    exit 1
+    exit 3
   fi
   echo "리허설 끝(총 $(mmss "$SECONDS")): v$VERSION ($LOCAL_HEAD) 의 Windows 결과와 노트가 준비됐습니다. 빌드, 공개, 탭은 하지 않았습니다."
   exit 0
@@ -361,7 +414,12 @@ PUBLISH_RC=0
 python3 scripts/team_release.py publish --sha "$LOCAL_HEAD" --version "$VERSION" --zip "$ZIP" --installer "$INSTALLER" --notes build/release-notes.md || PUBLISH_RC=$?
 case "$PUBLISH_RC" in
   0) ;;
-  5) fail "publish 가 공개 전에 멈췄습니다(위 이유). 이 실행은 v$VERSION 을 공개하지 않았고 탭도 그대로입니다. 위 메시지가 남은 draft 를 말하면 releases 에서 확인하세요. 원인을 고친 뒤 같은 VERSION 으로 다시 실행하세요." ;;
+  5)
+    LATEST_NOW=$(latest_tag || true)
+    if newer_than "$LATEST_NOW" "$VERSION"; then
+      fail "publish 가 공개 전에 멈췄습니다: releases/latest 가 $LATEST_NOW 로 v$VERSION 보다 새롭습니다(다른 세션의 릴리스). 이 실행은 공개하지 않았고 탭도 그대로입니다. 그보다 큰 버전으로 올리는 PR을 병합한 뒤 실행하세요. 같은 VERSION 으로 다시 실행하면 Windows 를 다시 기다린 뒤 또 멈춥니다."
+    fi
+    fail "publish 가 공개 전에 멈췄습니다(위 이유). 이 실행은 v$VERSION 을 공개하지 않았고 탭도 그대로입니다. 위 메시지가 남은 draft 를 말하면 releases 에서 확인하세요. 원인을 고친 뒤 같은 VERSION 으로 다시 실행하세요." ;;
   6) fail "v$VERSION 이 공개됐거나 공개됐을 수 있는데, publish 의 확인이 실패했습니다(위 이유). 탭은 갱신하지 않았습니다. 다시 실행하지 말고 손으로 확인하세요." ;;
   7) fail "v$VERSION 은 이 실행 전에 이미 공개돼 있었습니다. 이 실행은 아무것도 만들지 않았고 탭도 그대로입니다." ;;
   2) fail "team_release.py publish 가 인자를 거부했습니다(이 스크립트의 결함). 만든 것은 없습니다." ;;
@@ -372,9 +430,13 @@ esac
 # 릴리스는 이미 공개됐으므로 여기서 실패하면 되돌리지 않고 고칠 값을 알려 준다.
 step 9 9 "Homebrew 탭 갱신"
 ZIP_SHA=$(shasum -a 256 "$ZIP" | cut -d' ' -f1) || fail "릴리스는 공개됐지만 $ZIP 의 SHA-256 을 계산하지 못해 탭을 갱신하지 않았습니다."
-TAP_FAILED="릴리스는 공개됐지만 Homebrew 탭을 갱신하지 못했습니다. $TAP_REPO 의 $CASK_PATH 에서 version 을 $VERSION, sha256 을 $ZIP_SHA 로 고치세요."
+TAP_FAILED="릴리스는 공개됐지만 Homebrew 탭을 갱신하지 못했습니다. $(tap_only_if) $TAP_REPO 의 $CASK_PATH 에서 version 을 $VERSION, sha256 을 $ZIP_SHA 로 고치세요."
 CASK_BLOB=$(gh api "repos/$TAP_REPO/contents/$CASK_PATH" --jq '.sha') || fail "$TAP_FAILED"
 OLD_CASK=$(gh api "repos/$TAP_REPO/contents/$CASK_PATH" --jq '.content' | base64 -d) || fail "$TAP_FAILED"
+CASK_VERSION=$(printf '%s\n' "$OLD_CASK" | sed -n 's/^  version "\(.*\)"$/\1/p')
+if newer_than "$CASK_VERSION" "$VERSION"; then
+  fail "탭이 이미 $CASK_VERSION 을 가리킵니다(이 릴리스 $VERSION 보다 새로움, 다른 세션의 릴리스). 탭을 옛 버전으로 되돌리지 않았습니다. v$VERSION 은 공개됐습니다. releases/latest 와 탭이 같은 버전인지 확인하세요."
+fi
 NEW_CASK=$(printf '%s\n' "$OLD_CASK" | perl -pe "s/^  version \".*\"/  version \"$VERSION\"/; s/^  sha256 \".*\"/  sha256 \"$ZIP_SHA\"/") || fail "$TAP_FAILED"
 [[ "$NEW_CASK" == *"version \"$VERSION\""* && "$NEW_CASK" == *"sha256 \"$ZIP_SHA\""* ]] || fail "$TAP_FAILED"
 gh api -X PUT "repos/$TAP_REPO/contents/$CASK_PATH" -f message="cask: poke-token-bar-team $VERSION" \

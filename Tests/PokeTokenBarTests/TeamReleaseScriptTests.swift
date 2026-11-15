@@ -89,7 +89,7 @@ final class TeamReleaseScriptTests: XCTestCase {
         for verb in ["release create", "release edit", "release delete", "release upload", "delete-asset"] {
             XCTAssertFalse(s.code.contains { $0.contains(verb) }, "the script must not run gh \(verb)")
         }
-        // gh calls: auth status, the one release view (existence check and the state read after a stop), the tap.
+        // gh calls: auth status, two release views (the version's state; releases/latest), the tap.
         let gh = ghCalls(in: s)
         XCTAssertFalse(gh.isEmpty)
         for i in gh {
@@ -102,7 +102,10 @@ final class TeamReleaseScriptTests: XCTestCase {
             XCTAssertTrue(line.contains("gh release view") && line.contains("--repo likelion-campus/PokeTokenBar"),
                           "unexpected gh call: \(line)")
         }
-        XCTAssertEqual(gh.filter { s.code[$0].contains("gh release view") }.count, 1, "one existence read")
+        let views = gh.filter { s.code[$0].contains("gh release view") }.map { s.code[$0] }
+        XCTAssertEqual(views.count, 2, "two reads: the version's release state and releases/latest: \(views)")
+        XCTAssertEqual(views.filter { $0.contains("gh release view \"v$VERSION\"") }.count, 1)
+        XCTAssertEqual(views.filter { $0.contains("gh release view --repo") }.count, 1, "no tag: releases/latest")
     }
 
     /// One writer, called once, pinned to the checked commit and version.
