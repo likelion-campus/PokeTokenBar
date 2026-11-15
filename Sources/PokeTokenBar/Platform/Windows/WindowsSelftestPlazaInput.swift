@@ -161,8 +161,18 @@ extension WindowsSelftest {
         for code in [PlazaKeyCode.w, 1 /* S */] as [UInt16] { await tap(code) }
         await pumpFor(0.4)
         let wsNoWalk = scene.walker.tile == afterPairs
-        let hDir = (free[PlazaKeyCode.right] == true ? PlazaKeyCode.right : PlazaKeyCode.left)
-        let vDir = (free[PlazaKeyCode.down] == true ? PlazaKeyCode.down : PlazaKeyCode.up)
+        // The place has changed since the taps: which way is open here is asked again before each use.
+        func openDirection(_ a: UInt16, _ b: UInt16) async -> UInt16 {
+            let m = await tapMove(a)
+            if m.dx != 0 || m.dy != 0 {
+                _ = await tapMove(b)
+                return a
+            }
+            return b
+        }
+        var hDir = await openDirection(PlazaKeyCode.right, PlazaKeyCode.left)
+        var vDir = await openDirection(PlazaKeyCode.down, PlazaKeyCode.up)
+        _ = free
         // Shift runs: the walker runs while Shift and the arrow are held, and not without Shift.
         var walkedRunning = false
         key(hDir, down: true)
@@ -178,6 +188,8 @@ extension WindowsSelftest {
         sendScan(scanShift, up: true)
         await pumpFor(0.1); await settle()
         // Two arrows at once (rollover): the last pressed leads, the earlier one takes over when it is let go.
+        hDir = await openDirection(PlazaKeyCode.right, PlazaKeyCode.left)
+        vDir = await openDirection(PlazaKeyCode.down, PlazaKeyCode.up)
         let beforeBoth = scene.walker.tile
         key(hDir, down: true)
         key(vDir, down: true)
@@ -188,10 +200,11 @@ extension WindowsSelftest {
         key(vDir, down: false)
         await pumpFor(0.5)
         let after = scene.walker.tile
+        let stillHolding = router.held == [hDir] && scene.walker.isHoldingKey
         key(hDir, down: false)
         await pumpFor(0.1); await settle()
         let leadMoved = leading.y != beforeBoth.y && leading.x == beforeBoth.x
-        let followed = after.x != leading.x
+        let followed = after.x != leading.x || stillHolding   // the open way may end at a wall: the earlier key stays held either way
         r.add("plaza.walk", pairsOK && wsNoWalk && !walkedRunning && ranRunning && heldBoth && leadMoved && followed && foreground,
               "start \(tileText(start)); taps: \(log.joined(separator: "; ")); W and S taps walked nothing=\(wsNoWalk) (A is prayer and D dance on the Mac; only arrows walk); "
                 + "running while holding \(dirName(hDir)) without Shift=\(walkedRunning), with Shift on \(dirName(vDir))=\(ranRunning); "
@@ -207,6 +220,7 @@ extension WindowsSelftest {
         await pumpFor(0.15)
         _ = GetGUIThreadInfo(GetCurrentThreadId(), &gui)
         let menuFlags = gui.flags & 0xC   // GUI_INMENUMODE | GUI_SYSTEMMENUMODE
+        hDir = await openDirection(PlazaKeyCode.right, PlazaKeyCode.left)
         let t0 = scene.walker.tile
         await tap(hDir)
         await pumpFor(0.05)
@@ -360,7 +374,7 @@ extension WindowsSelftest {
         // capture lost while a button is down: the press is cancelled somewhere nothing can be hit.
         events.removeAll()
         _ = SendMessageW(hwnd, 0x0201, 1, LPARAM((50 << 16) | 60))
-        _ = SendMessageW(hwnd, 0x0215, 0, 0)
+        _ = ReleaseCapture()   // the window sends itself WM_CAPTURECHANGED, as when another window takes the mouse
         let cancelled = events.count == 2 && events[1].kind == .up && events[1].location == WinPlazaInputRouter.nowhere && GetCapture() != hwnd
 
         // a real press dragged out of the window still gets its release (capture).
