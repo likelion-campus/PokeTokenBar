@@ -153,7 +153,13 @@ enum PlazaCardStyle {
         // The stack puts its gap on both sides of the trailing spacer, so the column is 12 narrower than what is left of the picture.
         let columnWidth = s.header.maxX - textX - s.headerGap
         let member = state.member
-        let titleLines = Array(text.wrappedLines(l.plazaCardTitle(nickname: member.nickname), font: s.body, width: columnWidth).prefix(s.titleLines))
+        let wrappedTitle = text.wrappedLines(l.plazaCardTitle(nickname: member.nickname), font: s.body, width: columnWidth)
+        var titleLines = Array(wrappedTitle.prefix(s.titleLines))
+        if wrappedTitle.count > s.titleLines, let last = titleLines.last {
+            // `.lineLimit(2)`: what does not fit ends the second line with "…". The line is cut at least one character short so the mark has room.
+            let ellipsis = text.line("…", font: s.body)
+            titleLines[titleLines.count - 1] = text.truncated(last, width: min(columnWidth, last.width - 1), ellipsis: ellipsis) ?? last
+        }
         let name = state.characterName.map { text.line($0, font: s.body) }
         let name1 = name.map { PlazaPanelText.cut($0, width: columnWidth, font: s.body, text: text, scale: scale) }
         let badges = state.characterBadges

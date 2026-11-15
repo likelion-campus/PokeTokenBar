@@ -132,6 +132,23 @@ import XCTest
         XCTAssertTrue(r.icons.spritesAsked.contains(5), "the character's own picture")
     }
 
+    /// Review item 9: a title longer than two lines (a name a peer could send) keeps two lines and ends the second with "…", as `.lineLimit(2)` did.
+    func testATitleLongerThanTwoLinesEndsWithAnEllipsis() async {
+        let long = String(repeating: "가", count: 80)
+        let r = rig(.failed(member(long)))
+        await flush()
+        let d = r.host.drawings[.card]!
+        let titleItems = d.accessibility.filter { $0.label.contains("가가가") && $0.role == .staticText }
+        XCTAssertEqual(titleItems.count, 1)
+        let lines = r.panel.layout(scale: 2, text: r.graphics.text)?.header.title ?? []
+        XCTAssertEqual(lines.count, 2, "two lines, not three")
+        XCTAssertEqual((lines.last?.native as? PlazaStubText)?.text.hasSuffix("…"), true, "the second line ends with the ellipsis")
+        XCTAssertNotEqual((lines.first?.native as? PlazaStubText)?.text.hasSuffix("…"), true)
+        // A title that fits is untouched.
+        let short = rig(.failed(member("민수")))
+        XCTAssertEqual(short.panel.layout(scale: 2, text: short.graphics.text)?.header.title.count, 1)
+    }
+
     func testAnEggMemberIsNamedEggAndAsksForTheEggPicture() async {
         let egg = member("알친구", species: nil, name: nil)
         let r = rig(.loading(egg))
