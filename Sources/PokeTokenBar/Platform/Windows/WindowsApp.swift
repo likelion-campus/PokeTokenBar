@@ -10,6 +10,7 @@ public enum WindowsApp {
     nonisolated(unsafe) static var mainThreadID: DWORD = 0
 
     public static func main() -> Never {
+        WinCom.initializeUIThread()  // STA before anything touches COM (TSF, the IME and the emoji panel need it; stage 6 D16)
         _ = RunLoop.main  // first, before any window: Foundation's initializer turns on CF's message mask (F4)
         mainThreadID = GetCurrentThreadId()
         let arguments = CommandLine.arguments

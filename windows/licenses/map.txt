@@ -1,5 +1,5 @@
-# DLL name pattern (PowerShell -like, case-insensitive) <TAB> licence files in windows/licenses (comma separated) <TAB> component
-# package.ps1 fails when a DLL it ships matches no line here, or a named licence file is missing.
+# File name pattern (PowerShell -like, case-insensitive) <TAB> licence files in windows/licenses (comma separated, "-" = none) <TAB> component
+# package.ps1 fails when a DLL or a Resources\Plaza file it ships matches no line here, or a named licence file is missing.
 swift*.dll	swift-apache-2.0-runtime-exception.txt	Swift runtime and standard libraries
 swift_*.dll	swift-apache-2.0-runtime-exception.txt	Swift runtime (concurrency, regex, string processing)
 Foundation.dll	swift-apache-2.0-runtime-exception.txt	swift-corelibs-foundation
@@ -18,3 +18,14 @@ msvcp140*.dll	microsoft-vc-redistributable.txt	Microsoft Visual C++ runtime
 concrt140.dll	microsoft-vc-redistributable.txt	Microsoft Visual C++ runtime
 vccorlib140.dll	microsoft-vc-redistributable.txt	Microsoft Visual C++ runtime
 vcomp140.dll	microsoft-vc-redistributable.txt	Microsoft Visual C++ runtime
+Galmuri*.ttf	Galmuri-OFL.txt	Galmuri 2.40.3: plaza text font (SIL OFL 1.1)
+Pretendard-*.otf	Pretendard-OFL.txt	Pretendard 1.3.9: plaza text font (SIL OFL 1.1)
+plaza-tallgrass.png	CC-BY-SA-3.0.txt	"Pokemon inspired 16x16 tiles" by RedVoxel (CC-BY-SA 3.0; not under the app licence)
+plaza-water-balloon.png	CC-BY-SA-3.0.txt	"Water gun fight art" by rrcaseyr (CC-BY-SA 3.0; not under the app licence)
+plaza-tiles.png	-	"Zelda-like tilesets and sprites" by ArMM1998 (CC0)
+plaza-ice-cracks.png	-	"Ice Mountains Tileset" by CookieEfedu (CC-BY 4.0; credit in CREDITS.md)
+plaza-ice-gloss.png	-	"Some 16x16 floor tiles" by ChikenwingJJA (CC0)
+plaza-ice-shatter.gif	-	"Shattering Boulder" by Spring Spring (CC0)
+CREDITS.md	-	credits for every plaza resource
+*-OFL.txt	-	font licence text
+CC-BY-SA-3.0.txt	-	Creative Commons BY-SA 3.0 licence text

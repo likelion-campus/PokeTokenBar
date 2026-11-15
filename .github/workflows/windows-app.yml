@@ -440,7 +440,7 @@ jobs:
           }
           # The checks that only mean something from a packaged copy must have run for real, not been skipped.
           $j = Get-Content st-installed.json -Raw | ConvertFrom-Json
-          foreach ($name in 'packaged.processName', 'packaged.version', 'packaged.modules', 'log.writes') {
+          foreach ($name in 'packaged.processName', 'packaged.version', 'packaged.modules', 'log.writes', 'com.uiThreadSTA', 'plaza.resources', 'plaza.codec.png', 'plaza.codec.gif') {
               $c = $j.checks | Where-Object { $_.name -eq $name }
               Assert-That ($c -and $c.ok -and $c.detail -notlike 'skipped*') "installed.$name" $c.detail
           }
