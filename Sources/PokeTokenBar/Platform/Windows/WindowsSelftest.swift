@@ -111,6 +111,7 @@ enum WindowsSelftest {
         await notifyChecks(r, app)
         WindowsSelftestLanguage.checks(r, app)
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
+        await popoverKitChecks(r, app)  // stage 7 task 3 (WindowsSelftestPopover.swift): leaves no window behind
         await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window
         await idleCheck(r, app)
         await plazaWindowChecks(r, app)  // stage 6 task 5 (WindowsSelftestPlaza.swift): after the idle window, before Direct3D is loaded by anything else
