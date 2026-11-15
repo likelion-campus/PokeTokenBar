@@ -76,6 +76,8 @@ enum WindowsSelftestNetBurst {
                 // The first contact with the status hosts in this process: the old path connects afresh on URLSession.shared.
                 ("status-check-old-path-urlsession", { await oldStatusPath() }),
                 ("status-check-app-path", { await appStatusPath() }),
+                // Does anything of WinHTTP keep waking after the fetch? (A process-wide session kept a pooled connection.)
+                ("idle-30s-after-status-check", { try? await Task.sleep(nanoseconds: 30_000_000_000); return "slept" }),
                 ("https-claude-urlsession-reused", { await get(URLSession.shared, claude, timeout: 10) }),
                 ("https-openai-urlsession-reused", { await get(URLSession.shared, openai, timeout: 10) }),
                 ("https-claude-urlsession-fresh", { await fresh(claude, timeout: 10) }),

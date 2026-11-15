@@ -67,12 +67,14 @@ enum WinHTTPFetch {
     private typealias FnReadData = @convention(c) (Handle?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt32>?) -> Int32
     private typealias FnCloseHandle = @convention(c) (Handle?) -> Int32
 
+    /// Function pointers only. Each fetch opens its own WinHTTP session and closes it with the request, so nothing of WinHTTP
+    /// stays open between fetches: a process-wide session kept the launch fetch's connection pooled and a thread-pool worker
+    /// waking every 2-3 s (43-59 times in the gate's 120 s window without a refresh). A pooled connection would not be
+    /// reused anyway: the next fetch comes 120 s later (libcurl reconnected every time too). No cookies carry over either.
     private struct API: @unchecked Sendable {
-        let connect: FnConnect, openRequest: FnOpenRequest, setTimeouts: FnSetTimeouts, setOption: FnSetOption
+        let open: FnOpen, connect: FnConnect, openRequest: FnOpenRequest, setTimeouts: FnSetTimeouts, setOption: FnSetOption
         let queryOption: FnQueryOption, send: FnSendRequest, receive: FnReceiveResponse, queryHeaders: FnQueryHeaders
         let read: FnReadData, close: FnCloseHandle
-        /// One session for the process (WinHTTP handles are thread-safe; it keeps connections and cookies per session).
-        let session: Handle
     }
 
     private static let accessNoProxy: UInt32 = 1            // WINHTTP_ACCESS_TYPE_NO_PROXY
@@ -99,14 +101,8 @@ enum WinHTTPFetch {
             AppLog.write("winhttp: unavailable (a WinHTTP function did not load); one-shot fetches stay on URLSession")
             return nil
         }
-        // No agent string: the request's own User-Agent header (or ours) is the only one sent.
-        guard let session = open(nil, accessNoProxy, nil, nil, 0) else {
-            AppLog.write("winhttp: WinHttpOpen failed (\(GetLastError())); one-shot fetches stay on URLSession")
-            return nil
-        }
-        return API(connect: connect, openRequest: openRequest, setTimeouts: setTimeouts, setOption: setOption,
-                   queryOption: queryOption, send: send, receive: receive, queryHeaders: queryHeaders, read: read,
-                   close: close, session: session)
+        return API(open: open, connect: connect, openRequest: openRequest, setTimeouts: setTimeouts, setOption: setOption,
+                   queryOption: queryOption, send: send, receive: receive, queryHeaders: queryHeaders, read: read, close: close)
     }
 
     /// Blocking: runs on a thread of its own.
@@ -120,7 +116,10 @@ enum WinHTTPFetch {
         var object = parts.percentEncodedPath.isEmpty ? "/" : parts.percentEncodedPath
         if let query = parts.percentEncodedQuery { object += "?" + query }
 
-        guard let connection = api.connect(api.session, WinStr.w(host), port, 0) else { throw failure("WinHttpConnect") }
+        // No agent string: the request's own User-Agent header (or ours) is the only one sent.
+        guard let session = api.open(nil, accessNoProxy, nil, nil, 0) else { throw failure("WinHttpOpen") }
+        defer { _ = api.close(session) }  // last: closing the session also drops its connection
+        guard let connection = api.connect(session, WinStr.w(host), port, 0) else { throw failure("WinHttpConnect") }
         defer { _ = api.close(connection) }
         guard let handle = api.openRequest(connection, WinStr.w("GET"), WinStr.w(object), nil, nil, nil, secure ? flagSecure : 0)
         else { throw failure("WinHttpOpenRequest") }
