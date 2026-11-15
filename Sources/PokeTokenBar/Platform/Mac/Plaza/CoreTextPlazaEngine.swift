@@ -102,7 +102,8 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
         let ranges = Self.breaks(attributed, width: width)
         guard !ranges.isEmpty else { return [line("", font: font)] }
         let typesetter = CTTypesetterCreateWithAttributedString(attributed)
-        return ranges.map { Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: $0.location, length: $0.length))) }
+        // A blank line is an empty line: a `CFRange` of length 0 means "to the end of the text", which made `"a\n\nbcd"` draw `bcd` twice.
+        return ranges.map { $0.length == 0 ? line("", font: font) : Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: $0.location, length: $0.length))) }
     }
 
     /// A run's attributes: its font as `attributes` makes it, with the run's own colour instead of the context's.
@@ -129,8 +130,8 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
         guard !ranges.isEmpty else { return [line([])] }
         let typesetter = CTTypesetterCreateWithAttributedString(attributed)
         return ranges.map { range in
-            Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: range.length)),
-                      runs: Self.pieces(of: runs, in: range))
+            range.length == 0 ? line([])   // a blank line is an empty line (length 0 would mean "to the end of the text")
+                : Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: range.length)), runs: Self.pieces(of: runs, in: range))
         }
     }
 
@@ -154,6 +155,8 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
                   CharacterSet.whitespacesAndNewlines.contains(last) { r.length -= 1 }
             ranges.append(r)
         }
+        // Text that ends with a newline shows one more (empty) line, as SwiftUI's `Text` does: TextKit reports it as the extra line fragment.
+        if !layout.extraLineFragmentRect.isEmpty { ranges.append(NSRange(location: utf16.length, length: 0)) }
         return ranges
     }
 
