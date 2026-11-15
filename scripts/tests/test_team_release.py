@@ -6,8 +6,10 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import re
 import shutil
+import signal
 import sys
 import tempfile
 import unittest
@@ -28,6 +30,8 @@ TITLE = "release %s %s" % (V, SHA)
 INSTALLER = "PokeTokenBar-Setup-2.5.640-win-x64.exe"
 REPO_ARGS = ["--repo", "likelion-campus/PokeTokenBar"]
 API = "repos/likelion-campus/PokeTokenBar/"
+LIST = API + "releases?per_page=100"
+LATEST = API + "releases/latest"
 INSTALLER_BYTES = b"MZ a fake installer " * 1000
 ZIP_BYTES = b"PK a fake zip " * 500
 WORKFLOW_NAMES = {"windows-app.yml": "windows-app", "windows.yml": "windows",
@@ -46,6 +50,22 @@ def ok(out=""):
     return tr.Result(0, out, "")
 
 
+def is_call(*prefix):
+    return lambda argv: argv[1:1 + len(prefix)] == list(prefix)
+
+
+def nth(n, predicate):
+    """A predicate true on the n-th (1-based) call that `predicate` matches."""
+    seen = [0]
+
+    def check(argv):
+        if predicate(argv):
+            seen[0] += 1
+            return seen[0] == n
+        return False
+    return check
+
+
 class FakeClock:
     def __init__(self):
         self.t, self.sleeps = 0.0, []
@@ -60,18 +80,23 @@ class FakeClock:
 
 class FakeGitHub:
     """`gh` and `git ls-remote` for likelion-campus/PokeTokenBar, with state. Every call is recorded, and a call that
-    is not pinned to the fork fails the test. GitHub and gh behave as the helper assumes (A1-A5 in its docstring):
+    is not pinned to the fork fails the test. GitHub and gh behave as the helper assumes (A1-A6 in its docstring):
       A1 create --draft makes a draft with the pending tag and no git tag; publishing creates the tag at the target.
-      A2 release view/edit/delete find a draft by its pending tag (published releases first).
+      A2 release edit/delete <tag> act on one release with that tag: a published one first, else one of the drafts
+         (`pick` says which, as GraphQL would; GitHub allows several drafts with one tag).
       A3 assets uploaded to a draft are `uploaded`, with digest sha256:<hex> of the uploaded bytes.
       A4 edit --draft=false --latest publishes and makes the release latest.
-      A5 with --draft, a failed upload leaves the draft (with the assets uploaded so far) in place.
+      A5 with --draft, create never checks for an existing release, and a failed upload leaves the draft (with the
+         assets uploaded so far) in place.
+      A6 the REST list has every release (drafts too), newest first; releases/latest is the latest published one.
+    Runs have attempts, and a dispatch cancels a pending run of the same release (concurrency group
+    <workflow>-release-<sha>, cancel-in-progress false: one running, one pending).
     Faults are injected with `on(predicate, effect)`: an effect returns a Result to answer instead, or None to change
     state and let the default answer follow."""
 
     def __init__(self):
         self.calls, self.hooks = [], []
-        self.releases, self.tags, self.latest = [], {}, None
+        self.releases, self.tags, self.latest, self.pick = [], {}, None, "first"
         self.runs, self.hidden, self.timelines, self.artifacts = {}, {}, {}, {}
         self.appear_after = 1          # `gh run list` calls before a dispatched run shows; None = never
         self.upload_fails_after = None  # create uploads this many assets, then fails
@@ -114,7 +139,7 @@ class FakeGitHub:
     # helpers for tests
 
     def compact(self):
-        """The calls as 'gh release view', 'gh api releases/latest', 'git ls-remote' ..."""
+        """The calls as 'gh release create', 'gh api releases', 'gh api releases/latest', 'git ls-remote' ..."""
         names = []
         for argv in self.calls:
             if argv[0] == "git":
@@ -132,8 +157,8 @@ class FakeGitHub:
         self.next_id += 1
         self.stamp += 1
         run = {"databaseId": self.next_id, "displayTitle": title, "status": status, "conclusion": conclusion,
-               "event": event, "createdAt": "2026-11-16T10:%02d:00Z" % self.stamp,
-               "workflowName": WORKFLOW_NAMES[workflow]}
+               "event": event, "createdAt": "2026-11-16T10:%02d:00Z" % self.stamp, "attempt": 1,
+               "workflowName": WORKFLOW_NAMES[workflow], "workflow": workflow}
         self.runs.setdefault(workflow, []).append(run)
         return self.next_id
 
@@ -144,14 +169,24 @@ class FakeGitHub:
                     return run
         return None
 
+    def rerun(self, run_id, after=1, conclusion="success"):
+        """`gh run rerun`: the same run id, the next attempt."""
+        run = self.run_by_id(run_id)
+        run["attempt"] += 1
+        run["status"], run["conclusion"] = "queued", ""
+        self.timelines[run_id] = [("in_progress", "")] * after + [("completed", conclusion)]
+
     def find(self, tag):
-        for release in self.releases:
-            if not release["draft"] and release["tag"] == tag:
-                return release
-        for release in self.releases:
-            if release["draft"] and release["tag"] == tag:
-                return release
+        published = [release for release in self.releases if not release["draft"] and release["tag"] == tag]
+        drafts = [release for release in self.releases if release["draft"] and release["tag"] == tag]
+        if published:
+            return published[0]
+        if drafts:
+            return drafts[0] if self.pick == "first" else drafts[-1]
         return None
+
+    def tagged(self, tag):
+        return [release for release in self.releases if release["tag"] == tag]
 
     def add_release(self, tag, draft, target=SHA, assets=None):
         self.next_id += 1
@@ -161,6 +196,13 @@ class FakeGitHub:
             self.tags[tag] = target
             self.latest = tag
         return release
+
+    def rest(self, release):
+        url = "https://github.com/likelion-campus/PokeTokenBar/releases/tag/" + (
+            "untagged-%d" % release["id"] if release["draft"] else release["tag"])
+        return {"id": release["id"], "tag_name": release["tag"], "draft": release["draft"],
+                "target_commitish": release["target"], "html_url": url,
+                "assets": [dict(asset) for asset in release["assets"]]}
 
     # gh run / workflow
 
@@ -183,9 +225,12 @@ class FakeGitHub:
         inputs = dict(value.split("=", 1) for flag, value in zip(args, args[1:]) if flag == "-f")
         title = ("release %s %s" % (inputs.get("release_version"), inputs.get("release_sha"))
                  if workflow != "windows-release-smoke.yml" else "windows-release-smoke")
+        for run in self.runs.get(workflow, []):
+            if run["displayTitle"] == title and run["status"] in ("queued", "pending", "waiting"):
+                run["status"], run["conclusion"] = "completed", "cancelled"  # the newer pending run replaces it
+                self.timelines.pop(run["databaseId"], None)
         run_id = self.add_run(workflow, title, "queued", "")
         self.hidden[run_id] = self.appear_after
-        self.dispatch_inputs = (workflow, ref, inputs)
         return ok("https://github.com/likelion-campus/PokeTokenBar/actions/runs/%d\n" % run_id)
 
     def _run_view(self, args):
@@ -207,19 +252,6 @@ class FakeGitHub:
         return ok()
 
     # gh release
-
-    def _view_json(self, release, fields):
-        url = "https://github.com/likelion-campus/PokeTokenBar/releases/tag/" + (
-            "untagged-%d" % release["id"] if release["draft"] else release["tag"])
-        values = {"isDraft": release["draft"], "tagName": release["tag"], "targetCommitish": release["target"],
-                  "url": url, "databaseId": release["id"], "assets": [dict(asset) for asset in release["assets"]]}
-        return json.dumps({field: values[field] for field in fields})
-
-    def _release_view(self, args):
-        release = self.find(args[0])
-        if release is None:
-            return tr.Result(1, "", "release not found\n")
-        return ok(self._view_json(release, opt(args, "--json").split(",")))
 
     def _release_create(self, args):
         tag, target = args[0], opt(args, "--target")
@@ -259,18 +291,14 @@ class FakeGitHub:
 
     # gh api, git
 
-    def _rest(self, release):
-        return {"tag_name": release["tag"], "draft": release["draft"], "target_commitish": release["target"],
-                "assets": [dict(asset) for asset in release["assets"]]}
-
     def _api(self, path):
         not_found = tr.Result(1, '{"message":"Not Found","status":"404"}', "gh: Not Found (HTTP 404)\n")
         rest = path[len(API):]
         if rest == "releases/latest":
-            release = self.find(self.latest) if self.latest else None
-            return ok(json.dumps(self._rest(release))) if release and not release["draft"] else not_found
-        if rest.startswith("releases?"):
-            return ok(json.dumps([self._rest(release) for release in reversed(self.releases)]))
+            release = next((r for r in self.releases if r["tag"] == self.latest and not r["draft"]), None)
+            return ok(json.dumps(self.rest(release))) if release else not_found
+        if rest == "releases?per_page=100":
+            return ok(json.dumps([self.rest(release) for release in reversed(self.releases)]))
         if rest.startswith("contents/.github/workflows/"):
             name, _, query = rest[len("contents/.github/workflows/"):].partition("?ref=")
             return ok('{"type":"file"}') if (urllib.parse.unquote(query), name) in self.workflow_files else not_found
@@ -313,6 +341,7 @@ class StartTests(HelperTest):
         self.assertEqual([], self.gh.calls_of("workflow", "run"))
         self.assertIn("WINDOWS_APP_RUN=%d\n" % app, self.out)
         self.assertIn("WINDOWS_TESTS_RUN=%d\n" % tests, self.out)
+        self.assertIn("attempt 1", self.err)
         self.assertEqual({"schema": 1, "sha": SHA, "version": V, "ref": "main",
                           "runs": {"windows-app.yml": app, "windows.yml": tests}}, self.runs_file())
 
@@ -321,7 +350,7 @@ class StartTests(HelperTest):
         self.gh.add_run("windows.yml")
         self.start()
         self.assertEqual(["gh", "run", "list", "--workflow", "windows-app.yml", "--event", "workflow_dispatch", "--json",
-                          "databaseId,displayTitle,status,conclusion,event,createdAt", "--limit", "50"] + REPO_ARGS,
+                          "databaseId,displayTitle,status,conclusion,event,createdAt,attempt", "--limit", "50"] + REPO_ARGS,
                          self.gh.calls[0])
 
     def test_reuses_a_running_or_queued_run(self):
@@ -360,14 +389,48 @@ class StartTests(HelperTest):
         self.assertEqual(green, self.runs_file()["runs"]["windows-app.yml"])
 
     def test_new_replaces_only_the_failed_run(self):
-        failed = self.gh.add_run("windows-app.yml", conclusion="failure")
+        for flag in (("--new",), ("--new", "failed")):
+            with self.subTest(flag):
+                self.gh = FakeGitHub()
+                failed = self.gh.add_run("windows-app.yml", conclusion="failure")
+                tests = self.gh.add_run("windows.yml")
+                self.assertExit(0, self.start(*flag))
+                self.assertEqual(1, len(self.gh.calls_of("workflow", "run")))
+                runs = self.runs_file()["runs"]
+                self.assertNotEqual(failed, runs["windows-app.yml"])
+                self.assertEqual(TITLE, self.gh.run_by_id(runs["windows-app.yml"])["displayTitle"])
+                self.assertEqual(tests, runs["windows.yml"])
+
+    def test_new_with_a_workflow_replaces_a_green_run(self):
+        # The artifacts of a green run expire after 7 days; or its `first` is refused once a Windows release exists.
+        green = self.gh.add_run("windows-app.yml")
         tests = self.gh.add_run("windows.yml")
-        self.assertExit(0, self.start("--new"))
-        self.assertEqual(1, len(self.gh.calls_of("workflow", "run")))
+        self.assertExit(0, self.start("--new", "windows-app.yml"))
+        self.assertEqual(["windows-app.yml"], [argv[3] for argv in self.gh.calls_of("workflow", "run")])
         runs = self.runs_file()["runs"]
-        self.assertNotEqual(failed, runs["windows-app.yml"])
-        self.assertEqual(TITLE, self.gh.run_by_id(runs["windows-app.yml"])["displayTitle"])
+        self.assertNotEqual(green, runs["windows-app.yml"])
         self.assertEqual(tests, runs["windows.yml"])
+
+    def test_new_with_a_workflow_does_not_excuse_the_other_failed_one(self):
+        self.gh.add_run("windows-app.yml")
+        self.gh.add_run("windows.yml", conclusion="failure")
+        self.assertExit(3, self.start("--new", "windows-app.yml"))
+        self.assertEqual([], self.gh.calls_of("workflow", "run"))
+
+    def test_a_new_pending_run_cancels_the_older_pending_one(self):
+        running = self.gh.add_run("windows-app.yml", status="in_progress", conclusion="")
+        pending = self.gh.add_run("windows-app.yml", status="queued", conclusion="")
+        self.gh.add_run("windows.yml")
+        self.assertExit(0, self.start("--new", "windows-app.yml"))
+        self.assertEqual(("completed", "cancelled"), (self.gh.run_by_id(pending)["status"],
+                                                      self.gh.run_by_id(pending)["conclusion"]))
+        self.assertEqual("in_progress", self.gh.run_by_id(running)["status"])
+        self.assertNotIn(self.runs_file()["runs"]["windows-app.yml"], (running, pending))
+
+    def test_rejects_an_unknown_workflow_for_new(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                self.start("--new", "windows-release-smoke.yml")
 
     def test_dispatches_both_when_there_is_none(self):
         self.gh.add_run("windows-app.yml", title="release %s %s" % (V, OTHER_SHA))  # another commit
@@ -404,11 +467,11 @@ class StartTests(HelperTest):
         self.assertEqual(["windows-app.yml", "windows.yml"], [argv[3] for argv in self.gh.calls_of("workflow", "run")])
 
     def test_a_failed_run_list_or_dispatch_exits_1(self):
-        self.gh.on(lambda argv: argv[1:3] == ["run", "list"], lambda argv: tr.Result(1, "", "HTTP 401: Bad credentials\n"))
+        self.gh.on(is_call("run", "list"), lambda argv: tr.Result(1, "", "HTTP 401: Bad credentials\n"))
         self.assertExit(1, self.start())
         self.assertIn("Bad credentials", self.err)
         self.gh = FakeGitHub()
-        self.gh.on(lambda argv: argv[1:3] == ["workflow", "run"], lambda argv: tr.Result(1, "", "HTTP 422: Unexpected inputs\n"))
+        self.gh.on(is_call("workflow", "run"), lambda argv: tr.Result(1, "", "HTTP 422: Unexpected inputs\n"))
         self.assertExit(1, self.start())
         self.assertIn("Unexpected inputs", self.err)
         self.assertFalse((self.tmp / "build/windows-release/runs.json").exists())
@@ -437,9 +500,9 @@ class StartTests(HelperTest):
 # ── collect ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def release_manifest(run_id, installer=INSTALLER_BYTES):
+def release_manifest(run_id, installer=INSTALLER_BYTES, attempt=1):
     return {"schema": 1, "sha": SHA, "workflowSha": "b" * 40, "version": V, "level": "full", "runId": run_id,
-            "runAttempt": 1, "runnerImage": "20261110.1.0", "swift": "6.3.2",
+            "runAttempt": attempt, "runnerImage": "20261110.1.0", "swift": "6.3.2",
             "installer": {"name": INSTALLER, "size": len(installer), "sha256": sha256(installer),
                           "fileVersion": V + ".0", "productVersion": V, "isccDefines": ["SrcDir", "AppVer", "OutDir"]},
             "app": {"fileVersion": V + ".0", "versionFile": V, "uninstallDisplayVersion": V},
@@ -485,8 +548,9 @@ class CollectTests(HelperTest):
         self.assertEqual(["gh", "run", "download", str(self.app), "--name", "windows-release", "--dir",
                           str(self.tmp / "out/windows-release")] + REPO_ARGS, downloads[0])
         self.assertEqual(["gh", "run", "view", str(self.app), "--json",
-                          "status,conclusion,event,workflowName,displayTitle"] + REPO_ARGS,
+                          "status,conclusion,event,workflowName,displayTitle,attempt"] + REPO_ARGS,
                          self.gh.calls_of("run", "view")[0])
+        self.assertIn("collect: windows-app.yml run %d attempt 1" % self.app, self.err)
 
     def test_prints_one_progress_line_per_five_minutes(self):
         self.finish(self.app, after=12)
@@ -507,6 +571,18 @@ class CollectTests(HelperTest):
                 self.assertEqual([], self.gh.calls_of("run", "download"))
                 self.assertEqual("", self.out)
 
+    def test_a_run_that_a_newer_dispatch_cancelled(self):
+        # windows-app's pending release run is replaced by a newer dispatch for the same commit (concurrency group).
+        self.gh.timelines.pop(self.app)
+        self.gh.run_by_id(self.app).update(status="queued", conclusion="")
+        self.gh.add_run("windows-app.yml", status="in_progress", conclusion="")
+        self.gh("gh workflow run windows-app.yml --ref main -f release_sha={} -f release_version={} --repo "
+                "likelion-campus/PokeTokenBar".format(SHA, V).split())
+        self.assertEqual("cancelled", self.gh.run_by_id(self.app)["conclusion"])
+        self.gh.calls = []
+        self.assertExit(4, self.collect())
+        self.assertIn("windows-app.yml run %d concluded cancelled" % self.app, self.err)
+
     def test_times_out(self):
         self.gh.timelines[self.app] = [("in_progress", "")]
         self.assertExit(4, self.collect())
@@ -518,6 +594,34 @@ class CollectTests(HelperTest):
         self.gh.timelines[self.app] = [("queued", "")]
         self.assertExit(4, self.collect("--timeout-min", "5"))
         self.assertEqual(5 * 60, sum(self.clock.sleeps))
+
+    def test_a_rerun_is_refused_unless_allowed(self):
+        self.gh.rerun(self.app, after=2)
+        self.set_artifacts(release_manifest(self.app, attempt=2), tests_manifest())
+        self.assertExit(4, self.collect())
+        self.assertIn("attempt 2, a re-run", self.err)
+        self.assertIn("--allow-rerun", self.err)
+        self.assertEqual([], self.gh.calls_of("run", "download"))
+        self.gh.rerun(self.app, after=0)
+        self.set_artifacts(release_manifest(self.app, attempt=3), tests_manifest())
+        self.assertExit(0, self.collect("--allow-rerun"))
+        self.assertIn("collect: windows-app.yml run %d attempt 3" % self.app, self.err)
+
+    def test_a_rerun_of_the_tests_run_is_refused_too(self):
+        self.gh.rerun(self.tests)
+        self.assertExit(4, self.collect())
+        self.assertIn("windows.yml run %d is attempt 2" % self.tests, self.err)
+
+    def test_a_run_without_an_attempt_is_refused(self):
+        # gh fills a missing run_attempt with its zero value.
+        self.gh.run_by_id(self.app)["attempt"] = 0
+        self.assertExit(4, self.collect())
+        self.assertIn("run %d reports attempt 0" % self.app, self.err)
+
+    def test_the_manifest_must_come_from_the_runs_attempt(self):
+        self.set_artifacts(release_manifest(self.app, attempt=2), tests_manifest())
+        self.assertExit(4, self.collect())
+        self.assertIn("runAttempt (the run's attempt) is 2, expected 1", self.err)
 
     def test_a_run_of_another_workflow_title_or_event_is_refused(self):
         for change in ({"event": "push"}, {"displayTitle": "release %s %s" % (V, OTHER_SHA)},
@@ -536,25 +640,30 @@ class CollectTests(HelperTest):
         self.assertIn("Run start first", self.err)
         self.assertEqual([], self.gh.calls)
 
+    def test_runs_json_without_a_run_id_is_refused(self):
+        path = self.tmp / "build/windows-release/runs.json"
+        path.write_text(json.dumps({"schema": 1, "sha": SHA, "version": V, "runs": {"windows-app.yml": self.app}}))
+        self.assertExit(4, self.collect())
+        self.assertIn("has no run id for windows.yml", self.err)
+        self.assertEqual([], self.gh.calls)
+
+    def test_gh_output_that_is_not_json(self):
+        self.gh.on(is_call("run", "view"), lambda argv: ok("<html>rate limited</html>"))
+        self.assertExit(4, self.collect())
+        self.assertIn("not JSON: <html>", self.err)
+
     def test_a_missing_runs_json_is_refused(self):
         (self.tmp / "build/windows-release/runs.json").unlink()
         self.assertExit(4, self.collect())
         self.assertEqual([], self.gh.calls)
 
     def test_reading_a_run_fails_three_times_in_a_row(self):
-        self.gh.on(lambda argv: argv[1:3] == ["run", "view"], lambda argv: tr.Result(1, "", "HTTP 502\n"))
+        self.gh.on(is_call("run", "view"), lambda argv: tr.Result(1, "", "HTTP 502\n"))
         self.assertExit(4, self.collect())
         self.assertIn("three times in a row", self.err)
 
     def test_one_failed_read_is_tolerated(self):
-        failures = [1]
-
-        def flaky(argv):
-            if failures:
-                failures.pop()
-                return tr.Result(1, "", "HTTP 502\n")
-            return None
-        self.gh.on(lambda argv: argv[1:3] == ["run", "view"], flaky)
+        self.gh.on(nth(1, is_call("run", "view")), lambda argv: tr.Result(1, "", "HTTP 502\n"))
         self.assertExit(0, self.collect())
 
     def mismatch(self, mutate_release=None, mutate_tests=None, installer=INSTALLER_BYTES, extra=None):
@@ -590,6 +699,9 @@ class CollectTests(HelperTest):
             "schema 2": (lambda m: m.update(schema=2), "windows-release.json schema"),
             "a boolean schema": (lambda m: m.update(schema=True), "windows-release.json schema"),
             "no workflow sha": (lambda m: m.pop("workflowSha"), "workflowSha"),
+            "no run attempt": (lambda m: m.pop("runAttempt"), "runAttempt (the run's attempt) is null"),
+            "an empty runner image": (lambda m: m.update(runnerImage=""), "runnerImage is \"\", expected text"),
+            "no swift version": (lambda m: m.pop("swift"), "swift is null, expected text"),
         }
         for name, (mutate, expected) in cases.items():
             with self.subTest(name):
@@ -602,6 +714,8 @@ class CollectTests(HelperTest):
             "another sha": (lambda m: m.update(sha=OTHER_SHA), "windows-tests.json sha"),
             "another version": (lambda m: m.update(version="2.5.639"), "windows-tests.json version"),
             "a string count": (lambda m: m.update(executed="2431"), "executed is \"2431\""),
+            "a negative skip count": (lambda m: m.update(skipped=-1), "skipped is -1, expected a count"),
+            "no skip count": (lambda m: m.pop("skipped"), "skipped is null, expected a count"),
         }
         for name, (mutate, expected) in cases.items():
             with self.subTest(name):
@@ -618,12 +732,6 @@ class CollectTests(HelperTest):
                                                        {"name": "PokeTokenBar-Setup-2.5.639-win-x64.exe"}])
         self.assertIn("upgradeFromRelease is first, but v2.5.639 has a Windows installer", self.mismatch(first))
 
-    def test_a_manifest_that_is_not_json(self):
-        self.set_artifacts(release_manifest(self.app), tests_manifest())
-        self.gh.artifacts[(self.tests, "windows-tests")] = {"windows-tests.json": b"{not json"}
-        self.assertExit(4, self.collect())
-        self.assertIn("cannot read windows-tests.json", self.err)
-
     def test_first_is_refused_when_the_releases_cannot_be_read(self):
         release = release_manifest(self.app)
         release["gates"]["upgradeFromRelease"] = "first"
@@ -631,6 +739,16 @@ class CollectTests(HelperTest):
         self.gh.on(lambda argv: argv[1] == "api", lambda argv: tr.Result(1, "", "HTTP 502\n"))
         self.assertExit(4, self.collect())
         self.assertIn("cannot check that no earlier Windows release exists", self.err)
+
+    def test_a_manifest_that_is_not_json(self):
+        self.gh.artifacts[(self.tests, "windows-tests")] = {"windows-tests.json": b"{not json"}
+        self.assertExit(4, self.collect())
+        self.assertIn("cannot read windows-tests.json", self.err)
+
+    def test_a_manifest_that_is_not_an_object(self):
+        self.gh.artifacts[(self.tests, "windows-tests")] = {"windows-tests.json": b"[]"}
+        self.assertExit(4, self.collect())
+        self.assertIn("windows-tests.json is not a JSON object", self.err)
 
     def test_a_hash_or_size_mismatch_after_the_download(self):
         tampered = INSTALLER_BYTES[:-1] + b"X"
@@ -663,14 +781,22 @@ class CollectTests(HelperTest):
 
 # ── publish ────────────────────────────────────────────────────────────────────────────────────────────────────
 
+HAPPY = ["gh api releases", "git ls-remote", "gh api releases/latest",           # before create
+         "gh release create", "gh api releases", "git ls-remote",               # the draft, by id
+         "gh api releases/latest", "gh api releases", "gh release edit",         # right before the edit
+         "gh api releases/latest", "git ls-remote"]                              # after publishing
+
 
 class PublishTests(HelperTest):
     def setUp(self):
         super().setUp()
         self.zip = self.tmp / "build/PokeTokenBar.zip"
         self.installer = self.tmp / "out/windows-release" / INSTALLER
+        self.manifest = self.tmp / "out/windows-release/windows-release.json"
         self.notes = self.tmp / "build/release-notes.md"
-        for path, data in ((self.zip, ZIP_BYTES), (self.installer, INSTALLER_BYTES), (self.notes, b"## New\n\nThings.\n")):
+        notes = "## New\n\nThings.\n\nWindows installer SHA-256: `%s`\n" % sha256(INSTALLER_BYTES)
+        for path, data in ((self.zip, ZIP_BYTES), (self.installer, INSTALLER_BYTES), (self.notes, notes.encode()),
+                           (self.manifest, json.dumps(release_manifest(12345)).encode())):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
         self.gh.add_release("v2.5.634", False, target="8f050c929cf1a3d5f081761b67c54f25ec0a8854",
@@ -680,68 +806,79 @@ class PublishTests(HelperTest):
         return self.run_helper("publish", "--sha", SHA, "--version", V, "--zip", str(zip_path or self.zip),
                                "--installer", str(installer or self.installer), "--notes", str(self.notes), *extra)
 
-    def nth_call(self, n, *prefix):
-        """A predicate true on the n-th (1-based) call that starts with `prefix`."""
-        seen = [0]
-
-        def predicate(argv):
-            if argv[1:1 + len(prefix)] == list(prefix):
-                seen[0] += 1
-                return seen[0] == n
-            return False
-        return predicate
+    def on_list(self, n, effect):
+        """Run `effect(fake)` before the n-th read of the release list (1 = the check before create)."""
+        self.gh.on(nth(n, is_call("api", LIST)), lambda argv: (effect(self.gh), None)[1])
 
     def corrupt_draft(self, change):
-        """After create, change the draft's first asset (a digest GitHub computed differently, say)."""
-        def effect(argv):
-            release = self.gh.find(TAG)
-            if release is not None:
-                change(release)
-        self.gh.on(self.nth_call(2, "release", "view"), effect)
+        """Right after create, change this run's draft (a digest GitHub computed differently, say)."""
+        self.on_list(2, lambda gh: change(gh.tagged(TAG)[0]))
+
+    def other_draft(self, gh):
+        """Another session creates its own draft vV (gh create --draft does not look for one)."""
+        return gh.add_release(TAG, True, assets=[{"name": "PokeTokenBar.zip", "size": 9, "state": "uploaded",
+                                                  "digest": "sha256:" + "9" * 64}])
 
     def assertNothingPublished(self):
-        release = self.gh.find(TAG)
-        self.assertTrue(release is None or release["draft"])
+        self.assertTrue(all(release["draft"] for release in self.gh.tagged(TAG)))
         self.assertNotIn(TAG, self.gh.tags)
         self.assertEqual("v2.5.634", self.gh.latest)
         self.assertEqual([], self.gh.calls_of("release", "edit"))
 
+    def assertTouchedNothing(self):
+        self.assertEqual([], self.gh.calls_of("release", "edit"))
+        self.assertEqual([], self.gh.calls_of("release", "delete"))
+
     def test_the_happy_path_in_its_exact_order(self):
         self.assertExit(0, self.publish())
-        self.assertEqual(["gh release view", "git ls-remote", "gh release create", "gh release view", "git ls-remote",
-                          "gh release edit", "gh api releases/latest", "git ls-remote"], self.gh.compact())
+        self.assertEqual(HAPPY, self.gh.compact())
         self.assertEqual(["gh", "release", "create", TAG, str(self.zip), str(self.installer), "--draft", "--target", SHA,
                           "--title", TAG, "--notes-file", str(self.notes)] + REPO_ARGS,
                          self.gh.calls_of("release", "create")[0])
-        self.assertEqual(["gh", "release", "view", TAG, "--json", "isDraft,tagName,targetCommitish,assets,url"] + REPO_ARGS,
-                         self.gh.calls[0])
+        self.assertEqual(["gh", "api", LIST], self.gh.calls[0])
         self.assertEqual(["gh", "release", "edit", TAG, "--draft=false", "--latest"] + REPO_ARGS,
                          self.gh.calls_of("release", "edit")[0])
         self.assertEqual(["git", "ls-remote", "https://github.com/likelion-campus/PokeTokenBar.git", "refs/tags/" + TAG],
                          self.gh.calls[1])
+        release = self.gh.find(TAG)
         self.assertEqual(TAG, self.gh.latest)
         self.assertEqual(SHA, self.gh.tags[TAG])
-        self.assertEqual({"PokeTokenBar.zip", INSTALLER}, {asset["name"] for asset in self.gh.find(TAG)["assets"]})
+        self.assertFalse(release["draft"])
+        self.assertEqual({"PokeTokenBar.zip", INSTALLER}, {asset["name"] for asset in release["assets"]})
+        self.assertIn("(id %d)" % release["id"], self.err)
         self.assertEqual("", self.out)
 
-    def test_an_existing_release_is_refused_before_create(self):
+    # before create
+
+    def test_a_public_release_is_refused_before_create_with_its_own_exit(self):
         self.gh.add_release(TAG, False)
-        self.assertExit(5, self.publish())
-        self.assertEqual(["gh release view"], self.gh.compact())
-        self.assertIn("already published", self.err)
+        self.assertExit(7, self.publish())
+        self.assertEqual(["gh api releases"], self.gh.compact())
+        self.assertIn("already public", self.err)
 
     def test_a_leftover_draft_is_reported_not_reused_or_deleted(self):
         self.gh.add_release(TAG, True)
         self.assertExit(5, self.publish())
-        self.assertEqual(["gh release view"], self.gh.compact())
-        self.assertIn("a draft %s exists already" % TAG, self.err)
+        self.assertEqual(["gh api releases"], self.gh.compact())
+        self.assertIn("draft %s exists already" % TAG, self.err)
         self.assertTrue(self.gh.find(TAG)["draft"])
 
     def test_an_existing_tag_is_refused_before_create(self):
         self.gh.tags[TAG] = OTHER_SHA
         self.assertExit(5, self.publish())
-        self.assertEqual(["gh release view", "git ls-remote"], self.gh.compact())
+        self.assertEqual(["gh api releases", "git ls-remote"], self.gh.compact())
         self.assertIn("would ignore --target", self.err)
+
+    def test_a_newer_latest_is_refused_before_create(self):
+        self.gh.add_release("v2.5.641", False)
+        self.assertExit(5, self.publish())
+        self.assertEqual(["gh api releases", "git ls-remote", "gh api releases/latest"], self.gh.compact())
+        self.assertIn("releases/latest is v2.5.641, which is newer than %s" % TAG, self.err)
+
+    def test_an_older_or_missing_latest_lets_create_go_on(self):
+        self.gh.releases, self.gh.latest = [], None
+        self.assertExit(0, self.publish())
+        self.assertEqual(HAPPY, self.gh.compact())
 
     def test_wrong_local_files_are_refused_before_any_call(self):
         wrong_zip = self.tmp / "build/Other.zip"
@@ -754,22 +891,57 @@ class PublishTests(HelperTest):
             with self.subTest(expected):
                 self.assertExit(5, self.publish(**kwargs))
                 self.assertIn(expected, self.err)
-        self.notes.write_text("  \n")
-        self.assertExit(5, self.publish())
-        self.assertIn("notes", self.err)
         self.assertEqual([], self.gh.calls)
+
+    def test_the_installer_must_be_the_one_collect_checked_for_this_commit(self):
+        def manifest(change):
+            data = release_manifest(12345)
+            change(data)
+            self.manifest.write_text(json.dumps(data))
+        cases = {
+            "another commit": (lambda m: m.update(sha=OTHER_SHA), "windows-release.json sha"),
+            "another version": (lambda m: m.update(version="2.5.639"), "windows-release.json version"),
+            "another size": (lambda m: m["installer"].update(size=1), "installer.size (the file's)"),
+            "another hash": (lambda m: m["installer"].update(sha256="e" * 64), "installer.sha256 (the file's)"),
+            "another name": (lambda m: m["installer"].update(name="x.exe"), "installer.name"),
+        }
+        for name, (change, expected) in cases.items():
+            with self.subTest(name):
+                manifest(change)
+                self.assertExit(5, self.publish())
+                self.assertIn(expected, self.err)
+        self.manifest.unlink()
+        self.assertExit(5, self.publish())
+        self.assertIn("cannot read windows-release.json", self.err)
+        self.assertEqual([], self.gh.calls)
+
+    def test_the_notes_must_be_filled_and_carry_the_installer_hash(self):
+        for text, expected in (("  \n", "missing or empty"),
+                               ("SHA-256: `%s` {{VERSION}}\n" % sha256(INSTALLER_BYTES), "{{…}} token"),
+                               ("## New\n\nNo hash here.\n", "do not carry the installer's SHA-256")):
+            with self.subTest(expected):
+                self.notes.write_text(text)
+                self.assertExit(5, self.publish())
+                self.assertIn(expected, self.err)
+        self.assertEqual([], self.gh.calls)
+
+    def test_a_failed_existence_check_creates_nothing(self):
+        self.gh.on(nth(1, is_call("api", LIST)), lambda argv: tr.Result(1, "", "HTTP 502\n"))
+        self.assertExit(5, self.publish())
+        self.assertEqual(["gh api releases"], self.gh.compact())
+
+    # the draft
 
     def test_an_upload_failure_deletes_the_draft(self):
         self.gh.upload_fails_after = 1
         self.assertExit(5, self.publish())
-        self.assertEqual(["gh release view", "git ls-remote", "gh release create", "gh release view", "gh release delete"],
-                         self.gh.compact())
-        self.assertIsNone(self.gh.find(TAG))
+        self.assertEqual(HAPPY[:4] + ["gh api releases", "gh release delete"], self.gh.compact())
+        self.assertEqual([], self.gh.tagged(TAG))
         self.assertNothingPublished()
-        self.assertIn("The draft this run created was deleted", self.err)
+        self.assertIn("The draft this run created (id", self.err)
 
     def test_a_failed_create_that_left_nothing_deletes_nothing(self):
-        self.gh.on(lambda argv: argv[1:3] == ["release", "create"], lambda argv: tr.Result(1, "", "HTTP 422\n"))
+        self.gh.on(is_call("release", "create"), lambda argv: tr.Result(1, "", "HTTP 422\n"))
         self.assertExit(5, self.publish())
         self.assertEqual([], self.gh.calls_of("release", "delete"))
         self.assertIn("No release %s exists" % TAG, self.err)
@@ -795,157 +967,254 @@ class PublishTests(HelperTest):
                 self.assertExit(5, self.publish())
                 self.assertIn(expected, self.err)
                 self.assertEqual(1, len(self.gh.calls_of("release", "delete")))
-                self.assertIsNone(self.gh.find(TAG))
+                self.assertEqual([], self.gh.tagged(TAG))
                 self.assertNothingPublished()
+
+    def test_a_draft_that_reads_public_right_after_create(self):
+        # Someone published it at once (or GitHub made it public): the draft check names it, and nothing is deleted.
+        self.corrupt_draft(lambda r: r.update(draft=False))
+        self.assertExit(6, self.publish())
+        self.assertIn("is not a draft", self.err)
+        self.assertIn("never sent its publish request, so someone else published", self.err)
+        self.assertTouchedNothing()
 
     def test_a_tag_on_a_draft_stops_the_release(self):
         # Assumption A1 broken: GitHub made the tag when the draft was created.
-        self.gh.on(lambda argv: argv[1:3] == ["release", "create"], lambda argv: self.gh.tags.update({TAG: SHA}))
+        self.gh.on(is_call("release", "create"), lambda argv: self.gh.tags.update({TAG: SHA}))
         self.assertExit(5, self.publish())
         self.assertIn("exists (at %s) while the release is a draft" % SHA, self.err)
-        self.assertIsNone(self.gh.find(TAG))
+        self.assertEqual([], self.gh.tagged(TAG))
         self.assertEqual([], self.gh.calls_of("release", "edit"))
+
+    def test_a_draft_missing_from_the_list_right_after_create(self):
+        self.gh.on(nth(2, is_call("api", LIST)), lambda argv: ok(json.dumps([])))
+        self.assertExit(5, self.publish())
+        self.assertIn("Right after create: 0 releases carry the tag", self.err)
+        self.assertTouchedNothing()
+
+    # two sessions releasing the same version
+
+    def test_another_draft_made_before_ours_stops_without_editing_or_deleting(self):
+        for pick in ("first", "last"):
+            with self.subTest(pick):
+                self.setUp()
+                self.gh.pick = pick
+                self.gh.on(is_call("release", "create"), lambda argv: (self.other_draft(self.gh), None)[1])
+                self.assertExit(5, self.publish())
+                self.assertIn("Right after create: 2 releases carry the tag %s" % TAG, self.err)
+                self.assertIn("none of them is public", self.err)
+                self.assertTouchedNothing()
+                self.assertEqual(2, len(self.gh.tagged(TAG)))
+                self.assertNothingPublished()
+
+    def test_another_draft_made_after_ours_stops_before_the_edit(self):
+        for pick in ("first", "last"):
+            with self.subTest(pick):
+                self.setUp()
+                self.gh.pick = pick
+                self.gh.on(nth(2, is_call("api", LATEST)), lambda argv: (self.other_draft(self.gh), None)[1])
+                self.assertExit(5, self.publish())
+                self.assertIn("Before publishing: 2 releases carry the tag %s" % TAG, self.err)
+                self.assertTouchedNothing()
+                self.assertEqual(2, len(self.gh.tagged(TAG)))
+                self.assertNothingPublished()
+
+    def test_another_draft_at_cleanup_is_not_deleted(self):
+        for pick in ("first", "last"):
+            with self.subTest(pick):
+                self.setUp()
+                self.gh.pick = pick
+                self.corrupt_draft(lambda r: r["assets"][1].update(digest=None))
+                self.on_list(3, self.other_draft)
+                self.assertExit(5, self.publish())
+                self.assertIn("At cleanup: 2 releases carry the tag %s" % TAG, self.err)
+                self.assertTouchedNothing()
+                self.assertEqual(2, len(self.gh.tagged(TAG)))
+
+    def test_another_session_publishing_its_own_vV_meanwhile(self):
+        def theirs_public(gh):
+            gh.add_release(TAG, False, target=OTHER_SHA)
+        self.on_list(3, theirs_public)
+        self.assertExit(6, self.publish())
+        self.assertIn("a public release carries the tag", self.err)
+        self.assertTouchedNothing()
+
+    def test_someone_publishing_this_runs_draft_before_the_edit(self):
+        self.on_list(3, lambda gh: gh.tagged(TAG)[0].update(draft=False))
+        self.assertExit(6, self.publish())
+        self.assertIn("before this run sent its publish request, its draft %s" % TAG, self.err)
+        self.assertTouchedNothing()
+
+    def test_this_runs_draft_deleted_by_someone_before_the_edit(self):
+        self.on_list(3, lambda gh: gh.releases.remove(gh.tagged(TAG)[0]))
+        self.assertExit(5, self.publish())
+        self.assertIn("Before publishing: 0 releases carry the tag", self.err)
+        self.assertTouchedNothing()
+
+    def test_a_newer_release_published_while_waiting_deletes_this_runs_draft(self):
+        self.gh.on(nth(2, is_call("api", LATEST)), lambda argv: (self.gh.add_release("v2.5.641", False), None)[1])
+        self.assertExit(5, self.publish())
+        self.assertIn("releases/latest became v2.5.641, newer than %s" % TAG, self.err)
+        self.assertEqual([], self.gh.calls_of("release", "edit"))
+        self.assertEqual(1, len(self.gh.calls_of("release", "delete")))
+        self.assertEqual([], self.gh.tagged(TAG))
+        self.assertEqual("v2.5.641", self.gh.latest)
+
+    # cleanup
 
     def test_a_release_that_reads_published_at_cleanup_is_not_deleted(self):
         self.corrupt_draft(lambda r: r["assets"][1].update(digest="sha256:" + "f" * 64))
-
-        def someone_publishes(argv):
-            self.gh.find(TAG)["draft"] = False
-        self.gh.on(self.nth_call(3, "release", "view"), someone_publishes)
+        self.on_list(3, lambda gh: gh.tagged(TAG)[0].update(draft=False))
         self.assertExit(6, self.publish())
         self.assertEqual([], self.gh.calls_of("release", "delete"))
-        self.assertIsNotNone(self.gh.find(TAG))
-        self.assertIn("public although this run did not publish it", self.err)
+        self.assertEqual(1, len(self.gh.tagged(TAG)))
+        self.assertIn("never sent its publish request, so someone else published", self.err)
 
     def test_a_cleanup_read_that_fails_deletes_nothing(self):
         self.corrupt_draft(lambda r: r["assets"][1].update(digest=None))
-        self.gh.on(self.nth_call(3, "release", "view"), lambda argv: tr.Result(1, "", "HTTP 502\n"))
+        self.gh.on(nth(3, is_call("api", LIST)), lambda argv: tr.Result(1, "", "HTTP 502\n"))
         self.assertExit(6, self.publish())
         self.assertEqual([], self.gh.calls_of("release", "delete"))
         self.assertIn("nothing was deleted", self.err)
 
     def test_a_failed_delete_says_the_draft_remains(self):
         self.gh.upload_fails_after = 0
-        self.gh.on(lambda argv: argv[1:3] == ["release", "delete"], lambda argv: tr.Result(1, "", "HTTP 500\n"))
+        self.gh.on(is_call("release", "delete"), lambda argv: tr.Result(1, "", "HTTP 500\n"))
         self.assertExit(5, self.publish())
         self.assertIn("delete the draft %s" % TAG, self.err)
         self.assertNothingPublished()
 
     def test_a_failed_edit_that_left_a_draft_deletes_it(self):
-        self.gh.on(lambda argv: argv[1:3] == ["release", "edit"], lambda argv: tr.Result(1, "", "HTTP 422\n"))
+        self.gh.on(is_call("release", "edit"), lambda argv: tr.Result(1, "", "HTTP 422\n"))
         self.assertExit(5, self.publish())
-        self.assertEqual(["gh release edit", "gh release view", "gh release delete"], self.gh.compact()[5:])
-        self.assertIsNone(self.gh.find(TAG))
+        self.assertEqual(["gh release edit", "gh api releases", "gh release delete"], self.gh.compact()[8:])
+        self.assertEqual([], self.gh.tagged(TAG))
 
     def test_a_failed_edit_that_published_anyway_deletes_nothing(self):
         def publishes_then_fails(argv):
             self.gh._release_edit(argv[3:-2])
             return tr.Result(1, "", "connection reset\n")
-        self.gh.on(lambda argv: argv[1:3] == ["release", "edit"], publishes_then_fails)
+        self.gh.on(is_call("release", "edit"), publishes_then_fails)
         self.assertExit(6, self.publish())
         self.assertEqual([], self.gh.calls_of("release", "delete"))
         self.assertFalse(self.gh.find(TAG)["draft"])
-
-    def test_an_interruption_before_publishing_deletes_the_draft(self):
-        def interrupt(argv):
-            raise KeyboardInterrupt
-        self.gh.on(lambda argv: argv[0] == "git" and self.gh.find(TAG) is not None, interrupt)
-        self.assertExit(5, self.publish())
-        self.assertIn("interrupted", self.err)
-        self.assertIsNone(self.gh.find(TAG))
-        self.assertNothingPublished()
-
-    def test_a_failed_existence_check_creates_nothing(self):
-        self.gh.on(self.nth_call(1, "release", "view"), lambda argv: tr.Result(1, "", "HTTP 502\n"))
-        self.assertExit(5, self.publish())
-        self.assertEqual(["gh release view"], self.gh.compact())
+        self.assertIn("this run sent its publish request (gh release edit), which failed", self.err)
+        self.assertNotIn("someone else", self.err)
 
     def test_a_failed_read_after_create_deletes_the_draft(self):
-        self.gh.on(self.nth_call(2, "release", "view"), lambda argv: tr.Result(1, "", "HTTP 502\n"))
+        self.gh.on(nth(2, is_call("api", LIST)), lambda argv: tr.Result(1, "", "HTTP 502\n"))
         self.assertExit(5, self.publish())
-        self.assertEqual(["gh release create", "gh release view", "gh release view", "gh release delete"],
-                         self.gh.compact()[2:])
-        self.assertIsNone(self.gh.find(TAG))
+        self.assertEqual(["gh release create", "gh api releases", "gh api releases", "gh release delete"],
+                         self.gh.compact()[3:])
+        self.assertEqual([], self.gh.tagged(TAG))
         self.assertNothingPublished()
 
     def test_a_failed_tag_read_on_the_draft_deletes_the_draft(self):
-        self.gh.on(lambda argv: argv[0] == "git" and self.gh.find(TAG) is not None,
+        self.gh.on(lambda argv: argv[0] == "git" and self.gh.tagged(TAG),
                    lambda argv: tr.Result(128, "", "fatal: unable to access\n"))
         self.assertExit(5, self.publish())
         self.assertIn("unable to access", self.err)
-        self.assertIsNone(self.gh.find(TAG))
+        self.assertEqual([], self.gh.tagged(TAG))
 
-    def test_a_draft_that_cannot_be_read_after_create(self):
-        self.gh.on(self.nth_call(2, "release", "view"), lambda argv: tr.Result(1, "", "release not found\n"))
+    # interruptions and re-runs
+
+    def interrupt(self, how):
+        def effect(argv):
+            if how == "ctrl-c":
+                raise KeyboardInterrupt
+            os.kill(os.getpid(), getattr(signal, how))
+        return effect
+
+    def test_an_interruption_before_publishing_deletes_the_draft(self):
+        for how in ("ctrl-c", "SIGTERM", "SIGHUP"):
+            with self.subTest(how):
+                self.setUp()
+                self.gh.on(lambda argv: argv[0] == "git" and self.gh.tagged(TAG), self.interrupt(how))
+                self.assertExit(5, self.publish())
+                self.assertIn("interrupted", self.err)
+                self.assertEqual([], self.gh.tagged(TAG))
+                self.assertNothingPublished()
+
+    def test_an_interruption_before_create_says_nothing_was_created(self):
+        self.gh.on(nth(1, is_call("api", LIST)), self.interrupt("SIGTERM"))
         self.assertExit(5, self.publish())
-        self.assertIn("look for a leftover draft", self.err)
-        self.assertEqual([], self.gh.calls_of("release", "edit"))
+        self.assertIn("interrupted; nothing was created", self.err)
+        self.assertEqual([], self.gh.calls_of("release", "create"))
+
+    def test_main_restores_the_signal_handlers(self):
+        before = (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP))
+        self.publish()
+        self.assertEqual(before, (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGHUP)))
+
+    def test_a_second_signal_during_cleanup_says_a_draft_may_remain(self):
+        self.gh.on(lambda argv: argv[0] == "git" and self.gh.tagged(TAG), self.interrupt("SIGTERM"))
+        self.gh.on(nth(3, is_call("api", LIST)), self.interrupt("SIGHUP"))
+        self.assertExit(5, self.publish())
+        self.assertIn("a draft this run created may remain", self.err)
+        self.assertEqual([], self.gh.calls_of("release", "delete"))
+
+    def test_a_second_signal_after_the_edit_was_sent_exits_6(self):
+        self.gh.on(is_call("release", "edit"), self.interrupt("SIGTERM"))
+        self.gh.on(nth(4, is_call("api", LIST)), self.interrupt("SIGTERM"))
+        self.assertExit(6, self.publish())
+        self.assertIn("this run had sent its publish request, so the release may be public", self.err)
 
     def test_an_interruption_after_publishing_exits_6(self):
-        def interrupt(argv):
-            raise KeyboardInterrupt
-        self.gh.on(lambda argv: argv[1:3] == ["api", API + "releases/latest"], interrupt)
+        self.gh.on(is_call("api", LATEST), lambda argv: (self.gh.latest == TAG and self.interrupt("ctrl-c")(argv)) or None)
         self.assertExit(6, self.publish())
         self.assertIn("interrupted while checking", self.err)
         self.assertEqual([], self.gh.calls_of("release", "delete"))
         self.assertFalse(self.gh.find(TAG)["draft"])
 
-    def test_latest_that_cannot_be_read_exits_6(self):
-        self.gh.on(lambda argv: argv[1:3] == ["api", API + "releases/latest"], lambda argv: tr.Result(1, "", "HTTP 502\n"))
-        self.assertExit(6, self.publish())
-        self.assertEqual(3, self.gh.compact().count("gh api releases/latest"))
-        self.assertEqual([], self.gh.calls_of("release", "delete"))
-
     def test_a_rerun_after_an_interruption_that_left_a_draft_is_refused(self):
-        self.gh.on(self.nth_call(1, "release", "delete"), lambda argv: tr.Result(1, "", "killed\n"))
+        self.gh.on(nth(1, is_call("release", "delete")), lambda argv: tr.Result(1, "", "killed\n"))
         self.gh.upload_fails_after = 1
         self.assertExit(5, self.publish())
         self.gh.hooks, self.gh.upload_fails_after, self.gh.calls = [], None, []
         self.assertExit(5, self.publish())
-        self.assertEqual(["gh release view"], self.gh.compact())
-        self.assertIn("a draft %s exists already" % TAG, self.err)
+        self.assertEqual(["gh api releases"], self.gh.compact())
+        self.assertIn("draft %s exists already" % TAG, self.err)
 
-    def test_a_rerun_after_a_publish_is_refused(self):
+    def test_a_rerun_after_a_publish_is_refused_as_already_public(self):
         self.assertExit(0, self.publish())
         self.gh.calls = []
-        self.assertExit(5, self.publish())
-        self.assertEqual(["gh release view"], self.gh.compact())
+        self.assertExit(7, self.publish())
+        self.assertEqual(["gh api releases"], self.gh.compact())
+
+    # after publishing
 
     def test_latest_not_this_release_after_publishing(self):
-        self.gh.on(lambda argv: argv[1:3] == ["release", "edit"],
+        self.gh.on(is_call("release", "edit"),
                    lambda argv: (self.gh._release_edit(argv[3:-2]), setattr(self.gh, "latest", "v2.5.634"))[0])
         self.assertExit(6, self.publish())
-        self.assertIn("releases/latest is v2.5.634, not %s" % TAG, self.err)
+        self.assertIn("releases/latest is v2.5.634 (id", self.err)
         self.assertEqual([], self.gh.calls_of("release", "delete"))
         self.assertFalse(self.gh.find(TAG)["draft"])
-        self.assertEqual(3, self.gh.compact().count("gh api releases/latest"))
+        self.assertEqual(3, self.gh.compact()[9:].count("gh api releases/latest"))
         self.assertEqual([10, 10], self.clock.sleeps)
 
     def test_latest_shows_after_a_moment(self):
-        first = [True]
-
         def stale(argv):
-            if first:
-                first.pop()
-                return ok(json.dumps(self.gh._rest(self.gh.find("v2.5.634"))))
+            if self.gh.latest == TAG and not self.clock.sleeps:
+                return ok(json.dumps(self.gh.rest(self.gh.find("v2.5.634"))))
             return None
-        self.gh.on(lambda argv: argv[1:3] == ["api", API + "releases/latest"], stale)
+        self.gh.on(is_call("api", LATEST), stale)
         self.assertExit(0, self.publish())
         self.assertEqual([10], self.clock.sleeps)
 
     def test_published_asset_or_tag_mismatches_exit_6_without_deleting(self):
         def latest_digest(argv):
-            body = self.gh._rest(self.gh.find(TAG))
+            if self.gh.latest != TAG:
+                return None
+            body = self.gh.rest(self.gh.find(TAG))
             body["assets"][0]["digest"] = "sha256:" + "e" * 64
             return ok(json.dumps(body))
 
         cases = {
-            "a digest": (lambda: self.gh.on(lambda argv: argv[1:3] == ["api", API + "releases/latest"], latest_digest),
-                         "has digest sha256:eee"),
-            "the tag": (lambda: self.gh.on(lambda argv: argv[1:3] == ["release", "edit"],
-                                           lambda argv: self.gh.tags.update({TAG: OTHER_SHA})),
+            "a digest": (lambda: self.gh.on(is_call("api", LATEST), latest_digest), "has digest sha256:eee"),
+            "the tag": (lambda: self.gh.on(is_call("release", "edit"), lambda argv: self.gh.tags.update({TAG: OTHER_SHA})),
                         "tag %s points at %s" % (TAG, OTHER_SHA)),
-            "the target": (lambda: self.gh.on(lambda argv: argv[1:3] == ["release", "edit"],
+            "the target": (lambda: self.gh.on(is_call("release", "edit"),
                                               lambda argv: self.gh.find(TAG).update(target=OTHER_SHA)),
                            "releases/latest targets " + OTHER_SHA),
         }
@@ -957,18 +1226,28 @@ class PublishTests(HelperTest):
                 self.assertIn(expected, self.err)
                 self.assertEqual([], self.gh.calls_of("release", "delete"))
 
+    def test_latest_that_cannot_be_read_exits_6(self):
+        self.gh.on(is_call("api", LATEST),
+                   lambda argv: tr.Result(1, "", "HTTP 502\n") if self.gh.latest == TAG else None)
+        self.assertExit(6, self.publish())
+        self.assertEqual(3, self.gh.compact()[9:].count("gh api releases/latest"))
+        self.assertEqual([], self.gh.calls_of("release", "delete"))
+
     def test_dry_run_reads_and_prints_every_command(self):
         self.assertExit(0, self.publish("--dry-run"))
-        self.assertEqual(["gh release view", "git ls-remote"], self.gh.compact())
-        planned = [line for line in self.err.splitlines() if line.startswith("DRY-RUN (not run): ")]
-        self.assertEqual(["gh release create", "gh release view", "git ls-remote", "gh release edit", "gh api",
-                          "git ls-remote", "gh release view", "gh release delete"],
-                         [" ".join(line.split()[3:6]).replace(" " + API + "releases/latest", "")
-                          .replace(" https://github.com/likelion-campus/PokeTokenBar.git", "")
-                          .replace(" " + TAG, "").replace(" --json", "")
-                          for line in planned])
-        self.assertIn("--draft --target %s --title %s" % (SHA, TAG), planned[0])
-        self.assertIsNone(self.gh.find(TAG))
+        self.assertEqual(["gh api releases", "git ls-remote", "gh api releases/latest"], self.gh.compact())
+        planned = [line[len("DRY-RUN (not run): "):].split("    #")[0] for line in self.err.splitlines()
+                   if line.startswith("DRY-RUN (not run): ")]
+        self.assertEqual(
+            ["gh release create %s %s %s --draft --target %s --title %s --notes-file %s --repo likelion-campus/PokeTokenBar"
+             % (TAG, self.zip, self.installer, SHA, TAG, self.notes),
+             "gh api " + LIST, "git ls-remote https://github.com/likelion-campus/PokeTokenBar.git refs/tags/" + TAG,
+             "gh api " + LATEST, "gh api " + LIST,
+             "gh release edit %s --draft=false --latest --repo likelion-campus/PokeTokenBar" % TAG,
+             "gh api " + LATEST, "git ls-remote https://github.com/likelion-campus/PokeTokenBar.git refs/tags/" + TAG,
+             "gh api " + LIST, "gh release delete %s --yes --repo likelion-campus/PokeTokenBar" % TAG],
+            [line.replace("'", "") for line in planned])
+        self.assertEqual([], self.gh.tagged(TAG))
         self.assertIn("sha256:" + sha256(INSTALLER_BYTES), self.err)
 
 
@@ -1002,7 +1281,7 @@ class SmokeTests(HelperTest):
 
     def test_a_failed_smoke_dispatch_or_check_exits_1(self):
         self.gh.workflow_files.add(("main", "windows-release-smoke.yml"))
-        self.gh.on(lambda argv: argv[1:3] == ["workflow", "run"], lambda argv: tr.Result(1, "", "HTTP 422\n"))
+        self.gh.on(is_call("workflow", "run"), lambda argv: tr.Result(1, "", "HTTP 422\n"))
         self.assertExit(1, self.run_helper("smoke", "--version", V))
         self.gh = FakeGitHub()
         self.gh.on(lambda argv: argv[1] == "api", lambda argv: tr.Result(1, "", "HTTP 401: Bad credentials\n"))
@@ -1042,11 +1321,8 @@ class CallSiteScanTests(unittest.TestCase):
         return min(inner, key=lambda fn: fn.end_lineno - fn.lineno)
 
     def gh_calls(self, method):
-        calls = []
-        for node in ast.walk(self.tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == method:
-                calls.append(node)
-        return calls
+        return [node for node in ast.walk(self.tree) if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute) and node.func.attr == method]
 
     def constant_args(self, call):
         return [arg.value for arg in call.args if isinstance(arg, ast.Constant)]
@@ -1070,31 +1346,47 @@ class CallSiteScanTests(unittest.TestCase):
         self.assertEqual(1, self.strings().count("--repo"))
         self.assertEqual(1, self.strings().count("repos/"))
 
-    def test_gh_release_subcommands_are_view_create_edit_delete(self):
+    def test_gh_release_subcommands_are_create_edit_delete(self):
         verbs = set()
         for node in ast.walk(self.tree):
             items = node.args if isinstance(node, ast.Call) else node.elts if isinstance(node, ast.Tuple) else []
             words = [item.value for item in items[:2] if isinstance(item, ast.Constant)]
             if words[:1] == ["release"]:
                 verbs.add(words[1])
-        self.assertEqual({"view", "create", "edit", "delete"}, verbs)
+        self.assertEqual({"create", "edit", "delete"}, verbs, "no gh release lookup by tag is read for a check")
 
-    def test_release_delete_only_right_after_a_fresh_isdraft_read(self):
+    def test_release_delete_only_right_after_a_fresh_read_by_id(self):
         deletes = [call for call in self.gh_calls("run") if self.constant_args(call)[:2] == ["release", "delete"]]
         self.assertEqual(1, len(deletes), "exactly one place runs gh release delete")
         delete = deletes[0]
         function = self.enclosing(delete)
         self.assertEqual("remove_own_draft", function.name)
         reads = [node.lineno for node in ast.walk(function) if isinstance(node, ast.Call)
-                 and isinstance(node.func, ast.Name) and node.func.id == "read_release"]
-        draft_checks = [node.lineno for node in ast.walk(function) if isinstance(node, ast.Constant)
-                        and node.value == "isDraft"]
+                 and isinstance(node.func, ast.Name) and node.func.id == "tagged_releases"]
         self.assertEqual(1, len(reads))
-        self.assertTrue(draft_checks and reads[0] < min(draft_checks) < delete.lineno,
-                        "read_release, then the isDraft check, then the delete")
+
+        def checks(name):
+            return [node.lineno for node in ast.walk(function) if isinstance(node, ast.Constant) and node.value == name
+                    and reads[0] < node.lineno < delete.lineno]
+        self.assertTrue(checks("id"), "the id is compared between the read and the delete")
+        self.assertTrue(checks("draft"), "the draft flag is checked between the read and the delete")
         between = [node for node in ast.walk(function) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                   and node.func.attr in ("run", "api", "json", "tag_commit") and reads[0] < node.lineno < delete.lineno]
+                   and node.func.attr in ("run", "api", "api_json", "json", "tag_commit") and reads[0] < node.lineno < delete.lineno]
         self.assertEqual([], between, "no other call between the read and the delete")
+
+    def test_the_edit_is_sent_only_after_the_last_ownership_read(self):
+        edits = [call for call in self.gh_calls("run") if any(
+            isinstance(arg, ast.Starred) and isinstance(arg.value, ast.Name) and arg.value.id == "publish"
+            for arg in call.args)]
+        self.assertEqual(1, len(edits))
+        publish = self.enclosing(edits[0])
+        owned = [node.lineno for node in ast.walk(publish) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Name) and node.func.id == "check_still_ours"]
+        self.assertEqual(1, len(owned))
+        calls_between = [node for node in ast.walk(publish) if isinstance(node, ast.Call)
+                         and isinstance(node.func, ast.Attribute) and node.func.attr in ("run", "api", "api_json", "tag_commit")
+                         and owned[0] < node.lineno < edits[0].lineno]
+        self.assertEqual([], calls_between)
 
     def test_only_run_process_starts_a_process(self):
         users = {self.enclosing(node).name for node in ast.walk(self.tree)
@@ -1108,8 +1400,8 @@ class CallSiteScanTests(unittest.TestCase):
         gh = tr.Gh(lambda argv: seen.append(argv) or ok("[]"), False, lambda message: None)
         gh.json("run", "list")
         self.assertEqual(["gh", "run", "list"] + REPO_ARGS, seen[-1])
-        gh.api(API + "releases/latest")
-        self.assertEqual(["gh", "api", API + "releases/latest"], seen[-1])
+        gh.api(LATEST)
+        self.assertEqual(["gh", "api", LATEST], seen[-1])
         with self.assertRaises(ValueError):
             gh.api("repos/chattymin/PokeTokenBar/releases/latest")
         git = tr.Git(lambda argv: seen.append(argv) or ok(""), False, lambda message: None)
@@ -1121,10 +1413,14 @@ class CallSiteScanTests(unittest.TestCase):
         seen = []
         gh = tr.Gh(lambda argv: seen.append(argv) or ok(), True, lambda message: None)
         for write in (("release", "create", TAG), ("release", "edit", TAG), ("release", "delete", TAG, "--yes"),
-                      ("workflow", "run", "windows.yml")):
+                      ("release", "view", TAG), ("workflow", "run", "windows.yml")):
             with self.assertRaises(RuntimeError):
                 gh.run(*write)
         self.assertEqual([], seen)
+
+    def test_versions_compare_as_numbers(self):
+        self.assertGreater(tr.version_key("v2.5.1000"), tr.version_key("2.5.999"))
+        self.assertIsNone(tr.version_key("nightly"))
 
     def test_run_process_reports_output_and_a_missing_program(self):
         self.assertEqual(tr.Result(3, "out\n", "err\n"), tr.run_process(

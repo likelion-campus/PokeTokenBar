@@ -4,8 +4,8 @@
 Only this helper writes a release of likelion-campus/PokeTokenBar (stage 8 plan, D2). The Windows workflows keep
 `contents: read`. scripts/team-release.sh calls the subcommands in the order of D3:
 
-  start   --sha SHA --version V [--ref main] [--new]
-  collect --sha SHA --version V --out DIR [--timeout-min 100]
+  start   --sha SHA --version V [--ref main] [--new [failed|windows-app.yml|windows.yml]]...
+  collect --sha SHA --version V --out DIR [--timeout-min 100] [--allow-rerun]
   publish --sha SHA --version V --zip PATH --installer PATH --notes PATH
   smoke   --version V [--ref main]
 
@@ -14,17 +14,30 @@ edit or delete) is printed instead of run. `collect --dry-run` reads each run on
 
 Exit codes (team-release.sh relies on them):
   0  done
-  1  start or smoke: a gh or git call failed, or a dispatched run did not appear within 60 s. Nothing was published.
+  1  start or smoke: a gh or git call failed, a dispatched run did not appear within 60 s, or interrupted.
+     Nothing was published.
   2  bad arguments
-  3  start: the newest release run for this SHA failed or was cancelled. A new one starts only with --new.
-  4  collect: a run failed, was cancelled or timed out; a download failed; a manifest or a hash does not match.
-  5  publish: stopped before publishing. A draft this run created was deleted; the message says if one remains.
-  6  publish: the release is (or may be) public and a check failed. Nothing was deleted: check it by hand.
+  3  start: the newest release run of a workflow failed, was cancelled or timed out, and --new did not name it.
+     Nothing was dispatched.
+  4  collect: a run failed, was cancelled or timed out; a run is a re-run (attempt > 1) without --allow-rerun; a
+     download failed; a manifest, the artifact's files or the installer hash does not match; or interrupted.
+  5  publish: stopped before publishing, and the last read shows no public release vV. This run's own draft was
+     deleted, or the message names every draft left and why it was not deleted.
+  6  publish: release vV is (or may be) public and something is wrong: a check after publishing failed, the edit
+     failed or was interrupted but the release reads public, someone else published this run's draft, or another
+     public release shares the tag. Nothing was deleted; the message says what was read and what to check.
+  7  publish: release vV was already public before this run. This run created nothing.
 
 Every gh and git call goes through one runner (`run_process`; the tests inject a fake GitHub). `Gh` appends
 `--repo likelion-campus/PokeTokenBar`; `Gh.api` only GETs paths under repos/likelion-campus/PokeTokenBar/; `Git` only
 runs `git ls-remote` against the fork's URL. Nothing here pushes, creates or deletes a tag, or deletes a published
-release. A release is deleted only right after a fresh read says it is still a draft.
+release.
+
+`publish` identifies its draft by id, not by tag: GitHub allows several drafts with one tag, and gh's
+`release edit/delete <tag>` act on whichever one gh's lookup returns. So right after create, right before the edit
+and right before a delete it reads every release (`releases?per_page=100`) and goes on only when exactly one release
+carries the tag and its id is this run's. The draft's checks read that same list entry, so no check depends on which
+draft a by-tag lookup picks.
 
 What this relies on about gh 2.88 and GitHub (risk K3). Read in gh v2.88.1's source and the REST docs on 2026-11-16;
 the tests' FakeGitHub encodes the same list:
@@ -32,8 +45,8 @@ the tests' FakeGitHub encodes the same list:
      at `target_commitish` when the draft is published. (REST docs: target_commitish "determines where the Git tag is
      created from" and is "unused if the Git tag already exists", so publish refuses an existing tag.) The draft
      check also reads the tag: a tag that exists while the release is a draft stops the release.
-  A2 `gh release view/edit/delete <tag>` find a draft by its pending tag (gh FetchRelease: GraphQL
-     `release(tagName:)`, then REST by id). The REST "get a release by tag name" returns published releases only.
+  A2 `gh release edit/delete <tag>` find a draft by its pending tag (gh FetchRelease: GraphQL `release(tagName:)`,
+     then REST by id). With exactly one release carrying the tag, that lookup can only return it.
   A3 An asset uploaded to a draft has `state: uploaded` and `digest: sha256:<hex>`. Seen on every published release;
      on a draft it is unverified. The REST schema says "string or null": a null digest fails the draft check, so
      the draft is deleted and nothing is published.
@@ -41,6 +54,8 @@ the tests' FakeGitHub encodes the same list:
      request gh's own create sends when it publishes a release it uploaded as a draft.
   A5 With an explicit --draft, gh does NOT delete the draft when an upload fails (its cleanup runs only for its own
      draft-while-uploading), and does not check for an existing release with that tag. This helper does both.
+  A6 The REST list `releases` includes drafts for a token with push access, newest commit first, with each asset's
+     digest; `releases/latest` never returns a draft or a prerelease.
 """
 import argparse
 import collections
@@ -49,6 +64,7 @@ import json
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -75,9 +91,10 @@ MIN_EXECUTED = 2400
 ZIP_NAME = "PokeTokenBar.zip"
 WINDOWS_INSTALLER = re.compile(r"^PokeTokenBar-Setup-.+-win-x64\.exe$")
 
-RUN_LIST_FIELDS = "databaseId,displayTitle,status,conclusion,event,createdAt"
-RUN_VIEW_FIELDS = "status,conclusion,event,workflowName,displayTitle"
-RELEASE_FIELDS = "isDraft,tagName,targetCommitish,assets,url"
+RUN_LIST_FIELDS = "databaseId,displayTitle,status,conclusion,event,createdAt,attempt"
+RUN_VIEW_FIELDS = "status,conclusion,event,workflowName,displayTitle,attempt"
+RELEASES = API + "releases?per_page=100"
+LATEST = API + "releases/latest"
 
 POLL_SECONDS = 60        # collect: one look at both runs per minute
 REPORT_SECONDS = 300     # collect: one progress line per 5 minutes
@@ -86,7 +103,8 @@ APPEAR_STEP = 5
 VERIFY_TRIES = 3         # publish: reads of releases/latest and the tag after publishing
 VERIFY_WAIT = 10
 
-EXIT_ERROR, EXIT_RUN_FAILED, EXIT_COLLECT, EXIT_NOT_PUBLISHED, EXIT_PUBLISHED_CHECK = 1, 3, 4, 5, 6
+EXIT_ERROR, EXIT_RUN_FAILED, EXIT_COLLECT = 1, 3, 4
+EXIT_NOT_PUBLISHED, EXIT_PUBLIC_CHECK, EXIT_ALREADY_PUBLIC = 5, 6, 7
 CALL_FAILURE_EXIT = {"start": EXIT_ERROR, "collect": EXIT_COLLECT, "publish": EXIT_NOT_PUBLISHED, "smoke": EXIT_ERROR}
 
 
@@ -100,6 +118,11 @@ def release_title(version, sha):
 
 def run_url(run_id):
     return "%s/actions/runs/%s" % (WEB, run_id)
+
+
+def version_key(text):
+    match = re.fullmatch(r"v?([0-9]+)\.([0-9]+)\.([0-9]+)", text or "")
+    return tuple(int(part) for part in match.groups()) if match else None
 
 
 Result = collections.namedtuple("Result", "code out err")
@@ -146,7 +169,7 @@ class _Calls:
             raise CallFailed(argv, Result(result.code, "", "not JSON: " + result.out[:200]))
 
 
-GH_READS = {("run", "list"), ("run", "view"), ("run", "download"), ("release", "view")}
+GH_READS = {("run", "list"), ("run", "view"), ("run", "download")}
 
 
 class Gh(_Calls):
@@ -204,6 +227,7 @@ class Clock:
 class Context:
     def __init__(self, runner, dry_run, clock, root, out, err):
         self.dry_run, self.clock, self.root, self.out, self.err = dry_run, clock, root, out, err
+        self.publish_stage = None  # publish: "create sent", then "edit sent"
         self.gh = Gh(runner, dry_run, self.say)
         self.git = Git(runner, dry_run, self.say)
 
@@ -250,6 +274,7 @@ def runs_path(root):
 
 def cmd_start(args, ctx):
     title = release_title(args.version, args.sha)
+    replace = set(args.new or [])
     chosen, known, to_dispatch, failed = {}, {}, [], []
     for wf in WORKFLOWS:
         runs = release_runs(ctx, wf.file, title)
@@ -257,21 +282,22 @@ def cmd_start(args, ctx):
         newest = runs[0] if runs else None
         if newest is None:
             to_dispatch.append(wf)
-        elif newest.get("status") != "completed" or newest.get("conclusion") == "success":
-            chosen[wf.file] = newest["databaseId"]
-            ctx.say("%s: reusing run %s (%s %s) %s" % (wf.file, newest["databaseId"], newest.get("status"),
-                                                       newest.get("conclusion") or "", run_url(newest["databaseId"])))
-        elif args.new:
-            ctx.say("%s: the newest run %s concluded %s; --new starts another" % (
-                wf.file, newest["databaseId"], newest.get("conclusion")))
+            continue
+        state = "run %s (%s %s, attempt %s)" % (newest["databaseId"], newest.get("status"),
+                                                newest.get("conclusion") or "-", newest.get("attempt"))
+        good = newest.get("status") != "completed" or newest.get("conclusion") == "success"
+        if wf.file in replace or ("failed" in replace and not good):
+            ctx.say("%s: --new replaces the newest %s" % (wf.file, state))
             to_dispatch.append(wf)
+        elif good:
+            chosen[wf.file] = newest["databaseId"]
+            ctx.say("%s: reusing %s %s" % (wf.file, state, run_url(newest["databaseId"])))
         else:
-            failed.append("%s run %s concluded %s: %s" % (wf.file, newest["databaseId"], newest.get("conclusion"),
-                                                          run_url(newest["databaseId"])))
+            failed.append("%s %s: %s" % (wf.file, state, run_url(newest["databaseId"])))
     if failed:
-        raise Stop(EXIT_RUN_FAILED, "the newest release run for %s failed; nothing was started.\n  %s\n"
-                   "Read the failure first. Start a new run only for a known flake, with --new." % (
-                       args.sha, "\n  ".join(failed)))
+        raise Stop(EXIT_RUN_FAILED, "the newest release run for %s did not succeed; nothing was started.\n  %s\n"
+                   "Read the failure first. Start a new run only for a known flake: --new failed, or --new <workflow>."
+                   % (args.sha, "\n  ".join(failed)))
     for wf in to_dispatch:
         dispatch = ("workflow", "run", wf.file, "--ref", args.ref,
                     "-f", "release_sha=" + args.sha, "-f", "release_version=" + args.version)
@@ -323,11 +349,12 @@ def read_runs_file(ctx, args):
     return ids
 
 
-def wait_for_success(ctx, ids, title, timeout_min):
+def wait_for_success(ctx, ids, title, timeout_min, allow_rerun):
+    """Both runs' attempts once both concluded success."""
     start = ctx.clock.now()
     deadline = start + timeout_min * 60
     next_report = start
-    done, misses = set(), 0
+    done, attempts, misses = set(), {}, 0
     while True:
         states = []
         for wf in WORKFLOWS:
@@ -335,7 +362,6 @@ def wait_for_success(ctx, ids, title, timeout_min):
                 states.append(wf.name + " success")
                 continue
             run_id = ids[wf.file]
-            argv = ctx.gh.argv("run", "view", str(run_id), "--json", RUN_VIEW_FIELDS)
             try:
                 run = ctx.gh.json("run", "view", str(run_id), "--json", RUN_VIEW_FIELDS)
             except CallFailed as error:
@@ -354,8 +380,18 @@ def wait_for_success(ctx, ids, title, timeout_min):
             if run.get("displayTitle") != title:
                 wrong.append("title '%s'" % run.get("displayTitle"))
             if wrong:
-                raise Stop(EXIT_COLLECT, "run %s is not a %s release run for '%s' (%s; %s)" % (
-                    run_id, wf.name, title, ", ".join(wrong), shlex.join(argv)))
+                raise Stop(EXIT_COLLECT, "run %s is not a %s release run for '%s' (%s)" % (
+                    run_id, wf.name, title, ", ".join(wrong)))
+            attempt = run.get("attempt")
+            if attempts.get(wf.file) != attempt:
+                ctx.say("collect: %s run %s attempt %s" % (wf.file, run_id, attempt))
+                attempts[wf.file] = attempt
+            if not _is_int(attempt) or attempt < 1:
+                raise Stop(EXIT_COLLECT, "run %s reports attempt %s" % (run_id, json.dumps(attempt)))
+            if attempt > 1 and not allow_rerun:
+                raise Stop(EXIT_COLLECT, "%s run %s is attempt %d, a re-run. A re-run until green hides a flake: read "
+                           "the failed attempt first; accept the re-run only on purpose, with --allow-rerun. %s" % (
+                               wf.file, run_id, attempt, run_url(run_id)))
             if run.get("status") == "completed":
                 if run.get("conclusion") != "success":
                     raise Stop(EXIT_COLLECT, "%s run %s concluded %s: %s" % (
@@ -366,7 +402,7 @@ def wait_for_success(ctx, ids, title, timeout_min):
                 states.append("%s %s" % (wf.name, run.get("status")))
         if len(done) == len(WORKFLOWS):
             ctx.say("collect: both Windows runs succeeded")
-            return
+            return attempts
         now = ctx.clock.now()
         if now >= deadline:
             raise Stop(EXIT_COLLECT, "timed out after %d min: %s. %s" % (
@@ -409,7 +445,7 @@ def _load(path, problems):
 
 def earlier_windows_release(ctx):
     """The tag of a published release that has a Windows installer, or None."""
-    for release in ctx.gh.api_json(API + "releases?per_page=100"):
+    for release in ctx.gh.api_json(RELEASES):
         if not release.get("draft") and any(WINDOWS_INSTALLER.match(asset.get("name") or "")
                                             for asset in release.get("assets") or []):
             return release.get("tag_name")
@@ -428,17 +464,16 @@ def check_tests_manifest(manifest, args, problems):
     _expect(problems, "windows-tests.json failures", failures, 0)
 
 
-def check_release_manifest(ctx, manifest, args, app_run_id, local, problems):
+def check_release_manifest(ctx, manifest, args, app_run_id, app_attempt, local, problems):
     version, where = args.version, "windows-release.json"
     _expect(problems, where + " schema", manifest.get("schema"), 1)
     _expect(problems, where + " sha", manifest.get("sha"), args.sha)
     _expect(problems, where + " version", manifest.get("version"), version)
     _expect(problems, where + " level", manifest.get("level"), "full")
     _expect(problems, where + " runId", manifest.get("runId"), app_run_id)
+    _expect(problems, where + " runAttempt (the run's attempt)", manifest.get("runAttempt"), app_attempt)
     if not re.fullmatch(r"[0-9a-f]{40}", str(manifest.get("workflowSha"))):
         problems.append(where + " workflowSha is %s, expected a commit SHA" % json.dumps(manifest.get("workflowSha")))
-    if not _is_int(manifest.get("runAttempt")) or manifest["runAttempt"] < 1:
-        problems.append(where + " runAttempt is %s" % json.dumps(manifest.get("runAttempt")))
     for key in ("runnerImage", "swift"):
         if not isinstance(manifest.get(key), str) or not manifest[key]:
             problems.append(where + " %s is %s, expected text" % (key, json.dumps(manifest.get(key))))
@@ -476,7 +511,7 @@ def check_release_manifest(ctx, manifest, args, app_run_id, local, problems):
                 problems.append(where + " gate upgradeFromRelease is first, but %s has a Windows installer" % earlier)
 
 
-def check_artifacts(ctx, args, ids, out):
+def check_artifacts(ctx, args, ids, attempts, out):
     problems = []
     app_wf, tests_wf = WORKFLOWS
     name = installer_name(args.version)
@@ -491,7 +526,7 @@ def check_artifacts(ctx, args, ids, out):
         check_tests_manifest(tests, args, problems)
     release = _load(out / app_wf.artifact / app_wf.manifest, problems)
     if release is not None:
-        check_release_manifest(ctx, release, args, ids[app_wf.file], local, problems)
+        check_release_manifest(ctx, release, args, ids[app_wf.file], attempts.get(app_wf.file), local, problems)
     if problems:
         raise Stop(EXIT_COLLECT, "the Windows results do not match release %s %s:\n  - %s" % (
             args.version, args.sha, "\n  - ".join(problems)))
@@ -505,13 +540,14 @@ def cmd_collect(args, ctx):
     if ctx.dry_run:
         for wf in WORKFLOWS:
             run = ctx.gh.json("run", "view", str(ids[wf.file]), "--json", RUN_VIEW_FIELDS)
-            ctx.say("%s run %s: %s %s" % (wf.file, ids[wf.file], run.get("status"), run.get("conclusion") or ""))
+            ctx.say("%s run %s: %s %s, attempt %s" % (wf.file, ids[wf.file], run.get("status"),
+                                                      run.get("conclusion") or "-", run.get("attempt")))
         ctx.say("dry run: collect would poll both runs every %d s for up to %d min, then:" % (POLL_SECONDS, args.timeout_min))
         for wf in WORKFLOWS:
             ctx.plan(ctx.gh.argv("run", "download", str(ids[wf.file]), "--name", wf.artifact,
                                  "--dir", str(out / wf.artifact)), "a read; not run in a dry run")
         return 0
-    wait_for_success(ctx, ids, title, args.timeout_min)
+    attempts = wait_for_success(ctx, ids, title, args.timeout_min, args.allow_rerun)
     for wf in WORKFLOWS:
         dest = out / wf.artifact
         if dest.exists():
@@ -521,7 +557,7 @@ def cmd_collect(args, ctx):
         result = ctx.gh.run(*download)
         if result.code != 0:
             raise Stop(EXIT_COLLECT, "could not download %s: %s" % (wf.artifact, CallFailed(ctx.gh.argv(*download), result)))
-    installer, (size, sha256) = check_artifacts(ctx, args, ids, out)
+    installer, (size, sha256) = check_artifacts(ctx, args, ids, attempts, out)
     ctx.say("collect: %s, %d bytes, every manifest field checked" % (installer.name, size))
     ctx.emit("INSTALLER=%s" % installer)
     ctx.emit("SHA256=%s" % sha256)
@@ -531,13 +567,34 @@ def cmd_collect(args, ctx):
 # ── publish ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
-def read_release(ctx, tag):
-    """The release (published, or a draft by its pending tag) as `gh release view` sees it, or None."""
-    argv = ctx.gh.argv("release", "view", tag, "--json", RELEASE_FIELDS)
-    result = ctx.gh.run("release", "view", tag, "--json", RELEASE_FIELDS)
-    if result.code != 0 and "release not found" in result.err:
+def tagged_releases(ctx, tag):
+    """Every release whose tag is `tag`, drafts included, as the REST list has them (A6)."""
+    return [release for release in ctx.gh.api_json(RELEASES) if release.get("tag_name") == tag]
+
+
+def listing(releases):
+    return ", ".join("id %s %s" % (release.get("id"), "draft" if release.get("draft") is True else "public")
+                     for release in releases) or "none"
+
+
+def not_alone(tag, tagged, our_id, when):
+    """The stop when the tag is not this run's alone: nothing is edited or deleted."""
+    public = any(release.get("draft") is not True for release in tagged)
+    return Stop(EXIT_PUBLIC_CHECK if public else EXIT_NOT_PUBLISHED,
+                "%s: %d releases carry the tag %s (%s), and this run's draft is %s. Another session may be releasing "
+                "%s. Nothing was edited or deleted: check %s/releases by hand%s." % (
+                    when, len(tagged), tag, listing(tagged), "id %s" % our_id if our_id else "not known", tag, WEB,
+                    "; a public release carries the tag" if public else "; none of them is public"))
+
+
+def newer_latest(ctx, version):
+    """The tag of releases/latest when it is newer than `version` or cannot be compared, else None."""
+    result = ctx.gh.api(LATEST)
+    if result.code != 0 and "HTTP 404" in result.err:
         return None
-    return ctx.gh.parse(argv, result)
+    latest = ctx.gh.parse(ctx.gh.api_argv(LATEST), result).get("tag_name")
+    key = version_key(latest)
+    return latest if key is None or key > version_key(version) else None
 
 
 def asset_problems(assets, local):
@@ -561,24 +618,21 @@ def asset_problems(assets, local):
 
 def draft_problems(release, tag, sha, local):
     problems = []
-    if release.get("isDraft") is not True:
-        problems.append("%s is not a draft" % tag)
-    if release.get("tagName") != tag:
-        problems.append("the draft's tag is %s" % release.get("tagName"))
-    if release.get("targetCommitish") != sha:
-        problems.append("the draft targets %s, not %s" % (release.get("targetCommitish"), sha))
+    if release.get("draft") is not True:
+        problems.append("%s (id %s) is not a draft" % (tag, release.get("id")))
+    if release.get("target_commitish") != sha:
+        problems.append("the draft targets %s, not %s" % (release.get("target_commitish"), sha))
     return problems + asset_problems(release.get("assets"), local)
 
 
-def published_problems(ctx, tag, sha, local):
+def published_problems(ctx, tag, sha, our_id, local):
     problems = []
     try:
-        latest = ctx.gh.api_json(API + "releases/latest")
-        if latest.get("tag_name") != tag:
-            problems.append("releases/latest is %s, not %s" % (latest.get("tag_name"), tag))
+        latest = ctx.gh.api_json(LATEST)
+        if latest.get("id") != our_id:
+            problems.append("releases/latest is %s (id %s), not this run's %s (id %s)" % (
+                latest.get("tag_name"), latest.get("id"), tag, our_id))
         else:
-            if latest.get("draft") is not False:
-                problems.append("releases/latest says %s is a draft" % tag)
             if latest.get("target_commitish") != sha:
                 problems.append("releases/latest targets %s, not %s" % (latest.get("target_commitish"), sha))
             problems += asset_problems(latest.get("assets"), local)
@@ -590,28 +644,52 @@ def published_problems(ctx, tag, sha, local):
     return problems
 
 
-def remove_own_draft(ctx, tag, reason):
-    """Stop before publishing: delete this run's draft, but only right after a fresh read says it is still a draft."""
+def check_still_ours(ctx, tag, our_id):
+    """Right before the edit: exactly one release carries the tag, it is this run's, and it is a draft."""
+    tagged = tagged_releases(ctx, tag)
+    if len(tagged) != 1 or tagged[0].get("id") != our_id:
+        raise not_alone(tag, tagged, our_id, "Before publishing")
+    if tagged[0].get("draft") is not True:
+        raise Stop(EXIT_PUBLIC_CHECK, "before this run sent its publish request, its draft %s (id %s) reads as public: "
+                   "someone else published it. Nothing was edited or deleted; check %s/releases/tag/%s, its assets "
+                   "and digests, and the tag." % (tag, our_id, WEB, tag))
+
+
+def remove_own_draft(ctx, tag, our_id, edit_sent, reason):
+    """Stop before publishing: delete this run's draft, only right after a fresh read shows it is a draft, it is this
+    run's (by id), and no other release carries the tag."""
     ctx.say("publish: stopping before publishing: %s" % reason)
     try:
-        current = read_release(ctx, tag)
+        tagged = tagged_releases(ctx, tag)
     except CallFailed as error:
-        raise Stop(EXIT_PUBLISHED_CHECK, "%s. Then the release could not be read again (%s), so nothing was deleted. "
+        raise Stop(EXIT_PUBLIC_CHECK, "%s. Then the releases could not be read again (%s), so nothing was deleted. "
                    "Check %s/releases by hand: %s may be a draft or public." % (reason, error, WEB, tag))
-    if current is None:
+    if not tagged:
         raise Stop(EXIT_NOT_PUBLISHED, "%s. No release %s exists; nothing was published." % (reason, tag))
-    if current.get("isDraft") is not True:
-        raise Stop(EXIT_PUBLISHED_CHECK, "%s. Release %s is public although this run did not publish it; nothing was "
-                   "deleted. Check %s, its assets and digests, and the tag." % (reason, tag, current.get("url")))
+    if our_id is None and len(tagged) == 1:
+        our_id = tagged[0].get("id")  # create failed or was not read: the one release with the tag is this run's
+    if len(tagged) != 1 or tagged[0].get("id") != our_id:
+        raise not_alone(tag, tagged, our_id, reason + ". At cleanup")
+    if tagged[0].get("draft") is not True:
+        if edit_sent:
+            how = ("this run sent its publish request (gh release edit), which failed or was interrupted, and the "
+                   "release reads public, so that request most likely went through")
+        else:
+            how = "this run never sent its publish request, so someone else published this run's draft"
+        raise Stop(EXIT_PUBLIC_CHECK, "%s. Release %s (id %s) reads as public: %s. Nothing was deleted. Check "
+                   "%s/releases/tag/%s, its assets and digests, and the tag." % (reason, tag, our_id, how, WEB, tag))
     result = ctx.gh.run("release", "delete", tag, "--yes")
     if result.code != 0:
-        raise Stop(EXIT_NOT_PUBLISHED, "%s. Deleting this run's draft failed (%s): delete the draft %s on %s/releases "
-                   "before running again. Nothing was published." % (reason, (result.err or result.out).strip(), tag, WEB))
-    raise Stop(EXIT_NOT_PUBLISHED, "%s. The draft this run created was deleted; nothing was published." % reason)
+        raise Stop(EXIT_NOT_PUBLISHED, "%s. Deleting this run's draft (id %s) failed (%s): delete the draft %s on "
+                   "%s/releases before running again. Nothing was published." % (
+                       reason, our_id, (result.err or result.out).strip(), tag, WEB))
+    raise Stop(EXIT_NOT_PUBLISHED, "%s. The draft this run created (id %s) was deleted; nothing was published." % (
+        reason, our_id))
 
 
 def local_assets(args):
-    """{asset name: (size, sha256)} for the two files, after their names and the notes are checked."""
+    """{asset name: (size, sha256)} for the two files, once the files, the manifest `collect` left beside the
+    installer, and the notes all match this release."""
     zip_path, installer, notes = Path(args.zip), Path(args.installer), Path(args.notes)
     problems = []
     if zip_path.name != ZIP_NAME:
@@ -621,81 +699,118 @@ def local_assets(args):
     for path in (zip_path, installer):
         if not path.is_file() or path.stat().st_size == 0:
             problems.append("%s is missing or empty" % path)
-    if not notes.is_file() or not notes.read_text().strip():
-        problems.append("the notes %s are missing or empty" % notes)
     if problems:
         raise Stop(EXIT_NOT_PUBLISHED, "nothing was created: " + "; ".join(problems))
-    return {ZIP_NAME: file_digest(zip_path), installer.name: file_digest(installer)}
+    local = {ZIP_NAME: file_digest(zip_path), installer.name: file_digest(installer)}
+    size, sha256 = local[installer.name]
+    manifest = _load(installer.parent / WORKFLOWS[0].manifest, problems)
+    if manifest is not None:
+        where = "the installer's %s" % WORKFLOWS[0].manifest
+        _expect(problems, where + " sha", manifest.get("sha"), args.sha)
+        _expect(problems, where + " version", manifest.get("version"), args.version)
+        entry = manifest.get("installer") if isinstance(manifest.get("installer"), dict) else {}
+        _expect(problems, where + " installer.name", entry.get("name"), installer.name)
+        _expect(problems, where + " installer.size (the file's)", entry.get("size"), size)
+        _expect(problems, where + " installer.sha256 (the file's)", entry.get("sha256"), sha256)
+    text = notes.read_text() if notes.is_file() else ""
+    if not text.strip():
+        problems.append("the notes %s are missing or empty" % notes)
+    elif "{{" in text:
+        problems.append("the notes still hold a {{…}} token")
+    elif sha256 not in text:
+        problems.append("the notes do not carry the installer's SHA-256 %s" % sha256)
+    if problems:
+        raise Stop(EXIT_NOT_PUBLISHED, "nothing was created: " + "; ".join(problems))
+    return local
 
 
 def cmd_publish(args, ctx):
     tag, sha = "v" + args.version, args.sha
     local = local_assets(args)
-    existing = read_release(ctx, tag)
-    if existing is not None:
-        if existing.get("isDraft") is True:
-            raise Stop(EXIT_NOT_PUBLISHED, "a draft %s exists already (left by an earlier run?) and is not reused. Check "
-                       "it on %s/releases, delete it there, then run again. Nothing was created." % (tag, WEB))
-        raise Stop(EXIT_NOT_PUBLISHED, "release %s is already published (%s). This run created nothing; check that "
-                   "release by hand." % (tag, existing.get("url")))
+    existing = tagged_releases(ctx, tag)
+    if any(release.get("draft") is not True for release in existing):
+        raise Stop(EXIT_ALREADY_PUBLIC, "release %s is already public (%s). This run created nothing. Do not update "
+                   "the tap with this run's zip; check that release by hand." % (tag, listing(existing)))
+    if existing:
+        raise Stop(EXIT_NOT_PUBLISHED, "draft %s exists already (%s; left by an earlier run, or another session is "
+                   "releasing %s) and is not reused. Check it on %s/releases, delete it there if it is stale, then run "
+                   "again. Nothing was created." % (tag, listing(existing), tag, WEB))
     tagged = ctx.git.tag_commit(tag)
     if tagged is not None:
         raise Stop(EXIT_NOT_PUBLISHED, "tag %s exists already (at %s); GitHub would ignore --target. Nothing was "
                    "created; check where the tag came from." % (tag, tagged))
+    newer = newer_latest(ctx, args.version)
+    if newer:
+        raise Stop(EXIT_NOT_PUBLISHED, "releases/latest is %s, which is newer than %s (or not comparable): publishing "
+                   "with --latest would make an older version latest. Nothing was created." % (newer, tag))
     create = ("release", "create", tag, args.zip, args.installer, "--draft", "--target", sha,
               "--title", tag, "--notes-file", args.notes)
     publish = ("release", "edit", tag, "--draft=false", "--latest")
     if ctx.dry_run:
         ctx.say("dry run: the checks before create passed; publish would run:")
         ctx.plan(ctx.gh.argv(*create))
-        ctx.plan(ctx.gh.argv("release", "view", tag, "--json", RELEASE_FIELDS), "a draft, at the target, the two assets uploaded with these digests")
+        ctx.plan(ctx.gh.api_argv(RELEASES), "exactly one release tagged %s: this run's id; a draft at the target, "
+                 "both assets uploaded with these digests" % tag)
         ctx.plan(ctx.git.ls_remote_argv("refs/tags/" + tag), "no tag while it is a draft")
+        ctx.plan(ctx.gh.api_argv(LATEST), "not newer than " + tag)
+        ctx.plan(ctx.gh.api_argv(RELEASES), "still exactly one release tagged %s, this run's draft" % tag)
         ctx.plan(ctx.gh.argv(*publish))
-        ctx.plan(ctx.gh.api_argv(API + "releases/latest"), "names %s with the same assets and digests" % tag)
+        ctx.plan(ctx.gh.api_argv(LATEST), "this run's release, with the same assets and digests")
         ctx.plan(ctx.git.ls_remote_argv("refs/tags/" + tag), "points at " + sha)
-        ctx.say("on a failure before the edit:")
-        ctx.plan(ctx.gh.argv("release", "view", tag, "--json", RELEASE_FIELDS), "re-read isDraft")
-        ctx.plan(ctx.gh.argv("release", "delete", tag, "--yes"), "only if that read says isDraft == true")
+        ctx.say("on a failure before the publish request is answered:")
+        ctx.plan(ctx.gh.api_argv(RELEASES), "re-read: exactly one release tagged %s, this run's id, still a draft" % tag)
+        ctx.plan(ctx.gh.argv("release", "delete", tag, "--yes"), "only if that read says so")
         for name, (size, sha256) in sorted(local.items()):
             ctx.say("  %s %d bytes sha256:%s" % (name, size, sha256))
         return 0
+    our_id, edit_sent = None, False
+    ctx.publish_stage = "create sent"
     try:
         result = ctx.gh.run(*create)
         if result.code != 0:
-            remove_own_draft(ctx, tag, "gh release create failed (exit %d): %s" % (
+            remove_own_draft(ctx, tag, our_id, edit_sent, "gh release create failed (exit %d): %s" % (
                 result.code, (result.err or result.out).strip()))
-        draft = read_release(ctx, tag)
-        if draft is None:
-            raise Stop(EXIT_NOT_PUBLISHED, "gh release create succeeded, but no release %s can be read. Nothing was "
-                       "published; look for a leftover draft on %s/releases." % (tag, WEB))
-        problems = draft_problems(draft, tag, sha, local)
+        mine = tagged_releases(ctx, tag)
+        if len(mine) != 1:
+            raise not_alone(tag, mine, None, "Right after create")
+        our_id = mine[0].get("id")
+        problems = draft_problems(mine[0], tag, sha, local)
         tagged = ctx.git.tag_commit(tag)
         if tagged is not None:
             problems.append("tag %s exists (at %s) while the release is a draft; it stays, check it by hand" % (tag, tagged))
         if problems:
-            remove_own_draft(ctx, tag, "the draft does not match: " + "; ".join(problems))
-        ctx.say("publish: the draft has both assets with the local SHA-256")
+            remove_own_draft(ctx, tag, our_id, edit_sent, "the draft (id %s) does not match: %s" % (
+                our_id, "; ".join(problems)))
+        ctx.say("publish: the draft (id %s) has both assets with the local SHA-256" % our_id)
+        newer = newer_latest(ctx, args.version)
+        if newer:
+            remove_own_draft(ctx, tag, our_id, edit_sent, "releases/latest became %s, newer than %s (or not "
+                             "comparable): publishing with --latest would make an older version latest" % (newer, tag))
+        check_still_ours(ctx, tag, our_id)
+        edit_sent, ctx.publish_stage = True, "edit sent"
         result = ctx.gh.run(*publish)
         if result.code != 0:
-            remove_own_draft(ctx, tag, "gh release edit failed (exit %d): %s" % (result.code, (result.err or result.out).strip()))
+            remove_own_draft(ctx, tag, our_id, edit_sent, "gh release edit failed (exit %d): %s" % (
+                result.code, (result.err or result.out).strip()))
     except CallFailed as error:
-        remove_own_draft(ctx, tag, str(error))
+        remove_own_draft(ctx, tag, our_id, edit_sent, str(error))
     except KeyboardInterrupt:
-        remove_own_draft(ctx, tag, "interrupted")
+        remove_own_draft(ctx, tag, our_id, edit_sent, "interrupted")
     try:
         for attempt in range(VERIFY_TRIES):
             if attempt:
                 ctx.clock.sleep(VERIFY_WAIT)
-            problems = published_problems(ctx, tag, sha, local)
+            problems = published_problems(ctx, tag, sha, our_id, local)
             if not problems:
                 break
     except KeyboardInterrupt:
         problems = ["interrupted while checking"]
     if problems:
-        raise Stop(EXIT_PUBLISHED_CHECK, "%s is published, but a check failed:\n  - %s\nNothing was deleted. Check %s/"
-                   "releases/tag/%s, `gh api %sreleases/latest` and `git ls-remote %s refs/tags/%s` (expected %s)." % (
-                       tag, "\n  - ".join(problems), WEB, tag, API, GIT_URL, tag, sha))
-    ctx.say("publish: %s is public and latest, with both assets and their digests; the tag points at %s" % (tag, sha))
+        raise Stop(EXIT_PUBLIC_CHECK, "%s (id %s) is published, but a check failed:\n  - %s\nNothing was deleted. Check "
+                   "%s/releases/tag/%s, `gh api %s` and `git ls-remote %s refs/tags/%s` (expected %s)." % (
+                       tag, our_id, "\n  - ".join(problems), WEB, tag, LATEST, GIT_URL, tag, sha))
+    ctx.say("publish: %s (id %s) is public and latest, with both assets and their digests; the tag points at %s" % (
+        tag, our_id, sha))
     return 0
 
 
@@ -754,9 +869,13 @@ def build_parser():
         command.add_argument("--sha", required=True, type=_sha)
         command.add_argument("--version", required=True, type=_version)
     start.add_argument("--ref", default="main")
-    start.add_argument("--new", action="store_true", help="start a new run in place of a failed one")
+    start.add_argument("--new", action="append", nargs="?", const="failed",
+                       choices=("failed",) + tuple(wf.file for wf in WORKFLOWS),
+                       help="start a new run: alone or 'failed' in place of a failed one; a workflow file: in place "
+                            "of that workflow's newest run, whatever its state (repeatable)")
     collect.add_argument("--out", required=True)
     collect.add_argument("--timeout-min", type=int, default=100)
+    collect.add_argument("--allow-rerun", action="store_true", help="accept a run whose attempt is above 1")
     publish.add_argument("--zip", required=True)
     publish.add_argument("--installer", required=True)
     publish.add_argument("--notes", required=True)
@@ -769,9 +888,15 @@ def build_parser():
 COMMANDS = {"start": cmd_start, "collect": cmd_collect, "publish": cmd_publish, "smoke": cmd_smoke}
 
 
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main(argv=None, runner=run_process, clock=None, root=ROOT, out=None, err=None):
     args = build_parser().parse_args(argv)
     ctx = Context(runner, args.dry_run, clock or Clock(), Path(root), out or sys.stdout, err or sys.stderr)
+    # A release run in the background is stopped with SIGTERM or SIGHUP, not Ctrl-C: all three take the same cleanup.
+    previous = {sig: signal.signal(sig, _interrupt) for sig in (signal.SIGTERM, signal.SIGHUP)}
     try:
         return COMMANDS[args.command](args, ctx)
     except Stop as stop:
@@ -780,6 +905,18 @@ def main(argv=None, runner=run_process, clock=None, root=ROOT, out=None, err=Non
     except CallFailed as error:
         ctx.say("team_release %s: %s" % (args.command, error))
         return CALL_FAILURE_EXIT[args.command]
+    except KeyboardInterrupt:
+        # publish reaches this only when interrupted before create, or again while cleaning up.
+        stage = ctx.publish_stage
+        said = {None: "", "create sent": "; nothing was published, but a draft this run created may remain: check "
+                "%s/releases" % WEB, "edit sent": "; this run had sent its publish request, so the release may be "
+                "public: check %s/releases by hand" % WEB}[stage]
+        ctx.say("team_release %s: interrupted%s" % (args.command, said or (
+            "; nothing was created" if args.command == "publish" else "")))
+        return EXIT_PUBLIC_CHECK if stage == "edit sent" else CALL_FAILURE_EXIT[args.command]
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 if __name__ == "__main__":
