@@ -2335,3 +2335,40 @@ read_when:
   재서 `wrappedLines` 의 타입세터 경로는 밟지 않았다 — 같은 글이 다른 코드 경로로 통과해 안심을 줬다. **고침:** 길이 0 범위는 빈 줄(`line("", font:)` / `line([])`)로, 글 끝 개행은 `extraLineFragmentRect`
   가 비어 있지 않을 때 빈 줄 하나를 더한다. 줄 수는 같은 글의 SwiftUI `Text` 높이/줄 높이와 맞춘다. **규칙:** `CFRange`/`NSRange` 의 길이 0 을 "빈 구간"으로 믿지 않는다 — CoreText 는 "끝까지"로 읽는다.
   **회귀 점검:** `PlazaBlankLineTests`(빈 줄, 연속·앞·끝 빈 줄, 색 조각 버전, SwiftUI `Text` 줄 수와 일치) — 고침을 빼고 실패함을 확인했다. 윈도 엔진은 이미 진짜 빈 줄을 만든다.
+
+## 윈도 로케일·알림 (windows-port)
+
+- **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**
+  사용자 PC(윈도 11, 표시 언어 한국어)의 트레이 메뉴가 영어였다. `AppLanguage.systemDefault` 는 `Locale.preferredLanguages.first` 를 쓰는데,
+  swift-foundation `Locale_Cache.swift` 의 `#else`(= `FOUNDATION_FRAMEWORK && !NO_CFPREFERENCES` 가 아닌 쪽)가 `languages = ["en-001"]`,
+  `locale = "en_001"` 을 하드코딩한다. 러너 실측: `Locale.preferredLanguages=["en-001"]`, `Locale.current=en_001`, 같은 순간
+  `GetUserPreferredUILanguages=["en-US"]`. 즉 "비어 있다"가 아니라 **언제나 영어 한 개**라 어떤 PC 에서도 영어가 된다.
+  **왜 못 걸렀나:** 테스트가 `AppLanguage.systemDefault(for:)` 순수 함수에 문자열을 주입해 통과했고(`CompanionTests`), 실제 `Locale.preferredLanguages`
+  를 윈도에서 읽는 경로는 한 번도 밟지 않았다 — 주입 검증은 "매핑이 맞는가"에만 답한다. 러너가 영어라 CI 도 영어가 "정답"이었다.
+  **고침:** `PlatformCompat.preferredUILanguages` (맥: 정확히 `Locale.preferredLanguages`, 윈도: `GetUserPreferredUILanguages(MUI_LANGUAGE_NAME)` →
+  비면 `GetUserDefaultLocaleName`) 를 만들고 `CompanionModel.swift` 의 한 줄만 그리로 돌렸다. 맥과 같게 **첫 항목만** 본다(첫 항목이 미지원이고 둘째가 지원이어도 영어).
+  **이미 "en" 이 저장된 설치:** `CompanionState.language` 는 신규 설치 때 감지값이 그대로 저장된다(맥도 같다). 윈도엔 언어 설정 UI 가 없어 "en" 은 아무도 고른 적 없는 값이다 →
+  `WinUILanguage.migrateStoredLanguage` 가 설치당 **한 번** "저장된 en + 감지값 ≠ en" 이면 감지값으로 바꾼다(`windows.languageDetectionMigrated`). 한 번뿐이라 이후 사용자가 고른 영어는 지켜진다.
+  **같은 부류 스윕:** `Locale.current`/`autoupdatingCurrent` 는 윈도에서 늘 `en_001` — `NumberFormatter` 의 `TokenFormatter.grouped`(팝오버 UI, 윈도엔 아직 없음), `Calendar.current.firstWeekday`(= 월요일 고정; 잔액 요약·히트맵 UI, 아직 없음)가 영향권이다. 트레이 요약 숫자는 `String(format:)` 이라 무관.
+  표시 로케일이 명시된 곳(`displayLocale`, `en_US_POSIX` 포매터)은 안전. **7단계(UI)에서 `PlatformCompat` 로 지역 로케일·첫 요일을 윈도 값으로 돌려야 한다.**
+  **규칙:** 플랫폼 로케일 API 는 값이 "있다"가 아니라 "사용자 것인가"를 실측한다 — 윈도에서 `Locale`·`TimeZone` 을 새로 읽는 코드는 `language.detect`/`timezone.matchesWindows` 류로 OS API 값과 맞대어 본다.
+  **회귀 점검:** `UILanguagesTests`(ko/ja/en/zh→en/빈 목록→로케일명/첫 항목 미지원), `WinUILanguageTests`(주입 + 실제 API 가 비어 있지 않음 + 마이그레이션 한 번), 셀프테스트 `language.detect`, `check-language.ps1`(`--inject-ui-language ko-KR` 로 트레이 문자열·첫 실행 안내·마이그레이션).
+  러너엔 한국어 언어 팩이 없어 `GetUserPreferredUILanguages` 자체를 한국어로 바꿀 수 없다(HKCU `PreferredUILanguages` 를 써도 en-US) — 그 읽기만 사용자 PC 에서 확인한다.
+
+- **같은 뿌리의 두 번째 결함: 한국어 윈도에서 `TimeZone.current` 가 GMT 가 된다 — "오늘"이 UTC 로 계산된다.** swift-foundation `TimeZone_Cache.swift` 는 `TIME_ZONE_INFORMATION.StandardName` 을 ICU 의
+  `ucal_getTimeZoneIDForWindowsID` 에 넣는데, `StandardName` 은 **현지화된 이름**("대한민국 표준시")이고 ICU 는 영어 윈도 존 ID("Korea Standard Time")를 기대한다. 실패하면 GMT.
+  러너 실측: UTC 존의 `StandardName`("Coordinated Universal Time")이 ID("UTC")와 달라 `TimeZone.current=GMT` 였고(영어 OS 에서도 일치하지 않는 존은 같은 결과), `Asia/Seoul` 은 영어 이름이 ID 와 같아 통과했다.
+  한국어 PC 에서는 서울 시각 00:00~09:00 에 "오늘"이 어제로 나왔을 것이다(일일 합계·`day_timer`·`localDay`). **왜 못 걸렀나:** CI 가 영어 OS 라 존 이름이 우연히 ID 와 같았고, 서울 시간대 테스트도 영어 이름으로 통과했다.
+  **고침:** `WinTimeZone.publishSystemZone()` — 현지화되지 않는 `TimeZoneKeyName` 을 OS 의 `icu.dll` 로 IANA 이름으로 바꿔 프로세스 환경 `TZ` 에 올린다(Foundation 은 `TZ` 를 먼저 읽는다; C 런타임의 사본은 안 건드려 `localtime` 은 그대로). 사용자가 직접 둔 `TZ` 는 건드리지 않는다.
+  **첫 시도는 앱을 시작 직후 죽였다:** UTC 존의 ICU 이름 `Etc/UTC` 를 그대로 올리자 `DateFormatter(timeZone: .current)`(= `LocalUsageReader.localDayFormatter`, 기동 경로) 가 Foundation.dll 안에서 트랩했다
+  (`0xC000001D`). 단계별 사냥(`--tz-hunt`)으로 좁힌 결과 `GMT`·`GMT+0900`·`secondsFromGMT`·`Asia/Seoul`·`UTC` 는 통과하고 `Etc/UTC` 만 죽는다 — corelibs 가 `Etc/` 이름을 모른다. 윈도 존 UTC 와 "UTC-11"…"UTC+13" 이 그 이름으로 매핑된다.
+  그래서 `TimeZoneNames.foundationSafe` 가 `Etc/UTC`→`UTC`, `Etc/GMT+11`→`GMT-1100` 으로 바꾼다. **교훈:** "다른 OS 설정으로 한 번도 안 돌려본 경로"(CI 는 늘 UTC=GMT)는 값을 바꾸는 순간 처음 실행되는 코드다 — 설정을 바꾼 자식 프로세스로 기동 경로 전체를 돌려야 한다(`check-language.ps1` 의 `timezone.noTrap.*`).
+  시작 시, 그리고 `WM_TIMECHANGE` 에서 `resetSystemTimeZone()` 직전에 호출한다. **회귀 점검:** `WinTimeZoneTests`(ICU 는 영어 ID 만 알고 "대한민국 표준시" 는 모른다; 게시 후 `TimeZone.current` 일치; 사용자 `TZ` 우선), 셀프테스트 `timezone.matchesWindows`(Win32 오프셋과 대조), `check-language.ps1`(서울·UTC).
+
+- **트레이 풍선이 첫 실행에 사라졌다 — `NIIF_RESPECT_QUIET_TIME` 은 "조용한 시간" 풍선을 큐에 넣지 않고 버린다.** Microsoft 문서(NOTIFYICONDATAW): 새 사용자가 처음 로그인한 뒤 1시간과 OS 설치·업그레이드 뒤에는 이 플래그가 붙은 풍선이
+  "큐에 쌓이지 않고 표시 없이 버려진다". 새 PC 에 막 설치한 첫 실행 안내가 정확히 그 구간이다(사용자 PC: 방해 금지 꺼짐, 알림 센터 비어 있음). **확정이 아니라 가장 유력한 원인이다:** 러너에서는 이 플래그의 유무가
+  화면에도 `NIN_BALLOONSHOW` 에도 차이를 만들지 못했고(서버 SKU 에 토스트 UI 프로세스가 없어 알려진 정상 소스도 안 보인다), 사용자 PC 확인이 남았다. 두 번째 후보는 AUMID: 설치 프로그램은 바로가기에 `LikelionCampus.PokeTokenBar` 를 달았지만
+  프로세스는 한 번도 설정하지 않았다(러너에 윈도가 AUMID 없는 트레이 풍선용으로 `NotifyIconGeneratedAumid_*` 항목을 만든 것이 보인다). **왜 못 걸렀나:** 풍선 "표시됨" 주장이 전부 `Shell_NotifyIcon` 반환값(TRUE)에만 기댔다 —
+  API 는 쉘이 호출을 받았다는 뜻일 뿐 보였다는 뜻이 아니다. **고침:** 어떤 종류도 `NIIF_RESPECT_QUIET_TIME` 을 쓰지 않는다(`BalloonFlags.infoFlags`; 방해 금지/집중 지원은 윈도가 토스트를 알림 센터로 조용히 보내므로 플래그가 필요 없다),
+  프로세스가 `SetCurrentProcessExplicitAppUserModelID` 로 바로가기와 같은 ID 를 설정하고(스캔 테스트가 `.iss`·Swift 상수를 대조), `NIN_BALLOONSHOW` 를 처리·로그하며 10초 안에 쉘이 "표시됨"을 안 보내면 한 번 "not shown by Windows" 로 남긴다.
+  첫 실행 안내도 같은 큐를 탄다. **규칙:** OS 에 맡긴 표시는 반환값이 아니라 OS 의 통지(또는 화면)로만 "보였다"고 쓴다; 셀프테스트 `notify.state`/`notify.shown` 이 사용자 로그에 설정 상태와 통지를 남긴다.
