@@ -185,12 +185,14 @@ enum WinHTTPFetch {
     // MARK: - outside the installed app
 
     /// Outside the installed app (`swift test`, a bare build) only loopback and the reserved test names (`.invalid`, `.test`:
-    /// RFC 6761) may be fetched, so no test reaches a real server by accident. The refusal names the host on stderr; the
-    /// Windows test workflow fails when it finds one (except the guard's own test host, `ptb-guard.example`).
+    /// RFC 6761) may be fetched, so no test reaches a real server by accident: a test that needs the answer fails on its own,
+    /// and a fetch nobody waits for (a store's status check, a sprite) just does not happen. The selftests run from the
+    /// packaged bundle (`PokeTokenBar.version` next to the exe), where this does not apply. Each refused host is named once on
+    /// stderr; the Windows test workflow lists them.
     static func refuseRealNetworkOutsideTheApp(_ url: URL) throws {
         guard !PlatformCompat.isBundledApp, let host = url.host, !isTestHost(host) else { return }
         let line = "WinHTTPFetch: refused real host \(host) outside the installed app"
-        FileHandle.standardError.write(Data((line + "\n").utf8))
+        if stats.noteRefused(host) { FileHandle.standardError.write(Data((line + "\n").utf8)) }
         throw URLError(.notConnectedToInternet, userInfo: [NSLocalizedDescriptionKey: line])
     }
 
@@ -218,6 +220,9 @@ enum WinHTTPFetch {
         var secureProtocols: UInt32 { lock.lock(); defer { lock.unlock() }; return protocols }
         func noteProxyReport(_ text: String) { lock.lock(); proxyReports.append(text); lock.unlock() }
         private var unanswered = 0
+        private var refused: Set<String> = []
+        /// True the first time a host is refused.
+        func noteRefused(_ host: String) -> Bool { lock.lock(); defer { lock.unlock() }; return refused.insert(host.lowercased()).inserted }
         /// True the first time only.
         func noteUnansweredProxyChallenge() -> Bool { lock.lock(); defer { lock.unlock() }; unanswered += 1; return unanswered == 1 }
         /// What `WINHTTP_OPTION_PROXY` said for each 407 on the Windows proxy settings (access type, whether a proxy was named).

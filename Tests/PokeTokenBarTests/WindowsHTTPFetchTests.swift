@@ -393,9 +393,11 @@ final class WindowsHTTPFetchTests: XCTestCase {
         for host in ["status.claude.com", "127.evil.com", "example.com", "invalid.example"] {
             XCTAssertFalse(WinHTTPFetch.isTestHost(host), host)
         }
-        // windows.yml fails on any "refused real host" line except this host's.
-        let error = await failure(try request("https://ptb-guard.example/x")) { try await self.seam($0) }
-        XCTAssertEqual(error?.code, .notConnectedToInternet)
+        for _ in 0..<2 {
+            let error = await failure(try request("https://ptb-guard.example/x")) { try await self.seam($0) }
+            XCTAssertEqual(error?.code, .notConnectedToInternet)
+        }
+        XCTAssertFalse(WinHTTPFetch.stats.noteRefused("PTB-guard.example"), "named on stderr once per host")
     }
 
     func testAProxyVariableWinHTTPCannotTakeIsNotedOnceWithoutItsValue() async throws {

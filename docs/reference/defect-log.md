@@ -1036,7 +1036,8 @@ read_when:
   ② **서버의 NTLM/Negotiate 401 에 윈도우 로그온이 나갈 수 있었다.** 기본 자동 로그온 정책 MEDIUM 은 "프록시 우회 목록의 서버"를 인트라넷으로 본다
   (`WinHttpRequestAutoLogonPolicy`, AutoLogonPolicy_OnlyIfBypassProxy) — 프록시가 없으면 어느 호스트든 우회다. libcurl 은 자격증명 없이 인증하지 않았으니
   새 능력이었다(NTLMv2 응답은 오프라인 크랙·릴레이 대상). **왜 못 걸렀나:** 문서의 "인트라넷만" 을 정의 확인 없이 믿었고, 401 로 도전하는 테스트 서버가
-  없었다. **고침:** 모든 요청은 자동 인증 끔(`WINHTTP_DISABLE_AUTHENTICATION`) + 정책 HIGH 로 시작(HIGH 는 "localhost·IP 로 지정한 서버에는 효과가 없다"고
+  없었다. **러너 대조(프록시 없음):** 이전 설정(인증 켬, MEDIUM)은 127.0.0.1·localhost 의 401 에 두 번째 요청으로 `Authorization: Negotiate` 를 보냈다 —
+  리뷰의 추정대로다. **고침:** 모든 요청은 자동 인증 끔(`WINHTTP_DISABLE_AUTHENTICATION`) + 정책 HIGH 로 시작(HIGH 는 "localhost·IP 로 지정한 서버에는 효과가 없다"고
   문서에 적혀 있어 둘 다 건다). 요청이 지난 프록시(환경 변수 프록시, 또는 윈도우 설정에서 `WINHTTP_OPTION_PROXY` 가 이름을 대는 프록시)의 407 에만 한 번,
   새 요청을 MEDIUM 으로, 그래도 NTLM/Negotiate 를 요구하면 이름 없는 `WinHttpSetCredentials` 로 — .NET WinHttpHandler 와 같은 방식(dotnet/runtime v9.0.0
   `WinHttpAuthHelper.cs` 288–300·335–346, `WinHttpHandler.cs` 1517–1528).
@@ -1047,6 +1048,11 @@ read_when:
   create a race condition"(`WinHttpCloseHandle`). 작업 스레드는 닫힌 값을 읽기·조회에 다시 넘길 수 있었다(값이 재사용되면 다른 요청의 핸들).
   **고침:** 취소·타이머는 호출자에게 바로 답하고 신호만 준다; 핸들은 작업 스레드만, 지금 하던 WinHTTP 호출이 돌아온 뒤 닫는다(그 대기는 WinHTTP
   타임아웃이 묶고, 헤더 수신 타임아웃도 요청 타임아웃으로 낮췄다 — 기본 90 s).
+  ⑤ **동기 `WinHttpReadData`(64 KB 버퍼)는 버퍼가 찰 때까지 기다렸다**(리뷰의 질문; 러너에서 1 KB/500 ms 로 오는 20 KB 본문이 2 s 유휴 타이머에 걸려
+  실패). **왜 못 걸렀나:** 느리게 오는 본문 테스트가 없었고, `/hang`(10 B 뒤 침묵)은 타임아웃이 정답이라 같은 증상이 정상처럼 보였다. **고침:** 문서 예제의
+  고리 — `WinHttpQueryDataAvailable` 로 도착한 만큼을 물은 뒤 그만큼만 읽는다.
+  ⑥ 러너에서 함께 드러난 것: WinHTTP 는 프록시와의 NTLM/Negotiate 레그를 본문 없이(Content-Length 0) 보내고 핸드셰이크가 끝나야 본문을 보낸다 — 우리가 보낸
+  두 요청(처음·재시도)은 본문 그대로였다.
   소항목도 함께: TLS 1.2/1.3 만(`WINHTTP_OPTION_SECURE_PROTOCOLS`; 윈도우 10 의 WinHTTP 기본은 SSL3·1.0·1.1 허용), 압축 해제 뒤 32 MB 본문 한도, 전체
   마감(호출부 세션의 resource timeout — Cursor 사용량 120 s — 없으면 300 s), 동시 8 개 상한(슬롯은 작업 스레드가 끝날 때 반납, 대기는 취소로 끝남),
   앱 밖(`swift test`)에서는 루프백·`.invalid`/`.test` 외 호스트 거부, WinHTTP 가 못 받는 프록시 변수는 값 없이 한 번 로그.
@@ -1059,7 +1065,7 @@ read_when:
   Authorization 없이 따름, Cookie 면 302 반환·상대 서버 연결 0; 규칙 단위 테스트·HTTPS→HTTP; 20 홉·루프), 401 NTLM 서버(127.0.0.1·localhost 모두 요청
   1 번·Authorization 없음, 대조 = 이전 기본값), 프록시 407(재요청·로그온 제시)·직접 경로의 407(재요청 없음), 307·407 재요청 뒤 본문 동일, 압축 해제 뒤
   한도(230 B gzip → 200,000 B), 느린 본문·전체 마감, 동시 상한·대기 취소; `WindowsSeamScanTests.testWinHTTPRelaxesNoCertificateCheck`(보안 플래그 금지);
-  `windows.yml` 의 "refused real host" 검사. **규칙:** 플랫폼 이음매의 동작 기준은 그 호출부가 원래 돌던 플랫폼(맥)이다 — 대체 구현끼리 비교하지 않는다.
+  `windows.yml` 이 거부된 실제 호스트를 나열(앱 밖 전체 스위트: 상태 호스트 둘·raw.githubusercontent.com — 기다리는 테스트 없음). **규칙:** 플랫폼 이음매의 동작 기준은 그 호출부가 원래 돌던 플랫폼(맥)이다 — 대체 구현끼리 비교하지 않는다.
   보안에 걸린 비교는 print 가 아니라 단언으로 남긴다.
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
