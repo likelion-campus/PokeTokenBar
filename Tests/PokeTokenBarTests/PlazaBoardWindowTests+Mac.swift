@@ -98,15 +98,19 @@ import XCTest
     /// scene has no mouse handling at all (keys only; the menus and panels are views above it), so nothing a user can do changes:
     /// the click outside the plate does nothing in either case, and the board stays open (it closes by Space/Esc only).
     func testTheHostTakesEveryClickInTheWindowAsTheSwiftUIOverlayDid() async throws {
-        let rig = try await rig()
+        let theFeed = feed(30)
+        let rig = try PlazaWindowRig(feed: theFeed)
         defer { rig.close() }
+        rig.overlays.overlayModel.content = .board
+        rig.controller.scene?.isOverlayOpen = true
+        await rig.flush()
         let model = PlazaOverlayModel()
         model.content = .board
         let size = rig.container.bounds.size
         let legacyWindow = ScaledWindow(scale: 2, size: size)
         let box = NSView(frame: CGRect(origin: .zero, size: size))
         legacyWindow.contentView = box
-        let legacy = LegacyPlazaOverlayHostingView(rootView: LegacyPlazaOverlayView(model: model, feed: rig.overlays.feed, myMemberID: "member-1"), model: model)
+        let legacy = LegacyPlazaOverlayHostingView(rootView: LegacyPlazaOverlayView(model: model, feed: theFeed, myMemberID: "member-1"), model: model)
         legacy.frame = box.bounds
         box.addSubview(legacy)
         box.layoutSubtreeIfNeeded()
