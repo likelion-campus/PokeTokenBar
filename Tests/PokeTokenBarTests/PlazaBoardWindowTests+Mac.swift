@@ -52,8 +52,8 @@ import XCTest
         XCTAssertEqual(f.midY, rig.container.bounds.height / 2, accuracy: 1)
         let host = try XCTUnwrap(rig.host(.board))
         XCTAssertTrue(try XCTUnwrap(rig.hitView(.board, CGPoint(x: 170, y: 190))) === host)
-        XCTAssertTrue(rig.hitView(.board, CGPoint(x: -30, y: 190)) !== host, "beside the plate the click goes to the scene")
-        XCTAssertTrue(rig.hitView(.board, CGPoint(x: 170, y: 400)) !== host)
+        XCTAssertTrue(rig.hitView(.board, CGPoint(x: -30, y: 190)) === host, "beside the plate the host still takes it (the SwiftUI overlay covered the whole window) and nothing acts")
+        XCTAssertTrue(rig.hitView(.board, CGPoint(x: 170, y: 400)) === host)
         // Closed: nothing is drawn and nothing takes a click.
         rig.overlays.overlayModel.content = .none
         await rig.flush()
@@ -94,7 +94,7 @@ import XCTest
     /// ANYWHERE in the window (the scene got none); the panel takes only its plate and the click outside goes to the scene. The
     /// scene has no mouse handling at all (keys only; the menus and panels are views above it), so nothing a user can do changes:
     /// the click outside the plate does nothing in either case, and the board stays open (it closes by Space/Esc only).
-    func testClicksOutsideThePlateGoToTheSceneWhichIgnoresThem() async throws {
+    func testTheHostTakesEveryClickInTheWindowAsTheSwiftUIOverlayDid() async throws {
         let rig = try await rig()
         defer { rig.close() }
         let model = PlazaOverlayModel()
@@ -128,7 +128,8 @@ import XCTest
         XCTAssertEqual(panelOnly, 0, "the panel never takes a click the SwiftUI overlay did not")
         XCTAssertEqual(none, 0, "the SwiftUI overlay took every click in the window")
         // The plate: 340 x 380 points = 85 x 95 samples.
-        XCTAssertEqual(Double(both), 85 * 95, accuracy: 4 * 95 + 4 * 85, "the panel takes the plate")
+        XCTAssertEqual(legacyOnly, 0, "the panel takes every click the SwiftUI overlay took: the whole window")
+        XCTAssertEqual(both, 240 * 160)
         // The click that the panel lets through reaches the scene, which does nothing with it: the board stays, the keys stay.
         try rig.click(atWindow: NSPoint(x: 20, y: 20))
         XCTAssertEqual(rig.overlays.overlayModel.content, .board)

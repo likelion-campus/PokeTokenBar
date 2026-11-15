@@ -119,6 +119,8 @@ extension SKView: PlazaPausableView {}
         w.contentView = container
         w.center()
         Self.restoreFrame(w, into: overlays.rosterModel, autosaveName: autosaveName)
+        board.swallowsWholeWindow = true
+        card.swallowsWholeWindow = true
         panelHosts = [.roster: roster, .board: board, .card: card, .photoFrame: photoFrame, .menu: menu, .pills: pills, .chatLog: chatLogView, .minimap: map, .clock: clock, .shortcuts: shortcuts, .backgroundToggle: toggle,
                       .nameColorPicker: colorPicker]
         self.hud = hud
@@ -201,10 +203,17 @@ extension SKView: PlazaPausableView {}
 
     func show(_ id: PlazaPanelID, drawing: PlazaPanelDrawing, frame: CGRect, scale: CGFloat) {
         panelHosts[id]?.show(drawing: drawing, frame: frame, scale: scale)
+        if id == .board || id == .card { coverRoster() }
     }
 
     func hide(_ id: PlazaPanelID) {
         panelHosts[id]?.hide()
+        if id == .board || id == .card { coverRoster() }
+    }
+
+    /// An open board or card covers the roster: no tooltips under it.
+    private func coverRoster() {
+        panelHosts[.roster]?.tooltipsSuspended = [PlazaPanelID.board, .card].contains { panelHosts[$0]?.panelFrame != nil }
     }
 
     func setChatLogAboveInput(_ above: Bool) {

@@ -97,6 +97,9 @@ import Foundation
         return frames
     }
 
+    /// Whether panel `id` is drawn now (visible, not hidden by the window).
+    func isShown(_ id: PlazaPanelID) -> Bool { shown[id] != nil && !hiddenPanels.contains(id) }
+
     /// What a click at `point` (window points, origin top-left) on the shown panel `id` picks.
     func hit(at point: CGPoint, in id: PlazaPanelID) -> PlazaPanelHit? {
         guard !hiddenPanels.contains(id), let frame = shown[id]?.frame, frame.contains(point),

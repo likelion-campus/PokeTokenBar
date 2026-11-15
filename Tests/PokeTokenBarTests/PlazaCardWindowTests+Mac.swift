@@ -37,7 +37,7 @@ import XCTest
         XCTAssertEqual(f.midY, rig.container.bounds.height / 2, accuracy: 1)
         let host = try XCTUnwrap(rig.host(.card))
         XCTAssertTrue(try XCTUnwrap(rig.hitView(.card, CGPoint(x: 190, y: 230))) === host)
-        XCTAssertTrue(rig.hitView(.card, CGPoint(x: -30, y: 230)) !== host, "beside the plate the click goes to the scene")
+        XCTAssertTrue(rig.hitView(.card, CGPoint(x: -30, y: 230)) === host, "beside the plate the host still takes it (the SwiftUI overlay covered the whole window) and nothing acts")
         var actions: [PlazaPanelHit] = []
         let own = rig.hud.onAction
         rig.hud.onAction = { id, hit in if id == .card { actions.append(hit) }; own?(id, hit) }
@@ -67,7 +67,7 @@ import XCTest
     }
 
     /// Where a click landed on the SwiftUI overlay and where the panel's host takes it (see the board's test): the same plate.
-    func testClicksOutsideThePlateGoToTheSceneWhichIgnoresThem() async throws {
+    func testTheHostTakesEveryClickInTheWindowAsTheSwiftUIOverlayDid() async throws {
         let state = card()
         let rig = try await rig(state)
         defer { rig.close() }
@@ -94,8 +94,8 @@ import XCTest
         }
         print("CARD CLICK both \(both) swiftuiOnly \(legacyOnly) panelOnly \(panelOnly)")
         XCTAssertEqual(panelOnly, 0)
-        XCTAssertEqual(Double(both), 95 * 115, accuracy: 4 * 95 + 4 * 115, "the plate: 380 x 460 points")
-        XCTAssertEqual(both + legacyOnly, 240 * 160, "the SwiftUI overlay took every click in the window")
+        XCTAssertEqual(legacyOnly, 0, "the panel takes every click the SwiftUI overlay took: the whole window")
+        XCTAssertEqual(both, 240 * 160)
     }
 
     func testTheWheelScrollsTheDexOnlyAndEachCardStartsAtTheTop() async throws {

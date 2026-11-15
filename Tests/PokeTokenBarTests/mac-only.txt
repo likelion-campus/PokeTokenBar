@@ -234,3 +234,4 @@ PlazaCardWindowTests+Mac.swift
 PlazaCanvasShapesMacTests.swift
 PlazaFirstMouseTests+Mac.swift
 PlazaHiddenPanelsTests+Mac.swift
+PlazaOverlayCoverTests+Mac.swift

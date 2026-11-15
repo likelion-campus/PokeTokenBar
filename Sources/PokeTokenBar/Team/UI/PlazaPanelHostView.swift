@@ -107,7 +107,7 @@ import QuartzCore
         removeAllToolTips()
         tooltipTags = []
         tooltipTexts = []
-        guard let f = panelFrame else { return }
+        guard !tooltipsSuspended, let f = panelFrame else { return }
         for tip in drawing.tooltips where !tip.text.isEmpty {
             tooltipTexts.append(tip.text)
             let rect = local(tip.frame.offsetBy(dx: f.minX, dy: f.minY))
@@ -138,6 +138,14 @@ import QuartzCore
         if hadItems { announceElements() }
         updateTrackingAreas()
     }
+
+    /// The board and the card: while shown, this host takes every click, hover and scroll anywhere in the window (the full-window SwiftUI
+    /// overlay did, above the roster and the scene and below every other panel); the HUD still reports only the plate's own hits.
+    var swallowsWholeWindow = false
+    private var swallowing: Bool { swallowsWholeWindow && hud.isShown(panelID) }
+
+    /// The roster under an open overlay offers no tooltips (the overlay covered it).
+    var tooltipsSuspended = false { didSet { if tooltipsSuspended != oldValue { placeTooltips() } } }
 
     /// Window points (top-left) to this view's coordinates (bottom-left; the view is not flipped).
     private func local(_ r: CGRect) -> CGRect { CGRect(x: r.minX, y: bounds.height - r.maxY, width: r.width, height: r.height) }
@@ -223,7 +231,9 @@ import QuartzCore
     /// `point` is in the superview's coordinates.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        guard !isHiddenOrHasHiddenAncestor, bounds.contains(local), hud.hit(at: topLeft(local), in: panelID) != nil else { return nil }
+        guard !isHiddenOrHasHiddenAncestor, bounds.contains(local) else { return nil }
+        if swallowing { return self }
+        guard hud.hit(at: topLeft(local), in: panelID) != nil else { return nil }
         return self
     }
 
@@ -247,9 +257,15 @@ import QuartzCore
     /// `NSScrollView` default line scroll; not measured against SwiftUI's `ScrollView`).
     static let lineScrollStep: CGFloat = 10
 
+    /// For tests: scrolls this host handed on up the responder chain.
+    private(set) var scrollsPassedOnForTesting = 0
+
     override func scrollWheel(with event: NSEvent) {
         let k = event.hasPreciseScrollingDeltas ? 1 : Self.lineScrollStep
-        if !forward(.scroll(dx: event.scrollingDeltaX * k, dy: event.scrollingDeltaY * k), event) { super.scrollWheel(with: event) }
+        if !forward(.scroll(dx: event.scrollingDeltaX * k, dy: event.scrollingDeltaY * k), event), !swallowing {
+            scrollsPassedOnForTesting += 1
+            super.scrollWheel(with: event)
+        }
     }
 }
 
