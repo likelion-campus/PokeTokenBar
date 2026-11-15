@@ -302,4 +302,63 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(shell.terminations, 0)
         XCTAssertFalse(checker.isUpdating, "the page opened; nothing is still updating")
     }
+
+    // MARK: - The in-app install comes first in the no-brew branch (stage 8)
+
+    @MainActor
+    private final class InstallingShell: PlatformShellService {
+        let installs: Bool
+        var opened: [URL] = []
+        var terminations = 0
+        var asked: [String] = []
+        init(installs: Bool) { self.installs = installs }
+        func open(_ url: URL) { opened.append(url) }
+        func terminate() { terminations += 1 }
+        func installUpdate(version: String) async -> Bool { asked.append(version); return installs }
+    }
+
+    @MainActor
+    private func applyWithoutBrew(_ shell: InstallingShell) async -> UpdateChecker {
+        let checker = UpdateChecker(currentVersion: "2.5.3", defaults: isolatedDefaults(),
+                                    fetchLatest: { UpdateChecker.LatestRelease(tag: "v2.5.5", url: Self.releaseURL) },
+                                    brewLocator: { nil })
+        await checker.check()
+        checker.applyUpdate()
+        for _ in 0..<150 where shell.asked.isEmpty { try? await Task.sleep(nanoseconds: 20_000_000) }
+        // Time for the same task to (wrongly) go on to the page after the shell answered.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        return checker
+    }
+
+    /// A shell that does not install (the Mac, a refused Windows download): the page opens once, as before.
+    @MainActor
+    func testApplyOpensThePageOnceWhenTheShellDoesNotInstall() async {
+        let shell = InstallingShell(installs: false)
+        let previous = PlatformShell.current
+        PlatformShell.current = shell
+        defer { PlatformShell.current = previous }
+        let checker = await applyWithoutBrew(shell)
+        XCTAssertEqual(shell.asked, ["2.5.5"], "asked first, with the version on offer")
+        XCTAssertEqual(shell.opened, [URL(string: Self.releaseURL)!])
+        XCTAssertEqual(shell.terminations, 0)
+        XCTAssertFalse(checker.isUpdating)
+    }
+
+    /// A shell that installs (Windows): no page, nothing ended here, and the spinner stays while the app leaves; a second
+    /// click does not start a second install.
+    @MainActor
+    func testApplyLeavesTheUpdateToAShellThatInstalls() async {
+        let shell = InstallingShell(installs: true)
+        let previous = PlatformShell.current
+        PlatformShell.current = shell
+        defer { PlatformShell.current = previous }
+        let checker = await applyWithoutBrew(shell)
+        XCTAssertEqual(shell.asked, ["2.5.5"])
+        XCTAssertEqual(shell.opened, [], "the installer is starting: no release page")
+        XCTAssertEqual(shell.terminations, 0, "the shell ends the app itself")
+        XCTAssertTrue(checker.isUpdating, "Updating… stays until the app leaves")
+        checker.applyUpdate()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(shell.asked, ["2.5.5"], "no second install while one is starting")
+    }
 }

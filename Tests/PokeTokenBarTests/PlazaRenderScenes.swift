@@ -1,9 +1,9 @@
-import AppKit
-import ImageIO
-import SpriteKit
+import Foundation
 @testable import PokeTokenBar
 
-// The scenes of the offscreen render harness (windows-port Track A, Task 1). Mac only (SpriteKit).
+// The scenes of the render harness (windows-port Track A Task 1; shared since stage 6 Task 15). Shared code: the Mac's
+// SpriteKit harness and the Windows Direct2D harness build the SAME scenes from these builders, with the same fixture
+// bytes, clock and seeds, each on its own `PlazaStage` (`build(stage)`).
 // Every scene is built through `PlazaScene`'s own public API and driven by a pure function of the frame number:
 // `now` is a function of the frame, seeds are fixed (dance style, firework style, Ditto), time advances 1/60 s a frame.
 
@@ -12,7 +12,7 @@ struct PlazaRenderScene {
     let viewport: CGSize
     let backing: CGFloat
     let captures: [Int]
-    let build: @MainActor () -> PlazaRenderSetup
+    let build: @MainActor (_ stage: any PlazaStage) -> PlazaRenderSetup
 }
 
 struct PlazaRenderSetup {
@@ -25,7 +25,7 @@ enum PlazaRenderLook: Hashable {
     case me, ash, brock, misty, dawn, ditto, egg
     /// Frames of three sizes: front steps 28x32 and 26x30, back 30x34.
     case mixed
-    /// A real cached sprite by species id (`real-sprites` only).
+    /// A real cached sprite by species id (`real-sprites` only, Mac harness).
     case real(Int)
 }
 
@@ -36,6 +36,51 @@ enum PlazaRenderLook: Hashable {
     func date(at frame: Int, base: Date) { date = base.addingTimeInterval(Double(frame) / 60) }
 }
 
+/// Environment switches of the harnesses (every harness test skips without its variable).
+enum PlazaRenderEnv {
+    static func value(_ key: String) -> String? {
+        let v = ProcessInfo.processInfo.environment[key]
+        return (v?.isEmpty ?? true) ? nil : v
+    }
+    static var only: Set<String>? {
+        value("PTB_PLAZA_RENDER_ONLY").map { Set($0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }) }
+    }
+}
+
+/// The fixture clock's time zone, pinned. The scenes read the hour of `now()` through `Calendar.current` (daylight tint,
+/// campfire timer) and the item schedule from the instant, so the same wall-clock fixture is a different instant (and a
+/// different set of nodes) on a machine in another zone: Task 4 found the Mac in KST and the UTC runner disagreeing on an
+/// item node. The zone is a FIXED offset (+09:00, no DST, no zone database needed: the maintainer's Mac is in KST, so the
+/// renders did not move), applied as `NSTimeZone.default` for the length of a run and restored after.
+@MainActor
+enum PlazaFixtureTime {
+    static let offsetSeconds = 9 * 3600
+    static var zone: TimeZone { TimeZone(secondsFromGMT: offsetSeconds)! }
+    static var calendar: Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = zone
+        return c
+    }
+
+    /// Pins the process zone; `restore()` puts the previous one back. `Calendar.current` must follow (checked: a Foundation
+    /// that ignored the default would silently keep the host's zone).
+    struct Pin {
+        fileprivate let previous: TimeZone
+        func restore() { NSTimeZone.default = previous }
+    }
+
+    static func pin() -> Pin {
+        let pin = Pin(previous: NSTimeZone.default)
+        NSTimeZone.default = zone
+        precondition(Calendar.current.timeZone.secondsFromGMT() == offsetSeconds, "Calendar.current ignores the pinned time zone")
+        return pin
+    }
+
+    static func date(year: Int = 2026, month: Int = 6, day: Int = 15, hour: Int, minute: Int = 0) -> Date {
+        calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute))!
+    }
+}
+
 @MainActor
 enum PlazaRenderScenes {
     static let map = PlazaMapData.map
@@ -43,16 +88,9 @@ enum PlazaRenderScenes {
 
     // MARK: Synthetic characters
 
-    /// Raw premultiplied RGBA bytes -> CGImage through a `CGDataProvider`, the construction `PlazaImage(bitmap:)` will use.
-    static func image(_ rgba: [UInt8], width: Int, height: Int) -> CGImage {
-        let provider = CGDataProvider(data: Data(rgba) as CFData)!
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue), provider: provider,
-                       decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
-    }
-
-    private static func body(_ look: PlazaRenderLook, front: Bool, step: Int) -> CGImage {
+    /// The harness's own fixtures are built from raw bytes through `PlazaImage(bitmap:)` (no AppKit, the same pixels on
+    /// both OSes). The Mac keeps `PlazaRenderScenes.image` (`+Mac`): the CGImage of the same bytes, for its oracles.
+    static func bitmapBytes(_ look: PlazaRenderLook, front: Bool, step: Int) -> (bytes: [UInt8], width: Int, height: Int) {
         let (w, h) = look == .egg ? (20, 26) : look == .mixed ? (front ? (step == 0 ? (28, 32) : (26, 30)) : (30, 34)) : (28, 32)
         let colour: (UInt8, UInt8, UInt8) = switch look {
         case .me: (230, 80, 60)
@@ -88,41 +126,23 @@ enum PlazaRenderScenes {
             for x in 8..<20 { put(x, 9, dark) }   // a stripe instead of a face
         }
         if look != .egg { put(step == 0 ? 7 : 20, h - 3, dark); put(step == 0 ? 7 : 20, h - 2, dark) }   // a foot that moves
-        return image(px, width: w, height: h)
+        return (px, w, h)
     }
+
+    private static func body(_ look: PlazaRenderLook, front: Bool, step: Int) -> PlazaImage {
+        let b = bitmapBytes(look, front: front, step: step)
+        return PlazaImage(bitmap: PlazaBitmap(width: b.width, height: b.height, bytes: b.bytes))
+    }
+
+    /// Mac harness only: a real cached sprite by species id (`PlazaRenderScenes+Mac.swift` installs it).
+    static var realFramesProvider: (@MainActor (Int) -> PlazaCharacterFrames?)?
 
     static func frames(_ look: PlazaRenderLook) -> PlazaCharacterFrames {
-        if case .real(let id) = look, let real = realFrames(id) { return real }
-        let front = (0..<2).map { PlazaFrame(image: PlazaImage(cgImage: body(look, front: true, step: $0)), delay: 0.2) }
-        let back = (0..<2).map { PlazaFrame(image: PlazaImage(cgImage: body(look, front: false, step: $0)), delay: 0.2) }
+        if case .real(let id) = look, let real = realFramesProvider?(id) { return real }
+        let front = (0..<2).map { PlazaFrame(image: body(look, front: true, step: $0), delay: 0.2) }
+        let back = (0..<2).map { PlazaFrame(image: body(look, front: false, step: $0), delay: 0.2) }
         var f = PlazaCharacterFrames(front: front, back: back)
         f.isEgg = look == .egg
-        return f
-    }
-
-    // MARK: Real sprites
-
-    static var spritesDir: URL? { PlazaRenderEnv.value("PTB_PLAZA_RENDER_SPRITES").map { URL(fileURLWithPath: $0) } }
-    static let realSpecies = [25, 6, 150, 94, 133]
-
-    private static func gif(_ url: URL) -> [PlazaFrame]? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        var out: [PlazaFrame] = []
-        for i in 0..<CGImageSourceGetCount(source) {
-            guard let image = CGImageSourceCreateImageAtIndex(source, i, nil) else { return nil }
-            let props = CGImageSourceCopyPropertiesAtIndex(source, i, nil) as? [CFString: Any]
-            let gifProps = props?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
-            let delay = (gifProps?[kCGImagePropertyGIFUnclampedDelayTime] as? Double) ?? (gifProps?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
-            out.append(PlazaFrame(image: PlazaImage(cgImage: image), delay: max(delay, 0.02)))
-        }
-        return out.isEmpty ? nil : out
-    }
-
-    static func realFrames(_ id: Int) -> PlazaCharacterFrames? {
-        guard let dir = spritesDir, let front = gif(dir.appendingPathComponent("\(id)-a.gif")) else { return nil }
-        let back = gif(dir.appendingPathComponent("\(id)-ba.gif"))
-        var f = PlazaCharacterFrames(front: front, back: back ?? front)
-        f.backIsFront = back == nil
         return f
     }
 
@@ -132,9 +152,9 @@ enum PlazaRenderScenes {
     static func seasonLook(_ season: PlazaSeason) -> PlazaSnowLook? {
         if let built = looks[season] { return built }
         var look: PlazaSnowLook?
-        if season != .summer, let sheet = PlazaResources.tileSheet() {
-            let art = PlazaResources.tallGrassSheet().map { PlazaSeasonSheet.tallGrass(PlazaImage(cgImage: $0), season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
-            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(PlazaImage(cgImage: sheet), season: season), tallGrass: art), tallGrass: art)
+        if season != .summer, let sheet = PlatformPlaza.tileSheet() {
+            let art = PlatformPlaza.tallGrassSheet().map { PlazaSeasonSheet.tallGrass($0, season: season) }.flatMap(PlazaTallGrassArt.init(sheet:))
+            look = PlazaSnowLook(mapImage: PlazaTileArt.mapImage(map, sheet: PlazaSeasonSheet.tiles(sheet, season: season), tallGrass: art), tallGrass: art)
         }
         looks[season] = .some(look)
         return look
@@ -209,19 +229,20 @@ enum PlazaRenderScenes {
     }
     static let crowdLooks: [String: PlazaRenderLook] = ["ash": .ash, "brock": .brock, "misty": .misty, "dawn": .dawn]
 
-    static func stage(_ o: Options = Options()) -> Stage {
+    /// `stage` is the platform's (SpriteKit on the Mac, Direct2D on Windows, headless for dumps); nil takes the platform default.
+    static func stage(_ o: Options = Options(), on platformStage: (any PlazaStage)? = nil) -> Stage {
         if summerMap == nil {
-            let grass = PlazaTallGrassArt.load()
+            let grass = PlatformPlaza.tallGrassArt()
             tallGrass = .some(grass)
-            iceArt = PlazaIceArt.load()
-            let sheet = PlazaResources.tileSheet().map(PlazaImage.init(cgImage:))
-            summerMap = sheet.map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: grass) } ?? PlazaTileArt.plainGrassImage(map)
+            iceArt = PlatformPlaza.iceArt()
+            summerMap = PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(map, sheet: $0, tallGrass: grass) } ?? PlazaTileArt.plainGrassImage(map)
         }
+        let stage = platformStage ?? PlatformPlaza.makeStage(size: CGSize(width: 960, height: 640))
         let scene = PlazaScene(map: map, mapImage: summerMap!, start: o.me, zoom: o.zoom, nickname: o.nickname,
-                               tallGrass: tallGrass ?? nil, pondVisuals: true, iceArt: iceArt)
+                               tallGrass: tallGrass ?? nil, pondVisuals: true, iceArt: iceArt, stage: stage)
         scene.backingOverride = o.backing
         scene.size = viewport
-        let base = o.date ?? Calendar.current.date(from: DateComponents(year: 2026, month: 6, day: 15, hour: o.hour, minute: o.minute))!
+        let base = o.date ?? PlazaFixtureTime.date(hour: o.hour, minute: o.minute)
         let clock = PlazaRenderClock(base)
         scene.now = { clock.date }
         scene.seasonLook = { seasonLook($0) }
@@ -233,14 +254,14 @@ enum PlazaRenderScenes {
         return Stage(scene: scene, base: base, clock: clock)
     }
 
-    private static func setup(_ s: Stage, photo: Bool = false, _ step: @escaping @MainActor (Int) -> Void = { _ in }) -> PlazaRenderSetup {
+    static func setup(_ s: Stage, photo: Bool = false, _ step: @escaping @MainActor (Int) -> Void = { _ in }) -> PlazaRenderSetup {
         PlazaRenderSetup(scene: s.scene, step: { frame in
             s.clock.date(at: frame, base: s.base)
             step(frame)
         }, photo: photo)
     }
 
-    private static func scene(_ name: String, backing: CGFloat = 2, captures: [Int], build: @escaping @MainActor () -> PlazaRenderSetup) -> PlazaRenderScene {
+    private static func scene(_ name: String, backing: CGFloat = 2, captures: [Int], build: @escaping @MainActor (any PlazaStage) -> PlazaRenderSetup) -> PlazaRenderScene {
         PlazaRenderScene(name: name, viewport: viewport, backing: backing, captures: captures, build: build)
     }
 
@@ -251,9 +272,9 @@ enum PlazaRenderScenes {
     // MARK: Scene builders
 
     private static func base(_ name: String, backing: CGFloat, zoom: Int, captures: [Int] = [10, 40, 90], photo: Bool = false) -> PlazaRenderScene {
-        scene(name, backing: backing, captures: captures) {
+        scene(name, backing: backing, captures: captures) { st in
             var o = Options(); o.zoom = zoom; o.backing = backing
-            let s = stage(o)
+            let s = stage(o, on: st)
             s.put(crowd(o.me), looks: crowdLooks)
             return setup(s, photo: photo) { f in
                 switch f {
@@ -267,28 +288,28 @@ enum PlazaRenderScenes {
     }
 
     private static func daylight(_ name: String, hour: Int, minute: Int = 0, photo: Bool = false) -> PlazaRenderScene {
-        scene(name, captures: [10]) {
+        scene(name, captures: [10]) { st in
             var o = Options(); o.hour = hour; o.minute = minute
-            let s = stage(o)
+            let s = stage(o, on: st)
             s.put(crowd(o.me), looks: crowdLooks)
             return setup(s, photo: photo)
         }
     }
 
     private static func season(_ name: String, _ choice: PlazaSeasonChoice, photo: Bool = false) -> PlazaRenderScene {
-        scene(name, captures: [10, 60]) {
+        scene(name, captures: [10, 60]) { st in
             var o = Options(); o.season = choice
-            let s = stage(o)
+            let s = stage(o, on: st)
             s.put(crowd(o.me), looks: crowdLooks)
             return setup(s, photo: photo)
         }
     }
 
     private static func campfire(_ name: String, hour: Int, lit: Bool, smoke: Bool = false, photo: Bool = false) -> PlazaRenderScene {
-        scene(name, captures: [10, 37, 64]) {
+        scene(name, captures: [10, 37, 64]) { st in
             var o = Options(); o.hour = hour
             o.me = PlazaCampfire.seats[0].tile
-            let s = stage(o)
+            let s = stage(o, on: st)
             s.scene.sit(at: PlazaCampfire.seats[0])
             let seats = PlazaCampfire.seats
             s.put([member("ash", "Ash", seats[1].tile.x, seats[1].tile.y, facing: seats[1].facing),
@@ -303,10 +324,10 @@ enum PlazaRenderScenes {
     }
 
     private static func pond(_ name: String, egg: Bool, photo: Bool = false) -> PlazaRenderScene {
-        scene(name, captures: [5, 20, 45]) {
+        scene(name, captures: [5, 20, 45]) { st in
             var o = Options(); o.me = TilePoint(x: egg ? 12 : 9, y: egg ? 12 : 14)
             if egg { o.meLook = .egg }
-            let s = stage(o)
+            let s = stage(o, on: st)
             if egg {
                 // one egg in the water (sunk), one on land with its nest rim, me an egg on the shore
                 s.put([member("e1", "Egg1", 9, 14), member("e2", "Egg2", 10, 12), member("ash", "Ash", 13, 12, facing: .left)],
@@ -330,9 +351,9 @@ enum PlazaRenderScenes {
     }
 
     private static func ice(_ name: String, _ script: @escaping @MainActor (Stage, Int) -> Void) -> PlazaRenderScene {
-        scene(name, captures: [5, 20, 40]) {
+        scene(name, captures: [5, 20, 40]) { st in
             var o = Options(); o.season = .winter; o.me = TilePoint(x: 10, y: 12)
-            let s = stage(o)
+            let s = stage(o, on: st)
             s.put([member("ash", "Ash", 8, 14), member("brock", "Brock", 12, 12, facing: .left)], looks: crowdLooks)
             return setup(s) { f in script(s, f) }
         }
@@ -348,9 +369,9 @@ enum PlazaRenderScenes {
     }
 
     private static func chatScene(_ name: String, backing: CGFloat) -> PlazaRenderScene {
-        scene(name, backing: backing, captures: [10]) {
+        scene(name, backing: backing, captures: [10]) { st in
             var o = Options(); o.backing = backing
-            let s = stage(o)
+            let s = stage(o, on: st)
             row(s, [member("a", "Ash", 16, 9), member("b", "Brock", 19, 8), member("c", "Misty", 22, 9),
                     member("d", "Dawn", 14, 11), member("e", "Eve", 18, 12), member("f", "Fay", 23, 12)])
             return setup(s) { f in
@@ -367,9 +388,9 @@ enum PlazaRenderScenes {
     }
 
     private static func plateScene(_ name: String, backing: CGFloat) -> PlazaRenderScene {
-        scene(name, backing: backing, captures: [10]) {
+        scene(name, backing: backing, captures: [10]) { st in
             var o = Options(); o.backing = backing; o.nickname = "Me"
-            let s = stage(o)
+            let s = stage(o, on: st)
             row(s, [member("a", "Titled", 16, 9, nature: .adamant), member("b", "Sleepy", 19, 8, idle: true),
                     member("c", "A very long nickname that must be truncated somewhere", 22, 9),
                     member("d", "한글이름", 14, 11, color: 0xFF8800), member("e", "", 18, 12), member("f", "🔥Fire", 23, 12, color: 0x22CC88)])
@@ -378,8 +399,8 @@ enum PlazaRenderScenes {
     }
 
     private static func ditto(_ name: String, decoy: Bool, poof: Bool) -> PlazaRenderScene {
-        scene(name, captures: [5, 15, 25]) {
-            let s = stage()
+        scene(name, captures: [5, 15, 25]) { st in
+            let s = stage(on: st)
             s.put(crowd(Options().me), looks: crowdLooks)
             let shown = PlazaDittoShown(tile: TilePoint(x: 19, y: 12), facing: .down, isWalking: false, isRunning: false,
                                         name: decoy ? "Ash" : "Ditto", nameColor: PlazaNameColor.palette[1], title: nil, isDecoy: decoy)
@@ -401,9 +422,9 @@ enum PlazaRenderScenes {
     }
 
     private static func fireworks(_ name: String, hour: Int, photo: Bool = false) -> PlazaRenderScene {
-        scene(name, captures: [10, 30, 60]) {
+        scene(name, captures: [10, 30, 60]) { st in
             var o = Options(); o.hour = hour
-            let s = stage(o)
+            let s = stage(o, on: st)
             s.put(crowd(o.me), looks: crowdLooks)
             return setup(s, photo: photo) { f in
                 switch f {
@@ -417,9 +438,9 @@ enum PlazaRenderScenes {
     }
 
     private static func throwing(_ name: String, choice: PlazaSeasonChoice) -> PlazaRenderScene {
-        scene(name, captures: [5, 12, 20]) {
+        scene(name, captures: [5, 12, 20]) { st in
             var o = Options(); o.season = choice
-            let s = stage(o)
+            let s = stage(o, on: st)
             s.put([member("ash", "Ash", 15, 10, facing: .right), member("brock", "Brock", 24, 10, facing: .left),
                    member("misty", "Misty", 19, 7, facing: .down)], looks: crowdLooks)
             return setup(s) { f in
@@ -440,8 +461,8 @@ enum PlazaRenderScenes {
     }
 
     private static func effect(_ name: String, _ fire: @escaping @MainActor (Stage) -> Void) -> PlazaRenderScene {
-        scene(name, captures: [3, 10, 22]) {
-            let s = stage()
+        scene(name, captures: [3, 10, 22]) { st in
+            let s = stage(on: st)
             s.put(crowd(Options().me), looks: crowdLooks)
             return setup(s) { f in if f == 1 { fire(s) } }
         }
@@ -449,9 +470,9 @@ enum PlazaRenderScenes {
 
     /// The first item the real map shows, with `me` two tiles west of it.
     private static func itemScene() -> PlazaRenderScene {
-        scene("items", captures: [10, 40]) {
+        scene("items", captures: [10, 40]) { st in
             let open = PlazaItems.openTiles(in: map)
-            var slot = PlazaItems.slot(at: Calendar.current.date(from: DateComponents(year: 2026, month: 6, day: 15, hour: 12))!)
+            var slot = PlazaItems.slot(at: PlazaFixtureTime.date(hour: 12))
             var spawn = PlazaItems.spawn(slot: slot, candidates: PlazaItems.spawnCandidates)
             while spawn == nil || !PlazaItems.isShown(spawn!, openTiles: open) || !open.contains(TilePoint(x: spawn!.tile.x - 2, y: spawn!.tile.y)) {
                 slot += 1
@@ -460,7 +481,7 @@ enum PlazaRenderScenes {
             var o = Options()
             o.date = spawn!.appearsAt.addingTimeInterval(5)
             o.me = TilePoint(x: spawn!.tile.x - 2, y: spawn!.tile.y)
-            let s = stage(o)
+            let s = stage(o, on: st)
             s.put([member("ash", "Ash", spawn!.tile.x, min(spawn!.tile.y + 2, 28))], looks: crowdLooks)
             return setup(s)
         }
@@ -468,7 +489,17 @@ enum PlazaRenderScenes {
 
     // MARK: All scenes
 
-    static let all: [PlazaRenderScene] = makeAll()
+    /// The Mac harness's `real-sprites` scene (real cached GIFs, never committed): `PlazaRenderScenes+Mac.swift` installs it.
+    static var realSpritesScene: (@MainActor () -> PlazaRenderScene?)?
+
+    static var all: [PlazaRenderScene] { makeAll() }
+
+    /// Scenes only the cross-OS compare renders: `base-noon` at the fractional display scales Windows has and the Mac has not
+    /// (not in `all`, so the Mac's own base-vs-head compare is unchanged).
+    static var crossExtras: [PlazaRenderScene] {
+        let list = [base("base-noon-1.25x", backing: 1.25, zoom: 2), base("base-noon-1.5x", backing: 1.5, zoom: 2)]
+        return PlazaRenderEnv.only.map { only in list.filter { only.contains($0.name) } } ?? list
+    }
 
     private static func makeAll() -> [PlazaRenderScene] {
         var out: [PlazaRenderScene] = [
@@ -476,9 +507,9 @@ enum PlazaRenderScenes {
             base("zoom-1", backing: 2, zoom: 1), base("zoom-4", backing: 2, zoom: 4),
             daylight("dusk", hour: 18, minute: 40), daylight("night", hour: 23, photo: true),
             season("spring", .spring), season("autumn", .autumn), season("winter-snow", .winter, photo: true),
-            scene("winter-footprints", captures: [30, 120, 400]) {
+            scene("winter-footprints", captures: [30, 120, 400]) { st in
                 var o = Options(); o.season = .winter; o.me = TilePoint(x: 8, y: 10)
-                let s = stage(o)
+                let s = stage(o, on: st)
                 s.put([member("ash", "Ash", 12, 9, facing: .left)], looks: crowdLooks)
                 return setup(s) { f in
                     switch f {
@@ -499,9 +530,9 @@ enum PlazaRenderScenes {
                 if f == 1 { s.scene.setIceBreak(iceBreak(s), hit: TilePoint(x: 9, y: 14)) }
                 if f >= 4 { s.clock.date = s.base.addingTimeInterval(PlazaIce.refreezeDelay + Double(f - 4) / 60) }
             },
-            scene("tall-grass", captures: [5, 20, 50]) {
+            scene("tall-grass", captures: [5, 20, 50]) { st in
                 var o = Options(); o.me = TilePoint(x: 12, y: 7)
-                let s = stage(o)
+                let s = stage(o, on: st)
                 s.put([member("ash", "Ash", 8, 6), member("brock", "Brock", 9, 7, facing: .right, walking: true)], looks: crowdLooks)
                 return setup(s, photo: true) { f in
                     switch f {
@@ -512,8 +543,8 @@ enum PlazaRenderScenes {
                     }
                 }
             },
-            scene("dance", captures: [7, 23, 41]) {
-                let s = stage()
+            scene("dance", captures: [7, 23, 41]) { st in
+                let s = stage(on: st)
                 s.put(crowd(Options().me), looks: crowdLooks)
                 return setup(s, photo: true) { f in
                     if f == 1 {
@@ -523,14 +554,14 @@ enum PlazaRenderScenes {
                     }
                 }
             },
-            scene("pray-wobble", captures: [7, 23, 41]) {
+            scene("pray-wobble", captures: [7, 23, 41]) { st in
                 var o = Options(); o.meLook = .egg
-                let s = stage(o)
+                let s = stage(o, on: st)
                 s.put([member("e1", "Egg1", 21, 10), member("ash", "Ash", 17, 10)], looks: ["e1": .egg, "ash": .ash])
                 return setup(s) { f in if f == 1 { s.scene.playPray(memberID: nil); s.scene.playPray(memberID: "e1") } }
             },
-            scene("emotes", captures: [10]) {
-                let s = stage()
+            scene("emotes", captures: [10]) { st in
+                let s = stage(on: st)
                 row(s, [member("a", "Ash", 16, 9), member("b", "Brock", 18, 8), member("c", "Misty", 21, 8),
                         member("d", "Dawn", 22, 10), member("e", "Eve", 16, 12), member("f", "Fay", 22, 12)])
                 return setup(s) { f in
@@ -551,28 +582,28 @@ enum PlazaRenderScenes {
             effect("shutter") { s in s.scene.playShutterFlash() },
             effect("sparkle") { s in s.scene.playSparkle(memberID: nil); s.scene.playSparkle(memberID: "misty") },
             itemScene(),
-            scene("board-marker", captures: [10, 40]) {
+            scene("board-marker", captures: [10, 40]) { st in
                 var o = Options(); o.zoom = 1; o.me = TilePoint(x: 24, y: 8)
-                let s = stage(o)
+                let s = stage(o, on: st)
                 s.put([member("ash", "Ash", 21, 9)], looks: crowdLooks)
                 s.scene.setBoardMarker(visible: true)
                 return setup(s)
             },
-            scene("wet", captures: [10, 40]) {
-                let s = stage()
+            scene("wet", captures: [10, 40]) { st in
+                let s = stage(on: st)
                 s.put(crowd(Options().me), looks: crowdLooks)
                 s.scene.myActor.showWet()
                 s.scene.memberActor("ash")?.showWet()
                 return setup(s)
             },
-            scene("background-hidden", captures: [10]) {
-                let s = stage()
+            scene("background-hidden", captures: [10]) { st in
+                let s = stage(on: st)
                 s.put(crowd(Options().me), looks: crowdLooks)
                 s.scene.setBackgroundHidden(true)
                 return setup(s)
             },
-            scene("photo-mode", captures: [10, 30]) {
-                let s = stage()
+            scene("photo-mode", captures: [10, 30]) { st in
+                let s = stage(on: st)
                 s.put(crowd(Options().me), looks: crowdLooks)
                 return setup(s) { f in
                     switch f {
@@ -586,9 +617,9 @@ enum PlazaRenderScenes {
             },
             // Members leave (the actor's detach): a swimmer with a chat bubble (ghost crop showing) and a wet walker go,
             // the Ditto changes form and then goes, and a late member joins after them.
-            scene("member-leave", captures: [8, 16, 24, 32]) {
+            scene("member-leave", captures: [8, 16, 24, 32]) { st in
                 var o = Options(); o.me = TilePoint(x: 12, y: 12)
-                let s = stage(o)
+                let s = stage(o, on: st)
                 let stay = member("ash", "Ash", 13, 12, facing: .left)
                 s.put([stay, member("swimmer", "Swimmer", 9, 14), member("wet", "Wet", 10, 12, facing: .right, walking: true)],
                       looks: ["ash": .ash, "swimmer": .misty, "wet": .brock])
@@ -609,9 +640,9 @@ enum PlazaRenderScenes {
             },
             // A swimmer whose pond rect changes (the ghost crop's mask moves: pond A -> C -> A), one facing back in the
             // water, the Ditto changing form while it swims, and a swimmer whose frames arrive late (placed before).
-            scene("pond-hop", captures: [4, 10, 16, 28]) {
+            scene("pond-hop", captures: [4, 10, 16, 28]) { st in
                 var o = Options(); o.zoom = 1; o.me = TilePoint(x: 14, y: 19)
-                let s = stage(o)
+                let s = stage(o, on: st)
                 s.applied.insert("late")   // its frames arrive at frame 6
                 s.put([member("hopper", "Hopper", 7, 14), member("back", "Back", 10, 14, facing: .up),
                        member("late", "Late", 20, 24)], looks: ["hopper": .misty, "back": .ash])
@@ -629,8 +660,8 @@ enum PlazaRenderScenes {
                 }
             },
             // Lunges to the right, up and down (the effect scenes only lunge left), and frames of three sizes walking.
-            scene("lunges", captures: [3, 9, 15, 24]) {
-                let s = stage()
+            scene("lunges", captures: [3, 9, 15, 24]) { st in
+                let s = stage(on: st)
                 s.put([member("ash", "Ash", 17, 10, facing: .right), member("misty", "Misty", 21, 9),
                        member("dawn", "Dawn", 21, 11, facing: .up), member("mix", "Mix", 16, 12)],
                       looks: ["ash": .ash, "misty": .misty, "dawn": .dawn, "mix": .mixed])
@@ -645,18 +676,7 @@ enum PlazaRenderScenes {
                 }
             },
         ]
-        if spritesDir != nil, realFrames(realSpecies[0]) != nil {
-            out.append(scene("real-sprites", captures: [10, 30]) {
-                var o = Options(); o.me = TilePoint(x: 10, y: 12); o.meLook = .real(realSpecies[0])
-                let s = stage(o)
-                s.put([member("a", "A", 12, 12), member("b", "B", 8, 14), member("c", "C", 13, 10), member("d", "D", 7, 12)],
-                      looks: ["a": .real(realSpecies[1]), "b": .real(realSpecies[2]), "c": .real(realSpecies[3]), "d": .real(realSpecies[4])])
-                return setup(s, photo: true) { f in
-                    if f == 1 { press(s, 2); _ = s.scene.playDance(memberID: "a", style: "sway") }
-                    if f == 2 { s.move("b", to: TilePoint(x: 9, y: 14), walking: true) }
-                }
-            })
-        }
+        if let real = realSpritesScene?() { out.append(real) }
         if let only = PlazaRenderEnv.only { out = out.filter { only.contains($0.name) } }
         return out
     }

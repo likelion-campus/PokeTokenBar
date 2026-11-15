@@ -254,6 +254,15 @@ final class CorePlatformRoutingTests: XCTestCase {
         XCTAssertEqual(mac.displaysAreAsleep, CGDisplayIsAsleep(CGMainDisplayID()) != 0)
     }
 
+    /// Stage 8: the Mac keeps Homebrew or the release page (`UpdateChecker.applyUpdate`). Neither shell installs here, and the
+    /// default answer opens, ends and starts nothing, so asking it in a test is safe.
+    func testTheMacAndSharedOnlyShellsDoNotInstallUpdates() async {
+        let mac = await MacShell().installUpdate(version: "99.0.0")
+        let logging = await LoggingShell().installUpdate(version: "99.0.0")
+        XCTAssertFalse(mac)
+        XCTAssertFalse(logging)
+    }
+
     func testMacNotificationsAreUnavailableOutsideAnAppBundle() {
         // `UNUserNotificationCenter.current()` crashes here; the hubs must see "unavailable" and never call it.
         XCTAssertFalse(MacNotifications().isAvailable)

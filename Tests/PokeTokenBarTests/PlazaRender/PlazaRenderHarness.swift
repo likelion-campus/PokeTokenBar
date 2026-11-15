@@ -14,15 +14,7 @@ import XCTest
 ///  PTB_PLAZA_RENDER_ONLY=a,b       restrict to these scene names
 ///  PTB_PLAZA_RENDER_SPRITES=<dir>  real cached GIFs (read only) for `real-sprites`
 ///  PTB_PLAZA_FRAMECOST_OUT=<file>, PTB_PLAZA_FRAMECOST_FRAMES=<n>
-enum PlazaRenderEnv {
-    static func value(_ key: String) -> String? {
-        let v = ProcessInfo.processInfo.environment[key]
-        return (v?.isEmpty ?? true) ? nil : v
-    }
-    static var only: Set<String>? {
-        value("PTB_PLAZA_RENDER_ONLY").map { Set($0.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }) }
-    }
-}
+// `PlazaRenderEnv` lives in the shared `PlazaRenderScenes.swift`.
 
 /// The plan's single adapter: the harness reaches the SpriteKit scene only through here.
 enum PlazaRenderHarness {
@@ -147,6 +139,8 @@ struct PlazaRenderCapture {
     let ties: [String]
     /// Where a shared subtree and its SpriteKit copy disagree (must be empty).
     var parity: [String] = []
+    /// The shared tree with texture origins and device rectangles (the cross-OS compare's side of the tree).
+    var cross: [PlazaCrossLine] = []
 }
 
 @MainActor
@@ -160,14 +154,16 @@ enum PlazaRenderRun {
     /// z nudge per tie rank; well above Float32 resolution at the plaza's z range (<12), well below the plaza's finest z step (2e-4).
     static let tieStep: CGFloat = 5e-6
 
-    struct Photo { let png: Data; let rgbaSHA256: String }
+    struct Photo { let png: Data; let rgbaSHA256: String; var cross: PlazaCrossCapture? = nil }
 
     /// Set by the photo parity test: sees the photo input of every scene at the end of its run (scene name, input).
     static var photoInputObserver: ((String, PlazaPhotoInput) -> Void)?
 
     static func run(_ scene: PlazaRenderScene, renderer: PlazaOffscreenRenderer) -> (captures: [PlazaRenderCapture], photo: Photo?) {
         renderer.startFresh()
-        let setup = scene.build()
+        let pin = PlazaFixtureTime.pin()   // the scenes read the hour through Calendar.current; see PlazaFixtureTime
+        defer { pin.restore() }
+        let setup = scene.build(PlatformPlaza.makeStage(size: CGSize(width: 960, height: 640)))
         let sk = PlazaRenderHarness.skScene(of: setup.scene)
         let pixels = (width: Int(scene.viewport.width * scene.backing), height: Int(scene.viewport.height * scene.backing))
         var out: [PlazaRenderCapture] = []
@@ -203,6 +199,7 @@ enum PlazaRenderRun {
                 capture.skRegionTree = dump.regionLines.joined(separator: "\n") + "\n"
                 capture.sharedTree = PlazaTreeDump.lines(root: setup.scene.root, camera: setup.scene.stage.camera,
                                                          classNames: PlazaTreeDump.classNames(of: setup.scene)).joined(separator: "\n") + "\n"
+                capture.cross = PlazaCrossDump.lines(of: setup.scene, backing: scene.backing)
                 capture.parity = PlazaRenderHarness.sharedRoots(of: setup.scene).flatMap { PlazaMirrorParity.differences($0) }
                     + PlazaRenderHarness.actorMountDifferences(of: setup.scene)
                 out.append(capture)
@@ -212,7 +209,7 @@ enum PlazaRenderRun {
         var photo: Photo?
         if setup.photo, let input = setup.scene.photoInput(), let image = PlazaPhotoRenderer.render(input),
            let png = PlatformPlaza.graphics.encodePNG(image), let data = image.cgImage.dataProvider?.data as Data? {
-            photo = Photo(png: png, rgbaSHA256: hex(Array(data)))
+            photo = Photo(png: png, rgbaSHA256: hex(Array(data)), cross: PlazaCrossHarness.photo(of: scene, setup: setup))
         }
         return (out, photo)
     }
