@@ -124,7 +124,12 @@ import SwiftUI
         override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)) }
         override func stopLoading() {}
     }
-    static func blockNetwork() { URLProtocol.registerClass(NoNetwork.self) }
+    /// Registered for `test` only: the shared session consults `registerClass` process-wide, so a leftover registration
+    /// refuses every later suite's loopback request (`-1009`, RedirectHeadersMacTests in the full run).
+    static func blockNetwork(for test: XCTestCase) {
+        URLProtocol.registerClass(NoNetwork.self)
+        test.addTeardownBlock { URLProtocol.unregisterClass(NoNetwork.self) }
+    }
 
     // MARK: images
 
