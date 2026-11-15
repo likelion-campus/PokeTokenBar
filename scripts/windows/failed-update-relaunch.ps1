@@ -32,8 +32,8 @@
 #                     first, so the next Setup puts the copy back again (and, failing too, leaves vN).
 #   updateOk          the shipped vN+1 installer: exit 0, one vN+1 process from [Run], the copy removed; its time and size.
 # The test builds install bundle-test: vN+1 with one byte appended to every file but the version file and THIRD-PARTY.txt
-# (same size, another first byte, a new time), so "the previous contents came back" is a SHA-256 comparison (a file
-# copied back keeps the file id of the one Setup wrote) and the restore's size-or-time rule is tested on time alone too.
+# (same size, same time, another first byte), so "the previous contents came back" is a SHA-256 comparison (a file
+# copied back keeps the file id of the one Setup wrote) and the restore must compare contents, not size and time.
 # Every check prints one PASS/FAIL line. A failed scenario is reported and the next one still runs; the script fails at
 # the end. From the repository root, after the full-level installer step (bundle-next, installer-out, installer-next):
 #   ./scripts/windows/failed-update-relaunch.ps1 -Version <vN> -NextVersion <vN+1>
@@ -181,15 +181,16 @@ $iscc = Get-Iscc
 "ISCC: $iscc (the Inno version is the 'Setup version' line of each setup log)"
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue bundle-test
 Copy-Item bundle-next bundle-test -Recurse
-# Every file but the version file gets one byte more; THIRD-PARTY.txt keeps its size and gets another first byte (and a
-# new time), so the restore's "differs" rule is tested on time alone too (PE files are padded, version files are equal
-# in length between versions).
+# Every file but the version file gets one byte more; THIRD-PARTY.txt keeps its size AND its time and gets another first
+# byte, so only a comparison of contents tells it from vN's (Inno rounds installed times to 2 s, and version files keep
+# their length between versions).
 $sameSize = Join-Path $root 'bundle-test\licenses\THIRD-PARTY.txt'
 foreach ($f in Get-ChildItem bundle-test -Recurse -File | Where-Object { $_.Name -ne 'PokeTokenBar.version' -and $_.FullName -ne $sameSize }) {
     $s = [System.IO.File]::Open($f.FullName, 'Append'); try { $s.WriteByte(0) } finally { $s.Close() }
 }
+$time = (Get-Item $sameSize).LastWriteTimeUtc
 $s = [System.IO.File]::Open($sameSize, 'Open', 'ReadWrite'); try { $b = $s.ReadByte(); $s.Position = 0; $s.WriteByte(($b + 1) % 256) } finally { $s.Close() }
-(Get-Item $sameSize).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(5)
+(Get-Item $sameSize).LastWriteTimeUtc = $time
 $shipped = Get-Content (Join-Path $root 'installer\PokeTokenBar.iss') -Raw
 $probeIss = Join-Path $root 'installer\ptb-minversion-probe.iss'
 Set-Content -Path $probeIss -NoNewline -Value ($shipped -replace '(?m)^MinVersion=10\.0\.19045(\r?)$', "MinVersion=10.0.$($build + 1)`$1")

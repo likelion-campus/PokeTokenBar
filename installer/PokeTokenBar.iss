@@ -257,18 +257,17 @@ begin
 end;
 #endif
 
-function SameSizeAndTime(const A, B: String): Boolean;
-var
-  FA, FB: TFindRec;
+// Same contents (SHA-256). Size and time are not enough: Inno rounds installed times to 2 s (TimeStampRounding), and
+// a version file keeps its length from one version to the next.
+function SameContents(const A, B: String): Boolean;
 begin
   Result := False;
-  if not FindFirst(A, FA) then Exit;
-  FindClose(FA);
-  if not FindFirst(B, FB) then Exit;
-  FindClose(FB);
-  Result := (FA.SizeLow = FB.SizeLow) and (FA.SizeHigh = FB.SizeHigh) and
-    (FA.LastWriteTime.dwLowDateTime = FB.LastWriteTime.dwLowDateTime) and
-    (FA.LastWriteTime.dwHighDateTime = FB.LastWriteTime.dwHighDateTime);
+  if not (FileExists(A) and FileExists(B)) then Exit;
+  try
+    Result := GetSHA256OfFile(A) = GetSHA256OfFile(B);
+  except
+    Log('PTB update: could not compare ' + B + ' with the copy: ' + GetExceptionMessage);
+  end;
 end;
 
 // Copies every file under Src to Dst (folders created as needed). False at the first file it cannot copy.
@@ -301,13 +300,13 @@ begin
   end;
 end;
 
-// One file of the copy back into the app folder: one with the copy's size and time is the previous one and stays; any
-// other is copied back, retried for about 3 s (antivirus holds fresh files briefly). False if it could not be put back.
+// One file of the copy back into the app folder: one with the copy's contents is the previous one and stays; any other
+// is copied back, retried for about 3 s (antivirus holds fresh files briefly). False if it could not be put back.
 function RestoreFile(const Src, Dst: String; var Copied, Kept: Integer): Boolean;
 var
   I: Integer;
 begin
-  Result := SameSizeAndTime(Src, Dst);
+  Result := SameContents(Src, Dst);
   if Result then
     Kept := Kept + 1
   else begin
