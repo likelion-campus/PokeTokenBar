@@ -54,7 +54,7 @@ if windowsBuild {
             .target(
                 name: "PokeTokenBar",
                 dependencies: [.product(name: "Crypto", package: "swift-crypto"), "CSQLite"]
-                    + (onWindows ? ["CWinShim", "CTeamTLS"] : []),
+                    + (onWindows ? ["CWinShim", "CTeamTLS", "CPlazaD2D"] : []),
                 path: "Sources/PokeTokenBar",
                 exclude: macOnlyList("Sources/PokeTokenBar") + ["mac-only.txt", "Resources"],
                 swiftSettings: [.define("PTB_SHARED_ONLY")],  // Platform.current takes the stubs in the shared build
@@ -62,6 +62,7 @@ if windowsBuild {
                     .linkedLibrary("dnsapi"), .linkedLibrary("iphlpapi"), .linkedLibrary("user32"),
                     .linkedLibrary("shell32"), .linkedLibrary("advapi32"), .linkedLibrary("ws2_32"),
                     .linkedLibrary("dbghelp"),
+                    .linkedLibrary("imm32"), .linkedLibrary("dwmapi"), .linkedLibrary("wtsapi32"), .linkedLibrary("comctl32"),
                 ] : []
             ),
             .testTarget(
@@ -76,6 +77,21 @@ if windowsBuild {
                 path: "Sources/CWinShim",
                 linkerSettings: [.linkedLibrary("windowscodecs"), .linkedLibrary("ole32"), .linkedLibrary("dbghelp"),
                                 .linkedLibrary("gdi32"), .linkedLibrary("user32")]
+            ),
+            .target(
+                name: "CPlazaD2D",  // Direct2D / DirectWrite / WIC glue for the plaza window (plain C header, C++ inside)
+                path: "Sources/CPlazaD2D",
+                linkerSettings: [
+                    .linkedLibrary("d2d1"), .linkedLibrary("dwrite"), .linkedLibrary("d3d11"), .linkedLibrary("dxgi"),
+                    .linkedLibrary("dcomp"), .linkedLibrary("windowscodecs"), .linkedLibrary("dwmapi"),
+                    .linkedLibrary("ole32"), .linkedLibrary("dxguid"),
+                    // Delay-loaded: a PC without one of these still starts the tray app, and nothing maps the graphics DLLs
+                    // until the plaza draws (ptb_gfx_probe checks each with LoadLibraryEx before any call goes through).
+                    .linkedLibrary("delayimp"),
+                    .unsafeFlags(["-Xlinker", "/DELAYLOAD:d2d1.dll", "-Xlinker", "/DELAYLOAD:dwrite.dll",
+                                  "-Xlinker", "/DELAYLOAD:d3d11.dll", "-Xlinker", "/DELAYLOAD:dxgi.dll",
+                                  "-Xlinker", "/DELAYLOAD:dcomp.dll"]),
+                ]
             ),
             .target(
                 name: "CTeamTLS",  // OpenSSL (vcpkg, static) for the team link
