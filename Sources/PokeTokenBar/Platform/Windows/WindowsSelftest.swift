@@ -112,6 +112,7 @@ enum WindowsSelftest {
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
         await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window
         await idleCheck(r, app)
+        await plazaWindowChecks(r, app)  // stage 6 task 5 (WindowsSelftestPlaza.swift): after the idle window, before Direct3D is loaded by anything else
         await plazaRenderChecks(r)  // stage 6 task 4 (WindowsSelftestPlazaRender.swift): after the idle window, it loads Direct3D/WARP
         return r.checks
     }
@@ -309,7 +310,7 @@ enum WindowsSelftest {
     }
 
     /// E1's way past the foreground lock: try, then a synthetic Alt press, then attach to the foreground thread.
-    @MainActor private static func forceForeground(_ hwnd: HWND) {
+    @MainActor static func forceForeground(_ hwnd: HWND) {
         _ = SetForegroundWindow(hwnd)
         if GetForegroundWindow() == hwnd { return }
         var alt = [INPUT(), INPUT()]

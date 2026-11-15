@@ -419,3 +419,79 @@ final class WindowsSeamScanTests: XCTestCase {
         XCTAssertEqual(try Self.directRequestFiles(in: [f], root: dir), [])
     }
 }
+
+// MARK: - the plaza window (stage 6 Task 5)
+
+extension WindowsSeamScanTests {
+    /// Calls that can bring a window forward or take the foreground.
+    static let activationCalls = ["SetForegroundWindow(", "ShowWindow(", "SetActiveWindow(", "BringWindowToTop(",
+                                  "SwitchToThisWindow(", "AllowSetForegroundWindow("]
+
+    /// Only `WinPlazaWindow.bringToFront` activates (stage 6 Global Constraints, "Focus"): it runs only for the user's
+    /// action (the tray, a team balloon, `--open-plaza`). Anywhere else under `Platform/Windows/Plaza/` an activation call
+    /// fails, and every `SetWindowPos` there passes `SWP_NOACTIVATE` (without it, a resize or a DPI move activates).
+    static func plazaActivationViolations(in files: [URL], root: URL) throws -> [String] {
+        var out: [String] = []
+        for url in files {
+            let rel = SharedSources.relativePath(url, root: root)
+            guard rel.hasPrefix("Platform/Windows/Plaza/") else { continue }
+            let lines = try SharedSources.lines(of: url)
+            let allowed = bodyLines(of: "func bringToFront(", in: lines)
+            for (i, line) in lines.enumerated() {
+                let c = code(line)
+                for call in activationCalls where c.contains(call) && !allowed.contains(i) {
+                    out.append("\(rel):\(i + 1) calls \(call.dropLast()) outside bringToFront: the plaza may come forward without the user")
+                }
+                if c.contains("SetWindowPos("), !c.contains("SWP_NOACTIVATE") {
+                    out.append("\(rel):\(i + 1) SetWindowPos without SWP_NOACTIVATE")
+                }
+            }
+        }
+        return out
+    }
+
+    func testOnlyBringToFrontActivatesThePlaza() throws {
+        let files = SharedSources.allSwiftFiles(root: SharedSources.sourcesRoot)
+        XCTAssertTrue(files.contains { SharedSources.relativePath($0, root: SharedSources.sourcesRoot) == "Platform/Windows/Plaza/WinPlazaWindow.swift" })
+        XCTAssertEqual(try Self.plazaActivationViolations(in: files, root: SharedSources.sourcesRoot), [])
+    }
+
+    func testTheActivationScanCatchesACallOutsideBringToFront() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-focus-scan-\(UUID().uuidString)")
+        let dir = root.appendingPathComponent("Platform/Windows/Plaza")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func scan(_ text: String) throws -> Int {
+            let f = dir.appendingPathComponent("Injected.swift")
+            try text.write(to: f, atomically: true, encoding: .utf8)
+            return try Self.plazaActivationViolations(in: [f], root: root).count
+        }
+        XCTAssertEqual(try scan("func bringToFront() {\n    _ = ShowWindow(h, SW_SHOWNORMAL)\n    _ = SetForegroundWindow(h)\n}\n"), 0)
+        XCTAssertEqual(try scan("func showBanner() {\n    _ = SetForegroundWindow(h)\n}\n"), 1)
+        XCTAssertEqual(try scan("func tick() {\n    _ = ShowWindow(h, SW_RESTORE)\n}\n"), 1)
+        XCTAssertEqual(try scan("func dpi() {\n    _ = SetWindowPos(h, nil, 0, 0, 1, 1, UINT(SWP_NOZORDER))\n}\n"), 1)
+        XCTAssertEqual(try scan("func dpi() {\n    _ = SetWindowPos(h, nil, 0, 0, 1, 1, UINT(SWP_NOZORDER | SWP_NOACTIVATE))\n}\n"), 0)
+        XCTAssertEqual(try scan("func f() {\n    // SetForegroundWindow( is only for bringToFront\n}\n"), 0)
+    }
+
+    /// The frame clock's thread must not touch the main actor (it only waits and posts, D4).
+    static func clockThreadViolations(_ text: String) -> [String] {
+        text.components(separatedBy: "\n").enumerated().compactMap { i, line in
+            let c = code(line)
+            guard c.contains("assumeIsolated") || c.contains("DispatchQueue.main") else { return nil }
+            return "line \(i + 1): \(line.trimmingCharacters(in: .whitespaces))"
+        }
+    }
+
+    func testTheFrameClockTouchesNoMainActorState() throws {
+        let text = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent("Platform/Windows/Plaza/WinFrameClock.swift"), encoding: .utf8)
+        XCTAssertTrue(text.contains("ptb_clock_create("), "WinFrameClock.swift no longer wraps the clock thread")
+        XCTAssertEqual(Self.clockThreadViolations(text), [])
+    }
+
+    func testTheClockScanCatchesAMainActorHop() {
+        XCTAssertEqual(Self.clockThreadViolations("func fire() {\n    MainActor.assumeIsolated { tick() }\n}\n").count, 1)
+        XCTAssertEqual(Self.clockThreadViolations("func fire() {\n    DispatchQueue.main.async { tick() }\n}\n").count, 1)
+        XCTAssertEqual(Self.clockThreadViolations("func fire() {\n    // no DispatchQueue.main here\n    post()\n}\n").count, 0)
+    }
+}

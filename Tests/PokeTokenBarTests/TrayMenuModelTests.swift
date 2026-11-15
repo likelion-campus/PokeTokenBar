@@ -48,6 +48,19 @@ final class TrayMenuModelTests: XCTestCase {
                                            teammatesOnline: 0)[1]?.title, "접속 중인 팀원 0명")
     }
 
+    /// The Mac's status menu shows its plaza entry only while the team is ready (`plazaAvailable: teamSettings.isReady`), with
+    /// the unread count; the tray does the same, in the Mac's (Korean) wording, after Refresh.
+    func testPlazaEntryShowsOnlyWhileTheTeamIsReady() {
+        let off = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil)
+        XCTAssertEqual(off, TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, plazaUnread: nil))
+        XCTAssertFalse(off.contains { $0?.action == .openPlaza })
+        let ready = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, plazaUnread: 0)
+        XCTAssertEqual(ready.map { $0?.action }, [TrayMenuModel.Action.none, nil, .refresh, .openPlaza, .toggleLaunchAtLogin, .openLogFolder, nil, .quit])
+        XCTAssertEqual(ready[3], .init(title: "광장 열기…", enabled: true, checked: false, action: .openPlaza))
+        let unread = TrayMenuModel.items(l: L(.ko), todayTokens: 0, todayCost: nil, login: .off, update: nil, teammatesOnline: 2, plazaUnread: 3)
+        XCTAssertEqual(unread.compactMap { $0 }.first { $0.action == .openPlaza }?.title, "광장 열기… (3)")
+    }
+
     func testTooltipIsClippedToTheShellLimitWithoutSplittingCharacters() {
         let long = String(repeating: "한", count: 200)
         let clipped = TrayMenuModel.clipped(long)

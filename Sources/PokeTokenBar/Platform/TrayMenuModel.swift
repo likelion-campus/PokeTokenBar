@@ -3,7 +3,7 @@ import Foundation
 /// The Windows tray menu as plain values (the Mac's `StatusItemMenu` counterpart, which lives in `UI/`), so tests can
 /// pin the contents without a window. `nil` entries are separators.
 enum TrayMenuModel {
-    enum Action: Equatable { case none, toggleLaunchAtLogin, openLogFolder, openRelease, refresh, quit }
+    enum Action: Equatable { case none, toggleLaunchAtLogin, openLogFolder, openRelease, refresh, openPlaza, quit }
 
     struct Item: Equatable {
         let title: String
@@ -18,9 +18,11 @@ enum TrayMenuModel {
     static let tipLimit = 127
 
     /// `update` is the version of an available release (Task 10 supplies it); nil hides the entry. `teammatesOnline` is
-    /// the number of teammates linked right now, nil while the team is off (no team code, or turned off).
+    /// the number of teammates linked right now, nil while the team is off (no team code, or turned off). `plazaUnread` is
+    /// the board's unread count while the team is ready, nil hides the plaza entry: the Mac's status menu (`StatusItemMenu`,
+    /// `plazaAvailable` / `plazaUnread`), with its wording, which the team UI keeps in Korean.
     static func items(l: L, todayTokens: Int, todayCost: UsageCost?, login: LoginState, update: String?,
-                      teammatesOnline: Int? = nil) -> [Item?] {
+                      teammatesOnline: Int? = nil, plazaUnread: Int? = nil) -> [Item?] {
         let loginItem: Item
         switch login {
         case .on:
@@ -43,6 +45,11 @@ enum TrayMenuModel {
         rows += [
             nil,
             Item(title: l.refreshNow, enabled: true, checked: false, action: .refresh),
+        ]
+        if let plazaUnread {   // after Refresh, where the Mac's menu has it (Refresh, Dex, Plaza)
+            rows.append(Item(title: plazaTitle(l: l, unread: plazaUnread), enabled: true, checked: false, action: .openPlaza))
+        }
+        rows += [
             loginItem,
             Item(title: l.openLogFolder, enabled: true, checked: false, action: .openLogFolder),
         ]
@@ -52,6 +59,11 @@ enum TrayMenuModel {
         rows.append(nil)
         rows.append(Item(title: l.quit, enabled: true, checked: false, action: .quit))
         return rows
+    }
+
+    /// "광장 열기…", with the unread count when there is one: the Mac's `StatusItemMenu` entry.
+    static func plazaTitle(l: L, unread: Int) -> String {
+        l.plazaOpen + "…" + (unread > 0 ? " (\(unread))" : "")
     }
 
     /// "Today's tokens 19.4M · $5.09"; the cost is left out when no provider reports one (same as the popover header).
