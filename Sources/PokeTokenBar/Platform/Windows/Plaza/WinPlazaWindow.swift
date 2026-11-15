@@ -15,8 +15,8 @@ import WinSDK
 /// thread, removes the hooks, releases the swap chain and the device and destroys the window. The app keeps running.
 ///
 /// The HUD's panels (stage 6 Task 10) are drawn into the same frame after the scene by `WinPlazaPanels`, which also routes the mouse
-/// to them as the Mac's per-panel views do; their hover texts are a system tooltip control (`WinPlazaTooltips`). Not drawn yet (an
-/// honest stub, logged once): the chat field (Task 11).
+/// to them as the Mac's per-panel views do; their hover texts are a system tooltip control (`WinPlazaTooltips`). The chat line (Task 11)
+/// is `WinPlazaChatInput`: a native EDIT child over the composition, its bar drawn above every panel.
 /// Keyboard and mouse (Task 6) arrive through `inputHandler`: every input message of the window is handed to it unchanged.
 @MainActor final class WinPlazaWindow: PlazaWindowShell {
     static let className = "PokeTokenBarPlaza"
@@ -32,6 +32,7 @@ import WinSDK
                                         0x0200, 0x0201, 0x0202, 0x0204, 0x0205, 0x0207, 0x0208, 0x020A, 0x020E, 0x02A3,  // mouse
                                         0x0007, 0x0008,  // WM_SETFOCUS, WM_KILLFOCUS
                                         0x0112, 0x0211, 0x001F, 0x0215, 0x0051]  // WM_SYSCOMMAND, WM_ENTERMENULOOP, WM_CANCELMODE, WM_CAPTURECHANGED, WM_INPUTLANGCHANGE
+    static let mouseActivate: UINT = 0x0021
 
     private enum Msg {
         static let close: UINT = 0x0010, paint: UINT = 0x000F, eraseBackground: UINT = 0x0014, setCursor: UINT = 0x0020
@@ -42,6 +43,8 @@ import WinSDK
     struct Stats: Equatable, Sendable {
         var ticks = 0, draws = 0, presents = 0, cleanTicks = 0, gpuBusy = 0, deviceLosses = 0, presentFailures = 0
         var resizes = 0, dpiChanges = 0, paints = 0, activations = 0, shows = 0
+        /// `didResignKey` reports (the chat field taking the keyboard must not add one: it is the plaza's own child).
+        var resigns = 0
         /// Main thread per drawn frame: the renderer's build + submit, then the present (last frame).
         var lastDrawMs: Double = 0, lastPresentMs: Double = 0
     }
@@ -66,6 +69,8 @@ import WinSDK
     private(set) var visibility = WinPlazaVisibility(hookMessage: WinPlazaWindow.hookMessage)
     private var panels: WinPlazaPanels?
     private var tooltips: WinPlazaTooltips?
+    /// Task 11: the chat line (the controller's `PlazaOverlayBindings.chatInput` when it is the Windows one).
+    private(set) var chat: WinPlazaChatInput?
     private var dpi: UInt32 = 96
     private var transparent = false
     private(set) var isHUDHidden = false
@@ -74,7 +79,7 @@ import WinSDK
     private var lastNormal: (rect: WinPlazaPlacement.Rect, dpi: UInt32)?
     private var monitor: HMONITOR?
     private var contentHeight: CGFloat = 0
-    private var loggedStubs = false, loggedChat = false, loggedPresentFailure = false, loggedStage = false
+    private var loggedChat = false, loggedPresentFailure = false, loggedStage = false
     private(set) var stats = Stats()
     /// The stats of the last window when it was dismantled, and whether its clock thread ended in time (selftest).
     private(set) var lastClosed: (stats: Stats, clockJoined: Bool)?
@@ -159,7 +164,22 @@ import WinSDK
         let panels = WinPlazaPanels(hud: overlays.hud)
         self.panels = panels
         tooltips = WinPlazaTooltips(owner: hwnd)
-        router.onMouse = { [weak panels] e in panels?.mouse(e) ?? false }
+        if let chat = overlays.chatInput as? WinPlazaChatInput, chat.attach(parent: hwnd) {
+            self.chat = chat
+            chat.onChange = { [weak self, weak chat] in
+                // The chat log sits above the bar's real height (the grid unfolded makes it taller), as the Mac follows the bar's frame.
+                if let h = chat?.barFrame?.height { self?.panels?.chatBarHeight = h }
+                self?.panelsChanged()
+            }
+            chat.onCloseWindow = { [weak self] in self?.requestClose() }
+        } else {
+            chat = nil
+            AppLog.write("plaza window: no chat field (\(type(of: overlays.chatInput))); Enter opens nothing that can be typed into")
+        }
+        let chatInput = chat
+        router.onMouse = { [weak panels, weak chatInput] e in (chatInput?.mouse(e) ?? false) || (panels?.mouse(e) ?? false) }
+        // A press on a panel or on the chat bar leaves the keyboard where it is (in the chat field), as the Mac's panel views do.
+        router.takesFocus = { [weak panels, weak chatInput] p in !(chatInput?.takes(p) ?? false) && panels?.host(at: p) == nil }
         router.tracksMouse = { [weak panels] p in panels?.tracks(p) ?? false }
         panels.onChange = { [weak self] in self?.panelsChanged() }
         panels.applyScrollers(alwaysVisible: WinPlazaPanels.alwaysShowScrollbars())
@@ -169,13 +189,12 @@ import WinSDK
         panels.setChatLogAbove(isChatLogAboveInput)
         panels.attach()     // every visible panel renders once, before the first frame
         visibility = WinPlazaVisibility(hookMessage: Self.hookMessage)
-        visibility.onChange = { [weak self] visible in self?.events?.setRendering(visible: visible) }
+        visibility.onChange = { [weak self] visible in
+            self?.chat?.hud.isRendering = visible
+            self?.events?.setRendering(visible: visible)
+        }
         visibility.start(window: hwnd, displaysAsleep: systemEvents?.displaysAreAsleep ?? false)
         WinPlazaLive.current = self
-        if !loggedStubs {
-            loggedStubs = true
-            AppLog.write("plaza window: the chat field is not available on Windows yet (stage 6 Task 11)")
-        }
         AppLog.write("plaza window open: adapter='\(device.adapter)' warp=\(device.isWarp) clock=\(clock.map { "\($0.source)" } ?? "none") "
             + "dpi=\(dpi) client=\(pw)x\(ph) placement=\(place.restored ? "restored" : "centred")\(place.maximized ? " maximized" : "")")
     }
@@ -226,6 +245,8 @@ import WinSDK
         view = nil
         tooltips?.destroy()
         tooltips = nil
+        chat?.detach()
+        chat = nil
         panels?.detach()
         panels = nil
         renderer = nil
@@ -277,9 +298,11 @@ import WinSDK
     }
 
     func focusChatInput() {
-        guard window != nil, !loggedChat else { return }
+        guard window != nil else { return }
+        if chat?.focus() == true { return }
+        guard !loggedChat else { return }
         loggedChat = true
-        AppLog.write("plaza window: no chat field on Windows yet (stage 6 Task 11); the keys stay with the scene")
+        AppLog.write("plaza window: no chat field to focus; the keys stay with the scene")
     }
 
     func setChatLogAboveInput(_ above: Bool) {
@@ -305,6 +328,7 @@ import WinSDK
     var surfaceForTesting: WinGfxSurface? { surface }
     var rendererStatsForTesting: WinRenderStats? { renderer?.stats }
     var panelsForTesting: WinPlazaPanels? { panels }
+    var chatForTesting: WinPlazaChatInput? { chat }
     var tooltipsForTesting: WinPlazaTooltips? { tooltips }
     var clockStatsForTesting: PTBClockStats? { view?.clock?.stats() }
     var dpiForTesting: UInt32 { dpi }
@@ -337,8 +361,9 @@ import WinSDK
             return 0
         }
         w.on(Msg.eraseBackground) { _, _ in 1 }
-        w.on(Msg.setCursor) { _, lParam in
-            guard lParam & 0xFFFF == 1 /* HTCLIENT */ else { return nil }
+        w.on(Msg.setCursor) { [weak self] wParam, lParam in
+            // Only over the plaza's own client area: the chat field (a child) asks its parent first and keeps its I-beam.
+            guard lParam & 0xFFFF == 1 /* HTCLIENT */, let hwnd = self?.window?.hwnd, wParam == WPARAM(UInt(bitPattern: Int(bitPattern: hwnd))) else { return nil }
             _ = SetCursor(LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32512 /* IDC_ARROW */)))
             return 1
         }
@@ -391,13 +416,29 @@ import WinSDK
                 let ours = other.map { GetAncestor($0, UINT(GA_ROOTOWNER)) == window?.hwnd } ?? false
                 if !ours {
                     input?.releaseAll()
+                    stats.resigns += 1
                     events?.didResignKey()
                 }
             } else {
                 events?.didBecomeKey()
+                // Active again with the chat line open: the keyboard goes back to the field (DefWindowProc would give it to the
+                // scene, and the next letters would be emotes), as AppKit restores the key window's first responder.
+                if (wParam >> 16) & 0xFFFF == 0, chat?.restoreFocus() == true {
+                    visibility.checkCoverNow()
+                    return 0
+                }
             }
             visibility.checkCoverNow()
             return nil
+        }
+        // The first click into the inactive window while the chat line is open only activates it (AppKit's default for the
+        // views under it, `acceptsFirstMouse` false), so the line is not closed by the click that brings the plaza back. A click
+        // on the field itself, the frame or the caption activates as usual.
+        w.on(Self.mouseActivate) { [weak self] _, lParam in
+            guard let self, let chat, chat.isOpen, lParam & 0xFFFF == 1 /* HTCLIENT */, let hwnd = window?.hwnd else { return nil }
+            var p = POINT()
+            guard GetCursorPos(&p), ScreenToClient(hwnd, &p), !chat.fieldContains(pixel: p) else { return nil }
+            return 2   // MA_ACTIVATEANDEAT
         }
         w.on(Msg.windowPosChanged) { [weak self] _, _ in
             guard let self else { return nil }
@@ -443,7 +484,7 @@ import WinSDK
             return
         }
         let t0 = WinPlazaClock.seconds()
-        switch renderer.drawIfNeeded(stage: stage, panels: panels?.drawList ?? [], transparent: transparent) {
+        switch renderer.drawIfNeeded(stage: stage, panels: (panels?.drawList ?? []) + (chat?.drawList ?? []), transparent: transparent) {
         case .clean:
             stats.cleanTicks += 1
         case .gpuBusy:
@@ -491,6 +532,7 @@ import WinSDK
         stage.size = size
         stage.setNeedsDraw()
         panels?.report(size: size, scale: scale)
+        chat?.report(size: size, scale: scale)
         updateTooltips()
         if size.height != contentHeight {
             contentHeight = size.height
@@ -508,7 +550,7 @@ import WinSDK
     private func updateTooltips() {
         guard let tooltips, let panels else { return }
         let scale = CGFloat(dpi) / 96
-        tooltips.set(panels.tips.map { tip in
+        tooltips.set(((chat?.tips ?? []) + panels.tips).map { tip in
             WinPlazaTooltips.Tip(rect: [Int32(tip.frame.minX * scale), Int32(tip.frame.minY * scale),
                                         Int32((tip.frame.maxX * scale).rounded(.up)), Int32((tip.frame.maxY * scale).rounded(.up))],
                                  text: tip.text)

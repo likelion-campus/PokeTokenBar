@@ -51,7 +51,7 @@ import WinSDK
             }
         }
         switch message {
-        case UINT(WM_CHAR), UINT(WM_SYSCHAR), UINT(WM_DEADCHAR), UINT(WM_SYSDEADCHAR):
+        case UINT(WM_CHAR), UINT(WM_SYSCHAR), UINT(WM_DEADCHAR), UINT(WM_SYSDEADCHAR), 0x0286 /* WM_IME_CHAR: Hangul from the IME (D13) */:
             // Only our own windows (and their children, e.g. an edit control), and never while the thread is in a menu or
             // move/size loop: that loop reads the WM_CHAR itself (menu mnemonics, type-to-select) and must not get a
             // WM_NULL instead. Other modal loops (MessageBoxW) own their windows, which are not ours.

@@ -367,5 +367,6 @@ int ptb_clipboard_hold(uint32_t ms);
 #endif
 
 #include "CPlazaD2DText.h" /* the DirectWrite text engine (Task 9) */
+#include "CPlazaD2DChat.h" /* the chat field: native EDIT, IME, Korean IME probe (Task 11) */
 
 #endif
