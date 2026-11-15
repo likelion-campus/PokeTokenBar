@@ -104,7 +104,7 @@ final class WindowsPlazaClipboardTests: XCTestCase {
         XCTAssertTrue(log.lines.allSatisfy { $0.contains("not copied") && $0.contains("busy") }, "\(log.lines)")
 
         // Released: the old contents are untouched, and the next copy works.
-        Thread.sleep(forTimeInterval: 0.8)
+        try await Task.sleep(for: .milliseconds(800))
         XCTAssertEqual(WinImageClipboard.readText(), "before", "a failed copy leaves the clipboard as it was")
         XCTAssertTrue(clip.writePNG(png))
 
