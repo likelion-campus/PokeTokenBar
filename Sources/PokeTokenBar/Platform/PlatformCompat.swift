@@ -443,17 +443,31 @@ extension PlatformCompat {
 // MARK: - One-shot HTTP fetches
 
 extension PlatformCompat {
-    /// One HTTP request for the app's small periodic fetches (today the provider status checks, `ProviderStatusChecker`).
-    /// Mac: `URLSession.shared.data(for:)`, verbatim. Windows: a plain GET goes through WinHTTP on a thread that blocks in
-    /// the kernel (`WinHTTPFetch`), because URLSession there keeps two dispatch threads waking each other from the connect
-    /// until the transfer ends (the defect log, "윈도우 URLSession"). URLSession stays in use for anything else, when a
-    /// libcurl proxy variable is set and when WinHTTP cannot load.
-    static func oneShotData(for request: URLRequest) async throws -> (Data, URLResponse) {
+    /// One HTTP request for the app's one-shot fetches (status checks, limits, update feed, PokeAPI, names).
+    /// Mac: `session.data(for:)`, verbatim (the caller's own session, `URLSession.shared` by default). Windows: WinHTTP on a
+    /// thread that blocks in the kernel (`WinHTTPFetch`, with the session's timeout and extra headers), because URLSession
+    /// there keeps two dispatch threads waking each other from the connect until the transfer ends (the defect log,
+    /// "윈도우 URLSession"). URLSession stays in use for a body stream, a proxy variable WinHTTP cannot use the way libcurl
+    /// would, and when WinHTTP cannot load.
+    static func oneShotData(for request: URLRequest, session: URLSession = .shared) async throws -> (Data, URLResponse) {
         #if os(Windows)
-        if WinHTTPFetch.handles(request) { return try await WinHTTPFetch.data(for: request) }
-        return try await URLSession.shared.data(for: request)
+        if WinHTTPFetch.handles(request) { return try await WinHTTPFetch.data(for: request, configuration: session.configuration) }
+        return try await session.data(for: request)
         #else
-        return try await URLSession.shared.data(for: request)
+        return try await session.data(for: request)
+        #endif
+    }
+
+    /// The same for `URLSession.shared.data(from:)` (sprites, icons). Mac: that call, verbatim.
+    static func oneShotData(from url: URL) async throws -> (Data, URLResponse) {
+        #if os(Windows)
+        let request = URLRequest(url: url)
+        if WinHTTPFetch.handles(request) {
+            return try await WinHTTPFetch.data(for: request, configuration: URLSession.shared.configuration)
+        }
+        return try await URLSession.shared.data(from: url)
+        #else
+        return try await URLSession.shared.data(from: url)
         #endif
     }
 }
