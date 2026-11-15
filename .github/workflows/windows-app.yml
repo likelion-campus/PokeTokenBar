@@ -701,13 +701,14 @@ jobs:
           $logFile = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log'
           foreach ($mode in 'visible', 'minimized') {
               $label = "plaza-$mode-120s"
-              # Budgets ~1.5x the worst runner measurement (run 43697872729 and later, see the stage 6 Task 5 report). Minimized: the
-              # frame clock is parked and the cover check off; what wakes the main thread is the shared controller (1 s focus tick,
-              # 1 s watchdog, the ditto host's 50-250 ms loop, which runs on the Mac too). Visible: WARP draws on the CPU here.
+              # Budgets: 1.5x the worst of three runs (43697872729, 43702099267, 43706983988; stage 6 Task 5 report). Minimized
+              # (main 396-410/min, process 3502-3575 cs/min, 5.3-6.8 M cycles/s): the frame clock is parked and the cover check off;
+              # what wakes the app is the shared controller (1 s focus tick, 1 s watchdog, the ditto host's 50-250 ms loop, on the Mac
+              # too). Visible, nobody walking (main 5030-9922/min, 64-78 k cs/min, 0.28-0.81 G cycles/s): WARP draws on the CPU here.
               $budgetPlaza = if ($mode -eq 'minimized') {
-                  @{ MaxMainCsPerMin = 600; MaxProcessCsPerMin = 5300; MaxProcessCyclesPerSec = 8700000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+                  @{ MaxMainCsPerMin = 615; MaxProcessCsPerMin = 5360; MaxProcessCyclesPerSec = 10300000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
               } else {
-                  @{ MaxMainCsPerMin = 12300; MaxProcessCsPerMin = 96000; MaxProcessCyclesPerSec = 1250000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+                  @{ MaxMainCsPerMin = 14900; MaxProcessCsPerMin = 117500; MaxProcessCyclesPerSec = 1220000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
               }
               Measure-App $label 120 $off $budgetPlaza @('--plaza-idle-probe', $mode)
               $lines = @(Select-String -Path $logFile -Pattern 'plaza idle helper|plaza open at exit|plaza window open|plaza window: not opened' -ErrorAction SilentlyContinue | Select-Object -Last 3 | ForEach-Object { $_.Line })
