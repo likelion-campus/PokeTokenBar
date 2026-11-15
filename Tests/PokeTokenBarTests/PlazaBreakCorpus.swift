@@ -44,4 +44,17 @@ enum PlazaBreakCorpus {
         "こんにちは世界、これは日本語のテキストです。", "你好世界，这是一段中文文本。它没有空格。", "ภาษาไทยไม่มีช่องว่างระหว่างคำ",
         "Привет мир это русский текст", "Ελληνικά κείμενο με πολλές λέξεις", "हिन्दी पाठ में कई शब्द हैं",
     ]
+
+    /// The texts (by index in `texts`) with characters Galmuri does not have, read from the two fonts' cmap tables: the
+    /// emoji (56–64), the combining acute (65), the zero width space (66), the word joiner (68), Hebrew and Arabic
+    /// (69–72), Han (74), Thai (75), Devanagari (78). Each OS draws those characters in a fallback font of its own, so their
+    /// advances and line metrics are that font's. Galmuri11 has Cyrillic and Greek (76, 77), Galmuri14 does not. Every
+    /// other corpus text is drawn in Galmuri alone: 60 texts at 12 pt, 58 at 15 pt.
+    static let fallbackIndices: Set<Int> = Set(56...66).union(68...72).union([74, 75, 78])
+    static let fallbackIndicesAt15: Set<Int> = [76, 77]
+
+    /// `font` as `breaks.json` numbers it: 0 Galmuri11 12 pt, 1 Galmuri14 15 pt.
+    static func usesFallback(text index: Int, font: Int) -> Bool {
+        fallbackIndices.contains(index) || (font == 1 && fallbackIndicesAt15.contains(index))
+    }
 }

@@ -57,7 +57,25 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
     func truncated(_ line: PlazaTextLine, width: CGFloat, ellipsis: PlazaTextLine) -> PlazaTextLine? {
         guard let l = Self.ctLine(line), let e = Self.ctLine(ellipsis),
               let cut = CTLineCreateTruncatedLine(l, Double(width), .end, e) else { return nil }
-        return Self.wrap(cut)
+        guard !line.runs.isEmpty else { return Self.wrap(cut) }
+        return Self.wrap(cut, runs: Self.truncatedRuns(line, cut: cut, ellipsis: ellipsis))
+    }
+
+    /// The runs of a cut line: the original's runs up to the character the cut line ends its text at (the cut line is as wide
+    /// as that text and the ellipsis together), then the ellipsis in the last kept run's font and colour.
+    private static func truncatedRuns(_ line: PlazaTextLine, cut: CTLine, ellipsis: PlazaTextLine) -> [PlazaTextRun] {
+        guard let original = ctLine(line) else { return line.runs }
+        let textWidth = CTLineGetTypographicBounds(cut, nil, nil, nil) - ellipsis.width
+        var index = CTLineGetStringIndexForPosition(original, CGPoint(x: textWidth, y: 0))
+        if index == kCFNotFound { index = 0 }
+        while index > 0, CTLineGetOffsetForStringIndex(original, index, nil) > textWidth + 0.01 { index -= 1 }
+        var kept = pieces(of: line.runs, in: NSRange(location: 0, length: max(0, index)))
+        let source = kept.last ?? line.runs[0]
+        // The ellipsis token's own text is not kept on a native line: it is the one character the callers pass (`…`).
+        var mark = source
+        mark.text = "…"
+        kept.append(mark)
+        return kept
     }
 
     func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph {
@@ -84,7 +102,8 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
         let ranges = Self.breaks(attributed, width: width)
         guard !ranges.isEmpty else { return [line("", font: font)] }
         let typesetter = CTTypesetterCreateWithAttributedString(attributed)
-        return ranges.map { Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: $0.location, length: $0.length))) }
+        // A blank line is an empty line: a `CFRange` of length 0 means "to the end of the text", which made `"a\n\nbcd"` draw `bcd` twice.
+        return ranges.map { $0.length == 0 ? line("", font: font) : Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: $0.location, length: $0.length))) }
     }
 
     /// A run's attributes: its font as `attributes` makes it, with the run's own colour instead of the context's.
@@ -111,8 +130,8 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
         guard !ranges.isEmpty else { return [line([])] }
         let typesetter = CTTypesetterCreateWithAttributedString(attributed)
         return ranges.map { range in
-            Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: range.length)),
-                      runs: Self.pieces(of: runs, in: range))
+            range.length == 0 ? line([])   // a blank line is an empty line (length 0 would mean "to the end of the text")
+                : Self.wrap(CTTypesetterCreateLine(typesetter, CFRange(location: range.location, length: range.length)), runs: Self.pieces(of: runs, in: range))
         }
     }
 
@@ -136,6 +155,8 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
                   CharacterSet.whitespacesAndNewlines.contains(last) { r.length -= 1 }
             ranges.append(r)
         }
+        // Text that ends with a newline shows one more (empty) line, as SwiftUI's `Text` does: TextKit reports it as the extra line fragment.
+        if !layout.extraLineFragmentRect.isEmpty { ranges.append(NSRange(location: utf16.length, length: 0)) }
         return ranges
     }
 

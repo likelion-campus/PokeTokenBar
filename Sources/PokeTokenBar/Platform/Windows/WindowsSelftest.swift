@@ -999,7 +999,7 @@ enum IdleSampler {
         let active: [(tid: UInt32, cs: Int, cycles: UInt64)]
     }
 
-    private struct Snapshot {
+    struct Snapshot {
         var contextSwitches: [UInt32: UInt32] = [:]
         var cycles: [UInt32: UInt64] = [:]
         var processCycles: UInt64 = 0
@@ -1071,7 +1071,8 @@ enum IdleSampler {
         return parts.isEmpty ? "(unnamed)" : parts.joined(separator: " ")
     }
 
-    private static func snapshot() -> Snapshot? {
+    /// One reading of every thread's switches and cycles (the net-burst timeline reads it every 20 ms).
+    static func snapshot() -> Snapshot? {
         guard let query = WinDynamic.symbol("ntdll.dll", "NtQuerySystemInformation", as: NtQuery.self),
               let threadCycles = WinDynamic.symbol("kernel32.dll", "QueryThreadCycleTime", as: ThreadCycles.self),
               let processCycles = WinDynamic.symbol("kernel32.dll", "QueryProcessCycleTime", as: ProcessCycles.self)

@@ -8,8 +8,8 @@ import Foundation
 /// Conventions, as CoreGraphics: origin bottom-left, y up; images upright in user space; pixels premultiplied, row 0 at the top
 /// (the target is 32bpp PBGRA inside, `withPixels` and `makeImage` hand out RGBA).
 ///
-/// Text: drawing a line or a paragraph is unavailable until the DirectWrite engine (Task 9) is plugged in; it draws nothing, logs
-/// one line, and `imageBounds` is `.zero`. Task 9 draws into the same target through `ptb::Canvas::paint` (canvas.h).
+/// Text: lines and paragraphs of `WinPlazaTextEngine` (Task 9), drawn into the same target through `ptb::Canvas::paint` (canvas.h),
+/// so the canvas state applies to glyphs as to shapes.
 final class WinPlazaCanvas: PlazaCanvas {
     let width: Int, height: Int
     let colorSpace: PlazaColorSpace
@@ -211,11 +211,38 @@ final class WinPlazaCanvas: PlazaCanvas {
         return id
     }
 
-    // MARK: text (Task 9)
+    // MARK: text (Task 9: WinPlazaTextEngine's lines, drawn by CPlazaD2D's text_draw.cpp through the canvas state)
 
-    func draw(_ line: PlazaTextLine, at textPosition: CGPoint) { Self.logOnce("plaza canvas: text drawing unavailable until the DirectWrite engine") }
-    func draw(_ paragraph: PlazaParagraph, in rect: CGRect) { Self.logOnce("plaza canvas: text drawing unavailable until the DirectWrite engine") }
-    func imageBounds(of line: PlazaTextLine) -> CGRect { .zero }
+    /// The line's origin (first baseline, left end) at `textPosition`, as `CTLineDraw`: fill or stroke mode, the canvas's colours
+    /// (a run's own colour where it has one), line width and join, alpha, blend, shadow, clips and antialiasing all apply.
+    func draw(_ line: PlazaTextLine, at textPosition: CGPoint) {
+        guard let native = line.native as? WinTextLine else {
+            Self.logOnce("plaza canvas: a line not made by the DirectWrite engine is not drawn")
+            return
+        }
+        for s in native.segments where ptb_canvas_draw_text_line(handle, s.handle.pointer, Double(textPosition.x + s.dx), Double(textPosition.y)) < 0 {
+            Self.logOnce("plaza canvas: text drawing failed: \(WinPlazaCodecs.lastError())")
+        }
+    }
+
+    /// The frame's lines (`PlazaTextFrame`) at the rect's width, each at its baseline from the rect's top, aligned as the
+    /// paragraph asks; lines that do not fit the rect's height are left out (`CTFrameDraw`).
+    func draw(_ paragraph: PlazaParagraph, in rect: CGRect) {
+        guard let p = paragraph.native as? WinTextParagraph else {
+            Self.logOnce("plaza canvas: a paragraph not made by the DirectWrite engine is not drawn")
+            return
+        }
+        for (frame, line) in p.drawn(width: rect.width) {
+            guard frame.bottom <= rect.height else { break }
+            let x = rect.minX + PlazaTextFrame.x(of: frame, in: rect.width, alignment: p.alignment, rightToLeft: p.rightToLeft)
+            draw(line, at: CGPoint(x: x, y: rect.maxY - frame.baseline))
+        }
+    }
+
+    /// The glyphs' ink relative to the origin (`CTLineGetImageBounds` with the text position at zero); `.zero` when none.
+    func imageBounds(of line: PlazaTextLine) -> CGRect {
+        (line.native as? WinTextLine)?.inkBounds() ?? .zero
+    }
 
     // MARK: pixels
 

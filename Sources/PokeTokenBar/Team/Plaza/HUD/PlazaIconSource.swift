@@ -22,7 +22,7 @@ import Foundation
 }
 
 /// What a panel keeps of the pictures it asked for: the loaded ones, the ones being loaded, and a retry for a failed
-/// one after `retryDelay` (SwiftUI's roster icon retried once after 5 s; a card picture never retried). `onArrival` is
+/// one after `retryDelay` (SwiftUI's roster icon retried once after 5 s) and again on every appearance (`forgetFailures`). `onArrival` is
 /// called on the main actor each time a picture arrives. Nothing here runs unless a panel asks for a picture, and
 /// nothing polls: a picture that is not coming costs one attempt (two for an icon).
 @MainActor final class PlazaPictureCache {
@@ -38,6 +38,12 @@ import Foundation
     var retryDelay: Duration = .seconds(5)
 
     init(source: any PlazaIconSource) { self.source = source }
+
+    /// A panel (or one of its slots) appeared again: pictures that failed are tried once more the next time they are asked for. This is the
+    /// whole retry rule, as SwiftUI's `.task(id:)` had it (it ran again each time a slot or the card appeared: a page turn, a new member,
+    /// reopening the card, reopening the plaza); there is no timer and no loop, a picture that is not coming costs one attempt per appearance
+    /// (two for a box icon: the 5-second second try).
+    func forgetFailures() { failed.removeAll() }
 
     /// The box icon if it is here; else asks for it (once) and returns nil.
     func icon(_ speciesID: Int?) -> PlazaImage? {

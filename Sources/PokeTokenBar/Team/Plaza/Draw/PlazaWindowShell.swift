@@ -16,23 +16,17 @@ import Foundation
     func handleClose()
 }
 
-/// The controller's models and actions the overlay views read and call. The Mac shell hosts its SwiftUI views over these;
-/// the closures hold the controller weakly.
+/// The controller's models and panels the window shows. Every click on a panel goes through `hud.onAction` to the controller (the roster's
+/// walk and page turns, the board's reactions, the chat log's fold button), so no action closures are handed out.
 struct PlazaOverlayBindings {
     let rosterModel: PlazaRosterModel
     let overlayModel: PlazaOverlayModel
-    let feed: TeamFeedStore?
-    let myMemberID: String
     let chatLog: PlazaChatLog
     /// The panels drawn through the canvas (pills, clock, minimap, menus, guide, toggles, photo frame). The shell shows them (`PlazaHUD.host`) and reports
     /// its size and backing scale (`setViewport`).
     let hud: PlazaHUD
     /// The native one-line field (per OS); the shell puts its view in the window and focuses it.
     let chatInput: any PlazaChatInputHost
-    let walkToMember: (String) -> Void
-    let turnRosterPage: (Int) -> Void
-    let react: (_ eventID: String, _ kind: TeamReactionKind) -> Void
-    let toggleChatLog: () -> Void
 }
 
 /// The plaza window on one OS: the window, the view that draws the stage, the overlay views and focus. The Mac's is

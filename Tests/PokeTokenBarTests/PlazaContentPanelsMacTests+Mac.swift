@@ -56,6 +56,7 @@ import SwiftUI
         let model = PlazaOverlayModel()
         model.content = .card(.loaded(m, TeamMemberProfile(memberID: "m", nickname: "", current: m.character, dex: dex)))
         let panel = PlazaCardPanel(model: model)
+        panel.scrollIndicator.isDisabled = true   // these tests count renders; the indicator's fade has its own
         let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: 2)
         await flush()
         let f = try XCTUnwrap(a.frame)
@@ -80,22 +81,22 @@ import SwiftUI
         let model = PlazaOverlayModel()
         model.content = .board
         let panel = PlazaBoardPanel(model: model, feed: feed, myMemberID: "me")
+        panel.scrollIndicator.isDisabled = true   // these tests count renders; the indicator's fade has its own
         let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: 2)
         await flush()
         let announced = a.host.accessibilityChangesForTesting
-        let before = try XCTUnwrap(a.host.accessibilityChildren() as? [NSAccessibilityElement]).map { $0.accessibilityFrameInParentSpace() }
+        let before = a.host.accessibilityElementsForTesting.map { $0.hostFrame }
         XCTAssertTrue(panel.scroll(dx: 0, dy: -1, at: CGPoint(x: 100, y: 100)))
         await flush()
         XCTAssertEqual(a.host.accessibilityChangesForTesting, announced, "one point of scroll: the same items, no announcement")
-        let after = try XCTUnwrap(a.host.accessibilityChildren() as? [NSAccessibilityElement]).map { $0.accessibilityFrameInParentSpace() }
+        let after = a.host.accessibilityElementsForTesting.map { $0.hostFrame }
         XCTAssertEqual(before.count, after.count)
         XCTAssertNotEqual(before, after, "but the frames moved with the rows")
         for _ in 0..<10 {
             XCTAssertTrue(panel.scroll(dx: 0, dy: -37, at: CGPoint(x: 100, y: 100)))
             await flush()
         }
-        XCTAssertGreaterThan(a.host.accessibilityChangesForTesting, announced, "other rows came into view: one announcement per change of the items")
-        XCTAssertLessThan(a.host.accessibilityChangesForTesting - announced, 10, "not one per scroll step")
+        XCTAssertEqual(a.host.accessibilityChangesForTesting, announced, "every note is always an element: scrolling never changes the items, so VoiceOver is never told")
     }
 
     // MARK: the roster's bounce
@@ -113,7 +114,7 @@ import SwiftUI
             return -1
         }
         for scale in [CGFloat(1), 2] {
-            let view = PlazaRosterView(model: rosterModel(2, animating: true))
+            let view = LegacyPlazaRosterView(model: rosterModel(2, animating: true))
             let b = Rig.Before(view, viewport: CGSize(width: 960, height: 640), scale: scale)
             await Rig.settle(250)
             let down = iconTop(try b.placed(at: CGPoint(x: 960 - 14 - 232, y: 14)), scale: scale)
@@ -140,7 +141,7 @@ import SwiftUI
     /// the panel. Prints the mismatches.
     func testClicksLandWhereTheyDidOnTheSwiftUIRoster() async throws {
         let model = rosterModel(4)
-        let host = PlazaRosterHostingView(rootView: PlazaRosterView(model: model))
+        let host = LegacyPlazaRosterHostingView(rootView: LegacyPlazaRosterView(model: model))
         let viewport = CGSize(width: 960, height: 640)
         let window = ScaledWindow(scale: 2, size: viewport)
         let container = NSView(frame: CGRect(origin: .zero, size: viewport))
@@ -270,6 +271,7 @@ import SwiftUI
         model.content = .board
         let t0 = clock.now
         let panel = PlazaBoardPanel(model: model, feed: feed, myMemberID: "me")
+        panel.scrollIndicator.isDisabled = true   // these tests count renders; the indicator's fade has its own
         let a = Rig.After(panel, viewport: CGSize(width: 960, height: 640), scale: 2)
         print("COST board cold open (60 events: wrap all, draw the rows in view, host): \(String(format: "%.1f", ms(t0.duration(to: clock.now)))) ms")
         await flush()
@@ -303,6 +305,7 @@ import SwiftUI
         cardModel.content = .card(.loaded(m, TeamMemberProfile(memberID: "m", nickname: "", current: m.character, dex: dex)))
         let c0 = clock.now
         let card = PlazaCardPanel(model: cardModel)
+        card.scrollIndicator.isDisabled = true   // these tests count renders; the indicator's fade has its own
         let b = Rig.After(card, viewport: CGSize(width: 960, height: 640), scale: 2)
         print("COST card cold open (120 species: header, activity, the rows in view, host): \(String(format: "%.1f", ms(c0.duration(to: clock.now)))) ms")
         await flush()

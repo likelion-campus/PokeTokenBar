@@ -20,6 +20,7 @@ import XCTest
         for i in 0..<lines { log.append(time: now, name: "나", text: text(i), color: PlazaNameColor.palette[0]) }
         log.isExpanded = expanded
         let panel = PlazaChatLogPanel(log: log)
+        panel.scrollIndicator.isDisabled = true   // the SwiftUI original draws no scroller off screen; the indicator has its own tests
         let graphics = CanvasKeepingGraphics()
         let hud = PlazaHUD(panels: [panel], graphics: graphics)
         let host = RecordingPanelHost(), actions = Actions()
@@ -242,21 +243,25 @@ import XCTest
 
     // MARK: accessibility and clicks
 
-    func testVoiceOverGetsTheHeaderAndEveryRowWithFramesInsideTheWindow() async {
+    func testVoiceOverGetsTheHeaderAScrollAreaAndEveryRowAtItsTruePlace() async {
         let r = rig(lines: 50, expanded: true)
         let items = r.host.drawings[.chatLog]!.accessibility
-        XCTAssertEqual(items.count, 2 + 50, "every row, as SwiftUI's non-lazy stack exposed them")
+        XCTAssertEqual(items.count, 2 + 1 + 50, "the header, the scroll area and every row, as SwiftUI's non-lazy stack exposed them")
         XCTAssertEqual(items[0].label, L(.ko).plazaChatLogTitle)
         XCTAssertEqual(items[0].role, .staticText)
         XCTAssertEqual(items[1].role, .button)
         XCTAssertEqual(items[1].label, L(.ko).plazaChatLogCollapse)
         XCTAssertEqual(items[1].action, PlazaPanelHit(action: "toggle", index: nil))
-        XCTAssertEqual(items[2].label, "\(PlazaChatLog.timeText(now)) 나: 줄 0", "read as the whole line")
-        let window = CGRect(x: 10, y: 24, width: 340, height: 240)
-        for item in items.dropFirst(2) { XCTAssertTrue(window.contains(item.frame) || item.frame.height == 0, "\(item.label) \(item.frame)") }
-        XCTAssertEqual(items[2].frame, CGRect(x: 10, y: 24, width: 340, height: 0), "a row above the window: empty, at its top")
-        XCTAssertEqual(items.last?.frame, CGRect(x: 10, y: 24 + 225, width: 340, height: 15))
-        XCTAssertEqual(items[2 + 36].frame, CGRect(x: 10, y: 24, width: 340, height: 6), "the cut row: its visible part")
+        XCTAssertEqual(items[2].role, .scrollArea)
+        XCTAssertEqual(items[2].frame, CGRect(x: 10, y: 24, width: 340, height: 240))
+        XCTAssertTrue(items.dropFirst(3).allSatisfy { $0.inScrollArea && $0.key != nil }, "rows are the area's children, each keyed by its line")
+        XCTAssertEqual(items[3].label, "\(PlazaChatLog.timeText(now)) 나: 줄 0", "read as the whole line")
+        XCTAssertLessThan(items[3].frame.maxY, 24, "a row scrolled out lies above the window, at its true place")
+        XCTAssertEqual(items.last?.frame, CGRect(x: 10, y: 24 + 225, width: 340, height: 15), "the last row sits at the bottom of the window")
+        // Folded: no scroll area, every shown line.
+        let folded = rig(lines: 4).host.drawings[.chatLog]!.accessibility
+        XCTAssertFalse(folded.contains { $0.role == .scrollArea })
+        XCTAssertEqual(folded.count, 2 + 4)
     }
 
     func testTheHeaderButtonTogglesAndTheRestOfTheLogTakesTheClickWithoutAnAction() async {

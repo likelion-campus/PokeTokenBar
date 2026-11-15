@@ -396,15 +396,7 @@ extension PlazaChatTests {
         XCTAssertEqual(other.received.lines.map(\.text), ["점심 먹어요", "보통 말은 돼요"])
     }
 
-    func testChatLogExpandsAndTakesClicksOnlyWithLines() async throws {
-        let log = PlazaChatLog()
-        let view = PlazaChatLogHostingView(rootView: PlazaChatLogView(log: log), log: log)
-        view.frame = NSRect(x: 0, y: 0, width: PlazaChatLog.width, height: 120)
-        XCTAssertNil(view.hitTest(NSPoint(x: 20, y: 20)), "an empty log lets clicks through")
-        log.append(time: now, name: "a", text: "b", color: PlazaNameColor.palette[0])
-        view.layoutSubtreeIfNeeded()
-        XCTAssertNotNil(view.hitTest(NSPoint(x: 20, y: 20)))
-        XCTAssertFalse(view.acceptsFirstResponder)
+    func testChatLogTogglesFromTheController() async throws {
         let (c, _, _, other) = await connected()
         c.showChat(memberID: other.settings.memberID, text: "안녕")
         XCTAssertFalse(c.isChatLogExpanded)

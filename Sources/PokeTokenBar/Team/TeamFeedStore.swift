@@ -40,6 +40,8 @@ final class TeamFeedStore {
     @ObservationIgnored private let calendar: Calendar
 
     private var stored: [StoredEvent] = []
+    /// Counts every change to the events or reactions (not reading them): a view that shows them checks this instead of comparing the lists.
+    private(set) var revision = 0
     private var allReactions: [StoredReaction] = []
     private var lastReadSeq = 0
     private var nextSeq = 1
@@ -107,6 +109,7 @@ final class TeamFeedStore {
         guard !added.isEmpty else { return [] }
         sortEvents()
         prune()
+        revision += 1
         save()
         // An event pruned right away (beyond the cap) is not "new".
         let kept = Set(stored.map(\.event.id))
@@ -128,6 +131,7 @@ final class TeamFeedStore {
             allReactions.sort { Self.reactionOrder($0.reaction, $1.reaction) }
             allReactions.removeFirst(allReactions.count - Self.maxReactions)
         }
+        revision += 1
         save()
         let kept = Set(allReactions.map(\.reaction.id))
         return added.filter { kept.contains($0.id) }
@@ -162,7 +166,7 @@ final class TeamFeedStore {
         let present = Set(stored.map(\.event.id))
         // A reaction can arrive before its event during sync: only drop stale orphans.
         allReactions.removeAll { !present.contains($0.reaction.eventID) && $0.reaction.createdAt < cutoff }
-        if (stored.count, allReactions.count) != before { save() }
+        if (stored.count, allReactions.count) != before { revision += 1; save() }
     }
 
     private func takeSeq() -> Int {

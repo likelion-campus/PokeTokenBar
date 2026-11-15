@@ -961,6 +961,52 @@ read_when:
   **스윕:** `Sources/` 의 `CoInitializeEx` 는 `CWinShim/wic.cpp` 2곳(둘 다 MTA 요청 뒤 성공했을 때만 `CoUninitialize`, `RPC_E_CHANGED_MODE` 는 무시)과 `CPlazaD2D` 뿐이고,
   `CoCreateInstance` 는 모두 WIC 팩토리다. COM 을 쓰는 다른 호출(`Shell_NotifyIconW`, 레지스트리, 소켓)은 아파트가 필요 없다.
 
+- **윈도우 URLSession 은 새 연결의 전송이 끝날 때까지 디스패치 스레드 둘이 서로를 깨운다 (상태 확인 버스트, 유휴 게이트 간헐 실패).**
+  **증상:** `windows-port` 의 유휴 게이트(설치 앱, 300 s 창에 스토어 갱신 2 회)가 간헐 실패했다 — 7209 cs/분(예산 4000; 이전 4 회 1568–2598). 갱신(120 s)마다
+  15 s 조각 하나에서 디스패치 스레드 하나가 4500–8000 회 깨어났고, 프로바이더 상태 확인을 끄면 33–44 회였다. CPU 는 작았다(300 s 에 0.5 s).
+  **원인(업스트림 소스로 확인, swift-6.3.2-RELEASE):** corelibs `FoundationNetworking/URLSession/libcurl/MultiHandle.swift` 는 curl 소켓을 디스패치
+  소스로 감시한다(윈도우는 `makeReadSource/makeWriteSource(handle:)`, 527–549행). `register`(110–140행)는 curl 이 관심을 바꿀 때 없는 소스만 만들고,
+  두 소스를 함께 치우는 건 `CURL_POLL_REMOVE`(125–131·551–577행)뿐이다 — 연결(connect)·TLS 때 만든 쓰기 소스가 curl 이 읽기만 원하게 된 뒤에도
+  전송이 끝날 때까지 남는다. 윈도우 libdispatch(`src/event/event_windows.c`)는 소켓 쓰기 소스를 레벨 트리거처럼 흉내 내려고 다시 무장할 때마다
+  0 바이트 `send()` 를 하고 성공하면 곧바로 "쓰기 가능" 을 IOCP 에 올린다(487–505행; 재무장은 `_dispatch_unote_resume_muxed`, 581–588행).
+  연결된 소켓은 늘 쓰기 가능하므로: 발화 → `performAction` → `curl_multi_socket_action(socket, 0)`(MultiHandle 288–303행), 쓸 것 없음 → 재무장 → 0 바이트
+  `send` 성공 → 발화 … 이벤트 루프 스레드(`GetQueuedCompletionStatus`)와 루트 큐 워커 사이를 전송 내내 오간다. **새 연결에서만** 생긴다: 재사용된
+  keep-alive 연결은 curl 이 쓰기 관심을 묻지 않아 조용하다(루프백 2 s 대기: 새 연결 2027 ms 내내 41,104 회/s, 프로세스 167k cs·4.1 G 사이클 /
+  재사용 48 cs; 10 s 대기 843k cs; 8 MB 를 한 번에 받기 1,035 cs — 양이 아니라 기다린 시간에 비례한다).
+  앱의 120 s 갱신은 libcurl 의 유휴 연결 재사용 한도 118 s(curl 8.9.1 `url.c` 481행 `maxage_conn = 118`, 722–733행; corelibs 는 바꾸지 않는다)를 넘겨
+  매번 새로 연결한다. 실측(러너): 앱의 상태 확인 경로(두 호스트 동시, 새 연결) 한 번 18,811 cs·478 M 사이클(369 ms), status.openai.com 한 번
+  6–20k cs(142–279 ms); XCTest 프로세스에서 2 s 응답을 1.5 s 기다리는 동안 가장 바쁜 스레드 42–71k cs. 스택 표본 150 개 중 3–6 개가 `dispatch.dll`
+  이 부른 `WS2_32!send`(curl 은 보낼 게 없다), 짝 워커는 `dispatch_semaphore_wait` 에서 깨어 `FoundationNetworking.dll` 을 거쳐 IOCP 에 다시 올린다.
+  corelibs 의 10 s 요청 타임아웃은 멈춘 본문을 끝내지 못했다(서버가 20 s 에 닫아서야 끝남: 1.71 M cs·41.5 G 사이클) — 새 연결에서 응답이
+  멈추면 버스트는 서버가 포기할 때까지 한 코어를 쓴다.
+  **왜 게이트가 운으로 통과했나:** ① 버스트 양 = 러너에서 두 상태 호스트로의 새 HTTPS 전송 시간(DNS·TCP·TLS·서버 응답) × 루프 속도다. 앱 코드가 아니라
+  네트워크 타이밍이 정하는 값을 4 회 표본의 1.5 배로 예산을 잡았고, 응답이 느린 run(갱신마다 한 스레드에 17.8k cs, 전송 0.4–0.7 s 에 해당)이 넘었다. ② 게이트(`measure-idle.ps1`)는 창 끝에 살아
+  있는 스레드만 센다 — 짝 워커는 갱신마다 새로 생겼다 사라져(타임라인의 tid 8792→5540) 버스트의 절반가량이 보이지 않았다(사이클 합계는 죽은 스레드도
+  포함한다). ③ 셀프테스트의 유휴 창은 갱신을 빼고 쟀고, 전송 한 번의 깨움을 재는 테스트가 없었으며, CI 픽스처에는 자격증명이 없어 같은 버스트를
+  내는 한도 조회가 한 번도 돌지 않았다.
+  **고침:** `PlatformCompat.oneShotData(for:)` — 맥은 `URLSession.shared.data(for:)` 그대로, 윈도우는 평범한 GET 을 자기 스레드에서 WinHTTP 동기 호출로
+  보낸다(`Platform/Windows/WinHTTPFetch.swift`: 커널에서 블록, 폴링 없음). 요청은 같다: 헤더·`timeoutInterval`(resolve·connect·send·receive), Schannel
+  인증서 검증 + 폐기 확인(curl Schannel 기본값, `schannel.c` 8.9.1 493–495행), gzip/deflate 해제, 리디렉션(WinHTTP 기본: 최대 10, HTTPS→HTTP 금지),
+  크기 제한 없음(전과 같음), 직접 연결(corelibs 의 libcurl 도 윈도우 프록시 설정을 읽지 않는다). `http_proxy`·`https_proxy`·`all_proxy` 가 있으면
+  libcurl 이 그걸 따르므로 URLSession 을 그대로 쓴다(POST 등·WinHTTP 로드 실패도). 업스트림 줄 하나: `ProviderStatusChecker.swift` `fetchOne` 의 호출.
+  **같은 부류, 고치다 생긴 것:** 처음엔 WinHTTP 세션을 프로세스에 하나 두었더니 기동 때의 연결이 풀에 남아 스레드 풀 워커가 2–3 s 마다 깼다(갱신 없는
+  120 s 창에서 43–59 회, 고치기 전엔 없던 스레드). 120 s 뒤의 다음 요청은 어차피 새로 연결하므로(libcurl 도 그랬다) 요청마다 세션을 열고 마지막에
+  닫는다 — 그 창은 다시 두 스레드(libdispatch 1 Hz 쌍)뿐이다. 상태 확인 한 번: 129 cs·70 M 사이클(253 ms), 뒤 30 s 에 남는 것 없음.
+  결과: 유휴 게이트 정상 300 s(같은 머리 d46c7b3 에서 연속 3 회, 같은 코드의 a78a992 1 회) 166–186 cs/분·1.39–2.03 M 사이클/s·CPU 0.14–0.20 s — 같은 날 `windows-port` 대조
+  3 회는 2148–2620 cs/분·3.3–4.1 M·0.44–0.64 s(실패한 run 7209). 예산을 다시 잡았다: 정상 창 4000 → 280 cs/분, 6 M → 3 M 사이클/s(같은 코드 네 run 최악의
+  1.5 배; 처음 잡은 2.75 M 은 넷째 run 의 2.03 M 에 여유가 1.35 배뿐이라 넓혔다; 주 스레드 30·메모리 5 MB·핸들 10 은 그대로) — 이런 갱신 하나(≥ 6k cs)면 그것만으로 실패한다. 갱신 없는 120 s 창은 이 결함과 무관해 Task 12 값
+  그대로다(133–134.5 cs/분·198–214 k 사이클/s; 대조 125.5–126·167–174 k 에 WinHTTP 가 남기는 스레드 풀 깨움이 120 s 에 12–19 회 더해진다 — 시스템
+  DLL 의 타이머로 6–10 s 에 한 번, 언로드 없이는 못 끈다). WinHTTP 로딩으로 비공유 메모리 +2.4 MB·핸들 +100 이 한 번 늘고(세션을 닫으면 핸들은 창 안에서 줄어든다) 그 뒤로 자라지 않는다.
+  **규칙:** 윈도우에서 도는 코드의 주기적·백그라운드 HTTP 는 `PlatformCompat.oneShotData` 로 보낸다. 새 URLSession 사용처는 무엇을 얼마나 자주
+  가져오는지와 함께 `WindowsSeamScanTests.knownURLSessionSites` 에 올린다(일회성·캐시만 남는다). 깨움을 잴 때는 창 안에서 끝난 스레드도 센다.
+  **가드(기계):** `WindowsSeamScanTests.testEveryURLSessionSiteThatRunsOnWindowsIsKnown`·`testTheStatusChecksStayOnTheSeam`·`testTheURLSessionScanCatchesEachForm`
+  (호출부를 URLSession 으로 되돌리고 맥 분기를 ephemeral 세션으로 바꾸는 결함 주입으로 셋 다 실패 확인), `OneShotDataMacTests`(맥 분기가 공유 세션을
+  그대로 쓰는지, `URLProtocol` 스텁), `WindowsHTTPFetchTests.testAWaitingTransferThroughTheSeamDoesNotKeepAThreadAwake`(2 s 전송의 1.5 s 동안 가장 바쁜 스레드
+  < 150 cs; 같은 잣대로 URLSession 대조군은 42–71k), 다시 잡은 유휴 게이트 예산, 진단 `--selftest-net-burst`(`windows-app` 의 `net_burst` 입력).
+  **스윕:** 윈도우에서 도는 앱 코드의 URLSession 사용처 13 곳(이음매 자신·진단 도우미 제외) — 한도 조회(Claude OAuth·세션 키·Cursor·Grok·OpenCode Go)는 설정돼 있으면 갱신마다 돌아 같은 버스트를
+  낸다(api.anthropic.com 한 번 1.7–6.6k cs, 자격증명 없이 401) → 열린 결정. 업데이트 피드(30 분에 한 번 이하, 4.7–13.2k cs)·스프라이트·PokeAPI·플라자 아이콘
+  (요청 시, 캐시)은 일회성이라 그대로. 맥 전용(`AntigravityRateLimitsProvider`, `PlazaIconLoader`)은 해당 없음.
+
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
   윈도우 워크플로는 종료 코드만 봤다. **가드(기계):** `SharedSourcesScanTests` 가 윈도우에서 도는 파일의 `@MainActor`
@@ -2279,3 +2325,13 @@ read_when:
   코드를 넣었다가, 펌프 틱 수를 세는 진단을 붙이고서야 타이머가 정상으로 돈다는 것을 보았다 — 우회는 지웠다. **스윕:** 제품 코드에서 모달 루프에 들어가는 곳은
   트레이 메뉴(`WinTray` 콜백, 창 메시지) 하나라 안전하다. **규칙:** 모달 루프(대화상자·메시지 상자·메뉴·창 이동)는 창 메시지에서 연다. `Task`·`DispatchQueue.main`
   블록 안에서 열면 그동안 메인 큐 전체가 선다. 점검도 사용자와 같은 경로(포스트된 메시지)로 연다.
+
+- **맥 `CoreTextPlazaEngine.wrappedLines` 가 빈 줄을 "글 나머지 전부"로 바꿨다 — `CFRange` 길이 0 은 "끝까지"다.** `"a\n\nbcd"` 가 `a`, `bcd`, `bcd` 세 줄로 그려졌다(`bcd` 두 번). TextKit 이 빈 줄의 줄 조각을
+  주면(끝의 공백·개행을 뗀 뒤 길이 0) 그 범위를 `CTTypesetterCreateLine(typesetter, CFRange(location:, length: 0))` 에 그대로 넘겼고, CoreText 는 길이 0 을 "location 부터 끝까지"로 읽는다.
+  글이 개행으로 끝나는 경우도 같은 부류의 빠짐이었다: SwiftUI `Text` 는 끝 개행 뒤에 빈 줄 하나를 더 보이는데 TextKit 은 그것을 줄 조각이 아니라 `extraLineFragmentRect` 로만 알려서 줄이 하나 모자랐다.
+  **닿는 입력:** 채팅은 `TeamChat.prepared` 가 개행을 공백으로 바꿔 닿지 않는다. 닉네임(`TeamSettings`)도 개행을 거절한다. 닿는 것은 피어가 보낸 `TeamEvent` 의 `speciesName`·`authorNickname`·
+  반응 닉네임(길이만 제한, 개행은 거르지 않음) — 정상 클라이언트는 개행을 보내지 않으므로 악의적·이상한 피어에서만 보인다. 지워진 SwiftUI 뷰는 같은 글에서 빈 줄을 제대로 보였으므로 패널 전환이 만든
+  회귀다(낮은 심각도). **왜 못 걸렀나:** 줄바꿈 말뭉치(`PlazaBreakCorpus`)에는 `"안녕\n두 번째 줄\n\n네 번째 줄"` 이 이미 있었지만 맥 쪽 골든은 TextKit/`CTFramesetter`(`paragraph` 경로)를
+  재서 `wrappedLines` 의 타입세터 경로는 밟지 않았다 — 같은 글이 다른 코드 경로로 통과해 안심을 줬다. **고침:** 길이 0 범위는 빈 줄(`line("", font:)` / `line([])`)로, 글 끝 개행은 `extraLineFragmentRect`
+  가 비어 있지 않을 때 빈 줄 하나를 더한다. 줄 수는 같은 글의 SwiftUI `Text` 높이/줄 높이와 맞춘다. **규칙:** `CFRange`/`NSRange` 의 길이 0 을 "빈 구간"으로 믿지 않는다 — CoreText 는 "끝까지"로 읽는다.
+  **회귀 점검:** `PlazaBlankLineTests`(빈 줄, 연속·앞·끝 빈 줄, 색 조각 버전, SwiftUI `Text` 줄 수와 일치) — 고침을 빼고 실패함을 확인했다. 윈도 엔진은 이미 진짜 빈 줄을 만든다.

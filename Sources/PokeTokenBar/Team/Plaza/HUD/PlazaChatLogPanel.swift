@@ -17,13 +17,13 @@ enum PlazaChatLogStyle {
     static let rowFont = PlazaFont.plaza(.body)
 }
 
-/// The chat log at the window's bottom left (`PlazaChatLogView`, SwiftUI, which the Mac still shows): a header with the
+/// The chat log at the window's bottom left (`PlazaChatLogView`, SwiftUI, replaced by this panel on the Mac and kept in Tests/Legacy): a header with the
 /// title and the fold button, and under it the last `PlazaChatLog.visibleCount` lines, or, unfolded, a
 /// `PlazaChatLog.expandedHeight` window onto all the kept lines that scrolls (`PlazaScrollState`). A line is one wrapped
 /// paragraph of runs: time (dimmed), a loud line's 📢, "name: " in the member's colour, the text. Nothing shows while the
 /// log is empty. Only the visible lines are drawn: one image per line, cut at the viewport's edges, never the whole
 /// content. A click anywhere on the log is taken (nothing passes through to the scene); the header button toggles.
-@MainActor final class PlazaChatLogPanel: PlazaPanel {
+@MainActor final class PlazaChatLogPanel: PlazaPanel, PlazaScrollIndicating {
     let id = PlazaPanelID.chatLog
     let anchor = PlazaPanelAnchor.bottomLeading
     var onChange: (() -> Void)?
@@ -46,6 +46,7 @@ enum PlazaChatLogStyle {
     }
 
     private(set) var scrollState = PlazaScrollState()
+    let scrollIndicator = PlazaScrollIndicator()
     /// Unfolding and a new last line scroll to the end (SwiftUI's `onAppear` and `onChange(of: last id)`: always, whatever
     /// the user had scrolled to); it happens when the panel next lays out.
     private var scrollToEnd = true
@@ -56,6 +57,7 @@ enum PlazaChatLogStyle {
 
     init(log: PlazaChatLog) {
         self.log = log
+        scrollIndicator.onChange = { [weak self] in self?.onChange?() }
         observer = PlazaChangeObserver(track: { _ = log.lines; _ = log.isExpanded }, changed: { [weak self] in self?.modelChanged() })
     }
 
@@ -96,10 +98,10 @@ enum PlazaChatLogStyle {
         }
     }
 
-    private struct LayoutKey: Equatable { let observed: Observed, scale: CGFloat, engine: String }
+    private struct LayoutKey: Equatable { let observed: Observed, scale: CGFloat, engine: String, reserved: CGFloat }
     private var laidOut: (key: LayoutKey, layout: Layout)?
     /// The wrapping of each line (the costly part, TextKit on the Mac), kept while its line is in the log.
-    private var wrapped: (engine: String, lines: [Int: [PlazaTextLine]]) = ("", [:])
+    private var wrapped: (engine: String, width: CGFloat, lines: [Int: [PlazaTextLine]]) = ("", 0, [:])
 
     static func runs(_ line: PlazaChatLog.Line) -> [PlazaTextRun] {
         let font = PlazaChatLogStyle.rowFont
@@ -112,28 +114,36 @@ enum PlazaChatLogStyle {
 
     func layout(scale: CGFloat, text: any PlazaTextEngine) -> Layout {
         let engine = String(describing: type(of: text))
-        let key = LayoutKey(observed: observed, scale: scale, engine: engine)
+        let key = LayoutKey(observed: observed, scale: scale, engine: engine, reserved: scrollIndicator.reservedWidth)
         if let laidOut, laidOut.key == key { return laidOut.layout }
         let small = text.metrics(PlazaChatLogStyle.headerFont), body = text.metrics(PlazaChatLogStyle.rowFont)
         let headerHeight = (small.ascender - small.descender).rounded(), lineHeight = (body.ascender - body.descender).rounded()
         let l = L(.ko)
         let expanded = log.isExpanded
         let shown = expanded ? log.lines : log.visible
-        if wrapped.engine != engine { wrapped = (engine, [:]) }
-        var keep: [Int: [PlazaTextLine]] = [:]
-        var rows: [Row] = []
-        var y: CGFloat = 0
-        for line in shown {
-            if !rows.isEmpty { y += PlazaChatLogStyle.rowGap }
-            let runs = Self.runs(line)
-            let lines = wrapped.lines[line.id] ?? text.wrappedLines(runs, width: Layout.innerWidth)
-            keep[line.id] = lines
-            let height = CGFloat(lines.count) * lineHeight
-            rows.append(Row(id: line.id, lines: lines, baselines: lines.indices.map { CGFloat($0) * lineHeight + body.ascender },
-                            frame: CGRect(x: 0, y: y, width: Layout.innerWidth, height: height), label: runs.map(\.text).joined()))
-            y += height
+        func build(width: CGFloat) -> (rows: [Row], height: CGFloat) {
+            if wrapped.engine != engine || wrapped.width != width { wrapped = (engine, width, [:]) }
+            var keep: [Int: [PlazaTextLine]] = [:]
+            var rows: [Row] = []
+            var y: CGFloat = 0
+            for line in shown {
+                if !rows.isEmpty { y += PlazaChatLogStyle.rowGap }
+                let runs = Self.runs(line)
+                let lines = wrapped.lines[line.id] ?? text.wrappedLines(runs, width: width)
+                keep[line.id] = lines
+                let height = CGFloat(lines.count) * lineHeight
+                rows.append(Row(id: line.id, lines: lines, baselines: lines.indices.map { CGFloat($0) * lineHeight + body.ascender },
+                                frame: CGRect(x: 0, y: y, width: width, height: height), label: runs.map(\.text).joined()))
+                y += height
+            }
+            wrapped.lines = keep
+            return (rows, y)
         }
-        wrapped.lines = keep
+        // "Always show scroll bars": the legacy scroller takes its width from the scrolling window when the lines overflow it (as the SwiftUI
+        // `ScrollView` did: the lines wrap narrower).
+        var built = build(width: Layout.innerWidth)
+        if expanded, scrollIndicator.reservedWidth > 0, built.height > PlazaChatLog.expandedHeight { built = build(width: Layout.innerWidth - scrollIndicator.reservedWidth) }
+        let rows = built.rows, y = built.height
         let bodyHeight = expanded ? PlazaChatLog.expandedHeight : y
         let button = text.line(expanded ? l.plazaChatLogCollapse : l.plazaChatLogExpand, font: PlazaChatLogStyle.headerFont)
         let bodyTop = PlazaChatLogStyle.padding.height + headerHeight + PlazaChatLogStyle.headerGap
@@ -165,11 +175,20 @@ enum PlazaChatLogStyle {
     /// The offset the content is drawn at: on the device-pixel grid.
     private func drawnOffset(scale: CGFloat) -> CGFloat { PlazaPanelStyle.pixel(scrollState.offset, scale: scale) }
 
+    /// The backing scale of the last render (the scroller's knob sits on its device pixels).
+    private var renderedScale: CGFloat = 1
+
     func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
+        renderedScale = scale
         rendered = observed
         let l = layout(scale: scale, text: graphics.text)
         scrollState.setMetrics(content: l.content, viewport: l.bodyHeight)
-        if scrollToEnd { scrollState.scrollToBottom(); scrollToEnd = false }
+        if scrollToEnd {
+            let before = scrollState.offset
+            scrollState.scrollToBottom()
+            scrollToEnd = false
+            if scrollState.offset != before { scrollIndicator.scrolled() }
+        }
         let pad = PlazaChatLogStyle.padding
         var layers: [PlazaPanelLayer] = []
         var items: [PlazaAccessibilityItem] = []
@@ -226,12 +245,53 @@ enum PlazaChatLogStyle {
             layers.append(.image(picture, frame: shown.offsetBy(dx: pad.width, dy: l.bodyTop)))
         }
         rowImages.images = kept
+        layers += scrollIndicator.layers(state: scrollState, offset: offset,
+                                         viewport: CGRect(x: pad.width, y: l.bodyTop, width: Layout.innerWidth, height: l.bodyHeight),
+                                         scale: scale, graphics: graphics)
+        // VoiceOver: the unfolded log is a scroll area; every line is an element (keyed by the line's id, so the cursor keeps its place when
+        // lines arrive) at its true place, which is outside the window for the lines scrolled out.
+        accessibilityContent = [:]
+        if l.expanded {
+            items.append(PlazaAccessibilityItem(frame: CGRect(x: pad.width, y: l.bodyTop, width: Layout.innerWidth, height: l.bodyHeight), role: .scrollArea,
+                                                label: L(.ko).plazaChatLogTitle, key: "scroll"))
+        }
         for row in l.rows {
-            let rect = scrollState.visible(row.frame, offset: offset)
-                ?? CGRect(x: 0, y: row.frame.maxY <= offset ? 0 : l.bodyHeight, width: row.frame.width, height: 0)
-            items.append(PlazaAccessibilityItem(frame: rect.offsetBy(dx: pad.width, dy: l.bodyTop), role: .staticText, label: row.label))
+            if l.expanded { accessibilityContent[items.count] = row.frame }
+            items.append(PlazaAccessibilityItem(frame: row.frame.offsetBy(dx: pad.width, dy: l.bodyTop - (l.expanded ? offset : 0)), role: .staticText, label: row.label,
+                                                key: "line-\(row.id)", inScrollArea: l.expanded))
         }
         return PlazaPanelDrawing(layers: layers, accessibility: items)
+    }
+
+    /// Accessibility item index -> the item's rectangle in the scrolling content (for `scrollAccessibilityItemIntoView`).
+    private var accessibilityContent: [Int: CGRect] = [:]
+
+    func scrollAccessibilityItemIntoView(_ index: Int) -> Bool {
+        guard let rect = accessibilityContent[index], scrollState.scrollToVisible(rect) else { return false }
+        scrollIndicator.scrolled()
+        return true
+    }
+
+
+    // MARK: the legacy scroller as a control
+
+    private func scrollerViewport() -> CGRect? { guard let l = laidOut?.layout, l.expanded else { return nil }; return CGRect(x: PlazaChatLogStyle.padding.width, y: l.bodyTop, width: Layout.innerWidth, height: l.bodyHeight) }
+
+    func scrollerContains(_ point: CGPoint) -> Bool {
+        guard let v = scrollerViewport() else { return false }
+        return scrollIndicator.tracks(point, state: scrollState, viewport: v)
+    }
+
+    func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint) {
+        guard let v = scrollerViewport() else { return }
+        let scale = renderedScale
+        let moved: Bool
+        switch phase {
+        case .down: moved = scrollIndicator.scrollerDown(at: point, state: &scrollState, viewport: v, scale: scale)
+        case .drag: moved = scrollIndicator.scrollerDrag(to: point, state: &scrollState, viewport: v, scale: scale)
+        case .up: scrollIndicator.scrollerUp(); moved = false
+        }
+        if moved { onChange?() }
     }
 
     // MARK: input
@@ -246,6 +306,7 @@ enum PlazaChatLogStyle {
         guard isVisible, let l = laidOut?.layout, l.expanded,
               CGRect(x: PlazaChatLogStyle.padding.width, y: l.bodyTop, width: Layout.innerWidth, height: l.bodyHeight).contains(point),
               scrollState.scroll(deltaY: dy) else { return false }
+        scrollIndicator.scrolled()
         onChange?()
         return true
     }

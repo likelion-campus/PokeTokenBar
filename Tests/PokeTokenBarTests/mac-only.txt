@@ -118,7 +118,6 @@ PlazaTileArtTests+Mac.swift
 # PlazaPrayTests+Mac: a CGImage compare of the prayer bubble art
 PlazaPrayTests+Mac.swift
 PlazaResourcesTests.swift
-PlazaRosterPagerTests.swift
 PlazaRosterTests.swift
 # PlazaSnowSceneTests+Mac: the tall-grass snow test reads the bundled sheet (ImageIO) and compares pixels through CGImage; the minimap test needs the bundled tile sheet to build the snow map
 PlazaSnowSceneTests+Mac.swift
@@ -199,8 +198,6 @@ PlazaGIFDecoderParityTests+Mac.swift
 # PlazaPanelRenderTests+Mac: the canvas-drawn HUD panels against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) and the AppKit panel host view
 PlazaPanelRenderTests+Mac.swift
 ReachabilityParityTests.swift
-# PlazaRosterHoverLayoutTests: hosts the SwiftUI roster in an AppKit window (NSHostingView, Auto Layout)
-PlazaRosterHoverLayoutTests.swift
 # PlazaHUDControlRenderTests+Mac: the canvas-drawn guide, toggle, picker and photo frame against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) through the AppKit panel hosts
 PlazaHUDControlRenderTests+Mac.swift
 # PlazaHUDMenuRenderTests+Mac: the canvas-drawn menus and minimap against their SwiftUI originals (ImageRenderer, NSHostingView, CoreText) through the AppKit panel hosts
@@ -227,5 +224,25 @@ PlazaDecodeGoldensMacTests.swift
 PlazaParityGoldens+Mac.swift
 # PlazaStoreSpriteParityTests+Mac: the shared sprite/icon loaders against LivePlazaSpriteFetcher, PlazaIconLoader and SpriteLoader (AppKit, ImageIO)
 PlazaStoreSpriteParityTests+Mac.swift
+# OneShotDataMacTests: pins the Mac branch of PlatformCompat.oneShotData to URLSession.shared (a URLProtocol stub; Windows takes WinHTTP, WindowsHTTPFetchTests)
+OneShotDataMacTests.swift
+# PlazaWindowRig+Mac, PlazaChatLogWindowTests+Mac: the real PlazaMacWindow (never shown) over a real controller, driven through its panel hosts (Task 17w)
+PlazaWindowRig+Mac.swift
+PlazaChatLogWindowTests+Mac.swift
+PlazaRosterWindowTests+Mac.swift
+PlazaBoardWindowTests+Mac.swift
+PlazaCardWindowTests+Mac.swift
 # PlazaCanvasShapesMacTests: writes and re-checks the CoreGraphics goldens of the text-free canvas scripts
 PlazaCanvasShapesMacTests.swift
+PlazaFirstMouseTests+Mac.swift
+PlazaHiddenPanelsTests+Mac.swift
+PlazaOverlayCoverTests+Mac.swift
+PlazaPanelCostTests+Mac.swift
+PlazaLegacyScrollerTests+Mac.swift
+PlazaTwoOverlaysImageTests+Mac.swift
+PlazaBlankLineTests+Mac.swift
+PlazaLiveSendEventTests+Mac.swift
+PlazaNoWindowsOrderedInScanTests+Mac.swift
+PlazaLegacyScrollerControlTests+Mac.swift
+# PlazaTextFrameTests+Mac: the shared CoreText frame and truncation rules against live CTFramesetter / CTLineCreateTruncatedLine (CoreText, fallback fonts)
+PlazaTextFrameTests+Mac.swift

@@ -20,6 +20,16 @@ import Foundation
         }
     }
 
+    /// Panels the window hides (the Mac's photo mode hides the roster, chat log, minimap, clock, guide and toggles): they take no click, are not
+    /// rendered and, like a hidden plaza, end their own animation; showing them again renders what changed meanwhile.
+    var hiddenPanels: Set<PlazaPanelID> = [] {
+        didSet {
+            guard hiddenPanels != oldValue else { return }
+            if hiddenPanels.contains(where: { !oldValue.contains($0) }) { pressed = nil; hovered = nil; updateInteraction() }
+            flush()
+        }
+    }
+
     /// false while the plaza is hidden: nothing renders. Turning it back on renders the panels that changed meanwhile.
     var isRendering = true {
         didSet { if isRendering, !oldValue { flush() } }
@@ -46,6 +56,7 @@ import Foundation
     private var shown: [PlazaPanelID: Shown] = [:]
     private var flushScheduled = false
     private var pressed: (id: PlazaPanelID, hit: PlazaPanelHit)?
+    private var scrollerCapture: PlazaPanelID?
     private var hovered: (id: PlazaPanelID, hit: PlazaPanelHit)?
 
     init(panels: [any PlazaPanel], graphics: any PlazaGraphics = PlatformPlaza.graphics) {
@@ -87,9 +98,12 @@ import Foundation
         return frames
     }
 
+    /// Whether panel `id` is drawn now (visible, not hidden by the window).
+    func isShown(_ id: PlazaPanelID) -> Bool { shown[id] != nil && !hiddenPanels.contains(id) }
+
     /// What a click at `point` (window points, origin top-left) on the shown panel `id` picks.
     func hit(at point: CGPoint, in id: PlazaPanelID) -> PlazaPanelHit? {
-        guard let frame = shown[id]?.frame, frame.contains(point),
+        guard !hiddenPanels.contains(id), let frame = shown[id]?.frame, frame.contains(point),
               let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return nil }
         return panel.hit(CGPoint(x: point.x - frame.minX, y: point.y - frame.minY))
     }
@@ -108,6 +122,24 @@ import Foundation
     /// `interaction` (only panels whose drawing `tracksMouse` get moves). A scroll goes to the panel under the mouse
     /// (`PlazaPanel.scroll`): taken while that panel scrolls that way, else passed on.
     func handleMouse(_ e: PlazaMouseEvent, in id: PlazaPanelID) -> Bool {
+        // The legacy scroller is a control: a press on its track is captured, the drags go to the panel wherever the pointer is, the release ends it.
+        if let panel = panels.first(where: { $0.id == id }), let frame = shown[id]?.frame, !hiddenPanels.contains(id), panel.isVisible {
+            let local = CGPoint(x: e.location.x - frame.minX, y: e.location.y - frame.minY)
+            switch e.kind {
+            case .down where frame.contains(e.location) && panel.scrollerContains(local):
+                scrollerCapture = id
+                panel.scrollerMouse(.down, at: local)
+                return true
+            case .moved where scrollerCapture == id:
+                panel.scrollerMouse(.drag, at: local)
+                return true
+            case .up where scrollerCapture == id:
+                scrollerCapture = nil
+                panel.scrollerMouse(.up, at: local)
+                return true
+            default: break
+            }
+        }
         let hit = self.hit(at: e.location, in: id)
         switch e.kind {
         case .down:
@@ -133,6 +165,12 @@ import Foundation
             guard hit != nil, let frame = shown[id]?.frame, let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return false }
             return panel.scroll(dx: dx, dy: dy, at: CGPoint(x: e.location.x - frame.minX, y: e.location.y - frame.minY))
         }
+    }
+
+    /// VoiceOver focused item `index` of panel `id`: the panel scrolls it into view.
+    func scrollIntoView(_ index: Int, in id: PlazaPanelID) {
+        guard !hiddenPanels.contains(id), let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return }
+        if panel.scrollAccessibilityItemIntoView(index) { setNeedsRender(id) }
     }
 
     /// VoiceOver pressed an item of panel `id`: the same as a click on that hit.
@@ -171,6 +209,7 @@ import Foundation
     private func update(_ panel: any PlazaPanel) {
         guard isRendering, let host, viewport.width > 0, viewport.height > 0 else { return }
         let id = panel.id
+        guard !hiddenPanels.contains(id) else { return }   // changes are remembered (`dirty`); they render when it shows again
         guard panel.isVisible else {
             dirty.remove(id)
             if shown.removeValue(forKey: id) != nil { host.hide(id) }
@@ -186,6 +225,7 @@ import Foundation
             return
         }
         dirty.remove(id)
+        if shown[id] == nil { panel.didAppear() }
         renderCounts[id, default: 0] += 1
         let drawing = panel.render(scale: scale, viewport: viewport, graphics: graphics)
         shown[id] = Shown(drawing: drawing, frame: frame, scale: scale)

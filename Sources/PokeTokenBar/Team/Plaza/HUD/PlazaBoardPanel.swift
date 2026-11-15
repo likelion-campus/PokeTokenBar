@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The look of the news board, copied from `PlazaBoardView` / `PlazaOverlayView` (SwiftUI, which the Mac still shows).
+/// The look of the news board, copied from `PlazaBoardView` / `PlazaOverlayView` (SwiftUI, replaced by this panel on the Mac; the view is kept in Tests/Legacy).
 enum PlazaBoardStyle {
     static let size = CGSize(width: 340, height: 380)
     static let inset = PlazaCardMetrics.panelInset
@@ -19,7 +19,7 @@ enum PlazaBoardStyle {
     }
 }
 
-/// The news board (`PlazaBoardView`, SwiftUI, which the Mac still shows) as a panel: the striped plate `340 x 380`, centred in
+/// The news board (`PlazaBoardView`, SwiftUI, replaced by this panel on the Mac and kept in Tests/Legacy) as a panel: the striped plate `340 x 380`, centred in
 /// the window (the overlay's ZStack centred it), with the title "소식판" and under it the events newest first, each a
 /// rounded row: the text (a ★ and yellow when shiny, thickened with a one-point shadow when big), its date, who reacted (a
 /// line per reaction kind) and three buttons (귀여워 / 웃겨 / 축하해) that are dimmed and inert once I have given that
@@ -27,7 +27,7 @@ enum PlazaBoardStyle {
 /// reaction button is `("react", row * 3 + kind)` (the owner reacts with `reaction(forHit:)`), anywhere else on the plate
 /// `("board")` (taken, nothing happens); outside the plate nothing. The keys that close it (Space/Esc) go through the scene as
 /// before. There is no text input.
-@MainActor final class PlazaBoardPanel: PlazaPanel {
+@MainActor final class PlazaBoardPanel: PlazaPanel, PlazaScrollIndicating {
     let id = PlazaPanelID.board
     let anchor = PlazaPanelAnchor.center
     let offset = CGPoint.zero
@@ -42,21 +42,35 @@ enum PlazaBoardStyle {
     }
 
     private(set) var scrollState = PlazaScrollState()
+    let scrollIndicator = PlazaScrollIndicator()
 
     init(model: PlazaOverlayModel, feed: TeamFeedStore, myMemberID: String) {
         self.model = model
         self.feed = feed
         self.myMemberID = myMemberID
-        observer = PlazaChangeObserver(track: { _ = model.content; _ = PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID) },
+        scrollIndicator.onChange = { [weak self] in self?.onChange?() }
+        observer = PlazaChangeObserver(track: { _ = model.content; _ = feed.revision },
                                        changed: { [weak self] in self?.modelChanged() })
     }
 
     var isVisible: Bool { model.content == .board }
 
     private var rendered: String?
-    private var state: String { "\(model.content == .board) \(PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID))" }
+    /// For tests (cost): how many times this panel rendered.
+    private(set) var renderCountForTesting = 0
+    /// What the board shows is the open state and the feed's revision: no row is built to find out whether anything changed.
+    private var state: String { "\(model.content == .board) \(feed.revision)" }
+
+    /// The rows of the feed, built once per revision (text, dates and reactions of every note).
+    private var rowsCache: (revision: Int, rows: [PlazaBoardRow])?
+    private func currentRows() -> [PlazaBoardRow] {
+        if let rowsCache, rowsCache.revision == feed.revision { return rowsCache.rows }
+        let rows = PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID)
+        rowsCache = (feed.revision, rows)
+        return rows
+    }
     private func modelChanged() {
-        if !isVisible { scrollState = PlazaScrollState(); rowImages = [:] }   // each opening starts at the top (a new ScrollView)
+        if !isVisible { scrollState = PlazaScrollState(); rowImages = [:]; scrollIndicator.reset() }   // each opening starts at the top (a new ScrollView)
         if rendered != state { onChange?() }
     }
 
@@ -81,56 +95,63 @@ enum PlazaBoardStyle {
         let bodyHeight: CGFloat, smallHeight: CGFloat
     }
 
-    private struct LayoutKey: Equatable { let rows: [PlazaBoardRow], scale: CGFloat, engine: String }
+    private struct LayoutKey: Equatable { let revision: Int, scale: CGFloat, engine: String, reserved: CGFloat }
     private var laidOut: (key: LayoutKey, layout: Layout)?
 
     func layout(scale: CGFloat, text: any PlazaTextEngine) -> Layout {
-        let rows = PlazaBoardRow.rows(feed: feed, myMemberID: myMemberID)
         let engine = String(describing: type(of: text))
-        let key = LayoutKey(rows: rows, scale: scale, engine: engine)
+        let key = LayoutKey(revision: feed.revision, scale: scale, engine: engine, reserved: scrollIndicator.reservedWidth)
         if let laidOut, laidOut.key == key { return laidOut.layout }
+        let rows = currentRows()
         let s = PlazaBoardStyle.self
         let l = L(.ko)
         let body = text.metrics(s.body), small = text.metrics(s.small)
         let bodyH = (body.ascender - body.descender).rounded(), smallH = (small.ascender - small.descender).rounded()
-        let inner = s.list.width - 2 * s.rowPadding
-        var placed: [Row] = []
-        var y: CGFloat = 0
-        for (n, row) in rows.enumerated() {
-            if n > 0 { y += s.rowGap }
-            let lines = text.wrappedLines((row.isShiny ? "★ " : "") + row.text, font: s.body, width: inner)
-            let date = text.line(row.date, font: s.small)
-            var cursor = s.rowPadding
-            let textTop = cursor
-            cursor += CGFloat(lines.count) * bodyH + s.lineGap
-            let dateTop = cursor
-            cursor += smallH
-            var reactionLines: [[PlazaTextLine]] = []
-            let reactionTop = cursor + s.lineGap
-            if !row.reactions.isEmpty {
-                cursor += s.lineGap
-                for (i, r) in row.reactions.enumerated() {
-                    if i > 0 { cursor += s.reactionGap }
-                    let wrapped = text.wrappedLines(l.teamReactionLabel(r.kind) + " " + r.nicknames.joined(separator: ", "), font: s.small, width: inner)
-                    reactionLines.append(wrapped)
-                    cursor += CGFloat(wrapped.count) * smallH
+        func build(reserve: CGFloat) -> (placed: [Row], height: CGFloat) {
+            let inner = s.list.width - reserve - 2 * s.rowPadding
+            var placed: [Row] = []
+            var y: CGFloat = 0
+            for (n, row) in rows.enumerated() {
+                if n > 0 { y += s.rowGap }
+                let lines = text.wrappedLines((row.isShiny ? "★ " : "") + row.text, font: s.body, width: inner)
+                let date = text.line(row.date, font: s.small)
+                var cursor = s.rowPadding
+                let textTop = cursor
+                cursor += CGFloat(lines.count) * bodyH + s.lineGap
+                let dateTop = cursor
+                cursor += smallH
+                var reactionLines: [[PlazaTextLine]] = []
+                let reactionTop = cursor + s.lineGap
+                if !row.reactions.isEmpty {
+                    cursor += s.lineGap
+                    for (i, r) in row.reactions.enumerated() {
+                        if i > 0 { cursor += s.reactionGap }
+                        let wrapped = text.wrappedLines(l.teamReactionLabel(r.kind) + " " + r.nicknames.joined(separator: ", "), font: s.small, width: inner)
+                        reactionLines.append(wrapped)
+                        cursor += CGFloat(wrapped.count) * smallH
+                    }
                 }
+                cursor += s.lineGap
+                var buttons: [(TeamReactionKind, PlazaTextLine, CGRect)] = []
+                var x = s.rowPadding
+                for kind in PlazaBoardRow.buttonKinds {
+                    let line = text.line(l.teamReactionLabel(kind), font: s.small)
+                    let width = max(s.buttonMinWidth, PlazaPanelStyle.pixelUp(line.width, scale: scale))
+                    buttons.append((kind, line, CGRect(x: x, y: cursor, width: width, height: smallH + 2 * s.buttonPadding)))
+                    x += width + s.buttonGap
+                }
+                cursor += smallH + 2 * s.buttonPadding + s.rowPadding
+                let label = ([lines.isEmpty ? "" : (row.isShiny ? "★ " : "") + row.text, row.date]).joined(separator: ", ")
+                placed.append(Row(row: row, frame: CGRect(x: 0, y: y, width: s.list.width - reserve, height: cursor), text: lines, date: date, reactions: reactionLines,
+                                  buttons: buttons.map { ($0.0, $0.1, $0.2) }, textTop: textTop, dateTop: dateTop, reactionTop: reactionTop, label: label))
+                y += cursor
             }
-            cursor += s.lineGap
-            var buttons: [(TeamReactionKind, PlazaTextLine, CGRect)] = []
-            var x = s.rowPadding
-            for kind in PlazaBoardRow.buttonKinds {
-                let line = text.line(l.teamReactionLabel(kind), font: s.small)
-                let width = max(s.buttonMinWidth, PlazaPanelStyle.pixelUp(line.width, scale: scale))
-                buttons.append((kind, line, CGRect(x: x, y: cursor, width: width, height: smallH + 2 * s.buttonPadding)))
-                x += width + s.buttonGap
-            }
-            cursor += smallH + 2 * s.buttonPadding + s.rowPadding
-            let label = ([lines.isEmpty ? "" : (row.isShiny ? "★ " : "") + row.text, row.date]).joined(separator: ", ")
-            placed.append(Row(row: row, frame: CGRect(x: 0, y: y, width: s.list.width, height: cursor), text: lines, date: date, reactions: reactionLines,
-                              buttons: buttons.map { ($0.0, $0.1, $0.2) }, textTop: textTop, dateTop: dateTop, reactionTop: reactionTop, label: label))
-            y += cursor
+            return (placed, y)
         }
+        // "Always show scroll bars": the legacy scroller takes its width from the list when the notes overflow it, so they wrap narrower.
+        var built = build(reserve: 0)
+        if scrollIndicator.reservedWidth > 0, built.height > s.list.height { built = build(reserve: scrollIndicator.reservedWidth) }
+        let placed = built.placed, y = built.height
         let result = Layout(title: text.line(l.plazaBoardTitle, font: s.body), empty: text.line(l.plazaBoardEmpty, font: s.body), rows: placed, content: y,
                             body: body, small: small, bodyHeight: bodyH, smallHeight: smallH)
         laidOut = (key, result)
@@ -158,8 +179,13 @@ enum PlazaBoardStyle {
         return i == index
     }
 
+    /// The backing scale of the last render (the scroller's knob sits on its device pixels).
+    private var renderedScale: CGFloat = 1
+
     func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
+        renderedScale = scale
         rendered = state
+        renderCountForTesting += 1
         let text = graphics.text
         let l = layout(scale: scale, text: text)
         let s = PlazaBoardStyle.self
@@ -243,35 +269,69 @@ enum PlazaBoardStyle {
             if let p = picture { layers.append(.image(p, frame: shown.offsetBy(dx: list.minX, dy: list.minY))) }
         }
         rowImages = kept
+        layers += scrollIndicator.layers(state: scrollState, offset: offset, viewport: list, scale: scale, graphics: graphics)
 
-        // VoiceOver: the shown rows' texts and buttons, frames cut to the list.
+        // VoiceOver: the list is a scroll area and EVERY note's text, date, reaction lines and buttons are elements (keyed by the note's id),
+        // at their true places: those scrolled out lie outside the window, and focusing one scrolls it into view.
+        accessibilityContent = [:]
+        items.append(PlazaAccessibilityItem(frame: list, role: .scrollArea, label: L(.ko).plazaBoardTitle, key: "scroll"))
         for (i, row) in l.rows.enumerated() {
-            guard let shown = scrollState.visible(row.frame, offset: offset) else { continue }
-            func place(_ r: CGRect) -> CGRect {
-                let moved = r.offsetBy(dx: row.frame.minX, dy: row.frame.minY - offset)
-                let cut = moved.intersection(CGRect(x: 0, y: 0, width: list.width, height: list.height))
-                return (cut.isNull ? CGRect(x: moved.minX, y: moved.minY < 0 ? 0 : list.height, width: moved.width, height: 0) : cut).offsetBy(dx: list.minX, dy: list.minY)
+            func add(_ r: CGRect, role: PlazaAccessibilityItem.Role, label: String, key: String, action: PlazaPanelHit? = nil, enabled: Bool = true) {
+                let content = r.offsetBy(dx: row.frame.minX, dy: row.frame.minY)
+                accessibilityContent[items.count] = content
+                items.append(PlazaAccessibilityItem(frame: content.offsetBy(dx: list.minX, dy: list.minY - offset), role: role, label: label, action: action,
+                                                    key: "note-\(row.row.id)-\(key)", isEnabled: enabled, inScrollArea: true))
             }
-            _ = shown
-            items.append(PlazaAccessibilityItem(frame: place(CGRect(x: s.rowPadding, y: row.textTop, width: list.width - 2 * s.rowPadding, height: CGFloat(row.text.count) * l.bodyHeight)),
-                                                role: .staticText, label: (row.row.isShiny ? "★ " : "") + row.row.text))
-            items.append(PlazaAccessibilityItem(frame: place(CGRect(x: s.rowPadding, y: row.dateTop, width: PlazaPanelStyle.pixelUp(row.date.width, scale: scale), height: l.smallHeight)),
-                                                role: .staticText, label: row.row.date))
+            add(CGRect(x: s.rowPadding, y: row.textTop, width: list.width - 2 * s.rowPadding, height: CGFloat(row.text.count) * l.bodyHeight),
+                role: .staticText, label: (row.row.isShiny ? "★ " : "") + row.row.text, key: "text")
+            add(CGRect(x: s.rowPadding, y: row.dateTop, width: PlazaPanelStyle.pixelUp(row.date.width, scale: scale), height: l.smallHeight),
+                role: .staticText, label: row.row.date, key: "date")
             var y = row.reactionTop
             for (n, r) in row.row.reactions.enumerated() {
                 if n > 0 { y += s.reactionGap }
                 let h = CGFloat(row.reactions[n].count) * l.smallHeight
-                items.append(PlazaAccessibilityItem(frame: place(CGRect(x: s.rowPadding, y: y, width: list.width - 2 * s.rowPadding, height: h)), role: .staticText,
-                                                    label: L(.ko).teamReactionLabel(r.kind) + " " + r.nicknames.joined(separator: ", ")))
+                add(CGRect(x: s.rowPadding, y: y, width: list.width - 2 * s.rowPadding, height: h), role: .staticText,
+                    label: L(.ko).teamReactionLabel(r.kind) + " " + r.nicknames.joined(separator: ", "), key: "reaction-\(r.kind.rawValue)")
                 y += h
             }
             for (k, b) in row.buttons.enumerated() {
                 let mine = row.row.mine.contains(b.kind)
-                items.append(PlazaAccessibilityItem(frame: place(b.frame), role: .button, label: L(.ko).teamReactionLabel(b.kind),
-                                                    action: mine ? nil : PlazaPanelHit(action: "react", index: i * 3 + k)))
+                add(b.frame, role: .button, label: L(.ko).teamReactionLabel(b.kind), key: "button-\(b.kind.rawValue)",
+                    action: mine ? nil : PlazaPanelHit(action: "react", index: i * 3 + k, target: "\(row.row.id):\(b.kind.rawValue)"), enabled: !mine)
             }
         }
         return PlazaPanelDrawing(layers: layers, accessibility: items)
+    }
+
+    /// Accessibility item index -> the item's rectangle in the scrolling content (for `scrollAccessibilityItemIntoView`).
+    private var accessibilityContent: [Int: CGRect] = [:]
+
+    func scrollAccessibilityItemIntoView(_ index: Int) -> Bool {
+        guard let rect = accessibilityContent[index], scrollState.scrollToVisible(rect) else { return false }
+        scrollIndicator.scrolled()
+        return true
+    }
+
+
+    // MARK: the legacy scroller as a control
+
+    private func scrollerViewport() -> CGRect? { isVisible ? PlazaBoardStyle.list : nil }
+
+    func scrollerContains(_ point: CGPoint) -> Bool {
+        guard let v = scrollerViewport() else { return false }
+        return scrollIndicator.tracks(point, state: scrollState, viewport: v)
+    }
+
+    func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint) {
+        guard let v = scrollerViewport() else { return }
+        let scale = renderedScale
+        let moved: Bool
+        switch phase {
+        case .down: moved = scrollIndicator.scrollerDown(at: point, state: &scrollState, viewport: v, scale: scale)
+        case .drag: moved = scrollIndicator.scrollerDrag(to: point, state: &scrollState, viewport: v, scale: scale)
+        case .up: scrollIndicator.scrollerUp(); moved = false
+        }
+        if moved { onChange?() }
     }
 
     // MARK: input
@@ -293,7 +353,7 @@ enum PlazaBoardStyle {
             let x = point.x - list.minX
             for (i, row) in l.rows.enumerated() where row.frame.minY <= y && y < row.frame.maxY {
                 for (k, b) in row.buttons.enumerated() where b.frame.offsetBy(dx: 0, dy: row.frame.minY).contains(CGPoint(x: x, y: y)) {
-                    return row.row.mine.contains(b.kind) ? PlazaPanelHit(action: "board", index: nil) : PlazaPanelHit(action: "react", index: i * 3 + k)
+                    return row.row.mine.contains(b.kind) ? PlazaPanelHit(action: "board", index: nil) : PlazaPanelHit(action: "react", index: i * 3 + k, target: "\(row.row.id):\(b.kind.rawValue)")
                 }
             }
         }
@@ -303,6 +363,7 @@ enum PlazaBoardStyle {
     /// Only the list takes the wheel: over the title, the plate's margin or outside it goes on.
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool {
         guard isVisible, PlazaBoardStyle.list.contains(point), scrollState.scroll(deltaY: dy) else { return false }
+        scrollIndicator.scrolled()
         onChange?()
         return true
     }

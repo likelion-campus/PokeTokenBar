@@ -299,4 +299,6 @@ int ptb_canvas_write_pixels(PTBCanvas *c, const uint8_t *rgba);
 }
 #endif
 
+#include "CPlazaD2DText.h" /* the DirectWrite text engine (Task 9) */
+
 #endif

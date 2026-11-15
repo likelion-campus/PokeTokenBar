@@ -32,6 +32,7 @@ import XCTest
         let model = PlazaOverlayModel()
         if let state { model.content = .card(state) }
         let panel = PlazaCardPanel(model: model, icons: icons, now: { self.now })
+        panel.scrollIndicator.isDisabled = true   // the SwiftUI original draws no scroller off screen; the indicator has its own tests
         let graphics = CanvasKeepingGraphics()
         let hud = PlazaHUD(panels: [panel], graphics: graphics)
         let host = RecordingPanelHost(), actions = PlazaBoardPanelTests.Actions()
@@ -131,6 +132,23 @@ import XCTest
         XCTAssertTrue(r.icons.spritesAsked.contains(5), "the character's own picture")
     }
 
+    /// Review item 9: a title longer than two lines (a name a peer could send) keeps two lines and ends the second with "…", as `.lineLimit(2)` did.
+    func testATitleLongerThanTwoLinesEndsWithAnEllipsis() async {
+        let long = String(repeating: "가", count: 80)
+        let r = rig(.failed(member(long)))
+        await flush()
+        let d = r.host.drawings[.card]!
+        let titleItems = d.accessibility.filter { $0.label.contains("가가가") && $0.role == .staticText }
+        XCTAssertEqual(titleItems.count, 1)
+        let lines = r.panel.layout(scale: 2, text: r.graphics.text)?.header.title ?? []
+        XCTAssertEqual(lines.count, 2, "two lines, not three")
+        XCTAssertEqual((lines.last?.native as? PlazaStubText)?.text.hasSuffix("…"), true, "the second line ends with the ellipsis")
+        XCTAssertNotEqual((lines.first?.native as? PlazaStubText)?.text.hasSuffix("…"), true)
+        // A title that fits is untouched.
+        let short = rig(.failed(member("민수")))
+        XCTAssertEqual(short.panel.layout(scale: 2, text: short.graphics.text)?.header.title.count, 1)
+    }
+
     func testAnEggMemberIsNamedEggAndAsksForTheEggPicture() async {
         let egg = member("알친구", species: nil, name: nil)
         let r = rig(.loading(egg))
@@ -201,7 +219,8 @@ import XCTest
         for t in cells {
             XCTAssertTrue(lower.contains(CGPoint(x: t.frame.midX, y: t.frame.midY)), "inside the lower area")
             XCTAssertLessThanOrEqual(t.frame.maxY, lower.maxY + 0.001, "cut at the viewport's edge")
-            XCTAssertTrue(d.accessibility.contains { $0.frame == t.frame && $0.label == t.text && $0.role == .staticText })
+            XCTAssertTrue(d.accessibility.contains { $0.inScrollArea && $0.label.hasPrefix(t.text) && $0.frame.intersection(t.frame) == t.frame && $0.role == .staticText },
+                          "the cell is an element at its true place (the hover rectangle is its visible part)")
         }
         XCTAssertTrue(cells.contains { $0.text.hasPrefix("종") })
     }
@@ -226,7 +245,7 @@ import XCTest
         XCTAssertEqual(r.actions.list, ["card card"])
         XCTAssertNil(r.hud.hit(at: CGPoint(x: 3, y: 3), in: .card), "outside the plate: the scene gets it")
         let roles = Set(r.host.drawings[.card]!.accessibility.map(\.role))
-        XCTAssertEqual(roles, [.staticText], "no buttons, no input")
+        XCTAssertEqual(roles, [.staticText, .scrollArea], "no buttons, no input")
     }
 
     func testOpeningAnotherCardStartsAtTheTop() async {
