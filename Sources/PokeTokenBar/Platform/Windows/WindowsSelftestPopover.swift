@@ -359,8 +359,9 @@ extension WindowsSelftest {
         var hits: [String] = []
         view.onHit = { hit in hits.append(hit.action); part.countUp() }
         let button = view.items.first { $0.kind == .drawnItem && WinKit.className($0.hwnd) == "Button" }
+        let renders0 = view.stats.renders
         if let button { WinKit.send(button.hwnd, 0x00F5 /* BM_CLICK */) }
-        _ = await WindowsSelftest.waitUntil(timeout: 2) { view.stats.renders >= 2 }
+        _ = await WindowsSelftest.waitUntil(timeout: 2) { view.stats.renders > renders0 }
         // A click on the picture where the part has no hit reports nothing.
         WinKit.send(view.hwnd, 0x0201, 1, Int(2 * scale) << 16 | Int(2 * scale))
         WinKit.send(view.hwnd, 0x0202, 0, Int(2 * scale) << 16 | Int(2 * scale))
@@ -1116,7 +1117,8 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
         if !outside.isEmpty { problems.append("outside the window: \(outside)") }
         let hangul = Set(nodes.flatMap { $0.text.unicodeScalars.filter { (0xAC00...0xD7A3).contains($0.value) }.map { UInt16($0.value) } })
         let missingHangul = Self.missingGlyphs(Array(hangul), face: "Malgun Gothic")
-        if !missingHangul.isEmpty { problems.append("Hangul without a glyph in Malgun Gothic: \(missingHangul.count)") }
+        // R9: a machine without Malgun Gothic (a server image) draws Hangul as boxes: reported, not failed; with the font, a missing glyph fails.
+        if !missingHangul.isEmpty, WinFonts.isInstalled("Malgun Gothic") { problems.append("Hangul without a glyph in Malgun Gothic: \(missingHangul.count)") }
         let summary = "\(stops.count) Tab stops, \(tabOrder.count) reached in reading order=\(PopoverStackLayout.isReadingOrder(tabRects)); "
             + "\(leaves.count) visible controls; \(hangul.count) Hangul syllables, \(missingHangul.count) without a glyph in Malgun Gothic (GDI's link for Hangul, "
             + "installed=\(WinFonts.isInstalled("Malgun Gothic"))); problems=\(problems.isEmpty ? "none" : problems.joined(separator: "; "))"
