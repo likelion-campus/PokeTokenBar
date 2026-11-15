@@ -143,7 +143,11 @@ final class WindowsHTTPFetchTests: XCTestCase {
             var mine = "", theirs = ""
             do { mine = text(try await seam(r)) } catch { mine = "error \((error as NSError).code) \(error.localizedDescription)" }
             do { theirs = text(try await control(r)) } catch { theirs = "error \((error as NSError).code)" }
-            print("DECODE \(path): seam ok=\(mine == expected) urlsession ok=\(theirs == expected) | seam: \(mine.prefix(90))")
+            // Only printable text goes to the log: an undecoded body would put NUL bytes in test.log (grep then calls it binary
+            // and the workflow's test count reads 0).
+            let shown = mine == expected ? "decoded" : mine.hasPrefix("error ") ? mine : "\(mine.utf8.count) B not decoded: "
+                + mine.utf8.prefix(8).map { String(format: "%02x", $0) }.joined()
+            print("DECODE \(path): seam ok=\(mine == expected) urlsession ok=\(theirs == expected) | seam: \(shown)")
             if required { XCTAssertEqual(mine, expected, path) }
         }
     }
