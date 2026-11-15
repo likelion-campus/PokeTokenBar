@@ -244,6 +244,31 @@ uint32_t ptb_process_handle_count(void);
  * BGRA top-down; free *bgra with ptb_plaza_free (selftest evidence next to the screen capture). */
 int ptb_window_print(void *hwnd, uint32_t *w, uint32_t *h, uint8_t **bgra);
 
+/* ---- input (stage 6 Task 6) --------------------------------------------------------------------------------------- */
+
+/* The plaza window's IME context: enabled 0 = ImmAssociateContextEx(hwnd, NULL, 0) (no composition, no VK_PROCESSKEY: a
+ * game key stays a key), 1 = IACE_DEFAULT (the thread's default context back, for a text field). Returns 1 on success. */
+int ptb_window_ime_set(void *hwnd, int enabled);
+/* 1 when the window has an input context (ImmGetContext != NULL), 0 when it has none. */
+int ptb_window_ime_has_context(void *hwnd);
+/* 1 when the IME of this window's context is open (Hangul mode on a Korean layout); 0 when closed or no context. */
+int ptb_window_ime_open(void *hwnd);
+/* The characters a key press gives under `state` (256 bytes like GetKeyboardState; NULL = the thread's) and layout (NULL =
+ * the thread's), as UTF-16 into out[cap]. `scan` carries 0xE000 for an extended key; a vk of 0 or 0xE5 (VK_PROCESSKEY) is
+ * taken from the scan code. `flags` 0x4 leaves the keyboard's dead-key state alone (Windows 10 1607+). Returns the count
+ * written, 0 for none, -1 for a dead key (the accent is in out[0]). */
+int ptb_input_characters(uint32_t vk, uint32_t scan, void *hkl, const uint8_t *state, uint32_t flags, uint16_t *out, int cap);
+/* LoadKeyboardLayoutW(klid, KLF_NOTELLSHELL): the handle of an installed layout without activating it (klid is UTF-16,
+ * NUL-terminated, such as "00020409" for US International). NULL when it is not installed. */
+void *ptb_input_load_layout(const uint16_t *klid);
+/* GetKeyboardState into out[256] (this thread's queue state). Returns 1 on success. */
+int ptb_input_keyboard_state(uint8_t *out);
+/* SPI_GETWHEELSCROLLLINES (horizontal 0) or SPI_GETWHEELSCROLLCHARS (1): the system's lines per notch, 3 when unknown;
+ * WHEEL_PAGESCROLL (a page per notch) comes back as 3 as well (the plaza has no page). */
+uint32_t ptb_input_wheel_lines(int horizontal);
+/* TrackMouseEvent(TME_LEAVE): WM_MOUSELEAVE once when the pointer leaves the client area. */
+int ptb_window_track_leave(void *hwnd);
+
 /* ---- canvas (Task 8) -------------------------------------------------------------------------------------------- */
 
 /* A Direct2D canvas over a WIC bitmap with CoreGraphics' conventions: origin bottom-left, y up, a CTM, a save/restore state

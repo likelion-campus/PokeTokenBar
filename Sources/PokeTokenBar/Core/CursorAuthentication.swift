@@ -129,7 +129,7 @@ enum CursorAuthentication {
     private static func perform(_ request: URLRequest) async -> (Data, Int)? {
         guard AppEnv.allowsLiveLimitsFetch else { return nil }
         do {
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await PlatformCompat.oneShotData(for: request, session: session)
             return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
         } catch {
             AppLog.write("cursor auth: token refresh transport failed")

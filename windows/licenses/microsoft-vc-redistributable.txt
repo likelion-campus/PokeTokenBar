@@ -1,9 +1,20 @@
 Microsoft Visual C++ runtime (vcruntime140*.dll, msvcp140*.dll, concrt140.dll, vcomp140.dll and siblings)
 
-These files are copied unmodified from the Visual C++ Redistributable folder of the Visual Studio installation that
-builds PokeTokenBar (VC\Redist\MSVC\<version>\x64\Microsoft.VC14*.CRT). Microsoft licenses them to Visual Studio
-users as "distributable code" that may be shipped inside an application ("app-local deployment"), under the Visual
-Studio license terms and the file list in the Visual Studio REDIST.TXT. See:
-https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+These files are copied unmodified from the Visual C++ redistributable folder of the Visual Studio installation that
+builds PokeTokenBar: [VisualStudioFolder]\VC\Redist\MSVC\<version>\x64\Microsoft.VC14*.CRT (the CI image: Visual Studio
+18 Enterprise 18.11.3, redist folder 14.51.36231, Microsoft.VC145.CRT). They are not taken from a debug_nonredist folder.
+
+The terms are the "Distributable Code" section of the Visual Studio License Terms and its Distributable List. The
+installation's own pointer to that list, [VisualStudioFolder]\Licenses\1033\Redist.txt, reads:
+  "Distributable Code for Microsoft Visual Studio (Includes Utilities & BuildServer Files)
+   For the latest version of this Redist.txt file, please visit https://aka.ms/vs/18/redistribution."
+That page ("Visual Studio Redistribution", https://learn.microsoft.com/visualstudio/releases/vs18/redistribution,
+dated 2025-11-11), section "Visual C++ Runtime Files", says:
+  "Subject to the License Terms for the software, you may copy and distribute with your program any of the files within
+   the following folder and its subfolders except as noted below. You may not modify these files.
+   - [VisualStudioFolder]\VC\redist"
+with the exception of the debug_nonredist folders, and: "Distribution of the Visual C++ Runtime Redistributable package,
+merge modules, and individual binaries obtained from those pages is limited to licensed Visual Studio users and is subject
+to its license terms."
 
 The Universal C Runtime (ucrtbase.dll, api-ms-win-crt-*.dll) is part of Windows 10 and later and is not shipped.
