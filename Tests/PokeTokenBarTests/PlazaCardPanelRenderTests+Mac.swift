@@ -73,7 +73,7 @@ import SwiftUI
     }()
 
     override func setUp() async throws {
-        Rig.blockNetwork()
+        Rig.blockNetwork(for: self)
         await Rig.seedIcons(Self.seeded)
         for id in Self.seeded { Rig.seedSprite(id); Rig.seedSprite(id, shiny: true) }
     }

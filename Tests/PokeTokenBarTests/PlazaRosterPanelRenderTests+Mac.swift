@@ -67,7 +67,7 @@ import SwiftUI
     }
 
     override func setUp() async throws {
-        Rig.blockNetwork()
+        Rig.blockNetwork(for: self)
         await Rig.seedIcons(Self.seeded)
         _ = await SpriteLoader.eggImage()   // the egg from the sprite cache, if this Mac has one: in memory for both sides
     }
