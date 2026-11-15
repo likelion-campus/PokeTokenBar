@@ -59,7 +59,7 @@ CompanionStore.isRepresentative | D5
 CompanionStore.itemCount | H2
 CompanionStore.justEvolvedTo | C10
 CompanionStore.justGraduated | C12
-CompanionStore.language | P4
+CompanionStore.language | P4w
 CompanionStore.latestEvent | F1
 CompanionStore.lineNodes | C11
 CompanionStore.loadActiveFormNames | C13

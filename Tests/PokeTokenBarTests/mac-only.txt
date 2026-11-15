@@ -252,3 +252,5 @@ PlazaTextFrameTests+Mac.swift
 PopoverParityScanTests.swift
 # PopoverTwinEquivalenceTests+Mac: drives the Mac originals (PopoverNavigation in UI/) against their shared twins
 PopoverTwinEquivalenceTests+Mac.swift
+# PopoverTextStyleGoldensMacTests: measures the Mac's text styles and label colours (AppKit NSFont / NSColor, no window) into Tests/PopoverParity/mac-text-styles.json; the Windows kit's font table is held to that file on both systems by PopoverTextStyleTests
+PopoverTextStyleGoldensMacTests.swift

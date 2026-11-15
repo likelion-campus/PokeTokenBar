@@ -3,3 +3,4 @@
 #   Mac file#Type | shared file#Type | renames (Mac=shared, comma-separated)
 
 UI/PopoverView.swift#PopoverNavigation | Popover/PopoverState.swift#PopoverState | PopoverTab=Tab
+UI/PopoverView.swift#PopoverMetrics | Popover/PopoverWindowMetrics.swift#PopoverWindowMetrics | PopoverMetrics=PopoverWindowMetrics

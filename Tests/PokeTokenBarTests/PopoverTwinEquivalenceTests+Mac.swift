@@ -83,4 +83,13 @@ final class PopoverTwinEquivalenceTests: XCTestCase {
         XCTAssertEqual(calls.mac, 1)
         XCTAssertEqual(calls.twin, 1)
     }
+
+    /// Stage 7 Task 3: the Windows kit's popover metrics are the Mac's (`PopoverMetrics`, twinned as `PopoverWindowMetrics`).
+    func testThePopoverMetricsTwinHasTheMacsNumbers() async {
+        XCTAssertEqual(PopoverWindowMetrics.width, PopoverMetrics.width)
+        XCTAssertEqual(PopoverWindowMetrics.padding, PopoverMetrics.padding)
+        XCTAssertEqual(PopoverWindowMetrics.contentWidth, PopoverMetrics.contentWidth)
+        XCTAssertEqual(PopoverWindowMetrics.scrollerInset, PopoverMetrics.scrollerInset)
+        XCTAssertEqual(PopoverWindowMetrics.scrollContentWidth, PopoverMetrics.scrollContentWidth)
+    }
 }
