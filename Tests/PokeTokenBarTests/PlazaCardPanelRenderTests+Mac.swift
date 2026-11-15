@@ -157,6 +157,29 @@ import SwiftUI
         }
     }
 
+    /// Review item 7: what SwiftUI's system colours resolve to in the four combinations of appearance and Increase Contrast. MEASURED: the
+    /// high-contrast appearances resolve to the same four values as the plain ones for these colours, so Increase Contrast changes nothing
+    /// and the panel's light/dark sets are right for all four (this pins that).
+    func testRarityColoursInEveryAppearanceAndContrastAreSwiftUIs() throws {
+        for (dark, high, name) in [(false, false, NSAppearance.Name.aqua), (true, false, .darkAqua), (false, true, .accessibilityHighContrastAqua),
+                                   (true, true, .accessibilityHighContrastDarkAqua)] {
+            for r in [Rarity.common, .uncommon, .rare, .legendary] {
+                // SwiftUI's `.green`, `.blue`, `.orange`, `.gray` are the system colours; resolved under the appearance (which carries dark and
+                // Increase Contrast) they are what the card drew.
+                let system: NSColor = switch r { case .uncommon: .systemGreen; case .rare: .systemBlue; case .legendary: .systemOrange; default: .systemGray }
+                var resolved: NSColor?
+                NSAppearance(named: name)?.performAsCurrentDrawingAppearance { resolved = system.usingColorSpace(.sRGB) }
+                let c = try XCTUnwrap(resolved)
+                let want = PlazaCardStyle.rarity(r, dark: dark)
+                let got = (Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()), Int((c.blueComponent * 255).rounded()))
+                print("RARITY2 \(dark ? "dark" : "light") \(high ? "high" : "std") \(r) swiftui \(got) panel \(Int((want.red * 255).rounded())) \(Int((want.green * 255).rounded())) \(Int((want.blue * 255).rounded()))")
+                XCTAssertEqual(got.0, Int((want.red * 255).rounded()), accuracy: 1, "\(dark) \(high) \(r) red")
+                XCTAssertEqual(got.1, Int((want.green * 255).rounded()), accuracy: 1, "\(dark) \(high) \(r) green")
+                XCTAssertEqual(got.2, Int((want.blue * 255).rounded()), accuracy: 1, "\(dark) \(high) \(r) blue")
+            }
+        }
+    }
+
     func testPrintMetrics() {
         for f in [PlazaFont.plaza(.small), .plaza(.body)] {
             let m = PlatformPlaza.graphics.text.metrics(f)
