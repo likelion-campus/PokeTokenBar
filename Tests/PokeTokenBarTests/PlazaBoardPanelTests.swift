@@ -198,7 +198,11 @@ import XCTest
             XCTAssertGreaterThanOrEqual(f.minY, list.minY - 0.001)
             XCTAssertLessThanOrEqual(f.maxY, list.maxY + 0.001, "cut at the list's edges")
         }
-        XCTAssertTrue(d.accessibility.allSatisfy { $0.frame.minY >= list.minY - 0.001 || $0.label == "소식판" })
+        // VoiceOver: every note is an element (the ones scrolled out lie outside the list), inside a scroll area; nothing is dropped.
+        XCTAssertEqual(d.accessibility.first { $0.role == .scrollArea }?.frame, list)
+        XCTAssertTrue(d.accessibility.filter(\.inScrollArea).count > 30 * 5, "text, date, three buttons per note, all of them")
+        XCTAssertTrue(d.accessibility.contains { $0.inScrollArea && $0.frame.minY < list.minY }, "scrolled out above")
+        XCTAssertTrue(d.accessibility.contains { $0.inScrollArea && $0.frame.minY > list.maxY }, "and below")
     }
 
     func testEachOpeningStartsAtTheTop() async {
@@ -240,6 +244,6 @@ import XCTest
         // The board has no text field: nothing to reserve for a platform control (the keys that close it are the scene's).
         let r = rig(events: 3)
         let roles = Set(r.host.drawings[.board]!.accessibility.map(\.role))
-        XCTAssertEqual(roles, [.staticText, .button])
+        XCTAssertEqual(roles, [.staticText, .button, .scrollArea])
     }
 }

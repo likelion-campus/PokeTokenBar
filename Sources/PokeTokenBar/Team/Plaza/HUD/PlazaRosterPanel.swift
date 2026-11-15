@@ -211,7 +211,8 @@ enum PlazaRosterStyle {
                               statusFrame: CGRect(x: slotWidth - s.statusTrailing - statusWidth,
                                                   y: PlazaPanelStyle.pixel((m.slotHeight - statusSize.height) / 2, scale: scale),
                                                   width: statusWidth, height: statusSize.height),
-                              label: [entry.nickname, entry.speciesName, entry.presence.badge.text].joined(separator: ", ")))
+                              label: [[entry.nickname] + (PlazaRosterStyle.gender(entry.gender).map { [$0.text] } ?? []) + (entry.isShiny ? ["★"] : []), [entry.speciesName],
+                                      [entry.presence.badge.text]].map { $0.joined(separator: " ") }.joined(separator: ", ")))
         }
         let n = CGFloat(slots.count)
         let height = m.padding + m.headerHeight + m.listTopPadding + n * m.slotHeight + max(0, n - 1) * m.slotSpacing + m.padding
@@ -322,7 +323,7 @@ enum PlazaRosterStyle {
                                             role: .staticText, label: L(.ko).plazaRosterCount(online: l.online, total: l.total))]
         for a in l.arrows where true {
             items.append(PlazaAccessibilityItem(frame: a.frame, role: .button, label: a.delta < 0 ? "<" : ">",
-                                                action: a.enabled ? PlazaPanelHit(action: a.delta < 0 ? "previous" : "next", index: nil) : nil))
+                                                action: a.enabled ? PlazaPanelHit(action: a.delta < 0 ? "previous" : "next", index: nil) : nil, isEnabled: a.enabled))
         }
         var tips: [PlazaTooltip] = []
         for (i, slot) in l.slots.enumerated() {

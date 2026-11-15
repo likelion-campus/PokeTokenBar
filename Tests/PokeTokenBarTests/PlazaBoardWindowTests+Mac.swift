@@ -33,15 +33,16 @@ import XCTest
         return rig
     }
 
-    private func children(_ rig: PlazaWindowRig) throws -> [NSAccessibilityElement] {
-        try XCTUnwrap(rig.host(.board)?.accessibilityChildren() as? [NSAccessibilityElement])
+    /// Every element in item order (the scroll area's children included).
+    private func children(_ rig: PlazaWindowRig) throws -> [PlazaPanelAccessibilityElement] {
+        try XCTUnwrap(rig.host(.board)).accessibilityElementsForTesting
     }
     /// The centre of an accessibility child in window points (its frame is in the host's space, which is the window's).
-    private func centre(_ e: NSAccessibilityElement) -> NSPoint {
-        let f = e.accessibilityFrameInParentSpace()
+    private func centre(_ e: PlazaPanelAccessibilityElement) -> NSPoint {
+        let f = e.hostFrame
         return NSPoint(x: f.midX, y: f.midY)
     }
-    private func buttons(_ rig: PlazaWindowRig) throws -> [NSAccessibilityElement] { try children(rig).filter { $0.accessibilityRole() == .button } }
+    private func buttons(_ rig: PlazaWindowRig) throws -> [PlazaPanelAccessibilityElement] { try children(rig).filter { $0.accessibilityRole() == .button } }
 
     func testTheBoardIsCentredAndTakesClicksOnlyOnItsPlate() async throws {
         let rig = try await rig()
@@ -71,6 +72,8 @@ import XCTest
         XCTAssertEqual(bs.count, 3 * (bs.count / 3), "buttons come in threes")
         // The first row's buttons: cute (mine: disabled, still a button for VoiceOver, as SwiftUI's disabled button was), funny, cheer.
         XCTAssertEqual(bs.map { $0.accessibilityLabel() ?? "" }.prefix(3).map { $0 }, PlazaBoardRow.buttonKinds.map { L(.ko).teamReactionLabel($0) })
+        XCTAssertFalse(bs[0].isAccessibilityEnabled(), "my own reaction's button is announced as dimmed")
+        XCTAssertTrue(bs[1].isAccessibilityEnabled())
         XCTAssertTrue(rig.window.firstResponder === rig.skView)
         let target = try XCTUnwrap(rig.click(atWindow: centre(bs[1])))
         XCTAssertTrue(target === rig.host(.board))
@@ -170,18 +173,28 @@ import XCTest
         XCTAssertTrue(panel.scrollState.isAtTop, "reopening starts at the top")
     }
 
-    func testVoiceOverReadsTheTitleAndTheRowsInView() async throws {
+    func testVoiceOverReadsTheTitleAndEveryNoteAndFocusingTheLastOneScrollsToIt() async throws {
         let rig = try await rig()
         defer { rig.close() }
         let host = try XCTUnwrap(rig.host(.board))
         let c = try children(rig)
         XCTAssertEqual(c.first?.accessibilityLabel(), L(.ko).plazaBoardTitle)
-        XCTAssertTrue(c.contains { $0.accessibilityLabel() == "포켓몬0" || ($0.accessibilityLabel() ?? "").contains("포켓몬0") })
-        XCTAssertLessThan(c.count, 30 * 4, "only the rows in view")
-        let announced = host.accessibilityChangesForTesting
-        for _ in 0..<10 { try rig.scroll(.board, at: CGPoint(x: 170, y: 200), dy: -3) }   // 30 points: inside the first rows
+        XCTAssertEqual(c.filter { $0.areaRole }.count, 1, "the list is a scroll area")
+        XCTAssertGreaterThan(c.count, 30 * 5, "every note: its text, date, buttons (and reaction lines)")
+        XCTAssertTrue(c.contains { ($0.accessibilityLabel() ?? "").contains("포켓몬29") }, "the last note is reachable without scrolling by hand")
+        // Focusing the last note's text scrolls the list to it.
+        let panel = try XCTUnwrap(rig.panel(.board, as: PlazaBoardPanel.self))
+        XCTAssertTrue(panel.scrollState.isAtTop)
+        let last = try XCTUnwrap(c.last { $0.accessibilityRole() == .button })
+        last.accessibilityPerformAction(PlazaPanelAccessibilityElement.scrollToVisible)
         await rig.flush()
-        XCTAssertLessThan(host.accessibilityChangesForTesting - announced, 10, "not one announcement per scroll step")
+        XCTAssertFalse(panel.scrollState.isAtTop, "the list scrolled")
+        let area = try XCTUnwrap(c.first { $0.areaRole }).hostFrame
+        XCTAssertTrue(area.contains(CGPoint(x: last.hostFrame.midX, y: last.hostFrame.midY)), "and the element is inside the scroll area now")
+        let announced = host.accessibilityChangesForTesting
+        for _ in 0..<10 { try rig.scroll(.board, at: CGPoint(x: 170, y: 200), dy: 3) }
+        await rig.flush()
+        XCTAssertEqual(host.accessibilityChangesForTesting, announced, "scroll steps never announce: the items do not change")
     }
 
     func testOpeningAndClosingNeverRelayoutsTheHostAndTheIndicatorEndsItsTimers() async throws {

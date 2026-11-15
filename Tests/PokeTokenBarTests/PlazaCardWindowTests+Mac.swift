@@ -126,9 +126,18 @@ import XCTest
         let first = CGPoint(x: f.minX + lower.minX + 20, y: f.minY + lower.minY + 20)
         XCTAssertEqual(host.tooltipForTesting(at: first), "종0")
         XCTAssertGreaterThan(host.tooltipCountForTesting, 5)
-        let labels = (try XCTUnwrap(host.accessibilityChildren() as? [NSAccessibilityElement])).compactMap { $0.accessibilityLabel() }
-        XCTAssertTrue(labels.contains("종0"))
-        XCTAssertFalse(labels.contains("종59"), "only the cells in view")
+        let elements = host.accessibilityElementsForTesting
+        let labels = elements.compactMap { $0.accessibilityLabel() }
+        XCTAssertTrue(labels.contains("종0, ★"), "a cell reads its name and its ★ as SwiftUI's did")
+        XCTAssertTrue(labels.contains("종3, 전설, ★"), "and the legendary pill")
+        XCTAssertTrue(labels.contains { $0.hasPrefix("종59") }, "every cell is an element, the last one too")
+        XCTAssertEqual(elements.filter { $0.areaRole }.count, 1, "the dex is a scroll area")
+        // Focusing the last cell scrolls it into view.
+        let panel = try XCTUnwrap(rig.panel(.card, as: PlazaCardPanel.self))
+        let last = try XCTUnwrap(elements.last)
+        last.accessibilityPerformAction(PlazaPanelAccessibilityElement.scrollToVisible)
+        await rig.flush()
+        XCTAssertTrue(panel.scrollState.isAtBottom, "the last dex row is reachable by VoiceOver alone")
         let announced = host.accessibilityChangesForTesting
         for _ in 0..<10 { try rig.scroll(.card, at: CGPoint(x: 190, y: 380), dy: -3) }
         await rig.flush()
@@ -140,6 +149,8 @@ import XCTest
         let rig = try await rig(card(60))
         defer { rig.close() }
         let panel = try XCTUnwrap(rig.panel(.card, as: PlazaCardPanel.self))
+        rig.window.appearance = NSAppearance(named: .aqua)   // not the system's (it may be dark right now)
+        await rig.flush()
         XCTAssertFalse(panel.isDark)
         let before = rig.hud.renderCounts[.card] ?? 0
         rig.window.appearance = NSAppearance(named: .darkAqua)

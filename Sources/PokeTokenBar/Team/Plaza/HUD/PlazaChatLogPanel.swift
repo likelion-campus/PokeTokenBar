@@ -236,12 +236,28 @@ enum PlazaChatLogStyle {
         layers += scrollIndicator.layers(state: scrollState, offset: offset,
                                          viewport: CGRect(x: pad.width, y: l.bodyTop, width: Layout.innerWidth, height: l.bodyHeight),
                                          scale: scale, graphics: graphics)
+        // VoiceOver: the unfolded log is a scroll area; every line is an element (keyed by the line's id, so the cursor keeps its place when
+        // lines arrive) at its true place, which is outside the window for the lines scrolled out.
+        accessibilityContent = [:]
+        if l.expanded {
+            items.append(PlazaAccessibilityItem(frame: CGRect(x: pad.width, y: l.bodyTop, width: Layout.innerWidth, height: l.bodyHeight), role: .scrollArea,
+                                                label: L(.ko).plazaChatLogTitle, key: "scroll"))
+        }
         for row in l.rows {
-            let rect = scrollState.visible(row.frame, offset: offset)
-                ?? CGRect(x: 0, y: row.frame.maxY <= offset ? 0 : l.bodyHeight, width: row.frame.width, height: 0)
-            items.append(PlazaAccessibilityItem(frame: rect.offsetBy(dx: pad.width, dy: l.bodyTop), role: .staticText, label: row.label))
+            if l.expanded { accessibilityContent[items.count] = row.frame }
+            items.append(PlazaAccessibilityItem(frame: row.frame.offsetBy(dx: pad.width, dy: l.bodyTop - (l.expanded ? offset : 0)), role: .staticText, label: row.label,
+                                                key: "line-\(row.id)", inScrollArea: l.expanded))
         }
         return PlazaPanelDrawing(layers: layers, accessibility: items)
+    }
+
+    /// Accessibility item index -> the item's rectangle in the scrolling content (for `scrollAccessibilityItemIntoView`).
+    private var accessibilityContent: [Int: CGRect] = [:]
+
+    func scrollAccessibilityItemIntoView(_ index: Int) -> Bool {
+        guard let rect = accessibilityContent[index], scrollState.scrollToVisible(rect) else { return false }
+        scrollIndicator.scrolled()
+        return true
     }
 
     // MARK: input

@@ -386,12 +386,34 @@ enum PlazaCardStyle {
                 guard !cut.isNull, cut.height > 0 else { continue }
                 let panelRect = cut.offsetBy(dx: lower.minX, dy: lower.minY)
                 tips.append(PlazaTooltip(frame: panelRect, text: l.dex[index].name))
-                items.append(PlazaAccessibilityItem(frame: panelRect, role: .staticText, label: l.dex[index].name))
             }
         }
         rowImages = kept
+        // VoiceOver: the dex is a scroll area and EVERY cell is an element (name, then 전설 and ★ as SwiftUI's cell read), at its true place; the
+        // cells scrolled out lie outside the window, and focusing one scrolls it into view.
+        accessibilityContent = [:]
+        items.append(PlazaAccessibilityItem(frame: lower, role: .scrollArea, label: "", key: "scroll"))
+        for (index, species) in l.dex.enumerated() {
+            let content = CGRect(x: gridX + CGFloat(index % m.columns) * (m.cellSize.width + m.spacing), y: CGFloat(index / m.columns) * pitch,
+                                 width: m.cellSize.width, height: m.cellSize.height)
+            var label = species.name
+            if species.rarity == .legendary { label += ", " + L(.ko).rarityLabel(.legendary) }
+            if species.hasShiny { label += ", ★" }
+            accessibilityContent[items.count] = content
+            items.append(PlazaAccessibilityItem(frame: content.offsetBy(dx: lower.minX, dy: lower.minY - offset), role: .staticText, label: label,
+                                                key: "cell-\(species.speciesID)-\(species.form?.rawValue ?? "")-\(index)", inScrollArea: true))
+        }
         layers += scrollIndicator.layers(state: scrollState, offset: offset, viewport: lower, scale: scale, graphics: graphics)
         return PlazaPanelDrawing(layers: layers, accessibility: items, tooltips: tips)
+    }
+
+    /// Accessibility item index -> the item's rectangle in the scrolling content (for `scrollAccessibilityItemIntoView`).
+    private var accessibilityContent: [Int: CGRect] = [:]
+
+    func scrollAccessibilityItemIntoView(_ index: Int) -> Bool {
+        guard let rect = accessibilityContent[index], scrollState.scrollToVisible(rect) else { return false }
+        scrollIndicator.scrolled()
+        return true
     }
 
     // MARK: input

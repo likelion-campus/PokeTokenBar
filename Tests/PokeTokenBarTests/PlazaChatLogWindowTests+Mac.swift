@@ -108,33 +108,70 @@ import XCTest
         XCTAssertTrue(panel.scrollState.isAtBottom)
     }
 
-    func testVoiceOverReadsTheTitleTheButtonAndEveryLineAndAScrollStepSaysNothing() async throws {
+    func testVoiceOverReadsTheTitleTheButtonAScrollAreaWithEveryLineAndAScrollStepSaysNothing() async throws {
         let rig = try PlazaWindowRig()
         defer { rig.close() }
         fill(rig, 30)
         rig.controller.toggleChatLog()
         await rig.flush()
         let host = try XCTUnwrap(rig.host(.chatLog))
-        let children = try XCTUnwrap(host.accessibilityChildren() as? [NSAccessibilityElement])
-        XCTAssertEqual(children.count, 2 + 30)
-        XCTAssertEqual(children[0].accessibilityRole(), .staticText)
-        XCTAssertEqual(children[0].accessibilityLabel(), L(.ko).plazaChatLogTitle)
-        XCTAssertEqual(children[1].accessibilityRole(), .button)
-        XCTAssertEqual(children[1].accessibilityLabel(), L(.ko).plazaChatLogCollapse)
-        XCTAssertTrue(try XCTUnwrap(children[2].accessibilityLabel()).hasSuffix("팀원: 줄 0"))
-        XCTAssertTrue(try XCTUnwrap(children[31].accessibilityLabel()).hasSuffix("팀원: 줄 29"))
+        let top = try XCTUnwrap(host.accessibilityChildren() as? [PlazaPanelAccessibilityElement])
+        XCTAssertEqual(top.map { $0.accessibilityRole() }, [.staticText, .button, .scrollArea])
+        XCTAssertEqual(top[0].accessibilityLabel(), L(.ko).plazaChatLogTitle)
+        XCTAssertEqual(top[1].accessibilityLabel(), L(.ko).plazaChatLogCollapse)
+        let lines = try XCTUnwrap(top[2].accessibilityChildren() as? [PlazaPanelAccessibilityElement])
+        XCTAssertEqual(lines.count, 30, "every line is an element of the scroll area")
+        XCTAssertTrue(try XCTUnwrap(lines[0].accessibilityLabel()).hasSuffix("팀원: 줄 0"))
+        XCTAssertTrue(try XCTUnwrap(lines[29].accessibilityLabel()).hasSuffix("팀원: 줄 29"))
         let announced = host.accessibilityChangesForTesting
-        let frame = children[31].accessibilityFrameInParentSpace()
+        let frame = lines[29].accessibilityFrameInParentSpace()
         for _ in 0..<10 {
             try rig.scroll(.chatLog, at: CGPoint(x: 100, y: 80), dy: 12)
             await rig.flush()
         }
         XCTAssertEqual(host.accessibilityChangesForTesting, announced, "ten scroll steps: VoiceOver is not told the layout changed")
-        XCTAssertNotEqual(try XCTUnwrap(host.accessibilityChildren() as? [NSAccessibilityElement])[31].accessibilityFrameInParentSpace(), frame,
-                          "the frames did follow the scroll")
+        XCTAssertNotEqual(lines[29].accessibilityFrameInParentSpace(), frame, "the frames did follow the scroll")
         // The button's press is the same hit a click reports.
-        try XCTUnwrap(children[1] as? PlazaPanelAccessibilityElement).accessibilityPerformPress()
+        top[1].accessibilityPerformPress()
         XCTAssertFalse(rig.controller.isChatLogExpanded, "VoiceOver's press on the button folds the log")
+    }
+
+    /// VoiceOver's cursor keeps its place while lines arrive: the same element objects stay for the same lines.
+    func testNewLinesKeepTheElementsOfTheOldOnes() async throws {
+        let rig = try PlazaWindowRig()
+        defer { rig.close() }
+        fill(rig, 10)
+        rig.controller.toggleChatLog()
+        await rig.flush()
+        let host = try XCTUnwrap(rig.host(.chatLog))
+        let before = host.accessibilityElementsForTesting
+        let announced = host.accessibilityChangesForTesting
+        line(rig, 10, "새 줄")
+        await rig.flush()
+        let after = host.accessibilityElementsForTesting
+        XCTAssertEqual(after.count, before.count + 1)
+        XCTAssertTrue(before.allSatisfy { e in after.contains { $0 === e } }, "every old element is still there, the same object")
+        XCTAssertGreaterThan(host.accessibilityChangesForTesting, announced, "one element came: announced")
+    }
+
+    /// Focusing a line scrolled out (`AXScrollToVisible`) scrolls it into view.
+    func testFocusingALineOutOfViewScrollsItIntoView() async throws {
+        let rig = try PlazaWindowRig()
+        defer { rig.close() }
+        fill(rig, 50)
+        rig.controller.toggleChatLog()
+        await rig.flush()
+        let panel = try XCTUnwrap(rig.panel(.chatLog, as: PlazaChatLogPanel.self))
+        let host = try XCTUnwrap(rig.host(.chatLog))
+        XCTAssertTrue(panel.scrollState.isAtBottom)
+        let first = try XCTUnwrap(host.accessibilityElementsForTesting.first { $0.key == "line-\(rig.overlays.chatLog.lines[0].id)" })
+        XCTAssertTrue(first.accessibilityActionNames().contains(PlazaPanelAccessibilityElement.scrollToVisible))
+        first.accessibilityPerformAction(PlazaPanelAccessibilityElement.scrollToVisible)
+        await rig.flush()
+        XCTAssertTrue(panel.scrollState.isAtTop, "the first line is in view now")
+        let area = try XCTUnwrap(host.accessibilityElementsForTesting.first { $0.areaRole })
+        let f = first.hostFrame, a = area.hostFrame
+        XCTAssertTrue(a.contains(CGPoint(x: f.midX, y: f.midY)), "and its element lies inside the scroll area")
     }
 
     /// What the log costs in the real window: a scroll step is one render; after the indicator's fade nothing runs.

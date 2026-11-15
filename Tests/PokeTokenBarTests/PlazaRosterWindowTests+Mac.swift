@@ -92,13 +92,27 @@ import XCTest
         XCTAssertEqual(model.page, 1, "no page after the last")
     }
 
+    /// The original pager test's three assertions, through the real window: with six people a click where the arrows would be turns nothing,
+    /// and the count reaches the right edge; the seventh person brings the arrows, which push the count left, and the arrows turn.
     func testArrowsAppearFromTheSeventhPerson() async throws {
-        for (count, arrows) in [(6, 0), (7, 2)] {
+        let m = PlazaRosterMetrics.self
+        var countRight: [Int: CGFloat] = [:]
+        for count in [6, 7] {
             let rig = try await rig(people(count))
             defer { rig.close() }
-            let children = try XCTUnwrap(rig.host(.roster)?.accessibilityChildren() as? [NSAccessibilityElement])
-            XCTAssertEqual(children.filter { $0.accessibilityLabel() == "<" || $0.accessibilityLabel() == ">" }.count, arrows, "\(count) people")
+            let elements = try XCTUnwrap(rig.host(.roster)).accessibilityElementsForTesting
+            let arrows = elements.filter { $0.accessibilityLabel() == "<" || $0.accessibilityLabel() == ">" }
+            XCTAssertEqual(arrows.count, count == 6 ? 0 : 2, "\(count) people")
+            try rig.click(.roster, at: previousPoint)
+            XCTAssertEqual(rig.overlays.rosterModel.page, 0, "\(count) people: the back arrow is dead on the first page")
+            try rig.click(.roster, at: nextPoint)
+            XCTAssertEqual(rig.overlays.rosterModel.page, count == 6 ? 0 : 1, "\(count) people: no turn without arrows; with them next turns")
+            let countItem = try XCTUnwrap(elements.first { ($0.accessibilityLabel() ?? "").hasPrefix("접속") })
+            countRight[count] = countItem.hostFrame.maxX - (rig.frame(.roster)?.minX ?? 0)
         }
+        let right = m.width - m.padding
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(countRight[6]), right - 6, "the count reaches the right edge when there are no arrows")
+        XCTAssertLessThan(try XCTUnwrap(countRight[7]), right - 6, "the arrows push the count left")
     }
 
     func testASlotSelectsAndMySlotAndThePlateOnlyTakeTheClick() async throws {
@@ -194,5 +208,18 @@ import XCTest
         XCTAssertLessThanOrEqual(host.layoutPassesForTesting - passes, 2)
         XCTAssertEqual(host.intrinsicInvalidationsForTesting, invalidations)
         XCTAssertEqual(host.intrinsicInvalidationsInLayoutForTesting, 0)
+    }
+
+    /// What SwiftUI's separate Texts read: the name, ♂/♀, ★, the species, the status; a dimmed arrow is announced as not enabled.
+    func testSlotsReadTheirMarksAndADeadArrowIsNotEnabled() async throws {
+        var entries = people(7)
+        entries[0] = PlazaRosterEntry(id: "m0", nickname: "민수", speciesID: species, speciesName: "피카츄", gender: .male, isShiny: true, presence: .idle, isMe: false)
+        let rig = try await rig(entries)
+        defer { rig.close() }
+        let elements = try XCTUnwrap(rig.host(.roster)).accessibilityElementsForTesting
+        XCTAssertTrue(elements.contains { $0.accessibilityLabel() == "민수 ♂ ★, 피카츄, \(PlazaPresence.idle.badge.text)" }, "\(elements.compactMap { $0.accessibilityLabel() })")
+        let previous = try XCTUnwrap(elements.first { $0.accessibilityLabel() == "<" }), next = try XCTUnwrap(elements.first { $0.accessibilityLabel() == ">" })
+        XCTAssertFalse(previous.isAccessibilityEnabled(), "page 1: the back arrow is dimmed")
+        XCTAssertTrue(next.isAccessibilityEnabled())
     }
 }

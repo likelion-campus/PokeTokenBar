@@ -148,6 +148,12 @@ import Foundation
         }
     }
 
+    /// VoiceOver focused item `index` of panel `id`: the panel scrolls it into view.
+    func scrollIntoView(_ index: Int, in id: PlazaPanelID) {
+        guard !hiddenPanels.contains(id), let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return }
+        if panel.scrollAccessibilityItemIntoView(index) { setNeedsRender(id) }
+    }
+
     /// VoiceOver pressed an item of panel `id`: the same as a click on that hit.
     func press(_ hit: PlazaPanelHit, in id: PlazaPanelID) {
         onAction?(id, hit)

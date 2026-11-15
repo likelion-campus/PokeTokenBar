@@ -20,21 +20,34 @@ struct PlazaPanelHit: Equatable, Sendable {
 /// control is a `button` (later a menu row a `menuItem`) whose press is the same hit a click reports. Decorative parts
 /// (strokes, fills, the menu's ▶ marker) get no item. `frame` is in panel points, origin top-left.
 struct PlazaAccessibilityItem: Equatable, Sendable {
-    enum Role: Equatable, Sendable { case staticText, button, menuItem }
+    /// `scrollArea`: the scrolling window (its items follow it with `inScrollArea`); SwiftUI's `ScrollView` was an AXScrollArea.
+    enum Role: Equatable, Sendable { case staticText, button, menuItem, scrollArea }
     var frame: CGRect
     var role: Role
     var label: String
     var value: String?
     /// Pressing it (VoiceOver's press) does what a click on it does: `PlazaHUD.press` reports this hit to `onAction`.
     var action: PlazaPanelHit?
+    /// Stable identity across renders (a chat line's id, a note part, a dex species): the host keeps the same element for the same key, so the
+    /// VoiceOver cursor does not lose its place when other items come or go. nil: identified by position.
+    var key: String?
+    /// Dimmed (`.disabled`): announced as not enabled.
+    var isEnabled = true
+    /// Belongs to the scroll area item before it; its frame may lie outside the window (off-screen content).
+    var inScrollArea = false
 
     /// The same item at another place: what a scroll step changes. A host updates frames in place for such a change and
     /// only rebuilds (and announces) its elements when the items differ otherwise.
     func sameExceptFrame(_ other: PlazaAccessibilityItem) -> Bool {
-        role == other.role && label == other.label && value == other.value && action == other.action
+        role == other.role && label == other.label && value == other.value && action == other.action && key == other.key
+            && isEnabled == other.isEnabled && inScrollArea == other.inScrollArea
     }
 
-    init(frame: CGRect, role: Role, label: String, value: String? = nil, action: PlazaPanelHit? = nil) {
+    init(frame: CGRect, role: Role, label: String, value: String? = nil, action: PlazaPanelHit? = nil, key: String? = nil, isEnabled: Bool = true,
+         inScrollArea: Bool = false) {
+        self.key = key
+        self.isEnabled = isEnabled
+        self.inScrollArea = inScrollArea
         self.frame = frame
         self.role = role
         self.label = label
@@ -113,6 +126,9 @@ struct PlazaPanelInteraction: Equatable, Sendable {
     /// system sends them, momentum included). True when the panel scrolls with it, so it goes no further; false passes it
     /// on. The default passes everything on.
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool
+    /// VoiceOver focused accessibility item `index` of the last drawing (`AXScrollToVisible`): scroll so it is inside the scrolling window.
+    /// True when the panel moved. The default does nothing.
+    func scrollAccessibilityItemIntoView(_ index: Int) -> Bool
     /// The panel is about to be drawn after not being shown (the window opened, or it became visible): a view's `.task` ran again here.
     func didAppear()
 }
@@ -121,6 +137,8 @@ extension PlazaPanel {
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool { false }
 
     func didAppear() {}
+
+    func scrollAccessibilityItemIntoView(_ index: Int) -> Bool { false }
 
     func offset(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGPoint { offset }
 

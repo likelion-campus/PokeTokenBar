@@ -202,7 +202,8 @@ import XCTest
         for t in cells {
             XCTAssertTrue(lower.contains(CGPoint(x: t.frame.midX, y: t.frame.midY)), "inside the lower area")
             XCTAssertLessThanOrEqual(t.frame.maxY, lower.maxY + 0.001, "cut at the viewport's edge")
-            XCTAssertTrue(d.accessibility.contains { $0.frame == t.frame && $0.label == t.text && $0.role == .staticText })
+            XCTAssertTrue(d.accessibility.contains { $0.inScrollArea && $0.label.hasPrefix(t.text) && $0.frame.intersection(t.frame) == t.frame && $0.role == .staticText },
+                          "the cell is an element at its true place (the hover rectangle is its visible part)")
         }
         XCTAssertTrue(cells.contains { $0.text.hasPrefix("종") })
     }
@@ -227,7 +228,7 @@ import XCTest
         XCTAssertEqual(r.actions.list, ["card card"])
         XCTAssertNil(r.hud.hit(at: CGPoint(x: 3, y: 3), in: .card), "outside the plate: the scene gets it")
         let roles = Set(r.host.drawings[.card]!.accessibility.map(\.role))
-        XCTAssertEqual(roles, [.staticText], "no buttons, no input")
+        XCTAssertEqual(roles, [.staticText, .scrollArea], "no buttons, no input")
     }
 
     func testOpeningAnotherCardStartsAtTheTop() async {

@@ -247,34 +247,45 @@ enum PlazaBoardStyle {
         rowImages = kept
         layers += scrollIndicator.layers(state: scrollState, offset: offset, viewport: list, scale: scale, graphics: graphics)
 
-        // VoiceOver: the shown rows' texts and buttons, frames cut to the list.
+        // VoiceOver: the list is a scroll area and EVERY note's text, date, reaction lines and buttons are elements (keyed by the note's id),
+        // at their true places: those scrolled out lie outside the window, and focusing one scrolls it into view.
+        accessibilityContent = [:]
+        items.append(PlazaAccessibilityItem(frame: list, role: .scrollArea, label: L(.ko).plazaBoardTitle, key: "scroll"))
         for (i, row) in l.rows.enumerated() {
-            guard let shown = scrollState.visible(row.frame, offset: offset) else { continue }
-            func place(_ r: CGRect) -> CGRect {
-                let moved = r.offsetBy(dx: row.frame.minX, dy: row.frame.minY - offset)
-                let cut = moved.intersection(CGRect(x: 0, y: 0, width: list.width, height: list.height))
-                return (cut.isNull ? CGRect(x: moved.minX, y: moved.minY < 0 ? 0 : list.height, width: moved.width, height: 0) : cut).offsetBy(dx: list.minX, dy: list.minY)
+            func add(_ r: CGRect, role: PlazaAccessibilityItem.Role, label: String, key: String, action: PlazaPanelHit? = nil, enabled: Bool = true) {
+                let content = r.offsetBy(dx: row.frame.minX, dy: row.frame.minY)
+                accessibilityContent[items.count] = content
+                items.append(PlazaAccessibilityItem(frame: content.offsetBy(dx: list.minX, dy: list.minY - offset), role: role, label: label, action: action,
+                                                    key: "note-\(row.row.id)-\(key)", isEnabled: enabled, inScrollArea: true))
             }
-            _ = shown
-            items.append(PlazaAccessibilityItem(frame: place(CGRect(x: s.rowPadding, y: row.textTop, width: list.width - 2 * s.rowPadding, height: CGFloat(row.text.count) * l.bodyHeight)),
-                                                role: .staticText, label: (row.row.isShiny ? "★ " : "") + row.row.text))
-            items.append(PlazaAccessibilityItem(frame: place(CGRect(x: s.rowPadding, y: row.dateTop, width: PlazaPanelStyle.pixelUp(row.date.width, scale: scale), height: l.smallHeight)),
-                                                role: .staticText, label: row.row.date))
+            add(CGRect(x: s.rowPadding, y: row.textTop, width: list.width - 2 * s.rowPadding, height: CGFloat(row.text.count) * l.bodyHeight),
+                role: .staticText, label: (row.row.isShiny ? "★ " : "") + row.row.text, key: "text")
+            add(CGRect(x: s.rowPadding, y: row.dateTop, width: PlazaPanelStyle.pixelUp(row.date.width, scale: scale), height: l.smallHeight),
+                role: .staticText, label: row.row.date, key: "date")
             var y = row.reactionTop
             for (n, r) in row.row.reactions.enumerated() {
                 if n > 0 { y += s.reactionGap }
                 let h = CGFloat(row.reactions[n].count) * l.smallHeight
-                items.append(PlazaAccessibilityItem(frame: place(CGRect(x: s.rowPadding, y: y, width: list.width - 2 * s.rowPadding, height: h)), role: .staticText,
-                                                    label: L(.ko).teamReactionLabel(r.kind) + " " + r.nicknames.joined(separator: ", ")))
+                add(CGRect(x: s.rowPadding, y: y, width: list.width - 2 * s.rowPadding, height: h), role: .staticText,
+                    label: L(.ko).teamReactionLabel(r.kind) + " " + r.nicknames.joined(separator: ", "), key: "reaction-\(r.kind.rawValue)")
                 y += h
             }
             for (k, b) in row.buttons.enumerated() {
                 let mine = row.row.mine.contains(b.kind)
-                items.append(PlazaAccessibilityItem(frame: place(b.frame), role: .button, label: L(.ko).teamReactionLabel(b.kind),
-                                                    action: mine ? nil : PlazaPanelHit(action: "react", index: i * 3 + k)))
+                add(b.frame, role: .button, label: L(.ko).teamReactionLabel(b.kind), key: "button-\(b.kind.rawValue)",
+                    action: mine ? nil : PlazaPanelHit(action: "react", index: i * 3 + k), enabled: !mine)
             }
         }
         return PlazaPanelDrawing(layers: layers, accessibility: items)
+    }
+
+    /// Accessibility item index -> the item's rectangle in the scrolling content (for `scrollAccessibilityItemIntoView`).
+    private var accessibilityContent: [Int: CGRect] = [:]
+
+    func scrollAccessibilityItemIntoView(_ index: Int) -> Bool {
+        guard let rect = accessibilityContent[index], scrollState.scrollToVisible(rect) else { return false }
+        scrollIndicator.scrolled()
+        return true
     }
 
     // MARK: input
