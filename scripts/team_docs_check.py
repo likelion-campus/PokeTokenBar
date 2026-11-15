@@ -26,6 +26,7 @@ GROUPS = {
 }
 # a shared path counts for these groups (each needs its own new asset)
 SHARED_FOR = ["mac", "windows"]
+IMAGE = re.compile(r"\.(png|gif|jpe?g|webp)$", re.I)  # SHOTS.txt and other text never count as a capture
 FEAT = re.compile(r"^(feat|feature)[(:!]")
 # -------------------------------------------------------------------------------
 
@@ -47,7 +48,8 @@ def changed(since, diff_filter=None):
     cmd = ["diff", "--name-only"]
     if diff_filter:
         cmd.append(f"--diff-filter={diff_filter}")
-    return git(*cmd, f"{since}..HEAD", "--", "assets").splitlines()
+    out = git(*cmd, f"{since}..HEAD", "--", "assets").splitlines()
+    return [f for f in out if IMAGE.search(f)]
 
 
 def paths_changed(since, paths):

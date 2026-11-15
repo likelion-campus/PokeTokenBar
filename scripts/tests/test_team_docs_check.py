@@ -115,6 +115,13 @@ class Gate(unittest.TestCase):
         self.r.commit("feat(win): popover")
         self.assertEqual(self.r.check().returncode, 2)
 
+    def test_shots_txt_alone_is_not_a_capture(self):
+        self.r.write(WIN_SRC, "1")
+        self.r.write("assets/windows/NOTES.txt", "text")
+        self.r.write("assets/windows/SHOTS.txt", "# changed header\n")
+        self.r.commit("feat(win): popover")
+        self.assertEqual(self.r.check().returncode, 2)
+
     def test_since_flag_overrides_tag(self):
         self.r.write(WIN_SRC, "1")
         self.r.commit("feat(win): popover")
