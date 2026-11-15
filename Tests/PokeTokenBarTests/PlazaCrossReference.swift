@@ -26,7 +26,8 @@ enum PlazaCrossReference {
 
     // MARK: Writing
 
-    static func write(_ captures: [PlazaCrossCapture], to dir: URL) throws {
+    /// `sha256: false` skips hashing the frames (the Windows harness, where a debug build hashes slowly): the manifest then says `-`.
+    static func write(_ captures: [PlazaCrossCapture], to dir: URL, sha256: Bool = true) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         var atlas: [UInt8] = []
         var ids: [[UInt8]: UInt32] = [:]
@@ -37,10 +38,9 @@ enum PlazaCrossReference {
             precondition(c.rgba.count == c.width * c.height * 4, "\(c.stem): \(c.rgba.count) bytes for \(c.width)x\(c.height)")
             let columns = (c.width + block - 1) / block, rows = (c.height + block - 1) / block
             let start = blockCount
-            var scratch = [UInt8](repeating: 0, count: blockBytes)
             for by in 0..<rows {
                 for bx in 0..<columns {
-                    for i in 0..<scratch.count { scratch[i] = 0 }
+                    var scratch = [UInt8](repeating: 0, count: blockBytes)
                     let x0 = bx * block, w = min(block, c.width - x0)
                     for y in 0..<min(block, c.height - by * block) {
                         let from = ((by * block + y) * c.width + x0) * 4
@@ -58,7 +58,7 @@ enum PlazaCrossReference {
                     blockCount += 1
                 }
             }
-            manifest.append([c.stem, c.kind.rawValue, "\(c.width)", "\(c.height)", "\(start)", "\(blockCount - start)", PlazaTreeDump.sha256Hex(c.rgba)].joined(separator: "\t"))
+            manifest.append([c.stem, c.kind.rawValue, "\(c.width)", "\(c.height)", "\(start)", "\(blockCount - start)", sha256 ? PlazaTreeDump.sha256Hex(c.rgba) : "-"].joined(separator: "\t"))
             switch c.kind {
             case .scene:
                 try (c.lines.map(\.encoded).joined(separator: "\n") + "\n").write(to: dir.appendingPathComponent("\(c.stem).tree"), atomically: true, encoding: .utf8)

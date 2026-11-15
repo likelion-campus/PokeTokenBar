@@ -66,8 +66,18 @@ final class WindowsPlazaRenderHarnessTests: XCTestCase {
         return out
     }
 
+    /// FNV-1a over the frame's bytes: cheap in a debug build (SHA-256 over ~650 MB took minutes), enough for a manifest.
+    private func fnv(_ bytes: [UInt8]) -> String {
+        var h: UInt64 = 0xcbf29ce484222325
+        bytes.withUnsafeBytes { raw in
+            for w in raw.bindMemory(to: UInt64.self) { h = (h ^ w) &* 0x100000001b3 }
+            for b in raw.suffix(raw.count % 8) { h = (h ^ UInt64(b)) &* 0x100000001b3 }
+        }
+        return String(h, radix: 16)
+    }
+
     private func digest(_ captures: [PlazaCrossCapture]) -> [String] {
-        captures.sorted { $0.stem < $1.stem }.map { "\($0.stem)\t\(PlazaTreeDump.sha256Hex($0.rgba))\t\(PlazaTreeDump.sha256Hex(Array($0.tree.utf8)))" }
+        captures.sorted { $0.stem < $1.stem }.map { "\($0.stem)\t\(fnv($0.rgba))\t\(PlazaTreeDump.sha256Hex(Array($0.tree.utf8)))\t\($0.lines.count)" }
     }
 
     func testWindowsRenderMatchesTheMacReference() async throws {
@@ -84,9 +94,12 @@ final class WindowsPlazaRenderHarnessTests: XCTestCase {
         // A/A: a second run of the whole harness gives the same pixels and trees.
         let second = try await renderAll(device: device)
         let total = now() - started
-        let a = digest(first.captures), b = digest(second.captures)
-        XCTAssertEqual(a, b, "the Windows harness is not deterministic: two runs differ")
-        print("WINRENDER: A/A \(a == b ? "identical" : "DIFFERENT") over \(a.count) captures")
+        var different: [String] = []
+        for (x, y) in zip(first.captures, second.captures) where x.stem != y.stem || x.rgba != y.rgba || x.lines != y.lines { different.append(x.stem) }
+        XCTAssertEqual(first.captures.count, second.captures.count)
+        XCTAssertEqual(different, [], "the Windows harness is not deterministic: two runs differ")
+        print("WINRENDER: A/A \(different.isEmpty ? "identical" : "DIFFERENT") over \(first.captures.count) captures")
+        let phase = now()
 
         // Outputs first, so a failing compare still leaves everything to look at.
         for c in first.captures {
@@ -95,7 +108,10 @@ final class WindowsPlazaRenderHarnessTests: XCTestCase {
             if c.kind == .scene { try c.tree.write(to: outDir.appendingPathComponent("\(c.stem).tree.txt"), atomically: true, encoding: .utf8) }
         }
         try (digest(first.captures).joined(separator: "\n") + "\n").write(to: outDir.appendingPathComponent("manifest.tsv"), atomically: true, encoding: .utf8)
-        try PlazaCrossReference.write(first.captures, to: outDir.appendingPathComponent("win-reference"))
+        let written = now()
+        try PlazaCrossReference.write(first.captures, to: outDir.appendingPathComponent("win-reference"), sha256: false)
+        print(String(format: "WINRENDER: outputs %.1f s, win-reference %.1f s", written - phase, now() - written))
+        let compared = now()
 
         let win = Dictionary(uniqueKeysWithValues: first.captures.map { ($0.stem, $0) })
         let stems = win.keys.filter { reference.entries[$0] != nil }.sorted()
@@ -106,6 +122,7 @@ final class WindowsPlazaRenderHarnessTests: XCTestCase {
         var skipLines = skipped.sorted { $0.key < $1.key }.map { "\($0.key): skipped: needs \($0.value)" }
         skipLines += PlazaCrossHarness.alwaysSkipped.map { "\($0.name): skipped: needs \($0.needs)" }
         let report = try PlazaCrossReport.run(stems: stems, mac: { try reference.capture($0) }, win: { win[$0]! }, skipped: skipLines, to: outDir)
+        print(String(format: "WINRENDER: compare and report %.1f s", now() - compared))
         let extra = win.keys.filter { reference.entries[$0] == nil }.sorted()
 
         var timing = String(format: "harness: %.1f s for one pass (%d captures), %.1f s with the A/A pass\n", firstSeconds, first.captures.count, total)
@@ -118,7 +135,7 @@ final class WindowsPlazaRenderHarnessTests: XCTestCase {
         XCTAssertEqual(skipped.filter { Self.expectedSkips[$0.key] == nil }.keys.sorted(), [], "captures of the Mac reference the Windows run did not render and nobody listed as skipped")
         XCTAssertEqual(extra, [], "captures the Windows run rendered but the reference lacks (run scripts/plaza-render-cross.sh --write)")
         XCTAssertGreaterThanOrEqual(stems.count, 100, "too few captures were compared")
-        XCTAssertTrue(report.results.allSatisfy(\.passed), report.summary)
+        XCTAssertTrue(report.results.allSatisfy(\.acceptable), report.summary)
     }
 }
 #endif

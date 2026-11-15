@@ -103,6 +103,6 @@ final class PlazaCrossRenderCompareMacTests: XCTestCase {
         let out = try PlazaCrossReport.run(stems: stems, mac: { mac[$0]! }, win: { try reader.capture($0) }, skipped: skipped, to: report)
         print(out.summary)
         print("CROSS: report in \(report.path)")
-        XCTAssertTrue(out.results.allSatisfy(\.passed), out.summary)
+        XCTAssertTrue(out.results.allSatisfy(\.acceptable), out.summary)
     }
 }

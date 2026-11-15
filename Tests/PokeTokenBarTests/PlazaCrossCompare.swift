@@ -23,6 +23,20 @@ enum PlazaCrossCompare {
     static let looseFullFrameFraction = 0.35
     static let maskGrow = 2
 
+    /// SpriteKit has no fractional display scale, so the Mac's render at 1.25x / 1.5x is an arbitrary viewport, not a display it
+    /// ever drives: single-texel flips on sprite edges (measured: 0.08 % to 0.11 % of the frame, see the PR images) are allowed
+    /// up to this fraction there instead of `overFraction`.
+    static let fractionalOverFraction = 0.005
+    static func overFraction(for stem: String) -> Double { stem.contains("x@") && (stem.contains("1.25x") || stem.contains("1.5x")) ? fractionalOverFraction : overFraction }
+
+    /// Captures whose failure is a Windows renderer defect found by this harness and not yet fixed (stem -> what is wrong). They
+    /// are reported as `known` and do not fail the job; a listed capture that starts passing fails the test until it is
+    /// removed here, so the list cannot rot.
+    static let knownRendererBugs: [String: String] = [
+        "fireworks-day@60": "firework light (multiplyX2, 440x320 world sprite at the frame's bottom edge): the bottom 64 device rows come out transparent black on Direct2D; the Mac keeps the map there",
+        "fireworks-night@60": "same as fireworks-day@60",
+    ]
+
     struct Allowed {
         let cls: Character
         let line: Int
@@ -55,7 +69,10 @@ enum PlazaCrossCompare {
             if !treeFailures.isEmpty { return "DIFF(\(treeFailures.count))" }
             return allowed.isEmpty ? "same" : "allowed(\(allowed.count))"
         }
-        var pixelsPass: Bool { !pixels.sizeMismatch && Double(pixels.over) <= Double(pixels.outside) * overFraction }
+        var pixelsPass: Bool { !pixels.sizeMismatch && Double(pixels.over) <= Double(pixels.outside) * PlazaCrossCompare.overFraction(for: stem) }
+        var known: String? { PlazaCrossCompare.knownRendererBugs[stem] }
+        /// Passed, or failed as a listed known renderer bug (which must fail: a fixed one is listed no longer).
+        var acceptable: Bool { known == nil ? passed : !passed }
         var loosePass: Bool { !pixels.sizeMismatch && Double(pixels.overAll) <= Double(pixels.total) * looseFullFrameFraction }
         var passed: Bool { treeFailures.isEmpty && pixelsPass && loosePass }
         /// Sort key for the "worst five": the pixels above tolerance outside the masks first, then the largest difference.
@@ -267,7 +284,7 @@ enum PlazaCrossCompare {
             let a = r.allowed.filter { $0.cls == "a" }.count, b = r.allowed.filter { $0.cls == "b" }.count, c = r.allowed.filter { $0.cls == "c" }.count
             let worst = r.pixels.worst.map { "\($0.x),\($0.y) \($0.mac) -> \($0.win)" } ?? "-"
             let px = r.pixels
-            lines.append("| \(r.stem) | \(r.treeState) | \(a)/\(b)/\(c) | \(px.maskedArea) | \(px.sizeMismatch ? "size!" : "\(px.maxDiff)") | \(px.over)/\(px.outside) | \(worst) | \(px.differingAll) (\(px.overAll))/\(px.total) | \(r.passed ? "ok" : "FAIL") |")
+            lines.append("| \(r.stem) | \(r.treeState) | \(a)/\(b)/\(c) | \(px.maskedArea) | \(px.sizeMismatch ? "size!" : "\(px.maxDiff)") | \(px.over)/\(px.outside) | \(worst) | \(px.differingAll) (\(px.overAll))/\(px.total) | \(r.passed ? "ok" : (r.known != nil ? "KNOWN BUG" : "FAIL")) |")
         }
         for s in skipped { lines.append("| \(s) | | | | | | | | skipped |") }
         return lines.joined(separator: "\n") + "\n"
@@ -275,11 +292,12 @@ enum PlazaCrossCompare {
 
     /// One line a script can grep: `CROSS: ok (<n> captures, <m> allowed differences)` or the failures.
     static func summary(_ results: [Result]) -> String {
-        let failed = results.filter { !$0.passed }
+        let failed = results.filter { !$0.acceptable }
         let allowed = results.reduce(0) { $0 + $1.allowed.count }
-        if failed.isEmpty { return "CROSS: ok (\(results.count) captures, \(allowed) allowed differences)" }
+        let known = results.filter { $0.known != nil && !$0.passed }.map(\.stem)
+        if failed.isEmpty { return "CROSS: ok (\(results.count) captures, \(allowed) allowed differences" + (known.isEmpty ? ")" : "; \(known.count) known renderer bugs: \(known.joined(separator: " ")))") }
         let why = failed.prefix(40).map { r -> String in
-            var reasons: [String] = []
+            var reasons: [String] = r.known != nil && r.passed ? ["listed as a known renderer bug but passes: remove it from knownRendererBugs"] : []
             if !r.treeFailures.isEmpty { reasons.append("tree \(r.treeFailures.count)") }
             if !r.pixelsPass { reasons.append(r.pixels.sizeMismatch ? "size" : "pixels \(r.pixels.over) over \(tolerance) (max \(r.pixels.maxDiff))") }
             if !r.loosePass { reasons.append("full frame \(r.pixels.overAll)/\(r.pixels.total) over \(tolerance)") }

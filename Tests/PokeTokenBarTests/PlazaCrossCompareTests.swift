@@ -118,6 +118,27 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertEqual(plain.pixels.over, 200)
     }
 
+    func testFractionalScalesGetTheirOwnEdgeFlipBoundAndKnownBugsMustKeepFailing() async {
+        let w = 100, h = 100
+        let base = [UInt8](repeating: 100, count: w * h * 4)
+        var flips = base
+        for p in 0..<30 { flips[p * 4] = 200 }   // 0.3 % of the frame
+        var mac = capture([root()], rgba: base, w: w, h: h)
+        var win = capture([root()], rgba: flips, w: w, h: h)
+        XCTAssertFalse(PlazaCrossCompare.compare(mac: mac, win: win).pixelsPass, "0.3 % is over the whole-number-scale bound")
+        mac.stem = "base-noon-1.25x@10"; win.stem = mac.stem
+        XCTAssertTrue(PlazaCrossCompare.compare(mac: mac, win: win).pixelsPass, "but inside the fractional-scale bound")
+        // a listed known bug that passes is reported as a failure of the list; one that fails is acceptable
+        let name = PlazaCrossCompare.knownRendererBugs.keys.sorted()[0]
+        mac.stem = name; win.stem = name
+        let failing = PlazaCrossCompare.compare(mac: mac, win: capture([root()], rgba: [UInt8](repeating: 0, count: w * h * 4), w: w, h: h))
+        var failingNamed = failing; failingNamed.stem = name
+        let same = PlazaCrossCompare.compare(mac: mac, win: mac)
+        XCTAssertTrue(failingNamed.known != nil && !failingNamed.passed && failingNamed.acceptable)
+        XCTAssertTrue(same.known != nil && same.passed && !same.acceptable)
+        XCTAssertTrue(PlazaCrossCompare.summary([same]).contains("remove it from knownRendererBugs"))
+    }
+
     func testAOnePixelShiftIsCaught() async {
         let w = 64, h = 48
         var base = [UInt8](repeating: 0, count: w * h * 4)

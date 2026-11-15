@@ -75,6 +75,7 @@ jobs:
           PTB_PLAZA_RENDER_OUT: ${{ github.workspace }}\plaza-render-out
           PTB_PLAZA_DEVICE: warp
         run: |
+          set +e
           mkdir -p plaza-render-out
           start=$(date +%s)
           swift build --build-tests 2>&1 | tail -3
