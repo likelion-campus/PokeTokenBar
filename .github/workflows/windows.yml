@@ -24,7 +24,11 @@ jobs:
         env:
           # Where the bundled plaza art and fonts are in the checkout (the Windows build has no SwiftPM resources; a packaged
           # app finds them in Resources\Plaza instead). testBundledPlazaArtIsFoundOnWindows fails when they are not found.
+          PTB_CANVAS_OUT: ${{ github.workspace }}\canvas-out
           PTB_PLAZA_RESOURCES: ${{ github.workspace }}\Sources\PokeTokenBar\Resources\Plaza;${{ github.workspace }}\windows\resources\Plaza
+          # The plaza renderer's preview scenes (stage 6 Task 4): PNGs and tree dumps, uploaded as `plaza-preview-win`.
+          PTB_PLAZA_PREVIEW_OUT: ${{ github.workspace }}\plaza-preview
+          PTB_PLAZA_DEVICE: warp
         run: |
           swift test 2>&1 | tee test.log
           # Second net: a runner that dies at discovery reports "0 tests" and used to look like a pass.
@@ -36,3 +40,16 @@ jobs:
         with:
           name: windows-logs
           path: "*.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plaza-preview-win
+          path: plaza-preview
+          retention-days: 7
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canvas-renders
+          path: canvas-out
+          if-no-files-found: ignore

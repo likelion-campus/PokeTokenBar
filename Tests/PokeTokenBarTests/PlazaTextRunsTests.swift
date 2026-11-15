@@ -55,4 +55,16 @@ final class PlazaTextRunsTests: XCTestCase {
         let lines = engine.wrappedLines([run("ab", red), run("cd", blue, .plaza(.small))], width: 100)
         XCTAssertEqual(lines.map(\.width), [18 + 14.4], "15-point ab then 12-point cd")
     }
+
+    func testATruncatedLineKeepsItsRunsAndEndsInTheEllipsis() throws {
+        let line = engine.line([run("ab: ", red), run("cdefghij", blue)])   // 12 characters, 108 points
+        let cut = try XCTUnwrap(engine.truncated(line, width: 72, ellipsis: engine.line("…", font: body)))   // room for 7 characters + the ellipsis
+        XCTAssertEqual(summary([cut]), [["ab: |r", "cde|b", "…|b"]], "the cut keeps each run's colour; the ellipsis takes the last kept run's")
+        XCTAssertEqual(cut.runs.map(\.text).joined(), (cut.native as? PlazaStubText)?.text)
+        XCTAssertEqual(cut.width, 72)
+        let whole = try XCTUnwrap(engine.truncated(line, width: 200, ellipsis: engine.line("…", font: body)))
+        XCTAssertEqual(summary([whole]), summary([line]), "a line that fits is untouched")
+        let plain = try XCTUnwrap(engine.truncated(engine.line("abcdefghij", font: body), width: 72, ellipsis: engine.line("…", font: body)))
+        XCTAssertTrue(plain.runs.isEmpty, "a plain line still has no runs")
+    }
 }

@@ -75,5 +75,11 @@ import AppKit
         let cut = try XCTUnwrap(engine.truncated(line, width: 100, ellipsis: engine.line("…", font: body)))
         XCTAssertLessThanOrEqual(cut.width, 100.01)
         XCTAssertLessThan(cut.width, line.width)
+        // The cut line keeps its runs: they spell the text the cut line shows, in the original's colours, and measure as wide.
+        XCTAssertEqual(cut.runs.first?.color, red)
+        XCTAssertEqual(cut.runs.last?.text, "…")
+        XCTAssertEqual(cut.runs.last?.color, blue, "the ellipsis takes the last kept run's colour")
+        XCTAssertEqual(engine.line(cut.runs).width, cut.width, accuracy: 0.5)
+        XCTAssertTrue(line.runs.map(\.text).joined().hasPrefix(cut.runs.dropLast().map(\.text).joined()))
     }
 }

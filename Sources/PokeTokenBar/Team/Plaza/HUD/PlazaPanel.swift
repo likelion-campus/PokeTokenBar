@@ -1,7 +1,6 @@
 import Foundation
 
-/// The overlay panels the plaza draws through the canvas (Track A Tasks 14–17). The Mac still shows the roster, chat log,
-/// board and card as SwiftUI until the user decides (Task 17); the chat log panel exists here for Windows.
+/// The overlay panels the plaza draws through the canvas (Track A Tasks 14–17w): the Mac and Windows both show them.
 enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog, roster, board, card }
 
 /// The window edge a panel keeps its distance from, as its old Auto Layout constraints did. `offset.x` is the distance

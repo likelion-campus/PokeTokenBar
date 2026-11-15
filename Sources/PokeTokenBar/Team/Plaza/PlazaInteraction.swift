@@ -135,7 +135,7 @@ enum PlazaOverlayContent: Equatable { case none, card(PlazaCardState), board, me
 /// 판이 열린 동안 장면이 넘기는 키. 판마다 쓰는 키가 다르다.
 enum PlazaOverlayKey: Equatable { case up, down, space, enter, escape }
 
-/// 광장 위에 뜨는 판의 내용. 그리는 쪽(`PlazaOverlayView`)은 이 값만 본다.
+/// 광장 위에 뜨는 판의 내용. 그리는 쪽(소식판·카드·메뉴 판)은 이 값만 본다.
 @MainActor @Observable
 final class PlazaOverlayModel {
     var content: PlazaOverlayContent = .none

@@ -112,6 +112,7 @@ enum WindowsSelftest {
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
         await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window
         await idleCheck(r, app)
+        await plazaRenderChecks(r)  // stage 6 task 4 (WindowsSelftestPlazaRender.swift): after the idle window, it loads Direct3D/WARP
         return r.checks
     }
 

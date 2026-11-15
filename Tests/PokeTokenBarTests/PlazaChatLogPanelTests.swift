@@ -20,6 +20,7 @@ import XCTest
         for i in 0..<lines { log.append(time: now, name: "나", text: text(i), color: PlazaNameColor.palette[0]) }
         log.isExpanded = expanded
         let panel = PlazaChatLogPanel(log: log)
+        panel.scrollIndicator.isDisabled = true   // the SwiftUI original draws no scroller off screen; the indicator has its own tests
         let graphics = CanvasKeepingGraphics()
         let hud = PlazaHUD(panels: [panel], graphics: graphics)
         let host = RecordingPanelHost(), actions = Actions()
