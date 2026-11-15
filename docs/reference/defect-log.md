@@ -2397,6 +2397,21 @@ read_when:
   가 비어 있지 않을 때 빈 줄 하나를 더한다. 줄 수는 같은 글의 SwiftUI `Text` 높이/줄 높이와 맞춘다. **규칙:** `CFRange`/`NSRange` 의 길이 0 을 "빈 구간"으로 믿지 않는다 — CoreText 는 "끝까지"로 읽는다.
   **회귀 점검:** `PlazaBlankLineTests`(빈 줄, 연속·앞·끝 빈 줄, 색 조각 버전, SwiftUI `Text` 줄 수와 일치) — 고침을 빼고 실패함을 확인했다. 윈도 엔진은 이미 진짜 빈 줄을 만든다.
 
+- **Inno Setup 의 롤백은 덮어쓴 파일을 되돌리지 않는다 — "업데이트가 실패하면 이전 앱이 돌아온다"(8단계 계획 D8 7단계)는 전제가 틀렸다 (출시 전 발견).**
+  Inno 6.7.1 소스(`Setup.Install.pas`, `Setup.UninstallLog.pas`): 기존 파일은 `DeleteFile` 한 뒤 임시 파일을 `MoveFile` 로 들이고(사본을 두지 않는다), 중단 때의
+  롤백(`PerformUninstall(False)`)은 이번 설치가 *새로 만든* 파일만 지운다 — 덮어쓴 파일에는 `utDeleteFile_ExistedBeforeInstall` 이 붙어 새 내용 그대로 남는다.
+  러너 실측(옆으로 옮기기를 뺀 결함 주입, exe 를 쓴 뒤 복사 실패): 47개 중 44개가 새 파일 ID 로 남았고, 폴더 안 파일 하나가 열려 있어 제자리로 업데이트하다 멈춘 경우도 26/47 이
+  새 파일이었다. 복사 도중 멈춘 업데이트는 섞인 설치(DLL 일부는 새 것, exe·버전 파일은 옛 것, 또는 그 반대)를 남기고, 버전 파일이 먼저 바뀌면 앱이 실패를 성공으로 읽는다.
+  **왜 못 걸렀나:** CI 업그레이드 단계는 성공 경로만 밟았고, 계획은 문서의 "rolls back" 을 "원래대로 돌린다"로 읽었다 — 실패를 일부러 일으켜 실패 뒤 디스크를 본 적이 없었다.
+  **고침:** `CurStepChanged(ssInstall)` 이 첫 파일을 쓰기 직전 이전 앱 폴더를 통째로 `…\PokeTokenBar.previous` 로 이름만 바꾸고(같은 볼륨, 한 번), 설치는 새 폴더에 쓴다.
+  Inno 롤백이 새 파일을 모두 지우고 `DeinitializeSetup` 이 이전 폴더를 되돌린다. 끝나면(`ssDone`) 옮겨 둔 폴더를 지운다. 이름 바꾸기가 실패하면(폴더 안 파일이 열려 있음)
+  예전처럼 제자리로 업데이트하고, `[Files]` 순서(exe, 그다음 버전 파일이 맨 끝)가 exe 와 버전 파일만 지킨다 — 그래서 다음 실행은 옛 버전을 보고 업데이트를 다시 제안한다.
+  **같은 부류 스윕:** Inno 의 실패 의미에 기대는 곳은 D8 7단계(Task 6 의 재실행·`reportAtLaunch`)와 D11(이전 릴리스 설치 프로그램으로 내리기) — 둘 다 같은 Setup 경로라 옆으로
+  옮기기가 적용된다. `MinVersion`·아키텍처 거절은 `[Code]` 가 돌기 전이라 아무것도 닫지도 다시 켜지도 않는다(러너 실측, exit 1).
+  **규칙:** 외부 도구의 실패 의미(롤백·원자성)는 문서 문장이 아니라 소스와 강제 실패로 확인하고, 실패 경로 테스트는 "실패했다"가 아니라 "실패 뒤 디스크에 무엇이 있나"(파일 ID)를 본다.
+  **회귀 점검:** `windows-app.yml` 단계 `failed-update-relaunch`(`failDuringCopy`: 47/47 같은 파일 ID, `lockedFile`: exe·버전 파일 유지). 결함 주입 셋 — 재실행 제거, 옆으로 옮기기 제거,
+  파일 순서 제거 — 이 각각 `*.started`, `failDuringCopy.previousFolderBack`, `lockedFile.exeAndVersionKept` 를 FAIL 로 만든다.
+
 ## 윈도 로케일·알림 (windows-port)
 
 - **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**
