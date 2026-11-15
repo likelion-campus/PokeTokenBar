@@ -132,8 +132,9 @@ function Assert-Started([string]$Tag, $Old, [string]$ExpectVersion) {
     Close-App $p $h
 }
 
-function Assert-PreviousContents([string]$Tag, $Before) {
-    $changed = Compare-FolderHashes $Before (Get-FolderHashes $PtbInstallDir)
+# -AfterFinishedSetup: a finished install appends to the uninstall log, so unins000.dat may differ.
+function Assert-PreviousContents([string]$Tag, $Before, [switch]$AfterFinishedSetup) {
+    $changed = @(Compare-FolderHashes $Before (Get-FolderHashes $PtbInstallDir) | Where-Object { -not $AfterFinishedSetup -or $_ -ne 'unins000.dat' })
     Assert-That ($changed.Count -eq 0 -and -not (Test-Path $aside)) "$Tag.previousContents" "files whose SHA-256 differs from before the update: $($changed.Count) of $($Before.Count) ($(($changed | Select-Object -First 6) -join ', ')); copy left: $(Test-Path $aside)"
 }
 
@@ -386,7 +387,7 @@ Invoke-Scenario 'failedRestore' {
     $code2 = Invoke-Setup $setupV @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=`"$log2`"")
     $text2 = Read-SetupLog $log2
     Assert-That ($code2 -eq 0 -and $text2 -match 'PTB update: removing a left-over copy') 'failedRestore.nextSetupRecovers' "exit $code2; the left-over copy removed (the app folder is complete)"
-    Assert-PreviousContents 'failedRestore.afterNextSetup' $before
+    Assert-PreviousContents 'failedRestore.afterNextSetup' $before -AfterFinishedSetup
 }
 
 Invoke-Scenario 'twoSetups' {
