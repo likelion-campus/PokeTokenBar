@@ -7,14 +7,14 @@ $Exe = (Resolve-Path $Exe).Path
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $failed = @()
 function Probe([string]$name, [string[]]$extra = @()) {
-    $out = Join-Path (Resolve-Path $OutDir).Path "$name.txt"
+    $out = Join-Path (Resolve-Path $OutDir).Path "${name}.txt"
     Remove-Item -ErrorAction SilentlyContinue $out
     $p = Start-Process -FilePath $Exe -ArgumentList (@('--language-probe', $out) + $extra) -PassThru
     $null = $p.Handle
-    if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; throw "$name: probe hung" }
-    if (-not (Test-Path $out)) { throw "$name: no output (exit $($p.ExitCode))" }
+    if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; throw "${name}: probe hung" }
+    if (-not (Test-Path $out)) { throw "${name}: no output (exit $($p.ExitCode))" }
     $h = @{}; foreach ($l in Get-Content $out) { $i = $l.IndexOf('='); if ($i -gt 0) { $h[$l.Substring(0, $i)] = $l.Substring($i + 1) } }
-    Write-Host "---- $name"; Get-Content $out | ForEach-Object { Write-Host "  $_" }
+    Write-Host "---- ${name}"; Get-Content $out | ForEach-Object { Write-Host "  $_" }
     $h
 }
 function Check([string]$name, [bool]$ok, [string]$detail) {
