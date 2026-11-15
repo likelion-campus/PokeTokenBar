@@ -32,6 +32,28 @@ enum WinUILanguage {
         return String(decoding: buffer.prefix(Int(n) - 1), as: UTF16.self)
     }
 
+    /// `GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type)`: one value of the user's regional format, with their overrides
+    /// (`LOCALE_IFIRSTDAYOFWEEK` → "6" for Sunday). nil when Windows has no value.
+    static func win32LocaleInfo(_ type: LCTYPE) -> String? {
+        let n = GetLocaleInfoEx(nil, type, nil, 0)  // nil = LOCALE_NAME_USER_DEFAULT (a NULL macro)
+        guard n > 1 else { return nil }
+        var buffer = [WCHAR](repeating: 0, count: Int(n))
+        let written = GetLocaleInfoEx(nil, type, &buffer, n)
+        guard written > 1 else { return nil }
+        return String(decoding: buffer.prefix(Int(written) - 1), as: UTF16.self)
+    }
+
+    /// `GetNumberFormatEx(LOCALE_NAME_USER_DEFAULT, 0, digits)`: how Windows itself writes the number in the user's
+    /// format, with the format's decimals ("1,234,567.00"). Only for the selftest's side-by-side check.
+    static func win32NumberFormat(_ digits: String) -> String? {
+        let n = digits.withCString(encodedAs: UTF16.self) { GetNumberFormatEx(nil, 0, $0, nil, nil, 0) }
+        guard n > 1 else { return nil }
+        var buffer = [WCHAR](repeating: 0, count: Int(n))
+        let written = digits.withCString(encodedAs: UTF16.self) { GetNumberFormatEx(nil, 0, $0, nil, &buffer, n) }
+        guard written > 1 else { return nil }
+        return String(decoding: buffer.prefix(Int(written) - 1), as: UTF16.self)
+    }
+
     /// A double-NUL-terminated list of UTF-16 strings.
     static func multiString(_ units: [UInt16]) -> [String] {
         var out: [String] = []
