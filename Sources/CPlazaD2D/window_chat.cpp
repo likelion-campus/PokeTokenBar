@@ -150,8 +150,13 @@ const GUID kProfilesClsid = {0x33C53A50, 0xF456, 0x4884, {0xB0, 0x49, 0x85, 0xFD
 const IID kProfileMgrIid = {0x71C6E74C, 0x0F28, 0x11D8, {0xA8, 0x2A, 0x00, 0x06, 0x5B, 0x84, 0x43, 0x5C}};
 const GUID kKeyboardCategory = {0x34745C63, 0xB2F0, 0x4784, {0x8B, 0x67, 0x5E, 0x12, 0xC8, 0x70, 0x1A, 0x31}};
 
+// IID_ITfInputProcessorProfiles and the Microsoft Korean IME's text service (CLSID; its profile comes from the enumeration).
+const IID kProfilesIid = {0x1F02B6C5, 0x7842, 0x4EE6, {0x8A, 0x0B, 0x9A, 0x24, 0x18, 0x3A, 0x95, 0xCA}};
+const CLSID kKoreanImeClsid = {0xA028AE76, 0x01B1, 0x46C2, {0x99, 0xC4, 0xAC, 0xD9, 0x85, 0x8A, 0xE0, 0x2F}};
+
 TF_INPUTPROCESSORPROFILE gBefore;
 bool gHaveBefore = false;
+HKL gBeforeLayout = nullptr;
 
 void copyOut(const std::wstring &s, uint16_t *out, int cap) {
     if (!out || cap <= 0) return;
@@ -401,8 +406,9 @@ int ptb_ime_korean(int activate, uint16_t *out, int cap) {
             appendf(report, L" [type=%lu flags=0x%lX ", static_cast<unsigned long>(p.dwProfileType), static_cast<unsigned long>(p.dwFlags));
             report += guidText(p.clsid);
             report += L"]";
-            if (p.dwProfileType == TF_PROFILETYPE_INPUTPROCESSOR && !found) {
-                korean = p;
+            // The Microsoft Korean IME when it is there, else the first Korean text service.
+            if (p.dwProfileType == TF_PROFILETYPE_INPUTPROCESSOR && (!found || IsEqualCLSID(p.clsid, kKoreanImeClsid))) {
+                if (!(found && IsEqualCLSID(korean.clsid, kKoreanImeClsid))) korean = p;
                 found = 1;
             }
         }
@@ -412,7 +418,24 @@ int ptb_ime_korean(int activate, uint16_t *out, int cap) {
     if (activate && found) {
         if (!gHaveBefore) {
             gBefore = active;
+            gBeforeLayout = GetKeyboardLayout(0);
             gHaveBefore = true;
+        }
+        report += L"; chosen ";
+        report += guidText(korean.clsid);
+        // The process's input language first (the Korean keyboard layout), then the text service through both TSF interfaces.
+        HKL layout = LoadKeyboardLayoutW(L"00000412", KLF_NOTELLSHELL);
+        HKL previous = layout ? ActivateKeyboardLayout(layout, KLF_SETFORPROCESS) : nullptr;
+        appendf(report, L"; Korean layout %p (was %p, now %p)", static_cast<void *>(layout), static_cast<void *>(previous),
+                static_cast<void *>(GetKeyboardLayout(0)));
+        ITfInputProcessorProfiles *old = nullptr;
+        if (SUCCEEDED(mgr->QueryInterface(kProfilesIid, reinterpret_cast<void **>(&old))) && old) {
+            const HRESULT e = old->EnableLanguageProfile(korean.clsid, 0x0412, korean.guidProfile, TRUE);
+            const HRESULT c = old->ChangeCurrentLanguage(0x0412);
+            const HRESULT a = old->ActivateLanguageProfile(korean.clsid, 0x0412, korean.guidProfile);
+            appendf(report, L"; enable 0x%08lX language 0x%08lX activateLanguageProfile 0x%08lX", static_cast<unsigned long>(e),
+                    static_cast<unsigned long>(c), static_cast<unsigned long>(a));
+            old->Release();
         }
         hr = mgr->ActivateProfile(TF_PROFILETYPE_INPUTPROCESSOR, 0x0412, korean.clsid, korean.guidProfile, nullptr,
                                   TF_IPPMF_FORPROCESS | TF_IPPMF_ENABLEPROFILE | TF_IPPMF_DONTCARECURRENTINPUTLANGUAGE);
@@ -436,6 +459,7 @@ int ptb_ime_korean_restore(void) {
     hr = mgr->ActivateProfile(gBefore.dwProfileType, gBefore.langid, gBefore.clsid, gBefore.guidProfile, gBefore.hkl,
                               TF_IPPMF_FORPROCESS | TF_IPPMF_DONTCARECURRENTINPUTLANGUAGE);
     mgr->Release();
+    if (gBeforeLayout) ActivateKeyboardLayout(gBeforeLayout, KLF_SETFORPROCESS);
     gHaveBefore = false;
     return SUCCEEDED(hr) ? 1 : -1;
 }

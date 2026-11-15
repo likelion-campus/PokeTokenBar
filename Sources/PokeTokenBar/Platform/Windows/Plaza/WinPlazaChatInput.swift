@@ -36,10 +36,12 @@ import WinSDK
         var closesByFocus = 0, keptOnFocusLoss = 0, focusRestores = 0, loudToggles = 0, imePlacements = 0, menuPumps = 0, selectAlls = 0
     }
 
-    let bar: PlazaChatBarPanel
-    let hud: PlazaHUD
+    /// The bar and its HUD are made on first use (the plaza window opening): the controller exists from launch, and measuring the
+    /// field's font then would load DirectWrite at launch (`plaza.graphics.lazy`).
+    var bar: PlazaChatBarPanel { made().bar }
+    var hud: PlazaHUD { made().hud }
     private(set) var isOpen = false
-    var isLoud: Bool { bar.isLoud }
+    var isLoud: Bool { madeParts?.bar.isLoud ?? false }
     var onSubmit: ((String) -> Bool)?
     var onClose: (() -> Void)?
     /// Ctrl+W in the field: the plaza window closes (⌘W in the Mac field, `PlazaChatTextField.commandAction`).
@@ -69,12 +71,21 @@ import WinSDK
     private var limitPending = false, applyingLimit = false
     private var captured = false
     private static var fontLoaded: Bool?
+    private let graphics: any PlazaGraphics
+    private var madeParts: (bar: PlazaChatBarPanel, hud: PlazaHUD)?
 
     init(graphics: any PlazaGraphics = PlatformPlaza.graphics) {
+        self.graphics = graphics
+    }
+
+    private func made() -> (bar: PlazaChatBarPanel, hud: PlazaHUD) {
+        if let madeParts { return madeParts }
         let m = graphics.text.metrics(.plaza(.body))
-        bar = PlazaChatBarPanel(fieldHeight: (m.ascender - m.descender + m.leading).rounded(.up))
-        hud = PlazaHUD(panels: [bar], graphics: graphics)
+        let bar = PlazaChatBarPanel(fieldHeight: (m.ascender - m.descender + m.leading).rounded(.up))
+        let hud = PlazaHUD(panels: [bar], graphics: graphics)
         hud.onAction = { [weak self] _, hit in self?.clicked(hit) }
+        madeParts = (bar, hud)
+        return (bar, hud)
     }
 
     var editHWND: HWND? { editRaw.flatMap { HWND(bitPattern: Int(bitPattern: $0)) } }
@@ -106,7 +117,7 @@ import WinSDK
             bar.isEmojiOpen = false
             bar.isOpen = false
         }
-        if hud.host === self { hud.host = nil }
+        if madeParts?.hud.host === self { madeParts?.hud.host = nil }
         if let e = editRaw { ptb_chat_edit_destroy(e) }
         editRaw = nil
         parent = nil

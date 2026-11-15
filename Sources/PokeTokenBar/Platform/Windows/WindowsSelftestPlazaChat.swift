@@ -108,7 +108,12 @@ extension WindowsSelftest {
             return
         }
         shell.input?.forwardToStage = true
-        if onCI { forceForeground(hwnd); _ = SetFocus(hwnd); await chatPump(0.2) }
+        // Inside the work area: the earlier size checks leave the window as large as the screen, its bottom (where the bar is) under
+        // the taskbar, and a screen capture there reads the taskbar.
+        let size = WinPlazaWindow.frame(shell.dpiForTesting, 820, 560)
+        _ = SetWindowPos(hwnd, nil, 40, 40, size.width, size.height, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
+        if onCI { forceForeground(hwnd); _ = SetFocus(hwnd) }
+        await chatPump(0.3)
         await chatVisibleCheck(r, c, shell, hwnd, chat)
         await imeCharCheck(r, c, chat)
         await chatOpenCloseCheck(r, c, shell, hwnd, chat)
@@ -153,6 +158,9 @@ extension WindowsSelftest {
             let text = chat.text
             var origin = POINT(x: f.x, y: f.y)
             _ = ClientToScreen(hwnd, &origin)
+            var work = RECT()
+            _ = SystemParametersInfoW(UINT(SPI_GETWORKAREA), 0, &work, 0)
+            let onScreen = origin.x >= work.left && origin.y >= work.top && origin.x + f.w <= work.right && origin.y + f.h <= work.bottom
             let screen = WinUIDump.screenshot(x: Int(origin.x), y: Int(origin.y), w: Int(f.w), h: Int(f.h))
             let frame = shell.frameRGBAForTesting()
             var client = RECT()
@@ -184,9 +192,10 @@ extension WindowsSelftest {
                 }
             }
             let area = Int(f.w * f.h)
-            let visible = text == "Aa한" && white >= 15 && bar >= area / 3 && frameWhite < white
+            let visible = onScreen && text == "Aa한" && white >= 15 && white < area / 2 && bar >= area / 3 && frameWhite < white
             await chatClose(chat)
-            return (visible, "\(host): text=\(q(text)) field \(f.w)x\(f.h) px at (\(f.x),\(f.y)); screen white text px=\(white) bar-colour px=\(bar) of \(area); "
+            return (visible, "\(host): text=\(q(text)) field \(f.w)x\(f.h) px at client (\(f.x),\(f.y)) screen (\(origin.x),\(origin.y)) in the work area=\(onScreen); "
+                + "screen white text px=\(white) bar-colour px=\(bar) of \(area); "
                 + "frame bitmap white px under the field=\(frameWhite); visible=\(visible)")
         }
         let child = await attempt(.child)
@@ -393,10 +402,6 @@ extension WindowsSelftest {
         await chatOpen(c, chat)
         guard let e = chat.editHWND else { r.add("plaza.chatComposition", false, "no field"); return }
         let raw = UnsafeMutableRawPointer(e)
-        // What the system IMC does with a composition string set by hand (no IME on the runner: expected not to take it).
-        let setTook = ptb_ime_set_composition(raw, WinStr.w("한"), 1)
-        let setRead = WinPlazaChatInput.imeString(e, kind: 0x8)
-        _ = ptb_ime_finish(raw, 1)
         let script = ChatScript()
         script.install(on: chat)
         func step(_ s: String) async -> String {
@@ -465,7 +470,7 @@ extension WindowsSelftest {
                 + "candidates style 0x\(String(windows[3], radix: 16)) at (\(windows[4]),\(windows[5])) excluding (\(windows[6]),\(windows[7]))-(\(windows[8]),\(windows[9])) "
                 + "(field height \(fieldH)) at the caret=\(imeAtCaret); Backspace x3 \(backspaces) then END: empty=\(ended); Enter while composing 안: kept open, "
                 + "finished not sent=\(enterKept), next Enter sent \(q(sentAfter)); limit: 60 + composing = \(whileComposing) left alone, after END \(afterEnd) (cuts +\(cut)); "
-                + "Esc while composing: closed and cancelled=\(escCancelled), reopened empty=\(noGhost); ImmSetCompositionString by hand took=\(setTook) read \(q(setRead))")
+                + "Esc while composing: closed and cancelled=\(escCancelled), reopened empty=\(noGhost)")
     }
 
     /// Focus moves: a click on an inert panel area leaves the keyboard and the composition alone (the Mac's panel views refuse first
@@ -673,9 +678,10 @@ extension WindowsSelftest {
                 + "Ctrl+X field \(q(afterCut)) clipboard=\(q(cutText ?? "nil")); Ctrl+V of 5000 characters: \(long) kept")
     }
 
-    /// The tray menu while the line is open and a syllable is being composed (CI): the menu takes the keyboard (real Down keys reach
-    /// it, not the field), a character posted to the field meanwhile arrives once and whole (the menu loop dispatches it; the hook
-    /// leaves the loop's messages alone), the line stays open and gets the keyboard back when the plaza is active again.
+    /// The tray menu while the line is open and a syllable is being composed (CI): the menu takes the keyboard. Real Down keys reach
+    /// it, not the field; a character posted to the field meanwhile is taken by the menu's modal loop as a typed one would be
+    /// (native: a popup menu reads every keyboard message of the thread), and the hook re-dispatches nothing while the menu runs
+    /// (its menu guard). The syllable is finished into the line once, the line stays open and gets the keyboard back after.
     @MainActor private static func chatMenuCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
                                                  _ chat: WinPlazaChatInput, app: WindowsAppDelegate) async {
         guard let host = app.tray else { r.add("plaza.chatMenu", true, "no tray host in this run: not judged"); return }
@@ -689,6 +695,7 @@ extension WindowsSelftest {
         script.install(on: chat)
         script.composition = "가"
         let editBits = Int(bitPattern: e), sinkBits = Int(bitPattern: app.sink.hwnd)
+        let hookBefore = WinMessageHook.redispatchedChars
         let finished = PlazaTally(), sawMenu = PlazaTally()
         onThread {
             var waited = 0
@@ -718,6 +725,7 @@ extension WindowsSelftest {
         _ = await waitUntil(timeout: 3) { WinPopupMenu.openMenuBits == 0 }
         await chatPump(0.2)
         let duringMenu = chat.text
+        let hookDuring = WinMessageHook.redispatchedChars - hookBefore
         let stayedOpen = chat.isOpen
         forceForeground(hwnd)
         await chatPump(0.3)
@@ -727,10 +735,10 @@ extension WindowsSelftest {
         let final = chat.text
         await chatClose(chat)
         chat.ime = .system
-        r.add("plaza.chatMenu", sawMenu.isSet && stayedOpen && duringMenu == "ab가한" && back && final == "ab가한c" && script.finishes == [false],
-              "tray menu opened=\(sawMenu.isSet) over the open line (composing 가): the syllable finished into the line when the menu took the keyboard "
-                + "(\(script.finishes)); posted 한 during the menu + 2 real Down keys for the menu: field \(q(duringMenu)) (no key reached it, the character once); "
-                + "line open=\(stayedOpen); plaza active again: keyboard back in the field=\(back); typed c: \(q(final))")
+        r.add("plaza.chatMenu", sawMenu.isSet && stayedOpen && duringMenu == "ab가" && hookDuring == 0 && back && final == "ab가c" && script.finishes == [false],
+              "tray menu opened=\(sawMenu.isSet) over the open line (composing 가): the syllable finished into the line once when the menu took the keyboard "
+                + "(\(script.finishes)); 2 real Down keys and a posted 한 during the menu: field \(q(duringMenu)) (the menu took them, as natively), hook "
+                + "re-dispatches during the menu +\(hookDuring); line open=\(stayedOpen); plaza active again: keyboard back in the field=\(back); typed c: \(q(final))")
     }
 
     /// The field's own context menu (right click) is a modal loop of the EDIT: the main queue is served meanwhile (WinModalPump).
@@ -792,17 +800,30 @@ extension WindowsSelftest {
         let actText = String(decoding: act.prefix { $0 != 0 }, as: UTF16.self)
         defer { _ = ptb_ime_korean_restore() }
         await chatPump(0.3)
+        _ = chat.focus()
+        var after = [UInt16](repeating: 0, count: 1024)
+        _ = ptb_ime_korean(0, &after, Int32(after.count))
+        let afterText = String(decoding: after.prefix { $0 != 0 }, as: UTF16.self)
         let raw = UnsafeMutableRawPointer(e)
         _ = ptb_ime_set_status(raw, 1, 0x1 /* IME_CMODE_HANGUL */)
         await chatPump(0.2)
         var status: [UInt32] = [0, 0, 0]
         _ = ptb_ime_status(raw, &status)
         func state() -> String { "\(q(chat.text))/\(q(WinPlazaChatInput.imeString(e, kind: 0x8)))" }
-        var trace: [String] = []
+        var trace: [String] = ["after a pump: \(afterText)"]
         for s: UInt32 in [0x22, 0x25, 0x1F] { await chatTap(s) }   // g k s
         await chatPump(0.2)
-        let han = state()
+        var han = state()
         trace.append("gks \(han)")
+        if !han.hasPrefix("'한'") {   // still alphanumeric: the Han/Eng key once, then again
+            _ = WinStr.w("").withUnsafeBufferPointer { SendMessageW(e, 0x000C, 0, LPARAM(Int(bitPattern: $0.baseAddress))) }
+            await chatVirtualKey(0x15)   // VK_HANGUL
+            _ = ptb_ime_status(raw, &status)
+            for s: UInt32 in [0x22, 0x25, 0x1F] { await chatTap(s) }
+            await chatPump(0.2)
+            han = state()
+            trace.append("VK_HANGUL (conversion 0x\(String(status[0], radix: 16))) gks \(han)")
+        }
         for _ in 0..<3 { await chatTap(0x0E); trace.append("BS \(state())") }
         for s: UInt32 in [0x20, 0x25, 0x1F, 0x1F, 0x16, 0x20] { await chatTap(s) }   // d k s s u d
         trace.append("dkssud \(state())")
