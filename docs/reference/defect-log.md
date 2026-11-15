@@ -2055,9 +2055,13 @@ read_when:
   낮 장면에 노드가 하나 더 생겼다(스테이지 6 작업 4 에서 발견). **왜 못 걸렀나:** 렌더 비교는 같은 기계 두 커밋만 비교했고, 두 OS 를 비교한 적이 없었다(같은 기계에서는 시간대가 같다).
   **고침:** `PlazaFixtureTime` 이 고정 오프셋(+09:00, DST 없음, 시간대 DB 불필요)을 실행 동안 `NSTimeZone.default` 로 걸고 `Calendar.current` 가 따라오는지 `precondition` 으로 확인한다(KST Mac 의 렌더는 그대로).
   **규칙:** 시각을 쓰는 하니스는 시간대를 명시적으로 고정한다; 두 OS 렌더 비교(`scripts/plaza-render-cross.sh`, 윈도 `render` 잡)가 트리를 줄 단위로 비교하므로 순간이 어긋나면 노드 수 차이로 바로 드러난다.
-- **두 OS 렌더 비교가 찾은 Direct2D 결함은 `PlazaCrossCompare.knownRendererBugs` 에 이유와 함께 적고, 고치면 목록에서 지운다.** 불꽃놀이 장면 60프레임(`fireworks-*@60`)에서 프레임 맨 아래 64 디바이스 행이 투명 검정으로 나온다
-  (불꽃 빛 multiplyX2 스프라이트가 프레임 아래 끝을 넘는 경우로 추정, 원인 미확정). **왜 못 걸렀나:** Task 4 의 장면 비교는 5개 장면만 봤고 불꽃놀이는 10·30 프레임만 찍었다.
-  **규칙:** 목록에 있는 캡처가 통과하면 테스트가 실패해 목록이 썩지 않는다.
+- **Direct2D `DrawImage(..., SOURCE_COPY)` 는 `imageRect` 가 아니라 이미지 전체 경계를 덮어쓴다 — 영역에 쓰는 복사는 클립으로 가둔다.** 불꽃놀이 장면 60프레임(`fireworks-*@60`)에서 프레임 맨 아래 64 디바이스 행이
+  투명 검정으로 나왔다(Mac 은 지도). 원인: 곱하기 효과(`scene_device.cpp` `drawEffect`)가 결과를 `SOURCE_COPY` 로 프레임에 그리는데, 효과 이미지는 프레임 크기 스크래치 비트맵이라
+  `region`(스프라이트 자기 픽셀, 불꽃 빛은 0..896행) 밖의 행(896..959)까지 투명 검정으로 교체됐다. 진단: CI 에서 빛 명령의 `region=(-344,-384,1416,896)` 과 완전 투명 행 `896...959` 가 정확히 맞물림.
+  **왜 못 걸렀나:** 일광·모닥불 곱하기 스프라이트는 프레임 전체를 덮어 영역 밖이 없었고, 작업별 골든은 스프라이트 안쪽 셀만 비교했다. 영역이 프레임보다 작은 곱하기는 두 OS 하니스가 처음 밟았다.
+  **고침:** `copyRegion` 이 `PushAxisAlignedClip(region)` 안에서만 `SOURCE_COPY` 한다(두 곳: 색 곱하기·산술 합성). **부류 스윕:** `scene_device.cpp` 의 `DrawImage` 는 `SOURCE_OVER`(영향 없음)와 이 두 곳뿐,
+  `window_surface.cpp` 의 프레임→백버퍼 복사는 전체 프레임 복사라 의도대로. **가드:** 하니스의 두 캡처(`knownRendererBugs` 에서 제거, 목록은 이제 비어 있고 목록 메커니즘은 대역 스템으로 단위 테스트),
+  `testAMultiplySpriteThatEndsInsideTheFrameLeavesTheRestAlone`. **규칙:** 목록에 있는 캡처가 통과하면 테스트가 실패해 목록이 썩지 않는다.
 
 ## 프로세스 제어·업데이트
 
@@ -2487,3 +2491,11 @@ read_when:
   API 는 쉘이 호출을 받았다는 뜻일 뿐 보였다는 뜻이 아니다. **고침:** 어떤 종류도 `NIIF_RESPECT_QUIET_TIME` 을 쓰지 않는다(`BalloonFlags.infoFlags`; 방해 금지/집중 지원은 윈도가 토스트를 알림 센터로 조용히 보내므로 플래그가 필요 없다),
   프로세스가 `SetCurrentProcessExplicitAppUserModelID` 로 바로가기와 같은 ID 를 설정하고(스캔 테스트가 `.iss`·Swift 상수를 대조), `NIN_BALLOONSHOW` 를 처리·로그하며 10초 안에 쉘이 "표시됨"을 안 보내면 한 번 "not shown by Windows" 로 남긴다.
   첫 실행 안내도 같은 큐를 탄다. **규칙:** OS 에 맡긴 표시는 반환값이 아니라 OS 의 통지(또는 화면)로만 "보였다"고 쓴다; 셀프테스트 `notify.state`/`notify.shown` 이 사용자 로그에 설정 상태와 통지를 남긴다.
+
+- **전체 테스트 실행에서만 `RedirectHeadersMacTests` 3개가 `-1009`(인터넷 없음)로 실패했다 — 플라자 렌더 테스트가 등록한 `NoNetwork` URLProtocol 이 해제되지 않았다.** `URLProtocol.registerClass` 는
+  프로세스 전역이고 `URLSession.shared` 는 그것을 따른다. `PlazaContentRig+Mac.swift` 의 `blockNetwork()` 가 `NoNetwork`(모든 요청을 `notConnectedToInternet` 으로 거절)를 등록만 하고
+  풀지 않아, 이후에 도는 스위트의 loopback 요청이 0.000 초에 거절됐다. 알파벳 순으로 `Plaza*` 가 `Redirect*` 보다 앞서 도는 전체 실행에서만 드러난다(`--filter 'PlazaContentPanelsMacTests|RedirectHeadersMacTests'` 로 재현).
+  **왜 못 걸렀나:** 각 스위트는 단독(필터) 실행에서 통과했고, 오염 쪽 테스트는 자기 렌더만 검증해 누수를 볼 수 없었으며, 피해 쪽은 등록이 없는 상태에서만 정상이라 순서 의존을 드러낼 기회가 전체 실행뿐이었다.
+  **고침:** `blockNetwork(for: self)` 가 `addTeardownBlock` 으로 해제를 건다(호출 4곳). **부류 스윕:** 나머지 `registerClass` 사용처(`ClaudeOAuthFileCredentialTests`, `SpriteAnimationRecoveryTests`,
+  `OneShotDataMacTests`, `CredentialSwitchCacheTests`)는 모두 같은 파일에서 `unregisterClass` 한다 — 오염원은 `NoNetwork` 하나였다.
+  **영구 캡처:** `NetworkProtocolScanTests` — `registerClass` 가 있는 테스트 파일에 `unregisterClass` 가 없으면 실패(해제를 지우는 주입으로 실패 확인). **규칙:** 프로세스 전역 상태(URLProtocol 등록·환경변수·공유 훅)는 설정하는 쪽이 같은 테스트 안에서 되돌린다.

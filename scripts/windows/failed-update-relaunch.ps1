@@ -168,10 +168,18 @@ $builds = @(
 $compiled = $builds | ForEach-Object -ThrottleLimit 3 -Parallel {
     $out = (New-Item -ItemType Directory -Force -Path (Join-Path $using:root "installer-$($_.Name)")).FullName
     $src = Join-Path $using:root $_.Src
-    $text = & $using:iscc /Q "/DSrcDir=$src" "/DAppVer=$($using:NextVersion)" "/DOutDir=$out" @($_.Defines) $_.Iss 2>&1 | Out-String
-    [pscustomobject]@{ Name = $_.Name; Code = $LASTEXITCODE; Out = $out; Text = $text }
+    # Every /D goes through $isccArgs (the rule of the installer step): iscc-defines.json records them per output folder.
+    $isccArgs = @("/DSrcDir=$src", "/DAppVer=$($using:NextVersion)", "/DOutDir=$out") + @($_.Defines)
+    $text = & $using:iscc /Q @isccArgs $_.Iss 2>&1 | Out-String
+    $names = @($isccArgs | Where-Object { $_ -like '/D*' } | ForEach-Object { ($_ -replace '^/D', '') -replace '=.*$', '' })
+    [pscustomobject]@{ Name = $_.Name; Code = $LASTEXITCODE; Out = $out; Text = $text; Defines = $names }
 }
 foreach ($c in $compiled) { if ($c.Code -ne 0) { $c.Text; throw "ISCC failed for $($c.Name) (exit $($c.Code))" } }
+# The test builds join the installer step's record; the release manifest reads only installer-out's entry.
+$record = if (Test-Path iscc-defines.json) { Get-Content iscc-defines.json -Raw | ConvertFrom-Json -AsHashtable } else { [ordered]@{} }
+foreach ($c in $compiled) { $record["installer-$($c.Name)"] = $c.Defines }
+$record | ConvertTo-Json | Set-Content iscc-defines.json -Encoding utf8NoBOM
+"iscc-defines.json: $(($record.Keys | ForEach-Object { "$_=$($record[$_] -join ',')" }) -join '; ')"
 $out = @{}; foreach ($c in $compiled) { $out[$c.Name] = $c.Out }
 $testName = "PokeTokenBar-Setup-$NextVersion-win-x64-TESTFAIL.exe"
 $failPrepare = Join-Path $out['fail-prepare'] $testName

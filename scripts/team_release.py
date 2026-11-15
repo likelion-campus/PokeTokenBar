@@ -85,7 +85,8 @@ WORKFLOWS = (
 SMOKE_WORKFLOW = "windows-release-smoke.yml"
 
 # The gate steps every release-mode windows-app run must report. Tasks 5 and 6 add theirs in the same PR as the step.
-REQUIRED_GATES = ("bundleSelftest", "install", "upgrade", "installedSelftest", "idle", "uninstall", "upgradeFromRelease")
+REQUIRED_GATES = ("bundleSelftest", "install", "upgrade", "installedSelftest", "idle", "uninstall", "upgradeFromRelease",
+                  "failedUpdateRelaunch")
 ISCC_DEFINES = ("SrcDir", "AppVer", "OutDir")
 MIN_EXECUTED = 2400
 ZIP_NAME = "PokeTokenBar.zip"
