@@ -289,8 +289,11 @@ enum PlazaPreviewScenes {
     // MARK: Driving
 
     /// Runs a scene to each capture frame and hands the capture to `capture` (after the harness's 15 same-time updates).
-    static func run(_ scene: Scene, stage: any PlazaStage, capture: (_ frame: Int, _ setup: Setup) async throws -> Void) async rethrows {
+    /// `prepare` runs once on the built scene before the first update.
+    static func run(_ scene: Scene, stage: any PlazaStage, prepare: (_ setup: Setup) -> Void = { _ in },
+                    capture: (_ frame: Int, _ setup: Setup) async throws -> Void) async rethrows {
         let setup = scene.build(stage)
+        prepare(setup)
         setup.step(0)
         for _ in 0..<warmUpUpdates { setup.scene.stageUpdate(clockBase) }
         let last = scene.captures.max() ?? 0

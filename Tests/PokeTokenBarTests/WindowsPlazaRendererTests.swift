@@ -83,10 +83,10 @@ final class WindowsPlazaRendererTests: XCTestCase {
     }
 
     /// How far (device pixels) from a rotated sprite's edge or texel edge a pixel centre may be and still land on the other
-    /// side: measured on WARP up to 0.035 px (3 pixels of about 12,000 at 7°, -33° and 7° at 1.5). Exact pixel-centre
-    /// coverage is the reference; SpriteKit's own rotated edges were not measured at this precision (the golden's 7° case
-    /// cannot show a turn).
-    private static let rotatedEdgeTolerance = 0.05
+    /// side: measured on WARP up to 0.047 px (15 pixels of about 12,000 over 7°, 20°, -33° and 7° at 1.5; run 43685854815).
+    /// Exact pixel-centre coverage is the reference; SpriteKit's own rotated edges were not measured at this precision (the
+    /// golden's 7° case cannot show a turn).
+    private static let rotatedEdgeTolerance = 1.0 / 16
 
     private static let swatchTolerance = ["colorBlend": 1, "multiply": 1, "daylight": 1, "nearest": 1, "rotation": 1, "multiplyX2": 2]
 
@@ -565,6 +565,56 @@ final class WindowsPlazaRendererTests: XCTestCase {
                 }
             }
         }
+    }
+
+    /// Answers every plain (not shiny) sprite ask with the same fixture GIF.
+    private final class FixtureSpriteSource: PlazaSpriteSource, @unchecked Sendable {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let gif: Data
+        init(gif: Data) { self.gif = gif }
+        func data(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm?, back: Bool) async -> Data? { shiny ? nil : gif }
+        func eggData() async -> Data? { nil }
+    }
+
+    /// A teammate whose picture comes through Task 3's shared path (`PlazaCharacterLoader` over `PlazaStoreSpriteFetcher`)
+    /// from FIXTURE GIF bytes (built by `PlazaGIFFixtures`: no Pokémon art is committed), decoded by the shared GIF decoder
+    /// on Windows, standing in `base-noon` and drawn: its palette colour fills where the teammate stands.
+    func testFetchedSpritesDrawInTheScene() async throws {
+        let w = 20, h = 24
+        func gifFrame(_ step: Int) -> PlazaGIFFixtures.Frame {
+            var indices = [UInt8](repeating: 0, count: w * h)
+            for y in 2..<22 { for x in 3..<17 { indices[y * w + x] = 1 } }
+            indices[8 * w + 7] = 2; indices[8 * w + 12] = 2; indices[(19 + step) * w + 5] = 2
+            var f = PlazaGIFFixtures.Frame(width: w, height: h, indices: indices)
+            f.transparent = 0
+            f.delay = 20
+            return f
+        }
+        let gif = Data(PlazaGIFFixtures.gif(width: w, height: h, global: [[0, 0, 0], [250, 40, 200], [20, 20, 30], [255, 255, 255]],
+                                            frames: [gifFrame(0), gifFrame(1)]))
+        let loader = PlazaCharacterLoader(fetcher: PlazaStoreSpriteFetcher(source: FixtureSpriteSource(gif: gif), graphics: WinPlazaGraphics.shared))
+        let fetched = await loader.frames(for: CompanionStore.RepresentativeSubject(speciesID: 25, isShiny: false))
+        XCTAssertFalse(fetched.isPlaceholder, "the fixture GIF did not come through the fetcher")
+        XCTAssertEqual(fetched.front.count, 2)
+        let device = try makeDevice()
+        let scene = try XCTUnwrap(PlazaPreviewScenes.all.first { $0.name == "base-noon" })
+        let stage = WinPlazaStage(size: CGSize(width: 960, height: 640))
+        stage.setBackingScale(scene.backing)
+        let surface = try WinGfxSurface.offscreen(device: device, width: 640, height: 480).get()
+        let renderer = WinPlazaRenderer(surface: surface)
+        var magenta = 0
+        try await PlazaPreviewScenes.run(scene, stage: stage, prepare: { $0.scene.setMemberFrames("ash", fetched) }) { frame, _ in
+            guard frame == 10 else { return }
+            XCTAssertEqual(renderer.drawIfNeeded(stage: stage, transparent: true), .drawn)
+            let rgba = try XCTUnwrap(surface.readRGBA())
+            magenta = stride(from: 0, to: rgba.count, by: 4).filter { rgba[$0] == 250 && rgba[$0 + 1] == 40 && rgba[$0 + 2] == 200 }.count
+            if let out = PlazaPreviewScenesTests.outputDirectory {
+                try writePNG(rgba, width: 640, height: 480, to: out.appendingPathComponent("fetched-sprites@10.png"))
+            }
+        }
+        // 14 x 20 opaque texels, 1.5 world pixels each at zoom 2 and backing 1: 3 x 3 device pixels a texel
+        print("FETCHED magentaPixels=\(magenta) frames=\(fetched.front.count) placeholder=\(fetched.isPlaceholder)")
+        XCTAssertGreaterThan(magenta, 14 * 20 * 9 / 2, "the fetched teammate is not on screen")
     }
 
     /// D19's busy case on WARP: per frame the scene's update, then flatten + command building, recording + EndDraw, and the
