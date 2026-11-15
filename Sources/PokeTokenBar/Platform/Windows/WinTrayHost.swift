@@ -20,6 +20,10 @@ import WinSDK
     var availableUpdate: (version: String, url: String)?
     /// Teammates linked right now, nil while the team is off (set by the app once the team runtime exists).
     var teammatesOnline: @MainActor () -> Int? = { nil }
+    /// The board's unread count while the team is ready, nil hides "광장 열기" (the Mac's `plazaAvailable`).
+    var plazaUnread: @MainActor () -> Int? = { nil }
+    /// The user chose "광장 열기" (the app opens the plaza, as the Mac's `openPlaza`).
+    var onOpenPlaza: (@MainActor () -> Void)?
 
     private(set) var menuOpen = false
     private(set) var lastAction: TrayMenuModel.Action = .none
@@ -78,7 +82,8 @@ import WinSDK
     func menuItems() -> [TrayMenuModel.Item?] {
         TrayMenuModel.items(l: companion.l, todayTokens: store.todayTotalTokens,
                             todayCost: store.showsCost ? store.todayUsageCost : nil,
-                            login: loginState, update: availableUpdate?.version, teammatesOnline: teammatesOnline())
+                            login: loginState, update: availableUpdate?.version, teammatesOnline: teammatesOnline(),
+                            plazaUnread: plazaUnread())
     }
 
     /// Blocks in the system menu loop until it is dismissed (no drain timer meanwhile; F17), then runs the action.
@@ -106,6 +111,8 @@ import WinSDK
             Self.open(WinPath.native(folder))
         case .openRelease:
             if let url = availableUpdate?.url { Self.open(url) }
+        case .openPlaza:
+            onOpenPlaza?()
         case .quit:
             WindowsApp.exit(0, .menu)
         case .toggleLaunchAtLogin:

@@ -671,13 +671,13 @@ jobs:
           $summary.sleeper = [ordered]@{ cyclesPerSec = $base.processCyclesPerSec; contextSwitchesPerMin = $base.contextSwitchesPerMin; explorerCycles = $base.explorerCycles; explorerContextSwitches = ($base.also | Where-Object name -eq 'explorer').contextSwitches }
 
           # 2. The installed app, one window per state. Budgets are from the first measured runs, with margin (see the report).
-          function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget) {
+          function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget, [string[]]$AppArgs = @()) {
               Remove-Item -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak"
               if ($Settings) { Set-Content -Path $PtbPlist -Value $Settings -Encoding utf8NoBOM }
               $state = Join-Path $env:PTB_FIXTURE "state-idle-$Label"
               New-Item -ItemType Directory -Force -Path $state | Out-Null
               $env:PTB_STATE_DIR = $state
-              $p, $h = Start-App $exe
+              $p, $h = Start-App $exe $AppArgs
               Start-Sleep -Seconds 30
               $m = @{ ProcessId = $p.Id; Seconds = $Seconds; Label = $Label; Out = "idle-$Label.json" }
               foreach ($k in $Budget.Keys) { $m[$k] = $Budget[$k] }
@@ -703,6 +703,26 @@ jobs:
           # whole transfer, 1568-7209 cs/min and 3.3-5.5 M cycles/s, under a budget of 4000 (defect log, "윈도우 URLSession"). One such
           # refresh (>= 6k cs) now fails the cs budget on its own.
           Measure-App 'normal-300s' 300 '' @{ MaxMainCsPerMin = 30; MaxProcessCsPerMin = 280; MaxProcessCyclesPerSec = 3000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+          # Stage 6 Task 5: the plaza open (the selftest helper opens the app's own plaza; no team, nobody else in it), with
+          # refresh off as in the first window, so the difference to 'manual-refresh-120s' is the plaza's. On the runner the
+          # device is WARP (CPU rendering): every drawn frame is CPU time here that a GPU does on a PC.
+          $logFile = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log'
+          foreach ($mode in 'visible', 'minimized') {
+              $label = "plaza-$mode-120s"
+              # Budgets: 1.5x the worst of three runs (43697872729, 43702099267, 43706983988; stage 6 Task 5 report). Minimized
+              # (main 396-410/min, process 3502-3575 cs/min, 5.3-6.8 M cycles/s): the frame clock is parked and the cover check off;
+              # what wakes the app is the shared controller (1 s focus tick, 1 s watchdog, the ditto host's 50-250 ms loop, on the Mac
+              # too). Visible, nobody walking (main 5030-9922/min, 64-78 k cs/min, 0.28-0.81 G cycles/s): WARP draws on the CPU here.
+              $budgetPlaza = if ($mode -eq 'minimized') {
+                  @{ MaxMainCsPerMin = 615; MaxProcessCsPerMin = 5360; MaxProcessCyclesPerSec = 10300000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+              } else {
+                  @{ MaxMainCsPerMin = 14900; MaxProcessCsPerMin = 117500; MaxProcessCyclesPerSec = 1220000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+              }
+              Measure-App $label 120 $off $budgetPlaza @('--plaza-idle-probe', $mode)
+              $lines = @(Select-String -Path $logFile -Pattern 'plaza idle helper|plaza open at exit|plaza window open|plaza window: not opened' -ErrorAction SilentlyContinue | Select-Object -Last 3 | ForEach-Object { $_.Line })
+              $lines
+              $summary.windows[$label].plazaLog = $lines
+          }
           $summary.verdicts = $verdicts
           $summary | ConvertTo-Json -Depth 8 | Set-Content idle-gate.json -Encoding utf8
           Get-Content idle-gate.json
@@ -836,6 +856,7 @@ jobs:
             net-burst.json
             st*.json.lines
             tray-desktop.png
+            plaza-*.png
             probe-*.txt
             ui-dump
             lang-probe

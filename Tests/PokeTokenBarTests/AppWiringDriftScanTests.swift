@@ -147,6 +147,62 @@ final class AppWiringDriftScanTests: XCTestCase {
         }
     }
 
+    // MARK: - the plaza (stage 6 Task 5)
+
+    /// The Windows app builds the plaza controller with the Mac's `PlazaWindowController(...)` arguments (the preferences'
+    /// store is the team settings' syncing one, the store the Mac's `PlazaPreferences()` default reads), hands it to the
+    /// runtime and the notifier as the Mac does, observes the same values for it, and opens it only through the Mac's guard.
+    func testTheWindowsAppBuildsThePlazaLikeTheMac() throws {
+        let mac = try Self.read("PokeTokenBarApp.swift")
+        let windows = try Self.read("Platform/Windows/WindowsApp.swift")
+        let macArgs = try XCTUnwrap(Self.arguments(of: "PlazaWindowController(", in: mac), "PokeTokenBarApp.swift has no PlazaWindowController(")
+        let winArgs = try XCTUnwrap(Self.arguments(of: "PlazaWindowController(", in: windows), "WindowsApp.swift has no PlazaWindowController(")
+        XCTAssertEqual(Self.labels(of: "PlazaWindowController(", in: windows), Self.labels(of: "PlazaWindowController(", in: mac),
+                       "PlazaWindowController( drifted from AppDelegate")
+        XCTAssertEqual(winArgs.filter { !$0.hasPrefix("preferences:") }, macArgs.filter { !$0.hasPrefix("preferences:") },
+                       "an argument of PlazaWindowController( differs from AppDelegate's; copy it into WindowsApp.makePlaza")
+        XCTAssertEqual(macArgs.first, "preferences: PlazaPreferences()")
+        XCTAssertEqual(winArgs.first, "preferences: PlazaPreferences(defaults: teamSettingsDefaults)")
+        let macNotifier = try XCTUnwrap(Self.arguments(of: "TeamNotifier(", in: mac))
+        XCTAssertEqual(Self.arguments(of: "TeamNotifier(", in: windows)?.suffix(2), macNotifier.suffix(2),
+                       "isPlazaFrontmost / showInPlaza differ from AppDelegate's")
+        XCTAssertTrue(windows.contains("plaza = PlazaWindowController("), "WindowsApp.makePlaza builds the controller")
+        for (name, text) in [("mac", mac), ("windows", windows)] {
+            // The Mac builds it inline; Windows in makePlaza(), called from startTeam.
+            let made = try XCTUnwrap(text.range(of: name == "mac" ? "plaza = PlazaWindowController(" : "        makePlaza()\n"), name)
+            let handed = try XCTUnwrap(text.range(of: "teamRuntime.plaza = plaza"), name)
+            let notifier = try XCTUnwrap(text.range(of: "teamRuntime.notifier = TeamNotifier("), name)
+            XCTAssertLessThan(made.lowerBound, notifier.lowerBound, "\(name): the plaza exists before the notifier reads it")
+            XCTAssertLessThan(handed.lowerBound, notifier.lowerBound, "\(name): the runtime gets the plaza before the notifier")
+            XCTAssertTrue(text.contains("if CommandLine.arguments.contains(\"--open-plaza\") { openPlaza() }")
+                          || text.contains("if arguments.contains(\"--open-plaza\") { openPlaza() }"), "\(name): --open-plaza")
+        }
+        for function in ["observePlaza", "observePlazaNickname", "observePlazaTeamName", "observePlazaRoster"] {
+            let m = try XCTUnwrap(Self.trackedValues(of: function, in: mac), "AppDelegate has no \(function)")
+            XCTAssertFalse(m.isEmpty, function)
+            XCTAssertEqual(Self.trackedValues(of: function, in: windows), m, "\(function) tracks different values on Windows")
+            let call = "\(function)()\n"
+            XCTAssertTrue(windows.contains("        " + call), "WindowsApp.launch does not start \(function)")
+        }
+        let open = try XCTUnwrap(Self.body(of: "openPlaza", in: windows))
+        XCTAssertTrue(open.hasPrefix("guard teamSettings.isReady else { return }"), "the Mac's guard comes first: \(open)")
+        XCTAssertTrue(open.contains("plaza.show()"))
+        XCTAssertTrue(try XCTUnwrap(Self.body(of: "openPlaza", in: mac)).contains("guard teamSettings.isReady else { return }"))
+    }
+
+    /// The tray's plaza entry is the Mac status menu's: the same title expression and the same "team ready" condition.
+    func testTheTrayPlazaEntryIsTheMacMenus() throws {
+        let menu = try Self.read("UI/StatusItemMenu.swift")
+        let tray = try Self.read("Platform/TrayMenuModel.swift")
+        let mac = try Self.read("PokeTokenBarApp.swift")
+        let windows = try Self.read("Platform/Windows/WindowsApp.swift")
+        XCTAssertTrue(menu.contains(#"l.plazaOpen + "…" + (plazaUnread > 0 ? " (\(plazaUnread))" : "")"#), "StatusItemMenu's plaza title changed")
+        XCTAssertTrue(tray.contains(#"l.plazaOpen + "…" + (unread > 0 ? " (\(unread))" : "")"#), "TrayMenuModel.plazaTitle drifted")
+        XCTAssertTrue(mac.contains("plazaAvailable: teamSettings.isReady,"))
+        XCTAssertTrue(mac.contains("plazaUnread: teamSettings.isReady ? teamRuntime.feed.unreadCount : 0)"))
+        XCTAssertTrue(windows.contains("tray.plazaUnread = { settings.isReady ? feed.unreadCount : nil }"))
+    }
+
     func testTheLabelScanSeesANewArgument() {
         XCTAssertEqual(Self.labels(of: "TeamRuntime(", in: "TeamRuntime(settings: s, companion: c, transport: T())"),
                        ["settings", "companion", "transport"])

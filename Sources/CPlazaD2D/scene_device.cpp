@@ -3,12 +3,13 @@
 // ptb_gfx_bitmap_release. Nothing here throws: tables are malloc'ed arrays, the release queue is guarded by an SRW lock.
 #include "CPlazaD2D.h"
 #include "internal.h"
+#include "scene_internal.h"
 
 #include <windows.h>
 #include <d2d1_1.h>
 #include <d2d1effects.h>
 #include <d3d11.h>
-#include <dxgi.h>
+#include <dxgi1_6.h>
 #ifndef PSAPI_VERSION
 #define PSAPI_VERSION 2  // K32GetProcessMemoryInfo from kernel32 (no psapi.lib)
 #endif
@@ -23,70 +24,37 @@
 namespace {
 
 using namespace ptb;
+using namespace ptb::scene;
 
 // Spelled out (not DEFINE_GUID / __uuidof), as codec.cpp and probe.cpp do.
 const GUID kIidD2D1Factory1 = {0xbb12d362, 0xdaee, 0x4b9a, {0xaa, 0x1d, 0x14, 0xba, 0x40, 0x1c, 0xfa, 0x1f}};
 const GUID kIidDXGIDevice = {0x54ec77fa, 0x1377, 0x44e6, {0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c}};
 const GUID kClsidColorMatrix = {0x921f03d6, 0x641c, 0x47df, {0x85, 0x2d, 0xb4, 0xbb, 0x61, 0x53, 0xae, 0x11}};
 const GUID kClsidArithmeticComposite = {0xfc151437, 0x049a, 0x4784, {0xa2, 0x4a, 0xf1, 0xc4, 0xda, 0xf2, 0x09, 0x87}};
+const GUID kIidDXGIFactory1 = {0x770aae78, 0xf26f, 0x4dba, {0xa8, 0x29, 0x25, 0x3c, 0x83, 0xd1, 0xb3, 0x87}};
+const GUID kIidDXGIFactory6 = {0xc1b6694f, 0xff09, 0x44a9, {0xb0, 0x3c, 0x77, 0x90, 0x0a, 0x0a, 0x1d, 0x17}};
+const GUID kIidDXGIAdapter1 = {0x29038f61, 0x3839, 0x4626, {0x91, 0xfd, 0x08, 0x68, 0x79, 0x01, 0x1a, 0x05}};
+
+// The lowest-power hardware adapter (Task 5): on a laptop with an integrated and a discrete GPU the integrated one, so an
+// open plaza never wakes the discrete GPU. IDXGIFactory6 exists from Windows 10 1803; without it (or with only a software
+// adapter, as on the CI runner) nullptr, and the caller takes the default hardware adapter as before.
+IDXGIAdapter1 *lowPowerAdapter() {
+    Ref<IDXGIFactory1> f1;
+    if (FAILED(CreateDXGIFactory1(kIidDXGIFactory1, reinterpret_cast<void **>(f1.out())))) return nullptr;
+    Ref<IDXGIFactory6> f6;
+    if (FAILED(f1->QueryInterface(kIidDXGIFactory6, reinterpret_cast<void **>(f6.out())))) return nullptr;
+    for (UINT i = 0;; i++) {
+        IDXGIAdapter1 *a = nullptr;
+        if (FAILED(f6->EnumAdapterByGpuPreference(i, DXGI_GPU_PREFERENCE_MINIMUM_POWER, kIidDXGIAdapter1,
+                                                  reinterpret_cast<void **>(&a))))
+            return nullptr;
+        DXGI_ADAPTER_DESC1 desc;
+        if (SUCCEEDED(a->GetDesc1(&desc)) && !(desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) return a;
+        a->Release();
+    }
+}
 
 const HRESULT kRecreateTarget = static_cast<HRESULT>(0x8899000CL);  // D2DERR_RECREATE_TARGET
-
-template <class T> struct Ref {
-    T *p = nullptr;
-    Ref() = default;
-    Ref(const Ref &) = delete;
-    Ref &operator=(const Ref &) = delete;
-    ~Ref() { reset(); }
-    void reset() {
-        if (p) p->Release();
-        p = nullptr;
-    }
-    T **out() {
-        reset();
-        return &p;
-    }
-    T *operator->() const { return p; }
-};
-
-struct Pending {
-    uint32_t handle, generation;
-};
-
-struct Device {
-    uint32_t generation = 0;
-    int isWarp = 0;
-    bool lost = false;
-    int injectLoss = 0;
-    uint32_t options = 0;
-    uint32_t uploads = 0, losses = 0, frames = 0;
-    Ref<ID2D1Factory1> factory;  // device-independent: kept across rebuilds
-    Ref<ID3D11Device> d3d;
-    Ref<ID3D11DeviceContext> d3dContext;
-    Ref<ID3D11Query> idleQuery;
-    Ref<ID2D1Device> d2d;
-    Ref<ID2D1DeviceContext> ctx;
-    Ref<ID2D1SolidColorBrush> brush;
-    Ref<ID2D1Effect> tint, dst, arith;
-    Ref<ID2D1Image> tintOut, dstOut, arithOut;
-    // Bitmap table: handle = slot + 1. A free slot holds nullptr.
-    ID2D1Bitmap1 **slots = nullptr;
-    uint64_t *slotBytes = nullptr;
-    uint32_t slotCount = 0, slotCap = 0;
-    uint32_t live = 0;
-    uint64_t liveBytes = 0;
-    // Releases asked for by any thread, done on the main thread at the next call.
-    SRWLOCK lock = SRWLOCK_INIT;
-    Pending *pending = nullptr;
-    uint32_t pendingCount = 0, pendingCap = 0;
-};
-
-struct Surface {
-    Device *device = nullptr;
-    uint32_t w = 0, h = 0;
-    uint32_t generation = 0;  // of the resources below; 0 = not made
-    Ref<ID2D1Bitmap1> frame, scratchA, scratchB, readback;
-};
 
 bool loadable(const wchar_t *dll, HRESULT *hr) {
     if (LoadLibraryExW(dll, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)) return true;
@@ -174,8 +142,15 @@ HRESULT build(Device *d, int forceWarp, uint16_t *adapter, uint32_t adapterCap) 
     D3D_FEATURE_LEVEL got = D3D_FEATURE_LEVEL_9_1;
     hr = E_FAIL;
     if (!forceWarp) {
-        hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, levelCount,
-                               D3D11_SDK_VERSION, d->d3d.out(), &got, d->d3dContext.out());
+        if (IDXGIAdapter1 *low = lowPowerAdapter()) {
+            hr = D3D11CreateDevice(low, D3D_DRIVER_TYPE_UNKNOWN, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels, levelCount,
+                                   D3D11_SDK_VERSION, d->d3d.out(), &got, d->d3dContext.out());
+            low->Release();
+        }
+        if (FAILED(hr)) {
+            hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, levels,
+                                   levelCount, D3D11_SDK_VERSION, d->d3d.out(), &got, d->d3dContext.out());
+        }
         d->isWarp = 0;
     }
     if (FAILED(hr)) {
@@ -469,6 +444,19 @@ bool grow(void **array, uint32_t *cap, uint32_t need, size_t itemSize) {
 
 }  // namespace
 
+namespace ptb {
+namespace scene {
+HRESULT ensureFrameBitmaps(Surface *s) { return ensure(s); }
+void noteDeviceLoss(Device *d, HRESULT hr) {
+    if (!d->lost) {
+        d->lost = true;
+        d->losses++;
+    }
+    (void)hr;
+}
+}  // namespace scene
+}  // namespace ptb
+
 extern "C" PTBGfxDevice *ptb_gfx_device_create(int forceWarp, uint16_t *adapter, uint32_t adapterCap) {
     Device *d = new (std::nothrow) Device();
     if (!d) {
@@ -634,7 +622,13 @@ extern "C" int ptb_gfx_surface_resize(PTBGfxSurface *surface, uint32_t w, uint32
     return 0;
 }
 
-extern "C" void ptb_gfx_surface_release(PTBGfxSurface *surface) { delete reinterpret_cast<Surface *>(surface); }
+extern "C" void ptb_gfx_surface_release(PTBGfxSurface *surface) {
+    Surface *s = reinterpret_cast<Surface *>(surface);
+    if (!s) return;
+    if (s->window) releaseWindowParts(s->window);  // a window surface (Task 5): swap chain and composition first
+    s->window = nullptr;
+    delete s;
+}
 
 extern "C" int ptb_gfx_frame(PTBGfxSurface *surface, const float clear[4], const PTBDrawCmd *cmds, uint32_t n) {
     Surface *s = reinterpret_cast<Surface *>(surface);
@@ -745,6 +739,7 @@ extern "C" int ptb_gfx_finish(PTBGfxDevice *device) {
 extern "C" void ptb_gfx_inject_fault(PTBGfxDevice *device, int kind) {
     Device *d = reinterpret_cast<Device *>(device);
     if (d && kind == 1) d->injectLoss = 1;
+    if (d && kind == 2) d->injectPresentLoss = 1;  // Task 5: the next window present reports a removed device
 }
 
 extern "C" void ptb_gfx_set_options(PTBGfxDevice *device, uint32_t flags) {
