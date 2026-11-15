@@ -60,7 +60,7 @@ enum PlazaRosterStyle {
     var onChange: (() -> Void)?
     let isVisible = true
     private let model: PlazaRosterModel
-    private let pictures: PlazaPictureCache
+    let pictures: PlazaPictureCache
     private let clock: PlazaAnimationClock
     private var observer: PlazaChangeObserver?
 
@@ -85,7 +85,13 @@ enum PlazaRosterStyle {
 
     private var rendered: String?
     private var state: String { "\(model.entries) \(model.page) \(model.capacity) \(model.isAnimating)" }
+    /// The shown page and who is on it: a page turn or a new member is a slot appearing, so failed pictures get another try.
+    private var shownSlots = ""
+    func didAppear() { pictures.forgetFailures() }
+
     private func modelChanged() {
+        let slots = "\(page.index) \(page.shown.map(\.id))"
+        if slots != shownSlots { shownSlots = slots; pictures.forgetFailures() }
         if !model.isAnimating { clock.setRunning(false) }
         if rendered != state { onChange?() }
     }

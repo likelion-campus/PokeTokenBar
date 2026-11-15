@@ -65,7 +65,7 @@ enum PlazaCardStyle {
     let offset = CGPoint.zero
     var onChange: (() -> Void)?
     private let model: PlazaOverlayModel
-    private let pictures: PlazaPictureCache
+    let pictures: PlazaPictureCache
     private var observer: PlazaChangeObserver?
     private let now: () -> Date
     private(set) var scrollState = PlazaScrollState()
@@ -92,8 +92,10 @@ enum PlazaCardStyle {
     var isVisible: Bool { state != nil }
 
     private var rendered: PlazaCardState??
+    func didAppear() { pictures.forgetFailures() }
+
     private func modelChanged() {
-        if state == nil { scrollOwner = nil; scrollState = PlazaScrollState(); rowImages = [:]; scrollIndicator.reset() }
+        if state == nil { scrollOwner = nil; scrollState = PlazaScrollState(); rowImages = [:]; scrollIndicator.reset(); rendered = nil }   // reopening the same card draws it again
         if rendered != .some(state) { onChange?() }
     }
 
@@ -239,7 +241,7 @@ enum PlazaCardStyle {
         guard let state, let l = layout(scale: scale, text: text) else { return PlazaPanelDrawing() }
         let s = PlazaCardStyle.self, m = PlazaCardMetrics.self
         let lower = s.lower
-        if scrollOwner != state { scrollOwner = state; scrollState = PlazaScrollState(); scrollIndicator.reset() }
+        if scrollOwner != state { scrollOwner = state; scrollState = PlazaScrollState(); scrollIndicator.reset(); pictures.forgetFailures() }
         scrollState.setMetrics(content: l.content, viewport: lower.height)
         let sprite = pictures.sprite(state.member.character)
         let current = state.differingCurrent.flatMap { pictures.icon($0.speciesID) }

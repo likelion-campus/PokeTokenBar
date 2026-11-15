@@ -113,10 +113,14 @@ struct PlazaPanelInteraction: Equatable, Sendable {
     /// system sends them, momentum included). True when the panel scrolls with it, so it goes no further; false passes it
     /// on. The default passes everything on.
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool
+    /// The panel is about to be drawn after not being shown (the window opened, or it became visible): a view's `.task` ran again here.
+    func didAppear()
 }
 
 extension PlazaPanel {
     func scroll(dx: CGFloat, dy: CGFloat, at point: CGPoint) -> Bool { false }
+
+    func didAppear() {}
 
     func offset(in viewport: CGSize, scale: CGFloat, text: any PlazaTextEngine) -> CGPoint { offset }
 

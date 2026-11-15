@@ -200,6 +200,7 @@ import Foundation
             return
         }
         dirty.remove(id)
+        if shown[id] == nil { panel.didAppear() }
         renderCounts[id, default: 0] += 1
         let drawing = panel.render(scale: scale, viewport: viewport, graphics: graphics)
         shown[id] = Shown(drawing: drawing, frame: frame, scale: scale)
