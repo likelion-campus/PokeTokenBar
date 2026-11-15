@@ -253,4 +253,53 @@ final class PopoverParityTests: XCTestCase {
         XCTAssertEqual(literal.map { PopoverParityRules.normalized($0, renames: [:]) }, "let s = \"a b\"",
                        "literals are kept (white space inside them collapses like the rest)")
     }
+
+    /// Twins of functions and computed vars (overloads together), renames that read a value, and pinned Mac bodies.
+    func testMemberTwinsOverloadsAndPins() throws {
+        let mac = """
+        struct V: View {
+            private func f(_ x: Int) -> String { /* note */ "a\\(x)" }
+            private func f(y: Int) -> String { "b" }
+            var body: some View { Text("x") }
+        }
+        extension PaceTier {
+            var color: Color { switch self { case .a: return .green } }
+            var percentColor: Color { self == .b ? .primary : color }
+        }
+        """
+        let shared = """
+        enum S {
+            static func f(_ x: Int) -> String { "a\\(x)" }
+            static func f(y: Int) -> String { "b" }
+            static func paceColor(_ tier: PaceTier) -> Role { switch tier { case .a: return .systemGreen } }
+            static func percentColor(_ tier: PaceTier) -> Role { tier == .b ? .primary : paceColor(tier) }
+        }
+        """
+        XCTAssertEqual(PopoverParityRules.body(of: "V.f", in: mac).map { PopoverParityRules.normalized($0, renames: [:]) },
+                       "\"a\\(x)\" ¦ \"b\"", "both overloads, in source order")
+        XCTAssertNil(PopoverParityRules.body(of: "V.missing", in: mac))
+        XCTAssertEqual(PopoverParityRules.pin(""), "cbf29ce484222325", "FNV-1a 64 offset basis")
+        XCTAssertEqual(PopoverParityRules.pin("a"), "af63dc4c8601ec8c")
+        let bodyPin = PopoverParityRules.pin(PopoverParityRules.normalized(try XCTUnwrap(PopoverParityRules.body(of: "V.body", in: mac)), renames: [:]))
+        let rows = """
+        M.swift#V.f | S.swift#S.f
+        M.swift#PaceTier.color | S.swift#S.paceColor | self=tier, green=systemGreen
+        M.swift#PaceTier.percentColor | S.swift#S.percentColor | self=tier, color=paceColor(tier)
+        M.swift#V.body | S.swift#S | pin \(bodyPin)
+
+        """
+        let inv = try PopoverParity.parse(inventory: "", strings: "", members: "", settings: "", sfSymbols: "", twins: rows)
+        XCTAssertEqual(inv.twins.last?.pin, bodyPin)
+        XCTAssertEqual(PopoverParityRules.twins(inv) { $0 == "M.swift" ? mac : shared }, [])
+
+        let changed = mac.replacingOccurrences(of: "Text(\"x\")", with: "Text(\"y\")").replacingOccurrences(of: "\"b\"", with: "\"c\"")
+        let f = PopoverParityRules.twins(inv) { $0 == "M.swift" ? changed : shared }
+        XCTAssertEqual(f.count, 2, f.joined(separator: "\n"))
+        XCTAssertTrue(f.contains { $0.contains("S.swift#S.f no longer matches M.swift#V.f") })
+        let newPin = PopoverParityRules.pin(PopoverParityRules.normalized(try XCTUnwrap(PopoverParityRules.body(of: "V.body", in: changed)), renames: [:]))
+        XCTAssertTrue(f.contains { $0.contains("M.swift#V.body changed since its twin S.swift#S was written (pin \(bodyPin), now \(newPin))") })
+        XCTAssertEqual(PopoverParityRules.twins(inv) { $0 == "M.swift" ? mac : "enum T {}" }.count, 4, "a missing twin is named")
+        XCTAssertThrowsError(try PopoverParity.parse(inventory: "", strings: "", members: "", settings: "", sfSymbols: "",
+                                                     twins: "M.swift#V.body | S.swift#S | pin 12z\n"), "a pin is 16 hex digits")
+    }
 }

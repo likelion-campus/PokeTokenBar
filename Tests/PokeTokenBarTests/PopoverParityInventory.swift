@@ -44,10 +44,13 @@ enum PopoverParity {
         var status: RowStatus?
     }
 
+    /// A shared twin of Mac logic. With `renames`, the two bodies must read the same once renamed; with a `pin` (for a
+    /// Mac body that cannot read as its twin, such as a SwiftUI view body), the Mac body must still hash to the pin.
     struct Twin: Equatable {
         var mac: String
         var shared: String
         var renames: [String: String]
+        var pin: String? = nil
     }
 
     struct Inventory: Equatable {
@@ -120,8 +123,16 @@ enum PopoverParity {
         out.sfSymbols = try lines(sfSymbols).map { try row($0.fields, file: "sf-symbols.txt", line: $0.line) }
         out.twins = try lines(twins).map { line, fields in
             guard fields.count >= 2 else { throw ParseError(file: "twins.txt", line: line, message: "a twin names the Mac and the shared symbol") }
+            let third = fields.count > 2 ? fields[2] : ""
+            if third.hasPrefix("pin ") {
+                let pin = String(third.dropFirst(4))
+                guard pin.count == 16, pin.allSatisfy(\.isHexDigit) else {
+                    throw ParseError(file: "twins.txt", line: line, message: "a pin is 16 hex digits")
+                }
+                return Twin(mac: fields[0], shared: fields[1], renames: [:], pin: pin)
+            }
             var renames: [String: String] = [:]
-            for pair in (fields.count > 2 ? fields[2] : "").components(separatedBy: ",") where pair.contains("=") {
+            for pair in third.components(separatedBy: ",") where pair.contains("=") {
                 let p = pair.components(separatedBy: "=").map { $0.trimmingCharacters(in: .whitespaces) }
                 renames[p[0]] = p[1]
             }

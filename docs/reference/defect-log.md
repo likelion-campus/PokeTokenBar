@@ -2064,6 +2064,18 @@ read_when:
   `testPhotoClipsASunkEggToThePondAndKeepsItWholeAtTheTopEdge`, `testAJumpingSunkEggStaysSunk`,
   `testAPlazaThatPausesWithMyEggStillInTheWaterClimbsItOut`, `testAPausedEggWhoseRouteIsBlockedByASwimmerStaysAndDoesNotHang`.
 
+- **렌더 하니스의 가짜 시각(시간대)은 고정한다.** 하니스 시계를 `Calendar.current` 로 만들면 같은 "6월 15일 12시"가 KST Mac 과 UTC 러너에서 다른 순간이 되어, 순간에서 정해지는 아이템 스케줄이 달라져
+  낮 장면에 노드가 하나 더 생겼다(스테이지 6 작업 4 에서 발견). **왜 못 걸렀나:** 렌더 비교는 같은 기계 두 커밋만 비교했고, 두 OS 를 비교한 적이 없었다(같은 기계에서는 시간대가 같다).
+  **고침:** `PlazaFixtureTime` 이 고정 오프셋(+09:00, DST 없음, 시간대 DB 불필요)을 실행 동안 `NSTimeZone.default` 로 걸고 `Calendar.current` 가 따라오는지 `precondition` 으로 확인한다(KST Mac 의 렌더는 그대로).
+  **규칙:** 시각을 쓰는 하니스는 시간대를 명시적으로 고정한다; 두 OS 렌더 비교(`scripts/plaza-render-cross.sh`, 윈도 `render` 잡)가 트리를 줄 단위로 비교하므로 순간이 어긋나면 노드 수 차이로 바로 드러난다.
+- **Direct2D `DrawImage(..., SOURCE_COPY)` 는 `imageRect` 가 아니라 이미지 전체 경계를 덮어쓴다 — 영역에 쓰는 복사는 클립으로 가둔다.** 불꽃놀이 장면 60프레임(`fireworks-*@60`)에서 프레임 맨 아래 64 디바이스 행이
+  투명 검정으로 나왔다(Mac 은 지도). 원인: 곱하기 효과(`scene_device.cpp` `drawEffect`)가 결과를 `SOURCE_COPY` 로 프레임에 그리는데, 효과 이미지는 프레임 크기 스크래치 비트맵이라
+  `region`(스프라이트 자기 픽셀, 불꽃 빛은 0..896행) 밖의 행(896..959)까지 투명 검정으로 교체됐다. 진단: CI 에서 빛 명령의 `region=(-344,-384,1416,896)` 과 완전 투명 행 `896...959` 가 정확히 맞물림.
+  **왜 못 걸렀나:** 일광·모닥불 곱하기 스프라이트는 프레임 전체를 덮어 영역 밖이 없었고, 작업별 골든은 스프라이트 안쪽 셀만 비교했다. 영역이 프레임보다 작은 곱하기는 두 OS 하니스가 처음 밟았다.
+  **고침:** `copyRegion` 이 `PushAxisAlignedClip(region)` 안에서만 `SOURCE_COPY` 한다(두 곳: 색 곱하기·산술 합성). **부류 스윕:** `scene_device.cpp` 의 `DrawImage` 는 `SOURCE_OVER`(영향 없음)와 이 두 곳뿐,
+  `window_surface.cpp` 의 프레임→백버퍼 복사는 전체 프레임 복사라 의도대로. **가드:** 하니스의 두 캡처(`knownRendererBugs` 에서 제거, 목록은 이제 비어 있고 목록 메커니즘은 대역 스템으로 단위 테스트),
+  `testAMultiplySpriteThatEndsInsideTheFrameLeavesTheRestAlone`. **규칙:** 목록에 있는 캡처가 통과하면 테스트가 실패해 목록이 썩지 않는다.
+
 ## 프로세스 제어·업데이트
 
 - **"나중에"는 이 버전을 다시 안 보여 주는 스킵이지, 다음에 또 물어보기가 아니다.** `skipCurrent()` 가
@@ -2414,6 +2426,29 @@ read_when:
   가 비어 있지 않을 때 빈 줄 하나를 더한다. 줄 수는 같은 글의 SwiftUI `Text` 높이/줄 높이와 맞춘다. **규칙:** `CFRange`/`NSRange` 의 길이 0 을 "빈 구간"으로 믿지 않는다 — CoreText 는 "끝까지"로 읽는다.
   **회귀 점검:** `PlazaBlankLineTests`(빈 줄, 연속·앞·끝 빈 줄, 색 조각 버전, SwiftUI `Text` 줄 수와 일치) — 고침을 빼고 실패함을 확인했다. 윈도 엔진은 이미 진짜 빈 줄을 만든다.
 
+- **기본 상한은 그 값을 정한 호출부의 크기다 — API 응답용 32 MiB 본문 상한과 31.6 MiB 설치 파일 사이 여유가 1.3% 뿐이었다 (stage 8, 잠복).**
+  윈도의 원샷 요청 이음매(`WinHTTPFetch.data`)는 본문을 `maxBodyBytes` 로 묶고, 기본값 `defaultMaxBodyBytes` 는 32 MiB 다. 그 값은
+  "가장 큰 응답이 1 MB 미만"인 API 호출부를 보고 정했고(`WinHTTPFetch.swift` 39·63), `PlatformCompat.oneShotData` 가 그 기본값을 그대로
+  물려준다. 앱 안 업데이트(stage 8 Task 6)가 이 이음매로 설치 파일을 받으면 상한을 따로 적지 않는 한 이 기본값을 받는다. 설치 파일은 stage 6
+  Task 2 이후 31.6 MiB(2.5.634 CI 빌드 33,121,702 B, windows-app run 43736993382)이고 상한 33,554,432 B 와의 여유는 432,730 B(1.3%)다 — 글꼴이나
+  그림 묶음 하나로 넘는다. 넘으면 `.dataLengthExceedsMaximum` → 다운로드 실패 → 릴리스 페이지가 열리고 로그 한 줄만 남아, 업데이트가 조용히
+  죽는다. 계획 단계에서 찾았고(stage 8 계획 F13) 다운로드 코드가 아직 없어 사용자 영향은 없다.
+  **왜 못 걸렀나:** ① 상한 테스트(`WindowsHTTPFetchTests`, 230 B gzip → 200,000 B)는 작은 `maxBodyBytes` 를 직접 넣어 "상한이 작동하는가"만
+  봤고, 기본값과 실제로 가장 큰 페이로드의 관계는 아무것도 묶지 않았다. ② 설치 파일 크기는 워크플로 로그(`windows-app.yml` 의 바이트 출력)에만
+  있고 Swift 상수와 이어진 곳이 없다. ③ 이음매 리뷰(status-burst 와 그 후속)는 그때의 호출부만 봤다 — 그들에게는 맞는 값이었지만 다음에 올
+  호출부를 위한 값은 아니었다.
+  **부류 스윕(고정 상한 ↔ 실제 크기):** `WinHTTPFetch.defaultMaxBodyBytes` 32 MiB ↔ 이음매의 모든 호출부(상태·한도·릴리스 JSON, PokeAPI
+  REST·GraphQL, 이름표, 스프라이트·아이콘): 모두 1 MB 미만. `TeamWire.maxFrameBytes` 1 MiB ↔ 팀 프레임: 필드별 상한으로 이미 묶였다
+  (§팀 네트워크 "저장하는 값을 재야 한다"). `SaveTransfer.maxFileBytes` 8 MiB, `PlazaGIFDecoder.maxOutputBytes` 256 MiB, `CPlazaD2D` 디코드
+  512 MiB, `codexProbeByteLimit` 1 MiB(첫 줄만 찾는다), `AppLog.maxBytes` 2 MiB(회전이지 막지 않는다): 실제 크기 근처가 아니다. 이 작업의 새 상한
+  `InstallerReleaseFeed.installerBytes`(1–200 MiB)는 실제의 6 배다. 실제 크기 근처의 고정 상한은 이음매 기본값 하나뿐이다.
+  **가드(기계): 미정(PENDING) — Task 6.** 트리거 브랜치는 아직 없는 다운로드 자체다: 다운로드 이음매
+  `oneShotDownload(for:maxBytes:deadline:)` 가 기본값 없이 자산의 `size` 를 상한으로 받고(D19), Task 6 의 길이 테스트가 32 MiB 를 넘는 본문으로
+  그 경로를 밟아야 이 항목이 닫힌다. Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
+  않는다 — 다른 경로로 통과하는 테스트를 가드라고 부르지 않는다(처음 넣었던 32 MiB + 1 B 테스트 둘은 그래서 뺐다).
+  **규칙:** 새 다운로드(기존 이음매의 새 호출부도)는 자기 상한과 마감을 이름으로 적는다 — 다른 호출부를 보고 정한 기본값을 물려받지 않는다.
+  상한을 정할 때는 실제로 가장 큰 페이로드를 재서 값과 출처를 적고, 여유가 2 배 미만이면 그 자리에서 고친다.
+
 ## 윈도 로케일·알림 (windows-port)
 
 - **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**
@@ -2450,3 +2485,11 @@ read_when:
   API 는 쉘이 호출을 받았다는 뜻일 뿐 보였다는 뜻이 아니다. **고침:** 어떤 종류도 `NIIF_RESPECT_QUIET_TIME` 을 쓰지 않는다(`BalloonFlags.infoFlags`; 방해 금지/집중 지원은 윈도가 토스트를 알림 센터로 조용히 보내므로 플래그가 필요 없다),
   프로세스가 `SetCurrentProcessExplicitAppUserModelID` 로 바로가기와 같은 ID 를 설정하고(스캔 테스트가 `.iss`·Swift 상수를 대조), `NIN_BALLOONSHOW` 를 처리·로그하며 10초 안에 쉘이 "표시됨"을 안 보내면 한 번 "not shown by Windows" 로 남긴다.
   첫 실행 안내도 같은 큐를 탄다. **규칙:** OS 에 맡긴 표시는 반환값이 아니라 OS 의 통지(또는 화면)로만 "보였다"고 쓴다; 셀프테스트 `notify.state`/`notify.shown` 이 사용자 로그에 설정 상태와 통지를 남긴다.
+
+- **전체 테스트 실행에서만 `RedirectHeadersMacTests` 3개가 `-1009`(인터넷 없음)로 실패했다 — 플라자 렌더 테스트가 등록한 `NoNetwork` URLProtocol 이 해제되지 않았다.** `URLProtocol.registerClass` 는
+  프로세스 전역이고 `URLSession.shared` 는 그것을 따른다. `PlazaContentRig+Mac.swift` 의 `blockNetwork()` 가 `NoNetwork`(모든 요청을 `notConnectedToInternet` 으로 거절)를 등록만 하고
+  풀지 않아, 이후에 도는 스위트의 loopback 요청이 0.000 초에 거절됐다. 알파벳 순으로 `Plaza*` 가 `Redirect*` 보다 앞서 도는 전체 실행에서만 드러난다(`--filter 'PlazaContentPanelsMacTests|RedirectHeadersMacTests'` 로 재현).
+  **왜 못 걸렀나:** 각 스위트는 단독(필터) 실행에서 통과했고, 오염 쪽 테스트는 자기 렌더만 검증해 누수를 볼 수 없었으며, 피해 쪽은 등록이 없는 상태에서만 정상이라 순서 의존을 드러낼 기회가 전체 실행뿐이었다.
+  **고침:** `blockNetwork(for: self)` 가 `addTeardownBlock` 으로 해제를 건다(호출 4곳). **부류 스윕:** 나머지 `registerClass` 사용처(`ClaudeOAuthFileCredentialTests`, `SpriteAnimationRecoveryTests`,
+  `OneShotDataMacTests`, `CredentialSwitchCacheTests`)는 모두 같은 파일에서 `unregisterClass` 한다 — 오염원은 `NoNetwork` 하나였다.
+  **영구 캡처:** `NetworkProtocolScanTests` — `registerClass` 가 있는 테스트 파일에 `unregisterClass` 가 없으면 실패(해제를 지우는 주입으로 실패 확인). **규칙:** 프로세스 전역 상태(URLProtocol 등록·환경변수·공유 훅)는 설정하는 쪽이 같은 테스트 안에서 되돌린다.
