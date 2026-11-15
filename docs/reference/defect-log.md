@@ -2413,10 +2413,10 @@ read_when:
   (§팀 네트워크 "저장하는 값을 재야 한다"). `SaveTransfer.maxFileBytes` 8 MiB, `PlazaGIFDecoder.maxOutputBytes` 256 MiB, `CPlazaD2D` 디코드
   512 MiB, `codexProbeByteLimit` 1 MiB(첫 줄만 찾는다), `AppLog.maxBytes` 2 MiB(회전이지 막지 않는다): 실제 크기 근처가 아니다. 이 작업의 새 상한
   `InstallerReleaseFeed.installerBytes`(1–200 MiB)는 실제의 6 배다. 실제 크기 근처의 고정 상한은 이음매 기본값 하나뿐이다.
-  **가드(기계):** `InstallerReleaseFeedAssetTests.testAnInstallerJustOverTheSeamsDefaultCapIsAnInstaller`(32 MiB + 1 B 설치 파일이 피드를
-  통과)와 `UpdateDownloadCheckTests.testAnInstallerJustOverTheSeamsDefaultCapPasses`(같은 크기가 검사를 통과하고, 32 MiB 에서 잘린 본문은
-  `.length` 로 거절) — `installerBytes` 의 위 끝을 32 MiB 로 주입하면 실패함을 확인했다. 다운로드 쪽 가드는 Task 6 의 몫이다: 다운로드 이음매
-  `oneShotDownload(for:maxBytes:deadline:)` 는 기본값 없이 자산의 `size` 를 상한으로 받고(D19), 그 길이 테스트가 트리거 브랜치다.
+  **가드(기계): 미정(PENDING) — Task 6.** 트리거 브랜치는 아직 없는 다운로드 자체다: 다운로드 이음매
+  `oneShotDownload(for:maxBytes:deadline:)` 가 기본값 없이 자산의 `size` 를 상한으로 받고(D19), Task 6 의 길이 테스트가 32 MiB 를 넘는 본문으로
+  그 경로를 밟아야 이 항목이 닫힌다. Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
+  않는다 — 다른 경로로 통과하는 테스트를 가드라고 부르지 않는다(처음 넣었던 32 MiB + 1 B 테스트 둘은 그래서 뺐다).
   **규칙:** 새 다운로드(기존 이음매의 새 호출부도)는 자기 상한과 마감을 이름으로 적는다 — 다른 호출부를 보고 정한 기본값을 물려받지 않는다.
   상한을 정할 때는 실제로 가장 큰 페이로드를 재서 값과 출처를 적고, 여유가 2 배 미만이면 그 자리에서 고친다.
 
