@@ -12,8 +12,10 @@ namespace {
 
 // The bundled fonts by number, and the system font each is replaced by when its file is missing (logged by Swift). Galmuri and
 // Pretendard both have Hangul; Malgun Gothic is the Korean UI font every Windows 10 / 11 has.
-const wchar_t *const kExpectedFamily[kFontCount] = {L"Galmuri11", L"Galmuri14", L"Pretendard", L"Segoe UI Emoji"};
-const wchar_t *const kMissingFamily[kFontCount] = {L"Malgun Gothic", L"Malgun Gothic", L"Malgun Gothic", L"Segoe UI Emoji"};
+const wchar_t *const kExpectedFamily[kFontCount] = {L"Galmuri11", L"Galmuri14", L"Pretendard", L"Segoe UI Emoji",
+                                                         L"Segoe Fluent Icons"};
+const wchar_t *const kMissingFamily[kFontCount] = {L"Malgun Gothic", L"Malgun Gothic", L"Malgun Gothic", L"Segoe UI Emoji",
+                                                   L"Segoe MDL2 Assets"};
 
 // What the emoji font is asked for first, before the system fallback: the emoji blocks and the joiners and selectors that make
 // sequences of them (only reached for characters the asked font does not have).
@@ -130,6 +132,14 @@ int TextEngine::finish() {
 TextEngine::Family TextEngine::family(int font) const {
     Family out;
     if (font < 0 || font >= kFontCount) font = kFontGalmuri14;
+    if (font == kFontSymbol) {  // the HUD's eye glyphs: Segoe Fluent Icons (Windows 11), else Segoe MDL2 Assets (Windows 10); both system fonts
+        out.collection = systemFonts.get();
+        out.name = kExpectedFamily[kFontSymbol];
+        UINT32 index = 0;
+        BOOL exists = FALSE;
+        if (!out.collection || FAILED(out.collection->FindFamilyName(out.name.c_str(), &index, &exists)) || !exists) out.name = kMissingFamily[kFontSymbol];
+        return out;
+    }
     if (font != kFontEmoji && !families[font].empty()) {
         out.name = families[font];
         out.collection = privateFonts.get();
