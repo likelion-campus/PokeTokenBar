@@ -2,8 +2,8 @@ import Foundation
 
 /// A pure-Swift animated-GIF decoder (GIF87a / GIF89a) for systems without ImageIO. Every frame comes back composited
 /// at the full logical-screen size (disposal methods and transparency applied) as a premultiplied sRGB `PlazaBitmap`,
-/// the shape the Mac's `decodeImageFrames` hands shared code. Frame delays are not part of that interface and are not
-/// returned.
+/// the shape the Mac's `decodeImageFrames` hands shared code. `frames(from:)` returns the pixels alone (that interface has
+/// no delays); `framesWithDelays(from:)` returns each frame's delay too, computed as `UI/GIFDecoder` computes it.
 ///
 /// The bytes come from the network, so every count is bounded: see `Limits`. Anything malformed ends the decode;
 /// frames completed before the fault are kept, and a file with no complete frame gives `[]`.
@@ -23,19 +23,40 @@ enum PlazaGIFDecoder {
     /// Where no frame paints (outside the first frame, or after "restore to background") the canvas is transparent. ImageIO
     /// does that only for a GIF that declares a transparent colour somewhere; a GIF that never does gets opaque black
     /// there. The decoder follows ImageIO, so it decodes such a file a second time with a black blank.
-    static func frames(from data: Data) -> [PlazaBitmap] {
+    static func frames(from data: Data) -> [PlazaBitmap] { decode(data).frames }
+
+    /// Every frame with its delay in seconds, exactly as `UI/GIFDecoder.delay` computes it from ImageIO: the graphic control
+    /// extension's delay in 1/100 s (ImageIO's "unclamped" value); a delay under 0.02 s (0 and 0.01 s, which browsers
+    /// treat as "as fast as you can") becomes 0.1 s; a frame with no graphic control extension also gets 0.1 s.
+    /// Unlike `UI/GIFDecoder.frames`, a one-frame GIF is returned (the caller decides whether one frame is an animation).
+    static func framesWithDelays(from data: Data) -> [(bitmap: PlazaBitmap, delay: TimeInterval)] {
+        let decoded = decode(data)
+        return Array(zip(decoded.frames, decoded.delays)).map { (bitmap: $0.0, delay: $0.1) }
+    }
+
+    /// A graphic control extension's delay (1/100 s) as a frame delay, or ImageIO's 0.1 s when there is none or it is too short.
+    static func delaySeconds(centiseconds: Int?) -> TimeInterval {
+        guard let centiseconds else { return 0.1 }
+        let seconds = TimeInterval(centiseconds) / 100
+        return seconds < 0.02 ? 0.1 : seconds
+    }
+
+    private static func decode(_ data: Data) -> (frames: [PlazaBitmap], delays: [TimeInterval]) {
         let bytes = [UInt8](data)
         var decoder = Decoder(bytes: bytes, blank: PlazaRGBA(r: 0, g: 0, b: 0, a: 0))
         let frames = decoder.run()
-        guard !decoder.sawTransparency, !frames.isEmpty else { return frames }
+        guard !decoder.sawTransparency, !frames.isEmpty else { return (frames, decoder.delays) }
         var opaque = Decoder(bytes: bytes, blank: PlazaRGBA(r: 0, g: 0, b: 0, a: 255))
-        return opaque.run()
+        let second = opaque.run()
+        return (second, opaque.delays)
     }
 
     private struct Decoder {
         let bytes: [UInt8]
         var pos = 0
         var frames: [PlazaBitmap] = []
+        /// One entry per frame in `frames`, in seconds (see `framesWithDelays`).
+        var delays: [TimeInterval] = []
         let blank: PlazaRGBA
         /// Whether any graphic control extension carried a transparent colour index.
         var sawTransparency = false
@@ -103,6 +124,7 @@ enum PlazaGIFDecoder {
             var canvas = PlazaBitmap(width: width, height: height, fill: blank)
             var disposal = 0
             var transparent: Int?
+            var delayCentiseconds: Int?
             var decodedPixels = 0
 
             blocks: while let introducer = u8() {
@@ -115,6 +137,7 @@ enum PlazaGIFDecoder {
                         let packed = Int(bytes[pos])
                         disposal = (packed >> 2) & 7
                         transparent = packed & 1 != 0 ? Int(bytes[pos + 3]) : nil
+                        delayCentiseconds = Int(bytes[pos + 1]) | Int(bytes[pos + 2]) << 8
                         if transparent != nil { sawTransparency = true }
                         pos += size
                         guard skipSubBlocks() else { break blocks }
@@ -139,6 +162,7 @@ enum PlazaGIFDecoder {
                     Self.draw(into: &canvas, indices: indices, left: left, top: top, width: w, height: h,
                               interlaced: flags & 0x40 != 0, table: table ?? [], transparent: transparent)
                     frames.append(canvas)
+                    delays.append(PlazaGIFDecoder.delaySeconds(centiseconds: delayCentiseconds))
                     switch disposal {
                     case 2: Self.clear(&canvas, left: left, top: top, width: w, height: h, to: blank)
                     case 3: canvas = before!
@@ -146,6 +170,7 @@ enum PlazaGIFDecoder {
                     }
                     disposal = 0
                     transparent = nil
+                    delayCentiseconds = nil
                 case 0x3B:
                     break blocks
                 default:

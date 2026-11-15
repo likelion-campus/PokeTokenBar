@@ -11,6 +11,15 @@
 - Sources: https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri11.ttf,
   https://cdn.jsdelivr.net/npm/galmuri@2.40.3/dist/Galmuri14.ttf
 
+## Fonts, Windows build (Pretendard-Regular.otf, Pretendard-SemiBold.otf, Pretendard-Bold.otf)
+- Pretendard 1.3.9 by Kil Hyung-jin (static OTF files, unmodified, from `Pretendard-1.3.9.zip`, `public/static/`)
+- License: SIL Open Font License 1.1 (see Pretendard-OFL.txt)
+- Source: https://github.com/orioncactus/pretendard/releases/tag/v1.3.9
+- Committed in `windows/resources/Plaza/` and shipped in the Windows app's `Resources\Plaza\` folder (the Mac app does not bundle them).
+  SHA-256: Regular `3ffbacde6ab8411f1d2db54bb9b1f0b3ee2a738932033722cf0388c06aed1c93`,
+  SemiBold `c89bc43027dc7cde5726e96223376f8eec09302b2fc1f8147fd5b57cfc376118`,
+  Bold `2e91915fab54df71cc9598ebf608b2bdb54c6fe3c066ac61dff0bc44fca71cc7`.
+
 ## Tall grass (plaza-tallgrass.png)
 - "Pokemon inspired 16x16 tiles" (`tilemap.png`, unmodified) by RedVoxel
 - License: CC-BY-SA 3.0 (https://creativecommons.org/licenses/by-sa/3.0/). This file is not under the app's MIT license. — full text: CC-BY-SA-3.0.txt

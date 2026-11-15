@@ -10,9 +10,12 @@ protocol ImageClipboarding: Sendable {
 /// The plaza's OS edge: the one place that picks the Mac backend or the headless stub. The Mac types live in
 /// `Platform/Mac/Plaza/`; selection follows `PlatformLimits` (`PTB_SHARED_ONLY` is the Mac checking the Windows set).
 enum PlatformPlaza {
-    /// Canvases, text, bundled assets and image codecs: CoreGraphics/CoreText/ImageIO on the Mac, the stub elsewhere.
+    /// Canvases, text, bundled assets and image codecs: CoreGraphics/CoreText/ImageIO on the Mac, WIC and the app's own
+    /// resource folders on Windows (canvas and text still the stub), the stub in the shared-only check.
     static let graphics: any PlazaGraphics = {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        WinPlazaGraphics.shared  // real assets and codecs; canvas and text stay the stub's until stage 6 draws them
+        #elseif PTB_SHARED_ONLY
         PlazaStubGraphics(log: { AppLog.write($0) })
         #else
         MacPlazaGraphics()

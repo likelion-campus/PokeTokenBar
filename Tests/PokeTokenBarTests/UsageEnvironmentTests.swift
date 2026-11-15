@@ -128,6 +128,7 @@ final class UsageEnvironmentTests: XCTestCase {
     /// - `AppEnv`: the `PTB_PARITY` live-check flag — the same QA class as `PTB_STATE_DIR` above.
     /// - `ClaudeOAuthLimitsProvider`: the file moved out of `OAuthLimitsProvider` keeps its process-environment-only read.
     /// - `WindowsSelftest`: the Windows selftest's own flags (`CI`, `PTB_SELFTEST_*`, `PTB_STATE_DIR`) — QA, not usage locations.
+    /// - `WinPlazaAssets`: `PTB_PLAZA_RESOURCES`, where tests and CI find the checkout's plaza art on Windows (QA; a packaged app ignores it).
     func testNoProviderReadsUsageLocationEnvDirectly() throws {
         let allowed: Set<String> = [
             "UsageEnvironment.swift",
@@ -139,6 +140,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "WindowsSelftest.swift",
             "ClaudeOAuthLimitsProvider.swift",   // moved verbatim from OAuthLimitsProvider.swift (same entry above)
             "WinDefaultsSync.swift",             // PTB_STATE_DIR: the selftest's own settings suite (QA, like CompanionStore)
+            "WinPlazaAssets.swift",              // PTB_PLAZA_RESOURCES: tests and CI point at the checkout's plaza art (QA)
         ]
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()    // PokeTokenBarTests
