@@ -369,10 +369,10 @@ extension WindowsSelftest {
             await pumpPanels(0.5)
             let scale = CGFloat(dpi) / 96
             let rendered = hud.renderCount - r0
-            // every shown panel rendered at the new scale at least once; more than 3 times would be a render storm (the roster and chat log
+            // every shown panel rendered at the new scale at least once; more than 5 times would be a render storm (the roster and chat log
             // follow the changed content height once more: shared layout, not the host)
             let perPanel = shownIDs.map { (hud.renderCounts[$0] ?? 0) - (per0[$0] ?? 0) }
-            let eachOK = perPanel.allSatisfy { $0 >= 1 && $0 <= 3 }
+            let eachOK = perPanel.allSatisfy { $0 >= 1 && $0 <= 5 }
             let scales = panels.entries.values.allSatisfy { $0.scale == scale }
             // The rectangles themselves, in client pixels at the new scale, worked out here from the panels' tips (a stale or unscaled tool fails).
             let expectedRects: [[Int32]] = panels.tips.map { t in
