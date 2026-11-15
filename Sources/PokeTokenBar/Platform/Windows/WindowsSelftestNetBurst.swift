@@ -11,7 +11,9 @@ import WinSDK
 /// Cases: a loopback HTTP server in this process (no network): URLSession on a new and on a reused connection, WinHTTP
 /// waiting and stalled; the app's status-check path before and after the route (the status hosts the app contacts) and the
 /// 30 s after it; each routed caller's request shape (its method, headers, body, timeout and session) before (URLSession,
-/// new connection) and after (the seam); WinHTTP through the Windows proxy settings against a direct fetch, cold and warm.
+/// new connection) and after (the seam); WinHTTP through the Windows proxy settings against a direct fetch, cold and warm;
+/// a batch like the PokeAPI REST fallback's (rounds of 6) on a session per fetch against one session for the batch, on the
+/// loopback server (time, connections) and, one at a time, against the Claude status host (what a TLS handshake costs).
 /// Then stacks of the hot threads, sampled during a separate long loopback transfer (suspending a thread costs a context
 /// switch, so never in a measured run). Diagnostics only: nothing here runs in the shipped app.
 enum WindowsSelftestNetBurst {
@@ -80,6 +82,19 @@ enum WindowsSelftestNetBurst {
             for shape in callerShapes(lo) {
                 cases.append(("\(shape.name)-before-urlsession", { await shapeBefore(shape) }))
                 cases.append(("\(shape.name)-after-seam", { await shapeAfter(shape) }))
+            }
+            let loBatch = Array(repeating: URL(string: lo + "/delay/0")!, count: 60)
+            for one in [false, true] {
+                cases.append(("batch-60-loopback-\(one ? "one-session" : "session-each")", {
+                    let before = server.accepted
+                    let outcome = await WinHTTPFetch.batchDiagnostic(loBatch, concurrency: 6, oneSession: one)
+                    return outcome + ", \(server.accepted - before) connections"
+                }))
+            }
+            for one in [false, true] {
+                cases.append(("batch-6-status-host-\(one ? "one-session" : "session-each")", {
+                    await WinHTTPFetch.batchDiagnostic(Array(repeating: URL(string: claude)!, count: 6), concurrency: 1, oneSession: one)
+                }))
             }
             cases.append(("proxy-timing-loopback", { await proxyTiming(lo + "/delay/0", count: 10) }))
             cases.append(("proxy-timing-status-host", { await proxyTiming(claude, count: 5) }))
@@ -420,9 +435,27 @@ private final class Recorder: @unchecked Sendable {
 /// `/gzip-chunked`, `/deflate` (zlib-wrapped), `/deflate-raw` a fixed body with that Content-Encoding; `/chunked` three chunks. A request in absolute form (`GET http://host/path`, the way a
 /// client talks to a proxy) is answered `proxied <target>` plus the header block. Connections stay open (keep-alive)
 /// unless the client asked for `Connection: close`; 20 s of silence closes them.
+/// For the redirect, authentication and body tests: `/redirect-307` (307 to `/echo`), `/redirect-loop`, `/redirect-chain/<n>`
+/// (n hops, then 200), `/auth/<token>` (401 asking for NTLM and Negotiate), `/proxy-407/<token>` (a server answering 407),
+/// an absolute-form request for `.../proxy-auth/<token>` (a proxy answering 407), `/drip/<bytes>/<chunk>/<ms>` (a body sent a
+/// chunk at a time) and `/gzip-bomb` (230 B of gzip that decodes to 200,000 B). The token routes record what each request
+/// carried (`recorded`): the authorization scheme only, never its value.
 final class LoopbackServer: @unchecked Sendable {
     let port: UInt16
     private let listener: SOCKET
+    private let countLock = NSLock()
+    private var acceptedCount = 0
+    /// Connections accepted so far (keep-alive shows as fewer connections than requests).
+    var accepted: Int { countLock.lock(); defer { countLock.unlock() }; return acceptedCount }
+
+    private static let recordLock = NSLock()
+    nonisolated(unsafe) private static var records: [String: [String]] = [:]
+    static func recorded(_ token: String) -> [String] { recordLock.lock(); defer { recordLock.unlock() }; return records[token] ?? [] }
+    private static func record(_ token: String, _ line: String) {
+        recordLock.lock(); records[token, default: []].append(line); recordLock.unlock()
+    }
+    /// The scheme of an authorization header ("NTLM", "Negotiate"), or "none".
+    private static func scheme(_ value: String?) -> String { value.map { String($0.split(separator: " ").first ?? "") } ?? "none" }
 
     private init(listener: SOCKET, port: UInt16) { self.listener = listener; self.port = port }
 
@@ -450,6 +483,7 @@ final class LoopbackServer: @unchecked Sendable {
         while true {
             let c = NB.acceptOne(listener)
             if c == SOCKET.max { return }
+            countLock.lock(); acceptedCount += 1; countLock.unlock()
             Thread { Self.serve(c) }.start()
         }
     }
@@ -470,6 +504,11 @@ final class LoopbackServer: @unchecked Sendable {
         0xcd, 0xc9, 0xc9, 0x57, 0x48, 0x2b, 0xca, 0xcf, 0x55, 0x28, 0xc9, 0x48, 0x55, 0xc8, 0xc9, 0xcf, 0x2f, 0x48, 0x4a, 0x4c, 0xce,
         0x56, 0x28, 0x4e, 0x2d, 0x2a, 0x4b, 0x2d, 0xe2, 0x02, 0x00]
     static let chunkedText = "first chunk, second chunk, third chunk\n"
+    /// 200,000 x "a" as gzip (Python's zlib at level 9): 230 bytes, mostly zeros.
+    static let gzipBombBody: [UInt8] = [0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x13, 0xed, 0xc1, 0x31, 0x01, 0x00, 0x00,
+        0x00, 0xc2, 0xa0, 0xac, 0xeb, 0x5f, 0xc2, 0x0c, 0xfe, 0x40, 0x01] + [UInt8](repeating: 0, count: 193)
+        + [0xaf, 0x01, 0x9b, 0x53, 0x69, 0xe0, 0x40, 0x0d, 0x03, 0x00]
+    static let gzipBombSize = 200_000
 
     private static func serve(_ c: SOCKET) {
         defer { NB.closeNow(c) }
@@ -479,6 +518,16 @@ final class LoopbackServer: @unchecked Sendable {
             if request.method == "TLS" {
                 _ = NB.put(c, Array("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
                 return
+            }
+            if request.target.lowercased().hasPrefix("http://"), let at = request.target.range(of: "/proxy-auth/") {
+                // A proxy that wants NTLM or Negotiate and never completes it.
+                let token = String(request.target[at.upperBound...])
+                Self.record(token, "proxy-authorization=\(Self.scheme(request.field("Proxy-Authorization"))) body=\(String(decoding: request.body, as: UTF8.self))")
+                let line = "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Negotiate\r\nProxy-Authenticate: NTLM\r\n"
+                    + "Content-Length: 0\r\n\r\n"
+                guard NB.put(c, Array(line.utf8)) else { return }
+                if close { return }
+                continue
             }
             if request.target.lowercased().hasPrefix("http://") {
                 let body = Array("proxied \(request.target)\n\(request.header)".utf8)
@@ -520,6 +569,43 @@ final class LoopbackServer: @unchecked Sendable {
             case "redirect-to":
                 let line = "HTTP/1.1 302 Found\r\nLocation: http://localhost:\(arg)/echo\r\nContent-Length: 0\r\n\r\n"
                 guard NB.put(c, Array(line.utf8)) else { return }
+            case "redirect-307":
+                guard NB.put(c, Array("HTTP/1.1 307 Temporary Redirect\r\nLocation: /echo\r\nContent-Length: 0\r\n\r\n".utf8)) else { return }
+            case "redirect-loop":
+                guard NB.put(c, Array("HTTP/1.1 302 Found\r\nLocation: /redirect-loop\r\nContent-Length: 0\r\n\r\n".utf8)) else { return }
+            case "redirect-chain":
+                if arg > 0 {
+                    guard NB.put(c, Array("HTTP/1.1 302 Found\r\nLocation: /redirect-chain/\(arg - 1)\r\nContent-Length: 0\r\n\r\n".utf8)) else { return }
+                } else {
+                    let body = Array("chain end\n".utf8)
+                    guard NB.put(c, NB.head(length: body.count, close: close) + body) else { return }
+                }
+            case "auth":
+                Self.record(parts.count > 1 ? parts[1] : "", "authorization=\(Self.scheme(request.field("Authorization")))")
+                let body = Array("auth needed\n".utf8)
+                let line = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM\r\n"
+                    + "Content-Length: \(body.count)\r\n\r\n"
+                guard NB.put(c, Array(line.utf8) + body) else { return }
+            case "proxy-407":
+                Self.record(parts.count > 1 ? parts[1] : "", "proxy-authorization=\(Self.scheme(request.field("Proxy-Authorization")))")
+                let line = "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Negotiate\r\nProxy-Authenticate: NTLM\r\n"
+                    + "Content-Length: 0\r\n\r\n"
+                guard NB.put(c, Array(line.utf8)) else { return }
+            case "drip":
+                let total = arg
+                let piece = parts.count > 2 ? Int(parts[2]) ?? 1024 : 1024
+                let pause = parts.count > 3 ? Int(parts[3]) ?? 500 : 500
+                guard NB.put(c, NB.head(length: total, close: close)) else { return }
+                var left = total
+                while left > 0 {
+                    let k = min(left, piece)
+                    guard NB.put(c, [UInt8](repeating: 0x62, count: k)) else { return }
+                    left -= k
+                    if left > 0 { Sleep(DWORD(pause)) }
+                }
+            case "gzip-bomb":
+                let line = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: gzip\r\nContent-Length: \(gzipBombBody.count)\r\n\r\n"
+                guard NB.put(c, Array(line.utf8) + gzipBombBody) else { return }
             case "see-other":
                 guard NB.put(c, Array("HTTP/1.1 303 See Other\r\nLocation: /echo\r\nContent-Length: 0\r\n\r\n".utf8)) else { return }
             case "status":
@@ -559,7 +645,18 @@ final class LoopbackServer: @unchecked Sendable {
 
 /// Thin Winsock calls under names that cannot collide with anything above.
 private enum NB {
-    struct Request { let method: String; let target: String; let close: Bool; let header: String; let body: [UInt8] }
+    struct Request {
+        let method: String; let target: String; let close: Bool; let header: String; let body: [UInt8]
+
+        func field(_ name: String) -> String? {
+            for line in header.components(separatedBy: "\r\n").dropFirst() {
+                guard let colon = line.firstIndex(of: ":"),
+                      line[..<colon].trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(name) == .orderedSame else { continue }
+                return line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            }
+            return nil
+        }
+    }
 
     static func open() -> SOCKET { socket(2 /* AF_INET */, 1 /* SOCK_STREAM */, 6 /* IPPROTO_TCP */) }
 

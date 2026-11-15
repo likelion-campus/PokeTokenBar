@@ -107,20 +107,101 @@ final class WindowsHTTPFetchTests: XCTestCase {
         XCTAssertTrue(theirs.lowercased().replacingOccurrences(of: " ", with: "").contains("content-type:application/x-www-form-urlencoded"), theirs)
     }
 
-    func testRedirectsAreFollowedLikeURLSessionIncludingToAnotherHost() async throws {
+    // MARK: redirects (the Mac's header rules: RedirectHeadersMacTests)
+
+    func testASameOriginRedirectKeepsTheCookieAndDropsAuthorizationAsOnTheMac() async throws {
+        var given = try request(try base() + "/redirect-307")
+        given.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
+        given.setValue("sessionKey=fixture", forHTTPHeaderField: "Cookie")
+        given.setValue("1", forHTTPHeaderField: "X-Probe")
+        let hop = text(try await seam(given))
+        XCTAssertTrue(hop.hasPrefix("GET\nGET /echo HTTP/1.1"), hop)
+        XCTAssertFalse(hop.contains("Authorization:"), "dropped on every hop, as the Mac does: \(hop)")
+        XCTAssertTrue(hop.contains("Cookie: sessionKey=fixture"), hop)
+        XCTAssertTrue(hop.contains("X-Probe: 1"), hop)
+
         let (data, response) = try await WinHTTPFetch.data(for: try request(try base() + "/redirect"))
         XCTAssertEqual(String(decoding: data, as: UTF8.self), "ok 0\n")
         XCTAssertEqual(response.url?.path, "/delay/0")
+    }
 
-        let otherPort = try XCTUnwrap(Self.other).port
-        var cross = try request(try base() + "/redirect-to/\(otherPort)")
-        cross.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
-        let mine = try await seam(cross), theirs = try await control(cross)
-        XCTAssertEqual(mine.status, 200)
-        XCTAssertEqual(theirs.status, 200)
-        XCTAssertTrue(text(mine).contains("Host: localhost:\(otherPort)"), text(mine))
-        print("cross-host redirect forwards Authorization: seam \(text(mine).contains("Authorization:")), URLSession \(text(theirs).contains("Authorization:"))")
+    func testACrossOriginRedirectCarriesNoCredential() async throws {
+        let other = try XCTUnwrap(Self.other)
+        // Authorization only: followed, without it (the Mac does the same).
+        var bearer = try request(try base() + "/redirect-to/\(other.port)")
+        bearer.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
+        bearer.setValue("1", forHTTPHeaderField: "X-Probe")
+        let crossed = try await seam(bearer)
+        XCTAssertEqual(crossed.status, 200)
+        XCTAssertTrue(text(crossed).contains("Host: localhost:\(other.port)"), text(crossed))
+        XCTAssertFalse(text(crossed).contains("Authorization:"), text(crossed))
+        XCTAssertTrue(text(crossed).contains("X-Probe: 1"), text(crossed))
 
+        // A Cookie: not followed (the Mac would send it along); the 302 comes back and the other origin is never contacted.
+        let before = other.accepted
+        var cookie = try request(try base() + "/redirect-to/\(other.port)")
+        cookie.setValue("sessionKey=fixture", forHTTPHeaderField: "Cookie")
+        cookie.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await PlatformCompat.oneShotData(for: cookie)
+        let http = try XCTUnwrap(response as? HTTPURLResponse)
+        XCTAssertEqual(http.statusCode, 302)
+        XCTAssertEqual(http.value(forHTTPHeaderField: "Location"), "http://localhost:\(other.port)/echo")
+        XCTAssertEqual(other.accepted, before, "the other origin saw no connection")
+
+        // The control: URLSession on Windows (corelibs keeps every header on a redirect, HTTPURLProtocol.swift 564).
+        let theirs = text(try await control(cookie))
+        print("REDIRECT cross-host, URLSession on Windows forwards: Authorization \(theirs.contains("Authorization:")), "
+              + "Cookie \(theirs.contains("Cookie:"))")
+    }
+
+    /// The redirect rules on their own, where the loopback server cannot go (it speaks no TLS).
+    func testTheRedirectRules() throws {
+        let fields = [WinHTTPFetch.Field(name: "Authorization", value: "Bearer x"), WinHTTPFetch.Field(name: "X-Probe", value: "1")]
+        let withCookie = fields + [WinHTTPFetch.Field(name: "cookie", value: "sessionKey=x")]
+        func hop(_ url: String, _ method: String, _ f: [WinHTTPFetch.Field], body: Bool = false) throws -> WinHTTPFetch.Hop {
+            WinHTTPFetch.Hop(url: try XCTUnwrap(URL(string: url)), method: method, fields: f, sendsBody: body)
+        }
+        let from = try hop("https://api.example.invalid/a", "POST", fields, body: true)
+        XCTAssertNil(WinHTTPFetch.nextHop(after: 302, location: "http://api.example.invalid/b", from: from), "never HTTPS to HTTP")
+        XCTAssertNil(WinHTTPFetch.nextHop(after: 302, location: "ftp://api.example.invalid/b", from: from))
+        XCTAssertNil(WinHTTPFetch.nextHop(after: 302, location: nil, from: from))
+        XCTAssertNil(WinHTTPFetch.nextHop(after: 304, location: "/b", from: from))
+        XCTAssertNil(WinHTTPFetch.nextHop(after: 200, location: "/b", from: from))
+
+        let get = try XCTUnwrap(WinHTTPFetch.nextHop(after: 302, location: "/b", from: from))
+        XCTAssertEqual(get.url.absoluteString, "https://api.example.invalid/b")
+        XCTAssertEqual(get.method, "GET")
+        XCTAssertFalse(get.sendsBody)
+        XCTAssertEqual(get.fields.map(\.name), ["X-Probe"], "Authorization is dropped on every hop")
+        for status in [307, 308] {
+            let kept = try XCTUnwrap(WinHTTPFetch.nextHop(after: status, location: "https://other.example.invalid/b", from: from))
+            XCTAssertEqual(kept.method, "POST", "\(status)")
+            XCTAssertTrue(kept.sendsBody, "\(status)")
+        }
+        let put = try hop("https://a.invalid/", "PUT", fields)
+        XCTAssertEqual(WinHTTPFetch.nextHop(after: 303, location: "/b", from: put)?.method, "GET")
+        XCTAssertEqual(WinHTTPFetch.nextHop(after: 301, location: "/b", from: put)?.method, "PUT")
+
+        let cookie = try hop("https://a.invalid/x", "GET", withCookie)
+        XCTAssertNotNil(WinHTTPFetch.nextHop(after: 302, location: "https://A.invalid:443/y", from: cookie), "same origin")
+        for elsewhere in ["https://b.invalid/y", "https://a.invalid:8443/y", "http://a.invalid/y"] {
+            XCTAssertNil(WinHTTPFetch.nextHop(after: 302, location: elsewhere, from: cookie), elsewhere)
+        }
+        let bearerOnly = try hop("http://a.invalid/x", "GET", fields)
+        XCTAssertNotNil(WinHTTPFetch.nextHop(after: 302, location: "http://b.invalid/y", from: bearerOnly),
+                        "no credential left once Authorization is dropped: another origin is fine")
+    }
+
+    func testRedirectChainsStopAfterTwentyHopsAndLoopsAtOnce() async throws {
+        let chain = text(try await seam(try request(try base() + "/redirect-chain/20")))
+        XCTAssertEqual(chain, "chain end\n")
+        for path in ["/redirect-chain/21", "/redirect-loop"] {
+            let error = await failure(try request(try base() + path)) { try await self.seam($0) }
+            XCTAssertEqual(error?.code, .httpTooManyRedirects, path)
+        }
+    }
+
+    func testA303TurnsAPostIntoAGetAsInURLSession() async throws {
         var post = try request(try base() + "/see-other")
         post.httpMethod = "POST"
         post.httpBody = Data("x".utf8)
@@ -128,6 +209,200 @@ final class WindowsHTTPFetchTests: XCTestCase {
         XCTAssertTrue(text(after).hasPrefix("GET\n"), "a 303 continues as GET, as in URLSession: \(text(after))")
         let controlAfter = try await control(post)
         XCTAssertTrue(text(controlAfter).hasPrefix("GET\n"))
+    }
+
+    // MARK: the request body (WinHTTP may send it again after WinHttpSendRequest returns)
+
+    func testABodyArrivesWholeAfterA307AndOnEveryRequestAProxyAsksFor() async throws {
+        let payload = #"{"grant_type":"refresh_token","refresh_token":"fixture"}"#
+        var post = try request(try base() + "/redirect-307")
+        post.httpMethod = "POST"
+        post.httpBody = Data(payload.utf8)
+        post.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let echoed = text(try await seam(post))
+        XCTAssertTrue(echoed.hasPrefix("POST\nPOST /echo HTTP/1.1"), echoed)
+        XCTAssertTrue(echoed.hasSuffix("\n\n" + payload), echoed)
+
+        let token = "body-\(UUID().uuidString.prefix(8))"
+        var proxied = try request("http://ptb-target.invalid/proxy-auth/\(token)")
+        proxied.httpMethod = "POST"
+        proxied.httpBody = Data(payload.utf8)
+        try await withEnvironment(["HTTP_PROXY": try base()]) {
+            let status = try await seam(proxied).status
+            XCTAssertEqual(status, 407)
+        }
+        let seen = LoopbackServer.recorded(token)
+        print("PROXY407 POST requests the proxy saw: \(seen.map { $0.components(separatedBy: " body=").first ?? $0 })")
+        XCTAssertGreaterThanOrEqual(seen.count, 2, "the request went again after the proxy's 407")
+        XCTAssertTrue(seen.allSatisfy { $0.hasSuffix(" body=" + payload) }, "every request carried the exact body: \(seen)")
+    }
+
+    // MARK: Windows logon credentials
+
+    /// A server asking for NTLM or Negotiate gets one request and nothing of the Windows logon; the 401 goes to the caller.
+    /// The control is WinHTTP's own default (authentication on, policy MEDIUM), as this file ran before the review.
+    func testA401AskingForTheWindowsLogonIsNeverAnswered() async throws {
+        let port = try XCTUnwrap(Self.server).port
+        for host in ["127.0.0.1", "localhost"] {
+            let token = "server-\(host)-\(UUID().uuidString.prefix(8))"
+            let answer = try await seam(try request("http://\(host):\(port)/auth/\(token)"))
+            XCTAssertEqual(answer.status, 401, host)
+            XCTAssertEqual(LoopbackServer.recorded(token), ["authorization=none"], host)
+
+            let before = "before-\(token)"
+            let (_, old) = try await WinHTTPFetch.data(for: try request("http://\(host):\(port)/auth/\(before)"), logonAsBefore: true)
+            print("AUTOLOGON control \(host), WinHTTP default MEDIUM: status \((old as? HTTPURLResponse)?.statusCode ?? -1), "
+                  + "requests \(LoopbackServer.recorded(before))")
+        }
+    }
+
+    func testA407FromTheProxyIsAnsweredOnceWithTheLogonAllowed() async throws {
+        let token = "proxy-\(UUID().uuidString.prefix(8))"
+        try await withEnvironment(["HTTP_PROXY": try base()]) {
+            let status = try await seam(try request("http://ptb-target.invalid/proxy-auth/\(token)")).status
+            XCTAssertEqual(status, 407, "the fake proxy never completes the handshake: its last 407 goes back")
+        }
+        let seen = LoopbackServer.recorded(token).map { $0.components(separatedBy: " body=").first ?? $0 }
+        print("PROXY407 GET requests the proxy saw: \(seen); WINHTTP_OPTION_PROXY: \(WinHTTPFetch.stats.proxyReportsSeen)")
+        XCTAssertEqual(seen.first, "proxy-authorization=none", "the first request offers nothing")
+        XCTAssertGreaterThanOrEqual(seen.count, 2, "a 407 from the proxy is answered")
+        XCTAssertTrue(seen.dropFirst().contains { $0 == "proxy-authorization=NTLM" || $0 == "proxy-authorization=Negotiate" },
+                      "the retry offers the logon identity to the proxy: \(seen)")
+    }
+
+    func testA407FromAServerOnADirectRouteIsNotAnswered() async throws {
+        try await withEnvironment([:]) {
+            let token = "direct-\(UUID().uuidString.prefix(8))"
+            let given = try request(try base() + "/proxy-407/\(token)")
+            XCTAssertEqual(WinProxyRoute.route(for: try XCTUnwrap(given.url)), .systemProxy)
+            let status = try await seam(given).status
+            XCTAssertEqual(status, 407)
+            print("PROXY407 direct: \(LoopbackServer.recorded(token)); WINHTTP_OPTION_PROXY: \(WinHTTPFetch.stats.proxyReportsSeen)")
+            XCTAssertEqual(LoopbackServer.recorded(token), ["proxy-authorization=none"])
+        }
+    }
+
+    // MARK: TLS, size, deadlines, concurrency
+
+    func testSessionsTakeTLS12AndUpOnly() async throws {
+        let port = try XCTUnwrap(Self.server).port
+        _ = await failure(try request("https://127.0.0.1:\(port)/delay/0", timeout: 5)) { try await self.seam($0) }
+        let mask = WinHTTPFetch.stats.secureProtocols
+        print("SECURE_PROTOCOLS mask 0x\(String(mask, radix: 16))")
+        XCTAssertTrue(mask == WinHTTPFetch.protocolsTLS12And13 || mask == WinHTTPFetch.protocolTLS12, "0x\(String(mask, radix: 16))")
+        XCTAssertEqual(mask & (0x8 | 0x20 | 0x80 | 0x200), 0, "no SSL 2, SSL 3, TLS 1.0 or 1.1")
+    }
+
+    func testTheBodyLimitCountsDecodedBytes() async throws {
+        let bomb = try request(try base() + "/gzip-bomb")
+        XCTAssertLessThan(LoopbackServer.gzipBombBody.count, 64 * 1024)
+        do {
+            _ = try await WinHTTPFetch.data(for: bomb, maxBodyBytes: 64 * 1024)
+            XCTFail("230 B of gzip decode to 200,000 B, past a 64 KB limit")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .dataLengthExceedsMaximum)
+        }
+        let (whole, _) = try await WinHTTPFetch.data(for: bomb)
+        XCTAssertEqual(whole.count, LoopbackServer.gzipBombSize, "the default limit lets it through")
+    }
+
+    func testASlowBodyArrivesPieceByPieceWithoutTheIdleTimerFiring() async throws {
+        let t0 = Date()
+        let answer = try await seam(try request(try base() + "/drip/20480/1024/500", timeout: 2))
+        let elapsed = Date().timeIntervalSince(t0)
+        print(String(format: "DRIP 20 KB at 1 KB every 500 ms, 2 s timeout: %d B in %.1f s", answer.body.count, elapsed))
+        XCTAssertEqual(answer.body.count, 20480)
+        XCTAssertGreaterThan(elapsed, 8)
+    }
+
+    func testTheSessionsResourceTimeoutEndsADrippingFetch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 2
+        configuration.timeoutIntervalForResource = 3
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let t0 = Date()
+        let error = await failure(try request(try base() + "/drip/20480/1024/500", timeout: 60)) { try await self.seam($0, session: session) }
+        let elapsed = Date().timeIntervalSince(t0)
+        print(String(format: "DEADLINE 3 s on a 10 s drip: code %d after %.1f s", error?.code.rawValue ?? 0, elapsed))
+        XCTAssertEqual(error?.code, .timedOut)
+        XCTAssertGreaterThan(elapsed, 2.5)
+        XCTAssertLessThan(elapsed, 4.5)
+    }
+
+    func testAtMostEightFetchesRunAtOnceAndAWaitingOneEndsOnCancellation() async throws {
+        WinHTTPFetch.gate.resetPeak()
+        let slow = try request(try base() + "/delay/2000")
+        let batch = Task { () -> [Int] in
+            try await withThrowingTaskGroup(of: Int.self) { group in
+                for _ in 0..<12 {
+                    group.addTask { ((try await PlatformCompat.oneShotData(for: slow)).1 as? HTTPURLResponse)?.statusCode ?? -1 }
+                }
+                var statuses: [Int] = []
+                for try await status in group { statuses.append(status) }
+                return statuses
+            }
+        }
+        try await Task.sleep(nanoseconds: 400_000_000)
+        let busy = WinHTTPFetch.gate.load.busy
+        let waiting = Task { try await PlatformCompat.oneShotData(for: slow) }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let t0 = Date()
+        waiting.cancel()
+        do {
+            _ = try await waiting.value
+            XCTFail("a cancelled fetch must not finish")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .cancelled)
+        }
+        let cancelledIn = Date().timeIntervalSince(t0)
+        let statuses = try await batch.value
+        let peak = WinHTTPFetch.gate.load.peak
+        print(String(format: "GATE busy %d while 13 were asked, peak %d, a waiting fetch cancelled in %.3f s", busy, peak, cancelledIn))
+        XCTAssertEqual(busy, WinHTTPFetch.maxConcurrentFetches, "the 13th waits for a slot")
+        XCTAssertLessThanOrEqual(peak, WinHTTPFetch.maxConcurrentFetches)
+        XCTAssertLessThan(cancelledIn, 0.5)
+        XCTAssertEqual(statuses, Array(repeating: 200, count: 12))
+    }
+
+    /// Item 9 of the review: per-fetch sessions against one session for a batch (time, connections). Printed, not a bound.
+    func testABatchOnOneSessionAgainstASessionEach() async throws {
+        let server = try XCTUnwrap(Self.server)
+        let urls = Array(repeating: try XCTUnwrap(URL(string: try base() + "/delay/0")), count: 60)
+        let a = server.accepted
+        let each = await WinHTTPFetch.batchDiagnostic(urls, concurrency: 6, oneSession: false)
+        let b = server.accepted
+        let one = await WinHTTPFetch.batchDiagnostic(urls, concurrency: 6, oneSession: true)
+        let c = server.accepted
+        print("BATCH \(each), \(b - a) connections | \(one), \(c - b) connections")
+        XCTAssertTrue(each.contains(", 0 failed,") && one.contains(", 0 failed,"), "\(each) | \(one)")
+    }
+
+    // MARK: outside the installed app, the proxy notice
+
+    func testOutsideTheAppOnlyLoopbackAndTestNamesAreFetched() async throws {
+        XCTAssertFalse(PlatformCompat.isBundledApp)
+        for host in ["127.0.0.1", "127.5.6.7", "localhost", "::1", "[::1]", "a.invalid", "ptb.test"] {
+            XCTAssertTrue(WinHTTPFetch.isTestHost(host), host)
+        }
+        for host in ["status.claude.com", "127.evil.com", "example.com", "invalid.example"] {
+            XCTAssertFalse(WinHTTPFetch.isTestHost(host), host)
+        }
+        // windows.yml fails on any "refused real host" line except this host's.
+        let error = await failure(try request("https://ptb-guard.example/x")) { try await self.seam($0) }
+        XCTAssertEqual(error?.code, .notConnectedToInternet)
+    }
+
+    func testAProxyVariableWinHTTPCannotTakeIsNotedOnceWithoutItsValue() async throws {
+        let target = try request("https://ptb-target.invalid/x")
+        let before = WinHTTPFetch.stats.fallbackCount
+        try await withEnvironment(["HTTPS_PROXY": "socks5://user:secret@127.0.0.1:1080"]) {
+            XCTAssertFalse(WinHTTPFetch.handles(target))
+            XCTAssertFalse(WinHTTPFetch.handles(target))
+        }
+        XCTAssertEqual(WinHTTPFetch.stats.fallbackCount, before + 2)
+        XCTAssertFalse(WinHTTPFetch.stats.noteFallback(), "logged the first time only")
+        XCTAssertFalse(WinHTTPFetch.fallbackNotice.contains("secret") || WinHTTPFetch.fallbackNotice.contains("127.0.0.1"))
     }
 
     /// Every encoded form on its own: what WinHTTP decodes and what URLSession (libcurl) decoded, printed as a table.

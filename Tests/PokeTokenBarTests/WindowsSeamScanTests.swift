@@ -377,6 +377,33 @@ final class WindowsSeamScanTests: XCTestCase {
         }
     }
 
+    // MARK: WinHTTP keeps Windows' certificate checks (review of fix/windows-fetches-through-winhttp, item 4)
+
+    /// `WINHTTP_OPTION_SECURITY_FLAGS` (31) relaxes certificate checks (`SECURITY_FLAG_IGNORE_*`): the seam never sets it.
+    /// Comments may name it; code may not.
+    static func certificateRelaxations(_ lines: [String]) -> [String] {
+        lines.enumerated().compactMap { i, line in
+            let c = code(line)
+            let hit = c.contains("SECURITY_FLAG")
+                || c.range(of: #"\boption\w*\s*:\s*UInt32\s*=\s*31\b"#, options: .regularExpression) != nil
+                || c.range(of: #"setOption\([^,]+,\s*31\s*,"#, options: .regularExpression) != nil
+            return hit ? "line \(i + 1): \(line.trimmingCharacters(in: .whitespaces))" : nil
+        }
+    }
+
+    func testWinHTTPRelaxesNoCertificateCheck() throws {
+        let url = SharedSources.sourcesRoot.appendingPathComponent("Platform/Windows/WinHTTPFetch.swift")
+        XCTAssertEqual(Self.certificateRelaxations(try SharedSources.lines(of: url)), [])
+    }
+
+    func testTheCertificateScanCatchesARelaxation() {
+        for line in ["    private static let optionSecurityFlags: UInt32 = 31", "_ = api.setOption(handle, 31, &flags, 4)",
+                     "var flags = SECURITY_FLAG_IGNORE_UNKNOWN_CA"] {
+            XCTAssertEqual(Self.certificateRelaxations([line]).count, 1, line)
+        }
+        XCTAssertEqual(Self.certificateRelaxations(["/// `WINHTTP_OPTION_SECURITY_FLAGS` is never set"]), [])
+    }
+
     func testTheRequestScanCatchesEachForm() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-request-scan-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

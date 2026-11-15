@@ -1,0 +1,34 @@
+name: tmp-winhttp-review
+# Temporary, for the review round of fix/windows-fetches-through-winhttp: build and run the WinHTTP tests on every push to
+# that branch, and print the winhttp.h constants the seam uses. Removed before the branch goes back for merging.
+on:
+  push:
+    branches: [fix/windows-fetches-through-winhttp]
+permissions:
+  contents: read
+concurrency:
+  group: tmp-winhttp-review
+  cancel-in-progress: true
+jobs:
+  winhttp:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/windows-swift
+      - name: winhttp.h constants
+        shell: pwsh
+        run: |
+          $h = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include\*\um\winhttp.h' | Sort-Object FullName | Select-Object -Last 1
+          Write-Host $h.FullName
+          $names = 'WINHTTP_OPTION_(AUTOLOGON_POLICY|REDIRECT_POLICY|SECURE_PROTOCOLS|SECURITY_FLAGS|RECEIVE_RESPONSE_TIMEOUT|PROXY|DISABLE_FEATURE)\s|WINHTTP_AUTOLOGON_SECURITY_LEVEL_(MEDIUM|HIGH)\s|WINHTTP_OPTION_REDIRECT_POLICY_NEVER|WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_[23]\s|WINHTTP_DISABLE_AUTHENTICATION|WINHTTP_AUTH_TARGET_PROXY|WINHTTP_AUTH_SCHEME_(NTLM|NEGOTIATE)\s|ERROR_WINHTTP_RESEND_REQUEST\s'
+          Select-String -Path $h.FullName -Pattern "#define ($names)" | ForEach-Object { $_.Line.Trim() }
+      - name: WinHTTP tests
+        shell: bash
+        run: |
+          swift test --filter 'WindowsHTTPFetchTests|WindowsProxyRouteTests' 2>&1 | tee test.log
+          grep -a -E "AUTOLOGON|PROXY407|REDIRECT|SECURE_PROTOCOLS|DRIP|DEADLINE|GATE|BATCH|ERRORMAP|refused real host|error:|Executed" test.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tmp-winhttp-logs
+          path: "*.log"
