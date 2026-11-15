@@ -1,0 +1,9 @@
+Microsoft Visual C++ runtime (vcruntime140*.dll, msvcp140*.dll, concrt140.dll, vcomp140.dll and siblings)
+
+These files are copied unmodified from the Visual C++ Redistributable folder of the Visual Studio installation that
+builds PokeTokenBar (VC\Redist\MSVC\<version>\x64\Microsoft.VC14*.CRT). Microsoft licenses them to Visual Studio
+users as "distributable code" that may be shipped inside an application ("app-local deployment"), under the Visual
+Studio license terms and the file list in the Visual Studio REDIST.TXT. See:
+https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+
+The Universal C Runtime (ucrtbase.dll, api-ms-win-crt-*.dll) is part of Windows 10 and later and is not shipped.

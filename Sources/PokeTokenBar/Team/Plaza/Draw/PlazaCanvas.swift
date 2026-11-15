@@ -27,6 +27,18 @@ struct PlazaPath: Equatable, Sendable {
                                               CGPoint(x: r.maxX, y: r.maxY), CGPoint(x: r.minX, y: r.maxY)], closed: true) }
 }
 
+/// Per-corner radii of a rounded rectangle whose corners differ (SwiftUI's `UnevenRoundedRectangle`). "Top" is the visual top
+/// of what is drawn; on the canvas (origin bottom-left) that is the rect's `maxY`.
+struct PlazaCornerRadii: Equatable, Sendable {
+    var topLeading: CGFloat, bottomLeading: CGFloat, bottomTrailing: CGFloat, topTrailing: CGFloat
+
+    /// What `InsettableShape.inset(by:)` does to the radii: each shrinks by the inset (not below zero).
+    func inset(by d: CGFloat) -> PlazaCornerRadii {
+        PlazaCornerRadii(topLeading: max(0, topLeading - d), bottomLeading: max(0, bottomLeading - d),
+                         bottomTrailing: max(0, bottomTrailing - d), topTrailing: max(0, topTrailing - d))
+    }
+}
+
 /// A drop shadow. Offset and blur are in device pixels: like `CGContext.setShadow`, the CTM does not scale them.
 struct PlazaShadow: Sendable {
     var offset: CGSize
@@ -82,6 +94,11 @@ protocol PlazaCanvas: AnyObject {
     func fillRoundedRect(_ rect: CGRect, radius: CGFloat)
     /// The same outline stroked with the stroke colour, the line centred on it; the canvas's own line width is unchanged.
     func strokeRoundedRect(_ rect: CGRect, radius: CGFloat, lineWidth: CGFloat)
+    /// The same for a rectangle with its own radius at each corner (`UnevenRoundedRectangle`, continuous corners; the Mac
+    /// uses SwiftUI's own path). `rect` is in canvas coordinates.
+    func clip(toUnevenRoundedRect rect: CGRect, radii: PlazaCornerRadii)
+    func fillUnevenRoundedRect(_ rect: CGRect, radii: PlazaCornerRadii)
+    func strokeUnevenRoundedRect(_ rect: CGRect, radii: PlazaCornerRadii, lineWidth: CGFloat)
     func draw(_ image: PlazaImage, in rect: CGRect)
     /// Sets the text position, then draws the line (which moves the text position on, as `CTLineDraw` does).
     func draw(_ line: PlazaTextLine, at textPosition: CGPoint)
