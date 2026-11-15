@@ -72,6 +72,13 @@ jobs:
           $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state'
           # The fixture's usage after (message.id, requestId) dedup: 1000+200+30+4 + 2000+400+60+8.
           $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
+          # OpenSSL must never read a config file (tls.noConfigFile): this one makes OpenSSL's init fail if it is loaded
+          # (a provider that cannot load, with config_diagnostics on), and the team checks all run TLS.
+          $conf = Join-Path $env:RUNNER_TEMP 'ptb-poison-openssl.cnf'
+          Set-Content -Path $conf -Value @('config_diagnostics = 1', 'openssl_conf = ptb_poison', '[ptb_poison]',
+              'providers = ptb_providers', '[ptb_providers]', 'ptbpoison = ptb_poison_provider', '[ptb_poison_provider]',
+              'module = C:\ptb\no-such-provider.dll', 'activate = 1')
+          $env:OPENSSL_CONF = $conf
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages -DumpUi (Join-Path $PWD 'ui-dump')
       - name: Selftest on the dispatch-handle loop (diagnostic fallback, informational)
         if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
@@ -197,6 +204,131 @@ jobs:
           if ($log -match $code -or $log -match $other) { $fail += 'the app log has a team code' }
           if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL team.twoProcesses: $_" }; exit 1 }
           'PASS team.twoProcesses: a and b linked and joined over TLSv1.2 PSK-AES128-GCM-SHA256; c (other code) refused, no message, one dial per name; no code in any output'
+      - name: Team DNS-SD removal and aging (three probes, one killed, one exiting cleanly)
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          # a browses for 200 s. b is killed hard (TerminateProcess) after 15 s: what Windows' DNS-SD then reports, and
+          # whether a forgets b's name (3 dials that find nothing, no answer in between) and stops dialling it. c exits
+          # cleanly after 25 s: its goodbye must reach a within 1 s.
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
+          $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+          $code = -join (1..12 | ForEach-Object { $alphabet[(Get-Random -Maximum 32)] })
+          Set-Content -NoNewline -Path aging-code.txt -Value "PTB-$code"
+          function Start-Probe($name, $seconds) {
+              $p = Start-Process -FilePath $exe -PassThru -RedirectStandardInput aging-code.txt -RedirectStandardOutput "probe-$name.out" `
+                  -ArgumentList @('--team-probe', '--code-stdin', '--seconds', "$seconds", '--selftest-out', (Join-Path $PWD "probe-$name.txt"))
+              $null = $p.Handle
+              return $p
+          }
+          $a = Start-Probe 'aging-a' 200
+          Start-Sleep -Seconds 3
+          $b = Start-Probe 'aging-b' 200
+          $c = Start-Probe 'aging-c' 25
+          Start-Sleep -Seconds 15
+          Stop-Process -Id $b.Id -Force
+          $killedAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          foreach ($p in $a, $c) { if (-not $p.WaitForExit(300000)) { Stop-Process -Id $p.Id -Force; "probe $($p.Id) timed out" } }
+          $at = Get-Content probe-aging-a.txt -Raw; $bt = Get-Content probe-aging-b.txt -Raw; $ct = Get-Content probe-aging-c.txt -Raw
+          foreach ($n in 'a', 'b', 'c') { "----- probe aging-$n -----"; Get-Content "probe-aging-$n.txt" }
+          $bName = [regex]::Match($bt, 'ADVERTISE name=(\S+)').Groups[1].Value
+          $cName = [regex]::Match($ct, 'ADVERTISE name=(\S+)').Groups[1].Value
+          $goodbye = [regex]::Match($ct, 'GOODBYE dns_sd=(\S+).*at_ms=(\d+)')
+          $fail = @()
+          # c: clean exit
+          $cLost = [regex]::Match($at, "LOST name=$cName at_ms=(\d+)")
+          if (-not $goodbye.Success) { $fail += 'c printed no GOODBYE line' }
+          elseif (-not $cLost.Success) { $fail += "a never saw c ($cName) removed" }
+          else {
+              $lag = [int64]$cLost.Groups[1].Value - [int64]$goodbye.Groups[2].Value
+              "c ($cName): goodbye=$($goodbye.Groups[1].Value) at $($goodbye.Groups[2].Value); a saw LOST $lag ms later"
+              if ($lag -gt 1000) { $fail += "a saw c's removal $lag ms after its goodbye (more than 1 s)" }
+          }
+          # b: killed
+          $bLost = [regex]::Match($at, "LOST name=$bName at_ms=(\d+)")
+          $bForgot = [regex]::Match($at, "FORGOTTEN name=$bName")
+          $bAnswers = [regex]::Matches($at, "ANSWER name=$bName ttl=(\d+)[^\n]*at_ms=(\d+)") | ForEach-Object { "ttl=$($_.Groups[1].Value)@+$([int64]$_.Groups[2].Value - $killedAt)ms" }
+          "b ($bName) killed at $killedAt; answers seen by a (TTL @ ms after the kill; negative = before): $($bAnswers -join ', ')"
+          if ($bLost.Success) { "WINDNS: a saw LOST for the killed b $([int64]$bLost.Groups[1].Value - $killedAt) ms after the kill" }
+          else { 'WINDNS: no LOST for the killed b within the run (no goodbye: the name stays until something drops it)' }
+          if ($bForgot.Success) {
+              'AGING: a forgot b: ' + ([regex]::Match($at, "\[\+[0-9.]+s\] FORGOTTEN name=$bName[^\n]*").Value)
+              $after = $at.Substring($bForgot.Index)
+              $later = [regex]::Matches($after, "(DIAL peer=\S+ to=$bName|RESOLVED name=$bName)").Count
+              "AGING: dials or resolves of b after it was forgotten: $later"
+              if ($later -gt 0) { $fail += 'a kept dialling b after forgetting it' }
+          }
+          if (-not $bLost.Success -and -not $bForgot.Success) { $fail += "a neither saw b removed nor forgot it within 200 s" }
+          $dialsB = [regex]::Matches($at, "DIAL peer=\S+ to=$bName").Count
+          "AGING: a dialled b $dialsB times in total"
+          if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL team.removalAndAging: $_" }; exit 1 }
+          'PASS team.removalAndAging: the clean exit was seen within 1 s; the killed teammate stopped costing dials'
+      - name: Team code tool keeps the settings guard and the backup
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          # --set-team-code / --clear-team-code on the real settings file (CI only): the verified backup follows a clear
+          # (no code left in it), and an unreadable settings file is restored from the backup before the code is written.
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
+          $plist = Join-Path $env:LOCALAPPDATA 'PokeTokenBar.exe.plist'
+          $bak = "$plist.bak"
+          $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+          $code = -join (1..12 | ForEach-Object { $alphabet[(Get-Random -Maximum 32)] })
+          Set-Content -NoNewline -Path tool-code.txt -Value "PTB-$code"
+          Set-Content -NoNewline -Path tool-empty.txt -Value ''
+          function Tool($toolArgs, $stdin) {
+              $p = Start-Process -FilePath $exe -ArgumentList $toolArgs -RedirectStandardInput $stdin -RedirectStandardOutput tool.out -PassThru -Wait
+              "tool $($toolArgs -join ' '): exit $($p.ExitCode): $((Get-Content tool.out -Raw).Trim())"
+              if ($p.ExitCode -ne 0) { throw "the tool failed: $($toolArgs -join ' ')" }
+          }
+          function Keys($path) { [regex]::Matches((Get-Content $path -Raw), '<key>([^<]+)</key>') | ForEach-Object { $_.Groups[1].Value } }
+          function MemberId($path) { [regex]::Match((Get-Content $path -Raw), '<key>team\.memberID</key>\s*<string>([^<]+)</string>').Groups[1].Value }
+          $fail = @()
+          Tool @('--set-team-code', '--nickname', 'CI') tool-code.txt
+          if ((Get-Content $plist -Raw) -notmatch $code) { $fail += 'the code is not in the settings' }
+          if (-not (Test-Path $bak) -or (Get-Content $bak -Raw) -notmatch $code) { $fail += 'the backup was not refreshed after --set-team-code' }
+          $member = MemberId $plist
+          Tool @('--clear-team-code') tool-empty.txt
+          if ((Get-Content $plist -Raw) -match $code) { $fail += 'the code is still in the settings after --clear-team-code' }
+          if ((Get-Content $bak -Raw) -match $code) { $fail += 'the backup still holds the code after --clear-team-code (a restore would turn the team back on)' }
+          if ((MemberId $plist) -ne $member -or (MemberId $bak) -ne $member) { $fail += 'team.memberID changed' }
+          $keys = @(Keys $plist)
+          Set-Content -Path $plist -Value 'not a property list'
+          Tool @('--set-team-code', '--nickname', 'CI') tool-code.txt
+          $after = @(Keys $plist)
+          $missing = @($keys | Where-Object { $after -notcontains $_ })
+          "keys before the damage: $($keys.Count); after the restore and the new code: $($after.Count); missing: $($missing -join ', ')"
+          if ($missing.Count -gt 0) { $fail += "settings lost through an unreadable file: $($missing -join ', ')" }
+          if ((Get-Content $plist -Raw) -notmatch $code) { $fail += 'the code was not written after the restore' }
+          Tool @('--clear-team-code') tool-empty.txt
+          $log = Get-Content (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log') -Raw
+          if ($log -match $code) { $fail += 'the log has the code' }
+          if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL team.codeTool: $_" }; exit 1 }
+          'PASS team.codeTool: the backup follows set and clear (no code left after a clear), an unreadable file is restored first, memberID kept, no code in the log'
+      - name: Team DNS-SD with mDNS turned off by policy (informational)
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # What windns reports when mDNS is disabled (EnableMDNS=0, the policy switch). Restored afterwards.
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
+          $key = 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters'
+          $old = (Get-ItemProperty -Path $key -Name EnableMDNS -ErrorAction SilentlyContinue).EnableMDNS
+          "EnableMDNS before: $old"
+          $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+          Set-Content -NoNewline -Path mdns-code.txt -Value ("PTB-" + (-join (1..12 | ForEach-Object { $alphabet[(Get-Random -Maximum 32)] })))
+          try {
+              Set-ItemProperty -Path $key -Name EnableMDNS -Value 0 -Type DWord
+              $p = Start-Process -FilePath $exe -PassThru -Wait -RedirectStandardInput mdns-code.txt -RedirectStandardOutput probe-mdns.out `
+                  -ArgumentList @('--team-probe', '--code-stdin', '--seconds', '12', '--selftest-out', (Join-Path $PWD 'probe-mdns.txt'))
+              Get-Content probe-mdns.txt | Select-String -Pattern 'ADVERTISE|REGISTER|BROWSE|RETRY|FOUND|LISTEN|RESULT'
+          } finally {
+              if ($null -eq $old) { Remove-ItemProperty -Path $key -Name EnableMDNS -ErrorAction SilentlyContinue }
+              else { Set-ItemProperty -Path $key -Name EnableMDNS -Value $old -Type DWord }
+          }
       - name: Tray screenshot (informational)
         if: (success() || failure()) && steps.package.outcome == 'success'
         continue-on-error: true

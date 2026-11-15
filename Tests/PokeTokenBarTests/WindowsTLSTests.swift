@@ -296,5 +296,14 @@ final class WindowsTLSTests: XCTestCase {
         for _ in 0..<300 where proc.isRunning { Thread.sleep(forTimeInterval: 0.02) }
         return (!proc.isRunning, (try? String(contentsOf: log, encoding: .utf8)) ?? "")
     }
+
+    /// OpenSSL starts with OPENSSL_INIT_NO_LOAD_CONFIG: the build's OPENSSLDIR (printed) and OPENSSL_CONF are never
+    /// read. The selftest runs with a poisoned OPENSSL_CONF to show it (`tls.noConfigFile`).
+    func testOpenSSLReportsItsBakedInConfigDirectory() throws {
+        let dir = WinTLS.configDirectory
+        print("TLS-REPORT baked-in OPENSSLDIR=\(dir) (never read)")
+        XCTAssertFalse(dir.isEmpty)
+        XCTAssertNoThrow(try WinTLSContext(code: TeamCode(parsing: "PTB-AAAA-BBBB-CCCC")!, role: .server))
+    }
 }
 #endif
