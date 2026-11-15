@@ -1024,6 +1024,43 @@ read_when:
   api.github.com 으로 나갔고(윈도우 CI), `ClaudeOAuthFileCredentialTests` 가 실패했다. 호출부 세션의 `protocolClasses` 에 자기 프로토콜이 있으면
   URLSession 을 쓰고(`WinHTTPFetch.handles`), 전역 등록 스텁(corelibs 는 목록을 내주지 않는다)을 쓰는 테스트는
   `PlatformCompat.oneShotStaysOnURLSessionForTesting` 을 켠다. **규칙 추가:** 네트워크를 바꾸는 이음매는 기존 가짜 경로가 여전히 가짜에 닿는지 윈도우 CI 에서 본다.
+  **리뷰 라운드(같은 브랜치, 머지 전): 자격증명·로그온·본문 수명·핸들.** 독립 리뷰가 찾은 넷과 고침.
+  ① **교차 호스트 리디렉션이 자격증명을 들고 갔다.** WinHTTP 자동 리디렉션(최대 20, HTTPS→HTTP 만 막음)은 요청 헤더를 전부 다시 보낸다 —
+  `Authorization: Bearer …`, `Cookie: sessionKey=…`, `WorkosCursorSessionToken`. 공급자 호스트 하나의 오픈 리디렉트면 토큰이 제3자에게 간다.
+  **왜 못 걸렀나:** 기준을 윈도우 URLSession(corelibs 는 리디렉션에 헤더를 모두 유지, `HTTPURLProtocol.swift` 564행)으로 잡고 맥과 비교하지 않았다.
+  테스트(`…IncludingToAnotherHost`)는 Authorization 이 넘어가는지 **print 만 했다** — 단언이 아니라 출력이라 통과가 아무것도 지키지 않았다.
+  **맥 실측(`RedirectHeadersMacTests`, 루프백 서버 둘):** 맥 URLSession 은 모든 홉(같은 출처 포함)에서 `Authorization` 을 빼고, 명시한 `Cookie`·사용자
+  헤더는 교차 호스트에도 다시 보낸다(공유·쿠키 끈 ephemeral 세션 모두); 307 은 POST·본문 유지, 303 은 GET. **고침:** 리디렉션을 우리가 따른다
+  (`WINHTTP_OPTION_REDIRECT_POLICY_NEVER`, `WinHTTPFetch.nextHop`): 홉마다 `Authorization` 제거(맥과 같음), `Cookie` 가 남은 요청은 다른 출처(스킴·호스트·
+  포트)로 따르지 않고 3xx 를 돌려준다(맥보다 엄격; 호출부는 200 이 아니면 실패로 본다), HTTPS→HTTP 금지, 20 홉·루프 즉시 중단.
+  ② **서버의 NTLM/Negotiate 401 에 윈도우 로그온이 나갈 수 있었다.** 기본 자동 로그온 정책 MEDIUM 은 "프록시 우회 목록의 서버"를 인트라넷으로 본다
+  (`WinHttpRequestAutoLogonPolicy`, AutoLogonPolicy_OnlyIfBypassProxy) — 프록시가 없으면 어느 호스트든 우회다. libcurl 은 자격증명 없이 인증하지 않았으니
+  새 능력이었다(NTLMv2 응답은 오프라인 크랙·릴레이 대상). **왜 못 걸렀나:** 문서의 "인트라넷만" 을 정의 확인 없이 믿었고, 401 로 도전하는 테스트 서버가
+  없었다. **고침:** 모든 요청은 자동 인증 끔(`WINHTTP_DISABLE_AUTHENTICATION`) + 정책 HIGH 로 시작(HIGH 는 "localhost·IP 로 지정한 서버에는 효과가 없다"고
+  문서에 적혀 있어 둘 다 건다). 요청이 지난 프록시(환경 변수 프록시, 또는 윈도우 설정에서 `WINHTTP_OPTION_PROXY` 가 이름을 대는 프록시)의 407 에만 한 번,
+  새 요청을 MEDIUM 으로, 그래도 NTLM/Negotiate 를 요구하면 이름 없는 `WinHttpSetCredentials` 로 — .NET WinHttpHandler 와 같은 방식(dotnet/runtime v9.0.0
+  `WinHttpAuthHelper.cs` 288–300·335–346, `WinHttpHandler.cs` 1517–1528).
+  ③ **요청 본문 포인터가 `body.withUnsafeBytes` 안에서만 유효했다.** WinHTTP 는 `WinHttpReceiveResponse` 가 끝날 때까지(인증 라운드·리디렉션) 그 버퍼를
+  다시 보낼 수 있다(`WinHttpSendRequest`: "must remain available until the request handle is closed or the call to WinHttpReceiveResponse has completed").
+  **고침:** 가져오기 내내 사는 복사본, 모든 핸들을 닫은 뒤 해제.
+  ④ **취소·유휴 타이머가 다른 스레드에서 요청 핸들을 닫았다.** 문서: "An application should never call WinHttpCloseHandle on a synchronous request. This can
+  create a race condition"(`WinHttpCloseHandle`). 작업 스레드는 닫힌 값을 읽기·조회에 다시 넘길 수 있었다(값이 재사용되면 다른 요청의 핸들).
+  **고침:** 취소·타이머는 호출자에게 바로 답하고 신호만 준다; 핸들은 작업 스레드만, 지금 하던 WinHTTP 호출이 돌아온 뒤 닫는다(그 대기는 WinHTTP
+  타임아웃이 묶고, 헤더 수신 타임아웃도 요청 타임아웃으로 낮췄다 — 기본 90 s).
+  소항목도 함께: TLS 1.2/1.3 만(`WINHTTP_OPTION_SECURE_PROTOCOLS`; 윈도우 10 의 WinHTTP 기본은 SSL3·1.0·1.1 허용), 압축 해제 뒤 32 MB 본문 한도, 전체
+  마감(호출부 세션의 resource timeout — Cursor 사용량 120 s — 없으면 300 s), 동시 8 개 상한(슬롯은 작업 스레드가 끝날 때 반납, 대기는 취소로 끝남),
+  앱 밖(`swift test`)에서는 루프백·`.invalid`/`.test` 외 호스트 거부, WinHTTP 가 못 받는 프록시 변수는 값 없이 한 번 로그.
+  **스윕:** 호출부가 넣는 자격증명 헤더는 `Authorization`(Claude OAuth 사용량·프로필, Cursor 한도·사용량, Grok, OpenCode Go)과 `Cookie`(claude.ai 세션
+  키, Cursor 사용량) 둘뿐(`WinHTTPFetch.credentialHeaders`). Cursor 토큰 갱신의 refresh token 은 본문에 있어 교차 출처 307/308 이면 맥처럼 다시 간다(남김).
+  호출 뒤에도 호출자 버퍼를 쥐는 윈도우 API 는 DNS-SD 요청뿐이고 이미 자체 할당이다(`WinDNSSD.swift`). 다른 스레드가 쓰는 핸들을 닫는 곳은 없다(팀 소켓은
+  한 스레드가 소유, `WinSocketLoop`). URLSession 으로 남는 경로(본문 스트림·WinHTTP 가 못 받는 프록시 변수·테스트 플래그)는 corelibs 대로 헤더를 다
+  넘긴다 — 이 브랜치 이전과 같은 동작.
+  **가드(기계):** `RedirectHeadersMacTests`(맥 동작 고정), `WindowsHTTPFetchTests` — 리디렉션 단언(같은 출처: Cookie 유지·Authorization 없음; 교차:
+  Authorization 없이 따름, Cookie 면 302 반환·상대 서버 연결 0; 규칙 단위 테스트·HTTPS→HTTP; 20 홉·루프), 401 NTLM 서버(127.0.0.1·localhost 모두 요청
+  1 번·Authorization 없음, 대조 = 이전 기본값), 프록시 407(재요청·로그온 제시)·직접 경로의 407(재요청 없음), 307·407 재요청 뒤 본문 동일, 압축 해제 뒤
+  한도(230 B gzip → 200,000 B), 느린 본문·전체 마감, 동시 상한·대기 취소; `WindowsSeamScanTests.testWinHTTPRelaxesNoCertificateCheck`(보안 플래그 금지);
+  `windows.yml` 의 "refused real host" 검사. **규칙:** 플랫폼 이음매의 동작 기준은 그 호출부가 원래 돌던 플랫폼(맥)이다 — 대체 구현끼리 비교하지 않는다.
+  보안에 걸린 비교는 print 가 아니라 단언으로 남긴다.
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,

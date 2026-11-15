@@ -231,10 +231,15 @@ final class WindowsHTTPFetchTests: XCTestCase {
             let status = try await seam(proxied).status
             XCTAssertEqual(status, 407)
         }
+        // Our sends (the first and the retry) carry the whole body; WinHTTP's own NTLM/Negotiate legs go with Content-Length 0
+        // (the body follows once the proxy completes the handshake, which this fake never does).
         let seen = LoopbackServer.recorded(token)
         print("PROXY407 POST requests the proxy saw: \(seen.map { $0.components(separatedBy: " body=").first ?? $0 })")
-        XCTAssertGreaterThanOrEqual(seen.count, 2, "the request went again after the proxy's 407")
-        XCTAssertTrue(seen.allSatisfy { $0.hasSuffix(" body=" + payload) }, "every request carried the exact body: \(seen)")
+        let plain = seen.filter { $0.hasPrefix("proxy-authorization=none ") }
+        let legs = seen.filter { !$0.hasPrefix("proxy-authorization=none ") }
+        XCTAssertEqual(plain.count, 2, "the first request and the retry: \(seen)")
+        XCTAssertTrue(plain.allSatisfy { $0.hasSuffix("length=\(payload.utf8.count) body=" + payload) }, "the exact body each time: \(seen)")
+        XCTAssertTrue(legs.allSatisfy { $0.hasSuffix("length=0 body=") }, "handshake legs carry no body: \(seen)")
     }
 
     // MARK: Windows logon credentials
@@ -262,7 +267,7 @@ final class WindowsHTTPFetchTests: XCTestCase {
             let status = try await seam(try request("http://ptb-target.invalid/proxy-auth/\(token)")).status
             XCTAssertEqual(status, 407, "the fake proxy never completes the handshake: its last 407 goes back")
         }
-        let seen = LoopbackServer.recorded(token).map { $0.components(separatedBy: " body=").first ?? $0 }
+        let seen = LoopbackServer.recorded(token).map { ($0.components(separatedBy: " length=").first ?? $0) }
         print("PROXY407 GET requests the proxy saw: \(seen); WINHTTP_OPTION_PROXY: \(WinHTTPFetch.stats.proxyReportsSeen)")
         XCTAssertEqual(seen.first, "proxy-authorization=none", "the first request offers nothing")
         XCTAssertGreaterThanOrEqual(seen.count, 2, "a 407 from the proxy is answered")

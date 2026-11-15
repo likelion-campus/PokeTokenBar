@@ -522,7 +522,8 @@ final class LoopbackServer: @unchecked Sendable {
             if request.target.lowercased().hasPrefix("http://"), let at = request.target.range(of: "/proxy-auth/") {
                 // A proxy that wants NTLM or Negotiate and never completes it.
                 let token = String(request.target[at.upperBound...])
-                Self.record(token, "proxy-authorization=\(Self.scheme(request.field("Proxy-Authorization"))) body=\(String(decoding: request.body, as: UTF8.self))")
+                Self.record(token, "proxy-authorization=\(Self.scheme(request.field("Proxy-Authorization"))) "
+                            + "length=\(request.field("Content-Length") ?? "none") body=\(String(decoding: request.body, as: UTF8.self))")
                 let line = "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Negotiate\r\nProxy-Authenticate: NTLM\r\n"
                     + "Content-Length: 0\r\n\r\n"
                 guard NB.put(c, Array(line.utf8)) else { return }

@@ -217,6 +217,9 @@ enum WinHTTPFetch {
         /// The `WINHTTP_OPTION_SECURE_PROTOCOLS` mask the last session took.
         var secureProtocols: UInt32 { lock.lock(); defer { lock.unlock() }; return protocols }
         func noteProxyReport(_ text: String) { lock.lock(); proxyReports.append(text); lock.unlock() }
+        private var unanswered = 0
+        /// True the first time only.
+        func noteUnansweredProxyChallenge() -> Bool { lock.lock(); defer { lock.unlock() }; unanswered += 1; return unanswered == 1 }
         /// What `WINHTTP_OPTION_PROXY` said for each 407 on the Windows proxy settings (access type, whether a proxy was named).
         var proxyReportsSeen: [String] { lock.lock(); defer { lock.unlock() }; return proxyReports }
     }
@@ -650,14 +653,23 @@ enum WinHTTPFetch {
             throw URLError(.userAuthenticationRequired, userInfo: [NSLocalizedDescriptionKey: "authentication kept asking for the request again"])
         }
 
-        /// The decoded body, at most `maxBodyBytes`. `WinHttpReadData` returns what has arrived without waiting to fill the
-        /// buffer ("If sufficient data has not arrived from the server, the buffer is not filled").
+        /// The decoded body, at most `maxBodyBytes`, read as it arrives: `WinHttpQueryDataAvailable` waits for the next bytes and
+        /// says how many, then `WinHttpReadData` takes exactly those (the documented loop). A synchronous `WinHttpReadData`
+        /// with a 64 KB buffer waited to fill it: a body arriving 1 KB every 500 ms tripped a 2 s idle timer on the runner.
         private func readBody(_ request: Handle) throws -> Data {
             var data = Data()
             var chunk = [UInt8](repeating: 0, count: 65_536)
             while true {
+                var available: UInt32 = 0
+                let queried = api.queryDataAvailable(request, &available)
+                let queryError = queried == 0 ? GetLastError() : 0
+                try checkStopped()
+                guard queried != 0 else { throw failure("WinHttpQueryDataAvailable", queryError) }
+                if available == 0 { return data }  // the end of the response
+                dataArrived()
                 var got: UInt32 = 0
-                let ok = chunk.withUnsafeMutableBytes { api.read(request, $0.baseAddress, UInt32($0.count), &got) }
+                let want = UInt32(min(Int(available), chunk.count))
+                let ok = chunk.withUnsafeMutableBytes { api.read(request, $0.baseAddress, want, &got) }
                 let code = ok == 0 ? GetLastError() : 0
                 try checkStopped()
                 guard ok != 0 else { throw failure("WinHttpReadData", code) }
@@ -665,7 +677,6 @@ enum WinHTTPFetch {
                 guard data.count + Int(got) <= plan.maxBodyBytes else {
                     throw URLError(.dataLengthExceedsMaximum, userInfo: [NSLocalizedDescriptionKey: "the body passed \(plan.maxBodyBytes) bytes"])
                 }
-                dataArrived()
                 data.append(contentsOf: chunk[0..<Int(got)])
             }
         }
@@ -688,6 +699,11 @@ enum WinHTTPFetch {
                 }
                 let named = info.proxy.map { !String(decodingCString: $0, as: UTF16.self).isEmpty } ?? false
                 WinHTTPFetch.stats.noteProxyReport("\(plan.route == .systemProxy ? "system" : "environment"): access \(info.accessType), proxy named: \(named)")
+                if plan.route == .systemProxy, !named, WinHTTPFetch.stats.noteUnansweredProxyChallenge() {
+                    // Once per process, for the office-proxy check on a PC: the access type only, no host.
+                    AppLog.write("winhttp: a 407 on the Windows proxy settings, but WinHTTP names no proxy for the request "
+                                 + "(access type \(info.accessType)): not answered")
+                }
                 // An environment proxy is the route itself; the report is kept for the tests (does WinHTTP name it?).
                 return plan.route == .systemProxy ? named : true
             }
@@ -753,6 +769,7 @@ enum WinHTTPFetch {
     private typealias FnQueryHeaders = @convention(c) (Handle?, UInt32, UnsafePointer<UInt16>?, UnsafeMutableRawPointer?,
                                                        UnsafeMutablePointer<UInt32>?, UnsafeMutablePointer<UInt32>?) -> Int32
     private typealias FnReadData = @convention(c) (Handle?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt32>?) -> Int32
+    private typealias FnQueryDataAvailable = @convention(c) (Handle?, UnsafeMutablePointer<UInt32>?) -> Int32
     private typealias FnCloseHandle = @convention(c) (Handle?) -> Int32
     private typealias FnQueryAuthSchemes = @convention(c) (Handle?, UnsafeMutablePointer<UInt32>?, UnsafeMutablePointer<UInt32>?,
                                                            UnsafeMutablePointer<UInt32>?) -> Int32
@@ -763,7 +780,8 @@ enum WinHTTPFetch {
     private struct API: @unchecked Sendable {
         let open: FnOpen, connect: FnConnect, openRequest: FnOpenRequest, setTimeouts: FnSetTimeouts, setOption: FnSetOption
         let queryOption: FnQueryOption, send: FnSendRequest, receive: FnReceiveResponse, queryHeaders: FnQueryHeaders
-        let read: FnReadData, close: FnCloseHandle, queryAuthSchemes: FnQueryAuthSchemes, setCredentials: FnSetCredentials
+        let read: FnReadData, queryDataAvailable: FnQueryDataAvailable, close: FnCloseHandle, queryAuthSchemes: FnQueryAuthSchemes
+        let setCredentials: FnSetCredentials
     }
 
     // winhttp.h (Windows SDK 10.0.26100)
@@ -808,6 +826,7 @@ enum WinHTTPFetch {
               let setOption = fn("WinHttpSetOption", FnSetOption.self), let queryOption = fn("WinHttpQueryOption", FnQueryOption.self),
               let send = fn("WinHttpSendRequest", FnSendRequest.self), let receive = fn("WinHttpReceiveResponse", FnReceiveResponse.self),
               let queryHeaders = fn("WinHttpQueryHeaders", FnQueryHeaders.self), let read = fn("WinHttpReadData", FnReadData.self),
+              let queryDataAvailable = fn("WinHttpQueryDataAvailable", FnQueryDataAvailable.self),
               let close = fn("WinHttpCloseHandle", FnCloseHandle.self),
               let queryAuthSchemes = fn("WinHttpQueryAuthSchemes", FnQueryAuthSchemes.self),
               let setCredentials = fn("WinHttpSetCredentials", FnSetCredentials.self)
@@ -816,8 +835,8 @@ enum WinHTTPFetch {
             return nil
         }
         return API(open: open, connect: connect, openRequest: openRequest, setTimeouts: setTimeouts, setOption: setOption,
-                   queryOption: queryOption, send: send, receive: receive, queryHeaders: queryHeaders, read: read, close: close,
-                   queryAuthSchemes: queryAuthSchemes, setCredentials: setCredentials)
+                   queryOption: queryOption, send: send, receive: receive, queryHeaders: queryHeaders, read: read,
+                   queryDataAvailable: queryDataAvailable, close: close, queryAuthSchemes: queryAuthSchemes, setCredentials: setCredentials)
     }
 }
 #endif
