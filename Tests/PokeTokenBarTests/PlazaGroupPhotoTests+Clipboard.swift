@@ -1,6 +1,5 @@
-// PlazaGroupPhotoTests+Mac: the tests that expect the photo on the clipboard writer; that needs a PNG codec, which the Windows stub graphics do not have
+// PlazaGroupPhotoTests+Clipboard: the tests that expect the photo on the clipboard writer (shared since the Windows PNG encoder exists)
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 extension PlazaGroupPhotoTests {
