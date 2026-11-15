@@ -97,8 +97,10 @@ extension WindowsSelftestPopover {
 
     private static var spriteIdleWindow: KitWindow?
 
-    private static func frameDiff(_ a: WinUIDump.Bitmap, _ b: WinUIDump.Bitmap) -> (count: Int, box: (w: Int, h: Int)) {
-        guard a.width == b.width, a.height == b.height else { return (-1, (0, 0)) }
+    struct FrameDiff { var count: Int; var w: Int; var h: Int }
+
+    private static func frameDiff(_ a: WinUIDump.Bitmap, _ b: WinUIDump.Bitmap) -> FrameDiff {
+        guard a.width == b.width, a.height == b.height else { return FrameDiff(count: -1, w: 0, h: 0) }
         var count = 0, minX = Int.max, maxX = -1, minY = Int.max, maxY = -1
         for y in 0..<a.height {
             for x in 0..<a.width {
@@ -108,7 +110,7 @@ extension WindowsSelftestPopover {
                 }
             }
         }
-        return (count, count == 0 ? (0, 0) : (maxX - minX + 1, maxY - minY + 1))
+        return FrameDiff(count: count, w: count == 0 ? 0 : maxX - minX + 1, h: count == 0 ? 0 : maxY - minY + 1)
     }
 
     static func spriteChecks(_ r: WindowsSelftest.Recorder) async {
@@ -150,8 +152,8 @@ extension WindowsSelftestPopover {
         let slotPx = Int((80 * scale).rounded()) * Int(((80 + 3) * scale).rounded())
         let wholePx = Int(view.pixelSize.cx) * Int(view.pixelSize.cy)
         let avgPaint = paints > 0 ? paintPx / paints : -1
-        let diff = shotA.flatMap { a in shotB.map { frameDiff(a, $0) } } ?? (-1, (0, 0))
-        let boxOK = diff.box.w <= Int((80 * scale).rounded()) + 2 && diff.box.h <= Int((80 * scale).rounded()) + 2
+        let diff = shotA.flatMap { a in shotB.map { frameDiff(a, $0) } } ?? FrameDiff(count: -1, w: 0, h: 0)
+        let boxOK = diff.w <= Int((80 * scale).rounded()) + 2 && diff.h <= Int((80 * scale).rounded()) + 2
         let glyphs = animator.stats.glyphs
         let framesOK = abs(ticks - expected) <= max(2, expected / 10) && abs(inv - ticks) <= 2 && abs(paints - ticks) <= max(2, ticks / 10)
         let areaOK = avgPaint > 0 && avgPaint <= slotPx && avgPaint * 3 < wholePx
@@ -166,7 +168,7 @@ extension WindowsSelftestPopover {
         r.add("companion.spriteFrames", framesOK && areaOK && diff.count > 0 && boxOK && glyphs > 0 && negFails && animator.stats.drawn > 0,
               "GIF \(frameCount) frames, \(loop) s per loop, fixture; \(Int(seconds)) s at scale \(scale): clock ticks=\(ticks) (expected \(expected) +-\(max(2, expected / 10))), slot invalidations=\(inv), paints=\(paints); "
               + "paint area per paint=\(avgPaint) px (slot rect \(slotPx) px, whole picture \(wholePx) px); frames drawn=\(animator.stats.drawn), scaled once each=\(animator.stats.scales), egg glyph paints=\(glyphs); "
-              + "capture A frame \(indexA) / B frame \(indexB): \(diff.count) px differ, in a box \(diff.box.w)x\(diff.box.h) px (slot \(Int((80 * scale).rounded())) px); "
+              + "capture A frame \(indexA) / B frame \(indexB): \(diff.count) px differ, in a box \(diff.w)x\(diff.h) px (slot \(Int((80 * scale).rounded())) px); "
               + "negative control (whole-window invalidation) average=\(negAvg) px -> area check fails=\(negFails)")
 
         // --- companion.clockStops: scrolled out, hidden (another page), animation off, closed -> no ticks, no timer.
