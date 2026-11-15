@@ -1,8 +1,9 @@
 # A failed update brings the old app back (windows-app.yml, step id failed-update-relaunch, full level).
 # Setup runs as the in-app update will run it (stage 8 D8 step 6: /SILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER
 # /PTBRELAUNCHONFAIL=1 /LOG="..."), over the installed vN while it runs. Scenarios:
-#   fresh           a first install with today's switches: no previous app, nothing started (the [Code] path a
-#                   double-click takes, without the wizard pages).
+#   wizard          a first install as a double-click runs it (the wizard, clicked through with UI Automation): no
+#                   previous app, no relaunch from [Code], and the Finish page starts the app.
+#   fresh           a first install with the CI steps' silent switches: no previous app, nothing started.
 #   minVersion      a copy of the shipped script with MinVersion one build above this runner: Setup refuses (exit 1)
 #                   before any [Code] runs, so it neither closes the running app nor starts one.
 #   failBeforeCopy  test build PTBTestFailInstall: exit 7; the app was closed, no file was touched, and the same
@@ -46,7 +47,7 @@ function Read-SetupLog([string]$Path) {
     $text = if (Test-Path $Path) { Get-Content $Path -Raw } else { '' }
     # The lines that tell what Setup did, for the job log.
     foreach ($line in $text -split "`r?`n") {
-        if ($line -match 'PTB update:|PTB relaunch:|PTBTest|InitializeSetup|Rolling back|suppressed message box|User canceled|Installation process succeeded|Windows version:|does not support') { "  setup: $line" | Write-Host }
+        if ($line -match 'PTB update:|PTB relaunch:|PTBTest|InitializeSetup|Rolling back|suppressed message box|User canceled|Installation process succeeded|Setup version:|Windows version:|does not support') { "  setup: $line" | Write-Host }
     }
     $text
 }
@@ -105,7 +106,7 @@ function Invoke-Scenario([string]$Name, [scriptblock]$Body) {
 
 # The test builds (and the MinVersion probe), from bundle-next, side by side.
 $iscc = Get-Iscc
-"ISCC $((Get-Item $iscc).VersionInfo.ProductVersion): $iscc"
+"ISCC: $iscc (the Inno version is the 'Setup version' line of each setup log)"
 $shipped = Get-Content (Join-Path $root 'installer\PokeTokenBar.iss') -Raw
 $probeIss = Join-Path $root 'installer\ptb-minversion-probe.iss'
 Set-Content -Path $probeIss -NoNewline -Value ($shipped -replace '(?m)^MinVersion=10\.0\.19045(\r?)$', "MinVersion=10.0.$($build + 1)`$1")
@@ -127,6 +128,22 @@ $failCopy = Join-Path $out['fail-copy'] "PokeTokenBar-Setup-$NextVersion-win-x64
 $probe = Join-Path $out['minversion-probe'] "PokeTokenBar-Setup-$NextVersion-win-x64.exe"
 $names = foreach ($c in $compiled) { (Get-ChildItem $c.Out -Filter *.exe).Name -join ',' }
 Assert-That ((Test-Path $failPrepare) -and (Test-Path $failCopy) -and (Test-Path $probe)) 'build.testInstallers' "test builds carry TESTFAIL in the name: $($names -join '; ')"
+
+Invoke-Scenario 'wizard' {
+    Stop-Apps
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $PtbInstallDir, $aside
+    $log = Join-Path $LogDir 'wizard.log'
+    $code = Invoke-SetupWizard $setupV $log
+    $text = Read-SetupLog $log
+    Assert-That ($code -eq 0 -and (Get-InstalledVersion) -eq $Version) 'wizard.installed' "exit $code, version $(Get-InstalledVersion)"
+    Assert-That ($text -match 'PTB update: no previous app' -and $text -match 'PTB update: setup finished' -and $text -match 'PTB relaunch: no \(setup finished\)') 'wizard.defaultPath' 'no previous app; setup finished; relaunch: no (setup finished)'
+    $new = Wait-OtherApp -Seconds 30
+    Assert-That ($null -ne $new) 'wizard.finishLaunches' 'the Finish page started the app (its launch box is checked by default)'
+    $p, $h = $new
+    $id = Get-ProcessIdentity $p.Id
+    Assert-That ($p.Path -eq $exe -and $id -eq $me) 'wizard.startedAsUser' "$($p.Path); $id"
+    Close-App $p $h
+}
 
 Invoke-Scenario 'fresh' {
     Stop-Apps
@@ -175,9 +192,9 @@ Invoke-Scenario 'failBeforeCopy' {
     $changed = Compare-FolderFileIds $ids (Get-FolderFileIds $PtbInstallDir)
     $dest = ([regex]::Matches($text, 'Dest filename:')).Count
     Assert-That ($changed.Count -eq 0 -and $dest -eq 0) 'failBeforeCopy.noFileTouched' "files with a new id: $($changed.Count) of $($ids.Count); 'Dest filename' lines in the setup log: $dest"
-    Assert-That ($text -match 'PTBTestFailInstall: stopping in PrepareToInstall' -and $text -match 'PTB relaunch: started') 'failBeforeCopy.setupLog' 'PrepareToInstall stopped Setup; DeinitializeSetup: PTB relaunch: started'
     Assert-Started 'failBeforeCopy' $old $Version
     Assert-That ((Get-AppLogCount 'duplicate instance') -eq $dups) 'failBeforeCopy.noSecondStart' "duplicate-instance lines $dups -> $(Get-AppLogCount 'duplicate instance')"
+    Assert-That ($text -match 'PTBTestFailInstall: stopping in PrepareToInstall' -and $text -match 'PTB relaunch: started') 'failBeforeCopy.setupLog' 'PrepareToInstall stopped Setup; DeinitializeSetup: PTB relaunch: started'
 }
 
 Invoke-Scenario 'failControl' {
@@ -205,12 +222,12 @@ Invoke-Scenario 'failDuringCopy' {
     $text = Read-SetupLog $log
     Assert-That ($code -eq 5) 'failDuringCopy.exit' "exit $code"
     Assert-OldClosed 'failDuringCopy' $old $closes
-    $written = ([regex]::Matches($text, 'Successfully installed the file')).Count
-    Assert-That ($text -match 'PTB update: moved the previous app aside' -and $text -match 'Dest filename: .*\\PokeTokenBar\.exe' -and $written -gt 0 -and $text -match 'Rolling back changes') 'failDuringCopy.failedAfterTheExe' "the previous folder moved aside; $written files written (the exe among them) before the copy failed; Inno rolled back"
-    Assert-That ($text -match 'PTB update: put the previous app back' -and $text -match 'PTB relaunch: started') 'failDuringCopy.setupLog' 'PTB update: put the previous app back; PTB relaunch: started'
     $changed = Compare-FolderFileIds $ids (Get-FolderFileIds $PtbInstallDir)
     Assert-That ($changed.Count -eq 0 -and -not (Test-Path $aside)) 'failDuringCopy.previousFolderBack' "files with a new id: $($changed.Count) of $($ids.Count) ($(($changed | Select-Object -First 6) -join ', ')); $aside left: $(Test-Path $aside)"
     Assert-Started 'failDuringCopy' $old $Version
+    $written = ([regex]::Matches($text, 'Successfully installed the file')).Count
+    Assert-That ($text -match 'PTB update: moved the previous app aside' -and $text -match 'Dest filename: .*\\PokeTokenBar\.exe' -and $written -gt 0 -and $text -match 'Rolling back changes') 'failDuringCopy.failedAfterTheExe' "the previous folder moved aside; $written files written (the exe among them) before the copy failed; Inno rolled back"
+    Assert-That ($text -match 'PTB update: put the previous app back' -and $text -match 'PTB relaunch: started') 'failDuringCopy.setupLog' 'PTB update: put the previous app back; PTB relaunch: started'
 }
 
 Invoke-Scenario 'lockedFile' {
@@ -233,13 +250,13 @@ Invoke-Scenario 'lockedFile' {
         $text = Read-SetupLog $log
         Assert-That ($code -eq 5) 'lockedFile.exit' "exit $code"
         Assert-OldClosed 'lockedFile' $old $closes
-        Assert-That ($text -match 'PTB update: could not move' -and $text -match 'Rolling back changes' -and $text -match 'PTB relaunch: started') 'lockedFile.setupLog' 'could not move the folder aside; updated in place; Inno rolled back; PTB relaunch: started'
         $changed = Compare-FolderFileIds $ids (Get-FolderFileIds $PtbInstallDir)
         Assert-That ($changed -notcontains 'PokeTokenBar.exe' -and $changed -notcontains 'PokeTokenBar.version') 'lockedFile.exeAndVersionKept' "replaced in place before the failure and left so (Inno keeps no copy): $($changed.Count) of $($ids.Count) files ($(($changed | Select-Object -First 8) -join ', ')); the exe and the version file are the previous ones"
     } finally {
         Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
     }
     Assert-Started 'lockedFile' $old $Version
+    Assert-That ($text -match 'PTB update: could not move' -and $text -match 'Rolling back changes' -and $text -match 'PTB relaunch: started') 'lockedFile.setupLog' 'could not move the folder aside; updated in place; Inno rolled back; PTB relaunch: started'
 }
 
 Invoke-Scenario 'updateOk' {

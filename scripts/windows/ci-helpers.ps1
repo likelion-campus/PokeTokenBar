@@ -135,6 +135,37 @@ function Compare-FolderFileIds($Before, $After) {
     @(@($Before.Keys) + @($After.Keys) | Sort-Object -Unique | Where-Object { $Before[$_] -ne $After[$_] })
 }
 
+# Runs a setup exe with its wizard (a double-click; only /LOG added) and clicks it through with UI Automation:
+# Next on every page, Install, Finish (the Finish page's launch box stays as Setup sets it). Exit code.
+function Invoke-SetupWizard([string]$Setup, [string]$LogFile, [int]$TimeoutSec = 180) {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $ae = [System.Windows.Automation.AutomationElement]
+    $p = Start-Process -FilePath $Setup -ArgumentList "/LOG=`"$LogFile`"" -PassThru
+    $null = $p.Handle
+    $wizardCond = New-Object System.Windows.Automation.PropertyCondition($ae::ClassNameProperty, 'TWizardForm')
+    $buttonCond = New-Object System.Windows.Automation.PropertyCondition($ae::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+    $clicked = @()
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while (-not $p.HasExited) {
+        if ((Get-Date) -gt $deadline) { Stop-Process -Id $p.Id -Force; throw "the wizard did not finish in $TimeoutSec s (clicked: $($clicked -join ', '))" }
+        $wizard = $ae::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children, $wizardCond)
+        if ($wizard) {
+            $buttons = @($wizard.FindAll([System.Windows.Automation.TreeScope]::Descendants, $buttonCond) |
+                Where-Object { $_.Current.IsEnabled -and -not $_.Current.IsOffscreen -and $_.Current.Name -match '^&?(Next|Install|Finish)' })
+            if ($buttons.Count) {
+                $b = $buttons[0]
+                $clicked += $b.Current.Name
+                $b.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+                Start-Sleep -Milliseconds 800
+                continue
+            }
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    "wizard buttons clicked: $($clicked -join ' > ')" | Write-Host
+    $p.ExitCode
+}
+
 # A PokeTokenBar process other than the given ids, with its sink window: @(process, hwnd), or $null after $Seconds.
 function Wait-OtherApp([int[]]$NotIds = @(), [int]$Seconds = 30) {
     for ($i = 0; $i -lt $Seconds * 5; $i++) {
