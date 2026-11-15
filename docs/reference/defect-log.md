@@ -2525,3 +2525,9 @@ read_when:
   **고침:** `blockNetwork(for: self)` 가 `addTeardownBlock` 으로 해제를 건다(호출 4곳). **부류 스윕:** 나머지 `registerClass` 사용처(`ClaudeOAuthFileCredentialTests`, `SpriteAnimationRecoveryTests`,
   `OneShotDataMacTests`, `CredentialSwitchCacheTests`)는 모두 같은 파일에서 `unregisterClass` 한다 — 오염원은 `NoNetwork` 하나였다.
   **영구 캡처:** `NetworkProtocolScanTests` — `registerClass` 가 있는 테스트 파일에 `unregisterClass` 가 없으면 실패(해제를 지우는 주입으로 실패 확인). **규칙:** 프로세스 전역 상태(URLProtocol 등록·환경변수·공유 훅)는 설정하는 쪽이 같은 테스트 안에서 되돌린다.
+
+- **`WindowsPlazaClipboardTests.testABusyClipboardFailsHonestly` 가 러너에서 가끔 실패했다(0.0493 초 < 0.05 초) — 테스트의 하한이 타이머 눈금보다 촘촘했다.** `clipboard.cpp` 의 `openWithRetry` 는
+  `GetTickCount64` 로 제한 시간을 잰다. 이 카운터는 타이머 틱(최대 15.6 ms) 단위로만 올라가므로 60 ms 제한은 실제 시간 44.4~60 ms 뒤에 끝날 수 있다. 테스트는 "50 ms 이상 재시도했다"를 요구해 틱 경계에 따라 실패했다
+  (#207 이후 실행 43774484787). 제품 동작은 맞다 — 제한 시간은 "대략 이만큼"이고 사용자에게는 300 ms 한도의 16 ms 차이다. **왜 못 걸렀나:** 작업 브랜치의 몇 번 실행에서는 우연히 틱이 맞았다.
+  **고침:** 하한을 제한 시간에서 한 틱을 뺀 40 ms 로 둔다. **부류 스윕:** 윈도 테스트의 경과 시간 하한은 그 밖에 `WindowsHTTPFetchTests` 의 두 곳(10 초 중 8 초, 3 초 중 2.5 초)뿐이고 여유가 0.5 초 이상이다.
+  **규칙:** 윈도에서 `GetTickCount64`·`Sleep` 으로 잰 시간에 하한을 걸 때는 한 틱(16 ms)을 빼고 건다.
