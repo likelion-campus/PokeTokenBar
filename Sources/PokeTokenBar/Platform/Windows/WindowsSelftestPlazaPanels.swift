@@ -261,8 +261,8 @@ extension WindowsSelftest {
         r.add("plaza.wheel", wheelOK && boardOK, wheelLine + "; " + boardLine)
 
         // plaza.hover: the system tooltip of a roster slot after the mouse rests on it (TTM_GETTEXT; the popup is reported).
-        await pumpPanels(0.4)
-        await seedRoster()
+        b.rosterModel.entries = fixtureRoster
+        await pumpPanels(0.12)
         var hoverOK = false
         var hoverLine = "no tooltip tool"
         if let tooltips = shell.tooltipsForTesting, let tip = panels.tips.first, let index = panels.tips.firstIndex(of: tip) {
@@ -272,11 +272,13 @@ extension WindowsSelftest {
             _ = ClientToScreen(hwnd, &screen)
             if onCI { _ = SetCursorPos(screen.x, screen.y) }
             let l = packed(centre)
-            for _ in 0..<5 { _ = SendMessageW(hwnd, 0x0200, 0, l); await pumpPanels(0.1) }
-            _ = await waitUntil(timeout: 2.0) { tooltips.isShowing }
+            for _ in 0..<3 { _ = SendMessageW(hwnd, 0x0200, 0, l); await pumpPanels(0.05) }
+            // TTM_GETTEXT at once (the controller's 1 s refresh rewrites the roster fixture; the tool must be read before it)
             let text = tooltips.text(of: index)
-            hoverOK = text == tip.text && tooltips.count == panels.tips.count
-            hoverLine = "tool \(index) of \(tooltips.count): TTM_GETTEXT '\(text ?? "nil")' expected '\(tip.text)'; popup showing after the rest: \(tooltips.isShowing), current tool \(tooltips.currentIndex.map(String.init) ?? "none"), rebuilds \(tooltips.rebuilds); focus stayed on the plaza: \(GetFocus() == hwnd || !onCI)"
+            let count = tooltips.count, tipCount = panels.tips.count
+            hoverOK = text == tip.text && count == tipCount
+            _ = await waitUntil(timeout: 1.5) { tooltips.isShowing }
+            hoverLine = "tool \(index) of \(count): TTM_GETTEXT '\(text ?? "nil")' expected '\(tip.text)'; popup showing after the rest: \(tooltips.isShowing), current tool \(tooltips.currentIndex.map(String.init) ?? "none") (reported, not judged: it needs the real cursor); rebuilds \(tooltips.rebuilds); focus stayed on the plaza: \(GetFocus() == hwnd || !onCI)"
         }
         r.add("plaza.hover", hoverOK, hoverLine)
 
