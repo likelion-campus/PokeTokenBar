@@ -220,7 +220,7 @@ import Foundation
         guard let e = entries[id] else { return false }
         if isHidden(id), !WinPanelFaults.has(.hiddenStillHit) { return false }
         if Self.swallowing.contains(id) {
-            return WinPanelFaults.has(.coverNotFullWindow) ? e.frame.contains(point) : true
+            return e.frame.contains(point)   // SCRATCH FAULT F5: the cover covers only its plate
         }
         if WinPanelFaults.has(.topPanelTakesHit) { return true }
         if isHidden(id) { return e.frame.contains(point) }
@@ -254,12 +254,14 @@ import Foundation
             guard let id = host(at: e.location) else { captured = nil; return false }
             captured = id
             counts.routed += 1
+            if id == .board { return true }   // SCRATCH FAULT F1: the board's own hits never reach the HUD
             _ = hud.handleMouse(e, in: id)
             return true   // a host that takes the press owns it, even where the HUD reports no hit (the covers)
         case .up:
             guard let id = captured else { return false }
             captured = nil
             counts.routed += 1
+            if id == .board { hud.onAction?(.board, PlazaPanelHit(action: "react", index: 0)); return true }   // SCRATCH FAULT F2: every board click acts
             return hud.handleMouse(e, in: id)
         case .moved:
             if let id = captured {
@@ -279,6 +281,7 @@ import Foundation
         case .scroll:
             guard let id = host(at: e.location) else { return false }
             counts.routed += 1
+            if id == .chatLog { return true }   // SCRATCH FAULT F4: the chat log's wheel goes nowhere
             let taken = hud.handleMouse(e, in: id)
             if taken { return true }
             if Self.swallowing.contains(id) { counts.swallowed += 1; return true }

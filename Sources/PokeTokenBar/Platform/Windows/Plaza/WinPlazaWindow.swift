@@ -512,7 +512,7 @@ import WinSDK
     /// The shown panels' hover texts as tools in client pixels (replaced only when the list differs).
     private func updateTooltips() {
         guard let tooltips, let panels else { return }
-        let scale = CGFloat(dpi) / 96
+        let scale: CGFloat = 1   // SCRATCH FAULT F3: tooltip tools ignore the DPI
         tooltips.set(panels.tips.map { tip in
             WinPlazaTooltips.Tip(rect: [Int32(tip.frame.minX * scale), Int32(tip.frame.minY * scale),
                                         Int32((tip.frame.maxX * scale).rounded(.up)), Int32((tip.frame.maxY * scale).rounded(.up))],
