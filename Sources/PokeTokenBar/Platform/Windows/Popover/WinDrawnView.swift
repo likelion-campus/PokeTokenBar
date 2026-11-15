@@ -1,0 +1,308 @@
+#if os(Windows)
+import Foundation
+import WinSDK
+
+/// The host of a drawn part (stage 7 D7): a child window showing a `PopoverDrawing` made at the window's DPI. The layers
+/// are composed into one premultiplied 32-bpp top-down DIB (`PopoverComposite`) and `WM_PAINT` alpha-blends it over the
+/// background, 1:1. Every accessibility item becomes a real child: a button item an owner-drawn button (a Tab stop; its
+/// label is its window text; Enter or Space press it; the press is the item's hit), a text item an owner-drawn static
+/// (read by Narrator as its text). Each paints the picture under it, so the part looks the same with them on top. The
+/// drawing's tooltips become tooltip tools; a click reports `hitTest`'s hit to `onHit`. Sprite slots are left to the
+/// animator (Task 8): `spriteSlots`, `paintOverlay`, `invalidate(dip:)`. Paints only when shown again or invalidated.
+@MainActor final class WinDrawnView {
+    static let className = "PokeTokenBarDrawn"
+
+    let window: WinSinkWindow
+    var hwnd: HWND { window.hwnd }
+    let ctx: WinUIContext
+    /// What is behind the picture (the card or the window).
+    var background: COLORREF
+    var onHit: ((PlazaPanelHit) -> Void)?
+    /// What a click at a point (DIP, part coordinates) hits.
+    var hitTest: ((CGPoint) -> PlazaPanelHit?)?
+    /// Draws over the picture after it is blitted (sprite frames, Task 8).
+    var paintOverlay: ((HDC) -> Void)?
+    /// The view as a control a `WinStack` row places.
+    private(set) var control: WinControl!
+
+    private(set) var drawing: PopoverDrawing?
+    private(set) var items: [WinControl] = []
+    private var itemData: [PlazaAccessibilityItem] = []
+    private(set) var pixelSize = SIZE(cx: 0, cy: 0)
+    private var memDC: HDC?
+    private var bitmap: HBITMAP?
+    private var oldBitmap: HGDIOBJ?
+    private var bits: UnsafeMutableRawPointer?
+    private var router: WinControlRouter?
+    private var pressed: PlazaPanelHit?
+    private var hosted: (any PopoverPart)?
+    private var hostedWidth: CGFloat = 0
+    private var renderPending = false
+    private(set) var isDestroyed = false
+
+    struct Stats: Equatable { var paints = 0, composes = 0, itemBuilds = 0, itemMoves = 0, hits = 0, renders = 0 }
+    private(set) var stats = Stats()
+
+    init(parent: HWND, ctx: WinUIContext) throws {
+        self.ctx = ctx
+        background = ctx.colors.palette.window
+        let style: DWORD = 0x4000_0000 | 0x1000_0000 | 0x0200_0000  // WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN
+        window = try WinSinkWindow(className: Self.className, title: "", style: style, exStyle: 0x0001_0000 /* WS_EX_CONTROLPARENT */,
+                                   x: 0, y: 0, width: 1, height: 1, parent: parent)
+        router = WinControlRouter(window: window)
+        control = WinControls.drawn(window.hwnd, size: .zero, ctx: ctx) { [weak self] r in self?.place(r) }
+        control.onDestroy = { [weak self] in self?.destroy() }  // a page that destroys its controls frees the picture too
+        window.on(0x0014 /* WM_ERASEBKGND */) { _, _ in 1 }
+        window.on(0x000F /* WM_PAINT */) { [weak self] _, _ in self?.onPaint() }
+        window.on(0x0201 /* WM_LBUTTONDOWN */) { [weak self] _, lParam in
+            guard let self else { return nil }
+            self.pressed = self.hitTest?(self.dip(WinKit.point(lParam)))
+            _ = SetCapture(self.hwnd)
+            return 0
+        }
+        window.on(0x0202 /* WM_LBUTTONUP */) { [weak self] _, lParam in
+            guard let self else { return nil }
+            let was = self.pressed
+            self.pressed = nil
+            if GetCapture() == self.hwnd { _ = ReleaseCapture() }
+            if let was, self.hitTest?(self.dip(WinKit.point(lParam))) == was { self.report(was) }
+            return 0
+        }
+        window.on(0x0215 /* WM_CAPTURECHANGED */) { [weak self] _, _ in self?.pressed = nil; return nil }
+        window.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
+    }
+
+    /// The picture's size in DIP (a part's `size(width:scale:text:)`).
+    func setSize(_ dip: CGSize) {
+        let w = Int32((dip.width * ctx.scale).rounded()), h = Int32((dip.height * ctx.scale).rounded())
+        pixelSize = SIZE(cx: max(0, w), cy: max(0, h))
+        control.preferredSize = CGSize(width: CGFloat(pixelSize.cx), height: CGFloat(pixelSize.cy))
+        _ = SetWindowPos(hwnd, nil, 0, 0, pixelSize.cx, pixelSize.cy, UINT(SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE))
+    }
+
+    /// Shows a drawing at the current size: composes the picture, makes or moves the accessibility children, sets the
+    /// tooltips and repaints.
+    func show(_ drawing: PopoverDrawing) {
+        guard !isDestroyed else { return }
+        self.drawing = drawing
+        compose(drawing.drawing.layers)
+        updateItems(drawing.drawing.accessibility)
+        updateTooltips(drawing.drawing.tooltips)
+        _ = InvalidateRect(hwnd, nil, false)
+    }
+
+    /// Hosts a part: measures it at `width` DIP, renders it at the window's scale, shows it, and renders again (once per
+    /// main-queue turn) whenever the part says it changed.
+    func host(_ part: any PopoverPart, width: CGFloat) {
+        hosted = part
+        hostedWidth = width
+        part.onChange = { [weak self] in self?.scheduleRender() }
+        hitTest = { [weak part] point in part?.hit(point) }
+        render()
+    }
+
+    var spriteSlots: [SpriteSlot] { drawing?.spriteSlots ?? [] }
+
+    /// Repaints only `r` (DIP): a sprite slot's frame.
+    func invalidate(dip r: CGRect) {
+        var px = WinKit.rect(CGRect(x: r.minX * ctx.scale, y: r.minY * ctx.scale, width: r.width * ctx.scale, height: r.height * ctx.scale))
+        _ = InvalidateRect(hwnd, &px, false)
+    }
+
+    /// The composed picture's pixel (B, G, R, A premultiplied) at `x`, `y` (the selftest reads it).
+    func pixel(x: Int, y: Int) -> [UInt8]? {
+        guard let bits, x >= 0, y >= 0, x < Int(pixelSize.cx), y < Int(pixelSize.cy) else { return nil }
+        _ = GdiFlush()
+        let o = (y * Int(pixelSize.cx) + x) * 4
+        return (0..<4).map { bits.load(fromByteOffset: o + $0, as: UInt8.self) }
+    }
+
+    func destroy() {
+        guard !isDestroyed else { return }
+        isDestroyed = true
+        for item in items { item.destroy() }
+        items = []
+        ctx.tooltips.removeAll(in: hwnd)
+        releaseBitmap()
+        router?.detach()
+        router = nil
+        hosted?.onChange = nil
+        hosted = nil
+        control.destroy()
+    }
+
+    // MARK: - picture
+
+    private func compose(_ layers: [PlazaPanelLayer]) {
+        stats.composes += 1
+        let w = Int(pixelSize.cx), h = Int(pixelSize.cy)
+        guard w > 0, h > 0 else { releaseBitmap(); return }
+        let made = Self.size(of: bitmap)
+        if bitmap == nil || made.cx != pixelSize.cx || made.cy != pixelSize.cy { makeBitmap() }
+        guard let bits else { return }
+        let bytes = PopoverComposite.compose(layers, width: w, height: h, scale: ctx.scale)
+        _ = GdiFlush()
+        bytes.withUnsafeBytes { bits.copyMemory(from: $0.baseAddress!, byteCount: min($0.count, w * h * 4)) }
+    }
+
+    private func makeBitmap() {
+        releaseBitmap()
+        var info = BITMAPINFO()
+        info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
+        info.bmiHeader.biWidth = pixelSize.cx
+        info.bmiHeader.biHeight = -pixelSize.cy  // top-down: row 0 first, as PlazaBitmap
+        info.bmiHeader.biPlanes = 1
+        info.bmiHeader.biBitCount = 32
+        info.bmiHeader.biCompression = 0  // BI_RGB
+        guard let dc = CreateCompatibleDC(nil) else { return }
+        var p: UnsafeMutableRawPointer?
+        guard let b = CreateDIBSection(dc, &info, 0 /* DIB_RGB_COLORS */, &p, nil, 0), p != nil else {
+            AppLog.write("popover kit: CreateDIBSection \(pixelSize.cx)x\(pixelSize.cy) failed: \(GetLastError())")
+            _ = DeleteDC(dc)
+            return
+        }
+        memDC = dc
+        bitmap = b
+        bits = p
+        oldBitmap = SelectObject(dc, UnsafeMutableRawPointer(b))
+    }
+
+    private func releaseBitmap() {
+        if let dc = memDC {
+            _ = SelectObject(dc, oldBitmap)
+            _ = DeleteDC(dc)
+        }
+        if let b = bitmap { _ = DeleteObject(UnsafeMutableRawPointer(b)) }
+        memDC = nil
+        bitmap = nil
+        bits = nil
+        oldBitmap = nil
+    }
+
+    private static func size(of bitmap: HBITMAP?) -> SIZE {
+        var bm = BITMAP()
+        guard let bitmap, GetObjectW(UnsafeMutableRawPointer(bitmap), Int32(MemoryLayout<BITMAP>.size), &bm) != 0 else { return SIZE(cx: 0, cy: 0) }
+        return SIZE(cx: bm.bmWidth, cy: bm.bmHeight)
+    }
+
+    private func onPaint() -> LRESULT {
+        var ps = PAINTSTRUCT()
+        guard let dc = BeginPaint(hwnd, &ps) else { return 0 }
+        stats.paints += 1
+        var r = ps.rcPaint
+        _ = FillRect(dc, &r, ctx.colors.brush(background))
+        blit(into: dc, from: POINT(x: 0, y: 0), size: pixelSize, at: POINT(x: 0, y: 0))
+        paintOverlay?(dc)
+        _ = EndPaint(hwnd, &ps)
+        return 0
+    }
+
+    /// `AlphaBlend` (premultiplied source, `AC_SRC_ALPHA`) of a piece of the picture.
+    private func blit(into dc: HDC?, from source: POINT, size: SIZE, at dest: POINT) {
+        guard let memDC, size.cx > 0, size.cy > 0 else { return }
+        let blend = BLENDFUNCTION(BlendOp: 0 /* AC_SRC_OVER */, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */)
+        _ = GdiAlphaBlend(dc, dest.x, dest.y, size.cx, size.cy, memDC, source.x, source.y, size.cx, size.cy, blend)
+    }
+
+    // MARK: - accessibility children
+
+    private func updateItems(_ new: [PlazaAccessibilityItem]) {
+        let sameItems = new.count == itemData.count && zip(new, itemData).allSatisfy { $0.sameExceptFrame($1) }
+        if !sameItems {
+            let focusedIndex = items.firstIndex { $0.hwnd == GetFocus() }
+            for item in items { item.destroy() }
+            items = []
+            stats.itemBuilds += 1
+            for item in new where item.role != .scrollArea {
+                guard let c = WinControls.drawnItem(item, in: hwnd, ctx: ctx) else { continue }
+                c.background = background
+                let action = item.action
+                c.onClick = { [weak self] in if let action { self?.report(action) } }
+                c.drawItem = { [weak self, weak c] dis in
+                    guard let self, let c else { return }
+                    self.paintItem(c, dis)
+                }
+                items.append(c)
+            }
+            if let i = focusedIndex, i < items.count { _ = SetFocus(items[i].hwnd) }
+        } else {
+            stats.itemMoves += 1
+        }
+        itemData = new
+        for (c, item) in zip(items, new.filter { $0.role != .scrollArea }) {
+            let r = PopoverComposite.pixelRect(item.frame, scale: ctx.scale)
+            WinKit.move(c.hwnd, RECT(left: Int32(r.x), top: Int32(r.y), right: Int32(r.x + r.width), bottom: Int32(r.y + r.height)))
+            _ = InvalidateRect(c.hwnd, nil, false)
+        }
+    }
+
+    /// An item paints the picture under it, then its focus rectangle when the keyboard put the focus there.
+    private func paintItem(_ c: WinControl, _ dis: UnsafeMutablePointer<DRAWITEMSTRUCT>) {
+        let d = dis.pointee
+        var r = d.rcItem
+        _ = FillRect(d.hDC, &r, ctx.colors.brush(background))
+        let at = WinKit.rect(c.hwnd, in: hwnd)
+        blit(into: d.hDC, from: POINT(x: at.left, y: at.top), size: SIZE(cx: r.right - r.left, cy: r.bottom - r.top), at: POINT(x: 0, y: 0))
+        if d.itemState & 0x0010 != 0, d.itemState & 0x0200 == 0 {  // ODS_FOCUS, not ODS_NOFOCUSRECT
+            var f = d.rcItem
+            _ = InflateRect(&f, -1, -1)
+            _ = DrawFocusRect(d.hDC, &f)
+        }
+    }
+
+    private func updateTooltips(_ tooltips: [PlazaTooltip]) {
+        ctx.tooltips.removeAll(in: hwnd)
+        for (i, tip) in tooltips.enumerated() {
+            let r = PopoverComposite.pixelRect(tip.frame, scale: ctx.scale)
+            ctx.tooltips.setRect(tip.text, id: i + 1, rect: RECT(left: Int32(r.x), top: Int32(r.y), right: Int32(r.x + r.width), bottom: Int32(r.y + r.height)),
+                                 in: hwnd)
+            // A button item over the tooltip's rect takes the mouse there: it carries the same text.
+            for (c, item) in zip(items, itemData.filter { $0.role != .scrollArea }) where c.kind == .drawnItem && tip.frame.contains(CGPoint(x: item.frame.midX, y: item.frame.midY)) {
+                ctx.tooltips.set(tip.text, for: c.hwnd, in: hwnd)
+            }
+        }
+    }
+
+    // MARK: - parts and hits
+
+    private func scheduleRender() {
+        guard !renderPending else { return }
+        renderPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.renderPending = false
+            self.render()
+        }
+    }
+
+    private func render() {
+        guard let part = hosted, !isDestroyed else { return }
+        stats.renders += 1
+        let graphics = PlatformPlaza.graphics
+        setSize(part.size(width: hostedWidth, scale: ctx.scale, text: graphics.text))
+        show(part.render(scale: ctx.scale, graphics: graphics))
+    }
+
+    /// A stack row placed the view: at the row's origin; a hosted part is measured again for a new width.
+    private func place(_ r: RECT) {
+        if background != control.background {  // the row says what is behind it (a card or the window)
+            background = control.background
+            for item in items { item.background = background }
+            _ = RedrawWindow(hwnd, nil, nil, UINT(0x0001 | 0x0080))  // RDW_INVALIDATE | RDW_ALLCHILDREN
+        }
+        let width = CGFloat(r.right - r.left) / ctx.scale
+        if hosted != nil, abs(width - hostedWidth) > 0.5 {
+            hostedWidth = width
+            render()
+        }
+        _ = SetWindowPos(hwnd, nil, r.left, r.top, pixelSize.cx, pixelSize.cy, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
+    }
+
+    private func dip(_ p: POINT) -> CGPoint { CGPoint(x: CGFloat(p.x) / ctx.scale, y: CGFloat(p.y) / ctx.scale) }
+
+    private func report(_ hit: PlazaPanelHit) {
+        stats.hits += 1
+        onHit?(hit)
+    }
+}
+#endif

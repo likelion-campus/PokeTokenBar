@@ -1,20 +1,62 @@
 name: windows
 # Builds and tests the shared (non-Apple) part of the app on Windows. Informational: not a required check.
+# Release mode (stage 8; scripts/team_release.py dispatches it): -f release_sha=<40 hex> -f release_version=<x.y.z> tests
+# exactly that commit after the "Release pin" step (as in windows-app.yml), in its own never-cancelled concurrency group, and
+# a passing run ends with the artifact windows-tests (windows-tests.json: executed, skipped and failure counts, 7 days).
+run-name: ${{ inputs.release_sha != '' && format('release {0} {1}', inputs.release_version, inputs.release_sha) || '' }}
 on:
   push:
     branches: [main, windows-port]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_sha:
+        description: 'Release mode: the 40-hex commit to build (set by team_release.py)'
+        default: ''
+      release_version:
+        description: 'Release mode: the x.y.z that commit carries in scripts/build-app.sh'
+        default: ''
 permissions:
   contents: read
 concurrency:
-  group: windows-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/windows-port' }}
+  group: ${{ inputs.release_sha != '' && format('windows-release-{0}', inputs.release_sha) || format('windows-{0}', github.ref) }}
+  cancel-in-progress: ${{ inputs.release_sha == '' && github.ref != 'refs/heads/windows-port' }}
 jobs:
   shared:
     runs-on: windows-latest
+    # A normal run takes 14-21 min. Without a limit a stuck run would hold its concurrency group (a release's included) for
+    # GitHub's default 6 hours; a slow runner took 31 min to build and was cancelled at 60 min (run 43744353898).
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
+      - name: Release pin
+        if: inputs.release_sha != '' || inputs.release_version != ''
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          PIN_WORKFLOW: .github/workflows/windows.yml
+        run: |
+          # Release mode tests exactly release_sha. The steps below come from this workflow (the dispatched ref, GITHUB_SHA),
+          # the files they run from the checkout (release_sha): the two must agree on the workflow and the toolchain action.
+          fail() { echo "::error::Release pin: $1"; echo "FAIL release.pin: $1"; exit 1; }
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail "release_sha must be 40 lowercase hex characters, got '$RELEASE_SHA'"
+          head=$(git rev-parse HEAD)
+          [ "$head" = "$RELEASE_SHA" ] || fail "checked out $head, not release_sha $RELEASE_SHA"
+          version=$(sed -nE 's/^VERSION="([0-9]+\.[0-9]+\.[0-9]+)"$/\1/p' scripts/build-app.sh)
+          [ -n "$RELEASE_VERSION" ] && [ "$version" = "$RELEASE_VERSION" ] || fail "scripts/build-app.sh at $RELEASE_SHA has VERSION=\"$version\", not release_version '$RELEASE_VERSION'"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          rc=0; git diff --quiet "$GITHUB_SHA" "$RELEASE_SHA" -- "$PIN_WORKFLOW" .github/actions/windows-swift || rc=$?
+          if [ "$rc" -eq 1 ]; then
+              git diff --stat "$GITHUB_SHA" "$RELEASE_SHA" -- "$PIN_WORKFLOW" .github/actions/windows-swift
+              fail "main moved and changed the workflow; start the release again"
+          fi
+          [ "$rc" -eq 0 ] || fail "git diff $GITHUB_SHA $RELEASE_SHA failed ($rc)"
+          line="PASS release.pin: testing $RELEASE_SHA as v$RELEASE_VERSION; $PIN_WORKFLOW and .github/actions/windows-swift identical at the dispatched $GITHUB_SHA"
+          echo "$line"
+          echo "$line" >> "$GITHUB_STEP_SUMMARY"
       - uses: ./.github/actions/windows-swift
       - name: Build
         shell: bash
@@ -66,13 +108,43 @@ jobs:
           name: canvas-renders
           path: canvas-out
           if-no-files-found: ignore
+      # Release mode, last: only a run where every step above passed leaves windows-tests.
+      - name: Release test counts
+        if: success() && inputs.release_sha != ''
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          # XCTest's last summary line: "Executed N tests, with [M tests skipped and ]F failures (U unexpected) in ...".
+          line=$(grep -aE "Executed [0-9]+ tests?, with " test.log | tail -1)
+          echo "summary: $line"
+          re='Executed ([0-9]+) tests?, with (([0-9]+) tests? skipped and )?([0-9]+) failures? \(([0-9]+) unexpected\)'
+          [[ "$line" =~ $re ]] || { echo "::error::no XCTest summary line in test.log"; exit 1; }
+          executed=${BASH_REMATCH[1]}; skipped=${BASH_REMATCH[3]:-0}; failures=${BASH_REMATCH[4]}
+          if [ "$executed" -lt 2400 ] || [ "$failures" -ne 0 ]; then echo "::error::executed=$executed failures=$failures"; exit 1; fi
+          mkdir -p windows-tests
+          printf '{ "schema": 1, "sha": "%s", "version": "%s", "executed": %d, "skipped": %d, "failures": %d }\n' \
+              "$RELEASE_SHA" "$RELEASE_VERSION" "$executed" "$skipped" "$failures" > windows-tests/windows-tests.json
+          cat windows-tests/windows-tests.json
+          echo "PASS release.tests: executed=$executed skipped=$skipped failures=$failures for $RELEASE_SHA"
+      - uses: actions/upload-artifact@v4
+        if: success() && inputs.release_sha != ''
+        with:
+          name: windows-tests
+          path: windows-tests/
+          retention-days: 7
+          if-no-files-found: error
   # Stage 6 Task 15: the plaza render harness on Windows (every scene of the shared list through Direct2D on WARP) compared with the
   # Mac's committed render. A job of its own, in parallel with `shared`, so the unit workflow's wall-clock does not grow; it fails
   # when the Windows plaza draws something the Mac does not (tree, pixels outside the text, see PlazaCrossCompare).
   render:
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha }}  # release mode renders the pinned commit too (the pin itself is checked in `shared`)
       - uses: ./.github/actions/windows-swift
       - name: Extract the Mac reference
         shell: bash

@@ -311,6 +311,16 @@ HRESULT drawPlain(Device *d, const PTBDrawCmd &k, float opacity, const char **st
     return S_OK;
 }
 
+// Draws an effect output over `region` of the target with SOURCE_COPY and touches nothing outside it. SOURCE_COPY replaces the
+// target over the WHOLE bounds of the image (here the frame-sized scratch bitmaps), not over the imageRect alone: the part outside
+// the rect is replaced by transparent black. A region that does not reach the frame's edges (a sprite that ends inside the frame,
+// e.g. the firework light) therefore wiped the rest of the frame; a full-frame multiply hid it. The clip keeps the write to the region.
+void copyRegion(ID2D1DeviceContext *c, ID2D1Image *image, const D2D1_POINT_2F &at, const D2D1_RECT_F &region) {
+    c->PushAxisAlignedClip(&region, D2D1_ANTIALIAS_MODE_ALIASED);
+    c->DrawImage(image, &at, &region, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_COMPOSITE_MODE_SOURCE_COPY);
+    c->PopAxisAlignedClip();
+}
+
 // Colour blend and SpriteKit's multiply modes (see PTBDrawCmd): the sprite alone in scratch A, the destination under it
 // copied to scratch B, a colour matrix / arithmetic composite of the two drawn back into the region.
 HRESULT drawEffect(Device *d, Surface *s, const PTBDrawCmd &k, const char **stage) {
@@ -352,7 +362,7 @@ HRESULT drawEffect(Device *d, Surface *s, const PTBDrawCmd &k, const char **stag
         }
         d->dst->SetInput(0, s->scratchB.p);
         c->SetTransform(&kIdentity);
-        c->DrawImage(d->dstOut.p, &at, &region, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_COMPOSITE_MODE_SOURCE_COPY);
+        copyRegion(c, d->dstOut.p, at, region);
         c->Flush();  // the effect's properties and scratch bitmaps change for the next sprite
         return S_OK;
     }
@@ -406,7 +416,7 @@ HRESULT drawEffect(Device *d, Surface *s, const PTBDrawCmd &k, const char **stag
     }
     d->dst->SetInput(0, s->scratchB.p);
     c->SetTransform(&kIdentity);
-    c->DrawImage(d->arithOut.p, &at, &region, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_COMPOSITE_MODE_SOURCE_COPY);
+    copyRegion(c, d->arithOut.p, at, region);
     c->Flush();
     return S_OK;
 }

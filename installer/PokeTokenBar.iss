@@ -15,6 +15,9 @@
 AppId={{6CE57293-9940-4B5E-A604-4C4FEECBF049}
 AppName=PokeTokenBar
 AppVersion={#AppVer}
+VersionInfoVersion={#AppVer}.0
+VersionInfoProductVersion={#AppVer}
+VersionInfoDescription=PokeTokenBar Setup
 AppPublisher=likelion-campus
 AppPublisherURL=https://github.com/likelion-campus/PokeTokenBar
 DefaultDirName={localappdata}\Programs\PokeTokenBar

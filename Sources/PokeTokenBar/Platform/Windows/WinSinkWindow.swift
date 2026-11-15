@@ -38,13 +38,14 @@ struct WinError: Error, CustomStringConvertible {
                       x: 0, y: 0, width: 0, height: 0)
     }
 
-    /// Any other window of ours (the selftest's input window, `--ime-check`). Same routing as the sink.
+    /// Any other window of ours (the selftest's input window, `--ime-check`). Same routing as the sink. `parent` is the
+    /// owner of a popup or the parent of a `WS_CHILD` window (stage 7: the popover's panes), `id` a child's control id.
     init(className: String, title: String, style: DWORD, exStyle: DWORD,
-         x: Int32, y: Int32, width: Int32, height: Int32) throws {
+         x: Int32, y: Int32, width: Int32, height: Int32, parent: HWND? = nil, id: Int = 0) throws {
         let instance = GetModuleHandleW(nil)
         try Self.register(className, instance)
         guard let h = CreateWindowExW(exStyle, WinStr.w(className), WinStr.w(title), style, x, y, width, height,
-                                      nil, nil, instance, nil) else {
+                                      parent, HMENU(bitPattern: id), instance, nil) else {
             throw WinError(call: "CreateWindowExW(\(className))", code: GetLastError())
         }
         hwnd = h
@@ -103,6 +104,8 @@ struct WinError: Error, CustomStringConvertible {
     }
 
     fileprivate static func route(_ bits: Int, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT? {
+        // A child destroyed with its parent never passes through `destroy()`: its entry goes with its last message.
+        defer { if message == 0x0082 /* WM_NCDESTROY */ { windows[bits] = nil } }
         guard let list = windows[bits]?.handlers[message] else { return nil }
         var result: LRESULT?
         for entry in list {  // a copy: a handler may add or remove registrations

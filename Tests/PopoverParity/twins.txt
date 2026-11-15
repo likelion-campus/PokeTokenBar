@@ -71,3 +71,4 @@ UI/PopoverView.swift#PopoverView.cursorAuthExpiredNotice | Popover/LimitsModel.s
 UI/PopoverView.swift#PopoverView.openCodeGoLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.openCodeGoLimitsContent | pin 07f319d952d35566
 UI/PopoverView.swift#PopoverView.openCodeGoLimitRow | Popover/LimitsModel.swift#LimitsBuilder.openCodeGoLimitRow | pin e0cf4520ce8391be
 UI/PopoverView.swift#PopoverView.grokLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.grokLimitsContent | pin a44000bb85ea1ce0
+UI/PopoverView.swift#PopoverMetrics | Popover/PopoverWindowMetrics.swift#PopoverWindowMetrics | PopoverMetrics=PopoverWindowMetrics
