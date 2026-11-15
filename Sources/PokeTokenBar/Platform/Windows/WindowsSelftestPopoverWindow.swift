@@ -44,6 +44,14 @@ extension WindowsSelftest {
         defer { probe.destroy() }
         let t = PopoverRun(r: r, app: app, popover: popover, host: host, probe: probe)
         let start = PopoverResources.now()
+        // A refused foreground opens the real tray menu (D4), whose modal loop holds the main thread: a menu that nothing
+        // here drives is closed after 10 s, so an unexpected fallback fails its check instead of hanging the run.
+        let janitor = PopoverMenuJanitor(sink: app.sink.hwnd)
+        janitor.start()
+        defer {
+            janitor.stop()
+            if janitor.closed > 0 { r.add("popover.menuJanitor", false, "closed \(janitor.closed) tray menu(s) no check was driving (an unexpected foreground fallback)") }
+        }
         await t.openCheck()
         await t.placementCheck(dump: dumpDirectory())
         await t.toggleCheck()
@@ -228,6 +236,42 @@ struct PopoverResources: CustomStringConvertible {
 }
 
 @MainActor final class PopoverCounter { var n = 0 }
+
+/// Closes a tray menu that stays open longer than `limit` (no check drives it): posts Escape and `WM_CANCELMODE` to the sink.
+final class PopoverMenuJanitor: @unchecked Sendable {
+    private let lock = NSLock()
+    private var running = false, count = 0
+    private let sinkBits: Int
+    let limit: TimeInterval = 10
+
+    init(sink: HWND) { sinkBits = Int(bitPattern: sink) }
+
+    var closed: Int { lock.lock(); defer { lock.unlock() }; return count }
+    private var isRunning: Bool { lock.lock(); defer { lock.unlock() }; return running }
+
+    func start() {
+        lock.lock(); running = true; lock.unlock()
+        let sink = sinkBits
+        WindowsSelftest.onThread { [self] in
+            var openSince: Date?
+            while isRunning {
+                Thread.sleep(forTimeInterval: 0.1)
+                guard WinPopupMenu.openMenuBits != 0 else { openSince = nil; continue }
+                let since = openSince ?? Date()
+                openSince = since
+                guard Date().timeIntervalSince(since) > limit else { continue }
+                _ = PostMessageW(HWND(bitPattern: sink), UINT(WM_KEYDOWN), WPARAM(VK_ESCAPE), 0)
+                _ = PostMessageW(HWND(bitPattern: sink), UINT(WM_KEYUP), WPARAM(VK_ESCAPE), 0)
+                _ = PostMessageW(HWND(bitPattern: sink), 0x001F /* WM_CANCELMODE */, 0, 0)
+                lock.lock(); count += 1; lock.unlock()
+                openSince = nil
+                Thread.sleep(forTimeInterval: 1)
+            }
+        }
+    }
+
+    func stop() { lock.lock(); running = false; lock.unlock() }
+}
 
 /// A helper thread's notes (lock-protected: written off the main thread).
 final class PopoverDriver: @unchecked Sendable {
@@ -677,9 +721,9 @@ final class PopoverDriver: @unchecked Sendable {
         popover.present(.trayMenu) { _ in }
         let reopened = popover.isOpen && popover.hwndForTesting != h && !(h.map { IsWindow($0) } ?? false)
         let oneWindow = PopoverResources.now().dialogs == base.dialogs + 1
-        await pause(0.3)  // the stale close for the old window arrives and is dropped
-        let survived = popover.isOpen && popover.stats.staleDropped >= stale0 + 1
         let h2 = popover.hwndForTesting
+        await pause(0.3)  // the old window's posted close went with it (Windows drops messages for a destroyed window)
+        let survived = popover.isOpen && popover.hwndForTesting == h2 && popover.stats.staleDropped == stale0
         popover.close(.destroyed)
         record("present while closing (reopened=\(reopened) one registration=\(oneWindow) survived the stale close=\(survived))", opened: o && reopened && oneWindow && survived,
                closed: !popover.isOpen, reason: popover.stats.lastClose, old: h2)
@@ -834,6 +878,7 @@ final class PopoverDriver: @unchecked Sendable {
         _ = PostMessageW(sink, WinSingleInstance.showMessage, 0, 0)
         _ = await WindowsSelftest.waitUntil(timeout: 2) { self.app.showRequests > requests0 }
         let balloon = host.balloons.map { $0.inFlight?.id == "already-running" || $0.lastShown?.id == "already-running" } ?? false
+        post(Self.ninBalloonShow)
         post(Self.ninBalloonHide)
         await pause(0.2)
         r.add("popover.refusedForeground", done && driver.menuWasOpen && clickRefused && popover.stats.refusedForeground == refused0 + 2
