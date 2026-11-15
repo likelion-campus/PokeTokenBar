@@ -278,7 +278,8 @@ enum PlazaPreviewScenes {
             if f % 20 == 1 {   // everybody takes a step, left and right in turn
                 for i in 0..<12 {
                     let m = r.members[i]
-                    r.move(m.memberID, to: TilePoint(x: m.tile.x + ((f / 20 + i) % 2 == 0 ? 1 : -1), y: m.tile.y), walking: true)
+                    guard let tile = m.tile else { continue }
+                    r.move(m.memberID, to: TilePoint(x: tile.x + ((f / 20 + i) % 2 == 0 ? 1 : -1), y: tile.y), walking: true)
                 }
             }
             if f % 45 == 1 { _ = r.scene.playFirework(memberID: "m\((f / 45) % 12)", style: ["ring", "willow", "heartShape"][(f / 45) % 3]) }
