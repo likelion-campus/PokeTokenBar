@@ -125,7 +125,7 @@ extension WindowsSelftest {
             roundTripOK = worst <= 1 && a.count == b.count && zeroRows && back.width == image.width
             roundTrip = "png=\(png.count)B maxDiff=\(worst) alpha0StaysZero=\(zeroRows)"
         }
-        r.add("plaza.codec.png", parityOK && roundTripOK, "fixture \(parity); round trip \(roundTrip); thread error=\"\(WinPlazaCodecs.lastError())\"")
+        r.add("plaza.codec.png", parityOK && roundTripOK, "fixture \(parity); round trip \(roundTrip)")
 
         // --- GIF: the shared decoder's frames and delays equal the Mac's; WIC's own count and delays agree
         var gifDetail = "ice gif not found", gifOK = false
