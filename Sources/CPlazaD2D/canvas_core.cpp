@@ -300,7 +300,23 @@ int Canvas::makeGeometry(const uint8_t *ops, int n, const double *coords, const 
 // ---------------------------------------------------------------------------------------------------------------------------
 // Drawing
 
+// CoreGraphics fills a rectangle with antialiasing off over every pixel the rectangle touches (outward rounding, measured on the Mac
+// by the `aliased` case of PlazaCanvasShapes: 36.5 ... 56.9 covers columns 36 ... 56, 46.9 ... 59.5 covers rows 46 ... 59);
+// Direct2D's aliased fill takes the pixels whose centre is inside. Snap an axis-aligned rectangle outward before it is drawn.
+static void snapAliasedRect(const Affine &m, double &x, double &y, double &w, double &h) {
+    if (std::fabs(m.b) > 1e-9 || std::fabs(m.c) > 1e-9 || std::fabs(m.a) < 1e-9 || std::fabs(m.d) < 1e-9) return;
+    const double eps = 1e-6;
+    double x0 = m.a * x + m.tx, x1 = m.a * (x + w) + m.tx, y0 = m.d * y + m.ty, y1 = m.d * (y + h) + m.ty;
+    if (x0 > x1) std::swap(x0, x1);
+    if (y0 > y1) std::swap(y0, y1);
+    x0 = std::floor(x0 + eps); x1 = std::ceil(x1 - eps); y0 = std::floor(y0 + eps); y1 = std::ceil(y1 - eps);
+    const double ux0 = (x0 - m.tx) / m.a, ux1 = (x1 - m.tx) / m.a, uy0 = (y0 - m.ty) / m.d, uy1 = (y1 - m.ty) / m.d;
+    x = std::min(ux0, ux1); w = std::fabs(ux1 - ux0);
+    y = std::min(uy0, uy1); h = std::fabs(uy1 - uy0);
+}
+
 void Canvas::fillRect(double x, double y, double w, double h) {
+    if (aliased()) snapAliasedRect(device(), x, y, w, h);
     const D2D1_RECT_F r = {static_cast<float>(std::min(x, x + w)), static_cast<float>(std::min(y, y + h)),
                            static_cast<float>(std::max(x, x + w)), static_cast<float>(std::max(y, y + h))};
     const Rgba c = st.fill;

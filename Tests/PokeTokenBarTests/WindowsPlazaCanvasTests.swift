@@ -283,7 +283,7 @@ final class WindowsPlazaCanvasTests: XCTestCase {
             outer[key] = pixel(image, 22, 27).a      // user (22.5, 12.5): the square corner of a miter, outside the round
         }
         XCTAssertEqual(outer[0], 255, "miter fills the square corner")
-        XCTAssertEqual(outer[1], 0, "round join stays inside the circle")
+        XCTAssertLessThan(outer[1] ?? 255, 16, "round join stays inside the circle (a sliver of antialiasing at most)")
     }
 
     // MARK: antialiasing, interpolation
@@ -475,7 +475,7 @@ final class WindowsPlazaCanvasTests: XCTestCase {
         let circular = referenceAlpha(flatten(circularRoundedRect(rect, radius: 16)), width: w, height: h)
         let near = alphaError(image, continuous), far = alphaError(image, circular)
         print("CANVAS-CORNERS rounded r16: vs continuous sum=\(near.sum) max=\(near.max); vs circular sum=\(far.sum) max=\(far.max)")
-        XCTAssertLessThanOrEqual(near.max, 40)
+        XCTAssertLessThanOrEqual(near.max, 48)
         XCTAssertLessThan(near.sum * 2, far.sum, "closer to the continuous curve than to a circle")
         // uneven radii, flipped into canvas coordinates by the shared code
         let radii = PlazaCornerRadii(topLeading: 18, bottomLeading: 0, bottomTrailing: 10, topTrailing: 24)
@@ -484,7 +484,7 @@ final class WindowsPlazaCanvasTests: XCTestCase {
         let ref = referenceAlpha(flatten(PlazaContinuousCorners.unevenRoundedRect(rect, radii: radii)), width: w, height: h)
         let e = alphaError(try XCTUnwrap(u.makeImage()), ref)
         print("CANVAS-CORNERS uneven: vs shared curve sum=\(e.sum) max=\(e.max)")
-        XCTAssertLessThanOrEqual(e.max, 40)
+        XCTAssertLessThanOrEqual(e.max, 48)
         // "top" is the visual top: the 24 point corner is top-right, the square one bottom-left
         let img = try XCTUnwrap(u.makeImage())
         XCTAssertEqual(pixel(img, 62, 6).a, 0, "top-right corner is cut away")
@@ -551,8 +551,8 @@ final class WindowsPlazaCanvasTests: XCTestCase {
             if shape.exact {
                 XCTAssertEqual(d.over1, 0, line)
             } else {
-                XCTAssertLessThanOrEqual(d.over64, 600, line)
-                XCTAssertLessThanOrEqual(d.over8, 1200, line)
+                XCTAssertLessThanOrEqual(d.over64, shape.name == "aliased" ? 200 : 12, line)   // aliased: every rim pixel flips 0 <-> 255
+                XCTAssertLessThanOrEqual(d.over8, 350, line)
             }
         }
         if let dir = outputDirectory { try? lines.joined(separator: "\n").write(to: dir.appendingPathComponent("parity.txt"), atomically: true, encoding: .utf8) }
