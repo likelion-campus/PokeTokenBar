@@ -65,7 +65,7 @@ enum PlazaCardStyle {
     let offset = CGPoint.zero
     var onChange: (() -> Void)?
     private let model: PlazaOverlayModel
-    private let pictures: PlazaPictureCache
+    let pictures: PlazaPictureCache
     private var observer: PlazaChangeObserver?
     private let now: () -> Date
     private(set) var scrollState = PlazaScrollState()
@@ -92,8 +92,18 @@ enum PlazaCardStyle {
     var isVisible: Bool { state != nil }
 
     private var rendered: PlazaCardState??
+    /// A number for the card state that changes when the state does: a cache key must not interpolate the whole card (a dex of a thousand
+    /// species) into a string each render. Equal states share their dex storage, so the comparison is cheap in the usual case.
+    private var keyedState: PlazaCardState?
+    private var keyedID = 0
+    private func stateID(_ state: PlazaCardState) -> Int {
+        if keyedState != state { keyedState = state; keyedID += 1 }
+        return keyedID
+    }
+    func didAppear() { pictures.forgetFailures() }
+
     private func modelChanged() {
-        if state == nil { scrollOwner = nil; scrollState = PlazaScrollState(); rowImages = [:]; scrollIndicator.reset() }
+        if state == nil { scrollOwner = nil; scrollState = PlazaScrollState(); rowImages = [:]; scrollIndicator.reset(); rendered = nil }   // reopening the same card draws it again
         if rendered != .some(state) { onChange?() }
     }
 
@@ -151,7 +161,13 @@ enum PlazaCardStyle {
         // The stack puts its gap on both sides of the trailing spacer, so the column is 12 narrower than what is left of the picture.
         let columnWidth = s.header.maxX - textX - s.headerGap
         let member = state.member
-        let titleLines = Array(text.wrappedLines(l.plazaCardTitle(nickname: member.nickname), font: s.body, width: columnWidth).prefix(s.titleLines))
+        let wrappedTitle = text.wrappedLines(l.plazaCardTitle(nickname: member.nickname), font: s.body, width: columnWidth)
+        var titleLines = Array(wrappedTitle.prefix(s.titleLines))
+        if wrappedTitle.count > s.titleLines, let last = titleLines.last {
+            // `.lineLimit(2)`: what does not fit ends the second line with "…". The line is cut at least one character short so the mark has room.
+            let ellipsis = text.line("…", font: s.body)
+            titleLines[titleLines.count - 1] = text.truncated(last, width: min(columnWidth, last.width - 1), ellipsis: ellipsis) ?? last
+        }
         let name = state.characterName.map { text.line($0, font: s.body) }
         let name1 = name.map { PlazaPanelText.cut($0, width: columnWidth, font: s.body, text: text, scale: scale) }
         let badges = state.characterBadges
@@ -233,13 +249,19 @@ enum PlazaCardStyle {
         return canvas.makeImage()
     }
 
+    /// The backing scale of the last render (the scroller's knob sits on its device pixels).
+    private var renderedScale: CGFloat = 1
+    /// For tests: where the first dex column starts (the grid's left edge in the dex window).
+    private(set) var dexCellOriginForTesting: CGPoint?
+
     func render(scale: CGFloat, viewport: CGSize, graphics: any PlazaGraphics) -> PlazaPanelDrawing {
+        renderedScale = scale
         rendered = .some(state)
         let text = graphics.text
         guard let state, let l = layout(scale: scale, text: text) else { return PlazaPanelDrawing() }
         let s = PlazaCardStyle.self, m = PlazaCardMetrics.self
         let lower = s.lower
-        if scrollOwner != state { scrollOwner = state; scrollState = PlazaScrollState(); scrollIndicator.reset() }
+        if scrollOwner != state { scrollOwner = state; scrollState = PlazaScrollState(); scrollIndicator.reset(); pictures.forgetFailures() }
         scrollState.setMetrics(content: l.content, viewport: lower.height)
         let sprite = pictures.sprite(state.member.character)
         let current = state.differingCurrent.flatMap { pictures.icon($0.speciesID) }
@@ -249,7 +271,7 @@ enum PlazaCardStyle {
         var tips: [PlazaTooltip] = []
 
         // Plate, header, activity and the message: one image, drawn again when a picture arrives.
-        let key = "\(scale) \(String(describing: type(of: text))) \(state) \(PlazaActivity.dayKey(now())) \(sprite != nil) \(current != nil) \(isDark)"
+        let key = "\(scale) \(String(describing: type(of: text))) \(stateID(state)) \(PlazaActivity.dayKey(now())) \(sprite != nil) \(current != nil) \(isDark)"
         if staticImage.key != key {
             let space = PlazaPanelSpace(content: l.size, room: 0)
             staticImage = (key, space.image(scale: scale, graphics: graphics) { canvas in
@@ -331,8 +353,11 @@ enum PlazaCardStyle {
         guard !l.dex.isEmpty else { return PlazaPanelDrawing(layers: layers, accessibility: items, tooltips: tips) }
         let offset = PlazaPanelStyle.pixel(scrollState.offset, scale: scale)
         drawnOffset = offset
-        let gridX = PlazaPanelStyle.pixel((lower.width - s.gridWidth) / 2, scale: scale)
-        let imageKey = "\(scale) \(String(describing: type(of: text))) \(isDark)"
+        // "Always show scroll bars": the legacy scroller takes its width from the dex window when the grid overflows it; the grid centres in the rest.
+        let reserve = scrollState.canScroll ? scrollIndicator.reservedWidth : 0
+        let gridX = PlazaPanelStyle.pixel((lower.width - reserve - s.gridWidth) / 2, scale: scale)
+        dexCellOriginForTesting = CGPoint(x: gridX, y: 0)
+        let imageKey = "\(scale) \(String(describing: type(of: text))) \(isDark) \(reserve)"
         if rowImageKey != imageKey { rowImageKey = imageKey; rowImages = [:] }
         var kept: [String: PlazaImage] = [:]
         let frames = l.rowFrames
@@ -384,12 +409,56 @@ enum PlazaCardStyle {
                 guard !cut.isNull, cut.height > 0 else { continue }
                 let panelRect = cut.offsetBy(dx: lower.minX, dy: lower.minY)
                 tips.append(PlazaTooltip(frame: panelRect, text: l.dex[index].name))
-                items.append(PlazaAccessibilityItem(frame: panelRect, role: .staticText, label: l.dex[index].name))
             }
         }
         rowImages = kept
+        // VoiceOver: the dex is a scroll area and EVERY cell is an element (name, then 전설 and ★ as SwiftUI's cell read), at its true place; the
+        // cells scrolled out lie outside the window, and focusing one scrolls it into view.
+        accessibilityContent = [:]
+        items.append(PlazaAccessibilityItem(frame: lower, role: .scrollArea, label: "", key: "scroll"))
+        for (index, species) in l.dex.enumerated() {
+            let content = CGRect(x: gridX + CGFloat(index % m.columns) * (m.cellSize.width + m.spacing), y: CGFloat(index / m.columns) * pitch,
+                                 width: m.cellSize.width, height: m.cellSize.height)
+            var label = species.name
+            if species.rarity == .legendary { label += ", " + L(.ko).rarityLabel(.legendary) }
+            if species.hasShiny { label += ", ★" }
+            accessibilityContent[items.count] = content
+            items.append(PlazaAccessibilityItem(frame: content.offsetBy(dx: lower.minX, dy: lower.minY - offset), role: .staticText, label: label,
+                                                key: "cell-\(species.speciesID)-\(species.form?.rawValue ?? "")-\(index)", inScrollArea: true))
+        }
         layers += scrollIndicator.layers(state: scrollState, offset: offset, viewport: lower, scale: scale, graphics: graphics)
         return PlazaPanelDrawing(layers: layers, accessibility: items, tooltips: tips)
+    }
+
+    /// Accessibility item index -> the item's rectangle in the scrolling content (for `scrollAccessibilityItemIntoView`).
+    private var accessibilityContent: [Int: CGRect] = [:]
+
+    func scrollAccessibilityItemIntoView(_ index: Int) -> Bool {
+        guard let rect = accessibilityContent[index], scrollState.scrollToVisible(rect) else { return false }
+        scrollIndicator.scrolled()
+        return true
+    }
+
+
+    // MARK: the legacy scroller as a control
+
+    private func scrollerViewport() -> CGRect? { isVisible ? PlazaCardStyle.lower : nil }
+
+    func scrollerContains(_ point: CGPoint) -> Bool {
+        guard let v = scrollerViewport() else { return false }
+        return scrollIndicator.tracks(point, state: scrollState, viewport: v)
+    }
+
+    func scrollerMouse(_ phase: PlazaScrollerPhase, at point: CGPoint) {
+        guard let v = scrollerViewport() else { return }
+        let scale = renderedScale
+        let moved: Bool
+        switch phase {
+        case .down: moved = scrollIndicator.scrollerDown(at: point, state: &scrollState, viewport: v, scale: scale)
+        case .drag: moved = scrollIndicator.scrollerDrag(to: point, state: &scrollState, viewport: v, scale: scale)
+        case .up: scrollIndicator.scrollerUp(); moved = false
+        }
+        if moved { onChange?() }
     }
 
     // MARK: input

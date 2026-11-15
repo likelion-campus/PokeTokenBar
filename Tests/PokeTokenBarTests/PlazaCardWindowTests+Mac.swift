@@ -37,7 +37,7 @@ import XCTest
         XCTAssertEqual(f.midY, rig.container.bounds.height / 2, accuracy: 1)
         let host = try XCTUnwrap(rig.host(.card))
         XCTAssertTrue(try XCTUnwrap(rig.hitView(.card, CGPoint(x: 190, y: 230))) === host)
-        XCTAssertTrue(rig.hitView(.card, CGPoint(x: -30, y: 230)) !== host, "beside the plate the click goes to the scene")
+        XCTAssertTrue(rig.hitView(.card, CGPoint(x: -30, y: 230)) === host, "beside the plate the host still takes it (the SwiftUI overlay covered the whole window) and nothing acts")
         var actions: [PlazaPanelHit] = []
         let own = rig.hud.onAction
         rig.hud.onAction = { id, hit in if id == .card { actions.append(hit) }; own?(id, hit) }
@@ -67,7 +67,7 @@ import XCTest
     }
 
     /// Where a click landed on the SwiftUI overlay and where the panel's host takes it (see the board's test): the same plate.
-    func testClicksOutsideThePlateGoToTheSceneWhichIgnoresThem() async throws {
+    func testTheHostTakesEveryClickInTheWindowAsTheSwiftUIOverlayDid() async throws {
         let state = card()
         let rig = try await rig(state)
         defer { rig.close() }
@@ -88,14 +88,16 @@ import XCTest
             for y in stride(from: 0, to: Int(size.height), by: 4) {
                 let p = NSPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5)
                 let l = legacy.hitTest(box.convert(p, to: legacy.superview)) != nil
-                let n = rig.container.hitTest(rig.container.convert(p, from: nil)) === host
+                let hit = rig.container.hitTest(rig.container.convert(p, from: nil))
+                // Taken by this host, or by a panel ABOVE it (the chat log, minimap, guide, toggles: they were above the SwiftUI overlay too).
+                let n = hit === host || (hit is PlazaPanelHostView && hit !== rig.host(.roster))
                 if l && n { both += 1 } else if l { legacyOnly += 1 } else if n { panelOnly += 1 }
             }
         }
         print("CARD CLICK both \(both) swiftuiOnly \(legacyOnly) panelOnly \(panelOnly)")
         XCTAssertEqual(panelOnly, 0)
-        XCTAssertEqual(Double(both), 95 * 115, accuracy: 4 * 95 + 4 * 115, "the plate: 380 x 460 points")
-        XCTAssertEqual(both + legacyOnly, 240 * 160, "the SwiftUI overlay took every click in the window")
+        XCTAssertEqual(legacyOnly, 0, "the panel takes every click the SwiftUI overlay took: the whole window")
+        XCTAssertEqual(both, 240 * 160)
     }
 
     func testTheWheelScrollsTheDexOnlyAndEachCardStartsAtTheTop() async throws {
@@ -124,9 +126,18 @@ import XCTest
         let first = CGPoint(x: f.minX + lower.minX + 20, y: f.minY + lower.minY + 20)
         XCTAssertEqual(host.tooltipForTesting(at: first), "종0")
         XCTAssertGreaterThan(host.tooltipCountForTesting, 5)
-        let labels = (try XCTUnwrap(host.accessibilityChildren() as? [NSAccessibilityElement])).compactMap { $0.accessibilityLabel() }
-        XCTAssertTrue(labels.contains("종0"))
-        XCTAssertFalse(labels.contains("종59"), "only the cells in view")
+        let elements = host.accessibilityElementsForTesting
+        let labels = elements.compactMap { $0.accessibilityLabel() }
+        XCTAssertTrue(labels.contains("종0, ★"), "a cell reads its name and its ★ as SwiftUI's did")
+        XCTAssertTrue(labels.contains("종3, 전설, ★"), "and the legendary pill")
+        XCTAssertTrue(labels.contains { $0.hasPrefix("종59") }, "every cell is an element, the last one too")
+        XCTAssertEqual(elements.filter { $0.areaRole }.count, 1, "the dex is a scroll area")
+        // Focusing the last cell scrolls it into view.
+        let panel = try XCTUnwrap(rig.panel(.card, as: PlazaCardPanel.self))
+        let last = try XCTUnwrap(elements.last)
+        last.accessibilityPerformAction(PlazaPanelAccessibilityElement.scrollToVisible)
+        await rig.flush()
+        XCTAssertTrue(panel.scrollState.isAtBottom, "the last dex row is reachable by VoiceOver alone")
         let announced = host.accessibilityChangesForTesting
         for _ in 0..<10 { try rig.scroll(.card, at: CGPoint(x: 190, y: 380), dy: -3) }
         await rig.flush()
@@ -138,6 +149,8 @@ import XCTest
         let rig = try await rig(card(60))
         defer { rig.close() }
         let panel = try XCTUnwrap(rig.panel(.card, as: PlazaCardPanel.self))
+        rig.window.appearance = NSAppearance(named: .aqua)   // not the system's (it may be dark right now)
+        await rig.flush()
         XCTAssertFalse(panel.isDark)
         let before = rig.hud.renderCounts[.card] ?? 0
         rig.window.appearance = NSAppearance(named: .darkAqua)

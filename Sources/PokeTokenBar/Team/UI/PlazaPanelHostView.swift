@@ -24,7 +24,11 @@ import QuartzCore
     private var drawing = PlazaPanelDrawing()
     /// The shown frame in window points, origin top-left (the HUD's coordinates).
     private(set) var panelFrame: CGRect?
+    /// One element per accessibility item, in item order; `topLevel` are the ones VoiceOver finds directly under the host (the others are
+    /// the children of their scroll area).
     private var elements: [PlazaPanelAccessibilityElement] = []
+    private var topLevel: [PlazaPanelAccessibilityElement] = []
+    private var elementsByKey: [String: PlazaPanelAccessibilityElement] = [:]
     private var tracking: NSTrackingArea?
 
     init(hud: PlazaHUD, panel: PlazaPanelID) {
@@ -107,7 +111,7 @@ import QuartzCore
         removeAllToolTips()
         tooltipTags = []
         tooltipTexts = []
-        guard let f = panelFrame else { return }
+        guard !tooltipsSuspended, let f = panelFrame else { return }
         for tip in drawing.tooltips where !tip.text.isEmpty {
             tooltipTexts.append(tip.text)
             let rect = local(tip.frame.offsetBy(dx: f.minX, dy: f.minY))
@@ -135,9 +139,19 @@ import QuartzCore
         drawing = PlazaPanelDrawing()
         panelFrame = nil
         elements = []
+        topLevel = []
+        elementsByKey = [:]
         if hadItems { announceElements() }
         updateTrackingAreas()
     }
+
+    /// The board and the card: while shown, this host takes every click, hover and scroll anywhere in the window (the full-window SwiftUI
+    /// overlay did, above the roster and the scene and below every other panel); the HUD still reports only the plate's own hits.
+    var swallowsWholeWindow = false
+    private var swallowing: Bool { swallowsWholeWindow && hud.isShown(panelID) }
+
+    /// The roster under an open overlay offers no tooltips (the overlay covered it).
+    var tooltipsSuspended = false { didSet { if tooltipsSuspended != oldValue { placeTooltips() } } }
 
     /// Window points (top-left) to this view's coordinates (bottom-left; the view is not flipped).
     private func local(_ r: CGRect) -> CGRect { CGRect(x: r.minX, y: bounds.height - r.maxY, width: r.width, height: r.height) }
@@ -150,24 +164,59 @@ import QuartzCore
             }
         }
         for (e, item) in zip(elements, drawing.accessibility) {
-            e.setAccessibilityFrameInParentSpace(local(item.frame.offsetBy(dx: f.minX, dy: f.minY)))
+            let rect = local(item.frame.offsetBy(dx: f.minX, dy: f.minY))
+            e.hostFrame = rect
+            // A child's frame is in its scroll area's space (the area's frame origin is the child's zero).
+            if let area = e.area { e.setAccessibilityFrameInParentSpace(rect.offsetBy(dx: -area.hostFrame.minX, dy: -area.hostFrame.minY)) }
+            else { e.setAccessibilityFrameInParentSpace(rect) }
         }
     }
 
+    /// Elements are kept for the same key (a chat line, a note part, a dex cell): when lines arrive or leave, the others stay the same
+    /// objects, so the VoiceOver cursor does not lose its place. Items without a key are identified by position.
     private func rebuildElements() {
-        elements = drawing.accessibility.map { item in
-            let e = PlazaPanelAccessibilityElement()
-            e.setAccessibilityParent(self)
+        var reuse = elementsByKey
+        let before = elements.map { ObjectIdentifier($0) }
+        var made: [PlazaPanelAccessibilityElement] = []
+        var top: [PlazaPanelAccessibilityElement] = []
+        var keyed: [String: PlazaPanelAccessibilityElement] = [:]
+        var area: PlazaPanelAccessibilityElement?
+        for (i, item) in drawing.accessibility.enumerated() {
+            let e: PlazaPanelAccessibilityElement
+            if let key = item.key, let old = reuse.removeValue(forKey: key) { e = old }
+            else if item.key == nil, i < elements.count, elements[i].key == nil, elements[i].areaRole == (item.role == .scrollArea) { e = elements[i] }
+            else { e = PlazaPanelAccessibilityElement() }
+            e.key = item.key
             e.setAccessibilityRole(Self.role(item.role))
+            e.areaRole = item.role == .scrollArea
             e.setAccessibilityLabel(item.label)
-            if let value = item.value { e.setAccessibilityValue(value) }
-            if let action = item.action {
-                let hud = hud, id = panelID
-                e.onPress = { hud.press(action, in: id) }
+            e.setAccessibilityValue(item.value)
+            e.setAccessibilityEnabled(item.isEnabled)
+            let hud = hud, id = panelID
+            if let action = item.action { e.onPress = { hud.press(action, in: id) } } else { e.onPress = nil }
+            e.onScrollToVisible = { hud.scrollIntoView(i, in: id) }
+            if item.role == .scrollArea {
+                area = e
+                e.areaChildren = []
+                e.area = nil
+                e.setAccessibilityParent(self)
+                top.append(e)
+            } else if item.inScrollArea, let area {
+                e.area = area
+                e.setAccessibilityParent(area)
+                area.areaChildren.append(e)
+            } else {
+                e.area = nil
+                e.setAccessibilityParent(self)
+                top.append(e)
             }
-            return e
+            if let key = item.key { keyed[key] = e }
+            made.append(e)
         }
-        announceElements()
+        elements = made
+        topLevel = top
+        elementsByKey = keyed
+        if before != made.map({ ObjectIdentifier($0) }) { announceElements() }
     }
 
     private func announceElements() {
@@ -180,11 +229,15 @@ import QuartzCore
         case .staticText: .staticText
         case .button: .button
         case .menuItem: .menuItem
+        case .scrollArea: .scrollArea
         }
     }
 
     override func isAccessibilityElement() -> Bool { false }
-    override func accessibilityChildren() -> [Any]? { elements }
+    override func accessibilityChildren() -> [Any]? { topLevel }
+
+    /// For tests: every element in item order (the scroll areas' children included).
+    var accessibilityElementsForTesting: [PlazaPanelAccessibilityElement] { elements }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
@@ -223,7 +276,9 @@ import QuartzCore
     /// `point` is in the superview's coordinates.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        guard bounds.contains(local), hud.hit(at: topLeft(local), in: panelID) != nil else { return nil }
+        guard !isHiddenOrHasHiddenAncestor, bounds.contains(local) else { return nil }
+        if swallowing { return self }
+        guard hud.hit(at: topLeft(local), in: panelID) != nil else { return nil }
         return self
     }
 
@@ -247,9 +302,15 @@ import QuartzCore
     /// `NSScrollView` default line scroll; not measured against SwiftUI's `ScrollView`).
     static let lineScrollStep: CGFloat = 10
 
+    /// For tests: scrolls this host handed on up the responder chain.
+    private(set) var scrollsPassedOnForTesting = 0
+
     override func scrollWheel(with event: NSEvent) {
         let k = event.hasPreciseScrollingDeltas ? 1 : Self.lineScrollStep
-        if !forward(.scroll(dx: event.scrollingDeltaX * k, dy: event.scrollingDeltaY * k), event) { super.scrollWheel(with: event) }
+        if !forward(.scroll(dx: event.scrollingDeltaX * k, dy: event.scrollingDeltaY * k), event), !swallowing {
+            scrollsPassedOnForTesting += 1
+            super.scrollWheel(with: event)
+        }
     }
 }
 
@@ -262,13 +323,37 @@ extension PlazaPanelHostView: NSViewToolTipOwner {
     }
 }
 
-/// One accessibility item of a panel as AppKit shows it to VoiceOver; its press goes the way a click goes.
+/// One accessibility item of a panel as AppKit shows it to VoiceOver; its press goes the way a click goes. A scroll area has its items as
+/// children and, like any scroll view's content, can be asked to scroll an element into view (`AXScrollToVisible`).
 final class PlazaPanelAccessibilityElement: NSAccessibilityElement {
     var onPress: (@MainActor () -> Void)?
+    var onScrollToVisible: (@MainActor () -> Void)?
+    var key: String?
+    var areaRole = false
+    var areaChildren: [PlazaPanelAccessibilityElement] = []
+    weak var area: PlazaPanelAccessibilityElement?
+    /// Where the element is in the host's space (the window's, y up), whatever the space its frame is given in.
+    var hostFrame = CGRect.zero
 
     override func accessibilityPerformPress() -> Bool {
         guard let onPress else { return false }
         MainActor.assumeIsolated { onPress() }
         return true
+    }
+
+    override func accessibilityChildren() -> [Any]? { areaRole ? areaChildren : nil }
+
+    static let scrollToVisible = NSAccessibility.Action(rawValue: "AXScrollToVisible")
+
+    override func accessibilityActionNames() -> [NSAccessibility.Action] {
+        var names: [NSAccessibility.Action] = []
+        if onPress != nil { names.append(.press) }
+        if !areaRole { names.append(Self.scrollToVisible) }
+        return names
+    }
+
+    override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
+        if action == Self.scrollToVisible, let onScrollToVisible { MainActor.assumeIsolated { onScrollToVisible() } }
+        else if action == .press, let onPress { MainActor.assumeIsolated { onPress() } }
     }
 }
