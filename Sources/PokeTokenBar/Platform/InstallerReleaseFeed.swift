@@ -50,18 +50,19 @@ enum InstallerReleaseFeed {
         await fetch(repo: repo, session: session).outcome
     }
 
-    /// The one request of a check: the offer, and with it the installer the in-app update may download (`installer`) or
-    /// why there is none (`rejection`). Both are nil unless the outcome is `.release`; then exactly one is set.
-    static func fetch(repo: String = UpdateChecker.releaseRepo, session: URLSession = .shared) async
-        -> (outcome: Outcome, installer: Installer?, rejection: Rejection?) {
+    /// What one check learned: the offer, and with it the installer the in-app update may download (`installer`) or why
+    /// there is none (`rejection`). Both are nil unless the outcome is `.release`; then exactly one is set.
+    typealias Answer = (outcome: Outcome, installer: Installer?, rejection: Rejection?)
+
+    /// The one request of a check.
+    static func fetch(repo: String = UpdateChecker.releaseRepo, session: URLSession = .shared) async -> Answer {
         guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return (.failed, nil, nil) }
         return await fetch(from: url, session: session)
     }
 
     /// `fetch` from a given feed address with its download prefix. Besides `fetch(repo:)`, only the CI selftest's loopback
     /// feed calls it.
-    static func fetch(from feed: URL, downloadPrefix: String = releaseDownloadPrefix, session: URLSession = .shared) async
-        -> (outcome: Outcome, installer: Installer?, rejection: Rejection?) {
+    static func fetch(from feed: URL, downloadPrefix: String = releaseDownloadPrefix, session: URLSession = .shared) async -> Answer {
         var req = URLRequest(url: feed, timeoutInterval: 15)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         guard let (data, resp) = try? await PlatformCompat.oneShotData(for: req, session: session),
@@ -90,14 +91,49 @@ enum InstallerReleaseFeed {
 
     // MARK: The installer the in-app update may download (stage 8, D8 step 2)
 
-    /// An installer asset that passed every check of `installerCheck`. `version` is the normalized tag; the name and the
-    /// address follow from it, so the three cannot disagree. `size` and `sha256` are what the download must match.
+    /// An installer asset that passed every check of `installerCheck`, the only place one is made (the init is fileprivate:
+    /// an unchecked `Installer` cannot exist). `version` is the normalized tag; the name and the address follow from it, so
+    /// the three cannot disagree. `size` and `sha256` are what the download must match.
     struct Installer: Equatable, Sendable {
         let version: String   // "2.5.640"
         let name: String      // "PokeTokenBar-Setup-2.5.640-win-x64.exe"
         let url: URL          // https://github.com/likelion-campus/PokeTokenBar/releases/download/v2.5.640/<name>
         let size: Int         // bytes, from the asset
         let sha256: String    // 64 lowercase hex, from the asset's "digest"
+
+        fileprivate init(version: String, name: String, url: URL, size: Int, sha256: String) {
+            self.version = version
+            self.name = name
+            self.url = url
+            self.size = size
+            self.sha256 = sha256
+        }
+    }
+
+    /// The installer the last answered check found, which the in-app update may take (Windows keeps one in `WindowsUpdates`).
+    struct InstallerCache {
+        private var installer: Installer?
+        /// Why the last answered check has no installer, for the one log line when "Update" opens the page instead.
+        private(set) var lastRejection: Rejection?
+
+        /// `.release`: that release's installer, or none and why. `.noInstaller`: none (an installer removed from a bad release
+        /// stops in-app installs, D11). `.failed`: unchanged, as the checker keeps its offer when it could not ask.
+        mutating func record(_ answer: Answer) {
+            switch answer.outcome {
+            case .release:
+                installer = answer.installer
+                lastRejection = answer.rejection
+            case .noInstaller:
+                installer = nil
+                lastRejection = .noInstaller
+            case .failed:
+                break
+            }
+        }
+
+        /// The installer only for the version being installed: the checker can keep an older offer after a later check it
+        /// rejected, and Settings can install a skipped release.
+        func installer(for version: String) -> Installer? { installer?.version == version ? installer : nil }
     }
 
     /// Why an offered release has no installer the app may download. A fixed text per reason: nothing from the JSON is
@@ -123,9 +159,9 @@ enum InstallerReleaseFeed {
     }
 
     static let releaseDownloadPrefix = "https://github.com/\(UpdateChecker.releaseRepo)/releases/download/"
-    /// 1 to 200 MiB (D8). The installer is 33,121,702 bytes (2.5.634, windows-app run 43736993382), above the seam's 32 MiB
-    /// default cap for API answers (`WinHTTPFetch.defaultMaxBodyBytes`): the download names its own cap (D19). The lower
-    /// bound also refuses a JSON `true`, which bridges to 1.
+    /// 1 to 200 MiB (D8). The installer is 33,121,702 bytes (2.5.634, windows-app run 43736993382), just under the seam's
+    /// 32 MiB default cap for API answers (`WinHTTPFetch.defaultMaxBodyBytes`): the download names its own cap (D19). The
+    /// lower bound also refuses a JSON `true`, which bridges to 1.
     static let installerBytes = (1 << 20)...(200 << 20)
 
     static func expectedName(version: String) -> String { assetPrefix + version + assetSuffix }

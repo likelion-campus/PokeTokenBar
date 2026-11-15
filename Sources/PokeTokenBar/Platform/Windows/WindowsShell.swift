@@ -40,28 +40,24 @@ import WinSDK
 
     private static var emptyAnswers = InstallerReleaseFeed.EmptyAnswerCooldown()
 
-    /// The installer of the release the last answered check offered, when it passed every check; else why not
-    /// (`lastRejection`). Cleared when the latest release no longer has an installer (an installer removed from a bad
-    /// release, D11), kept when a check could not ask, as the checker keeps its offer. The in-app update takes it only for
-    /// the version it installs.
-    private(set) static var lastInstaller: InstallerReleaseFeed.Installer?
-    private(set) static var lastRejection: InstallerReleaseFeed.Rejection?
+    /// The installer the last answered check found (rules in `InstallerReleaseFeed.InstallerCache`, tested on both systems).
+    private static var installers = InstallerReleaseFeed.InstallerCache()
+
+    /// The checked installer for exactly this version, else nil.
+    static func installer(for version: String) -> InstallerReleaseFeed.Installer? { installers.installer(for: version) }
+
+    /// Why the last answered check has no installer, for the log line when "Update" opens the page instead.
+    static var lastRejection: InstallerReleaseFeed.Rejection? { installers.lastRejection }
 
     /// What the checker's fetch does: skip the request while the last answer was "no Windows installer" (30 minutes, the
     /// Mac's cooldown after a successful check); otherwise ask.
     private static func fetchRespectingCooldown() async -> UpdateChecker.LatestRelease? {
         guard emptyAnswers.mayAsk(now: Date()) else { return nil }
         let answer = await InstallerReleaseFeed.fetch()
+        installers.record(answer)
         switch answer.outcome {
-        case .release(let release):
-            lastInstaller = answer.installer
-            lastRejection = answer.rejection
-            return release
-        case .noInstaller:
-            lastInstaller = nil
-            lastRejection = .noInstaller
-            emptyAnswers.noteEmptyAnswer(now: Date())
-            return nil
+        case .release(let release): return release
+        case .noInstaller: emptyAnswers.noteEmptyAnswer(now: Date()); return nil
         case .failed: return nil
         }
     }

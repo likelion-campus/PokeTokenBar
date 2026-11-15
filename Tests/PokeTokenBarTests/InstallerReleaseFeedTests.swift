@@ -223,6 +223,16 @@ enum ReleaseFixture {
     /// The release with one installer field set to `raw` (nil drops it).
     static func data(installer key: String, _ raw: String?) -> Data { data(assets: [zip, installer.with(key, raw)]) }
 
+    /// A release tagged `v<version>` whose one installer asset lists `size` and `sha256` at `prefix` (the real address by
+    /// default): how tests get an `Installer`, which only `installerCheck` can make.
+    static func installerData(version: String, size: Int, sha256: String,
+                              prefix: String = InstallerReleaseFeed.releaseDownloadPrefix) -> Data {
+        let name = "PokeTokenBar-Setup-\(version)-win-x64.exe"
+        let asset = installer.with("name", q(name)).with("browser_download_url", q("\(prefix)v\(version)/\(name)"))
+            .with("size", "\(size)").with("digest", q("sha256:\(sha256)"))
+        return data(release: release.with("tag_name", q("v\(version)")).with("name", q("v\(version)")), assets: [zip, asset])
+    }
+
     /// The installer for another version, consistent in name and address, with the release still tagged 2.5.634.
     static func installerNamed(forVersion v: String) -> RawJSONObject {
         let name = "PokeTokenBar-Setup-\(v)-win-x64.exe"
@@ -248,9 +258,11 @@ final class InstallerReleaseFeedAssetTests: XCTestCase {
 
     func testTheRealReleaseShapeWithAnInstallerGivesItsVersionNameAddressSizeAndDigest() throws {
         let found = try XCTUnwrap(InstallerReleaseFeed.installer(in: F.data()))
-        let url = try XCTUnwrap(URL(string: F.installerURL))
-        XCTAssertEqual(found, InstallerReleaseFeed.Installer(version: F.version, name: F.installerName, url: url,
-                                                             size: F.installerSize, sha256: F.installerHex))
+        XCTAssertEqual(found.version, F.version)
+        XCTAssertEqual(found.name, F.installerName)
+        XCTAssertEqual(found.url.absoluteString, F.installerURL)
+        XCTAssertEqual(found.size, F.installerSize)
+        XCTAssertEqual(found.sha256, F.installerHex)
         XCTAssertEqual(InstallerReleaseFeed.expectedName(version: "2.5.640"), "PokeTokenBar-Setup-2.5.640-win-x64.exe")
         XCTAssertEqual(InstallerReleaseFeed.releaseDownloadPrefix, "https://github.com/likelion-campus/PokeTokenBar/releases/download/")
         // The offer keeps today's meaning on the same answer: the tag and the release page.
@@ -374,20 +386,14 @@ final class InstallerReleaseFeedAssetTests: XCTestCase {
         }
     }
 
-    /// Defect protocol (defect log, "기본 상한"): the installer is 33,121,702 bytes and the WinHTTP seam's default cap for API
-    /// answers is 32 MiB. The feed must not carry a cap of its own near the real size: one byte over 32 MiB is an installer.
-    func testAnInstallerJustOverTheSeamsDefaultCapIsAnInstaller() throws {
-        let found = try XCTUnwrap(InstallerReleaseFeed.installer(in: F.data(installer: "size", "\(32 * 1024 * 1024 + 1)")))
-        XCTAssertEqual(found.size, 33_554_433)
-    }
-
     func testADigestThatIsNotSHA256AndSixtyFourLowercaseHexIsRefused() {
         let hex = F.installerHex
         let short = String(hex.dropLast()), upper = hex.uppercased(), sha1 = String(hex.prefix(40)), md5 = String(hex.prefix(32))
+        let short2 = String(hex.prefix(62))  // + "٣" (2 UTF-8 bytes): the right length, so the hex-digit rule refuses it
         let digests: [String] = [
             "", "sha256:", "sha256:\(short)", "sha256:\(hex)0", "sha256:\(upper)", "SHA256:\(hex)", "Sha256:\(hex)",
             "sha512:\(hex)\(hex)", "sha1:\(sha1)", "md5:\(md5)", hex, " sha256:\(hex)", "sha256:\(hex) ", "sha256: \(short)",
-            "sha256:\(hex)\n", "sha256:\(short)g", "sha256:\(short)٣", "sha256=\(hex)", "sha256-\(hex)",
+            "sha256:\(hex)\n", "sha256:\(short)g", "sha256:\(short2)٣", "sha256=\(hex)", "sha256-\(hex)",
         ]
         for digest in digests {
             XCTAssertEqual(rejection(F.data(installer: "digest", q(digest))), .digest, digest.debugDescription)
@@ -470,5 +476,57 @@ final class InstallerReleaseFeedAssetTests: XCTestCase {
         FeedStubProtocol.body = F.data()
         let real = await InstallerReleaseFeed.fetch(from: feed, downloadPrefix: prefix, session: stubbedSession())
         XCTAssertEqual(real.rejection, .url)
+    }
+}
+
+/// `InstallerCache`: what `WindowsUpdates` keeps between a check and a click on "Update".
+final class InstallerReleaseFeedCacheTests: XCTestCase {
+    private typealias F = ReleaseFixture
+    private let offer = InstallerReleaseFeed.Outcome.release(UpdateChecker.LatestRelease(tag: F.tag, url: F.page))
+
+    private func checked() throws -> InstallerReleaseFeed.Installer { try XCTUnwrap(InstallerReleaseFeed.installer(in: F.data())) }
+
+    func testAnAcceptedInstallerIsGivenOnlyForItsOwnVersion() throws {
+        var cache = InstallerReleaseFeed.InstallerCache()
+        XCTAssertNil(cache.installer(for: F.version), "nothing checked yet")
+        XCTAssertNil(cache.lastRejection)
+        let installer = try checked()
+        cache.record((offer, installer, nil))
+        XCTAssertEqual(cache.installer(for: F.version), installer)
+        XCTAssertNil(cache.installer(for: "2.5.633"), "an older offer the checker kept, or a skipped release")
+        XCTAssertNil(cache.installer(for: "2.5.635"))
+        XCTAssertNil(cache.lastRejection)
+    }
+
+    func testARefusedInstallerReplacesTheEarlierOneAndSaysWhy() throws {
+        var cache = InstallerReleaseFeed.InstallerCache()
+        cache.record((offer, try checked(), nil))
+        cache.record((offer, nil, .digest))
+        XCTAssertNil(cache.installer(for: F.version), "a later refused answer never leaves the earlier installer in place")
+        XCTAssertEqual(cache.lastRejection, .digest)
+        cache.record((offer, try checked(), nil))
+        XCTAssertNotNil(cache.installer(for: F.version))
+        XCTAssertNil(cache.lastRejection, "an accepted installer clears the old reason")
+    }
+
+    func testANoInstallerAnswerClearsTheInstaller() throws {
+        var cache = InstallerReleaseFeed.InstallerCache()
+        cache.record((offer, try checked(), nil))
+        cache.record((.noInstaller, nil, nil))
+        XCTAssertNil(cache.installer(for: F.version), "an installer removed from the release stops in-app installs (D11)")
+        XCTAssertEqual(cache.lastRejection, .noInstaller)
+    }
+
+    func testAFailedCheckKeepsWhatTheLastAnswerSaid() throws {
+        var cache = InstallerReleaseFeed.InstallerCache()
+        let installer = try checked()
+        cache.record((offer, installer, nil))
+        cache.record((.failed, nil, nil))
+        XCTAssertEqual(cache.installer(for: F.version), installer, "could not ask: the offer and its installer stay")
+        XCTAssertNil(cache.lastRejection)
+        cache.record((offer, nil, .url))
+        cache.record((.failed, nil, nil))
+        XCTAssertNil(cache.installer(for: F.version))
+        XCTAssertEqual(cache.lastRejection, .url)
     }
 }
