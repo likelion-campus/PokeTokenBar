@@ -633,10 +633,11 @@ final class PopoverDriver: @unchecked Sendable {
         popover.close(.destroyed)
         let base = PopoverResources.now()
         var lines: [String] = [], ok = true
-        func record(_ name: String, opened: Bool, closed: Bool, reason: WinPopover.CloseReason?, old: HWND?) {
+        @MainActor func record(_ name: String, opened: Bool, closed: Bool, reason: WinPopover.CloseReason?, old: HWND?) {
             let now = PopoverResources.now()
+            let oldAlive = old.map { IsWindow($0) } ?? false, stillOpen = popover.isOpen
             let clean = now.dialogs == base.dialogs && now.windows == base.windows && now.controls == 0 && now.pumpDepth == 0
-                && !(old.map { IsWindow($0) } ?? false) && !popover.isOpen
+                && !oldAlive && !stillOpen
             let fine = opened && closed && clean
             ok = ok && fine
             lines.append("\(name): closed=\(closed) (\(reason.map { "\($0)" } ?? "-")) registrations clean=\(clean)\(fine ? "" : " FAIL \(now)")")
