@@ -160,6 +160,90 @@ void ptb_gfx_set_options(PTBGfxDevice *device, uint32_t flags);
 /* The process's private bytes (PROCESS_MEMORY_COUNTERS_EX.PrivateUsage), for the frame-cost evidence; 0 on failure. */
 uint64_t ptb_gfx_process_private_bytes(void);
 
+/* ---- the plaza window: surface, frame clock, visibility helpers (stage 6 Task 5; window_*.cpp) ---------------------
+ *
+ * Window surface (D1): the frame bitmap of an offscreen surface, presented through a DirectComposition swap chain for the
+ * window (CreateSwapChainForComposition: flip sequential, 2 buffers, B8G8R8A8, premultiplied alpha, frame-latency waitable
+ * with maximum latency 1; DCompositionCreateDevice -> CreateTargetForHwnd(topmost FALSE) -> one visual). The window must have
+ * WS_EX_NOREDIRECTIONBITMAP. ptb_gfx_frame draws into it as into any surface; ptb_gfx_window_present copies the frame into the
+ * back buffer and presents with sync interval 1. After a device rebuild the swap chain and the composition are made again at
+ * the next present. Commit runs once per swap chain, never per frame. Main thread only. Released with ptb_gfx_surface_release.
+ * ptb_gfx_inject_fault kind 2: the next present reports DXGI_ERROR_DEVICE_REMOVED (0x887A0005) and the device is lost. */
+PTBGfxSurface *ptb_gfx_surface_window(PTBGfxDevice *device, void *hwnd, uint32_t w, uint32_t h);
+/* Frame and scratch bitmaps (made again at the next frame) and the swap chain's buffers (ResizeBuffers) to w x h pixels. */
+int ptb_gfx_window_resize(PTBGfxSurface *surface, uint32_t w, uint32_t h);
+/* 1 when a frame may be drawn and presented now: the frame-latency waitable is signalled (waited up to waitMs) or was taken
+ * earlier and no present has used it yet. 0 when the GPU is still behind (the caller keeps the frame dirty). */
+int ptb_gfx_window_acquire(PTBGfxSurface *surface, uint32_t waitMs);
+/* 0 or DXGI_STATUS_OCCLUDED (0x087A0001, still a success) when presented; a device-removed / reset / hung code (the device is
+ * then lost, rebuild it) or another failure (ptb_plaza_last_error says which stage). */
+int ptb_gfx_window_present(PTBGfxSurface *surface);
+typedef struct {
+    uint32_t presents, occluded, acquireMisses, swapChainsMade, resizes, failures;
+    uint32_t width, height;             /* the frame bitmap */
+    uint32_t bufferWidth, bufferHeight; /* the swap chain's buffers (0 before the first one) */
+} PTBGfxWindowStats;
+void ptb_gfx_window_stats(PTBGfxSurface *surface, PTBGfxWindowStats *out);
+
+/* Frame clock (D4): a thread that posts `message` (wParam 0) to `hwnd` once per frame while running, never two unanswered
+ * (the window calls ptb_clock_ack when it handles one), and waits on an event with no timeout while not running (zero
+ * wakeups). Frame source: IDXGIOutput::WaitForVBlank on the monitor given by ptb_clock_set_monitor (every N-th vblank,
+ * N = max(1, floor(Hz / 60))), else a high-resolution waitable timer at 1/60 s (no output, a failing wait, or five waits in a
+ * row shorter than 2 ms). The thread touches no app state. Create, set_monitor, set_running, ack, stats and destroy: main
+ * thread. */
+typedef struct PTBClock PTBClock;
+typedef struct {
+    uint32_t threadId;
+    int32_t source;          /* 1 vblank, 2 timer */
+    double refreshHz;        /* of the monitor's current mode, 0 when unknown */
+    uint32_t divider;
+    int32_t highResolutionTimer, running;
+    uint64_t posted, waits, earlyReturns, fallbacks, parks;
+    uint32_t samples;        /* intervals between posted ticks since the last reset (at most 1024 kept) */
+    double p50Ms, p95Ms, p99Ms, maxMs;
+} PTBClockStats;
+PTBClock *ptb_clock_create(void *hwnd, uint32_t message);
+/* The source for the monitor (HMONITOR): 1 vblank, 2 timer. forceTimer 1 skips the outputs. */
+int ptb_clock_set_monitor(PTBClock *clock, void *monitor, int forceTimer);
+void ptb_clock_set_running(PTBClock *clock, int on);
+void ptb_clock_ack(PTBClock *clock);
+void ptb_clock_stats(PTBClock *clock, PTBClockStats *out, int resetIntervals);
+/* Stops the thread and waits for it (at most 2 s). 1 when it ended in time. */
+int ptb_clock_destroy(PTBClock *clock);
+
+/* Visibility (D5) and the window's geometry (D6). */
+typedef struct {
+    uint16_t name[32];       /* MONITORINFOEX.szDevice */
+    int32_t monitor[4], work[4]; /* left, top, right, bottom; physical pixels */
+    uint32_t dpi;            /* effective DPI (GetDpiForMonitor) */
+    int32_t primary;
+    uint64_t handle;         /* HMONITOR */
+} PTBMonitor;
+uint32_t ptb_monitors(PTBMonitor *out, uint32_t cap);
+/* 1 when no pixel of the client area can be seen: off every monitor, or covered by the visible, uncloaked, unminimized,
+ * non-layered top-level windows above it in z order (their DWM frame bounds). *above = the windows that took part. */
+int ptb_window_covered(void *hwnd, uint32_t *above);
+int ptb_window_cloaked(void *hwnd);                  /* DWMWA_CLOAKED != 0 */
+int ptb_window_set_cloak(void *hwnd, int on);        /* DWMWA_CLOAK on a window of ours (selftest) */
+/* WinEvent hooks (out of context, delivered through this thread's queue): the window's own cloak / uncloak (this process),
+ * and, anywhere, a foreground change, a move/size end, a minimize start/end (rare events). Each posts `message` to hwnd with
+ * wParam = the event (the system ones coalesced until ptb_window_hooks_ack). One window at a time. Returns hooks made. */
+int ptb_window_hooks_install(void *hwnd, uint32_t message);
+void ptb_window_hooks_ack(void);
+void ptb_window_hooks_remove(void);
+uint32_t ptb_window_hooks_live(void);
+/* WTSRegisterSessionNotification(NOTIFY_FOR_THIS_SESSION) on (1) / off (0): WM_WTSSESSION_CHANGE for lock and disconnect. */
+int ptb_window_session_notify(void *hwnd, int on);
+uint32_t ptb_window_dpi(void *hwnd);                  /* GetDpiForWindow, 96 when unknown */
+/* The window rect (left, top, right, bottom relative to the client's origin) for a w x h client at `dpi`. */
+int ptb_window_frame_for_client(uint32_t style, uint32_t exStyle, uint32_t dpi, int32_t w, int32_t h, int32_t out[4]);
+/* DPI_AWARENESS of the window (0 unaware, 1 system, 2 per monitor; -1 unknown); *perMonitorV2 1 for PER_MONITOR_AWARE_V2. */
+int ptb_window_dpi_awareness(void *hwnd, int *perMonitorV2);
+uint32_t ptb_process_handle_count(void);
+/* The client area as PrintWindow(PW_CLIENTONLY | PW_RENDERFULLCONTENT) draws it (composition content included), opaque
+ * BGRA top-down; free *bgra with ptb_plaza_free (selftest evidence next to the screen capture). */
+int ptb_window_print(void *hwnd, uint32_t *w, uint32_t *h, uint8_t **bgra);
+
 /* ---- canvas (Task 8) -------------------------------------------------------------------------------------------- */
 
 /* A Direct2D canvas over a WIC bitmap with CoreGraphics' conventions: origin bottom-left, y up, a CTM, a save/restore state

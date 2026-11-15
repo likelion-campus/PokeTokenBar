@@ -636,13 +636,13 @@ jobs:
           $summary.sleeper = [ordered]@{ cyclesPerSec = $base.processCyclesPerSec; contextSwitchesPerMin = $base.contextSwitchesPerMin; explorerCycles = $base.explorerCycles; explorerContextSwitches = ($base.also | Where-Object name -eq 'explorer').contextSwitches }
 
           # 2. The installed app, one window per state. Budgets are from the first measured runs, with margin (see the report).
-          function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget) {
+          function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget, [string[]]$AppArgs = @()) {
               Remove-Item -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak"
               if ($Settings) { Set-Content -Path $PtbPlist -Value $Settings -Encoding utf8NoBOM }
               $state = Join-Path $env:PTB_FIXTURE "state-idle-$Label"
               New-Item -ItemType Directory -Force -Path $state | Out-Null
               $env:PTB_STATE_DIR = $state
-              $p, $h = Start-App $exe
+              $p, $h = Start-App $exe $AppArgs
               Start-Sleep -Seconds 30
               $m = @{ ProcessId = $p.Id; Seconds = $Seconds; Label = $Label; Out = "idle-$Label.json" }
               foreach ($k in $Budget.Keys) { $m[$k] = $Budget[$k] }
@@ -665,6 +665,18 @@ jobs:
           # 3.3-4.4 M cycles/s: each refresh's status check (URLSession, libcurl) makes the dispatch worker wake ~4500-8000 times in a few
           # seconds (see the timeline step: nothing of the kind with status checks off).
           Measure-App 'normal-300s' 300 '' @{ MaxMainCsPerMin = 30; MaxProcessCsPerMin = 4000; MaxProcessCyclesPerSec = 6000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+          # Stage 6 Task 5: the plaza open (the selftest helper opens the app's own plaza; no team, nobody else in it), with
+          # refresh off as in the first window, so the difference to 'manual-refresh-120s' is the plaza's. On the runner the
+          # device is WARP (CPU rendering): every drawn frame is CPU time here that a GPU does on a PC.
+          $logFile = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log'
+          foreach ($mode in 'visible', 'minimized') {
+              $label = "plaza-$mode-120s"
+              $budgetPlaza = if ($mode -eq 'minimized') { @{ MaxMainCsPerMin = 150; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } } else { @{ MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } }
+              Measure-App $label 120 $off $budgetPlaza @('--selftest-plaza-idle', $mode)
+              $lines = @(Select-String -Path $logFile -Pattern 'plaza idle helper|plaza open at exit|plaza window open|plaza window: not opened' -ErrorAction SilentlyContinue | Select-Object -Last 3 | ForEach-Object { $_.Line })
+              $lines
+              $summary.windows[$label].plazaLog = $lines
+          }
           $summary.verdicts = $verdicts
           $summary | ConvertTo-Json -Depth 8 | Set-Content idle-gate.json -Encoding utf8
           Get-Content idle-gate.json
@@ -797,6 +809,7 @@ jobs:
             waker-hunt.json
             st*.json.lines
             tray-desktop.png
+            plaza-*.png
             probe-*.txt
             ui-dump
             collected

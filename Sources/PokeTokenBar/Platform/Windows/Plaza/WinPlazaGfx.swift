@@ -17,8 +17,11 @@ final class WinGfxDeviceHandle: @unchecked Sendable {
 /// drops an image (a teammate leaves, a season changes, an animation set is evicted) the ref's `deinit` queues the release
 /// (any thread) and the next main-thread device call frees it. A ref of an older device generation is stale: the next draw
 /// uploads the image again and replaces it.
+///
+/// The ref does not keep the device alive (Task 5): images the app keeps for its whole life (the map, the art caches) would
+/// otherwise hold a closed plaza's Direct3D device. When the device is gone its bitmaps went with it, and the ref is stale.
 final class WinBitmapRef: @unchecked Sendable {
-    let device: WinGfxDeviceHandle
+    weak var device: WinGfxDeviceHandle?
     let handle: UInt32
     let generation: UInt32
     let bytes: Int
@@ -30,7 +33,9 @@ final class WinBitmapRef: @unchecked Sendable {
         self.bytes = bytes
     }
 
-    deinit { ptb_gfx_bitmap_release(device.raw, handle, generation) }
+    deinit {
+        if let device { ptb_gfx_bitmap_release(device.raw, handle, generation) }
+    }
 }
 
 /// Test-only switches that break one parity rule each, so the tests prove they notice (`WindowsPlazaRendererTests.
@@ -187,19 +192,45 @@ final class WinGfxSurfaceHandle: @unchecked Sendable {
     deinit { ptb_gfx_surface_release(raw) }
 }
 
-/// Where a frame is drawn: an offscreen frame bitmap (this task; Task 5 adds the window's swap chain), sized in device
-/// pixels. Main thread only.
+/// Where a frame is drawn: an offscreen frame bitmap, or a window's (Task 5: the frame bitmap presented through the window's
+/// DirectComposition swap chain), sized in device pixels. Main thread only.
 @MainActor final class WinGfxSurface {
     let device: WinGfxDevice
     let handle: WinGfxSurfaceHandle
+    /// A window surface presents (`present()`); an offscreen one only draws and reads back.
+    let isWindow: Bool
     private(set) var width: Int
     private(set) var height: Int
 
-    private init(device: WinGfxDevice, handle: WinGfxSurfaceHandle, width: Int, height: Int) {
+    private init(device: WinGfxDevice, handle: WinGfxSurfaceHandle, width: Int, height: Int, isWindow: Bool = false) {
         self.device = device
         self.handle = handle
         self.width = width
         self.height = height
+        self.isWindow = isWindow
+    }
+
+    /// The window's surface (D1): a composition swap chain for `hwnd` (which has `WS_EX_NOREDIRECTIONBITMAP`).
+    static func window(device: WinGfxDevice, hwnd: UnsafeMutableRawPointer, width: Int, height: Int) -> Result<WinGfxSurface, WinGfxError> {
+        guard width > 0, height > 0, let raw = ptb_gfx_surface_window(device.owner.raw, hwnd, UInt32(width), UInt32(height)) else {
+            return .failure(.unavailable("window surface \(width)x\(height): \(WinPlazaCodecs.lastError())"))
+        }
+        return .success(WinGfxSurface(device: device, handle: WinGfxSurfaceHandle(raw, device: device.owner), width: width, height: height,
+                                      isWindow: true))
+    }
+
+    /// A window surface: true when a frame may be drawn and presented now (the swap chain's frame-latency waitable,
+    /// waited up to `waitMs`); false while the GPU is behind.
+    func acquireFrame(waitMs: UInt32 = 0) -> Bool { ptb_gfx_window_acquire(handle.raw, waitMs) != 0 }
+
+    /// A window surface: presents the last drawn frame. 0 or `DXGI_STATUS_OCCLUDED`, else the failure (a device loss marks the
+    /// device lost: rebuild it).
+    func present() -> Int32 { ptb_gfx_window_present(handle.raw) }
+
+    var windowStats: PTBGfxWindowStats {
+        var s = PTBGfxWindowStats()
+        ptb_gfx_window_stats(handle.raw, &s)
+        return s
     }
 
     static func offscreen(device: WinGfxDevice, width: Int, height: Int) -> Result<WinGfxSurface, WinGfxError> {
@@ -209,10 +240,12 @@ final class WinGfxSurfaceHandle: @unchecked Sendable {
         return .success(WinGfxSurface(device: device, handle: WinGfxSurfaceHandle(raw, device: device.owner), width: width, height: height))
     }
 
-    /// Device pixels. The resources are made again on the next frame.
+    /// Device pixels. The resources are made again on the next frame (a window surface resizes its buffers now).
     func resize(width: Int, height: Int) {
         guard width > 0, height > 0, width != self.width || height != self.height else { return }
-        if ptb_gfx_surface_resize(handle.raw, UInt32(width), UInt32(height)) >= 0 {
+        let code = isWindow ? ptb_gfx_window_resize(handle.raw, UInt32(width), UInt32(height))
+            : ptb_gfx_surface_resize(handle.raw, UInt32(width), UInt32(height))
+        if code >= 0 || isWindow {   // a window surface keeps the new size even when its buffers must be made again
             self.width = width
             self.height = height
         }
