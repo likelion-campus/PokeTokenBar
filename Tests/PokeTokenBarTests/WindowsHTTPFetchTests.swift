@@ -123,7 +123,8 @@ final class WindowsHTTPFetchTests: XCTestCase {
         post.httpBody = Data("x".utf8)
         let after = try await seam(post)
         XCTAssertTrue(text(after).hasPrefix("GET\n"), "a 303 continues as GET, as in URLSession: \(text(after))")
-        XCTAssertTrue(text(try await control(post)).hasPrefix("GET\n"))
+        let controlAfter = try await control(post)
+        XCTAssertTrue(text(controlAfter).hasPrefix("GET\n"))
     }
 
     func testBodiesDecodeAsURLSessionDecodedThem() async throws {
@@ -218,7 +219,8 @@ final class WindowsHTTPFetchTests: XCTestCase {
             XCTAssertTrue(theirs.hasPrefix("proxied http://ptb-target.invalid/echo"), theirs)
         }
         try await withEnvironment(["ALL_PROXY": proxy]) {
-            XCTAssertTrue(text(try await seam(target)).hasPrefix("proxied "), "all_proxy when the scheme has none")
+            let viaAll = try await seam(target)
+            XCTAssertTrue(text(viaAll).hasPrefix("proxied "), "all_proxy when the scheme has none")
         }
         for bypass in ["ptb-target.invalid", ".invalid", "a.example, invalid"] {
             try await withEnvironment(["HTTP_PROXY": proxy, "NO_PROXY": bypass]) {
@@ -245,7 +247,8 @@ final class WindowsHTTPFetchTests: XCTestCase {
         try await withEnvironment([:]) {
             let r = try request(try base() + "/delay/0")
             XCTAssertEqual(WinProxyRoute.route(for: try XCTUnwrap(r.url)), .systemProxy)
-            XCTAssertEqual(text(try await seam(r)), "ok 0\n")
+            let answer = try await seam(r)
+            XCTAssertEqual(text(answer), "ok 0\n")
         }
     }
 
