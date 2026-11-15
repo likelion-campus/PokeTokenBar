@@ -84,20 +84,6 @@ enum FormatterProbe {
         return out.map { ($0.0, visible($0.1)) }
     }
 
-    /// `DateComponentsFormatter` (abbreviated, two units) — the popover formatter SwiftUI's `.relative` resembles.
-    /// swift-corelibs declares it but every `string(from:)` is `NSUnsupported()`, so on Windows this traps: only the
-    /// language probe's isolated child process calls it there (`--formatter-trap`).
-    static func dateComponentsAbbreviated(_ seconds: TimeInterval, language: AppLanguage) -> String {
-        let f = DateComponentsFormatter()
-        f.unitsStyle = .abbreviated
-        f.maximumUnitCount = 2
-        f.allowedUnits = [.day, .hour, .minute, .second]
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = language.displayLocale
-        f.calendar = calendar
-        return visible(f.string(from: seconds) ?? "nil")
-    }
-
     /// Non-ASCII spaces and invisible marks as `<U+202F>` so a log line shows which one a locale used.
     static func visible(_ text: String) -> String {
         text.unicodeScalars.map { s in

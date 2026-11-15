@@ -17,10 +17,18 @@ final class PopoverFormatterProbeTests: XCTestCase {
                 print("FORMATTER-PROBE|\(Self.system)|\(language.rawValue)|\(name)|\(value)")
             }
             #if !os(Windows)
-            // Mac only: corelibs has no RelativeDateTimeFormatter, and its DateComponentsFormatter is NSUnsupported().
+            // Mac only: swift-corelibs has no RelativeDateTimeFormatter, and marks DateComponentsFormatter
+            // `unavailable: Not supported in swift-corelibs-foundation` (the Windows build does not compile a call to it).
+            let components = DateComponentsFormatter()
+            components.unitsStyle = .abbreviated
+            components.maximumUnitCount = 2
+            components.allowedUnits = [.day, .hour, .minute, .second]
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.locale = language.displayLocale
+            components.calendar = calendar
             for seconds in [7505.0, 190, 45] {
                 print("FORMATTER-PROBE|mac|\(language.rawValue)|dateComponents.abbreviated.\(Int(seconds))s|"
-                      + FormatterProbe.dateComponentsAbbreviated(seconds, language: language))
+                      + FormatterProbe.visible(components.string(from: seconds) ?? "nil"))
             }
             let relative = RelativeDateTimeFormatter()
             relative.locale = language.displayLocale

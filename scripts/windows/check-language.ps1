@@ -56,10 +56,6 @@ try {
         try { $null = Probe "formatters-$tag" @('--inject-ui-language', $tag, '--formatter-probe') }
         catch { Write-Host "INFO formatter probe ${tag}: $_" }
     }
-    try {
-        $trap = Probe 'formatter-trap' @('--inject-ui-language', 'ko-KR', '--formatter-trap')
-        Write-Host "INFO DateComponentsFormatter in a child process: $(if ($trap['trap.survived']) { $trap['trap.survived'] } else { 'trapped: no trap.survived line after trap.start' })"
-    } catch { Write-Host "INFO formatter trap probe: $_" }
     # 2b. diagnostics: which time-zone calls trap in this build, one by one. Each crash is recorded and the run restarted past it.
     function Hunt([string]$label) {
         $hunt = Join-Path (Resolve-Path $OutDir).Path "tz-hunt-$label.txt"

@@ -94,7 +94,7 @@ enum WindowsSelftestLanguage {
         ].map { ($0.0, FormatterProbe.visible($0.1)) }
     }
 
-    /// `--language-probe <out> [--seed-language en] [--inject-ui-language ko-KR] [--formatter-probe] [--formatter-trap]`:
+    /// `--language-probe <out> [--seed-language en] [--inject-ui-language ko-KR] [--formatter-probe]`:
     /// facts, tray strings, the region seams, (seeded) the one-time migration, and (opt-in) the formatter outputs.
     @MainActor static func runProbe(_ args: [String]) -> Never {
         var injectedLanguage: AppLanguage?
@@ -119,15 +119,6 @@ enum WindowsSelftestLanguage {
             lines.append("format.language=\(language.rawValue)")
             lines += FormatterProbe.lines(language: language).map { "format.\($0.0)=\($0.1)" }
             lines += FormatterProbe.regionLines().map { "format.\($0.0)=\($0.1)" }
-        }
-        let out = args.firstIndex(of: "--language-probe").flatMap { $0 + 1 < args.count ? URL(fileURLWithPath: args[$0 + 1]) : nil }
-        // `--formatter-trap`: write what we have, then call DateComponentsFormatter, which corelibs leaves `NSUnsupported()`.
-        // The last line says whether this process survived it.
-        if args.contains("--formatter-trap"), let out {
-            try? Data((lines.joined(separator: "\n") + "\ntrap.start=DateComponentsFormatter\n").utf8).write(to: out)
-            let value = FormatterProbe.dateComponentsAbbreviated(7505, language: injectedLanguage ?? .en)
-            lines.append("trap.start=DateComponentsFormatter")
-            lines.append("trap.survived=DateComponentsFormatter returned \(value)")
         }
         if let i = args.firstIndex(of: "--seed-language"), i + 1 < args.count {
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-language-probe-\(UUID().uuidString)")
