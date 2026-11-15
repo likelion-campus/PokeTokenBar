@@ -9,7 +9,7 @@ permissions:
   contents: read
 concurrency:
   group: windows-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/windows-port' }}
 jobs:
   shared:
     runs-on: windows-latest

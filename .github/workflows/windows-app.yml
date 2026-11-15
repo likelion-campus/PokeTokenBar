@@ -1,4 +1,13 @@
 name: windows-app
+# Two levels (job env PTB_LEVEL, shown in the job summary):
+#   light - build, bundle selftests (incl. stripped Path, crash, team transports, UI dump), package, installer build,
+#           silent install + installed selftest (proves the DLL closure), artifacts. No upgrade test, no idle gate,
+#           no uninstall check, no dispatch-loop fallback selftest.
+#   full  - light + the dispatch-loop fallback selftest, the upgrade test, the idle gate and the uninstall check.
+# Every run on windows-port (push or dispatch) is full. Any other ref is light unless dispatched with `-f level=full`:
+#   gh workflow run windows-app.yml --ref <branch> -f level=full --repo likelion-campus/PokeTokenBar
+# The three wake-up diagnostics (Waker hunt, Timeline, Waker modes) run only with `-f diagnostics=true`, at any level.
+# A new push cancels the running workflow of a work branch; on windows-port a running run finishes and one is queued.
 # Builds and self-tests the Windows app executable. Informational: not a required check.
 on:
   push:
@@ -19,6 +28,15 @@ on:
       - '.github/actions/windows-swift/**'
   workflow_dispatch:
     inputs:
+      level:
+        description: 'light (default; build, selftests, installer) or full (adds upgrade test, idle gate, uninstall). windows-port is always full'
+        type: choice
+        options: [light, full]
+        default: light
+      diagnostics:
+        description: 'Also run the three wake-up diagnostic steps (slow)'
+        type: boolean
+        default: false
       fast:
         description: 'Skip the long idle gate and the waker hunt (true/false)'
         default: 'false'
@@ -29,13 +47,28 @@ permissions:
   contents: read
 concurrency:
   group: windows-app-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/windows-port' }}
 jobs:
   app:
     runs-on: windows-latest
     timeout-minutes: 90
+    env:
+      PTB_LEVEL: ${{ (github.ref == 'refs/heads/windows-port' || inputs.level == 'full') && 'full' || 'light' }}
     steps:
       - uses: actions/checkout@v5
+      - name: Level of this run (job summary)
+        shell: pwsh
+        run: |
+          $lines = @("## windows-app: level **$env:PTB_LEVEL**", '')
+          if ($env:PTB_LEVEL -eq 'full') {
+              $lines += 'Ran: everything, including the upgrade test, the idle gate and the uninstall check.'
+          } else {
+              $lines += '**Light run, not a full one.** Skipped step groups: dispatch-loop fallback selftest, upgrade test, idle gate, uninstall check.'
+              $lines += 'Ask for the full run with `gh workflow run windows-app.yml --ref <branch> -f level=full`.'
+          }
+          $lines += ('Diagnostics (waker hunt, timeline, waker modes): ' + $(if ('${{ inputs.diagnostics }}' -eq 'true') { 'ran' } else { 'skipped (`-f diagnostics=true` to run)' }))
+          $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          $lines
       - uses: ./.github/actions/windows-swift
       - name: Resources (version info, icon, manifest)
         id: resources
@@ -81,7 +114,7 @@ jobs:
           $env:OPENSSL_CONF = $conf
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages -DumpUi (Join-Path $PWD 'ui-dump')
       - name: Selftest on the dispatch-handle loop (diagnostic fallback, informational)
-        if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
+        if: (success() || failure()) && steps.package.outcome == 'success' && env.PTB_LEVEL == 'full'  # independent evidence, also after a selftest failure
         continue-on-error: true
         shell: pwsh
         run: |
@@ -457,15 +490,19 @@ jobs:
           if (-not (Test-Path $iscc)) { throw 'ISCC.exe not found after choco install innosetup' }
           $v = (Get-Content bundle\PokeTokenBar.version -Raw).Trim()
           $next = ($v -replace '\d+$', { [string]([int]$_.Value + 1) })
-          Copy-Item bundle bundle-next -Recurse
-          Set-Content -Path bundle-next\PokeTokenBar.version -Value $next -NoNewline
-          foreach ($job in @(@{ Src = 'bundle'; Ver = $v; Out = 'installer-out' }, @{ Src = 'bundle-next'; Ver = $next; Out = 'installer-next' })) {
+          $jobs = @(@{ Src = 'bundle'; Ver = $v; Out = 'installer-out' })
+          if ($env:PTB_LEVEL -eq 'full') {  # the next version only serves the upgrade test
+              Copy-Item bundle bundle-next -Recurse
+              Set-Content -Path bundle-next\PokeTokenBar.version -Value $next -NoNewline
+              $jobs += @{ Src = 'bundle-next'; Ver = $next; Out = 'installer-next' }
+          }
+          foreach ($job in $jobs) {
               New-Item -ItemType Directory -Force -Path $job.Out | Out-Null
               & $iscc /Q "/DSrcDir=$((Resolve-Path $job.Src).Path)" "/DAppVer=$($job.Ver)" "/DOutDir=$((Resolve-Path $job.Out).Path)" installer\PokeTokenBar.iss
               if ($LASTEXITCODE -ne 0) { throw "ISCC failed for $($job.Ver)" }
           }
           "PTB_NEXT_VERSION=$next" >> $env:GITHUB_ENV
-          foreach ($f in Get-ChildItem installer-out, installer-next -Filter *.exe) { '{0}: {1:N0} bytes' -f $f.FullName, $f.Length }
+          foreach ($f in Get-ChildItem installer-out, installer-next -Filter *.exe -ErrorAction SilentlyContinue) { '{0}: {1:N0} bytes' -f $f.FullName, $f.Length }
           'bundle: {0:N0} bytes in {1} files' -f ((Get-ChildItem bundle -Recurse -File | Measure-Object Length -Sum).Sum), (Get-ChildItem bundle -Recurse -File).Count
           if (-not (Test-Path "installer-out\PokeTokenBar-Setup-$v-win-x64.exe")) { throw 'the installer has not the expected name' }
       - name: Silent install and what it left
@@ -502,7 +539,7 @@ jobs:
           "installed exe: $($item.VersionInfo.FileVersion) $($item.Length) bytes"
       - name: Upgrade over a running instance keeps settings and memberID
         id: upgrade
-        if: (success() || failure()) && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full'
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -547,7 +584,7 @@ jobs:
           Close-App $fresh $h
       - name: Installed selftest (stripped Path, from the install folder)
         id: installed-selftest
-        if: (success() || failure()) && steps.upgrade.outcome != 'skipped'
+        if: (success() || failure()) && steps.install.outcome == 'success'
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -579,7 +616,7 @@ jobs:
           "executed selftest checks: $(@($j.checks).Count)"
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
         id: idle
-        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.fast != 'true'
+        if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full' && inputs.fast != 'true'
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -634,7 +671,7 @@ jobs:
           if ($verdicts.Values -contains $false) { throw "idle gate FAILED: $(($verdicts.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object Key) -join ', ')" }
           'PASS idle gate'
       - name: Waker hunt (the two ~1 Hz threads; diagnostics)
-        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.fast != 'true'
+        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.diagnostics == true && inputs.fast != 'true'
         continue-on-error: true
         shell: pwsh
         run: |
@@ -651,7 +688,7 @@ jobs:
           "exit $($p.ExitCode)"
           foreach ($ph in (Get-Content $out -Raw | ConvertFrom-Json)) { "== $($ph.phase)"; $ph.detail }
       - name: Timeline of the installed app (when does a waker start; diagnostics)
-        if: (success() || failure()) && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.diagnostics == true
         continue-on-error: true
         shell: pwsh
         run: |
@@ -675,7 +712,7 @@ jobs:
               Get-Content (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log') | Select-String 'refresh done|launched' | Select-Object -Last 4
           }
       - name: Waker modes (what each way of waiting costs on its own; diagnostics)
-        if: (success() || failure()) && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success' && inputs.diagnostics == true
         continue-on-error: true
         shell: pwsh
         run: |
@@ -704,7 +741,7 @@ jobs:
           foreach ($k in $modes.Keys) { Stop-Process -Id $procs[$k].Id -Force -ErrorAction SilentlyContinue }
       - name: Silent uninstall and what it leaves
         id: uninstall
-        if: (success() || failure()) && steps.install.outcome == 'success'
+        if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full'
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
