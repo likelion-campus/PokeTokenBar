@@ -518,7 +518,7 @@ extension WindowsSelftest {
             _ = await WindowsSelftest.waitUntil(timeout: 0.4) { false }
             let tree = KitTree.collect(w)
             let checks = tree.check(w)
-            allOK = allOK && (checks.ok || v.name == "text150" || v.name == "hc")
+            allOK = allOK && checks.ok
             var wrote = "no --dump-ui"
             if let dir {
                 let png = capture(w).map { WinUIDump.write($0, to: dir.appendingPathComponent("kit-\(v.name).png")) } ?? -1
@@ -841,7 +841,7 @@ struct KitResources: CustomStringConvertible {
 
     func build(_ s: WinStack) {
         let section = s.addSection("Keyboard")
-        edit = section.addRow("Nickname") { pane, ctx in WinControls.edit(.text(cue: "Nickname"), width: 160 * ctx.scale, in: pane, ctx: ctx) }.control
+        edit = section.addRow("Nickname") { pane, ctx in WinControls.edit(.text(cue: "Nickname"), width: 160, in: pane, ctx: ctx) }.control
         check = section.addToggle("Back view", isOn: false).control
         combo = section.addRow("Language") { pane, ctx in WinControls.combo(["English", "한국어", "日本語"], selected: 0, in: pane, ctx: ctx) }.control
         button = section.addRow("Refresh limits") { pane, ctx in WinControls.button("Refresh", in: pane, ctx: ctx) }.control
@@ -875,6 +875,7 @@ struct KitResources: CustomStringConvertible {
         toggles.addToggle("Launch at login", hint: "Turned off in Task Manager > Startup apps", isOn: true)
         toggles.addToggle("Back view", isOn: false)
         toggles.addToggle("A disabled toggle", isOn: true).control?.isEnabled = false
+        toggles.addToggle(KitTree.hiddenMarker, hint: KitTree.hiddenMarker, isOn: false).isVisible = false  // laid out while the window is hidden
         let pickers = s.addSection("Pickers")
         pickers.addRow("Language") { pane, ctx in
             WinControls.combo(["English", "한국어", "日本語", "Español", "Français", "Deutsch", "Русский", "中文"], selected: 1, in: pane, ctx: ctx)
@@ -887,8 +888,8 @@ struct KitResources: CustomStringConvertible {
             WinControls.trackbar(range: 50...95, step: 5, value: 80, format: { "\($0) %" }, width: 170, in: pane, ctx: ctx)
         }
         let fields = s.addSection("Fields")
-        firstField = fields.addRow("Nickname") { pane, ctx in WinControls.edit(.text(cue: "Nickname"), width: 160 * ctx.scale, in: pane, ctx: ctx) }.control
-        fields.addRow("Team code") { pane, ctx in WinControls.edit(.code(cue: "PTB-XXXXX-XXXXX"), width: 170 * ctx.scale, in: pane, ctx: ctx) }
+        firstField = fields.addRow("Nickname") { pane, ctx in WinControls.edit(.text(cue: "Nickname"), width: 160, in: pane, ctx: ctx) }.control
+        fields.addRow("Team code") { pane, ctx in WinControls.edit(.code(cue: "PTB-XXXXX-XXXXX"), width: 170, in: pane, ctx: ctx) }
         fields.addRow("Session key", style: .stacked) { pane, ctx in WinControls.edit(.password(cue: "sk-ant-sid01-…"), text: "fixture", in: pane, ctx: ctx) }
         lastField = fields.addRow("Scan folders", hint: "One folder per line: Enter saves, Ctrl+Enter adds a line", style: .stacked) { pane, ctx in
             WinControls.edit(.multiLine(lines: 3, cue: "C:\\Users\\you\\.claude"), in: pane, ctx: ctx)
@@ -921,7 +922,7 @@ struct KitResources: CustomStringConvertible {
             row.control?.tooltip = label
             tooltipCount += 1
         }
-        buttons.addRow("Link") { pane, ctx in WinControls.link("github.com/likelion-campus/PokeTokenBar", in: pane, ctx: ctx) }
+        buttons.addRow("Link") { pane, ctx in WinControls.link("GitHub repository", in: pane, ctx: ctx) }
     }
 }
 
@@ -1046,6 +1047,8 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
     var tabOrder: [HWND] = []
 
     static let containers: Set<String> = [WinPane.className, WinScrollArea.className, WinDrawnView.className]
+    /// The text of a row the gallery hides: no window with it may be visible.
+    static let hiddenMarker = "Hidden row (must not show)"
 
     static func collect(_ w: KitWindow) -> KitTree {
         var tree = KitTree()
@@ -1113,15 +1116,28 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
             if CGFloat(need.cy) > CGFloat(node.h) * s + 1 { clipped.append("'\(node.text.prefix(24))' needs \(need.cy) px of \(Int(CGFloat(node.h) * s))") }
         }
         if !clipped.isEmpty { problems.append("labels cut: \(clipped)") }
+        // A label squeezed narrower than its widest word: its height still "fits" (one word a line), so the check above
+        // misses it (seen at 150 % text: a row's label at 0 px beside a wide control).
+        var squeezed: [String] = []
+        for (node, h) in zip(nodes, handles) where node.cls == "Static" && node.visible && !node.text.isEmpty {
+            let style = GetWindowLongW(h, -16)
+            guard style & 0x1F != 0x0D, style & 0x4000 == 0 else { continue }
+            let font = HFONT(bitPattern: WinKit.send(h, 0x0031))
+            let widest = node.text.split(separator: " ").map { w.ctx.measure(String($0), font: font).cx }.max() ?? 0
+            if CGFloat(widest) > CGFloat(node.w) * s + 1 { squeezed.append("'\(node.text.prefix(24))' \(Int(CGFloat(node.w) * s)) px < its widest word \(widest) px") }
+        }
+        if !squeezed.isEmpty { problems.append("labels squeezed: \(squeezed)") }
         let outside = zip(nodes, handles).filter { n, _ in
             n.tabStop && n.visible && (n.x < -0.5 || n.y < -0.5 || CGFloat(n.x + n.w) * s > CGFloat(client.cx) + 1 || CGFloat(n.y + n.h) * s > CGFloat(client.cy) + 1)
         }.map { "\($0.0.cls) '\($0.0.text.prefix(16))'" }
         if !outside.isEmpty { problems.append("outside the window: \(outside)") }
+        let shownHidden = nodes.filter { $0.text == Self.hiddenMarker && $0.visible }.count
+        if shownHidden > 0 { problems.append("a hidden row shows (\(shownHidden) windows)") }
         let hangul = Set(nodes.flatMap { $0.text.unicodeScalars.filter { (0xAC00...0xD7A3).contains($0.value) }.map { UInt16($0.value) } })
         let missingHangul = Self.missingGlyphs(Array(hangul), face: "Malgun Gothic")
         // R9: a machine without Malgun Gothic (a server image) draws Hangul as boxes: reported, not failed; with the font, a missing glyph fails.
         if !missingHangul.isEmpty, WinFonts.isInstalled("Malgun Gothic") { problems.append("Hangul without a glyph in Malgun Gothic: \(missingHangul.count)") }
-        let summary = "\(stops.count) Tab stops, \(tabOrder.count) reached in reading order=\(PopoverStackLayout.isReadingOrder(tabRects)); "
+        let summary = "hidden row windows shown=\(shownHidden) of \(nodes.filter { $0.text == Self.hiddenMarker }.count); \(stops.count) Tab stops, \(tabOrder.count) reached in reading order=\(PopoverStackLayout.isReadingOrder(tabRects)); "
             + "\(leaves.count) visible controls; \(hangul.count) Hangul syllables, \(missingHangul.count) without a glyph in Malgun Gothic (GDI's link for Hangul, "
             + "installed=\(WinFonts.isInstalled("Malgun Gothic"))); problems=\(problems.isEmpty ? "none" : problems.joined(separator: "; "))"
         return Result(ok: problems.isEmpty, summary: summary)

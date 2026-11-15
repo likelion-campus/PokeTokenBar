@@ -93,9 +93,9 @@ final class PopoverGlyphTableTests: XCTestCase {
 
     func testTheGapsAreThoseListed() {
         let gaps = PopoverGlyphTable.entries.filter { $0.value.fluent == nil || $0.value.mdl2 == nil }.keys.sorted()
-        XCTAssertEqual(gaps, ["flame.fill", "sparkle", "sparkles"])
+        XCTAssertEqual(gaps, ["eye.slash", "flame.fill", "sparkle", "sparkles"])
         let approximate = PopoverGlyphTable.entries.filter { $0.value.note != nil && $0.value.fallback == nil }.keys.sorted()
-        XCTAssertEqual(approximate, ["chart.bar.xaxis", "checkmark.seal.fill", "eye.slash", "key.slash.fill", "map"])
+        XCTAssertEqual(approximate, ["chart.bar.xaxis", "checkmark.seal.fill", "key.slash.fill", "map"])
     }
 }
 
@@ -136,6 +136,19 @@ final class PopoverStackLayoutTests: XCTestCase {
             row(CGSize(width: 10, height: 17), control: nil, seen: { widths.append($0) }),
         ])], width: 360, metrics: .settings)
         XCTAssertEqual(widths, [214, 304], "328 - 2 x 12 = 304, minus the control and the 10 pt spacing")
+    }
+
+    func testAWideControlPutsItsLabelAboveIt() {
+        let f = PopoverStackLayout.layout([PopoverStackSection(rows: [
+            row(CGSize(width: 40, height: 17), control: CGSize(width: 190, height: 24)),
+            row(CGSize(width: 40, height: 17), control: CGSize(width: 180, height: 24)),
+            row(nil, control: CGSize(width: 250, height: 24)),
+        ])], width: 360, metrics: .settings)
+        let wide = f.sections[0]!.rows[0]!, fits = f.sections[0]!.rows[1]!, alone = f.sections[0]!.rows[2]!
+        XCTAssertEqual(wide.label, CGRect(x: 28, y: 24, width: 40, height: 17), "190 > 60 % of 304: the label goes on top")
+        XCTAssertEqual(wide.control, CGRect(x: 28, y: 47, width: 304, height: 24))
+        XCTAssertEqual(fits.control?.minX, 28 + 304 - 180, "180 <= 182.4: it stays on the right")
+        XCTAssertEqual(alone.control?.minX, 28 + 304 - 250, "without a label nothing is squeezed: right-aligned")
     }
 
     func testATallRowGrowsAndShortOnesKeepTheMinimum() {

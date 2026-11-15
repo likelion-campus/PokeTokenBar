@@ -559,7 +559,8 @@ enum WinClipboardText {
         return c
     }
 
-    /// A text field of `kind` (D5), `width` pixels wide when given (else the row's width).
+    /// A text field of `kind` (D5), `width` DIP wide when given (grown with Windows' text size, as its text grows), else the
+    /// row's width.
     static func edit(_ kind: WinEditKind, text: String = "", width: CGFloat? = nil, in parent: HWND, ctx: WinUIContext) -> WinControl? {
         var es: DWORD = 0x0080  // ES_AUTOHSCROLL
         var lines = 1
@@ -577,7 +578,8 @@ enum WinClipboardText {
         if let cue = kind.cue { WinKit.send(h, 0x1501 /* EM_SETCUEBANNER */, 1, text: cue) }
         let line = ctx.lineHeight(font)
         let c = WinControl(kind: .edit, ctx: ctx, parts: [h],
-                           size: CGSize(width: width ?? 100_000, height: CGFloat(line * Int32(lines) + ctx.px(10))),
+                           size: CGSize(width: width.map { CGFloat(ctx.px($0 * CGFloat(ctx.textScale))) } ?? 100_000,
+                                        height: CGFloat(line * Int32(lines) + ctx.px(10))),
                            background: ctx.colors.palette.window, font: font)
         c.editKind = kind
         c.lastCommitted = text

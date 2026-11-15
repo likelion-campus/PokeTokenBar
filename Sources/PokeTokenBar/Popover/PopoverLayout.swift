@@ -53,7 +53,8 @@ struct PopoverStackMetrics: Equatable, Sendable {
 /// One row of a page section.
 struct PopoverStackRow {
     enum Style: Equatable, Sendable {
-        /// Label (and hint under it) on the left, the control on the right (`groupRow`, `toggleRow`).
+        /// Label (and hint under it) on the left, the control on the right (`groupRow`, `toggleRow`); stacked instead when
+        /// the control would take more than 60 % of the row.
         case trailing
         /// The label (and hint) on top, the control under it at the row's full width (a multi-line field).
         case stacked
@@ -146,7 +147,11 @@ enum PopoverStackLayout {
         let padH = card ? m.rowPaddingH : 0, padV = card ? m.rowPaddingV : 0, minH = card ? m.rowMinHeight : 0
         let innerX = x + padH, innerW = max(0, width - 2 * padH)
         func up(_ s: CGSize?) -> CGSize? { s.map { CGSize(width: $0.width.rounded(.up), height: $0.height.rounded(.up)) } }
-        switch row.style {
+        var style = row.style
+        // A control wider than 60 % of the row would squeeze its label (Windows' text size, a long picker): label above,
+        // control under it, as SwiftUI's rows fall back when they do not fit.
+        if style == .trailing, let c = row.control, c.width > innerW * 0.6, row.text(innerW).label != nil { style = .stacked }
+        switch style {
         case .trailing:
             let control = up(row.control)
             let cw = min(control?.width ?? 0, innerW)
@@ -170,7 +175,7 @@ enum PopoverStackLayout {
             let hintFrame = hint.map { CGRect(x: innerX, y: top + (control?.height ?? 0) + m.hintSpacing, width: min($0.width, innerW), height: $0.height) }
             return PopoverStackFrames.Row(frame: CGRect(x: x, y: y, width: width, height: h), label: nil, hint: hintFrame, control: controlFrame)
         case .stacked, .full:
-            let text: (label: CGSize?, hint: CGSize?) = row.style == .stacked ? row.text(innerW) : (nil, nil)
+            let text: (label: CGSize?, hint: CGSize?) = style == .stacked ? row.text(innerW) : (nil, nil)
             let label = up(text.label), hint = up(text.hint)
             var cursor = y + padV
             let labelFrame = label.map { CGRect(x: innerX, y: cursor, width: min($0.width, innerW), height: $0.height) }

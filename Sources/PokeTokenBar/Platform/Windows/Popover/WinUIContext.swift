@@ -51,9 +51,11 @@ enum WinKit {
         _ = SetWindowPos(hwnd, nil, r.left, r.top, r.right - r.left, r.bottom - r.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
     }
 
-    /// Shows or hides a child without activating it.
+    /// Shows or hides a child without activating it. Its own `WS_VISIBLE` bit decides, not `IsWindowVisible`, which is
+    /// false for every child of a window not shown yet: a page laid out before the popover appears hides its rows too.
     static func setVisible(_ hwnd: HWND?, _ visible: Bool) {
-        guard IsWindowVisible(hwnd) != visible else { return }
+        let own = GetWindowLongW(hwnd, -16 /* GWL_STYLE */) & 0x1000_0000 /* WS_VISIBLE */ != 0
+        guard own != visible else { return }
         let flag = visible ? UINT(SWP_SHOWWINDOW) : UINT(SWP_HIDEWINDOW)
         _ = SetWindowPos(hwnd, nil, 0, 0, 0, 0, UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) | flag)
     }
