@@ -20,17 +20,17 @@ extension WindowsSelftest {
         return LPARAM(Int(UInt32(UInt16(truncatingIfNeeded: p.y)) << 16 | UInt32(UInt16(truncatingIfNeeded: p.x))))
     }
 
-    private static func wheelMessage(_ hwnd: HWND, _ delta: Int16, at px: CGPoint) {
+    @MainActor private static func wheelMessage(_ hwnd: HWND, _ delta: Int16, at px: CGPoint) {
         _ = SendMessageW(hwnd, 0x020A, WPARAM(UInt16(bitPattern: delta)) << 16, screenParam(hwnd, client: px))
     }
 
     /// A window point (points) as a client pixel.
-    private static func pixel(_ shell: WinPlazaWindow, _ p: CGPoint) -> CGPoint {
+    @MainActor private static func pixel(_ shell: WinPlazaWindow, _ p: CGPoint) -> CGPoint {
         let s = CGFloat(shell.dpiForTesting) / 96
         return CGPoint(x: p.x * s, y: p.y * s)
     }
 
-    private static func clickPixel(_ hwnd: HWND, _ px: CGPoint) {
+    @MainActor private static func clickPixel(_ hwnd: HWND, _ px: CGPoint) {
         let l = packed(px)
         _ = SendMessageW(hwnd, 0x0200, 0, l)
         _ = SendMessageW(hwnd, 0x0201, 1, l)
@@ -39,7 +39,7 @@ extension WindowsSelftest {
 
     /// The buttons of the panel's drawing that carry an action, as window points (the centre of each item). Items of a scroll
     /// area count only when their centre is inside the area's frame (the rest is scrolled out of sight).
-    private static func buttons(_ panels: WinPlazaPanels, _ id: PlazaPanelID) -> [(centre: CGPoint, hit: PlazaPanelHit, enabled: Bool, label: String)] {
+    @MainActor private static func buttons(_ panels: WinPlazaPanels, _ id: PlazaPanelID) -> [(centre: CGPoint, hit: PlazaPanelHit, enabled: Bool, label: String)] {
         guard let e = panels.entries[id] else { return [] }
         var out: [(CGPoint, PlazaPanelHit, Bool, String)] = []
         var area: CGRect?
