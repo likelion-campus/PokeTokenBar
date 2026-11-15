@@ -868,7 +868,10 @@ extension WindowsSelftest {
         trace.append("ekfr \(state())")
         await chatTap(0x23)   // h
         trace.append("+h \(state())")
-        // Hanja: a fresh 한 composing, the Hanja key opens the candidate list next to the line, the first candidate replaces it.
+        // Hanja: a fresh 한 composing, the Hanja key opens the candidate list next to the line, the first candidate replaces it. The
+        // syllable still being composed is cancelled first (setting the text does not end a composition; the field's own reset does both).
+        _ = ptb_ime_finish(raw, 1)
+        await chatPump(0.1)
         _ = WinStr.w("").withUnsafeBufferPointer { SendMessageW(e, 0x000C, 0, LPARAM(Int(bitPattern: $0.baseAddress))) }
         for s: UInt32 in [0x22, 0x25, 0x1F] { await chatTap(s) }
         let opens0 = chat.counts.candidateOpens
@@ -888,10 +891,11 @@ extension WindowsSelftest {
         let hanja = chat.text
         let isHan = hanja.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) || (0xF900...0xFAFF).contains($0.value) }
         trace.append("1 -> \(q(hanja)) (a Han character: \(isHan))")
+        let hanjaOK = isHan && hanja.count == 1 && chat.counts.candidateOpens > opens0
         await chatTap(0x01)
         trace.append("Esc open=\(chat.isOpen)")
         await chatClose(chat)
-        r.add("plaza.chatRealIME", activated == 1 && han.hasPrefix("'한'") && sent == "안녕",
+        r.add("plaza.chatRealIME", activated == 1 && han.hasPrefix("'한'") && sent == "안녕" && hanjaOK,
               "TSF: \(probeText); activate: \(actText); conversion 0x\(String(status[0], radix: 16)) open=\(status[2]); " + trace.joined(separator: "; "))
     }
 

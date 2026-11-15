@@ -115,8 +115,6 @@ extension WindowsSelftest {
               "a still tree, visible, 10 s: ticks=\(ticks) draws=\(s1.draws - s0.draws) presents=\(s1.presents - s0.presents) clean=\(s1.cleanTicks - s0.cleanTicks) "
                 + "WM_PAINT=\(paints) (ZERO presents when nothing changed; the clock still runs the scene's update every frame; an unvalidated "
                 + "WM_PAINT would come back at once, forever)")
-        // plaza.chatIdle (Task 11): the chat line open and focused in the same still window draws nothing more.
-        await plazaChatIdleCheck(r, shell)
 
         // Device loss: at EndDraw (the renderer's path) and at Present (the window's), each redrawn with the same pixels.
         if let device = shell.deviceForTesting, let before = shell.frameRGBAForTesting() {
@@ -137,6 +135,9 @@ extension WindowsSelftest {
         } else {
             r.add("plaza.deviceLoss", false, "no device or no frame to compare")
         }
+        // plaza.chatIdle (Task 11): the chat line open and focused in the same still window draws nothing more (after the device-loss
+        // check, whose wait counts presents since plaza.idleStatic).
+        await plazaChatIdleCheck(r, shell)
         shell.requestClose()   // no controller: the window dismantles itself
         r.add("plaza.staticClosed", shell.hwndForTesting == nil && shell.lastClosed?.clockJoined == true && ptb_window_hooks_live() == 0,
               "window gone=\(shell.hwndForTesting == nil) clock joined=\(shell.lastClosed?.clockJoined.description ?? "-") hooks=\(ptb_window_hooks_live())")
