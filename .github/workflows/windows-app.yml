@@ -672,7 +672,7 @@ jobs:
           foreach ($mode in 'visible', 'minimized') {
               $label = "plaza-$mode-120s"
               $budgetPlaza = if ($mode -eq 'minimized') { @{ MaxMainCsPerMin = 150; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } } else { @{ MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } }
-              Measure-App $label 120 $off $budgetPlaza @('--selftest-plaza-idle', $mode)
+              Measure-App $label 120 $off $budgetPlaza @('--plaza-idle-probe', $mode)
               $lines = @(Select-String -Path $logFile -Pattern 'plaza idle helper|plaza open at exit|plaza window open|plaza window: not opened' -ErrorAction SilentlyContinue | Select-Object -Last 3 | ForEach-Object { $_.Line })
               $lines
               $summary.windows[$label].plazaLog = $lines

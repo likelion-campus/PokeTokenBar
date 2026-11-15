@@ -602,7 +602,7 @@ extension WindowsSelftest {
         WindowsApp.exit(0, .helper)
     }
 
-    /// `--selftest-plaza-idle visible|minimized`: the app as it runs, with its plaza open (no team needed: this is a
+    /// `--plaza-idle-probe visible|minimized`: the app as it runs, with its plaza open (no team needed: this is a
     /// measurement helper, not the app's open path) for the idle gate's two plaza windows. Logs the window's counters at
     /// the start and at exit (`WindowsApp.exit` writes the open plaza's line).
     @MainActor static func startPlazaIdle(_ app: WindowsAppDelegate, mode: String) {

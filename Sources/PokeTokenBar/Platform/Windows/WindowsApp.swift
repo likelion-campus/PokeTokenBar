@@ -51,7 +51,9 @@ public enum WindowsApp {
                 ?? FileManager.default.temporaryDirectory.appendingPathComponent("PokeTokenBar-selftest.json")
             WindowsSelftest.start(app, writingTo: out)
         }
-        if let i = arguments.firstIndex(of: "--selftest-plaza-idle") {  // the idle gate's plaza windows (WindowsSelftestPlaza.swift)
+        // The idle gate's plaza windows (WindowsSelftestPlaza.swift). Not a `--selftest…` flag on purpose: those switch the app to
+        // the selftest's own settings suite, and the gate's settings (refresh off) are in the app's plist.
+        if let i = arguments.firstIndex(of: "--plaza-idle-probe") {
             WindowsSelftest.startPlazaIdle(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "visible")
         }
         WinMainLoop.run(app.loopStrategy) { false }
