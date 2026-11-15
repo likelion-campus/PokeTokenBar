@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 #if os(Windows)
 import WinSDK
 #endif
@@ -433,6 +436,24 @@ extension PlatformCompat {
         try WinAtomicWrite.write(data, to: url)
         #else
         try data.write(to: url, options: .atomic)
+        #endif
+    }
+}
+
+// MARK: - One-shot HTTP fetches
+
+extension PlatformCompat {
+    /// One HTTP request for the app's small periodic fetches (today the provider status checks, `ProviderStatusChecker`).
+    /// Mac: `URLSession.shared.data(for:)`, verbatim. Windows: a plain GET goes through WinHTTP on a thread that blocks in
+    /// the kernel (`WinHTTPFetch`), because URLSession there keeps two dispatch threads waking each other from the connect
+    /// until the transfer ends (the defect log, "윈도우 URLSession"). URLSession stays in use for anything else, when a
+    /// libcurl proxy variable is set and when WinHTTP cannot load.
+    static func oneShotData(for request: URLRequest) async throws -> (Data, URLResponse) {
+        #if os(Windows)
+        if WinHTTPFetch.handles(request) { return try await WinHTTPFetch.data(for: request) }
+        return try await URLSession.shared.data(for: request)
+        #else
+        return try await URLSession.shared.data(for: request)
         #endif
     }
 }

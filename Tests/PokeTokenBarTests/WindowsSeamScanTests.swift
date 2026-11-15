@@ -313,4 +313,72 @@ final class WindowsSeamScanTests: XCTestCase {
         XCTAssertEqual(Self.directAtomicWrites("try? data.write(to: u, options: .atomic)\n", allowed: nil).count, 1)
         XCTAssertEqual(Self.directAtomicWrites("try? PlatformCompat.atomicWrite(data, to: u) // .atomic\n", allowed: nil).count, 0)
     }
+
+    // MARK: URLSession on Windows keeps two dispatch threads awake for a whole transfer (defect log, "윈도우 URLSession")
+
+    private static let urlSessionUse = try! NSRegularExpression(pattern: #"URLSession\.shared|URLSession\(|URLSession = \.shared"#)
+
+    /// Every file that runs on Windows and sends a request through URLSession, with what it fetches and how often. A new
+    /// site is a decision: a periodic fetch goes through `PlatformCompat.oneShotData` (WinHTTP on Windows), a one-off may stay.
+    static let knownURLSessionSites: [String: String] = [
+        "Core/ClaudeOAuthLimitsProvider.swift": "Claude limits + profile: each store refresh with Claude credentials (periodic: open decision)",
+        "Core/SessionKeyLimitsProvider.swift": "Claude limits by session key: each refresh when a key is set (periodic: open decision)",
+        "Core/CursorAuthentication.swift": "Cursor token refresh: when the token expires",
+        "Core/CursorUsageAPI.swift": "Cursor usage: each refresh when Cursor is set up (periodic: open decision)",
+        "Core/CursorRateLimitsProvider.swift": "Cursor limits: each refresh when Cursor is set up (periodic: open decision)",
+        "Core/GrokRateLimitsProvider.swift": "Grok limits: each refresh when Grok is set up (periodic: open decision)",
+        "Core/OpenCodeGoRateLimitsProvider.swift": "OpenCode Go limits: each refresh when set up (periodic: open decision)",
+        "Core/PokeAPIClient.swift": "PokeAPI species data: on demand, cached",
+        "Core/PokemonNameLocalization.swift": "Pokemon names: once, cached",
+        "Core/SpriteStore.swift": "sprites: on demand, cached on disk",
+        "Core/UpdateChecker.swift": "release feed (the Mac's path; Windows asks InstallerReleaseFeed): at most every 30 min",
+        "Platform/InstallerReleaseFeed.swift": "release feed on Windows: at most every 30 min",
+        "Team/Plaza/PlazaIconStore.swift": "plaza icons: on demand, cached",
+        "Platform/PlatformCompat.swift": "the seam itself: the Mac branch, and the Windows fallback (non-GET, curl proxy variable set, no WinHTTP)",
+        "Platform/Windows/WindowsSelftestWakers.swift": "diagnostics helper (--selftest-waker-hunt), never in the app",
+        "Platform/Windows/WindowsSelftestNetBurst.swift": "diagnostics helper (--selftest-net-burst), never in the app",
+    ]
+
+    static func urlSessionSites(in files: [URL], root: URL) throws -> Set<String> {
+        var out: Set<String> = []
+        for url in files {
+            for line in try SharedSources.lines(of: url) {
+                let c = code(line)
+                if urlSessionUse.firstMatch(in: c, range: NSRange(c.startIndex..., in: c)) != nil {
+                    out.insert(SharedSources.relativePath(url, root: root))
+                    break
+                }
+            }
+        }
+        return out
+    }
+
+    func testEveryURLSessionSiteThatRunsOnWindowsIsKnown() throws {
+        let files = try SharedSources.sharedFiles(root: SharedSources.sourcesRoot, listURL: SharedSources.sourcesList)
+        let sites = try Self.urlSessionSites(in: files, root: SharedSources.sourcesRoot)
+        let unknown = sites.subtracting(Self.knownURLSessionSites.keys).sorted()
+        XCTAssertEqual(unknown, [], "new URLSession use in code that runs on Windows: there every transfer keeps two dispatch threads "
+                       + "waking each other until it ends. Periodic fetches go through PlatformCompat.oneShotData; list a one-off here.")
+        XCTAssertEqual(Set(Self.knownURLSessionSites.keys).subtracting(sites).sorted(), [], "a listed site no longer uses URLSession: drop it")
+    }
+
+    func testTheStatusChecksStayOnTheSeam() throws {
+        let url = SharedSources.sourcesRoot.appendingPathComponent("Core/ProviderStatusChecker.swift")
+        XCTAssertEqual(try Self.urlSessionSites(in: [url], root: SharedSources.sourcesRoot), [])
+        XCTAssertTrue(try String(contentsOf: url, encoding: .utf8).contains("PlatformCompat.oneShotData(for: request)"))
+    }
+
+    func testTheURLSessionScanCatchesEachForm() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-urlsession-scan-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("Injected.swift")
+        for text in ["let (d, _) = try await URLSession.shared.data(for: r)\n", "let s = URLSession(configuration: .ephemeral)\n",
+                     "func f(session: URLSession = .shared) {}\n"] {
+            try text.write(to: f, atomically: true, encoding: .utf8)
+            XCTAssertEqual(try Self.urlSessionSites(in: [f], root: dir), ["Injected.swift"], text)
+        }
+        try "let c = URLSessionConfiguration.ephemeral // URLSession.shared\n".write(to: f, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try Self.urlSessionSites(in: [f], root: dir), [])
+    }
 }

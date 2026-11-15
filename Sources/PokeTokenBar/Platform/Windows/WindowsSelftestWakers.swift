@@ -134,7 +134,7 @@ enum WindowsSelftestWakers {
 }
 
 /// Polls the given threads' cycle counters and copies their stacks when one moves (it just ran, or still runs).
-private final class StackSampler: @unchecked Sendable {
+final class StackSampler: @unchecked Sendable {
     private static let stackBytes = 8 * 1024
     private static let slotBytes = 16 + stackBytes
     private static let maxPerThread = 150
