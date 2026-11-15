@@ -30,6 +30,8 @@
 #
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# 도우미 자체 시험(1단계)이 clone 에 __pycache__ 를 남기면, 같은 clone 에서 다시 실행할 때 깨끗한 트리 확인에서 멈춘다.
+export PYTHONDONTWRITEBYTECODE=1
 
 SIGN_IDENTITY="PokeTokenBar Local"
 # "PokeTokenBar Local" leaf SHA-1. 인증서를 다시 만들거나 바꾸면 PR로 갱신한다.

@@ -292,6 +292,8 @@ final class TeamReleaseScriptRunTests: XCTestCase {
         assertStopped(gate, before: "build-app.sh", says: ["테스트 게이트가 실패했습니다", "actions/runs/4101", "재사용합니다",
                                                             "/Applications 는 그대로"])
         assertNothingPublic(gate)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: repo.appendingPathComponent("scripts/__pycache__").path),
+                       "the helpers leave nothing in the clone that the re-run's clean-tree check would see")
         let again = try release()
         XCTAssertEqual(again.status, 0, again.text)
         XCTAssertEqual(again.verbs, Self.fullRelease, "the re-run asks start again; start reuses this commit's runs")
@@ -509,7 +511,7 @@ final class TeamReleaseScriptRunTests: XCTestCase {
               --verify) echo "${FAKE_REMOTE_HEAD:-$FAKE_HEAD}" ;;
               *) exit 97 ;;
             esac ;;
-          status) printf '%s' "${FAKE_DIRTY:-}" ;;
+          status) if [[ -d scripts/__pycache__ ]]; then echo "?? scripts/__pycache__/"; else printf '%s' "${FAKE_DIRTY:-}"; fi ;;
           remote) echo "${FAKE_ORIGIN:-https://github.com/likelion-campus/PokeTokenBar.git}" ;;
           fetch) finish FETCH ;;
           show-ref) [[ "$(release)" == public ]]; exit $? ;;
@@ -525,6 +527,8 @@ final class TeamReleaseScriptRunTests: XCTestCase {
       cfprefsd-guard.sh) finish CFPREFSD ;;
       build-app.sh) interrupt_if build; finish BUILD ;;
       python3)
+        # Like Python: importing a module writes its bytecode next to it unless PYTHONDONTWRITEBYTECODE is set.
+        [[ -n "${PYTHONDONTWRITEBYTECODE:-}" ]] || { mkdir -p scripts/__pycache__; : > scripts/__pycache__/team_release.cpython-39.pyc; }
         if [[ "$1" == "-m" ]]; then
           [[ "$(rc_of SELFTEST)" == 0 ]] || echo "FAIL: test_team_release (fake)"
           finish SELFTEST
