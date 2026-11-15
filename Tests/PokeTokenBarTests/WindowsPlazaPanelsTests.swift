@@ -354,16 +354,17 @@ import XCTest
 
     // MARK: eye glyphs
 
-    func testEyeGlyphs() async {
+    func testEyeGlyphs() async throws {
         XCTAssertEqual(WinPlazaSymbols.family(fluent: true, mdl2: true), .fluent)
         XCTAssertEqual(WinPlazaSymbols.family(fluent: false, mdl2: true), .mdl2, "Windows 10")
         XCTAssertNil(WinPlazaSymbols.family(fluent: false, mdl2: false))
-        XCTAssertEqual(WinPlazaSymbols.glyph(for: "eye"), "\u{E7B3}")
+        XCTAssertEqual(WinPlazaSymbols.glyph(for: "eye"), "\u{E890}", "View, not RedEye (E7B3)")
         XCTAssertEqual(WinPlazaSymbols.glyph(for: "eye.slash"), "\u{ED1A}")
         XCTAssertNil(WinPlazaSymbols.glyph(for: "star"))
         XCTAssertNil(WinPlazaSymbols.image(named: "star", pointSize: 12, scale: 1, color: .white, family: .fluent), "not a symbol it knows")
         XCTAssertNil(WinPlazaSymbols.image(named: "eye", pointSize: 12, scale: 1, color: .white, family: nil), "no symbol font: the panel draws its own")
-        guard let family = WinPlazaSymbols.installed else { return }   // the runner has neither font: the fallback above is the path
+        guard let family = WinPlazaSymbols.installed else { throw XCTSkip("neither Segoe Fluent Icons nor Segoe MDL2 Assets is installed: only the fallback path above ran") }
+        print("symbol font used on this machine: \(family)")
         for name in ["eye", "eye.slash"] {
             for scale in [1.0, 1.25, 2.0] {
                 let s = WinPlazaSymbols.image(named: name, pointSize: 12, scale: CGFloat(scale), color: .white, family: family)

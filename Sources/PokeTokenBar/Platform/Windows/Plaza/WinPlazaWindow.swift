@@ -420,6 +420,7 @@ import WinSDK
                     events?.didResignKey()
                 }
             } else {
+                panels?.applyScrollers(alwaysVisible: WinPlazaPanels.alwaysShowScrollbars())   // a change made while another window was active
                 events?.didBecomeKey()
                 // Active again with the chat line open: the keyboard goes back to the field (DefWindowProc would give it to the
                 // scene, and the next letters would be emotes), as AppKit restores the key window's first responder.
@@ -448,6 +449,10 @@ import WinSDK
             return nil   // DefWindowProc sends WM_SIZE and WM_MOVE from it
         }
         w.on(Msg.displayChange) { [weak self] _, _ in self?.followMonitor(force: true); return nil }
+        w.on(0x001A /* WM_SETTINGCHANGE */) { [weak self] _, _ in
+            self?.panels?.applyScrollers(alwaysVisible: WinPlazaPanels.alwaysShowScrollbars())   // as the Mac follows its scroller style live
+            return nil
+        }
         w.on(Msg.session) { [weak self] wParam, _ in
             if wParam == 7 || wParam == 2 || wParam == 4 { self?.input?.releaseAll() }   // lock, console / remote disconnect
             self?.visibility.sessionChanged(Int(wParam))

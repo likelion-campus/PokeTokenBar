@@ -12,10 +12,10 @@ enum WinPlazaSymbols {
     /// Fluent first, MDL2 when only it exists, nil when neither does.
     static func family(fluent: Bool, mdl2: Bool) -> Family? { fluent ? .fluent : (mdl2 ? .mdl2 : nil) }
 
-    /// `eye` = View (E7B3), `eye.slash` = Hide (ED1A); nothing else is drawn from the symbol font.
+    /// `eye` = View (E890), `eye.slash` = Hide (ED1A); E7B3 is "RedEye" (upper lid and pupil only), not the plain eye; nothing else is drawn from the symbol font.
     static func glyph(for name: String) -> String? {
         switch name {
-        case "eye": "\u{E7B3}"
+        case "eye": "\u{E890}"
         case "eye.slash": "\u{ED1A}"
         default: nil
         }
@@ -39,7 +39,13 @@ enum WinPlazaSymbols {
 
     static func image(named name: String, pointSize: CGFloat, scale: CGFloat, color: PlazaColor,
                       family: Family?) -> (image: PlazaImage, size: CGSize)? {
-        guard family != nil, let glyph = glyph(for: name), scale > 0,
+        guard family != nil, let glyph = glyph(for: name) else { return nil }
+        return image(glyph: glyph, pointSize: pointSize, scale: scale, color: color)
+    }
+
+    /// One glyph of the symbol font as an image (the ink box); `image(named:)` and the selftest's glyph survey use it.
+    static func image(glyph: String, pointSize: CGFloat, scale: CGFloat, color: PlazaColor) -> (image: PlazaImage, size: CGSize)? {
+        guard scale > 0,
               let engine = WinPlazaGraphics.shared.text as? WinPlazaTextEngine,
               let line = engine.symbolLine(glyph, size: Double(pointSize * 1.25)) else { return nil }
         // The ink box comes from a scratch canvas: bounds are relative to the origin, y up.
