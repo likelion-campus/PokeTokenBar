@@ -328,7 +328,9 @@ enum PlazaCrossCompare {
         let stride = out.width * 4
         var inMask = [Bool](repeating: false, count: w * h)
         for r in masks {
-            for y in max(0, r.t)..<max(0, min(h, r.b)) { for x in max(0, r.l)..<max(0, min(w, r.r)) { inMask[y * w + x] = true } }
+            let x0 = max(0, r.l), x1 = min(w, r.r), y0 = max(0, r.t), y1 = min(h, r.b)
+            guard x1 > x0, y1 > y0 else { continue }   // a rectangle off the frame (a plate beyond the edge)
+            for y in y0..<y1 { for x in x0..<x1 { inMask[y * w + x] = true } }
         }
         out.bytes.withUnsafeMutableBufferPointer { o in
             for y in 0..<h {

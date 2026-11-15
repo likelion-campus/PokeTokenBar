@@ -139,6 +139,12 @@ final class PlazaCrossCompareTests: XCTestCase {
         XCTAssertTrue(PlazaCrossCompare.summary([same]).contains("remove it from knownRendererBugs"))
     }
 
+    func testTheSideBySideSurvivesMasksOffTheFrame() async {
+        let c = capture([root()])
+        XCTAssertNotNil(PlazaCrossCompare.sideBySide(mac: c, win: c, masks: [PlazaCrossRect(l: 10, t: 500, r: 30, b: 520), PlazaCrossRect(l: -50, t: -20, r: -10, b: -5),
+                                                                              PlazaCrossRect(l: 200, t: 5, r: 210, b: 9)]))
+    }
+
     func testAOnePixelShiftIsCaught() async {
         let w = 64, h = 48
         var base = [UInt8](repeating: 0, count: w * h * 4)
