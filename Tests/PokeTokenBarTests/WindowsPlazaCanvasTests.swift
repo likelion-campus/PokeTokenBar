@@ -551,7 +551,7 @@ final class WindowsPlazaCanvasTests: XCTestCase {
             if shape.exact {
                 XCTAssertEqual(d.over1, 0, line)
             } else {
-                XCTAssertLessThanOrEqual(d.over64, shape.name == "aliased" ? 200 : 12, line)   // aliased: every rim pixel flips 0 <-> 255
+                XCTAssertLessThanOrEqual(d.over64, shape.name == "aliased" ? 150 : 12, line)   // aliased: every rim pixel flips 0 <-> 255
                 XCTAssertLessThanOrEqual(d.over8, 350, line)
             }
         }
