@@ -287,6 +287,15 @@ import Foundation
         }
     }
 
+    /// The pixels the panels' bitmaps hold (RGBA, 4 bytes each), for the memory report; colour layers hold none.
+    var bitmapBytes: Int {
+        var total = 0
+        for e in entries.values {
+            for case .image(let image, _) in e.drawing.layers { total += image.width * image.height * 4 }
+        }
+        return total
+    }
+
     // MARK: what stage 7/8 will expose
 
     /// The accessibility items of every shown panel, bottom first (no UI Automation provider yet).
