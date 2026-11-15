@@ -997,15 +997,76 @@ read_when:
   1.5 배; 처음 잡은 2.75 M 은 넷째 run 의 2.03 M 에 여유가 1.35 배뿐이라 넓혔다; 주 스레드 30·메모리 5 MB·핸들 10 은 그대로) — 이런 갱신 하나(≥ 6k cs)면 그것만으로 실패한다. 갱신 없는 120 s 창은 이 결함과 무관해 Task 12 값
   그대로다(133–134.5 cs/분·198–214 k 사이클/s; 대조 125.5–126·167–174 k 에 WinHTTP 가 남기는 스레드 풀 깨움이 120 s 에 12–19 회 더해진다 — 시스템
   DLL 의 타이머로 6–10 s 에 한 번, 언로드 없이는 못 끈다). WinHTTP 로딩으로 비공유 메모리 +2.4 MB·핸들 +100 이 한 번 늘고(세션을 닫으면 핸들은 창 안에서 줄어든다) 그 뒤로 자라지 않는다.
-  **규칙:** 윈도우에서 도는 코드의 주기적·백그라운드 HTTP 는 `PlatformCompat.oneShotData` 로 보낸다. 새 URLSession 사용처는 무엇을 얼마나 자주
-  가져오는지와 함께 `WindowsSeamScanTests.knownURLSessionSites` 에 올린다(일회성·캐시만 남는다). 깨움을 잴 때는 창 안에서 끝난 스레드도 센다.
-  **가드(기계):** `WindowsSeamScanTests.testEveryURLSessionSiteThatRunsOnWindowsIsKnown`·`testTheStatusChecksStayOnTheSeam`·`testTheURLSessionScanCatchesEachForm`
-  (호출부를 URLSession 으로 되돌리고 맥 분기를 ephemeral 세션으로 바꾸는 결함 주입으로 셋 다 실패 확인), `OneShotDataMacTests`(맥 분기가 공유 세션을
-  그대로 쓰는지, `URLProtocol` 스텁), `WindowsHTTPFetchTests.testAWaitingTransferThroughTheSeamDoesNotKeepAThreadAwake`(2 s 전송의 1.5 s 동안 가장 바쁜 스레드
-  < 150 cs; 같은 잣대로 URLSession 대조군은 42–71k), 다시 잡은 유휴 게이트 예산, 진단 `--selftest-net-burst`(`windows-app` 의 `net_burst` 입력).
-  **스윕:** 윈도우에서 도는 앱 코드의 URLSession 사용처 13 곳(이음매 자신·진단 도우미 제외) — 한도 조회(Claude OAuth·세션 키·Cursor·Grok·OpenCode Go)는 설정돼 있으면 갱신마다 돌아 같은 버스트를
-  낸다(api.anthropic.com 한 번 1.7–6.6k cs, 자격증명 없이 401) → 열린 결정. 업데이트 피드(30 분에 한 번 이하, 4.7–13.2k cs)·스프라이트·PokeAPI·플라자 아이콘
-  (요청 시, 캐시)은 일회성이라 그대로. 맥 전용(`AntigravityRateLimitsProvider`, `PlazaIconLoader`)은 해당 없음.
+  **규칙:** 윈도우에서 도는 코드는 URLSession 으로 직접 요청하지 않는다 — 모든 일회성 HTTP 는 `PlatformCompat.oneShotData(for:session:)` 또는
+  `oneShotData(from:)` 로 보낸다(맥은 호출부가 쓰던 바로 그 URLSession 호출). 깨움을 잴 때는 창 안에서 끝난 스레드도 센다.
+  **가드(기계):** `WindowsSeamScanTests.testNoRequestOutsideTheSeamInCodeThatRunsOnWindows`(직접 요청은 이음매·진단 도우미에만)·
+  `testEveryRoutedSiteStaysOnTheSeam`(경유한 호출부마다 횟수 고정)·`testTheRequestScanCatchesEachForm`(첫 판의 세 스캔은 호출부를 URLSession 으로 되돌리고
+  맥 분기를 ephemeral 세션으로 바꾸는 결함 주입으로 실패 확인), `OneShotDataMacTests`(맥 분기 셋: 공유 세션, 호출부 자신의 세션, `data(from:)`; `URLProtocol`
+  스텁), `WindowsHTTPFetchTests`(대조군 URLSession 과 같은 답: 헤더·본문·리디렉션·압축·청크·10 MB·204/304·오류·취소·프록시, 그리고
+  `testAWaitingTransferThroughTheSeamDoesNotKeepAThreadAwake`: 2 s 전송의 1.5 s 동안 가장 바쁜 스레드 < 150 cs, URLSession 대조군은 42–71k),
+  `WindowsProxyRouteTests`(libcurl 의 프록시 변수 규칙), 다시 잡은 유휴 게이트 예산, 진단 `--selftest-net-burst`(`windows-app` 의 `net_burst` 입력).
+  **스윕(후속, 같은 날):** 윈도우에서 도는 앱 코드의 직접 요청 14 곳(상태 확인 포함)을 모두 이음매로 옮겼다 — 한도(Claude 사용량·프로필, 세션 키,
+  Cursor 토큰·사용량·한도, Grok, OpenCode Go: 갱신마다), 업데이트 피드 둘, PokeAPI 둘, 이름 표, 스프라이트 셋, 플라자 아이콘. 각 업스트림 줄은 한 줄 호출 교체다.
+  스트리밍·웹소켓·백그라운드 세션은 없다. 맥 전용(`AntigravityRateLimitsProvider`, `PlazaIconLoader`)은 해당 없음. 같은 결함의 두 번째 공백:
+  **CI 픽스처에 자격증명이 없어 갱신마다 도는 한도 조회가 게이트에서 한 번도 돌지 않았다**. Claude 한도 URL 은 업스트림의 `private static let` 이라
+  루프백으로 돌릴 이음매가 없고 업스트림에 새로 만들지 않는다 — 그 요청 모양(헤더·토큰·타임아웃)을 셀프테스트(`--selftest-net-burst`)에서 잰다.
+  측정(러너, 루프백, 200 ms 뒤 응답, run 43704153204): 호출부마다 요청 한 번 — URLSession(새 연결) 18,969–21,254 cs·390–406 M 사이클 → 이음매
+  61–70 cs·6–8 M (Claude 사용량·프로필, 세션 키, Cursor 토큰·사용량·한도, Grok·OpenCode, 업데이트 피드, PokeAPI REST·GraphQL·이름). 바로 답하는
+  스프라이트(40 KB)는 기다림이 없어 둘 다 55 cs. 윈도우 프록시 설정(`WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`) 대 직접: 루프백 중앙값 2.3 대 0.9 ms,
+  status.claude.com 32.1 대 29.3 ms, 프로세스 첫 요청 9.3 ms — 캐시는 두지 않는다(세션을 오래 두면 유휴 깨움이 돌아온다). 교차 세션 연결 풀을
+  끄자(`WINHTTP_OPTION_DISABLE_GLOBAL_POOLING`) 갱신 없는 120 s 창이 112.5 cs/분(대조 125.5–126)으로, WinHTTP 가 남기던 스레드 풀 깨움이 사라졌다.
+  **WinHTTP 가 libcurl 과 다르게 하던 것(루프백에서 URLSession 대조로 확인):** zlib 로 감싼 deflate 를 못 풀어(`E_ABORT`) gzip 만 요청한다; 수신
+  타임아웃을 데이터가 올 때만 확인해 1 s 타임아웃이 5.4 s 걸렸다 → 요청 동안만 있는 우리 유휴 타이머가 끝낸다; 본문이 Content-Length 보다 일찍 끊겨도
+  오류 없이 멈출 수 있어 길이를 대조해 `.networkConnectionLost` 로 알린다. 같은 것: 교차 호스트 리디렉션(Authorization 도 둘 다 넘긴다), 303 뒤 GET,
+  청크·gzip·10 MB·204/304. 오류 코드(이음매/libcurl): 시간 초과 -1001/(libcurl 은 끝내지 못함), 중간 끊김 -1005/-1, 거부 -1004/-1001, 이름 없음
+  -1003/-1003, TLS 실패 -1200/-1 — 공용 코드는 `NSURLErrorDomain` 도메인만 보고(`LocalizationErrors.swift` 7행) 호출부는 코드로 분기하지 않는다.
+  **테스트의 가짜도 같은 부류다:** `URLProtocol` 스텁은 URLSession 만 본다. 이음매를 처음 넓혔을 때 `InstallerReleaseFeedTests` 가 스텁 대신 실제
+  api.github.com 으로 나갔고(윈도우 CI), `ClaudeOAuthFileCredentialTests` 가 실패했다. 호출부 세션의 `protocolClasses` 에 자기 프로토콜이 있으면
+  URLSession 을 쓰고(`WinHTTPFetch.handles`), 전역 등록 스텁(corelibs 는 목록을 내주지 않는다)을 쓰는 테스트는
+  `PlatformCompat.oneShotStaysOnURLSessionForTesting` 을 켠다. **규칙 추가:** 네트워크를 바꾸는 이음매는 기존 가짜 경로가 여전히 가짜에 닿는지 윈도우 CI 에서 본다.
+  **리뷰 라운드(같은 브랜치, 머지 전): 자격증명·로그온·본문 수명·핸들.** 독립 리뷰가 찾은 넷과 고침.
+  ① **교차 호스트 리디렉션이 자격증명을 들고 갔다.** WinHTTP 자동 리디렉션(최대 20, HTTPS→HTTP 만 막음)은 요청 헤더를 전부 다시 보낸다 —
+  `Authorization: Bearer …`, `Cookie: sessionKey=…`, `WorkosCursorSessionToken`. 공급자 호스트 하나의 오픈 리디렉트면 토큰이 제3자에게 간다.
+  **왜 못 걸렀나:** 기준을 윈도우 URLSession(corelibs 는 리디렉션에 헤더를 모두 유지, `HTTPURLProtocol.swift` 564행)으로 잡고 맥과 비교하지 않았다.
+  테스트(`…IncludingToAnotherHost`)는 Authorization 이 넘어가는지 **print 만 했다** — 단언이 아니라 출력이라 통과가 아무것도 지키지 않았다.
+  **맥 실측(`RedirectHeadersMacTests`, 루프백 서버 둘):** 맥 URLSession 은 모든 홉(같은 출처 포함)에서 `Authorization` 을 빼고, 명시한 `Cookie`·사용자
+  헤더는 교차 호스트에도 다시 보낸다(공유·쿠키 끈 ephemeral 세션 모두); 307 은 POST·본문 유지, 303 은 GET. **고침:** 리디렉션을 우리가 따른다
+  (`WINHTTP_OPTION_REDIRECT_POLICY_NEVER`, `WinHTTPFetch.nextHop`): 홉마다 `Authorization` 제거(맥과 같음), `Cookie` 가 남은 요청은 다른 출처(스킴·호스트·
+  포트)로 따르지 않고 3xx 를 돌려준다(맥보다 엄격; 호출부는 200 이 아니면 실패로 본다), HTTPS→HTTP 금지, 20 홉·루프 즉시 중단.
+  ② **서버의 NTLM/Negotiate 401 에 윈도우 로그온이 나갈 수 있었다.** 기본 자동 로그온 정책 MEDIUM 은 "프록시 우회 목록의 서버"를 인트라넷으로 본다
+  (`WinHttpRequestAutoLogonPolicy`, AutoLogonPolicy_OnlyIfBypassProxy) — 프록시가 없으면 어느 호스트든 우회다. libcurl 은 자격증명 없이 인증하지 않았으니
+  새 능력이었다(NTLMv2 응답은 오프라인 크랙·릴레이 대상). **왜 못 걸렀나:** 문서의 "인트라넷만" 을 정의 확인 없이 믿었고, 401 로 도전하는 테스트 서버가
+  없었다. **러너 대조(프록시 없음):** 이전 설정(인증 켬, MEDIUM)은 127.0.0.1·localhost 의 401 에 두 번째 요청으로 `Authorization: Negotiate` 를 보냈다 —
+  리뷰의 추정대로다. **고침:** 모든 요청은 자동 인증 끔(`WINHTTP_DISABLE_AUTHENTICATION`) + 정책 HIGH 로 시작(HIGH 는 "localhost·IP 로 지정한 서버에는 효과가 없다"고
+  문서에 적혀 있어 둘 다 건다). 요청이 지난 프록시(환경 변수 프록시, 또는 윈도우 설정에서 `WINHTTP_OPTION_PROXY` 가 이름을 대는 프록시)의 407 에만 한 번,
+  새 요청을 MEDIUM 으로, 그래도 NTLM/Negotiate 를 요구하면 이름 없는 `WinHttpSetCredentials` 로 — .NET WinHttpHandler 와 같은 방식(dotnet/runtime v9.0.0
+  `WinHttpAuthHelper.cs` 288–300·335–346, `WinHttpHandler.cs` 1517–1528).
+  ③ **요청 본문 포인터가 `body.withUnsafeBytes` 안에서만 유효했다.** WinHTTP 는 `WinHttpReceiveResponse` 가 끝날 때까지(인증 라운드·리디렉션) 그 버퍼를
+  다시 보낼 수 있다(`WinHttpSendRequest`: "must remain available until the request handle is closed or the call to WinHttpReceiveResponse has completed").
+  **고침:** 가져오기 내내 사는 복사본, 모든 핸들을 닫은 뒤 해제.
+  ④ **취소·유휴 타이머가 다른 스레드에서 요청 핸들을 닫았다.** 문서: "An application should never call WinHttpCloseHandle on a synchronous request. This can
+  create a race condition"(`WinHttpCloseHandle`). 작업 스레드는 닫힌 값을 읽기·조회에 다시 넘길 수 있었다(값이 재사용되면 다른 요청의 핸들).
+  **고침:** 취소·타이머는 호출자에게 바로 답하고 신호만 준다; 핸들은 작업 스레드만, 지금 하던 WinHTTP 호출이 돌아온 뒤 닫는다(그 대기는 WinHTTP
+  타임아웃이 묶고, 헤더 수신 타임아웃도 요청 타임아웃으로 낮췄다 — 기본 90 s).
+  ⑤ **동기 `WinHttpReadData`(64 KB 버퍼)는 버퍼가 찰 때까지 기다렸다**(리뷰의 질문; 러너에서 1 KB/500 ms 로 오는 20 KB 본문이 2 s 유휴 타이머에 걸려
+  실패). **왜 못 걸렀나:** 느리게 오는 본문 테스트가 없었고, `/hang`(10 B 뒤 침묵)은 타임아웃이 정답이라 같은 증상이 정상처럼 보였다. **고침:** 문서 예제의
+  고리 — `WinHttpQueryDataAvailable` 로 도착한 만큼을 물은 뒤 그만큼만 읽는다.
+  ⑥ 러너에서 함께 드러난 것: WinHTTP 는 프록시와의 NTLM/Negotiate 레그를 본문 없이(Content-Length 0) 보내고 핸드셰이크가 끝나야 본문을 보낸다 — 우리가 보낸
+  두 요청(처음·재시도)은 본문 그대로였다.
+  소항목도 함께: TLS 1.2/1.3 만(`WINHTTP_OPTION_SECURE_PROTOCOLS`; 윈도우 10 의 WinHTTP 기본은 SSL3·1.0·1.1 허용), 압축 해제 뒤 32 MB 본문 한도, 전체
+  마감(호출부 세션의 resource timeout — Cursor 사용량 120 s — 없으면 300 s), 동시 8 개 상한(슬롯은 작업 스레드가 끝날 때 반납, 대기는 취소로 끝남),
+  앱 밖(`swift test`)에서는 루프백·`.invalid`/`.test` 외 호스트 거부, WinHTTP 가 못 받는 프록시 변수는 값 없이 한 번 로그.
+  **스윕:** 호출부가 넣는 자격증명 헤더는 `Authorization`(Claude OAuth 사용량·프로필, Cursor 한도·사용량, Grok, OpenCode Go)과 `Cookie`(claude.ai 세션
+  키, Cursor 사용량) 둘뿐(`WinHTTPFetch.credentialHeaders`). Cursor 토큰 갱신의 refresh token 은 본문에 있어 교차 출처 307/308 이면 맥처럼 다시 간다(남김).
+  호출 뒤에도 호출자 버퍼를 쥐는 윈도우 API 는 DNS-SD 요청뿐이고 이미 자체 할당이다(`WinDNSSD.swift`). 다른 스레드가 쓰는 핸들을 닫는 곳은 없다(팀 소켓은
+  한 스레드가 소유, `WinSocketLoop`). URLSession 으로 남는 경로(본문 스트림·WinHTTP 가 못 받는 프록시 변수·테스트 플래그)는 corelibs 대로 헤더를 다
+  넘긴다 — 이 브랜치 이전과 같은 동작.
+  **가드(기계):** `RedirectHeadersMacTests`(맥 동작 고정), `WindowsHTTPFetchTests` — 리디렉션 단언(같은 출처: Cookie 유지·Authorization 없음; 교차:
+  Authorization 없이 따름, Cookie 면 302 반환·상대 서버 연결 0; 규칙 단위 테스트·HTTPS→HTTP; 20 홉·루프), 401 NTLM 서버(127.0.0.1·localhost 모두 요청
+  1 번·Authorization 없음, 대조 = 이전 기본값), 프록시 407(재요청·로그온 제시)·직접 경로의 407(재요청 없음), 307·407 재요청 뒤 본문 동일, 압축 해제 뒤
+  한도(230 B gzip → 200,000 B), 느린 본문·전체 마감, 동시 상한·대기 취소; `WindowsSeamScanTests.testWinHTTPRelaxesNoCertificateCheck`(보안 플래그 금지);
+  `windows.yml` 이 거부된 실제 호스트를 나열(앱 밖 전체 스위트: 상태 호스트 둘·raw.githubusercontent.com — 기다리는 테스트 없음). **규칙:** 플랫폼 이음매의 동작 기준은 그 호출부가 원래 돌던 플랫폼(맥)이다 — 대체 구현끼리 비교하지 않는다.
+  보안에 걸린 비교는 print 가 아니라 단언으로 남긴다.
 
 - **윈도우 XCTest는 `@MainActor` 클래스에 동기 테스트 메서드가 있으면 테스트를 0개로 돌리고도 끝난다.** 그 클래스의
   테스트가 발견되지 않아 윈도우 CI가 초록이어도 아무것도 검증하지 않았다. **왜 못 걸렀나:** 맥에서는 그대로 발견돼 통과하고,
@@ -1990,6 +2051,14 @@ read_when:
   `testPhotoClipsASunkEggToThePondAndKeepsItWholeAtTheTopEdge`, `testAJumpingSunkEggStaysSunk`,
   `testAPlazaThatPausesWithMyEggStillInTheWaterClimbsItOut`, `testAPausedEggWhoseRouteIsBlockedByASwimmerStaysAndDoesNotHang`.
 
+- **렌더 하니스의 가짜 시각(시간대)은 고정한다.** 하니스 시계를 `Calendar.current` 로 만들면 같은 "6월 15일 12시"가 KST Mac 과 UTC 러너에서 다른 순간이 되어, 순간에서 정해지는 아이템 스케줄이 달라져
+  낮 장면에 노드가 하나 더 생겼다(스테이지 6 작업 4 에서 발견). **왜 못 걸렀나:** 렌더 비교는 같은 기계 두 커밋만 비교했고, 두 OS 를 비교한 적이 없었다(같은 기계에서는 시간대가 같다).
+  **고침:** `PlazaFixtureTime` 이 고정 오프셋(+09:00, DST 없음, 시간대 DB 불필요)을 실행 동안 `NSTimeZone.default` 로 걸고 `Calendar.current` 가 따라오는지 `precondition` 으로 확인한다(KST Mac 의 렌더는 그대로).
+  **규칙:** 시각을 쓰는 하니스는 시간대를 명시적으로 고정한다; 두 OS 렌더 비교(`scripts/plaza-render-cross.sh`, 윈도 `render` 잡)가 트리를 줄 단위로 비교하므로 순간이 어긋나면 노드 수 차이로 바로 드러난다.
+- **두 OS 렌더 비교가 찾은 Direct2D 결함은 `PlazaCrossCompare.knownRendererBugs` 에 이유와 함께 적고, 고치면 목록에서 지운다.** 불꽃놀이 장면 60프레임(`fireworks-*@60`)에서 프레임 맨 아래 64 디바이스 행이 투명 검정으로 나온다
+  (불꽃 빛 multiplyX2 스프라이트가 프레임 아래 끝을 넘는 경우로 추정, 원인 미확정). **왜 못 걸렀나:** Task 4 의 장면 비교는 5개 장면만 봤고 불꽃놀이는 10·30 프레임만 찍었다.
+  **규칙:** 목록에 있는 캡처가 통과하면 테스트가 실패해 목록이 썩지 않는다.
+
 ## 프로세스 제어·업데이트
 
 - **"나중에"는 이 버전을 다시 안 보여 주는 스킵이지, 다음에 또 물어보기가 아니다.** `skipCurrent()` 가
@@ -2335,6 +2404,29 @@ read_when:
   재서 `wrappedLines` 의 타입세터 경로는 밟지 않았다 — 같은 글이 다른 코드 경로로 통과해 안심을 줬다. **고침:** 길이 0 범위는 빈 줄(`line("", font:)` / `line([])`)로, 글 끝 개행은 `extraLineFragmentRect`
   가 비어 있지 않을 때 빈 줄 하나를 더한다. 줄 수는 같은 글의 SwiftUI `Text` 높이/줄 높이와 맞춘다. **규칙:** `CFRange`/`NSRange` 의 길이 0 을 "빈 구간"으로 믿지 않는다 — CoreText 는 "끝까지"로 읽는다.
   **회귀 점검:** `PlazaBlankLineTests`(빈 줄, 연속·앞·끝 빈 줄, 색 조각 버전, SwiftUI `Text` 줄 수와 일치) — 고침을 빼고 실패함을 확인했다. 윈도 엔진은 이미 진짜 빈 줄을 만든다.
+
+- **기본 상한은 그 값을 정한 호출부의 크기다 — API 응답용 32 MiB 본문 상한과 31.6 MiB 설치 파일 사이 여유가 1.3% 뿐이었다 (stage 8, 잠복).**
+  윈도의 원샷 요청 이음매(`WinHTTPFetch.data`)는 본문을 `maxBodyBytes` 로 묶고, 기본값 `defaultMaxBodyBytes` 는 32 MiB 다. 그 값은
+  "가장 큰 응답이 1 MB 미만"인 API 호출부를 보고 정했고(`WinHTTPFetch.swift` 39·63), `PlatformCompat.oneShotData` 가 그 기본값을 그대로
+  물려준다. 앱 안 업데이트(stage 8 Task 6)가 이 이음매로 설치 파일을 받으면 상한을 따로 적지 않는 한 이 기본값을 받는다. 설치 파일은 stage 6
+  Task 2 이후 31.6 MiB(2.5.634 CI 빌드 33,121,702 B, windows-app run 43736993382)이고 상한 33,554,432 B 와의 여유는 432,730 B(1.3%)다 — 글꼴이나
+  그림 묶음 하나로 넘는다. 넘으면 `.dataLengthExceedsMaximum` → 다운로드 실패 → 릴리스 페이지가 열리고 로그 한 줄만 남아, 업데이트가 조용히
+  죽는다. 계획 단계에서 찾았고(stage 8 계획 F13) 다운로드 코드가 아직 없어 사용자 영향은 없다.
+  **왜 못 걸렀나:** ① 상한 테스트(`WindowsHTTPFetchTests`, 230 B gzip → 200,000 B)는 작은 `maxBodyBytes` 를 직접 넣어 "상한이 작동하는가"만
+  봤고, 기본값과 실제로 가장 큰 페이로드의 관계는 아무것도 묶지 않았다. ② 설치 파일 크기는 워크플로 로그(`windows-app.yml` 의 바이트 출력)에만
+  있고 Swift 상수와 이어진 곳이 없다. ③ 이음매 리뷰(status-burst 와 그 후속)는 그때의 호출부만 봤다 — 그들에게는 맞는 값이었지만 다음에 올
+  호출부를 위한 값은 아니었다.
+  **부류 스윕(고정 상한 ↔ 실제 크기):** `WinHTTPFetch.defaultMaxBodyBytes` 32 MiB ↔ 이음매의 모든 호출부(상태·한도·릴리스 JSON, PokeAPI
+  REST·GraphQL, 이름표, 스프라이트·아이콘): 모두 1 MB 미만. `TeamWire.maxFrameBytes` 1 MiB ↔ 팀 프레임: 필드별 상한으로 이미 묶였다
+  (§팀 네트워크 "저장하는 값을 재야 한다"). `SaveTransfer.maxFileBytes` 8 MiB, `PlazaGIFDecoder.maxOutputBytes` 256 MiB, `CPlazaD2D` 디코드
+  512 MiB, `codexProbeByteLimit` 1 MiB(첫 줄만 찾는다), `AppLog.maxBytes` 2 MiB(회전이지 막지 않는다): 실제 크기 근처가 아니다. 이 작업의 새 상한
+  `InstallerReleaseFeed.installerBytes`(1–200 MiB)는 실제의 6 배다. 실제 크기 근처의 고정 상한은 이음매 기본값 하나뿐이다.
+  **가드(기계): 미정(PENDING) — Task 6.** 트리거 브랜치는 아직 없는 다운로드 자체다: 다운로드 이음매
+  `oneShotDownload(for:maxBytes:deadline:)` 가 기본값 없이 자산의 `size` 를 상한으로 받고(D19), Task 6 의 길이 테스트가 32 MiB 를 넘는 본문으로
+  그 경로를 밟아야 이 항목이 닫힌다. Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
+  않는다 — 다른 경로로 통과하는 테스트를 가드라고 부르지 않는다(처음 넣었던 32 MiB + 1 B 테스트 둘은 그래서 뺐다).
+  **규칙:** 새 다운로드(기존 이음매의 새 호출부도)는 자기 상한과 마감을 이름으로 적는다 — 다른 호출부를 보고 정한 기본값을 물려받지 않는다.
+  상한을 정할 때는 실제로 가장 큰 페이로드를 재서 값과 출처를 적고, 여유가 2 배 미만이면 그 자리에서 고친다.
 
 ## 윈도 로케일·알림 (windows-port)
 

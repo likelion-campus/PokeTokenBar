@@ -29,12 +29,18 @@ jobs:
           # The plaza renderer's preview scenes (stage 6 Task 4): PNGs and tree dumps, uploaded as `plaza-preview-win`.
           PTB_PLAZA_PREVIEW_OUT: ${{ github.workspace }}\plaza-preview
           PTB_PLAZA_DEVICE: warp
+          # The Windows photos of the eight harness photo scenes (stage 6 Task 12), uploaded as `plaza-photos-win`.
+          PTB_PHOTO_OUT: ${{ github.workspace }}\photo-out
         run: |
           swift test 2>&1 | tee test.log
           # Second net: a runner that dies at discovery reports "0 tests" and used to look like a pass.
           n=$(grep -oE "Executed [0-9]+ tests" test.log | tail -1 | grep -oE "[0-9]+" || echo 0)
           echo "Executed $n tests"
           if [ "$n" -lt 2400 ]; then echo "::error::only $n tests ran (expected at least 2400)"; exit 1; fi
+          # Outside the installed app the WinHTTP seam refuses real hosts (WinHTTPFetch.refuseRealNetworkOutsideTheApp), naming each
+          # once on stderr: a test that needs such an answer fails on its own; the rest are fetches nobody waits for. Listed here.
+          refused=$(grep -a "WinHTTPFetch: refused real host" test.log | sed 's/.*refused real host \([^ ]*\).*/\1/' | sort -u | tr '\n' ' ' || true)
+          if [ -n "$refused" ]; then echo "::notice::real hosts refused outside the installed app: $refused"; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -50,6 +56,53 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          name: plaza-photos-win
+          path: photo-out
+          retention-days: 7
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
           name: canvas-renders
           path: canvas-out
           if-no-files-found: ignore
+  # Stage 6 Task 15: the plaza render harness on Windows (every scene of the shared list through Direct2D on WARP) compared with the
+  # Mac's committed render. A job of its own, in parallel with `shared`, so the unit workflow's wall-clock does not grow; it fails
+  # when the Windows plaza draws something the Mac does not (tree, pixels outside the text, see PlazaCrossCompare).
+  render:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/windows-swift
+      - name: Extract the Mac reference
+        shell: bash
+        run: |
+          mkdir plaza-cross-ref
+          tar -xzf Tests/PlazaCrossReference/mac-reference.tar.gz -C plaza-cross-ref
+          echo "reference files: $(ls plaza-cross-ref | wc -l)"
+      - name: Render and compare
+        shell: bash
+        env:
+          PTB_PLAZA_RESOURCES: ${{ github.workspace }}\Sources\PokeTokenBar\Resources\Plaza;${{ github.workspace }}\windows\resources\Plaza
+          PTB_PLAZA_CROSS_REF: ${{ github.workspace }}\plaza-cross-ref
+          PTB_PLAZA_RENDER_OUT: ${{ github.workspace }}\plaza-render-out
+          PTB_PLAZA_DEVICE: warp
+        run: |
+          set +e
+          mkdir -p plaza-render-out
+          start=$(date +%s)
+          swift build --build-tests 2>&1 | tail -3
+          built=$(date +%s)
+          swift test --skip-build --filter 'WindowsPlazaRenderHarnessTests|WindowsPlazaRendererTests/testFrameCostOnWARP' 2>&1 | tee plaza-render-out/render.log
+          rc=${PIPESTATUS[0]}
+          end=$(date +%s)
+          echo "TIMING: build $((built - start)) s, render+compare $((end - built)) s" | tee -a plaza-render-out/render.log
+          grep -E "^CROSS:|WINRENDER|FRAMECOST" plaza-render-out/render.log || true
+          exit $rc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plaza-render-win
+          path: plaza-render-out
+          retention-days: 7
+          if-no-files-found: warn

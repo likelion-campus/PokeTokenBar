@@ -34,7 +34,7 @@ struct TeamSettingsSection: View {
                     Divider()
                     if let code = team.code {
                         row {
-                            Text(masked(code)).font(.callout.monospaced()).lineLimit(1)
+                            Text(TeamSetup.masked(code)).font(.callout.monospaced()).lineLimit(1)
                             Spacer()
                             Button(l.teamCopyCode) { copy(code) }
                             Button(l.teamLeave, role: .destructive) { team.leaveTeam() }
@@ -193,42 +193,19 @@ struct TeamSettingsSection: View {
     }
 
     private func commitNickname() {
-        nicknameDraft = Self.committedDraft(nicknameDraft, into: team)
+        nicknameDraft = TeamSetup.committedDraft(nicknameDraft, into: team)
         if openPlazaWhenReady && team.isReady {
             openPlazaWhenReady = false
             nav?.onOpenPlaza?()
         }
     }
 
-    /// Stores a valid draft and returns nil (nothing left to edit). An invalid draft keeps the stored name and
-    /// stays as it is, so the message stays up until the field is fixed.
-    static func committedDraft(_ draft: String?, into team: TeamSettings) -> String? {
-        guard let draft else { return nil }
-        return team.commitNickname(draft) ? nil : draft
-    }
-
-    enum JoinResult: Equatable { case invalid, openPlaza, needsNickname }
-
-    /// 코드가 맞으면 그 팀에 들어간다. 팀이 바로 준비되면 광장을 열고, 닉네임이 없으면 닉네임을 정할 때까지 미룬다.
-    static func join(_ draft: String, into team: TeamSettings) -> JoinResult {
-        guard let parsed = TeamCode(parsing: draft) else { return .invalid }
-        team.code = parsed
-        return team.isReady ? .openPlaza : .needsNickname
-    }
-
     private func join() {
-        let result = Self.join(joinDraft, into: team)
+        let result = TeamSetup.join(joinDraft, into: team)
         joinFailed = result == .invalid
         guard result != .invalid else { return }
         joinDraft = ""
         if result == .openPlaza { nav?.onOpenPlaza?() } else { openPlazaWhenReady = true }
-    }
-
-    /// "PTB-ABCDE-…" 중 앞 한 묶음만 보이게 나머지를 가린다.
-    private func masked(_ code: TeamCode) -> String {
-        let parts = code.display.split(separator: "-").map(String.init)
-        return parts.enumerated().map { $0.offset <= 1 ? $0.element : String(repeating: "•", count: $0.element.count) }
-            .joined(separator: "-")
     }
 
     private func copy(_ code: TeamCode) {
