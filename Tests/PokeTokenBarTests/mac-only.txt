@@ -233,3 +233,4 @@ PlazaCardWindowTests+Mac.swift
 # PlazaCanvasShapesMacTests: writes and re-checks the CoreGraphics goldens of the text-free canvas scripts
 PlazaCanvasShapesMacTests.swift
 PlazaFirstMouseTests+Mac.swift
+PlazaHiddenPanelsTests+Mac.swift

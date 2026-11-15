@@ -20,6 +20,16 @@ import Foundation
         }
     }
 
+    /// Panels the window hides (the Mac's photo mode hides the roster, chat log, minimap, clock, guide and toggles): they take no click, are not
+    /// rendered and, like a hidden plaza, end their own animation; showing them again renders what changed meanwhile.
+    var hiddenPanels: Set<PlazaPanelID> = [] {
+        didSet {
+            guard hiddenPanels != oldValue else { return }
+            if hiddenPanels.contains(where: { !oldValue.contains($0) }) { pressed = nil; hovered = nil; updateInteraction() }
+            flush()
+        }
+    }
+
     /// false while the plaza is hidden: nothing renders. Turning it back on renders the panels that changed meanwhile.
     var isRendering = true {
         didSet { if isRendering, !oldValue { flush() } }
@@ -89,7 +99,7 @@ import Foundation
 
     /// What a click at `point` (window points, origin top-left) on the shown panel `id` picks.
     func hit(at point: CGPoint, in id: PlazaPanelID) -> PlazaPanelHit? {
-        guard let frame = shown[id]?.frame, frame.contains(point),
+        guard !hiddenPanels.contains(id), let frame = shown[id]?.frame, frame.contains(point),
               let panel = panels.first(where: { $0.id == id }), panel.isVisible else { return nil }
         return panel.hit(CGPoint(x: point.x - frame.minX, y: point.y - frame.minY))
     }
@@ -171,6 +181,7 @@ import Foundation
     private func update(_ panel: any PlazaPanel) {
         guard isRendering, let host, viewport.width > 0, viewport.height > 0 else { return }
         let id = panel.id
+        guard !hiddenPanels.contains(id) else { return }   // changes are remembered (`dirty`); they render when it shows again
         guard panel.isVisible else {
             dirty.remove(id)
             if shown.removeValue(forKey: id) != nil { host.hide(id) }

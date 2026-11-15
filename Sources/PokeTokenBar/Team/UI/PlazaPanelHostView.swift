@@ -223,7 +223,7 @@ import QuartzCore
     /// `point` is in the superview's coordinates.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        guard bounds.contains(local), hud.hit(at: topLeft(local), in: panelID) != nil else { return nil }
+        guard !isHiddenOrHasHiddenAncestor, bounds.contains(local), hud.hit(at: topLeft(local), in: panelID) != nil else { return nil }
         return self
     }
 
