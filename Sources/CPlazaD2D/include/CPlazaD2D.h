@@ -269,6 +269,25 @@ uint32_t ptb_input_wheel_lines(int horizontal);
 /* TrackMouseEvent(TME_LEAVE): WM_MOUSELEAVE once when the pointer leaves the client area. */
 int ptb_window_track_leave(void *hwnd);
 
+/* ---- plaza tooltips (Task 10, D18): one tooltips_class32 control owned by the window, a rectangle tool per hover text ---- */
+
+/* The tooltip control (popup, TTS_ALWAYSTIP, never activates); NULL when it could not be made. */
+void *ptb_tooltip_create(void *owner);
+void ptb_tooltip_destroy(void *tooltip);
+/* Replaces every tool: `count` rectangles (l, t, r, b in the owner's client pixels, 4 values each) with their UTF-16 texts (NUL-terminated).
+ * Tool ids are index + 1. Returns how many tools the control took. */
+int ptb_tooltip_set(void *tooltip, void *owner, const int32_t *rects, const uint16_t *const *texts, uint32_t count);
+/* TTM_RELAYEVENT: the owner's mouse message (client coordinates in lParam) so the control can time its rest delay. */
+void ptb_tooltip_relay(void *tooltip, void *owner, uint32_t message, uint64_t wParam, int64_t lParam);
+int ptb_tooltip_count(void *tooltip);
+/* TTM_GETTEXT of tool `index` (0-based) into `out` (UTF-16, capacity units); the length. */
+int ptb_tooltip_text(void *tooltip, void *owner, uint32_t index, uint16_t *out, int capacity);
+/* TTM_GETCURRENTTOOL: the tool whose text is showing (0-based), -1 when none. */
+int ptb_tooltip_current(void *tooltip, void *owner);
+int ptb_tooltip_visible(void *tooltip);
+/* TTM_SETDELAYTIME (TTDT_INITIAL): the rest before the text shows, in ms (QA / selftest). */
+void ptb_tooltip_set_delay(void *tooltip, int initialMs);
+
 /* ---- canvas (Task 8) -------------------------------------------------------------------------------------------- */
 
 /* A Direct2D canvas over a WIC bitmap with CoreGraphics' conventions: origin bottom-left, y up, a CTM, a save/restore state

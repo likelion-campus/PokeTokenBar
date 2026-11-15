@@ -129,11 +129,13 @@ enum PlatformPlaza {
     }
 
     /// An SF Symbol as an image (`size` in points) for the overlay panels' icons, set as the SwiftUI views set it. The Mac
-    /// draws the real symbol; elsewhere nil, and the panel falls back to its own drawing of the glyph (Windows supplies its
-    /// own glyph in stage 6).
+    /// draws the real symbol; Windows draws a glyph of Segoe Fluent Icons / Segoe MDL2 Assets for the names it knows (the eyes); any
+    /// other name, or no such font, gives nil and the panel falls back to its own drawing of the glyph.
     static func symbolImage(named name: String, pointSize: CGFloat, weight: PlazaFontWeight, scale: CGFloat,
                             color: PlazaColor) -> (image: PlazaImage, size: CGSize)? {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        WinPlazaSymbols.image(named: name, pointSize: pointSize, weight: weight, scale: scale, color: color)
+        #elseif PTB_SHARED_ONLY
         nil
         #else
         MacPlazaSymbols.image(named: name, pointSize: pointSize, weight: weight, scale: scale, color: color)
