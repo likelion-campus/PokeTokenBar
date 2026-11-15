@@ -8,7 +8,7 @@ final class WinUILanguageTests: XCTestCase {
         .init(uiLanguages: { ui }, localeName: { locale })
     }
 
-    func testInjectedApiResults() {
+    func testInjectedApiResults() async {
         XCTAssertEqual(AppLanguage.systemDefault(for: WinUILanguage.preferred(apis(ui: ["ko-KR", "en-US"], locale: "en-US")).first), .ko)
         XCTAssertEqual(AppLanguage.systemDefault(for: WinUILanguage.preferred(apis(ui: ["ja-JP"], locale: nil)).first), .ja)
         XCTAssertEqual(AppLanguage.systemDefault(for: WinUILanguage.preferred(apis(ui: ["en-US"], locale: "ko-KR")).first), .en)
@@ -17,7 +17,7 @@ final class WinUILanguageTests: XCTestCase {
         XCTAssertEqual(WinUILanguage.preferred(apis(ui: [], locale: nil)), [])
     }
 
-    func testMultiStringParsing() {
+    func testMultiStringParsing() async {
         let units = Array("ko-KR".utf16) + [0] + Array("en-US".utf16) + [0, 0]
         XCTAssertEqual(WinUILanguage.multiString(units), ["ko-KR", "en-US"])
         XCTAssertEqual(WinUILanguage.multiString([0, 0]), [])
@@ -25,22 +25,20 @@ final class WinUILanguageTests: XCTestCase {
     }
 
     /// The trigger of the defect: corelibs' list is empty on Windows while Win32 has the display languages.
-    func testTheRealApisGiveTheDisplayLanguageWhereCorelibsGivesNone() {
+    func testTheRealApisGiveTheDisplayLanguageWhereCorelibsGivesNone() async {
         let win32 = WinUILanguage.win32UILanguages()
         XCTAssertFalse(win32.isEmpty, "GetUserPreferredUILanguages returns the display languages on any Windows")
         XCTAssertEqual(PlatformCompat.preferredUILanguages, WinUILanguage.preferred())
         XCTAssertEqual(AppLanguage.systemDefault, AppLanguage.systemDefault(for: win32.first))
     }
 
-    func testMigrationSavesTheDetectedLanguageOnceAndOnlyOverAnUnchosenEnglish() throws {
+    func testMigrationSavesTheDetectedLanguageOnceAndOnlyOverAnUnchosenEnglish() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-lang-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("companion.json")
         try Data("{\"language\":\"en\"}".utf8).write(to: file)
-        let suite = "ptb.test.language.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        let defaults = TestDefaults.make(suite: "ptb.test.language.\(UUID().uuidString)")
         let store = CompanionStore(fileURL: file, defaults: defaults)
         XCTAssertEqual(store.language, .en)
         WinUILanguage.migrateStoredLanguage(companion: store, defaults: defaults, detected: .ko)

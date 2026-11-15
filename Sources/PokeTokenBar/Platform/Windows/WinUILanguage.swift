@@ -5,9 +5,9 @@ import WinSDK
 /// The user's display languages from Win32. `Locale.preferredLanguages` is empty on Windows (see
 /// `PlatformCompat.preferredUILanguages`).
 enum WinUILanguage {
-    struct APIs {
-        var uiLanguages: () -> [String]
-        var localeName: () -> String?
+    struct APIs: Sendable {
+        var uiLanguages: @Sendable () -> [String]
+        var localeName: @Sendable () -> String?
         static let live = APIs(uiLanguages: { win32UILanguages() }, localeName: { win32LocaleName() })
     }
 
