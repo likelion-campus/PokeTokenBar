@@ -139,7 +139,7 @@ final class PlazaStoreSpriteParityTests: XCTestCase {
     /// Every cached sprite on this Mac (read only), the way the render harness reads them: GIF frames and delays through
     /// `GIFDecoder` and the shared decoder, PNGs through ImageIO and `MacPlazaGraphics`.
     func testEveryCachedSpriteDecodesTheSame() throws {
-        let dir = try XCTUnwrap(PlazaRenderScenes.spritesDir, "PTB_PLAZA_RENDER_SPRITES not set")
+        guard let dir = PlazaRenderScenes.spritesDir else { throw XCTSkip("PTB_PLAZA_RENDER_SPRITES not set") }
         let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
         var gifs = 0, pngs = 0
         for file in files {

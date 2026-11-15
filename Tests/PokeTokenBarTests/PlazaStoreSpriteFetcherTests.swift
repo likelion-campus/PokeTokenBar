@@ -159,7 +159,7 @@ final class PlazaStoreSpriteFetcherTests: XCTestCase {
         XCTAssertEqual(egg?.width, 2)
     }
 
-    func testGIFDelaysFollowTheMacRule() {
+    func testGIFDelaysFollowTheMacRule() async {
         typealias Fx = PlazaGIFFixtures
         func frame(_ delay: Int) -> Fx.Frame { var f = Fx.Frame(width: 1, height: 1, indices: [0]); f.delay = delay; return f }
         let data = Data(Fx.gif(width: 1, height: 1, frames: [frame(0), frame(1), frame(5), frame(10), frame(25)]))
@@ -167,13 +167,13 @@ final class PlazaStoreSpriteFetcherTests: XCTestCase {
         XCTAssertEqual(PlazaStoreGIF.delays(in: Data([1, 2, 3])), [])
     }
 
-    func testOneFrameGIFIsNoAnimation() {
+    func testOneFrameGIFIsNoAnimation() async {
         typealias Fx = PlazaGIFFixtures
         let data = Data(Fx.gif(width: 1, height: 1, frames: [Fx.Frame(width: 1, height: 1, indices: [0])]))
         XCTAssertTrue(PlazaStoreGIF.frames(from: data).isEmpty)
     }
 
-    func testDefaultDecoderPairsEachFrameWithItsDelay() {
+    func testDefaultDecoderPairsEachFrameWithItsDelay() async {
         typealias Fx = PlazaGIFFixtures
         var a = Fx.Frame(width: 1, height: 1, indices: [0]); a.delay = 5
         var b = Fx.Frame(width: 1, height: 1, indices: [1]); b.delay = 30
