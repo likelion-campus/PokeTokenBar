@@ -41,6 +41,7 @@ enum WinTimeZone {
     /// Call before the first `TimeZone.current` and again before `NSTimeZone.resetSystemTimeZone()` on a time change.
     @discardableResult
     static func publishSystemZone() -> String? {
+        if published == nil { return nil }
         let env = ProcessInfo.processInfo.environment
         if let current = env["TZ"], current != published { return nil }  // the user's own TZ wins, as it does in Foundation
         guard let key = windowsKeyName(), let iana = iana(forWindowsID: key) else { return nil }

@@ -71,7 +71,7 @@ enum PlatformCompat {
     /// `GetUserPreferredUILanguages` (falling back to the user locale name).
     static var preferredUILanguages: [String] {
         #if os(Windows)
-        return WinUILanguage.preferred()
+        return Locale.preferredLanguages
         #else
         return Locale.preferredLanguages
         #endif
