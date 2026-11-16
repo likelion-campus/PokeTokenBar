@@ -116,14 +116,18 @@ import Foundation
         return PlazaPanelHit(action: "cycle", index: nil)
     }
 
-    /// The day under `point`, nil outside the bars or over a future day (not a hover target on the Mac either).
+    /// The day under `point` (the bar itself, as the Mac's `onHover` on the bar), nil elsewhere and over a future day.
     func date(at point: CGPoint, graphics: any PlazaGraphics) -> String? {
         guard model.showsBars else { return nil }
         let l = layout(width: width, graphics: graphics)
-        guard point.y >= l.barsTop, point.y <= l.barsTop + PopoverTrendMetrics.track, point.x >= 0, point.x <= width, l.step > 0 else { return nil }
+        guard point.x >= 0, point.x <= width, l.step > 0 else { return nil }
         let i = min(model.columns.count - 1, max(0, Int(point.x / l.step)))
         let c = model.columns[i]
-        return c.isFuture ? nil : c.date
+        // As the Mac: the target is the bar itself (its column's width, its own height, bottom-aligned in the track), not the
+        // whole track and not the gap between columns.
+        let bottom = l.barsTop + PopoverTrendMetrics.track
+        guard !c.isFuture, point.x <= CGFloat(i) * l.step + l.columnWidth, point.y <= bottom, point.y >= bottom - c.height else { return nil }
+        return c.date
     }
 
     /// The pointer moved to `point` (nil: it left the part).
@@ -328,16 +332,15 @@ import Foundation
             if !c.isFuture {
                 let hovered = c.date == selectedDate
                 let bottom = l.barsTop + PopoverTrendMetrics.track
+                let origin = { (h: CGFloat) in CGPoint(x: x, y: bottom - h) }
                 if c.segments.isEmpty {
                     let color = c.isToday ? accent : secondary.plazaColor(alpha: hovered ? 0.8 : (c.isEmpty ? 0.18 : 0.45))
-                    layers.append(.color(color, frame: CGRect(x: x, y: bottom - c.height, width: l.columnWidth, height: c.height)))
+                    if let layer = drawing.bar(width: l.columnWidth, height: c.height, color: color, segments: [], at: origin(c.height), scale: scale, graphics: graphics) { layers.append(layer) }
                 } else {
-                    var y = bottom
-                    for s in c.segments {
-                        y -= s.height
-                        layers.append(.color(PopoverColorRole.palette(s.colorIndex).plazaColor(alpha: (c.isToday || hovered) ? 1 : 0.55),
-                                             frame: CGRect(x: x, y: y, width: l.columnWidth, height: s.height)))
-                    }
+                    let alpha = (c.isToday || hovered) ? 1.0 : 0.55
+                    // segments run bottom to top, as `DailyTrendStack.segments`
+                    let parts = c.segments.map { (PopoverColorRole.palette($0.colorIndex).plazaColor(alpha: alpha), $0.height) }
+                    if let layer = drawing.bar(width: l.columnWidth, height: c.height, color: accent, segments: parts, at: origin(c.height), scale: scale, graphics: graphics) { layers.append(layer) }
                 }
             }
             if c.weekendTick {

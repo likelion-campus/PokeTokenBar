@@ -147,7 +147,8 @@ final class PopoverActivityTests: XCTestCase {
         let dirty = try XCTUnwrap(hovered.dirty, "a hover reports the part it changed")
         XCTAssertLessThan(dirty.width, 20)
         XCTAssertLessThan(dirty.height * dirty.width, 332 * layout.height / 10)
-        XCTAssertEqual(part.drawing.made, 0, "no text or picture is made again for a hover")
+        XCTAssertEqual(part.drawing.madeTexts, 0, "no text is made again for a hover")
+        XCTAssertLessThanOrEqual(part.drawing.made, 2, "only the bars it changes are drawn again")
         // The same column again changes nothing.
         part.pointerMoved(CGPoint(x: step * 8.5 + 1, y: y))
         XCTAssertEqual(changes, 1)
@@ -158,6 +159,9 @@ final class PopoverActivityTests: XCTestCase {
         XCTAssertNil(part.selectedDate, "a future day is not a hover target")
         part.pointerMoved(CGPoint(x: step * 8.5, y: 2))
         XCTAssertNil(part.selectedDate)
+        // As the Mac: the target is the bar itself. Day 1 (100 tokens) is a floor tick; above it nothing is hovered.
+        part.pointerMoved(CGPoint(x: 1, y: y))
+        XCTAssertNil(part.selectedDate, "above a short bar is not the bar")
     }
 
     func testTheCardNamesTheDayAndEachProvider() async throws {
@@ -192,7 +196,8 @@ final class PopoverActivityTests: XCTestCase {
         XCTAssertTrue(part.key(PopoverKey.end))
         XCTAssertEqual(part.keyboardDate, today)
         XCTAssertFalse(part.key(0x41), "other keys are not ours")
-        part.pointerMoved(CGPoint(x: 1, y: 4 + 12 + 3 + 5))
+        let bottom = 4 + ActivityDrawing.lineHeight(10, text: PlatformPlaza.graphics.text) + 3 + PopoverTrendMetrics.track
+        part.pointerMoved(CGPoint(x: 1, y: bottom - 0.5))
         XCTAssertEqual(part.selectedDate, "2026-07-01", "the pointer wins while it is over a day")
         part.pointerMoved(nil)
         XCTAssertEqual(part.selectedDate, today)

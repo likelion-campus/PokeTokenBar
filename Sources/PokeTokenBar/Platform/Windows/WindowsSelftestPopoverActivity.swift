@@ -324,7 +324,8 @@ enum ActivityFixtures {
         let shown = card?.isShown == true && selected == target
         let cardOK = card.map { inked($0) > 500 } ?? false
         let partial = after.partialPaints - before.partialPaints
-        let made = bars.drawing.made
+        let made = bars.drawing.madeTexts
+        let bars_made = bars.drawing.made
         let pixelsPainted = after.paintPixels - before.paintPixels
         let whole = Int(view.pixelSize.cx) * Int(view.pixelSize.cy)
         let rendersBefore = view.stats.renders
@@ -345,9 +346,9 @@ enum ActivityFixtures {
         let quietStart = view.stats
         await wait(1.0)
         let quiet = view.stats == quietStart
-        r.add("home.activityHover", shown && cardOK && partial >= 1 && made == 0 && pixelsPainted < whole / 2 && noRepeat && caption && again && gone && quiet,
-              "pointer over \(target): selected=\(selected ?? "-") card shown=\(shown) inked=\(cardOK); repaints: partial +\(partial) (expected >= 1), the chart made \(made) texts or pictures again "
-              + "(expected 0), painted \(pixelsPainted) px of \(whole); the same column again re-rendered=\(!noRepeat); over the title selects nothing=\(caption); back on the column=\(again); "
+        r.add("home.activityHover", shown && cardOK && partial >= 1 && made == 0 && bars_made <= 2 && pixelsPainted < whole / 2 && noRepeat && caption && again && gone && quiet,
+              "pointer over \(target): selected=\(selected ?? "-") card shown=\(shown) inked=\(cardOK); repaints: partial +\(partial) (expected >= 1), the chart made \(made) texts (expected 0) and \(bars_made) pictures (the bars it changes, <= 2) again "
+              + ", painted \(pixelsPainted) px of \(whole); the same column again re-rendered=\(!noRepeat); over the title selects nothing=\(caption); back on the column=\(again); "
               + "left: selection and card gone=\(gone); one second later nothing ran=\(quiet); the hover took \(String(format: "%.0f", hoverMs)) ms incl. the 400 ms wait")
     }
 

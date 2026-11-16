@@ -23,8 +23,10 @@ import Foundation
     private var pictures: [String: PlazaImage] = [:]
     /// Pictures and texts made since the last `resetCounts` (the selftest reads how many a hover made).
     private(set) var made = 0
+    /// How many of `made` are texts (a hover must make none; it may make the two bars it changes).
+    private(set) var madeTexts = 0
 
-    func resetCounts() { made = 0 }
+    func resetCounts() { made = 0; madeTexts = 0 }
 
     static func weight(_ w: Int) -> PlazaFontWeight { w >= 700 ? .bold : (w >= 500 ? .semibold : .regular) }
 
@@ -61,6 +63,7 @@ import Foundation
                 canvas.draw(line, at: space.canvas(CGPoint(x: 0, y: m.ascender)))
             }
             made += 1
+            madeTexts += 1
             piece = Piece(image: image, width: line.width, height: height)
             texts[key] = piece
         }
@@ -80,6 +83,46 @@ import Foundation
         made += 1
         pictures[full] = image
         return image
+    }
+
+    /// An emoji through the colour text path (`PlazaFont.emoji`: Segoe UI Emoji with DirectWrite colour glyph layers on Windows),
+    /// drawn at `alpha` (a tint the emoji cannot take: the Mac's gray symbol becomes the same glyph at the label's opacity).
+    func emoji(_ s: String, size: CGFloat, alpha: Double, at origin: CGPoint, scale: CGFloat, graphics: any PlazaGraphics)
+        -> (layer: PlazaPanelLayer?, width: CGFloat, height: CGFloat) {
+        let font = PlazaFont.emoji(size: size)
+        let engine = graphics.text
+        let line = engine.line(s, font: font)
+        let m = engine.metrics(font)
+        let height = (m.ascender - m.descender).rounded()
+        let width = PlazaPanelStyle.pixelUp(line.width, scale: scale)
+        let image = picture("emoji-\(s)-\(Int(size * 10))-\(Int(alpha * 100))", size: CGSize(width: width, height: height), scale: scale, graphics: graphics) { canvas, space in
+            canvas.setAlpha(CGFloat(alpha))
+            canvas.setFillColor(PlazaColor(srgbRed: 0, green: 0, blue: 0))
+            canvas.draw(line, at: space.canvas(CGPoint(x: 0, y: m.ascender)))
+        }
+        return (image.map { .image($0, frame: CGRect(x: origin.x, y: origin.y, width: width, height: height)) }, width, height)
+    }
+
+    /// One bar (`MonthDailyTrend`'s `RoundedRectangle(cornerRadius: 1)`, stacked segments clipped to it) as a small picture.
+    func bar(width: CGFloat, height: CGFloat, color: PlazaColor, segments: [(PlazaColor, CGFloat)], at origin: CGPoint, scale: CGFloat,
+             graphics: any PlazaGraphics) -> PlazaPanelLayer? {
+        let key = "bar-\(Int(width * 100))x\(Int(height * 100))-\(segments.isEmpty ? "\(color)" : segments.map { "\($0.0)\(Int($0.1 * 100))" }.joined())"
+        guard let image = picture(key, size: CGSize(width: width, height: height), scale: scale, graphics: graphics, { canvas, space in
+            let box = space.canvas(CGRect(x: 0, y: 0, width: width, height: height))
+            canvas.clip(toRoundedRect: box, radius: 1)
+            if segments.isEmpty {
+                canvas.setFillColor(color)
+                canvas.fill(box)
+            } else {
+                var y = box.minY
+                for (c, h) in segments {
+                    canvas.setFillColor(c)
+                    canvas.fill(CGRect(x: box.minX, y: y, width: box.width, height: h))
+                    y += h
+                }
+            }
+        }) else { return nil }
+        return .image(image, frame: CGRect(x: origin.x, y: origin.y, width: width, height: height))
     }
 
     // MARK: shared pieces
