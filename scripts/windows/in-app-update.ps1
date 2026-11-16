@@ -113,6 +113,7 @@ function Set-StatusChecksOff {
 }
 function Test-StatusChecksOff { (Get-Content $PtbPlist -Raw) -match '<key>statusChecksEnabled</key>\s*<false/>' }
 function Remove-HeldBack {
+    if (-not (Test-Path $PtbPlist)) { return }
     $xml = Get-Content $PtbPlist -Raw
     Set-Content -Path $PtbPlist -Value ($xml -replace '<key>windows\.failedUpdateVersion</key>\s*<string>[^<]*</string>', '') -NoNewline -Encoding utf8NoBOM
 }
@@ -148,7 +149,8 @@ function Start-Updating($Feed) { Start-App $exe @('--selftest-update-from', "htt
 function Invoke-Scenario([string]$Name, [scriptblock]$Body) {
     "---- $Name ----"
     $script:feed = $null
-    try { & $Body }
+    # Each scenario starts from vN with no version held back, so one scenario's failure (a fault run's) does not spill over.
+    try { Stop-Apps; Remove-HeldBack; if ((Get-InstalledVersion) -ne $Version) { Install-Baseline "$Name-reset" }; & $Body }
     catch { $failures.Add($Name); "FAIL $Name stopped: $($_.Exception.Message)" }
     finally {
         Stop-Feed $script:feed
@@ -217,8 +219,7 @@ Invoke-Scenario 'ok' {
     Close-App $np $nh
 }
 
-# The refusals, on vN (back to it first: the ok scenario left vN+1).
-Install-Baseline 'refusals'
+# The refusals, on vN (each scenario goes back to it: the ok scenario left vN+1).
 foreach ($case in @(
         @{ Tag = 'tampered'; Mode = 'tampered'; Reason = "not installed: the download's SHA-256 is not the release's digest"; Downloads = 1; Page = 'opens'; Told = $true },
         @{ Tag = 'short'; Mode = 'short'; Reason = "not installed: the download has $((Get-Item $setupNext).Length - 1) bytes, the release lists $((Get-Item $setupNext).Length)"; Downloads = 1; Page = 'opens'; Told = $true },
@@ -334,7 +335,6 @@ Invoke-Scenario 'failCopy' {
 
 Invoke-Scenario 'failPrepare' {
     Install-Baseline 'failPrepare'
-    Remove-HeldBack  # the failCopy scenario held vN+1 back
     $setupLog = Join-Path $logs "update-$NextVersion.log"
     Remove-Item -ErrorAction SilentlyContinue $setupLog
     $script:feed = Start-Feed 'failPrepare' 'ok' $failPrepare $NextVersion
