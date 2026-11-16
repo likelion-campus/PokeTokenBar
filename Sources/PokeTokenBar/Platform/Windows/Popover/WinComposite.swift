@@ -36,7 +36,9 @@ import WinSDK
     /// The line's height: its tallest shown child.
     func remeasure() {
         let height = children.filter { !hidden.contains(ObjectIdentifier($0)) }.map(\.preferredSize.height).max() ?? 0
+        let changed = control.preferredSize.height != height
         control.preferredSize = CGSize(width: 0, height: height)
+        if changed { control.onSizeChange?() }  // the kit lays the page out again
     }
 
     func setShown(_ child: WinControl, _ shown: Bool) {
