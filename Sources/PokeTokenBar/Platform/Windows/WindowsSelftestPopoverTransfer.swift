@@ -814,6 +814,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         hybrid.scriptedOpen = target
         let importing = await driven([.click(0), .click(0)]) { self.post(section.transferRowsForTesting.import?.control) }
         hybrid.scriptedOpen = nil
+        let doneText = hybrid.informs.last?.message   // the done dialog's text, before the error alert below
         // An export that cannot be written: the Mac's alert is a warning (every error alert of its settings is `.warning`).
         let blocker = work.appendingPathComponent("blocker.txt")
         try? Data("KEEP".utf8).write(to: blocker)
@@ -825,7 +826,6 @@ final class TransferDialogDriver: @unchecked Sendable {
         let after = stores.companion.transferSummary
         let confirmShown = hybrid.confirmDialog
         let backups = (try? FileManager.default.contentsOfDirectory(atPath: stores.directory.path).filter { $0.hasPrefix(SaveTransfer.backupFilePrefix) }) ?? []
-        let doneText = hybrid.informs.last?.message
         let expectedDone = l.importSaveDone(dex: exported.dexCount, tokens: TokenFormatter.compact(exported.lifetimeTokens))
         let rowOK = { (x: (facts: [TransferDialogDriver.Fact], watchdog: Bool, open: Bool, foreground: Bool, closes: Int), n: Int) in
             x.facts.count == n && !x.watchdog && x.facts.allSatisfy { $0.found && $0.owned && $0.closed } && x.open
