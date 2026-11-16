@@ -269,8 +269,10 @@ Invoke-Scenario 'slowCancel' {
     $second = [PtbUpd]::ChildText($w, 'Static')
     $mb = { param($t) $m = [regex]::Match("$t", '([\d.]+) / ([\d.]+) MB'); if ($m.Success) { [double]$m.Groups[1].Value } else { -1 } }
     Assert-That ((& $mb $first) -gt 0 -and (& $mb $second) -gt (& $mb $first)) 'slowCancel.progressMoves' "'$($first -replace "`r?`n", ' | ')' then '$($second -replace "`r?`n", ' | ')'"
-    # A capture of the window (sample data, the CI runner), for the PR.
-    Add-Type -AssemblyName System.Drawing
+    # Captures for the PR (sample data, the CI runner): the progress window, then the tray menu opened meanwhile (its update
+    # entry is the disabled "Updating…" row) next to it. The menu is opened as the shell opens it (the tray icon's callback
+    # message, WM_CONTEXTMENU at a point) and closed with WM_CANCELMODE.
+    Add-Type -AssemblyName System.Drawing, System.Windows.Forms
     $rect = New-Object PtbUpd+RECT
     if ([PtbUpd]::GetWindowRect($w, [ref]$rect)) {
         $bmp = New-Object System.Drawing.Bitmap ($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top)
@@ -278,6 +280,16 @@ Invoke-Scenario 'slowCancel' {
         $g.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size)
         $bmp.Save((Join-Path $LogDir 'update-progress.png'), [System.Drawing.Imaging.ImageFormat]::Png)
         "captured the progress window: $($bmp.Width)x$($bmp.Height)"
+        $x = [Math]::Max(0, $rect.Left - 300); $y = $rect.Top
+        $null = [PtbCi]::PostMessageW($h, 0x8030 <# WM_APP + 0x30, the tray callback #>, [IntPtr](($y -shl 16) -bor $x), [IntPtr]0x007B <# WM_CONTEXTMENU #>)
+        Start-Sleep -Milliseconds 1500
+        $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        $screen = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+        [System.Drawing.Graphics]::FromImage($screen).CopyFromScreen($b.Left, $b.Top, 0, 0, $screen.Size)
+        $screen.Save((Join-Path $LogDir 'update-tray-menu.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+        "captured the screen with the tray menu open: $($b.Width)x$($b.Height)"
+        $null = [PtbCi]::PostMessageW($h, 0x001F <# WM_CANCELMODE: closes the menu #>, [IntPtr]::Zero, [IntPtr]::Zero)
+        Start-Sleep -Milliseconds 800
     }
     Assert-That ([PtbUpd]::ClickButton($w)) 'slowCancel.cancelClicked' 'Cancel pressed'
     $gone = Wait-Until { [PtbUpd]::FindWindowW('PokeTokenBarUpdateProgress', [NullString]::Value) -eq [IntPtr]::Zero } 15
