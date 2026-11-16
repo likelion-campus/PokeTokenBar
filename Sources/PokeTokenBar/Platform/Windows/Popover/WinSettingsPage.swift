@@ -81,7 +81,6 @@ import WinSDK
     private var fallbackRow: WinRow?
     private var isCheckingUpdate = false
     private var didCheckUpdate = false
-    private var helpOpen = false
     private var reportFailed = false
     private var loginState: TrayMenuModel.LoginState = .unavailable
     private var applying = false
@@ -315,18 +314,7 @@ import WinSDK
         loginRow?.control?.onToggle = { [weak self] on in self?.setLaunchAtLogin(on) }
         backViewRow = general.addToggle(l.backViewLabel, hint: l.winBackViewHint, isOn: store.alwaysFacesBack)
         backViewRow?.control?.onToggle = { on in store.alwaysFacesBack = on }
-        helpRow = general.addRow(l.winClaudeCredentialHelpTitle) { p, c in
-            WinControls.glyphButton(symbol: "questionmark.circle", label: l.winClaudeCredentialHelpTooltip, in: p, ctx: c)
-        }
-        helpRow?.control?.tooltip = l.winClaudeCredentialHelpTooltip
-        helpRow?.control?.onClick = { [weak self] in
-            guard let self else { return }
-            helpOpen.toggle()
-            helpBodyRow?.isVisible = helpOpen
-        }
-        helpBodyRow = general.addRow(nil, hint: l.winClaudeCredentialHelpBody) { _, _ in nil }
-        helpBodyRow?.hint?.role = .secondary
-        helpBodyRow?.isVisible = helpOpen
+        // No "why do I have to refresh by hand?" row: the Mac's Settings has none (its help is Home's (?) next to the limits caption).
         // Left out on Windows (`SettingsModel.visibility`): animation quality and the pet group (they wait for the pet, T22), the
         // menu bar group and the Keychain switch (no such things here). The Mac's representative, trend and tracked-account rows are T20, T12, T14.
 
