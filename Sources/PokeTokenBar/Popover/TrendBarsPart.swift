@@ -55,6 +55,9 @@ import Foundation
     static let gap: CGFloat = 3
     static let tickHeight = PopoverTrendMetrics.tickHeight
     static let captionSize: CGFloat = 10
+    /// The menu's chevron after the title (the Mac's borderless `Menu` draws one): a gap and a 7 x 4 "v".
+    static let chevronSize = CGSize(width: 7, height: 4)
+    static let chevronAdvance: CGFloat = 3 + 7 + 2
 
     struct Layout {
         var captionTop: CGFloat, captionHeight: CGFloat
@@ -102,7 +105,7 @@ import Foundation
     func titleRect(graphics: any PlazaGraphics) -> CGRect {
         let l = layout(width: width, graphics: graphics)
         let w = drawing.width(model.title, size: Self.captionSize, graphics: graphics)
-        return CGRect(x: 0, y: l.captionTop, width: w, height: l.captionHeight)
+        return CGRect(x: 0, y: l.captionTop, width: w + Self.chevronAdvance, height: l.captionHeight)
     }
 
     // MARK: hits and selection
@@ -277,16 +280,22 @@ import Foundation
         }
         let title = drawing.text(m.title, size: 10, color: tertiary, at: CGPoint(x: 0, y: l.captionTop), scale: scale, graphics: graphics)
         if let layer = title.layer { layers.append(layer) }
-        let readoutX = title.width + 5
+        if let chevron = drawing.picture("chevron", size: Self.chevronSize, scale: scale, graphics: graphics, { canvas, space in
+            canvas.setStrokeColor(tertiary)
+            let box = space.canvas(CGRect(origin: .zero, size: Self.chevronSize))
+            canvas.strokePath(PlazaPath(points: [CGPoint(x: box.minX + 0.5, y: box.maxY - 0.5), CGPoint(x: box.midX, y: box.minY + 0.5),
+                                                 CGPoint(x: box.maxX - 0.5, y: box.maxY - 0.5)]), lineWidth: 1, cap: .round)
+        }) { layers.append(.image(chevron, frame: CGRect(x: title.width + 3, y: l.captionTop + (l.captionHeight - Self.chevronSize.height) / 2, width: 7, height: 4))) }
+        let readoutX = title.width + Self.chevronAdvance + 5
         if let layer = drawing.text(m.readout, size: 10, weight: 600, color: secondary, at: CGPoint(x: readoutX, y: l.captionTop),
                                     maxWidth: max(0, rightEdge - readoutX), scale: scale, graphics: graphics).layer { layers.append(layer) }
         if m.showsBars { layers += bars(l, scale: scale, graphics: graphics) }
         // The caption's title is its own button (the window menu); the chart's button is everything else: the band under the
         // caption, or the caption right of the title when there are no bars. They touch and never overlap; a click on the
         // caption outside both reaches the host's own click path (`hit`).
-        let titleFrame = CGRect(x: 0, y: l.captionTop, width: title.width, height: l.captionHeight)
+        let titleFrame = CGRect(x: 0, y: l.captionTop, width: title.width + Self.chevronAdvance, height: l.captionHeight)
         let panelFrame = m.showsBars ? CGRect(x: 0, y: l.captionTop + l.captionHeight, width: w, height: l.height - l.captionTop - l.captionHeight)
-                                     : CGRect(x: title.width, y: l.captionTop, width: max(1, w - title.width), height: l.captionHeight)
+                                     : CGRect(x: titleFrame.maxX, y: l.captionTop, width: max(1, w - titleFrame.maxX), height: l.captionHeight)
         let whole = CGRect(x: 0, y: 0, width: w, height: l.height)
         let items = [PlazaAccessibilityItem(frame: titleFrame, role: .button, label: m.windowLabel, value: m.title,
                                             action: PlazaPanelHit(action: "window", index: nil), key: "window"),

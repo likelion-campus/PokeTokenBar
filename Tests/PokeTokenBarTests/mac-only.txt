@@ -260,3 +260,5 @@ TeamReleaseScriptRunTests.swift
 LimitBarPartMacTests.swift
 # PopoverTrendTwinTests+Mac: drives the Mac-only originals (DailyTrendMetrics, ActivityHeatmapMetrics, MonthDailyTrend, StreakBadge) against the shared twins
 PopoverTrendTwinTests+Mac.swift
+# PopoverActivityImagesMac: writes the parts' drawings with CoreGraphics ImageIO (the PR images of the Mac canvas)
+PopoverActivityImagesMac.swift
