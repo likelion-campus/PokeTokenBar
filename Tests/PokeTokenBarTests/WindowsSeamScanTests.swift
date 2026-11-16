@@ -479,10 +479,12 @@ extension WindowsSeamScanTests {
     /// The places in Windows code that may bring a window forward, each for a user's action: the popover's `present` (a tray
     /// click or key, the tray menu, a second launch), the tray menu's foreground dance, the second instance handing its
     /// right to the running one, the plaza's `bringToFront` (its own scan above), and `--ime-check` (a diagnostic a person
-    /// starts). The selftest (`WindowsSelftest*.swift`, the runner only) is outside the rule. Anything else fails: a
-    /// teammate, a timer, a balloon or a refresh must never pull a window of ours to the front.
+    /// starts), and the in-app update's progress window (stage 8 Task 6: opened only by the user's "Update", through
+    /// `UpdateChecker.applyUpdate`). The selftest (`WindowsSelftest*.swift`, the runner only) is outside the rule. Anything
+    /// else fails: a teammate, a timer, a balloon or a refresh must never pull a window of ours to the front.
     static let activationSites: [(file: String, function: String?)] = [
         ("Platform/Windows/Popover/WinPopover.swift", "func present("),
+        ("Platform/Windows/WinUpdateProgress.swift", "private func open("),
         ("Platform/Windows/WinTray.swift", "static func run("),
         ("Platform/Windows/WinSingleInstance.swift", "static func acquire("),
         ("Platform/Windows/Plaza/WinPlazaWindow.swift", "func bringToFront("),
@@ -505,12 +507,24 @@ extension WindowsSeamScanTests {
                 if !allowed.contains(i), let call = activationCalls.first(where: { c.contains($0) }) {
                     out.append("\(rel):\(i + 1) calls \(call.dropLast()) outside the allowed sites (\(activationSites.map(\.file).joined(separator: ", "))): a window of ours may come forward without the user")
                 }
-                if rel.hasPrefix("Platform/Windows/Popover/"), c.contains("SetWindowPos("), !c.contains("SWP_NOACTIVATE") {
+                if rel.hasPrefix("Platform/Windows/Popover/"), c.contains("SetWindowPos("), !Self.call(from: i, in: lines).contains("SWP_NOACTIVATE") {
                     out.append("\(rel):\(i + 1) SetWindowPos without SWP_NOACTIVATE in the popover")
                 }
             }
         }
         return out
+    }
+
+    /// The call that starts on line `i`, to its closing parenthesis (a call wrapped over lines keeps its flags on a later one).
+    static func call(from i: Int, in lines: [String]) -> String {
+        var text = "", depth = 0, opened = false
+        for line in lines[i...].prefix(8) {
+            let c = code(line)
+            text += c + " "
+            for ch in c { if ch == "(" { depth += 1; opened = true } else if ch == ")" { depth -= 1 } }
+            if opened && depth <= 0 { break }
+        }
+        return text
     }
 
     func testOnlyTheAllowedSitesActivateWindowsOfOurs() throws {
@@ -535,6 +549,11 @@ extension WindowsSeamScanTests {
         XCTAssertEqual(try scan("Platform/Windows/Popover/WinPopover.swift", present + "func rebuild() {\n    _ = SetForegroundWindow(h)\n}\n"), 1)
         XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift", "func onChange() {\n    _ = ShowWindow(h, SW_SHOW)\n}\n"), 1)
         XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift", "func f() {\n    _ = SetWindowPos(h, nil, 0, 0, 1, 1, UINT(SWP_NOZORDER))\n}\n"), 1)
+        XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift",
+                                "func f() {\n    _ = SetWindowPos(h, nil, 0, 0, 1, 1,\n                     UINT(SWP_NOZORDER | SWP_NOACTIVATE))\n}\n"), 0, "flags on the next line")
+        XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift",
+                                "func f() {\n    _ = SetWindowPos(h, nil, 0, 0, 1, 1,\n                     UINT(SWP_NOZORDER))\n    g(SWP_NOACTIVATE)\n}\n"), 1,
+                       "a later statement's flag does not count")
         XCTAssertEqual(try scan("Platform/Windows/WinTrayHost.swift", "func refresh() {\n    _ = BringWindowToTop(h)\n}\n"), 1)
         XCTAssertEqual(try scan("Platform/Windows/WinSingleInstance.swift", "static func acquire(name: String) {\n    _ = AllowSetForegroundWindow(pid)\n}\n"), 0)
         XCTAssertEqual(try scan("Platform/Windows/WinSingleInstance.swift", "static func other() {\n    _ = AllowSetForegroundWindow(pid)\n}\n"), 1)
@@ -562,5 +581,108 @@ extension WindowsSeamScanTests {
         XCTAssertEqual(Self.clockThreadViolations("func fire() {\n    MainActor.assumeIsolated { tick() }\n}\n").count, 1)
         XCTAssertEqual(Self.clockThreadViolations("func fire() {\n    DispatchQueue.main.async { tick() }\n}\n").count, 1)
         XCTAssertEqual(Self.clockThreadViolations("func fire() {\n    // no DispatchQueue.main here\n    post()\n}\n").count, 0)
+    }
+}
+
+// MARK: - the in-app update's download and its CI hooks (stage 8 Task 6)
+
+extension WindowsSeamScanTests {
+    /// Calls of `needle` per file (code only, `//` comments stripped), the `declaration` form not counted.
+    static func calls(of needle: String, notCounting declaration: String? = nil, in files: [URL], root: URL) throws -> [String: Int] {
+        var out: [String: Int] = [:]
+        for url in files {
+            let text = try SharedSources.lines(of: url).map(code).joined(separator: "\n")
+            var n = text.components(separatedBy: needle).count - 1
+            if let declaration { n -= text.components(separatedBy: declaration).count - 1 }
+            if n > 0 { out[SharedSources.relativePath(url, root: root)] = n }
+        }
+        return out
+    }
+
+    /// The text of each call of `needle` up to its closing parenthesis.
+    static func callTexts(of needle: String, in text: String) -> [String] {
+        var out: [String] = []
+        var rest = text[...]
+        while let r = rest.range(of: needle) {
+            var depth = 1
+            var i = r.upperBound
+            while i < rest.endIndex, depth > 0 {
+                if rest[i] == "(" { depth += 1 } else if rest[i] == ")" { depth -= 1 }
+                i = rest.index(after: i)
+            }
+            out.append(String(rest[r.lowerBound..<i]))
+            rest = rest[i...]
+        }
+        return out
+    }
+
+    static let installerFile = "Platform/Windows/WindowsUpdateInstaller.swift"
+    static let selftestUpdateFile = "Platform/Windows/WindowsSelftestUpdate.swift"
+    static let shellFile = "Platform/Windows/WindowsShell.swift"
+    /// The hooks only the tests and the CI selftest pass to `WindowsUpdateInstaller.install`.
+    static let installHooks = ["fetch:", "launch:", "flush:", "onLaunched:", "setupRunning:", "folder:", "logs:"]
+
+    /// One download site, the installer's, with its own cap and deadline (the seam has no default cap: defect log, "기본 상한은
+    /// 그 값을 정한 호출부의 크기다"); the relaxations the CI loopback needs are reachable from one place each; the app's own call
+    /// of the install passes none of the test hooks.
+    static func updateSeamViolations(in files: [URL], root: URL) throws -> [String] {
+        var out: [String] = []
+        func expect(_ needle: String, _ declaration: String? = nil, _ sites: [String: Int], _ why: String) throws {
+            let found = try calls(of: needle, notCounting: declaration, in: files, root: root)
+            if found != sites { out.append("\(needle) is called in \(found.sorted { $0.key < $1.key }), expected \(sites.sorted { $0.key < $1.key }): \(why)") }
+        }
+        try expect("PlatformCompat.oneShotDownload(", nil, [installerFile: 1], "the update installer is the one download")
+        try expect("fetch(request, installer.size, downloadDeadline,", nil, [installerFile: 1], "the cap is the installer's own size")
+        try expect("useLoopbackFeed(", "func useLoopbackFeed(", [selftestUpdateFile: 1], "only the CI selftest flag sets the loopback feed")
+        try expect("LoopbackFeed(feed:", nil, [selftestUpdateFile: 2], "the loopback feed is made only by the CI selftest")
+        try expect("allowHTTP: true", nil, [installerFile: 1], "plain HTTP only for the loopback feed's download")
+        try expect("WindowsUpdateInstaller.install(", nil, [shellFile: 1, selftestUpdateFile: 1], "the app's install and the CI checks")
+        for url in files where SharedSources.relativePath(url, root: root) == shellFile {
+            let text = try SharedSources.lines(of: url).map(code).joined(separator: "\n")
+            for call in callTexts(of: "WindowsUpdateInstaller.install(", in: text) {
+                for hook in installHooks where call.contains(hook) { out.append("\(shellFile): the app's install passes the test hook \(hook)") }
+            }
+        }
+        for url in files where SharedSources.relativePath(url, root: root) == "Platform/PlatformCompat.swift" {
+            let text = try SharedSources.lines(of: url).map(code).joined(separator: "\n")
+            for call in callTexts(of: "static func oneShotDownload(", in: text) where call.contains("maxBytes: Int =") || call.contains("deadline: TimeInterval =") {
+                out.append("Platform/PlatformCompat.swift: oneShotDownload has a default cap or deadline: \(call)")
+            }
+        }
+        return out
+    }
+
+    func testTheUpdateDownloadAndItsCIHooksStayWhereTheyAre() throws {
+        let files = try SharedSources.sharedFiles(root: SharedSources.sourcesRoot, listURL: SharedSources.sourcesList)
+        XCTAssertEqual(try Self.updateSeamViolations(in: files, root: SharedSources.sourcesRoot), [])
+    }
+
+    func testTheUpdateSeamScanCatchesEachBreak() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-update-scan-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let real = SharedSources.sourcesRoot
+        let names = [Self.installerFile, Self.selftestUpdateFile, Self.shellFile, "Platform/PlatformCompat.swift"]
+        func scan(_ edit: (inout [String: String]) -> Void) throws -> [String] {
+            try? FileManager.default.removeItem(at: root)
+            var texts: [String: String] = [:]
+            for name in names { texts[name] = try String(contentsOf: real.appendingPathComponent(name), encoding: .utf8) }
+            edit(&texts)
+            var urls: [URL] = []
+            for (name, text) in texts {
+                let url = root.appendingPathComponent(name)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try text.write(to: url, atomically: true, encoding: .utf8)
+                urls.append(url)
+            }
+            return try Self.updateSeamViolations(in: urls, root: root)
+        }
+        XCTAssertEqual(try scan { _ in }, [], "the copies of the real files pass")
+        XCTAssertEqual(try scan { $0[Self.shellFile]! += "\nfunc f() async { _ = try? await PlatformCompat.oneShotDownload(for: r, maxBytes: 1, deadline: 1) }\n" }.count, 1)
+        XCTAssertEqual(try scan { $0[Self.installerFile] = $0[Self.installerFile]!.replacingOccurrences(of: "fetch(request, installer.size, downloadDeadline,",
+                                                                                                        with: "fetch(request, 32 << 20, downloadDeadline,") }.count, 1)
+        XCTAssertEqual(try scan { $0[Self.shellFile]! += "\nfunc g() { WindowsUpdates.useLoopbackFeed(x) }\n" }.count, 1)
+        XCTAssertEqual(try scan { $0[Self.shellFile]! += "\nlet h = UpdateDownloadCheck.refusal(status: 1, finalURL: nil, body: d, for: i, allowHTTP: true)\n" }.count, 1)
+        XCTAssertEqual(try scan { $0[Self.shellFile] = $0[Self.shellFile]!.replacingOccurrences(of: "progress: window)", with: "progress: window, launch: { _, _, _ in true })") }.count, 1)
+        XCTAssertEqual(try scan { $0["Platform/PlatformCompat.swift"] = $0["Platform/PlatformCompat.swift"]!.replacingOccurrences(of: "maxBytes: Int, deadline: TimeInterval,", with: "maxBytes: Int = 1 << 25, deadline: TimeInterval,") }.count, 1)
     }
 }

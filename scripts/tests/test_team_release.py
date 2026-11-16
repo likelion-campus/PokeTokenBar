@@ -700,7 +700,9 @@ class CollectTests(HelperTest):
             "no failed-update gate": (lambda m: m["gates"].pop("failedUpdateRelaunch"), "no gate failedUpdateRelaunch"),
             "a failed failed-update gate": (lambda m: m["gates"].update(failedUpdateRelaunch="failure"),
                                             "gate failedUpdateRelaunch is \"failure\""),
-            "an extra failed gate": (lambda m: m["gates"].update(inAppUpdate="failure"), "gate inAppUpdate"),
+            "no in-app update gate": (lambda m: m["gates"].pop("inAppUpdate"), "no gate inAppUpdate"),
+            "a failed in-app update gate": (lambda m: m["gates"].update(inAppUpdate="failure"), "gate inAppUpdate is \"failure\""),
+            "an extra failed gate": (lambda m: m["gates"].update(futureGate="failure"), "gate futureGate"),
             "upgrade first on another gate": (lambda m: m["gates"].update(upgrade="first"), "gate upgrade is"),
             "an extra ISCC define": (lambda m: m["installer"]["isccDefines"].append("PTBTestFailInstall"), "isccDefines"),
             "a missing ISCC define": (lambda m: m["installer"]["isccDefines"].remove("OutDir"), "isccDefines"),
@@ -1334,6 +1336,7 @@ class GateMapTests(unittest.TestCase):
         mapped = re.findall(r"^\s*(\w+)\s*=\s*'([\w-]+)'\s*$", block.group(1), re.M)
         self.assertEqual(list(tr.REQUIRED_GATES), [name for name, _ in mapped])
         self.assertIn(("failedUpdateRelaunch", "failed-update-relaunch"), mapped)
+        self.assertIn(("inAppUpdate", "in-app-update"), mapped)
         workflow = (ROOT / ".github/workflows/windows-app.yml").read_text()
         for _, step in mapped:
             self.assertIn("id: " + step + "\n", workflow, step)

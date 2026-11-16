@@ -20,6 +20,7 @@ $gateSteps = [ordered]@{
     uninstall          = 'uninstall'
     upgradeFromRelease = 'upgrade-from-release'
     failedUpdateRelaunch = 'failed-update-relaunch'
+    inAppUpdate        = 'in-app-update'
 }
 
 $problems = [System.Collections.Generic.List[string]]::new()

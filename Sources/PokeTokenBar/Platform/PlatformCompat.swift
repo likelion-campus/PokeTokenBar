@@ -556,3 +556,28 @@ extension PlatformCompat {
         #endif
     }
 }
+
+// MARK: - The update download (stage 8, D19)
+
+extension PlatformCompat {
+    /// One download held in memory: the Windows update installer's (its one caller, `WindowsUpdateInstaller`). `maxBytes`
+    /// has no default on purpose: the seam's default for API answers (32 MiB) sat 1.3% above the installer (defect log,
+    /// "기본 상한은 그 값을 정한 호출부의 크기다"), so every download names its own cap, and `deadline` bounds the whole fetch.
+    /// `progress` gets the body bytes received so far, on the transfer's own thread.
+    /// Windows: WinHTTP only (`WinHTTPFetch`, with `maxBytes` as its body limit and `deadline` as the session's resource
+    /// timeout). There is no URLSession fallback, which would keep neither the cap nor the deadline: a request WinHTTP cannot
+    /// take fails. Mac: `URLSession.shared.data(for:)`; never called there (the Mac updates through Homebrew or the page).
+    static func oneShotDownload(for request: URLRequest, maxBytes: Int, deadline: TimeInterval,
+                                progress: (@Sendable (Int) -> Void)? = nil) async throws -> (Data, URLResponse) {
+        #if os(Windows)
+        guard WinHTTPFetch.handles(request) else {
+            throw URLError(.cannotLoadFromNetwork, userInfo: [NSLocalizedDescriptionKey: "the download goes through WinHTTP only, which cannot take this request"])
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForResource = deadline
+        return try await WinHTTPFetch.data(for: request, configuration: configuration, maxBodyBytes: maxBytes, progress: progress)
+        #else
+        return try await URLSession.shared.data(for: request)
+        #endif
+    }
+}

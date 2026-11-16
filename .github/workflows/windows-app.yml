@@ -188,6 +188,7 @@ jobs:
           foreach ($s in $j.stacks) { "== stacks $($s.name)"; $s.detail }
       - name: Selftest with a stripped Path
         id: bundle-selftest
+        timeout-minutes: 20  # about 6 min; a hang ends with the logs collected (Collect logs runs always)
         shell: pwsh
         run: |
           $env:Path = 'C:\Windows\System32;C:\Windows'
@@ -236,7 +237,8 @@ jobs:
           $names = 'popover.open', 'popover.placement', 'popover.toggle', 'popover.dismissOnActivate', 'popover.dismissInput', 'popover.escape',
                    'popover.closePaths', 'popover.ownedKeepsOpen', 'popover.staleCompletion', 'popover.dpiChange', 'popover.noSelfOpen',
                    'popover.refusedForeground', 'popover.menuAfter', 'popover.menuSettings', 'popover.secondLaunch', 'popover.realClick',
-                   'popover.openClose3', 'popover.capture', 'popover.withPlaza'
+                   'popover.openClose3', 'popover.capture', 'popover.withPlaza', 'popover.aboveTopmost', 'popover.pageContract',
+                   'popover.closeAfterNestedLoop', 'popover.autostartQuiet'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -768,6 +770,7 @@ jobs:
       - name: Installed selftest (stripped Path, from the install folder)
         id: installed-selftest
         if: (success() || failure()) && steps.install.outcome == 'success'
+        timeout-minutes: 25  # about 6 min, one retry
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -800,6 +803,7 @@ jobs:
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
         id: idle
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full' && env.PTB_FAST != 'true'
+        timeout-minutes: 45  # about 23 min with the popover windows (run 43794578956: 22.4 min)
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -889,7 +893,14 @@ jobs:
           foreach ($mode in 'open', 'closed') {
               $label = "popover-$mode-120s"
               Measure-App $label 120 $off $budget @('--popover-idle-probe', $mode)
-              $summary.windows[$label].popoverLog = @(Select-String -Path $logFile -Pattern 'popover idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+              $probeLines = @(Select-String -Path $logFile -Pattern 'popover idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
+              $summary.windows[$label].popoverLog = $probeLines
+              # The window measured what it says: open and never closed for 'open', closed once for 'closed' (the exit line).
+              $exit = @($probeLines | Where-Object { $_ -match 'popover idle probe exit:' }) | Select-Object -Last 1
+              $want = if ($mode -eq 'open') { 'open=true opens=1 closes=0' } else { 'open=false opens=1 closes=1' }
+              $stateOK = $exit -and $exit -match [regex]::Escape($want)
+              $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
+              $verdicts[$label] = $verdicts[$label] -and $stateOK
           }
           # --- stage 7 Task 4: the popover window open and still, and closed after an open (end) ---
           $summary.verdicts = $verdicts
@@ -998,6 +1009,7 @@ jobs:
       - name: Upgrade from the previous published Windows release
         id: upgrade-from-release
         if: (success() || failure()) && steps.uninstall.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 15  # a download and two installs
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}  # read-only, for the API rate limit
@@ -1006,9 +1018,19 @@ jobs:
       - name: A failed update brings the old app back
         id: failed-update-relaunch
         if: (success() || failure()) && steps.iscc.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 25  # about 8 min
         shell: pwsh
         run: ./scripts/windows/failed-update-relaunch.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
       # ---- end failed-update-relaunch ----
+      # ---- in-app-update: the installed app updates itself from a loopback feed (stage 8 Task 6); logs and the progress
+      # window's capture in collected\in-app-update ----
+      - name: The in-app update from a loopback feed
+        id: in-app-update
+        if: (success() || failure()) && steps.iscc.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 25  # the step takes about 3 min; a hung scenario must not hold a release run to the job limit
+        shell: pwsh
+        run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
+      # ---- end in-app-update ----
       # New gate steps go above this line ("Collect logs"); the two release-mode steps stay last.
       - name: Collect logs
         if: always()

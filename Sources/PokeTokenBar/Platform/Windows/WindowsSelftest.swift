@@ -564,15 +564,23 @@ enum WindowsSelftest {
 
     @MainActor private static func singleInstanceCheck(_ r: Recorder, _ app: WindowsAppDelegate) async {
         let before = app.showRequests
+        // Stage 7 Task 4: a second start opens the popover, which takes the foreground; this check also runs on a person's
+        // PC, so here the foreground is refused (the popover is never shown: the balloon of before). `popover.secondLaunch`
+        // covers the real path, on the runner only.
+        let shows0 = app.popover?.stats.shows ?? 0
+        app.popover?.setForegroundForTesting = { _ in false }
+        defer { app.popover?.setForegroundForTesting = nil }
         do {
             let child = try Helper.start(["--selftest-second"], ready: false)
             let code = await child.waitExit(timeout: 20)
             if code == nil { child.kill() }
             child.close()
             let notified = await waitUntil(timeout: 3) { app.showRequests > before }
-            app.popover?.close(.destroyed)  // stage 7 Task 4: a second start opens the popover now (popover.secondLaunch checks it)
-            r.add("singleInstance.second", code == 3 && notified,
-                  "second start exit=\(describe(code)) (expected 3) running instance notified=\(notified) mutex=\(app.mutexName)")
+            let shown = (app.popover?.stats.shows ?? 0) - shows0
+            app.popover?.close(.destroyed)
+            r.add("singleInstance.second", code == 3 && notified && shown == 0,
+                  "second start exit=\(describe(code)) (expected 3) running instance notified=\(notified) mutex=\(app.mutexName); "
+                  + "popover shown +\(shown) (the foreground refused here: never on a person's PC)")
         } catch {
             r.add("singleInstance.second", false, "\(error)")
         }

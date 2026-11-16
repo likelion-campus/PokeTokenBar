@@ -90,20 +90,22 @@ enum WinHTTPFetch {
     /// `configuration`: the session the caller would have used (its timeouts and extra headers apply, as URLSession applied
     /// them). Diagnostics and tests only: `route` (the net-burst helper compares a direct fetch with the system proxy),
     /// `maxBodyBytes`, and `logonAsBefore`, which starts the request with WinHTTP's defaults (authentication on, logon policy
-    /// MEDIUM), as this file did before the review, for the control in `WindowsHTTPFetchTests`.
+    /// MEDIUM), as this file did before the review, for the control in `WindowsHTTPFetchTests`. `progress` (the update
+    /// download's window) gets the decoded body bytes so far after each read, on the fetch's own thread.
     static func data(for request: URLRequest, configuration: URLSessionConfiguration? = nil,
                      route: WinProxyRoute.Route? = nil, maxBodyBytes: Int = defaultMaxBodyBytes,
-                     logonAsBefore: Bool = false) async throws -> (Data, URLResponse) {
+                     logonAsBefore: Bool = false, progress: (@Sendable (Int) -> Void)? = nil) async throws -> (Data, URLResponse) {
         try await data(for: request, configuration: configuration, route: route, maxBodyBytes: maxBodyBytes,
-                       logonAsBefore: logonAsBefore, session: nil)
+                       logonAsBefore: logonAsBefore, session: nil, progress: progress)
     }
 
     private static func data(for request: URLRequest, configuration: URLSessionConfiguration?, route: WinProxyRoute.Route?,
-                             maxBodyBytes: Int, logonAsBefore: Bool, session: SharedSession?) async throws -> (Data, URLResponse) {
+                             maxBodyBytes: Int, logonAsBefore: Bool, session: SharedSession?,
+                             progress: (@Sendable (Int) -> Void)? = nil) async throws -> (Data, URLResponse) {
         guard let api, let url = request.url else { throw URLError(.cannotLoadFromNetwork) }
         try refuseRealNetworkOutsideTheApp(url)
         let plan = try Plan(request, configuration, route: route ?? WinProxyRoute.route(for: url), maxBodyBytes: maxBodyBytes,
-                            logonAsBefore: logonAsBefore)
+                            logonAsBefore: logonAsBefore, progress: progress)
         try await WinHTTPFetch.gate.acquire()
         let fetch = Fetch(api: api, plan: plan, shared: session)
         return try await withTaskCancellationHandler {
@@ -388,9 +390,10 @@ enum WinHTTPFetch {
         let maxBodyBytes: Int
         let route: WinProxyRoute.Route
         let logonAsBefore: Bool
+        let progress: (@Sendable (Int) -> Void)?
 
         init(_ request: URLRequest, _ configuration: URLSessionConfiguration?, route: WinProxyRoute.Route, maxBodyBytes: Int,
-             logonAsBefore: Bool) throws {
+             logonAsBefore: Bool, progress: (@Sendable (Int) -> Void)? = nil) throws {
             guard let url = request.url, Target(url) != nil else { throw URLError(.unsupportedURL) }
             let verb = request.httpMethod ?? "GET"
             let payload = request.httpBody
@@ -424,6 +427,7 @@ enum WinHTTPFetch {
             self.maxBodyBytes = maxBodyBytes
             self.route = route
             self.logonAsBefore = logonAsBefore
+            self.progress = progress
         }
     }
 
@@ -683,6 +687,7 @@ enum WinHTTPFetch {
                     throw URLError(.dataLengthExceedsMaximum, userInfo: [NSLocalizedDescriptionKey: "the body passed \(plan.maxBodyBytes) bytes"])
                 }
                 data.append(contentsOf: chunk[0..<Int(got)])
+                plan.progress?(data.count)
             }
         }
 

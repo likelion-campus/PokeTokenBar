@@ -22,7 +22,9 @@ enum WinSingleInstance {
         return base + "-" + String(suite.dropFirst("ptb.team.".count))
     }
 
-    static func acquire(name: String) -> Outcome {
+    /// `quietly`: an `--autostart` copy (the Run key at sign-in) that finds the app already running yields without asking it
+    /// for anything — the user did not ask for the popover (post-merge review M3).
+    static func acquire(name: String, quietly: Bool = false) -> Outcome {
         let handle = CreateMutexW(nil, false, WinStr.w(name))
         let error = GetLastError()
         guard let handle else {
@@ -31,7 +33,9 @@ enum WinSingleInstance {
         }
         if error == DWORD(ERROR_ALREADY_EXISTS) {
             _ = CloseHandle(handle)
-            if let running = FindWindowW(WinStr.w(WinSinkWindow.className), WinStr.w(name)) {
+            if quietly {
+                AppLog.write("single instance: an --autostart start yields quietly to the instance already running (\(name))")
+            } else if let running = FindWindowW(WinStr.w(WinSinkWindow.className), WinStr.w(name)) {
                 // Stage 7 D4: a start from the Start menu or a shortcut may take the foreground; this process hands that
                 // right to the running instance, which opens its popover for this launch (ruling 3) instead of a balloon.
                 var pid: DWORD = 0
