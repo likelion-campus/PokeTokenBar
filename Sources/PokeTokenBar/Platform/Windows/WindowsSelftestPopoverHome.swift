@@ -39,7 +39,9 @@ private final class HomeFixtureValue: @unchecked Sendable {
 }
 
 private struct HomeFixtureClaudeLimits: ClaudeLimitsProviding {
-    func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus { HomeFixtures.limitStatus(five: 42, fiveReset: 7200, seven: 61) }
+    /// Made once: a real provider answers the same reset instants again, and a new one each refresh would be a changed row.
+    static let status = HomeFixtures.limitStatus(five: 42, fiveReset: 7200, seven: 61)
+    func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus { Self.status }
 }
 private struct HomeFixtureCodexLimits: CodexLimitsProviding { func fetch() async throws -> CodexRateLimitStatus? { nil } }
 private struct HomeFixtureAntigravity: AntigravityLimitsProviding {
