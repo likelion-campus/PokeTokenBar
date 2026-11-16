@@ -292,8 +292,10 @@ enum WinEditKind: Equatable, Sendable {
         case UINT(WM_CHAR) where (wParam == 0x0D || wParam == 0x0A) && c.swallowReturnChar:
             c.swallowReturnChar = false
             return 0
-        case 0x0302 where isCode:  // WM_PASTE into a code field; no text on the clipboard: the edit's own paste (keeps the selection)
-            guard let raw = WinClipboardText.read(), !raw.isEmpty else { return nil }
+        case 0x0302 where isCode:  // WM_PASTE into a code field
+            // No text on the clipboard: nothing happens, as on the Mac (Paste is disabled there). The edit's own paste is no
+            // fallback: with an empty clipboard it clears the selection too (seen on the runner).
+            guard let raw = WinClipboardText.read(), !raw.isEmpty else { return 0 }
             WinKit.send(hwnd, 0x00C2 /* EM_REPLACESEL */, 1, text: WinEditKind.codePaste(raw))
             return 0
         case 0x00A1, 0x00A3:  // WM_NCLBUTTONDOWN / DBLCLK: on a scroll bar DefWindowProc runs its tracking loop
