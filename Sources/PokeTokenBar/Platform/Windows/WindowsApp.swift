@@ -67,6 +67,11 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--popover-idle-probe") {  // stage 7 Task 4: the gate's popover windows (open / closed after open)
             WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
         }
+        // --- stage 7 Task 5: the gate's open Home page (begin) ---
+        if let i = arguments.firstIndex(of: "--popover-home-idle-probe") {
+            WindowsSelftestPopoverHome.startIdleProbe(mode: i + 1 < arguments.count ? arguments[i + 1] : "seconds")
+        }
+        // --- stage 7 Task 5: the gate's open Home page (end) ---
         WinMainLoop.run(app.loopStrategy) { false }
         WindowsApp.exit(0, .menu)  // not reached: the loop only ends through an exit
     }
@@ -405,6 +410,9 @@ extension WindowsAppDelegate {
                                   openPlaza: { [weak self] in self?.openPlaza() })
         host.owner = sink.hwnd
         let made = WinPopover(host: host)
+        // --- stage 7 Task 5: the Home page (begin) ---
+        made.makePage = { popover in WinHomePage(host: popover.host, state: popover.state) }
+        // --- stage 7 Task 5: the Home page (end) ---
         popover = made
         WindowsApp.popoverToClose = made
         tray.onSelect = { [weak made] select in

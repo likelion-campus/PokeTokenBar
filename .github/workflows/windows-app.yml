@@ -243,6 +243,22 @@ jobs:
           Get-ChildItem ui-dump\popover -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "popover window: $($bad -join ', ')" }
       # --- stage 7 Task 4: the popover window (end) ---
+      # --- stage 7 Task 5: the Home page (begin) ---
+      - name: Popover home checks ran (home.*, captures in ui-dump/home)
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'home.capture', 'home.updatesOnRefresh', 'home.relativeClock', 'home.keyboard', 'home.openClose3'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          Get-ChildItem ui-dump\home -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
+          if ($bad.Count -gt 0) { throw "popover home: $($bad -join ', ')" }
+      # --- stage 7 Task 5: the Home page (end) ---
       - name: Language and time zone in child processes (Korean display language, Seoul time zone)
         if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
         shell: pwsh
@@ -883,6 +899,21 @@ jobs:
               $summary.windows[$label].popoverLog = @(Select-String -Path $logFile -Pattern 'popover idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
           }
           # --- stage 7 Task 4: the popover window open and still, and closed after an open (end) ---
+          # --- stage 7 Task 5: the Home page open and left alone (begin) ---
+          # Sample data in a kit window (CI only): the clock ticking each second (updated 10 s ago), each minute (2 h), and nothing
+          # relative on screen. The three are reported next to the popover windows; the budgets are the closed app's, loosened for
+          # the seconds window, whose one-second clock is the cost of showing "Updated 10 seconds" (the Mac's does the same).
+          $homeBudgets = @{
+              seconds = @{ MaxMainCsPerMin = 400; MaxProcessCsPerMin = 900; MaxProcessCyclesPerSec = 3000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+              minutes = @{ MaxMainCsPerMin = 12; MaxProcessCsPerMin = 250; MaxProcessCyclesPerSec = 450000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+              still = $budget
+          }
+          foreach ($mode in 'seconds', 'minutes', 'still') {
+              $label = "popover-home-$mode-120s"
+              Measure-App $label 120 $off $homeBudgets[$mode] @('--popover-home-idle-probe', $mode)
+              $summary.windows[$label].homeLog = @(Select-String -Path $logFile -Pattern 'popover home idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+          }
+          # --- stage 7 Task 5: the Home page open and left alone (end) ---
           $summary.verdicts = $verdicts
           $summary | ConvertTo-Json -Depth 8 | Set-Content idle-gate.json -Encoding utf8
           Get-Content idle-gate.json
@@ -1033,6 +1064,14 @@ jobs:
           name: ui-popover
           retention-days: 7
           path: ui-dump/popover
+          if-no-files-found: warn
+      # stage 7 Task 5: the Home page's fixture states (sample data, Windows CI runner)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-home
+          retention-days: 7
+          path: ui-dump/home
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
