@@ -438,6 +438,25 @@ struct WinPlazaTextEngine: PlazaTextEngine {
         return wrap(n, runs: [])
     }
 
+    /// `glyph` in the symbol font (font number 4: Segoe Fluent Icons, else Segoe MDL2 Assets) at `size` points; the HUD's eye icons
+    /// (D15). nil when DirectWrite is unavailable. The line has no `runs` and is not meant for measuring text.
+    func symbolLine(_ glyph: String, size: Double) -> PlazaTextLine? {
+        guard let engine = fonts.handle else { return nil }
+        let units = Array(glyph.utf16)
+        guard !units.isEmpty else { return nil }
+        let runs = [PTBTextRun(start: 0, length: UInt32(units.count), font: 4, weight: 400, size: size, ownColor: 0, r: 0, g: 0, b: 0, a: 1)]
+        var made: OpaquePointer?
+        let code = units.withUnsafeBufferPointer { u in
+            runs.withUnsafeBufferPointer { r in
+                ptb_text_line_create(engine, u.baseAddress, UInt32(u.count), r.baseAddress, UInt32(r.count), 0, &made)
+            }
+        }
+        guard code >= 0, let made else { return nil }
+        let native = WinTextLine(segments: [.init(handle: WinTextHandle(made), dx: 0, text: glyph, utf16Offset: 0)],
+                                 specs: [WinTextSpec(text: glyph, font: .plaza(.body), color: nil)], rightToLeft: false)
+        return wrap(native, runs: [])
+    }
+
     private static func specs(_ runs: [PlazaTextRun]) -> [WinTextSpec] { runs.map { WinTextSpec(text: $0.text, font: $0.font, color: $0.color) } }
 
     /// The parts of `specs` inside `range` (UTF-16 offsets into their joined text), as the Mac's `pieces(of:in:)`.

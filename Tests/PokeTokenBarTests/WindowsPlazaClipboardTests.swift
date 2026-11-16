@@ -97,7 +97,9 @@ final class WindowsPlazaClipboardTests: XCTestCase {
         XCTAssertTrue(WinImageClipboard.holdOpen(milliseconds: 600), "the other thread could not open the clipboard")
         let started = Date()
         XCTAssertFalse(clip.writePNG(png), "another window has the clipboard open: the copy must say it failed")
-        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 0.05, "it retried for its timeout first")
+        // The retry loop times itself with GetTickCount64, whose step is one timer tick (up to 15.6 ms): a 60 ms timeout can
+        // end after 60 - 15.6 = 44.4 ms of wall time (seen: 49.3 ms on the runner). One tick below the timeout is the bound.
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 0.04, "it retried for its timeout first")
         XCTAssertLessThan(Date().timeIntervalSince(started), 0.5, "and did not wait for the other window")
         XCTAssertFalse(clip.writeText("during"))
         XCTAssertEqual(log.lines.count, 2, "one log line per failed copy: \(log.lines)")

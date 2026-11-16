@@ -1,7 +1,8 @@
 # Release mode only, the last step of windows-app.yml (if: success()). Writes windows-release.json (schema 1) next to a copy
 # of the shipped installer in -Out, the folder uploaded as the artifact windows-release. Fails, so that no artifact is left,
 # unless: the checkout is release_sha, every version stamp equals release_version, the shipped installer was built with
-# exactly the ISCC defines SrcDir, AppVer and OutDir, the level is full and every gate step succeeded.
+# exactly the ISCC defines SrcDir, AppVer and OutDir and is not a test build (FileDescription), the level is full and
+# every gate step succeeded.
 # Reads env RELEASE_SHA, RELEASE_VERSION, PTB_LEVEL, PTB_STEPS (toJSON(steps)), GITHUB_SHA, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT,
 # ImageVersion; and installer-out\, bundle\, iscc-defines.json (ISCC step), install-stamps.json (install step).
 # Usage: release-manifest.ps1 [-Out windows-release]
@@ -18,6 +19,7 @@ $gateSteps = [ordered]@{
     idle               = 'idle'
     uninstall          = 'uninstall'
     upgradeFromRelease = 'upgrade-from-release'
+    failedUpdateRelaunch = 'failed-update-relaunch'
 }
 
 $problems = [System.Collections.Generic.List[string]]::new()
@@ -54,6 +56,10 @@ $vi = (Get-Item $setup).VersionInfo
 $fileVersion, $productVersion = $vi.FileVersion, $vi.ProductVersion | ForEach-Object { "$_".Trim([char[]]@([char]32, [char]0)) }  # Inno pads them
 Expect ($fileVersion -eq "$v.0") "setup FileVersion '$fileVersion', expected $v.0"
 Expect ($productVersion -eq $v) "setup ProductVersion '$productVersion', expected $v"
+# A test build of the installer says TESTFAIL in its FileDescription (installer/PokeTokenBar.iss, PTBTest): the bytes, not
+# only the name, tell a shipped installer from one.
+$fileDescription = "$($vi.FileDescription)".TrimEnd([char[]]@([char]32, [char]0))
+Expect ($fileDescription -ceq 'PokeTokenBar Setup') "setup FileDescription '$fileDescription', expected exactly 'PokeTokenBar Setup'"
 
 $stamps = Get-Content install-stamps.json -Raw | ConvertFrom-Json
 Expect ($stamps.fileVersion -eq "$v.0") "installed exe FileVersion '$($stamps.fileVersion)', expected $v.0"

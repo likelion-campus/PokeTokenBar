@@ -50,6 +50,7 @@ public enum WindowsApp {
 
         let app = WindowsAppDelegate(arguments: arguments)
         guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
+        WindowsInstall.leaveInstallFolder()  // not the install folder: Setup updates it, and what the app starts inherits it
         if arguments.contains("--selftest") {
             let out = arguments.firstIndex(of: "--selftest-out").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
                 .map { URL(fileURLWithPath: $0) }
