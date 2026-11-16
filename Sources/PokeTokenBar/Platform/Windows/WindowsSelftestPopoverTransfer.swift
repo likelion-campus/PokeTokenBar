@@ -398,6 +398,13 @@ final class TransferDialogDriver: @unchecked Sendable {
         WinKit.send(control.hwnd, 0x00F5 /* BM_CLICK */)
     }
 
+    /// A click that arrives as a window message, as a user's does: the modal loop of a dialog must not start inside a main-queue
+    /// item (a Task such as this check), where libdispatch's serial main queue serves nothing else (the kit's `ui.kit.menuKeys`).
+    func post(_ control: WinControl?) {
+        guard let control else { return }
+        _ = PostMessageW(control.hwnd, 0x00F5 /* BM_CLICK */, 0, 0)
+    }
+
     func choose(_ combo: WinControl?, _ index: Int) {
         guard let combo, let parent = GetParent(combo.hwnd) else { return }
         WinKit.send(combo.hwnd, 0x014E /* CB_SETCURSEL */, index)
@@ -536,8 +543,8 @@ final class TransferDialogDriver: @unchecked Sendable {
         let driver = TransferDialogDriver(ownerBits: Int(bitPattern: hwnd), mainThread: GetCurrentThreadId(), steps: steps)
         let closesBefore = popover.stats.closes
         driver.start()
-        action()   // a window message: the control's click, the dialog's modal loop runs inside it
-        _ = await waitFor(5) { driver.isFinished }
+        action()   // posts the control's click: a window message, the dialog's modal loop runs inside it
+        _ = await waitFor(100) { driver.isFinished }
         let back = await waitFor(3) { GetForegroundWindow() == hwnd }
         return (driver.results, driver.watchdog, IsWindowVisible(hwnd) && self.popover?.pageForTesting != nil, back, popover.stats.closes - closesBefore)
     }
@@ -549,14 +556,14 @@ final class TransferDialogDriver: @unchecked Sendable {
         let opensBefore = WinFileDialog.opened, tasksBefore = WinTaskDialog.shown
         let ticksBefore = WinModalPump.ticks, hookBefore = WinModalPump.hookTicks, skippedBefore = WinModalPump.ticksSkippedForInput
         // The save dialog, the open dialog and the import confirmation, each closed as a cancel.
-        let save = await driven([.cancelFile]) { self.click(rows.export?.control) }
-        let open = await driven([.cancelFile]) { self.click(rows.import?.control) }
+        let save = await driven([.cancelFile]) { self.post(rows.export?.control) }
+        let open = await driven([.cancelFile]) { self.post(rows.import?.control) }
         // A scripted choice of a (valid) file makes the real confirmation appear: Esc cancels it.
         let file = work.appendingPathComponent("confirm.json")
         let envelope = try? SaveTransfer.encode(state: CompanionState(), appVersion: "2.5.0", deviceName: "Fixture", now: Date())
         if let envelope { try? PlatformCompat.atomicWrite(envelope, to: file) }
         hybrid.scriptedOpen = file
-        let confirm = await driven([.cancelTask]) { self.click(rows.import?.control) }
+        let confirm = await driven([.cancelTask]) { self.post(rows.import?.control) }
         hybrid.scriptedOpen = nil
         let all = [("save", save), ("open", open), ("confirm", confirm)]
         let ok = all.allSatisfy { _, x in
@@ -595,7 +602,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         let exported = stores.companion.transferSummary
         let target = work.appendingPathComponent("my save – 백업.json")
         // 1. Export through the real save dialog: the path typed into its file name box, Save pressed.
-        let export = await driven([.typePath(WinPath.native(target))]) { self.click(rows.export?.control) }
+        let export = await driven([.typePath(WinPath.native(target))]) { self.post(rows.export?.control) }
         let written = (try? SaveTransfer.decode(Data(contentsOf: target))).map { SaveSummary(state: $0.state) }
         let revealedOK = hybrid.revealed.map { WinPath.native($0).lowercased() } == [WinPath.native(target).lowercased()]
         let exportDone = hybrid.informs.isEmpty
@@ -604,7 +611,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         do { try setState(dex: 5, tokens: 99) } catch { r.add("settings.exportImport", false, "fixture 2: \(error)"); return }
         let other = stores.companion.transferSummary
         await pause(0.3)
-        let importing = await driven([.typePath(WinPath.native(target)), .click(0), .click(0)]) { self.click(section.transferRowsForTesting.import?.control) }
+        let importing = await driven([.typePath(WinPath.native(target)), .click(0), .click(0)]) { self.post(section.transferRowsForTesting.import?.control) }
         let after = stores.companion.transferSummary
         let confirmShown = WinTaskDialog.last
         let backups = (try? FileManager.default.contentsOfDirectory(atPath: stores.directory.path).filter { $0.hasPrefix(SaveTransfer.backupFilePrefix) }) ?? []
@@ -637,11 +644,11 @@ final class TransferDialogDriver: @unchecked Sendable {
         let stateBefore = try? Data(contentsOf: stores.directory.appendingPathComponent("companion.json"))
         let backupsBefore = (try? FileManager.default.contentsOfDirectory(atPath: stores.directory.path).filter { $0.hasPrefix(SaveTransfer.backupFilePrefix) }.count) ?? 0
         // Enter on the confirmation presses its default button, which is Cancel: nothing is replaced. Then Esc: the same.
-        let enter = await driven([.key(UInt16(VK_RETURN))]) { self.click(section.transferRowsForTesting.import?.control) }
+        let enter = await driven([.key(UInt16(VK_RETURN))]) { self.post(section.transferRowsForTesting.import?.control) }
         let enterOutcome = section.lastOutcome
         let shown = WinTaskDialog.last
         let afterEnter = stores.companion.transferSummary
-        let esc = await driven([.key(UInt16(VK_ESCAPE))]) { self.click(section.transferRowsForTesting.import?.control) }
+        let esc = await driven([.key(UInt16(VK_ESCAPE))]) { self.post(section.transferRowsForTesting.import?.control) }
         let escOutcome = section.lastOutcome
         let after = stores.companion.transferSummary
         let stateAfter = try? Data(contentsOf: stores.directory.appendingPathComponent("companion.json"))
@@ -675,8 +682,8 @@ final class TransferDialogDriver: @unchecked Sendable {
             let button = name == "task dialog" ? section.transferRowsForTesting.import?.control : section.transferRowsForTesting.export?.control
             let watcher = ExitWatcher(ownerBits: ownerBits)
             watcher.start()
-            click(button)
-            _ = await waitFor(3) { watcher.done }
+            post(button)
+            _ = await waitFor(30) { watcher.done }
             reports.append("\(name): appeared=\(watcher.appeared) ended by cancelModalLoops=\(watcher.closedAfterCancel) windows left \(TransferDialogDriver.owned(by: ownerBits).count) outcome \(String(describing: section.lastOutcome))")
             good = good && watcher.appeared && watcher.closedAfterCancel && TransferDialogDriver.owned(by: ownerBits).isEmpty && section.lastOutcome == .cancelled
         }
@@ -779,15 +786,15 @@ final class TransferDialogDriver: @unchecked Sendable {
                     let driver = TransferDialogDriver(ownerBits: Int(bitPattern: hwnd), mainThread: GetCurrentThreadId(),
                                                       steps: [.captureThenEscape(dir.appendingPathComponent("confirm-dialog-\(tag).png"))])
                     driver.start()
-                    click(section.transferRowsForTesting.import?.control)
-                    _ = await waitFor(5) { driver.isFinished }
+                    post(section.transferRowsForTesting.import?.control)
+                    _ = await waitFor(60) { driver.isFinished }
                     wrote.append("confirm-dialog-\(tag).png")
                     hybrid.scriptedOpen = nil
                     let open = TransferDialogDriver(ownerBits: Int(bitPattern: hwnd), mainThread: GetCurrentThreadId(),
                                                     steps: [.captureThenEscape(dir.appendingPathComponent("open-dialog-\(tag).png"))])
                     open.start()
-                    click(section.transferRowsForTesting.import?.control)
-                    _ = await waitFor(5) { open.isFinished }
+                    post(section.transferRowsForTesting.import?.control)
+                    _ = await waitFor(60) { open.isFinished }
                     wrote.append("open-dialog-\(tag).png")
                     if driver.watchdog || open.watchdog { failed.append("dialog capture \(tag)") }
                 }
