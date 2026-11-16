@@ -30,6 +30,8 @@ function formatInZone(date, tz, pattern) {
 //   Utilities: formatDate, computeDigest (signed bytes like Apps Script), DigestAlgorithm, Charset.
 //   ContentService.createTextOutput(text).setMimeType(m); MimeType.JSON.
 //   Session.getScriptTimeZone().
+//   ScriptApp: newTrigger(fn).timeBased().everyHours(n).create(), getProjectTriggers, deleteTrigger (fakes.triggers).
+//   SpreadsheetApp.getUi().createMenu(t).addItem(l, fn).addToUi() records into fakes.menus.
 // Later tasks extend the returned object with more fakes.
 // Like real Sheets, a string written by setValues is parsed as typed input unless the column is
 // plain text ("@") or the string starts with an apostrophe (stripped, stored as text).
@@ -138,10 +140,32 @@ function makeFakes(opts) {
     deleteSheet(s) { sheets.splice(sheets.indexOf(s), 1); },
   };
   const lockStats = { acquired: 0, released: 0 };
+  const triggers = [];
+  const menus = [];
   return {
     ss,
     lockStats,
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    triggers,
+    menus,
+    ScriptApp: {
+      newTrigger(handler) {
+        const t = { _handler: handler, getHandlerFunction: () => handler };
+        const b = { timeBased: () => b, everyHours: () => b, create() { triggers.push(t); return t; } };
+        return b;
+      },
+      getProjectTriggers: () => triggers.slice(),
+      deleteTrigger(t) { const i = triggers.indexOf(t); if (i >= 0) triggers.splice(i, 1); },
+    },
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ss,
+      getUi: () => ({
+        createMenu(title) {
+          const menu = { title, items: [] };
+          const b = { addItem(label, fn) { menu.items.push([label, fn]); return b; }, addToUi() { menus.push(menu); return b; } };
+          return b;
+        },
+      }),
+    },
     LockService: {
       getScriptLock: () => ({
         waitLock() { lockStats.acquired++; },
@@ -173,7 +197,13 @@ function makeFakes(opts) {
 function loadScript(opts) {
   const o = opts || {};
   const fakes = makeFakes(o);
-  const ctx = vm.createContext({ console, Date, Math, JSON, ...fakes });
+  const pinned = o.nowMs === undefined ? DEFAULT_NOW_MS : o.nowMs;
+  // Date.now() and new Date() inside the script return the pinned time, like a frozen clock.
+  class PinnedDate extends Date {
+    constructor(...a) { if (a.length) super(...a); else super(pinned); }
+    static now() { return pinned; }
+  }
+  const ctx = vm.createContext({ console, Date: PinnedDate, Math, JSON, ...fakes });
   vm.runInContext(buildSource(), ctx, { filename: "Code.gs" });
   ctx.fakes = fakes;
   ctx.nowMs = o.nowMs === undefined ? DEFAULT_NOW_MS : o.nowMs;
