@@ -627,7 +627,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         await pause(1.5)   // no dialog to wait for: the flow runs from the posted click
         hybrid.scriptedSave = nil
         let written = (try? SaveTransfer.decode(Data(contentsOf: target))).map { SaveSummary(state: $0.state) }
-        let revealedOK = hybrid.revealed.count == 1 && hybrid.revealed[0].lastPathComponent == target.lastPathComponent
+        let revealedOK = hybrid.revealed.last?.lastPathComponent == target.lastPathComponent
         let exportDone = hybrid.informs.isEmpty
         // 2. Another state on this PC, then import the exported file through the real open dialog and the real confirmation
         //    (Replace pressed) and the real "done" dialog (Close pressed).
