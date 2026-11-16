@@ -158,6 +158,8 @@ const CLSID kKoreanImeClsid = {0xA028AE76, 0x01B1, 0x46C2, {0x99, 0xC4, 0xAC, 0x
 TF_INPUTPROCESSORPROFILE gBefore;
 bool gHaveBefore = false;
 HKL gBeforeLayout = nullptr;
+TF_INPUTPROCESSORPROFILE gKorean;
+bool gKoreanWasEnabled = true;
 
 void copyOut(const std::wstring &s, uint16_t *out, int cap) {
     if (!out || cap <= 0) return;
@@ -420,6 +422,8 @@ int ptb_ime_korean(int activate, uint16_t *out, int cap) {
         if (!gHaveBefore) {
             gBefore = active;
             gBeforeLayout = GetKeyboardLayout(0);
+            gKorean = korean;
+            gKoreanWasEnabled = (korean.dwFlags & TF_IPP_FLAG_ENABLED) != 0;
             gHaveBefore = true;
         }
         report += L"; chosen ";
@@ -450,6 +454,31 @@ int ptb_ime_korean(int activate, uint16_t *out, int cap) {
     mgr->Release();
     copyOut(report, out, cap);
     return result;
+}
+
+int ptb_ime_active_is_text_service(void) {
+    ITfInputProcessorProfileMgr *mgr = nullptr;
+    if (FAILED(CoCreateInstance(kProfilesClsid, nullptr, CLSCTX_INPROC_SERVER, kProfileMgrIid, reinterpret_cast<void **>(&mgr))) || !mgr) return -1;
+    TF_INPUTPROCESSORPROFILE active;
+    std::memset(&active, 0, sizeof(active));
+    const HRESULT hr = mgr->GetActiveProfile(kKeyboardCategory, &active);
+    mgr->Release();
+    if (FAILED(hr)) return -1;
+    return active.dwProfileType == TF_PROFILETYPE_INPUTPROCESSOR ? 1 : 0;
+}
+
+int ptb_ime_plain_layout(void) {
+    HKL us = LoadKeyboardLayoutW(L"00000409", KLF_NOTELLSHELL);
+    ITfInputProcessorProfileMgr *mgr = nullptr;
+    HRESULT hr = E_FAIL;
+    if (SUCCEEDED(CoCreateInstance(kProfilesClsid, nullptr, CLSCTX_INPROC_SERVER, kProfileMgrIid, reinterpret_cast<void **>(&mgr))) && mgr) {
+        const GUID none = {0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0}};   // a layout profile has no text service (no uuid.lib for GUID_NULL)
+        hr = mgr->ActivateProfile(TF_PROFILETYPE_KEYBOARDLAYOUT, 0x0409, none, none, us,
+                                  TF_IPPMF_FORPROCESS | TF_IPPMF_DONTCARECURRENTINPUTLANGUAGE);
+        mgr->Release();
+    }
+    if (us) ActivateKeyboardLayout(us, KLF_SETFORPROCESS);
+    return SUCCEEDED(hr) ? 1 : 0;
 }
 
 namespace {
@@ -488,6 +517,13 @@ int ptb_ime_korean_restore(void) {
     if (FAILED(hr) || !mgr) return -1;
     hr = mgr->ActivateProfile(gBefore.dwProfileType, gBefore.langid, gBefore.clsid, gBefore.guidProfile, gBefore.hkl,
                               TF_IPPMF_FORPROCESS | TF_IPPMF_DONTCARECURRENTINPUTLANGUAGE);
+    if (!gKoreanWasEnabled) {
+        ITfInputProcessorProfiles *old = nullptr;
+        if (SUCCEEDED(mgr->QueryInterface(kProfilesIid, reinterpret_cast<void **>(&old))) && old) {
+            old->EnableLanguageProfile(gKorean.clsid, 0x0412, gKorean.guidProfile, FALSE);
+            old->Release();
+        }
+    }
     mgr->Release();
     if (gBeforeLayout) ActivateKeyboardLayout(gBeforeLayout, KLF_SETFORPROCESS);
     gHaveBefore = false;

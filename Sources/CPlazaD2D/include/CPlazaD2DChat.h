@@ -65,8 +65,13 @@ int ptb_ime_set_composition(void *hwnd, const uint16_t *text, uint32_t len);
  * activates it for this process only (TF_IPPMF_FORPROCESS; CI only). Returns 1 when a Korean text service is the process's
  * keyboard profile afterwards (or, without activate, when one is installed), 0 when none is installed, -1 when TSF failed. */
 int ptb_ime_korean(int activate, uint16_t *out, int cap);
-/* Puts back the keyboard profile that was active before ptb_ime_korean(1). */
+/* Puts back the keyboard profile that was active before ptb_ime_korean(1), and disables the Korean profile for the user again when it
+ * was not enabled before (Windows keeps the input method per user: left enabled and active it follows into the next process). */
 int ptb_ime_korean_restore(void);
+/* 1 when this thread's active keyboard profile is a text service (an IME), 0 a plain layout, -1 when TSF failed. */
+int ptb_ime_active_is_text_service(void);
+/* The US layout for this process (CI only: the selftest's scripted IME must not meet a real one). 1 on success. */
+int ptb_ime_plain_layout(void);
 /* The visible top-level windows on the desktop whose class names an IME or candidate UI ("Cand", "IME", "TextInput"; any process),
  * as "class@l,t,r,b; ..." (UTF-16, NUL-terminated) into out: where the Hanja list really is (selftest). Returns the count. */
 int ptb_ime_candidate_windows(uint16_t *out, int cap);

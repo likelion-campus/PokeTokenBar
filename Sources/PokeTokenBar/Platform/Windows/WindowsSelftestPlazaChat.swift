@@ -71,6 +71,9 @@ extension WindowsSelftest {
         await chatPump(0.15)
     }
 
+    /// The scripted-IME checks can run (no real IME active in this process, or CI where the selftest chose the layout).
+    @MainActor private static var scriptedIME = true
+
     private static func chatPacked(_ x: Int32, _ y: Int32) -> LPARAM { LPARAM((Int(y) << 16) | (Int(x) & 0xFFFF)) }
 
     /// A click at a window point (points), as messages to the plaza window (the panels' and the bar's path).
@@ -120,6 +123,12 @@ extension WindowsSelftest {
             return
         }
         shell.input?.forwardToStage = true
+        // The scripted IME (synthesized composition messages) must not meet a real one: the native field reads the REAL input context
+        // on WM_IME_COMPOSITION, so a real IME's last result would go in too. CI: the US layout for this process (a Korean IME left
+        // active for the runner's user by an earlier process is put aside). A person's PC: their input method is theirs, never
+        // changed; the scripted checks are skipped while a real IME is active.
+        if onCI { _ = ptb_ime_plain_layout() }
+        scriptedIME = onCI || ptb_ime_active_is_text_service() != 1
         // Inside the work area: the earlier size checks leave the window as large as the screen, its bottom (where the bar is) under
         // the taskbar, and a screen capture there reads the taskbar.
         let size = WinPlazaWindow.frame(shell.dpiForTesting, 820, 560)
@@ -127,7 +136,7 @@ extension WindowsSelftest {
         if onCI { forceForeground(hwnd); _ = SetFocus(hwnd) }
         await chatPump(0.3)
         await chatVisibleCheck(r, c, shell, hwnd, chat)
-        await imeCharCheck(r, c, chat)
+        await imeCharCheck(r, c, chat, ansiPump: app.loopStrategy == .cfRunLoopWithMessages)
         await chatOpenCloseCheck(r, c, shell, hwnd, chat)
         await chatSubmitCheck(r, c, chat)
         await chatTabCheck(r, c, shell, hwnd, chat)
@@ -227,7 +236,7 @@ extension WindowsSelftest {
     /// CoreFoundation's ANSI pump, i.e. the app before the fix) arrives as "?" on a code page without Hangul. And exactly once in the
     /// popover kit's edit too: its window is registered as a dialog window, so `IsDialogMessageW` dispatches it before the hook's
     /// re-dispatch line is reached (the chat field is not a dialog window: it takes the re-dispatch).
-    @MainActor private static func imeCharCheck(_ r: Recorder, _ c: PlazaWindowController, _ chat: WinPlazaChatInput) async {
+    @MainActor private static func imeCharCheck(_ r: Recorder, _ c: PlazaWindowController, _ chat: WinPlazaChatInput, ansiPump: Bool) async {
         await chatOpen(c, chat)
         guard let e = chat.editHWND else { r.add("plaza.imeChar", false, "no field"); return }
         let acp = GetACP()
@@ -264,12 +273,14 @@ extension WindowsSelftest {
             kit.destroy()
         }
         await chatClose(chat)
-        r.add("plaza.imeChar", ours == "한" && redispatched >= 1 && chat.counts.imeChars > imeChars0 && (hangulCodePage || foreignText == "?")
+        // The control shows the defect only under CoreFoundation's ANSI pump (the dispatch-handle loop pumps in Unicode itself).
+        r.add("plaza.imeChar", ours == "한" && redispatched >= 1 && chat.counts.imeChars > imeChars0 && (hangulCodePage || !ansiPump || foreignText == "?")
                 && kitText == "한" && kitDialog >= 1 && kitRedispatch == 0,
               "ACP \(acp); posted WM_IME_CHAR U+D55C to the field: text=\(q(ours)) (hook re-dispatched \(redispatched), the field saw WM_IME_CHAR "
                 + "\(chat.counts.imeChars - imeChars0)x); the popover kit's edit (a registered dialog window): \(q(kitText)) through IsDialogMessageW "
                 + "\(kitDialog)x, hook re-dispatch \(kitRedispatch); the same to an EDIT outside our windows (no re-dispatch, the pre-fix path): \(q(foreignText))"
-                + (hangulCodePage ? " (this code page holds Hangul: the defect cannot show here)" : ""))
+                + (hangulCodePage ? " (this code page holds Hangul: the defect cannot show here)" : "")
+                + (ansiPump ? "" : " (dispatch-handle loop: a Unicode pump, the control is not judged)"))
     }
 
     /// Enter (and the keypad's Enter) opens the line with the keyboard in the field, the chat log above it, the IME context on the
@@ -359,6 +370,10 @@ extension WindowsSelftest {
     /// in the field throughout (no `didResignKey`: the field is the plaza's own child). A syllable being composed is finished first.
     @MainActor private static func chatEmojiGridCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
                                                       _ chat: WinPlazaChatInput) async {
+        guard scriptedIME else {
+            r.add("plaza.chatEmojiGrid", true, "skipped: a real IME is active in this process (a person's PC: their input method is not changed)")
+            return
+        }
         let resigns0 = shell.stats.resigns, foreground0 = GetForegroundWindow()
         await chatOpen(c, chat)
         await chatPump(0.2)
@@ -432,6 +447,10 @@ extension WindowsSelftest {
     /// scripted: the field's composition record, Enter while composing (finished, not sent), Esc and the limit while composing,
     /// the composition and candidate windows at the caret.
     @MainActor private static func chatCompositionCheck(_ r: Recorder, _ c: PlazaWindowController, _ chat: WinPlazaChatInput) async {
+        guard scriptedIME else {
+            r.add("plaza.chatComposition", true, "skipped: a real IME is active in this process (a person's PC: their input method is not changed)")
+            return
+        }
         await chatPump(0.35)
         await chatOpen(c, chat)
         guard let e = chat.editHWND else { r.add("plaza.chatComposition", false, "no field"); return }
@@ -515,6 +534,10 @@ extension WindowsSelftest {
     @MainActor private static func chatFocusMoveCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
                                                       _ chat: WinPlazaChatInput) async {
         guard let panels = shell.panelsForTesting else { r.add("plaza.chatCloseOnFocusMove", false, "no panels"); return }
+        guard scriptedIME else {
+            r.add("plaza.chatCloseOnFocusMove", true, "skipped: a real IME is active in this process (a person's PC: their input method is not changed)")
+            return
+        }
         if onCI { forceForeground(hwnd) }
         let script = ChatScript()
         let lines0 = c.chatLogLines.count
