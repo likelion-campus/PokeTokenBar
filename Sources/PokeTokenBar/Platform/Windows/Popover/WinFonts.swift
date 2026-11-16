@@ -106,7 +106,7 @@ import WinSDK
         lf.lfHeight = height
         lf.lfWeight = weight
         lf.lfCharSet = 1  // DEFAULT_CHARSET
-        lf.lfQuality = 5  // CLEARTYPE_QUALITY (the system's smoothing is ClearType or greyscale either way)
+        lf.lfQuality = 0  // DEFAULT_QUALITY: the user's own font smoothing setting (ClearType, greyscale or none)
         Self.setFaceName(&lf, faceName)
         guard let font = CreateFontIndirectW(&lf) else {
             AppLog.write("popover kit: CreateFontIndirectW(\(faceName), \(height)) failed")
