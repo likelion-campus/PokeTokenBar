@@ -228,6 +228,7 @@ extension WindowsSelftest {
         r.add("plaza.cover", coverResult.ok, coverResult.line)
 
         // plaza.photo: photo mode hides the Mac's set: not drawn, no click.
+        let toggleButtons = buttons(panels, .backgroundToggle), rosterButtons = buttons(panels, .roster)
         let beforeCount = panels.drawList.count
         let beforeIDs = Set(panels.entries.keys).subtracting([.pills])
         shell.setHUDHidden(true)
