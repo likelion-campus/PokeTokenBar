@@ -59,7 +59,7 @@ P29 | 1 | done Popover/HomeModel.swift | UI/PopoverView.swift | Footer: Refresh 
 P29e | 3 | pending T22 | UI/PopoverView.swift | Footer eye button: show / hide the floating pet
 P30 | 1 | done Popover/PopoverState.swift | UI/PopoverView.swift | Navigation state: tab, settings, recap, collection segment, Pokédex detail page, provider and account tabs (kept), expand-advanced, open-plaza action; reset and the routes (session-key settings, Pokédex entry, representative)
 P31 | 1 | pending T5 | UI/PopoverView.swift | Dates and relative texts follow the app language (the popover's locale environment), not the region
-C1 | 1 | pending T8 | UI/CompanionView.swift | Sprite 76 pt: animated GIF at its delays, bob on a still fallback, shiny, form, back view, egg sprite, 🥚 fallback, rounded backdrop
+C1 | 1 | pending T9 | UI/CompanionView.swift | Sprite 76 pt: animated GIF at its delays, bob on a still fallback, shiny, form, back view, egg sprite, 🥚 fallback, rounded backdrop
 C2 | 3 | pending T20 | UI/CompanionView.swift | Sprites open their Pokédex page (hand cursor, hover highlight, tooltip, accessibility)
 C3 | 1 | pending T9 | UI/CompanionView.swift, UI/Badge.swift | Name, ✨, rarity badge (rarity colours)
 C4 | 1 | pending T9 | UI/CompanionView.swift, UI/Badge.swift, UI/PokemonNameLabel.swift | Type badges with localized type names (loaded async, "…" while loading, identifier on failure); type colours
