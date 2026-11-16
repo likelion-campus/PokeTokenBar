@@ -151,7 +151,8 @@ private struct RecapFixtureProvider: UsageProvider {
 
     /// The texts a page must show, from the model it was built from.
     private static func expectedTexts(_ m: RecapPageModel) -> [String] {
-        var out = ["‹ " + m.back, "‹ " + m.previous, m.current, m.next + " ›", m.card.title, "\(m.card.total) \(m.card.unit)"]
+        // Back is a SysLink (its window text is markup): recap.navigation checks it is there and leaves.
+        var out = ["‹ " + m.previous, m.current, m.next + " ›", m.card.title, "\(m.card.total) \(m.card.unit)"]
         out += m.scopeNames
         out += m.card.meters.map(\.description)
         out += m.card.readouts.map { "\($0.label) \($0.value)" }
