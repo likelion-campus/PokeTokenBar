@@ -49,7 +49,7 @@ final class DexBackNavigationTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = host
-        window.orderFront(nil)
+        window.orderInForTest()
         self.window = window
         return host
     }
@@ -230,6 +230,7 @@ final class DexBackNavigationTests: XCTestCase {
     }
 
     func testRegionChipFiltersMountedCollectionAndTogglesBack() async throws {
+        try NSWindow.requireLiveWindowTests()
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("dex-region-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: file) }
         var state = CompanionState()
@@ -309,6 +310,7 @@ final class DexBackNavigationTests: XCTestCase {
 
     /// Oldest is the first catch, so it is the log's last row — off screen until scrolled to.
     func testBackFromDetailReturnsTheLogToWhereItWas() async throws {
+        try NSWindow.requireLiveWindowTests()
         let store = try makeStore()
         let navigation = PopoverNavigation()
         navigation.tab = .collection

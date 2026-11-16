@@ -60,7 +60,7 @@ final class EggPrayerRenderTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = host
-        window.orderFront(nil)
+        window.orderInForTest()
         windows.append(window)
         try await Task.sleep(for: .milliseconds(150))
         host.layoutSubtreeIfNeeded()
