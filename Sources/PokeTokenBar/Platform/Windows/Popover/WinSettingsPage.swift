@@ -177,7 +177,7 @@ import WinSDK
                 if let head { self?.paintChrome(head, dc, rect, line: .bottom) }
             }
             // The Mac's plain accent button: the chevron and "Back".
-            let back = WinControls.pillButton(WinPill(style: .borderless, title: l.back, glyph: "chevron.backward", textStyle: .body), in: head.hwnd, ctx: ctx)
+            let back = WinControls.pillButton(WinPill(style: .borderless, title: l.back, glyph: "chevron.backward", textStyle: .body, accent: true), in: head.hwnd, ctx: ctx)
             back?.onClick = { [weak self] in self?.onBack() }
             backLink = back
             titleLabel = WinControls.label(l.settings, style: .headline, wraps: false, in: head.hwnd, ctx: ctx)

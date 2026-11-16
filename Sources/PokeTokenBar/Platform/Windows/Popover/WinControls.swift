@@ -878,6 +878,9 @@ struct WinPill: Equatable {
     var bold = false
     /// Content from the left edge (a disclosure row: the whole row is the button), not centred.
     var leftAligned = false
+    /// `.foregroundStyle(Color.accentColor)` on a borderless button (Settings' Back); without it the text is the primary colour, as
+    /// SwiftUI's borderless buttons draw it on the Mac.
+    var accent = false
 }
 
 extension WinControls {
@@ -964,13 +967,14 @@ extension WinControls {
             fill = disabled && !high ? WinUIColors.blend(bg, pal.accent, 0.35) : pal.accent
             radius = 2 * ctx.px(5)
         case .borderless:
-            ink = pill.secondary ? pal.secondaryText : pal.accent
+            ink = pill.accent ? pal.accent : (pill.secondary ? pal.secondaryText : pal.text)
             radius = 2 * ctx.px(4)
         case .disclosure:
             ink = pal.text
             radius = 2 * ctx.px(4)
         }
         if high, pill.style != .prominent { ink = pal.text }
+        if high, pill.style == .borderless, pill.accent { ink = pal.text }
         if !disabled, pressed || c.hotForPill {
             let base = fill ?? bg
             fill = WinUIColors.blend(base, pill.style == .prominent ? WinUIColors.rgb(0, 0, 0) : pal.text, pressed ? 0.14 : 0.07)

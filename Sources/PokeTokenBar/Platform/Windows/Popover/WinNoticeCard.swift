@@ -64,6 +64,8 @@ import WinSDK
         }
         glyph = shape.map { (text: $0.0, font: $0.1) }
         lines = build(made.hwnd, ctx, tintColor)
+        // Everything on the card is drawn over the tint, not over the page colour.
+        for line in lines { (line.leading + [line.flexible].compactMap { $0 } + line.trailing).forEach { $0.background = tintColor } }
         control = WinControls.drawn(made.hwnd, size: .zero, ctx: ctx) { [self] r in self.place(r) }
         control.onDestroy = { [self] in self.destroyChildren() }
         control.fitWidth = { [self] px in self.fit(px) }

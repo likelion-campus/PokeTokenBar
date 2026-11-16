@@ -274,8 +274,11 @@ private struct RecapFixtureProvider: UsageProvider {
         let before2 = h.page.renders
         if let m = h.page.last { h.page.apply(m) }
         let still = h.page.renders == before2
-        r.add("recap.navigation", all && startOK && afterPrev && backAgain && limit && stays && toCurrent && month && sameScope && year && same && backOK && still,
-              "controls present=\(all); start ok=\(startOK); previous -> -1 ok=\(afterPrev); next -> 0 ok=\(backAgain); limit reached after \(steps) steps ok=\(limit), "
+        // the Mac's glyph buttons: the chevron before Back, the triangles on Previous and Next (not "‹ " and " ›" in a text)
+        let glyphs = control("back")?.pillGlyph == "chevron.left" && control("previous")?.pillGlyph == "arrowtriangle.left.fill"
+            && control("next")?.pillGlyph == "arrowtriangle.right.fill" && control("current")?.isPill == true
+        r.add("recap.navigation", glyphs && all && startOK && afterPrev && backAgain && limit && stays && toCurrent && month && sameScope && year && same && backOK && still,
+              "glyph buttons=\(glyphs); controls present=\(all); start ok=\(startOK); previous -> -1 ok=\(afterPrev); next -> 0 ok=\(backAgain); limit reached after \(steps) steps ok=\(limit), "
               + "a press at the limit stays=\(stays); current resets=\(toCurrent); scope Month resets the offset and names '\(L(.en).thisMonth)'=\(month); the same scope again "
               + "keeps the offset=\(sameScope); Year has 12 meters=\(year); page equals a fresh model=\(same); Back and Escape both leave=\(backOK); re-applying the same model renders nothing=\(still); "
               + parts.joined(separator: "; "))
