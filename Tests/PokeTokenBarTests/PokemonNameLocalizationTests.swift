@@ -161,7 +161,7 @@ final class PokemonNameLocalizationTests: XCTestCase {
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
-        window.orderFront(nil)
+        window.orderInForTest()
         defer { window.close() }
         func snapshot(_ view: NSView) throws -> Data {
             view.layoutSubtreeIfNeeded()
