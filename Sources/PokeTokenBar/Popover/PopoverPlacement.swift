@@ -62,9 +62,10 @@ enum PopoverPlacement {
 
     /// The popover's frame. `size` is clamped to the work area less the margins (the page scrolls). Taskbar at the bottom or
     /// top: just above or below it, centred on the icon. Left or right: beside it, top-aligned to the icon, or bottom-aligned
-    /// to it when there is no room below (flipped). Then clamped into the work area. The icon is `anchor` (the shell's
-    /// rectangle), else `clickPoint`, else the corner at the end of the taskbar where the notification area is (a second
-    /// launch with no icon rectangle). Whole pixels.
+    /// to it when there is no room below (flipped). An icon inside the work area (the overflow flyout, which may stay open
+    /// over what is below it) is not covered: the popover keeps a margin from it on the taskbar's side. Then clamped into the
+    /// work area. The icon is `anchor` (the shell's rectangle, or the flyout holding it), else `clickPoint`, else the corner
+    /// at the end of the taskbar where the notification area is (a second launch with no icon rectangle). Whole pixels.
     static func frame(anchor: CGRect?, clickPoint: CGPoint?, size: CGSize, monitor: CGRect, work: CGRect,
                       edge: Edge, margin: CGFloat) -> CGRect {
         let loX = work.minX + margin, hiX = work.maxX - margin, loY = work.minY + margin, hiY = work.maxY - margin
@@ -74,12 +75,12 @@ enum PopoverPlacement {
         switch edge {
         case .bottom:
             x = icon.midX - w / 2
-            y = hiY - h
+            y = min(hiY, icon.minY - margin) - h
         case .top:
             x = icon.midX - w / 2
-            y = loY
+            y = max(loY, icon.maxY + margin)
         case .left, .right:
-            x = edge == .left ? loX : hiX - w
+            x = edge == .left ? max(loX, icon.maxX + margin) : min(hiX, icon.minX - margin) - w
             y = icon.minY
             if y + h > hiY { y = icon.maxY - h }
         }

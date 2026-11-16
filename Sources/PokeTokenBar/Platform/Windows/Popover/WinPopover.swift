@@ -25,6 +25,8 @@ struct WinPopoverStats {
     var roundCorners = false
     var sessionNotify = false
     var lastFrame = RECT()
+    /// The window the last open kept clear of (the overflow flyout holding the icon), nil for an icon on the taskbar.
+    var lastHolder: RECT?
     var lastEdge: PopoverPlacement.Edge?
     var lastDPI: UINT = 0
 }
@@ -200,6 +202,7 @@ struct WinPopoverStats {
             _ = SetWindowPos(hwnd, nil, r.left, r.top, r.right - r.left, r.bottom - r.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
         }
         note(placed, r)
+        stats.lastHolder = found.holder
         guardRegion = Self.guardRegion(anchor: found.anchor, opener: opener, dpi: dpi)
         stats.roundCorners = Self.isWindows11 && Self.roundCorners(hwnd)
         register(made)
@@ -299,7 +302,8 @@ struct WinPopoverStats {
     /// The page's `heightDIP` changed (Settings replaced Home, D2): the window is placed again for the same icon.
     func pageSizeChanged() {
         guard let w = window, let page, let ctx, let inputs else { return }
-        let fresh = WinPopoverAnchor.inputs(anchor: inputs.anchor, point: inputs.clickPoint, useCursor: false)
+        var fresh = WinPopoverAnchor.inputs(anchor: inputs.anchor, point: inputs.clickPoint, useCursor: false)
+        fresh.holder = inputs.holder  // the flyout it opened from, not whatever is under that point now
         guard let placed = place(fresh, heightDIP: page.heightDIP, dpi: Int(ctx.dpi)) else { return }
         let r = WinKit.rect(placed.frame)
         _ = SetWindowPos(w.hwnd, nil, r.left, r.top, r.right - r.left, r.bottom - r.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
@@ -369,7 +373,8 @@ struct WinPopoverStats {
     /// state kept (D2, R6).
     private func dpiChanged(_ dpi: UINT) {
         guard let w = window, let page, let inputs else { return }
-        let fresh = WinPopoverAnchor.inputs(anchor: inputs.anchor, point: inputs.clickPoint, useCursor: false)
+        var fresh = WinPopoverAnchor.inputs(anchor: inputs.anchor, point: inputs.clickPoint, useCursor: false)
+        fresh.holder = inputs.holder  // the flyout it opened from, not whatever is under that point now
         if let placed = place(fresh, heightDIP: page.heightDIP, dpi: Int(dpi)) {
             let r = WinKit.rect(placed.frame)
             _ = SetWindowPos(w.hwnd, nil, r.left, r.top, r.right - r.left, r.bottom - r.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
@@ -416,7 +421,7 @@ struct WinPopoverStats {
 
     private func place(_ inputs: WinPopoverAnchor.Inputs, heightDIP: CGFloat, dpi: Int?) -> PopoverPlacement.Result? {
         let frame = Self.frame
-        return PopoverPlacement.place(anchor: inputs.anchor.map(WinPopoverAnchor.cgRect), clickPoint: inputs.clickPoint.map(WinPopoverAnchor.cgPoint),
+        return PopoverPlacement.place(anchor: inputs.placementAnchor.map(WinPopoverAnchor.cgRect), clickPoint: inputs.clickPoint.map(WinPopoverAnchor.cgPoint),
                                       sizeDIP: CGSize(width: PopoverWindowMetrics.width, height: heightDIP), monitors: inputs.monitors,
                                       appBar: inputs.appBar.map(WinPopoverAnchor.cgRect), dpi: dpi,
                                       framePixels: { d in let f = frame(UInt32(d), 0, 0); return CGSize(width: CGFloat(f.width), height: CGFloat(f.height)) })

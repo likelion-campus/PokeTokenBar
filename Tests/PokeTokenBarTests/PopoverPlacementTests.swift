@@ -176,6 +176,35 @@ final class PopoverPlacementTests: XCTestCase {
         XCTAssertEqual(rightEdge.origin, CGPoint(x: m.maxX - Self.bar - 12 - 360, y: m.maxY - 12 - 600))
     }
 
+    /// The icon in the overflow flyout (^): its rectangle (or the flyout's) is inside the work area, and the flyout may stay
+    /// open, topmost, over whatever is below it (the CI runner, run 43776235222). The popover keeps clear of it on the
+    /// taskbar's side: above it for a bottom taskbar, below for a top one, beside it for a vertical one.
+    func testAnAnchorInsideTheWorkAreaIsNotCovered() {
+        let m = CGRect(x: 0, y: 0, width: 1024, height: 768), size = CGSize(width: 360, height: 600)
+        let flyout = CGRect(x: 742, y: 660, width: 128, height: 45)  // seen on the runner, bottom taskbar
+        let bottom = P.frame(anchor: flyout, clickPoint: nil, size: size, monitor: m, work: Self.work(m, .bottom), edge: .bottom, margin: 12)
+        XCTAssertEqual(bottom.maxY, flyout.minY - 12)
+        XCTAssertFalse(Self.overlaps(bottom, flyout))
+        let topFlyout = CGRect(x: 742, y: 60, width: 128, height: 45)
+        let top = P.frame(anchor: topFlyout, clickPoint: nil, size: size, monitor: m, work: Self.work(m, .top), edge: .top, margin: 12)
+        XCTAssertEqual(top.minY, topFlyout.maxY + 12)
+        let leftFlyout = CGRect(x: 60, y: 600, width: 45, height: 128)
+        let left = P.frame(anchor: leftFlyout, clickPoint: nil, size: size, monitor: m, work: Self.work(m, .left), edge: .left, margin: 12)
+        XCTAssertEqual(left.minX, leftFlyout.maxX + 12)
+        XCTAssertFalse(Self.overlaps(left, leftFlyout))
+        let rightFlyout = CGRect(x: 920, y: 600, width: 45, height: 128)
+        let right = P.frame(anchor: rightFlyout, clickPoint: nil, size: size, monitor: m, work: Self.work(m, .right), edge: .right, margin: 12)
+        XCTAssertEqual(right.maxX, rightFlyout.minX - 12)
+        // A click point inside the work area (the flyout's icon, no rectangle from the shell): above the point.
+        let point = P.frame(anchor: nil, clickPoint: CGPoint(x: 766, y: 683), size: size, monitor: m, work: Self.work(m, .bottom), edge: .bottom, margin: 12)
+        XCTAssertEqual(point.maxY, 683 - 12)
+        // No room above: inside the work area anyway (it covers part of the flyout rather than leave the screen).
+        let high = CGRect(x: 742, y: 200, width: 128, height: 45)
+        let squeezed = P.frame(anchor: high, clickPoint: nil, size: size, monitor: m, work: Self.work(m, .bottom), edge: .bottom, margin: 12)
+        XCTAssertEqual(squeezed.minY, 12)
+        XCTAssertTrue(Self.inside(squeezed, Self.work(m, .bottom), margin: 12))
+    }
+
     // MARK: - the monitor and the whole placement
 
     static let monitors = [

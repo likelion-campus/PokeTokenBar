@@ -10,6 +10,11 @@ import WinSDK
         var clickPoint: POINT?
         var monitors: [PopoverPlacement.Monitor]
         var appBar: RECT?
+        /// The window holding an icon that is not on the taskbar (the overflow flyout): placed clear of, not just the icon.
+        var holder: RECT? = nil
+
+        /// What the popover is placed against: the holder, else the icon.
+        var placementAnchor: RECT? { holder ?? anchor }
     }
 
     /// The selftest's synthetic work areas (`popover.placement`): given what the system said, what to place with.
@@ -25,7 +30,23 @@ import WinSDK
         }
         var made = Inputs(anchor: anchor, clickPoint: click, monitors: monitors(), appBar: taskbarRect())
         if let environmentForTesting { made = environmentForTesting(made) }
+        if let a = made.anchor { made.holder = holder(of: a, monitors: made.monitors) }
         return made
+    }
+
+    /// An icon inside its monitor's work area is in the overflow flyout (^), a window of the shell that may stay open,
+    /// topmost, after the popover takes the foreground (seen on the runner, Server 2025). That window, when it holds the
+    /// icon and is small, is what the popover keeps clear of. An icon on the taskbar band: nil.
+    static func holder(of anchor: RECT, monitors: [PopoverPlacement.Monitor]) -> RECT? {
+        let c = POINT(x: (anchor.left + anchor.right) / 2, y: (anchor.top + anchor.bottom) / 2)
+        let p = cgPoint(c)
+        guard let m = monitors.first(where: { p.x >= $0.bounds.minX && p.x < $0.bounds.maxX && p.y >= $0.bounds.minY && p.y < $0.bounds.maxY }),
+              p.x >= m.work.minX, p.x < m.work.maxX, p.y >= m.work.minY, p.y < m.work.maxY,
+              let hit = WindowFromPoint(c), let root = GetAncestor(hit, UINT(GA_ROOT)), !WinSinkWindow.owns(root) else { return nil }
+        var r = RECT()
+        guard GetWindowRect(root, &r), contains(r, c), CGFloat(r.right - r.left) < m.bounds.width / 2,
+              CGFloat(r.bottom - r.top) < m.bounds.height / 2 else { return nil }
+        return r
     }
 
     /// `EnumDisplayMonitors` with each monitor's work area and effective DPI (the plaza's list).

@@ -1038,14 +1038,28 @@ final class PopoverDriver: @unchecked Sendable {
                 let reported2 = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s2 }
                 var opened2 = false
                 if reported2 { opened2 = await opened() }
-                ok = !reported2 || opened2
+                await pause(0.5)
+                // The flyout may stay open over what is below it: the popover keeps clear of the window holding the icon.
+                let frame = popover.stats.lastFrame, holder = popover.stats.lastHolder
+                let clear = holder.map { min(frame.right, $0.right) <= max(frame.left, $0.left) || min(frame.bottom, $0.bottom) <= max(frame.top, $0.top) } ?? true
+                let flyoutStill = holder.map { h in
+                    WindowFromPoint(POINT(x: (h.left + h.right) / 2, y: (h.top + h.bottom) / 2)).map { WinKit.className(GetAncestor($0, UINT(GA_ROOT))) } ?? "none"
+                } ?? "-"
+                ok = !reported2 || (opened2 && clear)
                 detail += "; a real click on the icon in the overflow flyout at \(p.x),\(p.y): NIN_SELECT=\(reported2) popover open=\(opened2)"
-                    + (opened2 ? " at \(Self.text(popover.stats.lastFrame)) edge \(popover.stats.lastEdge.map { "\($0)" } ?? "-")" : "")
+                    + (opened2 ? " at \(Self.text(frame)) edge \(popover.stats.lastEdge.map { "\($0)" } ?? "-"), kept clear of the window holding the icon "
+                        + "\(holder.map(Self.text) ?? "nil")=\(clear); 0.5 s later at the flyout's place: \(flyoutStill)" : "")
             }
             WindowsSelftestPopover.tap(0x1B)
             await pause(0.3)
         }
         popover.close(.destroyed)
+        if let probe {  // a click elsewhere light-dismisses the flyout (Escape did not, run 43776235222)
+            var pr = RECT()
+            _ = GetWindowRect(probe.hwnd, &pr)
+            await leftClick(POINT(x: (pr.left + pr.right) / 2, y: (pr.top + pr.bottom) / 2))
+            await pause(0.4)
+        }
         r.add("popover.realClick", ok, (reported ? "" : "informational: ") + detail)
         await grant()
     }
