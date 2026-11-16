@@ -2630,6 +2630,57 @@ read_when:
   (#207 이후 실행 43774484787). 제품 동작은 맞다 — 제한 시간은 "대략 이만큼"이고 사용자에게는 300 ms 한도의 16 ms 차이다. **왜 못 걸렀나:** 작업 브랜치의 몇 번 실행에서는 우연히 틱이 맞았다.
   **고침:** 하한을 제한 시간에서 한 틱을 뺀 40 ms 로 둔다. **부류 스윕:** 윈도 테스트의 경과 시간 하한은 그 밖에 `WindowsHTTPFetchTests` 의 두 곳(10 초 중 8 초, 3 초 중 2.5 초)뿐이고 여유가 0.5 초 이상이다.
   **규칙:** 윈도에서 `GetTickCount64`·`Sleep` 으로 잰 시간에 하한을 걸 때는 한 틱(16 ms)을 빼고 건다.
+- **IME 가 끝낸 한글 음절이 `?` 로 들어올 자리였다 — `WH_GETMESSAGE` 훅이 `WM_CHAR` 류만 유니코드로 다시 보내고 `WM_IME_CHAR` 는 CF 의 ANSI 펌프에 맡겼다.** (stage 6 Task 11, D13)
+  CF 의 펌프는 `PeekMessageA`/`DispatchMessageA` 라, 게시된 `WM_IME_CHAR`(IME 가 끝낸 음절을 앱이 직접 처리하지 않을 때 DefWindowProc 경로로 오는 메시지)의 U+D55C 가 코드 페이지 1252 에서
+  `?` 로 바뀐 채 유니코드 창에 도착한다. 러너 실측(ACP 1252, 같은 실행): 우리 창의 입력칸은 "한", 훅이 손대지 않는 창(= 고치기 전 경로)의 같은 EDIT 는 "?".
+  **왜 못 걸렀나:** Track B 의 문자 검사는 `SendInput(VK_PACKET)`·게시 `WM_CHAR` 로만 돌았고(러너에 쓸 수 있는 한국어 IME 가 없었다), 광장에는 글을 받는 창이 아직 없어
+  IME 메시지를 보낼 대상이 없었다 — `WM_IME_*` 는 "관찰만" 하는 범위(0x0281…0x0291)에 들어 있어 통과가 곧 미검증이었다. **고침:** 훅의 재전송 목록에 `WM_IME_CHAR`(0x0286) 한 줄.
+  **스윕:** 문자를 wParam 에 실어 *게시*되는 메시지는 `WM_CHAR`·`WM_SYSCHAR`·`WM_DEADCHAR`·`WM_SYSDEADCHAR`·`WM_IME_CHAR` 다섯이고 이제 모두 재전송한다. `WM_IME_COMPOSITION` 의 wParam
+  (마지막 변경 문자)도 ANSI 로 바뀌지만 EDIT 는 문자열을 입력 컨텍스트에서 `ImmGetCompositionStringW` 로 읽어 영향이 없다. `WM_MENUCHAR`·`WM_CHARTOITEM`·`EM_*` 는 *보내지는* 메시지라 펌프를 거치지 않는다.
+  메뉴 루프 안(`inMenuOrMoveLoop`)에서는 지금처럼 다시 보내지 않는다: 팝업 메뉴는 그 동안 스레드의 키보드 메시지를 모두 메뉴 입력으로 읽는다(셀프테스트 `plaza.chatMenu`: 메뉴가 열린 동안
+  게시한 문자는 메뉴가 가져가고 훅 재전송 +0).
+  **가드(기계):** 셀프테스트 `plaza.imeChar` — 같은 실행에서 우리 필드는 "한", 우리 창이 아닌 EDIT 는 "?" 여야 PASS(ACP 를 함께 남기고, 한글 코드 페이지에서는 결함이 드러날 수 없다고 적는다).
+  `plaza.chatTyping`(VK_PACKET 16 단위: 서로게이트·ZWJ 포함, 훅 재전송 16 = 필드 WM_CHAR 16, 중복 0).
+
+- **숨긴 채 닫은 광장을 다시 열면 입력줄 판이 그려지지 않았다 — 창보다 오래 사는 입력줄의 HUD 가 "그리지 않음"으로 남았다.** (stage 6 Task 11 리뷰)
+  광장을 최소화(또는 가림·다른 가상 데스크톱)한 채 트레이에서 닫고 다시 열어 Enter 를 누르면 판·테두리·😀·이모지 판 없이 맨 EDIT 만 보였고, 대화
+  기록이 올라가지 않았으며, 판 자리를 누르면 장면이 받아 줄이 닫혔다(다음 최소화·복원까지). **직접 원인:** `WinPlazaChatInput` 은 컨트롤러가 앱 수명
+  동안 쥐고 창보다 오래 산다. 입력줄 HUD 의 `isRendering` 은 창의 가시성 콜백만 바꾸는데, 새 창의 첫 표시는 보고되지 않는다(`WinPlazaVisibility`:
+  첫 표시는 "보이는 상태"가 기본). 컨트롤러는 자기 HUD 를 닫을 때 `true` 로 되돌리지만(`PlazaWindowController` close) 입력줄 HUD 는 아무도
+  되돌리지 않았다. **왜 못 걸렀나:** 셀프테스트의 입력줄 검사는 모두 보이는 창에서 열고 닫았고, 숨김→닫기→다시 열기를 밟는 `plaza.close`/
+  `plaza.reopen` 은 입력줄을 열지 않았다. XCTest 에는 창 가시성이 없어 `isRendering` 이 바뀌지 않는다 — 두 검사가 결함 경로의 서로 다른 반쪽만 밟았다.
+  **고침:** `attach` 가 HUD 를 그리는 상태로 되돌린다(새 창은 보이는 상태로 시작). **스윕:** 창보다 오래 살며 가시성에서 나온 상태를 쥔 것 — 컨트롤러의
+  `hud.isRendering`·`rosterModel.isAnimating`(닫을 때 되돌림), 렌더 루프·스테이지·장면(창마다 새로), 입력줄 HUD(이번에 고침) — 그 밖에 없다.
+  **가드(기계):** 셀프테스트 `plaza.chatReopenAfterHidden`(최소화→컨트롤러로 닫기→다시 열기→줄 열기: 판이 그려지고 대화 기록이 그 위, 판 클릭은 줄을 닫지
+  않음), XCTest `testTheBarDrawsInAWindowOpenedAfterAHiddenClose` 와 주입(`WinChatFaults.keepHiddenAcrossWindows` → 잡힘).
+  **규칙:** 창보다 오래 사는 객체가 창의 가시성에서 나온 상태를 쥐면, 창을 붙이거나 떼는 곳에서 그 상태를 되돌린다.
+
+- **글자 수 자르기가 한 글자의 UTF-16 두 반쪽 사이에서 돌았다 — 반쪽을 U+FFFD 로 읽어 다시 써 넣었다.** (stage 6 Task 11 리뷰)
+  꽉 찬 줄(60 자)의 가운데에 한 단위씩 오는 입력(VK_PACKET: 터치 키보드, 이모지 도구)으로 😀 를 넣으면, 높은 반쪽만 들어온 순간 줄이 "61 자"(반쪽 =
+  U+FFFD)로 읽혀 마지막 글자를 버리고 U+FFFD 를 `WM_SETTEXT` 로 써 넣었고, 낮은 반쪽이 같은 일을 되풀이했다("��", 끝 두 글자 손실). 59 자에서
+  끝에 👨‍👩‍👧 를 치면 👨 와 ZWJ 둘이 남았다. **왜 못 걸렀나:** 테스트는 글자를 통째로(문자열 단위) 넣었고, 실제 VK_PACKET 검사(`plaza.chatTyping`)는
+  한도에 닿지 않는 짧은 줄이었다. **고침:** 원시 UTF-16 에 짝 없는 높은 반쪽이 있으면 자르기를 미루고(다음 반쪽이 오면 다시), 짝 없는 반쪽이 있으면
+  복구된 디코딩을 절대 다시 써 넣지 않는다. **가드:** XCTest `testTheCutWaitsForTheSecondHalfOfACharacter`·
+  `testAJoinedEmojiTypedUnitByUnitAtTheLimitStaysWhole` 와 주입(`cutSplitsSurrogates` → 잡힘). **스윕:** 앱이 글을 다시 써 넣는 곳은 자르기와
+  `resetField`(빈 줄) 둘뿐이고, 붙여넣기는 반쪽에서 잘린 끝을 버린 뒤 디코딩한다.
+
+- **조합 중인 음절 위에 이모지를 넣으면 음절 앞에 들어갔다('🍜하') — 진짜 IME 는 조합을 끝낼 때 입력칸에 보이던 음절을 먼저 빼고, 확정 글자는 나중에 캐럿에 다시 친다.** (stage 6 Task 11 리뷰)
+  러너의 진짜 한국어 IME 로 `gk`(하 조합 중) 뒤 이모지 판의 🍜 를 누르면 "🍜하" 가 됐다(맥은 `unmarkText` 뒤 캐럿 자리에 넣어 "하🍜"). **직접 원인(러너
+  추적으로 확인):** `ImmNotifyIME(CPS_COMPLETE)` 안에서 `WM_IME_ENDCOMPOSITION` 이 먼저 와 EDIT 가 글 안의 음절을 지우고(글 ""), 이어 `GCS_RESULTSTR`·
+  `WM_IME_CHAR` 가 오지만 실제로 글자를 치는 `WM_CHAR` 는 **게시(post)** 돼 요청이 돌아온 뒤에 캐럿에 들어간다. 그 사이에 넣은 이모지가 앞자리를 차지했다.
+  **왜 못 걸렀나:** 스크립트 IME 는 "끝내기"에서 결과 글자를 그 자리에서 `WM_CHAR` 로 동기 전송해 다른 경로로 통과했다. 첫 두 번의 고침도 가설(늦은 END,
+  결과 보고 없는 END)로 만든 가짜 IME 에서만 통과하고 러너에서 다시 "🍜하" 였다 — 메시지 순서를 찍어 보기 전에 고쳤기 때문이다.
+  **고침:** 입력칸이 음절을 글 안에 보여 주던 경우, 조합 위의 편집(이모지·붙여넣기·단어 지우기)은 글이 확정된 음절을 다시 담을 때(결과를 받았거나 음절이
+  빠졌다가 돌아온 뒤, 조합 없음)까지 기다렸다가 음절 뒤에 한다. 0.3 s 안에 안 오면 그때 한다(편집은 잃지 않는다). 선택 테스트가 기다리는 동안 본 메시지를 찍는다.
+  **덤으로 생긴 결함(병합 전 XCTest 가 잡음):** 기다림 확인이 depth 0 의 모든 메시지 뒤에 돌며 글을 `WM_GETTEXT` 로 읽었는데, 그 메시지가 같은 서브클래스로
+  다시 들어와 확인을 또 불러 무한 재귀(테스트 프로세스 즉사, 앱 선택 테스트는 st.json 없이 멈춤). IME 출력·글 변경 메시지 뒤에만, 재진입 없이 돌린다.
+  **스윕:** 스스로 조합을 끝내는 곳 — Enter(끝내기만, 보내지 않음), Esc·닫기(`CPS_CANCEL` 뒤 빈 줄), 포커스 이동(끝낸 뒤 닫히거나 그대로), 이모지·붙여넣기·
+  단어 지우기(이번 고침), 글자 수 자르기(조합 중엔 안 함). 진짜 IME 로 Esc·지도 클릭·한도(59 + 한글 + Space)를 확인했다(셋 다 맞음). depth 0 에서 글을 읽는
+  곳은 둘 — 글자 수 자르기(`limitPending` 을 먼저 내림)와 이번 확인(필터 + `checkingPending`) — 둘 다 재진입하지 않는다.
+  **가드(기계):** `plaza.chatRealIME`(하 + 🍜 → "하🍜", 메시지 순서 출력), XCTest `testAnEmojiWaitsForASyllableTheEndTookOut`(러너의 순서)·
+  `testAnEmojiWaitsForALateResultReport`·`testAnEmojiIsNotLostWhenTheIMENeverReports`·`testAnEmojiOverAnInlineSyllableGoesAfterIt` 와 주입
+  (`insertOverComposition`·`editBeforeResult`(이전 동작) → 잡힘). **규칙:** 진짜 IME 결함은 메시지 순서를 먼저 찍고, 가짜 IME 는 그 순서를 그대로 흉내낸다;
+  서브클래스 메시지 처리기에서 글을 읽는 코드는 그 읽기가 같은 처리기로 돌아온다는 걸 전제로 재진입을 막는다.
 
 - **`PopoverTwinEquivalenceTests.testTheLimitRowFollowsTheMac` 가 바쁜 Mac 에서 가끔 실패했다 — 한쪽은 고정한 `now`, 다른 쪽은 살아 있는 `Date()` 를 읽고 그 차이에 18 ms 허용치를 뒀다.** 행 모델(`LimitsBuilder(now:)`)은 주입한 시각으로, Mac 의 원본 복사본(`MacPopoverOracle.paceFraction`)은 호출 순간의 `Date()` 로
   페이스를 계산한다. 눈금 위치 비교의 `accuracy: 1e-6` 은 5시간 창에서 18 ms 다. 2.2 초짜리 스위트는 통과했고 11.6 초짜리(바쁜 기계)는 실패했다. **왜 못 걸렀나:** 허용치가 "보통 몇 µs 차이"를 가정했고, 빠른 기계의 단독 실행에서는 그 가정이 늘 맞았다.
@@ -2661,6 +2712,26 @@ read_when:
   **부류 스윕:** 시간·핸들·문맥전환 예산이 있는 모든 셀프테스트 검사를 표로 정리했다(`selftest-flakes-report.md`) — 여유 30% 미만: `plaza.frames`(틱/초 ≤70, 관측 60~64: 디스플레이 주사율에 묶임), `loop.runLoopTimer`(<250 ms, 관측 205), `modalPump.mainWork` 큐 ≥10(관측 14), `idle.window`(번들 프로세스 51/69).
   **규칙:** (1) 한 상태에는 쓰는 쪽이 하나여야 한다 — 검사가 컨트롤러의 갱신과 경쟁하면 이음매로 컨트롤러를 멈춘다. (2) 예산은 측정된 분포에서 정하고 표본 크기를 예산 옆에 적는다. (3) 깨움·핸들 예산은 알려진 원인(타이머·갱신·새 스레드)을 각자의 카운터로 세어 예산에 넣고, 출처를 모르는 몫은 실패로 남긴다. (4) 누수 판정은 한 번의 총량이 아니라 "매 반복마다 일어나는가"로 한다. (5) 프로세스 전체 숫자는 러너의 소프트웨어 렌더러·배경 스레드를 섞으므로 앱 스레드와 분리해 예산한다. 반복 도구: `windows-app.yml -f flake_loop=N`(번들 selftest 한 프로세스에서 N회, 매 회 값 출력).
 
+- **윈도 셀프테스트 `popover.realClick` 이 세 브랜치에서 한 번씩 실패했다 — 제품은 맞았고, 검사가 두 번째 클릭이 닫는 순서를 하나로
+  가정했다.** (Home 43813599073, 대화 줄 43825854006 1차, 43842945406.) 세 번 모두 같은 끝: 넘침 플라이아웃 안의 아이콘을 실제로 두 번째
+  누르자 `NIN_SELECT=true closed and not reopened=true (closed by iconClick …, absorbed +0)` — 팝오버는 닫혔고 다시 열리지 않았다. 검사는
+  "플라이아웃이 먼저 활성화를 가져가고(비활성화) 토글 가드가 뒤따르는 선택을 흡수한다"(absorbed +1)만 통과로 쳤는데, 셸의 선택이 팝오버가
+  아직 활성일 때 먼저 오기도 한다 — 그러면 "열려 있을 때의 선택"으로 닫힌다. 두 순서 모두 올바른 토글이다. 첫 사각형 (790,720,822,768) 이
+  작업 표시줄 위인 것은 결함이 아니다: 아이콘이 닫힌 넘침 플라이아웃에 있으면 `Shell_NotifyIconGetRect` 는 `^` 버튼의 사각형을 준다
+  (30회 모두 그 자리는 `Shell_TrayWnd`, 누르면 선택 없이 `TopLevelWindowForOverflowXamlIsland` 가 열리고, 사각형은 두 번 읽어 같아질 때
+  플라이아웃 안의 (746,663,786,703) 로 옮겨 간다 — 늘 같다, 낡은 값이 아니다). **왜 못 걸렀나:** 검사를 만들 때(리뷰 M6) 러너 실행 몇 번에서
+  한 순서만 나왔고(표본 수 회), 판정이 결과(닫힘·다시 안 열림)가 아니라 경로(흡수 +1)였다. **제품 점검:** 제품은 선택을 받는 순간의
+  사각형으로 배치한다 — 플라이아웃에서 열면 그 안의 아이콘(30/30, 플라이아웃과 겹치지 않음), 플라이아웃이 닫혀 있을 때 열리면(키·메뉴·
+  두 번째 실행) `^` 버튼 위 — 숨은 아이콘이 사는 자리라 맞다. 토글 가드의 아이콘 영역은 클릭 지점 기준이라 같은 데이터로 맞다. 제품 수정
+  없음. **고침:** 검사는 아이콘을 먼저 찾고(셸 사각형 → 눌러서 선택이 없으면 플라이아웃이 자리 잡을 때까지 다시 읽기) 사용자가 받는 결과로
+  판정한다: 첫 실제 클릭 → 정확히 한 번 열림, 플라이아웃과 겹치지 않음; 두 번째 → 닫히고 다시 열리지 않음(어느 경로였는지는 기록만).
+  같은 프로세스 30회(`-f flake_loop=30`, 43849868002): 30/30, 아이콘 자리 넘침 30, 두 번째 클릭 "비활성화 뒤 흡수" 30 (그 프로세스에서는
+  다른 순서 0회; 단일 실행들에서는 약 3/45). 결함 주입: 클릭이 열지 않음 → FAIL(`open=false`), 두 번째 클릭이 두 경로 모두 다시 엶 →
+  FAIL(`reopened=true`). **규칙:** 실제 입력 검사는 사용자가 보는 결과로 판정하고, 시스템이 순서를 정하는 중간 경로는 기록만 한다. 경로를
+  지키는 가드는 순서를 고정한 합성 검사가 맡는다(`popover.toggle` (a)). **부류 스윕:** 다른 실제 입력 검사 — `popover.dismissInput`(바깥
+  클릭·Alt+Tab: 닫힘만), `popover.escape`(닫힘; `NIM_SETFOCUS` 는 시도만 셈), `popover.withPlaza`(포그라운드 복귀: 결과) — 경로를 요구하는
+  곳 없음.
+
 - **`PlazaWindowMacShellTests.testASavedFrameWinsOverCentring` 가 게이트에서 한 번 실패했다 — 모니터 배치에 따라 AppKit 이 저장된 창 프레임을 다른 곳으로 옮겨 되살린다.** 3대 디스플레이 맥의 전체 게이트(4761개)에서 `(4430, -87, 700, 532)` 가 나왔다(기대 `(120, 140, 700, 532)`). 테스트는 (120, 140) 에서 저장한 프레임이
   그대로 돌아오길 기대했다. `saveFrame(usingName:)` 문자열(`"120 140 700 532 0 0 1728 1084"`)은 저장 창이 있던 **화면의 사각형**을 같이 담고, `setFrameUsingName`/`setFrameAutosaveName` 은 그 사각형과 지금 화면 배치를 견줘 프레임을 **되살리며 옮긴다**
   (같은 문자열이 화면 사각형만 `0 0 1920 1080` 이면 (101, 141), `0 0 1440 900` 이면 (167, 210) 으로 돌아온다 — 맥 이 배치에서 실측). 어느 화면의 사각형이 "맞는" 것으로 치는지는 메뉴 막대·Dock·활성 화면에 달려 있어, 같은 코드가 같은 맥에서도 그때그때 다른 좌표를 낸다
@@ -2674,3 +2745,22 @@ read_when:
 - **윈도에서 UNC 경로(`\\server\share\…`)를 사용자 지정 스캔 폴더·추가 Claude 폴더에 넣으면 찾지 못했다 — 경로 분해는 드라이브 문자만 루트로 알았고, Foundation 의 경로 정리는 UNC 를 깨뜨렸다(P19, 7단계 Task 14).** 세 군데가 따로 틀렸다. (1) `PlatformCompat.splitRoot` 의 윈도 분기가 `C:` 만 루트로 떼고 나머지는 루트 ""(현재 드라이브의 `/`)로 돌려줘, `CustomScanRoots.expand` 가 빈 조각을 버리며 `\\server\share\logs` 를 현재 드라이브의 `\server\share\logs` 로 찾았다(일치 0). (2) swift-foundation 의 `standardizedFileURL` 은 UNC URL 의 앞 `/` 하나를 지운다(`//localhost/C$/x` → `/localhost/C$/x`) — `ClaudeAccountRoots.roots(from:)` 가 이걸로 존재를 확인해 추가 Claude 폴더도 0. (3) `resolvingSymlinksInPath()` 는 `GetFinalPathNameByHandle` 의 `\\?\UNC\…` 에서 `\\?\` 만 떼어 `UNC/localhost/C$/x` 를 **현재 폴더 기준 상대 경로**로 만든다(러너: `D:/a/PokeTokenBar/PokeTokenBar/UNC/localhost/…`) — `LocalUsageReader.normalizedRoots` 를 거친 모든 스캔 루트와 Aside 의 `state.db` 경로가 엉뚱한 곳을 가리켰다. 셋 다 러너의 관리 공유(`\\localhost\C$\…`)로 실측했다(`WindowsScanRootPathTests.testWhatFoundationMakesOfAUNCPath` 의 `PATH-PROBE` 줄, 실행 43841452367). **왜 못 걸렀나:** Track B Task 4 가 입력이 설정 화면뿐이라 UNC·혼합 구분자를 7단계로 미뤘다(그때는 도달 불가가 맞았다). 기존 윈도 경로 테스트는 전부 드라이브 경로(`C:\…`)라 세 결함 중 어느 분기도 밟지 않았고, Task 1 인벤토리는 코드 읽기로 (1)만 찾았다 — (2)(3)은 Foundation 의 동작이라 읽어서는 보이지 않고 실제 공유 경로로 돌려야 드러났다. 이번에 설정에 그 입력란이 생겨 도달 가능해졌다. **고침:** (1) 순수 함수 `PlatformCompat.windowsSplitRoot` — 드라이브 또는 UNC 의 공유(`//server/share`)가 루트, `\\?\`·`\\.\` 접두어는 벗기고 `\\?\UNC\…` 는 UNC 로; `windowsListablePath` 는 공유 루트 끝에 `/` 를 붙인다. (2)(3) 새 이음매 `PlatformCompat.resolvedFileURL` / `standardizedDirectoryURL`(맥 분기는 예전 식 그대로, 윈도는 UNC 만 `windowsStandardizedUNC` 로 `.`·`..` 를 공유 아래에서 정리하고 공유의 링크는 풀지 않는다)를 Core 네 줄이 부른다: `LocalUsageReader.normalizedRoots`, `CustomScanRoots.normalizedPath`, `LocalAsideUsageReader.databases`, `ClaudeAccountRoots.roots(from:)`. **부류 스윕(공용 코드에서 경로를 나누거나 잇거나 `standardizedFileURL`·`resolvingSymlinksInPath` 로 정리하는 모든 곳):** 위 다섯 곳(고침); `isAbsolutePath`(`\` 로 시작하면 절대 — 이미 맞음), `expandingTilde`·`abbreviatingWithTilde`(표시·`~` 만, 무관), `WinPath.native`(UNC 그대로 `\\localhost\…` — 실측 맞음); 고치지 않은 것과 그 이유: `ClaudeAccountRoots.pathKey`·`keychainServices`(`standardizedFileURL` 경로의 해시 — 식별자일 뿐 찾아가지 않고 모든 호출이 같은 식을 거쳐 일관된다), `ClaudeAccountRoots.discovered`·`defaultRootPaths`·`PlatformCompat.windowsRoamingAppData`·`TeamSettings`·`CursorAuthentication`(홈·앱 폴더: 사용자가 입력하지 않는 로컬 경로), `WinPath.sameFile`(설치·로그 폴더 비교, 로컬). **영구 캡처:** `WindowsScanRootPathTests`(관리 공유로 실제 파일 시스템: 트리거 `testAUNCScanFolderIsFound` 는 수정 전 실행 43841452367 에서 6개 단언 실패, 접힌 루트가 실제로 있는 `//localhost/…` 인지까지; `testAdditionalClaudeFoldersTakeTheSameForms`; `testAProviderDatabaseOnAShareIsFound`), `PlatformPathFormsTests`(양 OS: 모든 형태의 루트, 수정 전 분해를 그대로 옮겨 결함 재현, 맥 이음매 고정), `WindowsSeamScanTests.testTheUserPathsGoThroughThePathSeams`(업스트림 병합이 네 줄을 되돌리면 실패), 셀프테스트 `settings.scanFolders`(설정 입력란에 UNC 포함 다섯 형태, 표시 수 = `survivingExtraCount`). **규칙:** 윈도 경로를 다루는 코드는 드라이브·UNC·장치 접두어 세 형태를 받고, 그 분해는 양 OS 에서 도는 순수 함수로 둔다. Foundation 의 경로 정리(`standardized`, 링크 풀기)는 윈도에서 UNC 를 깨뜨리므로 사용자 경로에는 `PlatformCompat` 이음매로만 쓴다. 경로를 받는 입력란이 생기면 그 형태로 입력 → 저장 → 스캔까지 실제 파일 시스템에서 시험한다.
 
 - **윈도에서 세션 키 파일의 0600 은 아무 것도 막지 않았다 — 평문 키가 `%LOCALAPPDATA%` 의 권한만 물려받았다(7단계 Task 1 발견, Task 14 고침).** `SessionKeyStore.save` 는 맥에서 소유자 전용(0600) 파일을 만들고 쓰지만, swift-foundation 은 윈도에서 `.posixPermissions` 를 읽기 전용 속성에만 대응시킨다(쓰기 비트가 있으면 아무 일도 안 한다). 그래서 윈도의 키는 평문 JSON 그대로, 파일의 ACL 은 상위 폴더 것이었다. **왜 못 걸렀나:** `SessionKeyLimitsTests.testStoreRoundTripsCredentialWithOwnerOnlyPermissions` 가 윈도에서도 돌았지만, 같은 Foundation 이 돌려주는 `.posixPermissions` 값(0600)을 읽어 비교했다 — 보호가 걸렸는지가 아니라 Foundation 이 그 값을 기억하는지를 쟀다. **고침(규칙 5, D14):** 두 줄 업스트림 이음매 `PlatformCompat.writeSecret` / `readSecret`(맥 분기는 예전 호출 그대로) — 윈도는 DPAPI(현재 사용자, 앱 엔트로피, UI 없음)로 암호화해 `WinAtomicWrite` 로 쓰고, 복호화 안 되는 파일은 "키 없음" + 로그 한 줄, 예전 빌드의 평문 파일은 첫 읽기에 같은 자리에서 한 번의 이름 바꾸기로 암호화한다. **부류 스윕:** 공용 코드의 `.posixPermissions`·`0o600` 사용은 이 파일뿐이다(팀 코드는 설정 plist 로 맥에서도 소유자 전용 파일이 아니다 — 다른 부류). **영구 캡처:** `WindowsPopoverSecretTests`(디스크에 키 바이트 없음, 변조·다른 엔트로피·다른 앱의 블롭은 nil, 평문 이전과 이름 바꾸기 중 파일이 사라지지 않음, 로그 한 줄), `WindowsSeamScanTests.testTheSessionKeyFileGoesThroughTheSecretSeams`(업스트림 병합이 두 줄을 되돌리면 실패), 셀프테스트 `settings.sessionKeySave`(UI 로 저장한 파일이 암호화돼 있음). **규칙:** 파일 권한으로 비밀을 지키는 코드는 윈도에서 그 권한이 실제로 걸리는지 OS 의 값(ACL·암호화)으로 확인한다 — Foundation 이 돌려주는 같은 속성으로 확인하지 않는다.
+
+- **종료 경로에 마감 없는 기다림이 하나 있었다 — 팀 소켓 스레드를 `WaitForSingleObject(h, INFINITE)` 와 100 ms 슬라이스 무한 반복으로 기다렸다.** 설치 프로그램은 앱이 닫히길 30초만 기다린 뒤 아무것도 건드리지 않고 거절한다(exit 1, 앱을 죽이지도 되살리지도 않음). 그러니 소켓 스레드가 막힌 호출에서 안 돌아오면 앱이 종료에서 멈추고(트레이 아이콘 유령, 단일 인스턴스 뮤텍스 보유, 업데이트 거절) 사용자는 작업 관리자에서 죽여야 한다.
+  **근본원인:** `WinSocketLoop.shutdown()` 이 "스레드는 반드시 돌아온다" 를 가정했다 — 루프가 직접 거는 소켓은 전부 비차단이고 TLS 핸드셰이크도 `WANT_READ/WRITE` 로 단계 진행이라 *지금은* 사실이지만, 그 가정을 지키는 장치(마감)가 없었다. 한 번 지불한 결함(깨움 유실로 귀 먼 루프)의 수리가 "깨움을 다시 보낸다" 였고 그 재전송 루프도 마감이 없었다.
+  **왜 못 걸렀나:** 28개 계약 시나리오·소켓 루프 테스트는 모두 *돌아오는* 스레드로만 `shutdown` 을 불렀다. 돌아오지 않는 스레드를 만드는 이음매가 없어, 마감이 있든 없든 같은 경로로 통과했다(트리거 브랜치 = "마감이 터지는 쪽" 이 한 번도 안 밟힘).
+  **부류 스윕:** 종료 경로(`WindowsApp.exit`, `WM_CLOSE`/`WM_ENDSESSION`/트레이·홈 종료/업데이트 `onLaunched`)의 모든 기다림 — `exit-deadline-report.md` 표. 마감 없던 것은 소켓 루프의 두 곳(`finished.wait` 반복, `WaitForSingleObject INFINITE`)뿐. DNS-SD 골바이는 이미 0.5초, 나머지(`Shell_NotifyIcon`, 설정 flush)는 OS 호출이라 우리 쪽 기다림이 아니다.
+  **고침:** 종료 한 번에 예산 5초(`WindowsApp.exitBudget`). 데이터(팝오버 커밋·설정 flush·백업)를 먼저 쓰고 자르지 않는다 → 트레이 아이콘 제거 → 팀 골바이(최대 0.5초) → 소켓 스레드 대기(예산 잔액, 하한 0.25초). 넘기면 `exit: abandoned <단계> after <ms> ms` 한 줄을 남기고 기존 `exit` 로 프로세스를 끝낸다(`TerminateThread` 없음). 스레드를 둔 채 끝내도 안전한 이유: 스레드가 가진 것은 소켓·`SSL*`·`SSL_CTX` 뿐이고 전부 프로세스 안의 것이라 프로세스가 끝나면 OS 가 거둔다 — 디스크 상태는 이미 위에서 저장했다. 포기한 뒤에는 그 스레드 밑에서 `WSACleanup` 을 부르지 않는다.
+  **회귀 테스트:** `WindowsSocketLoopTests.testShutdownAbandonsAThreadThatDoesNotComeBack`(루프 스레드를 `injectStall` 로 막음 → 0.5초 안에 돌아오고 abandon 한 줄), 앱 수준 `exit.stuckSocketThread`(자식 프로세스: 팀 켬 + 답 없는 피어 + 소켓 스레드 막힘 → `WM_CLOSE` → 예산 안에 종료, 트레이 아이콘이 기다림 전에 제거, 뮤텍스 없음). 결함 주입(마감 제거)으로 두 검사 모두 실패함을 확인했다.
+  **규칙:** 종료 경로의 모든 기다림에는 마감과 주인(예산을 쓰는 단계 이름)이 있다. "스레드는 돌아온다" 는 가정은 마감 + 돌아오지 않는 스레드를 만드는 시험 이음매 없이는 가정이 아니라 희망이다. 새 기다림(`INFINITE`, `.wait()`, 무기한 `join`)을 종료 경로에 넣으면 같은 PR 에서 `exitBudget` 의 한 몫으로 넣는다.
+
+- **실제 IME 참여 게이트(`chat.realIMEEngaged`)가 라이트 실행에서 제품과 무관하게 깨졌다 — 러너의 TSF 가 두 프로세스 모두에서, 대조 EDIT 까지 참여하지 않았다.** (stage 6 Task 11, 실행 43842945406)
+  **직접 원인:** 워크플로 게이트가 "실행마다 적어도 한 프로세스는 참여"를 요구했는데, 라이트 실행은 셀프테스트 프로세스가 둘뿐이고 러너 TSF 의 참여는
+  프로세스마다 흔들린다(이전 실행들에서 20 개 중 6 개 불참: 활성화 뒤 TSF 가 한국어/텍스트 서비스라고 보고하면서도 글자를 그냥 통과시킴 4, 활성화 자체가
+  안 먹음 2 — 실행 단위로 몰려 나옴). **왜 못 걸렀나:** 게이트를 만든 실행(풀 레벨, 프로세스 넷)에서는 늘 한 곳 이상 참여해, 프로세스 둘에서의 실패
+  확률을 재지 않았다. **조사:** 검사가 치기 전에 `g` 로 참여를 확인하고(최대 네 번, 매번 평이한 배열에서 한국어 프로필을 다시 활성화), 시도마다
+  TSF 상태·한글 모드·프로세스에 올라온 IMEKR 모듈과 ctfmon/TextInputHost 실행 여부를 찍게 했다. 두 실행(43849832901, 43855461582)에서 5/5 프로세스가
+  첫 시도에 참여(TSF 0412/1, 변환 0x1 open=1, imkrtip.dll+imkrapi.dll 적재, ctfmon 실행, TextInputHost 없음) — 불참 경우를 다시 못 봐서 재시도가
+  그것을 살리는지는 아직 모른다. **고침:** 검사 안의 규칙은 그대로(대조가 참여하는데 입력칸이 안 하면 FAIL, 둘 다 안 하면 하네스). 게이트는 풀 레벨
+  (windows-port 푸시·킷 빌드·릴리스, 프로세스 넷)에서만 필수, 라이트에서는 프로세스별 줄을 단 `::warning::`. **규칙:** 러너 환경에 기대는 게이트는
+  그 게이트가 도는 레벨의 프로세스 수로 실패 확률을 먼저 잰다; 불참이 다시 나오면 시도별 기록(IMEKR 모듈 적재 여부)으로 원인을 가린다.

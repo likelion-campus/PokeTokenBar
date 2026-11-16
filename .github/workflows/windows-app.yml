@@ -55,7 +55,7 @@ on:
         type: boolean
         default: false
       flake_loop:
-        description: 'Repeat the plaza.hover/cover, plaza.close and modalPump.idle checks N times in one selftest process and print every iteration (diagnostics; 0 = off)'
+        description: 'Repeat the plaza.hover/cover, plaza.close, modalPump.idle and popover.realClick checks N times in one selftest process and print every iteration (diagnostics; 0 = off)'
         default: '0'
       release_sha:
         description: 'Release mode: the 40-hex commit to build (set by team_release.py)'
@@ -193,7 +193,7 @@ jobs:
           foreach ($s in $j.stacks) { "== stacks $($s.name)"; $s.detail }
       - name: Selftest with a stripped Path
         id: bundle-selftest
-        timeout-minutes: 20  # about 6 min; a hang ends with the logs collected (Collect logs runs always)
+        timeout-minutes: ${{ inputs.flake_loop != '' && inputs.flake_loop != '0' && 45 || 20 }}  # about 6 min (the flake loops add their N rounds); a hang ends with the logs collected (Collect logs runs always)
         shell: pwsh
         env:
           PTB_SELFTEST_FLAKE_LOOP: ${{ inputs.release_sha == '' && inputs.flake_loop || '0' }}   # the repeat loops run in this process only
@@ -859,6 +859,19 @@ jobs:
           foreach ($name in 'packaged.processName', 'packaged.version', 'packaged.modules', 'log.writes', 'com.uiThreadSTA', 'plaza.resources', 'plaza.codec.png', 'plaza.codec.gif') {
               $c = $j.checks | Where-Object { $_.name -eq $name }
               Assert-That ($c -and $c.ok -and $c.detail -notlike 'skipped*') "installed.$name" $c.detail
+          }
+          # Stage 6 Task 11: the runner's real Korean IME must have taken the keys in the chat field in at least one selftest process of
+          # this run ("engaged: ..."); a process where TSF would not engage it says "not engaged" and passes only as harness. Full level
+          # (four processes: windows-port, kit builds, release mode) requires one; light (two) only warns: TSF on the runner can stay
+          # unengaged in both, control edit included (run 43842945406), and a gate that can fail with the product untouched blocks merges.
+          $ime = foreach ($f in 'st.json', 'st-dispatch.json', 'st-installed-first.json', 'st-installed.json') {
+              if (Test-Path $f) { (Get-Content $f -Raw | ConvertFrom-Json).checks | Where-Object { $_.name -eq 'plaza.chatRealIME' } | ForEach-Object { "${f}: $($_.detail.Substring(0, [Math]::Min(70, $_.detail.Length)))" } }
+          }
+          $engaged = @($ime | Where-Object { $_ -match '\.json: engaged:' }).Count -ge 1
+          if ($env:PTB_LEVEL -eq 'full' -or $engaged) {
+              Assert-That $engaged "chat.realIMEEngaged" ($ime -join ' | ')
+          } else {
+              Write-Host "::warning title=chat.realIMEEngaged::light run: the real Korean IME engaged in no selftest process (harness, not judged): $($ime -join ' | ')"
           }
           "executed selftest checks: $(@($j.checks).Count)"
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)

@@ -188,6 +188,27 @@ int ptb_clipboard_set_text(const uint16_t *text, size_t count, uint32_t timeoutM
     return code;
 }
 
+int ptb_clipboard_read_text(uint16_t *out, uint32_t cap, uint32_t timeoutMs) {
+    if (!out || cap == 0) return fail("clipboard text input", E_INVALIDARG);
+    DWORD err = 0;
+    if (!openWithRetry(nullptr, timeoutMs, &err)) return fail("OpenClipboard (busy)", HRESULT_FROM_WIN32(err));
+    int copied = 0;
+    HANDLE data = IsClipboardFormatAvailable(CF_UNICODETEXT) ? GetClipboardData(CF_UNICODETEXT) : nullptr;
+    if (data) {
+        const SIZE_T units = GlobalSize(data) / sizeof(uint16_t);
+        const uint16_t *p = static_cast<const uint16_t *>(GlobalLock(data));
+        if (p) {
+            while (static_cast<uint32_t>(copied) < cap && static_cast<SIZE_T>(copied) < units && p[copied] != 0) {
+                out[copied] = p[copied];
+                copied++;
+            }
+            GlobalUnlock(data);
+        }
+    }
+    CloseClipboard();
+    return copied;
+}
+
 int ptb_clipboard_read(unsigned format, uint8_t **bytes, size_t *len, uint32_t timeoutMs) {
     if (!bytes || !len) return fail("clipboard read input", E_INVALIDARG);
     *bytes = nullptr;

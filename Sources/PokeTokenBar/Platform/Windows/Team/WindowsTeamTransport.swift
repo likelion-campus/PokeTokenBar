@@ -221,17 +221,20 @@ final class WindowsTeamTransport: TeamTransporting {
         _ = dial(endpoint)
     }
 
-    /// App exit: withdraws the advertisement and waits (at most `goodbyeWait`) for the goodbye to leave, so Macs
-    /// remove the service at once; then stops silently (peers get close_notify) and joins the socket thread
-    /// (`WinSocketLoop.shutdown`, once). A later `start` would make a new loop.
-    func shutdown() {
+    /// App exit: withdraws the advertisement and waits (at most `goodbyeWait`, and never past `seconds` in all) for the
+    /// goodbye to leave, so Macs remove the service at once; then stops silently (peers get close_notify) and waits for
+    /// the socket thread within what is left of `seconds` (`WinSocketLoop.shutdown(within:)`: a thread that does not come
+    /// back is abandoned with one log line). A later `start` would make a new loop.
+    func shutdown(within seconds: TimeInterval = WinSocketLoop.shutdownBound) {
         let started = Date()
-        lastGoodbye = dnssd?.deregister(waitingUpTo: Self.goodbyeWait)
+        lastGoodbye = dnssd?.deregister(waitingUpTo: min(Self.goodbyeWait, max(0, seconds)))
         if let goodbye = lastGoodbye {
-            log("team: DNS-SD goodbye \(goodbye ? "sent" : "not confirmed") after \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            log("team: DNS-SD goodbye \(goodbye ? "sent" : "not confirmed") after \(ms) ms")
+            if !goodbye { log("exit: abandoned DNS-SD goodbye after \(ms) ms") }
         }
         stop()
-        loop?.shutdown()
+        loop?.shutdown(within: max(0.25, seconds - Date().timeIntervalSince(started)))
         loop = nil
         dnssd = nil
     }
