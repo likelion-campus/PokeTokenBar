@@ -752,8 +752,8 @@ extension WindowsSelftest {
         _ = SendInput(2, &inputs, Int32(MemoryLayout<INPUT>.stride))
     }
 
-    /// Review 11: a paste into a code field drops spaces and line breaks; with no text on the clipboard it is the edit's own
-    /// paste (the selection stays).
+    /// Review 11: a paste into a code field drops spaces and line breaks; with no text on the clipboard nothing happens (the
+    /// selection stays; the edit's own paste would clear it).
     private static func codePasteCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
         guard WindowsSelftest.onCI else { r.add("ui.kit.codePaste", true, "skipped: CI not set (the check writes the clipboard)"); return }
         guard let code = page.codeField else { r.add("ui.kit.codePaste", false, "no code field"); return }
