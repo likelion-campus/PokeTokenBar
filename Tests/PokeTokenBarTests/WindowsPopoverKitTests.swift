@@ -162,7 +162,7 @@ final class WindowsPopoverKitTests: XCTestCase {
     }
 
     /// Japanese wraps between characters (a label narrower than the phrase is not squeezed); Latin words and Hangul eojeol stay whole.
-    func testJapaneseBreaksBetweenCharacters() {
+    func testJapaneseBreaksBetweenCharacters() async {
         XCTAssertEqual(KitTree.unbreakableRuns("追加のClaudeアカウント"), ["追", "加", "の", "Claude", "ア", "カ", "ウ", "ン", "ト"])
         XCTAssertEqual(KitTree.unbreakableRuns("（孵化・卒業）"), ["（", "孵", "化", "・", "卒", "業", "）"])
         XCTAssertEqual(KitTree.unbreakableRuns("Refresh interval"), ["Refresh", "interval"])
