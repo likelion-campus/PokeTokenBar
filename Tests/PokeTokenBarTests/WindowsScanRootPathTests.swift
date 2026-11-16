@@ -104,44 +104,6 @@ final class WindowsScanRootPathTests: XCTestCase {
         XCTAssertEqual(url.path, slashed)
     }
 
-    /// How swift-foundation lists a share's files, spelling by spelling (a record for the defect log; asserts nothing).
-    func testHowAShareIsEnumerated() throws {
-        let share = try require(unc("plain"), "administrative share")
-        try Data("{}\n".utf8).write(to: root.appendingPathComponent("plain/a.jsonl"))
-        let fm = FileManager.default
-        let device = "\\\\?\\UNC\\" + share.dropFirst(2)
-        var forms: [(String, URL)] = [("local", URL(fileURLWithPath: native("plain"))), ("unc", URL(fileURLWithPath: share)),
-                                      ("unc-dir", URL(fileURLWithPath: share, isDirectory: true)),
-                                      ("slashes", URL(fileURLWithPath: share.replacingOccurrences(of: "\\", with: "/"))),
-                                      ("device", URL(fileURLWithPath: device))]
-        let rest = share.dropFirst(2).split(separator: "\\", maxSplits: 1).map(String.init)   // ["localhost", "C$\\…\\plain"]
-        if rest.count == 2, let hosted = URL(string: "file://\(rest[0])/" + rest[1].replacingOccurrences(of: "\\", with: "/")
-                                                  .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)!) {
-            forms.append(("host-url", hosted))
-        }
-        if let mapped = mappedDrive("plain") { forms.append(("mapped", URL(fileURLWithPath: mapped))) }
-        for (name, url) in forms {
-            let path = url.path
-            var withKeys: [String] = [], plain: [String] = []
-            if let en = fm.enumerator(at: url, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey], options: [.skipsHiddenFiles]) {
-                for case let u as URL in en { withKeys.append(u.path) }
-            }
-            if let en = fm.enumerator(at: url, includingPropertiesForKeys: nil) { for case let u as URL in en { plain.append(u.path) } }
-            let byPath = (fm.enumerator(atPath: path)?.allObjects as? [String]) ?? []
-            let child = URL(fileURLWithPath: "a.jsonl", relativeTo: url)
-            let listed = ((try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []).map(\.path)
-            let file = url.appendingPathComponent("a.jsonl")
-            let date: String
-            do { date = "\(try file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate.map { "\($0)" } ?? "nil")" }
-            catch { date = "error \(error)" }
-            print("ENUM-PROBE|\(name)|absolute=\(url.absoluteString)|URL.path=\(path)|exists=\(fm.fileExists(atPath: url.path))|enumerator(at:keys)=\(withKeys)"
-                  + "|enumerator(at:)=\(plain)|enumerator(atPath:)=\(byPath)|contents(at:)=\(listed)|file.mtime=\(date)"
-                  + "|jsonlFiles=\(LocalUsageReader.jsonlFiles(in: url, modifiedSince: .distantPast).map(\.path))"
-                  + "|resolved=\(PlatformCompat.resolvedFileURL(url).path)|relativeChild=\(child.path) exists=\(fm.fileExists(atPath: child.path))"
-                  + "|appended=\(url.appendingPathComponent("a.jsonl").path)")
-        }
-    }
-
     /// The P19 trigger: a UNC folder in the custom scan folders is found (it used to be looked up as `\server\share\…` on the
     /// current drive and count 0).
     func testAUNCScanFolderIsFound() throws {
@@ -204,7 +166,7 @@ final class WindowsScanRootPathTests: XCTestCase {
 
     /// A mapped network drive (`net use X: \\server\share`): Windows resolves it to `\\?\UNC\server\share\…`, which swift-foundation
     /// turned into `UNC/server/share/…` relative to the current folder: the folded root did not exist and the scan found nothing,
-    /// while Settings still counted the folder (review of Task 14, Important 1). Kept as `X:\…` (a share spelling lists nothing).
+    /// while Settings still counted the folder (review of Task 14, Important 1). Now the share's own path, walked by the share walk.
     func testAMappedDriveFolderIsScanned() throws {
         let drive = try require(mappedDrive("plain"), "mapped network drive")
         print("PATH-PROBE|mapped=\(drive)|resolvedFileURL=\(PlatformCompat.resolvedFileURL(URL(fileURLWithPath: drive)).path)"
@@ -217,7 +179,9 @@ final class WindowsScanRootPathTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: folded.path), "the folded root \(folded.path) does not exist")
         XCTAssertEqual(LocalUsageReader.jsonlFiles(in: folded, modifiedSince: Date(timeIntervalSinceNow: -3600)).map(\.lastPathComponent), ["a.jsonl"])
         XCTAssertEqual(CustomScanRoots.survivingExtraCount(defaults: [], extraRaw: drive), 1)
-        XCTAssertTrue(folded.path.lowercased().hasPrefix(String(drive.prefix(2)).lowercased() + "/"), "kept as the drive: \(folded.path)")
+        XCTAssertTrue(folded.path.hasPrefix("//localhost/"), "the share the drive maps: \(folded.path)")
+        // The drive and the share it maps are one folder: written both ways it counts once (and is scanned once).
+        if let share = unc("plain") { XCTAssertEqual(CustomScanRoots.survivingExtraCount(defaults: [], extraRaw: drive + "\n" + share), 1) }
         // An additional Claude folder there, and Aside's database there.
         let account = ClaudeAccountRoots.roots(from: drive)
         XCTAssertEqual(account.count, 1)
@@ -226,7 +190,8 @@ final class WindowsScanRootPathTests: XCTestCase {
         XCTAssertEqual(db.map { FileManager.default.fileExists(atPath: $0.path) }, [true], "\(db.map(\.path))")
     }
 
-    /// A link to a share (a directory symbolic link `…\to-share` → `\\localhost\C$\…\plain`) is scanned through the link.
+    /// A link to a share (a directory symbolic link `…\to-share` → `\\localhost\C$\…\plain`) resolves to the share and is scanned
+    /// (swift-foundation's enumerator lists nothing through the link itself: run 43883084352).
     func testALinkToAShareIsFollowed() throws {
         let share = try require(unc("plain"), "administrative share")
         let link = root.appendingPathComponent("to-share")

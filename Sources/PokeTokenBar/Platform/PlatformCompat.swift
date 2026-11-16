@@ -212,20 +212,16 @@ enum PlatformCompat {
 
     /// `url.resolvingSymlinksInPath().standardizedFileURL`: the form scan roots are compared and kept in (stage 7 Task 14, P19).
     /// Mac: exactly that. Windows: the final path Windows reports for an existing file or folder (`WinPath.finalPath`: links,
-    /// junctions and subst followed), turned from its `\\?\` device spelling into the form shared code keeps
-    /// (`windowsPathFromDevicePath`) — except when it lands on a share (`\\?\UNC\…`: a mapped network drive, a link to a share, a
-    /// UNC path): then the spelling the user gave is kept, standardized, because swift-foundation lists no folder through a
-    /// `//server/share` spelling (every listing call returns nothing; files there still open) while a mapped drive or a link
-    /// lists normally (measured on the runner). A path that cannot be opened is kept as typed. swift-foundation's own
+    /// junctions, subst and mapped network drives followed), turned from its `\\?\` device spelling into the form shared code
+    /// keeps (`windowsPathFromDevicePath`: `\\?\UNC\server\share\x` → `//server/share/x`); a folder on a share is then listed
+    /// through `enumerator` / `contentsOfDirectory`'s share walk (swift-foundation's URL-based listing returns nothing there,
+    /// and a link to a share lists nothing either). A path that cannot be opened is kept as typed. swift-foundation's own
     /// resolution turned every result on a share into `UNC/server/share/…` relative to the current folder, and its
     /// standardization drops a UNC path's leading slash.
     static func resolvedFileURL(_ url: URL) -> URL {
         #if os(Windows)
         let path = url.path
-        if let final = WinPath.finalPath(path) {
-            let resolved = windowsPathFromDevicePath(final)
-            if !isWindowsUNC(resolved) { return URL(fileURLWithPath: resolved) }
-        }
+        if let final = WinPath.finalPath(path) { return URL(fileURLWithPath: windowsPathFromDevicePath(final)) }
         if isWindowsUNC(path) { return URL(fileURLWithPath: windowsStandardizedUNC(path)) }
         return url.standardizedFileURL
         #else
