@@ -801,7 +801,7 @@ jobs:
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
         id: idle
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full' && env.PTB_FAST != 'true'
-        timeout-minutes: 35  # about 18 min
+        timeout-minutes: 45  # about 23 min with the popover windows (run 43794578956: 22.4 min)
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
