@@ -30,6 +30,9 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--selftest-menu-exit") {
             WindowsSelftest.runMenuExit(Array(arguments[(i + 1)...]))
         }
+        if let i = arguments.firstIndex(of: WindowsSelftest.exitStuckFlag) {
+            WindowsSelftest.runExitStuck(Array(arguments[(i + 1)...]))  // stage 8: the bounded exit's helper
+        }
         if let i = arguments.firstIndex(of: "--selftest-guard-reader") {
             WindowsSelftest.runGuardReader(Array(arguments[(i + 1)...]))
         }
@@ -71,6 +74,9 @@ public enum WindowsApp {
             WindowsSelftestPopoverHome.startIdleProbe(mode: i + 1 < arguments.count ? arguments[i + 1] : "seconds")
         }
         // --- stage 7 Task 5: the gate's open Home page (end) ---
+        // --- stage 7 Task 13: the gate's open recap page (begin) ---
+        if arguments.contains("--popover-recap-idle-probe") { WindowsSelftestPopoverRecap.startIdleProbe() }
+        // --- stage 7 Task 13: the gate's open recap page (end) ---
         if let i = arguments.firstIndex(of: "--popover-idle-probe") {  // stage 7 Task 4: the gate's popover windows (open / closed after open)
             WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
         }
@@ -89,11 +95,20 @@ extension WindowsApp {
     /// settings are saved.
     @MainActor static var popoverToClose: WinPopover?
 
+    /// The selftest's helper only: told each step of the exit as it completes (`tray removed`, `team shutdown done`).
+    @MainActor static var exitStepObserver: ((String) -> Void)?
+
     enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed, update }
+
+    /// The cooperative part of the exit (the team's goodbye and the socket thread) shares this much, counted from the start
+    /// of `exit`. Setup waits 30 s for the app to close and then refuses, so the whole exit stays far below that; healthy
+    /// exits take well under a second. The data (popover commit, settings flush and backup) is spent first and never cut.
+    static let exitBudget: TimeInterval = 5
 
     /// The only way Windows code leaves the process (scan-enforced): settings are lost unless synchronized (F2), and
     /// the log line is lost unless flushed.
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
+        let began = Date()
         WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
         if let line = WindowsSelftestPopoverWindow.idleProbeExitLine() { AppLog.write(line) }  // stage 7 Task 4: the idle gate's popover state at exit
         popoverToClose?.close(.quit)  // stage 7 Task 4
@@ -102,8 +117,10 @@ extension WindowsApp {
         if let line = WinPlazaLive.openPlazaLine { AppLog.write(line) }  // an open plaza's counters (idle measurements read them)
         AppLog.writeAndFlush("exit code=\(code) reason=\(reason.rawValue)")
         trayToRemove?.remove()
-        teamTransportToShutdown?.shutdown()
+        exitStepObserver?("tray removed")
+        teamTransportToShutdown?.shutdown(within: max(0, exitBudget - Date().timeIntervalSince(began)))
         teamTransportToShutdown = nil
+        exitStepObserver?("team shutdown done")
         crtExit(code)
     }
 

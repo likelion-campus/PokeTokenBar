@@ -29,11 +29,11 @@ P1 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift 
 P2 | 1 | pending T19 | UI/PopoverView.swift | Main tab bar (Home, Shop, Bag, Collection; segmented); Windows shows it once a second tab exists
 P3 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift | Open-plaza button (map glyph, red unread dot, tooltip), team ready only; closes the popover and opens the plaza
 P4 | 1 | done Popover/PopoverWindowMetrics.swift | UI/PopoverView.swift | Popover metrics: 360 wide, 14 padding, content 332, scroller lane 12 kept clear (the kit's scroll areas always reserve the bar), twinned
-P4w | 1 | pending T5 | UI/PopoverView.swift | The popover's pages: Home content 520 high and scrolling; Settings and Recap replace the content in place
+P4w | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/PopoverView.swift | The popover's pages: Home content 520 high and scrolling; Settings and Recap replace the content in place
 P5 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift, UI/UsageCostText.swift | Today header: caption, compact total (28 pt bold, monospaced), grouped digits from 1,000 (region grouping), today's cost when shown
 P6 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift | Week and month totals with cost; two lines when narrow
 P7 | 2 | pending T12 | UI/StreakBadge.swift | Streak badge: flame + days from 2 days, orange when today counts, tooltip and accessibility label
-P8 | 2 | pending T13 | UI/PopoverView.swift | Recap button (chart glyph + "Details"), opens the recap page
+P8 | 2 | done Platform/Windows/Popover/WinRecapPage.swift | UI/PopoverView.swift | Recap button (chart glyph + "Details"), opens the recap page
 P9 | 2 | pending T12 | UI/ActivityVisualization.swift | Activity panel: a click cycles the visualization (bars, heatmap), tooltip, page dots
 P10 | 2 | pending T12 | UI/PopoverView.swift | Monthly bars: window menu (7/14/21 days, this month), today readout, peak, provider-stacked bars + legend, hover card (day, tokens, cost, per provider), weekend ticks, axis labels, future days
 P11 | 2 | pending T12 | UI/ActivityHeatmap.swift | 16-week heatmap: weekday labels from the region's first weekday, 5 green levels, today outline, hover readout, peak, recorded-since
@@ -86,9 +86,9 @@ H2 | 3 | pending T19 | UI/ShopView.swift, UI/CompanionView.swift | Shop item car
 H3 | 3 | pending T19 | UI/ShopView.swift | Egg cards: egg sprite, tier badge, description, release note, price, locked hint as an egg, confirm, second warning for shiny/legendary, then Home
 B1 | 3 | pending T19 | UI/BagView.swift | Empty bag: animated Snorlax, title, Shop button
 B2 | 3 | pending T19 | UI/BagView.swift | Bag item cards: icon, ×count, candy stepper, description, candy preview (graduates, discarded XP, carry-over), passive effect, Use → confirm → Home, disabled reasons
-R1 | 2 | pending T13 | UI/UsageRecapView.swift | Recap page: Back (Esc), week/month/year segments, previous / current / next period
-R2 | 2 | pending T13 | UI/UsageRecapView.swift | Recap card: Pokédex shell, lens, LEDs, period title, LCD total, unit, delta chip, 8-block meters with labels (current highlighted, tooltips, accessibility), best day / best streak / active days / graduates, the companion and up to 4 graduates
-R3 | 2 | pending T13 | UI/UsageRecapView.swift | Best-day line, "compared so far" note; backfill of Pokédex names
+R1 | 2 | done Platform/Windows/Popover/WinRecapPage.swift | UI/UsageRecapView.swift | Recap page: Back (Esc), week/month/year segments, previous / current / next period
+R2 | 2 | done Popover/RecapCardPart.swift | UI/UsageRecapView.swift | Recap card: Pokédex shell, lens, LEDs, period title, LCD total, unit, delta chip, 8-block meters with labels (current highlighted, tooltips, accessibility), best day / best streak / active days / graduates, the companion and up to 4 graduates
+R3 | 2 | done Platform/Windows/Popover/WinRecapPage.swift | UI/UsageRecapView.swift | Best-day line, "compared so far" note; backfill of Pokédex names
 G0 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Settings page: Back (Esc) + title, scrolling body, the section card look (uppercase caption, rows, dividers), footer version · GitHub · website · ♥ sponsor
 G1 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: language picker (companion and store both follow)
 G2 | 3 | pending T20 | UI/SettingsView.swift | General: representative Pokémon menu (follow current / choose from the Pokédex)

@@ -94,6 +94,9 @@ import WinSDK
     /// The page `popover.state` asks for: Settings, else the Home page. Back leaves Settings
     /// in place, the Mac's `onClose`.
     static func routed(_ popover: WinPopover) -> WinPopoverPage {
+        // MARK: Task 13 — the recap replaces the content like Settings (the Mac's `nav.showingRecap`)
+        if popover.state.showingRecap, !popover.state.showSettings { return WinRecapPage.routed(popover) }
+        // MARK: end Task 13
         guard popover.state.showSettings else { return WinHomePage(host: popover.host, state: popover.state, popover: popover) }  // stage 7 Task 5: Home
         return WinSettingsPage(host: popover.host, popover: popover) { [weak popover] in
             popover?.state.showSettings = false

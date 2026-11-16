@@ -27,7 +27,7 @@ typedef struct PTBTextLine PTBTextLine;
 
 typedef struct {
     uint32_t start, length; /* UTF-16 range of the line's text */
-    int32_t font;           /* 0 Galmuri11, 1 Galmuri14, 2 Pretendard, 3 Segoe UI Emoji */
+    int32_t font;           /* 0 Galmuri11, 1 Galmuri14, 2 Pretendard, 3 Segoe UI Emoji, 4 symbol font, 5 Cascadia Mono (else Consolas) */
     int32_t weight;         /* 400, 600, 700 */
     double size;            /* points */
     int32_t ownColor;       /* 1: r, g, b, a is the run's colour; 0: the canvas's fill (stroke) colour */

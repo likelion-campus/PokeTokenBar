@@ -8,14 +8,10 @@ import AppKit
     /// 오른쪽 끝의 😀. 입력칸 위에 이모지 판을 펼치고 접는다.
     let emojiButton = NSButton(title: "😀", target: nil, action: nil)
     /// 자주 쓰는 이모지. macOS 이모지 창은 이 앱에서 뜨지 않는 Mac이 있어(⌃⌘Space와 🌐 키도) 앱 안에 판을 둔다.
-    static let emojis = [
-        "😀", "😂", "🤣", "😊", "😍", "🥰", "😎", "🤔", "😅", "😭",
-        "😢", "😡", "🥺", "😴", "🤯", "🥳", "👍", "👎", "👏", "🙏",
-        "🙌", "💪", "👀", "🔥", "✨", "🎉", "❤️", "💯", "✅", "❌",
-        "☕", "🍜", "🍕", "🍺", "🎂", "☀️", "🌧️", "💻", "🐛", "🚀",
-    ]
-    static let emojiColumns = 10
-    static let emojiCell: CGFloat = 32
+    /// Windows의 입력줄(`PlazaChatBarPanel`)과 같은 목록이다(`PlazaChatEmojis`).
+    static let emojis = PlazaChatEmojis.all
+    static let emojiColumns = PlazaChatEmojis.columns
+    static let emojiCell = PlazaChatEmojis.cell
     /// 입력칸 위의 이모지 판. 펼쳤을 때만 입력창 안에 들어가고, 입력창이 그만큼 위로 커진다.
     let emojiPanel = NSGridView()
     private(set) var emojiPanelButtons: [NSButton] = []
