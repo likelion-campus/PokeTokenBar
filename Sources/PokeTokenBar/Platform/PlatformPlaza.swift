@@ -71,9 +71,12 @@ enum PlatformPlaza {
         #endif
     }
 
-    /// The one-line chat field: the AppKit field on the Mac, a state-only stub elsewhere.
+    /// The one-line chat field: the AppKit field on the Mac, the native EDIT control in the Windows app (`WinPlazaChatInput`, once the
+    /// app installed `WinPlazaLive`), a state-only stub in tests and the shared-only check.
     @MainActor static func makeChatInput() -> any PlazaChatInputHost {
-        #if os(Windows) || PTB_SHARED_ONLY
+        #if os(Windows)
+        WinPlazaLive.isInstalled ? WinPlazaChatInput() : PlazaStubChatInput(log: { AppLog.write($0) })
+        #elseif PTB_SHARED_ONLY
         PlazaStubChatInput(log: { AppLog.write($0) })
         #else
         PlazaChatInput()

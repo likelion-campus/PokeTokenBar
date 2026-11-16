@@ -6,7 +6,7 @@ import WinSDK
 /// `PokeTokenBar.version` (a build-tree run).
 extension WindowsSelftest {
     /// The full paths of the DLLs and the exe loaded in this process (Toolhelp module snapshot).
-    private static func loadedModules() -> [String]? {
+    static func loadedModules() -> [String]? {
         let snapshot = CreateToolhelp32Snapshot(DWORD(0x8 | 0x10) /* TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32 */, GetCurrentProcessId())
         guard snapshot != INVALID_HANDLE_VALUE else { return nil }
         defer { _ = CloseHandle(snapshot) }
