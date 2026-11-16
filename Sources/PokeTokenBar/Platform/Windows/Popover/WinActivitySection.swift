@@ -19,7 +19,7 @@ import WinSDK
     /// The streak's view where the Home page's period line holds it (beside the recap button, as on the Mac).
     struct StreakSlot {
         var view: WinDrawnView
-        var composite: WinComposite
+        var line: WinPeriodLine
         var control: WinControl
     }
 
@@ -63,7 +63,7 @@ import WinSDK
         if let streak {
             slot = streak
             sv = streak.view
-            streak.control.onSizeChange = { [weak composite = streak.composite] in composite?.remeasure(); composite?.arrange() }
+            streak.control.onSizeChange = { [weak line = streak.line] in line?.relayout() }
         } else {
             streakRow = section.addStyledRow(label: nil, style: .trailing) { pane, ctx in  // no Home line to share (a lone panel)
                 sv = try? WinDrawnView(parent: pane, ctx: ctx)
@@ -133,10 +133,10 @@ import WinSDK
                 view.host(part, width: widthDIP)
             }
             streakRow?.isVisible = true
-            if let slot { slot.composite.setShown(slot.control, true); slot.composite.arrange() }
+            if let slot { slot.line.setStreak(shown: true); slot.line.relayout() }
         } else {
             streakRow?.isVisible = false
-            if let slot { slot.composite.setShown(slot.control, false) }
+            if let slot { slot.line.setStreak(shown: false) }
         }
         // the chart
         switch m.content {
@@ -251,7 +251,7 @@ import WinSDK
         // The views free their pictures when destroyed (the rows' controls would do it too, but only while the view is alive
         // to be told): destroy them here, before the page forgets them.
         panelView?.destroy()
-        if slot == nil { streakView?.destroy() }  // the header's controls own a slot's view
+        streakView?.destroy()  // idempotent; a slot's control is also destroyed by the period line
         panelView?.onPointer = nil
         panelView?.onKey = nil
         panelView?.onFocus = nil
@@ -259,25 +259,6 @@ import WinSDK
         panelView?.onHit = nil
         streakView = nil
         panelView = nil
-    }
-}
-
-extension WinHomePage {
-    /// The control at the right end of the week and month line (the Mac's `periodTotals` ... `StreakBadge`, `recapButton`): the
-    /// streak's drawn view (hidden until a streak shows) and the "Details" button, in one line.
-    func makePeriodTrailing(_ pane: HWND, _ ctx: WinUIContext) -> WinControl? {
-        var view: WinDrawnView?, button: WinControl?
-        let composite = WinComposite(parent: pane, ctx: ctx) { child in
-            view = try? WinDrawnView(parent: child, ctx: ctx)
-            button = self.makeRecapButton(in: child, ctx: ctx)
-            return ([], [view?.control, button].compactMap { $0 })
-        }
-        guard let composite else { return nil }
-        if let view, let control = view.control {
-            streakSlot = WinActivitySection.StreakSlot(view: view, composite: composite, control: control)
-            composite.setShown(control, false)
-        }
-        return composite.control
     }
 }
 #endif

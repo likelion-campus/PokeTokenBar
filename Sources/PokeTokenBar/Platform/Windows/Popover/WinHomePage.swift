@@ -79,6 +79,7 @@ import WinSDK
 
     struct HeaderParts {
         var caption: WinControl, total: WinControl, grouped: WinControl, cost: WinControl, periods: WinControl
+        var periodsLine: WinPeriodLine
         var line: WinComposite
         var hint: WinRow
     }
@@ -425,19 +426,21 @@ import WinSDK
                 }
                 return line?.control
             }
-            section.addStyledRow(label: { pane, ctx in
-                periodsLabel = WinControls.label(periods, style: .callout, role: .secondary, in: pane, ctx: ctx)
-                return periodsLabel
-            }, style: .trailing) { pane, ctx in self.makePeriodTrailing(pane, ctx) }  // Tasks 12 and 13: the streak and "Details" at the line's right end
+            var periodsLine: WinPeriodLine?
+            section.addStyledRow(label: nil, style: .full) { pane, ctx in  // Tasks 12 and 13: the totals, the streak and "Details" in the Mac's one line (WinPeriodLine.swift)
+                periodsLine = self.makePeriodLine(pane, ctx, periods)
+                periodsLabel = periodsLine?.label
+                return periodsLine?.control
+            }
             var hintRow: WinRow?
             hintRow = section.addStyledRow(label: { pane, ctx in
                 WinControls.label(L(self.companion.language).winNoUsageYet, style: .callout, role: .tertiary, in: pane, ctx: ctx)
             }, style: .trailing)
-            guard let caption, let total, let grouped, let cost, let periodsLabel, let line, let hintRow else {
+            guard let caption, let total, let grouped, let cost, let periodsLabel, let periodsLine, let line, let hintRow else {
                 AppLog.write("home page: the header's controls were not made")
                 return
             }
-            headerParts = HeaderParts(caption: caption, total: total, grouped: grouped, cost: cost, periods: periodsLabel, line: line, hint: hintRow)
+            headerParts = HeaderParts(caption: caption, total: total, grouped: grouped, cost: cost, periods: periodsLabel, periodsLine: periodsLine, line: line, hint: hintRow)
             line.setShown(grouped, h.grouped != nil)
             line.setShown(cost, h.cost != nil)
             hintRow.isVisible = empty
@@ -450,7 +453,7 @@ import WinSDK
             if c.text != s { c.text = s; relayout = true }
         }
         setWrapped(parts.caption, h.caption)
-        setWrapped(parts.periods, periods)
+        parts.periodsLine.setText(periods)  // Tasks 12 and 13: a line of its own (the page lays out again when its height changed)
         parts.line.setText(parts.total, h.total)
         parts.line.setText(parts.grouped, h.grouped ?? "")
         parts.line.setText(parts.cost, h.cost ?? "")

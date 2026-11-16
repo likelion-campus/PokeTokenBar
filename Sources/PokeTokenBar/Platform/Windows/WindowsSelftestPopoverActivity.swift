@@ -140,6 +140,7 @@ enum ActivityFixtures {
                         "home.activityStreakLine", "home.activityOpenClose"]
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
+        clearSettings()  // earlier groups' fixtures must not leave a streak or a heatmap behind for the Home captures
         let start = KitResources.now()
         let liveWindows = WinSinkWindow.liveCount
         await captureCheck(r)
@@ -148,11 +149,19 @@ enum ActivityFixtures {
         await cycleCheck(r)
         await weekStartCheck(r)
         await streakLineCheck(r)
+        clearSettings()
         let after = KitResources.now()
         let windowsAfter = WinSinkWindow.liveCount
         r.add("home.activityOpenClose", after.gdi <= start.gdi + 2 && after.user <= start.user + 2 && after.handles <= start.handles + 8
               && after.controls <= start.controls && windowsAfter <= liveWindows,
               "after every activity check closed its window: before \(start.description), after \(after.description); sink windows \(liveWindows) -> \(windowsAfter)")
+    }
+
+    /// The fixture stores write the ledger, the visualization and the trend window into the selftest's settings suite (shared by the
+    /// Home checks that follow): put them back to a first run.
+    private static func clearSettings() {
+        guard let suite = WinDefaultsSync.selftestSuiteName.flatMap({ UserDefaults(suiteName: $0) }) else { return }
+        for key in ["dailyTokenLedger", "dailyTokenLedgerSince", "activityVisualization", "dailyTrendWindow"] { suite.removeObject(forKey: key) }
     }
 
     static func dumpDirectory() -> URL? {
