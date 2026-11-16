@@ -55,7 +55,7 @@ on:
         type: boolean
         default: false
       flake_loop:
-        description: 'Repeat the plaza.hover/cover, plaza.close and modalPump.idle checks N times in one selftest process and print every iteration (diagnostics; 0 = off)'
+        description: 'Repeat the plaza.hover/cover, plaza.close, modalPump.idle and popover.realClick checks N times in one selftest process and print every iteration (diagnostics; 0 = off)'
         default: '0'
       release_sha:
         description: 'Release mode: the 40-hex commit to build (set by team_release.py)'
@@ -71,7 +71,9 @@ concurrency:
 jobs:
   app:
     runs-on: windows-latest
-    timeout-minutes: 90
+    # A full run took 67 min before the popover, the in-app update and the installer scenarios and went past 90 min with
+    # them (run 43825854006: cut off at 90 min inside a passing step). Every long step has its own limit; this is the backstop.
+    timeout-minutes: 150
     env:
       PTB_LEVEL: ${{ (github.ref == 'refs/heads/windows-port' || inputs.level == 'full' || inputs.release_sha != '') && 'full' || 'light' }}
       # The switches that skip or add steps, as this run uses them: release mode forces them off (the idle gate always runs).
@@ -191,7 +193,7 @@ jobs:
           foreach ($s in $j.stacks) { "== stacks $($s.name)"; $s.detail }
       - name: Selftest with a stripped Path
         id: bundle-selftest
-        timeout-minutes: 20  # about 6 min; a hang ends with the logs collected (Collect logs runs always)
+        timeout-minutes: ${{ inputs.flake_loop != '' && inputs.flake_loop != '0' && 45 || 20 }}  # about 6 min (the flake loops add their N rounds); a hang ends with the logs collected (Collect logs runs always)
         shell: pwsh
         env:
           PTB_SELFTEST_FLAKE_LOOP: ${{ inputs.release_sha == '' && inputs.flake_loop || '0' }}   # the repeat loops run in this process only
