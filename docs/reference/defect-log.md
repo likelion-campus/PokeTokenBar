@@ -2652,3 +2652,12 @@ read_when:
   **부류 스윕:** 절대 창/화면 좌표를 단언하는 맥 테스트는 이것뿐이다(`testRosterCapacityUsesTheRestoredWindowHeight` 는 크기만, `PlazaWindowRig`/`PlazaLiveWindowTests` 는 화면이 닿는 화면 밖 좌표면 건너뛴다, `FloatingPetAgentTests` 는 `visibleFrame` 을 주입한다).
   **열린 의문(제품):** 스크립트 실측에서 두 번째·세 번째 디스플레이에서 저장한 창은 다시 열면 주 디스플레이의 다른 위치로 돌아왔다(저장 사각형의 높이가 `visibleFrame` 과 달라 화면이 안 맞는 것으로 보인다). 앱 밖 스크립트라 메뉴 막대 상태가 달라 단정할 수 없다 — 실제 앱에서는 사람이 확인해야 한다.
   **규칙:** `NSWindow` 프레임 저장·복원 테스트는 "저장한 값"이 아니라 "AppKit 이 그 이름으로 되살린 값"과 견주고, 크기·순서(가운데 정렬 뒤 복원)처럼 배치와 무관한 성질만 단언한다.
+
+<!-- Task 12 (활동 패널) begin -->
+- **그림 부품(`WinDrawnView`)을 호스트가 먼저 버리면 비트맵·DC 가 샌다 — 해제가 컨트롤의 `onDestroy` 에 약하게 걸려 있다.** `WinActivitySection.destroy()` 가 뷰 참조를 먼저 `nil` 로 만들고 그 뒤에 페이지가 컨트롤을 부수자,
+  `onDestroy` 의 `[weak self]` 가 이미 죽은 뷰를 가리켜 `releaseBitmap()` 이 한 번도 안 돌았다. 증상: 팝오버를 열고 닫을 때마다 GDI +2(DC 와 DIB 섹션) — `popover.openClose3`·`home.openClose3`·`home.activityOpenClose` 가 실패했다(러너 43839371953).
+  **왜 못 걸렀나:** 메모리 검사는 열고 닫기 3번 사이의 GDI 증가만 보는데, 그림 부품이 데이터 없이는 비트맵을 만들지 않는 Task 5 의 페이지(한도 막대는 페이지가 뷰를 직접 쥐고 있다)는 같은 경로를 밟지 않았다. **고침:** 섹션이 자기 뷰를 `destroy()` 한 뒤 참조를 놓는다(`destroy` 는 멱등).
+  **부류 스윕:** `WinDrawnView(` 를 만드는 곳은 `WinLimitsSection`(페이지가 `bars` 로 쥔다), `WinActivitySection`(고침), 셀프테스트 고정물뿐이다. **규칙:** 컨트롤을 `[weak self]` 로 해제하는 자원은 소유자가 컨트롤보다 먼저 사라지지 않게 하거나, 소유자가 직접 `destroy()` 한다.
+- **합성 `WM_MOUSEMOVE` 는 곧바로 취소된다 — 그 창에 진짜 커서가 없으면 `TrackMouseEvent(TME_LEAVE)` 가 즉시 `WM_MOUSELEAVE` 를 올린다.** 호버 검사가 `SendMessage(WM_MOUSEMOVE)` 로 선택을 만들었지만 같은 턴에 떠남 메시지가 선택을 지웠다(카드 "shown=false").
+  **고침:** 검사가 `SetCursorPos` 로 진짜 커서를 항목 위에 놓는다(`WindowsSelftestPopoverActivity.cursor(over:)`). 또한 `CGRect.intersects` 는 Windows 에서 모서리만 맞닿은 사각형도 겹친다고 센다(맥은 아니다) — 맞닿음을 단언하는 테스트는 가장자리 좌표를 직접 견준다.
+<!-- Task 12 end -->
