@@ -581,3 +581,29 @@ extension PlatformCompat {
         #endif
     }
 }
+
+// MARK: - The session key's file (stage 7 Task 14, D14)
+
+extension PlatformCompat {
+    /// Writes a secret file (`SessionKeyStore.save`). Mac: exactly `data.write(to:options: .atomic)`, the plain owner-only file
+    /// the Mac keeps (the caller makes it 0600 first). Windows: encrypted for this Windows account with DPAPI and written
+    /// atomically (`WinSecret.write`), since 0600 means nothing there (D14, ruling 5).
+    static func writeSecret(_ data: Data, to url: URL) throws {
+        #if os(Windows)
+        try WinSecret.write(data, to: url)
+        #else
+        try data.write(to: url, options: .atomic)
+        #endif
+    }
+
+    /// Reads a secret file (`SessionKeyStore.load`); nil when there is none. Mac: exactly `try? Data(contentsOf:)`. Windows: the
+    /// decrypted bytes; a file that does not decrypt here reads as nil (one log line), a plain file of an earlier build is
+    /// encrypted in place (`WinSecret.read`).
+    static func readSecret(at url: URL) -> Data? {
+        #if os(Windows)
+        return WinSecret.read(at: url)
+        #else
+        return try? Data(contentsOf: url)
+        #endif
+    }
+}

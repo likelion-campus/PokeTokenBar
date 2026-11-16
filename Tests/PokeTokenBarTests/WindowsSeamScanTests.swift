@@ -314,6 +314,35 @@ final class WindowsSeamScanTests: XCTestCase {
         XCTAssertEqual(Self.directAtomicWrites("try? PlatformCompat.atomicWrite(data, to: u) // .atomic\n", allowed: nil).count, 0)
     }
 
+    // MARK: the session key's file (stage 7 Task 14, D14)
+
+    /// The two upstream lines of `SessionKeyStore` that route its file through the secret seams (DPAPI on Windows). An upstream
+    /// merge that puts the plain calls back would leave Windows writing the key unencrypted: this fails then.
+    static func secretSeamFindings(_ text: String) -> [String] {
+        let lines = text.components(separatedBy: "\n").map(Self.code)
+        var out: [String] = []
+        let reads = lines.filter { $0.contains("PlatformCompat.readSecret(at: fileURL)") }.count
+        let writes = lines.filter { $0.contains("PlatformCompat.writeSecret(data, to: fileURL)") }.count
+        if reads != 1 { out.append("SessionKeyStore.load reads through PlatformCompat.readSecret \(reads) times (expected 1)") }
+        if writes != 1 { out.append("SessionKeyStore.save writes through PlatformCompat.writeSecret \(writes) times (expected 1)") }
+        for (i, line) in lines.enumerated() where line.contains("Data(contentsOf: fileURL)") || line.contains("write(to: fileURL") {
+            out.append("line \(i + 1) reads or writes the key file without the seam: \(line.trimmingCharacters(in: .whitespaces))")
+        }
+        return out
+    }
+
+    func testTheSessionKeyFileGoesThroughTheSecretSeams() throws {
+        let text = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent("Core/SessionKeyLimitsProvider.swift"), encoding: .utf8)
+        XCTAssertEqual(Self.secretSeamFindings(text), [])
+    }
+
+    func testTheSecretSeamScanCatchesThePlainCalls() {
+        let routed = "guard let data = PlatformCompat.readSecret(at: fileURL),\n        try PlatformCompat.writeSecret(data, to: fileURL)\n"
+        XCTAssertEqual(Self.secretSeamFindings(routed), [])
+        XCTAssertEqual(Self.secretSeamFindings("guard let data = try? Data(contentsOf: fileURL),\n        try PlatformCompat.writeSecret(data, to: fileURL)\n").count, 2)
+        XCTAssertEqual(Self.secretSeamFindings("guard let data = PlatformCompat.readSecret(at: fileURL),\n        try data.write(to: fileURL, options: .atomic)\n").count, 2)
+    }
+
     // MARK: URLSession on Windows keeps two dispatch threads awake for a whole transfer (defect log, "윈도우 URLSession")
 
     private static let directRequest = try! NSRegularExpression(
