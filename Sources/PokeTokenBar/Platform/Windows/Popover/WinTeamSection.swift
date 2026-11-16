@@ -2,6 +2,16 @@
 import Foundation
 import WinSDK
 
+/// What the team section keeps while the user types or waits, and must keep when the page is built again (a new team in the
+/// saved list rebuilds it; the Mac's section holds the same as `@State`).
+@MainActor final class WinTeamDrafts {
+    var nickname: String?
+    var teamName: String?
+    var joinFailed = false
+    /// Joined by code but no nickname yet: the plaza opens when the nickname is set (the Mac's `openPlazaWhenReady`).
+    var openPlazaWhenReady = false
+}
+
 /// The team section of the Settings page (stage 7 Task 6, G13): the Mac's `TeamSettingsSection`, row for row, in Korean as
 /// the Mac's is (P6). Every rule is the shared one (`TeamSetup.join` / `committedDraft` / `masked`, `TeamSettings`,
 /// `SettingsModel.team`); this class only turns them into kit controls.
@@ -22,12 +32,8 @@ import WinSDK
     /// The saved-team list the page was built for changed.
     private let rebuild: () -> Void
 
-    // The Mac's drafts: what is typed, until it is committed.
-    private(set) var nicknameDraft: String?
-    private var teamNameDraft: String?
-    private(set) var joinFailed = false
-    /// Joined by code but no nickname yet: the plaza opens when the nickname is set (the Mac's `openPlazaWhenReady`).
-    private var openPlazaWhenReady = false
+    /// The Mac's drafts: what is typed, until it is committed.
+    private let drafts: WinTeamDrafts
     /// Programmatic text changes must not count as typing.
     private var applying = false
     /// Set before the page's controls are destroyed (their last commit still stores a valid nickname).
@@ -65,8 +71,9 @@ import WinSDK
     var copyToClipboard: @MainActor (String, HWND?) -> Bool = { text, owner in WinTextClipboard.write(text, secret: true, owner: owner) }
     private(set) var copies = 0, joins = 0
 
-    init(section: WinSectionCard, host: WinPopoverHost, changed: @escaping () -> Void, rebuild: @escaping () -> Void) {
+    init(section: WinSectionCard, host: WinPopoverHost, drafts: WinTeamDrafts, changed: @escaping () -> Void, rebuild: @escaping () -> Void) {
         self.host = host
+        self.drafts = drafts
         self.changed = changed
         self.rebuild = rebuild
         let l = L(.ko)
@@ -134,7 +141,7 @@ import WinSDK
         }
         nameRow.control?.onChange = { [weak self] text in
             guard let self, !applying else { return }
-            teamNameDraft = text
+            drafts.teamName = text
         }
         nameRow.control?.onCommit = { [weak self] _ in self?.commitTeamName() }
         switchRow.control?.onClick = { [weak self] in self?.openSwitchMenu() }
@@ -158,7 +165,7 @@ import WinSDK
         }
         nicknameRow.control?.onChange = { [weak self] text in
             guard let self, !applying else { return }
-            nicknameDraft = text
+            drafts.nickname = text
             apply()   // the red line follows the typing, as on the Mac
         }
         nicknameRow.control?.onCommit = { [weak self] _ in self?.commitNickname() }
@@ -190,7 +197,7 @@ import WinSDK
     }
 
     private func model() -> SettingsModel.TeamRows {
-        SettingsModel.team(team, nicknameDraft: nicknameDraft, incompatiblePeer: host.session?.hasIncompatiblePeer ?? false)
+        SettingsModel.team(team, nicknameDraft: drafts.nickname, incompatiblePeer: host.session?.hasIncompatiblePeer ?? false)
     }
 
     // MARK: showing
@@ -207,7 +214,7 @@ import WinSDK
         if enableRow.control?.isOn != rows.isEnabled { enableRow.control?.isOn = rows.isEnabled }
         for row in [codeRow, leaveRow, nameRow, switchRow] { row.isVisible = inTeam }
         for row in [createRow, joinRow, joinButtonRow] { row.isVisible = noCode }
-        joinErrorRow.isVisible = noCode && joinFailed
+        joinErrorRow.isVisible = noCode && drafts.joinFailed
         for (row, _) in savedRows { row.isVisible = noCode }
         nicknameRow.isVisible = on
         nicknameErrorRow.isVisible = on && rows.nicknameInvalid
@@ -217,8 +224,8 @@ import WinSDK
 
         set(codeRow.label, rows.maskedCode ?? " ")
         set(switchRow.control, rows.teamName.isEmpty ? l.teamSwitch : rows.teamName)
-        if let name = nameRow.control, GetFocus() != name.hwnd { set(name, teamNameDraft ?? rows.teamName) }
-        if let nick = nicknameRow.control, GetFocus() != nick.hwnd { set(nick, nicknameDraft ?? team.nickname) }
+        if let name = nameRow.control, GetFocus() != name.hwnd { set(name, drafts.teamName ?? rows.teamName) }
+        if let nick = nicknameRow.control, GetFocus() != nick.hwnd { set(nick, drafts.nickname ?? team.nickname) }
         for (row, key) in savedRows {
             if let saved = team.savedTeams.first(where: { $0.code == key }) { set(row.label, "\(l.teamSaved) · \(saved.name)") }
         }
@@ -252,7 +259,7 @@ import WinSDK
     // MARK: actions
 
     private func afterTeamChange() {
-        teamNameDraft = nil
+        drafts.teamName = nil
         changed()
     }
 
@@ -267,13 +274,13 @@ import WinSDK
         let text = joinRow.control?.text ?? ""
         joins += 1
         let result = TeamSetup.join(text, into: team)
-        joinFailed = result == .invalid
+        drafts.joinFailed = result == .invalid
         guard result != .invalid else {
             changed()
             return
         }
         joinRow.control?.text = ""
-        if result == .openPlaza { openPlazaSoon() } else { openPlazaWhenReady = true }
+        if result == .openPlaza { openPlazaSoon() } else { drafts.openPlazaWhenReady = true }
         afterTeamChange()
     }
 
@@ -284,23 +291,23 @@ import WinSDK
     }
 
     private func commitNickname() {
-        nicknameDraft = TeamSetup.committedDraft(nicknameDraft, into: team)
-        if openPlazaWhenReady && team.isReady {
-            openPlazaWhenReady = false
+        drafts.nickname = TeamSetup.committedDraft(drafts.nickname, into: team)
+        if drafts.openPlazaWhenReady && team.isReady {
+            drafts.openPlazaWhenReady = false
             openPlazaSoon()
         }
         if !isClosing { changed() }
     }
 
     private func commitTeamName() {
-        guard let draft = teamNameDraft else { return }
-        if team.renameCurrentTeam(draft) { teamNameDraft = nil }
+        guard let draft = drafts.teamName else { return }
+        if team.renameCurrentTeam(draft) { drafts.teamName = nil }
         if !isClosing { changed() }
     }
 
     private func switchTo(_ saved: TeamSettings.SavedTeam) {
         commitTeamName()
-        teamNameDraft = nil
+        drafts.teamName = nil
         team.switchTo(saved)
         afterTeamChange()
     }

@@ -38,6 +38,8 @@ import WinSDK
     private var area: WinScrollArea?
     private var stack: WinStack?
     private var team: WinTeamSection?
+    /// Typed-but-uncommitted team fields, kept across a rebuild of the page.
+    private let teamDrafts = WinTeamDrafts()
     private var lastClient = RECT()
     private var destroyed = false
     private var rebuildPending = false
@@ -286,7 +288,7 @@ import WinSDK
 
         // Team (G13): Korean, as the Mac's
         let teamSection = s.addSection(L(.ko).teamSectionTitle)
-        team = WinTeamSection(section: teamSection, host: host,
+        team = WinTeamSection(section: teamSection, host: host, drafts: teamDrafts,
                               changed: { [weak self] in self?.scheduleRefresh() },
                               rebuild: { [weak self] in self?.scheduleRebuild() })
 

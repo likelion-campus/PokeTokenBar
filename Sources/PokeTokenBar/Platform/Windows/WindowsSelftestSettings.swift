@@ -109,7 +109,7 @@ extension WindowsSelftest {
 
     func updater(latest: String?, name: String) -> UpdateChecker {
         UpdateChecker(currentVersion: "2.5.613", defaults: defaults(name), fetchLatest: {
-            latest.map { UpdateChecker.LatestRelease(tag: $0, url: "https://example.invalid/release") }
+            latest.map { UpdateChecker.LatestRelease(tag: $0, url: "https://github.com/\(UpdateChecker.releaseRepo)/releases/tag/\($0)") }
         }, brewLocator: { nil })
     }
 
@@ -143,6 +143,26 @@ extension WindowsSelftest {
     func close() {
         popover?.close(.destroyed)
         popover = nil
+    }
+
+    typealias TeamRowSet = (enable: WinRow, code: WinRow, leave: WinRow, name: WinRow, switcher: WinRow, create: WinRow, join: WinRow,
+                            joinButton: WinRow, nickname: WinRow, nicknameError: WinRow, joinError: WinRow)
+
+    /// The team rows NOW: joining, creating or leaving a team changes the saved list and the page builds itself again, so a row
+    /// set kept from before is dead (its windows are destroyed).
+    func rows() -> TeamRowSet { page!.teamForTesting!.rowsForTesting }
+
+    /// Time for a rebuild the page queued (it runs from the main queue).
+    func settle() async { await pause(0.5) }
+
+    /// The clipboard holds `text`; the join field takes it with all of its own text selected (what a user's Ctrl+A, Ctrl+V does),
+    /// through `WM_PASTE`, the message the edit's right-click Paste sends.
+    func paste(_ text: String) async {
+        _ = clipboard(text)
+        guard let e = rows().join.control else { return }
+        await focus(e)
+        WinKit.send(e.hwnd, 0x00B1 /* EM_SETSEL */, 0, -1)
+        _ = SendMessageW(e.hwnd, 0x0302 /* WM_PASTE */, 0, 0)
     }
 
     func pause(_ seconds: TimeInterval) async { _ = await WindowsSelftest.waitUntil(timeout: seconds) { false } }
@@ -329,7 +349,7 @@ extension WindowsSelftest {
         _ = WinRegistry.setBytes(approvedKey, loginName, [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         let reopened = await open(login: item)
         let hint = l.disabledInTaskManager
-        let blocked = reopened && !(page.rowsForTesting.login?.control?.isEnabled ?? true) && contains(visibleTexts(), hint) && item.state == .disabledByUser
+        let blocked = reopened && !(self.page?.rowsForTesting.login?.control?.isEnabled ?? true) && contains(visibleTexts(), hint) && item.state == .disabledByUser
         r.add("settings.launchAtLogin", offAtOpen && on && off && blocked,
               "closed at open=\(offAtOpen); click -> Run value written and read back=\(on); click -> removed=\(off); Task Manager's off bit set, page reopened: box disabled with '\(hint)'=\(blocked)")
         close()
@@ -403,12 +423,12 @@ extension WindowsSelftest {
         let team = newTeam("join", nickname: "")
         let code = fixtureCode()
         guard await open(team: team), let page, let section = page.teamForTesting else { r.add("settings.teamJoin", false, "no page"); return }
-        let rows = section.rowsForTesting
-        guard let edit = rows.join.control else { r.add("settings.teamJoin", false, "no join field"); return }
-        let visibleBefore = shown(rows.join) && shown(rows.joinButton) && shown(rows.create)
+        guard let edit = rows().join.control else { r.add("settings.teamJoin", false, "no join field"); return }
+        let visibleBefore = shown(rows().join) && shown(rows().joinButton) && shown(rows().create)
         // Ctrl+V of " PTB-…\r\n" (a pasted line with its white space).
         let wrote = clipboard(" \(code.display)\r\n")
         await focus(edit)
+        WinKit.send(edit.hwnd, 0x00B1, 0, -1)
         key(0x56, ctrl: true)
         let pasted = await waitFor(2) { edit.text == code.display }
         let shownMasked = !visibleTexts().contains { $0.contains(code.display) && $0 != edit.text }
@@ -416,17 +436,15 @@ extension WindowsSelftest {
         let joined = await waitFor(2) { team.code == code }
         let cleared = edit.text.isEmpty
         let noPlaza = plazaOpens == 0   // no nickname yet: the plaza waits for it
-        await pause(0.2)
-        let masked = shown(rows.code) && rows.code.label?.text == TeamSetup.masked(code) && !visibleTexts().contains { $0.contains(code.display) }
+        await settle()
+        let masked = shown(rows().code) && rows().code.label?.text == TeamSetup.masked(code) && !visibleTexts().contains { $0.contains(code.display) }
         // Leave, then the right-click menu's Paste (WM_PASTE is what its item sends) and the Join button.
-        click(rows.leave.control)
+        click(rows().leave.control)
         let left = await waitFor(2) { team.code == nil }
-        await pause(0.2)
-        _ = clipboard("\r\n\(code.display) ")
-        await focus(rows.join.control)
-        if let e = rows.join.control { _ = SendMessageW(e.hwnd, 0x0302 /* WM_PASTE */, 0, 0) }
-        let pasted2 = await waitFor(1) { rows.join.control?.text == code.display }
-        click(rows.joinButton.control)
+        await settle()
+        await paste("\r\n\(code.display) ")
+        let pasted2 = await waitFor(1) { rows().join.control?.text == code.display }
+        click(rows().joinButton.control)
         let rejoined = await waitFor(2) { team.code == code }
         clearClipboard()
         r.add("settings.teamJoin", wrote && visibleBefore && pasted && shownMasked && joined && cleared && noPlaza && masked && left && pasted2 && rejoined,
@@ -440,15 +458,12 @@ extension WindowsSelftest {
     func joinErrorsCheck() async {
         let team = newTeam("errors", nickname: "다람")
         guard await open(team: team), let page, let section = page.teamForTesting else { r.add("settings.joinErrors", false, "no page"); return }
-        let rows = section.rowsForTesting
-        _ = clipboard("PTB-nope")
-        await focus(rows.join.control)
-        if let e = rows.join.control { _ = SendMessageW(e.hwnd, 0x0302, 0, 0) }
-        click(rows.joinButton.control)
-        let shownError = await waitFor(1) { self.shown(rows.joinError) }
-        let text = rows.joinError.hint?.text ?? ""
+        await paste("PTB-nope")
+        click(rows().joinButton.control)
+        let shownError = await waitFor(1) { self.shown(rows().joinError) }
+        let text = rows().joinError.hint?.text ?? ""
         let noCode = team.code == nil
-        let red = rows.joinError.hint?.role == .error
+        let red = rows().joinError.hint?.role == .error
         clearClipboard()
         // A paste with no text on the clipboard changes nothing (the kit's rule), the typed selection stays.
         r.add("settings.joinErrors", shownError && text == L(.ko).teamCodeInvalid && noCode && red,
@@ -461,9 +476,8 @@ extension WindowsSelftest {
     func hangulCheck() async {
         let team = newTeam("hangul", code: fixtureCode(), nickname: "")
         guard await open(team: team), let page, let section = page.teamForTesting else { r.add("settings.nicknameHangul", false, "no page"); return }
-        let rows = section.rowsForTesting
-        guard let nick = rows.nickname.control else { r.add("settings.nicknameHangul", false, "no nickname field"); return }
-        let errorBefore = await waitFor(1) { self.shown(rows.nicknameError) }
+        guard let nick = rows().nickname.control else { r.add("settings.nicknameHangul", false, "no nickname field"); return }
+        let errorBefore = await waitFor(1) { self.shown(rows().nicknameError) }
         await focus(nick)
         chars("다람", to: nick.hwnd)                                   // posted WM_CHAR
         _ = PostMessageW(nick.hwnd, 0x0286 /* WM_IME_CHAR */, WPARAM(0xD55C), 1)   // what a composition's result is: 한
@@ -471,7 +485,7 @@ extension WindowsSelftest {
         WindowsSelftestPopover.typeUnicode(0xAE00)                     // real typed U+AE00 (글)
         let typed = await waitFor(1) { nick.text == "다람한글" }
         let draftText = nick.text
-        let errorGone = await waitFor(1) { !self.shown(rows.nicknameError) }
+        let errorGone = await waitFor(1) { !self.shown(rows().nicknameError) }
         let before = team.nickname.isEmpty   // not committed while typing
         // Focus loss commits: the focus goes to another control of the page.
         await focus(section.rowsForTesting.enable.control)
@@ -490,16 +504,13 @@ extension WindowsSelftest {
         let team = newTeam("plaza", nickname: "")
         plazaOpens = 0
         guard await open(team: team), let page, let section = page.teamForTesting else { r.add("settings.openPlazaAfterNickname", false, "no page"); return }
-        let rows = section.rowsForTesting
-        _ = clipboard(code.display)
-        await focus(rows.join.control)
-        if let e = rows.join.control { _ = SendMessageW(e.hwnd, 0x0302, 0, 0) }
-        click(rows.joinButton.control)
+        await paste(code.display)
+        click(rows().joinButton.control)
         _ = await waitFor(1) { team.code == code }
-        await pause(0.3)
+        await settle()
         let waiting = plazaOpens == 0 && !team.isReady
-        await focus(rows.nickname.control)
-        if let nick = rows.nickname.control { chars("가나", to: nick.hwnd) }
+        await focus(rows().nickname.control)
+        if let nick = rows().nickname.control { chars("가나", to: nick.hwnd) }
         await pause(0.2)
         key(0x0D)
         let opened = await waitFor(2) { self.plazaOpens == 1 }
@@ -508,12 +519,10 @@ extension WindowsSelftest {
         // A nickname already there: joining opens the plaza at once.
         team.leaveTeam()
         team.isEnabled = true
-        _ = await waitFor(1) { self.shown(rows.join) }
-        await pause(0.2)
-        _ = clipboard(code.display)
-        await focus(rows.join.control)
-        if let e = rows.join.control { _ = SendMessageW(e.hwnd, 0x0302, 0, 0) }
-        click(rows.joinButton.control)
+        _ = await waitFor(1) { self.shown(rows().join) }
+        await settle()
+        await paste(code.display)
+        click(rows().joinButton.control)
         let direct = await waitFor(2) { self.plazaOpens == 2 }
         clearClipboard()
         r.add("settings.openPlazaAfterNickname", waiting && opened && once && direct && team.nickname == "가나",
@@ -529,11 +538,10 @@ extension WindowsSelftest {
         let team = newTeam("copy", code: code, nickname: "다람")
         clearClipboard()
         guard await open(team: team), let page, let section = page.teamForTesting else { r.add("settings.teamCopy", false, "no page"); return }
-        let rows = section.rowsForTesting
-        let maskedOnly = rows.code.label?.text == TeamSetup.masked(code) && !visibleTexts().contains { $0.contains(code.display) || $0.contains(code.normalized) }
+        let maskedOnly = rows().code.label?.text == TeamSetup.masked(code) && !visibleTexts().contains { $0.contains(code.display) || $0.contains(code.normalized) }
         let before = WinTextClipboard.read()
         let untouched = before == nil || before != code.display   // nothing copies without a click
-        click(rows.code.control)
+        click(rows().code.control)
         let copied = await waitFor(1) { WinTextClipboard.read() == code.display }
         let history = WinTextClipboard.hasFormat("CanIncludeInClipboardHistory") && WinTextClipboard.hasFormat("CanUploadToCloudClipboard")
             && WinTextClipboard.hasFormat("ExcludeClipboardContentFromMonitorProcessing")
@@ -627,6 +635,7 @@ extension WindowsSelftest {
             return
         }
         await focus(nick)
+        WinKit.send(nick.hwnd, 0x00B1, 99, 99)   // caret at the end
         WindowsSelftestPopover.typeUnicode(0x5A)   // Z: a typed character reaches the field
         WindowsSelftestPopover.typeUnicode(0xD55C)
         _ = await waitFor(1) { nick.text.hasSuffix("한") }
@@ -641,6 +650,7 @@ extension WindowsSelftest {
         let moved = GetFocus() != nick.hwnd && nick.text == "다람Z한"
         // Esc: back (the page is the empty page now), the open edit's draft committed.
         await focus(nick)
+        WinKit.send(nick.hwnd, 0x00B1, 99, 99)
         WindowsSelftestPopover.typeUnicode(0x71)   // q
         _ = await waitFor(1) { nick.text.hasSuffix("q") }
         key(0x1B)
@@ -672,35 +682,31 @@ extension WindowsSelftest {
             r.add("settings.teamTransport", false, "no page")
             return
         }
-        let rows = section.rowsForTesting
         var trace: [String] = []
         // Turn the team on, set a nickname, paste a bad code, then the fixture code.
-        click(rows.enable.control)
-        let enabled = await waitFor(2) { team.isEnabled && self.shown(rows.join) }
-        await focus(rows.nickname.control)
-        if let nick = rows.nickname.control { chars("자가", to: nick.hwnd) }
+        click(rows().enable.control)
+        let enabled = await waitFor(2) { team.isEnabled && self.shown(rows().join) }
+        await focus(rows().nickname.control)
+        if let nick = rows().nickname.control { chars("자가", to: nick.hwnd) }
         await pause(0.2)
         key(0x0D)
         let named = await waitFor(2) { team.nickname == "자가" }
         let stillOff = !transport.hasSocketLoop && transport.listenerPort == nil
-        _ = clipboard("PTB-bad")
-        await focus(rows.join.control)
-        if let e = rows.join.control { _ = SendMessageW(e.hwnd, 0x0302, 0, 0) }
-        click(rows.joinButton.control)
-        let badText = await waitFor(1) { self.shown(rows.joinError) } && rows.joinError.hint?.text == L(.ko).teamCodeInvalid
+        await paste("PTB-bad")
+        click(rows().joinButton.control)
+        let badText = await waitFor(1) { self.shown(rows().joinError) } && rows().joinError.hint?.text == L(.ko).teamCodeInvalid
         let badNoStart = team.code == nil && !transport.hasSocketLoop
-        _ = clipboard(code.display)
-        await focus(rows.join.control)
-        if let e = rows.join.control { _ = SendMessageW(e.hwnd, 0x0302, 0, 0) }
-        click(rows.joinButton.control)
+        await paste(code.display)
+        click(rows().joinButton.control)
         let joined = await waitFor(3) { team.code == code && team.isReady }
         let started = await waitFor(10) { transport.hasSocketLoop && transport.listenerPort != nil }
         let plazaItem = app.tray?.menuItems().contains { $0?.action == .openPlaza && ($0?.title.hasPrefix(L(.ko).plazaOpen) ?? false) } ?? false
         let opened = await waitFor(2) { self.plazaOpens == 1 }
-        trace.append("on=\(enabled) nickname=\(named) still off without a code=\(stillOff); bad code: error '\(rows.joinError.hint?.text ?? "")'=\(badText), no team/transport=\(badNoStart); "
+        trace.append("on=\(enabled) nickname=\(named) still off without a code=\(stillOff); bad code: error '\(rows().joinError.hint?.text ?? "")'=\(badText), no team/transport=\(badNoStart); "
             + "fixture code: ready=\(joined), transport started=\(started) (listener \(transport.listenerPort.map { "port \($0)" } ?? "none")), tray menu has \(L(.ko).plazaOpen)…=\(plazaItem), plaza button pressed once=\(opened)")
         // Leave: the team stops, the plaza item goes.
-        click(rows.leave.control)
+        click(rows().leave.control)
+        await settle()
         let left = await waitFor(3) { team.code == nil && !team.isEnabled }
         let stopped = await waitFor(10) { !transport.hasSocketLoop && transport.listenerPort == nil }
         let itemGone = !(app.tray?.menuItems().contains { $0?.action == .openPlaza } ?? true)
