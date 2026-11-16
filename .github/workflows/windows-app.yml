@@ -1007,6 +1007,7 @@ jobs:
       - name: The in-app update from a loopback feed
         id: in-app-update
         if: (success() || failure()) && steps.iscc.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 25  # the step takes about 3 min; a hung scenario must not hold a release run to the job limit
         shell: pwsh
         run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
       # ---- end in-app-update ----

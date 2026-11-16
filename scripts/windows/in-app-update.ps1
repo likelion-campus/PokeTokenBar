@@ -38,6 +38,8 @@ public static class PtbUpd {
     [DllImport("user32.dll")] static extern IntPtr SendMessageTimeoutW(IntPtr h, uint msg, IntPtr w, IntPtr l, uint flags, uint ms, out IntPtr result);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     public static string ChildText(IntPtr parent, string cls) {
         IntPtr c = FindWindowExW(parent, IntPtr.Zero, cls, null);
         if (c == IntPtr.Zero) return null;
@@ -296,6 +298,23 @@ Invoke-Scenario 'slowCancel' {
         "captured the screen with the tray menu open: $($b.Width)x$($b.Height)"
         $null = [PtbCi]::PostMessageW($h, 0x001F <# WM_CANCELMODE: closes the menu #>, [IntPtr]::Zero, [IntPtr]::Zero)
         Start-Sleep -Milliseconds 800
+        # The popover opened over the running download (stage 7: the icon's select toggles it): the progress window stays and
+        # the download goes on. Whether the popover takes the foreground here depends on the runner's foreground rules
+        # (informational); the other order (Update in the popover's banner) closes the popover when the progress window
+        # activates, as any non-owned window's activation does (WinPopover.deactivated).
+        $null = [PtbCi]::PostMessageW($h, 0x8030, [IntPtr](($y -shl 16) -bor $x), [IntPtr]0x0400 <# NIN_SELECT #>)
+        Start-Sleep -Milliseconds 1500
+        $pop = [PtbUpd]::FindWindowW('PokeTokenBarPopover', [NullString]::Value)
+        $popUp = $pop -ne [IntPtr]::Zero -and [PtbUpd]::IsWindowVisible($pop)
+        $front = [PtbUpd]::GetForegroundWindow()
+        "popover over the download (informational): shown=$popUp foreground=$(if ($front -eq $pop -and $popUp) { 'popover' } elseif ($front -eq $w) { 'progress window' } else { 'other' })"
+        $both = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+        [System.Drawing.Graphics]::FromImage($both).CopyFromScreen($b.Left, $b.Top, 0, 0, $both.Size)
+        $both.Save((Join-Path $LogDir 'update-with-popover.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+        $third = [PtbUpd]::ChildText($w, 'Static')
+        Start-Sleep -Seconds 2
+        $fourth = [PtbUpd]::ChildText($w, 'Static')
+        Assert-That ([PtbUpd]::IsWindowVisible($w) -and (& $mb $fourth) -gt (& $mb $third) -and (& $mb $third) -ge (& $mb $second)) 'slowCancel.downloadGoesOnWithPopover' "popover shown=$popUp; progress '$($third -replace "`r?`n", ' | ')' then '$($fourth -replace "`r?`n", ' | ')'"
     }
     Assert-That ([PtbUpd]::ClickButton($w)) 'slowCancel.cancelClicked' 'Cancel pressed'
     $gone = Wait-Until { [PtbUpd]::FindWindowW('PokeTokenBarUpdateProgress', [NullString]::Value) -eq [IntPtr]::Zero } 15
