@@ -132,6 +132,7 @@ import WinSDK
             if let bar = lead?.bar {
                 _ = WinKit.send(bar.parts[0], 0x0415 /* TBM_SETPAGESIZE */, 0, PopoverDifficultySlider.page)
                 showValue(bar, l.difficultyValue(value))
+                bar.tooltip = l.difficultyScaleHint(low: low, high: high)   // the Mac's accessibility hint, as the hover text
                 bar.onValue = { [weak self, weak bar] position in
                     guard let self, let bar, !self.applying else { return }
                     var next = self.drafts.difficulty ?? PopoverDifficultyDraft(companion: self.companion)
