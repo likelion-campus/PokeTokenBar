@@ -573,7 +573,8 @@ final class PopoverDriver: @unchecked Sendable {
         // (d) A select while it is open (no deactivation came first): closes.
         post(Self.ninSelect, iconPoint)
         let dClosed = await closed(1)
-        let d = dClosed && popover.stats.lastClose == .iconClick
+        let dReason = popover.stats.lastClose
+        let d = dClosed && dReason == .iconClick
         // (e) The shell reporting one key twice: the second key select does not close it.
         let dup0 = popover.stats.duplicateKeySelects
         let eOpen = await key()
@@ -585,7 +586,7 @@ final class PopoverDriver: @unchecked Sendable {
               "(a) open=\(aOpen), cursor on the icon + taskbar activated -> closed=\(aClosed) (cursor on icon=\(aOnIcon)), then NIN_SELECT within ~0.1 s -> "
               + "open=\(popover.stats.suppressedSelects > absorbed0 ? "no" : "?") absorbed +\(popover.stats.suppressedSelects - absorbed0); (b) same close, NIN_SELECT 0.75 s later -> "
               + "opened=\(bReopened); (c) another window of ours activated with the cursor there -> closed=\(cClosed) (cursor on icon=\(cOnIcon)), "
-              + "NIN_SELECT at once -> opened=\(cReopened); (d) NIN_SELECT while open -> closed=\(dClosed) (\(popover.stats.lastClose.map { "\($0)" } ?? "-")); "
+              + "NIN_SELECT at once -> opened=\(cReopened); (d) NIN_SELECT while open -> closed=\(dClosed) (\(dReason.map { "\($0)" } ?? "-")); "
               + "(e) NIN_KEYSELECT twice -> still open=\(e) (duplicates +\(popover.stats.duplicateKeySelects - dup0))")
         _ = SetCursorPos(iconPoint.x - 200, iconPoint.y - 200)
     }
@@ -736,6 +737,7 @@ final class PopoverDriver: @unchecked Sendable {
     func ownedCheck() async {
         popover.close(.destroyed)
         let o = await click()
+        let owned0 = popover.stats.ownedActivations  // before the owned window: a visible one is activated as it is made
         guard o, let hwnd = popover.hwndForTesting,
               let owned = try? WinSinkWindow(className: "PokeTokenBarSelftestOwned", title: "PokeTokenBar selftest dialog",
                                              style: 0x90C8_0000 /* WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU */, exStyle: 0,
@@ -744,7 +746,6 @@ final class PopoverDriver: @unchecked Sendable {
             popover.close(.destroyed)
             return
         }
-        let owned0 = popover.stats.ownedActivations
         _ = SetForegroundWindow(owned.hwnd)
         await pause(0.3)
         let stayed = popover.isOpen && popover.hwndForTesting == hwnd
