@@ -35,40 +35,40 @@ import WinSDK
 /// Nothing here has a timer: the match counts are counted off the main thread 250 ms after the last change of a field (the
 /// Mac's debounce), once, on one serial queue (`counting`).
 @MainActor final class WinAdvancedSection {
-    /// One key's rows: the label (its badge on the right) with the hint or the folder under it, the field, Save and Delete,
-    /// the organisation picker (the default key only), the error, the storage note.
+    /// One key's rows, as the Mac's: the label with its badge right after it and the hint or the folder under them; the
+    /// field, Save (a small marquee beside it while the key is checked) and Delete on one line when the field keeps room at
+    /// the page's width and text size, else the field over the buttons; the organisation picker (the default key only), the
+    /// error, the storage note.
     @MainActor final class KeyControls {
         let path: String?
         let labelRow: WinRow
         let fieldRow: WinRow
-        let buttonsRow: WinRow
-        let save: WinControl?
-        let delete: WinControl?
-        let buttons: WinComposite?
-        let orgRow: WinRow?
         let errorRow: WinRow
-        let noteRow: WinRow?
-        var field: WinControl? { fieldRow.control }
-        var badge: WinControl? { labelRow.control }
+        var labelLine: WinComposite?
+        var title: WinControl?
+        var badge: WinControl?
+        /// The line holding Save, the marquee and Delete (the field's line when they share one).
+        var buttons: WinComposite?
+        var buttonsRow: WinRow?
+        var field: WinControl?
+        var save: WinControl?
+        var progress: WinControl?
+        var delete: WinControl?
+        var orgRow: WinRow?
+        var noteRow: WinRow?
         /// The organisation names the picker holds, and the field's grey text now.
         var orgNames: [String] = []
         var placeholder = ""
 
-        init(path: String?, labelRow: WinRow, fieldRow: WinRow, buttonsRow: WinRow, save: WinControl?, delete: WinControl?,
-             buttons: WinComposite?, orgRow: WinRow?, errorRow: WinRow, noteRow: WinRow?) {
+        init(path: String?, labelRow: WinRow, fieldRow: WinRow, errorRow: WinRow) {
             self.path = path
             self.labelRow = labelRow
             self.fieldRow = fieldRow
-            self.buttonsRow = buttonsRow
-            self.save = save
-            self.delete = delete
-            self.buttons = buttons
-            self.orgRow = orgRow
             self.errorRow = errorRow
-            self.noteRow = noteRow
         }
 
-        var rows: [WinRow] { [labelRow, fieldRow, buttonsRow] + [orgRow, noteRow].compactMap { $0 } + [errorRow] }
+        var oneLine: Bool { buttonsRow == nil }
+        var rows: [WinRow] { [labelRow, fieldRow] + [buttonsRow, orgRow, noteRow].compactMap { $0 } + [errorRow] }
     }
 
     private let host: WinPopoverHost
@@ -87,6 +87,8 @@ import WinSDK
 
     let section: WinSectionCard
     private let disclosureRow: WinRow
+    /// The chevron before the disclosure's label (the Mac's row: chevron, label).
+    private let chevron: WinControl?
     let key: KeyControls
     private(set) var accounts: [KeyControls] = []
     private let accountsNoteRow: WinRow
@@ -145,9 +147,15 @@ import WinSDK
         let providerList = store.registeredProviders
         providers = providerList
 
-        disclosureRow = section.addRow(l.advancedDisclosureLabel) { p, c in
-            WinControls.glyphButton(symbol: drafts.expanded ? "chevron.down" : "chevron.forward", label: l.advancedDisclosureLabel, in: p, ctx: c)
+        var chevron: WinControl?
+        disclosureRow = section.addRow(nil, style: .full) { p, c in
+            WinComposite(parent: p, ctx: c) { child in
+                chevron = WinControls.glyphButton(symbol: drafts.expanded ? "chevron.down" : "chevron.forward", label: l.advancedDisclosureLabel,
+                                                  size: 10, in: child, ctx: c)
+                return ([chevron, WinControls.label(l.advancedDisclosureLabel, wraps: false, in: child, ctx: c)].compactMap { $0 }, [])
+            }?.control
         }
+        self.chevron = chevron
         key = Self.keyControls(path: nil, model.sessionKey, organizations: true, in: section, l: l)
         accounts = model.accounts.map { Self.keyControls(path: $0.path, $0.rows, organizations: false, in: section, l: l) }
         accountsNoteRow = section.addRow(nil, hint: model.accountsStorageNote ?? " ") { _, _ in nil }
@@ -178,22 +186,40 @@ import WinSDK
     }
 
     private static func keyControls(path: String?, _ m: SettingsModel.KeyRows, organizations: Bool, in section: WinSectionCard, l: L) -> KeyControls {
-        let labelRow = section.addRow(m.label, hint: m.detail) { p, c in
-            WinControls.label(" ", style: .caption2, wraps: false, in: p, ctx: c)   // the badge: its text is set by `apply`
-        }
-        let fieldRow = section.addRow(nil, style: .full, accessibleName: m.label) { p, c in
-            WinControls.edit(.password(cue: m.placeholder), text: "", width: nil, in: p, ctx: c)
-        }
-        var save: WinControl?, delete: WinControl?, buttons: WinComposite?
-        let buttonsRow = section.addRow(nil, style: .full) { p, c in
-            buttons = WinComposite(parent: p, ctx: c) { child in
-                save = WinControls.button(l.save, in: child, ctx: c)
-                delete = WinControls.button(l.delete, in: child, ctx: c)
-                return ([save, delete].compactMap { $0 }, [])
+        var labelLine: WinComposite?, title: WinControl?, badge: WinControl?, ctx: WinUIContext?
+        let labelRow = section.addStyledRow(label: { p, c in
+            ctx = c
+            labelLine = WinComposite(parent: p, ctx: c) { child in
+                title = WinControls.label(m.label, wraps: false, in: child, ctx: c)
+                badge = WinControls.label(" ", style: .caption2, wraps: false, in: child, ctx: c)   // its text is set by `apply`
+                return ([title, badge].compactMap { $0 }, [])
             }
+            return labelLine?.control
+        }, hint: m.detail)
+        var field: WinControl?, save: WinControl?, progress: WinControl?, delete: WinControl?, buttons: WinComposite?
+        func line(_ p: HWND, _ c: WinUIContext, name: String?, withField: Bool) -> WinControl? {
+            buttons = WinComposite(parent: p, ctx: c, accessibleName: name) { child in
+                if withField { field = WinControls.edit(.password(cue: m.placeholder), text: "", width: 220, in: child, ctx: c) }
+                save = WinControls.button(l.save, in: child, ctx: c)
+                progress = WinControls.marquee(in: child, ctx: c)
+                delete = WinControls.button(l.delete, in: child, ctx: c)
+                return ([field, save, progress, delete].compactMap { $0 }, [])
+            }
+            if let progress { buttons?.setShown(progress, false) }
             return buttons?.control
         }
-        if let save { fitButton(save, longest: l.save + "…") }
+        let oneLine = ctx.map { fitsOneLine(section: section, ctx: $0, l: l) } ?? false
+        let fieldRow: WinRow, buttonsRow: WinRow?
+        if oneLine {
+            fieldRow = section.addRow(nil, style: .full) { p, c in line(p, c, name: m.label, withField: true) }
+            buttonsRow = nil
+        } else {
+            fieldRow = section.addRow(nil, style: .full, accessibleName: m.label) { p, c in
+                field = WinControls.edit(.password(cue: m.placeholder), text: "", width: nil, in: p, ctx: c)
+                return field
+            }
+            buttonsRow = section.addRow(nil, style: .full) { p, c in line(p, c, name: nil, withField: false) }
+        }
         var orgRow: WinRow?, noteRow: WinRow?
         if organizations {
             orgRow = section.addRow(l.sessionKeyOrganizationLabel) { p, c in
@@ -203,11 +229,43 @@ import WinSDK
         }
         let errorRow = section.addRow(nil, hint: m.error ?? " ") { _, _ in nil }
         errorRow.hint?.role = .warning
-        let controls = KeyControls(path: path, labelRow: labelRow, fieldRow: fieldRow, buttonsRow: buttonsRow, save: save, delete: delete,
-                                   buttons: buttons, orgRow: orgRow, errorRow: errorRow, noteRow: noteRow)
-        controls.orgNames = m.organizations.map(\.name)
-        controls.placeholder = m.placeholder
-        return controls
+        let k = KeyControls(path: path, labelRow: labelRow, fieldRow: fieldRow, errorRow: errorRow)
+        k.labelLine = labelLine
+        k.title = title
+        k.badge = badge
+        k.buttons = buttons
+        k.buttonsRow = buttonsRow
+        k.field = field
+        k.save = save
+        k.progress = progress
+        k.delete = delete
+        k.orgRow = orgRow
+        k.noteRow = noteRow
+        k.orgNames = m.organizations.map(\.name)
+        k.placeholder = m.placeholder
+        if let badge { labelLine?.setShown(badge, false) }
+        sizeLabelLine(k)
+        return k
+    }
+
+    /// The Mac's key row (`SecureField` up to 220 pt, Save, Delete, in one `HStack`) on one line when the field keeps at least
+    /// the room to show its cue ("sk-ant-sid…") beside Save, the marquee and Delete at the page's width and text size; else
+    /// the field over the buttons, the kit's way of stacking a row that does not fit (larger text, longer button titles).
+    static func fitsOneLine(section: WinSectionCard, ctx c: WinUIContext, l: L) -> Bool {
+        let font = c.fonts.font(.body)
+        func button(_ title: String) -> Int32 { c.measure(title, font: font).cx + c.px(24) }
+        let gap = c.px(8)
+        let buttons = button(l.save) + gap + c.px(28) + gap + button(l.delete) + gap
+        let fieldLeast = max(c.px(72), c.measure("sk-ant-sid…", font: font).cx + c.px(12))
+        let inner = section.pageWidth - 2 * Int32(c.metrics.pagePadding) - 2 * Int32(c.metrics.rowPaddingH)
+        return inner - buttons >= fieldLeast
+    }
+
+    /// The label line's width: the label, then the badge 8 px after it when there is one.
+    private static func sizeLabelLine(_ k: KeyControls) {
+        guard let line = k.labelLine, let title = k.title else { return }
+        let badge = k.badge.map { $0.text.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : $0.preferredSize.width + CGFloat(line.ctx.px(8)) } ?? 0
+        line.control.preferredSize.width = title.preferredSize.width + badge
     }
 
     /// A button sized for its longest title ("Save…" while the key is checked), so the spinner's text never clips.
@@ -219,7 +277,7 @@ import WinSDK
     // MARK: wiring
 
     private func wire() {
-        disclosureRow.control?.onClick = { [weak self] in self?.toggle() }
+        chevron?.onClick = { [weak self] in self?.toggle() }
         wireKey(key)
         for account in accounts { wireKey(account) }
         key.orgRow?.control?.onSelect = { [weak self] index in
@@ -300,7 +358,7 @@ import WinSDK
 
     private func toggle() {
         drafts.expanded.toggle()
-        disclosureRow.control?.setGlyph(symbol: drafts.expanded ? "chevron.down" : "chevron.forward")
+        chevron?.setGlyph(symbol: drafts.expanded ? "chevron.down" : "chevron.forward")
         if drafts.expanded { appeared(reload: true) } else { disappeared() }
         changed()
     }
@@ -441,7 +499,7 @@ import WinSDK
 
     private func applyKey(_ k: KeyControls, _ m: SettingsModel.KeyRows, open: Bool) {
         for row in k.rows { row.isVisible = open }
-        setBadge(k.badge, m.badge)
+        setBadge(k, m.badge)
         if m.detail != nil { set(k.labelRow.hint, m.detail) }
         if let field = k.field, k.placeholder != m.placeholder {
             WinKit.send(field.hwnd, 0x1501 /* EM_SETCUEBANNER */, 1, text: m.placeholder)
@@ -467,15 +525,20 @@ import WinSDK
         }
     }
 
-    /// Save is on while its field holds text and no key is being checked; its title is "Save…" while this one is.
+    /// Save is on while its field holds text and no key is being checked; the marquee beside it runs while this one is (the
+    /// Mac's small ProgressView in the button).
     private func applyButtons() {
         let model = SettingsModel.advanced(SettingsModel.advancedInput(store, language: l.lang), facts: facts)
         let pairs = [(key, model.sessionKey)] + zip(accounts, model.accounts.map(\.rows)).map { ($0, $1) }
         for (k, m) in pairs {
             guard let save = k.save else { continue }
-            setTitle(save, l.save + (m.isValidating ? "…" : ""))
             let on = !(k.field?.text.isEmpty ?? true) && !m.isValidating && !m.saveBlocked
             if save.isEnabled != on { save.isEnabled = on }
+            if let progress = k.progress {
+                if !m.isValidating { progress.setMarquee(false) }
+                k.buttons?.setShown(progress, m.isValidating)
+                if m.isValidating { progress.setMarquee(true) }
+            }
         }
     }
 
@@ -500,9 +563,9 @@ import WinSDK
         c.text = title
     }
 
-    /// The badge after the key's label: orange "expired", green "saved", or nothing.
-    private func setBadge(_ c: WinControl?, _ badge: SettingsModel.KeyBadge?) {
-        guard let c else { return }
+    /// The badge right after the key's label: orange "expired", green "saved", or nothing.
+    private func setBadge(_ k: KeyControls, _ badge: SettingsModel.KeyBadge?) {
+        guard let c = k.badge else { return }
         let text: String
         let role: PopoverColorRole
         switch badge {
@@ -514,9 +577,9 @@ import WinSDK
         func byte(_ d: Double) -> UInt8 { UInt8(max(0, min(255, (d * 255).rounded()))) }
         c.textColor = WinUIColors.rgb(byte(v.red), byte(v.green), byte(v.blue))
         guard c.text != text else { return }
-        c.text = text
-        let s = c.ctx.measure(text, font: c.ctx.fonts.font(.caption2))
-        c.preferredSize = CGSize(width: CGFloat(s.cx), height: CGFloat(s.cy))
+        k.labelLine?.setText(c, text)
+        k.labelLine?.setShown(c, badge != nil)
+        Self.sizeLabelLine(k)
         textChanged = true
     }
 
@@ -548,7 +611,7 @@ import WinSDK
 
     // MARK: for the selftest
 
-    var disclosureForTesting: WinControl? { disclosureRow.control }
+    var disclosureForTesting: WinControl? { chevron }
     var rowsForTesting: (refresh: WinRow, refreshMessage: WinRow, additional: WinRow, detected: WinRow, additionalField: WinRow,
                          additionalFound: WinRow, scan: WinRow, scanProvider: WinRow, scanField: WinRow, scanMatches: WinRow,
                          aggregation: WinRow, accountsNote: WinRow) {

@@ -31,6 +31,7 @@ enum WinEditKind: Equatable, Sendable {
 @MainActor final class WinControl {
     enum Kind: Equatable, Sendable {
         case label, button, glyphButton, checkbox, radioGroup, combo, edit, trackbar, stepper, link, tabs, drawnItem, drawn
+        case progress  // stage 7 Task 14: the marquee beside Save while a key is checked
     }
 
     let kind: Kind
@@ -73,6 +74,7 @@ enum WinEditKind: Equatable, Sendable {
 
     // Kind-specific state.
     fileprivate(set) var editKind: WinEditKind?
+    fileprivate(set) var isMarqueeOn = false  // stage 7 Task 14: a marquee bar animating
     fileprivate var lastCommitted = ""
     fileprivate var swallowReturnChar = false
     fileprivate var range: ClosedRange<Int> = 0...0
@@ -774,6 +776,29 @@ enum WinClipboardText {
         }
     }
 }
+// --- stage 7 Task 14: a small marquee progress bar (the Mac's small ProgressView beside Save) (begin) ---
+extension WinControls {
+    /// comctl32's marquee progress bar (`PBS_MARQUEE`), `width` × 6 pt: the Mac shows a small spinner while a key is checked;
+    /// Windows has no spinner control, and its busy indicator in a form is the marquee bar. Still until `setMarquee(true)`
+    /// (comctl32 animates it on its own timer while on; nothing runs while it is off).
+    static func marquee(width: CGFloat = 36, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+        guard let h = WinKit.create("msctls_progress32", "", style: child | 0x0008 /* PBS_MARQUEE */, parent: parent, id: id())
+        else { return nil }
+        return WinControl(kind: .progress, ctx: ctx, parts: [h], size: CGSize(width: CGFloat(ctx.px(width)), height: CGFloat(ctx.px(6))),
+                          background: ctx.colors.palette.window, font: nil)
+    }
+}
+
+extension WinControl {
+    /// A marquee bar's animation on or off (`PBM_SETMARQUEE`, a step every 30 ms while on).
+    func setMarquee(_ on: Bool) {
+        guard kind == .progress, isMarqueeOn != on else { return }
+        isMarqueeOn = on
+        _ = WinKit.send(hwnd, 0x040A /* PBM_SETMARQUEE */, on ? 1 : 0, 30)
+    }
+}
+// --- stage 7 Task 14 (end) ---
+
 // --- stage 7 Task 14: a glyph button that changes its symbol (the Advanced disclosure's chevron) (begin) ---
 extension WinControl {
     /// Shows `symbol` instead (a disclosure's chevron turning down): the same font size, the window text (its accessible

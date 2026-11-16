@@ -354,23 +354,34 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
         await paste(key, into: field)
         f.http.delay = 0.8
         t.click(adv.key.save)
-        let spinner = await t.waitFor(0.5) { adv.key.save?.text == self.l.save + "…" && adv.key.save?.isEnabled == false }
+        let spinner = await t.waitFor(0.5) {
+            self.t.isShown(adv.key.progress) && adv.key.progress?.isMarqueeOn == true && adv.key.save?.isEnabled == false && adv.key.save?.text == self.l.save
+        }
         record()
         let saved = await t.waitFor(5) { f.store.sessionKeyConfigured && !f.store.isValidatingSessionKey && field.text.isEmpty }
         f.http.delay = 0
         await t.pause(0.3)
         record()
+        let stopped = !t.isShown(adv.key.progress) && adv.key.progress?.isMarqueeOn == false
         let badge = adv.key.badge?.text ?? ""
+        // The Mac's row (Task 14 review, "the Mac is the reference"): field, Save, Delete on one line in English at 100 %; the
+        // badge right after the label.
+        func screen(_ c: WinControl?) -> RECT { var r = RECT(); if let c { _ = GetWindowRect(c.hwnd, &r) }; return r }
+        let fr = screen(field), sr = screen(adv.key.save), dr = screen(adv.key.delete), tr = screen(adv.key.title), br = screen(adv.key.badge)
+        let oneLine = adv.key.oneLine && fr.right <= sr.left && sr.right <= dr.left && fr.top < sr.bottom && sr.top < fr.bottom && sr.top < dr.bottom
+        let badgeAfter = br.left >= tr.right && br.left - tr.right <= 16 && br.top < tr.bottom && tr.top < br.bottom
         let disk = encryptedOnDisk(f.keyFile, key: key)
         let orgRow = adv.key.orgRow
         let orgs = orgRow?.control.map { WinKit.send($0.hwnd, 0x0146 /* CB_GETCOUNT */) } ?? 0
         let chosen = orgRow?.control?.selection ?? -1
         let note = adv.key.noteRow?.hint?.text ?? ""
-        let ok = spinner && saved && badge == l.sessionKeySaved && cue(field) == SettingsModel.savedKeyPlaceholder && t.isShown(adv.key.delete)
+        let ok = spinner && stopped && oneLine && badgeAfter && saved && badge == l.sessionKeySaved && cue(field) == SettingsModel.savedKeyPlaceholder && t.isShown(adv.key.delete)
             && t.shown(orgRow) && orgs == 2 && chosen == 1 && t.shown(adv.key.noteRow) && note == l.winSessionKeyStorageNote
             && disk.exists && !disk.plain && disk.decrypts && !t.shown(adv.key.errorRow)
         r.add("settings.sessionKeySave", ok,
-              "pasted a fixture key, Save: spinner ('\(l.save)…', off) while claude.ai answered=\(spinner); saved=\(saved), field emptied=\(field.text.isEmpty), "
+              "pasted a fixture key, Save: marquee beside Save (off) while claude.ai answered=\(spinner), stopped and hidden after=\(stopped); "
+                + "field, Save, Delete on one line=\(oneLine) (field \(fr.left)-\(fr.right), Save \(sr.left)-\(sr.right), Delete \(dr.left)-\(dr.right)); "
+                + "badge right after the label=\(badgeAfter) (label ends \(tr.right), badge starts \(br.left)); saved=\(saved), field emptied=\(field.text.isEmpty), "
                 + "cue now the saved dots=\(cue(field) == SettingsModel.savedKeyPlaceholder), badge '\(badge)', Delete shown=\(t.isShown(adv.key.delete)); organisation picker shown=\(t.shown(orgRow)) with \(orgs) "
                 + "(the one with usage chosen: index \(chosen)); storage note (Windows wording)=\(note == l.winSessionKeyStorageNote); key file exists=\(disk.exists) "
                 + "plain=\(disk.plain) decrypts for this account to the key=\(disk.decrypts); fixture requests \(f.http.requests)")
@@ -469,7 +480,7 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
         guard await open(f), let first = section?.accounts.first, let field = first.field, let path = first.path else {
             r.add("settings.accountKey", false, "no account rows"); return
         }
-        let label = first.labelRow.label?.text ?? ""
+        let label = first.title?.text ?? ""
         let folder = first.labelRow.hint?.text ?? ""
         let keyFile = SessionKeyStore.forConfigRoot(URL(fileURLWithPath: path), directory: f.dir).fileURL   // as the store names it
         let key = newKey(valid: true)
