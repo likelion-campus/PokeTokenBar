@@ -749,14 +749,18 @@ extension WindowsSelftest {
     // MARK: settings.openClose
 
     func openCloseCheck(start: PopoverResources) async {
-        for _ in 0..<2 { _ = await open(); close() }   // warm-up: comctl32 and theme caches
-        let warm = PopoverResources.now()
-        for _ in 0..<3 { _ = await open(team: newTeam("cycle", code: fixtureCode(), nickname: "다람")); close() }
+        _ = await open(); close()   // warm-up: comctl32 and theme caches
         await pause(0.3)
-        let end = PopoverResources.now()
-        let ok = end.gdi <= warm.gdi && end.user <= warm.user && end.controls == start.controls && end.dialogs == start.dialogs && end.pumpDepth == 0
-            && !(app.popover?.isOpen ?? false)
-        r.add("settings.openClose", ok, "after 2 warm-up cycles, 3 more open/close cycles of Settings with a team: \(warm.description) -> \(end.description) (controls/dialogs at the start: \(start.controls)/\(start.dialogs))")
+        var cycles = [PopoverResources.now()]
+        for _ in 0..<3 {
+            _ = await open(team: newTeam("cycle", code: fixtureCode(), nickname: "다람")); close()
+            await pause(0.3)
+            cycles.append(PopoverResources.now())
+        }
+        let end = cycles[cycles.count - 1]
+        let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) })
+        let ok = verdict.ok && end.controls == start.controls && end.dialogs == start.dialogs && end.pumpDepth == 0 && !(app.popover?.isOpen ?? false)
+        r.add("settings.openClose", ok, "a warm-up and 3 more open/close cycles of Settings with a team: \(verdict.summary) (controls/dialogs at the start: \(start.controls)/\(start.dialogs), at the end \(end.controls)/\(end.dialogs))")
     }
 
     func cleanUp() {
