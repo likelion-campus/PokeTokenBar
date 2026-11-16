@@ -12,7 +12,8 @@ final class TrayMenuModelTests: XCTestCase {
         let without = TrayMenuModel.items(l: l, todayTokens: 19_400_000, todayCost: nil, login: .off, update: nil)
         XCTAssertEqual(without.first??.title, "Today's tokens 19.4M")
         let actions = without.map { $0?.action }
-        XCTAssertEqual(actions, [TrayMenuModel.Action.none, nil, .refresh, .toggleLaunchAtLogin, .openLogFolder, nil, .quit])
+        XCTAssertEqual(actions, [TrayMenuModel.Action.none, nil, .refresh, .openSettings, .toggleBackView, .toggleLaunchAtLogin, .openLogFolder,
+                                 nil, .quit])
     }
 
     func testLoginItemStatesMapToChecksAndTitles() {
@@ -43,7 +44,8 @@ final class TrayMenuModelTests: XCTestCase {
         XCTAssertFalse(off.contains { $0?.title.contains("Teammates") == true })
         let on = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, teammatesOnline: 3)
         XCTAssertEqual(on[1], .init(title: "Teammates online: 3", enabled: false, checked: false, action: .none))
-        XCTAssertEqual(on.map { $0?.action }, [TrayMenuModel.Action.none, TrayMenuModel.Action.none, nil, .refresh, .toggleLaunchAtLogin, .openLogFolder, nil, .quit])
+        XCTAssertEqual(on.map { $0?.action }, [TrayMenuModel.Action.none, TrayMenuModel.Action.none, nil, .refresh, .openSettings, .toggleBackView,
+                                               .toggleLaunchAtLogin, .openLogFolder, nil, .quit])
         XCTAssertEqual(TrayMenuModel.items(l: L(.ko), todayTokens: 0, todayCost: nil, login: .off, update: nil,
                                            teammatesOnline: 0)[1]?.title, "접속 중인 팀원 0명")
     }
@@ -55,10 +57,24 @@ final class TrayMenuModelTests: XCTestCase {
         XCTAssertEqual(off, TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, plazaUnread: nil))
         XCTAssertFalse(off.contains { $0?.action == .openPlaza })
         let ready = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, plazaUnread: 0)
-        XCTAssertEqual(ready.map { $0?.action }, [TrayMenuModel.Action.none, nil, .refresh, .openPlaza, .toggleLaunchAtLogin, .openLogFolder, nil, .quit])
+        XCTAssertEqual(ready.map { $0?.action }, [TrayMenuModel.Action.none, nil, .refresh, .openPlaza, .openSettings, .toggleBackView,
+                                                  .toggleLaunchAtLogin, .openLogFolder, nil, .quit])
         XCTAssertEqual(ready[3], .init(title: "광장 열기…", enabled: true, checked: false, action: .openPlaza))
         let unread = TrayMenuModel.items(l: L(.ko), todayTokens: 0, todayCost: nil, login: .off, update: nil, teammatesOnline: 2, plazaUnread: 3)
         XCTAssertEqual(unread.compactMap { $0 }.first { $0.action == .openPlaza }?.title, "광장 열기… (3)")
+    }
+
+    /// Stage 7 Task 4: the Mac status menu's "Settings…" and "Back view" (checked while the companion faces back), in the
+    /// Mac's order after Refresh and the plaza, before the Windows extras.
+    func testSettingsAndBackViewAreTheMacMenus() {
+        let off = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil)
+        XCTAssertEqual(off, TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, alwaysFacesBack: false))
+        XCTAssertEqual(off.compactMap { $0 }.first { $0.action == .openSettings }, .init(title: "Settings…", enabled: true, checked: false, action: .openSettings))
+        XCTAssertEqual(off.compactMap { $0 }.first { $0.action == .toggleBackView },
+                       .init(title: "Show back view", enabled: true, checked: false, action: .toggleBackView))
+        let back = TrayMenuModel.items(l: L(.ko), todayTokens: 0, todayCost: nil, login: .off, update: nil, alwaysFacesBack: true)
+        XCTAssertEqual(back.compactMap { $0 }.first { $0.action == .toggleBackView }, .init(title: "뒷모습 보기", enabled: true, checked: true, action: .toggleBackView))
+        XCTAssertEqual(back.compactMap { $0 }.first { $0.action == .openSettings }?.title, "설정…")
     }
 
     func testTooltipIsClippedToTheShellLimitWithoutSplittingCharacters() {

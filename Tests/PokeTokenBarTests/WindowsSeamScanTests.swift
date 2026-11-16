@@ -474,6 +474,75 @@ extension WindowsSeamScanTests {
         XCTAssertEqual(try scan("func f() {\n    // SetForegroundWindow( is only for bringToFront\n}\n"), 0)
     }
 
+    // MARK: - who may take the foreground (stage 7 Task 4, D4)
+
+    /// The places in Windows code that may bring a window forward, each for a user's action: the popover's `present` (a tray
+    /// click or key, the tray menu, a second launch), the tray menu's foreground dance, the second instance handing its
+    /// right to the running one, the plaza's `bringToFront` (its own scan above), and `--ime-check` (a diagnostic a person
+    /// starts). The selftest (`WindowsSelftest*.swift`, the runner only) is outside the rule. Anything else fails: a
+    /// teammate, a timer, a balloon or a refresh must never pull a window of ours to the front.
+    static let activationSites: [(file: String, function: String?)] = [
+        ("Platform/Windows/Popover/WinPopover.swift", "func present("),
+        ("Platform/Windows/WinTray.swift", "static func run("),
+        ("Platform/Windows/WinSingleInstance.swift", "static func acquire("),
+        ("Platform/Windows/Plaza/WinPlazaWindow.swift", "func bringToFront("),
+        ("Platform/Windows/WinImeCheck.swift", nil),
+    ]
+
+    static func windowsActivationViolations(in files: [URL], root: URL) throws -> [String] {
+        var out: [String] = []
+        for url in files {
+            let rel = SharedSources.relativePath(url, root: root)
+            guard rel.hasPrefix("Platform/Windows/"), !(rel.components(separatedBy: "/").last ?? "").hasPrefix("WindowsSelftest") else { continue }
+            let lines = try SharedSources.lines(of: url)
+            var allowed = Set<Int>()
+            for site in activationSites where site.file == rel {
+                if let function = site.function { allowed.formUnion(bodyLines(of: function, in: lines)) } else { allowed.formUnion(lines.indices) }
+            }
+            for (i, line) in lines.enumerated() {
+                let c = code(line)
+                // One finding a line (`AllowSetForegroundWindow(` contains `SetForegroundWindow(`).
+                if !allowed.contains(i), let call = activationCalls.first(where: { c.contains($0) }) {
+                    out.append("\(rel):\(i + 1) calls \(call.dropLast()) outside the allowed sites (\(activationSites.map(\.file).joined(separator: ", "))): a window of ours may come forward without the user")
+                }
+                if rel.hasPrefix("Platform/Windows/Popover/"), c.contains("SetWindowPos("), !c.contains("SWP_NOACTIVATE") {
+                    out.append("\(rel):\(i + 1) SetWindowPos without SWP_NOACTIVATE in the popover")
+                }
+            }
+        }
+        return out
+    }
+
+    func testOnlyTheAllowedSitesActivateWindowsOfOurs() throws {
+        let files = SharedSources.allSwiftFiles(root: SharedSources.sourcesRoot)
+        for site in Self.activationSites {
+            XCTAssertTrue(files.contains { SharedSources.relativePath($0, root: SharedSources.sourcesRoot) == site.file }, "\(site.file) is gone: update the list")
+        }
+        XCTAssertEqual(try Self.windowsActivationViolations(in: files, root: SharedSources.sourcesRoot), [])
+    }
+
+    func testTheWindowsActivationScanCatchesACallOutsideTheSites() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-activation-scan-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        func scan(_ rel: String, _ text: String) throws -> Int {
+            let f = root.appendingPathComponent(rel)
+            try FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: f, atomically: true, encoding: .utf8)
+            return try Self.windowsActivationViolations(in: [f], root: root).count
+        }
+        let present = "func present(_ opener: Opener) {\n    _ = SetForegroundWindow(h)\n    _ = ShowWindow(h, SW_SHOW)\n}\n"
+        XCTAssertEqual(try scan("Platform/Windows/Popover/WinPopover.swift", present), 0)
+        XCTAssertEqual(try scan("Platform/Windows/Popover/WinPopover.swift", present + "func rebuild() {\n    _ = SetForegroundWindow(h)\n}\n"), 1)
+        XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift", "func onChange() {\n    _ = ShowWindow(h, SW_SHOW)\n}\n"), 1)
+        XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift", "func f() {\n    _ = SetWindowPos(h, nil, 0, 0, 1, 1, UINT(SWP_NOZORDER))\n}\n"), 1)
+        XCTAssertEqual(try scan("Platform/Windows/WinTrayHost.swift", "func refresh() {\n    _ = BringWindowToTop(h)\n}\n"), 1)
+        XCTAssertEqual(try scan("Platform/Windows/WinSingleInstance.swift", "static func acquire(name: String) {\n    _ = AllowSetForegroundWindow(pid)\n}\n"), 0)
+        XCTAssertEqual(try scan("Platform/Windows/WinSingleInstance.swift", "static func other() {\n    _ = AllowSetForegroundWindow(pid)\n}\n"), 1)
+        XCTAssertEqual(try scan("Platform/Windows/WindowsSelftestPopoverWindow.swift", "func grant() {\n    _ = SetForegroundWindow(h)\n}\n"), 0)
+        XCTAssertEqual(try scan("Platform/Windows/WinTrayHost.swift", "func f() {\n    // SetForegroundWindow( only in present\n}\n"), 0)
+        XCTAssertEqual(try scan("Team/Plaza/Elsewhere.swift", "func f() {\n    _ = SetForegroundWindow(h)\n}\n"), 0, "shared code cannot call Win32 (other scans)")
+    }
+
     /// The frame clock's thread must not touch the main actor (it only waits and posts, D4).
     static func clockThreadViolations(_ text: String) -> [String] {
         text.components(separatedBy: "\n").enumerated().compactMap { i, line in
