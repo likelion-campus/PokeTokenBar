@@ -117,6 +117,13 @@ final class TransferDialogDriver: @unchecked Sendable {
 
     func start() {
         Thread { [self] in run() }.start()
+        // Nothing may leave the main thread inside a modal loop: after 90 s every dialog of the popover is closed, again and again.
+        Thread { [self] in
+            let end = Date(timeIntervalSinceNow: 90)
+            while Date() < end { if isFinished { return }; Thread.sleep(forTimeInterval: 0.5) }
+            lock.lock(); watchdogFired = true; lock.unlock()
+            for _ in 0..<60 where !isFinished { closeEverything(); Thread.sleep(forTimeInterval: 1) }
+        }.start()
     }
 
     // MARK: Win32 queries (any thread)
@@ -207,11 +214,15 @@ final class TransferDialogDriver: @unchecked Sendable {
             }
             Thread.sleep(forTimeInterval: 0.3)
             lock.lock(); fact.ranWhileOpen = ran; lock.unlock()
+            var cancelWait: TimeInterval = 10
             switch step {
             case .typePath(let path):
                 let edit = Self.descendants(of: dialog).first { WinKit.className($0) == "Edit" && IsWindowVisible($0) }
                 if let edit {
-                    _ = WinKit.send(edit, UINT(WM_SETTEXT), 0, text: path)
+                    var result: DWORD_PTR = 0
+                    _ = WinStr.w(path).withUnsafeBufferPointer {
+                        SendMessageTimeoutW(edit, UINT(WM_SETTEXT), 0, LPARAM(Int(bitPattern: $0.baseAddress)), UINT(SMTO_ABORTIFHUNG), 3000, &result)
+                    }
                     Thread.sleep(forTimeInterval: 0.2)
                     let ok = GetDlgItem(dialog, 1 /* IDOK */)
                     _ = PostMessageW(dialog, UINT(WM_COMMAND), WPARAM(1), LPARAM(Int(bitPattern: ok)))
@@ -222,6 +233,7 @@ final class TransferDialogDriver: @unchecked Sendable {
                 }
             case .cancelFile:
                 DispatchQueue.main.async { WinFileDialog.closeOpenDialog() }
+                cancelWait = 3
             case .click(let index):
                 _ = PostMessageW(dialog, 0x0466 /* TDM_CLICK_BUTTON */, WPARAM(1000 + index), 0)
             case .key(let vk):
@@ -231,6 +243,7 @@ final class TransferDialogDriver: @unchecked Sendable {
                 sendKey(vk)
             case .cancelTask:
                 DispatchQueue.main.async { WinTaskDialog.closeOpenDialog() }
+                cancelWait = 3
             case .captureThenEscape(let file):
                 var rect = RECT()
                 _ = GetWindowRect(dialog, &rect)
@@ -245,10 +258,13 @@ final class TransferDialogDriver: @unchecked Sendable {
                 sendKey(UInt16(VK_ESCAPE))
             }
             // The dialog goes away.
-            let deadline = Date(timeIntervalSinceNow: 10)
+            let deadline = Date(timeIntervalSinceNow: cancelWait)
             while IsWindow(dialog), Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
             fact.closed = !IsWindow(dialog)
-            if !fact.closed { closeEverything() }
+            if !fact.closed {
+                if cancelWait < 10 { fact.note += " the close posted to the main queue was not served within \(Int(cancelWait)) s;" }
+                closeEverything()
+            }
             record(fact)
             Thread.sleep(forTimeInterval: 0.3)
         }
@@ -465,7 +481,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         let rebuilt = await waitFor(3) { self.page?.rowsForTesting.language?.control !== page.rowsForTesting.language?.control || self.page?.rebuildsForTesting ?? 0 > 0 }
         await pause(0.6)
         let afterRebuild = self.section?.difficultyRowsForTesting
-        let keptDraft = (self.section?.draftForTesting?.shop ?? -1) == shopDraft && trackPosition(afterRebuild?.shop?.control) == 60 && shown(afterRebuild?.save)
+        let keptDraft = (self.section?.draftForTesting?.shop ?? -1) == shopDraft && PopoverDifficultySlider.value(atPosition: trackPosition(afterRebuild?.shop?.control)) == shopDraft && shown(afterRebuild?.save)
         stores.companion.setLanguage(.en)
         close()
         _ = await open()
@@ -531,6 +547,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         let rows = section.transferRowsForTesting
         let pageBefore = popover?.pageForTesting.map { ObjectIdentifier($0) }
         let opensBefore = WinFileDialog.opened, tasksBefore = WinTaskDialog.shown
+        let ticksBefore = WinModalPump.ticks, hookBefore = WinModalPump.hookTicks, skippedBefore = WinModalPump.ticksSkippedForInput
         // The save dialog, the open dialog and the import confirmation, each closed as a cancel.
         let save = await driven([.cancelFile]) { self.click(rows.export?.control) }
         let open = await driven([.cancelFile]) { self.click(rows.import?.control) }
@@ -555,7 +572,8 @@ final class TransferDialogDriver: @unchecked Sendable {
         }
         r.add("settings.dialogKeepsPopover", ok && samePage && outcomes == .cancelled && WinFileDialog.opened == opensBefore + 2 && WinTaskDialog.shown == tasksBefore + 1,
               "each real dialog opened by the page's own button, driven from a helper thread: \(line("save", save)); \(line("open", open)); \(line("import confirmation", confirm)); "
-                + "same page object=\(samePage); last outcome \(String(describing: outcomes)); file dialogs +\(WinFileDialog.opened - opensBefore), task dialogs +\(WinTaskDialog.shown - tasksBefore)")
+                + "same page object=\(samePage); last outcome \(String(describing: outcomes)); file dialogs +\(WinFileDialog.opened - opensBefore), task dialogs +\(WinTaskDialog.shown - tasksBefore); "
+                + "pump ticks +\(WinModalPump.ticks - ticksBefore) of which from the hook +\(WinModalPump.hookTicks - hookBefore), skipped for input +\(WinModalPump.ticksSkippedForInput - skippedBefore); notes \(save.facts.map { $0.note } + open.facts.map { $0.note } + confirm.facts.map { $0.note })")
         close()
     }
 
@@ -577,7 +595,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         let exported = stores.companion.transferSummary
         let target = work.appendingPathComponent("my save – 백업.json")
         // 1. Export through the real save dialog: the path typed into its file name box, Save pressed.
-        let export = await driven([.typePath(WinPath.native(target)), .click(0)]) { self.click(rows.export?.control) }
+        let export = await driven([.typePath(WinPath.native(target))]) { self.click(rows.export?.control) }
         let written = (try? SaveTransfer.decode(Data(contentsOf: target))).map { SaveSummary(state: $0.state) }
         let revealedOK = hybrid.revealed.map { WinPath.native($0).lowercased() } == [WinPath.native(target).lowercased()]
         let exportDone = hybrid.informs.isEmpty
@@ -596,7 +614,7 @@ final class TransferDialogDriver: @unchecked Sendable {
             x.facts.count == n && !x.watchdog && x.facts.allSatisfy { $0.found && $0.owned && $0.closed } && x.open
         }
         r.add("settings.exportImport",
-              rowOK(export, 2) && written == exported && revealedOK && exportDone && rowOK(importing, 3) && other != exported && after == exported
+              rowOK(export, 1) && written == exported && revealedOK && exportDone && rowOK(importing, 3) && other != exported && after == exported
                 && !backups.isEmpty && doneText == expectedDone && section.applied == 1,
               "folder '\(work.lastPathComponent)' (a space and Korean): export through the real save dialog -> file decodes to \(String(describing: written)) (expected \(exported)), "
                 + "Explorer asked to select it=\(revealedOK), no error shown=\(exportDone); the PC then held \(other); import through the real open dialog + confirmation (Replace) + done dialog -> \(after) "

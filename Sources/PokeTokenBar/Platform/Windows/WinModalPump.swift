@@ -64,7 +64,14 @@ import WinSDK
         sink.on(exitSizeMove) { _, _ in delivered[exitSizeMove, default: 0] += 1; end("sizemove"); return nil }
     }
 
+    /// Stage 7 Task 15: modal loops of the common file dialog and the task dialog (`begin("dialog")`) are open.
+    private(set) static var dialogDepth = 0
+    /// Ticks the message hook ran (see `tickFromHook`) and the time of the last tick of either kind (`GetTickCount64`).
+    private(set) static var hookTicks = 0
+    private static var lastTickMs: UInt64 = 0
+
     static func begin(_ reason: String) {
+        if reason == "dialog" { dialogDepth += 1 }
         depth += 1
         guard depth == 1 else { return }
         guard let hwnd = window?.hwnd else { beginsWithoutWindow += 1; return }
@@ -77,6 +84,7 @@ import WinSDK
     }
 
     static func end(_ reason: String) {
+        if reason == "dialog", dialogDepth > 0 { dialogDepth -= 1 }
         guard depth > 0 else { return }
         depth -= 1
         guard depth == 0, timerLive, let hwnd = window?.hwnd else { return }
@@ -101,6 +109,17 @@ import WinSDK
         return KillTimer(hwnd, timerID)
     }
 
+    /// Stage 7 Task 15: the message hook calls this for every message a nested loop removes while a dialog's modal loop is open.
+    /// The dialogs' own loops did not deliver the pump's `WM_TIMER` on the runner (the main queue stood still for as long as a
+    /// dialog was open), but they do read messages, and the thread's hook sees each of them: a tick at most every `interval` ms.
+    static func tickFromHook() {
+        guard dialogDepth > 0, !inTick else { return }
+        let now = GetTickCount64()
+        guard now &- lastTickMs >= UInt64(interval) else { return }
+        hookTicks += 1
+        tick()
+    }
+
     /// One zero-time pass of the main run loop. Not re-entrant: a nested modal loop started by the work it runs
     /// (or a `WM_TIMER` the nested pass dispatches) must not recurse into `RunLoop.run`.
     private static func tick() {
@@ -108,6 +127,7 @@ import WinSDK
         inTick = true
         defer { inTick = false }
         ticks += 1
+        lastTickMs = GetTickCount64()
         // CoreFoundation's run loop answers "input is available" by removing ONE message from the thread queue
         // (`PeekMessage(PM_REMOVE)`) and dispatching it to its window, which can be a key the menu's modal loop was
         // about to read (swift-corelibs-foundation on Windows: no API turns this off, the queue-mask SPI is not
