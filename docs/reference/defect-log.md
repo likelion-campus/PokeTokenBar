@@ -2575,3 +2575,14 @@ read_when:
   복구된 디코딩을 절대 다시 써 넣지 않는다. **가드:** XCTest `testTheCutWaitsForTheSecondHalfOfACharacter`·
   `testAJoinedEmojiTypedUnitByUnitAtTheLimitStaysWhole` 와 주입(`cutSplitsSurrogates` → 잡힘). **스윕:** 앱이 글을 다시 써 넣는 곳은 자르기와
   `resetField`(빈 줄) 둘뿐이고, 붙여넣기는 반쪽에서 잘린 끝을 버린 뒤 디코딩한다.
+
+- **조합 중인 음절 위에 이모지를 넣으면 음절 앞에 들어갔다('🍜하') — 진짜 IME 는 음절을 입력칸 글 안에 두고 캐럿을 그 앞에 두며, 끝을 늦게 보낼 수 있다.** (stage 6 Task 11 리뷰)
+  러너의 진짜 한국어 IME 로 `gk`(하 조합 중) 뒤 이모지 판의 🍜 를 누르면 "🍜하" 가 됐다(맥은 `unmarkText` 뒤 캐럿 자리에 넣어 "하🍜"). **직접 원인:**
+  `insert` 가 `ImmNotifyIME(CPS_COMPLETE)` 를 요청한 뒤 곧바로 캐럿 자리에 넣었다. EDIT 의 조합 표시는 캐럿을 음절의 시작에 두고, TSF 는 끝을
+  `ImmNotifyIME` 가 돌아온 뒤에 보낼 수 있다. **왜 못 걸렀나:** 스크립트 IME 는 "끝내기"에서 결과 글자를 캐럿에 `WM_CHAR` 로 직접 쳐 넣어 캐럿이 음절
+  뒤로 갔다 — 진짜 IME 의 "이미 글 안에 있는 음절, 그 앞의 캐럿, 늦은 끝"을 흉내내지 않아 다른 경로로 통과했다(리뷰가 진짜 IME 로 돌리라고 해서 드러남).
+  **고침:** 조합 위의 편집(이모지·붙여넣기·단어 지우기)은 조합을 끝내고, 끝이 아직 안 왔으면 `WM_IME_ENDCOMPOSITION` 을 기다렸다가, 끝난 음절 뒤에 한다.
+  **스윕:** 스스로 조합을 끝내는 곳 — Enter(끝내기만, 보내지 않음), Esc·닫기(`CPS_CANCEL` 뒤 빈 줄), 포커스 이동(끝낸 뒤 닫히거나 그대로), 이모지·붙여넣기·
+  단어 지우기(이번 고침), 글자 수 자르기(조합 중엔 안 함). 진짜 IME 로 Esc·지도 클릭·한도(59 + 한글 + Space)를 확인했다(셋 다 맞음).
+  **가드(기계):** `plaza.chatRealIME`(하 + 🍜 → "하🍜"), XCTest `testAnEmojiOverAnInlineSyllableGoesAfterIt`·`testAnEmojiWaitsForALateEndOfTheSyllable`
+  와 주입(`insertOverComposition` → 잡힘). **규칙:** 가짜 IME 는 진짜가 하는 "글 안의 음절, 그 앞의 캐럿, 늦은 끝"까지 흉내낸다; 조합을 끝내는 경로는 진짜 IME 로도 한 번 돌린다.
