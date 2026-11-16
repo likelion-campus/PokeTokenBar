@@ -27,6 +27,10 @@ import Foundation
     private var width: CGFloat = PopoverWindowMetrics.scrollContentWidth
     private var laidOut: Layout?
     private var column: (key: String, image: PlazaImage?)?
+    /// Pictures kept between renders (stage 7 Task 9): the backdrop per scale, size and angle (the wiggle's three poses are
+    /// drawn once, not once a pose), the bar's layer per look. Emptied with the layout.
+    private var backdrops: [String: PlazaPanelLayer] = [:]
+    private var barLayer: (key: String, layers: [PlazaPanelLayer])?
 
     init(_ model: CompanionHeaderModel, textScale: CGFloat = 1) {
         self.model = model
@@ -39,6 +43,8 @@ import Foundation
         model = next
         laidOut = nil
         column = nil
+        backdrops = [:]
+        barLayer = nil
         onChange?()
     }
 
@@ -251,6 +257,8 @@ import Foundation
             self.width = width
             laidOut = layout(width: width, text: text)
             column = nil
+            backdrops = [:]
+            barLayer = nil
         }
         return laidOut?.size ?? .zero
     }
@@ -276,9 +284,18 @@ import Foundation
         let key = "\(scale)"
         if column?.key != key { column = (key, Self.drawColumn(lay, scale: scale, graphics: graphics)) }
         var layers: [PlazaPanelLayer] = []
-        if let art = Self.drawBackdrop(lay.box, effects: effects, scale: scale, graphics: graphics) { layers.append(art) }
+        let backdropKey = "\(scale)|\(effects.scale)|\(effects.rotation)"
+        if let kept = backdrops[backdropKey] {
+            layers.append(kept)
+        } else if let art = Self.drawBackdrop(lay.box, effects: effects, scale: scale, graphics: graphics) {
+            if backdrops.count >= 8 { backdrops = [:] }   // a celebration's pop scales through many sizes: keep only a few
+            backdrops[backdropKey] = art
+            layers.append(art)
+        }
         if let image = column?.image { layers.append(.image(image, frame: CGRect(origin: .zero, size: lay.size))) }
-        layers += barLayers(lay, scale: scale, graphics: graphics)
+        let barKey = "\(scale)|\(barLook.expand)|\(barLook.label)"
+        if barLayer?.key != barKey { barLayer = (barKey, barLayers(lay, scale: scale, graphics: graphics)) }
+        layers += barLayer?.layers ?? []
         let overlays = Self.drawOverlays(lay.box, effects: effects, scale: scale, graphics: graphics, bounds: lay.size)
         let drawing = PlazaPanelDrawing(layers: layers, accessibility: lay.items, tooltips: lay.tooltips)
         return PopoverDrawing(drawing: drawing, spriteSlots: [spriteSlot], overlays: overlays)

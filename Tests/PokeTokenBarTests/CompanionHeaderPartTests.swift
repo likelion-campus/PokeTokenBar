@@ -103,6 +103,21 @@ final class CompanionHeaderPartTests: XCTestCase {
             d.drawing.layers.compactMap { if case .image(let i, let f) = $0, f.origin == .zero { i } else { nil } }.first
         }
         XCTAssertTrue(columnImage(first) === columnImage(frame))
+        // The wiggle's poses: a pose drawn before is not drawn again (its backdrop and the bar's layer are kept).
+        func images(_ d: PopoverDrawing) -> [PlazaImage] { d.drawing.layers.compactMap { if case .image(let i, _) = $0 { i } else { nil } } }
+        var pose = CompanionArtEffects.rest
+        pose.rotation = -5
+        part.setEffects(pose)
+        let a = images(part.renderEffectFrame(scale: 2, graphics: graphics))
+        pose.rotation = 5
+        part.setEffects(pose)
+        let b = images(part.renderEffectFrame(scale: 2, graphics: graphics))
+        pose.rotation = -5
+        part.setEffects(pose)
+        let c = images(part.renderEffectFrame(scale: 2, graphics: graphics))
+        XCTAssertEqual(a.count, c.count)
+        XCTAssertTrue(zip(a, c).allSatisfy { $0 === $1 }, "the same pose reuses every picture")
+        XCTAssertFalse(a[0] === b[0], "another angle is another backdrop")
     }
 
     func testTheGrowthBarsPixelsAtScaleOneAndTwo() async throws {
