@@ -594,11 +594,11 @@ extension WindowsSelftest {
         // Kernel handles belong to the whole process (worker threads, the network): a pool that grows once is not the page's.
         // A handle the page leaks shows as a rise on every cycle.
         let handlesRise = zip(cycles, rest).allSatisfy { $1.handles > $0.handles }
-        let ok = rest.allSatisfy { $0.gdi == warm.gdi && $0.user == warm.user && $0.controls == 0
+        let ok = rest.allSatisfy { $0.gdi <= warm.gdi && $0.user <= warm.user && $0.controls == 0
             && $0.dialogs == start.dialogs && $0.areas == 0 && $0.pumpDepth == 0 } && !handlesRise && !WinModalPump.timerLive
         r.add("ui.kit.openClose3", ok,
               "before the group: \(start); after a warm-up open/close: \(warm); after 5 more: \(rest.map { "\($0)" }.joined(separator: " / ")) "
-              + "(over the warm-up: GDI and USER objects +0 after every cycle, handles not rising on every cycle (rose every time=\(handlesRise)); "
+              + "(over the warm-up: GDI and USER objects not above the warm-up after every cycle (a drop is a late release, not a leak), handles not rising on every cycle (rose every time=\(handlesRise)); "
               + "no kit control, dialog registration, scroll area or pump timer left)")
     }
 
