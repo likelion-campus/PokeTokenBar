@@ -74,7 +74,7 @@ final class CollectionReadabilityRenderingTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = host
-        window.orderFront(nil)
+        window.orderInForTest()
         defer { window.close() }
         XCTAssertEqual(host.bounds.width, 332, accuracy: 0.5)
         XCTAssertEqual(host.bounds.height, 520, accuracy: 0.5)
