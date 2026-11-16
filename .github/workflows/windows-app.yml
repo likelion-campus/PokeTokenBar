@@ -188,6 +188,7 @@ jobs:
           foreach ($s in $j.stacks) { "== stacks $($s.name)"; $s.detail }
       - name: Selftest with a stripped Path
         id: bundle-selftest
+        timeout-minutes: 20  # about 6 min; a hang ends with the logs collected (Collect logs runs always)
         shell: pwsh
         run: |
           $env:Path = 'C:\Windows\System32;C:\Windows'
@@ -767,6 +768,7 @@ jobs:
       - name: Installed selftest (stripped Path, from the install folder)
         id: installed-selftest
         if: (success() || failure()) && steps.install.outcome == 'success'
+        timeout-minutes: 25  # about 6 min, one retry
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -799,6 +801,7 @@ jobs:
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
         id: idle
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full' && env.PTB_FAST != 'true'
+        timeout-minutes: 45  # about 23 min with the popover windows (run 43794578956: 22.4 min)
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -991,6 +994,7 @@ jobs:
       - name: Upgrade from the previous published Windows release
         id: upgrade-from-release
         if: (success() || failure()) && steps.uninstall.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 15  # a download and two installs
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}  # read-only, for the API rate limit
@@ -999,9 +1003,19 @@ jobs:
       - name: A failed update brings the old app back
         id: failed-update-relaunch
         if: (success() || failure()) && steps.iscc.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 25  # about 8 min
         shell: pwsh
         run: ./scripts/windows/failed-update-relaunch.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
       # ---- end failed-update-relaunch ----
+      # ---- in-app-update: the installed app updates itself from a loopback feed (stage 8 Task 6); logs and the progress
+      # window's capture in collected\in-app-update ----
+      - name: The in-app update from a loopback feed
+        id: in-app-update
+        if: (success() || failure()) && steps.iscc.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 25  # the step takes about 3 min; a hung scenario must not hold a release run to the job limit
+        shell: pwsh
+        run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
+      # ---- end in-app-update ----
       # New gate steps go above this line ("Collect logs"); the two release-mode steps stay last.
       - name: Collect logs
         if: always()
