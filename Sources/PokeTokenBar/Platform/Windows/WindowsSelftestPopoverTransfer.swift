@@ -264,6 +264,14 @@ final class TransferDialogDriver: @unchecked Sendable {
                 DispatchQueue.main.async(execute: work)
                 Thread.sleep(forTimeInterval: 1.0)
                 fact.note = "main-queue work ran under the dialog; the dialog is still open=\(IsWindow(dialog) && IsWindowVisible(dialog))"
+                // Whatever the work opened that would hold the main thread (a tray menu, with the guard off) ends here, so a failing
+                // build reports instead of hanging.
+                for _ in 0..<3 {
+                    var sink: HWND?
+                    let cls = WinStr.w(WinSinkWindow.className)
+                    while let h = FindWindowExW(nil, sink, cls, nil) { sink = h; _ = PostMessageW(h, 0x001F /* WM_CANCELMODE */, 0, 0) }
+                    Thread.sleep(forTimeInterval: 0.3)
+                }
                 cancelWait = 0
             case .cancelFile:
                 DispatchQueue.main.async { WinFileDialog.closeOpenDialog() }
@@ -806,6 +814,14 @@ final class TransferDialogDriver: @unchecked Sendable {
         hybrid.scriptedOpen = target
         let importing = await driven([.click(0), .click(0)]) { self.post(section.transferRowsForTesting.import?.control) }
         hybrid.scriptedOpen = nil
+        // An export that cannot be written: the Mac's alert is a warning (every error alert of its settings is `.warning`).
+        let blocker = work.appendingPathComponent("blocker.txt")
+        try? Data("KEEP".utf8).write(to: blocker)
+        hybrid.scriptedSave = blocker.appendingPathComponent("save.json")
+        let failed = await driven([.click(0)]) { self.post(section.transferRowsForTesting.export?.control) }
+        hybrid.scriptedSave = nil
+        let errorShown = WinTaskDialog.last
+        let errorOK = failed.facts.count == 1 && failed.facts[0].closed && errorShown?.icon == .warning && errorShown?.heading == l.exportSaveLabel && section.lastOutcome == .failed
         let after = stores.companion.transferSummary
         let confirmShown = hybrid.confirmDialog
         let backups = (try? FileManager.default.contentsOfDirectory(atPath: stores.directory.path).filter { $0.hasPrefix(SaveTransfer.backupFilePrefix) }) ?? []
@@ -815,12 +831,12 @@ final class TransferDialogDriver: @unchecked Sendable {
             x.facts.count == n && !x.watchdog && x.facts.allSatisfy { $0.found && $0.owned && $0.closed } && x.open
         }
         r.add("settings.exportImport",
-              rowOK(export, 0) && written == exported && revealedOK && exportDone && rowOK(importing, 2) && other != exported && after == exported
+              errorOK && rowOK(export, 0) && written == exported && revealedOK && exportDone && rowOK(importing, 2) && other != exported && after == exported
                 && !backups.isEmpty && doneText == expectedDone && section.applied == 1,
               "folder '\(work.lastPathComponent)' (a space and Korean): export through the real flow (path chosen by script) -> file decodes to \(String(describing: written)) (expected \(exported)), "
                 + "Explorer asked to select it=\(revealedOK) (\(hybrid.revealed.map { WinPath.native($0) })), no error shown=\(exportDone); the PC then held \(other); import through the flow (the file chosen by script) + the real confirmation (Replace pressed) + the real done dialog -> \(after) "
                 + "(expected \(exported)), backup files \(backups.count), done text matches=\(doneText == expectedDone), imports applied \(section.applied); "
-                + "confirmation buttons \(confirmShown?.buttons ?? []) default \(confirmShown?.defaultIndex ?? -1); steps \(export.facts.map { $0.note } + importing.facts.map { $0.note })")
+                + "an export that cannot be written -> alert with the \(String(describing: errorShown?.icon)) icon, outcome \(String(describing: section.lastOutcome)); confirmation buttons \(confirmShown?.buttons ?? []) default \(confirmShown?.defaultIndex ?? -1); steps \(export.facts.map { $0.note } + importing.facts.map { $0.note })")
         close()
     }
 
