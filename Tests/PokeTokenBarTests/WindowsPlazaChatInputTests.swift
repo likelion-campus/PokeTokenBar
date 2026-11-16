@@ -295,7 +295,7 @@ import XCTest
     /// Each rule above, broken on purpose (`WinChatFaults`, debug builds), is noticed by its scenario; with no fault every scenario holds.
     func testEachInjectedFaultIsCaught() async throws {
         defer { WinChatFaults.active = [] }
-        let scenarios: [(WinChatFaults.Fault, @MainActor () throws -> Bool)] = [
+        let scenarios: [(WinChatFaults.Fault, @MainActor () async throws -> Bool)] = [
             (.sendWhileComposing, { [self] in
                 let r = try rig(); compose(r, ["ㅎ", "하"]); key(r, 0x0D); return r.box.sent.isEmpty && r.input.isOpen }),
             (.sendOnRepeat, { [self] in
@@ -309,14 +309,95 @@ import XCTest
                 let r = try rig(); compose(r, ["ㄱ"]); key(r, 0x1B); return r.ime.finishes == [true] }),
             (.insertOverComposition, { [self] in
                 let r = try rig(); compose(r, ["가"]); r.input.insert("😀"); return r.input.text == "가😀" }),
+            (.keepHiddenAcrossWindows, { [self] in try await barDrawsAfterAHiddenClose() }),
+            (.cutSplitsSurrogates, { [self] in
+                let r = try rig(); type(r, String(repeating: "a", count: TeamChat.maxCharacters - 1)); type(r, "👨‍👩‍👧")
+                return r.input.text == String(repeating: "a", count: TeamChat.maxCharacters - 1) + "👨‍👩‍👧" }),
         ]
         XCTAssertEqual(Set(scenarios.map(\.0)), Set(WinChatFaults.Fault.allCases), "every fault has its scenario")
         for (fault, scenario) in scenarios {
             WinChatFaults.active = []
-            XCTAssertTrue(try scenario(), "\(fault): the scenario holds without the fault")
+            let holds = try await scenario()
+            XCTAssertTrue(holds, "\(fault): the scenario holds without the fault")
             WinChatFaults.active = [fault]
-            XCTAssertFalse(try scenario(), "\(fault): the injected fault is caught")
+            let caught = try await scenario()
+            XCTAssertFalse(caught, "\(fault): the injected fault is caught")
         }
+    }
+
+    /// Review item 1: a window closed while hidden leaves the bar's HUD "not rendering"; the field (which outlives windows) attached to the
+    /// next window must draw its bar again.
+    private func barDrawsAfterAHiddenClose() async throws -> Bool {
+        let r = try rig()
+        await flush()
+        r.input.close()
+        r.input.hud.isRendering = false   // what the window's visibility callback does while it is minimized or covered
+        r.input.detach()
+        let next = try WinSinkWindow(className: "PTBTestChatParent", title: "chat 2", style: DWORD(WS_OVERLAPPED), exStyle: 0,
+                                     x: 0, y: 0, width: 640, height: 400)
+        parents.append(next)
+        XCTAssertTrue(r.input.attach(parent: next.hwnd))
+        r.input.report(size: CGSize(width: 640, height: 400), scale: 1)
+        r.input.open()
+        await flush()
+        return r.input.barFrame != nil && r.input.drawList.count == 1
+    }
+
+    func testTheBarDrawsInAWindowOpenedAfterAHiddenClose() async throws {
+        let drawn = try await barDrawsAfterAHiddenClose()
+        XCTAssertTrue(drawn, "the reopened window shows the plate, not a bare field")
+    }
+
+    /// Review item 4: a character typed one UTF-16 half at a time (VK_PACKET) into a full line with the caret mid-line: the cut waits for the
+    /// second half and never writes a U+FFFD back.
+    func testTheCutWaitsForTheSecondHalfOfACharacter() async throws {
+        let r = try rig()
+        type(r, String(repeating: "a", count: TeamChat.maxCharacters))
+        _ = SendMessageW(r.edit, 0x00B1, 10, 10)
+        _ = SendMessageW(r.edit, 0x0102, 0xD83D, 1)   // 😀's high half
+        XCTAssertEqual(r.input.rawText.count, TeamChat.maxCharacters + 1, "nothing cut while the half waits")
+        XCTAssertFalse(r.input.rawText.contains(0xFFFD))
+        XCTAssertGreaterThanOrEqual(r.input.counts.cutsDeferred, 1)
+        _ = SendMessageW(r.edit, 0x0102, 0xDE00, 1)
+        XCTAssertEqual(r.input.text, String(repeating: "a", count: 10) + "😀" + String(repeating: "a", count: TeamChat.maxCharacters - 11))
+        XCTAssertFalse(r.input.text.unicodeScalars.contains("\u{FFFD}"))
+    }
+
+    /// At 59 characters a joined emoji typed unit by unit at the end is kept whole (it is one character).
+    func testAJoinedEmojiTypedUnitByUnitAtTheLimitStaysWhole() async throws {
+        let r = try rig()
+        let start = String(repeating: "a", count: TeamChat.maxCharacters - 1)
+        type(r, start)
+        type(r, "👨‍👩‍👧")   // one WM_CHAR per UTF-16 unit
+        XCTAssertEqual(r.input.text, start + "👨‍👩‍👧")
+        XCTAssertEqual(r.input.text.count, TeamChat.maxCharacters)
+        XCTAssertEqual(WinPlazaChatInput.unpairedSurrogates([0x61, 0xD83D]).pendingHigh, true)
+        XCTAssertEqual(WinPlazaChatInput.unpairedSurrogates([0xD83D, 0xDE00]).any, false)
+        XCTAssertEqual(WinPlazaChatInput.unpairedSurrogates([0xDE00, 0x61]).any, true)
+    }
+
+    /// Review item 6: Ctrl+Backspace deletes the word before the caret with the spaces after it (the Mac's Option+Backspace); a selection as it is.
+    func testWordDeleteTakesThePreviousWord() async throws {
+        let r = try rig()
+        type(r, "안녕 하세요")
+        r.input.deleteWordBackward()
+        XCTAssertEqual(r.input.text, "안녕 ")
+        r.input.deleteWordBackward()
+        XCTAssertEqual(r.input.text, "")
+        type(r, "abc def")
+        _ = SendMessageW(r.edit, 0x00B1, 0, 3)
+        r.input.deleteWordBackward()
+        XCTAssertEqual(r.input.text, " def")
+        _ = SendMessageW(r.edit, 0x00B1, 0, 0)
+        r.input.deleteWordBackward()
+        XCTAssertEqual(r.input.text, " def", "nothing before the caret")
+    }
+
+    /// Review item 5: a paste costs the same whatever the clipboard holds (the read is bounded; the line is cut before it is mapped).
+    func testAHugePasteIsCutBeforeItIsWorkedOn() async throws {
+        XCTAssertEqual(WinPlazaChatInput.pasteReadUnits, TeamChat.maxCharacters * 16)
+        let huge = String(repeating: "가\r\n", count: 200_000)
+        XCTAssertEqual(WinPlazaChatInput.pastable(huge), String(repeating: "가 ", count: 30))
     }
 
     /// At 150 % the field is in device pixels and the font is the body size at that scale.

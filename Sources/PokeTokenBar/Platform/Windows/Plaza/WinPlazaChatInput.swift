@@ -19,6 +19,10 @@ import WinSDK
         case keepCompositionOnClose
         /// A click on the bar's emoji grid does not finish the syllable first.
         case insertOverComposition
+        /// A field attached to a new window keeps the old window's "hidden" (its bar never draws after a close while hidden).
+        case keepHiddenAcrossWindows
+        /// The cut runs while a character is still missing its second UTF-16 half.
+        case cutSplitsSurrogates
     }
     static var active: Set<Fault> = []
 
@@ -64,7 +68,7 @@ import WinSDK
         var submits = 0, refused = 0, repeatsIgnored = 0, completesAsked = 0, cancelsAsked = 0, cuts = 0, pastes = 0, picks = 0
         var compositionStarts = 0, compositionUpdates = 0, compositionEnds = 0, imeChars = 0, chars = 0, charsSwallowed = 0
         var closesByFocus = 0, keptOnFocusLoss = 0, focusRestores = 0, loudToggles = 0, imePlacements = 0, menuPumps = 0, selectAlls = 0
-        var candidateOpens = 0
+        var candidateOpens = 0, focusRestoresAfterRestore = 0, wordDeletes = 0, cutsDeferred = 0
     }
 
     /// The bar and its HUD are made on first use (the plaza window opening): the controller exists from launch, and measuring the
@@ -143,6 +147,10 @@ import WinSDK
         self.parent = parent
         styledScale = 0
         restyle()
+        // A new window starts visible: the last window may have been closed while hidden (minimized, covered, on another desktop),
+        // and its visibility callback set this HUD to not rendering. This object outlives windows; the controller resets its own HUD
+        // the same way at close.
+        if !WinChatFaults.has(.keepHiddenAcrossWindows) { hud.isRendering = true }
         hud.host = self
         return true
     }
@@ -214,6 +222,13 @@ import WinSDK
         guard focus() else { return false }
         counts.focusRestores += 1
         return true
+    }
+
+    /// The window came back from minimized as the foreground window with the line open and the keyboard elsewhere: back to the field.
+    /// (The activation of a restored window can arrive while it is still minimized, when `restoreFocus` does not act.)
+    func restoreFocusAfterRestore() {
+        guard isOpen, let e = editHWND, GetFocus() != e, focus() else { return }
+        counts.focusRestoresAfterRestore += 1
     }
 
     // MARK: the bar's mouse (window points), before the other panels
@@ -465,8 +480,12 @@ import WinSDK
             break
         }
         // ⌘ chords by key position, as the Mac field's `commandAction`: Ctrl alone (AltGr is a character key, not Ctrl).
-        guard WinPlazaInput.currentModifiers() == [.command, .control],
-              let key = WinPlazaInput.macKeyCode(scanCode: bits.scanCode, extended: bits.extended) else { return nil }
+        guard WinPlazaInput.currentModifiers() == [.command, .control] else { return nil }
+        if vk == 0x08 {   // Ctrl+Backspace: the word before the caret (the Mac's Option+Backspace)
+            deleteWordBackward()
+            return 0
+        }
+        guard let key = WinPlazaInput.macKeyCode(scanCode: bits.scanCode, extended: bits.extended) else { return nil }
         switch key {
         case PlazaKeyCode.a:
             if let h = editHWND { _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, 0, -1) }
@@ -509,6 +528,26 @@ import WinSDK
         return r
     }
 
+    /// Ctrl+Backspace: the selection, or else the word before the caret with the spaces after it (AppKit's `deleteWordBackward`, which
+    /// the Mac field runs for Option+Backspace). A syllable being composed is finished first.
+    func deleteWordBackward() {
+        guard let h = editHWND else { return }
+        if isComposing { finish(h, cancel: false) }
+        let sel = selection
+        var from = sel.start
+        if sel.start == sel.end {
+            let line = String(decoding: units(h), as: UTF16.self)
+            var i = String.Index(utf16Offset: min(sel.start, line.utf16.count), in: line)
+            while i > line.startIndex, line[line.index(before: i)].isWhitespace { i = line.index(before: i) }
+            while i > line.startIndex, !line[line.index(before: i)].isWhitespace { i = line.index(before: i) }
+            from = line.utf16.distance(from: line.startIndex, to: i)
+        }
+        guard from < sel.end else { return }
+        _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(from), LPARAM(sel.end))
+        replaceSelection(h, "")
+        counts.wordDeletes += 1
+    }
+
     private func paste() {
         guard let h = editHWND, let raw = clipboardText() else { return }
         if isComposing { finish(h, cancel: false) }
@@ -519,7 +558,24 @@ import WinSDK
     /// One line from pasted text: line breaks and tabs become spaces (as `TeamChat.prepared` sends them), at most the line limit
     /// (the whole line is cut to the limit afterwards anyway, as the Mac's `controlTextDidChange` does).
     nonisolated static func pastable(_ raw: String) -> String {
-        String(String(raw.map { $0.isNewline || $0 == "\t" ? " " : $0 }).prefix(TeamChat.maxCharacters))
+        String(raw.prefix(TeamChat.maxCharacters).map { $0.isNewline || $0 == "\t" ? " " : $0 })
+    }
+
+    /// A UTF-16 high half with no low half after it (a character typed one unit at a time is still arriving), and any unpaired half.
+    nonisolated static func unpairedSurrogates(_ u: [UInt16]) -> (pendingHigh: Bool, any: Bool) {
+        var pendingHigh = false, any = false, i = 0
+        while i < u.count {
+            let c = u[i]
+            if (0xD800...0xDBFF).contains(c) {
+                if i + 1 < u.count, (0xDC00...0xDFFF).contains(u[i + 1]) { i += 2; continue }
+                pendingHigh = true
+                any = true
+            } else if (0xDC00...0xDFFF).contains(c) {
+                any = true
+            }
+            i += 1
+        }
+        return (pendingHigh, any)
     }
 
     /// Characters the one-line field must not take: Enter, Tab and Esc (handled as keys), Ctrl+A / Ctrl+W (handled), Ctrl+Backspace's
@@ -535,7 +591,16 @@ import WinSDK
         guard limitPending, !applyingLimit, let h = editHWND else { return }
         limitPending = false
         guard ime.composition(h).isEmpty || WinChatFaults.has(.cutWhileComposing) else { return }
-        let line = text(h)
+        let raw = units(h)
+        // One character can arrive one UTF-16 half at a time (VK_PACKET: the touch keyboard, emoji tools): cutting then would decode the
+        // lone half as U+FFFD and write that back. Wait for the other half; and never write a repaired decode back at all.
+        let halves = Self.unpairedSurrogates(raw)
+        if halves.any, !WinChatFaults.has(.cutSplitsSurrogates) {
+            if halves.pendingHigh { limitPending = true }
+            counts.cutsDeferred += 1
+            return
+        }
+        let line = String(decoding: raw, as: UTF16.self)
         guard line.count > TeamChat.maxCharacters else { return }
         let caret = selectionStart
         let cut = String(line.prefix(TeamChat.maxCharacters))
@@ -552,15 +617,21 @@ import WinSDK
 
     var text: String { editHWND.map { text($0) } ?? "" }
 
-    private func text(_ h: HWND) -> String {
+    private func text(_ h: HWND) -> String { String(decoding: units(h), as: UTF16.self) }
+
+    /// The field's raw UTF-16 (what the EDIT holds, unpaired halves included).
+    private func units(_ h: HWND) -> [UInt16] {
         let n = Int(SendMessageW(h, 0x000E /* WM_GETTEXTLENGTH */, 0, 0))
-        guard n > 0 else { return "" }
+        guard n > 0 else { return [] }
         var buf = [UInt16](repeating: 0, count: n + 1)
         let got = buf.withUnsafeMutableBufferPointer { p in
             Int(SendMessageW(h, 0x000D /* WM_GETTEXT */, WPARAM(n + 1), LPARAM(Int(bitPattern: p.baseAddress))))
         }
-        return String(decoding: buf.prefix(max(0, min(got, n))), as: UTF16.self)
+        return Array(buf.prefix(max(0, min(got, n))))
     }
+
+    /// The raw UTF-16 (tests and the selftest).
+    var rawText: [UInt16] { editHWND.map { units($0) } ?? [] }
 
     private func setText(_ h: HWND, _ s: String) {
         _ = WinStr.w(s).withUnsafeBufferPointer { SendMessageW(h, 0x000C /* WM_SETTEXT */, 0, LPARAM(Int(bitPattern: $0.baseAddress))) }
@@ -585,14 +656,18 @@ import WinSDK
         return n > 0 ? String(decoding: buf.prefix(min(n, buf.count)), as: UTF16.self) : ""
     }
 
+    /// The most a paste reads: the line holds 60 characters; 16 UTF-16 units each covers joined emoji and combining marks.
+    nonisolated static let pasteReadUnits = TeamChat.maxCharacters * 16
+
+    /// The clipboard's text, at most `pasteReadUnits` of it (a clipboard holding megabytes costs no more), a half character at the cut
+    /// dropped.
     nonisolated static func readClipboardText() -> String? {
-        var bytes: UnsafeMutablePointer<UInt8>?
-        var len = 0
-        guard ptb_clipboard_read(13 /* CF_UNICODETEXT */, &bytes, &len, 300) >= 0, let bytes else { return nil }
-        defer { ptb_plaza_free(bytes) }
-        let units = len / 2
-        let utf16 = bytes.withMemoryRebound(to: UInt16.self, capacity: max(units, 1)) { Array(UnsafeBufferPointer(start: $0, count: units)) }
-        return String(decoding: utf16.prefix { $0 != 0 }, as: UTF16.self)
+        var buf = [UInt16](repeating: 0, count: pasteReadUnits)
+        let n = Int(ptb_clipboard_read_text(&buf, UInt32(buf.count), 300))
+        guard n >= 0 else { return nil }
+        var units = Array(buf.prefix(n))
+        if let last = units.last, (0xD800...0xDBFF).contains(last) { units.removeLast() }
+        return String(decoding: units, as: UTF16.self)
     }
 }
 

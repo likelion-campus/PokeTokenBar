@@ -76,6 +76,7 @@ import WinSDK
     private(set) var isHUDHidden = false
     private(set) var isChatLogAboveInput = false
     private var showMaximized = false
+    private var wasMinimized = false
     private var lastNormal: (rect: WinPlazaPlacement.Rect, dpi: UInt32)?
     private var monitor: HMONITOR?
     private var contentHeight: CGFloat = 0
@@ -378,9 +379,14 @@ import WinSDK
             if wParam == WPARAM(SIZE_MINIMIZED) {
                 input?.releaseAll()
                 visibility.setMinimized(true)
+                wasMinimized = true
                 return 0
             }
             visibility.setMinimized(false)
+            if wasMinimized {   // back from minimized with the line open: the keyboard to the field (plaza.chatMinimizeRestore)
+                wasMinimized = false
+                if let hwnd = window?.hwnd, GetForegroundWindow() == hwnd { chat?.restoreFocusAfterRestore() }
+            }
             stats.resizes += 1
             layoutForClient()
             drawFrame(waitMs: 17)   // the new size now, so a live resize shows no stale or empty frame (at most one frame's wait)

@@ -279,10 +279,10 @@ extension WindowsSelftest {
         // plaza.keys / repeat / walk / altAlone / altGr / resignReleasesKeys / imeOff / click: Task 6's keyboard and mouse.
         if let s = scene { await plazaInputChecks(r, shell, hwnd, scene: s) }
         // plaza.chat* / plaza.imeChar: Task 11's chat line (the native field, the IME path, focus moves, the tray menu).
-        await plazaChatChecks(r, c, shell, hwnd, app: app)
+        let afterChat = await plazaChatChecks(r, c, shell, hwnd, app: app)
         scene = nil   // the selftest's own reference: the close check below asks whether the controller let go of it
         // plaza.ctrlW closes the window (through the shared path) and reopens it: the close checks below use the fresh one.
-        let liveHwnd = await plazaCtrlWCheck(r, c, shell, hwnd)
+        let liveHwnd = await plazaCtrlWCheck(r, c, shell, afterChat)
 
         // plaza.close (x3 open/close cycles), plaza.reopen, plaza.placement (a child process restores the saved frame).
         let closeFrame = WinPlazaWindow.frame(shell.dpiForTesting, 700, 500)   // inside the work area: kept as it is

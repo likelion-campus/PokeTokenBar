@@ -116,11 +116,12 @@ extension WindowsSelftest {
 
     // MARK: - the checks in the live plaza window
 
+    /// Returns the plaza window that is open afterwards (`plaza.chatReopenAfterHidden` closes and reopens it).
     @MainActor static func plazaChatChecks(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
-                                           app: WindowsAppDelegate) async {
+                                           app: WindowsAppDelegate) async -> HWND {
         guard let chat = shell.chatForTesting, chat.editHWND != nil else {
             r.add("plaza.chatChildVisible", false, "the window has no chat field (the controller's chat input is \(type(of: c.chatInputForTesting)))")
-            return
+            return hwnd
         }
         shell.input?.forwardToStage = true
         // The scripted IME (synthesized composition messages) must not meet a real one: the native field reads the REAL input context
@@ -144,20 +145,128 @@ extension WindowsSelftest {
         await chatFocusOwnChildCheck(r, c, shell, hwnd, chat)
         await chatCompositionCheck(r, c, chat)
         await chatFocusMoveCheck(r, c, shell, hwnd, chat)
+        await chatDpiCheck(r, c, shell, hwnd, chat)
         if onCI {
+            await chatMinimizeRestoreCheck(r, c, shell, hwnd, chat)
             await chatTypingCheck(r, c, shell, hwnd, chat)
             await chatClipboardCheck(r, c, chat)
             await chatMenuCheck(r, c, shell, hwnd, chat, app: app)
             await chatContextMenuCheck(r, c, chat)
             await chatRealIMECheck(r, c, shell, hwnd, chat)
         } else {
-            for name in ["plaza.chatTyping", "plaza.chatClipboard", "plaza.chatMenu", "plaza.chatContextMenu", "plaza.chatRealIME"] {
+            for name in ["plaza.chatTyping", "plaza.chatClipboard", "plaza.chatMenu", "plaza.chatContextMenu", "plaza.chatRealIME",
+                         "plaza.chatMinimizeRestore"] {
                 r.add(name, true, "skipped: real keys, the clipboard, the tray menu and IME changes are for CI only (a person's own PC is not touched)")
             }
         }
         await chatClose(chat)
         chat.ime = .system
         if onCI { forceForeground(hwnd); _ = SetFocus(hwnd) }
+        return await chatReopenAfterHiddenCheck(r, c, shell, hwnd, chat)
+    }
+
+    /// Review item 1: the field outlives the window; a window closed while hidden (minimized, covered, another desktop) left the bar's HUD
+    /// "not rendering", and the reopened window drew a bare field with no plate, no 😀 and no lifted chat log. Minimize, close through the
+    /// controller, reopen, open the line: the bar is drawn, the log sits above it, a click on the plate keeps the line.
+    @MainActor private static func chatReopenAfterHiddenCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
+                                                              _ chat: WinPlazaChatInput) async -> HWND {
+        await chatClose(chat)
+        _ = ShowWindow(hwnd, 7 /* SW_SHOWMINNOACTIVE */)
+        let hidden = await waitUntil(timeout: 2) { !chat.hud.isRendering }
+        shell.requestClose()
+        _ = await waitUntil(timeout: 1) { shell.hwndForTesting == nil }
+        c.show()
+        _ = await waitUntil(timeout: 3) { shell.stats.presents >= 1 }
+        guard let fresh = shell.hwndForTesting else {
+            r.add("plaza.chatReopenAfterHidden", false, "the plaza did not reopen")
+            return hwnd
+        }
+        if onCI { forceForeground(fresh); _ = SetFocus(fresh) }
+        await chatPump(0.3)
+        await chatOpen(c, chat)
+        await chatPump(0.3)
+        let rendering = chat.hud.isRendering
+        let bar = chat.barFrame
+        let drawn = bar != nil && chat.drawList.count == 1
+        let lifted = chatLogInputHeight(shell)
+        var kept = false
+        if let bar {
+            chatClick(shell, fresh, at: CGPoint(x: bar.minX + 4, y: bar.minY + 4))
+            await chatPump(0.2)
+            kept = chat.isOpen
+        }
+        await chatClose(chat)
+        if onCI { forceForeground(fresh); _ = SetFocus(fresh) }
+        r.add("plaza.chatReopenAfterHidden", hidden && rendering && drawn && lifted != nil && lifted == bar?.height && kept,
+              "minimized (bar HUD rendering=\(!hidden)), closed through the controller, reopened, line opened: bar HUD rendering=\(rendering), "
+                + "bar drawn=\(drawn) frame=\(bar.map { "\($0)" } ?? "nil"), chat log above \(lifted.map { "\($0)" } ?? "nil"), a click on the plate kept the line=\(kept)")
+        return fresh
+    }
+
+    /// Review item 7: minimize with the line open, restore: the keyboard is back in the field (and which path put it there).
+    @MainActor private static func chatMinimizeRestoreCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
+                                                            _ chat: WinPlazaChatInput) async {
+        forceForeground(hwnd)
+        await chatOpen(c, chat)
+        guard let e = chat.editHWND else { r.add("plaza.chatMinimizeRestore", false, "no field"); return }
+        _ = chat.focus()
+        chatPostText(e, "ab")
+        await chatPump(0.2)
+        let byActivate0 = chat.counts.focusRestores, byRestore0 = chat.counts.focusRestoresAfterRestore
+        _ = ShowWindow(hwnd, 6 /* SW_MINIMIZE */)
+        _ = await waitUntil(timeout: 2) { IsIconic(hwnd) }
+        await chatPump(0.3)
+        let openWhileMinimized = chat.isOpen
+        // What the taskbar button does: the window is made foreground while still minimized (WM_ACTIVATE with fMinimized set: the
+        // activation path leaves the keyboard alone), then SC_RESTORE. The restore path must put the keyboard back in the field; its
+        // counter moves only when the field did NOT have it at that moment (without that path this check fails).
+        forceForeground(hwnd)
+        await chatPump(0.1)
+        _ = SendMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xF120 /* SC_RESTORE */, 0)
+        _ = await waitUntil(timeout: 2) { !IsIconic(hwnd) }
+        await chatPump(0.4)
+        let foreground = GetForegroundWindow() == hwnd
+        let focused = GetFocus() == e
+        chatPostText(e, "c")
+        await chatPump(0.2)
+        let text = chat.text
+        let byActivate = chat.counts.focusRestores - byActivate0, byRestore = chat.counts.focusRestoresAfterRestore - byRestore0
+        await chatClose(chat)
+        forceForeground(hwnd)
+        r.add("plaza.chatMinimizeRestore", openWhileMinimized && foreground && focused && text == "abc",
+              "minimized with the line open (still open=\(openWhileMinimized)), made foreground while minimized then SC_RESTORE (the taskbar's way): foreground=\(foreground), keyboard in the field=\(focused) "
+                + "(put back by WM_ACTIVATE \(byActivate)x, by the restore path \(byRestore)x); typed c -> \(q(text))")
+    }
+
+    /// Review item 7: a DPI change with the line open: the field follows (device pixels, font), keeps the keyboard and the line.
+    @MainActor private static func chatDpiCheck(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
+                                                _ chat: WinPlazaChatInput) async {
+        if onCI { forceForeground(hwnd) }
+        await chatOpen(c, chat)
+        guard let e = chat.editHWND, let before = chat.fieldPixels else { r.add("plaza.chatDpi", false, "no field"); return }
+        if onCI { _ = chat.focus() }
+        chatPostText(e, "dpi 한")
+        await chatPump(0.2)
+        var wr = RECT()
+        _ = GetWindowRect(hwnd, &wr)
+        var suggested = RECT(left: wr.left, top: wr.top, right: wr.left + (wr.right - wr.left) * 3 / 2, bottom: wr.top + (wr.bottom - wr.top) * 3 / 2)
+        _ = withUnsafeMutablePointer(to: &suggested) { SendMessageW(hwnd, 0x02E0, WPARAM(144 | (144 << 16)), LPARAM(Int(bitPattern: $0))) }
+        await chatPump(0.4)
+        let at144 = chat.fieldPixels
+        let barAt144 = chat.barFrame
+        chatCapture(shell, hwnd, chat, "plaza-chat-144dpi.png")
+        let focused = !onCI || GetFocus() == e
+        let text = chat.text
+        var back = wr
+        _ = withUnsafeMutablePointer(to: &back) { SendMessageW(hwnd, 0x02E0, WPARAM(96 | (96 << 16)), LPARAM(Int(bitPattern: $0))) }
+        await chatPump(0.4)
+        let at96 = chat.fieldPixels
+        await chatClose(chat)
+        let scaled = at144.map { abs(Int($0.w) - Int((CGFloat(before.w) * 1.5).rounded())) <= 1 && abs(Int($0.h) - Int((CGFloat(before.h) * 1.5).rounded())) <= 1 } ?? false
+        let restored = at96.map { $0.w == before.w && $0.h == before.h } ?? false
+        r.add("plaza.chatDpi", scaled && restored && focused && text == "dpi 한" && chat.isOpen == false && barAt144 != nil,
+              "field at 96 dpi \(before.w)x\(before.h) px; WM_DPICHANGED 144: \(at144.map { "\($0.w)x\($0.h) at (\($0.x),\($0.y))" } ?? "none"), bar \(barAt144.map { "\($0)" } ?? "nil") pt, "
+                + "keyboard in the field=\(focused), line kept=\(q(text)); back to 96: \(at96.map { "\($0.w)x\($0.h)" } ?? "none"); capture plaza-chat-144dpi.png")
     }
 
     /// The brief's first check (D13, R1): is a plain EDIT child composed over the WS_EX_NOREDIRECTIONBITMAP window? "Aa한" is posted to
@@ -565,8 +674,11 @@ extension WindowsSelftest {
             let kept = chat.isOpen && (!onCI || GetFocus() == chat.editHWND) && script.finishes.isEmpty && chat.text == "abc"
             ok = ok && kept
             parts.append("chat log line clicked at (\(Int(inert.x)),\(Int(inert.y))): open, keyboard and composition 안 untouched=\(kept)")
+        } else if onCI {
+            ok = false
+            parts.append("FAIL: no inert chat-log point found (the log has lines by now)")
         } else {
-            parts.append("no inert chat-log point shown (log empty?): not judged")
+            parts.append("skipped: no inert chat-log point shown")
         }
         // (b) the guide's fold: a panel action that calls focusScene.
         let guide = panels.entries[.shortcuts].flatMap { e -> CGPoint? in
@@ -580,8 +692,11 @@ extension WindowsSelftest {
             parts.append("guide fold clicked while composing 안: closed=\(!chat.isOpen) syllable finished into the line=\(script.finishes == [false]) then discarded with it, nothing sent=\(c.chatLogLines.count == lines0)")
             chatClick(shell, hwnd, at: guide)   // fold it back
             await chatPump(0.2)
+        } else if onCI {
+            ok = false
+            parts.append("FAIL: no guide toggle found")
         } else {
-            parts.append("no guide toggle shown: not judged")
+            parts.append("skipped: no guide toggle shown")
         }
         // (c) a click on the map.
         await chatOpen(c, chat)
@@ -845,8 +960,8 @@ extension WindowsSelftest {
         let probe = ptb_ime_korean(0, &report, Int32(report.count))
         let probeText = String(decoding: report.prefix { $0 != 0 }, as: UTF16.self)
         let folder = FileManager.default.fileExists(atPath: "C:\\Windows\\System32\\IME\\IMEKR")
-        guard probe == 1 else {
-            r.add("plaza.chatRealIME", true, "unavailable: no Korean IME on this machine (IMEKR folder=\(folder); TSF: \(probeText)); the real IME's own behaviour is on the PC checklist")
+        guard probe == 1 else {   // the runner image has it: its absence there is a failure, not a pass
+            r.add("plaza.chatRealIME", !onCI, "unavailable: no Korean IME on this machine (IMEKR folder=\(folder); TSF: \(probeText))")
             return
         }
         forceForeground(hwnd)
@@ -894,8 +1009,14 @@ extension WindowsSelftest {
             || !WinPlazaChatInput.imeString(e, kind: 0x8).isEmpty
         guard engaged else {
             await chatClose(chat)
-            r.add("plaza.chatRealIME", true, "not engaged in this process (letters passed through: \(han)); TSF: \(actText); "
-                + "the real-IME behaviour is judged in the processes where the IME takes the keys (and on the PC checklist)")
+            // Field or harness? The same keys into a plain EDIT of ours in this process: the IME takes them there but not in the field ->
+            // the field broke it (FAIL); neither -> the harness could not engage the IME in this process (the workflow requires one
+            // process per run that did: "engaged").
+            let control = await controlEditTakesHangul()
+            forceForeground(hwnd)
+            r.add("plaza.chatRealIME", !control.engaged,
+                  "not engaged: the field passed letters through (\(han)); a control edit in this process: \(control.detail) -> "
+                    + (control.engaged ? "the IME takes keys there but not in the field" : "harness (TSF would not engage here)") + "; TSF: \(actText)")
             return
         }
         for _ in 0..<3 { await chatTap(0x0E); trace.append("BS \(state())") }
@@ -947,8 +1068,119 @@ extension WindowsSelftest {
         await chatTap(0x01)
         trace.append("Esc open=\(chat.isOpen)")
         await chatClose(chat)
-        r.add("plaza.chatRealIME", activated == 1 && han.hasPrefix("'한'") && sent == "안녕" && hanjaOK,
-              "TSF: \(probeText); activate: \(actText); conversion 0x\(String(status[0], radix: 16)) open=\(status[2]); " + trace.joined(separator: "; "))
+        // Review item 3: the paths that END a composition themselves, with the real IME holding the syllable in the field's text.
+        let ends = await realIMEEndings(r, c, shell, hwnd, chat)
+        trace.append(ends.detail)
+        r.add("plaza.chatRealIME", activated == 1 && han.hasPrefix("'한'") && sent == "안녕" && hanjaOK && ends.ok,
+              "engaged: TSF: \(probeText); activate: \(actText); conversion 0x\(String(status[0], radix: 16)) open=\(status[2]); " + trace.joined(separator: "; "))
+    }
+
+    /// `gks` into a plain EDIT of ours (not the chat field) in its own window, with real keys: does the IME take them in this process?
+    @MainActor private static func controlEditTakesHangul() async -> (engaged: Bool, detail: String) {
+        guard let host = try? WinSinkWindow(className: "PokeTokenBarSelftestImeControl", title: "ime control", style: 0x9000_0000 /* WS_POPUP|WS_VISIBLE */,
+                                            exStyle: 0, x: 120, y: 120, width: 240, height: 40),
+              let raw = ptb_chat_edit_create(UnsafeMutableRawPointer(host.hwnd), 0, nil, nil),
+              let edit = HWND(bitPattern: Int(bitPattern: raw)) else { return (false, "could not be made") }
+        defer { ptb_chat_edit_destroy(raw); host.destroy() }
+        _ = ptb_chat_edit_place(raw, 0, 0, 240, 40, 1)
+        forceForeground(host.hwnd)
+        _ = SetFocus(edit)
+        await chatPump(0.2)
+        _ = ptb_ime_set_status(raw, 1, 0x1)
+        await chatPump(0.1)
+        var composing = ""
+        for (i, s) in [UInt32(0x22), 0x25, 0x1F].enumerated() {
+            await chatTap(s)
+            if i == 1 { composing = WinPlazaChatInput.imeString(edit, kind: 0x8) }
+        }
+        await chatPump(0.2)
+        var buf = [UInt16](repeating: 0, count: 64)
+        let n = buf.withUnsafeMutableBufferPointer { p in Int(SendMessageW(edit, 0x000D, WPARAM(p.count), LPARAM(Int(bitPattern: p.baseAddress)))) }
+        let text = String(decoding: buf.prefix(max(0, n)), as: UTF16.self)
+        let hangul = text.unicodeScalars.contains { (0xAC00...0xD7A3).contains($0.value) || (0x3131...0x318E).contains($0.value) }
+        _ = ptb_ime_finish(raw, 1)
+        return (hangul || !composing.isEmpty, "text \(q(text)), composition after gk \(q(composing))")
+    }
+
+    /// With the real IME: `gk` + Esc, `gk` + a click on the map, `gk` + the grid's 🍜, 59 × a + `gksrmf` + Space.
+    @MainActor private static func realIMEEndings(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow, _ hwnd: HWND,
+                                                  _ chat: WinPlazaChatInput) async -> (ok: Bool, detail: String) {
+        func comp(_ e: HWND) -> String { WinPlazaChatInput.imeString(e, kind: 0x8) }
+        func jamo(_ s: String) -> Bool { s.unicodeScalars.contains { (0x3131...0x318E).contains($0.value) } }
+        func reopen() async -> HWND? {
+            await chatPump(0.35)
+            forceForeground(hwnd)
+            await chatOpen(c, chat)
+            _ = chat.focus()
+            await chatPump(0.15)
+            return chat.editHWND
+        }
+        var parts: [String] = []
+        var ok = true
+        let lines0 = c.chatLogLines.count
+        // (1) gk + Esc: the line closes (a second Esc if the IME takes the first to end its syllable); the next line is empty.
+        if let e = await reopen() {
+            await chatTap(0x22); await chatTap(0x25)
+            let during = "\(q(chat.text))/\(q(comp(e)))"
+            await chatTap(0x01)
+            await chatPump(0.2)
+            var escs = 1
+            if chat.isOpen { await chatTap(0x01); await chatPump(0.2); escs = 2 }
+            let closed = !chat.isOpen
+            let e2 = await reopen() ?? e
+            let empty = chat.text.isEmpty && comp(e2).isEmpty
+            ok = ok && closed && empty && c.chatLogLines.count == lines0
+            parts.append("gk \(during) + Esc x\(escs): closed=\(closed), reopened empty with no composition=\(empty) (\(q(chat.text))/\(q(comp(e2))))")
+            await chatClose(chat)
+        }
+        // (2) gk + a click on the map: closed, nothing sent, the next line empty.
+        if let e = await reopen(), let panels = shell.panelsForTesting {
+            await chatTap(0x22); await chatTap(0x25)
+            let during = "\(q(chat.text))/\(q(comp(e)))"
+            let size = shell.stageForTesting?.size ?? CGSize(width: 600, height: 400)
+            let map = [CGPoint(x: size.width * 0.5, y: size.height * 0.35), CGPoint(x: size.width * 0.6, y: size.height * 0.5)]
+                .first { panels.host(at: $0) == nil && !chat.takes($0) }
+            if let map { chatClick(shell, hwnd, at: map) }
+            await chatPump(0.4)
+            let closed = !chat.isOpen
+            let e2 = await reopen() ?? e
+            let empty = chat.text.isEmpty && comp(e2).isEmpty
+            ok = ok && map != nil && closed && empty && c.chatLogLines.count == lines0
+            parts.append("gk \(during) + map click: closed=\(closed), nothing sent=\(c.chatLogLines.count == lines0), reopened empty=\(empty) (\(q(chat.text))/\(q(comp(e2))))")
+            await chatClose(chat)
+        }
+        // (3) gk + the grid's 🍜: the syllable is finished first -> '하🍜'.
+        if let e = await reopen(), let bar = chat.barFrame {
+            let button = chat.bar.emojiButtonRect
+            chatClick(shell, hwnd, at: CGPoint(x: bar.minX + button.midX, y: bar.minY + button.midY))
+            await chatPump(0.3)
+            await chatTap(0x22); await chatTap(0x25)
+            let during = "\(q(chat.text))/\(q(comp(e)))"
+            if let grown = chat.barFrame, let i = PlazaChatEmojis.all.firstIndex(of: "🍜") {
+                let cell = chat.bar.gridCells[i]
+                chatClick(shell, hwnd, at: CGPoint(x: grown.minX + cell.midX, y: grown.minY + cell.midY))
+            }
+            await chatPump(0.4)
+            let text = chat.text, left = comp(e)
+            ok = ok && text == "하🍜" && left.isEmpty
+            parts.append("gk \(during) + 🍜: \(q(text)) composition left \(q(left))")
+            await chatClose(chat)
+        }
+        // (4) 59 × a + gksrmf + Space: 60 characters, no stray jamo.
+        if let e = await reopen() {
+            chatPostText(e, String(repeating: "a", count: TeamChat.maxCharacters - 1))
+            await chatPump(0.3)
+            for s: UInt32 in [0x22, 0x25, 0x1F, 0x13, 0x32, 0x21] { await chatTap(s) }   // g k s r m f
+            let during = "\(chat.text.count) chars, composition \(q(comp(e)))"
+            await chatTap(0x39)   // Space
+            await chatPump(0.3)
+            let text = chat.text, left = comp(e)
+            let expected = String(repeating: "a", count: TeamChat.maxCharacters - 1) + "한"
+            ok = ok && text == expected && !jamo(text) && left.isEmpty
+            parts.append("59 x a + gksrmf (\(during)) + Space: \(text.count) characters, ends \(q(String(text.suffix(3)))), stray jamo=\(jamo(text)), composition left \(q(left)) (expected 59 a + 한)")
+            await chatClose(chat)
+        }
+        return (ok, "endings: " + parts.joined(separator: "; "))
     }
 
     // MARK: - idle, in the still window
