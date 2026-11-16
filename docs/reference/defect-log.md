@@ -2588,3 +2588,9 @@ read_when:
   (#207 이후 실행 43774484787). 제품 동작은 맞다 — 제한 시간은 "대략 이만큼"이고 사용자에게는 300 ms 한도의 16 ms 차이다. **왜 못 걸렀나:** 작업 브랜치의 몇 번 실행에서는 우연히 틱이 맞았다.
   **고침:** 하한을 제한 시간에서 한 틱을 뺀 40 ms 로 둔다. **부류 스윕:** 윈도 테스트의 경과 시간 하한은 그 밖에 `WindowsHTTPFetchTests` 의 두 곳(10 초 중 8 초, 3 초 중 2.5 초)뿐이고 여유가 0.5 초 이상이다.
   **규칙:** 윈도에서 `GetTickCount64`·`Sleep` 으로 잰 시간에 하한을 걸 때는 한 틱(16 ms)을 빼고 건다.
+
+- **`PopoverTwinEquivalenceTests.testTheLimitRowFollowsTheMac` 가 바쁜 Mac 에서 가끔 실패했다 — 한쪽은 고정한 `now`, 다른 쪽은 살아 있는 `Date()` 를 읽고 그 차이에 18 ms 허용치를 뒀다.** 행 모델(`LimitsBuilder(now:)`)은 주입한 시각으로, Mac 의 원본 복사본(`MacPopoverOracle.paceFraction`)은 호출 순간의 `Date()` 로
+  페이스를 계산한다. 눈금 위치 비교의 `accuracy: 1e-6` 은 5시간 창에서 18 ms 다. 2.2 초짜리 스위트는 통과했고 11.6 초짜리(바쁜 기계)는 실패했다. **왜 못 걸렀나:** 허용치가 "보통 몇 µs 차이"를 가정했고, 빠른 기계의 단독 실행에서는 그 가정이 늘 맞았다.
+  **고침:** 기대값을 주입한 `now` 한 개로 계산해 행 모델과 정확히 비교하고(허용치 없음), Mac 복사본의 값은 "주입한 now 의 페이스와 호출 직후 페이스 사이"에 있다고만 단언한다(페이스는 시간에 단조 — 벽시계 허용치가 아니라 경계). `testThePaceFractionFollowsTheMac` 도 같은 방식.
+  **부류 스윕:** `PopoverTwinEquivalenceTests+Mac` 의 나머지 `Date()` 는 시각이 주입 인자인 쪽(`LimitsBuilder(now:)`, `resetClockSuffix(now:)`)과 복사본이 함께 읽는 경우뿐이며, `testTheResetClockFollowsTheMac` 는 6시간 경계에서 30 초 떨어진 오프셋만 써 수 ms 차이로 갈리지 않는다.
+  **규칙:** 주입한 시계와 살아 있는 시계를 한 테스트에서 비교할 때는 허용치가 아니라 두 시각 사이의 경계로 단언한다. (결함 주입 확인은 하지 않았다: 가드가 아니라 테스트의 단언 방식을 바꾼 것이다.)
