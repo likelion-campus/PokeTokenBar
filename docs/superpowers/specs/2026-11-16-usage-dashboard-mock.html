@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>사용량 대시보드 시안</title>
+<style>:root{--bg-primary:#fff;--bg-secondary:#f6f7f9;--bg-tertiary:#e8ebef;--border:#dde1e6;--text-primary:#1f2328;--text-secondary:#4b5563;--text-tertiary:#6b7280;--accent:#3b82f6;--success:#16a34a;--error:#dc2626;--selected-bg:#eaf2ff;--selected-border:#3b82f6}body{font-family:-apple-system,"Apple SD Gothic Neo",sans-serif;background:var(--bg-primary);color:var(--text-primary);margin:24px;max-width:1000px}.option{border:1px solid var(--border);border-radius:10px;padding:16px;margin:16px 0;display:flex;gap:12px}.letter{font-weight:700;font-size:18px}.subtitle{color:var(--text-secondary)}</style></head><body>
+<style>
+  .dash { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: 8px; }
+  .dash h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-secondary); font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .tile .k { font-size: 11px; color: var(--text-tertiary); }
+  .tile .v { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-top: 2px; }
+  .tile .d { font-size: 11px; color: var(--success); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  .panel { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .bar { display: grid; grid-template-columns: 72px 1fr 64px; align-items: center; gap: 8px; font-size: 12px; margin: 5px 0; color: var(--text-primary); }
+  .bar .track { height: 12px; background: var(--bg-tertiary); border-radius: 3px; overflow: hidden; }
+  .bar .fill { height: 100%; background: var(--accent); border-radius: 3px; }
+  .bar .fill.alt { background: #8b6fd6; }
+  .bar .n { text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  table.t { width: 100%; border-collapse: collapse; font-size: 12px; color: var(--text-primary); }
+  table.t th { text-align: left; color: var(--text-tertiary); font-weight: 600; border-bottom: 1px solid var(--border); padding: 5px 6px; }
+  table.t td { border-bottom: 1px solid var(--border); padding: 5px 6px; font-variant-numeric: tabular-nums; }
+  table.t td.r, table.t th.r { text-align: right; }
+  .filters { display: flex; gap: 8px; margin-bottom: 12px; font-size: 12px; }
+  .chip { border: 1px solid var(--border); background: var(--bg-primary); border-radius: 14px; padding: 3px 10px; color: var(--text-secondary); }
+  .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  tr.sel td { background: var(--selected-bg); }
+  .up { color: var(--success); } .down { color: var(--error); }
+  .legend { display: flex; gap: 12px; font-size: 11px; color: var(--text-secondary); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
+  .pick { margin-top: 10px; }
+  .notes { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+  .notes li { margin: 4px 0; }
+</style>
+
+<h2>대시보드 화면 시안 — 어느 구성이 가장 맞나요?</h2>
+<p class="subtitle">샘플 숫자로 그린 구성 시안입니다(팀·닉네임·숫자 모두 가짜). 실제로는 구글 시트 / Looker Studio로 만들어서, 모양은 이보다 단순해집니다. 단위는 백만 토큰(M).</p>
+
+<div class="options">
+
+  <!-- A -->
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content" style="width:100%">
+      <h3>한 장 요약 — 열자마자 전체가 보이는 구성</h3>
+      <p>맨 위 숫자 네 개, 그 아래 팀별 총량·평균, 맨 아래 많이 쓰는 5명과 적게 쓰는 5명.</p>
+      <div class="dash">
+        <div class="filters"><span class="chip on">이번 달</span><span class="chip">지난 7일</span><span class="chip">지난달</span></div>
+        <div class="tiles">
+          <div class="tile"><div class="k">전체 토큰</div><div class="v">6,720M</div><div class="d">지난달보다 +18%</div></div>
+          <div class="tile"><div class="k">1인 평균</div><div class="v">149M</div><div class="d">+11%</div></div>
+          <div class="tile"><div class="k">쓰는 사람</div><div class="v">45명</div><div class="d">+4명</div></div>
+          <div class="tile"><div class="k">팀 수</div><div class="v">4</div></div>
+        </div>
+        <div class="row2">
+          <div class="panel">
+            <h4>팀별 총 사용량</h4>
+            <div class="bar"><span>개발팀</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="n">3,840M</span></div>
+            <div class="bar"><span>교육운영팀</span><div class="track"><div class="fill" style="width:42%"></div></div><span class="n">1,620M</span></div>
+            <div class="bar"><span>디자인팀</span><div class="track"><div class="fill" style="width:19%"></div></div><span class="n">720M</span></div>
+            <div class="bar"><span>사업팀</span><div class="track"><div class="fill" style="width:14%"></div></div><span class="n">540M</span></div>
+          </div>
+          <div class="panel">
+            <h4>팀별 1인 평균</h4>
+            <div class="bar"><span>개발팀</span><div class="track"><div class="fill alt" style="width:100%"></div></div><span class="n">320M</span></div>
+            <div class="bar"><span>디자인팀</span><div class="track"><div class="fill alt" style="width:38%"></div></div><span class="n">120M</span></div>
+            <div class="bar"><span>교육운영팀</span><div class="track"><div class="fill alt" style="width:28%"></div></div><span class="n">90M</span></div>
+            <div class="bar"><span>사업팀</span><div class="track"><div class="fill alt" style="width:19%"></div></div><span class="n">60M</span></div>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="panel">
+            <h4>많이 쓰는 팀원 (상위 5)</h4>
+            <table class="t"><tr><th>닉네임</th><th>팀</th><th class="r">토큰</th></tr>
+              <tr><td>해달</td><td>개발팀</td><td class="r">910M</td></tr>
+              <tr><td>코난</td><td>개발팀</td><td class="r">640M</td></tr>
+              <tr><td>모카</td><td>디자인팀</td><td class="r">410M</td></tr>
+              <tr><td>지아</td><td>교육운영팀</td><td class="r">380M</td></tr>
+              <tr><td>민수</td><td>개발팀</td><td class="r">350M</td></tr>
+            </table>
+          </div>
+          <div class="panel">
+            <h4>적게 쓰는 팀원 (하위 5)</h4>
+            <table class="t"><tr><th>닉네임</th><th>팀</th><th class="r">토큰</th></tr>
+              <tr><td>서연</td><td>사업팀</td><td class="r">0.4M</td></tr>
+              <tr><td>두부</td><td>교육운영팀</td><td class="r">1.2M</td></tr>
+              <tr><td>보리</td><td>사업팀</td><td class="r">2.0M</td></tr>
+              <tr><td>라떼</td><td>교육운영팀</td><td class="r">3.1M</td></tr>
+              <tr><td>콩이</td><td>사업팀</td><td class="r">4.8M</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content" style="width:100%">
+      <h3>팀 표 중심 — 팀을 고르면 그 팀원 순위가 나오는 구성</h3>
+      <p>팀마다 한 줄에 총량·평균·최다·최소를 모아 보고, 팀을 고르면 아래에 그 팀 전원이 순위대로 나옵니다.</p>
+      <div class="dash">
+        <div class="filters"><span class="chip on">이번 달</span><span class="chip">지난 7일</span><span class="chip">지난달</span></div>
+        <div class="panel" style="margin-bottom:14px">
+          <h4>팀별 요약</h4>
+          <table class="t">
+            <tr><th>팀</th><th class="r">인원</th><th class="r">총 토큰</th><th class="r">1인 평균</th><th>가장 많이</th><th>가장 적게</th><th class="r">지난달 대비</th></tr>
+            <tr class="sel"><td>개발팀</td><td class="r">12</td><td class="r">3,840M</td><td class="r">320M</td><td>해달 910M</td><td>호두 22M</td><td class="r up">+24%</td></tr>
+            <tr><td>교육운영팀</td><td class="r">18</td><td class="r">1,620M</td><td class="r">90M</td><td>지아 380M</td><td>두부 1.2M</td><td class="r up">+9%</td></tr>
+            <tr><td>디자인팀</td><td class="r">6</td><td class="r">720M</td><td class="r">120M</td><td>모카 410M</td><td>밤비 18M</td><td class="r up">+31%</td></tr>
+            <tr><td>사업팀</td><td class="r">9</td><td class="r">540M</td><td class="r">60M</td><td>가온 210M</td><td>서연 0.4M</td><td class="r down">−6%</td></tr>
+          </table>
+        </div>
+        <div class="panel">
+          <h4>개발팀 팀원 (12명, 많이 쓰는 순)</h4>
+          <div class="bar"><span>해달</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="n">910M</span></div>
+          <div class="bar"><span>코난</span><div class="track"><div class="fill" style="width:70%"></div></div><span class="n">640M</span></div>
+          <div class="bar"><span>민수</span><div class="track"><div class="fill" style="width:38%"></div></div><span class="n">350M</span></div>
+          <div class="bar"><span>…</span><div class="track"><div class="fill" style="width:20%"></div></div><span class="n">…</span></div>
+          <div class="bar"><span>호두</span><div class="track"><div class="fill" style="width:2.4%"></div></div><span class="n">22M</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content" style="width:100%">
+      <h3>추세 중심 — 팀별로 늘고 있는지 줄고 있는지가 먼저 보이는 구성</h3>
+      <p>위에 팀별 일별 사용량 꺾은선, 아래에 팀원 전체 순위 표(위가 많이, 아래가 적게).</p>
+      <div class="dash">
+        <div class="filters"><span class="chip">이번 달</span><span class="chip on">지난 14일</span><span class="chip">전체 팀</span></div>
+        <div class="panel" style="margin-bottom:14px">
+          <h4>팀별 하루 사용량 (지난 14일)</h4>
+          <svg viewBox="0 0 560 150" width="100%" height="150" preserveAspectRatio="none" style="display:block">
+            <line x1="0" y1="140" x2="560" y2="140" stroke="currentColor" stroke-opacity=".2"/>
+            <line x1="0" y1="95" x2="560" y2="95" stroke="currentColor" stroke-opacity=".08"/>
+            <line x1="0" y1="50" x2="560" y2="50" stroke="currentColor" stroke-opacity=".08"/>
+            <polyline fill="none" stroke="#3b82f6" stroke-width="2.5" points="0,70 43,64 86,72 129,58 172,60 215,96 258,100 301,52 344,48 387,55 430,40 473,44 516,92 559,95"/>
+            <polyline fill="none" stroke="#8b6fd6" stroke-width="2.5" points="0,112 43,108 86,110 129,104 172,100 215,128 258,130 301,102 344,98 387,96 430,94 473,92 516,126 559,128"/>
+            <polyline fill="none" stroke="#10b981" stroke-width="2.5" points="0,124 43,122 86,118 129,120 172,116 215,134 258,135 301,114 344,112 387,110 430,108 473,106 516,133 559,134"/>
+            <polyline fill="none" stroke="#f59e0b" stroke-width="2.5" points="0,126 43,127 86,125 129,128 172,126 215,136 258,137 301,127 344,129 387,128 430,130 473,129 516,137 559,137"/>
+          </svg>
+          <div class="legend"><span><i style="background:#3b82f6"></i>개발팀</span><span><i style="background:#8b6fd6"></i>교육운영팀</span><span><i style="background:#10b981"></i>디자인팀</span><span><i style="background:#f59e0b"></i>사업팀</span><span style="margin-left:auto">움푹한 곳 = 주말</span></div>
+        </div>
+        <div class="panel">
+          <h4>팀원 순위 (45명)</h4>
+          <table class="t"><tr><th class="r">#</th><th>닉네임</th><th>팀</th><th class="r">토큰</th><th class="r">사용한 날</th></tr>
+            <tr><td class="r">1</td><td>해달</td><td>개발팀</td><td class="r">910M</td><td class="r">13/14</td></tr>
+            <tr><td class="r">2</td><td>코난</td><td>개발팀</td><td class="r">640M</td><td class="r">12/14</td></tr>
+            <tr><td class="r">…</td><td>…</td><td>…</td><td class="r">…</td><td class="r">…</td></tr>
+            <tr><td class="r">44</td><td>두부</td><td>교육운영팀</td><td class="r">1.2M</td><td class="r">2/14</td></tr>
+            <tr><td class="r">45</td><td>서연</td><td>사업팀</td><td class="r">0.4M</td><td class="r">1/14</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:20px">
+  <h3>어느 구성이든 같이 정해야 할 것</h3>
+  <ul class="notes">
+    <li><b>앱이 없는 사람은 아예 안 보입니다.</b> 앱을 안 깔았거나 팀 기능을 끈 사람은 "적게 쓰는 팀원"에도 잡히지 않습니다. 인원 수와 1인 평균도 "앱이 보낸 사람" 기준입니다.</li>
+    <li><b>토큰을 어떻게 셀지.</b> 지금 앱의 토큰 수에는 캐시에서 다시 읽은 토큰이 들어가서, 실제로 주고받은 양보다 몇 배 크게 나옵니다(보통 대부분이 캐시 읽기).</li>
+    <li><b>도구 구분.</b> Claude Code, Codex, Cursor 등 도구별로 나눠 볼 칸이 필요한지.</li>
+  </ul>
+</div>
+</body></html>
