@@ -107,10 +107,17 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
                        dir.appendingPathComponent("한글 폴더"), dir.appendingPathComponent("logs/proj-a"), dir.appendingPathComponent("logs/proj-b")] {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         }
+        // The folder's own login, as Claude Code writes it: its tab keeps the email after the folder's key is saved (the usage
+        // a session key answers carries none; the store names the account from this file then).
+        try? Data(#"{"oauthAccount":{"emailAddress":"work@fixture.example","organizationUuid":"org-fixture-personal"}}"#.utf8)
+            .write(to: work.appendingPathComponent(".claude.json"))
         self.suite = suite
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         self.defaults = defaults
         defaults.set(withAccount ? work.path : "", forKey: ClaudeAccountRoots.defaultsKey)
+        // Manual refresh: a store arms its polling timer in `init` (whatever `autoRefresh` says) and nothing invalidates it,
+        // so every fixture store left a 120 s timer behind that woke the main thread in the idle window after this group.
+        defaults.set(0.0, forKey: "refreshInterval")
         let keys = SessionKeyLimitsProvider(store: SessionKeyStore(fileURL: dir.appendingPathComponent("session-key.json")), http: http)
         store = UsageStore(
             providers: [AdvFixtureUsage(id: "claude_code", displayName: "Claude Code"), AdvFixtureUsage(id: "codex", displayName: "Codex")],
@@ -124,6 +131,7 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
             sessionKeys: keys, accountSessionKeys: { SessionKeyLimitsProvider(store: .forConfigRoot($0, directory: dir), http: http) },
             autoRefresh: false, defaults: defaults, displaysAsleep: { false })
         store.localizationLanguage = language
+        assert(!store.isPollingTimerScheduled)
     }
 
     func remove() { try? FileManager.default.removeItem(at: dir) }
@@ -458,23 +466,25 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
 
     func accountCheck() async {
         let f = await fixture("account")
-        guard await open(f), let adv = section, let account = adv.accounts.first, let field = account.field, let path = account.path else {
+        guard await open(f), let first = section?.accounts.first, let field = first.field, let path = first.path else {
             r.add("settings.accountKey", false, "no account rows"); return
         }
+        let label = first.labelRow.label?.text ?? ""
+        let folder = first.labelRow.hint?.text ?? ""
         let keyFile = SessionKeyStore.forConfigRoot(URL(fileURLWithPath: path), directory: f.dir).fileURL   // as the store names it
-        let label = account.labelRow.label?.text ?? ""
-        let folder = account.labelRow.hint?.text ?? ""
         let key = newKey(valid: true)
         await paste(key, into: field)
-        t.click(account.save)
+        t.click(first.save)
         let saved = await t.waitFor(4) { f.store.accountSessionKeyPaths.contains(path) && field.text.isEmpty }
-        await t.pause(0.3)
-        let badge = account.badge?.text ?? ""
+        // The save refreshes the store; read the rows the page shows now (a rebuild would make new ones).
+        let badged = await t.waitFor(2) { self.section?.accounts.first?.badge?.text == self.l.sessionKeySaved }
+        let account = section?.accounts.first
+        let badge = account?.badge?.text ?? ""
         let disk = encryptedOnDisk(keyFile, key: key)
-        let note = t.shown(adv.rowsForTesting.accountsNote)
-        t.click(account.delete)
+        let note = section.map { t.shown($0.rowsForTesting.accountsNote) } ?? false
+        t.click(account?.delete)
         let deleted = await t.waitFor(2) { !f.store.accountSessionKeyPaths.contains(path) && !FileManager.default.fileExists(atPath: keyFile.path) }
-        r.add("settings.accountKey", label == l.accountSessionKeyLabel("work@fixture.example") && !folder.isEmpty && saved && badge == l.sessionKeySaved
+        r.add("settings.accountKey", label == l.accountSessionKeyLabel("work@fixture.example") && !folder.isEmpty && saved && badged
                 && disk.exists && !disk.plain && disk.decrypts && note && deleted,
               "the fixture folder's own key: label '\(label)', folder shown=\(!folder.isEmpty); pasted + Save -> saved and emptied=\(saved), badge '\(badge)'; "
                 + "its file encrypted=\(disk.exists && !disk.plain) decrypts=\(disk.decrypts); storage note once under the accounts=\(note); Delete -> gone=\(deleted)")
@@ -745,7 +755,8 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
         let inLog = needles.filter { log.contains($0) }.count
         let inTexts = needles.filter { n in seenTexts.contains { $0.contains(n) } }.count
         let inTrees = needles.filter { treeText.contains($0) }.count
-        r.add("settings.keyLeak", inLog == 0 && inTexts == 0 && inTrees == 0 && !keys.isEmpty && !trees.isEmpty,
+        let dumped = WindowsSelftestPopoverWindow.dumpDirectory() != nil
+        r.add("settings.keyLeak", inLog == 0 && inTexts == 0 && inTrees == 0 && !keys.isEmpty && (trees.isEmpty != dumped),
               "\(keys.count) fixture keys (whole and their last 24 characters) looked for: in the \(log.utf8.count)-byte log \(inLog), in \(seenTexts.count) window texts and tooltips "
                 + "recorded during the group \(inTexts), in \(trees.count) control trees written with the captures \(inTrees)")
     }
