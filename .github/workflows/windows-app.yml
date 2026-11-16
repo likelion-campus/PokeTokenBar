@@ -272,6 +272,22 @@ jobs:
           Get-ChildItem ui-dump\settings -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "settings: $($bad -join ', ')" }
       # --- stage 7 Task 6: the Settings page (end) ---
+      # --- stage 7 Task 15: difficulty, backup and transfer (begin) ---
+      - name: Difficulty and transfer checks ran (settings.difficulty*, settings.dialog*, captures in ui-dump/settings)
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'settings.difficulty', 'settings.difficultyKeys', 'settings.dialogKeepsPopover', 'settings.exportImport', 'settings.importCancelDefault',
+                   'settings.dialogExit', 'settings.snapshots', 'settings.transferA11y', 'settings.transferCapture'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL: $($c.detail)" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          if ($bad.Count -gt 0) { throw "transfer: $($bad -join ' | ')" }
+      # --- stage 7 Task 15 (end) ---
       # --- stage 7 Task 5: the Home page (begin) ---
       - name: Popover home checks ran (home.*, captures in ui-dump/home)
         if: (success() || failure()) && steps.package.outcome == 'success'

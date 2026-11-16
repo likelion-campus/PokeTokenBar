@@ -258,3 +258,5 @@ PopoverTextStyleGoldensMacTests.swift
 TeamReleaseScriptRunTests.swift
 # LimitBarPartMacTests: reads the Mac view PopoverView.swift as text (it is not compiled on Windows) and holds the Windows limit bar to the Mac's private marker and track numbers
 LimitBarPartMacTests.swift
+# PopoverDifficultyDraftTwinTests+Mac: drives the Mac's DifficultyDraft and SettingsView.exportedAtText (upstream SwiftUI files, not compiled on Windows) against their shared twins
+PopoverDifficultyDraftTwinTests+Mac.swift

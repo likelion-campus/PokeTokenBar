@@ -89,7 +89,10 @@ import WinSDK
 
     /// Asks every open modal menu to close (the exit path calls it before leaving the process).
     static func cancelModalLoops() {
-        if depth > 0 { _ = EndMenu() }
+        if depth > 0 {
+            _ = EndMenu()
+            WinDialogs.closeAll()   // stage 7 Task 15: an open file dialog or task dialog of the popover ends as a cancel
+        }
     }
 
     /// Selftest probe: whether the pump's timer still exists (it is killed by this call when it does).

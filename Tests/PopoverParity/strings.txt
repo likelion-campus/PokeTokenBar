@@ -168,13 +168,13 @@ height | D7
 hidden | D7
 hiddenAbility | D7
 home | P2
-importConfirmBody | G16 | replace: says "this Mac" (D13)
+importConfirmBody | G16 | replaced: winImportConfirmBody
 importConfirmReplace | G16
-importConfirmTitle | G16 | replace: says "this Mac's progress" (D13)
+importConfirmTitle | G16 | replaced: winImportConfirmTitle
 importErrorMessage | G16
 importSaveButton | G16
 importSaveDone | G16
-importSaveHint | G16 | replace: says "exported from another Mac" (D13)
+importSaveHint | G16 | replaced: winImportSaveHint
 importSaveLabel | G16
 intervalLabel | G3
 itemDescription | B2
