@@ -24,7 +24,7 @@ final class PopoverRecapEquivalenceTests: XCTestCase {
                    totalCost: 0, costCoverage: .source)
     }
 
-    func testTheTwinPrintsWhatTheMacPrints() throws {
+    func testTheTwinPrintsWhatTheMacPrints() async throws {
         let formatter = LocalUsageReader.localDayFormatter(timeZone: utc)
         func key(_ d: Date) -> String { formatter.string(from: d) }
         var full = UsageLedger()
@@ -75,7 +75,7 @@ final class PopoverRecapEquivalenceTests: XCTestCase {
     }
 
     /// What `RecapScreen` and `RecapCard` print from `RecapContent`, evaluated here the way their bodies do, equals the page model.
-    func testThePageModelEqualsTheMacBodiesExpressions() throws {
+    func testThePageModelEqualsTheMacBodiesExpressions() async throws {
         let formatter = LocalUsageReader.localDayFormatter(timeZone: utc)
         var ledger = UsageLedger()
         ledger.merge([usage(formatter.string(from: date(2026, 8, 1)), 0), usage(formatter.string(from: date(2026, 9, 18)), 3_000),

@@ -80,7 +80,7 @@ final class PopoverRecapTests: XCTestCase {
 
     // MARK: navigation
 
-    func testNavigationFollowsTheMacsButtons() {
+    func testNavigationFollowsTheMacsButtons() async {
         var nav = RecapNavigation()
         XCTAssertEqual(nav.scope, .week)
         XCTAssertFalse(nav.canGoToCurrent)
@@ -105,7 +105,7 @@ final class PopoverRecapTests: XCTestCase {
         XCTAssertEqual(nav.offset, 0)
     }
 
-    func testAMeterLightsOneSegmentForAnyUsageAndEightForThePeak() {
+    func testAMeterLightsOneSegmentForAnyUsageAndEightForThePeak() async {
         XCTAssertEqual(PopoverRecapMetrics.lit(tokens: 0, peak: 100), 0)
         XCTAssertEqual(PopoverRecapMetrics.lit(tokens: 1, peak: 1_000_000), 1, "quiet is not nothing")
         XCTAssertEqual(PopoverRecapMetrics.lit(tokens: 100, peak: 100), 8)
@@ -119,7 +119,7 @@ final class PopoverRecapTests: XCTestCase {
 
     // MARK: what each data state shows
 
-    func testNoUsageAtAllShowsDashesAndNothingElse() {
+    func testNoUsageAtAllShowsDashesAndNothingElse() async {
         let m = page(stores(UsageLedger()))
         XCTAssertEqual(m.card.total, "0")
         XCTAssertEqual(m.card.unit, "TOKENS")
@@ -140,7 +140,7 @@ final class PopoverRecapTests: XCTestCase {
         XCTAssertNil(ko.bestDayLine)
     }
 
-    func testARunningWeekComparesTheSameDaysOfTheLastOne() {
+    func testARunningWeekComparesTheSameDaysOfTheLastOne() async {
         let m = page(stores(Self.full))
         XCTAssertEqual(m.card.title, Self.goldens[.en]!.week.uppercased())
         XCTAssertEqual(m.card.total, "8K")
@@ -162,7 +162,7 @@ final class PopoverRecapTests: XCTestCase {
         XCTAssertEqual(ja.bestDayLine, "最高の日は 9月17日 木曜日、5,000 トークン。")
     }
 
-    func testAFinishedWeekHasNoSoFarNoteAndAFallHasADownArrow() {
+    func testAFinishedWeekHasNoSoFarNoteAndAFallHasADownArrow() async {
         let s = stores(Self.full)
         let last = page(s, .week, offset: -1)
         XCTAssertNil(last.compareSoFar, "a finished period is compared whole, and the note is only for a running one")
@@ -179,7 +179,7 @@ final class PopoverRecapTests: XCTestCase {
         XCTAssertEqual(m.card.delta?.up, false)
     }
 
-    func testTheFirstWeekOfUseClaimsNoJump() {
+    func testTheFirstWeekOfUseClaimsNoJump() async {
         let m = page(stores(ledger(since: date(2026, 9, 16), [(date(2026, 9, 18), 3_000), (date(2026, 9, 17), 5_000)])))
         XCTAssertNil(m.card.delta, "days the app never saw would count as zero and invent a jump")
         XCTAssertNil(m.compareSoFar)
@@ -188,7 +188,7 @@ final class PopoverRecapTests: XCTestCase {
         XCTAssertEqual(m.card.readouts[2].value, "2/3")
     }
 
-    func testAMissingComparisonAndAMonthAndAYear() {
+    func testAMissingComparisonAndAMonthAndAYear() async {
         let s = stores(Self.full)
         let month = page(s, .month)
         XCTAssertEqual(month.card.title, "SEPTEMBER 2026")
@@ -204,7 +204,7 @@ final class PopoverRecapTests: XCTestCase {
         XCTAssertFalse(year.canGoBack, "the ledger starts in 2026: nothing earlier")
     }
 
-    func testVeryLargeNumbersAreGroupedByTheRegionAndCompactedByTheApp() {
+    func testVeryLargeNumbersAreGroupedByTheRegionAndCompactedByTheApp() async {
         let big = 12_345_678_901
         let m = page(stores(ledger(since: date(2026, 8, 1), [(date(2026, 9, 18), big), (date(2026, 9, 11), 2_000)])))
         XCTAssertEqual(m.card.total, "12.35B")
@@ -243,7 +243,7 @@ final class PopoverRecapTests: XCTestCase {
                    day: "четверг, 17 сент.", weekBucket: "понедельник, 14 сент., 0", yearBucket: "январь 2026 г., нет данных"),
     ]
 
-    func testEveryLanguageReadsTheMacsDatesAndLabels() {
+    func testEveryLanguageReadsTheMacsDatesAndLabels() async {
         XCTAssertEqual(Self.goldens.count, AppLanguage.allCases.count)
         let s = stores(Self.full)
         for language in AppLanguage.allCases {
@@ -263,7 +263,7 @@ final class PopoverRecapTests: XCTestCase {
 
     // MARK: week and year boundaries
 
-    func testWeeksFollowTheFirstWeekdayAndCrossTheYear() {
+    func testWeeksFollowTheFirstWeekdayAndCrossTheYear() async {
         let s = stores(ledger(since: date(2026, 8, 1), [(date(2027, 1, 2), 100)]))
         let saturday = date(2027, 1, 2)
         // Monday start: 28 Dec - 3 Jan; Sunday start: 27 Dec - 2 Jan; Saturday start: 2 - 8 Jan.
@@ -296,7 +296,7 @@ final class PopoverRecapTests: XCTestCase {
         return (part, part.render(scale: scale, graphics: graphics), part.layout(width: width, text: graphics.text))
     }
 
-    func testTheCardFitsItsFrameInEveryScopeAndLanguage() {
+    func testTheCardFitsItsFrameInEveryScopeAndLanguage() async {
         for language in [AppLanguage.en, .ko, .de, .ru] {
             let s = stores(Self.full, language: language)
             for scope in RecapScope.allCases {
@@ -330,7 +330,7 @@ final class PopoverRecapTests: XCTestCase {
         }
     }
 
-    func testTheCardAccessibilityReadsEveryNumberAndTheMetersTheirDescription() {
+    func testTheCardAccessibilityReadsEveryNumberAndTheMetersTheirDescription() async {
         let s = stores(Self.full)
         let model = RecapCardModel(content(s))
         let (_, drawing, _) = render(model)
@@ -348,7 +348,7 @@ final class PopoverRecapTests: XCTestCase {
         XCTAssertEqual(drawing.spriteSlots.first?.animated, false)
     }
 
-    func testTheCardIsDrawnWithTheMacsColoursAndSegments() throws {
+    func testTheCardIsDrawnWithTheMacsColoursAndSegments() async throws {
         let s = stores(Self.full)
         let model = RecapCardModel(content(s))
         for scale in [CGFloat(1), 2] {
@@ -384,7 +384,7 @@ final class PopoverRecapTests: XCTestCase {
         }
     }
 
-    func testTheCardIsUpdatedInPlaceOnlyWhenSomethingDiffers() {
+    func testTheCardIsUpdatedInPlaceOnlyWhenSomethingDiffers() async {
         let s = stores(Self.full)
         let model = RecapCardModel(content(s))
         let part = RecapCardPart(model)
@@ -398,7 +398,7 @@ final class PopoverRecapTests: XCTestCase {
         XCTAssertEqual(changes, 1)
     }
 
-    func testTheDeltaChipAndGraduatesAreDrawn() {
+    func testTheDeltaChipAndGraduatesAreDrawn() async {
         let dex = [DexEntry(id: "a", baseID: 10, finalID: 10, chainOrder: [10], rarity: .common, caughtAt: date(2026, 9, 17),
                             isShiny: true, names: [10: ["en": "Caterpie"]]),
                    DexEntry(id: "b", baseID: 25, finalID: 26, chainOrder: [25, 26], rarity: .rare, caughtAt: date(2026, 9, 15),
