@@ -269,7 +269,7 @@ extension WindowsSelftest {
             guard let w = await modalIdleWindow(app, settle: i == 0) else { continue }
             cs.append(w.cs)
             if w.cs > w.budget { over += 1 }
-            (w.budget > 3 ? withFire : without).append(w.cs)
+            if w.budget > 3 { withFire.append(w.cs) } else { without.append(w.cs) }
             rows.append("#\(i + 1) cs=\(w.cs)/\(w.budget) \(w.detail.components(separatedBy: "; ")[1])")
         }
         r.add("flake.modalIdle", over == 0,
