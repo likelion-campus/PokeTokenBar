@@ -1,0 +1,29 @@
+name: windows-slice
+description: Start of every windows-app slice job - unpack the build (artifact ptb-build), make the selftest fixture and the fixture sprites, set PTB_VERSION / PTB_NEXT_VERSION.
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: ptb-build
+        path: .
+    - name: Selftest fixture
+      shell: pwsh
+      run: |
+        # Claude Code logs dated "today", so the store's refresh has a known total; a fresh state folder.
+        $fx = Join-Path $env:RUNNER_TEMP 'ptb-selftest'
+        $proj = Join-Path $fx 'claude\projects\p'
+        New-Item -ItemType Directory -Force -Path $proj, (Join-Path $fx 'state'), (Join-Path $fx 'state-dispatch') | Out-Null
+        $ts = (Get-Date).ToUniversalTime().AddSeconds(-30).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+        (Get-Content 'windows\selftest\claude\projects\p\s.jsonl' -Raw).Replace('__TIMESTAMP__', $ts) |
+          Set-Content -NoNewline -Encoding utf8NoBOM -Path (Join-Path $proj 's.jsonl')
+        "PTB_FIXTURE=$fx" >> $env:GITHUB_ENV
+        # The versions the build job stamped (the next one only exists at level full).
+        "PTB_VERSION=$((Get-Content bundle\PokeTokenBar.version -Raw).Trim())" >> $env:GITHUB_ENV
+        if (Test-Path bundle-next\PokeTokenBar.version) { "PTB_NEXT_VERSION=$((Get-Content bundle-next\PokeTokenBar.version -Raw).Trim())" >> $env:GITHUB_ENV }
+    - name: Companion fixture sprites (public PokeAPI files; the selftest and the idle probes read them, the app asks no network)
+      shell: pwsh
+      run: |
+        $dir = Join-Path $env:RUNNER_TEMP 'ptb-sprites'
+        ./scripts/windows/fetch-fixture-sprites.ps1 -Out $dir
+        "PTB_SELFTEST_SPRITES=$dir" >> $env:GITHUB_ENV
