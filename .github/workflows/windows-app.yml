@@ -1169,6 +1169,14 @@ jobs:
           retention-days: 7
           path: ui-dump/home
           if-no-files-found: warn
+      # stage 7 Task 12: the activity panel's fixture states (sample data, Windows CI runner)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-activity
+          retention-days: 7
+          path: ui-dump/activity
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:
