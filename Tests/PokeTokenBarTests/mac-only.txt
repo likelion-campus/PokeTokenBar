@@ -256,6 +256,8 @@ PopoverGoldens+Mac.swift
 PopoverTextStyleGoldensMacTests.swift
 # TeamReleaseScriptRunTests: runs scripts/team-release.sh with bash, perl and /usr/bin/openssl against fakes (a macOS release script)
 TeamReleaseScriptRunTests.swift
+# PlazaChatBarPanelTests+Mac: the shared chat bar against the AppKit chat bar it copies (PlazaChatInput laid out by Auto Layout in an unshown NSWindow, CALayer colours)
+PlazaChatBarPanelTests+Mac.swift
 # LimitBarPartMacTests: reads the Mac view PopoverView.swift as text (it is not compiled on Windows) and holds the Windows limit bar to the Mac's private marker and track numbers
 LimitBarPartMacTests.swift
 # PopoverTrendTwinTests+Mac: drives the Mac-only originals (DailyTrendMetrics, ActivityHeatmapMetrics, MonthDailyTrend, StreakBadge) against the shared twins

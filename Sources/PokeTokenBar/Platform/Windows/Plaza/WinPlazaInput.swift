@@ -193,6 +193,9 @@ enum WinPlazaInput {
     var tracksMouse: ((CGPoint) -> Bool)?
     /// Task 11: called when the window gets the keyboard or the input language changes, to keep the scene's IME context off.
     var reassertIME: (() -> Void)?
+    /// Task 11: whether a press at this window point takes the keyboard for the scene. A press a panel or the chat bar takes leaves
+    /// it in the chat field, as the Mac's panel views refuse first responder; nil: every press takes it.
+    var takesFocus: ((CGPoint) -> Bool)?
     var keyObserver: ((PlazaKeyEvent) -> Void)?
     var keyUpObserver: ((UInt16) -> Void)?
     var mouseObserver: ((PlazaMouseEvent) -> Void)?
@@ -289,10 +292,12 @@ enum WinPlazaInput {
     }
 
     private func leftDown(_ lParam: LPARAM) -> LRESULT? {
-        if GetFocus() != hwnd { _ = SetFocus(hwnd) }   // a click gives the scene the keyboard (the window never takes it by itself)
+        let p = point(lParam)
+        // A click on the scene gives it the keyboard (the window never takes it by itself); a click a panel takes does not.
+        if GetFocus() != hwnd, takesFocus?(p) ?? true { _ = SetFocus(hwnd) }
         pressed = true
         _ = SetCapture(hwnd)   // the release still arrives when the pointer is dragged out of the window
-        deliver(.down, point(lParam))
+        deliver(.down, p)
         return 0
     }
 

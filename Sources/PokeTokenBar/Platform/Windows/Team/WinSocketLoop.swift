@@ -70,6 +70,9 @@ final class WinSocketLoop: @unchecked Sendable {
     /// Inbound connections reported but not yet answered. At this many (only while the main thread is behind), the
     /// listener is not polled, so a connection flood waits in the kernel backlog instead of becoming sockets of ours.
     static let maxAwaitingAdmission = 64
+    /// How long `shutdown()` waits for the I/O thread by default. Every wait on the exit path has a deadline: a thread
+    /// that does not come back is abandoned (the process is ending), never waited for forever.
+    static let shutdownBound: TimeInterval = 5
     /// `.listenFailed` code when the TLS context could not be built (no Winsock code applies).
     static let tlsSetupFailed: Int32 = -1
 
@@ -78,21 +81,26 @@ final class WinSocketLoop: @unchecked Sendable {
     /// - Parameter deliver: runs on the main queue, once per event, in order.
     init(deliver: @escaping @MainActor (WinSocketEvent) -> Void,
          connectTimeout: TimeInterval = WinSocketLoop.connectAttemptTimeout,
-         maxQueuedBytes: Int = WinSocketLoop.maxQueuedBytes) {
+         maxQueuedBytes: Int = WinSocketLoop.maxQueuedBytes,
+         log: @escaping @Sendable (String) -> Void = { AppLog.write($0) }) {
         engine = WinSocketEngine(deliver: deliver, connectTimeoutMs: UInt64(max(1, connectTimeout * 1000)),
-                                 maxQueued: maxQueuedBytes)
+                                 maxQueued: maxQueuedBytes, log: log)
     }
 
     /// The I/O thread holds the engine, not this handle, so dropping the handle cannot leave the thread running.
-    deinit { engine.shutdown() }
+    deinit { engine.shutdown(within: Self.shutdownBound) }
 
     /// Starts Winsock (once per loop, paired with `shutdown`) and the I/O thread. Commands given before it run then.
     /// False when Winsock could not start (logged; listens and dials then report failure) or after `shutdown()`.
     @discardableResult func start() -> Bool { engine.start() }
 
     /// Closes every socket without reporting it, waits until the I/O thread has exited, and releases Winsock.
-    /// Nothing is delivered afterwards. Calls made later do nothing.
-    func shutdown() { engine.shutdown() }
+    /// Nothing is delivered afterwards. Calls made later do nothing. Waits at most `seconds` for the thread: a thread
+    /// that has not exited by then is abandoned with one log line (`exit: abandoned socket loop join after <ms> ms`),
+    /// Winsock is left started (the thread may still use it) and the result is false. True: the thread exited.
+    @discardableResult func shutdown(within seconds: TimeInterval = WinSocketLoop.shutdownBound) -> Bool {
+        engine.shutdown(within: seconds)
+    }
 
     /// Listens on dual-stack `[::]:0` (IPv4 arrives mapped) with `SO_EXCLUSIVEADDRUSE`. Replaces an earlier listener.
     /// Reports `.listening(port:)` with the bound port, or `.listenFailed(code)`.
@@ -169,6 +177,8 @@ final class WinSocketLoop: @unchecked Sendable {
     func injectWakeFaults(drop: Int, fail: Int) { engine.injectWakeFaults(drop: drop, fail: fail) }
     /// The next `accept` on a readable listener fails with `code`, as a listener that broke would.
     func injectAcceptFailure(_ code: Int32) { engine.injectAcceptFailure(code) }
+    /// Blocks the I/O thread inside a command until `release` is signalled, as a thread stuck in a blocking call would be.
+    func injectStall(until release: DispatchSemaphore) { engine.injectStall(until: release) }
 
     /// A `sockaddr_in` (16 bytes) or `sockaddr_in6` (28 bytes) for numeric host text: IPv4 dotted, IPv6 in any
     /// form, optionally in brackets, with an optional numeric `%<interface index>` scope for link-local IPv6
@@ -256,6 +266,8 @@ private final class WinSocketEngine: @unchecked Sendable {
     private var clientContext: (code: TeamCode, context: WinTLSContext)?
     private var awaitingAdmission = 0
     private var stopping = false
+    /// Under `lock`: `shutdown` gave up waiting for this thread; it ends at its next pass if it ever comes back.
+    private var abandoned = false
     private var toFlush: [Conn] = []
     private var loggedPollFailure = false
 
@@ -263,7 +275,11 @@ private final class WinSocketEngine: @unchecked Sendable {
     private var threadHandle: HANDLE?
     private let finished = DispatchSemaphore(value: 0)
 
-    init(deliver: @escaping @MainActor (WinSocketEvent) -> Void, connectTimeoutMs: UInt64, maxQueued: Int) {
+    private let log: @Sendable (String) -> Void
+
+    init(deliver: @escaping @MainActor (WinSocketEvent) -> Void, connectTimeoutMs: UInt64, maxQueued: Int,
+         log: @escaping @Sendable (String) -> Void = { AppLog.write($0) }) {
+        self.log = log
         self.deliver = deliver
         self.connectTimeoutMs = connectTimeoutMs
         self.maxQueued = maxQueued
@@ -322,22 +338,36 @@ private final class WinSocketEngine: @unchecked Sendable {
         return true
     }
 
-    func shutdown() {
+    func shutdown(within seconds: TimeInterval) -> Bool {
+        let began = Date()
         lock.lock()
         let wasRunning: Bool
         if case .running = state { wasRunning = true } else { wasRunning = false }
         lock.unlock()
+        var joined = true
         if wasRunning {
             enqueue(.stop)
             // `.stop` is the last command, so no later one would resend a lost wake: wait in slices and resend it.
-            while finished.wait(timeout: .now() + .milliseconds(100)) == .timedOut {
+            // Every slice is inside the deadline: a thread stuck in a call that never returns is abandoned.
+            let deadline = began.addingTimeInterval(max(0, seconds))
+            var exited = false
+            while true {
+                let left = deadline.timeIntervalSinceNow
+                if finished.wait(timeout: .now() + .milliseconds(Int(max(0, min(0.1, left)) * 1000))) == .success { exited = true; break }
+                if left <= 0 { break }
                 lock.lock(); _ = sendWake(); lock.unlock()
             }
-            if let h = threadHandle {
-                _ = WaitForSingleObject(h, DWORD(0xFFFF_FFFF))   // INFINITE: the thread object is signalled once it has exited
-                _ = CloseHandle(h)
-                threadHandle = nil
+            if exited, let h = threadHandle {
+                // The thread signals `finished` a few instructions before it ends; give its object the rest of the budget.
+                let ms = DWORD(min(3_600_000, max(100, deadline.timeIntervalSinceNow * 1000)))   // clamped: `within: .infinity` must not trap
+                if WaitForSingleObject(h, ms) != 0 { exited = false }   // 0 = WAIT_OBJECT_0
             }
+            if !exited {
+                joined = false
+                lock.lock(); abandoned = true; lock.unlock()
+                log("exit: abandoned socket loop join after \(Int(Date().timeIntervalSince(began) * 1000)) ms")
+            }
+            if let h = threadHandle { _ = CloseHandle(h); threadHandle = nil }
         }
         lock.lock()
         state = .stopped
@@ -349,7 +379,9 @@ private final class WinSocketEngine: @unchecked Sendable {
         wakeSender = SOCKET.max
         lock.unlock()
         if sender != SOCKET.max { Sock.closeNow(sender) }
-        if wasRunning { _ = WSACleanup() }
+        // An abandoned thread may still be inside Winsock: no cleanup under it (the process ends right after).
+        if wasRunning, joined { _ = WSACleanup() }
+        return joined
     }
 
     // MARK: API
@@ -400,6 +432,8 @@ private final class WinSocketEngine: @unchecked Sendable {
 
     func injectAcceptFailure(_ code: Int32) { enqueue(.injectAcceptFailure(code)) }
 
+    func injectStall(until release: DispatchSemaphore) { enqueue(.stall(release)) }
+
     // MARK: commands and the mailbox
 
     private enum Command {
@@ -413,6 +447,7 @@ private final class WinSocketEngine: @unchecked Sendable {
         case close(WinConnID)
         case closeAll(Int)
         case injectAcceptFailure(Int32)
+        case stall(DispatchSemaphore)
         case stop
     }
 
@@ -611,7 +646,8 @@ private final class WinSocketEngine: @unchecked Sendable {
     private func run() {
         while true {
             processCommands()
-            if stopping { break }
+            lock.lock(); let gaveUp = abandoned; lock.unlock()
+            if stopping || gaveUp { break }
             var fds = [WSAPOLLFD(fd: wakeReceiver, events: WS.pollRdNorm, revents: 0)]
             var owners: [Conn?] = [nil]
             var listenerIndex = -1
@@ -711,6 +747,8 @@ private final class WinSocketEngine: @unchecked Sendable {
             for c in Array(conns.values) where c.epoch < below { closeConn(c, reason: nil) }
         case .injectAcceptFailure(let code):
             injectedAcceptFailure = code
+        case .stall(let release):
+            release.wait()   // test seam only: nothing in the app sends it
         case .stop:
             stopping = true
         }
