@@ -1027,86 +1027,123 @@ final class PopoverDriver: @unchecked Sendable {
         return text.split(separator: "\n").filter { $0.contains(marker) }.map(String.init)
     }
 
-    // MARK: popover.realClick (informational unless the shell reports the click)
+    // MARK: popover.realClick: real clicks on the icon wherever it is (the runner keeps it in the overflow flyout)
 
-    func realClickCheck() async {
+    /// One round of real clicks. The icon is found first: the shell's rectangle, and while the icon sits in the closed overflow
+    /// flyout that rectangle is the overflow button `^` on the taskbar (every run so far: (790,720,822,768); a real click there
+    /// opens the flyout and sends no select). Then the rectangle moves into the flyout once it is open: it is read again until two
+    /// readings agree inside the work area. The product is judged by what the user gets: the first click on the icon opens the
+    /// popover exactly once, clear of the flyout; the second closes it and nothing reopens it. Which way the second click closes it
+    /// varies (run 43842945406): the flyout takes the activation first (deactivation, then the select is absorbed by the toggle
+    /// guard) or the shell's select arrives while the popover is still active (it closes on the select); both are right.
+    struct RealClickRound {
+        var ok = false, located = false, place = "-", path = "-", detail = ""
+    }
+
+    func realClickRound() async -> RealClickRound {
+        var round = RealClickRound()
         popover.close(.destroyed)
-        guard let rect = tray.anchorRect() else {
-            r.add("popover.realClick", true, "informational: the shell gives no icon rectangle (Shell_NotifyIconGetRect hr=0x\(String(UInt32(bitPattern: tray.lastAnchorResult), radix: 16)))")
-            return
-        }
-        let c = POINT(x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2)
-        let onTaskbar = workArea(of: rect).map { !Self.inside(rect, $0) } ?? false
-        await grant()
-        let s0 = tray.selectCount
-        await leftClick(c)
-        let reported = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s0 }
-        var detail = "shell rect \(Self.text(rect)) on the taskbar=\(onTaskbar); a real click at \(c.x),\(c.y): NIN_SELECT=\(reported)"
-        var ok = true, judged = reported
-        if reported {
-            let opened = await opened()
-            let s1 = tray.selectCount, absorbed0 = popover.stats.suppressedSelects
-            await leftClick(c)  // the toggle race for real
-            _ = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s1 }
-            await pause(0.7)
-            let closedNotReopened = !popover.isOpen
-            ok = opened && closedNotReopened
-            detail += "; popover open=\(opened) at \(Self.text(popover.stats.lastFrame)); a second real click: closed and not reopened=\(closedNotReopened) "
-                + "(closed by \(popover.stats.lastClose.map { "\($0)" } ?? "-"), cursor on the icon=\(popover.stats.lastCursorInAnchor), absorbed +\(popover.stats.suppressedSelects - absorbed0))"
-        } else {
-            // Probably in the overflow: the click opened the ^ flyout. Is the icon there now?
-            await pause(0.8)
-            let now = tray.anchorRect()
-            detail += "; in front after it: \(foregroundName()); the shell's rect now \(now.map(Self.text) ?? "nil")"
-            if let now, now.left != rect.left || now.top != rect.top {
-                let p = POINT(x: (now.left + now.right) / 2, y: (now.top + now.bottom) / 2)
-                let s2 = tray.selectCount
-                await leftClick(p)
-                let reported2 = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s2 }
-                var opened2 = false
-                if reported2 { opened2 = await opened() }
-                await pause(0.5)
-                // The flyout may stay open over what is below it: the popover keeps clear of the window holding the icon.
-                let frame = popover.stats.lastFrame, holder = popover.stats.lastHolder
-                let clear = holder.map { min(frame.right, $0.right) <= max(frame.left, $0.left) || min(frame.bottom, $0.bottom) <= max(frame.top, $0.top) } ?? true
-                let flyoutStill = holder.map { h in
-                    WindowFromPoint(POINT(x: (h.left + h.right) / 2, y: (h.top + h.bottom) / 2)).map { WinKit.className(GetAncestor($0, UINT(GA_ROOT))) } ?? "none"
-                } ?? "-"
-                ok = !reported2 || (opened2 && clear)
-                judged = reported2
-                detail += "; a real click on the icon in the overflow flyout at \(p.x),\(p.y): NIN_SELECT=\(reported2) popover open=\(opened2)"
-                    + (opened2 ? " at \(Self.text(frame)) edge \(popover.stats.lastEdge.map { "\($0)" } ?? "-"), kept clear of the window holding the icon "
-                        + "\(holder.map(Self.text) ?? "nil")=\(clear); 0.5 s later at the flyout's place: \(flyoutStill)" : "")
-                // The toggle race in the user's setup (post-merge M6): a second real click on the icon in the flyout, which is
-                // still open, closes the popover and does not reopen it.
-                let again = tray.anchorRect()
-                if opened2, let again, again.left == now.left, again.top == now.top {
-                    let s3 = tray.selectCount, absorbed0 = popover.stats.suppressedSelects
-                    await leftClick(p)
-                    let reported3 = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s3 }
-                    await pause(0.7)
-                    let closedNotReopened = !popover.isOpen
-                    let absorbed = popover.stats.suppressedSelects - absorbed0
-                    ok = ok && reported3 && closedNotReopened && absorbed == 1
-                    detail += "; a second real click on it in the flyout: NIN_SELECT=\(reported3) closed and not reopened=\(closedNotReopened) "
-                        + "(closed by \(popover.stats.lastClose.map { "\($0)" } ?? "-"), cursor on the icon=\(popover.stats.lastCursorInAnchor), "
-                        + "button down=\(popover.stats.lastButtonDown), absorbed +\(absorbed))"
-                } else if opened2 {
-                    detail += "; the flyout closed by itself (shell rect now \(again.map(Self.text) ?? "nil")): no second click there"
-                }
+        func centre(_ r: RECT) -> POINT { POINT(x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2) }
+        func same(_ a: RECT?, _ b: RECT?) -> Bool { a?.left == b?.left && a?.top == b?.top && a?.right == b?.right && a?.bottom == b?.bottom }
+        func rootClass(_ p: POINT) -> String { WindowFromPoint(p).flatMap { GetAncestor($0, UINT(GA_ROOT)) }.map { WinKit.className($0) } ?? "none" }
+        func inWork(_ r: RECT) -> Bool { workArea(of: r).map { Self.inside(r, $0) } ?? false }
+        /// The rectangle once the flyout has settled: two equal readings inside the work area.
+        func settledFlyoutRect() async -> (RECT?, Int) {
+            var last: RECT?, agree = 0, readings = 0
+            _ = await WindowsSelftest.waitUntil(timeout: 2.5, poll: 0.1) {
+                readings += 1
+                guard let r = self.tray.anchorRect(), inWork(r) else { last = nil; agree = 0; return false }
+                agree = same(r, last) ? agree + 1 : 0
+                last = r
+                return agree >= 1
             }
-            WindowsSelftestPopover.tap(0x1B)
-            await pause(0.3)
+            return (agree >= 1 ? last : nil, readings)
         }
+        guard let first = tray.anchorRect() else {
+            round.detail = "the shell gives no icon rectangle (Shell_NotifyIconGetRect hr=0x\(String(UInt32(bitPattern: tray.lastAnchorResult), radix: 16)))"
+            return round
+        }
+        await grant()
+        var point = centre(first), iconRect = first
+        let under = rootClass(point)
+        let s0 = tray.selectCount, opens0 = popover.stats.opens
+        await leftClick(point)
+        var selected = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s0 }
+        var d = "rect \(Self.text(first)) under its centre \(under): click -> NIN_SELECT=\(selected)"
+        round.place = "taskbar"
+        if !selected {
+            let front = foregroundName()
+            let (r1, readings) = await settledFlyoutRect()
+            d += ", in front \(front), rect settled in the flyout after \(readings) readings: \(r1.map(Self.text) ?? "none")"
+            guard let r1 else {
+                round.detail = d + " — the icon was not found"
+                WindowsSelftestPopover.tap(0x1B)
+                return round
+            }
+            round.place = "overflow flyout"
+            iconRect = r1
+            point = centre(r1)
+            let s1 = tray.selectCount
+            await leftClick(point)
+            selected = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s1 }
+            d += "; click on it -> NIN_SELECT=\(selected)"
+        }
+        round.located = selected
+        let isOpen = await opened()
+        await pause(0.3)
+        let opensOnce = popover.stats.opens - opens0 == 1
+        let frame = popover.stats.lastFrame, holder = popover.stats.lastHolder
+        let clear = holder.map { min(frame.right, $0.right) <= max(frame.left, $0.left) || min(frame.bottom, $0.bottom) <= max(frame.top, $0.top) } ?? true
+        d += "; open=\(isOpen) once=\(opensOnce) at \(Self.text(frame)) clear of the flyout \(holder.map(Self.text) ?? "-")=\(clear)"
+        // The second click on the icon: still where it was (the flyout stays open on the runner), else found again.
+        if round.place == "overflow flyout", !same(tray.anchorRect(), iconRect) {
+            d += "; the flyout closed by itself"
+            await leftClick(centre(first))
+            let (r2, _) = await settledFlyoutRect()
+            if let r2 { point = centre(r2) }
+        }
+        let deactivation0 = popover.stats.lastDeactivationMs, absorbed0 = popover.stats.suppressedSelects, s2 = tray.selectCount
+        await leftClick(point)
+        let second = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s2 }
+        let closedAfter = await closed(1.5)
+        await pause(1.0)
+        let reopened = popover.isOpen || popover.stats.opens - opens0 != 1
+        let deactivated = popover.stats.lastDeactivationMs != deactivation0, absorbed = popover.stats.suppressedSelects - absorbed0
+        switch popover.stats.lastClose {
+        case .deactivated?: round.path = absorbed == 1 ? "deactivated, select absorbed" : "deactivated, select absorbed +\(absorbed)"
+        case .iconClick?: round.path = deactivated ? "select while open (after a deactivation?)" : "select while open"
+        case let other: round.path = "closed by \(other.map { "\($0)" } ?? "nothing")"
+        }
+        d += "; second click -> NIN_SELECT=\(second) closed=\(closedAfter) reopened=\(reopened) (\(round.path), button down at the deactivation=\(deactivated && popover.stats.lastButtonDown))"
+        round.ok = selected && isOpen && opensOnce && clear && second && closedAfter && !reopened
+        round.detail = d
         popover.close(.destroyed)
-        if let probe {  // a click elsewhere light-dismisses the flyout (Escape did not, run 43776235222)
+        if let probe {  // a click elsewhere light-dismisses the flyout (Escape does not)
             var pr = RECT()
             _ = GetWindowRect(probe.hwnd, &pr)
             await leftClick(POINT(x: (pr.left + pr.right) / 2, y: (pr.top + pr.bottom) / 2))
             await pause(0.4)
         }
-        r.add("popover.realClick", ok, (judged ? "" : "informational: ") + detail)
+        return round
+    }
+
+    func realClickCheck() async {
+        let round = await realClickRound()
+        r.add("popover.realClick", round.ok, "\(round.place): " + round.detail)
         await grant()
+        // `-f flake_loop=N`: N more rounds in this process, each judged the same way; the distribution of places and paths.
+        let n = FlakeLoop.count
+        guard n > 0 else { return }
+        var rounds: [RealClickRound] = []
+        for _ in 0..<n { rounds.append(await realClickRound()) }
+        await grant()
+        func tally(_ values: [String]) -> String {
+            Dictionary(grouping: values, by: { $0 }).map { "\($0.key) x\($0.value.count)" }.sorted().joined(separator: ", ")
+        }
+        let passed = rounds.filter(\.ok).count
+        r.add("flake.realClick", passed == rounds.count,
+              "N=\(rounds.count) rounds, pass \(passed)/\(rounds.count); icon at: \(tally(rounds.map(\.place))); second click closed by: \(tally(rounds.map(\.path))); "
+              + rounds.enumerated().map { "#\($0.offset + 1) \($0.element.ok ? "ok" : "FAIL") \($0.element.detail)" }.joined(separator: " | "))
     }
 
     // MARK: popover.aboveTopmost (post-merge I1): other apps' always-on-top windows do not cover it
