@@ -1149,19 +1149,20 @@ final class PopoverDriver: @unchecked Sendable {
         let dpi = WinUIContext.dpi(of: hwnd)
         let want = Int32((300 * Double(dpi) / 96).rounded())
         let shrunk = clientRect().bottom == want
-        // A rebuild (here a WM_DPICHANGED at the same DPI) changes the generation: work started by the old build is dropped,
-        // and the page builds again (where it asks again).
+        // A rebuild (a WM_DPICHANGED to another DPI; the same DPI only lays out again) changes the generation: work started by
+        // the old build is dropped, and the page builds again (where it asks again).
         page.shrinkOnBuild = nil
         let g = popover.generation, builds0 = page.builds
+        let other: UInt = dpi == 144 ? 120 : 144, third: UInt = other == 120 ? 168 : 120
         var wr = windowRect()
-        _ = withUnsafeMutablePointer(to: &wr) { SendMessageW(hwnd, 0x02E0, WPARAM(UInt(dpi) | (UInt(dpi) << 16)), LPARAM(Int(bitPattern: $0))) }
+        _ = withUnsafeMutablePointer(to: &wr) { SendMessageW(hwnd, 0x02E0, WPARAM(other | (other << 16)), LPARAM(Int(bitPattern: $0))) }
         let late = PopoverCounter()
         popover.whenCurrent(g) { late.n += 1 }
         let rebuilt = page.builds == builds0 + 1 && popover.generation != g && late.n == 0
         // A deactivation, then a rebuild before its posted close runs: it closes anyway (the close is keyed to the window).
         if let probe { _ = SetForegroundWindow(probe.hwnd) }
         var wr2 = windowRect()
-        _ = withUnsafeMutablePointer(to: &wr2) { SendMessageW(hwnd, 0x02E0, WPARAM(UInt(dpi) | (UInt(dpi) << 16)), LPARAM(Int(bitPattern: $0))) }
+        _ = withUnsafeMutablePointer(to: &wr2) { SendMessageW(hwnd, 0x02E0, WPARAM(third | (third << 16)), LPARAM(Int(bitPattern: $0))) }
         let closedAnyway = await closed(1)
         r.add("popover.pageContract", shrunk && rebuilt && closedAnyway && page.destroys == page.builds,
               "a page that sets 300 DIP and calls pageSizeChanged() inside its first build: client height \(clientRectText(hwnd)) (want \(want))=\(shrunk); "

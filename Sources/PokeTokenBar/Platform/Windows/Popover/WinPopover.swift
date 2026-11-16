@@ -104,7 +104,6 @@ struct WinPopoverStats {
     private var opener: Opener?
     private var inputs: WinPopoverAnchor.Inputs?
     private var guardRegion: RECT?
-    private var appearance: Appearance?
     private var pendingClose = false
     private var deferring = false
     private var closing = false
@@ -230,7 +229,6 @@ struct WinPopoverStats {
         stats.sessionNotify = ptb_window_session_notify(UnsafeMutableRawPointer(hwnd), 1) == 1
         let context = WinUIContext(dpi: dpi, owner: hwnd)
         ctx = context
-        appearance = Appearance(context)
         build(page, in: made, ctx: context)
         return made
     }
@@ -276,7 +274,6 @@ struct WinPopoverStats {
         opener = nil
         inputs = nil
         guardRegion = nil
-        appearance = nil
         if !windowGone { w.destroy() }
         stats.closes += 1
         stats.lastClose = reason
@@ -444,7 +441,7 @@ struct WinPopoverStats {
     /// A scale change while open: the window is placed again at the new DPI and the page rebuilt in place, the navigation
     /// state kept (D2, R6).
     private func dpiChanged(_ dpi: UINT) {
-        guard let w = window, let page, let inputs else { return }
+        guard let w = window, let page, let inputs, let ctx else { return }
         var fresh = WinPopoverAnchor.inputs(anchor: inputs.anchor, point: inputs.clickPoint, useCursor: false)
         fresh.holder = inputs.holder  // the flyout it opened from, not whatever is under that point now
         if let placed = place(fresh, heightDIP: page.heightDIP, dpi: Int(dpi)) {
@@ -452,16 +449,17 @@ struct WinPopoverStats {
             _ = SetWindowPos(w.hwnd, nil, r.left, r.top, r.right - r.left, r.bottom - r.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
             note(placed, r)
         }
-        rebuild(dpi: dpi)
+        if ctx.needsRebuild(dpi: dpi) { rebuild(dpi: dpi) } else { page.layout(client: Self.client(w.hwnd)) }
     }
 
-    /// A system setting changed: the page is rebuilt only when what it is drawn with changed (text size, high contrast, the
-    /// accent); a rebuild loses focus, scroll position and an IME composition, so nothing else rebuilds it. A new work area
-    /// (the taskbar moved or changed size) places the window again.
+    /// A system setting changed: the page is rebuilt only when what it is drawn with changed (`WinUIContext.needsRebuild`:
+    /// text size, high contrast, the accent, the system colours the palette reads); a rebuild loses focus, scroll position and
+    /// an IME composition, so nothing else rebuilds it. A new work area (the taskbar moved or changed size) places the window
+    /// again.
     private func settingsChanged(workArea: Bool) {
         guard window != nil, let ctx else { return }
         if workArea { pageSizeChanged() }
-        if Appearance.system() == appearance {
+        guard ctx.needsRebuild() else {
             stats.appearanceUnchanged += 1
             return
         }
@@ -478,7 +476,6 @@ struct WinPopoverStats {
         ctx?.destroy()
         let context = WinUIContext(dpi: dpi, owner: w.hwnd)
         ctx = context
-        appearance = Appearance(context)
         build(page, in: w, ctx: context)
         stats.rebuilds += 1
         if hadFocus { _ = SetFocus(page.initialFocus ?? w.hwnd) }
@@ -577,27 +574,6 @@ struct WinPopoverStats {
         guard let set = WinDynamic.symbol("dwmapi.dll", "DwmSetWindowAttribute", as: Fn.self) else { return false }
         var preference: Int32 = 2  // DWMWCP_ROUND
         return withUnsafePointer(to: &preference) { set(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, $0, 4) } == 0
-    }
-
-    /// What the page is drawn with besides the DPI: rebuilt only when it changes.
-    struct Appearance: Equatable {
-        var textScale: Double, highContrast: Bool, accent: COLORREF?
-
-        @MainActor init(_ ctx: WinUIContext) {
-            textScale = ctx.textScale
-            highContrast = ctx.highContrast
-            accent = WinUIContext.systemAccent()
-        }
-
-        init(textScale: Double, highContrast: Bool, accent: COLORREF?) {
-            self.textScale = textScale
-            self.highContrast = highContrast
-            self.accent = accent
-        }
-
-        @MainActor static func system() -> Appearance {
-            Appearance(textScale: WinUIContext.systemTextScale(), highContrast: WinUIContext.systemHighContrast(), accent: WinUIContext.systemAccent())
-        }
     }
 }
 
