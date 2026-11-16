@@ -2505,9 +2505,18 @@ read_when:
   (§팀 네트워크 "저장하는 값을 재야 한다"). `SaveTransfer.maxFileBytes` 8 MiB, `PlazaGIFDecoder.maxOutputBytes` 256 MiB, `CPlazaD2D` 디코드
   512 MiB, `codexProbeByteLimit` 1 MiB(첫 줄만 찾는다), `AppLog.maxBytes` 2 MiB(회전이지 막지 않는다): 실제 크기 근처가 아니다. 이 작업의 새 상한
   `InstallerReleaseFeed.installerBytes`(1–200 MiB)는 실제의 6 배다. 실제 크기 근처의 고정 상한은 이음매 기본값 하나뿐이다.
-  **가드(기계): 미정(PENDING) — Task 6.** 트리거 브랜치는 아직 없는 다운로드 자체다: 다운로드 이음매
-  `oneShotDownload(for:maxBytes:deadline:)` 가 기본값 없이 자산의 `size` 를 상한으로 받고(D19), Task 6 의 길이 테스트가 32 MiB 를 넘는 본문으로
-  그 경로를 밟아야 이 항목이 닫힌다. Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
+  **가드(기계): Task 6 에서 닫힘.** ① 이음매 서명 — 다운로드는 `PlatformCompat.oneShotDownload(for:maxBytes:deadline:)` 하나뿐이고 `maxBytes`·
+  `deadline` 에 기본값이 없다(WinHTTP 만 탄다: URLSession 으로 돌아가면 상한도 마감도 없으므로 그 경로는 실패로 끝난다). 호출부는
+  `WindowsUpdateInstaller.install` 하나이고 상한으로 자산의 `installer.size` 를, 마감으로 15 분을 넘긴다 —
+  `WindowsSeamScanTests.testTheUpdateDownloadAndItsCIHooksStayWhereTheyAre`(호출부 1곳·`installer.size` 전달·기본값 없음, 각 깨짐을 주입한
+  `testTheUpdateSeamScanCatchesEachBreak`)와 `WindowsUpdateInstallerTests.testGoodBytesAreWrittenExactlyAndSetupGetsThatPathAndItsArguments`
+  (주입한 다운로드가 받은 상한 == 크기, 마감 == 900 s). ② 트리거 브랜치 — 32 MiB + 1 B 본문이 *실제* WinHTTP 이음매를 러너의 루프백으로 지난다:
+  `WindowsUpdateInstallerTests.testABodyOverTheSeamsDefaultCapPassesWithTheInstallersOwnCap`(같은 본문이 기본 상한으로는
+  `.dataLengthExceedsMaximum`, 설치 파일 자신의 크기 상한으로는 통과해 디스크에 33,554,433 B), 출하 바이너리 안에서는 selftest
+  `update.passesOver32MiB`(번들·설치본 둘 다). 끝에서 끝: CI 단계 `in-app-update` 의 `long` 시나리오가 크기보다 1 B 긴 본문이 상한에서
+  끊기는 것(`URLError -1103`)을 본다. **잠복이 아니게 됐다:** 이 브랜치의 설치 파일은 이미 33,970,371 B 로 32 MiB 보다 415,939 B 크다(scratch run
+  43780695861, `in-app-update` 의 `ok` 가 그 파일을 받아 설치) — 기본 상한을 물려받았다면 첫 앱 안 업데이트부터 조용히 페이지로 떨어졌을 것이다.
+  Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
   않는다 — 다른 경로로 통과하는 테스트를 가드라고 부르지 않는다(처음 넣었던 32 MiB + 1 B 테스트 둘은 그래서 뺐다).
   **규칙:** 새 다운로드(기존 이음매의 새 호출부도)는 자기 상한과 마감을 이름으로 적는다 — 다른 호출부를 보고 정한 기본값을 물려받지 않는다.
   상한을 정할 때는 실제로 가장 큰 페이로드를 재서 값과 출처를 적고, 여유가 2 배 미만이면 그 자리에서 고친다.
@@ -2543,6 +2552,15 @@ read_when:
   크기를 바꿔 시각 비교를 시험하지 않았다. 간헐 실패는 결함 주입 실행에서만 보였다 — 주입과 상관없는 시나리오가 깨지면 플레이크로 넘기지 말고 원인을 찾는다.
   **회귀 점검(추가):** `failLate`(버전 파일까지 쓴 뒤 실패), `killedDuringRestore`, `killedFirstEntry`, `leftOverRestoreFails`, `noVersionFile`, `partialCopy`, `appFolderMissing`; 페이로드의
   `THIRD-PARTY.txt` 는 크기·시각이 같고 내용만 다르다. 결함 주입: 옛 규칙, `RestoreFailed` 빼기, 폴더 다시 만들기 빼기, 크기·시각 비교, 버전 파일 먼저 빼기, exe 만으로 "온전".
+
+- **앱 안 업데이트의 테스트 둘이 실행 환경 덕에 통과했다 (stage 8 Task 6, 병합 전).** ① `WindowsUpdateInstallerTests.testSetupsArgumentsAreExactAndTheLogPathIsQuoted`
+  가 URL 을 `==` 로 비교했다 — corelibs 의 `appendingPathComponent(_:)` 는 디스크를 물어 폴더가 있으면 끝에 `/` 를 붙인다(`PlatformCompat.logsDirectory()`).
+  전체 스위트에서는 다른 테스트가 Logs 를 먼저 만들어 통과했고(windows run 43778115607), 필터해 돌린 결함 주입 실행에서만 실패했다(scratch run
+  43780695861). 고침: 경로(`WinPath.native`)로 비교. ② e2e 스크립트(`in-app-update.ps1`)가 앱 로그를 `[IO.File]::ReadAllText` 로 읽었다 — 읽기
+  공유만 주므로 앱이 쓰기로 연 동안 공유 위반(결함 주입 실행 8 회 중 1 회, run 43780709740). 고침: 읽기·쓰기·삭제 공유로 연다.
+  **왜 못 걸렀나:** 둘 다 첫 실행(전체 스위트, 대조 실행)에서는 맞는 상태가 우연히 갖춰져 있었다 — 결함 주입 실행이 다른 테스트 선택과 타이밍을 줘서
+  드러났다. **스윕:** 이 작업의 다른 URL 비교는 `standardizedFileURL`·`.path`·같은 객체로 한다; 스크립트의 다른 로그 읽기는 `Get-Content`(쓰기 공유).
+  **규칙:** 윈도에서 있을지 없을지 모르는 폴더의 URL 은 경로로 비교하고, 다른 프로세스가 쓰는 파일은 쓰기 공유로 연다.
 
 ## 윈도 로케일·알림 (windows-port)
 

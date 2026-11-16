@@ -38,6 +38,21 @@ final class TrayMenuModelTests: XCTestCase {
         XCTAssertEqual(some.last??.action, .quit)
     }
 
+    /// Stage 8: while the in-app update downloads or starts Setup, a disabled "Updating…" row stands where the update entry
+    /// was (nothing to click twice); otherwise the menu is as before.
+    func testUpdatingShowsADisabledRowInPlaceOfTheUpdateEntry() {
+        let offer = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: "2.6.0")
+        XCTAssertEqual(offer, TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: "2.6.0", updating: false))
+        let busy = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: "2.6.0", updating: true)
+        XCTAssertFalse(busy.contains { $0?.action == .openRelease })
+        XCTAssertEqual(busy.count, offer.count)
+        let row = busy.compactMap { $0 }.first { $0.title == l.updating }
+        XCTAssertEqual(row, .init(title: "Updating…", enabled: false, checked: false, action: .none))
+        XCTAssertEqual(TrayMenuModel.items(l: L(.ko), todayTokens: 0, todayCost: nil, login: .off, update: "2.6.0", updating: true)
+            .compactMap { $0 }.first { !$0.enabled && $0.action == .none && $0.title.hasPrefix("업데이트") }?.title, "업데이트 중…")
+        XCTAssertEqual(busy.last??.action, .quit)
+    }
+
     func testTeammatesLineShowsOnlyWhileTheTeamIsOn() {
         let off = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil)
         XCTAssertEqual(off, TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, teammatesOnline: nil))

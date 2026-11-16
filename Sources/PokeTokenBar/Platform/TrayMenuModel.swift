@@ -23,9 +23,11 @@ enum TrayMenuModel {
     /// `plazaAvailable` / `plazaUnread`), with its wording, which the team UI keeps in Korean. "Settings…" and "Back view"
     /// (checked while `alwaysFacesBack`) are the Mac menu's too, in its order (stage 7 Task 4); its Pokédex and floating-pet
     /// entries wait for tier 3. The host passes `store.todayTotalTokens`, `store.todayUsageCost` when `store.showsCost`, and
-    /// `store.alwaysFacesBack`, as `AppDelegate.showStatusMenu` does.
+    /// `store.alwaysFacesBack`, as `AppDelegate.showStatusMenu` does. `updating` (stage 8: the in-app update is downloading
+    /// or starting Setup) shows a disabled "Updating…" row in place of the update entry.
     static func items(l: L, todayTokens: Int, todayCost: UsageCost?, login: LoginState, update: String?,
-                      teammatesOnline: Int? = nil, plazaUnread: Int? = nil, alwaysFacesBack: Bool = false) -> [Item?] {
+                      teammatesOnline: Int? = nil, plazaUnread: Int? = nil, alwaysFacesBack: Bool = false,
+                      updating: Bool = false) -> [Item?] {
         let loginItem: Item
         switch login {
         case .on:
@@ -58,7 +60,9 @@ enum TrayMenuModel {
             loginItem,
             Item(title: l.openLogFolder, enabled: true, checked: false, action: .openLogFolder),
         ]
-        if let update {
+        if updating {
+            rows.append(Item(title: l.updating, enabled: false, checked: false, action: .none))
+        } else if let update {
             rows.append(Item(title: l.updateFound(update), enabled: true, checked: false, action: .openRelease))
         }
         rows.append(nil)

@@ -48,6 +48,7 @@ public enum WindowsApp {
         if arguments.contains("--import-save") { WindowsImportSaveTool.run(arguments) }
         if let i = arguments.firstIndex(of: "--selftest-plaza-placement") { WindowsSelftest.runPlazaPlacement(Array(arguments[(i + 1)...])) }
         if let i = arguments.firstIndex(of: "--selftest-popover-helper") { WindowsSelftestPopoverWindow.runHelper(Array(arguments[(i + 1)...])) }  // stage 7 Task 4
+        WindowsSelftestUpdate.prepare(arguments)  // stage 8 Task 6: the CI-only update flags (the loopback feed, before the checker exists)
 
         let app = WindowsAppDelegate(arguments: arguments)
         guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
@@ -67,6 +68,7 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--popover-idle-probe") {  // stage 7 Task 4: the gate's popover windows (open / closed after open)
             WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
         }
+        WindowsSelftestUpdate.start(arguments)  // stage 8 Task 6: "Update" as the tray item does it, under the CI-only flags
         WinMainLoop.run(app.loopStrategy) { false }
         WindowsApp.exit(0, .menu)  // not reached: the loop only ends through an exit
     }
@@ -81,7 +83,7 @@ extension WindowsApp {
     /// settings are saved.
     @MainActor static var popoverToClose: WinPopover?
 
-    enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed }
+    enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed, update }
 
     /// The only way Windows code leaves the process (scan-enforced): settings are lost unless synchronized (F2), and
     /// the log line is lost unless flushed.
@@ -214,8 +216,19 @@ private func crtExit(_ code: Int32) -> Never {
         applyState()
         // 14: the update check (Mac: `updater.check()` at launch; the tray menu re-checks when it opens). The selftest
         // never asks the network. Launch at login is not touched here: only the tray toggle writes it (off by default).
-        WindowsUpdates.start(defaults: defaults, checkNow: !arguments.contains("--selftest"))
+        WindowsUpdates.start(defaults: defaults, checkNow: !arguments.contains("--selftest"),
+                             notify: { balloons.post(.init(id: "update", title: "PokeTokenBar", body: $0, sound: false, kind: .app)) },
+                             language: { [companion] in companion.l })
         makePopover(updater: WindowsUpdates.checker)  // stage 7 Task 4
+        // Stage 8 Task 6: what the last in-app update did (one balloon when Setup put the previous app back), once the tray
+        // can show it; the selftest's own settings never hold the marker.
+        if !WinDefaultsSync.selftestOwnsSettings {
+            let report: @MainActor () -> WindowsUpdateInstaller.LaunchReport = { [defaults, companion, balloons] in
+                WindowsUpdateInstaller.reportAtLaunch(defaults: defaults, currentVersion: WindowsInstall.version, l: companion.l,
+                                                      balloon: { balloons.post(.init(id: "update", title: "PokeTokenBar", body: $0, sound: false, kind: .app)) }).report
+            }
+            if case .setupRunning = report() { WindowsUpdateInstaller.afterSetup { _ = report() } }  // Setup started this app: after it ends
+        }
         AppLog.write("windows app launched pid=\(GetCurrentProcessId()) loop=\(loopStrategy.rawValue) "
             + "mutex=\(mutexName)\(arguments.contains("--autostart") ? " autostart" : "")")
         // The Mac's plaza-dev.sh flag: opens the plaza at launch (a user's own command line, so it may come forward).
