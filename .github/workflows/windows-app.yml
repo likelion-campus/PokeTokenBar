@@ -54,6 +54,9 @@ on:
         description: 'Also run the network-burst helper: what one HTTP fetch costs in wakeups (diagnostics, ~4 min)'
         type: boolean
         default: false
+      flake_loop:
+        description: 'Repeat the plaza.hover/cover, plaza.close and modalPump.idle checks N times in one selftest process and print every iteration (diagnostics; 0 = off)'
+        default: '0'
       release_sha:
         description: 'Release mode: the 40-hex commit to build (set by team_release.py)'
         default: ''
@@ -190,6 +193,8 @@ jobs:
         id: bundle-selftest
         timeout-minutes: 20  # about 6 min; a hang ends with the logs collected (Collect logs runs always)
         shell: pwsh
+        env:
+          PTB_SELFTEST_FLAKE_LOOP: ${{ inputs.release_sha == '' && inputs.flake_loop || '0' }}   # the repeat loops run in this process only
         run: |
           $env:Path = 'C:\Windows\System32;C:\Windows'
           $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
@@ -900,10 +905,20 @@ jobs:
               # (main 396-410/min, process 3502-3575 cs/min, 5.3-6.8 M cycles/s): the frame clock is parked and the cover check off;
               # what wakes the app is the shared controller (1 s focus tick, 1 s watchdog, the ditto host's 50-250 ms loop, on the Mac
               # too). Visible, nobody walking (main 5030-9922/min, 64-78 k cs/min, 0.28-0.81 G cycles/s): WARP draws on the CPU here.
+              # Visible, re-derived 2026-11-16 after `idle.processCsPerMin 131897 <= 117500` failed in run 43788143040 with the app unchanged:
+              # the runner has no GPU, so WARP's rasterizer pool (nine workers, all starting at ntdll.dll+0x845d0) did 108 G of the
+              # 130 G cycles and 105 k of the 132 k cs/min; our threads were main 12829 cs/min + 20.6 G cycles, the plaza clock thread
+              # 4757 cs/min + 1.3 G (own total 18984 cs/min, 184 M cycles/s). So the process-wide figures measure the runner's software
+              # renderer, which varies 2x between identical runs (cycles/s 553, 959, 1181, 959, 1079 M; n=5 plus this run). The app is
+              # judged on its OWN threads (everything not starting at the WARP worker routine; main and clock thread are budgeted below at
+              # ~2x the one sample, samples to date: main 5030-12829 cs/min over n=8) and the draw/present counts, which the selftest
+              # `plaza.idleVisible` judges deterministically. The pool is reported as information. The process-wide bounds stay as a
+              # runaway catch only (a URLSession-style storm was 1.5-3 M cs/min, a spinning thread adds ~3 G cycles/s on its own and shows
+              # in the own-thread budget first): 3x the worst observed.
               $budgetPlaza = if ($mode -eq 'minimized') {
                   @{ MaxMainCsPerMin = 615; MaxProcessCsPerMin = 5360; MaxProcessCyclesPerSec = 10300000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
               } else {
-                  @{ MaxMainCsPerMin = 14900; MaxProcessCsPerMin = 117500; MaxProcessCyclesPerSec = 1220000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+                  @{ MaxMainCsPerMin = 26000; MaxProcessCsPerMin = 400000; MaxProcessCyclesPerSec = 4000000000; MaxOwnCsPerMin = 40000; MaxOwnCyclesPerSec = 450000000; OwnExcludeStart = 'ntdll.dll+0x845d0'; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
               }
               Measure-App $label 120 $off $budgetPlaza @('--plaza-idle-probe', $mode)
               $lines = @(Select-String -Path $logFile -Pattern 'plaza idle helper|plaza open at exit|plaza window open|plaza window: not opened' -ErrorAction SilentlyContinue | Select-Object -Last 3 | ForEach-Object { $_.Line })
