@@ -251,7 +251,7 @@ jobs:
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'home.capture', 'home.updatesOnRefresh', 'home.relativeClock', 'home.keyboard', 'home.openClose3'
+          $names = 'home.capture', 'home.updatesOnRefresh', 'home.relativeClock', 'home.keyboard', 'home.openClose3', 'home.firstPaint'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }

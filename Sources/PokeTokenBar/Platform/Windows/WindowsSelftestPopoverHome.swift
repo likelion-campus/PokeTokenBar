@@ -10,7 +10,7 @@ import WinSDK
 
 extension WindowsSelftest {
     @MainActor static func popoverHomeChecks(_ r: Recorder, _ app: WindowsAppDelegate) async {
-        await WindowsSelftestPopoverHome.run(r)
+        await WindowsSelftestPopoverHome.run(r, app)
     }
 }
 
@@ -266,15 +266,16 @@ enum HomeFixtures {
 // --- stage 7 Task 5: the page in a window (end) ---
 
 @MainActor enum WindowsSelftestPopoverHome {
-    static let names = ["home.capture", "home.updatesOnRefresh", "home.relativeClock", "home.keyboard", "home.openClose3"]
+    static let names = ["home.capture", "home.updatesOnRefresh", "home.relativeClock", "home.keyboard", "home.openClose3", "home.firstPaint"]
 
-    static func run(_ r: WindowsSelftest.Recorder) async {
+    static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         let start = KitResources.now()
         await captureChecks(r)
         await updatesCheck(r)
         await clockCheck(r)
         await keyboardCheck(r)
         await openCloseCheck(r, start: start)
+        await firstPaintCheck(r, app)
     }
 
     static func dumpDirectory() -> URL? {
@@ -603,6 +604,47 @@ enum HomeFixtures {
             && last.dialogs == start.dialogs && last.pumpDepth == 0 && !armedAfter
         r.add("home.openClose3", ok, "before the group: \(start); after a warm-up open/close: \(warm); after 3 more: \(cycles.dropFirst().map { "\($0)" }.joined(separator: " / ")); "
               + "clock armed after a close=\(armedAfter) (budget over the warm-up: GDI +5, USER +5, handles +10; kit controls and dialog registrations back to the start)")
+    }
+
+    // MARK: home.firstPaint: the first frame after open is the page, not a white window
+
+    /// Non-background pixels of a window's own picture (PrintWindow): the page's text and bars, not the empty frame and its bar.
+    private static func inkPixels(_ hwnd: HWND) -> Int? {
+        var width: UInt32 = 0, height: UInt32 = 0
+        var out: UnsafeMutablePointer<UInt8>?
+        guard ptb_window_print(UnsafeMutableRawPointer(hwnd), &width, &height, &out) == 0, let out else { return nil }
+        defer { ptb_plaza_free(out) }
+        var ink = 0
+        for i in stride(from: 0, to: Int(width * height) * 4, by: 4) where Int(out[i]) + Int(out[i + 1]) + Int(out[i + 2]) < 450 { ink += 1 }
+        return ink
+    }
+
+    private static func firstPaintCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
+        guard WindowsSelftest.onCI else {
+            r.add("home.firstPaint", true, "skipped: CI not set (the popover takes the foreground)")
+            return
+        }
+        guard let popover = app.popover, let probe = WindowsSelftestPopoverWindow.makeProbe() else {
+            r.add("home.firstPaint", false, "no popover or probe window")
+            return
+        }
+        defer { probe.destroy() }
+        popover.close(.destroyed)
+        WindowsSelftest.forceForeground(probe.hwnd)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { GetForegroundWindow() == probe.hwnd }
+        _ = PostMessageW(app.sink.hwnd, WinTray.callbackMessage, 0, LPARAM(Int(PopoverRun.ninKeySelect) | (1 << 16)))
+        let opened = await WindowsSelftest.waitUntil(timeout: 3) { popover.isOpen }
+        await wait(0.25)
+        guard opened, let hwnd = popover.hwndForTesting, let early = inkPixels(hwnd) else {
+            r.add("home.firstPaint", false, "opened=\(opened), no picture of the popover")
+            popover.close(.destroyed)
+            return
+        }
+        await wait(1.5)
+        let late = hwnd == popover.hwndForTesting ? inkPixels(hwnd) ?? 0 : 0
+        popover.close(.destroyed)
+        r.add("home.firstPaint", early >= 300 && early * 10 >= late * 8,
+              "a capture 0.25 s after the popover opened has \(early) text pixels, 1.75 s after \(late) (a white empty page has about 0; needs >= 300 and >= 80 % of the later one)")
     }
 
     // MARK: --popover-home-idle-probe seconds|minutes|still (the idle gate)
