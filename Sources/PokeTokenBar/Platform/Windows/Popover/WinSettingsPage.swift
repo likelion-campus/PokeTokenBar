@@ -342,7 +342,7 @@ import WinSDK
         reportRow?.control?.onClick = { [weak self] in self?.reportProblem() }
         logRow = about.addRow(l.showLogFile) { p, c in WinControls.button(l.winExplorerButton, in: p, ctx: c) }
         logRow?.control?.onClick = { [weak self] in self?.revealLog(AppLog.logFileURL) }
-        fallbackRow = about.addRow(nil, hint: l.reportMailFallback(SupportMail.address)) { p, c in
+        fallbackRow = about.addRow(nil, hint: l.reportMailFallback(SupportMail.address), accessibleName: l.reportProblem) { p, c in
             WinControls.edit(.text(cue: nil), text: SupportMail.address, width: nil, in: p, ctx: c)
         }
         fallbackRow?.hint?.role = .warning
