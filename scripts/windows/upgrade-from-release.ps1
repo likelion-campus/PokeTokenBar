@@ -65,8 +65,8 @@ $data = Join-Path $env:LOCALAPPDATA 'PokeTokenBar'
 if (Test-Path (Join-Path $data 'Logs')) { Copy-Item -Recurse (Join-Path $data 'Logs') (Join-Path $logs 'logs-before-upgrade-from-release') -Force }
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak", $data
 Assert-That (-not (Test-Path $PtbInstallDir)) 'upgrade.fromRelease.freshInstallFolder' "$PtbInstallDir absent before the old install"
-$p = Start-Process -FilePath $old -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=$logs\upgrade-from-release-old.log" -Wait -PassThru
-Assert-That ($p.ExitCode -eq 0) 'upgrade.fromRelease.oldInstall' "$($a.name) exit $($p.ExitCode)"
+$code = Invoke-Setup $old @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=$logs\upgrade-from-release-old.log")
+Assert-That ($code -eq 0) 'upgrade.fromRelease.oldInstall' "$($a.name) exit $code"
 $versionFile = Join-Path $PtbInstallDir 'PokeTokenBar.version'
 $oldVersion = (Get-Content $versionFile -Raw).Trim()
 Assert-That ($oldVersion -eq "$($best.Version)") 'upgrade.fromRelease.oldVersion' "version file $oldVersion"
@@ -83,10 +83,8 @@ Set-Content -Path $PtbPlist -Value $xml -NoNewline -Encoding utf8NoBOM
 Assert-That ((Get-Content $PtbPlist -Raw) -match '<key>statusChecksEnabled</key>\s*<false/>') 'upgrade.fromRelease.settingWritten' 'statusChecksEnabled=false'
 
 # 4. This run's installer over it: this version's files, the same memberID and setting, and the app started again.
-$setup = Start-Process -FilePath $Installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=$logs\upgrade-from-release-new.log" -PassThru
-$null = $setup.Handle
-if (-not $setup.WaitForExit(180000)) { Stop-Process -Id $setup.Id -Force; throw 'FAIL upgrade.fromRelease.exit: the setup did not end in 180 s' }
-Assert-That ($setup.ExitCode -eq 0) 'upgrade.fromRelease.exit' "exit $($setup.ExitCode)"
+$code = Invoke-Setup $Installer @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=$logs\upgrade-from-release-new.log")
+Assert-That ($code -eq 0) 'upgrade.fromRelease.exit' "exit $code"
 $newVersion = (Get-Content $versionFile -Raw).Trim()
 Assert-That ($newVersion -eq $Version) 'upgrade.fromRelease.versionFile' "version file $oldVersion -> $newVersion"
 $fresh = $null
@@ -102,8 +100,8 @@ Assert-That ((Get-Content $PtbPlist -Raw) -match '<key>statusChecksEnabled</key>
 Close-App $fresh $h
 
 # 5. Uninstall, so the job ends as the uninstall check left it.
-$u = Start-Process -FilePath (Join-Path $PtbInstallDir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\upgrade-from-release-uninstall.log" -Wait -PassThru
-Assert-That ($u.ExitCode -eq 0) 'upgrade.fromRelease.uninstall' "exit $($u.ExitCode)"
+$code = Invoke-Setup (Join-Path $PtbInstallDir 'unins000.exe') @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\upgrade-from-release-uninstall.log")
+Assert-That ($code -eq 0) 'upgrade.fromRelease.uninstall' "exit $code"
 for ($i = 0; $i -lt 60 -and (Test-Path $PtbInstallDir); $i++) { Start-Sleep -Milliseconds 500 }
 Assert-That (-not (Test-Path $PtbInstallDir)) 'upgrade.fromRelease.uninstalled' $PtbInstallDir
 "PASS upgrade.fromRelease: $($best.Tag) -> v$Version kept memberID and the setting, and started the new version"
