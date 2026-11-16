@@ -601,7 +601,9 @@ enum HomeFixtures {
             r.add("home.openClose3", false, "only \(cycles.count) of 4 cycles")
             return
         }
-        let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) })
+        // userSlack 1: this check opens the real popover window, whose USER count moves by one between cycles on the runner
+        // (17/18/17/18; see popover.openClose3). A USER object leaked per open still fails: it passes warm-up + 1 on the second cycle.
+        let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) }, userSlack: 1)
         let ok = verdict.ok && last.controls == 0 && last.dialogs == start.dialogs && last.pumpDepth == 0 && !armedAfter
         r.add("home.openClose3", ok, "before the group: \(start); \(verdict.summary); clock armed after a close=\(armedAfter); kit controls and dialog registrations back to the start (last: \(last))")
     }

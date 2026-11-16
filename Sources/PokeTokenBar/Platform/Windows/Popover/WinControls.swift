@@ -31,6 +31,7 @@ enum WinEditKind: Equatable, Sendable {
 @MainActor final class WinControl {
     enum Kind: Equatable, Sendable {
         case label, button, glyphButton, checkbox, radioGroup, combo, edit, trackbar, stepper, link, tabs, drawnItem, drawn
+        case progress  // stage 7 Task 14: the marquee beside Save while a key is checked
     }
 
     let kind: Kind
@@ -70,9 +71,23 @@ enum WinEditKind: Equatable, Sendable {
     var fitWidth: ((Int32) -> Bool)?
     /// `drawnItem`: paints the item (the drawn view's picture under it and the focus rectangle).
     var drawItem: ((UnsafeMutablePointer<DRAWITEMSTRUCT>) -> Void)?
+    // --- stage 7 Task 12: a drawn item that follows the pointer and the arrow keys (begin) ---
+    /// `drawnItem`: the pointer over it (client pixels), nil when it left. The item asks Windows to say when it leaves
+    /// (`TrackMouseEvent`) only while it is over it: nothing is tracked while the mouse is elsewhere.
+    var onPointer: ((POINT?) -> Void)?
+    /// `drawnItem`: a key pressed while it has the focus (a virtual-key code); true when handled (the item then also takes
+    /// the arrow keys, which a button hands to the dialog manager otherwise).
+    var onKey: ((Int) -> Bool)?
+    /// `drawnItem`: the keyboard focus came or went.
+    var onFocus: ((Bool) -> Void)?
+    /// `drawnItem`: whether Escape is the item's now (a selection to clear); otherwise Escape reaches the popover as usual.
+    var claimsEscape: (() -> Bool)?
+    fileprivate var tracking = false
+    // --- stage 7 Task 12 (end) ---
 
     // Kind-specific state.
     fileprivate(set) var editKind: WinEditKind?
+    fileprivate(set) var isMarqueeOn = false  // stage 7 Task 14: a marquee bar animating
     fileprivate var lastCommitted = ""
     fileprivate var swallowReturnChar = false
     fileprivate var range: ClosedRange<Int> = 0...0
@@ -204,6 +219,7 @@ enum WinEditKind: Equatable, Sendable {
         // Every callback goes: a page that captured itself in one would otherwise keep itself alive through its controls.
         onDestroy = nil; onClick = nil; onToggle = nil; onSelect = nil; onValue = nil; onCommit = nil; onChange = nil
         onFrame = nil; drawItem = nil; onSizeChange = nil; fitWidth = nil
+        onPointer = nil; onKey = nil; onFocus = nil; claimsEscape = nil
         format = { String($0) }
         for part in parts {
             ctx.tooltips.set(nil, for: part, in: GetParent(part))
@@ -272,13 +288,35 @@ enum WinEditKind: Equatable, Sendable {
         guard let hwnd = HWND(bitPattern: bits), let c = control(hwnd) else { return nil }
         let isMultiLine: Bool = { if case .multiLine? = c.editKind { return true }; return false }()
         let isCode: Bool = { if case .code? = c.editKind { return true }; return false }()
+        let isPassword: Bool = { if case .password? = c.editKind { return true }; return false }()  // stage 7 Task 14
         let ctrlDown = GetKeyState(0x11 /* VK_CONTROL */) < 0
         switch message {
         case 0x0007:  // WM_SETFOCUS: keyboard focus inside a scroll area brings the control into view
             if GetKeyState(0x01 /* VK_LBUTTON */) >= 0 { WinScrollArea.reveal(hwnd) }
+            c.onFocus?(true)
             return nil
         case 0x0008:  // WM_KILLFOCUS: a field commits when the focus leaves it
             if c.kind == .edit { c.commitIfChanged() }
+            c.onFocus?(false)
+            return nil
+        case 0x0087 where c.onKey != nil:  // stage 7 Task 12: a drawn item that answers the arrow keys
+            var code = DefSubclassProc(hwnd, message, wParam, lParam) | 0x0001  // DLGC_WANTARROWS
+            if let msg = UnsafePointer<MSG>(bitPattern: Int(lParam)), msg.pointee.message == UINT(WM_KEYDOWN),
+               msg.pointee.wParam == WPARAM(VK_RETURN) || (msg.pointee.wParam == WPARAM(VK_ESCAPE) && c.claimsEscape?() == true) { code |= 0x0004 }  // DLGC_WANTALLKEYS
+            return code
+        case UINT(WM_KEYDOWN) where c.onKey != nil && wParam != WPARAM(VK_RETURN):  // stage 7 Task 12
+            return c.onKey?(Int(wParam)) == true ? 0 : nil
+        case 0x0200 where c.onPointer != nil:  // WM_MOUSEMOVE over a drawn item (stage 7 Task 12)
+            if !c.tracking {
+                c.tracking = true
+                var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: hwnd, dwHoverTime: 0)
+                _ = TrackMouseEvent(&tme)
+            }
+            c.onPointer?(POINT(x: Int32(Int16(truncatingIfNeeded: lParam & 0xFFFF)), y: Int32(Int16(truncatingIfNeeded: (lParam >> 16) & 0xFFFF))))
+            return nil
+        case 0x02A3 where c.onPointer != nil:  // WM_MOUSELEAVE (stage 7 Task 12)
+            c.tracking = false
+            c.onPointer?(nil)
             return nil
         case 0x0087:  // WM_GETDLGCODE
             guard let msg = UnsafePointer<MSG>(bitPattern: Int(lParam)), msg.pointee.message == UINT(WM_KEYDOWN) else { return nil }
@@ -304,6 +342,17 @@ enum WinEditKind: Equatable, Sendable {
             guard let raw = WinClipboardText.read(), !raw.isEmpty else { return 0 }
             WinKit.send(hwnd, 0x00C2 /* EM_REPLACESEL */, 1, text: WinEditKind.codePaste(raw))
             return 0
+        // --- stage 7 Task 14: a paste into a session-key field (begin) ---
+        case 0x0302 where isPassword:  // WM_PASTE (Ctrl+V and the edit's own menu)
+            // A key copied from the browser often comes with spaces or a line break around it. A single-line edit pastes only
+            // up to the first line break ("\nsk-ant-…" would paste nothing): the surrounding white space goes first, as the Mac's
+            // `SessionKeyStore.normalize` trims it; what is left in the middle stays for the check to refuse.
+            guard let raw = WinClipboardText.read() else { return 0 }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return 0 }
+            WinKit.send(hwnd, 0x00C2 /* EM_REPLACESEL */, 1, text: trimmed)
+            return 0
+        // --- stage 7 Task 14 (end) ---
         case 0x00A1, 0x00A3:  // WM_NCLBUTTONDOWN / DBLCLK: on a scroll bar DefWindowProc runs its tracking loop
             guard wParam == 6 || wParam == 7 else { return nil }  // HTHSCROLL, HTVSCROLL (a multi-line field's own bar)
             WinModalPump.begin("scroll")
@@ -762,4 +811,45 @@ enum WinClipboardText {
         }
     }
 }
+// --- stage 7 Task 14: a small marquee progress bar (the Mac's small ProgressView beside Save) (begin) ---
+extension WinControls {
+    /// comctl32's marquee progress bar (`PBS_MARQUEE`), `width` × 6 pt: the Mac shows a small spinner while a key is checked;
+    /// Windows has no spinner control, and its busy indicator in a form is the marquee bar. Still until `setMarquee(true)`
+    /// (comctl32 animates it on its own timer while on; nothing runs while it is off).
+    static func marquee(width: CGFloat = 36, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+        guard let h = WinKit.create("msctls_progress32", "", style: child | 0x0008 /* PBS_MARQUEE */, parent: parent, id: id())
+        else { return nil }
+        return WinControl(kind: .progress, ctx: ctx, parts: [h], size: CGSize(width: CGFloat(ctx.px(width)), height: CGFloat(ctx.px(6))),
+                          background: ctx.colors.palette.window, font: nil)
+    }
+}
+
+extension WinControl {
+    /// A marquee bar's animation on or off (`PBM_SETMARQUEE`, a step every 30 ms while on).
+    func setMarquee(_ on: Bool) {
+        guard kind == .progress, isMarqueeOn != on else { return }
+        isMarqueeOn = on
+        _ = WinKit.send(hwnd, 0x040A /* PBM_SETMARQUEE */, on ? 1 : 0, 30)
+    }
+}
+// --- stage 7 Task 14 (end) ---
+
+// --- stage 7 Task 14: a glyph button that changes its symbol (the Advanced disclosure's chevron) (begin) ---
+extension WinControl {
+    /// Shows `symbol` instead (a disclosure's chevron turning down): the same font size, the window text (its accessible
+    /// name) unchanged, one repaint.
+    func setGlyph(symbol: String, size: CGFloat = 16) {
+        guard kind == .glyphButton else { return }
+        if let text = WinGlyphs.text(symbol: symbol, fluent: ctx.fonts.iconIsFluent) {
+            guard glyph?.text != text else { return }
+            glyph = (text, true)
+            font = ctx.fonts.icon(size: size)
+        } else {
+            glyph = (WinGlyphs.fallback(symbol: symbol) ?? text, false)
+            font = ctx.fonts.emoji(size: size)
+        }
+        _ = InvalidateRect(hwnd, nil, false)
+    }
+}
+// --- stage 7 Task 14 (end) ---
 #endif

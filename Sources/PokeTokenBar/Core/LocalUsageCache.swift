@@ -392,7 +392,7 @@ actor LocalUsageCache {
                          annotate: ((URL, [LocalUsageReader.Entry]) -> [LocalUsageReader.Entry])? = nil,
                          parse: (URL) -> [LocalUsageReader.Entry]?) -> [LocalUsageReader.Entry] {
         let fm = FileManager.default
-        guard let en = fm.enumerator(
+        guard let en = PlatformCompat.enumerator(fm,
             at: root,
             includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
             options: [.skipsHiddenFiles]) else { return [] }

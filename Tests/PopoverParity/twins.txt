@@ -92,6 +92,25 @@ UI/SettingsView.swift#SettingsView.body | Popover/PopoverLayout.swift#PopoverSta
 # PopoverDifficultyDraftTwinTests+Mac and the Mac's own exportedAtText.
 UI/DifficultySettingsSection.swift#DifficultyDraft | Popover/PopoverDifficultyDraft.swift#PopoverDifficultyDraft | DifficultyDraft=PopoverDifficultyDraft
 UI/SettingsView.swift#SettingsView.exportedAtText | Popover/PopoverTransferFormat.swift#PopoverTransferFormat.exportedAtText
+# --- stage 7 Task 12: the activity panel and the streak (Popover/PopoverTrendMetrics.swift, PopoverActivityModel.swift) ---
+UI/PopoverView.swift#DailyTrendColumn | Popover/PopoverTrendMetrics.swift#PopoverTrendColumn | DailyTrendColumn=PopoverTrendColumn
+UI/PopoverView.swift#DailyTrendMetrics | Popover/PopoverTrendMetrics.swift#PopoverTrendMetrics | DailyTrendMetrics=PopoverTrendMetrics, DailyTrendColumn=PopoverTrendColumn
+UI/PopoverView.swift#DailyTrendHover | Popover/PopoverTrendMetrics.swift#PopoverTrendHover | DailyTrendMetrics=PopoverTrendMetrics
+UI/PopoverView.swift#MonthDailyTrend.readout | Popover/PopoverTrendMetrics.swift#PopoverTrendSurface.readout | DailyTrendMetrics=PopoverTrendMetrics
+UI/PopoverView.swift#MonthDailyTrend.shouldShowSurface | Popover/PopoverTrendMetrics.swift#PopoverTrendSurface.shouldShowSurface
+UI/StreakBadge.swift#StreakBadge.isShown | Popover/PopoverTrendMetrics.swift#PopoverStreak.isShown
+UI/ActivityHeatmap.swift#ActivityCell | Popover/PopoverTrendMetrics.swift#PopoverHeatCell | ActivityCell=PopoverHeatCell
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.weekdayLabels | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.weekdayLabels
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.columns | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.columns | ActivityCell=PopoverHeatCell
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.recentGrid | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.recentGrid | ActivityCell=PopoverHeatCell
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.days | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.days
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.recordedSince | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.recordedSince
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.level | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.level
+UI/PopoverView.swift#WrappingHStack.arrange | Popover/PopoverTrendMetrics.swift#PopoverWrapLayout.arrange | pin c7e662c0cfca0d04
+UI/PopoverView.swift#MonthDailyTrend.body | Popover/PopoverActivityModel.swift#TrendBarsModel.make | pin f73d1f3a0e23e165
+UI/ActivityHeatmap.swift#ActivityHeatmap.body | Popover/PopoverActivityModel.swift#HeatmapModel.make | pin 30e5ce76db5afda9
+UI/ActivityHeatmap.swift#ActivityHeatmap.readout | Popover/PopoverActivityModel.swift#HeatmapModel.readout | pin aa5f6adc2a7480b0
+UI/StreakBadge.swift#StreakBadge.body | Popover/PopoverActivityModel.swift#StreakModel.make | pin 22ad5a0351c2c687
 # The recap (stage 7 Task 13): RecapContent is copied whole (driven against the original by PopoverRecapEquivalenceTests+Mac); the card and
 # the screen are SwiftUI bodies rebuilt as RecapCardModel / RecapCardPart / RecapPageModel / RecapNavigation (the model tests and the
 # equivalence test evaluate the bodies' expressions; these pins catch a change the corpus misses).

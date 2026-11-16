@@ -43,6 +43,7 @@ extension WindowsSelftest {
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
             for name in names where name != "settings.teamTransport" { r.add(name, true, "skipped: CI not set (the page takes the foreground; real keys and the clipboard are used)") }
+            for name in WindowsSelftestAdvanced.names { r.add(name, true, "skipped: CI not set (the page takes the foreground; real keys and the clipboard are used)") }  // stage 7 Task 14
             return
         }
         guard let probe = WindowsSelftestPopoverWindow.makeProbe() else {
@@ -65,6 +66,7 @@ extension WindowsSelftest {
         await t.updatesCheck()
         await t.reportCheck()
         await t.escapeCheck()
+        await WindowsSelftestAdvanced.run(t)   // stage 7 Task 14 (WindowsSelftestAdvanced.swift): Advanced, session keys, folders
         if let dir = WindowsSelftestPopoverWindow.dumpDirectory().map({ $0.deletingLastPathComponent().appendingPathComponent("settings", isDirectory: true) }) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             await t.captureChecks(dir)
@@ -281,7 +283,7 @@ extension WindowsSelftest {
         guard up, let page, let hwnd else { r.add("settings.page", false, "open=\(up)"); return }
         let texts = visibleTexts()
         let l = self.l, ko = L(.ko)
-        let wanted = [l.generalSectionTitle.uppercased(), l.language, l.refreshInterval, l.limitDisplayModeLabel, l.launchAtLogin, l.backViewLabel,
+        let wanted = [l.generalSectionTitle.uppercased(), l.language, l.refreshInterval, l.limitDisplayModeLabel, l.dailyTrendPeriod, l.launchAtLogin, l.backViewLabel,
                       l.trackedProvidersSectionTitle.uppercased(), ko.teamSectionTitle.uppercased(), ko.teamEnable, l.notificationsSection.uppercased(),
                       l.updateSectionTitle.uppercased(), l.aboutSupportSectionTitle.uppercased(), l.reportProblem, l.showLogFile, l.winExplorerButton,
                       l.settings, l.back]
@@ -758,7 +760,9 @@ extension WindowsSelftest {
             cycles.append(PopoverResources.now())
         }
         let end = cycles[cycles.count - 1]
-        let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) })
+        // userSlack 1: this check opens the real popover window, whose USER count moves by one between cycles on the runner
+        // (17/18/17/18; see popover.openClose3). A USER object leaked per open still fails: it passes warm-up + 1 on the second cycle.
+        let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) }, userSlack: 1)
         let ok = verdict.ok && end.controls == start.controls && end.dialogs == start.dialogs && end.pumpDepth == 0 && !(app.popover?.isOpen ?? false)
         r.add("settings.openClose", ok, "a warm-up and 3 more open/close cycles of Settings with a team: \(verdict.summary) (controls/dialogs at the start: \(start.controls)/\(start.dialogs), at the end \(end.controls)/\(end.dialogs))")
     }

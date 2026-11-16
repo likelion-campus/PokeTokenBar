@@ -14,7 +14,7 @@ actualStats | D7
 additionalAccountExpiredHint | P21
 additionalClaudeAccountsDetected | G17c
 additionalClaudeAccountsFound | G17c
-additionalClaudeAccountsHint | G17c | replace: says a manual refresh may ask for Keychain access for each folder (D13)
+additionalClaudeAccountsHint | G17c | replaced: winAdditionalClaudeAccountsHint
 additionalClaudeAccountsLabel | G17c
 additionalClaudeAccountsPlaceholder | G17c
 advancedDisclosureLabel | G17
@@ -57,9 +57,9 @@ chooseForm | D5
 claudeAuthExpiredHint | P18
 claudeAuthExpiredTitle | P18
 claudeCurrentBlock | P22
-claudeKeychainHelpBody | P15h | replace: explains macOS's Keychain "Always Allow" reset (D13)
-claudeKeychainHelpTitle | P15h | replace: names the Keychain (D13)
-claudeKeychainHelpTooltip | P15h | replace: names the Keychain (D13)
+claudeKeychainHelpBody | P15h | replaced: winClaudeCredentialHelpBody
+claudeKeychainHelpTitle | P15h | replaced: winClaudeCredentialHelpTitle
+claudeKeychainHelpTooltip | P15h | replaced: winClaudeCredentialHelpTooltip
 claudeLimitEntry | P22
 clearFilters | D3
 close | G16
@@ -208,7 +208,7 @@ notEnoughTokens | H2
 notifCritical | F2
 notificationsSection | G14
 notifWarning | F2
-onlyOnPress | G17r | replace: says it reads the Keychain only when pressed; Windows re-reads ~/.claude/.credentials.json (D13)
+onlyOnPress | G17r | replaced: winOnlyOnPress
 openCodeGoAuthExpiredHint | P27
 openCodeGoAuthExpiredTitle | P27
 openCodeGoMonthly | P27
@@ -252,7 +252,7 @@ recapTokensUnit | R2
 recentHeatmap | P11
 refresh | P19
 refreshInterval | G3
-refreshLimitToken | G17r | replace: Windows re-reads ~/.claude/.credentials.json and says so (D12)
+refreshLimitToken | G17r | replaced: winRefreshLimitToken
 refreshNow | A3
 regionName | D4
 registerSessionKey | P15h
@@ -276,12 +276,12 @@ save | G17k
 sessionKeyExpiredBadge | G17k
 sessionKeyExpiredNoticeHint | P17
 sessionKeyExpiredTitle | P17
-sessionKeyHint | G17k | replace: says "no Keychain pop-up"; Windows has no Keychain (D13)
+sessionKeyHint | G17k | replaced: winSessionKeyHint
 sessionKeyLabel | G17k
 sessionKeyOrganizationLabel | G17k
 sessionKeyPerAccountNote | G17k
 sessionKeySaved | G17k
-sessionKeyStorageNote | G17k | replace: says "this Mac's app folder … owner-only file (not encrypted)"; Windows stores the key encrypted with DPAPI (ruling 5, D14)
+sessionKeyStorageNote | G17k | replaced: winSessionKeyStorageNote
 settings | A3
 shinyCharmEffectHint | B2
 shop | P2
@@ -353,7 +353,7 @@ tokenOutput | P13
 toNextEvolution | C8
 trackedAccountAutomatic | G7
 trackedAccountHighest | G7
-trackedAccountHint | G7 | replace: says it drives "the menu bar limit"; Windows has no menu bar text (D13)
+trackedAccountHint | G7 | replaced: winTrackedAccountHint
 trackedAccountLabel | G7
 trackedProvidersHint | G11
 trackedProvidersSectionTitle | G11
