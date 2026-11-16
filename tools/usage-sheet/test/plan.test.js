@@ -193,3 +193,41 @@ test("renderPlan guards formula-like text and clears first", () => {
   assert.equal(sheet.getRange(30, 1).getValues()[0][0], "");
   assert.equal(sheet.getRange(8, 6).getValues()[0][0], 10);
 });
+
+test("an account nobody has read for 15 days is gone from rows and tiles; 13 days stays", () => {
+  const stale = current("a1", "m1", "Max", 100, 2.5, { ageH: 15 * 24 });
+  const fresh13 = current("a2", "m2", "Max", 100, 2.5, { ageH: 13 * 24 });
+  const model = plan(mkData({ limits: [stale, fresh13] }));
+  assert.deepEqual(model.rows.map((r) => r.nickname), ["지아"]);
+  assert.equal(model.tiles.short, 1);
+  assert.equal(model.excludedAccounts, 0);
+});
+
+function usageRow(memberId, date, team, total) { return { memberId, date, tool: "claude_code", team, total }; }
+
+test("a person's department is the dashboard team over the last 28 days, not the latest limit row's team", () => {
+  const usage = [
+    usageRow("m1", "2026-11-10", "t2", 5), usageRow("m1", "2026-11-11", "t2", 5), usageRow("m1", "2026-11-12", "t2", 5),
+    usageRow("m1", "2026-11-13", "t1", 50),
+  ];
+  const model = plan(mkData({
+    usage, limits: [current("a1", "m1", "Max", 50, 2.5, { team: "t1" })],
+    depts: map({ t1: { name: "A팀", suggested: "" }, t2: { name: "B팀", suggested: "" } }),
+  }));
+  assert.equal(model.rows[0].team, "B팀");
+});
+
+test("usage older than 28 days is ignored: fall back to the limit row's department", () => {
+  const usage = [usageRow("m1", "2026-10-01", "t2", 5), usageRow("m1", "2026-10-02", "t2", 5)];
+  const model = plan(mkData({
+    usage, limits: [current("a1", "m1", "Max", 50, 2.5, { team: "t1" })],
+    depts: map({ t1: { name: "A팀", suggested: "" }, t2: { name: "B팀", suggested: "" } }),
+  }));
+  assert.equal(model.rows[0].team, "A팀");
+});
+
+test("renderPlan sets explicit column widths", () => {
+  const sheet = S.fakes.ss.insertSheet("플랜");
+  S.renderPlan(sheet, plan(mkData({ limits: mockLimits() })), NOW, "Asia/Seoul");
+  for (let c = 1; c <= 13; c++) assert.ok(sheet._widths[c] >= 70, `col ${c}`);
+});

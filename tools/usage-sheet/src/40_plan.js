@@ -2,6 +2,8 @@
 // computePlan is pure; renderPlan writes the sheet.
 
 var PLAN_WINDOW_MS = 7 * 86400000;
+var PLAN_STALE_MS = 14 * 86400000;
+var PLAN_COL_WIDTHS = [130, 110, 90, 110, 130, 90, 120, 120, 90, 120, 90, 150, 150];
 var FORECAST_RANK = { "이미 다 씀": 0, "모자람": 1, "알맞음": 2, "남음": 3, "—": 4 };
 var PLAN_HEADERS = ["닉네임", "부서", "도구", "플랜", "이메일 도메인", "이번 주 사용", "막대", "균등하게 썼다면", "리셋까지(일)",
   "이 속도면 리셋 때", "예상", "지난 4주 중 다 쓴 주", "제안"];
@@ -53,11 +55,17 @@ function computePlan(data, nowMs, tz) {
     groups.get(key).push(l);
   });
 
+  // A person's department is the dashboard rule (most days, then tokens, then name) over the last 28 days.
+  var todayNum = dateToDayNumber(localDateString(nowMs, tz));
+  var recent28 = summarizePeriod(data, dayNumberToString(todayNum - 27), dayNumberToString(todayNum));
+
   var rows = [];
   var excluded = 0;
   groups.forEach(function (list) {
     var latest = list.reduce(function (a, b) { return b.lastReadAt > a.lastReadAt ? b : a; });
-    var dept = departmentOf(latest.team, data.depts);
+    if (latest.lastReadAt < nowMs - PLAN_STALE_MS) return;   // an account nobody has read for 14 days is gone
+    var person = canonicalPerson(latest.memberId, data.people);
+    var dept = recent28.persons[person] ? personTeam(recent28.persons[person]) : departmentOf(latest.team, data.depts);
     if (!dept) { excluded++; return; }
     var cur = null;
     list.forEach(function (l) { if (l.resetsAt > nowMs && (!cur || l.resetsAt < cur.resetsAt)) cur = l; });
@@ -72,7 +80,6 @@ function computePlan(data, nowMs, tz) {
       var fresh = nowMs - cur.lastReadAt <= s.stale_hours * 3600000;
       if (pace >= s.min_pace && pace <= 1 && fresh) projected = cur.lastUsed / pace;
     }
-    var person = canonicalPerson(latest.memberId, data.people);
     rows.push({
       person: person, nickname: nicknameOf(person, data.people), team: dept, tool: latest.tool, plan: latest.plan,
       domain: latest.domain, usedPct: cur ? cur.lastUsed : null, daysToReset: daysToReset,
@@ -158,4 +165,6 @@ function renderPlan(sheet, model, nowMs, tz) {
     ["지난 4주 기록은 이 기능이 들어간 뒤부터 쌓입니다. 처음 4주 동안 제안은 \"기록 부족\"입니다."],
     ["한도 사용률과 리셋 시각은 Anthropic이 정한 값을 앱이 읽은 것입니다. Anthropic이 한도 규칙을 바꾸면 해석도 달라질 수 있습니다."]
   ]));
+
+  PLAN_COL_WIDTHS.forEach(function (px, i) { sheet.setColumnWidth(i + 1, px); });
 }

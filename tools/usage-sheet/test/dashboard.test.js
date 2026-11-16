@@ -242,15 +242,14 @@ test("renderDashboard layout, delta text and charts", () => {
   assert.equal(cell(sheet, 6, 3), "+45명");
   assert.deepEqual([6, 7, 8].map((c) => cell(sheet, 8, c)), ["많이 쓰는 팀원", "부서", "토큰"]);
   assert.deepEqual([6, 7, 8].map((c) => cell(sheet, 16, c)), ["적게 쓰는 팀원", "부서", "토큰"]);
-  assert.equal(cell(sheet, 14, 1), "미지정: 0명 · 0.0M 토큰 — 부서 탭에 이름을 적으면 포함됩니다");
+  assert.equal(cell(sheet, 23, 1), "미지정: 0명 · 0.0M 토큰 — 부서 탭에 이름을 적으면 포함됩니다");
   assert.equal(sheet._formats[2], '#,##0.0,,"M"');
   const charts = sheet.getCharts();
   assert.equal(charts.length, 2);
   charts.forEach((c) => {
-    const ranges = c.calls.filter((x) => x[0] === "addRange").map((x) => x[1]._a1);
-    assert.ok(ranges.length >= 2);
-    ranges.forEach((a) => { assert.equal(a.row, 8); assert.equal(a.row + a.numRows - 1, 12); });
-    assert.deepEqual(c.calls.find((x) => x[0] === "setChartType").slice(1), ["BAR"]);
+    assert.ok(c.ranges.length >= 2);
+    c.ranges.forEach((a) => { assert.equal(a.row, 8); assert.equal(a.row + a.numRows - 1, 12); });
+    assert.equal(c.chartType, "BAR");
   });
   // second render replaces, not adds
   R.renderDashboard(sheet, model, R.nowMs, R.tz);
@@ -315,4 +314,60 @@ test("render writes peer text and deltas as exact text", () => {
   assert.equal(readBack(sheet, 9, 7), "=SUM(1)");
   assert.equal(readBack(sheet, 6, 1), "+17.6%");
   assert.equal(readBack(sheet, 6, 3), "0명");
+});
+
+test("charts: titles, sizes, side-by-side positions, chart 2 sorted by 1인 평균", () => {
+  const R = loadScript();
+  const model = R.computeDashboard(mockData(), "thisMonth", TODAY);
+  const sheet = R.fakes.ss.insertSheet("이번 달");
+  R.renderDashboard(sheet, model, R.nowMs, R.tz);
+  const [c1, c2] = sheet.getCharts();
+  assert.equal(c1.options.title, "팀별 총 사용량");
+  assert.equal(c2.options.title, "팀별 1인 평균");
+  [c1, c2].forEach((c) => {
+    assert.equal(typeof c.options.width, "number");
+    assert.equal(typeof c.options.height, "number");
+    assert.equal(c.position.row, 4);
+  });
+  // side by side: the second starts to the right of where the first ends
+  assert.ok(c2.position.offsetX >= c1.position.offsetX + c1.options.width);
+  assert.equal(c1.position.col, c2.position.col);
+  // chart 2 reads the sorted copy: per-person values descending
+  const labels = c2.ranges[0], values = c2.ranges[1];
+  assert.equal(labels.col, values.col - 1);
+  const rows = sheet.getRange(values.row, values.col, values.numRows, 1).getValues().map((r) => r[0]).slice(1);
+  assert.deepEqual(rows, rows.slice().sort((a, b) => b - a));
+  const names = sheet.getRange(labels.row, labels.col, labels.numRows, 1).getValues().map((r) => r[0]).slice(1);
+  const byName = new Map(model.teams.map((t) => [t.name, t.perPerson]));
+  assert.deepEqual(rows, names.map((n) => byName.get(n)));
+  assert.equal(new Set(rows).size > 1, true);
+  // chart 1 keeps the table order (by total)
+  const first = sheet.getRange(c1.ranges[0].row + 1, c1.ranges[0].col, 1, 1).getValues()[0][0];
+  assert.equal(first, model.teams[0].name);
+});
+
+test("notes sit below both the team table and the F:H tables", () => {
+  const depts = people({});
+  const usage = [];
+  for (let i = 0; i < 4; i++) {
+    depts[`t${i}`] = { name: `부서${i}`, suggested: "" };
+    for (let j = 0; j < 3; j++) usage.push(row(`m${i}_${j}`, "2026-11-02", `t${i}`, i * 3 + j + 1));
+  }
+  const R = loadScript();
+  const model = R.computeDashboard(mkData({ usage, depts }), "thisMonth", TODAY);
+  const sheet = R.fakes.ss.insertSheet("이번 달");
+  R.renderDashboard(sheet, model, R.nowMs, R.tz);
+  const personTableEnd = 16 + model.bottom.length;
+  const noteRow = [...Array(60).keys()].map((i) => i + 1).find((r) => String(cell(sheet, r, 1)).startsWith("미지정"));
+  assert.ok(noteRow > personTableEnd, `note at ${noteRow}, table ends ${personTableEnd}`);
+  assert.equal(model.bottom.length > 0, true);
+  assert.equal(String(cell(sheet, noteRow + 2, 1)).startsWith("앱이 없거나"), true);
+  assert.equal(cell(sheet, personTableEnd, 6) !== "", true);   // the last person row is intact
+});
+
+test("columns get explicit widths after rendering", () => {
+  const R = loadScript();
+  const sheet = R.fakes.ss.insertSheet("이번 달");
+  R.renderDashboard(sheet, R.computeDashboard(mockData(), "thisMonth", TODAY), R.nowMs, R.tz);
+  [1, 2, 3, 4, 6, 7, 8].forEach((c) => assert.ok(sheet._widths[c] >= 90, `col ${c}`));
 });

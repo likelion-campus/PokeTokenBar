@@ -135,9 +135,7 @@ test("refreshAll writes the most common team label, ties to the sorted first", (
 test("refreshAll holds and releases the lock, even when rendering throws", () => {
   const { S, ss } = fresh();
   S.setup();
-  const before = S.fakes.lockStats.acquired;
   S.refreshAll();
-  assert.equal(S.fakes.lockStats.acquired, before + 1);
   assert.equal(S.fakes.lockStats.released, S.fakes.lockStats.acquired);
   ss.getSheetByName("이번 달").getCharts = () => { throw new Error("boom"); };
   assert.throws(() => S.refreshAll(), /boom/);
@@ -152,4 +150,76 @@ test("onOpen builds the menu with three items in order", () => {
   assert.deepEqual(plain(S.fakes.menus[0].items), [
     ["지금 새로 고침", "refreshAll"], ["샘플 데이터 넣기", "seedSampleData"], ["샘플 데이터 지우기", "clearSampleData"],
   ]);
+});
+
+test("refreshAll does not hold the lock while rendering", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  S.seedSampleData();
+  const heldDuring = [];
+  ["이번 달", "지난 7일", "지난달", "플랜"].forEach((name) => {
+    const sheet = ss.getSheetByName(name);
+    const clear = sheet.clear.bind(sheet);
+    sheet.clear = () => { heldDuring.push(S.fakes.lockStats.held); clear(); };
+  });
+  const acquiredBefore = S.fakes.lockStats.acquired;
+  S.refreshAll();
+  assert.deepEqual(heldDuring, [false, false, false, false]);
+  assert.ok(S.fakes.lockStats.acquired > acquiredBefore, "the short locks are still taken");
+  assert.equal(S.fakes.lockStats.held, false);
+});
+
+test("the 참고팀이름 write re-reads 부서 inside the lock and writes column C only", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  const labels = ss.getSheetByName("팀이름");
+  labels._rows.push(["t_new", MEMBER, "신규", new Date(NOW).toISOString()]);
+  const depts = ss.getSheetByName("부서");
+  depts._rows.push(["t_old", "개발팀", "", "2026-11-01"]);
+  // a report adds a department between refreshAll's read and its 참고팀이름 write
+  const readAll = S.readAll;
+  S.readAll = (...a) => {
+    const r = readAll(...a);
+    depts._rows.push(["t_new", "", "", "2026-11-16"]);
+    return r;
+  };
+  S.refreshAll();
+  const rows = body(ss, "부서");
+  assert.deepEqual(rows.map((r) => [r[0], r[1], r[2]]), [["t_old", "개발팀", ""], ["t_new", "", "신규"]]);
+});
+
+test("setup puts the dashboards and the plan first, opens 이번 달 and drops the empty default tab", () => {
+  const { S, ss } = fresh();
+  assert.deepEqual(ss.getSheets().map((s) => s.getName()), ["시트1"]);
+  S.setup();
+  const names = ss.getSheets().map((s) => s.getName());
+  assert.deepEqual(names.slice(0, 4), ["이번 달", "지난 7일", "지난달", "플랜"]);
+  assert.equal(names.includes("시트1"), false);
+  assert.equal(names.length, 11);
+  assert.deepEqual(names.slice(4, 9), ["원본", "한도", "사람", "부서", "설정"]);
+  assert.equal(ss.getActiveSheet().getName(), "이번 달");
+});
+
+test("setup keeps a default tab that has data", () => {
+  const { S, ss } = fresh();
+  ss.getSheetByName("시트1")._rows.push(["내 메모"]);
+  S.setup();
+  assert.equal(ss.getSheetByName("시트1") !== null, true);
+});
+
+test("removeSampleRows writes the kept rows first and only clears the tail", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  S.seedSampleData();
+  const real = [MEMBER, "진짜", new Date(NOW).toISOString(), "", "2.5.0", "mac"];
+  const people = ss.getSheetByName("사람");
+  people._rows.splice(1, 0, real);   // a real row in front of the samples
+  const total = people._rows.length - 1;
+  people._ops.length = 0;
+  S.removeSampleRows(ss);
+  assert.equal(people._ops[0][0], "set");
+  assert.equal(people._ops[0][1], 2);
+  assert.deepEqual(people._ops[1], ["clear", 3, total - 1]);
+  assert.equal(people._ops.length, 2);
+  assert.deepEqual(body(ss, "사람").map((r) => r[0]), [MEMBER]);
 });

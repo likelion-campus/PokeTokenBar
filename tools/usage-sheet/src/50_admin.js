@@ -53,6 +53,8 @@ function suggestedTeamNames(teamLabels) {
   return out;
 }
 
+// Call inside the script lock: it re-reads 부서 so a row a report just added is kept, and it writes
+// column C only, so the owner's 부서이름 is never touched.
 function writeSuggestedTeamNames(ss, data) {
   var sheet = ss.getSheetByName(TAB_DEPTS);
   var rows = sheetRows(sheet, COLS_DEPTS.length);
@@ -62,25 +64,46 @@ function writeSuggestedTeamNames(ss, data) {
   sheet.getRange(2, 3, rows.length, 1).setValues(asTextRows(column));
 }
 
+// Reading and rendering run without the script lock, so a slow refresh never makes a report wait: only
+// the dashboards and the plan are written, and nobody else writes them. The lock is taken for the tab
+// creation and for the 참고팀이름 write.
 function refreshAll() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
   var nowMs = Date.now();
   var today = localDateString(nowMs, tz);
-  withScriptLock(function () {
-    ensureAllTabs(ss);
-    var data = readAll(ss, tz);
-    writeSuggestedTeamNames(ss, data);
-    DASHBOARD_TABS.forEach(function (d) {
-      renderDashboard(ss.getSheetByName(d.name), computeDashboard(data, d.kind, today), nowMs, tz);
-    });
-    renderPlan(ss.getSheetByName(TAB_PLAN), computePlan(data, nowMs, tz), nowMs, tz);
+  withScriptLock(function () { ensureAllTabs(ss); });
+  var data = readAll(ss, tz);
+  withScriptLock(function () { writeSuggestedTeamNames(ss, data); });
+  DASHBOARD_TABS.forEach(function (d) {
+    renderDashboard(ss.getSheetByName(d.name), computeDashboard(data, d.kind, today), nowMs, tz);
   });
+  renderPlan(ss.getSheetByName(TAB_PLAN), computePlan(data, nowMs, tz), nowMs, tz);
+}
+
+// Deletes the untouched default tab, puts the dashboards and the plan first (data tabs after them) and
+// opens 이번 달. Hidden tabs are left where they are.
+function arrangeTabs(ss) {
+  var ours = new Set(TAB_SPECS.map(function (t) { return t.name; }));
+  DASHBOARD_TABS.forEach(function (d) { ours.add(d.name); });
+  ours.add(TAB_PLAN);
+  ss.getSheets().forEach(function (sh) {
+    if (!ours.has(sh.getName()) && sh.getLastRow() === 0 && ss.getSheets().length > 1 &&
+        (sh.getName() === "시트1" || sh.getName() === "Sheet1")) ss.deleteSheet(sh);
+  });
+  var order = DASHBOARD_TABS.map(function (d) { return d.name; }).concat([TAB_PLAN],
+    TAB_SPECS.map(function (t) { return t.name; }).filter(function (n) { return !ss.getSheetByName(n).isSheetHidden(); }));
+  order.forEach(function (name, i) {
+    ss.setActiveSheet(ss.getSheetByName(name));
+    ss.moveActiveSheet(i + 1);
+  });
+  ss.setActiveSheet(ss.getSheetByName(DASHBOARD_TABS[0].name));
 }
 
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  ensureAllTabs(ss);
+  withScriptLock(function () { ensureAllTabs(ss); });
+  arrangeTabs(ss);
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === "refreshAll") ScriptApp.deleteTrigger(t);
   });
@@ -112,8 +135,9 @@ function removeSampleRows(ss) {
     var rows = sheetRows(sheet, width);
     var kept = rows.filter(function (r) { return !isSampleRow(spec, r); });
     if (kept.length === rows.length) return;
-    sheet.getRange(2, 1, rows.length, width).clearContent();
+    // Kept rows first, then only the leftover tail is cleared: the body is never empty in between.
     if (kept.length) sheet.getRange(2, 1, kept.length, width).setValues(asTextRows(kept));
+    sheet.getRange(kept.length + 2, 1, rows.length - kept.length, width).clearContent();
   });
 }
 

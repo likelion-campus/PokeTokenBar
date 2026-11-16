@@ -323,6 +323,28 @@ function asTextRows(rows) {
   return rows.map(function (r) { return r.map(asText); });
 }
 
+// Like sheetRows but reads only the given column spans ([[firstCol, count], ...], 1-based); the other
+// cells of each returned row stay "".
+function sheetColumns(sheet, spans) {
+  var last = sheet.getLastRow();
+  if (last < 2) return [];
+  var width = 0;
+  spans.forEach(function (sp) { width = Math.max(width, sp[0] - 1 + sp[1]); });
+  var out = [];
+  for (var i = 0; i < last - 1; i++) {
+    var row = [];
+    for (var c = 0; c < width; c++) row.push("");
+    out.push(row);
+  }
+  spans.forEach(function (sp) {
+    var vals = sheet.getRange(2, sp[0], last - 1, sp[1]).getValues();
+    for (var r = 0; r < vals.length; r++) {
+      for (var k = 0; k < sp[1]; k++) out[r][sp[0] - 1 + k] = vals[r][k];
+    }
+  });
+  return out;
+}
+
 function sheetRows(sheet, width) {
   var last = sheet.getLastRow();
   if (last < 2) return [];
@@ -530,11 +552,13 @@ function handleReport(ss, text, nowMs, tz) {
 
 // Normalized view of every data tab for the dashboards and the plan.
 function readAll(ss, tz) {
-  function rowsOf(name, cols) {
+  function rowsOf(name, cols, spans) {
     var sheet = ss.getSheetByName(name);
-    return sheet ? sheetRows(sheet, cols.length) : [];
+    if (!sheet) return [];
+    return spans ? sheetColumns(sheet, spans) : sheetRows(sheet, cols.length);
   }
-  var usage = rowsOf(TAB_RAW, COLS_RAW).map(function (r) {
+  // Only the columns the dashboards use: memberId..팀ID (A:E) and 합계 (J).
+  var usage = rowsOf(TAB_RAW, COLS_RAW, [[1, 5], [10, 1]]).map(function (r) {
     return { memberId: r[0], date: cellToDateString(r[2], tz), tool: r[3], team: r[4], total: Number(r[9]) || 0 };
   });
   var limits = rowsOf(TAB_LIMITS, COLS_LIMITS).map(function (r) {
@@ -563,6 +587,9 @@ function readAll(ss, tz) {
 
 var TOKEN_FORMAT = '#,##0.0,,"M"';
 var MAX_MERGE_HOPS = 5;
+var SORTED_COL = 20;
+var CHART_WIDTH = 480;
+var CHART_HEIGHT = 300;
 
 function dayNumberToString(n) {
   var d = new Date(n * DAY_MS);
@@ -724,7 +751,8 @@ function tokensText(n) { return (n / 1e6).toFixed(1) + "M"; }
 function renderDashboard(sheet, model, nowMs, tz) {
   var n = model.teams.length;
   var teamEnd = 8 + n;
-  var noteRow = teamEnd + 2;
+  // Below both the team table and the F:H person tables (the last one ends at row 22).
+  var noteRow = Math.max(teamEnd, 21) + 2;
   var lastRow = Math.max(noteRow + 4, 21);
   ensureRows(sheet, lastRow);
   sheet.clear();
@@ -763,24 +791,47 @@ function renderDashboard(sheet, model, nowMs, tz) {
     ["숫자는 실제 청구액이 아니라 각자 기기의 로그에서 센 값입니다. 앱을 켜 둔 기기의 사용량만 잡힙니다."]
   ]));
 
+  // Chart 2 is bound to a copy of the department and 1인 평균 columns sorted by the per-person value
+  // (descending), far to the right (T:U) beyond the visible layout.
+  var byPerson = model.teams.slice().sort(function (a, b) {
+    return b.perPerson - a.perPerson || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  });
+  var sorted = [["부서 (1인 평균순)", "1인 평균"]];
+  byPerson.forEach(function (x) { sorted.push([x.name, x.perPerson]); });
+  sheet.getRange(8, SORTED_COL, n + 1, 2).setValues(asTextRows(sorted));
+  sheet.getRange(8, SORTED_COL, 1, 2).setFontWeight("bold");
+  if (n > 0) sheet.getRange(9, SORTED_COL + 1, n, 1).setNumberFormat(TOKEN_FORMAT);
+
+  // The two charts sit side by side: both are CHART_WIDTH x CHART_HEIGHT and start at J4, the second
+  // CHART_WIDTH + 20 px to the right of the first.
   if (n > 0) {
-    [{ col: 2, row: 4 }, { col: 3, row: 20 }].forEach(function (spec) {
+    [
+      { title: "팀별 총 사용량", labels: [8, 1], values: [8, 2], offsetX: 0 },
+      { title: "팀별 1인 평균", labels: [8, SORTED_COL], values: [8, SORTED_COL + 1], offsetX: CHART_WIDTH + 20 }
+    ].forEach(function (spec) {
       var chart = sheet.newChart()
         .setChartType(Charts.ChartType.BAR)
-        .addRange(sheet.getRange(8, 1, n + 1, 1))
-        .addRange(sheet.getRange(8, spec.col, n + 1, 1))
-        .setPosition(spec.row, 10, 0, 0)
+        .addRange(sheet.getRange(spec.labels[0], spec.labels[1], n + 1, 1))
+        .addRange(sheet.getRange(spec.values[0], spec.values[1], n + 1, 1))
+        .setPosition(4, 10, spec.offsetX, 0)
+        .setOption("title", spec.title)
+        .setOption("width", CHART_WIDTH)
+        .setOption("height", CHART_HEIGHT)
         .setOption("legend", { position: "none" })
         .build();
       sheet.insertChart(chart);
     });
   }
+
+  [120, 100, 100, 100, 30, 130, 110, 100].forEach(function (px, i) { sheet.setColumnWidth(i + 1, px); });
 }
 
 // Plan tab: per-account weekly-limit forecast and plan suggestion (spec 9.1).
 // computePlan is pure; renderPlan writes the sheet.
 
 var PLAN_WINDOW_MS = 7 * 86400000;
+var PLAN_STALE_MS = 14 * 86400000;
+var PLAN_COL_WIDTHS = [130, 110, 90, 110, 130, 90, 120, 120, 90, 120, 90, 150, 150];
 var FORECAST_RANK = { "이미 다 씀": 0, "모자람": 1, "알맞음": 2, "남음": 3, "—": 4 };
 var PLAN_HEADERS = ["닉네임", "부서", "도구", "플랜", "이메일 도메인", "이번 주 사용", "막대", "균등하게 썼다면", "리셋까지(일)",
   "이 속도면 리셋 때", "예상", "지난 4주 중 다 쓴 주", "제안"];
@@ -832,11 +883,17 @@ function computePlan(data, nowMs, tz) {
     groups.get(key).push(l);
   });
 
+  // A person's department is the dashboard rule (most days, then tokens, then name) over the last 28 days.
+  var todayNum = dateToDayNumber(localDateString(nowMs, tz));
+  var recent28 = summarizePeriod(data, dayNumberToString(todayNum - 27), dayNumberToString(todayNum));
+
   var rows = [];
   var excluded = 0;
   groups.forEach(function (list) {
     var latest = list.reduce(function (a, b) { return b.lastReadAt > a.lastReadAt ? b : a; });
-    var dept = departmentOf(latest.team, data.depts);
+    if (latest.lastReadAt < nowMs - PLAN_STALE_MS) return;   // an account nobody has read for 14 days is gone
+    var person = canonicalPerson(latest.memberId, data.people);
+    var dept = recent28.persons[person] ? personTeam(recent28.persons[person]) : departmentOf(latest.team, data.depts);
     if (!dept) { excluded++; return; }
     var cur = null;
     list.forEach(function (l) { if (l.resetsAt > nowMs && (!cur || l.resetsAt < cur.resetsAt)) cur = l; });
@@ -851,7 +908,6 @@ function computePlan(data, nowMs, tz) {
       var fresh = nowMs - cur.lastReadAt <= s.stale_hours * 3600000;
       if (pace >= s.min_pace && pace <= 1 && fresh) projected = cur.lastUsed / pace;
     }
-    var person = canonicalPerson(latest.memberId, data.people);
     rows.push({
       person: person, nickname: nicknameOf(person, data.people), team: dept, tool: latest.tool, plan: latest.plan,
       domain: latest.domain, usedPct: cur ? cur.lastUsed : null, daysToReset: daysToReset,
@@ -937,6 +993,8 @@ function renderPlan(sheet, model, nowMs, tz) {
     ["지난 4주 기록은 이 기능이 들어간 뒤부터 쌓입니다. 처음 4주 동안 제안은 \"기록 부족\"입니다."],
     ["한도 사용률과 리셋 시각은 Anthropic이 정한 값을 앱이 읽은 것입니다. Anthropic이 한도 규칙을 바꾸면 해석도 달라질 수 있습니다."]
   ]));
+
+  PLAN_COL_WIDTHS.forEach(function (px, i) { sheet.setColumnWidth(i + 1, px); });
 }
 
 // Owner-facing entry points: setup, the hourly refresh, the menu, and sample data.
@@ -994,6 +1052,8 @@ function suggestedTeamNames(teamLabels) {
   return out;
 }
 
+// Call inside the script lock: it re-reads 부서 so a row a report just added is kept, and it writes
+// column C only, so the owner's 부서이름 is never touched.
 function writeSuggestedTeamNames(ss, data) {
   var sheet = ss.getSheetByName(TAB_DEPTS);
   var rows = sheetRows(sheet, COLS_DEPTS.length);
@@ -1003,25 +1063,46 @@ function writeSuggestedTeamNames(ss, data) {
   sheet.getRange(2, 3, rows.length, 1).setValues(asTextRows(column));
 }
 
+// Reading and rendering run without the script lock, so a slow refresh never makes a report wait: only
+// the dashboards and the plan are written, and nobody else writes them. The lock is taken for the tab
+// creation and for the 참고팀이름 write.
 function refreshAll() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
   var nowMs = Date.now();
   var today = localDateString(nowMs, tz);
-  withScriptLock(function () {
-    ensureAllTabs(ss);
-    var data = readAll(ss, tz);
-    writeSuggestedTeamNames(ss, data);
-    DASHBOARD_TABS.forEach(function (d) {
-      renderDashboard(ss.getSheetByName(d.name), computeDashboard(data, d.kind, today), nowMs, tz);
-    });
-    renderPlan(ss.getSheetByName(TAB_PLAN), computePlan(data, nowMs, tz), nowMs, tz);
+  withScriptLock(function () { ensureAllTabs(ss); });
+  var data = readAll(ss, tz);
+  withScriptLock(function () { writeSuggestedTeamNames(ss, data); });
+  DASHBOARD_TABS.forEach(function (d) {
+    renderDashboard(ss.getSheetByName(d.name), computeDashboard(data, d.kind, today), nowMs, tz);
   });
+  renderPlan(ss.getSheetByName(TAB_PLAN), computePlan(data, nowMs, tz), nowMs, tz);
+}
+
+// Deletes the untouched default tab, puts the dashboards and the plan first (data tabs after them) and
+// opens 이번 달. Hidden tabs are left where they are.
+function arrangeTabs(ss) {
+  var ours = new Set(TAB_SPECS.map(function (t) { return t.name; }));
+  DASHBOARD_TABS.forEach(function (d) { ours.add(d.name); });
+  ours.add(TAB_PLAN);
+  ss.getSheets().forEach(function (sh) {
+    if (!ours.has(sh.getName()) && sh.getLastRow() === 0 && ss.getSheets().length > 1 &&
+        (sh.getName() === "시트1" || sh.getName() === "Sheet1")) ss.deleteSheet(sh);
+  });
+  var order = DASHBOARD_TABS.map(function (d) { return d.name; }).concat([TAB_PLAN],
+    TAB_SPECS.map(function (t) { return t.name; }).filter(function (n) { return !ss.getSheetByName(n).isSheetHidden(); }));
+  order.forEach(function (name, i) {
+    ss.setActiveSheet(ss.getSheetByName(name));
+    ss.moveActiveSheet(i + 1);
+  });
+  ss.setActiveSheet(ss.getSheetByName(DASHBOARD_TABS[0].name));
 }
 
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  ensureAllTabs(ss);
+  withScriptLock(function () { ensureAllTabs(ss); });
+  arrangeTabs(ss);
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === "refreshAll") ScriptApp.deleteTrigger(t);
   });
@@ -1053,8 +1134,9 @@ function removeSampleRows(ss) {
     var rows = sheetRows(sheet, width);
     var kept = rows.filter(function (r) { return !isSampleRow(spec, r); });
     if (kept.length === rows.length) return;
-    sheet.getRange(2, 1, rows.length, width).clearContent();
+    // Kept rows first, then only the leftover tail is cleared: the body is never empty in between.
     if (kept.length) sheet.getRange(2, 1, kept.length, width).setValues(asTextRows(kept));
+    sheet.getRange(kept.length + 2, 1, rows.length - kept.length, width).clearContent();
   });
 }
 

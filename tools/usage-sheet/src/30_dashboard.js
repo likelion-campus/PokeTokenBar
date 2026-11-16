@@ -3,6 +3,9 @@
 
 var TOKEN_FORMAT = '#,##0.0,,"M"';
 var MAX_MERGE_HOPS = 5;
+var SORTED_COL = 20;
+var CHART_WIDTH = 480;
+var CHART_HEIGHT = 300;
 
 function dayNumberToString(n) {
   var d = new Date(n * DAY_MS);
@@ -164,7 +167,8 @@ function tokensText(n) { return (n / 1e6).toFixed(1) + "M"; }
 function renderDashboard(sheet, model, nowMs, tz) {
   var n = model.teams.length;
   var teamEnd = 8 + n;
-  var noteRow = teamEnd + 2;
+  // Below both the team table and the F:H person tables (the last one ends at row 22).
+  var noteRow = Math.max(teamEnd, 21) + 2;
   var lastRow = Math.max(noteRow + 4, 21);
   ensureRows(sheet, lastRow);
   sheet.clear();
@@ -203,16 +207,37 @@ function renderDashboard(sheet, model, nowMs, tz) {
     ["숫자는 실제 청구액이 아니라 각자 기기의 로그에서 센 값입니다. 앱을 켜 둔 기기의 사용량만 잡힙니다."]
   ]));
 
+  // Chart 2 is bound to a copy of the department and 1인 평균 columns sorted by the per-person value
+  // (descending), far to the right (T:U) beyond the visible layout.
+  var byPerson = model.teams.slice().sort(function (a, b) {
+    return b.perPerson - a.perPerson || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  });
+  var sorted = [["부서 (1인 평균순)", "1인 평균"]];
+  byPerson.forEach(function (x) { sorted.push([x.name, x.perPerson]); });
+  sheet.getRange(8, SORTED_COL, n + 1, 2).setValues(asTextRows(sorted));
+  sheet.getRange(8, SORTED_COL, 1, 2).setFontWeight("bold");
+  if (n > 0) sheet.getRange(9, SORTED_COL + 1, n, 1).setNumberFormat(TOKEN_FORMAT);
+
+  // The two charts sit side by side: both are CHART_WIDTH x CHART_HEIGHT and start at J4, the second
+  // CHART_WIDTH + 20 px to the right of the first.
   if (n > 0) {
-    [{ col: 2, row: 4 }, { col: 3, row: 20 }].forEach(function (spec) {
+    [
+      { title: "팀별 총 사용량", labels: [8, 1], values: [8, 2], offsetX: 0 },
+      { title: "팀별 1인 평균", labels: [8, SORTED_COL], values: [8, SORTED_COL + 1], offsetX: CHART_WIDTH + 20 }
+    ].forEach(function (spec) {
       var chart = sheet.newChart()
         .setChartType(Charts.ChartType.BAR)
-        .addRange(sheet.getRange(8, 1, n + 1, 1))
-        .addRange(sheet.getRange(8, spec.col, n + 1, 1))
-        .setPosition(spec.row, 10, 0, 0)
+        .addRange(sheet.getRange(spec.labels[0], spec.labels[1], n + 1, 1))
+        .addRange(sheet.getRange(spec.values[0], spec.values[1], n + 1, 1))
+        .setPosition(4, 10, spec.offsetX, 0)
+        .setOption("title", spec.title)
+        .setOption("width", CHART_WIDTH)
+        .setOption("height", CHART_HEIGHT)
         .setOption("legend", { position: "none" })
         .build();
       sheet.insertChart(chart);
     });
   }
+
+  [120, 100, 100, 100, 30, 130, 110, 100].forEach(function (px, i) { sheet.setColumnWidth(i + 1, px); });
 }

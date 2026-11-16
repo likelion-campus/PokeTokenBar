@@ -24,7 +24,7 @@ function formatInZone(date, tz, pattern) {
 //     getSheetByName, insertSheet, getSheets, deleteSheet
 //   Sheet: getName, getLastRow, getLastColumn, getMaxRows, insertRowsAfter, getRange(row, col, numRows?, numCols?) [strict about the 1000-row grid]
 //     [getValues/setValues/setValue/setNumberFormat/clearContent], appendRow, hideSheet,
-//     isSheetHidden, deleteRow, deleteRows, getCharts/insertChart/removeChart, newChart (recording builder),
+//     isSheetHidden, setColumnWidth (sheet._widths), spreadsheet setActiveSheet/getActiveSheet/moveActiveSheet, sheet._ops (set/clear log), sheet._cellsRead, deleteRow, deleteRows, getCharts/insertChart/removeChart, newChart (recording builder),
 //     setFrozenRows, clear. Test-only inspection: sheet._rows, sheet._formats (col -> format).
 //   LockService.getScriptLock(): counts acquire (waitLock) and release (releaseLock) in lockStats.
 //   Utilities: formatDate, computeDigest (signed bytes like Apps Script), DigestAlgorithm, Charset.
@@ -47,7 +47,7 @@ function coerce(v, textFormat) {
 
 function makeSheet(name) {
   const sheet = {
-    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000, _cellsRead: 0,
+    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000, _cellsRead: 0, _ops: [], _widths: {}, _cellsRead: 0,
     getName: () => name,
     getLastRow() {
       for (let i = sheet._rows.length - 1; i >= 0; i--) {
@@ -86,6 +86,7 @@ function makeSheet(name) {
         },
         setValues(values) {
           if (values.length !== nr || values.some((l) => l.length !== nc)) throw new Error("fake setValues: size mismatch");
+          sheet._ops.push(["set", row, nr]);
           values.forEach((line, r) => {
             while (sheet._rows.length <= row - 1 + r) sheet._rows.push([]);
             line.forEach((v, c) => { sheet._rows[row - 1 + r][col - 1 + c] = coerce(v, sheet._formats[col + c] === "@"); });
@@ -105,6 +106,7 @@ function makeSheet(name) {
         },
         setNumberFormat(f) { for (let c = 0; c < nc; c++) sheet._formats[col + c] = f; return this; },
         clearContent() {
+          sheet._ops.push(["clear", row, nr]);
           for (let r = 0; r < nr; r++) for (let c = 0; c < nc; c++) {
             if (sheet._rows[row - 1 + r]) sheet._rows[row - 1 + r][col - 1 + c] = "";
           }
@@ -119,11 +121,19 @@ function makeSheet(name) {
     getCharts: () => sheet._charts.slice(),
     insertChart(c) { sheet._charts.push(c); },
     removeChart(c) { sheet._charts = sheet._charts.filter((x) => x !== c); },
+    // Explicit builder: unknown methods throw, so a typo in the script cannot pass silently.
     newChart() {
-      const calls = [];
-      const b = new Proxy({}, { get: (_, k) => (k === "build" ? () => ({ calls }) : (...a) => { calls.push([k, ...a]); return b; }) });
+      const chart = { chartType: null, ranges: [], position: null, options: {} };
+      const b = {
+        setChartType(t) { chart.chartType = t; return b; },
+        addRange(r) { chart.ranges.push(r._a1); return b; },
+        setPosition(row, col, ox, oy) { chart.position = { row, col, offsetX: ox, offsetY: oy }; return b; },
+        setOption(k, v) { chart.options[k] = v; return b; },
+        build() { return chart; },
+      };
       return b;
     },
+    setColumnWidth(col, px) { sheet._widths[col] = px; },
     setFrozenRows(n) { sheet._frozen = n; },
     clear() { sheet._rows = []; sheet._formats = {}; },
   };
@@ -137,10 +147,19 @@ function makeFakes(opts) {
     _sheets: sheets,
     getSheetByName: (n) => sheets.find((s) => s.getName() === n) || null,
     insertSheet(n) { const s = makeSheet(n); sheets.push(s); return s; },
+    _active: null,
+    setActiveSheet(s) { ss._active = s; return s; },
+    getActiveSheet: () => ss._active,
+    moveActiveSheet(pos) {
+      const s = ss._active;
+      sheets.splice(sheets.indexOf(s), 1);
+      sheets.splice(pos - 1, 0, s);
+    },
     getSheets: () => sheets.slice(),
     deleteSheet(s) { sheets.splice(sheets.indexOf(s), 1); },
   };
-  const lockStats = { acquired: 0, released: 0 };
+  sheets.push(makeSheet("시트1"));   // a new spreadsheet starts with one empty default tab
+  const lockStats = { acquired: 0, released: 0, held: false };
   const triggers = [];
   const menus = [];
   return {
@@ -169,8 +188,8 @@ function makeFakes(opts) {
     },
     LockService: {
       getScriptLock: () => ({
-        waitLock() { lockStats.acquired++; },
-        releaseLock() { lockStats.released++; },
+        waitLock() { lockStats.acquired++; lockStats.held = true; },
+        releaseLock() { lockStats.released++; lockStats.held = false; },
       }),
     },
     Utilities: {

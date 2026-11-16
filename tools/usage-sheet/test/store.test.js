@@ -106,7 +106,7 @@ test("a rejected payload writes no data rows", () => {
   const b = validBody();
   b.token = "nope";
   assert.deepEqual(report(S, b), { ok: false, error: "bad_token" });
-  assert.equal(ss.getSheets().length, 0);   // rejected before any tab is created
+  assert.deepEqual(ss.getSheets().map((x) => x.getName()), ["시트1"]);   // rejected before any tab is created
 });
 
 test("limit max and last usage, with a later read", () => {
@@ -170,12 +170,12 @@ test("team labels upsert only when non-empty", () => {
 test("the lock is taken and released once per call, also on a throw", () => {
   const { S, ss } = fresh();
   report(S, validBody());
-  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 1, released: 1 });
+  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 1, released: 1, held: false });
   report(S, { v: 2 });   // parsed before the lock: no lock taken
-  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 1, released: 1 });
+  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 1, released: 1, held: false });
   ss.getSheetByName("원본").getRange = () => { throw new Error("boom"); };
   assert.throws(() => S.handleReport(ss, JSON.stringify(validBody()), NOW + 1, TZ), /boom/);
-  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 2, released: 2 });
+  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 2, released: 2, held: false });
 });
 
 test("ensureSheets is idempotent, hides two tabs and sets text format on date columns", () => {
@@ -184,7 +184,7 @@ test("ensureSheets is idempotent, hides two tabs and sets text format on date co
   const snap = snapshot(ss);
   S.ensureSheets(ss);
   assert.equal(snapshot(ss), snap);
-  assert.deepEqual(ss.getSheets().map((s) => s.getName()), ["원본", "한도", "사람", "부서", "팀이름", "기기", "설정"]);
+  assert.deepEqual(ss.getSheets().map((s) => s.getName()), ["시트1", "원본", "한도", "사람", "부서", "팀이름", "기기", "설정"]);
   assert.equal(ss.getSheetByName("팀이름").isSheetHidden(), true);
   assert.equal(ss.getSheetByName("기기").isSheetHidden(), true);
   assert.equal(ss.getSheetByName("원본").isSheetHidden(), false);

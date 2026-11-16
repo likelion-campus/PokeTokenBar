@@ -109,6 +109,28 @@ function asTextRows(rows) {
   return rows.map(function (r) { return r.map(asText); });
 }
 
+// Like sheetRows but reads only the given column spans ([[firstCol, count], ...], 1-based); the other
+// cells of each returned row stay "".
+function sheetColumns(sheet, spans) {
+  var last = sheet.getLastRow();
+  if (last < 2) return [];
+  var width = 0;
+  spans.forEach(function (sp) { width = Math.max(width, sp[0] - 1 + sp[1]); });
+  var out = [];
+  for (var i = 0; i < last - 1; i++) {
+    var row = [];
+    for (var c = 0; c < width; c++) row.push("");
+    out.push(row);
+  }
+  spans.forEach(function (sp) {
+    var vals = sheet.getRange(2, sp[0], last - 1, sp[1]).getValues();
+    for (var r = 0; r < vals.length; r++) {
+      for (var k = 0; k < sp[1]; k++) out[r][sp[0] - 1 + k] = vals[r][k];
+    }
+  });
+  return out;
+}
+
 function sheetRows(sheet, width) {
   var last = sheet.getLastRow();
   if (last < 2) return [];
@@ -316,11 +338,13 @@ function handleReport(ss, text, nowMs, tz) {
 
 // Normalized view of every data tab for the dashboards and the plan.
 function readAll(ss, tz) {
-  function rowsOf(name, cols) {
+  function rowsOf(name, cols, spans) {
     var sheet = ss.getSheetByName(name);
-    return sheet ? sheetRows(sheet, cols.length) : [];
+    if (!sheet) return [];
+    return spans ? sheetColumns(sheet, spans) : sheetRows(sheet, cols.length);
   }
-  var usage = rowsOf(TAB_RAW, COLS_RAW).map(function (r) {
+  // Only the columns the dashboards use: memberId..팀ID (A:E) and 합계 (J).
+  var usage = rowsOf(TAB_RAW, COLS_RAW, [[1, 5], [10, 1]]).map(function (r) {
     return { memberId: r[0], date: cellToDateString(r[2], tz), tool: r[3], team: r[4], total: Number(r[9]) || 0 };
   });
   var limits = rowsOf(TAB_LIMITS, COLS_LIMITS).map(function (r) {
