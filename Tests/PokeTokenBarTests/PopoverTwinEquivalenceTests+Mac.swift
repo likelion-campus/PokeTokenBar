@@ -114,7 +114,10 @@ final class PopoverTwinEquivalenceTests: XCTestCase {
                     input.warnThreshold = t.warn
                     input.critThreshold = t.crit
                     let mac = oracle(input)
-                    let builder = LimitsBuilder(store: input, facts: .mac, now: Date())
+                    // One injected `now` for the row model and the expected values; the Mac's copy reads its own clock, so its
+                    // value is only held between the pace at `now` and the pace right after the call (no tolerance on wall time).
+                    let now = Date()
+                    let builder = LimitsBuilder(store: input, facts: .mac, now: now)
                     for u in Self.utilizations {
                         XCTAssertEqual(PopoverFormat.limitPercentText(u, mode: mode, l: l), mac.limitPercentText(u), "\(language) \(mode) \(u)")
                         for pace in Self.paces {
@@ -127,15 +130,21 @@ final class PopoverTwinEquivalenceTests: XCTestCase {
                         }
                         // The row reads the same rules through its own pace: a reset `pace` of a 5-hour window ago.
                         let pace = 0.5, span = LimitWindowSpan.fiveHour
-                        let reset = Date().addingTimeInterval(span * (1 - pace))
+                        let reset = now.addingTimeInterval(span * (1 - pace))
                         let row = builder.quotaRow(name: "x", utilization: u, reset: reset, span: span)
                         let macPace = mac.paceFraction(reset: reset, span: span)
+                        let after = Date()
+                        let paceNow = UsageStore.paceFraction(resetsAt: reset, span: span, now: now)
+                        let paceAfter = UsageStore.paceFraction(resetsAt: reset, span: span, now: after)
                         XCTAssertEqual(row.percentText, mac.limitPercentText(u))
                         XCTAssertEqual(row.fillPercent, min(100, max(0, input.limitDisplayPercent(u))), "LimitProgressBar.body's fill")
-                        XCTAssertEqual(try XCTUnwrap(row.paceMarker), try XCTUnwrap(LimitProgressBar.markerFraction(pace: macPace, mode: mode)),
-                                       accuracy: 1e-6)
-                        let macTier = PaceTier.tier(utilization: u, pace: macPace, critThreshold: t.crit)
-                        XCTAssertEqual(row.help, mac.paceHelp(macPace, tier: macTier, utilization: u))
+                        XCTAssertEqual(try XCTUnwrap(row.paceMarker), try XCTUnwrap(LimitProgressBar.markerFraction(pace: paceNow, mode: mode)),
+                                       "the row's marker is the Mac's marker rule on the pace at the injected now")
+                        guard let held = macPace else { XCTFail("the Mac's pace is nil for a reset with a span"); continue }
+                        XCTAssertTrue(min(paceNow ?? 0, paceAfter ?? 0) <= held && held <= max(paceNow ?? 0, paceAfter ?? 0),
+                                      "the Mac's own pace lies between the pace at now and after the call")
+                        let macTier = PaceTier.tier(utilization: u, pace: paceNow, critThreshold: t.crit)
+                        XCTAssertEqual(row.help, mac.paceHelp(paceNow, tier: macTier, utilization: u))
                     }
                 }
             }
@@ -186,8 +195,13 @@ final class PopoverTwinEquivalenceTests: XCTestCase {
                 let reset = left.map { now.addingTimeInterval($0) }
                 let twin = PopoverFormat.paceFraction(reset: reset, span: span, now: now)
                 let original = mac.paceFraction(reset: reset, span: span)
+                let after = Date()
+                let twinAfter = PopoverFormat.paceFraction(reset: reset, span: span, now: after)
                 XCTAssertEqual(twin == nil, original == nil, "\(String(describing: span)) \(String(describing: left))")
-                if let twin, let original { XCTAssertEqual(twin, original, accuracy: 1e-6) }
+                // the Mac's copy reads its own clock: its value is between the twin's at `now` and right after the call
+                if let twin, let original, let twinAfter {
+                    XCTAssertTrue(min(twin, twinAfter) <= original && original <= max(twin, twinAfter), "\(String(describing: span)) \(String(describing: left))")
+                }
             }
         }
     }

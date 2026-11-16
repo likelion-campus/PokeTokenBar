@@ -74,4 +74,20 @@ final class RelativeTimeTextTests: XCTestCase {
         XCTAssertEqual(RelativeTimeText.text(for: now.addingTimeInterval(-7200), now: now, language: .en), "2 hours", "a zero unit is left out")
         XCTAssertEqual(RelativeTimeText.text(for: now, now: now, language: .en), "0 seconds")
     }
+
+    /// The Windows popover's coarse form (D18): half minutes in the first minute, then whole minutes.
+    func testCoarseTextWakesOncePerMinuteAfterTheFirst() {
+        func coarse(_ offset: TimeInterval) -> Int { RelativeTimeText.displayedSeconds(for: now.addingTimeInterval(offset), now: now, coarse: true) }
+        XCTAssertEqual(coarse(-45.7), 30, "half minutes in the first minute")
+        XCTAssertEqual(coarse(-29.9), 0)
+        XCTAssertEqual(coarse(-190.9), 180, "3 min, the seconds go after the first minute")
+        XCTAssertEqual(coarse(190.2), 240, "a countdown rounds up to the minute")
+        XCTAssertEqual(coarse(-3725.5), 3720)
+        let next = RelativeTimeText.nextChange(for: now.addingTimeInterval(-190.9), now: now, coarse: true).timeIntervalSince(now)
+        XCTAssertEqual(next, 49.1, accuracy: 0.0005, "the next minute, not the next second")
+        XCTAssertEqual(RelativeTimeText.nextChange(for: now.addingTimeInterval(-45.3), now: now, coarse: true).timeIntervalSince(now), 14.7, accuracy: 0.0005)
+        XCTAssertEqual(RelativeTimeText.nextChange(for: now.addingTimeInterval(-5), now: now, coarse: true).timeIntervalSince(now), 25, accuracy: 0.0005)
+        XCTAssertEqual(RelativeTimeText.text(for: now.addingTimeInterval(-190), now: now, language: .en, coarse: true), "3 minutes")
+        XCTAssertEqual(RelativeTimeText.displayedSeconds(for: now.addingTimeInterval(-190.9), now: now), 190, "the default still counts seconds")
+    }
 }

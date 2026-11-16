@@ -45,6 +45,12 @@ enum WinEditKind: Equatable, Sendable {
     var background: COLORREF
     /// Labels: which text colour (D15).
     var role: WinUIColors.Role = .primary
+    // --- stage 7 Task 5: a label in a colour of its own (the percent text, a status dot) (begin) ---
+    /// Labels: this colour instead of the role's (the Mac's percent colour); high contrast keeps the system's.
+    var textColor: COLORREF? {
+        didSet { if oldValue != textColor { for part in parts { _ = InvalidateRect(part, nil, true) } } }
+    }
+    // --- stage 7 Task 5 (end) ---
     fileprivate(set) var font: HFONT?
 
     var onClick: (() -> Void)?
@@ -456,7 +462,7 @@ enum WinClipboardText {
             return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(GetSysColorBrush(5))))
         }
         _ = SetBkColor(dc, c.background)
-        if c.kind == .label || (c.kind == .trackbar && part != c.hwnd) { _ = SetTextColor(dc, colors.text(c.role)) }
+        if c.kind == .label || (c.kind == .trackbar && part != c.hwnd) { _ = SetTextColor(dc, c.textColor ?? colors.text(c.role)) }  // stage 7 Task 5: textColor
         return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(c.background))))
     }
 }

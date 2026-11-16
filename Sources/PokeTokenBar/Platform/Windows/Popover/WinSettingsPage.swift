@@ -83,10 +83,10 @@ import WinSDK
         self.onBack = onBack
     }
 
-    /// The page `popover.state` asks for: Settings, else (until the Home page is wired in) the empty page. Back leaves Settings
+    /// The page `popover.state` asks for: Settings, else the Home page. Back leaves Settings
     /// in place, the Mac's `onClose`.
     static func routed(_ popover: WinPopover) -> WinPopoverPage {
-        guard popover.state.showSettings else { return WinPopoverEmptyPage() }
+        guard popover.state.showSettings else { return WinHomePage(host: popover.host, state: popover.state, popover: popover) }  // stage 7 Task 5: Home
         return WinSettingsPage(host: popover.host, popover: popover) { [weak popover] in
             popover?.state.showSettings = false
             popover?.replacePage()
