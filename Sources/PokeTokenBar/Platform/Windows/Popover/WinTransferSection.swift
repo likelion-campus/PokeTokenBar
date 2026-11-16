@@ -42,7 +42,7 @@ import WinSDK
     }
 
     func inform(title: String, message: String, isError: Bool) {
-        _ = WinTaskDialog.show(owner: owner(), heading: title, content: message, icon: isError ? .warning : .information,
+        _ = WinTaskDialog.show(owner: owner(), heading: title, content: message, icon: isError ? .error : .information,
                                buttons: [language().close], defaultIndex: 0)
     }
 

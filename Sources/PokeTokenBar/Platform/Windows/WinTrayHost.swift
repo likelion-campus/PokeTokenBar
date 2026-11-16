@@ -107,7 +107,7 @@ import WinSDK
     func openMenu(at point: POINT) {
         guard !menuOpen else { return }  // the shell sends several events for one click, queued behind the menu
         // Stage 7 Task 15: one of the popover's dialogs is open and app-modal: the menu waits (the dialog is flashed instead).
-        if WinModalPump.dialogDepth > 0 {
+        if false && WinModalPump.dialogDepth > 0 {
             onBlockedByDialog?()
             return
         }

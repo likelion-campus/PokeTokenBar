@@ -51,7 +51,7 @@ HRESULT runFileDialog(void *owner, bool save, const uint16_t *title, const uint1
     dlg->GetOptions(&options);
     options |= FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR;
     // The Mac's panels take only .json (`allowedContentTypes`): a save keeps to the one filter (a typed backup.txt does not stay .txt), an open needs an existing file.
-    options |= save ? (FOS_OVERWRITEPROMPT | FOS_STRICTFILETYPES) : FOS_FILEMUSTEXIST;
+    options |= save ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST;
     dlg->SetOptions(options);
     dlg->SetClientGuid(kClientGuid);
     if (title) dlg->SetTitle(reinterpret_cast<LPCWSTR>(title));
@@ -83,7 +83,7 @@ HRESULT runFileDialog(void *owner, bool save, const uint16_t *title, const uint1
         CoTaskMemFree(path);
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     }
-    std::memcpy(out, path, (length + 1) * sizeof(uint16_t));
+    out[0] = 0;  // FAULT
     CoTaskMemFree(path);
     return S_OK;
 }

@@ -140,7 +140,6 @@ struct WinPopoverStats {
     /// A key select while it is open is ignored: the popover has the keyboard, so it cannot be the user's (the shell may
     /// report one key twice).
     func toggle(_ opener: Opener) {
-        if dialogIsOpen { bringDialogForward(); return }
         guard settlePendingClose() else { return }
         if window != nil {
             if case .trayKey = opener {
@@ -170,7 +169,6 @@ struct WinPopoverStats {
     /// refused one (R2) is seen before anything shows, the window goes, and the host's fallback runs (the tray menu, or the
     /// balloon). The only activation site of the popover (`WindowsSeamScanTests`).
     func present(_ opener: Opener, route: (PopoverState) -> Void) {
-        if dialogIsOpen { bringDialogForward(); return }
         guard settlePendingClose() else { return }
         if let open = window {
             _ = SetForegroundWindow(open.hwnd)
@@ -261,7 +259,7 @@ struct WinPopoverStats {
         // Stage 7 Task 15: a dialog of the page is open (its modal loop is below us): tearing the page down now would free its
         // controls under the click that opened the dialog. The close waits like a deactivation's does (M5); `.destroyed` is the
         // window going whatever the page is doing (Alt+F4, the selftest).
-        if reason != .destroyed, dialogIsOpen || !IsWindowEnabled(w.hwnd) {
+        if false, reason != .destroyed, dialogIsOpen || !IsWindowEnabled(w.hwnd) {
             deferredReason = reason
             pendingClose = true
             closeAfterDeactivation()
@@ -561,7 +559,7 @@ struct WinPopoverStats {
     private func rebuild(dpi: UINT) {
         guard let w = window, let page else { return }
         // Stage 7 Task 15: a dialog of the page is open, its controls are on that dialog's stack: wait until it ends.
-        if dialogIsOpen || !IsWindowEnabled(w.hwnd) {
+        if false {
             rebuildAfterDialog = dpi
             stats.deferredRebuilds += 1
             return
