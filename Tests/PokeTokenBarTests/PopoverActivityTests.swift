@@ -42,7 +42,7 @@ final class PopoverActivityTests: XCTestCase {
 
     // MARK: data states
 
-    func testNoDataShowsNothingLikeTheMac() {
+    func testNoDataShowsNothingLikeTheMac() async {
         for v in ActivityVisualization.allCases {
             let m = ActivityPanelModel.make(input([:], visualization: v))
             XCTAssertNil(m.content, "\(v): a first run with no usage draws nothing, as the Mac's panel")
@@ -56,7 +56,7 @@ final class PopoverActivityTests: XCTestCase {
         XCTAssertTrue(m.columns.isEmpty)
     }
 
-    func testOneDayHidesThePeakAndAMonthWithGapsKeepsEveryColumn() throws {
+    func testOneDayHidesThePeakAndAMonthWithGapsKeepsEveryColumn() async throws {
         let one = try bars([15: 5_000])
         XCTAssertNil(one.peakText, "a single used day: the peak equals the readout")
         XCTAssertEqual(one.columns.count, 31)
@@ -71,7 +71,7 @@ final class PopoverActivityTests: XCTestCase {
         XCTAssertEqual(gaps.columns.first { $0.date == "2026-07-20" }?.height, 0, "a future day is blank")
     }
 
-    func testTheStreakShowsFromTwoDays() {
+    func testTheStreakShowsFromTwoDays() async {
         for (days, shown) in [(0, false), (1, false), (2, true), (9, true)] {
             var i = input([15: 1])
             i.streak = UsageStreak(days: days, includesToday: true)
@@ -83,7 +83,7 @@ final class PopoverActivityTests: XCTestCase {
         XCTAssertEqual(pending?.label, L(.en).streakDaysPending(4))
     }
 
-    func testTheHeatmapStartsItsRowsOnTheRegionsFirstWeekday() throws {
+    func testTheHeatmapStartsItsRowsOnTheRegionsFirstWeekday() async throws {
         var labels: [Int: [String]] = [:]
         for first in [1, 2] {
             guard case .heatmap(let h)? = ActivityPanelModel.make(input([1: 10, 15: 20], visualization: .recentHeatmap, firstWeekday: first)).content else {
@@ -104,7 +104,7 @@ final class PopoverActivityTests: XCTestCase {
 
     // MARK: the legend wraps like WrappingHStack
 
-    func testTheLegendWrapsAtTheWidth() {
+    func testTheLegendWrapsAtTheWidth() async {
         let frames = PopoverWrapLayout.arrange([CGSize(width: 100, height: 10), CGSize(width: 100, height: 10), CGSize(width: 100, height: 10)],
                                                width: 250, spacing: 8, lineSpacing: 2)
         XCTAssertEqual(frames.map(\.origin), [CGPoint(x: 0, y: 0), CGPoint(x: 108, y: 0), CGPoint(x: 0, y: 12)])
@@ -126,7 +126,7 @@ final class PopoverActivityTests: XCTestCase {
         return TrendBarsPart(m, cardInfo: made.cardInfo)
     }
 
-    func testHoverRedrawsOnlyTheColumnsAndMakesNoText() throws {
+    func testHoverRedrawsOnlyTheColumnsAndMakesNoText() async throws {
         let part = try part([1: 100, 5: 800, 9: 100_000_000, 15: 2_000], stacked: true)
         let graphics = PlatformPlaza.graphics
         _ = part.size(width: 332, scale: 1, text: graphics.text)
@@ -160,7 +160,7 @@ final class PopoverActivityTests: XCTestCase {
         XCTAssertNil(part.selectedDate)
     }
 
-    func testTheCardNamesTheDayAndEachProvider() throws {
+    func testTheCardNamesTheDayAndEachProvider() async throws {
         let part = try part([9: 100_000_000, 15: 2_000], stacked: true)
         let graphics = PlatformPlaza.graphics
         _ = part.size(width: 332, scale: 1, text: graphics.text)
@@ -175,7 +175,7 @@ final class PopoverActivityTests: XCTestCase {
         XCTAssertTrue(part.accessibleName.contains("Beta"), part.accessibleName)
     }
 
-    func testArrowKeysWalkTheSelectableDaysAndEscapeClears() throws {
+    func testArrowKeysWalkTheSelectableDaysAndEscapeClears() async throws {
         let part = try part([1: 100, 5: 800, 15: 2_000])
         _ = part.size(width: 332, scale: 1, text: PlatformPlaza.graphics.text)
         XCTAssertFalse(part.key(PopoverKey.escape), "nothing to clear: the popover's own Escape runs")
@@ -201,7 +201,7 @@ final class PopoverActivityTests: XCTestCase {
         part.focusChanged(false)
     }
 
-    func testTheItemsCarryTheSummaryTheTitleMenuAndTheSwitchHint() throws {
+    func testTheItemsCarryTheSummaryTheTitleMenuAndTheSwitchHint() async throws {
         let part = try part([1: 100, 5: 800, 15: 2_000])
         let graphics = PlatformPlaza.graphics
         _ = part.size(width: 332, scale: 1, text: graphics.text)
@@ -220,7 +220,7 @@ final class PopoverActivityTests: XCTestCase {
 
     // MARK: the heatmap and the streak parts
 
-    func testTheHeatmapHoverChangesOnlyTheReadout() throws {
+    func testTheHeatmapHoverChangesOnlyTheReadout() async throws {
         let made = ActivityPanelModel.make(input([1: 100, 5: 800, 15: 2_000], visualization: .recentHeatmap))
         guard case .heatmap(let m)? = made.content else { return XCTFail("heatmap expected") }
         let part = HeatmapPart(m, readout: made.heatReadout)
@@ -249,7 +249,7 @@ final class PopoverActivityTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(todayRow, 0)
     }
 
-    func testTheStreakPartSaysItsLabel() {
+    func testTheStreakPartSaysItsLabel() async {
         let part = StreakPart(StreakModel(days: 5, includesToday: true, label: "5-day streak"))
         let graphics = PlatformPlaza.graphics
         let size = part.size(width: 332, scale: 1, text: graphics.text)

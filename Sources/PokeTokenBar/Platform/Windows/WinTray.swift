@@ -219,7 +219,7 @@ import WinSDK
     nonisolated(unsafe) static var openMenuBits = 0
 
     /// Index into `items` of the chosen entry, nil when dismissed.
-    static func run(_ items: [TrayMenuModel.Item?], at point: POINT, owner: HWND) -> Int? {
+    static func run(_ items: [TrayMenuModel.Item?], at point: POINT, owner: HWND, below: Bool = false) -> Int? {  // below: stage 7 Task 12 (a menu that opens under its label)
         guard openMenuBits == 0 else { return nil }  // a menu is already open: ignore the request
         guard let menu = CreatePopupMenu() else { return nil }
         defer { openMenuBits = 0; DestroyMenu(menu) }
@@ -239,7 +239,7 @@ import WinSDK
         guard let track = WinDynamic.symbol("user32.dll", "TrackPopupMenu", as: TrackFn.self) else { return nil }
         WinModalPump.begin("menu")  // the menu's modal loop starves the main queue; the pump serves it meanwhile
         defer { WinModalPump.end("menu") }
-        let command = track(menu, UINT(TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY | TPM_BOTTOMALIGN),
+        let command = track(menu, UINT(TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY | (below ? TPM_TOPALIGN : TPM_BOTTOMALIGN)),
                             point.x, point.y, 0, owner, nil)
         _ = PostMessageW(owner, UINT(WM_NULL), 0, 0)
         return command > 0 ? Int(command) - 1 : nil

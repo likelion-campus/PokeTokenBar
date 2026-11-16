@@ -56,11 +56,15 @@ import WinSDK
     private(set) var observes = 0
 
     struct Sections {
-        var banner: WinSectionCard, plaza: WinSectionCard, header: WinSectionCard, tabs: WinSectionCard
+        var banner: WinSectionCard, plaza: WinSectionCard, header: WinSectionCard
+        var activity: WinSectionCard  // stage 7 Task 12 (WinActivitySection.swift): the streak and the chart, between the totals and the tabs
+        var tabs: WinSectionCard
         var provider: WinSectionCard, status: WinSectionCard, limits: WinSectionCard, footer: WinSectionCard
     }
     var sections: Sections?
     private var headerParts: HeaderParts?
+    /// The streak and the chart (stage 7 Task 12); the selftest reads it.
+    private(set) var activityPanel: WinActivitySection?
     private var footerParts: FooterParts?
     var relative: [String: [RelativeBinding]] = [:]
     /// The limit bars' drawn views (their pictures are freed with their rows).
@@ -134,9 +138,17 @@ import WinSDK
         stack = page
         ctx = page.ctx
         sections = Sections(banner: page.addSection(nil, card: true), plaza: page.addSection(nil, card: false),
-                            header: page.addSection(nil, card: false), tabs: page.addSection(nil, card: false),
+                            header: page.addSection(nil, card: false), activity: page.addSection(nil, card: false), tabs: page.addSection(nil, card: false),
                             provider: page.addSection(nil, card: false), status: page.addSection(nil, card: false),
                             limits: page.addSection(nil, card: false), footer: page.addSection(nil, card: false))
+        // --- stage 7 Task 12: the activity panel and the streak (begin) ---
+        if let sections {
+            let panel = WinActivitySection(stack: page, section: sections.activity, store: store, companion: companion, facts: facts)
+            panel.now = now
+            activityPanel = panel
+            panel.observe()
+        }
+        // --- stage 7 Task 12 (end) ---
         observe()
         page.layout()
     }
@@ -158,6 +170,8 @@ import WinSDK
         epoch += 1
         clock.onTick = nil
         clock.stop()
+        activityPanel?.destroy()  // stage 7 Task 12
+        activityPanel = nil
         stack?.destroy()
         area?.destroy()
         bars = []
