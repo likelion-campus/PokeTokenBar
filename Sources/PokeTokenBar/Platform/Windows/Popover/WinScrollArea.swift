@@ -60,12 +60,16 @@ import WinSDK
             self.scroll(to: self.offset + Int32(change))
             return 0
         }
-        viewport.on(0x00A1 /* WM_NCLBUTTONDOWN */) { [weak self] wParam, lParam in
-            guard wParam == 7 /* HTVSCROLL */, let self else { return nil }
-            self.stats.thumbDrags += 1
-            WinModalPump.begin("scroll")  // the scroll bar's tracking loop starves the main queue otherwise (R11)
-            defer { WinModalPump.end("scroll") }
-            return DefWindowProcW(self.viewport.hwnd, 0x00A1, wParam, lParam)
+        // WM_NCLBUTTONDOWN and WM_NCLBUTTONDBLCLK (the second click of a double click, sent even without CS_DBLCLKS): on the
+        // scroll bar DefWindowProc runs its tracking loop (thumb, arrows, track), which starves the main queue otherwise (R11).
+        for message: UINT in [0x00A1, 0x00A3] {
+            viewport.on(message) { [weak self] wParam, lParam in
+                guard wParam == 7 || wParam == 6 /* HTVSCROLL, HTHSCROLL */, let self else { return nil }
+                self.stats.thumbDrags += 1
+                WinModalPump.begin("scroll")
+                defer { WinModalPump.end("scroll") }
+                return DefWindowProcW(self.viewport.hwnd, message, wParam, lParam)
+            }
         }
         viewport.on(0x0014 /* WM_ERASEBKGND */) { [weak self] wParam, _ in
             guard let self, let dc = HDC(bitPattern: UInt(wParam)) else { return nil }
@@ -75,6 +79,7 @@ import WinSDK
             return 1
         }
         viewport.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
+        viewport.on(0x0010 /* WM_CLOSE */) { _, _ in 0 }  // a child never closes the page
     }
 
     /// The content's width in pixels (the viewport beside its scroll bar).
@@ -132,6 +137,12 @@ import WinSDK
         WinKit.move(viewport.hwnd, r)
         setContentHeight(contentHeight)
     }
+
+    /// The window `bits` is gone (`WinSinkWindow`'s `WM_NCDESTROY`): no entry may outlive its content pane.
+    static func forget(_ bits: Int) { areas[bits] = nil }
+
+    /// Scroll areas alive (the selftest reads it).
+    static var liveCount: Int { areas.count }
 
     func destroy() {
         Self.areas[Int(bitPattern: content.hwnd)] = nil
