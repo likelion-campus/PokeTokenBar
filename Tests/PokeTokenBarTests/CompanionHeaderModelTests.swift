@@ -271,7 +271,7 @@ final class CompanionHeaderModelTests: XCTestCase {
             var now = start
             for _ in 0..<50 {
                 guard let due = w.nextDue(after: now) else { return XCTFail("the wiggle stopped") }
-                XCTAssertGreaterThan(due.timeIntervalSince(now), 0.3, "one wiggle pose each 0.35 s, never the same instant again")
+                XCTAssertGreaterThan(due.timeIntervalSince(now), 0.1, "a wiggle step at most every 0.108 s, never the same instant again")
                 now = due
             }
         }
@@ -340,17 +340,26 @@ final class CompanionHeaderModelTests: XCTestCase {
         XCTAssertEqual(sample(d, from: t0, until: 10).last, 1.7, accuracy: 0.02)
     }
 
-    /// The imminent egg wiggles between −5° and +5°, one pose each 0.35 s, and stops when it is no longer imminent (or
-    /// animation is off).
-    func testTheImminentEggWigglesInTwoPoses() async {
+    /// The imminent egg wiggles between −5° and +5° along the Mac's eased 0.35 s swing in two steps a swing (−5°, 0°, +5°,
+    /// as the eased angle crosses −2.5° and +2.5°), and stops when it is no longer imminent (or animation is off).
+    func testTheImminentEggWigglesAlongTheMacsEasedSwing() async {
         var input = CompanionHeaderInput()
         input.eggProgress = 0.95
         let d = CompanionCelebrationDriver()
         let t0 = Date(timeIntervalSince1970: 4_000)
         d.poll(input, consumer: RecordingConsumer(), now: t0)
         XCTAssertEqual(d.effects(at: t0).rotation, -5)
-        XCTAssertEqual(d.effects(at: t0.addingTimeInterval(0.36)).rotation, 5)
-        XCTAssertEqual(d.nextDue(after: t0.addingTimeInterval(0.1))?.timeIntervalSince(t0) ?? 0, 0.35, accuracy: 1e-6)
+        var poses: [Double] = [], now = t0
+        for _ in 0..<8 {
+            guard let due = d.nextDue(after: now) else { return XCTFail("the wiggle stopped") }
+            now = due
+            poses.append(d.effects(at: now).rotation)
+        }
+        XCTAssertEqual(poses, [0, 5, 0, -5, 0, 5, 0, -5])
+        // The Mac's eased angle −5 + 10 × easeInOut(t / 0.35) is −2.5° at the first step and +2.5° at the second.
+        let first = d.nextDue(after: t0)?.timeIntervalSince(t0) ?? 0
+        XCTAssertEqual(-5 + 10 * PopoverMotion.easeInOut(first / 0.35), -2.5, accuracy: 1e-4)
+        XCTAssertEqual(d.nextDue(after: t0.addingTimeInterval(first))?.timeIntervalSince(t0) ?? 0, 0.35 - first, accuracy: 1e-6)
         XCTAssertFalse(d.isCelebrating)
         input.eggProgress = 0.5
         d.poll(input, consumer: RecordingConsumer(), now: t0.addingTimeInterval(1))

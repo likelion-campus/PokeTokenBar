@@ -11,7 +11,9 @@ import Foundation
 /// dot under it, future nodes at 32 % opacity and 40 % saturation, the unknown branch as a bold "?". Sprites are slots
 /// (still pictures: the Mac's line does not animate). Wider than `maxWidth` (the Mac's 320 pt) the line scrolls: the side
 /// with more content fades out over 24 pt and shows a chevron button (16 pt circle) that moves one screen of columns
-/// (`EvoLineLayout`, the Mac's statics). The chevrons are button items (Tab, Enter, Narrator) whose press is `hit`.
+/// (`EvoLineLayout`, the Mac's statics). The chevrons are button items (Tab, Enter, Narrator) whose press is `hit`; a press
+/// moves the line over 0.25 s as the Mac's `withAnimation(.easeInOut(duration: 0.25))` (the host's clock calls `advance`), and
+/// the wheel or a touchpad's horizontal swipe moves it directly (`scroll(by:)`), as the Mac's horizontal `ScrollView`.
 @MainActor final class EvoLinePart: PopoverPart {
     static let thumb: CGFloat = 40
     static let maxWidth: CGFloat = PopoverWindowMetrics.scrollContentWidth
@@ -31,6 +33,15 @@ import Foundation
     var accent: PlazaColor
     weak var glyphs: (any PopoverGlyphRaster)?
     private(set) var presses = 0
+    // --- stage 7 Task 9: the chevron's eased move, the wheel (begin) ---
+    static let moveDuration: TimeInterval = 0.25
+    static let frameInterval: TimeInterval = 1.0 / 60
+    /// A press moves over `moveDuration` (the host turns this off when Windows' "show animations" is: the line jumps).
+    var animatesMoves = false
+    var now: () -> Date = { Date() }
+    /// The chevron's move in progress: from, to (scroll offsets) and when it started.
+    private(set) var move: (from: CGFloat, to: CGFloat, start: Date)?
+    // --- stage 7 Task 9 (end) ---
 
     init(_ model: EvoLineModel, background: PlazaColor, accent: PlazaColor = PopoverColorRole.accent.plazaColor(),
          glyphs: (any PopoverGlyphRaster)? = nil) {
@@ -44,7 +55,7 @@ import Foundation
     /// Shows another line; a line with other nodes starts at its beginning again.
     func update(_ next: EvoLineModel) {
         guard next != model else { return }
-        if next.nodes != model.nodes { layout.scrollX = 0 }
+        if next.nodes != model.nodes { layout.scrollX = 0; move = nil }
         model = next
         layout.nodes = next.nodes
         onChange?()
@@ -59,7 +70,8 @@ import Foundation
                width: Self.chevronSize, height: Self.chevronSize)
     }
 
-    /// A chevron press: one screen of columns back or forward (the Mac animates the move over 0.25 s; Windows jumps).
+    /// A chevron press: one screen of columns back or forward, from where the line is now (mid-move too, as the Mac's
+    /// `pageTarget` reads the live offset). With `animatesMoves` the move starts (`advance` draws it), else the line jumps.
     @discardableResult
     func press(_ hit: PlazaPanelHit) -> Bool {
         let forward: Bool
@@ -70,14 +82,66 @@ import Foundation
         }
         let next = layout.scrolled(forward: forward)
         guard next != layout.scrollX else { return false }
-        layout.scrollX = next
         presses += 1
+        if animatesMoves {
+            move = (layout.scrollX, next, now())
+        } else {
+            move = nil
+            layout.scrollX = next
+            onChange?()
+        }
+        return true
+    }
+
+    /// Draws the chevron's move at `time` (`.easeInOut` over 0.25 s); true when the line moved. The last call lands on the target.
+    @discardableResult
+    func advance(to time: Date) -> Bool {
+        guard let m = move else { return false }
+        let t = time.timeIntervalSince(m.start) / Self.moveDuration
+        let x: CGFloat
+        if t >= 1 - 1e-6 {
+            x = m.to
+            move = nil
+        } else {
+            x = m.from + (m.to - m.from) * CGFloat(PopoverMotion.easeInOut(max(0, t)))
+        }
+        guard x != layout.scrollX else { return false }
+        layout.scrollX = min(layout.maxScrollX, max(0, x))
         onChange?()
         return true
     }
 
+    /// When the line moves next by itself: the next frame (1/60 s) of a chevron's move, its end at the latest; nil otherwise.
+    func nextDue(after time: Date) -> Date? {
+        guard let m = move else { return nil }
+        return min(time.addingTimeInterval(Self.frameInterval), m.start.addingTimeInterval(Self.moveDuration))
+    }
+
+    /// The wheel or a touchpad's horizontal swipe: moves the line by `dx` points (positive: forward), clamped to the content;
+    /// ends a chevron's move where it is. True when it moved.
+    @discardableResult
+    func scroll(by dx: CGFloat) -> Bool {
+        guard layout.scrolls else { return false }
+        move = nil
+        let next = min(layout.maxScrollX, max(0, layout.scrollX + dx))
+        guard next != layout.scrollX else { return false }
+        layout.scrollX = next
+        onChange?()
+        return true
+    }
+
+    /// A wheel message over the line as its move in device pixels (positive: forward), whole pixels with the fraction kept in
+    /// `wheel`: `WM_MOUSEHWHEEL` (`horizontal`: a touchpad's sideways swipe or a tilted wheel, positive to the right) or a
+    /// Shift-held `WM_MOUSEWHEEL` (positive away from the user: back); `chars` a notch (`SPI_GETWHEELSCROLLCHARS`) of AppKit's
+    /// 10-point line, as the plaza's wheel.
+    static func wheelMove(_ wheel: inout PopoverWheel, delta: Int, horizontal: Bool, chars: UInt32, scale: CGFloat, page: CGFloat) -> CGFloat {
+        let change = wheel.offsetChange(delta: delta, lines: chars, lineHeight: 10 * scale, page: page * scale)
+        return horizontal ? -change : change
+    }
+
     /// Sets the scroll offset directly (the selftest's "scrolled" capture).
     func scroll(to x: CGFloat) {
+        move = nil
         layout.scrollX = min(layout.maxScrollX, max(0, x))
         onChange?()
     }

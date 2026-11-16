@@ -9,7 +9,8 @@ import Foundation
 ///
 /// Celebrations (`CompanionArtEffects`) change only the sprite box: the backdrop and the slot scale and turn with it, the
 /// flash and the bursts are `overlays` (over the sprite), and `dirty` names the box so the host repaints just that. The
-/// column's picture is kept between those renders.
+/// column's picture is kept between those renders. The growth bar is its own layer: a hover grows it (`setBarLook`,
+/// `renderBarFrame`, whose `dirty` is the bar's line).
 @MainActor final class CompanionHeaderPart: PopoverPart {
     nonisolated static let spriteBox: CGFloat = 76
     nonisolated static let cornerRadius: CGFloat = 12
@@ -21,6 +22,7 @@ import Foundation
     var onChange: (() -> Void)?
     private(set) var model: CompanionHeaderModel
     private(set) var effects = CompanionArtEffects.rest
+    private(set) var barLook = GrowthBarHover.Look.rest  // stage 7 Task 9
     let textScale: CGFloat
     private var width: CGFloat = PopoverWindowMetrics.scrollContentWidth
     private var laidOut: Layout?
@@ -42,6 +44,51 @@ import Foundation
 
     /// The celebration's look now. The host renders right after (`render`, whose `dirty` is the box).
     func setEffects(_ e: CompanionArtEffects) { effects = e }
+
+    // --- stage 7 Task 9: the growth bar's hover (begin) ---
+    /// The growth bar's hover look now. The host renders right after (`renderBarFrame`).
+    func setBarLook(_ look: GrowthBarHover.Look) { barLook = look }
+
+    /// The growth bar's line (part coordinates): the hover's area (the Mac's `.contentShape(Rectangle())` of the 12 pt line).
+    var barFrame: CGRect? { laidOut?.bars.first?.frame }
+
+    /// The region a hover frame changes: the bar's layer.
+    var barRegion: CGRect? { laidOut?.bars.first.map { Self.barLayerFrame($0.frame, scale: 1) } }
+
+    /// A render that changes only the growth bar (a hover frame): the same drawing with `dirty` set.
+    func renderBarFrame(scale: CGFloat, graphics: any PlazaGraphics) -> PopoverDrawing {
+        var d = render(scale: scale, graphics: graphics)
+        d.dirty = laidOut?.bars.first.map { Self.barLayerFrame($0.frame, scale: scale) }
+        return d
+    }
+
+    /// The bar's layer: its line with room for the spring's overshoot, out to whole device pixels (so the bar lands on the
+    /// pixels it had inside the column's picture).
+    nonisolated static func barLayerFrame(_ line: CGRect, scale: CGFloat) -> CGRect {
+        let r = line.insetBy(dx: 0, dy: -GrowthBarPart.overshootRoom)
+        let x0 = (r.minX * scale).rounded(.down) / scale, y0 = (r.minY * scale).rounded(.down) / scale
+        let x1 = (r.maxX * scale).rounded(.up) / scale, y1 = (r.maxY * scale).rounded(.up) / scale
+        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+    }
+
+    private func barLayers(_ lay: Layout, scale: CGFloat, graphics: any PlazaGraphics) -> [PlazaPanelLayer] {
+        let look = barLook
+        return lay.bars.compactMap { bar in
+            var readout: (line: PlazaTextLine, height: CGFloat, ascender: CGFloat)?
+            if look.label > 0.001 {
+                let line = GrowthBarPart.readoutLine(bar.detail, width: bar.frame.width, textScale: textScale, text: graphics.text)
+                readout = (line, line.ascent + line.descent + line.leading, line.ascent)
+            }
+            let frame = Self.barLayerFrame(bar.frame, scale: scale)
+            let space = PlazaPanelSpace(content: frame.size, room: 0)
+            let line = bar.frame.offsetBy(dx: -frame.minX, dy: -frame.minY)
+            guard let image = space.image(scale: scale, graphics: graphics, { canvas in
+                GrowthBarPart.draw(value: bar.value, line: line, look: look, readout: readout, canvas: canvas, space: space)
+            }) else { return nil }
+            return .image(image, frame: frame)
+        }
+    }
+    // --- stage 7 Task 9 (end) ---
 
     // MARK: fonts (the Mac's text styles, in points)
 
@@ -231,6 +278,7 @@ import Foundation
         var layers: [PlazaPanelLayer] = []
         if let art = Self.drawBackdrop(lay.box, effects: effects, scale: scale, graphics: graphics) { layers.append(art) }
         if let image = column?.image { layers.append(.image(image, frame: CGRect(origin: .zero, size: lay.size))) }
+        layers += barLayers(lay, scale: scale, graphics: graphics)
         let overlays = Self.drawOverlays(lay.box, effects: effects, scale: scale, graphics: graphics, bounds: lay.size)
         let drawing = PlazaPanelDrawing(layers: layers, accessibility: lay.items, tooltips: lay.tooltips)
         return PopoverDrawing(drawing: drawing, spriteSlots: [spriteSlot], overlays: overlays)
@@ -257,7 +305,6 @@ import Foundation
                 }
             }
             for b in lay.badges { drawBadge(b, canvas: canvas, space: space) }
-            for bar in lay.bars { GrowthBarPart.draw(value: bar.value, line: bar.frame, canvas: canvas, space: space) }
         }
     }
 

@@ -320,7 +320,7 @@ jobs:
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'companion.capture', 'companion.celebrate', 'companion.consumedOnce', 'companion.liveUpdate', 'companion.colourEgg', 'companion.openClose3'
+          $names = 'companion.capture', 'companion.celebrate', 'companion.consumedOnce', 'companion.liveUpdate', 'companion.colourEgg', 'companion.evoLineScroll', 'companion.barHover', 'companion.openClose3'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -1029,14 +1029,16 @@ jobs:
           # --- stage 7 Task 13: the recap page open and left alone (end) ---
           # --- stage 7 Task 9: Home with the companion header open (begin) ---
           # Sample data in a kit window (CI only), nothing relative on the page: 'still' = Windows' own animation setting (off on
-          # the runner: the first picture, no timer; the closed app's budget), 'bob' = the egg with animation on (the 0.9 s bob),
+          # the runner: the first picture, no timer; the closed app's budget), 'bob' = the egg with animation on (the bob, one wake
+          # per pixel step of the Mac's eased swing), 'wiggle' = the imminent egg (the bob and the wiggle's eased steps),
           # 'animated' = Bulbasaur's GIF with animation on (loose, as Task 8's sprite window: first numbers in the Task 9 report).
           $companionBudgets = @{
               still = $budget
               bob = @{ MaxMainCsPerMin = 400; MaxProcessCsPerMin = 800; MaxProcessCyclesPerSec = 8000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+              wiggle = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
               animated = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
           }
-          foreach ($mode in 'still', 'bob', 'animated') {
+          foreach ($mode in 'still', 'bob', 'wiggle', 'animated') {
               $label = "popover-companion-$mode-120s"
               Measure-App $label 120 $off $companionBudgets[$mode] @('--popover-companion-idle-probe', $mode)
               $summary.windows[$label].companionLog = @(Select-String -Path $logFile -Pattern 'popover companion idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })

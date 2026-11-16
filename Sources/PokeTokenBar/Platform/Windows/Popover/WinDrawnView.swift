@@ -75,7 +75,32 @@ import WinSDK
         }
         window.on(0x0215 /* WM_CAPTURECHANGED */) { [weak self] _, _ in self?.pressed = nil; return nil }
         window.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
+        // --- stage 7 Task 9: hover, for a host that asks (begin) ---
+        window.on(0x0200 /* WM_MOUSEMOVE */) { [weak self] _, lParam in
+            guard let self, let onHover = self.onHover else { return nil }
+            if !self.tracksLeave {
+                var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: self.hwnd,
+                                          dwHoverTime: 0)
+                self.tracksLeave = TrackMouseEvent(&tme)
+            }
+            onHover(self.dip(WinKit.point(lParam)))
+            return nil
+        }
+        window.on(0x02A3 /* WM_MOUSELEAVE */) { [weak self] _, _ in
+            guard let self else { return nil }
+            self.tracksLeave = false
+            self.onHover?(nil)
+            return nil
+        }
+        // --- stage 7 Task 9 (end) ---
     }
+
+    // --- stage 7 Task 9 (begin) ---
+    /// The pointer over the view (DIP, part coordinates) on every move, nil when it leaves (`TrackMouseEvent`). Only a host
+    /// that sets it pays for it.
+    var onHover: ((CGPoint?) -> Void)?
+    private var tracksLeave = false
+    // --- stage 7 Task 9 (end) ---
 
     /// The picture's size in DIP (a part's `size(width:scale:text:)`). A new size tells the page (`onSizeChange`), which
     /// lays itself out again, so the rows under a part that grew or shrank move with it.
@@ -166,6 +191,7 @@ import WinSDK
         hosted = nil
         onHit = nil
         hitTest = nil
+        onHover = nil  // stage 7 Task 9
         paintOverlay = nil
         control.destroy()
     }

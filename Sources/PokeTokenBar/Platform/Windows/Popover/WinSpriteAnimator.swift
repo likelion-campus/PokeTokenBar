@@ -4,13 +4,14 @@ import WinSDK
 
 /// Sprites in a drawn part (stage 7 D16): the slots a part leaves are filled with the companion's pictures. One
 /// `PopoverSpritePlayback` per view (the shared state machine, tests on both systems) does the loading through the sprite
-/// fetcher (off the main thread), the frame times and the clock; this class paints. Frames are scaled nearest, once, to
+/// fetcher (off the main thread), the frame times and the clock; this class paints. Frames are scaled smoothly (as the Mac shows them: `PopoverSpriteScale`), once, to
 /// the size they take in the slot at the view's DPI (the work is memoised per frame for the current subject); a tick
 /// invalidates only the changed slot's rectangle and `WM_PAINT` blends the scaled frame over the picture (`paintOverlay`).
-/// A still sprite may bob (two offsets, 3 DIP); a missing picture is the 🥚 glyph in Segoe UI Emoji.
+/// A still sprite may bob (3 DIP, one step per device pixel of the Mac's eased swing); a missing picture is the 🥚 glyph in
+/// Segoe UI Emoji.
 ///
 /// Timers: none of its own. The shared clock holds one one-shot timer while the view is shown, animation is on and a slot
-/// has a GIF (next frame) or bobs (0.9 s); it is gone while the view is hidden (`WM_SHOWWINDOW`) or scrolled out (the
+/// has a GIF (next frame) or bobs (the next pixel step); it is gone while the view is hidden (`WM_SHOWWINDOW`) or scrolled out (the
 /// next tick finds it out), when animation is off (Windows' "show animations" setting), while the display sleeps and
 /// after `destroy()`. Frames and the decode cache are freed on `destroy()`.
 @MainActor final class WinSpriteAnimator {
@@ -56,6 +57,7 @@ import WinSDK
         guard !isDestroyed else { return }
         if view !== host { attach(host) }
         playback.animationsEnabled = animationsEnabled()
+        playback.bobSteps = max(1, Int((PopoverSpriteModel.bobTravel * host.ctx.scale).rounded()))  // stage 7 Task 9
         playback.update(slots: slots)
         let live = Set(slots.indices)
         scaled = scaled.filter { live.contains($0.key) }
@@ -104,7 +106,7 @@ import WinSDK
         for (i, slot) in view.spriteSlots.enumerated() where i < playback.models.count {
             guard slot.subject != nil else { continue }
             let model = playback.models[i]
-            let bob = model.bobUp ? -3 * scale : 0
+            let bob = model.bobOffset * scale  // stage 7 Task 9: the bob's step, in device pixels
             if let image = model.current {
                 // stage 7 Task 9: an animated slot showing a still (no GIF, or animation off) shows it cropped to its content,
                 // as the Mac's `SpriteLoader.animationPlaceholder` (the still's 96 px canvas is padded; GIFs are tight)
@@ -130,7 +132,7 @@ import WinSDK
         let id = ObjectIdentifier(image)
         var bytes: [UInt8]
         if let kept = set.frames[id] { bytes = kept } else {
-            bytes = Self.scaleNearest(image.pixels, width: w, height: h)
+            bytes = PopoverSpriteScale.scaledBGRA(image.pixels, width: w, height: h)  // stage 7 Task 9: smooth, as the Mac shows its sprites
             set.frames[id] = bytes
             stats.scales += 1
         }
@@ -140,7 +142,7 @@ import WinSDK
             let key = "\(id.hashValue)|\(slot.saturation)|\(slot.rotation)"
             if let kept = set.styled[key] { bytes = kept.bytes; dw = kept.width; dh = kept.height } else {
                 if slot.saturation < 0.999 { bytes = Self.desaturate(bytes, slot.saturation) }
-                if abs(slot.rotation) > 0.001 { (bytes, dw, dh) = Self.rotateNearest(bytes, width: w, height: h, degrees: slot.rotation) }
+                if abs(slot.rotation) > 0.001 { (bytes, dw, dh) = PopoverSpriteScale.rotateBilinear(bytes, width: w, height: h, degrees: slot.rotation) }
                 set.styled[key] = (bytes: bytes, width: dw, height: dh)
                 stats.styled += 1
             }
@@ -179,25 +181,6 @@ import WinSDK
             i += 4
         }
         return out
-    }
-
-    /// SwiftUI's `.rotationEffect` (clockwise degrees, about the centre), nearest neighbour into the turned picture's
-    /// bounding box (the sprites stay pixel-crisp).
-    nonisolated static func rotateNearest(_ bytes: [UInt8], width w: Int, height h: Int, degrees: Double) -> ([UInt8], Int, Int) {
-        let a = degrees * .pi / 180, c = cos(a), s = sin(a)
-        let ow = Int((abs(Double(w) * c) + abs(Double(h) * s)).rounded(.up)), oh = Int((abs(Double(w) * s) + abs(Double(h) * c)).rounded(.up))
-        var out = [UInt8](repeating: 0, count: ow * oh * 4)
-        let cx = Double(w) / 2, cy = Double(h) / 2, ocx = Double(ow) / 2, ocy = Double(oh) / 2
-        for y in 0..<oh {
-            for x in 0..<ow {
-                let px = Double(x) + 0.5 - ocx, py = Double(y) + 0.5 - ocy
-                let sx = Int((c * px + s * py + cx).rounded(.down)), sy = Int((-s * px + c * py + cy).rounded(.down))
-                guard sx >= 0, sy >= 0, sx < w, sy < h else { continue }
-                let si = (sy * w + sx) * 4, oi = (y * ow + x) * 4
-                out[oi] = bytes[si]; out[oi + 1] = bytes[si + 1]; out[oi + 2] = bytes[si + 2]; out[oi + 3] = bytes[si + 3]
-            }
-        }
-        return (out, ow, oh)
     }
 
     /// The 🥚 the Mac shows where no picture loaded (`Text("🥚")` at 62 % of the box, Apple Color Emoji): Segoe UI Emoji
@@ -242,26 +225,6 @@ import WinSDK
         _ = WinStr.w("🥚").withUnsafeBufferPointer { DrawTextW(dc, $0.baseAddress, -1, &r, UINT(0x0001 | 0x0004 | 0x0020 | 0x0800)) }  // CENTER | VCENTER | SINGLELINE | NOPREFIX
         _ = SelectObject(dc, old)
         stats.glyphs += 1
-    }
-
-    /// Nearest-neighbour scaling to a premultiplied BGRA picture (sprites stay crisp, as the Mac's `.interpolation(.none)`).
-    nonisolated static func scaleNearest(_ bitmap: PlazaBitmap, width: Int, height: Int) -> [UInt8] {
-        var out = [UInt8](repeating: 0, count: width * height * 4)
-        let sw = bitmap.width, sh = bitmap.height
-        guard sw > 0, sh > 0 else { return out }
-        let opaque = bitmap.alpha == .noneSkipLast
-        bitmap.bytes.withUnsafeBufferPointer { src in
-            for y in 0..<height {
-                let sy = min(sh - 1, y * sh / height)
-                for x in 0..<width {
-                    let s = (sy * sw + min(sw - 1, x * sw / width)) * 4
-                    let o = (y * width + x) * 4
-                    out[o] = src[s + 2]; out[o + 1] = src[s + 1]; out[o + 2] = src[s]
-                    out[o + 3] = opaque ? 255 : src[s + 3]
-                }
-            }
-        }
-        return out
     }
 
     private func ensureScratch(_ w: Int, _ h: Int) -> Bool {

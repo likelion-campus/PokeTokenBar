@@ -43,6 +43,54 @@ enum PopoverMotion {
     }
 }
 
+/// A value the Mac animates with `.easeInOut(duration:).repeatForever(autoreverses: true)` from 0 to 1 and back (the bob,
+/// the egg's wiggle), drawn in `steps` whole steps: the level at a moment and when it changes next — once per step, as the
+/// Mac's eased value crosses the step's middle — so a timer wakes only when the picture moves.
+struct PopoverEasedSwing: Equatable, Sendable {
+    let duration: TimeInterval
+    let steps: Int
+    /// Seconds into a round trip (2 × `duration`) at which the level goes up (first half) or down (second half), ascending.
+    let changes: [TimeInterval]
+    /// How far before a moment a tick still counts as at it (rounding of `Date` sums).
+    static let slack: TimeInterval = 1e-6
+
+    init(duration: TimeInterval, steps: Int) {
+        self.duration = duration
+        let n = max(1, steps)
+        self.steps = n
+        let up = (0..<n).map { k in duration * Self.inverseEaseInOut((Double(k) + 0.5) / Double(n)) }
+        let down = (0..<n).map { k in duration * (2 - Self.inverseEaseInOut((Double(n - k) - 0.5) / Double(n))) }
+        changes = up + down
+    }
+
+    /// The level (0…`steps`) `elapsed` seconds after the swing started at 0.
+    func level(at elapsed: TimeInterval) -> Int {
+        let e = max(0, elapsed) + Self.slack, round = 2 * duration
+        let w = e - (e / round).rounded(.down) * round
+        let passed = changes.filter { $0 <= w }.count
+        return passed <= steps ? passed : 2 * steps - passed
+    }
+
+    /// The next moment (seconds since the start, later than `elapsed`) the level changes.
+    func nextChange(after elapsed: TimeInterval) -> TimeInterval {
+        let e = max(0, elapsed) + Self.slack, round = 2 * duration
+        let cycle = (e / round).rounded(.down)
+        let w = e - cycle * round
+        if let c = changes.first(where: { $0 > w }) { return cycle * round + c }
+        return (cycle + 1) * round + changes[0]
+    }
+
+    /// The progress at which `PopoverMotion.easeInOut` reaches `y`.
+    static func inverseEaseInOut(_ y: Double) -> Double {
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<50 {
+            let m = (lo + hi) / 2
+            if PopoverMotion.easeInOut(m) < y { lo = m } else { hi = m }
+        }
+        return (lo + hi) / 2
+    }
+}
+
 /// How the sprite box looks at one moment of a celebration (the Mac's `@State` of `CompanionHeader`, sampled).
 struct CompanionArtEffects: Equatable, Sendable {
     /// An emoji burst (✨, 🎭, the mint's three ✨): its transition's scale and opacity.
@@ -90,9 +138,14 @@ extension CompanionStore: CompanionFeedbackConsuming {}
 /// every 1/60 s while something moves, the next step of a timed event, the wiggle's next pose, or nil when nothing does.
 @MainActor final class CompanionCelebrationDriver {
     static let frameInterval: TimeInterval = 1.0 / 60
-    /// The wiggle's half period (the Mac's `.easeInOut(duration: 0.35).repeatForever(autoreverses: true)`), drawn as two poses.
+    /// The wiggle's half period (the Mac's `.easeInOut(duration: 0.35).repeatForever(autoreverses: true)`, −5° → +5°).
     static let wigglePeriod: TimeInterval = 0.35
     static let wiggleDegrees = 5.0
+    /// The wiggle follows the Mac's eased swing in this many steps a swing (−5°, 0°, +5°): smooth at the Mac's rate (60 Hz)
+    /// would wake the main thread 3600 times a minute, about 1540 at one step per device pixel of the box's corner (100 %) —
+    /// over the popover's animating budget (an animated sprite, about 640 a minute); two steps are 343 a minute.
+    static let wiggleSteps = 2
+    private static let wiggleSwing = PopoverEasedSwing(duration: wigglePeriod, steps: wiggleSteps)
 
     private static let flashDuration = 0.8
     private static let pop = PopoverMotion.Spring(response: 0.5, dampingFraction: 0.55)
@@ -194,8 +247,8 @@ extension CompanionStore: CompanionFeedbackConsuming {}
             e.mint = Self.burst(now.timeIntervalSince(m), delay: 0, spring: Self.mintSpring, hold: Self.mintHold, fade: Self.mintFade)
         }
         if let w = wiggleStart {
-            let step = Int((now.timeIntervalSince(w) + Self.timeSlack) / Self.wigglePeriod)
-            e.rotation = step % 2 == 0 ? -Self.wiggleDegrees : Self.wiggleDegrees
+            let level = Double(Self.wiggleSwing.level(at: now.timeIntervalSince(w)))
+            e.rotation = -Self.wiggleDegrees + 2 * Self.wiggleDegrees * level / Double(Self.wiggleSteps)
         }
         return e
     }
@@ -246,8 +299,7 @@ extension CompanionStore: CompanionFeedbackConsuming {}
             if let d = Self.due(Self.mintSpans, start: m, now: now) { times.append(d) } else { mint = nil }
         }
         if let w = wiggleStart {
-            let step = floor((now.timeIntervalSince(w) + Self.timeSlack) / Self.wigglePeriod) + 1
-            times.append(w.addingTimeInterval(step * Self.wigglePeriod))
+            times.append(w.addingTimeInterval(Self.wiggleSwing.nextChange(after: now.timeIntervalSince(w))))
         }
         return times.min()
     }

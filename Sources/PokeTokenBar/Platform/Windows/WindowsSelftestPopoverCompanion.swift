@@ -119,6 +119,8 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
         await consumedOnceCheck(r)
         await liveUpdateCheck(r)
         await colourEggCheck(r)
+        await evoLineScrollCheck(r)
+        await barHoverCheck(r)
         await openCloseCheck(r, start: start)
         WinCompanionSection.spriteFetcherOverride = fixtureFetcher()
     }
@@ -195,6 +197,8 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
         /// The Mac's nine-node corpus instead of the store's line (synthetic: a Home line hides its branches behind one "?").
         var longLine = false
         var scrollForward = false
+        /// The growth bar as a hover leaves it: grown, the readout shown.
+        var barOpen = false
     }
 
     static let eeveeLine = [EvoLineItem(.species(133), .current)] + [134, 135, 136, 196, 197, 470, 471, 700].map { EvoLineItem(.species($0), .future) }
@@ -221,6 +225,7 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
                 Variant(name: "shiny-hatch-burst-\(s)", language: lang, sample: .shiny, effect: (.hatch(shiny: true), nil, 1.0)),
                 Variant(name: "eevee-long-line-\(s)", language: lang, sample: .eevee, longLine: true),
                 Variant(name: "eevee-long-line-scrolled-\(s)", language: lang, sample: .eevee, longLine: true, scrollForward: true),
+                Variant(name: "mid-level-bar-hover-\(s)", language: lang, sample: .midLevel, barOpen: true),
             ]
         }
         out += [
@@ -314,6 +319,10 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
                 header.view.show(header.part.renderEffectFrame(scale: w.ctx.scale, graphics: PlatformPlaza.graphics))
             }
             if v.scrollForward, let line = section.line { line.part.press(PlazaPanelHit(action: EvoLinePart.forwardAction, index: nil)) }
+            if v.barOpen {
+                header.part.setBarLook(.open)
+                header.view.show(header.part.renderBarFrame(scale: w.ctx.scale, graphics: PlatformPlaza.graphics))
+            }
             _ = RedrawWindow(w.hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100))
             await wait(0.3)
             let tree = KitTree.collect(w)
@@ -511,6 +520,128 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
               "no sprite file (offline): 🥚 drawn \(glyphs) times; in the 76 pt box \(inked) inked pixels, \(coloured) coloured (GDI's one-colour glyph has 0)")
     }
 
+    // MARK: companion.evoLineScroll: the wheel and a touchpad move the line; a chevron press moves it over 0.25 s
+
+    private static func wheelParam(_ delta: Int, keys: Int = 0) -> Int { Int(UInt32(UInt16(bitPattern: Int16(delta))) << 16) | keys }
+
+    private static func evoLineScrollCheck(_ r: WindowsSelftest.Recorder) async {
+        await loadSampleNames()
+        let base = await HomeStores.make(language: .en)
+        let store = await CompanionHeaderSamples.store(.eevee, language: .en, defaults: sharedDefaults, directory: base.directory.appendingPathComponent("sample"))
+        let stores = HomeStores(store: base.store, companion: store, team: base.team, state: base.state, directory: base.directory)
+        var input = CompanionHeaderInput(store: store, names: sampleNames)
+        input.lineNodes = eeveeLine
+        guard let h = CompanionHarness(stores: stores, companion: input, animations: true, names: sampleNames),
+              let section = h.section, let line = section.line else {
+            r.add("companion.evoLineScroll", false, "no window or no line")
+            base.remove()
+            return
+        }
+        defer { h.destroy() }
+        h.window.fitToContent()
+        h.window.show(activate: false)
+        await wait(0.3)
+        let hwnd = line.view.hwnd
+        var chars: UINT = 3
+        _ = SystemParametersInfoW(0x006C /* SPI_GETWHEELSCROLLCHARS */, 0, &chars, 0)
+        let s = h.window.ctx.scale
+        let notch = (CGFloat(chars) * 10 * s).rounded(.towardZero) / s   // DIP a notch, in whole device pixels
+        func x() -> CGFloat { line.part.layout.scrollX }
+        _ = WinKit.send(hwnd, 0x020A, wheelParam(-120))                  // a plain wheel: the page's, not the line's
+        let plain = x()
+        _ = WinKit.send(hwnd, 0x020E, wheelParam(120))                   // a touchpad's swipe / tilt to the right
+        let right = x()
+        _ = WinKit.send(hwnd, 0x020A, wheelParam(120, keys: 0x0004))     // Shift + wheel away from the user: back
+        let back = x()
+        for _ in 0..<8 { _ = WinKit.send(hwnd, 0x020E, wheelParam(15)) } // a precision touchpad's small steps add up
+        let fine = x()
+        for _ in 0..<40 { _ = WinKit.send(hwnd, 0x020E, wheelParam(120)) }
+        let end = x(), maxX = line.part.layout.maxScrollX
+        await wait(0.1)
+        let wheelOK = plain == 0 && abs(right - notch) < 0.01 && back == 0 && abs(fine - notch) < 0.01 && end == maxX && !section.lineClock.isArmed
+        // a chevron press back from the end: eased over 0.25 s at up to 60 frames a second, then the clock stops
+        let frames0 = section.stats.lineFrames, fires0 = section.lineClock.fireCount
+        let target = line.part.layout.scrolled(forward: false)
+        let pressed = Date()
+        line.view.onHit?(PlazaPanelHit(action: EvoLinePart.backAction, index: nil))
+        let movedAtOnce = x() != end
+        var lastArmed = pressed
+        for _ in 0..<100 {
+            await wait(0.01)
+            if section.lineClock.isArmed { lastArmed = Date() } else if Date().timeIntervalSince(pressed) > 0.5 { break }
+        }
+        let frames = section.stats.lineFrames - frames0, fires = section.lineClock.fireCount - fires0
+        let span = lastArmed.timeIntervalSince(pressed)
+        let pressOK = !movedAtOnce && x() == target && frames >= 8 && frames <= 20 && span <= 0.4 && !section.lineClock.isArmed
+        r.add("companion.evoLineScroll", wheelOK && pressOK,
+              "nine-node line, \(chars) chars a notch (\(notch) DIP): plain wheel moved it to \(plain) (expected 0, the page's); WM_MOUSEHWHEEL +120 → \(right) "
+              + "(expected \(notch)); Shift + wheel +120 → \(back) (expected 0); 8 × +15 → \(fine) (expected \(notch)); 40 notches → \(end) (end \(maxX)); "
+              + "chevron back from the end: moved at once=\(movedAtOnce) (expected false), \(frames) frames on \(fires) clock fires over "
+              + "\(String(format: "%.2f", span)) s (the Mac's 0.25 s ease: 15 frames), landed at \(x()) (target \(target)), clock armed after=\(section.lineClock.isArmed)")
+    }
+
+    // MARK: companion.barHover: 300 ms over the growth bar grows it with the readout; leaving shrinks it
+
+    private static func barHoverCheck(_ r: WindowsSelftest.Recorder) async {
+        await loadSampleNames()
+        var lines: [String] = []
+        var allOK = true
+        for animations in [true, false] {
+            let base = await HomeStores.make(language: .en)
+            let store = await CompanionHeaderSamples.store(.midLevel, language: .en, defaults: sharedDefaults, directory: base.directory.appendingPathComponent("sample"))
+            let stores = HomeStores(store: base.store, companion: store, team: base.team, state: base.state, directory: base.directory)
+            guard let h = CompanionHarness(stores: stores, animations: animations, names: sampleNames), let section = h.section,
+                  let header = section.header, let bar = header.part.barFrame else {
+                lines.append("animations \(animations): no window, header or bar")
+                allOK = false
+                base.remove()
+                continue
+            }
+            h.window.fitToContent()
+            h.window.show(activate: false)
+            // CI only: the real cursor parked off the window, so no real move or leave lands in the timeline below
+            if WindowsSelftest.onCI {
+                var wr = RECT()
+                _ = GetWindowRect(h.window.hwnd, &wr)
+                _ = SetCursorPos(wr.right + 40, wr.bottom + 40)
+            }
+            await wait(0.3)
+            // the view's own path: a pointer move over the bar reaches the section (WM_MOUSEMOVE → onHover)
+            let hovers0 = section.stats.barHovers
+            let s = h.window.ctx.scale
+            let lParam = Int(UInt32(UInt16(truncatingIfNeeded: Int((bar.midX * s).rounded())))) | Int(UInt32(UInt16(truncatingIfNeeded: Int((bar.midY * s).rounded()))) << 16)
+            _ = WinKit.send(header.view.hwnd, 0x0200, 0, lParam)
+            let delivered = section.stats.barHovers > hovers0
+            // the timeline (driven directly: a synthetic move's leave tracking depends on where the real cursor is)
+            section.hovered(nil)
+            await wait(0.3)
+            let frames0 = section.stats.barFrames
+            let came = Date()
+            section.hovered(CGPoint(x: bar.midX, y: bar.midY))
+            await wait(0.2)
+            let early = header.part.barLook
+            await wait(0.8)
+            let open = header.part.barLook
+            let grown = section.stats.barFrames - frames0
+            let quietOpen = !section.barClock.isArmed
+            section.hovered(CGPoint(x: bar.midX, y: bar.maxY + 20))   // off the bar, still on the header
+            await wait(0.4)
+            let closed = header.part.barLook
+            let quietClosed = !section.barClock.isArmed
+            let total = section.stats.barFrames - frames0
+            let framesOK = animations ? (grown >= 20 && grown <= 40) : grown == 1
+            let ok = delivered && early == .rest && open == .open && closed == .rest && framesOK && quietOpen && quietClosed
+            allOK = allOK && ok
+            lines.append("animations \(animations): WM_MOUSEMOVE delivered=\(delivered); 0.2 s after coming \(early == .rest ? "still thin" : "\(early)") "
+                         + "(the Mac's 300 ms wait); 1 s after: \(open == .open ? "grown with the readout" : "\(open)"), \(grown) frames "
+                         + "(\(animations ? "the spring settles in 0.48 s: about 29" : "a jump: 1"), clock armed after=\(!quietOpen); 0.4 s after leaving: "
+                         + "\(closed == .rest ? "thin again" : "\(closed)"), \(total - grown) frames, clock armed after=\(!quietClosed); "
+                         + "since \(String(format: "%.2f", Date().timeIntervalSince(came))) s")
+            h.destroy()
+        }
+        r.add("companion.barHover", allOK, lines.joined(separator: " | "))
+    }
+
     // MARK: companion.openClose3: nothing left behind
 
     private static func openCloseCheck(_ r: WindowsSelftest.Recorder, start: KitResources) async {
@@ -540,13 +671,14 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
               + "a clock armed after a close=\(armedAfter) (budget over the warm-up: GDI +5, USER +5, handles +10)")
     }
 
-    // MARK: --popover-companion-idle-probe still|bob|animated (the idle gate)
+    // MARK: --popover-companion-idle-probe still|bob|wiggle|animated (the idle gate)
 
     static var idleProbe: CompanionHarness?
 
     /// Home with the companion header open and left alone (CI only): `still` = Windows' own animation setting (off on the
-    /// runner: the first picture, no timer), `bob` = the egg with animation on (the 0.9 s bob), `animated` = Bulbasaur's GIF
-    /// with animation on. Nothing relative on the page.
+    /// runner: the first picture, no timer), `bob` = the egg with animation on (the bob: one wake per pixel step), `wiggle` =
+    /// the imminent egg with animation on (the bob and the wiggle), `animated` = Bulbasaur's GIF with animation on. Nothing
+    /// relative on the page.
     static func startIdleProbe(mode: String) {
         guard WindowsSelftest.onCI else {
             AppLog.write("popover companion idle probe: CI not set; nothing opened")
@@ -556,7 +688,8 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
         Task { @MainActor in
             await wait(3)
             let stores = await HomeStores.make(language: .en)
-            let input = mode == "bob" ? egg(.en, banked: 0.4) : mon(.en, id: 1, path: [1, 2, 3], stage: 0, name: "Bulbasaur", progress: 0.5)
+            let input = mode == "bob" ? egg(.en, banked: 0.4)
+                : mode == "wiggle" ? egg(.en, banked: 0.95) : mon(.en, id: 1, path: [1, 2, 3], stage: 0, name: "Bulbasaur", progress: 0.5)
             let animations = mode == "still" ? WinSpriteAnimator.systemAnimationsEnabled() : true
             guard let h = CompanionHarness(stores: stores, companion: input, animations: animations, home: { lang, now in
                 var i = HomeFixtures.claudeLimits(lang, now: now)

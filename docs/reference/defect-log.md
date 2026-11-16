@@ -2774,4 +2774,15 @@ read_when:
   테스트의 `sample` 헬퍼는 반복 상한과 "마감은 now 뒤" 단언으로 멈추는 대신 실패한다. 결함 주입(`timeSlack` 제거)으로 실패 확인.
   **규칙:** 한 번짜리 시계의 "다음 마감" 함수는 (1) 반환값이 항상 인자 `now` 보다 뒤임을 테스트로 고정하고, (2) 구간·경계 비교에 반올림 여유를 둔다. 시각 몇 개를 찍어 보는 테스트가 아니라
   마감을 따라 걷는 테스트가 시계의 실제 경로다.
+- **맥이 `.interpolation(.none)` 을 요청하니 스프라이트가 또렷할 거라 읽고 윈도 팝오버를 최근접(nearest)으로 늘렸다 — 맥 화면은 실제로 부드럽다.** 윈도 팝오버의
+  동반자 헤더(stage 7 Task 9). 사용자가 맥·윈도 나란히 시트에서 "맥은 부드럽고 윈도는 각졌다"고 지적했다. `SpriteView.fitted` 는 `Image(nsImage:).resizable().interpolation(.none)`
+  인데, 맥의 실제 레티나 스크린샷(`assets/screenshot-collection-pokedex.png`, sRGB 변환)에서 스프라이트 픽셀의 43 % 만 원본 색이었고(최근접이면 100 %, 쌍선형 45 %), 맥의
+  `SpriteView` 오프스크린 렌더는 쌍선형과 채널 평균 1.4, 최근접과 6.0 차이였다.
+  **왜 못 걸렀나:** 수식어(코드가 요청하는 것)를 읽고 결과 픽셀을 재지 않았다. 나란히 시트는 양쪽을 LANCZOS 로 다시 늘려 붙여서 차이를 흐렸고, 쌍둥이·핀은 코드 본문만 비교한다.
+  **고침:** 팝오버 스프라이트 경로(`WinSpriteAnimator`)를 `PopoverSpriteScale.scaledBGRA`(늘릴 때 쌍선형, 줄일 때 모든 원본 픽셀을 세는 텐트 필터)로, 회전도 쌍선형으로. 광장은 자기 픽셀아트 스케일 유지.
+  **부류 스윕:** 팝오버에서 최근접을 쓰는 곳 — `PopoverComposite.compose` 의 이미지 늘리기는 파트 그림이 이미 픽셀 크기라 스프라이트가 지나지 않는다(주석의 "crisp" 설명만 남음);
+  리캡 카드 등 다른 페이지의 `SpriteSlot` 은 같은 애니메이터라 함께 부드러워진다. 광장(Direct2D nearest)은 맥 SpriteKit `.nearest` 와 같아 대상 아님.
+  **영구 캡처:** `CompanionHeaderRendersMacTests.testTheMacShowsItsSpritesSmoothedAsTheWindowsScalerDoes` — 맥 `SpriteView` 를 오프스크린으로 그려 윈도 스케일러 결과와
+  최근접 결과에 대 본다(맥이 언젠가 또렷해지면 실패). 결함 주입(스케일러를 최근접으로)으로 실패 확인.
+  **규칙:** 맥 쪽 그림을 옮길 때는 수식어가 아니라 맥이 실제로 그린 픽셀(오프스크린 렌더·실제 스크린샷)을 기준으로 삼는다. 비교 시트는 양쪽을 같은 배율로, 다시 늘린다면 최근접으로 붙인다.
 <!-- stage 7 Task 9: the companion header (end) -->

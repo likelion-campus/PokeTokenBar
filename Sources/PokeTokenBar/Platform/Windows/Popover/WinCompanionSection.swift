@@ -22,11 +22,14 @@ import WinSDK
 /// more one-shot `PopoverAnimationClock`: armed for the effect's next frame (1/60 s while something moves, the next timed
 /// step otherwise) or the imminent egg's next wiggle pose (0.35 s); nil when nothing plays; not armed while the header is
 /// not on screen (another page, scrolled out: a later paint starts it again), while the displays sleep, when Windows'
-/// "show animations" is off, and gone on `destroy()`.
+/// "show animations" is off, and gone on `destroy()`. The evolution line has a third, armed only during a chevron's 0.25 s
+/// move (1/60 s: 15 fires a press, none at rest); the wheel and a touchpad move the line on input only. The growth bar's
+/// hover has a fourth: the 300 ms wait, then 1/60 s while the bar grows (0.48 s) or shrinks (0.18 s); none otherwise.
 @MainActor final class WinCompanionSection {
     struct Stats: Equatable {
         var observes = 0, applies = 0, headerUpdates = 0, lineUpdates = 0, effectFrames = 0, effectStarts = 0
         var detailLoads = 0, formLoads = 0, typeNameLoads = 0
+        var lineFrames = 0, lineWheels = 0, barFrames = 0, barHovers = 0
         /// The shortest time between two fires of the effect clock (what bounds the frame rate; a re-arm that replaces a due
         /// that never fired is not a frame).
         var minFireGap: TimeInterval = .infinity
@@ -54,6 +57,12 @@ import WinSDK
     private(set) var note: (view: WinDrawnView, part: CompanionNotePart, row: WinRow)?
     let driver = CompanionCelebrationDriver()
     let effectClock = PopoverAnimationClock()
+    /// The evolution line's chevron move.
+    let lineClock = PopoverAnimationClock()
+    private var lineWheel = PopoverWheel()
+    /// The growth bar's hover and its clock.
+    private(set) var barHover = GrowthBarHover()
+    let barClock = PopoverAnimationClock()
     private var raster: WinGlyphRaster?
     private(set) var last: CompanionHeaderModel?
     private(set) var stats = Stats()
@@ -71,6 +80,8 @@ import WinSDK
         self.page = page
         consumer = companion
         effectClock.onTick = { [weak self] in self?.clockFired() }
+        lineClock.onTick = { [weak self] in self?.tickLine() }
+        barClock.onTick = { [weak self] in self?.tickBar() }
     }
 
     private var lastFire: Date?
@@ -160,6 +171,7 @@ import WinSDK
                     sprites?(dc)
                     self?.headerPainted()
                 }
+                view.onHover = { [weak self] point in self?.hovered(point) }
             }
             var lineMade: (WinDrawnView, EvoLinePart)?
             let lineRow = section.addStyledRow(label: nil, style: .full) { [self] pane, ctx in
@@ -168,7 +180,29 @@ import WinSDK
                 let part = EvoLinePart(m.evoLine ?? Self.emptyLine, background: Self.plaza(ctx.colors.palette.window),
                                        accent: Self.plaza(ctx.colors.palette.accent), glyphs: raster)
                 view.host(part, width: width)
-                view.onHit = { [weak part] hit in _ = part?.press(hit) }
+                part.now = { [weak self] in self?.now() ?? Date() }
+                view.onHit = { [weak self, weak part] hit in
+                    guard let self, let part else { return }
+                    part.animatesMoves = self.animationsEnabled()
+                    if part.press(hit) { self.tickLine() }
+                }
+                // WM_MOUSEHWHEEL (a touchpad's sideways swipe, a tilted wheel) and Shift + WM_MOUSEWHEEL move the line; a plain
+                // wheel goes on to the page (nil: DefWindowProc hands it to the parent), as a vertical swipe over the Mac's
+                // horizontal ScrollView scrolls the page around it.
+                for message: UINT in [0x020E, 0x020A] {
+                    view.window.on(message) { [weak self, weak part] wParam, _ in
+                        let horizontal = message == 0x020E
+                        guard let self, let part, part.layout.scrolls,
+                              horizontal || WinKit.loWord(wParam) & 0x0004 /* MK_SHIFT */ != 0 else { return nil }
+                        var chars: UINT = 3
+                        _ = SystemParametersInfoW(0x006C /* SPI_GETWHEELSCROLLCHARS */, 0, &chars, 0)
+                        let px = EvoLinePart.wheelMove(&self.lineWheel, delta: WinKit.signedHiWord(wParam), horizontal: horizontal,
+                                                       chars: chars, scale: ctx.scale, page: part.layout.visibleWidth)
+                        self.stats.lineWheels += 1
+                        if px != 0, part.scroll(by: px / ctx.scale) { self.lineClock.setDue(nil) }
+                        return 0
+                    }
+                }
                 lineMade = (view, part)
                 return view.control
             }
@@ -268,12 +302,49 @@ import WinSDK
         effectClock.setDue(headerIsShown && animationsEnabled() ? next : nil)
     }
 
+    /// The pointer over the header (nil: it left): over the growth bar's line or not.
+    func hovered(_ point: CGPoint?) {
+        guard !isDestroyed, let header else { return }
+        let over = point.map { header.part.barFrame?.contains($0) == true } ?? false
+        guard over != barHover.isHovered else { return }
+        stats.barHovers += 1
+        barHover.animates = animationsEnabled()
+        barHover.setHovering(over, at: now())
+        tickBar()
+    }
+
+    /// Draws the growth bar's hover look now (only the bar's line is repainted) and arms the clock for its next change.
+    func tickBar() {
+        guard !isDestroyed, let header, let ctx = page?.ctx else { barClock.setDue(nil); return }
+        let t = now()
+        let look = barHover.look(at: t)
+        if look != header.part.barLook {
+            header.part.setBarLook(look)
+            header.view.show(header.part.renderBarFrame(scale: ctx.scale, graphics: PlatformPlaza.graphics))
+            stats.barFrames += 1
+        }
+        barClock.setDue(barHover.nextDue(after: t).map { max($0, t.addingTimeInterval(0.001)) })
+    }
+
+    /// Draws the line's chevron move now and arms the clock for its next frame; off screen it lands at once.
+    func tickLine() {
+        guard !isDestroyed, let line else { lineClock.setDue(nil); return }
+        let t = now()
+        if !WinSpriteAnimator.isShown(line.view.hwnd) { line.part.advance(to: .distantFuture) }
+        if line.part.advance(to: t) { stats.lineFrames += 1 }
+        lineClock.setDue(line.part.nextDue(after: t).map { max($0, t.addingTimeInterval(0.001)) })
+    }
+
     func destroy() {
         guard !isDestroyed else { return }
         isDestroyed = true
         epoch += 1
         effectClock.setDue(nil)
         effectClock.onTick = nil
+        lineClock.setDue(nil)
+        lineClock.onTick = nil
+        barClock.setDue(nil)
+        barClock.onTick = nil
         driver.stopAll()
         for t in tasks { t.cancel() }
         tasks = []

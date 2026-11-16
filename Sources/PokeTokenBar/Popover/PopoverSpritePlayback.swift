@@ -40,7 +40,8 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
 /// One sprite slot's state: the Mac `SpriteView`'s `.task(id:)` body as a state machine over `PlazaSpriteFetching`
 /// (shared by both systems, tested on both). A subject change cancels the load in flight and bumps `generation`; a load
 /// that finishes after that (or after `release()`) changes nothing (the Mac's `Task.isCancelled` guard, `PopoverSpriteSubject`
-/// carries the rules). Frame times: the GIF's own delays; the bob (a still sprite) toggles every 0.9 s.
+/// carries the rules). Frame times: the GIF's own delays; the bob (a still sprite) follows the Mac's eased 0.9 s swing up
+/// 3 DIP and back, one step per device pixel (`bobSteps`; stage 7 Task 9).
 @MainActor final class PopoverSpriteModel {
     static let bobPeriod: TimeInterval = 0.9
     /// Due times closer than this tick together (floating-point sums of delays differ by a few ulps).
@@ -58,7 +59,28 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
     private(set) var taskID: String?
     private(set) var key: PlazaSpriteSubjectKey?
     private(set) var animated = false
-    private(set) var bobUp = false
+    // --- stage 7 Task 9: the bob in device-pixel steps of the Mac's `.easeInOut(duration: 0.9).repeatForever` (begin) ---
+    /// The bob's travel in DIP (the Mac's `.offset(y: -3)`).
+    static let bobTravel: CGFloat = 3
+    /// The bob's height now, 0…`bobSteps` steps of `bobTravel` (0: at rest).
+    private(set) var bobLevel = 0
+    private var bobSwing = PopoverEasedSwing(duration: bobPeriod, steps: 3)
+    private var bobStart: Date?
+    /// The steps the bob is drawn in: the host's device pixels for `bobTravel` (3 at 100 %). A change restarts the bob.
+    var bobSteps: Int {
+        get { bobSwing.steps }
+        set {
+            guard max(1, newValue) != bobSwing.steps else { return }
+            bobSwing = PopoverEasedSwing(duration: Self.bobPeriod, steps: newValue)
+            bobDue = nil
+            bobLevel = 0
+            reschedule()
+        }
+    }
+    /// The bob's offset in DIP (negative: up).
+    var bobOffset: CGFloat { -Self.bobTravel * CGFloat(bobLevel) / CGFloat(bobSwing.steps) }
+    var bobUp: Bool { bobLevel > 0 }
+    // --- stage 7 Task 9 (end) ---
     private var bobs = false
     private var playing = false
     private var frameDue: Date?
@@ -190,13 +212,18 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
 
     /// Arms or clears the due times for the present state: a GIF's next frame, or a still sprite's bob.
     private func reschedule() {
-        guard playing, !released else { frameDue = nil; bobDue = nil; if !playing { bobUp = false }; return }
+        guard playing, !released else { frameDue = nil; bobDue = nil; if !playing { bobLevel = 0 }; return }
         if isAnimating { if frameDue == nil { frameDue = now().addingTimeInterval(frames[frameIndex % frames.count].delay) } } else { frameDue = nil }
         if bobs && !isAnimating && key != nil {
-            if bobDue == nil { bobDue = now().addingTimeInterval(Self.bobPeriod) }
+            if bobDue == nil {
+                let start = now()
+                bobStart = start
+                bobLevel = 0
+                bobDue = start.addingTimeInterval(bobSwing.nextChange(after: 0))
+            }
         } else {
             bobDue = nil
-            bobUp = false
+            bobLevel = 0
         }
     }
 
@@ -211,12 +238,13 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
             frameDue = next
             changed = true
         }
-        if let due = bobDue, time.addingTimeInterval(Self.slack) >= due {
-            bobUp.toggle()
-            var next = due.addingTimeInterval(Self.bobPeriod)
-            if next <= time { next = time.addingTimeInterval(Self.bobPeriod) }
-            bobDue = next
-            changed = true
+        if let due = bobDue, let start = bobStart, time.addingTimeInterval(Self.slack) >= due {
+            // A tick a hair early counts as at its due; a late one is read at its own time (no catch-up steps). The next due
+            // is always later than both, so the clock moves on.
+            let at = max(time, due).timeIntervalSince(start)
+            let level = bobSwing.level(at: at)
+            if level != bobLevel { bobLevel = level; changed = true }
+            bobDue = start.addingTimeInterval(bobSwing.nextChange(after: at))
         }
         return changed
     }
@@ -251,6 +279,16 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
     var isActive = false { didSet { if oldValue != isActive { applyActive() } } }
     /// A slot's picture changed: its index.
     var onInvalidate: ((Int) -> Void)?
+    // --- stage 7 Task 9 (begin) ---
+    /// The steps a bob is drawn in (`PopoverSpriteModel.bobSteps`): the host's device pixels for 3 DIP.
+    var bobSteps = 3 {
+        didSet {
+            guard oldValue != bobSteps else { return }
+            for model in models { model.bobSteps = bobSteps }
+            rearm()
+        }
+    }
+    // --- stage 7 Task 9 (end) ---
 
     init(fetcher: any PlazaSpriteFetching, clock: PopoverAnimationClock = PopoverAnimationClock(), now: @escaping () -> Date = { Date() }) {
         self.fetcher = fetcher
@@ -266,6 +304,7 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
         while models.count < new.count {
             let index = models.count
             let model = PopoverSpriteModel(fetcher: fetcher, memory: memory, now: now)
+            model.bobSteps = bobSteps  // stage 7 Task 9
             model.onChange = { [weak self] in self?.modelChanged(index) }
             models.append(model)
         }
