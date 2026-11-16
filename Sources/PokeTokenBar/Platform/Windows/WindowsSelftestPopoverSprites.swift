@@ -56,7 +56,7 @@ private struct GifFixtureFetcher: PlazaSpriteFetching {
         section.addRow(nil, style: .full) { [weak self] pane, ctx in
             guard let self, let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
             let part = SpriteFixturePart()
-            view.sprites = WinSpriteAnimator(fetcher: self.fetcher)
+            view.sprites = WinSpriteAnimator(fetcher: self.fetcher, animationsEnabled: { true })  // the runner's "show animations" setting is off
             view.host(part, width: 280)
             self.view = view
             self.part = part
@@ -166,7 +166,7 @@ extension WindowsSelftestPopover {
         let negAvg = (view.stats.paintPixels - npx0) / max(1, view.stats.paints - n0)
         let negFails = !(negAvg <= slotPx && negAvg * 3 < wholePx)
         r.add("companion.spriteFrames", framesOK && areaOK && diff.count > 0 && boxOK && glyphs > 0 && negFails && animator.stats.drawn > 0,
-              "GIF \(frameCount) frames, \(loop) s per loop, fixture; \(Int(seconds)) s at scale \(scale): clock ticks=\(ticks) (expected \(expected) +-\(max(2, expected / 10))), slot invalidations=\(inv), paints=\(paints); "
+              "Windows show-animations setting on this machine=\(WinSpriteAnimator.systemAnimationsEnabled()) (the fixture overrides it); GIF \(frameCount) frames, \(loop) s per loop, fixture; \(Int(seconds)) s at scale \(scale): clock ticks=\(ticks) (expected \(expected) +-\(max(2, expected / 10))), slot invalidations=\(inv), paints=\(paints); "
               + "paint area per paint=\(avgPaint) px (slot rect \(slotPx) px, whole picture \(wholePx) px); frames drawn=\(animator.stats.drawn), scaled once each=\(animator.stats.scales), egg glyph paints=\(glyphs); "
               + "capture A frame \(indexA) / B frame \(indexB): \(diff.count) px differ, in a box \(diff.w)x\(diff.h) px (slot \(Int((80 * scale).rounded())) px); "
               + "negative control (whole-window invalidation) average=\(negAvg) px -> area check fails=\(negFails)")

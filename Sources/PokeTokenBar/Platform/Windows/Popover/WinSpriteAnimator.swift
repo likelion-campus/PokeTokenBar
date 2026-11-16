@@ -25,6 +25,7 @@ import WinSDK
     private var scaled: [Int: ScaledSet] = [:]
     private var scratch = Scratch()
     private let displayAsleep: @MainActor () -> Bool
+    private let animationsEnabled: @MainActor () -> Bool
     private(set) var isDestroyed = false
 
     private struct ScaledSet {
@@ -39,16 +40,18 @@ import WinSDK
     }
 
     init(fetcher: any PlazaSpriteFetching = PlatformPlaza.spriteFetcher(), clock: PopoverAnimationClock = PopoverAnimationClock(),
-         displayAsleep: @escaping @MainActor () -> Bool = { Platform.current.events.displaysAreAsleep }) {
+         displayAsleep: @escaping @MainActor () -> Bool = { Platform.current.events.displaysAreAsleep },
+         animationsEnabled: @escaping @MainActor () -> Bool = { WinSpriteAnimator.systemAnimationsEnabled() }) {
         playback = PopoverSpritePlayback(fetcher: fetcher, clock: clock)
         self.displayAsleep = displayAsleep
+        self.animationsEnabled = animationsEnabled
     }
 
     /// Takes the view's slots after each `show` (`WinDrawnView.show` calls it).
     func update(slots: [SpriteSlot], in host: WinDrawnView) {
         guard !isDestroyed else { return }
         if view !== host { attach(host) }
-        playback.animationsEnabled = Self.systemAnimationsEnabled()
+        playback.animationsEnabled = animationsEnabled()
         playback.update(slots: slots)
         let live = Set(slots.indices)
         scaled = scaled.filter { live.contains($0.key) }
