@@ -73,21 +73,16 @@ extension WindowsSelftest {
                              gender: nil, isShiny: i == 2, presence: presence, isMe: me)
         }
         let fixtureRoster = [entry(0, me: true), entry(1), entry(2, presence: .idle)]
-        // The controller's own refresh (its 1 s tick) rewrites the roster from the session: the fixture is put back before each use.
+        // ONE writer of the roster: the controller's 1 s focus tick (`refreshRoster`) rewrites the roster from its own empty session
+        // whenever it differs from the fixture, so the tick is held (`plazaTickGate`) for the length of these checks and only this
+        // selftest writes the fixture. (A 40 ms "keeper" task used to fight the tick; a read between the two saw tool count 0.)
         func seedRoster() async {
             b.rosterModel.entries = fixtureRoster
             await pumpPanels(0.3)
         }
+        plazaTickGate.hold()
+        defer { plazaTickGate.release() }
         b.rosterModel.entries = fixtureRoster
-        // The controller's refresh writes the roster from its (empty) session whenever it differs; this selftest is the second writer for
-        // its length, so the fixture survives every check (the cover check below no longer depends on winning a race).
-        let keeper = Task { @MainActor in
-            while !Task.isCancelled {
-                if b.rosterModel.entries != fixtureRoster { b.rosterModel.entries = fixtureRoster }
-                try? await Task.sleep(for: .milliseconds(40))
-            }
-        }
-        defer { keeper.cancel() }
         for i in 0..<40 {
             b.chatLog.append(time: Date(timeIntervalSince1970: 1_800_000_000 + Double(i) * 60), name: i % 2 == 0 ? "Fixture 1" : "selftest",
                              text: "line \(i) 안녕하세요 hello world, a longer line that wraps around the log's width", color: PlazaColor(hex: 0x66CCFF))
@@ -205,24 +200,32 @@ extension WindowsSelftest {
         r.add("plaza.clicks", clicksOK, "real window messages at the item pixels: \(clickLines.joined(separator: "; ")); card action items \(cardItems)")
 
         // plaza.cover: with the card open (a full-window cover), the roster's own slot pixel takes no click and the card takes it.
-        await seedRoster()
-        let rosterButtons = buttons(panels, .roster)
-        model.content = .card(.loading(me))
-        await pumpPanels(0.35)
-        log.removeAll()
-        var coverOK = rosterButtons.filter({ $0.hit != nil }).count >= 2   // the fixture is still there
-        for item in rosterButtons {
-            clickPixel(hwnd, pixel(shell, item.centre))
-            coverOK = coverOK && !log.contains { $0.0 == .roster } && panels.host(at: item.centre) == .card
+        // `fault` leaves the card closed (a cover that does not cover): the check must then fail.
+        func coverOnce(fault: Bool = false) async -> (ok: Bool, line: String, pixels: Int, intact: Bool) {
+            await seedRoster()
+            let rosterButtons = buttons(panels, .roster)
+            model.content = fault ? PlazaOverlayContent.none : .card(.loading(me))
+            await pumpPanels(0.35)
+            log.removeAll()
+            let intact = b.rosterModel.entries == fixtureRoster   // still the fixture: nothing else wrote the roster
+            var coverOK = rosterButtons.filter({ $0.hit != nil }).count >= 2   // the fixture is still there
+            for item in rosterButtons {
+                clickPixel(hwnd, pixel(shell, item.centre))
+                coverOK = coverOK && !log.contains { $0.0 == .roster } && panels.host(at: item.centre) == .card
+            }
+            let toggleButtons = buttons(panels, .backgroundToggle)
+            log.removeAll()
+            if let t = toggleButtons.first { clickPixel(hwnd, pixel(shell, t.centre)) }
+            let aboveOK = log.contains { $0.0 == .backgroundToggle }
+            model.content = .none
+            await pumpPanels(0.3)
+            return (coverOK && aboveOK && intact,
+                    "card open: \(rosterButtons.count) roster pixels clicked, none reached the roster and the card hosts them: \(coverOK); "
+                    + "the toggle above the cover still acts: \(aboveOK); roster tips suspended: \(panels.tips.isEmpty); fixture intact: \(intact)",
+                    rosterButtons.count, intact)
         }
-        let toggleButtons = buttons(panels, .backgroundToggle)
-        log.removeAll()
-        if let t = toggleButtons.first { clickPixel(hwnd, pixel(shell, t.centre)) }
-        let aboveOK = log.contains { $0.0 == .backgroundToggle }
-        r.add("plaza.cover", coverOK && aboveOK, "card open: \(rosterButtons.count) roster pixels clicked, none reached the roster and the card hosts them: \(coverOK); "
-              + "the toggle above the cover still acts: \(aboveOK); roster tips suspended: \(panels.tips.isEmpty)")
-        model.content = .none
-        await pumpPanels(0.3)
+        let coverResult = await coverOnce()
+        r.add("plaza.cover", coverResult.ok, coverResult.line)
 
         // plaza.photo: photo mode hides the Mac's set: not drawn, no click.
         let beforeCount = panels.drawList.count
@@ -296,26 +299,34 @@ extension WindowsSelftest {
         r.add("plaza.wheel", wheelOK && boardOK, wheelLine + "; " + boardLine)
 
         // plaza.hover: the system tooltip of a roster slot after the mouse rests on it (TTM_GETTEXT; the popup is reported).
-        b.rosterModel.entries = fixtureRoster
-        await pumpPanels(0.12)
-        var hoverOK = false
-        var hoverLine = "no tooltip tool"
-        if let tooltips = shell.tooltipsForTesting, let tip = panels.tips.first, let index = panels.tips.firstIndex(of: tip) {
-            tooltips.setDelay(milliseconds: 80)
-            let centre = pixel(shell, CGPoint(x: tip.frame.midX, y: tip.frame.midY))
-            var screen = POINT(x: Int32(centre.x), y: Int32(centre.y))
-            _ = ClientToScreen(hwnd, &screen)
-            if onCI { _ = SetCursorPos(screen.x, screen.y) }
-            let l = packed(centre)
-            for _ in 0..<3 { _ = SendMessageW(hwnd, 0x0200, 0, l); await pumpPanels(0.05) }
-            // TTM_GETTEXT at once (the controller's 1 s refresh rewrites the roster fixture; the tool must be read before it)
-            let text = tooltips.text(of: index)
-            let count = tooltips.count, tipCount = panels.tips.count
-            hoverOK = text == tip.text && count == tipCount
-            _ = await waitUntil(timeout: 1.5) { tooltips.isShowing }
-            hoverLine = "tool \(index) of \(count): TTM_GETTEXT '\(text ?? "nil")' expected '\(tip.text)'; popup showing after the rest: \(tooltips.isShowing), current tool \(tooltips.currentIndex.map(String.init) ?? "none") (reported, not judged: it needs the real cursor); rebuilds \(tooltips.rebuilds); focus stayed on the plaza: \(GetFocus() == hwnd || !onCI)"
+        // `fault` empties the roster (no slot, no tool): the check must then fail.
+        func hoverOnce(fault: Bool = false, waitPopup: Bool = true) async -> (ok: Bool, line: String, tools: Int, intact: Bool) {
+            b.rosterModel.entries = fault ? [] : fixtureRoster
+            await pumpPanels(0.12)
+            var hoverOK = false
+            var hoverLine = "no tooltip tool"
+            var tools = 0
+            let intact = b.rosterModel.entries == (fault ? [] : fixtureRoster)
+            if let tooltips = shell.tooltipsForTesting, let tip = panels.tips.first, let index = panels.tips.firstIndex(of: tip) {
+                tooltips.setDelay(milliseconds: 80)
+                let centre = pixel(shell, CGPoint(x: tip.frame.midX, y: tip.frame.midY))
+                var screen = POINT(x: Int32(centre.x), y: Int32(centre.y))
+                _ = ClientToScreen(hwnd, &screen)
+                if onCI { _ = SetCursorPos(screen.x, screen.y) }
+                let l = packed(centre)
+                for _ in 0..<3 { _ = SendMessageW(hwnd, 0x0200, 0, l); await pumpPanels(0.05) }
+                let text = tooltips.text(of: index)
+                let count = tooltips.count, tipCount = panels.tips.count
+                tools = count
+                hoverOK = text == tip.text && count == tipCount && intact
+                if waitPopup { _ = await waitUntil(timeout: 1.5) { tooltips.isShowing } }
+                hoverLine = "tool \(index) of \(count): TTM_GETTEXT '\(text ?? "nil")' expected '\(tip.text)'; fixture intact: \(intact); popup showing after the rest: \(tooltips.isShowing), current tool \(tooltips.currentIndex.map(String.init) ?? "none") (reported, not judged: it needs the real cursor); rebuilds \(tooltips.rebuilds); focus stayed on the plaza: \(GetFocus() == hwnd || !onCI)"
+            }
+            return (hoverOK, hoverLine, tools, intact)
         }
-        r.add("plaza.hover", hoverOK, hoverLine)
+        let hoverResult = await hoverOnce()
+        r.add("plaza.hover", hoverResult.ok, hoverResult.line)
+
 
         // plaza.eyeGlyphs: which symbol font this machine has and what its candidate eye code points look like (one PNG each, to be read by eye).
         var surveyed = 0
@@ -359,13 +370,13 @@ extension WindowsSelftest {
         r.add("plaza.sizes", sizesOK, sizeLines.joined(separator: "; "))
 
         // plaza.dpiPanels: a DPI change re-renders every shown panel once, at the new scale; the tooltip tools follow.
-        var dpiLines: [String] = [], dpiOK = true
-        for dpi: UInt32 in [120, 144] {
+        // `fault` skips the DPI change itself but still expects its effects: the check must then fail.
+        func dpiOnce(_ dpi: UInt32, fault: Bool = false, capture: Bool = true) async -> (ok: Bool, line: String, toolsOK: Bool, renders: Int, intact: Bool) {
             let shownCount = panels.entries.count
             let r0 = hud.renderCount, per0 = hud.renderCounts
             let shownIDs = Array(panels.entries.keys)
             var rect = original
-            _ = withUnsafeMutablePointer(to: &rect) { SendMessageW(hwnd, 0x02E0, WPARAM(dpi | (dpi << 16)), LPARAM(Int(bitPattern: $0))) }
+            if !fault { _ = withUnsafeMutablePointer(to: &rect) { SendMessageW(hwnd, 0x02E0, WPARAM(dpi | (dpi << 16)), LPARAM(Int(bitPattern: $0))) } }
             await pumpPanels(0.5)
             let scale = CGFloat(dpi) / 96
             let rendered = hud.renderCount - r0
@@ -374,21 +385,40 @@ extension WindowsSelftest {
             let perPanel = shownIDs.map { (hud.renderCounts[$0] ?? 0) - (per0[$0] ?? 0) }
             let eachOK = perPanel.allSatisfy { $0 >= 1 && $0 <= 5 }
             let scales = panels.entries.values.allSatisfy { $0.scale == scale }
+            let intact = b.rosterModel.entries == fixtureRoster   // one writer: still the fixture
             // The rectangles themselves, in client pixels at the new scale, worked out here from the panels' tips (a stale or unscaled tool fails).
             let expectedRects: [[Int32]] = panels.tips.map { t in
                 [Int32(t.frame.minX * scale), Int32(t.frame.minY * scale), Int32((t.frame.maxX * scale).rounded(.up)), Int32((t.frame.maxY * scale).rounded(.up))]
             }
             let toolRects = shell.tooltipsForTesting?.tips.map(\.rect) ?? []
             let toolsOK = !expectedRects.isEmpty && toolRects == expectedRects && shell.tooltipsForTesting?.count == expectedRects.count
-            dpiOK = dpiOK && scales && eachOK && toolsOK && hud.scale == scale
-            dpiLines.append("\(dpi) dpi: renders \(rendered) for \(shownCount) shown panels (per panel \(perPanel)), all at scale \(scale): \(scales), tool rectangles follow (\(expectedRects.count) tools, first \(expectedRects.first ?? [])): \(toolsOK) \(shot("plaza-panels-\(dpi)dpi.png"))")
+            let ok = scales && eachOK && toolsOK && hud.scale == scale && intact
+            return (ok, "\(dpi) dpi: renders \(rendered) for \(shownCount) shown panels (per panel \(perPanel)), all at scale \(scale): \(scales), tool rectangles follow (\(expectedRects.count) tools, first \(expectedRects.first ?? [])): \(toolsOK), fixture intact: \(intact) \(capture ? shot("plaza-panels-\(dpi)dpi.png") : "")",
+                    toolsOK, rendered, intact)
         }
-        var back = original
-        _ = withUnsafeMutablePointer(to: &back) { SendMessageW(hwnd, 0x02E0, WPARAM(96 | (96 << 16)), LPARAM(Int(bitPattern: $0))) }
+        func dpiBack() async {
+            var back = original
+            _ = withUnsafeMutablePointer(to: &back) { SendMessageW(hwnd, 0x02E0, WPARAM(96 | (96 << 16)), LPARAM(Int(bitPattern: $0))) }
+            await pumpPanels(0.3)
+            _ = SetWindowPos(hwnd, nil, original.left, original.top, original.right - original.left, original.bottom - original.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
+            await pumpPanels(0.4)
+        }
+        b.rosterModel.entries = fixtureRoster
         await pumpPanels(0.3)
-        _ = SetWindowPos(hwnd, nil, original.left, original.top, original.right - original.left, original.bottom - original.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
-        await pumpPanels(0.4)
+        var dpiLines: [String] = [], dpiOK = true
+        for dpi: UInt32 in [120, 144] {
+            let result = await dpiOnce(dpi)
+            dpiOK = dpiOK && result.ok
+            dpiLines.append(result.line)
+        }
+        await dpiBack()
         r.add("plaza.dpiPanels", dpiOK, dpiLines.joined(separator: "; "))
+
+        if FlakeLoop.count > 0 {
+            await flakeLoopPanels(r, c, b.rosterModel, fixtureRoster, cover: coverOnce, hover: hoverOnce,
+                                  dpi: { dpi, fault in let x = await dpiOnce(dpi, fault: fault, capture: false); return (x.ok, x.toolsOK, x.renders, x.intact) },
+                                  dpiBack: dpiBack)
+        }
     }
 }
 #endif

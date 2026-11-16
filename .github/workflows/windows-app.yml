@@ -54,6 +54,9 @@ on:
         description: 'Also run the network-burst helper: what one HTTP fetch costs in wakeups (diagnostics, ~4 min)'
         type: boolean
         default: false
+      flake_loop:
+        description: 'Repeat the plaza.hover/cover, plaza.close and modalPump.idle checks N times in one selftest process and print every iteration (diagnostics; 0 = off)'
+        default: '0'
       release_sha:
         description: 'Release mode: the 40-hex commit to build (set by team_release.py)'
         default: ''
@@ -76,6 +79,7 @@ jobs:
       PTB_FAST: ${{ inputs.release_sha == '' && inputs.fast == 'true' }}
       PTB_STALL_HUNT: ${{ inputs.release_sha == '' && inputs.stall_hunt || '0' }}
       PTB_NET_BURST: ${{ inputs.release_sha == '' && inputs.net_burst == true }}
+      PTB_SELFTEST_FLAKE_LOOP: ${{ inputs.release_sha == '' && inputs.flake_loop || '0' }}
     steps:
       - uses: actions/checkout@v5
         with:

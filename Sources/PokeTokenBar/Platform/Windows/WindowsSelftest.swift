@@ -108,6 +108,7 @@ enum WindowsSelftest {
         await plazaGraphicsChecks(r)  // stage 6 task 2
         await trayChecks(r, app)
         await modalPumpChecks(r, app)
+        if FlakeLoop.count > 0 { await flakeLoopModal(r, app) }
         await notifyChecks(r, app)
         WindowsSelftestLanguage.checks(r, app)
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }

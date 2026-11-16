@@ -53,7 +53,9 @@ extension WindowsSelftest {
             return
         }
         _ = await waitStable(timeout: 60, quiet: 1) { !app.store.isRefreshing }
-        let idleBefore = await IdleSampler.measure(seconds: 10, mainThread: WindowsApp.mainThreadID)
+        let wakes0 = knownWakes(app)
+        let idleBefore = await IdleTimeline.measure(seconds: 10, mainThread: WindowsApp.mainThreadID)
+        let wakes1 = knownWakes(app)
 
         let notifier = Platform.current.notifications as? WindowsNotifications
         let presenter = notifier?.presenter
@@ -194,14 +196,31 @@ extension WindowsSelftest {
 
         // (6) idle: nothing wakes the main thread once the menu is closed
         _ = await waitStable(timeout: 30, quiet: 2) { !app.store.isRefreshing }
-        let idleAfter = await IdleSampler.measure(seconds: 10, mainThread: WindowsApp.mainThreadID)
+        let wakes2 = knownWakes(app)
+        let idleAfter = await IdleTimeline.measure(seconds: 10, mainThread: WindowsApp.mainThreadID)
+        let wakes3 = knownWakes(app)
         if let idleBefore, let idleAfter {
             r.add("modalPump.idle", idleBefore.mainFound && idleAfter.mainFound && idleAfter.mainContextSwitches <= max(3, idleBefore.mainContextSwitches + 3),
                   "10 s windows, main_thread_cs before the menu=\(idleBefore.mainContextSwitches) -> after=\(idleAfter.mainContextSwitches) "
-                    + "cycles \(idleBefore.mainCycles) -> \(idleAfter.mainCycles) (pass: after <= max(3, before + 3))")
+                    + "cycles \(idleBefore.mainCycles) -> \(idleAfter.mainCycles) (pass: after <= max(3, before + 3)); "
+                    + "known wakes before-window \(wakes1.minus(wakes0)) after-window \(wakes3.minus(wakes2)); wake timeline before [\(idleBefore.wakes)] after [\(idleAfter.wakes)]; "
+                    + "debounce pending at the start of the after-window: \(wakes2.pending)")
         } else {
             r.add("modalPump.idle", false, "measurement failed")
         }
+    }
+
+    struct KnownWakes {
+        var safety = 0, debounce = 0, day = 0, refreshes = 0, iterations = 0, pending = false
+        func minus(_ o: KnownWakes) -> String {
+            "{safety:\(safety - o.safety) debounce:\(debounce - o.debounce) day:\(day - o.day) refresh:\(refreshes - o.refreshes) loop_iterations:\(iterations - o.iterations)}"
+        }
+    }
+
+    @MainActor static func knownWakes(_ app: WindowsAppDelegate) -> KnownWakes {
+        KnownWakes(safety: WinDefaultsSync.safetyFires, debounce: WinDefaultsSync.debounceFires,
+                   day: (Platform.current.events as? WindowsSystemEvents)?.dayTimerFires ?? 0, refreshes: app.refreshCount,
+                   iterations: WinMainLoop.iterations, pending: WinDefaultsSync.isSyncPending)
     }
 
     private final class KeyCounts: @unchecked Sendable {
