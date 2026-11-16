@@ -12,6 +12,8 @@ SECTIONS = ["New", "Fixed", "Other", "Contributors"]
 TOKENS = ["{{VERSION}}", "{{WINDOWS_SHA256}}"]
 WINDOWS_LINES = ["**Windows Install:**", "**Windows Upgrade:**", "**Windows differences:**"]
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# Template text that must be replaced by the release writer before any release (stage 8 Task 12).
+PLACEHOLDERS = ["(filled in Task 12)"]
 
 
 def strip_comments(text):
@@ -39,6 +41,9 @@ def problems(text):
         n = sum(1 for l in lines if l.startswith(marker))
         if n != 1:
             found.append(f"line starting '{marker}' must appear exactly once (found {n})")
+    for placeholder in PLACEHOLDERS:
+        if placeholder in text:
+            found.append(f"the template placeholder '{placeholder}' is still there: write the real text")
     for token in TOKENS:
         n = text.count(token)
         if n != 1:

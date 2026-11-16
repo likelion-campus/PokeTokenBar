@@ -884,6 +884,17 @@ read_when:
   앱을 막았다. 자체 서명 앱이라 공증이 없고, 원작은 cask가 격리 표시를 지워서 경고가 보이지 않았을 뿐이다. 이 Mac은
   직접 빌드해서 격리 표시가 없으므로 재현되지 않는다. 팀 탭 cask의 `postflight_steps`가 같은 일을 한다.
 
+- **릴리스 단계가 clone 안에 파일을 남기면, 같은 clone 에서 다시 실행할 때 깨끗한 트리 확인에서 멈춘다.** stage 8의
+  `team-release.sh` 가 1단계에서 `python3 -m unittest discover -s scripts/tests` 로 도우미를 시험하자 Python 이
+  `scripts/__pycache__/`·`scripts/tests/__pycache__/` 를 만들었고(무시 목록에 없다), 실제 리허설(새 clone, 52분) 뒤 같은
+  clone 에서 다시 실행하자 0단계 `git status --porcelain` 에서 "커밋하지 않은 변경"으로 멈췄다. 실패 뒤 고치고 다시 실행하는
+  것이 이 스크립트의 정상 흐름(Windows 실행 실패, 노트 수정)이라 릴리스를 막는다. **왜 못 걸렀나:** 스크립트 테스트의 가짜
+  `python3` 는 아무것도 쓰지 않고 가짜 `git status` 는 정해 준 값만 돌려줘서, 다시 실행 테스트가 진짜 부작용이 없는 다른
+  경로로 통과했다. 리허설 뒤 clone 의 `git status` 를 보고 찾았다. 수정: 스크립트가 `PYTHONDONTWRITEBYTECODE=1` 을 export 한다.
+  가드: 가짜 `python3` 가 그 변수가 없으면 진짜처럼 `scripts/__pycache__/` 를 쓰고 가짜 `git status` 가 그것을 보고하므로,
+  `TeamReleaseScriptRunTests` 의 다시 실행 테스트가 export 없이는 실패한다(결함 주입으로 확인). 스윕: 다른 단계가 쓰는 곳은
+  무시되는 `build/`(start 의 runs.json, collect, fill, build-app.sh)와 `.build/`(test-gate.sh)뿐이다.
+
 - **한 줄씩 읽는 목록·설정 파일에서 값 뒤의 `# 주석`은 파서가 떼지 않으면 주석이 아니다.** 윈도우 이식의 테스트용
   `mac-only.txt` 에 `BinaryLocatorTests.swift  # 이유` 처럼 적었더니 한 줄 전체가 파일명이 되어 그 파일이 제외되지
   않았다(조용히). 파서는 전체 줄 주석(`#` 로 시작하는 줄)만 안다. **왜 못 걸렀나:** 제외 목록은 "있는 것만 빼는"
