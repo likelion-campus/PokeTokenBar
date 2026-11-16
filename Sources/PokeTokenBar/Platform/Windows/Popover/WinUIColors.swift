@@ -7,7 +7,12 @@ import WinSDK
 /// (`PopoverLabelOpacity`, measured on the Mac) over the card. High contrast overrides nothing: every role is a system
 /// colour and the native controls draw themselves. Brushes are made on first use and freed by `destroy`.
 @MainActor final class WinUIColors {
-    enum Role: Equatable, Sendable { case primary, secondary, tertiary }
+    enum Role: Equatable, Sendable {
+        case primary, secondary, tertiary
+        /// The Mac's red and orange status lines (an invalid nickname, an update on offer): systemRed and systemOrange in
+        /// light; high contrast keeps the window text colour.
+        case error, warning
+    }
 
     /// The resolved colours (`COLORREF`, 0x00BBGGRR).
     struct Palette: Equatable, Sendable {
@@ -61,6 +66,8 @@ import WinSDK
         case .primary: palette.text
         case .secondary: palette.secondaryText
         case .tertiary: palette.tertiaryText
+        case .error: highContrast ? palette.text : Self.rgb(255, 59, 48)
+        case .warning: highContrast ? palette.text : Self.rgb(255, 149, 0)
         }
     }
 
