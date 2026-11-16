@@ -45,6 +45,11 @@ extension WindowsSelftest {
         let shape = version.range(of: #"^\d+\.\d+\.\d+$"#, options: .regularExpression) != nil
         r.add("packaged.version", shape, "PokeTokenBar.version=\(version.isEmpty ? "absent" : version) (x.y.z from scripts/build-app.sh)")
 
+        // Not the install folder as the working folder (WindowsInstall.leaveInstallFolder): it is the logs folder.
+        let workingFolder = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        r.add("packaged.workingFolder", WinPath.sameFile(workingFolder, PlatformCompat.logsDirectory()),
+              "working folder=\(WinPath.native(workingFolder)) expected=\(WinPath.native(PlatformCompat.logsDirectory())) exe folder=\(Bundle.main.bundlePath)")
+
         // Every loaded DLL comes from the app folder or from Windows; none from the Swift toolchain, a PATH folder or
         // a vcpkg folder. A bundled DLL that was loaded from elsewhere would mean the app folder is not first.
         guard let modules = loadedModules() else {

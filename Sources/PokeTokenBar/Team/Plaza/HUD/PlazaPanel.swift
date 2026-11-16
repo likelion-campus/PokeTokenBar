@@ -3,6 +3,18 @@ import Foundation
 /// The overlay panels the plaza draws through the canvas (Track A Tasks 14–17w): the Mac and Windows both show them.
 enum PlazaPanelID: Hashable, Sendable { case pills, clock, shortcuts, backgroundToggle, nameColorPicker, photoFrame, menu, minimap, chatLog, roster, board, card }
 
+extension PlazaPanelID {
+    /// The order the windows stack the panels in, bottom first (the Mac's subview order; the Windows window draws and routes in it): the
+    /// roster over the scene, the board over it, the card over that, the photo frame, the menu, the pills right over the scene's top lines,
+    /// then the chat log, the minimap, the clock, the guide, the toggle and the colour picker. A click goes to the top-most panel with a hit.
+    static let stackOrder: [PlazaPanelID] = [.roster, .board, .card, .photoFrame, .menu, .pills, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle,
+                                             .nameColorPicker]
+    /// The panels that take every click, hover and scroll over the whole window while shown (the full-window overlays: board and card).
+    static let swallowingWholeWindow: Set<PlazaPanelID> = [.board, .card]
+    /// What photo mode hides; the photo frame, menu, pills, board and card stay.
+    static let hiddenInPhotoMode: Set<PlazaPanelID> = [.roster, .chatLog, .minimap, .clock, .shortcuts, .backgroundToggle, .nameColorPicker]
+}
+
 /// The window edge a panel keeps its distance from, as its old Auto Layout constraints did. `offset.x` is the distance
 /// from the leading or trailing edge (unused by `topCenter`, which centres), `offset.y` from the top or bottom edge.
 /// `center` puts the panel in the middle of the window (both axes, on whole device pixels), ignoring `offset`. `fill` covers

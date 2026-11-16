@@ -884,6 +884,17 @@ read_when:
   앱을 막았다. 자체 서명 앱이라 공증이 없고, 원작은 cask가 격리 표시를 지워서 경고가 보이지 않았을 뿐이다. 이 Mac은
   직접 빌드해서 격리 표시가 없으므로 재현되지 않는다. 팀 탭 cask의 `postflight_steps`가 같은 일을 한다.
 
+- **릴리스 단계가 clone 안에 파일을 남기면, 같은 clone 에서 다시 실행할 때 깨끗한 트리 확인에서 멈춘다.** stage 8의
+  `team-release.sh` 가 1단계에서 `python3 -m unittest discover -s scripts/tests` 로 도우미를 시험하자 Python 이
+  `scripts/__pycache__/`·`scripts/tests/__pycache__/` 를 만들었고(무시 목록에 없다), 실제 리허설(새 clone, 52분) 뒤 같은
+  clone 에서 다시 실행하자 0단계 `git status --porcelain` 에서 "커밋하지 않은 변경"으로 멈췄다. 실패 뒤 고치고 다시 실행하는
+  것이 이 스크립트의 정상 흐름(Windows 실행 실패, 노트 수정)이라 릴리스를 막는다. **왜 못 걸렀나:** 스크립트 테스트의 가짜
+  `python3` 는 아무것도 쓰지 않고 가짜 `git status` 는 정해 준 값만 돌려줘서, 다시 실행 테스트가 진짜 부작용이 없는 다른
+  경로로 통과했다. 리허설 뒤 clone 의 `git status` 를 보고 찾았다. 수정: 스크립트가 `PYTHONDONTWRITEBYTECODE=1` 을 export 한다.
+  가드: 가짜 `python3` 가 그 변수가 없으면 진짜처럼 `scripts/__pycache__/` 를 쓰고 가짜 `git status` 가 그것을 보고하므로,
+  `TeamReleaseScriptRunTests` 의 다시 실행 테스트가 export 없이는 실패한다(결함 주입으로 확인). 스윕: 다른 단계가 쓰는 곳은
+  무시되는 `build/`(start 의 runs.json, collect, fill, build-app.sh)와 `.build/`(test-gate.sh)뿐이다.
+
 - **한 줄씩 읽는 목록·설정 파일에서 값 뒤의 `# 주석`은 파서가 떼지 않으면 주석이 아니다.** 윈도우 이식의 테스트용
   `mac-only.txt` 에 `BinaryLocatorTests.swift  # 이유` 처럼 적었더니 한 줄 전체가 파일명이 되어 그 파일이 제외되지
   않았다(조용히). 파서는 전체 줄 주석(`#` 로 시작하는 줄)만 안다. **왜 못 걸렀나:** 제외 목록은 "있는 것만 빼는"
@@ -2449,6 +2460,38 @@ read_when:
   **규칙:** 새 다운로드(기존 이음매의 새 호출부도)는 자기 상한과 마감을 이름으로 적는다 — 다른 호출부를 보고 정한 기본값을 물려받지 않는다.
   상한을 정할 때는 실제로 가장 큰 페이로드를 재서 값과 출처를 적고, 여유가 2 배 미만이면 그 자리에서 고친다.
 
+- **Inno Setup 의 롤백은 덮어쓴 파일을 되돌리지 않는다 — "업데이트가 실패하면 이전 앱이 돌아온다"(8단계 계획 D8 7단계)는 전제가 틀렸다 (출시 전 발견).**
+  Inno 6.7.1 소스(`Setup.Install.pas`, `Setup.UninstallLog.pas`): 기존 파일은 `DeleteFile` 한 뒤 임시 파일을 `MoveFile` 로 들이고(사본을 두지 않는다), 중단 때의
+  롤백(`PerformUninstall(False)`)은 이번 설치가 *새로 만든* 파일만 지운다 — 덮어쓴 파일에는 `utDeleteFile_ExistedBeforeInstall` 이 붙어 새 내용 그대로 남는다.
+  러너 실측(보호를 뺀 결함 주입, exe 를 쓴 뒤 복사 실패): 47개 중 44개가 새 파일로 남았다. 복사 도중 멈춘 업데이트는 섞인 설치를 남기고, 버전 파일이 먼저 바뀌면 앱이 실패를 성공으로 읽는다.
+  **첫 고침도 틀렸다 — 보호가 "누가 Setup 을 시작했나"에 달려 있었다 (리뷰가 찾음).** 처음엔 `ssInstall` 에서 앱 폴더를 `.previous` 로 *이름만 바꿨다*. 그런데 앱은
+  설치 폴더를 작업 폴더로 갖고 시작되고(`[Run]`·시작 메뉴 바로 가기·재실행 모두), 앱이 시작하는 Setup 의 로더도 그 폴더를 물려받아 끝까지 쥔다 — 어떤 프로세스의 작업 폴더인
+  폴더는 이름을 바꿀 수 없다. 러너에서 Setup 을 설치 폴더에서 시작하자(`-WorkingDirectory`) "could not move … updating in place" 와 47개 중 44개 새 파일
+  (run 43755066548, 고치기 전). 또 이름 바꾸기와 복사 끝 사이에 Setup 이 죽으면(전원, "그래도 종료") 앱 폴더가 비어 실행할 앱이 아예 없었다.
+  **왜 못 걸렀나:** CI 업그레이드 단계는 성공 경로만 밟았고 계획은 문서의 "rolls back" 을 "원래대로"로 읽었다. 첫 고침의 시나리오는 모두 pwsh 가 작업 공간에서 Setup 을
+  시작했다 — 실제 경로(앱이 자기 폴더에서 시작)와 다른 경로로 통과해 안심을 줬다. "죽은 Setup" 은 시나리오에 없었다.
+  **고침:** `PrepareToInstall` 이 앱 폴더를 `…\PokeTokenBar.previous` 로 *복사*하고(완료 표시 파일을 마지막에), 복사를 못 하면 아무것도 건드리지 않고 멈춘다(exit 7, 옛 앱 재실행).
+  Inno 는 제자리로 업데이트하고 exe 와 버전 파일이 맨 끝이다 — 앱 폴더는 이름이 바뀌거나 비지 않아 중간에 죽어도 실행된다. 끝나지 못한 설치는 바뀐 파일만 사본에서 되돌리고
+  (크기·시각이 같으면 그대로, 다르면 300 ms × 10 재시도), 되돌리기에 실패하면 앱을 켜지 않고 사본을 남긴다. 남은 사본은 앱 폴더가 온전하면 지우고, 아니면 먼저 되돌린다.
+  두 Setup 이 서로의 사본을 지우지 않게 `Local\PokeTokenBar-Setup` 뮤텍스를 앱을 닫기 *전에* 검사한다(Inno 의 `SetupMutex` 지시어는 `InitializeSetup` 뒤, 앱을 이미 닫은 뒤에 검사한다).
+  앱은 시작하자마자 작업 폴더를 로그 폴더로 옮긴다(`WindowsInstall.leaveInstallFolder`) — 브라우저·CLI·Setup 이 설치 폴더를 물려받지 않는다.
+  **같은 부류 스윕:** 호출자의 작업 폴더에 기대는 곳 — 앱의 `ShellExecuteW`(폴더 인자 없음)·`Process` 실행·Task 6 의 Setup 실행이 모두 작업 폴더를 물려준다(앱 쪽 고침으로 닫힘;
+  Task 6 은 Setup 에 설치 폴더 밖 작업 폴더를 명시한다). 폴더 이름 바꾸기에 기대는 코드는 이제 없다. `MinVersion`·아키텍처 거절은 `[Code]` 전이라 아무것도 닫지도 켜지도 않는다(exit 1).
+  **규칙:** 외부 도구의 실패 의미(롤백·원자성)는 소스와 강제 실패로 확인하고, 실패 경로 테스트는 "실패 뒤 디스크에 무엇이 있나"(내용 해시)를 본다. 시나리오는 실제 호출자와
+  같은 조건(작업 폴더, 앱이 이미 끝난 순서, 동시 실행, 강제 종료)에서 돌린다.
+  **회귀 점검:** `windows-app.yml` 단계 `failed-update-relaunch`(`fromAppFolder`, `inAppOrder`, `failDuringCopy`, `backupFails`, `failedRestore`, `twoSetups`, `staleComplete`,
+  `staleIncomplete`, `killedMidCopy`) — 결함 주입(되돌리기 제거, 뮤텍스 검사 제거, 되돌리기 실패 뒤 재실행, 남은 사본 되돌리기 제거, 복사 실패 무시)이 각각 해당 줄을 FAIL 로 만든다.
+  셀프테스트 `packaged.workingFolder` 는 작업 폴더 옮기기를 빼면 FAIL.
+  **2차 리뷰 — 같은 상태를 두 규칙이 다르게 읽었다.** 완료 표시가 있는 남은 사본은 "앱 폴더에 exe 와 버전 파일이 있으면" 지웠는데, 표시된 사본이 남는 상태(쓰는 중·되돌리는 중
+  강제 종료, 되돌리기 실패)는 모두 exe 와 버전 파일을 가진 *섞인* 폴더다 — 다음 Setup 이 하나뿐인 온전한 사본을 지우고 섞인 폴더를 백업했고, 그 Setup 이 실패했다면 앞 Setup 이
+  켜기를 거부한 폴더를 되돌려 켰을 것이다. 이제 사본은 앱 폴더의 버전 파일이 사본과 *다를* 때만 지운다(버전 파일은 맨 마지막에 쓰고 되돌릴 때는 맨 먼저 되돌린다). 남은 사본을
+  못 되돌려 멈출 때도 `RestoreFailed` 로 켜지 않는다. **그리고 "바뀌지 않았다"는 내용으로 판단한다:** 크기·시각만 보던 규칙은 하네스에서 간헐적으로 vN+1 버전 파일을 vN 것으로
+  봤다 — Inno 는 설치 파일 시각을 2 초로 반올림하고(`TimeStampRounding`) 버전 파일은 버전 사이에 길이가 같다. `RestoreFile` 은 SHA-256 을 비교한다.
+  **왜 못 걸렀나:** 남은 사본 시나리오가 "앱 폴더와 같은 내용의 사본"만 만들어 두 규칙이 갈리는 상태(섞인 폴더 + 같은 버전)를 한 번도 만들지 않았고, 테스트 페이로드가 모든 파일의
+  크기를 바꿔 시각 비교를 시험하지 않았다. 간헐 실패는 결함 주입 실행에서만 보였다 — 주입과 상관없는 시나리오가 깨지면 플레이크로 넘기지 말고 원인을 찾는다.
+  **회귀 점검(추가):** `failLate`(버전 파일까지 쓴 뒤 실패), `killedDuringRestore`, `killedFirstEntry`, `leftOverRestoreFails`, `noVersionFile`, `partialCopy`, `appFolderMissing`; 페이로드의
+  `THIRD-PARTY.txt` 는 크기·시각이 같고 내용만 다르다. 결함 주입: 옛 규칙, `RestoreFailed` 빼기, 폴더 다시 만들기 빼기, 크기·시각 비교, 버전 파일 먼저 빼기, exe 만으로 "온전".
+
 ## 윈도 로케일·알림 (windows-port)
 
 - **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**
@@ -2493,3 +2536,9 @@ read_when:
   **고침:** `blockNetwork(for: self)` 가 `addTeardownBlock` 으로 해제를 건다(호출 4곳). **부류 스윕:** 나머지 `registerClass` 사용처(`ClaudeOAuthFileCredentialTests`, `SpriteAnimationRecoveryTests`,
   `OneShotDataMacTests`, `CredentialSwitchCacheTests`)는 모두 같은 파일에서 `unregisterClass` 한다 — 오염원은 `NoNetwork` 하나였다.
   **영구 캡처:** `NetworkProtocolScanTests` — `registerClass` 가 있는 테스트 파일에 `unregisterClass` 가 없으면 실패(해제를 지우는 주입으로 실패 확인). **규칙:** 프로세스 전역 상태(URLProtocol 등록·환경변수·공유 훅)는 설정하는 쪽이 같은 테스트 안에서 되돌린다.
+
+- **`WindowsPlazaClipboardTests.testABusyClipboardFailsHonestly` 가 러너에서 가끔 실패했다(0.0493 초 < 0.05 초) — 테스트의 하한이 타이머 눈금보다 촘촘했다.** `clipboard.cpp` 의 `openWithRetry` 는
+  `GetTickCount64` 로 제한 시간을 잰다. 이 카운터는 타이머 틱(최대 15.6 ms) 단위로만 올라가므로 60 ms 제한은 실제 시간 44.4~60 ms 뒤에 끝날 수 있다. 테스트는 "50 ms 이상 재시도했다"를 요구해 틱 경계에 따라 실패했다
+  (#207 이후 실행 43774484787). 제품 동작은 맞다 — 제한 시간은 "대략 이만큼"이고 사용자에게는 300 ms 한도의 16 ms 차이다. **왜 못 걸렀나:** 작업 브랜치의 몇 번 실행에서는 우연히 틱이 맞았다.
+  **고침:** 하한을 제한 시간에서 한 틱을 뺀 40 ms 로 둔다. **부류 스윕:** 윈도 테스트의 경과 시간 하한은 그 밖에 `WindowsHTTPFetchTests` 의 두 곳(10 초 중 8 초, 3 초 중 2.5 초)뿐이고 여유가 0.5 초 이상이다.
+  **규칙:** 윈도에서 `GetTickCount64`·`Sleep` 으로 잰 시간에 하한을 걸 때는 한 틱(16 ms)을 빼고 건다.
