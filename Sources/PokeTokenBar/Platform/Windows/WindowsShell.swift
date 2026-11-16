@@ -4,15 +4,37 @@ import WinSDK
 
 /// `PlatformShell` on Windows: `ShellExecuteW` opens pages and folders, `terminate` leaves through the one exit.
 @MainActor struct WindowsShell: PlatformShellService {
-    func open(_ url: URL) {
-        // A page or a folder only: no other scheme reaches the shell from here.
-        guard url.isFileURL || url.scheme == "https" || url.scheme == "http" else {
+    func open(_ url: URL) { _ = openReturning(url) }
+
+    /// Schemes the shell is handed from here: pages and folders, and `mailto:` (the Settings page's "Report a problem", stage 7
+    /// Task 6). Nothing else ever reaches `ShellExecuteW` through this door.
+    nonisolated static func isOpenable(_ url: URL) -> Bool {
+        url.isFileURL || url.scheme == "https" || url.scheme == "http" || url.scheme == "mailto"
+    }
+
+    /// Opens `url`; false when the shell refused (no mail app for `mailto:`, no handler), which the caller may tell the user.
+    @discardableResult
+    func openReturning(_ url: URL) -> Bool {
+        guard Self.isOpenable(url) else {
             AppLog.write("shell: not opening \(url.scheme ?? "?") URL")
-            return
+            return false
         }
         let target = url.isFileURL ? WinPath.native(url) : url.absoluteString
         let result = ShellExecuteW(nil, WinStr.w("open"), WinStr.w(target), nil, nil, SW_SHOWNORMAL)
-        if Int(bitPattern: result) <= 32 { AppLog.write("shell: ShellExecuteW failed (\(Int(bitPattern: result)))") }
+        if Int(bitPattern: result) <= 32 {
+            AppLog.write("shell: ShellExecuteW failed (\(Int(bitPattern: result)), \(url.isFileURL ? "file" : url.scheme ?? "?"))")
+            return false
+        }
+        return true
+    }
+
+    /// Explorer with `file` selected (the Settings page's log file button): `explorer.exe /select,"<path>"`.
+    @discardableResult
+    static func revealInExplorer(_ file: URL) -> Bool {
+        let parameters = "/select,\"\(WinPath.native(file))\""
+        let result = ShellExecuteW(nil, WinStr.w("open"), WinStr.w("explorer.exe"), WinStr.w(parameters), nil, SW_SHOWNORMAL)
+        if Int(bitPattern: result) <= 32 { AppLog.write("shell: Explorer /select failed (\(Int(bitPattern: result)))") }
+        return Int(bitPattern: result) > 32
     }
 
     func terminate() { WindowsApp.exit(0, .menu) }
