@@ -90,6 +90,16 @@ function makeSheet(name) {
           return this;
         },
         setValue(v) { return this.setValues([[v]]); },
+        setFormula(f) {
+          if (nr !== 1 || nc !== 1) throw new Error("fake setFormula: single cell only");
+          while (sheet._rows.length <= row - 1) sheet._rows.push([]);
+          sheet._rows[row - 1][col - 1] = new FormulaCell(f);
+          return this;
+        },
+        getFormula() {
+          const v = (sheet._rows[row - 1] || [])[col - 1];
+          return v instanceof FormulaCell ? v.text : "";
+        },
         setNumberFormat(f) { for (let c = 0; c < nc; c++) sheet._formats[col + c] = f; return this; },
         clearContent() {
           for (let r = 0; r < nr; r++) for (let c = 0; c < nc; c++) {
