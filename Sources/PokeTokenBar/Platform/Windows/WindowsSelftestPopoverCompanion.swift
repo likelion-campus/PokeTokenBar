@@ -654,21 +654,21 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
             h.window.fitToContent()
             h.window.show(activate: false)
             await wait(0.4)
-            let clock = h.section?.effectClock
-            let sprites = h.section?.header?.view.sprites?.playback.clock
+            let clocks = [h.section?.effectClock, h.section?.lineClock, h.section?.barClock, h.section?.header?.view.sprites?.playback.clock]
             h.destroy()
-            armedAfter = armedAfter || clock?.isArmed == true || sprites?.isArmed == true
+            armedAfter = armedAfter || clocks.contains { $0?.isArmed == true }
             await wait(0.2)
             cycles.append(KitResources.now())
         }
-        guard cycles.count == 4, let warm = cycles.first, let last = cycles.last else {
+        guard cycles.count == 4, let last = cycles.last else {
             r.add("companion.openClose3", false, "only \(cycles.count) of 4 cycles")
             return
         }
-        let ok = last.gdi - warm.gdi <= 5 && last.user - warm.user <= 5 && last.handles - warm.handles <= 10 && last.controls == 0
-            && last.dialogs == start.dialogs && !armedAfter
-        r.add("companion.openClose3", ok, "before the group: \(start); after a warm-up open/close: \(warm); after 3 more: \(cycles.dropFirst().map { "\($0)" }.joined(separator: " / ")); "
-              + "a clock armed after a close=\(armedAfter) (budget over the warm-up: GDI +5, USER +5, handles +10)")
+        // the shared open/close rule (#240): GDI and USER never above the warm-up, handles fail only when they rise every cycle
+        let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) })
+        let ok = verdict.ok && last.controls == 0 && last.dialogs == start.dialogs && !armedAfter
+        r.add("companion.openClose3", ok, "before the group: \(start); \(verdict.summary); a clock (effects, line, bar, sprites) armed after a close=\(armedAfter); "
+              + "kit controls and dialog registrations back to the start (last: \(last))")
     }
 
     // MARK: --popover-companion-idle-probe still|bob|wiggle|animated (the idle gate)
