@@ -7,6 +7,19 @@ import WinSDK
 /// (`PTB_SELFTEST_FLAKE_LOOP=N`, set by `windows-app.yml -f flake_loop=N`; 0 or unset = no loop). Each loop prints its
 /// per-iteration values so a pass is a distribution, not one sample.
 
+extension WindowsSelftest {
+    /// The app being selftested (set by the checks that need its counters outside a function that is handed `app`).
+    @MainActor static weak var selftestApp: WindowsAppDelegate?
+
+    /// A plaza open/close cycle that leaks, leaks every time; background work (a TLS stack and its threads starting when the update
+    /// or usage check first runs, a lazily started pool worker) lands in some cycles only (6 of 49 steps in run 43797111060, +1..+26
+    /// handles each, all Threads/Events/WaitCompletionPackets/EtwRegistrations of NEW threads). So: leaking = EVERY step grew.
+    static func handleLeak(counts: [Int]) -> Bool {
+        let steps = zip(counts.dropFirst(), counts).map { $0 - $1 }
+        return steps.count >= 3 && steps.allSatisfy { $0 > 0 }
+    }
+}
+
 enum FlakeLoop {
     static var count: Int { Int(ProcessInfo.processInfo.environment["PTB_SELFTEST_FLAKE_LOOP"] ?? "") ?? 0 }
 }
@@ -175,7 +188,7 @@ enum IdleTimeline {
 extension WindowsSelftest {
     private static func fmt(_ values: [Int]) -> String { "[" + values.map(String.init).joined(separator: ",") + "]" }
     private static func histogram(_ values: [Int]) -> String {
-        Dictionary(grouping: values, by: { $0 }).sorted { $0.key < $1.key }.map { "\($0.key):\($0.value)" }.joined(separator: " ")
+        Dictionary(grouping: values, by: { $0 }).sorted { $0.key < $1.key }.map { "\($0.key)x\($0.value.count)" }.joined(separator: " ")
     }
 
     // MARK: A: plaza.hover / plaza.cover
@@ -253,8 +266,9 @@ extension WindowsSelftest {
             previous = now
         }
         let deltas = zip(counts.dropFirst(), counts).map { $0 - $1 }
-        r.add("flake.close", true,
-              "N=\(n) open/close cycles, presented \(firstPresented)/\(n); handle count per cycle \(fmt(counts)); step deltas histogram \(histogram(deltas)); "
+        let windows = counts.count >= 8 ? (0...(counts.count - 8)).filter { handleLeak(counts: Array(counts[$0..<($0 + 8)])) }.count : 0
+        r.add("flake.close", windows == 0,
+              "N=\(n) open/close cycles, leak verdicts over every 8-cycle window: \(windows) leaking, presented \(firstPresented)/\(n); handle count per cycle \(fmt(counts)); step deltas histogram \(histogram(deltas)); "
                 + "first -> last \(counts.first ?? 0) -> \(counts.last ?? 0); start types \(WinHandleTable.typesText(start)); end types \(WinHandleTable.typesText(previous)); "
                 + "start -> end \(WinHandleTable.diff(start, previous)); changes: " + notes.joined(separator: " | "))
     }
