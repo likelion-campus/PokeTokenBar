@@ -96,7 +96,8 @@ import WinSDK
         TrayMenuModel.items(l: companion.l, todayTokens: store.todayTotalTokens,
                             todayCost: store.showsCost ? store.todayUsageCost : nil,
                             login: loginState, update: availableUpdate?.version, teammatesOnline: teammatesOnline(),
-                            plazaUnread: plazaUnread(), alwaysFacesBack: store.alwaysFacesBack)
+                            plazaUnread: plazaUnread(), alwaysFacesBack: store.alwaysFacesBack,
+                            updating: WindowsUpdates.checker?.isUpdating ?? false)
     }
 
     /// Blocks in the system menu loop until it is dismissed (no drain timer meanwhile; F17), then runs the action.
@@ -132,7 +133,8 @@ import WinSDK
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             Self.open(WinPath.native(folder))
         case .openRelease:
-            if let url = availableUpdate?.url { Self.open(url) }
+            // Stage 8 Task 6: the popover's banner and Settings do the same (the in-app install, else the release page).
+            if let checker = WindowsUpdates.checker { checker.applyUpdate() } else if let url = availableUpdate?.url { Self.open(url) }
         case .openPlaza:
             onOpenPlaza?()
         case .openSettings:

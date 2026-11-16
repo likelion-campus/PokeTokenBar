@@ -24,6 +24,11 @@ struct WinPopoverStats {
     var lastCursorInAnchor = false
     var roundCorners = false
     var sessionNotify = false
+    /// Closes after a deactivation that waited for a nested loop of the page (an edit's menu, a dialog: post-merge M5), closes
+    /// called off when it got the activation back first, and closes that ran inside such a loop anyway (must stay 0).
+    var deferredCloses = 0, closesCancelled = 0, closesInsideLoop = 0
+    /// The primary button was down at the last deactivation (a slow click: the toggle guard's longer window).
+    var lastButtonDown = false
     var lastFrame = RECT()
     /// The window the last open kept clear of (the overflow flyout holding the icon), nil for an icon on the taskbar.
     var lastHolder: RECT?
@@ -42,18 +47,26 @@ struct WinPopoverStats {
 /// and does not reopen it (`PopoverToggleGuard`). What it shows is a `WinPopoverPage` (`makePage`; Task 5's Home).
 ///
 /// Async work for the open window captures `generation` and lands through `whenCurrent`: a completion that arrives after
-/// the window it was for is gone is dropped. Main thread only.
+/// the page it was for is gone (closed, or rebuilt at a new DPI or appearance) is dropped. Main thread only.
+///
+/// Topmost (post-merge review I1): other apps' always-on-top windows (a picture-in-picture video, a meeting's mini window,
+/// PowerToys Always on Top) and the overflow flyout would otherwise cover it, and a click on the covered part would close it.
+/// It is topmost only while it has the activation: it closes when it loses it, and while a close waits for a nested loop of
+/// its page it drops to the normal band.
 @MainActor final class WinPopover {
     static let className = "PokeTokenBarPopover"
     /// The close after a deactivation, posted so it runs after the activation change (the SDK's NotificationIcon sample does
-    /// the same); `wParam` is the generation of the window it is for.
+    /// the same); `wParam` is the serial of the window it is for (not `generation`, which a rebuild changes).
     static let closeMessage = UINT(WM_APP) + 0x70
+    /// The 50 ms timer that exists only while a close waits for a nested loop of the page to end (M5).
+    static let deferTimerID: UINT_PTR = 0x5054_4204
     /// WS_POPUP | WS_CLIPCHILDREN; Windows 10 adds WS_BORDER (DWM draws a popup's border and round corners only on 11).
     static let baseStyle: DWORD = 0x8000_0000 | 0x0200_0000
     static let isWindows11 = ProcessInfo.processInfo.operatingSystemVersion.patchVersion >= 22000
     static let style: DWORD = isWindows11 ? baseStyle : baseStyle | 0x0080_0000
-    /// WS_EX_TOOLWINDOW | WS_EX_CONTROLPARENT: no taskbar button, not in Alt+Tab; Tab walks into the panes' controls.
-    static let exStyle: DWORD = 0x0000_0080 | 0x0001_0000
+    /// WS_EX_TOOLWINDOW | WS_EX_CONTROLPARENT | WS_EX_TOPMOST: no taskbar button, not in Alt+Tab; Tab walks into the panes'
+    /// controls; above other apps' always-on-top windows while it is open (its owned dialogs are too).
+    static let exStyle: DWORD = 0x0000_0080 | 0x0001_0000 | 0x0000_0008
     /// CS_DROPSHADOW.
     static let classStyle: UINT = 0x0002_0000
     static let frame = WinPlazaPlacement.frame(style: style, exStyle: exStyle)
@@ -91,11 +104,16 @@ struct WinPopoverStats {
     private var opener: Opener?
     private var inputs: WinPopoverAnchor.Inputs?
     private var guardRegion: RECT?
-    private var appearance: Appearance?
     private var pendingClose = false
+    private var deferring = false
     private var closing = false
+    private var building = false, sizeChangedWhileBuilding = false
+    /// Changes on every open and every close: the posted close's target (a rebuild keeps it).
+    private var windowSerial = 0
     private var toggleGuard = PopoverToggleGuard()
-    /// Changes on every open and every close: the open window's identity for async work.
+    /// When a key select last opened it: the shell may report one Enter as a key select and a select, in either order.
+    private var openedByKeyAt: TimeInterval?
+    /// Changes on every open, every close and every page rebuild: the identity of the page async work was started for.
     private(set) var generation = 0
 
     init(host: WinPopoverHost) { self.host = host }
@@ -104,6 +122,7 @@ struct WinPopoverStats {
     var hwndForTesting: HWND? { window?.hwnd }
     var contextForTesting: WinUIContext? { ctx }
     var pageForTesting: WinPopoverPage? { page }
+    var closeSerialForTesting: Int { windowSerial }
 
     // MARK: - opening
 
@@ -111,9 +130,13 @@ struct WinPopoverStats {
     /// A key select while it is open is ignored: the popover has the keyboard, so it cannot be the user's (the shell may
     /// report one key twice).
     func toggle(_ opener: Opener) {
-        if pendingClose { close(.deactivated) }
+        guard settlePendingClose() else { return }
         if window != nil {
             if case .trayKey = opener {
+                stats.duplicateKeySelects += 1
+                return
+            }
+            if let keyAt = openedByKeyAt, clock() - keyAt < PopoverToggleGuard.window {  // the same Enter, reported twice
                 stats.duplicateKeySelects += 1
                 return
             }
@@ -136,7 +159,7 @@ struct WinPopoverStats {
     /// refused one (R2) is seen before anything shows, the window goes, and the host's fallback runs (the tray menu, or the
     /// balloon). The only activation site of the popover (`WindowsSeamScanTests`).
     func present(_ opener: Opener, route: (PopoverState) -> Void) {
-        if pendingClose { close(.deactivated) }
+        guard settlePendingClose() else { return }
         if let open = window {
             _ = SetForegroundWindow(open.hwnd)
             return
@@ -158,8 +181,10 @@ struct WinPopoverStats {
         stats.shows += 1
         if GetForegroundWindow() != hwnd { _ = SetForegroundWindow(hwnd) }
         _ = SetFocus(page.initialFocus ?? hwnd)
+        openedByKeyAt = nil
         if case .trayKey = opener {  // opened from the keyboard: focus rectangles from the start
             WinKit.send(hwnd, 0x0127 /* WM_CHANGEUISTATE */, 0x0003_0002 /* UIS_CLEAR, UISF_HIDEFOCUS | UISF_HIDEACCEL */)
+            openedByKeyAt = clock()
         }
         host.opened()
     }
@@ -191,6 +216,7 @@ struct WinPopoverStats {
         let hwnd = made.hwnd
         window = made
         generation += 1
+        windowSerial += 1
         self.opener = opener
         inputs = found
         stats.opens += 1
@@ -211,9 +237,7 @@ struct WinPopoverStats {
         stats.sessionNotify = ptb_window_session_notify(UnsafeMutableRawPointer(hwnd), 1) == 1
         let context = WinUIContext(dpi: dpi, owner: hwnd)
         ctx = context
-        appearance = Appearance(context)
-        page.build(in: made, ctx: context, client: Self.client(hwnd))
-        self.page = page
+        build(page, in: made, ctx: context)
         return made
     }
 
@@ -240,7 +264,11 @@ struct WinPopoverStats {
             stats.focusReturnAttempts += 1
             if host.returnFocusToTray() { stats.focusReturnedToTray += 1 }
         }
+        if WinModalPump.depth > 0 || Self.inMenuOrMoveLoop() { stats.closesInsideLoop += 1 }  // must stay 0 (M5)
+        if deferring { _ = KillTimer(hwnd, Self.deferTimerID) }
+        deferring = false
         generation += 1
+        windowSerial += 1
         pendingClose = false
         page?.destroy()
         page = nil
@@ -254,7 +282,6 @@ struct WinPopoverStats {
         opener = nil
         inputs = nil
         guardRegion = nil
-        appearance = nil
         if !windowGone { w.destroy() }
         stats.closes += 1
         stats.lastClose = reason
@@ -273,9 +300,50 @@ struct WinPopoverStats {
         pendingClose = true
         stats.lastDeactivationMs = Self.milliseconds()
         let onIcon = cursorOnIcon()
+        // The taskbar is activated on the press; a press still down here is released later (a slow click, M2).
+        let primary = GetSystemMetrics(SM_SWAPBUTTON) != 0 ? VK_RBUTTON : VK_LBUTTON
+        let down = GetAsyncKeyState(Int32(primary)) & Int16(bitPattern: 0x8000) != 0
         stats.lastCursorInAnchor = onIcon
-        toggleGuard.noteClosedByDeactivation(at: clock(), cursorInAnchor: onIcon)
-        _ = PostMessageW(w.hwnd, Self.closeMessage, WPARAM(UInt(bitPattern: generation)), 0)
+        stats.lastButtonDown = down
+        toggleGuard.noteClosedByDeactivation(at: clock(), cursorInAnchor: onIcon, buttonDown: down)
+        _ = PostMessageW(w.hwnd, Self.closeMessage, WPARAM(UInt(bitPattern: windowSerial)), 0)
+    }
+
+    /// The posted close (or its timer): closes, unless a nested loop of the page is running (an edit's context menu, a
+    /// combo box, a scroll-thumb drag, an owned modal dialog that disabled the popover). Tearing the page down then would
+    /// free its views under their own stack frames: the close waits for the loop to end, polled by a 50 ms timer that exists
+    /// only while it waits, and meanwhile the popover leaves the topmost band (it lost the activation).
+    private func closeAfterDeactivation() {
+        guard let w = window, pendingClose else { return }
+        if WinModalPump.depth > 0 || Self.inMenuOrMoveLoop() || !IsWindowEnabled(w.hwnd) {
+            if !deferring {
+                deferring = true
+                stats.deferredCloses += 1
+                _ = SetTimer(w.hwnd, Self.deferTimerID, 50, nil)
+                _ = SetWindowPos(w.hwnd, HWND(bitPattern: -2) /* HWND_NOTOPMOST */, 0, 0, 0, 0, UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))
+            }
+            return
+        }
+        close(.deactivated)
+    }
+
+    /// A close still pending from a deactivation runs first. False: it is waiting for a nested loop of the page, which this
+    /// request arrived inside; the request is dropped (the loop's own window message, nothing the user can see).
+    private func settlePendingClose() -> Bool {
+        guard pendingClose else { return true }
+        closeAfterDeactivation()
+        return !pendingClose
+    }
+
+    /// The popover has the activation again before a waiting close ran (its own dialog closed, the user came back): it stays.
+    private func reactivated() {
+        guard pendingClose, let w = window else { return }
+        pendingClose = false
+        stats.closesCancelled += 1
+        guard deferring else { return }
+        deferring = false
+        _ = KillTimer(w.hwnd, Self.deferTimerID)
+        _ = SetWindowPos(w.hwnd, HWND(bitPattern: -1) /* HWND_TOPMOST */, 0, 0, 0, 0, UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))
     }
 
     private func escape() {
@@ -301,6 +369,10 @@ struct WinPopoverStats {
 
     /// The page's `heightDIP` changed (Settings replaced Home, D2): the window is placed again for the same icon.
     func pageSizeChanged() {
+        if building {  // from inside the page's own build: applied once build returns (no re-entrant layout)
+            sizeChangedWhileBuilding = true
+            return
+        }
         guard let w = window, let page, let ctx, let inputs else { return }
         var fresh = WinPopoverAnchor.inputs(anchor: inputs.anchor, point: inputs.clickPoint, useCursor: false)
         fresh.holder = inputs.holder  // the flyout it opened from, not whatever is under that point now
@@ -331,7 +403,7 @@ struct WinPopoverStats {
 
     private func register(_ w: WinSinkWindow) {
         w.on(0x0006 /* WM_ACTIVATE */) { [weak self] wParam, lParam in
-            if WinKit.loWord(wParam) == 0 /* WA_INACTIVE */ { self?.deactivated(by: HWND(bitPattern: Int(lParam))) }
+            if WinKit.loWord(wParam) == 0 /* WA_INACTIVE */ { self?.deactivated(by: HWND(bitPattern: Int(lParam))) } else { self?.reactivated() }
             return nil
         }
         w.on(0x001C /* WM_ACTIVATEAPP */) { [weak self] wParam, _ in
@@ -340,7 +412,12 @@ struct WinPopoverStats {
         }
         w.on(Self.closeMessage) { [weak self] wParam, _ in
             guard let self else { return 0 }
-            if Int(bitPattern: UInt(wParam)) == generation, pendingClose { close(.deactivated) } else { stats.staleDropped += 1 }
+            if Int(bitPattern: UInt(wParam)) == windowSerial, pendingClose { closeAfterDeactivation() } else { stats.staleDropped += 1 }
+            return 0
+        }
+        w.on(UINT(WM_TIMER)) { [weak self] wParam, _ in
+            guard let self, wParam == WPARAM(Self.deferTimerID) else { return nil }
+            closeAfterDeactivation()
             return 0
         }
         // Escape: `IsDialogMessageW` turns it into IDCANCEL for the popover (the message hook, D5); a key-down for the window
@@ -388,7 +465,7 @@ struct WinPopoverStats {
     /// A scale change while open: the window is placed again at the new DPI and the page rebuilt in place, the navigation
     /// state kept (D2, R6).
     private func dpiChanged(_ dpi: UINT) {
-        guard let w = window, let page, let inputs else { return }
+        guard let w = window, let page, let inputs, let ctx else { return }
         var fresh = WinPopoverAnchor.inputs(anchor: inputs.anchor, point: inputs.clickPoint, useCursor: false)
         fresh.holder = inputs.holder  // the flyout it opened from, not whatever is under that point now
         if let placed = place(fresh, heightDIP: page.heightDIP, dpi: Int(dpi)) {
@@ -396,31 +473,34 @@ struct WinPopoverStats {
             _ = SetWindowPos(w.hwnd, nil, r.left, r.top, r.right - r.left, r.bottom - r.top, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
             note(placed, r)
         }
-        rebuild(dpi: dpi)
+        if ctx.needsRebuild(dpi: dpi) { rebuild(dpi: dpi) } else { page.layout(client: Self.client(w.hwnd)) }
     }
 
-    /// A system setting changed: the page is rebuilt only when what it is drawn with changed (text size, high contrast, the
-    /// accent); a rebuild loses focus, scroll position and an IME composition, so nothing else rebuilds it. A new work area
-    /// (the taskbar moved or changed size) places the window again.
+    /// A system setting changed: the page is rebuilt only when what it is drawn with changed (`WinUIContext.needsRebuild`:
+    /// text size, high contrast, the accent, the system colours the palette reads); a rebuild loses focus, scroll position and
+    /// an IME composition, so nothing else rebuilds it. A new work area (the taskbar moved or changed size) places the window
+    /// again.
     private func settingsChanged(workArea: Bool) {
         guard window != nil, let ctx else { return }
         if workArea { pageSizeChanged() }
-        if Appearance.system() == appearance {
+        guard ctx.needsRebuild() else {
             stats.appearanceUnchanged += 1
             return
         }
         rebuild(dpi: ctx.dpi)
     }
 
+    /// The page again with a new context. `generation` changes first: work the old build started lands nowhere (the page
+    /// asks again in `build`).
     private func rebuild(dpi: UINT) {
         guard let w = window, let page else { return }
         let hadFocus = GetForegroundWindow() == w.hwnd
+        generation += 1
         page.destroy()
         ctx?.destroy()
         let context = WinUIContext(dpi: dpi, owner: w.hwnd)
         ctx = context
-        appearance = Appearance(context)
-        page.build(in: w, ctx: context, client: Self.client(w.hwnd))
+        build(page, in: w, ctx: context)
         stats.rebuilds += 1
         if hadFocus { _ = SetFocus(page.initialFocus ?? w.hwnd) }
     }
@@ -434,6 +514,27 @@ struct WinPopoverStats {
     }
 
     // MARK: - helpers
+
+    /// The page is the popover's before its build runs (a `pageSizeChanged()` from inside it is applied right after).
+    private func build(_ page: WinPopoverPage, in w: WinSinkWindow, ctx context: WinUIContext) {
+        self.page = page
+        building = true
+        page.build(in: w, ctx: context, client: Self.client(w.hwnd))
+        building = false
+        if sizeChangedWhileBuilding {
+            sizeChangedWhileBuilding = false
+            pageSizeChanged()
+        }
+    }
+
+    /// `GUI_INMOVESIZE | GUI_INMENUMODE | GUI_SYSTEMMENUMODE | GUI_POPUPMENUMODE` for this thread: a menu or a move/size loop
+    /// runs on this thread's stack (also one the system starts for a control, like an edit's context menu).
+    static func inMenuOrMoveLoop() -> Bool {
+        var info = GUITHREADINFO()
+        info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+        guard GetGUIThreadInfo(GetCurrentThreadId(), &info) else { return false }
+        return info.flags & 0x1E != 0
+    }
 
     private func place(_ inputs: WinPopoverAnchor.Inputs, heightDIP: CGFloat, dpi: Int?) -> PopoverPlacement.Result? {
         let frame = Self.frame
@@ -497,27 +598,6 @@ struct WinPopoverStats {
         guard let set = WinDynamic.symbol("dwmapi.dll", "DwmSetWindowAttribute", as: Fn.self) else { return false }
         var preference: Int32 = 2  // DWMWCP_ROUND
         return withUnsafePointer(to: &preference) { set(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, $0, 4) } == 0
-    }
-
-    /// What the page is drawn with besides the DPI: rebuilt only when it changes.
-    struct Appearance: Equatable {
-        var textScale: Double, highContrast: Bool, accent: COLORREF?
-
-        @MainActor init(_ ctx: WinUIContext) {
-            textScale = ctx.textScale
-            highContrast = ctx.highContrast
-            accent = WinUIContext.systemAccent()
-        }
-
-        init(textScale: Double, highContrast: Bool, accent: COLORREF?) {
-            self.textScale = textScale
-            self.highContrast = highContrast
-            self.accent = accent
-        }
-
-        @MainActor static func system() -> Appearance {
-            Appearance(textScale: WinUIContext.systemTextScale(), highContrast: WinUIContext.systemHighContrast(), accent: WinUIContext.systemAccent())
-        }
     }
 }
 
