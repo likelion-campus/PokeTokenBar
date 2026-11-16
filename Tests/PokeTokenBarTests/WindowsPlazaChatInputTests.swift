@@ -17,13 +17,18 @@ import XCTest
     @MainActor final class FakeIME {
         var composition = "", result = "", finishes: [Bool] = []
         var inline = false, deferred = false
-        /// What the runner's real Korean IME did: the syllable already in the text ends with WM_IME_ENDCOMPOSITION and no result report.
-        var endWithoutResult = false
+        /// Finishing sends only WM_IME_ENDCOMPOSITION, no result: the test delivers the syllable later (or never).
+        var endOnly = false
+        /// With `endOnly`: the end takes the shown syllable out of the text (the EDIT drops a composition no result replaced), so the
+        /// syllable typed back later lands at the caret: what made '🍜하' on the runner.
+        var endRemovesSyllable = false
     }
 
     @MainActor private struct Rig {
-        let input: WinPlazaChatInput, box: Box, ime: FakeIME, parent: WinSinkWindow, edit: HWND
+        let input: WinPlazaChatInput, box: Box, ime: FakeIME, parent: WinSinkWindow, edit: HWND, shown: Shown
     }
+    /// Where the inline syllable sits in the text (UTF-16), for the fake end that takes it out.
+    @MainActor final class Shown { var syllable: Range<Int>? }
 
     private var parents: [WinSinkWindow] = []
     private var inputs: [WinPlazaChatInput] = []
@@ -54,11 +59,20 @@ import XCTest
         let edit = try XCTUnwrap(input.editHWND, "the field was not made")
         input.report(size: CGSize(width: 640, height: 400), scale: 1)
         let ime = FakeIME()
+        let r0 = Shown()
         input.ime = .init(composition: { _ in ime.composition }, result: { _ in ime.result }, finish: { h, cancel in
             ime.finishes.append(cancel)
             if ime.deferred { return }
             let text = ime.composition
             ime.composition = ""
+            if ime.endOnly {
+                if ime.endRemovesSyllable, let s = r0.syllable {
+                    _ = SendMessageW(h, 0x00B1, WPARAM(s.lowerBound), LPARAM(s.upperBound))
+                    _ = WinStr.w("").withUnsafeBufferPointer { SendMessageW(h, 0x00C2 /* EM_REPLACESEL */, 0, LPARAM(Int(bitPattern: $0.baseAddress))) }
+                }
+                _ = SendMessageW(h, 0x010E, 0, 0)
+                return
+            }
             if !cancel, !text.isEmpty {
                 ime.result = text
                 if !ime.endWithoutResult { _ = SendMessageW(h, 0x010F, 0, 0x800) }   // WM_IME_COMPOSITION, GCS_RESULTSTR
@@ -73,7 +87,7 @@ import XCTest
         input.onSubmit = { box.sent.append($0); return box.accept }
         input.onClose = { box.closes += 1 }
         if open { input.open() }
-        return Rig(input: input, box: box, ime: ime, parent: parent, edit: edit)
+        return Rig(input: input, box: box, ime: ime, parent: parent, edit: edit, shown: r0)
     }
 
     private func type(_ r: Rig, _ text: String) {
@@ -226,11 +240,13 @@ import XCTest
 
     /// The real IME's way (plaza.chatRealIME found '🍜하'): the field shows the syllable with its caret at the syllable's start, and the end
     /// may come after the finish request returns. The emoji still goes after the syllable.
-    private func inlineSyllable(_ r: Rig) {
+    private func inlineSyllable(_ r: Rig, caretAfter: Bool = false) {
         compose(r, ["가"])          // START at 0, then the composition string
         type(r, "가")               // what the EDIT shows in place
-        _ = SendMessageW(r.edit, 0x00B1, 0, 0)   // its caret at the syllable's start
+        let c: WPARAM = caretAfter ? 1 : 0   // its caret at the syllable's start, or after it (the runner's EDIT)
+        _ = SendMessageW(r.edit, 0x00B1, c, LPARAM(c))
         r.ime.inline = true
+        r.shown.syllable = 0..<1
     }
 
     func testAnEmojiOverAnInlineSyllableGoesAfterIt() async throws {
@@ -240,17 +256,47 @@ import XCTest
         XCTAssertEqual(r.input.text, "가😀")
     }
 
-    /// The real IME's sequence on the runner (plaza.chatRealIME found '🍜하' even after the first fix): the syllable shown in place ends with no
-    /// result report, so the composition messages never say where it ended; the field's own text does.
-    func testAnEmojiGoesAfterASyllableThatEndsWithoutAResultReport() async throws {
-        let r = try rig()
-        inlineSyllable(r)
-        r.ime.endWithoutResult = true
-        r.input.insert("😀")
-        XCTAssertEqual(r.input.text, "가😀", r.input.lastEditTrace)
+    /// The sequence that gave '🍜하' on the runner: the end takes the shown syllable out of the text and the syllable comes back later, typed
+    /// at the caret. The emoji waits for it and goes after it.
+    func testAnEmojiWaitsForASyllableTheEndTookOut() async throws {
+        for caretAfter in [false, true] {
+            let r = try rig()
+            inlineSyllable(r, caretAfter: caretAfter)
+            r.ime.endOnly = true
+            r.ime.endRemovesSyllable = true
+            r.input.insert("😀")
+            XCTAssertEqual(r.input.text, "", "the emoji waits while the syllable is out (\(r.input.lastEditTrace))")
+            type(r, "가")   // the result, delivered after the finish request returned
+            XCTAssertEqual(r.input.text, "가😀", r.input.lastEditTrace)
+            r.input.insert("🔥")
+            XCTAssertEqual(r.input.text, "가😀🔥", "nothing waits once the syllable is done")
+        }
         XCTAssertEqual(WinPlazaChatInput.syllableEnd(Array("ab가c".utf16), Array("가".utf16), caret: 2), 3, "caret at its start")
         XCTAssertEqual(WinPlazaChatInput.syllableEnd(Array("ab가c".utf16), Array("가".utf16), caret: 3), 3, "caret after it")
         XCTAssertNil(WinPlazaChatInput.syllableEnd(Array("abc".utf16), Array("가".utf16), caret: 1), "not shown in the text")
+    }
+
+    /// The end leaves the syllable in the text and the result report comes later: the emoji waits for the report.
+    func testAnEmojiWaitsForALateResultReport() async throws {
+        let r = try rig()
+        inlineSyllable(r, caretAfter: true)
+        r.ime.endOnly = true
+        r.input.insert("😀")
+        XCTAssertEqual(r.input.text, "가", r.input.lastEditTrace)
+        r.ime.result = "가"
+        _ = SendMessageW(r.edit, 0x010F, 0, 0x800)
+        XCTAssertEqual(r.input.text, "가😀", r.input.lastEditTrace)
+    }
+
+    /// An IME that ends with no report at all: the emoji is not lost, it goes after the syllable a moment later.
+    func testAnEmojiIsNotLostWhenTheIMENeverReports() async throws {
+        let r = try rig()
+        inlineSyllable(r)
+        r.ime.endOnly = true
+        r.input.insert("😀")
+        XCTAssertEqual(r.input.text, "가")
+        for _ in 0..<40 where r.input.text == "가" { try await Task.sleep(nanoseconds: 50_000_000) }
+        XCTAssertEqual(r.input.text, "가😀", r.input.lastEditTrace)
     }
 
     func testAnEmojiWaitsForALateEndOfTheSyllable() async throws {
@@ -359,7 +405,10 @@ import XCTest
             (.keepCompositionOnClose, { [self] in
                 let r = try rig(); compose(r, ["ㄱ"]); key(r, 0x1B); return r.ime.finishes == [true] }),
             (.insertOverComposition, { [self] in
-                let r = try rig(); inlineSyllable(r); r.ime.endWithoutResult = true; r.input.insert("😀"); return r.input.text == "가😀" }),
+                let r = try rig(); inlineSyllable(r); r.input.insert("😀"); return r.input.text == "가😀" }),
+            (.editBeforeResult, { [self] in
+                let r = try rig(); inlineSyllable(r, caretAfter: true); r.ime.endOnly = true; r.ime.endRemovesSyllable = true
+                r.input.insert("😀"); type(r, "가"); return r.input.text == "가😀" }),
             (.keepHiddenAcrossWindows, { [self] in try await barDrawsAfterAHiddenClose() }),
             (.cutSplitsSurrogates, { [self] in
                 let r = try rig(); type(r, String(repeating: "a", count: TeamChat.maxCharacters - 1)); type(r, "👨‍👩‍👧")

@@ -1163,7 +1163,8 @@ extension WindowsSelftest {
                 let cell = chat.bar.gridCells[i]
                 chatClick(shell, hwnd, at: CGPoint(x: grown.minX + cell.midX, y: grown.minY + cell.midY))
             }
-            await chatPump(0.4)
+            _ = await waitUntil(timeout: 1.5) { chat.text.contains("🍜") && chat.text.contains("하") }
+            await chatPump(0.3)
             let text = chat.text, left = comp(e)
             ok = ok && text == "하🍜" && left.isEmpty
             parts.append("gk \(during) + 🍜: \(q(text)) composition left \(q(left)) [\(chat.lastEditTrace)]")

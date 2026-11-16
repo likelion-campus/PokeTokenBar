@@ -19,6 +19,8 @@ import WinSDK
         case keepCompositionOnClose
         /// A click on the bar's emoji grid does not finish the syllable first.
         case insertOverComposition
+        /// An edit over a syllable shown in the field goes in as soon as the finish request returns, before the IME has put the syllable back.
+        case editBeforeResult
         /// A field attached to a new window keeps the old window's "hidden" (its bar never draws after a close while hidden).
         case keepHiddenAcrossWindows
         /// The cut runs while a character is still missing its second UTF-16 half.
@@ -111,6 +113,16 @@ import WinSDK
     private var lastCommitEnd: Int?
     /// What the last edit over a composition saw and did (the selftest prints it).
     private(set) var lastEditTrace = ""
+    /// Edits over a syllable the field showed in place, waiting for the IME to commit it: the field's text back to `before` (the syllable now
+    /// committed) after the IME reported a result or took the syllable out of the text. `end`: where the syllable ends in `before`.
+    private struct PendingEdit {
+        let before: [UInt16], end: Int, token: Int
+        var edits: [() -> Void]
+        var sawResult = false, sawRemoval = false
+        var seen: [String] = []
+    }
+    private var pendingEdit: PendingEdit?
+    private var pendingToken = 0, finishingEdit = false
     private var captured = false
     private static var fontLoaded: Bool?
     private let graphics: any PlazaGraphics
@@ -169,6 +181,7 @@ import WinSDK
             bar.isOpen = false
         }
         if madeParts?.hud.host === self { madeParts?.hud.host = nil }
+        pendingEdit = nil
         if let e = editRaw { ptb_chat_edit_destroy(e) }
         editRaw = nil
         retained?.release()
@@ -318,29 +331,92 @@ import WinSDK
     }
 
     /// An edit at the caret (an emoji, a paste, a word delete) over a syllable being composed: the syllable is finished first and the edit
-    /// goes AFTER it, as the Mac's `unmarkText` leaves the caret. With the real IME the field's caret sits at the composition's start and
-    /// TSF may deliver the end after `ImmNotifyIME` returns: the edit then waits for WM_IME_ENDCOMPOSITION (plaza.chatRealIME: 하 + 🍜).
+    /// goes AFTER it, as the Mac's `unmarkText` leaves the caret. The real IME's finish is not done when `ImmNotifyIME` returns (the
+    /// syllable can leave the text and come back later at the caret): an edit over a syllable the field shows waits for it to be back
+    /// (plaza.chatRealIME: 하 + 🍜).
     private func editAfterComposition(_ h: HWND, _ edit: @escaping () -> Void) {
+        if pendingEdit != nil { pendingEdit?.edits.append(edit); counts.editsDeferred += 1; return }   // keeps the order of quick picks
         guard isComposing, !WinChatFaults.has(.insertOverComposition) else { edit(); return }
-        // Where the syllable ends, read from the field itself: the EDIT shows it in place, with its caret at the syllable's start (or after
-        // it); the composition messages are only the fallback (the real IME's end did not move our record past the syllable).
         let shown = ime.composition(h)
         let caret = selection.start
-        let inText = Self.syllableEnd(units(h), Array(shown.utf16), caret: caret)
-        let byRecord = composition.map { $0.start + $0.text.utf16.count }
-        lastCommitEnd = nil
-        finish(h, cancel: false)
-        let late = isComposing
-        let at = inText ?? byRecord ?? lastCommitEnd
-        lastEditTrace = "composing \(shown.debugDescription) caret \(caret) syllable end in the text \(inText.map(String.init) ?? "-") by the record "
-            + "\(byRecord.map(String.init) ?? "-") by the end message \(lastCommitEnd.map(String.init) ?? "-") -> \(at.map(String.init) ?? "caret")\(late ? ", end came later" : "")"
-        if late {
-            afterComposition.append((at, edit))
-            counts.editsDeferred += 1
+        let before = units(h)
+        guard let end = Self.syllableEnd(before, Array(shown.utf16), caret: caret) else {
+            // An IME that shows the syllable in a window of its own: finishing types it at the caret; the composition messages say where.
+            let byRecord = composition.map { $0.start + $0.text.utf16.count }
+            lastCommitEnd = nil
+            finish(h, cancel: false)
+            let at = byRecord ?? lastCommitEnd
+            lastEditTrace = "composing \(shown.debugDescription) not in the text; by the record \(at.map(String.init) ?? "-")"
+            if isComposing {
+                afterComposition.append((at, edit))
+                counts.editsDeferred += 1
+                return
+            }
+            if let at = lastCommitEnd ?? at { _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(at), LPARAM(at)) }
+            edit()
             return
         }
-        if let at { _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(at), LPARAM(at)) }
-        edit()
+        // The EDIT shows the syllable in its text (the real Korean IME). Its end can take the syllable out of the text and type it back
+        // later, at the caret (plaza.chatRealIME: '🍜하' twice): the edit waits until the field shows the committed syllable again.
+        pendingToken += 1
+        let token = pendingToken
+        pendingEdit = PendingEdit(before: before, end: end, token: token, edits: [edit])
+        finishingEdit = true
+        finish(h, cancel: false)
+        finishingEdit = false
+        let now = units(h)
+        lastEditTrace = "composing \(shown.debugDescription) caret \(caret), syllable ends at \(end); after the finish request: text "
+            + "\(String(decoding: now, as: UTF16.self).debugDescription) composing=\(isComposing) seen \(pendingEdit?.seen ?? [])"
+        if WinChatFaults.has(.editBeforeResult) { runPendingEdit(h, why: "at once"); return }
+        if runPendingEditIfDue(h) { return }
+        counts.editsDeferred += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in   // an IME that never reports: the edit is not lost
+            MainActor.assumeIsolated { () -> Void in
+                guard let self, self.pendingEdit?.token == token, let h = self.editHWND else { return }
+                self.runPendingEdit(h, why: "after 0.3 s")
+            }
+        }
+    }
+
+    /// A message to the field while an edit waits: what the IME delivered (the selftest prints the sequence).
+    private func notePending(_ m: UInt32, _ w: UInt64, _ l: Int64) {
+        guard pendingEdit != nil else { return }
+        let u = String(UInt32(truncatingIfNeeded: w), radix: 16)
+        switch m {
+        case 0x010F:
+            if UInt32(truncatingIfNeeded: l) & 0x800 != 0 { pendingEdit?.sawResult = true }
+            note("comp 0x\(String(UInt32(truncatingIfNeeded: l), radix: 16))")
+        case 0x010E: note("end")
+        case 0x010D: note("start")
+        case 0x0286: pendingEdit?.sawResult = true; note("imechar \(u)")
+        case 0x0102: pendingEdit?.sawResult = true; note("char \(u)")
+        default: break
+        }
+    }
+
+    private func note(_ s: String) {
+        if (pendingEdit?.seen.count ?? 99) < 16 { pendingEdit?.seen.append(s) }
+    }
+
+    /// Runs the waiting edits once the IME is done: no composition, the field's text back to what it showed (the syllable committed in
+    /// place), after a result or after the syllable left the text.
+    private func runPendingEditIfDue(_ h: HWND) -> Bool {
+        guard let p = pendingEdit else { return false }
+        let now = units(h)
+        if now != p.before { pendingEdit?.sawRemoval = true }
+        guard !isComposing, now == p.before, p.sawResult || pendingEdit?.sawRemoval == true else { return false }
+        runPendingEdit(h, why: "when the syllable was back")
+        return true
+    }
+
+    private func runPendingEdit(_ h: HWND, why: String) {
+        guard let p = pendingEdit else { return }
+        pendingEdit = nil
+        let now = units(h)
+        let at = now == p.before ? p.end : selection.start   // after the syllable; or where the IME left the caret (it typed something else)
+        _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(at), LPARAM(at))
+        lastEditTrace += "; \(why): seen \(p.seen), text \(String(decoding: now, as: UTF16.self).debugDescription) -> at \(at)"
+        for e in p.edits { e() }
     }
 
     /// The end (UTF-16) of `syllable` shown in `text` at the caret: right after the caret (the EDIT's caret sits at a composition's start) or
@@ -397,6 +473,7 @@ import WinSDK
         guard let h = editHWND else { return }
         if !ime.composition(h).isEmpty, !WinChatFaults.has(.keepCompositionOnClose) { finish(h, cancel: true) }
         afterComposition = []   // nothing waits on a line that is being emptied
+        pendingEdit = nil
         applyingLimit = true
         setText(h, "")
         applyingLimit = false
@@ -415,10 +492,14 @@ import WinSDK
 
     fileprivate func message(_ m: UInt32, _ w: UInt64, _ l: Int64, _ handled: UnsafeMutablePointer<Int32>?) -> Int64 {
         handled?.pointee = 1
+        if pendingEdit != nil { notePending(m, w, l) }
         depth += 1
         let r = handle(m, w, l)
         depth -= 1
-        if depth == 0 { applyLimitIfDue() }
+        if depth == 0 {
+            if pendingEdit != nil, !finishingEdit, let h = editHWND { _ = runPendingEditIfDue(h) }
+            applyLimitIfDue()
+        }
         return r
     }
 
