@@ -627,7 +627,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         await pause(1.5)   // no dialog to wait for: the flow runs from the posted click
         hybrid.scriptedSave = nil
         let written = (try? SaveTransfer.decode(Data(contentsOf: target))).map { SaveSummary(state: $0.state) }
-        let revealedOK = hybrid.revealed.map { WinPath.native($0).lowercased() } == [WinPath.native(target).lowercased()]
+        let revealedOK = hybrid.revealed.count == 1 && hybrid.revealed[0].lastPathComponent == target.lastPathComponent
         let exportDone = hybrid.informs.isEmpty
         // 2. Another state on this PC, then import the exported file through the real open dialog and the real confirmation
         //    (Replace pressed) and the real "done" dialog (Close pressed).
@@ -649,7 +649,7 @@ final class TransferDialogDriver: @unchecked Sendable {
               rowOK(export, 0) && written == exported && revealedOK && exportDone && rowOK(importing, 2) && other != exported && after == exported
                 && !backups.isEmpty && doneText == expectedDone && section.applied == 1,
               "folder '\(work.lastPathComponent)' (a space and Korean): real save dialog with a typed path (informational): accepted=\(typedFile) \(typed.facts.map { $0.note }); export through the real flow (path chosen by script) -> file decodes to \(String(describing: written)) (expected \(exported)), "
-                + "Explorer asked to select it=\(revealedOK), no error shown=\(exportDone); the PC then held \(other); import through the real open dialog + confirmation (Replace) + done dialog -> \(after) "
+                + "Explorer asked to select it=\(revealedOK) (\(hybrid.revealed.map { WinPath.native($0) })), no error shown=\(exportDone); the PC then held \(other); import through the real open dialog + confirmation (Replace) + done dialog -> \(after) "
                 + "(expected \(exported)), backup files \(backups.count), done text matches=\(doneText == expectedDone), imports applied \(section.applied); "
                 + "confirmation buttons \(confirmShown?.buttons ?? []) default \(confirmShown?.defaultIndex ?? -1); steps \(export.facts.map { $0.note } + importing.facts.map { $0.note })")
         close()
