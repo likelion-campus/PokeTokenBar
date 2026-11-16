@@ -55,6 +55,8 @@ function makeSheet(name) {
       // Like real Sheets: a range past the grid throws (a new tab has 1000 rows).
       if (row + nr - 1 > sheet._maxRows) throw new Error("fake getRange: coordinates outside the dimensions");
       return {
+        _a1: { row, col, numRows: nr, numCols: nc },
+        setFontWeight() { return this; },
         getValues() {
           const out = [];
           for (let r = 0; r < nr; r++) {
@@ -73,9 +75,10 @@ function makeSheet(name) {
             while (sheet._rows.length <= row - 1 + r) sheet._rows.push([]);
             line.forEach((v, c) => { sheet._rows[row - 1 + r][col - 1 + c] = v; });
           });
+          return this;
         },
-        setValue(v) { this.setValues([[v]]); },
-        setNumberFormat(f) { for (let c = 0; c < nc; c++) sheet._formats[col + c] = f; },
+        setValue(v) { return this.setValues([[v]]); },
+        setNumberFormat(f) { for (let c = 0; c < nc; c++) sheet._formats[col + c] = f; return this; },
         clearContent() {
           for (let r = 0; r < nr; r++) for (let c = 0; c < nc; c++) {
             if (sheet._rows[row - 1 + r]) sheet._rows[row - 1 + r][col - 1 + c] = "";
@@ -141,6 +144,7 @@ function makeFakes(opts) {
       },
     },
     Session: { getScriptTimeZone: () => tz },
+    Charts: { ChartType: { BAR: "BAR" } },
   };
 }
 
