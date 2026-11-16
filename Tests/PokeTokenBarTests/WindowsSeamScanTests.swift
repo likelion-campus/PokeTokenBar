@@ -341,7 +341,7 @@ final class WindowsSeamScanTests: XCTestCase {
     /// merge that restores the plain call would bring back the UNC defect on Windows: this fails then.
     static let pathSeamSites: [(file: String, line: String)] = [
         ("Core/LocalUsageReader.swift", "let path = PlatformCompat.resolvedFileURL(root).path"),
-        ("Core/CustomScanRoots.swift", "PlatformCompat.resolvedFileURL(url).path.lowercased()"),
+        ("Core/CustomScanRoots.swift", "PlatformCompat.resolvedPath(url).lowercased()"),
         ("Core/LocalAsideUsageReader.swift", "let db = PlatformCompat.resolvedFileURL(directory.appendingPathComponent(\"state.db\"))"),
         ("Core/ClaudeAccountRoots.swift", "let url = PlatformCompat.standardizedDirectoryURL(expanded)"),
     ]

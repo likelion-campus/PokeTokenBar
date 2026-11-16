@@ -205,6 +205,26 @@ enum PlatformCompat {
         #endif
     }
 
+    /// `url.resolvingSymlinksInPath().standardizedFileURL.path`: the string scan roots are compared by
+    /// (`CustomScanRoots.normalizedPath`: is a custom folder one of the defaults, or an ancestor of one). Mac: exactly that.
+    /// Windows: `resolvedFileURL`'s path without a drive root's trailing slash (`C:/` → `C:`): the ancestor test appends "/"
+    /// (`c:/` + "/" never prefixes `c:/users/…`), so `C:\` was kept beside the defaults it contains and scanned with them —
+    /// the Mac drops `/` the same way (#162-B). Only compared, never turned back into a URL (`C:` alone means a drive's
+    /// current folder).
+    static func resolvedPath(_ url: URL) -> String {
+        #if os(Windows)
+        return windowsComparablePath(resolvedFileURL(url).path)
+        #else
+        return url.resolvingSymlinksInPath().standardizedFileURL.path
+        #endif
+    }
+
+    /// `C:/` → `C:` (a drive root without its slash); every other path as it is. Pure, so both systems test it.
+    static func windowsComparablePath(_ path: String) -> String {
+        let u = Array(path)
+        return u.count == 3 && u[0].isLetter && u[1] == ":" && (u[2] == "/" || u[2] == "\\") ? String(u[0...1]) : path
+    }
+
     /// What `GetFinalPathNameByHandleW` answers, in the form shared code keeps paths in: `\\?\UNC\server\share\x` →
     /// `//server/share/x`, `\\?\C:\x` → `C:/x`, `\\?\C:\` → `C:/`; anything else with its backslashes turned into slashes.
     /// Pure, so both systems test it.

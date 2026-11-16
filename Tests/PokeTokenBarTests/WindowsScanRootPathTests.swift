@@ -104,6 +104,34 @@ final class WindowsScanRootPathTests: XCTestCase {
         XCTAssertEqual(url.path, slashed)
     }
 
+    /// How swift-foundation lists a share's files, spelling by spelling (a record for the defect log; asserts nothing).
+    func testHowAShareIsEnumerated() throws {
+        let share = try require(unc("plain"), "administrative share")
+        try Data("{}\n".utf8).write(to: root.appendingPathComponent("plain/a.jsonl"))
+        let fm = FileManager.default
+        let device = "\\\\?\\UNC\\" + share.dropFirst(2)
+        var forms = [("local", native("plain")), ("unc", share), ("slashes", share.replacingOccurrences(of: "\\", with: "/")), ("device", device)]
+        if let mapped = mappedDrive("plain") { forms.append(("mapped", mapped)) }
+        for (name, path) in forms {
+            let url = URL(fileURLWithPath: path)
+            var withKeys: [String] = [], plain: [String] = []
+            if let en = fm.enumerator(at: url, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey], options: [.skipsHiddenFiles]) {
+                for case let u as URL in en { withKeys.append(u.path) }
+            }
+            if let en = fm.enumerator(at: url, includingPropertiesForKeys: nil) { for case let u as URL in en { plain.append(u.path) } }
+            let byPath = (fm.enumerator(atPath: path)?.allObjects as? [String]) ?? []
+            let listed = ((try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []).map(\.path)
+            let file = url.appendingPathComponent("a.jsonl")
+            let date: String
+            do { date = "\(try file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate.map { "\($0)" } ?? "nil")" }
+            catch { date = "error \(error)" }
+            print("ENUM-PROBE|\(name)|path=\(path)|URL.path=\(url.path)|exists=\(fm.fileExists(atPath: url.path))|enumerator(at:keys)=\(withKeys)"
+                  + "|enumerator(at:)=\(plain)|enumerator(atPath:)=\(byPath)|contents(at:)=\(listed)|file.mtime=\(date)"
+                  + "|jsonlFiles=\(LocalUsageReader.jsonlFiles(in: url, modifiedSince: .distantPast).map(\.path))"
+                  + "|resolved=\(PlatformCompat.resolvedFileURL(url).path)")
+        }
+    }
+
     /// The P19 trigger: a UNC folder in the custom scan folders is found (it used to be looked up as `\server\share\…` on the
     /// current drive and count 0).
     func testAUNCScanFolderIsFound() throws {

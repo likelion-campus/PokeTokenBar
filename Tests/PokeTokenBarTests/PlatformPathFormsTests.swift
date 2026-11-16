@@ -68,6 +68,14 @@ final class PlatformPathFormsTests: XCTestCase {
         XCTAssertEqual(PlatformCompat.windowsStandardizedUNC("//server/share/한글 폴더/a b"), "//server/share/한글 폴더/a b")
     }
 
+    func testADriveRootIsComparedWithoutItsSlash() {
+        XCTAssertEqual(PlatformCompat.windowsComparablePath("C:/"), "C:", "so `c:` + \"/\" prefixes everything on the drive")
+        XCTAssertEqual(PlatformCompat.windowsComparablePath(#"D:\"#), "D:")
+        XCTAssertEqual(PlatformCompat.windowsComparablePath("C:/x"), "C:/x")
+        XCTAssertEqual(PlatformCompat.windowsComparablePath("//server/share"), "//server/share")
+        XCTAssertEqual(PlatformCompat.windowsComparablePath("/"), "/")
+    }
+
     /// What Windows reports as a final path (`GetFinalPathNameByHandleW`) in the form shared code keeps: a share — typed, mapped to
     /// a drive, or behind a link — comes back as `\\?\UNC\…`, which swift-foundation turned into a path relative to the current folder.
     func testAFinalPathComesBackInTheSharedForm() {
@@ -93,6 +101,9 @@ final class PlatformPathFormsTests: XCTestCase {
             XCTAssertEqual(PlatformCompat.resolvedFileURL(url), url.resolvingSymlinksInPath().standardizedFileURL, url.path)
         }
         XCTAssertEqual(PlatformCompat.resolvedFileURL(dir.appendingPathComponent("link/inner")).path, real.resolvingSymlinksInPath().path, "links resolved")
+        for url in [dir.appendingPathComponent("link/inner"), dir.appendingPathComponent("real/./inner/../inner/"), URL(fileURLWithPath: "/")] {
+            XCTAssertEqual(PlatformCompat.resolvedPath(url), url.resolvingSymlinksInPath().standardizedFileURL.path, url.path)
+        }
         for path in [dir.path + "/real/./inner/..", dir.path + "/link", "/tmp/../x", "//server/share/x"] {
             XCTAssertEqual(PlatformCompat.standardizedDirectoryURL(path), URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL, path)
         }
