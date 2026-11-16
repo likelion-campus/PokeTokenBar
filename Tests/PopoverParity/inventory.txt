@@ -89,33 +89,33 @@ B2 | 3 | pending T19 | UI/BagView.swift | Bag item cards: icon, ×count, candy s
 R1 | 2 | pending T13 | UI/UsageRecapView.swift | Recap page: Back (Esc), week/month/year segments, previous / current / next period
 R2 | 2 | pending T13 | UI/UsageRecapView.swift | Recap card: Pokédex shell, lens, LEDs, period title, LCD total, unit, delta chip, 8-block meters with labels (current highlighted, tooltips, accessibility), best day / best streak / active days / graduates, the companion and up to 4 graduates
 R3 | 2 | pending T13 | UI/UsageRecapView.swift | Best-day line, "compared so far" note; backfill of Pokédex names
-G0 | 1 | pending T6 | UI/SettingsView.swift | Settings page: Back (Esc) + title, scrolling body, the section card look (uppercase caption, rows, dividers), footer version · GitHub · website · ♥ sponsor
-G1 | 1 | pending T6 | UI/SettingsView.swift | General: language picker (companion and store both follow)
+G0 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Settings page: Back (Esc) + title, scrolling body, the section card look (uppercase caption, rows, dividers), footer version · GitHub · website · ♥ sponsor
+G1 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: language picker (companion and store both follow)
 G2 | 3 | pending T20 | UI/SettingsView.swift | General: representative Pokémon menu (follow current / choose from the Pokédex)
-G3 | 1 | pending T6 | UI/SettingsView.swift | General: refresh interval picker
+G3 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: refresh interval picker
 G4 | 3 | pending T22 | UI/SettingsView.swift | General: animation quality (menu bar sprite and floating pet); not shown until the pet exists (P16)
-G5 | 1 | pending T6 | UI/SettingsView.swift | General: limit display used / remaining
+G5 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: limit display used / remaining
 G6 | 2 | pending T12 | UI/SettingsView.swift | General: daily trend period picker
 G7 | 2 | pending T14 | UI/SettingsView.swift | General: tracked Claude account (two or more accounts): automatic, highest, each account
-G8 | 1 | pending T6 | UI/SettingsView.swift | General: launch at login (Mac hints "bundled only" / approval / error; Windows: WindowsLoginItem, "disabled in Task Manager")
+G8 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: launch at login (Mac hints "bundled only" / approval / error; Windows: WindowsLoginItem, "disabled in Task Manager")
 G9 | 2 | pending T15 | UI/DifficultySettingsSection.swift | Difficulty: growth and shop sliders, value text, low/high labels, Save when changed
 G10 | - | n/a: a tray icon shows no text (P17, ruling 6) | UI/SettingsView.swift | Menu bar group: today's tokens, cost, growth %, limit %, limit colour mode + "all off" hint
-G11 | 1 | pending T6 | UI/SettingsView.swift | Tracked providers: one switch per registered provider + hint
+G11 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Tracked providers: one switch per registered provider + hint
 G12 | 3 | pending T22 | UI/SettingsView.swift | Floating pet group: enable, size slider, bubble alerts, agent activity
-G12b | 1 | pending T6 | UI/SettingsView.swift | Back view switch (in the pet group on the Mac; applies to the popover sprite and the tray icon too; Windows shows it in General)
-G13 | 1 | pending T6 | Team/UI/TeamSettingsSection.swift | Team section card (Korean only): enable switch
-G13c | 1 | pending T6 | Team/UI/TeamSettingsSection.swift | Team: masked code + Copy + Leave
-G13n | 1 | pending T6 | Team/UI/TeamSettingsSection.swift | Team: team name field (commit on Enter / page close, only when valid)
-G13s | 1 | pending T6 | Team/UI/TeamSettingsSection.swift | Team: switch menu (saved teams, step out), saved teams with "enter"
-G13j | 1 | pending T6 | Team/UI/TeamSettingsSection.swift | Team: create, join with a code (invalid-code error; opens the plaza when ready, else after the nickname)
-G13k | 1 | pending T6 | Team/UI/TeamSettingsSection.swift | Team: nickname field (commit on Enter / focus loss / page close, invalid error)
-G13t | 1 | pending T6 | Team/UI/TeamSettingsSection.swift | Team: notifications switch
-G13h | 1 | pending T6 | Team/UI/TeamSettingsSection.swift | Team: core time (start 1-22, end start+1-23) and season pickers, caption (default or "changed by X on date")
-G13w | 1 | pending T6 | Team/UI/TeamSettingsSection.swift | Team: incompatible-peer warning
-G14 | 1 | pending T6 | UI/SettingsView.swift | Notifications: limit alerts, warning and critical sliders with %
-G14c | 1 | pending T6 | UI/SettingsView.swift | Notifications: companion alerts
-G14s | 1 | pending T6 | UI/SettingsView.swift | Notifications: provider status checks + hint
-G15 | 1 | pending T6 | UI/SettingsView.swift | Updates: notifications switch, Check now (spinner; forced), offer / skipped (show again, update) / up to date
+G12b | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Back view switch (in the pet group on the Mac; applies to the popover sprite and the tray icon too; Windows shows it in General)
+G13 | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team section card (Korean only): enable switch
+G13c | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: masked code + Copy + Leave
+G13n | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: team name field (commit on Enter / page close, only when valid)
+G13s | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: switch menu (saved teams, step out), saved teams with "enter"
+G13j | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: create, join with a code (invalid-code error; opens the plaza when ready, else after the nickname)
+G13k | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: nickname field (commit on Enter / focus loss / page close, invalid error)
+G13t | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: notifications switch
+G13h | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: core time (start 1-22, end start+1-23) and season pickers, caption (default or "changed by X on date")
+G13w | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: incompatible-peer warning
+G14 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Notifications: limit alerts, warning and critical sliders with %
+G14c | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Notifications: companion alerts
+G14s | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Notifications: provider status checks + hint
+G15 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Updates: notifications switch, Check now (spinner; forced), offer / skipped (show again, update) / up to date
 G16 | 2 | pending T15 | UI/SettingsView.swift | Backup & transfer: export (save dialog, reveal, error alert), import (open dialog, decode, confirm with both summaries, Cancel default, apply, done/error), create snapshot (+alert), snapshot history disclosure with rows (28 pt sprite, date, dex + tokens, Restore → confirm → done/error)
 G17 | 2 | pending T14 | UI/SettingsView.swift | Advanced disclosure (opens expanded, scrolled and focused from a session-key notice; collapse commits the scan folders)
 G17k | 2 | pending T14 | UI/SettingsView.swift | Advanced: claude.ai session key (badge expired/saved, hint, masked field, Save validating, Delete, organisation picker when more than one, error or storage note; organisations refreshed on expand). The Mac stores it as a plaintext owner-only file (SessionKeyStore, 0600), not in the Keychain; Windows encrypts it with DPAPI (ruling 5), so the storage note is replaced
@@ -125,8 +125,8 @@ G17r | 2 | pending T14 | UI/SettingsView.swift | Advanced: refresh limit token +
 G17c | 2 | pending T14 | UI/SettingsView.swift | Advanced: additional Claude folders (detected list, field, found count; commit on Enter / focus loss / close)
 G17s | 2 | pending T14 | UI/SettingsView.swift | Advanced: custom scan roots (provider picker, field, match count debounced off-main; commit on provider change, focus loss, collapse, close). Correction to P19: mixed separators already work (PlatformCompat.splitRoot turns backslashes into slashes); a UNC root \\server\share\x is broken, not only untested: splitRoot gives base "" and the split drops the leading empty parts, so it is searched as \server\share\x on the current drive and counts 0
 G17n | 2 | pending T14 | UI/SettingsView.swift | Advanced: aggregation note
-G18 | 1 | pending T6 | UI/SettingsView.swift | About & support: report a problem (mail with version and OS; fallback address, selectable)
-G18l | 1 | pending T6 | UI/SettingsView.swift | About & support: show the log file (Finder on the Mac; Explorer /select, on Windows)
+G18 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | About & support: report a problem (mail with version and OS; fallback address, selectable)
+G18l | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | About & support: show the log file (Finder on the Mac; Explorer /select, on Windows)
 F1 | 3 | pending T22 | UI/FloatingPetPanel.swift | Floating pet window: always on top, size, saved origin, drag, click → popover (egg: pray), right-click menu (open, hide, back view), low power and display-sleep pauses, reduce motion, frame rate at the animation-quality floor
 F2 | 3 | pending T23 | UI/FloatingPetPanel.swift | Floating pet: speech bubbles (limit alerts, agent activity), hearts after strokes, prayer emoji bursts, agent bob, run to the cursor, hover callout
 S1 | 1 | elsewhere Team/Plaza/Draw/PlazaGIFDecoder.swift: the shared GIF decoder with the Mac's delays (stage 6 D11); capFrameRate comes with the pet (T22) | UI/SpriteAnimation.swift | GIF frames and delays for every animated sprite; frame-rate cap for the menu bar and the pet
