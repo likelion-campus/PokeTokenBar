@@ -385,20 +385,15 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
         let hatched = Date()
         _ = await WindowsSelftest.waitUntil(timeout: 1) { section.driver.plays > 0 }
         let kind = section.driver.celebration?.kind
-        // the effect runs: sample the effect clock's arming until it goes quiet
+        // the effect runs: watch until the effect clock goes quiet; the frame rate is bounded by the clock's fires
         var lastActive = hatched
-        var maxRate = 0.0
-        var previous: Date?
         for _ in 0..<400 {
             await wait(0.01)
             if section.effectClock.isArmed || section.driver.isCelebrating {
                 lastActive = Date()
-                if let due = section.effectClock.armedDue {
-                    if let p = previous, due > p { maxRate = max(maxRate, 1 / due.timeIntervalSince(p)) }
-                    previous = due
-                }
             } else if Date().timeIntervalSince(hatched) > 1 { break }
         }
+        let maxRate = section.stats.minFireGap.isFinite ? 1 / section.stats.minFireGap : 0
         let duration = lastActive.timeIntervalSince(hatched)
         let frames = section.stats.effectFrames - framesBefore
         let fires = section.effectClock.fireCount - firesBefore
@@ -411,11 +406,11 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
         let gifFrames = model?.frames.count ?? 0
         let gifRate = gifFrames > 1 ? Double(gifFrames) / (model?.frames.reduce(0) { $0 + $1.delay } ?? 1) : 0
         let quiet = !section.effectClock.isArmed && !section.driver.isCelebrating
-        let ok = kind != nil && store.celebration == nil && frames >= 20 && frames <= 160 && maxRate <= 61 && duration <= 2.6 && quiet && ticksAfter > 0
+        let ok = kind != nil && store.celebration == nil && frames >= 20 && frames <= 160 && maxRate <= 64 && duration <= 2.6 && quiet && ticksAfter > 0
         r.add("companion.celebrate", ok,
               "fixture hatch (Bulbasaur, plain): celebration \(kind.map { "\($0)" } ?? "none") consumed=\(store.celebration == nil); effect frames \(frames) "
-              + "(clock fires \(fires)) over \(String(format: "%.2f", duration)) s (budget 2.6 s), fastest arming \(String(format: "%.1f", maxRate)) /s "
-              + "(budget 60); afterwards effect clock armed=\(section.effectClock.isArmed), sprite clock ticks in 1 s=\(ticksAfter) "
+              + "(clock fires \(fires)) over \(String(format: "%.2f", duration)) s (budget 2.6 s), fastest fire-to-fire \(String(format: "%.1f", maxRate)) /s "
+              + "(budget 60 with 1 ms of timer jitter = 64: the shortest gap between two fires of the effect clock); afterwards effect clock armed=\(section.effectClock.isArmed), sprite clock ticks in 1 s=\(ticksAfter) "
               + "(the GIF: \(gifFrames) frames, \(String(format: "%.1f", gifRate)) /s)")
     }
 

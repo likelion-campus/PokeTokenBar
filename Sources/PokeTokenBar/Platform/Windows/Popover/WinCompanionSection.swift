@@ -27,6 +27,9 @@ import WinSDK
     struct Stats: Equatable {
         var observes = 0, applies = 0, headerUpdates = 0, lineUpdates = 0, effectFrames = 0, effectStarts = 0
         var detailLoads = 0, formLoads = 0, typeNameLoads = 0
+        /// The shortest time between two fires of the effect clock (what bounds the frame rate; a re-arm that replaces a due
+        /// that never fired is not a frame).
+        var minFireGap: TimeInterval = .infinity
     }
 
     /// The selftest's sprite source (no network in the selftest); nil = the app's sprite store.
@@ -67,7 +70,15 @@ import WinSDK
         self.section = section
         self.page = page
         consumer = companion
-        effectClock.onTick = { [weak self] in self?.tickEffects() }
+        effectClock.onTick = { [weak self] in self?.clockFired() }
+    }
+
+    private var lastFire: Date?
+    private func clockFired() {
+        let t = now()
+        if let last = lastFire { stats.minFireGap = min(stats.minFireGap, t.timeIntervalSince(last)) }
+        lastFire = t
+        tickEffects()
     }
 
     static func fetcher() -> any PlazaSpriteFetching { spriteFetcherOverride ?? PlatformPlaza.spriteFetcher() }
