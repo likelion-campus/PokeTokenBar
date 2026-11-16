@@ -185,7 +185,7 @@ import WinSDK
                 view.onHit = { [weak self, weak part] hit in
                     guard let self, let part else { return }
                     part.animatesMoves = self.animationsEnabled()
-                    if part.press(hit) { self.tickLine() }
+                    if part.press(hit) { self.armLine() }
                 }
                 // WM_MOUSEHWHEEL (a touchpad's sideways swipe, a tilted wheel) and Shift + WM_MOUSEWHEEL move the line; a plain
                 // wheel goes on to the page (nil: DefWindowProc hands it to the parent), as a vertical swipe over the Mac's
@@ -325,6 +325,15 @@ import WinSDK
             stats.barFrames += 1
         }
         barClock.setDue(barHover.nextDue(after: t).map { max($0, t.addingTimeInterval(0.001)) })
+    }
+
+    /// A chevron press: the clock's first fire draws the move's first frame. Drawing at the press itself would move the line by
+    /// the few microseconds of ease since `press` read the clock (~1e-7 DIP: one render for nothing, and a "moved at once"
+    /// that depended on whether the clock had ticked — light run 43941936835).
+    private func armLine() {
+        guard !isDestroyed, let line else { return }
+        let t = now()
+        lineClock.setDue(line.part.nextDue(after: t).map { max($0, t.addingTimeInterval(0.001)) })
     }
 
     /// Draws the line's chevron move now and arms the clock for its next frame; off screen it lands at once.
