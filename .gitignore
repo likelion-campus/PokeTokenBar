@@ -39,3 +39,7 @@ docs/*
 .no-review-gate
 .build-shared/
 .build-release/
+
+# Python bytecode from running the scripts and their tests
+__pycache__/
+*.pyc
