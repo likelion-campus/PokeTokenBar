@@ -72,3 +72,11 @@ UI/PopoverView.swift#PopoverView.openCodeGoLimitsContent | Popover/LimitsModel.s
 UI/PopoverView.swift#PopoverView.openCodeGoLimitRow | Popover/LimitsModel.swift#LimitsBuilder.openCodeGoLimitRow | pin e0cf4520ce8391be
 UI/PopoverView.swift#PopoverView.grokLimitsContent | Popover/LimitsModel.swift#LimitsBuilder.grokLimitsContent | pin a44000bb85ea1ce0
 UI/PopoverView.swift#PopoverMetrics | Popover/PopoverWindowMetrics.swift#PopoverWindowMetrics | PopoverMetrics=PopoverWindowMetrics
+
+# The Settings page's look (stage 7 Task 3, review 12): PopoverStackMetrics holds these members' numbers (page padding 16,
+# section spacing 18, caption spacing 6 and inset 4, row padding 12 / 8, row minimum 38, row spacing 10, hint spacing 1,
+# card radius 8). A change to one fails here until PopoverStackMetrics and PopoverStackLayoutTests follow it.
+UI/SettingsView.swift#SettingsView.settingsSection | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 020798d96c25bae9
+UI/SettingsView.swift#SettingsView.groupRow | Popover/PopoverLayout.swift#PopoverStackMetrics | pin de0f40885b3be327
+UI/SettingsView.swift#SettingsView.toggleRow | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 5306650b1d9e7bdd
+UI/SettingsView.swift#SettingsView.body | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 9943ac8116be3c71

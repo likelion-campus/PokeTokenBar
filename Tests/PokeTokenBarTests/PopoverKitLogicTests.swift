@@ -151,6 +151,20 @@ final class PopoverStackLayoutTests: XCTestCase {
         XCTAssertEqual(alone.control?.minX, 28 + 304 - 250, "without a label nothing is squeezed: right-aligned")
     }
 
+    func testALabelWithAWordWiderThanItsRoomGoesAboveTheControl() {
+        // The closure measures as GDI does: wrapped at the width, but one word never narrower than itself (220 here).
+        func label(_ w: CGFloat) -> CGSize { w >= 220 ? CGSize(width: 220, height: 17) : CGSize(width: 220, height: 34) }
+        let f = PopoverStackLayout.layout([PopoverStackSection(rows: [
+            row(nil, control: CGSize(width: 100, height: 24)),
+            PopoverStackRow(style: .trailing, control: CGSize(width: 100, height: 24)) { w in (label(w), nil) },
+            PopoverStackRow(style: .trailing, control: CGSize(width: 70, height: 24)) { w in (label(w), nil) },
+        ])], width: 360, metrics: .settings)
+        let tight = f.sections[0]!.rows[1]!, roomy = f.sections[0]!.rows[2]!
+        XCTAssertEqual(tight.label?.width, 220, "194 px beside a 100 px control is too little for a 220 px word: the label goes on top, whole")
+        XCTAssertEqual(tight.control?.minX, 28, "and the control under it, the row's width")
+        XCTAssertEqual(roomy.control?.minX, 28 + 304 - 70, "224 px beside a 70 px control: it stays on the right")
+    }
+
     func testATallRowGrowsAndShortOnesKeepTheMinimum() {
         let f = PopoverStackLayout.layout([PopoverStackSection(rows: [
             row(CGSize(width: 10, height: 15), control: CGSize(width: 20, height: 14)),
