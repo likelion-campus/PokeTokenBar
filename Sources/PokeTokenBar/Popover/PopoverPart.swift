@@ -19,6 +19,14 @@ import Foundation
 struct PopoverDrawing {
     var drawing: PlazaPanelDrawing
     var spriteSlots: [SpriteSlot] = []
+    // --- stage 7 Task 9: what is drawn over the sprites, and what changed (begin) ---
+    /// Layers drawn over the sprites (part coordinates, the drawing's own space): a celebration's flash and bursts, the
+    /// evolution line's edge fade and chevrons. Empty for most parts.
+    var overlays: [PlazaPanelLayer] = []
+    /// The region (part coordinates) that differs from the previous render, when the part knows it (a celebration frame
+    /// changes only the sprite box); nil = everything.
+    var dirty: CGRect? = nil
+    // --- stage 7 Task 9 (end) ---
 }
 
 /// A place the host draws a sprite into (D16): the frame in part coordinates, which sprite, whether it bobs (a still
@@ -28,6 +36,14 @@ struct SpriteSlot: Equatable {
     var subject: PlazaSpriteSubjectKey?
     var bob: Bool
     var animated: Bool
+    // --- stage 7 Task 9: how the sprite is drawn into the slot (begin) ---
+    /// The Mac's `.opacity` on the sprite (an evolution line's future node: 0.32).
+    var opacity: Double = 1
+    /// The Mac's `.saturation` (a future node: 0.4; 0 = grey, 1 = as it is).
+    var saturation: Double = 1
+    /// The Mac's `.rotationEffect`, degrees clockwise about the slot's centre (the imminent egg's wiggle, ±5).
+    var rotation: Double = 0
+    // --- stage 7 Task 9 (end) ---
 }
 
 /// Which sprite a slot shows, in the terms `PlazaStoreSpriteFetcher` loads by: a species with its shiny, form and back

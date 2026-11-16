@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import PokeTokenBar
 
@@ -558,3 +559,257 @@ final class PopoverSpriteTwinEquivalenceTests: XCTestCase {
         }
     }
 }
+
+// MARK: - stage 7 Task 9: the companion header (begin)
+
+/// `CompanionHeader`'s private members, copied verbatim (twins.txt holds each body to the Mac's), over a real store.
+@MainActor
+struct MacCompanionOracle {
+    let store: CompanionStore
+
+    /// 부화 임박(90%+) — 알이 흔들리고 문구가 바뀐다.
+    var eggImminent: Bool { store.isEgg && store.eggProgress >= 0.9 }
+
+    var statusLine: String {
+        let l = store.l
+        switch store.displayState {
+        case .egg:     return l.statusEgg
+        case .idle:    return l.statusIdle
+        case .working: return l.statusWorking
+        case .focus:   return l.statusFocus
+        case .tired:   return l.statusTired
+        case .sleep:   return l.statusSleep
+        case .sulk:    return l.statusSulk
+        case .levelUp: return store.justEvolvedTo.map { l.statusEvolved($0) } ?? l.statusGrew
+        }
+    }
+}
+
+/// The companion header's twins against the Mac originals (`CompanionHeader`'s statics and privates, `EvoLineView`'s
+/// statics, `PokemonNameText`, `rarityColor`, `PokemonType`, `BadgeTint`), and the header model against the Mac body's own
+/// expressions on real stores.
+@MainActor
+final class CompanionHeaderTwinEquivalenceTests: XCTestCase {
+    func testProgressDetailFollowsTheMac() async {
+        let values = [0, 1, 7, 999, 1_000, 1_001, 9_999, 37_200, 50_000, 60_000, 999_999, 1_000_000, 12_345_678, 2_000_000_000]
+        for used in values { for total in values {
+            XCTAssertEqual(CompanionHeaderModel.progressDetail(used: used, total: total), CompanionHeader.progressDetail(used: used, total: total),
+                           "\(used)/\(total)")
+        } }
+    }
+
+    /// Every display state, reached on a real store the way `CompanionDisplayStateTests` reaches it, in three languages: the
+    /// Mac's `statusLine` and `eggImminent` (the oracle) and the twins over the captured input agree.
+    func testStatusLineAndImminenceFollowTheMacInEveryState() async {
+        var seen = Set<CompanionStateKind>()
+        for language in [AppLanguage.ko, .en, .ja] {
+            let egg = await CompanionHeaderFixtures.store(eggUsage: 0, language: language)
+            egg.update(todayTokensByProvider: ["t": 0], todayDate: "d", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: false)
+            var stores = [egg]
+            let hatched = await CompanionHeaderFixtures.store(eggUsage: 1, language: language)
+            await hatched.hatch(baseID: 1)
+            stores.append(hatched)   // .levelUp inside the hatch's event window
+            let evolved = await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([1, 2, 3], stage: 0, used: 0), language: language)
+            evolved.update(todayTokensByProvider: ["t": 100], todayDate: "d", monthTotal: 0, burnTier: .normal, limitWarning: false, hasUsageData: true)
+            evolved.applyUsage(evolved.threshold)
+            stores.append(evolved)   // .levelUp with the evolved name
+            let cases: [(BurnTier, Bool, Int, TimeInterval?)] = [(.normal, false, 100, nil), (.blazing, false, 100, nil), (.normal, true, 100, nil),
+                                                                  (.idle, false, 0, nil), (.idle, false, 100, nil), (.normal, false, 100, 4 * 3600)]
+            for (burn, warning, today, idle) in cases {
+                let s = await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([1, 2, 3], stage: 1, used: 10), language: language)
+                s.update(todayTokensByProvider: ["t": today], todayDate: "d", monthTotal: 0, burnTier: burn, limitWarning: warning, hasUsageData: true)
+                s.update(todayTokensByProvider: ["t": today], todayDate: "d", monthTotal: 0, burnTier: burn, limitWarning: warning, hasUsageData: true,
+                         timeSinceLastUsage: idle)
+                stores.append(s)
+            }
+            var nearHatch = await CompanionHeaderFixtures.store(eggUsage: 0, language: language)
+            nearHatch = await CompanionHeaderFixtures.store(eggUsage: nearHatch.eggHatchThreshold * 95 / 100, language: language)
+            stores.append(nearHatch)
+            for s in stores {
+                let oracle = MacCompanionOracle(store: s)
+                let twin = CompanionHeaderBuilder(store: CompanionHeaderInput(store: s))
+                XCTAssertEqual(twin.statusLine, oracle.statusLine, "\(s.displayState) \(language)")
+                XCTAssertEqual(twin.eggImminent, oracle.eggImminent, "\(s.displayState) \(language)")
+                seen.insert(s.displayState)
+            }
+            XCTAssertTrue(MacCompanionOracle(store: nearHatch).eggImminent)
+            XCTAssertNotNil(evolved.justEvolvedTo)
+        }
+        XCTAssertEqual(seen, [.egg, .idle, .working, .focus, .tired, .sleep, .sulk, .levelUp], "every CompanionDisplayState was reached")
+    }
+
+    /// `CompanionHeader.body`'s own expressions on real stores (egg fresh / under way / imminent with a guarantee; hatched
+    /// mid-level with types, nature and boost; final stage shiny; a form; a branching line), in ko, en and ja: the model
+    /// built from the same store says the same, line by line.
+    func testTheHeaderModelSaysWhatTheMacBodySays() async {
+        for language in [AppLanguage.ko, .en, .ja] {
+            var stores: [CompanionStore] = []
+            stores.append(await CompanionHeaderFixtures.store(language: language))
+            stores.append(await CompanionHeaderFixtures.store(eggUsage: 12_000, language: language))
+            let t = await CompanionHeaderFixtures.store(language: language).eggHatchThreshold
+            stores.append(await CompanionHeaderFixtures.store(eggUsage: t * 19 / 20, eggTier: .rare, language: language))
+            stores.append(await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([1, 2, 3], stage: 1, used: 1_000, boost: true), language: language))
+            stores.append(await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([4, 5, 6], stage: 2, used: 10, rarity: .uncommon, shiny: true), language: language))
+            stores.append(await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([422, 423], stage: 0, used: 0, form: PokemonForm("east"), forms: 2), language: language))
+            stores.append(await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([133], stage: 0, used: 0, rarity: .rare, forms: 2), language: language))
+            for store in stores {
+                if let id = store.currentSpeciesID { await store.loadPokemonDetails(speciesID: id) }
+                let model = CompanionHeaderModel.make(companion: store)
+                XCTAssertEqual(lines(model), macBody(store), "\(store.displayName) \(language)")
+                XCTAssertEqual(model.sprite, PlazaSpriteSubjectKey(speciesID: store.currentSpeciesID, shiny: store.currentIsShiny, form: store.currentForm,
+                                                                   back: store.facesBack))
+                XCTAssertEqual(model.evoLine?.nodes ?? [], store.hasActive ? store.lineNodes : [])
+                XCTAssertEqual(model.evoLine?.mysteryLabel ?? store.l.unknownNextEvolution, store.l.unknownNextEvolution)
+                XCTAssertEqual(model.graduated, store.justGraduated.map { store.l.graduated($0) })
+            }
+        }
+    }
+
+    private func lines(_ m: CompanionHeaderModel) -> [String] {
+        m.lines.map { line in
+            switch line {
+            case .title(let s, let shiny, let r): return "\(s)|\(shiny)|\(r?.text ?? "-")"
+            case .types(let b): return b.map(\.text).joined(separator: ",")
+            case .note(let s), .status(let s): return s
+            case .stage(let s, let b): return "\(s)|\(b?.text ?? "-")"
+            case .egg(let s, let imminent, let g): return "\(s)|\(imminent)|\(g?.text ?? "-")"
+            case .bar(let v, let d): return "\(v)|\(d)"
+            case .caption(let s, _): return s
+            }
+        }
+    }
+
+    /// The Mac body's own expressions, in its order (`CompanionHeader.body`).
+    private func macBody(_ store: CompanionStore) -> [String] {
+        let oracle = MacCompanionOracle(store: store)
+        var out = ["\(store.displayName)|\(store.currentIsShiny)|\(store.rarity.map { store.l.rarityLabel($0).uppercased() } ?? "-")"]
+        if store.hasActive, let id = store.currentSpeciesID, let details = store.pokemonDetailsByID[id] {
+            out.append(details.types.map {
+                PokemonNameText(items: [PokemonNameItem(resource: .init(kind: .type, name: $0))], language: store.language,
+                                names: PokemonNameDisplayStore.shared.names).text.uppercased(with: store.language.displayLocale)
+            }.joined(separator: ","))
+            if !PokemonForm.isDefault(store.currentForm, speciesID: id) { out.append(store.l.defaultFormDataNote) }
+        }
+        if store.hasActive {
+            let nature = store.currentNature.map { " · \($0.name(store.language))" } ?? ""
+            out.append("\(store.stageText + nature)|\(store.growthMultiplier.map { store.l.growthBoost($0) } ?? "-")")
+            out.append("\(store.progress)|\(CompanionHeader.progressDetail(used: store.state.active?.usedAtStage ?? 0, total: store.threshold))")
+            if store.tokensToNext > 0 {
+                let amount = TokenFormatter.compact(store.tokensToNext)
+                out.append(store.isFinalStage ? store.l.toGraduation(amount) : store.l.toNextEvolution(amount))
+            }
+        } else {
+            out.append("\(oracle.eggImminent ? store.l.eggImminent : store.l.eggIncubating)|\(oracle.eggImminent)|\(store.eggGuarantee.map { store.l.eggGuaranteeHint($0) } ?? "-")")
+            out.append("\(store.eggProgress)|\(CompanionHeader.progressDetail(used: store.state.eggUsage, total: store.eggHatchThreshold))")
+            if store.isEgg, store.isHatchRetryDelayed {
+                out.append(store.l.eggHatchDelayed)
+            } else {
+                out.append(store.l.eggToHatch(TokenFormatter.compact(store.eggTokensToHatch)))
+            }
+            if !store.eggStarted { out.append(store.l.eggFirstRunHint(TokenFormatter.compact(store.eggHatchThreshold))) }
+        }
+        out.append(oracle.statusLine)
+        return out
+    }
+
+    /// `EvoLineView`'s statics against `EvoLineLayout` over a grid (counts, thumbnails, names, widths, offsets, nodes).
+    func testTheEvolutionLineLayoutFollowsTheMac() async {
+        let widths: [CGFloat] = [0, -1, 100, 148, 316, 320, 332, 472, 1000, .infinity]
+        var compared = 0
+        for count in 0...12 {
+            for thumb in [CGFloat(28), 40, 56] {
+                for names in [false, true] {
+                    XCTAssertEqual(EvoLineLayout.rowWidth(count: count, thumb: thumb, hasNames: names), EvoLineView.rowWidth(count: count, thumb: thumb, hasNames: names))
+                    for w in widths {
+                        XCTAssertEqual(EvoLineLayout.needsScroll(count: count, thumb: thumb, hasNames: names, maxWidth: w),
+                                       EvoLineView.needsScroll(count: count, thumb: thumb, hasNames: names, maxWidth: w))
+                        for x in [CGFloat(0), 0.4, 0.6, 27, 54, 70, 140, 151.4, 152, 300, 1000] where w.isFinite && w > 0 {
+                            for forward in [false, true] {
+                                XCTAssertEqual(EvoLineLayout.pageTarget(forward: forward, scrollX: x, count: count, thumb: thumb, hasNames: names, maxWidth: w),
+                                               EvoLineView.pageTarget(forward: forward, scrollX: x, count: count, thumb: thumb, hasNames: names, maxWidth: w))
+                            }
+                            let content = EvoLineView.rowWidth(count: count, thumb: thumb, hasNames: names)
+                            let a = EvoLineLayout.scrollAffordance(scrollX: x, contentWidth: content, maxWidth: w)
+                            let b = EvoLineView.scrollAffordance(scrollX: x, contentWidth: content, maxWidth: w)
+                            XCTAssertEqual([a.back, a.forward], [b.back, b.forward])
+                            compared += 1
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(compared, 5_000)
+        let links = [1: "1", 2: "2"]
+        for node in [EvoLineItem(.species(1), .done), EvoLineItem(.species(2), .current), EvoLineItem(.species(3), .future), EvoLineItem(.mystery, .future)] {
+            XCTAssertEqual(EvoLineLayout.dexLinkTarget(for: node, links: links), EvoLineView.dexLinkTarget(for: node, links: links))
+        }
+    }
+
+    /// The type names (`PokemonNameText`) over loaded / missing / failed names and suffixes, in every language.
+    func testTypeNamesFollowTheMac() async {
+        let grass = PokemonNameResource(kind: .type, name: "grass"), ice = PokemonNameResource(kind: .type, name: "ice")
+        let stellar = PokemonNameResource(kind: .type, name: "stellar-type")
+        let tables: [[PokemonNameResource: [String: String]]] = [[:], [grass: ["ko": "풀", "en": "Grass", "ja-Hrkt": "くさ"]], [grass: ["fr": "Plante"], ice: [:]]]
+        for language in AppLanguage.allCases {
+            for names in tables {
+                for failed in [Set<PokemonNameResource>(), [grass], [stellar, ice]] {
+                    for items in [[grass], [grass, ice], [stellar], [grass, stellar, ice]] {
+                        for suffix in ["", " (H)"] {
+                            let mac = PokemonNameText(items: items.map { PokemonNameItem(resource: $0, suffix: suffix) }, language: language, names: names, failed: failed).text
+                            let twin = PopoverNameText(items: items.map { PopoverNameItem(resource: $0, suffix: suffix) }, language: language, names: names, failed: failed).text
+                            XCTAssertEqual(twin, mac)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The badge colours: `rarityColor`, every `PokemonType.hex` (and the API names that make one), every `BadgeTint` in the
+    /// light appearance.
+    func testBadgeColoursAreTheMacs() async {
+        for name in PokemonType.allCases.map(\.rawValue) + ["FIRE", "Stellar", "shadow", ""] {
+            XCTAssertEqual(PopoverPokemonType(apiName: name)?.hex, PokemonType(apiName: name)?.hex, name)
+        }
+        func rgba(_ c: Color) -> [Int] {
+            var out: [Int] = []
+            NSAppearance(named: .aqua)!.performAsCurrentDrawingAppearance {
+                let n = NSColor(c).usingColorSpace(.sRGB)!
+                out = [n.redComponent, n.greenComponent, n.blueComponent, n.alphaComponent].map { Int(($0 * 255).rounded()) }
+            }
+            return out
+        }
+        func rgba(_ p: PlazaColor) -> [Int] { [p.red, p.green, p.blue, p.alpha].map { Int(($0 * 255).rounded()) } }
+        func close(_ a: [Int], _ b: [Int], _ what: String) {
+            XCTAssertTrue(zip(a, b).allSatisfy { abs($0 - $1) <= 1 }, "\(what): \(a) vs \(b)")
+        }
+        for r in [nil, Rarity.common, .uncommon, .rare, .legendary] {
+            close(rgba(CompanionBadges.rarityColor(r).plazaColor()), rgba(rarityColor(r)), "rarity \(String(describing: r))")
+            close(rgba(PopoverBadgeTint.rarity(r).color), rgba(BadgeTint.rarity(r).color), "tint rarity \(String(describing: r))")
+        }
+        for t in PokemonType.allCases {
+            close(rgba(PopoverBadgeTint.type(PopoverPokemonType(rawValue: t.rawValue)).color), rgba(BadgeTint.type(t).color), "type \(t)")
+        }
+        close(rgba(PopoverBadgeTint.type(nil).color), rgba(BadgeTint.type(nil).color), "type nil")
+        close(rgba(PopoverBadgeTint.orange.color), rgba(BadgeTint.orange.color), "orange")
+        close(rgba(PopoverBadgeTint.secondary.color), rgba(BadgeTint.secondary.color), "secondary")
+    }
+
+    /// The private stored constants the twins copy (the scan cannot name stored lets).
+    func testTheMacConstantsTheHeaderTwinsCopyAreUnchanged() throws {
+        let source = try XCTUnwrap(PopoverParityScanTests.read("UI/CompanionView.swift"))
+        let flat = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        for (text, copy) in [("private static let spacing: CGFloat = 2", EvoLineLayout.spacing), ("private static let arrowRatio: CGFloat = 0.25", EvoLineLayout.arrowRatio),
+                             ("private static let nameSlack: CGFloat = 6", EvoLineLayout.nameSlack), ("private static let fadeWidth: CGFloat = 24", EvoLineLayout.fadeWidth),
+                             ("private static let collapsedHeight: CGFloat = 6", GrowthBarPart.collapsedHeight),
+                             ("private static let expandedHeight: CGFloat = 12", GrowthBarPart.expandedHeight)] {
+            XCTAssertTrue(flat.contains(text), "\(text) changed in UI/CompanionView.swift: change the twin (\(copy)) and its tests")
+            XCTAssertTrue(text.hasSuffix(" = \(copy.formatted())") || text.hasSuffix(" = \(Int(copy))"), "\(text) vs the twin's \(copy)")
+        }
+        XCTAssertTrue(flat.contains("SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,"), "the header's sprite box changed")
+        XCTAssertTrue(flat.contains(".clipShape(RoundedRectangle(cornerRadius: 12))"), "the backdrop's corners changed")
+        XCTAssertEqual(CompanionHeaderPart.spriteBox, 76)
+        XCTAssertEqual(CompanionHeaderPart.cornerRadius, 12)
+    }
+}
+// MARK: - stage 7 Task 9: the companion header (end)

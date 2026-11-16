@@ -258,3 +258,5 @@ PopoverTextStyleGoldensMacTests.swift
 TeamReleaseScriptRunTests.swift
 # LimitBarPartMacTests: reads the Mac view PopoverView.swift as text (it is not compiled on Windows) and holds the Windows limit bar to the Mac's private marker and track numbers
 LimitBarPartMacTests.swift
+# CompanionHeaderRendersMacTests: renders the Mac's SwiftUI CompanionHeader offscreen (ImageRenderer, AppKit) for the companion samples, the reference the Windows captures are put next to (env-gated writer)
+CompanionHeaderRendersMacTests.swift
