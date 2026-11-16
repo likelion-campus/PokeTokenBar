@@ -254,5 +254,7 @@ PlazaPhotoGoldensMacTests.swift
 PopoverGoldens+Mac.swift
 # PopoverTextStyleGoldensMacTests: measures the Mac's text styles and label colours (AppKit NSFont / NSColor, no window) into Tests/PopoverParity/mac-text-styles.json; the Windows kit's font table is held to that file on both systems by PopoverTextStyleTests
 PopoverTextStyleGoldensMacTests.swift
+# TeamReleaseScriptRunTests: runs scripts/team-release.sh with bash, perl and /usr/bin/openssl against fakes (a macOS release script)
+TeamReleaseScriptRunTests.swift
 # PlazaChatBarPanelTests+Mac: the shared chat bar against the AppKit chat bar it copies (PlazaChatInput laid out by Auto Layout in an unshown NSWindow, CALayer colours)
 PlazaChatBarPanelTests+Mac.swift
