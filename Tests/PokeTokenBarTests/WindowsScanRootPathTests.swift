@@ -110,25 +110,35 @@ final class WindowsScanRootPathTests: XCTestCase {
         try Data("{}\n".utf8).write(to: root.appendingPathComponent("plain/a.jsonl"))
         let fm = FileManager.default
         let device = "\\\\?\\UNC\\" + share.dropFirst(2)
-        var forms = [("local", native("plain")), ("unc", share), ("slashes", share.replacingOccurrences(of: "\\", with: "/")), ("device", device)]
-        if let mapped = mappedDrive("plain") { forms.append(("mapped", mapped)) }
-        for (name, path) in forms {
-            let url = URL(fileURLWithPath: path)
+        var forms: [(String, URL)] = [("local", URL(fileURLWithPath: native("plain"))), ("unc", URL(fileURLWithPath: share)),
+                                      ("unc-dir", URL(fileURLWithPath: share, isDirectory: true)),
+                                      ("slashes", URL(fileURLWithPath: share.replacingOccurrences(of: "\\", with: "/"))),
+                                      ("device", URL(fileURLWithPath: device))]
+        let rest = share.dropFirst(2).split(separator: "\\", maxSplits: 1).map(String.init)   // ["localhost", "C$\\…\\plain"]
+        if rest.count == 2, let hosted = URL(string: "file://\(rest[0])/" + rest[1].replacingOccurrences(of: "\\", with: "/")
+                                                  .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)!) {
+            forms.append(("host-url", hosted))
+        }
+        if let mapped = mappedDrive("plain") { forms.append(("mapped", URL(fileURLWithPath: mapped))) }
+        for (name, url) in forms {
+            let path = url.path
             var withKeys: [String] = [], plain: [String] = []
             if let en = fm.enumerator(at: url, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey], options: [.skipsHiddenFiles]) {
                 for case let u as URL in en { withKeys.append(u.path) }
             }
             if let en = fm.enumerator(at: url, includingPropertiesForKeys: nil) { for case let u as URL in en { plain.append(u.path) } }
             let byPath = (fm.enumerator(atPath: path)?.allObjects as? [String]) ?? []
+            let child = URL(fileURLWithPath: "a.jsonl", relativeTo: url)
             let listed = ((try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []).map(\.path)
             let file = url.appendingPathComponent("a.jsonl")
             let date: String
             do { date = "\(try file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate.map { "\($0)" } ?? "nil")" }
             catch { date = "error \(error)" }
-            print("ENUM-PROBE|\(name)|path=\(path)|URL.path=\(url.path)|exists=\(fm.fileExists(atPath: url.path))|enumerator(at:keys)=\(withKeys)"
+            print("ENUM-PROBE|\(name)|absolute=\(url.absoluteString)|URL.path=\(path)|exists=\(fm.fileExists(atPath: url.path))|enumerator(at:keys)=\(withKeys)"
                   + "|enumerator(at:)=\(plain)|enumerator(atPath:)=\(byPath)|contents(at:)=\(listed)|file.mtime=\(date)"
                   + "|jsonlFiles=\(LocalUsageReader.jsonlFiles(in: url, modifiedSince: .distantPast).map(\.path))"
-                  + "|resolved=\(PlatformCompat.resolvedFileURL(url).path)")
+                  + "|resolved=\(PlatformCompat.resolvedFileURL(url).path)|relativeChild=\(child.path) exists=\(fm.fileExists(atPath: child.path))"
+                  + "|appended=\(url.appendingPathComponent("a.jsonl").path)")
         }
     }
 
