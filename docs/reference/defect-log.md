@@ -2652,3 +2652,19 @@ read_when:
   **부류 스윕:** 절대 창/화면 좌표를 단언하는 맥 테스트는 이것뿐이다(`testRosterCapacityUsesTheRestoredWindowHeight` 는 크기만, `PlazaWindowRig`/`PlazaLiveWindowTests` 는 화면이 닿는 화면 밖 좌표면 건너뛴다, `FloatingPetAgentTests` 는 `visibleFrame` 을 주입한다).
   **열린 의문(제품):** 스크립트 실측에서 두 번째·세 번째 디스플레이에서 저장한 창은 다시 열면 주 디스플레이의 다른 위치로 돌아왔다(저장 사각형의 높이가 `visibleFrame` 과 달라 화면이 안 맞는 것으로 보인다). 앱 밖 스크립트라 메뉴 막대 상태가 달라 단정할 수 없다 — 실제 앱에서는 사람이 확인해야 한다.
   **규칙:** `NSWindow` 프레임 저장·복원 테스트는 "저장한 값"이 아니라 "AppKit 이 그 이름으로 되살린 값"과 견주고, 크기·순서(가운데 정렬 뒤 복원)처럼 배치와 무관한 성질만 단언한다.
+
+<!-- stage 7 Task 9: the companion header (begin) -->
+- **연출 시계가 같은 시각을 다음 마감으로 다시 내놓아 영원히 돌았다 — `Date` 덧셈의 반올림으로 구간 시작 "직전"에 깬 틱.** 윈도 팝오버의 동반자 헤더(stage 7 Task 9)
+  `CompanionCelebrationDriver.nextDue(after:)` 는 연출이 움직이는 구간(`[1.3, 1.7]` 같은 닫힌 범위) 밖이면 "다음 구간의 시작"을 마감으로 돌려준다. 시계가 그 시각에 깨면
+  `now.timeIntervalSince(start)` 가 `1.3` 이 아니라 `1.2999999…`(시작 시각 + 1.3 을 `Date` 로 더했다 읽은 값)로 나와 다시 "구간 밖, 다음 시작은 1.3" → **같은 마감**을 돌려줬다.
+  공용 테스트가 시뮬레이션 루프에서 100% CPU 로 멈춘 것으로 발견했다(사탕 "+XP" 의 1.3 초 지점, `sample` 로 스택 확인). 앱에서는 과거 시각에 한 번짜리 타이머를 다시 무장 → 즉시 발화 → 같은 마감 → 바쁜 루프가 된다.
+  **왜 못 걸렀나:** 처음 쓴 시간 계산 테스트는 `t0` 에서 몇 시점을 골라 `effects(at:)` 값만 봤다 — 마감을 따라 걸어가는(시계가 실제로 하는) 경로는 루프 테스트가 처음이었고, 반올림은 시작 시각이 기준일에서 멀 때만 생긴다.
+  **고침:** 구간 판정에 1 µs 여유(`timeSlack`)를 두어 구간 시작에 깬 틱은 구간 안으로 치고, 다음 마감은 항상 `now` 보다 뒤가 된다. 흔들림(0.35 초 자세)도 같은 여유로 단계를 센다.
+  윈도 쪽 `WinCompanionSection.tickEffects` 는 방어로 `max(마감, now + 1 ms)` 로만 무장한다.
+  **부류 스윕:** 다음 마감을 날짜 덧셈으로 만드는 곳 — Task 8 `PopoverSpriteModel.tick` 은 이미 0.5 ms 여유(`slack`)와 "뒤처지면 now 기준" 규칙이 있다, Task 5 `RelativeTimeText.nextChange` 는
+  보이는 글자가 바뀌는 다음 후보를 고르므로 같은 시각을 돌려주지 않는다(`PopoverClock` 은 `max(next, now)` 로 무장).
+  **영구 캡처:** `CompanionHeaderModelTests.testTheEffectClockAlwaysMovesOnWhateverTheRounding`(기준일에서 먼 시작 시각 다섯 개 × 연출 네 종 + 사탕·민트, 흔들림 50 자세: 모든 마감이 앞 마감보다 뒤, 끝에서 멈춤),
+  테스트의 `sample` 헬퍼는 반복 상한과 "마감은 now 뒤" 단언으로 멈추는 대신 실패한다. 결함 주입(`timeSlack` 제거)으로 실패 확인.
+  **규칙:** 한 번짜리 시계의 "다음 마감" 함수는 (1) 반환값이 항상 인자 `now` 보다 뒤임을 테스트로 고정하고, (2) 구간·경계 비교에 반올림 여유를 둔다. 시각 몇 개를 찍어 보는 테스트가 아니라
+  마감을 따라 걷는 테스트가 시계의 실제 경로다.
+<!-- stage 7 Task 9: the companion header (end) -->
