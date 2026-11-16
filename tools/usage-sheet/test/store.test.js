@@ -106,8 +106,7 @@ test("a rejected payload writes no data rows", () => {
   const b = validBody();
   b.token = "nope";
   assert.deepEqual(report(S, b), { ok: false, error: "bad_token" });
-  assert.equal(dataRows(ss, "원본").length, 0);
-  assert.equal(dataRows(ss, "기기").length, 0);
+  assert.equal(ss.getSheets().length, 0);   // rejected before any tab is created
 });
 
 test("limit max and last usage, with a later read", () => {
@@ -172,11 +171,11 @@ test("the lock is taken and released once per call, also on a throw", () => {
   const { S, ss } = fresh();
   report(S, validBody());
   assert.deepEqual(plain(S.fakes.lockStats), { acquired: 1, released: 1 });
-  report(S, { v: 2 });
-  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 2, released: 2 });
+  report(S, { v: 2 });   // parsed before the lock: no lock taken
+  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 1, released: 1 });
   ss.getSheetByName("원본").getRange = () => { throw new Error("boom"); };
   assert.throws(() => S.handleReport(ss, JSON.stringify(validBody()), NOW + 1, TZ), /boom/);
-  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 3, released: 3 });
+  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 2, released: 2 });
 });
 
 test("ensureSheets is idempotent, hides two tabs and sets text format on date columns", () => {
@@ -345,4 +344,132 @@ test("peer text lands as text, never as a formula; zero-row tool reads back as -
   assert.equal(report(S, b).ok, true);
   assert.equal(read("원본", 2, 2), "=1+1");
   assert.equal(read("사람", 2, 2), "=1+1");
+});
+
+const OTHER = "11111111-2222-4333-8444-555555555555";
+
+function limitRows(ss) { return dataRows(ss, "한도"); }
+
+test("a second memberId reporting the same account and window gets its own row; the victim's row is untouched", () => {
+  const { S, ss } = fresh();
+  report(S, validBody());
+  const before = JSON.stringify(limitRows(ss)[0]);
+  const b = validBody();
+  b.member.id = OTHER;
+  b.member.secret = "attacker-secret-attacker-secret-0000";
+  b.member.nickname = "누군가";
+  b.days = [];
+  b.limits[0].usedPercent = 1000;
+  b.limits[0].readAt = new Date(NOW + 9 * 60000).toISOString();
+  b.limits[0].team = "t_attacker_team";
+  assert.equal(report(S, b).ok, true);
+  const rows = limitRows(ss);
+  assert.equal(rows.length, 2);
+  assert.equal(JSON.stringify(rows[0]), before);
+  assert.equal(rows[0][7] < 1000, true);
+  assert.equal(rows[1][3], OTHER);
+  assert.equal(rows[1][7], 1000);
+});
+
+test("resets within 24h of each other are one weekly window, 7 days later is a new row", () => {
+  const { S, ss } = fresh();
+  report(S, limitBody(10, "2026-11-19T08:30:01Z", "2026-11-16T01:00:00Z"));
+  report(S, limitBody(20, "2026-11-19T08:29:59Z", "2026-11-16T02:00:00Z"));
+  let rows = limitRows(ss);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0][2], "2026-11-19T08:00:00.000Z");   // the incoming, hour-snapped value
+  assert.equal(rows[0][8], 20);
+  // a reset 7 days later only passes the contract's 8-day bound once the clock has moved on
+  report(S, limitBody(5, "2026-11-26T08:30:00Z", "2026-11-20T02:00:00Z"), NOW + 4 * 86400000);
+  rows = limitRows(ss);
+  assert.equal(rows.length, 2);
+});
+
+test("an owner-named department keeps its name across reports", () => {
+  const { S, ss } = fresh();
+  report(S, validBody());
+  ss.getSheetByName("부서")._rows[1][1] = "개발팀";
+  report(S, validBody(), NOW + 1000);
+  report(S, validBody(), NOW + 2000);
+  assert.deepEqual(dataRows(ss, "부서").map((r) => [r[0], r[1]]), [["t_ab12cd34ef56", "개발팀"]]);
+});
+
+function editAfterRead(sheet, row, col, val) {
+  const orig = sheet.getRange.bind(sheet);
+  let edited = false;
+  sheet.getRange = (r, c, nr, nc) => {
+    const g = orig(r, c, nr, nc);
+    const gv = g.getValues.bind(g);
+    g.getValues = () => {
+      const v = gv();
+      if (!edited && r === 2) { edited = true; sheet._rows[row][col] = val; }
+      return v;
+    };
+    return g;
+  };
+}
+
+test("an owner edit landing between the read and the write survives (부서, 사람)", () => {
+  for (const [tab, col, val] of [["부서", 1, "개발팀"], ["사람", 3, "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"]]) {
+    const { S, ss } = fresh();
+    report(S, validBody());
+    editAfterRead(ss.getSheetByName(tab), 1, col, val);
+    report(S, validBody(), NOW + 1000);
+    assert.equal(ss.getSheetByName(tab)._rows[1][col], val, tab);
+  }
+  // the person's own columns still update
+  const { S, ss } = fresh();
+  report(S, validBody());
+  const b = validBody();
+  b.member.nickname = "새이름";
+  b.member.appVersion = "2.6.0";
+  report(S, b, NOW + 1000);
+  const p = dataRows(ss, "사람")[0];
+  assert.equal(p[1], "새이름");
+  assert.equal(p[4], "2.6.0");
+  assert.equal(p[2], new Date(NOW + 1000).toISOString());
+});
+
+test("an unchanged row is not rewritten", () => {
+  const { S, ss } = fresh();
+  report(S, validBody());
+  const sheet = ss.getSheetByName("부서");
+  const orig = sheet.getRange.bind(sheet);
+  let writes = 0;
+  sheet.getRange = (...a) => {
+    const g = orig(...a);
+    const sv = g.setValues.bind(g);
+    g.setValues = (v) => { writes++; return sv(v); };
+    return g;
+  };
+  report(S, validBody(), NOW + 1000);
+  assert.equal(writes, 0);
+});
+
+test("an over-long body is rejected before the lock or any tab", () => {
+  const { S, ss } = fresh();
+  const r = plain(S.handleReport(ss, "a".repeat(262145), NOW, TZ));
+  assert.deepEqual(r, { ok: false, error: "too_large" });
+  assert.equal(S.fakes.lockStats.acquired, 0);
+});
+
+test("one 21-day x 3-tool report reads at most the key columns of 5000 raw rows", () => {
+  const { S, ss } = fresh();
+  S.ensureSheets(ss);
+  const raw = ss.getSheetByName("원본");
+  for (let i = 0; i < 5000; i++) {
+    raw._rows.push([OTHER, "누군가", "2026-01-01", "claude_code", "t_ab12cd34ef56", 1, 1, 1, 1, 4, "2.5.0", "mac", "x"]);
+  }
+  raw._maxRows = 5001;
+  const b = validBody();
+  b.limits = [];
+  b.days = [];
+  for (let d = 0; d < 21; d++) {
+    const date = new Date(Date.UTC(2026, 10, 16 - d)).toISOString().slice(0, 10);
+    b.days.push({ date, team: "t_ab12cd34ef56", tools: ["claude_code", "codex", "gemini"].map((tool) => (
+      { tool, input: 1, output: 1, cacheWrite: 1, cacheRead: 1 })) });
+  }
+  raw._cellsRead = 0;
+  assert.equal(report(S, b).accepted.days, 63);
+  assert.equal(raw._cellsRead <= 5000 * 4 + 100, true, `read ${raw._cellsRead} cells`);
 });

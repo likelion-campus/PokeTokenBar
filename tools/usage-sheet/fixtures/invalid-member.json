@@ -1,12 +1,12 @@
 {
-  "description": "Nickname of 13 characters.",
+  "description": "Nickname of 321 UTF-8 bytes (the limit is 320).",
   "body": {
     "v": 1,
     "token": "996c41db62671eaf62a86cf3e18202ee",
     "member": {
       "id": "8F1C2A4E-3B5D-4C6E-9A7B-1D2E3F4A5B6C",
       "secret": "dGVzdC1zZWNyZXQtZm9yLWZpeHR1cmVzLW9ubHktMDA",
-      "nickname": "가나다라마바사아자차카타파",
+      "nickname": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "appVersion": "2.5.640",
       "platform": "mac"
     },

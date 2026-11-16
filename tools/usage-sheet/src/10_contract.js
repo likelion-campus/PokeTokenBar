@@ -4,7 +4,7 @@ var UUID_RE = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9
 var SECRET_RE = /^[A-Za-z0-9_-]{32,128}$/;
 var VERSION_RE = /^[0-9A-Za-z.+-]{1,32}$/;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-var TEAM_RE = /^[A-Za-z0-9_-]{4,64}$/;
+var TEAM_RE = /^t_[A-Za-z0-9_-]{2,62}$/;
 var TOOL_RE = /^[a-z0-9_.-]{1,32}$/;
 var ACCOUNT_RE = /^[A-Za-z0-9_-]{4,128}$/;
 var DOMAIN_RE = /^[a-z0-9.-]{1,253}$/;
@@ -29,12 +29,13 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-// The app's validNickname: trimmed, 1-12 characters, no newline. Returns the trimmed value or null.
+// The app counts grapheme clusters (Swift String.count), which JS cannot do without Intl.Segmenter, so the
+// script bounds the UTF-8 size instead: trimmed, non-empty, at most 320 bytes, no newline. Returns the
+// trimmed value or null.
 function normalizeNickname(v) {
   if (typeof v !== "string") return null;
   var t = v.trim();
-  var len = Array.from(t).length;
-  if (len < 1 || len > 12 || /[\r\n]/.test(t)) return null;
+  if (t.length < 1 || /[\r\n]/.test(t) || utf8Length(t) > 320) return null;
   return t;
 }
 
@@ -96,7 +97,8 @@ function parseLimit(l, nowMs) {
 // Returns { ok: true, member, days, limits, dropped } or { ok: false, error }.
 function parsePayload(text, nowMs, tz) {
   if (typeof text !== "string") return { ok: false, error: "bad_json" };
-  if (utf8Length(text) > MAX_BODY_BYTES) return { ok: false, error: "too_large" };
+  // A JS string is never longer than its UTF-8 bytes, so this rejects without the byte count.
+  if (text.length > MAX_BODY_BYTES || utf8Length(text) > MAX_BODY_BYTES) return { ok: false, error: "too_large" };
   var body;
   try { body = JSON.parse(text); } catch (e) { return { ok: false, error: "bad_json" }; }
   if (!isPlainObject(body)) return { ok: false, error: "bad_json" };
@@ -117,7 +119,7 @@ function parsePayload(text, nowMs, tz) {
 
   var today = dateToDayNumber(localDateString(nowMs, tz));
   var dropped = 0;
-  var byDate = {};
+  var byDate = new Map();
   var dateOrder = [];
   rawDays.forEach(function (d) {
     var dayNumber = isPlainObject(d) ? dateToDayNumber(d.date) : null;
@@ -133,22 +135,23 @@ function parsePayload(text, nowMs, tz) {
     });
     if (d.tools.length > 0 && tools.length === 0) { dropped++; return; }
     var label = normalizeNickname(d.teamLabel);
-    var entry = byDate[d.date];
+    var entry = byDate.get(d.date);
     if (!entry) {
-      entry = byDate[d.date] = { date: d.date, team: d.team, teamLabel: "", toolMap: {}, toolOrder: [] };
+      entry = { date: d.date, team: d.team, teamLabel: "", toolMap: new Map(), toolOrder: [] };
+      byDate.set(d.date, entry);
       dateOrder.push(d.date);
     }
     entry.team = d.team;
     entry.teamLabel = label === null ? "" : label;
     tools.forEach(function (t) {
-      if (!Object.prototype.hasOwnProperty.call(entry.toolMap, t.tool)) entry.toolOrder.push(t.tool);
-      entry.toolMap[t.tool] = t; // a repeated date|tool keeps the last occurrence
+      if (!entry.toolMap.has(t.tool)) entry.toolOrder.push(t.tool);
+      entry.toolMap.set(t.tool, t); // a repeated date|tool keeps the last occurrence
     });
   });
 
   var days = dateOrder.map(function (date) {
-    var e = byDate[date];
-    var tools = e.toolOrder.map(function (name) { return e.toolMap[name]; });
+    var e = byDate.get(date);
+    var tools = e.toolOrder.map(function (name) { return e.toolMap.get(name); });
     if (tools.length === 0) tools = [{ tool: "-", input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }];
     return { date: e.date, team: e.team, teamLabel: e.teamLabel, tools: tools };
   });

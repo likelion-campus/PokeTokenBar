@@ -51,7 +51,7 @@ var UUID_RE = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9
 var SECRET_RE = /^[A-Za-z0-9_-]{32,128}$/;
 var VERSION_RE = /^[0-9A-Za-z.+-]{1,32}$/;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-var TEAM_RE = /^[A-Za-z0-9_-]{4,64}$/;
+var TEAM_RE = /^t_[A-Za-z0-9_-]{2,62}$/;
 var TOOL_RE = /^[a-z0-9_.-]{1,32}$/;
 var ACCOUNT_RE = /^[A-Za-z0-9_-]{4,128}$/;
 var DOMAIN_RE = /^[a-z0-9.-]{1,253}$/;
@@ -76,12 +76,13 @@ function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-// The app's validNickname: trimmed, 1-12 characters, no newline. Returns the trimmed value or null.
+// The app counts grapheme clusters (Swift String.count), which JS cannot do without Intl.Segmenter, so the
+// script bounds the UTF-8 size instead: trimmed, non-empty, at most 320 bytes, no newline. Returns the
+// trimmed value or null.
 function normalizeNickname(v) {
   if (typeof v !== "string") return null;
   var t = v.trim();
-  var len = Array.from(t).length;
-  if (len < 1 || len > 12 || /[\r\n]/.test(t)) return null;
+  if (t.length < 1 || /[\r\n]/.test(t) || utf8Length(t) > 320) return null;
   return t;
 }
 
@@ -143,7 +144,8 @@ function parseLimit(l, nowMs) {
 // Returns { ok: true, member, days, limits, dropped } or { ok: false, error }.
 function parsePayload(text, nowMs, tz) {
   if (typeof text !== "string") return { ok: false, error: "bad_json" };
-  if (utf8Length(text) > MAX_BODY_BYTES) return { ok: false, error: "too_large" };
+  // A JS string is never longer than its UTF-8 bytes, so this rejects without the byte count.
+  if (text.length > MAX_BODY_BYTES || utf8Length(text) > MAX_BODY_BYTES) return { ok: false, error: "too_large" };
   var body;
   try { body = JSON.parse(text); } catch (e) { return { ok: false, error: "bad_json" }; }
   if (!isPlainObject(body)) return { ok: false, error: "bad_json" };
@@ -164,7 +166,7 @@ function parsePayload(text, nowMs, tz) {
 
   var today = dateToDayNumber(localDateString(nowMs, tz));
   var dropped = 0;
-  var byDate = {};
+  var byDate = new Map();
   var dateOrder = [];
   rawDays.forEach(function (d) {
     var dayNumber = isPlainObject(d) ? dateToDayNumber(d.date) : null;
@@ -180,22 +182,23 @@ function parsePayload(text, nowMs, tz) {
     });
     if (d.tools.length > 0 && tools.length === 0) { dropped++; return; }
     var label = normalizeNickname(d.teamLabel);
-    var entry = byDate[d.date];
+    var entry = byDate.get(d.date);
     if (!entry) {
-      entry = byDate[d.date] = { date: d.date, team: d.team, teamLabel: "", toolMap: {}, toolOrder: [] };
+      entry = { date: d.date, team: d.team, teamLabel: "", toolMap: new Map(), toolOrder: [] };
+      byDate.set(d.date, entry);
       dateOrder.push(d.date);
     }
     entry.team = d.team;
     entry.teamLabel = label === null ? "" : label;
     tools.forEach(function (t) {
-      if (!Object.prototype.hasOwnProperty.call(entry.toolMap, t.tool)) entry.toolOrder.push(t.tool);
-      entry.toolMap[t.tool] = t; // a repeated date|tool keeps the last occurrence
+      if (!entry.toolMap.has(t.tool)) entry.toolOrder.push(t.tool);
+      entry.toolMap.set(t.tool, t); // a repeated date|tool keeps the last occurrence
     });
   });
 
   var days = dateOrder.map(function (date) {
-    var e = byDate[date];
-    var tools = e.toolOrder.map(function (name) { return e.toolMap[name]; });
+    var e = byDate.get(date);
+    var tools = e.toolOrder.map(function (name) { return e.toolMap.get(name); });
     if (tools.length === 0) tools = [{ tool: "-", input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }];
     return { date: e.date, team: e.team, teamLabel: e.teamLabel, tools: tools };
   });
@@ -326,10 +329,45 @@ function sheetRows(sheet, width) {
   return sheet.getRange(2, 1, last - 1, width).getValues();
 }
 
+function cellsEqual(a, b) {
+  if (a === b) return true;
+  var aDate = a instanceof Date || Object.prototype.toString.call(a) === "[object Date]";
+  var bDate = b instanceof Date || Object.prototype.toString.call(b) === "[object Date]";
+  return aDate && bDate && a.getTime() === b.getTime();
+}
+
+function rowsEqual(a, b) {
+  if (a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i++) if (!cellsEqual(a[i], b[i])) return false;
+  return true;
+}
+
+// Writes the changed rows and appends the new ones. dirty: indexes of rows whose built value differs
+// from what was read. spans ([[firstCol, count], ...], 1-based) limits an in-place rewrite to the
+// columns the script owns, so an owner's edit to another column of the row is never overwritten.
+function flushRows(sheet, width, rows, existingCount, dirty, spans) {
+  dirty.forEach(function (i) {
+    (spans || [[1, width]]).forEach(function (span) {
+      var part = rows[i].slice(span[0] - 1, span[0] - 1 + span[1]);
+      sheet.getRange(i + 2, span[0], 1, span[1]).setValues(asTextRows([part]));
+    });
+  });
+  if (rows.length > existingCount) {
+    var added = rows.slice(existingCount);
+    ensureRows(sheet, existingCount + 1 + added.length);
+    sheet.getRange(existingCount + 2, 1, added.length, width).setValues(asTextRows(added));
+  }
+}
+
 // items: [{ key, build(oldRow | null) -> newRow }]. Existing rows are rewritten in place (one
-// setValues per row), new rows appended in one block. A repeated key within items updates the same row.
-function upsertRows(sheet, width, keyOfRow, items) {
-  var rows = sheetRows(sheet, width);
+// setValues per row, skipped when build returns an equal row), new rows appended in one block. A
+// repeated key within items updates the same row.
+//   opts.readWidth: read only the first N columns (the key columns); the old row passed to build is then
+//     partial, so use it only when build ignores it. Defaults to width.
+//   opts.spans: see flushRows.
+function upsertRows(sheet, width, keyOfRow, items, opts) {
+  var o = opts || {};
+  var rows = sheetRows(sheet, o.readWidth || width);
   var index = new Map();
   rows.forEach(function (r, i) { index.set(keyOfRow(r), i); });
   var existingCount = rows.length;
@@ -340,18 +378,12 @@ function upsertRows(sheet, width, keyOfRow, items) {
       rows.push(item.build(null));
       index.set(item.key, rows.length - 1);
     } else {
-      rows[i] = item.build(rows[i]);
-      if (i < existingCount) dirty.add(i);
+      var built = item.build(rows[i]);
+      if (i < existingCount && !rowsEqual(built, rows[i])) dirty.add(i);
+      rows[i] = built;
     }
   });
-  dirty.forEach(function (i) {
-    sheet.getRange(i + 2, 1, 1, width).setValues(asTextRows([rows[i]]));
-  });
-  if (rows.length > existingCount) {
-    var added = rows.slice(existingCount);
-    ensureRows(sheet, existingCount + 1 + added.length);
-    sheet.getRange(existingCount + 2, 1, added.length, width).setValues(asTextRows(added));
-  }
+  flushRows(sheet, width, rows, existingCount, dirty, o.spans);
 }
 
 function sha256Hex(text) {
@@ -375,6 +407,52 @@ function checkDevice(sheet, member, nowMs) {
   return true;
 }
 
+// A limit row is identified by memberId|account|tool plus its weekly window, so a poster can only touch
+// rows carrying its own (device-checked) memberId. The same window is the existing row whose reset time
+// lies within 24 hours of the incoming one: windows are 7 days apart and the source jitters by seconds.
+function upsertLimits(sheet, member, limits) {
+  var width = COLS_LIMITS.length;
+  var rows = sheetRows(sheet, width);
+  var byIdentity = new Map();   // memberId|account|tool -> [row index]
+  function identity(memberId, account, tool) { return memberId + "|" + account + "|" + tool; }
+  rows.forEach(function (r, i) {
+    var k = identity(r[3], r[0], r[1]);
+    if (!byIdentity.has(k)) byIdentity.set(k, []);
+    byIdentity.get(k).push(i);
+  });
+  var existingCount = rows.length;
+  var dirty = new Set();
+  limits.forEach(function (l) {
+    var resetsMs = Date.parse(l.resetsAt);
+    var readMs = Date.parse(l.readAt);
+    var k = identity(member.id, l.account, l.tool);
+    var candidates = byIdentity.get(k) || [];
+    var match = -1, best = Infinity;
+    candidates.forEach(function (i) {
+      var gap = Math.abs(cellToMs(rows[i][2]) - resetsMs);
+      if (gap <= DAY_MS && gap < best) { match = i; best = gap; }
+    });
+    if (match === -1) {
+      rows.push([l.account, l.tool, msToIso(resetsMs), member.id, l.team, l.plan, l.domain,
+        l.usedPercent, l.usedPercent, msToIso(readMs)]);
+      if (!byIdentity.has(k)) byIdentity.set(k, []);
+      byIdentity.get(k).push(rows.length - 1);
+      return;
+    }
+    var old = rows[match];
+    var row = old.slice();
+    row[7] = Math.max(Number(old[7]) || 0, l.usedPercent);
+    if (readMs >= cellToMs(old[9])) {
+      row[2] = msToIso(resetsMs);
+      row[4] = l.team; row[5] = l.plan; row[6] = l.domain;
+      row[8] = l.usedPercent; row[9] = msToIso(readMs);
+    }
+    if (match < existingCount && !rowsEqual(row, old)) dirty.add(match);
+    rows[match] = row;
+  });
+  flushRows(sheet, width, rows, existingCount, dirty, null);
+}
+
 function writeReport(ss, p, nowMs, tz) {
   var now = msToIso(nowMs);
   var member = p.member;
@@ -396,41 +474,20 @@ function writeReport(ss, p, nowMs, tz) {
   });
   p.limits.forEach(function (l) { if (!teamLabelFor.has(l.team)) teamLabelFor.set(l.team, ""); });
 
+  // The raw build ignores the old row, so only the key columns (A:D) are read.
   upsertRows(ss.getSheetByName(TAB_RAW), COLS_RAW.length, function (r) {
     return r[0] + "|" + cellToDateString(r[2], tz) + "|" + r[3];
-  }, rawItems);
+  }, rawItems, { readWidth: 4 });
 
-  var limitItems = p.limits.map(function (l) {
-    var resetsMs = Date.parse(l.resetsAt);
-    var readMs = Date.parse(l.readAt);
-    return {
-      key: l.account + "|" + l.tool + "|" + msToIso(resetsMs),
-      build: function (old) {
-        if (old === null) {
-          return [l.account, l.tool, msToIso(resetsMs), member.id, l.team, l.plan, l.domain,
-            l.usedPercent, l.usedPercent, msToIso(readMs)];
-        }
-        var row = old.slice();
-        row[7] = Math.max(Number(old[7]) || 0, l.usedPercent);
-        if (readMs >= cellToMs(old[9])) {
-          row[2] = msToIso(resetsMs);
-          row[3] = member.id; row[4] = l.team; row[5] = l.plan; row[6] = l.domain;
-          row[8] = l.usedPercent; row[9] = msToIso(readMs);
-        }
-        return row;
-      }
-    };
-  });
-  upsertRows(ss.getSheetByName(TAB_LIMITS), COLS_LIMITS.length, function (r) {
-    return r[0] + "|" + r[1] + "|" + msToIso(cellToMs(r[2]));
-  }, limitItems);
+  upsertLimits(ss.getSheetByName(TAB_LIMITS), member, p.limits);
 
+  // 합칠대상 (D) belongs to the owner: a report writes B:C and E:F only.
   upsertRows(ss.getSheetByName(TAB_PEOPLE), COLS_PEOPLE.length, function (r) { return r[0]; }, [{
     key: member.id,
     build: function (old) {
       return [member.id, member.nickname, now, old === null ? "" : old[3], member.appVersion, member.platform];
     }
-  }]);
+  }], { spans: [[2, 2], [5, 2]] });
 
   var deptItems = [];
   teamLabelFor.forEach(function (label, team) {
@@ -453,16 +510,17 @@ function writeReport(ss, p, nowMs, tz) {
   });
   upsertRows(ss.getSheetByName(TAB_TEAMLABELS), COLS_TEAMLABELS.length, function (r) { return r[0] + "|" + r[1]; }, labelItems);
 
-  return { ok: true, accepted: { days: rawItems.length, limits: limitItems.length }, dropped: p.dropped };
+  return { ok: true, accepted: { days: rawItems.length, limits: p.limits.length }, dropped: p.dropped };
 }
 
 function handleReport(ss, text, nowMs, tz) {
+  // Parsing needs no sheet, so it runs before the lock is taken.
+  var p = parsePayload(text, nowMs, tz);
+  if (!p.ok) return { ok: false, error: p.error };
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     ensureSheets(ss);
-    var p = parsePayload(text, nowMs, tz);
-    if (!p.ok) return { ok: false, error: p.error };
     if (!checkDevice(ss.getSheetByName(TAB_DEVICES), p.member, nowMs)) return { ok: false, error: "device_mismatch" };
     return writeReport(ss, p, nowMs, tz);
   } finally {

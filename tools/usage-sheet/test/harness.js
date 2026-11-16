@@ -47,7 +47,7 @@ function coerce(v, textFormat) {
 
 function makeSheet(name) {
   const sheet = {
-    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000,
+    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000, _cellsRead: 0,
     getName: () => name,
     getLastRow() {
       for (let i = sheet._rows.length - 1; i >= 0; i--) {
@@ -72,6 +72,7 @@ function makeSheet(name) {
         _a1: { row, col, numRows: nr, numCols: nc },
         setFontWeight() { return this; },
         getValues() {
+          sheet._cellsRead += nr * nc;
           const out = [];
           for (let r = 0; r < nr; r++) {
             const line = [];

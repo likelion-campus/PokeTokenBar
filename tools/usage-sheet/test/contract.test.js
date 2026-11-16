@@ -111,6 +111,51 @@ test("member validation", () => {
   }
 });
 
+test("nickname rule: app-valid grapheme nicknames pass, 321 bytes does not", () => {
+  const cases = [
+    ["열한글자열한글자열한글" + "\u{1F44D}\u{1F3FB}", true],           // 11 Hangul + thumbs-up with skin tone
+    ["\u{1F1F0}\u{1F1F7}", true],                                         // flag emoji
+    ["\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}", true], // ZWJ family
+    ["a".repeat(320), true],
+    ["a".repeat(321), false],
+    ["가".repeat(107), false],                                              // 321 bytes
+  ];
+  for (const [nick, ok] of cases) {
+    const b = validBody();
+    b.member.nickname = nick;
+    assert.equal(parse(b).ok, ok, JSON.stringify(nick));
+  }
+});
+
+test("team ids need the t_ prefix, for days and limits", () => {
+  for (const team of ["123456", "1e5abc", "ab12cd34ef56", "t_a", "t_" + "a".repeat(63)]) {
+    const b = validBody();
+    b.days = [{ date: "2026-11-16", team, tools: [] }];
+    b.limits[0].team = team;
+    const r = parse(b);
+    assert.equal(r.days.length, 0, team);
+    assert.equal(r.limits.length, 0, team);
+  }
+  const b = validBody();
+  b.days = [{ date: "2026-11-16", team: "t_ab", tools: [] }];
+  b.limits[0].team = "t_" + "a".repeat(62);
+  const r = parse(b);
+  assert.equal(r.days.length, 1);
+  assert.equal(r.limits.length, 1);
+});
+
+test("a __proto__ tool id twice in one day gives one row with the last values", () => {
+  const b = validBody();
+  b.days = [{ date: "2026-11-16", team: "t_ab12cd34ef56", tools: [
+    { tool: "__proto__", input: 1, output: 1, cacheWrite: 1, cacheRead: 1 },
+    { tool: "__proto__", input: 9, output: 9, cacheWrite: 9, cacheRead: 9 },
+  ] }];
+  const r = parse(b);
+  assert.equal(r.days[0].tools.length, 1);
+  assert.deepEqual(plain(r.days[0].tools[0]), { tool: "__proto__", input: 9, output: 9, cacheWrite: 9, cacheRead: 9 });
+  assert.equal(({}).input, undefined);
+});
+
 test("a repeated date/tool keeps the last occurrence", () => {
   const b = validBody();
   b.days = [{ date: "2026-11-16", team: "t_ab12cd34ef56", tools: [
@@ -150,7 +195,7 @@ test("invalid team drops the day", () => {
 
 test("an invalid teamLabel becomes '' and the day is kept", () => {
   const b = validBody();
-  b.days = [{ date: "2026-11-16", team: "t_ab12cd34ef56", teamLabel: "열세글자를넘는팀이름입니다만", tools: [] }];
+  b.days = [{ date: "2026-11-16", team: "t_ab12cd34ef56", teamLabel: "a".repeat(321), tools: [] }];
   const r = parse(b);
   assert.equal(r.days.length, 1);
   assert.equal(r.days[0].teamLabel, "");
