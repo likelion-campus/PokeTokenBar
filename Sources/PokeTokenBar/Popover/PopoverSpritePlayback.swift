@@ -1,0 +1,318 @@
+import Foundation
+
+typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
+
+/// What the popover keeps of decoded sprites while it is open: GIF frame sets (at most `frameSets`, oldest out first) and
+/// stills (at most `stills`), and the egg. `release()` empties it (the popover closed).
+@MainActor final class PopoverSpriteMemory {
+    static let frameSets = 4
+    static let stills = 8
+    private var frames: [String: PopoverSpriteFrames] = [:]
+    private var frameOrder: [String] = []
+    private var stills: [String: PlazaImage] = [:]
+    private var stillOrder: [String] = []
+    private(set) var egg: PlazaImage?
+
+    var frameSetCount: Int { frames.count }
+    var stillCount: Int { stills.count }
+
+    func frames(for key: String) -> PopoverSpriteFrames { frames[key] ?? [] }
+    func keepFrames(_ value: PopoverSpriteFrames, for key: String) {
+        if frames[key] == nil { frameOrder.append(key) }
+        frames[key] = value
+        while frameOrder.count > Self.frameSets { frames.removeValue(forKey: frameOrder.removeFirst()) }
+    }
+
+    func still(for key: String) -> PlazaImage? { stills[key] }
+    func keepStill(_ value: PlazaImage, for key: String) {
+        if stills[key] == nil { stillOrder.append(key) }
+        stills[key] = value
+        while stillOrder.count > Self.stills { stills.removeValue(forKey: stillOrder.removeFirst()) }
+    }
+
+    func keepEgg(_ image: PlazaImage) { egg = image }
+
+    func release() {
+        frames = [:]; frameOrder = []; stills = [:]; stillOrder = []; egg = nil
+    }
+}
+
+/// One sprite slot's state: the Mac `SpriteView`'s `.task(id:)` body as a state machine over `PlazaSpriteFetching`
+/// (shared by both systems, tested on both). A subject change cancels the load in flight and bumps `generation`; a load
+/// that finishes after that (or after `release()`) changes nothing (the Mac's `Task.isCancelled` guard, `PopoverSpriteSubject`
+/// carries the rules). Frame times: the GIF's own delays; the bob (a still sprite) toggles every 0.9 s.
+@MainActor final class PopoverSpriteModel {
+    static let bobPeriod: TimeInterval = 0.9
+    /// Due times closer than this tick together (floating-point sums of delays differ by a few ulps).
+    static let slack: TimeInterval = 0.0005
+
+    private let fetcher: any PlazaSpriteFetching
+    private let memory: PopoverSpriteMemory
+    private let now: () -> Date
+    private var task: Task<Void, Never>?
+
+    private(set) var subject = PopoverSpriteSubject(image: nil, loadedID: nil)
+    private(set) var frames: PopoverSpriteFrames = []
+    private(set) var frameIndex = 0
+    private(set) var generation = 0
+    private(set) var taskID: String?
+    private(set) var key: PlazaSpriteSubjectKey?
+    private(set) var animated = false
+    private(set) var bobUp = false
+    private var bobs = false
+    private var playing = false
+    private var frameDue: Date?
+    private var bobDue: Date?
+    private(set) var released = false
+    /// The picture the slot shows changed (a load finished).
+    var onChange: (() -> Void)?
+
+    init(fetcher: any PlazaSpriteFetching, memory: PopoverSpriteMemory, now: @escaping () -> Date = { Date() }) {
+        self.fetcher = fetcher
+        self.memory = memory
+        self.now = now
+    }
+
+    /// The current picture: the GIF's frame, else the still. nil: the 🥚 glyph.
+    var current: PlazaImage? { frames.isEmpty ? subject.image : frames[frameIndex % frames.count].image }
+    var isAnimating: Bool { frames.count > 1 }
+    /// The earliest moment something about the picture changes by itself (nil: nothing does).
+    var nextDue: Date? { [frameDue, bobDue].compactMap { $0 }.min() }
+
+    private func stillKey(_ k: PlazaSpriteSubjectKey, form: PokemonForm?) -> String {
+        PopoverSpriteRules.frameTaskID(speciesID: k.speciesID, shiny: k.shiny, floor: 0, animated: false, form: form, back: k.back)
+    }
+
+    /// Shows `slot`'s subject. Same task identity (species, shiny, floor, animated, form, back): nothing happens.
+    func show(_ subjectKey: PlazaSpriteSubjectKey?, animated: Bool, bob: Bool) {
+        guard !released else { return }
+        bobs = bob
+        guard let k = subjectKey else {
+            cancel()
+            taskID = nil; key = nil; self.animated = false
+            frames = []; frameIndex = 0
+            subject = PopoverSpriteSubject(image: nil, loadedID: nil)
+            reschedule()
+            return
+        }
+        let form = k.speciesID.flatMap { PokemonForm.resolved(speciesID: $0, form: k.form) }
+        let id = PopoverSpriteRules.frameTaskID(speciesID: k.speciesID, shiny: k.shiny, floor: 0, animated: animated, form: form, back: k.back)
+        guard id != taskID else { reschedule(); return }
+        cancel()
+        taskID = id
+        key = k
+        self.animated = animated
+        let g = generation
+        // Animated frames are reset on every change (no afterimage of the previous subject).
+        let cachedFrames = animated && k.speciesID != nil ? memory.frames(for: id) : []
+        frames = cachedFrames.count > 1 ? cachedFrames : []
+        frameIndex = 0
+        frameDue = nil
+        guard let species = k.speciesID else {
+            apply(subject.becomingEgg(cachedEgg: memory.egg))
+            if subject.image == nil {
+                launch { [self] in
+                    let egg = await fetcher.egg()
+                    if let egg { memory.keepEgg(egg) }
+                    if let next = subject.applyingEgg(egg, cancelled: Task.isCancelled || generation != g) { apply(next) }
+                    loaded()
+                }
+            }
+            reschedule()
+            return
+        }
+        if PopoverSpriteRules.needsReload(loadedID: subject.loadedID, loadedShiny: subject.loadedShiny, id: species, shiny: k.shiny,
+                                          loadedForm: subject.loadedForm, form: form, loadedBack: subject.loadedBack, back: k.back) {
+            apply(subject.startingLoad(cachedImage: memory.still(for: stillKey(k, form: form)), for: species, shiny: k.shiny,
+                                       form: form, back: k.back))
+        }
+        if animated && frames.isEmpty {
+            launch { [self] in
+                var decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: k.back)
+                if decoded.count < 2, k.back {   // a missing back sprite: the front stands in
+                    decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: false)
+                }
+                guard !Task.isCancelled, generation == g else { return }
+                let ready = PopoverSpriteRules.framesToApply(decoded, cancelled: false)
+                if ready.isEmpty {
+                    await loadStill(species, k, form, g)
+                } else {
+                    memory.keepFrames(ready, for: id)
+                    frames = ready
+                    frameIndex = 0
+                }
+                loaded()
+            }
+        } else if frames.isEmpty {
+            launch { [self] in
+                await loadStill(species, k, form, g)
+                loaded()
+            }
+        }
+        reschedule()
+    }
+
+    private func loadStill(_ species: Int, _ k: PlazaSpriteSubjectKey, _ form: PokemonForm?, _ g: Int) async {
+        var image = await fetcher.still(speciesID: species, shiny: k.shiny, form: form, back: k.back)
+        if image == nil, k.back { image = await fetcher.still(speciesID: species, shiny: k.shiny, form: form, back: false) }
+        if let image { memory.keepStill(image, for: stillKey(k, form: form)) }
+        if let next = subject.applyingLoad(image, for: species, cancelled: Task.isCancelled || generation != g,
+                                           shiny: k.shiny, form: form, back: k.back) { apply(next) }
+    }
+
+    private func launch(_ body: @escaping @MainActor () async -> Void) {
+        task = Task { @MainActor in await body() }
+    }
+
+    private func cancel() {
+        task?.cancel()
+        task = nil
+        generation += 1
+    }
+
+    private func apply(_ next: PopoverSpriteSubject) {
+        guard next != subject else { return }
+        subject = next
+    }
+
+    private func loaded() {
+        guard !released else { return }
+        reschedule()
+        onChange?()
+    }
+
+    /// Whether the clock runs for this slot (visible, animation on). Stopped: no due times.
+    func setPlaying(_ on: Bool) {
+        guard on != playing else { return }
+        playing = on
+        reschedule()
+    }
+
+    /// Arms or clears the due times for the present state: a GIF's next frame, or a still sprite's bob.
+    private func reschedule() {
+        guard playing, !released else { frameDue = nil; bobDue = nil; if !playing { bobUp = false }; return }
+        if isAnimating { if frameDue == nil { frameDue = now().addingTimeInterval(frames[frameIndex % frames.count].delay) } } else { frameDue = nil }
+        if bobs && !isAnimating && key != nil {
+            if bobDue == nil { bobDue = now().addingTimeInterval(Self.bobPeriod) }
+        } else {
+            bobDue = nil
+            bobUp = false
+        }
+    }
+
+    /// Advances what is due at `time`; true when the picture or its offset changed (the slot needs painting).
+    func tick(at time: Date) -> Bool {
+        guard !released else { return false }
+        var changed = false
+        if let due = frameDue, isAnimating, time.addingTimeInterval(Self.slack) >= due {
+            frameIndex = (frameIndex + 1) % frames.count
+            var next = due.addingTimeInterval(frames[frameIndex].delay)
+            if next <= time { next = time.addingTimeInterval(frames[frameIndex].delay) }   // behind: no burst of catch-up frames
+            frameDue = next
+            changed = true
+        }
+        if let due = bobDue, time.addingTimeInterval(Self.slack) >= due {
+            bobUp.toggle()
+            var next = due.addingTimeInterval(Self.bobPeriod)
+            if next <= time { next = time.addingTimeInterval(Self.bobPeriod) }
+            bobDue = next
+            changed = true
+        }
+        return changed
+    }
+
+    /// The popover closed or the view is gone: cancels the load, drops the frames and the cache; nothing paints after.
+    func release() {
+        cancel()
+        released = true
+        frames = []
+        subject = PopoverSpriteSubject(image: nil, loadedID: nil)
+        frameDue = nil
+        bobDue = nil
+        onChange = nil
+    }
+}
+
+/// The slots of one drawn view, one model each, one clock. `update(slots:)` after every render; `isActive` (the view is
+/// shown, animation is on) arms the clock for the earliest due; a tick advances what is due and reports the slots to
+/// repaint. Nothing is armed while inactive, with no animated or bobbing slot, or after `release()`.
+@MainActor final class PopoverSpritePlayback {
+    let clock: PopoverAnimationClock
+    let memory = PopoverSpriteMemory()
+    private let fetcher: any PlazaSpriteFetching
+    private let now: () -> Date
+    private(set) var models: [PopoverSpriteModel] = []
+    private var slots: [SpriteSlot] = []
+    private(set) var ticks = 0
+    private(set) var released = false
+    /// Animation allowed (reduced motion, the app's setting): off shows the first picture only, and loads the still.
+    var animationsEnabled = true { didSet { if oldValue != animationsEnabled { update(slots: slots) } } }
+    /// The view is shown on screen.
+    var isActive = false { didSet { if oldValue != isActive { applyActive() } } }
+    /// A slot's picture changed: its index.
+    var onInvalidate: ((Int) -> Void)?
+
+    init(fetcher: any PlazaSpriteFetching, clock: PopoverAnimationClock = PopoverAnimationClock(), now: @escaping () -> Date = { Date() }) {
+        self.fetcher = fetcher
+        self.clock = clock
+        self.now = now
+        clock.onTick = { [weak self] in self?.tick() }
+    }
+
+    func update(slots new: [SpriteSlot]) {
+        guard !released else { return }
+        slots = new
+        while models.count > new.count { models.removeLast().release() }
+        while models.count < new.count {
+            let index = models.count
+            let model = PopoverSpriteModel(fetcher: fetcher, memory: memory, now: now)
+            model.onChange = { [weak self] in self?.modelChanged(index) }
+            models.append(model)
+        }
+        for (model, slot) in zip(models, new) {
+            model.show(slot.subject, animated: slot.animated && animationsEnabled, bob: slot.bob && animationsEnabled)
+            model.setPlaying(isActive && animationsEnabled)
+        }
+        rearm()
+    }
+
+    private func applyActive() {
+        for model in models { model.setPlaying(isActive && animationsEnabled) }
+        rearm()
+    }
+
+    private func modelChanged(_ index: Int) {
+        guard !released else { return }
+        models[index].setPlaying(isActive && animationsEnabled)
+        rearm()
+        onInvalidate?(index)
+    }
+
+    /// Asked at every tick: false (the view is hidden or scrolled out meanwhile) makes the playback inactive instead.
+    var shouldTick: (() -> Bool)?
+
+    private func tick() {
+        guard !released else { return }
+        if let shouldTick, !shouldTick() { isActive = false; return }
+        ticks += 1
+        let time = now()
+        for (i, model) in models.enumerated() where model.tick(at: time) { onInvalidate?(i) }
+        rearm()
+    }
+
+    private func rearm() {
+        clock.setDue(isActive && animationsEnabled && !released ? models.compactMap(\.nextDue).min() : nil)
+    }
+
+    /// Closes: no timer, loads cancelled, frames and cache freed.
+    func release() {
+        guard !released else { return }
+        released = true
+        clock.setDue(nil)
+        clock.onTick = nil
+        for model in models { model.release() }
+        models = []
+        memory.release()
+        onInvalidate = nil
+    }
+}

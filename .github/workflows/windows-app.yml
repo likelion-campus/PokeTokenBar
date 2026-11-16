@@ -191,6 +191,7 @@ jobs:
           foreach ($s in $j.stacks) { "== stacks $($s.name)"; $s.detail }
       - name: Selftest with a stripped Path
         id: bundle-selftest
+        timeout-minutes: 20  # about 6 min; a hang ends with the logs collected (Collect logs runs always)
         shell: pwsh
         env:
           PTB_SELFTEST_FLAKE_LOOP: ${{ inputs.release_sha == '' && inputs.flake_loop || '0' }}   # the repeat loops run in this process only
@@ -220,6 +221,7 @@ jobs:
           $j = Get-Content st.json -Raw | ConvertFrom-Json
           $names = 'ui.kit.tabOrder', 'ui.kit.keys', 'ui.kit.text', 'ui.kit.typed', 'ui.kit.enterEscape', 'ui.kit.menuKeys', 'ui.kit.unregister',
                    'ui.kit.fonts', 'ui.kit.glyphs', 'ui.kit.drawn', 'ui.kit.tooltips', 'ui.kit.scroll', 'ui.kit.dpi', 'ui.kit.idle', 'ui.kit.capture', 'ui.kit.openClose3',
+                   'companion.spriteFrames', 'companion.clockStops', 'companion.spriteMemory',
                    'ui.kit.scrollClicks', 'ui.kit.multiLineKeys', 'ui.kit.partResize', 'ui.kit.settingChange', 'ui.kit.editMenu',
                    'ui.kit.codePaste', 'ui.kit.ampersand', 'ui.kit.registries', 'ui.kit.noLeak'
           $bad = @()
@@ -240,7 +242,8 @@ jobs:
           $names = 'popover.open', 'popover.placement', 'popover.toggle', 'popover.dismissOnActivate', 'popover.dismissInput', 'popover.escape',
                    'popover.closePaths', 'popover.ownedKeepsOpen', 'popover.staleCompletion', 'popover.dpiChange', 'popover.noSelfOpen',
                    'popover.refusedForeground', 'popover.menuAfter', 'popover.menuSettings', 'popover.secondLaunch', 'popover.realClick',
-                   'popover.openClose3', 'popover.capture', 'popover.withPlaza'
+                   'popover.openClose3', 'popover.capture', 'popover.withPlaza', 'popover.aboveTopmost', 'popover.pageContract',
+                   'popover.closeAfterNestedLoop', 'popover.autostartQuiet'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -772,6 +775,7 @@ jobs:
       - name: Installed selftest (stripped Path, from the install folder)
         id: installed-selftest
         if: (success() || failure()) && steps.install.outcome == 'success'
+        timeout-minutes: 25  # about 6 min, one retry
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -804,6 +808,7 @@ jobs:
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
         id: idle
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full' && env.PTB_FAST != 'true'
+        timeout-minutes: 45  # about 23 min with the popover windows (run 43794578956: 22.4 min)
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -891,13 +896,26 @@ jobs:
           Measure-App 'popover-kit-open-120s' 120 $off $budget @('--popover-kit-idle-probe')
           $summary.windows['popover-kit-open-120s'].kitLog = @(Select-String -Path $logFile -Pattern 'popover kit idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
           # --- stage 7 Task 3: the popover kit open and still (end) ---
+          # --- stage 7 Task 8: an animated sprite open (begin) ---
+          # The fixture GIF (5 frames at 0.1 s) in a drawn part, popover kit window open: the cost of an animating popover. The
+          # budget is loose (first numbers; Task 8 report): what it must show is that it is bounded and that nothing else wakes.
+          Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
+          $summary.windows['popover-sprite-open-120s'].spriteLog = @(Select-String -Path $logFile -Pattern 'popover sprite idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+          # --- stage 7 Task 8: an animated sprite open (end) ---
           # --- stage 7 Task 4: the popover window open and still, and closed after an open (begin) ---
           # The real popover (empty page, opened through the tray callback), refresh off: the closed app's budget for both. Closed
           # after an open must cost what never opened costs (D18); open and still adds no timer.
           foreach ($mode in 'open', 'closed') {
               $label = "popover-$mode-120s"
               Measure-App $label 120 $off $budget @('--popover-idle-probe', $mode)
-              $summary.windows[$label].popoverLog = @(Select-String -Path $logFile -Pattern 'popover idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+              $probeLines = @(Select-String -Path $logFile -Pattern 'popover idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
+              $summary.windows[$label].popoverLog = $probeLines
+              # The window measured what it says: open and never closed for 'open', closed once for 'closed' (the exit line).
+              $exit = @($probeLines | Where-Object { $_ -match 'popover idle probe exit:' }) | Select-Object -Last 1
+              $want = if ($mode -eq 'open') { 'open=true opens=1 closes=0' } else { 'open=false opens=1 closes=1' }
+              $stateOK = $exit -and $exit -match [regex]::Escape($want)
+              $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
+              $verdicts[$label] = $verdicts[$label] -and $stateOK
           }
           # --- stage 7 Task 4: the popover window open and still, and closed after an open (end) ---
           $summary.verdicts = $verdicts
@@ -1006,6 +1024,7 @@ jobs:
       - name: Upgrade from the previous published Windows release
         id: upgrade-from-release
         if: (success() || failure()) && steps.uninstall.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 15  # a download and two installs
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}  # read-only, for the API rate limit
@@ -1014,9 +1033,19 @@ jobs:
       - name: A failed update brings the old app back
         id: failed-update-relaunch
         if: (success() || failure()) && steps.iscc.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 25  # about 8 min
         shell: pwsh
         run: ./scripts/windows/failed-update-relaunch.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
       # ---- end failed-update-relaunch ----
+      # ---- in-app-update: the installed app updates itself from a loopback feed (stage 8 Task 6); logs and the progress
+      # window's capture in collected\in-app-update ----
+      - name: The in-app update from a loopback feed
+        id: in-app-update
+        if: (success() || failure()) && steps.iscc.outcome == 'success' && env.PTB_LEVEL == 'full'
+        timeout-minutes: 25  # the step takes about 3 min; a hung scenario must not hold a release run to the job limit
+        shell: pwsh
+        run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
+      # ---- end in-app-update ----
       # New gate steps go above this line ("Collect logs"); the two release-mode steps stay last.
       - name: Collect logs
         if: always()
