@@ -370,11 +370,10 @@ import WinSDK
         if WinChatFaults.has(.editBeforeResult) { runPendingEdit(h, why: "at once"); return }
         if runPendingEditIfDue(h) { return }
         counts.editsDeferred += 1
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in   // an IME that never reports: the edit is not lost
-            MainActor.assumeIsolated { () -> Void in
-                guard let self, self.pendingEdit?.token == token, let h = self.editHWND else { return }
-                self.runPendingEdit(h, why: "after 0.3 s")
-            }
+        Task { @MainActor [weak self] in   // an IME that never reports: the edit is not lost
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let self, self.pendingEdit?.token == token, let h = self.editHWND else { return }
+            self.runPendingEdit(h, why: "after 0.3 s")
         }
     }
 
