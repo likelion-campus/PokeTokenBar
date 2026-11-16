@@ -235,7 +235,8 @@ jobs:
           $names = 'popover.open', 'popover.placement', 'popover.toggle', 'popover.dismissOnActivate', 'popover.dismissInput', 'popover.escape',
                    'popover.closePaths', 'popover.ownedKeepsOpen', 'popover.staleCompletion', 'popover.dpiChange', 'popover.noSelfOpen',
                    'popover.refusedForeground', 'popover.menuAfter', 'popover.menuSettings', 'popover.secondLaunch', 'popover.realClick',
-                   'popover.openClose3', 'popover.capture', 'popover.withPlaza'
+                   'popover.openClose3', 'popover.capture', 'popover.withPlaza', 'popover.aboveTopmost', 'popover.pageContract',
+                   'popover.closeAfterNestedLoop', 'popover.autostartQuiet'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }

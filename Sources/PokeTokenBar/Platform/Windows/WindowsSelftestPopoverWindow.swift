@@ -1148,6 +1148,7 @@ final class PopoverDriver: @unchecked Sendable {
         }
         let dpi = WinUIContext.dpi(of: hwnd)
         let want = Int32((300 * Double(dpi) / 96).rounded())
+        let clientAfterBuild = clientRectText(hwnd)
         let shrunk = clientRect().bottom == want
         // A rebuild (a WM_DPICHANGED to another DPI; the same DPI only lays out again) changes the generation: work started by
         // the old build is dropped, and the page builds again (where it asks again).
@@ -1165,7 +1166,7 @@ final class PopoverDriver: @unchecked Sendable {
         _ = withUnsafeMutablePointer(to: &wr2) { SendMessageW(hwnd, 0x02E0, WPARAM(third | (third << 16)), LPARAM(Int(bitPattern: $0))) }
         let closedAnyway = await closed(1)
         r.add("popover.pageContract", shrunk && rebuilt && closedAnyway && page.destroys == page.builds,
-              "a page that sets 300 DIP and calls pageSizeChanged() inside its first build: client height \(clientRectText(hwnd)) (want \(want))=\(shrunk); "
+              "a page that sets 300 DIP and calls pageSizeChanged() inside its first build: client \(clientAfterBuild) (height wanted \(want))=\(shrunk); "
               + "a rebuild: builds \(builds0) -> \(page.builds), generation \(g) -> \(popover.generation), work from the old build ran \(late.n)x; "
               + "deactivated then rebuilt before the posted close ran -> closed=\(closedAnyway); page builds/destroys \(page.builds)/\(page.destroys)")
         await grant()
@@ -1291,17 +1292,22 @@ final class PopoverDriver: @unchecked Sendable {
             r.add("popover.openClose3", false, "only \(cycles.count) of 4 open/close cycles opened")
             return
         }
-        // GDI and USER objects never above the warm-up on any cycle (one object a cycle is a leak); kernel handles move with
-        // things that are not the popover's, so they fail only when they rise on every cycle (the kit's rule, post-merge I2).
+        // GDI objects never above the warm-up on any cycle (one object a cycle is a leak: post-merge I2). USER objects moved by
+        // one both ways between cycles on the installed runner (17/18/17/18, run 43792297910: not the popover's), and kernel
+        // handles move with things that are not the popover's: those fail when they rise on every cycle (the kit's rule), USER
+        // also when the last cycle is more than one above the warm-up.
         let after = Array(cycles.dropFirst())
-        let gdiUser = after.allSatisfy { $0.gdi <= warm.gdi && $0.user <= warm.user }
-        let handlesRising = after.count == 3 && after[0].handles > warm.handles && after[1].handles > after[0].handles && after[2].handles > after[1].handles
-        let ok = gdiUser && !handlesRising && last.windows == start.windows && last.controls == 0 && last.dialogs == start.dialogs
+        func risingEveryCycle(_ value: (PopoverResources) -> Int) -> Bool {
+            after.count == 3 && value(after[0]) > value(warm) && value(after[1]) > value(after[0]) && value(after[2]) > value(after[1])
+        }
+        let gdiFlat = after.allSatisfy { $0.gdi <= warm.gdi }
+        let userRising = risingEveryCycle(\.user) || last.user > warm.user + 1, handlesRising = risingEveryCycle(\.handles)
+        let ok = gdiFlat && !userRising && !handlesRising && last.windows == start.windows && last.controls == 0 && last.dialogs == start.dialogs
             && last.pumpDepth == 0 && !last.pumpTimer && !popover.isOpen
         r.add("popover.openClose3", ok,
               "before the group: \(start); after a warm-up open/close: \(warm); after 3 more: \(after.map { "\($0)" }.joined(separator: " / ")) "
-              + "(GDI and USER at most the warm-up's on every cycle=\(gdiUser); handles rising on every cycle=\(handlesRising); windows, kit controls, "
-              + "dialog registrations, the pump and its timer back to the start)")
+              + "(GDI at most the warm-up's on every cycle=\(gdiFlat); USER rising every cycle or > warm-up + 1=\(userRising); handles rising on every "
+              + "cycle=\(handlesRising); windows, kit controls, dialog registrations, the pump and its timer back to the start)")
     }
 }
 /// A page for the popover's contract checks: a size change from inside `build`, an edit with its own context menu, and the
