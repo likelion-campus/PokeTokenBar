@@ -71,6 +71,9 @@ public enum WindowsApp {
             WindowsSelftestPopoverHome.startIdleProbe(mode: i + 1 < arguments.count ? arguments[i + 1] : "seconds")
         }
         // --- stage 7 Task 5: the gate's open Home page (end) ---
+        // --- stage 7 Task 13: the gate's open recap page (begin) ---
+        if arguments.contains("--popover-recap-idle-probe") { WindowsSelftestPopoverRecap.startIdleProbe() }
+        // --- stage 7 Task 13: the gate's open recap page (end) ---
         if let i = arguments.firstIndex(of: "--popover-idle-probe") {  // stage 7 Task 4: the gate's popover windows (open / closed after open)
             WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
         }
