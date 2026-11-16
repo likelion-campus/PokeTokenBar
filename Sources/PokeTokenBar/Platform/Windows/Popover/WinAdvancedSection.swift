@@ -152,7 +152,9 @@ import WinSDK
             WinComposite(parent: p, ctx: c) { child in
                 chevron = WinControls.glyphButton(symbol: drafts.expanded ? "chevron.down" : "chevron.forward", label: l.advancedDisclosureLabel,
                                                   size: 10, in: child, ctx: c)
-                return ([chevron, WinControls.label(l.advancedDisclosureLabel, wraps: false, in: child, ctx: c)].compactMap { $0 }, [])
+                let parts = [chevron, WinControls.label(l.advancedDisclosureLabel, wraps: false, in: child, ctx: c)].compactMap { $0 }
+                Self.onRow(parts, section: section, ctx: c)
+                return (parts, [])
             }?.control
         }
         self.chevron = chevron
@@ -192,7 +194,9 @@ import WinSDK
             labelLine = WinComposite(parent: p, ctx: c) { child in
                 title = WinControls.label(m.label, wraps: false, in: child, ctx: c)
                 badge = WinControls.label(" ", style: .caption2, wraps: false, in: child, ctx: c)   // its text is set by `apply`
-                return ([title, badge].compactMap { $0 }, [])
+                let parts = [title, badge].compactMap { $0 }
+                onRow(parts, section: section, ctx: c)
+                return (parts, [])
             }
             return labelLine?.control
         }, hint: m.detail)
@@ -259,6 +263,11 @@ import WinSDK
         let fieldLeast = max(c.px(72), c.measure("sk-ant-sid…", font: font).cx + c.px(12))
         let inner = section.pageWidth - 2 * Int32(c.metrics.pagePadding) - 2 * Int32(c.metrics.rowPaddingH)
         return inner - buttons >= fieldLeast
+    }
+
+    /// Texts and glyphs inside a line paint their own background: the row's (the card's), not the window's they are made with.
+    private static func onRow(_ parts: [WinControl], section: WinSectionCard, ctx c: WinUIContext) {
+        for part in parts { part.background = section.card ? c.colors.palette.card : c.colors.palette.window }
     }
 
     /// The label line's width: the label, then the badge 8 px after it when there is one.
