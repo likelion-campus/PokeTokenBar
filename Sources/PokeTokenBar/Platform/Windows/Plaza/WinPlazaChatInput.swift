@@ -68,7 +68,7 @@ import WinSDK
         var submits = 0, refused = 0, repeatsIgnored = 0, completesAsked = 0, cancelsAsked = 0, cuts = 0, pastes = 0, picks = 0
         var compositionStarts = 0, compositionUpdates = 0, compositionEnds = 0, imeChars = 0, chars = 0, charsSwallowed = 0
         var closesByFocus = 0, keptOnFocusLoss = 0, focusRestores = 0, loudToggles = 0, imePlacements = 0, menuPumps = 0, selectAlls = 0
-        var candidateOpens = 0, focusRestoresAfterRestore = 0, wordDeletes = 0, cutsDeferred = 0
+        var candidateOpens = 0, focusRestoresAfterRestore = 0, wordDeletes = 0, cutsDeferred = 0, editsDeferred = 0
     }
 
     /// The bar and its HUD are made on first use (the plaza window opening): the controller exists from launch, and measuring the
@@ -104,6 +104,12 @@ import WinSDK
     private var styledScale: CGFloat = 0
     private var depth = 0
     private var limitPending = false, applyingLimit = false
+    /// Edits waiting for the IME to end a syllable it was asked to finish (TSF can deliver the end after `ImmNotifyIME` returns).
+    private var afterComposition: [() -> Void] = []
+    /// Where the last finished syllable ended (UTF-16 offset): an edit that finished it goes there.
+    private var lastCommitEnd: Int?
+    /// The selftest's A/B switch for `restoreFocusAfterRestore` (off: the check shows what the activation path alone does).
+    static var restoreAfterMinimize = true
     private var captured = false
     private static var fontLoaded: Bool?
     private let graphics: any PlazaGraphics
@@ -218,16 +224,20 @@ import WinSDK
     }
 
     /// The window became active with the line open: the keyboard goes back to the field (DefWindowProc would give it to the scene).
+    /// Counted only when it moved the keyboard.
     func restoreFocus() -> Bool {
-        guard focus() else { return false }
-        counts.focusRestores += 1
+        guard isOpen, let e = editHWND else { return false }
+        if GetFocus() != e {
+            _ = SetFocus(e)
+            counts.focusRestores += 1
+        }
         return true
     }
 
     /// The window came back from minimized as the foreground window with the line open and the keyboard elsewhere: back to the field.
     /// (The activation of a restored window can arrive while it is still minimized, when `restoreFocus` does not act.)
     func restoreFocusAfterRestore() {
-        guard isOpen, let e = editHWND, GetFocus() != e, focus() else { return }
+        guard Self.restoreAfterMinimize, isOpen, let e = editHWND, GetFocus() != e, focus() else { return }
         counts.focusRestoresAfterRestore += 1
     }
 
@@ -304,10 +314,29 @@ import WinSDK
     /// Puts `text` at the caret, replacing the selection. A syllable being composed is finished first (the Mac's `unmarkText`).
     func insert(_ text: String) {
         guard let h = editHWND else { return }
-        if isComposing, !WinChatFaults.has(.insertOverComposition) { finish(h, cancel: false) }
-        replaceSelection(h, text)
-        counts.picks += 1
-        applyLimitIfDue()
+        editAfterComposition(h) { [weak self] in
+            guard let self else { return }
+            replaceSelection(h, text)
+            counts.picks += 1
+            applyLimitIfDue()
+        }
+    }
+
+    /// An edit at the caret (an emoji, a paste, a word delete) over a syllable being composed: the syllable is finished first and the edit
+    /// goes AFTER it, as the Mac's `unmarkText` leaves the caret. With the real IME the field's caret sits at the composition's start and
+    /// TSF may deliver the end after `ImmNotifyIME` returns: the edit then waits for WM_IME_ENDCOMPOSITION (plaza.chatRealIME: 하 + 🍜).
+    private func editAfterComposition(_ h: HWND, _ edit: @escaping () -> Void) {
+        guard isComposing, !WinChatFaults.has(.insertOverComposition) else { edit(); return }
+        let end = composition.map { $0.start + $0.text.utf16.count }
+        lastCommitEnd = nil
+        finish(h, cancel: false)
+        if isComposing {
+            afterComposition.append(edit)
+            counts.editsDeferred += 1
+            return
+        }
+        if let at = lastCommitEnd ?? end { _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(at), LPARAM(at)) }
+        edit()
     }
 
     private func placeField(_ frame: CGRect) {
@@ -353,6 +382,7 @@ import WinSDK
     private func resetField() {
         guard let h = editHWND else { return }
         if !ime.composition(h).isEmpty, !WinChatFaults.has(.keepCompositionOnClose) { finish(h, cancel: true) }
+        afterComposition = []   // nothing waits on a line that is being emptied
         applyingLimit = true
         setText(h, "")
         applyingLimit = false
@@ -414,10 +444,18 @@ import WinSDK
             compositionChanged(UInt32(truncatingIfNeeded: l))
             return r
         case 0x010E:   // WM_IME_ENDCOMPOSITION
+            let endAt = composition?.start   // past the finished text (GCS_RESULTSTR moved it there)
             let r = pass(m, w, l)
             counts.compositionEnds += 1
+            lastCommitEnd = endAt
             composition = nil
             limitPending = true
+            if !afterComposition.isEmpty, let h = editHWND {
+                let edits = afterComposition
+                afterComposition = []
+                if let at = endAt { _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(at), LPARAM(at)) }
+                for edit in edits { edit() }
+            }
             return r
         case 0x0007:   // WM_SETFOCUS
             let r = pass(m, w, l)
@@ -532,7 +570,10 @@ import WinSDK
     /// the Mac field runs for Option+Backspace). A syllable being composed is finished first.
     func deleteWordBackward() {
         guard let h = editHWND else { return }
-        if isComposing { finish(h, cancel: false) }
+        editAfterComposition(h) { [weak self] in self?.deleteWordBeforeCaret(h) }
+    }
+
+    private func deleteWordBeforeCaret(_ h: HWND) {
         let sel = selection
         var from = sel.start
         if sel.start == sel.end {
@@ -550,9 +591,11 @@ import WinSDK
 
     private func paste() {
         guard let h = editHWND, let raw = clipboardText() else { return }
-        if isComposing { finish(h, cancel: false) }
-        replaceSelection(h, WinChatFaults.has(.pasteKeepsLineBreaks) ? raw : Self.pastable(raw))
-        counts.pastes += 1
+        let text = WinChatFaults.has(.pasteKeepsLineBreaks) ? raw : Self.pastable(raw)
+        editAfterComposition(h) { [weak self] in
+            self?.replaceSelection(h, text)
+            self?.counts.pastes += 1
+        }
     }
 
     /// One line from pasted text: line breaks and tabs become spaces (as `TeamChat.prepared` sends them), at most the line limit

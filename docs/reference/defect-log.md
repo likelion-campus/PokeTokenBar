@@ -2553,3 +2553,25 @@ read_when:
   게시한 문자는 메뉴가 가져가고 훅 재전송 +0).
   **가드(기계):** 셀프테스트 `plaza.imeChar` — 같은 실행에서 우리 필드는 "한", 우리 창이 아닌 EDIT 는 "?" 여야 PASS(ACP 를 함께 남기고, 한글 코드 페이지에서는 결함이 드러날 수 없다고 적는다).
   `plaza.chatTyping`(VK_PACKET 16 단위: 서로게이트·ZWJ 포함, 훅 재전송 16 = 필드 WM_CHAR 16, 중복 0).
+
+- **숨긴 채 닫은 광장을 다시 열면 입력줄 판이 그려지지 않았다 — 창보다 오래 사는 입력줄의 HUD 가 "그리지 않음"으로 남았다.** (stage 6 Task 11 리뷰)
+  광장을 최소화(또는 가림·다른 가상 데스크톱)한 채 트레이에서 닫고 다시 열어 Enter 를 누르면 판·테두리·😀·이모지 판 없이 맨 EDIT 만 보였고, 대화
+  기록이 올라가지 않았으며, 판 자리를 누르면 장면이 받아 줄이 닫혔다(다음 최소화·복원까지). **직접 원인:** `WinPlazaChatInput` 은 컨트롤러가 앱 수명
+  동안 쥐고 창보다 오래 산다. 입력줄 HUD 의 `isRendering` 은 창의 가시성 콜백만 바꾸는데, 새 창의 첫 표시는 보고되지 않는다(`WinPlazaVisibility`:
+  첫 표시는 "보이는 상태"가 기본). 컨트롤러는 자기 HUD 를 닫을 때 `true` 로 되돌리지만(`PlazaWindowController` close) 입력줄 HUD 는 아무도
+  되돌리지 않았다. **왜 못 걸렀나:** 셀프테스트의 입력줄 검사는 모두 보이는 창에서 열고 닫았고, 숨김→닫기→다시 열기를 밟는 `plaza.close`/
+  `plaza.reopen` 은 입력줄을 열지 않았다. XCTest 에는 창 가시성이 없어 `isRendering` 이 바뀌지 않는다 — 두 검사가 결함 경로의 서로 다른 반쪽만 밟았다.
+  **고침:** `attach` 가 HUD 를 그리는 상태로 되돌린다(새 창은 보이는 상태로 시작). **스윕:** 창보다 오래 살며 가시성에서 나온 상태를 쥔 것 — 컨트롤러의
+  `hud.isRendering`·`rosterModel.isAnimating`(닫을 때 되돌림), 렌더 루프·스테이지·장면(창마다 새로), 입력줄 HUD(이번에 고침) — 그 밖에 없다.
+  **가드(기계):** 셀프테스트 `plaza.chatReopenAfterHidden`(최소화→컨트롤러로 닫기→다시 열기→줄 열기: 판이 그려지고 대화 기록이 그 위, 판 클릭은 줄을 닫지
+  않음), XCTest `testTheBarDrawsInAWindowOpenedAfterAHiddenClose` 와 주입(`WinChatFaults.keepHiddenAcrossWindows` → 잡힘).
+  **규칙:** 창보다 오래 사는 객체가 창의 가시성에서 나온 상태를 쥐면, 창을 붙이거나 떼는 곳에서 그 상태를 되돌린다.
+
+- **글자 수 자르기가 한 글자의 UTF-16 두 반쪽 사이에서 돌았다 — 반쪽을 U+FFFD 로 읽어 다시 써 넣었다.** (stage 6 Task 11 리뷰)
+  꽉 찬 줄(60 자)의 가운데에 한 단위씩 오는 입력(VK_PACKET: 터치 키보드, 이모지 도구)으로 😀 를 넣으면, 높은 반쪽만 들어온 순간 줄이 "61 자"(반쪽 =
+  U+FFFD)로 읽혀 마지막 글자를 버리고 U+FFFD 를 `WM_SETTEXT` 로 써 넣었고, 낮은 반쪽이 같은 일을 되풀이했다("��", 끝 두 글자 손실). 59 자에서
+  끝에 👨‍👩‍👧 를 치면 👨 와 ZWJ 둘이 남았다. **왜 못 걸렀나:** 테스트는 글자를 통째로(문자열 단위) 넣었고, 실제 VK_PACKET 검사(`plaza.chatTyping`)는
+  한도에 닿지 않는 짧은 줄이었다. **고침:** 원시 UTF-16 에 짝 없는 높은 반쪽이 있으면 자르기를 미루고(다음 반쪽이 오면 다시), 짝 없는 반쪽이 있으면
+  복구된 디코딩을 절대 다시 써 넣지 않는다. **가드:** XCTest `testTheCutWaitsForTheSecondHalfOfACharacter`·
+  `testAJoinedEmojiTypedUnitByUnitAtTheLimitStaysWhole` 와 주입(`cutSplitsSurrogates` → 잡힘). **스윕:** 앱이 글을 다시 써 넣는 곳은 자르기와
+  `resetField`(빈 줄) 둘뿐이고, 붙여넣기는 반쪽에서 잘린 끝을 버린 뒤 디코딩한다.

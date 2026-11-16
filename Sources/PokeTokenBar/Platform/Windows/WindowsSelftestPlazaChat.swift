@@ -11,16 +11,19 @@ import WinSDK
 extension WindowsSelftest {
     @MainActor final class ChatScript {
         var composition = ""
+        var result = ""
         var finishes: [Bool] = []
         /// Installs the script as the field's IME; `finish` sends what IMM sends when a composition is completed or cancelled.
         func install(on chat: WinPlazaChatInput) {
-            chat.ime = .init(composition: { [unowned self] _ in self.composition }, result: { _ in "" }, finish: { [unowned self] h, cancel in
+            chat.ime = .init(composition: { [unowned self] _ in self.composition }, result: { [unowned self] _ in self.result }, finish: { [unowned self] h, cancel in
                 self.finishes.append(cancel)
                 let text = self.composition
                 self.composition = ""
+                self.result = cancel ? "" : text
                 _ = SendMessageW(h, 0x010F, 0, cancel || text.isEmpty ? 0 : 0x800)
                 if !cancel { for u in text.utf16 { _ = SendMessageW(h, 0x0102, WPARAM(u), 1) } }   // the committed characters, at once (IMM sends them)
                 _ = SendMessageW(h, 0x010E, 0, 0)
+                self.result = ""
             })
         }
     }
@@ -212,6 +215,21 @@ extension WindowsSelftest {
         _ = chat.focus()
         chatPostText(e, "ab")
         await chatPump(0.2)
+        // A: the restore path switched off — what the activation path alone does (this check would fail on it if it does not reach the field).
+        WinPlazaChatInput.restoreAfterMinimize = false
+        _ = ShowWindow(hwnd, 6 /* SW_MINIMIZE */)
+        _ = await waitUntil(timeout: 2) { IsIconic(hwnd) }
+        await chatPump(0.3)
+        forceForeground(hwnd)
+        await chatPump(0.1)
+        _ = SendMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xF120 /* SC_RESTORE */, 0)
+        _ = await waitUntil(timeout: 2) { !IsIconic(hwnd) }
+        await chatPump(0.4)
+        let focusedWithout = GetFocus() == e
+        WinPlazaChatInput.restoreAfterMinimize = true
+        _ = chat.focus()
+        await chatPump(0.1)
+        // B: the shipped path.
         let byActivate0 = chat.counts.focusRestores, byRestore0 = chat.counts.focusRestoresAfterRestore
         _ = ShowWindow(hwnd, 6 /* SW_MINIMIZE */)
         _ = await waitUntil(timeout: 2) { IsIconic(hwnd) }
@@ -235,7 +253,8 @@ extension WindowsSelftest {
         forceForeground(hwnd)
         r.add("plaza.chatMinimizeRestore", openWhileMinimized && foreground && focused && text == "abc",
               "minimized with the line open (still open=\(openWhileMinimized)), made foreground while minimized then SC_RESTORE (the taskbar's way): foreground=\(foreground), keyboard in the field=\(focused) "
-                + "(put back by WM_ACTIVATE \(byActivate)x, by the restore path \(byRestore)x); typed c -> \(q(text))")
+                + "(moved there by WM_ACTIVATE \(byActivate)x, by the restore path \(byRestore)x); typed c -> \(q(text)); with the restore path "
+                + "switched off the keyboard reached the field=\(focusedWithout)")
     }
 
     /// Review item 7: a DPI change with the line open: the field follows (device pixels, font), keeps the keyboard and the line.

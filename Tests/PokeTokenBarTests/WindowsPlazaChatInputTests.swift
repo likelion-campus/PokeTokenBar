@@ -12,7 +12,9 @@ import XCTest
     private func flush() async { for _ in 0..<20 { await Task.yield() } }
 
     @MainActor final class Box { var sent: [String] = []; var closes = 0; var accept = true }
-    @MainActor final class FakeIME { var composition = ""; var result = ""; var finishes: [Bool] = [] }
+    /// `inline`: the field already shows the syllable (as the real EDIT does), so finishing types nothing. `deferred`: finishing only records;
+    /// the test delivers the end later (TSF can).
+    @MainActor final class FakeIME { var composition = ""; var result = ""; var finishes: [Bool] = []; var inline = false; var deferred = false }
 
     @MainActor private struct Rig {
         let input: WinPlazaChatInput, box: Box, ime: FakeIME, parent: WinSinkWindow, edit: HWND
@@ -49,12 +51,13 @@ import XCTest
         let ime = FakeIME()
         input.ime = .init(composition: { _ in ime.composition }, result: { _ in ime.result }, finish: { h, cancel in
             ime.finishes.append(cancel)
+            if ime.deferred { return }
             let text = ime.composition
             ime.composition = ""
             if !cancel, !text.isEmpty {
                 ime.result = text
                 _ = SendMessageW(h, 0x010F, 0, 0x800)   // WM_IME_COMPOSITION, GCS_RESULTSTR
-                for u in text.utf16 { _ = SendMessageW(h, 0x0102, WPARAM(u), 1) }   // the committed characters
+                if !ime.inline { for u in text.utf16 { _ = SendMessageW(h, 0x0102, WPARAM(u), 1) } }   // the committed characters
             } else {
                 _ = SendMessageW(h, 0x010F, 0, 0)
             }
@@ -216,6 +219,36 @@ import XCTest
         XCTAssertEqual(r.input.text, "가😀")
     }
 
+    /// The real IME's way (plaza.chatRealIME found '🍜하'): the field shows the syllable with its caret at the syllable's start, and the end
+    /// may come after the finish request returns. The emoji still goes after the syllable.
+    private func inlineSyllable(_ r: Rig) {
+        compose(r, ["가"])          // START at 0, then the composition string
+        type(r, "가")               // what the EDIT shows in place
+        _ = SendMessageW(r.edit, 0x00B1, 0, 0)   // its caret at the syllable's start
+        r.ime.inline = true
+    }
+
+    func testAnEmojiOverAnInlineSyllableGoesAfterIt() async throws {
+        let r = try rig()
+        inlineSyllable(r)
+        r.input.insert("😀")
+        XCTAssertEqual(r.input.text, "가😀")
+    }
+
+    func testAnEmojiWaitsForALateEndOfTheSyllable() async throws {
+        let r = try rig()
+        inlineSyllable(r)
+        r.ime.deferred = true
+        r.input.insert("😀")
+        XCTAssertEqual(r.input.text, "가", "the emoji waits for the IME")
+        XCTAssertEqual(r.input.counts.editsDeferred, 1)
+        r.ime.composition = ""
+        r.ime.result = "가"
+        _ = SendMessageW(r.edit, 0x010F, 0, 0x800)
+        _ = SendMessageW(r.edit, 0x010E, 0, 0)
+        XCTAssertEqual(r.input.text, "가😀")
+    }
+
     func testPickingAtTheLimitKeepsTheLimit() async throws {
         let r = try rig()
         type(r, String(repeating: "가", count: TeamChat.maxCharacters))
@@ -308,7 +341,7 @@ import XCTest
             (.keepCompositionOnClose, { [self] in
                 let r = try rig(); compose(r, ["ㄱ"]); key(r, 0x1B); return r.ime.finishes == [true] }),
             (.insertOverComposition, { [self] in
-                let r = try rig(); compose(r, ["가"]); r.input.insert("😀"); return r.input.text == "가😀" }),
+                let r = try rig(); inlineSyllable(r); r.input.insert("😀"); return r.input.text == "가😀" }),
             (.keepHiddenAcrossWindows, { [self] in try await barDrawsAfterAHiddenClose() }),
             (.cutSplitsSurrogates, { [self] in
                 let r = try rig(); type(r, String(repeating: "a", count: TeamChat.maxCharacters - 1)); type(r, "👨‍👩‍👧")
