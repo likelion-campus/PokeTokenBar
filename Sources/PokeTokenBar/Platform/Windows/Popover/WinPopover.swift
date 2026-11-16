@@ -513,17 +513,19 @@ struct WinPopoverStats {
     /// popover: the rebuild frees the controls that click ran on.
     private func runDeferredRebuild(tries: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, let dpi = rebuildAfterDialog, let w = window else { return }
-                if dialogIsOpen || !IsWindowEnabled(w.hwnd) {
-                    if tries < 40 { runDeferredRebuild(tries: tries + 1) }
-                    return
-                }
-                rebuildAfterDialog = nil
-                stats.runDeferredRebuilds += 1
-                rebuild(dpi: dpi)
-            }
+            MainActor.assumeIsolated { self?.retryDeferredRebuild(tries: tries) }
         }
+    }
+
+    private func retryDeferredRebuild(tries: Int) {
+        guard let dpi = rebuildAfterDialog, let w = window else { return }
+        if dialogIsOpen || !IsWindowEnabled(w.hwnd) {
+            if tries < 40 { runDeferredRebuild(tries: tries + 1) }
+            return
+        }
+        rebuildAfterDialog = nil
+        stats.runDeferredRebuilds += 1
+        rebuild(dpi: dpi)
     }
 
     /// A scale change while open: the window is placed again at the new DPI and the page rebuilt in place, the navigation
