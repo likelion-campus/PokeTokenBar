@@ -31,7 +31,7 @@ enum ClaudeAccountRoots {
                 ? home.path + trimmed.dropFirst()
                 : PlatformCompat.expandingTilde(trimmed)
             guard PlatformCompat.isAbsolutePath(expanded) else { continue }
-            let url = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
+            let url = PlatformCompat.standardizedDirectoryURL(expanded)
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
                   isDirectory.boolValue,

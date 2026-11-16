@@ -314,6 +314,96 @@ final class WindowsSeamScanTests: XCTestCase {
         XCTAssertEqual(Self.directAtomicWrites("try? PlatformCompat.atomicWrite(data, to: u) // .atomic\n", allowed: nil).count, 0)
     }
 
+    // MARK: the session key's file (stage 7 Task 14, D14)
+
+    /// The two upstream lines of `SessionKeyStore` that route its file through the secret seams (DPAPI on Windows). An upstream
+    /// merge that puts the plain calls back would leave Windows writing the key unencrypted: this fails then.
+    static func secretSeamFindings(_ text: String) -> [String] {
+        let lines = text.components(separatedBy: "\n").map(Self.code)
+        var out: [String] = []
+        let reads = lines.filter { $0.contains("PlatformCompat.readSecret(at: fileURL)") }.count
+        let writes = lines.filter { $0.contains("PlatformCompat.writeSecret(data, to: fileURL)") }.count
+        if reads != 1 { out.append("SessionKeyStore.load reads through PlatformCompat.readSecret \(reads) times (expected 1)") }
+        if writes != 1 { out.append("SessionKeyStore.save writes through PlatformCompat.writeSecret \(writes) times (expected 1)") }
+        for (i, line) in lines.enumerated() where line.contains("Data(contentsOf: fileURL)") || line.contains("write(to: fileURL") {
+            out.append("line \(i + 1) reads or writes the key file without the seam: \(line.trimmingCharacters(in: .whitespaces))")
+        }
+        return out
+    }
+
+    func testTheSessionKeyFileGoesThroughTheSecretSeams() throws {
+        let text = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent("Core/SessionKeyLimitsProvider.swift"), encoding: .utf8)
+        XCTAssertEqual(Self.secretSeamFindings(text), [])
+    }
+
+    /// The four upstream lines of Task 14's path fix (P19): each routes its standardization through a `PlatformCompat` seam
+    /// whose Mac branch is the old expression (`PlatformPathFormsTests.testTheMacPathSeamsAreTheOldExpressions`). An upstream
+    /// merge that restores the plain call would bring back the UNC defect on Windows: this fails then.
+    static let pathSeamSites: [(file: String, line: String)] = [
+        ("Core/LocalUsageReader.swift", "let path = PlatformCompat.resolvedFileURL(root).path"),
+        ("Core/CustomScanRoots.swift", "PlatformCompat.resolvedPath(url).lowercased()"),
+        ("Core/LocalAsideUsageReader.swift", "let db = PlatformCompat.resolvedFileURL(directory.appendingPathComponent(\"state.db\"))"),
+        ("Core/ClaudeAccountRoots.swift", "let url = PlatformCompat.standardizedDirectoryURL(expanded)"),
+    ]
+
+    func testTheUserPathsGoThroughThePathSeams() throws {
+        for (file, line) in Self.pathSeamSites {
+            let text = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent(file), encoding: .utf8)
+            XCTAssertEqual(text.components(separatedBy: line).count - 1, 1, "\(file): \(line)")
+            XCTAssertFalse(text.components(separatedBy: "\n").map(Self.code).contains { $0.contains("resolvingSymlinksInPath()") }, "\(file) resolves links without the seam")
+        }
+    }
+
+    /// Every URL-based folder walk or listing in Core goes through `PlatformCompat.enumerator` / `contentsOfDirectory` (review
+    /// of Task 14): swift-foundation's URL-based listing finds nothing under a share on Windows, so a bare call there leaves
+    /// a custom scan folder on a share unscanned while Settings counts it. An upstream merge or a new reader that calls
+    /// `FileManager` directly fails here. (The String-based `contentsOfDirectory(atPath:)` lists shares and stays allowed.)
+    static func bareListingFindings(file: String, _ text: String) -> [String] {
+        text.components(separatedBy: "\n").enumerated().compactMap { i, raw in
+            let line = code(raw)
+            let lists = (line.contains(".enumerator(") && !line.contains("enumerator(atPath:")) || line.contains("contentsOfDirectory(at:")
+            return lists && !line.contains("PlatformCompat.") ? "\(file):\(i + 1): \(raw.trimmingCharacters(in: .whitespaces))" : nil
+        }
+    }
+
+    func testCoreListsFoldersThroughTheListingSeams() throws {
+        let core = SharedSources.sourcesRoot.appendingPathComponent("Core")
+        let files = try FileManager.default.contentsOfDirectory(atPath: core.path).filter { $0.hasSuffix(".swift") }
+        XCTAssertGreaterThan(files.count, 20)
+        var findings: [String] = [], seamed = 0
+        for file in files {
+            let text = try String(contentsOf: core.appendingPathComponent(file), encoding: .utf8)
+            findings += Self.bareListingFindings(file: file, text)
+            seamed += text.components(separatedBy: "PlatformCompat.enumerator(").count - 1 + text.components(separatedBy: "PlatformCompat.contentsOfDirectory(").count - 1
+        }
+        XCTAssertEqual(findings, [])
+        XCTAssertEqual(seamed, 8, "the eight call sites of the review round")
+        XCTAssertEqual(Self.bareListingFindings(file: "x", "guard let en = fm.enumerator(\n at: root"), ["x:1: guard let en = fm.enumerator("], "the scan sees a bare call")
+        XCTAssertEqual(Self.bareListingFindings(file: "x", "let n = try fm.contentsOfDirectory(atPath: p) // enumerator( note"), [])
+    }
+
+    /// The Mac branches of the secret seams are the calls the two lines made before (an atomic write cannot be told from a
+    /// plain one by its bytes, so the text is held here; `SecretSeamTests` holds what they do).
+    func testTheMacBranchesOfTheSecretSeamsAreTheOldCalls() throws {
+        let text = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent("Platform/PlatformCompat.swift"), encoding: .utf8)
+        func body(_ name: String) -> String {
+            guard let start = text.range(of: "static func \(name)(") else { return "" }
+            let rest = text[start.upperBound...]
+            guard let end = rest.range(of: "\n    }\n") else { return "" }
+            return String(rest[..<end.lowerBound])
+        }
+        let write = body("writeSecret"), read = body("readSecret")
+        XCTAssertTrue(write.contains("#else\n        try data.write(to: url, options: .atomic)\n        #endif"), write)
+        XCTAssertTrue(read.contains("#else\n        return try? Data(contentsOf: url)\n        #endif"), read)
+    }
+
+    func testTheSecretSeamScanCatchesThePlainCalls() {
+        let routed = "guard let data = PlatformCompat.readSecret(at: fileURL),\n        try PlatformCompat.writeSecret(data, to: fileURL)\n"
+        XCTAssertEqual(Self.secretSeamFindings(routed), [])
+        XCTAssertEqual(Self.secretSeamFindings("guard let data = try? Data(contentsOf: fileURL),\n        try PlatformCompat.writeSecret(data, to: fileURL)\n").count, 2)
+        XCTAssertEqual(Self.secretSeamFindings("guard let data = PlatformCompat.readSecret(at: fileURL),\n        try data.write(to: fileURL, options: .atomic)\n").count, 2)
+    }
+
     // MARK: URLSession on Windows keeps two dispatch threads awake for a whole transfer (defect log, "윈도우 URLSession")
 
     private static let directRequest = try! NSRegularExpression(

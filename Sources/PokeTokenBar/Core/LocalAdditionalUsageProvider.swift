@@ -488,7 +488,7 @@ enum LocalAdditionalUsageReader {
         if root.pathExtension == "db" { return root }
         let standard = root.appendingPathComponent("opencode.db")
         if FileManager.default.fileExists(atPath: standard.path) { return standard }
-        return (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil))?
+        return (try? PlatformCompat.contentsOfDirectory(FileManager.default, at: root, includingPropertiesForKeys: nil))?
             .filter { url in
                 let name = url.lastPathComponent
                 guard name.hasPrefix("opencode-"), name.hasSuffix(".db") else { return false }
@@ -1444,7 +1444,7 @@ enum LocalAdditionalUsageReader {
     /// from real on-disk files — do not invent a third shape.
     private static func kiroJSONLSessionFiles(in root: URL) -> [URL] {
         if kiroIsJSONLSessionFile(root) { return [root] }
-        guard let enumerator = FileManager.default.enumerator(
+        guard let enumerator = PlatformCompat.enumerator(FileManager.default,
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
@@ -1736,7 +1736,7 @@ enum LocalAdditionalUsageReader {
     }
 
     private static func files(in root: URL, modifiedSince: Date) -> [URL] {
-        guard let enumerator = FileManager.default.enumerator(
+        guard let enumerator = PlatformCompat.enumerator(FileManager.default,
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }

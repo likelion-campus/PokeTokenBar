@@ -7,7 +7,7 @@ import WinSDK
 /// and the percent in its colour on the right) and the bar, a drawn part (`LimitBarPart`) with the tooltip and the
 /// accessible text "<name> <percent>". Reset countdowns and "stale" badges are bound to the page's clock. Windows differences,
 /// all listed in the report: a notice is an orange title over its hint (no orange card), a capsule strip is push-like radio
-/// buttons (several lines when it does not fit), the Claude help popover is not shown (the model emits none without a Keychain).
+/// buttons (several lines when it does not fit), the Claude help popover is a note opened under the caption.
 extension WinHomePage {
     /// The (?) next to Claude's caption: shows or hides the sign-in file's note under it.
     func toggleCredentialHelp() {
@@ -26,25 +26,26 @@ extension WinHomePage {
     private func addLimitsBlock(_ block: LimitsBlock, to section: WinSectionCard) {
         switch block {
         case .caption(let title, let help):
-            // The Mac's Keychain help does not exist here; Claude's section gets the sign-in file's note in its place (P15h),
-            // opened inline under the caption by its (?) button.
-            let credentials = help == nil && !facts.hasKeychain && providerID.flatMap(LimitsSource.init(rawValue:)) == .claude
-            guard credentials else {
+            // --- stage 7 Task 14: the (?) and its note come from the model (P15h; Windows: Claude's sign-in file) (begin) ---
+            guard let help else {
                 section.addStyledRow(label: text(title, .caption, role: .secondary), style: .trailing)
                 return
             }
-            let l = L(companion.language)
             section.addStyledRow(label: text(title, .caption, role: .secondary), style: .trailing) { pane, ctx in
-                guard let c = WinControls.glyphButton(symbol: "questionmark.circle", label: l.winClaudeCredentialHelpTooltip, size: 14, in: pane, ctx: ctx)
+                guard let c = WinControls.glyphButton(symbol: "questionmark.circle", label: help.tooltip, size: 14, in: pane, ctx: ctx)
                 else { return nil }
-                c.tooltip = l.winClaudeCredentialHelpTooltip
+                c.tooltip = help.tooltip
                 c.onClick = { [weak self] in self?.toggleCredentialHelp() }
                 return c
             }
             if credentialHelpOpen {
-                section.addStyledRow(label: text(l.winClaudeCredentialHelpTitle, .caption, weight: 600, role: .secondary), style: .trailing)
-                section.addStyledRow(label: text(l.winClaudeCredentialHelpBody, .caption, role: .secondary), style: .trailing)
+                section.addStyledRow(label: text(help.title, .caption, weight: 600, role: .secondary), style: .trailing)
+                section.addStyledRow(label: text(help.body, .caption, role: .secondary), style: .trailing)
+                // "Register session key", under the note on the right (the Mac's HStack { Spacer(); Button }): Settings with
+                // Advanced open on the key field.
+                section.addStyledRow(label: nil, style: .trailing) { pane, ctx in self.button(help.button, in: pane, ctx: ctx) }
             }
+            // --- stage 7 Task 14 (end) ---
         case .notice(let n):
             section.addStyledRow(label: text(n.title, .body, weight: n.style == .banner ? 600 : 500, color: .systemOrange), hint: n.hint,
                                  style: .trailing) { pane, ctx in

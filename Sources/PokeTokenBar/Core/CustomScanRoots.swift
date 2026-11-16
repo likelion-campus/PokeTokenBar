@@ -130,6 +130,6 @@ enum CustomScanRoots {
     }
 
     private static func normalizedPath(_ url: URL) -> String {
-        url.resolvingSymlinksInPath().standardizedFileURL.path.lowercased()
+        PlatformCompat.resolvedPath(url).lowercased()
     }
 }

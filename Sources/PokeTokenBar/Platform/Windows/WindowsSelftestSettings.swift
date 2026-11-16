@@ -43,6 +43,7 @@ extension WindowsSelftest {
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
             for name in names where name != "settings.teamTransport" { r.add(name, true, "skipped: CI not set (the page takes the foreground; real keys and the clipboard are used)") }
+            for name in WindowsSelftestAdvanced.names { r.add(name, true, "skipped: CI not set (the page takes the foreground; real keys and the clipboard are used)") }  // stage 7 Task 14
             return
         }
         guard let probe = WindowsSelftestPopoverWindow.makeProbe() else {
@@ -65,6 +66,7 @@ extension WindowsSelftest {
         await t.updatesCheck()
         await t.reportCheck()
         await t.escapeCheck()
+        await WindowsSelftestAdvanced.run(t)   // stage 7 Task 14 (WindowsSelftestAdvanced.swift): Advanced, session keys, folders
         if let dir = WindowsSelftestPopoverWindow.dumpDirectory().map({ $0.deletingLastPathComponent().appendingPathComponent("settings", isDirectory: true) }) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             await t.captureChecks(dir)

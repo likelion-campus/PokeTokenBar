@@ -78,6 +78,15 @@ import WinSDK
 
     private(set) var languageRebuilds = 0, refreshes = 0, pageRebuilds = 0
 
+    // --- stage 7 Task 14: the Advanced group and the tracked account (begin) ---
+    /// The Advanced group's `@State` (expanded, the folder drafts), kept across a rebuild of the page.
+    private let advancedDrafts = WinAdvancedDrafts()
+    private var advanced: WinAdvancedSection?
+    private var trackedAccount: WinTrackedAccountRow?
+    var advancedForTesting: WinAdvancedSection? { advanced }
+    var trackedAccountForTesting: WinTrackedAccountRow? { trackedAccount }
+    // --- stage 7 Task 14 (end) ---
+
     init(host: WinPopoverHost, popover: WinPopover?, onBack: @escaping () -> Void) {
         self.host = host
         self.popover = popover
@@ -93,6 +102,7 @@ import WinSDK
         guard popover.state.showSettings else { return WinHomePage(host: popover.host, state: popover.state, popover: popover) }  // stage 7 Task 5: Home
         return WinSettingsPage(host: popover.host, popover: popover) { [weak popover] in
             popover?.state.showSettings = false
+            popover?.state.expandAdvancedOnOpen = false   // stage 7 Task 14: the Mac's onClose
             popover?.replacePage()
         }
     }
@@ -100,7 +110,7 @@ import WinSDK
     /// The Mac's `.frame(height: 460)`.
     var heightDIP: CGFloat { 460 }
 
-    var initialFocus: HWND? { nil }
+    var initialFocus: HWND? { advanced?.initialFocus }   // stage 7 Task 14: the session-key route starts in the key field
 
     func escape() -> Bool {
         onBack()
@@ -115,7 +125,28 @@ import WinSDK
         destroyed = false
         buildContents(client: client)
         observe()
+        revealAdvancedIfRouted()   // stage 7 Task 14
     }
+
+    // --- stage 7 Task 14: the session-key route (begin) ---
+    /// Opened by a session-key notice or the (?)'s "Register session key" (`PopoverState.openSessionKeySettings`): Advanced is
+    /// expanded (the section did that), scrolled to the top of the page once the page is placed, and the key field has the
+    /// keyboard (`initialFocus`). The Mac's `startExpanded`: scroll and focus without waiting for an animation.
+    private func revealAdvancedIfRouted() {
+        guard let advanced, advanced.focusKeyOnOpen, let popover else { return }
+        let generation = popover.generation
+        DispatchQueue.main.async { [weak self, weak popover] in
+            MainActor.assumeIsolated {
+                popover?.whenCurrent(generation) {
+                    guard let self, !self.destroyed, let area = self.area, let top = self.advanced?.top else { return }
+                    self.stack?.layoutIfNeeded()
+                    area.scroll(to: top)
+                    if let field = self.advanced?.initialFocus, GetFocus() != field { _ = SetFocus(field) }
+                }
+            }
+        }
+    }
+    // --- stage 7 Task 14 (end) ---
 
     func layout(client: RECT) {
         lastClient = client
@@ -266,6 +297,7 @@ import WinSDK
         }
         trendWindowRow?.control?.onSelect = { i in if windows.indices.contains(i) { store.dailyTrendWindow = windows[i] } }
         // --- stage 7 Task 12 (end) ---
+        trackedAccount = WinTrackedAccountRow(section: general, store: store, facts: PlatformCompat.popoverFacts, language: host.companion.language)   // stage 7 Task 14 (G7)
         let loginHint: String? = loginState == .disabledByUser ? l.disabledInTaskManager : nil
         loginRow = general.addToggle(l.launchAtLogin, hint: loginHint, isOn: loginState == .on)
         loginRow?.control?.isEnabled = loginState == .on || loginState == .off
@@ -349,6 +381,15 @@ import WinSDK
             updateCurrentRow?.label?.role = .secondary
         }
 
+        // --- stage 7 Task 14: Advanced (G17) (begin) ---
+        let advancedSection = s.addSection(l.advancedSectionTitle)
+        advanced = WinAdvancedSection(section: advancedSection, host: host, drafts: advancedDrafts, facts: PlatformCompat.popoverFacts,
+                                      startExpanded: popover?.state.expandAdvancedOnOpen ?? false,
+                                      changed: { [weak self] in self?.scheduleRefresh() },
+                                      relayout: { [weak self] in self?.stack?.setNeedsLayout() },
+                                      rebuild: { [weak self] in self?.scheduleRebuild() })
+        // --- stage 7 Task 14 (end) ---
+
         // About & support (G18)
         let about = s.addSection(l.aboutSupportSectionTitle)
         reportRow = about.addRow(l.reportProblem, hint: l.reportAttachHint) { p, c in WinControls.button(l.reportProblem, in: p, ctx: c) }
@@ -399,6 +440,8 @@ import WinSDK
         fallbackRow?.isVisible = reportFailed
         var relayout = team?.apply() ?? false
         relayout = relayout || updateTextChanged
+        trackedAccount?.apply()                                   // stage 7 Task 14
+        relayout = (advanced?.apply() ?? false) || relayout       // stage 7 Task 14
         if relayout { stack?.setNeedsLayout() }
     }
 
@@ -567,12 +610,15 @@ import WinSDK
         _ = team.notificationsEnabled
         _ = team.schedule
         _ = host.session?.hasIncompatiblePeer
+        WinAdvancedSection.touch(store)     // stage 7 Task 14
+        WinTrackedAccountRow.touch(store)   // stage 7 Task 14
     }
 
     // MARK: closing
 
     private func freeContents() {
         team?.isClosing = true
+        advanced?.close()   // stage 7 Task 14: commits the folder drafts; a key field's last commit saves nothing
         stack?.destroy()   // commits a changed nickname or team name
         area?.destroy()
         for c in footerControls { c.destroy() }
@@ -594,6 +640,7 @@ import WinSDK
         checkNowRow = nil; updateOfferRow = nil; updateSkippedRow = nil; updateCurrentRow = nil; reportRow = nil; logRow = nil
         fallbackRow = nil
         providerRows = []
+        advanced = nil; trackedAccount = nil   // stage 7 Task 14
     }
 
     func destroy() {

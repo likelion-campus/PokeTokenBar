@@ -17,11 +17,19 @@ import WinSDK
     private var rect = RECT()
     private(set) var arranges = 0
 
+    // --- stage 7 Task 14: a field inside the line takes its accessible name from a zero-size static (begin) ---
+    /// The zero-size static made before the children: the static right before an edit is its accessible name, as a page
+    /// row's `accessibleName` is (the Advanced key field on one line with Save and Delete).
+    private(set) var nameLabel: WinControl?
+    // --- stage 7 Task 14 (end) ---
+
     /// `build` makes the children (as children of the pane window it is given), in reading order.
-    init?(parent: HWND, ctx: WinUIContext, build: (HWND) -> (leading: [WinControl], trailing: [WinControl])) {
+    init?(parent: HWND, ctx: WinUIContext, accessibleName: String? = nil, build: (HWND) -> (leading: [WinControl], trailing: [WinControl])) {
         guard let made = try? WinPane(parent: parent, ctx: ctx, rect: RECT(left: 0, top: 0, right: 10, bottom: 10)) else { return nil }
         pane = made
         self.ctx = ctx
+        nameLabel = accessibleName.flatMap { WinControls.label($0, wraps: false, in: made.hwnd, ctx: ctx) }
+        nameLabel?.frame(RECT())
         let parts = build(made.hwnd)
         leading = parts.leading
         trailing = parts.trailing
@@ -105,6 +113,7 @@ import WinSDK
     private func destroyChildren() {
         control.onFrame = nil  // the cycle ends here
         for c in children { c.destroy() }
+        nameLabel?.destroy()
         leading = []
         trailing = []
         pane.destroy()
