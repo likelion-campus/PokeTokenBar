@@ -455,6 +455,37 @@ jobs:
           if ($log -match $code) { $fail += 'the log has the code' }
           if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL team.codeTool: $_" }; exit 1 }
           'PASS team.codeTool: the backup follows set and clear (no code left after a clear), an unreadable file is restored first, memberID kept, no code in the log'
+      - name: Import-save tool applies a save and changes nothing on a bad file
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          # --import-save in a temporary state directory (PTB_STATE_DIR) whose path has a space and Korean letters.
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $exe = (Resolve-Path bundle\PokeTokenBar.exe).Path
+          $dir = Join-Path $env:RUNNER_TEMP '임포트 state'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $env:PTB_STATE_DIR = $dir
+          $save = Join-Path $dir '내 세이브.json'
+          $bad = Join-Path $dir 'bad.json'
+          [IO.File]::WriteAllText($save, '{"format":"poketokenbar.save","schema":2,"appVersion":"ci","exportedAt":"2026-01-01T00:00:00Z","sourceDevice":"CI","state":{}}')
+          [IO.File]::WriteAllText($bad, '{"hello":1}')
+          function Tool($file) {
+              $out = Join-Path $dir 'tool.out'
+              $p = Start-Process -FilePath $exe -ArgumentList @('--import-save', "`"$file`"") -RedirectStandardOutput $out -PassThru -Wait
+              [pscustomobject]@{ Exit = $p.ExitCode; Text = (Get-Content $out -Raw -Encoding UTF8).Trim() }
+          }
+          $fail = @()
+          $r = Tool $bad
+          "bad file: exit $($r.Exit): $($r.Text)"
+          if ($r.Exit -ne 2) { $fail += "a bad file exited $($r.Exit), expected 2" }
+          if (Test-Path (Join-Path $dir 'companion-state.json')) { $fail += 'a bad file created the state file' }
+          $r = Tool $save
+          "good file: exit $($r.Exit): $($r.Text)"
+          if ($r.Exit -ne 0) { $fail += "the save exited $($r.Exit), expected 0" }
+          if ($r.Text -notmatch '^imported: companion egg, 0 Pokedex entries, previous state backed up to ') { $fail += 'unexpected success line' }
+          if (@(Get-ChildItem $dir -Filter 'companion-state.pre-import-*.json').Count -ne 1) { $fail += 'no backup file' }
+          if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL import.saveTool: $_" }; exit 1 }
+          'PASS import.saveTool: a save in a path with a space and Korean letters was applied with a backup, a bad file exited 2 and created nothing'
       - name: Team DNS-SD with mDNS turned off by policy (informational)
         if: (success() || failure()) && steps.package.outcome == 'success'
         continue-on-error: true

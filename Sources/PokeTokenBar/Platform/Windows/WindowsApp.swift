@@ -45,6 +45,7 @@ public enum WindowsApp {
         if arguments.contains("--ime-check") { WinImeCheck.run() }
         if arguments.contains("--team-probe") { WindowsTeamProbe.main(arguments) }  // Task 19: the PC check's team probe
         if arguments.contains("--set-team-code") || arguments.contains("--clear-team-code") { WindowsTeamCodeTool.run(arguments) }
+        if arguments.contains("--import-save") { WindowsImportSaveTool.run(arguments) }
         if let i = arguments.firstIndex(of: "--selftest-plaza-placement") { WindowsSelftest.runPlazaPlacement(Array(arguments[(i + 1)...])) }
 
         let app = WindowsAppDelegate(arguments: arguments)
