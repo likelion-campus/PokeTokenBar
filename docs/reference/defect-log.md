@@ -2442,9 +2442,16 @@ read_when:
   (§팀 네트워크 "저장하는 값을 재야 한다"). `SaveTransfer.maxFileBytes` 8 MiB, `PlazaGIFDecoder.maxOutputBytes` 256 MiB, `CPlazaD2D` 디코드
   512 MiB, `codexProbeByteLimit` 1 MiB(첫 줄만 찾는다), `AppLog.maxBytes` 2 MiB(회전이지 막지 않는다): 실제 크기 근처가 아니다. 이 작업의 새 상한
   `InstallerReleaseFeed.installerBytes`(1–200 MiB)는 실제의 6 배다. 실제 크기 근처의 고정 상한은 이음매 기본값 하나뿐이다.
-  **가드(기계): 미정(PENDING) — Task 6.** 트리거 브랜치는 아직 없는 다운로드 자체다: 다운로드 이음매
-  `oneShotDownload(for:maxBytes:deadline:)` 가 기본값 없이 자산의 `size` 를 상한으로 받고(D19), Task 6 의 길이 테스트가 32 MiB 를 넘는 본문으로
-  그 경로를 밟아야 이 항목이 닫힌다. Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
+  **가드(기계): Task 6 에서 닫힘.** ① 이음매 서명 — 다운로드는 `PlatformCompat.oneShotDownload(for:maxBytes:deadline:)` 하나뿐이고 `maxBytes`·
+  `deadline` 에 기본값이 없다(WinHTTP 만 탄다: URLSession 으로 돌아가면 상한도 마감도 없으므로 그 경로는 실패로 끝난다). 호출부는
+  `WindowsUpdateInstaller.install` 하나이고 상한으로 자산의 `installer.size` 를, 마감으로 15 분을 넘긴다 —
+  `WindowsSeamScanTests.testTheUpdateDownloadAndItsCIHooksStayWhereTheyAre`(호출부 1곳·`installer.size` 전달·기본값 없음, 각 깨짐을 주입한
+  `testTheUpdateSeamScanCatchesEachBreak`)와 `WindowsUpdateInstallerTests.testGoodBytesAreWrittenExactlyAndSetupGetsThatPathAndItsArguments`
+  (주입한 다운로드가 받은 상한 == 크기, 마감 == 900 s). ② 트리거 브랜치 — 32 MiB + 1 B 본문이 *실제* WinHTTP 이음매를 러너의 루프백으로 지난다:
+  `WindowsUpdateInstallerTests.testABodyOverTheSeamsDefaultCapPassesWithTheInstallersOwnCap`(같은 본문이 기본 상한으로는
+  `.dataLengthExceedsMaximum`, 설치 파일 자신의 크기 상한으로는 통과해 디스크에 33,554,433 B), 출하 바이너리 안에서는 selftest
+  `update.passesOver32MiB`(번들·설치본 둘 다). 끝에서 끝: CI 단계 `in-app-update` 의 `long` 시나리오가 크기보다 1 B 긴 본문이 상한에서
+  끊기는 것(`URLError -1103`)을 본다. Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
   않는다 — 다른 경로로 통과하는 테스트를 가드라고 부르지 않는다(처음 넣었던 32 MiB + 1 B 테스트 둘은 그래서 뺐다).
   **규칙:** 새 다운로드(기존 이음매의 새 호출부도)는 자기 상한과 마감을 이름으로 적는다 — 다른 호출부를 보고 정한 기본값을 물려받지 않는다.
   상한을 정할 때는 실제로 가장 큰 페이로드를 재서 값과 출처를 적고, 여유가 2 배 미만이면 그 자리에서 고친다.
