@@ -50,6 +50,7 @@ import WinSDK
     private var languageRow: WinRow?
     private var refreshRow: WinRow?
     private var limitDisplayRow: WinRow?
+    private var trendWindowRow: WinRow?  // stage 7 Task 12 (G6)
     private var loginRow: WinRow?
     private var backViewRow: WinRow?
     private var helpRow: WinRow?
@@ -258,6 +259,13 @@ import WinSDK
             WinControls.radioGroup([l.limitDisplayUsed, l.limitDisplayRemaining], selected: store.limitDisplayMode == .used ? 0 : 1, in: p, ctx: c)
         }
         limitDisplayRow?.control?.onSelect = { i in store.limitDisplayMode = i == 0 ? .used : .remaining }
+        // --- stage 7 Task 12: the daily trend period (G6), as the Mac's picker (begin) ---
+        let windows = DailyTrendWindow.allCases
+        trendWindowRow = general.addRow(l.dailyTrendPeriod) { p, c in
+            WinControls.combo(windows.map { l.title(for: $0) }, selected: windows.firstIndex(of: store.dailyTrendWindow) ?? -1, in: p, ctx: c)
+        }
+        trendWindowRow?.control?.onSelect = { i in if windows.indices.contains(i) { store.dailyTrendWindow = windows[i] } }
+        // --- stage 7 Task 12 (end) ---
         let loginHint: String? = loginState == .disabledByUser ? l.disabledInTaskManager : nil
         loginRow = general.addToggle(l.launchAtLogin, hint: loginHint, isOn: loginState == .on)
         loginRow?.control?.isEnabled = loginState == .on || loginState == .off
@@ -374,6 +382,7 @@ import WinSDK
         if let c = refreshRow?.control, c.selection != interval { c.selection = interval }
         let limit = store.limitDisplayMode == .used ? 0 : 1
         if let c = limitDisplayRow?.control, c.selection != limit { c.selection = limit }
+        if let c = trendWindowRow?.control, let i = DailyTrendWindow.allCases.firstIndex(of: store.dailyTrendWindow), c.selection != i { c.selection = i }  // stage 7 Task 12
         loginState = host.loginItem.state
         setOn(loginRow?.control, loginState == .on)
         setOn(backViewRow?.control, store.alwaysFacesBack)
@@ -540,6 +549,7 @@ import WinSDK
         let store = self.store
         _ = store.refreshInterval
         _ = store.limitDisplayMode
+        _ = store.dailyTrendWindow  // stage 7 Task 12
         _ = store.alwaysFacesBack
         _ = store.limitNotifications
         _ = store.warnThreshold
@@ -578,6 +588,7 @@ import WinSDK
         header = nil
         backLink = nil
         titleLabel = nil
+        trendWindowRow = nil  // stage 7 Task 12
         languageRow = nil; refreshRow = nil; limitDisplayRow = nil; loginRow = nil; backViewRow = nil; helpRow = nil; helpBodyRow = nil
         limitAlertsRow = nil; warnRow = nil; critRow = nil; companionAlertsRow = nil; statusChecksRow = nil; updateNotificationsRow = nil
         checkNowRow = nil; updateOfferRow = nil; updateSkippedRow = nil; updateCurrentRow = nil; reportRow = nil; logRow = nil

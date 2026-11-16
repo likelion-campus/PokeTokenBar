@@ -70,6 +70,19 @@ enum WinEditKind: Equatable, Sendable {
     var fitWidth: ((Int32) -> Bool)?
     /// `drawnItem`: paints the item (the drawn view's picture under it and the focus rectangle).
     var drawItem: ((UnsafeMutablePointer<DRAWITEMSTRUCT>) -> Void)?
+    // --- stage 7 Task 12: a drawn item that follows the pointer and the arrow keys (begin) ---
+    /// `drawnItem`: the pointer over it (client pixels), nil when it left. The item asks Windows to say when it leaves
+    /// (`TrackMouseEvent`) only while it is over it: nothing is tracked while the mouse is elsewhere.
+    var onPointer: ((POINT?) -> Void)?
+    /// `drawnItem`: a key pressed while it has the focus (a virtual-key code); true when handled (the item then also takes
+    /// the arrow keys, which a button hands to the dialog manager otherwise).
+    var onKey: ((Int) -> Bool)?
+    /// `drawnItem`: the keyboard focus came or went.
+    var onFocus: ((Bool) -> Void)?
+    /// `drawnItem`: whether Escape is the item's now (a selection to clear); otherwise Escape reaches the popover as usual.
+    var claimsEscape: (() -> Bool)?
+    fileprivate var tracking = false
+    // --- stage 7 Task 12 (end) ---
 
     // Kind-specific state.
     fileprivate(set) var editKind: WinEditKind?
@@ -204,6 +217,7 @@ enum WinEditKind: Equatable, Sendable {
         // Every callback goes: a page that captured itself in one would otherwise keep itself alive through its controls.
         onDestroy = nil; onClick = nil; onToggle = nil; onSelect = nil; onValue = nil; onCommit = nil; onChange = nil
         onFrame = nil; drawItem = nil; onSizeChange = nil; fitWidth = nil
+        onPointer = nil; onKey = nil; onFocus = nil; claimsEscape = nil
         format = { String($0) }
         for part in parts {
             ctx.tooltips.set(nil, for: part, in: GetParent(part))
@@ -276,9 +290,30 @@ enum WinEditKind: Equatable, Sendable {
         switch message {
         case 0x0007:  // WM_SETFOCUS: keyboard focus inside a scroll area brings the control into view
             if GetKeyState(0x01 /* VK_LBUTTON */) >= 0 { WinScrollArea.reveal(hwnd) }
+            c.onFocus?(true)
             return nil
         case 0x0008:  // WM_KILLFOCUS: a field commits when the focus leaves it
             if c.kind == .edit { c.commitIfChanged() }
+            c.onFocus?(false)
+            return nil
+        case 0x0087 where c.onKey != nil:  // stage 7 Task 12: a drawn item that answers the arrow keys
+            var code = DefSubclassProc(hwnd, message, wParam, lParam) | 0x0001  // DLGC_WANTARROWS
+            if let msg = UnsafePointer<MSG>(bitPattern: Int(lParam)), msg.pointee.message == UINT(WM_KEYDOWN),
+               msg.pointee.wParam == WPARAM(VK_RETURN) || (msg.pointee.wParam == WPARAM(VK_ESCAPE) && c.claimsEscape?() == true) { code |= 0x0004 }  // DLGC_WANTALLKEYS
+            return code
+        case UINT(WM_KEYDOWN) where c.onKey != nil && wParam != WPARAM(VK_RETURN):  // stage 7 Task 12
+            return c.onKey?(Int(wParam)) == true ? 0 : nil
+        case 0x0200 where c.onPointer != nil:  // WM_MOUSEMOVE over a drawn item (stage 7 Task 12)
+            if !c.tracking {
+                c.tracking = true
+                var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: hwnd, dwHoverTime: 0)
+                _ = TrackMouseEvent(&tme)
+            }
+            c.onPointer?(POINT(x: Int32(Int16(truncatingIfNeeded: lParam & 0xFFFF)), y: Int32(Int16(truncatingIfNeeded: (lParam >> 16) & 0xFFFF))))
+            return nil
+        case 0x02A3 where c.onPointer != nil:  // WM_MOUSELEAVE (stage 7 Task 12)
+            c.tracking = false
+            c.onPointer?(nil)
             return nil
         case 0x0087:  // WM_GETDLGCODE
             guard let msg = UnsafePointer<MSG>(bitPattern: Int(lParam)), msg.pointee.message == UINT(WM_KEYDOWN) else { return nil }

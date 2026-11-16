@@ -293,17 +293,15 @@ import WinSDK
 }
 
 extension WinHomePage {
-    /// The recap button under the week and month line: "Details", its tooltip "Usage recap" (the Mac's chart button, `help`
-    /// and accessibility label). A row of its own at the right; Task 12's streak badge shares this line on the Mac.
-    func addRecapButton(to section: WinSectionCard) {
+    /// The recap button: "Details", its tooltip "Usage recap" (the Mac's chart button, `help` and accessibility label). It sits
+    /// at the right of the week and month line with Task 12's streak badge, as on the Mac (`makePeriodTrailing`).
+    func makeRecapButton(in pane: HWND, ctx: WinUIContext) -> WinControl? {
         let l = L(companion.language)
-        section.addStyledRow(label: nil, style: .trailing) { pane, ctx in
-            guard let c = WinControls.button(l.recapDetails, in: pane, ctx: ctx) else { return nil }
-            c.tooltip = l.recapOpen
-            c.onClick = { [weak self] in self?.openRecap?() }
-            self.recapButton = c
-            return c
-        }
+        guard let c = WinControls.button(l.recapDetails, in: pane, ctx: ctx) else { return nil }
+        c.tooltip = l.recapOpen
+        c.onClick = { [weak self] in self?.openRecap?() }
+        recapButton = c
+        return c
     }
 }
 #endif

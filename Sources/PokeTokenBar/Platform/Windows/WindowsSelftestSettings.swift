@@ -281,7 +281,7 @@ extension WindowsSelftest {
         guard up, let page, let hwnd else { r.add("settings.page", false, "open=\(up)"); return }
         let texts = visibleTexts()
         let l = self.l, ko = L(.ko)
-        let wanted = [l.generalSectionTitle.uppercased(), l.language, l.refreshInterval, l.limitDisplayModeLabel, l.launchAtLogin, l.backViewLabel,
+        let wanted = [l.generalSectionTitle.uppercased(), l.language, l.refreshInterval, l.limitDisplayModeLabel, l.dailyTrendPeriod, l.launchAtLogin, l.backViewLabel,
                       l.trackedProvidersSectionTitle.uppercased(), ko.teamSectionTitle.uppercased(), ko.teamEnable, l.notificationsSection.uppercased(),
                       l.updateSectionTitle.uppercased(), l.aboutSupportSectionTitle.uppercased(), l.reportProblem, l.showLogFile, l.winExplorerButton,
                       l.settings, l.back]

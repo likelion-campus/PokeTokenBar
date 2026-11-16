@@ -61,11 +61,17 @@ import WinSDK
     private(set) var observes = 0
 
     struct Sections {
-        var banner: WinSectionCard, plaza: WinSectionCard, header: WinSectionCard, tabs: WinSectionCard
+        var banner: WinSectionCard, plaza: WinSectionCard, header: WinSectionCard
+        var activity: WinSectionCard  // stage 7 Task 12 (WinActivitySection.swift): the streak and the chart, between the totals and the tabs
+        var tabs: WinSectionCard
         var provider: WinSectionCard, status: WinSectionCard, limits: WinSectionCard, footer: WinSectionCard
     }
     var sections: Sections?
     private var headerParts: HeaderParts?
+    /// The streak and the chart (stage 7 Task 12); the selftest reads it.
+    private(set) var activityPanel: WinActivitySection?
+    /// The streak's drawn view and the line it shares with the recap button (made with the header; `makePeriodTrailing`).
+    var streakSlot: WinActivitySection.StreakSlot?
     private var footerParts: FooterParts?
     var relative: [String: [RelativeBinding]] = [:]
     /// The limit bars' drawn views (their pictures are freed with their rows).
@@ -73,6 +79,7 @@ import WinSDK
 
     struct HeaderParts {
         var caption: WinControl, total: WinControl, grouped: WinControl, cost: WinControl, periods: WinControl
+        var periodsLine: WinPeriodLine
         var line: WinComposite
         var hint: WinRow
     }
@@ -145,10 +152,18 @@ import WinSDK
         stack = page
         ctx = page.ctx
         sections = Sections(banner: page.addSection(nil, card: true), plaza: page.addSection(nil, card: false),
-                            header: page.addSection(nil, card: false), tabs: page.addSection(nil, card: false),
+                            header: page.addSection(nil, card: false), activity: page.addSection(nil, card: false), tabs: page.addSection(nil, card: false),
                             provider: page.addSection(nil, card: false), status: page.addSection(nil, card: false),
                             limits: page.addSection(nil, card: false), footer: page.addSection(nil, card: false))
-        observe()
+        observe()  // makes the header, whose period line holds the streak's view (Task 12)
+        // --- stage 7 Task 12: the activity panel and the streak (begin) ---
+        if let sections {
+            let panel = WinActivitySection(stack: page, section: sections.activity, store: store, companion: companion, facts: facts, streak: streakSlot)
+            panel.now = now
+            activityPanel = panel
+            panel.observe()
+        }
+        // --- stage 7 Task 12 (end) ---
         page.layout()
     }
 
@@ -169,6 +184,9 @@ import WinSDK
         epoch += 1
         clock.onTick = nil
         clock.stop()
+        activityPanel?.destroy()  // stage 7 Task 12
+        activityPanel = nil
+        streakSlot = nil
         stack?.destroy()
         area?.destroy()
         bars = []
@@ -408,22 +426,21 @@ import WinSDK
                 }
                 return line?.control
             }
-            section.addStyledRow(label: { pane, ctx in
-                periodsLabel = WinControls.label(periods, style: .callout, role: .secondary, in: pane, ctx: ctx)
-                return periodsLabel
-            }, style: .trailing)
-            // MARK: Task 13 — the recap button (the Mac's `recapButton`): "Details", the tooltip names the page
-            addRecapButton(to: section)
-            // MARK: end Task 13
+            var periodsLine: WinPeriodLine?
+            section.addStyledRow(label: nil, style: .full) { pane, ctx in  // Tasks 12 and 13: the totals, the streak and "Details" in the Mac's one line (WinPeriodLine.swift)
+                periodsLine = self.makePeriodLine(pane, ctx, periods)
+                periodsLabel = periodsLine?.label
+                return periodsLine?.control
+            }
             var hintRow: WinRow?
             hintRow = section.addStyledRow(label: { pane, ctx in
                 WinControls.label(L(self.companion.language).winNoUsageYet, style: .callout, role: .tertiary, in: pane, ctx: ctx)
             }, style: .trailing)
-            guard let caption, let total, let grouped, let cost, let periodsLabel, let line, let hintRow else {
+            guard let caption, let total, let grouped, let cost, let periodsLabel, let periodsLine, let line, let hintRow else {
                 AppLog.write("home page: the header's controls were not made")
                 return
             }
-            headerParts = HeaderParts(caption: caption, total: total, grouped: grouped, cost: cost, periods: periodsLabel, line: line, hint: hintRow)
+            headerParts = HeaderParts(caption: caption, total: total, grouped: grouped, cost: cost, periods: periodsLabel, periodsLine: periodsLine, line: line, hint: hintRow)
             line.setShown(grouped, h.grouped != nil)
             line.setShown(cost, h.cost != nil)
             hintRow.isVisible = empty
@@ -436,7 +453,7 @@ import WinSDK
             if c.text != s { c.text = s; relayout = true }
         }
         setWrapped(parts.caption, h.caption)
-        setWrapped(parts.periods, periods)
+        parts.periodsLine.setText(periods)  // Tasks 12 and 13: a line of its own (the page lays out again when its height changed)
         parts.line.setText(parts.total, h.total)
         parts.line.setText(parts.grouped, h.grouped ?? "")
         parts.line.setText(parts.cost, h.cost ?? "")
