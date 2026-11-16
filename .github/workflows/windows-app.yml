@@ -71,7 +71,9 @@ concurrency:
 jobs:
   app:
     runs-on: windows-latest
-    timeout-minutes: 90
+    # A full run took 67 min before the popover, the in-app update and the installer scenarios and went past 90 min with
+    # them (run 43825854006: cut off at 90 min inside a passing step). Every long step has its own limit; this is the backstop.
+    timeout-minutes: 150
     env:
       PTB_LEVEL: ${{ (github.ref == 'refs/heads/windows-port' || inputs.level == 'full' || inputs.release_sha != '') && 'full' || 'light' }}
       # The switches that skip or add steps, as this run uses them: release mode forces them off (the idle gate always runs).
