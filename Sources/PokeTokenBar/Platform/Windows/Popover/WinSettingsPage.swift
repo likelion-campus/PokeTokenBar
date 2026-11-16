@@ -72,6 +72,8 @@ import WinSDK
     private var updateNotificationsRow: WinRow?
     private var checkNowRow: WinRow?
     private var updateOfferRow: WinRow?
+    /// The skipped-version row's "Show again" button (its row's control is the line of both buttons).
+    private(set) var updateSkippedAgain: WinControl?
     private var updateSkippedRow: WinRow?
     private var updateCurrentRow: WinRow?
     private var reportRow: WinRow?
@@ -174,7 +176,8 @@ import WinSDK
             head.paint = { [weak self, weak head] dc, rect in
                 if let head { self?.paintChrome(head, dc, rect, line: .bottom) }
             }
-            let back = WinControls.link("‹ " + l.back, in: head.hwnd, ctx: ctx)
+            // The Mac's plain accent button: the chevron and "Back".
+            let back = WinControls.pillButton(WinPill(style: .borderless, title: l.back, glyph: "chevron.backward", textStyle: .body), in: head.hwnd, ctx: ctx)
             back?.onClick = { [weak self] in self?.onBack() }
             backLink = back
             titleLabel = WinControls.label(l.settings, style: .headline, wraps: false, in: head.hwnd, ctx: ctx)
@@ -384,17 +387,31 @@ import WinSDK
         if host.updater != nil {
             checkNowRow = updates.addRow(l.checkForUpdatesLabel) { p, c in WinControls.button(l.checkNowButton, in: p, ctx: c) }
             checkNowRow?.control?.onClick = { [weak self] in self?.checkNow() }
-            updateOfferRow = updates.addRow("") { p, c in WinControls.button(l.updateButton, in: p, ctx: c) }
-            updateOfferRow?.label?.role = .warning
-            updateOfferRow?.control?.onClick = { [weak self] in self?.host.updater?.applyUpdate() }
-            updateSkippedRow = updates.addRow("") { p, c in WinControls.button(l.showSkippedAgain, in: p, ctx: c) }
-            updateSkippedRow?.label?.role = .warning
-            updateSkippedRow?.control?.onClick = { [weak self] in
-                self?.host.updater?.showSkippedAgain()
-                self?.scheduleRefresh()
+            // The Mac's `.caption` orange / secondary lines (`updateGroup`): the offer with Update beside it; the skipped version with
+            // "Show again" and Update side by side under the text.
+            func note(_ role: WinUIColors.Role) -> (HWND, WinUIContext) -> WinControl? {
+                { p, c in
+                    let label = WinControls.label("", style: .caption, role: role, in: p, ctx: c)
+                    return label
+                }
             }
-            updateCurrentRow = updates.addRow(l.upToDate(Self.appVersion)) { _, _ in nil }
-            updateCurrentRow?.label?.role = .secondary
+            updateOfferRow = updates.addStyledRow(label: note(.warning), style: .trailing) { p, c in WinControls.button(l.updateButton, in: p, ctx: c) }
+            updateOfferRow?.control?.onClick = { [weak self] in self?.host.updater?.applyUpdate() }
+            updateSkippedRow = updates.addStyledRow(label: note(.warning), style: .stacked) { p, c in
+                WinComposite(parent: p, ctx: c) { child in
+                    let again = WinControls.button(l.showSkippedAgain, in: child, ctx: c)
+                    let apply = WinControls.button(l.updateButton, in: child, ctx: c)
+                    again?.onClick = { [weak self] in
+                        self?.host.updater?.showSkippedAgain()
+                        self?.scheduleRefresh()
+                    }
+                    apply?.onClick = { [weak self] in self?.host.updater?.applyUpdate() }
+                    self.updateSkippedAgain = again
+                    return ([again, apply].compactMap { $0 }, [])
+                }?.control
+            }
+            updateCurrentRow = updates.addStyledRow(label: { p, c in WinControls.label(l.upToDate(Self.appVersion), style: .caption, role: .secondary, in: p, ctx: c) },
+                                                    style: .trailing)
         }
 
         transferRows.addTransfer(to: s)   // MARK: Task 15 — backup and transfer (G16)

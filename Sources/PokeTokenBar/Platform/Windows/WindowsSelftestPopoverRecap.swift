@@ -151,8 +151,7 @@ private struct RecapFixtureProvider: UsageProvider {
 
     /// The texts a page must show, from the model it was built from.
     private static func expectedTexts(_ m: RecapPageModel) -> [String] {
-        // Back is a SysLink (its window text is markup): recap.navigation checks it is there and leaves.
-        var out = ["‹ " + m.previous, m.current, m.next + " ›", m.card.title, "\(m.card.total) \(m.card.unit)"]
+        var out = [m.back, m.previous, m.current, m.next, m.card.title, "\(m.card.total) \(m.card.unit)"]
         out += m.scopeNames
         out += m.card.meters.map(\.description)
         out += m.card.readouts.map { "\($0.label) \($0.value)" }
@@ -358,8 +357,8 @@ private struct RecapFixtureProvider: UsageProvider {
         let dir = dumpDirectory()
         let isHome = popover.pageForTesting is WinHomePage
         let l = L(app.companion.language)
-        guard let button = findButton(hwnd, text: l.recapDetails) else {
-            r.add("recap.roundTrip", false, "home=\(isHome); no button named '\(l.recapDetails)'")
+        guard let button = findButton(hwnd, text: l.recapOpen) else {
+            r.add("recap.roundTrip", false, "home=\(isHome); no button named '\(l.recapOpen)'")
             popover.close(.destroyed)
             return
         }
@@ -372,7 +371,7 @@ private struct RecapFixtureProvider: UsageProvider {
         let wentBack = popover.pageForTesting?.escape() ?? false
         await wait(0.8)
         let backHome = popover.pageForTesting is WinHomePage && !popover.state.showingRecap && popover.isOpen
-        let details = popover.hwndForTesting.flatMap { findButton($0, text: l.recapDetails) } != nil
+        let details = popover.hwndForTesting.flatMap { findButton($0, text: l.recapOpen) } != nil
         // Reopening starts on Home even when the recap was up.
         popover.state.showingRecap = true
         popover.replacePage()

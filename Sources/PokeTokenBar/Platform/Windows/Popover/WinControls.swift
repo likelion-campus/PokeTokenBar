@@ -95,6 +95,10 @@ enum WinEditKind: Equatable, Sendable {
     fileprivate var format: (Int) -> String = { String($0) }
     fileprivate var currentValue = 0
     fileprivate(set) var glyph: (text: String, isIcon: Bool)?
+    /// A pill button (`WinControls.pillButton`): the Mac's borderless, capsule and prominent buttons, drawn by the kit.
+    fileprivate(set) var pill: WinPill?
+    /// A glyph button's glyph colour instead of the text colour (the footer's orange triangle); high contrast keeps the system's.
+    var glyphColor: COLORREF?
     fileprivate var hot = false
     private(set) var isDestroyed = false
     /// Counts the selftest reads.
@@ -662,7 +666,8 @@ enum WinClipboardText {
         }
         guard let h = WinKit.create("Edit", text, style: child | tabStop | group | es, exStyle: 0x0200 /* WS_EX_CLIENTEDGE */,
                                     parent: parent, id: id()) else { return nil }
-        let font = ctx.fonts.font(.body)
+        let isMulti: Bool = { if case .multiLine = kind { return true }; return false }()
+        let font = ctx.fonts.font(isMulti ? .caption : .body)  // the Mac's multi-line fields are `.caption`
         WinKit.setFont(h, font)
         if let cue = kind.cue { WinKit.send(h, 0x1501 /* EM_SETCUEBANNER */, 1, text: cue) }
         let line = ctx.lineHeight(font)
@@ -788,6 +793,7 @@ enum WinClipboardText {
     /// The glyph button's picture: its background (pressed and hovered a step darker), the glyph centred, the focus
     /// rectangle when the keyboard put the focus there.
     static func drawGlyphButton(_ c: WinControl, _ dis: UnsafeMutablePointer<DRAWITEMSTRUCT>) {
+        if let pill = c.pill { drawPill(c, pill, dis); return }
         let d = dis.pointee
         let state = d.itemState
         let colors = c.ctx.colors.palette
@@ -798,7 +804,7 @@ enum WinClipboardText {
         if let glyph = c.glyph {
             let old = SelectObject(d.hDC, UnsafeMutableRawPointer(c.font))
             _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
-            _ = SetTextColor(d.hDC, disabled ? GetSysColor(17 /* COLOR_GRAYTEXT */) : (pressed && c.ctx.highContrast ? GetSysColor(14) : colors.text))
+            _ = SetTextColor(d.hDC, disabled ? GetSysColor(17 /* COLOR_GRAYTEXT */) : (pressed && c.ctx.highContrast ? GetSysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? colors.text))))
             _ = WinStr.w(glyph.text).withUnsafeBufferPointer {
                 DrawTextW(d.hDC, $0.baseAddress, -1, &r, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
             }
@@ -852,4 +858,164 @@ extension WinControl {
     }
 }
 // --- stage 7 Task 14 (end) ---
+
+// --- parity: the Mac's button looks, drawn (begin) ---
+/// What a pill button shows. SwiftUI's `.buttonStyle(.borderless)` (text in the accent colour, a fill only under the pointer),
+/// a `Capsule` fill (Home's Details and the provider tabs), and `.borderedProminent` (the accent fill, white text) have no
+/// Win32 counterpart, so the kit draws them: owner-drawn buttons with the same keyboard and accessibility behaviour as the
+/// glyph button (the window text is the accessible name).
+struct WinPill: Equatable {
+    enum Style: Equatable { case borderless, capsule, tab, prominent, disclosure }
+    var style: Style
+    var title: String
+    /// An SF Symbol name (the glyph table maps it) before the title, or after it with `glyphAfter`.
+    var glyph: String?
+    var glyphAfter = false
+    var selected = false
+    /// `.foregroundStyle(.secondary)` on a borderless button.
+    var secondary = false
+    var textStyle: PopoverTextStyle = .caption
+    var bold = false
+    /// Content from the left edge (a disclosure row: the whole row is the button), not centred.
+    var leftAligned = false
+}
+
+extension WinControls {
+    /// A pill button; `label` is its accessible name when that differs from the title.
+    static func pillButton(_ pill: WinPill, label: String? = nil, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+        guard let h = WinKit.create("Button", WinKit.title(label ?? pill.title), style: child | tabStop | group | 0x000B /* BS_OWNERDRAW */,
+                                    parent: parent, id: id()) else { return nil }
+        let font = ctx.fonts.font(pill.textStyle, weight: pill.bold ? 600 : nil)
+        let c = WinControl(kind: .glyphButton, ctx: ctx, parts: [h], size: .zero, background: ctx.colors.palette.window, font: font)
+        c.pill = pill
+        c.preferredSize = pillSize(c, pill)
+        return c
+    }
+
+    private static func pillGlyph(_ pill: WinPill, ctx: WinUIContext) -> (text: String, font: HFONT?)? {
+        guard let symbol = pill.glyph else { return nil }
+        let size = pill.textStyle.size
+        if let text = WinGlyphs.text(symbol: symbol, fluent: ctx.fonts.iconIsFluent) { return (text, ctx.fonts.icon(size: size)) }
+        return WinGlyphs.fallback(symbol: symbol).map { ($0, ctx.fonts.emoji(size: size)) }
+    }
+
+    private static func pillPadding(_ style: WinPill.Style, ctx: WinUIContext) -> (h: Int32, v: Int32) {
+        switch style {
+        case .capsule: (ctx.px(8), ctx.px(4))   // Details: .padding(.horizontal, 8).padding(.vertical, 4)
+        case .tab: (ctx.px(10), ctx.px(4))      // CapsuleTabBar
+        case .prominent: (ctx.px(10), ctx.px(3))
+        case .borderless: (ctx.px(4), ctx.px(2))
+        case .disclosure: (0, ctx.px(2))
+        }
+    }
+
+    fileprivate static func pillSize(_ c: WinControl, _ pill: WinPill) -> CGSize {
+        let ctx = c.ctx
+        let title = ctx.measure(pill.title, font: c.font)
+        let glyph = pillGlyph(pill, ctx: ctx).map { ctx.measure($0.text, font: $0.font) }
+        let gap = glyph == nil ? Int32(0) : ctx.px(4)
+        let pad = pillPadding(pill.style, ctx: ctx)
+        let w = title.cx + (glyph?.cx ?? 0) + gap + 2 * pad.h
+        let h = max(title.cy, glyph?.cy ?? 0) + 2 * pad.v
+        return CGSize(width: CGFloat(w), height: CGFloat(h))
+    }
+
+    private static func fillRounded(_ dc: HDC, _ r: RECT, _ color: COLORREF, radius: Int32, ctx: WinUIContext) {
+        guard let pen = CreatePen(5 /* PS_NULL */, 0, 0) else { return }
+        let oldPen = SelectObject(dc, UnsafeMutableRawPointer(pen))
+        let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(ctx.colors.brush(color)))
+        _ = RoundRect(dc, r.left, r.top, r.right + 1, r.bottom + 1, radius, radius)
+        _ = SelectObject(dc, oldBrush)
+        _ = SelectObject(dc, oldPen)
+        _ = DeleteObject(UnsafeMutableRawPointer(pen))
+    }
+
+    /// The pill's picture: the page colour, the fill (a hovered or pressed borderless button gets one too), the glyph and the
+    /// title centred, the focus rectangle after keyboard use.
+    fileprivate static func drawPill(_ c: WinControl, _ pill: WinPill, _ dis: UnsafeMutablePointer<DRAWITEMSTRUCT>) {
+        let d = dis.pointee
+        let ctx = c.ctx, pal = ctx.colors.palette, bg = c.background
+        let state = d.itemState
+        let pressed = state & 0x0001 != 0, disabled = state & 0x0004 != 0, focused = state & 0x0010 != 0, hideFocus = state & 0x0200 != 0
+        var r = d.rcItem
+        _ = FillRect(d.hDC, &r, ctx.colors.brush(bg))
+        let high = ctx.highContrast
+        var fill: COLORREF?
+        var ink = pal.text
+        var radius = r.bottom - r.top  // a capsule
+        switch pill.style {
+        case .capsule:
+            ink = pal.text
+            fill = high ? nil : WinUIColors.blend(bg, pal.text, 0.08)
+        case .tab:
+            ink = pill.selected ? pal.accent : pal.secondaryText
+            fill = high ? nil : (pill.selected ? WinUIColors.blend(bg, pal.accent, 0.18) : WinUIColors.blend(bg, pal.secondaryText, 0.08))
+        case .prominent:
+            ink = high ? COLORREF(GetSysColor(14 /* COLOR_HIGHLIGHTTEXT */)) : WinUIColors.rgb(255, 255, 255)
+            fill = disabled && !high ? WinUIColors.blend(bg, pal.accent, 0.35) : pal.accent
+            radius = 2 * ctx.px(5)
+        case .borderless:
+            ink = pill.secondary ? pal.secondaryText : pal.accent
+            radius = 2 * ctx.px(4)
+        case .disclosure:
+            ink = pal.text
+            radius = 2 * ctx.px(4)
+        }
+        if high, pill.style != .prominent { ink = pal.text }
+        if !disabled, pressed || c.hotForPill {
+            let base = fill ?? bg
+            fill = WinUIColors.blend(base, pill.style == .prominent ? WinUIColors.rgb(0, 0, 0) : pal.text, pressed ? 0.14 : 0.07)
+        }
+        if let fill { fillRounded(d.hDC, r, fill, radius: radius, ctx: ctx) }
+        let textColor = disabled ? COLORREF(GetSysColor(17 /* COLOR_GRAYTEXT */)) : ink
+        _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
+        _ = SetTextColor(d.hDC, textColor)
+        let glyph = pillGlyph(pill, ctx: ctx)
+        let title = ctx.measure(pill.title, font: c.font)
+        let glyphSize = glyph.map { ctx.measure($0.text, font: $0.font) }
+        let gap = glyph == nil ? Int32(0) : ctx.px(4)
+        let total = title.cx + (glyphSize?.cx ?? 0) + gap
+        var x = pill.leftAligned ? r.left + pillPadding(pill.style, ctx: ctx).h : r.left + max(0, (r.right - r.left - total) / 2)
+        func draw(_ text: String, _ font: HFONT?, _ width: Int32, color: COLORREF? = nil) {
+            if let color { _ = SetTextColor(d.hDC, disabled ? COLORREF(GetSysColor(17)) : color) }
+            var box = RECT(left: x, top: r.top, right: x + width, bottom: r.bottom)
+            let old = SelectObject(d.hDC, UnsafeMutableRawPointer(font))
+            _ = WinStr.w(text).withUnsafeBufferPointer {
+                DrawTextW(d.hDC, $0.baseAddress, -1, &box, UINT(DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
+            }
+            _ = SelectObject(d.hDC, old)
+            x += width + gap
+        }
+        // A disclosure's chevron is the secondary colour (`.foregroundStyle(.secondary)`), its title the primary.
+        let glyphInk: COLORREF = pill.style == .disclosure && !high ? pal.secondaryText : textColor
+        if let glyph, let glyphSize, !pill.glyphAfter { draw(glyph.text, glyph.font, glyphSize.cx, color: glyphInk) }
+        draw(pill.title, c.font, title.cx, color: textColor)
+        if let glyph, let glyphSize, pill.glyphAfter { draw(glyph.text, glyph.font, glyphSize.cx, color: glyphInk) }
+        if focused, !hideFocus {
+            var f = d.rcItem
+            _ = InflateRect(&f, -ctx.px(2), -ctx.px(1))
+            _ = DrawFocusRect(d.hDC, &f)
+        }
+    }
+}
+
+extension WinControl {
+    /// The pill's glyph symbol (the selftest reads it, as it read a glyph button's text).
+    var pillGlyph: String? { pill?.glyph }
+    var isPill: Bool { pill != nil }
+
+    /// Another symbol before the title (a disclosure's chevron turning down): one repaint.
+    func setPillGlyph(_ symbol: String) {
+        guard var p = pill, p.glyph != symbol else { return }
+        p.glyph = symbol
+        pill = p
+        _ = InvalidateRect(hwnd, nil, false)
+    }
+}
+
+extension WinControl {
+    /// The pointer is over the button (the kit's hover look).
+    fileprivate var hotForPill: Bool { hot }
+}
+// --- parity (end) ---
 #endif

@@ -77,6 +77,14 @@ import WinSDK
     var onHeight: ((Int32) -> Void)?
     private var layoutPending = false
     private var inLayout = false
+    // --- parity: a page with metrics of its own (Home and Recap: the Mac's 14 pt padding, not Settings' 16) (begin) ---
+    /// The page's metrics in device pixels: the context's (Settings) unless the page asks for its own.
+    private(set) lazy var metrics: PopoverStackMetrics = ctx.metrics
+    func useMetrics(_ m: PopoverStackMetrics) {
+        metrics = m.pixels(dpi: Int(ctx.dpi))
+        setNeedsLayout()
+    }
+    // --- parity (end) ---
     private var sizeRelayouts: [Date] = []
     private var loggedSizeLoop = false
     private var borderPen: HPEN?
@@ -99,6 +107,19 @@ import WinSDK
         setNeedsLayout()
         return section
     }
+
+    // --- parity: a Divider() between two regions (begin) ---
+    /// A one-pixel rule between regions (the Mac's `Divider()`): shown or hidden with its region.
+    @discardableResult
+    func addRule(spacingAbove: CGFloat? = nil) -> WinSectionCard {
+        let section = WinSectionCard(stack: self, caption: nil, card: false)
+        section.isRule = true
+        section.spacingAbove = spacingAbove
+        sections.append(section)
+        setNeedsLayout()
+        return section
+    }
+    // --- parity (end) ---
 
     /// Every control of the page in creation (= Tab) order.
     var controls: [WinControl] {
@@ -132,10 +153,10 @@ import WinSDK
                     PopoverStackRow(style: row.style, isVisible: row.isVisible, control: row.control?.preferredSize) { [weak row] w in
                         (row?.label?.size(width: Int32(w)), row?.hint?.size(width: Int32(w)))
                     }
-                })
+                }, isRule: s.isRule, spacingAbove: s.spacingAbove.map { CGFloat(ctx.px($0)) }, rowSpacing: s.rowSpacing.map { CGFloat(ctx.px($0)) })
             }
         }
-        var f = PopoverStackLayout.layout(input(), width: CGFloat(width), metrics: ctx.metrics)
+        var f = PopoverStackLayout.layout(input(), width: CGFloat(width), metrics: metrics)
         var refitted = false
         for (section, sf) in zip(sections, f.sections) {
             guard let sf else { continue }
@@ -143,7 +164,7 @@ import WinSDK
                 if let fit = row.control?.fitWidth, let cf = rf?.control, fit(Int32(cf.width)) { refitted = true }
             }
         }
-        if refitted { f = PopoverStackLayout.layout(input(), width: CGFloat(width), metrics: ctx.metrics) }
+        if refitted { f = PopoverStackLayout.layout(input(), width: CGFloat(width), metrics: metrics) }
         let palette = ctx.colors.palette
         for (section, sf) in zip(sections, f.sections) {
             guard let sf else {
@@ -204,7 +225,7 @@ import WinSDK
         if borderPen == nil { borderPen = CreatePen(0 /* PS_SOLID */, max(1, ctx.px(1)), colors.palette.cardBorder) }
         let oldPen = SelectObject(dc, UnsafeMutableRawPointer(borderPen))
         let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(colors.brush(colors.palette.card)))
-        let radius = 2 * Int32(ctx.metrics.cardRadius)
+        let radius = 2 * Int32(metrics.cardRadius)
         for case let s? in f.sections {
             if let card = s.card {
                 let c = WinKit.rect(card)
@@ -238,6 +259,11 @@ import WinSDK
     private weak var stack: WinStack?
     let caption: WinControl?
     let card: Bool
+    // --- parity: a rule, and the Mac's tighter spacing for a region (DIP) (begin) ---
+    fileprivate(set) var isRule = false
+    var spacingAbove: CGFloat? { didSet { if oldValue != spacingAbove { stack?.setNeedsLayout() } } }
+    var rowSpacing: CGFloat? { didSet { if oldValue != rowSpacing { stack?.setNeedsLayout() } } }
+    // --- parity (end) ---
     private(set) var rows: [WinRow] = []
     var isVisible = true { didSet { if oldValue != isVisible { stack?.setNeedsLayout() } } }
 

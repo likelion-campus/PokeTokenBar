@@ -6,8 +6,8 @@ import WinSDK
 /// rows of one plain section. A limit row is two page rows: a line (name on the left; detail, reset countdown or idle hint,
 /// and the percent in its colour on the right) and the bar, a drawn part (`LimitBarPart`) with the tooltip and the
 /// accessible text "<name> <percent>". Reset countdowns and "stale" badges are bound to the page's clock. Windows differences,
-/// all listed in the report: a notice is an orange title over its hint (no orange card), a capsule strip is push-like radio
-/// buttons (several lines when it does not fit), the Claude help popover is a note opened under the caption.
+/// all listed in the report: a capsule strip wraps to several lines when it does not fit, the Claude help popover is a note
+/// opened under the caption.
 extension WinHomePage {
     /// The (?) next to Claude's caption: shows or hides the sign-in file's note under it.
     func toggleCredentialHelp() {
@@ -47,10 +47,32 @@ extension WinHomePage {
             }
             // --- stage 7 Task 14 (end) ---
         case .notice(let n):
-            section.addStyledRow(label: text(n.title, .body, weight: n.style == .banner ? 600 : 500, color: .systemOrange), hint: n.hint,
-                                 style: .trailing) { pane, ctx in
-                guard let b = n.button else { return nil }
-                return self.button(b, in: pane, ctx: ctx)
+            // The Mac's orange card: `.banner` = a semibold caption title with the (bordered) button at its right, 12 % on an 8 pt
+            // corner; `.card` = a medium title, the (prominent) button under the hint, 10 % on a 6 pt corner.
+            let isBanner = n.style == .banner
+            section.addStyledRow(label: nil, style: .full) { pane, ctx in
+                WinNoticeCard(parent: pane, ctx: ctx, tint: .orange, alpha: isBanner ? 0.12 : 0.10, radius: isBanner ? 8 : 6, spacing: 4,
+                              symbol: n.symbol) { child, ctx, tint in
+                    var title = WinNoticeCard.Line()
+                    title.hasGlyph = true
+                    title.flexible = WinControls.label(n.title, style: .caption, weight: isBanner ? 600 : 500, in: child, ctx: ctx)
+                    var hint = WinNoticeCard.Line()
+                    hint.flexible = WinControls.label(n.hint, style: .caption2, role: .secondary, in: child, ctx: ctx)
+                    var lines = [title, hint]
+                    if let b = n.button {
+                        if isBanner {
+                            // Created before the hint in reading order would be wrong: the title's button follows the title.
+                            if let c = self.button(b, in: child, ctx: ctx) { lines[0].trailing = [c] }
+                        } else if let c = self.pill(b, style: .prominent, in: child, ctx: ctx) {
+                            var action = WinNoticeCard.Line()
+                            action.leading = [c]
+                            action.top = 2
+                            lines.append(action)
+                        }
+                    }
+                    for line in lines { if let f = line.flexible { f.background = tint } }
+                    return lines
+                }?.control
             }
         case .refreshRow(let r):
             var statusLabel: WinControl?

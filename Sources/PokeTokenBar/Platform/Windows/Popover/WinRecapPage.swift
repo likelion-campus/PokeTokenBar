@@ -89,6 +89,7 @@ import WinSDK
         epoch += 1
         stack = page
         ctx = page.ctx
+        page.useMetrics(.recap)  // the Mac's 14 pt padding and VStack(spacing: 8)
         sections = Sections(top: page.addSection(nil, card: false), nav: page.addSection(nil, card: false),
                             card: page.addSection(nil, card: false), notes: page.addSection(nil, card: false))
         observe()
@@ -210,7 +211,8 @@ import WinSDK
         let nav = m.navigation
         s.top.addStyledRow(label: nil, style: .full) { pane, ctx in
             let line = WinComposite(parent: pane, ctx: ctx) { child in
-                let back = WinControls.link("‹ " + m.back, in: child, ctx: ctx)
+                // Back: the Mac's borderless button, the chevron and the title.
+                let back = WinControls.pillButton(WinPill(style: .borderless, title: m.back, glyph: "chevron.left", textStyle: .body), in: child, ctx: ctx)
                 back?.onClick = { [weak self] in self?.onBack() }
                 let scope = WinControls.radioGroup(m.scopeNames, selected: m.selectedScope, in: child, ctx: ctx)
                 scope?.onSelect = { [weak self] i in
@@ -225,22 +227,23 @@ import WinSDK
             if let line { self.composites.append(line) }
             return line?.control
         }
+        // Previous (left), the running period (centre), Next (right): borderless `.caption` buttons with the triangle glyphs.
         s.nav.addStyledRow(label: nil, style: .full) { pane, ctx in
-            let line = WinComposite(parent: pane, ctx: ctx) { child in
-                let previous = WinControls.button("‹ " + m.previous, in: child, ctx: ctx)
+            let line = WinThreeColumns(parent: pane, ctx: ctx) { child in
+                let previous = WinControls.pillButton(WinPill(style: .borderless, title: m.previous, glyph: "arrowtriangle.left.fill"), in: child, ctx: ctx)
                 previous?.isEnabled = m.canGoBack
                 previous?.onClick = { [weak self] in
                     guard let self else { return }
                     self.navigation.goBack(canGoBack: self.last?.canGoBack ?? false)
                     self.refresh()
                 }
-                let current = WinControls.button(m.current, in: child, ctx: ctx)
+                let current = WinControls.pillButton(WinPill(style: .borderless, title: m.current), in: child, ctx: ctx)
                 current?.isEnabled = m.canGoToCurrent
                 current?.onClick = { [weak self] in
                     self?.navigation.goToCurrent()
                     self?.refresh()
                 }
-                let next = WinControls.button(m.next + " ›", in: child, ctx: ctx)
+                let next = WinControls.pillButton(WinPill(style: .borderless, title: m.next, glyph: "arrowtriangle.right.fill", glyphAfter: true), in: child, ctx: ctx)
                 next?.isEnabled = nav.canGoForward
                 next?.onClick = { [weak self] in
                     self?.navigation.goForward()
@@ -249,9 +252,8 @@ import WinSDK
                 if let previous { self.controls["previous"] = previous }
                 if let current { self.controls["current"] = current }
                 if let next { self.controls["next"] = next }
-                return ([previous].compactMap { $0 }, [current, next].compactMap { $0 })
+                return (previous, current, next)
             }
-            if let line { self.composites.append(line) }
             return line?.control
         }
         renders["chrome", default: 0] += 1
@@ -288,7 +290,7 @@ import WinSDK
     /// The page's inner width in pixels (what a `.full` row gets).
     private var innerWidth: Int32 {
         guard let stack else { return 0 }
-        return stack.width - 2 * Int32(ctx.metrics.pagePadding)
+        return stack.width - 2 * Int32(stack.metrics.pagePadding)
     }
 }
 
@@ -297,7 +299,9 @@ extension WinHomePage {
     /// at the right of the week and month line with Task 12's streak badge, as on the Mac (`makePeriodTrailing`).
     func makeRecapButton(in pane: HWND, ctx: WinUIContext) -> WinControl? {
         let l = L(companion.language)
-        guard let c = WinControls.button(l.recapDetails, in: pane, ctx: ctx) else { return nil }
+        // The Mac's capsule: the chart glyph and "Details" (`.caption`) on the primary colour at 8 %; its accessible name is "Usage recap".
+        guard let c = WinControls.pillButton(WinPill(style: .capsule, title: l.recapDetails, glyph: "chart.bar.xaxis"), label: l.recapOpen,
+                                             in: pane, ctx: ctx) else { return nil }
         c.tooltip = l.recapOpen
         c.onClick = { [weak self] in self?.openRecap?() }
         recapButton = c
