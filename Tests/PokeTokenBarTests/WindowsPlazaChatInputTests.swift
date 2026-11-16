@@ -75,7 +75,7 @@ import XCTest
             }
             if !cancel, !text.isEmpty {
                 ime.result = text
-                if !ime.endWithoutResult { _ = SendMessageW(h, 0x010F, 0, 0x800) }   // WM_IME_COMPOSITION, GCS_RESULTSTR
+                _ = SendMessageW(h, 0x010F, 0, 0x800)   // WM_IME_COMPOSITION, GCS_RESULTSTR
                 if !ime.inline { for u in text.utf16 { _ = SendMessageW(h, 0x0102, WPARAM(u), 1) } }   // the committed characters
             } else {
                 _ = SendMessageW(h, 0x010F, 0, 0)
