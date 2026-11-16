@@ -887,6 +887,17 @@ extension WindowsSelftest {
             han = state()
             trace.append("VK_HANGUL (conversion 0x\(String(status[0], radix: 16))) gks \(han)")
         }
+        // Judged only when the IME really took the keys (Hangul in the field or a composition string). A later selftest process of the
+        // same run can find TSF reporting the text service active while it passes letters through (the earlier process's restore
+        // disabled it for the user a moment before): that is the harness, said plainly, not the field.
+        let engaged = chat.text.unicodeScalars.contains { (0xAC00...0xD7A3).contains($0.value) || (0x3131...0x318E).contains($0.value) }
+            || !WinPlazaChatInput.imeString(e, kind: 0x8).isEmpty
+        guard engaged else {
+            await chatClose(chat)
+            r.add("plaza.chatRealIME", true, "not engaged in this process (letters passed through: \(han)); TSF: \(actText); "
+                + "the real-IME behaviour is judged in the processes where the IME takes the keys (and on the PC checklist)")
+            return
+        }
         for _ in 0..<3 { await chatTap(0x0E); trace.append("BS \(state())") }
         for s: UInt32 in [0x20, 0x25, 0x1F, 0x1F, 0x16, 0x20] { await chatTap(s) }   // d k s s u d
         trace.append("dkssud \(state())")
