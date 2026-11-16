@@ -31,6 +31,18 @@ function formatInZone(date, tz, pattern) {
 //   ContentService.createTextOutput(text).setMimeType(m); MimeType.JSON.
 //   Session.getScriptTimeZone().
 // Later tasks extend the returned object with more fakes.
+// Like real Sheets, a string written by setValues is parsed as typed input unless the column is
+// plain text ("@") or the string starts with an apostrophe (stripped, stored as text).
+class FormulaCell { constructor(text) { this.text = text; } }
+function coerce(v, textFormat) {
+  if (typeof v !== "string") return v;
+  if (v.startsWith("'")) return v.slice(1);
+  if (textFormat) return v;
+  if (v.startsWith("=")) return new FormulaCell(v);
+  if (/^[+-]?\d+(\.\d+)?%?$/.test(v)) return v.endsWith("%") ? Number(v.slice(0, -1)) / 100 : Number(v);
+  return v;
+}
+
 function makeSheet(name) {
   const sheet = {
     _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000,
@@ -63,7 +75,7 @@ function makeSheet(name) {
             const line = [];
             for (let c = 0; c < nc; c++) {
               const v = (sheet._rows[row - 1 + r] || [])[col - 1 + c];
-              line.push(v === undefined ? "" : v);
+              line.push(v === undefined ? "" : v instanceof FormulaCell ? "#FORMULA" : v);
             }
             out.push(line);
           }
@@ -73,7 +85,7 @@ function makeSheet(name) {
           if (values.length !== nr || values.some((l) => l.length !== nc)) throw new Error("fake setValues: size mismatch");
           values.forEach((line, r) => {
             while (sheet._rows.length <= row - 1 + r) sheet._rows.push([]);
-            line.forEach((v, c) => { sheet._rows[row - 1 + r][col - 1 + c] = v; });
+            line.forEach((v, c) => { sheet._rows[row - 1 + r][col - 1 + c] = coerce(v, sheet._formats[col + c] === "@"); });
           });
           return this;
         },

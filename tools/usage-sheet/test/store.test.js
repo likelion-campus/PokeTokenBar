@@ -329,3 +329,20 @@ test("doGet says ok", () => {
   const { S } = fresh();
   assert.equal(S.doGet().getContent(), "ok");
 });
+
+test("peer text lands as text, never as a formula; zero-row tool reads back as -", () => {
+  const { S, ss } = fresh();
+  const b = validBody();
+  b.member.nickname = "=1+1";
+  b.days = [{ date: "2026-11-16", team: "t_ab12cd34ef56", teamLabel: "-팀", tools: [] }];
+  assert.equal(report(S, b).ok, true);
+  const read = (tab, r, c) => ss.getSheetByName(tab).getRange(r, c).getValues()[0][0];
+  assert.equal(read("원본", 2, 2), "=1+1");
+  assert.equal(read("원본", 2, 4), "-");
+  assert.equal(read("사람", 2, 2), "=1+1");
+  assert.equal(read("부서", 2, 3), "-팀");
+  // a second report rewrites the existing rows and must keep them text
+  assert.equal(report(S, b).ok, true);
+  assert.equal(read("원본", 2, 2), "=1+1");
+  assert.equal(read("사람", 2, 2), "=1+1");
+});

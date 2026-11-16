@@ -296,3 +296,23 @@ test("render stays inside 1000 rows with many departments", () => {
   assert.equal(model.teams.length, 1100);
   assert.equal(cell(sheet, 8 + 1100, 1) !== undefined, true);
 });
+
+// ---- text written as text (Sheets would parse formulas and numbers) ----
+function readBack(sheet, r, c) { return sheet.getRange(r, c).getValues()[0][0]; }
+
+test("render writes peer text and deltas as exact text", () => {
+  const R = loadScript();
+  const d = mkData({
+    usage: [row("m1", "2026-11-02", "t1", 100), row("m1", "2026-10-02", "t1", 85)],
+    depts: people({ t1: { name: "=SUM(1)", suggested: "" } }),
+    people: people({ m1: { nickname: "-지아", mergeInto: "" } }),
+  });
+  const model = R.computeDashboard(d, "thisMonth", TODAY);
+  const sheet = R.fakes.ss.insertSheet("이번 달");
+  R.renderDashboard(sheet, model, R.nowMs, R.tz);
+  assert.equal(readBack(sheet, 9, 1), "=SUM(1)");
+  assert.equal(readBack(sheet, 9, 6), "-지아");
+  assert.equal(readBack(sheet, 9, 7), "=SUM(1)");
+  assert.equal(readBack(sheet, 6, 1), "+17.6%");
+  assert.equal(readBack(sheet, 6, 3), "0명");
+});

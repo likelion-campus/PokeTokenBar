@@ -97,6 +97,18 @@ function ensureRows(sheet, lastRowNeeded) {
   if (lastRowNeeded > max) sheet.insertRowsAfter(max, lastRowNeeded - max);
 }
 
+// Sheets parses a string written through setValues like typed input: "=1+1" becomes a formula and
+// "+18.0%" a number. A leading apostrophe stores the value as text and is not shown. Every free-text
+// value written to a sheet goes through this; numbers and other types pass unchanged.
+function asText(v) {
+  if (typeof v === "string" && v.length > 0 && "=+-@".indexOf(v.charAt(0)) !== -1) return "'" + v;
+  return v;
+}
+
+function asTextRows(rows) {
+  return rows.map(function (r) { return r.map(asText); });
+}
+
 function sheetRows(sheet, width) {
   var last = sheet.getLastRow();
   if (last < 2) return [];
@@ -122,12 +134,12 @@ function upsertRows(sheet, width, keyOfRow, items) {
     }
   });
   dirty.forEach(function (i) {
-    sheet.getRange(i + 2, 1, 1, width).setValues([rows[i]]);
+    sheet.getRange(i + 2, 1, 1, width).setValues(asTextRows([rows[i]]));
   });
   if (rows.length > existingCount) {
     var added = rows.slice(existingCount);
     ensureRows(sheet, existingCount + 1 + added.length);
-    sheet.getRange(existingCount + 2, 1, added.length, width).setValues(added);
+    sheet.getRange(existingCount + 2, 1, added.length, width).setValues(asTextRows(added));
   }
 }
 

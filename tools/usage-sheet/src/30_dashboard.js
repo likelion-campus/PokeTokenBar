@@ -171,37 +171,37 @@ function renderDashboard(sheet, model, nowMs, tz) {
   sheet.getCharts().forEach(function (c) { sheet.removeChart(c); });
 
   var t = model.tiles;
-  sheet.getRange(1, 1).setValue(model.title);
-  sheet.getRange(2, 1).setValue("마지막 갱신: " + Utilities.formatDate(new Date(nowMs), tz, "yyyy-MM-dd HH:mm"));
-  sheet.getRange(4, 1, 1, 4).setValues([["전체 토큰", "1인 평균", "쓰는 사람", "팀 수"]]).setFontWeight("bold");
+  sheet.getRange(1, 1).setValue(asText(model.title));
+  sheet.getRange(2, 1).setValue(asText("마지막 갱신: " + Utilities.formatDate(new Date(nowMs), tz, "yyyy-MM-dd HH:mm")));
+  sheet.getRange(4, 1, 1, 4).setValues(asTextRows([["전체 토큰", "1인 평균", "쓰는 사람", "팀 수"]])).setFontWeight("bold");
   sheet.getRange(5, 1, 1, 4).setValues([[t.total, t.perPerson, t.people, t.teamCount]]);
-  sheet.getRange(6, 1, 1, 4).setValues([[formatDeltaPct(t.deltaTotalPct), formatDeltaPct(t.deltaPerPersonPct),
-    formatDeltaPeople(t.deltaPeople), ""]]);
+  sheet.getRange(6, 1, 1, 4).setValues(asTextRows([[formatDeltaPct(t.deltaTotalPct), formatDeltaPct(t.deltaPerPersonPct),
+    formatDeltaPeople(t.deltaPeople), ""]]));
   sheet.getRange(5, 1, 1, 2).setNumberFormat(TOKEN_FORMAT);
 
   var teamRows = [["부서", "총 토큰", "1인 평균", "인원"]];
   model.teams.forEach(function (x) { teamRows.push([x.name, x.total, x.perPerson, x.people]); });
-  sheet.getRange(8, 1, n + 1, 4).setValues(teamRows);
+  sheet.getRange(8, 1, n + 1, 4).setValues(asTextRows(teamRows));
   sheet.getRange(8, 1, 1, 4).setFontWeight("bold");
   if (n > 0) sheet.getRange(9, 2, n, 2).setNumberFormat(TOKEN_FORMAT);
 
   function personTable(row, title, people) {
     var rows = [[title, "부서", "토큰"]];
     people.forEach(function (p) { rows.push([p.nickname, p.team, p.total]); });
-    sheet.getRange(row, 6, rows.length, 3).setValues(rows);
+    sheet.getRange(row, 6, rows.length, 3).setValues(asTextRows(rows));
     sheet.getRange(row, 6, 1, 3).setFontWeight("bold");
     if (people.length) sheet.getRange(row + 1, 8, people.length, 1).setNumberFormat(TOKEN_FORMAT);
   }
   personTable(8, "많이 쓰는 팀원", model.top);
   personTable(16, "적게 쓰는 팀원", model.bottom);
 
-  sheet.getRange(noteRow, 1).setValue("미지정: " + model.unassigned.people + "명 · " + tokensText(model.unassigned.total) +
-    " 토큰 — 부서 탭에 이름을 적으면 포함됩니다");
-  sheet.getRange(noteRow + 2, 1, 3, 1).setValues([
+  sheet.getRange(noteRow, 1).setValue(asText("미지정: " + model.unassigned.people + "명 · " + tokensText(model.unassigned.total) +
+    " 토큰 — 부서 탭에 이름을 적으면 포함됩니다"));
+  sheet.getRange(noteRow + 2, 1, 3, 1).setValues(asTextRows([
     ["앱이 없거나 팀 기능을 끈 사람은 아예 보이지 않습니다. 그래서 \"적게 쓰는 팀원\"에도 잡히지 않습니다."],
     ["인원과 평균은 \"앱이 보낸 사람\" 기준입니다."],
     ["숫자는 실제 청구액이 아니라 각자 기기의 로그에서 센 값입니다. 앱을 켜 둔 기기의 사용량만 잡힙니다."]
-  ]);
+  ]));
 
   if (n > 0) {
     [{ col: 2, row: 4 }, { col: 3, row: 20 }].forEach(function (spec) {
