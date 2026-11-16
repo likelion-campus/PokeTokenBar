@@ -11,6 +11,7 @@ extension WindowsSelftest {
         loginRealKeyCheck(r)
         loginFailureCheck(r)
         await updateChecks(r)
+        await updateInstallerChecks(r)  // stage 8 Task 6 (WindowsSelftestUpdate.swift)
     }
 
     /// The app has been running for the whole selftest and nothing but the tray toggle writes the Run value.
@@ -71,12 +72,19 @@ extension WindowsSelftest {
     private final class RecordingShell: PlatformShellService {
         var opened: [URL] = []
         var terminations = 0
+        var installAsked: [String] = []
         func open(_ url: URL) { opened.append(url) }
         func terminate() { terminations += 1 }
+        /// The real Windows shell's in-app install (stage 8 Task 6): with no checked installer for the version it declines.
+        func installUpdate(version: String) async -> Bool {
+            installAsked.append(version)
+            return await WindowsShell().installUpdate(version: version)
+        }
     }
 
     /// The Windows wiring of the shared checker with canned data: a Mac-only release is no update, a release with
-    /// the installer is, and applying it with no brew opens the release page through the shell. No network.
+    /// the installer is, and applying it with no brew asks the Windows shell to install it in-app, which declines (no checked
+    /// installer for that version), so the release page opens through the shell. No network.
     @MainActor private static func updateChecks(_ r: Recorder) async {
         let page = "https://github.com/likelion-campus/PokeTokenBar/releases/tag/v99.0.0"
         func release(_ assets: [String]) -> Data {
@@ -102,10 +110,10 @@ extension WindowsSelftest {
         _ = await waitUntil(timeout: 5) { !shell.opened.isEmpty }
         let wired = WindowsUpdates.checker != nil
         r.add("update.feed", mac.available == nil && win.available?.version == "99.0.0" && shell.opened.map(\.absoluteString) == [page]
-              && shell.terminations == 0 && !win.isUpdating && wired,
+              && shell.terminations == 0 && !win.isUpdating && wired && shell.installAsked == ["99.0.0"],
               "mac_only_release_offered=\(mac.available != nil) installer_release=\(win.available?.version ?? "none") "
-                + "opened=\(shell.opened.map(\.absoluteString)) terminations=\(shell.terminations) live_checker_wired=\(wired) "
-                + "installed_version=\(WindowsInstall.version ?? "unknown")")
+                + "install_asked=\(shell.installAsked) opened=\(shell.opened.map(\.absoluteString)) terminations=\(shell.terminations) "
+                + "live_checker_wired=\(wired) installed_version=\(WindowsInstall.version ?? "unknown")")
     }
 }
 #endif

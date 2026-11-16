@@ -108,15 +108,20 @@ enum WindowsSelftest {
         await plazaGraphicsChecks(r)  // stage 6 task 2
         await trayChecks(r, app)
         await modalPumpChecks(r, app)
+        if FlakeLoop.count > 0 { await flakeLoopModal(r, app) }
         await notifyChecks(r, app)
         WindowsSelftestLanguage.checks(r, app)
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
         await popoverKitChecks(r, app)  // stage 7 task 3 (WindowsSelftestPopover.swift): leaves no window behind
+        await popoverWindowChecks(r, app)  // stage 7 task 4 (WindowsSelftestPopoverWindow.swift): leaves no window behind
+        await settingsChecks(r, app)  // stage 7 task 6 (WindowsSelftestSettings.swift): the Settings page; leaves the team off and no window behind
         await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window
         await idleCheck(r, app)
         await plazaWindowChecks(r, app)  // stage 6 task 5 (WindowsSelftestPlaza.swift): after the idle window, before Direct3D is loaded by anything else
         await plazaRenderChecks(r)  // stage 6 task 4 (WindowsSelftestPlazaRender.swift): after the idle window, it loads Direct3D/WARP
         await plazaPhotoChecks(r)  // stage 6 task 12 (WindowsSelftestPlazaPhoto.swift)
+        await settingsTransportChecks(r, app)  // stage 7 task 6: the Settings page over the app's real team runtime (after the idle window)
+        await popoverWithPlazaChecks(r, app)  // stage 7 task 4: the popover over an open plaza (loads Direct3D, so last)
         return r.checks
     }
 
@@ -562,14 +567,23 @@ enum WindowsSelftest {
 
     @MainActor private static func singleInstanceCheck(_ r: Recorder, _ app: WindowsAppDelegate) async {
         let before = app.showRequests
+        // Stage 7 Task 4: a second start opens the popover, which takes the foreground; this check also runs on a person's
+        // PC, so here the foreground is refused (the popover is never shown: the balloon of before). `popover.secondLaunch`
+        // covers the real path, on the runner only.
+        let shows0 = app.popover?.stats.shows ?? 0
+        app.popover?.setForegroundForTesting = { _ in false }
+        defer { app.popover?.setForegroundForTesting = nil }
         do {
             let child = try Helper.start(["--selftest-second"], ready: false)
             let code = await child.waitExit(timeout: 20)
             if code == nil { child.kill() }
             child.close()
             let notified = await waitUntil(timeout: 3) { app.showRequests > before }
-            r.add("singleInstance.second", code == 3 && notified,
-                  "second start exit=\(describe(code)) (expected 3) running instance notified=\(notified) mutex=\(app.mutexName)")
+            let shown = (app.popover?.stats.shows ?? 0) - shows0
+            app.popover?.close(.destroyed)
+            r.add("singleInstance.second", code == 3 && notified && shown == 0,
+                  "second start exit=\(describe(code)) (expected 3) running instance notified=\(notified) mutex=\(app.mutexName); "
+                  + "popover shown +\(shown) (the foreground refused here: never on a person's PC)")
         } catch {
             r.add("singleInstance.second", false, "\(error)")
         }

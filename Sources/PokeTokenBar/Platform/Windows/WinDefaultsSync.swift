@@ -83,9 +83,11 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
     // MARK: settings plist safety (see SettingsPlistGuard)
 
     /// The selftest and its helper processes keep their settings in their own suite, so they never write the user's real
-    /// `PokeTokenBar.exe.plist` (a PC run included). Nil for the real app.
+    /// `PokeTokenBar.exe.plist` (a PC run included). Nil for the real app, and for the update flags (`WindowsSelftestUpdate`):
+    /// those run the app as a person's, on its own settings, so the update's marker reaches the app Setup starts.
     static var selftestSuiteName: String? {
-        guard ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--selftest") }) else { return nil }
+        guard ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--selftest") && !WindowsSelftestUpdate.flags.contains($0) })
+        else { return nil }
         let dir = (ProcessInfo.processInfo.environment["PTB_STATE_DIR"] ?? "").trimmingCharacters(in: .whitespaces)
         let team = dir.isEmpty ? nil
             : TeamSettings.suiteName(for: URL(fileURLWithPath: dir), defaultDirectory: URL(fileURLWithPath: "/ptb-no-default"))

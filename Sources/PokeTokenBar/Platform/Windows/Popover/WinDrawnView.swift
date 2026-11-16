@@ -24,6 +24,10 @@ import WinSDK
     var paintOverlay: ((HDC) -> Void)?
     /// The view as a control a `WinStack` row places.
     private(set) var control: WinControl!
+    /// The sprites in the part's slots (Task 8): fed the slots after every `show`, freed with the view.
+    var sprites: WinSpriteAnimator? {
+        didSet { if oldValue !== sprites { oldValue?.destroy(); sprites?.update(slots: drawing?.spriteSlots ?? [], in: self) } }
+    }
 
     private(set) var drawing: PopoverDrawing?
     private(set) var items: [WinControl] = []
@@ -40,7 +44,7 @@ import WinSDK
     private var renderPending = false
     private(set) var isDestroyed = false
 
-    struct Stats: Equatable { var paints = 0, composes = 0, itemBuilds = 0, itemMoves = 0, hits = 0, renders = 0 }
+    struct Stats: Equatable { var paints = 0, composes = 0, itemBuilds = 0, itemMoves = 0, hits = 0, renders = 0, paintPixels = 0 }
     private(set) var stats = Stats()
 
     init(parent: HWND, ctx: WinUIContext) throws {
@@ -52,6 +56,7 @@ import WinSDK
         router = WinControlRouter(window: window)
         control = WinControls.drawn(window.hwnd, size: .zero, ctx: ctx) { [weak self] r in self?.place(r) }
         control.onDestroy = { [weak self] in self?.destroy() }  // a page that destroys its controls frees the picture too
+        control.fitWidth = { [weak self] width in self?.fit(width: width) ?? false }
         window.on(0x0014 /* WM_ERASEBKGND */) { _, _ in 1 }
         window.on(0x000F /* WM_PAINT */) { [weak self] _, _ in self?.onPaint() }
         window.on(0x0201 /* WM_LBUTTONDOWN */) { [weak self] _, lParam in
@@ -72,12 +77,31 @@ import WinSDK
         window.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
     }
 
-    /// The picture's size in DIP (a part's `size(width:scale:text:)`).
+    /// The picture's size in DIP (a part's `size(width:scale:text:)`). A new size tells the page (`onSizeChange`), which
+    /// lays itself out again, so the rows under a part that grew or shrank move with it.
     func setSize(_ dip: CGSize) {
+        setSize(dip, notify: true)
+    }
+
+    private func setSize(_ dip: CGSize, notify: Bool) {
         let w = Int32((dip.width * ctx.scale).rounded()), h = Int32((dip.height * ctx.scale).rounded())
-        pixelSize = SIZE(cx: max(0, w), cy: max(0, h))
+        let next = SIZE(cx: max(0, w), cy: max(0, h))
+        let changed = next.cx != pixelSize.cx || next.cy != pixelSize.cy
+        pixelSize = next
         control.preferredSize = CGSize(width: CGFloat(pixelSize.cx), height: CGFloat(pixelSize.cy))
         _ = SetWindowPos(hwnd, nil, 0, 0, pixelSize.cx, pixelSize.cy, UINT(SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE))
+        if changed, notify { control.onSizeChange?() }
+    }
+
+    /// The page's layout asks a hosted part for its size at the row's width (pixels): measured and rendered again when the
+    /// width is new; true when the size changed (the layout then runs its pass again with it).
+    func fit(width px: Int32) -> Bool {
+        let width = CGFloat(px) / ctx.scale
+        guard hosted != nil, abs(width - hostedWidth) > 0.5 else { return false }
+        hostedWidth = width
+        let before = pixelSize
+        render(notify: false)
+        return before.cx != pixelSize.cx || before.cy != pixelSize.cy
     }
 
     /// Shows a drawing at the current size: composes the picture, makes or moves the accessibility children, sets the
@@ -88,6 +112,7 @@ import WinSDK
         compose(drawing.drawing.layers)
         updateItems(drawing.drawing.accessibility)
         updateTooltips(drawing.drawing.tooltips)
+        sprites?.update(slots: drawing.spriteSlots, in: self)
         _ = InvalidateRect(hwnd, nil, false)
     }
 
@@ -120,6 +145,8 @@ import WinSDK
     func destroy() {
         guard !isDestroyed else { return }
         isDestroyed = true
+        sprites?.destroy()
+        sprites = nil
         for item in items { item.destroy() }
         items = []
         ctx.tooltips.removeAll(in: hwnd)
@@ -128,6 +155,9 @@ import WinSDK
         router = nil
         hosted?.onChange = nil
         hosted = nil
+        onHit = nil
+        hitTest = nil
+        paintOverlay = nil
         control.destroy()
     }
 
@@ -191,7 +221,10 @@ import WinSDK
         stats.paints += 1
         var r = ps.rcPaint
         _ = FillRect(dc, &r, ctx.colors.brush(background))
-        blit(into: dc, from: POINT(x: 0, y: 0), size: pixelSize, at: POINT(x: 0, y: 0))
+        // Only the invalidated rectangle is blended (a sprite frame's tick repaints just its slot).
+        let right = min(r.right, pixelSize.cx), bottom = min(r.bottom, pixelSize.cy)
+        stats.paintPixels += Int(max(0, r.right - r.left)) * Int(max(0, r.bottom - r.top))
+        blit(into: dc, from: POINT(x: r.left, y: r.top), size: SIZE(cx: right - r.left, cy: bottom - r.top), at: POINT(x: r.left, y: r.top))
         paintOverlay?(dc)
         _ = EndPaint(hwnd, &ps)
         return 0
@@ -271,30 +304,27 @@ import WinSDK
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.renderPending = false
-            self.render()
+            self.render(notify: true)
         }
     }
 
-    private func render() {
+    private func render(notify: Bool = true) {
         guard let part = hosted, !isDestroyed else { return }
         stats.renders += 1
         let graphics = PlatformPlaza.graphics
-        setSize(part.size(width: hostedWidth, scale: ctx.scale, text: graphics.text))
+        setSize(part.size(width: hostedWidth, scale: ctx.scale, text: graphics.text), notify: notify)
         show(part.render(scale: ctx.scale, graphics: graphics))
     }
 
-    /// A stack row placed the view: at the row's origin; a hosted part is measured again for a new width.
+    /// A stack row placed the view at the row's origin (the layout already fitted it to the row's width; a view placed by
+    /// other code is fitted here).
     private func place(_ r: RECT) {
         if background != control.background {  // the row says what is behind it (a card or the window)
             background = control.background
             for item in items { item.background = background }
             _ = RedrawWindow(hwnd, nil, nil, UINT(0x0001 | 0x0080))  // RDW_INVALIDATE | RDW_ALLCHILDREN
         }
-        let width = CGFloat(r.right - r.left) / ctx.scale
-        if hosted != nil, abs(width - hostedWidth) > 0.5 {
-            hostedWidth = width
-            render()
-        }
+        if hosted != nil, fit(width: r.right - r.left) { control.onSizeChange?() }
         _ = SetWindowPos(hwnd, nil, r.left, r.top, pixelSize.cx, pixelSize.cy, UINT(SWP_NOZORDER | SWP_NOACTIVATE))
     }
 

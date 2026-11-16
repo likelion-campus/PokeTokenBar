@@ -203,6 +203,75 @@ final class AppWiringDriftScanTests: XCTestCase {
         XCTAssertTrue(windows.contains("tray.plazaUnread = { settings.isReady ? feed.unreadCount : nil }"))
     }
 
+    // MARK: - the tray menu's actions (stage 7 Task 4)
+
+    /// The `case` names inside the braces of `declaration` (`enum Action`), comments cut.
+    static func cases(of declaration: String, in text: String) -> Set<String>? {
+        guard let start = text.range(of: declaration), let open = text[start.upperBound...].range(of: "{") else { return nil }
+        var depth = 1
+        var i = open.upperBound
+        var body = ""
+        while i < text.endIndex {
+            let c = text[i]
+            if c == "{" { depth += 1 }
+            if c == "}" { depth -= 1; if depth == 0 { break } }
+            body.append(c)
+            i = text.index(after: i)
+        }
+        var out = Set<String>()
+        for line in body.split(whereSeparator: { $0 == "\n" || $0 == ";" }) {
+            var t = line.trimmingCharacters(in: .whitespaces)
+            if let c = t.range(of: "//") { t = String(t[..<c.lowerBound]) }
+            guard t.hasPrefix("case ") else { continue }
+            for name in t.dropFirst(5).split(separator: ",") {
+                let n = name.trimmingCharacters(in: .whitespaces)
+                if !n.isEmpty { out.insert(String(n.prefix { $0.isLetter || $0.isNumber || $0 == "_" })) }
+            }
+        }
+        return out
+    }
+
+    /// What the Mac status menu does that the tray does not yet (tier 3: the Pokédex, Task 20; the floating pet, Task 22),
+    /// and the tray's own Windows entries. Everything else must be in both: a new Mac menu action fails here until the
+    /// tray has it or this list says why not.
+    static let macMenuOnly: Set<String> = ["openDex", "toggleFloatingPet"]
+    static let trayOnly: Set<String> = ["none", "toggleLaunchAtLogin", "openLogFolder", "openRelease"]
+
+    func testTheTrayMenuActionsAreTheMacMenus() throws {
+        let menu = try Self.read("UI/StatusItemMenu.swift")
+        let tray = try Self.read("Platform/TrayMenuModel.swift")
+        let mac = try XCTUnwrap(Self.cases(of: "enum Action", in: menu), "StatusItemMenu has no enum Action")
+        let win = try XCTUnwrap(Self.cases(of: "enum Action", in: tray), "TrayMenuModel has no enum Action")
+        XCTAssertTrue(mac.isSuperset(of: Self.macMenuOnly), "an allow-listed Mac action is gone: \(Self.macMenuOnly.subtracting(mac))")
+        XCTAssertEqual(win.subtracting(Self.trayOnly), mac.subtracting(Self.macMenuOnly),
+                       "the tray's actions differ from StatusItemMenu.Action: Mac only \(mac.subtracting(win).subtracting(Self.macMenuOnly)), "
+                       + "tray only \(win.subtracting(mac).subtracting(Self.trayOnly))")
+        // The two entries Task 4 added, with the Mac's titles and check mark.
+        XCTAssertTrue(menu.contains(#"Entry(title: l.settings + "…", keyEquivalent: ",", action: .openSettings)"#), "StatusItemMenu's Settings… changed")
+        XCTAssertTrue(tray.contains(#"Item(title: l.settings + "…", enabled: true, checked: false, action: .openSettings)"#), "TrayMenuModel's Settings… drifted")
+        XCTAssertTrue(menu.contains("Entry(title: l.backViewLabel, keyEquivalent: \"\", action: .toggleBackView, isChecked: alwaysFacesBack)"),
+                      "StatusItemMenu's Back view changed")
+        XCTAssertTrue(tray.contains("Item(title: l.backViewLabel, enabled: true, checked: alwaysFacesBack, action: .toggleBackView)"),
+                      "TrayMenuModel's Back view drifted")
+        // What they do: the Mac's handleStatusMenu and the tray host's perform.
+        let mac2 = try Self.read("PokeTokenBarApp.swift")
+        let host = try Self.read("Platform/Windows/WinTrayHost.swift")
+        XCTAssertTrue(mac2.contains("case .toggleBackView: store.alwaysFacesBack.toggle()"))
+        XCTAssertTrue(host.contains("case .toggleBackView:\n            store.alwaysFacesBack.toggle()"), "the tray's Back view does what the Mac's does")
+        XCTAssertTrue(mac2.contains("case .openSettings: showPopover { $0.showSettings = true }"))
+        XCTAssertTrue(try Self.read("Platform/Windows/WindowsApp.swift").contains("present(.trayMenu) { $0.showSettings = true }"),
+                      "the tray's Settings… opens the popover on Settings, as the Mac's")
+    }
+
+    func testTheActionScanSeesANewCase() {
+        let text = "enum Action: Equatable {\n    case refresh, openDex // the Pokédex\n    case quit\n}\nstruct Entry { case nope }"
+        XCTAssertEqual(Self.cases(of: "enum Action", in: text), ["refresh", "openDex", "quit"])
+        XCTAssertEqual(Self.cases(of: "enum Action", in: "enum Action { case a(Int), b }"), ["a", "b"])
+        XCTAssertNotEqual(Self.cases(of: "enum Action", in: text.replacingOccurrences(of: "case quit", with: "case quit, openRecap")),
+                          Self.cases(of: "enum Action", in: text))
+        XCTAssertNil(Self.cases(of: "enum Action", in: "enum Other {}"))
+    }
+
     func testTheLabelScanSeesANewArgument() {
         XCTAssertEqual(Self.labels(of: "TeamRuntime(", in: "TeamRuntime(settings: s, companion: c, transport: T())"),
                        ["settings", "companion", "transport"])

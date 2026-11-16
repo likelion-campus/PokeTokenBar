@@ -47,6 +47,8 @@ public enum WindowsApp {
         if arguments.contains("--set-team-code") || arguments.contains("--clear-team-code") { WindowsTeamCodeTool.run(arguments) }
         if arguments.contains("--import-save") { WindowsImportSaveTool.run(arguments) }
         if let i = arguments.firstIndex(of: "--selftest-plaza-placement") { WindowsSelftest.runPlazaPlacement(Array(arguments[(i + 1)...])) }
+        if let i = arguments.firstIndex(of: "--selftest-popover-helper") { WindowsSelftestPopoverWindow.runHelper(Array(arguments[(i + 1)...])) }  // stage 7 Task 4
+        WindowsSelftestUpdate.prepare(arguments)  // stage 8 Task 6: the CI-only update flags (the loopback feed, before the checker exists)
 
         let app = WindowsAppDelegate(arguments: arguments)
         guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
@@ -63,6 +65,11 @@ public enum WindowsApp {
             WindowsSelftest.startPlazaIdle(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "visible")
         }
         if arguments.contains("--popover-kit-idle-probe") { WindowsSelftest.startPopoverKitIdle() }  // stage 7 Task 3: the gate's open-kit window
+        if arguments.contains("--popover-sprite-idle-probe") { WindowsSelftestPopover.startSpriteIdle() }  // stage 7 Task 8: an animating sprite open
+        if let i = arguments.firstIndex(of: "--popover-idle-probe") {  // stage 7 Task 4: the gate's popover windows (open / closed after open)
+            WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
+        }
+        WindowsSelftestUpdate.start(arguments)  // stage 8 Task 6: "Update" as the tray item does it, under the CI-only flags
         WinMainLoop.run(app.loopStrategy) { false }
         WindowsApp.exit(0, .menu)  // not reached: the loop only ends through an exit
     }
@@ -73,13 +80,18 @@ extension WindowsApp {
     @MainActor static var trayToRemove: WinTray?
     /// Set at launch; `exit` closes the team links (close_notify, DNS-SD goodbye) and joins the socket thread, once.
     @MainActor static var teamTransportToShutdown: WindowsTeamTransport?
+    /// Stage 7 Task 4: set at launch; `exit` closes an open popover first, so its page commits a changed field (D5) before the
+    /// settings are saved.
+    @MainActor static var popoverToClose: WinPopover?
 
-    enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed }
+    enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed, update }
 
     /// The only way Windows code leaves the process (scan-enforced): settings are lost unless synchronized (F2), and
     /// the log line is lost unless flushed.
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
         WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
+        if let line = WindowsSelftestPopoverWindow.idleProbeExitLine() { AppLog.write(line) }  // stage 7 Task 4: the idle gate's popover state at exit
+        popoverToClose?.close(.quit)  // stage 7 Task 4
         WinDefaultsSync.flushNow()
         WindowsCrashLog.markClean()
         if let line = WinPlazaLive.openPlazaLine { AppLog.write(line) }  // an open plaza's counters (idle measurements read them)
@@ -120,6 +132,8 @@ private func crtExit(_ code: Int32) -> Never {
     private(set) var defaults: WinSyncingDefaults!
     private(set) var sink: WinSinkWindow!
     private(set) var tray: WinTrayHost?
+    /// Stage 7 Task 4: the tray popover, built at launch; its window exists only while the user has it open.
+    private(set) var popover: WinPopover?
     private(set) var loopStrategy: WinMainLoop.Strategy = .cfRunLoopWithMessages
     private(set) var mutexName = ""
     private(set) var yielded = false
@@ -137,7 +151,7 @@ private func crtExit(_ code: Int32) -> Never {
         _ = RunLoop.main  // 1 (F4; before any window)
         mutexName = WinSingleInstance.mutexName(stateDirectory: AppStatePaths.directory(),
                                                 defaultDirectory: Self.defaultStateDirectory)
-        if WinSingleInstance.acquire(name: mutexName) == .yielded {  // 2 (before anything that writes)
+        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart")) == .yielded {  // 2 (before anything that writes)
             yielded = true
             AppLog.writeAndFlush("duplicate instance: yielding to the instance already running (\(mutexName))")
             return false
@@ -159,7 +173,7 @@ private func crtExit(_ code: Int32) -> Never {
         WinModalPump.install(on: sink)
         sink.on(WinSingleInstance.showMessage) { [weak self] _, _ in
             self?.showRequests += 1
-            self?.tray?.showAlreadyRunning()
+            self?.secondLaunch()  // stage 7 Task 4: the popover (ruling 3); was the "already running" balloon
             return 0
         }
         if !WinMessageHook.install() { AppLog.write("text input stays ANSI: no WH_GETMESSAGE hook") }  // 7
@@ -203,7 +217,19 @@ private func crtExit(_ code: Int32) -> Never {
         applyState()
         // 14: the update check (Mac: `updater.check()` at launch; the tray menu re-checks when it opens). The selftest
         // never asks the network. Launch at login is not touched here: only the tray toggle writes it (off by default).
-        WindowsUpdates.start(defaults: defaults, checkNow: !arguments.contains("--selftest"))
+        WindowsUpdates.start(defaults: defaults, checkNow: !arguments.contains("--selftest"),
+                             notify: { balloons.post(.init(id: "update", title: "PokeTokenBar", body: $0, sound: false, kind: .app)) },
+                             language: { [companion] in companion.l })
+        makePopover(updater: WindowsUpdates.checker)  // stage 7 Task 4
+        // Stage 8 Task 6: what the last in-app update did (one balloon when Setup put the previous app back), once the tray
+        // can show it; the selftest's own settings never hold the marker.
+        if !WinDefaultsSync.selftestOwnsSettings {
+            let report: @MainActor () -> WindowsUpdateInstaller.LaunchReport = { [defaults, companion, balloons] in
+                WindowsUpdateInstaller.reportAtLaunch(defaults: defaults, currentVersion: WindowsInstall.version, l: companion.l,
+                                                      balloon: { balloons.post(.init(id: "update", title: "PokeTokenBar", body: $0, sound: false, kind: .app)) }).report
+            }
+            if case .setupRunning = report() { WindowsUpdateInstaller.afterSetup { _ = report() } }  // Setup started this app: after it ends
+        }
         AppLog.write("windows app launched pid=\(GetCurrentProcessId()) loop=\(loopStrategy.rawValue) "
             + "mutex=\(mutexName)\(arguments.contains("--autostart") ? " autostart" : "")")
         // The Mac's plaza-dev.sh flag: opens the plaza at launch (a user's own command line, so it may come forward).
@@ -215,6 +241,7 @@ private func crtExit(_ code: Int32) -> Never {
     /// open window forward. The tray's "광장 열기", a team balloon's click and `--open-plaza` come here, nothing else.
     func openPlaza() {
         guard teamSettings.isReady else { return }
+        popover?.close(.plaza)  // stage 7 D3: the plaza opening closes the popover
         plaza.show()
     }
 
@@ -382,4 +409,38 @@ private func crtExit(_ code: Int32) -> Never {
         lastCompanionSawUsage = store.hasUsageData
     }
 }
+// --- stage 7 Task 4: the popover (begin) ---
+extension WindowsAppDelegate {
+    /// The tray popover (stage 7 D2–D4): a left click or key select on the icon toggles it, the menu's "Settings…" opens it
+    /// on Settings (the Mac's `showPopover { $0.showSettings = true }`), the menu closes it first, a second launch opens it.
+    fileprivate func makePopover(updater: UpdateChecker?) {
+        guard let tray else { return }
+        let host = WinPopoverHost(store: store, companion: companion, updater: updater, team: teamSettings,
+                                  session: teamRuntime.session, feed: teamRuntime.feed, tray: tray, loginItem: tray.loginItem,
+                                  openPlaza: { [weak self] in self?.openPlaza() })
+        host.owner = sink.hwnd
+        let made = WinPopover(host: host)
+        // --- stage 7 Task 6: Settings (begin) ---
+        made.makePage = WinSettingsPage.routed
+        // --- stage 7 Task 6: Settings (end) ---
+        popover = made
+        WindowsApp.popoverToClose = made
+        tray.onSelect = { [weak made] select in
+            switch select {
+            case .click(let point): made?.toggle(.trayClick(point))
+            case .key: made?.toggle(.trayKey)
+            }
+        }
+        tray.onOpenSettings = { [weak made] in made?.present(.trayMenu) { $0.showSettings = true } }
+        tray.onMenuWillOpen = { [weak made] in made?.close(.iconClick) }
+    }
+
+    /// A second start (`WinSingleInstance.showMessage`): the popover, also when the plaza is in front (it opens over it, and
+    /// the plaza is there again when it closes); already open: brought forward. No popover (launch failed half-way): the
+    /// balloon of before.
+    fileprivate func secondLaunch() {
+        if let popover { popover.present(.secondLaunch) { _ in } } else { tray?.showAlreadyRunning() }
+    }
+}
+// --- stage 7 Task 4: the popover (end) ---
 #endif

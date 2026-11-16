@@ -31,6 +31,8 @@ import WinSDK
             return 0
         }
         window.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
+        // A multi-line edit in dialog mode posts WM_CLOSE to its parent on Esc; DefWindowProc would destroy the page.
+        window.on(0x0010 /* WM_CLOSE */) { _, _ in 0 }
     }
 
     private func onPaint() -> LRESULT {
@@ -74,6 +76,9 @@ import WinSDK
     /// The page's height changed (a scroll area sets its content height).
     var onHeight: ((Int32) -> Void)?
     private var layoutPending = false
+    private var inLayout = false
+    private var sizeRelayouts: [Date] = []
+    private var loggedSizeLoop = false
     private var borderPen: HPEN?
     private(set) var layouts = 0
     private(set) var isDestroyed = false
@@ -97,7 +102,7 @@ import WinSDK
 
     /// Every control of the page in creation (= Tab) order.
     var controls: [WinControl] {
-        sections.flatMap { s in [s.caption].compactMap { $0 } + s.rows.flatMap { [$0.label, $0.control, $0.hint].compactMap { $0 } } }
+        sections.flatMap { s in [s.caption].compactMap { $0 } + s.rows.flatMap { [$0.nameLabel, $0.label, $0.control, $0.hint].compactMap { $0 } } }
     }
 
     func setNeedsLayout() {
@@ -111,19 +116,34 @@ import WinSDK
         layout()
     }
 
-    /// Lays the page out now and moves every control to its frame.
+    /// Lays the page out now and moves every control to its frame. Controls whose height follows their width (drawn parts)
+    /// are measured at their row's width first, and the pass runs again when one changed, so nothing is placed with a stale
+    /// height. Afterwards the windows' z-order (= Tab order, and the static before a field is its accessible name) is the
+    /// layout's reading order, whatever order the rows were added in.
     func layout() {
-        guard !isDestroyed else { return }
+        guard !isDestroyed, !inLayout else { return }
+        inLayout = true
+        defer { inLayout = false }
         layoutPending = false
         layouts += 1
-        let input = sections.map { s in
-            PopoverStackSection(caption: s.caption.map { $0.size(width: width) }, isVisible: s.isVisible, card: s.card, rows: s.rows.map { row in
-                PopoverStackRow(style: row.style, isVisible: row.isVisible, control: row.control?.preferredSize) { [weak row] w in
-                    (row?.label?.size(width: Int32(w)), row?.hint?.size(width: Int32(w)))
-                }
-            })
+        func input() -> [PopoverStackSection] {
+            sections.map { s in
+                PopoverStackSection(caption: s.caption.map { $0.size(width: width) }, isVisible: s.isVisible, card: s.card, rows: s.rows.map { row in
+                    PopoverStackRow(style: row.style, isVisible: row.isVisible, control: row.control?.preferredSize) { [weak row] w in
+                        (row?.label?.size(width: Int32(w)), row?.hint?.size(width: Int32(w)))
+                    }
+                })
+            }
         }
-        let f = PopoverStackLayout.layout(input, width: CGFloat(width), metrics: ctx.metrics)
+        var f = PopoverStackLayout.layout(input(), width: CGFloat(width), metrics: ctx.metrics)
+        var refitted = false
+        for (section, sf) in zip(sections, f.sections) {
+            guard let sf else { continue }
+            for (row, rf) in zip(section.rows, sf.rows) {
+                if let fit = row.control?.fitWidth, let cf = rf?.control, fit(Int32(cf.width)) { refitted = true }
+            }
+        }
+        if refitted { f = PopoverStackLayout.layout(input(), width: CGFloat(width), metrics: ctx.metrics) }
         let palette = ctx.colors.palette
         for (section, sf) in zip(sections, f.sections) {
             guard let sf else {
@@ -138,10 +158,41 @@ import WinSDK
             }
             for (row, rf) in zip(section.rows, sf.rows) { row.show(rf, background: section.card ? palette.card : palette.window) }
         }
+        orderWindows()
         let oldHeight = frames?.height
         frames = f
         if oldHeight != f.height { onHeight?(Int32(f.height)) }
         pane.invalidate()
+    }
+
+    /// The pane's children in the page's reading order: caption, then per row its accessible name, label, control (all its
+    /// windows) and hint. Siblings do not overlap, so the move repaints nothing.
+    private func orderWindows() {
+        var previous: HWND?
+        for section in sections {
+            let rows = section.rows.flatMap { [$0.nameLabel, $0.label, $0.control, $0.hint].compactMap { $0 } }
+            for control in [section.caption].compactMap({ $0 }) + rows {
+                for part in control.parts {
+                    let flags = UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOOWNERZORDER)
+                    _ = SetWindowPos(part, previous /* nil: HWND_TOP */, 0, 0, 0, 0, flags /* SWP_NOACTIVATE */)
+                    previous = part
+                }
+            }
+        }
+    }
+
+    /// A control's own size changed (a drawn part's state): one more layout on the next main-queue turn. More than eight of
+    /// those within a second is a part whose size feeds back into its layout: logged once and dropped, not looped on.
+    fileprivate func sizeChanged() {
+        guard !inLayout, !isDestroyed else { return }
+        let now = Date()
+        sizeRelayouts = sizeRelayouts.filter { now.timeIntervalSince($0) < 1 } + [now]
+        guard sizeRelayouts.count <= 8 else {
+            if !loggedSizeLoop { AppLog.write("popover kit: a control keeps changing its size; the page stops following it for now") }
+            loggedSizeLoop = true
+            return
+        }
+        setNeedsLayout()
     }
 
     /// The window colour, then each card (rounded, its border) and the dividers, under the controls (`WS_CLIPCHILDREN`).
@@ -196,17 +247,22 @@ import WinSDK
         self.card = card
     }
 
-    /// A row with a label (and a hint in the tertiary colour under it), made first, then the control `make` builds in the
-    /// stack's pane: creation order is Tab order, and the label right before an edit or a combo box is its accessible name.
+    /// A row with a label (and a hint in the tertiary colour under it) and the control `make` builds in the stack's pane.
+    /// The page keeps its windows in reading order (Tab order), and the static right before an edit, a combo box or a slider
+    /// is its accessible name: a row without a label passes `accessibleName` (a zero-size static) for those, and the
+    /// selftest's tree check fails a field without one.
     @discardableResult
-    func addRow(_ label: String?, hint: String? = nil, style: PopoverStackRow.Style = .trailing,
+    func addRow(_ label: String?, hint: String? = nil, style: PopoverStackRow.Style = .trailing, accessibleName: String? = nil,
                 make: (HWND, WinUIContext) -> WinControl?) -> WinRow {
         guard let stack else { return WinRow(style: style, label: nil, hint: nil, control: nil) }
         let pane = stack.pane.hwnd, ctx = stack.ctx
         let labelControl = label.flatMap { WinControls.label($0, in: pane, ctx: ctx) }
+        let nameControl = label == nil ? accessibleName.flatMap { WinControls.label($0, wraps: false, in: pane, ctx: ctx) } : nil
         let control = make(pane, ctx)
         let hintControl = hint.flatMap { WinControls.label($0, style: .caption2, role: .tertiary, in: pane, ctx: ctx) }
-        return append(WinRow(style: style, label: labelControl, hint: hintControl, control: control))
+        let row = WinRow(style: style, label: labelControl, hint: hintControl, control: control)
+        row.nameLabel = nameControl
+        return append(row)
     }
 
     /// A toggle row (`toggleRow`): a check box that is its own label, across the row with the box on the right, the hint under it.
@@ -218,6 +274,7 @@ import WinSDK
     private func append(_ row: WinRow) -> WinRow {
         row.section = self
         rows.append(row)
+        row.control?.onSizeChange = { [weak stack] in stack?.sizeChanged() }
         stack?.setNeedsLayout()
         return row
     }
@@ -232,6 +289,8 @@ import WinSDK
     let label: WinControl?
     let hint: WinControl?
     let control: WinControl?
+    /// The accessible name of a control without a label (a zero-size static just before it).
+    fileprivate(set) var nameLabel: WinControl?
     var isVisible = true { didSet { if oldValue != isVisible { section?.rowVisibilityChanged() } } }
 
     fileprivate init(style: PopoverStackRow.Style, label: WinControl?, hint: WinControl?, control: WinControl?) {
@@ -242,7 +301,8 @@ import WinSDK
     }
 
     fileprivate func show(_ frames: PopoverStackFrames.Row?, background: COLORREF) {
-        let parts: [(WinControl?, CGRect?)] = [(label, frames?.label), (hint, frames?.hint), (control, frames?.control)]
+        let nameFrame = frames?.control.map { CGRect(x: $0.minX, y: $0.minY, width: 0, height: 0) }
+        let parts: [(WinControl?, CGRect?)] = [(nameLabel, nameFrame), (label, frames?.label), (hint, frames?.hint), (control, frames?.control)]
         for (c, r) in parts {
             guard let c else { continue }
             c.background = background

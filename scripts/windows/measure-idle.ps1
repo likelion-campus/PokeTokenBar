@@ -9,6 +9,9 @@
 #   per-slice context switches of the busiest threads, to see WHEN a waker starts.
 # Usage: measure-idle.ps1 -ProcessId <pid> -Seconds 120 [-Also explorer] [-Baseline] [-Out idle.json] [-Label name]
 #        [-MaxMainCsPerMin n] [-MaxProcessCsPerMin n] [-MaxPrivateGrowthMB n] [-MaxHandleGrowth n] [-MaxProcessCyclesPerSec n]
+# -OwnExcludeStart <module+offset> with -MaxOwnCsPerMin / -MaxOwnCyclesPerSec: the same totals over the threads that do NOT start there
+#   ("our" threads: on a GPU-less runner the Direct2D device is WARP, whose rasterizer workers all start at ntdll.dll+0x845d0 and
+#   dominate the process totals; they are reported as information, the app's own threads are budgeted).
 # A -Max* value >= 0 is asserted (PASS/FAIL line each, exit 1 on any FAIL); the default -1 only reports.
 param(
     [Parameter(Mandatory)][int]$ProcessId,
@@ -22,7 +25,10 @@ param(
     [double]$MaxProcessCsPerMin = -1,
     [double]$MaxPrivateGrowthMB = -1,
     [double]$MaxHandleGrowth = -1,
-    [double]$MaxProcessCyclesPerSec = -1
+    [double]$MaxProcessCyclesPerSec = -1,
+    [string]$OwnExcludeStart = "",
+    [double]$MaxOwnCsPerMin = -1,
+    [double]$MaxOwnCyclesPerSec = -1
 )
 $ErrorActionPreference = "Stop"
 if (-not ([System.Management.Automation.PSTypeName]'PtbIdle').Type) {
@@ -179,6 +185,12 @@ $minutes = $Seconds / 60.0
 $mainRow = $rows | Where-Object { $_.main } | Select-Object -First 1
 $totalCs = ($rows | Measure-Object contextSwitches -Sum).Sum
 $procCycles = [uint64]($b.Cycles - $a.Cycles)
+$ownRows = @($rows | Where-Object { -not $OwnExcludeStart -or $_.start -ne $OwnExcludeStart })
+$poolRows = @($rows | Where-Object { $OwnExcludeStart -and $_.start -eq $OwnExcludeStart })
+$ownCs = [int](($ownRows | Measure-Object contextSwitches -Sum).Sum)
+$ownCycles = [uint64](($ownRows | Measure-Object cycles -Sum).Sum)
+$poolCs = [int](($poolRows | Measure-Object contextSwitches -Sum).Sum)
+$poolCycles = [uint64](($poolRows | Measure-Object cycles -Sum).Sum)
 $result = [ordered]@{
     label = $(if ($Label) { $Label } else { $b.Name })
     baseline = [bool]$Baseline
@@ -190,6 +202,10 @@ $result = [ordered]@{
     processCyclesPerSec = [math]::Round($procCycles / $Seconds)
     processCpuSeconds = [math]::Round($b.CpuSeconds - $a.CpuSeconds, 3)
     contextSwitches = $totalCs
+    ownContextSwitchesPerMin = [math]::Round($ownCs / $minutes, 2)
+    ownCyclesPerSec = [math]::Round($ownCycles / $Seconds)
+    excludedPoolContextSwitchesPerMin = [math]::Round($poolCs / $minutes, 2)
+    excludedPoolCyclesPerSec = [math]::Round($poolCycles / $Seconds)
     contextSwitchesPerMin = [math]::Round($totalCs / $minutes, 2)
     mainThreadId = $main
     mainThreadContextSwitches = $(if ($mainRow) { $mainRow.contextSwitches } else { -1 })
@@ -215,6 +231,10 @@ Write-Host ("IDLE {0}: private {1} -> {2} MB, handles {3} -> {4}, threads {5} ->
 foreach ($t in ($rows | Where-Object { $_.contextSwitches -gt 0 -or $_.cycles -gt 0 } | Sort-Object cycles -Descending | Select-Object -First 12)) {
     Write-Host ("  thread {0}{1} cs={2} cycles={3:N0} start={4} name='{5}'{6}" -f $t.tid, $(if ($t.main) { " (main)" } else { "" }), $t.contextSwitches, $t.cycles, $t.start, $t.name, $(if ($t.newInWindow) { " NEW" } else { "" }))
 }
+if ($OwnExcludeStart) {
+    Write-Host ("IDLE {0}: own threads (all but start={1}) {2}/min cs, {3:N0} cycles/s; excluded pool threads ({4}) {5}/min cs, {6:N0} cycles/s (information)" -f `
+        $result.label, $OwnExcludeStart, $result.ownContextSwitchesPerMin, $result.ownCyclesPerSec, $poolRows.Count, $result.excludedPoolContextSwitchesPerMin, $result.excludedPoolCyclesPerSec)
+}
 foreach ($o in $result.also) { Write-Host ("IDLE {0}: {1} process(es), cycles {2:N0}, context switches {3}" -f $o.name, $o.processes, $o.cycles, $o.contextSwitches) }
 
 $failed = $false
@@ -227,6 +247,8 @@ function Check([string]$name, [double]$value, [double]$max) {
 Check "mainThreadCsPerMin" ($result.mainThreadContextSwitches / $minutes) $MaxMainCsPerMin
 Check "processCsPerMin" $result.contextSwitchesPerMin $MaxProcessCsPerMin
 Check "processCyclesPerSec" $result.processCyclesPerSec $MaxProcessCyclesPerSec
+Check "ownCsPerMin" $result.ownContextSwitchesPerMin $MaxOwnCsPerMin
+Check "ownCyclesPerSec" $result.ownCyclesPerSec $MaxOwnCyclesPerSec
 Check "privateGrowthMB" ($result.privateMBEnd - $result.privateMBStart) $MaxPrivateGrowthMB
 Check "handleGrowth" ($b.Handles - $a.Handles) $MaxHandleGrowth
 if ($failed) { exit 1 }

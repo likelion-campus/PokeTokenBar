@@ -53,7 +53,12 @@ import WinSDK
     fileprivate static func removed(_ messageBits: Int) {
         guard let m = UnsafeMutablePointer<MSG>(bitPattern: messageBits) else { return }
         let message = m.pointee.message
-        if !dialogs.isEmpty, let target = m.pointee.hwnd {
+        // Mouse messages (client 0x0200–0x020E, non-client 0x00A0–0x00AD) never take the dialog path: IsDialogMessageW only
+        // dispatches them, and a tracking loop that DefWindowProc runs on a non-client click (a scroll bar's arrow or thumb,
+        // even without WinModalPump.begin) must read its own button-up. Handing it WM_NULL left the loop holding the capture
+        // (post-merge review of the kit; defect log, the modal-loop entry).
+        let isMouse = (0x0200...0x020E).contains(message) || (0x00A0...0x00AD).contains(message)
+        if !dialogs.isEmpty, !isMouse, let target = m.pointee.hwnd {
             for bits in dialogs {
                 guard let dialog = HWND(bitPattern: bits), dialog == target || IsChild(dialog, target) else { continue }
                 // The hook runs inside every message removal of the thread, also the ones a modal loop makes for itself

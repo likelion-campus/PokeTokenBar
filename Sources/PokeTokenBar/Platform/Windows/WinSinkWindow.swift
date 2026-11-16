@@ -40,10 +40,11 @@ struct WinError: Error, CustomStringConvertible {
 
     /// Any other window of ours (the selftest's input window, `--ime-check`). Same routing as the sink. `parent` is the
     /// owner of a popup or the parent of a `WS_CHILD` window (stage 7: the popover's panes), `id` a child's control id.
+    /// `classStyle` applies when the class is registered, by its first window (stage 7 Task 4: the popover's `CS_DROPSHADOW`).
     init(className: String, title: String, style: DWORD, exStyle: DWORD,
-         x: Int32, y: Int32, width: Int32, height: Int32, parent: HWND? = nil, id: Int = 0) throws {
+         x: Int32, y: Int32, width: Int32, height: Int32, parent: HWND? = nil, id: Int = 0, classStyle: UINT = 0) throws {
         let instance = GetModuleHandleW(nil)
-        try Self.register(className, instance)
+        try Self.register(className, instance, style: classStyle)
         guard let h = CreateWindowExW(exStyle, WinStr.w(className), WinStr.w(title), style, x, y, width, height,
                                       parent, HMENU(bitPattern: id), instance, nil) else {
             throw WinError(call: "CreateWindowExW(\(className))", code: GetLastError())
@@ -76,6 +77,9 @@ struct WinError: Error, CustomStringConvertible {
         return on(id) { _, _ in handler(); return 0 }
     }
 
+    /// Windows of ours alive now (stage 7 Task 4: the popover's open/close cycles leave none behind).
+    static var liveCount: Int { windows.count }
+
     /// Whether `hwnd` is one of our windows or a child of one (the message hook re-dispatches characters for those only).
     static func owns(_ hwnd: HWND) -> Bool {
         windows[Int(bitPattern: hwnd)] != nil || GetAncestor(hwnd, UINT(GA_ROOT)).map { windows[Int(bitPattern: $0)] != nil } == true
@@ -86,11 +90,12 @@ struct WinError: Error, CustomStringConvertible {
         _ = DestroyWindow(hwnd)
     }
 
-    private static func register(_ name: String, _ instance: HINSTANCE?) throws {
+    private static func register(_ name: String, _ instance: HINSTANCE?, style: UINT) throws {
         guard !registeredClasses.contains(name) else { return }
         let atom = WinStr.w(name).withUnsafeBufferPointer { p -> ATOM in
             var wc = WNDCLASSEXW()
             wc.cbSize = UINT(MemoryLayout<WNDCLASSEXW>.size)
+            wc.style = style
             wc.lpfnWndProc = { hwnd, message, wParam, lParam in winRoute(hwnd, message, wParam, lParam) }
             wc.hInstance = instance
             wc.lpszClassName = p.baseAddress
@@ -105,7 +110,15 @@ struct WinError: Error, CustomStringConvertible {
 
     fileprivate static func route(_ bits: Int, _ message: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT? {
         // A child destroyed with its parent never passes through `destroy()`: its entry goes with its last message.
-        defer { if message == 0x0082 /* WM_NCDESTROY */ { windows[bits] = nil } }
+        // The popover kit's registries go too (a dialog registration, a scroll area), so a window closed by Alt+F4 or a
+        // default WM_CLOSE leaves no stale entry behind.
+        defer {
+            if message == 0x0082 /* WM_NCDESTROY */ {
+                windows[bits] = nil
+                if let h = HWND(bitPattern: bits) { WinMessageHook.unregisterDialogWindow(h) }
+                WinScrollArea.forget(bits)
+            }
+        }
         guard let list = windows[bits]?.handlers[message] else { return nil }
         var result: LRESULT?
         for entry in list {  // a copy: a handler may add or remove registrations

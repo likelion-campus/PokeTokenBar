@@ -1802,6 +1802,35 @@ read_when:
   점검)에만 쓰여 그 창 자신의 상태다. **규칙:** 자식 창의 표시 여부는 `WS_VISIBLE` 로 판단하고, 키트 페이지는 숨긴 줄·넓은 컨트롤·큰
   글자로도 캡처해 본다. **회귀 점검:** `ui.kit.capture`/`ui.kit.tree` (갤러리의 숨긴 줄, 눌린 라벨) — 옛 `setVisible` 과 쌓기 없는
   배치를 되살린 실행에서 "a hidden row shows", "labels squeezed: 'Nickname' 37 px < its widest word 87 px" 로 실패함을 확인했다.
+  **사후 리뷰 (같은 키트, 머지 뒤):** ① 60 % 규칙은 컨트롤 폭만 봤다 — 컨트롤이 60 % 아래여도 독일어·러시아어의 긴 낱말("Aktualisierungsintervall",
+  "Предупреждение")은 125–150 % 글자에서 옆자리보다 넓다. 갤러리 라벨이 영어·한국어뿐이라 그 입력을 밟지 않았다. 고침: 라벨의 가장 넓은 낱말이 옆자리보다
+  넓으면 쌓는다, 단위 스윕은 실제 `L` 설정 라벨 24 개 × 8 개 언어 × 글자 1/1.25/1.5 × 컨트롤 폭 5 가지를 GDI 로 잰다(규칙을 뺀 실행: 독일어·러시아어 14 줄
+  잘림). 스윕 첫 판은 일본어 38 줄을 잘렸다고 했다 — 띄어쓰기 없는 일본어 구 전체를 한 낱말로 쳤는데 GDI 는 가나·한자 사이에서 줄을 바꾼다. 트리 점검의
+  "눌린 라벨" 규칙도 같은 낱말 나누기를 써서 같이 고쳤다(`KitTree.unbreakableRuns`). ② 여러 줄 입력칸은 `DLGC_WANTALLKEYS` 라 대화상자 모드에서 Tab 을
+  자기가 먹고(키보드 함정) Esc 에 부모로 `WM_CLOSE` 를 보내 페이지 창이 파괴됐다 — 갤러리에 여러 줄 입력칸이 있었지만 Tab/Esc 점검은 한 줄 입력칸으로만
+  돌았다. ③ 그린 부품의 크기가 바뀌어도 페이지가 다시 배치되지 않아 다음 줄과 겹쳤다 — 갤러리 부품은 크기가 고정이라 그 가지가 없었다. **규칙:** 키트의
+  모든 줄 종류(한 줄/여러 줄 입력칸, 크기가 변하는 부품)를 점검이 한 번씩 밟고, 라벨 규칙은 실제 번역 문자열로, 낱말 나누기는 언어의 줄바꿈 단위로 잰다.
+  **회귀 점검:** `testNoSettingsLabelIsCutInAnyLanguageOrTextSize`, `testALabelWithAWordWiderThanItsRoomGoesAboveTheControl`, `ui.kit.multiLineKeys`,
+  `ui.kit.partResize` — 각각 가드를 뺀 실행에서 실패를 확인했다.
+
+- **윈도 팝오버(Stage 7 Task 4): 숨은 아이콘(^ 넘침 영역)에서 연 팝오버의 아래쪽을 넘침 플라이아웃이 덮었다.** (출시 전, 러너의
+  실제 클릭 점검 캡처를 열어보다 발견.) 배치가 아이콘은 늘 작업 표시줄 띠(작업 영역 밖)에 있다고 보고 팝오버 아래끝을 작업 영역
+  아래끝에 붙였다. 넘침 영역의 아이콘은 작업 영역 *안*의 셸 창(플라이아웃)에 있고, 러너(Server 2025)에서는 팝오버가 포그라운드를
+  가져간 뒤에도 그 창이 맨 위에 열린 채 남아 팝오버 아래 45 px 를 덮었다 (Task 5 하단 줄의 자리). 사용자 PC 는 아이콘을 넘침
+  영역에만 둔다. **왜 못 걸렀나:** 배치 단위 테스트의 아이콘·클릭 지점이 모두 띠 안에 있었다 — 테스트가 구현과 같은 가정을 했다.
+  합성 `NIN_SELECT` 점검들도 셸이 준 사각형(넘침이면 띠 위의 ^ 버튼)을 썼다. ^ 를 실제로 눌러 연 플라이아웃 안의 아이콘을 실제로
+  누른 `popover.realClick` 만 그 가지를 밟았다. **고침:** 작업 영역 안의 아이콘은 덮지 않는다 — 작업 표시줄 쪽으로 여백만큼 비킨다
+  (공유 `PopoverPlacement.frame`). 윈도에서는 그 아이콘을 담은 작은 셸 창(플라이아웃) 전체를 비킨다 (열 때 한 번 찾고, DPI·페이지
+  크기 재배치 때는 그 사각형을 유지). **스윕:** 아이콘이 띠에 있다고 가정한 곳 — 토글 가드의 아이콘 영역(이미 클릭 지점 기준,
+  사각형이 클릭을 담지 않으면 클릭 둘레 상자), 트레이 메뉴(맨 위 창이라 무관). **규칙:** 트레이 아이콘 위치는 띠와 넘침 플라이아웃
+  두 경우로 테스트한다. **회귀 점검:** `PopoverPlacementTests.testAnAnchorInsideTheWorkAreaIsNotCovered`, `popover.realClick`
+  (플라이아웃 안 실제 클릭 → 열림, 그 창과 겹치지 않음).
+  **부류 (병합 후 리뷰 I1):** 원인은 위치가 아니라 *맨 위(topmost) 창이 아닌 플라이아웃*이었다 — 넘침 플라이아웃도, 브라우저 PIP
+  영상·회의 앱 미니 창·PowerToys "항상 위"도 맨 위 창이라 팝오버를 덮고, 덮인 곳을 누르면 그 창이 활성화를 가져가 팝오버가 닫힌다.
+  첫 스윕은 배치만 바꿔 같은 부류의 다른 창을 놓쳤다. **고침:** 팝오버는 `WS_EX_TOPMOST` (활성화를 잃으면 닫히고, 하위 루프 때문에
+  닫기를 미루는 동안에는 보통 띠로 내려간다; 소유 대화상자도 맨 위). **규칙:** 트레이 플라이아웃은 맨 위 창이고, 활성화를 잃으면
+  즉시 닫혀 다른 앱 위에 남지 않는다. **회귀 점검:** `popover.aboveTopmost` (활성화 없이 띄운 맨 위 창 자리에서 연 팝오버가 그
+  창 위에 있다; 다른 창이 활성화되면 닫히고 그 창이 다시 보인다), `popover.open` 의 `WS_EX_TOPMOST`.
 
 ## 에너지 (상시 표시 애니메이션)
 
@@ -2426,6 +2455,29 @@ read_when:
   열면 10/10. 점검은 두 숫자를 다 찍는다(Task 안의 것은 정보용). 팝오버는 같은 훅 안에서 `IsDialogMessageW` 로 키를 나눠 주므로, **모달 루프가 도는 동안
   (`WinModalPump.depth > 0` 이거나 메뉴·이동 모드) 훅은 대화상자 경로를 건너뛴다** — 안 그러면 메뉴·스크롤 막대 끌기 루프가 읽을 키와 마우스를 훅이 먼저
   디스패치해 루프가 입력을 잃는다. 팝오버의 모달 루프(스크롤 막대 끌기 `WinScrollArea`, 이후 메뉴·대화상자)는 모두 `WinModalPump.begin/end` 안에서 돈다.
+  **다섯 번째 (Stage 7 Task 3 사후 리뷰, 스크롤 막대 추적 루프가 마우스를 잃었다):** 네 번째의 가드는 "모달 루프의 입구를 하나씩 `begin/end` 로 감싸야"
+  지켜지는 형태였는데, 감싼 입구는 뷰포트의 `WM_NCLBUTTONDOWN` 하나였다. 같은 `DefWindowProc` 추적 루프에 들어가는 다른 입구 — 스크롤 막대 화살표의
+  두 번째 클릭(`WM_NCLBUTTONDBLCLK`, `CS_DBLCLKS` 가 없어도 비클라이언트에는 온다)과 여러 줄 입력칸 *자신의* 스크롤 막대(키트 서브클래스, 감싸지 않음) —
+  에서는 `depth == 0` 이라 훅이 루프의 마우스(버튼 뗌)를 `IsDialogMessageW` 로 먼저 디스패치했고, 루프는 버튼 뗌을 못 받아 캡처를 쥔 채 계속 굴렀다.
+  사용자 눈에는 "화살표를 두 번 눌렀더니 페이지가 끝까지 굴러가고 마우스가 붙잡힌다". 고치기 전 실행(run 43772318344): 화살표 더블클릭 → 오프셋 0 → 704
+  (기대 32, 두 줄), 입력칸 화살표 한 번 → 첫 줄 0 → 9 (기대 +1), 둘 다 2 s 뒤에도 캡처를 쥐고 있어 감시자가 `WM_CANCELMODE` 로 풀었다.
+  **왜 못 걸렀나:** 결함 주입 B 와 `ui.kit.scroll` 은 감싼 입구(썸 끌기, 첫 클릭)만 밟았다 — 같은 루프의 다른 입구를 밟는 점검이 없었다. 리뷰도 코드에서
+  "감싼 곳"만 보고 루프가 어디서 시작될 수 있는지는 세지 않았다. **고침:** ① 훅은 마우스 메시지(0x0200–0x020E, 0x00A0–0x00AD)를 대화상자 경로로 보내지
+  않는다 — `IsDialogMessageW` 가 마우스에 하는 일은 그냥 디스패치라 잃는 것이 없고, 앞으로 감싸지 않은 입구가 생겨도 루프의 마우스를 뺏지 않는다.
+  ② 뷰포트와 키트 서브클래스가 `WM_NCLBUTTONDOWN`/`WM_NCLBUTTONDBLCLK` + `HTVSCROLL`/`HTHSCROLL` 을 `begin/end("scroll")` 로 감싸 루프 동안 메인 큐가 돈다.
+  ③ 입력칸의 편집 메뉴(`WM_CONTEXTMENU` → `TrackPopupMenu`)도 감쌌다. **스윕 (비클라이언트·추적 루프 입구 전수):** 광장 창 — 이동·크기는 싱크의
+  `WM_ENTERSIZEMOVE` 가 펌프를 열고 훅은 `GUI_INMOVESIZE` 로 비켜 남, 스크롤 막대 없음, 대화상자 창이 아님(훅 경로 밖). 콤보 드롭다운 목록 — 별도 팝업
+  (`ComboLBox`, 대화상자의 자식이 아님)이라 대화상자 경로 밖, 목록 스크롤 막대를 누르는 동안 메인 큐가 서는 것은 이전과 같다(버튼을 쥔 동안만).
+  트레이 메뉴 — `WinTray` 가 감쌈, 메뉴 모드. 슬라이더·버튼·입력칸 글자 끌기 — `SetCapture` 만 쓰고 자기 루프가 없음. **규칙:** 훅은 모달·추적 루프가 읽을
+  입력을 가로채지 않는다(마우스는 아예, 키는 루프 중에). `DefWindowProc` 에 추적 루프를 맡기는 메시지(비클라이언트 버튼 다운·더블클릭, `WM_CONTEXTMENU`)는
+  감싸고, 점검은 입구마다(첫 클릭, 더블클릭, 누른 채, 자식 컨트롤 자신의 막대) 밟는다. **회귀 점검:** `ui.kit.scrollClicks` — `SendInput` 으로 페이지 아래
+  화살표 더블클릭(오프셋 정확히 두 줄), 입력칸 화살표 한 번(+1 줄), 각각 뒤에 캡처 없음·메인 큐 블록이 돈다; 입력칸 화살표와 페이지 화살표 더블클릭의 두 번째
+  누름을 0.8 s 쥔 채 메인 큐 블록이 *쥔 동안* 돈다. `ui.kit.editMenu` — 입력칸 편집 메뉴가 열린 동안 메인 큐 블록. 결함 주입(감싸기만 제거, 훅의 마우스
+  건너뛰기는 남김, `fault/w7-t3-scrollwrap` run 43775805367): 클릭은 더 이상 걸리지 않았다(오프셋 32, +1 줄, 캡처 없음 — 고치기 전 실행과의
+  차이는 훅의 마우스 건너뛰기뿐이라 그 가드의 몫), 그러나 쥔 동안의 메인 큐 블록은 입력칸·페이지 모두 false 로 `ui.kit.scrollClicks` FAIL(감싸기의 몫).
+  같은 실행에서 `ui.kit.editMenu` 의 첫 판은 감싸기 없이도 10/10 으로 통과했다 — 블록이 메뉴가 닫히기를 기다렸다가 닫힌 직후, 점검 스레드가 "열림"
+  플래그를 내리기 전에 돌아 "열린 동안"으로 셌다. 점검이 결함과 다른 조건(플래그)으로 판정한 같은 부류다: 블록이 돌 때 메인 스레드의
+  `GUI_POPUPMENUMODE` 를 스스로 읽게 고쳤다(재주입 결과는 Task 3 보고서 사후 리뷰 절).
 
 - **맥 `CoreTextPlazaEngine.wrappedLines` 가 빈 줄을 "글 나머지 전부"로 바꿨다 — `CFRange` 길이 0 은 "끝까지"다.** `"a\n\nbcd"` 가 `a`, `bcd`, `bcd` 세 줄로 그려졌다(`bcd` 두 번). TextKit 이 빈 줄의 줄 조각을
   주면(끝의 공백·개행을 뗀 뒤 길이 0) 그 범위를 `CTTypesetterCreateLine(typesetter, CFRange(location:, length: 0))` 에 그대로 넘겼고, CoreText 는 길이 0 을 "location 부터 끝까지"로 읽는다.
@@ -2453,9 +2505,18 @@ read_when:
   (§팀 네트워크 "저장하는 값을 재야 한다"). `SaveTransfer.maxFileBytes` 8 MiB, `PlazaGIFDecoder.maxOutputBytes` 256 MiB, `CPlazaD2D` 디코드
   512 MiB, `codexProbeByteLimit` 1 MiB(첫 줄만 찾는다), `AppLog.maxBytes` 2 MiB(회전이지 막지 않는다): 실제 크기 근처가 아니다. 이 작업의 새 상한
   `InstallerReleaseFeed.installerBytes`(1–200 MiB)는 실제의 6 배다. 실제 크기 근처의 고정 상한은 이음매 기본값 하나뿐이다.
-  **가드(기계): 미정(PENDING) — Task 6.** 트리거 브랜치는 아직 없는 다운로드 자체다: 다운로드 이음매
-  `oneShotDownload(for:maxBytes:deadline:)` 가 기본값 없이 자산의 `size` 를 상한으로 받고(D19), Task 6 의 길이 테스트가 32 MiB 를 넘는 본문으로
-  그 경로를 밟아야 이 항목이 닫힌다. Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
+  **가드(기계): Task 6 에서 닫힘.** ① 이음매 서명 — 다운로드는 `PlatformCompat.oneShotDownload(for:maxBytes:deadline:)` 하나뿐이고 `maxBytes`·
+  `deadline` 에 기본값이 없다(WinHTTP 만 탄다: URLSession 으로 돌아가면 상한도 마감도 없으므로 그 경로는 실패로 끝난다). 호출부는
+  `WindowsUpdateInstaller.install` 하나이고 상한으로 자산의 `installer.size` 를, 마감으로 15 분을 넘긴다 —
+  `WindowsSeamScanTests.testTheUpdateDownloadAndItsCIHooksStayWhereTheyAre`(호출부 1곳·`installer.size` 전달·기본값 없음, 각 깨짐을 주입한
+  `testTheUpdateSeamScanCatchesEachBreak`)와 `WindowsUpdateInstallerTests.testGoodBytesAreWrittenExactlyAndSetupGetsThatPathAndItsArguments`
+  (주입한 다운로드가 받은 상한 == 크기, 마감 == 900 s). ② 트리거 브랜치 — 32 MiB + 1 B 본문이 *실제* WinHTTP 이음매를 러너의 루프백으로 지난다:
+  `WindowsUpdateInstallerTests.testABodyOverTheSeamsDefaultCapPassesWithTheInstallersOwnCap`(같은 본문이 기본 상한으로는
+  `.dataLengthExceedsMaximum`, 설치 파일 자신의 크기 상한으로는 통과해 디스크에 33,554,433 B), 출하 바이너리 안에서는 selftest
+  `update.passesOver32MiB`(번들·설치본 둘 다). 끝에서 끝: CI 단계 `in-app-update` 의 `long` 시나리오가 크기보다 1 B 긴 본문이 상한에서
+  끊기는 것(`URLError -1103`)을 본다. **잠복이 아니게 됐다:** 이 브랜치의 설치 파일은 이미 33,970,371 B 로 32 MiB 보다 415,939 B 크다(scratch run
+  43780695861, `in-app-update` 의 `ok` 가 그 파일을 받아 설치) — 기본 상한을 물려받았다면 첫 앱 안 업데이트부터 조용히 페이지로 떨어졌을 것이다.
+  Task 4 의 피드 테스트(200 MiB 경계 `209,715,200` 통과)는 피드 자신의 범위만 고정할 뿐 이 결함을 지키지
   않는다 — 다른 경로로 통과하는 테스트를 가드라고 부르지 않는다(처음 넣었던 32 MiB + 1 B 테스트 둘은 그래서 뺐다).
   **규칙:** 새 다운로드(기존 이음매의 새 호출부도)는 자기 상한과 마감을 이름으로 적는다 — 다른 호출부를 보고 정한 기본값을 물려받지 않는다.
   상한을 정할 때는 실제로 가장 큰 페이로드를 재서 값과 출처를 적고, 여유가 2 배 미만이면 그 자리에서 고친다.
@@ -2491,6 +2552,15 @@ read_when:
   크기를 바꿔 시각 비교를 시험하지 않았다. 간헐 실패는 결함 주입 실행에서만 보였다 — 주입과 상관없는 시나리오가 깨지면 플레이크로 넘기지 말고 원인을 찾는다.
   **회귀 점검(추가):** `failLate`(버전 파일까지 쓴 뒤 실패), `killedDuringRestore`, `killedFirstEntry`, `leftOverRestoreFails`, `noVersionFile`, `partialCopy`, `appFolderMissing`; 페이로드의
   `THIRD-PARTY.txt` 는 크기·시각이 같고 내용만 다르다. 결함 주입: 옛 규칙, `RestoreFailed` 빼기, 폴더 다시 만들기 빼기, 크기·시각 비교, 버전 파일 먼저 빼기, exe 만으로 "온전".
+
+- **앱 안 업데이트의 테스트 둘이 실행 환경 덕에 통과했다 (stage 8 Task 6, 병합 전).** ① `WindowsUpdateInstallerTests.testSetupsArgumentsAreExactAndTheLogPathIsQuoted`
+  가 URL 을 `==` 로 비교했다 — corelibs 의 `appendingPathComponent(_:)` 는 디스크를 물어 폴더가 있으면 끝에 `/` 를 붙인다(`PlatformCompat.logsDirectory()`).
+  전체 스위트에서는 다른 테스트가 Logs 를 먼저 만들어 통과했고(windows run 43778115607), 필터해 돌린 결함 주입 실행에서만 실패했다(scratch run
+  43780695861). 고침: 경로(`WinPath.native`)로 비교. ② e2e 스크립트(`in-app-update.ps1`)가 앱 로그를 `[IO.File]::ReadAllText` 로 읽었다 — 읽기
+  공유만 주므로 앱이 쓰기로 연 동안 공유 위반(결함 주입 실행 8 회 중 1 회, run 43780709740). 고침: 읽기·쓰기·삭제 공유로 연다.
+  **왜 못 걸렀나:** 둘 다 첫 실행(전체 스위트, 대조 실행)에서는 맞는 상태가 우연히 갖춰져 있었다 — 결함 주입 실행이 다른 테스트 선택과 타이밍을 줘서
+  드러났다. **스윕:** 이 작업의 다른 URL 비교는 `standardizedFileURL`·`.path`·같은 객체로 한다; 스크립트의 다른 로그 읽기는 `Get-Content`(쓰기 공유).
+  **규칙:** 윈도에서 있을지 없을지 모르는 폴더의 URL 은 경로로 비교하고, 다른 프로세스가 쓰는 파일은 쓰기 공유로 연다.
 
 ## 윈도 로케일·알림 (windows-port)
 
@@ -2593,3 +2663,28 @@ read_when:
   `testAnEmojiWaitsForALateResultReport`·`testAnEmojiIsNotLostWhenTheIMENeverReports`·`testAnEmojiOverAnInlineSyllableGoesAfterIt` 와 주입
   (`insertOverComposition`·`editBeforeResult`(이전 동작) → 잡힘). **규칙:** 진짜 IME 결함은 메시지 순서를 먼저 찍고, 가짜 IME 는 그 순서를 그대로 흉내낸다;
   서브클래스 메시지 처리기에서 글을 읽는 코드는 그 읽기가 같은 처리기로 돌아온다는 걸 전제로 재진입을 막는다.
+
+- **윈도에서 Claude 로그인 파일이 없으면 새로고침이 "잠시 후 다시 시도하세요"라고 한다 — 시도해도 소용없는 조언이다(P14, 7단계 Task 6).** Claude Code 에 로그인한 적 없는 PC 에서 팝오버의 새로고침(사용자 동작)을 누르면
+  `OAuthAccessTokenCache` 가 자격증명 파일을 못 찾고 Keychain 단계로 내려가는데, 윈도의 `readClaudeKeychain`(`Platform/OAuthKeychainUnavailable.swift`)이 `LimitsError.keychainAccessDisabled` 를 던졌다.
+  스토어의 `friendlyLimitError` 는 이 오류를 `limitRefreshGeneric`("Claude 한도 조회에 실패했어요. 잠시 후 다시 시도하세요.")로 바꾼다 — 사용자가 Keychain 접근을 끈 맥 사용자를 위한 문구다. 맥은 같은 상황에서
+  `keychainUnavailable(errSecItemNotFound)` 를 받아 "Claude 자격증명을 찾지 못했어요. Claude Code 에 로그인하면…"(`limitRefreshNoCredential`)을 보여 준다. 윈도에는 끌 Keychain 이 없으므로 "접근이 꺼졌다"는 사실이 아니다.
+  **왜 못 걸렀나:** 윈도 테스트(`testUserRefreshWithoutAFileReportsKeychainAccessDisabled`)가 던져진 **오류 종류**만 고정했다 — 사용자에게 보이는 **문구**까지 가는 경로(스토어의 `limitTokenRefreshError`)는 아무도 밟지 않았고,
+  종류와 문구의 대응(`friendlyLimitError`)은 맥 쪽 테스트가 다른 입력으로만 확인했다. 오류 종류를 고정하는 테스트는 그 종류가 맞는 말인지까지는 답하지 않는다.
+  **도달 가능성:** 있다 — 윈도 사용자가 Claude Code 없이(Codex 만 쓰거나 아직 로그인 전) 새로고침을 누르면 그대로 나온다. **고침:** 윈도의 Keychain 단계가 맥의 "항목 없음"과 같은 오류(`keychainUnavailable(errSecItemNotFound)`)를 던진다
+  (Core 는 건드리지 않고 fork 소유 Platform 파일 한 곳). **부류 스윕(이 오류를 가르는 `UsageStore`/체인의 모든 분기):** `friendlyLimitError`(→ 자격증명 없음 문구, 의도), `isKeychainPromptDeclined`(`errSecItemNotFound` 는 거절이 아니다 → 추가 계정의 프롬프트를
+  막지 않는다, 맥과 같다), `firstUsableCredential`(항목 없음은 다음 서비스 이름으로 넘어가 마지막에 같은 오류를 던진다 — 윈도는 서비스 이름이 여럿이어도 읽는 곳이 없어 결과가 같다), `updateAuthExpired`(401/403 만 본다, 무관),
+  `ClaudeOAuthLimitsProvider` 의 `keychainAccessDisabled` 재던지기(진짜 비활성만 거친다). Antigravity 의 `UnavailableAntigravityLimits` 는 일부러 `keychainAccessDisabled` 를 유지한다 — 한도 소스가 없다는 뜻이고 UI 는 그 섹션을 숨긴다.
+  **영구 캡처:** `ClaudeOAuthFileCredentialTests.testUserRefreshWithoutAFileReportsAMissingCredential`(오류 종류), `testUserRefreshWithoutAFileShowsTheCredentialMissingText`(스토어를 통해 **보이는 문구**를 8개 언어로, `limitRefreshGeneric` 이 아님도),
+  `SettingsModelTests.testAMissingCredentialIsWordedAsOneInEveryLanguage`(양쪽 OS 에서 대응 자체). **규칙:** 플랫폼이 없는 기능을 오류로 알릴 때는 "그 기능이 꺼졌다"가 아니라 사용자가 해야 할 일("로그인")을 말하는 오류를 고르고,
+  테스트는 오류 종류가 아니라 화면에 나가는 문구에서 끝낸다.
+
+- **윈도 셀프테스트 게이트가 네 번에 한 번꼴로 깨졌다 — 한 상태를 두 쓰는 쪽이 다투거나, 예산이 한 번 잰 값에서 나왔다.** 같은 부류의 여섯 건을 한 번에 근본원인까지 팠다(`windows-app` 43777825521, 43784126850, 43741036674, 43784581694, 43788143040, 43797111060).
+  (A) `plaza.hover`/`plaza.cover`/`plaza.dpiPanels`: 컨트롤러의 1초 포커스 틱(`refreshRoster`)이 자기 세션(비어 있음)에서 명단을 다시 만들어 selftest 의 명단 고정물을 덮었다. 40 ms "keeper" 가 되돌렸지만 그 사이에 읽으면 도구 0개·픽셀 0개였다 — 한 상태를 두 쓰는 쪽이 다툰다.
+  **고침:** 컨트롤러가 이미 가진 시험 이음매(`focusTickSleep`)에 `PlazaTickGate` 를 꽂아 패널 검사 동안 틱을 붙들고 selftest 가 유일한 쓰는 쪽이 된다(keeper 삭제). 같은 프로세스에서 옛 방식(틱+keeper) 30회: cover 29/30(실패 한 번은 "roster pixels 0"), 새 방식 50회: hover·cover·dpiPanels 50/50, 명단 변조 0. 결함 주입(명단 비움·카드 안 엶·DPI 변경 생략)은 3/3 모두 실패.
+  (B) `plaza.close` 핸들 +17: 제품 누수가 아니다. 50회 열고 닫기에서 49걸음 중 43걸음이 정확히 0, 나머지는 프로세스 배경 일이다 — 새 스레드(`CRYPT32` 스레드와 ucrtbase 풀 워커 2개, ntdll TP 워커)와 그 Event 14·WaitCompletionPacket 5·EtwRegistration 4(= TLS 스택이 처음 뜰 때), 풀 워커 하나당 +2. 검사가 "세 번 중 처음→마지막 ≤10" 이라 배경 일이 어느 사이클에 걸리느냐로 갈렸다.
+  **고침:** 8번 열고 닫으며 "매 걸음이 늘었을 때만" 누수로 본다(누수는 매번 새고 배경 일은 일부 사이클에만 걸린다). 종류별 핸들 차이(`WinHandleTable`)를 판정문에 남겨 실패가 스스로 설명된다.
+  (C) `modalPump.idle` 5 > 4: 한도 `max(3, 메뉴 전 + 3)` 가 창 안의 알려진 깨움을 무시했다. 메인 스레드를 깨우는 것: 30초 안전 flush(10초 창에 3분의 1 확률, 1 cs — 50창 중 13번 1~2 cs), 설정 쓰기 뒤 2초 debounce flush, 하루 타이머, 120초 스토어 갱신(~45 cs; 50창 중 4번). **5 cs 의 정확한 주인은 못 잡았다**(창 안에서 다시 보이지 않았다) — 그래서 한도를 `3 + 5×알려진 깨움 + 60×갱신` 으로 두고, 출처를 모르는 5는 여전히 실패시킨다.
+  (F) `ui.kit.idle`(한도 6): 같은 부류 — 갱신이 걸린 창에서 45 cs 로 실패. 같은 방식으로 예산한다. (E) 유휴 게이트 `plaza-visible-120s`: 러너에 GPU 가 없어 WARP 래스터라이저 풀(`ntdll.dll+0x845d0` 시작 스레드)이 프로세스 사이클의 83%·cs 의 84% 를 쓴다 → 프로세스 전체 값은 러너의 소프트웨어 렌더러를 잰다. 우리 스레드(풀 제외)를 예산하고 풀은 정보로 남기며, 프로세스 전체 한도는 폭주 탐지용으로만 느슨하게 둔다(근거 표본은 `windows-app.yml` 주석).
+  **왜 못 걸렀나:** 작업 브랜치의 몇 번 실행에서 우연히 통과했고(표본 1~3개), 예산은 한 번 잰 값에 여유를 조금 얹어 정했다. 측정이 "무엇이 그 숫자를 만드는가"(핸들 종류, 깨운 타이머)를 안 남겨 실패해도 원인을 알 수 없었다. 시나리오 중 2는 앞선 검사가 시간대를 밀어야만 드러났다.
+  **부류 스윕:** 시간·핸들·문맥전환 예산이 있는 모든 셀프테스트 검사를 표로 정리했다(`selftest-flakes-report.md`) — 여유 30% 미만: `plaza.frames`(틱/초 ≤70, 관측 60~64: 디스플레이 주사율에 묶임), `loop.runLoopTimer`(<250 ms, 관측 205), `modalPump.mainWork` 큐 ≥10(관측 14), `idle.window`(번들 프로세스 51/69).
+  **규칙:** (1) 한 상태에는 쓰는 쪽이 하나여야 한다 — 검사가 컨트롤러의 갱신과 경쟁하면 이음매로 컨트롤러를 멈춘다. (2) 예산은 측정된 분포에서 정하고 표본 크기를 예산 옆에 적는다. (3) 깨움·핸들 예산은 알려진 원인(타이머·갱신·새 스레드)을 각자의 카운터로 세어 예산에 넣고, 출처를 모르는 몫은 실패로 남긴다. (4) 누수 판정은 한 번의 총량이 아니라 "매 반복마다 일어나는가"로 한다. (5) 프로세스 전체 숫자는 러너의 소프트웨어 렌더러·배경 스레드를 섞으므로 앱 스레드와 분리해 예산한다. 반복 도구: `windows-app.yml -f flake_loop=N`(번들 selftest 한 프로세스에서 N회, 매 회 값 출력).

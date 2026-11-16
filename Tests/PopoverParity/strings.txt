@@ -37,7 +37,7 @@ antigravityAuthExpiredTitle | P25
 antigravityGroupTitle | P25
 antigravityWindow | P25
 back | G0
-backViewHint | G12b | replace: says "menu bar, floating pet and popover"; Windows: the tray icon and the popover (D13)
+backViewHint | G12b | replaced: winBackViewHint
 backViewLabel | A3
 bag | P2
 bagEmptyTitle | B1
@@ -257,7 +257,7 @@ refreshNow | A3
 regionName | D4
 registerSessionKey | P15h
 reportAttachHint | G18
-reportMailBody | G18 | replace: labels the OS line "macOS" and names ~/Library/Logs; Windows names its version and %LOCALAPPDATA%\PokeTokenBar\Logs (D13)
+reportMailBody | G18 | replaced: winReportMailBody
 reportMailFallback | G18
 reportMailSubject | G18
 reportProblem | G18
@@ -373,7 +373,7 @@ useAfterHatch | B2
 useItem | B2
 useNeedsPokemon | B2
 useOnCurrent | B2
-userFacingError | G8
+userFacingError | G8 | n/a: WindowsLoginItem answers true or false and logs the cause; a refused change shows as the check box going back to what the registry holds, there is no Error value to word
 warning | G14
 website | G0
 weekly | P22
@@ -382,7 +382,7 @@ weeklySonnet | P22
 weight | D7
 "+\(TokenFormatter.compact(candyXPAmount)) XP" | C14
 "\(Int(store.floatingPetSize))px" | G12
-"Finder" | G18l | replace: the Mac's file manager; Windows says Explorer (D13)
+"Finder" | G18l | replaced: winExplorerButton
 "GitHub" | G0
 "IV \(iv)" | D7
 "Lv. \(move.learnedAtLevel)" | D7

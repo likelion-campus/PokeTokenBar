@@ -38,6 +38,7 @@ extension WindowsSelftest {
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: PlazaStubSpriteFetcher(log: { _ in })),
                                       nickname: { "selftest" }, memberID: { "selftest-me" },
                                       subject: { .init(speciesID: 25, isShiny: false) }, teamName: { "selftest" }, feed: feed,
+                                      focusTickSleep: { await plazaTickGate.sleep($0) },
                                       shell: shell, chatInput: WinPlazaChatInput())   // Task 11: the real field
         await plazaStaticChecks(r, defaults: defaults, events: events, overlays: c.overlayBindings)
         await plazaLiveChecks(r, c, shell, app, feed: feed, bytesBefore: bytesBefore, handlesBefore: handlesBefore)
@@ -298,8 +299,11 @@ extension WindowsSelftest {
         _ = await waitUntil(timeout: 10) { false }   // D19: "private bytes within +20 MB after 10 s"
         let bytesClosed = ptb_gfx_process_private_bytes(), handlesClosed = ptb_process_handle_count()
         var cycles: [(handles: UInt32, bytes: UInt64, presented: Bool, joined: Bool)] = []
+        var handleSnaps: [WinHandleTable.Snapshot] = []   // typed: what a change in the count IS (see WinHandleTable)
+        if let s = WinHandleTable.snapshot() { handleSnaps.append(s) }
         var reopenedAt: [RECT] = []
-        for _ in 0..<3 {
+        let closeCycles = 8   // a leak shows in every cycle, background work in some: see `handleLeak`
+        for _ in 0..<closeCycles {
             c.show()
             let opened = await waitUntil(timeout: 3) { shell.stats.presents >= 1 }
             var at = RECT()
@@ -308,21 +312,24 @@ extension WindowsSelftest {
             shell.requestClose()
             _ = await waitUntil(timeout: 0.5) { false }
             cycles.append((ptb_process_handle_count(), ptb_gfx_process_private_bytes(), opened, shell.lastClosed?.clockJoined == true))
+            if let s = WinHandleTable.snapshot() { handleSnaps.append(s) }
         }
-        let leak = Int(cycles.last?.handles ?? 0) - Int(cycles.first?.handles ?? 0)
+        let leak = Int(cycles.last?.handles ?? 0) - Int(cycles.first?.handles ?? 0)   // reported; judged by handleLeak
         r.add("plaza.close",
-              shell.hwndForTesting == nil && gone && released && deviceReleased && ptb_window_hooks_live() == 0 && leak <= 10
+              shell.hwndForTesting == nil && gone && released && deviceReleased && ptb_window_hooks_live() == 0 && !handleLeak(counts: cycles.map { Int($0.handles) })
                 && cycles.allSatisfy { $0.presented && $0.joined } && shell.visibility.isPolling == false,
               "clock thread \(clockTidAtClose) gone=\(gone), scene and stage released=\(released) (weak refs nil), Direct3D device released=\(deviceReleased), "
                 + "WinEvent hooks=\(ptb_window_hooks_live()), cover timer off=\(!shell.visibility.isPolling); handles before first open \(handlesBefore), "
-                + "after close \(handlesClosed), after cycles \(cycles.map { $0.handles }) (growth over cycles \(leak), budget 10); private MB before "
+                + "after close \(handlesClosed), after cycles \(cycles.map { $0.handles }) (growth over cycles \(leak); judged leaking only if EVERY cycle grew: \(handleLeak(counts: cycles.map { Int($0.handles) }))); private MB before "
                 + "\(pmb(bytesBefore)) open \(pmb(bytesOpen)) closed+10s \(pmb(bytesClosed)) cycles \(cycles.map { pmb($0.bytes) }) "
-                + "(closed - before \(pmb(bytesClosed &- bytesBefore)) MB: graphics DLLs and WARP stay loaded); 3 open/close cycles presented=\(cycles.map { $0.presented })")
+                + "(closed - before \(pmb(bytesClosed &- bytesBefore)) MB: graphics DLLs and WARP stay loaded); 3 open/close cycles presented=\(cycles.map { $0.presented }); "
+                + "typed handle changes per cycle: \(zip(handleSnaps, handleSnaps.dropFirst()).map { WinHandleTable.diff($0, $1) }.joined(separator: " | "))")
         let samePlace = reopenedAt.allSatisfy { $0.left == saved.left && $0.top == saved.top && $0.right == saved.right && $0.bottom == saved.bottom }
-        r.add("plaza.reopen", cycles.count == 3 && cycles.allSatisfy { $0.presented } && samePlace,
-              "three reopenings each presented a first frame: \(cycles.map { $0.presented }); reopened where it was closed "
+        r.add("plaza.reopen", cycles.count == closeCycles && cycles.allSatisfy { $0.presented } && samePlace,
+              "\(closeCycles) reopenings each presented a first frame: \(cycles.map { $0.presented }); reopened where it was closed "
                 + "(\(saved.left),\(saved.top),\(saved.right),\(saved.bottom)): \(samePlace) \(reopenedAt.map { "(\($0.left),\($0.top),\($0.right),\($0.bottom))" })")
         await placementCheck(r, expected: saved)
+        if FlakeLoop.count > 0 { await flakeLoopClose(r, c, shell) }
     }
 
     // MARK: - pieces

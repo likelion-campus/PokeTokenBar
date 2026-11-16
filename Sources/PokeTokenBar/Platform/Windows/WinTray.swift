@@ -18,7 +18,15 @@ import WinSDK
     private var tip = ""
 
     private(set) var isPresent = false
-    var onActivate: (() -> Void)?
+    /// Stage 7 Task 4: the icon was chosen. `NOTIFYICON_VERSION_4` reports a left click as `NIN_SELECT` and Space / Enter on
+    /// the focused icon as `NIN_KEYSELECT`, each with a screen point in `wParam` (the click, or the icon for a key). The
+    /// mouse messages that come with a click are not selects (a click would toggle twice), except on the legacy version-0
+    /// behaviour when `NIM_SETVERSION` failed, where `WM_LBUTTONUP` is the only signal.
+    enum Select {
+        case click(POINT), key(POINT)
+        var point: POINT { switch self { case .click(let p), .key(let p): return p } }
+    }
+    var onSelect: ((Select) -> Void)?
     var onContextMenu: ((POINT) -> Void)?
     var onBalloonEvent: ((BalloonEvent) -> Void)?
 
@@ -34,6 +42,15 @@ import WinSDK
     private(set) var lastBalloonFlags: DWORD = 0
     /// NIN_BALLOONSHOW notifications received, whatever balloon they were for (the selftest's control experiment).
     private(set) var shownEventCount = 0
+    /// Selects and context-menu requests the shell sent, and the last one's point (the popover selftest reads them).
+    private(set) var selectCount = 0
+    private(set) var keySelectCount = 0
+    private(set) var contextMenuCount = 0
+    private(set) var lastSetFocusOK = false
+    /// The point of the last select (the click, or the icon for a key; v4).
+    private(set) var lastEventPoint: POINT?
+    /// The first selects of a run go to the log (which events one Enter or one click gives on a PC; bounded).
+    private var loggedSelects = 0
 
     init(window: WinSinkWindow) {
         self.window = window
@@ -109,6 +126,16 @@ import WinSDK
         return lastBalloonOK
     }
 
+    /// Gives the keyboard focus back to the notification area (`NIM_SETFOCUS`): what an icon does when its UI, opened from the
+    /// keyboard, is dismissed (stage 7 Task 4: the popover closed with Escape after a key select).
+    @discardableResult
+    func returnFocus() -> Bool {
+        guard isPresent else { return false }
+        var nid = base(0)
+        lastSetFocusOK = Shell_NotifyIconW(DWORD(3 /* NIM_SETFOCUS */), &nid)
+        return lastSetFocusOK
+    }
+
     /// The icon's screen rectangle (stage 7 places the popover with it); nil when the shell cannot say.
     func anchorRect() -> RECT? {
         var id = NOTIFYICONIDENTIFIER()
@@ -133,6 +160,12 @@ import WinSDK
         return nid
     }
 
+    private static func cursor() -> POINT {
+        var p = POINT()
+        _ = GetCursorPos(&p)
+        return p
+    }
+
     private func fill<T>(_ field: inout T, _ text: String, capacity: Int) {
         let units = Array(TrayMenuModel.clipped(text, maxUnits: capacity - 1).utf16)
         withUnsafeMutableBytes(of: &field) { raw in
@@ -143,12 +176,31 @@ import WinSDK
 
     private func handle(wParam: WPARAM, lParam: LPARAM) {
         let event = UInt32(truncatingIfNeeded: lParam) & 0xFFFF
+        let x = Int16(truncatingIfNeeded: wParam & 0xFFFF), y = Int16(truncatingIfNeeded: (wParam >> 16) & 0xFFFF)
+        let point = POINT(x: Int32(x), y: Int32(y))  // v4: the event's screen point
+        if loggedSelects < 20, [Self.ninSelect, Self.ninKeySelect, UInt32(WM_CONTEXTMENU)].contains(event) {
+            loggedSelects += 1
+            AppLog.write("tray: \(event == Self.ninSelect ? "NIN_SELECT" : event == Self.ninKeySelect ? "NIN_KEYSELECT" : "WM_CONTEXTMENU") at \(point.x),\(point.y)")
+        }
         switch event {
-        case Self.ninSelect, Self.ninKeySelect, UInt32(WM_LBUTTONUP):
-            onActivate?()
+        case Self.ninSelect where lastVersionOK:
+            selectCount += 1
+            lastEventPoint = point
+            onSelect?(.click(point))
+        case Self.ninKeySelect where lastVersionOK:
+            keySelectCount += 1
+            lastEventPoint = point
+            onSelect?(.key(point))
+        case UInt32(WM_LBUTTONUP) where !lastVersionOK:  // version 0 sends no NIN_SELECT and no point
+            selectCount += 1
+            lastEventPoint = Self.cursor()
+            onSelect?(.click(Self.cursor()))
         case UInt32(WM_CONTEXTMENU):
-            let x = Int16(truncatingIfNeeded: wParam & 0xFFFF), y = Int16(truncatingIfNeeded: (wParam >> 16) & 0xFFFF)
-            onContextMenu?(POINT(x: Int32(x), y: Int32(y)))
+            contextMenuCount += 1
+            onContextMenu?(point)
+        case UInt32(WM_RBUTTONUP) where !lastVersionOK:
+            contextMenuCount += 1
+            onContextMenu?(Self.cursor())
         case Self.ninBalloonShow:
             shownEventCount += 1
             onBalloonEvent?(.shown)
