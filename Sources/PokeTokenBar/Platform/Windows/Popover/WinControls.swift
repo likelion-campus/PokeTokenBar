@@ -976,14 +976,15 @@ extension WinControls {
         let gap = glyph == nil ? Int32(0) : ctx.px(4)
         let total = title.cx + (glyphSize?.cx ?? 0) + gap
         var x = pill.leftAligned ? r.left + pillPadding(pill.style, ctx: ctx).h : r.left + max(0, (r.right - r.left - total) / 2)
+        let dc = d.hDC
         func draw(_ text: String, _ font: HFONT?, _ width: Int32, color: COLORREF? = nil) {
-            if let color { _ = SetTextColor(d.hDC, disabled ? COLORREF(GetSysColor(17)) : color) }
+            if let color { _ = SetTextColor(dc, disabled ? COLORREF(GetSysColor(17)) : color) }
             var box = RECT(left: x, top: r.top, right: x + width, bottom: r.bottom)
-            let old = SelectObject(d.hDC, UnsafeMutableRawPointer(font))
+            let old = SelectObject(dc, UnsafeMutableRawPointer(font))
             _ = WinStr.w(text).withUnsafeBufferPointer {
-                DrawTextW(d.hDC, $0.baseAddress, -1, &box, UINT(DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
+                DrawTextW(dc, $0.baseAddress, -1, &box, UINT(DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
             }
-            _ = SelectObject(d.hDC, old)
+            _ = SelectObject(dc, old)
             x += width + gap
         }
         // A disclosure's chevron is the secondary colour (`.foregroundStyle(.secondary)`), its title the primary.
