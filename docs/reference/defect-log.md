@@ -2490,6 +2490,15 @@ read_when:
   **회귀 점검(추가):** `failLate`(버전 파일까지 쓴 뒤 실패), `killedDuringRestore`, `killedFirstEntry`, `leftOverRestoreFails`, `noVersionFile`, `partialCopy`, `appFolderMissing`; 페이로드의
   `THIRD-PARTY.txt` 는 크기·시각이 같고 내용만 다르다. 결함 주입: 옛 규칙, `RestoreFailed` 빼기, 폴더 다시 만들기 빼기, 크기·시각 비교, 버전 파일 먼저 빼기, exe 만으로 "온전".
 
+- **앱 안 업데이트의 테스트 둘이 실행 환경 덕에 통과했다 (stage 8 Task 6, 병합 전).** ① `WindowsUpdateInstallerTests.testSetupsArgumentsAreExactAndTheLogPathIsQuoted`
+  가 URL 을 `==` 로 비교했다 — corelibs 의 `appendingPathComponent(_:)` 는 디스크를 물어 폴더가 있으면 끝에 `/` 를 붙인다(`PlatformCompat.logsDirectory()`).
+  전체 스위트에서는 다른 테스트가 Logs 를 먼저 만들어 통과했고(windows run 43778115607), 필터해 돌린 결함 주입 실행에서만 실패했다(scratch run
+  43780695861). 고침: 경로(`WinPath.native`)로 비교. ② e2e 스크립트(`in-app-update.ps1`)가 앱 로그를 `[IO.File]::ReadAllText` 로 읽었다 — 읽기
+  공유만 주므로 앱이 쓰기로 연 동안 공유 위반(결함 주입 실행 8 회 중 1 회, run 43780709740). 고침: 읽기·쓰기·삭제 공유로 연다.
+  **왜 못 걸렀나:** 둘 다 첫 실행(전체 스위트, 대조 실행)에서는 맞는 상태가 우연히 갖춰져 있었다 — 결함 주입 실행이 다른 테스트 선택과 타이밍을 줘서
+  드러났다. **스윕:** 이 작업의 다른 URL 비교는 `standardizedFileURL`·`.path`·같은 객체로 한다; 스크립트의 다른 로그 읽기는 `Get-Content`(쓰기 공유).
+  **규칙:** 윈도에서 있을지 없을지 모르는 폴더의 URL 은 경로로 비교하고, 다른 프로세스가 쓰는 파일은 쓰기 공유로 연다.
+
 ## 윈도 로케일·알림 (windows-port)
 
 - **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**
