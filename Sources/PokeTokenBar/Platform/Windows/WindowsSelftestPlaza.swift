@@ -34,12 +34,13 @@ extension WindowsSelftest {
         let bytesBefore = ptb_gfx_process_private_bytes(), handlesBefore = ptb_process_handle_count()
         let shell = WinPlazaWindow(placementKey: plazaPlacementKey, defaults: defaults, allowActivation: onCI, systemEvents: events)
         let prefs = PlazaPreferences(defaults: defaults)
+        let feed = TeamFeedStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("ptb-selftest-feed-\(UUID()).json"), myMemberID: "selftest-me")
         let c = PlazaWindowController(preferences: prefs, loader: PlazaCharacterLoader(fetcher: PlazaStubSpriteFetcher(log: { _ in })),
                                       nickname: { "selftest" }, memberID: { "selftest-me" },
-                                      subject: { .init(speciesID: 25, isShiny: false) }, teamName: { "selftest" },
+                                      subject: { .init(speciesID: 25, isShiny: false) }, teamName: { "selftest" }, feed: feed,
                                       shell: shell, chatInput: PlazaStubChatInput())
         await plazaStaticChecks(r, defaults: defaults, events: events, overlays: c.overlayBindings)
-        await plazaLiveChecks(r, c, shell, app, bytesBefore: bytesBefore, handlesBefore: handlesBefore)
+        await plazaLiveChecks(r, c, shell, app, feed: feed, bytesBefore: bytesBefore, handlesBefore: handlesBefore)
     }
 
     // MARK: - the shell alone, a still tree
@@ -142,7 +143,7 @@ extension WindowsSelftest {
     // MARK: - the controller's window
 
     @MainActor private static func plazaLiveChecks(_ r: Recorder, _ c: PlazaWindowController, _ shell: WinPlazaWindow,
-                                                   _ app: WindowsAppDelegate, bytesBefore: UInt64, handlesBefore: UInt32) async {
+                                                   _ app: WindowsAppDelegate, feed: TeamFeedStore, bytesBefore: UInt64, handlesBefore: UInt32) async {
         c.show()
         guard let hwnd = shell.hwndForTesting, c.scene != nil else {
             r.add("plaza.frames", false, "the controller's window did not open: \(shell.openFailure ?? "?")")
@@ -270,6 +271,8 @@ extension WindowsSelftest {
         await dragCheck(r, shell, hwnd)
         // plaza.focus: what teammates and timers trigger never brings the plaza forward.
         if let s = scene { await focusCheck(r, c, shell, hwnd, scene: s, members: members) }
+        // plaza.panels / clicks / cover / photo / wheel / hover: Task 10's HUD panels in the window.
+        await plazaPanelChecks(r, c, shell, hwnd, feed: feed)
         // plaza.keys / repeat / walk / altAlone / altGr / resignReleasesKeys / imeOff / click: Task 6's keyboard and mouse.
         if let s = scene { await plazaInputChecks(r, shell, hwnd, scene: s) }
         scene = nil   // the selftest's own reference: the close check below asks whether the controller let go of it

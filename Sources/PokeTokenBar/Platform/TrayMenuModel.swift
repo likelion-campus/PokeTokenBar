@@ -3,7 +3,7 @@ import Foundation
 /// The Windows tray menu as plain values (the Mac's `StatusItemMenu` counterpart, which lives in `UI/`), so tests can
 /// pin the contents without a window. `nil` entries are separators.
 enum TrayMenuModel {
-    enum Action: Equatable { case none, toggleLaunchAtLogin, openLogFolder, openRelease, refresh, openPlaza, quit }
+    enum Action: Equatable { case none, toggleLaunchAtLogin, openLogFolder, openRelease, refresh, openPlaza, openSettings, toggleBackView, quit }
 
     struct Item: Equatable {
         let title: String
@@ -20,10 +20,14 @@ enum TrayMenuModel {
     /// `update` is the version of an available release (Task 10 supplies it); nil hides the entry. `teammatesOnline` is
     /// the number of teammates linked right now, nil while the team is off (no team code, or turned off). `plazaUnread` is
     /// the board's unread count while the team is ready, nil hides the plaza entry: the Mac's status menu (`StatusItemMenu`,
-    /// `plazaAvailable` / `plazaUnread`), with its wording, which the team UI keeps in Korean. `updating` (stage 8: the in-app
-    /// update is downloading or starting Setup) shows a disabled "Updating…" row in place of the update entry.
+    /// `plazaAvailable` / `plazaUnread`), with its wording, which the team UI keeps in Korean. "Settings…" and "Back view"
+    /// (checked while `alwaysFacesBack`) are the Mac menu's too, in its order (stage 7 Task 4); its Pokédex and floating-pet
+    /// entries wait for tier 3. The host passes `store.todayTotalTokens`, `store.todayUsageCost` when `store.showsCost`, and
+    /// `store.alwaysFacesBack`, as `AppDelegate.showStatusMenu` does. `updating` (stage 8: the in-app update is downloading
+    /// or starting Setup) shows a disabled "Updating…" row in place of the update entry.
     static func items(l: L, todayTokens: Int, todayCost: UsageCost?, login: LoginState, update: String?,
-                      teammatesOnline: Int? = nil, plazaUnread: Int? = nil, updating: Bool = false) -> [Item?] {
+                      teammatesOnline: Int? = nil, plazaUnread: Int? = nil, alwaysFacesBack: Bool = false,
+                      updating: Bool = false) -> [Item?] {
         let loginItem: Item
         switch login {
         case .on:
@@ -51,6 +55,8 @@ enum TrayMenuModel {
             rows.append(Item(title: plazaTitle(l: l, unread: plazaUnread), enabled: true, checked: false, action: .openPlaza))
         }
         rows += [
+            Item(title: l.settings + "…", enabled: true, checked: false, action: .openSettings),
+            Item(title: l.backViewLabel, enabled: true, checked: alwaysFacesBack, action: .toggleBackView),
             loginItem,
             Item(title: l.openLogFolder, enabled: true, checked: false, action: .openLogFolder),
         ]

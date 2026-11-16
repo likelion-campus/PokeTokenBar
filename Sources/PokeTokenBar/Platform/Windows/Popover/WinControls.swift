@@ -57,6 +57,11 @@ enum WinEditKind: Equatable, Sendable {
     var onFrame: ((RECT) -> Void)?
     /// Runs when the control is destroyed, before its windows go (a drawn view frees its picture).
     var onDestroy: (() -> Void)?
+    /// The control's preferred size changed by itself (a drawn part's state): its page lays out again (set by the section).
+    var onSizeChange: (() -> Void)?
+    /// A control whose height follows its width (a drawn part) measures itself at the row's width in pixels during the
+    /// page's layout; true when its preferred size changed (the layout then runs its pass again).
+    var fitWidth: ((Int32) -> Bool)?
     /// `drawnItem`: paints the item (the drawn view's picture under it and the focus rectangle).
     var drawItem: ((UnsafeMutablePointer<DRAWITEMSTRUCT>) -> Void)?
 
@@ -88,10 +93,18 @@ enum WinEditKind: Equatable, Sendable {
     // MARK: state
 
     var text: String {
-        get { WinKit.text(of: hwnd) }
+        get { usesMnemonics ? WinKit.plainTitle(WinKit.text(of: hwnd)) : WinKit.text(of: hwnd) }
         set {
-            WinKit.setText(hwnd, newValue)
+            WinKit.setText(hwnd, usesMnemonics ? WinKit.title(newValue) : newValue)
             if kind == .edit { lastCommitted = newValue }
+        }
+    }
+
+    /// Buttons, check boxes, radio buttons and their accessible names read `&` as an access-key prefix: the kit doubles it.
+    var usesMnemonics: Bool {
+        switch kind {
+        case .button, .glyphButton, .checkbox, .radioGroup, .drawnItem: true
+        default: false
         }
     }
 
@@ -182,7 +195,10 @@ enum WinEditKind: Equatable, Sendable {
         commitIfChanged()
         isDestroyed = true
         onDestroy?()
-        onDestroy = nil
+        // Every callback goes: a page that captured itself in one would otherwise keep itself alive through its controls.
+        onDestroy = nil; onClick = nil; onToggle = nil; onSelect = nil; onValue = nil; onCommit = nil; onChange = nil
+        onFrame = nil; drawItem = nil; onSizeChange = nil; fitWidth = nil
+        format = { String($0) }
         for part in parts {
             ctx.tooltips.set(nil, for: part, in: GetParent(part))
             Self.forget(part)
@@ -258,9 +274,16 @@ enum WinEditKind: Equatable, Sendable {
         case 0x0008:  // WM_KILLFOCUS: a field commits when the focus leaves it
             if c.kind == .edit { c.commitIfChanged() }
             return nil
-        case 0x0087:  // WM_GETDLGCODE: take Enter, so IsDialogMessageW hands it to the control instead of IDOK to the window
-            guard let msg = UnsafePointer<MSG>(bitPattern: Int(lParam)), msg.pointee.message == UINT(WM_KEYDOWN),
-                  msg.pointee.wParam == WPARAM(VK_RETURN), c.takesReturn, !(isMultiLine && ctrlDown) else { return nil }
+        case 0x0087:  // WM_GETDLGCODE
+            guard let msg = UnsafePointer<MSG>(bitPattern: Int(lParam)), msg.pointee.message == UINT(WM_KEYDOWN) else { return nil }
+            let key = msg.pointee.wParam
+            if isMultiLine, key == WPARAM(VK_TAB) || key == WPARAM(VK_ESCAPE) {
+                // A multi-line edit wants every key; in a dialog it then sends WM_NEXTDLGCTL for Tab and posts WM_CLOSE for Esc
+                // to its parent pane. Left to the dialog manager, Tab moves on and Esc reaches the window (review finding 2).
+                return DefSubclassProc(hwnd, message, wParam, lParam) & ~LRESULT(0x0004 | 0x0002)  // DLGC_WANTALLKEYS | DLGC_WANTTAB
+            }
+            // Take Enter, so IsDialogMessageW hands it to the control instead of IDOK to the window.
+            guard key == WPARAM(VK_RETURN), c.takesReturn, !(isMultiLine && ctrlDown) else { return nil }
             return DefSubclassProc(hwnd, message, wParam, lParam) | 0x0004  // DLGC_WANTALLKEYS
         case UINT(WM_KEYDOWN) where wParam == WPARAM(VK_RETURN) && c.takesReturn && !(isMultiLine && ctrlDown):
             c.swallowReturnChar = true
@@ -270,9 +293,20 @@ enum WinEditKind: Equatable, Sendable {
             c.swallowReturnChar = false
             return 0
         case 0x0302 where isCode:  // WM_PASTE into a code field
-            let pasted = WinEditKind.codePaste(WinClipboardText.read() ?? "")
-            WinKit.send(hwnd, 0x00C2 /* EM_REPLACESEL */, 1, text: pasted)
+            // No text on the clipboard: nothing happens, as on the Mac (Paste is disabled there). The edit's own paste is no
+            // fallback: with an empty clipboard it clears the selection too (seen on the runner).
+            guard let raw = WinClipboardText.read(), !raw.isEmpty else { return 0 }
+            WinKit.send(hwnd, 0x00C2 /* EM_REPLACESEL */, 1, text: WinEditKind.codePaste(raw))
             return 0
+        case 0x00A1, 0x00A3:  // WM_NCLBUTTONDOWN / DBLCLK: on a scroll bar DefWindowProc runs its tracking loop
+            guard wParam == 6 || wParam == 7 else { return nil }  // HTHSCROLL, HTVSCROLL (a multi-line field's own bar)
+            WinModalPump.begin("scroll")
+            defer { WinModalPump.end("scroll") }
+            return DefSubclassProc(hwnd, message, wParam, lParam)
+        case 0x007B where c.kind == .edit:  // WM_CONTEXTMENU: the edit's own menu is a modal loop
+            WinModalPump.begin("menu")
+            defer { WinModalPump.end("menu") }
+            return DefSubclassProc(hwnd, message, wParam, lParam)
         case 0x020A where (c.kind == .combo || c.kind == .trackbar) && GetFocus() != hwnd:  // WM_MOUSEWHEEL: the page scrolls
             return SendMessageW(GetParent(hwnd), message, wParam, lParam)
         case 0x0200 where c.kind == .glyphButton && !c.hot:  // WM_MOUSEMOVE: hover look until WM_MOUSELEAVE
@@ -466,7 +500,7 @@ enum WinClipboardText {
     }
 
     static func button(_ title: String, in parent: HWND, ctx: WinUIContext) -> WinControl? {
-        guard let h = WinKit.create("Button", title, style: child | tabStop | group | 0x0000 /* BS_PUSHBUTTON */, parent: parent, id: id())
+        guard let h = WinKit.create("Button", WinKit.title(title), style: child | tabStop | group | 0x0000 /* BS_PUSHBUTTON */, parent: parent, id: id())
         else { return nil }
         let font = ctx.fonts.font(.body)
         WinKit.setFont(h, font)
@@ -479,7 +513,7 @@ enum WinClipboardText {
     /// A square owner-drawn button showing the symbol's Fluent / MDL2 glyph (or its fallback text); its window text is the
     /// accessible label, it draws its focus rectangle after keyboard use, and Enter or Space press it.
     static func glyphButton(symbol: String, label: String, size: CGFloat = 16, in parent: HWND, ctx: WinUIContext) -> WinControl? {
-        guard let h = WinKit.create("Button", label, style: child | tabStop | group | 0x000B /* BS_OWNERDRAW */, parent: parent, id: id())
+        guard let h = WinKit.create("Button", WinKit.title(label), style: child | tabStop | group | 0x000B /* BS_OWNERDRAW */, parent: parent, id: id())
         else { return nil }
         let side = CGFloat(ctx.px(size + 12))
         let c = WinControl(kind: .glyphButton, ctx: ctx, parts: [h], size: CGSize(width: side, height: side),
@@ -498,7 +532,7 @@ enum WinClipboardText {
     /// Windows 11 Settings' switches); the label is its accessible name.
     static func checkbox(_ title: String, isOn: Bool, in parent: HWND, ctx: WinUIContext) -> WinControl? {
         let bs: DWORD = 0x0003 /* BS_AUTOCHECKBOX */ | 0x0020 /* BS_LEFTTEXT, BS_RIGHTBUTTON */ | 0x2000 /* BS_MULTILINE */
-        guard let h = WinKit.create("Button", title, style: child | tabStop | group | bs, parent: parent, id: id()) else { return nil }
+        guard let h = WinKit.create("Button", WinKit.title(title), style: child | tabStop | group | bs, parent: parent, id: id()) else { return nil }
         let font = ctx.fonts.font(.body)
         WinKit.setFont(h, font)
         let s = ctx.measure(title, font: font)
@@ -518,7 +552,7 @@ enum WinClipboardText {
         var widest: Int32 = 0, height: Int32 = 0
         for (i, title) in titles.enumerated() {
             let first: DWORD = i == 0 ? tabStop | group : 0
-            guard let h = WinKit.create("Button", title, style: child | first | 0x0009 /* BS_AUTORADIOBUTTON */ | 0x1000 /* BS_PUSHLIKE */,
+            guard let h = WinKit.create("Button", WinKit.title(title), style: child | first | 0x0009 /* BS_AUTORADIOBUTTON */ | 0x1000 /* BS_PUSHLIKE */,
                                         parent: parent, id: id()) else {
                 for p in parts { _ = DestroyWindow(p) }
                 return nil
@@ -657,7 +691,7 @@ enum WinClipboardText {
         let font = ctx.fonts.font(.callout)
         WinKit.setFont(h, font)
         for (i, title) in titles.enumerated() {
-            var wide = WinStr.w(title)
+            var wide = WinStr.w(WinKit.title(title))
             wide.withUnsafeMutableBufferPointer { buffer in
                 var item = TCITEMW()
                 item.mask = 0x0001  // TCIF_TEXT
@@ -680,7 +714,7 @@ enum WinClipboardText {
         let name = item.value.map { "\(item.label), \($0)" } ?? item.label
         let isButton = item.role == .button || item.role == .menuItem
         let style = isButton ? child | tabStop | group | 0x000B /* BS_OWNERDRAW */ : child | 0x000D /* SS_OWNERDRAW */ | 0x0080
-        guard let h = WinKit.create(isButton ? "Button" : "Static", name, style: style, parent: parent, id: id()) else { return nil }
+        guard let h = WinKit.create(isButton ? "Button" : "Static", isButton ? WinKit.title(name) : name, style: style, parent: parent, id: id()) else { return nil }
         let c = WinControl(kind: .drawnItem, ctx: ctx, parts: [h], size: .zero, background: ctx.colors.palette.window, font: nil)
         if !item.isEnabled { c.isEnabled = false }
         return c

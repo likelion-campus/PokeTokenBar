@@ -25,7 +25,7 @@ namespace ptb {
 /// The process's multi-threaded Direct2D factory (canvas_core.cpp): text geometries must come from the factory the canvases use.
 int sharedD2DFactory(Ref<ID2D1Factory> &out);
 
-enum TextFont { kFontGalmuri11 = 0, kFontGalmuri14 = 1, kFontPretendard = 2, kFontEmoji = 3, kFontCount = 4 };
+enum TextFont { kFontGalmuri11 = 0, kFontGalmuri14 = 1, kFontPretendard = 2, kFontEmoji = 3, kFontSymbol = 4, kFontCount = 5 };
 enum MeasuringMode { kMeasureNatural = 0, kMeasureGdiClassic = 1, kMeasureGdiNatural = 2 };
 
 /// Line metrics as CoreText reports them: all three positive distances.

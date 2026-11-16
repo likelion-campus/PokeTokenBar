@@ -54,7 +54,7 @@ struct PopoverStackMetrics: Equatable, Sendable {
 struct PopoverStackRow {
     enum Style: Equatable, Sendable {
         /// Label (and hint under it) on the left, the control on the right (`groupRow`, `toggleRow`); stacked instead when
-        /// the control would take more than 60 % of the row.
+        /// the control would take more than 60 % of the row, or a word of the label does not fit beside it.
         case trailing
         /// The label (and hint) on top, the control under it at the row's full width (a multi-line field).
         case stacked
@@ -150,13 +150,24 @@ enum PopoverStackLayout {
         var style = row.style
         // A control wider than 60 % of the row would squeeze its label (Windows' text size, a long picker): label above,
         // control under it, as SwiftUI's rows fall back when they do not fit.
-        if style == .trailing, let c = row.control, c.width > innerW * 0.6, row.text(innerW).label != nil { style = .stacked }
+        var besideControl: (label: CGSize?, hint: CGSize?)?  // the text measured beside the control (measured once)
+        if style == .trailing, let c = row.control {
+            let textW = max(0, innerW - min(c.width.rounded(.up), innerW) - m.rowSpacing)
+            if c.width > innerW * 0.6, row.text(innerW).label != nil {
+                style = .stacked
+            } else {
+                let text = row.text(textW)
+                besideControl = text
+                // a word of the label is wider than the room beside the control ("Aktualisierungsintervall" at 125 %)
+                if let label = text.label, label.width.rounded(.up) > textW { style = .stacked }
+            }
+        }
         switch style {
         case .trailing:
             let control = up(row.control)
             let cw = min(control?.width ?? 0, innerW)
             let textW = max(0, innerW - cw - (control == nil ? 0 : m.rowSpacing))
-            let text = row.text(textW)
+            let text = besideControl ?? row.text(textW)
             let label = up(text.label), hint = up(text.hint)
             let textH = (label?.height ?? 0) + (hint.map { m.hintSpacing + $0.height } ?? 0)
             let contentH = max(textH, control?.height ?? 0)

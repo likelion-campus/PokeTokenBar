@@ -24,7 +24,10 @@ extension WindowsSelftest {
     static func run(_ r: WindowsSelftest.Recorder) async {
         let start = KitResources.now()
         await keyboardChecks(r)
+        await multiLineKeysCheck(r)
         await galleryChecks(r)
+        await registriesCheck(r)
+        await noLeakCheck(r)
         await openCloseCheck(r, start: start)
     }
 
@@ -303,8 +306,14 @@ extension WindowsSelftest {
         await drawnChecks(r, w, page)
         tooltipCheck(r, w, page)
         await scrollChecks(r, w, page)
+        await partResizeCheck(r, w, page)
+        await scrollClickChecks(r, w, page)
         await dpiCheck(r, w, page)
         await idleCheck(r, w, page)
+        await settingChangeCheck(r, w, page)
+        await editMenuCheck(r, w, page)
+        await codePasteCheck(r, w, page)
+        ampersandCheck(r, w)
         w.destroy()
 
         // Full-height pages for the captures and the tree checks.
@@ -567,7 +576,7 @@ extension WindowsSelftest {
 
     private static func openCloseCheck(_ r: WindowsSelftest.Recorder, start: KitResources) async {
         var cycles: [KitResources] = []
-        for _ in 0..<4 {
+        for _ in 0..<6 {
             let page = GalleryPage()
             guard let w = KitWindow(heightDIP: 520, build: { _, s in page.build(s) }) else { break }
             w.show(activate: false)
@@ -576,16 +585,20 @@ extension WindowsSelftest {
             _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
             cycles.append(KitResources.now())
         }
-        guard let warm = cycles.first, cycles.count == 4 else {
+        guard let warm = cycles.first, cycles.count == 6 else {
             r.add("ui.kit.openClose3", false, "the window could not be made")
             return
         }
-        let last = cycles[3]
-        let ok = last.gdi - warm.gdi <= 5 && last.user - warm.user <= 5 && last.handles - warm.handles <= 10 && last.controls == 0 && last.dialogs == start.dialogs
-            && last.pumpDepth == 0 && !WinModalPump.timerLive
+        let rest = cycles.dropFirst()
+        // Kernel handles belong to the whole process (worker threads, the network): a pool that grows once is not the page's.
+        // A handle the page leaks shows as a rise on every cycle.
+        let handlesRise = zip(cycles, rest).allSatisfy { $1.handles > $0.handles }
+        let ok = rest.allSatisfy { $0.gdi == warm.gdi && $0.user == warm.user && $0.controls == 0
+            && $0.dialogs == start.dialogs && $0.areas == 0 && $0.pumpDepth == 0 } && !handlesRise && !WinModalPump.timerLive
         r.add("ui.kit.openClose3", ok,
-              "before the group: \(start); after a warm-up open/close: \(warm); after 3 more: \(cycles.dropFirst().map { "\($0)" }.joined(separator: " / ")) "
-              + "(budget over the warm-up: GDI +5, USER +5, handles +10; no kit control, dialog registration or pump timer left)")
+              "before the group: \(start); after a warm-up open/close: \(warm); after 5 more: \(rest.map { "\($0)" }.joined(separator: " / ")) "
+              + "(over the warm-up: GDI and USER objects +0 after every cycle, handles not rising on every cycle (rose every time=\(handlesRise)); "
+              + "no kit control, dialog registration, scroll area or pump timer left)")
     }
 
     // MARK: - the idle gate's probe
@@ -668,6 +681,361 @@ extension WindowsSelftest {
         var ranCount: Int { lock.lock(); defer { lock.unlock() }; return ran.count }
     }
 
+    // MARK: - post-merge review: the minor findings
+
+    /// Review 14: setting broadcasts that change nothing the page was made from do not rebuild it (focus, scroll and an IME
+    /// composition survive).
+    private static func settingChangeCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard let field = page.firstField, let area = w.scroll else { r.add("ui.kit.settingChange", false, "no page"); return }
+        _ = SetFocus(field.hwnd)
+        area.scroll(to: 40)
+        let rebuilds0 = w.rebuilds, messages0 = w.settingMessages, offset0 = area.offset
+        WinKit.send(w.hwnd, 0x001A /* WM_SETTINGCHANGE */, 0, text: "ImmersiveColorSet")
+        WinKit.send(w.hwnd, 0x001A, 0x0068 /* SPI_SETWHEELSCROLLLINES */, 0)
+        WinKit.send(w.hwnd, 0x0015 /* WM_SYSCOLORCHANGE */)
+        WinKit.send(w.hwnd, 0x031A /* WM_THEMECHANGED */)
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        let focusKept = GetFocus() == page.firstField?.hwnd, offsetKept = w.scroll?.offset == offset0
+        r.add("ui.kit.settingChange", w.rebuilds == rebuilds0 && w.settingMessages == messages0 + 4 && focusKept && offsetKept && !w.ctx.needsRebuild(),
+              "4 setting broadcasts that change nothing the page was made from: rebuilds +\(w.rebuilds - rebuilds0) (expected 0), focus kept=\(focusKept), "
+              + "scroll offset kept=\(offsetKept) (\(offset0)); needsRebuild()=\(w.ctx.needsRebuild()), needsRebuild(dpi: 144)=\(w.ctx.needsRebuild(dpi: 144))")
+    }
+
+    /// Review 6: an edit's own context menu runs inside WinModalPump (the main queue keeps running).
+    private static func editMenuCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard WindowsSelftest.onCI else { r.add("ui.kit.editMenu", true, "skipped: CI not set"); return }
+        guard let field = page.firstField else { r.add("ui.kit.editMenu", false, "no field"); return }
+        WindowsSelftest.forceForeground(w.hwnd)
+        _ = SetFocus(field.hwnd)
+        let state = MenuState()
+        let main = WindowsApp.mainThreadID
+        Thread {
+            func inMenu() -> Bool {
+                var info = GUITHREADINFO()
+                info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+                _ = GetGUIThreadInfo(main, &info)
+                return info.flags & 0x0010 /* GUI_POPUPMENUMODE */ != 0
+            }
+            var waited = 0
+            while !inMenu(), waited < 150 { Thread.sleep(forTimeInterval: 0.02); waited += 1 }
+            state.open = inMenu()
+            Thread.sleep(forTimeInterval: 0.2)
+            for i in 0..<10 {
+                // Counted only when the main thread is still in menu mode as the block runs: a block that waited for the
+                // menu to close runs right after it (and before this thread notices), which is the defect, not a pass.
+                DispatchQueue.main.async {
+                    var info = GUITHREADINFO()
+                    info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+                    _ = GetGUIThreadInfo(GetCurrentThreadId(), &info)
+                    if state.open, info.flags & 0x0010 /* GUI_POPUPMENUMODE */ != 0 { state.ranWhileOpen(i) }
+                }
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+            Thread.sleep(forTimeInterval: 0.3)
+            for _ in 0..<5 where inMenu() {
+                WindowsSelftestPopover.keyFromThread(0x1B)
+                Thread.sleep(forTimeInterval: 0.3)
+            }
+            state.open = false
+        }.start()
+        _ = PostMessageW(field.hwnd, 0x007B /* WM_CONTEXTMENU */, WPARAM(UInt(bitPattern: Int(bitPattern: field.hwnd))), LPARAM(-1))
+        _ = await WindowsSelftest.waitUntil(timeout: 6) { false }
+        r.add("ui.kit.editMenu", state.ranCount > 0, "the field's own context menu (posted WM_CONTEXTMENU): main-queue blocks run while open=\(state.ranCount)/10")
+    }
+
+    nonisolated static func keyFromThread(_ vk: UInt16) {
+        var inputs = [INPUT(), INPUT()]
+        inputs[0].type = DWORD(INPUT_KEYBOARD)
+        inputs[0].ki.wVk = vk
+        inputs[1] = inputs[0]
+        inputs[1].ki.dwFlags = DWORD(KEYEVENTF_KEYUP)
+        _ = SendInput(2, &inputs, Int32(MemoryLayout<INPUT>.stride))
+    }
+
+    /// Review 11: a paste into a code field drops spaces and line breaks; with no text on the clipboard nothing happens (the
+    /// selection stays; the edit's own paste would clear it).
+    private static func codePasteCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard WindowsSelftest.onCI else { r.add("ui.kit.codePaste", true, "skipped: CI not set (the check writes the clipboard)"); return }
+        guard let code = page.codeField else { r.add("ui.kit.codePaste", false, "no code field"); return }
+        code.text = ""
+        let put = setClipboard(" PTB-ABCDE-\r\nFGHIJ\n", owner: w.hwnd)
+        WinKit.send(code.hwnd, 0x0302 /* WM_PASTE */)
+        let pasted = code.text
+        code.text = "KEEP"
+        WinKit.send(code.hwnd, 0x00B1 /* EM_SETSEL */, 0, -1)
+        let emptied = setClipboard(nil, owner: w.hwnd)
+        WinKit.send(code.hwnd, 0x0302)
+        let kept = code.text
+        code.text = ""
+        r.add("ui.kit.codePaste", put && emptied && pasted == "PTB-ABCDE-FGHIJ" && kept == "KEEP",
+              "paste of \" PTB-ABCDE-\\r\\nFGHIJ\\n\" -> '\(pasted)'; with an empty clipboard over a selected 'KEEP' -> '\(kept)' (clipboard set=\(put), emptied=\(emptied))")
+    }
+
+    static func setClipboard(_ text: String?, owner: HWND) -> Bool {
+        guard OpenClipboard(owner) else { return false }
+        defer { _ = CloseClipboard() }
+        _ = EmptyClipboard()
+        guard let text else { return true }
+        let units = Array(text.utf16) + [0]
+        guard let memory = GlobalAlloc(UINT(0x0002) /* GMEM_MOVEABLE */, SIZE_T(units.count * 2)), let p = GlobalLock(memory) else { return false }
+        units.withUnsafeBytes { p.copyMemory(from: $0.baseAddress!, byteCount: $0.count) }
+        _ = GlobalUnlock(memory)
+        return SetClipboardData(13 /* CF_UNICODETEXT */, memory) != nil
+    }
+
+    /// Review 7: "&" in the app's strings (About & Support, Backup & Transfer, Claude & GPT Models) shows as "&" in every
+    /// control that reads access keys, and the control's text gives the string back.
+    private static func ampersandCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow) {
+        guard let pane = w.scroll?.content.hwnd else { r.add("ui.kit.ampersand", false, "no pane"); return }
+        var bad: [String] = []
+        var checked = 0
+        for language in AppLanguage.allCases {
+            let l = L(language)
+            for text in [l.aboutSupportSectionTitle, l.transferSectionTitle, l.antigravityThirdPartyGroup] where text.contains("&") {
+                let made = [WinControls.button(text, in: pane, ctx: w.ctx), WinControls.checkbox(text, isOn: false, in: pane, ctx: w.ctx),
+                            WinControls.radioGroup([text, "x"], selected: 0, in: pane, ctx: w.ctx),
+                            WinControls.glyphButton(symbol: "gearshape", label: text, in: pane, ctx: w.ctx)].compactMap { $0 }
+                for c in made {
+                    checked += 1
+                    let raw = WinKit.text(of: c.hwnd)
+                    if raw != text.replacingOccurrences(of: "&", with: "&&") || c.text != text { bad.append("\(c.kind) '\(raw)'") }
+                    c.destroy()
+                }
+            }
+        }
+        r.add("ui.kit.ampersand", bad.isEmpty && checked > 0, "\(checked) controls titled with the app's strings that contain '&' (8 languages): window text doubles it, the control's text gives it back; wrong=\(bad)")
+    }
+
+    /// Review 8: a kit window closed without the kit's own destroy (Alt+F4, a default WM_CLOSE) leaves no dialog
+    /// registration and no scroll area behind.
+    private static func registriesCheck(_ r: WindowsSelftest.Recorder) async {
+        let before = (WinMessageHook.dialogWindowCount, WinScrollArea.liveCount)
+        guard let w = KitWindow(heightDIP: 200, build: { _, s in s.addSection("Close").addToggle("Toggle", isOn: false) }) else {
+            r.add("ui.kit.registries", false, "no window")
+            return
+        }
+        let open = (WinMessageHook.dialogWindowCount, WinScrollArea.liveCount)
+        _ = DestroyWindow(w.hwnd)
+        let after = (WinMessageHook.dialogWindowCount, WinScrollArea.liveCount)
+        w.destroy()
+        r.add("ui.kit.registries", after == before && open.0 == before.0 + 1 && open.1 == before.1 + 1,
+              "dialog registrations / scroll areas: before \(before.0)/\(before.1), open \(open.0)/\(open.1), after a plain DestroyWindow \(after.0)/\(after.1)")
+    }
+
+    /// Review 9: a page that captures itself in a control's callback is freed when its window closes.
+    private static func noLeakCheck(_ r: WindowsSelftest.Recorder) async {
+        final class SelfCapturing { var button: WinControl?; var clicks = 0 }
+        weak var weakPage: SelfCapturing?
+        do {
+            let page = SelfCapturing()
+            weakPage = page
+            guard let w = KitWindow(heightDIP: 200, build: { _, s in
+                page.button = s.addSection("Leak").addRow("Button") { pane, ctx in WinControls.button("Press", in: pane, ctx: ctx) }.control
+                page.button?.onClick = { page.clicks += 1 }  // the page -> its control -> this closure -> the page
+            }) else {
+                r.add("ui.kit.noLeak", false, "no window")
+                return
+            }
+            w.destroy()
+        }
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        r.add("ui.kit.noLeak", weakPage == nil, "a page held by its own control's onClick: freed after its window closed=\(weakPage == nil)")
+    }
+
+    // MARK: - post-merge review: tracking loops, multi-line keys, parts that change size
+
+    /// Review finding 1: a scroll bar's own tracking loop (`DefWindowProc` on a non-client click) must see its mouse input and
+    /// leave the main queue running: a double click on the page's down arrow (the second click is `WM_NCLBUTTONDBLCLK`) and
+    /// one click on a multi-line field's own arrow. A stuck loop is freed by a watchdog (`WM_CANCELMODE` sent to the window
+    /// holding the capture), so the selftest goes on and reports it.
+    private static func scrollClickChecks(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard WindowsSelftest.onCI else {
+            r.add("ui.kit.scrollClicks", true, "skipped: CI not set")
+            return
+        }
+        guard let area = w.scroll, let field = page.lastField else {
+            r.add("ui.kit.scrollClicks", false, "no scroll area or multi-line field")
+            return
+        }
+        WindowsSelftest.forceForeground(w.hwnd)
+        let line = w.ctx.px(WinScrollArea.lineDIP)
+        area.scroll(to: 0)
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        var page1 = SCROLLBARINFO()
+        page1.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
+        _ = GetScrollBarInfo(area.viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB) /* OBJID_VSCROLL */, &page1)
+        let arrow = POINT(x: (page1.rcScrollBar.left + page1.rcScrollBar.right) / 2, y: page1.rcScrollBar.bottom - page1.dxyLineButton / 2)
+        let double = await clickRun(at: arrow, clicks: 2)
+        let pageOffset = area.offset
+        let pageCapture = GetCapture()
+        // The multi-line field: twelve lines in a three-line box, scrolled into view, its own scroll bar's down arrow once.
+        field.text = (1...12).map { "C:\\folder\\\($0)" }.joined(separator: "\r\n")
+        WinKit.send(field.hwnd, 0x00B1 /* EM_SETSEL */, 0, 0)
+        WinKit.send(field.hwnd, 0x00B7 /* EM_SCROLLCARET */)
+        let fr = WinKit.rect(field.hwnd, in: area.content.hwnd)
+        area.reveal(top: fr.top, bottom: fr.bottom)
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        var bar = SCROLLBARINFO()
+        bar.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
+        _ = GetScrollBarInfo(field.hwnd, Int32(bitPattern: 0xFFFF_FFFB), &bar)
+        let firstBefore = WinKit.send(field.hwnd, 0x00CE /* EM_GETFIRSTVISIBLELINE */)
+        let fieldArrow = POINT(x: (bar.rcScrollBar.left + bar.rcScrollBar.right) / 2, y: bar.rcScrollBar.bottom - bar.dxyLineButton / 2)
+        let one = await clickRun(at: fieldArrow, clicks: 1)
+        let firstAfter = WinKit.send(field.hwnd, 0x00CE)
+        let fieldCapture = GetCapture()
+        // Held down 0.8 s (the arrow repeats): the field's arrow (the kit subclass's tracking loop), then the second press
+        // of a double click on the page's arrow (WM_NCLBUTTONDBLCLK): the main queue keeps running inside WinModalPump.
+        let heldField = await clickRun(at: fieldArrow, clicks: 1, holdLast: true)
+        let heldPage = await clickRun(at: arrow, clicks: 2, holdLast: true)
+        field.text = ""
+        area.scroll(to: 0)
+        let ok = pageOffset == 2 * line && pageCapture == nil && !double.stuck && double.blockRan
+            && firstAfter == firstBefore + 1 && fieldCapture == nil && !one.stuck && one.blockRan
+            && heldField.heldRan && !heldField.stuck && heldPage.heldRan && !heldPage.stuck
+        r.add("ui.kit.scrollClicks", ok,
+              "double click on the page's down arrow at (\(arrow.x),\(arrow.y)): offset 0 -> \(pageOffset) (expected \(2 * line), two lines), capture after=\(pageCapture == nil ? "none" : "kept"), "
+              + "\(double.detail); one click on the multi-line field's own down arrow: first visible line \(firstBefore) -> \(firstAfter) (expected +1), "
+              + "capture after=\(fieldCapture == nil ? "none" : "kept"), \(one.detail); held on the field's arrow: \(heldField.detail); "
+              + "double click held on the page's arrow: \(heldPage.detail)")
+    }
+
+    private struct ClickResult { var stuck: Bool, blockRan: Bool, heldRan: Bool, detail: String }
+
+    /// Clicks at a screen point from another thread, then posts a main-queue block and waits for it. When the main thread
+    /// still holds the mouse capture without serving that block, the loop is stuck: the watchdog frees it.
+    /// `holdLast`: the last press stays down while a main-queue block is posted (0.8 s at most), as a user holds an arrow.
+    private static func clickRun(at p: POINT, clicks: Int, holdLast: Bool = false) async -> ClickResult {
+        let box = ClickBox()
+        let main = WindowsApp.mainThreadID
+        let px = p.x, py = p.y
+        Thread {
+            mouse(x: px, y: py, flags: 0x0001 | 0x8000)
+            Thread.sleep(forTimeInterval: 0.08)
+            for click in 0..<clicks {
+                mouse(x: px, y: py, flags: 0x0002)  // LEFTDOWN
+                Thread.sleep(forTimeInterval: 0.03)
+                if holdLast, click == clicks - 1 {
+                    Thread.sleep(forTimeInterval: 0.1)
+                    DispatchQueue.main.async { box.heldBlockRan() }
+                    for _ in 0..<40 where !box.heldRan { Thread.sleep(forTimeInterval: 0.02) }
+                    box.released()  // what ran before the button went up (a stuck loop serves the block only after it)
+                }
+                mouse(x: px, y: py, flags: 0x0004)  // LEFTUP
+                Thread.sleep(forTimeInterval: 0.06)
+            }
+            Thread.sleep(forTimeInterval: 0.4)
+            DispatchQueue.main.async { box.ran() }
+            for _ in 0..<100 where !box.blockRan { Thread.sleep(forTimeInterval: 0.02) }
+            var info = GUITHREADINFO()
+            info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+            _ = GetGUIThreadInfo(main, &info)
+            let held = info.hwndCapture.map { Int(bitPattern: $0) } ?? 0
+            var freed = 0
+            if !box.blockRan || held != 0 {
+                for _ in 0..<10 {
+                    var now = GUITHREADINFO()
+                    now.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+                    _ = GetGUIThreadInfo(main, &now)
+                    guard let capture = now.hwndCapture else { break }
+                    var reply: DWORD_PTR = 0
+                    _ = SendMessageTimeoutW(capture, 0x001F /* WM_CANCELMODE */, 0, 0, UINT(SMTO_ABORTIFHUNG), 2000, &reply)
+                    freed += 1
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+            }
+            let heldPart = holdLast ? "main-queue block ran while the button was held=\(box.ranWhileHeld), " : ""
+            box.finish(stuck: !box.blockRan || held != 0,
+                       detail: heldPart + "main-queue block ran within 2 s=\(box.blockRan), capture still held then=\(held != 0), watchdog WM_CANCELMODE x\(freed)")
+        }.start()
+        _ = await WindowsSelftest.waitUntil(timeout: 30) { box.isDone }
+        _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        return ClickResult(stuck: box.stuck, blockRan: box.blockRan, heldRan: box.ranWhileHeld, detail: box.detail)
+    }
+
+    private final class ClickBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _ran = false, _heldRan = false, _ranWhileHeld = false, _done = false, _stuck = false, _detail = ""
+        func ran() { lock.lock(); _ran = true; lock.unlock() }
+        func heldBlockRan() { lock.lock(); _heldRan = true; lock.unlock() }
+        func released() { lock.lock(); _ranWhileHeld = _heldRan; lock.unlock() }
+        var heldRan: Bool { lock.lock(); defer { lock.unlock() }; return _heldRan }
+        var ranWhileHeld: Bool { lock.lock(); defer { lock.unlock() }; return _ranWhileHeld }
+        func finish(stuck: Bool, detail: String) { lock.lock(); _stuck = stuck; _detail = detail; _done = true; lock.unlock() }
+        var blockRan: Bool { lock.lock(); defer { lock.unlock() }; return _ran }
+        var isDone: Bool { lock.lock(); defer { lock.unlock() }; return _done }
+        var stuck: Bool { lock.lock(); defer { lock.unlock() }; return _stuck }
+        var detail: String { lock.lock(); defer { lock.unlock() }; return _detail }
+    }
+
+    /// Review finding 2: in a multi-line field Tab and Shift+Tab move the focus, Esc reaches the window (and destroys
+    /// nothing), Enter commits.
+    static func multiLineKeysCheck(_ r: WindowsSelftest.Recorder) async {
+        guard WindowsSelftest.onCI else {
+            r.add("ui.kit.multiLineKeys", true, "skipped: CI not set")
+            return
+        }
+        var madeField: WinControl?, madeAfter: WinControl?
+        guard let w = KitWindow(heightDIP: 260, build: { _, s in
+            let section = s.addSection("Multi-line")
+            madeField = section.addRow("Scan folders", style: .stacked) { pane, ctx in WinControls.edit(.multiLine(lines: 3, cue: nil), in: pane, ctx: ctx) }.control
+            madeAfter = section.addRow("Next") { pane, ctx in WinControls.button("After", in: pane, ctx: ctx) }.control
+        }), let field = madeField, let after = madeAfter else {
+            r.add("ui.kit.multiLineKeys", false, "the window could not be made")
+            return
+        }
+        defer { if !w.isDestroyed { w.destroy() } }
+        w.show(activate: true)
+        let pane = w.scroll?.content.hwnd
+        _ = SetFocus(field.hwnd)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { GetFocus() == field.hwnd }
+        tap(0x09)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { GetFocus() != field.hwnd }
+        let tabTo = GetFocus() == after.hwnd ? "the next button" : (GetFocus() == field.hwnd ? "stayed in the field" : "elsewhere")
+        tap(0x09, shift: true)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { GetFocus() == field.hwnd }
+        let backTo = GetFocus() == field.hwnd ? "the field" : "elsewhere"
+        var commits: [String] = []
+        field.onCommit = { commits.append($0) }
+        typeUnicode(0x61)
+        tap(0x0D)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { !commits.isEmpty }
+        let escapes0 = w.escapes
+        tap(0x1B)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { w.escapes > escapes0 }
+        _ = await WindowsSelftest.waitUntil(timeout: 0.5) { false }
+        let paneAlive = pane.map { IsWindow($0) } ?? false, fieldAlive = IsWindow(field.hwnd)
+        r.add("ui.kit.multiLineKeys", tabTo == "the next button" && backTo == "the field" && commits == ["a"] && w.escapes == escapes0 + 1 && paneAlive && fieldAlive,
+              "multi-line field: Tab -> \(tabTo); Shift+Tab -> \(backTo); Enter -> onCommit \(commits); Esc -> IDCANCEL to the window +\(w.escapes - escapes0), "
+              + "content pane alive=\(paneAlive) field alive=\(fieldAlive)")
+    }
+
+    /// Review finding 3: a drawn part whose height follows its state and its width: the page lays itself out again, so the
+    /// row under it never overlaps it (or leaves a gap).
+    private static func partResizeCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
+        guard let view = page.growing, let part = page.growingPart, let below = page.belowGrowing, let area = w.scroll, let stack = w.stack else {
+            r.add("ui.kit.partResize", false, "no growing part on the page")
+            return
+        }
+        func measure() -> (partBottom: Int32, belowTop: Int32, partH: Int32, rowH: Int32, frameH: Int32) {
+            let p = WinKit.rect(view.hwnd, in: area.content.hwnd), b = WinKit.rect(below.hwnd, in: area.content.hwnd)
+            let row = stack.frames?.sections.compactMap { $0 }.flatMap { $0.rows.compactMap { $0 } }.first { $0.control.map { Int32($0.minY) == p.top } ?? false }
+            return (p.bottom, b.top, p.bottom - p.top, Int32(row?.frame.height ?? -1), Int32(row?.control?.height ?? -1))
+        }
+        _ = await WindowsSelftest.waitUntil(timeout: 0.5) { false }
+        let first = measure()
+        part.toggle()
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
+        let grown = measure()
+        part.toggle()
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
+        let back = measure()
+        func ok(_ m: (partBottom: Int32, belowTop: Int32, partH: Int32, rowH: Int32, frameH: Int32)) -> Bool { m.belowTop >= m.partBottom && m.frameH == m.partH }
+        r.add("ui.kit.partResize", ok(first) && ok(grown) && ok(back) && grown.partH > first.partH && grown.belowTop - first.belowTop == grown.partH - first.partH,
+              "part measured at 400 DIP, placed in a narrower row: part \(first.partH) px high (layout's frame \(first.frameH)), its bottom \(first.partBottom), the next row's top \(first.belowTop); "
+              + "grown: \(grown.partH) px (frame \(grown.frameH)), bottom \(grown.partBottom), next top \(grown.belowTop); back: \(back.partH) px, next top \(back.belowTop); "
+              + "layouts=\(stack.layouts) renders=\(view.stats.renders)")
+    }
+
     private final class DepthBox: @unchecked Sendable {
         private let lock = NSLock()
         private var items: [Int] = []
@@ -681,16 +1049,16 @@ extension WindowsSelftest {
 
 /// GDI and USER objects, handles, kit controls, dialog registrations and the pump: what a popover must give back on close.
 struct KitResources: CustomStringConvertible {
-    var gdi: Int, user: Int, handles: Int, controls: Int, dialogs: Int, pumpDepth: Int
+    var gdi: Int, user: Int, handles: Int, controls: Int, dialogs: Int, areas: Int, pumpDepth: Int
 
     @MainActor static func now() -> KitResources {
         let process = GetCurrentProcess()
         return KitResources(gdi: Int(GetGuiResources(process, 0 /* GR_GDIOBJECTS */)), user: Int(GetGuiResources(process, 1 /* GR_USEROBJECTS */)),
                             handles: Int(ptb_process_handle_count()), controls: WinControl.liveCount, dialogs: WinMessageHook.dialogWindowCount,
-                            pumpDepth: WinModalPump.depth)
+                            areas: WinScrollArea.liveCount, pumpDepth: WinModalPump.depth)
     }
 
-    var description: String { "gdi=\(gdi) user=\(user) handles=\(handles) controls=\(controls) dialogs=\(dialogs)" }
+    var description: String { "gdi=\(gdi) user=\(user) handles=\(handles) controls=\(controls) dialogs=\(dialogs) areas=\(areas)" }
 }
 
 /// A top-level kit window of the selftest: the popover's window style (a tool window: no taskbar button, not in Alt+Tab),
@@ -711,7 +1079,7 @@ struct KitResources: CustomStringConvertible {
     private var heightDIP: CGFloat
     private let textScale: Double?, highContrast: Bool?
     let isRegistered: Bool
-    private(set) var escapes = 0, oks = 0, rebuilds = 0
+    private(set) var escapes = 0, oks = 0, rebuilds = 0, settingMessages = 0
     var onMenuMessage: (() -> Void)?
     private(set) var isDestroyed = false
 
@@ -753,7 +1121,8 @@ struct KitResources: CustomStringConvertible {
         for message: UINT in [0x001A /* WM_SETTINGCHANGE */, 0x0015 /* WM_SYSCOLORCHANGE */, 0x031A /* WM_THEMECHANGED */] {
             made.on(message) { [weak self] _, _ in
                 guard let self else { return nil }
-                self.rebuild(dpi: self.ctx.dpi)  // high contrast, the accent and the text size are read again
+                self.settingMessages += 1
+                if self.ctx.needsRebuild() { self.rebuild(dpi: self.ctx.dpi) }  // only when what the page was built from changed
                 return nil
             }
         }
@@ -852,6 +1221,10 @@ struct KitResources: CustomStringConvertible {
 @MainActor final class GalleryPage {
     var styleLabel: WinControl?, firstField: WinControl?, lastField: WinControl?, firstButton: WinControl?
     var drawn: WinDrawnView?
+    var codeField: WinControl?, lateToggle: WinControl?
+    var growing: WinDrawnView?
+    var growingPart: KitGrowingPart?
+    var belowGrowing: WinControl?
     var part: KitFixturePart?
     var tooltipCount = 0
 
@@ -889,7 +1262,9 @@ struct KitResources: CustomStringConvertible {
         }
         let fields = s.addSection("Fields")
         firstField = fields.addRow("Nickname") { pane, ctx in WinControls.edit(.text(cue: "Nickname"), width: 160, in: pane, ctx: ctx) }.control
-        fields.addRow("Team code") { pane, ctx in WinControls.edit(.code(cue: "PTB-XXXXX-XXXXX"), width: 170, in: pane, ctx: ctx) }
+        codeField = fields.addRow("Team code") { pane, ctx in WinControls.edit(.code(cue: "PTB-XXXXX-XXXXX"), width: 170, in: pane, ctx: ctx) }.control
+        fields.addRow(nil, style: .full, accessibleName: "Search the fields") { pane, ctx in WinControls.edit(.text(cue: "Search (no label: an accessible name)"), in: pane, ctx: ctx) }
+        lateToggle = toggles.addToggle("Late toggle (added after the Fields section)", isOn: false).control
         fields.addRow("Session key", style: .stacked) { pane, ctx in WinControls.edit(.password(cue: "sk-ant-sid01-…"), text: "fixture", in: pane, ctx: ctx) }
         lastField = fields.addRow("Scan folders", hint: "One folder per line: Enter saves, Ctrl+Enter adds a line", style: .stacked) { pane, ctx in
             WinControls.edit(.multiLine(lines: 3, cue: "C:\\Users\\you\\.claude"), in: pane, ctx: ctx)
@@ -906,6 +1281,17 @@ struct KitResources: CustomStringConvertible {
             return view.control
         }
         tooltipCount += 1
+        drawnSection.addRow(nil, style: .full) { [weak self] pane, ctx in
+            guard let self, let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
+            let part = KitGrowingPart()
+            view.host(part, width: 400)  // measured wider than its row: the row's width re-renders it at another height
+            self.growing = view
+            self.growingPart = part
+            return view.control
+        }
+        belowGrowing = drawnSection.addRow("Below the growing part", make: { pane, ctx in
+            WinControls.button("After", in: pane, ctx: ctx)
+        }).control
         let plain = s.addSection(nil, card: false)
         plain.addRow(nil, style: .full) { pane, ctx in
             WinControls.label("A section without a card: rows stacked plainly (Home's parts)", style: .caption, role: .secondary, wraps: false, in: pane, ctx: ctx)
@@ -984,6 +1370,39 @@ struct KitResources: CustomStringConvertible {
     }
 }
 
+/// A FIXTURE part whose height follows its state (toggled) and its width (narrower than 300 DIP: one more line), the case
+/// of the companion header, the recap card and a limit row with a second line.
+@MainActor final class KitGrowingPart: PopoverPart {
+    var onChange: (() -> Void)?
+    private(set) var expanded = false
+    private var width: CGFloat = 400
+
+    func toggle() {
+        expanded.toggle()
+        onChange?()
+    }
+
+    func size(width: CGFloat, scale: CGFloat, text: any PlazaTextEngine) -> CGSize {
+        self.width = width
+        return CGSize(width: width, height: 30 + (expanded ? 40 : 0) + (width < 300 ? 18 : 0))
+    }
+
+    func render(scale: CGFloat, graphics: any PlazaGraphics) -> PopoverDrawing {
+        let height = 30 + (expanded ? 40 : 0) + (width < 300 ? 18 : 0)
+        let layers: [PlazaPanelLayer] = [
+            .color(PlazaColor(srgbRed: 0, green: 0.48, blue: 1, alpha: 0.12), frame: CGRect(x: 0, y: 0, width: width, height: CGFloat(height))),
+            .color(PlazaColor(hex: 0x007AFF), frame: CGRect(x: 0, y: 0, width: 4, height: CGFloat(height))),
+        ]
+        let drawing = PlazaPanelDrawing(layers: layers, accessibility: [
+            PlazaAccessibilityItem(frame: CGRect(x: 8, y: 4, width: width - 16, height: 20), role: .staticText,
+                                   label: "Growing part", value: expanded ? "expanded" : "collapsed"),
+        ])
+        return PopoverDrawing(drawing: drawing)
+    }
+
+    func hit(_ point: CGPoint) -> PlazaPanelHit? { nil }
+}
+
 /// What reached an edit: characters, IME characters, key-downs and composition messages (a second subclass on top of the
 /// kit's, removed after the checks).
 @MainActor final class EditProbe {
@@ -1033,6 +1452,32 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
 /// reading order, no two visible controls overlapping, every label's text fitting its box, every control inside the
 /// window, Hangul present in the font GDI links to.
 @MainActor struct KitTree {
+    /// The pieces a line cannot break inside: words between spaces, where each kana, kanji and full-width sign is a piece of
+    /// its own (GDI's `DT_WORDBREAK`, like SwiftUI, breaks Japanese between those). A label narrower than its widest piece
+    /// is squeezed; one narrower than a whole Japanese phrase only wraps.
+    nonisolated static func unbreakableRuns(_ text: String) -> [String] {
+        func breaksAround(_ u: Unicode.Scalar) -> Bool {
+            switch u.value {
+            case 0x3000...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0xFF00...0xFFEF: true
+            default: false
+            }
+        }
+        var runs: [String] = []
+        for word in text.split(separator: " ") {
+            var run = ""
+            for ch in word {
+                if ch.unicodeScalars.first.map(breaksAround) ?? false {
+                    if !run.isEmpty { runs.append(run); run = "" }
+                    runs.append(String(ch))
+                } else {
+                    run.append(ch)
+                }
+            }
+            if !run.isEmpty { runs.append(run) }
+        }
+        return runs
+    }
+
     struct Node: Codable {
         var cls: String
         var text: String
@@ -1108,7 +1553,7 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
         }
         if !overlaps.isEmpty { problems.append("overlaps: \(overlaps.prefix(6))") }
         var clipped: [String] = []
-        for (node, h) in zip(nodes, handles) where node.cls == "Static" && node.visible && !node.text.isEmpty {
+        for (node, h) in zip(nodes, handles) where node.cls == "Static" && node.visible && !node.text.isEmpty && node.w > 0 && node.h > 0 {
             let style = GetWindowLongW(h, -16)
             guard style & 0x1F != 0x0D /* SS_OWNERDRAW */, style & 0x4000 == 0 /* SS_ENDELLIPSIS */ else { continue }
             let font = HFONT(bitPattern: WinKit.send(h, 0x0031))
@@ -1119,11 +1564,11 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
         // A label squeezed narrower than its widest word: its height still "fits" (one word a line), so the check above
         // misses it (seen at 150 % text: a row's label at 0 px beside a wide control).
         var squeezed: [String] = []
-        for (node, h) in zip(nodes, handles) where node.cls == "Static" && node.visible && !node.text.isEmpty {
+        for (node, h) in zip(nodes, handles) where node.cls == "Static" && node.visible && !node.text.isEmpty && node.w > 0 && node.h > 0 {
             let style = GetWindowLongW(h, -16)
             guard style & 0x1F != 0x0D, style & 0x4000 == 0 else { continue }
             let font = HFONT(bitPattern: WinKit.send(h, 0x0031))
-            let widest = node.text.split(separator: " ").map { w.ctx.measure(String($0), font: font).cx }.max() ?? 0
+            let widest = Self.unbreakableRuns(node.text).map { w.ctx.measure($0, font: font).cx }.max() ?? 0
             if CGFloat(widest) > CGFloat(node.w) * s + 1 { squeezed.append("'\(node.text.prefix(24))' \(Int(CGFloat(node.w) * s)) px < its widest word \(widest) px") }
         }
         if !squeezed.isEmpty { problems.append("labels squeezed: \(squeezed)") }
@@ -1131,13 +1576,19 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
             n.tabStop && n.visible && (n.x < -0.5 || n.y < -0.5 || CGFloat(n.x + n.w) * s > CGFloat(client.cx) + 1 || CGFloat(n.y + n.h) * s > CGFloat(client.cy) + 1)
         }.map { "\($0.0.cls) '\($0.0.text.prefix(16))'" }
         if !outside.isEmpty { problems.append("outside the window: \(outside)") }
+        // An edit, a combo box or a slider is named by the static just before it (MSAA): a field without one is read without a name.
+        let unnamed = zip(nodes, handles).filter { n, _ in n.visible && ["Edit", "ComboBox", "msctls_trackbar32"].contains(n.cls) }.compactMap { n, h -> String? in
+            guard let prev = GetWindow(h, 3 /* GW_HWNDPREV */), WinKit.className(prev) == "Static", !WinKit.text(of: prev).isEmpty else { return "\(n.cls) '\(n.text.prefix(16))'" }
+            return nil
+        }
+        if !unnamed.isEmpty { problems.append("fields without a label before them: \(unnamed)") }
         let shownHidden = nodes.filter { $0.text == Self.hiddenMarker && $0.visible }.count
         if shownHidden > 0 { problems.append("a hidden row shows (\(shownHidden) windows)") }
         let hangul = Set(nodes.flatMap { $0.text.unicodeScalars.filter { (0xAC00...0xD7A3).contains($0.value) }.map { UInt16($0.value) } })
         let missingHangul = Self.missingGlyphs(Array(hangul), face: "Malgun Gothic")
         // R9: a machine without Malgun Gothic (a server image) draws Hangul as boxes: reported, not failed; with the font, a missing glyph fails.
         if !missingHangul.isEmpty, WinFonts.isInstalled("Malgun Gothic") { problems.append("Hangul without a glyph in Malgun Gothic: \(missingHangul.count)") }
-        let summary = "hidden row windows shown=\(shownHidden) of \(nodes.filter { $0.text == Self.hiddenMarker }.count); \(stops.count) Tab stops, \(tabOrder.count) reached in reading order=\(PopoverStackLayout.isReadingOrder(tabRects)); "
+        let summary = "unlabelled fields=\(unnamed.count); hidden row windows shown=\(shownHidden) of \(nodes.filter { $0.text == Self.hiddenMarker }.count); \(stops.count) Tab stops, \(tabOrder.count) reached in reading order=\(PopoverStackLayout.isReadingOrder(tabRects)); "
             + "\(leaves.count) visible controls; \(hangul.count) Hangul syllables, \(missingHangul.count) without a glyph in Malgun Gothic (GDI's link for Hangul, "
             + "installed=\(WinFonts.isInstalled("Malgun Gothic"))); problems=\(problems.isEmpty ? "none" : problems.joined(separator: "; "))"
         return Result(ok: problems.isEmpty, summary: summary)

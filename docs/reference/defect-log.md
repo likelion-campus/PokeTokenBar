@@ -884,6 +884,17 @@ read_when:
   앱을 막았다. 자체 서명 앱이라 공증이 없고, 원작은 cask가 격리 표시를 지워서 경고가 보이지 않았을 뿐이다. 이 Mac은
   직접 빌드해서 격리 표시가 없으므로 재현되지 않는다. 팀 탭 cask의 `postflight_steps`가 같은 일을 한다.
 
+- **릴리스 단계가 clone 안에 파일을 남기면, 같은 clone 에서 다시 실행할 때 깨끗한 트리 확인에서 멈춘다.** stage 8의
+  `team-release.sh` 가 1단계에서 `python3 -m unittest discover -s scripts/tests` 로 도우미를 시험하자 Python 이
+  `scripts/__pycache__/`·`scripts/tests/__pycache__/` 를 만들었고(무시 목록에 없다), 실제 리허설(새 clone, 52분) 뒤 같은
+  clone 에서 다시 실행하자 0단계 `git status --porcelain` 에서 "커밋하지 않은 변경"으로 멈췄다. 실패 뒤 고치고 다시 실행하는
+  것이 이 스크립트의 정상 흐름(Windows 실행 실패, 노트 수정)이라 릴리스를 막는다. **왜 못 걸렀나:** 스크립트 테스트의 가짜
+  `python3` 는 아무것도 쓰지 않고 가짜 `git status` 는 정해 준 값만 돌려줘서, 다시 실행 테스트가 진짜 부작용이 없는 다른
+  경로로 통과했다. 리허설 뒤 clone 의 `git status` 를 보고 찾았다. 수정: 스크립트가 `PYTHONDONTWRITEBYTECODE=1` 을 export 한다.
+  가드: 가짜 `python3` 가 그 변수가 없으면 진짜처럼 `scripts/__pycache__/` 를 쓰고 가짜 `git status` 가 그것을 보고하므로,
+  `TeamReleaseScriptRunTests` 의 다시 실행 테스트가 export 없이는 실패한다(결함 주입으로 확인). 스윕: 다른 단계가 쓰는 곳은
+  무시되는 `build/`(start 의 runs.json, collect, fill, build-app.sh)와 `.build/`(test-gate.sh)뿐이다.
+
 - **한 줄씩 읽는 목록·설정 파일에서 값 뒤의 `# 주석`은 파서가 떼지 않으면 주석이 아니다.** 윈도우 이식의 테스트용
   `mac-only.txt` 에 `BinaryLocatorTests.swift  # 이유` 처럼 적었더니 한 줄 전체가 파일명이 되어 그 파일이 제외되지
   않았다(조용히). 파서는 전체 줄 주석(`#` 로 시작하는 줄)만 안다. **왜 못 걸렀나:** 제외 목록은 "있는 것만 빼는"
@@ -1791,6 +1802,29 @@ read_when:
   점검)에만 쓰여 그 창 자신의 상태다. **규칙:** 자식 창의 표시 여부는 `WS_VISIBLE` 로 판단하고, 키트 페이지는 숨긴 줄·넓은 컨트롤·큰
   글자로도 캡처해 본다. **회귀 점검:** `ui.kit.capture`/`ui.kit.tree` (갤러리의 숨긴 줄, 눌린 라벨) — 옛 `setVisible` 과 쌓기 없는
   배치를 되살린 실행에서 "a hidden row shows", "labels squeezed: 'Nickname' 37 px < its widest word 87 px" 로 실패함을 확인했다.
+  **사후 리뷰 (같은 키트, 머지 뒤):** ① 60 % 규칙은 컨트롤 폭만 봤다 — 컨트롤이 60 % 아래여도 독일어·러시아어의 긴 낱말("Aktualisierungsintervall",
+  "Предупреждение")은 125–150 % 글자에서 옆자리보다 넓다. 갤러리 라벨이 영어·한국어뿐이라 그 입력을 밟지 않았다. 고침: 라벨의 가장 넓은 낱말이 옆자리보다
+  넓으면 쌓는다, 단위 스윕은 실제 `L` 설정 라벨 24 개 × 8 개 언어 × 글자 1/1.25/1.5 × 컨트롤 폭 5 가지를 GDI 로 잰다(규칙을 뺀 실행: 독일어·러시아어 14 줄
+  잘림). 스윕 첫 판은 일본어 38 줄을 잘렸다고 했다 — 띄어쓰기 없는 일본어 구 전체를 한 낱말로 쳤는데 GDI 는 가나·한자 사이에서 줄을 바꾼다. 트리 점검의
+  "눌린 라벨" 규칙도 같은 낱말 나누기를 써서 같이 고쳤다(`KitTree.unbreakableRuns`). ② 여러 줄 입력칸은 `DLGC_WANTALLKEYS` 라 대화상자 모드에서 Tab 을
+  자기가 먹고(키보드 함정) Esc 에 부모로 `WM_CLOSE` 를 보내 페이지 창이 파괴됐다 — 갤러리에 여러 줄 입력칸이 있었지만 Tab/Esc 점검은 한 줄 입력칸으로만
+  돌았다. ③ 그린 부품의 크기가 바뀌어도 페이지가 다시 배치되지 않아 다음 줄과 겹쳤다 — 갤러리 부품은 크기가 고정이라 그 가지가 없었다. **규칙:** 키트의
+  모든 줄 종류(한 줄/여러 줄 입력칸, 크기가 변하는 부품)를 점검이 한 번씩 밟고, 라벨 규칙은 실제 번역 문자열로, 낱말 나누기는 언어의 줄바꿈 단위로 잰다.
+  **회귀 점검:** `testNoSettingsLabelIsCutInAnyLanguageOrTextSize`, `testALabelWithAWordWiderThanItsRoomGoesAboveTheControl`, `ui.kit.multiLineKeys`,
+  `ui.kit.partResize` — 각각 가드를 뺀 실행에서 실패를 확인했다.
+
+- **윈도 팝오버(Stage 7 Task 4): 숨은 아이콘(^ 넘침 영역)에서 연 팝오버의 아래쪽을 넘침 플라이아웃이 덮었다.** (출시 전, 러너의
+  실제 클릭 점검 캡처를 열어보다 발견.) 배치가 아이콘은 늘 작업 표시줄 띠(작업 영역 밖)에 있다고 보고 팝오버 아래끝을 작업 영역
+  아래끝에 붙였다. 넘침 영역의 아이콘은 작업 영역 *안*의 셸 창(플라이아웃)에 있고, 러너(Server 2025)에서는 팝오버가 포그라운드를
+  가져간 뒤에도 그 창이 맨 위에 열린 채 남아 팝오버 아래 45 px 를 덮었다 (Task 5 하단 줄의 자리). 사용자 PC 는 아이콘을 넘침
+  영역에만 둔다. **왜 못 걸렀나:** 배치 단위 테스트의 아이콘·클릭 지점이 모두 띠 안에 있었다 — 테스트가 구현과 같은 가정을 했다.
+  합성 `NIN_SELECT` 점검들도 셸이 준 사각형(넘침이면 띠 위의 ^ 버튼)을 썼다. ^ 를 실제로 눌러 연 플라이아웃 안의 아이콘을 실제로
+  누른 `popover.realClick` 만 그 가지를 밟았다. **고침:** 작업 영역 안의 아이콘은 덮지 않는다 — 작업 표시줄 쪽으로 여백만큼 비킨다
+  (공유 `PopoverPlacement.frame`). 윈도에서는 그 아이콘을 담은 작은 셸 창(플라이아웃) 전체를 비킨다 (열 때 한 번 찾고, DPI·페이지
+  크기 재배치 때는 그 사각형을 유지). **스윕:** 아이콘이 띠에 있다고 가정한 곳 — 토글 가드의 아이콘 영역(이미 클릭 지점 기준,
+  사각형이 클릭을 담지 않으면 클릭 둘레 상자), 트레이 메뉴(맨 위 창이라 무관). **규칙:** 트레이 아이콘 위치는 띠와 넘침 플라이아웃
+  두 경우로 테스트한다. **회귀 점검:** `PopoverPlacementTests.testAnAnchorInsideTheWorkAreaIsNotCovered`, `popover.realClick`
+  (플라이아웃 안 실제 클릭 → 열림, 그 창과 겹치지 않음).
 
 ## 에너지 (상시 표시 애니메이션)
 
@@ -2415,6 +2449,29 @@ read_when:
   열면 10/10. 점검은 두 숫자를 다 찍는다(Task 안의 것은 정보용). 팝오버는 같은 훅 안에서 `IsDialogMessageW` 로 키를 나눠 주므로, **모달 루프가 도는 동안
   (`WinModalPump.depth > 0` 이거나 메뉴·이동 모드) 훅은 대화상자 경로를 건너뛴다** — 안 그러면 메뉴·스크롤 막대 끌기 루프가 읽을 키와 마우스를 훅이 먼저
   디스패치해 루프가 입력을 잃는다. 팝오버의 모달 루프(스크롤 막대 끌기 `WinScrollArea`, 이후 메뉴·대화상자)는 모두 `WinModalPump.begin/end` 안에서 돈다.
+  **다섯 번째 (Stage 7 Task 3 사후 리뷰, 스크롤 막대 추적 루프가 마우스를 잃었다):** 네 번째의 가드는 "모달 루프의 입구를 하나씩 `begin/end` 로 감싸야"
+  지켜지는 형태였는데, 감싼 입구는 뷰포트의 `WM_NCLBUTTONDOWN` 하나였다. 같은 `DefWindowProc` 추적 루프에 들어가는 다른 입구 — 스크롤 막대 화살표의
+  두 번째 클릭(`WM_NCLBUTTONDBLCLK`, `CS_DBLCLKS` 가 없어도 비클라이언트에는 온다)과 여러 줄 입력칸 *자신의* 스크롤 막대(키트 서브클래스, 감싸지 않음) —
+  에서는 `depth == 0` 이라 훅이 루프의 마우스(버튼 뗌)를 `IsDialogMessageW` 로 먼저 디스패치했고, 루프는 버튼 뗌을 못 받아 캡처를 쥔 채 계속 굴렀다.
+  사용자 눈에는 "화살표를 두 번 눌렀더니 페이지가 끝까지 굴러가고 마우스가 붙잡힌다". 고치기 전 실행(run 43772318344): 화살표 더블클릭 → 오프셋 0 → 704
+  (기대 32, 두 줄), 입력칸 화살표 한 번 → 첫 줄 0 → 9 (기대 +1), 둘 다 2 s 뒤에도 캡처를 쥐고 있어 감시자가 `WM_CANCELMODE` 로 풀었다.
+  **왜 못 걸렀나:** 결함 주입 B 와 `ui.kit.scroll` 은 감싼 입구(썸 끌기, 첫 클릭)만 밟았다 — 같은 루프의 다른 입구를 밟는 점검이 없었다. 리뷰도 코드에서
+  "감싼 곳"만 보고 루프가 어디서 시작될 수 있는지는 세지 않았다. **고침:** ① 훅은 마우스 메시지(0x0200–0x020E, 0x00A0–0x00AD)를 대화상자 경로로 보내지
+  않는다 — `IsDialogMessageW` 가 마우스에 하는 일은 그냥 디스패치라 잃는 것이 없고, 앞으로 감싸지 않은 입구가 생겨도 루프의 마우스를 뺏지 않는다.
+  ② 뷰포트와 키트 서브클래스가 `WM_NCLBUTTONDOWN`/`WM_NCLBUTTONDBLCLK` + `HTVSCROLL`/`HTHSCROLL` 을 `begin/end("scroll")` 로 감싸 루프 동안 메인 큐가 돈다.
+  ③ 입력칸의 편집 메뉴(`WM_CONTEXTMENU` → `TrackPopupMenu`)도 감쌌다. **스윕 (비클라이언트·추적 루프 입구 전수):** 광장 창 — 이동·크기는 싱크의
+  `WM_ENTERSIZEMOVE` 가 펌프를 열고 훅은 `GUI_INMOVESIZE` 로 비켜 남, 스크롤 막대 없음, 대화상자 창이 아님(훅 경로 밖). 콤보 드롭다운 목록 — 별도 팝업
+  (`ComboLBox`, 대화상자의 자식이 아님)이라 대화상자 경로 밖, 목록 스크롤 막대를 누르는 동안 메인 큐가 서는 것은 이전과 같다(버튼을 쥔 동안만).
+  트레이 메뉴 — `WinTray` 가 감쌈, 메뉴 모드. 슬라이더·버튼·입력칸 글자 끌기 — `SetCapture` 만 쓰고 자기 루프가 없음. **규칙:** 훅은 모달·추적 루프가 읽을
+  입력을 가로채지 않는다(마우스는 아예, 키는 루프 중에). `DefWindowProc` 에 추적 루프를 맡기는 메시지(비클라이언트 버튼 다운·더블클릭, `WM_CONTEXTMENU`)는
+  감싸고, 점검은 입구마다(첫 클릭, 더블클릭, 누른 채, 자식 컨트롤 자신의 막대) 밟는다. **회귀 점검:** `ui.kit.scrollClicks` — `SendInput` 으로 페이지 아래
+  화살표 더블클릭(오프셋 정확히 두 줄), 입력칸 화살표 한 번(+1 줄), 각각 뒤에 캡처 없음·메인 큐 블록이 돈다; 입력칸 화살표와 페이지 화살표 더블클릭의 두 번째
+  누름을 0.8 s 쥔 채 메인 큐 블록이 *쥔 동안* 돈다. `ui.kit.editMenu` — 입력칸 편집 메뉴가 열린 동안 메인 큐 블록. 결함 주입(감싸기만 제거, 훅의 마우스
+  건너뛰기는 남김, `fault/w7-t3-scrollwrap` run 43775805367): 클릭은 더 이상 걸리지 않았다(오프셋 32, +1 줄, 캡처 없음 — 고치기 전 실행과의
+  차이는 훅의 마우스 건너뛰기뿐이라 그 가드의 몫), 그러나 쥔 동안의 메인 큐 블록은 입력칸·페이지 모두 false 로 `ui.kit.scrollClicks` FAIL(감싸기의 몫).
+  같은 실행에서 `ui.kit.editMenu` 의 첫 판은 감싸기 없이도 10/10 으로 통과했다 — 블록이 메뉴가 닫히기를 기다렸다가 닫힌 직후, 점검 스레드가 "열림"
+  플래그를 내리기 전에 돌아 "열린 동안"으로 셌다. 점검이 결함과 다른 조건(플래그)으로 판정한 같은 부류다: 블록이 돌 때 메인 스레드의
+  `GUI_POPUPMENUMODE` 를 스스로 읽게 고쳤다(재주입 결과는 Task 3 보고서 사후 리뷰 절).
 
 - **맥 `CoreTextPlazaEngine.wrappedLines` 가 빈 줄을 "글 나머지 전부"로 바꿨다 — `CFRange` 길이 0 은 "끝까지"다.** `"a\n\nbcd"` 가 `a`, `bcd`, `bcd` 세 줄로 그려졌다(`bcd` 두 번). TextKit 이 빈 줄의 줄 조각을
   주면(끝의 공백·개행을 뗀 뒤 길이 0) 그 범위를 `CTTypesetterCreateLine(typesetter, CFRange(location:, length: 0))` 에 그대로 넘겼고, CoreText 는 길이 0 을 "location 부터 끝까지"로 읽는다.
@@ -2543,3 +2600,9 @@ read_when:
   **고침:** `blockNetwork(for: self)` 가 `addTeardownBlock` 으로 해제를 건다(호출 4곳). **부류 스윕:** 나머지 `registerClass` 사용처(`ClaudeOAuthFileCredentialTests`, `SpriteAnimationRecoveryTests`,
   `OneShotDataMacTests`, `CredentialSwitchCacheTests`)는 모두 같은 파일에서 `unregisterClass` 한다 — 오염원은 `NoNetwork` 하나였다.
   **영구 캡처:** `NetworkProtocolScanTests` — `registerClass` 가 있는 테스트 파일에 `unregisterClass` 가 없으면 실패(해제를 지우는 주입으로 실패 확인). **규칙:** 프로세스 전역 상태(URLProtocol 등록·환경변수·공유 훅)는 설정하는 쪽이 같은 테스트 안에서 되돌린다.
+
+- **`WindowsPlazaClipboardTests.testABusyClipboardFailsHonestly` 가 러너에서 가끔 실패했다(0.0493 초 < 0.05 초) — 테스트의 하한이 타이머 눈금보다 촘촘했다.** `clipboard.cpp` 의 `openWithRetry` 는
+  `GetTickCount64` 로 제한 시간을 잰다. 이 카운터는 타이머 틱(최대 15.6 ms) 단위로만 올라가므로 60 ms 제한은 실제 시간 44.4~60 ms 뒤에 끝날 수 있다. 테스트는 "50 ms 이상 재시도했다"를 요구해 틱 경계에 따라 실패했다
+  (#207 이후 실행 43774484787). 제품 동작은 맞다 — 제한 시간은 "대략 이만큼"이고 사용자에게는 300 ms 한도의 16 ms 차이다. **왜 못 걸렀나:** 작업 브랜치의 몇 번 실행에서는 우연히 틱이 맞았다.
+  **고침:** 하한을 제한 시간에서 한 틱을 뺀 40 ms 로 둔다. **부류 스윕:** 윈도 테스트의 경과 시간 하한은 그 밖에 `WindowsHTTPFetchTests` 의 두 곳(10 초 중 8 초, 3 초 중 2.5 초)뿐이고 여유가 0.5 초 이상이다.
+  **규칙:** 윈도에서 `GetTickCount64`·`Sleep` 으로 잰 시간에 하한을 걸 때는 한 틱(16 ms)을 빼고 건다.
