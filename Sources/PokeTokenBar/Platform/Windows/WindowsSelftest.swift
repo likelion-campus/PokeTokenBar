@@ -112,11 +112,13 @@ enum WindowsSelftest {
         WindowsSelftestLanguage.checks(r, app)
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
         await popoverKitChecks(r, app)  // stage 7 task 3 (WindowsSelftestPopover.swift): leaves no window behind
+        await popoverWindowChecks(r, app)  // stage 7 task 4 (WindowsSelftestPopoverWindow.swift): leaves no window behind
         await teamChecks(r, app)  // Task 19 (WindowsSelftestTeam.swift); shuts its transports down before the idle window
         await idleCheck(r, app)
         await plazaWindowChecks(r, app)  // stage 6 task 5 (WindowsSelftestPlaza.swift): after the idle window, before Direct3D is loaded by anything else
         await plazaRenderChecks(r)  // stage 6 task 4 (WindowsSelftestPlazaRender.swift): after the idle window, it loads Direct3D/WARP
         await plazaPhotoChecks(r)  // stage 6 task 12 (WindowsSelftestPlazaPhoto.swift)
+        await popoverWithPlazaChecks(r, app)  // stage 7 task 4: the popover over an open plaza (loads Direct3D, so last)
         return r.checks
     }
 
@@ -568,6 +570,7 @@ enum WindowsSelftest {
             if code == nil { child.kill() }
             child.close()
             let notified = await waitUntil(timeout: 3) { app.showRequests > before }
+            app.popover?.close(.destroyed)  // stage 7 Task 4: a second start opens the popover now (popover.secondLaunch checks it)
             r.add("singleInstance.second", code == 3 && notified,
                   "second start exit=\(describe(code)) (expected 3) running instance notified=\(notified) mutex=\(app.mutexName)")
         } catch {
