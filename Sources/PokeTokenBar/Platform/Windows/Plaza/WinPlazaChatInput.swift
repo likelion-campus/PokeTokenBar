@@ -68,7 +68,7 @@ import WinSDK
         var submits = 0, refused = 0, repeatsIgnored = 0, completesAsked = 0, cancelsAsked = 0, cuts = 0, pastes = 0, picks = 0
         var compositionStarts = 0, compositionUpdates = 0, compositionEnds = 0, imeChars = 0, chars = 0, charsSwallowed = 0
         var closesByFocus = 0, keptOnFocusLoss = 0, focusRestores = 0, loudToggles = 0, imePlacements = 0, menuPumps = 0, selectAlls = 0
-        var candidateOpens = 0, focusRestoresAfterRestore = 0, wordDeletes = 0, cutsDeferred = 0, editsDeferred = 0
+        var candidateOpens = 0, wordDeletes = 0, cutsDeferred = 0, editsDeferred = 0
     }
 
     /// The bar and its HUD are made on first use (the plaza window opening): the controller exists from launch, and measuring the
@@ -104,12 +104,13 @@ import WinSDK
     private var styledScale: CGFloat = 0
     private var depth = 0
     private var limitPending = false, applyingLimit = false
-    /// Edits waiting for the IME to end a syllable it was asked to finish (TSF can deliver the end after `ImmNotifyIME` returns).
-    private var afterComposition: [() -> Void] = []
-    /// Where the last finished syllable ended (UTF-16 offset): an edit that finished it goes there.
+    /// Edits waiting for the IME to end a syllable it was asked to finish (TSF can deliver the end after `ImmNotifyIME` returns), each with
+    /// where the syllable ends.
+    private var afterComposition: [(at: Int?, edit: () -> Void)] = []
+    /// Where the last finished syllable ended (UTF-16 offset), from the composition messages: the last fallback.
     private var lastCommitEnd: Int?
-    /// The selftest's A/B switch for `restoreFocusAfterRestore` (off: the check shows what the activation path alone does).
-    static var restoreAfterMinimize = true
+    /// What the last edit over a composition saw and did (the selftest prints it).
+    private(set) var lastEditTrace = ""
     private var captured = false
     private static var fontLoaded: Bool?
     private let graphics: any PlazaGraphics
@@ -234,12 +235,6 @@ import WinSDK
         return true
     }
 
-    /// The window came back from minimized as the foreground window with the line open and the keyboard elsewhere: back to the field.
-    /// (The activation of a restored window can arrive while it is still minimized, when `restoreFocus` does not act.)
-    func restoreFocusAfterRestore() {
-        guard Self.restoreAfterMinimize, isOpen, let e = editHWND, GetFocus() != e, focus() else { return }
-        counts.focusRestoresAfterRestore += 1
-    }
 
     // MARK: the bar's mouse (window points), before the other panels
 
@@ -327,16 +322,35 @@ import WinSDK
     /// TSF may deliver the end after `ImmNotifyIME` returns: the edit then waits for WM_IME_ENDCOMPOSITION (plaza.chatRealIME: 하 + 🍜).
     private func editAfterComposition(_ h: HWND, _ edit: @escaping () -> Void) {
         guard isComposing, !WinChatFaults.has(.insertOverComposition) else { edit(); return }
-        let end = composition.map { $0.start + $0.text.utf16.count }
+        // Where the syllable ends, read from the field itself: the EDIT shows it in place, with its caret at the syllable's start (or after
+        // it); the composition messages are only the fallback (the real IME's end did not move our record past the syllable).
+        let shown = ime.composition(h)
+        let caret = selection.start
+        let inText = Self.syllableEnd(units(h), Array(shown.utf16), caret: caret)
+        let byRecord = composition.map { $0.start + $0.text.utf16.count }
         lastCommitEnd = nil
         finish(h, cancel: false)
-        if isComposing {
-            afterComposition.append(edit)
+        let late = isComposing
+        let at = inText ?? byRecord ?? lastCommitEnd
+        lastEditTrace = "composing \(shown.debugDescription) caret \(caret) syllable end in the text \(inText.map(String.init) ?? "-") by the record "
+            + "\(byRecord.map(String.init) ?? "-") by the end message \(lastCommitEnd.map(String.init) ?? "-") -> \(at.map(String.init) ?? "caret")\(late ? ", end came later" : "")"
+        if late {
+            afterComposition.append((at, edit))
             counts.editsDeferred += 1
             return
         }
-        if let at = lastCommitEnd ?? end { _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(at), LPARAM(at)) }
+        if let at { _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(at), LPARAM(at)) }
         edit()
+    }
+
+    /// The end (UTF-16) of `syllable` shown in `text` at the caret: right after the caret (the EDIT's caret sits at a composition's start) or
+    /// right before it. nil when the text does not hold it there (an IME that shows its composition in a window of its own).
+    nonisolated static func syllableEnd(_ text: [UInt16], _ syllable: [UInt16], caret: Int) -> Int? {
+        let n = syllable.count
+        guard n > 0, caret >= 0, caret <= text.count else { return nil }
+        if caret + n <= text.count, Array(text[caret..<caret + n]) == syllable { return caret + n }
+        if caret >= n, Array(text[(caret - n)..<caret]) == syllable { return caret }
+        return nil
     }
 
     private func placeField(_ frame: CGRect) {
@@ -453,8 +467,10 @@ import WinSDK
             if !afterComposition.isEmpty, let h = editHWND {
                 let edits = afterComposition
                 afterComposition = []
-                if let at = endAt { _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(at), LPARAM(at)) }
-                for edit in edits { edit() }
+                for e in edits {
+                    if let at = e.at ?? endAt { _ = SendMessageW(h, 0x00B1 /* EM_SETSEL */, WPARAM(at), LPARAM(at)) }
+                    e.edit()
+                }
             }
             return r
         case 0x0007:   // WM_SETFOCUS

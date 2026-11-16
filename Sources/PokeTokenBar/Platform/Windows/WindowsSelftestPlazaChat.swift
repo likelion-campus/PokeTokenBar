@@ -215,22 +215,7 @@ extension WindowsSelftest {
         _ = chat.focus()
         chatPostText(e, "ab")
         await chatPump(0.2)
-        // A: the restore path switched off — what the activation path alone does (this check would fail on it if it does not reach the field).
-        WinPlazaChatInput.restoreAfterMinimize = false
-        _ = ShowWindow(hwnd, 6 /* SW_MINIMIZE */)
-        _ = await waitUntil(timeout: 2) { IsIconic(hwnd) }
-        await chatPump(0.3)
-        forceForeground(hwnd)
-        await chatPump(0.1)
-        _ = SendMessageW(hwnd, 0x0112 /* WM_SYSCOMMAND */, 0xF120 /* SC_RESTORE */, 0)
-        _ = await waitUntil(timeout: 2) { !IsIconic(hwnd) }
-        await chatPump(0.4)
-        let focusedWithout = GetFocus() == e
-        WinPlazaChatInput.restoreAfterMinimize = true
-        _ = chat.focus()
-        await chatPump(0.1)
-        // B: the shipped path.
-        let byActivate0 = chat.counts.focusRestores, byRestore0 = chat.counts.focusRestoresAfterRestore
+        let byActivate0 = chat.counts.focusRestores
         _ = ShowWindow(hwnd, 6 /* SW_MINIMIZE */)
         _ = await waitUntil(timeout: 2) { IsIconic(hwnd) }
         await chatPump(0.3)
@@ -248,13 +233,12 @@ extension WindowsSelftest {
         chatPostText(e, "c")
         await chatPump(0.2)
         let text = chat.text
-        let byActivate = chat.counts.focusRestores - byActivate0, byRestore = chat.counts.focusRestoresAfterRestore - byRestore0
+        let byActivate = chat.counts.focusRestores - byActivate0
         await chatClose(chat)
         forceForeground(hwnd)
-        r.add("plaza.chatMinimizeRestore", openWhileMinimized && foreground && focused && text == "abc",
+        r.add("plaza.chatMinimizeRestore", openWhileMinimized && foreground && focused && byActivate >= 1 && text == "abc",
               "minimized with the line open (still open=\(openWhileMinimized)), made foreground while minimized then SC_RESTORE (the taskbar's way): foreground=\(foreground), keyboard in the field=\(focused) "
-                + "(moved there by WM_ACTIVATE \(byActivate)x, by the restore path \(byRestore)x); typed c -> \(q(text)); with the restore path "
-                + "switched off the keyboard reached the field=\(focusedWithout)")
+                + "(moved there by WM_ACTIVATE \(byActivate)x: Windows activates the restored window again with fMinimized clear); typed c -> \(q(text))")
     }
 
     /// Review item 7: a DPI change with the line open: the field follows (device pixels, font), keeps the keyboard and the line.
@@ -1182,7 +1166,7 @@ extension WindowsSelftest {
             await chatPump(0.4)
             let text = chat.text, left = comp(e)
             ok = ok && text == "하🍜" && left.isEmpty
-            parts.append("gk \(during) + 🍜: \(q(text)) composition left \(q(left))")
+            parts.append("gk \(during) + 🍜: \(q(text)) composition left \(q(left)) [\(chat.lastEditTrace)]")
             await chatClose(chat)
         }
         // (4) 59 × a + gksrmf + Space: 60 characters, no stray jamo.
