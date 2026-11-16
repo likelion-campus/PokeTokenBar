@@ -127,8 +127,19 @@ struct CompanionSampleNames: PokemonNameProviding {
         case .graduated: store.applyUsage(store.tokensToNext)
         case .eggFirstRun, .eggIncubating, .eggImminent: break
         }
-        if let id = store.currentSpeciesID { await store.loadPokemonDetails(speciesID: id) }
+        if let id = store.currentSpeciesID { await loadDetails(store, speciesID: id) }
         return store
+    }
+
+    /// Loads a species' details and waits until they are in or failed. The store starts its own load of the subject in the
+    /// background, and `loadPokemonDetails` returns at once while that one is in flight (windows.yml 43954496360: the type
+    /// badges and the form note were missing when the test read the model straight after).
+    static func loadDetails(_ store: CompanionStore, speciesID id: Int) async {
+        for _ in 0..<400 {
+            await store.loadPokemonDetails(speciesID: id)
+            if store.pokemonDetailsByID[id] != nil || store.failedPokemonDetailIDs.contains(id) { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
     }
 
     /// The shown types' names into `names` (the display store the header reads).

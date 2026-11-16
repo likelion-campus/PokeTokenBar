@@ -128,7 +128,7 @@ final class CompanionHeaderModelTests: XCTestCase {
     /// Mid-level Ivysaur with types loaded, a nature, a growth boost: every line, then the evolution line (done, current, future).
     func testAHatchedCompanionMidLevel() async {
         let s = await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([1, 2, 3], stage: 1, used: 1_000, boost: true), language: .en)
-        await s.loadPokemonDetails(speciesID: 2)
+        await CompanionHeaderSamples.loadDetails(s, speciesID: 2)
         let names = PokemonNameDisplayStore()
         let m = CompanionHeaderModel.make(companion: s, names: names)
         let l = L(.en)
@@ -165,7 +165,7 @@ final class CompanionHeaderModelTests: XCTestCase {
         XCTAssertEqual(CompanionHeaderModel.make(companion: eevee).evoLine?.nodes, [EvoLineItem(.species(133), .current), EvoLineItem(.mystery, .future)])
         let east = PokemonForm("east")
         let shellos = await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([422, 423], stage: 0, used: 0, form: east, forms: 2))
-        await shellos.loadPokemonDetails(speciesID: 422)
+        await CompanionHeaderSamples.loadDetails(shellos, speciesID: 422)
         let m = CompanionHeaderModel.make(companion: shellos)
         XCTAssertEqual(m.sprite.form, east)
         XCTAssertTrue(lines(m).contains("note:\(L(.en).defaultFormDataNote)"), "\(lines(m))")

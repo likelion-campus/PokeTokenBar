@@ -653,7 +653,7 @@ final class CompanionHeaderTwinEquivalenceTests: XCTestCase {
             stores.append(await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([422, 423], stage: 0, used: 0, form: PokemonForm("east"), forms: 2), language: language))
             stores.append(await CompanionHeaderFixtures.store(active: CompanionHeaderFixtures.mon([133], stage: 0, used: 0, rarity: .rare, forms: 2), language: language))
             for store in stores {
-                if let id = store.currentSpeciesID { await store.loadPokemonDetails(speciesID: id) }
+                if let id = store.currentSpeciesID { await CompanionHeaderSamples.loadDetails(store, speciesID: id) }
                 let model = CompanionHeaderModel.make(companion: store)
                 XCTAssertEqual(lines(model), macBody(store), "\(store.displayName) \(language)")
                 XCTAssertEqual(model.sprite, PlazaSpriteSubjectKey(speciesID: store.currentSpeciesID, shiny: store.currentIsShiny, form: store.currentForm,
