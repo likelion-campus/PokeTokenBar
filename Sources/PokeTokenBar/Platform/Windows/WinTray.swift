@@ -49,6 +49,8 @@ import WinSDK
     private(set) var lastSetFocusOK = false
     /// The point of the last select (the click, or the icon for a key; v4).
     private(set) var lastEventPoint: POINT?
+    /// The first selects of a run go to the log (which events one Enter or one click gives on a PC; bounded).
+    private var loggedSelects = 0
 
     init(window: WinSinkWindow) {
         self.window = window
@@ -176,6 +178,10 @@ import WinSDK
         let event = UInt32(truncatingIfNeeded: lParam) & 0xFFFF
         let x = Int16(truncatingIfNeeded: wParam & 0xFFFF), y = Int16(truncatingIfNeeded: (wParam >> 16) & 0xFFFF)
         let point = POINT(x: Int32(x), y: Int32(y))  // v4: the event's screen point
+        if loggedSelects < 20, [Self.ninSelect, Self.ninKeySelect, UInt32(WM_CONTEXTMENU)].contains(event) {
+            loggedSelects += 1
+            AppLog.write("tray: \(event == Self.ninSelect ? "NIN_SELECT" : event == Self.ninKeySelect ? "NIN_KEYSELECT" : "WM_CONTEXTMENU") at \(point.x),\(point.y)")
+        }
         switch event {
         case Self.ninSelect where lastVersionOK:
             selectCount += 1

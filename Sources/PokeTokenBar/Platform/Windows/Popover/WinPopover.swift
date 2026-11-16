@@ -111,6 +111,8 @@ struct WinPopoverStats {
     /// Changes on every open and every close: the posted close's target (a rebuild keeps it).
     private var windowSerial = 0
     private var toggleGuard = PopoverToggleGuard()
+    /// When a key select last opened it: the shell may report one Enter as a key select and a select, in either order.
+    private var openedByKeyAt: TimeInterval?
     /// Changes on every open, every close and every page rebuild: the identity of the page async work was started for.
     private(set) var generation = 0
 
@@ -131,6 +133,10 @@ struct WinPopoverStats {
         guard settlePendingClose() else { return }
         if window != nil {
             if case .trayKey = opener {
+                stats.duplicateKeySelects += 1
+                return
+            }
+            if let keyAt = openedByKeyAt, clock() - keyAt < PopoverToggleGuard.window {  // the same Enter, reported twice
                 stats.duplicateKeySelects += 1
                 return
             }
@@ -175,8 +181,10 @@ struct WinPopoverStats {
         stats.shows += 1
         if GetForegroundWindow() != hwnd { _ = SetForegroundWindow(hwnd) }
         _ = SetFocus(page.initialFocus ?? hwnd)
+        openedByKeyAt = nil
         if case .trayKey = opener {  // opened from the keyboard: focus rectangles from the start
             WinKit.send(hwnd, 0x0127 /* WM_CHANGEUISTATE */, 0x0003_0002 /* UIS_CLEAR, UISF_HIDEFOCUS | UISF_HIDEACCEL */)
+            openedByKeyAt = clock()
         }
         host.opened()
     }

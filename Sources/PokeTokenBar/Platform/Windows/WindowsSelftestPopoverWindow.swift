@@ -599,12 +599,22 @@ final class PopoverDriver: @unchecked Sendable {
         await pause(0.3)
         let e = eOpen && popover.isOpen && popover.stats.duplicateKeySelects == dup0 + 1
         popover.close(.destroyed)
-        r.add("popover.toggle", a && b && c && d && e,
+        // (f) One Enter reported as a key select and then a select: still open; a select 0.6 s after a key open closes it.
+        let fOpen = await key()
+        post(Self.ninSelect, iconPoint)
+        await pause(0.3)
+        let fStayed = popover.isOpen && popover.stats.duplicateKeySelects == dup0 + 2
+        await pause(0.4)
+        post(Self.ninSelect, iconPoint)
+        let fLaterClosed = await closed(1)
+        let f = fOpen && fStayed && fLaterClosed
+        r.add("popover.toggle", a && b && c && d && e && f,
               "(a) open=\(aOpen), cursor on the icon + taskbar activated -> closed=\(aClosed) (cursor on icon=\(aOnIcon)), then NIN_SELECT within ~0.1 s -> "
               + "open=\(popover.stats.suppressedSelects > absorbed0 ? "no" : "?") absorbed +\(popover.stats.suppressedSelects - absorbed0); (b) same close, NIN_SELECT 0.75 s later -> "
               + "opened=\(bReopened); (c) another window of ours activated with the cursor there -> closed=\(cClosed) (cursor on icon=\(cOnIcon)), "
               + "NIN_SELECT at once -> opened=\(cReopened); (d) NIN_SELECT while open -> closed=\(dClosed) (\(dReason.map { "\($0)" } ?? "-")); "
-              + "(e) NIN_KEYSELECT twice -> still open=\(e) (duplicates +\(popover.stats.duplicateKeySelects - dup0))")
+              + "(e) NIN_KEYSELECT twice -> still open=\(e); (f) NIN_KEYSELECT then NIN_SELECT at once -> still open=\(fStayed), a NIN_SELECT 0.7 s after "
+              + "the key open -> closed=\(fLaterClosed) (duplicates +\(popover.stats.duplicateKeySelects - dup0))")
         _ = SetCursorPos(iconPoint.x - 200, iconPoint.y - 200)
     }
 
