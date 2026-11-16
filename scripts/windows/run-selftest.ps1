@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory)][string]$Exe,
     [Parameter(Mandatory)][string]$Out,
     [string]$ExpectStrategy = "",
-    [int]$TimeoutSec = 600,
+    [int]$TimeoutSec = $(if ([int]$env:PTB_SELFTEST_FLAKE_LOOP -gt 0) { 3000 } else { 600 }),
     [string]$DumpUi = ""
 )
 $ErrorActionPreference = "Stop"

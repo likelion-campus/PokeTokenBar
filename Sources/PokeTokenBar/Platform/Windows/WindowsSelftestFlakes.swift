@@ -261,20 +261,20 @@ extension WindowsSelftest {
 
     // MARK: C: modalPump.idle
 
-    /// Re-runs the whole modal pump check set `FlakeLoop.count / 10` times (at least 3) and prints each `modalPump.idle` line.
+    /// N more 10 s windows in the same post-menu state, each judged with the check's own budget; prints cs, budget and the known wakes of each.
     @MainActor static func flakeLoopModal(_ r: Recorder, _ app: WindowsAppDelegate) async {
-        let runs = max(3, FlakeLoop.count / 10)
-        var lines: [String] = [], failures = 0, cs: [Int] = []
-        for i in 0..<runs {
-            let scratch = Recorder()
-            await modalPumpChecks(scratch, app)
-            if let idle = scratch.checks.last(where: { $0.name == "modalPump.idle" }) {
-                if !idle.ok { failures += 1 }
-                lines.append("run \(i + 1) \(idle.ok ? "PASS" : "FAIL"): \(idle.detail)")
-                if let range = idle.detail.range(of: "after="), let v = Int(idle.detail[range.upperBound...].prefix { $0.isNumber }) { cs.append(v) }
-            }
+        let n = FlakeLoop.count
+        var cs: [Int] = [], over = 0, rows: [String] = [], withFire: [Int] = [], without: [Int] = []
+        for i in 0..<n {
+            guard let w = await modalIdleWindow(app, settle: i == 0) else { continue }
+            cs.append(w.cs)
+            if w.cs > w.budget { over += 1 }
+            (w.budget > 3 ? withFire : without).append(w.cs)
+            rows.append("#\(i + 1) cs=\(w.cs)/\(w.budget) \(w.detail.components(separatedBy: "; ")[1])")
         }
-        r.add("flake.modalIdle", true, "runs \(runs), judged-failures \(failures), main cs after the menu per run \(fmt(cs)) histogram \(histogram(cs)); " + lines.joined(separator: " || "))
+        r.add("flake.modalIdle", over == 0,
+              "N=\(cs.count) windows of 10 s, over budget \(over); main cs histogram \(histogram(cs)); windows with a known timer wake or refresh \(withFire.count) cs \(histogram(withFire)); "
+                + "windows without \(without.count) cs \(histogram(without)); " + rows.joined(separator: " | "))
     }
 }
 #endif
