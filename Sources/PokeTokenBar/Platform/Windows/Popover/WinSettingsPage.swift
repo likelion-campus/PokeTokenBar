@@ -476,9 +476,9 @@ import WinSDK
         let generation = observationGeneration
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, generation == observationGeneration else { return }
-                refreshPending = false
-                sync()
+                guard let self, generation == self.observationGeneration else { return }
+                self.refreshPending = false
+                self.sync()
             }
         }
     }
@@ -491,9 +491,9 @@ import WinSDK
         let generation = observationGeneration
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, generation == observationGeneration else { return }
-                rebuildPending = false
-                rebuildNow()
+                guard let self, generation == self.observationGeneration else { return }
+                self.rebuildPending = false
+                self.rebuildNow()
             }
         }
     }
@@ -522,9 +522,9 @@ import WinSDK
         } onChange: { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self, generation == observationGeneration, !destroyed else { return }
-                    sync()
-                    observe()
+                    guard let self, generation == self.observationGeneration, !self.destroyed else { return }
+                    self.sync()
+                    self.observe()
                 }
             }
         }
