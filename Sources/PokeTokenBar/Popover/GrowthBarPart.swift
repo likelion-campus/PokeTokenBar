@@ -11,8 +11,8 @@ import Foundation
         var detail: String
     }
 
-    static let collapsedHeight: CGFloat = 6
-    static let expandedHeight: CGFloat = 12
+    nonisolated static let collapsedHeight: CGFloat = 6
+    nonisolated static let expandedHeight: CGFloat = 12
 
     var onChange: (() -> Void)?
     private(set) var model: Model
@@ -27,17 +27,17 @@ import Foundation
     }
 
     /// The track inside a line `width` wide (part coordinates, the line's top at 0).
-    static func trackRect(width: CGFloat) -> CGRect {
+    nonisolated static func trackRect(width: CGFloat) -> CGRect {
         CGRect(x: 0, y: (expandedHeight - collapsedHeight) / 2, width: width, height: collapsedHeight)
     }
 
-    static func fillWidth(value: Double, width: CGFloat) -> CGFloat { width * CGFloat(min(1, max(0, value))) }
+    nonisolated static func fillWidth(value: Double, width: CGFloat) -> CGFloat { width * CGFloat(min(1, max(0, value))) }
 
-    static let trackColor = PopoverColorRole.secondary.plazaColor(alpha: 0.2)
-    static let fillColor = PopoverColorRole.systemOrange.plazaColor()
+    nonisolated static let trackColor = PopoverColorRole.secondary.plazaColor(alpha: 0.2)
+    nonisolated static let fillColor = PopoverColorRole.systemOrange.plazaColor()
 
     /// Draws the bar whose line is `line` (DIP, the space's coordinates).
-    static func draw(value: Double, line: CGRect, canvas: any PlazaCanvas, space: PlazaPanelSpace) {
+    nonisolated static func draw(value: Double, line: CGRect, canvas: any PlazaCanvas, space: PlazaPanelSpace) {
         let track = trackRect(width: line.width).offsetBy(dx: line.minX, dy: line.minY)
         let radius = collapsedHeight / 2
         canvas.setFillColor(trackColor)

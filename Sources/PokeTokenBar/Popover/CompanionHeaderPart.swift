@@ -11,12 +11,12 @@ import Foundation
 /// flash and the bursts are `overlays` (over the sprite), and `dirty` names the box so the host repaints just that. The
 /// column's picture is kept between those renders.
 @MainActor final class CompanionHeaderPart: PopoverPart {
-    static let spriteBox: CGFloat = 76
-    static let cornerRadius: CGFloat = 12
-    static let columnGap: CGFloat = 12
-    static let lineGap: CGFloat = 4
+    nonisolated static let spriteBox: CGFloat = 76
+    nonisolated static let cornerRadius: CGFloat = 12
+    nonisolated static let columnGap: CGFloat = 12
+    nonisolated static let lineGap: CGFloat = 4
     /// Room around the box that a celebration draws into (its dirty region).
-    static let effectRoom: CGFloat = 26
+    nonisolated static let effectRoom: CGFloat = 26
 
     var onChange: (() -> Void)?
     private(set) var model: CompanionHeaderModel
@@ -89,7 +89,7 @@ import Foundation
         CGSize(width: textWidth + 10, height: lineHeight + 2)
     }
 
-    static func lineHeight(_ font: PlazaFont, _ text: any PlazaTextEngine) -> (height: CGFloat, ascender: CGFloat) {
+    nonisolated static func lineHeight(_ font: PlazaFont, _ text: any PlazaTextEngine) -> (height: CGFloat, ascender: CGFloat) {
         let m = text.metrics(font)
         return (m.ascender - m.descender + m.leading, m.ascender)
     }
@@ -246,7 +246,7 @@ import Foundation
 
     // MARK: drawing
 
-    private static func drawColumn(_ lay: Layout, scale: CGFloat, graphics: any PlazaGraphics) -> PlazaImage? {
+    nonisolated private static func drawColumn(_ lay: Layout, scale: CGFloat, graphics: any PlazaGraphics) -> PlazaImage? {
         let space = PlazaPanelSpace(content: lay.size, room: 0)
         return space.image(scale: scale, graphics: graphics) { canvas in
             for t in lay.texts {
@@ -262,7 +262,7 @@ import Foundation
 
     /// The Mac's `Badge`: the capsule (solid tint, or the tint at 14 %), the text white (a type badge with a faint shadow)
     /// or in the tint.
-    static func drawBadge(_ b: BadgeBlock, canvas: any PlazaCanvas, space: PlazaPanelSpace) {
+    nonisolated static func drawBadge(_ b: BadgeBlock, canvas: any PlazaCanvas, space: PlazaPanelSpace) {
         let tint = b.badge.tint.color
         let solid = b.badge.style == .solid
         canvas.setFillColor(solid ? tint : PlazaColor(srgbRed: tint.red, green: tint.green, blue: tint.blue, alpha: tint.alpha * 0.14))
@@ -278,7 +278,7 @@ import Foundation
     }
 
     /// The backdrop (`.secondary` at 6 %, 12 pt corners), scaled and turned with the sprite.
-    private static func drawBackdrop(_ box: CGRect, effects: CompanionArtEffects, scale: CGFloat, graphics: any PlazaGraphics) -> PlazaPanelLayer? {
+    nonisolated private static func drawBackdrop(_ box: CGRect, effects: CompanionArtEffects, scale: CGFloat, graphics: any PlazaGraphics) -> PlazaPanelLayer? {
         let room = effectRoom
         let frame = box.insetBy(dx: -room, dy: -room)
         let space = PlazaPanelSpace(content: frame.size, room: 0)
@@ -296,7 +296,7 @@ import Foundation
     }
 
     /// The flash and the bursts over the sprite (the Mac's `.overlay`s, in their order).
-    private static func drawOverlays(_ box: CGRect, effects e: CompanionArtEffects, scale: CGFloat, graphics: any PlazaGraphics, bounds: CGSize) -> [PlazaPanelLayer] {
+    nonisolated private static func drawOverlays(_ box: CGRect, effects e: CompanionArtEffects, scale: CGFloat, graphics: any PlazaGraphics, bounds: CGSize) -> [PlazaPanelLayer] {
         var out: [PlazaPanelLayer] = []
         let text = graphics.text
         func image(_ frame: CGRect, _ draw: (any PlazaCanvas, PlazaPanelSpace) -> Void) {

@@ -505,7 +505,7 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
             for x in 0..<min(shot.width, Int(box.maxX * s)) {
                 let i = (y * shot.width + x) * 4
                 let b = Int(shot.bgra[i]), g = Int(shot.bgra[i + 1]), rr = Int(shot.bgra[i + 2])
-                if max(b, g, rr) - min(b, g, rr) > 40 { coloured += 1 }
+                if max(b, g, rr) - min(b, g, rr) > 24 { coloured += 1 }   // a hue (GDI's one-colour glyph and the grey backdrop have none)
                 if b + g + rr < 600 { inked += 1 }
             }
         }

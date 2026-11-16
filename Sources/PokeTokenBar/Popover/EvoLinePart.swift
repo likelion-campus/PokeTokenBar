@@ -178,7 +178,7 @@ import Foundation
 
     /// The Mac's edge mask over a solid background: the background laid over the fading side, opaque at the edge and clear
     /// 24 pt in (`LinearGradient` stops `clear → black` over `fadeWidth / maxWidth`).
-    static func fade(back: Bool, forward: Bool, size: CGSize, background: PlazaColor, scale: CGFloat, graphics: any PlazaGraphics) -> PlazaPanelLayer? {
+    nonisolated static func fade(back: Bool, forward: Bool, size: CGSize, background: PlazaColor, scale: CGFloat, graphics: any PlazaGraphics) -> PlazaPanelLayer? {
         guard back || forward else { return nil }
         let space = PlazaPanelSpace(content: size, room: 0)
         guard let image = space.image(scale: scale, graphics: graphics, { canvas in
