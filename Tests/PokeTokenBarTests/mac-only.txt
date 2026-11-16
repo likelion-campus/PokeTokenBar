@@ -264,3 +264,5 @@ LimitBarPartMacTests.swift
 PopoverTrendTwinTests+Mac.swift
 # PopoverActivityImagesMac: writes the parts' drawings with CoreGraphics ImageIO (the PR images of the Mac canvas)
 PopoverActivityImagesMac.swift
+# PopoverRecapEquivalenceTests+Mac: drives the Mac's RecapContent (UI) against its shared twin PopoverRecapContent and the page model
+PopoverRecapEquivalenceTests+Mac.swift

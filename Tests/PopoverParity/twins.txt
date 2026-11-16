@@ -107,3 +107,17 @@ UI/PopoverView.swift#MonthDailyTrend.body | Popover/PopoverActivityModel.swift#T
 UI/ActivityHeatmap.swift#ActivityHeatmap.body | Popover/PopoverActivityModel.swift#HeatmapModel.make | pin 30e5ce76db5afda9
 UI/ActivityHeatmap.swift#ActivityHeatmap.readout | Popover/PopoverActivityModel.swift#HeatmapModel.readout | pin aa5f6adc2a7480b0
 UI/StreakBadge.swift#StreakBadge.body | Popover/PopoverActivityModel.swift#StreakModel.make | pin 22ad5a0351c2c687
+# The recap (stage 7 Task 13): RecapContent is copied whole (driven against the original by PopoverRecapEquivalenceTests+Mac); the card and
+# the screen are SwiftUI bodies rebuilt as RecapCardModel / RecapCardPart / RecapPageModel / RecapNavigation (the model tests and the
+# equivalence test evaluate the bodies' expressions; these pins catch a change the corpus misses).
+UI/UsageRecapView.swift#RecapContent | Popover/PopoverRecapContent.swift#PopoverRecapContent | RecapContent=PopoverRecapContent
+UI/UsageRecapView.swift#RecapCard.body | Popover/RecapCardPart.swift#RecapCardPart | pin 08095d8a75333bd2
+UI/UsageRecapView.swift#RecapCard.header | Popover/RecapCardPart.swift#RecapCardPart | pin 7ee16bcc0f8ea23b
+UI/UsageRecapView.swift#RecapCard.lens | Popover/RecapCardPart.swift#RecapCardPart | pin 68029d281a6fd3c4
+UI/UsageRecapView.swift#RecapCard.screen | Popover/PopoverRecapContent.swift#RecapCardModel | pin 4bdde63c127fe92e
+UI/UsageRecapView.swift#RecapCard.deltaChip | Popover/PopoverRecapContent.swift#RecapCardModel | pin 1862d1ba9fdfd8d9
+UI/UsageRecapView.swift#RecapCard.meters | Popover/PopoverRecapContent.swift#PopoverRecapMetrics | pin 5071325d6bf4db59
+UI/UsageRecapView.swift#RecapCard.meter | Popover/PopoverRecapContent.swift#PopoverRecapMetrics | pin e0b4fb93ba359565
+UI/UsageRecapView.swift#RecapCard.readout | Popover/RecapCardPart.swift#RecapCardPart | pin 71ae30923f9e518b
+UI/UsageRecapView.swift#RecapCard.graduateStrip | Popover/RecapCardPart.swift#RecapCardPart | pin 1d4143c31638785a
+UI/UsageRecapView.swift#RecapScreen.body | Popover/PopoverRecapContent.swift#RecapPageModel | pin ac09eb1678ba61bd

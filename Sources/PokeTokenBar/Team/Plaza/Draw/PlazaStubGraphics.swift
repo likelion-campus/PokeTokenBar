@@ -160,6 +160,7 @@ struct PlazaStubTextEngine: PlazaTextEngine {
         case .plaza(let s): s.points
         case .system(let size, _): size
         case .emoji(let size): size
+        case .mono(let size, _): size
         }
     }
 
