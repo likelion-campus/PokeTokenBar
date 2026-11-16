@@ -440,7 +440,7 @@ enum HomeFixtures {
         await wait(0.4)
         let now = Date()
         let dates = h.page.relative.values.joined().map(\.text.date)
-        let expected = dates.map { RelativeTimeText.nextChange(for: $0, now: now) }.min()
+        let expected = dates.map { RelativeTimeText.nextChange(for: $0, now: now, coarse: true) }.min()
         let armed = h.page.clock.armedFor
         let delta = (armed != nil && expected != nil) ? abs(armed!.timeIntervalSince(expected!)) : -1
         let minuteBoundary = armed.map { $0.timeIntervalSince(now) <= 60.5 && $0.timeIntervalSince(now) > 0 } ?? false
@@ -470,11 +470,11 @@ enum HomeFixtures {
             ok = false
             parts.append("no quiet window")
         }
-        // seconds: updated 10 s ago ticks about each second and the text changes
+        // first minute: updated 10 s ago; the coarse text changes at 30 s
         let ticking = await HomeStores.make(language: .en)
         if let t = HomeHarness(stores: ticking, input: { lang, now in
             var i = HomeFixtures.empty(lang, now: now)
-            i.lastUpdated = now.addingTimeInterval(-10)
+            i.lastUpdated = now.addingTimeInterval(-28.5)
             return i
         }) {
             t.window.fitToContent()
@@ -484,9 +484,9 @@ enum HomeFixtures {
             await wait(2.3)
             let second = KitTree.collect(t.window).nodes.map(\.text).first { $0.hasPrefix(L(.en).updated) } ?? "?"
             let ticks = t.page.clock.ticks
-            let ok3 = ticks >= 2 && first != second && t.page.clock.isArmed
+            let ok3 = ticks >= 1 && first != second && t.page.clock.isArmed
             ok = ok && ok3
-            parts.append("seconds: ticks in 2.5 s=\(ticks) (>= 2), text '\(first)' -> '\(second)'")
+            parts.append("first minute (updated 28.5 s ago, the text moves at 30 s): ticks in 2.5 s=\(ticks) (>= 1), text '\(first)' -> '\(second)'")
             t.destroy()
         } else {
             ok = false
@@ -651,7 +651,7 @@ enum HomeFixtures {
 
     static var idleProbe: HomeHarness?
 
-    /// A Home page open and left alone: `seconds` shows "Updated 10 seconds" (the clock ticks about each second), `minutes` shows
+    /// A Home page open and left alone: `seconds` shows "Updated 28 seconds" (the clock ticks at 30 s, then each minute), `minutes` shows
     /// texts that change each minute, `still` has nothing relative. CI only (it opens a window).
     static func startIdleProbe(mode: String) {
         guard WindowsSelftest.onCI else {
@@ -664,7 +664,7 @@ enum HomeFixtures {
             let input: (AppLanguage, Date) -> HomeInput = { lang, now in
                 var i = HomeFixtures.claudeLimits(lang, now: now)
                 switch mode {
-                case "seconds": i.lastUpdated = now.addingTimeInterval(-10)
+                case "seconds": i.lastUpdated = now.addingTimeInterval(-28.5)
                 case "minutes": i.lastUpdated = now.addingTimeInterval(-7200)
                 default: i.lastUpdated = nil; i.limits = nil; i.claudeAccounts = []; i.claudeLimitsMissing = false
                 }

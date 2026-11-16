@@ -521,7 +521,7 @@ import WinSDK
     // MARK: the clock
 
     func relativeString(_ t: RelativeText) -> String {
-        t.prefix + RelativeTimeText.text(for: t.date, now: now(), language: companion.language) + t.suffix
+        t.prefix + RelativeTimeText.text(for: t.date, now: now(), language: companion.language, coarse: true) + t.suffix
     }
 
     /// Writes one relative text again; a line of the page lays out again only when a wrapped text changed its height.
@@ -548,7 +548,7 @@ import WinSDK
     func armClock() {
         guard !isDestroyed else { return }
         let current = now()
-        clock.setDeadlines(relative.values.joined().map { RelativeTimeText.nextChange(for: $0.text.date, now: current) })
+        clock.setDeadlines(relative.values.joined().map { RelativeTimeText.nextChange(for: $0.text.date, now: current, coarse: true) })
     }
 }
 #endif
