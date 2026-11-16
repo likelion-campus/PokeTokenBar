@@ -151,12 +151,35 @@ enum ActivityFixtures {
         clearSettings()  // the cycle check's month of fixture days is in the ledger: the streak below must be this check's own
         await streakLineCheck(r)
         clearSettings()
-        let after = KitResources.now()
-        let windowsAfter = WinSinkWindow.liveCount
-        r.add("home.activityOpenClose", after.gdi <= start.gdi + 2 && after.user <= start.user + 2 && after.handles <= start.handles + 40
-              && after.controls <= start.controls && windowsAfter <= liveWindows,
-              "after every activity check closed its window: before \(start.description), after \(after.description); sink windows \(liveWindows) -> \(windowsAfter); GDI and USER must come back exactly, handles may grow once by the fixture stores' background work (budget +40)")
+        await openCloseCheck(r, windowsBefore: liveWindows, start: start)
     }
+
+    /// A warm-up and three cycles of opening a chart, showing its hover card and closing it (bars, then the heatmap), judged by the
+    /// shared rule (`PopoverResourceRule`): GDI and USER not above the warm-up on any cycle, kernel handles only when they rise on every one.
+    private static func openCloseCheck(_ r: WindowsSelftest.Recorder, windowsBefore: Int, start: KitResources) async {
+        var cycles: [KitResources] = []
+        for _ in 0..<4 {
+            cursor(over: nil)
+            let input = ActivityFixtures.input(.three)
+            if let h = ActivityHarness(input: input), let bars = h.section.bars, let view = h.section.panelView, let item = view.items.last,
+               let target = input.series.max(by: { $0.totalTokens < $1.totalTokens })?.date, let p = point(of: target, bars) {
+                let band = bars.titleRect(graphics: PlatformPlaza.graphics).maxY
+                cursor(over: item.hwnd, Int((p.x * h.window.ctx.scale).rounded()), Int(((p.y - band) * h.window.ctx.scale).rounded()))
+                await wait(0.3)  // the card window exists
+                cursor(over: nil)
+                h.destroy()
+            }
+            if let h = ActivityHarness(input: ActivityFixtures.input(.heat)) { await wait(0.1); h.destroy() }
+            await wait(0.2)
+            cycles.append(KitResources.now())
+        }
+        let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) })
+        let last = cycles.last
+        let windowsAfter = WinSinkWindow.liveCount
+        r.add("home.activityOpenClose", verdict.ok && last?.controls == start.controls && windowsAfter <= windowsBefore,
+              "before the group: \(start); \(verdict.summary); kit controls back to the start (last: \(last?.description ?? "-")); sink windows \(windowsBefore) -> \(windowsAfter)")
+    }
+
 
     /// The fixture stores write the ledger, the visualization and the trend window into the selftest's settings suite (shared by the
     /// Home checks that follow): put them back to a first run.
