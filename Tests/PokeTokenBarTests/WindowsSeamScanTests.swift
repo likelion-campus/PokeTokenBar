@@ -479,10 +479,12 @@ extension WindowsSeamScanTests {
     /// The places in Windows code that may bring a window forward, each for a user's action: the popover's `present` (a tray
     /// click or key, the tray menu, a second launch), the tray menu's foreground dance, the second instance handing its
     /// right to the running one, the plaza's `bringToFront` (its own scan above), and `--ime-check` (a diagnostic a person
-    /// starts). The selftest (`WindowsSelftest*.swift`, the runner only) is outside the rule. Anything else fails: a
-    /// teammate, a timer, a balloon or a refresh must never pull a window of ours to the front.
+    /// starts), and the in-app update's progress window (stage 8 Task 6: opened only by the user's "Update", through
+    /// `UpdateChecker.applyUpdate`). The selftest (`WindowsSelftest*.swift`, the runner only) is outside the rule. Anything
+    /// else fails: a teammate, a timer, a balloon or a refresh must never pull a window of ours to the front.
     static let activationSites: [(file: String, function: String?)] = [
         ("Platform/Windows/Popover/WinPopover.swift", "func present("),
+        ("Platform/Windows/WinUpdateProgress.swift", "private func open("),
         ("Platform/Windows/WinTray.swift", "static func run("),
         ("Platform/Windows/WinSingleInstance.swift", "static func acquire("),
         ("Platform/Windows/Plaza/WinPlazaWindow.swift", "func bringToFront("),
