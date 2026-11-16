@@ -88,6 +88,10 @@ UI/SettingsView.swift#SettingsView.groupRow | Popover/PopoverLayout.swift#Popove
 UI/SettingsView.swift#SettingsView.toggleRow | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 5306650b1d9e7bdd
 UI/SettingsView.swift#SettingsView.body | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 9943ac8116be3c71
 
+# Difficulty and backup & transfer (stage 7 Task 15): the draft of the sliders and the exported-at text. Driven over the same inputs by
+# PopoverDifficultyDraftTwinTests+Mac and the Mac's own exportedAtText.
+UI/DifficultySettingsSection.swift#DifficultyDraft | Popover/PopoverDifficultyDraft.swift#PopoverDifficultyDraft | DifficultyDraft=PopoverDifficultyDraft
+UI/SettingsView.swift#SettingsView.exportedAtText | Popover/PopoverTransferFormat.swift#PopoverTransferFormat.exportedAtText
 # --- stage 7 Task 12: the activity panel and the streak (Popover/PopoverTrendMetrics.swift, PopoverActivityModel.swift) ---
 UI/PopoverView.swift#DailyTrendColumn | Popover/PopoverTrendMetrics.swift#PopoverTrendColumn | DailyTrendColumn=PopoverTrendColumn
 UI/PopoverView.swift#DailyTrendMetrics | Popover/PopoverTrendMetrics.swift#PopoverTrendMetrics | DailyTrendMetrics=PopoverTrendMetrics, DailyTrendColumn=PopoverTrendColumn

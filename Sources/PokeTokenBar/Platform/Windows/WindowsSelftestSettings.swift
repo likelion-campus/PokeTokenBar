@@ -828,7 +828,13 @@ extension WindowsSelftest {
     func shoot(_ page: WinSettingsPage, section: Int, name: String, dir: URL, wrote: inout [String], failed: inout [String]) async {
         guard let hwnd, let area = page.areaForTesting, let frames = page.stackForTesting?.frames else { failed.append(name); return }
         var y: CGFloat = 0
-        if section < frames.sections.count, let s = frames.sections[section] { y = (s.caption?.minY ?? s.card?.minY ?? 0) - 8 }
+        // `section` counts the sections of the page as Task 6 built it (General 0, providers 1 and 2, team 3, notifications 4,
+        // updates 5): later tasks add sections between them, so the section is found by its caption.
+        let l = self.l
+        let wanted: [Int: String] = [0: l.generalSectionTitle, 3: L(.ko).teamSectionTitle, 4: l.notificationsSection, 5: l.updateSectionTitle]
+        var index = section
+        if let caption = wanted[section]?.uppercased(), let found = page.stackForTesting?.sections.firstIndex(where: { $0.caption?.text == caption }) { index = found }
+        if index < frames.sections.count, let s = frames.sections[index] { y = (s.caption?.minY ?? s.card?.minY ?? 0) - 8 }
         area.scroll(to: Int32(max(0, y)))
         await pause(0.35)
         _ = RedrawWindow(hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100))

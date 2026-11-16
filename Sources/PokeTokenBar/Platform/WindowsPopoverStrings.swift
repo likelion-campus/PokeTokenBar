@@ -166,6 +166,109 @@ extension L {
 }
 // --- stage 7 Task 5: the Home page (end) ---
 
+// --- stage 7 Task 15: difficulty, backup and transfer (begin) ---
+extension L {
+    /// `importSaveHint`: "Pick a file exported from another Mac and continue here". A save is exported by the Mac app or by
+    /// this app on another computer.
+    var winImportSaveHint: String {
+        t("다른 컴퓨터의 PokeTokenBar에서 내보낸 파일을 골라 이 PC에서 이어서 키워요",
+          "Pick a file exported from PokeTokenBar on another computer and continue here",
+          "別のコンピューターの PokeTokenBar から書き出したファイルを選んで、この PC で続けます",
+          "Elige un archivo exportado desde PokeTokenBar en otro equipo y continúa aquí",
+          "Choisis un fichier exporté depuis PokeTokenBar sur un autre ordinateur et continue ici",
+          "Escolha um arquivo exportado do PokeTokenBar em outro computador e continue por aqui",
+          "Wähle eine in PokeTokenBar auf einem anderen Computer exportierte Datei aus und mach hier weiter",
+          "Выберите файл, экспортированный из PokeTokenBar на другом компьютере, и продолжайте здесь")
+    }
+
+    /// `importConfirmTitle`: "Replace this Mac's progress?"
+    var winImportConfirmTitle: String {
+        t("이 PC의 진행을 대체할까요?",
+          "Replace this PC's progress?",
+          "この PC の進行を置き換えますか？",
+          "¿Reemplazar el progreso de este PC?",
+          "Remplacer la progression de ce PC ?",
+          "Substituir o progresso deste PC?",
+          "Fortschritt auf diesem PC ersetzen?",
+          "Заменить прогресс на этом ПК?")
+    }
+
+    /// `importConfirmBody`: the Mac's text with "this Mac" said as "this PC". The promise that the previous state is kept as a
+    /// backup is the same (the import refuses to apply when the backup cannot be written).
+    func winImportConfirmBody(incomingDex: Int, incomingTokens: String,
+                              exportedAt: String, sourceDevice: String,
+                              currentDex: Int, currentTokens: String) -> String {
+        t("""
+          불러올 세이브: 도감 \(incomingDex)마리 · 누적 \(incomingTokens)
+          내보낸 시각: \(exportedAt) · \(sourceDevice)
+          현재 이 PC: 도감 \(currentDex)마리 · 누적 \(currentTokens)
+
+          이 PC의 현재 진행은 대체됩니다. 직전 상태는 상태 폴더에 백업으로 남습니다(최근 5개).
+          """,
+          """
+          Incoming save: \(incomingDex) in Pokédex · \(incomingTokens) lifetime
+          Exported: \(exportedAt) · \(sourceDevice)
+          This PC now: \(currentDex) in Pokédex · \(currentTokens) lifetime
+
+          This PC's current progress is replaced. The previous state is kept as a backup in the state folder (last 5).
+          """,
+          """
+          読み込むセーブ: 図鑑 \(incomingDex)匹 · 累計 \(incomingTokens)
+          書き出し日時: \(exportedAt) · \(sourceDevice)
+          現在のこの PC: 図鑑 \(currentDex)匹 · 累計 \(currentTokens)
+
+          この PC の現在の進行は置き換えられます。直前の状態は状態フォルダーにバックアップとして残ります（最新5件）。
+          """,
+          """
+          Partida a importar: Pokédex \(incomingDex) · \(incomingTokens) acumulados
+          Exportada: \(exportedAt) · \(sourceDevice)
+          Este PC ahora: Pokédex \(currentDex) · \(currentTokens) acumulados
+
+          El progreso actual de este PC será reemplazado. El estado anterior se guarda como copia de seguridad en la carpeta de estado (últimas 5).
+          """,
+          """
+          Sauvegarde à importer : Pokédex \(incomingDex) · \(incomingTokens) cumulés
+          Exportée : \(exportedAt) · \(sourceDevice)
+          Ce PC actuellement : Pokédex \(currentDex) · \(currentTokens) cumulés
+
+          La progression actuelle de ce PC sera remplacée. L'état précédent est conservé en sauvegarde dans le dossier d'état (5 derniers).
+          """,
+          """
+          Save a ser importado: Pokédex \(incomingDex) · \(incomingTokens) acumulados
+          Exportado: \(exportedAt) · \(sourceDevice)
+          Este PC agora: Pokédex \(currentDex) · \(currentTokens) acumulados
+
+          O progresso atual deste PC será substituído. O estado anterior fica guardado como backup na pasta de estado (últimos 5).
+          """,
+          """
+          Zu importierender Spielstand: \(incomingDex) im Pokédex · \(incomingTokens) insgesamt
+          Exportiert: \(exportedAt) · \(sourceDevice)
+          Dieser PC jetzt: \(currentDex) im Pokédex · \(currentTokens) insgesamt
+
+          Der aktuelle Fortschritt auf diesem PC wird ersetzt. Der vorherige Stand bleibt als Sicherung im Statusordner erhalten (die letzten 5).
+          """,
+          """
+          Импортируемое сохранение: Покедекс \(incomingDex) · \(incomingTokens) за всё время
+          Экспортировано: \(exportedAt) · \(sourceDevice)
+          Сейчас на этом ПК: Покедекс \(currentDex) · \(currentTokens) за всё время
+
+          Текущий прогресс на этом ПК будет заменён. Предыдущее состояние останется резервной копией в папке состояния (последние 5).
+          """)
+    }
+
+    /// The file type's name in the file dialogs ("JSON (*.json)").
+    var winSaveFileFilterName: String {
+        t("세이브 파일 (*.json)",
+          "Save file (*.json)",
+          "セーブファイル (*.json)",
+          "Archivo de partida (*.json)",
+          "Fichier de sauvegarde (*.json)",
+          "Arquivo de save (*.json)",
+          "Spielstanddatei (*.json)",
+          "Файл сохранения (*.json)")
+    }
+}
+// --- stage 7 Task 15: difficulty, backup and transfer (end) ---
 // --- stage 7 Task 14: session keys and advanced settings (begin) ---
 extension L {
     /// `sessionKeyHint`: "Fetches official limits with no Keychain pop-up. Paste the value from DevTools → …". There is no

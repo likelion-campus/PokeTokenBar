@@ -260,6 +260,8 @@ TeamReleaseScriptRunTests.swift
 PlazaChatBarPanelTests+Mac.swift
 # LimitBarPartMacTests: reads the Mac view PopoverView.swift as text (it is not compiled on Windows) and holds the Windows limit bar to the Mac's private marker and track numbers
 LimitBarPartMacTests.swift
+# PopoverDifficultyDraftTwinTests+Mac: drives the Mac's DifficultyDraft and SettingsView.exportedAtText (upstream SwiftUI files, not compiled on Windows) against their shared twins
+PopoverDifficultyDraftTwinTests+Mac.swift
 # PopoverTrendTwinTests+Mac: drives the Mac-only originals (DailyTrendMetrics, ActivityHeatmapMetrics, MonthDailyTrend, StreakBadge) against the shared twins
 PopoverTrendTwinTests+Mac.swift
 # PopoverActivityImagesMac: writes the parts' drawings with CoreGraphics ImageIO (the PR images of the Mac canvas)

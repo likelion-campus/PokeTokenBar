@@ -38,6 +38,14 @@ import WinSDK
     private var area: WinScrollArea?
     private var stack: WinStack?
     private var team: WinTeamSection?
+    // MARK: Task 15 — difficulty, backup and transfer (begin)
+    private var transfer: WinTransferSection?
+    /// The sliders' draft and the history's expansion, kept across a rebuild (the Mac's `@State`).
+    private let transferDrafts = WinTransferDrafts()
+    /// What the Backup & transfer rows open their dialogs with and fetch their sprites with; nil: the real ones (the selftest sets both).
+    var transferDialogs: (any TransferDialogs)?
+    var transferSpriteFetcher: any PlazaSpriteFetching = PlatformPlaza.spriteFetcher()
+    // MARK: Task 15 (end)
     /// Typed-but-uncommitted team fields, kept across a rebuild of the page.
     private let teamDrafts = WinTeamDrafts()
     private var lastClient = RECT()
@@ -319,6 +327,14 @@ import WinSDK
         // Left out on Windows (`SettingsModel.visibility`): animation quality and the pet group (they wait for the pet, T22), the
         // menu bar group and the Keychain switch (no such things here). The Mac's representative, trend and tracked-account rows are T20, T12, T14.
 
+        // MARK: Task 15 — difficulty (begin)
+        let transferRows = WinTransferSection(host: host, drafts: transferDrafts, owner: { [weak self] in self?.window?.hwnd },
+                                              dialogs: transferDialogs, spriteFetcher: transferSpriteFetcher,
+                                              changed: { [weak self] in self?.scheduleRefresh() }, rebuild: { [weak self] in self?.scheduleRebuild() })
+        transfer = transferRows
+        transferRows.addDifficulty(to: s)
+        // MARK: Task 15 (end)
+
         // Tracked providers (G11)
         let providers = s.addSection(l.trackedProvidersSectionTitle)
         providerRows = store.registeredProviders.map { provider in
@@ -381,6 +397,7 @@ import WinSDK
             updateCurrentRow?.label?.role = .secondary
         }
 
+        transferRows.addTransfer(to: s)   // MARK: Task 15 — backup and transfer (G16)
         // --- stage 7 Task 14: Advanced (G17) (begin) ---
         let advancedSection = s.addSection(l.advancedSectionTitle)
         advanced = WinAdvancedSection(section: advancedSection, host: host, drafts: advancedDrafts, facts: PlatformCompat.popoverFacts,
@@ -438,6 +455,7 @@ import WinSDK
         setOn(updateNotificationsRow?.control, store.updateNotificationsEnabled)
         syncUpdates()
         fallbackRow?.isVisible = reportFailed
+        transfer?.apply()   // MARK: Task 15
         var relayout = team?.apply() ?? false
         relayout = relayout || updateTextChanged
         trackedAccount?.apply()                                   // stage 7 Task 14
@@ -557,6 +575,11 @@ import WinSDK
 
     private func rebuildNow() {
         guard !destroyed, let window, ctx != nil else { return }
+        // MARK: Task 15 — a dialog of the page is open: its controls are on the stack, so the rebuild waits until it ends
+        if let transfer, transfer.isBusy {
+            transfer.afterBusy = { [weak self] in self?.scheduleRebuild() }
+            return
+        }
         pageRebuilds += 1
         let offset = area?.offset ?? 0
         let focused = stack?.controls.firstIndex { $0.parts.contains { $0 == GetFocus() } }
@@ -610,6 +633,11 @@ import WinSDK
         _ = team.notificationsEnabled
         _ = team.schedule
         _ = host.session?.hasIncompatiblePeer
+        // MARK: Task 15 (begin)
+        _ = host.companion.growthDifficulty
+        _ = host.companion.shopDifficulty
+        _ = host.companion.availableSnapshots
+        // MARK: Task 15 (end)
         WinAdvancedSection.touch(store)     // stage 7 Task 14
         WinTrackedAccountRow.touch(store)   // stage 7 Task 14
     }
@@ -628,6 +656,7 @@ import WinSDK
         titleLabel?.destroy()
         header?.destroy()
         team = nil
+        transfer = nil   // MARK: Task 15
         stack = nil
         area = nil
         footer = nil
@@ -655,6 +684,7 @@ import WinSDK
     // MARK: for the selftest
 
     var teamForTesting: WinTeamSection? { team }
+    var transferForTesting: WinTransferSection? { transfer }   // MARK: Task 15
     var stackForTesting: WinStack? { stack }
     var areaForTesting: WinScrollArea? { area }
     var rowsForTesting: (language: WinRow?, refresh: WinRow?, limitDisplay: WinRow?, login: WinRow?, backView: WinRow?, help: WinRow?,

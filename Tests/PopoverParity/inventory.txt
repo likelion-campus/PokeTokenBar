@@ -98,7 +98,7 @@ G5 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.s
 G6 | 2 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: daily trend period picker
 G7 | 2 | done Platform/Windows/Popover/WinAdvancedSection.swift | UI/SettingsView.swift | General: tracked Claude account (two or more accounts): automatic, highest, each account
 G8 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: launch at login (Mac hints "bundled only" / approval / error; Windows: WindowsLoginItem, "disabled in Task Manager")
-G9 | 2 | pending T15 | UI/DifficultySettingsSection.swift | Difficulty: growth and shop sliders, value text, low/high labels, Save when changed
+G9 | 2 | done Platform/Windows/Popover/WinTransferSection.swift | UI/DifficultySettingsSection.swift | Difficulty: growth and shop sliders, value text, low/high labels, Save when changed
 G10 | - | n/a: a tray icon shows no text (P17, ruling 6) | UI/SettingsView.swift | Menu bar group: today's tokens, cost, growth %, limit %, limit colour mode + "all off" hint
 G11 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Tracked providers: one switch per registered provider + hint
 G12 | 3 | pending T22 | UI/SettingsView.swift | Floating pet group: enable, size slider, bubble alerts, agent activity
@@ -116,7 +116,7 @@ G14 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.
 G14c | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Notifications: companion alerts
 G14s | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Notifications: provider status checks + hint
 G15 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Updates: notifications switch, Check now (spinner; forced), offer / skipped (show again, update) / up to date
-G16 | 2 | pending T15 | UI/SettingsView.swift | Backup & transfer: export (save dialog, reveal, error alert), import (open dialog, decode, confirm with both summaries, Cancel default, apply, done/error), create snapshot (+alert), snapshot history disclosure with rows (28 pt sprite, date, dex + tokens, Restore → confirm → done/error)
+G16 | 2 | done Platform/Windows/Popover/WinTransferSection.swift | UI/SettingsView.swift | Backup & transfer: export (save dialog, reveal, error alert), import (open dialog, decode, confirm with both summaries, Cancel default, apply, done/error), create snapshot (+alert), snapshot history disclosure with rows (28 pt sprite, date, dex + tokens, Restore → confirm → done/error)
 G17 | 2 | done Platform/Windows/Popover/WinAdvancedSection.swift | UI/SettingsView.swift | Advanced disclosure (opens expanded, scrolled and focused from a session-key notice; collapse commits the scan folders)
 G17k | 2 | done Platform/Windows/Popover/WinAdvancedSection.swift | UI/SettingsView.swift | Advanced: claude.ai session key (badge expired/saved, hint, masked field, Save validating, Delete, organisation picker when more than one, error or storage note; organisations refreshed on expand). The Mac stores it as a plaintext owner-only file (SessionKeyStore, 0600), not in the Keychain; Windows encrypts it with DPAPI (ruling 5), so the storage note is replaced
 G17a | 2 | done Platform/Windows/Popover/WinAdvancedSection.swift | UI/SettingsView.swift | Advanced: per-account session keys of the additional Claude folders
