@@ -136,28 +136,163 @@ enum PlatformCompat {
     }
 
     /// Splits an absolute path into the base `CustomScanRoots` starts from and the rest (slash-separated).
-    /// POSIX: base "" (the root) and the whole path, untouched. Windows: backslashes become slashes, and the
-    /// drive (`C:`) is the base.
+    /// POSIX: base "" (the root) and the whole path, untouched. Windows: `windowsSplitRoot`.
     static func splitRoot(_ absolute: String) -> (base: String, rest: String) {
         #if os(Windows)
-        let slashed = absolute.replacingOccurrences(of: "\\", with: "/")
-        let u = Array(slashed)
-        if u.count >= 2, u[1] == ":" { return (String(u[0...1]), String(u.dropFirst(2))) }
-        return ("", slashed)
+        return windowsSplitRoot(absolute)
         #else
         return ("", absolute)
         #endif
     }
 
+    /// Windows' roots (stage 7 Task 14, P19): backslashes become slashes; the drive (`C:`) or the share of a UNC path
+    /// (`//server/share`) is the base, the rest follows it. The `\\?\` and `\\.\` prefixes are dropped (`\\?\UNC\server\share`
+    /// is the share). Before, a UNC path had base "" and its server and share were looked up as folders of the current
+    /// drive (`\\server\share\x` → `\server\share\x`), so it was never found. Pure, so both systems test it; only the
+    /// Windows branch of `splitRoot` calls it.
+    static func windowsSplitRoot(_ absolute: String) -> (base: String, rest: String) {
+        var slashed = absolute.replacingOccurrences(of: "\\", with: "/")
+        for prefix in ["//?/", "//./"] where slashed.hasPrefix(prefix) {
+            slashed.removeFirst(prefix.count)
+            if slashed.uppercased().hasPrefix("UNC/") { slashed = "//" + slashed.dropFirst(4) }
+            break
+        }
+        let u = Array(slashed)
+        if u.count >= 2, u[1] == ":" { return (String(u[0...1]), String(u.dropFirst(2))) }
+        if slashed.hasPrefix("//"), !slashed.hasPrefix("///") {
+            let parts = slashed.dropFirst(2).split(separator: "/", maxSplits: 2, omittingEmptySubsequences: false)
+            if parts.count >= 2, !parts[0].isEmpty, !parts[1].isEmpty {
+                return ("//\(parts[0])/\(parts[1])", parts.count > 2 ? "/" + parts[2] : "")
+            }
+        }
+        return ("", slashed)
+    }
+
     /// The path to list for a base built by `splitRoot` plus segments: "" is the root, and a bare Windows drive
-    /// needs its trailing slash (`C:` alone means the drive's current directory).
+    /// needs its trailing slash (`C:` alone means the drive's current directory), as does a share (`//server/share/`:
+    /// Windows finds a share's root only with it).
     static func listablePath(_ base: String) -> String {
         #if os(Windows)
-        if base.isEmpty { return "/" }
-        return base.count == 2 && base.hasSuffix(":") ? base + "/" : base
+        return windowsListablePath(base)
         #else
         return base.isEmpty ? "/" : base
         #endif
+    }
+
+    /// `listablePath` on Windows. Pure, so both systems test it.
+    static func windowsListablePath(_ base: String) -> String {
+        if base.isEmpty { return "/" }
+        if base.count == 2 && base.hasSuffix(":") { return base + "/" }
+        if base.hasPrefix("//"), base.dropFirst(2).split(separator: "/").count == 2 { return base + "/" }
+        return base
+    }
+
+    /// `fm.enumerator(at:includingPropertiesForKeys:options:)`: every URL-based folder walk in Core goes through here (stage 7
+    /// Task 14 review). Mac: exactly that call. Windows: the same call, except under a share (`//server/share/…`), where
+    /// swift-foundation's URL-based listing returns nothing (files there still open, and the String-based
+    /// `contentsOfDirectory(atPath:)` lists them — measured on the runner): there `WinShareEnumerator` walks the share with
+    /// the String-based listing.
+    static func enumerator(_ fm: FileManager, at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
+                           options: FileManager.DirectoryEnumerationOptions = []) -> FileManager.DirectoryEnumerator? {
+        #if os(Windows)
+        if isWindowsUNC(url.path) { return WinShareEnumerator(root: url.path, skipsHiddenFiles: options.contains(.skipsHiddenFiles)) }
+        #endif
+        return fm.enumerator(at: url, includingPropertiesForKeys: keys, options: options)
+    }
+
+    /// `fm.contentsOfDirectory(at:includingPropertiesForKeys:)`, the same way as `enumerator`. Mac: exactly that call.
+    static func contentsOfDirectory(_ fm: FileManager, at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?) throws -> [URL] {
+        #if os(Windows)
+        if isWindowsUNC(url.path) {
+            return try fm.contentsOfDirectory(atPath: listablePath(url.path)).sorted().map { url.appendingPathComponent($0) }
+        }
+        #endif
+        return try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: keys)
+    }
+
+    /// `url.resolvingSymlinksInPath().standardizedFileURL`: the form scan roots are compared and kept in (stage 7 Task 14, P19).
+    /// Mac: exactly that. Windows: the final path Windows reports for an existing file or folder (`WinPath.finalPath`: links,
+    /// junctions, subst and mapped network drives followed), turned from its `\\?\` device spelling into the form shared code
+    /// keeps (`windowsPathFromDevicePath`: `\\?\UNC\server\share\x` → `//server/share/x`); a folder on a share is then listed
+    /// through `enumerator` / `contentsOfDirectory`'s share walk (swift-foundation's URL-based listing returns nothing there,
+    /// and a link to a share lists nothing either). A path that cannot be opened is kept as typed. swift-foundation's own
+    /// resolution turned every result on a share into `UNC/server/share/…` relative to the current folder, and its
+    /// standardization drops a UNC path's leading slash.
+    static func resolvedFileURL(_ url: URL) -> URL {
+        #if os(Windows)
+        let path = url.path
+        if let final = WinPath.finalPath(path) { return URL(fileURLWithPath: windowsPathFromDevicePath(final)) }
+        if isWindowsUNC(path) { return URL(fileURLWithPath: windowsStandardizedUNC(path)) }
+        return url.standardizedFileURL
+        #else
+        return url.resolvingSymlinksInPath().standardizedFileURL
+        #endif
+    }
+
+    /// `url.resolvingSymlinksInPath().standardizedFileURL.path`: the string scan roots are compared by
+    /// (`CustomScanRoots.normalizedPath`: is a custom folder one of the defaults, or an ancestor of one). Mac: exactly that.
+    /// Windows: `resolvedFileURL`'s path without a drive root's trailing slash (`C:/` → `C:`): the ancestor test appends "/"
+    /// (`c:/` + "/" never prefixes `c:/users/…`), so `C:\` was kept beside the defaults it contains and scanned with them —
+    /// the Mac drops `/` the same way (#162-B). Only compared, never turned back into a URL (`C:` alone means a drive's
+    /// current folder).
+    static func resolvedPath(_ url: URL) -> String {
+        #if os(Windows)
+        return windowsComparablePath(resolvedFileURL(url).path)
+        #else
+        return url.resolvingSymlinksInPath().standardizedFileURL.path
+        #endif
+    }
+
+    /// `C:/` → `C:` (a drive root without its slash); every other path as it is. Pure, so both systems test it.
+    static func windowsComparablePath(_ path: String) -> String {
+        let u = Array(path)
+        return u.count == 3 && u[0].isLetter && u[1] == ":" && (u[2] == "/" || u[2] == "\\") ? String(u[0...1]) : path
+    }
+
+    /// What `GetFinalPathNameByHandleW` answers, in the form shared code keeps paths in: `\\?\UNC\server\share\x` →
+    /// `//server/share/x`, `\\?\C:\x` → `C:/x`, `\\?\C:\` → `C:/`; anything else with its backslashes turned into slashes.
+    /// Pure, so both systems test it.
+    static func windowsPathFromDevicePath(_ path: String) -> String {
+        var s = path.replacingOccurrences(of: "\\", with: "/")
+        for prefix in ["//?/", "//./"] where s.hasPrefix(prefix) {
+            s.removeFirst(prefix.count)
+            if s.uppercased().hasPrefix("UNC/") { s = "//" + s.dropFirst(4) }
+            break
+        }
+        return s
+    }
+
+    /// `URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL` (a folder typed in Settings). Mac: exactly that.
+    /// Windows: a UNC folder keeps its share (see `resolvedFileURL`).
+    static func standardizedDirectoryURL(_ path: String) -> URL {
+        #if os(Windows)
+        if isWindowsUNC(path) { return URL(fileURLWithPath: windowsStandardizedUNC(path), isDirectory: true) }
+        #endif
+        return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    }
+
+    /// `//server/share/…` or `\\server\share\…` (not a `\\?\` or `\\.\` device path). Pure, so both systems test it.
+    static func isWindowsUNC(_ path: String) -> Bool {
+        let s = path.replacingOccurrences(of: "\\", with: "/")
+        return s.hasPrefix("//") && !s.hasPrefix("///") && !s.hasPrefix("//?/") && !s.hasPrefix("//./")
+    }
+
+    /// A UNC path with `.` and `..` resolved (never above its share) and no trailing slash: `//server/share/a/./b/../c/` →
+    /// `//server/share/a/c`. Pure, so both systems test it.
+    static func windowsStandardizedUNC(_ path: String) -> String {
+        let s = path.replacingOccurrences(of: "\\", with: "/")
+        let parts = s.dropFirst(2).split(separator: "/").map(String.init)
+        guard parts.count >= 2 else { return s }
+        var out = Array(parts[0...1])
+        for part in parts.dropFirst(2) {
+            if part == "." { continue }
+            if part == ".." {
+                if out.count > 2 { out.removeLast() }
+                continue
+            }
+            out.append(part)
+        }
+        return "//" + out.joined(separator: "/")
     }
 
     static func abbreviatingWithTilde(_ path: String) -> String {
@@ -578,6 +713,32 @@ extension PlatformCompat {
         return try await WinHTTPFetch.data(for: request, configuration: configuration, maxBodyBytes: maxBytes, progress: progress)
         #else
         return try await URLSession.shared.data(for: request)
+        #endif
+    }
+}
+
+// MARK: - The session key's file (stage 7 Task 14, D14)
+
+extension PlatformCompat {
+    /// Writes a secret file (`SessionKeyStore.save`). Mac: exactly `data.write(to:options: .atomic)`, the plain owner-only file
+    /// the Mac keeps (the caller makes it 0600 first). Windows: encrypted for this Windows account with DPAPI and written
+    /// atomically (`WinSecret.write`), since 0600 means nothing there (D14, ruling 5).
+    static func writeSecret(_ data: Data, to url: URL) throws {
+        #if os(Windows)
+        try WinSecret.write(data, to: url)
+        #else
+        try data.write(to: url, options: .atomic)
+        #endif
+    }
+
+    /// Reads a secret file (`SessionKeyStore.load`); nil when there is none. Mac: exactly `try? Data(contentsOf:)`. Windows: the
+    /// decrypted bytes; a file that does not decrypt here reads as nil (one log line), a plain file of an earlier build is
+    /// encrypted in place (`WinSecret.read`).
+    static func readSecret(at url: URL) -> Data? {
+        #if os(Windows)
+        return WinSecret.read(at: url)
+        #else
+        return try? Data(contentsOf: url)
         #endif
     }
 }

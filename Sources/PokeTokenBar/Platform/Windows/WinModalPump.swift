@@ -64,7 +64,11 @@ import WinSDK
         sink.on(exitSizeMove) { _, _ in delivered[exitSizeMove, default: 0] += 1; end("sizemove"); return nil }
     }
 
+    /// Stage 7 Task 15: modal loops of the common file dialog and the task dialog (`begin("dialog")`) are open.
+    private(set) static var dialogDepth = 0
+
     static func begin(_ reason: String) {
+        if reason == "dialog" { dialogDepth += 1 }
         depth += 1
         guard depth == 1 else { return }
         guard let hwnd = window?.hwnd else { beginsWithoutWindow += 1; return }
@@ -77,6 +81,7 @@ import WinSDK
     }
 
     static func end(_ reason: String) {
+        if reason == "dialog", dialogDepth > 0 { dialogDepth -= 1 }
         guard depth > 0 else { return }
         depth -= 1
         guard depth == 0, timerLive, let hwnd = window?.hwnd else { return }
@@ -89,7 +94,10 @@ import WinSDK
 
     /// Asks every open modal menu to close (the exit path calls it before leaving the process).
     static func cancelModalLoops() {
-        if depth > 0 { _ = EndMenu() }
+        if depth > 0 {
+            _ = EndMenu()
+            WinDialogs.closeAll()   // stage 7 Task 15: an open file dialog or task dialog of the popover ends as a cancel
+        }
     }
 
     /// Selftest probe: whether the pump's timer still exists (it is killed by this call when it does).

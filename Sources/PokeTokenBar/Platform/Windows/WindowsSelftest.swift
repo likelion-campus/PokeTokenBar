@@ -127,6 +127,7 @@ enum WindowsSelftest {
         await popoverCompanionChecks(r, app)  // stage 7 task 9 (WindowsSelftestPopoverCompanion.swift): drawn parts (Direct2D), so after the idle window; leaves no window behind
         await popoverActivityChecks(r, app)  // stage 7 task 12 (WindowsSelftestPopoverActivity.swift): draws the chart (Direct2D), so after the idle window; leaves no window behind
         await popoverHomeChecks(r, app)  // stage 7 task 5 (WindowsSelftestPopoverHome.swift): draws the limit bars (Direct2D), so after the idle window; leaves no window behind
+        await popoverTransferChecks(r, app)  // stage 7 task 15 (WindowsSelftestPopoverTransfer.swift): real file and task dialogs, sprites (Direct2D), so after the idle window
         await popoverRecapChecks(r, app)  // stage 7 task 13 (WindowsSelftestPopoverRecap.swift): draws the card (Direct2D), so after the idle window; leaves no window behind
         return r.checks
     }

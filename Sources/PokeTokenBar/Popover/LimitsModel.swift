@@ -424,10 +424,14 @@ struct LimitsBuilder {
                                          inProgress: store.isRefreshingLimitToken))
     }
 
-    /// Twin of `PopoverView.claudeKeychainHelpButton`. Its words explain the Mac Keychain, so it shows only where there
-    /// is one; the Windows wording (a credentials-file note, D13) comes with Task 5 / 14.
+    /// Twin of `PopoverView.claudeKeychainHelpButton`. Its words explain the Mac Keychain; without one the same (?) explains
+    /// Claude's sign-in file instead (D13, stage 7 Task 14), with the same "Register session key" button.
     var claudeKeychainHelpButton: HelpModel? {
-        guard facts.hasKeychain else { return nil }
+        guard facts.hasKeychain else {
+            return HelpModel(tooltip: l.winClaudeCredentialHelpTooltip, title: l.winClaudeCredentialHelpTitle,
+                             body: l.winClaudeCredentialHelpBody,
+                             button: NoticeButton(label: l.registerSessionKey, action: .openSessionKeySettings))
+        }
         return HelpModel(tooltip: l.claudeKeychainHelpTooltip, title: l.claudeKeychainHelpTitle,
                          body: l.claudeKeychainHelpBody,
                          button: NoticeButton(label: l.registerSessionKey, action: .openSessionKeySettings))

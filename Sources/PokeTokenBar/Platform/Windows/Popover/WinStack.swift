@@ -281,6 +281,11 @@ import WinSDK
 
     fileprivate func rowVisibilityChanged() { stack?.setNeedsLayout() }
 
+    // --- stage 7 Task 14: the page's width, for a row that picks one line or two when it is built (begin) ---
+    /// The page's width in pixels (0 once the page is gone).
+    var pageWidth: Int32 { stack?.width ?? 0 }
+    // --- stage 7 Task 14 (end) ---
+
     // --- stage 7 Task 5: a page region that is made again when its model changes (begin) ---
     /// Destroys every row's controls and forgets the rows; the page lays out again. A region of a page built from a model
     /// (the Home page's limits) makes its rows again when that part of the model changed, and the rest of the page stays.
