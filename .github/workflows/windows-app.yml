@@ -296,7 +296,7 @@ jobs:
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'home.activityCapture', 'home.activityHover', 'home.activityKeyboard', 'home.activityCycle', 'home.heatmapWeekStart', 'home.activityOpenClose'
+          $names = 'home.activityCapture', 'home.activityHover', 'home.activityKeyboard', 'home.activityCycle', 'home.heatmapWeekStart', 'home.activityStreakLine', 'home.activityOpenClose'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }

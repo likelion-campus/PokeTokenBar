@@ -1,7 +1,7 @@
 import Foundation
 
 /// The streak badge (stage 7 D7, Task 12; the Mac's `StreakBadge`, SF symbol `flame.fill`): a flame and the day count,
-/// right-aligned in its row. The flame is the glyph table's mapping for `flame.fill` (no acceptable icon-font glyph: the 🔥
+/// as wide as its content (its row aligns it). The flame is the glyph table's mapping for `flame.fill` (no acceptable icon-font glyph: the 🔥
 /// emoji as text), drawn through the canvas's colour text path (Segoe UI Emoji, DirectWrite colour layers). The Mac tints the
 /// symbol orange once today counts and secondary gray while it does not; an emoji takes no tint, so the same glyph is drawn at
 /// the secondary label's opacity while today has no usage. The tooltip and the accessible text are the model's label.
@@ -26,7 +26,10 @@ import Foundation
     func size(width: CGFloat, scale: CGFloat, text: any PlazaTextEngine) -> CGSize {
         self.width = width
         let flame = text.metrics(.emoji(size: Self.size))
-        return CGSize(width: width, height: max(ActivityDrawing.lineHeight(Self.size, text: text), (flame.ascender - flame.descender).rounded()))
+        // The badge is as wide as its content; its row places it (right-aligned, beside the recap button on Home).
+        let glyph = text.line(Self.flame, font: .emoji(size: Self.size)).width
+        let digits = text.line("\(model.days)", font: .system(size: Self.size, weight: .semibold)).width
+        return CGSize(width: ceil(glyph + 2 + digits), height: max(ActivityDrawing.lineHeight(Self.size, text: text), (flame.ascender - flame.descender).rounded()))
     }
 
     /// The badge's rectangle at the row's right edge.
@@ -34,7 +37,7 @@ import Foundation
         let h = size(width: width, scale: 1, text: graphics.text).height
         let glyph = graphics.text.line(Self.flame, font: .emoji(size: Self.size)).width
         let w = glyph + 2 + drawing.width("\(model.days)", size: Self.size, weight: 600, graphics: graphics)
-        return CGRect(x: width - w, y: 0, width: w, height: h)
+        return CGRect(x: 0, y: 0, width: w, height: h)
     }
 
     func render(scale: CGFloat, graphics: any PlazaGraphics) -> PopoverDrawing {

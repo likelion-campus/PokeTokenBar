@@ -137,7 +137,7 @@ enum ActivityFixtures {
 
 @MainActor enum WindowsSelftestPopoverActivity {
     static let names = ["home.activityCapture", "home.activityHover", "home.activityKeyboard", "home.activityCycle", "home.heatmapWeekStart",
-                        "home.activityOpenClose"]
+                        "home.activityStreakLine", "home.activityOpenClose"]
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         let start = KitResources.now()
@@ -147,6 +147,7 @@ enum ActivityFixtures {
         await keyboardCheck(r)
         await cycleCheck(r)
         await weekStartCheck(r)
+        await streakLineCheck(r)
         let after = KitResources.now()
         let windowsAfter = WinSinkWindow.liveCount
         r.add("home.activityOpenClose", after.gdi <= start.gdi + 2 && after.user <= start.user + 2 && after.handles <= start.handles + 8
@@ -459,6 +460,55 @@ enum ActivityFixtures {
         ok = ok && seen[1]?.first == "S" && seen[2]?.first == "M" && differ
         r.add("home.heatmapWeekStart", ok, "firstWeekday 1 (Sunday): rows \(seen[1]?.columns.joined() ?? "-"); firstWeekday 2 (Monday): rows \(seen[2]?.columns.joined() ?? "-"); "
               + "first row label differs=\(differ); the grid's columns start on the region's weekday; PlatformCompat.firstWeekday here = \(PlatformCompat.firstWeekday)")
+    }
+
+    // MARK: home.activityStreakLine: the streak and "Details" share the week and month line, as on the Mac
+
+    private static func streakLineCheck(_ r: WindowsSelftest.Recorder) async {
+        cursor(over: nil)
+        let now = Date()
+        let days = ActivityFixtures.days(back: 5, now: now).map { ActivityFixtures.usage($0.date, 250_000) }
+        let provider = ActivityFixtureProvider(id: "claude_code", displayName: "Claude Code", reportsCost: true, days: days)
+        var lines: [String] = []
+        var ok = true
+        for language in [AppLanguage.en, .ko] {
+            let stores = await HomeStores.make(language: language, providers: [provider], refresh: true)
+            guard let h = HomeHarness(stores: stores) else { r.add("home.activityStreakLine", false, "no window"); stores.remove(); return }
+            h.window.fitToContent()
+            h.window.show(activate: false)
+            await wait(0.8)
+            h.window.fitToContent()
+            await wait(0.3)
+            let panel = h.page.activityPanel
+            let slot = h.page.streakSlot
+            let button = h.page.recapButton
+            var detail = "no slot or button"
+            if let slot, let button {
+                var sv = RECT(), bv = RECT()
+                _ = GetWindowRect(slot.view.hwnd, &sv)
+                _ = GetWindowRect(button.hwnd, &bv)
+                let sameParent = GetParent(slot.view.hwnd) == GetParent(button.hwnd)
+                let shown = IsWindowVisible(slot.view.hwnd) && IsWindowVisible(button.hwnd)
+                let sameLine = max(sv.top, bv.top) < min(sv.bottom, bv.bottom)
+                let leftOf = sv.right <= bv.left
+                let ownRow = panel?.streakRow == nil
+                let streakText = slot.view.items.first.map { WinKit.text(of: $0.hwnd) } ?? "-"
+                let named = streakText == L(language).streakDays(5) || streakText == L(language).streakDays(6)
+                let tree = KitTree.collect(h.window)
+                let checks = tree.check(h.window)
+                detail = "streak and Details: one parent=\(sameParent), both shown=\(shown), same line=\(sameLine) (streak y \(sv.top)-\(sv.bottom), button y \(bv.top)-\(bv.bottom)), "
+                    + "streak left of the button=\(leftOf), no row of its own=\(ownRow), streak named '\(streakText)'=\(named); \(checks.summary)"
+                ok = ok && sameParent && shown && sameLine && leftOf && ownRow && named && checks.ok
+                if let dir = dumpDirectory() {
+                    let png = capture(h.window).map { WinUIDump.write($0, to: dir.appendingPathComponent("activity-home-streak-details-\(language == .ko ? "ko" : "en").png")) } ?? -1
+                    detail += ", png=\(png == 0 ? "ok" : "FAILED \(png)")"
+                    if png != 0 { ok = false }
+                }
+            } else { ok = false }
+            lines.append("\(language): \(detail)")
+            h.destroy()
+        }
+        r.add("home.activityStreakLine", ok, lines.joined(separator: " | "))
     }
 
     // MARK: --popover-activity-idle-probe bars|heatmap (the idle gate)

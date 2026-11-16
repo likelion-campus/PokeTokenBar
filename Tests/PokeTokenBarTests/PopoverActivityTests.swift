@@ -261,11 +261,11 @@ final class PopoverActivityTests: XCTestCase {
         let part = StreakPart(StreakModel(days: 5, includesToday: true, label: "5-day streak"))
         let graphics = PlatformPlaza.graphics
         let size = part.size(width: 332, scale: 1, text: graphics.text)
-        XCTAssertEqual(size.width, 332)
+        XCTAssertLessThan(size.width, 60, "as wide as its content")
         let d = part.render(scale: 1, graphics: graphics)
         XCTAssertEqual(d.drawing.accessibility.map(\.label), ["5-day streak"])
         XCTAssertEqual(d.drawing.tooltips.map(\.text), ["5-day streak"])
-        XCTAssertLessThan(d.drawing.accessibility[0].frame.minX, 332)
-        XCTAssertEqual(d.drawing.accessibility[0].frame.maxX, 332, accuracy: 0.01, "right-aligned in its row")
+        XCTAssertEqual(d.drawing.accessibility[0].frame.minX, 0)
+        XCTAssertLessThanOrEqual(d.drawing.accessibility[0].frame.maxX, size.width + 0.5)
     }
 }

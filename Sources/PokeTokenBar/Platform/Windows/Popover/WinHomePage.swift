@@ -70,6 +70,8 @@ import WinSDK
     private var headerParts: HeaderParts?
     /// The streak and the chart (stage 7 Task 12); the selftest reads it.
     private(set) var activityPanel: WinActivitySection?
+    /// The streak's drawn view and the line it shares with the recap button (made with the header; `makePeriodTrailing`).
+    var streakSlot: WinActivitySection.StreakSlot?
     private var footerParts: FooterParts?
     var relative: [String: [RelativeBinding]] = [:]
     /// The limit bars' drawn views (their pictures are freed with their rows).
@@ -152,15 +154,15 @@ import WinSDK
                             header: page.addSection(nil, card: false), activity: page.addSection(nil, card: false), tabs: page.addSection(nil, card: false),
                             provider: page.addSection(nil, card: false), status: page.addSection(nil, card: false),
                             limits: page.addSection(nil, card: false), footer: page.addSection(nil, card: false))
+        observe()  // makes the header, whose period line holds the streak's view (Task 12)
         // --- stage 7 Task 12: the activity panel and the streak (begin) ---
         if let sections {
-            let panel = WinActivitySection(stack: page, section: sections.activity, store: store, companion: companion, facts: facts)
+            let panel = WinActivitySection(stack: page, section: sections.activity, store: store, companion: companion, facts: facts, streak: streakSlot)
             panel.now = now
             activityPanel = panel
             panel.observe()
         }
         // --- stage 7 Task 12 (end) ---
-        observe()
         page.layout()
     }
 
@@ -183,6 +185,7 @@ import WinSDK
         clock.stop()
         activityPanel?.destroy()  // stage 7 Task 12
         activityPanel = nil
+        streakSlot = nil
         stack?.destroy()
         area?.destroy()
         bars = []
@@ -425,10 +428,7 @@ import WinSDK
             section.addStyledRow(label: { pane, ctx in
                 periodsLabel = WinControls.label(periods, style: .callout, role: .secondary, in: pane, ctx: ctx)
                 return periodsLabel
-            }, style: .trailing)
-            // MARK: Task 13 — the recap button (the Mac's `recapButton`): "Details", the tooltip names the page
-            addRecapButton(to: section)
-            // MARK: end Task 13
+            }, style: .trailing) { pane, ctx in self.makePeriodTrailing(pane, ctx) }  // Tasks 12 and 13: the streak and "Details" at the line's right end
             var hintRow: WinRow?
             hintRow = section.addStyledRow(label: { pane, ctx in
                 WinControls.label(L(self.companion.language).winNoUsageYet, style: .callout, role: .tertiary, in: pane, ctx: ctx)
