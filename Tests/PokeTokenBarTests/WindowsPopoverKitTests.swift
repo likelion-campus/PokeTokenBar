@@ -161,6 +161,14 @@ final class WindowsPopoverKitTests: XCTestCase {
         XCTAssertEqual(logFont(fonts.icon(size: 16)).lfQuality, 0)
     }
 
+    /// Japanese wraps between characters (a label narrower than the phrase is not squeezed); Latin words and Hangul eojeol stay whole.
+    func testJapaneseBreaksBetweenCharacters() {
+        XCTAssertEqual(KitTree.unbreakableRuns("追加のClaudeアカウント"), ["追", "加", "の", "Claude", "ア", "カ", "ウ", "ン", "ト"])
+        XCTAssertEqual(KitTree.unbreakableRuns("（孵化・卒業）"), ["（", "孵", "化", "・", "卒", "業", "）"])
+        XCTAssertEqual(KitTree.unbreakableRuns("Refresh interval"), ["Refresh", "interval"])
+        XCTAssertEqual(KitTree.unbreakableRuns("새로 고침 간격"), ["새로", "고침", "간격"])
+    }
+
     /// Review 7: titles double "&" for controls that read access keys, and give it back.
     func testAmpersandsInTitlesAreDoubled() async {
         let l = L(.en)
@@ -197,7 +205,7 @@ final class WindowsPopoverKitTests: XCTestCase {
                 let l = L(language)
                 for path in labels {
                     let text = l[keyPath: path]
-                    let widest = text.split(separator: " ").map { measure(String($0), width: nil).width }.max() ?? 0
+                    let widest = KitTree.unbreakableRuns(text).map { measure($0, width: nil).width }.max() ?? 0
                     for control in [60, 90, 120, 150, 180] as [CGFloat] {
                         let row = PopoverStackRow(style: .trailing, control: CGSize(width: control * CGFloat(scale), height: 24)) { w in
                             (measure(text, width: Int32(w)), nil)

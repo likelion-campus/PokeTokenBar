@@ -1441,6 +1441,32 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
 /// reading order, no two visible controls overlapping, every label's text fitting its box, every control inside the
 /// window, Hangul present in the font GDI links to.
 @MainActor struct KitTree {
+    /// The pieces a line cannot break inside: words between spaces, where each kana, kanji and full-width sign is a piece of
+    /// its own (GDI's `DT_WORDBREAK`, like SwiftUI, breaks Japanese between those). A label narrower than its widest piece
+    /// is squeezed; one narrower than a whole Japanese phrase only wraps.
+    nonisolated static func unbreakableRuns(_ text: String) -> [String] {
+        func breaksAround(_ u: Unicode.Scalar) -> Bool {
+            switch u.value {
+            case 0x3000...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0xFF00...0xFFEF: true
+            default: false
+            }
+        }
+        var runs: [String] = []
+        for word in text.split(separator: " ") {
+            var run = ""
+            for ch in word {
+                if ch.unicodeScalars.first.map(breaksAround) ?? false {
+                    if !run.isEmpty { runs.append(run); run = "" }
+                    runs.append(String(ch))
+                } else {
+                    run.append(ch)
+                }
+            }
+            if !run.isEmpty { runs.append(run) }
+        }
+        return runs
+    }
+
     struct Node: Codable {
         var cls: String
         var text: String
@@ -1531,7 +1557,7 @@ nonisolated(unsafe) private let editProbeSubclass: SUBCLASSPROC = { h, m, w, l, 
             let style = GetWindowLongW(h, -16)
             guard style & 0x1F != 0x0D, style & 0x4000 == 0 else { continue }
             let font = HFONT(bitPattern: WinKit.send(h, 0x0031))
-            let widest = node.text.split(separator: " ").map { w.ctx.measure(String($0), font: font).cx }.max() ?? 0
+            let widest = Self.unbreakableRuns(node.text).map { w.ctx.measure($0, font: font).cx }.max() ?? 0
             if CGFloat(widest) > CGFloat(node.w) * s + 1 { squeezed.append("'\(node.text.prefix(24))' \(Int(CGFloat(node.w) * s)) px < its widest word \(widest) px") }
         }
         if !squeezed.isEmpty { problems.append("labels squeezed: \(squeezed)") }
