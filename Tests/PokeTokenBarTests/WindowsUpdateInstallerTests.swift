@@ -86,7 +86,9 @@ final class WindowsUpdateInstallerTests: XCTestCase {
         XCTAssertNil(WinProcess.commandLine(exe, ["a\0b"]))
         XCTAssertNil(WinProcess.commandLine("", args))
         XCTAssertEqual(WindowsUpdateInstaller.installerLog(version: "2.5.640").lastPathComponent, "update-2.5.640.log")
-        XCTAssertEqual(WindowsUpdateInstaller.installerLog(version: "2.5.640").deletingLastPathComponent(), PlatformCompat.logsDirectory())
+        // As paths: corelibs' appendingPathComponent asks the disk, so a URL's trailing slash says whether the folder exists.
+        XCTAssertEqual(WinPath.native(WindowsUpdateInstaller.installerLog(version: "2.5.640").deletingLastPathComponent()),
+                       WinPath.native(PlatformCompat.logsDirectory()))
     }
 
     func testTheUpdatesFolderIsNextToTheLogsUnderTheAppsDataFolder() async {
