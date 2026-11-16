@@ -20,9 +20,10 @@ enum TrayMenuModel {
     /// `update` is the version of an available release (Task 10 supplies it); nil hides the entry. `teammatesOnline` is
     /// the number of teammates linked right now, nil while the team is off (no team code, or turned off). `plazaUnread` is
     /// the board's unread count while the team is ready, nil hides the plaza entry: the Mac's status menu (`StatusItemMenu`,
-    /// `plazaAvailable` / `plazaUnread`), with its wording, which the team UI keeps in Korean.
+    /// `plazaAvailable` / `plazaUnread`), with its wording, which the team UI keeps in Korean. `updating` (stage 8: the in-app
+    /// update is downloading or starting Setup) shows a disabled "Updating…" row in place of the update entry.
     static func items(l: L, todayTokens: Int, todayCost: UsageCost?, login: LoginState, update: String?,
-                      teammatesOnline: Int? = nil, plazaUnread: Int? = nil) -> [Item?] {
+                      teammatesOnline: Int? = nil, plazaUnread: Int? = nil, updating: Bool = false) -> [Item?] {
         let loginItem: Item
         switch login {
         case .on:
@@ -53,7 +54,9 @@ enum TrayMenuModel {
             loginItem,
             Item(title: l.openLogFolder, enabled: true, checked: false, action: .openLogFolder),
         ]
-        if let update {
+        if updating {
+            rows.append(Item(title: l.updating, enabled: false, checked: false, action: .none))
+        } else if let update {
             rows.append(Item(title: l.updateFound(update), enabled: true, checked: false, action: .openRelease))
         }
         rows.append(nil)
