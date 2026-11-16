@@ -51,6 +51,7 @@ private struct RecapFixtureProvider: UsageProvider {
     }
 
     static func stores(language: AppLanguage, days: Int) async -> HomeStores {
+        WindowsSelftestPopoverRecap.cleanUp()  // the fixtures share the selftest's settings suite: no ledger left from an earlier page
         guard days > 0 else { return await HomeStores.make(language: language) }
         return await HomeStores.make(language: language, providers: [RecapFixtureProvider(series: series(days: days))], refresh: true)
     }
@@ -86,7 +87,7 @@ private struct RecapFixtureProvider: UsageProvider {
     }
 
     /// The fixtures' refreshes wrote a ledger into the selftest's settings suite; later stores would read it.
-    private static func cleanUp() {
+    static func cleanUp() {
         let defaults = WinDefaultsSync.makeAppDefaults()
         defaults.removeObject(forKey: UsageLedger.defaultsKey)
         defaults.removeObject(forKey: UsageLedger.coverageKey)
