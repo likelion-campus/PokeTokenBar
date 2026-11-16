@@ -208,16 +208,16 @@ extension WindowsSelftest {
         try? Data("x".utf8).write(to: leftover.appendingPathComponent("PokeTokenBar-Setup-99.0.2-win-x64.exe"))
         WindowsUpdateInstaller.savePending(.init(version: "99.0.2", at: Date()), defaults)
         let failed = WindowsUpdateInstaller.reportAtLaunch(defaults: defaults, currentVersion: "2.5.0", l: l, balloon: { balloons.append($0) },
-                                                           folder: folder, logs: folder, flush: {})
+                                                           folder: folder, logs: folder, setupRunning: { false }, flush: {})
         let left = await failed.cleanup.value
         let heldBack = defaults.string(forKey: WindowsUpdateInstaller.failedKey)
         let afterFailure = WindowsUpdateInstaller.readPending(defaults)
         WindowsUpdateInstaller.savePending(.init(version: "2.5.0", at: Date()), defaults)
         let done = WindowsUpdateInstaller.reportAtLaunch(defaults: defaults, currentVersion: "2.5.0", l: l, balloon: { balloons.append($0) },
-                                                         folder: folder, logs: folder, flush: {})
+                                                         folder: folder, logs: folder, setupRunning: { false }, flush: {})
         _ = await done.cleanup.value
         let none = WindowsUpdateInstaller.reportAtLaunch(defaults: defaults, currentVersion: "2.5.0", l: l, balloon: { balloons.append($0) },
-                                                         folder: folder, logs: folder, flush: {})
+                                                         folder: folder, logs: folder, setupRunning: { false }, flush: {})
         _ = await none.cleanup.value
         defaults.removeObject(forKey: WindowsUpdateInstaller.failedKey)
         r.add("update.markerReport", failed.report == .failed("99.0.2") && done.report == .done("2.5.0") && none.report == .none

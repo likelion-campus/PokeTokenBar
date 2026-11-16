@@ -39,7 +39,12 @@ import WinSDK
         setText(l.updateDownloading(version) + "\r\n" + Self.megabytes(bytes) + " / " + Self.megabytes(total) + " MB")
     }
 
-    func checking() { setText(l.updateChecking) }
+    /// The bytes are in: Cancel is no longer offered (a press that raced this still stops the install before Setup starts).
+    func checking() {
+        cancel = nil
+        if let button { _ = EnableWindow(button, false) }
+        setText(l.updateChecking)
+    }
 
     func starting() {
         cancel = nil

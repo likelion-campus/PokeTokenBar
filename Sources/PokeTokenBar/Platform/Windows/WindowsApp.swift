@@ -222,8 +222,11 @@ private func crtExit(_ code: Int32) -> Never {
         // Stage 8 Task 6: what the last in-app update did (one balloon when Setup put the previous app back), once the tray
         // can show it; the selftest's own settings never hold the marker.
         if !WinDefaultsSync.selftestOwnsSettings {
-            WindowsUpdateInstaller.reportAtLaunch(defaults: defaults, currentVersion: WindowsInstall.version, l: companion.l,
-                                                  balloon: { balloons.post(.init(id: "update", title: "PokeTokenBar", body: $0, sound: false, kind: .app)) })
+            let report: @MainActor () -> WindowsUpdateInstaller.LaunchReport = { [defaults, companion, balloons] in
+                WindowsUpdateInstaller.reportAtLaunch(defaults: defaults, currentVersion: WindowsInstall.version, l: companion.l,
+                                                      balloon: { balloons.post(.init(id: "update", title: "PokeTokenBar", body: $0, sound: false, kind: .app)) }).report
+            }
+            if case .setupRunning = report() { WindowsUpdateInstaller.afterSetup { _ = report() } }  // Setup started this app: after it ends
         }
         AppLog.write("windows app launched pid=\(GetCurrentProcessId()) loop=\(loopStrategy.rawValue) "
             + "mutex=\(mutexName)\(arguments.contains("--autostart") ? " autostart" : "")")

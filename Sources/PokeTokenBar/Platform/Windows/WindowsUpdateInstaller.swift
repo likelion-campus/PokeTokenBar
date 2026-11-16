@@ -48,8 +48,10 @@ struct LoopbackFeed: Equatable, Sendable {
 /// goes through WinHTTP with the installer's own size as the cap and a 15-minute deadline (`PlatformCompat.oneShotDownload`);
 /// the answer is a 200 that ended on HTTPS at a GitHub download host with exactly `size` bytes whose SHA-256 is the digest
 /// (`UpdateDownloadCheck.refusal(status:…)`, off the main actor); those bytes go into a new file in a new folder of this
-/// attempt (`CREATE_NEW`), which is opened again read-only with read sharing only (nobody may change, rename or delete it while
-/// it is open) and hashed from disk; with that handle still open, `CreateProcessW` starts that exact path.
+/// attempt (`CREATE_NEW`), which is opened again read-only with read sharing only and hashed from disk; with that handle still
+/// open, `CreateProcessW` starts that exact path. This protects against other users and accidents (a stale or half-written
+/// file, a link left where the folder goes). A process of the same user is out of scope (plan D9): it could swap a folder
+/// between the write and the reopen or change the file through a mapping, which it can already do to the installed app.
 @MainActor enum WindowsUpdateInstaller {
     static let pendingKey = "windows.pendingUpdate"
     /// The version whose in-app install did not finish: "Update" for it opens the release page instead (no second silent try).
@@ -107,7 +109,7 @@ struct LoopbackFeed: Equatable, Sendable {
         let at: Date
     }
 
-    enum LaunchReport: Equatable { case none, done(String), failed(String) }
+    enum LaunchReport: Equatable { case none, done(String), failed(String), setupRunning(String) }
 
     // MARK: places and arguments
 
@@ -197,14 +199,17 @@ struct LoopbackFeed: Equatable, Sendable {
             let (body, response) = try await fetch(request, installer.size, downloadDeadline, onBytes)
             return Fetched(body: body, status: (response as? HTTPURLResponse)?.statusCode ?? 0, finalURL: response.url)
         }
-        progress?.began(version: installer.version, total: installer.size) { download.cancel() }
+        let cancelled = CancelRequest()
+        progress?.began(version: installer.version, total: installer.size) { cancelled.on = true; download.cancel() }
         let fetched: Fetched
         do {
             fetched = try await download.value
         } catch {
-            if download.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError { return fail(.cancelled) }
+            if cancelled.on || download.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError { return fail(.cancelled) }
             return fail(.download((error as? URLError)?.code.rawValue ?? -1))
         }
+        // A cancel after the last byte (the task had finished, so nothing threw) still counts, here and right before the start.
+        if cancelled.on { return fail(.cancelled) }
 
         progress?.checking()
         let (rule, checkThread) = await Task.detached { () -> (UpdateDownloadCheck.Refusal?, DWORD) in
@@ -220,7 +225,8 @@ struct LoopbackFeed: Equatable, Sendable {
         lastWorkThreads.append(checkThread)
         if let rule { return fail(.check(rule)) }
 
-        // Exactly the bytes that passed, then the file read back from disk and hashed: what Setup starts from is what was hashed.
+        // Exactly the bytes that passed, then the file read back from disk and hashed (against accidents and other users; a
+        // same-user process is out of scope, D9).
         let file = place.appendingPathComponent(installer.name)
         let held: WinUpdateFile.Held
         do {
@@ -236,6 +242,7 @@ struct LoopbackFeed: Equatable, Sendable {
         }
 
         progress?.starting()
+        if cancelled.on { held.close(); return fail(.cancelled) }
         // Again right before the start: a Setup the user started meanwhile must not be raced (it would stop ours, exit 1,
         // after this app has left, and a cancelled wizard would leave no app running).
         if setupRunning() { held.close(); return fail(.setupRunning) }
@@ -262,16 +269,26 @@ struct LoopbackFeed: Equatable, Sendable {
     /// Otherwise Setup did not finish and put the previous app back: one balloon, and that version is not installed in-app
     /// again (`failedKey`). The marker goes either way; the downloads under Updates are removed (retried while Setup's loader,
     /// which runs from the file, is still ending), also with no marker (an attempt that ended before Setup).
+    /// While a PokeTokenBar Setup still runs, nothing is decided and the marker stays: `.setupRunning`, and the caller asks
+    /// again once it ended (`afterSetup`). That covers the app Setup starts itself ([Run], or the relaunch after a failure:
+    /// Setup holds its mutex until it exits) and an app started by hand before Setup finished. An installed version at or
+    /// above the marker's counts as done (a later release installed by hand after an update that never restarted the app).
     @discardableResult
     static func reportAtLaunch(defaults: UserDefaults, currentVersion: String?, l: L, balloon: (String) -> Void,
                                folder: URL = updatesFolder(), logs: URL = PlatformCompat.logsDirectory(),
+                               setupRunning: @MainActor () -> Bool = { WinProcess.mutexExists(setupMutex) },
                                flush: @MainActor () -> Void = { WinDefaultsSync.flushNow() }) -> (report: LaunchReport, cleanup: Task<Int, Never>) {
         var report = LaunchReport.none
+        if let pending = readPending(defaults), setupRunning() {
+            AppLog.write("update: a PokeTokenBar Setup is still running; the update to v\(pending.version) is reported when it ends")
+            report = .setupRunning(pending.version)
+            return (report, Task { 0 })  // its download is still Setup's own file
+        }
         if let pending = readPending(defaults) {
             defaults.removeObject(forKey: pendingKey)
             let current = currentVersion.flatMap(UpdateChecker.normalizedReleaseVersion)
-            if current == pending.version {
-                AppLog.write("update: update to v\(pending.version) done")
+            if let current, !UpdateChecker.isNewer(pending.version, than: current) {
+                AppLog.write("update: update to v\(pending.version) done" + (current == pending.version ? "" : " (this is v\(current))"))
                 report = .done(pending.version)
             } else {
                 defaults.set(pending.version, forKey: failedKey)
@@ -285,6 +302,19 @@ struct LoopbackFeed: Equatable, Sendable {
         return (report, removeDownloads(in: folder))
     }
 
+    /// `then` on the main actor once no PokeTokenBar Setup exists (its mutex is gone: Setup creates it unowned and holds it
+    /// until it exits, so only its existence tells), at most `limit` seconds later. It looks once a `poll` while it waits:
+    /// only after an update, for the seconds Setup takes to end.
+    @discardableResult
+    static func afterSetup(name: String = setupMutex, poll: TimeInterval = 1, limit: TimeInterval = 600,
+                           then: @escaping @MainActor () -> Void) -> Task<Void, Never> {
+        Task.detached {
+            let end = Date().addingTimeInterval(limit)
+            while WinProcess.mutexExists(name), Date() < end { try? await Task.sleep(nanoseconds: UInt64(poll * 1_000_000_000)) }
+            await then()
+        }
+    }
+
     /// Empties Updates on a background task: up to `attempts` passes `pause` seconds apart while something is still in use,
     /// then the count left (logged once). Nothing waits when the folder is empty or absent.
     static func removeDownloads(in folder: URL, attempts: Int = 10, pause: TimeInterval = 1) -> Task<Int, Never> {
@@ -292,7 +322,7 @@ struct LoopbackFeed: Equatable, Sendable {
         return Task.detached {
             var left = 0
             for attempt in 1...max(1, attempts) {
-                left = WinUpdateFile.removeContents(path)
+                left = WinUpdateFile.emptyFolder(path)
                 if left == 0 { break }
                 if attempt < attempts { try? await Task.sleep(nanoseconds: UInt64(pause * 1_000_000_000)) }
             }
@@ -301,6 +331,9 @@ struct LoopbackFeed: Equatable, Sendable {
         }
     }
 }
+
+/// The user's Cancel, as the install reads it after the download (a finished task's own cancellation is not relied on).
+@MainActor final class CancelRequest { var on = false }
 
 /// Hands the download's progress to the window, only when the shown permille changes (at most 1001 hops for any size).
 final class ProgressRelay: @unchecked Sendable {
@@ -335,8 +368,9 @@ enum WinUpdateFile {
         static let digestStep = "the file read back has another SHA-256"
     }
 
-    /// The file Setup starts from, open for reading with read sharing only: until `close`, nothing may write, rename or
-    /// delete it (the image loader's own read-and-execute open shares reading, so `CreateProcessW` still opens it).
+    /// The file Setup starts from, open for reading with read sharing only: until `close`, opening it to write, rename or
+    /// delete it fails (the image loader's read-and-execute open shares reading, so `CreateProcessW` still opens it). That
+    /// keeps accidents and other users out; a same-user process is out of scope (D9).
     final class Held: @unchecked Sendable {
         let url: URL
         private var handle: UnsafeMutableRawPointer?
@@ -442,6 +476,14 @@ enum WinUpdateFile {
             if !removeEntry(path + "\\" + name, attributes: data.dwFileAttributes) { left += 1 }
         } while FindNextFileW(find, &data)
         return left
+    }
+
+    /// Empties the Updates folder: when a link or a file stands at `path` itself, only that is removed (never what a link
+    /// points at); a plain folder loses its contents. The number of entries that could not go; none when nothing is there.
+    @discardableResult static func emptyFolder(_ path: String) -> Int {
+        guard let a = attributes(path) else { return 0 }
+        if a & reparse != 0 || a & directory == 0 { return removeEntry(path, attributes: a) ? 0 : 1 }
+        return removeContents(path)
     }
 
     /// Removes a folder and what is in it, as `removeContents` does.

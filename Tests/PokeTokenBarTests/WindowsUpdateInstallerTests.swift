@@ -112,11 +112,12 @@ final class WindowsUpdateInstallerTests: XCTestCase {
 
     // MARK: the next start
 
-    private func report(_ defaults: UserDefaults, current: String?, updates: URL, logs: URL) async -> (WindowsUpdateInstaller.LaunchReport, [String], Int, Int) {
+    private func report(_ defaults: UserDefaults, current: String?, updates: URL, logs: URL,
+                        setupRunning: Bool = false) async -> (WindowsUpdateInstaller.LaunchReport, [String], Int, Int) {
         var balloons: [String] = []
         var flushes = 0
         let r = WindowsUpdateInstaller.reportAtLaunch(defaults: defaults, currentVersion: current, l: L(.ko), balloon: { balloons.append($0) },
-                                                      folder: updates, logs: logs, flush: { flushes += 1 })
+                                                      folder: updates, logs: logs, setupRunning: { setupRunning }, flush: { flushes += 1 })
         let left = await r.cleanup.value
         return (r.report, balloons, flushes, left)
     }
@@ -159,6 +160,58 @@ final class WindowsUpdateInstallerTests: XCTestCase {
         let (again, more, _, _) = await report(defaults, current: "2.5.634", updates: updates, logs: logs)
         XCTAssertEqual(again, .none)
         XCTAssertEqual(more, [])
+    }
+
+    /// Review M2 (a): a start while a PokeTokenBar Setup still runs (the app Setup starts itself, or one started by hand
+    /// before Setup finished) decides nothing: the marker stays, nothing is said or held back, the download stays.
+    func testAtLaunchWhileASetupRunsNothingIsDecided() async throws {
+        let defaults = TestDefaults.make(suite: "windows-update-report-setup-running")
+        let updates = try folder(), logs = try folder()
+        try leaveADownload(in: updates, version: "2.5.640")
+        WindowsUpdateInstaller.savePending(.init(version: "2.5.640", at: Date()), defaults)
+        let (r, balloons, flushes, _) = await report(defaults, current: "2.5.634", updates: updates, logs: logs, setupRunning: true)
+        XCTAssertEqual(r, .setupRunning("2.5.640"))
+        XCTAssertEqual(balloons, [])
+        XCTAssertEqual(flushes, 0)
+        XCTAssertEqual(WindowsUpdateInstaller.readPending(defaults)?.version, "2.5.640", "the marker waits for Setup's end")
+        XCTAssertNil(defaults.string(forKey: WindowsUpdateInstaller.failedKey))
+        XCTAssertEqual(files(under: updates), ["PokeTokenBar-Setup-2.5.640-win-x64.exe"], "Setup still runs from it")
+        // Once Setup has ended and installed it, the same start reports it done.
+        let (after, more, _, _) = await report(defaults, current: "2.5.640", updates: updates, logs: logs)
+        XCTAssertEqual(after, .done("2.5.640"))
+        XCTAssertEqual(more, [])
+    }
+
+    /// Review M2 (b): an update that never restarted the app, then a later release installed by hand: not a failure.
+    func testAtLaunchANewerVersionThanTheMarkersIsDone() async throws {
+        let defaults = TestDefaults.make(suite: "windows-update-report-newer")
+        let updates = try folder(), logs = try folder()
+        WindowsUpdateInstaller.savePending(.init(version: "2.5.640", at: Date()), defaults)
+        let (r, balloons, _, _) = await report(defaults, current: "2.5.641", updates: updates, logs: logs)
+        XCTAssertEqual(r, .done("2.5.640"))
+        XCTAssertEqual(balloons, [])
+        XCTAssertNil(defaults.string(forKey: WindowsUpdateInstaller.failedKey))
+        XCTAssertNil(WindowsUpdateInstaller.readPending(defaults))
+    }
+
+    /// `afterSetup` waits while the Setup mutex exists and runs once it is gone; it never waits past its limit.
+    func testAfterSetupWaitsForTheSetupMutexToGo() async throws {
+        @MainActor final class Ran { var count = 0 }
+        let name = "Local\\PokeTokenBar-Test-\(UUID().uuidString.prefix(8))"
+        let handle = try XCTUnwrap(CreateMutexW(nil, false, WinStr.w(name)))
+        let ran = Ran()
+        let task = WindowsUpdateInstaller.afterSetup(name: name, poll: 0.05, limit: 30) { ran.count += 1 }
+        try await Task.sleep(nanoseconds: 400_000_000)
+        XCTAssertEqual(ran.count, 0, "Setup still runs")
+        _ = CloseHandle(handle)
+        await task.value
+        XCTAssertEqual(ran.count, 1)
+        let other = try XCTUnwrap(CreateMutexW(nil, false, WinStr.w(name)))
+        defer { _ = CloseHandle(other) }
+        let t0 = Date()
+        await WindowsUpdateInstaller.afterSetup(name: name, poll: 0.05, limit: 0.3) { ran.count += 1 }.value
+        XCTAssertEqual(ran.count, 2)
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 5, "bounded by its limit")
     }
 
     func testAtLaunchWithoutAMarkerNothingIsSaidButLeftoversGo() async throws {
@@ -304,6 +357,31 @@ final class WindowsUpdateInstallerTests: XCTestCase {
         XCTAssertNil(out.failure?.message(L(.en)))
     }
 
+    /// Review M1: a Cancel that lands after the last byte (while the bytes are checked and written) still stops the install
+    /// before Setup starts: nothing left, the app stays, the page stays closed.
+    func testACancelDuringTheChecksStopsBeforeSetupStarts() async throws {
+        @MainActor final class Window: WindowsUpdateProgress {
+            var cancel: (@MainActor () -> Void)?
+            var events: [String] = []
+            func began(version: String, total: Int, cancel: @escaping @MainActor () -> Void) { self.cancel = cancel; events.append("began") }
+            func received(_ bytes: Int, of total: Int) {}
+            func checking() { events.append("checking"); cancel?() }  // the press that raced the phase change
+            func starting() { events.append("starting") }
+            func close() { events.append("close") }
+        }
+        let defaults = TestDefaults.make(suite: "windows-update-cancel-late")
+        let updates = try folder(), logs = try folder()
+        let window = Window()
+        let out = await install(try installer(), fetch: answering(Self.body, asked: Asked()), defaults: defaults, updates: updates,
+                                logs: logs, progress: window)
+        XCTAssertEqual(out.failure, .cancelled)
+        XCTAssertEqual(out.launches.count, 0, "Setup not started")
+        XCTAssertEqual(out.exits, 0, "the app keeps running")
+        XCTAssertEqual(out.files, [], "nothing left behind")
+        XCTAssertNil(WindowsUpdateInstaller.readPending(defaults))
+        XCTAssertEqual(window.events.last, "close")
+    }
+
     func testTheProgressRelayHopsOnlyWhenThePermilleChanges() async {
         final class Count: @unchecked Sendable { let lock = NSLock(); var n = 0 }
         let count = Count()
@@ -345,6 +423,20 @@ final class WindowsUpdateInstallerTests: XCTestCase {
         XCTAssertEqual(after & 0x400, 0, "Updates is a plain folder now")
         XCTAssertEqual(try Data(contentsOf: victim), Data("keep".utf8), "the junction's target was not emptied")
         XCTAssertEqual(fresh.deletingLastPathComponent().standardizedFileURL, updates.standardizedFileURL)
+
+        // Review M3: the cleanup at every start does the same: a junction at the Updates root goes as a link, and the files
+        // it points at stay.
+        let second = root.appendingPathComponent("Updates2", isDirectory: true)
+        let again = Process()
+        again.executableURL = URL(fileURLWithPath: "C:\\Windows\\System32\\cmd.exe")
+        again.arguments = ["/c", "mklink", "/J", WinPath.native(second), WinPath.native(target)]
+        try again.run()
+        again.waitUntilExit()
+        XCTAssertNotEqual(try XCTUnwrap(WinUpdateFile.attributes(WinPath.native(second))) & 0x400, 0, "the second fixture is a junction")
+        let left = await WindowsUpdateInstaller.removeDownloads(in: second, attempts: 1).value
+        XCTAssertEqual(left, 0)
+        XCTAssertNil(WinUpdateFile.attributes(WinPath.native(second)), "the link itself is gone")
+        XCTAssertEqual(try Data(contentsOf: victim), Data("keep".utf8), "the launch cleanup did not empty the junction's target")
     }
 
     func testAWriteThatFailsHalfwayLeavesNoFile() async throws {
