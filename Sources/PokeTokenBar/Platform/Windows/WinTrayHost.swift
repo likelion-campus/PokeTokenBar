@@ -24,6 +24,16 @@ import WinSDK
     var plazaUnread: @MainActor () -> Int? = { nil }
     /// The user chose "광장 열기" (the app opens the plaza, as the Mac's `openPlaza`).
     var onOpenPlaza: (@MainActor () -> Void)?
+    // --- stage 7 Task 4: the popover (begin) ---
+    /// Set by the app: a left click or a key select on the icon toggles the popover. nil: the menu opens (as before stage 7).
+    var onSelect: (@MainActor (WinTray.Select) -> Void)?
+    /// Set by the app: "Settings…" (the Mac's `showPopover { $0.showSettings = true }`).
+    var onOpenSettings: (@MainActor () -> Void)?
+    /// Set by the app: the menu is about to open; the popover closes first, as the Mac's `showStatusMenu` closes its own.
+    var onMenuWillOpen: (@MainActor () -> Void)?
+    /// Where the last menu opened (a popover opened from it is placed there when the shell has no icon rectangle).
+    private(set) var lastMenuPoint: POINT?
+    // --- stage 7 Task 4: the popover (end) ---
 
     private(set) var menuOpen = false
     private(set) var lastAction: TrayMenuModel.Action = .none
@@ -44,7 +54,10 @@ import WinSDK
         self.companion = companion
         self.defaults = defaults
         tray = WinTray(window: window)
-        tray.onActivate = { [weak self] in self?.openMenu(at: Self.cursor()) }
+        tray.onSelect = { [weak self] select in  // stage 7 Task 4: the popover, else the menu
+            guard let self else { return }
+            if let onSelect { onSelect(select) } else { openMenu(at: Self.cursor()) }
+        }
         tray.onContextMenu = { [weak self] point in self?.openMenu(at: point) }
         window.on(0x02E0 /* WM_DPICHANGED */) { [weak self] _, _ in self?.reloadIcon(); return nil }
         window.on(UINT(WM_SETTINGCHANGE)) { [weak self] _, _ in self?.reloadIcon(); return nil }
@@ -83,12 +96,14 @@ import WinSDK
         TrayMenuModel.items(l: companion.l, todayTokens: store.todayTotalTokens,
                             todayCost: store.showsCost ? store.todayUsageCost : nil,
                             login: loginState, update: availableUpdate?.version, teammatesOnline: teammatesOnline(),
-                            plazaUnread: plazaUnread())
+                            plazaUnread: plazaUnread(), alwaysFacesBack: store.alwaysFacesBack)
     }
 
     /// Blocks in the system menu loop until it is dismissed (no drain timer meanwhile; F17), then runs the action.
     func openMenu(at point: POINT) {
         guard !menuOpen else { return }  // the shell sends several events for one click, queued behind the menu
+        onMenuWillOpen?()  // stage 7 Task 4
+        lastMenuPoint = point
         menuOpen = true
         store.requestNotificationAuthorizationIfNeeded()  // as the Mac does when the popover opens
         refreshShellState()
@@ -99,6 +114,13 @@ import WinSDK
     }
 
     func resetLastAction() { lastAction = .none }
+
+    /// Stage 7 Task 4: the popover opened. What the Mac does when its popover shows (the notification permission, the update
+    /// check behind its 30-minute cooldown) and what this host does when the menu opens (login and update state read again).
+    func popoverOpened() {
+        store.requestNotificationAuthorizationIfNeeded()
+        refreshShellState()
+    }
 
     func perform(_ action: TrayMenuModel.Action) {
         lastAction = action
@@ -113,6 +135,10 @@ import WinSDK
             if let url = availableUpdate?.url { Self.open(url) }
         case .openPlaza:
             onOpenPlaza?()
+        case .openSettings:
+            onOpenSettings?()
+        case .toggleBackView:
+            store.alwaysFacesBack.toggle()
         case .quit:
             WindowsApp.exit(0, .menu)
         case .toggleLaunchAtLogin:

@@ -219,7 +219,9 @@ jobs:
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
           $names = 'ui.kit.tabOrder', 'ui.kit.keys', 'ui.kit.text', 'ui.kit.typed', 'ui.kit.enterEscape', 'ui.kit.menuKeys', 'ui.kit.unregister',
-                   'ui.kit.fonts', 'ui.kit.glyphs', 'ui.kit.drawn', 'ui.kit.tooltips', 'ui.kit.scroll', 'ui.kit.dpi', 'ui.kit.idle', 'ui.kit.capture', 'ui.kit.openClose3'
+                   'ui.kit.fonts', 'ui.kit.glyphs', 'ui.kit.drawn', 'ui.kit.tooltips', 'ui.kit.scroll', 'ui.kit.dpi', 'ui.kit.idle', 'ui.kit.capture', 'ui.kit.openClose3',
+                   'ui.kit.scrollClicks', 'ui.kit.multiLineKeys', 'ui.kit.partResize', 'ui.kit.settingChange', 'ui.kit.editMenu',
+                   'ui.kit.codePaste', 'ui.kit.ampersand', 'ui.kit.registries', 'ui.kit.noLeak'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -229,6 +231,25 @@ jobs:
           Get-ChildItem ui-dump\kit -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "popover kit: $($bad -join ', ')" }
       # --- stage 7 Task 3: the popover kit (end) ---
+      # --- stage 7 Task 4: the popover window (begin) ---
+      - name: Popover window checks ran (popover.*, captures in ui-dump/popover)
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'popover.open', 'popover.placement', 'popover.toggle', 'popover.dismissOnActivate', 'popover.dismissInput', 'popover.escape',
+                   'popover.closePaths', 'popover.ownedKeepsOpen', 'popover.staleCompletion', 'popover.dpiChange', 'popover.noSelfOpen',
+                   'popover.refusedForeground', 'popover.menuAfter', 'popover.menuSettings', 'popover.secondLaunch', 'popover.realClick',
+                   'popover.openClose3', 'popover.capture', 'popover.withPlaza'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          Get-ChildItem ui-dump\popover -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
+          if ($bad.Count -gt 0) { throw "popover window: $($bad -join ', ')" }
+      # --- stage 7 Task 4: the popover window (end) ---
       - name: Language and time zone in child processes (Korean display language, Seoul time zone)
         if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
         shell: pwsh
@@ -870,6 +891,15 @@ jobs:
           Measure-App 'popover-kit-open-120s' 120 $off $budget @('--popover-kit-idle-probe')
           $summary.windows['popover-kit-open-120s'].kitLog = @(Select-String -Path $logFile -Pattern 'popover kit idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
           # --- stage 7 Task 3: the popover kit open and still (end) ---
+          # --- stage 7 Task 4: the popover window open and still, and closed after an open (begin) ---
+          # The real popover (empty page, opened through the tray callback), refresh off: the closed app's budget for both. Closed
+          # after an open must cost what never opened costs (D18); open and still adds no timer.
+          foreach ($mode in 'open', 'closed') {
+              $label = "popover-$mode-120s"
+              Measure-App $label 120 $off $budget @('--popover-idle-probe', $mode)
+              $summary.windows[$label].popoverLog = @(Select-String -Path $logFile -Pattern 'popover idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+          }
+          # --- stage 7 Task 4: the popover window open and still, and closed after an open (end) ---
           $summary.verdicts = $verdicts
           $summary | ConvertTo-Json -Depth 8 | Set-Content idle-gate.json -Encoding utf8
           Get-Content idle-gate.json
@@ -1012,6 +1042,14 @@ jobs:
           name: ui-kit
           retention-days: 7
           path: ui-dump/kit
+          if-no-files-found: warn
+      # stage 7 Task 4: the popover window's captures (anchored at the runner's tray; the synthetic placements)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-popover
+          retention-days: 7
+          path: ui-dump/popover
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
