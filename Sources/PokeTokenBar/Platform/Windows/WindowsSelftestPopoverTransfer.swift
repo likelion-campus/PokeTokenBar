@@ -617,11 +617,9 @@ final class TransferDialogDriver: @unchecked Sendable {
         let exported = stores.companion.transferSummary
         let target = work.appendingPathComponent("my save – 백업.json")
         // 1. Export through the real save dialog: the path typed into its file name box, Save pressed.
-        // Typing into the real dialog is informational: on the runner the shell dialog did not accept a path typed from outside
-        // (the id-1 button and a real Enter both left it open); the dialog's own accept is a PC check. The round trip itself runs
-        // through the real flow functions with the paths chosen by script, and the real confirmation and done dialogs.
-        let typed = await driven([.typePath(WinPath.native(target.deletingLastPathComponent().appendingPathComponent("typed.json")))]) { self.post(rows.export?.control) }
-        let typedFile = FileManager.default.fileExists(atPath: target.deletingLastPathComponent().appendingPathComponent("typed.json").path)
+        // The round trip runs through the real flow functions with the paths chosen by script, and the real confirmation and done
+        // dialogs. A path typed into the shell's own file dialog from outside was not applied on the runner (the dialog saved under its
+        // suggested name instead), so accepting the real dialog is a PC check; cancelling it and its ownership are `settings.dialogKeepsPopover`.
         hybrid.scriptedSave = target
         let export = await driven([]) { self.post(rows.export?.control) }
         await pause(1.5)   // no dialog to wait for: the flow runs from the posted click
@@ -648,7 +646,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         r.add("settings.exportImport",
               rowOK(export, 0) && written == exported && revealedOK && exportDone && rowOK(importing, 2) && other != exported && after == exported
                 && !backups.isEmpty && doneText == expectedDone && section.applied == 1,
-              "folder '\(work.lastPathComponent)' (a space and Korean): real save dialog with a typed path (informational): accepted=\(typedFile) \(typed.facts.map { $0.note }); export through the real flow (path chosen by script) -> file decodes to \(String(describing: written)) (expected \(exported)), "
+              "folder '\(work.lastPathComponent)' (a space and Korean): export through the real flow (path chosen by script) -> file decodes to \(String(describing: written)) (expected \(exported)), "
                 + "Explorer asked to select it=\(revealedOK) (\(hybrid.revealed.map { WinPath.native($0) })), no error shown=\(exportDone); the PC then held \(other); import through the real open dialog + confirmation (Replace) + done dialog -> \(after) "
                 + "(expected \(exported)), backup files \(backups.count), done text matches=\(doneText == expectedDone), imports applied \(section.applied); "
                 + "confirmation buttons \(confirmShown?.buttons ?? []) default \(confirmShown?.defaultIndex ?? -1); steps \(export.facts.map { $0.note } + importing.facts.map { $0.note })")
