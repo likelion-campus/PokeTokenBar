@@ -356,8 +356,12 @@ int ptb_clipboard_set_image(const uint8_t *png, size_t pngLen, const uint8_t *rg
 /* Replaces the clipboard with CF_UNICODETEXT (UTF-16, `count` code units, no terminator needed). */
 int ptb_clipboard_set_text(const uint16_t *text, size_t count, uint32_t timeoutMs);
 
-/* Tests and the selftest only (the app never reads the clipboard): copies one format's bytes out. Free with ptb_plaza_free. */
+/* Copies one format's bytes out (tests and the selftest). Free with ptb_plaza_free. The app reads text with ptb_clipboard_read_text. */
 int ptb_clipboard_read(unsigned format, uint8_t **bytes, size_t *len, uint32_t timeoutMs);
+
+/* The chat field's paste (Task 11): CF_UNICODETEXT, at most `cap` UTF-16 units (no terminator) into out, whatever the clipboard
+ * holds. Returns the units copied, 0 for no text on the clipboard, negative when it could not be opened. */
+int ptb_clipboard_read_text(uint16_t *out, uint32_t cap, uint32_t timeoutMs);
 
 /* Tests only: another thread opens the clipboard and keeps it open for `ms`; returns once it is held (negative: could not). */
 int ptb_clipboard_hold(uint32_t ms);
@@ -367,5 +371,6 @@ int ptb_clipboard_hold(uint32_t ms);
 #endif
 
 #include "CPlazaD2DText.h" /* the DirectWrite text engine (Task 9) */
+#include "CPlazaD2DChat.h" /* the chat field: native EDIT, IME, Korean IME probe (Task 11) */
 
 #endif

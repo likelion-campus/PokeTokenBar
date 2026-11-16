@@ -64,17 +64,20 @@ jobs:
           ref: v${{ inputs.version }}
           path: tag
       - name: Install, selftest the installed app, uninstall
+        timeout-minutes: 15  # about 6 min; Setup and the uninstaller run through Invoke-Setup (180 s each)
         shell: pwsh
         run: |
           $fx = if ('${{ inputs.source }}' -eq 'release') { 'tag' } else { '.' }
           ./scripts/windows/release-smoke.ps1 -Phase Verify -Version '${{ inputs.version }}' -FixtureSrc $fx
       - name: Uninstall again if a step failed
         if: always()
+        timeout-minutes: 5
         shell: pwsh
         run: |
+          . ./scripts/windows/ci-helpers.ps1
           Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
           $u = Join-Path $env:LOCALAPPDATA 'Programs\PokeTokenBar\unins000.exe'
-          if (Test-Path $u) { Start-Process -FilePath $u -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait }
+          if (Test-Path $u) { "uninstaller exit: $(Invoke-Setup $u @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -TimeoutSec 120)" }
       - name: Collect logs
         if: always()
         uses: actions/upload-artifact@v4

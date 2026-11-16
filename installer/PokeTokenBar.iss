@@ -10,7 +10,7 @@
 ; started Setup, unless another Setup is running, an instance still runs, or the previous app could not be put back.
 ; A finished install starts the new app through [Run]. Exit codes: 0 finished; 1 did not start (Windows too old or not
 ; x64-capable, checked before any [Code], so nothing is closed or restarted; another PokeTokenBar Setup is running; or
-; the app did not close in 15 s); 5 stopped while installing (previous files put back); 7 stopped before installing
+; the app did not close in 30 s: nothing is touched or restarted); 5 stopped while installing (previous files put back); 7 stopped before installing
 ; (no copy of the app could be made, a copy an earlier Setup left could not be put back, or a test build).
 ; Test builds only, never shipped: their file name and FileDescription say TESTFAIL (stage 8 Task 1's release
 ; manifest is to refuse any ISCC define but SrcDir, AppVer and OutDir):
@@ -122,6 +122,11 @@ const
   SetupMutexName = 'Local\PokeTokenBar-Setup';
   { Written last into the copy: a copy without it is not complete. }
   BackupMarker = 'PTB-backup-complete.txt';
+  { How long Setup and Uninstall wait for a running PokeTokenBar to close after WM_CLOSE. It closes in well under a
+    second (the app's exit syncs its settings and ends the team links); 30 s leaves room for a loaded PC. Then they
+    stop instead of killing it: a killed app skips that exit (the last settings write, the team's goodbye), and one
+    that does not answer WM_CLOSE for 30 s may be waiting for its user. }
+  CloseWaitSeconds = 30;
 
 var
   { InitializeSetup stopped because another PokeTokenBar Setup runs: DeinitializeSetup changes nothing. }
@@ -141,7 +146,7 @@ begin
 end;
 
 { Asks a running instance to end through its sink window (WM_CLOSE -> WindowsApp.exit, settings synced) and waits up to
-  15 s for it to release the single-instance mutex. }
+  CloseWaitSeconds for it to release the single-instance mutex. }
 function CloseRunningApp: Boolean;
 var
   Wnd: HWND;
@@ -151,7 +156,7 @@ begin
   if not CheckForMutexes(MutexName) then Exit;
   Wnd := FindWindowByClassName(SinkClass);
   if Wnd <> 0 then PostMessage(Wnd, $0010, 0, 0);
-  for I := 1 to 150 do begin
+  for I := 1 to CloseWaitSeconds * 10 do begin
     if not CheckForMutexes(MutexName) then Exit;
     Sleep(100);
   end;
@@ -173,16 +178,22 @@ begin
   CreateMutex(SetupMutexName);
   Log('InitializeSetup: app mutex held = ' + IntToStr(Ord(CheckForMutexes(MutexName))));
   Result := CloseRunningApp;
-  if not Result then
-    MsgBox('PokeTokenBar is running and did not close. Quit it from its tray icon, then run Setup again.', mbError, MB_OK);
+  if not Result then begin
+    { Never MsgBox: it ignores /SUPPRESSMSGBOXES, so a silent Setup (the in-app update, CI) would wait for a click forever.
+      Silent: logged, exit 1; DeinitializeSetup then starts nothing (the app's mutex is still held). }
+    Log('PTB setup: PokeTokenBar did not close in ' + IntToStr(CloseWaitSeconds) + ' s; stopping before the app is touched');
+    SuppressibleMsgBox('PokeTokenBar is running and did not close. Quit it from its tray icon, then run Setup again.', mbError, MB_OK, IDOK);
+  end;
 end;
 
 function InitializeUninstall: Boolean;
 begin
   Log('InitializeUninstall: app mutex held = ' + IntToStr(Ord(CheckForMutexes(MutexName))));
   Result := CloseRunningApp;
-  if not Result then
-    MsgBox('PokeTokenBar is running and did not close. Quit it from its tray icon, then run Uninstall again.', mbError, MB_OK);
+  if not Result then begin
+    Log('PTB uninstall: PokeTokenBar did not close in ' + IntToStr(CloseWaitSeconds) + ' s; nothing removed');
+    SuppressibleMsgBox('PokeTokenBar is running and did not close. Quit it from its tray icon, then run Uninstall again.', mbError, MB_OK, IDOK);
+  end;
 end;
 
 { Launch at login is the app's own setting (HKCU Run value PokeTokenBar, written by the tray toggle). Uninstall removes it
@@ -426,7 +437,7 @@ begin
   end else begin
     Log('PTB update: could not copy the previous app to ' + Aside + '; nothing is changed, removing the partial copy: ' +
       IntToStr(Ord(DelTree(Aside, True, True, True))));
-    Result := 'Setup could not keep a copy of the installed PokeTokenBar (is the disk full?), so it changed nothing.';
+    Result := 'Setup could not keep a copy of the installed PokeTokenBar (is the disk full, or a file of it open?), so it changed nothing.';
   end;
 end;
 

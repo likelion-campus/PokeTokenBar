@@ -96,6 +96,7 @@ enum WindowsSelftest {
         await shellChecks(r)
         await crashChecks(r)
         await singleInstanceCheck(r, app)
+        await exitDeadlineCheck(r)  // stage 8: quitting with a stuck socket thread
         await guardChecks(r)
         let real = WinDefaultsSync.expectedPlistURL()
         let realAfter = [Self.modification(of: real), Self.modification(of: SettingsPlistGuard.backupURL(for: real))]
