@@ -209,7 +209,7 @@ final class PopoverStackLayoutTests: XCTestCase {
                                 spacingAbove: above, rowSpacing: between)
         }
         let rule = PopoverStackSection(card: false, isRule: true)
-        let f = PopoverStackLayout.layout([plain(2, between: 3), rule, plain(1, above: 6)], width: 360, metrics: .home)
+        let f = PopoverStackLayout.layout([plain(2, between: 3), rule, plain(1)], width: 360, metrics: .home)
         let a = f.sections[0]!, r = f.sections[1]!, b = f.sections[2]!
         XCTAssertEqual(a.rows[0]!.frame.minY, 14, "the page's 14 pt padding")
         XCTAssertEqual(a.rows[1]!.frame.minY, 14 + 20 + 3, "rowSpacing between the plain rows")
