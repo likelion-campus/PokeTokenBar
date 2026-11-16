@@ -224,9 +224,24 @@ final class TransferDialogDriver: @unchecked Sendable {
                         SendMessageTimeoutW(edit, UINT(WM_SETTEXT), 0, LPARAM(Int(bitPattern: $0.baseAddress)), UINT(SMTO_ABORTIFHUNG), 3000, &result)
                     }
                     Thread.sleep(forTimeInterval: 0.2)
-                    let ok = GetDlgItem(dialog, 1 /* IDOK */)
-                    _ = PostMessageW(dialog, UINT(WM_COMMAND), WPARAM(1), LPARAM(Int(bitPattern: ok)))
-                    fact.note = "typed \(path.count) characters into the file name box"
+                    // Save / Open is the button with the id 1; without it Enter in the file name box does the same.
+                    let button = Self.descendants(of: dialog).first { WinKit.className($0) == "Button" && GetDlgCtrlID($0) == 1 }
+                    if let button {
+                        _ = PostMessageW(button, 0x00F5 /* BM_CLICK */, 0, 0)
+                    } else {
+                        _ = PostMessageW(edit, UINT(WM_KEYDOWN), WPARAM(VK_RETURN), 0)
+                        _ = PostMessageW(edit, UINT(WM_KEYUP), WPARAM(VK_RETURN), LPARAM(Int(bitPattern: UInt(0xC000_0001))))
+                    }
+                    var how = button == nil ? "Enter posted to the box" : "the id-1 button clicked"
+                    let wait = Date(timeIntervalSinceNow: 2.5)
+                    while IsWindow(dialog), Date() < wait { Thread.sleep(forTimeInterval: 0.05) }
+                    if IsWindow(dialog) {
+                        _ = SetForegroundWindow(dialog)
+                        Thread.sleep(forTimeInterval: 0.2)
+                        sendKey(UInt16(VK_RETURN))
+                        how += ", then a real Enter"
+                    }
+                    fact.note = "typed \(path.count) characters into the file name box (\(how))"
                 } else {
                     fact.note = "no file name box found"
                     closeEverything()

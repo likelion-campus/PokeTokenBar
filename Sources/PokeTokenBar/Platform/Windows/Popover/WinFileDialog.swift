@@ -21,10 +21,12 @@ import WinSDK
         guard !isOpen else { return nil }   // one at a time (a second click cannot arrive: the owner is disabled)
         isOpen = true
         opened += 1
+        currentOwner = owner
         WinModalPump.begin("dialog")
         defer {
             WinModalPump.end("dialog")
             isOpen = false
+            currentOwner = nil
         }
         let titleW = WinStr.w(title), nameW = WinStr.w(suggestedName ?? ""), filterW = WinStr.w(filterName)
         let specW = WinStr.w("*.json"), extW = WinStr.w("json")
@@ -53,7 +55,19 @@ import WinSDK
         return URL(fileURLWithPath: String(decoding: out[0..<length], as: UTF16.self))
     }
 
-    /// Closes the open dialog as a cancel (the exit path, the selftest).
-    static func closeOpenDialog() { _ = ptb_file_dialog_close() }
+    private static var currentOwner: HWND?
+
+    /// Closes the open dialog as a cancel (the exit path, the selftest). `IFileDialog::Close` first; on the runner the dialog
+    /// stayed open after it, so the dialogs owned by the popover also get `WM_CLOSE`, which ends them as the close box does.
+    static func closeOpenDialog() {
+        _ = ptb_file_dialog_close()
+        guard let owner = currentOwner else { return }
+        var previous: HWND?
+        let cls = WinStr.w("#32770")
+        while let h = FindWindowExW(nil, previous, cls, nil) {
+            previous = h
+            if GetWindow(h, UINT(GW_OWNER)) == owner { _ = PostMessageW(h, UINT(WM_CLOSE), 0, 0) }
+        }
+    }
 }
 #endif
