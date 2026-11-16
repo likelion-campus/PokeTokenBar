@@ -66,7 +66,8 @@ extension WindowsSelftest {
             child.close()
             let lines = ((try? String(contentsOf: marker, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
             func ms(_ step: String) -> Int? {
-                lines.first { $0.hasPrefix(step + " ") }.flatMap { $0.split(separator: " ").dropFirst().first }.flatMap { Int($0) }
+                lines.first { $0.hasPrefix(step + " ") }
+                    .flatMap { $0.dropFirst(step.count + 1).split(separator: " ").first }.flatMap { Int($0) }
             }
             let tray = ms("tray removed"), team = ms("team shutdown done")
             let mutexGone = !WinProcess.mutexExists(mutex)

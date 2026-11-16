@@ -359,7 +359,7 @@ private final class WinSocketEngine: @unchecked Sendable {
             }
             if exited, let h = threadHandle {
                 // The thread signals `finished` a few instructions before it ends; give its object the rest of the budget.
-                let ms = DWORD(max(100, deadline.timeIntervalSinceNow * 1000))
+                let ms = DWORD(min(3_600_000, max(100, deadline.timeIntervalSinceNow * 1000)))   // clamped: `within: .infinity` must not trap
                 if WaitForSingleObject(h, ms) != 0 { exited = false }   // 0 = WAIT_OBJECT_0
             }
             if !exited {
