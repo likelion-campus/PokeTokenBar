@@ -24,6 +24,10 @@ import WinSDK
     var paintOverlay: ((HDC) -> Void)?
     /// The view as a control a `WinStack` row places.
     private(set) var control: WinControl!
+    /// The sprites in the part's slots (Task 8): fed the slots after every `show`, freed with the view.
+    var sprites: WinSpriteAnimator? {
+        didSet { if oldValue !== sprites { oldValue?.destroy(); sprites?.update(slots: drawing?.spriteSlots ?? [], in: self) } }
+    }
 
     private(set) var drawing: PopoverDrawing?
     private(set) var items: [WinControl] = []
@@ -40,7 +44,7 @@ import WinSDK
     private var renderPending = false
     private(set) var isDestroyed = false
 
-    struct Stats: Equatable { var paints = 0, composes = 0, itemBuilds = 0, itemMoves = 0, hits = 0, renders = 0 }
+    struct Stats: Equatable { var paints = 0, composes = 0, itemBuilds = 0, itemMoves = 0, hits = 0, renders = 0, paintPixels = 0 }
     private(set) var stats = Stats()
 
     init(parent: HWND, ctx: WinUIContext) throws {
@@ -108,6 +112,7 @@ import WinSDK
         compose(drawing.drawing.layers)
         updateItems(drawing.drawing.accessibility)
         updateTooltips(drawing.drawing.tooltips)
+        sprites?.update(slots: drawing.spriteSlots, in: self)
         _ = InvalidateRect(hwnd, nil, false)
     }
 
@@ -140,6 +145,8 @@ import WinSDK
     func destroy() {
         guard !isDestroyed else { return }
         isDestroyed = true
+        sprites?.destroy()
+        sprites = nil
         for item in items { item.destroy() }
         items = []
         ctx.tooltips.removeAll(in: hwnd)
@@ -214,7 +221,10 @@ import WinSDK
         stats.paints += 1
         var r = ps.rcPaint
         _ = FillRect(dc, &r, ctx.colors.brush(background))
-        blit(into: dc, from: POINT(x: 0, y: 0), size: pixelSize, at: POINT(x: 0, y: 0))
+        // Only the invalidated rectangle is blended (a sprite frame's tick repaints just its slot).
+        let right = min(r.right, pixelSize.cx), bottom = min(r.bottom, pixelSize.cy)
+        stats.paintPixels += Int(max(0, r.right - r.left)) * Int(max(0, r.bottom - r.top))
+        blit(into: dc, from: POINT(x: r.left, y: r.top), size: SIZE(cx: right - r.left, cy: bottom - r.top), at: POINT(x: r.left, y: r.top))
         paintOverlay?(dc)
         _ = EndPaint(hwnd, &ps)
         return 0

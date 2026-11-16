@@ -26,6 +26,7 @@ extension WindowsSelftest {
         await keyboardChecks(r)
         await multiLineKeysCheck(r)
         await galleryChecks(r)
+        await spriteChecks(r)  // Task 8 (WindowsSelftestPopoverSprites.swift)
         await registriesCheck(r)
         await noLeakCheck(r)
         await openCloseCheck(r, start: start)
@@ -564,7 +565,7 @@ extension WindowsSelftest {
         return "focus capture after Tab x2: focus on '\(focused)' png=\(png == 0 ? "kit-focus-100.png" : "FAILED \(png)")"
     }
 
-    private static func capture(_ w: KitWindow) -> WinUIDump.Bitmap? {
+    static func capture(_ w: KitWindow) -> WinUIDump.Bitmap? {
         var width: UInt32 = 0, height: UInt32 = 0
         var out: UnsafeMutablePointer<UInt8>?
         guard ptb_window_print(UnsafeMutableRawPointer(w.hwnd), &width, &height, &out) == 0, let out else { return nil }
@@ -593,11 +594,11 @@ extension WindowsSelftest {
         // Kernel handles belong to the whole process (worker threads, the network): a pool that grows once is not the page's.
         // A handle the page leaks shows as a rise on every cycle.
         let handlesRise = zip(cycles, rest).allSatisfy { $1.handles > $0.handles }
-        let ok = rest.allSatisfy { $0.gdi == warm.gdi && $0.user == warm.user && $0.controls == 0
+        let ok = rest.allSatisfy { $0.gdi <= warm.gdi && $0.user <= warm.user && $0.controls == 0
             && $0.dialogs == start.dialogs && $0.areas == 0 && $0.pumpDepth == 0 } && !handlesRise && !WinModalPump.timerLive
         r.add("ui.kit.openClose3", ok,
               "before the group: \(start); after a warm-up open/close: \(warm); after 5 more: \(rest.map { "\($0)" }.joined(separator: " / ")) "
-              + "(over the warm-up: GDI and USER objects +0 after every cycle, handles not rising on every cycle (rose every time=\(handlesRise)); "
+              + "(over the warm-up: GDI and USER objects not above the warm-up after every cycle (a drop is a late release, not a leak), handles not rising on every cycle (rose every time=\(handlesRise)); "
               + "no kit control, dialog registration, scroll area or pump timer left)")
     }
 

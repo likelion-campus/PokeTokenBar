@@ -216,6 +216,7 @@ jobs:
           $j = Get-Content st.json -Raw | ConvertFrom-Json
           $names = 'ui.kit.tabOrder', 'ui.kit.keys', 'ui.kit.text', 'ui.kit.typed', 'ui.kit.enterEscape', 'ui.kit.menuKeys', 'ui.kit.unregister',
                    'ui.kit.fonts', 'ui.kit.glyphs', 'ui.kit.drawn', 'ui.kit.tooltips', 'ui.kit.scroll', 'ui.kit.dpi', 'ui.kit.idle', 'ui.kit.capture', 'ui.kit.openClose3',
+                   'companion.spriteFrames', 'companion.clockStops', 'companion.spriteMemory',
                    'ui.kit.scrollClicks', 'ui.kit.multiLineKeys', 'ui.kit.partResize', 'ui.kit.settingChange', 'ui.kit.editMenu',
                    'ui.kit.codePaste', 'ui.kit.ampersand', 'ui.kit.registries', 'ui.kit.noLeak'
           $bad = @()
@@ -880,6 +881,12 @@ jobs:
           Measure-App 'popover-kit-open-120s' 120 $off $budget @('--popover-kit-idle-probe')
           $summary.windows['popover-kit-open-120s'].kitLog = @(Select-String -Path $logFile -Pattern 'popover kit idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
           # --- stage 7 Task 3: the popover kit open and still (end) ---
+          # --- stage 7 Task 8: an animated sprite open (begin) ---
+          # The fixture GIF (5 frames at 0.1 s) in a drawn part, popover kit window open: the cost of an animating popover. The
+          # budget is loose (first numbers; Task 8 report): what it must show is that it is bounded and that nothing else wakes.
+          Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
+          $summary.windows['popover-sprite-open-120s'].spriteLog = @(Select-String -Path $logFile -Pattern 'popover sprite idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+          # --- stage 7 Task 8: an animated sprite open (end) ---
           # --- stage 7 Task 4: the popover window open and still, and closed after an open (begin) ---
           # The real popover (empty page, opened through the tray callback), refresh off: the closed app's budget for both. Closed
           # after an open must cost what never opened costs (D18); open and still adds no timer.
