@@ -6,7 +6,9 @@ import WinSDK
 // Stage 7 Task 9: the companion header's selftest group (`companion.*`). Each check prints one PASS/FAIL line with what it
 // measured. Pages are the real Home page in a kit window, fed FIXTURE companions: sample states made here (public species
 // numbers and names), and sprites from the FIXTURE folder `PTB_SELFTEST_SPRITES` (public PokeAPI files the workflow fetched:
-// scripts/windows/fetch-fixture-sprites.ps1). Nothing here asks the network. With `--dump-ui <dir>` every state goes to
+// scripts/windows/fetch-fixture-sprites.ps1). The section's own loads ask no network here; a sample store of a species with
+// forms (Shellos) asks PokéAPI once for its form's name when its line loads (`CompanionStore.loadCurrentLine` in a bundled app,
+// as on the Mac), and the capture shows the name it got ("[East Sea]", or the identifier "[East]" offline). With `--dump-ui <dir>` every state goes to
 // `<dir>/companion/` as a PNG and a control-tree JSON ("Sample-data capture, Windows CI runner").
 
 extension WindowsSelftest {
