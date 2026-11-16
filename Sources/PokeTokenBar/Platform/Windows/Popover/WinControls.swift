@@ -930,6 +930,15 @@ extension WinControls {
         _ = DeleteObject(UnsafeMutableRawPointer(pen))
     }
 
+    private static func drawPillText(_ dc: HDC, _ text: String, font: HFONT?, box: RECT) {
+        var box = box
+        let old = SelectObject(dc, UnsafeMutableRawPointer(font))
+        _ = WinStr.w(text).withUnsafeBufferPointer {
+            DrawTextW(dc, $0.baseAddress, -1, &box, UINT(DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
+        }
+        _ = SelectObject(dc, old)
+    }
+
     /// The pill's picture: the page colour, the fill (a hovered or pressed borderless button gets one too), the glyph and the
     /// title centred, the focus rectangle after keyboard use.
     fileprivate static func drawPill(_ c: WinControl, _ pill: WinPill, _ dis: UnsafeMutablePointer<DRAWITEMSTRUCT>) {
@@ -976,22 +985,17 @@ extension WinControls {
         let gap = glyph == nil ? Int32(0) : ctx.px(4)
         let total = title.cx + (glyphSize?.cx ?? 0) + gap
         var x = pill.leftAligned ? r.left + pillPadding(pill.style, ctx: ctx).h : r.left + max(0, (r.right - r.left - total) / 2)
-        let dc = d.hDC
-        func draw(_ text: String, _ font: HFONT?, _ width: Int32, color: COLORREF? = nil) {
-            if let color { _ = SetTextColor(dc, disabled ? COLORREF(GetSysColor(17)) : color) }
-            var box = RECT(left: x, top: r.top, right: x + width, bottom: r.bottom)
-            let old = SelectObject(dc, UnsafeMutableRawPointer(font))
-            _ = WinStr.w(text).withUnsafeBufferPointer {
-                DrawTextW(dc, $0.baseAddress, -1, &box, UINT(DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
-            }
-            _ = SelectObject(dc, old)
-            x += width + gap
-        }
         // A disclosure's chevron is the secondary colour (`.foregroundStyle(.secondary)`), its title the primary.
         let glyphInk: COLORREF = pill.style == .disclosure && !high ? pal.secondaryText : textColor
-        if let glyph, let glyphSize, !pill.glyphAfter { draw(glyph.text, glyph.font, glyphSize.cx, color: glyphInk) }
-        draw(pill.title, c.font, title.cx, color: textColor)
-        if let glyph, let glyphSize, pill.glyphAfter { draw(glyph.text, glyph.font, glyphSize.cx, color: glyphInk) }
+        var pieces: [(text: String, font: HFONT?, width: Int32, color: COLORREF)] = []
+        if let glyph, let glyphSize, !pill.glyphAfter { pieces.append((glyph.text, glyph.font, glyphSize.cx, glyphInk)) }
+        pieces.append((pill.title, c.font, title.cx, textColor))
+        if let glyph, let glyphSize, pill.glyphAfter { pieces.append((glyph.text, glyph.font, glyphSize.cx, glyphInk)) }
+        for piece in pieces {
+            _ = SetTextColor(d.hDC, disabled ? COLORREF(GetSysColor(17)) : piece.color)
+            drawPillText(d.hDC, piece.text, font: piece.font, box: RECT(left: x, top: r.top, right: x + piece.width, bottom: r.bottom))
+            x += piece.width + gap
+        }
         if focused, !hideFocus {
             var f = d.rcItem
             _ = InflateRect(&f, -ctx.px(2), -ctx.px(1))
