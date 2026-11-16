@@ -30,11 +30,16 @@ final class AdvancedFixtureHTTP: SessionKeyHTTPClient, @unchecked Sendable {
     }
     var requests: Int { lock.lock(); defer { lock.unlock() }; return paths.count }
 
-    func get(_ url: URL, sessionKey: String) async throws -> SessionKeyHTTPResponse {
+    /// Records the request; what to do now (the lock is not taken from an async context).
+    private func note(_ path: String) -> (wait: TimeInterval, refuse: Bool) {
         lock.lock()
-        paths.append(url.path)
-        let wait = waitSeconds, refuse = rejecting
-        lock.unlock()
+        defer { lock.unlock() }
+        paths.append(path)
+        return (waitSeconds, rejecting)
+    }
+
+    func get(_ url: URL, sessionKey: String) async throws -> SessionKeyHTTPResponse {
+        let (wait, refuse) = note(url.path)
         if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
         guard !refuse, sessionKey.hasPrefix(Self.validPrefix) else { return SessionKeyHTTPResponse(status: 401, data: Data(), retryAfter: nil) }
         if url.path.hasSuffix("/organizations") {
