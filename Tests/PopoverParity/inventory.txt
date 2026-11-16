@@ -59,20 +59,20 @@ P29 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift
 P29e | 3 | pending T22 | UI/PopoverView.swift | Footer eye button: show / hide the floating pet
 P30 | 1 | done Popover/PopoverState.swift | UI/PopoverView.swift | Navigation state: tab, settings, recap, collection segment, Pokédex detail page, provider and account tabs (kept), expand-advanced, open-plaza action; reset and the routes (session-key settings, Pokédex entry, representative)
 P31 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift | Dates and relative texts follow the app language (the popover's locale environment), not the region
-C1 | 1 | pending T9 | UI/CompanionView.swift | Sprite 76 pt: animated GIF at its delays, bob on a still fallback, shiny, form, back view, egg sprite, 🥚 fallback, rounded backdrop
+C1 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Sprite 76 pt: animated GIF at its delays, bob on a still fallback, shiny, form, back view, egg sprite, 🥚 fallback, rounded backdrop
 C2 | 3 | pending T20 | UI/CompanionView.swift | Sprites open their Pokédex page (hand cursor, hover highlight, tooltip, accessibility)
-C3 | 1 | pending T9 | UI/CompanionView.swift, UI/Badge.swift | Name, ✨, rarity badge (rarity colours)
-C4 | 1 | pending T9 | UI/CompanionView.swift, UI/Badge.swift, UI/PokemonNameLabel.swift | Type badges with localized type names (loaded async, "…" while loading, identifier on failure); type colours
-C5 | 1 | pending T9 | UI/CompanionView.swift | Default-form data note
-C6 | 1 | pending T9 | UI/CompanionView.swift | Stage + nature line; growth boost badge
-C7 | 1 | pending T9 | UI/CompanionView.swift | Growth bar; hovering 300 ms expands it to "X / Y · Z%"
-C8 | 1 | pending T9 | UI/CompanionView.swift | "N to next evolution" / "to graduation"
-C9 | 1 | pending T9 | UI/CompanionView.swift | Egg: incubating / imminent (orange), guarantee badge, egg bar with detail, hatch delayed, tokens to hatch, first-run hint
-C10 | 1 | pending T9 | UI/CompanionView.swift | Status line (egg, idle, working, focus, tired, sleep, sulk, evolved or grew)
-C11 | 1 | pending T9 | UI/CompanionView.swift | Evolution line: done/current/future nodes, current dot, arrows, "?" node; horizontal scroll with edge fade and page chevrons when wider than the popover
-C12 | 1 | pending T9 | UI/CompanionView.swift | "Graduated: X" line
-C13 | 1 | pending T9 | UI/CompanionView.swift | Load details and form names when the subject changes
-C14 | 1 | pending T9 | UI/CompanionView.swift | Celebrations: hatch/evolve flash + spring, ✨ and 🎭 bursts, "+N XP" capsule, mint sparkles, egg wiggle; each consumed once
+C3 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift, UI/Badge.swift | Name, ✨, rarity badge (rarity colours)
+C4 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift, UI/Badge.swift, UI/PokemonNameLabel.swift | Type badges with localized type names (loaded async, "…" while loading, identifier on failure); type colours
+C5 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Default-form data note
+C6 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Stage + nature line; growth boost badge
+C7 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Growth bar; hovering 300 ms expands it to "X / Y · Z%"
+C8 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | "N to next evolution" / "to graduation"
+C9 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Egg: incubating / imminent (orange), guarantee badge, egg bar with detail, hatch delayed, tokens to hatch, first-run hint
+C10 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Status line (egg, idle, working, focus, tired, sleep, sulk, evolved or grew)
+C11 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Evolution line: done/current/future nodes, current dot, arrows, "?" node; horizontal scroll with edge fade and page chevrons when wider than the popover
+C12 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | "Graduated: X" line
+C13 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Load details and form names when the subject changes
+C14 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Celebrations: hatch/evolve flash + spring, ✨ and 🎭 bursts, "+N XP" capsule, mint sparkles, egg wiggle; each consumed once
 D1 | 3 | pending T20 | UI/CompanionView.swift | Collection empty state: animated Pikachu, title, hint
 D2 | 3 | pending T20 | UI/CompanionView.swift | Collection segment Pokédex / Catch log
 D3 | 3 | pending T20 | UI/CompanionView.swift | Filter bar: search (placeholder, clear), shiny-only toggle, sort menu (dex or log options, checkmarks, accent when custom), no-results state

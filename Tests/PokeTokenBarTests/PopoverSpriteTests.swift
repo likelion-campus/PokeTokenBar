@@ -214,20 +214,33 @@ final class PopoverSpriteModelTests: XCTestCase {
         XCTAssertEqual(memory.frameSetCount + memory.stillCount, 0)
     }
 
-    func testABobbingStillToggles() async {
-        let f = FakeFetcher(); f.stills = [25]
-        var time = Date(timeIntervalSince1970: 1000)
-        let m = PopoverSpriteModel(fetcher: f, memory: PopoverSpriteMemory(), now: { time })
-        m.setPlaying(true)
-        m.show(species(25), animated: false, bob: true)
-        XCTAssertEqual(m.nextDue, time.addingTimeInterval(0.9))
-        time = time.addingTimeInterval(0.9)
-        XCTAssertTrue(m.tick(at: time))
-        XCTAssertTrue(m.bobUp)
-        XCTAssertEqual(m.nextDue, time.addingTimeInterval(0.9))
-        m.setPlaying(false)
-        XCTAssertNil(m.nextDue)
-        XCTAssertFalse(m.bobUp)
+    /// The bob follows the Mac's `.easeInOut(duration: 0.9).repeatForever(autoreverses: true)` up 3 DIP and back, one wake per
+    /// device-pixel step (stage 7 Task 9): 3 steps at 100 % (six wakes a round trip of 1.8 s), 6 at 200 %. Ticks a hair early
+    /// (inside the clock's slack) still move it on.
+    func testABobbingStillStepsAlongTheMacsEasedSwing() async {
+        for (steps, expected) in [(3, [1, 2, 3, 2, 1, 0]), (6, [1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1, 0])] {
+            let f = FakeFetcher(); f.stills = [25]
+            let start = Date(timeIntervalSince1970: 1000)
+            var time = start
+            let m = PopoverSpriteModel(fetcher: f, memory: PopoverSpriteMemory(), now: { time })
+            m.bobSteps = steps
+            m.setPlaying(true)
+            m.show(species(25), animated: false, bob: true)
+            var levels: [Int] = []
+            var top: CGFloat = 0
+            while let due = m.nextDue, due.timeIntervalSince(start) < 1.8 + 1e-3, levels.count < 50 {
+                time = due.addingTimeInterval(-0.0003)
+                XCTAssertTrue(m.tick(at: time), "steps \(steps)")
+                XCTAssertGreaterThan(m.nextDue ?? .distantPast, due, "steps \(steps): the clock moves on")
+                levels.append(m.bobLevel)
+                top = min(top, m.bobOffset)
+            }
+            XCTAssertEqual(levels, expected)
+            XCTAssertEqual(top, -3)
+            m.setPlaying(false)
+            XCTAssertNil(m.nextDue)
+            XCTAssertFalse(m.bobUp)
+        }
     }
 }
 

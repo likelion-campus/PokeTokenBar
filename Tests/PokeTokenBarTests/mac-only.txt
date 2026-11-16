@@ -268,6 +268,8 @@ PopoverTrendTwinTests+Mac.swift
 PopoverActivityImagesMac.swift
 # PopoverRecapEquivalenceTests+Mac: drives the Mac's RecapContent (UI) against its shared twin PopoverRecapContent and the page model
 PopoverRecapEquivalenceTests+Mac.swift
+# CompanionHeaderRendersMacTests: renders the Mac's SwiftUI CompanionHeader offscreen (ImageRenderer, AppKit) for the companion samples, the reference the Windows captures are put next to (env-gated writer)
+CompanionHeaderRendersMacTests.swift
 # LiveWindowTestSupport: the one gated place an older Mac rendering test may order a window in (AppKit)
 LiveWindowTestSupport.swift
 # NoWindowsOrderedInScanTests+Mac: scans the Mac test sources for window-ordering calls outside the gated helper

@@ -142,6 +142,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "WinDefaultsSync.swift",             // PTB_STATE_DIR: the selftest's own settings suite (QA, like CompanionStore)
             "WinPlazaAssets.swift",              // PTB_PLAZA_RESOURCES: tests and CI point at the checkout's plaza art (QA)
             "WindowsSelftestFlakes.swift",       // PTB_SELFTEST_FLAKE_LOOP: the selftest's repeat loops (QA, like WindowsSelftest.swift)
+            "WindowsSelftestPopoverCompanion.swift",  // PTB_SELFTEST_SPRITES: the companion header's fixture sprites (QA, stage 7 Task 9)
         ]
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()    // PokeTokenBarTests

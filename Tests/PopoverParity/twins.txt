@@ -125,3 +125,40 @@ UI/UsageRecapView.swift#RecapCard.meter | Popover/PopoverRecapContent.swift#Popo
 UI/UsageRecapView.swift#RecapCard.readout | Popover/RecapCardPart.swift#RecapCardPart | pin 71ae30923f9e518b
 UI/UsageRecapView.swift#RecapCard.graduateStrip | Popover/RecapCardPart.swift#RecapCardPart | pin 1d4143c31638785a
 UI/UsageRecapView.swift#RecapScreen.body | Popover/PopoverRecapContent.swift#RecapPageModel | pin ac09eb1678ba61bd
+# --- stage 7 Task 9: the companion header (begin) ---
+# Text twins: the header's pure rules read as the Mac's (CompanionHeaderModel.swift, EvoLineLayout.swift).
+UI/CompanionView.swift#CompanionHeader.progressDetail | Popover/CompanionHeaderModel.swift#CompanionHeaderModel.progressDetail
+UI/CompanionView.swift#CompanionHeader.statusLine | Popover/CompanionHeaderModel.swift#CompanionHeaderBuilder.statusLine
+UI/CompanionView.swift#CompanionHeader.eggImminent | Popover/CompanionHeaderModel.swift#CompanionHeaderBuilder.eggImminent
+UI/CompanionView.swift#CompanionHeader.statusLine | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacCompanionOracle.statusLine
+UI/CompanionView.swift#CompanionHeader.eggImminent | Tests/PokeTokenBarTests/PopoverTwinEquivalenceTests+Mac.swift#MacCompanionOracle.eggImminent
+UI/CompanionView.swift#rarityColor | Popover/CompanionHeaderModel.swift#CompanionBadges.rarityColor | green=systemGreen, blue=systemBlue, orange=systemOrange, gray=systemGray
+UI/Badge.swift#PokemonType.hex | Popover/CompanionHeaderModel.swift#PopoverPokemonType.hex
+UI/PokemonNameLabel.swift#PokemonNameItem | Popover/CompanionHeaderModel.swift#PopoverNameItem
+UI/PokemonNameLabel.swift#PokemonNameText.text | Popover/CompanionHeaderModel.swift#PopoverNameText.text
+UI/CompanionView.swift#EvoLineView.rowWidth | Popover/EvoLineLayout.swift#EvoLineLayout.rowWidth
+UI/CompanionView.swift#EvoLineView.needsScroll | Popover/EvoLineLayout.swift#EvoLineLayout.needsScroll
+UI/CompanionView.swift#EvoLineView.scrollAffordance | Popover/EvoLineLayout.swift#EvoLineLayout.scrollAffordance
+UI/CompanionView.swift#EvoLineView.effectiveContentWidth | Popover/EvoLineLayout.swift#EvoLineLayout.effectiveContentWidth
+UI/CompanionView.swift#EvoLineView.canScrollBack | Popover/EvoLineLayout.swift#EvoLineLayout.canScrollBack
+UI/CompanionView.swift#EvoLineView.canScrollForward | Popover/EvoLineLayout.swift#EvoLineLayout.canScrollForward
+UI/CompanionView.swift#EvoLineView.pageTarget | Popover/EvoLineLayout.swift#EvoLineLayout.pageTarget
+UI/CompanionView.swift#EvoLineView.dexLinkTarget | Popover/EvoLineLayout.swift#EvoLineLayout.dexLinkTarget
+# Pinned view bodies rebuilt as values or drawing (a change fails here until the model, the parts and their tests follow).
+UI/CompanionView.swift#CompanionHeader.body | Popover/CompanionHeaderModel.swift#CompanionHeaderBuilder.lines | pin c40f5fcf223cfdc6
+UI/CompanionView.swift#CompanionHeader.playCelebrationIfNeeded | Popover/CompanionEffects.swift#CompanionCelebrationDriver.poll | pin 28482412ab9be0b3
+UI/CompanionView.swift#CompanionHeader.showCandyXPIfNeeded | Popover/CompanionEffects.swift#CompanionCelebrationDriver.poll | pin d28036ea31d5fe9a
+UI/CompanionView.swift#CompanionHeader.showMintIfNeeded | Popover/CompanionEffects.swift#CompanionCelebrationDriver.poll | pin 71e576ee5af3aa52
+UI/CompanionView.swift#CompanionHeader.syncEggWiggle | Popover/CompanionEffects.swift#CompanionCelebrationDriver.effects | pin 3939466a5e93d5c2
+UI/CompanionView.swift#LabeledProgressBar.body | Popover/GrowthBarPart.swift#GrowthBarPart.draw | pin 0dfe779fa802ddcd
+UI/CompanionView.swift#EvoLineView.body | Popover/EvoLinePart.swift#EvoLinePart.render | pin fd636b2b73ccdd13
+UI/CompanionView.swift#EvoLineView.row | Popover/EvoLinePart.swift#EvoLinePart.render | pin 33c76548f6440e80
+UI/CompanionView.swift#EvoLineView.scrollableRow | Popover/EvoLinePart.swift#EvoLinePart.render | pin 3cbdaaf258e8128c
+UI/CompanionView.swift#EvoLineView.edgeFade | Popover/EvoLinePart.swift#EvoLinePart.fade | pin 7b597b29c9737921
+UI/CompanionView.swift#EvoLineView.chevron | Popover/EvoLinePart.swift#EvoLinePart.chevronImage | pin 78ed3c74057c0305
+UI/CompanionView.swift#SpriteView.body | Popover/PopoverSpritePlayback.swift#PopoverSpriteModel.show | pin a1e0f46ae9d1974a
+UI/Badge.swift#BadgeTint.color | Popover/CompanionHeaderModel.swift#PopoverBadgeTint.color | pin fc63b1a23f15e8a9
+UI/Badge.swift#Badge.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPart.drawBadge | pin 6abfcdabbdb9f1ac
+UI/Badge.swift#TypeBadges.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPart.drawBadge | pin e605cac326ffe3a6
+UI/PokemonNameLabel.swift#PokemonNameLabel.body | Platform/Windows/Popover/WinCompanionSection.swift#WinCompanionSection.loadTypeNames | pin a4e7ad7d556c9330
+# --- stage 7 Task 9: the companion header (end) ---

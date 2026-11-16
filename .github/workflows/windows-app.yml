@@ -153,6 +153,14 @@ jobs:
           (Get-Content 'windows\selftest\claude\projects\p\s.jsonl' -Raw).Replace('__TIMESTAMP__', $ts) |
             Set-Content -NoNewline -Encoding utf8NoBOM -Path (Join-Path $proj 's.jsonl')
           "PTB_FIXTURE=$fx" >> $env:GITHUB_ENV
+      # --- stage 7 Task 9: fixture sprites for the companion header (begin) ---
+      - name: Companion fixture sprites (public PokeAPI files; the selftest and the idle probes read them, the app asks no network)
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'ptb-sprites'
+          ./scripts/windows/fetch-fixture-sprites.ps1 -Out $dir
+          "PTB_SELFTEST_SPRITES=$dir" >> $env:GITHUB_ENV
+      # --- stage 7 Task 9: fixture sprites for the companion header (end) ---
       - name: Visual C++ redistribution terms on this image (informational)
         if: (success() || failure()) && steps.package.outcome == 'success'
         continue-on-error: true
@@ -358,6 +366,22 @@ jobs:
           Get-ChildItem ui-dump\recap -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "popover recap: $($bad -join ', ')" }
       # --- stage 7 Task 13: the usage recap (end) ---
+      # --- stage 7 Task 9: the companion header (begin) ---
+      - name: Companion header checks ran (companion.*, captures in ui-dump/companion)
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'companion.capture', 'companion.celebrate', 'companion.consumedOnce', 'companion.liveUpdate', 'companion.colourEgg', 'companion.evoLineScroll', 'companion.barHover', 'companion.openClose3'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          Get-ChildItem ui-dump\companion -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
+          if ($bad.Count -gt 0) { throw "companion header: $($bad -join ', ')" }
+      # --- stage 7 Task 9: the companion header (end) ---
       - name: Language and time zone in child processes (Korean display language, Seoul time zone)
         if: (success() || failure()) && steps.package.outcome == 'success'  # independent evidence, also after a selftest failure
         shell: pwsh
@@ -926,7 +950,7 @@ jobs:
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
         id: idle
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full' && env.PTB_FAST != 'true'
-        timeout-minutes: 45  # about 23 min with the popover windows (run 43794578956: 22.4 min)
+        timeout-minutes: 60  # about 48 min with every page's windows (run 43889052204 reached 42.7 min after 15 windows; Task 9 raised it from 45)
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -1063,6 +1087,21 @@ jobs:
           Measure-App 'popover-recap-open-120s' 120 $off $budget @('--popover-recap-idle-probe')
           $summary.windows['popover-recap-open-120s'].recapLog = @(Select-String -Path $logFile -Pattern 'popover recap idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
           # --- stage 7 Task 13: the recap page open and left alone (end) ---
+          # --- stage 7 Task 9: Home with the companion header open (begin) ---
+          # Sample data in a kit window (CI only), nothing relative on the page: 'wiggle' = the imminent egg with animation on (the
+          # bob, one wake per pixel step of the Mac's eased swing, and the wiggle's eased steps), 'animated' = Bulbasaur's GIF
+          # with animation on (loose, as Task 8's sprite window). The header standing still is popover-open-120s (the real Home,
+          # the runner's animations off); the bob alone measured 216.5 main cs/min in run 43889052204 (Task 9 report).
+          $companionBudgets = @{
+              wiggle = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+              animated = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+          }
+          foreach ($mode in 'wiggle', 'animated') {
+              $label = "popover-companion-$mode-120s"
+              Measure-App $label 120 $off $companionBudgets[$mode] @('--popover-companion-idle-probe', $mode)
+              $summary.windows[$label].companionLog = @(Select-String -Path $logFile -Pattern 'popover companion idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+          }
+          # --- stage 7 Task 9: Home with the companion header open (end) ---
           $summary.verdicts = $verdicts
           $summary | ConvertTo-Json -Depth 8 | Set-Content idle-gate.json -Encoding utf8
           Get-Content idle-gate.json
@@ -1250,6 +1289,13 @@ jobs:
           retention-days: 7
           path: ui-dump/home
           if-no-files-found: warn
+      # stage 7 Task 9: the companion header's fixture states (sample data and fixture sprites, Windows CI runner)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-companion
+          retention-days: 7
+          path: ui-dump/companion
       # stage 7 Task 12: the activity panel's fixture states (sample data, Windows CI runner)
       - uses: actions/upload-artifact@v4
         if: always()
