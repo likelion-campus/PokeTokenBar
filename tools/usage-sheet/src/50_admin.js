@@ -64,10 +64,26 @@ function writeSuggestedTeamNames(ss, data) {
   sheet.getRange(2, 3, rows.length, 1).setValues(asTextRows(column));
 }
 
+// Runs fn under the document lock. refreshAll uses it so two refreshes (hourly trigger, menu, seed)
+// never interleave; reports take only the script lock, so they never wait on a refresh.
+function withDocumentLock(fn) {
+  var lock = LockService.getDocumentLock();
+  lock.waitLock(30000);
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // Reading and rendering run without the script lock, so a slow refresh never makes a report wait: only
-// the dashboards and the plan are written, and nobody else writes them. The lock is taken for the tab
-// creation and for the 참고팀이름 write.
+// the dashboards and the plan are written, and by refreshAll alone (hence the document lock). The script
+// lock is taken only for the tab creation and the 참고팀이름 write.
 function refreshAll() {
+  withDocumentLock(refreshAllLocked);
+}
+
+function refreshAllLocked() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
   var nowMs = Date.now();

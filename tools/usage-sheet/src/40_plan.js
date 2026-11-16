@@ -46,11 +46,28 @@ function planForecast(cur, projectedPct, s) {
   return "남음";
 }
 
+// One device per window is the normal case, but a person's two devices report the same weekly window
+// separately: merge rows whose reset times are within 24 hours (nearestWindow, like the store). A merged
+// window keeps the highest maxUsed; lastUsed, lastReadAt and resetsAt come from its latest-read row.
+function mergeWindows(rows) {
+  var windows = [];
+  rows.slice().sort(function (a, b) { return a.resetsAt - b.resetsAt; }).forEach(function (l) {
+    var at = nearestWindow(windows.length, function (k) { return windows[k].resetsAt; }, l.resetsAt);
+    if (at === -1) { windows.push(Object.assign({}, l)); return; }
+    var w = windows[at];
+    w.maxUsed = Math.max(w.maxUsed, l.maxUsed);
+    if (l.lastReadAt >= w.lastReadAt) { w.lastUsed = l.lastUsed; w.lastReadAt = l.lastReadAt; w.resetsAt = l.resetsAt; }
+  });
+  return windows;
+}
+
 function computePlan(data, nowMs, tz) {
   var s = data.settings;
+  // One group per person (after 합칠대상), account and tool. A poster only ever owns rows under its own
+  // memberId, so a stranger reporting someone's account lands in its own group.
   var groups = new Map();
   data.limits.forEach(function (l) {
-    var key = l.account + "|" + l.tool;
+    var key = canonicalPerson(l.memberId, data.people) + "|" + l.account + "|" + l.tool;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(l);
   });
@@ -61,8 +78,9 @@ function computePlan(data, nowMs, tz) {
 
   var rows = [];
   var excluded = 0;
-  groups.forEach(function (list) {
-    var latest = list.reduce(function (a, b) { return b.lastReadAt > a.lastReadAt ? b : a; });
+  groups.forEach(function (rawList) {
+    var latest = rawList.reduce(function (a, b) { return b.lastReadAt > a.lastReadAt ? b : a; });
+    var list = mergeWindows(rawList);
     if (latest.lastReadAt < nowMs - PLAN_STALE_MS) return;   // an account nobody has read for 14 days is gone
     var person = canonicalPerson(latest.memberId, data.people);
     var dept = recent28.persons[person] ? personTeam(recent28.persons[person]) : departmentOf(latest.team, data.depts);

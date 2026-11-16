@@ -53,7 +53,7 @@ var VERSION_RE = /^[0-9A-Za-z.+-]{1,32}$/;
 var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 var TEAM_RE = /^t_[A-Za-z0-9_-]{2,62}$/;
 var TOOL_RE = /^[a-z0-9_.-]{1,32}$/;
-var ACCOUNT_RE = /^[A-Za-z0-9_-]{4,128}$/;
+var ACCOUNT_RE = /^(e|m)_[A-Za-z0-9_-]{2,126}$/;
 var DOMAIN_RE = /^[a-z0-9.-]{1,253}$/;
 var MAX_COUNT = 1e13;
 var DAY_MS = 86400000;
@@ -429,6 +429,18 @@ function checkDevice(sheet, member, nowMs) {
   return true;
 }
 
+// The index k in 0..count-1 whose reset time (resetsAtOf(k), epoch ms) is nearest to resetsMs and within
+// 24 hours of it, or -1. Weekly windows are 7 days apart and the source jitters by seconds, so this is the
+// "same weekly window" test; the store and the plan both use it.
+function nearestWindow(count, resetsAtOf, resetsMs) {
+  var match = -1, best = Infinity;
+  for (var k = 0; k < count; k++) {
+    var gap = Math.abs(resetsAtOf(k) - resetsMs);
+    if (gap <= DAY_MS && gap < best) { match = k; best = gap; }
+  }
+  return match;
+}
+
 // A limit row is identified by memberId|account|tool plus its weekly window, so a poster can only touch
 // rows carrying its own (device-checked) memberId. The same window is the existing row whose reset time
 // lies within 24 hours of the incoming one: windows are 7 days apart and the source jitters by seconds.
@@ -449,11 +461,8 @@ function upsertLimits(sheet, member, limits) {
     var readMs = Date.parse(l.readAt);
     var k = identity(member.id, l.account, l.tool);
     var candidates = byIdentity.get(k) || [];
-    var match = -1, best = Infinity;
-    candidates.forEach(function (i) {
-      var gap = Math.abs(cellToMs(rows[i][2]) - resetsMs);
-      if (gap <= DAY_MS && gap < best) { match = i; best = gap; }
-    });
+    var at = nearestWindow(candidates.length, function (j) { return cellToMs(rows[candidates[j]][2]); }, resetsMs);
+    var match = at === -1 ? -1 : candidates[at];
     if (match === -1) {
       rows.push([l.account, l.tool, msToIso(resetsMs), member.id, l.team, l.plan, l.domain,
         l.usedPercent, l.usedPercent, msToIso(readMs)]);
@@ -751,7 +760,7 @@ function tokensText(n) { return (n / 1e6).toFixed(1) + "M"; }
 function renderDashboard(sheet, model, nowMs, tz) {
   var n = model.teams.length;
   var teamEnd = 8 + n;
-  // Below both the team table and the F:H person tables (the last one ends at row 22).
+  // Below both the team table and the F:H person tables (the last one ends at row 21).
   var noteRow = Math.max(teamEnd, 21) + 2;
   var lastRow = Math.max(noteRow + 4, 21);
   ensureRows(sheet, lastRow);
@@ -874,11 +883,28 @@ function planForecast(cur, projectedPct, s) {
   return "남음";
 }
 
+// One device per window is the normal case, but a person's two devices report the same weekly window
+// separately: merge rows whose reset times are within 24 hours (nearestWindow, like the store). A merged
+// window keeps the highest maxUsed; lastUsed, lastReadAt and resetsAt come from its latest-read row.
+function mergeWindows(rows) {
+  var windows = [];
+  rows.slice().sort(function (a, b) { return a.resetsAt - b.resetsAt; }).forEach(function (l) {
+    var at = nearestWindow(windows.length, function (k) { return windows[k].resetsAt; }, l.resetsAt);
+    if (at === -1) { windows.push(Object.assign({}, l)); return; }
+    var w = windows[at];
+    w.maxUsed = Math.max(w.maxUsed, l.maxUsed);
+    if (l.lastReadAt >= w.lastReadAt) { w.lastUsed = l.lastUsed; w.lastReadAt = l.lastReadAt; w.resetsAt = l.resetsAt; }
+  });
+  return windows;
+}
+
 function computePlan(data, nowMs, tz) {
   var s = data.settings;
+  // One group per person (after 합칠대상), account and tool. A poster only ever owns rows under its own
+  // memberId, so a stranger reporting someone's account lands in its own group.
   var groups = new Map();
   data.limits.forEach(function (l) {
-    var key = l.account + "|" + l.tool;
+    var key = canonicalPerson(l.memberId, data.people) + "|" + l.account + "|" + l.tool;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(l);
   });
@@ -889,8 +915,9 @@ function computePlan(data, nowMs, tz) {
 
   var rows = [];
   var excluded = 0;
-  groups.forEach(function (list) {
-    var latest = list.reduce(function (a, b) { return b.lastReadAt > a.lastReadAt ? b : a; });
+  groups.forEach(function (rawList) {
+    var latest = rawList.reduce(function (a, b) { return b.lastReadAt > a.lastReadAt ? b : a; });
+    var list = mergeWindows(rawList);
     if (latest.lastReadAt < nowMs - PLAN_STALE_MS) return;   // an account nobody has read for 14 days is gone
     var person = canonicalPerson(latest.memberId, data.people);
     var dept = recent28.persons[person] ? personTeam(recent28.persons[person]) : departmentOf(latest.team, data.depts);
@@ -1063,10 +1090,26 @@ function writeSuggestedTeamNames(ss, data) {
   sheet.getRange(2, 3, rows.length, 1).setValues(asTextRows(column));
 }
 
+// Runs fn under the document lock. refreshAll uses it so two refreshes (hourly trigger, menu, seed)
+// never interleave; reports take only the script lock, so they never wait on a refresh.
+function withDocumentLock(fn) {
+  var lock = LockService.getDocumentLock();
+  lock.waitLock(30000);
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 // Reading and rendering run without the script lock, so a slow refresh never makes a report wait: only
-// the dashboards and the plan are written, and nobody else writes them. The lock is taken for the tab
-// creation and for the 참고팀이름 write.
+// the dashboards and the plan are written, and by refreshAll alone (hence the document lock). The script
+// lock is taken only for the tab creation and the 참고팀이름 write.
 function refreshAll() {
+  withDocumentLock(refreshAllLocked);
+}
+
+function refreshAllLocked() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var tz = Session.getScriptTimeZone();
   var nowMs = Date.now();

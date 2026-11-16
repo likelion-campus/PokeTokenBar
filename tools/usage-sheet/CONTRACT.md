@@ -1,6 +1,6 @@
 # Usage report wire contract v1
 
-The app POSTs one JSON body to the Apps Script web app. 
+The app POSTs one JSON body to the Apps Script web app.
 Apps Script web apps answer a POST with a 302 redirect; the client must follow it with GET to read the JSON
 body. The write is already done before the redirect. A body that is not JSON (an HTML error page from a
 lock timeout or a quota) means the report failed. Retrying is safe: every write is idempotent per key.
@@ -67,7 +67,7 @@ An invalid day, tool or limit entry is dropped and counted in `dropped`. The res
 - **Duplicates:** a repeated `date|tool` within one payload keeps the last occurrence.
 - **Limit fields**
   - `tool` uses the tool rule.
-  - `account` matches `/^[A-Za-z0-9_-]{4,128}$/`.
+  - `account` matches `/^(e|m)_[A-Za-z0-9_-]{2,126}$/`: the prefix the app must use anyway (see App obligations). It keeps an all-digit or `1e5`-style id from being turned into a number by Sheets.
   - `domain` is `""` or matches `/^[a-z0-9.-]{1,253}$/`; it is lowercased first.
   - `plan` is 1–40 characters.
   - `usedPercent` is finite and between 0 and 1000.

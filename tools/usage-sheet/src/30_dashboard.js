@@ -167,7 +167,7 @@ function tokensText(n) { return (n / 1e6).toFixed(1) + "M"; }
 function renderDashboard(sheet, model, nowMs, tz) {
   var n = model.teams.length;
   var teamEnd = 8 + n;
-  // Below both the team table and the F:H person tables (the last one ends at row 22).
+  // Below both the team table and the F:H person tables (the last one ends at row 21).
   var noteRow = Math.max(teamEnd, 21) + 2;
   var lastRow = Math.max(noteRow + 4, 21);
   ensureRows(sheet, lastRow);

@@ -132,7 +132,7 @@ test("refreshAll writes the most common team label, ties to the sorted first", (
   assert.equal(rows[1][2], "가");
 });
 
-test("refreshAll holds and releases the lock, even when rendering throws", () => {
+test("refreshAll releases every lock, even when rendering throws", () => {
   const { S, ss } = fresh();
   S.setup();
   S.refreshAll();
@@ -222,4 +222,21 @@ test("removeSampleRows writes the kept rows first and only clears the tail", () 
   assert.deepEqual(people._ops[1], ["clear", 3, total - 1]);
   assert.equal(people._ops.length, 2);
   assert.deepEqual(body(ss, "사람").map((r) => r[0]), [MEMBER]);
+});
+
+test("two refreshes never overlap: refreshAll holds the document lock, not the script lock, while rendering", () => {
+  const { S, ss } = fresh();
+  S.setup();
+  const sheet = ss.getSheetByName("이번 달");
+  const clear = sheet.clear.bind(sheet);
+  let seen = null;
+  sheet.clear = () => { seen = [S.fakes.lockStats.docHeld, S.fakes.lockStats.held]; clear(); };
+  S.refreshAll();
+  assert.deepEqual(seen, [true, false]);
+  assert.equal(S.fakes.lockStats.docHeld, false);
+  // a second refresh started while one renders would wait; the fake lock throws instead
+  sheet.clear = () => { S.refreshAll(); };
+  assert.throws(() => S.refreshAll(), /already held/);
+  sheet.clear = clear;
+  S.refreshAll();   // the lock was released after the throw
 });

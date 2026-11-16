@@ -26,6 +26,7 @@ function formatInZone(date, tz, pattern) {
 //     [getValues/setValues/setValue/setNumberFormat/clearContent], appendRow, hideSheet,
 //     isSheetHidden, setColumnWidth (sheet._widths), spreadsheet setActiveSheet/getActiveSheet/moveActiveSheet, sheet._ops (set/clear log), sheet._cellsRead, deleteRow, deleteRows, getCharts/insertChart/removeChart, newChart (recording builder),
 //     setFrozenRows, clear. Test-only inspection: sheet._rows, sheet._formats (col -> format).
+//   LockService.getDocumentLock(): one lock that throws on re-entry (lockStats.docHeld/docAcquired).
 //   LockService.getScriptLock(): counts acquire (waitLock) and release (releaseLock) in lockStats.
 //   Utilities: formatDate, computeDigest (signed bytes like Apps Script), DigestAlgorithm, Charset.
 //   ContentService.createTextOutput(text).setMimeType(m); MimeType.JSON.
@@ -47,7 +48,7 @@ function coerce(v, textFormat) {
 
 function makeSheet(name) {
   const sheet = {
-    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000, _cellsRead: 0, _ops: [], _widths: {}, _cellsRead: 0,
+    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000, _cellsRead: 0, _ops: [], _widths: {},
     getName: () => name,
     getLastRow() {
       for (let i = sheet._rows.length - 1; i >= 0; i--) {
@@ -159,7 +160,7 @@ function makeFakes(opts) {
     deleteSheet(s) { sheets.splice(sheets.indexOf(s), 1); },
   };
   sheets.push(makeSheet("시트1"));   // a new spreadsheet starts with one empty default tab
-  const lockStats = { acquired: 0, released: 0, held: false };
+  const lockStats = { acquired: 0, released: 0, held: false, docAcquired: 0, docHeld: false };
   const triggers = [];
   const menus = [];
   return {
@@ -187,6 +188,14 @@ function makeFakes(opts) {
       }),
     },
     LockService: {
+      // A second waitLock while held would block in real Sheets; the fake throws so tests see the overlap.
+      getDocumentLock: () => ({
+        waitLock() {
+          if (lockStats.docHeld) throw new Error("fake document lock: already held");
+          lockStats.docAcquired++; lockStats.docHeld = true;
+        },
+        releaseLock() { lockStats.docHeld = false; },
+      }),
       getScriptLock: () => ({
         waitLock() { lockStats.acquired++; lockStats.held = true; },
         releaseLock() { lockStats.released++; lockStats.held = false; },

@@ -156,6 +156,15 @@ test("a __proto__ tool id twice in one day gives one row with the last values", 
   assert.equal(({}).input, undefined);
 });
 
+test("account ids need the e_ or m_ prefix", () => {
+  for (const [account, ok] of [["123456", false], ["1e5abc", false], ["x_abcd", false], ["sample_c1", false],
+    ["e_3f9a1c2b4d5e6f70", true], ["m_8F1C2A4E-3B5D-4C6E-9A7B-1D2E3F4A5B6C_acc1", true], ["e_a", false]]) {
+    const b = validBody();
+    b.limits[0].account = account;
+    assert.equal(parse(b).limits.length, ok ? 1 : 0, account);
+  }
+});
+
 test("a repeated date/tool keeps the last occurrence", () => {
   const b = validBody();
   b.days = [{ date: "2026-11-16", team: "t_ab12cd34ef56", tools: [

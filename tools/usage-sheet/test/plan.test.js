@@ -231,3 +231,61 @@ test("renderPlan sets explicit column widths", () => {
   S.renderPlan(sheet, plan(mkData({ limits: mockLimits() })), NOW, "Asia/Seoul");
   for (let c = 1; c <= 13; c++) assert.ok(sheet._widths[c] >= 70, `col ${c}`);
 });
+
+// ---- one account reported under several memberIds ----
+const W = 7 * DAY;
+function win(account, member, resetsAt, maxUsed, o) {
+  const x = o || {};
+  return { account, tool: "claude", resetsAt, memberId: member, team: "t1", plan: "Max", domain: "",
+    maxUsed, lastUsed: x.lastUsed === undefined ? maxUsed : x.lastUsed, lastReadAt: x.readAt };
+}
+// Two devices, one account: 4 finished weeks (only the newest one full) plus the current window.
+function twoDeviceLimits() {
+  const limits = [];
+  const used = [100, 50, 40, 30];   // newest finished week first
+  for (let w = 0; w < 4; w++) {
+    const reset = NOW - (w * 7 + 1) * DAY;
+    limits.push(win("e_shared", "m1", reset, used[w], { readAt: reset - 3600000 }));
+    limits.push(win("e_shared", "m2", reset + 30 * 1000, used[w], { readAt: reset - 3600000 + 60000 }));
+  }
+  const curReset = NOW + 2 * DAY;
+  limits.push(win("e_shared", "m1", curReset, 60, { readAt: NOW }));
+  limits.push(win("e_shared", "m2", curReset + 20 * 1000, 20, { readAt: NOW - 20 * 3600000 }));
+  return limits;
+}
+const MERGED = map({ m1: { nickname: "해달", mergeInto: "" }, m2: { nickname: "지아", mergeInto: "m1" } });
+
+test("two devices of one merged person: weeks counted once, current window from the latest read", () => {
+  for (const order of ["asc", "desc"]) {
+    const limits = twoDeviceLimits();
+    if (order === "desc") limits.reverse();
+    const model = plan(mkData({ limits, people: MERGED }));
+    assert.equal(model.rows.length, 1, order);
+    const r = model.rows[0];
+    assert.equal(r.finishedWeeks, 4, order);
+    assert.equal(r.fullWeeks, 1, order);
+    assert.equal(r.suggestion, "유지", order);
+    assert.equal(r.usedPct, 60, order);   // m1's read is the latest, not m2's 20
+  }
+});
+
+test("two unmerged devices show two rows", () => {
+  const model = plan(mkData({ limits: twoDeviceLimits() }));
+  assert.equal(model.rows.length, 2);
+  model.rows.forEach((r) => { assert.equal(r.finishedWeeks, 4); assert.equal(r.fullWeeks, 1); });
+});
+
+test("a stranger's row for the same account is its own row and leaves the owner's numbers alone", () => {
+  const owner = [].concat(current("e_shared", "m1", "Max", 40, 2.5), finished("e_shared", "m1", "Max", [30, 30, 30, 30]));
+  const stranger = [current("e_shared", "m3", "Max", 100, 2.5)].concat(finished("e_shared", "m3", "Max", [100, 100, 100, 100]));
+  const model = plan(mkData({
+    limits: owner.concat(stranger),
+    people: map({ m1: { nickname: "해달", mergeInto: "" }, m3: { nickname: "모카", mergeInto: "" } }),
+  }));
+  const mine = byNick(model, "해달");
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].fullWeeks, 0);
+  assert.equal(mine[0].usedPct, 40);
+  assert.equal(byNick(model, "모카").length, 1);
+  assert.equal(byNick(model, "모카")[0].fullWeeks, 4);
+});

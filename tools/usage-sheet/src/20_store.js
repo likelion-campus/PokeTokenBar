@@ -215,6 +215,18 @@ function checkDevice(sheet, member, nowMs) {
   return true;
 }
 
+// The index k in 0..count-1 whose reset time (resetsAtOf(k), epoch ms) is nearest to resetsMs and within
+// 24 hours of it, or -1. Weekly windows are 7 days apart and the source jitters by seconds, so this is the
+// "same weekly window" test; the store and the plan both use it.
+function nearestWindow(count, resetsAtOf, resetsMs) {
+  var match = -1, best = Infinity;
+  for (var k = 0; k < count; k++) {
+    var gap = Math.abs(resetsAtOf(k) - resetsMs);
+    if (gap <= DAY_MS && gap < best) { match = k; best = gap; }
+  }
+  return match;
+}
+
 // A limit row is identified by memberId|account|tool plus its weekly window, so a poster can only touch
 // rows carrying its own (device-checked) memberId. The same window is the existing row whose reset time
 // lies within 24 hours of the incoming one: windows are 7 days apart and the source jitters by seconds.
@@ -235,11 +247,8 @@ function upsertLimits(sheet, member, limits) {
     var readMs = Date.parse(l.readAt);
     var k = identity(member.id, l.account, l.tool);
     var candidates = byIdentity.get(k) || [];
-    var match = -1, best = Infinity;
-    candidates.forEach(function (i) {
-      var gap = Math.abs(cellToMs(rows[i][2]) - resetsMs);
-      if (gap <= DAY_MS && gap < best) { match = i; best = gap; }
-    });
+    var at = nearestWindow(candidates.length, function (j) { return cellToMs(rows[candidates[j]][2]); }, resetsMs);
+    var match = at === -1 ? -1 : candidates[at];
     if (match === -1) {
       rows.push([l.account, l.tool, msToIso(resetsMs), member.id, l.team, l.plan, l.domain,
         l.usedPercent, l.usedPercent, msToIso(readMs)]);

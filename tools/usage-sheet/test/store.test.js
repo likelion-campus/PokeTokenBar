@@ -25,6 +25,7 @@ function report(S, body, nowMs) {
 function dataRows(ss, tab) {
   return ss.getSheetByName(tab)._rows.slice(1);
 }
+function scriptLock(S) { const { acquired, released, held } = plain(S.fakes.lockStats); return { acquired, released, held }; }
 function snapshot(ss) {
   return JSON.stringify(ss.getSheets().map((s) => [s.getName(), s._rows]));
 }
@@ -170,12 +171,12 @@ test("team labels upsert only when non-empty", () => {
 test("the lock is taken and released once per call, also on a throw", () => {
   const { S, ss } = fresh();
   report(S, validBody());
-  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 1, released: 1, held: false });
+  assert.deepEqual(scriptLock(S), { acquired: 1, released: 1, held: false });
   report(S, { v: 2 });   // parsed before the lock: no lock taken
-  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 1, released: 1, held: false });
+  assert.deepEqual(scriptLock(S), { acquired: 1, released: 1, held: false });
   ss.getSheetByName("원본").getRange = () => { throw new Error("boom"); };
   assert.throws(() => S.handleReport(ss, JSON.stringify(validBody()), NOW + 1, TZ), /boom/);
-  assert.deepEqual(plain(S.fakes.lockStats), { acquired: 2, released: 2, held: false });
+  assert.deepEqual(scriptLock(S), { acquired: 2, released: 2, held: false });
 });
 
 test("ensureSheets is idempotent, hides two tabs and sets text format on date columns", () => {
