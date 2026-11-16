@@ -34,6 +34,10 @@ struct WinPopoverStats {
     var lastHolder: RECT?
     var lastEdge: PopoverPlacement.Edge?
     var lastDPI: UINT = 0
+    /// Stage 7 Task 15: rebuilds held back while a dialog of the page was open, and run after it.
+    var deferredRebuilds = 0, runDeferredRebuilds = 0
+    /// Tray, plaza and second-launch requests refused while a dialog is open (the dialog is flashed instead).
+    var blockedByDialog = 0
 }
 
 /// The popover window (stage 7 D2–D4): one `WS_POPUP` tool window, owned by the hidden sink (no taskbar button, not in
@@ -106,6 +110,12 @@ struct WinPopoverStats {
     private var guardRegion: RECT?
     private var pendingClose = false
     private var deferring = false
+    /// Why the close that is waiting for a nested loop was asked: a user's wish (the plaza, the tray menu) survives the page
+    /// getting the activation back, a plain deactivation does not (`reactivated`).
+    private var deferredReason: CloseReason = .deactivated
+    /// A rebuild asked for while one of the popover's dialogs is open (the page's controls are on that dialog's stack): the
+    /// DPI to rebuild at once it ends (`WM_ENABLE`). Stage 7 Task 15.
+    private var rebuildAfterDialog: UINT?
     private var closing = false
     private var building = false, sizeChangedWhileBuilding = false
     /// Changes on every open and every close: the posted close's target (a rebuild keeps it).
@@ -130,6 +140,7 @@ struct WinPopoverStats {
     /// A key select while it is open is ignored: the popover has the keyboard, so it cannot be the user's (the shell may
     /// report one key twice).
     func toggle(_ opener: Opener) {
+        if dialogIsOpen { bringDialogForward(); return }
         guard settlePendingClose() else { return }
         if window != nil {
             if case .trayKey = opener {
@@ -159,6 +170,7 @@ struct WinPopoverStats {
     /// refused one (R2) is seen before anything shows, the window goes, and the host's fallback runs (the tray menu, or the
     /// balloon). The only activation site of the popover (`WindowsSeamScanTests`).
     func present(_ opener: Opener, route: (PopoverState) -> Void) {
+        if dialogIsOpen { bringDialogForward(); return }
         guard settlePendingClose() else { return }
         if let open = window {
             _ = SetForegroundWindow(open.hwnd)
@@ -245,8 +257,34 @@ struct WinPopoverStats {
 
     /// Closes the open popover (nothing when it is closed). Everything it made goes with it.
     func close(_ reason: CloseReason) {
-        guard window != nil, !closing else { return }
+        guard let w = window, !closing else { return }
+        // Stage 7 Task 15: a dialog of the page is open (its modal loop is below us): tearing the page down now would free its
+        // controls under the click that opened the dialog. The close waits like a deactivation's does (M5); `.destroyed` is the
+        // window going whatever the page is doing (Alt+F4, the selftest).
+        if reason != .destroyed, dialogIsOpen || !IsWindowEnabled(w.hwnd) {
+            deferredReason = reason
+            pendingClose = true
+            closeAfterDeactivation()
+            return
+        }
         teardown(reason)
+    }
+
+    /// One of the popover's own dialogs (file dialog, task dialog) is open: app-modal behaviour, the popover cannot be toggled,
+    /// moved on or replaced by the plaza until it is answered.
+    var dialogIsOpen: Bool { WinModalPump.dialogDepth > 0 }
+
+    /// A request that the open dialog blocks (the tray icon, the plaza, a second launch) flashes the dialog instead of acting,
+    /// as an app-modal dialog does. Flashing activates nothing (the activation scan allows it).
+    func bringDialogForward() {
+        stats.blockedByDialog += 1
+        guard let w = window else { return }
+        var previous: HWND?
+        let cls = WinStr.w("#32770")
+        while let h = FindWindowExW(nil, previous, cls, nil) {
+            previous = h
+            if IsWindowVisible(h), Self.isOwned(h, by: w.hwnd) { _ = FlashWindow(h, true) }
+        }
     }
 
     /// `windowGone`: Windows is destroying the window already (`WM_DESTROY` from outside): no second `DestroyWindow`; the
@@ -270,6 +308,8 @@ struct WinPopoverStats {
         generation += 1
         windowSerial += 1
         pendingClose = false
+        deferredReason = .deactivated
+        rebuildAfterDialog = nil
         page?.destroy()
         page = nil
         router?.detach()
@@ -298,6 +338,7 @@ struct WinPopoverStats {
             return
         }
         pendingClose = true
+        deferredReason = .deactivated
         stats.lastDeactivationMs = Self.milliseconds()
         let onIcon = cursorOnIcon()
         // The taskbar is activated on the press; a press still down here is released later (a slow click, M2).
@@ -324,7 +365,9 @@ struct WinPopoverStats {
             }
             return
         }
-        close(.deactivated)
+        let reason = deferredReason
+        deferredReason = .deactivated
+        close(reason)
     }
 
     /// A close still pending from a deactivation runs first. False: it is waiting for a nested loop of the page, which this
@@ -337,7 +380,7 @@ struct WinPopoverStats {
 
     /// The popover has the activation again before a waiting close ran (its own dialog closed, the user came back): it stays.
     private func reactivated() {
-        guard pendingClose, let w = window else { return }
+        guard pendingClose, deferredReason == .deactivated, let w = window else { return }
         pendingClose = false
         stats.closesCancelled += 1
         guard deferring else { return }
@@ -402,6 +445,10 @@ struct WinPopoverStats {
     // MARK: - messages
 
     private func register(_ w: WinSinkWindow) {
+        w.on(0x000A /* WM_ENABLE */) { [weak self] wParam, _ in
+            if wParam != 0 { self?.runDeferredRebuild(tries: 0) }   // the owned dialog ended and enabled the popover again
+            return nil
+        }
         w.on(0x0006 /* WM_ACTIVATE */) { [weak self] wParam, lParam in
             if WinKit.loWord(wParam) == 0 /* WA_INACTIVE */ { self?.deactivated(by: HWND(bitPattern: Int(lParam))) } else { self?.reactivated() }
             return nil
@@ -462,6 +509,23 @@ struct WinPopoverStats {
         w.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
     }
 
+    /// After the dialog's own call stack unwound (the click that opened it has returned), not inside the message that enabled the
+    /// popover: the rebuild frees the controls that click ran on.
+    private func runDeferredRebuild(tries: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, let dpi = rebuildAfterDialog, let w = window else { return }
+                if dialogIsOpen || !IsWindowEnabled(w.hwnd) {
+                    if tries < 40 { runDeferredRebuild(tries: tries + 1) }
+                    return
+                }
+                rebuildAfterDialog = nil
+                stats.runDeferredRebuilds += 1
+                rebuild(dpi: dpi)
+            }
+        }
+    }
+
     /// A scale change while open: the window is placed again at the new DPI and the page rebuilt in place, the navigation
     /// state kept (D2, R6).
     private func dpiChanged(_ dpi: UINT) {
@@ -494,6 +558,12 @@ struct WinPopoverStats {
     /// asks again in `build`).
     private func rebuild(dpi: UINT) {
         guard let w = window, let page else { return }
+        // Stage 7 Task 15: a dialog of the page is open, its controls are on that dialog's stack: wait until it ends.
+        if dialogIsOpen || !IsWindowEnabled(w.hwnd) {
+            rebuildAfterDialog = dpi
+            stats.deferredRebuilds += 1
+            return
+        }
         let hadFocus = GetForegroundWindow() == w.hwnd
         generation += 1
         page.destroy()

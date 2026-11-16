@@ -30,6 +30,9 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--selftest-menu-exit") {
             WindowsSelftest.runMenuExit(Array(arguments[(i + 1)...]))
         }
+        if let i = arguments.firstIndex(of: "--selftest-dialog-exit") {
+            WindowsSelftest.runDialogExit(Array(arguments[(i + 1)...]))   // stage 7 Task 15
+        }
         if let i = arguments.firstIndex(of: WindowsSelftest.exitStuckFlag) {
             WindowsSelftest.runExitStuck(Array(arguments[(i + 1)...]))  // stage 8: the bounded exit's helper
         }
@@ -263,6 +266,7 @@ private func crtExit(_ code: Int32) -> Never {
     /// open window forward. The tray's "광장 열기", a team balloon's click and `--open-plaza` come here, nothing else.
     func openPlaza() {
         guard teamSettings.isReady else { return }
+        if let popover, popover.dialogIsOpen { popover.bringDialogForward(); return }   // stage 7 Task 15: its dialog is app-modal
         popover?.close(.plaza)  // stage 7 D3: the plaza opening closes the popover
         plaza.show()
     }
@@ -455,6 +459,7 @@ extension WindowsAppDelegate {
         }
         tray.onOpenSettings = { [weak made] in made?.present(.trayMenu) { $0.showSettings = true } }
         tray.onMenuWillOpen = { [weak made] in made?.close(.iconClick) }
+        tray.onBlockedByDialog = { [weak made] in made?.bringDialogForward() }   // stage 7 Task 15
     }
 
     /// A second start (`WinSingleInstance.showMessage`): the popover, also when the plaza is in front (it opens over it, and

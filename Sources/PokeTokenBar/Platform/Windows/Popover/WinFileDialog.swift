@@ -15,6 +15,10 @@ import WinSDK
     private(set) static var isOpen = false
     /// The last result code (0 chosen, 1 cancelled, else an HRESULT) for the selftest and the log.
     private(set) static var lastCode: Int32 = 0
+    /// The file the last dialog returned (the selftest compares it with what it asked for).
+    private(set) static var lastChosen: URL?
+    /// Selftest only: the open dialog's name field.
+    static func setFileNameForTesting(_ name: String) -> Int32 { WinStr.w(name).withUnsafeBufferPointer { ptb_file_dialog_set_file_name($0.baseAddress) } }
 
     /// The chosen file, nil when cancelled or the dialog could not be shown (logged).
     static func choose(save: Bool, owner: HWND?, title: String, suggestedName: String?, filterName: String) -> URL? {
@@ -52,7 +56,9 @@ import WinSDK
             return nil
         }
         let length = out.firstIndex(of: 0) ?? out.count
-        return URL(fileURLWithPath: String(decoding: out[0..<length], as: UTF16.self))
+        let chosen = URL(fileURLWithPath: String(decoding: out[0..<length], as: UTF16.self))
+        lastChosen = chosen
+        return chosen
     }
 
     private static var currentOwner: HWND?

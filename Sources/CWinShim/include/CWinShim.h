@@ -45,6 +45,10 @@ int32_t ptb_file_dialog(void *owner, int32_t save, const uint16_t *title, const 
 /// Closes the open file dialog as if the user cancelled (1), or does nothing (0). Same thread as the dialog.
 int32_t ptb_file_dialog_close(void);
 
+/// Selftest only: sets the open file dialog's name field to `name` (a file name or a full path), as typing into it does; same
+/// thread as the dialog. 0 on success, else an HRESULT (E_INVALIDARG when no dialog is open).
+int32_t ptb_file_dialog_set_file_name(const uint16_t *name);
+
 /// A task dialog (comctl32 v6, looked up when called) with custom buttons in order; `icon` 0 none, 1 warning, 2 error,
 /// 3 information. `default_index` is the button Enter presses. Esc and the close box are allowed. `*chosen` is the index of
 /// the pressed button, -1 for Esc or the close box. Returns 0, or an HRESULT when the dialog could not be shown.

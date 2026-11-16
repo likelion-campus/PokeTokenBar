@@ -36,6 +36,8 @@ private struct TransferNoSprites: PlazaSpriteFetching {
     /// Everything is scripted, nothing real opens (the page-level checks).
     var allScripted = false
     private(set) var confirms = 0
+    /// What the real confirmation said and offered, read right after it ended (the done dialog replaces `WinTaskDialog.last` after).
+    private(set) var confirmDialog: (buttons: [String], defaultIndex: Int, icon: WinTaskDialog.Icon)?
 
     init(real: WinTransferDialogs) {
         self.real = real
@@ -55,7 +57,9 @@ private struct TransferNoSprites: PlazaSpriteFetching {
     func confirm(title: String, message: String, confirmTitle: String, cancelTitle: String) -> Bool {
         confirms += 1
         if let scriptedConfirm { return scriptedConfirm }
-        return real.confirm(title: title, message: message, confirmTitle: confirmTitle, cancelTitle: cancelTitle)
+        let answer = real.confirm(title: title, message: message, confirmTitle: confirmTitle, cancelTitle: cancelTitle)
+        if let d = WinTaskDialog.last { confirmDialog = (d.buttons, d.defaultIndex, d.icon) }
+        return answer
     }
 
     func inform(title: String, message: String, isError: Bool) {
@@ -72,6 +76,10 @@ final class TransferDialogDriver: @unchecked Sendable {
     enum Step {
         /// A file dialog: type this path into the file name box and press Save / Open.
         case typePath(String)
+        /// A file dialog: set its name field to this (a full path) with `IFileDialog::SetFileName`, as typing does, and press Save / Open.
+        case setName(String)
+        /// Any dialog: run this on the main queue (the main queue is served under the dialog), then wait a second.
+        case onMain(@Sendable () -> Void)
         /// A file dialog: close it as a cancel (`IFileDialog::Close`, from the main queue).
         case cancelFile
         /// A task dialog: press the custom button with this index.
@@ -200,7 +208,7 @@ final class TransferDialogDriver: @unchecked Sendable {
                 finish()
                 return
             }
-            handled.insert(bits)
+            if case .onMain = step {} else { handled.insert(bits) }
             fact.found = true
             fact.owned = true
             fact.visible = IsWindowVisible(dialog)
@@ -246,6 +254,17 @@ final class TransferDialogDriver: @unchecked Sendable {
                     fact.note = "no file name box found"
                     closeEverything()
                 }
+            case .setName(let path):
+                DispatchQueue.main.async { _ = MainActor.assumeIsolated { WinFileDialog.setFileNameForTesting(path) } }
+                Thread.sleep(forTimeInterval: 0.6)
+                let button = Self.descendants(of: dialog).first { WinKit.className($0) == "Button" && GetDlgCtrlID($0) == 1 }
+                if let button { _ = PostMessageW(button, 0x00F5 /* BM_CLICK */, 0, 0) } else { fact.note = "no id-1 button" }
+                fact.note += "name set through SetFileName, the id-1 button clicked"
+            case .onMain(let work):
+                DispatchQueue.main.async(execute: work)
+                Thread.sleep(forTimeInterval: 1.0)
+                fact.note = "main-queue work ran under the dialog; the dialog is still open=\(IsWindow(dialog) && IsWindowVisible(dialog))"
+                cancelWait = 0
             case .cancelFile:
                 DispatchQueue.main.async { WinFileDialog.closeOpenDialog() }
                 cancelWait = 3
@@ -276,6 +295,11 @@ final class TransferDialogDriver: @unchecked Sendable {
             let deadline = Date(timeIntervalSinceNow: cancelWait)
             while IsWindow(dialog), Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
             fact.closed = !IsWindow(dialog)
+            if case .onMain = step {
+                fact.closed = IsWindow(dialog)   // for this step "closed" means: still open, as it must be
+                record(fact)
+                continue
+            }
             if !fact.closed {
                 if cancelWait < 10 { fact.note += " the close posted to the main queue was not served within \(Int(cancelWait)) s;" }
                 closeEverything()
@@ -291,7 +315,8 @@ final class TransferDialogDriver: @unchecked Sendable {
 }
 
 @MainActor enum WindowsSelftestTransfer {
-    static let names = ["settings.difficulty", "settings.difficultyKeys", "settings.dialogKeepsPopover", "settings.exportImport",
+    static let names = ["settings.difficulty", "settings.difficultyKeys", "settings.dialogKeepsPopover", "settings.dialogAccepts", "settings.dialogModal",
+                        "settings.dialogExitProcess", "settings.exportImport",
                         "settings.importCancelDefault", "settings.dialogExit", "settings.snapshots", "settings.transferA11y"]
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
@@ -308,9 +333,12 @@ final class TransferDialogDriver: @unchecked Sendable {
         await t.difficultyCheck()
         await t.difficultyKeysCheck()
         await t.dialogKeepsPopoverCheck()
+        await t.dialogAcceptsCheck()
+        await t.dialogModalCheck()
         await t.exportImportCheck()
         await t.importCancelDefaultCheck()
         await t.dialogExitCheck()
+        await t.dialogExitProcessCheck()
         await t.snapshotsCheck()
         await t.a11yCheck()
         if let dir = WindowsSelftestPopoverWindow.dumpDirectory().map({ $0.deletingLastPathComponent().appendingPathComponent("settings", isDirectory: true) }) {
@@ -599,6 +627,149 @@ final class TransferDialogDriver: @unchecked Sendable {
         close()
     }
 
+    // MARK: settings.dialogAccepts
+
+    /// The success path of the real file dialogs: the name field set with `IFileDialog::SetFileName` (typing into it from outside
+    /// did not reach the dialog's own field), Save / Open pressed, and the URL the dialog returns is the path asked for. For a
+    /// folder with a space and Korean in its name, a plain folder and a path of about 200 characters.
+    func dialogAcceptsCheck() async {
+        guard await open(), let section = section, let hybrid else { r.add("settings.dialogAccepts", false, "no page"); return }
+        let rows = section.transferRowsForTesting
+        func norm(_ u: URL?) -> String { u.map { WinPath.native($0).lowercased() } ?? "-" }
+        let korean = work.appendingPathComponent("백업 폴더 한글", isDirectory: true)
+        let spaces = work.appendingPathComponent("a folder with spaces", isDirectory: true)
+        var long = work
+        while WinPath.native(long).count < 150 { long = long.appendingPathComponent("long folder name \(WinPath.native(long).count)", isDirectory: true) }
+        for d in [korean, spaces, long] { try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true) }
+        var lines: [String] = []
+        var good = true
+        let cases: [(String, URL)] = [("korean", korean.appendingPathComponent("내 세이브 – 백업.json")), ("spaces", spaces.appendingPathComponent("my save file.json")),
+                                      ("long", long.appendingPathComponent(String(repeating: "x", count: 40) + ".json"))]
+        for (name, target) in cases {
+            // Save: the file is written where the dialog said.
+            try? FileManager.default.removeItem(at: target)
+            let save = await driven([.setName(WinPath.native(target))]) { self.post(rows.export?.control) }
+            let saved = norm(WinFileDialog.lastChosen) == norm(target) && FileManager.default.fileExists(atPath: target.path)
+            // Open: the same path comes back (the import then stops at its confirmation: Cancel).
+            hybrid.scriptedOpen = nil
+            let before = stores.companion.transferSummary
+            let open = await driven([.setName(WinPath.native(target)), .click(ImportConfirmPolicy.cancelButtonIndex)]) { self.post(section.transferRowsForTesting.import?.control) }
+            let opened = norm(WinFileDialog.lastChosen) == norm(target)
+            let ok = saved && opened && save.facts.count == 1 && save.facts[0].closed && open.facts.count == 2 && open.facts.allSatisfy { $0.closed } && stores.companion.transferSummary == before
+            good = good && ok
+            lines.append("\(name) (\(WinPath.native(target).count) chars): save returned \(norm(WinFileDialog.lastChosen) == norm(target)) file written=\(FileManager.default.fileExists(atPath: target.path)) open returned the same path=\(opened) state untouched=\(stores.companion.transferSummary == before)")
+        }
+        // Only .json is kept (the Mac's allowedContentTypes): a typed .txt does not come back as .txt.
+        let txt = work.appendingPathComponent("backup.txt")
+        let strict = await driven([.setName(WinPath.native(txt))]) { self.post(rows.export?.control) }
+        let ext = WinFileDialog.lastChosen?.pathExtension.lowercased()
+        let keptJSON = !FileManager.default.fileExists(atPath: txt.path) && (ext == nil || ext == "json" || strict.facts.first?.closed == false)
+        let txtNote = "typed backup.txt -> dialog returned '\(WinFileDialog.lastChosen.map { WinPath.native($0) } ?? "-")', a .txt file exists=\(FileManager.default.fileExists(atPath: txt.path))"
+        r.add("settings.dialogAccepts", good && keptJSON, "real dialogs, name set through SetFileName and the id-1 button: \(lines.joined(separator: "; ")); \(txtNote)")
+        close()
+    }
+
+    // MARK: settings.dialogModal
+
+    /// While one of the popover's dialogs is open it is app-modal: the tray icon, a second launch, the plaza and a theme or DPI
+    /// change do not tear the page down under it (`closesInsideLoop` stays 0, the dialog stays open and in front); a close asked
+    /// for waits and runs after it.
+    func dialogModalCheck() async {
+        guard await open(), let section = section, let hybrid, let popover, let hwnd else { r.add("settings.dialogModal", false, "no page"); return }
+        let file = work.appendingPathComponent("modal.json")
+        if let data = try? SaveTransfer.encode(state: CompanionState(), appVersion: "2.5.0", deviceName: "Fixture", now: Date()) { try? PlatformCompat.atomicWrite(data, to: file) }
+        hybrid.scriptedOpen = file
+        let rows = section.transferRowsForTesting
+        let hwndBits = Int(bitPattern: hwnd)
+        var report: [String] = []
+        var good = true
+        let tray = app.tray
+        var trayBlocked = 0
+        let oldBlocked = tray?.onBlockedByDialog
+        tray?.onBlockedByDialog = { trayBlocked += 1; popover.bringDialogForward() }
+        defer { tray?.onBlockedByDialog = oldBlocked }
+        // A: the tray click, the tray menu, a second launch: refused, the dialog flashed.
+        let s0 = popover.stats
+        let a = await driven([.onMain({ MainActor.assumeIsolated {
+            popover.toggle(.trayClick(POINT(x: 10, y: 10)))
+            popover.present(.secondLaunch) { _ in }
+            tray?.openMenu(at: POINT(x: 200, y: 200))
+        } }), .click(ImportConfirmPolicy.cancelButtonIndex)]) { self.post(rows.import?.control) }
+        let s1 = popover.stats
+        let menuClosed = WinPopupMenu.openMenuBits == 0
+        let aOK = a.facts.count == 2 && a.facts[0].closed && !a.watchdog && s1.closesInsideLoop == s0.closesInsideLoop && s1.closes == s0.closes
+            && s1.blockedByDialog == s0.blockedByDialog + 2 + (tray == nil ? 0 : 1) && menuClosed && (tray == nil || trayBlocked == 1) && popover.isOpen
+        good = good && aOK
+        report.append("tray click + second launch + tray menu: dialog still open after 1 s=\(a.facts.first?.closed ?? false), popover requests blocked +\(s1.blockedByDialog - s0.blockedByDialog), tray menu blocked=\(trayBlocked) menu open=\(!menuClosed), closes inside the loop +\(s1.closesInsideLoop - s0.closesInsideLoop), popover closes +\(s1.closes - s0.closes), still open=\(popover.isOpen)")
+        // B: a DPI change: the rebuild waits and runs after the dialog.
+        let real = ctxDPI(popover)
+        let r0 = popover.stats
+        let b = await driven([.onMain({ MainActor.assumeIsolated {
+            guard let target = HWND(bitPattern: hwndBits) else { return }
+            var suggested = RECT()
+            _ = GetWindowRect(target, &suggested)
+            _ = withUnsafeMutablePointer(to: &suggested) { SendMessageW(target, 0x02E0, WPARAM(144 | (144 << 16)), LPARAM(Int(bitPattern: $0))) }
+        } }), .click(ImportConfirmPolicy.cancelButtonIndex)]) { self.post(rows.import?.control) }
+        await pause(0.8)
+        let r1 = popover.stats
+        let bOK = b.facts.count == 2 && b.facts[0].closed && r1.deferredRebuilds == r0.deferredRebuilds + 1 && r1.runDeferredRebuilds == r0.runDeferredRebuilds + 1
+            && r1.rebuilds == r0.rebuilds + 1 && r1.closesInsideLoop == r0.closesInsideLoop
+        good = good && bOK
+        report.append("DPI change under the dialog: deferred +\(r1.deferredRebuilds - r0.deferredRebuilds), ran after +\(r1.runDeferredRebuilds - r0.runDeferredRebuilds), rebuilds +\(r1.rebuilds - r0.rebuilds), dialog still open=\(b.facts.first?.closed ?? false)")
+        var back = RECT()
+        _ = GetWindowRect(hwnd, &back)
+        _ = withUnsafeMutablePointer(to: &back) { SendMessageW(hwnd, 0x02E0, WPARAM(UInt(real) | (UInt(real) << 16)), LPARAM(Int(bitPattern: $0))) }
+        await pause(0.4)
+        // C: the plaza asks for the popover to close: it waits for the dialog and closes after it.
+        guard self.hwnd != nil, let section2 = self.section else { r.add("settings.dialogModal", false, "page gone: " + report.joined(separator: "; ")); return }
+        let c0 = popover.stats
+        let c = await driven([.onMain({ MainActor.assumeIsolated { popover.close(.plaza) } }), .click(ImportConfirmPolicy.cancelButtonIndex)]) { self.post(section2.transferRowsForTesting.import?.control) }
+        _ = await waitFor(3) { !popover.isOpen }
+        let c1 = popover.stats
+        let cOK = c.facts.count == 2 && c.facts[0].closed && !c.watchdog && c1.closesInsideLoop == c0.closesInsideLoop && !popover.isOpen && c1.lastClose == .plaza
+        good = good && cOK
+        report.append("close(.plaza) under the dialog: dialog still open=\(c.facts.first?.closed ?? false), closes inside the loop +\(c1.closesInsideLoop - c0.closesInsideLoop), popover closed after it=\(!popover.isOpen) as \(String(describing: c1.lastClose))")
+        hybrid.scriptedOpen = nil
+        r.add("settings.dialogModal", good, "the real import confirmation open; " + report.joined(separator: "; "))
+        close()
+    }
+
+    func ctxDPI(_ p: WinPopover) -> UINT { p.contextForTesting?.dpi ?? 96 }
+
+    // MARK: settings.dialogExitProcess
+
+    /// The real exit path: a child opens the real save dialog, `WM_CLOSE` is posted to its sink (what Restart Manager sends), and it
+    /// must leave with code 0 inside the exit budget with its settings on disk (`WindowsApp.exit` reaches `exit()` from inside the
+    /// dialog's loop without unwinding it).
+    func dialogExitProcessCheck() async {
+        let plist = WinDefaultsSync.plistURL(suite: WinDefaultsSync.selftestSuiteName)
+        let key = "ptb.selftest.dialogexit.\(String(UUID().uuidString.prefix(8)))"
+        do {
+            let child = try WindowsSelftest.Helper.start(["--selftest-dialog-exit", key], ready: true)
+            let ready = await child.waitReady(timeout: 20)
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            var shown = false
+            var sent = false
+            let started = Date()
+            if child.exitCode == nil, let window = FindWindowW(WinStr.w(WinSinkWindow.className), WinStr.w("ptb-selftest-helper-\(child.pid)")) {
+                shown = !TransferDialogDriver.owned(by: Int(bitPattern: window)).isEmpty
+                sent = PostMessageW(window, UINT(WM_CLOSE), 0, 0)
+            }
+            let code = await child.waitExit(timeout: 15)
+            let seconds = Date().timeIntervalSince(started)
+            if code == nil { child.kill() }
+            child.close()
+            let saved = WindowsSelftest.plistValue(plist, key) == "v1"
+            r.add("settings.dialogExitProcess", ready && shown && sent && code == 0 && seconds < WindowsApp.exitBudget && saved,
+                  "child with the real save dialog open, WM_CLOSE posted to its sink: dialog was shown=\(shown) exit=\(WindowsSelftest.describe(code)) (0 = the exit ran inside the dialog's loop; 5 = the dialog returned first) "
+                    + "in \(String(format: "%.2f", seconds)) s (budget \(WindowsApp.exitBudget) s) setting_on_disk=\(saved) ready=\(ready)")
+            app.defaults.removeObject(forKey: key)
+            WinDefaultsSync.flushNow()
+        } catch {
+            r.add("settings.dialogExitProcess", false, "\(error)")
+        }
+    }
+
     // MARK: settings.exportImport
 
     /// A state of this fixture companion: a save with `dex` Pokédex entries, applied through the same function the import uses.
@@ -636,7 +807,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         let importing = await driven([.click(0), .click(0)]) { self.post(section.transferRowsForTesting.import?.control) }
         hybrid.scriptedOpen = nil
         let after = stores.companion.transferSummary
-        let confirmShown = WinTaskDialog.last
+        let confirmShown = hybrid.confirmDialog
         let backups = (try? FileManager.default.contentsOfDirectory(atPath: stores.directory.path).filter { $0.hasPrefix(SaveTransfer.backupFilePrefix) }) ?? []
         let doneText = hybrid.informs.last?.message
         let expectedDone = l.importSaveDone(dex: exported.dexCount, tokens: TokenFormatter.compact(exported.lifetimeTokens))
@@ -647,7 +818,7 @@ final class TransferDialogDriver: @unchecked Sendable {
               rowOK(export, 0) && written == exported && revealedOK && exportDone && rowOK(importing, 2) && other != exported && after == exported
                 && !backups.isEmpty && doneText == expectedDone && section.applied == 1,
               "folder '\(work.lastPathComponent)' (a space and Korean): export through the real flow (path chosen by script) -> file decodes to \(String(describing: written)) (expected \(exported)), "
-                + "Explorer asked to select it=\(revealedOK) (\(hybrid.revealed.map { WinPath.native($0) })), no error shown=\(exportDone); the PC then held \(other); import through the real open dialog + confirmation (Replace) + done dialog -> \(after) "
+                + "Explorer asked to select it=\(revealedOK) (\(hybrid.revealed.map { WinPath.native($0) })), no error shown=\(exportDone); the PC then held \(other); import through the flow (the file chosen by script) + the real confirmation (Replace pressed) + the real done dialog -> \(after) "
                 + "(expected \(exported)), backup files \(backups.count), done text matches=\(doneText == expectedDone), imports applied \(section.applied); "
                 + "confirmation buttons \(confirmShown?.buttons ?? []) default \(confirmShown?.defaultIndex ?? -1); steps \(export.facts.map { $0.note } + importing.facts.map { $0.note })")
         close()
@@ -881,6 +1052,28 @@ final class ExitWatcher: @unchecked Sendable {
             lock.lock(); _closed = !IsWindow(hwnd); _done = true; lock.unlock()
             if IsWindow(hwnd) { _ = PostMessageW(hwnd, UINT(WM_CLOSE), 0, 0) }
         }.start()
+    }
+}
+
+extension WindowsSelftest {
+    /// `--selftest-dialog-exit <key>`: the helper of `settings.dialogExitProcess`.
+    @MainActor static func runDialogExit(_ args: [String]) -> Never {
+        guard let key = args.first else { WindowsApp.exit(2, .helper) }
+        _ = WinMainLoop.prepare()
+        guard let window = try? WinSinkWindow(title: "ptb-selftest-helper-\(GetCurrentProcessId())") else { WindowsApp.exit(2, .helper) }
+        WindowsAppDelegate.installExitHandlers(on: window)
+        WinModalPump.install(on: window)
+        WinDefaultsSync.makeAppDefaults().set("v1", forKey: key)
+        let open: UINT = 0x8000 + 0x15
+        let token = window.on(open) { _, _ in
+            _ = WinFileDialog.choose(save: true, owner: window.hwnd, title: "Export save", suggestedName: "x.json", filterName: "Save file (*.json)")
+            WindowsApp.exit(5, .helper)   // the dialog returned before the exit ran
+        }
+        _ = token
+        signalReady()
+        _ = PostMessageW(window.hwnd, open, 0, 0)   // a window message, as a click is
+        withExtendedLifetime(window) { WinMainLoop.run(.cfRunLoopWithMessages) { false } }
+        WindowsApp.exit(2, .helper)
     }
 }
 #endif

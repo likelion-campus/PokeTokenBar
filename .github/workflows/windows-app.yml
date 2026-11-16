@@ -280,7 +280,8 @@ jobs:
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'settings.difficulty', 'settings.difficultyKeys', 'settings.dialogKeepsPopover', 'settings.exportImport', 'settings.importCancelDefault',
+          $names = 'settings.difficulty', 'settings.difficultyKeys', 'settings.dialogKeepsPopover', 'settings.dialogAccepts', 'settings.dialogModal', 'settings.dialogExitProcess',
+                   'settings.exportImport', 'settings.importCancelDefault',
                    'settings.dialogExit', 'settings.snapshots', 'settings.transferA11y', 'settings.transferCapture'
           $bad = @()
           foreach ($n in $names) {

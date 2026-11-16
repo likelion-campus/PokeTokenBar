@@ -50,7 +50,8 @@ HRESULT runFileDialog(void *owner, bool save, const uint16_t *title, const uint1
     DWORD options = 0;
     dlg->GetOptions(&options);
     options |= FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR;
-    options |= save ? FOS_OVERWRITEPROMPT : FOS_FILEMUSTEXIST;
+    // The Mac's panels take only .json (`allowedContentTypes`): a save keeps to the one filter (a typed backup.txt does not stay .txt), an open needs an existing file.
+    options |= save ? (FOS_OVERWRITEPROMPT | FOS_STRICTFILETYPES) : FOS_FILEMUSTEXIST;
     dlg->SetOptions(options);
     dlg->SetClientGuid(kClientGuid);
     if (title) dlg->SetTitle(reinterpret_cast<LPCWSTR>(title));
@@ -113,6 +114,11 @@ extern "C" int32_t ptb_file_dialog_close(void) {
     if (!g_activeFileDialog) return 0;
     g_activeFileDialog->Close(HRESULT_FROM_WIN32(ERROR_CANCELLED));
     return 1;
+}
+
+extern "C" int32_t ptb_file_dialog_set_file_name(const uint16_t *name) {
+    if (!g_activeFileDialog || !name) return static_cast<int32_t>(E_INVALIDARG);
+    return static_cast<int32_t>(g_activeFileDialog->SetFileName(reinterpret_cast<LPCWSTR>(name)));
 }
 
 extern "C" int32_t ptb_task_dialog(void *owner, const uint16_t *window_title, const uint16_t *heading, const uint16_t *content,

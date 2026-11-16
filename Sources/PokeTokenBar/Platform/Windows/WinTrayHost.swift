@@ -101,8 +101,16 @@ import WinSDK
     }
 
     /// Blocks in the system menu loop until it is dismissed (no drain timer meanwhile; F17), then runs the action.
+    /// Set by the app: what a tray request does while a dialog of the popover is open (flash it).
+    var onBlockedByDialog: (() -> Void)?
+
     func openMenu(at point: POINT) {
         guard !menuOpen else { return }  // the shell sends several events for one click, queued behind the menu
+        // Stage 7 Task 15: one of the popover's dialogs is open and app-modal: the menu waits (the dialog is flashed instead).
+        if WinModalPump.dialogDepth > 0 {
+            onBlockedByDialog?()
+            return
+        }
         onMenuWillOpen?()  // stage 7 Task 4
         lastMenuPoint = point
         menuOpen = true
