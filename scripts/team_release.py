@@ -5,7 +5,7 @@ Only this helper writes a release of likelion-campus/PokeTokenBar (stage 8 plan,
 `contents: read`. scripts/team-release.sh calls the subcommands in the order of D3:
 
   start   --sha SHA --version V [--ref main] [--new [failed|windows-app.yml|windows.yml]]...
-  collect --sha SHA --version V --out DIR [--timeout-min 100] [--allow-rerun]
+  collect --sha SHA --version V --out DIR [--timeout-min 170] [--allow-rerun]
   publish --sha SHA --version V --zip PATH --installer PATH --notes PATH
   smoke   --version V [--ref main]
 
@@ -875,7 +875,7 @@ def build_parser():
                        help="start a new run: alone or 'failed' in place of a failed one; a workflow file: in place "
                             "of that workflow's newest run, whatever its state (repeatable)")
     collect.add_argument("--out", required=True)
-    collect.add_argument("--timeout-min", type=int, default=100)
+    collect.add_argument("--timeout-min", type=int, default=170)  # above the app job's 150-minute limit
     collect.add_argument("--allow-rerun", action="store_true", help="accept a run whose attempt is above 1")
     publish.add_argument("--zip", required=True)
     publish.add_argument("--installer", required=True)
