@@ -113,6 +113,7 @@ import WinSDK
     /// The dialogs' own loops did not deliver the pump's `WM_TIMER` on the runner (the main queue stood still for as long as a
     /// dialog was open), but they do read messages, and the thread's hook sees each of them: a tick at most every `interval` ms.
     static func tickFromHook() {
+        return  // FAULT: no hook tick
         guard dialogDepth > 0, !inTick else { return }
         let now = GetTickCount64()
         guard now &- lastTickMs >= UInt64(interval) else { return }
