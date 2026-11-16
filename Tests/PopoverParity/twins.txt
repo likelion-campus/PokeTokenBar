@@ -87,6 +87,21 @@ UI/SettingsView.swift#SettingsView.settingsSection | Popover/PopoverLayout.swift
 UI/SettingsView.swift#SettingsView.groupRow | Popover/PopoverLayout.swift#PopoverStackMetrics | pin de0f40885b3be327
 UI/SettingsView.swift#SettingsView.toggleRow | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 5306650b1d9e7bdd
 UI/SettingsView.swift#SettingsView.body | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 9943ac8116be3c71
+
+# The recap (stage 7 Task 13): RecapContent is copied whole (driven against the original by PopoverRecapEquivalenceTests+Mac); the card and
+# the screen are SwiftUI bodies rebuilt as RecapCardModel / RecapCardPart / RecapPageModel / RecapNavigation (the model tests and the
+# equivalence test evaluate the bodies' expressions; these pins catch a change the corpus misses).
+UI/UsageRecapView.swift#RecapContent | Popover/PopoverRecapContent.swift#PopoverRecapContent | RecapContent=PopoverRecapContent
+UI/UsageRecapView.swift#RecapCard.body | Popover/RecapCardPart.swift#RecapCardPart | pin 08095d8a75333bd2
+UI/UsageRecapView.swift#RecapCard.header | Popover/RecapCardPart.swift#RecapCardPart | pin 7ee16bcc0f8ea23b
+UI/UsageRecapView.swift#RecapCard.lens | Popover/RecapCardPart.swift#RecapCardPart | pin 68029d281a6fd3c4
+UI/UsageRecapView.swift#RecapCard.screen | Popover/PopoverRecapContent.swift#RecapCardModel | pin 4bdde63c127fe92e
+UI/UsageRecapView.swift#RecapCard.deltaChip | Popover/PopoverRecapContent.swift#RecapCardModel | pin 1862d1ba9fdfd8d9
+UI/UsageRecapView.swift#RecapCard.meters | Popover/PopoverRecapContent.swift#PopoverRecapMetrics | pin 5071325d6bf4db59
+UI/UsageRecapView.swift#RecapCard.meter | Popover/PopoverRecapContent.swift#PopoverRecapMetrics | pin e0b4fb93ba359565
+UI/UsageRecapView.swift#RecapCard.readout | Popover/RecapCardPart.swift#RecapCardPart | pin 71ae30923f9e518b
+UI/UsageRecapView.swift#RecapCard.graduateStrip | Popover/RecapCardPart.swift#RecapCardPart | pin 1d4143c31638785a
+UI/UsageRecapView.swift#RecapScreen.body | Popover/PopoverRecapContent.swift#RecapPageModel | pin ac09eb1678ba61bd
 # --- stage 7 Task 9: the companion header (begin) ---
 # Text twins: the header's pure rules read as the Mac's (CompanionHeaderModel.swift, EvoLineLayout.swift).
 UI/CompanionView.swift#CompanionHeader.progressDetail | Popover/CompanionHeaderModel.swift#CompanionHeaderModel.progressDetail

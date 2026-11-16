@@ -96,6 +96,7 @@ enum WindowsSelftest {
         await shellChecks(r)
         await crashChecks(r)
         await singleInstanceCheck(r, app)
+        await exitDeadlineCheck(r)  // stage 8: quitting with a stuck socket thread
         await guardChecks(r)
         let real = WinDefaultsSync.expectedPlistURL()
         let realAfter = [Self.modification(of: real), Self.modification(of: SettingsPlistGuard.backupURL(for: real))]
@@ -125,6 +126,7 @@ enum WindowsSelftest {
         await popoverWithPlazaChecks(r, app)  // stage 7 task 4: the popover over an open plaza (loads Direct3D, so last)
         await popoverCompanionChecks(r, app)  // stage 7 task 9 (WindowsSelftestPopoverCompanion.swift): drawn parts (Direct2D), so after the idle window; leaves no window behind
         await popoverHomeChecks(r, app)  // stage 7 task 5 (WindowsSelftestPopoverHome.swift): draws the limit bars (Direct2D), so after the idle window; leaves no window behind
+        await popoverRecapChecks(r, app)  // stage 7 task 13 (WindowsSelftestPopoverRecap.swift): draws the card (Direct2D), so after the idle window; leaves no window behind
         return r.checks
     }
 

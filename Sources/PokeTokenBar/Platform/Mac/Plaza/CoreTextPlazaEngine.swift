@@ -33,6 +33,9 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
              NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true]
         case .emoji(let size):
             [.font: emojiFont(size)]
+        case .mono(let size, let weight):
+            [.font: NSFont.monospacedSystemFont(ofSize: size, weight: nsWeight(weight)),
+             NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true]
         }
     }
 
@@ -47,6 +50,9 @@ struct CoreTextPlazaEngine: PlazaTextEngine {
         case .emoji(let size):
             let f = Self.emojiFont(size)
             return PlazaFontMetrics(ascender: CTFontGetAscent(f), descender: -CTFontGetDescent(f), leading: CTFontGetLeading(f))
+        case .mono(let size, let weight):
+            let f = NSFont.monospacedSystemFont(ofSize: size, weight: Self.nsWeight(weight))
+            return PlazaFontMetrics(ascender: f.ascender, descender: f.descender, leading: f.leading)
         }
     }
 

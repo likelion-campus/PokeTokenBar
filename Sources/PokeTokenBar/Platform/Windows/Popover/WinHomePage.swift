@@ -39,6 +39,11 @@ import WinSDK
     /// A fixed model instead of the stores' (the selftest's sample pages); nothing is observed then.
     var modelOverride: ((Date) -> HomeModel)?
     let heightDIP: CGFloat = 600
+    // MARK: Task 13 — the recap button's action (the Mac's `nav.showingRecap = true`)
+    /// Swaps the recap page in (set by the app's page; a kit window has no popover to swap).
+    var openRecap: (() -> Void)?
+    var recapButton: WinControl?
+    // MARK: end Task 13
 
     private(set) var stack: WinStack?
     private var area: WinScrollArea?
@@ -114,6 +119,12 @@ import WinSDK
                           DispatchQueue.main.async { popover.replacePage() }  // not inside the button that was pressed
                       }
                   })
+        // MARK: Task 13 — the recap button
+        openRecap = { [weak popover] in
+            state.showingRecap = true
+            DispatchQueue.main.async { popover?.replacePage() }  // not inside the button that was pressed
+        }
+        // MARK: end Task 13
     }
 
     // MARK: WinPopoverPage
@@ -413,6 +424,9 @@ import WinSDK
                 periodsLabel = WinControls.label(periods, style: .callout, role: .secondary, in: pane, ctx: ctx)
                 return periodsLabel
             }, style: .trailing)
+            // MARK: Task 13 — the recap button (the Mac's `recapButton`): "Details", the tooltip names the page
+            addRecapButton(to: section)
+            // MARK: end Task 13
             var hintRow: WinRow?
             hintRow = section.addStyledRow(label: { pane, ctx in
                 WinControls.label(L(self.companion.language).winNoUsageYet, style: .callout, role: .tertiary, in: pane, ctx: ctx)
