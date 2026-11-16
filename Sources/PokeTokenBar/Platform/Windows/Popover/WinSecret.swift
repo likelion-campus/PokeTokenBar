@@ -21,6 +21,9 @@ import WinSDK
 enum WinSecret {
     /// Not a secret: it ties a blob to this app's use of DPAPI. A program that asks DPAPI for the blob with no entropy or with
     /// another one gets nothing, and a blob made for another program is not taken for ours.
+    /// NEVER CHANGE THIS VALUE: every key saved on a user's PC was encrypted with it, and a changed value makes all of them
+    /// undecryptable after an update (they would read as "no key"). A new format must keep reading with this entropy too
+    /// (try the old one when the new one fails, then write the new form). `WindowsPopoverSecretTests` holds the bytes.
     static let entropy = Data("PokeTokenBar/session-key/1".utf8)
 
     struct Failure: Error, CustomStringConvertible {

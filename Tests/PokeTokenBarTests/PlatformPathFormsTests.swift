@@ -68,6 +68,17 @@ final class PlatformPathFormsTests: XCTestCase {
         XCTAssertEqual(PlatformCompat.windowsStandardizedUNC("//server/share/한글 폴더/a b"), "//server/share/한글 폴더/a b")
     }
 
+    /// What Windows reports as a final path (`GetFinalPathNameByHandleW`) in the form shared code keeps: a share — typed, mapped to
+    /// a drive, or behind a link — comes back as `\\?\UNC\…`, which swift-foundation turned into a path relative to the current folder.
+    func testAFinalPathComesBackInTheSharedForm() {
+        XCTAssertEqual(PlatformCompat.windowsPathFromDevicePath(#"\\?\UNC\nas\share\logs"#), "//nas/share/logs", "a mapped drive's final path")
+        XCTAssertEqual(PlatformCompat.windowsPathFromDevicePath(#"\\?\unc\nas\share"#), "//nas/share")
+        XCTAssertEqual(PlatformCompat.windowsPathFromDevicePath(#"\\?\C:\Users\a b\한글"#), "C:/Users/a b/한글")
+        XCTAssertEqual(PlatformCompat.windowsPathFromDevicePath(#"\\?\C:\"#), "C:/", "a drive root")
+        XCTAssertEqual(PlatformCompat.windowsPathFromDevicePath(#"C:\x"#), "C:/x")
+        XCTAssertEqual(PlatformCompat.windowsPathFromDevicePath(#"\\server\share\x"#), "//server/share/x")
+    }
+
     #if !os(Windows)
     /// Mac pins: the two path seams of Task 14 are the expressions their four call sites had (Core's `normalizedRoots`,
     /// `CustomScanRoots.normalizedPath`, `LocalAsideUsageReader.databases`, `ClaudeAccountRoots.roots`).

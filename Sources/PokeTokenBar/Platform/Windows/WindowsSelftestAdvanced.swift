@@ -313,7 +313,7 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
             && providers == f.store.registeredProviders.count && closedAgain && glyphBefore != glyphAfter && model.accounts.count == 1
         r.add("settings.advancedRows", ok,
               "collapsed at open=\(collapsed); expanded=\(opened) (chevron changed=\(glyphBefore != glyphAfter)); missing \(missing); Windows key hint shown=\(hintShown); "
-                + "Mac-only texts shown \(macOnly) (no Keychain switch); key field ES_PASSWORD=\(isPassword(field)) cue='\(cue(field))', Save off while empty=\(saveOff), "
+                + "Mac-only texts shown \(macOnly) (no Keychain switch); key field ES_PASSWORD=\(isPassword(field)) cue is the new-key placeholder=\(cue(field) == SettingsModel.newKeyPlaceholder), Save off while empty=\(saveOff), "
                 + "Delete hidden without a key=\(deleteHidden); '\(l.winRefreshLimitToken)' on=\(refreshOn); scan providers \(providers) of \(f.store.registeredProviders.count); "
                 + "account rows \(model.accounts.count); collapsed again=\(closedAgain); page rebuilds \(page.rebuildsForTesting)")
         t.close()
@@ -371,7 +371,7 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
             && disk.exists && !disk.plain && disk.decrypts && !t.shown(adv.key.errorRow)
         r.add("settings.sessionKeySave", ok,
               "pasted a fixture key, Save: spinner ('\(l.save)…', off) while claude.ai answered=\(spinner); saved=\(saved), field emptied=\(field.text.isEmpty), "
-                + "cue now '\(cue(field))', badge '\(badge)', Delete shown=\(t.isShown(adv.key.delete)); organisation picker shown=\(t.shown(orgRow)) with \(orgs) "
+                + "cue now the saved dots=\(cue(field) == SettingsModel.savedKeyPlaceholder), badge '\(badge)', Delete shown=\(t.isShown(adv.key.delete)); organisation picker shown=\(t.shown(orgRow)) with \(orgs) "
                 + "(the one with usage chosen: index \(chosen)); storage note (Windows wording)=\(note == l.winSessionKeyStorageNote); key file exists=\(disk.exists) "
                 + "plain=\(disk.plain) decrypts for this account to the key=\(disk.decrypts); fixture requests \(f.http.requests)")
         t.close()
@@ -439,8 +439,8 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
         record()
         field.text = ""
         r.add("settings.sessionKeyErrors", malformed && kept && noRequest && rejected && keptBad && orange && noFile,
-              "a malformed paste, Save -> '\(l.sessionKeyMalformedError)' (orange=\(orange))=\(malformed), claude.ai not asked=\(noRequest), "
-                + "text kept to fix=\(kept); a refused fixture key -> '\(l.sessionKeyExpiredError)'=\(rejected), kept=\(keptBad); no key file written=\(noFile)")
+              "a malformed paste, Save -> the malformed-key error (orange=\(orange))=\(malformed), claude.ai not asked=\(noRequest), "
+                + "text kept to fix=\(kept); a refused fixture key -> the expired-key error=\(rejected), kept=\(keptBad); no key file written=\(noFile)")
         t.close()
     }
 
@@ -457,7 +457,7 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
         let badge = adv.key.badge?.text.trimmingCharacters(in: .whitespaces) ?? "?"
         r.add("settings.sessionKeyDelete", had && cleared && gone && badge.isEmpty && cue(field) == SettingsModel.newKeyPlaceholder
                 && !t.shown(adv.key.noteRow) && !t.shown(adv.key.orgRow),
-              "a saved key: file and Delete there=\(had); Delete -> not configured, Delete hidden=\(cleared), file removed=\(gone), badge '\(badge)', cue '\(cue(field))', "
+              "a saved key: file and Delete there=\(had); Delete -> not configured, Delete hidden=\(cleared), file removed=\(gone), badge '\(badge)', cue back to the new-key placeholder=\(cue(field) == SettingsModel.newKeyPlaceholder), "
                 + "storage note hidden=\(!t.shown(adv.key.noteRow)), picker hidden=\(!t.shown(adv.key.orgRow))")
         t.close()
     }
@@ -750,15 +750,22 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
         AppLog.flush()
         let log = (try? String(contentsOf: AppLog.logFileURL, encoding: .utf8)) ?? ""
         let treeText = trees.compactMap { try? String(contentsOf: $0, encoding: .utf8) }.joined()
-        // A key's distinctive middle (its random tail) is enough to find a copy cut anywhere.
-        let needles = keys.flatMap { [$0, String($0.suffix(24))] }
+        // A key cut anywhere still shows one of these: the whole key, its first 16 random characters after the fixture prefix,
+        // its last 24. And nothing in the app or this selftest logs the key prefix itself (no check line prints a placeholder or
+        // an error text that holds it), so any "sk-ant-" in the log is a leak.
+        let needles = keys.flatMap { key -> [String] in
+            let random = key.dropFirst(AdvancedFixtureHTTP.validPrefix.count)
+            return [key, String(random.prefix(16)), String(key.suffix(24))]
+        }
         let inLog = needles.filter { log.contains($0) }.count
+        let prefixInLog = log.components(separatedBy: "sk-ant-").count - 1
         let inTexts = needles.filter { n in seenTexts.contains { $0.contains(n) } }.count
         let inTrees = needles.filter { treeText.contains($0) }.count
         let dumped = WindowsSelftestPopoverWindow.dumpDirectory() != nil
-        r.add("settings.keyLeak", inLog == 0 && inTexts == 0 && inTrees == 0 && !keys.isEmpty && (trees.isEmpty != dumped),
-              "\(keys.count) fixture keys (whole and their last 24 characters) looked for: in the \(log.utf8.count)-byte log \(inLog), in \(seenTexts.count) window texts and tooltips "
-                + "recorded during the group \(inTexts), in \(trees.count) control trees written with the captures \(inTrees)")
+        r.add("settings.keyLeak", inLog == 0 && prefixInLog == 0 && inTexts == 0 && inTrees == 0 && !keys.isEmpty && (trees.isEmpty != dumped),
+              "\(keys.count) fixture keys (whole, the first 16 random characters, the last 24) looked for: in the \(log.utf8.count)-byte log \(inLog) "
+                + "(and the key prefix itself \(prefixInLog) times), in \(seenTexts.count) window texts and tooltips recorded during the group \(inTexts), "
+                + "in \(trees.count) control trees written with the captures \(inTrees)")
     }
 }
 

@@ -33,7 +33,7 @@ import WinSDK
 /// it (`SettingsModel` reads only "is a key saved"). Focus loss does not save a key (the Mac saves on Enter and Save only).
 ///
 /// Nothing here has a timer: the match counts are counted off the main thread 250 ms after the last change of a field (the
-/// Mac's debounce), once.
+/// Mac's debounce), once, on one serial queue (`counting`).
 @MainActor final class WinAdvancedSection {
     /// One key's rows: the label (its badge on the right) with the hint or the folder under it, the field, Save and Delete,
     /// the organisation picker (the default key only), the error, the storage note.
@@ -114,8 +114,10 @@ import WinSDK
     private var applying = false
     private var textChanged = false
     private var scanCount = 0, scanGeneration = 0, additionalCount = 0, additionalGeneration = 0
-    private var scanTask: Task<Void, Never>?
-    private var additionalTask: Task<Void, Never>?
+    /// Both counts run on one serial queue, the newest draft per count replacing older ones that have not started: a share
+    /// that stopped answering blocks one file call for its SMB timeout and nothing interrupts it, so a cancellable task per
+    /// pause would leave a blocked thread per pause (review of Task 14, Minor 6).
+    static let counting = LatestOnlyWork(label: "poketokenbar.settings.counts")
     /// The key field takes the keyboard when the page opens (the session-key route).
     private(set) var focusKeyOnOpen = false
     private(set) var saves = 0, deletes = 0, scanCommits = 0, additionalCommits = 0, counts = 0
@@ -326,8 +328,8 @@ import WinSDK
     private func disappeared() {
         commitScanDraft()
         commitAdditional()
-        scanTask?.cancel()
-        additionalTask?.cancel()
+        Self.counting.cancel(key: "scan")
+        Self.counting.cancel(key: "additional")
     }
 
     private func commitScanDraft() {
@@ -360,23 +362,18 @@ import WinSDK
 
     /// The Mac's `scheduleCustomScanMatchCount`: 250 ms after the last change, off the main thread, the newest draft only.
     private func scheduleScanCount() {
-        scanTask?.cancel()
         scanGeneration += 1
         let generation = scanGeneration
         let raw = drafts.scanDraft
         let providerID = drafts.scanProviderID
-        scanTask = Task.detached(priority: .utility) { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(SettingsModel.scanCountDelay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
+        Self.counting.submit(key: "scan", after: SettingsModel.scanCountDelay) { [weak self] in
             let count = CustomScanRoots.survivingExtraCount(defaults: CustomScanRoots.curatedRoots(for: providerID), extraRaw: raw)
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                guard let self, !isClosing, generation == scanGeneration else { return }
-                scanCount = count
-                counts += 1
-                textChanged = false
-                applyCounts()
-                if textChanged { relayout() }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, !self.isClosing, generation == self.scanGeneration else { return }
+                    self.scanCount = count
+                    self.landed()
+                }
             }
         }
     }
@@ -384,24 +381,26 @@ import WinSDK
     /// The additional folders' "found" count, the same way. (The Mac counts it in the view body, on the main thread; here it
     /// waits like the scan count, since a folder on a network share can take seconds to answer.)
     private func scheduleAdditionalCount() {
-        additionalTask?.cancel()
         additionalGeneration += 1
         let generation = additionalGeneration
         let raw = drafts.additionalDraft
-        additionalTask = Task.detached(priority: .utility) { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(SettingsModel.scanCountDelay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
+        Self.counting.submit(key: "additional", after: SettingsModel.scanCountDelay) { [weak self] in
             let count = ClaudeAccountRoots.roots(from: raw).count
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                guard let self, !isClosing, generation == additionalGeneration else { return }
-                additionalCount = count
-                counts += 1
-                textChanged = false
-                applyCounts()
-                if textChanged { relayout() }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, !self.isClosing, generation == self.additionalGeneration else { return }
+                    self.additionalCount = count
+                    self.landed()
+                }
             }
         }
+    }
+
+    private func landed() {
+        counts += 1
+        textChanged = false
+        applyCounts()
+        if textChanged { relayout() }
     }
 
     // MARK: showing
@@ -543,8 +542,8 @@ import WinSDK
         guard !isClosing else { return }
         if drafts.expanded { disappeared() }
         isClosing = true
-        scanTask?.cancel()
-        additionalTask?.cancel()
+        Self.counting.cancel(key: "scan")
+        Self.counting.cancel(key: "additional")
     }
 
     // MARK: for the selftest

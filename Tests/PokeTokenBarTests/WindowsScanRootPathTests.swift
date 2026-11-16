@@ -6,8 +6,8 @@ import XCTest
 
 /// The path forms a Windows user types into Settings → Advanced (custom scan folders, additional Claude folders), through the
 /// real file system: spaces, non-ASCII, trailing and mixed separators, a drive root, a UNC share (P19, stage 7 Task 14). The
-/// share is this PC's own administrative share of the fixture folder (`\\localhost\C$\…`); without one (a PC with it turned
-/// off) those tests are skipped.
+/// share is this PC's own administrative share of the fixture folder (`\\localhost\C$\…`), also mapped to a free drive letter
+/// (`net use`); on the CI runner both must exist (the tests fail without them), elsewhere they are skipped.
 final class WindowsScanRootPathTests: XCTestCase {
     private var root: URL!
 
@@ -20,8 +20,51 @@ final class WindowsScanRootPathTests: XCTestCase {
     }
 
     override func tearDown() {
+        if let mapped { Self.net(["use", mapped, "/delete", "/y"]) }
+        mapped = nil
         try? FileManager.default.removeItem(at: root)
         super.tearDown()
+    }
+
+    private var mapped: String?
+    private static var onCI: Bool { ProcessInfo.processInfo.environment["CI"] != nil }
+    private struct Missing: Error, CustomStringConvertible { let description: String }
+
+    /// What a test needs from this PC: on the runner its absence is a failure, elsewhere a skip.
+    private func require<T>(_ value: T?, _ what: String) throws -> T {
+        if let value { return value }
+        if Self.onCI { throw Missing(description: "\(what) is missing on the CI runner") }
+        throw XCTSkip("no \(what) on this PC")
+    }
+
+    @discardableResult
+    private static func net(_ arguments: [String]) -> Int32 {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: #"C:\Windows\System32\net.exe"#)
+        p.arguments = arguments
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return -1 }
+        p.waitUntilExit()
+        return p.terminationStatus
+    }
+
+    /// The fixture's drive mapped to a free letter as `net use X: \\localhost\C$` maps it (a network drive: `GetDriveTypeW` says
+    /// DRIVE_REMOTE): the same folder as `X:\…`, or nil.
+    private func mappedDrive(_ rest: String = "") -> String? {
+        let n = native(rest)
+        let u = Array(n)
+        guard u.count > 3, u[1] == ":" else { return nil }
+        if mapped == nil {
+            let used = GetLogicalDrives()
+            guard let letter = "ZYXWVUTSRQPONM".first(where: { used & (DWORD(1) << DWORD($0.asciiValue! - 65)) == 0 }) else { return nil }
+            let drive = "\(letter):"
+            guard Self.net(["use", drive, "\\\\localhost\\\(u[0])$"]) == 0 else { return nil }
+            mapped = drive
+        }
+        guard let mapped else { return nil }
+        let path = mapped + String(u.dropFirst(2))
+        return FileManager.default.fileExists(atPath: path) ? path : nil
     }
 
     /// `C:\…\ptb-paths-…\<rest>` with backslashes.
@@ -39,7 +82,7 @@ final class WindowsScanRootPathTests: XCTestCase {
     }
 
     func testWhatFoundationMakesOfAUNCPath() throws {
-        guard let share = unc("plain") else { throw XCTSkip("no administrative share on this PC") }
+        let share = try require(unc("plain"), "administrative share")
         let slashed = share.replacingOccurrences(of: "\\", with: "/")
         let url = URL(fileURLWithPath: share)
         var isDir: ObjCBool = false
@@ -64,7 +107,7 @@ final class WindowsScanRootPathTests: XCTestCase {
     /// The P19 trigger: a UNC folder in the custom scan folders is found (it used to be looked up as `\server\share\…` on the
     /// current drive and count 0).
     func testAUNCScanFolderIsFound() throws {
-        guard let share = unc("plain"), let logs = unc("logs") else { throw XCTSkip("no administrative share on this PC") }
+        let share = try require(unc("plain"), "administrative share"), logs = try require(unc("logs"), "administrative share")
         let found = CustomScanRoots.expand(share)
         XCTAssertEqual(found.count, 1, "\(share) -> \(found.map(\.path))")
         XCTAssertEqual(found.first.map { FileManager.default.fileExists(atPath: $0.path) }, true)
@@ -77,11 +120,66 @@ final class WindowsScanRootPathTests: XCTestCase {
         XCTAssertEqual(roots.count, 3, "\(roots.map(\.path))")
         XCTAssertTrue(roots.allSatisfy { $0.path.hasPrefix("//localhost/") && FileManager.default.fileExists(atPath: $0.path) }, "\(roots.map(\.path))")
         XCTAssertEqual(LocalUsageReader.normalizedRoots([URL(fileURLWithPath: share), URL(fileURLWithPath: share + "\\")]).count, 1, "one share written twice")
+        // The symptom itself: a log file in the shared folder is found through the folded root.
+        try Data("{}\n".utf8).write(to: root.appendingPathComponent("plain/a.jsonl"))
+        let plain = try XCTUnwrap(CustomScanRoots.union(defaults: [], extraRaw: share).first)
+        XCTAssertEqual(LocalUsageReader.jsonlFiles(in: plain, modifiedSince: Date(timeIntervalSinceNow: -3600)).map(\.lastPathComponent), ["a.jsonl"],
+                       "through \(plain.path)")
+    }
+
+    /// A mapped network drive (`net use X: \\server\share`): Windows resolves it to `\\?\UNC\server\share\…`, which swift-foundation
+    /// turned into `UNC/server/share/…` relative to the current folder: the folded root did not exist and the scan found nothing,
+    /// while Settings still counted the folder (review of Task 14, Important 1).
+    func testAMappedDriveFolderIsScanned() throws {
+        let drive = try require(mappedDrive("plain"), "mapped network drive")
+        print("PATH-PROBE|mapped=\(drive)|resolvedFileURL=\(PlatformCompat.resolvedFileURL(URL(fileURLWithPath: drive)).path)"
+              + "|foundation=\(URL(fileURLWithPath: drive).resolvingSymlinksInPath().path)")
+        try Data("{}\n".utf8).write(to: root.appendingPathComponent("plain/a.jsonl"))
+        try Data("fixture".utf8).write(to: root.appendingPathComponent("plain/state.db"))
+        let roots = CustomScanRoots.union(defaults: [], extraRaw: drive)
+        XCTAssertEqual(roots.count, 1, "\(roots.map(\.path))")
+        let folded = try XCTUnwrap(roots.first)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folded.path), "the folded root \(folded.path) does not exist")
+        XCTAssertEqual(LocalUsageReader.jsonlFiles(in: folded, modifiedSince: Date(timeIntervalSinceNow: -3600)).map(\.lastPathComponent), ["a.jsonl"])
+        XCTAssertEqual(CustomScanRoots.survivingExtraCount(defaults: [], extraRaw: drive), 1)
+        // The drive and the share it maps are one folder: written both ways it counts once.
+        if let share = unc("plain") { XCTAssertEqual(CustomScanRoots.survivingExtraCount(defaults: [], extraRaw: drive + "\n" + share), 1) }
+        // An additional Claude folder there, and Aside's database there.
+        let account = ClaudeAccountRoots.roots(from: drive)
+        XCTAssertEqual(account.count, 1)
+        XCTAssertEqual(LocalUsageReader.normalizedRoots(account).map { FileManager.default.fileExists(atPath: $0.path) }, [true])
+        let db = LocalAsideUsageReader.databases(roots: [URL(fileURLWithPath: drive)])
+        XCTAssertEqual(db.map { FileManager.default.fileExists(atPath: $0.path) }, [true], "\(db.map(\.path))")
+    }
+
+    /// A link to a share (a directory symbolic link `…\to-share` → `\\localhost\C$\…\plain`) resolves to the share.
+    func testALinkToAShareIsFollowed() throws {
+        let share = try require(unc("plain"), "administrative share")
+        let link = root.appendingPathComponent("to-share")
+        do { try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: share) } catch {
+            throw XCTSkip("no symbolic link privilege: \(error)")
+        }
+        try Data("{}\n".utf8).write(to: root.appendingPathComponent("plain/a.jsonl"))
+        let folded = try XCTUnwrap(CustomScanRoots.union(defaults: [], extraRaw: WinPath.native(link)).first)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folded.path), folded.path)
+        XCTAssertEqual(LocalUsageReader.jsonlFiles(in: folded, modifiedSince: Date(timeIntervalSinceNow: -3600)).map(\.lastPathComponent), ["a.jsonl"])
+    }
+
+    /// A drive root as a custom folder is an ancestor of the defaults on that drive: dropped, as the Mac drops `/` (#162-B: an
+    /// ancestor root would fold the hidden defaults away or scan them twice).
+    func testADriveRootNeverEvictsTheDefaults() throws {
+        let drive = String(native().prefix(2))
+        let defaults = [root.appendingPathComponent("logs/proj-a")]
+        print("PATH-PROBE|driveRoot|URL.path=\(URL(fileURLWithPath: drive + "/").path)|resolved=\(PlatformCompat.resolvedFileURL(URL(fileURLWithPath: drive + "\\")).path)"
+              + "|expand=\(CustomScanRoots.expand(drive + "\\").map(\.path))|union=\(CustomScanRoots.union(defaults: defaults, extraRaw: drive + "\\").map(\.path))")
+        XCTAssertEqual(CustomScanRoots.survivingExtraCount(defaults: defaults, extraRaw: drive + "\\"), 0)
+        XCTAssertEqual(CustomScanRoots.survivingExtraCount(defaults: defaults, extraRaw: drive + "/"), 0)
+        XCTAssertEqual(CustomScanRoots.union(defaults: defaults, extraRaw: drive + "\\").map(\.path), LocalUsageReader.normalizedRoots(defaults).map(\.path))
     }
 
     /// A custom scan folder on a share for a provider whose reader resolves its database path (Aside's `state.db`).
     func testAProviderDatabaseOnAShareIsFound() throws {
-        guard let share = unc("plain") else { throw XCTSkip("no administrative share on this PC") }
+        let share = try require(unc("plain"), "administrative share")
         try Data("fixture".utf8).write(to: root.appendingPathComponent("plain/state.db"))
         let found = LocalAsideUsageReader.databases(roots: [URL(fileURLWithPath: share)])
         XCTAssertEqual(found.count, 1, "\(found.map(\.path))")
@@ -104,7 +202,7 @@ final class WindowsScanRootPathTests: XCTestCase {
         let local = ClaudeAccountRoots.roots(from: [native("with space"), native("한글 폴더") + "\\", native("plain").replacingOccurrences(of: "\\", with: "/")]
             .joined(separator: "\n"))
         XCTAssertEqual(local.count, 3, "\(local.map(\.path))")
-        guard let share = unc("plain") else { throw XCTSkip("no administrative share on this PC") }
+        let share = try require(unc("plain"), "administrative share")
         let shared = ClaudeAccountRoots.roots(from: share)
         XCTAssertEqual(shared.count, 1, "\(share) -> \(shared.map(\.path))")
         XCTAssertEqual(shared.first.map { FileManager.default.fileExists(atPath: $0.path) }, true)

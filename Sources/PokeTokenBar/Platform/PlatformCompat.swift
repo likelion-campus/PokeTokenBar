@@ -188,15 +188,34 @@ enum PlatformCompat {
     }
 
     /// `url.resolvingSymlinksInPath().standardizedFileURL`: the form scan roots are compared and kept in (stage 7 Task 14, P19).
-    /// Mac: exactly that. Windows: the same, except for a UNC path (`//server/share/…`): there swift-foundation's
-    /// standardization drops the leading slash (`/server/share/…`, a folder of the current drive) and its link resolution
-    /// answers `UNC/server/share/…` relative to the current folder (both measured on the runner), so a share is standardized
-    /// by `windowsStandardizedUNC` and its links are not resolved.
+    /// Mac: exactly that. Windows: the final path Windows reports for an existing file or folder (`WinPath.finalPath`: links,
+    /// junctions, subst and mapped drives followed), turned from its `\\?\` device spelling into the form shared code keeps
+    /// (`windowsPathFromDevicePath`); a path that cannot be opened is kept as typed, standardized (a share keeps its leading
+    /// slashes, `windowsStandardizedUNC`). swift-foundation's own resolution turns any result on a share (`\\?\UNC\…`: a UNC
+    /// path, a mapped drive, a link to a share) into `UNC/server/share/…` relative to the current folder, and its
+    /// standardization drops a UNC path's leading slash (both measured on the runner).
     static func resolvedFileURL(_ url: URL) -> URL {
         #if os(Windows)
-        if isWindowsUNC(url.path) { return URL(fileURLWithPath: windowsStandardizedUNC(url.path)) }
-        #endif
+        let path = url.path
+        if let final = WinPath.finalPath(path) { return URL(fileURLWithPath: windowsPathFromDevicePath(final)) }
+        if isWindowsUNC(path) { return URL(fileURLWithPath: windowsStandardizedUNC(path)) }
+        return url.standardizedFileURL
+        #else
         return url.resolvingSymlinksInPath().standardizedFileURL
+        #endif
+    }
+
+    /// What `GetFinalPathNameByHandleW` answers, in the form shared code keeps paths in: `\\?\UNC\server\share\x` →
+    /// `//server/share/x`, `\\?\C:\x` → `C:/x`, `\\?\C:\` → `C:/`; anything else with its backslashes turned into slashes.
+    /// Pure, so both systems test it.
+    static func windowsPathFromDevicePath(_ path: String) -> String {
+        var s = path.replacingOccurrences(of: "\\", with: "/")
+        for prefix in ["//?/", "//./"] where s.hasPrefix(prefix) {
+            s.removeFirst(prefix.count)
+            if s.uppercased().hasPrefix("UNC/") { s = "//" + s.dropFirst(4) }
+            break
+        }
+        return s
     }
 
     /// `URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL` (a folder typed in Settings). Mac: exactly that.

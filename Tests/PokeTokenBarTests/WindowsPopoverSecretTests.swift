@@ -33,6 +33,14 @@ final class WindowsPopoverSecretTests: XCTestCase {
 
     // MARK: DPAPI
 
+    /// Every key already saved on a user's PC was encrypted with this entropy: a changed value would make all of them unreadable
+    /// after an update. Changing it needs a migration that still reads with these bytes (see `WinSecret.entropy`).
+    func testTheEntropyNeverChanges() {
+        XCTAssertEqual(Array(WinSecret.entropy), Array("PokeTokenBar/session-key/1".utf8))
+        XCTAssertEqual(Array(WinSecret.entropy), [0x50, 0x6F, 0x6B, 0x65, 0x54, 0x6F, 0x6B, 0x65, 0x6E, 0x42, 0x61, 0x72, 0x2F, 0x73, 0x65,
+                                                  0x73, 0x73, 0x69, 0x6F, 0x6E, 0x2D, 0x6B, 0x65, 0x79, 0x2F, 0x31])
+    }
+
     func testTheBlobIsLaidOutAsDATA_BLOB() {
         XCTAssertEqual(WinSecret.Blob.size, 16, "DATA_BLOB on 64-bit Windows")
         XCTAssertEqual(WinSecret.Blob.pointerOffset, 8)
