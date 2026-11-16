@@ -1339,22 +1339,13 @@ final class PopoverDriver: @unchecked Sendable {
             r.add("popover.openClose3", false, "only \(cycles.count) of 4 open/close cycles opened")
             return
         }
-        // GDI objects never above the warm-up on any cycle (one object a cycle is a leak: post-merge I2). USER objects moved by
-        // one both ways between cycles on the installed runner (17/18/17/18, run 43792297910: not the popover's), and kernel
-        // handles move with things that are not the popover's: those fail when they rise on every cycle (the kit's rule), USER
-        // also when the last cycle is more than one above the warm-up.
-        let after = Array(cycles.dropFirst())
-        func risingEveryCycle(_ value: (PopoverResources) -> Int) -> Bool {
-            after.count == 3 && value(after[0]) > value(warm) && value(after[1]) > value(after[0]) && value(after[2]) > value(after[1])
-        }
-        let gdiFlat = after.allSatisfy { $0.gdi <= warm.gdi }
-        let userRising = risingEveryCycle(\.user) || last.user > warm.user + 1, handlesRising = risingEveryCycle(\.handles)
-        let ok = gdiFlat && !userRising && !handlesRising && last.windows == start.windows && last.controls == 0 && last.dialogs == start.dialogs
+        // The shared rule (PopoverResourceRule): GDI never above the warm-up, USER within the popover window's jitter of one
+        // (runner evidence: 17/18/17/18, run 43792297910), handles fail only when they rise on every cycle.
+        let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) }, userSlack: 1)
+        let ok = verdict.ok && last.windows == start.windows && last.controls == 0 && last.dialogs == start.dialogs
             && last.pumpDepth == 0 && !last.pumpTimer && !popover.isOpen
         r.add("popover.openClose3", ok,
-              "before the group: \(start); after a warm-up open/close: \(warm); after 3 more: \(after.map { "\($0)" }.joined(separator: " / ")) "
-              + "(GDI at most the warm-up's on every cycle=\(gdiFlat); USER rising every cycle or > warm-up + 1=\(userRising); handles rising on every "
-              + "cycle=\(handlesRising); windows, kit controls, dialog registrations, the pump and its timer back to the start)")
+              "before the group: \(start); \(verdict.summary); windows, kit controls, dialog registrations, the pump and its timer back to the start (last: \(last))")
     }
 }
 /// A page for the popover's contract checks: a size change from inside `build`, an edit with its own context menu, and the
