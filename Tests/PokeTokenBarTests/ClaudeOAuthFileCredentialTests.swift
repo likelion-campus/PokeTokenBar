@@ -159,9 +159,9 @@ final class ClaudeOAuthFileCredentialTests: XCTestCase {
     /// error kind only, so the wrong wording behind it never showed.
     @MainActor func testUserRefreshWithoutAFileShowsTheCredentialMissingText() async {
         AppEnv.allowLiveFetchForTesting = true
-        let store = UsageStore(defaults: TestDefaults.make(suite: "ptb.test.p14.\(UUID().uuidString)"), providers: [],
-                               claudeLimitsProvider: OAuthLimitsProvider(accessTokenCache: .forConfigRoot(root)),
-                               discoverClaudeConfigDirs: { [] })
+        let store = UsageStore(providers: [], claudeLimitsProvider: OAuthLimitsProvider(accessTokenCache: .forConfigRoot(root)),
+                               discoverClaudeConfigDirs: { [] },
+                               defaults: TestDefaults.make(suite: "ptb.test.p14.\(UUID().uuidString)"))
         for language in AppLanguage.allCases {
             store.localizationLanguage = language
             await store.refreshLimitTokenFromKeychain()
