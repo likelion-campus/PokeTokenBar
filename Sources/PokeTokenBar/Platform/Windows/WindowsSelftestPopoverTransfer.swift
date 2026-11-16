@@ -474,7 +474,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         stores.companion.setShopDifficulty(1)
         guard await open(), let page, let section = section else { r.add("settings.difficulty", false, "no page"); return }
         let rows = section.difficultyRowsForTesting
-        let growth = rows.growth?.control, shop = rows.shop?.control
+        let growth = rows.growth, shop = rows.shop
         let startPositions = (trackPosition(growth), trackPosition(shop))
         let expectedStart = PopoverDifficultySlider.position(of: 1)
         let startText = (valueText(growth), valueText(shop))
@@ -503,13 +503,13 @@ final class TransferDialogDriver: @unchecked Sendable {
         let rebuilt = await waitFor(3) { self.page?.rowsForTesting.language?.control !== page.rowsForTesting.language?.control || self.page?.rebuildsForTesting ?? 0 > 0 }
         await pause(0.6)
         let afterRebuild = self.section?.difficultyRowsForTesting
-        let keptDraft = (self.section?.draftForTesting?.shop ?? -1) == shopDraft && PopoverDifficultySlider.value(atPosition: trackPosition(afterRebuild?.shop?.control)) == shopDraft && shown(afterRebuild?.save)
+        let keptDraft = (self.section?.draftForTesting?.shop ?? -1) == shopDraft && PopoverDifficultySlider.value(atPosition: trackPosition(afterRebuild?.shop)) == shopDraft && shown(afterRebuild?.save)
         stores.companion.setLanguage(.en)
         close()
         _ = await open()
         let reopened = self.section?.difficultyRowsForTesting
-        let discarded = trackPosition(reopened?.shop?.control) == PopoverDifficultySlider.position(of: 1) && !shown(reopened?.save)
-            && valueText(reopened?.growth?.control) == l.difficultyValue(expectedGrowth)
+        let discarded = trackPosition(reopened?.shop) == PopoverDifficultySlider.position(of: 1) && !shown(reopened?.save)
+            && valueText(reopened?.growth) == l.difficultyValue(expectedGrowth)
         r.add("settings.difficulty",
               startPositions == (expectedStart, expectedStart) && startText == (l.difficultyValue(1), l.difficultyValue(1)) && saveHiddenAtStart
                 && draftGrowth == expectedGrowth && storeUntouched && saveShown && draftText == l.difficultyValue(expectedGrowth)
@@ -526,7 +526,7 @@ final class TransferDialogDriver: @unchecked Sendable {
     func difficultyKeysCheck() async {
         stores.companion.setGrowthDifficulty(1)
         stores.companion.setShopDifficulty(1)
-        guard await open(), let section = section, let bar = section.difficultyRowsForTesting.growth?.control else { r.add("settings.difficultyKeys", false, "no slider"); return }
+        guard await open(), let section = section, let bar = section.difficultyRowsForTesting.growth else { r.add("settings.difficultyKeys", false, "no slider"); return }
         await focus(bar)
         func press(_ vk: Int32) async -> Int {
             key(UInt16(vk))
@@ -765,8 +765,8 @@ final class TransferDialogDriver: @unchecked Sendable {
             if let value, d.value != value { problems.append("\(label): value '\(d.value)' expected '\(value)'") }
         }
         let rows = section.difficultyRowsForTesting, t = section.transferRowsForTesting
-        check("growth", rows.growth?.control, value: l.difficultyValue(1))
-        check("shop", rows.shop?.control, value: l.difficultyValue(1))
+        check("growth", rows.growth, value: l.difficultyValue(1))
+        check("shop", rows.shop, value: l.difficultyValue(1))
         check("export", t.export?.control)
         check("import", t.import?.control)
         check("snapshot", t.snapshot?.control)
@@ -774,7 +774,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         // The controls are inside the window and in reading order (Tab order is the z-order of the page).
         let controls = page?.stackForTesting?.controls ?? []
         let index = { (c: WinControl?) in controls.firstIndex { $0 === c } ?? -1 }
-        let ordered = index(rows.growth?.control) < index(rows.shop?.control) && index(rows.shop?.control) < index(t.export?.control)
+        let ordered = index(rows.growthRow?.control) < index(rows.shopRow?.control) && index(rows.shopRow?.control) < index(t.export?.control)
             && index(t.export?.control) < index(t.import?.control) && index(t.import?.control) < index(t.snapshot?.control) && index(t.snapshot?.control) < index(t.history?.control)
         r.add("settings.transferA11y", problems.isEmpty && ordered,
               "difficulty sliders, export, import, snapshot and history controls through MSAA (the screen reader's view): problems \(problems); reading order growth < shop < export < import < snapshot < history=\(ordered)")
@@ -791,7 +791,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         for language in [AppLanguage.en, .ko] {
             let tag = language.rawValue
             if await open(language: language) {
-                slide(section?.difficultyRowsForTesting.growth?.control, to: 120)
+                slide(section?.difficultyRowsForTesting.growth, to: 120)
                 await pause(0.3)
                 await shoot(titled: l.difficultySectionTitle, name: "difficulty-\(tag).png", dir: dir, wrote: &wrote, failed: &failed)
                 await shoot(titled: l.transferSectionTitle, name: "transfer-collapsed-\(tag).png", dir: dir, wrote: &wrote, failed: &failed)
