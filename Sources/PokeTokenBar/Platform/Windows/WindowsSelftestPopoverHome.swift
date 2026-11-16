@@ -57,6 +57,14 @@ private struct HomeFixtureSessionKeys: SessionKeyManaging {
     func clear() {}
 }
 
+/// A Pokémon provider that answers nothing and asks no network: the fixture companions must not start PokéAPI requests (they
+/// woke worker threads in the idle window that follows these checks).
+private struct HomeFixturePoke: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine { throw LimitsError.keychainAccessDisabled }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+}
+
 /// The stores a page reads (sample providers; nothing reads this PC's logs, credentials or network).
 @MainActor struct HomeStores {
     let store: UsageStore
@@ -65,8 +73,11 @@ private struct HomeFixtureSessionKeys: SessionKeyManaging {
     let state: PopoverState
     let directory: URL
 
+    /// One defaults object for every fixture (a new synced one per store would keep its own watchers).
+    private static let sharedDefaults = WinDefaultsSync.makeAppDefaults()
+
     static func make(language: AppLanguage, providers: [any UsageProvider] = [], refresh: Bool = false) async -> HomeStores {
-        let defaults = WinDefaultsSync.makeAppDefaults()
+        let defaults = sharedDefaults
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-home-fixture-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let store = UsageStore(
@@ -78,7 +89,7 @@ private struct HomeFixtureSessionKeys: SessionKeyManaging {
             statusProvider: HomeFixtureStatuses(), sessionKeys: HomeFixtureSessionKeys(), accountSessionKeys: { _ in HomeFixtureSessionKeys() },
             autoRefresh: false, defaults: defaults, displaysAsleep: { false })
         if refresh { await store.refresh(scheduleEmptyRetry: false) }
-        let companion = CompanionStore(fileURL: directory.appendingPathComponent("companion.json"), defaults: defaults)
+        let companion = CompanionStore(provider: HomeFixturePoke(), fileURL: directory.appendingPathComponent("companion.json"), defaults: defaults)
         companion.setLanguage(language)
         return HomeStores(store: store, companion: companion, team: TeamSettings(defaults: defaults), state: PopoverState(), directory: directory)
     }
@@ -543,11 +554,13 @@ enum HomeFixtures {
             await wait(0.2)
             let refreshed = h.recordedActions.contains(.refresh)
             WindowsSelftestPopover.tap(0x09)
+            await wait(0.2)
             let afterRefresh = WinKit.text(of: GetFocus())
             WindowsSelftestPopover.tap(0x20)
             await wait(0.2)
             let settings = h.recordedActions.contains(.showSettings)
             WindowsSelftestPopover.tap(0x09)
+            await wait(0.2)
             let afterSettings = WinKit.text(of: GetFocus())
             WindowsSelftestPopover.tap(0x0D)
             await wait(0.2)
