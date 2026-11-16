@@ -19,6 +19,11 @@ import Foundation
 struct PopoverDrawing {
     var drawing: PlazaPanelDrawing
     var spriteSlots: [SpriteSlot] = []
+    // --- stage 7 Task 12: a render that changed only a part of the picture (begin) ---
+    /// The part of the part (DIP, part coordinates) that differs from the previous render, when the part knows (a hover);
+    /// nil: all of it. The host repaints only this.
+    var dirty: CGRect? = nil
+    // --- stage 7 Task 12 (end) ---
 }
 
 /// A place the host draws a sprite into (D16): the frame in part coordinates, which sprite, whether it bobs (a still

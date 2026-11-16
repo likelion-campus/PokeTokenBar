@@ -597,14 +597,15 @@ enum HomeFixtures {
             await wait(0.2)
             cycles.append(KitResources.now())
         }
-        guard cycles.count == 4, let warm = cycles.first, let last = cycles.last else {
+        guard cycles.count == 4, let last = cycles.last else {
             r.add("home.openClose3", false, "only \(cycles.count) of 4 cycles")
             return
         }
-        let ok = last.gdi - warm.gdi <= 5 && last.user - warm.user <= 5 && last.handles - warm.handles <= 10 && last.controls == 0
-            && last.dialogs == start.dialogs && last.pumpDepth == 0 && !armedAfter
-        r.add("home.openClose3", ok, "before the group: \(start); after a warm-up open/close: \(warm); after 3 more: \(cycles.dropFirst().map { "\($0)" }.joined(separator: " / ")); "
-              + "clock armed after a close=\(armedAfter) (budget over the warm-up: GDI +5, USER +5, handles +10; kit controls and dialog registrations back to the start)")
+        // userSlack 1: this check opens the real popover window, whose USER count moves by one between cycles on the runner
+        // (17/18/17/18; see popover.openClose3). A USER object leaked per open still fails: it passes warm-up + 1 on the second cycle.
+        let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) }, userSlack: 1)
+        let ok = verdict.ok && last.controls == 0 && last.dialogs == start.dialogs && last.pumpDepth == 0 && !armedAfter
+        r.add("home.openClose3", ok, "before the group: \(start); \(verdict.summary); clock armed after a close=\(armedAfter); kit controls and dialog registrations back to the start (last: \(last))")
     }
 
     // MARK: home.firstPaint: the first frame after open is the page, not a white window

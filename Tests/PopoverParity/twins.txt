@@ -87,3 +87,37 @@ UI/SettingsView.swift#SettingsView.settingsSection | Popover/PopoverLayout.swift
 UI/SettingsView.swift#SettingsView.groupRow | Popover/PopoverLayout.swift#PopoverStackMetrics | pin de0f40885b3be327
 UI/SettingsView.swift#SettingsView.toggleRow | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 5306650b1d9e7bdd
 UI/SettingsView.swift#SettingsView.body | Popover/PopoverLayout.swift#PopoverStackMetrics | pin 9943ac8116be3c71
+
+# --- stage 7 Task 12: the activity panel and the streak (Popover/PopoverTrendMetrics.swift, PopoverActivityModel.swift) ---
+UI/PopoverView.swift#DailyTrendColumn | Popover/PopoverTrendMetrics.swift#PopoverTrendColumn | DailyTrendColumn=PopoverTrendColumn
+UI/PopoverView.swift#DailyTrendMetrics | Popover/PopoverTrendMetrics.swift#PopoverTrendMetrics | DailyTrendMetrics=PopoverTrendMetrics, DailyTrendColumn=PopoverTrendColumn
+UI/PopoverView.swift#DailyTrendHover | Popover/PopoverTrendMetrics.swift#PopoverTrendHover | DailyTrendMetrics=PopoverTrendMetrics
+UI/PopoverView.swift#MonthDailyTrend.readout | Popover/PopoverTrendMetrics.swift#PopoverTrendSurface.readout | DailyTrendMetrics=PopoverTrendMetrics
+UI/PopoverView.swift#MonthDailyTrend.shouldShowSurface | Popover/PopoverTrendMetrics.swift#PopoverTrendSurface.shouldShowSurface
+UI/StreakBadge.swift#StreakBadge.isShown | Popover/PopoverTrendMetrics.swift#PopoverStreak.isShown
+UI/ActivityHeatmap.swift#ActivityCell | Popover/PopoverTrendMetrics.swift#PopoverHeatCell | ActivityCell=PopoverHeatCell
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.weekdayLabels | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.weekdayLabels
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.columns | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.columns | ActivityCell=PopoverHeatCell
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.recentGrid | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.recentGrid | ActivityCell=PopoverHeatCell
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.days | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.days
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.recordedSince | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.recordedSince
+UI/ActivityHeatmap.swift#ActivityHeatmapMetrics.level | Popover/PopoverTrendMetrics.swift#PopoverHeatmapMetrics.level
+UI/PopoverView.swift#WrappingHStack.arrange | Popover/PopoverTrendMetrics.swift#PopoverWrapLayout.arrange | pin c7e662c0cfca0d04
+UI/PopoverView.swift#MonthDailyTrend.body | Popover/PopoverActivityModel.swift#TrendBarsModel.make | pin f73d1f3a0e23e165
+UI/ActivityHeatmap.swift#ActivityHeatmap.body | Popover/PopoverActivityModel.swift#HeatmapModel.make | pin 30e5ce76db5afda9
+UI/ActivityHeatmap.swift#ActivityHeatmap.readout | Popover/PopoverActivityModel.swift#HeatmapModel.readout | pin aa5f6adc2a7480b0
+UI/StreakBadge.swift#StreakBadge.body | Popover/PopoverActivityModel.swift#StreakModel.make | pin 22ad5a0351c2c687
+# The recap (stage 7 Task 13): RecapContent is copied whole (driven against the original by PopoverRecapEquivalenceTests+Mac); the card and
+# the screen are SwiftUI bodies rebuilt as RecapCardModel / RecapCardPart / RecapPageModel / RecapNavigation (the model tests and the
+# equivalence test evaluate the bodies' expressions; these pins catch a change the corpus misses).
+UI/UsageRecapView.swift#RecapContent | Popover/PopoverRecapContent.swift#PopoverRecapContent | RecapContent=PopoverRecapContent
+UI/UsageRecapView.swift#RecapCard.body | Popover/RecapCardPart.swift#RecapCardPart | pin 08095d8a75333bd2
+UI/UsageRecapView.swift#RecapCard.header | Popover/RecapCardPart.swift#RecapCardPart | pin 7ee16bcc0f8ea23b
+UI/UsageRecapView.swift#RecapCard.lens | Popover/RecapCardPart.swift#RecapCardPart | pin 68029d281a6fd3c4
+UI/UsageRecapView.swift#RecapCard.screen | Popover/PopoverRecapContent.swift#RecapCardModel | pin 4bdde63c127fe92e
+UI/UsageRecapView.swift#RecapCard.deltaChip | Popover/PopoverRecapContent.swift#RecapCardModel | pin 1862d1ba9fdfd8d9
+UI/UsageRecapView.swift#RecapCard.meters | Popover/PopoverRecapContent.swift#PopoverRecapMetrics | pin 5071325d6bf4db59
+UI/UsageRecapView.swift#RecapCard.meter | Popover/PopoverRecapContent.swift#PopoverRecapMetrics | pin e0b4fb93ba359565
+UI/UsageRecapView.swift#RecapCard.readout | Popover/RecapCardPart.swift#RecapCardPart | pin 71ae30923f9e518b
+UI/UsageRecapView.swift#RecapCard.graduateStrip | Popover/RecapCardPart.swift#RecapCardPart | pin 1d4143c31638785a
+UI/UsageRecapView.swift#RecapScreen.body | Popover/PopoverRecapContent.swift#RecapPageModel | pin ac09eb1678ba61bd

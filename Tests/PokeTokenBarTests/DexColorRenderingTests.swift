@@ -144,7 +144,7 @@ final class DexColorRenderingTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = host
-        window.orderFront(nil)
+        window.orderInForTest()
         defer { window.close() }
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
         for (step, shiny) in [false, true, false].enumerated() {
@@ -193,7 +193,7 @@ final class DexColorRenderingTests: XCTestCase {
                     window.isReleasedWhenClosed = false
                     window.appearance = NSAppearance(named: .aqua)
                     window.contentView = host
-                    window.orderFront(nil)
+                    window.orderInForTest()
                     defer { window.close() }
                     host.layoutSubtreeIfNeeded()
                     RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
@@ -238,7 +238,7 @@ final class DexColorRenderingTests: XCTestCase {
                 window.isReleasedWhenClosed = false
                 window.appearance = NSAppearance(named: .aqua)
                 window.contentView = host
-                window.orderFront(nil)
+                window.orderInForTest()
                 defer { window.close() }
                 host.layoutSubtreeIfNeeded()
                 RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
