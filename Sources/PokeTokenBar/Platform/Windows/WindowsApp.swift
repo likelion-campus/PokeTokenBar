@@ -89,6 +89,7 @@ extension WindowsApp {
     /// the log line is lost unless flushed.
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
         WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
+        if let line = WindowsSelftestPopoverWindow.idleProbeExitLine() { AppLog.write(line) }  // stage 7 Task 4: the idle gate's popover state at exit
         popoverToClose?.close(.quit)  // stage 7 Task 4
         WinDefaultsSync.flushNow()
         WindowsCrashLog.markClean()
@@ -149,7 +150,7 @@ private func crtExit(_ code: Int32) -> Never {
         _ = RunLoop.main  // 1 (F4; before any window)
         mutexName = WinSingleInstance.mutexName(stateDirectory: AppStatePaths.directory(),
                                                 defaultDirectory: Self.defaultStateDirectory)
-        if WinSingleInstance.acquire(name: mutexName) == .yielded {  // 2 (before anything that writes)
+        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart")) == .yielded {  // 2 (before anything that writes)
             yielded = true
             AppLog.writeAndFlush("duplicate instance: yielding to the instance already running (\(mutexName))")
             return false
