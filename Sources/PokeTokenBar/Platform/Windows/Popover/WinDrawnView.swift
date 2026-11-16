@@ -22,6 +22,18 @@ import WinSDK
     var hitTest: ((CGPoint) -> PlazaPanelHit?)?
     /// Draws over the picture after it is blitted (sprite frames, Task 8).
     var paintOverlay: ((HDC) -> Void)?
+    // --- stage 7 Task 12: the pointer and the keys over a part (begin) ---
+    /// The pointer over the part (DIP, part coordinates); nil when it left. Set before the first `show`: only then do the
+    /// part's items follow the pointer. Windows is asked to tell when the pointer leaves only while it is over the part.
+    var onPointer: ((CGPoint?) -> Void)?
+    /// A key pressed with the focus on one of the part's items (a virtual-key code); true when handled. Set before the first
+    /// `show`: only then do the items take the arrow keys.
+    var onKey: ((Int) -> Bool)?
+    var onFocus: ((Bool) -> Void)?
+    /// Whether Escape is the part's now (a selection to clear).
+    var claimsEscape: (() -> Bool)?
+    private var overPart = false
+    // --- stage 7 Task 12 (end) ---
     /// The view as a control a `WinStack` row places.
     private(set) var control: WinControl!
     /// The sprites in the part's slots (Task 8): fed the slots after every `show`, freed with the view.
@@ -42,9 +54,10 @@ import WinSDK
     private var hosted: (any PopoverPart)?
     private var hostedWidth: CGFloat = 0
     private var renderPending = false
+    private var tooltipKey: [String] = []  // stage 7 Task 12
     private(set) var isDestroyed = false
 
-    struct Stats: Equatable { var paints = 0, composes = 0, itemBuilds = 0, itemMoves = 0, hits = 0, renders = 0, paintPixels = 0 }
+    struct Stats: Equatable { var paints = 0, composes = 0, itemBuilds = 0, itemMoves = 0, hits = 0, renders = 0, paintPixels = 0, partialPaints = 0, itemRenames = 0 }
     private(set) var stats = Stats()
 
     init(parent: HWND, ctx: WinUIContext) throws {
@@ -74,33 +87,26 @@ import WinSDK
             return 0
         }
         window.on(0x0215 /* WM_CAPTURECHANGED */) { [weak self] _, _ in self?.pressed = nil; return nil }
-        window.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
-        // --- stage 7 Task 9: hover, for a host that asks (begin) ---
+        // --- stage 7 Task 12 (begin) ---
         window.on(0x0200 /* WM_MOUSEMOVE */) { [weak self] _, lParam in
-            guard let self, let onHover = self.onHover else { return nil }
-            if !self.tracksLeave {
-                var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: self.hwnd,
-                                          dwHoverTime: 0)
-                self.tracksLeave = TrackMouseEvent(&tme)
+            guard let self, let onPointer = self.onPointer else { return nil }
+            if !self.overPart {
+                self.overPart = true
+                var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: self.hwnd, dwHoverTime: 0)
+                _ = TrackMouseEvent(&tme)
             }
-            onHover(self.dip(WinKit.point(lParam)))
-            return nil
+            onPointer(self.dip(WinKit.point(lParam)))
+            return 0
         }
         window.on(0x02A3 /* WM_MOUSELEAVE */) { [weak self] _, _ in
-            guard let self else { return nil }
-            self.tracksLeave = false
-            self.onHover?(nil)
-            return nil
+            guard let self, self.onPointer != nil else { return nil }
+            self.overPart = false
+            self.onPointer?(nil)
+            return 0
         }
-        // --- stage 7 Task 9 (end) ---
+        // --- stage 7 Task 12 (end) ---
+        window.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
     }
-
-    // --- stage 7 Task 9 (begin) ---
-    /// The pointer over the view (DIP, part coordinates) on every move, nil when it leaves (`TrackMouseEvent`). Only a host
-    /// that sets it pays for it.
-    var onHover: ((CGPoint?) -> Void)?
-    private var tracksLeave = false
-    // --- stage 7 Task 9 (end) ---
 
     /// The picture's size in DIP (a part's `size(width:scale:text:)`). A new size tells the page (`onSizeChange`), which
     /// lays itself out again, so the rows under a part that grew or shrank move with it.
@@ -144,7 +150,17 @@ import WinSDK
             shownTooltips = drawing.drawing.tooltips
         }
         sprites?.update(slots: drawing.spriteSlots, in: self)
-        if let dirty = drawing.dirty { invalidate(dip: dirty) } else { _ = RedrawWindow(hwnd, nil, nil, UINT(0x0001 | 0x0080)) }  // RDW_INVALIDATE | RDW_ALLCHILDREN
+        // --- stage 7 Task 12: a render that knows what changed repaints only that (begin) ---
+        // (merged with Task 9: the item children over the region repaint with it, RDW_ALLCHILDREN, rather than all of them)
+        if let dirty = drawing.dirty {
+            var px = WinKit.rect(CGRect(x: dirty.minX * ctx.scale, y: dirty.minY * ctx.scale, width: dirty.width * ctx.scale, height: dirty.height * ctx.scale))
+            px.left -= 1; px.top -= 1; px.right += 1; px.bottom += 1
+            _ = RedrawWindow(hwnd, &px, nil, UINT(0x0001 | 0x0080))  // RDW_INVALIDATE | RDW_ALLCHILDREN
+            stats.partialPaints += 1
+        } else {
+            _ = RedrawWindow(hwnd, nil, nil, UINT(0x0001 | 0x0080))  // RDW_INVALIDATE | RDW_ALLCHILDREN (Task 9: items paint what is under them)
+        }
+        // --- stage 7 Task 12 (end) ---
         // --- stage 7 Task 9 (end) ---
     }
 
@@ -191,7 +207,6 @@ import WinSDK
         hosted = nil
         onHit = nil
         hitTest = nil
-        onHover = nil  // stage 7 Task 9
         paintOverlay = nil
         control.destroy()
     }
@@ -350,7 +365,21 @@ import WinSDK
     // MARK: - accessibility children
 
     private func updateItems(_ new: [PlazaAccessibilityItem]) {
-        let sameItems = new.count == itemData.count && zip(new, itemData).allSatisfy { $0.sameExceptFrame($1) }
+        var sameItems = new.count == itemData.count && zip(new, itemData).allSatisfy { $0.sameExceptFrame($1) }
+        // --- stage 7 Task 12: an item whose only change is its text is renamed in place (the focus stays; Narrator is told) (begin) ---
+        if !sameItems, new.count == itemData.count, items.count == new.filter({ $0.role != .scrollArea }).count,
+           zip(new, itemData).allSatisfy({ $0.role == $1.role && $0.action == $1.action && $0.key == $1.key && $0.isEnabled == $1.isEnabled && $0.inScrollArea == $1.inScrollArea }) {
+            for (c, item) in zip(items, new.filter { $0.role != .scrollArea }) {
+                let name = item.value.map { "\(item.label), \($0)" } ?? item.label
+                if c.text != name {
+                    c.text = name
+                    _ = NotifyWinEvent(0x800C /* EVENT_OBJECT_NAMECHANGE */, c.hwnd, -4 /* OBJID_CLIENT */, 0 /* CHILDID_SELF */)
+                    stats.itemRenames += 1
+                }
+            }
+            sameItems = true
+        }
+        // --- stage 7 Task 12 (end) ---
         if !sameItems {
             let focusedIndex = items.firstIndex { $0.hwnd == GetFocus() }
             for item in items { item.destroy() }
@@ -365,6 +394,21 @@ import WinSDK
                     guard let self, let c else { return }
                     self.paintItem(c, dis)
                 }
+                // --- stage 7 Task 12: the item forwards the pointer, the keys and the focus (begin) ---
+                if onPointer != nil {
+                    c.onPointer = { [weak self, weak c] p in
+                        guard let self, let c else { return }
+                        guard let p else { self.onPointer?(nil); return }
+                        let at = WinKit.rect(c.hwnd, in: self.hwnd)
+                        self.onPointer?(self.dip(POINT(x: p.x + at.left, y: p.y + at.top)))
+                    }
+                }
+                if onKey != nil {
+                    c.onKey = { [weak self] key in self?.onKey?(key) ?? false }
+                    c.claimsEscape = { [weak self] in self?.claimsEscape?() ?? false }
+                }
+                if onFocus != nil { c.onFocus = { [weak self] focused in self?.onFocus?(focused) } }
+                // --- stage 7 Task 12 (end) ---
                 items.append(c)
             }
             if let i = focusedIndex, i < items.count { _ = SetFocus(items[i].hwnd) }
@@ -395,6 +439,11 @@ import WinSDK
     }
 
     private func updateTooltips(_ tooltips: [PlazaTooltip]) {
+        // --- stage 7 Task 12: the same tooltips again change nothing (a hover render would otherwise dismiss a shown one) (begin) ---
+        let key = tooltips.map { "\($0.frame)|\($0.text)" } + [String(stats.itemBuilds)]
+        guard key != tooltipKey else { return }
+        tooltipKey = key
+        // --- stage 7 Task 12 (end) ---
         ctx.tooltips.removeAll(in: hwnd)
         for (i, tip) in tooltips.enumerated() {
             let r = PopoverComposite.pixelRect(tip.frame, scale: ctx.scale)

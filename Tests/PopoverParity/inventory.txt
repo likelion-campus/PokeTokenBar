@@ -32,11 +32,11 @@ P4 | 1 | done Popover/PopoverWindowMetrics.swift | UI/PopoverView.swift | Popove
 P4w | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/PopoverView.swift | The popover's pages: Home content 520 high and scrolling; Settings and Recap replace the content in place
 P5 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift, UI/UsageCostText.swift | Today header: caption, compact total (28 pt bold, monospaced), grouped digits from 1,000 (region grouping), today's cost when shown
 P6 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift | Week and month totals with cost; two lines when narrow
-P7 | 2 | pending T12 | UI/StreakBadge.swift | Streak badge: flame + days from 2 days, orange when today counts, tooltip and accessibility label
+P7 | 2 | done Platform/Windows/Popover/WinActivitySection.swift | UI/StreakBadge.swift | Streak badge: flame + days from 2 days, orange when today counts, tooltip and accessibility label
 P8 | 2 | done Platform/Windows/Popover/WinRecapPage.swift | UI/PopoverView.swift | Recap button (chart glyph + "Details"), opens the recap page
-P9 | 2 | pending T12 | UI/ActivityVisualization.swift | Activity panel: a click cycles the visualization (bars, heatmap), tooltip, page dots
-P10 | 2 | pending T12 | UI/PopoverView.swift | Monthly bars: window menu (7/14/21 days, this month), today readout, peak, provider-stacked bars + legend, hover card (day, tokens, cost, per provider), weekend ticks, axis labels, future days
-P11 | 2 | pending T12 | UI/ActivityHeatmap.swift | 16-week heatmap: weekday labels from the region's first weekday, 5 green levels, today outline, hover readout, peak, recorded-since
+P9 | 2 | done Platform/Windows/Popover/WinActivitySection.swift | UI/ActivityVisualization.swift | Activity panel: a click cycles the visualization (bars, heatmap), tooltip, page dots
+P10 | 2 | done Platform/Windows/Popover/WinActivitySection.swift | UI/PopoverView.swift | Monthly bars: window menu (7/14/21 days, this month), today readout, peak, provider-stacked bars + legend, hover card (day, tokens, cost, per provider), weekend ticks, axis labels, future days
+P11 | 2 | done Platform/Windows/Popover/WinActivitySection.swift | UI/ActivityHeatmap.swift | 16-week heatmap: weekday labels from the region's first weekday, 5 green levels, today outline, hover readout, peak, recorded-since
 P12 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift | Provider tabs (capsules, horizontal scroll) when more than one provider has usage today; the choice is kept across openings
 P13 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift | Provider row: name, today's tokens, cost when the provider reports one, input/output/cache-write/cache-read, per-model lines (more than one model, sorted, last path part, middle truncation)
 P14 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift | Provider status banner: coloured dot, indicator label, incident description (only with an incident)
@@ -95,7 +95,7 @@ G2 | 3 | pending T20 | UI/SettingsView.swift | General: representative Pokémon 
 G3 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: refresh interval picker
 G4 | 3 | pending T22 | UI/SettingsView.swift | General: animation quality (menu bar sprite and floating pet); not shown until the pet exists (P16)
 G5 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: limit display used / remaining
-G6 | 2 | pending T12 | UI/SettingsView.swift | General: daily trend period picker
+G6 | 2 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: daily trend period picker
 G7 | 2 | pending T14 | UI/SettingsView.swift | General: tracked Claude account (two or more accounts): automatic, highest, each account
 G8 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: launch at login (Mac hints "bundled only" / approval / error; Windows: WindowsLoginItem, "disabled in Task Manager")
 G9 | 2 | pending T15 | UI/DifficultySettingsSection.swift | Difficulty: growth and shop sliders, value text, low/high labels, Save when changed

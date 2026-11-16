@@ -298,6 +298,22 @@ jobs:
           Get-ChildItem ui-dump\home -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "popover home: $($bad -join ', ')" }
       # --- stage 7 Task 5: the Home page (end) ---
+      # --- stage 7 Task 12: the activity panel and the streak (begin) ---
+      - name: Popover activity checks ran (home.activity*, captures in ui-dump/activity)
+        if: (success() || failure()) && steps.package.outcome == 'success'
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'home.activityCapture', 'home.activityHover', 'home.activityKeyboard', 'home.activityCycle', 'home.heatmapWeekStart', 'home.activityStreakLine', 'home.activityOpenClose'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          Get-ChildItem ui-dump\activity -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
+          if ($bad.Count -gt 0) { throw "popover activity: $($bad -join ', ')" }
+      # --- stage 7 Task 12: the activity panel and the streak (end) ---
       # --- stage 7 Task 13: the usage recap (begin) ---
       - name: Popover recap checks ran (recap.*, captures in ui-dump/recap)
         if: (success() || failure()) && steps.package.outcome == 'success'
@@ -1022,6 +1038,14 @@ jobs:
               $summary.windows[$label].homeLog = @(Select-String -Path $logFile -Pattern 'popover home idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
           }
           # --- stage 7 Task 5: the Home page open and left alone (end) ---
+          # --- stage 7 Task 12: the activity chart open and left alone (begin) ---
+          # A chart is static: opening it adds no timer, so it must cost what the open kit window costs (the closed app's budget).
+          foreach ($mode in 'bars', 'heatmap') {
+              $label = "popover-activity-$mode-120s"
+              Measure-App $label 120 $off $budget @('--popover-activity-idle-probe', $mode)
+              $summary.windows[$label].activityLog = @(Select-String -Path $logFile -Pattern 'popover activity idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+          }
+          # --- stage 7 Task 12: the activity chart open and left alone (end) ---
           # --- stage 7 Task 13: the recap page open and left alone (begin) ---
           # Sample data in a kit window (CI only): a static page, so the closed app's budget. Reported next to the Home page's.
           Measure-App 'popover-recap-open-120s' 120 $off $budget @('--popover-recap-idle-probe')
@@ -1238,6 +1262,13 @@ jobs:
           name: ui-companion
           retention-days: 7
           path: ui-dump/companion
+      # stage 7 Task 12: the activity panel's fixture states (sample data, Windows CI runner)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-activity
+          retention-days: 7
+          path: ui-dump/activity
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()

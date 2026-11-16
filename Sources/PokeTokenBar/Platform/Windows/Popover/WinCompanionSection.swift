@@ -157,6 +157,7 @@ import WinSDK
             let row = section.addStyledRow(label: nil, style: .full) { [self] pane, ctx in
                 guard let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
                 view.sprites = WinSpriteAnimator(fetcher: Self.fetcher(), animationsEnabled: self.animationsEnabled)
+                view.onPointer = { [weak self] point in self?.hovered(point) }  // the growth bar's hover (Task 12's pointer hook)
                 let part = CompanionHeaderPart(m, textScale: CGFloat(ctx.textScale))
                 view.host(part, width: width)
                 made = (view, part)
@@ -171,7 +172,7 @@ import WinSDK
                     sprites?(dc)
                     self?.headerPainted()
                 }
-                view.onHover = { [weak self] point in self?.hovered(point) }
+
             }
             var lineMade: (WinDrawnView, EvoLinePart)?
             let lineRow = section.addStyledRow(label: nil, style: .full) { [self] pane, ctx in

@@ -19,14 +19,16 @@ import Foundation
 struct PopoverDrawing {
     var drawing: PlazaPanelDrawing
     var spriteSlots: [SpriteSlot] = []
-    // --- stage 7 Task 9: what is drawn over the sprites, and what changed (begin) ---
+    // --- stage 7 Task 9: what is drawn over the sprites (begin); `dirty` below serves its celebration frames too ---
     /// Layers drawn over the sprites (part coordinates, the drawing's own space): a celebration's flash and bursts, the
     /// evolution line's edge fade and chevrons. Empty for most parts.
     var overlays: [PlazaPanelLayer] = []
-    /// The region (part coordinates) that differs from the previous render, when the part knows it (a celebration frame
-    /// changes only the sprite box); nil = everything.
-    var dirty: CGRect? = nil
     // --- stage 7 Task 9 (end) ---
+    // --- stage 7 Task 12: a render that changed only a part of the picture (begin) ---
+    /// The part of the part (DIP, part coordinates) that differs from the previous render, when the part knows (a hover);
+    /// nil: all of it. The host repaints only this.
+    var dirty: CGRect? = nil
+    // --- stage 7 Task 12 (end) ---
 }
 
 /// A place the host draws a sprite into (D16): the frame in part coordinates, which sprite, whether it bobs (a still
