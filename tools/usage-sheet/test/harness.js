@@ -22,7 +22,7 @@ function formatInZone(date, tz, pattern) {
 // Fakes are in-memory and only as wide as the script uses.
 //   SpreadsheetApp.getActiveSpreadsheet() -> one fake spreadsheet:
 //     getSheetByName, insertSheet, getSheets, deleteSheet
-//   Sheet: getName, getLastRow, getLastColumn, getMaxRows, getRange(row, col, numRows?, numCols?)
+//   Sheet: getName, getLastRow, getLastColumn, getMaxRows, insertRowsAfter, getRange(row, col, numRows?, numCols?) [strict about the 1000-row grid]
 //     [getValues/setValues/setValue/setNumberFormat/clearContent], appendRow, hideSheet,
 //     isSheetHidden, deleteRow, deleteRows, getCharts/insertChart/removeChart, newChart (recording builder),
 //     setFrozenRows, clear. Test-only inspection: sheet._rows, sheet._formats (col -> format).
@@ -46,11 +46,14 @@ function makeSheet(name) {
       sheet._rows.forEach((r) => { for (let i = r.length - 1; i >= 0; i--) { if (r[i] !== "" && r[i] !== undefined) { w = Math.max(w, i + 1); break; } } });
       return w;
     },
-    getMaxRows: () => Math.max(sheet._maxRows, sheet._rows.length),
+    getMaxRows: () => sheet._maxRows,
+    insertRowsAfter(after, n) { if (after > sheet._maxRows) throw new Error("fake insertRowsAfter: bad position"); sheet._maxRows += n; },
     getRange(row, col, numRows, numCols) {
       const nr = numRows === undefined ? 1 : numRows;
       const nc = numCols === undefined ? 1 : numCols;
-      if (row < 1 || col < 1 || nr < 0 || nc < 0) throw new Error("fake getRange: bad coordinates");
+      if (row < 1 || col < 1 || nr < 1 || nc < 1) throw new Error("fake getRange: bad coordinates");
+      // Like real Sheets: a range past the grid throws (a new tab has 1000 rows).
+      if (row + nr - 1 > sheet._maxRows) throw new Error("fake getRange: coordinates outside the dimensions");
       return {
         getValues() {
           const out = [];

@@ -213,13 +213,14 @@ function parsePayload(text, nowMs, tz) {
 // (or null-prototype objects) because keys come from outside.
 
 var TAB_SPECS = [
-  { name: TAB_RAW, cols: COLS_RAW, dateCols: [3] },
-  { name: TAB_LIMITS, cols: COLS_LIMITS, dateCols: [3, 10] },
-  { name: TAB_PEOPLE, cols: COLS_PEOPLE, dateCols: [] },
-  { name: TAB_DEPTS, cols: COLS_DEPTS, dateCols: [4] },
-  { name: TAB_TEAMLABELS, cols: COLS_TEAMLABELS, dateCols: [], hidden: true },
-  { name: TAB_DEVICES, cols: COLS_DEVICES, dateCols: [], hidden: true },
-  { name: TAB_SETTINGS, cols: COLS_SETTINGS, dateCols: [] }
+  { name: TAB_RAW, cols: COLS_RAW, textCols: [3] },
+  { name: TAB_LIMITS, cols: COLS_LIMITS, textCols: [3, 10] },
+  { name: TAB_PEOPLE, cols: COLS_PEOPLE, textCols: [] },
+  { name: TAB_DEPTS, cols: COLS_DEPTS, textCols: [4] },
+  { name: TAB_TEAMLABELS, cols: COLS_TEAMLABELS, textCols: [], hidden: true },
+  { name: TAB_DEVICES, cols: COLS_DEVICES, textCols: [], hidden: true },
+  // 값 stays text so a typed "70%" is not turned into 0.7.
+  { name: TAB_SETTINGS, cols: COLS_SETTINGS, textCols: [2] }
 ];
 
 // Creates every missing data tab. Existing tabs are left alone, so it is idempotent.
@@ -229,11 +230,12 @@ function ensureSheets(ss) {
     var sheet = ss.insertSheet(spec.name);
     sheet.getRange(1, 1, 1, spec.cols.length).setValues([spec.cols]);
     sheet.setFrozenRows(1);
-    spec.dateCols.forEach(function (col) {
+    spec.textCols.forEach(function (col) {
       sheet.getRange(1, col, sheet.getMaxRows() || 1000, 1).setNumberFormat("@");
     });
     if (spec.name === TAB_SETTINGS) {
       var rows = DEFAULT_SETTINGS.map(function (s) { return [s.key, s.value, s.note]; });
+      ensureRows(sheet, rows.length + 1);
       sheet.getRange(2, 1, rows.length, 3).setValues(rows);
     }
     if (spec.hidden) sheet.hideSheet();
@@ -300,6 +302,12 @@ function parseSettings(rows) {
   return out;
 }
 
+// A real sheet throws when a range lies past getMaxRows(); grow it first.
+function ensureRows(sheet, lastRowNeeded) {
+  var max = sheet.getMaxRows();
+  if (lastRowNeeded > max) sheet.insertRowsAfter(max, lastRowNeeded - max);
+}
+
 function sheetRows(sheet, width) {
   var last = sheet.getLastRow();
   if (last < 2) return [];
@@ -329,6 +337,7 @@ function upsertRows(sheet, width, keyOfRow, items) {
   });
   if (rows.length > existingCount) {
     var added = rows.slice(existingCount);
+    ensureRows(sheet, existingCount + 1 + added.length);
     sheet.getRange(existingCount + 2, 1, added.length, width).setValues(added);
   }
 }
@@ -349,6 +358,7 @@ function checkDevice(sheet, member, nowMs) {
       return true;
     }
   }
+  ensureRows(sheet, rows.length + 2);
   sheet.getRange(rows.length + 2, 1, 1, 4).setValues([[member.id, hash, msToIso(nowMs), msToIso(nowMs)]]);
   return true;
 }

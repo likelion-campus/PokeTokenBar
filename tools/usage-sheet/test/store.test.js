@@ -196,6 +196,42 @@ test("ensureSheets is idempotent, hides two tabs and sets text format on date co
   assert.equal(ss.getSheetByName("부서")._formats[4], "@");
 });
 
+test("ensureSheets keeps the settings value column as text", () => {
+  const { S, ss } = fresh();
+  S.ensureSheets(ss);
+  assert.equal(ss.getSheetByName("설정")._formats[2], "@");
+});
+
+test("reports pushing the raw tab past the 1000-row grid still land", () => {
+  const { S, ss } = fresh();
+  function big(prefix) {
+    const b = validBody();
+    b.limits = [];
+    b.days = [];
+    for (let d = 0; d < 40; d++) {
+      const date = S.localDateString(NOW - d * 86400000, TZ);
+      b.days.push({ date, team: "t_ab12cd34ef56", tools: Array.from({ length: 32 }, (_, i) => (
+        { tool: `${prefix}${i}`, input: 1, output: 1, cacheWrite: 1, cacheRead: 1 })) });
+    }
+    return b;
+  }
+  assert.equal(report(S, big("a")).ok, true);
+  assert.equal(dataRows(ss, "원본").length, 1280);
+  assert.equal(report(S, big("b"), NOW + 1000).ok, true);
+  assert.equal(dataRows(ss, "원본").length, 2560);
+  assert.equal(ss.getSheetByName("원본").getMaxRows() >= 2561, true);
+});
+
+test("the device tab grows past 1000 members", () => {
+  const { S, ss } = fresh();
+  S.ensureSheets(ss);
+  const dev = ss.getSheetByName("기기");
+  for (let i = 0; i < 999; i++) dev._rows.push([`m${i}`, "h", "", ""]);
+  const r = report(S, validBody());
+  assert.equal(r.ok, true);
+  assert.equal(dataRows(ss, "기기").length, 1000);
+});
+
 test("ensureSheets does not rewrite settings the owner edited", () => {
   const { S, ss } = fresh();
   S.ensureSheets(ss);
