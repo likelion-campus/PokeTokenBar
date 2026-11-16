@@ -46,7 +46,7 @@ final class IndividualPickerRenderingTests: XCTestCase {
             window.appearance = NSAppearance(named: .aqua)
             window.contentView = host
             window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
-            window.orderFront(nil)
+            window.orderInForTest()
             try await Task.sleep(for: .milliseconds(100))
             host.layoutSubtreeIfNeeded()
             func descendants(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(descendants) }

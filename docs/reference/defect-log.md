@@ -2786,3 +2786,10 @@ read_when:
   최근접 결과에 대 본다(맥이 언젠가 또렷해지면 실패). 결함 주입(스케일러를 최근접으로)으로 실패 확인.
   **규칙:** 맥 쪽 그림을 옮길 때는 수식어가 아니라 맥이 실제로 그린 픽셀(오프스크린 렌더·실제 스크린샷)을 기준으로 삼는다. 비교 시트는 양쪽을 같은 배율로, 다시 늘린다면 최근접으로 붙인다.
 <!-- stage 7 Task 9: the companion header (end) -->
+
+## 테스트 하네스 (사용자 화면·포커스)
+
+- **오래된 렌더/히트테스트 시험 13개가 `orderFront`/`makeKeyAndOrderFront` 로 창을 창 서버에 올렸다 — 사용자가 일하는 Mac 에서 `swift test` 마다.** (fx-wintests)
+  **직접 원인:** `NSHostingView` 가 레이아웃·렌더되도록 창을 올리는 한 줄을 파일마다 따로 복사했다(좌표 -10000 으로 화면 밖이지만, 두 파일은 `makeKeyAndOrderFront` 라 key 를 가져가려 했다). **왜 못 걸렀나:** 플라자 시험에만 `PlazaNoWindowsOrderedInScanTests` 가 있었고 나머지 시험 파일은 스캔 대상이 아니었다 — 규칙이 한 디렉터리 접두사(`Plaza`)에만 걸려 있어 "모든 시험" 규칙이 아니었다.
+  **고침:** 모든 호출을 `window.orderInForTest()`(`LiveWindowTestSupport.swift`, 포크 소유)로 바꿨다. `PTB_LIVE_WINDOW_TESTS` 가 없으면 아무것도 하지 않는다(창 서버에 안 올림); 있으면 화면 밖·일반 레벨 아래·non-key 로 올린다. `NoWindowsOrderedInScanTests` 가 허용 목록 밖 모든 시험 파일의 `orderFront(`/`makeKeyAndOrderFront(`/`NSApp.activate(` 등을 막는다.
+  **규칙:** 시험에서 창을 직접 올리지 않는다 — `orderInForTest()` 만 쓴다. 새 시험 파일이 서버 올림을 필요로 하면 이 헬퍼로. 허용 목록에 예외를 더할 땐 이유를 적는다.

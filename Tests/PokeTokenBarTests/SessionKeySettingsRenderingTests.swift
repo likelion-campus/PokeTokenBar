@@ -31,7 +31,7 @@ final class SessionKeySettingsRenderingTests: XCTestCase {
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .aqua)
         window.contentViewController = host
-        window.makeKeyAndOrderFront(nil)
+        window.orderInForTest()
         defer {
             window.orderOut(nil)
             previousKeyWindow?.makeKey()
