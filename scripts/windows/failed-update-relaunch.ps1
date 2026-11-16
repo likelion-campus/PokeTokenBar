@@ -30,6 +30,9 @@
 #   killedFirstEntry  Setup killed after 5 files of the first [Files] entry: the folder starts; the next Setup finishes.
 #   killedDuringRestore  Setup killed while putting files back after a late failure: the version file went back
 #                     first, so the next Setup puts the copy back again (and, failing too, leaves vN).
+#   appDoesNotClose   the app never closes (its mutex held, nothing answers WM_CLOSE): silent Setup ends by itself
+#                     (exit 1) within its bound, touches nothing, starts nothing; uninstallAppDoesNotClose: the same
+#                     for the silent uninstaller.
 #   updateOk          the shipped vN+1 installer: exit 0, one vN+1 process from [Run], the copy removed; its time and size.
 # The test builds install bundle-test: vN+1 with one byte appended to every file but the version file and THIRD-PARTY.txt
 # (same size, same time, another first byte), so "the previous contents came back" is a SHA-256 comparison (a file
@@ -67,7 +70,7 @@ function Read-SetupLog([string]$Path) {
     $text = if (Test-Path $Path) { Get-Content $Path -Raw } else { '' }
     # The lines that tell what Setup did, for the job log.
     foreach ($line in $text -split "`r?`n") {
-        if ($line -match 'PTB setup:|PTB update:|PTB relaunch:|PTBTest|InitializeSetup|Rolling back|suppressed message box|User canceled|Installation process succeeded|Setup version:|does not support') { "  setup: $line" | Write-Host }
+        if ($line -match 'PTB setup:|PTB uninstall:|PTB update:|PTB relaunch:|PTBTest|InitializeSetup|Rolling back|suppressed message box|User canceled|Installation process succeeded|Setup version:|does not support') { "  setup: $line" | Write-Host }
     }
     $text
 }
@@ -273,6 +276,55 @@ Invoke-Scenario 'minVersion' {
     Assert-That ($text -notmatch 'InitializeSetup: app mutex held|PTB setup:|PTB update:|PTB relaunch:') 'minVersion.noCode' 'no [Code] line in the setup log'
     Assert-That (-not $old.HasExited) 'minVersion.appUntouched' "the running app (pid $($old.Id)) was neither closed nor restarted"
     Assert-That ((Get-InstalledVersion) -eq $Version) 'minVersion.installUntouched' "version file $(Get-InstalledVersion)"
+}
+
+# A PokeTokenBar that never closes: a helper holds the app's mutex and has no window to answer WM_CLOSE. Silent Setup
+# (the in-app update's switches) and the silent uninstaller must give up within their bound, say so in their log and
+# leave everything as it was; nothing may wait for a click (a [Code] MsgBox ignores /SUPPRESSMSGBOXES).
+function Start-AppMutexHolder {
+    $h = Start-Process pwsh -ArgumentList '-NoProfile', '-Command', "`$m = [System.Threading.Mutex]::new(`$false, 'Local\PokeTokenBar-Team'); Start-Sleep -Seconds 600" -PassThru -WindowStyle Hidden
+    for ($i = 0; $i -lt 50; $i++) {
+        Start-Sleep -Milliseconds 200
+        try { ([System.Threading.Mutex]::OpenExisting('Local\PokeTokenBar-Team')).Dispose(); return $h } catch { }
+    }
+    Stop-Process -Id $h.Id -Force -ErrorAction SilentlyContinue
+    throw 'the helper did not create the app mutex'
+}
+
+Invoke-Scenario 'appDoesNotClose' {
+    Install-Baseline 'appDoesNotClose'
+    $before = Get-FolderHashes $PtbInstallDir
+    $holder = Start-AppMutexHolder
+    try {
+        $log = Join-Path $LogDir 'app-does-not-close.log'
+        $t0 = Get-Date
+        $code = Invoke-Setup $setupNext (Get-UpdateSetupArgs $log) -TimeoutSec 120
+        $secs = [int]((Get-Date) - $t0).TotalSeconds
+        $text = Read-SetupLog $log
+        Assert-That ($code -eq 1 -and $secs -lt 60) 'appDoesNotClose.setupReturns' "silent Setup ended by itself: exit $code after $secs s"
+        Assert-That ($text -match 'PTB setup: PokeTokenBar did not close in \d+ s' -and $text -match 'PTB relaunch: no \(an instance is still running\)' -and $text -notmatch 'Dest filename:') 'appDoesNotClose.setupLog' 'did not close; relaunch: no (an instance is still running); no file written'
+        Assert-That (-not (Get-Process -Name 'PokeTokenBar-Setup-*' -ErrorAction SilentlyContinue)) 'appDoesNotClose.noSetupLeft' 'no Setup process left'
+        Assert-PreviousContents 'appDoesNotClose' $before
+    } finally {
+        Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Invoke-Scenario 'uninstallAppDoesNotClose' {
+    Install-Baseline 'uninstallAppDoesNotClose'
+    $holder = Start-AppMutexHolder
+    try {
+        $log = Join-Path $LogDir 'uninstall-app-does-not-close.log'
+        $t0 = Get-Date
+        $code = Invoke-Setup (Join-Path $PtbInstallDir 'unins000.exe') @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"") -TimeoutSec 120
+        $secs = [int]((Get-Date) - $t0).TotalSeconds
+        Start-Sleep -Seconds 2
+        $text = Read-SetupLog $log
+        Assert-That ($code -ne 0 -and $secs -lt 60 -and (Test-Path $exe)) 'uninstallAppDoesNotClose.returns' "the silent uninstaller ended by itself: exit $code after $secs s; app folder kept: $(Test-Path $exe)"
+        Assert-That ($text -match 'PTB uninstall: PokeTokenBar did not close in \d+ s') 'uninstallAppDoesNotClose.log' 'PTB uninstall: PokeTokenBar did not close'
+    } finally {
+        Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # Started the way the app starts it: Setup's working folder (and so its loader's) is the install folder.

@@ -88,12 +88,21 @@ function Get-Iscc {
     $iscc
 }
 
-# Starts a setup exe and waits for IT only (Start-Process -Wait would also wait for the app Setup starts). Exit code.
+# Starts a setup exe (or an uninstaller) and waits for IT only (Start-Process -Wait would also wait for the app Setup
+# starts). Exit code. It never waits longer than -TimeoutSec: then it names the windows on screen (a message box waiting
+# for a click shows here), kills every Setup and uninstaller process, prints the end of the /LOG file and FAILS.
 # -WorkingDirectory: the folder Setup inherits as its working folder (the app starts it from its own folder).
 function Invoke-Setup([string]$Setup, [string[]]$SetupArgs, [int]$TimeoutSec = 180, [string]$WorkingDirectory = '') {
     $p = if ($WorkingDirectory) { Start-Process -FilePath $Setup -ArgumentList $SetupArgs -WorkingDirectory $WorkingDirectory -PassThru } else { Start-Process -FilePath $Setup -ArgumentList $SetupArgs -PassThru }
     $null = $p.Handle
-    if (-not $p.WaitForExit($TimeoutSec * 1000)) { Stop-Process -Id $p.Id -Force; throw "$Setup did not end in $TimeoutSec s" }
+    if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+        $windows = [PtbCiWizard]::Describe('#32770')  # #32770: a dialog, which is what a message box is
+        Stop-Setups
+        $log = @($SetupArgs | Where-Object { $_ -like '/LOG=*' }) | Select-Object -First 1
+        $log = "$log" -replace '^/LOG=', '' -replace '"', ''
+        if ($log -and (Test-Path $log)) { Write-Host "---- the last lines of $log ----"; Get-Content $log -Tail 40 | Write-Host }
+        throw "FAIL setup.timeout: $(Split-Path $Setup -Leaf) did not end in $TimeoutSec s; killed every Setup process; windows on screen: $windows"
+    }
     $p.ExitCode
 }
 
@@ -126,8 +135,9 @@ function Compare-FolderHashes($Before, $After) {
     @(@($Before.Keys) + @($After.Keys) | Sort-Object -Unique | Where-Object { $Before[$_] -ne $After[$_] })
 }
 
-# Every PokeTokenBar Setup process: the loader and the Setup it extracted (a .tmp exe).
-function Stop-Setups { Get-Process -Name 'PokeTokenBar-Setup-*' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
+# Every PokeTokenBar Setup process (the loader and the Setup it extracted, a .tmp exe) and uninstaller (unins000.exe and
+# the copy it runs from TEMP, _iu*.tmp).
+function Stop-Setups { Get-Process -Name 'PokeTokenBar-Setup-*', 'unins000', '_iu*' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
 
 # Runs a setup exe with its wizard (a double-click; only /LOG added) and clicks it through: Next on every page, Install,
 # Finish (the Finish page's launch box stays as Setup sets it), and records the page title after each click. Exit code.
