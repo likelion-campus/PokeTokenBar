@@ -936,6 +936,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}  # read-only, for the API rate limit
         run: ./scripts/windows/upgrade-from-release.ps1 -Version $env:PTB_VERSION -Installer "installer-out\PokeTokenBar-Setup-$env:PTB_VERSION-win-x64.exe"
+      # ---- failed-update-relaunch: Setup run as the in-app update runs it (/PTBRELAUNCHONFAIL=1); setup logs in collected\failed-update ----
+      - name: A failed update brings the old app back
+        id: failed-update-relaunch
+        if: (success() || failure()) && steps.iscc.outcome == 'success' && env.PTB_LEVEL == 'full'
+        shell: pwsh
+        run: ./scripts/windows/failed-update-relaunch.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
+      # ---- end failed-update-relaunch ----
       # New gate steps go above this line ("Collect logs"); the two release-mode steps stay last.
       - name: Collect logs
         if: always()

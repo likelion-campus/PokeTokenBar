@@ -15,7 +15,8 @@ TEMPLATE = (ROOT / "docs/reference/team-release-notes-template.md").read_text(en
 # the template's comments removed and the four sections filled
 GOOD = TEMPLATE.replace("## New\n", "## New\n\nNone.\n", 1).replace("## Fixed\n", "## Fixed\n\nNone.\n", 1) \
     .replace("## Other\n", "## Other\n\nNone.\n", 1) \
-    .replace("## Contributors\n", "## Contributors\n\nNo external contributors in this release.\n", 1)
+    .replace("## Contributors\n", "## Contributors\n\nNo external contributors in this release.\n", 1) \
+    .replace("(filled in Task 12)", "v2.5.700", 1)
 SHA = "ab" * 32
 
 
@@ -33,6 +34,12 @@ class Check(unittest.TestCase):
                     "Contributors": "No external contributors in this release."}[name]
             text = GOOD.replace(f"## {name}\n\n{body}\n", f"## {name}\n\n<!-- c -->\n", 1)
             self.assertTrue(any(f"'## {name}' is empty" in f for f in tn.problems(text)), name)
+
+    def test_template_placeholder_is_refused(self):
+        self.assertIn("(filled in Task 12)", TEMPLATE, "the template still carries the placeholder this guards")
+        text = GOOD.replace("v2.5.700", "(filled in Task 12)", 1)
+        self.assertTrue(any("(filled in Task 12)" in f for f in tn.problems(text)))
+        self.assertEqual(tn.problems(GOOD), [])
 
     def test_missing_section_fails(self):
         self.assertTrue(any("'## Fixed'" in f for f in tn.problems(GOOD.replace("## Fixed\n", "", 1))))
