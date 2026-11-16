@@ -97,8 +97,8 @@ try {
     Check (-not (Test-Path $PtbInstallDir)) 'smoke.cleanRunner' "$PtbInstallDir absent before the install" "the runner is not clean: $PtbInstallDir exists"
     $logs = Join-Path $PWD 'collected'
     New-Item -ItemType Directory -Force -Path $logs | Out-Null
-    $p = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=$logs\smoke-install.log" -Wait -PassThru
-    Check ($p.ExitCode -eq 0) 'smoke.install' "exit $($p.ExitCode)"
+    $code = Invoke-Setup $installer @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=$logs\smoke-install.log")
+    Check ($code -eq 0) 'smoke.install' "exit $code"
     $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
     Check (Test-Path $exe) 'smoke.install.exe' $exe
     $iv = ([string](Get-Item $exe).VersionInfo.FileVersion).Trim(' ', [char]0)
@@ -136,8 +136,8 @@ try {
 
     # Uninstall and confirm it is gone.
     Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
-    $u = Start-Process -FilePath (Join-Path $PtbInstallDir 'unins000.exe') -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\smoke-uninstall.log" -Wait -PassThru
-    Check ($u.ExitCode -eq 0) 'smoke.uninstall' "exit $($u.ExitCode)"
+    $code = Invoke-Setup (Join-Path $PtbInstallDir 'unins000.exe') @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$logs\smoke-uninstall.log")
+    Check ($code -eq 0) 'smoke.uninstall' "exit $code"
     for ($i = 0; $i -lt 60 -and (Test-Path $PtbInstallDir); $i++) { Start-Sleep -Milliseconds 500 }
     Check (-not (Test-Path $PtbInstallDir)) 'smoke.uninstalled' "$PtbInstallDir is gone" "uninstall left $PtbInstallDir behind"
     Write-Host "PASS smoke: v$Version installed, its own selftest passed from the install folder, uninstalled"

@@ -2562,6 +2562,24 @@ read_when:
   드러났다. **스윕:** 이 작업의 다른 URL 비교는 `standardizedFileURL`·`.path`·같은 객체로 한다; 스크립트의 다른 로그 읽기는 `Get-Content`(쓰기 공유).
   **규칙:** 윈도에서 있을지 없을지 모르는 폴더의 URL 은 경로로 비교하고, 다른 프로세스가 쓰는 파일은 쓰기 공유로 연다.
 
+- **무인(silent) 경로는 사람을 기다리지 않는다 — 앱이 안 닫히면 조용한 Setup·제거가 아무도 누를 수 없는 확인 창에서 영원히 멈췄다 (stage 8, 출시 전).**
+  `InitializeSetup`·`InitializeUninstall` 은 앱이 15 초 안에 안 닫히면 `[Code]` 의 `MsgBox` 를 띄웠다. Inno 의 `MsgBox` 는 억제 불가로 등록돼 있어
+  (`Setup.ScriptFunc.pas`: `Suppressible := False`) `/SUPPRESSMSGBOXES` 를 무시한다. 러너 재현(run 43819088565, 앱 뮤텍스를 쥐고 `WM_CLOSE` 에 답하지 않는
+  도우미): 앱 안 업데이트 스위치의 조용한 Setup 이 15.8 초 뒤 "Message box (OK)" 를 화면에 띄우고 120 초가 지나도 끝나지 않았고, 조용한 제거도 같았다. 남은
+  제거 프로세스는 `unins000.dat` 를 쥐고 있어 뒤따른 모든 Setup 이 사본을 못 만들어 거절했다(exit 7). 사용자 PC 에서는 앱이 이미 끝난 뒤의 앱 안 업데이트가
+  눈에 잘 안 띄는 확인 창 하나에서 멈춘다. Inno 자신의 확인 창(AppMutex, Restart Manager, 파일 오류, MinVersion, 제거의 실행 중 확인)은 모두 억제 가능이고
+  기본값이 Abort/Cancel 이라 기다리지 않는다 — 기다린 것은 우리 코드 둘뿐이었다.
+  **고침:** 둘 다 `PTB setup:`/`PTB uninstall:` 한 줄을 남기고 `SuppressibleMsgBox` 를 쓴다(대화형에서는 그대로 보이고, 조용하면 기록만 하고 끝난다: Setup
+  exit 1, 아무것도 건드리지 않고 앱 뮤텍스가 남아 있으니 다시 켜지도 않는다). 기다림은 이름 붙은 30 초(`CloseWaitSeconds`). 그 뒤엔 죽이지 않고 거절한다 —
+  죽이면 앱의 종료(설정 동기화, 팀 연결 정리)를 건너뛰고, 30 초 동안 `WM_CLOSE` 에 답하지 않는 앱은 사용자를 기다리는 중일 수 있다.
+  **왜 못 걸렀나:** 앱 닫기 시나리오는 모두 잘 닫히는 앱만 썼고, CI 도우미는 시간 제한이 있었지만 로더만 죽이고 기록 없이 실패했다(Setup 의 .tmp 와
+  제거기의 `_unins.tmp` 는 살아남았다). 몇 단계는 `Start-Process -Wait` 에 단계 시간 제한도 없었다. 멈춘 run 43808578589 의 원인은 이것이 아니었다
+  (주석: "The hosted runner lost communication with the server"; 그 단계는 Setup 을 180 초로 묶고 있었다) — 가설을 확인하다 실제 결함을 찾았다.
+  **규칙:** 조용한(무인) 실행에서 닿을 수 있는 모든 확인 창은 억제 가능해야 하고(`[Code]` 에 `MsgBox`/`TaskDialogMsgBox` 금지), CI 가 Setup·제거를 돌릴 때는
+  언제나 시간 제한이 있는 도우미로 돌린다: 넘기면 화면의 창 이름을 남기고 Setup·제거 프로세스를 모두 죽이고 setup 로그를 붙여 실패한다.
+  **회귀 점검:** `failed-update-relaunch` 의 `appDoesNotClose`·`uninstallAppDoesNotClose`(30 초 근처에 스스로 끝남), `Invoke-Setup`(`ci-helpers.ps1`);
+  결함 주입(`MsgBox` 되돌리기)에서 두 시나리오가 120 초 제한에 걸린다.
+
 ## 윈도 로케일·알림 (windows-port)
 
 - **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**
@@ -2664,6 +2682,11 @@ read_when:
   (`insertOverComposition`·`editBeforeResult`(이전 동작) → 잡힘). **규칙:** 진짜 IME 결함은 메시지 순서를 먼저 찍고, 가짜 IME 는 그 순서를 그대로 흉내낸다;
   서브클래스 메시지 처리기에서 글을 읽는 코드는 그 읽기가 같은 처리기로 돌아온다는 걸 전제로 재진입을 막는다.
 
+- **`PopoverTwinEquivalenceTests.testTheLimitRowFollowsTheMac` 가 바쁜 Mac 에서 가끔 실패했다 — 한쪽은 고정한 `now`, 다른 쪽은 살아 있는 `Date()` 를 읽고 그 차이에 18 ms 허용치를 뒀다.** 행 모델(`LimitsBuilder(now:)`)은 주입한 시각으로, Mac 의 원본 복사본(`MacPopoverOracle.paceFraction`)은 호출 순간의 `Date()` 로
+  페이스를 계산한다. 눈금 위치 비교의 `accuracy: 1e-6` 은 5시간 창에서 18 ms 다. 2.2 초짜리 스위트는 통과했고 11.6 초짜리(바쁜 기계)는 실패했다. **왜 못 걸렀나:** 허용치가 "보통 몇 µs 차이"를 가정했고, 빠른 기계의 단독 실행에서는 그 가정이 늘 맞았다.
+  **고침:** 기대값을 주입한 `now` 한 개로 계산해 행 모델과 정확히 비교하고(허용치 없음), Mac 복사본의 값은 "주입한 now 의 페이스와 호출 직후 페이스 사이"에 있다고만 단언한다(페이스는 시간에 단조 — 벽시계 허용치가 아니라 경계). `testThePaceFractionFollowsTheMac` 도 같은 방식.
+  **부류 스윕:** `PopoverTwinEquivalenceTests+Mac` 의 나머지 `Date()` 는 시각이 주입 인자인 쪽(`LimitsBuilder(now:)`, `resetClockSuffix(now:)`)과 복사본이 함께 읽는 경우뿐이며, `testTheResetClockFollowsTheMac` 는 6시간 경계에서 30 초 떨어진 오프셋만 써 수 ms 차이로 갈리지 않는다.
+  **규칙:** 주입한 시계와 살아 있는 시계를 한 테스트에서 비교할 때는 허용치가 아니라 두 시각 사이의 경계로 단언한다. (결함 주입 확인은 하지 않았다: 가드가 아니라 테스트의 단언 방식을 바꾼 것이다.)
 - **윈도에서 Claude 로그인 파일이 없으면 새로고침이 "잠시 후 다시 시도하세요"라고 한다 — 시도해도 소용없는 조언이다(P14, 7단계 Task 6).** Claude Code 에 로그인한 적 없는 PC 에서 팝오버의 새로고침(사용자 동작)을 누르면
   `OAuthAccessTokenCache` 가 자격증명 파일을 못 찾고 Keychain 단계로 내려가는데, 윈도의 `readClaudeKeychain`(`Platform/OAuthKeychainUnavailable.swift`)이 `LimitsError.keychainAccessDisabled` 를 던졌다.
   스토어의 `friendlyLimitError` 는 이 오류를 `limitRefreshGeneric`("Claude 한도 조회에 실패했어요. 잠시 후 다시 시도하세요.")로 바꾼다 — 사용자가 Keychain 접근을 끈 맥 사용자를 위한 문구다. 맥은 같은 상황에서
@@ -2688,3 +2711,13 @@ read_when:
   **왜 못 걸렀나:** 작업 브랜치의 몇 번 실행에서 우연히 통과했고(표본 1~3개), 예산은 한 번 잰 값에 여유를 조금 얹어 정했다. 측정이 "무엇이 그 숫자를 만드는가"(핸들 종류, 깨운 타이머)를 안 남겨 실패해도 원인을 알 수 없었다. 시나리오 중 2는 앞선 검사가 시간대를 밀어야만 드러났다.
   **부류 스윕:** 시간·핸들·문맥전환 예산이 있는 모든 셀프테스트 검사를 표로 정리했다(`selftest-flakes-report.md`) — 여유 30% 미만: `plaza.frames`(틱/초 ≤70, 관측 60~64: 디스플레이 주사율에 묶임), `loop.runLoopTimer`(<250 ms, 관측 205), `modalPump.mainWork` 큐 ≥10(관측 14), `idle.window`(번들 프로세스 51/69).
   **규칙:** (1) 한 상태에는 쓰는 쪽이 하나여야 한다 — 검사가 컨트롤러의 갱신과 경쟁하면 이음매로 컨트롤러를 멈춘다. (2) 예산은 측정된 분포에서 정하고 표본 크기를 예산 옆에 적는다. (3) 깨움·핸들 예산은 알려진 원인(타이머·갱신·새 스레드)을 각자의 카운터로 세어 예산에 넣고, 출처를 모르는 몫은 실패로 남긴다. (4) 누수 판정은 한 번의 총량이 아니라 "매 반복마다 일어나는가"로 한다. (5) 프로세스 전체 숫자는 러너의 소프트웨어 렌더러·배경 스레드를 섞으므로 앱 스레드와 분리해 예산한다. 반복 도구: `windows-app.yml -f flake_loop=N`(번들 selftest 한 프로세스에서 N회, 매 회 값 출력).
+
+- **`PlazaWindowMacShellTests.testASavedFrameWinsOverCentring` 가 게이트에서 한 번 실패했다 — 모니터 배치에 따라 AppKit 이 저장된 창 프레임을 다른 곳으로 옮겨 되살린다.** 3대 디스플레이 맥의 전체 게이트(4761개)에서 `(4430, -87, 700, 532)` 가 나왔다(기대 `(120, 140, 700, 532)`). 테스트는 (120, 140) 에서 저장한 프레임이
+  그대로 돌아오길 기대했다. `saveFrame(usingName:)` 문자열(`"120 140 700 532 0 0 1728 1084"`)은 저장 창이 있던 **화면의 사각형**을 같이 담고, `setFrameUsingName`/`setFrameAutosaveName` 은 그 사각형과 지금 화면 배치를 견줘 프레임을 **되살리며 옮긴다**
+  (같은 문자열이 화면 사각형만 `0 0 1920 1080` 이면 (101, 141), `0 0 1440 900` 이면 (167, 210) 으로 돌아온다 — 맥 이 배치에서 실측). 어느 화면의 사각형이 "맞는" 것으로 치는지는 메뉴 막대·Dock·활성 화면에 달려 있어, 같은 코드가 같은 맥에서도 그때그때 다른 좌표를 낸다
+  (그 뒤 같은 배치에서 같은 테스트는 통과했다 — 게이트 시점의 정확한 화면 상태는 재현하지 못했다). 정확히 4430/-87 의 계산은 못 밝혔다. **제품 동작은 테스트 쪽 문제로 판단**: `open` 은 `center()` 뒤에 복원하고, 이 순서를 뒤집으면 테스트가 실패한다.
+  **왜 못 걸렀나:** 이전 게이트들은 같은 배치·같은 화면 상태에서 우연히 저장 좌표 = 복원 좌표였다 — 단일 배치에서 통과한 테스트는 "복원이 프레임을 보존한다"가 아니라 "이 배치에서 변환이 항등이다"를 확인했다.
+  **고침:** 기대값을 "저장한 프레임"이 아니라 "AppKit 이 그 이름으로 되살려 주는 프레임"(같은 방식으로 만든 두 번째 창의 `setFrameUsingName` 결과)으로 바꾸고, 그 값이 가운데 정렬 값과 다름을 고정물로 확인한다. `open` 에서 `center()`/복원 순서를 뒤집으면 실패함을 확인했다.
+  **부류 스윕:** 절대 창/화면 좌표를 단언하는 맥 테스트는 이것뿐이다(`testRosterCapacityUsesTheRestoredWindowHeight` 는 크기만, `PlazaWindowRig`/`PlazaLiveWindowTests` 는 화면이 닿는 화면 밖 좌표면 건너뛴다, `FloatingPetAgentTests` 는 `visibleFrame` 을 주입한다).
+  **열린 의문(제품):** 스크립트 실측에서 두 번째·세 번째 디스플레이에서 저장한 창은 다시 열면 주 디스플레이의 다른 위치로 돌아왔다(저장 사각형의 높이가 `visibleFrame` 과 달라 화면이 안 맞는 것으로 보인다). 앱 밖 스크립트라 메뉴 막대 상태가 달라 단정할 수 없다 — 실제 앱에서는 사람이 확인해야 한다.
+  **규칙:** `NSWindow` 프레임 저장·복원 테스트는 "저장한 값"이 아니라 "AppKit 이 그 이름으로 되살린 값"과 견주고, 크기·순서(가운데 정렬 뒤 복원)처럼 배치와 무관한 성질만 단언한다.

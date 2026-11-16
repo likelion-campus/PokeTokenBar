@@ -12,23 +12,23 @@ import Foundation
 /// `nextChange` gives the next instant that text changes, for the popover clock (D10: one timer, armed at the earliest
 /// change among the visible texts).
 enum RelativeTimeText {
-    static func text(for date: Date, now: Date, language: AppLanguage) -> String {
-        format(seconds: displayedSeconds(for: date, now: now), language: language)
+    static func text(for date: Date, now: Date, language: AppLanguage, coarse: Bool = false) -> String {
+        format(seconds: displayedSeconds(for: date, now: now, coarse: coarse), language: language)
     }
 
     /// The first instant after `now` at which `text(for: date, now:)` reads differently.
-    static func nextChange(for date: Date, now: Date) -> Date {
-        let current = displayedSeconds(for: date, now: now)
-        let candidates = [1, 60, 3600].map { boundary(unit: $0, for: date, now: now) }.sorted()
-        return candidates.first { displayedSeconds(for: date, now: $0) != current } ?? candidates.last!
+    static func nextChange(for date: Date, now: Date, coarse: Bool = false) -> Date {
+        let current = displayedSeconds(for: date, now: now, coarse: coarse)
+        let candidates = [1, 30, 60, 3600].map { boundary(unit: $0, for: date, now: now) }.sorted()
+        return candidates.first { displayedSeconds(for: date, now: $0, coarse: coarse) != current } ?? candidates.last!
     }
 
     /// The whole seconds the text shows.
-    static func displayedSeconds(for date: Date, now: Date) -> Int {
+    static func displayedSeconds(for date: Date, now: Date, coarse: Bool = false) -> Int {
         let ms = milliseconds(date, now)
         let past = ms <= 0
         let raw = past ? -ms / 1000 : (ms + 999) / 1000
-        let unit = granularity(raw)
+        let unit = granularity(raw, coarse: coarse)
         return past ? raw / unit * unit : (raw + unit - 1) / unit * unit
     }
 
@@ -38,9 +38,12 @@ enum RelativeTimeText {
             .format(.seconds(seconds))
     }
 
-    /// The smallest unit shown for `seconds`.
-    private static func granularity(_ seconds: Int) -> Int {
-        seconds < 3600 ? 1 : seconds < 86_400 ? 60 : 3600
+    /// The smallest unit shown for `seconds`. `coarse` (the Windows popover, D18): half minutes in the first minute, then whole minutes, so
+    /// an open popover wakes at most twice in the first minute and once a minute after ("2 minutes", not "2 minutes, 5 seconds"); the Mac's
+    /// SwiftUI text counts seconds under an hour, and that stays the default.
+    private static func granularity(_ seconds: Int, coarse: Bool = false) -> Int {
+        if coarse { return seconds < 60 ? 30 : seconds < 86_400 ? 60 : 3600 }
+        return seconds < 3600 ? 1 : seconds < 86_400 ? 60 : 3600
     }
 
     /// `date - now` in whole milliseconds, so boundary instants built from it compare exactly.

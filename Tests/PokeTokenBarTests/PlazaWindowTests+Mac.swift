@@ -279,24 +279,36 @@ private struct NoSprites: PlazaSpriteFetching {
 
     /// `open` centres the window before restoring the saved frame, so a saved position wins. Observable on a window that
     /// is never shown: the saved frame is applied when the autosave name is set.
+    ///
+    /// The expectation is what AppKit itself restores for that name, not the frame that was saved: `setFrameUsingName`
+    /// re-maps a frame to the current displays (the saved string carries the saving screen's rect), so on some display
+    /// arrangements a frame saved at (120, 140) comes back elsewhere (gate 4761 tests: (4430, -87) on a three-display Mac).
     func testASavedFrameWinsOverCentring() async throws {
         let name = "PlazaWindowMacShellTests.\(UUID())"
         defer { NSWindow.removeFrame(usingName: name) }
+        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+        func neverShown() -> NSWindow {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 640), styleMask: style, backing: .buffered, defer: false)
+            w.isReleasedWhenClosed = false
+            return w
+        }
         let saved = NSWindow(contentRect: NSRect(x: 120, y: 140, width: 700, height: 500),
-                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: true)
+                             styleMask: style, backing: .buffered, defer: true)
         saved.isReleasedWhenClosed = false
         saved.saveFrame(usingName: name)
+        let restored = neverShown()
+        restored.center()
+        XCTAssertTrue(restored.setFrameUsingName(name))
+        let centred = neverShown()
+        centred.center()
+        XCTAssertNotEqual(restored.frame.origin, centred.frame.origin, "the fixture tells the restored frame from the centred one")
+        XCTAssertEqual(restored.frame.size, saved.frame.size, "the size is restored as saved on any arrangement")
         let c = controller(shell: RecordingPlazaShell())
         c.prepareScene()
         let shell = PlazaMacWindow(autosaveName: name, front: { _ in XCTFail("this test never brings a window forward") })
         shell.open(stage: try XCTUnwrap(c.scene).stage, title: "t", overlays: c.overlayBindings)
         let w = try XCTUnwrap(shell.windowForTesting)
-        XCTAssertEqual(w.frame, saved.frame, "the saved frame, not the centred one")
-        let centred = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
-                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: true)
-        centred.isReleasedWhenClosed = false
-        centred.center()
-        XCTAssertNotEqual(saved.frame.origin, centred.frame.origin, "the fixture tells the two apart")
+        XCTAssertEqual(w.frame, restored.frame, "the frame AppKit restores for the name, not the centred one")
         XCTAssertEqual(c.rosterModel.capacity, PlazaRoster.capacity(forHeight: 500), "the roster fits the restored height")
         shell.stopPresenting()
         shell.dismantle()

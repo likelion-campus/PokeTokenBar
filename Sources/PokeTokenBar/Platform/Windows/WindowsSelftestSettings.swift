@@ -664,13 +664,13 @@ extension WindowsSelftest {
         key(0x09)
         await pause(0.2)
         let moved = GetFocus() != nick.hwnd && nick.text == "다람Z한"
-        // Esc: back (the page is the empty page now), the open edit's draft committed.
+        // Esc: back (to the Home page), the open edit's draft committed.
         await focus(nick)
         WinKit.send(nick.hwnd, 0x00B1, 99, 99)
         WindowsSelftestPopover.typeUnicode(0x71)   // q
         _ = await waitFor(1) { nick.text.hasSuffix("q") }
         key(0x1B)
-        let back = await waitFor(2) { self.popover?.pageForTesting is WinPopoverEmptyPage }
+        let back = await waitFor(2) { self.popover?.pageForTesting is WinHomePage }  // stage 7 Task 5: Back returns to Home
         let committed = team.nickname == "다람Z한q"
         let open = popover?.isOpen == true && popover?.state.showSettings == false
         // The Back link does the same.
@@ -678,7 +678,7 @@ extension WindowsSelftest {
         popover?.replacePage()
         _ = await waitFor(1) { self.popover?.pageForTesting is WinSettingsPage }
         clickLink(self.page?.backLinkForTesting)
-        let linkBack = await waitFor(2) { self.popover?.pageForTesting is WinPopoverEmptyPage }
+        let linkBack = await waitFor(2) { self.popover?.pageForTesting is WinHomePage }  // stage 7 Task 5: Back returns to Home
         r.add("settings.escape", typed && stored && stillThere && moved && back && committed && open && linkBack,
               "typed Z and 한 reach the field once=\(typed); Enter commits (stored=\(stored)) and the popover stays on Settings=\(stillThere); Tab moves on and writes nothing=\(moved); "
                 + "Esc after typing q -> back to the previous page=\(back) with the draft stored=\(committed), popover still open=\(open); Back link -> back=\(linkBack)")

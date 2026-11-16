@@ -66,6 +66,11 @@ public enum WindowsApp {
         }
         if arguments.contains("--popover-kit-idle-probe") { WindowsSelftest.startPopoverKitIdle() }  // stage 7 Task 3: the gate's open-kit window
         if arguments.contains("--popover-sprite-idle-probe") { WindowsSelftestPopover.startSpriteIdle() }  // stage 7 Task 8: an animating sprite open
+        // --- stage 7 Task 5: the gate's open Home page (begin) ---
+        if let i = arguments.firstIndex(of: "--popover-home-idle-probe") {
+            WindowsSelftestPopoverHome.startIdleProbe(mode: i + 1 < arguments.count ? arguments[i + 1] : "seconds")
+        }
+        // --- stage 7 Task 5: the gate's open Home page (end) ---
         if let i = arguments.firstIndex(of: "--popover-idle-probe") {  // stage 7 Task 4: the gate's popover windows (open / closed after open)
             WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
         }
