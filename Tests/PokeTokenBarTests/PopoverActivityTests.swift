@@ -207,12 +207,15 @@ final class PopoverActivityTests: XCTestCase {
         _ = part.size(width: 332, scale: 1, text: graphics.text)
         let drawing = part.render(scale: 1, graphics: graphics).drawing
         XCTAssertEqual(drawing.accessibility.map(\.role), [.button, .button])
-        XCTAssertEqual(drawing.accessibility.map { $0.action?.action }, ["cycle", "window"])
-        let panel = drawing.accessibility[0]
+        XCTAssertEqual(drawing.accessibility.map { $0.action?.action }, ["window", "cycle"], "the title first, then the chart: reading order")
+        let panel = drawing.accessibility[1]
+        let title = drawing.accessibility[0]
+        XCTAssertFalse(panel.frame.intersects(title.frame), "the two buttons touch and never overlap")
+        XCTAssertGreaterThan(panel.frame.height, 40, "the chart's button is the whole band under the caption")
         XCTAssertTrue(panel.label.contains(L(.en).title(for: .month)), panel.label)
         XCTAssertTrue(panel.label.contains("Peak"), panel.label)
         XCTAssertEqual(panel.value, L(.en).activitySwitchHint)
-        XCTAssertEqual(drawing.accessibility[1].label, L(.en).dailyTrendPeriod)
+        XCTAssertEqual(title.label, L(.en).dailyTrendPeriod)
         XCTAssertEqual(part.hit(CGPoint(x: 100, y: 40))?.action, "cycle")
         XCTAssertEqual(part.hit(CGPoint(x: 5, y: 10))?.action, "window")
         XCTAssertEqual(drawing.tooltips.map(\.text), [L(.en).activitySwitchHint])

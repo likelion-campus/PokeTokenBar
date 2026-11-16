@@ -231,6 +231,10 @@ import WinSDK
         bars = nil
         heat = nil
         streakPart = nil
+        // The views free their pictures when destroyed (the rows' controls would do it too, but only while the view is alive
+        // to be told): destroy them here, before the page forgets them.
+        panelView?.destroy()
+        streakView?.destroy()
         panelView?.onPointer = nil
         panelView?.onKey = nil
         panelView?.onFocus = nil

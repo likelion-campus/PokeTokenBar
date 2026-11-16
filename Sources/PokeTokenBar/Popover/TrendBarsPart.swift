@@ -26,6 +26,8 @@ import Foundation
     private var renderedSelection: String?
     private var laidOut: (width: CGFloat, key: String, layout: Layout)?
     let drawing = ActivityDrawing()
+    /// The card's texts (made once per day shown); apart from `drawing` so the chart's own cost is what a hover is measured by.
+    let cardDrawing = ActivityDrawing()
 
     init(_ model: TrendBarsModel, cardInfo: @escaping (String) -> PopoverTrendHover.Info? = { _ in nil }) {
         self.model = model
@@ -107,7 +109,7 @@ import Foundation
 
     func hit(_ point: CGPoint) -> PlazaPanelHit? {
         let graphics = PlatformPlaza.graphics
-        if titleRect(graphics: graphics).insetBy(dx: -2, dy: -2).contains(point) { return PlazaPanelHit(action: "window", index: nil) }
+        if titleRect(graphics: graphics).contains(point) { return PlazaPanelHit(action: "window", index: nil) }
         return PlazaPanelHit(action: "cycle", index: nil)
     }
 
@@ -216,7 +218,7 @@ import Foundation
         let ox = Self.cardRoom + 7, oy = Self.cardRoom + 5
         var cx = ox
         for (s, weight, color) in [(info.stamp, 600, primary), (info.tokens, 400, primary)] + (info.cost.map { [($0, 400, secondary)] } ?? []) {
-            let made = drawing.text(s, size: 10, weight: weight, color: color, at: CGPoint(x: cx, y: oy), scale: scale, graphics: graphics)
+            let made = cardDrawing.text(s, size: 10, weight: weight, color: color, at: CGPoint(x: cx, y: oy), scale: scale, graphics: graphics)
             if let layer = made.layer { layers.append(layer) }
             cx += made.width + 5
         }
@@ -225,17 +227,17 @@ import Foundation
         for r in info.providers {
             let color = PopoverColorRole.palette(model.legend.first { $0.name == r.name }?.colorIndex ?? 0).plazaColor()
             layers.append(.color(color, frame: CGRect(x: ox, y: ry + (h2 - 6) / 2, width: 6, height: 6)))
-            let name = drawing.text(r.name, size: 10, color: secondary, at: CGPoint(x: ox + 10, y: ry), scale: scale, graphics: graphics)
+            let name = cardDrawing.text(r.name, size: 10, color: secondary, at: CGPoint(x: ox + 10, y: ry), scale: scale, graphics: graphics)
             if let layer = name.layer { layers.append(layer) }
             var rx = right
             if let cost = r.cost {
                 let cw = w(cost)
                 rx -= cw
-                if let layer = drawing.text(cost, size: 10, color: secondary, at: CGPoint(x: rx, y: ry), scale: scale, graphics: graphics).layer { layers.append(layer) }
+                if let layer = cardDrawing.text(cost, size: 10, color: secondary, at: CGPoint(x: rx, y: ry), scale: scale, graphics: graphics).layer { layers.append(layer) }
                 rx -= 4
             }
             let tw = w(r.tokens)
-            if let layer = drawing.text(r.tokens, size: 10, color: primary, at: CGPoint(x: rx - tw, y: ry), scale: scale, graphics: graphics).layer { layers.append(layer) }
+            if let layer = cardDrawing.text(r.tokens, size: 10, color: primary, at: CGPoint(x: rx - tw, y: ry), scale: scale, graphics: graphics).layer { layers.append(layer) }
             ry += h2 + 2
         }
         return Card(drawing: PlazaPanelDrawing(layers: layers), frame: frame)
@@ -279,12 +281,17 @@ import Foundation
         if let layer = drawing.text(m.readout, size: 10, weight: 600, color: secondary, at: CGPoint(x: readoutX, y: l.captionTop),
                                     maxWidth: max(0, rightEdge - readoutX), scale: scale, graphics: graphics).layer { layers.append(layer) }
         if m.showsBars { layers += bars(l, scale: scale, graphics: graphics) }
+        // The caption's title is its own button (the window menu); the chart's button is everything else: the band under the
+        // caption, or the caption right of the title when there are no bars. They touch and never overlap; a click on the
+        // caption outside both reaches the host's own click path (`hit`).
         let titleFrame = CGRect(x: 0, y: l.captionTop, width: title.width, height: l.captionHeight)
+        let panelFrame = m.showsBars ? CGRect(x: 0, y: l.captionTop + l.captionHeight, width: w, height: l.height - l.captionTop - l.captionHeight)
+                                     : CGRect(x: title.width, y: l.captionTop, width: max(1, w - title.width), height: l.captionHeight)
         let whole = CGRect(x: 0, y: 0, width: w, height: l.height)
-        var items = [PlazaAccessibilityItem(frame: whole, role: .button, label: accessibleName, value: m.switchHint,
+        let items = [PlazaAccessibilityItem(frame: titleFrame, role: .button, label: m.windowLabel, value: m.title,
+                                            action: PlazaPanelHit(action: "window", index: nil), key: "window"),
+                     PlazaAccessibilityItem(frame: panelFrame, role: .button, label: accessibleName, value: m.switchHint,
                                             action: PlazaPanelHit(action: "cycle", index: nil), key: "panel")]
-        items.append(PlazaAccessibilityItem(frame: titleFrame.insetBy(dx: -2, dy: -2), role: .button, label: m.windowLabel, value: m.title,
-                                            action: PlazaPanelHit(action: "window", index: nil), key: "window"))
         var dirty: CGRect?
         if !fullRender {
             var rect = CGRect.null

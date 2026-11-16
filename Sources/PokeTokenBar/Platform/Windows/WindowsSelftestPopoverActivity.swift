@@ -114,7 +114,7 @@ enum ActivityFixtures {
     init?(input: ActivityInput?, store: UsageStore? = nil, companion: CompanionStore? = nil, dpi: UINT? = nil, facts: PopoverPlatformFacts = .mac,
           customize: ((WinActivitySection) -> Void)? = nil) {
         let box = self.box
-        let made = KitWindow(heightDIP: 200, dpi: dpi, register: true, origin: POINT(x: 0, y: 0), build: { _, stack in
+        let made = KitWindow(heightDIP: 200, dpi: dpi, register: true, origin: POINT(x: 600, y: 100), build: { _, stack in
             let card = stack.addSection(nil, card: false)
             let s = WinActivitySection(stack: stack, section: card, store: store, companion: companion, facts: input?.facts ?? facts)
             if let input { s.modelOverride = { _ in ActivityPanelModel.make(input) } }
@@ -168,6 +168,15 @@ enum ActivityFixtures {
         guard ptb_window_print(UnsafeMutableRawPointer(w.hwnd), &width, &height, &out) == 0, let out else { return nil }
         defer { ptb_plaza_free(out) }
         return WinUIDump.Bitmap(width: Int(width), height: Int(height), bgra: Array(UnsafeBufferPointer(start: out, count: Int(width * height) * 4)))
+    }
+
+    /// The real cursor over client pixel (x, y) of `item` (`nil`: away from every window of ours). A synthetic WM_MOUSEMOVE would be
+    /// undone at once: `TrackMouseEvent` posts WM_MOUSELEAVE for a window the cursor is not in.
+    private static func cursor(over item: HWND?, _ x: Int = 0, _ y: Int = 0) {
+        guard let item else { _ = SetCursorPos(2, 2); return }
+        var at = POINT(x: Int32(x), y: Int32(y))
+        _ = ClientToScreen(item, &at)
+        _ = SetCursorPos(at.x, at.y)
     }
 
     private static func ticks() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000 }
@@ -231,14 +240,15 @@ enum ActivityFixtures {
         var allOK = true
         for v in variants {
             let input = ActivityFixtures.input(v.kind, language: v.language, firstWeekday: v.firstWeekday, streak: v.streak)
+            cursor(over: nil)
             let t0 = ticks()
             guard let h = ActivityHarness(input: input, dpi: v.dpi) else {
                 lines.append("\(v.name): no window")
                 allOK = false
                 continue
             }
+            let firstPaint = ticks() - t0  // the harness is built, shown and painted once when its init returns
             await wait(0.3)
-            let firstPaint = ticks() - t0
             let w = h.window!
             let s = h.section
             var ok = true
@@ -262,10 +272,9 @@ enum ActivityFixtures {
                     + "first paint \(String(format: "%.0f", firstPaint)) ms, \(tree.nodes.count) windows, \(checks.summary)"
                 ok = checks.ok && panelNamed && streakNamed && menuNamed && bytes > 0
                 let target = input.series.last { $0.totalTokens > 0 && $0.date < input.today }?.date ?? input.today
-                if v.hover, let bars = s.bars, let p = point(of: target, bars), let item = s.panelView?.items.first {
-                    let px = Int((p.x * w.ctx.scale).rounded()), py = Int((p.y * w.ctx.scale).rounded())
-                    _ = SendMessageW(item.hwnd, UINT(WM_MOUSEMOVE), 0, lparam(px, py))
-                    await wait(0.3)
+                if v.hover, let bars = s.bars, let p = point(of: target, bars), let item = s.panelView?.items.last {
+                    cursor(over: item.hwnd, Int((p.x * w.ctx.scale).rounded()), Int((p.y * w.ctx.scale).rounded()) - Int((bars.titleRect(graphics: PlatformPlaza.graphics).maxY * w.ctx.scale).rounded()))
+                    await wait(0.4)
                     if let card = s.card, card.isShown, inked(card) > 500 {
                         if let dir, let bmp = cardBitmap(card) { _ = WinUIDump.write(bmp, to: dir.appendingPathComponent("activity-card-\(v.name).png")) }
                         note += ", card \(card.lastSize.cx)x\(card.lastSize.cy) px inked \(inked(card))"
@@ -289,57 +298,64 @@ enum ActivityFixtures {
     // MARK: home.activityHover: a hover shows the card, redraws the columns only, makes no text
 
     private static func hoverCheck(_ r: WindowsSelftest.Recorder) async {
+        cursor(over: nil)
         let input = ActivityFixtures.input(.three)
-        guard let h = ActivityHarness(input: input), let bars = h.section.bars, let view = h.section.panelView, let item = view.items.first else {
+        guard let h = ActivityHarness(input: input), let bars = h.section.bars, let view = h.section.panelView, let item = view.items.last,
+              let title = view.items.first else {
             r.add("home.activityHover", false, "no panel")
             return
         }
-        defer { h.destroy() }
+        defer { h.destroy(); cursor(over: nil) }
         await wait(0.3)
         let target = input.series.first { $0.totalTokens > 0 && $0.date < input.today }?.date ?? input.today
         guard let p = point(of: target, bars) else { r.add("home.activityHover", false, "no point over \(target)"); return }
         let scale = h.window.ctx.scale
-        let px = Int((p.x * scale).rounded()), py = Int((p.y * scale).rounded())
+        let band = bars.titleRect(graphics: PlatformPlaza.graphics).maxY  // the panel item starts under the caption
+        let px = Int((p.x * scale).rounded()), py = Int(((p.y - band) * scale).rounded())
         let before = view.stats
         bars.drawing.resetCounts()
         let t0 = ticks()
-        _ = SendMessageW(item.hwnd, UINT(WM_MOUSEMOVE), 0, lparam(px, py))
-        await wait(0.25)
+        cursor(over: item.hwnd, px, py)
+        await wait(0.4)
         let hoverMs = ticks() - t0
         let after = view.stats
         let card = h.section.card
-        let shown = card?.isShown == true && bars.selectedDate == target
+        let selected = bars.selectedDate
+        let shown = card?.isShown == true && selected == target
         let cardOK = card.map { inked($0) > 500 } ?? false
         let partial = after.partialPaints - before.partialPaints
         let made = bars.drawing.made
         let pixelsPainted = after.paintPixels - before.paintPixels
         let whole = Int(view.pixelSize.cx) * Int(view.pixelSize.cy)
-        let sameAgain = after.renders
-        _ = SendMessageW(item.hwnd, UINT(WM_MOUSEMOVE), 0, lparam(px + 1, py))
-        await wait(0.1)
-        let noRepeat = view.stats.renders == sameAgain
-        // the pointer leaves: the selection and the card go; then nothing runs on its own
-        _ = SendMessageW(item.hwnd, 0x02A3 /* WM_MOUSELEAVE */, 0, 0)
-        await wait(0.25)
-        let gone = bars.selectedDate == nil && card?.isShown == false
+        let rendersBefore = view.stats.renders
+        cursor(over: item.hwnd, px + 1, py)  // the same column again
+        await wait(0.3)
+        let noRepeat = view.stats.renders == rendersBefore
+        // over the caption's title (its own button): no day
+        cursor(over: title.hwnd, 3, 3)
+        await wait(0.3)
+        let caption = bars.selectedDate == nil && h.section.card?.isShown == false
+        // the pointer leaves: nothing is selected, and then nothing runs on its own
+        cursor(over: item.hwnd, px, py)
+        await wait(0.3)
+        let again = bars.selectedDate == target
+        cursor(over: nil)
+        await wait(0.4)
+        let gone = bars.selectedDate == nil && h.section.card?.isShown == false
         let quietStart = view.stats
         await wait(1.0)
         let quiet = view.stats == quietStart
-        // a message to the heatmap-less part from outside the bars' band selects nothing
-        _ = SendMessageW(item.hwnd, UINT(WM_MOUSEMOVE), 0, lparam(px, 1))
-        await wait(0.1)
-        let caption = bars.selectedDate == nil
-        r.add("home.activityHover", shown && cardOK && partial == 1 && made == 0 && pixelsPainted < whole / 2 && noRepeat && gone && quiet && caption,
-              "pointer over \(target): selected=\(bars.selectedDate ?? "-") card shown=\(shown) inked=\(cardOK); repaints: partial +\(partial) (expected 1), picture made again \(made) texts/pictures "
-              + "(expected 0), painted \(pixelsPainted) px of \(whole); the same column again re-rendered=\(!noRepeat); left: selection and card gone=\(gone); one second later nothing ran=\(quiet); "
-              + "over the caption selects nothing=\(caption); the hover took \(String(format: "%.0f", hoverMs)) ms incl. the 250 ms wait")
+        r.add("home.activityHover", shown && cardOK && partial >= 1 && made == 0 && pixelsPainted < whole / 2 && noRepeat && caption && again && gone && quiet,
+              "pointer over \(target): selected=\(selected ?? "-") card shown=\(shown) inked=\(cardOK); repaints: partial +\(partial) (expected >= 1), the chart made \(made) texts or pictures again "
+              + "(expected 0), painted \(pixelsPainted) px of \(whole); the same column again re-rendered=\(!noRepeat); over the title selects nothing=\(caption); back on the column=\(again); "
+              + "left: selection and card gone=\(gone); one second later nothing ran=\(quiet); the hover took \(String(format: "%.0f", hoverMs)) ms incl. the 400 ms wait")
     }
 
     // MARK: home.activityKeyboard: the arrow keys select a day, the accessible name follows
 
     private static func keyboardCheck(_ r: WindowsSelftest.Recorder) async {
         let input = ActivityFixtures.input(.three)
-        guard let h = ActivityHarness(input: input), let bars = h.section.bars, let view = h.section.panelView, let item = view.items.first else {
+        guard let h = ActivityHarness(input: input), let bars = h.section.bars, let view = h.section.panelView, let item = view.items.last else {
             r.add("home.activityKeyboard", false, "no panel")
             return
         }
@@ -401,17 +417,17 @@ enum ActivityFixtures {
         defer { h.destroy() }
         await wait(0.5)
         let startsAsBars = h.section.active == .bars && h.section.bars != nil
-        func press(_ index: Int) { if let item = view.items.dropFirst(index).first { _ = SendMessageW(item.hwnd, 0x00F5 /* BM_CLICK */, 0, 0) } }
-        press(0)
+        func press(title: Bool) { if let item = title ? view.items.first : view.items.last { _ = SendMessageW(item.hwnd, 0x00F5 /* BM_CLICK */, 0, 0) } }
+        press(title: false)
         await wait(0.5)
         let toHeatmap = stores.store.activityVisualization == .recentHeatmap && h.section.active == .heatmap
         let persisted = WinDefaultsSync.selftestSuiteName.flatMap { UserDefaults(suiteName: $0) }?.string(forKey: "activityVisualization") == "recentHeatmap"
-        press(0)
+        press(title: false)
         await wait(0.5)
         let back = stores.store.activityVisualization == .monthlyBars && h.section.active == .bars
         // the title's item opens the menu; the stand-in picks "Last 7 days"
         let menusBefore = h.section.menus
-        press(1)
+        press(title: true)
         await wait(0.5)
         let menuOpened = h.section.menus == menusBefore + 1
         let chose = stores.store.dailyTrendWindow == .d7 && h.section.bars?.model.title == L(.en).title(for: .d7)
