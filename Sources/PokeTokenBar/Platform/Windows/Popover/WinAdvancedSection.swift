@@ -149,13 +149,15 @@ import WinSDK
 
         var chevron: WinControl?
         disclosureRow = section.addRow(nil, style: .full) { p, c in
-            WinComposite(parent: p, ctx: c) { child in
+            let line = WinComposite(parent: p, ctx: c) { child in
                 chevron = WinControls.glyphButton(symbol: drafts.expanded ? "chevron.down" : "chevron.forward", label: l.advancedDisclosureLabel,
                                                   size: 10, in: child, ctx: c)
                 let parts = [chevron, WinControls.label(l.advancedDisclosureLabel, wraps: false, in: child, ctx: c)].compactMap { $0 }
                 Self.onRow(parts, section: section, ctx: c)
                 return (parts, [])
-            }?.control
+            }
+            Self.paintOnRow(line, section: section, ctx: c)
+            return line?.control
         }
         self.chevron = chevron
         key = Self.keyControls(path: nil, model.sessionKey, organizations: true, in: section, l: l)
@@ -198,6 +200,7 @@ import WinSDK
                 onRow(parts, section: section, ctx: c)
                 return (parts, [])
             }
+            paintOnRow(labelLine, section: section, ctx: c)
             return labelLine?.control
         }, hint: m.detail)
         var field: WinControl?, save: WinControl?, progress: WinControl?, delete: WinControl?, buttons: WinComposite?
@@ -210,6 +213,7 @@ import WinSDK
                 return ([field, save, progress, delete].compactMap { $0 }, [])
             }
             if let progress { buttons?.setShown(progress, false) }
+            paintOnRow(buttons, section: section, ctx: c)
             return buttons?.control
         }
         let oneLine = ctx.map { fitsOneLine(section: section, ctx: $0, l: l) } ?? false
@@ -268,6 +272,15 @@ import WinSDK
     /// Texts and glyphs inside a line paint their own background: the row's (the card's), not the window's they are made with.
     private static func onRow(_ parts: [WinControl], section: WinSectionCard, ctx c: WinUIContext) {
         for part in parts { part.background = section.card ? c.colors.palette.card : c.colors.palette.window }
+    }
+
+    /// A line's pane fills the row's colour (the card's) behind its controls: a pane paints the window colour unless told.
+    private static func paintOnRow(_ line: WinComposite?, section: WinSectionCard, ctx c: WinUIContext) {
+        let card = section.card
+        line?.pane.paint = { dc, r in
+            var rr = r
+            _ = FillRect(dc, &rr, c.colors.brush(card ? c.colors.palette.card : c.colors.palette.window))
+        }
     }
 
     /// The label line's width: the label, then the badge 8 px after it when there is one.
