@@ -91,14 +91,19 @@ $failPrepare = Get-TestBuild 'fail-prepare' 'PTBTestFailInstall'
 
 function Get-InstalledVersion { if (Test-Path $versionFile) { (Get-Content $versionFile -Raw).Trim() } else { '<none>' } }
 function Stop-Apps { Stop-Setups; Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 500 }
+# The app log, read while the app may hold it open for writing (File.ReadAllText shares only reading: a sharing violation).
+function Read-AppLog {
+    if (-not (Test-Path $appLog)) { return '' }
+    $stream = [System.IO.File]::Open($appLog, 'Open', 'Read', 'ReadWrite, Delete')
+    try { ([System.IO.StreamReader]::new($stream)).ReadToEnd() } finally { $stream.Dispose() }
+}
 # The app log written since $Mark (its length then); all of it when it rotated meanwhile.
 function Get-LogSince([long]$Mark) {
-    if (-not (Test-Path $appLog)) { return '' }
-    $text = [System.IO.File]::ReadAllText($appLog)
+    $text = Read-AppLog
     if ($text.Length -lt $Mark) { return $text }
     $text.Substring([int]$Mark)
 }
-function Get-LogMark { if (Test-Path $appLog) { [System.IO.File]::ReadAllText($appLog).Length } else { 0 } }
+function Get-LogMark { (Read-AppLog).Length }
 function Wait-Until([scriptblock]$Condition, [int]$Seconds) {
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline) { if (& $Condition) { return $true }; Start-Sleep -Milliseconds 250 }
