@@ -141,6 +141,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "ClaudeOAuthLimitsProvider.swift",   // moved verbatim from OAuthLimitsProvider.swift (same entry above)
             "WinDefaultsSync.swift",             // PTB_STATE_DIR: the selftest's own settings suite (QA, like CompanionStore)
             "WinPlazaAssets.swift",              // PTB_PLAZA_RESOURCES: tests and CI point at the checkout's plaza art (QA)
+            "WindowsSelftestFlakes.swift",       // PTB_FLAKE_LOOP: the selftest's repeat loops (QA, like WindowsSelftest.swift)
         ]
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()    // PokeTokenBarTests
