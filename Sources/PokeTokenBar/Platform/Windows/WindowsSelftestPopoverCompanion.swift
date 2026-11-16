@@ -306,7 +306,7 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
             // the sprites load off the main thread: wait for the header's picture (or the offline / loading 🥚)
             let animator = header.view.sprites
             _ = await WindowsSelftest.waitUntil(timeout: 3) { v.fetcher != nil || animator?.playback.models.first?.current != nil }
-            await wait(0.4)
+            await wait(0.25)
             if let effect = v.effect {
                 let (kind, candy, at) = effect
                 var input = CompanionHeaderInput(store: store, names: sampleNames)
@@ -324,7 +324,7 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
                 header.view.show(header.part.renderBarFrame(scale: w.ctx.scale, graphics: PlatformPlaza.graphics))
             }
             _ = RedrawWindow(w.hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100))
-            await wait(0.3)
+            await wait(0.15)
             let tree = KitTree.collect(w)
             let checks = tree.check(w)
             let shown = Set(tree.nodes.filter(\.visible).map(\.text))
@@ -606,7 +606,7 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
                 _ = SetCursorPos(wr.right + 40, wr.bottom + 40)
             }
             await wait(0.3)
-            // the view's own path: a pointer move over the bar reaches the section (WM_MOUSEMOVE → onHover)
+            // the view's own path: a pointer move over the bar reaches the section (WM_MOUSEMOVE → onPointer)
             let hovers0 = section.stats.barHovers
             let s = h.window.ctx.scale
             let lParam = Int(UInt32(UInt16(truncatingIfNeeded: Int((bar.midX * s).rounded())))) | Int(UInt32(UInt16(truncatingIfNeeded: Int((bar.midY * s).rounded()))) << 16)
@@ -614,7 +614,7 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
             let delivered = section.stats.barHovers > hovers0
             // the timeline (driven directly: a synthetic move's leave tracking depends on where the real cursor is)
             section.hovered(nil)
-            await wait(0.3)
+            await wait(0.15)
             let frames0 = section.stats.barFrames
             let came = Date()
             section.hovered(CGPoint(x: bar.midX, y: bar.midY))

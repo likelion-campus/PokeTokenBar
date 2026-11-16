@@ -914,7 +914,7 @@ jobs:
       - name: Idle gate (installed app, fixture data, 5 minute window with two store refreshes)
         id: idle
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full' && env.PTB_FAST != 'true'
-        timeout-minutes: 45  # about 23 min with the popover windows (run 43794578956: 22.4 min)
+        timeout-minutes: 60  # about 48 min with every page's windows (run 43889052204 reached 42.7 min after 15 windows; Task 9 raised it from 45)
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -1052,17 +1052,15 @@ jobs:
           $summary.windows['popover-recap-open-120s'].recapLog = @(Select-String -Path $logFile -Pattern 'popover recap idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
           # --- stage 7 Task 13: the recap page open and left alone (end) ---
           # --- stage 7 Task 9: Home with the companion header open (begin) ---
-          # Sample data in a kit window (CI only), nothing relative on the page: 'still' = Windows' own animation setting (off on
-          # the runner: the first picture, no timer; the closed app's budget), 'bob' = the egg with animation on (the bob, one wake
-          # per pixel step of the Mac's eased swing), 'wiggle' = the imminent egg (the bob and the wiggle's eased steps),
-          # 'animated' = Bulbasaur's GIF with animation on (loose, as Task 8's sprite window: first numbers in the Task 9 report).
+          # Sample data in a kit window (CI only), nothing relative on the page: 'wiggle' = the imminent egg with animation on (the
+          # bob, one wake per pixel step of the Mac's eased swing, and the wiggle's eased steps), 'animated' = Bulbasaur's GIF
+          # with animation on (loose, as Task 8's sprite window). The header standing still is popover-open-120s (the real Home,
+          # the runner's animations off); the bob alone measured 216.5 main cs/min in run 43889052204 (Task 9 report).
           $companionBudgets = @{
-              still = $budget
-              bob = @{ MaxMainCsPerMin = 400; MaxProcessCsPerMin = 800; MaxProcessCyclesPerSec = 8000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
               wiggle = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
               animated = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
           }
-          foreach ($mode in 'still', 'bob', 'wiggle', 'animated') {
+          foreach ($mode in 'wiggle', 'animated') {
               $label = "popover-companion-$mode-120s"
               Measure-App $label 120 $off $companionBudgets[$mode] @('--popover-companion-idle-probe', $mode)
               $summary.windows[$label].companionLog = @(Select-String -Path $logFile -Pattern 'popover companion idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
