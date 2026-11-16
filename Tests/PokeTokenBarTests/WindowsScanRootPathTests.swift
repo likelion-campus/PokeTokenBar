@@ -158,16 +158,53 @@ final class WindowsScanRootPathTests: XCTestCase {
         XCTAssertEqual(roots.count, 3, "\(roots.map(\.path))")
         XCTAssertTrue(roots.allSatisfy { $0.path.hasPrefix("//localhost/") && FileManager.default.fileExists(atPath: $0.path) }, "\(roots.map(\.path))")
         XCTAssertEqual(LocalUsageReader.normalizedRoots([URL(fileURLWithPath: share), URL(fileURLWithPath: share + "\\")]).count, 1, "one share written twice")
-        // The symptom itself: a log file in the shared folder is found through the folded root.
+        // The symptom itself: a log file in the shared folder is found by the scan through the folded root (swift-foundation's
+        // URL-based listing returns nothing under a share; `PlatformCompat.enumerator` walks it with the String-based one).
         try Data("{}\n".utf8).write(to: root.appendingPathComponent("plain/a.jsonl"))
         let plain = try XCTUnwrap(CustomScanRoots.union(defaults: [], extraRaw: share).first)
         XCTAssertEqual(LocalUsageReader.jsonlFiles(in: plain, modifiedSince: Date(timeIntervalSinceNow: -3600)).map(\.lastPathComponent), ["a.jsonl"],
                        "through \(plain.path)")
     }
 
+    /// The share walk yields what Foundation's enumerator yields for the same folder on the local disk (dot-names aside: the
+    /// share walk skips them as the Mac does), in the same order rules: a folder's contents right after it, `level` from 1,
+    /// `skipDescendants()` closing the folder just returned.
+    func testAShareIsWalkedAsALocalFolderIs() throws {
+        let share = try require(unc("plain"), "administrative share")
+        let fm = FileManager.default
+        for rel in ["a.jsonl", "sub/b.jsonl", "sub/deep/c.jsonl", "z/d.jsonl", ".hidden/x.jsonl", ".dot.jsonl"] {
+            let url = root.appendingPathComponent("plain/" + rel)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("{}\n".utf8).write(to: url)
+        }
+        func walk(_ url: URL, skipping: String? = nil) -> [String] {
+            guard let en = PlatformCompat.enumerator(fm, at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return ["nil"] }
+            let base = url.path.count + 1
+            var out: [String] = []
+            for case let u as URL in en {
+                let rel = String(u.path.dropFirst(base))
+                out.append("\(en.level):\(rel)")
+                if rel == skipping { en.skipDescendants() }
+            }
+            return out
+        }
+        let shared = walk(URL(fileURLWithPath: share)), local = walk(URL(fileURLWithPath: native("plain")))
+        print("WALK-PROBE|share=\(shared)|local=\(local)")
+        XCTAssertEqual(shared, ["1:a.jsonl", "1:sub", "2:sub/b.jsonl", "2:sub/deep", "3:sub/deep/c.jsonl", "1:z", "2:z/d.jsonl"])
+        XCTAssertEqual(Set(shared), Set(local.filter { !$0.contains("/.") && !$0.contains(":.") }), "the local walk of the same folder")
+        XCTAssertEqual(walk(URL(fileURLWithPath: share), skipping: "sub"), ["1:a.jsonl", "1:sub", "1:z", "2:z/d.jsonl"])
+        XCTAssertEqual(walk(URL(fileURLWithPath: share + "\\missing")), [])
+        // The other listing seam, and the callers that walk a root: the Codex rollouts, Aside's databases one folder down.
+        XCTAssertEqual(try PlatformCompat.contentsOfDirectory(fm, at: URL(fileURLWithPath: share), includingPropertiesForKeys: nil).map(\.lastPathComponent),
+                       [".dot.jsonl", ".hidden", "a.jsonl", "sub", "z"])
+        XCTAssertEqual(LocalUsageReader.codexRolloutFiles(in: URL(fileURLWithPath: share)).count, 4)
+        try Data("fixture".utf8).write(to: root.appendingPathComponent("plain/z/state.db"))
+        XCTAssertEqual(LocalAsideUsageReader.databases(roots: [URL(fileURLWithPath: share)]).map(\.lastPathComponent), ["state.db"])
+    }
+
     /// A mapped network drive (`net use X: \\server\share`): Windows resolves it to `\\?\UNC\server\share\…`, which swift-foundation
     /// turned into `UNC/server/share/…` relative to the current folder: the folded root did not exist and the scan found nothing,
-    /// while Settings still counted the folder (review of Task 14, Important 1).
+    /// while Settings still counted the folder (review of Task 14, Important 1). Kept as `X:\…` (a share spelling lists nothing).
     func testAMappedDriveFolderIsScanned() throws {
         let drive = try require(mappedDrive("plain"), "mapped network drive")
         print("PATH-PROBE|mapped=\(drive)|resolvedFileURL=\(PlatformCompat.resolvedFileURL(URL(fileURLWithPath: drive)).path)"
@@ -180,8 +217,7 @@ final class WindowsScanRootPathTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: folded.path), "the folded root \(folded.path) does not exist")
         XCTAssertEqual(LocalUsageReader.jsonlFiles(in: folded, modifiedSince: Date(timeIntervalSinceNow: -3600)).map(\.lastPathComponent), ["a.jsonl"])
         XCTAssertEqual(CustomScanRoots.survivingExtraCount(defaults: [], extraRaw: drive), 1)
-        // The drive and the share it maps are one folder: written both ways it counts once.
-        if let share = unc("plain") { XCTAssertEqual(CustomScanRoots.survivingExtraCount(defaults: [], extraRaw: drive + "\n" + share), 1) }
+        XCTAssertTrue(folded.path.lowercased().hasPrefix(String(drive.prefix(2)).lowercased() + "/"), "kept as the drive: \(folded.path)")
         // An additional Claude folder there, and Aside's database there.
         let account = ClaudeAccountRoots.roots(from: drive)
         XCTAssertEqual(account.count, 1)
@@ -190,7 +226,7 @@ final class WindowsScanRootPathTests: XCTestCase {
         XCTAssertEqual(db.map { FileManager.default.fileExists(atPath: $0.path) }, [true], "\(db.map(\.path))")
     }
 
-    /// A link to a share (a directory symbolic link `…\to-share` → `\\localhost\C$\…\plain`) resolves to the share.
+    /// A link to a share (a directory symbolic link `…\to-share` → `\\localhost\C$\…\plain`) is scanned through the link.
     func testALinkToAShareIsFollowed() throws {
         let share = try require(unc("plain"), "administrative share")
         let link = root.appendingPathComponent("to-share")

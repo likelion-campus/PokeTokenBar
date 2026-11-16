@@ -232,7 +232,7 @@ enum LocalUsageReader {
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: base.path, isDirectory: &isDir), isDir.boolValue else { return [] }
-        guard let en = fm.enumerator(at: base, includingPropertiesForKeys: [.isDirectoryKey],
+        guard let en = PlatformCompat.enumerator(fm, at: base, includingPropertiesForKeys: [.isDirectoryKey],
                                      options: [.skipsPackageDescendants]) else { return [] }
         var out: [URL] = []
         var prunedByDepth = false
@@ -357,7 +357,7 @@ enum LocalUsageReader {
     /// `root` 하위(재귀)의 `.jsonl` 파일 중 `modifiedSince` 이후 수정된 것.
     static func jsonlFiles(in root: URL, modifiedSince: Date, allowJSON: Bool = false) -> [URL] {
         let fm = FileManager.default
-        guard let en = fm.enumerator(
+        guard let en = PlatformCompat.enumerator(fm,
             at: root,
             includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
             options: [.skipsHiddenFiles]) else { return [] }
@@ -912,7 +912,7 @@ enum LocalUsageReader {
 
     /// Codex 루트의 rollout 파일 전체(mtime·size 포함). 조회 윈도우 밖 파일도 부모 후보라 걸러내지 않는다.
     static func codexRolloutFiles(in root: URL) -> [CodexRolloutFile] {
-        guard let en = FileManager.default.enumerator(
+        guard let en = PlatformCompat.enumerator(FileManager.default,
             at: root,
             includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
             options: [.skipsHiddenFiles]

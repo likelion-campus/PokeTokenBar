@@ -107,6 +107,20 @@ final class PlatformPathFormsTests: XCTestCase {
         for path in [dir.path + "/real/./inner/..", dir.path + "/link", "/tmp/../x", "//server/share/x"] {
             XCTAssertEqual(PlatformCompat.standardizedDirectoryURL(path), URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL, path)
         }
+        // The listing seams are the calls (review of Task 14): same items, same order, same levels, same skips.
+        let fm = FileManager.default
+        for rel in ["real/a.jsonl", "real/.h/x.jsonl", "real/inner/b.jsonl"] {
+            let url = dir.appendingPathComponent(rel)
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: url)
+        }
+        func walk(_ en: FileManager.DirectoryEnumerator?) -> [String] { (en.map { e in e.compactMap { ($0 as? URL).map { "\(e.level):\($0.lastPathComponent)" } } }) ?? ["nil"] }
+        for options: FileManager.DirectoryEnumerationOptions in [[], [.skipsHiddenFiles], [.skipsHiddenFiles, .skipsPackageDescendants]] {
+            XCTAssertEqual(walk(PlatformCompat.enumerator(fm, at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: options)),
+                           walk(fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: options)))
+        }
+        XCTAssertEqual(try PlatformCompat.contentsOfDirectory(fm, at: dir.appendingPathComponent("real"), includingPropertiesForKeys: nil),
+                       try fm.contentsOfDirectory(at: dir.appendingPathComponent("real"), includingPropertiesForKeys: nil))
     }
     #endif
 }

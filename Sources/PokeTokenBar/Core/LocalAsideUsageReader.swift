@@ -28,7 +28,7 @@ enum LocalAsideUsageReader {
         let fm = FileManager.default
         var found = Set<URL>()
         for root in roots {
-            let children = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+            let children = (try? PlatformCompat.contentsOfDirectory(fm, at: root, includingPropertiesForKeys: nil)) ?? []
             for directory in [root] + children {
                 let db = PlatformCompat.resolvedFileURL(directory.appendingPathComponent("state.db"))
                 if fm.fileExists(atPath: db.path) { found.insert(db) }

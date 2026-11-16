@@ -354,6 +354,34 @@ final class WindowsSeamScanTests: XCTestCase {
         }
     }
 
+    /// Every URL-based folder walk or listing in Core goes through `PlatformCompat.enumerator` / `contentsOfDirectory` (review
+    /// of Task 14): swift-foundation's URL-based listing finds nothing under a share on Windows, so a bare call there leaves
+    /// a custom scan folder on a share unscanned while Settings counts it. An upstream merge or a new reader that calls
+    /// `FileManager` directly fails here. (The String-based `contentsOfDirectory(atPath:)` lists shares and stays allowed.)
+    static func bareListingFindings(file: String, _ text: String) -> [String] {
+        text.components(separatedBy: "\n").enumerated().compactMap { i, raw in
+            let line = code(raw)
+            let lists = (line.contains(".enumerator(") && !line.contains("enumerator(atPath:")) || line.contains("contentsOfDirectory(at:")
+            return lists && !line.contains("PlatformCompat.") ? "\(file):\(i + 1): \(raw.trimmingCharacters(in: .whitespaces))" : nil
+        }
+    }
+
+    func testCoreListsFoldersThroughTheListingSeams() throws {
+        let core = SharedSources.sourcesRoot.appendingPathComponent("Core")
+        let files = try FileManager.default.contentsOfDirectory(atPath: core.path).filter { $0.hasSuffix(".swift") }
+        XCTAssertGreaterThan(files.count, 20)
+        var findings: [String] = [], seamed = 0
+        for file in files {
+            let text = try String(contentsOf: core.appendingPathComponent(file), encoding: .utf8)
+            findings += Self.bareListingFindings(file: file, text)
+            seamed += text.components(separatedBy: "PlatformCompat.enumerator(").count - 1 + text.components(separatedBy: "PlatformCompat.contentsOfDirectory(").count - 1
+        }
+        XCTAssertEqual(findings, [])
+        XCTAssertEqual(seamed, 8, "the eight call sites of the review round")
+        XCTAssertEqual(Self.bareListingFindings(file: "x", "guard let en = fm.enumerator(\n at: root"), ["x:1: guard let en = fm.enumerator("], "the scan sees a bare call")
+        XCTAssertEqual(Self.bareListingFindings(file: "x", "let n = try fm.contentsOfDirectory(atPath: p) // enumerator( note"), [])
+    }
+
     /// The Mac branches of the secret seams are the calls the two lines made before (an atomic write cannot be told from a
     /// plain one by its bytes, so the text is held here; `SecretSeamTests` holds what they do).
     func testTheMacBranchesOfTheSecretSeamsAreTheOldCalls() throws {

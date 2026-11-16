@@ -187,17 +187,45 @@ enum PlatformCompat {
         return base
     }
 
+    /// `fm.enumerator(at:includingPropertiesForKeys:options:)`: every URL-based folder walk in Core goes through here (stage 7
+    /// Task 14 review). Mac: exactly that call. Windows: the same call, except under a share (`//server/share/…`), where
+    /// swift-foundation's URL-based listing returns nothing (files there still open, and the String-based
+    /// `contentsOfDirectory(atPath:)` lists them — measured on the runner): there `WinShareEnumerator` walks the share with
+    /// the String-based listing.
+    static func enumerator(_ fm: FileManager, at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?,
+                           options: FileManager.DirectoryEnumerationOptions = []) -> FileManager.DirectoryEnumerator? {
+        #if os(Windows)
+        if isWindowsUNC(url.path) { return WinShareEnumerator(root: url.path, skipsHiddenFiles: options.contains(.skipsHiddenFiles)) }
+        #endif
+        return fm.enumerator(at: url, includingPropertiesForKeys: keys, options: options)
+    }
+
+    /// `fm.contentsOfDirectory(at:includingPropertiesForKeys:)`, the same way as `enumerator`. Mac: exactly that call.
+    static func contentsOfDirectory(_ fm: FileManager, at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?) throws -> [URL] {
+        #if os(Windows)
+        if isWindowsUNC(url.path) {
+            return try fm.contentsOfDirectory(atPath: listablePath(url.path)).sorted().map { url.appendingPathComponent($0) }
+        }
+        #endif
+        return try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: keys)
+    }
+
     /// `url.resolvingSymlinksInPath().standardizedFileURL`: the form scan roots are compared and kept in (stage 7 Task 14, P19).
     /// Mac: exactly that. Windows: the final path Windows reports for an existing file or folder (`WinPath.finalPath`: links,
-    /// junctions, subst and mapped drives followed), turned from its `\\?\` device spelling into the form shared code keeps
-    /// (`windowsPathFromDevicePath`); a path that cannot be opened is kept as typed, standardized (a share keeps its leading
-    /// slashes, `windowsStandardizedUNC`). swift-foundation's own resolution turns any result on a share (`\\?\UNC\…`: a UNC
-    /// path, a mapped drive, a link to a share) into `UNC/server/share/…` relative to the current folder, and its
-    /// standardization drops a UNC path's leading slash (both measured on the runner).
+    /// junctions and subst followed), turned from its `\\?\` device spelling into the form shared code keeps
+    /// (`windowsPathFromDevicePath`) — except when it lands on a share (`\\?\UNC\…`: a mapped network drive, a link to a share, a
+    /// UNC path): then the spelling the user gave is kept, standardized, because swift-foundation lists no folder through a
+    /// `//server/share` spelling (every listing call returns nothing; files there still open) while a mapped drive or a link
+    /// lists normally (measured on the runner). A path that cannot be opened is kept as typed. swift-foundation's own
+    /// resolution turned every result on a share into `UNC/server/share/…` relative to the current folder, and its
+    /// standardization drops a UNC path's leading slash.
     static func resolvedFileURL(_ url: URL) -> URL {
         #if os(Windows)
         let path = url.path
-        if let final = WinPath.finalPath(path) { return URL(fileURLWithPath: windowsPathFromDevicePath(final)) }
+        if let final = WinPath.finalPath(path) {
+            let resolved = windowsPathFromDevicePath(final)
+            if !isWindowsUNC(resolved) { return URL(fileURLWithPath: resolved) }
+        }
         if isWindowsUNC(path) { return URL(fileURLWithPath: windowsStandardizedUNC(path)) }
         return url.standardizedFileURL
         #else
