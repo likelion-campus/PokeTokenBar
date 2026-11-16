@@ -270,7 +270,7 @@ enum LocalUsageReader {
             // 심볼릭 링크를 풀어서 비교한다(`~/.config/claude` → `~/.claude` 링크가 흔한 XDG 구성).
             // `standardizedFileURL` 은 `..`·`.` 만 정리할 뿐 링크는 그대로 둬서 같은 트리를 두 번 훑게 된다.
             // 비교는 소문자로 — macOS 기본 APFS 볼륨은 대소문자를 구분하지 않는다.
-            let path = root.resolvingSymlinksInPath().standardizedFileURL.path
+            let path = PlatformCompat.resolvedFileURL(root).path
             if seen.insert(path.lowercased()).inserted { unique.append(path) }
         }
         // 짧은 경로부터 확정하고, 이미 확정된 루트의 하위면 버린다.

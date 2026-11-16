@@ -136,28 +136,100 @@ enum PlatformCompat {
     }
 
     /// Splits an absolute path into the base `CustomScanRoots` starts from and the rest (slash-separated).
-    /// POSIX: base "" (the root) and the whole path, untouched. Windows: backslashes become slashes, and the
-    /// drive (`C:`) is the base.
+    /// POSIX: base "" (the root) and the whole path, untouched. Windows: `windowsSplitRoot`.
     static func splitRoot(_ absolute: String) -> (base: String, rest: String) {
         #if os(Windows)
-        let slashed = absolute.replacingOccurrences(of: "\\", with: "/")
-        let u = Array(slashed)
-        if u.count >= 2, u[1] == ":" { return (String(u[0...1]), String(u.dropFirst(2))) }
-        return ("", slashed)
+        return windowsSplitRoot(absolute)
         #else
         return ("", absolute)
         #endif
     }
 
+    /// Windows' roots (stage 7 Task 14, P19): backslashes become slashes; the drive (`C:`) or the share of a UNC path
+    /// (`//server/share`) is the base, the rest follows it. The `\\?\` and `\\.\` prefixes are dropped (`\\?\UNC\server\share`
+    /// is the share). Before, a UNC path had base "" and its server and share were looked up as folders of the current
+    /// drive (`\\server\share\x` → `\server\share\x`), so it was never found. Pure, so both systems test it; only the
+    /// Windows branch of `splitRoot` calls it.
+    static func windowsSplitRoot(_ absolute: String) -> (base: String, rest: String) {
+        var slashed = absolute.replacingOccurrences(of: "\\", with: "/")
+        for prefix in ["//?/", "//./"] where slashed.hasPrefix(prefix) {
+            slashed.removeFirst(prefix.count)
+            if slashed.uppercased().hasPrefix("UNC/") { slashed = "//" + slashed.dropFirst(4) }
+            break
+        }
+        let u = Array(slashed)
+        if u.count >= 2, u[1] == ":" { return (String(u[0...1]), String(u.dropFirst(2))) }
+        if slashed.hasPrefix("//"), !slashed.hasPrefix("///") {
+            let parts = slashed.dropFirst(2).split(separator: "/", maxSplits: 2, omittingEmptySubsequences: false)
+            if parts.count >= 2, !parts[0].isEmpty, !parts[1].isEmpty {
+                return ("//\(parts[0])/\(parts[1])", parts.count > 2 ? "/" + parts[2] : "")
+            }
+        }
+        return ("", slashed)
+    }
+
     /// The path to list for a base built by `splitRoot` plus segments: "" is the root, and a bare Windows drive
-    /// needs its trailing slash (`C:` alone means the drive's current directory).
+    /// needs its trailing slash (`C:` alone means the drive's current directory), as does a share (`//server/share/`:
+    /// Windows finds a share's root only with it).
     static func listablePath(_ base: String) -> String {
         #if os(Windows)
-        if base.isEmpty { return "/" }
-        return base.count == 2 && base.hasSuffix(":") ? base + "/" : base
+        return windowsListablePath(base)
         #else
         return base.isEmpty ? "/" : base
         #endif
+    }
+
+    /// `listablePath` on Windows. Pure, so both systems test it.
+    static func windowsListablePath(_ base: String) -> String {
+        if base.isEmpty { return "/" }
+        if base.count == 2 && base.hasSuffix(":") { return base + "/" }
+        if base.hasPrefix("//"), base.dropFirst(2).split(separator: "/").count == 2 { return base + "/" }
+        return base
+    }
+
+    /// `url.resolvingSymlinksInPath().standardizedFileURL`: the form scan roots are compared and kept in (stage 7 Task 14, P19).
+    /// Mac: exactly that. Windows: the same, except for a UNC path (`//server/share/…`): there swift-foundation's
+    /// standardization drops the leading slash (`/server/share/…`, a folder of the current drive) and its link resolution
+    /// answers `UNC/server/share/…` relative to the current folder (both measured on the runner), so a share is standardized
+    /// by `windowsStandardizedUNC` and its links are not resolved.
+    static func resolvedFileURL(_ url: URL) -> URL {
+        #if os(Windows)
+        if isWindowsUNC(url.path) { return URL(fileURLWithPath: windowsStandardizedUNC(url.path)) }
+        #endif
+        return url.resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    /// `URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL` (a folder typed in Settings). Mac: exactly that.
+    /// Windows: a UNC folder keeps its share (see `resolvedFileURL`).
+    static func standardizedDirectoryURL(_ path: String) -> URL {
+        #if os(Windows)
+        if isWindowsUNC(path) { return URL(fileURLWithPath: windowsStandardizedUNC(path), isDirectory: true) }
+        #endif
+        return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+    }
+
+    /// `//server/share/…` or `\\server\share\…` (not a `\\?\` or `\\.\` device path). Pure, so both systems test it.
+    static func isWindowsUNC(_ path: String) -> Bool {
+        let s = path.replacingOccurrences(of: "\\", with: "/")
+        return s.hasPrefix("//") && !s.hasPrefix("///") && !s.hasPrefix("//?/") && !s.hasPrefix("//./")
+    }
+
+    /// A UNC path with `.` and `..` resolved (never above its share) and no trailing slash: `//server/share/a/./b/../c/` →
+    /// `//server/share/a/c`. Pure, so both systems test it.
+    static func windowsStandardizedUNC(_ path: String) -> String {
+        let s = path.replacingOccurrences(of: "\\", with: "/")
+        let parts = s.dropFirst(2).split(separator: "/").map(String.init)
+        guard parts.count >= 2 else { return s }
+        var out = Array(parts[0...1])
+        for part in parts.dropFirst(2) {
+            if part == "." { continue }
+            if part == ".." {
+                if out.count > 2 { out.removeLast() }
+                continue
+            }
+            out.append(part)
+        }
+        return "//" + out.joined(separator: "/")
     }
 
     static func abbreviatingWithTilde(_ path: String) -> String {

@@ -55,7 +55,10 @@ final class WindowsScanRootPathTests: XCTestCase {
               + "|list(logs)=\(((try? FileManager.default.contentsOfDirectory(atPath: (unc("logs") ?? "").replacingOccurrences(of: "\\", with: "/"))) ?? []).sorted())"
               + "|normalizedRoots=\(LocalUsageReader.normalizedRoots([url]).map(\.path))"
               + "|accountRoots=\(ClaudeAccountRoots.roots(from: share).map(\.path))"
-              + "|splitRoot=\(PlatformCompat.splitRoot(share))")
+              + "|splitRoot=\(PlatformCompat.splitRoot(share))|resolvedFileURL=\(PlatformCompat.resolvedFileURL(url).path)"
+              + "|standardizedDirectoryURL=\(PlatformCompat.standardizedDirectoryURL(share).path)")
+        // What swift-foundation itself makes of a share (the reason for the seams): kept as a record, not as a rule.
+        XCTAssertEqual(url.path, slashed)
     }
 
     /// The P19 trigger: a UNC folder in the custom scan folders is found (it used to be looked up as `\server\share\…` on the
@@ -69,6 +72,20 @@ final class WindowsScanRootPathTests: XCTestCase {
         XCTAssertEqual(CustomScanRoots.expand(logs + "\\proj-*").count, 2, "a wildcard under a share")
         XCTAssertEqual(CustomScanRoots.survivingExtraCount(defaults: [], extraRaw: logs + "\\proj-*"), 2)
         XCTAssertEqual(CustomScanRoots.expand(share.replacingOccurrences(of: "\\", with: "/")).count, 1, "//server/share with slashes")
+        // What the scan then reads: the folded roots are the share's folders, and they exist (not `UNC\…` under the current folder).
+        let roots = CustomScanRoots.union(defaults: [], extraRaw: share + "\n" + logs + "\\proj-*")
+        XCTAssertEqual(roots.count, 3, "\(roots.map(\.path))")
+        XCTAssertTrue(roots.allSatisfy { $0.path.hasPrefix("//localhost/") && FileManager.default.fileExists(atPath: $0.path) }, "\(roots.map(\.path))")
+        XCTAssertEqual(LocalUsageReader.normalizedRoots([URL(fileURLWithPath: share), URL(fileURLWithPath: share + "\\")]).count, 1, "one share written twice")
+    }
+
+    /// A custom scan folder on a share for a provider whose reader resolves its database path (Aside's `state.db`).
+    func testAProviderDatabaseOnAShareIsFound() throws {
+        guard let share = unc("plain") else { throw XCTSkip("no administrative share on this PC") }
+        try Data("fixture".utf8).write(to: root.appendingPathComponent("plain/state.db"))
+        let found = LocalAsideUsageReader.databases(roots: [URL(fileURLWithPath: share)])
+        XCTAssertEqual(found.count, 1, "\(found.map(\.path))")
+        XCTAssertEqual(found.first.map { FileManager.default.fileExists(atPath: $0.path) }, true)
     }
 
     func testTheWindowsPathFormsAreFound() throws {

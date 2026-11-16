@@ -30,7 +30,7 @@ enum LocalAsideUsageReader {
         for root in roots {
             let children = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
             for directory in [root] + children {
-                let db = directory.appendingPathComponent("state.db").resolvingSymlinksInPath().standardizedFileURL
+                let db = PlatformCompat.resolvedFileURL(directory.appendingPathComponent("state.db"))
                 if fm.fileExists(atPath: db.path) { found.insert(db) }
             }
         }

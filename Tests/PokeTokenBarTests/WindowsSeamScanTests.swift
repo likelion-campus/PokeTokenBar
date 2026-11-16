@@ -336,6 +336,39 @@ final class WindowsSeamScanTests: XCTestCase {
         XCTAssertEqual(Self.secretSeamFindings(text), [])
     }
 
+    /// The four upstream lines of Task 14's path fix (P19): each routes its standardization through a `PlatformCompat` seam
+    /// whose Mac branch is the old expression (`PlatformPathFormsTests.testTheMacPathSeamsAreTheOldExpressions`). An upstream
+    /// merge that restores the plain call would bring back the UNC defect on Windows: this fails then.
+    static let pathSeamSites: [(file: String, line: String)] = [
+        ("Core/LocalUsageReader.swift", "let path = PlatformCompat.resolvedFileURL(root).path"),
+        ("Core/CustomScanRoots.swift", "PlatformCompat.resolvedFileURL(url).path.lowercased()"),
+        ("Core/LocalAsideUsageReader.swift", "let db = PlatformCompat.resolvedFileURL(directory.appendingPathComponent(\"state.db\"))"),
+        ("Core/ClaudeAccountRoots.swift", "let url = PlatformCompat.standardizedDirectoryURL(expanded)"),
+    ]
+
+    func testTheUserPathsGoThroughThePathSeams() throws {
+        for (file, line) in Self.pathSeamSites {
+            let text = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent(file), encoding: .utf8)
+            XCTAssertEqual(text.components(separatedBy: line).count - 1, 1, "\(file): \(line)")
+            XCTAssertFalse(text.components(separatedBy: "\n").map(Self.code).contains { $0.contains("resolvingSymlinksInPath()") }, "\(file) resolves links without the seam")
+        }
+    }
+
+    /// The Mac branches of the secret seams are the calls the two lines made before (an atomic write cannot be told from a
+    /// plain one by its bytes, so the text is held here; `SecretSeamTests` holds what they do).
+    func testTheMacBranchesOfTheSecretSeamsAreTheOldCalls() throws {
+        let text = try String(contentsOf: SharedSources.sourcesRoot.appendingPathComponent("Platform/PlatformCompat.swift"), encoding: .utf8)
+        func body(_ name: String) -> String {
+            guard let start = text.range(of: "static func \(name)(") else { return "" }
+            let rest = text[start.upperBound...]
+            guard let end = rest.range(of: "\n    }\n") else { return "" }
+            return String(rest[..<end.lowerBound])
+        }
+        let write = body("writeSecret"), read = body("readSecret")
+        XCTAssertTrue(write.contains("#else\n        try data.write(to: url, options: .atomic)\n        #endif"), write)
+        XCTAssertTrue(read.contains("#else\n        return try? Data(contentsOf: url)\n        #endif"), read)
+    }
+
     func testTheSecretSeamScanCatchesThePlainCalls() {
         let routed = "guard let data = PlatformCompat.readSecret(at: fileURL),\n        try PlatformCompat.writeSecret(data, to: fileURL)\n"
         XCTAssertEqual(Self.secretSeamFindings(routed), [])
