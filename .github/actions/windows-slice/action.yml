@@ -18,6 +18,13 @@ runs:
         (Get-Content 'windows\selftest\claude\projects\p\s.jsonl' -Raw).Replace('__TIMESTAMP__', $ts) |
           Set-Content -NoNewline -Encoding utf8NoBOM -Path (Join-Path $proj 's.jsonl')
         "PTB_FIXTURE=$fx" >> $env:GITHUB_ENV
+        # TEMP and TMP in their long form. The one-job workflow got this from the windows-swift action (it re-exports the whole
+        # environment, TEMP included, as the long path); a bare runner has C:\Users\RUNNER~1\... and the selftest's file-dialog
+        # check (settings.dialogAccepts) compares the 8.3 path it asked for with the long path the dialog returns and fails.
+        $longTemp = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:TEMP).Path
+        "TEMP=$longTemp" >> $env:GITHUB_ENV
+        "TMP=$longTemp" >> $env:GITHUB_ENV
+        "TEMP was $env:TEMP, now $longTemp"
         # The versions the build job stamped (the next one only exists at level full).
         "PTB_VERSION=$((Get-Content bundle\PokeTokenBar.version -Raw).Trim())" >> $env:GITHUB_ENV
         if (Test-Path bundle-next\PokeTokenBar.version) { "PTB_NEXT_VERSION=$((Get-Content bundle-next\PokeTokenBar.version -Raw).Trim())" >> $env:GITHUB_ENV }

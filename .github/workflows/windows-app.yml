@@ -1,9 +1,10 @@
 name: windows-app
 # Job graph (the one-job workflow took 90-120 min, grew with every popover page, and a lost runner cost all of it):
 #   build            checkout, release pin, Swift, build, package, installers; artifacts windows-installer (unchanged) and ptb-build
-#   selftest-bundle  bundle selftest and the "checks ran" steps of every popover page, language probe, dispatch-loop fallback (full);
+#   selftest-bundle  bundle selftest and the "checks ran" steps of every popover page, language probe;
 #                    artifacts windows-app (st*.json, ui-dump) and ui-*
-#   selftest-process kill and exit paths, team probes, team-code and import tools, crash and relaunch; artifact windows-app-process
+#   selftest-process dispatch-loop fallback selftest (full), kill and exit paths, team probes, team-code and import tools, crash and
+#                    relaunch; artifact windows-app-process
 #   installer        silent install, upgrade (full), installed selftest, uninstall (full), upgrade from the last release (full);
 #                    artifacts windows-app-installer, ptb-install-stamps
 #   updates          (full) failed-update relaunch and in-app update; artifact windows-app-updates
@@ -454,18 +455,6 @@ jobs:
         if: (success() || failure())  # independent evidence, also after a selftest failure
         shell: pwsh
         run: ./scripts/windows/check-language.ps1 -Exe bundle\PokeTokenBar.exe -OutDir lang-probe
-      - name: Selftest on the dispatch-handle loop (diagnostic fallback, informational)
-        if: (success() || failure()) && env.PTB_LEVEL == 'full'  # independent evidence, also after a selftest failure
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $env:Path = 'C:\Windows\System32;C:\Windows'
-          $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
-          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-dispatch'
-          $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
-          $env:PTB_WIN_LOOP = 'dispatch'
-          $env:PTB_SELFTEST_IDLE_SECONDS = '20'
-          ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st-dispatch.json -ExpectStrategy dispatchHandle
       - name: Collect logs
         if: always()
         shell: pwsh
@@ -569,6 +558,18 @@ jobs:
               "    top: $($r.top)"
           }
           foreach ($s in $j.stacks) { "== stacks $($s.name)"; $s.detail }
+      - name: Selftest on the dispatch-handle loop (diagnostic fallback, informational)
+        if: (success() || failure()) && env.PTB_LEVEL == 'full'  # independent evidence, also after a selftest failure
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:Path = 'C:\Windows\System32;C:\Windows'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
+          $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-dispatch'
+          $env:PTB_SELFTEST_EXPECT_TODAY_TOKENS = '3702'
+          $env:PTB_WIN_LOOP = 'dispatch'
+          $env:PTB_SELFTEST_IDLE_SECONDS = '20'
+          ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st-dispatch.json -ExpectStrategy dispatchHandle
       - name: Kill and exit paths of the full app
         if: (success() || failure())  # independent evidence, also after a selftest failure
         shell: pwsh
@@ -1284,7 +1285,9 @@ jobs:
         id: idle
         timeout-minutes: 40  # about 17-19 min per shard; the one-job gate took about 48 min
         shell: pwsh
-        run: ./scripts/windows/idle-gate.ps1 -Shard ${{ matrix.shard }}
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          ./scripts/windows/idle-gate.ps1 -Shard ${{ matrix.shard }}
       - name: Collect logs
         if: always()
         shell: pwsh
@@ -1311,18 +1314,23 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Every job passed (skipped = a level or fast switch)
-        shell: pwsh
+        shell: bash
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          $needs = $env:NEEDS | ConvertFrom-Json
-          $bad = @()
-          foreach ($n in $needs.PSObject.Properties) {
-              '{0,-17} {1}' -f $n.Name, $n.Value.result
-              if ($n.Value.result -notin 'success', 'skipped') { $bad += $n.Name }
-          }
-          if ($bad.Count -gt 0) { Write-Host "::error::windows-app: failed or cancelled: $($bad -join ', ')"; exit 1 }
-          'PASS windows-app: every job passed'
+          python3 - <<'EOF'
+          import json, os, sys
+          needs = json.loads(os.environ['NEEDS'])
+          bad = []
+          for name, n in needs.items():
+              print('%-17s %s' % (name, n['result']))
+              if n['result'] not in ('success', 'skipped'):
+                  bad.append(name)
+          if bad:
+              print('::error::windows-app: failed or cancelled: ' + ', '.join(bad))
+              sys.exit(1)
+          print('PASS windows-app: every job passed')
+          EOF
       - uses: actions/checkout@v5
         if: success()
         with:
@@ -1332,6 +1340,11 @@ jobs:
         with:
           name: windows-app
           path: parts/bundle-job
+      - uses: actions/download-artifact@v4
+        if: success()
+        with:
+          name: windows-app-process
+          path: parts/process-job
       - uses: actions/download-artifact@v4
         if: success()
         with:
@@ -1346,7 +1359,7 @@ jobs:
           # this run ("engaged: ..."); a process where TSF would not engage it says "not engaged" and passes only as harness. Full level
           # (four processes: windows-port, kit builds, release mode) requires one; light (two) only warns: TSF on the runner can stay
           # unengaged in both, control edit included (run 43842945406), and a gate that can fail with the product untouched blocks merges.
-          $ime = foreach ($f in 'bundle-job/st.json', 'bundle-job/st-dispatch.json', 'installer-job/st-installed-first.json', 'installer-job/st-installed.json') {
+          $ime = foreach ($f in 'bundle-job/st.json', 'process-job/st-dispatch.json', 'installer-job/st-installed-first.json', 'installer-job/st-installed.json') {
               $path = Join-Path parts $f
               if (Test-Path $path) { (Get-Content $path -Raw | ConvertFrom-Json).checks | Where-Object { $_.name -eq 'plaza.chatRealIME' } | ForEach-Object { "$(Split-Path $f -Leaf): $($_.detail.Substring(0, [Math]::Min(70, $_.detail.Length)))" } }
           }
