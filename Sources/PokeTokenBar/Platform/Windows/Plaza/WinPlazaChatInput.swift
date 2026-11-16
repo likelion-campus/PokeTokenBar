@@ -122,7 +122,7 @@ import WinSDK
         var seen: [String] = []
     }
     private var pendingEdit: PendingEdit?
-    private var pendingToken = 0, finishingEdit = false
+    private var pendingToken = 0, finishingEdit = false, checkingPending = false
     private var captured = false
     private static var fontLoaded: Bool?
     private let graphics: any PlazaGraphics
@@ -401,11 +401,18 @@ import WinSDK
     /// place), after a result or after the syllable left the text.
     private func runPendingEditIfDue(_ h: HWND) -> Bool {
         guard let p = pendingEdit else { return false }
+        checkingPending = true
         let now = units(h)
+        checkingPending = false
         if now != p.before { pendingEdit?.sawRemoval = true }
         guard !isComposing, now == p.before, p.sawResult || pendingEdit?.sawRemoval == true else { return false }
         runPendingEdit(h, why: "when the syllable was back")
         return true
+    }
+
+    /// The field's messages after which a waiting edit may be due: a composition update, its end, a character, a text change.
+    nonisolated static func deliversIMEOutput(_ m: UInt32) -> Bool {
+        m == 0x010F || m == 0x010E || m == 0x0286 || m == 0x0102 || m == PTB_CHAT_CHANGED
     }
 
     private func runPendingEdit(_ h: HWND, why: String) {
@@ -496,7 +503,8 @@ import WinSDK
         let r = handle(m, w, l)
         depth -= 1
         if depth == 0 {
-            if pendingEdit != nil, !finishingEdit, let h = editHWND { _ = runPendingEditIfDue(h) }
+            // Only after what the IME delivers or a text change, never re-entered: reading the text sends WM_GETTEXT through here.
+            if pendingEdit != nil, !finishingEdit, !checkingPending, Self.deliversIMEOutput(m), let h = editHWND { _ = runPendingEditIfDue(h) }
             applyLimitIfDue()
         }
         return r
