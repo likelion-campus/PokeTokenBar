@@ -597,7 +597,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         let rows = section.transferRowsForTesting
         let pageBefore = popover?.pageForTesting.map { ObjectIdentifier($0) }
         let opensBefore = WinFileDialog.opened, tasksBefore = WinTaskDialog.shown
-        let ticksBefore = WinModalPump.ticks, hookBefore = WinModalPump.hookTicks, skippedBefore = WinModalPump.ticksSkippedForInput
+        let ticksBefore = WinModalPump.ticks, skippedBefore = WinModalPump.ticksSkippedForInput
         // The save dialog, the open dialog and the import confirmation, each closed as a cancel.
         let save = await driven([.cancelFile]) { self.post(rows.export?.control) }
         let open = await driven([.cancelFile]) { self.post(rows.import?.control) }
@@ -623,7 +623,7 @@ final class TransferDialogDriver: @unchecked Sendable {
         r.add("settings.dialogKeepsPopover", ok && samePage && outcomes == .cancelled && WinFileDialog.opened == opensBefore + 2 && WinTaskDialog.shown == tasksBefore + 1,
               "each real dialog opened by the page's own button, driven from a helper thread: \(line("save", save)); \(line("open", open)); \(line("import confirmation", confirm)); "
                 + "same page object=\(samePage); last outcome \(String(describing: outcomes)); file dialogs +\(WinFileDialog.opened - opensBefore), task dialogs +\(WinTaskDialog.shown - tasksBefore); "
-                + "pump ticks +\(WinModalPump.ticks - ticksBefore) of which from the hook +\(WinModalPump.hookTicks - hookBefore), skipped for input +\(WinModalPump.ticksSkippedForInput - skippedBefore); notes \(save.facts.map { $0.note } + open.facts.map { $0.note } + confirm.facts.map { $0.note })")
+                + "pump ticks +\(WinModalPump.ticks - ticksBefore) (all from the pump's WM_TIMER), skipped for input +\(WinModalPump.ticksSkippedForInput - skippedBefore); notes \(save.facts.map { $0.note } + open.facts.map { $0.note } + confirm.facts.map { $0.note })")
         close()
     }
 
