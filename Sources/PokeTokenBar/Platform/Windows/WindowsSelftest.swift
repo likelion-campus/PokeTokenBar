@@ -119,6 +119,7 @@ enum WindowsSelftest {
         await plazaWindowChecks(r, app)  // stage 6 task 5 (WindowsSelftestPlaza.swift): after the idle window, before Direct3D is loaded by anything else
         await plazaRenderChecks(r)  // stage 6 task 4 (WindowsSelftestPlazaRender.swift): after the idle window, it loads Direct3D/WARP
         await plazaPhotoChecks(r)  // stage 6 task 12 (WindowsSelftestPlazaPhoto.swift)
+        await settingsTransportChecks(r, app)  // stage 7 task 6: the Settings page over the app's real team runtime (after the idle window)
         await popoverWithPlazaChecks(r, app)  // stage 7 task 4: the popover over an open plaza (loads Direct3D, so last)
         return r.checks
     }

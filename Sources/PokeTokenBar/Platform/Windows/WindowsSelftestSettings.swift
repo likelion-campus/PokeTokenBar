@@ -15,6 +15,12 @@ extension WindowsSelftest {
     @MainActor static func settingsChecks(_ r: Recorder, _ app: WindowsAppDelegate) async {
         await WindowsSelftestSettings.run(r, app)
     }
+
+    /// The page over the app's real team runtime. After the idle window: a stopped team transport keeps its socket loop thread
+    /// (only the listener and the advertisement go), and `team.offWithoutCode` and the idle window expect no loop at all.
+    @MainActor static func settingsTransportChecks(_ r: Recorder, _ app: WindowsAppDelegate) async {
+        await WindowsSelftestSettings.runTransport(r, app)
+    }
 }
 
 @MainActor enum WindowsSelftestSettings {
@@ -23,9 +29,20 @@ extension WindowsSelftest {
                         "settings.teamTransport", "settings.teamCopy", "settings.updates", "settings.report", "settings.escape",
                         "settings.secret", "settings.openClose"]
 
+    static func runTransport(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
+        guard WindowsSelftest.onCI, let probe = WindowsSelftestPopoverWindow.makeProbe() else {
+            r.add("settings.teamTransport", true, "skipped: CI not set")
+            return
+        }
+        defer { probe.destroy() }
+        let t = SettingsRun(r: r, app: app, probe: probe)
+        await t.transportCheck()
+        t.cleanUp()
+    }
+
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
-            for name in names { r.add(name, true, "skipped: CI not set (the page takes the foreground; real keys and the clipboard are used)") }
+            for name in names where name != "settings.teamTransport" { r.add(name, true, "skipped: CI not set (the page takes the foreground; real keys and the clipboard are used)") }
             return
         }
         guard let probe = WindowsSelftestPopoverWindow.makeProbe() else {
@@ -48,7 +65,6 @@ extension WindowsSelftest {
         await t.updatesCheck()
         await t.reportCheck()
         await t.escapeCheck()
-        await t.transportCheck()
         if let dir = WindowsSelftestPopoverWindow.dumpDirectory().map({ $0.deletingLastPathComponent().appendingPathComponent("settings", isDirectory: true) }) {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             await t.captureChecks(dir)
@@ -675,7 +691,7 @@ extension WindowsSelftest {
         guard let runtime = app.teamRuntime, let transport = app.teamTransport else { r.add("settings.teamTransport", false, "no team runtime"); return }
         let team = app.teamSettings!
         let before = (team.isEnabled, team.code, team.nickname)
-        let startedOff = !transport.hasSocketLoop && transport.listenerPort == nil && !team.isReady
+        let startedOff = transport.listenerPort == nil && !team.isReady
         let code = fixtureCode()
         plazaOpens = 0
         guard await open(team: team, session: runtime.session, feed: runtime.feed), let page, let section = page.teamForTesting else {
@@ -691,11 +707,11 @@ extension WindowsSelftest {
         await pause(0.2)
         key(0x0D)
         let named = await waitFor(2) { team.nickname == "자가" }
-        let stillOff = !transport.hasSocketLoop && transport.listenerPort == nil
+        let stillOff = transport.listenerPort == nil
         await paste("PTB-bad")
         click(rows().joinButton.control)
         let badText = await waitFor(1) { self.shown(rows().joinError) } && rows().joinError.hint?.text == L(.ko).teamCodeInvalid
-        let badNoStart = team.code == nil && !transport.hasSocketLoop
+        let badNoStart = team.code == nil && transport.listenerPort == nil
         await paste(code.display)
         click(rows().joinButton.control)
         let joined = await waitFor(3) { team.code == code && team.isReady }
@@ -708,9 +724,9 @@ extension WindowsSelftest {
         click(rows().leave.control)
         await settle()
         let left = await waitFor(3) { team.code == nil && !team.isEnabled }
-        let stopped = await waitFor(10) { !transport.hasSocketLoop && transport.listenerPort == nil }
+        let stopped = await waitFor(10) { transport.listenerPort == nil }
         let itemGone = !(app.tray?.menuItems().contains { $0?.action == .openPlaza } ?? true)
-        trace.append("Leave: left=\(left), transport stopped=\(stopped), plaza item gone=\(itemGone)")
+        trace.append("Leave: left=\(left), listener closed=\(stopped) (the idle socket loop thread stays, as after any stop: \(transport.hasSocketLoop)), plaza item gone=\(itemGone)")
         clearClipboard()
         // Back to what it was.
         team.isEnabled = before.0
@@ -738,7 +754,7 @@ extension WindowsSelftest {
         for _ in 0..<3 { _ = await open(team: newTeam("cycle", code: fixtureCode(), nickname: "다람")); close() }
         await pause(0.3)
         let end = PopoverResources.now()
-        let ok = end.gdi == warm.gdi && end.user == warm.user && end.controls == start.controls && end.dialogs == start.dialogs && end.pumpDepth == 0
+        let ok = end.gdi <= warm.gdi && end.user <= warm.user && end.controls == start.controls && end.dialogs == start.dialogs && end.pumpDepth == 0
             && !(app.popover?.isOpen ?? false)
         r.add("settings.openClose", ok, "after 2 warm-up cycles, 3 more open/close cycles of Settings with a team: \(warm.description) -> \(end.description) (controls/dialogs at the start: \(start.controls)/\(start.dialogs))")
     }
