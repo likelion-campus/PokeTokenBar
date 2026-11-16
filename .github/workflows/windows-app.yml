@@ -215,7 +215,9 @@ jobs:
           $j = Get-Content st.json -Raw | ConvertFrom-Json
           $names = 'ui.kit.tabOrder', 'ui.kit.keys', 'ui.kit.text', 'ui.kit.typed', 'ui.kit.enterEscape', 'ui.kit.menuKeys', 'ui.kit.unregister',
                    'ui.kit.fonts', 'ui.kit.glyphs', 'ui.kit.drawn', 'ui.kit.tooltips', 'ui.kit.scroll', 'ui.kit.dpi', 'ui.kit.idle', 'ui.kit.capture', 'ui.kit.openClose3',
-                   'companion.spriteFrames', 'companion.clockStops', 'companion.spriteMemory'
+                   'companion.spriteFrames', 'companion.clockStops', 'companion.spriteMemory',
+                   'ui.kit.scrollClicks', 'ui.kit.multiLineKeys', 'ui.kit.partResize', 'ui.kit.settingChange', 'ui.kit.editMenu',
+                   'ui.kit.codePaste', 'ui.kit.ampersand', 'ui.kit.registries', 'ui.kit.noLeak'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }

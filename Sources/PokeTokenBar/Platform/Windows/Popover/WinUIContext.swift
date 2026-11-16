@@ -20,6 +20,13 @@ enum WinKit {
     }
 
     static func handle(_ pointer: UnsafeMutableRawPointer?) -> Int { Int(bitPattern: pointer) }
+
+    /// A title for a control that reads `&` as an access-key prefix (buttons, check boxes, radio buttons, tab items, and
+    /// their accessible names): every `&` doubled, as the tray menu does. Strings like "About & Support" stay whole.
+    static func title(_ text: String) -> String { text.replacingOccurrences(of: "&", with: "&&") }
+
+    /// The text again from such a title.
+    static func plainTitle(_ title: String) -> String { title.replacingOccurrences(of: "&&", with: "&") }
     static func loWord(_ v: WPARAM) -> Int { Int(v & 0xFFFF) }
     static func hiWord(_ v: WPARAM) -> Int { Int((v >> 16) & 0xFFFF) }
     static func signedHiWord(_ v: WPARAM) -> Int { Int(Int16(truncatingIfNeeded: (v >> 16) & 0xFFFF)) }
@@ -120,10 +127,16 @@ enum WinKit {
     let metrics: PopoverStackMetrics
     private var measureDC: HDC?
     private(set) var isDestroyed = false
+    /// What was read from the system (not given by the caller): `needsRebuild` compares those only.
+    private let followsTextScale: Bool, followsHighContrast: Bool, givenAccent: COLORREF?, followsAccent: Bool
 
     /// `owner` owns the tooltip window (the popover's top-level window). Text scale and high contrast are read from the
     /// system unless given (tests and the selftest's synthetic pages give them).
     init(dpi: UINT, owner: HWND?, textScale: Double? = nil, highContrast: Bool? = nil, accent: COLORREF? = nil) {
+        followsTextScale = textScale == nil
+        followsHighContrast = highContrast == nil
+        followsAccent = accent == nil
+        givenAccent = accent
         let d = max(dpi, 48), ts = textScale ?? Self.systemTextScale(), hc = highContrast ?? Self.systemHighContrast()
         WinControls.initializeCommonControls()
         let madeFonts = WinFonts(dpi: d, textScale: ts)
@@ -153,6 +166,18 @@ enum WinKit {
         let format = UINT(DT_CALCRECT | DT_NOPREFIX | DT_EXPANDTABS) | (width == nil ? UINT(DT_SINGLELINE) : UINT(DT_WORDBREAK))
         _ = WinStr.w(text).withUnsafeBufferPointer { DrawTextW(dc, $0.baseAddress, -1, &r, format) }
         return SIZE(cx: r.right - r.left, cy: max(r.bottom - r.top, tm.tmHeight))
+    }
+
+    /// Whether the page must be built again: a new DPI, or a system setting this context was made from changed (Windows'
+    /// text size, high contrast, the accent, the system colours). `WM_SETTINGCHANGE`, `WM_SYSCOLORCHANGE` and
+    /// `WM_THEMECHANGED` arrive for many other reasons (a wallpaper, the clock, a policy): rebuilding on each would lose the
+    /// focus, the scroll position and an IME composition for nothing.
+    func needsRebuild(dpi newDPI: UINT? = nil) -> Bool {
+        if let newDPI, newDPI != dpi { return true }
+        if followsTextScale, Self.systemTextScale() != textScale { return true }
+        if followsHighContrast, Self.systemHighContrast() != highContrast { return true }
+        let accent = followsAccent ? Self.systemAccent() : givenAccent
+        return WinUIColors.resolve(highContrast: highContrast, accent: accent) { COLORREF(GetSysColor($0)) } != colors.palette
     }
 
     /// The font's line height in pixels (`tmHeight`).
