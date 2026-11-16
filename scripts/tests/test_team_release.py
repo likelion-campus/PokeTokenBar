@@ -597,8 +597,8 @@ class CollectTests(HelperTest):
     def test_times_out(self):
         self.gh.timelines[self.app] = [("in_progress", "")]
         self.assertExit(4, self.collect())
-        self.assertIn("timed out after 100 min", self.err)
-        self.assertEqual(100 * 60, sum(self.clock.sleeps))
+        self.assertIn("timed out after 170 min", self.err)
+        self.assertEqual(170 * 60, sum(self.clock.sleeps))
         self.assertEqual([], self.gh.calls_of("run", "download"))
 
     def test_the_timeout_can_be_shorter(self):
