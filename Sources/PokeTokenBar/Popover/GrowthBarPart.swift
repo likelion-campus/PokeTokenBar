@@ -70,7 +70,7 @@ import Foundation
             layers.append(.image(image, frame: whole))
         }
         let drawing = PlazaPanelDrawing(layers: layers,
-                                        accessibility: [PlazaAccessibilityItem(frame: whole, role: .staticText, label: m.detail, value: m.detail)],
+                                        accessibility: [PlazaAccessibilityItem(frame: whole, role: .staticText, label: m.detail)],
                                         tooltips: [PlazaTooltip(frame: whole, text: m.detail)])
         return PopoverDrawing(drawing: drawing)
     }

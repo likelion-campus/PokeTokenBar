@@ -106,7 +106,10 @@ import WinSDK
             let model = playback.models[i]
             let bob = model.bobUp ? -3 * scale : 0
             if let image = model.current {
-                drawImage(image, slot: slot, index: i, model: model, bob: bob, scale: scale, into: dc)
+                // stage 7 Task 9: an animated slot showing a still (no GIF, or animation off) shows it cropped to its content,
+                // as the Mac's `SpriteLoader.animationPlaceholder` (the still's 96 px canvas is padded; GIFs are tight)
+                let picture = slot.animated && !model.isAnimating && slot.subject?.speciesID != nil ? placeholder(image) : image
+                drawImage(picture, slot: slot, index: i, model: model, bob: bob, scale: scale, into: dc)
             } else if let egg = eggGlyphImage(slot.frame, scale: scale) {  // stage 7 Task 9: the 🥚 in colour
                 drawImage(egg, slot: slot, index: i, model: model, bob: bob, scale: scale, into: dc)
                 stats.glyphs += 1
@@ -216,6 +219,17 @@ import WinSDK
         eggGlyph = (key, image)
         return image
     }
+    /// The Mac's `animationPlaceholder`: a still cropped square to its content (`PlazaEggCrop.square` is the same rule),
+    /// kept per picture while the view lives.
+    private var placeholders: [ObjectIdentifier: (source: PlazaImage, cropped: PlazaImage)] = [:]
+    private func placeholder(_ image: PlazaImage) -> PlazaImage {
+        let id = ObjectIdentifier(image)
+        if let kept = placeholders[id], kept.source === image { return kept.cropped }
+        if placeholders.count > 16 { placeholders = [:] }
+        let cropped = PlazaEggCrop.square(image)
+        placeholders[id] = (image, cropped)
+        return cropped
+    }
     // --- stage 7 Task 9: the pixel styles a slot asks for (end) ---
 
     private func drawGlyph(slot: SpriteSlot, bob: CGFloat, scale: CGFloat, view: WinDrawnView, into dc: HDC) {
@@ -318,6 +332,7 @@ import WinSDK
         isDestroyed = true
         playback.release()
         scaled = [:]
+        placeholders = [:]  // stage 7 Task 9
         releaseScratch()
         if let token, let host = view { host.window.off(token) }
         token = nil

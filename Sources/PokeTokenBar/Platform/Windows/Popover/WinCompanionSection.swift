@@ -266,6 +266,11 @@ import WinSDK
         driver.stopAll()
         for t in tasks { t.cancel() }
         tasks = []
+        // The views free their pictures, sprites and clocks here: their controls call back only weakly, so a view let go
+        // before the page's stack destroys its row would leave its DC and bitmap behind (+2 GDI objects each, seen on CI).
+        header?.view.destroy()
+        line?.view.destroy()
+        note?.view.destroy()
         header = nil
         line = nil
         note = nil

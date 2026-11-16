@@ -66,7 +66,7 @@ final class CompanionHeaderPartTests: XCTestCase {
             XCTAssertEqual(drawing.drawing.accessibility.first?.label, model.spriteLabel)
             guard case .bar(_, let detail)? = model.lines.first(where: { if case .bar = $0 { true } else { false } }) else { return XCTFail("no bar") }
             XCTAssertEqual(drawing.drawing.tooltips.map(\.text), [detail], "the bar's detail is its tooltip")
-            XCTAssertTrue(drawing.drawing.accessibility.contains { $0.value == detail }, "and its accessible value")
+            XCTAssertEqual(drawing.drawing.accessibility.filter { $0.label == detail }.count, 1, "and its accessible text, once")
             XCTAssertTrue(drawing.overlays.isEmpty, "no celebration, nothing over the sprite")
         }
     }

@@ -171,7 +171,8 @@ import Foundation
             case .bar(let value, let detail):
                 let r = CGRect(x: colX, y: y, width: colW, height: GrowthBarPart.expandedHeight)
                 bars.append((r, value, detail))
-                items.append(PlazaAccessibilityItem(frame: r, role: .staticText, label: detail, value: detail))
+                // The Mac's bar is one element whose value is the detail: one text here (the kit reads "label, value").
+                items.append(PlazaAccessibilityItem(frame: r, role: .staticText, label: detail))
                 tips.append(PlazaTooltip(frame: r, text: detail))
                 y += GrowthBarPart.expandedHeight
             case .caption(let s, let color):
