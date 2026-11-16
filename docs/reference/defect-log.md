@@ -2618,3 +2618,16 @@ read_when:
   **고침:** 기대값을 주입한 `now` 한 개로 계산해 행 모델과 정확히 비교하고(허용치 없음), Mac 복사본의 값은 "주입한 now 의 페이스와 호출 직후 페이스 사이"에 있다고만 단언한다(페이스는 시간에 단조 — 벽시계 허용치가 아니라 경계). `testThePaceFractionFollowsTheMac` 도 같은 방식.
   **부류 스윕:** `PopoverTwinEquivalenceTests+Mac` 의 나머지 `Date()` 는 시각이 주입 인자인 쪽(`LimitsBuilder(now:)`, `resetClockSuffix(now:)`)과 복사본이 함께 읽는 경우뿐이며, `testTheResetClockFollowsTheMac` 는 6시간 경계에서 30 초 떨어진 오프셋만 써 수 ms 차이로 갈리지 않는다.
   **규칙:** 주입한 시계와 살아 있는 시계를 한 테스트에서 비교할 때는 허용치가 아니라 두 시각 사이의 경계로 단언한다. (결함 주입 확인은 하지 않았다: 가드가 아니라 테스트의 단언 방식을 바꾼 것이다.)
+- **윈도에서 Claude 로그인 파일이 없으면 새로고침이 "잠시 후 다시 시도하세요"라고 한다 — 시도해도 소용없는 조언이다(P14, 7단계 Task 6).** Claude Code 에 로그인한 적 없는 PC 에서 팝오버의 새로고침(사용자 동작)을 누르면
+  `OAuthAccessTokenCache` 가 자격증명 파일을 못 찾고 Keychain 단계로 내려가는데, 윈도의 `readClaudeKeychain`(`Platform/OAuthKeychainUnavailable.swift`)이 `LimitsError.keychainAccessDisabled` 를 던졌다.
+  스토어의 `friendlyLimitError` 는 이 오류를 `limitRefreshGeneric`("Claude 한도 조회에 실패했어요. 잠시 후 다시 시도하세요.")로 바꾼다 — 사용자가 Keychain 접근을 끈 맥 사용자를 위한 문구다. 맥은 같은 상황에서
+  `keychainUnavailable(errSecItemNotFound)` 를 받아 "Claude 자격증명을 찾지 못했어요. Claude Code 에 로그인하면…"(`limitRefreshNoCredential`)을 보여 준다. 윈도에는 끌 Keychain 이 없으므로 "접근이 꺼졌다"는 사실이 아니다.
+  **왜 못 걸렀나:** 윈도 테스트(`testUserRefreshWithoutAFileReportsKeychainAccessDisabled`)가 던져진 **오류 종류**만 고정했다 — 사용자에게 보이는 **문구**까지 가는 경로(스토어의 `limitTokenRefreshError`)는 아무도 밟지 않았고,
+  종류와 문구의 대응(`friendlyLimitError`)은 맥 쪽 테스트가 다른 입력으로만 확인했다. 오류 종류를 고정하는 테스트는 그 종류가 맞는 말인지까지는 답하지 않는다.
+  **도달 가능성:** 있다 — 윈도 사용자가 Claude Code 없이(Codex 만 쓰거나 아직 로그인 전) 새로고침을 누르면 그대로 나온다. **고침:** 윈도의 Keychain 단계가 맥의 "항목 없음"과 같은 오류(`keychainUnavailable(errSecItemNotFound)`)를 던진다
+  (Core 는 건드리지 않고 fork 소유 Platform 파일 한 곳). **부류 스윕(이 오류를 가르는 `UsageStore`/체인의 모든 분기):** `friendlyLimitError`(→ 자격증명 없음 문구, 의도), `isKeychainPromptDeclined`(`errSecItemNotFound` 는 거절이 아니다 → 추가 계정의 프롬프트를
+  막지 않는다, 맥과 같다), `firstUsableCredential`(항목 없음은 다음 서비스 이름으로 넘어가 마지막에 같은 오류를 던진다 — 윈도는 서비스 이름이 여럿이어도 읽는 곳이 없어 결과가 같다), `updateAuthExpired`(401/403 만 본다, 무관),
+  `ClaudeOAuthLimitsProvider` 의 `keychainAccessDisabled` 재던지기(진짜 비활성만 거친다). Antigravity 의 `UnavailableAntigravityLimits` 는 일부러 `keychainAccessDisabled` 를 유지한다 — 한도 소스가 없다는 뜻이고 UI 는 그 섹션을 숨긴다.
+  **영구 캡처:** `ClaudeOAuthFileCredentialTests.testUserRefreshWithoutAFileReportsAMissingCredential`(오류 종류), `testUserRefreshWithoutAFileShowsTheCredentialMissingText`(스토어를 통해 **보이는 문구**를 8개 언어로, `limitRefreshGeneric` 이 아님도),
+  `SettingsModelTests.testAMissingCredentialIsWordedAsOneInEveryLanguage`(양쪽 OS 에서 대응 자체). **규칙:** 플랫폼이 없는 기능을 오류로 알릴 때는 "그 기능이 꺼졌다"가 아니라 사용자가 해야 할 일("로그인")을 말하는 오류를 고르고,
+  테스트는 오류 종류가 아니라 화면에 나가는 문구에서 끝낸다.

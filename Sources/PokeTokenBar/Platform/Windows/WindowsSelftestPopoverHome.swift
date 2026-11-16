@@ -266,7 +266,7 @@ enum HomeFixtures {
 // --- stage 7 Task 5: the page in a window (end) ---
 
 @MainActor enum WindowsSelftestPopoverHome {
-    static let names = ["home.capture", "home.updatesOnRefresh", "home.relativeClock", "home.keyboard", "home.openClose3", "home.firstPaint"]
+    static let names = ["home.capture", "home.updatesOnRefresh", "home.relativeClock", "home.keyboard", "home.openClose3", "home.firstPaint", "home.settingsRoundTrip"]
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         let start = KitResources.now()
@@ -276,6 +276,7 @@ enum HomeFixtures {
         await keyboardCheck(r)
         await openCloseCheck(r, start: start)
         await firstPaintCheck(r, app)
+        await settingsRoundTripCheck(r, app)
     }
 
     static func dumpDirectory() -> URL? {
@@ -645,6 +646,73 @@ enum HomeFixtures {
         popover.close(.destroyed)
         r.add("home.firstPaint", early >= 300 && early * 10 >= late * 8,
               "a capture 0.25 s after the popover opened has \(early) text pixels, 1.75 s after \(late) (a white empty page has about 0; needs >= 300 and >= 80 % of the later one)")
+    }
+
+    // MARK: home.settingsRoundTrip: Home -> Settings (the footer's button) -> Back -> Home, in the real popover
+
+    private static func findButton(_ root: HWND, text: String) -> HWND? {
+        var child = GetWindow(root, 5 /* GW_CHILD */)
+        while let c = child {
+            if WinKit.className(c) == "Button", WinKit.text(of: c) == text { return c }
+            if let inner = findButton(c, text: text) { return inner }
+            child = GetWindow(c, 2 /* GW_HWNDNEXT */)
+        }
+        return nil
+    }
+
+    private static func print(_ hwnd: HWND) -> WinUIDump.Bitmap? {
+        var width: UInt32 = 0, height: UInt32 = 0
+        var out: UnsafeMutablePointer<UInt8>?
+        guard ptb_window_print(UnsafeMutableRawPointer(hwnd), &width, &height, &out) == 0, let out else { return nil }
+        defer { ptb_plaza_free(out) }
+        return WinUIDump.Bitmap(width: Int(width), height: Int(height), bgra: Array(UnsafeBufferPointer(start: out, count: Int(width * height) * 4)))
+    }
+
+    private static func settingsRoundTripCheck(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
+        guard WindowsSelftest.onCI else {
+            r.add("home.settingsRoundTrip", true, "skipped: CI not set (the popover takes the foreground)")
+            return
+        }
+        guard let popover = app.popover, let probe = WindowsSelftestPopoverWindow.makeProbe() else {
+            r.add("home.settingsRoundTrip", false, "no popover or probe window")
+            return
+        }
+        defer { probe.destroy() }
+        popover.close(.destroyed)
+        WindowsSelftest.forceForeground(probe.hwnd)
+        _ = await WindowsSelftest.waitUntil(timeout: 1) { GetForegroundWindow() == probe.hwnd }
+        _ = PostMessageW(app.sink.hwnd, WinTray.callbackMessage, 0, LPARAM(Int(PopoverRun.ninKeySelect) | (1 << 16)))
+        guard await WindowsSelftest.waitUntil(timeout: 3, { popover.isOpen }), let hwnd = popover.hwndForTesting else {
+            r.add("home.settingsRoundTrip", false, "the popover did not open")
+            return
+        }
+        await wait(0.4)
+        let dir = dumpDirectory()
+        let isHome = popover.pageForTesting is WinHomePage
+        let l = L(app.companion.language)
+        if let dir, let shot = print(hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("home-live-open.png")) }
+        // Home -> Settings: the footer's button (a click message, as a mouse or Enter gives it)
+        guard let button = findButton(hwnd, text: l.settings) else {
+            r.add("home.settingsRoundTrip", false, "home=\(isHome); no footer button named '\(l.settings)'")
+            popover.close(.destroyed)
+            return
+        }
+        WinKit.send(button, 0x00F5 /* BM_CLICK */)
+        await wait(0.6)
+        let onSettings = popover.pageForTesting is WinSettingsPage && popover.state.showSettings
+        let heightSettings = popover.pageForTesting?.heightDIP ?? 0
+        if let dir, let shot = print(hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("home-live-settings.png")) }
+        // Back (Escape on the page): Home again, with the footer there
+        let wentBack = popover.pageForTesting?.escape() ?? false
+        await wait(0.6)
+        let backHome = popover.pageForTesting is WinHomePage && !popover.state.showSettings && popover.isOpen
+        let footer = popover.hwndForTesting.flatMap { findButton($0, text: l.settings) } != nil
+        let heightHome = popover.pageForTesting?.heightDIP ?? 0
+        if let dir, let h2 = popover.hwndForTesting, let shot = print(h2) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("home-live-back.png")) }
+        popover.close(.destroyed)
+        r.add("home.settingsRoundTrip", isHome && onSettings && wentBack && backHome && footer,
+              "opened on Home=\(isHome); the footer's Settings button -> Settings page=\(onSettings) (\(Int(heightSettings)) DIP); Back -> escape handled=\(wentBack), Home page again=\(backHome) "
+              + "(\(Int(heightHome)) DIP) with its footer=\(footer); captures home-live-open/settings/back.png")
     }
 
     // MARK: --popover-home-idle-probe seconds|minutes|still (the idle gate)

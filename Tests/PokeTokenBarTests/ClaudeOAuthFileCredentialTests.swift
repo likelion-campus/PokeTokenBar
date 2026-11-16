@@ -143,13 +143,30 @@ final class ClaudeOAuthFileCredentialTests: XCTestCase {
     }
 
     #if os(Windows)
-    /// No Keychain on Windows: a user refresh without a usable file ends in the Mac's own "access disabled" error.
-    func testUserRefreshWithoutAFileReportsKeychainAccessDisabled() async throws {
+    /// No Keychain on Windows: a user refresh without a usable file ends in the Mac's "no Keychain item" error, which the
+    /// store words as "No Claude credential found" (it was `keychainAccessDisabled`: "try again shortly", P14).
+    func testUserRefreshWithoutAFileReportsAMissingCredential() async throws {
         let cache = OAuthAccessTokenCache.forConfigRoot(root)
         do {
             _ = try await cache.accessToken(allowKeychainPrompt: true)
             XCTFail("no file and no secret store produced a token")
-        } catch LimitsError.keychainAccessDisabled {
+        } catch LimitsError.keychainUnavailable(let status) {
+            XCTAssertEqual(status, errSecItemNotFound)
+        }
+    }
+
+    /// The text the user reads (P14): the Refresh button on a PC without Claude Code's sign-in file. The old test pinned the
+    /// error kind only, so the wrong wording behind it never showed.
+    @MainActor func testUserRefreshWithoutAFileShowsTheCredentialMissingText() async {
+        AppEnv.allowLiveFetchForTesting = true
+        let store = UsageStore(providers: [], claudeLimitsProvider: OAuthLimitsProvider(accessTokenCache: .forConfigRoot(root)),
+                               discoverClaudeConfigDirs: { [] },
+                               defaults: TestDefaults.make(suite: "ptb.test.p14.\(UUID().uuidString)"))
+        for language in AppLanguage.allCases {
+            store.localizationLanguage = language
+            await store.refreshLimitTokenFromKeychain()
+            XCTAssertEqual(store.limitTokenRefreshError, L(language).limitRefreshNoCredential, "\(language)")
+            XCTAssertNotEqual(store.limitTokenRefreshError, L(language).limitRefreshGeneric, "\(language)")
         }
     }
 

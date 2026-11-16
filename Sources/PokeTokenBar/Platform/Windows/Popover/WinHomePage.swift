@@ -46,6 +46,9 @@ import WinSDK
     let clock: PopoverClock
     private(set) var isDestroyed = false
     private var epoch = 0
+    /// The provider whose limits are being rendered (a provider-specific section may add its own help) and the help's state.
+    var providerID: String?
+    var credentialHelpOpen = false
     private(set) var last: HomeModel?
     /// Renders per region, and how often the model was applied (the selftest's render counts).
     private(set) var renders: [String: Int] = [:]
@@ -95,10 +98,18 @@ import WinSDK
     }
 
     /// The app's page: the host's stores, the popover's navigation state, the plaza button opening the plaza (the popover
-    /// closes first: `WindowsAppDelegate.openPlaza`).
-    convenience init(host: WinPopoverHost, state: PopoverState) {
-        self.init(store: host.store, companion: host.companion, updater: host.updater, team: host.team, feed: host.feed,
-                  state: state, facts: PopoverPlatformFacts.current, openPlaza: { host.openPlaza() })
+    /// closes first: `WindowsAppDelegate.openPlaza`). Settings (and the session-key route) swap the page in place: the state
+    /// says `showSettings`, and the popover builds the page it asks for (`WinSettingsPage.routed`), after the click has returned.
+    convenience init(host: WinPopoverHost, state: PopoverState, popover: WinPopover? = nil) {
+        let store = host.store, updater = host.updater
+        self.init(store: store, companion: host.companion, updater: updater, team: host.team, feed: host.feed,
+                  state: state, facts: PopoverPlatformFacts.current, openPlaza: { host.openPlaza() },
+                  perform: { [weak popover] action in
+                      HomeModel.perform(action, store: store, updater: updater, state: state, quit: { WindowsApp.exit(0, .menu) })
+                      if state.showSettings, let popover {
+                          DispatchQueue.main.async { popover.replacePage() }  // not inside the button that was pressed
+                      }
+                  })
     }
 
     // MARK: WinPopoverPage
@@ -198,6 +209,7 @@ import WinSDK
         }
         if first || was?.providerRow != m.providerRow { renderProvider(m.providerRow, s.provider) }
         if first || was?.statusBanner != m.statusBanner { renderStatus(m.statusBanner, s.status) }
+        providerID = m.selectedProviderID
         if first || !Self.sameLimits(was?.limits, m.limits) { renderLimits(m.limits, s.limits) }
         updateFooter(m.footer, s.footer, first: first, was: was?.footer)
         last = m

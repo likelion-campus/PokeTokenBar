@@ -173,8 +173,8 @@ import WinSDK
             let rows = section.rows.flatMap { [$0.nameLabel, $0.label, $0.control, $0.hint].compactMap { $0 } }
             for control in [section.caption].compactMap({ $0 }) + rows {
                 for part in control.parts {
-                    _ = SetWindowPos(part, previous /* nil: HWND_TOP */, 0, 0, 0, 0,
-                                     UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOOWNERZORDER))
+                    let flags = UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOOWNERZORDER)
+                    _ = SetWindowPos(part, previous /* nil: HWND_TOP */, 0, 0, 0, 0, flags /* SWP_NOACTIVATE */)
                     previous = part
                 }
             }

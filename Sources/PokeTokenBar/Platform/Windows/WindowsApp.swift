@@ -65,14 +65,15 @@ public enum WindowsApp {
             WindowsSelftest.startPlazaIdle(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "visible")
         }
         if arguments.contains("--popover-kit-idle-probe") { WindowsSelftest.startPopoverKitIdle() }  // stage 7 Task 3: the gate's open-kit window
-        if let i = arguments.firstIndex(of: "--popover-idle-probe") {  // stage 7 Task 4: the gate's popover windows (open / closed after open)
-            WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
-        }
+        if arguments.contains("--popover-sprite-idle-probe") { WindowsSelftestPopover.startSpriteIdle() }  // stage 7 Task 8: an animating sprite open
         // --- stage 7 Task 5: the gate's open Home page (begin) ---
         if let i = arguments.firstIndex(of: "--popover-home-idle-probe") {
             WindowsSelftestPopoverHome.startIdleProbe(mode: i + 1 < arguments.count ? arguments[i + 1] : "seconds")
         }
         // --- stage 7 Task 5: the gate's open Home page (end) ---
+        if let i = arguments.firstIndex(of: "--popover-idle-probe") {  // stage 7 Task 4: the gate's popover windows (open / closed after open)
+            WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
+        }
         WindowsSelftestUpdate.start(arguments)  // stage 8 Task 6: "Update" as the tray item does it, under the CI-only flags
         WinMainLoop.run(app.loopStrategy) { false }
         WindowsApp.exit(0, .menu)  // not reached: the loop only ends through an exit
@@ -424,9 +425,9 @@ extension WindowsAppDelegate {
                                   openPlaza: { [weak self] in self?.openPlaza() })
         host.owner = sink.hwnd
         let made = WinPopover(host: host)
-        // --- stage 7 Task 5: the Home page (begin) ---
-        made.makePage = { popover in WinHomePage(host: popover.host, state: popover.state) }
-        // --- stage 7 Task 5: the Home page (end) ---
+        // --- stage 7 Task 6: Settings (begin) ---
+        made.makePage = WinSettingsPage.routed
+        // --- stage 7 Task 6: Settings (end) ---
         popover = made
         WindowsApp.popoverToClose = made
         tray.onSelect = { [weak made] select in

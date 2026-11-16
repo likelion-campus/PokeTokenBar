@@ -460,3 +460,101 @@ private extension ClaudeAccountLimits {
                             isDefault: id == ClaudeAccountLimits.defaultID, isExpired: isExpired)
     }
 }
+
+/// Task 8: the companion sprite's frame-selection twins against the Mac originals (`SpriteSubject`, `SpriteView`'s
+/// statics, `SpriteFit`), over the cases of `SpriteSubjectTests` and a grid of species, shiny, form and back values.
+@MainActor
+final class PopoverSpriteTwinEquivalenceTests: XCTestCase {
+    private let forms: [PokemonForm?] = [nil, PokemonForm("a"), PokemonForm("sky"), PokemonForm("sandy")]
+
+    /// Both sides' subject as comparable values; the pictures are matched by index (0 = none).
+    private func fields(_ s: SpriteSubject, _ pics: [NSImage]) -> String {
+        "\(s.image.flatMap { i in pics.firstIndex { $0 === i } }.map { $0 + 1 } ?? 0)|\(s.loadedID.map(String.init) ?? "-")|\(s.loadedShiny)|\(s.loadedForm?.rawValue ?? "-")|\(s.loadedBack)"
+    }
+    private func fields(_ s: PopoverSpriteSubject, _ pics: [PlazaImage]) -> String {
+        "\(s.image.flatMap { i in pics.firstIndex { $0 === i } }.map { $0 + 1 } ?? 0)|\(s.loadedID.map(String.init) ?? "-")|\(s.loadedShiny)|\(s.loadedForm?.rawValue ?? "-")|\(s.loadedBack)"
+    }
+
+    func testSubjectTransitionsAgree() async {
+        let macPics = (0..<3).map { NSImage(size: NSSize(width: CGFloat($0 + 1), height: 1)) }
+        let pics = (0..<3).map { PlazaImage(bitmap: PlazaBitmap(width: $0 + 1, height: 1)) }
+        var compared = 0
+        func img(_ i: Int) -> (NSImage?, PlazaImage?) { i == 0 ? (nil, nil) : (macPics[i - 1], pics[i - 1]) }
+        for start in 0...3 {
+            for loadedID in [nil, 25, 133] as [Int?] {
+                for shiny in [false, true] {
+                    for back in [false, true] {
+                        let (mi, pi) = img(start)
+                        let mac0 = SpriteSubject(image: mi, loadedID: loadedID, loadedShiny: shiny, loadedForm: forms.last!, loadedBack: back)
+                        let twin0 = PopoverSpriteSubject(image: pi, loadedID: loadedID, loadedShiny: shiny, loadedForm: forms.last!, loadedBack: back)
+                        XCTAssertEqual(fields(mac0, macPics), fields(twin0, pics))
+                        for cached in 0...3 {
+                            let (mc, pc) = img(cached)
+                            XCTAssertEqual(fields(mac0.becomingEgg(cachedEgg: mc), macPics), fields(twin0.becomingEgg(cachedEgg: pc), pics))
+                            for form in forms {
+                                XCTAssertEqual(fields(mac0.startingLoad(cachedImage: mc, for: 26, shiny: !shiny, form: form, back: !back), macPics),
+                                               fields(twin0.startingLoad(cachedImage: pc, for: 26, shiny: !shiny, form: form, back: !back), pics))
+                                for cancelled in [false, true] {
+                                    let a = mac0.applyingLoad(mc, for: 26, cancelled: cancelled, shiny: shiny, form: form, back: back)
+                                    let b = twin0.applyingLoad(pc, for: 26, cancelled: cancelled, shiny: shiny, form: form, back: back)
+                                    XCTAssertEqual(a.map { fields($0, macPics) }, b.map { fields($0, pics) })
+                                    compared += 1
+                                }
+                            }
+                            for cancelled in [false, true] {
+                                XCTAssertEqual(mac0.applyingEgg(mc, cancelled: cancelled).map { fields($0, macPics) },
+                                               twin0.applyingEgg(pc, cancelled: cancelled).map { fields($0, pics) })
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThan(compared, 500)
+    }
+
+    func testFrameRulesAgree() {
+        for id in [nil, 25, 133] as [Int?] {
+            for shiny in [false, true] {
+                for back in [false, true] {
+                    for animated in [false, true] {
+                        for form in forms {
+                            XCTAssertEqual(SpriteView.frameTaskID(speciesID: id, shiny: shiny, floor: 0, animated: animated, form: form, back: back),
+                                           PopoverSpriteRules.frameTaskID(speciesID: id, shiny: shiny, floor: 0, animated: animated, form: form, back: back))
+                            XCTAssertEqual(SpriteView.frameTaskID(speciesID: id, shiny: shiny, floor: 0.2, form: form),
+                                           PopoverSpriteRules.frameTaskID(speciesID: id, shiny: shiny, floor: 0.2, form: form))
+                            guard let id else { continue }
+                            for loadedShiny in [false, true] {
+                                for loadedBack in [false, true] {
+                                    for loadedForm in forms {
+                                        XCTAssertEqual(
+                                            SpriteView.needsReload(loadedID: id, loadedShiny: loadedShiny, id: id, shiny: shiny, loadedForm: loadedForm,
+                                                                   form: form, loadedBack: loadedBack, back: back),
+                                            PopoverSpriteRules.needsReload(loadedID: id, loadedShiny: loadedShiny, id: id, shiny: shiny,
+                                                                           loadedForm: loadedForm, form: form, loadedBack: loadedBack, back: back))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        XCTAssertTrue(SpriteView.needsReload(loadedID: nil, loadedShiny: false, id: 25, shiny: false))
+        XCTAssertTrue(PopoverSpriteRules.needsReload(loadedID: nil, loadedShiny: false, id: 25, shiny: false))
+        for count in 0...3 {
+            for cancelled in [false, true] {
+                let mac = SpriteView.framesToApply((0..<count).map { _ in (NSImage(size: NSSize(width: 1, height: 1)), 0.1) }, cancelled: cancelled)
+                let twin = PopoverSpriteRules.framesToApply((0..<count).map { _ in (PlazaImage(bitmap: PlazaBitmap(width: 1, height: 1)), 0.1) }, cancelled: cancelled)
+                XCTAssertEqual(mac.count, twin.count, "count \(count) cancelled \(cancelled)")
+            }
+        }
+    }
+
+    func testFitAgrees() {
+        for size in [CGSize(width: 36, height: 66), CGSize(width: 96, height: 96), CGSize(width: 0, height: 10), .zero, CGSize(width: 120, height: 40)] {
+            XCTAssertEqual(SpriteFit.size(for: size, box: 76), PopoverSpriteFit.size(for: size, box: 76))
+            XCTAssertEqual(SpriteFit.size(for: size, width: 22, height: 20), PopoverSpriteFit.size(for: size, width: 22, height: 20))
+        }
+    }
+}
