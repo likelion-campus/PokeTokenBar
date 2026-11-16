@@ -26,7 +26,8 @@ extension WindowsSelftest {
     static let names = ["popover.open", "popover.placement", "popover.toggle", "popover.dismissOnActivate", "popover.dismissInput",
                         "popover.escape", "popover.closePaths", "popover.ownedKeepsOpen", "popover.staleCompletion", "popover.dpiChange",
                         "popover.noSelfOpen", "popover.refusedForeground", "popover.menuAfter", "popover.menuSettings",
-                        "popover.secondLaunch", "popover.realClick", "popover.openClose3"]
+                        "popover.secondLaunch", "popover.realClick", "popover.openClose3", "popover.aboveTopmost", "popover.pageContract",
+                        "popover.closeAfterNestedLoop", "popover.autostartQuiet"]
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
@@ -53,6 +54,7 @@ extension WindowsSelftest {
             if janitor.closed > 0 { r.add("popover.menuJanitor", false, "closed \(janitor.closed) tray menu(s) no check was driving (an unexpected foreground fallback)") }
         }
         await t.openCheck()
+        await t.topmostCheck()
         await t.placementCheck(dump: dumpDirectory())
         await t.toggleCheck()
         await t.dismissChecks()
@@ -60,11 +62,14 @@ extension WindowsSelftest {
         await t.closePathsCheck()
         await t.ownedCheck()
         await t.staleCheck()
+        await t.pageContractCheck()
+        await t.nestedLoopCheck()
         await t.dpiCheck()
         await t.noSelfOpenCheck()
         await t.refusedCheck()
         await t.menuChecks()
         await t.secondLaunchCheck()
+        await t.autostartCheck()
         await t.realClickCheck()
         if let dir = dumpDirectory() { await t.captureCheck(dir) }
         await t.openCloseCheck(start: start)
@@ -192,11 +197,23 @@ extension WindowsSelftest {
 
     /// `--popover-idle-probe open|closed`: the idle gate's popover (CI only): opened through the tray callback as a key
     /// select would, then left open and still, or closed again (what a closed popover leaves behind).
+    private static var idleProbe: (mode: String, popover: WinPopover?)?
+
+    /// At exit (`WindowsApp.exit`, before it closes the popover): what the idle window measured — still open, closed how often.
+    /// The gate requires `closes=0` for the open window (post-merge review M7). nil when no probe ran.
+    static func idleProbeExitLine() -> String? {
+        guard let probe = idleProbe else { return nil }
+        let p = probe.popover
+        return "popover idle probe exit: mode=\(probe.mode) open=\(p?.isOpen ?? false) opens=\(p?.stats.opens ?? 0) closes=\(p?.stats.closes ?? 0) "
+            + "last close=\(p?.stats.lastClose.map { "\($0)" } ?? "-")"
+    }
+
     static func startIdleProbe(_ app: WindowsAppDelegate, mode: String) {
         guard WindowsSelftest.onCI else {
             AppLog.write("popover idle probe: CI not set; nothing opened")
             return
         }
+        idleProbe = (mode, app.popover)
         Task { @MainActor in
             _ = await WindowsSelftest.waitUntil(timeout: 5) { false }
             guard let popover = app.popover, let probe = makeProbe() else {
@@ -441,11 +458,11 @@ final class PopoverDriver: @unchecked Sendable {
         let focus = GetFocus()
         let focusInside = focus == hwnd || focus.map { IsChild(hwnd, $0) } == true
         let tool = ex & 0x80 != 0 && ex & 0x4_0000 == 0  // WS_EX_TOOLWINDOW, no WS_EX_APPWINDOW: no taskbar button, not in Alt+Tab
-        let topmost = ex & 0x8 != 0
+        let topmost = ex & 0x8 != 0  // WS_EX_TOPMOST: above other apps' always-on-top windows while open (post-merge I1)
         let opener = popover.stats.lastOpener == .trayClick(iconPoint)
         let margin = Int32((12 * scale).rounded())
         let heightOK = cr.bottom == wantH || work.map { Int32($0.height) - 2 * margin == wr.bottom - wr.top } == true  // or clamped to a small work area
-        r.add("popover.open", ok && IsWindowVisible(hwnd) && GetForegroundWindow() == hwnd && inside && tool && !topmost && owner == sink && focusInside
+        r.add("popover.open", ok && IsWindowVisible(hwnd) && GetForegroundWindow() == hwnd && inside && tool && topmost && owner == sink && focusInside
                 && WinMessageHook.dialogWindowCount == dialogs0 + 1 && cr.right == wantW && heightOK && tray.selectCount == selects0 + 1 && opener
                 && WinKit.className(hwnd) == WinPopover.className,
               "posted NIN_SELECT at \(iconPoint.x),\(iconPoint.y) (shell rect \(anchor.map(Self.text) ?? "nil"), CI-granted foreground): visible=\(IsWindowVisible(hwnd)) "
@@ -764,7 +781,7 @@ final class PopoverDriver: @unchecked Sendable {
     func staleCheck() async {
         popover.close(.destroyed)
         let o1 = await click()
-        let g1 = popover.generation
+        let g1 = popover.generation, serial1 = popover.closeSerialForTesting
         popover.close(.destroyed)
         let o2 = await click()
         let g2 = popover.generation, h2 = popover.hwndForTesting
@@ -772,7 +789,7 @@ final class PopoverDriver: @unchecked Sendable {
         let stale = PopoverCounter(), current = PopoverCounter(), late = PopoverCounter()
         popover.whenCurrent(g1) { stale.n += 1 }
         popover.whenCurrent(g2) { current.n += 1 }
-        if let h2 { _ = PostMessageW(h2, WinPopover.closeMessage, WPARAM(UInt(bitPattern: g1)), 0) }  // a deferred close for the first window
+        if let h2 { _ = PostMessageW(h2, WinPopover.closeMessage, WPARAM(UInt(bitPattern: serial1)), 0) }  // a deferred close for the first window
         await pause(0.3)
         let survived = popover.isOpen && popover.hwndForTesting == h2
         // A completion that lands after the window closed (a decode that took 0.2 s).
@@ -1015,7 +1032,7 @@ final class PopoverDriver: @unchecked Sendable {
         await leftClick(c)
         let reported = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s0 }
         var detail = "shell rect \(Self.text(rect)) on the taskbar=\(onTaskbar); a real click at \(c.x),\(c.y): NIN_SELECT=\(reported)"
-        var ok = true
+        var ok = true, judged = reported
         if reported {
             let opened = await opened()
             let s1 = tray.selectCount, absorbed0 = popover.stats.suppressedSelects
@@ -1046,9 +1063,27 @@ final class PopoverDriver: @unchecked Sendable {
                     WindowFromPoint(POINT(x: (h.left + h.right) / 2, y: (h.top + h.bottom) / 2)).map { WinKit.className(GetAncestor($0, UINT(GA_ROOT))) } ?? "none"
                 } ?? "-"
                 ok = !reported2 || (opened2 && clear)
+                judged = reported2
                 detail += "; a real click on the icon in the overflow flyout at \(p.x),\(p.y): NIN_SELECT=\(reported2) popover open=\(opened2)"
                     + (opened2 ? " at \(Self.text(frame)) edge \(popover.stats.lastEdge.map { "\($0)" } ?? "-"), kept clear of the window holding the icon "
                         + "\(holder.map(Self.text) ?? "nil")=\(clear); 0.5 s later at the flyout's place: \(flyoutStill)" : "")
+                // The toggle race in the user's setup (post-merge M6): a second real click on the icon in the flyout, which is
+                // still open, closes the popover and does not reopen it.
+                let again = tray.anchorRect()
+                if opened2, let again, again.left == now.left, again.top == now.top {
+                    let s3 = tray.selectCount, absorbed0 = popover.stats.suppressedSelects
+                    await leftClick(p)
+                    let reported3 = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s3 }
+                    await pause(0.7)
+                    let closedNotReopened = !popover.isOpen
+                    let absorbed = popover.stats.suppressedSelects - absorbed0
+                    ok = ok && reported3 && closedNotReopened && absorbed == 1
+                    detail += "; a second real click on it in the flyout: NIN_SELECT=\(reported3) closed and not reopened=\(closedNotReopened) "
+                        + "(closed by \(popover.stats.lastClose.map { "\($0)" } ?? "-"), cursor on the icon=\(popover.stats.lastCursorInAnchor), "
+                        + "button down=\(popover.stats.lastButtonDown), absorbed +\(absorbed))"
+                } else if opened2 {
+                    detail += "; the flyout closed by itself (shell rect now \(again.map(Self.text) ?? "nil")): no second click there"
+                }
             }
             WindowsSelftestPopover.tap(0x1B)
             await pause(0.3)
@@ -1060,8 +1095,157 @@ final class PopoverDriver: @unchecked Sendable {
             await leftClick(POINT(x: (pr.left + pr.right) / 2, y: (pr.top + pr.bottom) / 2))
             await pause(0.4)
         }
-        r.add("popover.realClick", ok, (reported ? "" : "informational: ") + detail)
+        r.add("popover.realClick", ok, (judged ? "" : "informational: ") + detail)
         await grant()
+    }
+
+    // MARK: popover.aboveTopmost (post-merge I1): other apps' always-on-top windows do not cover it
+
+    func topmostCheck() async {
+        popover.close(.destroyed)
+        let work = WinPopoverAnchor.monitors().first { $0.isPrimary }?.work ?? CGRect(x: 0, y: 0, width: 1024, height: 720)
+        // A picture-in-picture video's stand-in: topmost, shown without activation where the popover opens (bottom right).
+        guard let pip = try? WinSinkWindow(className: "PokeTokenBarSelftestTopmost", title: "PokeTokenBar selftest topmost",
+                                           style: 0x8000_0000 /* WS_POPUP */, exStyle: 0x0800_0088 /* WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW */,
+                                           x: Int32(work.maxX) - 420, y: Int32(work.maxY) - 260, width: 400, height: 240) else {
+            r.add("popover.aboveTopmost", false, "no topmost window: \(GetLastError())")
+            return
+        }
+        defer { pip.destroy() }
+        _ = ShowWindow(pip.hwnd, 4 /* SW_SHOWNOACTIVATE */)
+        var pr = RECT()
+        _ = GetWindowRect(pip.hwnd, &pr)
+        let o = await click()
+        let wr = windowRect()
+        let pt = POINT(x: (max(wr.left, pr.left) + min(wr.right, pr.right)) / 2, y: (max(wr.top, pr.top) + min(wr.bottom, pr.bottom)) / 2)
+        func rootAt(_ p: POINT) -> HWND? { WindowFromPoint(p).flatMap { GetAncestor($0, UINT(GA_ROOT)) } }
+        let onTop = popover.hwndForTesting.map { rootAt(pt) == $0 } ?? false
+        let ex = popover.hwndForTesting.map { UInt32(truncatingIfNeeded: GetWindowLongPtrW($0, GWL_EXSTYLE)) & 0x8 != 0 } ?? false
+        // Another window takes the activation: the popover closes, so it is not left above the other app.
+        await grant()
+        let closedAfter = await closed(1)
+        let pipVisibleAgain = rootAt(pt) == pip.hwnd
+        r.add("popover.aboveTopmost", o && onTop && ex && closedAfter && pipVisibleAgain,
+              "a topmost window shown without activation at \(Self.text(pr)), the popover opened at \(Self.text(wr)): at \(pt.x),\(pt.y) the window "
+              + "on top is the popover=\(onTop) (WS_EX_TOPMOST=\(ex)); another window activated -> closed=\(closedAfter), the topmost window seen there "
+              + "again=\(pipVisibleAgain)")
+    }
+
+    // MARK: popover.pageContract (post-merge M4): a size change from build, a rebuild's new generation
+
+    func pageContractCheck() async {
+        popover.close(.destroyed)
+        let page = PopoverProbePage()
+        page.popover = popover
+        page.shrinkOnBuild = 300
+        let saved = popover.makePage
+        popover.makePage = { _ in page }
+        defer { popover.makePage = saved }
+        let o = await click()
+        guard o, let hwnd = popover.hwndForTesting else {
+            r.add("popover.pageContract", false, "open=\(o)")
+            return
+        }
+        let dpi = WinUIContext.dpi(of: hwnd)
+        let want = Int32((300 * Double(dpi) / 96).rounded())
+        let shrunk = clientRect().bottom == want
+        // A rebuild (here a WM_DPICHANGED at the same DPI) changes the generation: work started by the old build is dropped,
+        // and the page builds again (where it asks again).
+        page.shrinkOnBuild = nil
+        let g = popover.generation, builds0 = page.builds
+        var wr = windowRect()
+        _ = withUnsafeMutablePointer(to: &wr) { SendMessageW(hwnd, 0x02E0, WPARAM(UInt(dpi) | (UInt(dpi) << 16)), LPARAM(Int(bitPattern: $0))) }
+        let late = PopoverCounter()
+        popover.whenCurrent(g) { late.n += 1 }
+        let rebuilt = page.builds == builds0 + 1 && popover.generation != g && late.n == 0
+        // A deactivation, then a rebuild before its posted close runs: it closes anyway (the close is keyed to the window).
+        if let probe { _ = SetForegroundWindow(probe.hwnd) }
+        var wr2 = windowRect()
+        _ = withUnsafeMutablePointer(to: &wr2) { SendMessageW(hwnd, 0x02E0, WPARAM(UInt(dpi) | (UInt(dpi) << 16)), LPARAM(Int(bitPattern: $0))) }
+        let closedAnyway = await closed(1)
+        r.add("popover.pageContract", shrunk && rebuilt && closedAnyway && page.destroys == page.builds,
+              "a page that sets 300 DIP and calls pageSizeChanged() inside its first build: client height \(clientRectText(hwnd)) (want \(want))=\(shrunk); "
+              + "a rebuild: builds \(builds0) -> \(page.builds), generation \(g) -> \(popover.generation), work from the old build ran \(late.n)x; "
+              + "deactivated then rebuilt before the posted close ran -> closed=\(closedAnyway); page builds/destroys \(page.builds)/\(page.destroys)")
+        await grant()
+    }
+
+    func clientRectText(_ hwnd: HWND) -> String {
+        var r = RECT()
+        _ = GetClientRect(hwnd, &r)
+        return "\(r.right)x\(r.bottom)"
+    }
+
+    // MARK: popover.closeAfterNestedLoop (post-merge M5): a deactivation inside an edit's context menu
+
+    func nestedLoopCheck() async {
+        popover.close(.destroyed)
+        let page = PopoverProbePage()
+        page.withEdit = true
+        let saved = popover.makePage
+        popover.makePage = { _ in page }
+        defer { popover.makePage = saved }
+        let o = await click()
+        guard o, let hwnd = popover.hwndForTesting, let edit = page.edit else {
+            r.add("popover.closeAfterNestedLoop", false, "open=\(o), edit=\(page.edit != nil)")
+            return
+        }
+        _ = SetFocus(edit.hwnd)
+        let deferred0 = popover.stats.deferredCloses, inside0 = popover.stats.closesInsideLoop, closes0 = popover.stats.closes
+        let driver = PopoverDriver()
+        let popoverBits = Int(bitPattern: hwnd), editBits = Int(bitPattern: edit.hwnd), main = WindowsApp.mainThreadID
+        WindowsSelftest.onThread {
+            func inMenu() -> Bool {
+                var info = GUITHREADINFO()
+                info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+                return GetGUIThreadInfo(main, &info) && info.flags & 0x14 != 0  // GUI_INMENUMODE | GUI_POPUPMENUMODE
+            }
+            var waited = 0
+            while !inMenu(), waited < 100 { Thread.sleep(forTimeInterval: 0.05); waited += 1 }
+            guard inMenu() else { driver.note("the edit's menu never opened"); driver.finish(); return }
+            driver.menuSeen()
+            Thread.sleep(forTimeInterval: 0.3)
+            // Another app took the activation while the edit's own menu loop runs on the main thread.
+            _ = SendMessageW(HWND(bitPattern: popoverBits), 0x001C /* WM_ACTIVATEAPP */, 0, 0)
+            Thread.sleep(forTimeInterval: 0.5)  // the posted close is dispatched by the menu's loop meanwhile
+            driver.note("popover alive inside the menu=\(IsWindow(HWND(bitPattern: popoverBits)))")
+            for _ in 0..<5 where inMenu() {
+                _ = PostMessageW(HWND(bitPattern: editBits), UINT(WM_KEYDOWN), WPARAM(VK_ESCAPE), 0)
+                _ = PostMessageW(HWND(bitPattern: editBits), UINT(WM_KEYUP), WPARAM(VK_ESCAPE), 0)
+                for _ in 0..<10 where inMenu() { Thread.sleep(forTimeInterval: 0.05) }
+            }
+            driver.note(inMenu() ? "menu STILL OPEN" : "menu closed")
+            driver.finish()
+        }
+        _ = PostMessageW(edit.hwnd, 0x007B /* WM_CONTEXTMENU */, WPARAM(UInt(bitPattern: editBits)), LPARAM(-1))  // as the menu key does
+        let finished = await WindowsSelftest.waitUntil(timeout: 12) { driver.isFinished }
+        let closedAfter = await closed(2)
+        let deferred = popover.stats.deferredCloses - deferred0, inside = popover.stats.closesInsideLoop - inside0
+        r.add("popover.closeAfterNestedLoop", finished && driver.menuWasOpen && driver.text.contains("alive inside the menu=true") && closedAfter
+                && deferred == 1 && inside == 0 && popover.stats.closes == closes0 + 1,
+              "the page's edit opened its own context menu; WM_ACTIVATEAPP(FALSE) arrived inside it: \(driver.text); closed after the menu=\(closedAfter) "
+              + "(\(popover.stats.lastClose.map { "\($0)" } ?? "-")), closes that waited for the loop +\(deferred), closes inside a loop +\(inside) (must be 0)")
+        await grant()
+    }
+
+    // MARK: popover.autostartQuiet (post-merge M3): the Run key's copy at sign-in yields without opening anything
+
+    func autostartCheck() async {
+        popover.close(.destroyed)
+        let requests0 = app.showRequests, opens0 = popover.stats.opens
+        let marker = "an --autostart start yields quietly"
+        let lines0 = Self.logLines(containing: marker).count
+        var code: DWORD?
+        if let child = try? WindowsSelftest.Helper.start(["--selftest-second", "--autostart"], ready: false) {
+            code = await child.waitExit(timeout: 20)
+            if code == nil { child.kill() }
+            child.close()
+        }
+        await pause(1.5)
+        let logged = Self.logLines(containing: marker).count > lines0
+        r.add("popover.autostartQuiet", code == 3 && app.showRequests == requests0 && popover.stats.opens == opens0 && !popover.isOpen && logged,
+              "a second start with --autostart (the Run key's copy) exit=\(WindowsSelftest.describe(code)) (expected 3): show requests +\(app.showRequests - requests0), "
+              + "popover opens +\(popover.stats.opens - opens0), logged \"\(marker)\"=\(logged)")
     }
 
     // MARK: popover.capture (--dump-ui): the empty popover anchored at the runner's tray
@@ -1106,11 +1290,68 @@ final class PopoverDriver: @unchecked Sendable {
             r.add("popover.openClose3", false, "only \(cycles.count) of 4 open/close cycles opened")
             return
         }
-        let ok = last.gdi - warm.gdi <= 5 && last.user - warm.user <= 5 && last.handles - warm.handles <= 10 && last.windows == start.windows
-            && last.controls == 0 && last.dialogs == start.dialogs && last.pumpDepth == 0 && !last.pumpTimer && !popover.isOpen
+        // GDI and USER objects never above the warm-up on any cycle (one object a cycle is a leak); kernel handles move with
+        // things that are not the popover's, so they fail only when they rise on every cycle (the kit's rule, post-merge I2).
+        let after = Array(cycles.dropFirst())
+        let gdiUser = after.allSatisfy { $0.gdi <= warm.gdi && $0.user <= warm.user }
+        let handlesRising = after.count == 3 && after[0].handles > warm.handles && after[1].handles > after[0].handles && after[2].handles > after[1].handles
+        let ok = gdiUser && !handlesRising && last.windows == start.windows && last.controls == 0 && last.dialogs == start.dialogs
+            && last.pumpDepth == 0 && !last.pumpTimer && !popover.isOpen
         r.add("popover.openClose3", ok,
-              "before the group: \(start); after a warm-up open/close: \(warm); after 3 more: \(cycles.dropFirst().map { "\($0)" }.joined(separator: " / ")) "
-              + "(budget over the warm-up: GDI +5, USER +5, handles +10; windows, kit controls, dialog registrations, the pump and its timer back to the start)")
+              "before the group: \(start); after a warm-up open/close: \(warm); after 3 more: \(after.map { "\($0)" }.joined(separator: " / ")) "
+              + "(GDI and USER at most the warm-up's on every cycle=\(gdiUser); handles rising on every cycle=\(handlesRising); windows, kit controls, "
+              + "dialog registrations, the pump and its timer back to the start)")
+    }
+}
+/// A page for the popover's contract checks: a size change from inside `build`, an edit with its own context menu, and the
+/// counts of builds, layouts and destroys.
+@MainActor final class PopoverProbePage: WinPopoverPage {
+    var heightDIP: CGFloat = 600
+    weak var popover: WinPopover?
+    var shrinkOnBuild: CGFloat?
+    var withEdit = false
+    private(set) var builds = 0, layouts = 0, destroys = 0
+    private(set) var edit: WinControl?
+    private var area: WinScrollArea?
+    private var stack: WinStack?
+
+    func build(in window: WinSinkWindow, ctx: WinUIContext, client: RECT) {
+        builds += 1
+        if let made = try? WinScrollArea(parent: window.hwnd, ctx: ctx, rect: client) {
+            let page = WinStack(pane: made.content, width: made.contentWidth)
+            page.onHeight = { [weak made] h in made?.setContentHeight(h) }
+            if withEdit {
+                edit = page.addSection("Probe").addRow("Name") { pane, ctx in WinControls.edit(.text(cue: "Name"), width: 160, in: pane, ctx: ctx) }.control
+            }
+            page.layout()
+            area = made
+            stack = page
+        }
+        if let h = shrinkOnBuild {
+            heightDIP = h
+            popover?.pageSizeChanged()
+        }
+    }
+
+    func layout(client: RECT) {
+        layouts += 1
+        guard let area, let stack else { return }
+        area.move(client)
+        stack.width = area.contentWidth
+        stack.layout()
+    }
+
+    var initialFocus: HWND? { edit?.hwnd }
+
+    func escape() -> Bool { false }
+
+    func destroy() {
+        destroys += 1
+        stack?.destroy()
+        area?.destroy()
+        stack = nil
+        area = nil
+        edit = nil
     }
 }
 #endif
