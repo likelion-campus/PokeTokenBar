@@ -2562,6 +2562,24 @@ read_when:
   드러났다. **스윕:** 이 작업의 다른 URL 비교는 `standardizedFileURL`·`.path`·같은 객체로 한다; 스크립트의 다른 로그 읽기는 `Get-Content`(쓰기 공유).
   **규칙:** 윈도에서 있을지 없을지 모르는 폴더의 URL 은 경로로 비교하고, 다른 프로세스가 쓰는 파일은 쓰기 공유로 연다.
 
+- **무인(silent) 경로는 사람을 기다리지 않는다 — 앱이 안 닫히면 조용한 Setup·제거가 아무도 누를 수 없는 확인 창에서 영원히 멈췄다 (stage 8, 출시 전).**
+  `InitializeSetup`·`InitializeUninstall` 은 앱이 15 초 안에 안 닫히면 `[Code]` 의 `MsgBox` 를 띄웠다. Inno 의 `MsgBox` 는 억제 불가로 등록돼 있어
+  (`Setup.ScriptFunc.pas`: `Suppressible := False`) `/SUPPRESSMSGBOXES` 를 무시한다. 러너 재현(run 43819088565, 앱 뮤텍스를 쥐고 `WM_CLOSE` 에 답하지 않는
+  도우미): 앱 안 업데이트 스위치의 조용한 Setup 이 15.8 초 뒤 "Message box (OK)" 를 화면에 띄우고 120 초가 지나도 끝나지 않았고, 조용한 제거도 같았다. 남은
+  제거 프로세스는 `unins000.dat` 를 쥐고 있어 뒤따른 모든 Setup 이 사본을 못 만들어 거절했다(exit 7). 사용자 PC 에서는 앱이 이미 끝난 뒤의 앱 안 업데이트가
+  눈에 잘 안 띄는 확인 창 하나에서 멈춘다. Inno 자신의 확인 창(AppMutex, Restart Manager, 파일 오류, MinVersion, 제거의 실행 중 확인)은 모두 억제 가능이고
+  기본값이 Abort/Cancel 이라 기다리지 않는다 — 기다린 것은 우리 코드 둘뿐이었다.
+  **고침:** 둘 다 `PTB setup:`/`PTB uninstall:` 한 줄을 남기고 `SuppressibleMsgBox` 를 쓴다(대화형에서는 그대로 보이고, 조용하면 기록만 하고 끝난다: Setup
+  exit 1, 아무것도 건드리지 않고 앱 뮤텍스가 남아 있으니 다시 켜지도 않는다). 기다림은 이름 붙은 30 초(`CloseWaitSeconds`). 그 뒤엔 죽이지 않고 거절한다 —
+  죽이면 앱의 종료(설정 동기화, 팀 연결 정리)를 건너뛰고, 30 초 동안 `WM_CLOSE` 에 답하지 않는 앱은 사용자를 기다리는 중일 수 있다.
+  **왜 못 걸렀나:** 앱 닫기 시나리오는 모두 잘 닫히는 앱만 썼고, CI 도우미는 시간 제한이 있었지만 로더만 죽이고 기록 없이 실패했다(Setup 의 .tmp 와
+  제거기의 `_unins.tmp` 는 살아남았다). 몇 단계는 `Start-Process -Wait` 에 단계 시간 제한도 없었다. 멈춘 run 43808578589 의 원인은 이것이 아니었다
+  (주석: "The hosted runner lost communication with the server"; 그 단계는 Setup 을 180 초로 묶고 있었다) — 가설을 확인하다 실제 결함을 찾았다.
+  **규칙:** 조용한(무인) 실행에서 닿을 수 있는 모든 확인 창은 억제 가능해야 하고(`[Code]` 에 `MsgBox`/`TaskDialogMsgBox` 금지), CI 가 Setup·제거를 돌릴 때는
+  언제나 시간 제한이 있는 도우미로 돌린다: 넘기면 화면의 창 이름을 남기고 Setup·제거 프로세스를 모두 죽이고 setup 로그를 붙여 실패한다.
+  **회귀 점검:** `failed-update-relaunch` 의 `appDoesNotClose`·`uninstallAppDoesNotClose`(30 초 근처에 스스로 끝남), `Invoke-Setup`(`ci-helpers.ps1`);
+  결함 주입(`MsgBox` 되돌리기)에서 두 시나리오가 120 초 제한에 걸린다.
+
 ## 윈도 로케일·알림 (windows-port)
 
 - **한국어 윈도에서 앱이 영어로 떴다 — swift-foundation 이 비 Apple 플랫폼에서 `Locale.preferredLanguages` 를 `["en-001"]` 로 고정한다.**
