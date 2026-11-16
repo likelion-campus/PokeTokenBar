@@ -1,0 +1,35 @@
+{
+  "description": "Wrong shared token.",
+  "body": {
+    "v": 1,
+    "token": "0000000000000000000000000000ffff",
+    "member": {
+      "id": "8F1C2A4E-3B5D-4C6E-9A7B-1D2E3F4A5B6C",
+      "secret": "dGVzdC1zZWNyZXQtZm9yLWZpeHR1cmVzLW9ubHktMDA",
+      "nickname": "지아",
+      "appVersion": "2.5.640",
+      "platform": "mac"
+    },
+    "days": [
+      {
+        "date": "2026-11-16",
+        "team": "t_ab12cd34ef56",
+        "teamLabel": "팀 1",
+        "tools": [
+          {
+            "tool": "claude_code",
+            "input": 1,
+            "output": 1,
+            "cacheWrite": 1,
+            "cacheRead": 1
+          }
+        ]
+      }
+    ],
+    "limits": []
+  },
+  "expect": {
+    "ok": false,
+    "error": "bad_token"
+  }
+}
