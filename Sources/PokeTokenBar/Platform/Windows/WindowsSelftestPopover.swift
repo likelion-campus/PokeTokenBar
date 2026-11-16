@@ -717,7 +717,14 @@ extension WindowsSelftest {
             state.open = inMenu()
             Thread.sleep(forTimeInterval: 0.2)
             for i in 0..<10 {
-                DispatchQueue.main.async { if state.open { state.ranWhileOpen(i) } }
+                // Counted only when the main thread is still in menu mode as the block runs: a block that waited for the
+                // menu to close runs right after it (and before this thread notices), which is the defect, not a pass.
+                DispatchQueue.main.async {
+                    var info = GUITHREADINFO()
+                    info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+                    _ = GetGUIThreadInfo(GetCurrentThreadId(), &info)
+                    if state.open, info.flags & 0x0010 /* GUI_POPUPMENUMODE */ != 0 { state.ranWhileOpen(i) }
+                }
                 Thread.sleep(forTimeInterval: 0.02)
             }
             Thread.sleep(forTimeInterval: 0.3)
