@@ -986,12 +986,15 @@ extension WindowsSelftest {
         _ = ptb_ime_korean(0, &after, Int32(after.count))
         let afterText = String(decoding: after.prefix { $0 != 0 }, as: UTF16.self)
         let raw = UnsafeMutableRawPointer(e)
+        let ready = await imeReadiness(chat, e, raw)
+        if let again = ready.activated { activated = again }
+        let setting = "ready=\(ready.ok) after \(ready.tries) [\(ready.detail)]; \(imeEnvironment())"
         _ = ptb_ime_set_status(raw, 1, 0x1 /* IME_CMODE_HANGUL */)
         await chatPump(0.2)
         var status: [UInt32] = [0, 0, 0]
         _ = ptb_ime_status(raw, &status)
         func state() -> String { "\(q(chat.text))/\(q(WinPlazaChatInput.imeString(e, kind: 0x8)))" }
-        var trace: [String] = ["after a pump: \(afterText)"]
+        var trace: [String] = ["after a pump: \(afterText)", setting]
         for s: UInt32 in [0x22, 0x25, 0x1F] { await chatTap(s) }   // g k s
         await chatPump(0.2)
         var han = state()
@@ -1019,7 +1022,7 @@ extension WindowsSelftest {
             forceForeground(hwnd)
             r.add("plaza.chatRealIME", !control.engaged,
                   "not engaged: the field passed letters through (\(han)); a control edit in this process: \(control.detail) -> "
-                    + (control.engaged ? "the IME takes keys there but not in the field" : "harness (TSF would not engage here)") + "; TSF: \(actText)")
+                    + (control.engaged ? "the IME takes keys there but not in the field" : "harness (TSF would not engage here)") + "; \(setting); TSF: \(actText)")
             return
         }
         for _ in 0..<3 { await chatTap(0x0E); trace.append("BS \(state())") }
@@ -1076,6 +1079,78 @@ extension WindowsSelftest {
         trace.append(ends.detail)
         r.add("plaza.chatRealIME", activated == 1 && han.hasPrefix("'한'") && sent == "안녕" && hanjaOK && ends.ok,
               "engaged: TSF: \(probeText); activate: \(actText); conversion 0x\(String(status[0], radix: 16)) open=\(status[2]); " + trace.joined(separator: "; "))
+    }
+
+    /// Ready = the IME takes a key in the field: `g` starts a composition. TSF's own report cannot tell: processes that engaged and processes
+    /// that never did both read Korean / text service after the activation (runs 43797041867, 43817723347). Up to four tries; each one after
+    /// the first activates the Korean profile again from the plain layout (activating the active profile once more changes nothing in this
+    /// thread). Each try says what it saw; the `g` is cancelled and cleared before the check types for real.
+    @MainActor private static func imeReadiness(_ chat: WinPlazaChatInput, _ e: HWND, _ raw: UnsafeMutableRawPointer) async
+        -> (ok: Bool, tries: Int, detail: String, activated: Int32?) {
+        var tries: [String] = []
+        var activated: Int32?
+        for attempt in 1...4 {
+            if attempt > 1 {
+                _ = ptb_ime_plain_layout()
+                await chatPump(0.3)
+                var act = [UInt16](repeating: 0, count: 1024)
+                activated = ptb_ime_korean(1, &act, Int32(act.count))
+                await chatPump(0.6)
+                _ = chat.focus()
+            }
+            _ = ptb_ime_set_status(raw, 1, 0x1)
+            await chatPump(0.2)
+            var status: [UInt32] = [0, 0, 0]
+            _ = ptb_ime_status(raw, &status)
+            await chatTap(0x22)   // g
+            await chatPump(0.15)
+            let composing = WinPlazaChatInput.imeString(e, kind: 0x8)
+            let text = chat.text
+            tries.append("\(attempt): TSF \(tsfState()) conversion 0x\(String(status[0], radix: 16)) open=\(status[2]) IMEKR modules \(koreanIMEModules()) "
+                + "g -> \(q(text))/\(q(composing))")
+            _ = ptb_ime_finish(raw, 1)
+            await chatPump(0.1)
+            _ = WinStr.w("").withUnsafeBufferPointer { SendMessageW(e, 0x000C, 0, LPARAM(Int(bitPattern: $0.baseAddress))) }
+            await chatPump(0.1)
+            let hangul = text.unicodeScalars.contains { (0xAC00...0xD7A3).contains($0.value) || (0x3131...0x318E).contains($0.value) }
+            if !composing.isEmpty || hangul { return (true, attempt, tries.joined(separator: ", "), activated) }
+        }
+        return (false, 4, tries.joined(separator: ", "), activated)
+    }
+
+    /// The thread's active keyboard profile as TSF reports it: language / profile type (1 text service, 2 keyboard layout).
+    private static func tsfState() -> String {
+        var buf = [UInt16](repeating: 0, count: 1024)
+        _ = ptb_ime_korean(0, &buf, Int32(buf.count))
+        let s = String(decoding: buf.prefix { $0 != 0 }, as: UTF16.self)
+        guard let l = s.range(of: "lang="), let t = s.range(of: "type=") else { return "?" }
+        return "\(s[l.upperBound...].prefix(4))/\(s[t.upperBound...].prefix(1))"
+    }
+
+    /// The Korean IME's DLLs loaded in this process (TSF loads the text service in-process when it activates it for a thread).
+    private static func koreanIMEModules() -> String {
+        guard let modules = loadedModules() else { return "?" }
+        let kr = modules.filter { $0.lowercased().contains("\\ime\\imekr\\") }.map { $0.split(separator: "\\").last.map(String.init) ?? $0 }
+        return kr.isEmpty ? "none" : kr.joined(separator: "+")
+    }
+
+    /// The input processes TSF relies on, running or not in this session.
+    private static func imeEnvironment() -> String {
+        var names = Set<String>()
+        let snapshot = CreateToolhelp32Snapshot(DWORD(0x2) /* TH32CS_SNAPPROCESS */, 0)
+        if snapshot != INVALID_HANDLE_VALUE {
+            var entry = PROCESSENTRY32W()
+            entry.dwSize = DWORD(MemoryLayout<PROCESSENTRY32W>.size)
+            var more = Process32FirstW(snapshot, &entry)
+            while more {
+                names.insert(withUnsafePointer(to: &entry.szExeFile) {
+                    $0.withMemoryRebound(to: UInt16.self, capacity: 260) { String(decodingCString: $0, as: UTF16.self) }
+                }.lowercased())
+                more = Process32NextW(snapshot, &entry)
+            }
+            _ = CloseHandle(snapshot)
+        }
+        return "ctfmon running=\(names.contains("ctfmon.exe")) TextInputHost running=\(names.contains("textinputhost.exe"))"
     }
 
     /// `gks` into a plain EDIT of ours (not the chat field) in its own window, with real keys: does the IME take them in this process?
