@@ -65,6 +65,10 @@ import WinSDK
     var relative: [String: [RelativeBinding]] = [:]
     /// The limit bars' drawn views (their pictures are freed with their rows).
     var bars: [WinDrawnView] = []
+    /// Stage 7 Task 9: the companion header (`WinCompanionSection.swift`), and what a harness sets on it before it starts
+    /// (a fixed input, the animation switch).
+    private(set) var companionSection: WinCompanionSection?
+    var configureCompanion: ((WinCompanionSection) -> Void)?
 
     struct HeaderParts {
         var caption: WinControl, total: WinControl, grouped: WinControl, cost: WinControl, periods: WinControl
@@ -133,11 +137,17 @@ import WinSDK
         clock.onTick = { [weak self] in self?.tick() }
         stack = page
         ctx = page.ctx
-        sections = Sections(banner: page.addSection(nil, card: true), plaza: page.addSection(nil, card: false),
+        let banner = page.addSection(nil, card: true), plaza = page.addSection(nil, card: false)
+        // --- stage 7 Task 9: the companion header, first in Home's content as on the Mac (begin) ---
+        companionSection = WinCompanionSection(companion: companion, section: page.addSection(nil, card: false), page: self)
+        if let made = companionSection { configureCompanion?(made) }
+        // --- stage 7 Task 9 (end) ---
+        sections = Sections(banner: banner, plaza: plaza,
                             header: page.addSection(nil, card: false), tabs: page.addSection(nil, card: false),
                             provider: page.addSection(nil, card: false), status: page.addSection(nil, card: false),
                             limits: page.addSection(nil, card: false), footer: page.addSection(nil, card: false))
         observe()
+        companionSection?.start()  // stage 7 Task 9
         page.layout()
     }
 
@@ -158,6 +168,8 @@ import WinSDK
         epoch += 1
         clock.onTick = nil
         clock.stop()
+        companionSection?.destroy()  // stage 7 Task 9: its clocks and loads stop before the rows go
+        companionSection = nil
         stack?.destroy()
         area?.destroy()
         bars = []

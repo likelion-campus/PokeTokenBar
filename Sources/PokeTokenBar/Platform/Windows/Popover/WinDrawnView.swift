@@ -110,10 +110,17 @@ import WinSDK
         guard !isDestroyed else { return }
         self.drawing = drawing
         compose(drawing.drawing.layers)
+        // --- stage 7 Task 9: overlays, unchanged tooltips, the dirty region (begin) ---
+        composeOverlays(drawing.overlays)
+        let rebuilt = stats.itemBuilds
         updateItems(drawing.drawing.accessibility)
-        updateTooltips(drawing.drawing.tooltips)
+        if stats.itemBuilds != rebuilt || drawing.drawing.tooltips != shownTooltips {
+            updateTooltips(drawing.drawing.tooltips)
+            shownTooltips = drawing.drawing.tooltips
+        }
         sprites?.update(slots: drawing.spriteSlots, in: self)
-        _ = InvalidateRect(hwnd, nil, false)
+        if let dirty = drawing.dirty { invalidate(dip: dirty) } else { _ = RedrawWindow(hwnd, nil, nil, UINT(0x0001 | 0x0080)) }  // RDW_INVALIDATE | RDW_ALLCHILDREN
+        // --- stage 7 Task 9 (end) ---
     }
 
     /// Hosts a part: measures it at `width` DIP, renders it at the window's scale, shows it, and renders again (once per
@@ -128,10 +135,11 @@ import WinSDK
 
     var spriteSlots: [SpriteSlot] { drawing?.spriteSlots ?? [] }
 
-    /// Repaints only `r` (DIP): a sprite slot's frame.
+    /// Repaints only `r` (DIP): a sprite slot's frame. The accessibility items over it repaint too (stage 7 Task 9: they
+    /// draw the sprites and overlays under them).
     func invalidate(dip r: CGRect) {
         var px = WinKit.rect(CGRect(x: r.minX * ctx.scale, y: r.minY * ctx.scale, width: r.width * ctx.scale, height: r.height * ctx.scale))
-        _ = InvalidateRect(hwnd, &px, false)
+        _ = RedrawWindow(hwnd, &px, nil, UINT(0x0001 | 0x0080))  // RDW_INVALIDATE | RDW_ALLCHILDREN
     }
 
     /// The composed picture's pixel (B, G, R, A premultiplied) at `x`, `y` (the selftest reads it).
@@ -151,6 +159,7 @@ import WinSDK
         items = []
         ctx.tooltips.removeAll(in: hwnd)
         releaseBitmap()
+        releaseOverlays()  // stage 7 Task 9
         router?.detach()
         router = nil
         hosted?.onChange = nil
@@ -226,9 +235,84 @@ import WinSDK
         stats.paintPixels += Int(max(0, r.right - r.left)) * Int(max(0, r.bottom - r.top))
         blit(into: dc, from: POINT(x: r.left, y: r.top), size: SIZE(cx: right - r.left, cy: bottom - r.top), at: POINT(x: r.left, y: r.top))
         paintOverlay?(dc)
+        blitOverlays(into: dc, rect: r)  // stage 7 Task 9: over the sprites
         _ = EndPaint(hwnd, &ps)
         return 0
     }
+
+    // --- stage 7 Task 9: layers over the sprites (begin) ---
+    private var overlayDC: HDC?
+    private var overlayBitmap: HBITMAP?
+    private var overlayOld: HGDIOBJ?
+    private var overlayBits: UnsafeMutableRawPointer?
+    private var overlaySize = SIZE(cx: 0, cy: 0)
+    private var shownTooltips: [PlazaTooltip] = []
+
+    /// The drawing's overlays composed into their own picture (none: freed).
+    private func composeOverlays(_ layers: [PlazaPanelLayer]) {
+        let w = Int(pixelSize.cx), h = Int(pixelSize.cy)
+        guard !layers.isEmpty, w > 0, h > 0 else { releaseOverlays(); return }
+        if overlayDC == nil || overlaySize.cx != pixelSize.cx || overlaySize.cy != pixelSize.cy {
+            releaseOverlays()
+            var info = BITMAPINFO()
+            info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
+            info.bmiHeader.biWidth = pixelSize.cx
+            info.bmiHeader.biHeight = -pixelSize.cy
+            info.bmiHeader.biPlanes = 1
+            info.bmiHeader.biBitCount = 32
+            info.bmiHeader.biCompression = 0
+            guard let dc = CreateCompatibleDC(nil) else { return }
+            var p: UnsafeMutableRawPointer?
+            guard let b = CreateDIBSection(dc, &info, 0, &p, nil, 0), p != nil else {
+                AppLog.write("popover kit: overlay CreateDIBSection \(w)x\(h) failed: \(GetLastError())")
+                _ = DeleteDC(dc)
+                return
+            }
+            overlayDC = dc
+            overlayBitmap = b
+            overlayBits = p
+            overlayOld = SelectObject(dc, UnsafeMutableRawPointer(b))
+            overlaySize = pixelSize
+        }
+        guard let overlayBits else { return }
+        let bytes = PopoverComposite.compose(layers, width: w, height: h, scale: ctx.scale)
+        _ = GdiFlush()
+        bytes.withUnsafeBytes { overlayBits.copyMemory(from: $0.baseAddress!, byteCount: min($0.count, w * h * 4)) }
+    }
+
+    private func releaseOverlays() {
+        if let dc = overlayDC {
+            _ = SelectObject(dc, overlayOld)
+            _ = DeleteDC(dc)
+        }
+        if let b = overlayBitmap { _ = DeleteObject(UnsafeMutableRawPointer(b)) }
+        overlayDC = nil
+        overlayBitmap = nil
+        overlayBits = nil
+        overlayOld = nil
+        overlaySize = SIZE(cx: 0, cy: 0)
+    }
+
+    /// `rect` (view pixels) of the overlay picture, blended where `dc` has the view's origin.
+    private func blitOverlays(into dc: HDC?, rect r: RECT) {
+        guard let overlayDC, overlaySize.cx > 0 else { return }
+        let right = min(r.right, overlaySize.cx), bottom = min(r.bottom, overlaySize.cy)
+        guard right > r.left, bottom > r.top else { return }
+        let blend = BLENDFUNCTION(BlendOp: 0, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1)
+        _ = GdiAlphaBlend(dc, r.left, r.top, right - r.left, bottom - r.top, overlayDC, r.left, r.top, right - r.left, bottom - r.top, blend)
+    }
+
+    /// An item's own paint also draws the sprites and overlays under it: the item covers them (a text line under a burst,
+    /// the sprite box under its name), and the view's paint is clipped out where a child is.
+    private func paintUnderItem(_ dc: HDC?, at: RECT, size: SIZE) {
+        guard let dc, paintOverlay != nil || overlayDC != nil else { return }
+        var old = POINT()
+        _ = SetViewportOrgEx(dc, -at.left, -at.top, &old)
+        paintOverlay?(dc)
+        blitOverlays(into: dc, rect: RECT(left: at.left, top: at.top, right: at.left + size.cx, bottom: at.top + size.cy))
+        _ = SetViewportOrgEx(dc, old.x, old.y, nil)
+    }
+    // --- stage 7 Task 9: layers over the sprites (end) ---
 
     /// `AlphaBlend` (premultiplied source, `AC_SRC_ALPHA`) of a piece of the picture.
     private func blit(into dc: HDC?, from source: POINT, size: SIZE, at dest: POINT) {
@@ -276,6 +360,7 @@ import WinSDK
         _ = FillRect(d.hDC, &r, ctx.colors.brush(background))
         let at = WinKit.rect(c.hwnd, in: hwnd)
         blit(into: d.hDC, from: POINT(x: at.left, y: at.top), size: SIZE(cx: r.right - r.left, cy: r.bottom - r.top), at: POINT(x: 0, y: 0))
+        paintUnderItem(d.hDC, at: at, size: SIZE(cx: r.right - r.left, cy: r.bottom - r.top))  // stage 7 Task 9
         if d.itemState & 0x0010 != 0, d.itemState & 0x0200 == 0 {  // ODS_FOCUS, not ODS_NOFOCUSRECT
             var f = d.rcItem
             _ = InflateRect(&f, -1, -1)

@@ -112,6 +112,7 @@ enum WindowsSelftest {
         await notifyChecks(r, app)
         WindowsSelftestLanguage.checks(r, app)
         if let dir = WinUIDump.directory(from: CommandLine.arguments) { await WinUIDump.run(r, app, into: dir) }
+        popoverCompanionPrepare()  // stage 7 task 9 (WindowsSelftestPopoverCompanion.swift): companion sprites from the fixture folder, no network
         await popoverKitChecks(r, app)  // stage 7 task 3 (WindowsSelftestPopover.swift): leaves no window behind
         await popoverWindowChecks(r, app)  // stage 7 task 4 (WindowsSelftestPopoverWindow.swift): leaves no window behind
         await settingsChecks(r, app)  // stage 7 task 6 (WindowsSelftestSettings.swift): the Settings page; leaves the team off and no window behind
@@ -122,6 +123,7 @@ enum WindowsSelftest {
         await plazaPhotoChecks(r)  // stage 6 task 12 (WindowsSelftestPlazaPhoto.swift)
         await settingsTransportChecks(r, app)  // stage 7 task 6: the Settings page over the app's real team runtime (after the idle window)
         await popoverWithPlazaChecks(r, app)  // stage 7 task 4: the popover over an open plaza (loads Direct3D, so last)
+        await popoverCompanionChecks(r, app)  // stage 7 task 9 (WindowsSelftestPopoverCompanion.swift): drawn parts (Direct2D), so after the idle window; leaves no window behind
         await popoverHomeChecks(r, app)  // stage 7 task 5 (WindowsSelftestPopoverHome.swift): draws the limit bars (Direct2D), so after the idle window; leaves no window behind
         return r.checks
     }

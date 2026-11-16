@@ -16,6 +16,7 @@ import WinSDK
 @MainActor final class WinSpriteAnimator {
     struct Stats: Equatable {
         var ticks = 0, invalidations = 0, invalidatedPixels = 0, drawn = 0, scales = 0, glyphs = 0
+        var styled = 0  // stage 7 Task 9
     }
 
     private(set) var stats = Stats()
@@ -32,6 +33,9 @@ import WinSDK
         var taskID: String?
         var width: Int, height: Int
         var frames: [ObjectIdentifier: [UInt8]] = [:]
+        // --- stage 7 Task 9: the frame desaturated and turned, as the slot asks (begin) ---
+        var styled: [String: (bytes: [UInt8], width: Int, height: Int)] = [:]
+        // --- stage 7 Task 9 (end) ---
     }
 
     private struct Scratch {
@@ -103,6 +107,9 @@ import WinSDK
             let bob = model.bobUp ? -3 * scale : 0
             if let image = model.current {
                 drawImage(image, slot: slot, index: i, model: model, bob: bob, scale: scale, into: dc)
+            } else if let egg = eggGlyphImage(slot.frame, scale: scale) {  // stage 7 Task 9: the 🥚 in colour
+                drawImage(egg, slot: slot, index: i, model: model, bob: bob, scale: scale, into: dc)
+                stats.glyphs += 1
             } else {
                 drawGlyph(slot: slot, bob: bob, scale: scale, view: view, into: dc)
             }
@@ -118,25 +125,98 @@ import WinSDK
         var set = scaled[index] ?? ScaledSet(taskID: nil, width: w, height: h)
         if set.taskID != model.taskID || set.width != w || set.height != h { set = ScaledSet(taskID: model.taskID, width: w, height: h) }
         let id = ObjectIdentifier(image)
-        let bytes: [UInt8]
+        var bytes: [UInt8]
         if let kept = set.frames[id] { bytes = kept } else {
             bytes = Self.scaleNearest(image.pixels, width: w, height: h)
             set.frames[id] = bytes
             stats.scales += 1
         }
+        // --- stage 7 Task 9: saturation, rotation and opacity of the slot (begin) ---
+        var (dw, dh, dx, dy) = (w, h, x, y)
+        if slot.saturation < 0.999 || abs(slot.rotation) > 0.001 {
+            let key = "\(id.hashValue)|\(slot.saturation)|\(slot.rotation)"
+            if let kept = set.styled[key] { bytes = kept.bytes; dw = kept.width; dh = kept.height } else {
+                if slot.saturation < 0.999 { bytes = Self.desaturate(bytes, slot.saturation) }
+                if abs(slot.rotation) > 0.001 { (bytes, dw, dh) = Self.rotateNearest(bytes, width: w, height: h, degrees: slot.rotation) }
+                set.styled[key] = (bytes: bytes, width: dw, height: dh)
+                stats.styled += 1
+            }
+            dx = x + (w - dw) / 2
+            dy = y + (h - dh) / 2
+        }
         scaled[index] = set
-        guard ensureScratch(w, h), let bits = scratch.bits else { return }
+        guard ensureScratch(dw, dh), let bits = scratch.bits else { return }
         // Rows of the (possibly wider) scratch bitmap, top-down.
         bytes.withUnsafeBytes { src in
-            for row in 0..<h {
-                (bits + row * scratch.width * 4).copyMemory(from: src.baseAddress! + row * w * 4, byteCount: w * 4)
+            for row in 0..<dh {
+                (bits + row * scratch.width * 4).copyMemory(from: src.baseAddress! + row * dw * 4, byteCount: dw * 4)
             }
         }
         _ = GdiFlush()
-        let blend = BLENDFUNCTION(BlendOp: 0, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1)
-        _ = GdiAlphaBlend(dc, Int32(x), Int32(y), Int32(w), Int32(h), scratch.dc, 0, 0, Int32(w), Int32(h), blend)
+        let alpha = UInt8(max(0, min(255, (slot.opacity * 255).rounded())))
+        let blend = BLENDFUNCTION(BlendOp: 0, BlendFlags: 0, SourceConstantAlpha: alpha, AlphaFormat: 1)
+        _ = GdiAlphaBlend(dc, Int32(dx), Int32(dy), Int32(dw), Int32(dh), scratch.dc, 0, 0, Int32(dw), Int32(dh), blend)
+        // --- stage 7 Task 9 (end) ---
         stats.drawn += 1
     }
+
+    // --- stage 7 Task 9: the pixel styles a slot asks for (begin) ---
+    /// SwiftUI's `.saturation(s)` on premultiplied BGRA: each colour moves toward its luminance (Rec. 709 weights).
+    nonisolated static func desaturate(_ bytes: [UInt8], _ s: Double) -> [UInt8] {
+        var out = bytes
+        var i = 0
+        while i + 3 < out.count {
+            let b = Double(out[i]), g = Double(out[i + 1]), r = Double(out[i + 2]), a = Double(out[i + 3])
+            let lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            func mix(_ c: Double) -> UInt8 { UInt8(max(0, min(a, (lum + s * (c - lum)).rounded()))) }
+            let (nb, ng, nr) = (mix(b), mix(g), mix(r))
+            out[i] = nb
+            out[i + 1] = ng
+            out[i + 2] = nr
+            i += 4
+        }
+        return out
+    }
+
+    /// SwiftUI's `.rotationEffect` (clockwise degrees, about the centre), nearest neighbour into the turned picture's
+    /// bounding box (the sprites stay pixel-crisp).
+    nonisolated static func rotateNearest(_ bytes: [UInt8], width w: Int, height h: Int, degrees: Double) -> ([UInt8], Int, Int) {
+        let a = degrees * .pi / 180, c = cos(a), s = sin(a)
+        let ow = Int((abs(Double(w) * c) + abs(Double(h) * s)).rounded(.up)), oh = Int((abs(Double(w) * s) + abs(Double(h) * c)).rounded(.up))
+        var out = [UInt8](repeating: 0, count: ow * oh * 4)
+        let cx = Double(w) / 2, cy = Double(h) / 2, ocx = Double(ow) / 2, ocy = Double(oh) / 2
+        for y in 0..<oh {
+            for x in 0..<ow {
+                let px = Double(x) + 0.5 - ocx, py = Double(y) + 0.5 - ocy
+                let sx = Int((c * px + s * py + cx).rounded(.down)), sy = Int((-s * px + c * py + cy).rounded(.down))
+                guard sx >= 0, sy >= 0, sx < w, sy < h else { continue }
+                let si = (sy * w + sx) * 4, oi = (y * ow + x) * 4
+                out[oi] = bytes[si]; out[oi + 1] = bytes[si + 1]; out[oi + 2] = bytes[si + 2]; out[oi + 3] = bytes[si + 3]
+            }
+        }
+        return (out, ow, oh)
+    }
+
+    /// The 🥚 the Mac shows where no picture loaded (`Text("🥚")` at 62 % of the box, Apple Color Emoji): Segoe UI Emoji
+    /// through the plaza's DirectWrite path, in colour, as a picture the slot draws like a sprite.
+    private var eggGlyph: (key: String, image: PlazaImage)?
+    private func eggGlyphImage(_ frame: CGRect, scale: CGFloat) -> PlazaImage? {
+        let key = "\(frame.width)x\(frame.height)@\(scale)"
+        if let kept = eggGlyph, kept.key == key { return kept.image }
+        let graphics = PlatformPlaza.graphics
+        let font = PlazaFont.emoji(size: frame.height * 0.62)
+        let line = graphics.text.line("🥚", font: font)
+        let m = graphics.text.metrics(font)
+        let space = PlazaPanelSpace(content: frame.size, room: 0)
+        guard let image = space.image(scale: scale, graphics: graphics, { canvas in
+            canvas.setFillColor(PlazaColor(srgbRed: 0, green: 0, blue: 0, alpha: 1))
+            let h = m.ascender - m.descender
+            canvas.draw(line, at: space.canvas(CGPoint(x: (frame.width - line.width) / 2, y: (frame.height - h) / 2 + m.ascender)))
+        }) else { return nil }
+        eggGlyph = (key, image)
+        return image
+    }
+    // --- stage 7 Task 9: the pixel styles a slot asks for (end) ---
 
     private func drawGlyph(slot: SpriteSlot, bob: CGFloat, scale: CGFloat, view: WinDrawnView, into dc: HDC) {
         var r = RECT(left: Int32((slot.frame.minX * scale).rounded()), top: Int32((slot.frame.minY * scale + bob).rounded()),
