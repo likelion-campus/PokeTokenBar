@@ -420,6 +420,9 @@ extension WindowsAppDelegate {
                                   openPlaza: { [weak self] in self?.openPlaza() })
         host.owner = sink.hwnd
         let made = WinPopover(host: host)
+        // --- stage 7 Task 6: Settings (begin) ---
+        made.makePage = WinSettingsPage.routed
+        // --- stage 7 Task 6: Settings (end) ---
         popover = made
         WindowsApp.popoverToClose = made
         tray.onSelect = { [weak made] select in
