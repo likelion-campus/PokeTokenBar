@@ -689,6 +689,7 @@ jobs:
       - name: Silent install and what it left
         id: install
         if: (success() || failure()) && steps.iscc.outcome == 'success'
+        timeout-minutes: 10  # about 10 s; Invoke-Setup gives up on Setup after 180 s
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -697,8 +698,8 @@ jobs:
           Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak", (Join-Path $env:LOCALAPPDATA 'PokeTokenBar')
           $v = $env:PTB_VERSION
           $setup = Resolve-Path "installer-out\PokeTokenBar-Setup-$v-win-x64.exe"
-          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=$PWD\install.log" -Wait -PassThru
-          Assert-That ($proc.ExitCode -eq 0) 'install.exit' "exit $($proc.ExitCode)"
+          $code = Invoke-Setup $setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=$PWD\install.log")
+          Assert-That ($code -eq 0) 'install.exit' "exit $code"
           $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
           Assert-That (Test-Path $exe) 'install.exe' $exe
           $same = (Get-FileHash $exe).Hash -eq (Get-FileHash bundle\PokeTokenBar.exe).Hash
@@ -724,6 +725,7 @@ jobs:
                       uninstallDisplayVersion = $key.GetValue('DisplayVersion') } | ConvertTo-Json | Set-Content install-stamps.json -Encoding utf8NoBOM
       - name: Upgrade over a running instance keeps settings and memberID
         id: upgrade
+        timeout-minutes: 10  # about 30 s
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full'
         shell: pwsh
         run: |
@@ -746,11 +748,9 @@ jobs:
           $closeLinesBefore = ([regex]::Matches((Get-Content $logFile -Raw), 'exit code=0 reason=closeRequest')).Count
           $next = $env:PTB_NEXT_VERSION
           $setup = Resolve-Path "installer-next\PokeTokenBar-Setup-$next-win-x64.exe"
-          # No -Wait: it also waits for the app the installer starts. The setup itself must end by itself.
-          $proc = Start-Process -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=$PWD\install-next.log" -PassThru
-          $null = $proc.Handle
-          if (-not $proc.WaitForExit(180000)) { Stop-Process -Id $proc.Id -Force; Get-Content install-next.log -ErrorAction SilentlyContinue | Select-Object -Last 40; throw 'the upgrade setup did not end in 180 s' }
-          Assert-That ($proc.ExitCode -eq 0) 'upgrade.exit' "exit $($proc.ExitCode)"
+          # Not -Wait: it also waits for the app the installer starts. Setup itself must end by itself (Invoke-Setup: 180 s).
+          $code = Invoke-Setup $setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/LOG=$PWD\install-next.log")
+          Assert-That ($code -eq 0) 'upgrade.exit' "exit $code"
           Assert-That ($old.HasExited -and $old.ExitCode -eq 0) 'upgrade.oldInstanceClosed' "old instance exited=$($old.HasExited) code=$($old.ExitCode)"
           $closeLinesAfter = ([regex]::Matches((Get-Content $logFile -Raw), 'exit code=0 reason=closeRequest')).Count
           Assert-That ($closeLinesAfter -eq $closeLinesBefore + 1) 'upgrade.closedCleanly' "closeRequest exit lines $closeLinesBefore -> $closeLinesAfter"
@@ -979,6 +979,7 @@ jobs:
           foreach ($k in $modes.Keys) { Stop-Process -Id $procs[$k].Id -Force -ErrorAction SilentlyContinue }
       - name: Silent uninstall and what it leaves
         id: uninstall
+        timeout-minutes: 10  # about 10 s
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_LEVEL == 'full'
         shell: pwsh
         run: |
@@ -995,8 +996,8 @@ jobs:
           $plistBefore = Test-Path $PtbPlist
           $key = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' | Where-Object { $_.PSChildName -like '{6CE57293-9940-4B5E-A604-4C4FEECBF049}*' }
           $unins = (Get-Item (Join-Path $PtbInstallDir 'unins000.exe')).FullName
-          $proc = Start-Process -FilePath $unins -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$PWD\uninstall.log" -Wait -PassThru
-          Assert-That ($proc.ExitCode -eq 0) 'uninstall.exit' "exit $($proc.ExitCode)"
+          $code = Invoke-Setup $unins @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$PWD\uninstall.log")
+          Assert-That ($code -eq 0) 'uninstall.exit' "exit $code"
           for ($i = 0; $i -lt 60 -and (Test-Path $PtbInstallDir); $i++) { Start-Sleep -Milliseconds 500 }  # the uninstaller deletes itself after it exits
           Assert-That (-not (Test-Path $PtbInstallDir)) 'uninstall.appFolderGone' $PtbInstallDir
           Assert-That ($null -eq (Get-RunValue)) 'uninstall.runValueGone' "Run PokeTokenBar: $(Get-RunValue)"

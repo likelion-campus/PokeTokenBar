@@ -301,7 +301,7 @@ Invoke-Scenario 'appDoesNotClose' {
         $code = Invoke-Setup $setupNext (Get-UpdateSetupArgs $log) -TimeoutSec 120
         $secs = [int]((Get-Date) - $t0).TotalSeconds
         $text = Read-SetupLog $log
-        Assert-That ($code -eq 1 -and $secs -lt 60) 'appDoesNotClose.setupReturns' "silent Setup ended by itself: exit $code after $secs s"
+        Assert-That ($code -eq 1 -and $secs -ge 25 -and $secs -lt 60) 'appDoesNotClose.setupReturns' "silent Setup waited for the app, then ended by itself: exit $code after $secs s (the wait is 30 s)"
         Assert-That ($text -match 'PTB setup: PokeTokenBar did not close in \d+ s' -and $text -match 'PTB relaunch: no \(an instance is still running\)' -and $text -notmatch 'Dest filename:') 'appDoesNotClose.setupLog' 'did not close; relaunch: no (an instance is still running); no file written'
         Assert-That (-not (Get-Process -Name 'PokeTokenBar-Setup-*' -ErrorAction SilentlyContinue)) 'appDoesNotClose.noSetupLeft' 'no Setup process left'
         Assert-PreviousContents 'appDoesNotClose' $before
@@ -320,7 +320,7 @@ Invoke-Scenario 'uninstallAppDoesNotClose' {
         $secs = [int]((Get-Date) - $t0).TotalSeconds
         Start-Sleep -Seconds 2
         $text = Read-SetupLog $log
-        Assert-That ($code -ne 0 -and $secs -lt 60 -and (Test-Path $exe)) 'uninstallAppDoesNotClose.returns' "the silent uninstaller ended by itself: exit $code after $secs s; app folder kept: $(Test-Path $exe)"
+        Assert-That ($code -ne 0 -and $secs -ge 25 -and $secs -lt 60 -and (Test-Path $exe)) 'uninstallAppDoesNotClose.returns' "the silent uninstaller ended by itself: exit $code after $secs s; app folder kept: $(Test-Path $exe)"
         Assert-That ($text -match 'PTB uninstall: PokeTokenBar did not close in \d+ s') 'uninstallAppDoesNotClose.log' 'PTB uninstall: PokeTokenBar did not close'
     } finally {
         Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
