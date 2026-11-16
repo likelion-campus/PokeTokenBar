@@ -2765,3 +2765,10 @@ read_when:
   그것을 살리는지는 아직 모른다. **고침:** 검사 안의 규칙은 그대로(대조가 참여하는데 입력칸이 안 하면 FAIL, 둘 다 안 하면 하네스). 게이트는 풀 레벨
   (windows-port 푸시·킷 빌드·릴리스, 프로세스 넷)에서만 필수, 라이트에서는 프로세스별 줄을 단 `::warning::`. **규칙:** 러너 환경에 기대는 게이트는
   그 게이트가 도는 레벨의 프로세스 수로 실패 확률을 먼저 잰다; 불참이 다시 나오면 시도별 기록(IMEKR 모듈 적재 여부)으로 원인을 가린다.
+
+## 테스트 하네스 (사용자 화면·포커스)
+
+- **오래된 렌더/히트테스트 시험 13개가 `orderFront`/`makeKeyAndOrderFront` 로 창을 창 서버에 올렸다 — 사용자가 일하는 Mac 에서 `swift test` 마다.** (fx-wintests)
+  **직접 원인:** `NSHostingView` 가 레이아웃·렌더되도록 창을 올리는 한 줄을 파일마다 따로 복사했다(좌표 -10000 으로 화면 밖이지만, 두 파일은 `makeKeyAndOrderFront` 라 key 를 가져가려 했다). **왜 못 걸렀나:** 플라자 시험에만 `PlazaNoWindowsOrderedInScanTests` 가 있었고 나머지 시험 파일은 스캔 대상이 아니었다 — 규칙이 한 디렉터리 접두사(`Plaza`)에만 걸려 있어 "모든 시험" 규칙이 아니었다.
+  **고침:** 모든 호출을 `window.orderInForTest()`(`LiveWindowTestSupport.swift`, 포크 소유)로 바꿨다. `PTB_LIVE_WINDOW_TESTS` 가 없으면 아무것도 하지 않는다(창 서버에 안 올림); 있으면 화면 밖·일반 레벨 아래·non-key 로 올린다. `NoWindowsOrderedInScanTests` 가 허용 목록 밖 모든 시험 파일의 `orderFront(`/`makeKeyAndOrderFront(`/`NSApp.activate(` 등을 막는다.
+  **규칙:** 시험에서 창을 직접 올리지 않는다 — `orderInForTest()` 만 쓴다. 새 시험 파일이 서버 올림을 필요로 하면 이 헬퍼로. 허용 목록에 예외를 더할 땐 이유를 적는다.

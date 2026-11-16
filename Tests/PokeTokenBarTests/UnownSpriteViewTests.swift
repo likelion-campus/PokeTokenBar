@@ -86,7 +86,7 @@ final class UnownSpriteViewTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 64, height: 64),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentViewController = host
-        window.orderFront(nil)
+        window.orderInForTest()
         defer { window.orderOut(nil) }
         host.view.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(100))
