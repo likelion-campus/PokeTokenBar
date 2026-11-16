@@ -95,6 +95,73 @@ final class WindowsSocketLoopTests: XCTestCase {
 
     private static func counter(_ i: Int) -> Data { withUnsafeBytes(of: UInt64(i).bigEndian) { Data($0) } }
 
+    // MARK: bounded exit (every wait on the exit path has a deadline)
+
+    private final class LogBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: [String] = []
+        func add(_ line: String) { lock.lock(); stored.append(line); lock.unlock() }
+        var lines: [String] { lock.lock(); defer { lock.unlock() }; return stored }
+    }
+
+    /// A loop whose thread is stuck in a command that never returns (the stand-in for a blocking call): `shutdown(within:)`
+    /// gives up at the deadline, logs the one abandon line, and the loop's late exit (after the stall ends) is harmless.
+    func testShutdownAbandonsAThreadThatDoesNotComeBack() async throws {
+        XCTAssertTrue(Raw.started)
+        let log = LogBox()
+        let rec = Recorder()
+        let loop = WinSocketLoop(deliver: { rec.handle($0) }, log: { log.add($0) })
+        loop.start()
+        let release = DispatchSemaphore(value: 0)
+        loop.injectStall(until: release)
+        try await Task.sleep(nanoseconds: 100_000_000)   // the thread is inside the stall
+        // On its own thread, so a shutdown without a bound fails this test (3 s) instead of hanging the run.
+        let returned = DispatchSemaphore(value: 0)
+        let outcome = LogBox()
+        let began = Date()
+        Thread { outcome.add(loop.shutdown(within: 0.5) ? "joined" : "abandoned"); returned.signal() }.start()
+        let inTime = returned.wait(timeout: .now() + 3) == .success
+        let took = Date().timeIntervalSince(began)
+        if !inTime { release.signal(); _ = returned.wait(timeout: .now() + 5) }   // free the thread the fault left waiting
+        XCTAssertTrue(inTime, "shutdown(within: 0.5) did not return in 3 s with the I/O thread stuck")
+        XCTAssertEqual(outcome.lines, ["abandoned"])
+        XCTAssertGreaterThanOrEqual(took, 0.45)
+        XCTAssertLessThan(took, 2, "shutdown must return near its bound, not wait for the thread (took \(took) s)")
+        XCTAssertEqual(log.lines.count, 1)
+        XCTAssertTrue(log.lines.first?.hasPrefix("exit: abandoned socket loop join after ") == true, "\(log.lines)")
+        release.signal()   // the thread comes back late: it must end, not run on
+        print("SOCKETLOOP-REPORT abandon: bound=0.5 s took=\(Int(took * 1000)) ms line=\(log.lines.first ?? "none")")
+        loop.shutdown(within: 0.5)   // a second call does nothing
+        XCTAssertEqual(log.lines.count, 1)
+    }
+
+    /// The normal exit joins at once and says nothing.
+    func testShutdownOfAHealthyLoopJoinsQuicklyAndLogsNothing() async throws {
+        XCTAssertTrue(Raw.started)
+        let log = LogBox()
+        let rec = Recorder()
+        let loop = WinSocketLoop(deliver: { rec.handle($0) }, log: { log.add($0) })
+        loop.start()
+        let began = Date()
+        XCTAssertTrue(loop.shutdown(within: 5))
+        XCTAssertLessThan(Date().timeIntervalSince(began), 1)
+        XCTAssertEqual(log.lines, [])
+    }
+
+    /// A handshake against a peer that never answers does not block the thread: the loop still joins at once.
+    func testShutdownWithAHandshakeStuckOnASilentPeerJoinsQuickly() async throws {
+        let server = side(), client = side()
+        server.rec.autoAdmit = false   // accepted, never admitted: no TLS answer will come
+        defer { server.loop.shutdown() }
+        let port = try await listening(server)
+        _ = client.loop.dial([v4(port)], code: Self.code)
+        _ = await waitUntil(2) { !server.rec.accepted.isEmpty }
+        XCTAssertFalse(server.rec.accepted.isEmpty)
+        let began = Date()
+        XCTAssertTrue(client.loop.shutdown(within: 3), "a loop with a hanging handshake must still join")
+        XCTAssertLessThan(Date().timeIntervalSince(began), 1.5)
+    }
+
     // MARK: the brief's tests
 
     func testDialAndAcceptReachReadyAndExchangeData() async throws {
