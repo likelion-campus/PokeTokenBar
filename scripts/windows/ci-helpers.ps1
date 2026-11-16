@@ -136,8 +136,8 @@ function Compare-FolderHashes($Before, $After) {
 }
 
 # Every PokeTokenBar Setup process (the loader and the Setup it extracted, a .tmp exe) and uninstaller (unins000.exe and
-# the copy it runs from TEMP, _unins.tmp).
-function Stop-Setups { Get-Process -Name 'PokeTokenBar-Setup-*', 'unins000', '_unins' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
+# the copy it runs from TEMP, _unins.tmp: .NET keeps a .tmp extension in the process name, hence the wildcards).
+function Stop-Setups { Get-Process -Name 'PokeTokenBar-Setup-*', 'unins000', '_unins*' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }
 
 # Runs a setup exe with its wizard (a double-click; only /LOG added) and clicks it through: Next on every page, Install,
 # Finish (the Finish page's launch box stays as Setup sets it), and records the page title after each click. Exit code.
