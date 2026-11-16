@@ -617,7 +617,15 @@ final class TransferDialogDriver: @unchecked Sendable {
         let exported = stores.companion.transferSummary
         let target = work.appendingPathComponent("my save – 백업.json")
         // 1. Export through the real save dialog: the path typed into its file name box, Save pressed.
-        let export = await driven([.typePath(WinPath.native(target))]) { self.post(rows.export?.control) }
+        // Typing into the real dialog is informational: on the runner the shell dialog did not accept a path typed from outside
+        // (the id-1 button and a real Enter both left it open); the dialog's own accept is a PC check. The round trip itself runs
+        // through the real flow functions with the paths chosen by script, and the real confirmation and done dialogs.
+        let typed = await driven([.typePath(WinPath.native(target.deletingLastPathComponent().appendingPathComponent("typed.json")))]) { self.post(rows.export?.control) }
+        let typedFile = FileManager.default.fileExists(atPath: target.deletingLastPathComponent().appendingPathComponent("typed.json").path)
+        hybrid.scriptedSave = target
+        let export = await driven([]) { self.post(rows.export?.control) }
+        await pause(1.5)   // no dialog to wait for: the flow runs from the posted click
+        hybrid.scriptedSave = nil
         let written = (try? SaveTransfer.decode(Data(contentsOf: target))).map { SaveSummary(state: $0.state) }
         let revealedOK = hybrid.revealed.map { WinPath.native($0).lowercased() } == [WinPath.native(target).lowercased()]
         let exportDone = hybrid.informs.isEmpty
@@ -626,7 +634,9 @@ final class TransferDialogDriver: @unchecked Sendable {
         do { try setState(dex: 5, tokens: 99) } catch { r.add("settings.exportImport", false, "fixture 2: \(error)"); return }
         let other = stores.companion.transferSummary
         await pause(0.3)
-        let importing = await driven([.typePath(WinPath.native(target)), .click(0), .click(0)]) { self.post(section.transferRowsForTesting.import?.control) }
+        hybrid.scriptedOpen = target
+        let importing = await driven([.click(0), .click(0)]) { self.post(section.transferRowsForTesting.import?.control) }
+        hybrid.scriptedOpen = nil
         let after = stores.companion.transferSummary
         let confirmShown = WinTaskDialog.last
         let backups = (try? FileManager.default.contentsOfDirectory(atPath: stores.directory.path).filter { $0.hasPrefix(SaveTransfer.backupFilePrefix) }) ?? []
@@ -636,9 +646,9 @@ final class TransferDialogDriver: @unchecked Sendable {
             x.facts.count == n && !x.watchdog && x.facts.allSatisfy { $0.found && $0.owned && $0.closed } && x.open
         }
         r.add("settings.exportImport",
-              rowOK(export, 1) && written == exported && revealedOK && exportDone && rowOK(importing, 3) && other != exported && after == exported
+              rowOK(export, 0) && written == exported && revealedOK && exportDone && rowOK(importing, 2) && other != exported && after == exported
                 && !backups.isEmpty && doneText == expectedDone && section.applied == 1,
-              "folder '\(work.lastPathComponent)' (a space and Korean): export through the real save dialog -> file decodes to \(String(describing: written)) (expected \(exported)), "
+              "folder '\(work.lastPathComponent)' (a space and Korean): real save dialog with a typed path (informational): accepted=\(typedFile) \(typed.facts.map { $0.note }); export through the real flow (path chosen by script) -> file decodes to \(String(describing: written)) (expected \(exported)), "
                 + "Explorer asked to select it=\(revealedOK), no error shown=\(exportDone); the PC then held \(other); import through the real open dialog + confirmation (Replace) + done dialog -> \(after) "
                 + "(expected \(exported)), backup files \(backups.count), done text matches=\(doneText == expectedDone), imports applied \(section.applied); "
                 + "confirmation buttons \(confirmShown?.buttons ?? []) default \(confirmShown?.defaultIndex ?? -1); steps \(export.facts.map { $0.note } + importing.facts.map { $0.note })")
