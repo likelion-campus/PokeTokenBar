@@ -2652,3 +2652,8 @@ read_when:
   **부류 스윕:** 절대 창/화면 좌표를 단언하는 맥 테스트는 이것뿐이다(`testRosterCapacityUsesTheRestoredWindowHeight` 는 크기만, `PlazaWindowRig`/`PlazaLiveWindowTests` 는 화면이 닿는 화면 밖 좌표면 건너뛴다, `FloatingPetAgentTests` 는 `visibleFrame` 을 주입한다).
   **열린 의문(제품):** 스크립트 실측에서 두 번째·세 번째 디스플레이에서 저장한 창은 다시 열면 주 디스플레이의 다른 위치로 돌아왔다(저장 사각형의 높이가 `visibleFrame` 과 달라 화면이 안 맞는 것으로 보인다). 앱 밖 스크립트라 메뉴 막대 상태가 달라 단정할 수 없다 — 실제 앱에서는 사람이 확인해야 한다.
   **규칙:** `NSWindow` 프레임 저장·복원 테스트는 "저장한 값"이 아니라 "AppKit 이 그 이름으로 되살린 값"과 견주고, 크기·순서(가운데 정렬 뒤 복원)처럼 배치와 무관한 성질만 단언한다.
+
+- **윈도에서 파일 대화상자·작업 대화상자가 떠 있는 동안 메인 큐가 멈췄다 — `WinModalPump` 의 `WM_TIMER` 틱만으로는 부족했다 (7단계 Task 15).** 설정 페이지의 내보내기·불러오기가 연 공용 파일 대화상자와 TaskDialog 아래에서 `DispatchQueue.main.async` 블록이 0/10 만 돌았다(러너 실측). 첫 원인은 셀프테스트가 클릭을 메인 큐 항목(Task) 안에서 `BM_CLICK` 으로 보내 모달 루프를 그 항목 안에서 연 것이다(직렬 메인 큐는 실행 중인 항목 아래서 아무것도 못 돌린다 — 키트의 `ui.kit.menuKeys` 가 이미 보인 규칙). 클릭을 `PostMessage` 로 보내 창 메시지에서 열게 해도 **대화상자 루프는 틱 타이머를 충분히 돌려주지 않았다**: 큐는 돌았지만 닫기 블록이 안 먹었고, 틱 수는 `WH_GETMESSAGE` 훅 경유분이 절반이었다. 고침: 대화상자 모달 루프(`begin("dialog")`) 중에는 훅이 루프가 꺼내는 메시지마다 `WinModalPump.tickFromHook()` 으로 50 ms 간격 틱을 더 건다.
+  **왜 못 걸렀나:** 펌프 검사(`modalPump.*`)는 `TrackPopupMenu` 만 열었다 — 메뉴 루프에서 되는 것이 다른 모달 루프(공용 대화상자·TaskDialog)에서도 된다고 가정했다.
+  **부류 스윕:** 모달 루프를 여는 곳은 `WinPopupMenu`, 키트의 에디트 메뉴·스크롤 막대 드래그, 이번 `WinFileDialog`/`WinTaskDialog` 뿐이고 앞의 둘은 `modalPump.*`·`ui.kit.editMenu` 가 이미 덮는다. 새 모달 루프는 `settings.dialogKeepsPopover` 처럼 "열린 동안 메인 큐 블록 10/10" 을 재야 한다.
+  **규칙:** 새 종류의 모달 창을 열 때는 그 창 종류로 "열린 동안 메인 큐가 도는가" 와 "종료 경로가 닫는가"(`settings.dialogExit`)를 러너에서 잰다. 테스트는 클릭을 창 메시지로 보낸다.
