@@ -2613,6 +2613,20 @@ read_when:
   **고침:** 하한을 제한 시간에서 한 틱을 뺀 40 ms 로 둔다. **부류 스윕:** 윈도 테스트의 경과 시간 하한은 그 밖에 `WindowsHTTPFetchTests` 의 두 곳(10 초 중 8 초, 3 초 중 2.5 초)뿐이고 여유가 0.5 초 이상이다.
   **규칙:** 윈도에서 `GetTickCount64`·`Sleep` 으로 잰 시간에 하한을 걸 때는 한 틱(16 ms)을 빼고 건다.
 
+- **윈도에서 Claude 로그인 파일이 없으면 새로고침이 "잠시 후 다시 시도하세요"라고 한다 — 시도해도 소용없는 조언이다(P14, 7단계 Task 6).** Claude Code 에 로그인한 적 없는 PC 에서 팝오버의 새로고침(사용자 동작)을 누르면
+  `OAuthAccessTokenCache` 가 자격증명 파일을 못 찾고 Keychain 단계로 내려가는데, 윈도의 `readClaudeKeychain`(`Platform/OAuthKeychainUnavailable.swift`)이 `LimitsError.keychainAccessDisabled` 를 던졌다.
+  스토어의 `friendlyLimitError` 는 이 오류를 `limitRefreshGeneric`("Claude 한도 조회에 실패했어요. 잠시 후 다시 시도하세요.")로 바꾼다 — 사용자가 Keychain 접근을 끈 맥 사용자를 위한 문구다. 맥은 같은 상황에서
+  `keychainUnavailable(errSecItemNotFound)` 를 받아 "Claude 자격증명을 찾지 못했어요. Claude Code 에 로그인하면…"(`limitRefreshNoCredential`)을 보여 준다. 윈도에는 끌 Keychain 이 없으므로 "접근이 꺼졌다"는 사실이 아니다.
+  **왜 못 걸렀나:** 윈도 테스트(`testUserRefreshWithoutAFileReportsKeychainAccessDisabled`)가 던져진 **오류 종류**만 고정했다 — 사용자에게 보이는 **문구**까지 가는 경로(스토어의 `limitTokenRefreshError`)는 아무도 밟지 않았고,
+  종류와 문구의 대응(`friendlyLimitError`)은 맥 쪽 테스트가 다른 입력으로만 확인했다. 오류 종류를 고정하는 테스트는 그 종류가 맞는 말인지까지는 답하지 않는다.
+  **도달 가능성:** 있다 — 윈도 사용자가 Claude Code 없이(Codex 만 쓰거나 아직 로그인 전) 새로고침을 누르면 그대로 나온다. **고침:** 윈도의 Keychain 단계가 맥의 "항목 없음"과 같은 오류(`keychainUnavailable(errSecItemNotFound)`)를 던진다
+  (Core 는 건드리지 않고 fork 소유 Platform 파일 한 곳). **부류 스윕(이 오류를 가르는 `UsageStore`/체인의 모든 분기):** `friendlyLimitError`(→ 자격증명 없음 문구, 의도), `isKeychainPromptDeclined`(`errSecItemNotFound` 는 거절이 아니다 → 추가 계정의 프롬프트를
+  막지 않는다, 맥과 같다), `firstUsableCredential`(항목 없음은 다음 서비스 이름으로 넘어가 마지막에 같은 오류를 던진다 — 윈도는 서비스 이름이 여럿이어도 읽는 곳이 없어 결과가 같다), `updateAuthExpired`(401/403 만 본다, 무관),
+  `ClaudeOAuthLimitsProvider` 의 `keychainAccessDisabled` 재던지기(진짜 비활성만 거친다). Antigravity 의 `UnavailableAntigravityLimits` 는 일부러 `keychainAccessDisabled` 를 유지한다 — 한도 소스가 없다는 뜻이고 UI 는 그 섹션을 숨긴다.
+  **영구 캡처:** `ClaudeOAuthFileCredentialTests.testUserRefreshWithoutAFileReportsAMissingCredential`(오류 종류), `testUserRefreshWithoutAFileShowsTheCredentialMissingText`(스토어를 통해 **보이는 문구**를 8개 언어로, `limitRefreshGeneric` 이 아님도),
+  `SettingsModelTests.testAMissingCredentialIsWordedAsOneInEveryLanguage`(양쪽 OS 에서 대응 자체). **규칙:** 플랫폼이 없는 기능을 오류로 알릴 때는 "그 기능이 꺼졌다"가 아니라 사용자가 해야 할 일("로그인")을 말하는 오류를 고르고,
+  테스트는 오류 종류가 아니라 화면에 나가는 문구에서 끝낸다.
+
 - **윈도 셀프테스트 게이트가 네 번에 한 번꼴로 깨졌다 — 한 상태를 두 쓰는 쪽이 다투거나, 예산이 한 번 잰 값에서 나왔다.** 같은 부류의 여섯 건을 한 번에 근본원인까지 팠다(`windows-app` 43777825521, 43784126850, 43741036674, 43784581694, 43788143040, 43797111060).
   (A) `plaza.hover`/`plaza.cover`/`plaza.dpiPanels`: 컨트롤러의 1초 포커스 틱(`refreshRoster`)이 자기 세션(비어 있음)에서 명단을 다시 만들어 selftest 의 명단 고정물을 덮었다. 40 ms "keeper" 가 되돌렸지만 그 사이에 읽으면 도구 0개·픽셀 0개였다 — 한 상태를 두 쓰는 쪽이 다툰다.
   **고침:** 컨트롤러가 이미 가진 시험 이음매(`focusTickSleep`)에 `PlazaTickGate` 를 꽂아 패널 검사 동안 틱을 붙들고 selftest 가 유일한 쓰는 쪽이 된다(keeper 삭제). 같은 프로세스에서 옛 방식(틱+keeper) 30회: cover 29/30(실패 한 번은 "roster pixels 0"), 새 방식 50회: hover·cover·dpiPanels 50/50, 명단 변조 0. 결함 주입(명단 비움·카드 안 엶·DPI 변경 생략)은 3/3 모두 실패.

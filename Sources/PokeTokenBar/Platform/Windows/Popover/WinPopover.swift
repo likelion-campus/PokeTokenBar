@@ -383,6 +383,22 @@ struct WinPopoverStats {
         page.layout(client: Self.client(w.hwnd))
     }
 
+    // --- stage 7 Task 6: swap the page in place (begin) ---
+    /// The page changed while the window stays (Home → Settings, Settings → Back, the Mac's in-place swap, P1): the old page
+    /// is destroyed (a changed field commits), `makePage` builds the one `state` asks for in the same window and context, the
+    /// window is placed again for the new height, and the keyboard starts in it. Async work of the old page is stale.
+    func replacePage() {
+        guard let w = window, let ctx, page != nil, !closing else { return }
+        generation += 1
+        page?.destroy()
+        let next = makePage(self)
+        page = next
+        next.build(in: w, ctx: ctx, client: Self.client(w.hwnd))
+        pageSizeChanged()
+        _ = SetFocus(next.initialFocus ?? w.hwnd)
+    }
+    // --- stage 7 Task 6: swap the page in place (end) ---
+
     // MARK: - messages
 
     private func register(_ w: WinSinkWindow) {
