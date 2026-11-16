@@ -41,16 +41,20 @@ final class LimitsModelTests: XCTestCase {
         let load = RefreshRowModel(status: .tapToLoad(l.limitsTapToLoad),
                                    button: NoticeButton(label: l.refresh, action: .refreshClaudeLimits), error: nil)
         XCTAssertEqual(blocks(first), [.caption(l.limitsOfficial, help: help), .refreshRow(load)])
-        XCTAssertEqual(blocks(first, facts: Self.windows), [.caption(l.limitsOfficial, help: nil), .refreshRow(load)],
-                       "Windows: no Keychain help; the refresh reads the credentials file")
+        // Windows: the same (?) and button, explaining Claude's sign-in file instead of the Keychain (stage 7 Task 14, P15h).
+        let winHelp = HelpModel(tooltip: l.winClaudeCredentialHelpTooltip, title: l.winClaudeCredentialHelpTitle, body: l.winClaudeCredentialHelpBody,
+                                button: NoticeButton(label: l.registerSessionKey, action: .openSessionKeySettings))
+        XCTAssertEqual(blocks(first, facts: Self.windows), [.caption(l.limitsOfficial, help: winHelp), .refreshRow(load)],
+                       "Windows: the sign-in file's help; the refresh reads the credentials file")
         var keychainOff = first
         keychainOff.disableKeychainAccess = true
         XCTAssertNil(blocks(keychainOff), "the Mac with the Keychain off and nothing loaded: no section")
-        XCTAssertEqual(blocks(keychainOff, facts: Self.windows), [.caption(l.limitsOfficial, help: nil), .refreshRow(load)],
+        XCTAssertEqual(blocks(keychainOff, facts: Self.windows), [.caption(l.limitsOfficial, help: winHelp), .refreshRow(load)],
                        "Windows has no Keychain switch: a stored value does not hide the section")
         var keyed = first
         keyed.sessionKeyConfigured = true
         XCTAssertEqual(blocks(keyed)?.first, .caption(l.limitsOfficial, help: nil), "no help with a session key")
+        XCTAssertEqual(blocks(keyed, facts: Self.windows)?.first, .caption(l.limitsOfficial, help: nil), "nor on Windows")
     }
 
     func testClaudeStaleValuesAndTheRefreshError() async {
@@ -223,7 +227,9 @@ final class LimitsModelTests: XCTestCase {
         let model = HomeModel.make(store: f.store, companion: f.companion, updater: nil, team: f.team, feed: nil,
                                    state: f.state, facts: Self.windows, now: Date())
         let ko = L(.ko)
-        XCTAssertEqual(model.limits, [.caption(ko.limitsOfficial, help: nil), .refreshRow(RefreshRowModel(
+        let help = HelpModel(tooltip: ko.winClaudeCredentialHelpTooltip, title: ko.winClaudeCredentialHelpTitle, body: ko.winClaudeCredentialHelpBody,
+                             button: NoticeButton(label: ko.registerSessionKey, action: .openSessionKeySettings))
+        XCTAssertEqual(model.limits, [.caption(ko.limitsOfficial, help: help), .refreshRow(RefreshRowModel(
             status: .tapToLoad(ko.limitsTapToLoad), button: NoticeButton(label: ko.refresh, action: .refreshClaudeLimits),
             error: ko.limitRefreshRateLimited))])
     }
