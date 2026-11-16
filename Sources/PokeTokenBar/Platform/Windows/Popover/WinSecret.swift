@@ -29,19 +29,31 @@ enum WinSecret {
         var description: String { "\(step) failed (Win32 error \(code))" }
     }
 
-    /// `DATA_BLOB` (wincrypt.h): a byte count and a pointer. Laid out as C lays it out (checked by a test: 16 bytes, the
-    /// pointer at 8).
+    /// `DATA_BLOB` (wincrypt.h) in raw memory, as C lays it out: the byte count (a DWORD) first, the pointer at the next
+    /// pointer-aligned offset (8 on 64-bit Windows: 16 bytes in all). A Swift struct cannot cross `@convention(c)`.
     struct Blob {
-        var cbData: DWORD = 0
-        var pbData: UnsafeMutablePointer<UInt8>? = nil
+        static let pointerOffset = MemoryLayout<UnsafeRawPointer>.alignment
+        static let size = pointerOffset + MemoryLayout<UnsafeRawPointer>.size
+        let memory: UnsafeMutableRawPointer
+
+        init(count: Int = 0, bytes: UnsafeRawPointer? = nil) {
+            memory = .allocate(byteCount: Self.size, alignment: Self.pointerOffset)
+            memory.initializeMemory(as: UInt8.self, repeating: 0, count: Self.size)
+            memory.storeBytes(of: UInt32(count), as: UInt32.self)
+            memory.storeBytes(of: bytes, toByteOffset: Self.pointerOffset, as: UnsafeRawPointer?.self)
+        }
+
+        var count: Int { Int(memory.load(as: UInt32.self)) }
+        var bytes: UnsafeMutableRawPointer? { memory.load(fromByteOffset: Self.pointerOffset, as: UnsafeMutableRawPointer?.self) }
+        func free() { memory.deallocate() }
     }
 
     private typealias ProtectFn = @convention(c) (
-        UnsafeMutablePointer<Blob>?, UnsafePointer<UInt16>?, UnsafeMutablePointer<Blob>?, UnsafeMutableRawPointer?,
-        UnsafeMutableRawPointer?, DWORD, UnsafeMutablePointer<Blob>?) -> Int32
+        UnsafeMutableRawPointer?, UnsafePointer<UInt16>?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?,
+        UnsafeMutableRawPointer?, DWORD, UnsafeMutableRawPointer?) -> Int32
     private typealias UnprotectFn = @convention(c) (
-        UnsafeMutablePointer<Blob>?, UnsafeMutablePointer<UnsafeMutablePointer<UInt16>?>?, UnsafeMutablePointer<Blob>?,
-        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, DWORD, UnsafeMutablePointer<Blob>?) -> Int32
+        UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutablePointer<UInt16>?>?, UnsafeMutableRawPointer?,
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, DWORD, UnsafeMutableRawPointer?) -> Int32
 
     /// `CRYPTPROTECT_UI_FORBIDDEN`: never a prompt. No `CRYPTPROTECT_LOCAL_MACHINE`: only this Windows account can decrypt.
     private static let uiForbidden: DWORD = 0x1
@@ -59,46 +71,45 @@ enum WinSecret {
         guard let fn = WinDynamic.symbol("crypt32.dll", "CryptProtectData", as: ProtectFn.self) else {
             throw Failure(step: "loading CryptProtectData", code: GetLastError())
         }
-        var out = Blob()
+        let out = Blob()
+        defer { out.free() }
         // The plain bytes are passed in place (Swift's own storage): no copy of them is made here.
-        let (ok, code): (Int32, DWORD) = data.withUnsafeBytes { plain in
-            entropy.withUnsafeBytes { salt in
-                var input = Blob(cbData: DWORD(plain.count),
-                                 pbData: plain.baseAddress.map { UnsafeMutablePointer(mutating: $0.assumingMemoryBound(to: UInt8.self)) })
-                var extra = Blob(cbData: DWORD(salt.count),
-                                 pbData: salt.baseAddress.map { UnsafeMutablePointer(mutating: $0.assumingMemoryBound(to: UInt8.self)) })
-                let r = fn(&input, nil, &extra, nil, nil, uiForbidden, &out)
+        let result: (ok: Int32, code: DWORD) = data.withUnsafeBytes { (plain: UnsafeRawBufferPointer) -> (ok: Int32, code: DWORD) in
+            entropy.withUnsafeBytes { (salt: UnsafeRawBufferPointer) -> (ok: Int32, code: DWORD) in
+                let input = Blob(count: plain.count, bytes: plain.baseAddress), extra = Blob(count: salt.count, bytes: salt.baseAddress)
+                defer { input.free(); extra.free() }
+                let r = fn(input.memory, nil, extra.memory, nil, nil, uiForbidden, out.memory)
                 return (r, GetLastError())
             }
         }
-        guard ok != 0, let bytes = out.pbData else { throw Failure(step: "CryptProtectData", code: code) }
-        defer { _ = LocalFree(UnsafeMutableRawPointer(bytes)) }
-        return Data(bytes: bytes, count: Int(out.cbData))
+        guard result.ok != 0, let bytes = out.bytes else { throw Failure(step: "CryptProtectData", code: result.code) }
+        defer { _ = LocalFree(bytes) }
+        return Data(bytes: bytes, count: out.count)
     }
 
     static func unprotecting(_ data: Data, entropy: Data) throws -> Data {
         guard let fn = WinDynamic.symbol("crypt32.dll", "CryptUnprotectData", as: UnprotectFn.self) else {
             throw Failure(step: "loading CryptUnprotectData", code: GetLastError())
         }
-        var out = Blob()
-        let (ok, code): (Int32, DWORD) = data.withUnsafeBytes { blob in
-            entropy.withUnsafeBytes { salt in
-                var input = Blob(cbData: DWORD(blob.count),
-                                 pbData: blob.baseAddress.map { UnsafeMutablePointer(mutating: $0.assumingMemoryBound(to: UInt8.self)) })
-                var extra = Blob(cbData: DWORD(salt.count),
-                                 pbData: salt.baseAddress.map { UnsafeMutablePointer(mutating: $0.assumingMemoryBound(to: UInt8.self)) })
-                let r = fn(&input, nil, &extra, nil, nil, uiForbidden, &out)
+        let out = Blob()
+        defer { out.free() }
+        let result: (ok: Int32, code: DWORD) = data.withUnsafeBytes { (blob: UnsafeRawBufferPointer) -> (ok: Int32, code: DWORD) in
+            entropy.withUnsafeBytes { (salt: UnsafeRawBufferPointer) -> (ok: Int32, code: DWORD) in
+                let input = Blob(count: blob.count, bytes: blob.baseAddress), extra = Blob(count: salt.count, bytes: salt.baseAddress)
+                defer { input.free(); extra.free() }
+                let r = fn(input.memory, nil, extra.memory, nil, nil, uiForbidden, out.memory)
                 return (r, GetLastError())
             }
         }
-        guard ok != 0, let bytes = out.pbData else { throw Failure(step: "CryptUnprotectData", code: code) }
+        guard result.ok != 0, let bytes = out.bytes else { throw Failure(step: "CryptUnprotectData", code: result.code) }
+        let count = out.count
         defer {
             // DPAPI's buffer holds the plain JSON: zeroed before it goes back to the heap (the C buffer is the one copy this
             // code owns; the returned Data is Swift's, like every String the key passes through, as on the Mac).
-            _ = UnsafeMutableRawBufferPointer(start: bytes, count: Int(out.cbData)).initializeMemory(as: UInt8.self, repeating: 0)
-            _ = LocalFree(UnsafeMutableRawPointer(bytes))
+            bytes.initializeMemory(as: UInt8.self, repeating: 0, count: count)
+            _ = LocalFree(bytes)
         }
-        return Data(bytes: bytes, count: Int(out.cbData))
+        return Data(bytes: bytes, count: count)
     }
 
     // MARK: the file (PlatformCompat.writeSecret / readSecret on Windows)

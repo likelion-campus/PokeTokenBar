@@ -34,8 +34,14 @@ final class WindowsPopoverSecretTests: XCTestCase {
     // MARK: DPAPI
 
     func testTheBlobIsLaidOutAsDATA_BLOB() {
-        XCTAssertEqual(MemoryLayout<WinSecret.Blob>.size, 16)
-        XCTAssertEqual(MemoryLayout<WinSecret.Blob>.offset(of: \WinSecret.Blob.pbData), 8)
+        XCTAssertEqual(WinSecret.Blob.size, 16, "DATA_BLOB on 64-bit Windows")
+        XCTAssertEqual(WinSecret.Blob.pointerOffset, 8)
+        let bytes = UnsafeMutableRawPointer.allocate(byteCount: 4, alignment: 1)
+        defer { bytes.deallocate() }
+        let blob = WinSecret.Blob(count: 4, bytes: bytes)
+        defer { blob.free() }
+        XCTAssertEqual(blob.count, 4)
+        XCTAssertEqual(blob.bytes, bytes)
     }
 
     func testARoundTripGivesTheBytesBack() throws {
