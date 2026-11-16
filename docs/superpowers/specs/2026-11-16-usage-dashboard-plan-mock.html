@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>플랜 섹션 시안</title>
+<style>:root{--bg-primary:#fff;--bg-secondary:#f6f7f9;--bg-tertiary:#e8ebef;--border:#dde1e6;--text-primary:#1f2328;--text-secondary:#4b5563;--text-tertiary:#6b7280;--accent:#3b82f6;--success:#16a34a;--error:#dc2626;--selected-bg:#eaf2ff;--selected-border:#3b82f6}body{font-family:-apple-system,"Apple SD Gothic Neo",sans-serif;background:var(--bg-primary);color:var(--text-primary);margin:24px;max-width:1000px}.option{border:1px solid var(--border);border-radius:10px;padding:16px;margin:16px 0;display:flex;gap:12px}.letter{font-weight:700;font-size:18px}.subtitle{color:var(--text-secondary)}</style></head><body>
+<style>
+  .dash { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: 8px; }
+  .dash h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-secondary); font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .tile { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .tile .k { font-size: 11px; color: var(--text-tertiary); }
+  .tile .v { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .panel { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  table.t { width: 100%; border-collapse: collapse; font-size: 12px; color: var(--text-primary); }
+  table.t th { text-align: left; color: var(--text-tertiary); font-weight: 600; border-bottom: 1px solid var(--border); padding: 6px; white-space: nowrap; }
+  table.t td { border-bottom: 1px solid var(--border); padding: 6px; font-variant-numeric: tabular-nums; vertical-align: middle; }
+  td.r, th.r { text-align: right; }
+  .gauge { position: relative; width: 110px; height: 10px; background: var(--bg-tertiary); border-radius: 3px; display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .gauge .f { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 3px; }
+  .gauge .p { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text-primary); opacity: .55; }
+  .tag { display: inline-block; border-radius: 10px; padding: 1px 8px; font-size: 11px; font-weight: 600; }
+  .short { background: #fde2e1; color: #b42318; }
+  .fit { background: #e3f1e7; color: #1d7a3e; }
+  .left { background: #e6eefc; color: #1e4fb0; }
+  .none { background: var(--bg-tertiary); color: var(--text-tertiary); }
+  .muted { color: var(--text-tertiary); }
+  .notes { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+  .notes li { margin: 4px 0; }
+</style>
+
+<h2>추가 섹션 시안 — 플랜과 주간 한도</h2>
+<p class="subtitle">A(한 장 요약) 아래에 붙는 섹션입니다. 팀·닉네임·숫자는 모두 가짜입니다. 목적: 모자란 사람은 플랜을 올리고, 남는 사람은 내리는 판단.</p>
+
+<div class="dash">
+  <div class="tiles">
+    <div class="tile"><div class="k">이번 주 모자랄 사람</div><div class="v" style="color:#b42318">6명</div></div>
+    <div class="tile"><div class="k">알맞게 쓸 사람</div><div class="v" style="color:#1d7a3e">17명</div></div>
+    <div class="tile"><div class="k">남길 사람</div><div class="v" style="color:#1e4fb0">15명</div></div>
+    <div class="tile"><div class="k">플랜 정보 없음</div><div class="v muted">7명</div></div>
+  </div>
+
+  <div class="panel">
+    <h4>사람별 플랜과 이번 주 한도 (모자란 순)</h4>
+    <table class="t">
+      <tr><th>닉네임</th><th>팀</th><th>도구</th><th>플랜</th><th>이번 주 사용 <span class="muted">(│ = 균등하게 썼을 때)</span></th><th class="r">이 속도면 리셋 때</th><th>예상</th><th class="r">지난 4주 중 다 쓴 주</th><th>제안</th></tr>
+      <tr><td>모카</td><td>디자인팀</td><td>Claude</td><td>Pro</td>
+          <td><span class="gauge"><span class="f" style="width:100%;background:#d9534f"></span><span class="p" style="left:71%"></span></span>100% · 리셋 2일 뒤</td>
+          <td class="r">—</td><td><span class="tag short">이미 다 씀</span></td><td class="r">4 / 4</td><td>올리기 검토 → Max</td></tr>
+      <tr><td>해달</td><td>개발팀</td><td>Claude</td><td>Max</td>
+          <td><span class="gauge"><span class="f" style="width:82%;background:#d9534f"></span><span class="p" style="left:64%"></span></span>82% · 리셋 2.5일 뒤</td>
+          <td class="r">128%</td><td><span class="tag short">모자람</span></td><td class="r">3 / 4</td><td>올리기 검토 → Ultra</td></tr>
+      <tr><td>코난</td><td>개발팀</td><td>Codex</td><td>Pro</td>
+          <td><span class="gauge"><span class="f" style="width:55%"></span><span class="p" style="left:60%"></span></span>55% · 리셋 2.8일 뒤</td>
+          <td class="r">92%</td><td><span class="tag fit">알맞음</span></td><td class="r">1 / 4</td><td class="muted">유지</td></tr>
+      <tr><td>민수</td><td>개발팀</td><td>Claude</td><td>Max</td>
+          <td><span class="gauge"><span class="f" style="width:48%"></span><span class="p" style="left:57%"></span></span>48% · 리셋 3일 뒤</td>
+          <td class="r">84%</td><td><span class="tag fit">알맞음</span></td><td class="r">0 / 4</td><td class="muted">유지</td></tr>
+      <tr><td>지아</td><td>교육운영팀</td><td>Claude</td><td>Max</td>
+          <td><span class="gauge"><span class="f" style="width:20%"></span><span class="p" style="left:59%"></span></span>20% · 리셋 2.9일 뒤</td>
+          <td class="r">34%</td><td><span class="tag left">남음</span></td><td class="r">0 / 4</td><td>내리기 검토 → Pro</td></tr>
+      <tr><td>서연</td><td>사업팀</td><td>Claude</td><td>Pro</td>
+          <td><span class="gauge"><span class="f" style="width:3%"></span><span class="p" style="left:66%"></span></span>3% · 리셋 2.4일 뒤</td>
+          <td class="r">5%</td><td><span class="tag left">남음</span></td><td class="r">0 / 4</td><td>필요한지 검토</td></tr>
+      <tr><td>두부</td><td>교육운영팀</td><td class="muted">—</td><td class="muted">정보 없음</td>
+          <td class="muted">앱에서 구독 계정을 못 읽음</td><td class="r muted">—</td><td><span class="tag none">—</span></td><td class="r muted">—</td><td class="muted">—</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px">
+  <h3>어떻게 계산하나 (시안 기준)</h3>
+  <ul class="notes">
+    <li><b>이 속도면 리셋 때</b> = 지금 사용률 ÷ 이번 주 창에서 지난 시간 비율. 앱이 팝오버에서 이미 쓰는 "페이스" 계산과 같습니다. 창이 10% 지나기 전에는 예상을 내지 않습니다.</li>
+    <li><b>예상</b>: 100% 이상이면 모자람, 70~100%면 알맞음, 70% 미만이면 남음. 경계값은 시트의 설정 칸에서 바꿀 수 있게 둡니다.</li>
+    <li><b>제안</b>은 한 주가 아니라 지난 4주를 봅니다. 4주 중 2주 이상 다 썼으면 올리기, 4주 내내 주말 사용률이 40% 미만이면 내리기. 이것도 설정 칸에서 바꿉니다.</li>
+    <li><b>정보 없음</b>: 그 사람의 앱이 구독 계정 한도를 못 읽는 경우입니다(로그인 안 됨, API 키로만 사용 등).</li>
+  </ul>
+</div>
+</body></html>
