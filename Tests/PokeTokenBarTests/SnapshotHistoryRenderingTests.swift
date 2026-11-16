@@ -131,7 +131,7 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = host
-        window.makeKeyAndOrderFront(nil)
+        window.orderInForTest()
         self.window = window
         return host
     }

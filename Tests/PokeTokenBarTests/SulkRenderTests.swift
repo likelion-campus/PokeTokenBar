@@ -106,7 +106,7 @@ final class SulkRenderTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: .aqua)
         window.contentView = host
-        window.orderFront(nil)
+        window.orderInForTest()
         windows.append(window)
         return host
     }
