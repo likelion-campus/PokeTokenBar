@@ -572,7 +572,7 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
         }
         let frames = section.stats.lineFrames - frames0, fires = section.lineClock.fireCount - fires0
         let span = lastArmed.timeIntervalSince(pressed)
-        let pressOK = !movedAtOnce && x() == target && frames >= 8 && frames <= 20 && span <= 0.4 && !section.lineClock.isArmed
+        let pressOK = !movedAtOnce && x() == target && frames >= 5 && frames <= 20 && span <= 0.4 && !section.lineClock.isArmed  // 60 Hz: 13–15; 30 ms timers: 9
         r.add("companion.evoLineScroll", wheelOK && pressOK,
               "nine-node line, \(chars) chars a notch (\(notch) DIP): plain wheel moved it to \(plain) (expected 0, the page's); WM_MOUSEHWHEEL +120 → \(right) "
               + "(expected \(notch)); Shift + wheel +120 → \(back) (expected 0); 8 × +15 → \(fine) (expected \(notch)); 40 notches → \(end) (end \(maxX)); "
@@ -629,12 +629,12 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
             let closed = header.part.barLook
             let quietClosed = !section.barClock.isArmed
             let total = section.stats.barFrames - frames0
-            let framesOK = animations ? (grown >= 20 && grown <= 40) : grown == 1
+            let framesOK = animations ? (grown >= 10 && grown <= 40) : grown == 1   // 60 Hz: about 29; the dispatch-handle loop's 30 ms timers: 16
             let ok = delivered && early == .rest && open == .open && closed == .rest && framesOK && quietOpen && quietClosed
             allOK = allOK && ok
             lines.append("animations \(animations): WM_MOUSEMOVE delivered=\(delivered); 0.2 s after coming \(early == .rest ? "still thin" : "\(early)") "
                          + "(the Mac's 300 ms wait); 1 s after: \(open == .open ? "grown with the readout" : "\(open)"), \(grown) frames "
-                         + "(\(animations ? "the spring settles in 0.48 s: about 29" : "a jump: 1"), clock armed after=\(!quietOpen); 0.4 s after leaving: "
+                         + "(\(animations ? "the spring settles in 0.48 s: about 29 at 60 Hz, 10–40 allowed" : "a jump: 1"), clock armed after=\(!quietOpen); 0.4 s after leaving: "
                          + "\(closed == .rest ? "thin again" : "\(closed)"), \(total - grown) frames, clock armed after=\(!quietClosed); "
                          + "since \(String(format: "%.2f", Date().timeIntervalSince(came))) s")
             h.destroy()
