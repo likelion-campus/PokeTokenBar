@@ -61,6 +61,7 @@ final class WinTextFonts: @unchecked Sendable {
         case .plaza(let size): (size == .small ? 0 : 1, 400, Double(size.points))
         case .system(let size, let weight): (2, weight == .regular ? 400 : (weight == .semibold ? 600 : 700), Double(size))
         case .emoji(let size): (3, 400, Double(size))
+        case .mono(let size, let weight): (5, weight == .regular ? 400 : (weight == .semibold ? 600 : 700), Double(size))
         }
     }
 

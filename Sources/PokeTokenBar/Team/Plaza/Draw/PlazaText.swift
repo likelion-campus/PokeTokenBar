@@ -8,6 +8,9 @@ enum PlazaFont: Hashable, Sendable {
     case plaza(PlazaTextSize)
     case system(size: CGFloat, weight: PlazaFontWeight)
     case emoji(size: CGFloat)
+    /// Monospaced digits for drawn UI parts (the recap's LCD, stage 7 D7): the system monospaced font on the Mac, Cascadia Mono
+    /// (else Consolas) on Windows. The plaza never uses it.
+    case mono(size: CGFloat, weight: PlazaFontWeight)
 }
 
 enum PlazaTextAlignment: Sendable { case natural, center }
