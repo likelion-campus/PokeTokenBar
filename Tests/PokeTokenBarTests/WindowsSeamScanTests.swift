@@ -507,12 +507,24 @@ extension WindowsSeamScanTests {
                 if !allowed.contains(i), let call = activationCalls.first(where: { c.contains($0) }) {
                     out.append("\(rel):\(i + 1) calls \(call.dropLast()) outside the allowed sites (\(activationSites.map(\.file).joined(separator: ", "))): a window of ours may come forward without the user")
                 }
-                if rel.hasPrefix("Platform/Windows/Popover/"), c.contains("SetWindowPos("), !c.contains("SWP_NOACTIVATE") {
+                if rel.hasPrefix("Platform/Windows/Popover/"), c.contains("SetWindowPos("), !Self.call(from: i, in: lines).contains("SWP_NOACTIVATE") {
                     out.append("\(rel):\(i + 1) SetWindowPos without SWP_NOACTIVATE in the popover")
                 }
             }
         }
         return out
+    }
+
+    /// The call that starts on line `i`, to its closing parenthesis (a call wrapped over lines keeps its flags on a later one).
+    static func call(from i: Int, in lines: [String]) -> String {
+        var text = "", depth = 0, opened = false
+        for line in lines[i...].prefix(8) {
+            let c = code(line)
+            text += c + " "
+            for ch in c { if ch == "(" { depth += 1; opened = true } else if ch == ")" { depth -= 1 } }
+            if opened && depth <= 0 { break }
+        }
+        return text
     }
 
     func testOnlyTheAllowedSitesActivateWindowsOfOurs() throws {
@@ -537,6 +549,11 @@ extension WindowsSeamScanTests {
         XCTAssertEqual(try scan("Platform/Windows/Popover/WinPopover.swift", present + "func rebuild() {\n    _ = SetForegroundWindow(h)\n}\n"), 1)
         XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift", "func onChange() {\n    _ = ShowWindow(h, SW_SHOW)\n}\n"), 1)
         XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift", "func f() {\n    _ = SetWindowPos(h, nil, 0, 0, 1, 1, UINT(SWP_NOZORDER))\n}\n"), 1)
+        XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift",
+                                "func f() {\n    _ = SetWindowPos(h, nil, 0, 0, 1, 1,\n                     UINT(SWP_NOZORDER | SWP_NOACTIVATE))\n}\n"), 0, "flags on the next line")
+        XCTAssertEqual(try scan("Platform/Windows/Popover/WinHomePage.swift",
+                                "func f() {\n    _ = SetWindowPos(h, nil, 0, 0, 1, 1,\n                     UINT(SWP_NOZORDER))\n    g(SWP_NOACTIVATE)\n}\n"), 1,
+                       "a later statement's flag does not count")
         XCTAssertEqual(try scan("Platform/Windows/WinTrayHost.swift", "func refresh() {\n    _ = BringWindowToTop(h)\n}\n"), 1)
         XCTAssertEqual(try scan("Platform/Windows/WinSingleInstance.swift", "static func acquire(name: String) {\n    _ = AllowSetForegroundWindow(pid)\n}\n"), 0)
         XCTAssertEqual(try scan("Platform/Windows/WinSingleInstance.swift", "static func other() {\n    _ = AllowSetForegroundWindow(pid)\n}\n"), 1)

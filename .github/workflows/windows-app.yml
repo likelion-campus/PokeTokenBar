@@ -236,7 +236,8 @@ jobs:
           $names = 'popover.open', 'popover.placement', 'popover.toggle', 'popover.dismissOnActivate', 'popover.dismissInput', 'popover.escape',
                    'popover.closePaths', 'popover.ownedKeepsOpen', 'popover.staleCompletion', 'popover.dpiChange', 'popover.noSelfOpen',
                    'popover.refusedForeground', 'popover.menuAfter', 'popover.menuSettings', 'popover.secondLaunch', 'popover.realClick',
-                   'popover.openClose3', 'popover.capture', 'popover.withPlaza'
+                   'popover.openClose3', 'popover.capture', 'popover.withPlaza', 'popover.aboveTopmost', 'popover.pageContract',
+                   'popover.closeAfterNestedLoop', 'popover.autostartQuiet'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -901,7 +902,14 @@ jobs:
           foreach ($mode in 'open', 'closed') {
               $label = "popover-$mode-120s"
               Measure-App $label 120 $off $budget @('--popover-idle-probe', $mode)
-              $summary.windows[$label].popoverLog = @(Select-String -Path $logFile -Pattern 'popover idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+              $probeLines = @(Select-String -Path $logFile -Pattern 'popover idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
+              $summary.windows[$label].popoverLog = $probeLines
+              # The window measured what it says: open and never closed for 'open', closed once for 'closed' (the exit line).
+              $exit = @($probeLines | Where-Object { $_ -match 'popover idle probe exit:' }) | Select-Object -Last 1
+              $want = if ($mode -eq 'open') { 'open=true opens=1 closes=0' } else { 'open=false opens=1 closes=1' }
+              $stateOK = $exit -and $exit -match [regex]::Escape($want)
+              $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
+              $verdicts[$label] = $verdicts[$label] -and $stateOK
           }
           # --- stage 7 Task 4: the popover window open and still, and closed after an open (end) ---
           # --- stage 7 Task 5: the Home page open and left alone (begin) ---
