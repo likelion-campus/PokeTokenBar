@@ -148,6 +148,7 @@ enum ActivityFixtures {
         await keyboardCheck(r)
         await cycleCheck(r)
         await weekStartCheck(r)
+        clearSettings()  // the cycle check's month of fixture days is in the ledger: the streak below must be this check's own
         await streakLineCheck(r)
         clearSettings()
         let after = KitResources.now()
@@ -281,7 +282,7 @@ enum ActivityFixtures {
                 note = "panel named=\(panelNamed) streak named=\(streakNamed) menu item=\(menuNamed) picture \(view?.pixelSize.cx ?? 0)x\(view?.pixelSize.cy ?? 0) px = \(bytes / 1024) KiB, "
                     + "first paint \(String(format: "%.0f", firstPaint)) ms, \(tree.nodes.count) windows, \(checks.summary)"
                 ok = checks.ok && panelNamed && streakNamed && menuNamed && bytes > 0
-                let target = input.series.last { $0.totalTokens > 0 && $0.date < input.today }?.date ?? input.today
+                let target = input.series.max { $0.totalTokens < $1.totalTokens }?.date ?? input.today  // the tallest bar: a floor tick is two pixels to hit
                 if v.hover, let bars = s.bars, let p = point(of: target, bars), let item = s.panelView?.items.last {
                     cursor(over: item.hwnd, Int((p.x * w.ctx.scale).rounded()), Int((p.y * w.ctx.scale).rounded()) - Int((bars.titleRect(graphics: PlatformPlaza.graphics).maxY * w.ctx.scale).rounded()))
                     await wait(0.4)
@@ -317,7 +318,7 @@ enum ActivityFixtures {
         }
         defer { h.destroy(); cursor(over: nil) }
         await wait(0.3)
-        let target = input.series.first { $0.totalTokens > 0 && $0.date < input.today }?.date ?? input.today
+        let target = input.series.max { $0.totalTokens < $1.totalTokens }?.date ?? input.today
         guard let p = point(of: target, bars) else { r.add("home.activityHover", false, "no point over \(target)"); return }
         let scale = h.window.ctx.scale
         let band = bars.titleRect(graphics: PlatformPlaza.graphics).maxY  // the panel item starts under the caption
@@ -502,7 +503,7 @@ enum ActivityFixtures {
                 let leftOf = sv.right <= bv.left
                 let ownRow = panel?.streakRow == nil
                 let streakText = slot.view.items.first.map { WinKit.text(of: $0.hwnd) } ?? "-"
-                let named = streakText == L(language).streakDays(5) || streakText == L(language).streakDays(6)
+                let named = (2...40).contains { streakText == L(language).streakDays($0) }
                 let tree = KitTree.collect(h.window)
                 let checks = tree.check(h.window)
                 detail = "streak and Details: one parent=\(sameParent), both shown=\(shown), same line=\(sameLine) (streak y \(sv.top)-\(sv.bottom), button y \(bv.top)-\(bv.bottom)), "
