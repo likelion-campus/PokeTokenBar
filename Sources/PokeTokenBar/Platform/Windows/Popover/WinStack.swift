@@ -280,6 +280,29 @@ import WinSDK
     }
 
     fileprivate func rowVisibilityChanged() { stack?.setNeedsLayout() }
+
+    // --- stage 7 Task 5: a page region that is made again when its model changes (begin) ---
+    /// Destroys every row's controls and forgets the rows; the page lays out again. A region of a page built from a model
+    /// (the Home page's limits) makes its rows again when that part of the model changed, and the rest of the page stays.
+    func removeRows() {
+        for row in rows { [row.label, row.control, row.hint].compactMap { $0 }.forEach { $0.destroy() } }
+        rows = []
+        stack?.setNeedsLayout()
+    }
+
+    /// A row whose label is a control of the caller's making (a text style the Mac's row label, always `body`, does not
+    /// have), made first like `addRow`'s: it wraps at the row's width, with `hint` under it and `make`'s control beside it.
+    @discardableResult
+    func addStyledRow(label makeLabel: ((HWND, WinUIContext) -> WinControl?)?, hint: String? = nil, style: PopoverStackRow.Style = .trailing,
+                      make: (HWND, WinUIContext) -> WinControl? = { _, _ in nil }) -> WinRow {
+        guard let stack else { return WinRow(style: style, label: nil, hint: nil, control: nil) }
+        let pane = stack.pane.hwnd, ctx = stack.ctx
+        let labelControl = makeLabel?(pane, ctx)
+        let control = make(pane, ctx)
+        let hintControl = hint.flatMap { WinControls.label($0, style: .caption2, role: .tertiary, in: pane, ctx: ctx) }
+        return append(WinRow(style: style, label: labelControl, hint: hintControl, control: control))
+    }
+    // --- stage 7 Task 5: a page region that is made again when its model changes (end) ---
 }
 
 /// One row of a section: shown or hidden by `isVisible` (the page lays out again).
