@@ -10,6 +10,7 @@ import WinSDK
 
 extension WindowsSelftest {
     @MainActor static func popoverKitChecks(_ r: Recorder, _ app: WindowsAppDelegate) async {
+        WindowsSelftest.selftestApp = app
         await WindowsSelftestPopover.run(r)
     }
 
@@ -495,13 +496,23 @@ extension WindowsSelftest {
         _ = await WindowsSelftest.waitUntil(timeout: 7) { false }
         let paints0 = (w.scroll?.content.paints ?? 0) + (page.drawn?.stats.paints ?? 0)
         let seconds = 10.0
+        // Known timer wakes in the window are budgeted as `idle.window` and `modalPump.idle` do: a store refresh costs ~45 cs and lands in
+        // a 10 s window one time in twelve (4 of 50 windows in run 43797111060); it failed this check at 45 cs once the loops shifted its phase.
+        let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
         guard let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else {
             r.add("ui.kit.idle", false, "measurement failed")
             return
         }
+        let wakes1 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
+        var budget = 6
+        var known = "unknown (no app)"
+        if let a = wakes0, let b = wakes1 {
+            budget += 5 * ((b.safety - a.safety) + (b.debounce - a.debounce) + (b.day - a.day)) + 60 * (b.refreshes - a.refreshes)
+            known = b.minus(a)
+        }
         let paints = (w.scroll?.content.paints ?? 0) + (page.drawn?.stats.paints ?? 0) - paints0
-        r.add("ui.kit.idle", sample.mainContextSwitches <= 6 && paints == 0 && !WinModalPump.timerLive,
-              "kit page open, focus in a field (caret timeout passed), \(Int(seconds)) s: main_thread_cs=\(sample.mainContextSwitches) (budget 6) "
+        r.add("ui.kit.idle", sample.mainContextSwitches <= budget && paints == 0 && !WinModalPump.timerLive,
+              "kit page open, focus in a field (caret timeout passed), \(Int(seconds)) s: main_thread_cs=\(sample.mainContextSwitches) (budget \(budget) = 6 + 5 per known timer wake + 60 per store refresh; known wakes \(known)) "
               + "main_thread_cycles=\(sample.mainCycles) process_cycles=\(sample.processCycles) pane+part paints=\(paints) pump timer live=\(WinModalPump.timerLive); "
               + "busy_threads=[\(sample.busy)]")
     }

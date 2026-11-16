@@ -53,7 +53,7 @@ extension WindowsSelftest {
             return
         }
         _ = await waitStable(timeout: 60, quiet: 1) { !app.store.isRefreshing }
-        let idleBefore = await IdleSampler.measure(seconds: 10, mainThread: WindowsApp.mainThreadID)
+        let idleBefore = await IdleTimeline.measure(seconds: 10, mainThread: WindowsApp.mainThreadID)
 
         let notifier = Platform.current.notifications as? WindowsNotifications
         let presenter = notifier?.presenter
@@ -194,14 +194,42 @@ extension WindowsSelftest {
 
         // (6) idle: nothing wakes the main thread once the menu is closed
         _ = await waitStable(timeout: 30, quiet: 2) { !app.store.isRefreshing }
-        let idleAfter = await IdleSampler.measure(seconds: 10, mainThread: WindowsApp.mainThreadID)
-        if let idleBefore, let idleAfter {
-            r.add("modalPump.idle", idleBefore.mainFound && idleAfter.mainFound && idleAfter.mainContextSwitches <= max(3, idleBefore.mainContextSwitches + 3),
-                  "10 s windows, main_thread_cs before the menu=\(idleBefore.mainContextSwitches) -> after=\(idleAfter.mainContextSwitches) "
-                    + "cycles \(idleBefore.mainCycles) -> \(idleAfter.mainCycles) (pass: after <= max(3, before + 3))")
+        let after = await modalIdleWindow(app)
+        if let idleBefore, let after {
+            r.add("modalPump.idle", idleBefore.mainFound && after.found && after.cs <= after.budget,
+                  "10 s windows, main_thread_cs before the menu=\(idleBefore.mainContextSwitches) (not judged: the same window without the menu) -> after=\(after.cs) "
+                    + "budget \(after.budget) = 3 + 5 per known timer wake + 60 per store refresh; \(after.detail); before-window wake timeline [\(idleBefore.wakes)]")
         } else {
             r.add("modalPump.idle", false, "measurement failed")
         }
+    }
+
+    /// One 10 s window with the menu closed. What wakes the main thread there: the 30 s safety flush of the settings
+    /// (`WinDefaultsSync`, lands in a 10 s window one time in three; 1 cs in nine runs, 5 cs in the run that used to fail, since its
+    /// plist sync waits on the disk), the 2 s debounce flush after a settings write, the day timer, and a store refresh (about 45 cs,
+    /// every 120 s). Each is counted from its own counter and budgeted like `idle.window` does; the old limit (before + 3) ignored them.
+    @MainActor static func modalIdleWindow(_ app: WindowsAppDelegate, seconds: Double = 10, settle: Bool = true) async -> (found: Bool, cs: Int, budget: Int, detail: String)? {
+        if settle { _ = await waitStable(timeout: 30, quiet: 2) { !app.store.isRefreshing } }
+        let w0 = knownWakes(app)
+        guard let t = await IdleTimeline.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else { return nil }
+        let w1 = knownWakes(app)
+        let explained = (w1.safety - w0.safety) + (w1.debounce - w0.debounce) + (w1.day - w0.day)
+        let budget = 3 + 5 * explained + 60 * (w1.refreshes - w0.refreshes)
+        return (t.mainFound, t.mainContextSwitches, budget,
+                "cycles \(t.mainCycles); known wakes \(w1.minus(w0)); wake timeline [\(t.wakes)]; debounce pending at the start: \(w0.pending)")
+    }
+
+    struct KnownWakes {
+        var safety = 0, debounce = 0, day = 0, refreshes = 0, iterations = 0, pending = false
+        func minus(_ o: KnownWakes) -> String {
+            "{safety:\(safety - o.safety) debounce:\(debounce - o.debounce) day:\(day - o.day) refresh:\(refreshes - o.refreshes) loop_iterations:\(iterations - o.iterations)}"
+        }
+    }
+
+    @MainActor static func knownWakes(_ app: WindowsAppDelegate) -> KnownWakes {
+        KnownWakes(safety: WinDefaultsSync.safetyFires, debounce: WinDefaultsSync.debounceFires,
+                   day: (Platform.current.events as? WindowsSystemEvents)?.dayTimerFires ?? 0, refreshes: app.refreshCount,
+                   iterations: WinMainLoop.iterations, pending: WinDefaultsSync.isSyncPending)
     }
 
     private final class KeyCounts: @unchecked Sendable {
