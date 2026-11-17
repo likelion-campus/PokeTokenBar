@@ -554,6 +554,9 @@ def cmd_collect(args, ctx):
         if dest.exists():
             shutil.rmtree(dest)
         dest.mkdir(parents=True)
+        # By name is the current attempt's artifact: both workflows upload windows-release / windows-tests with overwrite: true, so a
+        # re-run replaces the earlier attempt's artifact instead of leaving two (gh would take the older one). The manifest's runAttempt,
+        # runId and installer hash are checked against this run below.
         download = ("run", "download", str(ids[wf.file]), "--name", wf.artifact, "--dir", str(dest))
         result = ctx.gh.run(*download)
         if result.code != 0:
