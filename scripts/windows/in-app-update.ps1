@@ -141,8 +141,14 @@ function Start-Feed([string]$Tag, [string]$Mode, [string]$Payload, [string]$Feed
     $p = Start-Process pwsh -ArgumentList '-NoProfile', '-File', (Join-Path $PSScriptRoot 'update-feed-server.ps1'), '-Payload', $Payload,
         '-Version', $FeedVersion, '-Mode', $Mode, '-PortFile', $portFile, '-LogFile', $requests -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $LogDir "$Tag-feed.txt")
-    if (-not (Wait-Until { Test-Path $portFile } 30)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'the feed server did not start in 30 s' }
-    [pscustomobject]@{ Process = $p; Port = [int](Get-Content $portFile -Raw); Requests = $requests; Version = $FeedVersion }
+    if (-not (Wait-Until { (Read-Port $portFile) -gt 0 } 30)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; throw 'the feed server did not start in 30 s' }
+    [pscustomobject]@{ Process = $p; Port = (Read-Port $portFile); Requests = $requests; Version = $FeedVersion }
+}
+# The feed's port, or nothing until the file holds one. Set-Content creates the file before it writes the number: a wait on
+# the file alone read it empty, [int] made that 0, and the app asked http://127.0.0.1:0 (run 43967277783, failCopy.secondUpdate).
+function Read-Port([string]$PortFile) {
+    $text = Get-Content $PortFile -Raw -ErrorAction SilentlyContinue
+    if ($text) { $text.Trim() -as [int] } else { $null }
 }
 function Stop-Feed($Feed) { if ($Feed) { Stop-Process -Id $Feed.Process.Id -Force -ErrorAction SilentlyContinue } }
 function Get-Requests($Feed) {
@@ -188,6 +194,11 @@ function Assert-Refused([string]$Tag, $App, $Feed, [long]$Mark, [string]$Reason,
     Assert-That $ok "$Tag.releasePage" "expected '$Page': would open $opens, kept closed $closed"
     Close-App $p $h
 }
+
+# The feed's handoff in the state that broke it: the port file there and still empty is not a port (the old read made it 0).
+$emptyPort = Join-Path $LogDir 'empty-port.txt'
+Set-Content -Path $emptyPort -Value '' -NoNewline
+Assert-That ($null -eq (Read-Port $emptyPort)) 'harness.emptyPortFileWaits' "an empty port file: Read-Port='$(Read-Port $emptyPort)' (keeps waiting); the old [int] read gave $([int](Get-Content $emptyPort -Raw))"
 
 Invoke-Scenario 'ok' {
     Install-Baseline 'ok'
