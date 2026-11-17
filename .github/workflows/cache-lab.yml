@@ -3,12 +3,14 @@ name: cache-lab
 # (a new workflow file cannot be dispatched before it is on the default branch). See cache-lab-flavor.yml.
 on:
   push:
-    branches: [ci/windows-build-cache]
+    branches: [ci/windows-build-cache, ci/windows-yml-seed]
     paths:
       - '.github/workflows/cache-lab*.yml'
       - 'scripts/windows/cache-lab*'
       - 'scripts/windows/restore-mtimes.ps1'
       - 'scripts/windows/build-seed.ps1'
+      - 'scripts/windows/stamp-changed.ps1'
+      - 'scripts/windows/swift-build-args.ps1'
 permissions:
   contents: read
 jobs:

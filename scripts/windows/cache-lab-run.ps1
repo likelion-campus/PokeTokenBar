@@ -9,7 +9,11 @@ $script:rows = @()
 $script:failed = 0
 $script:lastOut = ''
 
-function Stamp { & ./scripts/windows/restore-mtimes.ps1 | Out-Null }
+# The stamping of a CI build that restored a seed: blob stamps for every file, then "now" for what differs from the seed's commit.
+$script:Base = (git log --format=%H --grep='cache lab: probe markers' -n 1)
+function StampBlobOnly { & ./scripts/windows/restore-mtimes.ps1 | Out-Null }
+function Stamp { StampBlobOnly; & ./scripts/windows/stamp-changed.ps1 -Base $script:Base | Out-Null }
+function ListTests { @(& swift test --skip-build @(./scripts/windows/swift-build-args.ps1) list 2>&1) }
 function Commit([string]$msg) { git add -A; git -c user.name=lab -c user.email=lab@example.invalid commit -q --allow-empty -m $msg }
 function Edit([string]$path, [string]$old, [string]$new) {
     $t = Get-Content -Raw -Path $path
@@ -79,6 +83,53 @@ Report 'interface change reverted' $b ($b.Ok -and (Has 'shiny-charmQ')) 'builds 
 Edit 'Sources/CPlazaD2D/clipboard.cpp' 'clipboard format not present' 'clipboard format not presentQ'
 Commit cpp; Stamp; $b = Build
 Report 'C++ file (CPlazaD2D)' $b ($b.Ok -and (Has 'clipboard format not presentQ')) 'new string in the exe'
+
+# 4b C headers (debug only): swift-driver judges a header by "newer than the last build", the 2000-2008 blob stamps say "old"
+if ($Flavor -eq 'debug') {
+    $hdr = 'Sources/CPlazaD2D/include/CPlazaD2D.h'; $cpp = 'Sources/CPlazaD2D/probe.cpp'
+    $h0 = Get-Content -Raw -Path $hdr; $c0 = Get-Content -Raw -Path $cpp
+    Set-Content -NoNewline -Path $hdr -Value $h0.Replace('int32_t wic; ', 'int32_t wicX;')
+    Set-Content -NoNewline -Path $cpp -Value ([regex]::Replace($c0, 'out->wic\b', 'out->wicX'))
+    Commit header-field
+    StampBlobOnly; $b = Build
+    Report 'C header field renamed, blob stamps only (control)' $b $true "informational: ok=$($b.Ok); true means the Swift reader of the field was NOT recompiled (the hazard)"
+    Stamp; $b = Build
+    $errFiles = @([regex]::Matches($b.Out, '(?m)([^\s]+\.swift):\d+:\d+: error') | ForEach-Object { Split-Path $_.Groups[1].Value -Leaf } | Sort-Object -Unique)
+    Report 'C header field renamed, changed files touched' $b ((-not $b.Ok) -and ($errFiles -contains 'WinPlazaGraphics.swift')) "must FAIL in the Swift reader; errors in: $($errFiles -join ', ')"
+    Set-Content -NoNewline -Path $hdr -Value $h0; Set-Content -NoNewline -Path $cpp -Value $c0
+    Commit header-field-back; Stamp; $b = Build
+    Report 'C header field renamed back' $b $b.Ok 'builds again'
+
+    # a header-only change Swift does not use
+    Set-Content -NoNewline -Path $hdr -Value ($h0 + "`ntypedef int ptb_lab_unused_t;`n")
+    Commit header-unused; Stamp; $b = Build
+    Report 'C header, unused addition' $b $b.Ok 'builds (the Swift files that import it are recompiled and pass)'
+    Set-Content -NoNewline -Path $hdr -Value $h0; Commit header-unused-back; Stamp
+
+    # a new public header and its Swift user; then the header removed under the user
+    Set-Content -Path 'Sources/CPlazaD2D/include/CPlazaD2DLab.h' -Value 'static inline int ptb_lab_header_value(void) { return 7; }'
+    Set-Content -Path 'Sources/PokeTokenBar/ZHeaderUser.swift' -Value @('#if os(Windows)', 'import CPlazaD2D', 'let ptbLabHeaderValue: Int32 = Int32(ptb_lab_header_value())', '#endif')
+    Commit header-new; Stamp; $b = Build
+    Report 'new public header and a Swift user' $b $b.Ok 'builds (module map and Swift user see the new header)'
+    Remove-Item 'Sources/CPlazaD2D/include/CPlazaD2DLab.h'
+    Commit header-gone; Stamp; $b = Build
+    $errFiles = @([regex]::Matches($b.Out, '(?m)([^\s]+\.swift):\d+:\d+: error') | ForEach-Object { Split-Path $_.Groups[1].Value -Leaf } | Sort-Object -Unique)
+    Report 'public header removed under its Swift user' $b ((-not $b.Ok) -and ($errFiles -contains 'ZHeaderUser.swift')) "must FAIL in the Swift user; errors in: $($errFiles -join ', ')"
+    Remove-Item 'Sources/PokeTokenBar/ZHeaderUser.swift'
+    Commit header-user-gone; Stamp; $b = Build
+    Report 'user removed too' $b $b.Ok 'builds again'
+
+    # the mac-only list is read while Package.swift is evaluated: a changed list must change what is compiled, listed and run
+    $mo = 'Tests/PokeTokenBarTests/mac-only.txt'; $m0 = Get-Content -Raw -Path $mo
+    Set-Content -NoNewline -Path $mo -Value ($m0.TrimEnd() + "`nShinyCharmTests.swift`n")
+    Commit macOnly; Stamp; $b = Build
+    $with = @(ListTests | Where-Object { $_ -match 'ShinyCharmTests/' }).Count
+    Report 'mac-only.txt: a test file parked' $b ($b.Ok -and $with -eq 0) "ShinyCharmTests tests listed: $with (must be 0)"
+    Set-Content -NoNewline -Path $mo -Value $m0
+    Commit macOnly-back; Stamp; $b = Build
+    $with = @(ListTests | Where-Object { $_ -match 'ShinyCharmTests/' }).Count
+    Report 'mac-only.txt: back' $b ($b.Ok -and $with -gt 0) "ShinyCharmTests tests listed: $with (must be above 0)"
+}
 
 # 5 resource compiled into the exe (release only: the .res is a plain -Xlinker input llbuild does not track)
 if ($Flavor -eq 'release') {

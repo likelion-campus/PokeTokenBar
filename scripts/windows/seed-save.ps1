@@ -10,6 +10,7 @@ $meta = if ($Clean -eq 'true' -or -not (Test-Path seed-prev-meta.json)) { @{ cle
 $meta.sha = (git rev-parse HEAD)
 $meta.swift = ((swift --version 2>&1 | Select-Object -First 1) -as [string]).Trim()
 $meta.image = [string]$env:ImageVersion
+$meta.packageSwift = (git rev-parse HEAD:Package.swift)   # Package.resolved is only reused while Package.swift is this blob
 $meta.builtAt = $now
 $meta | ConvertTo-Json | Set-Content seed-out/seed-meta.json -Encoding utf8
 ./scripts/windows/build-seed.ps1 -Pack seed-out/seed.tar.zst

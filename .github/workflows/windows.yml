@@ -40,7 +40,7 @@ jobs:
     # release's included) for GitHub's default 6 hours; a slow runner took 31 min to build and was cancelled at 60 min (run 43744353898).
     timeout-minutes: 60
     outputs:
-      clean: ${{ steps.seed.outputs.clean }}
+      clean: ${{ steps.seed.outputs.clean || 'true' }}   # true when the Seed step was skipped (release mode, kit/*, clean_build)
       seed_id: ${{ steps.up.outputs.artifact-id }}   # the .build of this run: next runs' seed, and what test/render unpack
     steps:
       - uses: actions/checkout@v5
@@ -79,13 +79,14 @@ jobs:
       - uses: ./.github/actions/windows-swift
         if: steps.swift1.outcome != 'success'
         timeout-minutes: 12   # the one retry
-      - name: Seed (the .build of the last windows-port run; none in release mode or with clean_build)
+      - name: Seed (the .build of an earlier run; not in release mode, on kit/* branches or with clean_build)
         id: seed
+        if: inputs.release_sha == '' && !inputs.clean_build && !startsWith(github.ref, 'refs/heads/kit/') && !startsWith(github.head_ref, 'kit/')
         timeout-minutes: 15
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/windows/seed-restore.ps1 -Workflow windows.yml -Artifact ptb-seed-debug ${{ (inputs.release_sha != '' || inputs.clean_build || startsWith(github.ref, 'refs/heads/kit/')) && '-Clean' || '' }} ${{ github.ref == 'refs/heads/windows-port' && '-IsPort' || '' }} -Branch '${{ inputs.seed_trunk || 'windows-port' }}'
+        run: ./scripts/windows/seed-restore.ps1 -Workflow windows.yml -Artifact ptb-seed-debug -Branch '${{ inputs.seed_trunk || 'windows-port' }}'
       - name: Build (compiles every target and the tests; compile errors stop the run here)
         timeout-minutes: 45
         shell: bash
@@ -102,15 +103,17 @@ jobs:
       - name: Pack .build as the seed
         timeout-minutes: 10
         shell: pwsh
-        run: ./scripts/windows/seed-save.ps1 -Clean '${{ steps.seed.outputs.clean }}'
+        run: ./scripts/windows/seed-save.ps1 -Clean '${{ steps.seed.outputs.clean || 'true' }}'
       - uses: actions/upload-artifact@v4
         id: up
         with:
-          name: ptb-seed-debug
+          # A pull_request run uploads the build only to hand it to its own shards (1 day, another name: the seed search never reads it
+          # and is restricted to push/dispatch runs anyway); only push and dispatch runs leave a seed for later runs.
+          name: ${{ github.event_name == 'pull_request' && 'ptb-handoff-debug' || 'ptb-seed-debug' }}
           overwrite: true
           path: seed-out
           compression-level: 0   # the tar is zstd already
-          retention-days: 3
+          retention-days: ${{ github.event_name == 'pull_request' && 1 || 3 }}
       - uses: actions/upload-artifact@v4
         with:
           name: ptb-test-shards
@@ -180,22 +183,27 @@ jobs:
           # folder without creating it (it relied on another class having run before it), so a shard creates them up front.
           mkdir -p plaza-preview photo-out canvas-out
           expected=$(tr -d '\r\n' < shards/shard-${{ matrix.shard }}.count)
-          executed=0; skipped=0; failures=0; : > test.log
+          executed=0; skipped=0; failures=0; bad_exit=0; : > test.log
           echo "shard ${{ matrix.shard }}: $(ls shards/shard-${{ matrix.shard }}.*.filters | wc -l) chunks, $expected tests expected"
           # One swift test per chunk (a command line over ~32,000 characters fails on Windows, see scripts/windows/test-shards.ps1).
+          set +e   # the shell runs with -e -o pipefail: a failing swift test must reach the exit-status bookkeeping below
           for chunk in shards/shard-${{ matrix.shard }}.*.filters; do
             args=(); while IFS= read -r f; do f=${f%$'\r'}; [ -n "$f" ] && args+=(--filter "$f"); done < "$chunk"
-            swift test --skip-build "${extra[@]}" "${args[@]}" 2>&1 | tee -a test.log | tee chunk.log || true
+            swift test --skip-build "${extra[@]}" "${args[@]}" 2>&1 | tee -a test.log | tee chunk.log; rc=${PIPESTATUS[0]}
+            [ "$rc" -ne 0 ] && { echo "::warning::swift test exited with $rc for $chunk"; bad_exit=$((bad_exit + 1)); }
             line=$(grep -aE "Executed [0-9]+ tests?, with " chunk.log | tail -1)
             re='Executed ([0-9]+) tests?, with (([0-9]+) tests? skipped and )?([0-9]+) failures? \(([0-9]+) unexpected\)'
             [[ "$line" =~ $re ]] || { echo "::error::no XCTest summary line for $chunk"; exit 1; }
             executed=$((executed + BASH_REMATCH[1])); skipped=$((skipped + ${BASH_REMATCH[3]:-0})); failures=$((failures + BASH_REMATCH[4]))
           done
+          set -e
           echo "summary: executed $executed, skipped $skipped, failures $failures"
           mkdir -p shard-result
           printf '{ "shard": %d, "executed": %d, "skipped": %d, "failures": %d, "expected": %d }\n' ${{ matrix.shard }} "$executed" "$skipped" "$failures" "$expected" > shard-result/result.json
           cat shard-result/result.json
           if [ "$failures" -ne 0 ]; then echo "::error::shard ${{ matrix.shard }}: $failures failures"; exit 1; fi
+          # xctest can print a clean summary and still die on exit, or SwiftPM can report a signal: a non-zero exit of any chunk fails the shard.
+          if [ "$bad_exit" -ne 0 ]; then echo "::error::shard ${{ matrix.shard }}: swift test exited non-zero in $bad_exit chunk(s)"; exit 1; fi
           if [ "$executed" -ne "$expected" ]; then echo "::error::shard ${{ matrix.shard }} executed $executed tests, its filters list $expected"; exit 1; fi
           # Outside the installed app the WinHTTP seam refuses real hosts (WinHTTPFetch.refuseRealNetworkOutsideTheApp), naming each
           # once on stderr: a test that needs such an answer fails on its own; the rest are fetches nobody waits for. Listed here.

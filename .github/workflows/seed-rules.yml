@@ -1,0 +1,22 @@
+name: seed-rules
+# The trust rules of the build seed (scripts/windows/seed-rules.ps1) against fake data: which runs, which archive members, which metadata.
+on:
+  push:
+    paths:
+      - 'scripts/windows/seed-*'
+      - '.github/workflows/seed-rules.yml'
+  pull_request:
+    paths:
+      - 'scripts/windows/seed-*'
+      - '.github/workflows/seed-rules.yml'
+permissions:
+  contents: read
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Seed rules
+        shell: pwsh
+        run: ./scripts/windows/seed-rules.tests.ps1

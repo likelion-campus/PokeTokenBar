@@ -1,60 +1,74 @@
-# Restores the SwiftPM .build folder of the latest completed run (a failed test does not spoil the build: the seed is uploaded only after the build step succeeded) (a "seed") so a build is incremental, and stamps
-# every tracked file's mtime from its content (restore-mtimes.ps1). Why an artifact and not actions/cache: a cache entry is only
-# visible to its own branch and the default branch (main), and agents run CI on their own branches; a run's artifacts can be
-# downloaded from any run of the repository. Prints and writes to GITHUB_OUTPUT: clean (true/false), reason, seed_run.
+# Restores the SwiftPM .build folder of an earlier run (a "seed") so a build is incremental, and stamps the modification times
+# (restore-mtimes.ps1, stamp-changed.ps1). Why an artifact and not actions/cache: a cache entry is only visible to its own branch and
+# the default branch (main), and agents run CI on their own branches; a run's artifacts can be downloaded from any run of the
+# repository. Prints and writes to GITHUB_OUTPUT: clean (true/false), reason, seed_run.
 #
-# The build is CLEAN (no seed) when: -Clean is set (release mode, kit builds, the clean_build input), the chain of incremental
-# builds behind the seed is -MaxChain long or older than -MaxAgeHours (windows-port only: it re-builds from scratch about every
-# 8 runs / day and uploads that as the next seed, so a cache-masked breakage cannot live longer than that), or no seed exists.
-# Usage: seed-restore.ps1 -Workflow windows.yml -Artifact ptb-seed-debug [-Clean] [-IsPort] [-MaxChain 8] [-MaxAgeHours 24]
-# Needs env GH_TOKEN (actions: read), GITHUB_REPOSITORY.
+# WHO may produce a seed (seed-rules.ps1, tested by seed-rules.yml): completed runs of THIS repository started by a push or a dispatch
+# of the same branch, else of the trunk (-Branch, windows-port). A pull_request run (a fork's or not) is never a candidate, and a
+# pull_request run consumes only its BASE branch's seed. WHAT the archive may hold: only .build and Package.resolved, links inside the
+# workspace. WHAT the metadata may claim: validated, never trusted (chain length, dates, sha, toolchain).
+# The build is clean (no seed) when: no usable seed exists; the chain of incremental builds behind it is -MaxChain long or its last clean
+# build -MaxAgeHours old (for every consumer: PRs and dispatches too; a failed scheduled clean build cannot keep an old seed in use);
+# another Swift version or runner image; anything about the seed is invalid, hangs, or cannot be unpacked or compared with its commit.
+# Callers that must never use a seed (release mode, kit/* branches, clean_build) do not call this script at all (a workflow `if:`).
 # Package.resolved is git-ignored on purpose (.gitignore) and nothing pins swift-crypto (`from: "3.0.0"`, Windows manifest branch only; the
-# Mac manifest on main has no dependency). It is used only inside the seed: the seed carries the file the clean build resolved.
-param([Parameter(Mandatory)][string]$Workflow, [Parameter(Mandatory)][string]$Artifact, [switch]$Clean, [switch]$IsPort,
-      [int]$MaxChain = 8, [int]$MaxAgeHours = 24, [string]$Branch = 'windows-port')
+# Mac manifest on main has no dependency). It is used only inside the seed, and only while Package.swift is the file the seed was built with.
+# Usage: seed-restore.ps1 -Workflow windows.yml -Artifact ptb-seed-debug [-Branch windows-port] [-MaxChain 8] [-MaxAgeHours 24]
+# Needs env GH_TOKEN (actions: read), GITHUB_REPOSITORY; reads GITHUB_EVENT_NAME, GITHUB_BASE_REF, GITHUB_REF_NAME, GITHUB_WORKSPACE.
+param([Parameter(Mandatory)][string]$Workflow, [Parameter(Mandatory)][string]$Artifact, [string]$Branch = 'windows-port',
+      [int]$MaxChain = 8, [int]$MaxAgeHours = 24)
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/seed-rules.ps1"
 $repo = $env:GITHUB_REPOSITORY
 function Out-Result([string]$clean, [string]$reason, [string]$run) {
     "seed: clean=$clean reason='$reason' seed_run=$run"
     if ($env:GITHUB_OUTPUT) { "clean=$clean", "reason=$reason", "seed_run=$run" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8 }
 }
+function Go-Clean([string]$reason, [string]$run) {
+    # Whatever a half-used seed left behind goes: a clean build starts from nothing.
+    Remove-Item -Recurse -Force .build, Package.resolved, seed-in, seed-prev-meta.json -ErrorAction SilentlyContinue
+    & ./scripts/windows/restore-mtimes.ps1 | Out-Null
+    Out-Result 'true' $reason $run
+}
 & ./scripts/windows/restore-mtimes.ps1
-if ($Clean) { Out-Result 'true' 'clean build requested (release mode, kit build or clean_build)' ''; return }
+
+# A pull request restores its BASE branch's seed only; everything else its own branch's, then the trunk's.
+$branches = if ($env:GITHUB_EVENT_NAME -eq 'pull_request') { @($env:GITHUB_BASE_REF, $Branch) | Where-Object { $_ } | Select-Object -First 1 }
+            else { @($env:GITHUB_REF_NAME, $Branch) | Where-Object { $_ } | Select-Object -Unique }
 $seed = $null
-# The newest seed of this branch's own earlier runs, else of windows-port (a new branch starts from the trunk's).
-foreach ($b in @($env:GITHUB_REF_NAME, $Branch) | Where-Object { $_ } | Select-Object -Unique) {
-    # Only runs of THIS repository started by a push or a dispatch (someone with write access): a pull request from a fork can carry a
-    # branch called windows-port, and its run must never become the seed of the trunk.
-    $runs = gh api "repos/$repo/actions/workflows/$Workflow/runs?branch=$b&status=completed&per_page=30" --jq ".workflow_runs[]|select(.head_repository.full_name==`"$repo`" and (.event==`"push`" or .event==`"workflow_dispatch`"))|.id" 
-    foreach ($id in $runs) {
+foreach ($b in $branches) {
+    $json = gh api "repos/$repo/actions/workflows/$Workflow/runs?branch=$b&status=completed&per_page=30"
+    foreach ($id in (Select-SeedRunIds ($json -join "`n") $repo)) {
         $a = gh api "repos/$repo/actions/runs/$id/artifacts?name=$Artifact" --jq '[.artifacts[]|select(.expired==false)][0]|select(.!=null)|.id'
         if ($a) { $seed = $id; break }
     }
     if ($seed) { "seed found on branch $b"; break }
 }
-if (-not $seed) { Out-Result 'true' "no successful $Branch run of $Workflow has a live $Artifact artifact" ''; return }
+if (-not $seed) { Go-Clean "no push or dispatch run of $Workflow on $($branches -join ', ') has a live $Artifact artifact" ''; return }
+
+# Download with a limit of its own: a hung download must not hold the build for the step's 15 minutes.
 New-Item -ItemType Directory -Force -Path seed-in | Out-Null
-gh run download $seed --repo $repo --name $Artifact --dir seed-in
-if ($LASTEXITCODE -ne 0) { Out-Result 'true' "download of $Artifact from run $seed failed" ''; return }
-$meta = Get-Content seed-in/seed-meta.json -Raw | ConvertFrom-Json
-$ageH = ([datetime]::UtcNow - [datetime]::Parse($meta.cleanAt).ToUniversalTime()).TotalHours
-"seed run ${seed}: chain length $($meta.chainLength), last clean build $([math]::Round($ageH, 1)) h ago, built from $($meta.sha)"
-if ($IsPort -and ($meta.chainLength -ge $MaxChain -or $ageH -ge $MaxAgeHours)) {
-    Out-Result 'true' "scheduled clean build on $Branch (chain $($meta.chainLength) of $MaxChain, $([math]::Round($ageH, 1)) h of $MaxAgeHours)" $seed
-    return
-}
+$dl = Start-Process -FilePath gh -ArgumentList @('run', 'download', "$seed", '--repo', $repo, '--name', $Artifact, '--dir', 'seed-in') -NoNewWindow -PassThru
+if (-not $dl.WaitForExit(300000)) { Stop-Process -Id $dl.Id -Force -ErrorAction SilentlyContinue; Go-Clean "the download of $Artifact from run $seed took over 5 minutes" $seed; return }
+if ($dl.ExitCode -ne 0 -or -not (Test-Path seed-in/seed.tar.zst) -or -not (Test-Path seed-in/seed-meta.json)) { Go-Clean "the download of $Artifact from run $seed failed or is incomplete" $seed; return }
+
+$meta = $null
+try { $meta = Get-Content seed-in/seed-meta.json -Raw | ConvertFrom-Json } catch { Go-Clean "seed-meta.json of run $seed is not JSON" $seed; return }
 $swiftNow = ((swift --version 2>&1 | Select-Object -First 1) -as [string]).Trim()
-if ($meta.swift -ne $swiftNow -or $meta.image -ne [string]$env:ImageVersion) {
-    Out-Result 'true' "the seed was built with '$($meta.swift)' on image '$($meta.image)', this run has '$swiftNow' on '$($env:ImageVersion)'" $seed
-    return
-}
-try {
-    ./scripts/windows/build-seed.ps1 -Unpack seed-in/seed.tar.zst
-} catch {
-    # A damaged seed must never fail the build or leave half a .build behind: start from scratch.
-    Remove-Item -Recurse -Force .build, Package.resolved -ErrorAction SilentlyContinue
-    Out-Result 'true' "the seed of run $seed could not be unpacked: $($_.Exception.Message)" $seed
-    return
-}
+$pkgNow = (git rev-parse HEAD:Package.swift)
+$verdict = Test-SeedMeta $meta ([datetime]::UtcNow) $MaxChain $MaxAgeHours $swiftNow ([string]$env:ImageVersion) $pkgNow
+if ($verdict.Clean) { Go-Clean "seed of run ${seed}: $($verdict.Reason)" $seed; return }
+"seed run ${seed}: chain length $($meta.chainLength), last clean build $($meta.cleanAt), built from $($meta.sha)"
+
+$tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+$names = @(& $tar --zstd -tf seed-in/seed.tar.zst); $namesRc = $LASTEXITCODE
+$verbose = @(& $tar --zstd -tvf seed-in/seed.tar.zst); $verboseRc = $LASTEXITCODE
+if ($namesRc -ne 0 -or $verboseRc -ne 0) { Go-Clean "the archive of run $seed cannot be listed" $seed; return }
+$problems = @(Test-SeedArchive $names $verbose $env:GITHUB_WORKSPACE)
+if ($problems.Count -gt 0) { Go-Clean "the archive of run $seed was refused: $($problems | Select-Object -First 3)" $seed; return }
+
+try { ./scripts/windows/build-seed.ps1 -Unpack seed-in/seed.tar.zst } catch { Go-Clean "the seed of run $seed could not be unpacked: $($_.Exception.Message)" $seed; return }
+if (-not $verdict.UseResolved) { Remove-Item Package.resolved -ErrorAction SilentlyContinue; "Package.swift changed since the seed: Package.resolved is not used" }
+try { & ./scripts/windows/stamp-changed.ps1 -Base $meta.sha } catch { Go-Clean "the seed's commit could not be compared with this one: $($_.Exception.Message)" $seed; return }
 Copy-Item seed-in/seed-meta.json seed-prev-meta.json
 Out-Result 'false' "incremental on the seed of run $seed" $seed
