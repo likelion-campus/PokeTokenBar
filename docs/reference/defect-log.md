@@ -2844,3 +2844,49 @@ read_when:
   **고침:** 윈도 라이트에서 3차 0.55(#737373, 4.7:1), 2차 0.68(#525252, 7.6:1). Mac 값·골든은 기준으로 그대로. 플랫폼 선택은 `PopoverPlatform.isWindows` 한 곳이고 값은 순수 함수라 Mac 에서 시험한다.
   **영구 캡처:** `PopoverLabelContrastTests` — WCAG 대비(3차 ≥ 4.5, 2차 ≥ 7), 순서, Mac 값 불변을 고정한다.
   **규칙:** 텍스트 색은 값이 아니라 대비로 검증한다. 다른 플랫폼에서 측정한 불투명도는 그 플랫폼의 글리프 렌더링에서도 읽히는지 따로 확인한다.
+
+<!-- merged-head full run (fix/merged-head-full-run) begin -->
+## 윈도 CI 전체 실행 (머지된 헤드, run 43967277783)
+
+- **`popover.realClick` 이 설치본 셀프테스트 두 시도 모두 실패했다 — 러너의 "조용한 시간"(방해 금지)이 부팅 약 1시간 뒤 꺼지자, 우리가 막 올린 풍선이 화면에 뜨는 상태에서 플라이아웃 안 아이콘을 눌렀다.**
+  **증거:** `tray-desktop.png`(23:02)에는 시계 오른쪽에 방해 금지 종(zZ)이 있고 00:23 의 `update-tray-menu.png` 에는 없다. 종이 빠지면 알림 영역 전체가 24 px 오른쪽으로 간다 —
+  셸 사각형이 첫 시도 안에서 `tray.anchorRect`(85번째 체크, (790,720,822,768))와 `popover.open`(142번째, (814,720,846,768)) 사이에 바뀌었고, 두 번째 시도는 처음부터 (814,…)였다.
+  같은 때부터 풍선이 실제로 머문다: 'already-running' 풍선의 표시→시간 초과가 앞쪽은 같은 초, 두 번째 시도는 7 초. 통과한 전체 실행 둘(43916181737, 43922230973)은 설치본 셀프테스트가
+  작업 시작 43–46 분 뒤에 이 체크를 지나 조용한 시간 안이었고, 실패 런은 57 분·69 분 뒤였다(작업 시작 22:09:37; 종은 23:02 에 있었고 23:05–23:06 사이에 빠졌다). 실패 모양: 플라이아웃 안 아이콘 사각형 (770,663,810,703) 의 중심을 두 번 눌러
+  두 번 다 `NIN_SELECT` 없음, 플라이아웃은 그대로 열려 있음. **원인(재현으로 확인):** 10 초 전 `popover.noSelfOpen`·`popover.refusedForeground` 가 올린 풍선 세 개가
+  7 초씩 줄 선 토스트로 오른쪽 아래(플라이아웃 모서리)를 덮었다 — 두 시도 모두 클릭 시각이 둘째·셋째 토스트 구간에 든다. 그 런에는 스크린샷이 없었고 풍선 이벤트 로그는 프로세스당 20 줄 상한에 닿아 있었다 — 설치본 셀프테스트를 조용한 시간 뒤로 늦춘 진단 런(44003693742)에서 새 기다림이 덮개를 `Windows.UI.Core.CoreWindow 'New notification'`(다른 프로세스)으로 5.6·5.7 초 기록한 뒤 클릭이 통과했다(알림 상태 5).
+  **왜 못 걸렀나:** 체크가 "아이콘 사각형 = 클릭이 닿는 곳"이라 가정하고 그 지점의 창을 보지 않았다. 지금까지의 모든 런이 이 체크를 조용한 시간 안에서 지나(주석: "every run so far: (790,…)"),
+  풍선이 실제 토스트가 되는 상태를 한 번도 밟지 않았다. 위 알림 항목의 "서버 SKU 에는 토스트 UI 가 없다"는 관찰도 첫 1 시간 안(번들 셀프테스트)에서 찍은 캡처였다.
+  **고침:** 플라이아웃 안을 누르기 전에 그 지점의 최상위 창이 셸(explorer) 프로세스 것인지 보고, 아니면 20 초까지 기다리며 무엇이 덮었는지 기록한다(`waitUncovered`). 클릭이 아무것도 못 고르면
+  그 지점의 창 클래스와 전체 화면(`realclick-flyout-<pid>.png`, 로그 폴더 → collected)을 남기고, 셸 알림 상태(`SHQueryUserNotificationState`: 6 조용한 시간, 5 알림 받음)를 결과에 붙인다.
+  **부류 스윕:** 실제 입력(SendInput)으로 화면 오른쪽 아래를 누르는 체크 중 풍선 직후(20 초 안)에 도는 것은 `popover.realClick` 하나다 — 그 사이 체크(menuAfter/menuSettings/secondLaunch/autostartQuiet)는 게시 메시지·키·자식 프로세스다.
+  팝오버 안을 실제로 누르는 홈·설정 체크는 마지막 풍선보다 1 분 넘게 뒤라 토스트 수명(7 초 × 줄) 밖이다.
+  같은 부류의 두 번째 구성원은 런으로 찾았다: 조용한 시간이 끝난 뒤에 설치본 셀프테스트가 오도록 늦춘 진단 런(44003693742, `flake_loop=40`)에서 `popover.realClick` 은
+  "covered by Windows.UI.Core.CoreWindow 'New notification' … for 5.6 s" 뒤 통과했고(알림 상태 5), 대신 `ui.kit.idle` 이 두 시도 모두 메인 cs 12·23(예산 11, 조용한 시간엔 0)으로 실패했다 —
+  `notify.*` 가 25 초 전에 줄 세운 우리 풍선이 7 초씩 떠 있고 쉘의 보고마다 메인 스레드가 깬다. **고침:** `ui.kit.idle` 은 우리 풍선 큐가 빌 때까지(최대 60 초) 기다린 뒤 창을 재고, 기다린 시간·처음 상태·알림 상태를 적는다.
+  **영구 캡처:** `popover.realClickCovered` — 우리 최상위 창(토스트 대역)이 프로브 중심을 1.5 초 덮는 동안 기다렸다가 프로브가 다시 그 지점의 창이 되는지 본다. 결함 주입(기다림 제거, light 43996842694)으로 "waited 0.0 s … still covered" 실패 확인.
+  **규칙:** 실제 입력 체크는 누르기 전에 그 지점의 창이 대상인지 확인한다 — 러너의 화면은 시간에 따라 바뀐다(첫 1 시간의 조용한 시간, 그 뒤의 토스트).
+
+- **`companion.celebrate` 가 이로치 부화로 실패했다(3.10 s > 2.6 s) — "일반 부화" 픽스처가 시스템 난수로 1/64 이로치를 굴렸다.** 3.10 s 는 결함이 아니라 이로치 연출의 설계 길이다
+  (`burstHold` 2.6 + `burstFade` 0.5, 맥과 같음; `CompanionHeaderModelTests` 가 3.11 s 에 버스트가 끝남을 고정). 체크 예산 2.6 s 는 일반 부화(섬광과 팝)의 것이다.
+  **왜 못 걸렀나:** 결과 문구에 "(Bulbasaur, plain)" 을 하드코딩해 고정된 줄 알았다 — 같은 흐름의 표본 상점(`CompanionHeaderSamples.store`)은 `SplitMix(state: 9)` 를 넘기지만 셀프테스트 픽스처
+  (`fixtureCompanion`)는 `rng` 를 안 넘겨 `SystemRandomNumberGenerator` 였다. 셀프테스트 3–4 프로세스 × 1/64 → 런당 약 6 %.
+  **고침:** `CompanionHeaderSamples.PlainRolls`(SplitMix 의 수를 홀수로: 이로치는 roll % 64(부적 48) == 0 이라 몇 번째 수로 부화하든 일반), 체크가 `kind == .hatch(shiny: false)` 를 단언하고 실제 종류를 적는다.
+  **부류 스윕:** 윈도 셀프테스트의 `CompanionStore(` 생성 — 부화·진화를 일으키는 것은 이 파일의 세 체크(celebrate/consumedOnce/liveUpdate)뿐이고 모두 이 픽스처를 쓴다. `HomeStores`·언어 체크는 부화하지 않는다.
+  다른 `SystemRandomNumberGenerator`(Advanced/Team/Settings)는 무작위 코드·키 문자열이라 판정에 들어가지 않는다.
+  **영구 캡처:** `CompanionHeaderModelTests.testThePlainHatchFixtureNeverRollsAShiny` — 10,000 수 중 이로치 0, 셀프테스트와 같은 구성의 부화가 일반. 결함 주입(`| 1` 제거)으로 308 개 이로치 → 실패 확인.
+  **규칙:** 셀프테스트 픽스처가 결과("plain")를 이름에 달면 그 결과를 정하는 난수를 고정하고, 체크가 그 결과를 단언한다.
+
+- **유휴 게이트 `popover-home-still-120s` 가 자정(UTC)을 걸쳐 측정됐다 — 하루 경계의 정상 새로고침이 "가만히" 창에 들어갔다.** 창 23:58:03 + 120 s, 앱 로그 00:00:00 `phase1 done total=0 … refresh done []`
+  (`WindowsSystemEvents` 의 자정 타이머 → `UsageStore` 새로고침, 맥의 `NSCalendarDayChanged` 와 같은 한 번짜리). 새 스레드 14 개(user-initiated 4 개가 각 3.4–4.0 천만 사이클 = 파서), 메인 cs 53.
+  통과 런의 같은 창: 메인 cs 4, 프로세스 113.5–132 /분, 18–20 만 사이클/s, 새 스레드 0. **제품 결함 아님.** **왜 못 걸렀나:** 창의 벽시계 시각은 런 시작 시각에 달렸고 러너는 UTC 라
+  KST 오전 9 시 전후에 도는 런만 자정을 밟는다. **고침(워크플로, `ci/windows-app-split` 쪽):** 창 [시작, 시작+기동+길이+여유] 가 러너의 다음 자정을 품으면 자정+15 s 까지 기다렸다 시작한다.
+  **부류 스윕:** 120 s 창 전부(closed/open/kit/home*/activity*/recap/companion*/sprite)가 같은 노출이고, 300 s normal 창은 새로고침 예산이 있어 견딘다.
+  **규칙:** 유휴 창은 벽시계 경계(자정)를 걸치지 않게 놓는다 — 앱은 자정에 일을 한다.
+
+- **`failCopy.secondUpdate.reasonLogged` 가 빈 내용으로 실패했다 — 피드 서버의 포트 파일을 "있다"만 보고 읽어 포트 0 을 얻었다.** 앱 로그 "the feed is the CI loopback http://127.0.0.1:0/releases/latest",
+  `failCopySecond-requests.log` 0 줄, 포트 파일 내용은 54674. `Set-Content` 는 파일을 만든 뒤 쓴다 — 250 ms 폴링이 그 틈에 빈 파일을 읽었고 `[int]$null` 이 0 이 됐다. 앱은 60 s 동안 아무것도 받지 못했다.
+  통과 런들은 12 개 피드 모두 실제 포트였다. **왜 못 걸렀나:** 틈이 µs–ms 라 거의 늘 통과했고, 실패 줄이 비어 원인이 안 보였다.
+  **고침:** `Read-Port` — 내용이 양의 정수일 때만 포트로 읽는다. **부류 스윕:** `scripts/`·워크플로에서 다른 프로세스가 쓰는 파일을 존재만 보고 읽는 곳은 이 하나(`Wait-Until { Test-Path … }` 1 곳); 다른 `Set-Content` 는 같은 프로세스가 쓰고 읽는다.
+  **영구 캡처:** 스크립트 시작의 `harness.emptyPortFileWaits` — 빈 포트 파일은 기다리고(옛 읽기는 0 을 냈다). **규칙:** 프로세스 사이 파일 전달은 존재가 아니라 내용으로 준비를 판정한다.
+<!-- merged-head full run (fix/merged-head-full-run) end -->

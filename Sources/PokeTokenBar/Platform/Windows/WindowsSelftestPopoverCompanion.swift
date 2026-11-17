@@ -366,7 +366,8 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let url = dir.appendingPathComponent("companion-state.json")
         try? JSONEncoder().encode(state).write(to: url)
-        let store = CompanionStore(provider: CompanionSamplePoke(), fileURL: url, dittoDisguiseRollingEnabled: false, defaults: sharedDefaults)
+        let store = CompanionStore(provider: CompanionSamplePoke(), fileURL: url, rng: CompanionHeaderSamples.PlainRolls(),
+                                   dittoDisguiseRollingEnabled: false, defaults: sharedDefaults)
         return (store, dir)
     }
 
@@ -415,9 +416,11 @@ struct WinFixtureSpriteSource: PlazaSpriteSource {
         let gifFrames = model?.frames.count ?? 0
         let gifRate = gifFrames > 1 ? Double(gifFrames) / (model?.frames.reduce(0) { $0 + $1.delay } ?? 1) : 0
         let quiet = !section.effectClock.isArmed && !section.driver.isCelebrating
-        let ok = kind != nil && store.celebration == nil && frames >= 20 && frames <= 160 && maxRate <= 64 && duration <= 2.6 && quiet && ticksAfter > 0
+        // The 2.6 s budget is the plain hatch's (flash and pop); a shiny one holds its burst to 3.1 s by design.
+        let ok = kind == .hatch(shiny: false) && store.celebration == nil && frames >= 20 && frames <= 160 && maxRate <= 64 && duration <= 2.6 && quiet
+            && ticksAfter > 0
         r.add("companion.celebrate", ok,
-              "fixture hatch (Bulbasaur, plain): celebration \(kind.map { "\($0)" } ?? "none") consumed=\(store.celebration == nil); effect frames \(frames) "
+              "fixture hatch (Bulbasaur, plain dice): celebration \(kind.map { "\($0)" } ?? "none") consumed=\(store.celebration == nil); effect frames \(frames) "
               + "(clock fires \(fires)) over \(String(format: "%.2f", duration)) s (budget 2.6 s), fastest fire-to-fire \(String(format: "%.1f", maxRate)) /s "
               + "(budget 60 with 1 ms of timer jitter = 64: the shortest gap between two fires of the effect clock); afterwards effect clock armed=\(section.effectClock.isArmed), sprite clock ticks in 1 s=\(ticksAfter) "
               + "(the GIF: \(gifFrames) frames, \(String(format: "%.1f", gifRate)) /s)")
