@@ -7,6 +7,9 @@ Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak", (Join-Path $env:LOCALAPPDATA 'PokeTokenBar')
 $v = $env:PTB_VERSION
 $setup = Resolve-Path "installer-out\PokeTokenBar-Setup-$v-win-x64.exe"
+# The hash of the Setup this step runs: it must be the installer the build job hashed, and the stamps carry it to the release manifest.
+$setupHash = (Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($env:PTB_BUILD_SHA256) { Assert-That ($setupHash -eq $env:PTB_BUILD_SHA256) 'install.setupHash' "Setup sha256 $setupHash, build job $env:PTB_BUILD_SHA256" }
 $code = Invoke-Setup $setup @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', '/NOLAUNCH=1', "/LOG=$PWD\install.log")
 Assert-That ($code -eq 0) 'install.exit' "exit $code"
 $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
@@ -31,4 +34,4 @@ $item = Get-Item $exe
 "installed exe: $($item.VersionInfo.FileVersion) $($item.Length) bytes"
 # What the install showed, for the release manifest (the install folder is gone by then).
 [ordered]@{ fileVersion = $item.VersionInfo.FileVersion; versionFile = (Get-Content (Join-Path $PtbInstallDir 'PokeTokenBar.version') -Raw).Trim()
-            uninstallDisplayVersion = $key.GetValue('DisplayVersion') } | ConvertTo-Json | Set-Content install-stamps.json -Encoding utf8NoBOM
+            uninstallDisplayVersion = $key.GetValue('DisplayVersion'); installerSha256 = $setupHash } | ConvertTo-Json | Set-Content install-stamps.json -Encoding utf8NoBOM
