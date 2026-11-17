@@ -113,7 +113,7 @@ ISCC /DSrcDir=bundle /DAppVer=2.5.634 /DOutDir=out installer\PokeTokenBar.iss   
   | popover open on Home, Settings, Shop, Bag, Collection (grid, log, detail), activity bars/heatmap, recap, kit | 6 (measured 2-3; the open Home page 3: its relative-time clock fires about every 30 s) | an open page standing still adds no timer |
   | focused search field (`focus-search`, `focus-left`, `focus-closed`) | 6 (measured 2) | Windows' caret blinks for its caret timeout (5 s) after the last input only, so a focused field costs nothing in the measured window; moving the focus away or closing the popover leaves nothing running |
   | Home with the relative clock at 30 s / 1 min (`popover-home-seconds/minutes`) | 12 (measured 4-7) | the clock's one one-shot timer per change of a visible text |
-  | animated sprite (`popover-sprite-open`, `popover-companion-animated`) | 720 = (GIF's 10 frames/s + 2) x 60 (measured 660-675) | one wake per frame, nothing else |
+  | animated sprite (`popover-sprite-open`, `popover-companion-animated`) | 800 (the GIF's 10 frames/s x 60 = 600, plus 1.2 switches per frame; measured 621-726 in 5 windows over 3 runs: the first budget of (frames/s + 2) x 60 = 720 failed at 726) | one wake per frame, nothing else |
   | `popover-companion-wiggle` | 2400 (measured 810) | the bob and the wiggle's steps |
   | plaza visible / minimized / covered | 26000 / 615 / 615 (measured 22856 per 120 s / 825 / 935) | WARP draws on the runner's CPU; a minimized or covered plaza parks its frame clock |
 

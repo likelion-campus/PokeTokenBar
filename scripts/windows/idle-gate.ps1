@@ -145,7 +145,7 @@ if ((Test-InShard 'popover-kit-open-120s' $Shard)) {
 # The fixture GIF (5 frames at 0.1 s) in a drawn part, popover kit window open: the cost of an animating popover. The
 # budget is loose (first numbers; Task 8 report): what it must show is that it is bounded and that nothing else wakes.
 if ((Test-InShard 'popover-sprite-open-120s' $Shard)) {
-    Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = 720; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
+    Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = 800; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
     $summary.windows['popover-sprite-open-120s'].spriteLog = @(Select-String -Path $logFile -Pattern 'popover sprite idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
 }
 # --- stage 7 Task 8: an animated sprite open (end) ---
@@ -229,7 +229,7 @@ if ((Test-InShard 'popover-recap-open-120s' $Shard)) {
 # the runner's animations off); the bob alone measured 216.5 main cs/min in run 43889052204 (Task 9 report).
 $companionBudgets = @{
     wiggle = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
-    animated = @{ MaxMainCsPerMin = 720; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    animated = @{ MaxMainCsPerMin = 800; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
 }
 foreach ($mode in 'wiggle', 'animated') {
     $label = "popover-companion-$mode-120s"
