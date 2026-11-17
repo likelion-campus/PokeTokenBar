@@ -54,6 +54,10 @@ enum WinEditKind: Equatable, Sendable {
     // --- stage 7 Task 5 (end) ---
     fileprivate(set) var font: HFONT?
 
+    // --- stage 7 parity: a wrapping label with the Mac's `lineLimit(n)` (begin) ---
+    /// Labels: at most this many lines, the last one cut with an ellipsis (`SS_ENDELLIPSIS` on a wrapping static clips at the height).
+    var maxLines: Int?
+    // --- stage 7 parity (end) ---
     var onClick: (() -> Void)?
     var onToggle: ((Bool) -> Void)?
     var onSelect: ((Int) -> Void)?
@@ -183,6 +187,7 @@ enum WinEditKind: Equatable, Sendable {
     func size(width: Int32) -> CGSize {
         guard kind == .label else { return preferredSize }
         let s = ctx.measure(text, font: font, width: max(1, width))
+        if let maxLines { return CGSize(width: CGFloat(s.cx), height: CGFloat(min(s.cy, ctx.lineHeight(font) * Int32(maxLines)))) }
         return CGSize(width: CGFloat(s.cx), height: CGFloat(s.cy))
     }
 
@@ -562,8 +567,8 @@ enum WinClipboardText {
 
     /// Static text: wrapping (`SS_LEFT`) or one line cut with an ellipsis; never `&` prefixes (D5).
     static func label(_ text: String, style: PopoverTextStyle = .body, weight: Int? = nil, role: WinUIColors.Role = .primary,
-                      wraps: Bool = true, in parent: HWND, ctx: WinUIContext) -> WinControl? {
-        let ss: DWORD = (wraps ? 0x0000 /* SS_LEFT */ : 0x000C /* SS_LEFTNOWORDWRAP */ | 0x4000 /* SS_ENDELLIPSIS */) | 0x0080 /* SS_NOPREFIX */
+                      wraps: Bool = true, maxLines: Int? = nil, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+        let ss: DWORD = (wraps ? (maxLines != nil ? 0x4000 /* SS_ENDELLIPSIS: clipped at the line limit */ : 0x0000) /* SS_LEFT */ : 0x000C /* SS_LEFTNOWORDWRAP */ | 0x4000 /* SS_ENDELLIPSIS */) | 0x0080 /* SS_NOPREFIX */
         guard let h = WinKit.create("Static", text, style: child | ss, parent: parent, id: id()) else { return nil }
         let font = ctx.fonts.font(style, weight: weight)
         WinKit.setFont(h, font)
@@ -571,6 +576,7 @@ enum WinClipboardText {
         let c = WinControl(kind: .label, ctx: ctx, parts: [h], size: CGSize(width: CGFloat(s.cx), height: CGFloat(s.cy)),
                            background: ctx.colors.palette.window, font: font)
         c.role = role
+        c.maxLines = wraps ? maxLines : nil
         return c
     }
 
@@ -670,7 +676,7 @@ enum WinClipboardText {
 
     /// A text field of `kind` (D5), `width` DIP wide when given (grown with Windows' text size, as its text grows), else the
     /// row's width.
-    static func edit(_ kind: WinEditKind, text: String = "", width: CGFloat? = nil, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+    static func edit(_ kind: WinEditKind, text: String = "", width: CGFloat? = nil, bordered: Bool = true, in parent: HWND, ctx: WinUIContext) -> WinControl? {  // bordered: stage 7 parity (a field inside a frame of its own)
         var es: DWORD = 0x0080  // ES_AUTOHSCROLL
         var lines = 1
         switch kind {
@@ -680,7 +686,7 @@ enum WinClipboardText {
             lines = max(1, n)
         default: break
         }
-        guard let h = WinKit.create("Edit", text, style: child | tabStop | group | es, exStyle: 0x0200 /* WS_EX_CLIENTEDGE */,
+        guard let h = WinKit.create("Edit", text, style: child | tabStop | group | es, exStyle: bordered ? 0x0200 /* WS_EX_CLIENTEDGE */ : 0,
                                     parent: parent, id: id()) else { return nil }
         let isMulti: Bool = { if case .multiLine = kind { return true }; return false }()
         let font = ctx.fonts.font(isMulti ? .caption : .body)  // the Mac's multi-line fields are `.caption`

@@ -143,7 +143,14 @@ import WinSDK
             }
         }
         last = snap
+        if shortShown != emptyShown {   // the Mac's empty Bag is as short as its content, not 520 pt
+            shortShown = emptyShown
+            host.contentHeightChanged()
+        }
     }
+
+    private var shortShown = false
+    var contentIsShort: Bool { emptyShown }
 
     /// The snapshot as it is now, without arming the observation again (an input changed a card's state).
     private func refresh() {

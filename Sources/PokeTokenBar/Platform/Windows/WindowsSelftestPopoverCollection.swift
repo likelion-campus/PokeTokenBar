@@ -275,6 +275,13 @@ private struct CollectionFixturePoke: PokeProviding {
             defer { h.destroy() }
             let l = L(language)
             if page.emptyRow?.isVisible != true || page.dexRow?.isVisible == true || page.toolbarRow?.isVisible == true { problems.append("\(language): rows wrong") }
+            // the Mac's empty Pokédex is as short as its content: the window is shorter than with a dex (520 pt scroller)
+            if !page.contentIsShort { problems.append("\(language): the empty state is not short content") }
+            else if language == .en, let (full, _) = await harness(20, language: .en) {
+                defer { full.destroy() }
+                if h.page.heightDIP + 100 >= full.page.heightDIP { problems.append("the empty state's page is \(h.page.heightDIP) DIP tall, with a dex \(full.page.heightDIP)") }
+                else { notes.append("page height empty \(h.page.heightDIP) DIP, with a dex \(full.page.heightDIP) DIP") }
+            }
             let slots = page.emptyView?.spriteSlots ?? []
             if slots.count != 1 || slots[0].subject?.speciesID != 25 || slots[0].animated != true { problems.append("\(language): Pikachu slot \(slots)") }
             let texts = (page.emptyView?.drawing?.drawing.accessibility ?? []).map(\.label)
