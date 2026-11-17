@@ -40,6 +40,26 @@ import WinSDK
     var modelOverride: ((Date) -> HomeModel)?
     /// The window's height (D2): the Mac's pinned top, the fixed 520 pt scroller, the pinned footer (`updatePinnedHeight`).
     private(set) var heightDIP: CGFloat = 640
+    // MARK: Task 19 — the tabs: this page is the Mac's `mainContent` frame, built for one `state.tab`
+    /// The tab this page was built for (`state.tab` at `attach`); a different `state.tab` makes the popover build the page for it.
+    private(set) var builtTab: PopoverState.Tab = .home
+    /// The strip's radio group, the content of a tab other than Home, and what a switch has asked for.
+    var tabStrip: WinControl?
+    var tabContent: WinTabContent?
+    var tabSwitchPending = false
+    /// The keyboard goes back to the strip when the page is built (a tab was just picked).
+    private var focusStripOnBuild = false
+    /// A window without a popover (a test) hears of a tab pick here instead of the popover building the page.
+    var tabChanged: ((PopoverState.Tab) -> Void)?
+    var configureTabContent: ((WinTabContent) -> Void)?
+    private var tabsModel: PopoverTabsModel?
+    var tabPopover: WinPopover? { popover }
+    /// The pinned top pane's inner width in pixels (the strip fills the line).
+    var topInnerWidth: Int32 {
+        let width = lastClient.right > lastClient.left ? lastClient.right - lastClient.left : (topStack?.width ?? stack?.width ?? 0)
+        return width - 2 * ctx.px(PopoverWindowMetrics.padding)
+    }
+    // MARK: end Task 19
     // MARK: Task 13 — the recap button's action (the Mac's `nav.showingRecap = true`)
     /// Swaps the recap page in (set by the app's page; a kit window has no popover to swap).
     var openRecap: (() -> Void)?
@@ -141,6 +161,7 @@ import WinSDK
                       }
                   })
         self.popover = popover
+        focusStripOnBuild = WinTabFocus.take()  // Task 19
         // MARK: Task 13 — the recap button
         openRecap = { [weak popover] in
             state.showingRecap = true
@@ -175,6 +196,9 @@ import WinSDK
         clock.onTick = { [weak self] in self?.tick() }
         stack = page
         ctx = page.ctx
+        builtTab = state.tab  // Task 19
+        tabSwitchPending = false
+        let isHome = builtTab == .home
         // The Mac's `mainContent`: the update offer and the plaza button above the scroller, the footer below it; Settings' header
         // and footer panes are the model. Without a scroll area to put them around, everything is one stack.
         var top = page, bottom = page
@@ -198,8 +222,10 @@ import WinSDK
         }
         let banner = top.addSection(nil, card: false), plaza = top.addSection(nil, card: false)
         // --- stage 7 Task 9: the companion header, first in Home's content as on the Mac (begin) ---
-        companionSection = WinCompanionSection(companion: companion, section: page.addSection(nil, card: false), page: self)
-        if let made = companionSection { configureCompanion?(made) }
+        if isHome {  // Task 19: the other tabs have their own content below
+            companionSection = WinCompanionSection(companion: companion, section: page.addSection(nil, card: false), page: self)
+            if let made = companionSection { configureCompanion?(made) }
+        }
         // --- stage 7 Task 9 (end) ---
         let ruleCompanion = page.addRule()
         let header = page.addSection(nil, card: false), activity = page.addSection(nil, card: false), tabs = page.addSection(nil, card: false)
@@ -217,9 +243,12 @@ import WinSDK
         sections = Sections(banner: banner, plaza: plaza, header: header, activity: activity, tabs: tabs, provider: provider, status: status,
                             limits: limits, footer: bottom.addSection(nil, card: false), ruleCompanion: ruleCompanion, ruleTotals: ruleTotals,
                             ruleLimits: ruleLimits)
+        if !isHome {  // Task 19: Home's regions stay empty and hidden on the other tabs
+            for card in [header, activity, tabs, provider, status, limits, ruleCompanion, ruleTotals, ruleLimits] { card.isVisible = false }
+        }
         observe()  // makes the header, whose period line holds the streak's view (Task 12)
         // --- stage 7 Task 12: the activity panel and the streak (begin) ---
-        if let sections {
+        if isHome, let sections {
             let panel = WinActivitySection(stack: page, section: sections.activity, store: store, companion: companion, facts: facts, streak: streakSlot)
             panel.now = now
             activityPanel = panel
@@ -227,6 +256,7 @@ import WinSDK
         }
         // --- stage 7 Task 12 (end) ---
         companionSection?.start()  // stage 7 Task 9
+        startTabContent(stack: page)  // Task 19
         page.layout()
         if area != nil, lastClient.right > lastClient.left { layout(client: lastClient) }
     }
@@ -306,7 +336,11 @@ import WinSDK
         pinnedHeights = (0, 0)
     }
 
-    var initialFocus: HWND? { nil }
+    var initialFocus: HWND? {
+        guard focusStripOnBuild else { return nil }  // Task 19: after a tab pick the keyboard is on the strip again
+        focusStripOnBuild = false
+        return tabStripFocus
+    }
 
     func escape() -> Bool { false }
 
@@ -316,6 +350,10 @@ import WinSDK
         epoch += 1
         clock.onTick = nil
         clock.stop()
+        tabContent?.destroy()  // Task 19
+        tabContent = nil
+        tabStrip = nil
+        tabsModel = nil
         companionSection?.destroy()  // stage 7 Task 9: its clocks and loads stop before the rows go
         companionSection = nil
         activityPanel?.destroy()  // stage 7 Task 12
@@ -367,19 +405,25 @@ import WinSDK
         let was = last
         let first = was == nil
         if first || was?.updateBanner != m.updateBanner { renderBanner(m.updateBanner, s.banner) }
-        if first || was?.plazaButton != m.plazaButton { renderPlaza(m.plazaButton, s.plaza) }
-        updateHeader(m, s.header, first: first, was: was)
-        if first || was?.providerTabs != m.providerTabs || was?.selectedProviderID != m.selectedProviderID {
-            renderTabs(m.providerTabs, selected: m.selectedProviderID, s.tabs, name: "tabs") { .selectProvider($0) }
+        // Task 19: the tab strip shares the line with the plaza button
+        let tabs = PopoverTabsModel(tab: builtTab, l: companion.l)
+        if first || was?.plazaButton != m.plazaButton || tabsModel != tabs { renderPlaza(m.plazaButton, tabs, s.plaza) }
+        tabsModel = tabs
+        if builtTab == .home {
+            updateHeader(m, s.header, first: first, was: was)
+            if first || was?.providerTabs != m.providerTabs || was?.selectedProviderID != m.selectedProviderID {
+                renderTabs(m.providerTabs, selected: m.selectedProviderID, s.tabs, name: "tabs") { .selectProvider($0) }
+            }
+            if first || was?.providerRow != m.providerRow { renderProvider(m.providerRow, s.provider) }
+            if first || was?.statusBanner != m.statusBanner { renderStatus(m.statusBanner, s.status) }
+            providerID = m.selectedProviderID
+            if first || !Self.sameLimits(was?.limits, m.limits) { renderLimits(m.limits, s.limits) }
+            s.ruleLimits.isVisible = s.limits.isVisible
         }
-        if first || was?.providerRow != m.providerRow { renderProvider(m.providerRow, s.provider) }
-        if first || was?.statusBanner != m.statusBanner { renderStatus(m.statusBanner, s.status) }
-        providerID = m.selectedProviderID
-        if first || !Self.sameLimits(was?.limits, m.limits) { renderLimits(m.limits, s.limits) }
-        s.ruleLimits.isVisible = s.limits.isVisible
         updateFooter(m.footer, s.footer, first: first, was: was?.footer)
         last = m
         armClock()
+        syncTab()  // Task 19: another page set `state.tab`
     }
 
     /// The limits section is the same unless something but the pace marker's drift changed: the marker moves with the clock
@@ -549,20 +593,13 @@ import WinSDK
         }
     }
 
-    private func renderPlaza(_ p: PlazaButtonModel?, _ section: WinSectionCard) {
+    /// The line under the update offer (Task 19): the tab strip, and the plaza button at its right once the team is ready.
+    private func renderPlaza(_ p: PlazaButtonModel?, _ tabs: PopoverTabsModel, _ section: WinSectionCard) {
         rebuild("plaza", section) {
-            guard let p else { section.isVisible = false; return }
             section.isVisible = true
+            tabStrip = nil
             section.addStyledRow(label: nil, style: .full) { pane, ctx in
-                WinComposite(parent: pane, ctx: ctx) { child in
-                    var trailing: [WinControl] = []
-                    if p.unreadDot, let dot = WinControls.label("●", style: .callout, wraps: false, in: child, ctx: ctx) {
-                        self.paint(dot, .systemRed)
-                        trailing.append(dot)
-                    }
-                    if let button = self.glyph(p.symbol, p.label, in: child, ctx: ctx, action: p.action) { trailing.append(button) }
-                    return ([], trailing)
-                }?.control
+                self.makeTabLine(tabs, plaza: p, in: pane, ctx: ctx)?.control
             }
         }
     }

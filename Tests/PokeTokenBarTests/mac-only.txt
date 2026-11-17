@@ -274,3 +274,5 @@ CompanionHeaderRendersMacTests.swift
 LiveWindowTestSupport.swift
 # NoWindowsOrderedInScanTests+Mac: scans the Mac test sources for window-ordering calls outside the gated helper
 NoWindowsOrderedInScanTests+Mac.swift
+# PopoverShopBagEquivalenceTests+Mac: the Shop and Bag rules against verbatim copies of the Mac cards (stage 7 Task 19)
+PopoverShopBagEquivalenceTests+Mac.swift
