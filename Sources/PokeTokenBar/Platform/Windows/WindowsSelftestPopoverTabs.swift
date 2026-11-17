@@ -53,7 +53,9 @@ extension WindowsSelftest {
                 if language == .en { heights.append(h.page.heightDIP) }
             }
         }
-        if heights.count == 4, Set(heights).count != 1 { problems.append("window height differs between tabs: \(heights)") }
+        // The Mac frames a list at 520 pt and nothing else: an empty Bag or Pokédex (this fixture has neither items nor a dex) is as short as
+        // its content. Home and Shop are the same height; the empty tabs are not taller.
+        if heights.count == 4, heights[0] != heights[1] || heights[2] > heights[0] || heights[3] > heights[0] { problems.append("window heights by tab (Home, Shop, Bag, Collection): \(heights)") }
         notes.append("4 tabs x en/ko: strip titles, selected tab, pinned above the scroller; window heights \(heights)")
 
         // 2. picking a tab (kit window, no popover): `state.tab` changes and the page asks for the other tab; the arrow keys move

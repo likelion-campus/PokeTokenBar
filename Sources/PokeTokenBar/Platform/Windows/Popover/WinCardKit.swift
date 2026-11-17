@@ -7,8 +7,8 @@ import WinSDK
 @MainActor enum WinCardKit {
     /// A one-line (or wrapping) label; `color` is a model colour (the owned mark's green), `role` the page's text roles.
     static func label(_ text: String, _ style: PopoverTextStyle, weight: Int? = nil, role: WinUIColors.Role = .primary,
-                      color: PopoverColorRole? = nil, wraps: Bool = false, in pane: HWND, ctx: WinUIContext) -> WinControl? {
-        guard let c = WinControls.label(text, style: style, weight: weight, role: role, wraps: wraps, in: pane, ctx: ctx) else { return nil }
+                      color: PopoverColorRole? = nil, wraps: Bool = false, maxLines: Int? = nil, in pane: HWND, ctx: WinUIContext) -> WinControl? {
+        guard let c = WinControls.label(text, style: style, weight: weight, role: role, wraps: wraps, maxLines: maxLines, in: pane, ctx: ctx) else { return nil }
         if let color { c.textColor = colorRef(color) }
         return c
     }

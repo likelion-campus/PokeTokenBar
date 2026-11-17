@@ -297,6 +297,10 @@ Homebrew を使わない場合は、[最新リリース](https://github.com/chat
 
 （Homebrew Cask は隔離属性を自動で除去するため、この手順は不要です。）
 
+### Windows（チームフォーク）
+
+チームフォークは Windows 版も配布しています。[フォークのリリースページ](https://github.com/likelion-campus/PokeTokenBar/releases)の `PokeTokenBar-Setup-<バージョン>-win-x64.exe` です（Windows 11、または Windows 10 22H2 ビルド 19045 以上、x64、管理者権限は不要）。インストーラーはコード署名されていないため、SmartScreen が一度警告します。**詳細情報** → **実行** を選んでください。ポップオーバー、使用量リキャップ、ショップ、バッグ、コレクション、チーム広場は使えますが、フローティングペットはまだありません。アップデートはトレイメニューまたはポップオーバーからインストールします。インストール・アップデート・アンインストール、チーム設定、トラブルシューティング、Mac との違いは [TEAM.md](TEAM.md)（韓国語）と [docs/reference/windows-differences.md](docs/reference/windows-differences.md)（英語）にあります。
+
 ### ソースからビルド
 
 ```bash
