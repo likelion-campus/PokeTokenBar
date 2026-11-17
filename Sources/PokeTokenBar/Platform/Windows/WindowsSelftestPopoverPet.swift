@@ -1024,6 +1024,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         var sample: IdleSampler.Sample
         var known: String
         var extra: Int
+        /// What the measured pet did inside the same window (its clock's ticks and its pictures), when one was given.
+        var pet: (ticks: Int, renders: Int)?
         /// Main-thread switches less the app's known wakes, and every thread's switches (the sampler's own included).
         var mainNet: Int { sample.mainContextSwitches - extra }
         var processSwitches: Int { sample.active.reduce(0) { $0 + $1.cs } }
@@ -1070,13 +1072,15 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
     static func idleCheck(_ r: WindowsSelftest.Recorder) async {
         let seconds = 8.0
-        func sample(_ counts: MessageCounts? = nil) async -> IdleWindow? {
+        func sample(_ counts: MessageCounts? = nil, pet: (() -> (ticks: Int, renders: Int))? = nil) async -> IdleWindow? {
             var last: IdleWindow?
             for _ in 0..<2 {
                 _ = await WindowsSelftest.waitStable(timeout: 10, quiet: 2) { !WinDefaultsSync.isSyncPending }
                 let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
                 if counts != nil { WinMessageHook.tapCounts = [:] }
+                let pet0 = pet?()
                 let measured = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
+                let pet1 = pet?()
                 counts?.map = WinMessageHook.tapCounts ?? [:]
                 WinMessageHook.tapCounts = nil
                 guard let s = measured else { return nil }
@@ -1087,7 +1091,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                     known = b.minus(a)
                     refreshed = b.refreshes != a.refreshes
                 }
-                last = IdleWindow(sample: s, known: known, extra: extra)
+                last = IdleWindow(sample: s, known: known, extra: extra,
+                                  pet: pet0.flatMap { a in pet1.map { b in (ticks: b.ticks - a.ticks, renders: b.renders - a.renders) } })
                 if !refreshed { break }
             }
             return last
@@ -1154,9 +1159,11 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         m.pet.sync()
         _ = await m.waitShown()
         let armed = await WindowsSelftest.waitUntil(timeout: 2) { m.window?.playback.clock.isArmed == true }
-        let r1 = m.pet.stats.renders
-        let animated = await sample()
-        let movingRenders = m.pet.stats.renders - r1
+        // The pet's own work counted over the measured 8 s only (run 44185505022 counted renders from before the window's 2 s
+        // settle: 30 for ~12 s at 2.5 a second, the floor honoured).
+        let animated = await sample(pet: { (ticks: m.window?.playback.ticks ?? 0, renders: m.pet.stats.renders) })
+        let armedAfter = m.window?.playback.clock.isArmed == true
+        let movingTicks = animated?.pet?.ticks ?? -1, movingRenders = animated?.pet?.renders ?? -1
         guard let still, let animated, let hidden else {
             r.add("pet.idle", false, "measurement failed (shown=\(shown))")
             return
@@ -1169,8 +1176,15 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         // message and not the pet's clock, so in this process only 'hidden against still' below sees it; the gate's pet-hidden-120s
         // catches it (the injected 1 Hz timer: 67/min against 6, fault run 44083738408).
         let stillOK = shown && !armedStill && !armedAfterStill && stillTicks == 0 && stillRenders == 0 && stillPetMessages == 0
-        // Animated: one wake per frame at the floor plus two a second, and the frames drawn.
-        let animatedOK = armed && Double(animated.mainNet) <= (frameRate + 2) * seconds && movingRenders >= Int(frameRate * seconds * 0.7)
+        // Animated, judged by what the pet does (lead ruling 2026-11-18, as 'still'): the clock armed before and after, its ticks in
+        // the measured window within the floor's count (8 s at 0.4 s: 20; 16-22 for the one-shot timer's lateness and the window's
+        // edges; an unapplied floor ticks at the GIF's 0.05 s: 160), and no picture without a tick (one of slack at an edge). The
+        // switches are reported: this process has background wakes of its own (the bundle selftest of run 44185505022 counted 37
+        // against the old 36 with 20 frames in the window), and the gate's pet-animated-120s judges the budget (161-164/min
+        // against 270 in three runs; its clock fired 300 times in ~125 s).
+        let expectedTicks = frameRate * seconds
+        let tickRange = Int((expectedTicks * 0.8).rounded(.down))...Int(expectedTicks) + 2
+        let animatedOK = armed && armedAfter && tickRange.contains(movingTicks) && movingRenders >= 1 && movingRenders <= movingTicks + 1
         // Hidden against still: no more main-thread wakes (3 of slack), process switches (10) or cycles (4 M = 0.5 M/s) than the
         // still pet's window cost. A source the pet left behind waking once a second adds 8 main-thread switches; one slower than
         // the window (a 10 s timer) is the gate's 120 s window's to catch, and its window or registration is `gone`'s.
@@ -1186,8 +1200,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
               + "\(underCursor), parked at \(park.x),\(park.y) over \(parkedOver). "
               + "still (an egg): shown=\(shown) clock armed=\(armedStill)/\(armedAfterStill), \(stillTicks) ticks, \(stillRenders) renders, \(stillPetMessages) messages for the pet's window "
               + "(judged: all zero)=\(stillOK); reported: \(line(still)) messages [\(stillMessages.top)]; "
-              + "animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps, Windows' \"Show animations\" \(WinSpriteAnimator.systemAnimationsEnabled() ? "on" : "off")): clock armed=\(armed), \(movingRenders) renders, \(line(animated)) "
-              + "(net <= \(Int((frameRate + 2) * seconds)), renders >= \(Int(frameRate * seconds * 0.7)))=\(animatedOK); "
+              + "animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps, Windows' \"Show animations\" \(WinSpriteAnimator.systemAnimationsEnabled() ? "on" : "off")): clock armed=\(armed)/\(armedAfter), "
+              + "in the 8 s: \(movingTicks) ticks (\(tickRange.lowerBound)-\(tickRange.upperBound)), \(movingRenders) renders (<= ticks + 1) (judged)=\(animatedOK); reported: \(line(animated)); "
               + "hidden: nothing left=\(gone) (pet windows \(left), windows \(live0) -> \(liveAfterHide), playback released=\(playback?.released == true)), \(line(hidden)) messages [\(hiddenMessages.top)] "
               + "(against still: net <= \(max(0, still.mainNet) + 3), process cs <= \(still.processSwitches + 10), cycles <= \(still.sample.processCycles + 4_000_000))=\(hiddenOK)")
     }
