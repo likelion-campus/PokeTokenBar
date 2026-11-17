@@ -1,11 +1,11 @@
 # Runs the app's --selftest (a GUI-subsystem exe, so it is waited on, not piped), prints one line per check and
 # fails unless every check passed.
-# Usage: run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json [-ExpectStrategy cfRunLoopWithMessages] [-TimeoutSec 900]
+# Usage: run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json [-ExpectStrategy cfRunLoopWithMessages] [-TimeoutSec 1200]
 param(
     [Parameter(Mandatory)][string]$Exe,
     [Parameter(Mandatory)][string]$Out,
     [string]$ExpectStrategy = "",
-    [int]$TimeoutSec = $(if ([int]$env:PTB_SELFTEST_FLAKE_LOOP -gt 0) { 3000 } else { 900 }),
+    [int]$TimeoutSec = $(if ([int]$env:PTB_SELFTEST_FLAKE_LOOP -gt 0) { 3000 } else { 1200 }),  # 900 -> 1200 (stage 7 Task 22): run 44062168430 hit 900 s with the Shop/Bag and pet groups
     [string]$DumpUi = ""
 )
 $ErrorActionPreference = "Stop"
