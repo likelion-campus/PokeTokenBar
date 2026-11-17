@@ -148,7 +148,6 @@ import WinSDK
         defer { inLayout = false }
         layoutPending = false
         layouts += 1
-        WinOpenTrace.note(.layout, pane.hwnd)
         func input() -> [PopoverStackSection] {
             sections.map { s in
                 PopoverStackSection(caption: s.caption.map { $0.size(width: width) }, isVisible: s.isVisible, card: s.card, rows: s.rows.map { row in
@@ -183,6 +182,7 @@ import WinSDK
         }
         orderWindows()
         let oldHeight = frames?.height
+        WinOpenTrace.note(.layout, pane.hwnd, moved: frames != f)   // the settings-open trace: a pass that moved rows
         frames = f
         if oldHeight != f.height { onHeight?(Int32(f.height)) }
         pane.invalidate()

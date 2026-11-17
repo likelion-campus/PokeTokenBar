@@ -25,8 +25,8 @@ import WinSDK
         /// window made, a paint of a pane or control: not a drawn view's own animation).
         var buildMs = 0.0, settledMs = 0.0
         var builds = 0, layouts = 0, refreshes = 0, windows = 0
-        /// Layout passes while the page was on screen: each one moved controls the user saw (a pass inside a frozen or hidden
-        /// build moves nothing visible).
+        /// Layout passes that moved rows while the page was on screen: the user saw each one (a pass inside a frozen or hidden
+        /// build, or one that put every row where it was, moves nothing visible).
         var layoutsOnScreen = 0
         /// `…InBuild`: those inside a build to a window on screen (a half-built page the user sees). A control erasing itself
         /// while its window is hidden or not drawing draws nothing and is not counted there.
@@ -119,8 +119,9 @@ import WinSDK
         }
     }
 
-    /// Something the page did or had done to it; a paint or an erase names its window (on screen or not).
-    static func note(_ event: Event, _ hwnd: HWND? = nil) {
+    /// Something the page did or had done to it; a paint, an erase or a layout names its window (on screen or not), a layout
+    /// says whether it moved any row.
+    static func note(_ event: Event, _ hwnd: HWND? = nil, moved: Bool = true) {
         guard let c = current else { return }
         let t = now()
         guard t - c.start <= window else {
@@ -132,7 +133,7 @@ import WinSDK
         switch event {
         case .layout:
             c.report.layouts += 1
-            if onScreen { c.report.layoutsOnScreen += 1 }
+            if onScreen, moved { c.report.layoutsOnScreen += 1 }
         case .refresh: c.report.refreshes += 1
         case .window: c.report.windows += 1
         case .paint:
