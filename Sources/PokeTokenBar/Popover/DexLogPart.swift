@@ -44,7 +44,7 @@ import Foundation
         var contentHeight: CGFloat
         var empty: (icon: CGRect, text: CGRect, button: CGRect)?
     }
-    private var laid: Layout?
+    private(set) var laid: Layout?
     private var laidKey = ""
 
     init(_ model: DexLogModel, height: CGFloat, language: AppLanguage, accent: PlazaColor = PopoverColorRole.accent.plazaColor(),

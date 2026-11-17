@@ -276,3 +276,4 @@ LiveWindowTestSupport.swift
 NoWindowsOrderedInScanTests+Mac.swift
 # PopoverShopBagEquivalenceTests+Mac: the Shop and Bag rules against verbatim copies of the Mac cards (stage 7 Task 19)
 PopoverShopBagEquivalenceTests+Mac.swift
+PopoverDexImagesMac.swift
