@@ -390,6 +390,31 @@ final class CompanionHeaderModelTests: XCTestCase {
         XCTAssertNil(s.celebration)
         XCTAssertEqual(secondOpen.plays, 1)
     }
+
+    /// The Windows selftest's plain-hatch fixture (companion.celebrate, whose 2.6 s budget is the plain hatch's) rolls on
+    /// `PlainRolls`: no draw of them is a shiny, with or without the charm, so the hatch is plain however many draws come
+    /// before it. Run 43967277783 hatched on system dice and rolled the 1-in-64 shiny (3.1 s by design).
+    func testThePlainHatchFixtureNeverRollsAShiny() async {
+        var dice = CompanionHeaderSamples.PlainRolls()
+        let shinies = (0..<10_000).map { _ in dice.next() }.filter {
+            CompanionStore.rollsShiny(roll: $0, charmOwned: false) || CompanionStore.rollsShiny(roll: $0, charmOwned: true)
+        }
+        XCTAssertEqual(shinies.count, 0)
+        // The selftest's construction: the sample provider, one token in the egg, base 1.
+        var state = CompanionState()
+        state.eggUsage = 1
+        state.installBaselineSet = true
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-plain-hatch-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("companion-state.json")
+        try? JSONEncoder().encode(state).write(to: url)
+        let store = CompanionStore(provider: CompanionSamplePoke(), fileURL: url, rng: CompanionHeaderSamples.PlainRolls(),
+                                   dittoDisguiseRollingEnabled: false, defaults: TestDefaults.make(suite: "companion.plain-hatch"))
+        await store.hatch(baseID: 1)
+        XCTAssertEqual(store.celebration, .hatch(shiny: false))
+        XCTAssertEqual(store.currentIsShiny, false)
+    }
 }
 
 @MainActor final class RecordingConsumer: CompanionFeedbackConsuming {
