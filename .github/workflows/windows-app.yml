@@ -12,6 +12,9 @@ name: windows-app
 #                    (scripts/windows/idle-gate.ps1 -Shard n); artifacts windows-app-idle-n
 #   result           always: fails when a job above failed (one conclusion for branch tooling); the real-IME check over the selftest
 #                    processes of two jobs; in release mode the release manifest and the artifact windows-release
+# build restores the .build of the last windows-port run (a seed: scripts/windows/seed-restore.ps1) and builds incrementally; release mode,
+# kit/* branches, level full (windows-port and kits) and clean_build=true build from scratch; only level light restores a seed, and the seeds
+# come from the clean builds of windows-port.
 # Jobs after build start together. A selftest and an idle window never share a VM. Every run step has its own time limit (timeout-minutes).
 # Two levels (job env PTB_LEVEL, shown in the job summary):
 #   light - build, bundle selftests (incl. stripped Path, crash, team transports, UI dump), package, installer build,
@@ -83,6 +86,7 @@ on:
         default: ''
 permissions:
   contents: read
+  actions: read   # the seed (.build of the last windows-port run) is an artifact of another run
 concurrency:
   group: ${{ inputs.release_sha != '' && format('windows-app-release-{0}', inputs.release_sha) || format('windows-app-{0}', github.ref) }}
   cancel-in-progress: ${{ inputs.release_sha == '' && github.ref != 'refs/heads/windows-port' }}
@@ -106,6 +110,7 @@ jobs:
       image: ${{ steps.buildid.outputs.image }}
       level: ${{ env.PTB_LEVEL }}
       fast: ${{ env.PTB_FAST }}
+      clean: ${{ steps.seed.outputs.clean || 'true' }}   # true = built from scratch (level full, release mode, kit/* and clean_build always are)
     steps:
       - uses: actions/checkout@v5
         with:
@@ -153,6 +158,12 @@ jobs:
           $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           $lines
       - uses: ./.github/actions/windows-swift
+        id: swift1
+        continue-on-error: true
+        timeout-minutes: 12   # the install takes about 1.4 min, a slow swift.org download 8 min; a hung one held a kit run for 31 min
+      - uses: ./.github/actions/windows-swift
+        if: steps.swift1.outcome != 'success'
+        timeout-minutes: 12   # the one retry
       - name: Resources (version info, icon, manifest)
         timeout-minutes: 10
         id: resources
@@ -160,10 +171,40 @@ jobs:
         run: |
           $res = ./scripts/windows/build-resources.ps1 -Out resources | Select-Object -Last 1
           "PTB_RES=$($res -replace '\\', '/')" >> $env:GITHUB_ENV
+      - name: Stamp mtimes (every build, seeded or not; an unstamped seed would make the next build recompile everything)
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/windows/restore-mtimes.ps1
+      - name: Seed (the .build of an earlier run; only at level light, never in release mode, on kit/* branches or with clean_build)
+        id: seed
+        if: env.PTB_LEVEL != 'full' && !inputs.clean_build && !startsWith(github.ref, 'refs/heads/kit/') && !startsWith(github.head_ref, 'kit/')
+        timeout-minutes: 15
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/windows/seed-restore.ps1 -Workflow windows-app.yml -Artifact ptb-seed-release
       - name: Build
+        id: build
         timeout-minutes: 45
         shell: bash
-        run: swift build -c release --product PokeTokenBarWin -Xlinker "$PTB_RES" 2>&1 | tee build.log
+        # The exe is removed first: the resource file (-Xlinker) is an input llbuild does not track, a changed .res alone would not relink.
+        run: |
+          rm -f .build/release/PokeTokenBarWin.exe
+          mapfile -t extra < <(pwsh -NoProfile -File ./scripts/windows/swift-build-args.ps1 | tr -d '\r')
+          swift build -c release --product PokeTokenBarWin -Xlinker "$PTB_RES" "${extra[@]}" 2>&1 | tee build.log
+      - name: Pack .build as the seed
+        timeout-minutes: 10
+        if: steps.build.outcome == 'success'
+        shell: pwsh
+        run: ./scripts/windows/seed-save.ps1 -Clean '${{ steps.seed.outputs.clean || 'true' }}'
+      - uses: actions/upload-artifact@v4
+        if: steps.build.outcome == 'success' && github.event_name != 'pull_request'   # a pull request leaves no seed
+        with:
+          name: ptb-seed-release
+          overwrite: true
+          path: seed-out
+          compression-level: 0   # the tar is zstd already
+          retention-days: 3
       - name: Package
         timeout-minutes: 15
         id: package
@@ -559,6 +600,17 @@ jobs:
               else { "PASS ${n}: $($c.detail)" }
           }
           if ($bad.Count -gt 0) { throw "window icon: $($bad -join ', ')" }
+      - name: Checks that talk to real hosts and could not reach them (warning only)
+        timeout-minutes: 5
+        if: (success() || failure())
+        shell: pwsh
+        run: |
+          # net.clientCertificateOptional calls graphql.pokeapi.co for real; a host that cannot be reached passes with "unverified (reason)".
+          # That is not a failure of the app, but it must not go unseen: say it in the run's annotations.
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          foreach ($c in @($j.checks | Where-Object { $_.detail -like 'unverified*' })) {
+              Write-Host "::warning title=$($c.name)::the check passed without reaching its host (network outage or slow host): $($c.detail)"
+          }
       - name: Language and time zone in child processes (Korean display language, Seoul time zone)
         timeout-minutes: 10
         if: (success() || failure())  # independent evidence, also after a selftest failure
@@ -1592,6 +1644,7 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           PTB_SWIFT_VERSION: ${{ needs.build.outputs.swift }}
           PTB_BUILD_SHA256: ${{ needs.build.outputs.installer_sha256 }}
+          PTB_CLEAN_BUILD: ${{ needs.build.outputs.clean }}
           ImageVersion: ${{ needs.build.outputs.image }}
           G_BUNDLE: ${{ needs.selftest-bundle.outputs.bundle }}
           G_INSTALL: ${{ needs.installer.outputs.install }}

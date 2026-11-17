@@ -513,7 +513,7 @@ class StartTests(HelperTest):
 
 def release_manifest(run_id, installer=INSTALLER_BYTES, attempt=1):
     return {"schema": 1, "sha": SHA, "workflowSha": "b" * 40, "version": V, "level": "full", "runId": run_id,
-            "runAttempt": attempt, "runnerImage": "20261110.1.0", "swift": "6.3.2",
+            "runAttempt": attempt, "runnerImage": "20261110.1.0", "swift": "6.3.2", "cleanBuild": True,
             "installer": {"name": INSTALLER, "size": len(installer), "sha256": sha256(installer),
                           "fileVersion": V + ".0", "productVersion": V, "isccDefines": ["SrcDir", "AppVer", "OutDir"]},
             "app": {"fileVersion": V + ".0", "versionFile": V, "uninstallDisplayVersion": V},
@@ -718,6 +718,8 @@ class CollectTests(HelperTest):
             "no run attempt": (lambda m: m.pop("runAttempt"), "runAttempt (the run's attempt) is null"),
             "an empty runner image": (lambda m: m.update(runnerImage=""), "runnerImage is \"\", expected text"),
             "no swift version": (lambda m: m.pop("swift"), "swift is null, expected text"),
+            "an incremental build": (lambda m: m.update(cleanBuild=False), "windows-release.json cleanBuild"),
+            "no cleanBuild field": (lambda m: m.pop("cleanBuild"), "windows-release.json cleanBuild"),
         }
         for name, (mutate, expected) in cases.items():
             with self.subTest(name):

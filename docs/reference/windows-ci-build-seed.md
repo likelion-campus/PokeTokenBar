@@ -73,3 +73,13 @@ another class having run first: the shard step creates `plaza-preview`, `photo-o
 ## Toolchain install
 `.github/actions/windows-swift` normally takes about 1.4 min (a slow download up to 8). Each calling step has `timeout-minutes: 12` and one retry (a hung download once
 held a run for 31 min, and a slow swift.org download takes up to 8 min, seen three times; a `uses:` step has no limit of its own).
+
+## windows-app (release app product)
+Same seed machinery, same rules (seed selection, archive vetting, metadata validation, stamping with `stamp-changed.ps1`, chain limit,
+toolchain limit and retry), artifact `ptb-seed-release`. What is different:
+- Only `level=light` restores a seed. `level=full` (windows-port always, kits), release mode, `kit/*` branches and `clean_build` skip the
+  Seed step and build clean; a pull request uploads no seed. The seeds therefore come from light runs of branches and dispatches.
+- The build is whole-module: any Swift source change recompiles PokeTokenBar (about 10-13 min); the seed saves the dependency fetch,
+  BoringSSL and swift-crypto (about 7 of 17 min) and makes a push without source changes nearly free.
+- The exe is deleted before the build (the `.res` passed as `-Xlinker` is not tracked by llbuild).
+- `windows-release.json` carries `cleanBuild: true`; `release-manifest.ps1` and `team_release.py` refuse anything else.
