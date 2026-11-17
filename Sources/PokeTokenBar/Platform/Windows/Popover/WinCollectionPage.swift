@@ -34,6 +34,19 @@ import WinSDK
     private(set) var emptyRow: WinRow?, segmentRow: WinRow?, toolbarRow: WinRow?, dexRow: WinRow?, logRow: WinRow?
     private(set) var emptyView: WinDrawnView?, dexView: WinDrawnView?, logView: WinDrawnView?
     private(set) var emptyPart: DexEmptyPart?, dexPart: DexBodyPart?, logPart: DexLogPart?
+    // --- stage 7 Task 21: the detail page (begin) ---
+    private(set) var detailRow: WinRow?
+    private(set) var detailView: WinDrawnView?
+    private(set) var detailPart: DexDetailPart?
+    private(set) var detailState = DexDetailState()
+    private var detailShownID: String?
+    private var failedNames: Set<PokemonNameResource> = []
+    private var nameRequests: Set<PokemonNameResource> = []
+    private var logReturnEntry: String?
+    /// Where names come from (the selftest's fixtures); the real client by default.
+    var nameProvider: any PokemonNameProviding = PokemonNameClient.shared
+    private var detailWheel = PopoverWheel()
+    // --- stage 7 Task 21 (end) ---
     private(set) var segment: WinControl?, search: WinControl?, clear: WinControl?, shiny: WinControl?, sort: WinControl?
     private var toolbar: WinComposite?
     private var section: WinSectionCard?
@@ -81,10 +94,6 @@ import WinSDK
         let section = stack.addSection(nil, card: false)
         self.section = section
         raster = WinGlyphRaster(fonts: ctx.fonts)
-        if let id = host.state.dexDetailCollectionID {   // a link from Home, or Back from the detail page
-            browser.returnAnchor = id
-            browser.selectedID = id
-        }
         // the empty Pokédex
         emptyRow = section.addStyledRow(label: nil, style: .full) { [self] pane, ctx in
             guard let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
@@ -157,6 +166,9 @@ import WinSDK
         emptyView?.destroy()
         dexView?.destroy()
         logView?.destroy()
+        detailView?.destroy()
+        detailView = nil
+        detailPart = nil
         emptyView = nil
         dexView = nil
         logView = nil
@@ -190,21 +202,26 @@ import WinSDK
         let mine = epoch
         stats.refreshes += 1
         let log = showingLog
-        let made = withObservationTracking { () -> (Bool, DexBodyModel?, DexLogModel?, L) in
+        let made = withObservationTracking { () -> (Bool, DexBodyModel?, DexLogModel?, DexDetailModel?) in
             let empty = store.dexEntries.isEmpty
-            if empty { return (true, nil, nil, store.l) }
+            if empty { return (true, nil, nil, nil) }
+            // the detail page replaces the grid or the log while `PopoverState.dexDetailCollectionID` names a species of the dex
+            if let id = host.state.dexDetailCollectionID, let species = store.dexSpecies.first(where: { $0.collectionID == id }) {
+                let model = DexDetailModel.make(store: store, species: species, state: detailState, names: PokemonNameDisplayStore.shared.names, failed: failedNames)
+                return (false, nil, nil, model)
+            }
             return (false, log ? nil : DexBodyModel.make(store: store, state: browser),
-                    log ? DexLogModel.make(store: store, state: browser, resolved: resolved) : nil, store.l)
+                    log ? DexLogModel.make(store: store, state: browser, resolved: resolved) : nil, nil)
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, self.epoch == mine, !self.isDestroyed else { return }
                 self.refresh()
             }
         }
-        apply(empty: made.0, body: made.1, log: made.2)
+        apply(empty: made.0, body: made.1, log: made.2, detail: made.3)
     }
 
-    private func apply(empty: Bool, body: DexBodyModel?, log: DexLogModel?) {
+    private func apply(empty: Bool, body: DexBodyModel?, log: DexLogModel?, detail: DexDetailModel?) {
         let stack = host.stack
         var layoutNeeded = false
         func show(_ row: WinRow?, _ on: Bool) {
@@ -212,19 +229,34 @@ import WinSDK
             row.isVisible = on
             layoutNeeded = true
         }
+        let root = GetAncestor(stack.pane.hwnd, 2 /* GA_ROOT */) ?? stack.pane.hwnd
+        // A swap between the grid, the log and the detail page is built with drawing off and drawn once (`WinKit.drawingOnce`).
         show(emptyRow, empty)
-        show(segmentRow, !empty)
-        show(toolbarRow, !empty)
+        show(segmentRow, !empty && detail == nil)
+        show(toolbarRow, !empty && detail == nil)
         if empty {
             show(dexRow, false)
             show(logRow, false)
+            show(detailRow, false)
             clock.stop()
-            if layoutNeeded { stack.layout() }
+            if layoutNeeded { WinKit.drawingOnce(root) { stack.layout() } }
             return
         }
         if let l = log { ensureLog(l) }
+        if let d = detail { ensureDetail(d) }
         show(dexRow, body != nil)
         show(logRow, log != nil)
+        show(detailRow, detail != nil)
+        if let detail, let detailPart {
+            if detailState.selectedForm == nil { detailState.selectedForm = detail.selectedForm }
+            if detailState.selectedInstanceID.isEmpty { detailState.selectedInstanceID = detail.selectedInstanceID }
+            detailPart.update(detail)
+            loadDetail(detail)
+            clock.stop()
+            if layoutNeeded { WinKit.drawingOnce(root) { stack.layout() } }
+            return
+        }
+        detailShownID = nil
         if let body, let dexPart {
             dexPart.raisingText = self.l.dexRaising.uppercased()
             dexPart.update(body)
@@ -239,8 +271,14 @@ import WinSDK
         if log == nil { clock.stop() } else { armClock() }
         updateToolbar()
         if segment?.selection != (showingLog ? 1 : 0) { segment?.selection = showingLog ? 1 : 0 }
-        if layoutNeeded { stack.layout() }
+        if layoutNeeded { WinKit.drawingOnce(root) { stack.layout() } }
+        if let id = pendingLogReveal {   // Back from a detail page that a log row opened: that row is brought into view
+            pendingLogReveal = nil
+            DispatchQueue.main.async { [weak self] in self?.logPart?.reveal(entryID: id) }
+        }
     }
+
+    private var pendingLogReveal: String?
 
     private func ensureLog(_ model: DexLogModel) {
         guard logRow == nil, let section else { return }
@@ -410,7 +448,6 @@ import WinSDK
         case DexBodyPart.cellAction:
             guard let i = hit.index, model.cells.indices.contains(i) else { return }
             browser.selectedID = model.cells[i].collectionID
-            refresh()
             openEntry(model.cells[i].collectionID)
         case DexBodyPart.regionAction:
             guard let i = hit.index, model.regions.indices.contains(i) else { return }
@@ -447,11 +484,32 @@ import WinSDK
     }
 
     /// The seam of the detail page (Task 21): records the Mac's `dexDetailCollectionID` and tells `onOpenEntry`.
-    func openEntry(_ collectionID: String) {
+    func openEntry(_ collectionID: String, fromLogEntry entry: String? = nil) {
         stats.opened.append(collectionID)
+        detailState = DexDetailState()
+        logReturnEntry = entry
         host.state.dexDetailCollectionID = collectionID
         onOpenEntry?(collectionID)
+        refresh()
     }
+
+    /// Back (the detail page's button, Escape): the grid reopens on that species' page, the log on its row (the Mac's anchors).
+    func closeDetail() {
+        guard let id = host.state.dexDetailCollectionID else { return }
+        host.state.dexDetailCollectionID = nil
+        detailState = DexDetailState()
+        if showingLog {
+            pendingLogReveal = logReturnEntry
+        } else {
+            browser.returnAnchor = id
+            browser.page = nil
+            browser.selectedID = nil
+        }
+        logReturnEntry = nil
+        refresh()
+    }
+
+    var isShowingDetail: Bool { detailRow?.isVisible == true }
 
     private func dexKey(_ vk: Int, _ view: WinDrawnView) -> Bool {
         guard let part = dexPart, let hit = Self.focusedHit(view), hit.action == DexBodyPart.cellAction, let i = hit.index,
@@ -542,7 +600,7 @@ import WinSDK
             browser.toggleRarity(model.rarities[i].rarity)
             refresh()
         case DexLogPart.nodeAction:
-            if let target = hit.target { openEntry(target) }
+            if let target = hit.target, let i = hit.index, model.rows.indices.contains(i) { openEntry(target, fromLogEntry: model.rows[i].id) }
         case DexLogPart.thumbAction:
             logPart?.endDrag()
         case DexLogPart.clearAction:
@@ -552,6 +610,147 @@ import WinSDK
         }
     }
 }
+
+
+// MARK: Task 21 — the detail page of a species (the Mac's `PokemonDetailView`) inside the Collection page
+extension WinCollectionPage {
+    /// The row with the detail view, made when the first species is opened (hidden until the layout that shows it).
+    fileprivate func ensureDetail(_ model: DexDetailModel) {
+        guard detailRow == nil, let section else { return }
+        detailRow = section.addStyledRow(label: nil, style: .full) { [self] pane, ctx in
+            guard let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
+            view.sprites = WinSpriteAnimator(fetcher: WinCompanionSection.fetcher(), animationsEnabled: animationsEnabled)
+            let part = DexDetailPart(model, height: Self.contentHeight, accent: Self.plazaColor(ctx.colors.palette.accent), glyphs: raster)
+            wireDetail(view, part)
+            view.host(part, width: widthDIP)
+            detailView = view
+            detailPart = part
+            return view.control
+        }
+        detailRow?.isVisible = false
+    }
+
+    /// What the Mac's `.task`s do when the page appears: the species' details, the form names, then the names the page shows.
+    fileprivate func loadDetail(_ m: DexDetailModel) {
+        guard let id = host.state.dexDetailCollectionID else { return }
+        if detailShownID != id {
+            detailShownID = id
+            let speciesID = m.identity.speciesID
+            let store = self.store
+            tasks.append(Task { @MainActor in await store.loadPokemonDetails(speciesID: speciesID) })
+            if PokemonForm.hasForms(speciesID: speciesID) {
+                tasks.append(Task { @MainActor in await store.loadFormNames(PokemonForm.nameResources(speciesID: speciesID)) })
+            }
+        }
+        loadNames(m)
+    }
+
+    /// Names are loaded for what the page shows now: everything but the complete move list, and the rows of that list in view
+    /// (the Mac's lazy rows fetch only what is mounted).
+    func loadNames(_ m: DexDetailModel? = nil) {
+        guard let m = m ?? detailPart?.model else { return }
+        var wanted = m.nameResources.filter { $0.kind != .move }
+        if case .details(let individual, _, _, _) = m.content {
+            wanted += (individual?.moves ?? []).map { PokemonNameResource(kind: .move, name: $0.key) }
+        }
+        wanted += (detailPart?.visibleMoveKeys() ?? []).map { PokemonNameResource(kind: .move, name: $0) }
+        let shown = PokemonNameDisplayStore.shared
+        for r in wanted where !nameRequests.contains(r) && shown.names[r] == nil {
+            nameRequests.insert(r)
+            let provider = nameProvider
+            tasks.append(Task { @MainActor [weak self] in
+                let ok = await shown.load(r, provider: provider)
+                guard let self else { return }
+                self.host.whenCurrent {
+                    guard !self.isDestroyed else { return }
+                    if !ok { self.failedNames.insert(r); self.refresh() }   // a loaded name changes the store: the observation refreshes
+                }
+            })
+        }
+    }
+
+    fileprivate func wireDetail(_ view: WinDrawnView, _ part: DexDetailPart) {
+        view.onPointer = { [weak part] p in part?.setPointer(p) }
+        view.onHit = { [weak self] hit in self?.detailHit(hit) }
+        view.onKey = { [weak self, weak part] vk in
+            guard let part else { return false }
+            let moved = part.key(vk)
+            if moved { self?.loadNames() }
+            return moved
+        }
+        view.onFocus = { [weak part, weak view] focused in
+            guard focused, let view, let key = Self.focusedItem(view)?.key else { return }
+            part?.reveal(itemKey: key)
+        }
+        for message: UINT in [0x020A] {
+            view.window.on(message) { [weak self, weak part] wParam, _ in
+                guard let self, let part else { return nil }
+                var lines: UINT = 3
+                _ = SystemParametersInfoW(0x0068 /* SPI_GETWHEELSCROLLLINES */, 0, &lines, 0)
+                let dy = self.detailWheel.offsetChange(delta: WinKit.signedHiWord(wParam), lines: lines, lineHeight: 16, page: part.viewportHeight)
+                if part.scroll(by: dy) { self.loadNames() }
+                return 0
+            }
+        }
+    }
+
+    static func focusedItem(_ view: WinDrawnView) -> PlazaAccessibilityItem? {
+        guard let focus = GetFocus(), let i = view.items.firstIndex(where: { $0.hwnd == focus }) else { return nil }
+        let items = (view.drawing?.drawing.accessibility ?? []).filter { $0.role != .scrollArea }
+        return i < items.count ? items[i] : nil
+    }
+
+    private func itemWindow(_ action: String) -> HWND? {
+        guard let view = detailView else { return nil }
+        let items = (view.drawing?.drawing.accessibility ?? []).filter { $0.role != .scrollArea }
+        guard let i = items.firstIndex(where: { $0.action?.action == action }), i < view.items.count else { return nil }
+        return view.items[i].hwnd
+    }
+
+    func detailHit(_ hit: PlazaPanelHit) {
+        stats.hits += 1
+        guard let model = detailPart?.model else { return }
+        switch hit.action {
+        case DexDetailPart.backAction: closeDetail()
+        case DexDetailPart.formAction:
+            guard let i = hit.index, let cells = model.forms?.cells, cells.indices.contains(i), cells[i].owned else { return }
+            detailState.selectedForm = cells[i].form
+            detailState.selectedInstanceID = ""
+            detailState.selectedShiny = nil
+            refresh()
+        case DexDetailPart.appearanceAction:
+            guard let i = hit.index else { return }
+            detailState.selectedShiny = i == 1
+            detailState.selectedInstanceID = ""
+            refresh()
+        case DexDetailPart.individualAction:
+            let choices = model.individualPicker
+            var r = RECT()
+            let owner = detailView.map { GetAncestor($0.hwnd, 2) ?? $0.hwnd } ?? host.stack.pane.hwnd
+            if let h = itemWindow(DexDetailPart.individualAction) { _ = GetWindowRect(h, &r) }
+            stats.menus += 1
+            let items: [TrayMenuModel.Item?] = choices.map { TrayMenuModel.Item(title: $0.label, enabled: true, checked: $0.selected, action: .none) }
+            guard let chosen = menu(items, POINT(x: r.left, y: r.bottom), owner), choices.indices.contains(chosen) else { return }
+            detailState.selectedInstanceID = choices[chosen].id
+            refresh()
+        case DexDetailPart.repAction:
+            let id = model.identity
+            _ = store.setRepresentativeSpeciesID(id.isRepresentative ? nil : id.speciesID, form: id.repForm)
+            refresh()
+        case DexDetailPart.retryAction:
+            let speciesID = model.identity.speciesID
+            let store = self.store
+            tasks.append(Task { @MainActor in await store.loadPokemonDetails(speciesID: speciesID) })
+        case DexDetailPart.thumbAction: detailPart?.endDrag()
+        default: break
+        }
+    }
+
+    fileprivate static func plazaColor(_ c: COLORREF) -> PlazaColor {
+        PlazaColor(srgbRed: Double(c & 0xFF) / 255, green: Double((c >> 8) & 0xFF) / 255, blue: Double((c >> 16) & 0xFF) / 255)
+    }
+}
+// MARK: end Task 21
 
 extension WinHomePage {
     /// A sprite of Home opens its Pokédex page (`PopoverState.openDexEntry`: the Collection tab with that cell's detail

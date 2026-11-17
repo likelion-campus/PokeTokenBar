@@ -13,15 +13,28 @@ extension WindowsSelftest {
     }
 }
 
-private struct CollectionFixturePoke: PokeProviding {
+private struct CollectionFixturePoke: PokeProviding, PokemonDetailProviding {
+    func pokemonDetails(speciesID: Int) async throws -> PokemonDetails {
+        PokemonDetails(speciesID: speciesID, name: "species-\(speciesID)", height: 7, weight: 69, baseExperience: 64, genderRate: 1, types: ["grass", "poison"],
+                       baseStats: ["hp": 45, "attack": 49, "defense": 49, "special-attack": 65, "special-defense": 65, "speed": 45],
+                       abilities: [PokemonAbilityOption(name: "overgrow", slot: 1, isHidden: false), PokemonAbilityOption(name: "chlorophyll", slot: 3, isHidden: true)],
+                       moves: (0..<80).map { PokemonMoveOption(name: "move-\($0)", learnMethods: [PokemonMoveLearnMethod(method: "level-up", level: $0), PokemonMoveLearnMethod(method: "machine", level: 0)]) })
+    }
     func line(baseSpeciesID: Int) async throws -> EvoLine { throw LimitsError.keychainAccessDisabled }
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
     func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
 }
 
+/// Fixture names for the detail page (no network in the selftest).
+private struct CollectionFixtureNames: PokemonNameProviding {
+    func names(for resource: PokemonNameResource) async throws -> [String: String] {
+        ["en": "Fixture \(resource.name)", "ko": "예시 \(resource.name)"]
+    }
+}
+
 @MainActor enum WindowsSelftestPopoverCollection {
     static let names = ["collection.grid", "collection.paging", "collection.filters", "collection.representative", "collection.empty",
-                        "collection.homeLinks", "collection.openClose"]
+                        "collection.homeLinks", "collection.detail", "collection.openClose"]
 
     private static func wait(_ seconds: TimeInterval) async { _ = await WindowsSelftest.waitUntil(timeout: seconds) { false } }
 
@@ -38,7 +51,7 @@ private struct CollectionFixturePoke: PokeProviding {
         if count == 0 { state.dex = [] }
         let file = base.directory.appendingPathComponent("collection-\(UUID().uuidString).json")
         try? JSONEncoder().encode(state).write(to: file)
-        let companion = CompanionStore(provider: CollectionFixturePoke(), fileURL: file, defaults: WinDefaultsSync.makeAppDefaults())
+        let companion = CompanionStore(provider: CollectionFixturePoke(), detailProvider: CollectionFixturePoke(), fileURL: file, defaults: WinDefaultsSync.makeAppDefaults())
         return HomeStores(store: base.store, companion: companion, team: base.team, state: base.state, directory: base.directory)
     }
 
@@ -94,6 +107,7 @@ private struct CollectionFixturePoke: PokeProviding {
         await representativeCheck(r)
         await emptyCheck(r)
         await homeLinksCheck(r)
+        await detailCheck(r)
         await openCloseCheck(r, start: start)
     }
 
@@ -123,9 +137,12 @@ private struct CollectionFixturePoke: PokeProviding {
             // a click on a cell selects it and opens its entry
             if let first = cells.first { press(first) }
             await wait(0.2)
-            let opened = page.stats.opened == ["1"] && h.stores.state.dexDetailCollectionID == "1" && page.browser.selectedID == "1"
-            if !opened { problems.append("\(language): click opened \(page.stats.opened), detail \(String(describing: h.stores.state.dexDetailCollectionID))") }
-            await wait(0.2)
+            let opened = page.stats.opened == ["1"] && h.stores.state.dexDetailCollectionID == "1" && page.browser.selectedID == "1" && page.isShowingDetail
+            if !opened { problems.append("\(language): click opened \(page.stats.opened), detail \(String(describing: h.stores.state.dexDetailCollectionID)), showing \(page.isShowingDetail)") }
+            await wait(0.3)
+            page.closeDetail()   // Back: the grid again, on that species' page
+            await wait(0.3)
+            if page.isShowingDetail || page.dexRow?.isVisible != true { problems.append("\(language): Back did not return to the grid") }
             dump(h, "grid-\(language.rawValue)")
             // more captures for the sheets: the second page (shiny entries 21 and 28), a search with no result, the log
             press(items(view, DexBodyPart.nextAction).first)
@@ -256,13 +273,22 @@ private struct CollectionFixturePoke: PokeProviding {
         if store.representativeSpeciesID != 3 { problems.append("context menu: representative \(String(describing: store.representativeSpeciesID))") }
         if page.dexPart?.model.cells[2].isRepresentative != true { problems.append("the cell does not show the star") }
         dump(h, "representative")
-        // the footer button: select the cell, then the button follows the current Pokémon again
+        // the detail page's button: a click on the cell opens it, its button follows the current Pokémon again
         press(items(view, DexBodyPart.cellAction).dropFirst(2).first)
+        await wait(0.5)
+        press(items(page.detailView, DexDetailPart.repAction).first)
         await wait(0.3)
-        press(items(view, DexBodyPart.repAction).first)
+        if store.representativeSpeciesID != nil { problems.append("detail button: representative \(String(describing: store.representativeSpeciesID))") }
+        page.closeDetail()
         await wait(0.3)
-        if store.representativeSpeciesID != nil { problems.append("footer button: representative \(String(describing: store.representativeSpeciesID))") }
-        notes.append("context menu sets species 3; the footer button gives it back (follow current)")
+        // the footer button: select a cell with the keyboard-free path (the model), then the footer's button sets it
+        page.browser.selectedID = "4"
+        page.refresh()
+        await wait(0.2)
+        press(items(page.dexView, DexBodyPart.repAction).first)
+        await wait(0.3)
+        if store.representativeSpeciesID != 4 { problems.append("footer button: representative \(String(describing: store.representativeSpeciesID))") }
+        notes.append("context menu sets species 3; the detail page's button gives it back; the footer button sets species 4")
         r.add("collection.representative", problems.isEmpty, notes.joined(separator: " | ") + (problems.isEmpty ? "" : " | PROBLEMS: " + problems.joined(separator: "; ")))
     }
 
@@ -314,6 +340,71 @@ private struct CollectionFixturePoke: PokeProviding {
             }
         } else { problems.append("no companion section") }
         r.add("collection.homeLinks", problems.isEmpty, notes.joined(separator: " | ") + (problems.isEmpty ? "" : " | PROBLEMS: " + problems.joined(separator: "; ")))
+    }
+
+
+    // MARK: collection.detail (D7)
+
+    private static func detailCheck(_ r: WindowsSelftest.Recorder) async {
+        var problems: [String] = [], notes: [String] = []
+        for language in [AppLanguage.en, .ko] {
+            guard let (h, page) = await harness(20, language: language) else { problems.append("no page \(language)"); continue }
+            defer { h.destroy() }
+            page.nameProvider = CollectionFixtureNames()
+            let drawn0 = WinKit.drawnOnce
+            let began = Date()
+            page.openEntry("7")   // species 7: shiny only (every 7th), one individual
+            _ = await WindowsSelftest.waitUntil(timeout: 4) {
+                if case .details? = page.detailPart.map({ $0.model.content }) { return page.detailPart?.model.identity.types.first?.text.contains("…") == false }
+                return false
+            }
+            let opened = Date().timeIntervalSince(began)
+            guard let view = page.detailView, let part = page.detailPart else { problems.append("\(language): no detail view"); continue }
+            let swaps = WinKit.drawnOnce - drawn0
+            if !page.isShowingDetail || page.dexRow?.isVisible == true || page.toolbarRow?.isVisible == true { problems.append("\(language): rows: detail \(page.isShowingDetail)") }
+            if swaps < 1 { problems.append("\(language): the swap was not drawn once through WinKit.drawingOnce (\(swaps))") }
+            let model = part.model
+            guard case .details(let individual, _, _, let moves) = model.content else { problems.append("\(language): no details: \(model.content)"); continue }
+            if model.identity.speciesID != 7 || individual == nil || moves.moves.count != 80 { problems.append("\(language): identity \(model.identity.speciesID), moves \(moves.moves.count)") }
+            if model.identity.types.first?.text.contains("…") != false { problems.append("\(language): type names not loaded: \(model.identity.types.map(\.text))") }
+            if view.spriteSlots.first(where: { $0.frame.width == 104 })?.animated != true { problems.append("\(language): no animated 104 pt sprite") }
+            let windows = descendants(h.window.hwnd)
+            let slots = view.spriteSlots.count
+            if windows > 80 || slots > 12 { problems.append("\(language): \(windows) child windows, \(slots) sprite slots") }
+            // the wheel scrolls it and names are asked for what comes into view only
+            _ = SendMessageW(view.hwnd, 0x020A, WPARAM(UInt(bitPattern: Int(-120)) << 16), 0)
+            await wait(0.3)
+            if part.scrollY <= 0 { problems.append("\(language): the wheel did not scroll") }
+            _ = part.scroll(by: .greatestFiniteMagnitude)
+            await wait(0.8)
+            let seen = part.visibleMoveKeys()
+            let named = PokemonNameDisplayStore.shared.names.keys.filter { $0.kind == .move }.count
+            if seen.count >= 80 || !seen.contains("move-79") { problems.append("\(language): visible moves \(seen.count)") }
+            if named >= 80 + 2 { problems.append("\(language): \(named) move names loaded: all of them, not what is in view") }
+            dump(h, "detail-\(language.rawValue)")
+            _ = part.scroll(by: -.greatestFiniteMagnitude)
+            // the representative button
+            press(items(view, DexDetailPart.repAction).first)
+            await wait(0.3)
+            if h.stores.companion.representativeSpeciesID != 7 { problems.append("\(language): the button did not set the representative") }
+            // Back returns to the grid on that species' page
+            press(items(view, DexDetailPart.backAction).first)
+            await wait(0.3)
+            if page.isShowingDetail || h.stores.state.dexDetailCollectionID != nil || page.dexRow?.isVisible != true { problems.append("\(language): Back") }
+            notes.append("\(language): opened in \(Int(opened * 1000)) ms (details and names loaded), swap drawn once x\(swaps), \(windows) child windows, \(slots) sprites, \(seen.count) of 80 moves in view after scrolling, \(named) move names loaded")
+        }
+        // Back from a species of a later page lands on that page
+        if let (h, page) = await harness(40, language: .en) {
+            defer { h.destroy() }
+            page.nameProvider = CollectionFixtureNames()
+            page.openEntry("40")
+            await wait(0.5)
+            page.closeDetail()
+            await wait(0.3)
+            if page.dexPart?.model.footer.pageText != "3 / 3" { problems.append("Back from species 40: \(page.dexPart?.model.footer.pageText ?? "-")") }
+            else { notes.append("Back from species 40 lands on page 3 / 3") }
+        }
+        r.add("collection.detail", problems.isEmpty, notes.joined(separator: " | ") + (problems.isEmpty ? "" : " | PROBLEMS: " + problems.joined(separator: "; ")))
     }
 
     // MARK: collection.openClose
