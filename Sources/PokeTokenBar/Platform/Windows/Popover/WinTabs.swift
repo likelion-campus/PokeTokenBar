@@ -156,6 +156,7 @@ extension WinHomePage {
         guard builtTab != .home else { return }
         let host = WinTabHost(page: self, stack: page, popover: tabPopover)
         tabContent = WinTabPages.content(for: builtTab, host: host)
+        if let content = tabContent { configureTabContent?(content) }  // a harness sets what the content does before it builds
         tabContent?.build()
     }
 }
