@@ -1314,23 +1314,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Every job passed (skipped = a level or fast switch)
-        shell: bash
+        shell: pwsh
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 - <<'EOF'
-          import json, os, sys
-          needs = json.loads(os.environ['NEEDS'])
-          bad = []
-          for name, n in needs.items():
-              print('%-17s %s' % (name, n['result']))
-              if n['result'] not in ('success', 'skipped'):
-                  bad.append(name)
-          if bad:
-              print('::error::windows-app: failed or cancelled: ' + ', '.join(bad))
-              sys.exit(1)
-          print('PASS windows-app: every job passed')
-          EOF
+          $needs = $env:NEEDS | ConvertFrom-Json
+          $bad = @()
+          foreach ($n in $needs.PSObject.Properties) {
+              '{0,-17} {1}' -f $n.Name, $n.Value.result
+              if ($n.Value.result -notin 'success', 'skipped') { $bad += $n.Name }
+          }
+          if ($bad.Count -gt 0) { Write-Host "::error::windows-app: failed or cancelled: $($bad -join ', ')"; exit 1 }
+          'PASS windows-app: every job passed'
       - uses: actions/checkout@v5
         if: success()
         with:
