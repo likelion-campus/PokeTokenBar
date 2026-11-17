@@ -473,6 +473,7 @@ def check_release_manifest(ctx, manifest, args, app_run_id, app_attempt, local, 
     _expect(problems, where + " sha", manifest.get("sha"), args.sha)
     _expect(problems, where + " version", manifest.get("version"), version)
     _expect(problems, where + " level", manifest.get("level"), "full")
+    _expect(problems, where + " cleanBuild (the shipped installer is built from scratch, never from a seed)", manifest.get("cleanBuild"), True)
     _expect(problems, where + " runId", manifest.get("runId"), app_run_id)
     _expect(problems, where + " runAttempt (the run's attempt)", manifest.get("runAttempt"), app_attempt)
     if not re.fullmatch(r"[0-9a-f]{40}", str(manifest.get("workflowSha"))):
