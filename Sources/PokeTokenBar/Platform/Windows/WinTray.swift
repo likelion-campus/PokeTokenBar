@@ -44,6 +44,8 @@ import WinSDK
     private(set) var shownEventCount = 0
     /// Selects and context-menu requests the shell sent, and the last one's point (the popover selftest reads them).
     private(set) var selectCount = 0
+    /// Every callback the shell sent the icon (the selftest's idle windows report it).
+    private(set) var callbackCount = 0
     private(set) var keySelectCount = 0
     private(set) var contextMenuCount = 0
     private(set) var lastSetFocusOK = false
@@ -176,6 +178,7 @@ import WinSDK
 
     private func handle(wParam: WPARAM, lParam: LPARAM) {
         let event = UInt32(truncatingIfNeeded: lParam) & 0xFFFF
+        callbackCount += 1
         let x = Int16(truncatingIfNeeded: wParam & 0xFFFF), y = Int16(truncatingIfNeeded: (wParam >> 16) & 0xFFFF)
         let point = POINT(x: Int32(x), y: Int32(y))  // v4: the event's screen point
         if loggedSelects < 20, [Self.ninSelect, Self.ninKeySelect, UInt32(WM_CONTEXTMENU)].contains(event) {
