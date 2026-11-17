@@ -217,6 +217,13 @@ enum HomeFixtures {
         return i
     }
 
+    /// Claude's session key and its sign-in have expired (the two orange banners), with the update offer above.
+    static func notices(_ language: AppLanguage, now: Date, sessionKey: Bool) -> HomeInput {
+        var i = update(language, now: now)
+        i.limitsAuthExpiry = sessionKey ? .sessionKey : .oauth
+        return i
+    }
+
     /// An update is offered (and the team is ready, with unread posts, so the plaza button and its dot show).
     static func update(_ language: AppLanguage, now: Date) -> HomeInput {
         var i = three(language, now: now, team: true)
@@ -307,6 +314,8 @@ enum HomeFixtures {
             Variant(name: "codex", input: { HomeFixtures.three($0, now: $1, selected: "codex") }),
             Variant(name: "stale", input: HomeFixtures.stale),
             Variant(name: "update", input: HomeFixtures.update),
+            Variant(name: "notice-session-key", input: { HomeFixtures.notices($0, now: $1, sessionKey: true) }),
+            Variant(name: "notice-sign-in", input: { HomeFixtures.notices($0, now: $1, sessionKey: false) }),
             Variant(name: "three-ko", language: .ko, input: { HomeFixtures.three($0, now: $1, team: true) }),
             Variant(name: "three-ja", language: .ja, input: { HomeFixtures.three($0, now: $1) }),
             Variant(name: "three-ru", language: .ru, input: { HomeFixtures.three($0, now: $1) }),
@@ -323,6 +332,7 @@ enum HomeFixtures {
         if let b = m.statusBanner { out.append(b.label) }
         for block in m.limits ?? [] {
             if case .row(let r, _) = block { out += [r.name, r.percentText] }
+            if case .notice(let n) = block { out += [n.title, n.hint] + [n.button?.label].compactMap { $0 } }
         }
         return out
     }
@@ -353,6 +363,9 @@ enum HomeFixtures {
             let heightDIP = Int((CGFloat(h.page.stack?.frames?.height ?? 0) / w.ctx.scale).rounded())
             var wrote = "no --dump-ui"
             var ok = checks.ok && missing.isEmpty && unnamed.isEmpty
+            let look = macLook(h, model, w)
+            ok = ok && look.ok
+            if !look.ok { wrote = "MAC LOOK: " + look.detail }
             if let dir {
                 let png = capture(w).map { WinUIDump.write($0, to: dir.appendingPathComponent("home-\(v.name).png")) } ?? -1
                 let json = tree.write(to: dir.appendingPathComponent("home-tree-\(v.name).json"))
@@ -365,6 +378,35 @@ enum HomeFixtures {
             h.destroy()
         }
         r.add("home.capture", allOK, "sample-data pages, Windows CI runner: " + lines.joined(separator: " | "))
+    }
+
+    /// The Mac's look of the page (parity pass): three `Divider()`s where the Mac has them (under the companion header, under the
+    /// totals group, and under the limits only when there are limits), the update offer and the orange notices as tinted cards
+    /// (a pixel inside the card is the tint, not the page colour), the provider tabs as capsule buttons, Details as a capsule.
+    private static func macLook(_ h: HomeHarness, _ model: HomeModel, _ w: KitWindow) -> (ok: Bool, detail: String) {
+        guard let frames = h.page.stack?.frames else { return (false, "no frames") }
+        let rules = frames.sections.compactMap { $0 }.filter { $0.caption == nil && $0.card == nil && $0.rows.isEmpty && $0.dividers.count == 1 }.count
+        let wantRules = model.limits == nil ? 2 : 3
+        var problems: [String] = []
+        if rules != wantRules { problems.append("\(rules) rules, expected \(wantRules)") }
+        let tree = KitTree.collect(w)
+        if model.providerTabs.count > 1 {
+            let tabs = zip(tree.nodes, tree.handles).filter { n in model.providerTabs.contains { $0.title == n.0.text } && n.0.cls == "Button" }
+            if tabs.count != model.providerTabs.count || tabs.contains(where: { WinControl.control($0.1)?.isPill != true }) {
+                problems.append("\(tabs.count) tab buttons of \(model.providerTabs.count)")
+            }
+        }
+        // the update offer's buttons are the kit's pills (Skip borderless, Update prominent), in the Mac's order
+        if let banner = model.updateBanner, !banner.isUpdating {
+            func pill(_ text: String) -> WinControl? {
+                zip(tree.nodes, tree.handles).first { $0.0.text == text && $0.0.cls == "Button" }.flatMap { WinControl.control($0.1) }
+            }
+            if pill(banner.skipButton.label)?.isPill != true || pill(banner.updateButton.label)?.isPill != true { problems.append("the update offer's buttons are not pills") }
+        }
+        // Details is the capsule with the chart glyph
+        if let details = zip(tree.nodes, tree.handles).first(where: { $0.0.text == L(h.stores.companion.language).recapOpen && $0.0.cls == "Button" }),
+           WinControl.control(details.1)?.pillGlyph != "chart.bar.xaxis" { problems.append("Details is not the chart capsule") }
+        return (problems.isEmpty, "rules \(rules)/\(wantRules); " + (problems.isEmpty ? "ok" : problems.joined(separator: ", ")))
     }
 
     private static func capture(_ w: KitWindow) -> WinUIDump.Bitmap? {
@@ -522,13 +564,14 @@ enum HomeFixtures {
         }
         var notes: [String] = []
         var ok = foreground
-        // the provider tabs: the arrow keys move inside the group and press the next tab
+        // the provider tabs (capsule buttons, as the Mac's): Tab moves to the next one, Space presses it
         if focus("Claude Code") {
-            WindowsSelftestPopover.tap(0x27)  // VK_RIGHT
+            WindowsSelftestPopover.tap(0x09)  // VK_TAB
+            WindowsSelftestPopover.tap(0x20)  // VK_SPACE
             await wait(0.3)
             let pressed = h.recordedActions.contains(.selectProvider("codex"))
             ok = ok && pressed
-            notes.append("Right on the Claude Code tab -> select codex=\(pressed)")
+            notes.append("Tab, Space on the Claude Code tab -> select codex=\(pressed)")
         } else { ok = false; notes.append("no Claude Code tab stop") }
         // the plaza button: Enter
         if let plaza = model.plazaButton, focus(plaza.label) {
@@ -538,19 +581,19 @@ enum HomeFixtures {
             ok = ok && pressed
             notes.append("Enter on '\(plaza.label)' -> openPlaza=\(pressed)")
         } else { ok = false; notes.append("no plaza button") }
-        // the update banner: Enter on Update, then Space on Skip
-        if let banner = model.updateBanner, focus(banner.updateButton.label) {
-            WindowsSelftestPopover.tap(0x0D)
-            await wait(0.2)
-            let pressed = h.recordedActions.contains(.applyUpdate)
-            ok = ok && pressed
-            notes.append("Enter on Update -> applyUpdate=\(pressed)")
-            WindowsSelftestPopover.tap(0x09)  // Tab: Skip follows Update
+        // the update banner (the Mac's order: Skip, then Update): Space on Skip, Tab, Enter on Update
+        if let banner = model.updateBanner, focus(banner.skipButton.label) {
             WindowsSelftestPopover.tap(0x20)
             await wait(0.2)
             let skipped = h.recordedActions.contains(.skipUpdate)
             ok = ok && skipped
-            notes.append("Tab then Space -> skipUpdate=\(skipped)")
+            notes.append("Space on Skip -> skipUpdate=\(skipped)")
+            WindowsSelftestPopover.tap(0x09)  // Tab: Update follows Skip
+            WindowsSelftestPopover.tap(0x0D)
+            await wait(0.2)
+            let pressed = h.recordedActions.contains(.applyUpdate)
+            ok = ok && pressed
+            notes.append("Tab then Enter -> applyUpdate=\(pressed)")
         } else { ok = false; notes.append("no update banner") }
         // the footer: Enter on Refresh, Tab + Space on Settings, Tab + Enter on Quit (recorded, never run)
         if let usage = model.footer.usage, focus(usage.refreshHelp) {

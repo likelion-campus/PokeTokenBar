@@ -148,16 +148,12 @@ import WinSDK
         providers = providerList
 
         var chevron: WinControl?
+        // The Mac's one plain button: the chevron (secondary) before the label, the whole row is the target.
         disclosureRow = section.addRow(nil, style: .full) { p, c in
-            let line = WinComposite(parent: p, ctx: c) { child in
-                chevron = WinControls.glyphButton(symbol: drafts.expanded ? "chevron.down" : "chevron.forward", label: l.advancedDisclosureLabel,
-                                                  size: 10, in: child, ctx: c)
-                let parts = [chevron, WinControls.label(l.advancedDisclosureLabel, wraps: false, in: child, ctx: c)].compactMap { $0 }
-                Self.onRow(parts, section: section, ctx: c)
-                return (parts, [])
-            }
-            Self.paintOnRow(line, section: section, ctx: c)
-            return line?.control
+            let pill = WinPill(style: .disclosure, title: l.advancedDisclosureLabel, glyph: drafts.expanded ? "chevron.down" : "chevron.forward",
+                               textStyle: .body, leftAligned: true)
+            chevron = WinControls.pillButton(pill, in: p, ctx: c)
+            return chevron
         }
         self.chevron = chevron
         key = Self.keyControls(path: nil, model.sessionKey, organizations: true, in: section, l: l)
@@ -380,7 +376,7 @@ import WinSDK
 
     private func toggle() {
         drafts.expanded.toggle()
-        chevron?.setGlyph(symbol: drafts.expanded ? "chevron.down" : "chevron.forward")
+        chevron?.setPillGlyph(drafts.expanded ? "chevron.down" : "chevron.forward")
         if drafts.expanded { appeared(reload: true) } else { disappeared() }
         changed()
     }

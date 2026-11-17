@@ -72,6 +72,8 @@ import WinSDK
     private var updateNotificationsRow: WinRow?
     private var checkNowRow: WinRow?
     private var updateOfferRow: WinRow?
+    /// The skipped-version row's "Show again" button (its row's control is the line of both buttons).
+    private(set) var updateSkippedAgain: WinControl?
     private var updateSkippedRow: WinRow?
     private var updateCurrentRow: WinRow?
     private var reportRow: WinRow?
@@ -79,7 +81,6 @@ import WinSDK
     private var fallbackRow: WinRow?
     private var isCheckingUpdate = false
     private var didCheckUpdate = false
-    private var helpOpen = false
     private var reportFailed = false
     private var loginState: TrayMenuModel.LoginState = .unavailable
     private var applying = false
@@ -174,7 +175,8 @@ import WinSDK
             head.paint = { [weak self, weak head] dc, rect in
                 if let head { self?.paintChrome(head, dc, rect, line: .bottom) }
             }
-            let back = WinControls.link("‹ " + l.back, in: head.hwnd, ctx: ctx)
+            // The Mac's plain accent button: the chevron and "Back".
+            let back = WinControls.pillButton(WinPill(style: .borderless, title: l.back, glyph: "chevron.backward", textStyle: .body, accent: true), in: head.hwnd, ctx: ctx)
             back?.onClick = { [weak self] in self?.onBack() }
             backLink = back
             titleLabel = WinControls.label(l.settings, style: .headline, wraps: false, in: head.hwnd, ctx: ctx)
@@ -312,18 +314,7 @@ import WinSDK
         loginRow?.control?.onToggle = { [weak self] on in self?.setLaunchAtLogin(on) }
         backViewRow = general.addToggle(l.backViewLabel, hint: l.winBackViewHint, isOn: store.alwaysFacesBack)
         backViewRow?.control?.onToggle = { on in store.alwaysFacesBack = on }
-        helpRow = general.addRow(l.winClaudeCredentialHelpTitle) { p, c in
-            WinControls.glyphButton(symbol: "questionmark.circle", label: l.winClaudeCredentialHelpTooltip, in: p, ctx: c)
-        }
-        helpRow?.control?.tooltip = l.winClaudeCredentialHelpTooltip
-        helpRow?.control?.onClick = { [weak self] in
-            guard let self else { return }
-            helpOpen.toggle()
-            helpBodyRow?.isVisible = helpOpen
-        }
-        helpBodyRow = general.addRow(nil, hint: l.winClaudeCredentialHelpBody) { _, _ in nil }
-        helpBodyRow?.hint?.role = .secondary
-        helpBodyRow?.isVisible = helpOpen
+        // No "why do I have to refresh by hand?" row: the Mac's Settings has none (its help is Home's (?) next to the limits caption).
         // Left out on Windows (`SettingsModel.visibility`): animation quality and the pet group (they wait for the pet, T22), the
         // menu bar group and the Keychain switch (no such things here). The Mac's representative, trend and tracked-account rows are T20, T12, T14.
 
@@ -384,17 +375,31 @@ import WinSDK
         if host.updater != nil {
             checkNowRow = updates.addRow(l.checkForUpdatesLabel) { p, c in WinControls.button(l.checkNowButton, in: p, ctx: c) }
             checkNowRow?.control?.onClick = { [weak self] in self?.checkNow() }
-            updateOfferRow = updates.addRow("") { p, c in WinControls.button(l.updateButton, in: p, ctx: c) }
-            updateOfferRow?.label?.role = .warning
-            updateOfferRow?.control?.onClick = { [weak self] in self?.host.updater?.applyUpdate() }
-            updateSkippedRow = updates.addRow("") { p, c in WinControls.button(l.showSkippedAgain, in: p, ctx: c) }
-            updateSkippedRow?.label?.role = .warning
-            updateSkippedRow?.control?.onClick = { [weak self] in
-                self?.host.updater?.showSkippedAgain()
-                self?.scheduleRefresh()
+            // The Mac's `.caption` orange / secondary lines (`updateGroup`): the offer with Update beside it; the skipped version with
+            // "Show again" and Update side by side under the text.
+            func note(_ role: WinUIColors.Role) -> (HWND, WinUIContext) -> WinControl? {
+                { p, c in
+                    let label = WinControls.label("", style: .caption, role: role, in: p, ctx: c)
+                    return label
+                }
             }
-            updateCurrentRow = updates.addRow(l.upToDate(Self.appVersion)) { _, _ in nil }
-            updateCurrentRow?.label?.role = .secondary
+            updateOfferRow = updates.addStyledRow(label: note(.warning), style: .trailing) { p, c in WinControls.button(l.updateButton, in: p, ctx: c) }
+            updateOfferRow?.control?.onClick = { [weak self] in self?.host.updater?.applyUpdate() }
+            updateSkippedRow = updates.addStyledRow(label: note(.warning), style: .stacked) { p, c in
+                WinComposite(parent: p, ctx: c) { child in
+                    let again = WinControls.button(l.showSkippedAgain, in: child, ctx: c)
+                    let apply = WinControls.button(l.updateButton, in: child, ctx: c)
+                    again?.onClick = { [weak self] in
+                        self?.host.updater?.showSkippedAgain()
+                        self?.scheduleRefresh()
+                    }
+                    apply?.onClick = { [weak self] in self?.host.updater?.applyUpdate() }
+                    self.updateSkippedAgain = again
+                    return ([again, apply].compactMap { $0 }, [])
+                }?.control
+            }
+            updateCurrentRow = updates.addStyledRow(label: { p, c in WinControls.label(l.upToDate(Self.appVersion), style: .caption, role: .secondary, in: p, ctx: c) },
+                                                    style: .trailing)
         }
 
         transferRows.addTransfer(to: s)   // MARK: Task 15 — backup and transfer (G16)

@@ -201,6 +201,31 @@ final class PopoverStackLayoutTests: XCTestCase {
         XCTAssertEqual(f.sections[1]!.card!.minY - f.sections[0]!.card!.maxY, 18)
     }
 
+    /// The Home page: 14 pt around, 12 pt between regions, a `Divider()` as its own region with 12 pt on each side, a region
+    /// that sits tighter (`spacingAbove`) and plain rows closer together (`rowSpacing`); a hidden rule takes nothing.
+    func testHomeMetricsRulesAndTighterRegions() {
+        func plain(_ rows: Int, above: CGFloat? = nil, between: CGFloat? = nil) -> PopoverStackSection {
+            PopoverStackSection(card: false, rows: (0..<rows).map { _ in row(CGSize(width: 10, height: 20), control: nil) },
+                                spacingAbove: above, rowSpacing: between)
+        }
+        let rule = PopoverStackSection(card: false, isRule: true)
+        let f = PopoverStackLayout.layout([plain(2, between: 3), rule, plain(1)], width: 360, metrics: .home)
+        let a = f.sections[0]!, r = f.sections[1]!, b = f.sections[2]!
+        XCTAssertEqual(a.rows[0]!.frame.minY, 14, "the page's 14 pt padding")
+        XCTAssertEqual(a.rows[1]!.frame.minY, 14 + 20 + 3, "rowSpacing between the plain rows")
+        XCTAssertEqual(r.dividers, [CGRect(x: 14, y: 14 + 43 + 12, width: 332, height: 1)], "12 pt after the region, one pixel, the page's width")
+        XCTAssertEqual(b.rows[0]!.frame.minY, 14 + 43 + 12 + 1 + 12, "12 pt after the rule")
+        let tight = PopoverStackLayout.layout([plain(1), plain(1, above: 6)], width: 360, metrics: .home)
+        XCTAssertEqual(tight.sections[1]!.rows[0]!.frame.minY - tight.sections[0]!.rows[0]!.frame.maxY, 6, "spacingAbove replaces the 12")
+        var hidden = rule
+        hidden.isVisible = false
+        let without = PopoverStackLayout.layout([plain(1), hidden, plain(1)], width: 360, metrics: .home)
+        XCTAssertNil(without.sections[1])
+        XCTAssertEqual(without.sections[2]!.rows[0]!.frame.minY - without.sections[0]!.rows[0]!.frame.maxY, 12, "a hidden rule adds no spacing")
+        let recap = PopoverStackLayout.layout([plain(1), plain(1)], width: 360, metrics: .recap)
+        XCTAssertEqual(recap.sections[1]!.rows[0]!.frame.minY - recap.sections[0]!.rows[0]!.frame.maxY, 8, "the Recap page's VStack(spacing: 8)")
+    }
+
     func testStackedAndFullRowsSpanTheRow() {
         let f = PopoverStackLayout.layout([PopoverStackSection(rows: [
             row(CGSize(width: 60, height: 17), hint: CGSize(width: 90, height: 13), control: CGSize(width: 10, height: 60), style: .stacked),

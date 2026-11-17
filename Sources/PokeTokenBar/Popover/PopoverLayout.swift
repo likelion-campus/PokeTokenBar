@@ -30,6 +30,12 @@ struct PopoverStackMetrics: Equatable, Sendable {
 
     static let settings = PopoverStackMetrics()
 
+    /// The Home and Recap pages (`PopoverMetrics.padding` 14, the page `VStack`'s spacing 12; `plainSpacing` is the header
+    /// group's `VStack(spacing: 6)`). Settings keeps its own 16 / 18.
+    static let home = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 12, plainSpacing: 6)
+    /// The Recap page's `VStack(spacing: 8)`.
+    static let recap = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 8, plainSpacing: 2)
+
     /// Every length in whole device pixels at `dpi` (rounded; a line stays at least one pixel).
     func pixels(dpi: Int) -> PopoverStackMetrics {
         func p(_ v: CGFloat) -> CGFloat { CGFloat(PopoverTextStyle.pixels(v, dpi: dpi)) }
@@ -77,6 +83,12 @@ struct PopoverStackSection {
     var isVisible = true
     var card = true
     var rows: [PopoverStackRow] = []
+    /// A `Divider()` between two regions of the page: no rows, one rule `divider` high, the section spacing around it.
+    var isRule = false
+    /// The space above this section instead of `sectionSpacing` (a region the Mac stacks tighter than its page).
+    var spacingAbove: CGFloat?
+    /// The space between this plain section's rows instead of `plainSpacing`.
+    var rowSpacing: CGFloat?
 }
 
 /// Where everything of a page goes, in the units of the metrics (device pixels on Windows); hidden sections and rows are nil.
@@ -105,11 +117,19 @@ enum PopoverStackLayout {
         var out: [PopoverStackFrames.Section?] = []
         var first = true
         for section in sections {
+            if section.isRule {
+                guard section.isVisible else { out.append(nil); continue }
+                if !first { y += section.spacingAbove ?? m.sectionSpacing }
+                first = false
+                out.append(PopoverStackFrames.Section(caption: nil, card: nil, rows: [], dividers: [CGRect(x: x0, y: y, width: w, height: m.divider)]))
+                y += m.divider
+                continue
+            }
             guard section.isVisible, section.caption != nil || section.rows.contains(where: \.isVisible) else {
                 out.append(nil)
                 continue
             }
-            if !first { y += m.sectionSpacing }
+            if !first { y += section.spacingAbove ?? m.sectionSpacing }
             first = false
             var caption: CGRect?
             if let size = section.caption {
@@ -128,7 +148,7 @@ enum PopoverStackLayout {
                         dividers.append(CGRect(x: x0, y: y, width: w, height: m.divider))
                         y += m.divider
                     } else {
-                        y += m.plainSpacing
+                        y += section.rowSpacing ?? m.plainSpacing
                     }
                 }
                 placed += 1
