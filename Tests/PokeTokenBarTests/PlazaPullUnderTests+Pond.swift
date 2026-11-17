@@ -1,6 +1,5 @@
-// PlazaPullUnderTests+Mac: the splash reads the pond layer, which exists only when the bundled tile sheet loads (pond visuals; the Windows stub has none)
+// PlazaPullUnderTests+Pond: the splash reads the pond layer (the bundled tile sheet)
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 extension PlazaPullUnderTests {

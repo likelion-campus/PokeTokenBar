@@ -1,7 +1,5 @@
-// PlazaFocusTests+Mac: the campfire menu test asserts the SwiftUI menu view's rows and notice (PlazaMenuText)
+// PlazaFocusTests+Menu: the campfire menu test asserts the menu rows and notice (PlazaMenuText)
 import XCTest
-import AppKit
-import SwiftUI
 @testable import PokeTokenBar
 
 private let spaceKey: UInt16 = 49, upKey: UInt16 = 126, downKey: UInt16 = 125, leftKey: UInt16 = 123, returnKey: UInt16 = 36

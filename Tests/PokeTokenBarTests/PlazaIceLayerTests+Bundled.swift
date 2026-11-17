@@ -1,12 +1,11 @@
 import XCTest
-import CoreGraphics
 @testable import PokeTokenBar
 
 /// The scene-driven ice tests (they use the bundled ice art): `PlazaScene` is a SpriteKit scene until the plaza stage lands.
 extension PlazaIceLayerTests {
     private func scene(start: TilePoint = PlazaMapData.map.spawn) -> PlazaScene {
         let s = PlazaScene(map: map, mapImage: PlazaTileArt.plainGrassImage(map), start: start, zoom: 2,
-                           nickname: "me", pondVisuals: true, iceArt: PlazaIceArt.load())
+                           nickname: "me", pondVisuals: true, iceArt: PlatformPlaza.iceArt())
         s.size = CGSize(width: 800, height: 600)
         s.backingOverride = 2
         s.now = { [unowned self] in Date(timeIntervalSince1970: self.nowSeconds) }
@@ -26,7 +25,7 @@ extension PlazaIceLayerTests {
         s.setIceBreak(brk(R), hit: hit)
     }
 
-    func testAFreezeFadesInByTheClockFromAtPlusAMinute() throws {
+    func testAFreezeFadesInByTheClockFromAtPlusAMinute() async throws {
         let s = scene()
         s.setIceBreak(brk(L))
         s.update(0)
@@ -39,14 +38,14 @@ extension PlazaIceLayerTests {
         XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: B)), 1, accuracy: 1e-6)
     }
 
-    func testAFreezeLongAgoShowsAtFullOpacity() throws {
+    func testAFreezeLongAgoShowsAtFullOpacity() async throws {
         let s = scene()
         s.setIceBreak(brk(L, ago: 600))
         s.update(0)
         XCTAssertEqual(try XCTUnwrap(s.iceAlpha(pondAnchor: R)), 1, accuracy: 1e-6)
     }
 
-    func testAnIdleFrozenPondDoesNoWorkPerFrame() {
+    func testAnIdleFrozenPondDoesNoWorkPerFrame() async {
         let s = scene()
         s.setIceBreak(brk(L, ago: 100))
         s.update(0)
@@ -59,7 +58,7 @@ extension PlazaIceLayerTests {
         XCTAssertNotNil(id)
     }
 
-    func testAHiddenBackgroundHidesTheIceButNotTheRules() throws {
+    func testAHiddenBackgroundHidesTheIceButNotTheRules() async throws {
         let s = scene()
         s.update(0)
         XCTAssertFalse(try XCTUnwrap(s.photoInput()).ice.isEmpty)
@@ -68,7 +67,7 @@ extension PlazaIceLayerTests {
         XCTAssertTrue(s.isWalkableNow(p(6, 14)))
     }
 
-    func testANewMapPictureRebuildsTheIce() {
+    func testANewMapPictureRebuildsTheIce() async {
         nowSeconds = PlazaWeather.gregorian.date(from: DateComponents(year: 2026, month: 11, day: 6, hour: 12))!.timeIntervalSince1970
         let s = scene()
         let plain = PlazaTileArt.plainGrassImage(map)
@@ -80,7 +79,7 @@ extension PlazaIceLayerTests {
 
     private func layerTextureID(_ s: PlazaScene) -> ObjectIdentifier? { s.iceTextureID(pondAnchor: L) }
 
-    func testTheSceneDrivesTheBreakByFrames() {
+    func testTheSceneDrivesTheBreakByFrames() async {
         let s = scene()
         breakR(s, hit: p(33, 17))
         run(s, 0.32)
@@ -88,7 +87,7 @@ extension PlazaIceLayerTests {
         XCTAssertEqual(s.shownShardCount, 2)
     }
 
-    func testThePhotoShowsTheIceAndFadingCracksButNoShards() throws {
+    func testThePhotoShowsTheIceAndFadingCracksButNoShards() async throws {
         let s = scene()
         s.update(0)
         let frozen = try XCTUnwrap(s.photoInput()).ice

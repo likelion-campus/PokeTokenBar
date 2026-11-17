@@ -1,14 +1,13 @@
 import XCTest
-import CoreGraphics
 @testable import PokeTokenBar
 
 extension PlazaTallGrassSceneTests {
 
     private func art() throws -> PlazaTallGrassArt {
-        try XCTUnwrap(PlazaTallGrassArt.load(), "the tall grass art ships with the app")
+        try XCTUnwrap(PlatformPlaza.tallGrassArt(), "the tall grass art ships with the app")
     }
 
-    func testATeammateInTheGrassIsHiddenButTheirNameStays() throws {
+    func testATeammateInTheGrassIsHiddenButTheirNameStays() async throws {
         let s = sceneWithMember(at: TilePoint(x: 7, y: 6), tallGrass: try art())
         step(s, seconds: 0.1)
         XCTAssertEqual(s.memberOpacity("a"), 0)
@@ -24,7 +23,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertGreaterThan(try relativeTop(), hiddenTop)
     }
 
-    func testATeammateFadesAcrossAStepIntoTheGrass() throws {
+    func testATeammateFadesAcrossAStepIntoTheGrass() async throws {
         let s = sceneWithMember(at: TilePoint(x: 7, y: 4), tallGrass: try art())   // (7,4) is open ground, (7,5) grass
         var t = step(s, seconds: 0.1)
         XCTAssertEqual(s.memberOpacity("a"), 1)
@@ -35,7 +34,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertEqual(s.memberOpacity("a"), 0)
     }
 
-    func testIWalkInAndFadeToFortyPercent() throws {
+    func testIWalkInAndFadeToFortyPercent() async throws {
         let s = scene(start: TilePoint(x: 4, y: 6), tallGrass: try art())
         s.setCharacter(frames())
         var t = step(s, seconds: 0.1)
@@ -51,7 +50,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertEqual(s.myOpacity, 0.4, accuracy: 0.001)
     }
 
-    func testStepsIntoGrassRustleTheWayIGo() throws {
+    func testStepsIntoGrassRustleTheWayIGo() async throws {
         let a = try art()
         var s = scene(start: TilePoint(x: 4, y: 6), tallGrass: a)
         s.setCharacter(frames())
@@ -70,7 +69,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertTrue(rustles.contains { $0.tile == TilePoint(x: 5, y: 8) && $0.kind == .bounce && $0.strong }, "\(rustles)")
     }
 
-    func testAStillHiddenTeammateTwitches() throws {
+    func testAStillHiddenTeammateTwitches() async throws {
         let s = sceneWithMember(at: TilePoint(x: 7, y: 6), tallGrass: try art())
         let layer = try XCTUnwrap(s.tallGrassLayer)
         var twitches = 0
@@ -89,7 +88,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertFalse(walkingTwitch)
     }
 
-    func testTheIdleTwitchAlternatesSides() throws {
+    func testTheIdleTwitchAlternatesSides() async throws {
         let s = sceneWithMember(at: TilePoint(x: 7, y: 6), tallGrass: try art())
         let layer = try XCTUnwrap(s.tallGrassLayer)
         var kinds: [PlazaRustleKind] = []
@@ -102,7 +101,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertEqual(kinds, [.sway(1), .sway(-1)])
     }
 
-    func testAJumpInGrassPopsOutThenLandsWithABounce() throws {
+    func testAJumpInGrassPopsOutThenLandsWithABounce() async throws {
         let r = jump(from: TilePoint(x: 6, y: 6), grass: try art())
         XCTAssertEqual(r.opacityAt18, 1, accuracy: 0.001)
         XCTAssertEqual(r.opacityAt50, 0.4, accuracy: 0.001)
@@ -111,12 +110,12 @@ extension PlazaTallGrassSceneTests {
         XCTAssertLessThanOrEqual(first, 0.46)
     }
 
-    func testALandingOnOpenGroundDoesNotRustle() throws {
+    func testALandingOnOpenGroundDoesNotRustle() async throws {
         let r = jump(from: TilePoint(x: 4, y: 6), grass: try art())
         XCTAssertTrue(r.bounced.isEmpty)
     }
 
-    func testHidingTheBackgroundShowsEveryone() throws {
+    func testHidingTheBackgroundShowsEveryone() async throws {
         let s = sceneWithMember(at: TilePoint(x: 7, y: 6), tallGrass: try art())
         step(s, seconds: 0.1)
         XCTAssertEqual(s.memberOpacity("a"), 0)
@@ -126,7 +125,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertTrue(try XCTUnwrap(s.tallGrassLayer).activeRustles.isEmpty)
     }
 
-    func testATeammateSnappedIntoGrassHidesWithoutARustle() throws {
+    func testATeammateSnappedIntoGrassHidesWithoutARustle() async throws {
         let s = sceneWithMember(at: TilePoint(x: 20, y: 20), tallGrass: try art())
         let t = step(s, seconds: 0.1)
         s.applyMembers([member("a", TilePoint(x: 7, y: 6))])
@@ -135,7 +134,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertTrue(try XCTUnwrap(s.tallGrassLayer).activeRustles.isEmpty)
     }
 
-    func testAnEggInTheGrassHidesWithItsNest() throws {
+    func testAnEggInTheGrassHidesWithItsNest() async throws {
         let s = sceneWithMember(at: TilePoint(x: 7, y: 6), tallGrass: try art(), egg: true)
         step(s, seconds: 0.1)
         XCTAssertEqual(s.memberOpacity("a"), 0)
@@ -143,7 +142,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertEqual(s.memberShadowOpacity("a"), 0, "the nest back is the shadow node")
     }
 
-    func testAHiddenTeammatesShadowIsHiddenAndMineStaysAtFortyPercent() throws {
+    func testAHiddenTeammatesShadowIsHiddenAndMineStaysAtFortyPercent() async throws {
         let a = try art()
         let s = sceneWithMember(at: TilePoint(x: 7, y: 6), tallGrass: a)
         step(s, seconds: 0.1)
@@ -154,7 +153,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertEqual(mine.myShadowOpacity, 0.4, accuracy: 0.001)
     }
 
-    func testMyNameTagStaysOnMyHeadInTheGrass() throws {
+    func testMyNameTagStaysOnMyHeadInTheGrass() async throws {
         let a = try art()
         let hidden = scene(start: TilePoint(x: 6, y: 6), tallGrass: a)
         let open = scene(start: TilePoint(x: 7, y: 10), tallGrass: a)
@@ -166,7 +165,7 @@ extension PlazaTallGrassSceneTests {
         XCTAssertEqual(myPlateHeight(hidden), myPlateHeight(open), accuracy: 1)
     }
 
-    func testMySparkleStaysAboveMyHeadInTheGrass() throws {
+    func testMySparkleStaysAboveMyHeadInTheGrass() async throws {
         let s = scene(start: TilePoint(x: 6, y: 6), tallGrass: try art())
         s.setCharacter(frames())
         step(s, seconds: 0.1)
@@ -175,13 +174,13 @@ extension PlazaTallGrassSceneTests {
         XCTAssertEqual(center.y, map.pixelSize.height - s.myFootPoint.y + max(s.characterSize.height, 24) * 0.6, accuracy: 1)
     }
 
-    func testTheTallGrassBandsShareOneTexturePerSlice() throws {
+    func testTheTallGrassBandsShareOneTexturePerSlice() async throws {
         let layer = try XCTUnwrap(scene(start: TilePoint(x: 20, y: 22), tallGrass: try art()).tallGrassLayer)
         XCTAssertGreaterThan(layer.bandCount, 9)
         XCTAssertLessThanOrEqual(layer.distinctBandTextureCount, 9)
     }
 
-    func testTheHiddenNameSitsOnTheGrassAtEveryZoom() throws {
+    func testTheHiddenNameSitsOnTheGrassAtEveryZoom() async throws {
         let a = try art()
         for zoom in [1, 3] {
             for backing: CGFloat in [1, 2] {
@@ -200,7 +199,7 @@ extension PlazaTallGrassSceneTests {
         }
     }
 
-    func testAHiddenTeammatesSparkleBurstsAtTheirName() throws {
+    func testAHiddenTeammatesSparkleBurstsAtTheirName() async throws {
         let s = sceneWithMember(at: TilePoint(x: 7, y: 6), tallGrass: try art())
         step(s, seconds: 0.1)
         s.playSparkle(memberID: "a")
