@@ -1147,7 +1147,14 @@ struct KitResources: CustomStringConvertible {
             }
         }
         made.on(Self.menuMessage) { [weak self] _, _ in self?.onMenuMessage?(); return 0 }
-        made.on(0x0014 /* WM_ERASEBKGND */) { _, _ in 1 }
+        // Like the popover: the gaps between panes are the page colour (white would show in dark).
+        made.on(0x0014 /* WM_ERASEBKGND */) { [weak self] wParam, _ in
+            guard let self, let dc = HDC(bitPattern: UInt(wParam)), let brush = self.ctx.colors.brush(self.ctx.colors.palette.window) else { return 1 }
+            var r = RECT()
+            _ = GetClientRect(self.hwnd, &r)
+            _ = FillRect(dc, &r, brush)
+            return 1
+        }
         made.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
         sizeWindow()
         buildPage()

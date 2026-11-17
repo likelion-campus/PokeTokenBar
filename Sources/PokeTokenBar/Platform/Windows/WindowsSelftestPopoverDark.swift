@@ -134,13 +134,20 @@ import WinSDK
             r.add("ui.highContrast.system", false, "SPI_GETHIGHCONTRAST failed: \(GetLastError())")
             return
         }
-        let wasOn = original.dwFlags & 0x1 != 0
+        if original.dwFlags & 0x1 != 0 {  // never touch a session that already runs a high-contrast theme
+            w.destroy()
+            r.add("ui.highContrast.system", true, "skipped: the session already runs a high-contrast theme (left as it is)")
+            return
+        }
+        // Puts the session's own setting back (high contrast off); idempotent, so it runs both before the verdict and, whatever
+        // happens in between (a failed check, an early exit), in the defer.
+        func restore() {
+            var off = original
+            off.dwFlags = original.dwFlags & ~0x1
+            _ = SystemParametersInfoW(0x0043 /* SPI_SETHIGHCONTRAST */, off.cbSize, &off, UINT(0x0002 /* SPIF_SENDCHANGE */))
+        }
         defer {
-            if !wasOn {  // restore: the theme the session had
-                var off = original
-                off.dwFlags = original.dwFlags & ~0x1
-                _ = SystemParametersInfoW(0x0043 /* SPI_SETHIGHCONTRAST */, off.cbSize, &off, UINT(0x0002 /* SPIF_SENDCHANGE */))
-            }
+            restore()
             WinDarkMode.testOverride = saved
             PopoverAppearanceState.reset()
         }
@@ -168,14 +175,10 @@ import WinSDK
         let tree = KitTree.collect(w)
         let checks = tree.check(w)
         w.destroy()
-        // Back to the session's theme: the next window is light again.
-        if !wasOn {
-            let back = await WindowsSelftest.waitUntil(timeout: 3) { !WinUIContext.systemHighContrast() }
-            r.add("ui.highContrast.system", on && rebuilt && paletteOK && stateOK && dominantOK && checks.ok && back,
-                  "SPI_SETHIGHCONTRAST on=\(on) window rebuilt=\(rebuilt); palette is the system's=\(paletteOK); shared state=\(stateOK); \(profileText); tree \(checks.summary); restored=\(back); \(wrote)")
-        } else {
-            r.add("ui.highContrast.system", true, "skipped: the session already runs a high-contrast theme (left as it is)")
-        }
+        restore()  // before the verdict, so "restored" is a measurement
+        let back = await WindowsSelftest.waitUntil(timeout: 3) { !WinUIContext.systemHighContrast() }
+        r.add("ui.highContrast.system", on && rebuilt && paletteOK && stateOK && dominantOK && checks.ok && back,
+              "SPI_SETHIGHCONTRAST on=\(on) window rebuilt=\(rebuilt); palette is the system's=\(paletteOK); shared state=\(stateOK); \(profileText); tree \(checks.summary); restored=\(back); \(wrote)")
     }
 }
 #endif

@@ -121,7 +121,10 @@ enum WinEditKind: Equatable, Sendable {
         for part in parts { Self.register(self, part) }
         // Dark mode (Task 16): the common controls' dark visual styles; high contrast keeps the system's own.
         if ctx.dark, let theme = WinDarkMode.themeName(for: kind) {
-            for part in parts { WinDarkMode.setTheme(part, theme) }
+            for (i, part) in parts.enumerated() {
+                // A stepper is a read-only edit (field style) and the arrows (Explorer style).
+                WinDarkMode.setTheme(part, kind == .stepper && i == 0 ? "DarkMode_CFD" : theme)
+            }
         }
     }
 
@@ -710,6 +713,8 @@ enum WinClipboardText {
                                         height: CGFloat(line * Int32(lines) + ctx.px(10))),
                            background: ctx.colors.palette.window, font: font)
         c.editKind = kind
+        // A multi-line field's scroll bar is dark only in the Explorer style (the field style leaves it light).
+        if ctx.dark, isMulti { WinDarkMode.setTheme(h, "DarkMode_Explorer") }
         c.lastCommitted = text
         return c
     }
