@@ -1,16 +1,11 @@
 name: cache-lab
-# Proof lab for incremental Windows builds (a CI tool, not part of the product): runs on a push of the branch that carries it
-# (a new workflow file cannot be dispatched before it is on the default branch). See cache-lab-flavor.yml.
+# Proof lab for the incremental Windows builds (a CI tool, not part of the product), run by hand. It packs .build after a cold build,
+# restores it on a fresh checkout with the same stamping a seeded CI build uses and changes one thing at a time (Swift leaf and widely used
+# files, an interface change, C++, C headers, a new header and its user, mac-only.txt on a fresh runner, Package.swift, a deleted file, the
+# release .res), checking the linked exe or the test list rather than the log. See cache-lab-flavor.yml and docs/reference/windows-ci-build-seed.md.
+# Run after a Swift or runner-image upgrade: gh workflow run cache-lab.yml --ref <branch> (a workflow file is dispatchable once it is on main).
 on:
-  push:
-    branches: [ci/windows-build-cache, ci/windows-yml-seed]
-    paths:
-      - '.github/workflows/cache-lab*.yml'
-      - 'scripts/windows/cache-lab*'
-      - 'scripts/windows/restore-mtimes.ps1'
-      - 'scripts/windows/build-seed.ps1'
-      - 'scripts/windows/stamp-changed.ps1'
-      - 'scripts/windows/swift-build-args.ps1'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
