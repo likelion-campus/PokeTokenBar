@@ -151,8 +151,7 @@ private struct RecapFixtureProvider: UsageProvider {
 
     /// The texts a page must show, from the model it was built from.
     private static func expectedTexts(_ m: RecapPageModel) -> [String] {
-        // Back is a SysLink (its window text is markup): recap.navigation checks it is there and leaves.
-        var out = ["‹ " + m.previous, m.current, m.next + " ›", m.card.title, "\(m.card.total) \(m.card.unit)"]
+        var out = [m.back, m.previous, m.current, m.next, m.card.title, "\(m.card.total) \(m.card.unit)"]
         out += m.scopeNames
         out += m.card.meters.map(\.description)
         out += m.card.readouts.map { "\($0.label) \($0.value)" }
@@ -275,8 +274,11 @@ private struct RecapFixtureProvider: UsageProvider {
         let before2 = h.page.renders
         if let m = h.page.last { h.page.apply(m) }
         let still = h.page.renders == before2
-        r.add("recap.navigation", all && startOK && afterPrev && backAgain && limit && stays && toCurrent && month && sameScope && year && same && backOK && still,
-              "controls present=\(all); start ok=\(startOK); previous -> -1 ok=\(afterPrev); next -> 0 ok=\(backAgain); limit reached after \(steps) steps ok=\(limit), "
+        // the Mac's glyph buttons: the chevron before Back, the triangles on Previous and Next (not "‹ " and " ›" in a text)
+        let glyphs = control("back")?.pillGlyph == "chevron.left" && control("previous")?.pillGlyph == "arrowtriangle.left.fill"
+            && control("next")?.pillGlyph == "arrowtriangle.right.fill" && control("current")?.isPill == true
+        r.add("recap.navigation", glyphs && all && startOK && afterPrev && backAgain && limit && stays && toCurrent && month && sameScope && year && same && backOK && still,
+              "glyph buttons=\(glyphs); controls present=\(all); start ok=\(startOK); previous -> -1 ok=\(afterPrev); next -> 0 ok=\(backAgain); limit reached after \(steps) steps ok=\(limit), "
               + "a press at the limit stays=\(stays); current resets=\(toCurrent); scope Month resets the offset and names '\(L(.en).thisMonth)'=\(month); the same scope again "
               + "keeps the offset=\(sameScope); Year has 12 meters=\(year); page equals a fresh model=\(same); Back and Escape both leave=\(backOK); re-applying the same model renders nothing=\(still); "
               + parts.joined(separator: "; "))
@@ -358,8 +360,8 @@ private struct RecapFixtureProvider: UsageProvider {
         let dir = dumpDirectory()
         let isHome = popover.pageForTesting is WinHomePage
         let l = L(app.companion.language)
-        guard let button = findButton(hwnd, text: l.recapDetails) else {
-            r.add("recap.roundTrip", false, "home=\(isHome); no button named '\(l.recapDetails)'")
+        guard let button = findButton(hwnd, text: l.recapOpen) else {
+            r.add("recap.roundTrip", false, "home=\(isHome); no button named '\(l.recapOpen)'")
             popover.close(.destroyed)
             return
         }
@@ -372,7 +374,7 @@ private struct RecapFixtureProvider: UsageProvider {
         let wentBack = popover.pageForTesting?.escape() ?? false
         await wait(0.8)
         let backHome = popover.pageForTesting is WinHomePage && !popover.state.showingRecap && popover.isOpen
-        let details = popover.hwndForTesting.flatMap { findButton($0, text: l.recapDetails) } != nil
+        let details = popover.hwndForTesting.flatMap { findButton($0, text: l.recapOpen) } != nil
         // Reopening starts on Home even when the recap was up.
         popover.state.showingRecap = true
         popover.replacePage()

@@ -590,7 +590,7 @@ extension WindowsSelftest {
         guard await open(updater: updater(latest: "v2.5.700", name: "u2")), let page2 = self.page else { r.add("settings.updates", false, "no page"); return }
         click(page2.rowsForTesting.checkNow?.control)
         let skipped = await waitFor(3) { self.contains(self.visibleTexts(), self.l.skippedVersion("2.5.700")) }
-        click(page2.rowsForTesting.updateSkipped?.control)
+        click(page2.updateSkippedAgain)
         let again = await waitFor(2) { self.contains(self.visibleTexts(), self.l.updateFound("2.5.700")) }
         ok = ok && skipped && again
         notes.append("skipped: shown='\(l.skippedVersion("2.5.700"))'=\(skipped); Show again -> offer=\(again)")
@@ -679,7 +679,7 @@ extension WindowsSelftest {
         popover?.state.showSettings = true
         popover?.replacePage()
         _ = await waitFor(1) { self.popover?.pageForTesting is WinSettingsPage }
-        clickLink(self.page?.backLinkForTesting)
+        click(self.page?.backLinkForTesting)
         let linkBack = await waitFor(2) { self.popover?.pageForTesting is WinHomePage }  // stage 7 Task 5: Back returns to Home
         r.add("settings.escape", typed && stored && stillThere && moved && back && committed && open && linkBack,
               "typed Z and 한 reach the field once=\(typed); Enter commits (stored=\(stored)) and the popover stays on Settings=\(stillThere); Tab moves on and writes nothing=\(moved); "

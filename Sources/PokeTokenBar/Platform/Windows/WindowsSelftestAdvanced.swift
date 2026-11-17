@@ -289,10 +289,10 @@ private struct AdvNoStatuses: ProviderStatusProviding { func fetch() async -> [S
         let f = await fixture("rows")
         guard await open(f, expand: false), let page = t.page, let adv = section else { r.add("settings.advancedRows", false, "no page"); return }
         let collapsed = !t.shown(adv.key.fieldRow) && !t.shown(adv.rowsForTesting.scanField) && t.isShown(adv.disclosureForTesting)
-        let glyphBefore = adv.disclosureForTesting?.glyph?.text
+        let glyphBefore = adv.disclosureForTesting?.pillGlyph
         t.click(adv.disclosureForTesting)
         let opened = await t.waitFor(1) { self.t.shown(adv.key.fieldRow) }
-        let glyphAfter = adv.disclosureForTesting?.glyph?.text
+        let glyphAfter = adv.disclosureForTesting?.pillGlyph
         record()
         let texts = t.visibleTexts()
         let model = SettingsModel.advanced(SettingsModel.advancedInput(f.store, language: l.lang), facts: PlatformCompat.popoverFacts)
