@@ -127,6 +127,18 @@ private struct CollectionFixturePoke: PokeProviding {
             if !opened { problems.append("\(language): click opened \(page.stats.opened), detail \(String(describing: h.stores.state.dexDetailCollectionID))") }
             await wait(0.2)
             dump(h, "grid-\(language.rawValue)")
+            // more captures for the sheets: the second page (shiny entries 21 and 28), a search with no result, the log
+            press(items(view, DexBodyPart.nextAction).first)
+            await wait(0.3)
+            dump(h, "grid-page2-\(language.rawValue)")
+            page.search?.text = "zzz"
+            await wait(0.3)
+            dump(h, "search-none-\(language.rawValue)")
+            page.resetFilters()
+            h.stores.state.showingCollectionLog = true
+            page.refresh()
+            await wait(0.5)
+            dump(h, "log-\(language.rawValue)")
             notes.append("\(language): built in \(Int(built * 1000)) ms, \(windows) child windows (\(cells.count) cells, \(view.items.count) items, \(slots) sprites), footer \(model.footer.pageText ?? "-"), click opened=\(opened)")
         }
         r.add("collection.grid", problems.isEmpty, notes.joined(separator: " | ") + (problems.isEmpty ? "" : " | PROBLEMS: " + problems.joined(separator: "; ")))
