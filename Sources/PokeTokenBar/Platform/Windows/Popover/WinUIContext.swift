@@ -82,6 +82,7 @@ enum WinKit {
         let h = CreateWindowExW(exStyle, WinStr.w(className), WinStr.w(text), style, rect.left, rect.top, rect.right - rect.left,
                                 rect.bottom - rect.top, parent, HMENU(bitPattern: id), module, nil)
         if h == nil { AppLog.write("popover kit: CreateWindowExW(\(className)) failed: \(GetLastError())") }
+        MainActor.assumeIsolated { WinOpenTrace.note(.window) }
         return h
     }
 

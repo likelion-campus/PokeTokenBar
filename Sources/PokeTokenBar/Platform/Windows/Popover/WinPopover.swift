@@ -249,7 +249,7 @@ struct WinPopoverStats {
         stats.sessionNotify = ptb_window_session_notify(UnsafeMutableRawPointer(hwnd), 1) == 1
         let context = WinUIContext(dpi: dpi, owner: hwnd)
         ctx = context
-        build(page, in: made, ctx: context)
+        WinOpenTrace.build(page, via: "open") { build(page, in: made, ctx: context) }
         return made
     }
 
@@ -310,6 +310,7 @@ struct WinPopoverStats {
         pendingClose = false
         deferredReason = .deactivated
         rebuildAfterDialog = nil
+        WinOpenTrace.end()
         page?.destroy()
         page = nil
         router?.detach()
@@ -433,10 +434,11 @@ struct WinPopoverStats {
     func replacePage() {
         guard let w = window, let ctx, page != nil, !closing else { return }
         generation += 1
+        WinOpenTrace.end()
         page?.destroy()
         let next = makePage(self)
         page = next
-        next.build(in: w, ctx: ctx, client: Self.client(w.hwnd))
+        WinOpenTrace.build(next, via: "swap") { next.build(in: w, ctx: ctx, client: Self.client(w.hwnd)) }
         pageSizeChanged()
         _ = SetFocus(next.initialFocus ?? w.hwnd)
     }
@@ -572,13 +574,14 @@ struct WinPopoverStats {
         ctx?.destroy()
         let context = WinUIContext(dpi: dpi, owner: w.hwnd)
         ctx = context
-        build(page, in: w, ctx: context)
+        WinOpenTrace.build(page, via: "rebuild") { build(page, in: w, ctx: context) }
         stats.rebuilds += 1
         if hadFocus { _ = SetFocus(page.initialFocus ?? w.hwnd) }
     }
 
     private func eraseBackground(_ dc: HDC?) -> LRESULT? {
         guard let dc, let w = window, let ctx, let brush = ctx.colors.brush(ctx.colors.palette.window) else { return nil }
+        WinOpenTrace.note(.erase)
         var r = RECT()
         _ = GetClientRect(w.hwnd, &r)
         _ = FillRect(dc, &r, brush)

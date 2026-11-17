@@ -51,6 +51,7 @@ struct WinError: Error, CustomStringConvertible {
         }
         hwnd = h
         Self.windows[Int(bitPattern: h)] = self
+        WinOpenTrace.note(.window)   // a popover page's panes and drawn views (the settings-open trace)
     }
 
     /// Adds a handler for a message. Every handler of a message runs, in registration order; the first non-nil
