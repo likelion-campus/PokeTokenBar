@@ -643,7 +643,15 @@ final class TransferDialogDriver: @unchecked Sendable {
     func dialogAcceptsCheck() async {
         guard await open(), let section = section, let hybrid else { r.add("settings.dialogAccepts", false, "no page"); return }
         let rows = section.transferRowsForTesting
-        func norm(_ u: URL?) -> String { u.map { WinPath.native($0).lowercased() } ?? "-" }
+        // Both sides by the folder's final path (it exists) plus the file name: `work` comes from `temporaryDirectory`, which can be
+        // the 8.3 spelling (C:\Users\RUNNER~1\...) while the dialog returns the long one. A plain string compare failed on that.
+        func norm(_ u: URL?) -> String {
+            guard let u else { return "-" }
+            let dir = WinPath.native(u.deletingLastPathComponent())
+            var folder = WinPath.finalPath(dir) ?? dir
+            if folder.hasPrefix("\\\\?\\") { folder.removeFirst(4) }
+            return (folder + "\\" + u.lastPathComponent).lowercased()
+        }
         let korean = work.appendingPathComponent("백업 폴더 한글", isDirectory: true)
         let spaces = work.appendingPathComponent("a folder with spaces", isDirectory: true)
         var long = work

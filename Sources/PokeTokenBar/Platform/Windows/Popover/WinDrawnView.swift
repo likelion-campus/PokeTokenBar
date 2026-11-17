@@ -78,7 +78,7 @@ import WinSDK
         control.onDestroy = { [weak self] in self?.destroy() }  // a page that destroys its controls frees the picture too
         control.fitWidth = { [weak self] width in self?.fit(width: width) ?? false }
         window.on(0x0014 /* WM_ERASEBKGND */) { _, _ in 1 }
-        window.on(0x000F /* WM_PAINT */) { [weak self] _, _ in self?.onPaint() }
+        window.on(0x000F /* WM_PAINT */) { [weak self] _, _ in WinOpenTrace.note(.drawnPaint); return self?.onPaint() }
         window.on(0x0201 /* WM_LBUTTONDOWN */) { [weak self] _, lParam in
             guard let self else { return nil }
             self.pressed = self.hitTest?(self.dip(WinKit.point(lParam)))

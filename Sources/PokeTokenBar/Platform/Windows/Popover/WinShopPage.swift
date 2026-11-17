@@ -170,6 +170,7 @@ import WinSDK
         }
         walletRendered = w
         walletRenders += 1
+        host.stack.layoutIfNeeded()  // placed now, not on the next turn: nothing shows at the top left meanwhile
     }
 
     // MARK: cards
@@ -187,6 +188,7 @@ import WinSDK
         card.rendered = entry
         card.renderedState = stateKey(entry)
         renders += 1
+        host.stack.layoutIfNeeded()  // placed now, not on the next turn: nothing shows at the top left meanwhile
         WinCardKit.restoreFocus(kept, card.controls)
     }
 

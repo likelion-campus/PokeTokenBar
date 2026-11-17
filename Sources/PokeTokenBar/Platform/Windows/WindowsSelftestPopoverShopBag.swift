@@ -330,9 +330,14 @@ private struct ShopBagFixturePoke: PokeProviding {
                 h.home.window.show(activate: false)
                 await wait(0.5)
                 let l = h.language
+                if let dir, let shot = print(h.home.window.hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("items-\(tag).png")) }  // before the flows below change the page
                 for card in snap.model.cards {
                     if !h.has(card.name) || !h.has(card.description) { problems.append("items \(tag): \(card.kind) name or description missing") }
-                    if card.isPassive != !h.has("×\(card.count)") || (card.isPassive && !h.has(card.passiveHint)) { problems.append("items \(tag): \(card.kind) count/effect line") }
+                    // (the candy's stepper reads ×1 too: a passive item's missing count can only be told apart above 1)
+                    let countShown = h.has("×\(card.count)")
+                    if (!card.isPassive && !countShown) || (card.isPassive && card.count > 1 && countShown) || (card.isPassive && !h.has(card.passiveHint)) {
+                        problems.append("items \(tag): \(card.kind) count/effect line")
+                    }
                 }
                 if language == .en {
                     let index = Dictionary(uniqueKeysWithValues: snap.model.cards.enumerated().map { ($1.kind, $0) })
@@ -362,7 +367,6 @@ private struct ShopBagFixturePoke: PokeProviding {
                         if page.itemStates[.mint]?.confirming != false || h.record.uses.count != 1 { problems.append("mint: Cancel left confirming or used") }
                     } else { problems.append("no mint card") }
                 }
-                if let dir, let shot = print(h.home.window.hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("items-\(tag).png")) }
             } else { problems.append("items \(tag): no window") }
         }
         // a Pokémon that is not there (an egg): the reason in place of the controls
