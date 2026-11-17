@@ -148,7 +148,7 @@ import WinSDK
         let sh = slider(l.difficultyShopLabel, low: l.difficultyShopLowLabel, high: l.difficultyShopHighLabel, value: draft.shop) { $0.shop = $1 }
         growthRow = g.row; growthBar = g.bar; shopRow = sh.row; shopBar = sh.bar
         let actions = s.addSection(nil, card: false)
-        saveRow = actions.addRow(nil) { p, c in WinControls.button(l.save, in: p, ctx: c) }
+        saveRow = actions.addRow(nil) { p, c in WinControls.pillButton(WinPill(style: .prominent, title: l.save, textStyle: .body), in: p, ctx: c) }  // the Mac's `.borderedProminent`
         saveRow?.control?.onClick = { [weak self] in self?.saveDifficulty() }
         saveRow?.isVisible = draft.differs(from: companion)
     }
@@ -198,8 +198,10 @@ import WinSDK
         }
         snapshotRow?.control?.onClick = { [weak self] in self?.run { $0.createSnapshot() } }
         let expanded = drafts.snapshotsExpanded
-        historyRow = section.addRow(l.snapshotsSectionTitle) { p, c in
-            WinControls.glyphButton(symbol: expanded ? "chevron.down" : "chevron.right", label: l.snapshotsSectionTitle, in: p, ctx: c)
+        // The Mac's borderless button in the secondary colour: the chevron before the title, left-aligned across the row.
+        historyRow = section.addRow(nil, style: .full) { p, c in
+            WinControls.pillButton(WinPill(style: .borderless, title: l.snapshotsSectionTitle, glyph: expanded ? "chevron.down" : "chevron.right",
+                                           secondary: true, textStyle: .body, leftAligned: true), in: p, ctx: c)
         }
         if let toggle = historyRow?.control {
             let state = l.snapshotHistoryState(expanded: expanded)

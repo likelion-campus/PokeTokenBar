@@ -85,7 +85,7 @@ import WinSDK
     var ctx: WinUIContext { stack.ctx }
 
     /// The row's width in DIP (the page's inner width).
-    private var widthDIP: CGFloat { CGFloat(stack.width - 2 * Int32(ctx.metrics.pagePadding)) / ctx.scale }
+    private var widthDIP: CGFloat { CGFloat(stack.width - 2 * Int32(stack.metrics.pagePadding)) / ctx.scale }
 
     private func wire() {
         guard let view = panelView else { return }

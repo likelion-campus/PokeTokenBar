@@ -65,6 +65,8 @@ import WinSDK
         var activity: WinSectionCard  // stage 7 Task 12 (WinActivitySection.swift): the streak and the chart, between the totals and the tabs
         var tabs: WinSectionCard
         var provider: WinSectionCard, status: WinSectionCard, limits: WinSectionCard, footer: WinSectionCard
+        /// The Mac's three `Divider()`s: under the companion header, under the totals group, under the limits.
+        var ruleCompanion: WinSectionCard, ruleTotals: WinSectionCard, ruleLimits: WinSectionCard
     }
     var sections: Sections?
     private var headerParts: HeaderParts?
@@ -82,7 +84,7 @@ import WinSDK
     var configureCompanion: ((WinCompanionSection) -> Void)?
 
     struct HeaderParts {
-        var caption: WinControl, total: WinControl, grouped: WinControl, cost: WinControl, periods: WinControl
+        var caption: WinControl, total: WinControl, grouped: WinControl, cost: WinControl
         var periodsLine: WinPeriodLine
         var line: WinComposite
         var hint: WinRow
@@ -155,15 +157,28 @@ import WinSDK
         clock.onTick = { [weak self] in self?.tick() }
         stack = page
         ctx = page.ctx
-        let banner = page.addSection(nil, card: true), plaza = page.addSection(nil, card: false)
+        page.useMetrics(.home)  // the Mac's 14 pt padding and 12 pt spacing (Settings keeps 16 / 18)
+        let banner = page.addSection(nil, card: false), plaza = page.addSection(nil, card: false)
         // --- stage 7 Task 9: the companion header, first in Home's content as on the Mac (begin) ---
         companionSection = WinCompanionSection(companion: companion, section: page.addSection(nil, card: false), page: self)
         if let made = companionSection { configureCompanion?(made) }
         // --- stage 7 Task 9 (end) ---
-        sections = Sections(banner: banner, plaza: plaza,
-                            header: page.addSection(nil, card: false), activity: page.addSection(nil, card: false), tabs: page.addSection(nil, card: false),
-                            provider: page.addSection(nil, card: false), status: page.addSection(nil, card: false),
-                            limits: page.addSection(nil, card: false), footer: page.addSection(nil, card: false))
+        let ruleCompanion = page.addRule()
+        let header = page.addSection(nil, card: false), activity = page.addSection(nil, card: false), tabs = page.addSection(nil, card: false)
+        let provider = page.addSection(nil, card: false)
+        // The header group is one `VStack(spacing: 6)` on the Mac; the tabs sit 6 further down (`.padding(.top, 6)`), the
+        // provider row's lines 3 apart, the limits' rows 8 apart.
+        activity.spacingAbove = 6
+        tabs.spacingAbove = 12
+        provider.spacingAbove = 6
+        provider.rowSpacing = 3
+        let ruleTotals = page.addRule()
+        let status = page.addSection(nil, card: false), limits = page.addSection(nil, card: false)
+        limits.rowSpacing = 8
+        let ruleLimits = page.addRule()
+        sections = Sections(banner: banner, plaza: plaza, header: header, activity: activity, tabs: tabs, provider: provider, status: status,
+                            limits: limits, footer: page.addSection(nil, card: false), ruleCompanion: ruleCompanion, ruleTotals: ruleTotals,
+                            ruleLimits: ruleLimits)
         observe()  // makes the header, whose period line holds the streak's view (Task 12)
         // --- stage 7 Task 12: the activity panel and the streak (begin) ---
         if let sections {
@@ -252,6 +267,7 @@ import WinSDK
         if first || was?.statusBanner != m.statusBanner { renderStatus(m.statusBanner, s.status) }
         providerID = m.selectedProviderID
         if first || !Self.sameLimits(was?.limits, m.limits) { renderLimits(m.limits, s.limits) }
+        s.ruleLimits.isVisible = s.limits.isVisible
         updateFooter(m.footer, s.footer, first: first, was: was?.footer)
         last = m
         armClock()
@@ -337,6 +353,17 @@ import WinSDK
         return c
     }
 
+    /// A button the Mac draws borderless or prominent (`WinControls.pillButton`), doing what `b` says.
+    func pill(_ b: NoticeButton, style: WinPill.Style, secondary: Bool = false, in pane: HWND, ctx: WinUIContext) -> WinControl? {
+        let title = b.label + (b.inProgress ? "…" : "")
+        guard let c = WinControls.pillButton(WinPill(style: style, title: title, secondary: secondary, textStyle: .callout), in: pane, ctx: ctx)
+        else { return nil }
+        c.isEnabled = !b.inProgress
+        let action = b.action
+        c.onClick = { [weak self] in self?.perform(action) }
+        return c
+    }
+
     func glyph(_ symbol: String, _ label: String, in pane: HWND, ctx: WinUIContext, action: HomeAction) -> WinControl? {
         guard let c = WinControls.glyphButton(symbol: symbol, label: label, in: pane, ctx: ctx) else { return nil }
         c.tooltip = label
@@ -347,29 +374,38 @@ import WinSDK
     /// The page's inner width in pixels (what a `.full` row gets).
     var innerWidth: Int32 {
         guard let stack else { return 0 }
-        return stack.width - 2 * Int32(ctx.metrics.pagePadding)
+        return stack.width - 2 * Int32(stack.metrics.pagePadding)
     }
 
-    /// Capsule tabs as push-like radio groups, one line per group of tabs that fit (the Mac scrolls its strip; no wide
-    /// control and no combo box without a label): a row each, in `section`.
+    /// Capsule tabs (`CapsuleTabBar`: accent 18 % and semibold when selected, secondary 8 % otherwise), 8 px apart, one line per
+    /// group of tabs that fit (the Mac scrolls its strip sideways): a row each, in `section`.
     func addTabs(_ tabs: [CapsuleTab], selected: String?, to section: WinSectionCard, action: @escaping (String) -> HomeAction) {
-        let font = ctx.fonts.font(.callout)
         let titles = tabs.map { ($0.marked ? "● " : "") + $0.title }
-        let widths = titles.map { ctx.measure($0, font: font).cx + ctx.px(20) }
+        let gap = ctx.px(8)
+        func width(_ i: Int, _ bold: Bool) -> Int32 { ctx.measure(titles[i], font: ctx.fonts.font(.caption, weight: bold ? 600 : nil)).cx + 2 * ctx.px(10) }
         var start = 0
         while start < tabs.count {
             var end = start + 1
-            while end < tabs.count, (widths[start...end].max() ?? 0) * Int32(end - start + 1) <= innerWidth { end += 1 }
+            var used = width(start, tabs[start].id == selected)
+            while end < tabs.count, used + gap + width(end, tabs[end].id == selected) <= innerWidth {
+                used += gap + width(end, tabs[end].id == selected)
+                end += 1
+            }
             let range = start..<end
-            let chosen = tabs[range].firstIndex { $0.id == selected }.map { $0 - start } ?? -1
-            let ids = tabs[range].map(\.id)
             section.addStyledRow(label: nil, style: .full) { pane, ctx in
-                guard let radio = WinControls.radioGroup(Array(titles[range]), selected: chosen, in: pane, ctx: ctx) else { return nil }
-                radio.onSelect = { [weak self] i in
-                    guard i < ids.count else { return }
-                    self?.perform(action(ids[i]))
-                }
-                return radio
+                WinComposite(parent: pane, ctx: ctx) { child in
+                    var pills: [WinControl] = []
+                    for i in range {
+                        let isSelected = tabs[i].id == selected
+                        let pill = WinPill(style: .tab, title: titles[i], selected: isSelected, bold: isSelected)
+                        guard let c = WinControls.pillButton(pill, label: tabs[i].title, in: child, ctx: ctx) else { continue }
+                        c.tooltip = tabs[i].help
+                        let id = tabs[i].id
+                        c.onClick = { [weak self] in self?.perform(action(id)) }
+                        pills.append(c)
+                    }
+                    return (pills, [])
+                }?.control
             }
             start = end
         }
@@ -381,18 +417,27 @@ import WinSDK
 
     // MARK: regions
 
+    /// The update offer (`PopoverView.updateBanner`): an accent 12 % card on an 8 pt corner, the text in `caption`, then Skip (a
+    /// borderless secondary button) and Update (the prominent one) at the right, or "Updating…" while it runs.
     private func renderBanner(_ b: UpdateBannerModel?, _ section: WinSectionCard) {
         rebuild("banner", section) {
             guard let b else { section.isVisible = false; return }
             section.isVisible = true
-            section.addStyledRow(label: text(b.text, .body, weight: 600), style: .trailing) { pane, ctx in
-                if b.isUpdating {
-                    return WinControls.label(b.updatingLabel, style: .callout, role: .secondary, wraps: false, in: pane, ctx: ctx)
-                }
-                return self.button(b.updateButton, in: pane, ctx: ctx)
-            }
-            if !b.isUpdating {
-                section.addStyledRow(label: nil, style: .trailing) { pane, ctx in self.button(b.skipButton, in: pane, ctx: ctx) }
+            section.addStyledRow(label: nil, style: .full) { pane, ctx in
+                WinNoticeCard(parent: pane, ctx: ctx, tint: .accent, alpha: 0.12, radius: 8, spacing: 6, symbol: nil) { child, ctx, tint in
+                    var message = WinNoticeCard.Line()
+                    message.flexible = WinControls.label(b.text, style: .caption, in: child, ctx: ctx)
+                    var actions = WinNoticeCard.Line()
+                    if b.isUpdating {
+                        actions.trailing = [WinControls.label(b.updatingLabel, style: .caption2, role: .secondary, wraps: false, in: child, ctx: ctx)]
+                            .compactMap { $0 }
+                    } else {
+                        actions.trailing = [self.pill(b.skipButton, style: .borderless, secondary: true, in: child, ctx: ctx),
+                                            self.pill(b.updateButton, style: .prominent, in: child, ctx: ctx)].compactMap { $0 }
+                    }
+                    for c in [message.flexible].compactMap({ $0 }) + actions.trailing where c.kind == .label { c.background = tint }
+                    return [message, actions]
+                }?.control
             }
         }
     }
@@ -420,10 +465,9 @@ import WinSDK
     private func updateHeader(_ m: HomeModel, _ section: WinSectionCard, first: Bool, was: HomeModel?) {
         let h = m.header
         let empty = m.selectedProviderID == nil
-        let periods = [h.week, h.month].map { ([$0.name, $0.tokens] + [$0.cost].compactMap { $0 }).joined(separator: " ") }
-            .joined(separator: "    ")
+        let periods = [h.week, h.month]
         if headerParts == nil {
-            var caption: WinControl?, total: WinControl?, grouped: WinControl?, cost: WinControl?, periodsLabel: WinControl?
+            var caption: WinControl?, total: WinControl?, grouped: WinControl?, cost: WinControl?
             var line: WinComposite?
             section.addStyledRow(label: { pane, ctx in
                 caption = WinControls.label(h.caption, style: .caption, role: .secondary, in: pane, ctx: ctx)
@@ -441,18 +485,17 @@ import WinSDK
             var periodsLine: WinPeriodLine?
             section.addStyledRow(label: nil, style: .full) { pane, ctx in  // Tasks 12 and 13: the totals, the streak and "Details" in the Mac's one line (WinPeriodLine.swift)
                 periodsLine = self.makePeriodLine(pane, ctx, periods)
-                periodsLabel = periodsLine?.label
                 return periodsLine?.control
             }
             var hintRow: WinRow?
             hintRow = section.addStyledRow(label: { pane, ctx in
                 WinControls.label(L(self.companion.language).winNoUsageYet, style: .callout, role: .tertiary, in: pane, ctx: ctx)
             }, style: .trailing)
-            guard let caption, let total, let grouped, let cost, let periodsLabel, let periodsLine, let line, let hintRow else {
+            guard let caption, let total, let grouped, let cost, let periodsLine, let line, let hintRow else {
                 AppLog.write("home page: the header's controls were not made")
                 return
             }
-            headerParts = HeaderParts(caption: caption, total: total, grouped: grouped, cost: cost, periods: periodsLabel, periodsLine: periodsLine, line: line, hint: hintRow)
+            headerParts = HeaderParts(caption: caption, total: total, grouped: grouped, cost: cost, periodsLine: periodsLine, line: line, hint: hintRow)
             line.setShown(grouped, h.grouped != nil)
             line.setShown(cost, h.cost != nil)
             hintRow.isVisible = empty
@@ -465,7 +508,7 @@ import WinSDK
             if c.text != s { c.text = s; relayout = true }
         }
         setWrapped(parts.caption, h.caption)
-        parts.periodsLine.setText(periods)  // Tasks 12 and 13: a line of its own (the page lays out again when its height changed)
+        parts.periodsLine.setPeriods(periods)  // Tasks 12 and 13: a line of its own (the page lays out again when its height changed)
         parts.line.setText(parts.total, h.total)
         parts.line.setText(parts.grouped, h.grouped ?? "")
         parts.line.setText(parts.cost, h.cost ?? "")
@@ -534,9 +577,10 @@ import WinSDK
             section.addStyledRow(label: nil, style: .full) { pane, ctx in
                 line = WinComposite(parent: pane, ctx: ctx) { child in
                     refresh = self.glyph("arrow.clockwise", f.usage?.refreshHelp ?? f.settingsHelp, in: child, ctx: ctx, action: .refresh)
-                    updated = WinControls.label("", style: .caption, role: .secondary, wraps: false, in: child, ctx: ctx)
-                    error = WinControls.label("⚠", style: .callout, wraps: false, in: child, ctx: ctx)
-                    if let error { self.paint(error, .systemOrange) }
+                    updated = WinControls.label("", style: .caption, role: .tertiary, wraps: false, in: child, ctx: ctx)
+                    // The Mac's orange `exclamationmark.triangle` with the message as its help.
+                    error = WinControls.glyphButton(symbol: "exclamationmark.triangle", label: f.usage?.error ?? "!", size: 12, in: child, ctx: ctx)
+                    error?.glyphColor = WinUIColors.rgb(255, 149, 0)
                     if let toggle = f.petToggle {
                         pet = self.glyph(toggle.symbol, toggle.label, in: child, ctx: ctx, action: .toggleFloatingPet)
                     }
@@ -568,7 +612,7 @@ import WinSDK
         }
         parts.line.setShown(parts.error, usage?.error != nil)
         parts.error.tooltip = usage?.error
-        if let message = usage?.error { parts.line.setText(parts.error, "⚠"); parts.error.tooltip = message }
+        if let message = usage?.error, !message.isEmpty { parts.error.text = message }
         parts.line.remeasure()
         renders["footer", default: 0] += 1
     }
