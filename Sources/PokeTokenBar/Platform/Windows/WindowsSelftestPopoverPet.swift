@@ -858,13 +858,13 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     }
 
     static func idleCheck(_ r: WindowsSelftest.Recorder) async {
-        let seconds = 10.0
+        let seconds = 8.0
         func sample(_ label: String) async -> IdleWindow? {
             var last: IdleWindow?
             for _ in 0..<2 {
                 // The harness's own settings writes settle first (a debounced sync and the other synced defaults objects
                 // reading it back cost the main thread ~25 cs in run 44034801215's 'hidden' window, the pet's window long gone).
-                _ = await WindowsSelftest.waitStable(timeout: 10, quiet: 3) { !WinDefaultsSync.isSyncPending }
+                _ = await WindowsSelftest.waitStable(timeout: 10, quiet: 2) { !WinDefaultsSync.isSyncPending }
                 let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
                 guard let s = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else { return nil }
                 let wakes1 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
@@ -914,6 +914,10 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let movingRenders = moving.pet.stats.renders - r1
         moving.store.floatingPetEnabled = false
         _ = await WindowsSelftest.waitUntil(timeout: 2) { moving.pet.window == nil }
+        // Hidden is judged once quiet, as the gate's window (30 s after start): the bundle selftest of run 44049375908 counted
+        // ~1.8 message wakes a second for the first seconds after the hide (18 loop iterations, no timer of ours: the installed
+        // selftest of the same run measured 1 main cs). A wake source the pet left behind never goes quiet and fails here.
+        let quiet3 = await waitQuiet()
         let s3 = await sample("hidden")
         moving.destroy()
         WinFloatingPet.spriteFetcherOverride = saved
@@ -930,7 +934,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                 + "(\(UInt64(Double(s.processCycles) / seconds))/s), known wakes \(w.known) (+\(w.extra) to the budget), busy [\(s.busy)]"
         }
         r.add("pet.idle", ok,
-              "\(Int(seconds)) s each, after the process was quiet (\(Int(quiet1)) s, \(Int(quiet2)) s). still (egg, no GIF): clock armed=\(armedStill), \(stillRenders) renders, \(line(s1)); animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps): "
+              "\(Int(seconds)) s each, after the process was quiet (\(Int(quiet1)) s, \(Int(quiet2)) s; after the hide \(Int(quiet3)) s). still (egg, no GIF): clock armed=\(armedStill), \(stillRenders) renders, \(line(s1)); animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps): "
               + "\(movingRenders) renders, \(line(s2)) (budget \(Int((frameRate + 2) * seconds))); hidden after shown: \(line(s3)) (budget for still and hidden: 6)")
     }
 
