@@ -45,6 +45,7 @@ import Foundation
 
     private static func mainRunLoop(_ due: Date, _ fire: @escaping @MainActor () -> Void) -> Stop {
         let timer = Timer(fire: due, interval: 0, repeats: false) { _ in
+            WakeTrace.count("animationClock")
             MainActor.assumeIsolated { fire() }
         }
         RunLoop.main.add(timer, forMode: .common)

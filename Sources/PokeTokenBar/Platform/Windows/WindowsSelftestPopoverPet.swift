@@ -1135,7 +1135,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         h.asleep = true
         h.pet.sync()
         let left = petWindowsLeft()
-        let gone = h.window == nil && left == 0 && WinSinkWindow.liveCount == live0 && playback?.released == true && playback?.clock.isArmed == false
+        let liveAfterHide = WinSinkWindow.liveCount
+        let gone = h.window == nil && left == 0 && liveAfterHide == live0 && playback?.released == true && playback?.clock.isArmed == false
         let hiddenMessages = MessageCounts()
         let hidden = await sample(hiddenMessages)
         // Animated: a raised sample (`midLevel`, not a fresh hatch: in a bundled app a hatch warms its sprites and names over the
@@ -1181,7 +1182,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
               + "still (an egg): shown=\(shown) clock armed=\(armedStill), \(stillRenders) renders, \(line(still)) messages [\(stillMessages.top)] (net <= 6)=\(stillOK); "
               + "animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps, Windows' \"Show animations\" \(WinSpriteAnimator.systemAnimationsEnabled() ? "on" : "off")): clock armed=\(armed), \(movingRenders) renders, \(line(animated)) "
               + "(net <= \(Int((frameRate + 2) * seconds)), renders >= \(Int(frameRate * seconds * 0.7)))=\(animatedOK); "
-              + "hidden: nothing left=\(gone) (pet windows \(left), windows \(live0) -> \(WinSinkWindow.liveCount), playback released=\(playback?.released == true)), \(line(hidden)) messages [\(hiddenMessages.top)] "
+              + "hidden: nothing left=\(gone) (pet windows \(left), windows \(live0) -> \(liveAfterHide), playback released=\(playback?.released == true)), \(line(hidden)) messages [\(hiddenMessages.top)] "
               + "(against still: net <= \(max(0, still.mainNet) + 3), process cs <= \(still.processSwitches + 10), cycles <= \(still.sample.processCycles + 4_000_000))=\(hiddenOK)")
     }
 
@@ -1261,6 +1262,15 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     // MARK: - the idle gate's windows (`--pet-idle-probe still|animated|hidden`; CI only)
 
     private static var idleProbe: PetHarness?
+    private static var idleProbeMode: String?
+
+    /// At exit (`WindowsApp.exit`): the probe's pet and what the app holds then (the gate compares it with the line logged once
+    /// the pet stood: GDI, USER, windows of ours, kit controls). nil when no probe ran.
+    static func idleProbeExitLine() -> String? {
+        guard let mode = idleProbeMode else { return nil }
+        let w = idleProbe?.window
+        return "pet idle probe exit: mode=\(mode) window=\(w != nil) clock armed=\(w?.playback.clock.isArmed == true) \(PopoverResources.now())"
+    }
 
     /// The installed app with the gate's settings, and one pet over sample stores (the app's own pet stays off): `still` an egg,
     /// `animated` the raised sample's (Ivysaur) FIXTURE GIF at the stored animation quality (default Power saver), with Windows'
@@ -1272,6 +1282,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             return
         }
         WinFloatingPet.spriteFetcherOverride = WindowsSelftestPopoverCompanion.fixtureFetcher()
+        idleProbeMode = mode
         Task { @MainActor in
             await wait(3)
             let h = await PetHarness.make(mode == "still" ? .eggIncubating : .midLevel) {   // not a fresh hatch: no network warm-up in the window
@@ -1287,7 +1298,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             let model = h.window?.playback.models.first
             AppLog.write("pet idle probe: mode=\(mode) shown=\(shown) window=\(h.window != nil) picture=\(model?.current == nil ? "none" : "loaded") gif frames=\(model?.frames.count ?? 0) "
                          + "show animations=\(WinSpriteAnimator.systemAnimationsEnabled()) "
-                         + "floor=\(h.window?.playback.frameFloor ?? -1) clock armed=\(h.window?.playback.clock.isArmed == true) \(KitResources.now())")
+                         + "floor=\(h.window?.playback.frameFloor ?? -1) clock armed=\(h.window?.playback.clock.isArmed == true) \(PopoverResources.now())")
         }
     }
 }

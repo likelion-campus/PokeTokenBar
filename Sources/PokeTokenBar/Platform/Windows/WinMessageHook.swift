@@ -59,6 +59,7 @@ import WinSDK
         guard let m = UnsafeMutablePointer<MSG>(bitPattern: messageBits) else { return }
         let message = m.pointee.message
         tap?(message, m.pointee.hwnd)  // stage 7 Task 22
+        WakeTrace.message(message, wParam: Int(m.pointee.wParam))   // idle gate attribution (off unless PTB_WAKE_TRACE=1)
         // Mouse messages (client 0x0200–0x020E, non-client 0x00A0–0x00AD) never take the dialog path: IsDialogMessageW only
         // dispatches them, and a tracking loop that DefWindowProc runs on a non-client click (a scroll bar's arrow or thumb,
         // even without WinModalPump.begin) must read its own button-up. Handing it WM_NULL left the loop holding the capture

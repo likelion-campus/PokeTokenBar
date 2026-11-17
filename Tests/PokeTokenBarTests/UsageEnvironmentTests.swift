@@ -144,6 +144,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "WindowsSelftestFlakes.swift",       // PTB_SELFTEST_FLAKE_LOOP: the selftest's repeat loops (QA, like WindowsSelftest.swift)
             "WindowsSelftestPopoverCompanion.swift",  // PTB_SELFTEST_SPRITES: the companion header's fixture sprites (QA, stage 7 Task 9)
             "WinDarkMode.swift",                 // PTB_SELFTEST_APPEARANCE: a batch run captures every page in dark (QA, stage 7 Task 16)
+            "WakeTrace.swift",                   // PTB_WAKE_TRACE: the idle gate counts what wakes the main thread (CI, stage 7 idle gates)
         ]
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()    // PokeTokenBarTests

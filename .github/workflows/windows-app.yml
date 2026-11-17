@@ -8,7 +8,7 @@ name: windows-app
 #   installer        silent install, upgrade (full), installed selftest, uninstall (full), upgrade from the last release (full);
 #                    artifacts windows-app-installer, ptb-install-stamps
 #   updates          (full) failed-update relaunch and in-app update; artifact windows-app-updates
-#   idle (1-3)       (full, not fast) the idle gate in three shards of windows, each on its own runner that installs the build first
+#   idle (1-5)       (full, not fast) the idle gate in five shards of windows, each on its own runner that installs the build first
 #                    (scripts/windows/idle-gate.ps1 -Shard n); artifacts windows-app-idle-n
 #   result           always: fails when a job above failed (one conclusion for branch tooling); the real-IME check over the selftest
 #                    processes of two jobs; in release mode the release manifest and the artifact windows-release
@@ -143,7 +143,7 @@ jobs:
         run: |
           $lines = @("## windows-app: level **$env:PTB_LEVEL**", '')
           if ($env:PTB_LEVEL -eq 'full') {
-              $lines += 'Ran: everything, including the upgrade test, the idle gate (three shards) and the uninstall check.'
+              $lines += 'Ran: everything, including the upgrade test, the idle gate (five shards) and the uninstall check.'
           } else {
               $lines += '**Light run, not a full one.** Skipped step groups: dispatch-loop fallback selftest, upgrade test, idle gate, uninstall check.'
               $lines += 'Ask for the full run with `gh workflow run windows-app.yml --ref <branch> -f level=full`.'
@@ -1425,13 +1425,13 @@ jobs:
             collected
           if-no-files-found: warn
   idle:
-    name: Idle gate (shard ${{ matrix.shard }} of 3)
+    name: Idle gate (shard ${{ matrix.shard }} of 5)
     needs: build
     if: ${{ !cancelled() && needs.build.outputs.iscc == 'success' && needs.build.outputs.level == 'full' && needs.build.outputs.fast != 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5]
     runs-on: windows-latest
     timeout-minutes: 50
     steps:
@@ -1456,7 +1456,7 @@ jobs:
           try { $null = Test-InShard 'popover-injected-dummy-120s' 1 } catch { $threw = $true; "the dummy label threw: $($_.Exception.Message)" }
           Assert-That $threw 'idle.shardRule.unknownThrows' 'a label that is in no shard throws instead of being skipped'
           $all = @($IdleShardOf.Keys)
-          Assert-That ($all.Count -eq 19 -and @($IdleShardOf.Values | Where-Object { $_ -notin 1, 2, 3 }).Count -eq 0) 'idle.shardRule.map' "$($all.Count) labels, shards: $((($IdleShardOf.Values | Sort-Object -Unique) -join ','))"
+          Assert-That ($all.Count -eq 30 -and @($IdleShardOf.Values | Where-Object { $_ -notin 1, 2, 3, 4, 5 }).Count -eq 0) 'idle.shardRule.map' "$($all.Count) labels, shards: $((($IdleShardOf.Values | Sort-Object -Unique) -join ','))"
       - name: Midnight guard rule (fake clock, a few seconds)
         timeout-minutes: 5
         shell: pwsh
@@ -1476,7 +1476,7 @@ jobs:
           Case '2026-11-16 12:00:00' 340 $false    # the 300 s window at noon
       - name: Idle gate (installed app, fixture data; this shard's windows, 120 s each, one of 300 s with two store refreshes)
         id: idle
-        timeout-minutes: 40  # about 20-22 min per shard (one pet window each since stage 7 Task 22); the one-job gate took about 48 min
+        timeout-minutes: 40  # about 17-19 min per shard (the pet windows, stage 7 Task 22: shard 4 two, shard 2 one, +2.5 min each); the one-job gate took about 48 min
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
