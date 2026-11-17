@@ -101,7 +101,11 @@ import WinSDK
     }
 
     /// Shows `input` again now (the selftest, after changing its fixture).
-    func reload() { apply(currentInput()) }
+    func reload() {
+        let input = currentInput()
+        apply(input)
+        if inputOverride != nil { applyDexLinks(dexLinksOverride ?? [:], input) }  // stage 7 Task 20
+    }
 
     private func currentInput() -> CompanionHeaderInput {
         inputOverride?() ?? CompanionHeaderInput(store: companion, names: names, failedTypeNames: failedTypeNames)

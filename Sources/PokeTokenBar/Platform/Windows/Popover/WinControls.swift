@@ -216,6 +216,9 @@ enum WinEditKind: Equatable, Sendable {
 
     fileprivate var valueWidth: CGFloat = 0
 
+    /// The selftest reads whether the control is shown.
+    var isVisibleForTesting: Bool { IsWindowVisible(hwnd) }
+
     func setVisible(_ visible: Bool) {
         for part in parts { WinKit.setVisible(part, visible) }
     }

@@ -49,6 +49,8 @@ import WinSDK
     private var tasks: [Task<Void, Never>] = []
     private let clock = PopoverClock()
     private(set) var isDestroyed = false
+    /// The selftest reads whether the clock holds a timer.
+    var isClockArmedForTesting: Bool { clock.isArmed }
 
     /// What opening a Pokédex page does (Task 21 sets it): the collection ID of the cell.
     var onOpenEntry: ((String) -> Void)?
