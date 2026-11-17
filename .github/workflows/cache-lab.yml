@@ -1,0 +1,22 @@
+name: cache-lab
+# Proof lab for incremental Windows builds (a CI tool, not part of the product): runs on a push of the branch that carries it
+# (a new workflow file cannot be dispatched before it is on the default branch). See cache-lab-flavor.yml.
+on:
+  push:
+    branches: [ci/windows-build-cache]
+    paths:
+      - '.github/workflows/cache-lab*.yml'
+      - 'scripts/windows/cache-lab*'
+      - 'scripts/windows/restore-mtimes.ps1'
+      - 'scripts/windows/build-seed.ps1'
+permissions:
+  contents: read
+jobs:
+  debug:
+    uses: ./.github/workflows/cache-lab-flavor.yml
+    with:
+      flavor: debug
+  release:
+    uses: ./.github/workflows/cache-lab-flavor.yml
+    with:
+      flavor: release

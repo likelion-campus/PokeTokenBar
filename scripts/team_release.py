@@ -88,7 +88,7 @@ SMOKE_WORKFLOW = "windows-release-smoke.yml"
 REQUIRED_GATES = ("bundleSelftest", "install", "upgrade", "installedSelftest", "idle", "uninstall", "upgradeFromRelease",
                   "failedUpdateRelaunch", "inAppUpdate")
 ISCC_DEFINES = ("SrcDir", "AppVer", "OutDir")
-MIN_EXECUTED = 2400
+MIN_EXECUTED = 3845  # the executed-test floor; windows.yml's result job reads it from here
 ZIP_NAME = "PokeTokenBar.zip"
 WINDOWS_INSTALLER = re.compile(r"^PokeTokenBar-Setup-.+-win-x64\.exe$")
 
@@ -463,6 +463,8 @@ def check_tests_manifest(manifest, args, problems):
     if not _is_int(skipped) or skipped < 0:
         problems.append("windows-tests.json skipped is %s, expected a count" % json.dumps(skipped))
     _expect(problems, "windows-tests.json failures", failures, 0)
+    # A release is tested on a build from scratch: release mode never restores a seed (windows.yml passes -Clean), and the manifest says so.
+    _expect(problems, "windows-tests.json cleanBuild", manifest.get("cleanBuild"), True)
 
 
 def check_release_manifest(ctx, manifest, args, app_run_id, app_attempt, local, problems):
