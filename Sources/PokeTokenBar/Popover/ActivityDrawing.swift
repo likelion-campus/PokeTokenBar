@@ -140,7 +140,7 @@ import Foundation
         guard let image = picture("dots-\(count)-\(current)", size: size, scale: scale, graphics: graphics, { canvas, space in
             for i in 0..<count {
                 let r = CGRect(x: CGFloat(i) * (Self.dot + Self.dotSpacing), y: 0, width: Self.dot, height: Self.dot)
-                canvas.setFillColor(PopoverColorRole.secondary.plazaColor(alpha: i == current ? 0.75 : 0.25))
+                canvas.setFillColor(PopoverColorRole.secondary.plazaShapeColor(alpha: i == current ? 0.75 : 0.25))
                 canvas.fillEllipse(in: space.canvas(r))
             }
         }) else { return nil }

@@ -3,8 +3,8 @@ import Foundation
 import WinSDK
 
 /// The popover's colours in light mode (stage 7 D15; dark mode is Task 16): the window in `COLOR_WINDOW`, cards one step
-/// darker, text in `COLOR_WINDOWTEXT`, secondary and tertiary text and the card's lines at the Mac's label opacities
-/// (`PopoverLabelOpacity`, measured on the Mac) over the card. High contrast overrides nothing: every role is a system
+/// darker, text in `COLOR_WINDOWTEXT`, secondary and tertiary text and the card's lines at Windows' label opacities
+/// (`PopoverLabelOpacity.secondary/tertiary(_, windows: true)`: the Mac's, raised for contrast) over the card. High contrast overrides nothing: every role is a system
 /// colour and the native controls draw themselves. Brushes are made on first use and freed by `destroy`.
 @MainActor final class WinUIColors {
     enum Role: Equatable, Sendable {
@@ -55,8 +55,8 @@ import WinSDK
                        cardBorder: blend(card, rgb(0, 0, 0), PopoverLabelOpacity.separator * 0.6),
                        divider: blend(card, rgb(0, 0, 0), PopoverLabelOpacity.separator),
                        text: text,
-                       secondaryText: blend(card, text, PopoverLabelOpacity.secondary),
-                       tertiaryText: blend(card, text, PopoverLabelOpacity.tertiary),
+                       secondaryText: blend(card, text, PopoverLabelOpacity.secondary(.light, windows: true)),
+                       tertiaryText: blend(card, text, PopoverLabelOpacity.tertiary(.light, windows: true)),
                        accent: accent ?? systemBlue,
                        pressed: blend(card, text, 0.14), hot: blend(card, text, 0.07))
     }

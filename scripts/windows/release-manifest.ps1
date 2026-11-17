@@ -3,7 +3,7 @@
 # unless: the checkout is release_sha, every version stamp equals release_version, the shipped installer was built with
 # exactly the ISCC defines SrcDir, AppVer and OutDir and is not a test build (FileDescription), the level is full and
 # every gate step succeeded.
-# Reads env RELEASE_SHA, RELEASE_VERSION, PTB_LEVEL, PTB_STEPS (toJSON(steps)), GITHUB_SHA, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT,
+# Reads env RELEASE_SHA, RELEASE_VERSION, PTB_LEVEL, PTB_STEPS (the gate steps' outcomes as {id: {outcome, outputs}}), PTB_SWIFT_VERSION (optional), GITHUB_SHA, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT,
 # ImageVersion; and installer-out\, bundle\, iscc-defines.json (ISCC step), install-stamps.json (install step).
 # Usage: release-manifest.ps1 [-Out windows-release]
 param([string]$Out = 'windows-release')
@@ -69,7 +69,8 @@ Expect ($stamps.uninstallDisplayVersion -eq $v) "Uninstall DisplayVersion '$($st
 $bundleVersion = (Get-Content bundle\PokeTokenBar.version -Raw).Trim()
 Expect ($bundleVersion -eq $v) "bundle PokeTokenBar.version '$bundleVersion', expected $v"
 
-$swiftText = (& swift --version 2>&1 | Out-String)
+# The split workflow builds in one job and writes the manifest in another: the build job passes its toolchain's version.
+$swiftText = if ($env:PTB_SWIFT_VERSION) { "Swift version $env:PTB_SWIFT_VERSION" } else { (& swift --version 2>&1 | Out-String) }
 $swift = [regex]::Match($swiftText, 'Swift version (\d+(\.\d+)+)').Groups[1].Value
 Expect ([bool]$swift) "no Swift version in: $($swiftText.Trim())"
 
