@@ -307,6 +307,61 @@ struct FloatingPetPointer: Equatable {
     }
 }
 
+/// Windows' `WM_DPICHANGED` on the pet's window (Task 22 review; the Mac's panel has no DPI of its own: a point is a point on
+/// every screen). Growing in place at a mixed-DPI boundary could carry most of the window onto the other monitor and back,
+/// a size flip without end, and mid-drag the window would jump off the grab point; so a drag keeps the size until the
+/// release (the move's own `SetWindowPos` is where that message comes from), a change otherwise goes where Windows suggests
+/// (its rectangle keeps the window on the monitor of the new DPI), and Windows' answer to the window's own
+/// `UpdateLayeredWindow` (a placement or a new size, which chose the DPI) is not a new DPI.
+enum FloatingPetDPIChange: Equatable {
+    /// Nothing to do: the same DPI, or a message from inside the window's own picture update.
+    case ignore
+    /// A drag is on: the size stays, the DPI applies at the release (`atRelease`).
+    case later
+    /// Drawn at the new DPI now, at `frame`.
+    case now(frame: CGRect)
+
+    /// What the window does with `new` (y-down pixels; `frame` is the window now, `side` its side at `new`).
+    static func decide(current: Int, new: Int, pressed: Bool, inOwnUpdate: Bool, frame: CGRect, side: CGFloat, suggested: CGRect?) -> FloatingPetDPIChange {
+        guard new > 0, new != current else { return .ignore }
+        if pressed { return .later }
+        if inOwnUpdate { return .ignore }
+        // Windows' rectangle when it sent one (its top-left; the side is the pet's at the new DPI, which the rectangle has to
+        // within a rounding), else in place with the bottom-left kept (the pet's home corner).
+        let origin = suggested.map { CGPoint(x: $0.minX, y: $0.minY) } ?? CGPoint(x: frame.minX, y: frame.maxY - side)
+        return .now(frame: CGRect(origin: origin, size: CGSize(width: side, height: side)))
+    }
+
+    /// The DPI a drag deferred, applied at its release: nil when there is none or it is the window's already.
+    static func atRelease(current: Int, pending: Int?) -> Int? {
+        guard let pending, pending > 0, pending != current else { return nil }
+        return pending
+    }
+}
+
+/// The pet window's scaled frames (Windows draws its own pixels; the Mac's `SpriteView` lets Core Animation scale): one
+/// subject at one size, at most `budget` bytes. Once full the frames kept stay and the rest are made each time they show
+/// (Task 22 review M8: dropping everything and refilling made every frame of a loop larger than the budget again, forever).
+struct FloatingPetScaledFrames<ID: Hashable> {
+    let budget: Int
+    private(set) var key: String?
+    private(set) var frames: [ID: [UInt8]] = [:]
+    private(set) var bytes = 0
+
+    init(budget: Int) { self.budget = budget }
+
+    /// The frame `id` of `key` (subject and size): kept, else made and kept while it fits. `made`: it was made now.
+    mutating func frame(_ id: ID, key: String, make: () -> [UInt8]) -> (bytes: [UInt8], made: Bool, kept: Bool) {
+        if self.key != key { self = FloatingPetScaledFrames(budget: budget); self.key = key }
+        if let kept = frames[id] { return (kept, false, true) }
+        let made = make()
+        guard bytes + made.count <= budget else { return (made, true, false) }
+        frames[id] = made
+        bytes += made.count
+        return (made, true, true)
+    }
+}
+
 /// The pet's right-click menu: `PetHostingView.showContextMenu` as values (pinned twin): Open, Hide, Back view (checked).
 enum FloatingPetMenu {
     enum Action: Equatable { case open, hide, toggleBackView }

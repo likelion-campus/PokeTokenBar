@@ -30,6 +30,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     let companion: CompanionStore
     private(set) var pet: WinFloatingPet!
     var animations = true, lowPower = false, asleep = false
+    /// The lock state a new window reads (nil: the real one).
+    var sessionLocked: Bool?
     var screensOverride: [FloatingPetScreen]?
     private(set) var openers: [FloatingPetActions.Opener] = []
     /// What an open request does besides being counted (the app's popover, for the click checks).
@@ -73,6 +75,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             p.animationsEnabled = { self?.animations ?? true }
             p.lowPower = { self?.lowPower ?? false }
             p.displayAsleep = { self?.asleep ?? false }
+            p.sessionLocked = { self?.sessionLocked ?? WinFloatingPet.sessionNow().locked }
             if let screens = self?.screensOverride { p.screens = { screens } }
             p.menuOwner = { WindowsSelftest.selftestApp?.sink?.hwnd }
             p.popoverWindow = { WindowsSelftest.selftestApp?.popover?.hwnd }
@@ -544,16 +547,17 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let work = primaryWork()
         var notes: [String] = []
         var ok = true
-        // 1. Far away (a monitor that is gone): the default corner, and that becomes the home.
-        let far = await PetHarness.make(.hatched, saved: CGPoint(x: -100_000, y: -100_000))
+        // 1. Far away (a monitor that is gone): the default corner; the saved home is kept for the monitor's return (review M11).
+        let farHome = CGPoint(x: -100_000, y: -100_000)
+        let far = await PetHarness.make(.hatched, saved: farHome)
         let up1 = await far.waitShown()
         let f1 = far.window.map { $0.frame } ?? RECT()
         let dpi1 = far.window.map { WinUIContext.dpi(of: $0.hwnd) } ?? 96
         let margin = Int32((24 * CGFloat(dpi1) / 96).rounded())
         let cornered = f1.right == work.right - margin && f1.bottom == work.bottom - margin
-        let rehomed = FloatingPetOrigin.saved(in: PetHarness.defaults) == CGPoint(x: CGFloat(f1.left), y: CGFloat(f1.bottom))
-        ok = ok && up1 && cornered && rehomed
-        notes.append("saved (-100000,-100000) -> \(describe(f1)) default corner=\(cornered), saved again=\(rehomed)")
+        let homeKept = FloatingPetOrigin.saved(in: PetHarness.defaults) == farHome && far.pet.stats.saves == 0
+        ok = ok && up1 && cornered && homeKept
+        notes.append("saved (-100000,-100000) -> \(describe(f1)) default corner=\(cornered), the saved home kept=\(homeKept)")
         far.destroy()
         // 2. Partly off the right edge but still on the work area: kept as it is (the Mac does not clamp).
         let edge = await PetHarness.make(.hatched, saved: CGPoint(x: CGFloat(work.right - 30), y: CGFloat(work.bottom - 100)))
@@ -571,15 +575,22 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                                       scale: CGFloat(primary.dpi) / 96, isPrimary: true)
             let second = FloatingPetScreen(bounds: CGRect(x: p.bounds.maxX, y: 0, width: 1280, height: 720), work: CGRect(x: p.bounds.maxX, y: 0, width: 1280, height: 680),
                                            scale: p.scale, isPrimary: false)
-            let gone = await PetHarness.make(.hatched, saved: CGPoint(x: p.bounds.maxX + 300, y: 500)) { $0.screensOverride = [p, second] }
+            let home = CGPoint(x: p.bounds.maxX + 300, y: 500)
+            let gone = await PetHarness.make(.hatched, saved: home) { $0.screensOverride = [p, second] }
             let up3 = await gone.waitShown()
             let before = gone.window.map { $0.frame } ?? RECT()
             gone.pet.screens = { [p] }
             if let w = gone.window { _ = SendMessageW(w.hwnd, 0x007E /* WM_DISPLAYCHANGE */, 32, 0) }
             let after = gone.window.map { $0.frame } ?? RECT()
-            let moved = before.left == Int32(p.bounds.maxX + 300) && after.right == work.right - margin && after.bottom == work.bottom - margin
-            ok = ok && up3 && moved
-            notes.append("on a FIXTURE second monitor right of the primary at \(describe(before)); the monitor removed + WM_DISPLAYCHANGE -> \(describe(after)) default corner=\(moved)")
+            let moved = before.left == Int32(home.x) && after.right == work.right - margin && after.bottom == work.bottom - margin
+            let kept = FloatingPetOrigin.saved(in: PetHarness.defaults) == home
+            // Back (a work-area change, the real WM_SETTINGCHANGE): the pet returns to its home on that monitor.
+            gone.pet.screens = { [p, second] }
+            if let w = gone.window { _ = WinStr.w("").withUnsafeBufferPointer { SendMessageW(w.hwnd, 0x001A /* WM_SETTINGCHANGE */, 0x002F /* SPI_SETWORKAREA */, LPARAM(Int(bitPattern: $0.baseAddress))) } }
+            let returned = gone.window.map { $0.frame.left == Int32(home.x) && $0.frame.bottom == Int32(home.y) } ?? false
+            ok = ok && up3 && moved && kept && returned && gone.pet.stats.saves == 0
+            notes.append("on a FIXTURE second monitor right of the primary at \(describe(before)); the monitor removed + WM_DISPLAYCHANGE -> \(describe(after)) default corner=\(moved), "
+                         + "the saved home kept=\(kept); the monitor back + WM_SETTINGCHANGE(SPI_SETWORKAREA) -> \(gone.window.map { describe($0.frame) } ?? "none") at its home=\(returned); saves \(gone.pet.stats.saves)")
             gone.destroy()
         }
         edge.destroy()
@@ -597,18 +608,55 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             return
         }
         let f0 = w.frame, dpi0 = w.dpi
-        _ = SendMessageW(w.hwnd, 0x02E0 /* WM_DPICHANGED */, WPARAM(144 | (144 << 16)), 0)
+        let side0 = f0.right - f0.left, big = Int32((CGFloat(side0) * 1.5).rounded())
+        func send(_ dpi: UINT, _ suggested: RECT?) {
+            let wp = WPARAM(UInt(dpi) | (UInt(dpi) << 16))
+            guard var s = suggested else { _ = SendMessageW(w.hwnd, 0x02E0 /* WM_DPICHANGED */, wp, 0); return }
+            _ = withUnsafeMutablePointer(to: &s) { SendMessageW(w.hwnd, 0x02E0, wp, LPARAM(Int(bitPattern: $0))) }
+        }
+        func same(_ a: RECT, _ b: RECT) -> Bool { a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom }
+        // 1. Windows' suggested rectangle in lParam (a pixel off the pet's side, as its rounding can be): its top-left, the pet's side.
+        let suggested = RECT(left: f0.left - 40, top: f0.top - 30, right: f0.left - 40 + big + 1, bottom: f0.top - 30 + big - 1)
+        send(144, suggested)
         let f1 = w.frame, real1 = rect(w.hwnd)
         let box1 = opaqueBox(w)
-        let side1 = f1.right - f1.left
-        let grown = side1 == Int32((96 * 1.5).rounded()) && real1.right - real1.left == side1 && f1.left == f0.left && f1.bottom == f0.bottom
+        let atRect = w.dpi == 144 && f1.left == suggested.left && f1.top == suggested.top && f1.right - f1.left == big && f1.bottom - f1.top == big && same(real1, f1)
         let wide0 = Double(box0.box.right - box0.box.left), wide1 = Double((box1?.box.right ?? 0) - (box1?.box.left ?? 0))
         let scaled = abs(wide1 / max(1, wide0) - 1.5) < 0.1
-        _ = SendMessageW(w.hwnd, 0x02E0, WPARAM(Int(dpi0) | (Int(dpi0) << 16)), 0)
-        let back = w.frame.right - w.frame.left == f0.right - f0.left && w.frame.bottom == f0.bottom
-        r.add("pet.dpi", up && grown && scaled && back,
-              "at \(dpi0) dpi \(describe(f0)), opaque \(Int(wide0)) px wide; WM_DPICHANGED 144 -> \(describe(f1)) (window \(describe(real1))) 144 px, bottom-left kept=\(grown); "
-              + "opaque \(Int(wide1)) px (x\(String(format: "%.2f", wide1 / max(1, wide0))))=\(scaled); back to \(dpi0) -> \(describe(w.frame))=\(back)")
+        // 2. Back with no rectangle: in place, the bottom-left kept.
+        send(dpi0, nil)
+        let f2 = w.frame
+        let back = f2.right - f2.left == side0 && f2.left == f1.left && f2.bottom == f1.bottom && same(rect(w.hwnd), f2)
+        // 3. Mid-drag (review I2): a press and a move, then 144 with a rectangle: the size stays and the next move keeps the grab
+        // point on the pet; the release draws at 144 where the drag left it (its bottom-left), and that is the new home.
+        var dragOK = false, dragNote = "no opaque pixel"
+        if let spot = opaquePoint(w) {
+            let start = screen(w, spot)
+            func client(_ p: POINT) -> LPARAM { let f = w.frame; return lParam(p.x - f.left, p.y - f.top) }
+            _ = SendMessageW(w.hwnd, 0x0201 /* WM_LBUTTONDOWN */, 1, client(start))
+            _ = SendMessageW(w.hwnd, 0x0200 /* WM_MOUSEMOVE */, 1, client(POINT(x: start.x - 20, y: start.y)))
+            let pressed = w.frame
+            let deferred0 = h.pet.stats.dpiDeferred
+            send(144, RECT(left: pressed.left, top: pressed.top - 50, right: pressed.left + big, bottom: pressed.top - 50 + big))
+            let keptSize = same(w.frame, pressed) && same(rect(w.hwnd), pressed) && w.dpi == dpi0 && w.pendingDPI == 144 && h.pet.stats.dpiDeferred == deferred0 + 1
+            let to = POINT(x: start.x - 50, y: start.y - 10)
+            _ = SendMessageW(w.hwnd, 0x0200, 1, client(to))
+            let f3 = w.frame
+            let grabKept = f3.right - f3.left == side0 && to.x - f3.left == spot.x && to.y - f3.top == spot.y && same(rect(w.hwnd), f3)
+            _ = SendMessageW(w.hwnd, 0x0202 /* WM_LBUTTONUP */, 0, client(to))
+            let f4 = w.frame
+            let applied = w.dpi == 144 && w.pendingDPI == nil && f4.right - f4.left == big && f4.left == f3.left && f4.bottom == f3.bottom && same(rect(w.hwnd), f4)
+            let home = FloatingPetOrigin.saved(in: PetHarness.defaults) == CGPoint(x: CGFloat(f4.left), y: CGFloat(f4.bottom))
+            dragOK = keptSize && grabKept && applied && home
+            dragNote = "a press at \(start.x),\(start.y) and a move, then WM_DPICHANGED 144 with a rectangle: size kept at \(describe(pressed)) and deferred=\(keptSize); "
+                + "a move to \(to.x),\(to.y) -> \(describe(f3)), the grab point still \(spot.x),\(spot.y) on the pet=\(grabKept); release -> \(describe(f4)) at 144, bottom-left kept=\(applied), "
+                + "the new home=\(home)"
+            send(dpi0, nil)
+        }
+        r.add("pet.dpi", up && atRect && scaled && back && dragOK,
+              "at \(dpi0) dpi \(describe(f0)), opaque \(Int(wide0)) px wide; WM_DPICHANGED 144 with Windows' rectangle \(describe(suggested)) -> \(describe(f1)) (window \(describe(real1))) "
+              + "its top-left, \(big) px=\(atRect); opaque \(Int(wide1)) px (x\(String(format: "%.2f", wide1 / max(1, wide0))))=\(scaled); back to \(dpi0) without a rectangle -> \(describe(f2)), "
+              + "bottom-left kept=\(back); \(dragNote); stats dpiChanges \(h.pet.stats.dpiChanges) deferred \(h.pet.stats.dpiDeferred) ignored \(h.pet.stats.dpiIgnored)")
     }
 
     // MARK: - pet.clickActions
@@ -676,8 +724,9 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         var notes: String { lock.lock(); defer { lock.unlock() }; return _notes.joined(separator: ",") }
     }
 
-    /// Opens the pet's menu (a posted WM_CONTEXTMENU), reads its entries from another thread, picks entry `pick` with the keys.
-    static func runMenu(_ w: WinPetWindow, owner: HWND, pick: Int) async -> MenuDriver {
+    /// Opens the pet's menu (a posted WM_CONTEXTMENU), reads its entries from another thread, picks entry `pick` with the keys
+    /// (nil: Escape).
+    static func runMenu(_ w: WinPetWindow, owner: HWND, pick: Int?) async -> MenuDriver {
         let driver = MenuDriver()
         let ownerBits = Int(bitPattern: owner)
         Thread {
@@ -696,16 +745,21 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                 checked.append(GetMenuState(menu, UINT(i), UINT(MF_BYPOSITION)) & UINT(MF_CHECKED) != 0)
             }
             driver.set(titles, checked)
-            var presses = 0
-            while WinPopupMenu.highlightedIndex(menuBits: bits, count: n) != pick, presses < n + 2 {
-                post(WM_KEYDOWN, Int32(VK_DOWN)); post(WM_KEYUP, Int32(VK_DOWN))
-                presses += 1
-                Thread.sleep(forTimeInterval: 0.2)
+            if let pick {
+                var presses = 0
+                while WinPopupMenu.highlightedIndex(menuBits: bits, count: n) != pick, presses < n + 2 {
+                    post(WM_KEYDOWN, Int32(VK_DOWN)); post(WM_KEYUP, Int32(VK_DOWN))
+                    presses += 1
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
+                post(WM_KEYDOWN, Int32(VK_RETURN)); post(WM_KEYUP, Int32(VK_RETURN))
+                driver.note("down=\(presses)")
+            } else {
+                post(WM_KEYDOWN, Int32(VK_ESCAPE)); post(WM_KEYUP, Int32(VK_ESCAPE))
+                driver.note("escape")
             }
-            post(WM_KEYDOWN, Int32(VK_RETURN)); post(WM_KEYUP, Int32(VK_RETURN))
             for _ in 0..<40 where WinPopupMenu.openMenuBits != 0 { Thread.sleep(forTimeInterval: 0.1) }
             if WinPopupMenu.openMenuBits != 0 { driver.note("still open; Escape"); post(WM_KEYDOWN, Int32(VK_ESCAPE)); post(WM_KEYUP, Int32(VK_ESCAPE)) }
-            driver.note("down=\(presses)")
             driver.finish()
         }.start()
         let c = POINT(x: (w.frame.left + w.frame.right) / 2, y: (w.frame.top + w.frame.bottom) / 2)
@@ -721,28 +775,64 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             return
         }
         let l = app.companion.l
-        let h = await PetHarness.make(.eggIncubating)
+        // The user's window: in front with its edit focused before every menu; a real app's edit gets the keyboard back when
+        // its window is activated (WM_SETFOCUS), as this one's does.
+        guard let probe = WindowsSelftestPopoverWindow.makeProbe() else {
+            r.add("pet.menu", false, "no probe window")
+            return
+        }
+        defer { probe.destroy() }
+        let edit = CreateWindowExW(0x0200, WinStr.w("Edit"), WinStr.w("type here"), DWORD(0x5001_0080) /* WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL */,
+                                   10, 10, 200, 24, probe.hwnd, nil, GetModuleHandleW(nil), nil)
+        let editBits = Int(bitPattern: edit)
+        probe.on(0x0007 /* WM_SETFOCUS */) { _, _ in
+            _ = SetFocus(HWND(bitPattern: editBits))
+            return 0
+        }
+        func front() async -> Bool {
+            WindowsSelftest.forceForeground(probe.hwnd)
+            _ = SetFocus(edit)
+            return await WindowsSelftest.waitUntil(timeout: 1) { GetForegroundWindow() == probe.hwnd && foregroundFocus() == edit }
+        }
+        func keptFront() async -> Bool { await WindowsSelftest.waitUntil(timeout: 2) { GetForegroundWindow() == probe.hwnd && foregroundFocus() == edit } }
+        let work = primaryWork()
+        let h = await PetHarness.make(.eggIncubating, saved: CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360)))
         defer { h.destroy() }
         guard await h.waitShown(), let w = h.window else {
             r.add("pet.menu", false, "the pet did not show")
             return
         }
         let owner = app.sink.hwnd
-        // Back view: checked state, then toggled.
+        // Escape (review I3): the menu took the foreground to its owner; the user's window has it and its keyboard again.
+        let ready = await front()
+        let e = await runMenu(w, owner: owner, pick: nil)
+        let afterEscape = await keptFront()
+        // Back view: checked state, then toggled; the foreground back each time.
+        _ = await front()
         let a = await runMenu(w, owner: owner, pick: 2)
         let backOn = h.store.alwaysFacesBack
+        let afterBackOn = await keptFront()
+        _ = await front()
         let b = await runMenu(w, owner: owner, pick: 2)
         let backOff = !h.store.alwaysFacesBack
-        // Open: always opens (an egg too): the host is asked with `.menu`.
+        let afterBackOff = await keptFront()
+        // Open: always opens (an egg too): the host is asked with `.menu`; the foreground is the popover's to take, not given back.
+        _ = await front()
         let c = await runMenu(w, owner: owner, pick: 0)
         let openAsked = h.openers == [.menu]
-        // Turn off: the setting off, the window gone.
+        let openNotReturned = GetForegroundWindow() != probe.hwnd
+        // Turn off: the setting off, the window gone, the foreground back.
+        _ = await front()
         let d = await runMenu(w, owner: owner, pick: 1)
         let off = await WindowsSelftest.waitUntil(timeout: 2) { !h.store.floatingPetEnabled && h.pet.window == nil }
+        let afterOff = await keptFront()
         let titlesOK = a.titles == [l.floatingPetMenuOpen, l.floatingPetMenuHide, l.backViewLabel] && a.checked == [false, false, false] && b.checked == [false, false, true]
-        r.add("pet.menu", titlesOK && backOn && backOff && openAsked && off && h.pet.stats.menus == 4,
+        let foregroundOK = ready && afterEscape && afterBackOn && afterBackOff && openNotReturned && afterOff && h.pet.stats.foregroundRestores == 4
+        r.add("pet.menu", titlesOK && backOn && backOff && openAsked && off && foregroundOK && h.pet.stats.menus == 5,
               "entries \(a.titles) checked \(a.checked) (then \(b.checked)); Back view -> on=\(backOn), again -> off=\(backOff); Open -> host asked \(h.openers); "
-              + "Turn off -> setting off and window gone=\(off); menus \(h.pet.stats.menus); keys [\(a.notes)|\(b.notes)|\(c.notes)|\(d.notes)]")
+              + "Turn off -> setting off and window gone=\(off); the probe in front with its edit focused=\(ready): after Escape the foreground and focus back=\(afterEscape), "
+              + "after Back view \(afterBackOn)/\(afterBackOff), after Turn off \(afterOff), after Open left to the popover=\(openNotReturned) (restores \(h.pet.stats.foregroundRestores)); "
+              + "menus \(h.pet.stats.menus); keys [\(e.notes)|\(a.notes)|\(b.notes)|\(c.notes)|\(d.notes)]")
     }
 
     // MARK: - pet.zOrder: below the open popover (the Mac's popover level is above the pet's), above other windows
@@ -826,28 +916,56 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let lockedQuiet = w.playback.ticks == t0
         _ = SendMessageW(w.hwnd, 0x02B1, 8 /* WTS_SESSION_UNLOCK */, 0)
         let unlocked = w.playback.clock.isArmed
+        // The system's own messages after the harness's answers changed (review M10): "Show animations"
+        // (WM_SETTINGCHANGE SPI_SETCLIENTAREAANIMATION) and battery saver (WM_POWERBROADCAST PBT_POWERSETTINGCHANGE).
+        func animationSetting() { _ = SendMessageW(w.hwnd, 0x001A /* WM_SETTINGCHANGE */, 0x1043 /* SPI_SETCLIENTAREAANIMATION */, 0) }
+        func powerSetting() {
+            // POWERBROADCAST_SETTING: the GUID, DataLength 4, Data (1: battery saver on); the pet reads the state again itself.
+            var setting = [UInt8](repeating: 0, count: MemoryLayout<GUID>.size + 8)
+            let guid = WinPetWindow.powerSavingGUID
+            withUnsafeBytes(of: guid) { g in setting.withUnsafeMutableBytes { $0.copyMemory(from: g) } }
+            setting[MemoryLayout<GUID>.size] = 4
+            setting[MemoryLayout<GUID>.size + 4] = h.lowPower ? 1 : 0
+            _ = setting.withUnsafeMutableBytes { SendMessageW(w.hwnd, 0x0218 /* WM_POWERBROADCAST */, 0x8013 /* PBT_POWERSETTINGCHANGE */, LPARAM(Int(bitPattern: $0.baseAddress))) }
+        }
         h.animations = false
-        h.pet.environmentChanged()
+        animationSetting()
         let stillOff = await WindowsSelftest.waitUntil(timeout: 2) { !w.playback.clock.isArmed && w.playback.models.first?.isAnimating == false }
         h.animations = true
-        h.pet.environmentChanged()
+        animationSetting()
         let animAgain = await WindowsSelftest.waitUntil(timeout: 3) { w.playback.clock.isArmed && w.playback.models.first?.isAnimating == true }
         h.lowPower = true
-        h.pet.sync()
+        powerSetting()
         let saverOff = await WindowsSelftest.waitUntil(timeout: 2) { h.pet.model?.animated == false && !w.playback.clock.isArmed }
         h.lowPower = false
-        h.pet.sync()
+        powerSetting()
         let saverBack = await WindowsSelftest.waitUntil(timeout: 3) { w.playback.clock.isArmed }
         let playback = w.playback
         h.store.floatingPetEnabled = false
         let hidden = await WindowsSelftest.waitUntil(timeout: 2) { h.pet.window == nil && !playback.clock.isArmed }
         ok = ok && lockedOff && lockedQuiet && unlocked && stillOff && animAgain && saverOff && saverBack && hidden
-        notes.append("lock -> clock off=\(lockedOff), no ticks in 1 s=\(lockedQuiet), unlock -> on=\(unlocked); \"Show animations\" off -> still, clock off=\(stillOff), on -> \(animAgain); "
-                     + "battery saver -> still=\(saverOff), off -> \(saverBack); hidden -> clock gone=\(hidden)")
+        notes.append("lock -> clock off=\(lockedOff), no ticks in 1 s=\(lockedQuiet), unlock -> on=\(unlocked); \"Show animations\" off + WM_SETTINGCHANGE -> still, clock off=\(stillOff), "
+                     + "on -> \(animAgain); battery saver + WM_POWERBROADCAST -> still=\(saverOff), off -> \(saverBack); hidden -> clock gone=\(hidden)")
+        // Made at the lock screen (review I4: the displays wake there and a new window is made): no clock until the unlock.
+        h.sessionLocked = true
+        h.store.floatingPetEnabled = true
+        let lockedShown = await h.waitShown()
+        let lockedStill = lockedShown && h.window?.locked == true && h.window?.playback.clock.isArmed == false
+        if let lw = h.window { _ = SendMessageW(lw.hwnd, 0x02B1 /* WM_WTSSESSION_CHANGE */, 8 /* WTS_SESSION_UNLOCK */, 0) }
+        let unlockedLater = await WindowsSelftest.waitUntil(timeout: 3) { h.window?.playback.clock.isArmed == true }
+        h.sessionLocked = nil
+        let real = WinFloatingPet.sessionNow()
+        var lockedRaw: Int32 = -1, disconnectedRaw: Int32 = -1
+        let read = ptb_session_state(&lockedRaw, &disconnectedRaw)
+        let realOK = read == 1 && !real.locked
+        ok = ok && lockedStill && unlockedLater && realOK
+        notes.append("a window made while the session is locked (FIXTURE state) -> shown=\(lockedShown), clock off=\(lockedStill), WTS_SESSION_UNLOCK -> on=\(unlockedLater); "
+                     + "this session read (WTSSessionInfoEx)=\(read) locked=\(real.locked) disconnected=\(real.disconnected) (read and unlocked on the runner=\(realOK); the disconnect is only told by WM_WTSSESSION_CHANGE)")
         r.add("pet.animation", ok, notes.joined(separator: "; "))
     }
 
-    // MARK: - pet.idle: what a shown pet costs (in-process; the gate's windows are `--pet-idle-probe`)
+    // MARK: - pet.idle: a still, an animated and a hidden pet in this process (the installed app's cost at the gate's budgets is
+    // the idle gate's: pet-still-120s, pet-animated-120s, pet-hidden-120s, `--pet-idle-probe`)
 
     /// One window's numbers and the app's own timer wakes inside it (a store refresh costs ~45 main cs and lands in a short window
     /// now and then: `ui.kit.idle`'s budget rule; a window with a refresh is measured once more).
@@ -855,15 +973,28 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         var sample: IdleSampler.Sample
         var known: String
         var extra: Int
+        /// Main-thread switches less the app's known wakes, and every thread's switches (the sampler's own included).
+        var mainNet: Int { sample.mainContextSwitches - extra }
+        var processSwitches: Int { sample.active.reduce(0) { $0 + $1.cs } }
+    }
+
+    /// Top-level windows of the pet's class left anywhere (`FindWindowExW`, hidden ones too).
+    static func petWindowsLeft() -> Int {
+        let cls = WinStr.w(WinPetWindow.className)
+        var n = 0
+        var after: HWND?
+        while n < 50, let h = cls.withUnsafeBufferPointer({ FindWindowExW(nil, after, $0.baseAddress, nil) }) {
+            n += 1
+            after = h
+        }
+        return n
     }
 
     static func idleCheck(_ r: WindowsSelftest.Recorder) async {
         let seconds = 8.0
-        func sample(_ label: String) async -> IdleWindow? {
+        func sample() async -> IdleWindow? {
             var last: IdleWindow?
             for _ in 0..<2 {
-                // The harness's own settings writes settle first (a debounced sync and the other synced defaults objects
-                // reading it back cost the main thread ~25 cs in run 44034801215's 'hidden' window, the pet's window long gone).
                 _ = await WindowsSelftest.waitStable(timeout: 10, quiet: 2) { !WinDefaultsSync.isSyncPending }
                 let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
                 guard let s = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else { return nil }
@@ -879,78 +1010,76 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             }
             return last
         }
-        /// A window that must cost nothing of ours: measured again (up to 3 windows) while over its budget, the best one judged. A
-        /// wake source the pet leaves behind wakes in every window; the runner's own bursts (run 44055818542's bundle selftest: 9
-        /// main cs in the 'hidden' window with a shell thread busy beside it, 1 in the installed selftest of run 44049375908) do not.
-        func quietSample(_ label: String) async -> (best: IdleWindow, tries: [Int])? {
-            var best: IdleWindow?, tries: [Int] = []
-            for _ in 0..<3 {
-                guard let w = await sample(label) else { return nil }
-                tries.append(w.sample.mainContextSwitches)
-                if best == nil || w.sample.mainContextSwitches - w.extra < best!.sample.mainContextSwitches - best!.extra { best = w }
-                if w.sample.mainContextSwitches <= 6 + w.extra { break }
-            }
-            return best.map { ($0, tries) }
-        }
-        /// The process quiet (2 s windows of at most one main-thread switch, up to 20 s) before the pet shows: a new harness's
-        /// stores finish their own loads first (run 44043860640: ~1.6 message wakes a second for many seconds after a raised
-        /// sample was made, with or without a pet; the installed app's gate window, 30 s after start, has none).
-        func waitQuiet() async -> TimeInterval {
-            let start = Date()
-            for _ in 0..<10 {
-                guard let q = await IdleSampler.measure(seconds: 2, mainThread: WindowsApp.mainThreadID), q.mainContextSwitches > 1 else { break }
-            }
-            return Date().timeIntervalSince(start)
-        }
-        // Still: an egg (no GIF), shown once the process is quiet.
-        let still = await PetHarness.make(.eggIncubating, enabled: false)
-        let quiet1 = await waitQuiet()
-        still.store.floatingPetEnabled = true
-        _ = await still.waitShown()
-        let armedStill = still.window?.playback.clock.isArmed == true
-        let r0 = still.pet.stats.renders
-        let q1 = await quietSample("still")
-        let s1 = q1?.best
-        let stillRenders = still.pet.stats.renders - r0
-        still.destroy()
-        // Animated: the FIXTURE 2 s GIF of 40 frames at the default "Power saver" floor (0.4 s: 2.5 frames a second), on a raised
-        // sample (`midLevel`, not a fresh hatch: in a bundled app a hatch warms its sprites and names over the network). Then the
-        // same pet turned off: what is left once it is hidden.
+        // One pet over one set of stores for all three windows, shown and hidden through the displays' state: no settings write
+        // in between (a write wakes the synced defaults objects for seconds: run 44034801215's 'hidden' window), so 'hidden' is
+        // judged against 'still' measured the same way in the same process, one window each (review I1: no fixed in-process
+        // budget, no best of several windows). Hidden must also leave nothing: no window of the pet's class, no playback, no clock.
         let saved = WinFloatingPet.spriteFetcherOverride
         WinFloatingPet.spriteFetcherOverride = gifFixture(count: 40, delay: 0.05)
-        let moving = await PetHarness.make(.midLevel, enabled: false)
-        let quiet2 = await waitQuiet()
-        moving.store.floatingPetEnabled = true
-        _ = await moving.waitShown()
-        _ = await WindowsSelftest.waitUntil(timeout: 2) { moving.window?.playback.clock.isArmed == true }
-        let r1 = moving.pet.stats.renders
-        let s2 = await sample("animated")
-        let movingRenders = moving.pet.stats.renders - r1
-        moving.store.floatingPetEnabled = false
-        _ = await WindowsSelftest.waitUntil(timeout: 2) { moving.pet.window == nil }
-        // Hidden is judged once quiet, as the gate's window (30 s after start): the bundle selftest of run 44049375908 counted
-        // ~1.8 message wakes a second for the first seconds after the hide (18 loop iterations, no timer of ours: the installed
-        // selftest of the same run measured 1 main cs). A wake source the pet left behind never goes quiet and fails here.
-        let quiet3 = await waitQuiet()
-        let q3 = await quietSample("hidden")
-        let s3 = q3?.best
-        moving.destroy()
-        WinFloatingPet.spriteFetcherOverride = saved
-        guard let s1, let s2, let s3 else {
-            r.add("pet.idle", false, "measurement failed")
+        defer { WinFloatingPet.spriteFetcherOverride = saved }
+        let work = primaryWork()
+        let live0 = WinSinkWindow.liveCount
+        // A raised sample (`midLevel`, not a fresh hatch: in a bundled app a hatch warms its sprites and names over the network).
+        let h = await PetHarness.make(.midLevel, saved: CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360))) {
+            $0.asleep = true
+            $0.animations = false
+        }
+        defer { h.destroy() }
+        // The harness's stores finish loading first (2 s windows of at most one main-thread switch, up to 10 s).
+        let settleStart = Date()
+        for _ in 0..<5 {
+            guard let q = await IdleSampler.measure(seconds: 2, mainThread: WindowsApp.mainThreadID), q.mainContextSwitches > 1 else { break }
+        }
+        let settled = Date().timeIntervalSince(settleStart)
+        // Still: shown with "Show animations" off (the runner's own state): the GIF's first frame, no clock.
+        h.asleep = false
+        h.pet.sync()
+        let shown = await h.waitShown()
+        let w = h.window
+        let armedStill = w?.playback.clock.isArmed == true
+        let r0 = h.pet.stats.renders
+        let still = await sample()
+        let stillRenders = h.pet.stats.renders - r0
+        // Animated: the FIXTURE GIF of 40 x 0.05 s at Power saver's floor (0.4 s: 2.5 frames a second), "Show animations" on.
+        h.animations = true
+        if let w { _ = SendMessageW(w.hwnd, 0x001A /* WM_SETTINGCHANGE */, 0x1043 /* SPI_SETCLIENTAREAANIMATION */, 0) }
+        let armed = await WindowsSelftest.waitUntil(timeout: 2) { h.window?.playback.clock.isArmed == true }
+        let r1 = h.pet.stats.renders
+        let animated = await sample()
+        let movingRenders = h.pet.stats.renders - r1
+        // Hidden: the displays asleep (the Mac's `sync`): the window and all it had go at once.
+        let playback = w?.playback
+        h.asleep = true
+        h.pet.sync()
+        let left = petWindowsLeft()
+        let gone = h.window == nil && left == 0 && WinSinkWindow.liveCount == live0 && playback?.released == true && playback?.clock.isArmed == false
+        let hidden = await sample()
+        guard let still, let animated, let hidden else {
+            r.add("pet.idle", false, "measurement failed (shown=\(shown))")
             return
         }
         let frameRate = 1 / UsageStore.AnimationQuality.powerSaver.frameFloor
-        let ok = !armedStill && stillRenders == 0 && s1.sample.mainContextSwitches <= 6 + s1.extra && s3.sample.mainContextSwitches <= 6 + s3.extra
-            && Double(s2.sample.mainContextSwitches) <= (frameRate + 2) * seconds + Double(s2.extra) && movingRenders >= Int(frameRate * seconds * 0.7)
+        // Still: no clock, no picture drawn, and a loose bound in this process (the gate judges the budget).
+        let stillOK = shown && !armedStill && stillRenders == 0 && still.mainNet <= 6
+        // Animated: one wake per frame at the floor plus two a second, and the frames drawn.
+        let animatedOK = armed && Double(animated.mainNet) <= (frameRate + 2) * seconds && movingRenders >= Int(frameRate * seconds * 0.7)
+        // Hidden against still: no more main-thread wakes (3 of slack), process switches (10) or cycles (4 M = 0.5 M/s) than the
+        // still pet's window cost. A source the pet left behind waking once a second adds 8 main-thread switches; one slower than
+        // the window (a 10 s timer) is the gate's 120 s window's to catch, and its window or registration is `gone`'s.
+        let hiddenOK = gone && hidden.mainNet <= max(0, still.mainNet) + 3 && hidden.processSwitches <= still.processSwitches + 10
+            && hidden.sample.processCycles <= still.sample.processCycles + 4_000_000
         func line(_ w: IdleWindow) -> String {
             let s = w.sample
-            return "main cs \(s.mainContextSwitches) (\(String(format: "%.1f", Double(s.mainContextSwitches) * 60 / seconds))/min), main cycles \(s.mainCycles), process cycles \(s.processCycles) "
-                + "(\(UInt64(Double(s.processCycles) / seconds))/s), known wakes \(w.known) (+\(w.extra) to the budget), busy [\(s.busy)]"
+            return "main cs \(s.mainContextSwitches) (net \(w.mainNet)), process cs \(w.processSwitches), main cycles \(s.mainCycles), process cycles \(s.processCycles) "
+                + "(\(UInt64(Double(s.processCycles) / seconds))/s), known wakes \(w.known) (+\(w.extra)), busy [\(s.busy)]"
         }
-        r.add("pet.idle", ok,
-              "\(Int(seconds)) s each, after the process was quiet (\(Int(quiet1)) s, \(Int(quiet2)) s; after the hide \(Int(quiet3)) s). still (egg, no GIF): clock armed=\(armedStill), \(stillRenders) renders, windows \(q1?.tries ?? []) main cs, the best: \(line(s1)); animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps): "
-              + "\(movingRenders) renders, \(line(s2)) (budget \(Int((frameRate + 2) * seconds))); hidden after shown: windows \(q3?.tries ?? []) main cs, the best: \(line(s3)) (budget for still and hidden: 6)")
+        r.add("pet.idle", stillOK && animatedOK && hiddenOK,
+              "\(Int(seconds)) s each, one pet shown and hidden by the displays' state, after \(String(format: "%.0f", settled)) s of settling. "
+              + "still (\"Show animations\" off): shown=\(shown) clock armed=\(armedStill), \(stillRenders) renders, \(line(still)) (net <= 6)=\(stillOK); "
+              + "animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps): clock armed=\(armed), \(movingRenders) renders, \(line(animated)) "
+              + "(net <= \(Int((frameRate + 2) * seconds)), renders >= \(Int(frameRate * seconds * 0.7)))=\(animatedOK); "
+              + "hidden: nothing left=\(gone) (pet windows \(left), windows \(live0) -> \(WinSinkWindow.liveCount), playback released=\(playback?.released == true)), \(line(hidden)) "
+              + "(against still: net <= \(max(0, still.mainNet) + 3), process cs <= \(still.processSwitches + 10), cycles <= \(still.sample.processCycles + 4_000_000))=\(hiddenOK)")
     }
 
     // MARK: - pet.capture (`--dump-ui <dir>`: pet/)

@@ -25,6 +25,10 @@ import WinSDK
     struct Stats: Equatable {
         var syncs = 0, shows = 0, hides = 0, renders = 0, renderFailures = 0, placements = 0, defaultPlacements = 0, saves = 0
         var moves = 0, clicks = 0, menus = 0, dpiChanges = 0, displayChanges = 0, sessionEvents = 0, powerEvents = 0, scales = 0
+        /// DPI changes a drag deferred to its release, and Windows' answers to the window's own update (ignored).
+        var dpiDeferred = 0, dpiIgnored = 0
+        /// The foreground given back after the pet's menu, and frames scaled again because the kept ones filled the budget.
+        var foregroundRestores = 0, scaledUncached = 0
     }
 
     /// The app's pet, made at launch (the selftest and the idle probe read it).
@@ -47,6 +51,9 @@ import WinSDK
     /// Battery saver (the Mac's Low Power Mode): the still sprite.
     var lowPower: () -> Bool = { WinFloatingPet.batterySaverOn() }
     var displayAsleep: () -> Bool = { Platform.current.events.displaysAreAsleep }
+    /// The session at the lock screen when a window is made (review I4: a window made there, the displays waking at the lock
+    /// screen, must not animate behind it); `WM_WTSSESSION_CHANGE` moves it afterwards.
+    var sessionLocked: () -> Bool = { WinFloatingPet.sessionNow().locked }
     var screens: () -> [FloatingPetScreen] = { WinFloatingPet.monitorScreens() }
     /// Task 23's seams: the pointer came over the pet or left it (the hover callout), and where it moved without a button held
     /// (strokes, in screen pixels). Nil: no tracking at all.
@@ -114,9 +121,6 @@ import WinSDK
         stats.shows += 1
     }
 
-    /// Windows' "Show animations" changed (`WM_SETTINGCHANGE`): the open window reads it again.
-    func environmentChanged() { window?.refreshActivity() }
-
     private func hideWindow() {
         guard let window else { return }
         window.destroy()
@@ -168,6 +172,13 @@ import WinSDK
         return withUnsafeBytes(of: status) { $0[3] } & 1 != 0
     }
 
+    /// This session now (`WTSQuerySessionInformationW`, `WTSSessionInfoEx`); unlocked and connected when it cannot be read.
+    static func sessionNow() -> (locked: Bool, disconnected: Bool) {
+        var locked: Int32 = 0, disconnected: Int32 = 0
+        _ = ptb_session_state(&locked, &disconnected)
+        return (locked != 0, disconnected != 0)
+    }
+
     /// The monitors now (`EnumDisplayMonitors`, effective DPI) in the shared placement's terms.
     static func monitorScreens() -> [FloatingPetScreen] {
         WinPlazaPlacement.monitors().map { m in
@@ -191,8 +202,9 @@ import WinSDK
     static var powerSavingGUID: GUID {
         GUID(Data1: 0xE009_58C0, Data2: 0xC213, Data3: 0x4ACE, Data4: (0xAC, 0x77, 0xFE, 0xCC, 0xED, 0x2E, 0xEE, 0xA5))
     }
-    /// The scaled frames kept for the current subject and size: a 384-DIP pet at 200 % with "Smooth" would need about 66 MB,
-    /// so past this the kept frames are dropped and scaled again as they come.
+    /// The scaled frames kept for the current subject and size: a 384-DIP pet at 200 % with "Smooth" would need about 66 MB.
+    /// Once full, the frames kept stay and the rest are scaled as they come, every time (review M8: dropping all and refilling
+    /// scaled every frame of such a loop forever): at most one scale per frame shown, of the frames past the first ~20.
     static let scaledBudget = 48 << 20
 
     let window: WinSinkWindow
@@ -211,12 +223,16 @@ import WinSDK
     private(set) var isDestroyed = false
     private var powerRegistration: UnsafeMutableRawPointer?
     private var surface = Surface()
-    private var scaled: (key: String, frames: [ObjectIdentifier: [UInt8]], bytes: Int)?
+    private var scaled = FloatingPetScaledFrames<ObjectIdentifier>(budget: WinPetWindow.scaledBudget)
     private var placeholders: [ObjectIdentifier: (source: PlazaImage, cropped: PlazaImage)] = [:]
     private var eggGlyph: (key: String, image: PlazaImage)?
     private var hovering = false
     private var inMenu = false, destroyAfterMenu = false
     private var loggedFailure = false
+    /// Inside the window's own `UpdateLayeredWindow` (a `WM_DPICHANGED` sent from there is ignored), and the DPI a drag
+    /// deferred to its release (its moves' `SetWindowPos` brings it).
+    private var inOwnUpdate = false
+    private(set) var pendingDPI: UINT?
     /// The side of the picture on screen (0: nothing drawn yet), and where the last picture went.
     private var drawnSide = 0
     private var drawnFrame: RECT?
@@ -256,6 +272,8 @@ import WinSDK
         }
         register()
         sessionNotify = ptb_window_session_notify(UnsafeMutableRawPointer(hwnd), 1) == 1
+        // Read after registering: a lock from here on arrives as a message.
+        locked = pet.sessionLocked()
         var guid = Self.powerSavingGUID
         powerRegistration = RegisterPowerSettingNotification(hwnd, &guid, 0 /* DEVICE_NOTIFY_WINDOW_HANDLE */)
         powerNotify = powerRegistration != nil
@@ -265,7 +283,9 @@ import WinSDK
         }
         playback.shouldTick = { [weak self] in self?.canAnimate ?? false }
         apply(model, first: true)
-        persist()   // the Mac's `windowDidMove` after the first `setFrame`: the default corner becomes the saved home
+        // The first default placement becomes the saved home (the Mac's `windowDidMove` after its first `setFrame`). A saved
+        // home that meets no monitor now is kept (review M11: a monitor away for a moment; the pet goes back when it returns).
+        if FloatingPetOrigin.saved(in: pet.defaults) == nil { persist() }
         // On screen once the first picture is in (the sprite cache answers in milliseconds), so a new window does not flash the
         // 🥚; a load still out after `revealDelay` shows what there is (the 🥚, as the Mac shows it without a cached sprite).
         let timer = Timer(fire: Date().addingTimeInterval(Self.revealDelay), interval: 0, repeats: false) { [weak self] _ in
@@ -321,7 +341,8 @@ import WinSDK
     // MARK: - placement
 
     /// Places the window again from the saved home, the monitors now and its DPI (a display change, a new size): the Mac's
-    /// `targetFrame` (the home if it meets a work area, else the default corner), drawn there, the result saved.
+    /// `targetFrame` (the home if it meets a work area, else the default corner), drawn there. Nothing is saved: only a drag
+    /// moves the home (review M11; the Mac saves the fallback corner, see the inventory's F1).
     func place(scale: CGFloat? = nil) {
         guard !isDestroyed, let pet,
               let placed = FloatingPetPlacement.screenFrame(petSize: model.petSize, saved: FloatingPetOrigin.saved(in: pet.defaults),
@@ -331,10 +352,10 @@ import WinSDK
         pet.stats.placements += 1
         if placed.isDefault { pet.stats.defaultPlacements += 1 }
         render()
-        persist()
     }
 
-    /// The pet's bottom-left corner is its home (`FloatingPetOrigin`), saved when it moved there.
+    /// The pet's bottom-left corner is its home (`FloatingPetOrigin`), saved when a drag moved it there (and once, at the first
+    /// default placement).
     private func persist() {
         guard let pet else { return }
         let origin = CGPoint(x: CGFloat(frame.left), y: CGFloat(frame.bottom))
@@ -343,9 +364,10 @@ import WinSDK
         pet.stats.saves += 1
     }
 
-    /// Topmost, below the popover when it is open, shown without the activation.
+    /// Topmost, below the popover when it is open and topmost, shown without the activation. A popover waiting to close
+    /// after a deactivation has left the topmost band (`HWND_NOTOPMOST`): placed after it the pet would leave it too (review M7).
     private func showOnScreen() {
-        let popover = pet?.popoverWindow().flatMap { IsWindowVisible($0) ? $0 : nil }
+        let popover = pet?.popoverWindow().flatMap { IsWindowVisible($0) && DWORD(bitPattern: GetWindowLongW($0, -20 /* GWL_EXSTYLE */)) & 0x8 /* WS_EX_TOPMOST */ != 0 ? $0 : nil }
         _ = SetWindowPos(hwnd, popover ?? HWND(bitPattern: -1) /* HWND_TOPMOST */, 0, 0, 0, 0,
                          UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW))
     }
@@ -355,6 +377,7 @@ import WinSDK
         guard x != frame.left || y != frame.top else { return }
         let w = frame.right - frame.left, h = frame.bottom - frame.top
         frame = RECT(left: x, top: y, right: x + w, bottom: y + h)
+        // A drag over a monitor of another DPI gets its WM_DPICHANGED from inside this call: deferred to the release.
         _ = SetWindowPos(hwnd, nil, x, y, 0, 0, UINT(SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
         drawnFrame = frame   // the window is there now: the next picture needs no place
         pet?.stats.moves += 1
@@ -397,8 +420,10 @@ import WinSDK
             self?.contextMenu(at: lParam)
             return 0
         }
-        w.on(0x02E0 /* WM_DPICHANGED */) { [weak self] wParam, _ in
-            self?.dpiChanged(UINT(wParam & 0xFFFF))
+        w.on(0x02E0 /* WM_DPICHANGED */) { [weak self] wParam, lParam in
+            // lParam: Windows' suggested window rectangle at the new DPI.
+            let suggested = UnsafePointer<RECT>(bitPattern: Int(lParam))?.pointee
+            self?.dpiChanged(UINT(wParam & 0xFFFF), suggested: suggested)
             return 0
         }
         w.on(0x007E /* WM_DISPLAYCHANGE */) { [weak self] _, _ in
@@ -474,6 +499,7 @@ import WinSDK
         guard !isDestroyed, pointer.isPressed else { return }
         let release = pointer.up(at: screenPoint(lParam), windowOrigin: origin, thresholdSquared: thresholdSquared)
         _ = ReleaseCapture()
+        applyDeferredDPI()
         if release.moved { persist() }
         guard release.click, let pet else { return }
         pet.stats.clicks += 1
@@ -482,7 +508,9 @@ import WinSDK
 
     private func captureLost() {
         guard pointer.isPressed else { return }
-        if pointer.cancel(windowOrigin: origin).moved { persist() }
+        let moved = pointer.cancel(windowOrigin: origin).moved
+        applyDeferredDPI()
+        if moved { persist() }
     }
 
     private func contextMenu(at lParam: LPARAM) {
@@ -496,21 +524,55 @@ import WinSDK
         let entries = FloatingPetMenu.entries(l: pet.companion.l, backViewOn: pet.store.alwaysFacesBack)
         let items: [TrayMenuModel.Item?] = entries.map { TrayMenuModel.Item(title: $0.title, enabled: true, checked: $0.checked, action: .none) }
         pet.stats.menus += 1
+        // The window that has the foreground now: the pet never takes it (WS_EX_NOACTIVATE), but the menu takes it to its owner.
+        let previous = GetForegroundWindow()
+        let owner = pet.menuOwner() ?? hwnd
         inMenu = true
-        let chosen = WinPopupMenu.run(items, at: at, owner: pet.menuOwner() ?? hwnd, below: true)
+        let chosen = WinPopupMenu.run(items, at: at, owner: owner, below: true)
         inMenu = false
         if destroyAfterMenu { finishDestroy() }
-        if let chosen, entries.indices.contains(chosen) { pet.actions.perform(entries[chosen].action) }
+        let action = chosen.flatMap { entries.indices.contains($0) ? entries[$0].action : nil }
+        // Given back (review I3): after Escape, Back view or Turn off the user's window has the keyboard again. Open hands it to
+        // the popover instead; the popover is not given it back (the Mac's transient popover closes on a click outside it).
+        if action != .open, let previous, previous != owner, GetForegroundWindow() == owner, IsWindow(previous), IsWindowVisible(previous),
+           previous != pet.popoverWindow(), SetForegroundWindow(previous) {
+            pet.stats.foregroundRestores += 1
+        }
+        if let action { pet.actions.perform(action) }
     }
 
-    /// The window is now on a monitor of another DPI (dragged over, or a scale change): drawn at it, its bottom-left kept.
-    private func dpiChanged(_ newDPI: UINT) {
-        guard !isDestroyed, newDPI > 0, newDPI != dpi else { return }
-        dpi = newDPI
+    /// The window is now on a monitor of another DPI (dragged over, or a scale change): `FloatingPetDPIChange` decides.
+    private func dpiChanged(_ newDPI: UINT, suggested: RECT?) {
+        guard !isDestroyed, let pet else { return }
+        let f = CGRect(x: CGFloat(frame.left), y: CGFloat(frame.top), width: CGFloat(frame.right - frame.left), height: CGFloat(frame.bottom - frame.top))
+        let s = suggested.map { CGRect(x: CGFloat($0.left), y: CGFloat($0.top), width: CGFloat($0.right - $0.left), height: CGFloat($0.bottom - $0.top)) }
+        switch FloatingPetDPIChange.decide(current: Int(dpi), new: Int(newDPI), pressed: pointer.isPressed, inOwnUpdate: inOwnUpdate,
+                                           frame: f, side: CGFloat(pictureSide(at: newDPI)), suggested: s) {
+        case .ignore:
+            if inOwnUpdate, newDPI != dpi { pet.stats.dpiIgnored += 1 }
+        case .later:
+            pendingDPI = newDPI
+            pet.stats.dpiDeferred += 1
+        case .now(let next):
+            dpi = newDPI
+            pendingDPI = nil
+            frame = Self.rect(next)
+            pet.stats.dpiChanges += 1
+            render()
+        }
+    }
+
+    /// The DPI a drag deferred, at its release: drawn at it where the drag left the pet (its bottom-left kept).
+    private func applyDeferredDPI() {
+        defer { pendingDPI = nil }
+        guard let at = FloatingPetDPIChange.atRelease(current: Int(dpi), pending: pendingDPI.map { Int($0) }) else { return }
+        dpi = UINT(at)
         pet?.stats.dpiChanges += 1
         render()
-        if !pointer.isPressed { persist() }
     }
+
+    /// The window's side at `dpi` (pixels).
+    private func pictureSide(at dpi: UINT) -> Int { max(1, Int((model.petSize * CGFloat(dpi) / 96).rounded())) }
 
     private func sessionChanged(_ code: Int) {
         pet?.stats.sessionEvents += 1
@@ -531,11 +593,13 @@ import WinSDK
         guard !isDestroyed, let pet else { return }
         // A new subject still loading keeps the picture on screen (the Mac's `SpriteView` keeps its pixels until the load
         // lands), instead of a 🥚 between two sprites. A new size or DPI draws at once (the 🥚 only while nothing ever loaded).
-        if let sprite = playback.models.first, sprite.current == nil, sprite.isLoading, drawnSide == Int((model.petSize * CGFloat(dpi) / 96).rounded()) {
+        // A new window draws nothing until its first load lands or `revealDelay` passes (review M9: the 🥚's DirectWrite
+        // rasterising for a picture nobody sees).
+        if let sprite = playback.models.first, sprite.current == nil, sprite.isLoading, !revealed || drawnSide == pictureSide(at: dpi) {
             return
         }
         let scale = CGFloat(dpi) / 96
-        let side = max(1, Int((model.petSize * scale).rounded()))
+        let side = pictureSide(at: dpi)
         frame = RECT(left: frame.left, top: frame.bottom - Int32(side), right: frame.left + Int32(side), bottom: frame.bottom)
         guard ensureSurface(side), let bits = surface.bits else {
             pet.stats.renderFailures += 1
@@ -550,9 +614,12 @@ import WinSDK
         var blend = BLENDFUNCTION(BlendOp: 0 /* AC_SRC_OVER */, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */)
         // A new frame of the same window: only the picture (no place or size: no window-position work for every frame).
         let same = drawnFrame.map { $0.left == frame.left && $0.top == frame.top && $0.right == frame.right && $0.bottom == frame.bottom } ?? false
+        // A place or a size of the window's own choosing: a WM_DPICHANGED sent from inside is not a new DPI (review I2).
+        inOwnUpdate = true
         let done = same
             ? UpdateLayeredWindow(hwnd, nil, nil, nil, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
             : UpdateLayeredWindow(hwnd, nil, &destination, &size, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
+        inOwnUpdate = false
         if done {
             pet.stats.renders += 1
             drawnSide = side
@@ -596,16 +663,12 @@ import WinSDK
     }
 
     private func scaledBytes(_ picture: PlazaImage, _ w: Int, _ h: Int, task: String?) -> [UInt8] {
-        let key = "\(task ?? "egg")|\(w)x\(h)"
-        if scaled?.key != key { scaled = (key, [:], 0) }
-        let id = ObjectIdentifier(picture)
-        if let kept = scaled?.frames[id] { return kept }
-        let bytes = PopoverSpriteScale.scaledBGRA(picture.pixels, width: w, height: h)
-        pet?.stats.scales += 1
-        if (scaled?.bytes ?? 0) + bytes.count > Self.scaledBudget { scaled = (key, [:], 0) }
-        scaled?.frames[id] = bytes
-        scaled?.bytes += bytes.count
-        return bytes
+        let got = scaled.frame(ObjectIdentifier(picture), key: "\(task ?? "egg")|\(w)x\(h)") {
+            PopoverSpriteScale.scaledBGRA(picture.pixels, width: w, height: h)
+        }
+        if got.made { pet?.stats.scales += 1 }
+        if !got.kept { pet?.stats.scaledUncached += 1 }
+        return got.bytes
     }
 
     /// The Mac's `animationPlaceholder`: a still cropped square to its content, kept per picture while the window lives.
@@ -709,7 +772,7 @@ import WinSDK
         if let r = powerRegistration { _ = UnregisterPowerSettingNotification(r) }
         powerRegistration = nil
         releaseSurface()
-        scaled = nil
+        scaled = FloatingPetScaledFrames(budget: Self.scaledBudget)
         placeholders = [:]
         eggGlyph = nil
     }

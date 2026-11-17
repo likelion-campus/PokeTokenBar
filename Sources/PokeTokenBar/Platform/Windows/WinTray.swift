@@ -215,8 +215,9 @@ import WinSDK
     }
 }
 
-/// A native popup menu. The foreground dance is required for it to dismiss on an outside click; this is the only
-/// place the app takes the foreground, and only in answer to a click on the tray icon.
+/// A native popup menu. The foreground dance is required for it to dismiss on an outside click: `owner` takes the foreground
+/// for the menu, in answer to a click on the tray icon (the taskbar had the foreground already), inside the popover (it has
+/// it), or on the floating pet (stage 7 Task 22), which never takes it: that caller gives it back afterwards.
 @MainActor enum WinPopupMenu {
     /// The open menu's handle while `run` is inside `TrackPopupMenu` (the selftest's key driver reads it).
     nonisolated(unsafe) static var openMenuBits = 0

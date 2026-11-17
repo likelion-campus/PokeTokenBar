@@ -6,6 +6,7 @@
 
 #include <windows.h>
 #include <dwmapi.h>
+#include <wtsapi32.h>  // stage 7 Task 22: WTSINFOEXW (the functions are looked up, nothing is linked)
 
 #include <cstdlib>
 #include <cstring>
@@ -274,6 +275,33 @@ extern "C" int ptb_window_session_notify(void *hwnd, int on) {
     if (on) return reg && reg(static_cast<HWND>(hwnd), 0 /* NOTIFY_FOR_THIS_SESSION */) ? 1 : 0;
     return unreg && unreg(static_cast<HWND>(hwnd)) ? 1 : 0;
 }
+
+// --- stage 7 Task 22: the session's lock state now (begin) ---
+extern "C" int ptb_session_state(int *locked, int *disconnected) {
+    typedef BOOL(WINAPI * Query)(HANDLE, DWORD, WTS_INFO_CLASS, LPWSTR *, DWORD *);
+    typedef void(WINAPI * Release)(PVOID);
+    static Query query = proc<Query>(L"wtsapi32.dll", "WTSQuerySessionInformationW");
+    static Release release = proc<Release>(L"wtsapi32.dll", "WTSFreeMemory");
+    if (locked) *locked = 0;
+    if (disconnected) *disconnected = 0;
+    if (!query || !release) return 0;
+    LPWSTR buffer = nullptr;
+    DWORD bytes = 0;
+    if (!query(WTS_CURRENT_SERVER_HANDLE, WTS_CURRENT_SESSION, WTSSessionInfoEx, &buffer, &bytes) || !buffer) return 0;
+    int ok = 0;
+    if (bytes >= sizeof(WTSINFOEXW)) {
+        const WTSINFOEXW *info = reinterpret_cast<const WTSINFOEXW *>(buffer);
+        if (info->Level == 1) {
+            // WTS_SESSIONSTATE_LOCK is 0 and _UNLOCK 1 from Windows 8 on (Windows 7 swapped them; it is not supported).
+            if (locked) *locked = info->Data.WTSInfoExLevel1.SessionFlags == 0 ? 1 : 0;
+            if (disconnected) *disconnected = info->Data.WTSInfoExLevel1.SessionState == WTSDisconnected ? 1 : 0;
+            ok = 1;
+        }
+    }
+    release(buffer);
+    return ok;
+}
+// --- stage 7 Task 22 (end) ---
 
 extern "C" uint32_t ptb_process_handle_count(void) {
     DWORD n = 0;

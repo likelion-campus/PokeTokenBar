@@ -140,6 +140,103 @@ final class FloatingPetRulesTests: XCTestCase {
         XCTAssertFalse(p.isPressed)
     }
 
+    // MARK: Windows' DPI changes (y-down pixels; the Mac's panel has none)
+
+    func testADPIChangeGoesWhereWindowsSuggestsWaitsForADragAndIgnoresTheWindowsOwnUpdate() async {
+        let frame = CGRect(x: 900, y: 600, width: 96, height: 96)
+        let suggested = CGRect(x: 880, y: 640, width: 193, height: 191)   // Windows' rectangle, a pixel off the pet's side
+        XCTAssertEqual(FloatingPetDPIChange.decide(current: 96, new: 192, pressed: false, inOwnUpdate: false, frame: frame, side: 192, suggested: suggested),
+                       .now(frame: CGRect(x: 880, y: 640, width: 192, height: 192)), "Windows' top-left, the pet's own side")
+        XCTAssertEqual(FloatingPetDPIChange.decide(current: 96, new: 144, pressed: false, inOwnUpdate: false, frame: frame, side: 144, suggested: nil),
+                       .now(frame: CGRect(x: 900, y: 552, width: 144, height: 144)), "no rectangle: in place, the bottom-left kept")
+        XCTAssertEqual(FloatingPetDPIChange.decide(current: 96, new: 192, pressed: true, inOwnUpdate: false, frame: frame, side: 192, suggested: suggested), .later,
+                       "mid-drag the size stays: the grab point stays on the pet")
+        XCTAssertEqual(FloatingPetDPIChange.decide(current: 96, new: 192, pressed: false, inOwnUpdate: true, frame: frame, side: 192, suggested: suggested), .ignore,
+                       "Windows' answer to the window's own UpdateLayeredWindow is not a new DPI")
+        XCTAssertEqual(FloatingPetDPIChange.decide(current: 96, new: 192, pressed: true, inOwnUpdate: true, frame: frame, side: 192, suggested: suggested), .later,
+                       "a drag's own move brings the DPI of the monitor it reached: kept for the release")
+        XCTAssertEqual(FloatingPetDPIChange.decide(current: 96, new: 96, pressed: false, inOwnUpdate: false, frame: frame, side: 96, suggested: suggested), .ignore)
+        XCTAssertEqual(FloatingPetDPIChange.decide(current: 96, new: 0, pressed: false, inOwnUpdate: false, frame: frame, side: 0, suggested: nil), .ignore)
+        XCTAssertEqual(FloatingPetDPIChange.atRelease(current: 96, pending: 192), 192)
+        XCTAssertNil(FloatingPetDPIChange.atRelease(current: 192, pending: 192), "dragged back to where it started: nothing to apply")
+        XCTAssertNil(FloatingPetDPIChange.atRelease(current: 96, pending: nil))
+    }
+
+    func testADragOverADPIBoundaryKeepsTheGrabPointAndAppliesTheDPIAtTheRelease() async {
+        var p = FloatingPetPointer()
+        var frame = CGRect(x: 100, y: 1000, width: 96, height: 96)
+        var dpi = 96, pending: Int?
+        let grab = CGPoint(x: 150, y: 1050)
+        p.down(at: grab, windowOrigin: frame.origin)
+        for y in stride(from: 1060, through: 1120, by: 20) {
+            let pointer = CGPoint(x: 150, y: CGFloat(y))
+            if let to = p.drag(to: pointer) { frame.origin = to }
+            // Windows sends 192 once most of the window is on the 200 % monitor below y 1080.
+            if frame.maxY - 1080 > 1080 - frame.minY,
+               case .later = FloatingPetDPIChange.decide(current: dpi, new: 192, pressed: p.isPressed, inOwnUpdate: false, frame: frame, side: 192, suggested: nil) {
+                pending = 192
+            }
+            XCTAssertEqual(frame.size, CGSize(width: 96, height: 96), "the size stays while the button is held")
+            XCTAssertTrue(frame.contains(pointer), "the pointer stays on the pet at \(pointer)")
+        }
+        XCTAssertEqual(pending, 192)
+        _ = p.up(at: CGPoint(x: 150, y: 1120), windowOrigin: frame.origin)
+        if let at = FloatingPetDPIChange.atRelease(current: dpi, pending: pending) { dpi = at }
+        XCTAssertEqual(dpi, 192)
+    }
+
+    func testAFullFrameCacheKeepsItsFramesAndMakesOnlyTheRestEachLoop() async {
+        var cache = FloatingPetScaledFrames<Int>(budget: 2 * 4)   // two frames of 4 bytes
+        var made = 0
+        func loop() { for id in 0..<5 { _ = cache.frame(id, key: "ivysaur|96x96") { made += 1; return [UInt8](repeating: UInt8(id), count: 4) } } }
+        loop()
+        XCTAssertEqual(made, 5)
+        XCTAssertEqual(Set(cache.frames.keys), [0, 1], "the first frames stay once it is full")
+        made = 0
+        loop()
+        XCTAssertEqual(made, 3, "a second loop makes only the frames past the budget (the old drop-and-refill made all 5, every loop)")
+        let kept = cache.frame(1, key: "ivysaur|96x96") { [9] }
+        XCTAssertEqual(kept.bytes, [1, 1, 1, 1])
+        XCTAssertFalse(kept.made)
+        let other = cache.frame(1, key: "ivysaur|192x192") { [7, 7, 7, 7] }
+        XCTAssertTrue(other.made && other.kept, "a new size starts again")
+        XCTAssertEqual(cache.bytes, 4)
+        var tiny = FloatingPetScaledFrames<Int>(budget: 3)
+        let big = tiny.frame(0, key: "k") { [1, 2, 3, 4] }
+        XCTAssertTrue(big.made && !big.kept, "a frame larger than the budget is drawn, not kept")
+    }
+
+    func testAtAMixedDPIBoundaryGrowingInPlaceFlipsAndWindowsRectangleHolds() async {
+        // A 100 % monitor above a 200 % one at y 1080; Windows gives the window the DPI of the monitor with most of it.
+        func dpiOf(_ f: CGRect) -> Int { max(0, f.maxY - 1080) > max(0, 1080 - f.minY) ? 192 : 96 }
+        func side(_ dpi: Int) -> CGFloat { 96 * CGFloat(dpi) / 96 }
+        // In place (the old handling: the bottom-left kept, no rectangle): 96 -> 192 -> 96 -> ...
+        var frame = CGRect(x: 100, y: 1036, width: 96, height: 96)
+        var dpi = 96, flips = 0
+        for _ in 0..<6 {
+            let now = dpiOf(frame)
+            guard case .now(let next) = FloatingPetDPIChange.decide(current: dpi, new: now, pressed: false, inOwnUpdate: false, frame: frame, side: side(now), suggested: nil) else { break }
+            frame = next
+            dpi = now
+            flips += 1
+        }
+        XCTAssertEqual(flips, 6, "the window flips between the monitors' sizes without end")
+        // With Windows' rectangle (kept on the monitor of the new DPI): one change, then quiet.
+        frame = CGRect(x: 100, y: 1036, width: 96, height: 96)
+        dpi = 96
+        flips = 0
+        for _ in 0..<6 {
+            let now = dpiOf(frame)
+            let suggested = CGRect(x: frame.minX, y: 1080, width: side(now), height: side(now))
+            guard case .now(let next) = FloatingPetDPIChange.decide(current: dpi, new: now, pressed: false, inOwnUpdate: false, frame: frame, side: side(now), suggested: suggested) else { break }
+            frame = next
+            dpi = now
+            flips += 1
+        }
+        XCTAssertEqual(flips, 1)
+        XCTAssertEqual(dpi, 192)
+    }
+
     // MARK: clicks, the menu, what the pet shows
 
     private func stores(_ sample: CompanionHeaderSample) async -> (UsageStore, CompanionStore, URL) {

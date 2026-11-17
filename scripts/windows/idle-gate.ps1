@@ -1,7 +1,7 @@
 # The idle gate of windows-app.yml (installed app, fixture data), one shard of three per runner: a window is 30 s of start-up plus
 # its seconds, and the 17 windows took ~48 min in one job. -Shard 1: the sleeper baseline, manual-refresh-120s, normal-300s,
-# plaza-visible/minimized. -Shard 2: kit, sprite, popover open/closed, Home seconds/minutes. -Shard 3: Home still, activity
-# bars/heatmap, recap, companion wiggle/animated. Every window keeps its budget and its verdict; each shard writes
+# plaza-visible/minimized, pet-still. -Shard 2: kit, sprite, popover open/closed, Home seconds/minutes, pet-animated. -Shard 3:
+# Home still, activity bars/heatmap, recap, companion wiggle/animated, pet-hidden. Every window keeps its budget and its verdict; each shard writes
 # idle-gate-<n>.json and fails when one of its windows does. Needs the install (silent-install.ps1), PTB_FIXTURE, PTB_VERSION.
 param([Parameter(Mandatory)][ValidateRange(1, 3)][int]$Shard)
 . "$PSScriptRoot/ci-helpers.ps1"
@@ -179,6 +179,35 @@ foreach ($mode in 'wiggle', 'animated') {
     $summary.windows[$label].companionLog = @(Select-String -Path $logFile -Pattern 'popover companion idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
 }
 # --- stage 7 Task 9: Home with the companion header open (end) ---
+# --- stage 7 Task 22: the floating pet (begin) ---
+# One pet over sample stores (`--pet-idle-probe`, CI only; the app's own pet stays off), refresh off. 'still': an egg, no GIF;
+# 'hidden': a pet shown for 3 s and turned off ~25 s before the window: the closed app's budget for both (a pet that is still
+# or gone may cost nothing). 'animated': the raised sample's FIXTURE GIF (13 frames once capped) at the default "Power saver"
+# floor of 0.4 s, Windows' "Show animations" taken as on (the runner has it off). Its budget is from one measured run (scratch
+# run 44039613803: main 196/min = 150 frame wakes + 46, process 309 cs/min, 1.59 M cycles/s): main 270/min stays under one wake
+# per 0.2 s ("Balanced", 300/min on its own), so a frame floor that is not applied fails; process cs 1.5x, cycles ~1.9x (the
+# cycles of one window spread ~1.5x run to run, see normal-300s). Each window checks the probe's own line: what it measured.
+$petBudgets = @{
+    still = $budget
+    animated = @{ MaxMainCsPerMin = 270; MaxProcessCsPerMin = 470; MaxProcessCyclesPerSec = 3000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    hidden = $budget
+}
+$petWant = @{
+    still = 'mode=still shown=true window=true picture=loaded .* clock armed=false'
+    animated = 'mode=animated shown=true window=true picture=loaded gif frames=([2-9]|\d\d+) .* clock armed=true'
+    hidden = 'mode=hidden shown=true window=false'
+}
+foreach ($mode in 'still', 'animated', 'hidden') {
+    $label = "pet-$mode-120s"
+    if (-not (Test-InShard $label $Shard)) { continue }
+    Measure-App $label 120 $off $petBudgets[$mode] @('--pet-idle-probe', $mode)
+    $line = @(Select-String -Path $logFile -Pattern 'pet idle probe: mode=' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
+    $summary.windows[$label].petLog = $line
+    $stateOK = $line.Count -eq 1 -and $line[0] -match $petWant[$mode]
+    $summary.windows[$label].petState = if ($stateOK) { "ok: $($petWant[$mode])" } else { "WRONG: expected /$($petWant[$mode])/ in '$line'" }
+    $verdicts[$label] = $verdicts[$label] -and $stateOK
+}
+# --- stage 7 Task 22 (end) ---
 # Every window of this shard ran (a label in $IdleShardOf that never got measured would make the gate pass with a hole in it).
 $expected = @($IdleShardOf.Keys | Where-Object { $IdleShardOf[$_] -eq $Shard })
 $missing = @($expected | Where-Object { -not $verdicts.Contains($_) })

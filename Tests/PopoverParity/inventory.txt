@@ -128,6 +128,15 @@ G17s | 2 | done Platform/Windows/Popover/WinAdvancedSection.swift | UI/SettingsV
 G17n | 2 | done Platform/Windows/Popover/WinAdvancedSection.swift | UI/SettingsView.swift | Advanced: aggregation note
 G18 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | About & support: report a problem (mail with version and OS; fallback address, selectable)
 G18l | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | About & support: show the log file (Finder on the Mac; Explorer /select, on Windows)
+# F1 on Windows, where it differs from the Mac (stage 7 Task 22 and its review):
+#  - "Show animations" off (Windows' setting, the popover's approved deviation) stops the pet's GIF: a still picture. The
+#    Mac's Reduce Motion stops only the bob and the run and keeps the GIF playing. Listed for the user as a decision.
+#  - The saved home is moved only by a drag (and saved once at the first default placement): a home on a monitor that is
+#    gone shows the pet in the default corner and is kept for the monitor's return. The Mac saves the fallback corner
+#    (windowDidMove after targetFrame's setFrame) and loses the home.
+#  - A DPI change (Windows only) goes where Windows suggests; during a drag the size stays until the release.
+#  - The right-click menu gives the foreground back to the window that had it (the Mac activates the app for its menu
+#    and leaves it active).
 F1 | 3 | done Platform/Windows/Popover/WinFloatingPet.swift | UI/FloatingPetPanel.swift | Floating pet window: always on top, size, saved origin, drag, click → popover (egg: pray), right-click menu (open, hide, back view), low power and display-sleep pauses, reduce motion, frame rate at the animation-quality floor
 F2 | 3 | pending T23 | UI/FloatingPetPanel.swift | Floating pet: speech bubbles (limit alerts, agent activity), hearts after strokes, prayer emoji bursts, agent bob, run to the cursor, hover callout
 S1 | 1 | elsewhere Team/Plaza/Draw/PlazaGIFDecoder.swift: the shared GIF decoder with the Mac's delays (stage 6 D11); capFrameRate is Popover/PopoverSpriteFrameCap.swift (T22, the pet's) | UI/SpriteAnimation.swift | GIF frames and delays for every animated sprite; frame-rate cap for the menu bar and the pet
