@@ -2979,6 +2979,12 @@ read_when:
   - 영구 캡처: 실제 플립 검사를 없애고 `ui.highContrast`(컨텍스트에 주입)만 남겼다. 환경 의존 경로(시뮬레이션 변수)를
     쓴 실행만으로 머지하지 않는다 — 기본 환경의 `windows-app` 실행 한 번이 필요하다.
 
+- **윈도 앱이 파일 대화상자 근처에서 죽었다 — 메시지 훅이 `wParam` 을 `Int(_:)` 로 바꿨다 (#270 이후 `windows-port`, 셀프테스트 exit 0xC000041D, `settings.difficultyKeys` 직후).**
+  **직접 원인:** 유휴 게이트의 깨움 추적(#270)이 펌프가 꺼내는 *모든* 메시지에 대해 `WakeTrace.message(message, wParam: Int(m.pointee.wParam))` 를 불렀다. `WPARAM` 은 부호 없는 64비트라 셸의 파일 대화상자가 보내는 2^63 이상 값에서 `Int(_:)` 가 트랩한다("Not enough bits to represent the passed value"). 변환은 호출 지점에서 일어나므로 `PTB_WAKE_TRACE` 가 꺼져 있어도(모든 사용자 PC) 실행됐다 — 창 프로시저 안의 Swift 트랩은 0xC000041D(사용자 콜백 안 치명 예외)로 보인다.
+  **왜 못 걸렀나:** #270 브랜치의 full 런은 통과했다(그 런의 대화상자 점검에서는 그런 메시지가 오지 않았거나 순서가 달랐다 — 확인 못 함). `windows-port` 와 합친 트리는 `windows.yml`(컴파일·단위 시험)만 돌리고 머지했는데, 그 워크플로는 셀프테스트를 돌리지 않는다. 메시지 경로를 건드리는 변경인데 "CI 변경"으로 분류해 앱 런을 생략했다(리드의 판단 실수).
+  **부류 스윕:** `Platform/Windows/**` 의 `Int(wParam)`/`Int(m.pointee.wParam)` 전수 — `WinPopover`(세션 변경 코드), `WinControls`(가상 키)는 메시지별 작은 값이라 안전. `LPARAM` 은 부호 있는 64비트라 `Int(lParam)` 은 트랩하지 않는다.
+  **고침:** `Int(truncatingIfNeeded:)`, 그리고 추적이 꺼져 있으면 호출 자체를 하지 않는다. **규칙:** 메시지 파라미터를 정수로 바꿀 땐 `truncatingIfNeeded`/`bitPattern` 만 쓴다. 메시지 펌프·훅·창 프로시저를 건드리는 변경은 이름이 무엇이든 *합친 트리*에서 앱 런(셀프테스트)을 돌린 뒤에만 머지한다.
+
 <!-- idle blow-up (fix/windows-idle-blowup) begin -->
 ## 윈도 HTTP 이음매: 클라이언트 인증서 요청과 스레드 핸들 (run 44143290510, 2026-11-17)
 
@@ -3030,13 +3036,7 @@ read_when:
   **규칙:** 네트워크 이음매는 루프백만이 아니라 앱이 실제로 부르는 호스트와의 TLS 핸드셰이크로도 확인한다(셀프테스트에서, '실패' 와 '닿지 못함' 을 구분해서).
   윈도에서 작업마다 스레드를 만들 때는 `WinDetachedThread` 를 쓴다. 유휴 게이트의 워밍업은 첫 실행 일이 끝났다는 신호(파일)를 기다린다. 시간으로 끝났다고 가정하지 않는다.
 
-- **메시지 훅의 `Int(wParam)` 이 최상위 비트가 선 wParam 에서 트랩해 앱이 죽었다(트레이스를 꺼도).** 위 고침의 full run 44157998092 에서 번들 셀프테스트가 파일 대화상자
-  검사 중에 예외 0xC000001D(불법 명령 = Swift 트랩)로 끝났다(`PokeTokenBar.exe+0x7AA80F`). exe 에 든 DWARF 로 찾아보니 `WinMessageHook.swift:56` 의
-  `WakeTrace.message(message, wParam: Int(m.pointee.wParam))`, "Not enough bits to represent the passed value" 였다(ef009cb3, #270). 훅은 펌프가 꺼내는 모든 메시지를 보고, 변환은
-  `WakeTrace.enabled` 확인보다 먼저 호출부에서 일어난다. 그래서 wParam 이 2^63 이상인 메시지(셸 파일 대화상자가 하나 보낸다) 하나면 출하 앱이 죽는다. `WPARAM` 은 부호 없는 64 비트다.
-  **왜 못 걸렀나:** #270 은 게이트 귀속용 줄이라 '꺼져 있으면 아무 영향 없음' 으로 봤고, 셀프테스트가 보내는 메시지의 wParam 은 모두 작은 값(또는 양수 Double 의 비트 패턴)이었다.
-  **고침:** `Int(bitPattern: UInt(m.pointee.wParam))`. **가드:** 셀프테스트 `loop.highWParam`(wParam `UInt.max` 와 `1 << 63` 을 실제 펌프로 보낸다. 고치기 전 코드라면 이 검사에서
-  프로세스가 죽어 보고서가 남지 않는다). **스윕:** 다른 `Int(wParam)` 은 메시지별로 값 범위가 정해진 곳(`WinPopover` 의 WTS 세션 코드, `WinControls` 의 가상 키,
-  `WinPlazaWindow` 의 세션 코드)뿐이다. 모든 메시지를 보는 경로(훅·펌프)에서 시스템 값을 변환할 때는 `bitPattern` 을 쓴다. **사용자 PC:** #270 이후의 `windows-port` 빌드만
-  해당한다(키트 pc-5…pc-9 는 그 전이라 해당 없음).
+- 이 브랜치의 full run 44157998092 에서 번들·설치 셀프테스트가 파일 대화상자 검사 중 같은 훅 트랩으로 죽었다(`PokeTokenBar.exe+0x7AA80F`, exe 의 DWARF 로
+  `WinMessageHook.swift:56` "Not enough bits to represent the passed value"). 고침은 위 #272 항목(메시지 훅의 `Int(_:)`)의 것을 쓴다. 이 브랜치는 그 고침에 트리거 가드를 더한다: 셀프테스트
+  `loop.highWParam` 이 wParam `UInt.max` 와 `1 << 63` 을 실제 펌프로 보낸다(고치기 전 코드에서는 이 검사에서 프로세스가 죽어 보고서가 남지 않는다. run 44166164011 에서 통과).
 <!-- idle blow-up (fix/windows-idle-blowup) end -->
