@@ -4,7 +4,7 @@ import FoundationNetworking
 #endif
 
 /// 부화 후보 — 진화라인 시작점(base) 종과 공식 희귀도.
-struct BaseSpecies: Sendable, Codable {
+struct BaseSpecies: Sendable, Codable, Equatable {
     let id: Int
     let captureRate: Int    // 3(뮤츠급)~255(캐터피급), 공식 희귀도 신호
 }
@@ -132,6 +132,10 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("base-index.json")
     }()
+    /// REST 구축이 세션 중간에 멈춘 진행분. 완료되면 지운다.
+    private static var restProgressFile: URL {
+        baseIndexFile.deletingLastPathComponent().appendingPathComponent("base-index-rest-progress.json")
+    }
     private struct BaseIndexSnapshot: Codable { let fetchedAt: Date; let entries: [BaseSpecies] }
     private struct GraphQLBaseResponse: Decodable {
         struct DataBox: Decodable { let pokemonspecies: [Row] }
@@ -177,26 +181,30 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
     /// GraphQL base 인덱스 엔드포인트 장애 시 REST(pokemon-species/{id})로 base 인덱스를 직접 구축·영속.
     /// 한 번 성공하면 base-index.json(30일)으로 남아 이후 선택은 네트워크 없이 가중·수집반영으로 동작 →
     /// 부화가 특정 엔드포인트 생존에 영구히 묶이지 않게 하는 자가치유 캐시. PokéAPI 배려로 소규모 동시성.
+    /// 세션마다 처음부터 649 페치를 하지 않는다(run 44143290510): 진행분을 `base-index-rest-progress.json` 에 남기고 다음 세션이
+    /// 거기서 잇는다. 네트워크 오류나 종 응답이 하나도 없는 라운드에서 멈추므로 오프라인·PokéAPI 장애는 세션당 한 라운드(6 페치)다.
     func buildBaseIndexViaREST() async {
         guard baseIndexCache == nil, !restBuildInFlight else { return }
         restBuildInFlight = true
         defer { restBuildInFlight = false }
-        AppLog.write("base index: building via REST (GraphQL unavailable)…")
-        var bases: [BaseSpecies] = []
-        let batchSize = 6
-        var start = 1
-        let maxID = PokemonAssets.animatedSpeciesIDs.upperBound
-        while start <= maxID {
-            let end = min(start + batchSize - 1, maxID)
-            let found = await withTaskGroup(of: BaseSpecies?.self) { group -> [BaseSpecies] in
-                for id in start...end { group.addTask { try? await self.baseSpecies(id: id) } }
-                var acc: [BaseSpecies] = []
-                for await r in group { if let r { acc.append(r) } }
-                return acc
-            }
-            bases.append(contentsOf: found)
-            start += batchSize
+        let file = Self.restProgressFile
+        let kept = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(RESTIndexProgress.self, from: $0) }
+            .flatMap { Date().timeIntervalSince($0.fetchedAt) < 30 * 86400 ? $0 : nil }
+        let start = kept ?? RESTIndexProgress(fetchedAt: Date(), nextID: 1, bases: [])
+        AppLog.write(start.nextID > 1
+            ? "base index: building via REST from #\(start.nextID) (\(start.bases.count) bases kept from an earlier session)…"
+            : "base index: building via REST (GraphQL unavailable)…")
+        let (progress, stop) = await Self.runRESTBuild(
+            from: start, maxID: PokemonAssets.animatedSpeciesIDs.upperBound, batchSize: 6,
+            fetch: { id in try await self.baseSpecies(id: id) },
+            save: { p in if let data = try? JSONEncoder().encode(p) { try? data.write(to: file, options: .atomic) } })
+        guard stop == .finished else {
+            AppLog.write("base index: REST build stopped before #\(progress.nextID) (\(stop == .network ? "network error" : "no species answer")) — "
+                         + "\(progress.bases.count) bases kept, the next session goes on from there")
+            return
         }
+        try? FileManager.default.removeItem(at: file)
+        var bases = progress.bases
         // 대부분 실패(네트워크 불안정)면 빈약한 인덱스를 영속하지 않고 다음 세션 재시도.
         guard bases.count >= 150 else {
             AppLog.write("base index: REST build incomplete (\(bases.count)) — not cached, will retry next session")
@@ -208,6 +216,32 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
             try? data.write(to: Self.baseIndexFile, options: .atomic)
         }
         AppLog.write("base index: REST build done — \(bases.count) bases persisted (offline-capable now)")
+    }
+
+    /// REST 구축의 본체(주입 가능 — `BaseIndexRESTBuildTests`): `progress.nextID` 부터 `batchSize` 씩 동시에 묻는다. 라운드에
+    /// 네트워크 오류(URLError)가 하나라도 있거나 라운드 전부가 종 응답이 아니면(5xx 페이지 등, 디코드 실패) 그 라운드 앞에서 멈춘다 —
+    /// 실패한 라운드는 건너뛰지 않고 다음 세션이 다시 묻는다. 라운드 안의 일부만 디코드 실패면 그 종만 빠진다(전과 같음).
+    /// 라운드가 끝날 때마다 `save` 로 진행분을 넘긴다.
+    static func runRESTBuild(from progress: RESTIndexProgress, maxID: Int, batchSize: Int,
+                             fetch: @escaping @Sendable (Int) async throws -> BaseSpecies?,
+                             save: @Sendable (RESTIndexProgress) -> Void) async -> (RESTIndexProgress, RESTIndexStop) {
+        var p = progress
+        while p.nextID <= maxID {
+            let ids = p.nextID...min(p.nextID + batchSize - 1, maxID)
+            let results = await withTaskGroup(of: Result<BaseSpecies?, Error>.self) { group -> [Result<BaseSpecies?, Error>] in
+                for id in ids { group.addTask { do { return .success(try await fetch(id)) } catch { return .failure(error) } } }
+                var acc: [Result<BaseSpecies?, Error>] = []
+                for await r in group { acc.append(r) }
+                return acc
+            }
+            let errors = results.compactMap { r -> Error? in if case .failure(let e) = r { return e }; return nil }
+            if errors.contains(where: { $0 is URLError }) { return (p, .network) }
+            if errors.count == results.count { return (p, .unanswered) }
+            p.bases.append(contentsOf: results.compactMap { r -> BaseSpecies? in if case .success(let b) = r { return b }; return nil })
+            p.nextID = ids.upperBound + 1
+            save(p)
+        }
+        return (p, .finished)
     }
 
     private func fetchBaseIndex() async throws -> [BaseSpecies] {
@@ -271,6 +305,16 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
         return url
     }
 }
+
+/// REST base 인덱스 구축의 진행분(세션을 넘어 잇는다). `nextID` 앞까지는 다 물었다.
+struct RESTIndexProgress: Codable, Equatable, Sendable {
+    let fetchedAt: Date
+    var nextID: Int
+    var bases: [BaseSpecies]
+}
+
+/// 한 세션의 REST 구축이 끝난 이유.
+enum RESTIndexStop: Equatable, Sendable { case finished, network, unanswered }
 
 // MARK: - DTO (PokéAPI 응답 부분 디코드)
 
