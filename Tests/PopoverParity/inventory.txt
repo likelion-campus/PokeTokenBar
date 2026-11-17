@@ -80,21 +80,12 @@ D4 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionVie
 D5 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift | 4 × 4 page grid, wheel/touchpad paging, cells (number in rarity colour, representative star, still sprite, name + form count, ✨, RAISING, selected border, hover lift, tooltip, context menu), footer (selection, representative button, page arrows "n / m"), Back restores the page
 D6 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift | Catch log: summary header (total, rarity chips), list rows (rarity, RAISING/RELEASED, ✨, nature, chain sprites with names, caught relative time), scroll to top on filter change, Back restores the row
 D7 | 3 | pending T21 | UI/CompanionView.swift | Pokémon detail page: Back, number, forms grid (collected x of y), appearance normal/✨, identity header (104 pt animated sprite, name, rarity, types, form note), individual picker, individual (level, gender, nature, prayers, ability, stats with IV, moves) or base stats, species data, move list, unavailable + Retry, loading
-<<<<<<< HEAD
 D8 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift, UI/SettingsView.swift | Representative Pokémon: set or follow current (grid footer, context menu, detail page, Settings row)
-H1 | 3 | pending T19 | UI/ShopView.swift | Shop wallet: spendable tokens, hint
-H2 | 3 | pending T19 | UI/ShopView.swift, UI/CompanionView.swift | Shop item cards: item icon (PokéAPI sprite, emoji fallback), name, owned count, quantity stepper, description, "owned" for passive items, price × quantity, Buy → inline confirm, not enough tokens
-H3 | 3 | pending T19 | UI/ShopView.swift | Egg cards: egg sprite, tier badge, description, release note, price, locked hint as an egg, confirm, second warning for shiny/legendary, then Home
-B1 | 3 | pending T19 | UI/BagView.swift | Empty bag: animated Snorlax, title, Shop button
-B2 | 3 | pending T19 | UI/BagView.swift | Bag item cards: icon, ×count, candy stepper, description, candy preview (graduates, discarded XP, carry-over), passive effect, Use → confirm → Home, disabled reasons
-=======
-D8 | 3 | pending T20 | UI/CompanionView.swift, UI/SettingsView.swift | Representative Pokémon: set or follow current (grid footer, context menu, detail page, Settings row)
 H1 | 3 | done Platform/Windows/Popover/WinShopPage.swift | UI/ShopView.swift | Shop wallet: spendable tokens, hint
 H2 | 3 | done Platform/Windows/Popover/WinShopPage.swift | UI/ShopView.swift, UI/CompanionView.swift | Shop item cards: item icon (PokéAPI sprite, emoji fallback), name, owned count, quantity stepper, description, "owned" for passive items, price × quantity, Buy → inline confirm, not enough tokens
 H3 | 3 | done Platform/Windows/Popover/WinShopPage.swift | UI/ShopView.swift | Egg cards: egg sprite, tier badge, description, release note, price, locked hint as an egg, confirm, second warning for shiny/legendary, then Home
 B1 | 3 | done Platform/Windows/Popover/WinBagPage.swift | UI/BagView.swift | Empty bag: animated Snorlax, title, Shop button
 B2 | 3 | done Platform/Windows/Popover/WinBagPage.swift | UI/BagView.swift | Bag item cards: icon, ×count, candy stepper, description, candy preview (graduates, discarded XP, carry-over), passive effect, Use → confirm → Home, disabled reasons
->>>>>>> origin/feat/windows-popover-shop-bag
 R1 | 2 | done Platform/Windows/Popover/WinRecapPage.swift | UI/UsageRecapView.swift | Recap page: Back (Esc), week/month/year segments, previous / current / next period
 R2 | 2 | done Popover/RecapCardPart.swift | UI/UsageRecapView.swift | Recap card: Pokédex shell, lens, LEDs, period title, LCD total, unit, delta chip, 8-block meters with labels (current highlighted, tooltips, accessibility), best day / best streak / active days / graduates, the companion and up to 4 graduates
 R3 | 2 | done Platform/Windows/Popover/WinRecapPage.swift | UI/UsageRecapView.swift | Best-day line, "compared so far" note; backfill of Pokédex names
