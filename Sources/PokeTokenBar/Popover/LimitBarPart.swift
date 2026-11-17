@@ -1,8 +1,16 @@
 import Foundation
 
 extension PopoverColorRole {
-    /// The Mac's value of the role in the plaza canvas's colour type (light now; dark with Task 16).
+    /// The role's colour in the plaza canvas's colour type (light now; dark with Task 16): the Mac's value, except Windows'
+    /// readable secondary and tertiary (`displayValue`).
     func plazaColor(_ appearance: PopoverAppearance = .light, alpha: Double = 1) -> PlazaColor {
+        let v = displayValue(appearance, windows: PopoverPlatform.isWindows)
+        return PlazaColor(srgbRed: v.red, green: v.green, blue: v.blue, alpha: v.alpha * alpha)
+    }
+
+    /// The Mac's value on every platform, for SHAPES drawn from a label colour at a fraction of its alpha (bars, tracks, dots,
+    /// tints): only text and glyphs follow Windows' raised secondary/tertiary (`plazaColor`), the Mac's proportions stay.
+    func plazaShapeColor(_ appearance: PopoverAppearance = .light, alpha: Double = 1) -> PlazaColor {
         let v = macValue(appearance)
         return PlazaColor(srgbRed: v.red, green: v.green, blue: v.blue, alpha: v.alpha * alpha)
     }
