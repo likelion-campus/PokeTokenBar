@@ -524,20 +524,20 @@ import WinSDK
         let entries = FloatingPetMenu.entries(l: pet.companion.l, backViewOn: pet.store.alwaysFacesBack)
         let items: [TrayMenuModel.Item?] = entries.map { TrayMenuModel.Item(title: $0.title, enabled: true, checked: $0.checked, action: .none) }
         pet.stats.menus += 1
-        // The window that has the foreground now: the pet never takes it (WS_EX_NOACTIVATE), but the menu takes it to its owner.
-        let previous = GetForegroundWindow()
         let owner = pet.menuOwner() ?? hwnd
         inMenu = true
-        let chosen = WinPopupMenu.run(items, at: at, owner: owner, below: true)
+        // The menu takes the foreground to its owner; the pet never took it (WS_EX_NOACTIVATE), so it goes back to the window
+        // that had it (review I3: after Escape, Back view or Turn off the user's window has the keyboard again). Not after
+        // Open (the popover takes it), and never to the popover (the Mac's transient popover closes on a click outside it).
+        let popover = pet.popoverWindow()
+        let chosen = WinPopupMenu.run(items, at: at, owner: owner, below: true) { chosen, previous in
+            let action = chosen.flatMap { entries.indices.contains($0) ? entries[$0].action : nil }
+            return action != .open && previous != popover
+        }
         inMenu = false
+        if WinPopupMenu.gaveBack { pet.stats.foregroundRestores += 1 }
         if destroyAfterMenu { finishDestroy() }
         let action = chosen.flatMap { entries.indices.contains($0) ? entries[$0].action : nil }
-        // Given back (review I3): after Escape, Back view or Turn off the user's window has the keyboard again. Open hands it to
-        // the popover instead; the popover is not given it back (the Mac's transient popover closes on a click outside it).
-        if action != .open, let previous, previous != owner, GetForegroundWindow() == owner, IsWindow(previous), IsWindowVisible(previous),
-           previous != pet.popoverWindow(), SetForegroundWindow(previous) {
-            pet.stats.foregroundRestores += 1
-        }
         if let action { pet.actions.perform(action) }
     }
 

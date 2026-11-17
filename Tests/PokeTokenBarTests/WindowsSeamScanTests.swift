@@ -571,7 +571,9 @@ extension WindowsSeamScanTests {
     /// right to the running one, the plaza's `bringToFront` (its own scan above), and `--ime-check` (a diagnostic a person
     /// starts), and the in-app update's progress window (stage 8 Task 6: opened only by the user's "Update", through
     /// `UpdateChecker.applyUpdate`). The selftest (`WindowsSelftest*.swift`, the runner only) is outside the rule. Anything
-    /// else fails: a teammate, a timer, a balloon or a refresh must never pull a window of ours to the front.
+    /// else fails: a teammate, a timer, a balloon or a refresh must never pull a window of ours to the front. The menu
+    /// runner's second call (stage 7 Task 22) gives the foreground back after a menu of the floating pet, to the window
+    /// that had it before the menu, never to one of ours it was not taken from (its own test below).
     static let activationSites: [(file: String, function: String?)] = [
         ("Platform/Windows/Popover/WinPopover.swift", "func present("),
         ("Platform/Windows/WinUpdateProgress.swift", "private func open("),
@@ -624,6 +626,32 @@ extension WindowsSeamScanTests {
         }
         XCTAssertEqual(try Self.windowsActivationViolations(in: files, root: SharedSources.sourcesRoot), [])
     }
+
+    // --- stage 7 Task 22: the menu runner's two activations (begin) ---
+    /// `WinPopupMenu.run` activates exactly twice: its owner for the menu (the foreground dance), and, for a caller that opts
+    /// in (the floating pet, which never takes the foreground), the window that had the foreground before the menu, read
+    /// in `run` itself from `GetForegroundWindow()` before the owner took it. No other target, and no other call there.
+    func testTheMenuRunnerActivatesItsOwnerAndGivesBackOnlyToTheWindowItTookItFrom() throws {
+        let lines = try SharedSources.lines(of: SharedSources.sourcesRoot.appendingPathComponent("Platform/Windows/WinTray.swift"))
+        let body = Self.bodyLines(of: "static func run(", in: lines).sorted().map { Self.code(lines[$0]) }
+        XCTAssertFalse(body.isEmpty, "WinPopupMenu.run is gone: update this test")
+        let activations = body.filter { line in Self.activationCalls.contains { line.contains($0) } }
+        XCTAssertEqual(activations.map { $0.trimmingCharacters(in: .whitespaces) },
+                       ["_ = SetForegroundWindow(owner)", "gaveBack = SetForegroundWindow(previous)"],
+                       "the owner for the menu, then only the window that had the foreground")
+        XCTAssertEqual(body.filter { $0.contains("let previous = ") }.map { $0.trimmingCharacters(in: .whitespaces) },
+                       ["let previous = giveBack == nil ? nil : GetForegroundWindow()"],
+                       "previous is the foreground window read before the owner takes it, and nothing else")
+        let ownerAt = body.firstIndex { $0.contains("SetForegroundWindow(owner)") } ?? -1
+        let previousAt = body.firstIndex { $0.contains("let previous = ") } ?? Int.max
+        XCTAssertLessThan(previousAt, ownerAt, "read before the owner takes the foreground")
+        let backAt = body.firstIndex { $0.contains("SetForegroundWindow(previous)") } ?? -1
+        let guardText = body[max(0, backAt - 3)..<max(0, backAt)].joined(separator: " ")
+        for condition in ["previous != owner", "GetForegroundWindow() == owner", "IsWindow(previous)", "IsWindowVisible(previous)", "giveBack(chosen, previous)"] {
+            XCTAssertTrue(guardText.contains(condition), "the give-back is guarded by \(condition)")
+        }
+    }
+    // --- stage 7 Task 22 (end) ---
 
     func testTheWindowsActivationScanCatchesACallOutsideTheSites() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-activation-scan-\(UUID().uuidString)")

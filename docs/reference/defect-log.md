@@ -3010,6 +3010,14 @@ read_when:
   🥚 를 DirectWrite 로 그렸다(아무도 못 보는 그림) → 첫 로드나 `revealDelay` 까지 그리지 않는다. M11: 디스플레이 변경의 `place()` 가 저장 위치를 덮어써 홈 모니터가 잠시 빠지면
   기본 모서리가 저장돼 돌아오지 않았다 → 사용자 드래그와 첫 기본 배치만 저장(맥은 대체 모서리를 저장한다: 인벤토리 F1 의 차이). `pet.clamp` 가 모니터 제거·복귀(실제
   `WM_SETTINGCHANGE(SPI_SETWORKAREA)`)로 집에 돌아오는지 본다. M10: 체크가 하네스 클로저를 바꾼 뒤 시드 메서드를 불렀다 → 실제 `WM_SETTINGCHANGE`·`WM_POWERBROADCAST` 를 보낸다.
+- **펫 메뉴 뒤 전경 되돌리기(I3)가 활성화 허용 지점 밖(`WinFloatingPet.swift`)에서 `SetForegroundWindow` 를 불러 `WindowsSeamScanTests.testOnlyTheAllowedSitesActivateWindowsOfOurs`
+  가 랜딩 브랜치에서 실패했다.** **왜 못 걸렀나:** 맥 확인을 `FloatingPet|PopoverPet|PopoverParity|…` 필터로만 돌려 `ScanTests` 가 빠졌다 — 윈도 코드의 규칙 스캔은
+  이름에 기능명이 없다. **고침:** 되돌리기를 메뉴 실행기 `WinPopupMenu.run`(이미 허용된 지점)의 선택형 단계(`giveBack`)로 옮겼다 — 목록을 넓히지 않았다. 새 스캔 테스트가 그 함수의 활성화가
+  "메뉴 주인"과 "메뉴 전에 전경이던 창(`previous`)" 둘뿐이고 그 가드가 있음을 고정한다(잘못된 대상·가드 제거 주입으로 실패 확인). **규칙:** 윈도 코드를 바꾼 맥 확인은
+  `ScanTests|Popover|Pet|Settings|TrayMenu|AppWiring|HomeModel` 전체 세트로 돌린다.
+- **(테스트 공백) 앞선 체크의 실제 클릭이 포인터를 다음 비용 창의 창 자리에 남겼다.** `pet.noActivate`·`pet.clickActions` 의 실제 클릭 자리가 `pet.idle` 펫 자리와 같아, 펫을 숨기면 포인터
+  아래가 러너의 터미널 창(`CASCADIA_HOSTING_WINDOW_CLASS`)으로 바뀌며 번들 셀프테스트에서만 메인 스레드가 8 s 에 ~10 번 깼다(런 44049375908·44068394132·44093544046 실패, 설치본은 0).
+  포인터를 우리 창이 없는 곳(데스크톱)에 둔 뒤엔 2 번, 꺼낸 메시지 없음(런 44107060600). **규칙:** 창을 보이고 숨기며 비용을 재는 체크는 먼저 포인터를 치운다(CI 에서만).
 <!-- stage 7 Task 22 (end) -->
 
 ## 윈도 셀프테스트의 시스템 설정 변경 (2026-11-17)
