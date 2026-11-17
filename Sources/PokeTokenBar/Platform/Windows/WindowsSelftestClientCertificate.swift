@@ -8,7 +8,8 @@ import FoundationNetworking
 /// (12044), so on Windows the hatch base index never loaded and every new install fell back to 649 PokéAPI REST fetches, which
 /// ran on into three idle-gate windows when PokéAPI was slow (run 44143290510). The same request goes once the old way
 /// (`clientCertificateAsBefore`) as the control: it must stop at 12044, or the detail says the host no longer asks and the check
-/// proves nothing. Two small POSTs to the real host; a runner that cannot reach it passes and says so, as `limits.claude` does.
+/// proves nothing. Two small POSTs to the real host; a runner that cannot reach it passes and says so, as `limits.claude` does,
+/// and so does a host that fails both requests the same way (PokéAPI down): only our answer to the certificate request is judged.
 extension WindowsSelftest {
     @MainActor static func clientCertificateCheck(_ r: Recorder) async {
         let name = "net.clientCertificateOptional"
@@ -57,8 +58,13 @@ extension WindowsSelftest {
             r.add(name, true, detail)
         case .failure(let error) where unreachable.contains(error.code):
             r.add(name, true, "not reached (network): " + detail)
-        case .failure:
-            r.add(name, false, detail)
+        case .failure(let error):
+            // The host failing both ways the same way (a TLS or server fault of PokeAPI's, not a certificate request) is not ours.
+            if case .failure(let old) = control, old.code == error.code, error.code != .clientCertificateRequired {
+                r.add(name, true, "host failed both ways: " + detail)
+            } else {
+                r.add(name, false, detail)
+            }
         }
     }
 }

@@ -3017,6 +3017,9 @@ read_when:
   스레드를 만들지 못하면 호출자에게 바로 답하고 슬롯을 돌려준다(전에는 `Thread.start` 의 실패를 알 길이 없었다). 유휴 게이트 워밍업은
   `%LOCALAPPDATA%\PokeTokenBar\base-index.json` 이 생길 때까지(최대 +240 s) 앱을 열어 두고, 걸린 시간을 요약의 `warmup` 에 남긴다. `PTB_WAKE_TRACE=1` 에는 작업 스레드 쪽 귀속
   `fetch trace start/exit: started= ended= hosts= failures=` 를 더했고, 게이트는 창마다 그 차이를 `FETCHES <label>:` 줄과 `fetches` 항목으로 낸다.
+  PokéAPI 가 죽어 있으면 워밍업은 최대 300 s 를 기다린 뒤 요약에 `base index NOT on disk` 를 적고 그대로 계속한다(멈추지도, 그 이유만으로 실패하지도 않는다). 그때 측정 기동마다
+  GraphQL 1 회와 REST 한 라운드(6 페치)만 30 s 정착 구간 안에서 실패하고 멈춘다(③). 셀프테스트 `net.clientCertificateOptional` 도 닿지 못하거나 두 요청이 같은 오류로
+  실패하면(호스트 장애) 통과하고 그렇게 적는다. 판정하는 것은 인증서 요청에 대한 우리 답뿐이다.
   **가드(기계):** ① 셀프테스트 `net.clientCertificateOptional`: 실제 graphql.pokeapi.co 에 작은 POST 를 두 번 보낸다. 고친 경로는 HTTP 응답을 받아야 하고, 대조군
   (`clientCertificateAsBefore`)은 12044 로 멈춰야 '서버가 아직 요청한다' 는 것이 증명된다. 러너가 닿지 못하면 통과하되 그렇게 적는다. ②
   `WindowsHTTPFetchTests.testTheFetchWorkersKeepNoHandleWhereFoundationThreadsKeepOneEach`: 한 세션에서 루프백 페치 100 회(세션 열기·닫기만 빼고 게이트·작업 스레드·
@@ -3028,8 +3031,13 @@ read_when:
   **스윕:** ① 같은 API 오용(윈도 Foundation 이 커널 핸들을 쥐고 닫지 않음): 출하 코드에서 `Thread` 를 시작하는 곳은 이음매(고침), `WinSocketLoop`(프로세스당 한 번이고 앱 종료 때만
   다시 만든다. 핸들 하나라 그대로 둔다), `WinUIDump`·`WindowsSelftest*`(셀프테스트 전용이라 그대로 둔다)다. corelibs `Process` 는 스레드 핸들을 바로 닫고, 프로세스 핸들은 `deinit` 에서
   닫는다(확인함). ② 같은 TLS 차이(서버의 CertificateRequest): 앱이 부르는 호스트 18 곳을 `openssl s_client` 로 확인했다. CertificateRequest 를 보내는 곳은 graphql.pokeapi.co 하나다.
-  ③ 같은 모양의 첫 실행 일(끝나야 저장하고 기동마다 처음부터 다시 함): `buildBaseIndexViaREST` 하나뿐이다. 업스트림 소유인 `Core/` 라 바꾸지 않았다. 이제 GraphQL 이 윈도에서도 되므로
-  REST 빌드는 GraphQL 장애 때만 돈다(맥과 같다).
+  ③ 같은 모양의 첫 실행 일(끝나야 저장하고 기동마다 처음부터 다시 함): `buildBaseIndexViaREST` 하나뿐이다. GraphQL 이 윈도에서도 되므로 이제 GraphQL 이 정말로 실패할 때만
+  돈다(오프라인, PokéAPI 장애). 그래도 그때는 세션마다 649 페치를 다시 했다(오프라인이면 DNS 실패 649 회, 5xx 면 TLS 649 회, 그리고 닫힌 세션마다 핸들 2 개가 1 분쯤).
+  리드의 요청으로 업스트림 소유 `Core/PokeAPIClient.swift` 를 고쳤다(맥도 같은 경로): 구축 본체를 `runRESTBuild` 로 떼어 내 주입 가능하게 하고,
+  라운드(6 개)에 네트워크 오류(URLError)가 하나라도 있거나 라운드 전부가 종 응답이 아니면(5xx 페이지는 디코드 실패) 그 라운드 앞에서 멈춘다. 라운드마다 진행분을
+  `base-index-rest-progress.json`(30 일)에 남기고 다음 세션은 거기서 잇는다. 일부만 디코드 실패면 그 종만 빠진다(전과 같다). 그래서 오프라인·PokéAPI 장애는 세션당 GraphQL 1 + 6 페치,
+  느린 망은 세션을 넘어 이어 붙여 수렴한다. 가드: `BaseIndexRESTBuildTests`(오프라인 → 1~6 만 묻고 멈춤, 5xx → 1~6 에서 멈춤, #100 시간 초과 → 97 에서 멈추고 다음 세션이 97~649 만 묻음,
+  한 종만 디코드 실패 → 건너뛰고 완료). 결함 주입(멈춤 두 줄 제거, 진행분 무시)으로 넷 중 셋이 실패함을 확인했다(넷째는 '전과 같음' 확인용이라 그대로 통과).
   **사용자 PC:** 키트 pc-5…pc-9(모두 100cc1de 이후)는 두 결함을 다 가진다. ① `base-index.json` 이 없는 실행(첫 실행, 또는 빌드가 끝나기 전에 끈 다음 실행)마다 649 페치 REST
   빌드가 돈다. CPU 는 수 초를 쓰고, 핸들 약 650 개가 앱 종료까지 남는다. 끝나면 30 일 캐시로 남고, 그 뒤로는 오래된 캐시를 계속 쓴다. ② 모든 페치가 핸들을 하나씩 남긴다
   (120 s 마다 상태 확인·한도 몇 개 → 켜 둔 하루에 천 단위). 프로세스 한도(약 1,600 만)와는 거리가 멀지만, 작업 관리자의 핸들 수가 선형으로 자란다.
