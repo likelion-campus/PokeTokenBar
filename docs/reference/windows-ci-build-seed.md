@@ -56,5 +56,5 @@ another class having run first: the shard step creates `plaza-preview`, `photo-o
 `testFetchedSpritesDrawInTheScene` writes into the first without creating it.
 
 ## Toolchain install
-`.github/actions/windows-swift` normally takes about 1.4 min. Each calling step has `timeout-minutes: 8` and one retry (a hung download once
-held a run for 31 min; a `uses:` step has no limit of its own).
+`.github/actions/windows-swift` normally takes about 1.4 min (a slow download up to 8). Each calling step has `timeout-minutes: 8` and one retry (a hung download once
+held a run for 31 min, and a slow swift.org download takes up to 8 min, seen three times; a `uses:` step has no limit of its own).

@@ -75,10 +75,10 @@ jobs:
       - uses: ./.github/actions/windows-swift
         id: swift1
         continue-on-error: true
-        timeout-minutes: 8   # the install takes about 1.4 min; a hung download once held a run for 31 min (a uses: step has no limit of its own)
+        timeout-minutes: 12   # the install takes about 1.4 min, a slow swift.org download 8 min (seen three times on 2026-11-17); a hung one held a run for 31 min
       - uses: ./.github/actions/windows-swift
         if: steps.swift1.outcome != 'success'
-        timeout-minutes: 8   # the one retry
+        timeout-minutes: 12   # the one retry
       - name: Seed (the .build of the last windows-port run; none in release mode or with clean_build)
         id: seed
         timeout-minutes: 15
@@ -142,10 +142,10 @@ jobs:
       - uses: ./.github/actions/windows-swift
         id: swift1
         continue-on-error: true
-        timeout-minutes: 8   # the install takes about 1.4 min; a hung download once held a run for 31 min (a uses: step has no limit of its own)
+        timeout-minutes: 12   # the install takes about 1.4 min, a slow swift.org download 8 min (seen three times on 2026-11-17); a hung one held a run for 31 min
       - uses: ./.github/actions/windows-swift
         if: steps.swift1.outcome != 'success'
-        timeout-minutes: 8   # the one retry
+        timeout-minutes: 12   # the one retry
       - uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ needs.build.outputs.seed_id }}
@@ -251,10 +251,10 @@ jobs:
       - uses: ./.github/actions/windows-swift
         id: swift1
         continue-on-error: true
-        timeout-minutes: 8   # the install takes about 1.4 min; a hung download once held a run for 31 min (a uses: step has no limit of its own)
+        timeout-minutes: 12   # the install takes about 1.4 min, a slow swift.org download 8 min (seen three times on 2026-11-17); a hung one held a run for 31 min
       - uses: ./.github/actions/windows-swift
         if: steps.swift1.outcome != 'success'
-        timeout-minutes: 8   # the one retry
+        timeout-minutes: 12   # the one retry
       - uses: actions/download-artifact@v4
         with:
           artifact-ids: ${{ needs.build.outputs.seed_id }}
