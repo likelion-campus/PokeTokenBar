@@ -72,6 +72,14 @@ struct CompanionSampleNames: PokemonNameProviding {
         }
     }
 
+    /// SplitMix's numbers made odd: a hatch is shiny when its roll is a multiple of 64 (48 with the charm), so a hatch on
+    /// these dice is plain whichever draw it takes (the Windows selftest's plain-hatch fixture; run 43967277783 rolled a
+    /// system-random 1-in-64 shiny, whose burst runs the designed 3.1 s, over the plain check's 2.6 s).
+    struct PlainRolls: RandomNumberGenerator {
+        var inner = SplitMix(state: 9)
+        mutating func next() -> UInt64 { inner.next() | 1 }
+    }
+
     /// `pathIDs` is the realized path (the species so far), `plannedPathIDs` the whole planned line; `progress` is the
     /// fraction of this stage's threshold (at the default difficulty).
     static func mon(_ path: [Int], stage: Int, progress: Double, rarity: Rarity = .common, shiny: Bool = false, nature: PokemonNature = .modest,
