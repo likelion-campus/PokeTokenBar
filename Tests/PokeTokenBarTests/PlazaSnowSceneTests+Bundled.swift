@@ -1,18 +1,16 @@
-// PlazaSnowSceneTests+Mac: the tall-grass snow test reads the bundled tall-grass sheet (ImageIO) and compares pixels through CGImage
+// PlazaSnowSceneTests+Bundled: the tall-grass snow test reads the bundled tall-grass sheet; the minimap test builds the snow map
 import XCTest
-import AppKit
-import SpriteKit
 @testable import PokeTokenBar
 
 extension PlazaSnowSceneTests {
     func testTheTallGrassTurnsSnowyWithTheMap() async throws {
-        let normal = try XCTUnwrap(PlazaTallGrassArt.load())
-        let sheet = try XCTUnwrap(PlazaResources.tallGrassSheet())
-        let snowy = try XCTUnwrap(PlazaTallGrassArt(sheet: PlazaSnowSheet.tallGrass(PlazaImage(cgImage: sheet))))
+        let normal = try XCTUnwrap(PlatformPlaza.tallGrassArt())
+        let sheet = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
+        let snowy = try XCTUnwrap(PlazaTallGrassArt(sheet: PlazaSnowSheet.tallGrass(sheet)))
         let e = Env(map: map, now: date(5, 12, 0, 0), tallGrass: normal, snowTallGrass: snowy)
         let layer = try XCTUnwrap(e.scene.tallGrassLayer)
         let whole = CGRect(origin: .zero, size: map.pixelSize)
-        func hasGreen() -> Bool { layer.photoBands(in: whole).contains { SnowPixels.contains($0.image.cgImage, rgb: greens) } }
+        func hasGreen() -> Bool { layer.photoBands(in: whole).contains { SnowPixels.contains($0.image, rgb: greens) } }
         e.scene.update(1)
         XCTAssertFalse(hasGreen())
     }

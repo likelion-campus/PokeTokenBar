@@ -1,12 +1,10 @@
-// PlazaSeasonTests+Mac: the water balloon PNG size (14x18, no decoder on the Windows stub), the recoloured tile and tall-grass sheets (CGImage) and shortcutThrowLabel (the SwiftUI shortcut guide)
+// PlazaSeasonTests+Bundled: the water balloon picture, the recoloured bundled sheets and the V line of the shortcut guide
 import XCTest
-import AppKit
-import SpriteKit
 @testable import PokeTokenBar
 
 extension PlazaSeasonTests {
     func testSummerThrowsTheWaterBalloonPictureAsItIsAndOnlyInSummer() async throws {
-        let balloon = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.waterBalloon(), "the bundled picture loads"))
+        let balloon = try XCTUnwrap(BundledArt.image(PlazaResources.waterBalloonName), "the bundled picture loads")
         XCTAssertEqual([balloon.width, balloon.height], [14, 18])
         let summer = PlazaSnowballArt.pieces(.summer, balloon: balloon)
         XCTAssertTrue(summer[0].image === balloon)
@@ -17,7 +15,7 @@ extension PlazaSeasonTests {
     }
 
     func testSpringAndAutumnRecolourTheSheetAndSummerLeavesItAlone() async throws {
-        let sheet = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tileSheet()))
+        let sheet = try XCTUnwrap(PlatformPlaza.tileSheet())
         XCTAssertTrue(PlazaSeasonSheet.tiles(sheet, season: .summer) === sheet)
         let spring = PlazaSeasonSheet.tiles(sheet, season: .spring), autumn = PlazaSeasonSheet.tiles(sheet, season: .autumn)
         XCTAssertTrue(SnowPixels.contains(spring, rgb: [0xF8BBCF, 0xFDDCE6, 0xE88DAC]), "pink trees")
@@ -38,7 +36,7 @@ extension PlazaSeasonTests {
     }
 
     func testTallGrassTurnsGoldInAutumnAndStaysGreenInSpringAndSummer() async throws {
-        let sheet = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tallGrassSheet()))
+        let sheet = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
         XCTAssertTrue(PlazaSeasonSheet.tallGrass(sheet, season: .spring) === sheet)
         XCTAssertTrue(PlazaSeasonSheet.tallGrass(sheet, season: .summer) === sheet)
         let autumn = PlazaSeasonSheet.tallGrass(sheet, season: .autumn)

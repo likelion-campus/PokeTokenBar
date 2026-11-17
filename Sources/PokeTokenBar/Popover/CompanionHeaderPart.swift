@@ -48,6 +48,34 @@ import Foundation
         onChange?()
     }
 
+    // --- stage 7 Task 20: the sprite opens its Pokédex page (C2) (begin) ---
+    /// The hit the sprite reports (`target` = the dex cell's collection ID).
+    nonisolated static let dexAction = "header.dex"
+    /// The page the sprite opens, with the tooltip: nil for an egg or a species not in the dex (the Mac's `target: nil`), then the
+    /// sprite is no button and has no hover look.
+    var dexLink: (target: String, hint: String)? {
+        didSet {
+            guard dexLink?.target != oldValue?.target || dexLink?.hint != oldValue?.hint else { return }
+            laidOut = nil
+            if dexLink == nil { linkHover = false }
+            onChange?()
+        }
+    }
+    private(set) var linkHover = false
+    private var hoverLayer: (key: String, layer: PlazaPanelLayer?)?
+
+    /// The pointer is over the sprite box (the host tells from `onPointer`): the box gets the 10 % hover background.
+    func setLinkHover(_ over: Bool) {
+        let next = over && dexLink != nil
+        guard next != linkHover else { return }
+        linkHover = next
+        onChange?()
+    }
+
+    /// The sprite box (part coordinates), for the host's pointer test.
+    var spriteBoxFrame: CGRect? { laidOut?.box }
+    // --- stage 7 Task 20 (end) ---
+
     /// The celebration's look now. The host renders right after (`render`, whose `dirty` is the box).
     func setEffects(_ e: CompanionArtEffects) { effects = e }
 
@@ -245,7 +273,15 @@ import Foundation
         items = items.map { var it = $0; it.frame.origin.y += shift; return it }
         tips = tips.map { var t = $0; t.frame.origin.y += shift; return t }
         let boxRect = CGRect(x: 0, y: boxY, width: box, height: box)
-        items.insert(PlazaAccessibilityItem(frame: boxRect, role: .staticText, label: model.spriteLabel), at: 0)
+        // --- stage 7 Task 20: C2 (begin) ---
+        if let link = dexLink {   // DexEntryLink: a button named "<name>, <hint>" with the hint as its tooltip
+            items.insert(PlazaAccessibilityItem(frame: boxRect, role: .button, label: "\(model.spriteLabel), \(link.hint)",
+                                                action: PlazaPanelHit(action: Self.dexAction, index: nil, target: link.target), key: "header-dex"), at: 0)
+            tips.append(PlazaTooltip(frame: boxRect, text: link.hint))
+        } else {
+            items.insert(PlazaAccessibilityItem(frame: boxRect, role: .staticText, label: model.spriteLabel), at: 0)
+        }
+        // --- stage 7 Task 20 (end) ---
         return Layout(size: CGSize(width: width, height: ceil(height)), box: boxRect, column: CGRect(x: colX, y: colY, width: colW, height: colH),
                       texts: texts, badges: badges, bars: bars, items: items, tooltips: tips)
     }
@@ -292,6 +328,20 @@ import Foundation
             backdrops[backdropKey] = art
             layers.append(art)
         }
+        // --- stage 7 Task 20: the link's hover background (begin) ---
+        if linkHover {
+            let hkey = "\(scale)"
+            if hoverLayer?.key != hkey {
+                let space = PlazaPanelSpace(content: lay.box.size, room: 0)
+                let img = space.image(scale: scale, graphics: graphics) { canvas in
+                    canvas.setFillColor(PopoverColorRole.primary.plazaShapeColor(alpha: 0.1))
+                    canvas.fillRoundedRect(space.canvas(CGRect(origin: .zero, size: lay.box.size)), radius: 12)
+                }
+                hoverLayer = (hkey, img.map { .image($0, frame: lay.box) })
+            }
+            if let layer = hoverLayer?.layer { layers.append(layer) }
+        }
+        // --- stage 7 Task 20 (end) ---
         if let image = column?.image { layers.append(.image(image, frame: CGRect(origin: .zero, size: lay.size))) }
         let barKey = "\(scale)|\(barLook.expand)|\(barLook.label)"
         if barLayer?.key != barKey { barLayer = (barKey, barLayers(lay, scale: scale, graphics: graphics)) }

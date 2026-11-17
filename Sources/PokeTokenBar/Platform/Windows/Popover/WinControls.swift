@@ -82,6 +82,12 @@ enum WinEditKind: Equatable, Sendable {
     var onFocus: ((Bool) -> Void)?
     /// `drawnItem`: whether Escape is the item's now (a selection to clear); otherwise Escape reaches the popover as usual.
     var claimsEscape: (() -> Bool)?
+    // --- stage 7 Task 20: a drawn item's context menu (right click, the menu key, Shift+F10) (begin) ---
+    /// `drawnItem`: `WM_CONTEXTMENU` over the item, with the pointer's screen point (nil: from the keyboard); true when handled.
+    var onContextMenu: ((POINT?) -> Bool)?
+    /// `drawnItem`: the pointing hand over it (the Mac's `DexEntryLink`).
+    var showsHandCursor = false
+    // --- stage 7 Task 20 (end) ---
     fileprivate var tracking = false
     // --- stage 7 Task 12 (end) ---
 
@@ -214,6 +220,9 @@ enum WinEditKind: Equatable, Sendable {
 
     fileprivate var valueWidth: CGFloat = 0
 
+    /// The selftest reads whether the control is shown.
+    var isVisibleForTesting: Bool { IsWindowVisible(hwnd) }
+
     func setVisible(_ visible: Bool) {
         for part in parts { WinKit.setVisible(part, visible) }
     }
@@ -227,7 +236,7 @@ enum WinEditKind: Equatable, Sendable {
         // Every callback goes: a page that captured itself in one would otherwise keep itself alive through its controls.
         onDestroy = nil; onClick = nil; onToggle = nil; onSelect = nil; onValue = nil; onCommit = nil; onChange = nil
         onFrame = nil; drawItem = nil; onSizeChange = nil; fitWidth = nil
-        onPointer = nil; onKey = nil; onFocus = nil; claimsEscape = nil
+        onPointer = nil; onKey = nil; onFocus = nil; claimsEscape = nil; onContextMenu = nil
         format = { String($0) }
         for part in parts {
             ctx.tooltips.set(nil, for: part, in: GetParent(part))
@@ -315,6 +324,12 @@ enum WinEditKind: Equatable, Sendable {
             return code
         case UINT(WM_KEYDOWN) where c.onKey != nil && wParam != WPARAM(VK_RETURN):  // stage 7 Task 12
             return c.onKey?(Int(wParam)) == true ? 0 : nil
+        case 0x0020 where c.showsHandCursor && Int(lParam) & 0xFFFF == 1 /* HTCLIENT */:  // WM_SETCURSOR (stage 7 Task 20)
+            _ = SetCursor(LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32649 /* IDC_HAND */)))
+            return 1
+        case 0x007B where c.onContextMenu != nil:  // WM_CONTEXTMENU over a drawn item (stage 7 Task 20)
+            let point: POINT? = lParam == -1 ? nil : POINT(x: Int32(Int16(truncatingIfNeeded: lParam & 0xFFFF)), y: Int32(Int16(truncatingIfNeeded: (lParam >> 16) & 0xFFFF)))
+            return c.onContextMenu?(point) == true ? 0 : nil
         case 0x0200 where c.onPointer != nil:  // WM_MOUSEMOVE over a drawn item (stage 7 Task 12)
             if !c.tracking {
                 c.tracking = true
@@ -931,7 +946,7 @@ extension WinControls {
         }
     }
 
-    fileprivate static func pillSize(_ c: WinControl, _ pill: WinPill) -> CGSize {
+    static func pillSize(_ c: WinControl, _ pill: WinPill) -> CGSize {  // stage 7 Task 20: was fileprivate
         let ctx = c.ctx
         let title = ctx.measure(pill.title, font: c.font)
         let glyph = pillGlyph(pill, ctx: ctx).map { ctx.measure($0.text, font: $0.font) }
@@ -1040,6 +1055,22 @@ extension WinControl {
         _ = InvalidateRect(hwnd, nil, false)
     }
 }
+
+// --- stage 7 Task 20: a pill whose title changes (Settings' representative Pokémon) (begin) ---
+extension WinControl {
+    /// Another title: the window text (the accessible name), the size, one repaint; the page lays out again when the width changed.
+    func setPillTitle(_ title: String) {
+        guard var p = pill, p.title != title else { return }
+        p.title = title
+        pill = p
+        text = title
+        let before = preferredSize
+        preferredSize = WinControls.pillSize(self, p)
+        _ = InvalidateRect(hwnd, nil, false)
+        if before != preferredSize { onSizeChange?() }
+    }
+}
+// --- stage 7 Task 20 (end) ---
 
 extension WinControl {
     /// The pointer is over the button (the kit's hover look).

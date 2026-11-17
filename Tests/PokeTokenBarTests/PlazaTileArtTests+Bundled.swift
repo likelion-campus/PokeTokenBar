@@ -4,10 +4,10 @@ import XCTest
 /// The tile art checks against the bundled sheet.
 extension PlazaTileArtTests {
     /// The full map is rendered once per class; tests that only inspect the result reuse it.
-    private static let sharedMapImage: PlazaImage? = PlazaResources.tileSheet().map { PlazaTileArt.mapImage(PlazaMapData.map, sheet: PlazaImage(cgImage: $0)) }
+    private static let sharedMapImage: PlazaImage? = PlatformPlaza.tileSheet().map { PlazaTileArt.mapImage(PlazaMapData.map, sheet: $0) }
     private func sharedMap() throws -> PlazaImage { try XCTUnwrap(Self.sharedMapImage) }
 
-    private func sheet() throws -> PlazaImage { PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tileSheet())) }
+    private func sheet() throws -> PlazaImage { try XCTUnwrap(PlatformPlaza.tileSheet()) }
 
     /// 2x2 보드와 쉼터 한 칸이 있는 작은 지도. 왼쪽 위 2x2는 나무다.
     private func smallMap(_ at: String = ".") throws -> PlazaMap {
@@ -104,7 +104,7 @@ extension PlazaTileArtTests {
 
     func testTallGrassIsBakedOnlyWithTheArt() throws {
         let sheet = try sheet()
-        let art = try XCTUnwrap(PlazaTallGrassArt.load())
+        let art = try XCTUnwrap(PlatformPlaza.tallGrassArt())
         let w = 6 * 32
         let plain = tile(pixels(PlazaTileArt.mapImage(try smallMap("."), sheet: sheet)), 2, 0, width: w)
         let baked = tile(pixels(PlazaTileArt.mapImage(try smallMap("g"), sheet: sheet, tallGrass: art)), 2, 0, width: w)

@@ -1,25 +1,21 @@
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 extension PlazaCampfireSceneTests {
 
     /// The light texture holds `multiplier / 2` per ring, neutral grey outside the ellipse, laid out on the 2 px block grid.
-    func testLightTextureHoldsTheRingsOnTheBlockGrid() throws {
+    func testLightTextureHoldsTheRingsOnTheBlockGrid() async throws {
         let scene = newScene()
         scene.now = { self.at(hour: 21) }
         scene.campfireLit = true
         scene.update(0)
         let tint = scene.daylightTint
-        let image = try XCTUnwrap(scene.campfireLightImage?.cgImage)
+        let image = try XCTUnwrap(scene.campfireLightImage)
         let radii = PlazaCampfireLight.radii(phase: 0)
         let n = PlazaCampfireLight.blockCounts(radii: radii)
         XCTAssertEqual(image.width, n.w)
         XCTAssertEqual(image.height, n.h)
-        var data = [UInt8](repeating: 0, count: n.w * n.h * 4)
-        let ctx = CGContext(data: &data, width: n.w, height: n.h, bitsPerComponent: 8, bytesPerRow: n.w * 4,
-                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: n.w, height: n.h))
+        let data = image.pixels.bytes
         func texel(_ i: Int, _ j: Int) -> [Int] { (0..<3).map { Int(data[(j * n.w + i) * 4 + $0]) } }   // j = 0 is the top row
         func expected(_ mix: Double) -> [Int] {
             let m = PlazaCampfireLight.multiplier(tint: tint, mix: mix)

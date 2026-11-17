@@ -4,7 +4,7 @@ import XCTest
 /// The snow recolour checks that read the bundled sheets.
 extension PlazaSnowSheetTests {
     func testSnowTilesKeepWaterLiliesAndEveryAlpha() throws {
-        let sheet = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tileSheet()))
+        let sheet = try XCTUnwrap(PlatformPlaza.tileSheet())
         let before = Pixels(sheet), after = Pixels(PlazaSnowSheet.tiles(sheet))
         XCTAssertEqual(before.width, after.width); XCTAssertEqual(before.height, after.height)
         for cell in [(3, 7), (2, 0), (4, 0), (5, 0)] {
@@ -20,7 +20,7 @@ extension PlazaSnowSheetTests {
     }
 
     func testSnowTallGrassKeepsTheDarkBladesAndOutline() throws {
-        let sheet = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tallGrassSheet()))
+        let sheet = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
         let before = Pixels(sheet), after = Pixels(PlazaSnowSheet.tallGrass(sheet))
         XCTAssertEqual(after.count(0x99E550), 0)
         XCTAssertEqual(after.count(0x6ABE30), 0)
