@@ -167,7 +167,7 @@ import WinSDK
         guard let window, let ctx else { return }
         lastClient = client
         let l = self.l
-        loginState = host.loginItem.state
+        loginState = WinOpenTrace.step("loginItem") { host.loginItem.state }
 
         // Header, body, footer: creation order is Tab order.
         let head = try? WinPane(parent: window.hwnd, ctx: ctx, rect: client)
@@ -196,9 +196,13 @@ import WinSDK
         footer = foot
         if let foot { buildFooter(foot, l) }
 
-        placeChrome(client)
-        page.layout()
+        // The settings' values and which rows show first, then one layout pass: laying out every row and hiding half of them
+        // after was a second pass over a page on screen (the settings-open fix).
+        var lap = WinOpenTrace.Lap()
         sync()
+        lap.mark("sync")
+        placeChrome(client)
+        lap.mark("layout")
     }
 
     private func buildFooter(_ foot: WinPane, _ l: L) {
@@ -254,8 +258,8 @@ import WinSDK
         footer?.move(RECT(left: 0, top: client.bottom - footH, right: width, bottom: client.bottom))
         area?.move(RECT(left: 0, top: headerH, right: width, bottom: client.bottom - footH))
         if let stack, let area {
-            stack.width = area.contentWidth
-            stack.layout()
+            stack.width = area.contentWidth   // a new width asks for a layout
+            stack.layoutIfNeeded()            // the build's rows did too; a new height alone moves no row
         }
         let bar = headerH - line
         if let back = backLink {
@@ -281,6 +285,7 @@ import WinSDK
     private func buildSections(_ s: WinStack) {
         let l = self.l
         let store = self.store
+        var lap = WinOpenTrace.Lap()   // what each section costs (the settings-open trace)
 
         // General (G1, G3, G5, G8, G12b)
         let general = s.addSection(l.generalSectionTitle)
@@ -326,6 +331,7 @@ import WinSDK
         // No "why do I have to refresh by hand?" row: the Mac's Settings has none (its help is Home's (?) next to the limits caption).
         // Left out on Windows (`SettingsModel.visibility`): the menu bar group and the Keychain switch (no such things here). The
         // Mac's representative row is T20.
+        lap.mark("general")
 
         // MARK: Task 15 — difficulty (begin)
         let transferRows = WinTransferSection(host: host, drafts: transferDrafts, owner: { [weak self] in self?.window?.hwnd },
@@ -334,6 +340,7 @@ import WinSDK
         transfer = transferRows
         transferRows.addDifficulty(to: s)
         // MARK: Task 15 (end)
+        lap.mark("difficulty")
 
         // Tracked providers (G11)
         let providers = s.addSection(l.trackedProvidersSectionTitle)
@@ -344,15 +351,18 @@ import WinSDK
         }
         let providerHint = s.addSection(nil, card: false)
         providerHint.addRow(nil, hint: l.trackedProvidersHint) { _, _ in nil }
+        lap.mark("providers")
 
         // Floating pet (G12): MARK: Task 22 — enable, back view, size; after the tracked providers, as the Mac's
         if visibility.floatingPetGroup { backViewRow = pet.addGroup(to: s, l: l) }
+        lap.mark("floatingPet")
 
         // Team (G13): Korean, as the Mac's
         let teamSection = s.addSection(L(.ko).teamSectionTitle)
         team = WinTeamSection(section: teamSection, host: host, drafts: teamDrafts,
                               changed: { [weak self] in self?.scheduleRefresh() },
                               rebuild: { [weak self] in self?.scheduleRebuild() })
+        lap.mark("team")
 
         // Notifications (G14)
         let notifications = s.addSection(l.notificationsSection)
@@ -379,6 +389,7 @@ import WinSDK
         companionAlertsRow?.control?.onToggle = { on in store.companionNotifications = on }
         statusChecksRow = notifications.addToggle(l.statusChecksLabel, hint: l.statusChecksHint, isOn: store.statusChecksEnabled)
         statusChecksRow?.control?.onToggle = { on in store.statusChecksEnabled = on }
+        lap.mark("notifications")
 
         // Updates (G15)
         let updates = s.addSection(l.updateSectionTitle)
@@ -414,7 +425,9 @@ import WinSDK
                                                     style: .trailing)
         }
 
+        lap.mark("updates")
         transferRows.addTransfer(to: s)   // MARK: Task 15 — backup and transfer (G16)
+        lap.mark("transfer")
         // --- stage 7 Task 14: Advanced (G17) (begin) ---
         let advancedSection = s.addSection(l.advancedSectionTitle)
         advanced = WinAdvancedSection(section: advancedSection, host: host, drafts: advancedDrafts, facts: PlatformCompat.popoverFacts,
@@ -423,6 +436,7 @@ import WinSDK
                                       relayout: { [weak self] in self?.stack?.setNeedsLayout() },
                                       rebuild: { [weak self] in self?.scheduleRebuild() })
         // --- stage 7 Task 14 (end) ---
+        lap.mark("advanced")
 
         // About & support (G18)
         let about = s.addSection(l.aboutSupportSectionTitle)
@@ -437,6 +451,7 @@ import WinSDK
         if let edit = fallbackRow?.control {
             WinKit.send(edit.hwnd, 0x00CF /* EM_SETREADONLY */, 1)   // selectable, not editable
         }
+        lap.mark("about")
     }
 
     static var appVersion: String { WindowsInstall.version ?? "—" }
@@ -449,6 +464,7 @@ import WinSDK
         applying = true
         defer { applying = false }
         refreshes += 1
+        WinOpenTrace.note(.refresh)
         let store = self.store
         let language = AppLanguage.allCases.firstIndex(of: host.companion.language) ?? 0
         if let c = languageRow?.control, c.selection != language { c.selection = language }
@@ -603,9 +619,13 @@ import WinSDK
         let focused = stack?.controls.firstIndex { $0.parts.contains { $0 == GetFocus() } }
         let hadForeground = GetForegroundWindow() == window.hwnd
         let client = lastClient
-        freeContents()
-        buildContents(client: client)
-        area?.scroll(to: offset)
+        WinKit.drawingOnce(window.hwnd) {   // on screen: drawn once, finished, at the kept scroll position (the settings-open fix)
+            WinOpenTrace.build(self, via: "page rebuild") {
+                freeContents()
+                buildContents(client: client)
+            }
+            area?.scroll(to: offset)
+        }
         if hadForeground, let focused, let controls = stack?.controls, controls.indices.contains(focused) {
             _ = SetFocus(controls[focused].hwnd)
         }
