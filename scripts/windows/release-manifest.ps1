@@ -3,7 +3,8 @@
 # unless: the checkout is release_sha, every version stamp equals release_version, the shipped installer was built with
 # exactly the ISCC defines SrcDir, AppVer and OutDir and is not a test build (FileDescription), the level is full and
 # every gate step succeeded.
-# Reads env RELEASE_SHA, RELEASE_VERSION, PTB_LEVEL, PTB_STEPS (toJSON(steps)), GITHUB_SHA, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT,
+# Binds the installer to the build: the manifest's sha256, env PTB_BUILD_SHA256 (the build job's hash) and install-stamps.json's installerSha256 (the Setup the install step ran) must be one hash.
+# Reads env RELEASE_SHA, RELEASE_VERSION, PTB_LEVEL, PTB_STEPS (the gate steps' outcomes as {id: {outcome, outputs}}), PTB_SWIFT_VERSION (optional), GITHUB_SHA, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT,
 # ImageVersion; and installer-out\, bundle\, iscc-defines.json (ISCC step), install-stamps.json (install step).
 # Usage: release-manifest.ps1 [-Out windows-release]
 param([string]$Out = 'windows-release')
@@ -68,10 +69,15 @@ Expect ($stamps.versionFile -eq $v) "installed PokeTokenBar.version '$($stamps.v
 Expect ($stamps.uninstallDisplayVersion -eq $v) "Uninstall DisplayVersion '$($stamps.uninstallDisplayVersion)', expected $v"
 $bundleVersion = (Get-Content bundle\PokeTokenBar.version -Raw).Trim()
 Expect ($bundleVersion -eq $v) "bundle PokeTokenBar.version '$bundleVersion', expected $v"
+$buildHash = [string]$env:PTB_BUILD_SHA256
+Expect ($buildHash -match '^[0-9a-f]{64}$') "PTB_BUILD_SHA256 is '$buildHash', expected the build job's installer hash"
+Expect ($sha256 -eq $buildHash) "the manifest's installer sha256 $sha256 is not the build job's $buildHash"
+Expect ([string]$stamps.installerSha256 -eq $buildHash) "the installed Setup's sha256 '$($stamps.installerSha256)' is not the build job's $buildHash"
+Expect ([bool]$env:ImageVersion) 'ImageVersion (the build job runner image) is empty'
 
-$swiftText = (& swift --version 2>&1 | Out-String)
-$swift = [regex]::Match($swiftText, 'Swift version (\d+(\.\d+)+)').Groups[1].Value
-Expect ([bool]$swift) "no Swift version in: $($swiftText.Trim())"
+# The split workflow builds in one job and writes the manifest in another: the build job passes its toolchain's version.
+$swift = [string]$env:PTB_SWIFT_VERSION
+Expect ($swift -match '^\d+(\.\d+)+$') "PTB_SWIFT_VERSION is '$swift', expected the build job's toolchain version"
 
 $manifest = [ordered]@{
     schema      = 1

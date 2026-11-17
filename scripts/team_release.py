@@ -554,6 +554,9 @@ def cmd_collect(args, ctx):
         if dest.exists():
             shutil.rmtree(dest)
         dest.mkdir(parents=True)
+        # By name is the current attempt's artifact: both workflows upload windows-release / windows-tests with overwrite: true, so a
+        # re-run replaces the earlier attempt's artifact instead of leaving two (gh would take the older one). The manifest's runAttempt,
+        # runId and installer hash are checked against this run below.
         download = ("run", "download", str(ids[wf.file]), "--name", wf.artifact, "--dir", str(dest))
         result = ctx.gh.run(*download)
         if result.code != 0:
@@ -875,7 +878,7 @@ def build_parser():
                        help="start a new run: alone or 'failed' in place of a failed one; a workflow file: in place "
                             "of that workflow's newest run, whatever its state (repeatable)")
     collect.add_argument("--out", required=True)
-    collect.add_argument("--timeout-min", type=int, default=170)  # above the app job's 150-minute limit
+    collect.add_argument("--timeout-min", type=int, default=170)  # above the slowest path of windows-app (build 60 min, then the longest job 60 min, then result)
     collect.add_argument("--allow-rerun", action="store_true", help="accept a run whose attempt is above 1")
     publish.add_argument("--zip", required=True)
     publish.add_argument("--installer", required=True)

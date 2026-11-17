@@ -131,6 +131,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: success() && inputs.release_sha != ''
         with:
+          overwrite: true   # a re-run replaces the first attempt's artifact: a by-name download is the current attempt's
           name: windows-tests
           path: windows-tests/
           retention-days: 7
