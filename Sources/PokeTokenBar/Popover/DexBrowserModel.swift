@@ -267,7 +267,7 @@ struct DexBodyModel: Equatable {
                                    isShinyComplete: c.isShinyComplete, isSelected: state.selectedRegion == c.region,
                                    help: l.dexRegionProgressLabel(c.region, owned: c.owned, total: c.total))
             },
-            rarities: rarityDisplayOrder.map { r in
+            rarities: Self.rarityOrder.map { r in
                 DexRarityChipModel(rarity: r, label: l.rarityLabel(r), count: all.lazy.filter { $0.rarity == r }.count,
                                    isSelected: state.selectedRarity == r, help: l.dexFilterHint)
             },
@@ -277,6 +277,9 @@ struct DexBodyModel: Equatable {
                                    pageCount: pageCount, previousLabel: l.dexPagePrev, nextLabel: l.dexPageNext),
             visibleIDs: ids)
     }
+
+    /// The chips' order: the Mac's file-level `rarityDisplayOrder` (DexBrowserTests holds the two together).
+    static let rarityOrder: [Rarity] = [.legendary, .rare, .uncommon, .common]
 
     /// 전국·안농 등 획득한 완성 메달의 이모지. Twin of `DexGridView.medalEmoji` (twins.txt).
     static func medalEmoji(_ badge: DexBadge) -> String {
@@ -357,7 +360,7 @@ struct DexLogModel: Equatable {
         }
         return DexLogModel(
             title: l.catchLogTitle, total: l.dexTotal(store.dexEntries.count),
-            rarities: rarityDisplayOrder.map { r in
+            rarities: DexBodyModel.rarityOrder.map { r in
                 DexRarityChipModel(rarity: r, label: l.rarityLabel(r), count: store.dexCount(r), isSelected: state.selectedRarity == r,
                                    help: l.dexFilterHint)
             },

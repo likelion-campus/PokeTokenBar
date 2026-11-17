@@ -115,3 +115,11 @@ final class PopoverDexImagesMac: XCTestCase {
         }
     }
 }
+
+/// The chips' order is the Mac's (the file-level `rarityDisplayOrder` is Mac-only).
+@MainActor
+final class DexRarityOrderTwinTests: XCTestCase {
+    func testTheChipOrderIsTheMacs() {
+        XCTAssertEqual(DexBodyModel.rarityOrder, rarityDisplayOrder)
+    }
+}
