@@ -293,13 +293,19 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
         // Hidden: the setting off, then the displays asleep (the Mac's `sync`), each leaves nothing behind.
         let hwnd = w.hwnd
-        let playback = w.playback
         app.store.floatingPetEnabled = false
         let gone = await WindowsSelftest.waitUntil(timeout: 2) { pet.window == nil && !IsWindow(hwnd) }
-        let clockOff = !playback.clock.isArmed
         let liveBack = WinSinkWindow.liveCount == live0
+        // An animating pet turned off: its clock, loads and frames go with the window, at once (not at the clock's next tick).
         let h = await PetHarness.make(.hatched)
         let up = await h.waitShown()
+        let animating = await WindowsSelftest.waitUntil(timeout: 2) { h.window?.playback.clock.isArmed == true }
+        let playback = h.window?.playback
+        h.store.floatingPetEnabled = false
+        _ = await WindowsSelftest.waitUntil(timeout: 2, poll: 0.005) { h.window == nil }
+        let released = playback?.released == true && playback?.clock.isArmed == false && playback?.memory.frameSetCount == 0
+        h.store.floatingPetEnabled = true
+        _ = await h.waitShown()
         h.asleep = true
         h.pet.sync()
         let asleepHidden = h.window == nil
@@ -307,9 +313,9 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         h.pet.sync()
         let awake = await h.waitShown()
         h.destroy()
-        r.add("pet.hide", gone && clockOff && liveBack && up && asleepHidden && awake,
-              "setting off -> window destroyed=\(gone), its clock armed=\(!clockOff), windows back to \(WinSinkWindow.liveCount) (was \(live0)); "
-              + "harness pet shown=\(up), displays asleep -> hidden=\(asleepHidden), awake again -> shown=\(awake)")
+        r.add("pet.hide", gone && liveBack && up && animating && released && asleepHidden && awake,
+              "setting off -> window destroyed=\(gone), windows back to \(WinSinkWindow.liveCount) (was \(live0)); an animating harness pet (shown=\(up), clock armed=\(animating)) "
+              + "turned off -> playback released, clock gone, frame sets 0 at once=\(released); displays asleep -> hidden=\(asleepHidden), awake again -> shown=\(awake)")
     }
 
     // MARK: - pet.toggles: the tray item, Home's eye, Settings' rows (the Mac's three switches over one setting)
@@ -826,7 +832,9 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         func sample(_ label: String) async -> IdleWindow? {
             var last: IdleWindow?
             for _ in 0..<2 {
-                _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
+                // The harness's own settings writes settle first (a debounced sync and the other synced defaults objects
+                // reading it back cost the main thread ~25 cs in run 44034801215's 'hidden' window, the pet's window long gone).
+                _ = await WindowsSelftest.waitStable(timeout: 10, quiet: 3) { !WinDefaultsSync.isSyncPending }
                 let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
                 guard let s = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else { return nil }
                 let wakes1 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
@@ -946,15 +954,15 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             _ = await h.waitShown()
             let playback = h.window?.playback
             h.store.floatingPetEnabled = false
-            _ = await WindowsSelftest.waitUntil(timeout: 2) { h.pet.window == nil }
+            _ = await WindowsSelftest.waitUntil(timeout: 2, poll: 0.005) { h.pet.window == nil }
+            armedAfter = armedAfter || playback?.released != true || playback?.clock.isArmed == true
             await wait(0.3)
-            armedAfter = armedAfter || playback?.clock.isArmed == true
             cycles.append(KitResources.now())
         }
         let verdict = PopoverResourceRule.judge(cycles.map { .init(gdi: $0.gdi, user: $0.user, handles: $0.handles) })
         let liveOK = WinSinkWindow.liveCount == live0
         r.add("pet.resources", verdict.ok && liveOK && !armedAfter,
-              "4 show/hide cycles: \(verdict.summary); windows \(live0) -> \(WinSinkWindow.liveCount); a clock armed after a hide=\(armedAfter); group start \(start)")
+              "4 show/hide cycles: \(verdict.summary); windows \(live0) -> \(WinSinkWindow.liveCount); a playback not released or a clock armed right after a hide=\(armedAfter); group start \(start)")
     }
 
     // MARK: - the idle gate's windows (`--pet-idle-probe still|animated|hidden`; CI only)
