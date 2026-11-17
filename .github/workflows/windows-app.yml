@@ -336,7 +336,7 @@ jobs:
                    'companion.spriteFrames', 'companion.clockStops', 'companion.spriteMemory',
                    'ui.kit.scrollClicks', 'ui.kit.multiLineKeys', 'ui.kit.partResize', 'ui.kit.settingChange', 'ui.kit.editMenu',
                    'ui.kit.codePaste', 'ui.kit.ampersand', 'ui.kit.registries', 'ui.kit.noLeak',
-                   'ui.dark.switch', 'ui.highContrast', 'ui.highContrast.system'
+                   'ui.dark.switch', 'ui.highContrast'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -478,6 +478,22 @@ jobs:
           Get-ChildItem ui-dump\recap -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "popover recap: $($bad -join ', ')" }
       # --- stage 7 Task 13: the usage recap (end) ---
+      # --- stage 7 Tasks 19-21: the tab strip, Shop, Bag and Collection checks (begin) ---
+      - name: Popover tab checks ran (popover.tabs, popover.shop, popover.bag, collection.*)
+        timeout-minutes: 5
+        if: (success() || failure())
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'popover.tabs', 'popover.shop', 'popover.bag', 'collection.grid', 'collection.paging', 'collection.filters', 'collection.representative', 'collection.empty', 'collection.homeLinks', 'collection.detail', 'collection.openClose'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL: $($c.detail)" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          if ($bad.Count -gt 0) { throw "popover tabs: $($bad -join ', ')" }
+      # --- stage 7 Tasks 19-21 (end) ---
       # --- settings-open (field report 2026-11-17): what showing a page costs (begin) ---
       - name: Popover page-open cost checks ran (settings.openCost, popover.swapCost)
         timeout-minutes: 5

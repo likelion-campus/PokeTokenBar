@@ -195,3 +195,13 @@ UI/BagView.swift#BagView.emptyState | Popover/PopoverBagModel.swift#BagPageModel
 UI/BagView.swift#ItemCard.body | Popover/PopoverBagModel.swift#BagPageModel.candyPreview | pin 8774b086acc1503f
 UI/BagView.swift#ItemCard.useControls | Popover/PopoverBagModel.swift#BagCardRules.effectHint | pin b114e565bb762df2
 UI/BagView.swift#ItemCard.useNow | Popover/PopoverBagModel.swift#BagCardRules.performUse | pin bd065911b3fd6e42
+
+# Task 21: the detail page's derived members (which form, appearance and individual the page shows), copied verbatim.
+UI/CompanionView.swift#PokemonDetailView.formSpecies | Popover/DexDetailModel.swift#DexDetailResolver.formSpecies
+UI/CompanionView.swift#PokemonDetailView.displayedSpecies | Popover/DexDetailModel.swift#DexDetailResolver.displayedSpecies
+UI/CompanionView.swift#PokemonDetailView.allIndividuals | Popover/DexDetailModel.swift#DexDetailResolver.allIndividuals
+UI/CompanionView.swift#PokemonDetailView.displayedShiny | Popover/DexDetailModel.swift#DexDetailResolver.displayedShiny
+UI/CompanionView.swift#PokemonDetailView.individuals | Popover/DexDetailModel.swift#DexDetailResolver.individuals
+UI/CompanionView.swift#PokemonDetailView.individual | Popover/DexDetailModel.swift#DexDetailResolver.individual
+UI/CompanionView.swift#PokemonDetailView.individualLabel | Popover/DexDetailModel.swift#DexDetailResolver.individualLabel
+UI/CompanionView.swift#PokemonDetailView.formPickerColumns | Popover/DexDetailModel.swift#DexDetailResolver.formPickerColumns
