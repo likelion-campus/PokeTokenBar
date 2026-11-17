@@ -21,7 +21,7 @@ import WinSDK
         window = try WinSinkWindow(className: Self.className, title: "", style: style, exStyle: 0x0001_0000 /* WS_EX_CONTROLPARENT */,
                                    x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top, parent: parent)
         router = WinControlRouter(window: window)
-        window.on(0x0014 /* WM_ERASEBKGND */) { _, _ in 1 }  // WM_PAINT draws everything (no flicker)
+        window.on(0x0014 /* WM_ERASEBKGND */) { [weak self] _, _ in WinOpenTrace.note(.erase, self?.hwnd); return 1 }  // WM_PAINT draws everything (no flicker)
         window.on(0x000F /* WM_PAINT */) { [weak self] _, _ in self?.onPaint() }
         window.on(0x0318 /* WM_PRINTCLIENT */) { [weak self] wParam, _ in
             guard let self, let dc = HDC(bitPattern: UInt(wParam)) else { return nil }
@@ -39,6 +39,7 @@ import WinSDK
         var ps = PAINTSTRUCT()
         guard let dc = BeginPaint(hwnd, &ps) else { return 0 }
         paints += 1
+        WinOpenTrace.note(.paint, hwnd)
         draw(dc, ps.rcPaint)
         _ = EndPaint(hwnd, &ps)
         return 0
@@ -181,6 +182,7 @@ import WinSDK
         }
         orderWindows()
         let oldHeight = frames?.height
+        WinOpenTrace.note(.layout, pane.hwnd, moved: frames != f)   // the settings-open trace: a pass that moved rows
         frames = f
         if oldHeight != f.height { onHeight?(Int32(f.height)) }
         pane.invalidate()
