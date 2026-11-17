@@ -228,6 +228,14 @@ extension WindowsSelftest {
             if mode == "closed" {
                 popover.close(.escape)
                 _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
+                // What the first open costs once (fonts, the Direct2D device, window classes) is not what a leak costs every time: the gate
+                // compares what is held after the first close with what is held at exit, after a second open and close.
+                AppLog.write("popover idle probe cycle1: \(PopoverResources.now())")
+                WindowsSelftest.forceForeground(probe.hwnd)
+                _ = PostMessageW(app.sink.hwnd, WinTray.callbackMessage, 0, LPARAM(Int(PopoverRun.ninKeySelect) | (1 << 16)))
+                _ = await WindowsSelftest.waitUntil(timeout: 3) { popover.isOpen }
+                popover.close(.escape)
+                _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
             }
             if opened { await navigate(mode, popover) }   // the gate's page windows (stage 7 idle gates)
             probe.destroy()

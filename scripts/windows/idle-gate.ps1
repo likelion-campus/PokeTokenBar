@@ -47,7 +47,7 @@ function Get-WakeDelta([string]$LogFile) {
     $rx = 'loops=(\d+) messages_total=(\d+) messages=(\S*) timers=(\S*) sources=(\S*)\s*$'
     $a = [regex]::Match($lines[0], $rx); $b = [regex]::Match($lines[1], $rx)
     if (-not ($a.Success -and $b.Success)) { return $null }
-    function Diff($x, $y) {
+    function Get-WakeDiff($x, $y) {
         $hx = ConvertFrom-WakeList $x; $hy = ConvertFrom-WakeList $y; $out = [ordered]@{}
         foreach ($k in $hy.Keys) { $d = $hy[$k] - $(if ($hx.ContainsKey($k)) { $hx[$k] } else { 0 }); if ($d -gt 0) { $out[$k] = $d } }
         return $out.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "$($_.Key):$($_.Value)" }
@@ -55,9 +55,9 @@ function Get-WakeDelta([string]$LogFile) {
     return [ordered]@{
         loops = [int]$b.Groups[1].Value - [int]$a.Groups[1].Value
         messages = [int]$b.Groups[2].Value - [int]$a.Groups[2].Value
-        messageIds = @(Diff $a.Groups[3].Value $b.Groups[3].Value)
-        timerIds = @(Diff $a.Groups[4].Value $b.Groups[4].Value)
-        sources = @(Diff $a.Groups[5].Value $b.Groups[5].Value)
+        messageIds = @(Get-WakeDiff $a.Groups[3].Value $b.Groups[3].Value)
+        timerIds = @(Get-WakeDiff $a.Groups[4].Value $b.Groups[4].Value)
+        sources = @(Get-WakeDiff $a.Groups[5].Value $b.Groups[5].Value)
     }
 }
 
@@ -149,20 +149,28 @@ if ((Test-InShard 'popover-sprite-open-120s' $Shard)) {
     $summary.windows['popover-sprite-open-120s'].spriteLog = @(Select-String -Path $logFile -Pattern 'popover sprite idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
 }
 # --- stage 7 Task 8: an animated sprite open (end) ---
-# Object counts (D18): what the popover holds after it was opened (and closed, for 'closed') is what it held before it was ever opened:
-# GDI and USER objects (slack 8 each: a font or two the first page makes), kit controls and windows of ours (none). The probe logs both.
-# An open window is held to what it held when the probe had finished its navigation (GDI/USER flat: slack 2, nothing else).
-function Test-PopoverObjects([string]$Label, [string[]]$Lines, [bool]$Closed) {
+# Object counts (D18). An open window is held to what it held when the probe had finished its navigation (GDI and USER flat: slack 2;
+# kit controls and windows of ours: none). The closed window opens and closes twice: what is held after the first close (the first open
+# builds fonts, the Direct2D device and window classes once: +18 GDI and +8 USER were measured against a never-opened popover) must be
+# what is held at exit, after the second. A leak shows in every cycle; the one-time cost does not. The never-opened counts and the first
+# cycle's are reported next to it. 'info' (the popover closed with a field focused) only reports.
+function Test-PopoverObjects([string]$Label, [string[]]$Lines, [string]$Kind) {
     $exitLine = @($Lines | Where-Object { $_ -match 'popover idle probe exit:' }) | Select-Object -Last 1
-    $beforeLine = if ($Closed) { @(Select-String -Path $logFile -Pattern 'popover idle probe before:' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line }) | Select-Object -First 1 }
-                  else { @($Lines | Where-Object { $_ -match 'popover idle probe: mode=' }) | Select-Object -Last 1 }
+    $beforeLine = @(Select-String -Path $logFile -Pattern 'popover idle probe before:' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line }) | Select-Object -First 1
+    $cycleLine = @(Select-String -Path $logFile -Pattern 'popover idle probe cycle1:' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line }) | Select-Object -First 1
+    $openLine = @($Lines | Where-Object { $_ -match 'popover idle probe: mode=' }) | Select-Object -Last 1
     function Get-Counts([string]$l) { $h = @{}; foreach ($k in 'gdi', 'user', 'windows', 'controls') { if ($l -match "\b$k=(\d+)") { $h[$k] = [int]$Matches[1] } }; return $h }
-    if (-not ($exitLine -and $beforeLine)) { $summary.windows[$Label].objects = 'not logged'; return }
-    $b0 = Get-Counts $beforeLine; $b1 = Get-Counts $exitLine
-    $slack = if ($Closed) { @{ gdi = 8; user = 8; windows = 0; controls = 0 } } else { @{ gdi = 2; user = 2; windows = 0; controls = 0 } }
-    $bad = @($b1.Keys | Where-Object { $b0.ContainsKey($_) -and $b1[$_] -gt $b0[$_] + $slack[$_] })
     $fmt = { param($h) (($h.GetEnumerator() | Sort-Object Key | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' ') }
-    $summary.windows[$Label].objects = "before $(& $fmt $b0); at exit $(& $fmt $b1); over slack: $($bad -join ',')"
+    if (-not $exitLine) { $summary.windows[$Label].objects = 'not logged'; return }
+    $b1 = Get-Counts $exitLine
+    $text = "at exit $(& $fmt $b1)"
+    if ($beforeLine) { $text = "never opened $(& $fmt (Get-Counts $beforeLine)); $text" }
+    $ref = $null; $slack = @{ gdi = 2; user = 2; windows = 0; controls = 0 }
+    if ($Kind -eq 'cycled' -and $cycleLine) { $ref = Get-Counts $cycleLine; $text = "after the first close $(& $fmt $ref); $text" }
+    elseif ($Kind -eq 'open' -and $openLine) { $ref = Get-Counts $openLine; $text = "page reached $(& $fmt $ref); $text" }
+    $bad = @()
+    if ($ref) { $bad = @($b1.Keys | Where-Object { $ref.ContainsKey($_) -and $b1[$_] -gt $ref[$_] + $slack[$_] }) }
+    $summary.windows[$Label].objects = "$text; over slack: $($bad -join ',')"
     $verdicts[$Label] = $verdicts[$Label] -and ($bad.Count -eq 0)
 }
 # --- stage 7 Task 4: the popover window open and still, and closed after an open (begin) ---
@@ -176,11 +184,11 @@ foreach ($mode in 'open', 'closed') {
     $summary.windows[$label].popoverLog = $probeLines
     # The window measured what it says: open and never closed for 'open', closed once for 'closed' (the exit line).
     $exit = @($probeLines | Where-Object { $_ -match 'popover idle probe exit:' }) | Select-Object -Last 1
-    $want = if ($mode -eq 'open') { 'open=true opens=1 closes=0' } else { 'open=false opens=1 closes=1' }
+    $want = if ($mode -eq 'open') { 'open=true opens=1 closes=0' } else { 'open=false opens=2 closes=2' }
     $stateOK = $exit -and $exit -match [regex]::Escape($want)
     $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
     $verdicts[$label] = $verdicts[$label] -and $stateOK
-    Test-PopoverObjects $label $probeLines ($mode -eq 'closed')
+    Test-PopoverObjects $label $probeLines $(if ($mode -eq 'closed') { 'cycled' } else { 'open' })
 }
 # --- stage 7 Task 4: the popover window open and still, and closed after an open (end) ---
 # --- stage 7 Task 5: the Home page open and left alone (begin) ---
@@ -248,7 +256,7 @@ foreach ($page in 'settings', 'shop', 'bag', 'collection', 'collection-log', 'de
     $stateOK = $exit -and $exit -match [regex]::Escape($want)
     $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
     $verdicts[$label] = $verdicts[$label] -and $stateOK
-    Test-PopoverObjects $label $lines ($page -eq 'focus-closed')
+    Test-PopoverObjects $label $lines $(if ($page -eq 'focus-closed') { 'info' } else { 'open' })
     # No timer: a page standing still arms none (the Collection's log has its relative-time clock; every other page has no clock at all).
     $w = $summary.windows[$label].wake
     $clocks = if ($w) { @($w.sources | Where-Object { $_ -match '^(popoverClock|animationClock):' }) } else { @() }
