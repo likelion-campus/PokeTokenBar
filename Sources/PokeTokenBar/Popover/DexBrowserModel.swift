@@ -365,3 +365,8 @@ struct DexLogModel: Equatable {
     }
 }
 // MARK: end Task 20
+
+extension PopoverStackMetrics {
+    /// The Collection page: the content column is the Mac's `VStack(alignment: .leading, spacing: 6)` at the scroller's edge.
+    static let collection = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 6, plainSpacing: 6, padTop: 0, padBottom: 0)
+}

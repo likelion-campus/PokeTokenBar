@@ -82,6 +82,10 @@ enum WinEditKind: Equatable, Sendable {
     var onFocus: ((Bool) -> Void)?
     /// `drawnItem`: whether Escape is the item's now (a selection to clear); otherwise Escape reaches the popover as usual.
     var claimsEscape: (() -> Bool)?
+    // --- stage 7 Task 20: a drawn item's context menu (right click, the menu key, Shift+F10) (begin) ---
+    /// `drawnItem`: `WM_CONTEXTMENU` over the item, with the pointer's screen point (nil: from the keyboard); true when handled.
+    var onContextMenu: ((POINT?) -> Bool)?
+    // --- stage 7 Task 20 (end) ---
     fileprivate var tracking = false
     // --- stage 7 Task 12 (end) ---
 
@@ -223,7 +227,7 @@ enum WinEditKind: Equatable, Sendable {
         // Every callback goes: a page that captured itself in one would otherwise keep itself alive through its controls.
         onDestroy = nil; onClick = nil; onToggle = nil; onSelect = nil; onValue = nil; onCommit = nil; onChange = nil
         onFrame = nil; drawItem = nil; onSizeChange = nil; fitWidth = nil
-        onPointer = nil; onKey = nil; onFocus = nil; claimsEscape = nil
+        onPointer = nil; onKey = nil; onFocus = nil; claimsEscape = nil; onContextMenu = nil
         format = { String($0) }
         for part in parts {
             ctx.tooltips.set(nil, for: part, in: GetParent(part))
@@ -310,6 +314,9 @@ enum WinEditKind: Equatable, Sendable {
             return code
         case UINT(WM_KEYDOWN) where c.onKey != nil && wParam != WPARAM(VK_RETURN):  // stage 7 Task 12
             return c.onKey?(Int(wParam)) == true ? 0 : nil
+        case 0x007B where c.onContextMenu != nil:  // WM_CONTEXTMENU over a drawn item (stage 7 Task 20)
+            let point: POINT? = lParam == -1 ? nil : POINT(x: Int32(Int16(truncatingIfNeeded: lParam & 0xFFFF)), y: Int32(Int16(truncatingIfNeeded: (lParam >> 16) & 0xFFFF)))
+            return c.onContextMenu?(point) == true ? 0 : nil
         case 0x0200 where c.onPointer != nil:  // WM_MOUSEMOVE over a drawn item (stage 7 Task 12)
             if !c.tracking {
                 c.tracking = true
