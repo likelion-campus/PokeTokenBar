@@ -698,7 +698,18 @@ enum HomeFixtures {
             let refreshed = h.recordedActions.contains(.refresh)
             WindowsSelftestPopover.tap(0x09)
             await wait(0.2)
-            let afterRefresh = WinKit.text(of: GetFocus())
+            var afterRefresh = WinKit.text(of: GetFocus())
+            // --- stage 7 Task 22: the floating pet's eye sits between Refresh and Settings, as on the Mac (begin) ---
+            let eye = model.footer.petToggle?.label
+            let eyeVisited = eye == nil || afterRefresh == eye
+            if let eye, afterRefresh == eye {
+                WindowsSelftestPopover.tap(0x09)
+                await wait(0.2)
+                afterRefresh = WinKit.text(of: GetFocus())
+            }
+            ok = ok && eyeVisited
+            notes.append("footer: Tab from Refresh -> the pet's eye '\(eye ?? "none")' first=\(eyeVisited)")
+            // --- stage 7 Task 22 (end) ---
             WindowsSelftestPopover.tap(0x20)
             await wait(0.2)
             let settings = h.recordedActions.contains(.showSettings)

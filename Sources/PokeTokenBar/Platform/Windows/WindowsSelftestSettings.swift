@@ -286,11 +286,12 @@ extension WindowsSelftest {
         let wanted = [l.generalSectionTitle.uppercased(), l.language, l.refreshInterval, l.limitDisplayModeLabel, l.dailyTrendPeriod, l.launchAtLogin, l.backViewLabel,
                       l.trackedProvidersSectionTitle.uppercased(), ko.teamSectionTitle.uppercased(), ko.teamEnable, l.notificationsSection.uppercased(),
                       l.updateSectionTitle.uppercased(), l.aboutSupportSectionTitle.uppercased(), l.reportProblem, l.showLogFile, l.winExplorerButton,
-                      l.settings, l.back]
+                      l.settings, l.back,
+                      l.animationQualityLabel, l.floatingPetSectionTitle.uppercased(), l.floatingPetEnableLabel]   // stage 7 Task 22: the pet's rows
         let missing = wanted.filter { !contains(texts, $0) }
         // Rows of the Mac that mean nothing on Windows, and the team details while the team is off.
         let forbidden = [l.menuBarSectionTitle.uppercased(), l.disableKeychain, l.todayTokensShort, "Finder", "Keychain", ko.teamCreate, ko.teamJoin, ko.teamNickname,
-                         l.animationQualityLabel, l.floatingPetSectionTitle.uppercased()]
+                         l.floatingPetBubbleAlertsLabel, l.floatingPetAgentActivityLabel]   // stage 7 Task 22: the pet's Task 23 rows wait
         let present = forbidden.filter { contains(texts, $0) }
         // The keyboard order is the reading order: the focusable controls of the body from top to bottom.
         let body = page.stackForTesting?.controls.filter { c in

@@ -8,7 +8,8 @@ import Foundation
 ///   the Keychain help (P15h) has no meaning.
 /// - `antigravityLimitsAvailable`: Antigravity's limits have a source (Windows: `WindowsLimitsProviders` reports them
 ///   unavailable, so the section would offer a refresh that does nothing visible; P25).
-/// - `floatingPetAvailable`: the floating pet exists (Windows: tier 3), so the footer's eye button means something.
+/// - `floatingPetAvailable`: the floating pet exists, so the footer's eye button, the pet's Settings group and "Animation
+///   quality" mean something (Windows: since stage 7 Task 22, `WinFloatingPet`).
 /// - `regionLocale`, `regionCalendar`: number grouping, and the zone and day the clocks read (D11).
 ///
 /// `mac` reproduces the Mac's predicates exactly (`PopoverTwinEquivalenceTests+Mac` holds the limits gate to a copy of
@@ -27,9 +28,9 @@ struct PopoverPlatformFacts: Equatable, Sendable {
                              regionLocale: .current, regionCalendar: .current)
     }
 
-    /// Windows: no Keychain, no Antigravity limits source, no floating pet yet; the region from the OS (D11).
+    /// Windows: no Keychain, no Antigravity limits source; the floating pet (stage 7 Task 22); the region from the OS (D11).
     static func windows(regionLocale: Locale, regionCalendar: Calendar) -> PopoverPlatformFacts {
-        PopoverPlatformFacts(hasKeychain: false, antigravityLimitsAvailable: false, floatingPetAvailable: false,
+        PopoverPlatformFacts(hasKeychain: false, antigravityLimitsAvailable: false, floatingPetAvailable: true,
                              regionLocale: regionLocale, regionCalendar: regionCalendar)
     }
 

@@ -231,10 +231,10 @@ final class AppWiringDriftScanTests: XCTestCase {
         return out
     }
 
-    /// What the Mac status menu does that the tray does not yet (tier 3: the Pokédex, Task 20; the floating pet, Task 22),
-    /// and the tray's own Windows entries. Everything else must be in both: a new Mac menu action fails here until the
-    /// tray has it or this list says why not.
-    static let macMenuOnly: Set<String> = ["toggleFloatingPet"]   // Task 22; openDex is the tray's since Task 20
+    /// What the Mac status menu does that the tray does not yet, and the tray's own Windows entries. Everything else must be in
+    /// both: a new Mac menu action fails here until the tray has it or this list says why not. (The Pokédex came with stage 7
+    /// Task 20, the floating pet's entry with Task 22.)
+    static let macMenuOnly: Set<String> = []
     static let trayOnly: Set<String> = ["none", "toggleLaunchAtLogin", "openLogFolder", "openRelease"]
 
     func testTheTrayMenuActionsAreTheMacMenus() throws {
@@ -265,6 +265,13 @@ final class AppWiringDriftScanTests: XCTestCase {
         XCTAssertTrue(mac2.contains("case .toggleBackView: store.alwaysFacesBack.toggle()"))
         XCTAssertTrue(host.contains("case .toggleBackView:\n            store.alwaysFacesBack.toggle()"), "the tray's Back view does what the Mac's does")
         XCTAssertTrue(mac2.contains("case .openSettings: showPopover { $0.showSettings = true }"))
+        // Stage 7 Task 22: the floating pet's entry, its titles and what it does.
+        XCTAssertTrue(menu.contains("Entry(title: floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel,\n                  keyEquivalent: \"\", action: .toggleFloatingPet)"),
+                      "StatusItemMenu's floating pet entry changed")
+        XCTAssertTrue(tray.contains("Item(title: floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel, enabled: true, checked: false,\n                             action: .toggleFloatingPet)"),
+                      "TrayMenuModel's floating pet entry drifted")
+        XCTAssertTrue(mac2.contains("case .toggleFloatingPet: store.floatingPetEnabled.toggle()"))
+        XCTAssertTrue(host.contains("case .toggleFloatingPet:  // stage 7 Task 22\n            store.floatingPetEnabled.toggle()"), "the tray's pet entry does what the Mac's does")
         XCTAssertTrue(try Self.read("Platform/Windows/WindowsApp.swift").contains("present(.trayMenu) { $0.showSettings = true }"),
                       "the tray's Settings… opens the popover on Settings, as the Mac's")
     }

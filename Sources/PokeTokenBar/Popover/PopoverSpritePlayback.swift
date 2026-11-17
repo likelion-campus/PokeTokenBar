@@ -59,6 +59,14 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
     private(set) var taskID: String?
     private(set) var key: PlazaSpriteSubjectKey?
     private(set) var animated = false
+    // --- stage 7 Task 22: the floating pet's frame cap (begin) ---
+    /// The shortest frame a GIF plays at (`UsageStore.AnimationQuality.frameFloor`): its frames are decimated to it
+    /// (`PopoverSpriteFrameCap`, the Mac's `GIFDecoder.capFrameRate`); 0 plays the GIF's own delays (the popover). Part of the
+    /// task identity, as the Mac's `SpriteView.frameTaskID`: a new floor decodes again.
+    var frameFloor: TimeInterval = 0
+    /// A load is under way for the current subject (the floating pet keeps its last picture meanwhile instead of the 🥚).
+    private(set) var isLoading = false
+    // --- stage 7 Task 22 (end) ---
     // --- stage 7 Task 9: the bob in device-pixel steps of the Mac's `.easeInOut(duration: 0.9).repeatForever` (begin) ---
     /// The bob's travel in DIP (the Mac's `.offset(y: -3)`).
     static let bobTravel: CGFloat = 3
@@ -118,7 +126,7 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
             return
         }
         let form = k.speciesID.flatMap { PokemonForm.resolved(speciesID: $0, form: k.form) }
-        let id = PopoverSpriteRules.frameTaskID(speciesID: k.speciesID, shiny: k.shiny, floor: 0, animated: animated, form: form, back: k.back)
+        let id = PopoverSpriteRules.frameTaskID(speciesID: k.speciesID, shiny: k.shiny, floor: frameFloor, animated: animated, form: form, back: k.back)  // floor: stage 7 Task 22
         guard id != taskID else { reschedule(); return }
         cancel()
         taskID = id
@@ -127,7 +135,7 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
         let g = generation
         // Animated frames are reset on every change (no afterimage of the previous subject).
         let cachedFrames = animated && k.speciesID != nil ? memory.frames(for: id) : []
-        frames = cachedFrames.count > 1 ? cachedFrames : []
+        frames = cachedFrames.count > 1 || (frameFloor > 0 && !cachedFrames.isEmpty) ? cachedFrames : []  // a capped set may be one frame (stage 7 Task 22)
         frameIndex = 0
         frameDue = nil
         guard let species = k.speciesID else {
@@ -155,7 +163,7 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
                     decoded = await fetcher.animated(speciesID: species, shiny: k.shiny, form: form, back: false)
                 }
                 guard !Task.isCancelled, generation == g else { return }
-                let ready = PopoverSpriteRules.framesToApply(decoded, cancelled: false)
+                let ready = PopoverSpriteFrameCap.capFrameRate(PopoverSpriteRules.framesToApply(decoded, cancelled: false), floor: frameFloor)  // the cap: stage 7 Task 22
                 if ready.isEmpty {
                     await loadStill(species, k, form, g)
                 } else {
@@ -183,12 +191,14 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
     }
 
     private func launch(_ body: @escaping @MainActor () async -> Void) {
+        isLoading = true  // stage 7 Task 22
         task = Task { @MainActor in await body() }
     }
 
     private func cancel() {
         task?.cancel()
         task = nil
+        isLoading = false  // stage 7 Task 22
         generation += 1
     }
 
@@ -198,6 +208,7 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
     }
 
     private func loaded() {
+        isLoading = false  // stage 7 Task 22
         guard !released else { return }
         reschedule()
         onChange?()
@@ -289,6 +300,10 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
         }
     }
     // --- stage 7 Task 9 (end) ---
+    // --- stage 7 Task 22: the floating pet's frame cap (begin) ---
+    /// Every slot's `PopoverSpriteModel.frameFloor` (the pet's animation quality); a change loads the slots again.
+    var frameFloor: TimeInterval = 0 { didSet { if oldValue != frameFloor { update(slots: slots) } } }
+    // --- stage 7 Task 22 (end) ---
 
     init(fetcher: any PlazaSpriteFetching, clock: PopoverAnimationClock = PopoverAnimationClock(), now: @escaping () -> Date = { Date() }) {
         self.fetcher = fetcher
@@ -305,10 +320,12 @@ typealias PopoverSpriteFrames = [(image: PlazaImage, delay: TimeInterval)]
             let index = models.count
             let model = PopoverSpriteModel(fetcher: fetcher, memory: memory, now: now)
             model.bobSteps = bobSteps  // stage 7 Task 9
+            model.frameFloor = frameFloor  // stage 7 Task 22
             model.onChange = { [weak self] in self?.modelChanged(index) }
             models.append(model)
         }
         for (model, slot) in zip(models, new) {
+            model.frameFloor = frameFloor  // stage 7 Task 22
             model.show(slot.subject, animated: slot.animated && animationsEnabled, bob: slot.bob && animationsEnabled)
             model.setPlaying(isActive && animationsEnabled)
         }

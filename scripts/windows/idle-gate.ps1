@@ -1,7 +1,6 @@
-# The idle gate of windows-app.yml (installed app, fixture data), one shard of three per runner: a window is 30 s of start-up plus
-# its seconds, and the 17 windows took ~48 min in one job. -Shard 1: the sleeper baseline, manual-refresh-120s, normal-300s,
-# plaza-visible/minimized. -Shard 2: kit, sprite, popover open/closed, Home seconds/minutes. -Shard 3: Home still, activity
-# bars/heatmap, recap, companion wiggle/animated. Every window keeps its budget and its verdict; each shard writes
+# The idle gate of windows-app.yml (installed app, fixture data), one shard of five per runner: a window is 30 s of start-up plus
+# its seconds (the 17 windows of the first gate took ~48 min in one job). Which window runs in which shard: idle-shards.ps1.
+# Every window keeps its budget and its verdict; each shard writes
 # idle-gate-<n>.json and fails when one of its windows does. Needs the install (silent-install.ps1), PTB_FIXTURE, PTB_VERSION.
 param([Parameter(Mandatory)][ValidateRange(1, 5)][int]$Shard)
 . "$PSScriptRoot/ci-helpers.ps1"
@@ -297,6 +296,64 @@ foreach ($page in 'settings', 'shop', 'bag', 'collection', 'collection-log', 'de
     if ($page -ne 'collection-log' -and $clocks.Count -gt 0) { $verdicts[$label] = $false }
 }
 # --- stage 7 idle gates (end) ---
+# --- stage 7 Task 22: the floating pet (begin) ---
+# One pet over sample stores (`--pet-idle-probe`, CI only; the app's own pet stays off), refresh off. 'still': an egg, no GIF;
+# 'hidden': a pet shown for 3 s and turned off ~25 s before the window: the closed app's budget for both (a pet that is still
+# or gone may cost nothing). 'animated': the raised sample's FIXTURE GIF (13 frames once capped) at the default "Power saver"
+# floor of 0.4 s, with the runner's "Show animations" off, which stops no GIF of the pet (it follows the Mac's Reduce Motion
+# rule, user ruling 2026-11-18; the probe logs the setting). Its budget is from one measured run (scratch
+# run 44039613803: main 196/min = 150 frame wakes + 46, process 309 cs/min, 1.59 M cycles/s): main 270/min stays under one wake
+# per 0.2 s ("Balanced", 300/min on its own), so a frame floor that is not applied fails; process cs 1.5x, cycles ~1.9x (the
+# cycles of one window spread ~1.5x run to run, see normal-300s). Each window checks the probe's own line: what it measured.
+$petBudgets = @{
+    still = $budget
+    animated = @{ MaxMainCsPerMin = 270; MaxProcessCsPerMin = 470; MaxProcessCyclesPerSec = 3000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    hidden = $budget
+}
+$petWant = @{
+    still = 'mode=still shown=true window=true picture=loaded .* clock armed=false'
+    animated = 'mode=animated shown=true window=true picture=loaded gif frames=([2-9]|\d\d+) .* clock armed=true'
+    hidden = 'mode=hidden shown=true window=false'
+}
+# Object counts (D18, as the popover windows): what the app holds at exit against what it held once the pet stood (the probe's line:
+# GDI and USER slack 2, windows of ours and kit controls none). A missing line fails: the window would not have been checked.
+function Test-PetObjects([string]$Label, [string[]]$Lines) {
+    function Get-Counts([string]$l) { $h = @{}; foreach ($k in 'gdi', 'user', 'windows', 'controls') { if ($l -match "\b$k=(\d+)") { $h[$k] = [int]$Matches[1] } }; return $h }
+    $fmt = { param($h) (($h.GetEnumerator() | Sort-Object Key | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' ') }
+    $stood = @($Lines | Where-Object { $_ -match 'pet idle probe: mode=' }) | Select-Object -Last 1
+    $exitLine = @($Lines | Where-Object { $_ -match 'pet idle probe exit:' }) | Select-Object -Last 1
+    if (-not $stood -or -not $exitLine) { $summary.windows[$Label].objects = 'not logged'; $verdicts[$Label] = $false; return }
+    $ref = Get-Counts $stood; $end = Get-Counts $exitLine
+    $slack = @{ gdi = 2; user = 2; windows = 0; controls = 0 }
+    $bad = @($end.Keys | Where-Object { $ref.ContainsKey($_) -and $end[$_] -gt $ref[$_] + $slack[$_] })
+    $summary.windows[$Label].objects = "pet stood $(& $fmt $ref); at exit $(& $fmt $end); over slack: $($bad -join ',')"
+    $verdicts[$Label] = $verdicts[$Label] -and ($bad.Count -eq 0)
+}
+# Clock fires (the wake attribution's 'animationClock' / 'popoverClock', from +28 s to exit): none for a still or a hidden pet; for the
+# animated one the GIF's frames at the 0.4 s floor (at most 2.5 a second over ~125 s: about 310; frames the cap merged last longer),
+# 180-400 (an unapplied floor fires at the GIF's own 50-100 ms frames: 1250 or more; the main thread measured 326 wakes in all).
+$petClockFires = @{ still = @(0, 0); hidden = @(0, 0); animated = @(180, 400) }
+foreach ($mode in 'still', 'animated', 'hidden') {
+    $label = "pet-$mode-120s"
+    if (-not (Test-InShard $label $Shard)) { continue }
+    Measure-App $label 120 $off $petBudgets[$mode] @('--pet-idle-probe', $mode)
+    $lines = @(Select-String -Path $logFile -Pattern 'pet idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
+    $summary.windows[$label].petLog = $lines
+    $line = @($lines | Where-Object { $_ -match 'pet idle probe: mode=' }) | Select-Object -Last 1
+    $stateOK = [bool]$line -and $line -match $petWant[$mode]
+    $summary.windows[$label].petState = if ($stateOK) { "ok: $($petWant[$mode])" } else { "WRONG: expected /$($petWant[$mode])/ in '$line'" }
+    $verdicts[$label] = $verdicts[$label] -and $stateOK
+    Test-PetObjects $label $lines
+    $w = $summary.windows[$label].wake
+    if ($w) {
+        $fires = 0
+        foreach ($src in $w.sources) { if ($src -match '^(animationClock|popoverClock):(\d+)$') { $fires += [int]$Matches[2] } }
+        $range = $petClockFires[$mode]
+        $summary.windows[$label].clockFires = "$fires (expected $($range[0])-$($range[1]))"
+        if ($fires -lt $range[0] -or $fires -gt $range[1]) { $verdicts[$label] = $false }
+    }
+}
+# --- stage 7 Task 22 (end) ---
 # Every window of this shard ran (a label in $IdleShardOf that never got measured would make the gate pass with a hole in it).
 $expected = @($IdleShardOf.Keys | Where-Object { $IdleShardOf[$_] -eq $Shard })
 $missing = @($expected | Where-Object { -not $verdicts.Contains($_) })

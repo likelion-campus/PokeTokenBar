@@ -60,7 +60,7 @@ CompanionStore.itemCount | H2
 CompanionStore.justEvolvedTo | C10
 CompanionStore.justGraduated | C12
 CompanionStore.language | P4w
-CompanionStore.latestEvent | F1
+CompanionStore.latestEvent | F2
 CompanionStore.lineNodes | C11
 CompanionStore.loadActiveFormNames | C13
 CompanionStore.loadFormNames | D7
@@ -91,7 +91,7 @@ CompanionStore.shopEntries | H1
 CompanionStore.stageText | C6
 CompanionStore.state | C7
 CompanionStore.suggestedExportFileName | G16
-CompanionStore.sulkIdle | F1
+CompanionStore.sulkIdle | F2
 CompanionStore.threshold | C7
 CompanionStore.tokensToNext | C8
 CompanionStore.transferSummary | G16
@@ -172,7 +172,7 @@ UsageStore.codexLimitsStale | P24
 UsageStore.codexLimitsUpdatedAt | P24
 UsageStore.companionNotifications | G14c
 UsageStore.critThreshold | P23
-UsageStore.currentBubbleAlert | F1
+UsageStore.currentBubbleAlert | F2
 UsageStore.currentStreak | P7
 UsageStore.cursorLimits | P16
 UsageStore.cursorLimitsAuthExpired | P16
@@ -185,8 +185,8 @@ UsageStore.dailyTrendWindow | P10
 UsageStore.detectedClaudeConfigDirs | G17c
 UsageStore.disableKeychainAccess | G17x | n/a: no Keychain on Windows; the value stays false and the facts replace it in the gate (PopoverPlatformFacts.hasKeychain, Task 2)
 UsageStore.fiveHourForecast | P22
-UsageStore.floatingPetAgentActivity | G12
-UsageStore.floatingPetBubbleAlerts | G12
+UsageStore.floatingPetAgentActivity | G12a
+UsageStore.floatingPetBubbleAlerts | G12a
 UsageStore.floatingPetEnabled | A3p
 UsageStore.floatingPetSize | G12
 UsageStore.grokLimits | P16
@@ -195,7 +195,7 @@ UsageStore.grokLimitsStale | P28
 UsageStore.grokLimitsUpdatedAt | P28
 UsageStore.hasDailyTrendHistory | P10
 UsageStore.hasUsageData | G16
-UsageStore.highestLimitUtilization | F1
+UsageStore.highestLimitUtilization | F2
 UsageStore.isLimitWarning | A7
 UsageStore.isProviderEnabled | G11
 UsageStore.isRefreshingAntigravityLimits | P25

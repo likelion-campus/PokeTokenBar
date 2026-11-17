@@ -19,12 +19,14 @@ final class SettingsModelTests: XCTestCase {
         let mac = SettingsModel.visibility(.mac)
         XCTAssertEqual(mac, SettingsModel.Visibility(menuBarGroup: true, keychainToggle: true, floatingPetGroup: true, animationQuality: true))
         let windows = SettingsModel.visibility(.windows(regionLocale: Locale(identifier: "en_US"), regionCalendar: Calendar(identifier: .gregorian)))
-        XCTAssertEqual(windows, SettingsModel.Visibility(menuBarGroup: false, keychainToggle: false, floatingPetGroup: false, animationQuality: false))
+        XCTAssertEqual(windows, SettingsModel.Visibility(menuBarGroup: false, keychainToggle: false, floatingPetGroup: true, animationQuality: true),
+                       "the floating pet exists on Windows (stage 7 Task 22)")
     }
 
     /// Each gate alone: a Keychain without a pet and a pet without a Keychain (an `A || B` of facts must not hide behind one flag).
     func testEachFactGatesOnlyItsOwnRows() async {
         var facts = PopoverPlatformFacts.windows(regionLocale: Locale(identifier: "en_US"), regionCalendar: Calendar(identifier: .gregorian))
+        facts.floatingPetAvailable = false   // stage 7 Task 22: Windows has the pet now; each gate alone
         facts.hasKeychain = true
         XCTAssertEqual(SettingsModel.visibility(facts), SettingsModel.Visibility(menuBarGroup: true, keychainToggle: true, floatingPetGroup: false, animationQuality: false))
         facts.hasKeychain = false

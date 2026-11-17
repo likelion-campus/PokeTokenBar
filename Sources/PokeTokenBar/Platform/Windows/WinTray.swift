@@ -215,14 +215,24 @@ import WinSDK
     }
 }
 
-/// A native popup menu. The foreground dance is required for it to dismiss on an outside click; this is the only
-/// place the app takes the foreground, and only in answer to a click on the tray icon.
+/// A native popup menu. The foreground dance is required for it to dismiss on an outside click: `owner` takes the foreground
+/// for the menu, in answer to a click on the tray icon (the taskbar had the foreground already) or inside the popover (it has
+/// it). The floating pet never takes the foreground, so the user's window had it: its menu opts into `giveBack` and the
+/// foreground goes back there afterwards (stage 7 Task 22). Both activations live here, in `run`, the one allowed site
+/// (`WindowsSeamScanTests.activationSites`).
 @MainActor enum WinPopupMenu {
     /// The open menu's handle while `run` is inside `TrackPopupMenu` (the selftest's key driver reads it).
     nonisolated(unsafe) static var openMenuBits = 0
 
-    /// Index into `items` of the chosen entry, nil when dismissed.
-    static func run(_ items: [TrayMenuModel.Item?], at point: POINT, owner: HWND, below: Bool = false) -> Int? {  // below: stage 7 Task 12 (a menu that opens under its label)
+    /// Whether the last `run` gave the foreground back (the floating pet's stats read it).
+    private(set) static var gaveBack = false
+
+    /// Index into `items` of the chosen entry, nil when dismissed. `giveBack` (stage 7 Task 22): asked after the menu with the
+    /// choice and the window that had the foreground before it, when the owner still has it and that window is still there
+    /// and visible; true gives the foreground back to that window, and only to it.
+    static func run(_ items: [TrayMenuModel.Item?], at point: POINT, owner: HWND, below: Bool = false,  // below: stage 7 Task 12 (a menu that opens under its label)
+                    giveBack: ((_ chosen: Int?, _ previous: HWND) -> Bool)? = nil) -> Int? {
+        gaveBack = false
         guard openMenuBits == 0 else { return nil }  // a menu is already open: ignore the request
         guard let menu = CreatePopupMenu() else { return nil }
         defer { openMenuBits = 0; DestroyMenu(menu) }
@@ -235,6 +245,7 @@ import WinSDK
             let title = item.title.replacingOccurrences(of: "&", with: "&&")  // no mnemonics from user-visible text
             _ = WinStr.w(title).withUnsafeBufferPointer { AppendMenuW(menu, flags, UINT_PTR(index + 1), $0.baseAddress) }
         }
+        let previous = giveBack == nil ? nil : GetForegroundWindow()  // stage 7 Task 22
         _ = SetForegroundWindow(owner)
         openMenuBits = Int(bitPattern: menu)
         // The SDK import turns BOOL into Bool, which would lose the command id TPM_RETURNCMD returns: call it as Int32.
@@ -245,7 +256,14 @@ import WinSDK
         let command = track(menu, UINT(TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY | (below ? TPM_TOPALIGN : TPM_BOTTOMALIGN)),
                             point.x, point.y, 0, owner, nil)
         _ = PostMessageW(owner, UINT(WM_NULL), 0, 0)
-        return command > 0 ? Int(command) - 1 : nil
+        let chosen = command > 0 ? Int(command) - 1 : nil
+        // --- stage 7 Task 22: the foreground back to the window that had it (begin) ---
+        if let giveBack, let previous, previous != owner, GetForegroundWindow() == owner, IsWindow(previous), IsWindowVisible(previous),
+           giveBack(chosen, previous) {
+            gaveBack = SetForegroundWindow(previous)
+        }
+        // --- stage 7 Task 22 (end) ---
+        return chosen
     }
 
     /// Position of the highlighted entry of an open menu, nil when none. Safe from any thread.

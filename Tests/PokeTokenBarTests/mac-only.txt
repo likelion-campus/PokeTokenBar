@@ -229,4 +229,8 @@ NoWindowsOrderedInScanTests+Mac.swift
 # PopoverShopBagEquivalenceTests+Mac: the Shop and Bag rules against verbatim copies of the Mac cards (stage 7 Task 19)
 PopoverShopBagEquivalenceTests+Mac.swift
 PopoverDexImagesMac.swift
+# PopoverPetTwinEquivalenceTests+Mac: drives the Mac's FloatingPetController, PetClickRouter and GIFDecoder.capFrameRate (AppKit) against the floating pet's shared twins (stage 7 Task 22)
+PopoverPetTwinEquivalenceTests+Mac.swift
+# FloatingPetRendersMacTests: renders the Mac's SwiftUI FloatingPetView offscreen (ImageRenderer, AppKit) for the pet's capture states, the reference the Windows captures are put next to (env-gated writer; stage 7 Task 22)
+FloatingPetRendersMacTests.swift
 PopoverDexDetailImagesMac.swift

@@ -50,9 +50,17 @@ import WinSDK
         return info.flags & 0x1E != 0
     }
 
+    // --- stage 7 Task 22: a selftest tap on every message the pump removes (pet.idle's waker report) (begin) ---
+    /// Set (empty) only by a selftest window that names what woke the main thread: messages removed, counted by
+    /// `0x<message>@<window class>`; nil otherwise (nothing is counted).
+    static var tapCounts: [String: Int]?
+    // --- stage 7 Task 22 (end) ---
+
     fileprivate static func removed(_ messageBits: Int) {
         guard let m = UnsafeMutablePointer<MSG>(bitPattern: messageBits) else { return }
         let message = m.pointee.message
+        // stage 7 Task 22: pet.idle's waker report (counts only, no closure: #272's note on a main-actor closure in this hook).
+        if tapCounts != nil { tapCounts?["0x\(String(message, radix: 16))@\(m.pointee.hwnd.map { WinKit.className($0) } ?? "thread")", default: 0] += 1 }
         // A wParam can use all 64 bits (the shell's file dialog posts one at or above 2^63): `WakeTrace.message` takes it unsigned
         // (`Int(_:)` trapped on it — the transfer dialogs' checks died with exit 0xC000041D, #270).
         if WakeTrace.enabled {   // the class name is asked only while counting (the closure form trapped: a main-actor closure called from a nonisolated function)

@@ -77,11 +77,12 @@ struct WinPopoverStats {
 
     enum Opener: Equatable {
         case trayClick(POINT), trayKey, trayMenu, secondLaunch
+        case pet  // stage 7 Task 22: a click on the floating pet, or its menu's Open (placed as a second launch: at the icon, else the corner)
 
         static func == (a: Opener, b: Opener) -> Bool {
             switch (a, b) {
             case let (.trayClick(p), .trayClick(q)): return p.x == q.x && p.y == q.y
-            case (.trayKey, .trayKey), (.trayMenu, .trayMenu), (.secondLaunch, .secondLaunch): return true
+            case (.trayKey, .trayKey), (.trayMenu, .trayMenu), (.secondLaunch, .secondLaunch), (.pet, .pet): return true
             default: return false
             }
         }
@@ -130,6 +131,8 @@ struct WinPopoverStats {
     init(host: WinPopoverHost) { self.host = host }
 
     var isOpen: Bool { window != nil }
+    /// The open window (stage 7 Task 22: the floating pet goes below it), nil while closed.
+    var hwnd: HWND? { window?.hwnd }
     var hwndForTesting: HWND? { window?.hwnd }
     var contextForTesting: WinUIContext? { ctx }
     var pageForTesting: WinPopoverPage? { page }
@@ -209,9 +212,9 @@ struct WinPopoverStats {
         case .trayClick(let p): point = p
         case .trayKey: point = host.tray?.tray.lastEventPoint
         case .trayMenu: point = host.lastMenuPoint
-        case .secondLaunch: point = nil
+        case .secondLaunch, .pet: point = nil  // .pet: stage 7 Task 22
         }
-        let found = WinPopoverAnchor.inputs(anchor: host.anchorRect, point: point, useCursor: opener != .secondLaunch)
+        let found = WinPopoverAnchor.inputs(anchor: host.anchorRect, point: point, useCursor: opener != .secondLaunch && opener != .pet)  // .pet: stage 7 Task 22
         guard var placed = place(found, heightDIP: page.heightDIP, dpi: nil) else {
             AppLog.write("popover: no monitor to open on")
             return nil
