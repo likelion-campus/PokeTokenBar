@@ -66,22 +66,28 @@ enum PopoverLabelOpacity {
     /// black is about 1.9:1 against white, and with Windows' thinner glyph rendering the tertiary texts (the companion
     /// caption, "This week" / "This month", hints, "updated 0s ago", arrows) read as white on white. Tertiary 0.55 is about
     /// #737373 on white (4.7:1, WCAG AA); secondary is raised to 0.68 (#525252, 7.6:1) so primary > secondary > tertiary
-    /// stays visible. Light only; dark values are not built yet (the dark case below keeps the Mac's until Task 16).
+    /// stays visible.
     static let windowsLightSecondary = 0.68
     static let windowsLightTertiary = 0.55
+    /// Dark (Task 16): white at these opacities over the dark card (#2B2B2B). The Mac's 0.55 / 0.25 give 5.4:1 / 2.2:1; tertiary
+    /// 0.55 is 5.4:1 (AA) and secondary 0.72 is 8.1:1, so primary 0.85 > secondary > tertiary stays visible. Pinned by
+    /// `PopoverLabelContrastTests`.
+    static let windowsDarkSecondary = 0.72
+    static let windowsDarkTertiary = 0.55
 
     /// The secondary label opacity in `appearance`: the Mac's, or Windows' where `windows`.
     static func secondary(_ appearance: PopoverAppearance, windows: Bool) -> Double {
-        // TODO(dark mode, Task 16): Windows dark values go here; until then dark keeps the Mac's.
-        windows && appearance == .light ? windowsLightSecondary : secondary
+        guard windows else { return secondary }
+        return appearance == .light ? windowsLightSecondary : windowsDarkSecondary
     }
 
     /// The tertiary label opacity in `appearance`: the Mac's, or Windows' where `windows`.
     static func tertiary(_ appearance: PopoverAppearance, windows: Bool) -> Double {
-        windows && appearance == .light ? windowsLightTertiary : tertiary
+        guard windows else { return tertiary }
+        return appearance == .light ? windowsLightTertiary : windowsDarkTertiary
     }
 
     /// What the drawing on this platform uses (single call site of the platform switch: `PopoverPlatform.isWindows`).
-    static func displayedSecondary(_ appearance: PopoverAppearance = .light) -> Double { secondary(appearance, windows: PopoverPlatform.isWindows) }
-    static func displayedTertiary(_ appearance: PopoverAppearance = .light) -> Double { tertiary(appearance, windows: PopoverPlatform.isWindows) }
+    static func displayedSecondary(_ appearance: PopoverAppearance = .current) -> Double { secondary(appearance, windows: PopoverPlatform.isWindows) }
+    static func displayedTertiary(_ appearance: PopoverAppearance = .current) -> Double { tertiary(appearance, windows: PopoverPlatform.isWindows) }
 }
