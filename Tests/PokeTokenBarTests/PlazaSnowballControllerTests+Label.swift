@@ -1,7 +1,5 @@
-// PlazaSnowballControllerTests+Mac: shortcutThrowLabel reads the SwiftUI shortcut guide (Task 15 moves its entries to shared code)
+// PlazaSnowballControllerTests+Label: what the shortcut guide's V line names
 import XCTest
-import AppKit
-import SwiftUI
 @testable import PokeTokenBar
 
 extension PlazaSnowballControllerTests {

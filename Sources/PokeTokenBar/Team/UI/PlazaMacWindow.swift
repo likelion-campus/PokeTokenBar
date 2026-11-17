@@ -245,12 +245,6 @@ extension SKView: PlazaPausableView {}
     func windowDidBecomeKey(_ notification: Notification) { events?.didBecomeKey() }
 }
 
-/// Mac-only conveniences of the shared controller (the shortcut guide's text lives here).
-extension PlazaWindowController {
-    /// 테스트용: 단축키 안내의 V 줄에 적힌 던지는 것.
-    var shortcutThrowLabel: String? { PlazaShortcutGuide.entries(season: shortcutSeason).first { $0.key == "V" }?.label }
-}
-
 /// The window's content view. It only counts (for tests) the layout calls made while it is laying out: nothing may force layout from inside
 /// a pass.
 final class PlazaWindowContentView: NSView {
