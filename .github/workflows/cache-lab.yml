@@ -6,6 +6,9 @@ name: cache-lab
 # Run after a Swift or runner-image upgrade: gh workflow run cache-lab.yml --ref <branch> (a workflow file is dispatchable once it is on main).
 on:
   workflow_dispatch:
+  push:   # TEMPORARY (lab run from this branch; reverted in the next commit)
+    branches: [ci/windows-seed-followups]
+    paths: ['.github/workflows/cache-lab.yml']
 permissions:
   contents: read
 jobs:
