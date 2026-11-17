@@ -51,6 +51,7 @@ import WinSDK
     private var focusStripOnBuild = false
     /// A window without a popover (a test) hears of a tab pick here instead of the popover building the page.
     var tabChanged: ((PopoverState.Tab) -> Void)?
+    var configureTabContent: ((WinTabContent) -> Void)?
     private var tabsModel: PopoverTabsModel?
     var tabPopover: WinPopover? { popover }
     /// The pinned top pane's inner width in pixels (the strip fills the line).

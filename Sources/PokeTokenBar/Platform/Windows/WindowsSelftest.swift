@@ -130,6 +130,7 @@ enum WindowsSelftest {
         await popoverTransferChecks(r, app)  // stage 7 task 15 (WindowsSelftestPopoverTransfer.swift): real file and task dialogs, sprites (Direct2D), so after the idle window
         await popoverRecapChecks(r, app)  // stage 7 task 13 (WindowsSelftestPopoverRecap.swift): draws the card (Direct2D), so after the idle window; leaves no window behind
         await popoverCollectionChecks(r, app)  // stage 7 task 20 (WindowsSelftestPopoverCollection.swift): the Collection tab; leaves no window behind
+        await popoverShopBagChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverShopBag.swift): the Shop and Bag pages (sprites: Direct2D); leaves no window behind
         await popoverTabsChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverTabs.swift): the tab strip; leaves no window behind
         return r.checks
     }

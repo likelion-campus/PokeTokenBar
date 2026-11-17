@@ -66,14 +66,14 @@ final class PopoverItemImageTests: XCTestCase {
     }
 
     /// Every item the shop sells names its sprite as the Mac does: the mint has none and shows its emoji.
-    func testSpriteNamesAndEmojiMatchTheMacsItems() {
+    func testSpriteNamesAndEmojiMatchTheMacsItems() async {
         XCTAssertEqual(ItemKind.rareCandy.spriteName, "rare-candy")
         XCTAssertNil(ItemKind.mint.spriteName)
         XCTAssertEqual(ItemKind.shinyCharm.spriteName, "shiny-charm")
         for kind in ItemKind.allCases { XCTAssertFalse(kind.fallbackEmoji.isEmpty) }
     }
 
-    func testTheIconDrawsASpriteOrTheEmoji() {
+    func testTheIconDrawsASpriteOrTheEmoji() async {
         let graphics = PlatformPlaza.graphics
         let emoji = ItemIconPart(kind: .mint).render(scale: 2, graphics: graphics)
         XCTAssertEqual(emoji.drawing.layers.count, 1, "the emoji")

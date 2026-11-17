@@ -45,10 +45,20 @@ import WinSDK
         return c
     }
 
+    /// A drawn view is held weakly by its own control and window handlers, so something must own it: the control does, through a
+    /// closure that runs when the control is destroyed (and is dropped then). Without an owner the view is freed at once and its
+    /// picture (a bitmap and a device context) is never released.
+    private static func own(_ view: WinDrawnView) {
+        guard let control = view.control else { return }
+        let freeing = control.onDestroy
+        control.onDestroy = { freeing?(); _ = view }
+    }
+
     /// The item icon (`ItemIconView`, 30 pt): the emoji at once, the sprite when the store has it (a cache hit at once, else loaded
     /// and swapped in while the page is current).
     static func itemIcon(_ kind: ItemKind, host: WinTabHost, source: any PopoverItemSource, in pane: HWND, ctx: WinUIContext) -> WinControl? {
         guard let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
+        own(view)
         let name = kind.spriteName
         let part = ItemIconPart(kind: kind, image: name.flatMap { PopoverItemImages.cached(name: $0, directory: source.directory) })
         view.host(part, width: part.side)
@@ -64,6 +74,7 @@ import WinSDK
     /// A sprite slot in a square box (the egg of an egg card, the Bag's Snorlax), animated by `sprites`.
     static func spriteBox(_ part: SpriteBoxPart, sprites: WinSpriteAnimator?, in pane: HWND, ctx: WinUIContext) -> WinControl? {
         guard let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
+        own(view)
         view.sprites = sprites
         view.host(part, width: part.box)
         return view.control
@@ -72,6 +83,7 @@ import WinSDK
     /// The egg card's tier badge, drawn by the companion header's badge code.
     static func badge(_ badge: CompanionHeaderModel.Badge, in pane: HWND, ctx: WinUIContext) -> WinControl? {
         guard let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
+        own(view)
         view.host(BadgePart(badge), width: 200)
         return view.control
     }
