@@ -103,6 +103,7 @@ extension WindowsSelftest {
                 + "minTrack@144=\(min144.width)x\(min144.height) "
                 + "(expected \(expected144.width)x\(expected144.height))")
         windowIconChecks(r, plaza: hwnd)
+        windowCaptionChecks(r, plaza: hwnd)
         r.add("plaza.firstFrame", firstPresents >= 1 && pixels != nil,
               "presents=\(firstPresents) before/at first show, frame readback \(pixels.map { "\($0.count / 4) px" } ?? "none")")
 

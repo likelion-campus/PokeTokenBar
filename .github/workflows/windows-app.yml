@@ -522,13 +522,13 @@ jobs:
           Get-ChildItem ui-dump\companion -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "companion header: $($bad -join ', ')" }
       # --- stage 7 Task 9: the companion header (end) ---
-      - name: Window icon checks ran (plaza.windowIcon, update.windowIcon)
+      - name: Window icon and caption checks ran (plaza.windowIcon, update.windowIcon, plaza.captionColour)
         timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'plaza.windowIcon', 'update.windowIcon'
+          $names = 'plaza.windowIcon', 'update.windowIcon', 'plaza.captionColour'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
