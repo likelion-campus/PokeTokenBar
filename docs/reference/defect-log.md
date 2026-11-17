@@ -2851,6 +2851,9 @@ read_when:
   그 지점의 창 클래스와 전체 화면(`realclick-flyout-<pid>.png`, 로그 폴더 → collected)을 남기고, 셸 알림 상태(`SHQueryUserNotificationState`: 6 조용한 시간, 5 알림 받음)를 결과에 붙인다.
   **부류 스윕:** 실제 입력(SendInput)으로 화면 오른쪽 아래를 누르는 체크 중 풍선 직후(20 초 안)에 도는 것은 `popover.realClick` 하나다 — 그 사이 체크(menuAfter/menuSettings/secondLaunch/autostartQuiet)는 게시 메시지·키·자식 프로세스다.
   팝오버 안을 실제로 누르는 홈·설정 체크는 마지막 풍선보다 1 분 넘게 뒤라 토스트 수명(7 초 × 줄) 밖이다.
+  같은 부류의 두 번째 구성원은 런으로 찾았다: 조용한 시간이 끝난 뒤에 설치본 셀프테스트가 오도록 늦춘 진단 런(44003693742, `flake_loop=40`)에서 `popover.realClick` 은
+  "covered by Windows.UI.Core.CoreWindow 'New notification' … for 5.6 s" 뒤 통과했고(알림 상태 5), 대신 `ui.kit.idle` 이 두 시도 모두 메인 cs 12·23(예산 11, 조용한 시간엔 0)으로 실패했다 —
+  `notify.*` 가 25 초 전에 줄 세운 우리 풍선이 7 초씩 떠 있고 쉘의 보고마다 메인 스레드가 깬다. **고침:** `ui.kit.idle` 은 우리 풍선 큐가 빌 때까지(최대 60 초) 기다린 뒤 창을 재고, 기다린 시간·처음 상태·알림 상태를 적는다.
   **영구 캡처:** `popover.realClickCovered` — 우리 최상위 창(토스트 대역)이 프로브 중심을 1.5 초 덮는 동안 기다렸다가 프로브가 다시 그 지점의 창이 되는지 본다. 결함 주입(기다림 제거)으로 실패 확인은 CI 기록 참조.
   **규칙:** 실제 입력 체크는 누르기 전에 그 지점의 창이 대상인지 확인한다 — 러너의 화면은 시간에 따라 바뀐다(첫 1 시간의 조용한 시간, 그 뒤의 토스트).
 
