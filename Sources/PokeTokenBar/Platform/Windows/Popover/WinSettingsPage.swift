@@ -56,6 +56,7 @@ import WinSDK
 
     // Controls the refresh and the selftest read.
     private var languageRow: WinRow?
+    private var representative: WinRepresentativeRow?  // stage 7 Task 20 (G2)
     private var refreshRow: WinRow?
     private var limitDisplayRow: WinRow?
     private var trendWindowRow: WinRow?  // stage 7 Task 12 (G6)
@@ -288,6 +289,13 @@ import WinSDK
                               in: p, ctx: c)
         }
         languageRow?.control?.onSelect = { [weak self] i in self?.languageChosen(i) }
+        // --- stage 7 Task 20: the representative Pokémon row (G2), between the language and the refresh interval as on the Mac (begin) ---
+        representative = WinRepresentativeRow(section: general, companion: host.companion) { [weak self] in
+            guard let self, let popover = self.popover else { return }
+            popover.state.openRepresentativeDex()   // the Mac's onChooseRepresentative
+            popover.replacePage()
+        }
+        // --- stage 7 Task 20 (end) ---
         let presets = UsageStore.intervalPresets
         refreshRow = general.addRow(l.refreshInterval) { p, c in
             WinControls.combo(presets.map { l.intervalLabel($0.value) },
@@ -440,6 +448,7 @@ import WinSDK
         let store = self.store
         let language = AppLanguage.allCases.firstIndex(of: host.companion.language) ?? 0
         if let c = languageRow?.control, c.selection != language { c.selection = language }
+        representative?.update()  // stage 7 Task 20
         let presets = UsageStore.intervalPresets
         let interval = presets.firstIndex { $0.value == store.refreshInterval } ?? -1
         if let c = refreshRow?.control, c.selection != interval { c.selection = interval }
@@ -669,7 +678,7 @@ import WinSDK
         backLink = nil
         titleLabel = nil
         trendWindowRow = nil  // stage 7 Task 12
-        languageRow = nil; refreshRow = nil; limitDisplayRow = nil; loginRow = nil; backViewRow = nil; helpRow = nil; helpBodyRow = nil
+        representative = nil; languageRow = nil; refreshRow = nil; limitDisplayRow = nil; loginRow = nil; backViewRow = nil; helpRow = nil; helpBodyRow = nil
         limitAlertsRow = nil; warnRow = nil; critRow = nil; companionAlertsRow = nil; statusChecksRow = nil; updateNotificationsRow = nil
         checkNowRow = nil; updateOfferRow = nil; updateSkippedRow = nil; updateCurrentRow = nil; reportRow = nil; logRow = nil
         fallbackRow = nil

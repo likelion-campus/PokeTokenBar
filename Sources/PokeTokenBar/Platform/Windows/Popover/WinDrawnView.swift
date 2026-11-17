@@ -34,6 +34,8 @@ import WinSDK
     /// A context menu was asked on the item with this action (right click, the menu key): the pointer's screen point, or the item's
     /// centre for the keyboard. Set before the first `show`. Run the menu and defer what it chooses: the item may be rebuilt by it.
     var onContextMenu: ((PlazaPanelHit?, POINT) -> Void)?
+    /// Items whose hit has one of these actions show the pointing hand.
+    var handActions: Set<String> = []
     // --- stage 7 Task 20 (end) ---
     /// Whether Escape is the part's now (a selection to clear).
     var claimsEscape: (() -> Bool)?
@@ -414,6 +416,7 @@ import WinSDK
                 }
                 if onFocus != nil { c.onFocus = { [weak self] focused in self?.onFocus?(focused) } }
                 // --- stage 7 Task 20 (begin) ---
+                c.showsHandCursor = item.action.map { handActions.contains($0.action) } ?? false
                 if onContextMenu != nil {
                     c.onContextMenu = { [weak self, weak c] point in
                         guard let self, let c, let handler = self.onContextMenu else { return false }

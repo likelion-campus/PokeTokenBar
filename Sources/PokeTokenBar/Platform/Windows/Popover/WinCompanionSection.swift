@@ -111,18 +111,41 @@ import WinSDK
         guard !isDestroyed else { return }
         stats.observes += 1
         if inputOverride != nil {
-            apply(currentInput())
+            let input = currentInput()
+            apply(input)
+            applyDexLinks(dexLinksOverride ?? [:], input)
             return
         }
         let mine = epoch
-        let input = withObservationTracking { currentInput() } onChange: { [weak self] in
+        var links: [Int: String] = [:]
+        let input = withObservationTracking { () -> CompanionHeaderInput in
+            links = companion.dexLinkTargets   // stage 7 Task 20: C2 follows the dex too
+            return currentInput()
+        } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, self.epoch == mine, !self.isDestroyed else { return }
                 self.observe()
             }
         }
         apply(input)
+        applyDexLinks(links, input)
     }
+
+    // --- stage 7 Task 20: C2, the sprite and the evolution line open their Pokédex page (begin) ---
+    /// The selftest's links when it shows a fixed input.
+    var dexLinksOverride: [Int: String]?
+
+    /// Which species link where (`CompanionStore.dexLinkTargets`: only species in the dex). The header's sprite links by the current
+    /// species (an egg has none); every node of the line by its own.
+    func applyDexLinks(_ links: [Int: String], _ input: CompanionHeaderInput) {
+        let hint = companion.l.dexOpenEntryHint
+        header?.part.dexLink = input.currentSpeciesID.flatMap { id in links[id].map { (target: $0, hint: hint) } }
+        if let line {
+            line.part.dexHint = hint
+            line.part.dexLinks = links
+        }
+    }
+    // --- stage 7 Task 20 (end) ---
 
     func apply(_ input: CompanionHeaderInput) {
         guard !isDestroyed else { return }
@@ -158,6 +181,10 @@ import WinSDK
                 guard let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
                 view.sprites = WinSpriteAnimator(fetcher: Self.fetcher(), animationsEnabled: self.animationsEnabled)
                 view.onPointer = { [weak self] point in self?.hovered(point) }  // the growth bar's hover (Task 12's pointer hook)
+                view.handActions = [CompanionHeaderPart.dexAction]   // stage 7 Task 20: C2
+                view.onHit = { [weak self] hit in
+                    if hit.action == CompanionHeaderPart.dexAction, let target = hit.target { self?.page?.openDexEntry(target) }
+                }
                 let part = CompanionHeaderPart(m, textScale: CGFloat(ctx.textScale))
                 view.host(part, width: width)
                 made = (view, part)
@@ -180,10 +207,13 @@ import WinSDK
                 view.sprites = WinSpriteAnimator(fetcher: Self.fetcher(), animationsEnabled: self.animationsEnabled)
                 let part = EvoLinePart(m.evoLine ?? Self.emptyLine, background: Self.plaza(ctx.colors.palette.window),
                                        accent: Self.plaza(ctx.colors.palette.accent), glyphs: raster)
+                view.handActions = [EvoLinePart.dexAction]   // stage 7 Task 20: C2
+                view.onPointer = { [weak part] p in part?.setPointer(p) }
                 view.host(part, width: width)
                 part.now = { [weak self] in self?.now() ?? Date() }
                 view.onHit = { [weak self, weak part] hit in
                     guard let self, let part else { return }
+                    if hit.action == EvoLinePart.dexAction, let target = hit.target { self.page?.openDexEntry(target); return }  // stage 7 Task 20
                     part.animatesMoves = self.animationsEnabled()
                     if part.press(hit) { self.armLine() }
                 }
@@ -306,6 +336,7 @@ import WinSDK
     /// The pointer over the header (nil: it left): over the growth bar's line or not.
     func hovered(_ point: CGPoint?) {
         guard !isDestroyed, let header else { return }
+        header.part.setLinkHover(point.map { header.part.spriteBoxFrame?.contains($0) == true } ?? false)  // stage 7 Task 20: C2
         let over = point.map { header.part.barFrame?.contains($0) == true } ?? false
         guard over != barHover.isHovered else { return }
         stats.barHovers += 1

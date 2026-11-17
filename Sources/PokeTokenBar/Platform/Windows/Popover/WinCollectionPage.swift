@@ -535,5 +535,14 @@ import WinSDK
         }
     }
 }
+
+extension WinHomePage {
+    /// A sprite of Home opens its Pokédex page (`PopoverState.openDexEntry`: the Collection tab with that cell's detail
+    /// requested); the page for the tab is built in place.
+    func openDexEntry(_ collectionID: String) {
+        state.openDexEntry(collectionID: collectionID)
+        syncTab()
+    }
+}
 // MARK: end Task 20
 #endif
