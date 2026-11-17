@@ -29,20 +29,32 @@ Two things make it trustworthy:
 manifest on `main` declares no dependency at all). The file is used only inside the seed: the clean build resolves, the seed carries the result.
 
 ## When the build is clean (no seed)
-- release mode (`release_sha`), branches `kit/*`, `clean_build=true`: always (the Seed step gets `-Clean`; release mode and kit builds
-  cannot consume a seed). `windows-tests.json` carries `cleanBuild: true`; `team_release.py collect` refuses anything else.
-- `windows-port`: when the chain behind the seed has 8 incremental builds or its last clean build is 24 h old; that clean build becomes the
-  next seed, so a cache-masked breakage cannot live longer than that.
-- a seed built with another Swift version or runner image, a missing seed, a damaged seed: automatically.
+- release mode (`release_sha`), branches `kit/*` (also a pull request from one), `clean_build=true`: the Seed step is skipped by an `if:` of the
+  workflow itself (`clean` falls back to `true`). `windows-tests.json` carries `cleanBuild: true`; `team_release.py collect` refuses anything else.
+- for EVERY consumer (windows-port, other branches, dispatches, pull requests): when the chain behind the seed has 8 incremental builds or
+  its last clean build is 24 h old. The clean build that follows becomes the next seed. If windows-port's clean build fails, the over-limit
+  seed is simply never used again (every consumer builds clean), it cannot linger.
+- a seed built with another Swift version or runner image, a missing seed, and anything wrong with a seed: invalid metadata, an archive that
+  breaks the rules below, a download over 5 minutes, a failed unpack (everything it wrote is removed), a seed commit that cannot be fetched.
 
-## Who can produce a seed
-Only completed runs of this repository started by a push or a workflow_dispatch (`head_repository` is this repo, `event` push/dispatch):
-people with write access, who can already push code. A pull request from a fork, even one whose branch is called `windows-port`, is
-ignored by the seed search. A seed is an immutable artifact of one run. Release mode and kit builds never read one; their clean builds are
-written as seeds like any other (the cleanest seeds there are).
+## Who can produce a seed, and what it may contain (seed-rules.ps1, tested by seed-rules.yml: 46 checks)
+- Only completed runs of THIS repository (`head_repository`) started by a `push` or a `workflow_dispatch`, of the same branch or the trunk.
+  `branch=` in the runs API matches the head branch by NAME, also on a fork, so the repository and the event are checked as well: a pull
+  request from a fork (even from a branch called `windows-port`) can never be a seed source, and no pull_request run is one. A pull_request
+  run restores the seed of its BASE branch only and uploads its build under another name (`ptb-handoff-debug`, 1 day) for its own shards.
+- The archive may hold `.build/` and `Package.resolved` only (checked with `tar -tf` before anything is extracted); no `..`, drive letters or
+  streams, no device nodes or hard links, symbolic links only inside the workspace (the real seed has one: `.build/debug`).
+- The metadata is not believed: chain length an integer below the limit, dates ordered and not in the future, a 40-hex commit, same Swift and
+  image; `Package.resolved` is kept only while Package.swift is the blob the seed was built with (a PR that adds a dependency resolves normally).
+- After the unpack, every file that differs between the seed's commit (fetched by id) and HEAD gets the mtime NOW (`stamp-changed.ps1`):
+  llbuild needs the stable blob stamps, swift-driver judges C headers and clang modules by "newer than the last build" and a 2000-2008 stamp
+  would say "unchanged". A header change costs a rebuild of the Swift files that import it (about 3.5 min); the lab proves a renamed
+  header field fails in its Swift reader and a header the Swift side does not use builds.
+- Residual risk: whoever can push a branch can leave a seed for that branch's own later runs and for runs that name it as a trunk (the
+  `seed_trunk` dispatch input). Release mode, `kit/*` and `clean_build` never read one, so nothing shipped can contain one.
 
 ## What an incremental build does (measured, `cache-lab.yml`, 4 cores)
-Unchanged tree 0 files compiled; a leaf or widely used Swift file 1 file (~20 s); an interface change recompiles its users (and breaks
+Unchanged tree 0 files compiled; a leaf or widely used Swift file 1 file (~20 s); a changed `mac-only.txt` changes what is compiled, listed and run (first build on a fresh runner: SwiftPM's package-manifest cache is outside `.build`, a fresh runner has none); an interface change recompiles its users (and breaks
 the build where it must); a C++ file ~8 s; a `Package.swift` flag change or a source file added or deleted: the whole module, 3-4 min
 (cold build 10 min); a deleted file's object is not linked. Re-run the lab after a Swift or runner-image upgrade (push a change under
 `scripts/windows/cache-lab*` on a branch listed in cache-lab.yml, or dispatch it once it is on main).
