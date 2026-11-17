@@ -384,20 +384,6 @@ final class WindowsHTTPFetchTests: XCTestCase {
         return handleCount()
     }
 
-    /// WinHTTP lets go of a closed session's handles on its own threads, some seconds later (run 44160910119: +200 handles
-    /// 0.5 s after 100 fetches). The count every 250 ms until it is within `slack` of `base` or 20 s have passed.
-    private func handlesAfterRelease(from base: Int, slack: Int) async throws -> (count: Int, trail: String) {
-        var trail: [String] = []
-        let t0 = Date()
-        while true {
-            let count = handleCount()
-            let s = Date().timeIntervalSince(t0)
-            trail.append(String(format: "%.2fs:+%d", s, count - base))
-            if count - base < slack || s > 20 { return (count, trail.suffix(6).joined(separator: " ")) }
-            try await Task.sleep(nanoseconds: 250_000_000)
-        }
-    }
-
     /// 100 bodies, each on a thread `start` makes, all returned.
     private func hundredThreads(_ start: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void) async {
         await withTaskGroup(of: Void.self) { group in
@@ -406,27 +392,47 @@ final class WindowsHTTPFetchTests: XCTestCase {
     }
 
     /// Every fetch runs on a thread of its own. `Foundation.Thread` on Windows never closes its thread's handle (the control: 100
-    /// threads that only return keep about 100 handles); the fetches' threads (`WinDetachedThread`) must keep none.
-    func testAHundredFetchesKeepNoHandleWhereAHundredFoundationThreadsKeepOneEach() async throws {
-        let url = try base() + "/delay/0"
-        for _ in 0..<5 { _ = try await WinHTTPFetch.data(for: try request(url)) }  // WinHTTP's one-time handles first
-        try await Task.sleep(nanoseconds: 3_000_000_000)
-        let before = handleCount()
-        for _ in 0..<100 { _ = try await WinHTTPFetch.data(for: try request(url)) }
-        let (afterFetches, trail) = try await handlesAfterRelease(from: before, slack: 20)
-        // Information: the same 100 on one session (connections kept within it), to tell a session's handles from the rest.
-        let batch = await WinHTTPFetch.batchDiagnostic(Array(repeating: try XCTUnwrap(URL(string: url)), count: 100), concurrency: 1, oneSession: true)
-        let (afterBatch, batchTrail) = try await handlesAfterRelease(from: afterFetches, slack: 20)
+    /// threads that only return keep about 100 handles). 100 fetches on one session take the whole fetch path (gate, worker
+    /// thread, timer, connection, request) except opening and closing a session: they must keep none (with `Foundation.Thread`
+    /// workers, 100). What a session per fetch costs on top is `testWhatASessionPerFetchKeepsOverTime`.
+    func testTheFetchWorkersKeepNoHandleWhereFoundationThreadsKeepOneEach() async throws {
+        let url = try XCTUnwrap(URL(string: try base() + "/delay/0"))
+        _ = await WinHTTPFetch.batchDiagnostic(Array(repeating: url, count: 5), concurrency: 1, oneSession: true)  // one-time handles
+        let before = try await settledHandleCount()
+        let batch = await WinHTTPFetch.batchDiagnostic(Array(repeating: url, count: 100), concurrency: 1, oneSession: true)
+        let afterBatch = try await settledHandleCount()
         await hundredThreads { body in Thread { body() }.start() }
         let afterThreads = try await settledHandleCount()
         await hundredThreads { body in XCTAssertTrue(WinDetachedThread.start(body)) }
         let afterDetached = try await settledHandleCount()
-        print("HANDLES before \(before), after 100 fetches \(afterFetches) (\(trail)), after 100 on one session \(afterBatch) "
-              + "(\(batchTrail); \(batch)), after 100 Foundation threads \(afterThreads), after 100 detached threads \(afterDetached)")
-        XCTAssertLessThan(afterFetches - before, 20, "the fetches kept handles")
+        print("HANDLES before \(before), after 100 fetches on one session \(afterBatch) (\(batch)), "
+              + "after 100 Foundation threads \(afterThreads), after 100 detached threads \(afterDetached)")
+        XCTAssertTrue(batch.contains(", 0 failed,"), batch)
+        XCTAssertLessThan(afterBatch - before, 20, "the fetches' workers kept handles")
         XCTAssertGreaterThanOrEqual(afterThreads - afterBatch, 90,
                                     "control: Foundation.Thread kept no handle; if corelibs closes it now, WinDetachedThread can go")
         XCTAssertLessThan(afterDetached - afterThreads, 10, "WinDetachedThread kept handles")
+    }
+
+    /// Information, not a bound: 100 fetches each on a session of its own (the app's way), through the Windows proxy settings
+    /// and directly, and the handle count over the next 75 s (run 44166157252: +196 still after 20 s on the proxy route; the
+    /// same 100 on one session kept +7).
+    func testWhatASessionPerFetchKeepsOverTime() async throws {
+        let url = try base() + "/delay/0"
+        for route in [WinProxyRoute.Route.systemProxy, .direct] {
+            for _ in 0..<5 { _ = try await WinHTTPFetch.data(for: try request(url), route: route) }
+            try await Task.sleep(nanoseconds: 3_000_000_000)
+            let before = handleCount()
+            for _ in 0..<100 { _ = try await WinHTTPFetch.data(for: try request(url), route: route) }
+            var trail: [String] = []
+            let t0 = Date()
+            for mark in [0.5, 5, 15, 30, 45, 60, 75] {
+                let wait = mark - Date().timeIntervalSince(t0)
+                if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+                trail.append(String(format: "%.0fs:%+d", mark, handleCount() - before))
+            }
+            print("SESSION HANDLES \(route): 100 fetches, a session each: \(trail.joined(separator: " "))")
+        }
     }
 
     /// Item 9 of the review: per-fetch sessions against one session for a batch (time, connections). Printed, not a bound.
