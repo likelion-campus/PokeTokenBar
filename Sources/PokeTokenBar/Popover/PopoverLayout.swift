@@ -27,12 +27,24 @@ struct PopoverStackMetrics: Equatable, Sendable {
     var cardRadius: CGFloat = 8
     /// A `Divider()` between rows; it takes its height in the stack.
     var divider: CGFloat = 1
+    /// Above the first and below the last region instead of `pagePadding` (a pane pinned above or below a scroller has no
+    /// padding on the side it shares with it).
+    var padTop: CGFloat?
+    var padBottom: CGFloat?
 
     static let settings = PopoverStackMetrics()
 
     /// The Home and Recap pages (`PopoverMetrics.padding` 14, the page `VStack`'s spacing 12; `plainSpacing` is the header
     /// group's `VStack(spacing: 6)`). Settings keeps its own 16 / 18.
     static let home = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 12, plainSpacing: 6)
+    /// Home's three panes (the Mac's `mainContent`): the update offer and plaza button above the 520 pt scroller, the scrolling
+    /// middle (no vertical padding: it starts at the scroller's edge), the footer below.
+    static let homeTop = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 12, plainSpacing: 6, padTop: 14, padBottom: 0)
+    static let homeScroll = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 12, plainSpacing: 6, padTop: 0, padBottom: 0)
+    static let homeFooter = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 12, plainSpacing: 6, padTop: 0, padBottom: 14)
+    /// The scroller's height in the Mac's points (`.frame(height: 520)`): fixed, also when the content is shorter.
+    static let homeScrollerHeight: CGFloat = 520
+
     /// The Recap page's `VStack(spacing: 8)`.
     static let recap = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 8, plainSpacing: 2)
 
@@ -52,6 +64,8 @@ struct PopoverStackMetrics: Equatable, Sendable {
         m.plainSpacing = p(plainSpacing)
         m.cardRadius = p(cardRadius)
         m.divider = p(divider)
+        m.padTop = padTop.map(p)
+        m.padBottom = padBottom.map(p)
         return m
     }
 }
@@ -113,7 +127,7 @@ enum PopoverStackLayout {
     /// The page at `width`, top to bottom, every frame on whole units of `metrics` (pass `metrics.pixels(dpi:)`).
     static func layout(_ sections: [PopoverStackSection], width: CGFloat, metrics m: PopoverStackMetrics) -> PopoverStackFrames {
         let x0 = m.pagePadding, w = max(0, width - 2 * m.pagePadding)
-        var y = m.pagePadding
+        var y = m.padTop ?? m.pagePadding
         var out: [PopoverStackFrames.Section?] = []
         var first = true
         for section in sections {
@@ -159,7 +173,7 @@ enum PopoverStackLayout {
             out.append(PopoverStackFrames.Section(caption: caption, card: section.card ? CGRect(x: x0, y: top, width: w, height: y - top) : nil,
                                                   rows: rows, dividers: dividers))
         }
-        return PopoverStackFrames(sections: out, height: y + m.pagePadding)
+        return PopoverStackFrames(sections: out, height: y + (m.padBottom ?? m.pagePadding))
     }
 
     private static func layoutRow(_ row: PopoverStackRow, x: CGFloat, y: CGFloat, width: CGFloat, metrics m: PopoverStackMetrics,
