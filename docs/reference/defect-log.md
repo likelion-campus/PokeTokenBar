@@ -3013,8 +3013,12 @@ read_when:
   `fetch trace start/exit: started= ended= hosts= failures=` 를 더했고, 게이트는 창마다 그 차이를 `FETCHES <label>:` 줄과 `fetches` 항목으로 낸다.
   **가드(기계):** ① 셀프테스트 `net.clientCertificateOptional`: 실제 graphql.pokeapi.co 에 작은 POST 를 두 번 보낸다. 고친 경로는 HTTP 응답을 받아야 하고, 대조군
   (`clientCertificateAsBefore`)은 12044 로 멈춰야 '서버가 아직 요청한다' 는 것이 증명된다. 러너가 닿지 못하면 통과하되 그렇게 적는다. ②
-  `WindowsHTTPFetchTests.testAHundredFetchesKeepNoHandleWhereAHundredFoundationThreadsKeepOneEach`: 루프백 페치 100 회 뒤 핸들이 +20 미만이어야 하고, 대조군
-  `Thread` 100 개는 +90 이상이어야 한다(대조군이 실패하면 corelibs 가 고친 것이니 `WinDetachedThread` 를 걷어도 된다). ③ 게이트의 워밍업 대기와 `FETCHES` 줄.
+  `WindowsHTTPFetchTests.testTheFetchWorkersKeepNoHandleWhereFoundationThreadsKeepOneEach`: 한 세션에서 루프백 페치 100 회(세션 열기·닫기만 빼고 게이트·작업 스레드·
+  타이머·연결·요청까지 전 경로) 뒤 핸들이 +20 미만이어야 하고, 대조군 `Thread` 100 개는 +90 이상, `WinDetachedThread` 100 개는 +10 미만이어야 한다. 실측(run 44166157252):
+  한 세션 100 페치 +7, `Thread` +100, `WinDetachedThread` +0. 대조군이 실패하면 corelibs 가 고친 것이니 `WinDetachedThread` 를 걷어도 된다. ③ 게이트의 워밍업 대기와 `FETCHES` 줄.
+  (정보: 페치마다 세션을 따로 열면(앱의 방식) 닫힌 세션 하나가 핸들 약 2 개를 45–60 s 동안 더 쥐고 있다가 WinHTTP 가 놓는다. 100 페치 기준(run 44168716060)으로
+  시스템 프록시 경로는 45 s 까지 +200 이었다가 60 s 에 +47, 직접 경로는 60 s 에 +89·75 s 에 +74 였다. 누수가 아니라 늦은 해제이고, 스레드 몫과는 따로다.
+  실패한 heatmap 창이 빌드가 끝난 뒤에도 페치당 약 1 개(스레드)만 남긴 것과 맞는다.)
   **스윕:** ① 같은 API 오용(윈도 Foundation 이 커널 핸들을 쥐고 닫지 않음): 출하 코드에서 `Thread` 를 시작하는 곳은 이음매(고침), `WinSocketLoop`(프로세스당 한 번이고 앱 종료 때만
   다시 만든다. 핸들 하나라 그대로 둔다), `WinUIDump`·`WindowsSelftest*`(셀프테스트 전용이라 그대로 둔다)다. corelibs `Process` 는 스레드 핸들을 바로 닫고, 프로세스 핸들은 `deinit` 에서
   닫는다(확인함). ② 같은 TLS 차이(서버의 CertificateRequest): 앱이 부르는 호스트 18 곳을 `openssl s_client` 로 확인했다. CertificateRequest 를 보내는 곳은 graphql.pokeapi.co 하나다.

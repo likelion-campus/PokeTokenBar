@@ -394,7 +394,9 @@ final class WindowsHTTPFetchTests: XCTestCase {
     /// Every fetch runs on a thread of its own. `Foundation.Thread` on Windows never closes its thread's handle (the control: 100
     /// threads that only return keep about 100 handles). 100 fetches on one session take the whole fetch path (gate, worker
     /// thread, timer, connection, request) except opening and closing a session: they must keep none (with `Foundation.Thread`
-    /// workers, 100). What a session per fetch costs on top is `testWhatASessionPerFetchKeepsOverTime`.
+    /// workers, 100). A session per fetch (the app's way) holds about 2 more handles per fetch for 45-60 s after it closes,
+    /// then WinHTTP lets them go (run 44168716060, 100 fetches: +200 until 45 s, +47 at 60 s on the system-proxy route, +89 at
+    /// 60 s and +74 at 75 s direct), so it is not bounded here.
     func testTheFetchWorkersKeepNoHandleWhereFoundationThreadsKeepOneEach() async throws {
         let url = try XCTUnwrap(URL(string: try base() + "/delay/0"))
         _ = await WinHTTPFetch.batchDiagnostic(Array(repeating: url, count: 5), concurrency: 1, oneSession: true)  // one-time handles
@@ -412,27 +414,6 @@ final class WindowsHTTPFetchTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(afterThreads - afterBatch, 90,
                                     "control: Foundation.Thread kept no handle; if corelibs closes it now, WinDetachedThread can go")
         XCTAssertLessThan(afterDetached - afterThreads, 10, "WinDetachedThread kept handles")
-    }
-
-    /// Information, not a bound: 100 fetches each on a session of its own (the app's way), through the Windows proxy settings
-    /// and directly, and the handle count over the next 75 s (run 44166157252: +196 still after 20 s on the proxy route; the
-    /// same 100 on one session kept +7).
-    func testWhatASessionPerFetchKeepsOverTime() async throws {
-        let url = try base() + "/delay/0"
-        for route in [WinProxyRoute.Route.systemProxy, .direct] {
-            for _ in 0..<5 { _ = try await WinHTTPFetch.data(for: try request(url), route: route) }
-            try await Task.sleep(nanoseconds: 3_000_000_000)
-            let before = handleCount()
-            for _ in 0..<100 { _ = try await WinHTTPFetch.data(for: try request(url), route: route) }
-            var trail: [String] = []
-            let t0 = Date()
-            for mark in [0.5, 5, 15, 30, 45, 60, 75] {
-                let wait = mark - Date().timeIntervalSince(t0)
-                if wait > 0 { try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
-                trail.append(String(format: "%.0fs:%+d", mark, handleCount() - before))
-            }
-            print("SESSION HANDLES \(route): 100 fetches, a session each: \(trail.joined(separator: " "))")
-        }
     }
 
     /// Item 9 of the review: per-fetch sessions against one session for a batch (time, connections). Printed, not a bound.
