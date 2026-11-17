@@ -205,7 +205,7 @@ extension WindowsSelftest {
         guard let probe = idleProbe else { return nil }
         let p = probe.popover
         return "popover idle probe exit: mode=\(probe.mode) open=\(p?.isOpen ?? false) opens=\(p?.stats.opens ?? 0) closes=\(p?.stats.closes ?? 0) "
-            + "last close=\(p?.stats.lastClose.map { "\($0)" } ?? "-")"
+            + "last close=\(p?.stats.lastClose.map { "\($0)" } ?? "-") \(PopoverResources.now())"
     }
 
     static func startIdleProbe(_ app: WindowsAppDelegate, mode: String) {
@@ -216,6 +216,7 @@ extension WindowsSelftest {
         idleProbe = (mode, app.popover)
         Task { @MainActor in
             _ = await WindowsSelftest.waitUntil(timeout: 5) { false }
+            AppLog.write("popover idle probe before: \(PopoverResources.now())")   // what a never-opened popover holds (the gate compares)
             guard let popover = app.popover, let probe = makeProbe() else {
                 AppLog.write("popover idle probe: no popover or probe window")
                 return
@@ -227,11 +228,69 @@ extension WindowsSelftest {
             if mode == "closed" {
                 popover.close(.escape)
                 _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
+                // What the first open costs once (fonts, the Direct2D device, window classes) is not what a leak costs every time: the gate
+                // compares what is held after the first close with what is held at exit, after a second open and close.
+                AppLog.write("popover idle probe cycle1: \(PopoverResources.now())")
+                WindowsSelftest.forceForeground(probe.hwnd)
+                _ = PostMessageW(app.sink.hwnd, WinTray.callbackMessage, 0, LPARAM(Int(PopoverRun.ninKeySelect) | (1 << 16)))
+                _ = await WindowsSelftest.waitUntil(timeout: 3) { popover.isOpen }
+                popover.close(.escape)
+                _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
             }
+            if opened { await navigate(mode, popover) }   // the gate's page windows (stage 7 idle gates)
             probe.destroy()
             AppLog.write("popover idle probe: mode=\(mode) opened=\(opened) open now=\(popover.isOpen) opens=\(popover.stats.opens) "
                 + "closes=\(popover.stats.closes) \(PopoverResources.now())")
         }
+    }
+}
+
+extension WindowsSelftestPopoverWindow {
+    /// The page windows of the idle gate (installed app, the fixture's companion state: 40 species): the real popover, opened as the tray
+    /// does, then taken to the page the window measures and left alone. `focus-search`: the Collection's search field has the keyboard
+    /// (a caret blinks only for Windows' caret timeout after the last input, so the measured window is past it); `focus-left`: the field
+    /// had it and the keyboard went to the tab strip; `focus-closed`: the field had it and the popover was closed.
+    @MainActor static func navigate(_ mode: String, _ popover: WinPopover) async {
+        func wait(_ seconds: TimeInterval) async { _ = await WindowsSelftest.waitUntil(timeout: seconds) { false } }
+        func visibleEdit(_ root: HWND) -> HWND? {
+            var child = GetWindow(root, 5)
+            while let c = child {
+                if WinKit.className(c) == "Edit", IsWindowVisible(c), IsWindowEnabled(c) { return c }
+                if let inner = visibleEdit(c) { return inner }
+                child = GetWindow(c, 2)
+            }
+            return nil
+        }
+        func go(_ body: (PopoverState) -> Void, until: @escaping () -> Bool) async {
+            body(popover.state)
+            popover.replacePage()
+            _ = await WindowsSelftest.waitUntil(timeout: 5, until)
+            await wait(1.0)
+        }
+        func tab() -> PopoverState.Tab? { (popover.pageForTesting as? WinHomePage)?.builtTab }
+        switch mode {
+        case "settings":
+            await go({ $0.showSettings = true }) { popover.pageForTesting is WinSettingsPage }
+        case "shop":
+            await go({ $0.tab = .shop }) { tab() == .shop }
+        case "bag":
+            await go({ $0.tab = .bag }) { tab() == .bag }
+        case "collection", "focus-search", "focus-left", "focus-closed":
+            await go({ $0.tab = .collection }) { tab() == .collection }
+            guard mode != "collection" else { return }
+            if let root = popover.hwndForTesting, let edit = visibleEdit(root) { _ = SetFocus(edit) }
+            await wait(0.5)
+            if mode == "focus-left", let strip = (popover.pageForTesting as? WinHomePage)?.tabStripFocus { _ = SetFocus(strip) }
+            if mode == "focus-closed" { popover.close(.escape) }
+            await wait(0.5)
+        case "collection-log":
+            await go({ $0.tab = .collection; $0.showingCollectionLog = true }) { tab() == .collection }
+        case "detail":
+            await go({ $0.openDexEntry(collectionID: "7") }) { tab() == .collection }
+        default:
+            break
+        }
+        AppLog.write("popover page probe: mode=\(mode) tab=\(tab().map { "\($0)" } ?? "-") detail=\(popover.state.dexDetailCollectionID ?? "-") settings=\(popover.state.showSettings)")
     }
 }
 

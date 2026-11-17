@@ -395,6 +395,7 @@ import WinSDK
             HomeModel.make(store: store, companion: companion, updater: updater, team: team, feed: feed, state: state, facts: facts,
                            now: now())
         } onChange: { [weak self] in
+            WakeTrace.count("homeObserveFired")
             Task { @MainActor in
                 guard let self, self.epoch == mine else { return }  // a tracking of a page that was destroyed or built again
                 self.observe()
@@ -410,6 +411,7 @@ import WinSDK
     func apply(_ m: HomeModel) {
         guard !isDestroyed, let s = sections else { return }
         applies += 1
+        WakeTrace.count("homeApply")
         let was = last
         let first = was == nil
         if first || was?.updateBanner != m.updateBanner { renderBanner(m.updateBanner, s.banner) }

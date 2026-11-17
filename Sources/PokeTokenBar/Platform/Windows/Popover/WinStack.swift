@@ -148,6 +148,7 @@ import WinSDK
         defer { inLayout = false }
         layoutPending = false
         layouts += 1
+        WakeTrace.count("stackLayout")
         func input() -> [PopoverStackSection] {
             sections.map { s in
                 PopoverStackSection(caption: s.caption.map { $0.size(width: width) }, isVisible: s.isVisible, card: s.card, rows: s.rows.map { row in

@@ -677,7 +677,20 @@ extension WindowsSelftest {
             _ = SetWindowPos(hwnd, nil, 40, 40, 0, 0, UINT(SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
             if onCI { forceForeground(hwnd) }
             if mode == "minimized" { _ = ShowWindow(hwnd, 7 /* SW_SHOWMINNOACTIVE */) }
+            // The gate's other plaza windows (stage 7 idle gates): opened and then closed (a closed plaza must cost what a never-opened one
+            // does: the frame clock thread is gone), and covered (another window over all of it: the cover check parks the clock).
+            var cover: WinSinkWindow?
+            if mode == "closed" {
+                _ = await waitUntil(timeout: 3) { false }
+                shell.requestClose()
+            } else if mode == "covered" {
+                var r = RECT()
+                _ = GetWindowRect(hwnd, &r)
+                cover = WindowsSelftestPopoverWindow.makeProbe()
+                if let cover { _ = SetWindowPos(cover.hwnd, HWND(bitPattern: -1) /* HWND_TOPMOST */, r.left - 20, r.top - 20, r.right - r.left + 40, r.bottom - r.top + 40, UINT(SWP_NOACTIVATE | SWP_SHOWWINDOW)) }
+            }
             _ = await waitUntil(timeout: 20) { false }
+            withExtendedLifetime(cover) {}
             AppLog.write("plaza idle helper: mode=\(mode) at +25 s: \(shell.statsLine) dittoHost=\(app.plaza.isDittoHost)")
         }
     }

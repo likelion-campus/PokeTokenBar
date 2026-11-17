@@ -3,7 +3,7 @@
 # plaza-visible/minimized. -Shard 2: kit, sprite, popover open/closed, Home seconds/minutes. -Shard 3: Home still, activity
 # bars/heatmap, recap, companion wiggle/animated. Every window keeps its budget and its verdict; each shard writes
 # idle-gate-<n>.json and fails when one of its windows does. Needs the install (silent-install.ps1), PTB_FIXTURE, PTB_VERSION.
-param([Parameter(Mandatory)][ValidateRange(1, 3)][int]$Shard)
+param([Parameter(Mandatory)][ValidateRange(1, 5)][int]$Shard)
 . "$PSScriptRoot/ci-helpers.ps1"
 . "$PSScriptRoot/midnight-guard.ps1"
 . "$PSScriptRoot/idle-shards.ps1"
@@ -17,10 +17,20 @@ $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-idle-warmup'
 New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
 $wp, $wh = Start-App $exe
 Start-Sleep -Seconds 60
+# The first launch keeps the hatch base index in %LOCALAPPDATA%\PokeTokenBar\base-index.json (PokeAPI GraphQL: one request; its
+# REST fallback: 649). Every later launch reads it from there; a launch that has to build it does so on worker threads inside its
+# window. In run 44143290510 the GraphQL request always failed on Windows (WinHTTP 12044) and a slow PokeAPI kept the REST build
+# going through three windows of shard 3 (67 M cycles/s, +504 handles). So the warm-up stays open until the file is there, up to
+# 4 more minutes, and the summary says how long it took.
+$baseIndex = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\base-index.json'
+$extra = 0
+while (-not (Test-Path $baseIndex) -and $extra -lt 240) { Start-Sleep -Seconds 5; $extra += 5 }
 Close-App $wp $wh
-"warm-up launch done"
+$warmup = if (Test-Path $baseIndex) { "base index on disk, $extra s past the 60 s" } else { "base index NOT on disk after 300 s: every measured launch builds it (PokeAPI slow or unreachable)" }
+"warm-up launch done: $warmup"
 $verdicts = [ordered]@{}
 $summary = [ordered]@{ version = $env:PTB_VERSION; runner = $env:ImageVersion; windows = [ordered]@{} }
+$summary.warmup = $warmup
 
 # 1. A process that only sleeps, and explorer, over the same 120 s, before the app starts.
 if ($Shard -eq 1) {
@@ -33,8 +43,56 @@ if ($Shard -eq 1) {
     $summary.sleeper = [ordered]@{ cyclesPerSec = $base.processCyclesPerSec; contextSwitchesPerMin = $base.contextSwitchesPerMin; explorerCycles = $base.explorerCycles; explorerContextSwitches = ($base.also | Where-Object name -eq 'explorer').contextSwitches }
 }
 
+# The measured launches count where their main-thread wakes come from (WakeTrace: messages by id, timers, the app's own sources); the warm-up
+# launch above did not. Measure-App prints the difference between the snapshot at +28 s and the one at exit, per window.
+$env:PTB_WAKE_TRACE = '1'
+function ConvertFrom-WakeList([string]$List) {
+    $h = @{}
+    if ($List) { foreach ($pair in $List.Split(',')) { $k, $v = $pair.Split(':'); if ($k) { $h[$k] = [int]$v } } }
+    return $h
+}
+function Get-WakeDelta([string]$LogFile) {
+    $lines = @(Select-String -Path $LogFile -Pattern 'wake trace (start|exit):' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
+    if ($lines.Count -lt 2 -or $lines[0] -notmatch 'wake trace start:' -or $lines[1] -notmatch 'wake trace exit:') { return $null }
+    $rx = 'loops=(\d+) messages_total=(\d+) messages=(\S*) timers=(\S*) sources=(\S*)\s*$'
+    $a = [regex]::Match($lines[0], $rx); $b = [regex]::Match($lines[1], $rx)
+    if (-not ($a.Success -and $b.Success)) { return $null }
+    function Get-WakeDiff($x, $y) {
+        $hx = ConvertFrom-WakeList $x; $hy = ConvertFrom-WakeList $y; $out = [ordered]@{}
+        foreach ($k in $hy.Keys) { $d = $hy[$k] - $(if ($hx.ContainsKey($k)) { $hx[$k] } else { 0 }); if ($d -gt 0) { $out[$k] = $d } }
+        return $out.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "$($_.Key):$($_.Value)" }
+    }
+    return [ordered]@{
+        loops = [int]$b.Groups[1].Value - [int]$a.Groups[1].Value
+        messages = [int]$b.Groups[2].Value - [int]$a.Groups[2].Value
+        messageIds = @(Get-WakeDiff $a.Groups[3].Value $b.Groups[3].Value)
+        timerIds = @(Get-WakeDiff $a.Groups[4].Value $b.Groups[4].Value)
+        sources = @(Get-WakeDiff $a.Groups[5].Value $b.Groups[5].Value)
+    }
+}
+# The worker threads' side (WinHTTPFetch.Trace, the same switch and the same two points): fetches started and ended per host and
+# the failed ones by URLError code. A window with refresh off should show none; run 44143290510 would have shown ~500 to pokeapi.co.
+function Get-CountDiff([string]$x, [string]$y) {
+    $hx = ConvertFrom-WakeList $x; $hy = ConvertFrom-WakeList $y; $out = [ordered]@{}
+    foreach ($k in $hy.Keys) { $d = $hy[$k] - $(if ($hx.ContainsKey($k)) { $hx[$k] } else { 0 }); if ($d -gt 0) { $out[$k] = $d } }
+    return $out.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "$($_.Key):$($_.Value)" }
+}
+function Get-FetchDelta([string]$LogFile) {
+    $lines = @(Select-String -Path $LogFile -Pattern 'fetch trace (start|exit):' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
+    if ($lines.Count -lt 2 -or $lines[0] -notmatch 'fetch trace start:' -or $lines[1] -notmatch 'fetch trace exit:') { return $null }
+    $rx = 'started=(\d+) ended=(\d+) hosts=(\S*) failures=(\S*)\s*$'
+    $a = [regex]::Match($lines[0], $rx); $b = [regex]::Match($lines[1], $rx)
+    if (-not ($a.Success -and $b.Success)) { return $null }
+    return [ordered]@{
+        started = [int]$b.Groups[1].Value - [int]$a.Groups[1].Value
+        ended = [int]$b.Groups[2].Value - [int]$a.Groups[2].Value
+        hosts = @(Get-CountDiff $a.Groups[3].Value $b.Groups[3].Value)
+        failures = @(Get-CountDiff $a.Groups[4].Value $b.Groups[4].Value)
+    }
+}
+
 # 2. The installed app, one window per state. Budgets are from the first measured runs, with margin (see the report).
-function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget, [string[]]$AppArgs = @()) {
+function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget, [string[]]$AppArgs = @(), [string]$CompanionFixture = '') {
     # Before the launch: the launch and the 30 s settle are part of the measured sequence.
     $null = Wait-PastMidnight $Label ($Seconds + 40)
     Remove-Item -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak"
@@ -42,6 +100,8 @@ function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtabl
     $state = Join-Path $env:PTB_FIXTURE "state-idle-$Label"
     New-Item -ItemType Directory -Force -Path $state | Out-Null
     $env:PTB_STATE_DIR = $state
+    # The page windows start from a companion with a 40-species Pokédex (scripts/windows/fixtures, held by IdleGateFixtureTests).
+    if ($CompanionFixture) { Copy-Item (Join-Path $PSScriptRoot "fixtures/$CompanionFixture") (Join-Path $state 'companion-state.json') -Force }
     $p, $h = Start-App $exe $AppArgs
     Start-Sleep -Seconds 30
     $m = @{ ProcessId = $p.Id; Seconds = $Seconds; Label = $Label; Out = "idle-$Label.json" }
@@ -52,7 +112,12 @@ function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtabl
     Close-App $p $h
     $verdicts[$Label] = ($code -eq 0)
     $j = Get-Content "idle-$Label.json" -Raw | ConvertFrom-Json
-    $summary.windows[$Label] = [ordered]@{ seconds = $Seconds; pass = ($code -eq 0); budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
+    $wake = Get-WakeDelta (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
+    if ($wake) { "WAKES ${Label}: loops=$($wake.loops) messages=$($wake.messages) ids=[$($wake.messageIds -join ' ')] timers=[$($wake.timerIds -join ' ')] sources=[$($wake.sources -join ' ')]" }
+    $summary.windows[$Label] = [ordered]@{ wake = $wake; seconds = $Seconds; pass = ($code -eq 0); budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
+    $fetches = Get-FetchDelta (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
+    if ($fetches) { "FETCHES ${Label}: started=$($fetches.started) ended=$($fetches.ended) hosts=[$($fetches.hosts -join ' ')] failures=[$($fetches.failures -join ' ')]" }
+    $summary.windows[$Label].fetches = $fetches
 }
 $off = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>refreshInterval</key><real>0</real></dict></plist>'
 $offNoStatus = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>refreshInterval</key><real>0</real><key>statusChecksEnabled</key><false/></dict></plist>'
@@ -72,7 +137,7 @@ if ((Test-InShard 'normal-300s' $Shard)) { Measure-App 'normal-300s' 300 '' @{ M
 # refresh off as in the first window, so the difference to 'manual-refresh-120s' is the plaza's. On the runner the
 # device is WARP (CPU rendering): every drawn frame is CPU time here that a GPU does on a PC.
 $logFile = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log'
-foreach ($mode in 'visible', 'minimized') {
+foreach ($mode in 'visible', 'minimized', 'closed', 'covered') {
     $label = "plaza-$mode-120s"
     if (-not (Test-InShard $label $Shard)) { continue }
     # Budgets: 1.5x the worst of three runs (43697872729, 43702099267, 43706983988; stage 6 Task 5 report). Minimized
@@ -89,7 +154,9 @@ foreach ($mode in 'visible', 'minimized') {
     # `plaza.idleVisible` judges deterministically. The pool is reported as information. The process-wide bounds stay as a
     # runaway catch only (a URLSession-style storm was 1.5-3 M cs/min, a spinning thread adds ~3 G cycles/s on its own and shows
     # in the own-thread budget first): 3x the worst observed.
-    $budgetPlaza = if ($mode -eq 'minimized') {
+    # closed (opened, then closed after 3 s): the closed app's budget, nothing of the plaza left running. covered (a topmost window over all
+    # of it): the cover check parks the frame clock, so the minimized budget.
+    $budgetPlaza = if ($mode -eq 'closed') { $budget } elseif ($mode -eq 'minimized' -or $mode -eq 'covered') {
         @{ MaxMainCsPerMin = 615; MaxProcessCsPerMin = 5360; MaxProcessCyclesPerSec = 10300000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
     } else {
         @{ MaxMainCsPerMin = 26000; MaxProcessCsPerMin = 400000; MaxProcessCyclesPerSec = 4000000000; MaxOwnCsPerMin = 40000; MaxOwnCyclesPerSec = 450000000; OwnExcludeStart = 'ntdll.dll+0x845d0'; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
@@ -111,10 +178,34 @@ if ((Test-InShard 'popover-kit-open-120s' $Shard)) {
 # The fixture GIF (5 frames at 0.1 s) in a drawn part, popover kit window open: the cost of an animating popover. The
 # budget is loose (first numbers; Task 8 report): what it must show is that it is bounded and that nothing else wakes.
 if ((Test-InShard 'popover-sprite-open-120s' $Shard)) {
-    Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
+    Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = 800; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
     $summary.windows['popover-sprite-open-120s'].spriteLog = @(Select-String -Path $logFile -Pattern 'popover sprite idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
 }
 # --- stage 7 Task 8: an animated sprite open (end) ---
+# Object counts (D18). An open window is held to what it held when the probe had finished its navigation (GDI and USER flat: slack 2;
+# kit controls and windows of ours: none). The closed window opens and closes twice: what is held after the first close (the first open
+# builds fonts, the Direct2D device and window classes once: +18 GDI and +8 USER were measured against a never-opened popover) must be
+# what is held at exit, after the second. A leak shows in every cycle; the one-time cost does not. The never-opened counts and the first
+# cycle's are reported next to it. 'info' (the popover closed with a field focused) only reports.
+function Test-PopoverObjects([string]$Label, [string[]]$Lines, [string]$Kind) {
+    $exitLine = @($Lines | Where-Object { $_ -match 'popover idle probe exit:' }) | Select-Object -Last 1
+    $beforeLine = @(Select-String -Path $logFile -Pattern 'popover idle probe before:' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line }) | Select-Object -First 1
+    $cycleLine = @(Select-String -Path $logFile -Pattern 'popover idle probe cycle1:' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line }) | Select-Object -First 1
+    $openLine = @($Lines | Where-Object { $_ -match 'popover idle probe: mode=' }) | Select-Object -Last 1
+    function Get-Counts([string]$l) { $h = @{}; foreach ($k in 'gdi', 'user', 'windows', 'controls') { if ($l -match "\b$k=(\d+)") { $h[$k] = [int]$Matches[1] } }; return $h }
+    $fmt = { param($h) (($h.GetEnumerator() | Sort-Object Key | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' ') }
+    if (-not $exitLine) { $summary.windows[$Label].objects = 'not logged'; return }
+    $b1 = Get-Counts $exitLine
+    $text = "at exit $(& $fmt $b1)"
+    if ($beforeLine) { $text = "never opened $(& $fmt (Get-Counts $beforeLine)); $text" }
+    $ref = $null; $slack = @{ gdi = 2; user = 2; windows = 0; controls = 0 }
+    if ($Kind -eq 'cycled' -and $cycleLine) { $ref = Get-Counts $cycleLine; $text = "after the first close $(& $fmt $ref); $text" }
+    elseif ($Kind -eq 'open' -and $openLine) { $ref = Get-Counts $openLine; $text = "page reached $(& $fmt $ref); $text" }
+    $bad = @()
+    if ($ref) { $bad = @($b1.Keys | Where-Object { $ref.ContainsKey($_) -and $b1[$_] -gt $ref[$_] + $slack[$_] }) }
+    $summary.windows[$Label].objects = "$text; over slack: $($bad -join ',')"
+    $verdicts[$Label] = $verdicts[$Label] -and ($bad.Count -eq 0)
+}
 # --- stage 7 Task 4: the popover window open and still, and closed after an open (begin) ---
 # The real popover (empty page, opened through the tray callback), refresh off: the closed app's budget for both. Closed
 # after an open must cost what never opened costs (D18); open and still adds no timer.
@@ -126,10 +217,11 @@ foreach ($mode in 'open', 'closed') {
     $summary.windows[$label].popoverLog = $probeLines
     # The window measured what it says: open and never closed for 'open', closed once for 'closed' (the exit line).
     $exit = @($probeLines | Where-Object { $_ -match 'popover idle probe exit:' }) | Select-Object -Last 1
-    $want = if ($mode -eq 'open') { 'open=true opens=1 closes=0' } else { 'open=false opens=1 closes=1' }
+    $want = if ($mode -eq 'open') { 'open=true opens=1 closes=0' } else { 'open=false opens=2 closes=2' }
     $stateOK = $exit -and $exit -match [regex]::Escape($want)
     $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
     $verdicts[$label] = $verdicts[$label] -and $stateOK
+    Test-PopoverObjects $label $probeLines $(if ($mode -eq 'closed') { 'cycled' } else { 'open' })
 }
 # --- stage 7 Task 4: the popover window open and still, and closed after an open (end) ---
 # --- stage 7 Task 5: the Home page open and left alone (begin) ---
@@ -170,7 +262,7 @@ if ((Test-InShard 'popover-recap-open-120s' $Shard)) {
 # the runner's animations off); the bob alone measured 216.5 main cs/min in run 43889052204 (Task 9 report).
 $companionBudgets = @{
     wiggle = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
-    animated = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    animated = @{ MaxMainCsPerMin = 800; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
 }
 foreach ($mode in 'wiggle', 'animated') {
     $label = "popover-companion-$mode-120s"
@@ -179,6 +271,32 @@ foreach ($mode in 'wiggle', 'animated') {
     $summary.windows[$label].companionLog = @(Select-String -Path $logFile -Pattern 'popover companion idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
 }
 # --- stage 7 Task 9: Home with the companion header open (end) ---
+# --- stage 7 idle gates: the popover's pages open and left alone (begin) ---
+# The REAL popover of the installed app (opened as the tray does), taken to one page and left alone, refresh off, the companion with a
+# 40-species Pokédex. A page standing still adds no timer, so all of them cost what the closed app costs (`$budget`: 6 main-thread
+# switches a minute). The focused-field windows: the Collection's search field has the keyboard. Windows' caret blinks only for its
+# caret timeout (5 s) after the last input, and the window is measured from 30 s after the launch, so a focused field must cost the same;
+# `focus-left` (the keyboard moved to the tab strip) and `focus-closed` (the popover closed with the field focused) are the same budget
+# and prove nothing is left running when focus leaves.
+foreach ($page in 'settings', 'shop', 'bag', 'collection', 'collection-log', 'detail', 'focus-search', 'focus-left', 'focus-closed') {
+    $label = "popover-page-$page-120s"
+    if (-not (Test-InShard $label $Shard)) { continue }
+    Measure-App $label 120 $off $budget @('--popover-idle-probe', $page) 'idle-companion-state.json'
+    $lines = @(Select-String -Path $logFile -Pattern 'popover idle probe|popover page probe' -ErrorAction SilentlyContinue | Select-Object -Last 3 | ForEach-Object { $_.Line })
+    $summary.windows[$label].pageLog = $lines
+    $exit = @($lines | Where-Object { $_ -match 'popover idle probe exit:' }) | Select-Object -Last 1
+    $want = if ($page -eq 'focus-closed') { 'open=false opens=1 closes=1' } else { 'open=true opens=1 closes=0' }
+    $stateOK = $exit -and $exit -match [regex]::Escape($want)
+    $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
+    $verdicts[$label] = $verdicts[$label] -and $stateOK
+    Test-PopoverObjects $label $lines $(if ($page -eq 'focus-closed') { 'info' } else { 'open' })
+    # No timer: a page standing still arms none (the Collection's log has its relative-time clock; every other page has no clock at all).
+    $w = $summary.windows[$label].wake
+    $clocks = if ($w) { @($w.sources | Where-Object { $_ -match '^(popoverClock|animationClock):' }) } else { @() }
+    $summary.windows[$label].clockFires = $clocks
+    if ($page -ne 'collection-log' -and $clocks.Count -gt 0) { $verdicts[$label] = $false }
+}
+# --- stage 7 idle gates (end) ---
 # Every window of this shard ran (a label in $IdleShardOf that never got measured would make the gate pass with a hole in it).
 $expected = @($IdleShardOf.Keys | Where-Object { $IdleShardOf[$_] -eq $Shard })
 $missing = @($expected | Where-Object { -not $verdicts.Contains($_) })
@@ -187,4 +305,4 @@ $summary.verdicts = $verdicts
 $summary | ConvertTo-Json -Depth 8 | Set-Content "idle-gate-$Shard.json" -Encoding utf8
 Get-Content "idle-gate-$Shard.json"
 if ($verdicts.Values -contains $false) { throw "idle gate FAILED: $(($verdicts.GetEnumerator() | Where-Object { -not $_.Value } | ForEach-Object Key) -join ', ')" }
-"PASS idle gate (shard $Shard of 3: $($expected.Count) windows)"
+"PASS idle gate (shard $Shard of 5: $($expected.Count) windows)"

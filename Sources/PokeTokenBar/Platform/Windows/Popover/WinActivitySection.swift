@@ -122,6 +122,7 @@ import WinSDK
     func apply(_ m: ActivityPanelModel) {
         guard !isDestroyed else { return }
         applies += 1
+        WakeTrace.count("activityApply")
         model = m
         // the streak
         if let s = m.streak, let view = streakView {

@@ -410,11 +410,13 @@ final class WindowsSeamScanTests: XCTestCase {
         pattern: #"\.(data|bytes|upload|download)\((for|from):|(data|download|upload|webSocket|stream)Task\("#)
 
     /// The only files that run on Windows and send a request themselves: the seam (its Mac branch and the Windows fallback)
-    /// and the two diagnostics helpers, which measure URLSession on purpose.
+    /// and the two diagnostics helpers, which measure URLSession on purpose; and the selftest's client-certificate check, which
+    /// calls `WinHTTPFetch.data` itself for its control (the seam's old answer to a certificate request).
     static let directRequestFiles: Set<String> = [
         "Platform/PlatformCompat.swift",
         "Platform/Windows/WindowsSelftestWakers.swift",
         "Platform/Windows/WindowsSelftestNetBurst.swift",
+        "Platform/Windows/WindowsSelftestClientCertificate.swift",
     ]
 
     /// Every routed call site, by file, with how many calls it makes through the seam (one upstream line each).
