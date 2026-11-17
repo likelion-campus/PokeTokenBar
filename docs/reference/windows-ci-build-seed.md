@@ -56,8 +56,11 @@ manifest on `main` declares no dependency at all). The file is used only inside 
 ## What an incremental build does (measured, `cache-lab.yml`, 4 cores)
 Unchanged tree 0 files compiled; a leaf or widely used Swift file 1 file (~20 s); a changed `mac-only.txt` changes what is compiled, listed and run (first build on a fresh runner: SwiftPM's package-manifest cache is outside `.build`, a fresh runner has none); an interface change recompiles its users (and breaks
 the build where it must); a C++ file ~8 s; a `Package.swift` flag change or a source file added or deleted: the whole module, 3-4 min
-(cold build 10 min); a deleted file's object is not linked. Re-run the lab after a Swift or runner-image upgrade (push a change under
-`scripts/windows/cache-lab*` on a branch listed in cache-lab.yml, or dispatch it once it is on main).
+(cold build 10 min); a deleted file's object is not linked. A file touched by `stamp-changed.ps1` recompiles once more in the next run
+(its stamp goes back to the blob stamp, which llbuild sees as a change). Re-run the lab after a Swift or runner-image upgrade:
+`cache-lab.yml` is dispatch-only, and a workflow file can be dispatched only once it is on the default branch (`main`). Until then run it from a
+branch by temporarily adding `push:` with a `paths:` filter for `scripts/windows/cache-lab*` to cache-lab.yml on that branch (do not merge that
+trigger), or copy its jobs into a throwaway workflow. After it is on `main`: `gh workflow run cache-lab.yml --ref <branch>`.
 
 ## Test shards
 `build` lists the tests (`swift test list`), `scripts/windows/test-shards.ps1` deals the classes to 4 shards by test count and splits a
@@ -68,5 +71,5 @@ another class having run first: the shard step creates `plaza-preview`, `photo-o
 `testFetchedSpritesDrawInTheScene` writes into the first without creating it.
 
 ## Toolchain install
-`.github/actions/windows-swift` normally takes about 1.4 min (a slow download up to 8). Each calling step has `timeout-minutes: 8` and one retry (a hung download once
+`.github/actions/windows-swift` normally takes about 1.4 min (a slow download up to 8). Each calling step has `timeout-minutes: 12` and one retry (a hung download once
 held a run for 31 min, and a slow swift.org download takes up to 8 min, seen three times; a `uses:` step has no limit of its own).
