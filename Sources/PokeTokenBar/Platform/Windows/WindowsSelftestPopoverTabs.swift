@@ -79,6 +79,15 @@ extension WindowsSelftest {
         } else { problems.append("no window for the pick check") }
 
         // 3. open and close the pages four times: nothing left behind, no timer armed
+        // every tab is built once first: the cycles below build a different tab each, and a tab's first build is not a leak
+        for tab in PopoverTabsModel.order {
+            guard let h = await harness(tab, language: .en) else { continue }
+            h.window.fitToContent()
+            h.window.show(activate: false)
+            await wait(0.3)
+            h.destroy()
+            await wait(0.2)
+        }
         var cycles: [KitResources] = []
         var armedAfter = false
         let start = KitResources.now()

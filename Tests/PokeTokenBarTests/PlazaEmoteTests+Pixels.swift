@@ -1,7 +1,5 @@
-// PlazaEmoteTests+Mac: the shortcut guide's real-text size and CGImage pixel reads of the emote art
+// PlazaEmoteTests+Pixels: the shortcut guide and pixel reads of the emote art
 import XCTest
-import SwiftUI
-import AppKit
 @testable import PokeTokenBar
 
 extension PlazaEmoteTests {
@@ -47,7 +45,7 @@ extension PlazaEmoteTests {
     }
 
     func testEachEmoteHasArt() async {
-        var pixels: [Data] = []
+        var pixels: [[UInt8]] = []
         // The decoy kinds and the pull are protocol messages, never bubbles; a new kind must be listed on purpose.
         let decoyKinds: [TeamEmoteKind] = [.decoyFound, .decoyJump, .decoyTackle, .pull, .snowball, .mimicTackle, .mimicFound]
         let bubbleKinds: [TeamEmoteKind] = [.heart, .lol, .party, .exclaim, .question, .tackle, .jump, .groupPhoto, .pickup,
@@ -59,7 +57,7 @@ extension PlazaEmoteTests {
             XCTAssertGreaterThan(one.width, 0)
             XCTAssertEqual(two.width, one.width * 2, "\(kind)")
             XCTAssertEqual(two.height, one.height * 2, "\(kind)")
-            let data = one.cgImage.dataProvider?.data as Data? ?? Data()
+            let data = one.pixels.bytes
             XCTAssertTrue(data.contains { $0 != 0 }, "\(kind) draws something")
             pixels.append(data)
         }
@@ -71,20 +69,12 @@ extension PlazaEmoteTests {
     /// whole block of one colour. The content sits half a dot off the bubble grid, so compare at 2x, where half a
     /// dot is 2 pixels in the normal bubble and 3 in the large one.
     func testGreetingBubbleIsTheSameArtOneAndAHalfTimesAsBig() async {
-        func pixels(_ image: CGImage) -> [UInt8] {
-            var raw = [UInt8](repeating: 0, count: image.width * image.height * 4)
-            let ctx = CGContext(data: &raw, width: image.width, height: image.height, bitsPerComponent: 8,
-                                bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-            return raw
-        }
         XCTAssertEqual(PlazaEmoteArt.size(large: true).width, PlazaEmoteArt.size.width * 1.5)
         XCTAssertEqual(PlazaEmoteArt.size(large: true).height, PlazaEmoteArt.size.height * 1.5)
         for kind in [TeamEmoteKind.heart, .party, .exclaim, .question] {
             let small = PlazaEmoteArt.image(kind, scale: 2), large = PlazaEmoteArt.image(kind, scale: 2, large: true)
             XCTAssertEqual(large.width * 2, small.width * 3, "\(kind)")
-            let s = pixels(small.cgImage), l = pixels(large.cgImage)
+            let s = small.pixels.bytes, l = large.pixels.bytes
             // Half-dot blocks: 3x3 pixels in the large bubble map to 2x2 in the normal one.
             var same = true
             for y in 0..<(large.height) where same {
@@ -99,12 +89,8 @@ extension PlazaEmoteTests {
 
     /// Reads the bubble's inside (the cells clear of border and tail) as ink/white pixels at 1 px per point.
     private func interiorInk(_ kind: TeamEmoteKind) -> (ink: Set<[Int]>, onlyInkAndWhite: Bool) {
-        let image = PlazaEmoteArt.image(kind, scale: 1).cgImage
-        var raw = [UInt8](repeating: 0, count: image.width * image.height * 4)
-        let ctx = CGContext(data: &raw, width: image.width, height: image.height, bitsPerComponent: 8,
-                            bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let image = PlazaEmoteArt.image(kind, scale: 1)
+        let raw = image.pixels.bytes
         var ink = Set<[Int]>()
         var clean = true
         for y in 2..<20 {          // buffer row 0 is the top

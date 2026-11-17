@@ -3,8 +3,8 @@ import XCTest
 
 extension PlazaTallGrassArtTests {
     func testTheBundledSheetLoadsAndEverySliceIsItsCell() throws {
-        let art = try XCTUnwrap(PlazaTallGrassArt.load())
-        let sheet = PlazaImage(cgImage: try XCTUnwrap(PlazaResources.tallGrassSheet()))
+        let art = try XCTUnwrap(PlatformPlaza.tallGrassArt())
+        let sheet = try XCTUnwrap(PlatformPlaza.tallGrassSheet())
         let sheetPx = sheet.pixels.bytes
         for c in 0...2 {
             for r in 0...2 {

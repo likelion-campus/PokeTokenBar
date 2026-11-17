@@ -29,6 +29,8 @@ import WinSDK
     var onSelect: (@MainActor (WinTray.Select) -> Void)?
     /// Set by the app: "Settings…" (the Mac's `showPopover { $0.showSettings = true }`).
     var onOpenSettings: (@MainActor () -> Void)?
+    /// Set by the app: "Pokédex" (the Mac's `showPopover { $0.openRepresentativeDex() }`; stage 7 Task 20).
+    var onOpenDex: (@MainActor () -> Void)?
     /// Set by the app: the menu is about to open; the popover closes first, as the Mac's `showStatusMenu` closes its own.
     var onMenuWillOpen: (@MainActor () -> Void)?
     /// Where the last menu opened (a popover opened from it is placed there when the shell has no icon rectangle).
@@ -148,6 +150,8 @@ import WinSDK
             onOpenPlaza?()
         case .openSettings:
             onOpenSettings?()
+        case .openDex:
+            onOpenDex?()
         case .toggleBackView:
             store.alwaysFacesBack.toggle()
         case .toggleFloatingPet:  // stage 7 Task 22

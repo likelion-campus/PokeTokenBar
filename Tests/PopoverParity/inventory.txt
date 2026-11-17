@@ -17,7 +17,7 @@ A1t | - | n/a: a tray icon shows no text (P17, ruling 6); the tray tooltip shows
 A1h | 1 | elsewhere Platform/Windows/WinTrayHost.swift: Track B's tray tooltip (menuToolTip) | PokeTokenBarApp.swift | Status item tooltip (store.menuToolTip)
 A2 | 1 | done Platform/Windows/Popover/WinPopover.swift | PokeTokenBarApp.swift, OutsideClickMonitor.swift | Popover open/close: a click toggles; opening resets navigation to Home (provider and account tabs kept), builds the hosting tree (freed on close), activates the app, closes on an outside click (global monitor while open), asks for notification permission and checks for updates (30-minute cooldown); the menu bar animation pauses while it is open
 A3 | 1 | done Platform/TrayMenuModel.swift | UI/StatusItemMenu.swift, PokeTokenBarApp.swift | Right-click / Control-click menu: today's summary (greyed), Refresh (r), Plaza… with unread count (p, team ready only), Settings… (,), Back view (checked), Quit (q); the items' actions
-A3d | 3 | pending T20 | UI/StatusItemMenu.swift | Right-click menu: Pokédex (d) opens the Collection on the representative
+A3d | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/StatusItemMenu.swift | Right-click menu: Pokédex (d) opens the Collection on the representative
 A3p | 3 | done Platform/TrayMenuModel.swift | UI/StatusItemMenu.swift | Right-click menu: show / hide the floating pet
 A4 | 3 | pending T23 | PokeTokenBarApp.swift | poketokenbar://agent URL events feed the floating pet's agent activity
 A5 | - | n/a: native EDIT controls have Ctrl+C/V/X/A without a menu | UI/StandardEditMenu.swift, PokeTokenBarApp.swift | Edit menu installed so Cmd+C/V reach text fields in an accessory app
@@ -60,7 +60,7 @@ P29e | 3 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swif
 P30 | 1 | done Popover/PopoverState.swift | UI/PopoverView.swift | Navigation state: tab, settings, recap, collection segment, Pokédex detail page, provider and account tabs (kept), expand-advanced, open-plaza action; reset and the routes (session-key settings, Pokédex entry, representative)
 P31 | 1 | done Platform/Windows/Popover/WinHomePage.swift | UI/PopoverView.swift | Dates and relative texts follow the app language (the popover's locale environment), not the region
 C1 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Sprite 76 pt: animated GIF at its delays, bob on a still fallback, shiny, form, back view, egg sprite, 🥚 fallback, rounded backdrop
-C2 | 3 | pending T20 | UI/CompanionView.swift | Sprites open their Pokédex page (hand cursor, hover highlight, tooltip, accessibility)
+C2 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift | Sprites open their Pokédex page (hand cursor, hover highlight, tooltip, accessibility)
 C3 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift, UI/Badge.swift | Name, ✨, rarity badge (rarity colours)
 C4 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift, UI/Badge.swift, UI/PokemonNameLabel.swift | Type badges with localized type names (loaded async, "…" while loading, identifier on failure); type colours
 C5 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Default-form data note
@@ -73,14 +73,14 @@ C11 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/Companion
 C12 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | "Graduated: X" line
 C13 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Load details and form names when the subject changes
 C14 | 1 | done Platform/Windows/Popover/WinCompanionSection.swift | UI/CompanionView.swift | Celebrations: hatch/evolve flash + spring, ✨ and 🎭 bursts, "+N XP" capsule, mint sparkles, egg wiggle; each consumed once
-D1 | 3 | pending T20 | UI/CompanionView.swift | Collection empty state: animated Pikachu, title, hint
-D2 | 3 | pending T20 | UI/CompanionView.swift | Collection segment Pokédex / Catch log
-D3 | 3 | pending T20 | UI/CompanionView.swift | Filter bar: search (placeholder, clear), shiny-only toggle, sort menu (dex or log options, checkmarks, accent when custom), no-results state
-D4 | 3 | pending T20 | UI/CompanionView.swift | Pokédex header: title, species total, earned medals (🌍 🔤 ✨) with tooltips, region chips (progress, ✨/🏅, filter, disabled at 0), rarity chips
-D5 | 3 | pending T20 | UI/CompanionView.swift | 4 × 4 page grid, wheel/touchpad paging, cells (number in rarity colour, representative star, still sprite, name + form count, ✨, RAISING, selected border, hover lift, tooltip, context menu), footer (selection, representative button, page arrows "n / m"), Back restores the page
-D6 | 3 | pending T20 | UI/CompanionView.swift | Catch log: summary header (total, rarity chips), list rows (rarity, RAISING/RELEASED, ✨, nature, chain sprites with names, caught relative time), scroll to top on filter change, Back restores the row
+D1 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift | Collection empty state: animated Pikachu, title, hint
+D2 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift | Collection segment Pokédex / Catch log
+D3 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift | Filter bar: search (placeholder, clear), shiny-only toggle, sort menu (dex or log options, checkmarks, accent when custom), no-results state
+D4 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift | Pokédex header: title, species total, earned medals (🌍 🔤 ✨) with tooltips, region chips (progress, ✨/🏅, filter, disabled at 0), rarity chips
+D5 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift | 4 × 4 page grid, wheel/touchpad paging, cells (number in rarity colour, representative star, still sprite, name + form count, ✨, RAISING, selected border, hover lift, tooltip, context menu), footer (selection, representative button, page arrows "n / m"), Back restores the page
+D6 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift | Catch log: summary header (total, rarity chips), list rows (rarity, RAISING/RELEASED, ✨, nature, chain sprites with names, caught relative time), scroll to top on filter change, Back restores the row
 D7 | 3 | pending T21 | UI/CompanionView.swift | Pokémon detail page: Back, number, forms grid (collected x of y), appearance normal/✨, identity header (104 pt animated sprite, name, rarity, types, form note), individual picker, individual (level, gender, nature, prayers, ability, stats with IV, moves) or base stats, species data, move list, unavailable + Retry, loading
-D8 | 3 | pending T20 | UI/CompanionView.swift, UI/SettingsView.swift | Representative Pokémon: set or follow current (grid footer, context menu, detail page, Settings row)
+D8 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/CompanionView.swift, UI/SettingsView.swift | Representative Pokémon: set or follow current (grid footer, context menu, detail page, Settings row)
 H1 | 3 | done Platform/Windows/Popover/WinShopPage.swift | UI/ShopView.swift | Shop wallet: spendable tokens, hint
 H2 | 3 | done Platform/Windows/Popover/WinShopPage.swift | UI/ShopView.swift, UI/CompanionView.swift | Shop item cards: item icon (PokéAPI sprite, emoji fallback), name, owned count, quantity stepper, description, "owned" for passive items, price × quantity, Buy → inline confirm, not enough tokens
 H3 | 3 | done Platform/Windows/Popover/WinShopPage.swift | UI/ShopView.swift | Egg cards: egg sprite, tier badge, description, release note, price, locked hint as an egg, confirm, second warning for shiny/legendary, then Home
@@ -91,7 +91,7 @@ R2 | 2 | done Popover/RecapCardPart.swift | UI/UsageRecapView.swift | Recap card
 R3 | 2 | done Platform/Windows/Popover/WinRecapPage.swift | UI/UsageRecapView.swift | Best-day line, "compared so far" note; backfill of Pokédex names
 G0 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Settings page: Back (Esc) + title, scrolling body, the section card look (uppercase caption, rows, dividers), footer version · GitHub · website · ♥ sponsor
 G1 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: language picker (companion and store both follow)
-G2 | 3 | pending T20 | UI/SettingsView.swift | General: representative Pokémon menu (follow current / choose from the Pokédex)
+G2 | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/SettingsView.swift | General: representative Pokémon menu (follow current / choose from the Pokédex)
 G3 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: refresh interval picker
 G4 | 3 | done Platform/Windows/Popover/WinPetSettingsRows.swift | UI/SettingsView.swift | General: animation quality (menu bar sprite and floating pet; on Windows the pet's: the tray icon does not animate)
 G5 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | General: limit display used / remaining

@@ -1,13 +1,12 @@
-// PlazaPrayTests+Mac: a CGImage compare of the prayer bubble art
+// PlazaPrayTests+Pixels: a compare of the prayer bubble art's pixels
 import XCTest
-import AppKit
 @testable import PokeTokenBar
 
 extension PlazaPrayTests {
     /// The prayer bubble has its own picture, not another kind's.
     func testThePrayerBubbleHasItsOwnArt() async {
-        func pixels(_ kind: TeamEmoteKind) -> Data? { PlazaEmoteArt.image(kind, scale: 1).cgImage.dataProvider?.data as Data? }
-        XCTAssertNotNil(pixels(.pray))
+        func pixels(_ kind: TeamEmoteKind) -> [UInt8] { PlazaEmoteArt.image(kind, scale: 1).pixels.bytes }
+        XCTAssertFalse(pixels(.pray).isEmpty)
         for other: TeamEmoteKind in [.heart, .party, .exclaim, .question] {
             XCTAssertNotEqual(pixels(.pray), pixels(other), "\(other)")
         }

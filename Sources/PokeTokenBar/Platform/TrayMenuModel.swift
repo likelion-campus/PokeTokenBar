@@ -3,7 +3,7 @@ import Foundation
 /// The Windows tray menu as plain values (the Mac's `StatusItemMenu` counterpart, which lives in `UI/`), so tests can
 /// pin the contents without a window. `nil` entries are separators.
 enum TrayMenuModel {
-    enum Action: Equatable { case none, toggleLaunchAtLogin, openLogFolder, openRelease, refresh, openPlaza, openSettings, toggleBackView, quit
+    enum Action: Equatable { case none, toggleLaunchAtLogin, openLogFolder, openRelease, refresh, openDex, openPlaza, openSettings, toggleBackView, quit
         case toggleFloatingPet  // stage 7 Task 22
     }
 
@@ -23,8 +23,7 @@ enum TrayMenuModel {
     /// the number of teammates linked right now, nil while the team is off (no team code, or turned off). `plazaUnread` is
     /// the board's unread count while the team is ready, nil hides the plaza entry: the Mac's status menu (`StatusItemMenu`,
     /// `plazaAvailable` / `plazaUnread`), with its wording, which the team UI keeps in Korean. "Settings…" and "Back view"
-    /// (checked while `alwaysFacesBack`) are the Mac menu's too, in its order (stage 7 Task 4); its Pokédex and floating-pet
-    /// entries wait for tier 3. The host passes `store.todayTotalTokens`, `store.todayUsageCost` when `store.showsCost`, and
+    /// (checked while `alwaysFacesBack`) are the Mac menu's too, in its order (stage 7 Task 4); its Pokédex entry is stage 7 Task 20's (the floating pet's waits for Task 22). The host passes `store.todayTotalTokens`, `store.todayUsageCost` when `store.showsCost`, and
     /// `store.alwaysFacesBack`, as `AppDelegate.showStatusMenu` does. `updating` (stage 8: the in-app update is downloading
     /// or starting Setup) shows a disabled "Updating…" row in place of the update entry. `floatingPetEnabled` (stage 7 Task
     /// 22) adds the Mac's show / hide entry for the floating pet between "Settings…" and "Back view"; nil leaves it out.
@@ -54,7 +53,8 @@ enum TrayMenuModel {
             nil,
             Item(title: l.refreshNow, enabled: true, checked: false, action: .refresh),
         ]
-        if let plazaUnread {   // after Refresh, where the Mac's menu has it (Refresh, Dex, Plaza)
+        rows.append(Item(title: l.dexTitle, enabled: true, checked: false, action: .openDex))   // stage 7 Task 20: the Mac's Pokédex entry
+        if let plazaUnread {   // after Refresh and Dex, where the Mac's menu has it (Refresh, Dex, Plaza)
             rows.append(Item(title: plazaTitle(l: l, unread: plazaUnread), enabled: true, checked: false, action: .openPlaza))
         }
         rows.append(Item(title: l.settings + "…", enabled: true, checked: false, action: .openSettings))

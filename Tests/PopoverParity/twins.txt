@@ -163,6 +163,13 @@ UI/Badge.swift#TypeBadges.body | Popover/CompanionHeaderPart.swift#CompanionHead
 UI/PokemonNameLabel.swift#PokemonNameLabel.body | Platform/Windows/Popover/WinCompanionSection.swift#WinCompanionSection.loadTypeNames | pin a4e7ad7d556c9330
 # --- stage 7 Task 9: the companion header (end) ---
 
+# Task 20: the Pokédex's pure rules (the Collection tab). DexScrollPager's `step` reads NSEvent phases; its phase-less branch is
+# DexWheelPager.step (DexTwinEquivalenceTests+Mac drives both).
+UI/CompanionView.swift#DexScrollPager.pageAfterScroll | Popover/DexBrowserModel.swift#DexPaging.pageAfterScroll
+UI/CompanionView.swift#DexScrollPager.page | Popover/DexBrowserModel.swift#DexPaging.page
+UI/CompanionView.swift#DexScrollPager.direction | Popover/DexBrowserModel.swift#DexPaging.direction
+UI/CompanionView.swift#DexGridView.medalEmoji | Popover/DexBrowserModel.swift#DexBodyModel.medalEmoji
+UI/CompanionView.swift#DexSpeciesCell.tooltip | Popover/DexBrowserModel.swift#DexBodyModel.tooltip
 # Shop and Bag (stage 7 Task 19): the cards' private members that read their @State, as verbatim copies in the Mac test
 # (PopoverShopBagEquivalenceTests+Mac drives them against ShopCardRules / BagCardRules and the models), and the view bodies
 # rebuilt as values in PopoverShopModel / PopoverBagModel (the model tests pin the values on both systems).

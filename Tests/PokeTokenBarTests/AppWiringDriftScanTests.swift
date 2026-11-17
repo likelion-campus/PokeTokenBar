@@ -231,10 +231,10 @@ final class AppWiringDriftScanTests: XCTestCase {
         return out
     }
 
-    /// What the Mac status menu does that the tray does not yet (tier 3: the Pokédex, Task 20), and the tray's own Windows
-    /// entries. Everything else must be in both: a new Mac menu action fails here until the tray has it or this list says why
-    /// not. (The floating pet's entry came with stage 7 Task 22.)
-    static let macMenuOnly: Set<String> = ["openDex"]
+    /// What the Mac status menu does that the tray does not yet, and the tray's own Windows entries. Everything else must be in
+    /// both: a new Mac menu action fails here until the tray has it or this list says why not. (The Pokédex came with stage 7
+    /// Task 20, the floating pet's entry with Task 22.)
+    static let macMenuOnly: Set<String> = []
     static let trayOnly: Set<String> = ["none", "toggleLaunchAtLogin", "openLogFolder", "openRelease"]
 
     func testTheTrayMenuActionsAreTheMacMenus() throws {
@@ -249,6 +249,12 @@ final class AppWiringDriftScanTests: XCTestCase {
         // The two entries Task 4 added, with the Mac's titles and check mark.
         XCTAssertTrue(menu.contains(#"Entry(title: l.settings + "…", keyEquivalent: ",", action: .openSettings)"#), "StatusItemMenu's Settings… changed")
         XCTAssertTrue(tray.contains(#"Item(title: l.settings + "…", enabled: true, checked: false, action: .openSettings)"#), "TrayMenuModel's Settings… drifted")
+        // Task 20: the Pokédex entry, the Mac's title, and what it does (the popover on the representative's Pokédex page).
+        XCTAssertTrue(menu.contains(#"Entry(title: l.dexTitle, keyEquivalent: "d", action: .openDex)"#), "StatusItemMenu's Pokédex entry changed")
+        XCTAssertTrue(tray.contains("Item(title: l.dexTitle, enabled: true, checked: false, action: .openDex)"), "TrayMenuModel's Pokédex entry drifted")
+        XCTAssertTrue(try Self.read("PokeTokenBarApp.swift").contains("case .openDex: showPopover { $0.openRepresentativeDex() }"))
+        XCTAssertTrue(try Self.read("Platform/Windows/WindowsApp.swift").contains("present(.trayMenu) { $0.openRepresentativeDex() }"),
+                      "the tray's Pokédex opens the popover on the Pokédex, as the Mac's")
         XCTAssertTrue(menu.contains("Entry(title: l.backViewLabel, keyEquivalent: \"\", action: .toggleBackView, isChecked: alwaysFacesBack)"),
                       "StatusItemMenu's Back view changed")
         XCTAssertTrue(tray.contains("Item(title: l.backViewLabel, enabled: true, checked: alwaysFacesBack, action: .toggleBackView)"),
