@@ -250,6 +250,7 @@ struct WinPopoverStats {
         stats.sessionNotify = ptb_window_session_notify(UnsafeMutableRawPointer(hwnd), 1) == 1
         let context = WinUIContext(dpi: dpi, owner: hwnd)
         ctx = context
+        WinDarkMode.setFrame(hwnd, dark: context.dark)  // the border and shadow DWM draws follow the app mode (Task 16)
         WinOpenTrace.build(page, via: "open") { build(page, in: made, ctx: context) }
         return made
     }
@@ -584,6 +585,7 @@ struct WinPopoverStats {
             ctx?.destroy()
             let context = WinUIContext(dpi: dpi, owner: w.hwnd)
             ctx = context
+            WinDarkMode.setFrame(w.hwnd, dark: context.dark)
             WinOpenTrace.build(page, via: "rebuild") { build(page, in: w, ctx: context) }
         }
         stats.rebuilds += 1

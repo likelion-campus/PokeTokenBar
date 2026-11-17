@@ -27,6 +27,7 @@ extension WindowsSelftest {
         await keyboardChecks(r)
         await multiLineKeysCheck(r)
         await galleryChecks(r)
+        await WindowsSelftestPopoverDark.run(r)  // Task 16 (WindowsSelftestPopoverDark.swift)
         await spriteChecks(r)  // Task 8 (WindowsSelftestPopoverSprites.swift)
         await registriesCheck(r)
         await noLeakCheck(r)
@@ -528,12 +529,13 @@ extension WindowsSelftest {
     private static func captureChecks(_ r: WindowsSelftest.Recorder, into dir: URL?) async {
         var lines: [String] = []
         var allOK = true
-        let variants: [(name: String, dpi: UINT?, textScale: Double?, highContrast: Bool?)] = [
-            ("100", nil, 1, false), ("150", 144, 1, false), ("text150", nil, 1.5, false), ("hc", nil, 1, true),
+        let variants: [(name: String, dpi: UINT?, textScale: Double?, highContrast: Bool?, dark: Bool?)] = [
+            ("100", nil, 1, false, nil), ("150", 144, 1, false, nil), ("text150", nil, 1.5, false, nil), ("hc", nil, 1, true, nil),
+            ("dark", nil, 1, false, true),  // Task 16
         ]
         for v in variants {
             let page = GalleryPage()
-            guard let w = KitWindow(heightDIP: 400, dpi: v.dpi, textScale: v.textScale, highContrast: v.highContrast, register: true,
+            guard let w = KitWindow(heightDIP: 400, dpi: v.dpi, textScale: v.textScale, highContrast: v.highContrast, dark: v.dark, register: true,
                                     origin: POINT(x: 0, y: 0), build: { _, s in page.build(s) }) else {
                 lines.append("\(v.name): no window")
                 allOK = false
@@ -1094,19 +1096,19 @@ struct KitResources: CustomStringConvertible {
     var clientRect: RECT { RECT(left: 0, top: 0, right: clientSize.cx, bottom: clientSize.cy) }
     private let widthDIP: CGFloat
     private var heightDIP: CGFloat
-    private let textScale: Double?, highContrast: Bool?
+    private let textScale: Double?, highContrast: Bool?, dark: Bool?
     let isRegistered: Bool
     private(set) var escapes = 0, oks = 0, rebuilds = 0, settingMessages = 0
     var onMenuMessage: (() -> Void)?
     private(set) var isDestroyed = false
 
-    init?(widthDIP: CGFloat = PopoverWindowMetrics.width, heightDIP: CGFloat, dpi: UINT? = nil, textScale: Double? = nil, highContrast: Bool? = nil,
+    init?(widthDIP: CGFloat = PopoverWindowMetrics.width, heightDIP: CGFloat, dpi: UINT? = nil, textScale: Double? = nil, highContrast: Bool? = nil, dark: Bool? = nil,
           register: Bool = true, origin: POINT = POINT(x: 40, y: 40), build: @escaping (KitWindow, WinStack) -> Void) {
         let style: DWORD = 0x8000_0000 | 0x0080_0000 | 0x0200_0000  // WS_POPUP | WS_BORDER | WS_CLIPCHILDREN
         let exStyle: DWORD = 0x0000_0080 | 0x0001_0000  // WS_EX_TOOLWINDOW | WS_EX_CONTROLPARENT
         guard let made = try? WinSinkWindow(className: Self.className, title: "PokeTokenBar kit", style: style, exStyle: exStyle,
                                             x: origin.x, y: origin.y, width: 100, height: 100) else { return nil }
-        let context = WinUIContext(dpi: dpi ?? WinUIContext.dpi(of: made.hwnd), owner: made.hwnd, textScale: textScale, highContrast: highContrast)
+        let context = WinUIContext(dpi: dpi ?? WinUIContext.dpi(of: made.hwnd), owner: made.hwnd, textScale: textScale, highContrast: highContrast, dark: dark)
         window = made
         ctx = context
         self.build = build
@@ -1114,6 +1116,7 @@ struct KitResources: CustomStringConvertible {
         self.heightDIP = heightDIP
         self.textScale = textScale
         self.highContrast = highContrast
+        self.dark = dark
         isRegistered = register
         router = WinControlRouter(window: made)
         if register { WinMessageHook.registerDialogWindow(made.hwnd) }
@@ -1144,7 +1147,14 @@ struct KitResources: CustomStringConvertible {
             }
         }
         made.on(Self.menuMessage) { [weak self] _, _ in self?.onMenuMessage?(); return 0 }
-        made.on(0x0014 /* WM_ERASEBKGND */) { _, _ in 1 }
+        // Like the popover: the gaps between panes are the page colour (white would show in dark).
+        made.on(0x0014 /* WM_ERASEBKGND */) { [weak self] wParam, _ in
+            guard let self, let dc = HDC(bitPattern: UInt(wParam)), let brush = self.ctx.colors.brush(self.ctx.colors.palette.window) else { return 1 }
+            var r = RECT()
+            _ = GetClientRect(self.hwnd, &r)
+            _ = FillRect(dc, &r, brush)
+            return 1
+        }
         made.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
         sizeWindow()
         buildPage()
@@ -1176,11 +1186,14 @@ struct KitResources: CustomStringConvertible {
     }
 
     func rebuild(dpi: UINT) {
-        tearDownPage()
-        ctx.destroy()
-        ctx = WinUIContext(dpi: dpi, owner: hwnd, textScale: textScale, highContrast: highContrast)
-        rebuilds += 1
-        buildPage()
+        // Like the popover's rebuild: on screen, the page is built with drawing off and drawn once (Task 16).
+        WinKit.drawingOnce(hwnd) {
+            tearDownPage()
+            ctx.destroy()
+            ctx = WinUIContext(dpi: dpi, owner: hwnd, textScale: textScale, highContrast: highContrast, dark: dark)
+            rebuilds += 1
+            buildPage()
+        }
     }
 
     func destroy() {

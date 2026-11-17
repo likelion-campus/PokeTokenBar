@@ -248,7 +248,7 @@ enum DexKeyMove: Equatable {
                 }
                 if let r = lay.emptyText { p.draw(model.noResults, f.empty, color: secondary, x: r.minX, centerY: r.midY, canvas: canvas, space: space) }
                 if let r = lay.emptyButton {
-                    p.roundedRect(r, radius: 5, fill: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9),
+                    p.roundedRect(r, radius: 5, fill: PopoverAppearance.current.controlFill(alpha: 0.9),
                                   stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
                     let w = ceil(p.line(model.clearFilters, f.button).width)
                     p.draw(model.clearFilters, f.button, color: primary, x: r.midX - w / 2, centerY: r.midY, canvas: canvas, space: space)
@@ -267,7 +267,7 @@ enum DexKeyMove: Equatable {
                 canvas.draw(line, at: space.canvas(CGPoint(x: r.minX, y: r.minY + m.ascender)))
             }
             if let r = lay.rep, let sel = model.footer.selection {
-                p.roundedRect(r, radius: 5, fill: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9),
+                p.roundedRect(r, radius: 5, fill: PopoverAppearance.current.controlFill(alpha: 0.9),
                               stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
                 p.drawGlyph(sel.isRepresentative ? "arrow.triangle.2.circlepath" : "star", fallback: sel.isRepresentative ? "↻" : "☆", size: 10, bold: false,
                             color: primary, in: r, canvas: canvas, space: space)
@@ -363,7 +363,7 @@ enum DexKeyMove: Equatable {
             if hoverCell == i {   // the card's shadow, under the card only
                 canvas.saveState()
                 canvas.setShadow(PlazaShadow(offset: CGSize(width: 0, height: -2), blur: 4, color: PlazaColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.25)))
-                canvas.setFillColor(PlazaColor.white)
+                canvas.setFillColor(PopoverAppearance.current.controlFill())
                 canvas.fillRoundedRect(space.canvas(r), radius: 8)
                 canvas.restoreState()
             }
