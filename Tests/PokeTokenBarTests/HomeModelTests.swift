@@ -197,7 +197,8 @@ final class HomeModelTests: XCTestCase {
         XCTAssertEqual(row.models.map(\.name), ["claude-opus-4", "claude-sonnet-4", "haiku"], "biggest first, last path part")
         XCTAssertEqual(row.models.map(\.tokens), ["900K", "300K", "34.6K"])
         XCTAssertNil(m.statusBanner, "operational is no incident")
-        XCTAssertNil(m.footer.petToggle, "no floating pet on Windows")
+        XCTAssertEqual(m.footer.petToggle, FooterModel.PetToggle(symbol: "eye.slash", label: L(.en).floatingPetEnableLabel),
+                       "the floating pet's eye on Windows too (stage 7 Task 22), off by default")
 
         f.state.providerID = "codex"
         m = model(f, facts: Self.windows)

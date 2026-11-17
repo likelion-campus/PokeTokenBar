@@ -722,6 +722,13 @@ import WinSDK
         parts.line.setShown(parts.error, usage?.error != nil)
         parts.error.tooltip = usage?.error
         if let message = usage?.error, !message.isEmpty { parts.error.text = message }
+        // --- stage 7 Task 22: the pet's eye follows the setting, as the Mac's (eye / eye.slash, its help and accessible name) (begin) ---
+        if let pet = parts.pet, let toggle = f.petToggle {
+            pet.setGlyph(symbol: toggle.symbol)
+            pet.tooltip = toggle.label
+            if pet.text != toggle.label { pet.text = toggle.label }
+        }
+        // --- stage 7 Task 22 (end) ---
         parts.line.remeasure()
         renders["footer", default: 0] += 1
     }

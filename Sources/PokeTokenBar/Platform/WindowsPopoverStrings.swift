@@ -7,17 +7,17 @@ import Foundation
 
 // --- stage 7 Task 6: Settings essentials (begin) ---
 extension L {
-    /// `backViewHint`: "Always shows its back in the menu bar, floating pet and popover". The tray icon replaces the menu bar;
-    /// the floating pet is not on Windows yet.
+    /// `backViewHint`: "Always shows its back in the menu bar, floating pet and popover". The tray icon replaces the menu bar
+    /// (the floating pet came with stage 7 Task 22, which put it back in the list).
     var winBackViewHint: String {
-        t("트레이 아이콘·팝오버에서 항상 뒷모습으로 보여요",
-          "Always shows its back in the tray icon and popover",
-          "トレイアイコン・ポップオーバーで常に後ろ姿になります",
-          "Siempre se muestra de espaldas en el icono de la bandeja y el popover",
-          "Toujours de dos dans l'icône de la zone de notification et le popover",
-          "Sempre de costas no ícone da bandeja e no popover",
-          "Zeigt im Tray-Symbol und im Popover immer den Rücken",
-          "Всегда показывает спину в значке в области уведомлений и во всплывающем окне")
+        t("트레이 아이콘·플로팅 펫·팝오버에서 항상 뒷모습으로 보여요",
+          "Always shows its back in the tray icon, floating pet and popover",
+          "トレイアイコン・フローティングペット・ポップオーバーで常に後ろ姿になります",
+          "Siempre se muestra de espaldas en el icono de la bandeja, la mascota flotante y el popover",
+          "Toujours de dos dans l'icône de la zone de notification, le compagnon flottant et le popover",
+          "Sempre de costas no ícone da bandeja, no mascote flutuante e no popover",
+          "Zeigt im Tray-Symbol, im schwebenden Pokémon und im Popover immer den Rücken",
+          "Всегда показывает спину в значке в области уведомлений, на экране и во всплывающем окне")
     }
 
     /// The Mac's literal "Finder" button (show the log file): Windows' file manager is Explorer.

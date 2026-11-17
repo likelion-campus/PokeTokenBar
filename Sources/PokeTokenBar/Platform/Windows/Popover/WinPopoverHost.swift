@@ -61,7 +61,7 @@ import WinSDK
             tray?.openMenu(at: p)
         case .secondLaunch:
             tray?.showAlreadyRunning()
-        case .trayMenu:
+        case .trayMenu, .pet:  // .pet: stage 7 Task 22 (the pet's click had the foreground; the log line only)
             break
         }
     }
@@ -70,7 +70,7 @@ import WinSDK
         switch opener {
         case .trayClick, .trayKey: return "the tray menu"
         case .secondLaunch: return "the already-running balloon"
-        case .trayMenu: return "nothing"
+        case .trayMenu, .pet: return "nothing"  // .pet: stage 7 Task 22
         }
     }
 }

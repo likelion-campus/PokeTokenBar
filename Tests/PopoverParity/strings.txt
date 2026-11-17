@@ -133,9 +133,9 @@ exportSaveLabel | G16
 filterShinyOnly | D3
 fiveHourNotStarted | P22
 fiveHourSession | P22
-floatingPetAgentActivityHint | G12
-floatingPetAgentActivityLabel | G12
-floatingPetBubbleAlertsLabel | G12
+floatingPetAgentActivityHint | G12a
+floatingPetAgentActivityLabel | G12a
+floatingPetBubbleAlertsLabel | G12a
 floatingPetEnableLabel | A3p
 floatingPetHeartsLabel | F2
 floatingPetHideLabel | A3p

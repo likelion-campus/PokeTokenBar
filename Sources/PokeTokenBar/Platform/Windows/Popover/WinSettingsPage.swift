@@ -61,6 +61,7 @@ import WinSDK
     private var trendWindowRow: WinRow?  // stage 7 Task 12 (G6)
     private var loginRow: WinRow?
     private var backViewRow: WinRow?
+    private var petRows: WinPetSettingsRows?  // MARK: Task 22 — animation quality and the floating pet group
     private var helpRow: WinRow?
     private var helpBodyRow: WinRow?
     private var providerRows: [(row: WinRow, id: String)] = []
@@ -296,6 +297,12 @@ import WinSDK
         refreshRow?.control?.onSelect = { i in
             if presets.indices.contains(i) { store.refreshInterval = presets[i].value }
         }
+        // MARK: Task 22 — "Animation" (G4) after the refresh interval, as the Mac's; the pet's group below (begin)
+        let visibility = SettingsModel.visibility(PlatformCompat.popoverFacts)
+        let pet = WinPetSettingsRows(store: store)
+        petRows = pet
+        if visibility.animationQuality { pet.addAnimationQuality(to: general, l: l) }
+        // MARK: Task 22 (end)
         limitDisplayRow = general.addRow(l.limitDisplayModeLabel) { p, c in
             WinControls.radioGroup([l.limitDisplayUsed, l.limitDisplayRemaining], selected: store.limitDisplayMode == .used ? 0 : 1, in: p, ctx: c)
         }
@@ -312,11 +319,13 @@ import WinSDK
         loginRow = general.addToggle(l.launchAtLogin, hint: loginHint, isOn: loginState == .on)
         loginRow?.control?.isEnabled = loginState == .on || loginState == .off
         loginRow?.control?.onToggle = { [weak self] on in self?.setLaunchAtLogin(on) }
-        backViewRow = general.addToggle(l.backViewLabel, hint: l.winBackViewHint, isOn: store.alwaysFacesBack)
-        backViewRow?.control?.onToggle = { on in store.alwaysFacesBack = on }
+        if !visibility.floatingPetGroup {  // MARK: Task 22 — with the pet group, back view is in it (the Mac's place)
+            backViewRow = general.addToggle(l.backViewLabel, hint: l.winBackViewHint, isOn: store.alwaysFacesBack)
+            backViewRow?.control?.onToggle = { on in store.alwaysFacesBack = on }
+        }
         // No "why do I have to refresh by hand?" row: the Mac's Settings has none (its help is Home's (?) next to the limits caption).
-        // Left out on Windows (`SettingsModel.visibility`): animation quality and the pet group (they wait for the pet, T22), the
-        // menu bar group and the Keychain switch (no such things here). The Mac's representative, trend and tracked-account rows are T20, T12, T14.
+        // Left out on Windows (`SettingsModel.visibility`): the menu bar group and the Keychain switch (no such things here). The
+        // Mac's representative row is T20.
 
         // MARK: Task 15 — difficulty (begin)
         let transferRows = WinTransferSection(host: host, drafts: transferDrafts, owner: { [weak self] in self?.window?.hwnd },
@@ -335,6 +344,9 @@ import WinSDK
         }
         let providerHint = s.addSection(nil, card: false)
         providerHint.addRow(nil, hint: l.trackedProvidersHint) { _, _ in nil }
+
+        // Floating pet (G12): MARK: Task 22 — enable, back view, size; after the tracked providers, as the Mac's
+        if visibility.floatingPetGroup { backViewRow = pet.addGroup(to: s, l: l) }
 
         // Team (G13): Korean, as the Mac's
         let teamSection = s.addSection(L(.ko).teamSectionTitle)
@@ -449,6 +461,7 @@ import WinSDK
         loginState = host.loginItem.state
         setOn(loginRow?.control, loginState == .on)
         setOn(backViewRow?.control, store.alwaysFacesBack)
+        petRows?.apply()   // MARK: Task 22
         for (row, id) in providerRows { setOn(row.control, store.isProviderEnabled(id)) }
         setOn(limitAlertsRow?.control, store.limitNotifications)
         warnRow?.isVisible = store.limitNotifications
@@ -645,6 +658,7 @@ import WinSDK
         // MARK: Task 15 (end)
         WinAdvancedSection.touch(store)     // stage 7 Task 14
         WinTrackedAccountRow.touch(store)   // stage 7 Task 14
+        WinPetSettingsRows.touch(store)     // MARK: Task 22
     }
 
     // MARK: closing
@@ -675,6 +689,7 @@ import WinSDK
         fallbackRow = nil
         providerRows = []
         advanced = nil; trackedAccount = nil   // stage 7 Task 14
+        petRows = nil   // MARK: Task 22
     }
 
     func destroy() {
@@ -700,6 +715,7 @@ import WinSDK
          statusChecksRow, updateNotificationsRow, checkNowRow, updateOfferRow, updateSkippedRow, updateCurrentRow, reportRow, logRow, fallbackRow)
     }
     var providerRowsForTesting: [WinRow] { providerRows.map(\.row) }
+    var petRowsForTesting: WinPetSettingsRows? { petRows }   // MARK: Task 22
     var backLinkForTesting: WinControl? { backLink }
     var footerControlsForTesting: [WinControl] { footerControls }
     func refreshNowForTesting() { sync() }

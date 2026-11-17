@@ -85,6 +85,11 @@ public enum WindowsApp {
         // --- stage 7 Task 13: the gate's open recap page (begin) ---
         if arguments.contains("--popover-recap-idle-probe") { WindowsSelftestPopoverRecap.startIdleProbe() }
         // --- stage 7 Task 13: the gate's open recap page (end) ---
+        // --- stage 7 Task 22: the gate's floating pet windows (begin) ---
+        if let i = arguments.firstIndex(of: "--pet-idle-probe") {
+            WindowsSelftestPopoverPet.startIdleProbe(mode: i + 1 < arguments.count ? arguments[i + 1] : "still")
+        }
+        // --- stage 7 Task 22 (end) ---
         // --- stage 7 Task 9: the gate's Home page with the companion header (begin) ---
         if let i = arguments.firstIndex(of: "--popover-companion-idle-probe") {
             WindowsSelftestPopoverCompanion.startIdleProbe(mode: i + 1 < arguments.count ? arguments[i + 1] : "still")
@@ -256,6 +261,7 @@ private func crtExit(_ code: Int32) -> Never {
                              notify: { balloons.post(.init(id: "update", title: "PokeTokenBar", body: $0, sound: false, kind: .app)) },
                              language: { [companion] in companion.l })
         makePopover(updater: WindowsUpdates.checker)  // stage 7 Task 4
+        makeFloatingPet()  // stage 7 Task 22: shown at launch when the setting is on (the Mac's FloatingPetController in launch)
         // Stage 8 Task 6: what the last in-app update did (one balloon when Setup put the previous app back), once the tray
         // can show it; the selftest's own settings never hold the marker.
         if !WinDefaultsSync.selftestOwnsSettings {
@@ -480,4 +486,20 @@ extension WindowsAppDelegate {
     }
 }
 // --- stage 7 Task 4: the popover (end) ---
+// --- stage 7 Task 22: the floating pet (begin) ---
+extension WindowsAppDelegate {
+    /// The floating pet (the Mac's `FloatingPetController` made in `applicationDidFinishLaunching`): it shows itself while
+    /// `store.floatingPetEnabled` is on. A click on a hatched pet opens the popover, or closes it when it is open (the Mac's
+    /// transient popover closes on that click); the menu's Open always opens it. The pet goes below an open popover.
+    fileprivate func makeFloatingPet() {
+        let pet = WinFloatingPet(store: store, companion: companion, defaults: defaults, openPopover: { [weak self] opener in
+            WinFloatingPet.openPopover(self?.popover, opener)
+        }, configure: { [weak self] pet in
+            pet.popoverWindow = { [weak self] in self?.popover?.hwnd }
+            pet.menuOwner = { [weak self] in self?.sink?.hwnd }
+        })
+        WinFloatingPet.install(pet)
+    }
+}
+// --- stage 7 Task 22 (end) ---
 #endif

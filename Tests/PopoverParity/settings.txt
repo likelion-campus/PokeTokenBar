@@ -10,8 +10,8 @@
 "critThreshold" | G14
 "dailyTrendWindow" | G6
 "disableKeychainAccess" | G17x
-"floatingPetAgentActivity" | G12
-"floatingPetBubbleAlerts" | G12
+"floatingPetAgentActivity" | G12a
+"floatingPetBubbleAlerts" | G12a
 "floatingPetEnabled" | G12
 "floatingPetSize" | G12
 "growthDifficulty" | G9

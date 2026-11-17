@@ -162,3 +162,36 @@ UI/Badge.swift#Badge.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPar
 UI/Badge.swift#TypeBadges.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPart.drawBadge | pin e605cac326ffe3a6
 UI/PokemonNameLabel.swift#PokemonNameLabel.body | Platform/Windows/Popover/WinCompanionSection.swift#WinCompanionSection.loadTypeNames | pin a4e7ad7d556c9330
 # --- stage 7 Task 9: the companion header (end) ---
+# --- stage 7 Task 22: the floating pet (begin) ---
+# FloatingPetController's pure statics, PetClickRouter and the frame cap as renamed copies (PopoverPetTwinEquivalenceTests+Mac
+# drives the Mac's and the twin over the same inputs).
+UI/FloatingPetPanel.swift#FloatingPetController.isClick | Popover/FloatingPetRules.swift#FloatingPetRules.isClick
+UI/FloatingPetPanel.swift#FloatingPetController.panelSize | Popover/FloatingPetRules.swift#FloatingPetRules.panelSize | NSSize=CGSize
+UI/FloatingPetPanel.swift#FloatingPetController.panelOrigin | Popover/FloatingPetRules.swift#FloatingPetRules.panelOrigin | NSPoint=CGPoint
+UI/FloatingPetPanel.swift#FloatingPetController.petOrigin | Popover/FloatingPetRules.swift#FloatingPetRules.petOrigin | NSPoint=CGPoint
+UI/FloatingPetPanel.swift#FloatingPetController.RunPhase | Popover/FloatingPetRules.swift#FloatingPetRules.RunPhase
+UI/FloatingPetPanel.swift#FloatingPetController.resolveMove | Popover/FloatingPetRules.swift#FloatingPetRules.resolveMove
+UI/FloatingPetPanel.swift#FloatingPetController.allowsMotion | Popover/FloatingPetRules.swift#FloatingPetRules.allowsMotion
+UI/FloatingPetPanel.swift#FloatingPetController.ClickAction | Popover/FloatingPetRules.swift#FloatingPetRules.ClickAction
+UI/FloatingPetPanel.swift#FloatingPetController.clickAction | Popover/FloatingPetRules.swift#FloatingPetRules.clickAction
+UI/FloatingPetPanel.swift#FloatingPetController.prayerRefreshMilestone | Popover/FloatingPetRules.swift#FloatingPetRules.prayerRefreshMilestone
+UI/FloatingPetPanel.swift#FloatingPetController.shouldRefreshOnPrayer | Popover/FloatingPetRules.swift#FloatingPetRules.shouldRefreshOnPrayer
+UI/FloatingPetPanel.swift#FloatingPetController.shouldAnimate | Popover/FloatingPetRules.swift#FloatingPetRules.shouldAnimate
+UI/FloatingPetPanel.swift#PetClickRouter | Popover/FloatingPetRules.swift#PopoverPetClickRouter | FloatingPetController=FloatingPetRules
+UI/SpriteAnimation.swift#GIFDecoder.capFrameRate | Popover/PopoverSpriteFrameCap.swift#PopoverSpriteFrameCap.capFrameRate | NSImage=PlazaImage
+# Mac bodies rebuilt as values (pins): the placement, the pointer, the menu, what the pet shows, what its clicks do.
+UI/FloatingPetPanel.swift#FloatingPetController.targetFrame | Popover/FloatingPetRules.swift#FloatingPetPlacement.targetFrame | pin 95f7d806727db1dd
+UI/FloatingPetPanel.swift#FloatingPetController.defaultPetOrigin | Popover/FloatingPetRules.swift#FloatingPetPlacement.defaultPetOrigin | pin 507d6be8bf676de1
+UI/FloatingPetPanel.swift#FloatingPetController.panelDidMove | Popover/FloatingPetRules.swift#FloatingPetPlacement.savedPetOrigin | pin 25965d027816ae13
+UI/FloatingPetPanel.swift#FloatingPetController.sync | Popover/FloatingPetRules.swift#FloatingPetModel.make | pin 6b0c8ceeb5edf0c3
+UI/FloatingPetPanel.swift#FloatingPetController.show | Popover/FloatingPetRules.swift#FloatingPetModel.make | pin 541b8522521e3056
+UI/FloatingPetPanel.swift#FloatingPetController.hide | Platform/Windows/Popover/WinFloatingPet.swift#WinFloatingPet.hideWindow | pin 2f930c862fda182a
+UI/FloatingPetPanel.swift#FloatingPetView.body | Popover/FloatingPetRules.swift#FloatingPetModel.make | pin 6e9fff91ba13ca7f
+UI/FloatingPetPanel.swift#FloatingPetController.petClicked | Popover/FloatingPetRules.swift#FloatingPetActions.petClicked | pin 929a45e970deca62
+UI/FloatingPetPanel.swift#FloatingPetController.makeHostingView | Popover/FloatingPetRules.swift#FloatingPetActions.perform | pin d7261108d473d337
+UI/FloatingPetPanel.swift#PetHostingView.mouseDown | Popover/FloatingPetRules.swift#FloatingPetPointer.down | pin ad1e017bd5a3c8de
+UI/FloatingPetPanel.swift#PetHostingView.mouseDragged | Popover/FloatingPetRules.swift#FloatingPetPointer.drag | pin d01ab5cd927117e2
+UI/FloatingPetPanel.swift#PetHostingView.mouseUp | Popover/FloatingPetRules.swift#FloatingPetPointer.up | pin 1943758499896f6c
+UI/FloatingPetPanel.swift#PetHostingView.showContextMenu | Popover/FloatingPetRules.swift#FloatingPetMenu.entries | pin cc6ef9f2f042b145
+PokeTokenBarApp.swift#AppDelegate.openPopover | Platform/Windows/Popover/WinFloatingPet.swift#WinFloatingPet.openPopover | pin c75042de6088a90a
+# --- stage 7 Task 22 (end) ---

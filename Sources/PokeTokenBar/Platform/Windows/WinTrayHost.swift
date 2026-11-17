@@ -97,7 +97,8 @@ import WinSDK
                             todayCost: store.showsCost ? store.todayUsageCost : nil,
                             login: loginState, update: availableUpdate?.version, teammatesOnline: teammatesOnline(),
                             plazaUnread: plazaUnread(), alwaysFacesBack: store.alwaysFacesBack,
-                            updating: WindowsUpdates.checker?.isUpdating ?? false)
+                            updating: WindowsUpdates.checker?.isUpdating ?? false,
+                            floatingPetEnabled: store.floatingPetEnabled)  // stage 7 Task 22
     }
 
     /// Blocks in the system menu loop until it is dismissed (no drain timer meanwhile; F17), then runs the action.
@@ -149,6 +150,8 @@ import WinSDK
             onOpenSettings?()
         case .toggleBackView:
             store.alwaysFacesBack.toggle()
+        case .toggleFloatingPet:  // stage 7 Task 22
+            store.floatingPetEnabled.toggle()
         case .quit:
             WindowsApp.exit(0, .menu)
         case .toggleLaunchAtLogin:
