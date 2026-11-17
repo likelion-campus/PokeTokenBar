@@ -32,7 +32,7 @@ import Foundation
 
     nonisolated static func fillWidth(value: Double, width: CGFloat) -> CGFloat { width * CGFloat(min(1, max(0, value))) }
 
-    nonisolated static let trackColor = PopoverColorRole.secondary.plazaColor(alpha: 0.2)
+    nonisolated static let trackColor = PopoverColorRole.secondary.plazaShapeColor(alpha: 0.2)
     nonisolated static let fillColor = PopoverColorRole.systemOrange.plazaColor()
 
     /// Draws the bar whose line is `line` (DIP, the space's coordinates).

@@ -354,7 +354,7 @@ import Foundation
             // SwiftUI turns clockwise for positive degrees; the canvas's y axis points up, so clockwise is a negative angle.
             canvas.rotate(by: -CGFloat(effects.rotation) * .pi / 180)
             canvas.scale(x: CGFloat(effects.scale), y: CGFloat(effects.scale))
-            canvas.setFillColor(PopoverColorRole.secondary.plazaColor(alpha: 0.06))
+            canvas.setFillColor(PopoverColorRole.secondary.plazaShapeColor(alpha: 0.06))
             canvas.fillRoundedRect(CGRect(x: -c.width / 2, y: -c.height / 2, width: c.width, height: c.height), radius: cornerRadius)
         }) else { return nil }
         return .image(image, frame: frame)

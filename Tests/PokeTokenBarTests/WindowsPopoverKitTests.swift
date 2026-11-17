@@ -113,7 +113,7 @@ final class WindowsPopoverKitTests: XCTestCase {
         XCTAssertEqual(Array(back[20..<24]), [30, 20, 10, 40], "premultiplied values pass unchanged")
     }
 
-    func testLightColoursAreTheMacsOpacitiesAndHighContrastIsTheSystems() async {
+    func testLightColoursAreWindowsLabelOpacitiesAndHighContrastIsTheSystems() async {
         let system: (Int32) -> COLORREF = { index in
             switch index {
             case 5: WinUIColors.rgb(255, 255, 255)
@@ -125,8 +125,8 @@ final class WindowsPopoverKitTests: XCTestCase {
         let light = WinUIColors.resolve(highContrast: false, accent: nil, system: system)
         XCTAssertEqual(light.window, WinUIColors.rgb(255, 255, 255))
         XCTAssertEqual(light.card, WinUIColors.rgb(244, 244, 244), "one step (4.5 %) darker than the window")
-        XCTAssertEqual(light.secondaryText, WinUIColors.rgb(122, 122, 122), "black at 49.8 % over the card")
-        XCTAssertEqual(light.tertiaryText, WinUIColors.rgb(181, 181, 181), "black at 25.9 % over the card")
+        XCTAssertEqual(light.secondaryText, WinUIColors.rgb(78, 78, 78), "black at Windows' 68 % over the card (the Mac's 49.8 % was too faint: PopoverLabelContrastTests)")
+        XCTAssertEqual(light.tertiaryText, WinUIColors.rgb(110, 110, 110), "black at Windows' 55 % over the card (the Mac's 25.9 % read as white on white)")
         XCTAssertEqual(light.accent, WinUIColors.systemBlue, "no Windows accent: the Mac's systemBlue")
         XCTAssertEqual(WinUIColors.resolve(highContrast: false, accent: WinUIColors.rgb(9, 8, 7), system: system).accent, WinUIColors.rgb(9, 8, 7))
         let hc = WinUIColors.resolve(highContrast: true, accent: WinUIColors.rgb(9, 8, 7), system: system)
