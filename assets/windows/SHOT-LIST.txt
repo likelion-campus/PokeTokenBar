@@ -1,0 +1,20 @@
+# The Windows capture list: <file in assets/windows> | <CI artifact> | <path inside the artifact>
+# scripts/import-windows-shots.sh <run-id> copies exactly these (and refuses any other file). A shot not in the artifact is skipped
+# with a line saying so. Captures are sample-data pages from the real app; nothing is drawn on top.
+# Owed (not made by any run yet): tray menu with an update offer, Setup welcome page, dark and high-contrast popover pages,
+# Settings in Japanese, the floating pet and its bubbles.
+tray-menu.png | windows-app | ui-dump/tray-menu-open.png
+plaza-window.png | windows-app | plaza-panels-default.png
+home-en.png | ui-home | home-three.png
+home-ko.png | ui-home | home-three-ko.png
+home-ja.png | ui-home | home-three-ja.png
+home-update-en.png | ui-home | home-update.png
+settings-en.png | ui-settings | settings-en-100-top.png
+settings-ko.png | ui-settings | settings-ko-100-top.png
+recap-en.png | ui-recap | recap-week.png
+recap-ko.png | ui-recap | recap-week-ko.png
+recap-ja.png | ui-recap | recap-month-ja.png
+shop-en.png | windows-app | ui-dump/shop/rich-en.png
+bag-en.png | windows-app | ui-dump/bag/items-en.png
+collection-en.png | windows-app | ui-dump/collection/collection-grid-en.png
+pokemon-detail-en.png | windows-app | ui-dump/collection/collection-detail-top-en.png
