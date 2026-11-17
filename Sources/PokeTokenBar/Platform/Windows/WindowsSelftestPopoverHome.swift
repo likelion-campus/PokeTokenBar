@@ -337,7 +337,8 @@ enum HomeFixtures {
         if !still { problems.append("a pinned button moved while the middle scrolled") }
         // keyboard: a control below the visible part is brought into view; the footer's button takes the focus without scrolling
         area.scroll(to: 0)
-        let hidden = Array(zip(tree.nodes, tree.handles)).last { $0.0.tabStop && $0.0.visible && IsChild(area.viewport.hwnd, $0.1) && rect($0.1, in: w).top > view.bottom }
+        let hidden = Array(zip(tree.nodes, tree.handles)).filter { $0.0.tabStop && IsChild(area.viewport.hwnd, $0.1) && rect($0.1, in: w).top > view.bottom }
+            .max { rect($0.1, in: w).top < rect($1.1, in: w).top }
         var keyboard = "no control below the fold"
         if let hidden {
             _ = SetFocus(hidden.1)
@@ -353,8 +354,16 @@ enum HomeFixtures {
             problems.append(keyboard)
         }
         // Tab order is the reading order across the three panes
-        let checks = KitTree.collect(h.window).check(h.window)
-        if !checks.ok { problems.append("tree: \(checks.summary)") }
+        // (what the scroller clips is not on screen: only what shows takes part)
+        area.scroll(to: 0)
+        await wait(0.1)
+        let order = tree.tabOrder.filter { !(IsChild(area.viewport.hwnd, $0) && rect($0, in: w).top >= view.bottom) }
+        let rects = order.map { hwnd -> CGRect in
+            let r = rect(hwnd, in: w)
+            return CGRect(x: CGFloat(r.left), y: CGFloat(r.top), width: CGFloat(r.right - r.left), height: CGFloat(r.bottom - r.top))
+        }
+        let inOrder = PopoverStackLayout.isReadingOrder(rects)
+        if !inOrder || rects.count < 6 { problems.append("Tab order across the panes is not the reading order (\(rects.count) stops)") }
         // the Mac's `.frame(height: 520)`: the window is as tall whatever the content (an empty page as tall as a full one)
         let scale = h.window.ctx.scale
         let expected = CGFloat(h.page.pinnedHeights.top + h.page.pinnedHeights.bottom + h.window.ctx.px(PopoverStackMetrics.homeScrollerHeight)) / scale
@@ -367,7 +376,7 @@ enum HomeFixtures {
         if let f = HomeHarness(stores: fullStores, input: { HomeFixtures.three($0, now: $1) }) { fullHeight = f.page.heightDIP; f.destroy() }
         if emptyHeight == 0 || emptyHeight != fullHeight { problems.append("window height depends on the content: empty \(emptyHeight) DIP, full \(fullHeight) DIP") }
         r.add("home.pinned", problems.isEmpty,
-              "update offer y \(updateBefore.top)-\(updateBefore.bottom) above the scroller y \(view.top)-\(view.bottom), footer y \(refreshBefore.top) below it; scrolled to offset \(area.offset) of content "
+              "Tab order top, scroller, footer=\(inOrder); update offer y \(updateBefore.top)-\(updateBefore.bottom) above the scroller y \(view.top)-\(view.bottom), footer y \(refreshBefore.top) below it; scrolled to offset \(area.offset) of content "
               + "\(area.contentHeight): update/refresh/quit unmoved=\(still); \(keyboard); window \(h.page.heightDIP) DIP = top + 520 pt scroller + footer, empty page \(emptyHeight) = full page \(fullHeight) DIP"
               + (problems.isEmpty ? "" : "; PROBLEMS: " + problems.joined(separator: "; ")))
     }

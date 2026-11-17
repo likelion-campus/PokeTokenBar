@@ -271,6 +271,10 @@ import WinSDK
         let next = (CGFloat(total) / ctx.scale).rounded(.up)
         guard abs(next - heightDIP) >= 1 else { return }
         heightDIP = next
+        if let popover, popover.building {  // inside the page's own build: the popover applies it right after
+            popover.pageSizeChanged()
+            return
+        }
         let generation = popover?.generation
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.isDestroyed, let popover = self.popover, popover.generation == generation else { return }
