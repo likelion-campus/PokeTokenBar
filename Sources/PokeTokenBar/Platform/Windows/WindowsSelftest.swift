@@ -129,6 +129,8 @@ enum WindowsSelftest {
         await popoverHomeChecks(r, app)  // stage 7 task 5 (WindowsSelftestPopoverHome.swift): draws the limit bars (Direct2D), so after the idle window; leaves no window behind
         await popoverTransferChecks(r, app)  // stage 7 task 15 (WindowsSelftestPopoverTransfer.swift): real file and task dialogs, sprites (Direct2D), so after the idle window
         await popoverRecapChecks(r, app)  // stage 7 task 13 (WindowsSelftestPopoverRecap.swift): draws the card (Direct2D), so after the idle window; leaves no window behind
+        await popoverShopBagChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverShopBag.swift): the Shop and Bag pages (sprites: Direct2D); leaves no window behind
+        await popoverTabsChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverTabs.swift): the tab strip; leaves no window behind
         await popoverPetChecks(r, app)  // stage 7 task 22 (WindowsSelftestPopoverPet.swift): the floating pet (its 🥚 draws through DirectWrite), so after the idle window; leaves no pet behind
         await popoverOpenCostChecks(r, app)  // settings-open (WindowsSelftestPopoverOpenCost.swift): Home -> Settings as the gear does it, measured; Direct2D, so after the idle window
         return r.checks
