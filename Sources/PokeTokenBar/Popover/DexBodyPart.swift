@@ -135,9 +135,12 @@ enum DexKeyMove: Equatable {
         let gridH = out.footerTop - Self.gridGap - gridTop
         let cw = (width - CGFloat(DexPaging.columns - 1) * DexPaging.spacing) / CGFloat(DexPaging.columns)
         let ch = (gridH - CGFloat(DexPaging.rows - 1) * DexPaging.spacing) / CGFloat(DexPaging.rows)
+        // The Mac's card is as tall as its content (the 56 pt sprite, 1, two reserved name lines, 2 + 2 padding) and sits in the middle of its
+        // row's share of the grid: a row share shorter than that lets neighbours touch or overlap by a point, as SwiftUI's does.
+        let intrinsic = 2 + Self.thumb + 1 + 2 * p.metrics(.system(size: 12, weight: .regular)).height + 2
         out.cells = model.cells.indices.map { i in
-            CGRect(x: CGFloat(i % DexPaging.columns) * (cw + DexPaging.spacing), y: gridTop + CGFloat(i / DexPaging.columns) * (ch + DexPaging.spacing),
-                   width: cw, height: ch)
+            CGRect(x: CGFloat(i % DexPaging.columns) * (cw + DexPaging.spacing),
+                   y: gridTop + CGFloat(i / DexPaging.columns) * (ch + DexPaging.spacing) + (ch - intrinsic) / 2, width: cw, height: intrinsic)
         }
         // the footer
         let ft = out.footerTop

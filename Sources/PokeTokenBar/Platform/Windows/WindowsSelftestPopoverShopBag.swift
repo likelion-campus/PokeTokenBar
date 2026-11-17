@@ -334,9 +334,15 @@ private struct ShopBagFixturePoke: PokeProviding {
                 for card in snap.model.cards {
                     if !h.has(card.name) || !h.has(card.description) { problems.append("items \(tag): \(card.kind) name or description missing") }
                     // (the candy's stepper reads ×1 too: a passive item's missing count can only be told apart above 1)
-                    let countShown = h.has("×\(card.count)")
-                    if (!card.isPassive && !countShown) || (card.isPassive && card.count > 1 && countShown) || (card.isPassive && !h.has(card.passiveHint)) {
-                        problems.append("items \(tag): \(card.kind) count/effect line")
+                    // The cards are drawn again when the model's observation lands (a rebuild removes and makes a card's rows): read them
+                    // once the page has stood still, not in the middle of that (a card seen without its effect line is a timing, not a state).
+                    func lineProblem() -> Bool {
+                        let countShown = h.has("×\(card.count)")
+                        return (!card.isPassive && !countShown) || (card.isPassive && card.count > 1 && countShown) || (card.isPassive && !h.has(card.passiveHint))
+                    }
+                    _ = await WindowsSelftest.waitUntil(timeout: 3) { !lineProblem() }
+                    if lineProblem() {
+                        problems.append("items \(tag): \(card.kind) count/effect line (count \(card.count), passive \(card.isPassive), count text shown \(h.has("×\(card.count)")), hint shown \(h.has(card.passiveHint)))")
                     }
                 }
                 if language == .en {
