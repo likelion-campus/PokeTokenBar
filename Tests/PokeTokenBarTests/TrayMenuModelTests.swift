@@ -12,7 +12,7 @@ final class TrayMenuModelTests: XCTestCase {
         let without = TrayMenuModel.items(l: l, todayTokens: 19_400_000, todayCost: nil, login: .off, update: nil)
         XCTAssertEqual(without.first??.title, "Today's tokens 19.4M")
         let actions = without.map { $0?.action }
-        XCTAssertEqual(actions, [TrayMenuModel.Action.none, nil, .refresh, .openDex, .openSettings, .toggleBackView, .toggleLaunchAtLogin, .openLogFolder,
+        XCTAssertEqual(actions, [TrayMenuModel.Action.none, nil, .refresh, .openSettings, .toggleBackView, .toggleLaunchAtLogin, .openLogFolder,
                                  nil, .quit])
     }
 
@@ -59,7 +59,7 @@ final class TrayMenuModelTests: XCTestCase {
         XCTAssertFalse(off.contains { $0?.title.contains("Teammates") == true })
         let on = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, teammatesOnline: 3)
         XCTAssertEqual(on[1], .init(title: "Teammates online: 3", enabled: false, checked: false, action: .none))
-        XCTAssertEqual(on.map { $0?.action }, [TrayMenuModel.Action.none, TrayMenuModel.Action.none, nil, .refresh, .openDex, .openSettings, .toggleBackView,
+        XCTAssertEqual(on.map { $0?.action }, [TrayMenuModel.Action.none, TrayMenuModel.Action.none, nil, .refresh, .openSettings, .toggleBackView,
                                                .toggleLaunchAtLogin, .openLogFolder, nil, .quit])
         XCTAssertEqual(TrayMenuModel.items(l: L(.ko), todayTokens: 0, todayCost: nil, login: .off, update: nil,
                                            teammatesOnline: 0)[1]?.title, "접속 중인 팀원 0명")
@@ -72,10 +72,9 @@ final class TrayMenuModelTests: XCTestCase {
         XCTAssertEqual(off, TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, plazaUnread: nil))
         XCTAssertFalse(off.contains { $0?.action == .openPlaza })
         let ready = TrayMenuModel.items(l: l, todayTokens: 0, todayCost: nil, login: .off, update: nil, plazaUnread: 0)
-        XCTAssertEqual(ready.map { $0?.action }, [TrayMenuModel.Action.none, nil, .refresh, .openDex, .openPlaza, .openSettings, .toggleBackView,
+        XCTAssertEqual(ready.map { $0?.action }, [TrayMenuModel.Action.none, nil, .refresh, .openPlaza, .openSettings, .toggleBackView,
                                                   .toggleLaunchAtLogin, .openLogFolder, nil, .quit])
-        XCTAssertEqual(ready[3], .init(title: l.dexTitle, enabled: true, checked: false, action: .openDex))   // stage 7 Task 20: the Mac's Refresh, Pokédex, Plaza order
-        XCTAssertEqual(ready[4], .init(title: "광장 열기…", enabled: true, checked: false, action: .openPlaza))
+        XCTAssertEqual(ready[3], .init(title: "광장 열기…", enabled: true, checked: false, action: .openPlaza))
         let unread = TrayMenuModel.items(l: L(.ko), todayTokens: 0, todayCost: nil, login: .off, update: nil, teammatesOnline: 2, plazaUnread: 3)
         XCTAssertEqual(unread.compactMap { $0 }.first { $0.action == .openPlaza }?.title, "광장 열기… (3)")
     }

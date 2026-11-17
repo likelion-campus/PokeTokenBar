@@ -137,32 +137,6 @@ final class WindowsPopoverKitTests: XCTestCase {
         XCTAssertEqual(hc.accent, WinUIColors.rgb(0, 120, 215), "high contrast: COLOR_HIGHLIGHT, not the accent")
     }
 
-    func testDarkPaletteIsOurOwnAndHighContrastWinsOverIt() async {
-        let system: (Int32) -> COLORREF = { index in
-            switch index {
-            case 5: WinUIColors.rgb(255, 255, 255)
-            case 8: WinUIColors.rgb(0, 0, 0)
-            case 13: WinUIColors.rgb(0, 120, 215)
-            default: WinUIColors.rgb(1, 2, 3)
-            }
-        }
-        let dark = WinUIColors.resolve(highContrast: false, dark: true, accent: nil, system: system)
-        XCTAssertEqual(dark.window, WinUIColors.colorref(PopoverSurface.darkWindow), "not COLOR_WINDOW: Win32 stays white in dark mode")
-        XCTAssertNotEqual(dark.card, dark.window)
-        XCTAssertEqual(dark.accent, WinUIColors.colorref(0x0091FF), "no Windows accent: the Mac's dark systemBlue")
-        for text in [dark.secondaryText, dark.tertiaryText, dark.text] {
-            XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(WinUIColors.rgb(of: text), WinUIColors.rgb(of: dark.card)), 4.5)
-        }
-        XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(WinUIColors.rgb(of: dark.secondaryText), WinUIColors.rgb(of: dark.card)), 7)
-        XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(WinUIColors.rgb(of: dark.disabled), WinUIColors.rgb(of: dark.window)), 3)
-        let navy = WinUIColors.resolve(highContrast: false, dark: true, accent: WinUIColors.colorref(0x101060), system: system)
-        XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(WinUIColors.rgb(of: navy.accent), PopoverSurface.darkWindow), 3, "a dark accent is lifted")
-        let both = WinUIColors.resolve(highContrast: true, dark: true, accent: nil, system: system)
-        XCTAssertEqual(both.window, WinUIColors.rgb(255, 255, 255), "high contrast wins: the system's colours")
-        XCTAssertEqual(WinUIColors.colorref(0xFF8040), WinUIColors.rgb(0xFF, 0x80, 0x40))
-        XCTAssertEqual(WinUIColors.rgb(of: WinUIColors.colorref(0x123456)), 0x123456)
-    }
-
     func testSlidersAndSteppersSnapToTheirStep() async {
         XCTAssertEqual(WinControl.snap(72, range: 50...95, step: 5), 70)
         XCTAssertEqual(WinControl.snap(73, range: 50...95, step: 5), 75)

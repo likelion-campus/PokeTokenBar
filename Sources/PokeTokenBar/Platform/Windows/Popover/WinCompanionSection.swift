@@ -101,11 +101,7 @@ import WinSDK
     }
 
     /// Shows `input` again now (the selftest, after changing its fixture).
-    func reload() {
-        let input = currentInput()
-        apply(input)
-        if inputOverride != nil { applyDexLinks(dexLinksOverride ?? [:], input) }  // stage 7 Task 20
-    }
+    func reload() { apply(currentInput()) }
 
     private func currentInput() -> CompanionHeaderInput {
         inputOverride?() ?? CompanionHeaderInput(store: companion, names: names, failedTypeNames: failedTypeNames)
@@ -115,54 +111,18 @@ import WinSDK
         guard !isDestroyed else { return }
         stats.observes += 1
         if inputOverride != nil {
-            let input = currentInput()
-            prepareDexLinks(dexLinksOverride ?? [:], input)
-            apply(input)
-            applyDexLinks(dexLinksOverride ?? [:], input)
+            apply(currentInput())
             return
         }
         let mine = epoch
-        var links: [Int: String] = [:]
-        let input = withObservationTracking { () -> CompanionHeaderInput in
-            links = companion.dexLinkTargets   // stage 7 Task 20: C2 follows the dex too
-            return currentInput()
-        } onChange: { [weak self] in
+        let input = withObservationTracking { currentInput() } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, self.epoch == mine, !self.isDestroyed else { return }
                 self.observe()
             }
         }
-        prepareDexLinks(links, input)
         apply(input)
-        applyDexLinks(links, input)
     }
-
-    // --- stage 7 Task 20: C2, the sprite and the evolution line open their Pokédex page (begin) ---
-    /// The selftest's links when it shows a fixed input.
-    var dexLinksOverride: [Int: String]?
-
-    /// Which species link where (`CompanionStore.dexLinkTargets`: only species in the dex). The header's sprite links by the current
-    /// species (an egg has none); every node of the line by its own.
-    /// What the parts made by the next `apply` start with: set before their first layout (a link set after it would lay the header out
-    /// again, and a reader of the first layout would find it gone).
-    private var pendingDexLink: (target: String, hint: String)?
-    private var pendingDexLinks: [Int: String] = [:]
-
-    private func prepareDexLinks(_ links: [Int: String], _ input: CompanionHeaderInput) {
-        let hint = companion.l.dexOpenEntryHint
-        pendingDexLink = input.currentSpeciesID.flatMap { id in links[id].map { (target: $0, hint: hint) } }
-        pendingDexLinks = links
-    }
-
-    func applyDexLinks(_ links: [Int: String], _ input: CompanionHeaderInput) {
-        let hint = companion.l.dexOpenEntryHint
-        header?.part.dexLink = input.currentSpeciesID.flatMap { id in links[id].map { (target: $0, hint: hint) } }
-        if let line {
-            line.part.dexHint = hint
-            line.part.dexLinks = links
-        }
-    }
-    // --- stage 7 Task 20 (end) ---
 
     func apply(_ input: CompanionHeaderInput) {
         guard !isDestroyed else { return }
@@ -198,12 +158,7 @@ import WinSDK
                 guard let view = try? WinDrawnView(parent: pane, ctx: ctx) else { return nil }
                 view.sprites = WinSpriteAnimator(fetcher: Self.fetcher(), animationsEnabled: self.animationsEnabled)
                 view.onPointer = { [weak self] point in self?.hovered(point) }  // the growth bar's hover (Task 12's pointer hook)
-                view.handActions = [CompanionHeaderPart.dexAction]   // stage 7 Task 20: C2
-                view.onHit = { [weak self] hit in
-                    if hit.action == CompanionHeaderPart.dexAction, let target = hit.target { self?.page?.openDexEntry(target) }
-                }
                 let part = CompanionHeaderPart(m, textScale: CGFloat(ctx.textScale))
-                part.dexLink = pendingDexLink   // stage 7 Task 20: before the first layout
                 view.host(part, width: width)
                 made = (view, part)
                 return view.control
@@ -225,15 +180,10 @@ import WinSDK
                 view.sprites = WinSpriteAnimator(fetcher: Self.fetcher(), animationsEnabled: self.animationsEnabled)
                 let part = EvoLinePart(m.evoLine ?? Self.emptyLine, background: Self.plaza(ctx.colors.palette.window),
                                        accent: Self.plaza(ctx.colors.palette.accent), glyphs: raster)
-                part.dexHint = companion.l.dexOpenEntryHint   // stage 7 Task 20: before the first layout
-                part.dexLinks = pendingDexLinks
-                view.handActions = [EvoLinePart.dexAction]   // stage 7 Task 20: C2
-                view.onPointer = { [weak part] p in part?.setPointer(p) }
                 view.host(part, width: width)
                 part.now = { [weak self] in self?.now() ?? Date() }
                 view.onHit = { [weak self, weak part] hit in
                     guard let self, let part else { return }
-                    if hit.action == EvoLinePart.dexAction, let target = hit.target { self.page?.openDexEntry(target); return }  // stage 7 Task 20
                     part.animatesMoves = self.animationsEnabled()
                     if part.press(hit) { self.armLine() }
                 }
@@ -356,7 +306,6 @@ import WinSDK
     /// The pointer over the header (nil: it left): over the growth bar's line or not.
     func hovered(_ point: CGPoint?) {
         guard !isDestroyed, let header else { return }
-        header.part.setLinkHover(point.map { header.part.spriteBoxFrame?.contains($0) == true } ?? false)  // stage 7 Task 20: C2
         let over = point.map { header.part.barFrame?.contains($0) == true } ?? false
         guard over != barHover.isHovered else { return }
         stats.barHovers += 1

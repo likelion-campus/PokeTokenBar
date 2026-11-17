@@ -56,7 +56,6 @@ import WinSDK
 
     // Controls the refresh and the selftest read.
     private var languageRow: WinRow?
-    private var representative: WinRepresentativeRow?  // stage 7 Task 20 (G2)
     private var refreshRow: WinRow?
     private var limitDisplayRow: WinRow?
     private var trendWindowRow: WinRow?  // stage 7 Task 12 (G6)
@@ -167,7 +166,7 @@ import WinSDK
         guard let window, let ctx else { return }
         lastClient = client
         let l = self.l
-        loginState = WinOpenTrace.step("loginItem") { host.loginItem.state }
+        loginState = host.loginItem.state
 
         // Header, body, footer: creation order is Tab order.
         let head = try? WinPane(parent: window.hwnd, ctx: ctx, rect: client)
@@ -196,13 +195,9 @@ import WinSDK
         footer = foot
         if let foot { buildFooter(foot, l) }
 
-        // The settings' values and which rows show first, then one layout pass: laying out every row and hiding half of them
-        // after was a second pass over a page on screen (the settings-open fix).
-        var lap = WinOpenTrace.Lap()
-        sync()
-        lap.mark("sync")
         placeChrome(client)
-        lap.mark("layout")
+        page.layout()
+        sync()
     }
 
     private func buildFooter(_ foot: WinPane, _ l: L) {
@@ -258,8 +253,8 @@ import WinSDK
         footer?.move(RECT(left: 0, top: client.bottom - footH, right: width, bottom: client.bottom))
         area?.move(RECT(left: 0, top: headerH, right: width, bottom: client.bottom - footH))
         if let stack, let area {
-            stack.width = area.contentWidth   // a new width asks for a layout
-            stack.layoutIfNeeded()            // the build's rows did too; a new height alone moves no row
+            stack.width = area.contentWidth
+            stack.layout()
         }
         let bar = headerH - line
         if let back = backLink {
@@ -285,7 +280,6 @@ import WinSDK
     private func buildSections(_ s: WinStack) {
         let l = self.l
         let store = self.store
-        var lap = WinOpenTrace.Lap()   // what each section costs (the settings-open trace)
 
         // General (G1, G3, G5, G8, G12b)
         let general = s.addSection(l.generalSectionTitle)
@@ -294,13 +288,6 @@ import WinSDK
                               in: p, ctx: c)
         }
         languageRow?.control?.onSelect = { [weak self] i in self?.languageChosen(i) }
-        // --- stage 7 Task 20: the representative Pokémon row (G2), between the language and the refresh interval as on the Mac (begin) ---
-        representative = WinRepresentativeRow(section: general, companion: host.companion) { [weak self] in
-            guard let self, let popover = self.popover else { return }
-            popover.state.openRepresentativeDex()   // the Mac's onChooseRepresentative
-            popover.replacePage()
-        }
-        // --- stage 7 Task 20 (end) ---
         let presets = UsageStore.intervalPresets
         refreshRow = general.addRow(l.refreshInterval) { p, c in
             WinControls.combo(presets.map { l.intervalLabel($0.value) },
@@ -330,7 +317,6 @@ import WinSDK
         // No "why do I have to refresh by hand?" row: the Mac's Settings has none (its help is Home's (?) next to the limits caption).
         // Left out on Windows (`SettingsModel.visibility`): animation quality and the pet group (they wait for the pet, T22), the
         // menu bar group and the Keychain switch (no such things here). The Mac's representative, trend and tracked-account rows are T20, T12, T14.
-        lap.mark("general")
 
         // MARK: Task 15 — difficulty (begin)
         let transferRows = WinTransferSection(host: host, drafts: transferDrafts, owner: { [weak self] in self?.window?.hwnd },
@@ -339,7 +325,6 @@ import WinSDK
         transfer = transferRows
         transferRows.addDifficulty(to: s)
         // MARK: Task 15 (end)
-        lap.mark("difficulty")
 
         // Tracked providers (G11)
         let providers = s.addSection(l.trackedProvidersSectionTitle)
@@ -350,14 +335,12 @@ import WinSDK
         }
         let providerHint = s.addSection(nil, card: false)
         providerHint.addRow(nil, hint: l.trackedProvidersHint) { _, _ in nil }
-        lap.mark("providers")
 
         // Team (G13): Korean, as the Mac's
         let teamSection = s.addSection(L(.ko).teamSectionTitle)
         team = WinTeamSection(section: teamSection, host: host, drafts: teamDrafts,
                               changed: { [weak self] in self?.scheduleRefresh() },
                               rebuild: { [weak self] in self?.scheduleRebuild() })
-        lap.mark("team")
 
         // Notifications (G14)
         let notifications = s.addSection(l.notificationsSection)
@@ -384,7 +367,6 @@ import WinSDK
         companionAlertsRow?.control?.onToggle = { on in store.companionNotifications = on }
         statusChecksRow = notifications.addToggle(l.statusChecksLabel, hint: l.statusChecksHint, isOn: store.statusChecksEnabled)
         statusChecksRow?.control?.onToggle = { on in store.statusChecksEnabled = on }
-        lap.mark("notifications")
 
         // Updates (G15)
         let updates = s.addSection(l.updateSectionTitle)
@@ -420,9 +402,7 @@ import WinSDK
                                                     style: .trailing)
         }
 
-        lap.mark("updates")
         transferRows.addTransfer(to: s)   // MARK: Task 15 — backup and transfer (G16)
-        lap.mark("transfer")
         // --- stage 7 Task 14: Advanced (G17) (begin) ---
         let advancedSection = s.addSection(l.advancedSectionTitle)
         advanced = WinAdvancedSection(section: advancedSection, host: host, drafts: advancedDrafts, facts: PlatformCompat.popoverFacts,
@@ -431,7 +411,6 @@ import WinSDK
                                       relayout: { [weak self] in self?.stack?.setNeedsLayout() },
                                       rebuild: { [weak self] in self?.scheduleRebuild() })
         // --- stage 7 Task 14 (end) ---
-        lap.mark("advanced")
 
         // About & support (G18)
         let about = s.addSection(l.aboutSupportSectionTitle)
@@ -446,7 +425,6 @@ import WinSDK
         if let edit = fallbackRow?.control {
             WinKit.send(edit.hwnd, 0x00CF /* EM_SETREADONLY */, 1)   // selectable, not editable
         }
-        lap.mark("about")
     }
 
     static var appVersion: String { WindowsInstall.version ?? "—" }
@@ -459,11 +437,9 @@ import WinSDK
         applying = true
         defer { applying = false }
         refreshes += 1
-        WinOpenTrace.note(.refresh)
         let store = self.store
         let language = AppLanguage.allCases.firstIndex(of: host.companion.language) ?? 0
         if let c = languageRow?.control, c.selection != language { c.selection = language }
-        representative?.update()  // stage 7 Task 20
         let presets = UsageStore.intervalPresets
         let interval = presets.firstIndex { $0.value == store.refreshInterval } ?? -1
         if let c = refreshRow?.control, c.selection != interval { c.selection = interval }
@@ -614,13 +590,9 @@ import WinSDK
         let focused = stack?.controls.firstIndex { $0.parts.contains { $0 == GetFocus() } }
         let hadForeground = GetForegroundWindow() == window.hwnd
         let client = lastClient
-        WinKit.drawingOnce(window.hwnd) {   // on screen: drawn once, finished, at the kept scroll position (the settings-open fix)
-            WinOpenTrace.build(self, via: "page rebuild") {
-                freeContents()
-                buildContents(client: client)
-            }
-            area?.scroll(to: offset)
-        }
+        freeContents()
+        buildContents(client: client)
+        area?.scroll(to: offset)
         if hadForeground, let focused, let controls = stack?.controls, controls.indices.contains(focused) {
             _ = SetFocus(controls[focused].hwnd)
         }
@@ -697,7 +669,7 @@ import WinSDK
         backLink = nil
         titleLabel = nil
         trendWindowRow = nil  // stage 7 Task 12
-        representative = nil; languageRow = nil; refreshRow = nil; limitDisplayRow = nil; loginRow = nil; backViewRow = nil; helpRow = nil; helpBodyRow = nil
+        languageRow = nil; refreshRow = nil; limitDisplayRow = nil; loginRow = nil; backViewRow = nil; helpRow = nil; helpBodyRow = nil
         limitAlertsRow = nil; warnRow = nil; critRow = nil; companionAlertsRow = nil; statusChecksRow = nil; updateNotificationsRow = nil
         checkNowRow = nil; updateOfferRow = nil; updateSkippedRow = nil; updateCurrentRow = nil; reportRow = nil; logRow = nil
         fallbackRow = nil

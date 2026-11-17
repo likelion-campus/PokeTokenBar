@@ -591,7 +591,9 @@ import WinSDK
         case .saved?: text = l.sessionKeySaved; role = .systemGreen
         case nil: text = " "; role = .tertiary
         }
-        c.textColor = c.ctx.colors.roleColor(role)
+        let v = role.macValue(.light)
+        func byte(_ d: Double) -> UInt8 { UInt8(max(0, min(255, (d * 255).rounded()))) }
+        c.textColor = WinUIColors.rgb(byte(v.red), byte(v.green), byte(v.blue))
         guard c.text != text else { return }
         k.labelLine?.setText(c, text)
         k.labelLine?.setShown(c, badge != nil)

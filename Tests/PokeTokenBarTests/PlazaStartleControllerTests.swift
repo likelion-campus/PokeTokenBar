@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import PokeTokenBar
 
 private final class NoSprites: PlazaSpriteFetching, @unchecked Sendable {

@@ -42,18 +42,6 @@ import Foundation
     /// The chevron's move in progress: from, to (scroll offsets) and when it started.
     private(set) var move: (from: CGFloat, to: CGFloat, start: Date)?
     // --- stage 7 Task 9 (end) ---
-    // --- stage 7 Task 20: the nodes that open their Pokédex page (C2) (begin) ---
-    /// The hit a linked node reports (`target` = the dex cell's collection ID).
-    static let dexAction = "evo.dex"
-    /// Species number → dex `collectionID` (`CompanionStore.dexLinkTargets`), empty when the line links nowhere (the Mac's
-    /// `onOpenDexEntry: nil`): only species in the dex are buttons; the `?` node and uncaught species are not.
-    var dexLinks: [Int: String] = [:] { didSet { if oldValue != dexLinks { onChange?() } } }
-    /// "View entry in collection": the tooltip, and after the name the accessible name.
-    var dexHint = ""
-    /// The species names for the accessible names (the header shows none; the Mac names the link by the node's name).
-    var dexNames: [Int: String] = [:]
-    private(set) var hoverNode: Int?
-    // --- stage 7 Task 20 (end) ---
 
     init(_ model: EvoLineModel, background: PlazaColor, accent: PlazaColor = PopoverColorRole.accent.plazaColor(),
          glyphs: (any PopoverGlyphRaster)? = nil) {
@@ -193,14 +181,9 @@ import Foundation
         let arrowMetrics = CompanionHeaderPart.lineHeight(arrowFont, text)
         let accent = self.accent
         var items: [PlazaAccessibilityItem] = []
-        let hoverNode = self.hoverNode   // stage 7 Task 20
         let picture = space.image(scale: scale, graphics: graphics) { canvas in
             for (i, node) in lay.nodes.enumerated() {
                 let x = lay.columnX(i) - lay.scrollX
-                if hoverNode == i {   // DexEntryLink: Color.primary at 10 % behind the node, 6 pt corners
-                    canvas.setFillColor(PopoverColorRole.primary.plazaShapeColor(alpha: 0.1))
-                    canvas.fillRoundedRect(space.canvas(CGRect(x: x, y: 0, width: Self.thumb, height: Self.thumb)), radius: 6)
-                }
                 if i > 0 {
                     let cellW = Self.thumb * EvoLineLayout.arrowRatio
                     let cellX = lay.arrowX(i) - lay.scrollX
@@ -230,20 +213,6 @@ import Foundation
             items.append(PlazaAccessibilityItem(frame: CGRect(x: lay.columnX(i) - lay.scrollX, y: 0, width: Self.thumb, height: Self.thumb),
                                                 role: .staticText, label: model.mysteryLabel))
         }
-        // --- stage 7 Task 20: the links (begin) ---
-        var linkTips: [PlazaTooltip] = []
-        let visible = CGRect(x: 0, y: 0, width: lay.visibleWidth, height: Self.height)
-        for (i, node) in lay.nodes.enumerated() {
-            guard let target = EvoLineLayout.dexLinkTarget(for: node, links: dexLinks) else { continue }
-            let frame = nodeFrame(i).intersection(visible)
-            guard !frame.isNull, frame.width > 2 else { continue }
-            var name: String?
-            if case .species(let id) = node.content { name = dexNames[id] }
-            items.append(PlazaAccessibilityItem(frame: frame, role: .button, label: name.map { "\($0), \(dexHint)" } ?? dexHint,
-                                                action: PlazaPanelHit(action: Self.dexAction, index: i, target: target), key: "evo-dex-\(i)"))
-            linkTips.append(PlazaTooltip(frame: frame, text: dexHint))
-        }
-        // --- stage 7 Task 20 (end) ---
         var overlays: [PlazaPanelLayer] = []
         if lay.scrolls {
             if let fade = Self.fade(back: lay.canScrollBack, forward: lay.canScrollForward, size: size, background: background, scale: scale, graphics: graphics) {
@@ -257,37 +226,12 @@ import Foundation
             }
         }
         let layers: [PlazaPanelLayer] = picture.map { [.image($0, frame: CGRect(origin: .zero, size: size))] } ?? []
-        let tips = items.filter { $0.role == .button && $0.action?.action != Self.dexAction }.map { PlazaTooltip(frame: $0.frame, text: $0.label) } + linkTips
+        let tips = items.filter { $0.role == .button }.map { PlazaTooltip(frame: $0.frame, text: $0.label) }
         return PopoverDrawing(drawing: PlazaPanelDrawing(layers: layers, accessibility: items, tooltips: tips),
                               spriteSlots: spriteSlots, overlays: overlays)
     }
 
-    // --- stage 7 Task 20: C2 (begin) ---
-    /// The node's column as drawn (the link's hover and hit area: `.background` of the 40 pt column).
-    func nodeFrame(_ i: Int) -> CGRect {
-        CGRect(x: layout.columnX(i) - layout.scrollX, y: 0, width: Self.thumb, height: Self.thumb)
-    }
-
-    /// The linked node under `point`, with the collection ID it opens.
-    func link(at point: CGPoint) -> (index: Int, target: String)? {
-        guard !dexLinks.isEmpty, point.x >= 0, point.x <= layout.visibleWidth else { return nil }
-        for (i, node) in layout.nodes.enumerated() where nodeFrame(i).contains(point) {
-            if let target = EvoLineLayout.dexLinkTarget(for: node, links: dexLinks) { return (i, target) }
-        }
-        return nil
-    }
-
-    /// The pointer over the line (DIP, part coordinates; nil: left): the linked node under it gets the hover background.
-    func setPointer(_ point: CGPoint?) {
-        let next = point.flatMap { link(at: $0)?.index }
-        guard next != hoverNode else { return }
-        hoverNode = next
-        onChange?()
-    }
-    // --- stage 7 Task 20 (end) ---
-
     func hit(_ point: CGPoint) -> PlazaPanelHit? {
-        if let l = link(at: point) { return PlazaPanelHit(action: Self.dexAction, index: l.index, target: l.target) }  // stage 7 Task 20
         guard layout.scrolls else { return nil }
         if layout.canScrollBack, backChevron.contains(point) { return PlazaPanelHit(action: Self.backAction, index: nil) }
         if layout.canScrollForward, forwardChevron.contains(point) { return PlazaPanelHit(action: Self.forwardAction, index: nil) }
@@ -326,7 +270,7 @@ import Foundation
         let metrics = CompanionHeaderPart.lineHeight(font, graphics.text)
         return space.image(scale: scale, graphics: graphics) { canvas in
             let whole = space.canvas(CGRect(x: 0, y: 0, width: side, height: side))
-            canvas.setFillColor(PopoverAppearance.current.chipColor(light: 0.97, alpha: 0.92))
+            canvas.setFillColor(PlazaColor(srgbRed: 0.97, green: 0.97, blue: 0.97, alpha: 0.92))
             canvas.fillEllipse(in: whole)
             canvas.setStrokeColor(PopoverColorRole.primary.plazaColor(alpha: 0.12))
             canvas.strokeEllipse(in: whole.insetBy(dx: 0.5, dy: 0.5), lineWidth: 1)

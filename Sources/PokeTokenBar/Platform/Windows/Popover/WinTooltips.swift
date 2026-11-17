@@ -36,15 +36,6 @@ import WinSDK
         WinKit.send(hwnd, Msg.setMaxTipWidth, 0, Int(maxWidth))
     }
 
-    /// Dark mode (Task 16): the tooltip window's own colours. Visual styles would override them, so the window is taken off
-    /// its theme first (the Mac's dark help tags are plain dark gray too).
-    func dress(background: COLORREF, text: COLORREF) {
-        guard let hwnd else { return }
-        WinDarkMode.setTheme(hwnd, "")
-        WinKit.send(hwnd, 0x0413 /* TTM_SETTIPBKCOLOR */, Int(background))
-        WinKit.send(hwnd, 0x0414 /* TTM_SETTIPTEXTCOLOR */, Int(text))
-    }
-
     /// Adds or updates the hover text of a control; nil removes it.
     func set(_ text: String?, for control: HWND, in parent: HWND?) {
         let id = UInt(bitPattern: Int(bitPattern: control))

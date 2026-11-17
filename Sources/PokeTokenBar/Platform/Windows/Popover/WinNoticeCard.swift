@@ -50,7 +50,7 @@ import WinSDK
         let pal = ctx.colors.palette
         let base: COLORREF
         switch tint {
-        case .orange: base = ctx.colors.statusOrange
+        case .orange: base = WinUIColors.rgb(255, 149, 0)
         case .accent: base = pal.accent
         }
         tintColor = ctx.highContrast ? pal.window : WinUIColors.blend(pal.window, base, alpha)
@@ -176,7 +176,7 @@ import WinSDK
         if let glyph, glyphRect.right > glyphRect.left {
             let old = SelectObject(dc, UnsafeMutableRawPointer(glyph.font))
             _ = SetBkMode(dc, 1 /* TRANSPARENT */)
-            _ = SetTextColor(dc, tint == .orange && !ctx.highContrast ? ctx.colors.statusOrange : pal.text)
+            _ = SetTextColor(dc, tint == .orange && !ctx.highContrast ? WinUIColors.rgb(255, 149, 0) : pal.text)
             var box = glyphRect
             _ = WinStr.w(glyph.text).withUnsafeBufferPointer {
                 DrawTextW(dc, $0.baseAddress, -1, &box, UINT(DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))

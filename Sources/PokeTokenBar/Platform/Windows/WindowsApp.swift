@@ -468,7 +468,6 @@ extension WindowsAppDelegate {
             }
         }
         tray.onOpenSettings = { [weak made] in made?.present(.trayMenu) { $0.showSettings = true } }
-        tray.onOpenDex = { [weak made] in made?.present(.trayMenu) { $0.openRepresentativeDex() } }   // stage 7 Task 20
         tray.onMenuWillOpen = { [weak made] in made?.close(.iconClick) }
         tray.onBlockedByDialog = { [weak made] in made?.bringDialogForward() }   // stage 7 Task 15
     }

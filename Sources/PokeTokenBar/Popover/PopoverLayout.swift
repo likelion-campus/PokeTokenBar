@@ -42,9 +42,6 @@ struct PopoverStackMetrics: Equatable, Sendable {
     static let homeTop = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 12, plainSpacing: 6, padTop: 14, padBottom: 0)
     static let homeScroll = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 12, plainSpacing: 6, padTop: 0, padBottom: 0)
     static let homeFooter = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 12, plainSpacing: 6, padTop: 0, padBottom: 14)
-    /// The Shop's `VStack(spacing: 10)` and the Bag's `VStack(spacing: 8)` in the scroller (14 pt sides, no vertical padding).
-    static let shopScroll = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 10, plainSpacing: 6, padTop: 0, padBottom: 0)
-    static let bagScroll = PopoverStackMetrics(pagePadding: 14, sectionSpacing: 8, plainSpacing: 6, padTop: 0, padBottom: 0)
     /// The scroller's height in the Mac's points (`.frame(height: 520)`): fixed, also when the content is shorter.
     static let homeScrollerHeight: CGFloat = 520
 

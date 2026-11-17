@@ -82,12 +82,6 @@ enum WinEditKind: Equatable, Sendable {
     var onFocus: ((Bool) -> Void)?
     /// `drawnItem`: whether Escape is the item's now (a selection to clear); otherwise Escape reaches the popover as usual.
     var claimsEscape: (() -> Bool)?
-    // --- stage 7 Task 20: a drawn item's context menu (right click, the menu key, Shift+F10) (begin) ---
-    /// `drawnItem`: `WM_CONTEXTMENU` over the item, with the pointer's screen point (nil: from the keyboard); true when handled.
-    var onContextMenu: ((POINT?) -> Bool)?
-    /// `drawnItem`: the pointing hand over it (the Mac's `DexEntryLink`).
-    var showsHandCursor = false
-    // --- stage 7 Task 20 (end) ---
     fileprivate var tracking = false
     // --- stage 7 Task 12 (end) ---
 
@@ -119,13 +113,6 @@ enum WinEditKind: Equatable, Sendable {
         self.background = background
         self.font = font
         for part in parts { Self.register(self, part) }
-        // Dark mode (Task 16): the common controls' dark visual styles; high contrast keeps the system's own.
-        if ctx.dark, let theme = WinDarkMode.themeName(for: kind) {
-            for (i, part) in parts.enumerated() {
-                // A stepper is a read-only edit (field style) and the arrows (Explorer style).
-                WinDarkMode.setTheme(part, kind == .stepper && i == 0 ? "DarkMode_CFD" : theme)
-            }
-        }
     }
 
     // MARK: state
@@ -223,9 +210,6 @@ enum WinEditKind: Equatable, Sendable {
 
     fileprivate var valueWidth: CGFloat = 0
 
-    /// The selftest reads whether the control is shown.
-    var isVisibleForTesting: Bool { IsWindowVisible(hwnd) }
-
     func setVisible(_ visible: Bool) {
         for part in parts { WinKit.setVisible(part, visible) }
     }
@@ -239,7 +223,7 @@ enum WinEditKind: Equatable, Sendable {
         // Every callback goes: a page that captured itself in one would otherwise keep itself alive through its controls.
         onDestroy = nil; onClick = nil; onToggle = nil; onSelect = nil; onValue = nil; onCommit = nil; onChange = nil
         onFrame = nil; drawItem = nil; onSizeChange = nil; fitWidth = nil
-        onPointer = nil; onKey = nil; onFocus = nil; claimsEscape = nil; onContextMenu = nil
+        onPointer = nil; onKey = nil; onFocus = nil; claimsEscape = nil
         format = { String($0) }
         for part in parts {
             ctx.tooltips.set(nil, for: part, in: GetParent(part))
@@ -310,7 +294,6 @@ enum WinEditKind: Equatable, Sendable {
         let isCode: Bool = { if case .code? = c.editKind { return true }; return false }()
         let isPassword: Bool = { if case .password? = c.editKind { return true }; return false }()  // stage 7 Task 14
         let ctrlDown = GetKeyState(0x11 /* VK_CONTROL */) < 0
-        if message == 0x000F { WinOpenTrace.note(.paint, hwnd) } else if message == 0x0014 { WinOpenTrace.note(.erase, hwnd) }  // settings-open trace
         switch message {
         case 0x0007:  // WM_SETFOCUS: keyboard focus inside a scroll area brings the control into view
             if GetKeyState(0x01 /* VK_LBUTTON */) >= 0 { WinScrollArea.reveal(hwnd) }
@@ -327,12 +310,6 @@ enum WinEditKind: Equatable, Sendable {
             return code
         case UINT(WM_KEYDOWN) where c.onKey != nil && wParam != WPARAM(VK_RETURN):  // stage 7 Task 12
             return c.onKey?(Int(wParam)) == true ? 0 : nil
-        case 0x0020 where c.showsHandCursor && Int(lParam) & 0xFFFF == 1 /* HTCLIENT */:  // WM_SETCURSOR (stage 7 Task 20)
-            _ = SetCursor(LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32649 /* IDC_HAND */)))
-            return 1
-        case 0x007B where c.onContextMenu != nil:  // WM_CONTEXTMENU over a drawn item (stage 7 Task 20)
-            let point: POINT? = lParam == -1 ? nil : POINT(x: Int32(Int16(truncatingIfNeeded: lParam & 0xFFFF)), y: Int32(Int16(truncatingIfNeeded: (lParam >> 16) & 0xFFFF)))
-            return c.onContextMenu?(point) == true ? 0 : nil
         case 0x0200 where c.onPointer != nil:  // WM_MOUSEMOVE over a drawn item (stage 7 Task 12)
             if !c.tracking {
                 c.tracking = true
@@ -530,28 +507,14 @@ enum WinClipboardText {
         guard let part = HWND(bitPattern: Int(lParam)), let c = WinControl.control(part),
               let dc = HDC(bitPattern: UInt(wParam)) else { return nil }
         let colors = c.ctx.colors
-        if colors.dark, message == 0x0133 || message == 0x0134 {  // dark: the field and the drop-down list in the field colour
-            _ = SetBkColor(dc, colors.palette.field)
-            _ = SetTextColor(dc, colors.palette.text)
-            return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(colors.palette.field))))
-        }
         if message == 0x0133 || message == 0x0134 { return nil }  // edits and lists draw as the system draws them
         if colors.highContrast {
             guard message == 0x0138 else { return nil }
-            _ = SetBkColor(dc, colors.palette.window)
-            _ = SetTextColor(dc, colors.palette.text)
-            return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(colors.palette.window))))
+            _ = SetBkColor(dc, GetSysColor(5))
+            _ = SetTextColor(dc, GetSysColor(8))
+            return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(GetSysColorBrush(5))))
         }
         _ = SetBkColor(dc, c.background)
-        // Dark: every text the system draws through this message (a read-only field, a check box's text where the theme
-        // lets us) is light; a themed check box or radio button draws its own light text in its dark style.
-        if colors.dark, c.kind != .label, !(c.kind == .trackbar && part != c.hwnd) {
-            _ = SetTextColor(dc, colors.palette.text)
-            if c.kind == .stepper && part == c.parts[0] {
-                _ = SetBkColor(dc, colors.palette.field)
-                return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(colors.palette.field))))
-            }
-        }
         if c.kind == .label || (c.kind == .trackbar && part != c.hwnd) { _ = SetTextColor(dc, c.textColor ?? colors.text(c.role)) }  // stage 7 Task 5: textColor
         return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(c.background))))
     }
@@ -713,8 +676,6 @@ enum WinClipboardText {
                                         height: CGFloat(line * Int32(lines) + ctx.px(10))),
                            background: ctx.colors.palette.window, font: font)
         c.editKind = kind
-        // A multi-line field's scroll bar is dark only in the Explorer style (the field style leaves it light).
-        if ctx.dark, isMulti { WinDarkMode.setTheme(h, "DarkMode_Explorer") }
         c.lastCommitted = text
         return c
     }
@@ -843,7 +804,7 @@ enum WinClipboardText {
         if let glyph = c.glyph {
             let old = SelectObject(d.hDC, UnsafeMutableRawPointer(c.font))
             _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
-            _ = SetTextColor(d.hDC, disabled ? c.ctx.colors.palette.disabled : (pressed && c.ctx.highContrast ? WinUIContext.sysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? colors.text))))
+            _ = SetTextColor(d.hDC, disabled ? GetSysColor(17 /* COLOR_GRAYTEXT */) : (pressed && c.ctx.highContrast ? GetSysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? colors.text))))
             _ = WinStr.w(glyph.text).withUnsafeBufferPointer {
                 DrawTextW(d.hDC, $0.baseAddress, -1, &r, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
             }
@@ -951,7 +912,7 @@ extension WinControls {
         }
     }
 
-    static func pillSize(_ c: WinControl, _ pill: WinPill) -> CGSize {  // stage 7 Task 20: was fileprivate
+    fileprivate static func pillSize(_ c: WinControl, _ pill: WinPill) -> CGSize {
         let ctx = c.ctx
         let title = ctx.measure(pill.title, font: c.font)
         let glyph = pillGlyph(pill, ctx: ctx).map { ctx.measure($0.text, font: $0.font) }
@@ -1002,7 +963,7 @@ extension WinControls {
             ink = pill.selected ? pal.accent : pal.secondaryText
             fill = high ? nil : (pill.selected ? WinUIColors.blend(bg, pal.accent, 0.18) : WinUIColors.blend(bg, pal.secondaryText, 0.08))
         case .prominent:
-            ink = high ? WinUIContext.sysColor(14 /* COLOR_HIGHLIGHTTEXT */) : WinUIColors.rgb(255, 255, 255)
+            ink = high ? COLORREF(GetSysColor(14 /* COLOR_HIGHLIGHTTEXT */)) : WinUIColors.rgb(255, 255, 255)
             fill = disabled && !high ? WinUIColors.blend(bg, pal.accent, 0.35) : pal.accent
             radius = 2 * ctx.px(5)
         case .borderless:
@@ -1019,7 +980,7 @@ extension WinControls {
             fill = WinUIColors.blend(base, pill.style == .prominent ? WinUIColors.rgb(0, 0, 0) : pal.text, pressed ? 0.14 : 0.07)
         }
         if let fill { fillRounded(d.hDC, r, fill, radius: radius, ctx: ctx) }
-        let textColor = disabled ? ctx.colors.palette.disabled : ink
+        let textColor = disabled ? COLORREF(GetSysColor(17 /* COLOR_GRAYTEXT */)) : ink
         _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
         _ = SetTextColor(d.hDC, textColor)
         let glyph = pillGlyph(pill, ctx: ctx)
@@ -1035,7 +996,7 @@ extension WinControls {
         pieces.append((pill.title, c.font, title.cx, textColor))
         if let glyph, let glyphSize, pill.glyphAfter { pieces.append((glyph.text, glyph.font, glyphSize.cx, glyphInk)) }
         for piece in pieces {
-            _ = SetTextColor(d.hDC, disabled ? ctx.colors.palette.disabled : piece.color)
+            _ = SetTextColor(d.hDC, disabled ? COLORREF(GetSysColor(17)) : piece.color)
             drawPillText(d.hDC, piece.text, font: piece.font, box: RECT(left: x, top: r.top, right: x + piece.width, bottom: r.bottom))
             x += piece.width + gap
         }
@@ -1060,22 +1021,6 @@ extension WinControl {
         _ = InvalidateRect(hwnd, nil, false)
     }
 }
-
-// --- stage 7 Task 20: a pill whose title changes (Settings' representative Pokémon) (begin) ---
-extension WinControl {
-    /// Another title: the window text (the accessible name), the size, one repaint; the page lays out again when the width changed.
-    func setPillTitle(_ title: String) {
-        guard var p = pill, p.title != title else { return }
-        p.title = title
-        pill = p
-        text = title
-        let before = preferredSize
-        preferredSize = WinControls.pillSize(self, p)
-        _ = InvalidateRect(hwnd, nil, false)
-        if before != preferredSize { onSizeChange?() }
-    }
-}
-// --- stage 7 Task 20 (end) ---
 
 extension WinControl {
     /// The pointer is over the button (the kit's hover look).

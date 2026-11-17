@@ -30,13 +30,6 @@ import WinSDK
     /// `show`: only then do the items take the arrow keys.
     var onKey: ((Int) -> Bool)?
     var onFocus: ((Bool) -> Void)?
-    // --- stage 7 Task 20: a context menu on an item (begin) ---
-    /// A context menu was asked on the item with this action (right click, the menu key): the pointer's screen point, or the item's
-    /// centre for the keyboard. Set before the first `show`. Run the menu and defer what it chooses: the item may be rebuilt by it.
-    var onContextMenu: ((PlazaPanelHit?, POINT) -> Void)?
-    /// Items whose hit has one of these actions show the pointing hand.
-    var handActions: Set<String> = []
-    // --- stage 7 Task 20 (end) ---
     /// Whether Escape is the part's now (a selection to clear).
     var claimsEscape: (() -> Bool)?
     private var overPart = false
@@ -78,7 +71,7 @@ import WinSDK
         control.onDestroy = { [weak self] in self?.destroy() }  // a page that destroys its controls frees the picture too
         control.fitWidth = { [weak self] width in self?.fit(width: width) ?? false }
         window.on(0x0014 /* WM_ERASEBKGND */) { _, _ in 1 }
-        window.on(0x000F /* WM_PAINT */) { [weak self] _, _ in WinOpenTrace.note(.drawnPaint); return self?.onPaint() }
+        window.on(0x000F /* WM_PAINT */) { [weak self] _, _ in self?.onPaint() }
         window.on(0x0201 /* WM_LBUTTONDOWN */) { [weak self] _, lParam in
             guard let self else { return nil }
             self.pressed = self.hitTest?(self.dip(WinKit.point(lParam)))
@@ -415,22 +408,6 @@ import WinSDK
                     c.claimsEscape = { [weak self] in self?.claimsEscape?() ?? false }
                 }
                 if onFocus != nil { c.onFocus = { [weak self] focused in self?.onFocus?(focused) } }
-                // --- stage 7 Task 20 (begin) ---
-                c.showsHandCursor = item.action.map { handActions.contains($0.action) } ?? false
-                if onContextMenu != nil {
-                    c.onContextMenu = { [weak self, weak c] point in
-                        guard let self, let c, let handler = self.onContextMenu else { return false }
-                        var at = point ?? POINT()
-                        if point == nil {
-                            var r = RECT()
-                            _ = GetWindowRect(c.hwnd, &r)
-                            at = POINT(x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2)
-                        }
-                        handler(action, at)
-                        return true
-                    }
-                }
-                // --- stage 7 Task 20 (end) ---
                 // --- stage 7 Task 12 (end) ---
                 items.append(c)
             }

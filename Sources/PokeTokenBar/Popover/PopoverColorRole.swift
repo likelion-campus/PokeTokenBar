@@ -85,12 +85,12 @@ extension PopoverColorRole {
         return PopoverRGBA(rgba: appearance == .light ? pair.light : pair.dark)
     }
 
-    /// The value Windows draws: the Mac's, except the secondary and tertiary label colours (black or white at
-    /// `PopoverLabelOpacity.windowsLight…` / `windowsDark…`, readable on the popover; see there for the reason). Where `windows` is false this is
+    /// The value Windows draws: the Mac's, except the light secondary and tertiary label colours (black at
+    /// `PopoverLabelOpacity.windowsLight…`, readable on white; see there for the reason). Where `windows` is false this is
     /// `macValue`.
     func displayValue(_ appearance: PopoverAppearance, windows: Bool) -> PopoverRGBA {
         let mac = macValue(appearance)
-        guard windows else { return mac }
+        guard windows, appearance == .light else { return mac }
         let alpha: Double
         switch self {
         case .secondary: alpha = PopoverLabelOpacity.secondary(appearance, windows: true)

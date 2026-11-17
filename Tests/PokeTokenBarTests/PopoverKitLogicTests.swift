@@ -445,8 +445,8 @@ final class PopoverLabelContrastTests: XCTestCase {
     func testTheMacValuesAreUntouched() {
         XCTAssertEqual(PopoverLabelOpacity.secondary(.light, windows: false), 0.498)
         XCTAssertEqual(PopoverLabelOpacity.tertiary(.light, windows: false), 0.2588)
-        XCTAssertEqual(PopoverLabelOpacity.secondary(.dark, windows: false), PopoverLabelOpacity.secondary)
-        XCTAssertEqual(PopoverLabelOpacity.tertiary(.dark, windows: false), PopoverLabelOpacity.tertiary)
+        XCTAssertEqual(PopoverLabelOpacity.secondary(.dark, windows: true), PopoverLabelOpacity.secondary, "dark is not built: Mac's")
+        XCTAssertEqual(PopoverLabelOpacity.tertiary(.dark, windows: true), PopoverLabelOpacity.tertiary)
         for role in PopoverColorRole.named {
             for appearance in PopoverAppearance.allCases {
                 XCTAssertEqual(role.displayValue(appearance, windows: false), role.macValue(appearance), "\(role) \(appearance)")
@@ -461,58 +461,7 @@ final class PopoverLabelContrastTests: XCTestCase {
         XCTAssertEqual(PopoverColorRole.secondary.displayValue(.light, windows: true).rgba, 0x000000AD)
         XCTAssertEqual(PopoverColorRole.primary.displayValue(.light, windows: true), PopoverColorRole.primary.macValue(.light))
         XCTAssertEqual(PopoverColorRole.systemOrange.displayValue(.light, windows: true), PopoverColorRole.systemOrange.macValue(.light))
-        XCTAssertEqual(PopoverColorRole.tertiary.displayValue(.dark, windows: true).rgba, 0xFFFFFF8C)
-        XCTAssertEqual(PopoverColorRole.secondary.displayValue(.dark, windows: true).rgba, 0xFFFFFFB8)
-        XCTAssertEqual(PopoverColorRole.primary.displayValue(.dark, windows: true), PopoverColorRole.primary.macValue(.dark))
-        XCTAssertEqual(PopoverColorRole.heatmap(level: 3).displayValue(.dark, windows: true), PopoverColorRole.heatmap(level: 3).macValue(.dark))
-    }
-
-    /// Dark (Task 16): the same floors against the dark card the popover draws on, and the surfaces themselves.
-    func testWindowsDarkTextIsReadableOnTheDarkCard() {
-        let window = PopoverSurface.darkWindow
-        let card = PopoverSurface.blend(window, 0xFFFFFF, PopoverSurface.darkCardStep)
-        let field = PopoverSurface.blend(window, 0xFFFFFF, PopoverSurface.darkFieldStep)
-        func over(_ bg: UInt32, _ alpha: Double) -> UInt32 { PopoverSurface.blend(bg, 0xFFFFFF, alpha) }
-        for bg in [window, card, field] {
-            XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(over(bg, PopoverLabelOpacity.windowsDarkTertiary), bg), 4.5, "tertiary on \(String(bg, radix: 16))")
-            XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(over(bg, PopoverLabelOpacity.windowsDarkSecondary), bg), 7, "secondary on \(String(bg, radix: 16))")
-            XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(over(bg, PopoverLabelOpacity.primary), bg), 9, "primary")
-            XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(over(window, PopoverSurface.darkDisabledAlpha), window), 3)
-        }
-        XCTAssertGreaterThan(PopoverLabelOpacity.windowsDarkSecondary, PopoverLabelOpacity.windowsDarkTertiary)
-        XCTAssertGreaterThan(PopoverLabelOpacity.primary, PopoverLabelOpacity.windowsDarkSecondary)
-        // The Mac's own dark tertiary would fail: this is why Windows differs.
-        XCTAssertLessThan(PopoverSurface.contrast(over(card, PopoverLabelOpacity.tertiary), card), 4.5)
-    }
-
-    func testTheAccentIsLiftedOnlyWhereItWouldVanish() {
-        let window = PopoverSurface.darkWindow
-        XCTAssertEqual(PopoverSurface.liftedAccent(0x0091FF, over: window), 0x0091FF, "the Mac's dark blue passes as it is")
-        let navy: UInt32 = 0x101060
-        let lifted = PopoverSurface.liftedAccent(navy, over: window)
-        XCTAssertLessThan(PopoverSurface.contrast(navy, window), 3)
-        XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(lifted, window), 3)
-        XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(0xFFFFFF, lifted), 4.5, "white text on a lifted accent button stays legible")
-    }
-
-    /// The appearance state: the Mac's default draws light, dark and high contrast change what the shared parts draw.
-    func testTheDrawnPartsFollowTheAppearanceState() {
-        defer { PopoverAppearanceState.reset() }
-        let light = PopoverColorRole.secondary.plazaColor()
-        XCTAssertEqual(light.red, 0, accuracy: 1e-9)
-        PopoverAppearanceState.appearance = .dark
-        let dark = PopoverColorRole.secondary.plazaColor()
-        XCTAssertEqual(dark.red, 1, accuracy: 1e-9)
-        XCTAssertEqual(PopoverColorRole.heatmap(level: 0).plazaColor().red, Double(0x16) / 255, accuracy: 1e-9, "the Mac's dark heatmap pair")
-        XCTAssertEqual(PopoverAppearance.current.inkColor(alpha: 0.1).red, 1, accuracy: 1e-9)
-        PopoverAppearanceState.appearance = .light
-        PopoverAppearanceState.highContrast = PopoverHighContrast(window: 0x000000, text: 0xFFFFFF, highlight: 0xFFFF00, highlightText: 0x000000)
-        XCTAssertEqual(PopoverColorRole.tertiary.plazaColor().alpha, 1, accuracy: 1e-9, "no faint text in high contrast")
-        XCTAssertEqual(PopoverColorRole.accent.plazaColor().blue, 0, accuracy: 1e-9, "accent is the highlight")
-        XCTAssertGreaterThanOrEqual(PopoverColorRole.secondary.plazaShapeColor(alpha: 0.1).alpha, PopoverHighContrast.shapeFloor)
-        XCTAssertEqual(PopoverColorRole.heatmap(level: 0).plazaColor().red, 0, accuracy: 1e-9)
-        PopoverAppearanceState.reset()
-        XCTAssertEqual(PopoverColorRole.secondary.plazaColor().red, 0, accuracy: 1e-9, "reset: the Mac's light")
+        XCTAssertEqual(PopoverColorRole.tertiary.displayValue(.dark, windows: true), PopoverColorRole.tertiary.macValue(.dark))
     }
 
     func testShapesKeepTheMacProportions() {

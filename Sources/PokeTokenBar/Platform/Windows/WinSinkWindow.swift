@@ -51,18 +51,7 @@ struct WinError: Error, CustomStringConvertible {
         }
         hwnd = h
         Self.windows[Int(bitPattern: h)] = self
-        WinOpenTrace.note(.window)   // a popover page's panes and drawn views (the settings-open trace)
-        // A window with a caption shows in the title bar, the taskbar and Alt+Tab: the app's icon, re-chosen when a monitor of
-        // another scale takes it (the .ico holds one entry per size). Without this it shows the generic application icon.
-        if style & Self.captionBits == Self.captionBits {
-            WinAppIcon.apply(to: h)
-            on(Self.dpiChanged) { wParam, _ in WinAppIcon.apply(to: h, dpi: UInt32(wParam & 0xFFFF)); return nil }
-        }
     }
-
-    /// WS_CAPTION (WS_BORDER | WS_DLGFRAME) and WM_DPICHANGED.
-    private static let captionBits: DWORD = 0x00C0_0000
-    private static let dpiChanged: UINT = 0x02E0
 
     /// Adds a handler for a message. Every handler of a message runs, in registration order; the first non-nil
     /// result is returned to Windows, and nil from all falls through to `DefWindowProcW`. Several parties

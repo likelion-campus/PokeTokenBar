@@ -250,8 +250,7 @@ struct WinPopoverStats {
         stats.sessionNotify = ptb_window_session_notify(UnsafeMutableRawPointer(hwnd), 1) == 1
         let context = WinUIContext(dpi: dpi, owner: hwnd)
         ctx = context
-        WinDarkMode.setFrame(hwnd, dark: context.dark)  // the border and shadow DWM draws follow the app mode (Task 16)
-        WinOpenTrace.build(page, via: "open") { build(page, in: made, ctx: context) }
+        build(page, in: made, ctx: context)
         return made
     }
 
@@ -312,7 +311,6 @@ struct WinPopoverStats {
         pendingClose = false
         deferredReason = .deactivated
         rebuildAfterDialog = nil
-        WinOpenTrace.end()
         page?.destroy()
         page = nil
         router?.detach()
@@ -436,21 +434,12 @@ struct WinPopoverStats {
     func replacePage() {
         guard let w = window, let ctx, page != nil, !closing else { return }
         generation += 1
-        var built: WinPopoverPage?
-        // The window is on screen: the old page goes and the new one is built and placed without drawing, then drawn once
-        // (field report 2026-11-17: Settings was drawn control by control and pass by pass for seconds).
-        WinKit.drawingOnce(w.hwnd) {
-            WinOpenTrace.end()
-            page?.destroy()
-            let next = makePage(self)
-            built = next
-            // Through `build`: a height the page finds while it builds (Home's pinned panes) is applied right after, here, not
-            // from a later turn of the queue on a page already drawn.
-            var placed = false
-            WinOpenTrace.build(next, via: "swap") { placed = build(next, in: w, ctx: ctx) }
-            if !placed { pageSizeChanged() }
-        }
-        if let built { _ = SetFocus(built.initialFocus ?? w.hwnd) }
+        page?.destroy()
+        let next = makePage(self)
+        page = next
+        next.build(in: w, ctx: ctx, client: Self.client(w.hwnd))
+        pageSizeChanged()
+        _ = SetFocus(next.initialFocus ?? w.hwnd)
     }
     // --- stage 7 Task 6: swap the page in place (end) ---
 
@@ -580,21 +569,17 @@ struct WinPopoverStats {
         }
         let hadFocus = GetForegroundWindow() == w.hwnd
         generation += 1
-        WinKit.drawingOnce(w.hwnd) {   // on screen: drawn once, finished (the settings-open fix)
-            page.destroy()
-            ctx?.destroy()
-            let context = WinUIContext(dpi: dpi, owner: w.hwnd)
-            ctx = context
-            WinDarkMode.setFrame(w.hwnd, dark: context.dark)
-            WinOpenTrace.build(page, via: "rebuild") { build(page, in: w, ctx: context) }
-        }
+        page.destroy()
+        ctx?.destroy()
+        let context = WinUIContext(dpi: dpi, owner: w.hwnd)
+        ctx = context
+        build(page, in: w, ctx: context)
         stats.rebuilds += 1
         if hadFocus { _ = SetFocus(page.initialFocus ?? w.hwnd) }
     }
 
     private func eraseBackground(_ dc: HDC?) -> LRESULT? {
         guard let dc, let w = window, let ctx, let brush = ctx.colors.brush(ctx.colors.palette.window) else { return nil }
-        WinOpenTrace.note(.erase, w.hwnd)
         var r = RECT()
         _ = GetClientRect(w.hwnd, &r)
         _ = FillRect(dc, &r, brush)
@@ -604,17 +589,15 @@ struct WinPopoverStats {
     // MARK: - helpers
 
     /// The page is the popover's before its build runs (a `pageSizeChanged()` from inside it is applied right after).
-    /// True when the page's own size change was applied after its build.
-    @discardableResult
-    private func build(_ page: WinPopoverPage, in w: WinSinkWindow, ctx context: WinUIContext) -> Bool {
+    private func build(_ page: WinPopoverPage, in w: WinSinkWindow, ctx context: WinUIContext) {
         self.page = page
         building = true
         page.build(in: w, ctx: context, client: Self.client(w.hwnd))
         building = false
-        guard sizeChangedWhileBuilding else { return false }
-        sizeChangedWhileBuilding = false
-        pageSizeChanged()
-        return true
+        if sizeChangedWhileBuilding {
+            sizeChangedWhileBuilding = false
+            pageSizeChanged()
+        }
     }
 
     /// `GUI_INMOVESIZE | GUI_INMENUMODE | GUI_SYSTEMMENUMODE | GUI_POPUPMENUMODE` for this thread: a menu or a move/size loop
