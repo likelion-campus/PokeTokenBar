@@ -38,11 +38,15 @@ import WinSDK
             + "controls=\(WinControl.liveCount) areas=\(WinScrollArea.liveCount) pump=\(WinModalPump.depth)\(WinModalPump.timerLive ? "+timer" : "")"
         let before = WakeTrace.counts()
         let loops0 = WinMainLoop.iterations
+        let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
         guard let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else {
             phases.append(Phase(label: label, cs: -1, detail: "measurement failed", leftovers: ["no measurement"]))
             return
         }
         let after = WakeTrace.counts()
+        // The timers the app arms by itself (the settings sync's safety and debounce timers, the day timer, a store refresh): the loops that
+        // carry no message, no clock and no apply are these and main-queue blocks that work on other threads hand back.
+        let known = WindowsSelftest.selftestApp.flatMap { app in wakes0.map { WindowsSelftest.knownWakes(app).minus($0) } } ?? "unknown"
         let messages = diff(before.messages, after.messages), timers = diff(before.timers, after.timers), sources = diff(before.sources, after.sources)
         var leftovers: [String] = []
         if WinControl.liveCount != 0 { leftovers.append("\(WinControl.liveCount) live kit controls") }
@@ -54,7 +58,7 @@ import WinSDK
             leftovers.append("\(name) x\(sources[name] ?? 0)")
         }
         let detail = "main_thread_cs=\(sample.mainContextSwitches) in \(Int(seconds)) s, loops=\(WinMainLoop.iterations - loops0), "
-            + "messages=[\(top(messages) { $0 })], timer ids=[\(top(timers) { "id\($0)" })], sources=[\(top(sources) { $0 })], busy=[\(sample.busy)], \(state)"
+            + "known timer wakes: \(known), messages=[\(top(messages) { $0 })], timer ids=[\(top(timers) { "id\($0)" })], sources=[\(top(sources) { $0 })], busy=[\(sample.busy)], \(state)"
         phases.append(Phase(label: label, cs: sample.mainContextSwitches, detail: detail, leftovers: leftovers))
     }
 
