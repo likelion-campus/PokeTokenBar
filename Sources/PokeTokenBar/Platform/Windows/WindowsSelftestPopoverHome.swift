@@ -337,7 +337,7 @@ enum HomeFixtures {
         if !still { problems.append("a pinned button moved while the middle scrolled") }
         // keyboard: a control below the visible part is brought into view; the footer's button takes the focus without scrolling
         area.scroll(to: 0)
-        let hidden = zip(tree.nodes, tree.handles).last { $0.0.tabStop && $0.0.visible && IsChild(area.viewport.hwnd, $0.1) && rect($0.1, in: w).top > view.bottom }
+        let hidden = Array(zip(tree.nodes, tree.handles)).last { $0.0.tabStop && $0.0.visible && IsChild(area.viewport.hwnd, $0.1) && rect($0.1, in: w).top > view.bottom }
         var keyboard = "no control below the fold"
         if let hidden {
             _ = SetFocus(hidden.1)
