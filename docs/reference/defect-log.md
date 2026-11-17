@@ -2823,6 +2823,19 @@ read_when:
   **규칙:** 시간 곡선은 시작 시각에서 그리지 않는다 — 시작에서의 값은 반올림 잡음만 만든다. 이벤트가 연출을 시작하면 다음 프레임을 무장만 한다.
 <!-- stage 7 Task 9: the companion header (end) -->
 
+<!-- plaza window icon (begin) -->
+- **윈도 광장 창의 제목 표시줄·작업 표시줄에 앱 아이콘이 아니라 기본 응용 프로그램 아이콘이 떴다 (사용자 PC, 2026-11-17).** 증상: 광장 창 헤더가 "허접"하다는 리포트의 첫째 원인.
+  **직접 원인:** exe 의 아이콘 리소스(`PokeTokenBar.rc` 의 `1 ICON`)는 탐색기·설치 프로그램·바로가기에서만 쓰인다. 창은 `WinSinkWindow` 가 `RegisterClassExW` 로 만든 클래스(`hIcon` 없음)이고
+  아무도 `WM_SETICON` 을 보내지 않아, 캡션이 있는 최상위 창은 기본 아이콘을 띄운다. 광장 창과 업데이트 진행 창이 같은 경로였다.
+  **왜 못 걸렀나:** 아이콘 검사가 exe 파일 쪽(리소스가 들어갔나, 설치 바로가기 아이콘)에만 있었고 "열린 창이 아이콘을 가졌나"를 보는 검사가 없었다. 러너의 selftest 캡처는 클라이언트 영역만 찍어 제목 표시줄이 사진에 없다.
+  CI 창 검사는 클래스·스타일·제목만 읽었다. 리소스가 있다는 사실이 창에 아이콘이 있다는 증거로 읽혔다.
+  **고침:** `WinAppIcon` 이 exe 리소스를 창의 DPI 에 맞는 크기(`GetSystemMetricsForDpi` 의 SM_CXICON/SM_CXSMICON)로 읽어 큰 아이콘·작은 아이콘을 `WM_SETICON` 으로 건다. `WinSinkWindow` 가 캡션이 있는 모든 창에
+  만들 때 적용하고 `WM_DPICHANGED` 마다 다시 적용한다 — 새 최상위 창은 따로 챙길 것이 없다. AppUserModelID 는 프로세스 전체라 이미 모든 창이 같은 값으로 작업 표시줄에 묶인다(팝오버는 도구 창이라 캡션·작업 표시줄 버튼이 없다).
+  **부류 스윕:** `RegisterClassExW`/`CreateWindowExW` 전수 — 캡션 있는 최상위 창은 `WinSinkWindow` 경유 광장·업데이트 진행 창뿐(나머지는 selftest 창, 팝오버 팝업·자식 컨트롤, 숨은 sink). 네이티브 `#32770` 대화상자(`TaskDialog`, 파일 대화상자)는 소유 창의 아이콘을 시스템이 쓴다.
+  **영구 캡처:** selftest `plaza.windowIcon`, `update.windowIcon` — `WM_GETICON` 큰/작은 아이콘의 비트맵 폭이 창 DPI 의 시스템 지표와 같고 AppUserModelID 가 설치 바로가기와 같은지 본다. 적용 줄을 빼면 실패함을 임시 브랜치에서 확인.
+  **규칙:** 창 속성(아이콘·제목·스타일)은 파일이 아니라 열린 HWND 에서 읽는 검사로 고정한다. 새 최상위 창은 `WinSinkWindow` 로 만들면 아이콘이 따라온다.
+<!-- plaza window icon (end) -->
+
 ## 테스트 하네스 (사용자 화면·포커스)
 
 - **오래된 렌더/히트테스트 시험 13개가 `orderFront`/`makeKeyAndOrderFront` 로 창을 창 서버에 올렸다 — 사용자가 일하는 Mac 에서 `swift test` 마다.** (fx-wintests)
