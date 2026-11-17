@@ -204,6 +204,15 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         let back = await measure("Settings -> Home (Back)", popover) {
             _ = popover.pageForTesting?.escape()
         } until: { popover.pageForTesting is WinHomePage }
+        // stage 7 Task 21: the Collection tab is built by the same swap (a tab switch goes through `replacePage`)
+        let collection = await measure("Home -> Collection (tab)", popover) {
+            popover.state.tab = .collection
+            popover.replacePage()
+        } until: { (popover.pageForTesting as? WinHomePage)?.builtTab == .collection }
+        popover.state.tab = .home
+        popover.replacePage()
+        _ = await WindowsSelftest.waitUntil(timeout: 3) { (popover.pageForTesting as? WinHomePage)?.builtTab == .home }
+        await wait(0.5)
         let recap = await measure("Home -> Recap", popover) {
             popover.state.showingRecap = true
             popover.replacePage()
@@ -237,7 +246,8 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
               + (settingsBad.isEmpty ? "" : "; OVER BUDGET: " + settingsBad.joined(separator: "; ")))
         let swapBad = back.violations(maxFrames: 4, maxLayoutsOnScreen: 1, maxMs: 3000, maxStepMs: 500).map { "Back: \($0)" }
             + recap.violations(maxFrames: 4, maxLayoutsOnScreen: 1, maxMs: 3000, maxStepMs: 500).map { "Recap: \($0)" }
-        r.add("popover.swapCost", swapBad.isEmpty, "\(back.summary); \(recap.summary)" + (swapBad.isEmpty ? "" : "; OVER BUDGET: " + swapBad.joined(separator: "; ")))
+            + collection.violations(maxFrames: 4, maxLayoutsOnScreen: 1, maxMs: 3000, maxStepMs: 500).map { "Collection: \($0)" }
+        r.add("popover.swapCost", swapBad.isEmpty, "\(back.summary); \(recap.summary); \(collection.summary)" + (swapBad.isEmpty ? "" : "; OVER BUDGET: " + swapBad.joined(separator: "; ")))
     }
 
     /// One page change in the open popover: the hooks watch its window from just before `action` until it has stood still.

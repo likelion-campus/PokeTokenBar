@@ -228,3 +228,13 @@ UI/FloatingPetPanel.swift#PetHostingView.mouseUp | Popover/FloatingPetRules.swif
 UI/FloatingPetPanel.swift#PetHostingView.showContextMenu | Popover/FloatingPetRules.swift#FloatingPetMenu.entries | pin cc6ef9f2f042b145
 PokeTokenBarApp.swift#AppDelegate.openPopover | Platform/Windows/Popover/WinFloatingPet.swift#WinFloatingPet.openPopover | pin c75042de6088a90a
 # --- stage 7 Task 22 (end) ---
+
+# Task 21: the detail page's derived members (which form, appearance and individual the page shows), copied verbatim.
+UI/CompanionView.swift#PokemonDetailView.formSpecies | Popover/DexDetailModel.swift#DexDetailResolver.formSpecies
+UI/CompanionView.swift#PokemonDetailView.displayedSpecies | Popover/DexDetailModel.swift#DexDetailResolver.displayedSpecies
+UI/CompanionView.swift#PokemonDetailView.allIndividuals | Popover/DexDetailModel.swift#DexDetailResolver.allIndividuals
+UI/CompanionView.swift#PokemonDetailView.displayedShiny | Popover/DexDetailModel.swift#DexDetailResolver.displayedShiny
+UI/CompanionView.swift#PokemonDetailView.individuals | Popover/DexDetailModel.swift#DexDetailResolver.individuals
+UI/CompanionView.swift#PokemonDetailView.individual | Popover/DexDetailModel.swift#DexDetailResolver.individual
+UI/CompanionView.swift#PokemonDetailView.individualLabel | Popover/DexDetailModel.swift#DexDetailResolver.individualLabel
+UI/CompanionView.swift#PokemonDetailView.formPickerColumns | Popover/DexDetailModel.swift#DexDetailResolver.formPickerColumns
