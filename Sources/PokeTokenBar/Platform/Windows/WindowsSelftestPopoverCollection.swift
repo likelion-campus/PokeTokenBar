@@ -282,8 +282,7 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         page.closeDetail()
         await wait(0.3)
         // the footer button: select a cell with the keyboard-free path (the model), then the footer's button sets it
-        page.browser.selectedID = "4"
-        page.refresh()
+        page.select("4")
         await wait(0.2)
         press(items(page.dexView, DexBodyPart.repAction).first)
         await wait(0.3)

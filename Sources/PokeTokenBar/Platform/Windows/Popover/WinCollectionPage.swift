@@ -190,6 +190,12 @@ import WinSDK
     }
 
     /// Computes what the page shows (inside the observation) and applies it.
+    /// Selects a cell (the selftest, which has no pointer).
+    func select(_ collectionID: String?) {
+        browser.selectedID = collectionID
+        refresh()
+    }
+
     /// Every filter, search and sort back to its start (the selftest, and the no-results button).
     func resetFilters() {
         browser.resetFilters()
