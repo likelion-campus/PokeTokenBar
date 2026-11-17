@@ -434,13 +434,19 @@ struct WinPopoverStats {
     func replacePage() {
         guard let w = window, let ctx, page != nil, !closing else { return }
         generation += 1
-        WinOpenTrace.end()
-        page?.destroy()
-        let next = makePage(self)
-        page = next
-        WinOpenTrace.build(next, via: "swap") { next.build(in: w, ctx: ctx, client: Self.client(w.hwnd)) }
-        pageSizeChanged()
-        _ = SetFocus(next.initialFocus ?? w.hwnd)
+        var built: WinPopoverPage?
+        // The window is on screen: the old page goes and the new one is built and placed without drawing, then drawn once
+        // (field report 2026-11-17: Settings was drawn control by control and pass by pass for seconds).
+        WinKit.drawingOnce(w.hwnd) {
+            WinOpenTrace.end()
+            page?.destroy()
+            let next = makePage(self)
+            built = next
+            page = next
+            WinOpenTrace.build(next, via: "swap") { next.build(in: w, ctx: ctx, client: Self.client(w.hwnd)) }
+            pageSizeChanged()
+        }
+        if let built { _ = SetFocus(built.initialFocus ?? w.hwnd) }
     }
     // --- stage 7 Task 6: swap the page in place (end) ---
 
@@ -570,11 +576,13 @@ struct WinPopoverStats {
         }
         let hadFocus = GetForegroundWindow() == w.hwnd
         generation += 1
-        page.destroy()
-        ctx?.destroy()
-        let context = WinUIContext(dpi: dpi, owner: w.hwnd)
-        ctx = context
-        WinOpenTrace.build(page, via: "rebuild") { build(page, in: w, ctx: context) }
+        WinKit.drawingOnce(w.hwnd) {   // on screen: drawn once, finished (the settings-open fix)
+            page.destroy()
+            ctx?.destroy()
+            let context = WinUIContext(dpi: dpi, owner: w.hwnd)
+            ctx = context
+            WinOpenTrace.build(page, via: "rebuild") { build(page, in: w, ctx: context) }
+        }
         stats.rebuilds += 1
         if hadFocus { _ = SetFocus(page.initialFocus ?? w.hwnd) }
     }

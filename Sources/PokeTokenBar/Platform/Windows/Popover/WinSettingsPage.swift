@@ -195,12 +195,13 @@ import WinSDK
         footer = foot
         if let foot { buildFooter(foot, l) }
 
+        // The settings' values and which rows show first, then one layout pass: laying out every row and hiding half of them
+        // after was a second pass over a page on screen (the settings-open fix).
         var lap = WinOpenTrace.Lap()
-        placeChrome(client)
-        page.layout()
-        lap.mark("layout")
         sync()
         lap.mark("sync")
+        placeChrome(client)
+        lap.mark("layout")
     }
 
     private func buildFooter(_ foot: WinPane, _ l: L) {
@@ -256,8 +257,8 @@ import WinSDK
         footer?.move(RECT(left: 0, top: client.bottom - footH, right: width, bottom: client.bottom))
         area?.move(RECT(left: 0, top: headerH, right: width, bottom: client.bottom - footH))
         if let stack, let area {
-            stack.width = area.contentWidth
-            stack.layout()
+            stack.width = area.contentWidth   // a new width asks for a layout
+            stack.layoutIfNeeded()            // the build's rows did too; a new height alone moves no row
         }
         let bar = headerH - line
         if let back = backLink {
@@ -604,11 +605,13 @@ import WinSDK
         let focused = stack?.controls.firstIndex { $0.parts.contains { $0 == GetFocus() } }
         let hadForeground = GetForegroundWindow() == window.hwnd
         let client = lastClient
-        WinOpenTrace.build(self, via: "page rebuild") {
-            freeContents()
-            buildContents(client: client)
+        WinKit.drawingOnce(window.hwnd) {   // on screen: drawn once, finished, at the kept scroll position (the settings-open fix)
+            WinOpenTrace.build(self, via: "page rebuild") {
+                freeContents()
+                buildContents(client: client)
+            }
+            area?.scroll(to: offset)
         }
-        area?.scroll(to: offset)
         if hadForeground, let focused, let controls = stack?.controls, controls.indices.contains(focused) {
             _ = SetFocus(controls[focused].hwnd)
         }
