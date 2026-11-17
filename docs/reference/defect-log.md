@@ -2890,3 +2890,22 @@ read_when:
   **고침:** `Read-Port` — 내용이 양의 정수일 때만 포트로 읽는다. **부류 스윕:** `scripts/`·워크플로에서 다른 프로세스가 쓰는 파일을 존재만 보고 읽는 곳은 이 하나(`Wait-Until { Test-Path … }` 1 곳); 다른 `Set-Content` 는 같은 프로세스가 쓰고 읽는다.
   **영구 캡처:** 스크립트 시작의 `harness.emptyPortFileWaits` — 빈 포트 파일은 기다리고(옛 읽기는 0 을 냈다). **규칙:** 프로세스 사이 파일 전달은 존재가 아니라 내용으로 준비를 판정한다.
 <!-- merged-head full run (fix/merged-head-full-run) end -->
+
+## 윈도 플로팅 펫 (stage 7 Task 22)
+<!-- stage 7 Task 22 (begin) -->
+- **`pet.idle` 의 'hidden' 창이 펫을 끈 뒤에도 메인 cs 56·29·20(예산 6)을 셌다 — 펫이 아니라 픽스처가 깨웠다.** 두 원인이 겹쳤다. ① 펫을 끈 쓰기
+  (`floatingPetEnabled = false`)의 디바운스 동기화가 창 안에 떨어졌다(debounce 1, safety 1). ② 표본 상점 `.hatched` 는 알에서 막 부화시키는데, **번들 앱에서**
+  부화는 `ensureEggPrefetch` → `SpriteStore.shared.data` 3 개와 폼 이름(`PokemonNameClient.shared`)을 네트워크로 예열한다 — 러너의 번들 셀프테스트에서 그 완료가
+  메인 스레드를 깨웠다. 같은 순서의 'still'(알, 부화 없음)은 메인 cs 0–1. 설치본 유휴 게이트(30 s 정착 뒤 120 s, run 44039613803)의 같은 창은 메인 cs 4 = manual-refresh 5.
+  **왜 못 걸렀나:** 셀프테스트의 유휴 창은 `ui.kit.idle` 처럼 알려진 깨움(새로고침·동기화)만 예산에 더했고, 픽스처가 만드는 네트워크 일은 몰랐다. 맥 테스트는 번들 앱이 아니라 예열이 없다.
+  **고침:** 창마다 앱 설정 동기화가 3 s 조용해질 때까지 기다리고(`waitStable { !WinDefaultsSync.isSyncPending }`), 새로고침이 걸린 창은 한 번 더 잰다. 유휴 창(셀프테스트·게이트
+  프로브)은 막 부화한 표본 대신 키우는 중인 표본(`.midLevel`: 부화·예열 없음)을 쓴다.
+  **부류 스윕:** 다른 유휴 프로브 — `--popover-companion-idle-probe` 는 `CompanionHeaderInput` 고정 입력이라 상점 부화가 없고, `--popover-sprite-idle-probe` 는 상점이 없다. `.hatched` 를
+  쓰는 나머지(`companion.capture`·펫 캡처·클릭 체크)는 비용을 재지 않는다.
+  **규칙:** 비용을 재는 창의 픽스처는 측정 전에 할 일을 다 끝낸 상태여야 한다 — 번들 앱의 부화는 네트워크 예열을 부른다.
+- **`pet.hide`·`pet.resources` 가 재생 해제(`playback.release()`)를 빼도 통과했다 — 창이 사라지면 시계가 다음 틱에 스스로 서기 때문이다.** 결함 주입 런 44034871723 에서 15 개 중
+  13 개 체크가 각자의 결함으로 실패했고 이 둘만 초록이었다. **왜 못 걸렀나:** "숨긴 뒤 시계가 무장돼 있지 않다"를 0.3 s 기다린 뒤 봤다 — 0.4 s 주기의 다음 틱이 `shouldTick`(창 없음)에서
+  스스로 꺼진 뒤였다. 해제가 빠져도 프레임·디코드 캐시는 창 객체가 죽을 때까지 남는다. **고침:** 창이 사라지는 그 순간 재생이 `released` 이고 시계가 없고 프레임 집합이 0 인지 본다.
+  **부류 스윕:** 팝오버의 `companion.clockStops` 는 닫은 뒤 시계만이 아니라 `playback.released`·프레임 집합 0·모델 0 을 본다(이 구멍 없음). 다른 펫 체크는 시계 정지를 보지 않는다. **영구 캡처:** 바뀐 두 체크 +
+  결함 주입 런(release 제거) — 보고서에 run 번호. **규칙:** "멈췄다"는 기다린 뒤가 아니라 그 일을 하는 코드가 끝난 즉시 본다 — 스스로 서는 시계는 해제 누락을 가린다.
+<!-- stage 7 Task 22 (end) -->

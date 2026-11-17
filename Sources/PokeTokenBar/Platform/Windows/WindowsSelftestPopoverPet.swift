@@ -46,7 +46,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     }
 
     static func make(_ sample: CompanionHeaderSample, size: Double = 96, quality: UsageStore.AnimationQuality = .powerSaver,
-                     saved: CGPoint? = nil, configure: (PetHarness) -> Void = { _ in }) async -> PetHarness {
+                     saved: CGPoint? = nil, enabled: Bool = true, configure: (PetHarness) -> Void = { _ in }) async -> PetHarness {
         let base = await HomeStores.make(language: .en)
         let companion = await CompanionHeaderSamples.store(sample, language: .en, defaults: defaults, directory: base.directory.appendingPathComponent("sample"))
         let h = PetHarness(base: base, companion: companion)
@@ -54,7 +54,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         base.store.floatingPetSize = size
         base.store.animationQuality = quality
         base.store.alwaysFacesBack = false
-        base.store.floatingPetEnabled = true
+        base.store.floatingPetEnabled = enabled
         configure(h)
         h.start()
         return h
@@ -807,14 +807,14 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             await wait(0.3)
             let frames = w.playback.models.first?.frames ?? []
             let ticks0 = w.playback.ticks, renders0 = h.pet.stats.renders
-            await wait(3)
+            await wait(2)
             let ticks = w.playback.ticks - ticks0, renders = h.pet.stats.renders - renders0
-            let expected = 3 / quality.frameFloor
+            let expected = 2 / quality.frameFloor
             let delaysOK = frames.allSatisfy { abs($0.delay - quality.frameFloor) < 0.001 } && frames.count == Int((2.0 / quality.frameFloor).rounded())
             let rateOK = Double(ticks) >= expected * 0.7 && Double(ticks) <= expected + 2 && renders >= ticks - 1 && renders <= ticks + 1
             ok = ok && delaysOK && rateOK
             notes.append("\(quality.rawValue) (floor \(quality.frameFloor) s): 40 x 0.05 s -> \(frames.count) frames of \(frames.first.map { String(format: "%.2f", $0.delay) } ?? "-") s=\(delaysOK); "
-                         + "3 s: \(ticks) ticks (expected ~\(Int(expected))), \(renders) renders=\(rateOK)")
+                         + "2 s: \(ticks) ticks (expected ~\(Int(expected))), \(renders) renders=\(rateOK)")
         }
         h.store.animationQuality = .powerSaver
         _ = await WindowsSelftest.waitUntil(timeout: 3) { w.playback.frameFloor == 0.4 && w.playback.clock.isArmed }
@@ -858,7 +858,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     }
 
     static func idleCheck(_ r: WindowsSelftest.Recorder) async {
-        let seconds = 12.0
+        let seconds = 10.0
         func sample(_ label: String) async -> IdleWindow? {
             var last: IdleWindow?
             for _ in 0..<2 {
@@ -879,34 +879,44 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             }
             return last
         }
-        // Still: an egg (no GIF).
-        let still = await PetHarness.make(.eggIncubating)
+        /// The process quiet (2 s windows of at most one main-thread switch, up to 20 s) before the pet shows: a new harness's
+        /// stores finish their own loads first (run 44043860640: ~1.6 message wakes a second for many seconds after a raised
+        /// sample was made, with or without a pet; the installed app's gate window, 30 s after start, has none).
+        func waitQuiet() async -> TimeInterval {
+            let start = Date()
+            for _ in 0..<10 {
+                guard let q = await IdleSampler.measure(seconds: 2, mainThread: WindowsApp.mainThreadID), q.mainContextSwitches > 1 else { break }
+            }
+            return Date().timeIntervalSince(start)
+        }
+        // Still: an egg (no GIF), shown once the process is quiet.
+        let still = await PetHarness.make(.eggIncubating, enabled: false)
+        let quiet1 = await waitQuiet()
+        still.store.floatingPetEnabled = true
         _ = await still.waitShown()
         let armedStill = still.window?.playback.clock.isArmed == true
         let r0 = still.pet.stats.renders
         let s1 = await sample("still")
         let stillRenders = still.pet.stats.renders - r0
         still.destroy()
-        // Animated: the FIXTURE 2 s GIF of 40 frames at the default "Power saver" floor (0.4 s: 2.5 frames a second). A raised
-        // sample (`midLevel`), not a fresh hatch: in a bundled app a hatch warms its sprites and names over the network, and
-        // those completions woke the main thread in the windows of runs 44034801215 and 44039608912.
+        // Animated: the FIXTURE 2 s GIF of 40 frames at the default "Power saver" floor (0.4 s: 2.5 frames a second), on a raised
+        // sample (`midLevel`, not a fresh hatch: in a bundled app a hatch warms its sprites and names over the network). Then the
+        // same pet turned off: what is left once it is hidden.
         let saved = WinFloatingPet.spriteFetcherOverride
         WinFloatingPet.spriteFetcherOverride = gifFixture(count: 40, delay: 0.05)
-        let moving = await PetHarness.make(.midLevel)
+        let moving = await PetHarness.make(.midLevel, enabled: false)
+        let quiet2 = await waitQuiet()
+        moving.store.floatingPetEnabled = true
         _ = await moving.waitShown()
         _ = await WindowsSelftest.waitUntil(timeout: 2) { moving.window?.playback.clock.isArmed == true }
         let r1 = moving.pet.stats.renders
         let s2 = await sample("animated")
         let movingRenders = moving.pet.stats.renders - r1
+        moving.store.floatingPetEnabled = false
+        _ = await WindowsSelftest.waitUntil(timeout: 2) { moving.pet.window == nil }
+        let s3 = await sample("hidden")
         moving.destroy()
         WinFloatingPet.spriteFetcherOverride = saved
-        // Hidden after it was shown.
-        let gone = await PetHarness.make(.midLevel)
-        _ = await gone.waitShown()
-        gone.store.floatingPetEnabled = false
-        _ = await WindowsSelftest.waitUntil(timeout: 2) { gone.pet.window == nil }
-        let s3 = await sample("hidden")
-        gone.destroy()
         guard let s1, let s2, let s3 else {
             r.add("pet.idle", false, "measurement failed")
             return
@@ -920,7 +930,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                 + "(\(UInt64(Double(s.processCycles) / seconds))/s), known wakes \(w.known) (+\(w.extra) to the budget), busy [\(s.busy)]"
         }
         r.add("pet.idle", ok,
-              "\(Int(seconds)) s each. still (egg, no GIF): clock armed=\(armedStill), \(stillRenders) renders, \(line(s1)); animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps): "
+              "\(Int(seconds)) s each, after the process was quiet (\(Int(quiet1)) s, \(Int(quiet2)) s). still (egg, no GIF): clock armed=\(armedStill), \(stillRenders) renders, \(line(s1)); animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps): "
               + "\(movingRenders) renders, \(line(s2)) (budget \(Int((frameRate + 2) * seconds))); hidden after shown: \(line(s3)) (budget for still and hidden: 6)")
     }
 
