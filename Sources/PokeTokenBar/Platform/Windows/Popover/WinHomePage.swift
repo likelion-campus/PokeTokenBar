@@ -38,7 +38,8 @@ import WinSDK
     var performAction: (HomeAction) -> Void
     /// A fixed model instead of the stores' (the selftest's sample pages); nothing is observed then.
     var modelOverride: ((Date) -> HomeModel)?
-    let heightDIP: CGFloat = 600
+    /// The window's height (D2): the Mac's pinned top, the fixed 520 pt scroller, the pinned footer (`updatePinnedHeight`).
+    private(set) var heightDIP: CGFloat = 640
     // MARK: Task 13 — the recap button's action (the Mac's `nav.showingRecap = true`)
     /// Swaps the recap page in (set by the app's page; a kit window has no popover to swap).
     var openRecap: (() -> Void)?
@@ -47,6 +48,17 @@ import WinSDK
 
     private(set) var stack: WinStack?
     private var area: WinScrollArea?
+    /// A scroll area made by a test window is its own to destroy.
+    private var ownsArea = true
+    // --- pinned panes: the update offer and plaza button above, the footer below, as the Mac pins them (begin) ---
+    private var topPane: WinPane?, bottomPane: WinPane?
+    private(set) var topStack: WinStack?, bottomStack: WinStack?
+    private var lastClient = RECT()
+    private var relayoutPending = false
+    private weak var popover: WinPopover?
+    /// The pinned panes' heights in pixels at the last layout (the selftest reads them).
+    private(set) var pinnedHeights: (top: Int32, bottom: Int32) = (0, 0)
+    // --- pinned panes (end) ---
     var ctx: WinUIContext!
     let clock: PopoverClock
     private(set) var isDestroyed = false
@@ -128,6 +140,7 @@ import WinSDK
                           DispatchQueue.main.async { popover.replacePage() }  // not inside the button that was pressed
                       }
                   })
+        self.popover = popover
         // MARK: Task 13 — the recap button
         openRecap = { [weak popover] in
             state.showingRecap = true
@@ -146,19 +159,44 @@ import WinSDK
         let page = WinStack(pane: made.content, width: made.contentWidth)
         page.onHeight = { [weak made] h in made?.setContentHeight(h) }
         area = made
-        attach(stack: page)
+        ownsArea = true
+        attach(stack: page, area: made, client: client)
     }
 
     /// Builds the page into `page` (the popover's own, or a test window's), applies the model once and starts observing.
-    func attach(stack page: WinStack) {
+    /// `scrollArea` is the page's scroll area when the caller made it (a test window); without one the page is a single stack.
+    func attach(stack page: WinStack, area scrollArea: WinScrollArea? = nil, client: RECT? = nil) {
+        destroyPinned()  // a rebuilt page makes its panes again
+        if let scrollArea, scrollArea !== area { area = scrollArea; ownsArea = false }
+        if let client { lastClient = client }
         isDestroyed = false  // a rebuilt page (a DPI or text-size change) is built again on the same object
         last = nil
         epoch += 1
         clock.onTick = { [weak self] in self?.tick() }
         stack = page
         ctx = page.ctx
-        page.useMetrics(.home)  // the Mac's 14 pt padding and 12 pt spacing (Settings keeps 16 / 18)
-        let banner = page.addSection(nil, card: false), plaza = page.addSection(nil, card: false)
+        // The Mac's `mainContent`: the update offer and the plaza button above the scroller, the footer below it; Settings' header
+        // and footer panes are the model. Without a scroll area to put them around, everything is one stack.
+        var top = page, bottom = page
+        if let area {
+            page.useMetrics(.homeScroll)
+            let window = GetParent(area.viewport.hwnd)
+            if let window, let tp = try? WinPane(parent: window, ctx: page.ctx, rect: RECT(left: 0, top: 0, right: 10, bottom: 10)),
+               let bp = try? WinPane(parent: window, ctx: page.ctx, rect: RECT(left: 0, top: 0, right: 10, bottom: 10)) {
+                let ts = WinStack(pane: tp, width: page.width), bs = WinStack(pane: bp, width: page.width)
+                ts.useMetrics(.homeTop)
+                bs.useMetrics(.homeFooter)
+                ts.onHeight = { [weak self] _ in self?.pinnedHeightChanged() }
+                bs.onHeight = { [weak self] _ in self?.pinnedHeightChanged() }
+                topPane = tp; bottomPane = bp; topStack = ts; bottomStack = bs
+                top = ts; bottom = bs
+            } else {
+                page.useMetrics(.home)
+            }
+        } else {
+            page.useMetrics(.home)  // the Mac's 14 pt padding and 12 pt spacing (Settings keeps 16 / 18)
+        }
+        let banner = top.addSection(nil, card: false), plaza = top.addSection(nil, card: false)
         // --- stage 7 Task 9: the companion header, first in Home's content as on the Mac (begin) ---
         companionSection = WinCompanionSection(companion: companion, section: page.addSection(nil, card: false), page: self)
         if let made = companionSection { configureCompanion?(made) }
@@ -177,7 +215,7 @@ import WinSDK
         limits.rowSpacing = 8
         let ruleLimits = page.addRule()
         sections = Sections(banner: banner, plaza: plaza, header: header, activity: activity, tabs: tabs, provider: provider, status: status,
-                            limits: limits, footer: page.addSection(nil, card: false), ruleCompanion: ruleCompanion, ruleTotals: ruleTotals,
+                            limits: limits, footer: bottom.addSection(nil, card: false), ruleCompanion: ruleCompanion, ruleTotals: ruleTotals,
                             ruleLimits: ruleLimits)
         observe()  // makes the header, whose period line holds the streak's view (Task 12)
         // --- stage 7 Task 12: the activity panel and the streak (begin) ---
@@ -190,13 +228,78 @@ import WinSDK
         // --- stage 7 Task 12 (end) ---
         companionSection?.start()  // stage 7 Task 9
         page.layout()
+        if area != nil, lastClient.right > lastClient.left { layout(client: lastClient) }
     }
 
     func layout(client: RECT) {
-        guard let area, let stack else { return }
-        area.move(client)
+        guard let stack else { return }
+        lastClient = client
+        guard let area, let top = topStack, let bottom = bottomStack, let tp = topPane, let bp = bottomPane else {
+            if let area { area.move(client) }
+            stack.width = area?.contentWidth ?? stack.width
+            stack.layout()
+            return
+        }
+        let width = client.right - client.left
+        top.width = width
+        bottom.width = width
+        top.layout()
+        bottom.layout()
+        let gap = ctx.px(12)
+        let hasTop = top.sections.contains { $0.isVisible && !$0.rows.isEmpty }
+        let topH = Int32(top.frames?.height ?? 0), footH = Int32(bottom.frames?.height ?? 0)
+        let above = topH + (hasTop ? gap : 0), below = footH + gap
+        tp.move(RECT(left: client.left, top: client.top, right: client.right, bottom: client.top + topH))
+        area.move(RECT(left: client.left, top: client.top + above, right: client.right, bottom: max(client.top + above, client.bottom - below)))
+        bp.move(RECT(left: client.left, top: max(client.top + above, client.bottom - footH), right: client.right, bottom: client.bottom))
         stack.width = area.contentWidth
         stack.layout()
+        // Tab order = reading order: the pinned top, the scroller, the pinned footer.
+        var previous: HWND?
+        for hwnd in [tp.hwnd, area.viewport.hwnd, bp.hwnd] {
+            _ = SetWindowPos(hwnd, previous, 0, 0, 0, 0, UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_NOOWNERZORDER))
+            previous = hwnd
+        }
+        pinnedHeights = (above, below)
+        updatePinnedHeight()
+    }
+
+    /// The window is the pinned top, the Mac's fixed 520 pt scroller (also when the content is shorter) and the pinned footer.
+    private func updatePinnedHeight() {
+        guard ctx != nil, ctx.scale > 0 else { return }
+        let total = pinnedHeights.top + ctx.px(PopoverStackMetrics.homeScrollerHeight) + pinnedHeights.bottom
+        let next = (CGFloat(total) / ctx.scale).rounded(.up)
+        guard abs(next - heightDIP) >= 1 else { return }
+        heightDIP = next
+        let generation = popover?.generation
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.isDestroyed, let popover = self.popover, popover.generation == generation else { return }
+            popover.pageSizeChanged()
+        }
+    }
+
+    /// A pinned pane changed height (the update offer came or went): the panes and the scroller are placed again.
+    private func pinnedHeightChanged() {
+        guard !relayoutPending, !isDestroyed else { return }
+        relayoutPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.relayoutPending = false
+            if !self.isDestroyed, self.topStack != nil { self.layout(client: self.lastClient) }
+        }
+    }
+
+    /// The window height that shows everything without scrolling (a test window's fit): top, content, footer.
+    var fullContentHeightDIP: CGFloat? {
+        guard let stack, let content = stack.frames?.height, ctx != nil else { return nil }
+        return (CGFloat(pinnedHeights.top + pinnedHeights.bottom) + CGFloat(content)) / ctx.scale
+    }
+
+    private func destroyPinned() {
+        topStack?.destroy(); bottomStack?.destroy()
+        topPane?.destroy(); bottomPane?.destroy()
+        topStack = nil; bottomStack = nil; topPane = nil; bottomPane = nil
+        pinnedHeights = (0, 0)
     }
 
     var initialFocus: HWND? { nil }
@@ -215,7 +318,8 @@ import WinSDK
         activityPanel = nil
         streakSlot = nil
         stack?.destroy()
-        area?.destroy()
+        destroyPinned()
+        if ownsArea { area?.destroy() }
         bars = []
         relative = [:]
         headerParts = nil
@@ -223,6 +327,7 @@ import WinSDK
         sections = nil
         stack = nil
         area = nil
+        ownsArea = true
     }
 
     // MARK: observing

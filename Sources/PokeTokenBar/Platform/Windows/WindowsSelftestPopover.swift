@@ -1082,6 +1082,10 @@ struct KitResources: CustomStringConvertible {
     private(set) var stack: WinStack?
     private var router: WinControlRouter?
     private let build: (KitWindow, WinStack) -> Void
+    /// A page that pins panes around its scroller lays itself out (Home); and says how tall the window must be to show it all.
+    var onLayout: ((RECT) -> Void)?
+    var fitHeightDIP: (() -> CGFloat?)?
+    var clientRect: RECT { RECT(left: 0, top: 0, right: clientSize.cx, bottom: clientSize.cy) }
     private let widthDIP: CGFloat
     private var heightDIP: CGFloat
     private let textScale: Double?, highContrast: Bool?
@@ -1153,6 +1157,12 @@ struct KitResources: CustomStringConvertible {
 
     /// The window as tall as its page (the captures show every row without scrolling).
     func fitToContent() {
+        if let fit = fitHeightDIP?() {
+            heightDIP = fit
+            sizeWindow()
+            layoutToClient()
+            return
+        }
         guard let height = stack?.frames?.height else { return }
         heightDIP = height / ctx.scale
         sizeWindow()
@@ -1185,6 +1195,7 @@ struct KitResources: CustomStringConvertible {
 
     private func layoutToClient() {
         let size = clientSize
+        if let onLayout { onLayout(RECT(left: 0, top: 0, right: size.cx, bottom: size.cy)); return }
         scroll?.move(RECT(left: 0, top: 0, right: size.cx, bottom: size.cy))
         if let stack, let scroll { stack.width = scroll.contentWidth; stack.layout() }
     }
