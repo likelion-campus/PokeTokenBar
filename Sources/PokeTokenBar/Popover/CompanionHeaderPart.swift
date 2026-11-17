@@ -462,7 +462,7 @@ import Foundation
                 canvas.setAlpha(CGFloat(c.opacity))
                 let whole = space.canvas(CGRect(origin: .zero, size: size))
                 // .regularMaterial: a light translucent capsule (no blur behind it on Windows; listed difference).
-                canvas.setFillColor(PlazaColor(srgbRed: 0.96, green: 0.96, blue: 0.96, alpha: 0.92))
+                canvas.setFillColor(PopoverAppearance.current.chipColor(light: 0.96, alpha: 0.92))
                 canvas.fillRoundedRect(whole, radius: size.height / 2)
                 canvas.setFillColor(PopoverColorRole.systemOrange.plazaColor())
                 canvas.draw(line, at: space.canvas(CGPoint(x: 6, y: 2 + a)))
