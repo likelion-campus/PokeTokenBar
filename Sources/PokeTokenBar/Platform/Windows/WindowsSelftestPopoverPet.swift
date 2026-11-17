@@ -1049,6 +1049,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     /// What the pump removed on the main thread while a window was measured (`WinMessageHook.tap`): message @ window class.
     final class MessageCounts {
         var map: [String: Int] = [:]
+        /// Messages removed for windows of `className` (keys are `0x<id>@<class>`).
+        func count(forClass className: String) -> Int { map.filter { $0.key.hasSuffix("@" + className) }.reduce(0) { $0 + $1.value } }
         var top: String {
             map.isEmpty ? "none" : map.sorted { $0.value > $1.value }.prefix(6).map { "\($0.key) x\($0.value)" }.joined(separator: ", ")
         }
@@ -1126,10 +1128,12 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let shown = await h.waitShown()
         let w = h.window
         let armedStill = w?.playback.clock.isArmed == true
-        let r0 = h.pet.stats.renders
+        let r0 = h.pet.stats.renders, ticks0 = w?.playback.ticks ?? 0
         let stillMessages = MessageCounts()
         let still = await sample(stillMessages)
-        let stillRenders = h.pet.stats.renders - r0
+        let stillRenders = h.pet.stats.renders - r0, stillTicks = (w?.playback.ticks ?? 0) - ticks0
+        let armedAfterStill = w?.playback.clock.isArmed == true
+        let stillPetMessages = stillMessages.count(forClass: WinPetWindow.className)
         // Hidden: the displays asleep (the Mac's `sync`): the window and all it had go at once.
         let playback = w?.playback
         h.asleep = true
@@ -1162,8 +1166,13 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             return
         }
         let frameRate = 1 / UsageStore.AnimationQuality.powerSaver.frameFloor
-        // Still: no clock, no picture drawn, and a loose bound in this process (the gate judges the budget).
-        let stillOK = shown && !armedStill && stillRenders == 0 && still.mainNet <= 6
+        // Still, judged by attribution (lead ruling 2026-11-18): what the pet itself could do in the window, no clock armed or
+        // ticking, no picture drawn, no message removed for a window of the pet's class. Its switches are reported, not judged: this
+        // process has background wakes of its own (an installed retry of run 44141015742 counted 9 with all three at zero), and the
+        // gate's pet-still-120s judges the budget on a clean launch. Known weakness: a Foundation timer left behind is no window
+        // message and not the pet's clock, so in this process only 'hidden against still' below sees it; the gate's pet-hidden-120s
+        // catches it (the injected 1 Hz timer: 67/min against 6, fault run 44083738408).
+        let stillOK = shown && !armedStill && !armedAfterStill && stillTicks == 0 && stillRenders == 0 && stillPetMessages == 0
         // Animated: one wake per frame at the floor plus two a second, and the frames drawn.
         let animatedOK = armed && Double(animated.mainNet) <= (frameRate + 2) * seconds && movingRenders >= Int(frameRate * seconds * 0.7)
         // Hidden against still: no more main-thread wakes (3 of slack), process switches (10) or cycles (4 M = 0.5 M/s) than the
@@ -1179,7 +1188,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         r.add("pet.idle", stillOK && animatedOK && hiddenOK,
               "\(Int(seconds)) s each, an egg shown and hidden by the displays' state, then a raised sample animated, after \(String(format: "%.0f", settled)) s of settling; the pointer was over "
               + "\(underCursor), parked at \(park.x),\(park.y) over \(parkedOver). "
-              + "still (an egg): shown=\(shown) clock armed=\(armedStill), \(stillRenders) renders, \(line(still)) messages [\(stillMessages.top)] (net <= 6)=\(stillOK); "
+              + "still (an egg): shown=\(shown) clock armed=\(armedStill)/\(armedAfterStill), \(stillTicks) ticks, \(stillRenders) renders, \(stillPetMessages) messages for the pet's window "
+              + "(judged: all zero)=\(stillOK); reported: \(line(still)) messages [\(stillMessages.top)]; "
               + "animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps, Windows' \"Show animations\" \(WinSpriteAnimator.systemAnimationsEnabled() ? "on" : "off")): clock armed=\(armed), \(movingRenders) renders, \(line(animated)) "
               + "(net <= \(Int((frameRate + 2) * seconds)), renders >= \(Int(frameRate * seconds * 0.7)))=\(animatedOK); "
               + "hidden: nothing left=\(gone) (pet windows \(left), windows \(live0) -> \(liveAfterHide), playback released=\(playback?.released == true)), \(line(hidden)) messages [\(hiddenMessages.top)] "
