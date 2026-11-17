@@ -1281,6 +1281,22 @@ jobs:
         timeout-minutes: 10  # about 10 s; Invoke-Setup gives up on Setup after 180 s
         shell: pwsh
         run: ./scripts/windows/silent-install.ps1
+      - name: Midnight guard rule (fake clock, a few seconds)
+        shell: pwsh
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          . ./scripts/windows/midnight-guard.ps1
+          $script:MidnightDryRun = $true
+          function Case([string]$when, [int]$seconds, [bool]$expectWait) {
+              $w = Wait-PastMidnight 'case' $seconds ([datetime]::Parse($when))
+              Assert-That (($w -gt 0) -eq $expectWait) 'idle.midnightGuard' "start $when, window $seconds s: wait $w s (expected a wait: $expectWait)"
+              if ($expectWait) { $left = ([datetime]::Parse($when).AddSeconds($w)); Assert-That ($left.TimeOfDay.TotalSeconds -ge 15 -and $left.TimeOfDay.TotalSeconds -lt 17) 'idle.midnightGuard.until' "wakes at $left" }
+          }
+          Case '2026-11-16 23:58:03' 160 $true     # the failed window of run 43967277783: 23:58:03 + 160 s + 60 s crosses 00:00
+          Case '2026-11-16 23:50:00' 160 $false    # ends 23:53:50 + margin: clear
+          Case '2026-11-17 00:00:20' 160 $false    # just after a midnight: nothing ahead
+          Case '2026-11-16 23:59:50' 40 $true      # a short window still gets the guard
+          Case '2026-11-16 12:00:00' 340 $false    # the 300 s window at noon
       - name: Idle gate (installed app, fixture data; this shard's windows, 120 s each, one of 300 s with two store refreshes)
         id: idle
         timeout-minutes: 40  # about 17-19 min per shard; the one-job gate took about 48 min

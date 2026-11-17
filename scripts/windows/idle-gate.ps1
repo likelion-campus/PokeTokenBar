@@ -5,6 +5,7 @@
 # idle-gate-<n>.json and fails when one of its windows does. Needs the install (silent-install.ps1), PTB_FIXTURE, PTB_VERSION.
 param([Parameter(Mandatory)][ValidateRange(1, 3)][int]$Shard)
 . "$PSScriptRoot/ci-helpers.ps1"
+. "$PSScriptRoot/midnight-guard.ps1"
 Get-Process PokeTokenBar -ErrorAction SilentlyContinue | Stop-Process -Force
 $exe = Join-Path $PtbInstallDir 'PokeTokenBar.exe'
 $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
@@ -28,6 +29,8 @@ if ($Shard -eq 1) {
 
 # 2. The installed app, one window per state. Budgets are from the first measured runs, with margin (see the report).
 function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget, [string[]]$AppArgs = @()) {
+    # Before the launch: the launch and the 30 s settle are part of the measured sequence.
+    $null = Wait-PastMidnight $Label ($Seconds + 40)
     Remove-Item -ErrorAction SilentlyContinue $PtbPlist, "$PtbPlist.bak"
     if ($Settings) { Set-Content -Path $PtbPlist -Value $Settings -Encoding utf8NoBOM }
     $state = Join-Path $env:PTB_FIXTURE "state-idle-$Label"
