@@ -117,7 +117,8 @@ struct WinPopoverStats {
     /// DPI to rebuild at once it ends (`WM_ENABLE`). Stage 7 Task 15.
     private var rebuildAfterDialog: UINT?
     private var closing = false
-    private var building = false, sizeChangedWhileBuilding = false
+    private(set) var building = false
+    private var sizeChangedWhileBuilding = false
     /// Changes on every open and every close: the posted close's target (a rebuild keeps it).
     private var windowSerial = 0
     private var toggleGuard = PopoverToggleGuard()

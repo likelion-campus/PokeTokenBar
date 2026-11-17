@@ -454,7 +454,7 @@ final class PopoverDriver: @unchecked Sendable {
         let work = workArea(of: wr)
         let inside = work.map { Self.inside(wr, $0) } ?? false
         let dpi = WinUIContext.dpi(of: hwnd), scale = Double(dpi) / 96
-        let wantW = Int32((360 * scale).rounded()), wantH = Int32((600 * scale).rounded())
+        let wantW = Int32((360 * scale).rounded()), wantH = Int32(((popover.pageForTesting?.heightDIP ?? 600) * scale).rounded())  // Home's pinned top, 520 pt scroller and footer
         let focus = GetFocus()
         let focusInside = focus == hwnd || focus.map { IsChild(hwnd, $0) } == true
         let tool = ex & 0x80 != 0 && ex & 0x4_0000 == 0  // WS_EX_TOOLWINDOW, no WS_EX_APPWINDOW: no taskbar button, not in Alt+Tab
@@ -467,7 +467,7 @@ final class PopoverDriver: @unchecked Sendable {
                 && WinKit.className(hwnd) == WinPopover.className,
               "posted NIN_SELECT at \(iconPoint.x),\(iconPoint.y) (shell rect \(anchor.map(Self.text) ?? "nil"), CI-granted foreground): visible=\(IsWindowVisible(hwnd)) "
               + "foreground=\(GetForegroundWindow() == hwnd) window=\(Self.text(wr)) work=\(work.map { "\($0)" } ?? "?") inside=\(inside) edge=\(popover.stats.lastEdge.map { "\($0)" } ?? "-") "
-              + "client=\(cr.right)x\(cr.bottom) (360x600 DIP at \(dpi) dpi = \(wantW)x\(wantH)) style=0x\(String(style, radix: 16)) ex=0x\(String(ex, radix: 16)) "
+              + "client=\(cr.right)x\(cr.bottom) (360x\(Int(popover.pageForTesting?.heightDIP ?? 600)) DIP at \(dpi) dpi = \(wantW)x\(wantH)) style=0x\(String(style, radix: 16)) ex=0x\(String(ex, radix: 16)) "
               + "tool window=\(tool) topmost=\(topmost) owner=sink:\(owner == sink) focus inside=\(focusInside) dialog registrations \(dialogs0) -> "
               + "\(WinMessageHook.dialogWindowCount) Windows 11=\(WinPopover.isWindows11) round corners=\(popover.stats.roundCorners) session notifications=\(popover.stats.sessionNotify)")
         popover.close(.destroyed)
