@@ -22,6 +22,8 @@ import WinSDK
     /// What the selftest and the CI e2e read.
     private(set) static var shown = 0
     private(set) var lastText = ""
+    /// The window, for the selftest's icon check; nil while none is open.
+    var hwndForTesting: HWND? { window?.hwnd }
 
     init(l: L) { self.l = l }
 

@@ -27,7 +27,7 @@ extension WindowsSelftest {
                         "popover.escape", "popover.closePaths", "popover.ownedKeepsOpen", "popover.staleCompletion", "popover.dpiChange",
                         "popover.noSelfOpen", "popover.refusedForeground", "popover.menuAfter", "popover.menuSettings",
                         "popover.secondLaunch", "popover.realClick", "popover.openClose3", "popover.aboveTopmost", "popover.pageContract",
-                        "popover.closeAfterNestedLoop", "popover.autostartQuiet"]
+                        "popover.closeAfterNestedLoop", "popover.autostartQuiet", "popover.realClickCovered"]
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         guard WindowsSelftest.onCI else {
@@ -1030,8 +1030,9 @@ final class PopoverDriver: @unchecked Sendable {
     // MARK: popover.realClick: real clicks on the icon wherever it is (the runner keeps it in the overflow flyout)
 
     /// One round of real clicks. The icon is found first: the shell's rectangle, and while the icon sits in the closed overflow
-    /// flyout that rectangle is the overflow button `^` on the taskbar (every run so far: (790,720,822,768); a real click there
-    /// opens the flyout and sends no select). Then the rectangle moves into the flyout once it is open: it is read again until two
+    /// flyout that rectangle is the overflow button `^` on the taskbar ((790,720,822,768) while the runner's Do Not Disturb is on,
+    /// (814,720,846,768) once it turns itself off and its bell right of the clock goes; a real click there opens the flyout and
+    /// sends no select). Then the rectangle moves into the flyout once it is open: it is read again until two
     /// readings agree inside the work area. The product is judged by what the user gets: the first click on the icon opens the
     /// popover exactly once, clear of the flyout; the second closes it and nothing reopens it. Which way the second click closes it
     /// varies (run 43842945406): the flyout takes the activation first (deactivation, then the select is absorbed by the toggle
@@ -1071,6 +1072,10 @@ final class PopoverDriver: @unchecked Sendable {
         var selected = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s0 }
         var d = "rect \(Self.text(first)) under its centre \(under): click -> NIN_SELECT=\(selected)"
         round.place = "taskbar"
+        // A click inside the flyout must reach the shell's flyout: once the runner's Do Not Disturb turns itself off (about an
+        // hour after boot) the selftest's own balloons are real toasts over the bottom right, the flyout's corner (run 43967277783).
+        let shellPid = Self.processId(FindWindowW(WinStr.w("Shell_TrayWnd"), nil))
+        let isShell: (HWND) -> Bool = { shellPid != 0 && Self.processId($0) == shellPid }
         if !selected {
             let front = foregroundName()
             let (r1, readings) = await settledFlyoutRect()
@@ -1083,10 +1088,12 @@ final class PopoverDriver: @unchecked Sendable {
             round.place = "overflow flyout"
             iconRect = r1
             point = centre(r1)
+            d += await waitUncovered(point, isTarget: isShell)
             let s1 = tray.selectCount
             await leftClick(point)
             selected = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s1 }
             d += "; click on it -> NIN_SELECT=\(selected)"
+            if !selected { d += " (under the point now: \(rootClass(point))\(Self.saveScreen("realclick-flyout")))" }
         }
         round.located = selected
         let isOpen = await opened()
@@ -1102,6 +1109,7 @@ final class PopoverDriver: @unchecked Sendable {
             let (r2, _) = await settledFlyoutRect()
             if let r2 { point = centre(r2) }
         }
+        if round.place == "overflow flyout" { d += await waitUncovered(point, isTarget: isShell) }
         let deactivation0 = popover.stats.lastDeactivationMs, absorbed0 = popover.stats.suppressedSelects, s2 = tray.selectCount
         await leftClick(point)
         let second = await WindowsSelftest.waitUntil(timeout: 1.5) { self.tray.selectCount > s2 }
@@ -1116,7 +1124,7 @@ final class PopoverDriver: @unchecked Sendable {
         }
         d += "; second click -> NIN_SELECT=\(second) closed=\(closedAfter) reopened=\(reopened) (\(round.path), button down at the deactivation=\(deactivated && popover.stats.lastButtonDown))"
         round.ok = selected && isOpen && opensOnce && clear && second && closedAfter && !reopened
-        round.detail = d
+        round.detail = d + "; shell notification state \(Self.notificationState())"
         popover.close(.destroyed)
         if let probe {  // a click elsewhere light-dismisses the flyout (Escape does not)
             var pr = RECT()
@@ -1127,7 +1135,75 @@ final class PopoverDriver: @unchecked Sendable {
         return round
     }
 
+    /// `SHQueryUserNotificationState`: 6 is the quiet hour after a new user's first sign-in (the runner's first hour, the bell
+    /// right of the clock: balloons go straight to the notification centre); 5 accepts notifications (balloons show as toasts).
+    static func notificationState() -> String {
+        var s = QUERY_USER_NOTIFICATION_STATE(rawValue: 0)
+        let hr = SHQueryUserNotificationState(&s)
+        return hr == 0 ? "\(s.rawValue)" : "hr=0x\(String(UInt32(bitPattern: hr), radix: 16))"
+    }
+
+    static func processId(_ h: HWND?) -> DWORD {
+        var pid: DWORD = 0
+        if let h { _ = GetWindowThreadProcessId(h, &pid) }
+        return pid
+    }
+
+    /// Waits until a real click at `p` lands on the target (the root window under it passes `isTarget`): a toast times out in
+    /// about 7 s, several queue. Returns "" when nothing covered it, else what did and for how long.
+    func waitUncovered(_ p: POINT, isTarget: @escaping (HWND) -> Bool, timeout: TimeInterval = 20) async -> String {
+        func cover() -> HWND? { WindowFromPoint(p).flatMap { GetAncestor($0, UINT(GA_ROOT)) }.flatMap { isTarget($0) ? nil : $0 } }
+        guard let first = cover() else { return "" }
+        let pid = Self.processId(first)
+        let what = "\(WinKit.className(first)) '\(WinKit.text(of: first))' (pid \(pid == GetCurrentProcessId() ? "self" : "\(pid)"))"
+        let t0 = Date()
+        let clear = await WindowsSelftest.waitUntil(timeout: timeout, poll: 0.1) { cover() == nil }
+        return "; the point was covered by \(what) for \(String(format: "%.1f", Date().timeIntervalSince(t0))) s\(clear ? "" : ", still covered")"
+    }
+
+    /// The whole screen into the log folder (collected by the workflow), for a real click that reached nothing.
+    static func saveScreen(_ name: String) -> String {
+        let sw = Int(GetSystemMetrics(SM_CXSCREEN)), sh = Int(GetSystemMetrics(SM_CYSCREEN))
+        let url = AppLog.logFileURL.deletingLastPathComponent().appendingPathComponent("\(name)-\(GetCurrentProcessId()).png")
+        guard let shot = WinUIDump.screenshot(x: 0, y: 0, w: sw, h: sh), WinUIDump.write(shot, to: url) == 0 else { return "" }
+        return "; screen saved as \(url.lastPathComponent)"
+    }
+
+    /// popover.realClickCovered: the wait above on real windows. A topmost window of ours (a toast's stand-in) over the probe
+    /// takes the point for 1.5 s; a click there in that time reaches the stand-in, not the probe.
+    func coveredClickCheck() async {
+        guard let probe else { return }
+        popover.close(.destroyed)
+        await grant()
+        var pr = RECT()
+        _ = GetWindowRect(probe.hwnd, &pr)
+        let p = POINT(x: (pr.left + pr.right) / 2, y: (pr.top + pr.bottom) / 2)
+        guard let cover = try? WinSinkWindow(className: "PokeTokenBarSelftestCover", title: "PokeTokenBar selftest cover",
+                                             style: 0x8000_0000 /* WS_POPUP */, exStyle: 0x0800_0088 /* WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW */,
+                                             x: p.x - 40, y: p.y - 40, width: 80, height: 80) else {
+            r.add("popover.realClickCovered", false, "no cover window: \(GetLastError())")
+            return
+        }
+        _ = ShowWindow(cover.hwnd, 4 /* SW_SHOWNOACTIVATE */)
+        func root() -> HWND? { WindowFromPoint(p).flatMap { GetAncestor($0, UINT(GA_ROOT)) } }
+        let coveredBefore = root() == cover.hwnd
+        let gone = Date().addingTimeInterval(1.5)
+        let remover = Task { @MainActor in
+            while Date() < gone { await self.pause(0.05) }
+            cover.destroy()
+        }
+        let t0 = Date()
+        let note = await waitUncovered(p, isTarget: { $0 == probe.hwnd }, timeout: 5)
+        let waited = Date().timeIntervalSince(t0)
+        let probeAfter = root() == probe.hwnd
+        await remover.value
+        r.add("popover.realClickCovered", coveredBefore && probeAfter && waited >= 1.3 && note.contains("PokeTokenBarSelftestCover"),
+              "a topmost window of ours over the probe's centre \(p.x),\(p.y) for 1.5 s: the point's window was the cover=\(coveredBefore); "
+              + "after the wait (\(String(format: "%.1f", waited)) s) the probe=\(probeAfter)\(note)")
+    }
+
     func realClickCheck() async {
+        await coveredClickCheck()
         let round = await realClickRound()
         r.add("popover.realClick", round.ok, "\(round.place): " + round.detail)
         await grant()
