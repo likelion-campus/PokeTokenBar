@@ -376,7 +376,7 @@ final class WindowsHTTPFetchTests: XCTestCase {
     private func settledHandleCount() async throws -> Int {
         try await Task.sleep(nanoseconds: 500_000_000)  // WinHTTP lets go of a closed session's handles a moment later
         var count: DWORD = 0
-        XCTAssertNotEqual(GetProcessHandleCount(GetCurrentProcess(), &count), 0)
+        XCTAssertTrue(GetProcessHandleCount(GetCurrentProcess(), &count))
         return Int(count)
     }
 
