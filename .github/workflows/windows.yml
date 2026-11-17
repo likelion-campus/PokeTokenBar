@@ -79,6 +79,10 @@ jobs:
       - uses: ./.github/actions/windows-swift
         if: steps.swift1.outcome != 'success'
         timeout-minutes: 12   # the one retry
+      - name: Stamp mtimes (every build, seeded or not; an unstamped seed would make the next build recompile everything)
+        timeout-minutes: 5
+        shell: pwsh
+        run: ./scripts/windows/restore-mtimes.ps1
       - name: Seed (the .build of an earlier run; not in release mode, on kit/* branches or with clean_build)
         id: seed
         if: inputs.release_sha == '' && !inputs.clean_build && !startsWith(github.ref, 'refs/heads/kit/') && !startsWith(github.head_ref, 'kit/')
@@ -86,7 +90,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/windows/seed-restore.ps1 -Workflow windows.yml -Artifact ptb-seed-debug -Branch '${{ inputs.seed_trunk || 'windows-port' }}'
+          SEED_TRUNK: ${{ inputs.seed_trunk || 'windows-port' }}   # through env, validated by seed-restore.ps1 (Test-BranchName), never spliced into the script
+        run: ./scripts/windows/seed-restore.ps1 -Workflow windows.yml -Artifact ptb-seed-debug -Branch $env:SEED_TRUNK
       - name: Build (compiles every target and the tests; compile errors stop the run here)
         timeout-minutes: 45
         shell: bash

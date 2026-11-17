@@ -34,15 +34,22 @@ function Go-Clean([string]$reason, [string]$run) {
 
 # A pull request restores its BASE branch's seed only; everything else its own branch's, then the trunk's.
 $branches = @(Get-SeedBranches $env:GITHUB_EVENT_NAME $env:GITHUB_BASE_REF $env:GITHUB_REF_NAME $Branch)
-$seed = $null
 foreach ($b in $branches) {
-    $json = gh api "repos/$repo/actions/workflows/$Workflow/runs?branch=$b&status=completed&per_page=30"
-    foreach ($id in (Select-SeedRunIds ($json -join "`n") $repo)) {
-        $a = gh api "repos/$repo/actions/runs/$id/artifacts?name=$Artifact" --jq '[.artifacts[]|select(.expired==false)][0]|select(.!=null)|.id'
-        if ($a) { $seed = $id; break }
-    }
-    if ($seed) { "seed found on branch $b"; break }
+    if (-not (Test-BranchName $b)) { Go-Clean "the branch name '$b' is not one that may go into a query" ''; return }
 }
+$seed = $null
+try {
+    foreach ($b in $branches) {
+        $json = gh api "repos/$repo/actions/workflows/$Workflow/runs?branch=$([uri]::EscapeDataString($b))&status=completed&per_page=30"
+        if ($LASTEXITCODE -ne 0) { throw "gh api exited with $LASTEXITCODE" }
+        foreach ($id in (Select-SeedRunIds ($json -join "`n") $repo)) {
+            $a = gh api "repos/$repo/actions/runs/$id/artifacts?name=$Artifact" --jq '[.artifacts[]|select(.expired==false)][0]|select(.!=null)|.id'
+            if ($LASTEXITCODE -ne 0) { throw "gh api (artifacts of run $id) exited with $LASTEXITCODE" }
+            if ($a) { $seed = $id; break }
+        }
+        if ($seed) { "seed found on branch $b"; break }
+    }
+} catch { Go-Clean "the search for a seed failed: $($_.Exception.Message)" ''; return }
 if (-not $seed) { Go-Clean "no push or dispatch run of $Workflow on $($branches -join ', ') has a live $Artifact artifact" ''; return }
 
 # Download with a limit of its own: a hung download must not hold the build for the step's 15 minutes.

@@ -11,7 +11,10 @@ if ($Pack) {
     if ($LASTEXITCODE -ne 0) { throw "tar pack failed ($LASTEXITCODE)" }
     "packed .build: {0:N0} MB" -f ((Get-Item $Pack).Length / 1MB)
 } elseif ($Unpack) {
-    & $tar --zstd -xf $Unpack
+    # Explicit operands: only .build and Package.resolved are ever extracted, whatever else an archive lists.
+    $listed = @(& $tar --zstd -tf $Unpack)
+    $operands = @('.build') + @(if ($listed -contains 'Package.resolved') { 'Package.resolved' })
+    & $tar --zstd -xf $Unpack @operands
     if ($LASTEXITCODE -ne 0) { throw "tar unpack failed ($LASTEXITCODE)" }
     "unpacked {0:N0} MB into .build" -f ((Get-Item $Unpack).Length / 1MB)
 } else { throw 'give -Pack or -Unpack' }

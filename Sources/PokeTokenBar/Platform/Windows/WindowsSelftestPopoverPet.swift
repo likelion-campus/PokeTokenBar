@@ -1046,7 +1046,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         return ("\(className(root))\(ours ? " (ours)" : "")", ours)
     }
 
-    /// What the pump removed on the main thread while a window was measured (`WinMessageHook.tap`): message @ window class.
+    /// What the pump removed on the main thread while a window was measured (`WinMessageHook.tapCounts`): message @ window class.
     final class MessageCounts {
         var map: [String: Int] = [:]
         /// Messages removed for windows of `className` (keys are `0x<id>@<class>`).
@@ -1075,14 +1075,10 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             for _ in 0..<2 {
                 _ = await WindowsSelftest.waitStable(timeout: 10, quiet: 2) { !WinDefaultsSync.isSyncPending }
                 let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
-                counts?.map = [:]
-                if let counts {
-                    WinMessageHook.tap = { message, hwnd in
-                        counts.map["0x\(String(message, radix: 16))@\(hwnd.map { className($0) } ?? "thread")", default: 0] += 1
-                    }
-                }
+                if counts != nil { WinMessageHook.tapCounts = [:] }
                 let measured = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
-                WinMessageHook.tap = nil
+                counts?.map = WinMessageHook.tapCounts ?? [:]
+                WinMessageHook.tapCounts = nil
                 guard let s = measured else { return nil }
                 let wakes1 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
                 var extra = 0, known = "unknown (no app)", refreshed = false

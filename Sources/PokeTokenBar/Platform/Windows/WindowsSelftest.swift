@@ -92,6 +92,7 @@ enum WindowsSelftest {
         if !quiet { AppLog.write("selftest: the store did not settle within 120 s; loop checks run anyway") }
         await loopChecks(r, app)
         await limitsCheck(r)
+        await clientCertificateCheck(r)  // WindowsSelftestClientCertificate.swift: a server asking for an optional client certificate
         await defaultsChecks(r, app)
         await shellChecks(r)
         await crashChecks(r)
@@ -237,6 +238,17 @@ enum WindowsSelftest {
         app.sink.off(postedToken)
         r.add("loop.postedMessage", postedDone && onMain(posted.values, main) && maxMs(posted.values) < 50,
               "PostMessageW from a thread: " + summary(posted.values, main, of: 20))
+
+        // The message hook sees every message the pump removes: a wParam with the top bit set (the shell's file dialog posts
+        // one) trapped its numeric conversion and killed the app (run 44157998092). A trap here ends the selftest with no report.
+        let highProbe = UINT(WM_APP) + 0x23
+        let high = Box<UInt>()
+        let highToken = app.sink.on(highProbe) { wParam, _ in high.append(UInt(wParam)); return 0 }
+        for value in [UInt.max, UInt(1) << 63] { _ = PostMessageW(app.sink.hwnd, highProbe, WPARAM(value), 0) }
+        let highDone = await waitUntil(timeout: 3) { high.values.count >= 2 }
+        app.sink.off(highToken)
+        r.add("loop.highWParam", highDone && high.values == [UInt.max, UInt(1) << 63],
+              "two posted messages with wParam 0x\(String(UInt.max, radix: 16)) and 0x\(String(UInt(1) << 63, radix: 16)) went through the hook: \(high.values.map { "0x" + String($0, radix: 16) })")
 
         let sentOnMain = Box<Hit>()
         let sends = Box<Hit>()  // tid = 1 when the send returned OK with our reply

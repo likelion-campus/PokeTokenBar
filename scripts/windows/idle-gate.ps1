@@ -16,10 +16,20 @@ $env:PTB_STATE_DIR = Join-Path $env:PTB_FIXTURE 'state-idle-warmup'
 New-Item -ItemType Directory -Force -Path $env:PTB_STATE_DIR | Out-Null
 $wp, $wh = Start-App $exe
 Start-Sleep -Seconds 60
+# The first launch keeps the hatch base index in %LOCALAPPDATA%\PokeTokenBar\base-index.json (PokeAPI GraphQL: one request; its
+# REST fallback: 649). Every later launch reads it from there; a launch that has to build it does so on worker threads inside its
+# window. In run 44143290510 the GraphQL request always failed on Windows (WinHTTP 12044) and a slow PokeAPI kept the REST build
+# going through three windows of shard 3 (67 M cycles/s, +504 handles). So the warm-up stays open until the file is there, up to
+# 4 more minutes, and the summary says how long it took.
+$baseIndex = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\base-index.json'
+$extra = 0
+while (-not (Test-Path $baseIndex) -and $extra -lt 240) { Start-Sleep -Seconds 5; $extra += 5 }
 Close-App $wp $wh
-"warm-up launch done"
+$warmup = if (Test-Path $baseIndex) { "base index on disk, $extra s past the 60 s" } else { "base index NOT on disk after 300 s: every measured launch builds it (PokeAPI slow or unreachable)" }
+"warm-up launch done: $warmup"
 $verdicts = [ordered]@{}
 $summary = [ordered]@{ version = $env:PTB_VERSION; runner = $env:ImageVersion; windows = [ordered]@{} }
+$summary.warmup = $warmup
 
 # 1. A process that only sleeps, and explorer, over the same 120 s, before the app starts.
 if ($Shard -eq 1) {
@@ -59,6 +69,26 @@ function Get-WakeDelta([string]$LogFile) {
         sources = @(Get-WakeDiff $a.Groups[5].Value $b.Groups[5].Value)
     }
 }
+# The worker threads' side (WinHTTPFetch.Trace, the same switch and the same two points): fetches started and ended per host and
+# the failed ones by URLError code. A window with refresh off should show none; run 44143290510 would have shown ~500 to pokeapi.co.
+function Get-CountDiff([string]$x, [string]$y) {
+    $hx = ConvertFrom-WakeList $x; $hy = ConvertFrom-WakeList $y; $out = [ordered]@{}
+    foreach ($k in $hy.Keys) { $d = $hy[$k] - $(if ($hx.ContainsKey($k)) { $hx[$k] } else { 0 }); if ($d -gt 0) { $out[$k] = $d } }
+    return $out.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "$($_.Key):$($_.Value)" }
+}
+function Get-FetchDelta([string]$LogFile) {
+    $lines = @(Select-String -Path $LogFile -Pattern 'fetch trace (start|exit):' -ErrorAction SilentlyContinue | Select-Object -Last 2 | ForEach-Object { $_.Line })
+    if ($lines.Count -lt 2 -or $lines[0] -notmatch 'fetch trace start:' -or $lines[1] -notmatch 'fetch trace exit:') { return $null }
+    $rx = 'started=(\d+) ended=(\d+) hosts=(\S*) failures=(\S*)\s*$'
+    $a = [regex]::Match($lines[0], $rx); $b = [regex]::Match($lines[1], $rx)
+    if (-not ($a.Success -and $b.Success)) { return $null }
+    return [ordered]@{
+        started = [int]$b.Groups[1].Value - [int]$a.Groups[1].Value
+        ended = [int]$b.Groups[2].Value - [int]$a.Groups[2].Value
+        hosts = @(Get-CountDiff $a.Groups[3].Value $b.Groups[3].Value)
+        failures = @(Get-CountDiff $a.Groups[4].Value $b.Groups[4].Value)
+    }
+}
 
 # 2. The installed app, one window per state. Budgets are from the first measured runs, with margin (see the report).
 function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtable]$Budget, [string[]]$AppArgs = @(), [string]$CompanionFixture = '') {
@@ -84,6 +114,9 @@ function Measure-App([string]$Label, [int]$Seconds, [string]$Settings, [hashtabl
     $wake = Get-WakeDelta (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
     if ($wake) { "WAKES ${Label}: loops=$($wake.loops) messages=$($wake.messages) ids=[$($wake.messageIds -join ' ')] timers=[$($wake.timerIds -join ' ')] sources=[$($wake.sources -join ' ')]" }
     $summary.windows[$Label] = [ordered]@{ wake = $wake; seconds = $Seconds; pass = ($code -eq 0); budget = $Budget; processCycles = $j.processCycles; cyclesPerSec = $j.processCyclesPerSec; cpuSeconds = $j.processCpuSeconds; contextSwitchesPerMin = $j.contextSwitchesPerMin; mainThreadContextSwitches = $j.mainThreadContextSwitches; privateMB = "$($j.privateMBStart) -> $($j.privateMBEnd)"; handles = "$($j.handlesStart) -> $($j.handlesEnd)"; threads = @($j.threads | Where-Object { $_.contextSwitches -gt 0 } | Select-Object tid, main, name, start, contextSwitches, cycles) }
+    $fetches = Get-FetchDelta (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log')
+    if ($fetches) { "FETCHES ${Label}: started=$($fetches.started) ended=$($fetches.ended) hosts=[$($fetches.hosts -join ' ')] failures=[$($fetches.failures -join ' ')]" }
+    $summary.windows[$Label].fetches = $fetches
 }
 $off = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>refreshInterval</key><real>0</real></dict></plist>'
 $offNoStatus = '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>refreshInterval</key><real>0</real><key>statusChecksEnabled</key><false/></dict></plist>'

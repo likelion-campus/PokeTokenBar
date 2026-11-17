@@ -51,15 +51,21 @@ import WinSDK
     }
 
     // --- stage 7 Task 22: a selftest tap on every message the pump removes (pet.idle's waker report) (begin) ---
-    /// Set only by a selftest window that names what woke the main thread (message, window); nil otherwise.
-    static var tap: ((UINT, HWND?) -> Void)?
+    /// Set (empty) only by a selftest window that names what woke the main thread: messages removed, counted by
+    /// `0x<message>@<window class>`; nil otherwise (nothing is counted).
+    static var tapCounts: [String: Int]?
     // --- stage 7 Task 22 (end) ---
 
     fileprivate static func removed(_ messageBits: Int) {
         guard let m = UnsafeMutablePointer<MSG>(bitPattern: messageBits) else { return }
         let message = m.pointee.message
-        tap?(message, m.pointee.hwnd)  // stage 7 Task 22
-        WakeTrace.message(message, wParam: Int(m.pointee.wParam))   // idle gate attribution (off unless PTB_WAKE_TRACE=1)
+        // stage 7 Task 22: pet.idle's waker report (counts only, no closure: #272's note on a main-actor closure in this hook).
+        if tapCounts != nil { tapCounts?["0x\(String(message, radix: 16))@\(m.pointee.hwnd.map { WinKit.className($0) } ?? "thread")", default: 0] += 1 }
+        // `Int(truncatingIfNeeded:)`: a wParam can use all 64 bits (the shell's file dialog posts one at or above 2^63), and `Int(_:)`
+        // traps on it — that killed the process during the transfer dialogs' checks (#270, exit 0xC000041D).
+        if WakeTrace.enabled {   // the class name is asked only while counting (the closure form trapped: a main-actor closure called from a nonisolated function)
+            WakeTrace.message(message, wParam: Int(truncatingIfNeeded: m.pointee.wParam), target: m.pointee.hwnd.map { WinKit.className($0) } ?? "-")
+        }   // idle gate attribution (off unless PTB_WAKE_TRACE=1)
         // Mouse messages (client 0x0200–0x020E, non-client 0x00A0–0x00AD) never take the dialog path: IsDialogMessageW only
         // dispatches them, and a tracking loop that DefWindowProc runs on a non-client click (a scroll bar's arrow or thumb,
         // even without WinModalPump.begin) must read its own button-up. Handing it WM_NULL left the loop holding the capture

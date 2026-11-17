@@ -463,7 +463,7 @@ def check_tests_manifest(manifest, args, problems):
     if not _is_int(skipped) or skipped < 0:
         problems.append("windows-tests.json skipped is %s, expected a count" % json.dumps(skipped))
     _expect(problems, "windows-tests.json failures", failures, 0)
-    # A release is tested on a build from scratch: release mode never restores a seed (windows.yml passes -Clean), and the manifest says so.
+    # A release is tested on a build from scratch: release mode never restores a seed (the workflow's Seed step has `if: inputs.release_sha == ''`), and the manifest says so.
     _expect(problems, "windows-tests.json cleanBuild", manifest.get("cleanBuild"), True)
 
 

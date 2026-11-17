@@ -28,6 +28,10 @@ import WinSDK
 /// - TLS by Schannel against the Windows store with revocation checked (curl's Schannel default, `schannel.c` 8.9.1 493-495),
 ///   TLS 1.2 or 1.3 only (Windows 10's WinHTTP default still allows SSL 3, TLS 1.0 and 1.1: "Option flags",
 ///   `WINHTTP_OPTION_SECURE_PROTOCOLS`). No certificate check is relaxed (`WINHTTP_OPTION_SECURITY_FLAGS` is never set).
+///   A server that asks for a client certificate gets none, as curl and the Mac's URLSession answer it: WinHTTP stops with
+///   `ERROR_WINHTTP_CLIENT_AUTH_CERT_NEEDED` instead, and the request goes again once with `WINHTTP_NO_CLIENT_CERT_CONTEXT`
+///   ("Authentication in WinHTTP", SSL client certificates). graphql.pokeapi.co (Cloudflare) asks every client for an optional
+///   one; without this the hatch base index never loaded on Windows and the app fell back to 649 REST fetches.
 /// - gzip decoded (curl asked for deflate, gzip and br; WinHTTP asks for gzip only, the one form it decodes as libcurl did:
 ///   its "deflate" decoder takes only raw deflate, not the zlib-wrapped form).
 /// - redirects followed here, not by WinHTTP (`WINHTTP_OPTION_REDIRECT_POLICY_NEVER`), with corelibs' methods
@@ -54,7 +58,8 @@ import WinSDK
 ///   This can create a race condition" (`WinHttpCloseHandle`, Remarks). The WinHTTP timeouts above bound that wait; the
 ///   worker checks the signal after every call and never touches a handle after closing it.
 /// - at most `maxConcurrentFetches` workers at once; a slot is held until the worker ends, also after its caller was
-///   answered, so a hung network cannot pile up threads. Waiting for a slot ends on Task cancellation.
+///   answered, so a hung network cannot pile up threads. Waiting for a slot ends on Task cancellation. The worker is a thread
+///   whose handle is closed at once (`WinDetachedThread`: a `Foundation.Thread` kept one handle per fetch for good).
 /// Nothing here logs a header, a body or a URL query. Each fetch opens its own session and closes it with the request, so
 /// nothing of WinHTTP stays open between fetches (a process-wide session kept a pooled connection and a thread-pool worker
 /// waking every 2-3 s); cross-session pooling is switched off where Windows offers the option.
@@ -90,30 +95,44 @@ enum WinHTTPFetch {
     /// `configuration`: the session the caller would have used (its timeouts and extra headers apply, as URLSession applied
     /// them). Diagnostics and tests only: `route` (the net-burst helper compares a direct fetch with the system proxy),
     /// `maxBodyBytes`, and `logonAsBefore`, which starts the request with WinHTTP's defaults (authentication on, logon policy
-    /// MEDIUM), as this file did before the review, for the control in `WindowsHTTPFetchTests`. `progress` (the update
-    /// download's window) gets the decoded body bytes so far after each read, on the fetch's own thread.
+    /// MEDIUM), as this file did before the review, for the control in `WindowsHTTPFetchTests`; `clientCertificateAsBefore`
+    /// stops at a server's request for a client certificate, as this file did before, for the control of the selftest's
+    /// `net.clientCertificateOptional`. `progress` (the update download's window) gets the decoded body bytes so far after each
+    /// read, on the fetch's own thread.
     static func data(for request: URLRequest, configuration: URLSessionConfiguration? = nil,
                      route: WinProxyRoute.Route? = nil, maxBodyBytes: Int = defaultMaxBodyBytes,
-                     logonAsBefore: Bool = false, progress: (@Sendable (Int) -> Void)? = nil) async throws -> (Data, URLResponse) {
+                     logonAsBefore: Bool = false, clientCertificateAsBefore: Bool = false,
+                     progress: (@Sendable (Int) -> Void)? = nil) async throws -> (Data, URLResponse) {
         try await data(for: request, configuration: configuration, route: route, maxBodyBytes: maxBodyBytes,
-                       logonAsBefore: logonAsBefore, session: nil, progress: progress)
+                       logonAsBefore: logonAsBefore, clientCertificateAsBefore: clientCertificateAsBefore, session: nil,
+                       progress: progress)
     }
 
     private static func data(for request: URLRequest, configuration: URLSessionConfiguration?, route: WinProxyRoute.Route?,
-                             maxBodyBytes: Int, logonAsBefore: Bool, session: SharedSession?,
+                             maxBodyBytes: Int, logonAsBefore: Bool, clientCertificateAsBefore: Bool = false,
+                             session: SharedSession?,
                              progress: (@Sendable (Int) -> Void)? = nil) async throws -> (Data, URLResponse) {
         guard let api, let url = request.url else { throw URLError(.cannotLoadFromNetwork) }
         try refuseRealNetworkOutsideTheApp(url)
         let plan = try Plan(request, configuration, route: route ?? WinProxyRoute.route(for: url), maxBodyBytes: maxBodyBytes,
-                            logonAsBefore: logonAsBefore, progress: progress)
-        try await WinHTTPFetch.gate.acquire()
-        let fetch = Fetch(api: api, plan: plan, shared: session)
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                fetch.start(continuation) { WinHTTPFetch.gate.release() }
+                            logonAsBefore: logonAsBefore, clientCertificateAsBefore: clientCertificateAsBefore, progress: progress)
+        let host = url.host ?? "-"
+        trace.started(host)
+        do {
+            try await WinHTTPFetch.gate.acquire()
+            let fetch = Fetch(api: api, plan: plan, shared: session)
+            let answer = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    fetch.start(continuation) { WinHTTPFetch.gate.release() }
+                }
+            } onCancel: {
+                fetch.stop(.cancelled)
             }
-        } onCancel: {
-            fetch.stop(.cancelled)
+            trace.ended(host, nil)
+            return answer
+        } catch {
+            trace.ended(host, error)
+            throw error
         }
     }
 
@@ -232,6 +251,41 @@ enum WinHTTPFetch {
     }
 
     static let stats = Stats()
+
+    /// The idle gate's attribution of worker-thread work (`PTB_WAKE_TRACE=1`, as `WakeTrace` for the main thread): fetches
+    /// started and ended per host, and how the failed ones failed (URLError codes). Hosts only: no path, query or header.
+    /// The gate reads the line at +28 s and at exit and prints the difference per window. Nothing is counted when off.
+    final class Trace: @unchecked Sendable {
+        private let lock = NSLock()
+        private var startedCount = 0
+        private var endedCount = 0
+        private var hosts: [String: Int] = [:]
+        private var failures: [Int: Int] = [:]
+
+        func started(_ host: String) {
+            guard WakeTrace.enabled else { return }
+            lock.lock(); startedCount += 1; hosts[host.lowercased(), default: 0] += 1; lock.unlock()
+        }
+
+        func ended(_ host: String, _ error: Error?) {
+            guard WakeTrace.enabled else { return }
+            lock.lock()
+            endedCount += 1
+            if let error { failures[(error as? URLError)?.code.rawValue ?? 0, default: 0] += 1 }
+            lock.unlock()
+        }
+
+        /// `fetch trace <label>: started=… ended=… hosts=host:n,… failures=code:n,…` (biggest first, at most 12 each).
+        func snapshot(_ label: String) -> String {
+            lock.lock(); defer { lock.unlock() }
+            func top<K>(_ d: [K: Int], _ fmt: (K) -> String) -> String {
+                d.sorted { $0.value != $1.value ? $0.value > $1.value : fmt($0.key) < fmt($1.key) }.prefix(12).map { "\(fmt($0.key)):\($0.value)" }.joined(separator: ",")
+            }
+            return "fetch trace \(label): started=\(startedCount) ended=\(endedCount) hosts=\(top(hosts) { $0 }) failures=\(top(failures) { String($0) })"
+        }
+    }
+
+    static let trace = Trace()
 
     /// At most `slots` fetches hold a worker; the rest wait in order. Waiting ends with `.cancelled` on Task cancellation.
     final class Gate: @unchecked Sendable {
@@ -390,10 +444,11 @@ enum WinHTTPFetch {
         let maxBodyBytes: Int
         let route: WinProxyRoute.Route
         let logonAsBefore: Bool
+        let clientCertificateAsBefore: Bool
         let progress: (@Sendable (Int) -> Void)?
 
         init(_ request: URLRequest, _ configuration: URLSessionConfiguration?, route: WinProxyRoute.Route, maxBodyBytes: Int,
-             logonAsBefore: Bool, progress: (@Sendable (Int) -> Void)? = nil) throws {
+             logonAsBefore: Bool, clientCertificateAsBefore: Bool, progress: (@Sendable (Int) -> Void)? = nil) throws {
             guard let url = request.url, Target(url) != nil else { throw URLError(.unsupportedURL) }
             let verb = request.httpMethod ?? "GET"
             let payload = request.httpBody
@@ -427,6 +482,7 @@ enum WinHTTPFetch {
             self.maxBodyBytes = maxBodyBytes
             self.route = route
             self.logonAsBefore = logonAsBefore
+            self.clientCertificateAsBefore = clientCertificateAsBefore
             self.progress = progress
         }
     }
@@ -477,18 +533,25 @@ enum WinHTTPFetch {
             scheduleLocked()
             t.resume()
             lock.unlock()
-            Thread { [self] in
-                let result = Result { try self.run() }
-                self.lock.lock()
-                let waiting = self.answered ? nil : self.continuation
-                self.answered = true
-                self.continuation = nil
-                self.timer?.cancel()
-                self.timer = nil
-                self.lock.unlock()
-                waiting?.resume(with: result)
-                whenDone()
-            }.start()
+            let started = WinDetachedThread.start { [self] in
+                self.finish(Result { try self.run() }, whenDone)
+            }
+            if !started {
+                finish(.failure(URLError(.cannotLoadFromNetwork, userInfo: [NSLocalizedDescriptionKey: "no thread for the fetch"])), whenDone)
+            }
+        }
+
+        /// The worker's end (or a thread that could not be made): the caller gets `result` unless it was answered already.
+        private func finish(_ result: Result<(Data, URLResponse), Error>, _ whenDone: @Sendable () -> Void) {
+            lock.lock()
+            let waiting = answered ? nil : continuation
+            answered = true
+            continuation = nil
+            timer?.cancel()
+            timer = nil
+            lock.unlock()
+            waiting?.resume(with: result)
+            whenDone()
         }
 
         /// Task cancellation (`.cancelled`) or the timer (`.timedOut`); the first reason wins.
@@ -640,18 +703,22 @@ enum WinHTTPFetch {
             guard api.setOption(handle, option, &v, 4) != 0 else { throw failure(name) }
         }
 
-        /// Send and receive the headers; an authentication round may ask for the same request again (`ERROR_WINHTTP_RESEND_REQUEST`).
+        /// Send and receive the headers; an authentication round may ask for the same request again (`ERROR_WINHTTP_RESEND_REQUEST`),
+        /// and a server's request for a client certificate is answered once with none (`declinesClientCertificate`).
         private func send(_ request: Handle, _ headers: [UInt16], _ body: UnsafeMutableRawBufferPointer?) throws -> Int {
             let length = UInt32(body?.count ?? 0)
+            var declined = false
             for _ in 0..<3 {
                 let sent = api.send(request, headers, UInt32.max /* -1: zero-terminated */, body?.baseAddress, length, length, 0)
                 let sendError = sent == 0 ? GetLastError() : 0
                 try checkStopped()
+                if sent == 0, try declinesClientCertificate(request, after: sendError, &declined) { continue }
                 guard sent != 0 else { throw failure("WinHttpSendRequest", sendError) }
                 let received = api.receive(request, nil)
                 let receiveError = received == 0 ? GetLastError() : 0
                 try checkStopped()
                 if received == 0, receiveError == WinHTTPFetch.errorResendRequest { continue }
+                if received == 0, try declinesClientCertificate(request, after: receiveError, &declined) { continue }
                 guard received != 0 else { throw failure("WinHttpReceiveResponse", receiveError) }
                 var status: UInt32 = 0
                 var size: UInt32 = 4
@@ -660,6 +727,18 @@ enum WinHTTPFetch {
                 return Int(status)
             }
             throw URLError(.userAuthenticationRequired, userInfo: [NSLocalizedDescriptionKey: "authentication kept asking for the request again"])
+        }
+
+        /// The TLS handshake stopped at the server's CertificateRequest (`ERROR_WINHTTP_CLIENT_AUTH_CERT_NEEDED`): the request is
+        /// told to go without one (`WINHTTP_OPTION_CLIENT_CERT_CONTEXT` = `WINHTTP_NO_CLIENT_CERT_CONTEXT`, the documented answer
+        /// when no certificate is needed) and sent again, once. No certificate of the user's is ever offered. A server that
+        /// requires one then fails the handshake: `.clientCertificateRequired` or a TLS error comes back to the caller.
+        private func declinesClientCertificate(_ request: Handle, after code: DWORD, _ declined: inout Bool) throws -> Bool {
+            guard code == WinHTTPFetch.errorClientCertNeeded, !declined, !plan.clientCertificateAsBefore else { return false }
+            declined = true
+            guard api.setOption(request, WinHTTPFetch.optionClientCertContext, nil, 0) != 0
+            else { throw failure("WINHTTP_OPTION_CLIENT_CERT_CONTEXT") }
+            return true
         }
 
         /// The decoded body, at most `maxBodyBytes`, read as it arrives: `WinHttpQueryDataAvailable` waits for the next bytes and
@@ -826,6 +905,8 @@ enum WinHTTPFetch {
     private static let schemeNTLM: UInt32 = 0x2              // WINHTTP_AUTH_SCHEME_NTLM
     private static let schemeNegotiate: UInt32 = 0x10        // WINHTTP_AUTH_SCHEME_NEGOTIATE
     private static let errorResendRequest: DWORD = 12032     // ERROR_WINHTTP_RESEND_REQUEST
+    private static let errorClientCertNeeded: DWORD = 12044  // ERROR_WINHTTP_CLIENT_AUTH_CERT_NEEDED
+    private static let optionClientCertContext: UInt32 = 47  // WINHTTP_OPTION_CLIENT_CERT_CONTEXT (WINHTTP_NO_CLIENT_CERT_CONTEXT = NULL)
 
     private static let api: API? = load()
 
