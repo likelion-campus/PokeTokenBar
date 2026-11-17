@@ -14,10 +14,22 @@ enum WinDarkMode {
     /// `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme` = 0: the user chose dark for apps.
     /// Missing (an older system, a policy) is light.
     static func systemPrefersDark() -> Bool {
+        if let forced = testOverride { return forced }
         guard isSupported, case .value(let bytes) = WinRegistry.bytes("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                                                                       "AppsUseLightTheme"), bytes.count >= 4 else { return false }
         return bytes[0] | bytes[1] | bytes[2] | bytes[3] == 0
     }
+
+    /// SELFTEST HOOK, not a user setting: `WindowsSelftestPopoverDark` sets this to switch the popover's appearance without
+    /// touching the runner's registry; the environment variable `PTB_SELFTEST_APPEARANCE=dark|light` sets it at start so a batch
+    /// run can capture every page in dark. Nothing in the shipped app sets either.
+    nonisolated(unsafe) static var testOverride: Bool? = {
+        switch ProcessInfo.processInfo.environment["PTB_SELFTEST_APPEARANCE"] {
+        case "dark": return true
+        case "light": return false
+        default: return nil
+        }
+    }()
 
     /// The visual-style class a control kind is given in dark: buttons, scroll bars, trackbars, tabs and spinners the Explorer
     /// dark theme, text fields and drop-down lists the "common file dialog" one (its field and list colours). Kinds drawn by
