@@ -51,6 +51,7 @@ struct WinError: Error, CustomStringConvertible {
         }
         hwnd = h
         Self.windows[Int(bitPattern: h)] = self
+        WinOpenTrace.note(.window)   // a popover page's panes and drawn views (the settings-open trace)
         // A window with a caption shows in the title bar, the taskbar and Alt+Tab: the app's icon, re-chosen when a monitor of
         // another scale takes it (the .ico holds one entry per size). Without this it shows the generic application icon.
         if style & Self.captionBits == Self.captionBits {
