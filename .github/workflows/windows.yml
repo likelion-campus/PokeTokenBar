@@ -78,7 +78,7 @@ jobs:
           # Second net: a runner that dies at discovery reports "0 tests" and used to look like a pass.
           n=$(grep -oE "Executed [0-9]+ tests" test.log | tail -1 | grep -oE "[0-9]+" || echo 0)
           echo "Executed $n tests"
-          if [ "$n" -lt 2400 ]; then echo "::error::only $n tests ran (expected at least 2400)"; exit 1; fi
+          if [ "$n" -lt 3845 ]; then echo "::error::only $n tests ran (expected at least 3845)"; exit 1; fi
           # Outside the installed app the WinHTTP seam refuses real hosts (WinHTTPFetch.refuseRealNetworkOutsideTheApp), naming each
           # once on stderr: a test that needs such an answer fails on its own; the rest are fetches nobody waits for. Listed here.
           refused=$(grep -a "WinHTTPFetch: refused real host" test.log | sed 's/.*refused real host \([^ ]*\).*/\1/' | sort -u | tr '\n' ' ' || true)
@@ -122,7 +122,7 @@ jobs:
           re='Executed ([0-9]+) tests?, with (([0-9]+) tests? skipped and )?([0-9]+) failures? \(([0-9]+) unexpected\)'
           [[ "$line" =~ $re ]] || { echo "::error::no XCTest summary line in test.log"; exit 1; }
           executed=${BASH_REMATCH[1]}; skipped=${BASH_REMATCH[3]:-0}; failures=${BASH_REMATCH[4]}
-          if [ "$executed" -lt 2400 ] || [ "$failures" -ne 0 ]; then echo "::error::executed=$executed failures=$failures"; exit 1; fi
+          if [ "$executed" -lt 3845 ] || [ "$failures" -ne 0 ]; then echo "::error::executed=$executed failures=$failures"; exit 1; fi
           mkdir -p windows-tests
           printf '{ "schema": 1, "sha": "%s", "version": "%s", "executed": %d, "skipped": %d, "failures": %d }\n' \
               "$RELEASE_SHA" "$RELEASE_VERSION" "$executed" "$skipped" "$failures" > windows-tests/windows-tests.json
