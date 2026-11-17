@@ -56,7 +56,7 @@ on:
         options: [light, full]
         default: light
       appearance:
-        description: 'Capture run: draw the popover pages in this appearance (dark or light) in the bundle selftest (PTB_SELFTEST_APPEARANCE); empty = the runner as it is'
+        description: 'Capture run: draw the popover pages in this appearance (dark, light or highcontrast = a simulated High Contrast Black) in the bundle selftest (PTB_SELFTEST_APPEARANCE); empty = the runner as it is'
         default: ''
       diagnostics:
         description: 'Also run the three wake-up diagnostic steps (slow)'

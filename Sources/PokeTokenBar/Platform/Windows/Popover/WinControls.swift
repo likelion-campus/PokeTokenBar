@@ -538,9 +538,9 @@ enum WinClipboardText {
         if message == 0x0133 || message == 0x0134 { return nil }  // edits and lists draw as the system draws them
         if colors.highContrast {
             guard message == 0x0138 else { return nil }
-            _ = SetBkColor(dc, GetSysColor(5))
-            _ = SetTextColor(dc, GetSysColor(8))
-            return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(GetSysColorBrush(5))))
+            _ = SetBkColor(dc, colors.palette.window)
+            _ = SetTextColor(dc, colors.palette.text)
+            return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(colors.palette.window))))
         }
         _ = SetBkColor(dc, c.background)
         // Dark: every text the system draws through this message (a read-only field, a check box's text where the theme
@@ -843,7 +843,7 @@ enum WinClipboardText {
         if let glyph = c.glyph {
             let old = SelectObject(d.hDC, UnsafeMutableRawPointer(c.font))
             _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
-            _ = SetTextColor(d.hDC, disabled ? c.ctx.colors.palette.disabled : (pressed && c.ctx.highContrast ? GetSysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? colors.text))))
+            _ = SetTextColor(d.hDC, disabled ? c.ctx.colors.palette.disabled : (pressed && c.ctx.highContrast ? WinUIContext.sysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? colors.text))))
             _ = WinStr.w(glyph.text).withUnsafeBufferPointer {
                 DrawTextW(d.hDC, $0.baseAddress, -1, &r, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
             }
@@ -1002,7 +1002,7 @@ extension WinControls {
             ink = pill.selected ? pal.accent : pal.secondaryText
             fill = high ? nil : (pill.selected ? WinUIColors.blend(bg, pal.accent, 0.18) : WinUIColors.blend(bg, pal.secondaryText, 0.08))
         case .prominent:
-            ink = high ? COLORREF(GetSysColor(14 /* COLOR_HIGHLIGHTTEXT */)) : WinUIColors.rgb(255, 255, 255)
+            ink = high ? WinUIContext.sysColor(14 /* COLOR_HIGHLIGHTTEXT */) : WinUIColors.rgb(255, 255, 255)
             fill = disabled && !high ? WinUIColors.blend(bg, pal.accent, 0.35) : pal.accent
             radius = 2 * ctx.px(5)
         case .borderless:

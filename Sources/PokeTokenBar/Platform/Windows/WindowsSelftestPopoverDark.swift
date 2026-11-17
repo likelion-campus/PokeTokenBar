@@ -23,7 +23,7 @@ import WinSDK
         let ctx = WinUIContext(dpi: 96, owner: nil, textScale: 1, highContrast: true, dark: true)
         defer { ctx.destroy() }
         let p = ctx.colors.palette
-        let win = COLORREF(GetSysColor(5)), text = COLORREF(GetSysColor(8)), hi = COLORREF(GetSysColor(13))
+        let win = WinUIContext.sysColor(5), text = WinUIContext.sysColor(8), hi = WinUIContext.sysColor(13)
         let paletteOK = p.window == win && p.text == text && p.secondaryText == text && p.tertiaryText == text && p.cardBorder == text
             && p.accent == hi && !ctx.dark
         let state = PopoverAppearanceState.highContrast

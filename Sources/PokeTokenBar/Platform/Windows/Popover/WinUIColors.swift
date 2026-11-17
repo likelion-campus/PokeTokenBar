@@ -47,7 +47,7 @@ import WinSDK
     init(highContrast: Bool, dark: Bool = false, accent: COLORREF?) {
         self.highContrast = highContrast
         self.dark = dark && !highContrast
-        palette = Self.resolve(highContrast: highContrast, dark: dark, accent: accent) { COLORREF(GetSysColor($0)) }
+        palette = Self.resolve(highContrast: highContrast, dark: dark, accent: accent) { WinUIContext.sysColor($0) }
     }
 
     /// `COLORREF` (0x00BBGGRR) of a shared 0xRRGGBB, and back.

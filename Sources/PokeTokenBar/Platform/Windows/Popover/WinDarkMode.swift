@@ -14,6 +14,7 @@ enum WinDarkMode {
     /// `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize\AppsUseLightTheme` = 0: the user chose dark for apps.
     /// Missing (an older system, a policy) is light.
     static func systemPrefersDark() -> Bool {
+        if testHighContrast { return false }
         if let forced = testOverride { return forced }
         guard isSupported, case .value(let bytes) = WinRegistry.bytes("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                                                                       "AppsUseLightTheme"), bytes.count >= 4 else { return false }
@@ -23,6 +24,9 @@ enum WinDarkMode {
     /// SELFTEST HOOK, not a user setting: `WindowsSelftestPopoverDark` sets this to switch the popover's appearance without
     /// touching the runner's registry; the environment variable `PTB_SELFTEST_APPEARANCE=dark|light` sets it at start so a batch
     /// run can capture every page in dark. Nothing in the shipped app sets either.
+    /// `PTB_SELFTEST_APPEARANCE=highcontrast`: the capture run that simulates a high-contrast theme (see `WinUIContext.sysColor`).
+    static let testHighContrast = ProcessInfo.processInfo.environment["PTB_SELFTEST_APPEARANCE"] == "highcontrast"
+
     nonisolated(unsafe) static var testOverride: Bool? = {
         switch ProcessInfo.processInfo.environment["PTB_SELFTEST_APPEARANCE"] {
         case "dark": return true

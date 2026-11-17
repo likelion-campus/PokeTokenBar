@@ -216,7 +216,7 @@ enum WinKit {
         if followsHighContrast, Self.systemHighContrast() != highContrast { return true }
         if followsDark, (!highContrast && WinDarkMode.systemPrefersDark()) != dark { return true }
         let accent = followsAccent ? Self.systemAccent() : givenAccent
-        return WinUIColors.resolve(highContrast: highContrast, dark: dark, accent: accent) { COLORREF(GetSysColor($0)) } != colors.palette
+        return WinUIColors.resolve(highContrast: highContrast, dark: dark, accent: accent) { Self.sysColor($0) } != colors.palette
     }
 
     /// The font's line height in pixels (`tmHeight`).
@@ -243,7 +243,20 @@ enum WinKit {
         return 1
     }
 
+    /// `GetSysColor`, except in the selftest's simulated high-contrast capture run (`WinDarkMode.testHighContrast`), which answers with
+    /// Windows' "High Contrast Black" colours so every page can be captured in that look without changing the runner's theme.
+    static func sysColor(_ index: Int32) -> COLORREF {
+        guard WinDarkMode.testHighContrast else { return COLORREF(GetSysColor(index)) }
+        switch index {
+        case 8, 14 /* WINDOWTEXT, HIGHLIGHTTEXT */: return index == 8 ? 0x00FF_FFFF : 0
+        case 13 /* HIGHLIGHT */: return 0x00FF_EB1A  // #1AEBFF
+        case 17 /* GRAYTEXT */: return 0x003F_F23F
+        default: return 0  // COLOR_WINDOW, BTNFACE, ...: black
+        }
+    }
+
     static func systemHighContrast() -> Bool {
+        if WinDarkMode.testHighContrast { return true }
         var hc = HIGHCONTRASTW()
         hc.cbSize = UINT(MemoryLayout<HIGHCONTRASTW>.size)
         guard SystemParametersInfoW(0x0042 /* SPI_GETHIGHCONTRAST */, hc.cbSize, &hc, 0) else { return false }
@@ -252,7 +265,7 @@ enum WinKit {
 
     /// The active high-contrast theme's colours for the shared drawn parts (`GetSysColor`).
     static func systemHighContrastColors() -> PopoverHighContrast {
-        func c(_ i: Int32) -> UInt32 { WinUIColors.rgb(of: COLORREF(GetSysColor(i))) }
+        func c(_ i: Int32) -> UInt32 { WinUIColors.rgb(of: sysColor(i)) }
         return PopoverHighContrast(window: c(5 /* COLOR_WINDOW */), text: c(8 /* COLOR_WINDOWTEXT */), highlight: c(13 /* COLOR_HIGHLIGHT */),
                                    highlightText: c(14 /* COLOR_HIGHLIGHTTEXT */))
     }
