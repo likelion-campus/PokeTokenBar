@@ -491,14 +491,10 @@ extension WindowsSelftest {
     /// The open page with nothing changing: the kit adds no timer and paints nothing. A focused edit's caret blinks only
     /// for Windows' caret timeout (5 s) after the last input, so the window is measured after that.
     private static func idleCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
-        // The selftest's own balloons (notify.*, about 25 s earlier) are queued toasts of about 7 s each once the runner's quiet
-        // hour is over, and the shell's report for each one wakes this thread (run 44003693742: 12 and 23 cs where the quiet
-        // hour gives 0): the window starts once none of them is left.
-        let balloons = WindowsSelftest.selftestApp?.tray?.balloons
-        let own0 = balloons.map { "\($0.inFlight?.id ?? "none") in flight, \($0.pendingCount) queued" } ?? "no presenter"
-        let t0 = Date()
-        _ = await WindowsSelftest.waitUntil(timeout: 60, poll: 0.25) { balloons.map { $0.inFlight == nil && $0.pendingCount == 0 } ?? true }
-        let own = "own balloons: \(own0), drained after \(String(format: "%.1f", Date().timeIntervalSince(t0))) s"
+        // Once the runner's quiet hour is over the selftest's earlier balloons are real toasts, and this window failed twice
+        // there (run 44003693742: 12 and 23 cs) and passed twice (0 and 2 cs): the tray's callbacks in the window and the
+        // shell's state are printed so the next such failure says whether the shell's balloon reports were the wakes.
+        let tray = WindowsSelftest.selftestApp?.tray?.tray
         if WindowsSelftest.onCI { WindowsSelftest.forceForeground(w.hwnd) }
         if let field = page.firstField { _ = SetFocus(field.hwnd) }
         _ = await WindowsSelftest.waitUntil(timeout: 7) { false }
@@ -507,6 +503,7 @@ extension WindowsSelftest {
         // Known timer wakes in the window are budgeted as `idle.window` and `modalPump.idle` do: a store refresh costs ~45 cs and lands in
         // a 10 s window one time in twelve (4 of 50 windows in run 43797111060); it failed this check at 45 cs once the loops shifted its phase.
         let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
+        let callbacks0 = tray?.callbackCount ?? 0, shown0 = tray?.shownEventCount ?? 0
         guard let sample = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else {
             r.add("ui.kit.idle", false, "measurement failed")
             return
@@ -522,7 +519,8 @@ extension WindowsSelftest {
         r.add("ui.kit.idle", sample.mainContextSwitches <= budget && paints == 0 && !WinModalPump.timerLive,
               "kit page open, focus in a field (caret timeout passed), \(Int(seconds)) s: main_thread_cs=\(sample.mainContextSwitches) (budget \(budget) = 6 + 5 per known timer wake + 60 per store refresh; known wakes \(known)) "
               + "main_thread_cycles=\(sample.mainCycles) process_cycles=\(sample.processCycles) pane+part paints=\(paints) pump timer live=\(WinModalPump.timerLive); "
-              + "busy_threads=[\(sample.busy)]; \(own); shell notification state \(PopoverRun.notificationState())")
+              + "busy_threads=[\(sample.busy)]; tray callbacks in the window \((tray?.callbackCount ?? 0) - callbacks0) (balloon shown "
+              + "\((tray?.shownEventCount ?? 0) - shown0)); shell notification state \(PopoverRun.notificationState())")
     }
 
     // MARK: - captures and the control tree (D19)
