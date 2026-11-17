@@ -373,11 +373,29 @@ final class WindowsHTTPFetchTests: XCTestCase {
 
     // MARK: handles (run 44143290510: the base index's 649 REST fetches kept about 600)
 
-    private func settledHandleCount() async throws -> Int {
-        try await Task.sleep(nanoseconds: 500_000_000)  // WinHTTP lets go of a closed session's handles a moment later
+    private func handleCount() -> Int {
         var count: DWORD = 0
         XCTAssertTrue(GetProcessHandleCount(GetCurrentProcess(), &count))
         return Int(count)
+    }
+
+    private func settledHandleCount() async throws -> Int {
+        try await Task.sleep(nanoseconds: 500_000_000)
+        return handleCount()
+    }
+
+    /// WinHTTP lets go of a closed session's handles on its own threads, some seconds later (run 44160910119: +200 handles
+    /// 0.5 s after 100 fetches). The count every 250 ms until it is within `slack` of `base` or 20 s have passed.
+    private func handlesAfterRelease(from base: Int, slack: Int) async throws -> (count: Int, trail: String) {
+        var trail: [String] = []
+        let t0 = Date()
+        while true {
+            let count = handleCount()
+            let s = Date().timeIntervalSince(t0)
+            trail.append(String(format: "%.2fs:+%d", s, count - base))
+            if count - base < slack || s > 20 { return (count, trail.suffix(6).joined(separator: " ")) }
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
     }
 
     /// 100 bodies, each on a thread `start` makes, all returned.
@@ -392,17 +410,21 @@ final class WindowsHTTPFetchTests: XCTestCase {
     func testAHundredFetchesKeepNoHandleWhereAHundredFoundationThreadsKeepOneEach() async throws {
         let url = try base() + "/delay/0"
         for _ in 0..<5 { _ = try await WinHTTPFetch.data(for: try request(url)) }  // WinHTTP's one-time handles first
-        let before = try await settledHandleCount()
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+        let before = handleCount()
         for _ in 0..<100 { _ = try await WinHTTPFetch.data(for: try request(url)) }
-        let afterFetches = try await settledHandleCount()
+        let (afterFetches, trail) = try await handlesAfterRelease(from: before, slack: 20)
+        // Information: the same 100 on one session (connections kept within it), to tell a session's handles from the rest.
+        let batch = await WinHTTPFetch.batchDiagnostic(Array(repeating: try XCTUnwrap(URL(string: url)), count: 100), concurrency: 1, oneSession: true)
+        let (afterBatch, batchTrail) = try await handlesAfterRelease(from: afterFetches, slack: 20)
         await hundredThreads { body in Thread { body() }.start() }
         let afterThreads = try await settledHandleCount()
         await hundredThreads { body in XCTAssertTrue(WinDetachedThread.start(body)) }
         let afterDetached = try await settledHandleCount()
-        print("HANDLES before \(before), after 100 fetches \(afterFetches), after 100 Foundation threads \(afterThreads), "
-              + "after 100 detached threads \(afterDetached)")
+        print("HANDLES before \(before), after 100 fetches \(afterFetches) (\(trail)), after 100 on one session \(afterBatch) "
+              + "(\(batchTrail); \(batch)), after 100 Foundation threads \(afterThreads), after 100 detached threads \(afterDetached)")
         XCTAssertLessThan(afterFetches - before, 20, "the fetches kept handles")
-        XCTAssertGreaterThanOrEqual(afterThreads - afterFetches, 90,
+        XCTAssertGreaterThanOrEqual(afterThreads - afterBatch, 90,
                                     "control: Foundation.Thread kept no handle; if corelibs closes it now, WinDetachedThread can go")
         XCTAssertLessThan(afterDetached - afterThreads, 10, "WinDetachedThread kept handles")
     }
