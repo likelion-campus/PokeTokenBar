@@ -370,21 +370,29 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             let windows = descendants(h.window.hwnd)
             let slots = view.spriteSlots.count
             if windows > 80 || slots > 12 { problems.append("\(language): \(windows) child windows, \(slots) sprite slots") }
+            // the top of the page as it opens (identity, stats): captured with its names loaded
+            dump(h, "detail-top-\(language.rawValue)")
             // the wheel scrolls it and names are asked for what comes into view only
             _ = SendMessageW(view.hwnd, 0x020A, WPARAM(UInt(bitPattern: Int(-120)) << 16), 0)
-            await wait(0.3)
-            if part.scrollY <= 0 { problems.append("\(language): the wheel did not scroll") }
+            if !(await WindowsSelftest.waitUntil(timeout: 3) { part.scrollY > 0 }) { problems.append("\(language): the wheel did not scroll") }
             _ = part.scroll(by: .greatestFiniteMagnitude)
-            await wait(0.8)
+            // the names of the rows in view arrive (waited for, not slept for): the capture and the count read them
+            let shown = PokemonNameDisplayStore.shared
+            _ = await WindowsSelftest.waitUntil(timeout: 5) {
+                !part.visibleMoveKeys().isEmpty && part.visibleMoveKeys().allSatisfy { shown.names[PokemonNameResource(kind: .move, name: $0)] != nil }
+            }
+            _ = await WindowsSelftest.waitUntil(timeout: 1) { part.model.content != model.content }   // the model with those names is drawn
+            await wait(0.3)
             let seen = part.visibleMoveKeys()
             let named = PokemonNameDisplayStore.shared.names.keys.filter { $0.kind == .move }.count
             if seen.count >= 80 || !seen.contains("move-79") { problems.append("\(language): visible moves \(seen.count)") }
             if named >= 80 + 2 { problems.append("\(language): \(named) move names loaded: all of them, not what is in view") }
             dump(h, "detail-\(language.rawValue)")
             _ = part.scroll(by: -.greatestFiniteMagnitude)
-            // the representative button
+            // the representative button: its item exists once the page is drawn at the top again
+            _ = await WindowsSelftest.waitUntil(timeout: 3) { !items(view, DexDetailPart.repAction).isEmpty }
             press(items(view, DexDetailPart.repAction).first)
-            await wait(0.3)
+            _ = await WindowsSelftest.waitUntil(timeout: 3) { h.stores.companion.representativeSpeciesID == 7 }
             if h.stores.companion.representativeSpeciesID != 7 { problems.append("\(language): the button did not set the representative") }
             // Back returns to the grid on that species' page
             press(items(view, DexDetailPart.backAction).first)

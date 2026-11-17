@@ -186,4 +186,19 @@ final class DexDetailTests: XCTestCase {
         XCTAssertNil(p.hit(CGPoint(x: disabled.frame.midX, y: disabled.frame.midY)))
         XCTAssertTrue(d.spriteSlots.contains { $0.opacity == 0.25 })
     }
+
+    /// A name arriving changes the model between two renders; a wheel turn in that gap must still scroll (the layout is stale, not gone).
+    func testAWheelTurnBetweenAModelChangeAndTheNextRenderStillScrolls() async throws {
+        let store = try makeStore(entries: [entry(1)])
+        let (p, graphics) = try await part(store, id: 1)
+        _ = p.render(scale: 1, graphics: graphics)
+        let sp = try species(store, 1)
+        let named = DexDetailModel.make(store: store, species: sp, state: DexDetailState(),
+                                        names: [.init(kind: .type, name: "grass"): ["en": "Grass"]], failed: [])
+        p.update(named)                       // no render yet
+        XCTAssertTrue(p.scroll(by: 40), "the page had a height before the render")
+        XCTAssertGreaterThan(p.scrollY, 0)
+        _ = p.render(scale: 1, graphics: graphics)
+        XCTAssertGreaterThan(p.scrollY, 0)
+    }
 }

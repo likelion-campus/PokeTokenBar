@@ -44,6 +44,9 @@ import Foundation
     }
     private(set) var laid: Laid?
     private var laidScale: CGFloat = 0
+    /// The layout is out of date (the model or the width changed) but still describes the page for scrolling until the next render
+    /// lays it out again: a wheel turn that lands in between must not find a page without a height.
+    private var laidStale = false
 
     init(_ model: DexDetailModel, height: CGFloat, accent: PlazaColor = PopoverColorRole.accent.plazaColor(), glyphs: (any PopoverGlyphRaster)? = nil) {
         self.model = model
@@ -59,7 +62,7 @@ import Foundation
             scrollY = 0
         }
         model = next
-        laid = nil
+        laidStale = true
         pendingDirty = nil
         onChange?()
     }
@@ -438,7 +441,7 @@ import Foundation
     // MARK: PopoverPart
 
     func size(width: CGFloat, scale: CGFloat, text: any PlazaTextEngine) -> CGSize {
-        if width != self.width { laid = nil }
+        if width != self.width { laidStale = true }
         self.width = width
         return CGSize(width: width, height: height)
     }
@@ -465,10 +468,12 @@ import Foundation
 
     func render(scale: CGFloat, graphics: any PlazaGraphics) -> PopoverDrawing {
         let p = DexPainter(text: graphics.text, glyphs: glyphs, scale: scale)
-        if scale != laidScale { laid = nil }
+        if scale != laidScale { laidStale = true }
         laidScale = scale
-        let lay = laid ?? layout(width: width, painter: p)
+        let lay: Laid
+        if let kept = laid, !laidStale { lay = kept } else { lay = layout(width: width, painter: p) }
         laid = lay
+        laidStale = false
         scrollY = min(max(0, scrollY), maxScroll)
         let space = PlazaPanelSpace(content: lay.size, room: 0)
         let primary = PopoverColorRole.primary.plazaColor(), secondary = PopoverColorRole.secondary.plazaColor()
