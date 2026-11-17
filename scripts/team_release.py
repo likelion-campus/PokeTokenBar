@@ -875,7 +875,7 @@ def build_parser():
                        help="start a new run: alone or 'failed' in place of a failed one; a workflow file: in place "
                             "of that workflow's newest run, whatever its state (repeatable)")
     collect.add_argument("--out", required=True)
-    collect.add_argument("--timeout-min", type=int, default=170)  # above the app job's 150-minute limit
+    collect.add_argument("--timeout-min", type=int, default=170)  # above the slowest path of windows-app (build 60 min, then the longest job 60 min, then result)
     collect.add_argument("--allow-rerun", action="store_true", help="accept a run whose attempt is above 1")
     publish.add_argument("--zip", required=True)
     publish.add_argument("--installer", required=True)
