@@ -32,7 +32,7 @@ final class DexBrowserTests: XCTestCase {
 
     // MARK: state
 
-    func testAFilterOrSortOrSearchChangeStartsOnPageOneAndClearsTheSelection() {
+    func testAFilterOrSortOrSearchChangeStartsOnPageOneAndClearsTheSelection() async {
         var s = DexBrowserState()
         for change in [{ s.setSearch("mon") }, { s.toggleShinyOnly() }, { s.setDexSort(.nameAsc) }, { s.setLogSort(.oldestFirst) },
                        { s.toggleRarity(.rare) }, { s.toggleRegion(.kanto) }] {
@@ -51,7 +51,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertEqual(s.selectedID, "7")
     }
 
-    func testTheSameChipAgainClearsItAndResetFiltersClearsEverything() {
+    func testTheSameChipAgainClearsItAndResetFiltersClearsEverything() async {
         var s = DexBrowserState()
         s.toggleRarity(.rare)
         XCTAssertEqual(s.selectedRarity, .rare)
@@ -70,7 +70,7 @@ final class DexBrowserTests: XCTestCase {
 
     // MARK: paging
 
-    func testPagingRules() {
+    func testPagingRules() async {
         XCTAssertEqual(DexPaging.pageAfterScroll(current: 0, pageCount: 3, step: -1), 0)
         XCTAssertEqual(DexPaging.pageAfterScroll(current: 2, pageCount: 3, step: 1), 2)
         XCTAssertEqual(DexPaging.pageAfterScroll(current: 1, pageCount: 3, step: 1), 2)
@@ -82,7 +82,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertEqual(DexPaging.currentPage(9, anchor: nil, ids: ids, pageCount: 3), 2)   // clamped to the pages there are
     }
 
-    func testTheWheelPagerTurnsOnePagePerNotchAndAccumulatesATouchpad() {
+    func testTheWheelPagerTurnsOnePagePerNotchAndAccumulatesATouchpad() async {
         var w = DexWheelPager()
         XCTAssertEqual(w.step(deltaY: -40, precise: false), 1)
         XCTAssertEqual(w.step(deltaY: 40, precise: false), -1)
@@ -95,7 +95,7 @@ final class DexBrowserTests: XCTestCase {
 
     // MARK: the grid model
 
-    func testTheGridModelHasSixteenCellsPerPageAndTheFooterSaysWhichPage() throws {
+    func testTheGridModelHasSixteenCellsPerPageAndTheFooterSaysWhichPage() async throws {
         let store = try makeStore(count: 20)
         var s = DexBrowserState()
         let m = DexBodyModel.make(store: store, state: s)
@@ -116,7 +116,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertNil(back.footer.selection)
     }
 
-    func testTheSelectedCellShowsItsRarityAndTheRepresentativeButton() throws {
+    func testTheSelectedCellShowsItsRarityAndTheRepresentativeButton() async throws {
         let store = try makeStore(count: 20)
         var s = DexBrowserState()
         s.selectedID = "3"
@@ -132,7 +132,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertFalse(after.cells[3].isRepresentative)
     }
 
-    func testFiltersNarrowTheGridAndNothingLeftIsTheNoResultsState() throws {
+    func testFiltersNarrowTheGridAndNothingLeftIsTheNoResultsState() async throws {
         let store = try makeStore(count: 20)
         var s = DexBrowserState()
         s.toggleRarity(.rare)
@@ -165,7 +165,7 @@ final class DexBrowserTests: XCTestCase {
         return (p, graphics)
     }
 
-    func testTheGridPartHasOneButtonItemPerCellAndAStillSlotPerSprite() throws {
+    func testTheGridPartHasOneButtonItemPerCellAndAStillSlotPerSprite() async throws {
         let store = try makeStore(count: 20)
         let (p, graphics) = part(store)
         let d = p.render(scale: 1, graphics: graphics)
@@ -189,7 +189,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(d.drawing.tooltips.count, 16)
     }
 
-    func testTheGridKeysMoveWithinThePageAndTurnIt() throws {
+    func testTheGridKeysMoveWithinThePageAndTurnIt() async throws {
         let store = try makeStore(count: 20)
         let (p, _) = part(store)
         XCTAssertEqual(p.key(0x27, from: 0), .focusCell(1))     // right
@@ -211,7 +211,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertEqual(q.key(0x21, from: 0), .page(-1))
     }
 
-    func testHoverLiftsOneCellAndRepaintsOnlyThatRegion() throws {
+    func testHoverLiftsOneCellAndRepaintsOnlyThatRegion() async throws {
         let store = try makeStore(count: 20)
         let (p, graphics) = part(store)
         _ = p.render(scale: 1, graphics: graphics)
@@ -233,7 +233,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertNil(p.hoverCell)
     }
 
-    func testTheChipRowsScrollSidewaysAndKeepEveryChipReachable() throws {
+    func testTheChipRowsScrollSidewaysAndKeepEveryChipReachable() async throws {
         let store = try makeStore(count: 20)
         let (p, graphics) = part(store)
         _ = p.render(scale: 1, graphics: graphics)
@@ -251,7 +251,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertTrue(region.allSatisfy { $0.frame.minX >= 0 && $0.frame.maxX <= 332.01 })
     }
 
-    func testNothingFoundShowsTheMessageAndAClearButton() throws {
+    func testNothingFoundShowsTheMessageAndAClearButton() async throws {
         let store = try makeStore(count: 20)
         var s = DexBrowserState()
         s.setSearch("zzz")
@@ -266,7 +266,7 @@ final class DexBrowserTests: XCTestCase {
 
     // MARK: the log
 
-    func testTheLogDrawsOnlyTheRowsInView() throws {
+    func testTheLogDrawsOnlyTheRowsInView() async throws {
         let store = try makeStore(count: 300)
         let model = DexLogModel.make(store: store, state: DexBrowserState())
         XCTAssertEqual(model.rows.count, 300)
@@ -289,7 +289,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertEqual(p.scrollY, 0)
     }
 
-    func testTheLogThumbDragsTheList() throws {
+    func testTheLogThumbDragsTheList() async throws {
         let store = try makeStore(count: 60)
         let model = DexLogModel.make(store: store, state: DexBrowserState())
         let graphics = PlatformPlaza.graphics
@@ -307,7 +307,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertEqual(p.scrollY, before)
     }
 
-    func testTheLogModelFollowsTheFiltersAndLinksOnlySpeciesInTheDex() throws {
+    func testTheLogModelFollowsTheFiltersAndLinksOnlySpeciesInTheDex() async throws {
         let store = try makeStore(count: 8)
         var s = DexBrowserState()
         s.toggleRarity(.uncommon)
@@ -320,7 +320,7 @@ final class DexBrowserTests: XCTestCase {
         XCTAssertEqual(m.rows.first?.nodes.first?.name, "Mon1")
     }
 
-    func testTheEmptyPartCentresTheTextAndAnimatesPikachu() {
+    func testTheEmptyPartCentresTheTextAndAnimatesPikachu() async {
         let graphics = PlatformPlaza.graphics
         let p = DexEmptyPart(title: "No Pokémon caught yet!", hint: "Spend tokens to hatch your first Pokémon.")
         let size = p.size(width: 332, scale: 1, text: graphics.text)
