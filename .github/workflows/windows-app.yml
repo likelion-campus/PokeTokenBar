@@ -582,6 +582,17 @@ jobs:
               else { "PASS ${n}: $($c.detail)" }
           }
           if ($bad.Count -gt 0) { throw "window icon: $($bad -join ', ')" }
+      - name: Checks that talk to real hosts and could not reach them (warning only)
+        timeout-minutes: 5
+        if: (success() || failure())
+        shell: pwsh
+        run: |
+          # net.clientCertificateOptional calls graphql.pokeapi.co for real; a host that cannot be reached passes with "not reached (network)".
+          # That is not a failure of the app, but it must not go unseen: say it in the run's annotations.
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          foreach ($c in @($j.checks | Where-Object { $_.detail -like 'not reached*' })) {
+              Write-Host "::warning title=$($c.name)::the check passed without reaching its host (network outage or slow host): $($c.detail)"
+          }
       - name: Language and time zone in child processes (Korean display language, Seoul time zone)
         timeout-minutes: 10
         if: (success() || failure())  # independent evidence, also after a selftest failure
