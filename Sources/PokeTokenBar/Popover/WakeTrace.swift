@@ -14,9 +14,9 @@ enum WakeTrace {
     nonisolated(unsafe) private static var sources: [String: Int] = [:]
 
     /// A message the pump removed; `timerID` is the `wParam` of a timer message.
-    static func message(_ id: UInt32, wParam: Int, target: () -> String) {
+    static func message(_ id: UInt32, wParam: Int, target: String) {
         guard enabled else { return }
-        messages["0x" + String(id, radix: 16) + "@" + target(), default: 0] += 1
+        messages["0x" + String(id, radix: 16) + "@" + target, default: 0] += 1
         if id == 0x0113 /* WM_TIMER */ || id == 0x0118 /* WM_SYSTIMER: the caret */ { timers[wParam, default: 0] += 1 }
     }
 
