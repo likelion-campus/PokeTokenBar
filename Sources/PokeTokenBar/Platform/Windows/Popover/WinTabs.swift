@@ -135,7 +135,7 @@ extension WinHomePage {
         guard !isDestroyed, state.tab != builtTab, !tabSwitchPending else { return }
         tabSwitchPending = true
         let tab = state.tab
-        guard let popover else {
+        guard let popover = tabPopover else {
             tabChanged?(tab)
             return
         }
