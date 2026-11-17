@@ -55,6 +55,9 @@ on:
         type: choice
         options: [light, full]
         default: light
+      appearance:
+        description: 'Capture run: draw the popover pages in this appearance (dark or light) in the bundle selftest (PTB_SELFTEST_APPEARANCE); empty = the runner as it is'
+        default: ''
       diagnostics:
         description: 'Also run the three wake-up diagnostic steps (slow)'
         type: boolean
@@ -306,6 +309,7 @@ jobs:
         shell: pwsh
         env:
           PTB_SELFTEST_FLAKE_LOOP: ${{ inputs.release_sha == '' && inputs.flake_loop || '0' }}   # the repeat loops run in this process only
+          PTB_SELFTEST_APPEARANCE: ${{ inputs.release_sha == '' && inputs.appearance || '' }}   # stage 7 Task 16: a dark capture run
         run: |
           $env:Path = 'C:\Windows\System32;C:\Windows'
           $env:CLAUDE_CONFIG_DIR = Join-Path $env:PTB_FIXTURE 'claude'
@@ -332,7 +336,7 @@ jobs:
                    'companion.spriteFrames', 'companion.clockStops', 'companion.spriteMemory',
                    'ui.kit.scrollClicks', 'ui.kit.multiLineKeys', 'ui.kit.partResize', 'ui.kit.settingChange', 'ui.kit.editMenu',
                    'ui.kit.codePaste', 'ui.kit.ampersand', 'ui.kit.registries', 'ui.kit.noLeak',
-                   'ui.dark.switch', 'ui.highContrast'
+                   'ui.dark.switch', 'ui.highContrast', 'ui.highContrast.system'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }

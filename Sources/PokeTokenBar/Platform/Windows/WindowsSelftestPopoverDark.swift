@@ -7,12 +7,31 @@ import WinSDK
 //                    selftest override standing in for the registry value: every time the page is rebuilt through the
 //                    drawing-once path, the shared drawn-part state follows, the page's dominant colour is the new palette's
 //                    (no stale light rectangle), and the resources are flat over repeated switches (PopoverResourceRule).
-//   ui.highContrast  the real SPI_SETHIGHCONTRAST (CI only, restored in a defer): the window follows, the palette is the
+//   ui.highContrast  injected, changes nothing on the machine. ui.highContrast.system: the real SPI_SETHIGHCONTRAST (GitHub Actions runners only, restored in a defer): the window follows, the palette is the
 //                    system's colours, the shared state is high contrast; captured as kit-highcontrast.png with --dump-ui.
 @MainActor enum WindowsSelftestPopoverDark {
     static func run(_ r: WindowsSelftest.Recorder) async {
         await switchCheck(r)
+        injectedHighContrastCheck(r)
         await highContrastCheck(r)
+    }
+
+    /// `ui.highContrast`: high contrast injected into the context (no system setting touched, every run): the palette is the
+    /// system colours, the shared drawn-part state is high contrast, and the colour mapping holds.
+    private static func injectedHighContrastCheck(_ r: WindowsSelftest.Recorder) {
+        defer { PopoverAppearanceState.reset() }
+        let ctx = WinUIContext(dpi: 96, owner: nil, textScale: 1, highContrast: true, dark: true)
+        defer { ctx.destroy() }
+        let p = ctx.colors.palette
+        let win = COLORREF(GetSysColor(5)), text = COLORREF(GetSysColor(8)), hi = COLORREF(GetSysColor(13))
+        let paletteOK = p.window == win && p.text == text && p.secondaryText == text && p.tertiaryText == text && p.cardBorder == text
+            && p.accent == hi && !ctx.dark
+        let state = PopoverAppearanceState.highContrast
+        let stateOK = state?.window == WinUIColors.rgb(of: win) && state?.text == WinUIColors.rgb(of: text) && PopoverAppearanceState.appearance == .light
+        let tertiary = PopoverColorRole.tertiary.plazaColor(), accent = PopoverColorRole.accent.plazaColor()
+        let mapOK = tertiary.alpha == 1 && Int((accent.red * 255).rounded()) == Int(hi & 0xFF)
+        r.add("ui.highContrast", paletteOK && stateOK && mapOK,
+              "injected (no system setting changed): palette is the system's=\(paletteOK) (dark requested but ignored: dark=\(ctx.dark)); shared state=\(stateOK); role mapping (tertiary opaque, accent = highlight)=\(mapOK)")
     }
 
     /// The most frequent pixel colour (0xRRGGBB) and the share of near-white pixels of a capture.
@@ -93,13 +112,15 @@ import WinSDK
     // MARK: ui.highContrast
 
     private static func highContrastCheck(_ r: WindowsSelftest.Recorder) async {
-        guard WindowsSelftest.onCI else { r.add("ui.highContrast", true, "skipped: CI not set (it would change the user's theme)"); return }
+        guard WindowsSelftest.onCI, ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" else {
+            r.add("ui.highContrast.system", true, "skipped: not a GitHub Actions runner (this check flips the real high-contrast setting)"); return
+        }
         let dir = WinUIDump.directory(from: CommandLine.arguments)?.appendingPathComponent("kit", isDirectory: true)
         let saved = WinDarkMode.testOverride
         WinDarkMode.testOverride = false
         let page = GalleryPage()
         guard let w = KitWindow(heightDIP: 400, build: { _, s in page.build(s) }) else {
-            r.add("ui.highContrast", false, "the kit window could not be made: \(GetLastError())")
+            r.add("ui.highContrast.system", false, "the kit window could not be made: \(GetLastError())")
             return
         }
         w.fitToContent()
@@ -110,7 +131,7 @@ import WinSDK
         original.cbSize = UINT(MemoryLayout<HIGHCONTRASTW>.size)
         guard SystemParametersInfoW(0x0042 /* SPI_GETHIGHCONTRAST */, original.cbSize, &original, 0) else {
             w.destroy()
-            r.add("ui.highContrast", false, "SPI_GETHIGHCONTRAST failed: \(GetLastError())")
+            r.add("ui.highContrast.system", false, "SPI_GETHIGHCONTRAST failed: \(GetLastError())")
             return
         }
         let wasOn = original.dwFlags & 0x1 != 0
@@ -150,10 +171,10 @@ import WinSDK
         // Back to the session's theme: the next window is light again.
         if !wasOn {
             let back = await WindowsSelftest.waitUntil(timeout: 3) { !WinUIContext.systemHighContrast() }
-            r.add("ui.highContrast", on && rebuilt && paletteOK && stateOK && dominantOK && checks.ok && back,
+            r.add("ui.highContrast.system", on && rebuilt && paletteOK && stateOK && dominantOK && checks.ok && back,
                   "SPI_SETHIGHCONTRAST on=\(on) window rebuilt=\(rebuilt); palette is the system's=\(paletteOK); shared state=\(stateOK); \(profileText); tree \(checks.summary); restored=\(back); \(wrote)")
         } else {
-            r.add("ui.highContrast", true, "skipped: the session already runs a high-contrast theme (left as it is)")
+            r.add("ui.highContrast.system", true, "skipped: the session already runs a high-contrast theme (left as it is)")
         }
     }
 }
