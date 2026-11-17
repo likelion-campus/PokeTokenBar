@@ -53,10 +53,10 @@ import WinSDK
     fileprivate static func removed(_ messageBits: Int) {
         guard let m = UnsafeMutablePointer<MSG>(bitPattern: messageBits) else { return }
         let message = m.pointee.message
-        // `Int(truncatingIfNeeded:)`: a wParam can use all 64 bits (the shell's file dialog posts one at or above 2^63), and `Int(_:)`
-        // traps on it — that killed the process during the transfer dialogs' checks (#270, exit 0xC000041D).
+        // A wParam can use all 64 bits (the shell's file dialog posts one at or above 2^63): `WakeTrace.message` takes it unsigned
+        // (`Int(_:)` trapped on it — the transfer dialogs' checks died with exit 0xC000041D, #270).
         if WakeTrace.enabled {   // the class name is asked only while counting (the closure form trapped: a main-actor closure called from a nonisolated function)
-            WakeTrace.message(message, wParam: Int(truncatingIfNeeded: m.pointee.wParam), target: m.pointee.hwnd.map { WinKit.className($0) } ?? "-")
+            WakeTrace.message(message, wParam: UInt(m.pointee.wParam), target: m.pointee.hwnd.map { WinKit.className($0) } ?? "-")
         }   // idle gate attribution (off unless PTB_WAKE_TRACE=1)
         // Mouse messages (client 0x0200–0x020E, non-client 0x00A0–0x00AD) never take the dialog path: IsDialogMessageW only
         // dispatches them, and a tracking loop that DefWindowProc runs on a non-client click (a scroll bar's arrow or thumb,

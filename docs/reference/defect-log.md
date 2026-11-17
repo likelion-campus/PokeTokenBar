@@ -2983,6 +2983,7 @@ read_when:
   **직접 원인:** 유휴 게이트의 깨움 추적(#270)이 펌프가 꺼내는 *모든* 메시지에 대해 `WakeTrace.message(message, wParam: Int(m.pointee.wParam))` 를 불렀다. `WPARAM` 은 부호 없는 64비트라 셸의 파일 대화상자가 보내는 2^63 이상 값에서 `Int(_:)` 가 트랩한다("Not enough bits to represent the passed value"). 변환은 호출 지점에서 일어나므로 `PTB_WAKE_TRACE` 가 꺼져 있어도(모든 사용자 PC) 실행됐다 — 창 프로시저 안의 Swift 트랩은 0xC000041D(사용자 콜백 안 치명 예외)로 보인다.
   **왜 못 걸렀나:** #270 브랜치의 full 런은 통과했다(그 런의 대화상자 점검에서는 그런 메시지가 오지 않았거나 순서가 달랐다 — 확인 못 함). `windows-port` 와 합친 트리는 `windows.yml`(컴파일·단위 시험)만 돌리고 머지했는데, 그 워크플로는 셀프테스트를 돌리지 않는다. 메시지 경로를 건드리는 변경인데 "CI 변경"으로 분류해 앱 런을 생략했다(리드의 판단 실수).
   **부류 스윕:** `Platform/Windows/**` 의 `Int(wParam)`/`Int(m.pointee.wParam)` 전수 — `WinPopover`(세션 변경 코드), `WinControls`(가상 키)는 메시지별 작은 값이라 안전. `LPARAM` 은 부호 있는 64비트라 `Int(lParam)` 은 트랩하지 않는다.
+  **후속(방어):** `WakeTrace.message(_:wParam:target:)` 가 `wParam` 을 `UInt` 로 받는다 — 호출부에 변환이 없다. 트리거 값(`UInt.max`, 2^63)은 `WakeTraceTests.testMessageAcceptsAnyWParamBits`.
   **고침:** `Int(truncatingIfNeeded:)`, 그리고 추적이 꺼져 있으면 호출 자체를 하지 않는다. **규칙:** 메시지 파라미터를 정수로 바꿀 땐 `truncatingIfNeeded`/`bitPattern` 만 쓴다. 메시지 펌프·훅·창 프로시저를 건드리는 변경은 이름이 무엇이든 *합친 트리*에서 앱 런(셀프테스트)을 돌린 뒤에만 머지한다.
 
 <!-- idle blow-up (fix/windows-idle-blowup) begin -->
@@ -3018,7 +3019,11 @@ read_when:
   `%LOCALAPPDATA%\PokeTokenBar\base-index.json` 이 생길 때까지(최대 +240 s) 앱을 열어 두고, 걸린 시간을 요약의 `warmup` 에 남긴다. `PTB_WAKE_TRACE=1` 에는 작업 스레드 쪽 귀속
   `fetch trace start/exit: started= ended= hosts= failures=` 를 더했고, 게이트는 창마다 그 차이를 `FETCHES <label>:` 줄과 `fetches` 항목으로 낸다.
   **가드(기계):** ① 셀프테스트 `net.clientCertificateOptional`: 실제 graphql.pokeapi.co 에 작은 POST 를 두 번 보낸다. 고친 경로는 HTTP 응답을 받아야 하고, 대조군
-  (`clientCertificateAsBefore`)은 12044 로 멈춰야 '서버가 아직 요청한다' 는 것이 증명된다. 러너가 닿지 못하면 통과하되 그렇게 적는다. ②
+  (`clientCertificateAsBefore`)은 12044 로 멈춰야 '서버가 아직 요청한다' 는 것이 증명된다. 셀프테스트는 사용자 PC 와 릴리스 게이트에서도 돌므로 판정은
+  `WindowsSelftest.classify`(순수 함수, `WindowsClientCertificateCheckTests`)가 한다: 실패는 '우리 답이 틀림'(인증서 요청에서 멈춤 -1206, 또는 대조군에 없던 실패)뿐이고,
+  닿지 못함·시간 초과·호스트가 두 요청을 같은 식으로 실패함(PokéAPI 장애)·호스트가 더는 요청하지 않음은 `unverified (이유)` 로 통과한다. HTTP 상태는 5xx 라도
+  핸드셰이크를 지났다는 뜻이라 검증으로 친다. 요청마다 타임아웃 10 s·전체 마감 15 s(세션의 `timeoutIntervalForResource`, `WinHTTPFetch` 가 그 시각에 호출자에게 답한다),
+  두 요청을 동시에 보내므로 호스트가 무엇을 하든 약 15 s 안에 답이 나고 셀프테스트를 멈추지 않는다. ②
   `WindowsHTTPFetchTests.testTheFetchWorkersKeepNoHandleWhereFoundationThreadsKeepOneEach`: 한 세션에서 루프백 페치 100 회(세션 열기·닫기만 빼고 게이트·작업 스레드·
   타이머·연결·요청까지 전 경로) 뒤 핸들이 +20 미만이어야 하고, 대조군 `Thread` 100 개는 +90 이상, `WinDetachedThread` 100 개는 +10 미만이어야 한다. 실측(run 44166157252):
   한 세션 100 페치 +7, `Thread` +100, `WinDetachedThread` +0. 대조군이 실패하면 corelibs 가 고친 것이니 `WinDetachedThread` 를 걷어도 된다. ③ 게이트의 워밍업 대기와 `FETCHES` 줄.
@@ -3029,7 +3034,12 @@ read_when:
   다시 만든다. 핸들 하나라 그대로 둔다), `WinUIDump`·`WindowsSelftest*`(셀프테스트 전용이라 그대로 둔다)다. corelibs `Process` 는 스레드 핸들을 바로 닫고, 프로세스 핸들은 `deinit` 에서
   닫는다(확인함). ② 같은 TLS 차이(서버의 CertificateRequest): 앱이 부르는 호스트 18 곳을 `openssl s_client` 로 확인했다. CertificateRequest 를 보내는 곳은 graphql.pokeapi.co 하나다.
   ③ 같은 모양의 첫 실행 일(끝나야 저장하고 기동마다 처음부터 다시 함): `buildBaseIndexViaREST` 하나뿐이다. 업스트림 소유인 `Core/` 라 바꾸지 않았다. 이제 GraphQL 이 윈도에서도 되므로
-  REST 빌드는 GraphQL 장애 때만 돈다(맥과 같다).
+  REST 빌드는 GraphQL 장애 때만 돈다(맥과 같다). **알려진 한계(업스트림 소유 코드, 맥과 같음):** GraphQL 이 정말로 죽어 있으면(오프라인, PokéAPI 장애) 캐시가 없는 한
+  부화가 있는 기동마다 REST 빌드가 1 번부터 다시 649 페치를 하고, 한 기동이 끝까지 가야 저장된다(오프라인이면 DNS 실패 649 회, 5xx 면 TLS 649 회와 닫힌 세션마다 1 분쯤
+  남는 핸들 2 개). 그동안 부화는 막히지 않는다 — `chooseBaseViaREST` 가 무작위 id 를 최대 16 번 물어 base 를 고르고(가중치 없음), REST 도 안 되면 알을 유지하고 다음 틱에
+  다시 한다. 기동을 넘어 잇거나 실패 라운드에서 멈추는 안(`feat/base-index-rest-resume`)은 맥 동작을 바꾸므로 사용자 결정을 기다린다. 이 한계 때문에 유휴 게이트는 PokéAPI 가
+  느리면서 GraphQL 까지 죽은 드문 경우에는 여전히 측정 창에 REST 빌드가 들어갈 수 있다(워밍업은 최대 300 s 를 기다린 뒤 요약에 적고 계속한다. 셀프테스트는 #274 가
+  `base-index.json` 을 미리 심는다).
   **사용자 PC:** 키트 pc-5…pc-9(모두 100cc1de 이후)는 두 결함을 다 가진다. ① `base-index.json` 이 없는 실행(첫 실행, 또는 빌드가 끝나기 전에 끈 다음 실행)마다 649 페치 REST
   빌드가 돈다. CPU 는 수 초를 쓰고, 핸들 약 650 개가 앱 종료까지 남는다. 끝나면 30 일 캐시로 남고, 그 뒤로는 오래된 캐시를 계속 쓴다. ② 모든 페치가 핸들을 하나씩 남긴다
   (120 s 마다 상태 확인·한도 몇 개 → 켜 둔 하루에 천 단위). 프로세스 한도(약 1,600 만)와는 거리가 멀지만, 작업 관리자의 핸들 수가 선형으로 자란다.
