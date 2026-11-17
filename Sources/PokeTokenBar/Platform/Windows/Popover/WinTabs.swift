@@ -15,8 +15,15 @@ import WinSDK
 @MainActor protocol WinTabContent: AnyObject {
     /// Adds the tab's sections and rows to `host.stack` (the scroller's page), applies its model once, starts observing.
     func build()
+    /// The content is shorter than the Mac's 520 pt area and the Mac's popover is then as short as it (an empty Bag or Pokédex: the
+    /// Mac frames only a list at 520 pt, not the empty state). The window follows the content while this is true.
+    var contentIsShort: Bool { get }
     /// Before the page goes (a tab switch, a rebuild, the popover closing): stop observing and clocks, free what it holds.
     func destroy()
+}
+
+extension WinTabContent {
+    var contentIsShort: Bool { false }
 }
 
 /// What a tab's content works with.
@@ -59,6 +66,11 @@ import WinSDK
     /// Runs `body` only while the content's page is current (a completion that arrives after a close or a tab switch is dropped).
     func whenCurrent(_ body: () -> Void) {
         if isCurrent { body() }
+    }
+
+    /// The content's height class changed (an empty Bag filled, the first Pokémon caught): the window is sized again.
+    func contentHeightChanged() {
+        page?.tabContentChanged()
     }
 
     /// Goes to another tab (the Mac's `nav.tab = …`): the page for it is built in place.

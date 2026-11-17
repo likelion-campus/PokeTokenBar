@@ -326,7 +326,7 @@ import WinSDK
         case .confirm:
             var line = WinCardView.Line(top: 8)
             line.flexible = nil
-            if let c = WinCardKit.label(m.confirmText, .caption2, role: .secondary, wraps: true, in: child, ctx: ctx) { line.leading.append(c) }
+            if let c = WinCardKit.label(m.confirmText, .caption2, role: .secondary, wraps: true, maxLines: 2, in: child, ctx: ctx) { line.leading.append(c) }
             let buy = WinCardKit.pill(l.buy, .prominent, in: child, ctx: ctx) { [weak self] in
                 guard let self else { return }
                 if m.isHighValue { self.setStage(key, .preciousConfirm) } else { self.commitEgg(m.tier, key: key) }
@@ -336,7 +336,7 @@ import WinSDK
             return [line]
         case .preciousConfirm:
             var line = WinCardView.Line(top: 8)
-            if let c = WinCardKit.label(m.warningText, .caption2, weight: 600, role: .warning, wraps: true, in: child, ctx: ctx) { line.leading.append(c) }
+            if let c = WinCardKit.label(m.warningText, .caption2, weight: 600, role: .warning, wraps: true, maxLines: 2, in: child, ctx: ctx) { line.leading.append(c) }
             let discard = WinCardKit.pill(m.discardTitle, .prominent, in: child, ctx: ctx) { [weak self] in self?.commitEgg(m.tier, key: key) }
             let cancel = WinCardKit.pill(l.cancel, .borderless, in: child, ctx: ctx) { [weak self] in self?.setStage(key, .idle) }
             for (name, c) in [("confirm", discard), ("cancel", cancel)] { if let c { line.trailing.append(c); card.controls[name] = c } }

@@ -297,7 +297,10 @@ import WinSDK
     /// The window is the pinned top, the Mac's fixed 520 pt scroller (also when the content is shorter) and the pinned footer.
     private func updatePinnedHeight() {
         guard ctx != nil, ctx.scale > 0 else { return }
-        let total = pinnedHeights.top + ctx.px(PopoverStackMetrics.homeScrollerHeight) + pinnedHeights.bottom
+        var scroller = ctx.px(PopoverStackMetrics.homeScrollerHeight)
+        // a tab whose content is the Mac's short empty state (no 520 pt frame there): the window is as tall as the content
+        if builtTab != .home, tabContent?.contentIsShort == true, let content = stack?.frames?.height { scroller = min(scroller, Int32(content)) }
+        let total = pinnedHeights.top + scroller + pinnedHeights.bottom
         let next = (CGFloat(total) / ctx.scale).rounded(.up)
         guard abs(next - heightDIP) >= 1 else { return }
         heightDIP = next
@@ -310,6 +313,11 @@ import WinSDK
             guard let self, !self.isDestroyed, let popover = self.popover, popover.generation == generation else { return }
             popover.pageSizeChanged()
         }
+    }
+
+    /// A tab's content went from long to short or back: the scroller and the window follow.
+    func tabContentChanged() {
+        pinnedHeightChanged()
     }
 
     /// A pinned pane changed height (the update offer came or went): the panes and the scroller are placed again.

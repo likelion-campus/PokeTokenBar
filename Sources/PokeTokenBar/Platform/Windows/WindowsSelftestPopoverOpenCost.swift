@@ -88,7 +88,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
 }
 
 @MainActor enum WindowsSelftestOpenCost {
-    static let names = ["settings.openCost", "popover.swapCost"]
+    static let names = ["settings.openCost", "popover.swapCost", "popover.caret"]
 
     /// What one page change cost.
     struct Swap {
@@ -231,6 +231,54 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         direct.report = WinOpenTrace.running
         if let t = direct.report { direct.clickToSettledMs = t.startedAt + t.settledMs - directStart }
         fill(&direct, popover)
+        // The system caret: an EDIT that keeps the focus (or a caret that outlives its field) blinks every ~530 ms, one WM_SYSTIMER on the main
+        // thread each. Settings is open here and has fields: put the keyboard in one, then leave the page (Back) and close the popover; the
+        // thread must have no caret window and no focus on a window that is gone or hidden.
+        var caretNotes: [String] = [], caretBad: [String] = []
+        func gui() -> (caret: HWND?, focus: HWND?) {
+            var info = GUITHREADINFO()
+            info.cbSize = DWORD(MemoryLayout<GUITHREADINFO>.size)
+            _ = GetGUIThreadInfo(WindowsApp.mainThreadID, &info)
+            return (info.hwndCaret, info.hwndFocus)
+        }
+        func visibleEdit(_ root: HWND) -> HWND? {
+            var child = GetWindow(root, 5)
+            while let c = child {
+                if WinKit.className(c) == "Edit", IsWindowVisible(c), IsWindowEnabled(c) { return c }
+                if let inner = visibleEdit(c) { return inner }
+                child = GetWindow(c, 2)
+            }
+            return nil
+        }
+        if let root = popover.hwndForTesting, let edit = visibleEdit(root) {
+            _ = SetFocus(edit)
+            await wait(0.3)
+            let during = gui()
+            caretNotes.append("a field of Settings focused: focus on it=\(during.focus == edit) caret window present=\(during.caret != nil)")
+            if during.focus != edit { caretBad.append("the field did not take the focus") }
+            _ = popover.pageForTesting?.escape()   // Back to Home: the page with the field goes
+            _ = await WindowsSelftest.waitUntil(timeout: 3) { popover.pageForTesting is WinHomePage }
+            await wait(0.4)
+            let afterPage = gui()
+            caretNotes.append("after leaving the page: caret=\(afterPage.caret != nil) focus=\(afterPage.focus.map { IsWindow($0) } == true ? "a live window" : "none")")
+            if afterPage.caret != nil { caretBad.append("a caret window after leaving the page") }
+            if let f = afterPage.focus, WinKit.className(f) == "Edit" { caretBad.append("the focus is still in an edit after leaving the page") }
+            // a field focused on the Home page's Settings again, then the popover closes
+            popover.state.showSettings = true
+            popover.replacePage()
+            _ = await WindowsSelftest.waitUntil(timeout: 3) { popover.pageForTesting is WinSettingsPage }
+            if let root2 = popover.hwndForTesting, let edit2 = visibleEdit(root2) {
+                _ = SetFocus(edit2)
+                await wait(0.3)
+            }
+            popover.close(.destroyed)
+            await wait(0.5)
+            let afterClose = gui()
+            caretNotes.append("after closing the popover: caret=\(afterClose.caret != nil) focus=\(afterClose.focus != nil ? "set" : "none")")
+            if afterClose.caret != nil { caretBad.append("a caret window after the popover closed") }
+            if let f = afterClose.focus, WinKit.className(f) == "Edit" { caretBad.append("the focus is still in an edit after the popover closed") }
+        } else { caretBad.append("no field on the Settings page to put the keyboard in") }
+        r.add("popover.caret", caretBad.isEmpty, caretNotes.joined(separator: " | ") + (caretBad.isEmpty ? "" : " | PROBLEMS: " + caretBad.joined(separator: "; ")))
         popover.close(.destroyed)
 
         AppLog.flush()

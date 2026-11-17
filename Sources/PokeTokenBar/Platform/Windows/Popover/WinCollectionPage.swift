@@ -49,6 +49,7 @@ import WinSDK
     // --- stage 7 Task 21 (end) ---
     private(set) var segment: WinControl?, search: WinControl?, clear: WinControl?, shiny: WinControl?, sort: WinControl?
     private var toolbar: WinComposite?
+    private var searchBox: WinSearchBox?
     private var section: WinSectionCard?
     private var raster: WinGlyphRaster?
     private var epoch = 0
@@ -62,6 +63,8 @@ import WinSDK
     private var tasks: [Task<Void, Never>] = []
     private let clock = PopoverClock()
     private(set) var isDestroyed = false
+    private var shortShown = false
+    var contentIsShort: Bool { emptyRow?.isVisible == true }
     /// The selftest reads whether the clock holds a timer.
     var isClockArmedForTesting: Bool { clock.isArmed }
 
@@ -112,12 +115,14 @@ import WinSDK
         }
         // the filter bar
         toolbarRow = section.addStyledRow(label: nil, style: .full) { [self] pane, ctx in
-            toolbar = WinComposite(parent: pane, ctx: ctx, accessibleName: l.dexSearchPlaceholder) { child in
-                search = WinControls.edit(.text(cue: l.dexSearchPlaceholder), in: child, ctx: ctx)
-                clear = WinControls.glyphButton(symbol: "xmark.circle.fill", label: l.clearFilters, size: 13, in: child, ctx: ctx)
+            toolbar = WinComposite(parent: pane, ctx: ctx) { child in
+                let box = WinSearchBox(parent: child, ctx: ctx, cue: l.dexSearchPlaceholder, clearLabel: l.clearFilters)
+                searchBox = box
+                search = box?.edit
+                clear = box?.clear
                 shiny = WinControls.glyphButton(symbol: "sparkles", label: l.filterShinyOnly, size: 13, in: child, ctx: ctx)
                 sort = WinControls.glyphButton(symbol: "arrow.up.arrow.down", label: l.sortTitle, size: 13, in: child, ctx: ctx)
-                return ([search, clear].compactMap { $0 }, [shiny, sort].compactMap { $0 })
+                return ([box?.control].compactMap { $0 }, [shiny, sort].compactMap { $0 })
             }
             return toolbar?.control
         }
@@ -132,7 +137,7 @@ import WinSDK
         }
         sort?.tooltip = l.sortTitle
         sort?.onClick = { [weak self] in self?.openSortMenu() }
-        if let clear { toolbar?.setShown(clear, false) }
+        clear?.setVisible(false)
         let segH = (segment?.preferredSize.height ?? 0) / ctx.scale
         let barH = (toolbar?.control.preferredSize.height ?? 0) / ctx.scale
         bodyHeight = max(160, Self.contentHeight - segH - barH - 2 * 6)
@@ -238,6 +243,10 @@ import WinSDK
         let root = GetAncestor(stack.pane.hwnd, 2 /* GA_ROOT */) ?? stack.pane.hwnd
         // A swap between the grid, the log and the detail page is built with drawing off and drawn once (`WinKit.drawingOnce`).
         show(emptyRow, empty)
+        if shortShown != empty {   // the Mac's empty Pokédex is as short as its content, not 520 pt
+            shortShown = empty
+            host.contentHeightChanged()
+        }
         show(segmentRow, !empty && detail == nil)
         show(toolbarRow, !empty && detail == nil)
         if empty {
@@ -342,7 +351,7 @@ import WinSDK
             sort.background = custom ? Self.blend(window, with: palette.accent, 0.12) : window
             _ = InvalidateRect(sort.hwnd, nil, false)
         }
-        if let clear, let toolbar { toolbar.setShown(clear, !browser.searchText.isEmpty) }
+        clear?.setVisible(!browser.searchText.isEmpty)
         if let search, search.text != browser.searchText { search.text = browser.searchText }
     }
 
