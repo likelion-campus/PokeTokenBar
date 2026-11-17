@@ -93,6 +93,9 @@ public enum WindowsApp {
         if let i = arguments.firstIndex(of: "--popover-idle-probe") {  // stage 7 Task 4: the gate's popover windows (open / closed after open)
             WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
         }
+        if WakeTrace.enabled {  // the gate measures from about +30 s: a snapshot just before it, one at exit
+            DispatchQueue.main.asyncAfter(deadline: .now() + 28) { AppLog.write(WakeTrace.snapshot("start", loops: WinMainLoop.iterations)) }
+        }
         WindowsSelftestUpdate.start(arguments)  // stage 8 Task 6: "Update" as the tray item does it, under the CI-only flags
         WinMainLoop.run(app.loopStrategy) { false }
         WindowsApp.exit(0, .menu)  // not reached: the loop only ends through an exit
@@ -123,6 +126,7 @@ extension WindowsApp {
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
         let began = Date()
         WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
+        if WakeTrace.enabled { AppLog.write(WakeTrace.snapshot("exit", loops: WinMainLoop.iterations)) }  // the idle gate's attribution
         if let line = WindowsSelftestPopoverWindow.idleProbeExitLine() { AppLog.write(line) }  // stage 7 Task 4: the idle gate's popover state at exit
         popoverToClose?.close(.quit)  // stage 7 Task 4
         WinDefaultsSync.flushNow()

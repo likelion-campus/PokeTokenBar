@@ -228,10 +228,60 @@ extension WindowsSelftest {
                 popover.close(.escape)
                 _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
             }
+            if opened { await navigate(mode, popover) }   // the gate's page windows (stage 7 idle gates)
             probe.destroy()
             AppLog.write("popover idle probe: mode=\(mode) opened=\(opened) open now=\(popover.isOpen) opens=\(popover.stats.opens) "
                 + "closes=\(popover.stats.closes) \(PopoverResources.now())")
         }
+    }
+}
+
+extension WindowsSelftestPopoverWindow {
+    /// The page windows of the idle gate (installed app, the fixture's companion state: 40 species): the real popover, opened as the tray
+    /// does, then taken to the page the window measures and left alone. `focus-search`: the Collection's search field has the keyboard
+    /// (a caret blinks only for Windows' caret timeout after the last input, so the measured window is past it); `focus-left`: the field
+    /// had it and the keyboard went to the tab strip; `focus-closed`: the field had it and the popover was closed.
+    @MainActor static func navigate(_ mode: String, _ popover: WinPopover) async {
+        func wait(_ seconds: TimeInterval) async { _ = await WindowsSelftest.waitUntil(timeout: seconds) { false } }
+        func visibleEdit(_ root: HWND) -> HWND? {
+            var child = GetWindow(root, 5)
+            while let c = child {
+                if WinKit.className(c) == "Edit", IsWindowVisible(c), IsWindowEnabled(c) { return c }
+                if let inner = visibleEdit(c) { return inner }
+                child = GetWindow(c, 2)
+            }
+            return nil
+        }
+        func go(_ body: (PopoverState) -> Void, until: @escaping () -> Bool) async {
+            body(popover.state)
+            popover.replacePage()
+            _ = await WindowsSelftest.waitUntil(timeout: 5, until)
+            await wait(1.0)
+        }
+        func tab() -> PopoverState.Tab? { (popover.pageForTesting as? WinHomePage)?.builtTab }
+        switch mode {
+        case "settings":
+            await go({ $0.showSettings = true }) { popover.pageForTesting is WinSettingsPage }
+        case "shop":
+            await go({ $0.tab = .shop }) { tab() == .shop }
+        case "bag":
+            await go({ $0.tab = .bag }) { tab() == .bag }
+        case "collection", "focus-search", "focus-left", "focus-closed":
+            await go({ $0.tab = .collection }) { tab() == .collection }
+            guard mode != "collection" else { return }
+            if let root = popover.hwndForTesting, let edit = visibleEdit(root) { _ = SetFocus(edit) }
+            await wait(0.5)
+            if mode == "focus-left", let strip = (popover.pageForTesting as? WinHomePage)?.tabStripFocus { _ = SetFocus(strip) }
+            if mode == "focus-closed" { popover.close(.escape) }
+            await wait(0.5)
+        case "collection-log":
+            await go({ $0.tab = .collection; $0.showingCollectionLog = true }) { tab() == .collection }
+        case "detail":
+            await go({ $0.openDexEntry(collectionID: "7") }) { tab() == .collection }
+        default:
+            break
+        }
+        AppLog.write("popover page probe: mode=\(mode) tab=\(tab().map { "\($0)" } ?? "-") detail=\(popover.state.dexDetailCollectionID ?? "-") settings=\(popover.state.showSettings)")
     }
 }
 

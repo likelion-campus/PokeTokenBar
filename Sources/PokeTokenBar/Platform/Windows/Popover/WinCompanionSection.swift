@@ -127,6 +127,7 @@ import WinSDK
             links = companion.dexLinkTargets   // stage 7 Task 20: C2 follows the dex too
             return currentInput()
         } onChange: { [weak self] in
+            WakeTrace.count("companionObserveFired")
             Task { @MainActor in
                 guard let self, self.epoch == mine, !self.isDestroyed else { return }
                 self.observe()
@@ -167,6 +168,7 @@ import WinSDK
     func apply(_ input: CompanionHeaderInput) {
         guard !isDestroyed else { return }
         stats.applies += 1
+        WakeTrace.count("companionApply")
         let model = CompanionHeaderModel.make(input: input)
         if model != last { show(model) }
         last = model
