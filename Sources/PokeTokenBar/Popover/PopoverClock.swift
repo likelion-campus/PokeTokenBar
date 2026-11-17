@@ -47,6 +47,7 @@ import Foundation
     }
 
     private func fired() {
+        WakeTrace.count("popoverClock")
         timer = nil
         armedFor = nil
         ticks += 1

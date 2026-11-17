@@ -1,0 +1,747 @@
+{
+  "candyFeatureSeeded" : false,
+  "candyGrantTier" : {
+
+  },
+  "candyWindowEpoch" : {
+
+  },
+  "collectedFinals" : [
+
+  ],
+  "dex" : [
+    {
+      "baseID" : 1,
+      "caughtAt" : 721689200,
+      "chainOrder" : [
+        1
+      ],
+      "finalID" : 1,
+      "id" : "idle-1",
+      "isShiny" : false,
+      "names" : {
+        "1" : {
+          "en" : "Species 1",
+          "ko" : "종 1"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 2,
+      "caughtAt" : 721685600,
+      "chainOrder" : [
+        2
+      ],
+      "finalID" : 2,
+      "id" : "idle-2",
+      "isShiny" : false,
+      "names" : {
+        "2" : {
+          "en" : "Species 2",
+          "ko" : "종 2"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 3,
+      "caughtAt" : 721682000,
+      "chainOrder" : [
+        3
+      ],
+      "finalID" : 3,
+      "id" : "idle-3",
+      "isShiny" : false,
+      "names" : {
+        "3" : {
+          "en" : "Species 3",
+          "ko" : "종 3"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 4,
+      "caughtAt" : 721678400,
+      "chainOrder" : [
+        4
+      ],
+      "finalID" : 4,
+      "id" : "idle-4",
+      "isShiny" : false,
+      "names" : {
+        "4" : {
+          "en" : "Species 4",
+          "ko" : "종 4"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    },
+    {
+      "baseID" : 5,
+      "caughtAt" : 721674800,
+      "chainOrder" : [
+        5
+      ],
+      "finalID" : 5,
+      "id" : "idle-5",
+      "isShiny" : false,
+      "names" : {
+        "5" : {
+          "en" : "Species 5",
+          "ko" : "종 5"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 6,
+      "caughtAt" : 721671200,
+      "chainOrder" : [
+        6
+      ],
+      "finalID" : 6,
+      "id" : "idle-6",
+      "isShiny" : false,
+      "names" : {
+        "6" : {
+          "en" : "Species 6",
+          "ko" : "종 6"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 7,
+      "caughtAt" : 721667600,
+      "chainOrder" : [
+        7
+      ],
+      "finalID" : 7,
+      "id" : "idle-7",
+      "isShiny" : true,
+      "names" : {
+        "7" : {
+          "en" : "Species 7",
+          "ko" : "종 7"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 8,
+      "caughtAt" : 721664000,
+      "chainOrder" : [
+        8
+      ],
+      "finalID" : 8,
+      "id" : "idle-8",
+      "isShiny" : false,
+      "names" : {
+        "8" : {
+          "en" : "Species 8",
+          "ko" : "종 8"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    },
+    {
+      "baseID" : 9,
+      "caughtAt" : 721660400,
+      "chainOrder" : [
+        9
+      ],
+      "finalID" : 9,
+      "id" : "idle-9",
+      "isShiny" : false,
+      "names" : {
+        "9" : {
+          "en" : "Species 9",
+          "ko" : "종 9"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 10,
+      "caughtAt" : 721656800,
+      "chainOrder" : [
+        10
+      ],
+      "finalID" : 10,
+      "id" : "idle-10",
+      "isShiny" : false,
+      "names" : {
+        "10" : {
+          "en" : "Species 10",
+          "ko" : "종 10"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 11,
+      "caughtAt" : 721653200,
+      "chainOrder" : [
+        11
+      ],
+      "finalID" : 11,
+      "id" : "idle-11",
+      "isShiny" : false,
+      "names" : {
+        "11" : {
+          "en" : "Species 11",
+          "ko" : "종 11"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 12,
+      "caughtAt" : 721649600,
+      "chainOrder" : [
+        12
+      ],
+      "finalID" : 12,
+      "id" : "idle-12",
+      "isShiny" : false,
+      "names" : {
+        "12" : {
+          "en" : "Species 12",
+          "ko" : "종 12"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    },
+    {
+      "baseID" : 13,
+      "caughtAt" : 721646000,
+      "chainOrder" : [
+        13
+      ],
+      "finalID" : 13,
+      "id" : "idle-13",
+      "isShiny" : false,
+      "names" : {
+        "13" : {
+          "en" : "Species 13",
+          "ko" : "종 13"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 14,
+      "caughtAt" : 721642400,
+      "chainOrder" : [
+        14
+      ],
+      "finalID" : 14,
+      "id" : "idle-14",
+      "isShiny" : true,
+      "names" : {
+        "14" : {
+          "en" : "Species 14",
+          "ko" : "종 14"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 15,
+      "caughtAt" : 721638800,
+      "chainOrder" : [
+        15
+      ],
+      "finalID" : 15,
+      "id" : "idle-15",
+      "isShiny" : false,
+      "names" : {
+        "15" : {
+          "en" : "Species 15",
+          "ko" : "종 15"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 16,
+      "caughtAt" : 721635200,
+      "chainOrder" : [
+        16
+      ],
+      "finalID" : 16,
+      "id" : "idle-16",
+      "isShiny" : false,
+      "names" : {
+        "16" : {
+          "en" : "Species 16",
+          "ko" : "종 16"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    },
+    {
+      "baseID" : 17,
+      "caughtAt" : 721631600,
+      "chainOrder" : [
+        17
+      ],
+      "finalID" : 17,
+      "id" : "idle-17",
+      "isShiny" : false,
+      "names" : {
+        "17" : {
+          "en" : "Species 17",
+          "ko" : "종 17"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 18,
+      "caughtAt" : 721628000,
+      "chainOrder" : [
+        18
+      ],
+      "finalID" : 18,
+      "id" : "idle-18",
+      "isShiny" : false,
+      "names" : {
+        "18" : {
+          "en" : "Species 18",
+          "ko" : "종 18"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 19,
+      "caughtAt" : 721624400,
+      "chainOrder" : [
+        19
+      ],
+      "finalID" : 19,
+      "id" : "idle-19",
+      "isShiny" : false,
+      "names" : {
+        "19" : {
+          "en" : "Species 19",
+          "ko" : "종 19"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 20,
+      "caughtAt" : 721620800,
+      "chainOrder" : [
+        20
+      ],
+      "finalID" : 20,
+      "id" : "idle-20",
+      "isShiny" : false,
+      "names" : {
+        "20" : {
+          "en" : "Species 20",
+          "ko" : "종 20"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    },
+    {
+      "baseID" : 21,
+      "caughtAt" : 721617200,
+      "chainOrder" : [
+        21
+      ],
+      "finalID" : 21,
+      "id" : "idle-21",
+      "isShiny" : true,
+      "names" : {
+        "21" : {
+          "en" : "Species 21",
+          "ko" : "종 21"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 22,
+      "caughtAt" : 721613600,
+      "chainOrder" : [
+        22
+      ],
+      "finalID" : 22,
+      "id" : "idle-22",
+      "isShiny" : false,
+      "names" : {
+        "22" : {
+          "en" : "Species 22",
+          "ko" : "종 22"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 23,
+      "caughtAt" : 721610000,
+      "chainOrder" : [
+        23
+      ],
+      "finalID" : 23,
+      "id" : "idle-23",
+      "isShiny" : false,
+      "names" : {
+        "23" : {
+          "en" : "Species 23",
+          "ko" : "종 23"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 24,
+      "caughtAt" : 721606400,
+      "chainOrder" : [
+        24
+      ],
+      "finalID" : 24,
+      "id" : "idle-24",
+      "isShiny" : false,
+      "names" : {
+        "24" : {
+          "en" : "Species 24",
+          "ko" : "종 24"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    },
+    {
+      "baseID" : 25,
+      "caughtAt" : 721602800,
+      "chainOrder" : [
+        25
+      ],
+      "finalID" : 25,
+      "id" : "idle-25",
+      "isShiny" : false,
+      "names" : {
+        "25" : {
+          "en" : "Species 25",
+          "ko" : "종 25"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 26,
+      "caughtAt" : 721599200,
+      "chainOrder" : [
+        26
+      ],
+      "finalID" : 26,
+      "id" : "idle-26",
+      "isShiny" : false,
+      "names" : {
+        "26" : {
+          "en" : "Species 26",
+          "ko" : "종 26"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 27,
+      "caughtAt" : 721595600,
+      "chainOrder" : [
+        27
+      ],
+      "finalID" : 27,
+      "id" : "idle-27",
+      "isShiny" : false,
+      "names" : {
+        "27" : {
+          "en" : "Species 27",
+          "ko" : "종 27"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 28,
+      "caughtAt" : 721592000,
+      "chainOrder" : [
+        28
+      ],
+      "finalID" : 28,
+      "id" : "idle-28",
+      "isShiny" : true,
+      "names" : {
+        "28" : {
+          "en" : "Species 28",
+          "ko" : "종 28"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    },
+    {
+      "baseID" : 29,
+      "caughtAt" : 721588400,
+      "chainOrder" : [
+        29
+      ],
+      "finalID" : 29,
+      "id" : "idle-29",
+      "isShiny" : false,
+      "names" : {
+        "29" : {
+          "en" : "Species 29",
+          "ko" : "종 29"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 30,
+      "caughtAt" : 721584800,
+      "chainOrder" : [
+        30
+      ],
+      "finalID" : 30,
+      "id" : "idle-30",
+      "isShiny" : false,
+      "names" : {
+        "30" : {
+          "en" : "Species 30",
+          "ko" : "종 30"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 31,
+      "caughtAt" : 721581200,
+      "chainOrder" : [
+        31
+      ],
+      "finalID" : 31,
+      "id" : "idle-31",
+      "isShiny" : false,
+      "names" : {
+        "31" : {
+          "en" : "Species 31",
+          "ko" : "종 31"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 32,
+      "caughtAt" : 721577600,
+      "chainOrder" : [
+        32
+      ],
+      "finalID" : 32,
+      "id" : "idle-32",
+      "isShiny" : false,
+      "names" : {
+        "32" : {
+          "en" : "Species 32",
+          "ko" : "종 32"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    },
+    {
+      "baseID" : 33,
+      "caughtAt" : 721574000,
+      "chainOrder" : [
+        33
+      ],
+      "finalID" : 33,
+      "id" : "idle-33",
+      "isShiny" : false,
+      "names" : {
+        "33" : {
+          "en" : "Species 33",
+          "ko" : "종 33"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 34,
+      "caughtAt" : 721570400,
+      "chainOrder" : [
+        34
+      ],
+      "finalID" : 34,
+      "id" : "idle-34",
+      "isShiny" : false,
+      "names" : {
+        "34" : {
+          "en" : "Species 34",
+          "ko" : "종 34"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 35,
+      "caughtAt" : 721566800,
+      "chainOrder" : [
+        35
+      ],
+      "finalID" : 35,
+      "id" : "idle-35",
+      "isShiny" : true,
+      "names" : {
+        "35" : {
+          "en" : "Species 35",
+          "ko" : "종 35"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 36,
+      "caughtAt" : 721563200,
+      "chainOrder" : [
+        36
+      ],
+      "finalID" : 36,
+      "id" : "idle-36",
+      "isShiny" : false,
+      "names" : {
+        "36" : {
+          "en" : "Species 36",
+          "ko" : "종 36"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    },
+    {
+      "baseID" : 37,
+      "caughtAt" : 721559600,
+      "chainOrder" : [
+        37
+      ],
+      "finalID" : 37,
+      "id" : "idle-37",
+      "isShiny" : false,
+      "names" : {
+        "37" : {
+          "en" : "Species 37",
+          "ko" : "종 37"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "uncommon"
+    },
+    {
+      "baseID" : 38,
+      "caughtAt" : 721556000,
+      "chainOrder" : [
+        38
+      ],
+      "finalID" : 38,
+      "id" : "idle-38",
+      "isShiny" : false,
+      "names" : {
+        "38" : {
+          "en" : "Species 38",
+          "ko" : "종 38"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "rare"
+    },
+    {
+      "baseID" : 39,
+      "caughtAt" : 721552400,
+      "chainOrder" : [
+        39
+      ],
+      "finalID" : 39,
+      "id" : "idle-39",
+      "isShiny" : false,
+      "names" : {
+        "39" : {
+          "en" : "Species 39",
+          "ko" : "종 39"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "legendary"
+    },
+    {
+      "baseID" : 40,
+      "caughtAt" : 721548800,
+      "chainOrder" : [
+        40
+      ],
+      "finalID" : 40,
+      "id" : "idle-40",
+      "isShiny" : false,
+      "names" : {
+        "40" : {
+          "en" : "Species 40",
+          "ko" : "종 40"
+        }
+      },
+      "namesVersion" : 1,
+      "rarity" : "common"
+    }
+  ],
+  "dexCompletionsSeeded" : false,
+  "eggUsage" : 0,
+  "installBaselineSet" : false,
+  "inventory" : {
+
+  },
+  "language" : "en",
+  "lastDate" : "",
+  "notifiedDexCompletions" : [
+
+  ],
+  "spentTokens" : 0,
+  "usedSinceInstall" : 0
+}
