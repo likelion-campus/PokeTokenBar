@@ -21,7 +21,10 @@ runs:
         # TEMP and TMP in their long form. The one-job workflow got this from the windows-swift action (it re-exports the whole
         # environment, TEMP included, as the long path); a bare runner has C:\Users\RUNNER~1\... and the selftest's file-dialog
         # check (settings.dialogAccepts) compares the 8.3 path it asked for with the long path the dialog returns and fails.
-        $longTemp = (New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:TEMP).Path
+        Add-Type -Namespace PtbWin32 -Name Paths -MemberDefinition '[DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern uint GetLongPathNameW(string s, System.Text.StringBuilder b, uint n);'
+        $sb = New-Object System.Text.StringBuilder 1024
+        $longTemp = if ([PtbWin32.Paths]::GetLongPathNameW($env:TEMP, $sb, 1024) -gt 0) { $sb.ToString() } else { $env:TEMP }
+        if ($longTemp -match '~\d') { throw "TEMP is still an 8.3 path: $longTemp" }
         "TEMP=$longTemp" >> $env:GITHUB_ENV
         "TMP=$longTemp" >> $env:GITHUB_ENV
         "TEMP was $env:TEMP, now $longTemp"
