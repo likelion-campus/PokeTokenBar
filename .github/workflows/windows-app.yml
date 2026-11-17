@@ -12,7 +12,7 @@ name: windows-app
 #                    (scripts/windows/idle-gate.ps1 -Shard n); artifacts windows-app-idle-n
 #   result           always: fails when a job above failed (one conclusion for branch tooling); the real-IME check over the selftest
 #                    processes of two jobs; in release mode the release manifest and the artifact windows-release
-# Jobs after build start together. A selftest and an idle window never share a VM. Every long step has its own time limit.
+# Jobs after build start together. A selftest and an idle window never share a VM. Every run step has its own time limit (timeout-minutes).
 # Two levels (job env PTB_LEVEL, shown in the job summary):
 #   light - build, bundle selftests (incl. stripped Path, crash, team transports, UI dump), package, installer build,
 #           silent install + installed selftest (proves the DLL closure), artifacts. No upgrade test, no idle gate,
@@ -47,6 +47,7 @@ on:
       - 'assets/AppIcon.ico'
       - '.github/workflows/windows-app.yml'
       - '.github/actions/windows-swift/**'
+      - '.github/actions/windows-slice/**'
   workflow_dispatch:
     inputs:
       level:
@@ -97,6 +98,9 @@ jobs:
       packaged: ${{ steps.package.outcome }}
       iscc: ${{ steps.iscc.outcome }}
       swift: ${{ steps.swiftver.outputs.swift }}
+      ptb_build_id: ${{ steps.ptbbuild.outputs.artifact-id }}  # the slices unpack THIS artifact (a name can exist twice after a re-run)
+      installer_sha256: ${{ steps.buildid.outputs.installer_sha256 }}
+      image: ${{ steps.buildid.outputs.image }}
       level: ${{ env.PTB_LEVEL }}
       fast: ${{ env.PTB_FAST }}
     steps:
@@ -104,6 +108,7 @@ jobs:
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - name: Release pin
+        timeout-minutes: 5
         if: inputs.release_sha != '' || inputs.release_version != ''
         shell: bash
         env:
@@ -130,6 +135,7 @@ jobs:
           echo "$line"
           echo "$line" >> "$GITHUB_STEP_SUMMARY"
       - name: Level of this run (job summary)
+        timeout-minutes: 2
         shell: pwsh
         run: |
           $lines = @("## windows-app: level **$env:PTB_LEVEL**", '')
@@ -145,15 +151,18 @@ jobs:
           $lines
       - uses: ./.github/actions/windows-swift
       - name: Resources (version info, icon, manifest)
+        timeout-minutes: 10
         id: resources
         shell: pwsh
         run: |
           $res = ./scripts/windows/build-resources.ps1 -Out resources | Select-Object -Last 1
           "PTB_RES=$($res -replace '\\', '/')" >> $env:GITHUB_ENV
       - name: Build
+        timeout-minutes: 45
         shell: bash
         run: swift build -c release --product PokeTokenBarWin -Xlinker "$PTB_RES" 2>&1 | tee build.log
       - name: Package
+        timeout-minutes: 15
         id: package
         shell: pwsh
         run: |
@@ -161,6 +170,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "PTB_VERSION=$((Get-Content bundle\PokeTokenBar.version -Raw).Trim())" >> $env:GITHUB_ENV
       - name: Visual C++ redistribution terms on this image (informational)
+        timeout-minutes: 5
         if: (success() || failure()) && steps.package.outcome == 'success'
         continue-on-error: true
         shell: pwsh
@@ -176,6 +186,7 @@ jobs:
           $redist = $terms | Where-Object { $_.Name -match '(?i)^redist.*\.txt$' } | Select-Object -First 1
           if ($redist) { "---- $($redist.Name), first lines:"; Get-Content $redist.FullName -TotalCount 25 }
       - name: Build the installers (this version, and a next one for the upgrade test)
+        timeout-minutes: 20
         id: iscc
         if: (success() || failure()) && steps.package.outcome == 'success'
         shell: pwsh
@@ -216,6 +227,7 @@ jobs:
           . ./scripts/windows/ci-helpers.ps1
           Assert-That ($fv -eq "$v.0" -and $pv -eq $v) 'iscc.versionInfo' "setup FileVersion='$fv' ProductVersion='$pv' FileDescription='$fd'; expected $v.0 / $v"
       - name: Swift version (for the release manifest)
+        timeout-minutes: 5
         id: swiftver
         if: always() && steps.package.outcome == 'success'
         shell: pwsh
@@ -224,18 +236,33 @@ jobs:
           $v = [regex]::Match($t, 'Swift version (\d+(\.\d+)+)').Groups[1].Value
           "swift=$v" >> $env:GITHUB_OUTPUT
           "swift version: $v"
+      - name: Installer hash and runner image (the identity every later job and the release manifest check against)
+        timeout-minutes: 5
+        id: buildid
+        if: always() && steps.iscc.outcome == 'success'
+        shell: pwsh
+        run: |
+          $f = @(Get-ChildItem installer-out -Filter 'PokeTokenBar-Setup-*-win-x64.exe')
+          if ($f.Count -ne 1) { throw "installer-out holds $($f.Count) installers" }
+          $h = (Get-FileHash $f[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "installer_sha256=$h" >> $env:GITHUB_OUTPUT
+          "image=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+          "installer $($f[0].Name) sha256 $h, runner image $env:ImageVersion"
       # The installer is a CI artifact only (short retention): nothing is attached to a release or uploaded elsewhere.
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: windows-installer
           path: installer-out/PokeTokenBar-Setup-*-win-x64.exe
           retention-days: 3
           if-no-files-found: warn
       # What the other jobs unpack (they need neither the toolchain nor a build).
       - uses: actions/upload-artifact@v4
+        id: ptbbuild
         if: always() && steps.package.outcome == 'success'
         with:
+          overwrite: true
           name: ptb-build
           retention-days: 3
           path: |
@@ -248,6 +275,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: windows-app-build
           retention-days: 7
           path: |
@@ -260,14 +288,18 @@ jobs:
     needs: build
     if: ${{ !cancelled() && needs.build.outputs.packaged == 'success' }}
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: ${{ inputs.flake_loop != '' && inputs.flake_loop != '0' && 80 || 45 }}  # the flake loops add rounds to the selftest step
     outputs:
       bundle: ${{ steps.bundle-selftest.outcome }}
+      artifact_id: ${{ steps.up.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
+        with:
+          build-artifact-id: ${{ needs.build.outputs.ptb_build_id }}
+          installer-sha256: ${{ needs.build.outputs.installer_sha256 }}
       - name: Selftest with a stripped Path
         id: bundle-selftest
         timeout-minutes: ${{ inputs.flake_loop != '' && inputs.flake_loop != '0' && 45 || 20 }}  # about 6 min (the flake loops add their N rounds); a hang ends with the logs collected (Collect logs runs always)
@@ -287,13 +319,10 @@ jobs:
               'providers = ptb_providers', '[ptb_providers]', 'ptbpoison = ptb_poison_provider', '[ptb_poison_provider]',
               'module = C:\ptb\no-such-provider.dll', 'activate = 1')
           $env:OPENSSL_CONF = $conf
-          # TEST ONLY, runner profile only: the app never writes these (the balloon screenshot needs toasts switched on).
-          $pn = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\PushNotifications'
-          if (-not (Test-Path $pn)) { New-Item $pn | Out-Null }
-          Set-ItemProperty $pn ToastEnabled 1 -Type DWord
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st.json -ExpectStrategy cfRunLoopWithMessages -DumpUi (Join-Path $PWD 'ui-dump')
       # --- stage 7 Task 3: the popover kit (begin) ---
       - name: Popover kit checks ran (ui.kit.*, gallery in ui-dump/kit)
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -314,13 +343,14 @@ jobs:
       # --- stage 7 Task 3: the popover kit (end) ---
       # --- stage 7 Task 4: the popover window (begin) ---
       - name: Popover window checks ran (popover.*, captures in ui-dump/popover)
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
           $names = 'popover.open', 'popover.placement', 'popover.toggle', 'popover.dismissOnActivate', 'popover.dismissInput', 'popover.escape',
                    'popover.closePaths', 'popover.ownedKeepsOpen', 'popover.staleCompletion', 'popover.dpiChange', 'popover.noSelfOpen',
-                   'popover.refusedForeground', 'popover.menuAfter', 'popover.menuSettings', 'popover.secondLaunch', 'popover.realClick',
+                   'popover.refusedForeground', 'popover.menuAfter', 'popover.menuSettings', 'popover.secondLaunch', 'popover.realClick', 'popover.realClickCovered',
                    'popover.openClose3', 'popover.capture', 'popover.withPlaza', 'popover.aboveTopmost', 'popover.pageContract',
                    'popover.closeAfterNestedLoop', 'popover.autostartQuiet'
           $bad = @()
@@ -334,6 +364,7 @@ jobs:
       # --- stage 7 Task 4: the popover window (end) ---
       # --- stage 7 Task 6: the Settings page (begin) ---
       - name: Settings checks ran (settings.*, captures in ui-dump/settings)
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -353,6 +384,7 @@ jobs:
       # --- stage 7 Task 6: the Settings page (end) ---
       # --- stage 7 Task 15: difficulty, backup and transfer (begin) ---
       - name: Difficulty and transfer checks ran (settings.difficulty*, settings.dialog*, captures in ui-dump/settings)
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -370,6 +402,7 @@ jobs:
       # --- stage 7 Task 15 (end) ---
       # --- stage 7 Task 14: Advanced settings and session keys (begin) ---
       - name: Advanced settings checks ran (session keys, folders, tracked account; captures in ui-dump/settings)
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -389,11 +422,14 @@ jobs:
       # --- stage 7 Task 14 (end) ---
       # --- stage 7 Task 5: the Home page (begin) ---
       - name: Popover home checks ran (home.*, captures in ui-dump/home)
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
           $j = Get-Content st.json -Raw | ConvertFrom-Json
-          $names = 'home.capture', 'home.updatesOnRefresh', 'home.relativeClock', 'home.keyboard', 'home.openClose3', 'home.firstPaint', 'home.settingsRoundTrip'
+          $names = 'home.capture', 'home.updatesOnRefresh', 'home.relativeClock', 'home.keyboard', 'home.openClose3', 'home.firstPaint', 'home.settingsRoundTrip', 'home.pinned'
+          # Checks of the next popover pages (popover.tabs, shop, bag, collection, pet) are added to a names list like this one, in a step
+          # of their own beside it; a check that is not listed here can fail only through the selftest's own overall result.
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }
@@ -405,6 +441,7 @@ jobs:
       # --- stage 7 Task 5: the Home page (end) ---
       # --- stage 7 Task 12: the activity panel and the streak (begin) ---
       - name: Popover activity checks ran (home.activity*, captures in ui-dump/activity)
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -421,6 +458,7 @@ jobs:
       # --- stage 7 Task 12: the activity panel and the streak (end) ---
       # --- stage 7 Task 13: the usage recap (begin) ---
       - name: Popover recap checks ran (recap.*, captures in ui-dump/recap)
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -435,8 +473,25 @@ jobs:
           Get-ChildItem ui-dump\recap -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "popover recap: $($bad -join ', ')" }
       # --- stage 7 Task 13: the usage recap (end) ---
+      # --- settings-open (field report 2026-11-17): what showing a page costs (begin) ---
+      - name: Popover page-open cost checks ran (settings.openCost, popover.swapCost)
+        timeout-minutes: 5
+        if: (success() || failure())
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'settings.openCost', 'popover.swapCost'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL: $($c.detail)" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          if ($bad.Count -gt 0) { throw "popover page-open cost: $($bad -join ', ')" }
+      # --- settings-open (end) ---
       # --- stage 7 Task 9: the companion header (begin) ---
       - name: Companion header checks ran (companion.*, captures in ui-dump/companion)
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -451,11 +506,27 @@ jobs:
           Get-ChildItem ui-dump\companion -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "companion header: $($bad -join ', ')" }
       # --- stage 7 Task 9: the companion header (end) ---
+      - name: Window icon checks ran (plaza.windowIcon, update.windowIcon)
+        timeout-minutes: 5
+        if: (success() || failure())
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'plaza.windowIcon', 'update.windowIcon'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          if ($bad.Count -gt 0) { throw "window icon: $($bad -join ', ')" }
       - name: Language and time zone in child processes (Korean display language, Seoul time zone)
+        timeout-minutes: 10
         if: (success() || failure())  # independent evidence, also after a selftest failure
         shell: pwsh
         run: ./scripts/windows/check-language.ps1 -Exe bundle\PokeTokenBar.exe -OutDir lang-probe
       - name: Collect logs
+        timeout-minutes: 5
         if: always()
         shell: pwsh
         run: |
@@ -465,8 +536,10 @@ jobs:
           Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
       - uses: actions/upload-artifact@v4
+        id: up
         if: always()
         with:
+          overwrite: true
           name: windows-app
           retention-days: 7
           path: |
@@ -480,6 +553,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: ui-kit
           retention-days: 7
           path: ui-dump/kit
@@ -487,6 +561,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: ui-popover
           retention-days: 7
           path: ui-dump/popover
@@ -494,6 +569,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: ui-settings
           retention-days: 7
           path: ui-dump/settings
@@ -501,6 +577,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: ui-recap
           retention-days: 7
           path: ui-dump/recap
@@ -508,6 +585,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: ui-home
           retention-days: 7
           path: ui-dump/home
@@ -515,12 +593,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: ui-companion
           retention-days: 7
           path: ui-dump/companion
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: ui-activity
           retention-days: 7
           path: ui-dump/activity
@@ -530,12 +610,18 @@ jobs:
     if: ${{ !cancelled() && needs.build.outputs.packaged == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 40
+    outputs:
+      artifact_id: ${{ steps.up.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
+        with:
+          build-artifact-id: ${{ needs.build.outputs.ptb_build_id }}
+          installer-sha256: ${{ needs.build.outputs.installer_sha256 }}
       - name: Network burst (what one HTTP fetch costs in wakeups, per thread; diagnostics)
+        timeout-minutes: 15
         if: (success() || failure()) && env.PTB_NET_BURST == 'true'
         continue-on-error: true
         shell: pwsh
@@ -559,6 +645,7 @@ jobs:
           }
           foreach ($s in $j.stacks) { "== stacks $($s.name)"; $s.detail }
       - name: Selftest on the dispatch-handle loop (diagnostic fallback, informational)
+        timeout-minutes: 25
         if: (success() || failure()) && env.PTB_LEVEL == 'full'  # independent evidence, also after a selftest failure
         continue-on-error: true
         shell: pwsh
@@ -571,6 +658,7 @@ jobs:
           $env:PTB_SELFTEST_IDLE_SECONDS = '20'
           ./scripts/windows/run-selftest.ps1 -Exe bundle\PokeTokenBar.exe -Out st-dispatch.json -ExpectStrategy dispatchHandle
       - name: Kill and exit paths of the full app
+        timeout-minutes: 10
         if: (success() || failure())  # independent evidence, also after a selftest failure
         shell: pwsh
         run: |
@@ -635,6 +723,7 @@ jobs:
           }
           'log has both exit lines'
       - name: Two-transport selftest (team probes over DNS-SD and TLS-PSK)
+        timeout-minutes: 10
         if: (success() || failure())  # independent evidence, also after a selftest failure
         shell: pwsh
         run: |
@@ -683,6 +772,7 @@ jobs:
           if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL team.twoProcesses: $_" }; exit 1 }
           'PASS team.twoProcesses: a and b linked and joined over TLSv1.2 PSK-AES128-GCM-SHA256; c (other code) refused, no message, one dial per name; no code in any output'
       - name: Team DNS-SD removal and aging (three probes, one killed, one exiting cleanly)
+        timeout-minutes: 15
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -743,6 +833,7 @@ jobs:
           if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL team.removalAndAging: $_" }; exit 1 }
           'PASS team.removalAndAging: the clean exit was seen within 1 s; the killed teammate stopped costing dials'
       - name: Team code tool keeps the settings guard and the backup
+        timeout-minutes: 10
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -786,6 +877,7 @@ jobs:
           if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL team.codeTool: $_" }; exit 1 }
           'PASS team.codeTool: the backup follows set and clear (no code left after a clear), an unreadable file is restored first, memberID kept, no code in the log'
       - name: Import-save tool applies a save and changes nothing on a bad file
+        timeout-minutes: 5
         if: (success() || failure())
         shell: pwsh
         run: |
@@ -817,6 +909,7 @@ jobs:
           if ($fail.Count -gt 0) { $fail | ForEach-Object { "FAIL import.saveTool: $_" }; exit 1 }
           'PASS import.saveTool: a save in a path with a space and Korean letters was applied with a backup, a bad file exited 2 and created nothing'
       - name: Team DNS-SD with mDNS turned off by policy (informational)
+        timeout-minutes: 5
         if: (success() || failure())
         continue-on-error: true
         shell: pwsh
@@ -839,6 +932,7 @@ jobs:
               else { Set-ItemProperty -Path $key -Name EnableMDNS -Value $old -Type DWord }
           }
       - name: Tray screenshot (informational)
+        timeout-minutes: 5
         if: (success() || failure())
         continue-on-error: true
         shell: pwsh
@@ -858,6 +952,7 @@ jobs:
           "screenshot $($b.Width)x$($b.Height)"
           Stop-Process -Id $p.Id -Force
       - name: Stall hunt (diagnostics, workflow_dispatch input)
+        timeout-minutes: 45
         if: (success() || failure()) && github.event_name == 'workflow_dispatch' && env.PTB_STALL_HUNT != '0'
         continue-on-error: true
         shell: pwsh
@@ -882,6 +977,7 @@ jobs:
               }
           }
       - name: Version flag (informational)
+        timeout-minutes: 2
         if: (success() || failure())  # independent evidence, also after a selftest failure
         continue-on-error: true
         shell: pwsh
@@ -889,6 +985,7 @@ jobs:
           $v = & bundle\PokeTokenBar.exe --version | Out-String
           "--version printed: '$($v.Trim())'"
       - name: Crash on purpose, then relaunch (default log folder)
+        timeout-minutes: 10
         if: (success() || failure())  # independent evidence, also after a selftest failure
         shell: pwsh
         run: |
@@ -953,6 +1050,7 @@ jobs:
           if ((Get-Item (Join-Path $logs 'PokeTokenBar.crash.log')).Length -ne 0) { throw 'the crash record was not drained' }
           'relaunch reported the crash and ended cleanly'
       - name: Collect logs
+        timeout-minutes: 5
         if: always()
         shell: pwsh
         run: |
@@ -962,13 +1060,17 @@ jobs:
           Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
       - uses: actions/upload-artifact@v4
+        id: up
         if: always()
         with:
+          overwrite: true
           name: windows-app-process
           retention-days: 7
           path: |
             st*.json
+            st*.json.lines
             tray-desktop.png
+            plaza-*.png
             probe-*.txt
             net-burst.json
             collected
@@ -978,7 +1080,7 @@ jobs:
     needs: build
     if: ${{ !cancelled() && needs.build.outputs.iscc == 'success' }}
     runs-on: windows-latest
-    timeout-minutes: 50
+    timeout-minutes: ${{ inputs.diagnostics == true && 95 || 50 }}  # the three diagnostic steps add about 30 min
     outputs:
       install: ${{ steps.install.outcome }}
       upgrade: ${{ steps.upgrade.outcome }}
@@ -986,11 +1088,16 @@ jobs:
       uninstall: ${{ steps.uninstall.outcome }}
       upgradeFromRelease: ${{ steps.upgrade-from-release.outcome }}
       upgradeFromReleaseResult: ${{ steps.upgrade-from-release.outputs.result }}
+      artifact_id: ${{ steps.up.outputs.artifact-id }}
+      stamps_id: ${{ steps.upstamps.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
+        with:
+          build-artifact-id: ${{ needs.build.outputs.ptb_build_id }}
+          installer-sha256: ${{ needs.build.outputs.installer_sha256 }}
       - name: Silent install and what it left
         id: install
         timeout-minutes: 10  # about 10 s; Invoke-Setup gives up on Setup after 180 s
@@ -1075,6 +1182,7 @@ jobs:
           # The real-IME assertion (chat.realIMEEngaged) also needs the bundle job's selftest processes: the result job makes it.
           "executed selftest checks: $(@($j.checks).Count)"
       - name: Waker hunt (the two ~1 Hz threads; diagnostics)
+        timeout-minutes: 20
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_DIAGNOSTICS == 'true' && env.PTB_FAST != 'true'
         continue-on-error: true
         shell: pwsh
@@ -1092,6 +1200,7 @@ jobs:
           "exit $($p.ExitCode)"
           foreach ($ph in (Get-Content $out -Raw | ConvertFrom-Json)) { "== $($ph.phase)"; $ph.detail }
       - name: Timeline of the installed app (when does a waker start; diagnostics)
+        timeout-minutes: 20
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_DIAGNOSTICS == 'true'
         continue-on-error: true
         shell: pwsh
@@ -1116,6 +1225,7 @@ jobs:
               Get-Content (Join-Path $env:LOCALAPPDATA 'PokeTokenBar\Logs\PokeTokenBar.log') | Select-String 'refresh done|launched' | Select-Object -Last 4
           }
       - name: Waker modes (what each way of waiting costs on its own; diagnostics)
+        timeout-minutes: 15
         if: (success() || failure()) && steps.install.outcome == 'success' && env.PTB_DIAGNOSTICS == 'true'
         continue-on-error: true
         shell: pwsh
@@ -1182,19 +1292,23 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}  # read-only, for the API rate limit
         run: ./scripts/windows/upgrade-from-release.ps1 -Version $env:PTB_VERSION -Installer "installer-out\PokeTokenBar-Setup-$env:PTB_VERSION-win-x64.exe"
       - name: Install stamps (for the release manifest)
+        timeout-minutes: 5
         if: always()
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path stamps | Out-Null
           if (Test-Path install-stamps.json) { Copy-Item install-stamps.json stamps }
       - uses: actions/upload-artifact@v4
+        id: upstamps
         if: always()
         with:
+          overwrite: true
           name: ptb-install-stamps
           retention-days: 3
           path: stamps
           if-no-files-found: warn
       - name: Collect logs
+        timeout-minutes: 5
         if: always()
         shell: pwsh
         run: |
@@ -1204,14 +1318,18 @@ jobs:
           Copy-Item -ErrorAction SilentlyContinue install.log, install-next.log, uninstall.log collected
           Get-ChildItem collected | ForEach-Object { $_.Name }
       - uses: actions/upload-artifact@v4
+        id: up
         if: always()
         with:
+          overwrite: true
           name: windows-app-installer
           retention-days: 7
           path: |
             st*.json
             st*.json.lines
             idle*.json
+            plaza-*.png
+            waker-hunt.json
             collected
           if-no-files-found: warn
   updates:
@@ -1228,6 +1346,9 @@ jobs:
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
+        with:
+          build-artifact-id: ${{ needs.build.outputs.ptb_build_id }}
+          installer-sha256: ${{ needs.build.outputs.installer_sha256 }}
       # ---- failed-update-relaunch: Setup run as the in-app update runs it (/PTBRELAUNCHONFAIL=1); setup logs in collected\failed-update ----
       - name: A failed update brings the old app back
         id: failed-update-relaunch
@@ -1246,6 +1367,7 @@ jobs:
         run: ./scripts/windows/in-app-update.ps1 -Version $env:PTB_VERSION -NextVersion $env:PTB_NEXT_VERSION
       # ---- end in-app-update ----
       - name: Collect logs
+        timeout-minutes: 5
         if: always()
         shell: pwsh
         run: |
@@ -1257,6 +1379,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: windows-app-updates
           retention-days: 7
           path: |
@@ -1277,11 +1400,26 @@ jobs:
         with:
           ref: ${{ inputs.release_sha }}  # empty outside release mode: the event's own commit
       - uses: ./.github/actions/windows-slice
+        with:
+          build-artifact-id: ${{ needs.build.outputs.ptb_build_id }}
+          installer-sha256: ${{ needs.build.outputs.installer_sha256 }}
       - name: Silent install and what it left
         timeout-minutes: 10  # about 10 s; Invoke-Setup gives up on Setup after 180 s
         shell: pwsh
         run: ./scripts/windows/silent-install.ps1
+      - name: Shard rule (an unknown window label must throw; every label in exactly one shard)
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          . ./scripts/windows/ci-helpers.ps1
+          . ./scripts/windows/idle-shards.ps1
+          $threw = $false
+          try { $null = Test-InShard 'popover-injected-dummy-120s' 1 } catch { $threw = $true; "the dummy label threw: $($_.Exception.Message)" }
+          Assert-That $threw 'idle.shardRule.unknownThrows' 'a label that is in no shard throws instead of being skipped'
+          $all = @($IdleShardOf.Keys)
+          Assert-That ($all.Count -eq 16 -and @($IdleShardOf.Values | Where-Object { $_ -notin 1, 2, 3 }).Count -eq 0) 'idle.shardRule.map' "$($all.Count) labels, shards: $((($IdleShardOf.Values | Sort-Object -Unique) -join ','))"
       - name: Midnight guard rule (fake clock, a few seconds)
+        timeout-minutes: 5
         shell: pwsh
         run: |
           . ./scripts/windows/ci-helpers.ps1
@@ -1305,6 +1443,7 @@ jobs:
           . ./scripts/windows/ci-helpers.ps1
           ./scripts/windows/idle-gate.ps1 -Shard ${{ matrix.shard }}
       - name: Collect logs
+        timeout-minutes: 5
         if: always()
         shell: pwsh
         run: |
@@ -1316,6 +1455,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
+          overwrite: true
           name: windows-app-idle-${{ matrix.shard }}
           retention-days: 7
           path: |
@@ -1329,19 +1469,26 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - name: Every job passed (skipped = a level or fast switch)
+      - name: Every job passed (skipped only where the level or the fast switch says so)
+        timeout-minutes: 5
         shell: pwsh
         env:
           NEEDS: ${{ toJSON(needs) }}
+          LEVEL: ${{ needs.build.outputs.level }}
+          FAST: ${{ needs.build.outputs.fast }}
         run: |
           $needs = $env:NEEDS | ConvertFrom-Json
+          # Always required: the build, both selftest jobs and the installer job. At level full also the updates job and, unless fast, the idle gate.
+          $must = @('build', 'selftest-bundle', 'selftest-process', 'installer')
+          if ($env:LEVEL -eq 'full') { $must += 'updates'; if ($env:FAST -ne 'true') { $must += 'idle' } }
           $bad = @()
           foreach ($n in $needs.PSObject.Properties) {
-              '{0,-17} {1}' -f $n.Name, $n.Value.result
-              if ($n.Value.result -notin 'success', 'skipped') { $bad += $n.Name }
+              '{0,-17} {1}{2}' -f $n.Name, $n.Value.result, $(if ($n.Name -in $must) { ' (required)' } else { '' })
+              $ok = if ($n.Name -in $must) { $n.Value.result -eq 'success' } else { $n.Value.result -in 'success', 'skipped' }
+              if (-not $ok) { $bad += "$($n.Name)=$($n.Value.result)" }
           }
-          if ($bad.Count -gt 0) { Write-Host "::error::windows-app: failed or cancelled: $($bad -join ', ')"; exit 1 }
-          'PASS windows-app: every job passed'
+          if ($bad.Count -gt 0) { Write-Host "::error::windows-app: $($bad -join ', ')"; exit 1 }
+          'PASS windows-app: every required job passed'
       - uses: actions/checkout@v5
         if: success()
         with:
@@ -1349,19 +1496,23 @@ jobs:
       - uses: actions/download-artifact@v4
         if: success()
         with:
-          name: windows-app
+          artifact-ids: ${{ needs.selftest-bundle.outputs.artifact_id }}
+          merge-multiple: true
           path: parts/bundle-job
       - uses: actions/download-artifact@v4
         if: success()
         with:
-          name: windows-app-process
+          artifact-ids: ${{ needs.selftest-process.outputs.artifact_id }}
+          merge-multiple: true
           path: parts/process-job
       - uses: actions/download-artifact@v4
         if: success()
         with:
-          name: windows-app-installer
+          artifact-ids: ${{ needs.installer.outputs.artifact_id }}
+          merge-multiple: true
           path: parts/installer-job
       - name: The real Korean IME engaged in a selftest process of this run
+        timeout-minutes: 5
         if: success()
         shell: pwsh
         run: |
@@ -1384,20 +1535,25 @@ jobs:
       - uses: actions/download-artifact@v4
         if: success() && inputs.release_sha != ''
         with:
-          name: ptb-build
+          artifact-ids: ${{ needs.build.outputs.ptb_build_id }}
+          merge-multiple: true
           path: .
       - uses: actions/download-artifact@v4
         if: success() && inputs.release_sha != ''
         with:
-          name: ptb-install-stamps
+          artifact-ids: ${{ needs.installer.outputs.stamps_id }}
+          merge-multiple: true
           path: .
       - name: Release manifest
+        timeout-minutes: 10
         if: success() && inputs.release_sha != ''
         shell: pwsh
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
           RELEASE_VERSION: ${{ inputs.release_version }}
           PTB_SWIFT_VERSION: ${{ needs.build.outputs.swift }}
+          PTB_BUILD_SHA256: ${{ needs.build.outputs.installer_sha256 }}
+          ImageVersion: ${{ needs.build.outputs.image }}
           G_BUNDLE: ${{ needs.selftest-bundle.outputs.bundle }}
           G_INSTALL: ${{ needs.installer.outputs.install }}
           G_UPGRADE: ${{ needs.installer.outputs.upgrade }}
@@ -1427,6 +1583,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: success() && inputs.release_sha != ''
         with:
+          overwrite: true
           name: windows-release
           path: windows-release/
           retention-days: 7

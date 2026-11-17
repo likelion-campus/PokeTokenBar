@@ -132,6 +132,7 @@ enum WindowsSelftest {
         await popoverCollectionChecks(r, app)  // stage 7 task 20 (WindowsSelftestPopoverCollection.swift): the Collection tab; leaves no window behind
         await popoverShopBagChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverShopBag.swift): the Shop and Bag pages (sprites: Direct2D); leaves no window behind
         await popoverTabsChecks(r, app)  // stage 7 task 19 (WindowsSelftestPopoverTabs.swift): the tab strip; leaves no window behind
+        await popoverOpenCostChecks(r, app)  // settings-open (WindowsSelftestPopoverOpenCost.swift): Home -> Settings as the gear does it, measured; Direct2D, so after the idle window
         return r.checks
     }
 

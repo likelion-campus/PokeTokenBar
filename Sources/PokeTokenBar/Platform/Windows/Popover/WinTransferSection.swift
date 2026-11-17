@@ -106,8 +106,9 @@ import WinSDK
         self.changed = changed
         self.rebuild = rebuild
         let store = host.store
+        let deviceName = WinOpenTrace.step("hostName") { ProcessInfo.processInfo.hostName }   // the settings-open trace
         flow = SaveTransferFlow(companion: host.companion, usage: { SaveImportTool.Usage.running(store) }, dialogs: dialogs ?? WinTransferDialogs(owner: owner, language: { [weak host] in host?.companion.l ?? L(.en) }),
-                                appVersion: WinSettingsPage.appVersion, deviceName: ProcessInfo.processInfo.hostName)
+                                appVersion: WinSettingsPage.appVersion, deviceName: deviceName)
         flow.onApplied = { [weak self] in self?.applied += 1 }
     }
 
@@ -186,7 +187,7 @@ import WinSDK
     // MARK: backup and transfer (G16)
 
     func addTransfer(to s: WinStack) {
-        companion.refreshSnapshots()   // the Mac's onAppear
+        WinOpenTrace.step("snapshots") { companion.refreshSnapshots() }   // the Mac's onAppear (timed: it reads every snapshot file)
         let l = self.l
         let section = s.addSection(l.transferSectionTitle)
         exportRow = section.addRow(l.exportSaveLabel, hint: l.exportSaveHint) { p, c in WinControls.button(l.exportSaveButton, in: p, ctx: c) }

@@ -82,12 +82,41 @@ enum WinKit {
         let h = CreateWindowExW(exStyle, WinStr.w(className), WinStr.w(text), style, rect.left, rect.top, rect.right - rect.left,
                                 rect.bottom - rect.top, parent, HMENU(bitPattern: id), module, nil)
         if h == nil { AppLog.write("popover kit: CreateWindowExW(\(className)) failed: \(GetLastError())") }
+        MainActor.assumeIsolated { WinOpenTrace.note(.window) }
         return h
     }
 
+    /// The font of a control being made, without a redraw: with redraw on, a static paints itself at once where it was just
+    /// made (the pane's top-left corner, before the layout moves it). A new window paints on its first `WM_PAINT` anyway.
     static func setFont(_ hwnd: HWND?, _ font: HFONT?) {
-        send(hwnd, UINT(WM_SETFONT), Int(bitPattern: UnsafeMutableRawPointer(font)), 1)
+        send(hwnd, UINT(WM_SETFONT), Int(bitPattern: UnsafeMutableRawPointer(font)), 0)
     }
+
+    // --- settings-open fix (field report 2026-11-17): a page built in a window on screen is drawn once, finished (begin) ---
+    @MainActor private static var frozen: Set<Int> = []
+    /// Times `drawingOnce` drew a window again (the selftest reads it).
+    @MainActor private(set) static var drawnOnce = 0
+
+    /// Runs `body` with `hwnd` and its children not drawing (`WM_SETREDRAW`), then draws them once, now. A page built or rebuilt
+    /// in a window that is on screen (Home -> Settings, Back, the recap, a DPI change, a new language) shows only its finished
+    /// state, not each control as it is made at the pane's corner and moved by every layout pass. A window not shown yet is left
+    /// alone (`WM_SETREDRAW` TRUE would show it); a nested call only runs `body`.
+    @MainActor static func drawingOnce(_ hwnd: HWND, _ body: () -> Void) {
+        let key = Int(bitPattern: hwnd)
+        guard GetWindowLongW(hwnd, -16 /* GWL_STYLE */) & 0x1000_0000 /* WS_VISIBLE */ != 0, !frozen.contains(key) else {
+            body()
+            return
+        }
+        frozen.insert(key)
+        send(hwnd, 0x000B /* WM_SETREDRAW */, 0)
+        body()
+        frozen.remove(key)
+        guard IsWindow(hwnd) else { return }
+        send(hwnd, 0x000B /* WM_SETREDRAW */, 1)
+        drawnOnce += 1
+        _ = RedrawWindow(hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100 | 0x0400))  // INVALIDATE | ERASE | ALLCHILDREN | UPDATENOW | FRAME
+    }
+    // --- settings-open fix (end) ---
 
     /// The arrow over a client area of ours (the kit's window classes have no class cursor).
     static func arrowCursor(_ lParam: LPARAM) -> LRESULT? {
