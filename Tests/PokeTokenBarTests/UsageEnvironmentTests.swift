@@ -143,6 +143,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "WinPlazaAssets.swift",              // PTB_PLAZA_RESOURCES: tests and CI point at the checkout's plaza art (QA)
             "WindowsSelftestFlakes.swift",       // PTB_SELFTEST_FLAKE_LOOP: the selftest's repeat loops (QA, like WindowsSelftest.swift)
             "WindowsSelftestPopoverCompanion.swift",  // PTB_SELFTEST_SPRITES: the companion header's fixture sprites (QA, stage 7 Task 9)
+            "WindowsSelftestPopoverDark.swift",  // GITHUB_ACTIONS: the real high-contrast flip runs on Actions runners only (QA, stage 7 Task 16)
             "WinDarkMode.swift",                 // PTB_SELFTEST_APPEARANCE: a batch run captures every page in dark (QA, stage 7 Task 16)
         ]
         let sources = URL(fileURLWithPath: #filePath)
