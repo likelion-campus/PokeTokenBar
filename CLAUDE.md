@@ -11,6 +11,7 @@
 | `docs/reference/release-workflow.md` | 버전을 배포할 때, `release.sh` 게이트에 막혔을 때, UI 변경으로 스크린샷·랜딩을 갱신할 때 |
 | `docs/reference/provider-extension.md` | 새 사용량 소스·버전매니저·로그 루트를 추가할 때, 프로바이더 분기를 리뷰할 때 |
 | `docs/superpowers/specs/2026-11-13-windows-port-design.md` | `Package.swift`, `mac-only.txt`, `Platform/` 아래를 건드리기 전, `SharedSourcesScanTests` 실패가 나왔을 때 (`windows-port` 브랜치) |
+| `docs/reference/windows-ci-build-seed.md` | Windows 단위 테스트 CI 가 느리거나 증분 빌드 결과가 이상할 때, `windows.yml`/`scripts/windows/seed-*`·`test-shards.ps1` 를 고칠 때 (`windows-port` 브랜치) |
 | `docs/reference/team-release.md` | 팀 포크를 릴리스할 때(맥 zip + 윈도우 설치 파일), `team-release.sh` 가 멈췄을 때, 문서 게이트·윈도우 캡처 갱신 |
 | `docs/reference/windows-differences.md` | 윈도우 팝오버·광장 화면을 바꾸거나 릴리스 노트의 "Windows differences" 를 쓸 때 (맥과 다른 점과 이유의 유지 목록) |
 | `docs/reference/defect-log.md` | 결함·회귀를 고치는 중(부류 스윕 근거), 동시성·캐시·외부 로그 포맷·대용량 파일 읽기·상시 애니메이션·세이브 이전·팀 피어 입력을 건드릴 때 |

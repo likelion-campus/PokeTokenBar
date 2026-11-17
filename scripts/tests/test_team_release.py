@@ -521,7 +521,7 @@ def release_manifest(run_id, installer=INSTALLER_BYTES, attempt=1):
 
 
 def tests_manifest():
-    return {"schema": 1, "sha": SHA, "version": V, "executed": 2431, "skipped": 12, "failures": 0}
+    return {"schema": 1, "sha": SHA, "version": V, "executed": 3950, "skipped": 12, "failures": 0, "cleanBuild": True}
 
 
 class CollectTests(HelperTest):
@@ -725,13 +725,15 @@ class CollectTests(HelperTest):
 
     def test_tests_manifest_mismatches_are_refused(self):
         cases = {
-            "too few tests": (lambda m: m.update(executed=2399), "executed is 2399"),
+            "too few tests": (lambda m: m.update(executed=3844), "executed is 3844"),
             "a failure": (lambda m: m.update(failures=1), "failures is 1"),
             "another sha": (lambda m: m.update(sha=OTHER_SHA), "windows-tests.json sha"),
             "another version": (lambda m: m.update(version="2.5.639"), "windows-tests.json version"),
-            "a string count": (lambda m: m.update(executed="2431"), "executed is \"2431\""),
+            "a string count": (lambda m: m.update(executed="3950"), "executed is \"3950\""),
             "a negative skip count": (lambda m: m.update(skipped=-1), "skipped is -1, expected a count"),
             "no skip count": (lambda m: m.pop("skipped"), "skipped is null, expected a count"),
+            "an incremental test build": (lambda m: m.update(cleanBuild=False), "windows-tests.json cleanBuild"),
+            "no cleanBuild field": (lambda m: m.pop("cleanBuild"), "windows-tests.json cleanBuild"),
         }
         for name, (mutate, expected) in cases.items():
             with self.subTest(name):
