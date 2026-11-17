@@ -117,7 +117,8 @@ struct WinPopoverStats {
     /// DPI to rebuild at once it ends (`WM_ENABLE`). Stage 7 Task 15.
     private var rebuildAfterDialog: UINT?
     private var closing = false
-    private var building = false, sizeChangedWhileBuilding = false
+    private(set) var building = false
+    private var sizeChangedWhileBuilding = false
     /// Changes on every open and every close: the posted close's target (a rebuild keeps it).
     private var windowSerial = 0
     private var toggleGuard = PopoverToggleGuard()
@@ -442,9 +443,11 @@ struct WinPopoverStats {
             page?.destroy()
             let next = makePage(self)
             built = next
-            page = next
-            WinOpenTrace.build(next, via: "swap") { next.build(in: w, ctx: ctx, client: Self.client(w.hwnd)) }
-            pageSizeChanged()
+            // Through `build`: a height the page finds while it builds (Home's pinned panes) is applied right after, here, not
+            // from a later turn of the queue on a page already drawn.
+            var placed = false
+            WinOpenTrace.build(next, via: "swap") { placed = build(next, in: w, ctx: ctx) }
+            if !placed { pageSizeChanged() }
         }
         if let built { _ = SetFocus(built.initialFocus ?? w.hwnd) }
     }
@@ -589,7 +592,7 @@ struct WinPopoverStats {
 
     private func eraseBackground(_ dc: HDC?) -> LRESULT? {
         guard let dc, let w = window, let ctx, let brush = ctx.colors.brush(ctx.colors.palette.window) else { return nil }
-        WinOpenTrace.note(.erase)
+        WinOpenTrace.note(.erase, w.hwnd)
         var r = RECT()
         _ = GetClientRect(w.hwnd, &r)
         _ = FillRect(dc, &r, brush)
@@ -599,15 +602,17 @@ struct WinPopoverStats {
     // MARK: - helpers
 
     /// The page is the popover's before its build runs (a `pageSizeChanged()` from inside it is applied right after).
-    private func build(_ page: WinPopoverPage, in w: WinSinkWindow, ctx context: WinUIContext) {
+    /// True when the page's own size change was applied after its build.
+    @discardableResult
+    private func build(_ page: WinPopoverPage, in w: WinSinkWindow, ctx context: WinUIContext) -> Bool {
         self.page = page
         building = true
         page.build(in: w, ctx: context, client: Self.client(w.hwnd))
         building = false
-        if sizeChangedWhileBuilding {
-            sizeChangedWhileBuilding = false
-            pageSizeChanged()
-        }
+        guard sizeChangedWhileBuilding else { return false }
+        sizeChangedWhileBuilding = false
+        pageSizeChanged()
+        return true
     }
 
     /// `GUI_INMOVESIZE | GUI_INMENUMODE | GUI_SYSTEMMENUMODE | GUI_POPUPMENUMODE` for this thread: a menu or a move/size loop

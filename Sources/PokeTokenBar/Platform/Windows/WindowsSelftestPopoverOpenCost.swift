@@ -58,7 +58,8 @@ extension WindowsSelftest {
         let t = WinOpenTrace.now()
         if queued { counts.queued += 1 } else {
             counts.sent += 1
-            if WinOpenTrace.buildDepth > 0 { counts.sentInBuild += 1 }
+            // To a window on screen while a page is built: a half-built page the user sees (a hidden or frozen window draws nothing).
+            if WinOpenTrace.buildDepth > 0, IsWindowVisible(h) { counts.sentInBuild += 1 }
         }
         let frame = Int(t / (1000.0 / 60))
         if frame != lastFrame {
@@ -107,11 +108,11 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
             func ms(_ v: Double) -> String { String(Int(v.rounded())) }
             let slow = t.slow.map { "\($0.name) \(ms($0.ms))" }.joined(separator: ", ")
             let top = t.steps.sorted { $0.ms > $1.ms }.prefix(4).map { "\($0.name) \(ms($0.ms))" }.joined(separator: ", ")
-            let hooks = hooked ? "sent \(spy.sent) (in build \(spy.sentInBuild)), queued \(spy.queued), frames with a paint \(spy.frames) over \(ms(spy.lastMs - spy.firstMs)) ms"
+            let hooks = hooked ? "sent \(spy.sent) (on screen in a build \(spy.sentInBuild)), queued \(spy.queued), frames with a paint \(spy.frames) over \(ms(spy.lastMs - spy.firstMs)) ms"
                 : "not watched (built before the window was shown)"
             return "\(name) [\(t.page) via \(t.via)]: click->settled \(ms(clickToSettledMs)) ms, build \(ms(t.buildMs)) ms in \(t.builds) build(s); "
                 + "layouts \(t.layouts), refreshes \(t.refreshes), windows made \(t.windows) / in the window now \(descendants); "
-                + "trace paints \(t.paints) (in build \(t.paintsInBuild)), erases \(t.erases) (in build \(t.erasesInBuild)); hooks: \(hooks); "
+                + "trace paints \(t.paints) (on screen in a build \(t.paintsInBuild)), erases \(t.erases) (on screen in a build \(t.erasesInBuild)); hooks: \(hooks); "
                 + "top steps \(top.isEmpty ? "-" : top); slow \(slow.isEmpty ? "none" : slow); open=\(stillOpen) foreground=\(foreground) visible=\(visible) dwm bounds=\(dwmMatches)"
         }
 
@@ -124,7 +125,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
             if !hooked { bad.append("the paint hooks could not be installed") }
             if t.builds != 1 { bad.append("\(t.builds) builds (budget 1)") }
             if spy.sentInBuild > 0 || t.paintsInBuild > 0 || t.erasesInBuild > 0 {
-                bad.append("painted while built: \(spy.sentInBuild) paint messages, \(t.paintsInBuild) paints, \(t.erasesInBuild) erases (budget 0)")
+                bad.append("painted on screen while built: \(spy.sentInBuild) paint messages, \(t.paintsInBuild) paints, \(t.erasesInBuild) erases (budget 0)")
             }
             if spy.frames > maxFrames { bad.append("\(spy.frames) frames with a paint (budget \(maxFrames))") }
             if t.layouts > maxLayouts { bad.append("\(t.layouts) layouts (budget \(maxLayouts))") }

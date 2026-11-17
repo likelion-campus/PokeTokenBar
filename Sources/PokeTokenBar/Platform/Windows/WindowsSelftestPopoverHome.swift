@@ -244,7 +244,7 @@ enum HomeFixtures {
     final class Recorded { var actions: [HomeAction] = []; var plaza = 0 }
 
     init?(stores: HomeStores, input: ((AppLanguage, Date) -> HomeInput)? = nil, dpi: UINT? = nil, textScale: Double? = nil,
-          recordActions: Bool = true) {
+          recordActions: Bool = true, heightDIP: CGFloat = 600) {
         self.stores = stores
         let recorder = Recorded()
         self.recorder = recorder
@@ -255,8 +255,11 @@ enum HomeFixtures {
                                facts: facts, openPlaza: { recorder.plaza += 1 }, perform: perform)
         if let input { made.modelOverride = { now in HomeModel.make(input: input(language, now), facts: facts, now: now) } }
         page = made
-        guard let w = KitWindow(heightDIP: 600, dpi: dpi, textScale: textScale, register: true, origin: POINT(x: 0, y: 0), build: { _, stack in
-            made.attach(stack: stack)
+        guard let w = KitWindow(heightDIP: heightDIP, dpi: dpi, textScale: textScale, register: true, origin: POINT(x: 0, y: 0), build: { kit, stack in
+            // The Mac's panes: the update offer and plaza button above, the footer below, the scroller between.
+            made.attach(stack: stack, area: kit.scroll, client: kit.clientRect)
+            kit.onLayout = { [weak made] client in made?.layout(client: client) }
+            kit.fitHeightDIP = { [weak made] in made?.fullContentHeightDIP }
         }) else { return nil }
         window = w
     }
@@ -273,7 +276,7 @@ enum HomeFixtures {
 // --- stage 7 Task 5: the page in a window (end) ---
 
 @MainActor enum WindowsSelftestPopoverHome {
-    static let names = ["home.capture", "home.updatesOnRefresh", "home.relativeClock", "home.keyboard", "home.openClose3", "home.firstPaint", "home.settingsRoundTrip"]
+    static let names = ["home.capture", "home.updatesOnRefresh", "home.relativeClock", "home.keyboard", "home.openClose3", "home.firstPaint", "home.settingsRoundTrip", "home.pinned"]
 
     static func run(_ r: WindowsSelftest.Recorder, _ app: WindowsAppDelegate) async {
         let start = KitResources.now()
@@ -284,6 +287,7 @@ enum HomeFixtures {
         await openCloseCheck(r, start: start)
         await firstPaintCheck(r, app)
         await settingsRoundTripCheck(r, app)
+        await pinnedCheck(r)
     }
 
     static func dumpDirectory() -> URL? {
@@ -293,6 +297,89 @@ enum HomeFixtures {
     }
 
     private static func wait(_ seconds: TimeInterval) async { _ = await WindowsSelftest.waitUntil(timeout: seconds) { false } }
+
+    // MARK: home.pinned: the update offer, the plaza button and the footer stay while the middle scrolls (the Mac's mainContent)
+
+    /// A tab stop's rectangle in the window's client pixels.
+    private static func rect(_ hwnd: HWND, in window: HWND) -> RECT { WinKit.rect(hwnd, in: window) }
+
+    private static func pinnedCheck(_ r: WindowsSelftest.Recorder) async {
+        let stores = await HomeStores.make(language: .en)
+        guard let h = HomeHarness(stores: stores, input: { HomeFixtures.update($0, now: $1) }, heightDIP: 420), let model = h.page.last,
+              let area = h.window.scroll, let banner = model.updateBanner, let usage = model.footer.usage else {
+            r.add("home.pinned", false, "no window")
+            return
+        }
+        defer { h.destroy() }
+        h.window.show(activate: false)
+        await wait(0.6)
+        let w = h.window.hwnd
+        let tree = KitTree.collect(h.window)
+        func find(_ text: String) -> HWND? { zip(tree.nodes, tree.handles).first { $0.0.text == text && $0.0.cls == "Button" }?.1 }
+        guard let update = find(banner.updateButton.label), let refresh = find(usage.refreshHelp), let quit = find(model.footer.quitHelp) else {
+            r.add("home.pinned", false, "update / refresh / quit button missing")
+            return
+        }
+        let view = rect(area.viewport.hwnd, in: w)
+        let updateBefore = rect(update, in: w), refreshBefore = rect(refresh, in: w), quitBefore = rect(quit, in: w)
+        var problems: [String] = []
+        // above the scroller and below it, outside it
+        if updateBefore.bottom > view.top { problems.append("the update offer is not above the scroller (\(updateBefore.bottom) > \(view.top))") }
+        if refreshBefore.top < view.bottom { problems.append("the footer is not below the scroller (\(refreshBefore.top) < \(view.bottom))") }
+        // the content is taller than the scroller here, so it scrolls; the panes do not move
+        let scrolls = area.contentHeight > (view.bottom - view.top)
+        area.scroll(to: area.contentHeight)
+        await wait(0.2)
+        let moved = area.offset > 0
+        let updateAfter = rect(update, in: w), refreshAfter = rect(refresh, in: w), quitAfter = rect(quit, in: w)
+        let still = updateAfter.top == updateBefore.top && refreshAfter.top == refreshBefore.top && quitAfter.top == quitBefore.top
+        if !scrolls || !moved { problems.append("the middle did not scroll (content \(area.contentHeight), viewport \(view.bottom - view.top), offset \(area.offset))") }
+        if !still { problems.append("a pinned button moved while the middle scrolled") }
+        // keyboard: a control below the visible part is brought into view; the footer's button takes the focus without scrolling
+        area.scroll(to: 0)
+        let hidden = Array(zip(tree.nodes, tree.handles)).filter { $0.0.tabStop && IsChild(area.viewport.hwnd, $0.1) && rect($0.1, in: w).top > view.bottom }
+            .max { rect($0.1, in: w).top < rect($1.1, in: w).top }
+        var keyboard = "no control below the fold"
+        if let hidden {
+            _ = SetFocus(hidden.1)
+            await wait(0.2)
+            let revealed = area.offset > 0
+            let offsetAfter = area.offset
+            _ = SetFocus(refresh)
+            await wait(0.2)
+            let footerKeepsScroll = area.offset == offsetAfter
+            keyboard = "focus below the fold scrolled=\(revealed), focus on the footer left the scroll alone=\(footerKeepsScroll)"
+            if !revealed || !footerKeepsScroll { problems.append(keyboard) }
+        } else {
+            problems.append(keyboard)
+        }
+        // Tab order is the reading order across the three panes
+        // (what the scroller clips is not on screen: only what shows takes part)
+        area.scroll(to: 0)
+        await wait(0.1)
+        let order = tree.tabOrder.filter { !(IsChild(area.viewport.hwnd, $0) && rect($0, in: w).top >= view.bottom) }
+        let rects = order.map { hwnd -> CGRect in
+            let r = rect(hwnd, in: w)
+            return CGRect(x: CGFloat(r.left), y: CGFloat(r.top), width: CGFloat(r.right - r.left), height: CGFloat(r.bottom - r.top))
+        }
+        let inOrder = PopoverStackLayout.isReadingOrder(rects)
+        if !inOrder || rects.count < 6 { problems.append("Tab order across the panes is not the reading order (\(rects.count) stops)") }
+        // the Mac's `.frame(height: 520)`: the window is as tall whatever the content (an empty page as tall as a full one)
+        let scale = h.window.ctx.scale
+        let expected = CGFloat(h.page.pinnedHeights.top + h.page.pinnedHeights.bottom + h.window.ctx.px(PopoverStackMetrics.homeScrollerHeight)) / scale
+        let heightOK = abs(h.page.heightDIP - expected.rounded(.up)) < 1.5
+        if !heightOK { problems.append("heightDIP \(h.page.heightDIP) != top + 520 + footer \(expected)") }
+        var emptyHeight = CGFloat(0), fullHeight = CGFloat(0)
+        let emptyStores = await HomeStores.make(language: .en)
+        if let e = HomeHarness(stores: emptyStores, input: HomeFixtures.empty) { emptyHeight = e.page.heightDIP; e.destroy() }
+        let fullStores = await HomeStores.make(language: .en)
+        if let f = HomeHarness(stores: fullStores, input: { HomeFixtures.three($0, now: $1) }) { fullHeight = f.page.heightDIP; f.destroy() }
+        if emptyHeight == 0 || emptyHeight != fullHeight { problems.append("window height depends on the content: empty \(emptyHeight) DIP, full \(fullHeight) DIP") }
+        r.add("home.pinned", problems.isEmpty,
+              "Tab order top, scroller, footer=\(inOrder); update offer y \(updateBefore.top)-\(updateBefore.bottom) above the scroller y \(view.top)-\(view.bottom), footer y \(refreshBefore.top) below it; scrolled to offset \(area.offset) of content "
+              + "\(area.contentHeight): update/refresh/quit unmoved=\(still); \(keyboard); window \(h.page.heightDIP) DIP = top + 520 pt scroller + footer, empty page \(emptyHeight) = full page \(fullHeight) DIP"
+              + (problems.isEmpty ? "" : "; PROBLEMS: " + problems.joined(separator: "; ")))
+    }
 
     // MARK: home.capture: every state, the tree checks, the texts
 

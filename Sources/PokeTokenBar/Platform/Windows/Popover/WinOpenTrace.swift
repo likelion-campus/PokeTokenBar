@@ -25,6 +25,8 @@ import WinSDK
         /// window made, a paint of a pane or control: not a drawn view's own animation).
         var buildMs = 0.0, settledMs = 0.0
         var builds = 0, layouts = 0, refreshes = 0, windows = 0
+        /// `…InBuild`: those inside a build to a window on screen (a half-built page the user sees). A control erasing itself
+        /// while its window is hidden or not drawing draws nothing and is not counted there.
         var paints = 0, erases = 0, paintsInBuild = 0, erasesInBuild = 0, drawnPaints = 0
         var steps: [Step] = []
 
@@ -35,8 +37,8 @@ import WinSDK
             let parts = steps.map { "\($0.name) \(ms($0.ms))" }.joined(separator: ", ")
             let slowParts = slow.map { "\($0.name) \(ms($0.ms)) ms" }.joined(separator: ", ")
             return "popover page \(page) via \(via): build \(ms(buildMs)) ms in \(builds) build(s), settled \(ms(settledMs)) ms; "
-                + "layouts \(layouts), refreshes \(refreshes), windows made \(windows); paints \(paints) (\(paintsInBuild) inside a build), "
-                + "erases \(erases) (\(erasesInBuild) inside a build), drawn-view paints \(drawnPaints); steps (ms): \(parts.isEmpty ? "-" : parts); "
+                + "layouts \(layouts), refreshes \(refreshes), windows made \(windows); paints \(paints) (\(paintsInBuild) on screen inside a build), "
+                + "erases \(erases) (\(erasesInBuild) on screen inside a build), drawn-view paints \(drawnPaints); steps (ms): \(parts.isEmpty ? "-" : parts); "
                 + "slow (>= \(Int(WinOpenTrace.slowMs)) ms): \(slowParts.isEmpty ? "none" : slowParts)"
         }
     }
@@ -114,15 +116,15 @@ import WinSDK
         }
     }
 
-    /// Something the page did or had done to it.
-    static func note(_ event: Event) {
+    /// Something the page did or had done to it; a paint or an erase names its window (on screen or not).
+    static func note(_ event: Event, _ hwnd: HWND? = nil) {
         guard let c = current else { return }
         let t = now()
         guard t - c.start <= window else {
             end()
             return
         }
-        let inBuild = buildDepth > 0
+        let inBuild = buildDepth > 0 && (hwnd.map { IsWindowVisible($0) } ?? true)
         switch event {
         case .layout: c.report.layouts += 1
         case .refresh: c.report.refreshes += 1

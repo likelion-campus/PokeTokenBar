@@ -73,7 +73,7 @@ import WinSDK
         }
         viewport.on(0x0014 /* WM_ERASEBKGND */) { [weak self] wParam, _ in
             guard let self, let dc = HDC(bitPattern: UInt(wParam)) else { return nil }
-            WinOpenTrace.note(.erase)
+            WinOpenTrace.note(.erase, self.viewport.hwnd)
             var r = RECT()
             _ = GetClientRect(self.viewport.hwnd, &r)
             _ = FillRect(dc, &r, ctx.colors.brush(ctx.colors.palette.window))

@@ -294,7 +294,7 @@ enum WinEditKind: Equatable, Sendable {
         let isCode: Bool = { if case .code? = c.editKind { return true }; return false }()
         let isPassword: Bool = { if case .password? = c.editKind { return true }; return false }()  // stage 7 Task 14
         let ctrlDown = GetKeyState(0x11 /* VK_CONTROL */) < 0
-        if message == 0x000F { WinOpenTrace.note(.paint) } else if message == 0x0014 { WinOpenTrace.note(.erase) }  // settings-open trace
+        if message == 0x000F { WinOpenTrace.note(.paint, hwnd) } else if message == 0x0014 { WinOpenTrace.note(.erase, hwnd) }  // settings-open trace
         switch message {
         case 0x0007:  // WM_SETFOCUS: keyboard focus inside a scroll area brings the control into view
             if GetKeyState(0x01 /* VK_LBUTTON */) >= 0 { WinScrollArea.reveal(hwnd) }
