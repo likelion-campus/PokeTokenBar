@@ -978,6 +978,31 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         var processSwitches: Int { sample.active.reduce(0) { $0 + $1.cs } }
     }
 
+    /// A window's class name.
+    static func className(_ h: HWND) -> String {
+        var cls = [UInt16](repeating: 0, count: 64)
+        let n = GetClassNameW(h, &cls, 64)
+        return String(decoding: cls.prefix(Int(n)), as: UTF16.self)
+    }
+
+    /// The top-level window at a screen point: its class, and whether it is this process's.
+    static func windowAt(_ p: POINT) -> (text: String, ours: Bool) {
+        guard let h = WindowFromPoint(p) else { return ("none", false) }
+        let root = GetAncestor(h, UINT(GA_ROOT)) ?? h
+        var pid: DWORD = 0
+        _ = GetWindowThreadProcessId(root, &pid)
+        let ours = pid == GetCurrentProcessId()
+        return ("\(className(root))\(ours ? " (ours)" : "")", ours)
+    }
+
+    /// What the pump removed on the main thread while a window was measured (`WinMessageHook.tap`): message @ window class.
+    final class MessageCounts {
+        var map: [String: Int] = [:]
+        var top: String {
+            map.isEmpty ? "none" : map.sorted { $0.value > $1.value }.prefix(6).map { "\($0.key) x\($0.value)" }.joined(separator: ", ")
+        }
+    }
+
     /// Top-level windows of the pet's class left anywhere (`FindWindowExW`, hidden ones too).
     static func petWindowsLeft() -> Int {
         let cls = WinStr.w(WinPetWindow.className)
@@ -992,12 +1017,20 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
     static func idleCheck(_ r: WindowsSelftest.Recorder) async {
         let seconds = 8.0
-        func sample() async -> IdleWindow? {
+        func sample(_ counts: MessageCounts? = nil) async -> IdleWindow? {
             var last: IdleWindow?
             for _ in 0..<2 {
                 _ = await WindowsSelftest.waitStable(timeout: 10, quiet: 2) { !WinDefaultsSync.isSyncPending }
                 let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
-                guard let s = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else { return nil }
+                counts?.map = [:]
+                if let counts {
+                    WinMessageHook.tap = { message, hwnd in
+                        counts.map["0x\(String(message, radix: 16))@\(hwnd.map { className($0) } ?? "thread")", default: 0] += 1
+                    }
+                }
+                let measured = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
+                WinMessageHook.tap = nil
+                guard let s = measured else { return nil }
                 let wakes1 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
                 var extra = 0, known = "unknown (no app)", refreshed = false
                 if let a = wakes0, let b = wakes1 {
@@ -1019,6 +1052,16 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         defer { WinFloatingPet.spriteFetcherOverride = saved }
         let work = primaryWork()
         let live0 = WinSinkWindow.liveCount
+        // The real pointer: the real clicks of pet.noActivate and pet.clickActions left it where this pet stands, so the hide
+        // would uncover whatever is under it there. Parked where no window of ours is (bundle selftests 44068394132 and
+        // 44093544046 woke ~1.25 times a second after the hide, the installed ones not at all); what was there is reported.
+        var cursor = POINT()
+        _ = GetCursorPos(&cursor)
+        let underCursor = windowAt(cursor).text
+        let parks = [POINT(x: work.left + 2, y: work.top + 2), POINT(x: work.right - 3, y: work.top + 2), POINT(x: work.left + 2, y: work.bottom - 3)]
+        let park = parks.first { !windowAt($0).ours } ?? parks[0]
+        if WindowsSelftest.onCI { _ = SetCursorPos(park.x, park.y) }   // real input only on the runner
+        let parkedOver = WindowsSelftest.onCI ? windowAt(park).text : "nothing (CI not set: not moved)"
         // A raised sample (`midLevel`, not a fresh hatch: in a bundled app a hatch warms its sprites and names over the network).
         let h = await PetHarness.make(.midLevel, saved: CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360))) {
             $0.asleep = true
@@ -1038,7 +1081,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let w = h.window
         let armedStill = w?.playback.clock.isArmed == true
         let r0 = h.pet.stats.renders
-        let still = await sample()
+        let stillMessages = MessageCounts()
+        let still = await sample(stillMessages)
         let stillRenders = h.pet.stats.renders - r0
         // Animated: the FIXTURE GIF of 40 x 0.05 s at Power saver's floor (0.4 s: 2.5 frames a second), "Show animations" on.
         h.animations = true
@@ -1053,7 +1097,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         h.pet.sync()
         let left = petWindowsLeft()
         let gone = h.window == nil && left == 0 && WinSinkWindow.liveCount == live0 && playback?.released == true && playback?.clock.isArmed == false
-        let hidden = await sample()
+        let hiddenMessages = MessageCounts()
+        let hidden = await sample(hiddenMessages)
         guard let still, let animated, let hidden else {
             r.add("pet.idle", false, "measurement failed (shown=\(shown))")
             return
@@ -1074,11 +1119,12 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                 + "(\(UInt64(Double(s.processCycles) / seconds))/s), known wakes \(w.known) (+\(w.extra)), busy [\(s.busy)]"
         }
         r.add("pet.idle", stillOK && animatedOK && hiddenOK,
-              "\(Int(seconds)) s each, one pet shown and hidden by the displays' state, after \(String(format: "%.0f", settled)) s of settling. "
-              + "still (\"Show animations\" off): shown=\(shown) clock armed=\(armedStill), \(stillRenders) renders, \(line(still)) (net <= 6)=\(stillOK); "
+              "\(Int(seconds)) s each, one pet shown and hidden by the displays' state, after \(String(format: "%.0f", settled)) s of settling; the pointer was over "
+              + "\(underCursor), parked at \(park.x),\(park.y) over \(parkedOver). "
+              + "still (\"Show animations\" off): shown=\(shown) clock armed=\(armedStill), \(stillRenders) renders, \(line(still)) messages [\(stillMessages.top)] (net <= 6)=\(stillOK); "
               + "animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps): clock armed=\(armed), \(movingRenders) renders, \(line(animated)) "
               + "(net <= \(Int((frameRate + 2) * seconds)), renders >= \(Int(frameRate * seconds * 0.7)))=\(animatedOK); "
-              + "hidden: nothing left=\(gone) (pet windows \(left), windows \(live0) -> \(WinSinkWindow.liveCount), playback released=\(playback?.released == true)), \(line(hidden)) "
+              + "hidden: nothing left=\(gone) (pet windows \(left), windows \(live0) -> \(WinSinkWindow.liveCount), playback released=\(playback?.released == true)), \(line(hidden)) messages [\(hiddenMessages.top)] "
               + "(against still: net <= \(max(0, still.mainNet) + 3), process cs <= \(still.processSwitches + 10), cycles <= \(still.sample.processCycles + 4_000_000))=\(hiddenOK)")
     }
 

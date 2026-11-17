@@ -50,9 +50,15 @@ import WinSDK
         return info.flags & 0x1E != 0
     }
 
+    // --- stage 7 Task 22: a selftest tap on every message the pump removes (pet.idle's waker report) (begin) ---
+    /// Set only by a selftest window that names what woke the main thread (message, window); nil otherwise.
+    static var tap: ((UINT, HWND?) -> Void)?
+    // --- stage 7 Task 22 (end) ---
+
     fileprivate static func removed(_ messageBits: Int) {
         guard let m = UnsafeMutablePointer<MSG>(bitPattern: messageBits) else { return }
         let message = m.pointee.message
+        tap?(message, m.pointee.hwnd)  // stage 7 Task 22
         // Mouse messages (client 0x0200–0x020E, non-client 0x00A0–0x00AD) never take the dialog path: IsDialogMessageW only
         // dispatches them, and a tracking loop that DefWindowProc runs on a non-client click (a scroll bar's arrow or thumb,
         // even without WinModalPump.begin) must read its own button-up. Handing it WM_NULL left the loop holding the capture
