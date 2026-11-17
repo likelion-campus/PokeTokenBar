@@ -59,7 +59,7 @@ Get-FileHash .\PokeTokenBar-Setup-<버전>-win-x64.exe -Algorithm SHA256
 
 ### 처음 켜기
 
-![트레이 메뉴. 샘플 데이터, Windows CI 러너에서 찍은 화면](assets/windows/tray-menu.png)
+![트레이 메뉴(영어 화면). 샘플 데이터, Windows CI 러너에서 찍은 화면](assets/windows/tray-menu.png)
 
 - 아이콘은 작업 표시줄 오른쪽 `^`(숨겨진 아이콘) 안에 있을 수 있습니다. 눌러서 꺼낸 뒤 작업 표시줄로 끌어 두면 항상 보입니다.
 - 아이콘을 왼쪽 클릭하면 팝오버(오늘 사용량, 한도, 도감·상점·가방·컬렉션), 오른쪽 클릭하면 메뉴가 열립니다.
