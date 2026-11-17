@@ -6,7 +6,8 @@ function Check([bool]$ok, [string]$what) { $script:count++; if ($ok) { "PASS $wh
 
 # ---- layer 1: which runs
 $repo = 'likelion-campus/PokeTokenBar'
-function Run($id, $event, $headRepo) { @{ id = $id; event = $event; head_repository = $(if ($headRepo) { @{ full_name = $headRepo } } else { $null }) } }
+# head_branch is windows-port on every run: `branch=` matches the head branch by NAME, a fork can use the trunk's name
+function Run($id, $event, $headRepo) { @{ id = $id; event = $event; head_branch = 'windows-port'; head_repository = $(if ($headRepo) { @{ full_name = $headRepo } } else { $null }) } }
 $runs = @{ workflow_runs = @(
     (Run 1 'pull_request' $repo), (Run 2 'push' 'someone/PokeTokenBar'), (Run 3 'pull_request' 'someone/PokeTokenBar'),
     (Run 4 'push' $null), (Run 5 'workflow_dispatch' $repo), (Run 6 'schedule' $repo), (Run 7 'push' $repo), (Run 8 'workflow_dispatch' 'someone/PokeTokenBar')
@@ -14,6 +15,14 @@ $runs = @{ workflow_runs = @(
 $ids = @(Select-SeedRunIds $runs $repo)
 Check (($ids -join ',') -eq '5,7') "only own-repo push/dispatch runs are seed candidates, in order (got $($ids -join ','))"
 Check (@(Select-SeedRunIds (@{ workflow_runs = @() } | ConvertTo-Json) $repo).Count -eq 0) 'no runs, no candidates'
+foreach ($badJson in @('', '   ', 'not json', '{}', '{"message":"rate limit"}')) {
+    $threw = $false; try { $null = Select-SeedRunIds $badJson $repo } catch { $threw = $true }
+    Check $threw "an empty or malformed runs answer throws (the caller goes clean): '$badJson'"
+}
+
+# ---- branch names that may go into a query
+foreach ($ok in @('windows-port', 'ci/windows-yml-seed', 'feat/x_1.2', 'kit/pc-7')) { Check (Test-BranchName $ok) "branch name accepted: $ok" }
+foreach ($bad in @('', "x' ; Remove-Item -Recurse /", 'a b', 'a&b=c', 'x?y', '-rf', '/abs', 'a/../b', 'a..b', 'trail/', 'x`$(id)', ('a' * 101))) { Check (-not (Test-BranchName $bad)) "branch name refused: '$bad'" }
 
 Check ((@(Get-SeedBranches 'pull_request' 'windows-port' '123/merge' 'windows-port') -join ',') -eq 'windows-port') 'a pull request searches its base branch only'
 Check ((@(Get-SeedBranches 'pull_request' '' '123/merge' 'windows-port') -join ',') -eq 'windows-port') 'a pull request without a base falls back to the trunk, never to its own ref'
@@ -34,6 +43,14 @@ foreach ($link in @('lrwxrwxrwx 0 0 0 0 Nov 17 22:48 .build/x -> ../scripts', 'l
     Check ((Test-SeedArchive $goodNames ($goodVerbose + $link) 'D:\a\PokeTokenBar\PokeTokenBar').Count -gt 0) "the link is refused: $link"
 }
 Check ((Test-SeedArchive $goodNames ($goodVerbose + 'lrwxrwxrwx 0 0 0 0 Nov 17 22:48 .build/x -> D:\a\PokeTokenBar\PokeTokenBar\.build\y') 'D:\a\PokeTokenBar\PokeTokenBar').Count -eq 0) 'an absolute link inside the workspace is accepted'
+Check ((Test-SeedArchive $goodNames ($goodVerbose + 'lrwxrwxrwx 0 0 0 0 Nov 17 22:48 .build/a/b -> ../c') 'D:\w').Count -eq 0) 'a relative link that stays under .build is accepted'
+Check ((Test-SeedArchive $goodNames ($goodVerbose + 'lrwxrwxrwx 0 0 0 0 Nov 17 22:48 .build/x -> ..') 'D:\w').Count -gt 0) 'a link to the parent of .build is refused'
+Check ((Test-SeedArchive $goodNames ($goodVerbose + 'lrwxrwxrwx 0 0 0 0 Nov 17 22:48 .build/x -> D:\w') 'D:\w').Count -gt 0) 'an absolute link to the workspace root (not under .build) is refused'
+Check ((Test-SeedArchive $goodNames ($goodVerbose + 'lrwxrwxrwx 0 0 0 0 Nov 17 22:48 .build/x -> D:\w\scripts') 'D:\w').Count -gt 0) 'an absolute link to a workspace folder outside .build is refused'
+$throughLink = @('lrwxrwxrwx 0 0 0 0 Nov 17 22:48 .build/x -> D:\w\.build\y')
+Check ((Test-SeedArchive ($goodNames + '.build/x/scripts/windows/evil.ps1') ($goodVerbose + $throughLink) 'D:\w').Count -gt 0) 'a member below a listed link is refused even when the link itself resolves under .build'
+Check ((Test-SeedArchive ($goodNames + '.build/x/scripts/windows/evil.ps1') ($goodVerbose + 'lrwxrwxrwx 0 0 0 0 Nov 17 22:48 .build/x -> D:\w') 'D:\w').Count -ge 2) 'link to the workspace plus a member below it: refused on both counts'
+Check ((Test-SeedArchive $goodNames ($goodVerbose + 'lrwxrwxrwx 0 0 0 0 Nov 17 2025 .build/y -> ../../etc') 'D:\w').Count -gt 0) 'a link entry with a year instead of a time is parsed and refused'
 Check ((Test-SeedArchive $goodNames ($goodVerbose + 'hrw-r--r-- 0 0 0 0 Nov 17 22:48 .build/h link to .build/lock') 'D:\w').Count -gt 0) 'a hard link is refused'
 Check ((Test-SeedArchive $goodNames ($goodVerbose + 'crw-r--r-- 0 0 0 0 Nov 17 22:48 .build/dev') 'D:\w').Count -gt 0) 'a device node is refused'
 

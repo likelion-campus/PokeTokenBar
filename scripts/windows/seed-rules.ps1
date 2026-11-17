@@ -2,6 +2,11 @@
 # A seed is the .build folder of an earlier run, restored into the workspace of a later one: whatever is in the archive becomes input of
 # a trusted job. Three layers: WHO may have produced it, WHAT the archive may contain, and what its metadata may claim.
 
+# A branch name that may go into an API query string: letters, digits, . _ - /, no `..`, not starting with - or /, at most 100 characters.
+function Test-BranchName([string]$Name) {
+    return ($Name -match '^[A-Za-z0-9._][A-Za-z0-9._/-]{0,99}$') -and ($Name -notmatch '\.\.') -and (-not $Name.EndsWith('/'))
+}
+
 # Which branches' runs are searched, in order. A pull_request run (its checkout is a merge ref, its ref name `<n>/merge`) takes its BASE
 # branch's seed only; any other run its own branch's, then the trunk's.
 function Get-SeedBranches([string]$EventName, [string]$BaseRef, [string]$RefName, [string]$Trunk) {
@@ -13,11 +18,36 @@ function Get-SeedBranches([string]$EventName, [string]$BaseRef, [string]$RefName
 # named alike: `branch=` matches the head branch by name, also on a fork) started by a push or a dispatch, i.e. by someone with write
 # access. Never a pull_request run, never a fork's.
 function Select-SeedRunIds([string]$RunsJson, [string]$Repo) {
-    $runs = ($RunsJson | ConvertFrom-Json).workflow_runs
+    # An empty or malformed answer (a network failure prints nothing) THROWS: the caller turns it into a clean build.
+    if ([string]::IsNullOrWhiteSpace($RunsJson)) { throw 'the runs query returned nothing' }
+    $parsed = $RunsJson | ConvertFrom-Json
+    if ($null -eq $parsed -or $null -eq $parsed.PSObject.Properties['workflow_runs']) { throw 'the runs query returned no workflow_runs' }
+    $runs = $parsed.workflow_runs
     foreach ($r in $runs) {
         $fromThisRepo = $r.head_repository -and $r.head_repository.full_name -eq $Repo
         if ($fromThisRepo -and ($r.event -eq 'push' -or $r.event -eq 'workflow_dispatch')) { $r.id }
     }
+}
+
+# Where a link at $Member pointing at $Target ends up, relative to the workspace root (forward slashes, no leading slash), or $null
+# when it leaves the workspace or cannot be resolved. An absolute target must be inside $Workspace.
+function Resolve-SeedLink([string]$Member, [string]$Target, [string]$Workspace) {
+    $isAbs = $Target.StartsWith('/') -or $Target -match '^[A-Za-z]:'
+    if ($isAbs) {
+        $ws = (($Workspace -replace '\\', '/')).TrimEnd('/')
+        if (-not $ws -or -not ($Target.TrimEnd('/') + '/').ToLowerInvariant().StartsWith(($ws + '/').ToLowerInvariant())) { return $null }
+        $parts = $Target.Substring($ws.Length).Trim('/').Split('/')
+    } else {
+        $dir = if ($Member.Contains('/')) { $Member.Substring(0, $Member.LastIndexOf('/')) } else { '' }
+        $parts = (($dir + '/' + $Target).Trim('/')).Split('/')
+    }
+    $stack = [System.Collections.Generic.List[string]]::new()
+    foreach ($p in $parts) {
+        if ($p -eq '' -or $p -eq '.') { continue }
+        if ($p -eq '..') { if ($stack.Count -eq 0) { return $null }; $stack.RemoveAt($stack.Count - 1); continue }
+        $stack.Add($p)
+    }
+    return ($stack -join '/')
 }
 
 # Layer 2. Problems with an archive listing (an empty result = fine). $Names: `tar -tf`; $Verbose: `tar -tvf` (the first column is the
@@ -33,19 +63,26 @@ function Test-SeedArchive([string[]]$Names, [string[]]$Verbose, [string]$Workspa
         if (-not $okRoot) { $problems += "member outside .build and Package.resolved: $raw"; continue }
         if ($n -match '(^|/)\.\.(/|$)' -or $n.StartsWith('/') -or $n -match '^[A-Za-z]:' -or $n.Contains(':')) { $problems += "unsafe member name: $raw" }
     }
+    $links = @()
     foreach ($line in $Verbose) {
         if (-not $line) { continue }
         $type = $line.Substring(0, 1)
         if ($type -eq '-' -or $type -eq 'd') { continue }
         if ($type -eq 'l') {
-            if ($line -notmatch ' -> (.+)$') { $problems += "unreadable link entry: $line"; continue }
-            $t = ($Matches[1] -replace '\\', '/').Trim()
-            $absolute = $t.StartsWith('/') -or $t -match '^[A-Za-z]:'
-            $inWorkspace = $absolute -and $Workspace -and ($t.TrimEnd('/') + '/').ToLowerInvariant().StartsWith((($Workspace -replace '\\', '/').TrimEnd('/') + '/').ToLowerInvariant())
-            if (($absolute -and -not $inWorkspace) -or $t -match '(^|/)\.\.(/|$)') { $problems += "link leaves the workspace: $line" }
+            if ($line -notmatch ' (?:\d\d:\d\d|\d{4}) (.+?) -> (.+)$') { $problems += "unreadable link entry: $line"; continue }
+            $member = (($Matches[1] -replace '\\', '/') -replace '^\./', '').TrimEnd('/')
+            $target = ($Matches[2] -replace '\\', '/').Trim()
+            $links += $member
+            $resolved = Resolve-SeedLink $member $target $Workspace
+            if ($null -eq $resolved -or -not ($resolved -eq '.build' -or $resolved.StartsWith('.build/'))) { $problems += "link does not resolve under .build/: $line"; }
             continue
         }
         $problems += "entry type '$type' is not allowed: $line"
+    }
+    # Nothing may be extracted THROUGH a link: no member under a listed link (a link to the workspace plus members below it would write anywhere).
+    foreach ($raw in $Names) {
+        $n = ((($raw -replace '\\', '/') -replace '^\./', '')).TrimEnd('/')
+        foreach ($l in $links) { if ($n.StartsWith($l + '/')) { $problems += "member below a link: $raw (link $l)"; break } }
     }
     return $problems
 }

@@ -76,6 +76,24 @@ Report 'no change' $b ($b.Ok -and $b.Compiles -eq 0) 'nothing may compile; secon
 $b = Build
 Report 'no change (again, same job)' $b ($b.Ok -and $b.Compiles -eq 0) 'a second build in a row'
 
+# Control (debug): the C header + .cpp edit alone, blob stamps only, NO touch rule: does a seeded build go stale-green on this toolchain?
+# (swift-driver judges a changed header by "newer than the last build"; the blob stamps say 2000-2008.) Stale green = the build succeeds and
+# no Swift file is compiled. The touch rule stays either way; this settles whether the hazard exists on the toolchain in use.
+if ($Flavor -eq 'debug') {
+    $hdr = 'Sources/CPlazaD2D/include/CPlazaD2D.h'; $cpp = 'Sources/CPlazaD2D/probe.cpp'
+    $h0 = Get-Content -Raw -Path $hdr; $c0 = Get-Content -Raw -Path $cpp
+    Set-Content -NoNewline -Path $hdr -Value $h0.Replace('int32_t wic; ', 'int32_t wicX;')
+    Set-Content -NoNewline -Path $cpp -Value ([regex]::Replace($c0, 'out->wic\b', 'out->wicX'))
+    Commit header-control
+    StampBlobOnly; $b = Build
+    $swiftLines = @($b.Lines | Where-Object { $_ -match 'Compiling PokeTokenBar ' }).Count
+    $stale = $b.Ok -and $swiftLines -eq 0
+    Report 'CONTROL: C header field renamed, blob stamps only, no touch rule' $b $true "informational: ok=$($b.Ok), Swift compile lines=$swiftLines, STALE GREEN=$stale (true = the Swift reader was not recompiled: the hazard is real on this toolchain)"
+    Set-Content -NoNewline -Path $hdr -Value $h0; Set-Content -NoNewline -Path $cpp -Value $c0
+    Commit header-control-back; Stamp; $b = Build
+    Report 'control reverted' $b $b.Ok 'builds again'
+}
+
 # 1 leaf Swift file
 Edit 'Sources/PokeTokenBar/Platform/Windows/WindowsSelftestPopoverWindow.swift' 'popover idle probe exit: mode=' 'popover idle probe exit2: mode='
 Commit leaf; Stamp; $b = Build
@@ -113,8 +131,6 @@ if ($Flavor -eq 'debug') {
     Set-Content -NoNewline -Path $hdr -Value $h0.Replace('int32_t wic; ', 'int32_t wicX;')
     Set-Content -NoNewline -Path $cpp -Value ([regex]::Replace($c0, 'out->wic\b', 'out->wicX'))
     Commit header-field
-    StampBlobOnly; $b = Build
-    Report 'C header field renamed, blob stamps only (control)' $b $true "informational: ok=$($b.Ok); true means the Swift reader of the field was NOT recompiled (the hazard)"
     Stamp; $b = Build
     $errFiles = @([regex]::Matches($b.Out, '(?m)([^\s]+\.swift):\d+:\d+: error') | ForEach-Object { Split-Path $_.Groups[1].Value -Leaf } | Sort-Object -Unique)
     Report 'C header field renamed, changed files touched' $b ((-not $b.Ok) -and ($errFiles -contains 'WinPlazaGraphics.swift')) "must FAIL in the Swift reader; errors in: $($errFiles -join ', ')"
