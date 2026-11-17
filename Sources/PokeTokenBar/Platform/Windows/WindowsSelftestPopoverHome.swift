@@ -244,7 +244,7 @@ enum HomeFixtures {
     final class Recorded { var actions: [HomeAction] = []; var plaza = 0 }
 
     init?(stores: HomeStores, input: ((AppLanguage, Date) -> HomeInput)? = nil, dpi: UINT? = nil, textScale: Double? = nil,
-          recordActions: Bool = true) {
+          recordActions: Bool = true, heightDIP: CGFloat = 600) {
         self.stores = stores
         let recorder = Recorded()
         self.recorder = recorder
@@ -255,7 +255,7 @@ enum HomeFixtures {
                                facts: facts, openPlaza: { recorder.plaza += 1 }, perform: perform)
         if let input { made.modelOverride = { now in HomeModel.make(input: input(language, now), facts: facts, now: now) } }
         page = made
-        guard let w = KitWindow(heightDIP: 600, dpi: dpi, textScale: textScale, register: true, origin: POINT(x: 0, y: 0), build: { kit, stack in
+        guard let w = KitWindow(heightDIP: heightDIP, dpi: dpi, textScale: textScale, register: true, origin: POINT(x: 0, y: 0), build: { kit, stack in
             // The Mac's panes: the update offer and plaza button above, the footer below, the scroller between.
             made.attach(stack: stack, area: kit.scroll, client: kit.clientRect)
             kit.onLayout = { [weak made] client in made?.layout(client: client) }
@@ -305,7 +305,7 @@ enum HomeFixtures {
 
     private static func pinnedCheck(_ r: WindowsSelftest.Recorder) async {
         let stores = await HomeStores.make(language: .en)
-        guard let h = HomeHarness(stores: stores, input: { HomeFixtures.update($0, now: $1) }), let model = h.page.last,
+        guard let h = HomeHarness(stores: stores, input: { HomeFixtures.update($0, now: $1) }, heightDIP: 420), let model = h.page.last,
               let area = h.window.scroll, let banner = model.updateBanner, let usage = model.footer.usage else {
             r.add("home.pinned", false, "no window")
             return
