@@ -492,9 +492,7 @@ import WinSDK
         case .tertiary: c.role = .tertiary; c.textColor = nil
         case .accent: c.textColor = ctx.colors.palette.accent
         default:
-            let v = role.macValue(.light)
-            func byte(_ d: Double) -> UInt8 { UInt8(max(0, min(255, (d * 255).rounded()))) }
-            c.textColor = WinUIColors.rgb(byte(v.red), byte(v.green), byte(v.blue))
+            c.textColor = ctx.colors.roleColor(role)
         }
     }
 
@@ -726,7 +724,7 @@ import WinSDK
                     updated = WinControls.label("", style: .caption, role: .tertiary, wraps: false, in: child, ctx: ctx)
                     // The Mac's orange `exclamationmark.triangle` with the message as its help.
                     error = WinControls.glyphButton(symbol: "exclamationmark.triangle", label: f.usage?.error ?? "!", size: 12, in: child, ctx: ctx)
-                    error?.glyphColor = WinUIColors.rgb(255, 149, 0)
+                    error?.glyphColor = ctx.colors.statusOrange
                     if let toggle = f.petToggle {
                         pet = self.glyph(toggle.symbol, toggle.label, in: child, ctx: ctx, action: .toggleFloatingPet)
                     }

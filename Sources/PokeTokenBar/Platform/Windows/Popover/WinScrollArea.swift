@@ -42,6 +42,7 @@ import WinSDK
             made.destroy()
             throw error
         }
+        if ctx.dark { WinDarkMode.setTheme(made.hwnd, "DarkMode_Explorer") }  // the scroll bar's dark style (Task 16)
         viewport = made
         content = pane
         Self.areas[Int(bitPattern: content.hwnd)] = self

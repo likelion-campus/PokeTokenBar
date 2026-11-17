@@ -102,8 +102,10 @@ extension WindowsSelftestPopover {
     private static func frameDiff(_ a: WinUIDump.Bitmap, _ b: WinUIDump.Bitmap) -> FrameDiff {
         guard a.width == b.width, a.height == b.height else { return FrameDiff(count: -1, w: 0, h: 0) }
         var count = 0, minX = Int.max, maxX = -1, minY = Int.max, maxY = -1
+        // The page's native scroll bar is not the sprite's: in dark its style collapses with Windows' own animation between the two
+        // captures, so its column (up to 24 px at 100 %) is left out.
         for y in 0..<a.height {
-            for x in 0..<a.width {
+            for x in 0..<max(0, a.width - 24) {
                 let o = (y * a.width + x) * 4
                 if a.bgra[o] != b.bgra[o] || a.bgra[o + 1] != b.bgra[o + 1] || a.bgra[o + 2] != b.bgra[o + 2] {
                     count += 1; minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
