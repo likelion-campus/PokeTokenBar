@@ -102,7 +102,7 @@ import Foundation
     }
 
     /// The Mac's `.regularMaterial` where it sits under a small label: a light translucent plate (no blur on Windows).
-    static let material = PlazaColor(srgbRed: 0.97, green: 0.97, blue: 0.97, alpha: 0.86)
+    static var material: PlazaColor { PopoverAppearance.current.chipColor(light: 0.97, alpha: 0.86) }
 
     /// `s` wrapped to at most `maxLines` lines of `width`, the last one cut with an ellipsis (`lineLimit`).
     func wrapped(_ s: String, _ font: PlazaFont, width: CGFloat, maxLines: Int) -> [PlazaTextLine] {
