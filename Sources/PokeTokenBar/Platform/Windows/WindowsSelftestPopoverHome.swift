@@ -78,7 +78,14 @@ private struct HomeFixturePoke: PokeProviding {
     /// One defaults object for every fixture (a new synced one per store would keep its own watchers).
     private static let sharedDefaults = WinDefaultsSync.makeAppDefaults()
 
-    static func make(language: AppLanguage, providers: [any UsageProvider] = [], refresh: Bool = false) async -> HomeStores {
+    // MARK: Task 19 — a companion state file and provider of the caller's (the Shop and Bag fixtures)
+    static func make(language: AppLanguage, providers: [any UsageProvider] = [], refresh: Bool = false, companionJSON: String? = nil,
+                     poke: (any PokeProviding)? = nil) async -> HomeStores {
+        await make(language: language, providers: providers, refresh: refresh, seed: (companionJSON, poke))
+    }
+    // MARK: end Task 19
+
+    private static func make(language: AppLanguage, providers: [any UsageProvider], refresh: Bool, seed: (json: String?, poke: (any PokeProviding)?)) async -> HomeStores {
         let defaults = sharedDefaults
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-home-fixture-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -91,7 +98,8 @@ private struct HomeFixturePoke: PokeProviding {
             statusProvider: HomeFixtureStatuses(), sessionKeys: HomeFixtureSessionKeys(), accountSessionKeys: { _ in HomeFixtureSessionKeys() },
             autoRefresh: false, defaults: defaults, displaysAsleep: { false })
         if refresh { await store.refresh(scheduleEmptyRetry: false) }
-        let companion = CompanionStore(provider: HomeFixturePoke(), fileURL: directory.appendingPathComponent("companion.json"), defaults: defaults)
+        if let json = seed.json { try? Data(json.utf8).write(to: directory.appendingPathComponent("companion.json")) }  // Task 19
+        let companion = CompanionStore(provider: seed.poke ?? HomeFixturePoke(), fileURL: directory.appendingPathComponent("companion.json"), defaults: defaults)
         companion.setLanguage(language)
         return HomeStores(store: store, companion: companion, team: TeamSettings(defaults: defaults), state: PopoverState(), directory: directory)
     }
@@ -244,7 +252,7 @@ enum HomeFixtures {
     final class Recorded { var actions: [HomeAction] = []; var plaza = 0 }
 
     init?(stores: HomeStores, input: ((AppLanguage, Date) -> HomeInput)? = nil, dpi: UINT? = nil, textScale: Double? = nil,
-          recordActions: Bool = true, heightDIP: CGFloat = 600) {
+          recordActions: Bool = true, heightDIP: CGFloat = 600, configure: ((WinHomePage) -> Void)? = nil) {
         self.stores = stores
         let recorder = Recorded()
         self.recorder = recorder
@@ -255,6 +263,7 @@ enum HomeFixtures {
                                facts: facts, openPlaza: { recorder.plaza += 1 }, perform: perform)
         if let input { made.modelOverride = { now in HomeModel.make(input: input(language, now), facts: facts, now: now) } }
         page = made
+        configure?(made)  // Task 19: a tab's content is configured before the window builds it
         guard let w = KitWindow(heightDIP: heightDIP, dpi: dpi, textScale: textScale, register: true, origin: POINT(x: 0, y: 0), build: { kit, stack in
             // The Mac's panes: the update offer and plaza button above, the footer below, the scroller between.
             made.attach(stack: stack, area: kit.scroll, client: kit.clientRect)
