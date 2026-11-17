@@ -12,6 +12,19 @@ $ErrorActionPreference = "Stop"
 $Out = [System.IO.Path]::GetFullPath($Out)
 $lines = "$Out.lines"
 Remove-Item -ErrorAction SilentlyContinue $Out, $lines
+# The hatch base index (PokeAPIClient.baseSpeciesIndex) is built from PokeAPI when %LOCALAPPDATA%\PokeTokenBar\base-index.json is missing:
+# GraphQL fails on Windows (WinHTTP 12044), then 649 REST fetches in rounds of 6 on worker threads that wake the process during the
+# selftest's idle probes. The selftest does not depend on the live network for it, so the file is seeded (never over a real one):
+# every id 1...649 as a base with capture rate 45 (BaseSpecies id/captureRate; fetchedAt as Foundation's default Date coding,
+# seconds since 2001-01-01 UTC, so the 30-day cache is fresh).
+$baseIndex = Join-Path $env:LOCALAPPDATA 'PokeTokenBar\base-index.json'
+if (-not (Test-Path $baseIndex)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $baseIndex) | Out-Null
+    $since2001 = [int64]([DateTime]::UtcNow - [DateTime]::new(2001, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)).TotalSeconds
+    $entries = (1..649 | ForEach-Object { '{"id":' + $_ + ',"captureRate":45}' }) -join ','
+    Set-Content -Path $baseIndex -Encoding ascii -Value ('{"fetchedAt":' + $since2001 + ',"entries":[' + $entries + ']}')
+    Write-Host "seeded $baseIndex (649 bases) so the selftest does not build the base index over the network"
+}
 $selftestArgs = @("--selftest", "--selftest-out", $Out)
 if ($DumpUi) { $selftestArgs += @("--dump-ui", [System.IO.Path]::GetFullPath($DumpUi)) }
 $p = Start-Process -FilePath (Resolve-Path $Exe).Path -ArgumentList $selftestArgs -PassThru
