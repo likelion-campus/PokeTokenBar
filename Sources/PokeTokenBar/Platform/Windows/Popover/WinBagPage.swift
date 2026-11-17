@@ -183,6 +183,7 @@ import WinSDK
             }?.control
         }
         emptyRenders += 1
+        host.stack.layoutIfNeeded()  // placed now, not on the next turn: nothing shows at the top left meanwhile
     }
 
     // MARK: cards
@@ -233,6 +234,7 @@ import WinSDK
         card.renderedState = key
         card.renderedPreview = preview
         renders += 1
+        host.stack.layoutIfNeeded()  // placed now, not on the next turn: nothing shows at the top left meanwhile
         WinCardKit.restoreFocus(kept, card.controls)
     }
 
