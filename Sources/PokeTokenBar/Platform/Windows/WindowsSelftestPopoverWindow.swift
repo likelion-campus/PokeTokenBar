@@ -1476,4 +1476,3 @@ final class PopoverDriver: @unchecked Sendable {
     }
 }
 #endif
-// ci-cache measurement probe (reverted next)
