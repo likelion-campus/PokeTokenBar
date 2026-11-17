@@ -113,6 +113,10 @@ enum WinEditKind: Equatable, Sendable {
         self.background = background
         self.font = font
         for part in parts { Self.register(self, part) }
+        // Dark mode (Task 16): the common controls' dark visual styles; high contrast keeps the system's own.
+        if ctx.dark, let theme = WinDarkMode.themeName(for: kind) {
+            for part in parts { WinDarkMode.setTheme(part, theme) }
+        }
     }
 
     // MARK: state
@@ -508,6 +512,11 @@ enum WinClipboardText {
         guard let part = HWND(bitPattern: Int(lParam)), let c = WinControl.control(part),
               let dc = HDC(bitPattern: UInt(wParam)) else { return nil }
         let colors = c.ctx.colors
+        if colors.dark, message == 0x0133 || message == 0x0134 {  // dark: the field and the drop-down list in the field colour
+            _ = SetBkColor(dc, colors.palette.field)
+            _ = SetTextColor(dc, colors.palette.text)
+            return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(colors.palette.field))))
+        }
         if message == 0x0133 || message == 0x0134 { return nil }  // edits and lists draw as the system draws them
         if colors.highContrast {
             guard message == 0x0138 else { return nil }
@@ -516,6 +525,15 @@ enum WinClipboardText {
             return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(GetSysColorBrush(5))))
         }
         _ = SetBkColor(dc, c.background)
+        // Dark: every text the system draws through this message (a read-only field, a check box's text where the theme
+        // lets us) is light; a themed check box or radio button draws its own light text in its dark style.
+        if colors.dark, c.kind != .label, !(c.kind == .trackbar && part != c.hwnd) {
+            _ = SetTextColor(dc, colors.palette.text)
+            if c.kind == .stepper && part == c.parts[0] {
+                _ = SetBkColor(dc, colors.palette.field)
+                return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(colors.palette.field))))
+            }
+        }
         if c.kind == .label || (c.kind == .trackbar && part != c.hwnd) { _ = SetTextColor(dc, c.textColor ?? colors.text(c.role)) }  // stage 7 Task 5: textColor
         return LRESULT(Int(bitPattern: UnsafeMutableRawPointer(colors.brush(c.background))))
     }
@@ -805,7 +823,7 @@ enum WinClipboardText {
         if let glyph = c.glyph {
             let old = SelectObject(d.hDC, UnsafeMutableRawPointer(c.font))
             _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
-            _ = SetTextColor(d.hDC, disabled ? GetSysColor(17 /* COLOR_GRAYTEXT */) : (pressed && c.ctx.highContrast ? GetSysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? colors.text))))
+            _ = SetTextColor(d.hDC, disabled ? c.ctx.colors.palette.disabled : (pressed && c.ctx.highContrast ? GetSysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? colors.text))))
             _ = WinStr.w(glyph.text).withUnsafeBufferPointer {
                 DrawTextW(d.hDC, $0.baseAddress, -1, &r, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
             }
@@ -981,7 +999,7 @@ extension WinControls {
             fill = WinUIColors.blend(base, pill.style == .prominent ? WinUIColors.rgb(0, 0, 0) : pal.text, pressed ? 0.14 : 0.07)
         }
         if let fill { fillRounded(d.hDC, r, fill, radius: radius, ctx: ctx) }
-        let textColor = disabled ? COLORREF(GetSysColor(17 /* COLOR_GRAYTEXT */)) : ink
+        let textColor = disabled ? ctx.colors.palette.disabled : ink
         _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
         _ = SetTextColor(d.hDC, textColor)
         let glyph = pillGlyph(pill, ctx: ctx)
@@ -997,7 +1015,7 @@ extension WinControls {
         pieces.append((pill.title, c.font, title.cx, textColor))
         if let glyph, let glyphSize, pill.glyphAfter { pieces.append((glyph.text, glyph.font, glyphSize.cx, glyphInk)) }
         for piece in pieces {
-            _ = SetTextColor(d.hDC, disabled ? COLORREF(GetSysColor(17)) : piece.color)
+            _ = SetTextColor(d.hDC, disabled ? ctx.colors.palette.disabled : piece.color)
             drawPillText(d.hDC, piece.text, font: piece.font, box: RECT(left: x, top: r.top, right: x + piece.width, bottom: r.bottom))
             x += piece.width + gap
         }

@@ -149,6 +149,8 @@ enum WinKit {
     let textScale: Double
     /// `SPI_GETHIGHCONTRAST`: controls and the page draw in the system colours (D15, "no colour is overridden").
     let highContrast: Bool
+    /// Dark mode: `AppsUseLightTheme` is 0 and no high-contrast theme is on (that theme is the system's own colours).
+    let dark: Bool
     let fonts: WinFonts
     let colors: WinUIColors
     let tooltips: WinTooltips
@@ -157,13 +159,14 @@ enum WinKit {
     private var measureDC: HDC?
     private(set) var isDestroyed = false
     /// What was read from the system (not given by the caller): `needsRebuild` compares those only.
-    private let followsTextScale: Bool, followsHighContrast: Bool, givenAccent: COLORREF?, followsAccent: Bool
+    private let followsTextScale: Bool, followsHighContrast: Bool, followsDark: Bool, givenAccent: COLORREF?, followsAccent: Bool
 
     /// `owner` owns the tooltip window (the popover's top-level window). Text scale and high contrast are read from the
     /// system unless given (tests and the selftest's synthetic pages give them).
-    init(dpi: UINT, owner: HWND?, textScale: Double? = nil, highContrast: Bool? = nil, accent: COLORREF? = nil) {
+    init(dpi: UINT, owner: HWND?, textScale: Double? = nil, highContrast: Bool? = nil, dark: Bool? = nil, accent: COLORREF? = nil) {
         followsTextScale = textScale == nil
         followsHighContrast = highContrast == nil
+        followsDark = dark == nil
         followsAccent = accent == nil
         givenAccent = accent
         let d = max(dpi, 48), ts = textScale ?? Self.systemTextScale(), hc = highContrast ?? Self.systemHighContrast()
@@ -173,11 +176,17 @@ enum WinKit {
         scale = CGFloat(d) / 96
         self.textScale = ts
         self.highContrast = hc
+        let isDark = !hc && (dark ?? WinDarkMode.systemPrefersDark())
+        self.dark = isDark
         fonts = madeFonts
-        colors = WinUIColors(highContrast: hc, accent: accent ?? Self.systemAccent())
+        colors = WinUIColors(highContrast: hc, dark: isDark, accent: accent ?? Self.systemAccent())
         tooltips = WinTooltips(owner: owner, font: madeFonts.font(.callout), maxWidth: Int32((280 * CGFloat(d) / 96).rounded()))
         metrics = PopoverStackMetrics.settings.pixels(dpi: Int(d))
         measureDC = CreateCompatibleDC(nil)
+        // The shared drawn parts read the appearance from here (PopoverAppearanceState); set before any part draws.
+        PopoverAppearanceState.appearance = isDark ? .dark : .light
+        PopoverAppearanceState.highContrast = hc ? Self.systemHighContrastColors() : nil
+        if isDark { tooltips.dress(background: colors.palette.card, text: colors.palette.text) }
     }
 
     func px(_ dip: CGFloat) -> Int32 { Int32(PopoverTextStyle.pixels(dip, dpi: Int(dpi))) }
@@ -205,8 +214,9 @@ enum WinKit {
         if let newDPI, newDPI != dpi { return true }
         if followsTextScale, Self.systemTextScale() != textScale { return true }
         if followsHighContrast, Self.systemHighContrast() != highContrast { return true }
+        if followsDark, (!highContrast && WinDarkMode.systemPrefersDark()) != dark { return true }
         let accent = followsAccent ? Self.systemAccent() : givenAccent
-        return WinUIColors.resolve(highContrast: highContrast, accent: accent) { COLORREF(GetSysColor($0)) } != colors.palette
+        return WinUIColors.resolve(highContrast: highContrast, dark: dark, accent: accent) { COLORREF(GetSysColor($0)) } != colors.palette
     }
 
     /// The font's line height in pixels (`tmHeight`).
@@ -238,6 +248,13 @@ enum WinKit {
         hc.cbSize = UINT(MemoryLayout<HIGHCONTRASTW>.size)
         guard SystemParametersInfoW(0x0042 /* SPI_GETHIGHCONTRAST */, hc.cbSize, &hc, 0) else { return false }
         return hc.dwFlags & 0x1 /* HCF_HIGHCONTRASTON */ != 0
+    }
+
+    /// The active high-contrast theme's colours for the shared drawn parts (`GetSysColor`).
+    static func systemHighContrastColors() -> PopoverHighContrast {
+        func c(_ i: Int32) -> UInt32 { WinUIColors.rgb(of: COLORREF(GetSysColor(i))) }
+        return PopoverHighContrast(window: c(5 /* COLOR_WINDOW */), text: c(8 /* COLOR_WINDOWTEXT */), highlight: c(13 /* COLOR_HIGHLIGHT */),
+                                   highlightText: c(14 /* COLOR_HIGHLIGHTTEXT */))
     }
 
     /// The user's accent (`HKCU\Software\Microsoft\Windows\DWM\AccentColor`, 0xAABBGGRR), nil when it is not set (D15).
