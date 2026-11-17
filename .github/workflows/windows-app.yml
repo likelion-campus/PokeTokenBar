@@ -336,7 +336,7 @@ jobs:
                    'companion.spriteFrames', 'companion.clockStops', 'companion.spriteMemory',
                    'ui.kit.scrollClicks', 'ui.kit.multiLineKeys', 'ui.kit.partResize', 'ui.kit.settingChange', 'ui.kit.editMenu',
                    'ui.kit.codePaste', 'ui.kit.ampersand', 'ui.kit.registries', 'ui.kit.noLeak',
-                   'ui.dark.switch', 'ui.highContrast', 'ui.highContrast.system'
+                   'ui.dark.switch', 'ui.highContrast'
           $bad = @()
           foreach ($n in $names) {
               $c = $j.checks | Where-Object { $_.name -eq $n }

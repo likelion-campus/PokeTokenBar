@@ -7,13 +7,14 @@ import WinSDK
 //                    selftest override standing in for the registry value: every time the page is rebuilt through the
 //                    drawing-once path, the shared drawn-part state follows, the page's dominant colour is the new palette's
 //                    (no stale light rectangle), and the resources are flat over repeated switches (PopoverResourceRule).
-//   ui.highContrast  injected, changes nothing on the machine. ui.highContrast.system: the real SPI_SETHIGHCONTRAST (GitHub Actions runners only, restored in a defer): the window follows, the palette is the
-//                    system's colours, the shared state is high contrast; captured as kit-highcontrast.png with --dump-ui.
+//   ui.highContrast  injected into a context: the palette is the system's colours and the shared drawn-part state is high contrast.
+// No check here changes a system setting. A real SPI_SETHIGHCONTRAST flip was tried and removed: Windows applies a theme with it,
+// and the theme's other personalization values (the apps light/dark mode) were not what they were before, which recoloured the
+// windows of the checks that came after (docs/reference/defect-log.md).
 @MainActor enum WindowsSelftestPopoverDark {
     static func run(_ r: WindowsSelftest.Recorder) async {
         await switchCheck(r)
         injectedHighContrastCheck(r)
-        await highContrastCheck(r)
     }
 
     /// `ui.highContrast`: high contrast injected into the context (no system setting touched, every run): the palette is the
@@ -107,78 +108,6 @@ import WinSDK
         let verdict = PopoverResourceRule.judge(samples)
         r.add("ui.dark.switch", ok && quiet && verdict.ok,
               "no change -> no rebuild=\(quiet); " + steps.joined(separator: " | ") + "; \(verdict.summary)")
-    }
-
-    // MARK: ui.highContrast
-
-    private static func highContrastCheck(_ r: WindowsSelftest.Recorder) async {
-        guard WindowsSelftest.onCI, ProcessInfo.processInfo.environment["GITHUB_ACTIONS"] == "true" else {
-            r.add("ui.highContrast.system", true, "skipped: not a GitHub Actions runner (this check flips the real high-contrast setting)"); return
-        }
-        let dir = WinUIDump.directory(from: CommandLine.arguments)?.appendingPathComponent("kit", isDirectory: true)
-        let saved = WinDarkMode.testOverride
-        WinDarkMode.testOverride = false
-        let page = GalleryPage()
-        guard let w = KitWindow(heightDIP: 400, build: { _, s in page.build(s) }) else {
-            r.add("ui.highContrast.system", false, "the kit window could not be made: \(GetLastError())")
-            return
-        }
-        w.fitToContent()
-        w.show(activate: false)
-        await settle()
-
-        var original = HIGHCONTRASTW()
-        original.cbSize = UINT(MemoryLayout<HIGHCONTRASTW>.size)
-        guard SystemParametersInfoW(0x0042 /* SPI_GETHIGHCONTRAST */, original.cbSize, &original, 0) else {
-            w.destroy()
-            r.add("ui.highContrast.system", false, "SPI_GETHIGHCONTRAST failed: \(GetLastError())")
-            return
-        }
-        if original.dwFlags & 0x1 != 0 {  // never touch a session that already runs a high-contrast theme
-            w.destroy()
-            r.add("ui.highContrast.system", true, "skipped: the session already runs a high-contrast theme (left as it is)")
-            return
-        }
-        // Puts the session's own setting back (high contrast off); idempotent, so it runs both before the verdict and, whatever
-        // happens in between (a failed check, an early exit), in the defer.
-        func restore() {
-            var off = original
-            off.dwFlags = original.dwFlags & ~0x1
-            _ = SystemParametersInfoW(0x0043 /* SPI_SETHIGHCONTRAST */, off.cbSize, &off, UINT(0x0002 /* SPIF_SENDCHANGE */))
-        }
-        defer {
-            restore()
-            WinDarkMode.testOverride = saved
-            PopoverAppearanceState.reset()
-        }
-        // "High Contrast Black" is Windows' own scheme name; the string must stay valid through the call.
-        var scheme = WinStr.w("High Contrast Black")
-        let on: Bool = scheme.withUnsafeMutableBufferPointer { buffer in
-            var hc = HIGHCONTRASTW()
-            hc.cbSize = UINT(MemoryLayout<HIGHCONTRASTW>.size)
-            hc.dwFlags = 0x1 | 0x4  // HCF_HIGHCONTRASTON | HCF_AVAILABLE
-            hc.lpszDefaultScheme = buffer.baseAddress
-            return SystemParametersInfoW(0x0043, hc.cbSize, &hc, UINT(0x0002))
-        }
-        let rebuilt = await WindowsSelftest.waitUntil(timeout: 3) { w.ctx.highContrast }
-        await settle()
-        let palette = w.ctx.colors.palette
-        let sysWindow = COLORREF(GetSysColor(5)), sysText = COLORREF(GetSysColor(8))
-        let paletteOK = palette.window == sysWindow && palette.text == sysText && palette.secondaryText == sysText && palette.cardBorder == sysText
-        let state = PopoverAppearanceState.highContrast
-        let stateOK = state?.window == WinUIColors.rgb(of: sysWindow) && state?.text == WinUIColors.rgb(of: sysText)
-        let shot = WindowsSelftestPopover.capture(w)
-        let profileText = shot.map(profile).map { "dominant=\(hex($0.dominant)) (window \(hex(WinUIColors.rgb(of: sysWindow))))" } ?? "no capture"
-        var wrote = "no --dump-ui"
-        if let dir, let shot { wrote = WinUIDump.write(shot, to: dir.appendingPathComponent("kit-highcontrast.png")) == 0 ? "kit-highcontrast.png" : "write FAILED" }
-        let dominantOK = shot.map { profile($0).dominant == WinUIColors.rgb(of: sysWindow) } ?? false
-        let tree = KitTree.collect(w)
-        let checks = tree.check(w)
-        w.destroy()
-        restore()  // before the verdict, so "restored" is a measurement
-        let back = await WindowsSelftest.waitUntil(timeout: 3) { !WinUIContext.systemHighContrast() }
-        r.add("ui.highContrast.system", on && rebuilt && paletteOK && stateOK && dominantOK && checks.ok && back,
-              "SPI_SETHIGHCONTRAST on=\(on) window rebuilt=\(rebuilt); palette is the system's=\(paletteOK); shared state=\(stateOK); \(profileText); tree \(checks.summary); restored=\(back); \(wrote)")
     }
 }
 #endif
