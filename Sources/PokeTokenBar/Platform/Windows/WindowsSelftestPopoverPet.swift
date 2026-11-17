@@ -175,6 +175,26 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
     static func screen(_ w: WinPetWindow, _ p: POINT) -> POINT { POINT(x: w.frame.left + p.x, y: w.frame.top + p.y) }
 
+    /// `--dump-ui <dir>`: `<dir>/pet/`, nil without the flag.
+    static func dumpDirectory() -> URL? {
+        guard let dir = WinUIDump.directory(from: CommandLine.arguments)?.appendingPathComponent("pet", isDirectory: true) else { return nil }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// A window as `PrintWindow` draws it, to `<dump>/pet/<name>` (Sample-data capture, Windows CI runner).
+    @discardableResult
+    static func printWindow(_ hwnd: HWND, _ name: String) -> Bool {
+        guard let dir = dumpDirectory() else { return false }
+        _ = RedrawWindow(hwnd, nil, nil, UINT(0x0001 | 0x0004 | 0x0080 | 0x0100))
+        var w: UInt32 = 0, h: UInt32 = 0
+        var out: UnsafeMutablePointer<UInt8>?
+        guard ptb_window_print(UnsafeMutableRawPointer(hwnd), &w, &h, &out) == 0, let out else { return false }
+        defer { ptb_plaza_free(out) }
+        let bitmap = WinUIDump.Bitmap(width: Int(w), height: Int(h), bgra: Array(UnsafeBufferPointer(start: out, count: Int(w * h) * 4)))
+        return WinUIDump.write(bitmap, to: dir.appendingPathComponent(name)) == 0
+    }
+
     /// Real input at screen pixels (CI only).
     static func realClick(at p: POINT, right: Bool = false) async {
         WindowsSelftestPopover.mouse(x: p.x, y: p.y, flags: DWORD(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE))
@@ -361,10 +381,12 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         if let p = await openPopover(settings: false), let h = p.hwnd {
             func eye() -> HWND? { descendants(h).first { WinKit.text(of: $0) == l.floatingPetEnableLabel || WinKit.text(of: $0) == l.floatingPetHideLabel } }
             let before = eye().map { WinKit.text(of: $0) }
+            printWindow(h, "home-footer-eye-off-en.png")
             if let e = eye() { WinKit.send(e, 0x00F5 /* BM_CLICK */) }
             let shown = await WindowsSelftest.waitUntil(timeout: 3) { pet.window?.revealed == true }
             await wait(0.3)
             let after = eye().map { WinKit.text(of: $0) }
+            printWindow(h, "home-footer-eye-on-en.png")
             if let e = eye() { WinKit.send(e, 0x00F5) }
             let hidden = await WindowsSelftest.waitUntil(timeout: 3) { pet.window == nil }
             let homeOK = before == l.floatingPetEnableLabel && shown && after == l.floatingPetHideLabel && hidden
@@ -393,6 +415,14 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             if let bar = rows.sizeRow?.control, let parent = GetParent(bar.parts[0]) {
                 WinKit.send(bar.parts[0], 0x0405 /* TBM_SETPOS */, 1, 192)
                 _ = SendMessageW(parent, 0x0114 /* WM_HSCROLL */, 8 /* SB_ENDSCROLL */, LPARAM(Int(bitPattern: UnsafeMutableRawPointer(bar.parts[0]))))
+            }
+            // The group on screen (scrolled to its caption) for the captures.
+            if let h = p.hwnd, let area = page.areaForTesting, let stack = page.stackForTesting, let frames = stack.frames,
+               let index = stack.sections.firstIndex(where: { $0.caption?.text == l.floatingPetSectionTitle.uppercased() }),
+               index < frames.sections.count, let frame = frames.sections[index] {
+                area.scroll(to: Int32(max(0, (frame.caption?.minY ?? frame.card?.minY ?? 0) - 8)))
+                await wait(0.35)
+                printWindow(h, "settings-pet-group-en.png")
             }
             let resized = await WindowsSelftest.waitUntil(timeout: 3) {
                 pet.window.map { w in w.frame.right - w.frame.left == Int32((192 * CGFloat(w.dpi) / 96).rounded()) } == true
