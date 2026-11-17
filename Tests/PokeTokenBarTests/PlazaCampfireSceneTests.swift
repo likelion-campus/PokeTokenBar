@@ -14,7 +14,8 @@ final class PlazaCampfireSceneTests: XCTestCase {
     }
 
     private func at(hour: Int) -> Date {
-        Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date())!
+        // A pinned day, not today: what lies on the plaza (the item of a 20-minute slot) follows the date. See PlazaPhotoTests.nightDate.
+        Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: hour))!
     }
 
     /// Steps `update` with the given game-time increment, starting from `t`; returns the new time.
