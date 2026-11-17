@@ -205,7 +205,7 @@ extension WindowsSelftest {
         guard let probe = idleProbe else { return nil }
         let p = probe.popover
         return "popover idle probe exit: mode=\(probe.mode) open=\(p?.isOpen ?? false) opens=\(p?.stats.opens ?? 0) closes=\(p?.stats.closes ?? 0) "
-            + "last close=\(p?.stats.lastClose.map { "\($0)" } ?? "-")"
+            + "last close=\(p?.stats.lastClose.map { "\($0)" } ?? "-") \(PopoverResources.now())"
     }
 
     static func startIdleProbe(_ app: WindowsAppDelegate, mode: String) {
@@ -216,6 +216,7 @@ extension WindowsSelftest {
         idleProbe = (mode, app.popover)
         Task { @MainActor in
             _ = await WindowsSelftest.waitUntil(timeout: 5) { false }
+            AppLog.write("popover idle probe before: \(PopoverResources.now())")   // what a never-opened popover holds (the gate compares)
             guard let popover = app.popover, let probe = makeProbe() else {
                 AppLog.write("popover idle probe: no popover or probe window")
                 return

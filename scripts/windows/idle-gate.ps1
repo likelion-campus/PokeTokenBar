@@ -145,10 +145,26 @@ if ((Test-InShard 'popover-kit-open-120s' $Shard)) {
 # The fixture GIF (5 frames at 0.1 s) in a drawn part, popover kit window open: the cost of an animating popover. The
 # budget is loose (first numbers; Task 8 report): what it must show is that it is bounded and that nothing else wakes.
 if ((Test-InShard 'popover-sprite-open-120s' $Shard)) {
-    Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
+    Measure-App 'popover-sprite-open-120s' 120 $off @{ MaxMainCsPerMin = 720; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 } @('--popover-sprite-idle-probe')
     $summary.windows['popover-sprite-open-120s'].spriteLog = @(Select-String -Path $logFile -Pattern 'popover sprite idle probe' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line })
 }
 # --- stage 7 Task 8: an animated sprite open (end) ---
+# Object counts (D18): what the popover holds after it was opened (and closed, for 'closed') is what it held before it was ever opened:
+# GDI and USER objects (slack 8 each: a font or two the first page makes), kit controls and windows of ours (none). The probe logs both.
+# An open window is held to what it held when the probe had finished its navigation (GDI/USER flat: slack 2, nothing else).
+function Test-PopoverObjects([string]$Label, [string[]]$Lines, [bool]$Closed) {
+    $exitLine = @($Lines | Where-Object { $_ -match 'popover idle probe exit:' }) | Select-Object -Last 1
+    $beforeLine = if ($Closed) { @(Select-String -Path $logFile -Pattern 'popover idle probe before:' -ErrorAction SilentlyContinue | Select-Object -Last 1 | ForEach-Object { $_.Line }) | Select-Object -First 1 }
+                  else { @($Lines | Where-Object { $_ -match 'popover idle probe: mode=' }) | Select-Object -Last 1 }
+    function Get-Counts([string]$l) { $h = @{}; foreach ($k in 'gdi', 'user', 'windows', 'controls') { if ($l -match "\b$k=(\d+)") { $h[$k] = [int]$Matches[1] } }; return $h }
+    if (-not ($exitLine -and $beforeLine)) { $summary.windows[$Label].objects = 'not logged'; return }
+    $b0 = Get-Counts $beforeLine; $b1 = Get-Counts $exitLine
+    $slack = if ($Closed) { @{ gdi = 8; user = 8; windows = 0; controls = 0 } } else { @{ gdi = 2; user = 2; windows = 0; controls = 0 } }
+    $bad = @($b1.Keys | Where-Object { $b0.ContainsKey($_) -and $b1[$_] -gt $b0[$_] + $slack[$_] })
+    $fmt = { param($h) (($h.GetEnumerator() | Sort-Object Key | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' ') }
+    $summary.windows[$Label].objects = "before $(& $fmt $b0); at exit $(& $fmt $b1); over slack: $($bad -join ',')"
+    $verdicts[$Label] = $verdicts[$Label] -and ($bad.Count -eq 0)
+}
 # --- stage 7 Task 4: the popover window open and still, and closed after an open (begin) ---
 # The real popover (empty page, opened through the tray callback), refresh off: the closed app's budget for both. Closed
 # after an open must cost what never opened costs (D18); open and still adds no timer.
@@ -164,6 +180,7 @@ foreach ($mode in 'open', 'closed') {
     $stateOK = $exit -and $exit -match [regex]::Escape($want)
     $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
     $verdicts[$label] = $verdicts[$label] -and $stateOK
+    Test-PopoverObjects $label $probeLines ($mode -eq 'closed')
 }
 # --- stage 7 Task 4: the popover window open and still, and closed after an open (end) ---
 # --- stage 7 Task 5: the Home page open and left alone (begin) ---
@@ -204,7 +221,7 @@ if ((Test-InShard 'popover-recap-open-120s' $Shard)) {
 # the runner's animations off); the bob alone measured 216.5 main cs/min in run 43889052204 (Task 9 report).
 $companionBudgets = @{
     wiggle = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
-    animated = @{ MaxMainCsPerMin = 2400; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    animated = @{ MaxMainCsPerMin = 720; MaxProcessCsPerMin = 6000; MaxProcessCyclesPerSec = 60000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
 }
 foreach ($mode in 'wiggle', 'animated') {
     $label = "popover-companion-$mode-120s"
@@ -231,6 +248,12 @@ foreach ($page in 'settings', 'shop', 'bag', 'collection', 'collection-log', 'de
     $stateOK = $exit -and $exit -match [regex]::Escape($want)
     $summary.windows[$label].popoverState = if ($stateOK) { "ok: $want" } else { "WRONG: expected '$want' in '$exit'" }
     $verdicts[$label] = $verdicts[$label] -and $stateOK
+    Test-PopoverObjects $label $lines ($page -eq 'focus-closed')
+    # No timer: a page standing still arms none (the Collection's log has its relative-time clock; every other page has no clock at all).
+    $w = $summary.windows[$label].wake
+    $clocks = if ($w) { @($w.sources | Where-Object { $_ -match '^(popoverClock|animationClock):' }) } else { @() }
+    $summary.windows[$label].clockFires = $clocks
+    if ($page -ne 'collection-log' -and $clocks.Count -gt 0) { $verdicts[$label] = $false }
 }
 # --- stage 7 idle gates (end) ---
 # Every window of this shard ran (a label in $IdleShardOf that never got measured would make the gate pass with a hole in it).
