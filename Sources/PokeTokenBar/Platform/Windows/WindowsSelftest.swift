@@ -92,6 +92,7 @@ enum WindowsSelftest {
         if !quiet { AppLog.write("selftest: the store did not settle within 120 s; loop checks run anyway") }
         await loopChecks(r, app)
         await limitsCheck(r)
+        await clientCertificateCheck(r)  // WindowsSelftestClientCertificate.swift: a server asking for an optional client certificate
         await defaultsChecks(r, app)
         await shellChecks(r)
         await crashChecks(r)
