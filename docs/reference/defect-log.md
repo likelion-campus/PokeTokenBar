@@ -2983,4 +2983,5 @@ read_when:
   **직접 원인:** 유휴 게이트의 깨움 추적(#270)이 펌프가 꺼내는 *모든* 메시지에 대해 `WakeTrace.message(message, wParam: Int(m.pointee.wParam))` 를 불렀다. `WPARAM` 은 부호 없는 64비트라 셸의 파일 대화상자가 보내는 2^63 이상 값에서 `Int(_:)` 가 트랩한다("Not enough bits to represent the passed value"). 변환은 호출 지점에서 일어나므로 `PTB_WAKE_TRACE` 가 꺼져 있어도(모든 사용자 PC) 실행됐다 — 창 프로시저 안의 Swift 트랩은 0xC000041D(사용자 콜백 안 치명 예외)로 보인다.
   **왜 못 걸렀나:** #270 브랜치의 full 런은 통과했다(그 런의 대화상자 점검에서는 그런 메시지가 오지 않았거나 순서가 달랐다 — 확인 못 함). `windows-port` 와 합친 트리는 `windows.yml`(컴파일·단위 시험)만 돌리고 머지했는데, 그 워크플로는 셀프테스트를 돌리지 않는다. 메시지 경로를 건드리는 변경인데 "CI 변경"으로 분류해 앱 런을 생략했다(리드의 판단 실수).
   **부류 스윕:** `Platform/Windows/**` 의 `Int(wParam)`/`Int(m.pointee.wParam)` 전수 — `WinPopover`(세션 변경 코드), `WinControls`(가상 키)는 메시지별 작은 값이라 안전. `LPARAM` 은 부호 있는 64비트라 `Int(lParam)` 은 트랩하지 않는다.
+  **후속(방어):** `WakeTrace.message(_:wParam:target:)` 가 `wParam` 을 `UInt` 로 받는다 — 호출부에 변환이 없다. 트리거 값(`UInt.max`, 2^63)은 `WakeTraceTests.testMessageAcceptsAnyWParamBits`.
   **고침:** `Int(truncatingIfNeeded:)`, 그리고 추적이 꺼져 있으면 호출 자체를 하지 않는다. **규칙:** 메시지 파라미터를 정수로 바꿀 땐 `truncatingIfNeeded`/`bitPattern` 만 쓴다. 메시지 펌프·훅·창 프로시저를 건드리는 변경은 이름이 무엇이든 *합친 트리*에서 앱 런(셀프테스트)을 돌린 뒤에만 머지한다.
