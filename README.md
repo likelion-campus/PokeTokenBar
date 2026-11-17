@@ -296,6 +296,10 @@ Because the app is ad-hoc/self-signed (not notarized under an Apple Developer ac
 
 (The Homebrew cask strips quarantine for you, so it needs no extra step.)
 
+### Windows (team fork)
+
+The team fork also ships a Windows build: `PokeTokenBar-Setup-<version>-win-x64.exe` on the [fork's releases page](https://github.com/likelion-campus/PokeTokenBar/releases) (Windows 11, or Windows 10 22H2 build 19045+, x64; no administrator rights). The installer is not code-signed, so SmartScreen warns once: choose **More info** → **Run anyway**. The popover, usage recap, shop, bag, collection and the team plaza are there; the floating pet is not yet. Updates install from the tray menu or the popover. Install, update, uninstall, team setup, troubleshooting and the known differences from the Mac are in [TEAM.md](TEAM.md) (Korean) and [docs/reference/windows-differences.md](docs/reference/windows-differences.md).
+
 ### Build from source
 
 ```bash

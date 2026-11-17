@@ -883,6 +883,18 @@ read_when:
   설치 경로도 마찬가지다. 원작 cask의 `xattr -cr` 단계가 빠진 채 zip 설치로 바꾸자 팀원 Mac에서 Gatekeeper가
   앱을 막았다. 자체 서명 앱이라 공증이 없고, 원작은 cask가 격리 표시를 지워서 경고가 보이지 않았을 뿐이다. 이 Mac은
   직접 빌드해서 격리 표시가 없으므로 재현되지 않는다. 팀 탭 cask의 `postflight_steps`가 같은 일을 한다.
+  **Windows 게이트도 같은 한 번의 릴리스에 들어 있다. Mac 만 나가는 릴리스는 없다.** `team-release.sh` 는 두 OS 의 게이트가
+  모두 통과해야 공개하고(`team_release.py publish` 는 zip 과 설치 파일 둘이 없으면 거절한다), 한쪽이 실패하면 아무것도
+  공개되지 않는다. 가드: `TeamReleaseScriptTests` 의 단계 순서 시험(publish 한 줄, collect 가 publish 앞)과
+  `TeamReleaseScriptRunTests`(Windows 실패 시나리오).
+
+- **움직이는 ref 로 릴리스를 빌드하지 않는다.** 릴리스는 검증한 커밋 SHA 하나에서만 만든다. Windows 빌드를 `main`
+  같은 가변 ref 로 돌리면, 릴리스를 시작한 뒤 병합된 커밋이 설치 파일에 섞이고 Mac zip 과 다른 코드가 같은 버전으로 나간다.
+  **왜 못 걸렀나:** 일반 CI 실행은 "그때의 main" 을 빌드하는 것이 정상이라, 릴리스 실행이 그 규칙을 따르는지 보는 시험이 없었다.
+  가드(stage 8 Task 1): 릴리스 모드 워크플로는 `release_sha`·`release_version` 입력을 받고 첫 단계 "Release pin" 이 체크아웃이
+  그 커밋이 아니거나 `VERSION` 이 그 버전이 아니거나 워크플로 파일이 디스패치한 ref 와 다르면 실패한다. 릴리스 실행은 자기
+  동시성 그룹(`<workflow>-release-<sha>`)에서 돌고 푸시로 취소되지 않으며, 산출물 `windows-release` 에는 커밋·버전·게이트
+  결과·해시가 들어간다. `team_release.py collect` 가 매니페스트의 sha 와 해시를 확인한다.
 
 - **릴리스 단계가 clone 안에 파일을 남기면, 같은 clone 에서 다시 실행할 때 깨끗한 트리 확인에서 멈춘다.** stage 8의
   `team-release.sh` 가 1단계에서 `python3 -m unittest discover -s scripts/tests` 로 도우미를 시험하자 Python 이

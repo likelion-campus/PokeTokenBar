@@ -261,6 +261,12 @@ final class TeamReleaseScriptTests: XCTestCase {
         XCTAssertTrue(guide.contains("그래도 열기"))
         XCTAssertTrue(guide.contains("xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app"))
         XCTAssertTrue(guide.contains("백업 & 이전"))
+        // The Windows section (stage 8 Task 10): the installer, SmartScreen, the hash check and the rollback.
+        XCTAssertTrue(guide.contains("PokeTokenBar-Setup-"))
+        XCTAssertTrue(guide.contains("추가 정보") && guide.contains("SmartScreen"))
+        XCTAssertTrue(guide.contains("Get-FileHash"))
+        XCTAssertTrue(guide.contains("업데이트가 잘못됐을 때"))
+        XCTAssertTrue(guide.contains("assets/windows/"))
     }
 
     func testTeamGuideHoldsNoPrivateDetails() throws {
