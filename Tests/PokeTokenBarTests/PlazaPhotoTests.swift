@@ -647,7 +647,9 @@ final class PlazaPhotoTests: XCTestCase {
 
     // MARK: 모닥불
 
-    private func nightDate() -> Date { Calendar.current.date(bySettingHour: 21, minute: 0, second: 0, of: Date())! }
+    /// A pinned night, not tonight: the plaza drops an item per 20-minute slot from the slot number alone, so "today at 21:00"
+    /// put a candy on the ground on some dates and failed `items.isEmpty` (2026-11-17). On this night the slot's item has not appeared yet.
+    private func nightDate() -> Date { Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 10, hour: 21))! }
 
     func testPhotoCarriesTheFireAndItsNightLight() throws {
         let scene = newScene()

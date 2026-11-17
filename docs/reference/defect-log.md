@@ -2829,3 +2829,8 @@ read_when:
   **직접 원인:** `NSHostingView` 가 레이아웃·렌더되도록 창을 올리는 한 줄을 파일마다 따로 복사했다(좌표 -10000 으로 화면 밖이지만, 두 파일은 `makeKeyAndOrderFront` 라 key 를 가져가려 했다). **왜 못 걸렀나:** 플라자 시험에만 `PlazaNoWindowsOrderedInScanTests` 가 있었고 나머지 시험 파일은 스캔 대상이 아니었다 — 규칙이 한 디렉터리 접두사(`Plaza`)에만 걸려 있어 "모든 시험" 규칙이 아니었다.
   **고침:** 모든 호출을 `window.orderInForTest()`(`LiveWindowTestSupport.swift`, 포크 소유)로 바꿨다. `PTB_LIVE_WINDOW_TESTS` 가 없으면 아무것도 하지 않는다(창 서버에 안 올림); 있으면 화면 밖·일반 레벨 아래·non-key 로 올린다. `NoWindowsOrderedInScanTests` 가 허용 목록 밖 모든 시험 파일의 `orderFront(`/`makeKeyAndOrderFront(`/`NSApp.activate(` 등을 막는다.
   **규칙:** 시험에서 창을 직접 올리지 않는다 — `orderInForTest()` 만 쓴다. 새 시험 파일이 서버 올림을 필요로 하면 이 헬퍼로. 허용 목록에 예외를 더할 땐 이유를 적는다.
+
+- **"오늘 21시"로 장면 시각을 만든 사진 시험이 특정 날짜에만 실패했다 (`PlazaPhotoTests.testPhotoCarriesTheFireAndItsNightLight`, 2026-11-17 전체 게이트 1 실패, 전날까지 통과).**
+  **직접 원인:** 광장 아이템은 유닉스 시각을 20분으로 나눈 칸 번호만으로 때·자리·종류가 정해진다(`PlazaItems.spawn(slot:)`). 시험이 `Date()` 의 날짜에 21:00 을 얹어 `scene.now` 로 넣어서, 그 칸의 아이템이 0분에 떨어지는 날에는 땅에 사탕이 놓여 `items.isEmpty` 가 깨졌다. **왜 못 걸렀나:** 시험을 쓴 날과 그 뒤 며칠은 그 칸의 아이템이 아직 안 떨어진 시각이라 통과했다 — 벽시계 날짜가 입력인 줄 모르고 "밤"만 고정했다고 여겼다.
+  **부류 스윕:** `Tests/` 의 `bySettingHour … of: Date()` 전수 — `PlazaCampfireSceneTests.at(hour:)` 도 같은 꼴이라 함께 고정했다. `LocalUsageReaderTests:1057` 은 장면이 아니라 로그 날짜 창이라 무관, 나머지는 이미 고정 날짜다.
+  **고침:** 두 파일 모두 고정된 날(2026-05-10)의 시각을 쓴다. **규칙:** 장면 시험의 `now` 는 날짜까지 고정한다 — 광장에는 날짜·칸 번호로 정해지는 것(아이템, 계절, 눈 오는 날)이 있다.
