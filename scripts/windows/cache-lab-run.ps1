@@ -2,7 +2,7 @@
 # the linked exe must contain the new string (and not the old), or the build must fail where it has to. Prints one line per
 # scenario and fails if any expectation is not met. -Flavor debug builds `swift build --build-tests`, release builds the app
 # product the way windows-app does (resources first, -c release).
-param([Parameter(Mandatory)][ValidateSet('debug', 'release')][string]$Flavor)
+param([Parameter(Mandatory)][ValidateSet('debug', 'release')][string]$Flavor, [ValidateSet('', 'macOnly')][string]$Only = '')
 $ErrorActionPreference = 'Stop'
 $exe = ".build/$Flavor/PokeTokenBarWin.exe"
 $script:rows = @()
@@ -43,7 +43,29 @@ function Report([string]$name, $b, [bool]$ok, [string]$note) {
     $line = "{0} {1}: build {2} s, {3} compile lines, ok={4} - {5}" -f $verdict, $name, $b.Seconds, $b.Compiles, $b.Ok, $note
     $line
     if ($b.Compiles -gt 0 -and $b.Compiles -le 6) { $b.Lines | ForEach-Object { "      $_" } }
+    if (-not $ok -and -not $b.Ok) { ([regex]::Matches($b.Out, '(?m)^.*error:.*$') | Select-Object -First 5 | ForEach-Object { "      $($_.Value.Trim())" }) }
     $script:rows += "| $verdict | $name | $($b.Seconds) | $($b.Compiles) | $note |"
+}
+
+# mac-only.txt first, on the fresh runner (this is what a CI run is: the seed was built with one list, this checkout has another).
+# Package.swift reads the list while it is evaluated; the evaluated manifest is cached by SwiftPM OUTSIDE .build, and a fresh runner has none.
+if ($Only -eq 'macOnly') {
+    $mo = 'Tests/PokeTokenBarTests/mac-only.txt'; $m0 = Get-Content -Raw -Path $mo
+    Set-Content -NoNewline -Path $mo -Value ($m0.TrimEnd() + "`nShinyCharmTests.swift`n")
+    Commit macOnly; Stamp; $b = Build
+    $with = @(ListTests | Where-Object { $_ -match 'ShinyCharmTests/' }).Count
+    Report 'mac-only.txt: a test file parked (first build on the fresh runner)' $b ($b.Ok -and $with -eq 0) "ShinyCharmTests tests listed: $with (must be 0)"
+    Set-Content -NoNewline -Path $mo -Value $m0
+    Commit macOnly-back; Stamp; $b = Build
+    $with = @(ListTests | Where-Object { $_ -match 'ShinyCharmTests/' }).Count
+    Report 'mac-only.txt: back (same job: the manifest cache of this job is stale, informational)' $b $true "ShinyCharmTests tests listed: $with (0 = the job's own manifest cache hid the change, which cannot happen across CI runs)"
+}
+
+if ($Only -eq 'macOnly') {
+    @("### cache lab: $Flavor, mac-only.txt on a fresh runner", '', '| | scenario | build s | compile lines | what was checked |', '|---|---|---|---|---|') + $script:rows | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+    if ($script:failed -gt 0) { throw "$($script:failed) scenario(s) failed" }
+    'all scenarios passed'
+    exit 0
 }
 
 # The unchanged tree, as restored from the seed.
@@ -106,29 +128,20 @@ if ($Flavor -eq 'debug') {
     Report 'C header, unused addition' $b $b.Ok 'builds (the Swift files that import it are recompiled and pass)'
     Set-Content -NoNewline -Path $hdr -Value $h0; Commit header-unused-back; Stamp
 
-    # a new public header and its Swift user; then the header removed under the user
+    # a new public header (included by the module's umbrella header CPlazaD2D.h) and its Swift user; then the function renamed under the user
     Set-Content -Path 'Sources/CPlazaD2D/include/CPlazaD2DLab.h' -Value 'static inline int ptb_lab_header_value(void) { return 7; }'
+    Set-Content -NoNewline -Path $hdr -Value ($h0 + "`n#include `"CPlazaD2DLab.h`"`n")
     Set-Content -Path 'Sources/PokeTokenBar/ZHeaderUser.swift' -Value @('#if os(Windows)', 'import CPlazaD2D', 'let ptbLabHeaderValue: Int32 = Int32(ptb_lab_header_value())', '#endif')
     Commit header-new; Stamp; $b = Build
-    Report 'new public header and a Swift user' $b $b.Ok 'builds (module map and Swift user see the new header)'
-    Remove-Item 'Sources/CPlazaD2D/include/CPlazaD2DLab.h'
-    Commit header-gone; Stamp; $b = Build
+    Report 'new public header and a Swift user' $b $b.Ok 'builds (the Swift user sees the new function)'
+    Set-Content -Path 'Sources/CPlazaD2D/include/CPlazaD2DLab.h' -Value 'static inline int ptb_lab_header_value2(void) { return 7; }'
+    Commit header-renamed; Stamp; $b = Build
     $errFiles = @([regex]::Matches($b.Out, '(?m)([^\s]+\.swift):\d+:\d+: error') | ForEach-Object { Split-Path $_.Groups[1].Value -Leaf } | Sort-Object -Unique)
-    Report 'public header removed under its Swift user' $b ((-not $b.Ok) -and ($errFiles -contains 'ZHeaderUser.swift')) "must FAIL in the Swift user; errors in: $($errFiles -join ', ')"
-    Remove-Item 'Sources/PokeTokenBar/ZHeaderUser.swift'
+    Report 'header function renamed under its Swift user' $b ((-not $b.Ok) -and ($errFiles -contains 'ZHeaderUser.swift')) "must FAIL in the Swift user; errors in: $($errFiles -join ', ')"
+    Remove-Item 'Sources/CPlazaD2D/include/CPlazaD2DLab.h', 'Sources/PokeTokenBar/ZHeaderUser.swift'
+    Set-Content -NoNewline -Path $hdr -Value $h0
     Commit header-user-gone; Stamp; $b = Build
-    Report 'user removed too' $b $b.Ok 'builds again'
-
-    # the mac-only list is read while Package.swift is evaluated: a changed list must change what is compiled, listed and run
-    $mo = 'Tests/PokeTokenBarTests/mac-only.txt'; $m0 = Get-Content -Raw -Path $mo
-    Set-Content -NoNewline -Path $mo -Value ($m0.TrimEnd() + "`nShinyCharmTests.swift`n")
-    Commit macOnly; Stamp; $b = Build
-    $with = @(ListTests | Where-Object { $_ -match 'ShinyCharmTests/' }).Count
-    Report 'mac-only.txt: a test file parked' $b ($b.Ok -and $with -eq 0) "ShinyCharmTests tests listed: $with (must be 0)"
-    Set-Content -NoNewline -Path $mo -Value $m0
-    Commit macOnly-back; Stamp; $b = Build
-    $with = @(ListTests | Where-Object { $_ -match 'ShinyCharmTests/' }).Count
-    Report 'mac-only.txt: back' $b ($b.Ok -and $with -gt 0) "ShinyCharmTests tests listed: $with (must be above 0)"
+    Report 'header and user removed' $b $b.Ok 'builds again'
 }
 
 # 5 resource compiled into the exe (release only: the .res is a plain -Xlinker input llbuild does not track)

@@ -80,3 +80,34 @@ jobs:
       - name: Incremental scenarios
         shell: pwsh
         run: ./scripts/windows/cache-lab-run.ps1 -Flavor ${{ inputs.flavor }}
+  warm-macos:
+    needs: cold
+    if: inputs.flavor == 'debug'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/windows-swift
+      - name: Lab markers
+        shell: pwsh
+        run: ./scripts/windows/cache-lab-setup.ps1
+      - name: Stamp mtimes
+        shell: pwsh
+        run: ./scripts/windows/restore-mtimes.ps1
+      - uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.cold.outputs.seed_id }}
+          merge-multiple: true
+          path: .
+      - name: Unpack the seed
+        shell: pwsh
+        run: ./scripts/windows/build-seed.ps1 -Unpack seed.tar.zst
+      - name: Resources (release)
+        if: inputs.flavor == 'release'
+        shell: pwsh
+        run: |
+          $res = ./scripts/windows/build-resources.ps1 -Out resources | Select-Object -Last 1
+          "PTB_RES=$($res -replace '\\', '/')" >> $env:GITHUB_ENV
+      - name: mac-only.txt on a fresh runner
+        shell: pwsh
+        run: ./scripts/windows/cache-lab-run.ps1 -Flavor ${{ inputs.flavor }} -Only macOnly
