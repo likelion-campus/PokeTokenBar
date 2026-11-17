@@ -226,6 +226,25 @@ final class PopoverStackLayoutTests: XCTestCase {
         XCTAssertEqual(recap.sections[1]!.rows[0]!.frame.minY - recap.sections[0]!.rows[0]!.frame.maxY, 8, "the Recap page's VStack(spacing: 8)")
     }
 
+    /// Home's panes: the pinned top has the page padding above and none below (the scroller's edge), the scrolling middle and the
+    /// footer none on the side they share, the footer the padding below; the scroller is the Mac's 520 pt.
+    func testHomePanesPadOnlyTheirOutsideEdge() {
+        let one = [PopoverStackSection(card: false, rows: [row(CGSize(width: 10, height: 20), control: nil)])]
+        let top = PopoverStackLayout.layout(one, width: 360, metrics: .homeTop)
+        XCTAssertEqual(top.sections[0]!.rows[0]!.frame.minY, 14)
+        XCTAssertEqual(top.height, 14 + 20, "no padding under the pinned top")
+        let middle = PopoverStackLayout.layout(one, width: 360, metrics: .homeScroll)
+        XCTAssertEqual(middle.sections[0]!.rows[0]!.frame.minY, 0)
+        XCTAssertEqual(middle.height, 20)
+        XCTAssertEqual(middle.sections[0]!.rows[0]!.frame.minX, 14, "the 14 pt side padding stays")
+        let footer = PopoverStackLayout.layout(one, width: 360, metrics: .homeFooter)
+        XCTAssertEqual(footer.sections[0]!.rows[0]!.frame.minY, 0)
+        XCTAssertEqual(footer.height, 20 + 14)
+        XCTAssertEqual(PopoverStackMetrics.homeScrollerHeight, 520)
+        let at150 = PopoverStackLayout.layout(one, width: 540, metrics: PopoverStackMetrics.homeTop.pixels(dpi: 144))
+        XCTAssertEqual(at150.sections[0]!.rows[0]!.frame.minY, 21, "14 DIP at 150 %")
+    }
+
     func testStackedAndFullRowsSpanTheRow() {
         let f = PopoverStackLayout.layout([PopoverStackSection(rows: [
             row(CGSize(width: 60, height: 17), hint: CGSize(width: 90, height: 13), control: CGSize(width: 10, height: 60), style: .stacked),
