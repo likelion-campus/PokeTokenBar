@@ -152,7 +152,16 @@ import WinSDK
         for t in tasks { t.cancel() }
         tasks = []
         onOpenEntry = nil
-        // the controls, views and sprite animators go with the stack (`WinStack.destroy`)
+        // The views free their pictures, sprites and clocks here: their controls call back only weakly, so a view let go before the stack
+        // destroys its row would leave its DC and bitmap behind (+2 GDI objects each, as the companion section's views were).
+        emptyView?.destroy()
+        dexView?.destroy()
+        logView?.destroy()
+        emptyView = nil
+        dexView = nil
+        logView = nil
+        raster?.release()
+        raster = nil
         dexPart = nil
         logPart = nil
         emptyPart = nil
