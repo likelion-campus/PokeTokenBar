@@ -51,6 +51,12 @@ import WinSDK
         make(Self.emojiFace, height: -Int32(PopoverTextStyle.pixels(size * CGFloat(textScale), dpi: Int(dpi))), weight: 400)
     }
 
+    /// A text font at `size` DIP in the text face (the Shop wallet's 24 pt bold: a size the Mac's text styles do not have).
+    func sized(_ size: CGFloat, weight: Int) -> HFONT? {
+        let (faceName, lfWeight) = Self.face(base: face, weight: weight)
+        return make(faceName, height: -Int32(PopoverTextStyle.pixels(size * CGFloat(textScale), dpi: Int(dpi))), weight: lfWeight)
+    }
+
     /// `LOGFONTW.lfHeight` of a style (negative: the em height in pixels).
     func height(_ style: PopoverTextStyle) -> Int32 { -Int32(style.pixelSize(dpi: Int(dpi), textScale: textScale)) }
 

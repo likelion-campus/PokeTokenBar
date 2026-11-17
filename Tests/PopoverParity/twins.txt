@@ -162,3 +162,29 @@ UI/Badge.swift#Badge.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPar
 UI/Badge.swift#TypeBadges.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPart.drawBadge | pin e605cac326ffe3a6
 UI/PokemonNameLabel.swift#PokemonNameLabel.body | Platform/Windows/Popover/WinCompanionSection.swift#WinCompanionSection.loadTypeNames | pin a4e7ad7d556c9330
 # --- stage 7 Task 9: the companion header (end) ---
+
+# Shop and Bag (stage 7 Task 19): the cards' private members that read their @State, as verbatim copies in the Mac test
+# (PopoverShopBagEquivalenceTests+Mac drives them against ShopCardRules / BagCardRules and the models), and the view bodies
+# rebuilt as values in PopoverShopModel / PopoverBagModel (the model tests pin the values on both systems).
+UI/ShopView.swift#ShopItemCard.price | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.price
+UI/ShopView.swift#ShopItemCard.maxQuantity | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.maxQuantity
+UI/ShopView.swift#ShopItemCard.selectedQuantity | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.selectedQuantity
+UI/ShopView.swift#ShopItemCard.showsQuantity | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.showsQuantity
+UI/ShopView.swift#ShopItemCard.quantityName | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.quantityName
+UI/BagView.swift#ItemCard.selectedCandyCount | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.selectedCandyCount
+UI/BagView.swift#ItemCard.canUse | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.canUse
+UI/BagView.swift#ItemCard.effectHint | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.effectHint
+UI/BagView.swift#ItemCard.performUse | Tests/PokeTokenBarTests/PopoverShopBagEquivalenceTests+Mac.swift#MacShopBagOracle.performUse
+UI/ShopView.swift#ShopView.body | Popover/PopoverShopModel.swift#ShopPageModel.make | pin 7fc99110b6310cd3
+UI/ShopView.swift#ShopView.walletHeader | Popover/PopoverShopModel.swift#ShopPageModel.make | pin bdfa5a8b9ff1451e
+UI/ShopView.swift#ShopItemCard.body | Popover/PopoverShopModel.swift#ShopPageModel.item | pin 1c38c15ec9c8a8c8
+UI/ShopView.swift#ShopItemCard.buyControls | Popover/PopoverShopModel.swift#ShopCardRules.priceLine | pin c85925830a99b4a3
+UI/ShopView.swift#ShopItemCard.buyNow | Popover/PopoverShopModel.swift#ShopPageModel.item | pin 73ab910b3a096f10
+UI/ShopView.swift#EggCard.body | Popover/PopoverShopModel.swift#ShopPageModel.egg | pin e1ca90fd2aea24db
+UI/ShopView.swift#EggCard.controls | Popover/PopoverShopModel.swift#ShopPageModel.egg | pin 9c0cf6ed0fb0897c
+UI/ShopView.swift#EggCard.commit | Popover/PopoverShopModel.swift#ShopPageModel.egg | pin ab3877b02d344d00
+UI/BagView.swift#BagView.body | Popover/PopoverBagModel.swift#BagPageModel.make | pin 8b11dc91f842f171
+UI/BagView.swift#BagView.emptyState | Popover/PopoverBagModel.swift#BagPageModel.make | pin 07a187e96ede5809
+UI/BagView.swift#ItemCard.body | Popover/PopoverBagModel.swift#BagPageModel.candyPreview | pin 8774b086acc1503f
+UI/BagView.swift#ItemCard.useControls | Popover/PopoverBagModel.swift#BagCardRules.effectHint | pin b114e565bb762df2
+UI/BagView.swift#ItemCard.useNow | Popover/PopoverBagModel.swift#BagCardRules.performUse | pin bd065911b3fd6e42
