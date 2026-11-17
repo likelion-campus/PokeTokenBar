@@ -402,3 +402,50 @@ final class PopoverCompositeTests: XCTestCase {
         XCTAssertEqual(Array(out[0..<16]), [20, 10, 200, 255, 20, 10, 200, 255, 0, 32, 64, 128, 0, 32, 64, 128], "each source pixel twice across")
     }
 }
+
+/// Windows' label colours must be readable on the white popover (user report 2026-11-17); the Mac's stay as measured.
+final class PopoverLabelContrastTests: XCTestCase {
+    /// WCAG contrast of black at `alpha` over white.
+    private func contrastOnWhite(_ alpha: Double) -> Double {
+        let channel = 1 - alpha                                   // black over white, sRGB
+        let linear = channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
+        return 1.05 / (linear + 0.05)
+    }
+
+    func testWindowsLightTextIsReadableOnWhite() {
+        let tertiary = PopoverLabelOpacity.tertiary(.light, windows: true)
+        let secondary = PopoverLabelOpacity.secondary(.light, windows: true)
+        XCTAssertEqual(tertiary, 0.55)
+        XCTAssertEqual(secondary, 0.68)
+        XCTAssertGreaterThanOrEqual(contrastOnWhite(tertiary), 4.5)
+        XCTAssertGreaterThanOrEqual(contrastOnWhite(secondary), 7)
+        XCTAssertGreaterThan(secondary, tertiary)
+        XCTAssertGreaterThan(PopoverLabelOpacity.primary, secondary)
+    }
+
+    func testTheMacValuesAreUntouched() {
+        XCTAssertEqual(PopoverLabelOpacity.secondary(.light, windows: false), 0.498)
+        XCTAssertEqual(PopoverLabelOpacity.tertiary(.light, windows: false), 0.2588)
+        XCTAssertEqual(PopoverLabelOpacity.secondary(.dark, windows: true), PopoverLabelOpacity.secondary, "dark is not built: Mac's")
+        XCTAssertEqual(PopoverLabelOpacity.tertiary(.dark, windows: true), PopoverLabelOpacity.tertiary)
+        for role in PopoverColorRole.named {
+            for appearance in PopoverAppearance.allCases {
+                XCTAssertEqual(role.displayValue(appearance, windows: false), role.macValue(appearance), "\(role) \(appearance)")
+            }
+        }
+        XCTAssertEqual(PopoverColorRole.secondary.macValue(.light).rgba, 0x0000007F)
+        XCTAssertEqual(PopoverColorRole.tertiary.macValue(.light).rgba, 0x00000042)
+    }
+
+    func testTheDrawnPartsRoleColoursFollowTheWindowsValues() {
+        XCTAssertEqual(PopoverColorRole.tertiary.displayValue(.light, windows: true).rgba, 0x0000008C)
+        XCTAssertEqual(PopoverColorRole.secondary.displayValue(.light, windows: true).rgba, 0x000000AD)
+        XCTAssertEqual(PopoverColorRole.primary.displayValue(.light, windows: true), PopoverColorRole.primary.macValue(.light))
+        XCTAssertEqual(PopoverColorRole.systemOrange.displayValue(.light, windows: true), PopoverColorRole.systemOrange.macValue(.light))
+        XCTAssertEqual(PopoverColorRole.tertiary.displayValue(.dark, windows: true), PopoverColorRole.tertiary.macValue(.dark))
+    }
+
+    func testShapesKeepTheMacProportions() {
+        XCTAssertEqual(PopoverColorRole.secondary.plazaShapeColor(alpha: 0.5).alpha, PopoverColorRole.secondary.macValue(.light).alpha * 0.5, accuracy: 1e-9)
+    }
+}
