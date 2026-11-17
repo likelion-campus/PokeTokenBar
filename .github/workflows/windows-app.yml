@@ -350,7 +350,7 @@ jobs:
           $j = Get-Content st.json -Raw | ConvertFrom-Json
           $names = 'popover.open', 'popover.placement', 'popover.toggle', 'popover.dismissOnActivate', 'popover.dismissInput', 'popover.escape',
                    'popover.closePaths', 'popover.ownedKeepsOpen', 'popover.staleCompletion', 'popover.dpiChange', 'popover.noSelfOpen',
-                   'popover.refusedForeground', 'popover.menuAfter', 'popover.menuSettings', 'popover.secondLaunch', 'popover.realClick',
+                   'popover.refusedForeground', 'popover.menuAfter', 'popover.menuSettings', 'popover.secondLaunch', 'popover.realClick', 'popover.realClickCovered',
                    'popover.openClose3', 'popover.capture', 'popover.withPlaza', 'popover.aboveTopmost', 'popover.pageContract',
                    'popover.closeAfterNestedLoop', 'popover.autostartQuiet'
           $bad = @()
@@ -490,6 +490,20 @@ jobs:
           Get-ChildItem ui-dump\companion -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes" }
           if ($bad.Count -gt 0) { throw "companion header: $($bad -join ', ')" }
       # --- stage 7 Task 9: the companion header (end) ---
+      - name: Window icon checks ran (plaza.windowIcon, update.windowIcon)
+        timeout-minutes: 5
+        if: (success() || failure())
+        shell: pwsh
+        run: |
+          $j = Get-Content st.json -Raw | ConvertFrom-Json
+          $names = 'plaza.windowIcon', 'update.windowIcon'
+          $bad = @()
+          foreach ($n in $names) {
+              $c = $j.checks | Where-Object { $_.name -eq $n }
+              if (-not $c) { $bad += "$n missing" } elseif (-not $c.ok) { $bad += "$n FAIL" } elseif ($c.detail -like 'skipped*') { $bad += "$n skipped on CI" }
+              else { "PASS ${n}: $($c.detail)" }
+          }
+          if ($bad.Count -gt 0) { throw "window icon: $($bad -join ', ')" }
       - name: Language and time zone in child processes (Korean display language, Seoul time zone)
         timeout-minutes: 10
         if: (success() || failure())  # independent evidence, also after a selftest failure
