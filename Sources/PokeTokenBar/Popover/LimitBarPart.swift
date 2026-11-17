@@ -1,16 +1,18 @@
 import Foundation
 
 extension PopoverColorRole {
-    /// The role's colour in the plaza canvas's colour type (light now; dark with Task 16): the Mac's value, except Windows'
+    /// The role's colour in the plaza canvas's colour type (the current appearance: light, dark or high contrast): the Mac's value, except Windows'
     /// readable secondary and tertiary (`displayValue`).
-    func plazaColor(_ appearance: PopoverAppearance = .light, alpha: Double = 1) -> PlazaColor {
+    func plazaColor(_ appearance: PopoverAppearance = .current, alpha: Double = 1) -> PlazaColor {
+        if let hc = PopoverAppearanceState.highContrast { return hc.color(for: self, alpha: alpha, shape: false) }
         let v = displayValue(appearance, windows: PopoverPlatform.isWindows)
         return PlazaColor(srgbRed: v.red, green: v.green, blue: v.blue, alpha: v.alpha * alpha)
     }
 
     /// The Mac's value on every platform, for SHAPES drawn from a label colour at a fraction of its alpha (bars, tracks, dots,
     /// tints): only text and glyphs follow Windows' raised secondary/tertiary (`plazaColor`), the Mac's proportions stay.
-    func plazaShapeColor(_ appearance: PopoverAppearance = .light, alpha: Double = 1) -> PlazaColor {
+    func plazaShapeColor(_ appearance: PopoverAppearance = .current, alpha: Double = 1) -> PlazaColor {
+        if let hc = PopoverAppearanceState.highContrast { return hc.color(for: self, alpha: alpha, shape: true) }
         let v = macValue(appearance)
         return PlazaColor(srgbRed: v.red, green: v.green, blue: v.blue, alpha: v.alpha * alpha)
     }
@@ -83,7 +85,7 @@ extension PopoverColorRole {
         if let image = space.image(scale: scale, graphics: graphics, { canvas in
             canvas.setAlpha(m.dimmed ? 0.5 : 1)
             let track = Self.trackRect(width: w)
-            canvas.setFillColor(PlazaColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.1))
+            canvas.setFillColor(PopoverAppearance.current.inkColor(alpha: 0.1))
             canvas.fillRoundedRect(space.canvas(track), radius: Self.trackHeight / 2)
             let fill = Self.fillWidth(percent: m.fillPercent, width: w)
             if fill > 0 {

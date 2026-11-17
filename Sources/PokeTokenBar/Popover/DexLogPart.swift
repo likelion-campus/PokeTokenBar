@@ -230,7 +230,7 @@ import Foundation
             if let e = lay.empty {
                 p.drawGlyph("magnifyingglass", fallback: "⌕", size: 24, bold: false, color: PopoverColorRole.tertiary.plazaColor(), in: e.icon, canvas: canvas, space: space)
                 p.draw(model.noResults, f.empty, color: secondary, x: e.text.minX, centerY: e.text.midY, canvas: canvas, space: space)
-                p.roundedRect(e.button, radius: 5, fill: PlazaColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.9),
+                p.roundedRect(e.button, radius: 5, fill: PopoverAppearance.current.controlFill(alpha: 0.9),
                               stroke: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.4), lineWidth: 0.5, canvas: canvas, space: space)
                 let w = ceil(p.line(model.clearFilters, f.button).width)
                 p.draw(model.clearFilters, f.button, color: primary, x: e.button.midX - w / 2, centerY: e.button.midY, canvas: canvas, space: space)

@@ -326,7 +326,7 @@ import Foundation
         let metrics = CompanionHeaderPart.lineHeight(font, graphics.text)
         return space.image(scale: scale, graphics: graphics) { canvas in
             let whole = space.canvas(CGRect(x: 0, y: 0, width: side, height: side))
-            canvas.setFillColor(PlazaColor(srgbRed: 0.97, green: 0.97, blue: 0.97, alpha: 0.92))
+            canvas.setFillColor(PopoverAppearance.current.chipColor(light: 0.97, alpha: 0.92))
             canvas.fillEllipse(in: whole)
             canvas.setStrokeColor(PopoverColorRole.primary.plazaColor(alpha: 0.12))
             canvas.strokeEllipse(in: whole.insetBy(dx: 0.5, dy: 0.5), lineWidth: 1)
