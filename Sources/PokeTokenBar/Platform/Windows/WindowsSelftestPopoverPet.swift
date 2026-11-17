@@ -396,7 +396,9 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                 let id = Int(GetDlgCtrlID(c.hwnd))
                 _ = SendMessageW(parent, UINT(WM_COMMAND), WPARAM(UInt(id & 0xFFFF) | (1 << 16) /* CBN_SELCHANGE */), LPARAM(Int(bitPattern: UnsafeMutableRawPointer(c.hwnd))))
             }
-            let smooth = app.store.animationQuality == .smooth && pet.window?.playback.frameFloor == UsageStore.AnimationQuality.smooth.frameFloor
+            let smooth = await WindowsSelftest.waitUntil(timeout: 2) {
+                app.store.animationQuality == .smooth && pet.window?.playback.frameFloor == UsageStore.AnimationQuality.smooth.frameFloor
+            }
             let settingsOK = qualityTitles == [l.animationPowerSaver, l.animationBalanced, l.animationSmooth] && sizeHiddenOff && backViewInGroup && on && sizeShownOn && resized && smooth
             ok = ok && settingsOK
             notes.append("Settings: Animation choices \(qualityTitles), size row hidden while off=\(sizeHiddenOff), back view in the pet group=\(backViewInGroup); "
@@ -598,7 +600,11 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             return
         }
         popover.close(.destroyed)
-        let mon = await PetHarness.make(.hatched) { $0.onOpen = { opener in WinFloatingPet.openPopover(popover, opener) } }
+        // Away from the tray corner, where the popover opens: the second click must reach the pet, not the popover.
+        let work = primaryWork()
+        let mon = await PetHarness.make(.hatched, saved: CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360))) {
+            $0.onOpen = { opener in WinFloatingPet.openPopover(popover, opener) }
+        }
         defer { mon.destroy() }
         if await mon.waitShown(), let w = mon.window, let spot = opaquePoint(w) {
             await realClick(at: screen(w, spot))
@@ -807,11 +813,33 @@ private struct PetGifFetcher: PlazaSpriteFetching {
 
     // MARK: - pet.idle: what a shown pet costs (in-process; the gate's windows are `--pet-idle-probe`)
 
+    /// One window's numbers and the app's own timer wakes inside it (a store refresh costs ~45 main cs and lands in a short window
+    /// now and then: `ui.kit.idle`'s budget rule; a window with a refresh is measured once more).
+    struct IdleWindow {
+        var sample: IdleSampler.Sample
+        var known: String
+        var extra: Int
+    }
+
     static func idleCheck(_ r: WindowsSelftest.Recorder) async {
         let seconds = 12.0
-        func sample(_ label: String) async -> IdleSampler.Sample? {
-            _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
-            return await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID)
+        func sample(_ label: String) async -> IdleWindow? {
+            var last: IdleWindow?
+            for _ in 0..<2 {
+                _ = await WindowsSelftest.waitUntil(timeout: 1) { false }
+                let wakes0 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
+                guard let s = await IdleSampler.measure(seconds: seconds, mainThread: WindowsApp.mainThreadID) else { return nil }
+                let wakes1 = WindowsSelftest.selftestApp.map { WindowsSelftest.knownWakes($0) }
+                var extra = 0, known = "unknown (no app)", refreshed = false
+                if let a = wakes0, let b = wakes1 {
+                    extra = 5 * ((b.safety - a.safety) + (b.debounce - a.debounce) + (b.day - a.day)) + 60 * (b.refreshes - a.refreshes)
+                    known = b.minus(a)
+                    refreshed = b.refreshes != a.refreshes
+                }
+                last = IdleWindow(sample: s, known: known, extra: extra)
+                if !refreshed { break }
+            }
+            return last
         }
         // Still: an egg (no GIF).
         let still = await PetHarness.make(.eggIncubating)
@@ -844,10 +872,12 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             return
         }
         let frameRate = 1 / UsageStore.AnimationQuality.powerSaver.frameFloor
-        let ok = !armedStill && stillRenders == 0 && s1.mainContextSwitches <= 6 && s3.mainContextSwitches <= 6
-            && Double(s2.mainContextSwitches) <= (frameRate + 2) * seconds && movingRenders >= Int(frameRate * seconds * 0.7)
-        func line(_ s: IdleSampler.Sample) -> String {
-            "main cs \(s.mainContextSwitches) (\(String(format: "%.1f", Double(s.mainContextSwitches) * 60 / seconds))/min), main cycles \(s.mainCycles), process cycles \(s.processCycles) (\(UInt64(Double(s.processCycles) / seconds))/s)"
+        let ok = !armedStill && stillRenders == 0 && s1.sample.mainContextSwitches <= 6 + s1.extra && s3.sample.mainContextSwitches <= 6 + s3.extra
+            && Double(s2.sample.mainContextSwitches) <= (frameRate + 2) * seconds + Double(s2.extra) && movingRenders >= Int(frameRate * seconds * 0.7)
+        func line(_ w: IdleWindow) -> String {
+            let s = w.sample
+            return "main cs \(s.mainContextSwitches) (\(String(format: "%.1f", Double(s.mainContextSwitches) * 60 / seconds))/min), main cycles \(s.mainCycles), process cycles \(s.processCycles) "
+                + "(\(UInt64(Double(s.processCycles) / seconds))/s), known wakes \(w.known) (+\(w.extra) to the budget), busy [\(s.busy)]"
         }
         r.add("pet.idle", ok,
               "\(Int(seconds)) s each. still (egg, no GIF): clock armed=\(armedStill), \(stillRenders) renders, \(line(s1)); animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps): "
