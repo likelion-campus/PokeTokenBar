@@ -71,7 +71,10 @@ if ($Only -eq 'macOnly') {
 # The unchanged tree, as restored from the seed.
 Stamp
 $b = Build
-Report 'no change' $b ($b.Ok -and $b.Compiles -eq 0) 'nothing may compile; seconds show what a restored cache costs'
+$swiftOnly = @($b.Lines | Where-Object { $_ -match 'Compiling (PokeTokenBar|PokeTokenBarWin|Crypto|CryptoBoringWrapper) ' }).Count
+# CTeamTLS.c and CTeamTLSThread.c may recompile: they include OpenSSL headers from the vcpkg folder (outside the workspace), which a fresh runner
+# restores with new mtimes. No Swift file may compile.
+Report 'no change' $b ($b.Ok -and $swiftOnly -eq 0) 'no Swift file may compile (a C file that includes the vcpkg OpenSSL headers can); seconds show what a restored cache costs'
 
 $b = Build
 Report 'no change (again, same job)' $b ($b.Ok -and $b.Compiles -eq 0) 'a second build in a row'
