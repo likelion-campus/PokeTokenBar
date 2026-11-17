@@ -169,6 +169,12 @@ import WinSDK
     }
 
     /// Computes what the page shows (inside the observation) and applies it.
+    /// Every filter, search and sort back to its start (the selftest, and the no-results button).
+    func resetFilters() {
+        browser.resetFilters()
+        refresh()
+    }
+
     func refresh() {
         guard !isDestroyed else { return }
         epoch += 1

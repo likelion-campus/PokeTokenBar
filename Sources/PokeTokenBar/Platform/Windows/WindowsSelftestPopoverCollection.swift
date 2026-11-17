@@ -13,6 +13,12 @@ extension WindowsSelftest {
     }
 }
 
+private struct CollectionFixturePoke: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine { throw LimitsError.keychainAccessDisabled }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+}
+
 @MainActor enum WindowsSelftestPopoverCollection {
     static let names = ["collection.grid", "collection.paging", "collection.filters", "collection.representative", "collection.empty",
                         "collection.homeLinks", "collection.openClose"]
@@ -32,7 +38,7 @@ extension WindowsSelftest {
         if count == 0 { state.dex = [] }
         let file = base.directory.appendingPathComponent("collection-\(UUID().uuidString).json")
         try? JSONEncoder().encode(state).write(to: file)
-        let companion = CompanionStore(provider: HomeFixturePoke(), fileURL: file, defaults: WinDefaultsSync.makeAppDefaults())
+        let companion = CompanionStore(provider: CollectionFixturePoke(), fileURL: file, defaults: WinDefaultsSync.makeAppDefaults())
         return HomeStores(store: base.store, companion: companion, team: base.team, state: base.state, directory: base.directory)
     }
 
@@ -192,8 +198,7 @@ extension WindowsSelftest {
         await wait(0.3)
         let legendary = shown()
         if legendary != 30 { problems.append("legendary: \(legendary)") }
-        page.browser.resetFilters()
-        page.refresh()
+        page.resetFilters()
         page.search?.text = "zzz"
         await wait(0.3)
         let none = page.dexPart?.model.isEmpty == true && !items(view, DexBodyPart.clearAction).isEmpty
@@ -208,8 +213,7 @@ extension WindowsSelftest {
         await wait(0.3)
         if page.dexPart?.model.cells.first?.number != 120 { problems.append("sort descending: first \(page.dexPart?.model.cells.first?.number ?? 0)") }
         // the segment: the catch log, virtualised
-        page.browser.resetFilters()
-        page.refresh()
+        page.resetFilters()
         page.segment?.selection = 1
         h.stores.state.showingCollectionLog = true
         page.refresh()
