@@ -41,6 +41,16 @@ extension PopoverAppearance {
     }
 
     static let darkChipGray = 0.19
+
+    /// A control's fill on the page (the Mac's `controlBackgroundColor`: the "Clear filters" button, a lifted tile under its
+    /// shadow): white in light, a raised gray in dark, the window colour in high contrast.
+    func controlFill(alpha: Double = 1) -> PlazaColor {
+        if let hc = PopoverAppearanceState.highContrast { return hc.color(hc.window, alpha: 1) }
+        let v = self == .light ? 1.0 : Self.darkControlGray
+        return PlazaColor(srgbRed: v, green: v, blue: v, alpha: alpha)
+    }
+
+    static let darkControlGray = 0.27
 }
 
 /// A Windows high-contrast theme's colours (`GetSysColor`), as 0xRRGGBB. Everything the drawn parts draw is one of these:
