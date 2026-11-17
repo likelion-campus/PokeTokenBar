@@ -116,6 +116,7 @@ import WinSDK
         stats.observes += 1
         if inputOverride != nil {
             let input = currentInput()
+            prepareDexLinks(dexLinksOverride ?? [:], input)
             apply(input)
             applyDexLinks(dexLinksOverride ?? [:], input)
             return
@@ -131,6 +132,7 @@ import WinSDK
                 self.observe()
             }
         }
+        prepareDexLinks(links, input)
         apply(input)
         applyDexLinks(links, input)
     }
@@ -141,6 +143,17 @@ import WinSDK
 
     /// Which species link where (`CompanionStore.dexLinkTargets`: only species in the dex). The header's sprite links by the current
     /// species (an egg has none); every node of the line by its own.
+    /// What the parts made by the next `apply` start with: set before their first layout (a link set after it would lay the header out
+    /// again, and a reader of the first layout would find it gone).
+    private var pendingDexLink: (target: String, hint: String)?
+    private var pendingDexLinks: [Int: String] = [:]
+
+    private func prepareDexLinks(_ links: [Int: String], _ input: CompanionHeaderInput) {
+        let hint = companion.l.dexOpenEntryHint
+        pendingDexLink = input.currentSpeciesID.flatMap { id in links[id].map { (target: $0, hint: hint) } }
+        pendingDexLinks = links
+    }
+
     func applyDexLinks(_ links: [Int: String], _ input: CompanionHeaderInput) {
         let hint = companion.l.dexOpenEntryHint
         header?.part.dexLink = input.currentSpeciesID.flatMap { id in links[id].map { (target: $0, hint: hint) } }
@@ -190,6 +203,7 @@ import WinSDK
                     if hit.action == CompanionHeaderPart.dexAction, let target = hit.target { self?.page?.openDexEntry(target) }
                 }
                 let part = CompanionHeaderPart(m, textScale: CGFloat(ctx.textScale))
+                part.dexLink = pendingDexLink   // stage 7 Task 20: before the first layout
                 view.host(part, width: width)
                 made = (view, part)
                 return view.control
@@ -211,6 +225,8 @@ import WinSDK
                 view.sprites = WinSpriteAnimator(fetcher: Self.fetcher(), animationsEnabled: self.animationsEnabled)
                 let part = EvoLinePart(m.evoLine ?? Self.emptyLine, background: Self.plaza(ctx.colors.palette.window),
                                        accent: Self.plaza(ctx.colors.palette.accent), glyphs: raster)
+                part.dexHint = companion.l.dexOpenEntryHint   // stage 7 Task 20: before the first layout
+                part.dexLinks = pendingDexLinks
                 view.handActions = [EvoLinePart.dexAction]   // stage 7 Task 20: C2
                 view.onPointer = { [weak part] p in part?.setPointer(p) }
                 view.host(part, width: width)
