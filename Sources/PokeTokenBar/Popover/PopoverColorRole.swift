@@ -85,6 +85,21 @@ extension PopoverColorRole {
         return PopoverRGBA(rgba: appearance == .light ? pair.light : pair.dark)
     }
 
+    /// The value Windows draws: the Mac's, except the light secondary and tertiary label colours (black at
+    /// `PopoverLabelOpacity.windowsLight…`, readable on white; see there for the reason). Where `windows` is false this is
+    /// `macValue`.
+    func displayValue(_ appearance: PopoverAppearance, windows: Bool) -> PopoverRGBA {
+        let mac = macValue(appearance)
+        guard windows, appearance == .light else { return mac }
+        let alpha: Double
+        switch self {
+        case .secondary: alpha = PopoverLabelOpacity.secondary(appearance, windows: true)
+        case .tertiary: alpha = PopoverLabelOpacity.tertiary(appearance, windows: true)
+        default: return mac
+        }
+        return PopoverRGBA(rgba: mac.rgba & 0xFFFF_FF00 | UInt32((alpha * 255).rounded()))
+    }
+
     // Measured by PopoverGoldens+Mac on macOS 26 (sRGB, 8 bits a channel, 0xRRGGBBAA); PopoverFormatTests holds them to
     // mac-colors.json. The palette is fixed sRGB, so its light and dark values are the same.
     static let macNamed: [PopoverColorRole: (light: UInt32, dark: UInt32)] = [
