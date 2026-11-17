@@ -217,8 +217,9 @@ import WinSDK
     private var hovering = false
     private var inMenu = false, destroyAfterMenu = false
     private var loggedFailure = false
-    /// The side of the picture on screen (0: nothing drawn yet).
+    /// The side of the picture on screen (0: nothing drawn yet), and where the last picture went.
     private var drawnSide = 0
+    private var drawnFrame: RECT?
 
     private struct Surface {
         var dc: HDC?, bitmap: HBITMAP?, old: HGDIOBJ?, bits: UnsafeMutableRawPointer?
@@ -355,6 +356,7 @@ import WinSDK
         let w = frame.right - frame.left, h = frame.bottom - frame.top
         frame = RECT(left: x, top: y, right: x + w, bottom: y + h)
         _ = SetWindowPos(hwnd, nil, x, y, 0, 0, UINT(SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
+        drawnFrame = frame   // the window is there now: the next picture needs no place
         pet?.stats.moves += 1
     }
 
@@ -546,9 +548,15 @@ import WinSDK
         var source = POINT(x: 0, y: 0)
         var destination = POINT(x: frame.left, y: frame.top)
         var blend = BLENDFUNCTION(BlendOp: 0 /* AC_SRC_OVER */, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 /* AC_SRC_ALPHA */)
-        if UpdateLayeredWindow(hwnd, nil, &destination, &size, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */) {
+        // A new frame of the same window: only the picture (no place or size: no window-position work for every frame).
+        let same = drawnFrame.map { $0.left == frame.left && $0.top == frame.top && $0.right == frame.right && $0.bottom == frame.bottom } ?? false
+        let done = same
+            ? UpdateLayeredWindow(hwnd, nil, nil, nil, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
+            : UpdateLayeredWindow(hwnd, nil, &destination, &size, surface.dc, &source, 0, &blend, 0x0000_0002 /* ULW_ALPHA */)
+        if done {
             pet.stats.renders += 1
             drawnSide = side
+            drawnFrame = frame
         } else {
             pet.stats.renderFailures += 1
             if !loggedFailure {

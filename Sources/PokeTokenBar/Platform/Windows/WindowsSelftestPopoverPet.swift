@@ -887,10 +887,12 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let s1 = await sample("still")
         let stillRenders = still.pet.stats.renders - r0
         still.destroy()
-        // Animated: the FIXTURE 2 s GIF of 40 frames at the default "Power saver" floor (0.4 s: 2.5 frames a second).
+        // Animated: the FIXTURE 2 s GIF of 40 frames at the default "Power saver" floor (0.4 s: 2.5 frames a second). A raised
+        // sample (`midLevel`), not a fresh hatch: in a bundled app a hatch warms its sprites and names over the network, and
+        // those completions woke the main thread in the windows of runs 44034801215 and 44039608912.
         let saved = WinFloatingPet.spriteFetcherOverride
         WinFloatingPet.spriteFetcherOverride = gifFixture(count: 40, delay: 0.05)
-        let moving = await PetHarness.make(.hatched)
+        let moving = await PetHarness.make(.midLevel)
         _ = await moving.waitShown()
         _ = await WindowsSelftest.waitUntil(timeout: 2) { moving.window?.playback.clock.isArmed == true }
         let r1 = moving.pet.stats.renders
@@ -899,7 +901,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         moving.destroy()
         WinFloatingPet.spriteFetcherOverride = saved
         // Hidden after it was shown.
-        let gone = await PetHarness.make(.hatched)
+        let gone = await PetHarness.make(.midLevel)
         _ = await gone.waitShown()
         gone.store.floatingPetEnabled = false
         _ = await WindowsSelftest.waitUntil(timeout: 2) { gone.pet.window == nil }
@@ -1000,7 +1002,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     private static var idleProbe: PetHarness?
 
     /// The installed app with the gate's settings, and one pet over sample stores (the app's own pet stays off): `still` an egg,
-    /// `animated` the hatched sample's FIXTURE GIF at the stored animation quality (default Power saver) with Windows' "Show
+    /// `animated` the raised sample's (Ivysaur) FIXTURE GIF at the stored animation quality (default Power saver) with Windows' "Show
     /// animations" taken as on (the runner has it off), `hidden` a pet shown for 3 s and turned off.
     static func startIdleProbe(mode: String) {
         guard WindowsSelftest.onCI else {
@@ -1010,7 +1012,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         WinFloatingPet.spriteFetcherOverride = WindowsSelftestPopoverCompanion.fixtureFetcher()
         Task { @MainActor in
             await wait(3)
-            let h = await PetHarness.make(mode == "still" ? .eggIncubating : .hatched)
+            let h = await PetHarness.make(mode == "still" ? .eggIncubating : .midLevel)   // not a fresh hatch: no network warm-up in the window
             idleProbe = h
             let shown = await h.waitShown()
             if mode == "hidden" {
