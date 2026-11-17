@@ -111,7 +111,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
             let hooks = hooked ? "sent \(spy.sent) (on screen in a build \(spy.sentInBuild)), queued \(spy.queued), frames with a paint \(spy.frames) over \(ms(spy.lastMs - spy.firstMs)) ms"
                 : "not watched (built before the window was shown)"
             return "\(name) [\(t.page) via \(t.via)]: click->settled \(ms(clickToSettledMs)) ms, build \(ms(t.buildMs)) ms in \(t.builds) build(s); "
-                + "layouts \(t.layouts), refreshes \(t.refreshes), windows made \(t.windows) / in the window now \(descendants); "
+                + "layouts \(t.layouts) (on screen \(t.layoutsOnScreen)), refreshes \(t.refreshes), windows made \(t.windows) / in the window now \(descendants); "
                 + "trace paints \(t.paints) (on screen in a build \(t.paintsInBuild)), erases \(t.erases) (on screen in a build \(t.erasesInBuild)); hooks: \(hooks); "
                 + "top steps \(top.isEmpty ? "-" : top); slow \(slow.isEmpty ? "none" : slow); open=\(stillOpen) foreground=\(foreground) visible=\(visible) dwm bounds=\(dwmMatches)"
         }
@@ -119,7 +119,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         /// The budgets: one build, nothing painted while it is built, the change drawn in a few frames, the window still the
         /// user's, a click that stands within the bound. Counts more than time: the runner draws with WARP, a PC with a real GPU
         /// over a remote link pays more for each paint, not fewer of them.
-        func violations(maxFrames: Int, maxLayouts: Int, maxMs: Double, maxStepMs: Double) -> [String] {
+        func violations(maxFrames: Int, maxLayoutsOnScreen: Int, maxMs: Double, maxStepMs: Double) -> [String] {
             guard arrived, let t = report else { return ["the page did not arrive"] }
             var bad: [String] = []
             if !hooked { bad.append("the paint hooks could not be installed") }
@@ -128,7 +128,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
                 bad.append("painted on screen while built: \(spy.sentInBuild) paint messages, \(t.paintsInBuild) paints, \(t.erasesInBuild) erases (budget 0)")
             }
             if spy.frames > maxFrames { bad.append("\(spy.frames) frames with a paint (budget \(maxFrames))") }
-            if t.layouts > maxLayouts { bad.append("\(t.layouts) layouts (budget \(maxLayouts))") }
+            if t.layoutsOnScreen > maxLayoutsOnScreen { bad.append("\(t.layoutsOnScreen) layout passes on screen (budget \(maxLayoutsOnScreen))") }
             if t.windows > descendants + 4 { bad.append("\(t.windows) windows made for \(descendants) in the window") }
             if clickToSettledMs > maxMs { bad.append("click->settled \(Int(clickToSettledMs)) ms (budget \(Int(maxMs)))") }
             if let worst = t.steps.max(by: { $0.ms < $1.ms }), worst.ms > maxStepMs { bad.append("step \(worst.name) \(Int(worst.ms)) ms (budget \(Int(maxStepMs)))") }
@@ -230,13 +230,13 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         let lines = log.components(separatedBy: "\n").filter { $0.contains("popover page Settings") }.count
 
         let state = "state: team joined with a nickname, companion hatched with \(snapshots) snapshots, no usage, no session key, Korean"
-        let settingsBad = settings.violations(maxFrames: 4, maxLayouts: 3, maxMs: 3000, maxStepMs: 500)
+        let settingsBad = settings.violations(maxFrames: 4, maxLayoutsOnScreen: 1, maxMs: 3000, maxStepMs: 500)
             + (leaked ? ["the fixture team code is in the log"] : []) + (lines == 0 ? ["no 'popover page Settings' line in the log"] : [])
         r.add("settings.openCost", settingsBad.isEmpty,
               "\(state); \(settings.summary); for comparison \(homeOpen.summary); \(direct.summary); log lines for Settings \(lines), team code in the log=\(leaked)"
               + (settingsBad.isEmpty ? "" : "; OVER BUDGET: " + settingsBad.joined(separator: "; ")))
-        let swapBad = back.violations(maxFrames: 4, maxLayouts: 3, maxMs: 3000, maxStepMs: 500).map { "Back: \($0)" }
-            + recap.violations(maxFrames: 4, maxLayouts: 3, maxMs: 3000, maxStepMs: 500).map { "Recap: \($0)" }
+        let swapBad = back.violations(maxFrames: 4, maxLayoutsOnScreen: 1, maxMs: 3000, maxStepMs: 500).map { "Back: \($0)" }
+            + recap.violations(maxFrames: 4, maxLayoutsOnScreen: 1, maxMs: 3000, maxStepMs: 500).map { "Recap: \($0)" }
         r.add("popover.swapCost", swapBad.isEmpty, "\(back.summary); \(recap.summary)" + (swapBad.isEmpty ? "" : "; OVER BUDGET: " + swapBad.joined(separator: "; ")))
     }
 

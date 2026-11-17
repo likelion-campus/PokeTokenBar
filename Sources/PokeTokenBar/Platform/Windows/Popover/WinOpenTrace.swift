@@ -25,6 +25,9 @@ import WinSDK
         /// window made, a paint of a pane or control: not a drawn view's own animation).
         var buildMs = 0.0, settledMs = 0.0
         var builds = 0, layouts = 0, refreshes = 0, windows = 0
+        /// Layout passes while the page was on screen: each one moved controls the user saw (a pass inside a frozen or hidden
+        /// build moves nothing visible).
+        var layoutsOnScreen = 0
         /// `…InBuild`: those inside a build to a window on screen (a half-built page the user sees). A control erasing itself
         /// while its window is hidden or not drawing draws nothing and is not counted there.
         var paints = 0, erases = 0, paintsInBuild = 0, erasesInBuild = 0, drawnPaints = 0
@@ -37,7 +40,7 @@ import WinSDK
             let parts = steps.map { "\($0.name) \(ms($0.ms))" }.joined(separator: ", ")
             let slowParts = slow.map { "\($0.name) \(ms($0.ms)) ms" }.joined(separator: ", ")
             return "popover page \(page) via \(via): build \(ms(buildMs)) ms in \(builds) build(s), settled \(ms(settledMs)) ms; "
-                + "layouts \(layouts), refreshes \(refreshes), windows made \(windows); paints \(paints) (\(paintsInBuild) on screen inside a build), "
+                + "layouts \(layouts) (\(layoutsOnScreen) on screen), refreshes \(refreshes), windows made \(windows); paints \(paints) (\(paintsInBuild) on screen inside a build), "
                 + "erases \(erases) (\(erasesInBuild) on screen inside a build), drawn-view paints \(drawnPaints); steps (ms): \(parts.isEmpty ? "-" : parts); "
                 + "slow (>= \(Int(WinOpenTrace.slowMs)) ms): \(slowParts.isEmpty ? "none" : slowParts)"
         }
@@ -124,9 +127,12 @@ import WinSDK
             end()
             return
         }
-        let inBuild = buildDepth > 0 && (hwnd.map { IsWindowVisible($0) } ?? true)
+        let onScreen = hwnd.map { IsWindowVisible($0) } ?? true
+        let inBuild = buildDepth > 0 && onScreen
         switch event {
-        case .layout: c.report.layouts += 1
+        case .layout:
+            c.report.layouts += 1
+            if onScreen { c.report.layoutsOnScreen += 1 }
         case .refresh: c.report.refreshes += 1
         case .window: c.report.windows += 1
         case .paint:
