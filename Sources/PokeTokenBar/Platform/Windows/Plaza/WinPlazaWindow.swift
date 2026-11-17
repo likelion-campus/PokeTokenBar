@@ -161,6 +161,7 @@ import WinSDK
         imeWanted = false
         _ = ptb_window_ime_set(UnsafeMutableRawPointer(hwnd), 0)   // D6: no IME context on the scene, so a Hangul-mode key stays a key
         register(made)
+        WinCaptionColour.update(hwnd)   // Windows 11, no high contrast: the plaza's teal title bar; otherwise the system look
         let panels = WinPlazaPanels(hud: overlays.hud)
         self.panels = panels
         tooltips = WinPlazaTooltips(owner: hwnd)
@@ -255,6 +256,7 @@ import WinSDK
         lastClosed = (stats, joined)
         if WinPlazaLive.current === self { WinPlazaLive.current = nil }
         self.window = nil
+        WinCaptionColour.forget(window.hwnd)
         window.destroy()
         AppLog.write("plaza window closed: ticks=\(stats.ticks) draws=\(stats.draws) presents=\(stats.presents) clean=\(stats.cleanTicks) "
             + "gpuBusy=\(stats.gpuBusy) losses=\(stats.deviceLosses) clockJoined=\(joined)")
@@ -351,6 +353,13 @@ import WinSDK
             guard let self else { return nil }
             if let events { events.handleClose() } else { dismantle() }
             return 0
+        }
+        // A theme or high-contrast change: the colours are set again or taken off. Never consumed.
+        for message: UINT in [0x001A /* WM_SETTINGCHANGE */, 0x031A /* WM_THEMECHANGED */] {
+            w.on(message) { [weak self] _, _ in
+                if let hwnd = self?.window?.hwnd { WinCaptionColour.update(hwnd) }
+                return nil
+            }
         }
         w.on(Msg.paint) { [weak self] _, _ in
             guard let self, let hwnd = window?.hwnd else { return nil }
