@@ -183,7 +183,8 @@ foreach ($mode in 'wiggle', 'animated') {
 # One pet over sample stores (`--pet-idle-probe`, CI only; the app's own pet stays off), refresh off. 'still': an egg, no GIF;
 # 'hidden': a pet shown for 3 s and turned off ~25 s before the window: the closed app's budget for both (a pet that is still
 # or gone may cost nothing). 'animated': the raised sample's FIXTURE GIF (13 frames once capped) at the default "Power saver"
-# floor of 0.4 s, Windows' "Show animations" taken as on (the runner has it off). Its budget is from one measured run (scratch
+# floor of 0.4 s, with the runner's "Show animations" off, which stops no GIF of the pet (it follows the Mac's Reduce Motion
+# rule, user ruling 2026-11-18; the probe logs the setting). Its budget is from one measured run (scratch
 # run 44039613803: main 196/min = 150 frame wakes + 46, process 309 cs/min, 1.59 M cycles/s): main 270/min stays under one wake
 # per 0.2 s ("Balanced", 300/min on its own), so a frame floor that is not applied fails; process cs 1.5x, cycles ~1.9x (the
 # cycles of one window spread ~1.5x run to run, see normal-300s). Each window checks the probe's own line: what it measured.

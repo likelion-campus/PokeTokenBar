@@ -36,6 +36,9 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     private(set) var openers: [FloatingPetActions.Opener] = []
     /// What an open request does besides being counted (the app's popover, for the click checks).
     var onOpen: ((FloatingPetActions.Opener) -> Void)?
+    /// The app's popover as the pet sees it (open? close it), for the press checks; nil: no popover.
+    var popoverOpen: (() -> Bool)?
+    var closePopover: (() -> Void)?
     var store: UsageStore { base.store }
     var window: WinPetWindow? { pet.window }
 
@@ -79,6 +82,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             if let screens = self?.screensOverride { p.screens = { screens } }
             p.menuOwner = { WindowsSelftest.selftestApp?.sink?.hwnd }
             p.popoverWindow = { WindowsSelftest.selftestApp?.popover?.hwnd }
+            if let open = self?.popoverOpen { p.popoverIsOpen = open }
+            if let close = self?.closePopover { p.closePopover = close }
         })
     }
 
@@ -678,34 +683,75 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             notes.append("egg: no picture")
         }
         egg.destroy()
-        // Hatched: a click opens the popover; a click while it is open closes it (the Mac's transient popover closes on that click).
+        // With the app's popover (user ruling 2026-11-18, the Mac's transient popover): a press on the pet closes an open popover,
+        // a click on a hatched pet opens a closed one and does not reopen the one its press closed; a prayer or a drag leaves
+        // it closed. Real input and the foreground: CI only.
         guard WindowsSelftest.onCI, let popover = app.popover else {
-            r.add("pet.clickActions", ok, notes.joined(separator: "; ") + "; hatched: skipped (CI not set)")
+            r.add("pet.clickActions", ok, notes.joined(separator: "; ") + "; with the popover: skipped (CI not set)")
             return
         }
         popover.close(.destroyed)
-        // Away from the tray corner, where the popover opens: the second click must reach the pet, not the popover.
-        let work = primaryWork()
-        let mon = await PetHarness.make(.hatched, saved: CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360))) {
-            $0.onOpen = { opener in WinFloatingPet.openPopover(popover, opener) }
+        func wire(_ h: PetHarness) {
+            h.onOpen = { opener in WinFloatingPet.openPopover(popover, opener) }
+            h.popoverOpen = { popover.isOpen }
+            h.closePopover = { popover.close(.deactivated) }
         }
-        defer { mon.destroy() }
+        func openIt() async -> Bool {
+            popover.present(.secondLaunch) { _ in }
+            return await WindowsSelftest.waitUntil(timeout: 3) { popover.isOpen && popover.hwnd.map { IsWindowVisible($0) } == true }
+        }
+        /// Closed now and still closed a second later (nothing opened it again).
+        func closedAndStays() async -> Bool {
+            let closed = await WindowsSelftest.waitUntil(timeout: 2) { !popover.isOpen }
+            await wait(1)
+            return closed && !popover.isOpen
+        }
+        // Away from the tray corner, where the popover opens: the clicks must reach the pet, not the popover.
+        let work = primaryWork()
+        let mon = await PetHarness.make(.hatched, saved: CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360))) { wire($0) }
         if await mon.waitShown(), let w = mon.window, let spot = opaquePoint(w) {
+            // 1. Popover closed: a click opens it.
             await realClick(at: screen(w, spot))
             let opened = await WindowsSelftest.waitUntil(timeout: 3) { popover.isOpen && popover.hwnd.map { IsWindowVisible($0) } == true }
             let fg = popover.hwnd.map { GetForegroundWindow() == $0 } ?? false
             let opener = popover.stats.lastOpener == .pet
+            // 2. Popover open: the click's press closes it and the click does not open it again.
             await realClick(at: screen(w, spot))
-            let closed = await WindowsSelftest.waitUntil(timeout: 2) { !popover.isOpen }
-            let reason = popover.stats.lastClose
-            let hatchedOK = opened && fg && opener && closed && mon.openers == [.click, .click]
+            let toggled = await closedAndStays()
+            let oneOpen = mon.openers == [.click] && mon.pet.stats.popoverClosesOnPress == 1
+            // 3. Popover open, a drag: the press closes it, the release is no click.
+            let open3 = await openIt()
+            let clicks3 = mon.pet.stats.clicks
+            await realDrag(from: screen(w, spot), by: -40, -30)
+            let dragged = await closedAndStays()
+            let dragOK = open3 && dragged && mon.pet.stats.clicks == clicks3 && mon.openers == [.click] && mon.pet.stats.popoverClosesOnPress == 2
+            let hatchedOK = opened && fg && opener && toggled && oneOpen && dragOK
             ok = ok && hatchedOK
-            notes.append("hatched: real click -> popover open=\(opened) foreground=\(fg) opener .pet=\(opener) (refused foreground \(popover.stats.refusedForeground)); "
-                         + "a second click -> closed=\(closed) (\(reason.map { "\($0)" } ?? "none")); openers \(mon.openers)")
+            notes.append("hatched, popover closed: real click -> open=\(opened) foreground=\(fg) opener .pet=\(opener) (refused foreground \(popover.stats.refusedForeground)); "
+                         + "popover open: real click -> closed by the press and not reopened (1 s)=\(toggled), openers \(mon.openers)=\(oneOpen); "
+                         + "popover open=\(open3): real drag -> closed and stays=\(dragged), no click=\(mon.pet.stats.clicks == clicks3); closes on press \(mon.pet.stats.popoverClosesOnPress)")
         } else {
             ok = false
             notes.append("hatched: no picture")
         }
+        mon.destroy()
+        popover.close(.destroyed)
+        // 4. An egg, popover open: the press closes it, the click prays, it stays closed.
+        let praying = await PetHarness.make(.eggIncubating, saved: CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360))) { wire($0) }
+        if await praying.waitShown(), let w = praying.window, let spot = opaquePoint(w) {
+            let open4 = await openIt()
+            let p0 = praying.companion.state.eggPrayers?.count ?? 0
+            await realClick(at: screen(w, spot))
+            let prayed = (praying.companion.state.eggPrayers?.count ?? 0) == p0 + 1
+            let stays = await closedAndStays()
+            let eggOK = open4 && prayed && stays && praying.openers.isEmpty && praying.pet.stats.popoverClosesOnPress == 1
+            ok = ok && eggOK
+            notes.append("egg, popover open=\(open4): real click -> prayed=\(prayed), closed by the press and stays=\(stays), popover asked \(praying.openers.count)x")
+        } else {
+            ok = false
+            notes.append("egg with the popover: no picture")
+        }
+        praying.destroy()
         popover.close(.destroyed)
         r.add("pet.clickActions", ok, notes.joined(separator: "; "))
     }
@@ -928,12 +974,15 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             setting[MemoryLayout<GUID>.size + 4] = h.lowPower ? 1 : 0
             _ = setting.withUnsafeMutableBytes { SendMessageW(w.hwnd, 0x0218 /* WM_POWERBROADCAST */, 0x8013 /* PBT_POWERSETTINGCHANGE */, LPARAM(Int(bitPattern: $0.baseAddress))) }
         }
+        // "Show animations" off is the Mac's Reduce Motion: the GIF keeps playing (user ruling 2026-11-18, FloatingPetMotion).
         h.animations = false
         animationSetting()
-        let stillOff = await WindowsSelftest.waitUntil(timeout: 2) { !w.playback.clock.isArmed && w.playback.models.first?.isAnimating == false }
+        let t1 = w.playback.ticks
+        await wait(1.2)
+        let playsWithAnimationsOff = w.playback.clock.isArmed && w.playback.models.first?.isAnimating == true && w.playback.ticks >= t1 + 2
         h.animations = true
         animationSetting()
-        let animAgain = await WindowsSelftest.waitUntil(timeout: 3) { w.playback.clock.isArmed && w.playback.models.first?.isAnimating == true }
+        let animAgain = w.playback.clock.isArmed && w.playback.models.first?.isAnimating == true
         h.lowPower = true
         powerSetting()
         let saverOff = await WindowsSelftest.waitUntil(timeout: 2) { h.pet.model?.animated == false && !w.playback.clock.isArmed }
@@ -943,8 +992,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let playback = w.playback
         h.store.floatingPetEnabled = false
         let hidden = await WindowsSelftest.waitUntil(timeout: 2) { h.pet.window == nil && !playback.clock.isArmed }
-        ok = ok && lockedOff && lockedQuiet && unlocked && stillOff && animAgain && saverOff && saverBack && hidden
-        notes.append("lock -> clock off=\(lockedOff), no ticks in 1 s=\(lockedQuiet), unlock -> on=\(unlocked); \"Show animations\" off + WM_SETTINGCHANGE -> still, clock off=\(stillOff), "
+        ok = ok && lockedOff && lockedQuiet && unlocked && playsWithAnimationsOff && animAgain && saverOff && saverBack && hidden
+        notes.append("lock -> clock off=\(lockedOff), no ticks in 1 s=\(lockedQuiet), unlock -> on=\(unlocked); \"Show animations\" off + WM_SETTINGCHANGE -> the GIF keeps playing (clock armed, \(w.playback.ticks - t1) ticks in 1.2 s)=\(playsWithAnimationsOff), "
                      + "on -> \(animAgain); battery saver + WM_POWERBROADCAST -> still=\(saverOff), off -> \(saverBack); hidden -> clock gone=\(hidden)")
         // Made at the lock screen (review I4: the displays wake there and a new window is made): no clock until the unlock.
         h.sessionLocked = true
@@ -1043,13 +1092,11 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             }
             return last
         }
-        // One pet over one set of stores for all three windows, shown and hidden through the displays' state: no settings write
-        // in between (a write wakes the synced defaults objects for seconds: run 44034801215's 'hidden' window), so 'hidden' is
-        // judged against 'still' measured the same way in the same process, one window each (review I1: no fixed in-process
-        // budget, no best of several windows). Hidden must also leave nothing: no window of the pet's class, no playback, no clock.
-        let saved = WinFloatingPet.spriteFetcherOverride
-        WinFloatingPet.spriteFetcherOverride = gifFixture(count: 40, delay: 0.05)
-        defer { WinFloatingPet.spriteFetcherOverride = saved }
+        // Still and hidden: one egg (no GIF: the honest still pet, as the gate's pet-still-120s) over one set of stores, shown
+        // and hidden through the displays' state: no settings write in between (a write wakes the synced defaults objects for
+        // seconds: run 44034801215's 'hidden' window), so 'hidden' is judged against 'still' measured the same way in the same
+        // process, one window each (review I1: no fixed in-process budget, no best of several windows). Hidden must also leave
+        // nothing: no window of the pet's class, no playback, no clock. Animated: a raised sample with the FIXTURE GIF after.
         let work = primaryWork()
         let live0 = WinSinkWindow.liveCount
         // The real pointer: the real clicks of pet.noActivate and pet.clickActions left it where this pet stands, so the hide
@@ -1062,11 +1109,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let park = parks.first { !windowAt($0).ours } ?? parks[0]
         if WindowsSelftest.onCI { _ = SetCursorPos(park.x, park.y) }   // real input only on the runner
         let parkedOver = WindowsSelftest.onCI ? windowAt(park).text : "nothing (CI not set: not moved)"
-        // A raised sample (`midLevel`, not a fresh hatch: in a bundled app a hatch warms its sprites and names over the network).
-        let h = await PetHarness.make(.midLevel, saved: CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360))) {
-            $0.asleep = true
-            $0.animations = false
-        }
+        let spot = CGPoint(x: CGFloat(work.left + 420), y: CGFloat(work.top + 360))
+        let h = await PetHarness.make(.eggIncubating, saved: spot) { $0.asleep = true }
         defer { h.destroy() }
         // The harness's stores finish loading first (2 s windows of at most one main-thread switch, up to 10 s).
         let settleStart = Date()
@@ -1074,7 +1118,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             guard let q = await IdleSampler.measure(seconds: 2, mainThread: WindowsApp.mainThreadID), q.mainContextSwitches > 1 else { break }
         }
         let settled = Date().timeIntervalSince(settleStart)
-        // Still: shown with "Show animations" off (the runner's own state): the GIF's first frame, no clock.
+        // Still: the egg shown, no clock.
         h.asleep = false
         h.pet.sync()
         let shown = await h.waitShown()
@@ -1084,13 +1128,6 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let stillMessages = MessageCounts()
         let still = await sample(stillMessages)
         let stillRenders = h.pet.stats.renders - r0
-        // Animated: the FIXTURE GIF of 40 x 0.05 s at Power saver's floor (0.4 s: 2.5 frames a second), "Show animations" on.
-        h.animations = true
-        if let w { _ = SendMessageW(w.hwnd, 0x001A /* WM_SETTINGCHANGE */, 0x1043 /* SPI_SETCLIENTAREAANIMATION */, 0) }
-        let armed = await WindowsSelftest.waitUntil(timeout: 2) { h.window?.playback.clock.isArmed == true }
-        let r1 = h.pet.stats.renders
-        let animated = await sample()
-        let movingRenders = h.pet.stats.renders - r1
         // Hidden: the displays asleep (the Mac's `sync`): the window and all it had go at once.
         let playback = w?.playback
         h.asleep = true
@@ -1099,6 +1136,24 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         let gone = h.window == nil && left == 0 && WinSinkWindow.liveCount == live0 && playback?.released == true && playback?.clock.isArmed == false
         let hiddenMessages = MessageCounts()
         let hidden = await sample(hiddenMessages)
+        // Animated: a raised sample (`midLevel`, not a fresh hatch: in a bundled app a hatch warms its sprites and names over the
+        // network) with the FIXTURE GIF of 40 x 0.05 s at Power saver's floor (0.4 s: 2.5 frames a second); Windows' "Show
+        // animations" is off on the runner, which stops no GIF of the pet (FloatingPetMotion).
+        let saved = WinFloatingPet.spriteFetcherOverride
+        WinFloatingPet.spriteFetcherOverride = gifFixture(count: 40, delay: 0.05)
+        defer { WinFloatingPet.spriteFetcherOverride = saved }
+        let m = await PetHarness.make(.midLevel, saved: spot) {
+            $0.asleep = true
+            $0.animations = WinSpriteAnimator.systemAnimationsEnabled()
+        }
+        defer { m.destroy() }
+        m.asleep = false
+        m.pet.sync()
+        _ = await m.waitShown()
+        let armed = await WindowsSelftest.waitUntil(timeout: 2) { m.window?.playback.clock.isArmed == true }
+        let r1 = m.pet.stats.renders
+        let animated = await sample()
+        let movingRenders = m.pet.stats.renders - r1
         guard let still, let animated, let hidden else {
             r.add("pet.idle", false, "measurement failed (shown=\(shown))")
             return
@@ -1119,10 +1174,10 @@ private struct PetGifFetcher: PlazaSpriteFetching {
                 + "(\(UInt64(Double(s.processCycles) / seconds))/s), known wakes \(w.known) (+\(w.extra)), busy [\(s.busy)]"
         }
         r.add("pet.idle", stillOK && animatedOK && hiddenOK,
-              "\(Int(seconds)) s each, one pet shown and hidden by the displays' state, after \(String(format: "%.0f", settled)) s of settling; the pointer was over "
+              "\(Int(seconds)) s each, an egg shown and hidden by the displays' state, then a raised sample animated, after \(String(format: "%.0f", settled)) s of settling; the pointer was over "
               + "\(underCursor), parked at \(park.x),\(park.y) over \(parkedOver). "
-              + "still (\"Show animations\" off): shown=\(shown) clock armed=\(armedStill), \(stillRenders) renders, \(line(still)) messages [\(stillMessages.top)] (net <= 6)=\(stillOK); "
-              + "animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps): clock armed=\(armed), \(movingRenders) renders, \(line(animated)) "
+              + "still (an egg): shown=\(shown) clock armed=\(armedStill), \(stillRenders) renders, \(line(still)) messages [\(stillMessages.top)] (net <= 6)=\(stillOK); "
+              + "animated (FIXTURE 40 x 0.05 s at Power saver = \(frameRate) fps, Windows' \"Show animations\" \(WinSpriteAnimator.systemAnimationsEnabled() ? "on" : "off")): clock armed=\(armed), \(movingRenders) renders, \(line(animated)) "
               + "(net <= \(Int((frameRate + 2) * seconds)), renders >= \(Int(frameRate * seconds * 0.7)))=\(animatedOK); "
               + "hidden: nothing left=\(gone) (pet windows \(left), windows \(live0) -> \(WinSinkWindow.liveCount), playback released=\(playback?.released == true)), \(line(hidden)) messages [\(hiddenMessages.top)] "
               + "(against still: net <= \(max(0, still.mainNet) + 3), process cs <= \(still.processSwitches + 10), cycles <= \(still.sample.processCycles + 4_000_000))=\(hiddenOK)")
@@ -1206,8 +1261,9 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     private static var idleProbe: PetHarness?
 
     /// The installed app with the gate's settings, and one pet over sample stores (the app's own pet stays off): `still` an egg,
-    /// `animated` the raised sample's (Ivysaur) FIXTURE GIF at the stored animation quality (default Power saver) with Windows' "Show
-    /// animations" taken as on (the runner has it off), `hidden` a pet shown for 3 s and turned off.
+    /// `animated` the raised sample's (Ivysaur) FIXTURE GIF at the stored animation quality (default Power saver), with Windows'
+    /// "Show animations" as the machine has it (off on the runner: it stops no GIF of the pet, `FloatingPetMotion`), `hidden` a
+    /// pet shown for 3 s and turned off.
     static func startIdleProbe(mode: String) {
         guard WindowsSelftest.onCI else {
             AppLog.write("pet idle probe: CI not set; nothing shown")
@@ -1216,7 +1272,9 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         WinFloatingPet.spriteFetcherOverride = WindowsSelftestPopoverCompanion.fixtureFetcher()
         Task { @MainActor in
             await wait(3)
-            let h = await PetHarness.make(mode == "still" ? .eggIncubating : .midLevel)   // not a fresh hatch: no network warm-up in the window
+            let h = await PetHarness.make(mode == "still" ? .eggIncubating : .midLevel) {   // not a fresh hatch: no network warm-up in the window
+                $0.animations = WinSpriteAnimator.systemAnimationsEnabled()
+            }
             idleProbe = h
             let shown = await h.waitShown()
             if mode == "hidden" {
@@ -1226,6 +1284,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             }
             let model = h.window?.playback.models.first
             AppLog.write("pet idle probe: mode=\(mode) shown=\(shown) window=\(h.window != nil) picture=\(model?.current == nil ? "none" : "loaded") gif frames=\(model?.frames.count ?? 0) "
+                         + "show animations=\(WinSpriteAnimator.systemAnimationsEnabled()) "
                          + "floor=\(h.window?.playback.frameFloor ?? -1) clock armed=\(h.window?.playback.clock.isArmed == true) \(KitResources.now())")
         }
     }

@@ -16,8 +16,9 @@ import WinSDK
 /// transparent pixel lets the click through to the window below (the Mac's transparent panel does the same).
 ///
 /// Idle: hidden (the setting off, or the displays asleep, as the Mac's `sync`) leaves no window, timer, bitmap or
-/// registration. Shown with a still picture (the egg, a sprite without a GIF, battery saver, Windows' "Show animations" off,
-/// the session locked) it has no timer and draws only when what it shows changes. Shown animating, the shared sprite clock
+/// registration. Shown with a still picture (the egg, a sprite without a GIF, battery saver, the session locked) it has no
+/// timer and draws only when what it shows changes. Windows' "Show animations" off does not stop the GIF (`FloatingPetMotion`:
+/// the Mac's Reduce Motion stops only the bob and the run; user ruling 2026-11-18). Shown animating, the shared sprite clock
 /// (`PopoverSpritePlayback`, one one-shot `Timer(fire:)`) wakes once per frame of the GIF decimated to the animation-quality
 /// floor (`PopoverSpriteFrameCap`, the Mac's `capFrameRate`), and each frame is one `UpdateLayeredWindow` of a premultiplied
 /// DIB (the frames are scaled once and kept, within `WinPetWindow.scaledBudget`).
@@ -29,6 +30,8 @@ import WinSDK
         var dpiDeferred = 0, dpiIgnored = 0
         /// The foreground given back after the pet's menu, and frames scaled again because the kept ones filled the budget.
         var foregroundRestores = 0, scaledUncached = 0
+        /// Presses that closed the open popover (`FloatingPetPopoverPress`).
+        var popoverClosesOnPress = 0
     }
 
     /// The app's pet, made at launch (the selftest and the idle probe read it).
@@ -47,6 +50,10 @@ import WinSDK
     /// The window the pet's menu belongs to (the app's hidden sink, as the tray menu's): the menu takes the foreground there,
     /// the Mac's `NSApp.activate` before its context menu.
     var menuOwner: () -> HWND? = { nil }
+    /// The popover is open, and closing it as an outside press does (the Mac's transient popover; `FloatingPetPopoverPress`).
+    var popoverIsOpen: () -> Bool = { false }
+    var closePopover: () -> Void = {}
+    /// Windows' "Show animations" (the Mac's Reduce Motion, inverted): stops the pet's motion, not its GIF (`FloatingPetMotion`).
     var animationsEnabled: () -> Bool = { WinSpriteAnimator.systemAnimationsEnabled() }
     /// Battery saver (the Mac's Low Power Mode): the still sprite.
     var lowPower: () -> Bool = { WinFloatingPet.batterySaverOn() }
@@ -61,6 +68,8 @@ import WinSDK
     var onPointerMove: ((CGPoint) -> Void)?
 
     fileprivate(set) var stats = Stats()
+    /// The last press on the pet and whether it closed the popover.
+    fileprivate var press = FloatingPetPopoverPress()
     private(set) var model: FloatingPetModel?
     private(set) var window: WinPetWindow?
     private var generation = 0
@@ -74,6 +83,10 @@ import WinSDK
         self.defaults = defaults
         actions = FloatingPetActions(store: store, companion: companion, openPopover: openPopover)
         configure(self)
+        actions.clickMayOpen = { [weak self] in
+            guard let self else { return true }
+            return self.press.clickOpens(popoverOpen: self.popoverIsOpen())
+        }
         observe()
         sync()
     }
@@ -89,16 +102,13 @@ import WinSDK
 
     private static var installedSystemHandlers = false
 
-    /// What the app's pet asks of the popover: a click on a hatched pet opens it, or closes it when it is open (the Mac's
-    /// transient popover closes on that click: `AppDelegate.openPopover`'s comment); the menu's Open always opens it (a close
-    /// still pending from the menu taking the foreground runs first, inside `present`).
+    /// What the app's pet asks of the popover: a click on a hatched pet opens it, nothing when it is open (the Mac's
+    /// `AppDelegate.openPopover` guard; the press already closed an open one: `FloatingPetPopoverPress`); the menu's Open always
+    /// opens it (a close still pending from the menu taking the foreground runs first, inside `present`).
     static func openPopover(_ popover: WinPopover?, _ opener: FloatingPetActions.Opener) {
         guard let popover else { return }
-        if opener == .click, popover.isOpen {
-            popover.close(.deactivated)
-        } else {
-            popover.present(.pet) { _ in }
-        }
+        if opener == .click, popover.isOpen { return }
+        popover.present(.pet) { _ in }
     }
 
     /// Shows, updates or hides the window for the settings now (the Mac's `sync`). Nothing changes when nothing did.
@@ -315,7 +325,7 @@ import WinSDK
         guard !isDestroyed else { return }
         let resized = !first && next.petSize != model.petSize
         model = next
-        playback.animationsEnabled = pet?.animationsEnabled() ?? true
+        playback.animationsEnabled = gifPlays
         playback.frameFloor = next.frameFloor
         playback.update(slots: [SpriteSlot(frame: CGRect(x: 0, y: 0, width: next.petSize, height: next.petSize), subject: next.subject,
                                            bob: false, animated: next.animated)])
@@ -328,9 +338,15 @@ import WinSDK
         !isDestroyed && IsWindowVisible(hwnd) && !(pet?.displayAsleep() ?? true) && !locked && !disconnected
     }
 
+    /// The GIF plays unless battery saver is on (`model.animated`); Windows' "Show animations" is Reduce Motion's input, which
+    /// stops only motion (`FloatingPetMotion`; the pet has none of its own until Task 23).
+    private var gifPlays: Bool {
+        FloatingPetMotion.gates(lowPower: !model.animated, reduceMotion: !(pet?.animationsEnabled() ?? true)).gif
+    }
+
     func refreshActivity() {
         guard !isDestroyed else { return }
-        let enabled = pet?.animationsEnabled() ?? true
+        let enabled = gifPlays
         if playback.animationsEnabled != enabled {
             playback.animationsEnabled = enabled
             render()
@@ -472,9 +488,15 @@ import WinSDK
     }
 
     private func buttonDown(_ lParam: LPARAM) {
-        guard !isDestroyed, !inMenu else { return }
+        guard !isDestroyed, !inMenu, let pet else { return }
         _ = SetCapture(hwnd)
         pointer.down(at: screenPoint(lParam), windowOrigin: origin)
+        // An open popover closes on the press, as the Mac's transient popover on any press outside it (a prayer or a drag
+        // leaves it closed; the click that closed it does not open it again: `FloatingPetActions.clickMayOpen`).
+        if pet.press.press(popoverOpen: pet.popoverIsOpen()) {
+            pet.stats.popoverClosesOnPress += 1
+            pet.closePopover()
+        }
     }
 
     private func mouseMoved(_ lParam: LPARAM) {

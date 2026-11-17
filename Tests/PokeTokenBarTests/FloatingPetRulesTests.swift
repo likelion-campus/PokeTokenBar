@@ -269,6 +269,77 @@ final class FloatingPetRulesTests: XCTestCase {
         XCTAssertNil(mon.state.eggPrayers, "a hatched pet is not prayed over")
     }
 
+    /// A press with the popover open, as the Mac's transient popover: the press closes it, and the click that closed it does not
+    /// open it again (`openPopover`'s guard). `pressAndRelease` is the window's order: the press, then the click (if any).
+    func testAPressClosesTheOpenPopoverAndTheClickThatClosedItDoesNotReopenIt() async {
+        final class Host {
+            var open: Bool
+            var opened: [FloatingPetActions.Opener] = [], closes = 0
+            var press = FloatingPetPopoverPress()
+            init(open: Bool) { self.open = open }
+            func pressed() { if press.press(popoverOpen: open) { open = false; closes += 1 } }
+        }
+        func pet(_ sample: CompanionHeaderSample, popoverOpen: Bool) async -> (FloatingPetActions, Host, CompanionStore) {
+            let (store, companion, _) = await stores(sample)
+            let host = Host(open: popoverOpen)
+            let a = FloatingPetActions(store: store, companion: companion, openPopover: { opener in
+                host.opened.append(opener)
+                host.open = true
+            })
+            a.clickMayOpen = { host.press.clickOpens(popoverOpen: host.open) }
+            return (a, host, companion)
+        }
+        // An egg clicked with the popover open: it closes, the egg is prayed over, it stays closed.
+        let (eggPet, eggHost, egg) = await pet(.eggIncubating, popoverOpen: true)
+        eggHost.pressed()
+        eggPet.petClicked()
+        XCTAssertEqual(egg.state.eggPrayers?.count, 1)
+        XCTAssertEqual(eggHost.closes, 1)
+        XCTAssertFalse(eggHost.open, "a prayer leaves the popover closed")
+        XCTAssertEqual(eggHost.opened, [])
+        // A drag with the popover open: the press closes it, the release is no click.
+        let (_, dragHost, _) = await pet(.hatched, popoverOpen: true)
+        dragHost.pressed()
+        XCTAssertEqual(dragHost.closes, 1)
+        XCTAssertFalse(dragHost.open)
+        // A hatched pet clicked with the popover open: closed by the press, not opened again by the click.
+        let (monPet, monHost, _) = await pet(.hatched, popoverOpen: true)
+        monHost.pressed()
+        monPet.petClicked()
+        XCTAssertEqual(monHost.closes, 1)
+        XCTAssertFalse(monHost.open, "the click that closed it does not reopen it")
+        XCTAssertEqual(monHost.opened, [])
+        XCTAssertEqual(monPet.opens, 0)
+        // A hatched pet clicked with the popover closed: it opens.
+        let (shut, shutHost, _) = await pet(.hatched, popoverOpen: false)
+        shutHost.pressed()
+        shut.petClicked()
+        XCTAssertEqual(shutHost.closes, 0)
+        XCTAssertTrue(shutHost.open)
+        XCTAssertEqual(shutHost.opened, [.click])
+        // The next click after that opened it: the popover is open, so the press closes it again (a toggle, as on the Mac).
+        shutHost.pressed()
+        shut.petClicked()
+        XCTAssertFalse(shutHost.open)
+        XCTAssertEqual(shutHost.opened, [.click])
+        // The menu's Open is not a click: it is never held back.
+        shut.perform(.open)
+        XCTAssertEqual(shutHost.opened, [.click, .menu])
+    }
+
+    func testReduceMotionStopsTheMotionNotTheGIFAndBatterySaverStopsBoth() async {
+        XCTAssertEqual(FloatingPetMotion.gates(lowPower: false, reduceMotion: true), .init(gif: true, motion: false),
+                       "Windows' Show animations off / the Mac's Reduce Motion: the GIF plays, the bob and the run stop")
+        XCTAssertEqual(FloatingPetMotion.gates(lowPower: false, reduceMotion: false), .init(gif: true, motion: true))
+        XCTAssertEqual(FloatingPetMotion.gates(lowPower: true, reduceMotion: false), .init(gif: false, motion: false),
+                       "battery saver / Low Power Mode: the still sprite")
+        XCTAssertEqual(FloatingPetMotion.gates(lowPower: true, reduceMotion: true), .init(gif: false, motion: false))
+        let (store, mon, _) = await stores(.hatched)
+        store.floatingPetEnabled = true
+        XCTAssertEqual(FloatingPetModel.make(store: store, companion: mon, displayAwake: true, lowPower: false).animated,
+                       FloatingPetMotion.gates(lowPower: false, reduceMotion: true).gif, "the model's GIF is the gate's, with no Reduce Motion input")
+    }
+
     func testTheMenuHidesAndTurnsTheBackViewAsTheMacsDoes() async {
         let (store, mon, _) = await stores(.hatched)
         store.floatingPetEnabled = true

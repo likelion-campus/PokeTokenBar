@@ -20,8 +20,8 @@ made on the CI runner; provenance in `assets/windows/SHOTS.txt`). Sources of thi
 tasks and `parity-report.md` in the Windows port ledger.
 
 Last reviewed against: the popover with Home, Settings, Recap, Shop, Bag, Collection and the Pokémon detail page, dark mode
-and high contrast, the in-app update and the installer. **Owed when they land:** the floating pet and its bubbles (see the
-end).
+and high contrast, the in-app update, the installer and the floating pet. **Owed when they land:** the pet's bubbles (see
+the end).
 
 ## Approved by the user
 
@@ -96,6 +96,15 @@ end).
 | `~/Library/Application Support/PokeTokenBar` | `%LOCALAPPDATA%\PokeTokenBar` (state, settings, logs); kept by Uninstall |
 | Gatekeeper warning on first open | SmartScreen warning on first run |
 
+## The floating pet (stage 7 Task 22; its bubbles, hearts, agent activity and run come with Task 23)
+
+| Difference | Reason |
+|---|---|
+| A saved place whose monitor is gone shows the pet in the default corner and is kept; the pet returns when the monitor does (the Mac saves the corner) | user ruling 2026-11-18: a monitor away for a moment (a dock, a projector) must not lose the place |
+| A move onto a monitor of another scale keeps the pet's size until the drag ends, then takes the new size; otherwise it goes where Windows suggests | Windows only: per-monitor DPI (the Mac's points are the same on every screen); growing in place at a mixed-DPI edge could flip sizes without end |
+| After the pet's right-click menu (Escape, Back view, Turn off) the window that had the keyboard gets it back | the pet never takes the foreground, but a Win32 menu must; the Mac leaves the app active |
+| Large sizes are scaled by the app (the shared smooth filter): at 192 and 384 slightly crisper than the Mac | a layered window takes finished pixels; Core Animation scales on the Mac |
+
 ## The plaza on the Mac changed too
 
 Because the HUD panels are shared (stage 6, decision of 2026-11-15), Mac users see: no elastic scroll at the ends; a drawn
@@ -105,8 +114,9 @@ differently; the roster's icons bounce together on one beat; card rarity colours
 
 ## Not on Windows yet (owed)
 
-- **Floating pet** (`feat/windows-floating-pet`) and its **speech bubbles**: when they land, add their differences here, flip
-  the "not yet" sentences in `TEAM.md` and the three READMEs, and add captures to `assets/windows/SHOT-LIST.txt`.
+- **Floating pet speech bubbles**, hearts, prayer emoji, agent activity and the run to the cursor (Task 23). The pet itself
+  landed (stage 7 Task 22, differences above); still owed with it: the "not yet" sentences in `TEAM.md` and the three
+  READMEs, and its captures in `assets/windows/SHOT-LIST.txt`.
 - **ARM64 native build** (the x64 build runs under emulation on Windows 11 on ARM, untested); **Windows 10** is untested.
 - **Code signing:** the installer and the app are unsigned; SmartScreen warns on first run.
 - **Captures owed:** tray menu with an update offer, the Setup welcome page, dark and high-contrast popover pages, Settings in

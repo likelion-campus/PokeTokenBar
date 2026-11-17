@@ -490,14 +490,17 @@ extension WindowsAppDelegate {
 // --- stage 7 Task 22: the floating pet (begin) ---
 extension WindowsAppDelegate {
     /// The floating pet (the Mac's `FloatingPetController` made in `applicationDidFinishLaunching`): it shows itself while
-    /// `store.floatingPetEnabled` is on. A click on a hatched pet opens the popover, or closes it when it is open (the Mac's
-    /// transient popover closes on that click); the menu's Open always opens it. The pet goes below an open popover.
+    /// `store.floatingPetEnabled` is on. A press on the pet closes an open popover (the Mac's transient popover closes on any
+    /// press outside it) and a click on a hatched pet opens a closed one; the menu's Open always opens it. The pet goes below
+    /// an open popover.
     fileprivate func makeFloatingPet() {
         let pet = WinFloatingPet(store: store, companion: companion, defaults: defaults, openPopover: { [weak self] opener in
             WinFloatingPet.openPopover(self?.popover, opener)
         }, configure: { [weak self] pet in
             pet.popoverWindow = { [weak self] in self?.popover?.hwnd }
             pet.menuOwner = { [weak self] in self?.sink?.hwnd }
+            pet.popoverIsOpen = { [weak self] in self?.popover?.isOpen == true }
+            pet.closePopover = { [weak self] in self?.popover?.close(.deactivated) }
         })
         WinFloatingPet.install(pet)
     }

@@ -307,6 +307,43 @@ struct FloatingPetPointer: Equatable {
     }
 }
 
+/// What stops the pet (user ruling 2026-11-18: the floating pet follows the Mac). The Mac's `FloatingPetView` hands its
+/// `SpriteView` `animated: shouldAnimate(lowPower:)` with no Reduce Motion in it, and Reduce Motion gates only the bob and
+/// the run (`allowsMotion`). So Windows' "Show animations" off (the Reduce Motion counterpart) leaves the GIF playing; only
+/// battery saver (Low Power Mode) shows the still sprite. The popover's sprites keep Windows' approved rule (still with
+/// animations off, `WinSpriteAnimator`); this is the pet's alone.
+enum FloatingPetMotion {
+    struct Gates: Equatable {
+        /// The GIF plays (else the still sprite).
+        var gif: Bool
+        /// The bob and the run may move the pet (Task 23's).
+        var motion: Bool
+    }
+
+    static func gates(lowPower: Bool, reduceMotion: Bool) -> Gates {
+        let animated = FloatingPetRules.shouldAnimate(lowPower: lowPower)
+        return Gates(gif: animated, motion: FloatingPetRules.allowsMotion(animated: animated, reduceMotion: reduceMotion))
+    }
+}
+
+/// A press on the pet while the popover is open (user ruling 2026-11-18: as the Mac). The Mac's popover is `.transient`:
+/// any press outside it, the pet's included, closes it, so a prayer or a drag leaves it closed; and `AppDelegate.openPopover`
+/// opens nothing while the popover is still shown (dismissing), so the click on a hatched pet that closed it does not open
+/// it again. On Windows the pet never takes the activation, so nothing closes the popover by itself: the press does.
+struct FloatingPetPopoverPress: Equatable {
+    /// The last press closed the open popover.
+    private(set) var closedIt = false
+
+    /// The button goes down on the pet (a click or the start of a drag): true = close the popover now.
+    mutating func press(popoverOpen: Bool) -> Bool {
+        closedIt = popoverOpen
+        return popoverOpen
+    }
+
+    /// The release's click asks for the popover (`Opener.click`): whether it opens (`openPopover`'s guard).
+    func clickOpens(popoverOpen: Bool) -> Bool { !closedIt && !popoverOpen }
+}
+
 /// Windows' `WM_DPICHANGED` on the pet's window (Task 22 review; the Mac's panel has no DPI of its own: a point is a point on
 /// every screen). Growing in place at a mixed-DPI boundary could carry most of the window onto the other monitor and back,
 /// a size flip without end, and mid-drag the window would jump off the grab point; so a drag keeps the size until the
@@ -408,8 +445,9 @@ struct FloatingPetModel: Equatable {
 
 /// What the pet's clicks and its menu do (`FloatingPetController.petClicked`, `openPopover`, `PetHostingView.handleOpen` /
 /// `handleHide` / `handleToggleBackView`, the app's `onHide`): shared, so both systems test it. `openPopover` is the host's
-/// (the Mac's `AppDelegate.openPopover`: nothing when it is open; on Windows, a click on the pet while the popover is open
-/// closes it, as the Mac's transient popover closes on that click). Task 23 adds the agent bubble's dismissal in front.
+/// (the Mac's `AppDelegate.openPopover`: nothing when it is open). On Windows the press on the pet closes an open popover
+/// (`FloatingPetPopoverPress`, the Mac's transient close) and `clickMayOpen` keeps that click from opening it again. Task 23
+/// adds the agent bubble's dismissal in front.
 @MainActor final class FloatingPetActions {
     /// Who asks for the popover: a click on a hatched pet, or the menu's Open (which always opens).
     enum Opener: Equatable { case click, menu }
@@ -421,6 +459,9 @@ struct FloatingPetModel: Equatable {
     var spawnEmoji: () -> Void = {}
     var didPray: () -> Void = {}
     private(set) var clicks = 0, prayers = 0, opens = 0
+    /// Whether a click may open the popover now (`FloatingPetPopoverPress.clickOpens`: not when the same press closed it). The
+    /// host's; the menu's Open is not asked.
+    var clickMayOpen: () -> Bool = { true }
 
     private lazy var router = PopoverPetClickRouter(
         pray: { [weak self] in self?.companion.pray() },
@@ -463,6 +504,7 @@ struct FloatingPetModel: Equatable {
     }
 
     private func open(_ opener: Opener) {
+        if opener == .click, !clickMayOpen() { return }
         opens += 1
         openPopover(opener)
     }
