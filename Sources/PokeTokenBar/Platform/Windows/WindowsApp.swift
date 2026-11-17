@@ -94,7 +94,10 @@ public enum WindowsApp {
             WindowsSelftestPopoverWindow.startIdleProbe(app, mode: i + 1 < arguments.count ? arguments[i + 1] : "open")
         }
         if WakeTrace.enabled {  // the gate measures from about +30 s: a snapshot just before it, one at exit
-            DispatchQueue.main.asyncAfter(deadline: .now() + 28) { AppLog.write(WakeTrace.snapshot("start", loops: WinMainLoop.iterations)) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 28) {
+                AppLog.write(WakeTrace.snapshot("start", loops: WinMainLoop.iterations))
+                AppLog.write(WinHTTPFetch.trace.snapshot("start"))  // the worker threads' fetches (run 44143290510)
+            }
         }
         WindowsSelftestUpdate.start(arguments)  // stage 8 Task 6: "Update" as the tray item does it, under the CI-only flags
         WinMainLoop.run(app.loopStrategy) { false }
@@ -126,7 +129,10 @@ extension WindowsApp {
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
         let began = Date()
         WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
-        if WakeTrace.enabled { AppLog.write(WakeTrace.snapshot("exit", loops: WinMainLoop.iterations)) }  // the idle gate's attribution
+        if WakeTrace.enabled {  // the idle gate's attribution
+            AppLog.write(WakeTrace.snapshot("exit", loops: WinMainLoop.iterations))
+            AppLog.write(WinHTTPFetch.trace.snapshot("exit"))
+        }
         if let line = WindowsSelftestPopoverWindow.idleProbeExitLine() { AppLog.write(line) }  // stage 7 Task 4: the idle gate's popover state at exit
         popoverToClose?.close(.quit)  // stage 7 Task 4
         WinDefaultsSync.flushNow()

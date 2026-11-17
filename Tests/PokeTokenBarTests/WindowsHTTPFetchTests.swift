@@ -1,6 +1,7 @@
 #if os(Windows)
 import XCTest
 import FoundationNetworking
+import WinSDK
 @testable import PokeTokenBar
 
 /// `WinHTTPFetch` and the Windows branch of `PlatformCompat.oneShotData` against the in-process loopback server (no network).
@@ -368,6 +369,51 @@ final class WindowsHTTPFetchTests: XCTestCase {
         XCTAssertLessThanOrEqual(peak, WinHTTPFetch.maxConcurrentFetches)
         XCTAssertLessThan(cancelledIn, 0.5)
         XCTAssertEqual(statuses, Array(repeating: 200, count: 12))
+    }
+
+    // MARK: handles (run 44143290510: the base index's 649 REST fetches kept about 600)
+
+    private func handleCount() -> Int {
+        var count: DWORD = 0
+        XCTAssertTrue(GetProcessHandleCount(GetCurrentProcess(), &count))
+        return Int(count)
+    }
+
+    private func settledHandleCount() async throws -> Int {
+        try await Task.sleep(nanoseconds: 500_000_000)
+        return handleCount()
+    }
+
+    /// 100 bodies, each on a thread `start` makes, all returned.
+    private func hundredThreads(_ start: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void) async {
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<100 { group.addTask { await withCheckedContinuation { c in start { c.resume() } } } }
+        }
+    }
+
+    /// Every fetch runs on a thread of its own. `Foundation.Thread` on Windows never closes its thread's handle (the control: 100
+    /// threads that only return keep about 100 handles). 100 fetches on one session take the whole fetch path (gate, worker
+    /// thread, timer, connection, request) except opening and closing a session: they must keep none (with `Foundation.Thread`
+    /// workers, 100). A session per fetch (the app's way) holds about 2 more handles per fetch for 45-60 s after it closes,
+    /// then WinHTTP lets them go (run 44168716060, 100 fetches: +200 until 45 s, +47 at 60 s on the system-proxy route, +89 at
+    /// 60 s and +74 at 75 s direct), so it is not bounded here.
+    func testTheFetchWorkersKeepNoHandleWhereFoundationThreadsKeepOneEach() async throws {
+        let url = try XCTUnwrap(URL(string: try base() + "/delay/0"))
+        _ = await WinHTTPFetch.batchDiagnostic(Array(repeating: url, count: 5), concurrency: 1, oneSession: true)  // one-time handles
+        let before = try await settledHandleCount()
+        let batch = await WinHTTPFetch.batchDiagnostic(Array(repeating: url, count: 100), concurrency: 1, oneSession: true)
+        let afterBatch = try await settledHandleCount()
+        await hundredThreads { body in Thread { body() }.start() }
+        let afterThreads = try await settledHandleCount()
+        await hundredThreads { body in XCTAssertTrue(WinDetachedThread.start(body)) }
+        let afterDetached = try await settledHandleCount()
+        print("HANDLES before \(before), after 100 fetches on one session \(afterBatch) (\(batch)), "
+              + "after 100 Foundation threads \(afterThreads), after 100 detached threads \(afterDetached)")
+        XCTAssertTrue(batch.contains(", 0 failed,"), batch)
+        XCTAssertLessThan(afterBatch - before, 20, "the fetches' workers kept handles")
+        XCTAssertGreaterThanOrEqual(afterThreads - afterBatch, 90,
+                                    "control: Foundation.Thread kept no handle; if corelibs closes it now, WinDetachedThread can go")
+        XCTAssertLessThan(afterDetached - afterThreads, 10, "WinDetachedThread kept handles")
     }
 
     /// Item 9 of the review: per-fetch sessions against one session for a batch (time, connections). Printed, not a bound.

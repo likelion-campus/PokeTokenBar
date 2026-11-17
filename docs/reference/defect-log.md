@@ -2984,3 +2984,59 @@ read_when:
   **왜 못 걸렀나:** #270 브랜치의 full 런은 통과했다(그 런의 대화상자 점검에서는 그런 메시지가 오지 않았거나 순서가 달랐다 — 확인 못 함). `windows-port` 와 합친 트리는 `windows.yml`(컴파일·단위 시험)만 돌리고 머지했는데, 그 워크플로는 셀프테스트를 돌리지 않는다. 메시지 경로를 건드리는 변경인데 "CI 변경"으로 분류해 앱 런을 생략했다(리드의 판단 실수).
   **부류 스윕:** `Platform/Windows/**` 의 `Int(wParam)`/`Int(m.pointee.wParam)` 전수 — `WinPopover`(세션 변경 코드), `WinControls`(가상 키)는 메시지별 작은 값이라 안전. `LPARAM` 은 부호 있는 64비트라 `Int(lParam)` 은 트랩하지 않는다.
   **고침:** `Int(truncatingIfNeeded:)`, 그리고 추적이 꺼져 있으면 호출 자체를 하지 않는다. **규칙:** 메시지 파라미터를 정수로 바꿀 땐 `truncatingIfNeeded`/`bitPattern` 만 쓴다. 메시지 펌프·훅·창 프로시저를 건드리는 변경은 이름이 무엇이든 *합친 트리*에서 앱 런(셀프테스트)을 돌린 뒤에만 머지한다.
+
+<!-- idle blow-up (fix/windows-idle-blowup) begin -->
+## 윈도 HTTP 이음매: 클라이언트 인증서 요청과 스레드 핸들 (run 44143290510, 2026-11-17)
+
+- **윈도에서는 부화 base 인덱스를 GraphQL 로 한 번도 받지 못했다. 그 대신 돈 REST 649 회가 유휴 게이트 창 셋을 채웠고, 페치마다 스레드 핸들이 하나씩 남았다.**
+  **증상:** `windows-port` 2e1397c3 의 full run 44143290510 에서 유휴 게이트 shard 3 이 세 창 연달아 실패했다. `popover-home-still-120s` 는 67.4 M 사이클/s(예산 450 k),
+  10,673 cs/분(예산 250), 핸들 669→1173(+504, 예산 +10). bars 는 52.6 M·+358, heatmap 은 44.0 M·+142. 주 스레드는 조용했고(cs 4) 일한 것은
+  `com.apple.root.user-initiated-qos` 넷과 스레드 풀(`ntdll.dll+0x845d0`)이었다. 바로 다음 창 recap 은 정상(227 k·117 cs/분). 같은 시각 다른 브랜치의 run 44144033804 는
+  shard 1·2 가 같은 모양으로 실패했다.
+  **무엇이 돌았나(앱 로그):** 기동할 때마다 `base index (GraphQL) failed, no cache — REST build triggered … WinHttpSendRequest failed: WinHTTP error 12044` 뒤에
+  `base index: building via REST` 가 찍혔다(`PokeAPIClient.buildBaseIndexViaREST`: pokemon-species 1–649 를 6 개씩, 페치마다 새 WinHTTP 세션·TLS·자기 스레드, 그리고 응답 JSON 디코드).
+  끝나야만 `base-index.json` 을 쓰므로, 창이 닫히면 다음 기동이 1 번부터 다시 했다. 워밍업(60 s)·home·bars(각 150 s)는 모두 끝내지 못했고, heatmap 기동 48 s 째(창 18 s 째)에
+  끝났다. recap 부터는 디스크에서 읽어 페치가 0 이었다. 초록 run 44112168764 도 같은 12044 를 맞았지만 같은 빌드가 10 s 만에(15:45:51→15:46:01) 워밍업 안에서 끝났다.
+  실패한 run 의 shard 1·2 도 18:19 에 10 s 였다. 다른 것은 shard 3 러너에서 PokeAPI REST 가 5–15 배 느렸다는 것 하나다(150 s 에 약 640 페치, 대 10 s 에 649).
+  코드·빌드(swift-crypto 3.15.1, 앱 2.5.634, 러너 이미지 20261103.298.1 동일)·게이트는 바뀌지 않았다.
+  **원인 ①(12044):** graphql.pokeapi.co(Cloudflare)는 모든 클라이언트에 선택적 클라이언트 인증서를 요청한다(TLS CertificateRequest. `openssl s_client` 에
+  "Acceptable client certificate CA names: … Cloudflare … Managed CA" 가 나온다). curl 과 맥 URLSession 은 인증서 없이 계속 진행해 200 을 받는다(curl 0.8 s).
+  WinHTTP 는 거기서 `ERROR_WINHTTP_CLIENT_AUTH_CERT_NEEDED` 로 멈춘다. 문서에 나온 처리(`WINHTTP_OPTION_CLIENT_CERT_CONTEXT` = `WINHTTP_NO_CLIENT_CERT_CONTEXT` 를 걸고 다시 보내기)를
+  이음매가 하지 않아 그대로 오류가 됐다. 그래서 `base-index.json` 이 없는 윈도 설치본은 늘 649 페치 REST 폴백을 탔다. 2026-11-15 100cc1de 에서 PokeAPI 가 이음매로 옮겨진 뒤의
+  모든 키트(pc-5…pc-9)가 그렇다.
+  **원인 ②(핸들):** 이음매는 페치마다 `Foundation.Thread` 를 시작했다. 윈도의 corelibs `Thread` 는 `_beginthreadex` 핸들을 `_thread` 에 담아 두고 닫지 않는다
+  (swift-corelibs-foundation `Thread.swift`, swift-6.3.2-RELEASE·main 모두 `CloseHandle` 도 `deinit` 도 없다). 그래서 페치 하나마다 핸들 하나와 끝난 스레드의 커널 객체 하나가
+  프로세스가 끝날 때까지 남았다. heatmap 창은 빌드가 끝난 뒤에도 핸들이 1080 에 머물렀다(정상은 약 430). 평소의 갱신 페치(상태 확인·한도 등)도 페치 수만큼 핸들을 쌓았다.
+  **왜 못 걸렀나:** ① 이음매 테스트는 모두 루프백 HTTP 서버를 썼다. TLS 핸드셰이크를 거치는 서버가 없었고, CertificateRequest 를 보내는 서버는 더더욱 없었다. 넷버스트의
+  'PokeAPI REST·GraphQL' 요청 모양도 루프백에서만 쟀다. 실제 호스트의 12044 는 매 run 의 앱 로그에 찍혀 있었지만, 실패 줄이 아니라 폴백 안내였기에 아무 검사도 보지 않았다.
+  ② 유휴 게이트는 첫 실행의 네트워크 일을 60 s 워밍업이 흡수한다고 가정했다. 그 일의 양(649 페치)과 걸리는 시간은 외부 서버 속도에 달렸는데, 끝났는지 확인하지 않았다.
+  빠른 러너에서는 그 일이 늘 숨었다. ③ 핸들 예산(+10)은 창 안에서 페치가 없으면 잡을 것이 없다. 정상 창에서는 기동 후 30 s 안에 페치가 끝나 그 핸들이 시작값에 들어갔다.
+  스레드 하나가 핸들 하나를 남기는지 세는 테스트도 없었다.
+  **고침:** `WinHTTPFetch.send` 는 송신이나 수신이 12044 로 멈추면 그 요청에 `WINHTTP_NO_CLIENT_CERT_CONTEXT` 를 걸고 한 번 다시 보낸다. 사용자의 인증서는 어떤 경우에도
+  내지 않으며, 인증서를 반드시 요구하는 서버에서는 그대로 실패한다. 페치의 작업 스레드는 `WinDetachedThread` 로 만든다(`CreateThread` 직후 `CloseHandle`. 스레드는 계속 돈다).
+  스레드를 만들지 못하면 호출자에게 바로 답하고 슬롯을 돌려준다(전에는 `Thread.start` 의 실패를 알 길이 없었다). 유휴 게이트 워밍업은
+  `%LOCALAPPDATA%\PokeTokenBar\base-index.json` 이 생길 때까지(최대 +240 s) 앱을 열어 두고, 걸린 시간을 요약의 `warmup` 에 남긴다. `PTB_WAKE_TRACE=1` 에는 작업 스레드 쪽 귀속
+  `fetch trace start/exit: started= ended= hosts= failures=` 를 더했고, 게이트는 창마다 그 차이를 `FETCHES <label>:` 줄과 `fetches` 항목으로 낸다.
+  **가드(기계):** ① 셀프테스트 `net.clientCertificateOptional`: 실제 graphql.pokeapi.co 에 작은 POST 를 두 번 보낸다. 고친 경로는 HTTP 응답을 받아야 하고, 대조군
+  (`clientCertificateAsBefore`)은 12044 로 멈춰야 '서버가 아직 요청한다' 는 것이 증명된다. 러너가 닿지 못하면 통과하되 그렇게 적는다. ②
+  `WindowsHTTPFetchTests.testTheFetchWorkersKeepNoHandleWhereFoundationThreadsKeepOneEach`: 한 세션에서 루프백 페치 100 회(세션 열기·닫기만 빼고 게이트·작업 스레드·
+  타이머·연결·요청까지 전 경로) 뒤 핸들이 +20 미만이어야 하고, 대조군 `Thread` 100 개는 +90 이상, `WinDetachedThread` 100 개는 +10 미만이어야 한다. 실측(run 44166157252):
+  한 세션 100 페치 +7, `Thread` +100, `WinDetachedThread` +0. 대조군이 실패하면 corelibs 가 고친 것이니 `WinDetachedThread` 를 걷어도 된다. ③ 게이트의 워밍업 대기와 `FETCHES` 줄.
+  (정보: 페치마다 세션을 따로 열면(앱의 방식) 닫힌 세션 하나가 핸들 약 2 개를 45–60 s 동안 더 쥐고 있다가 WinHTTP 가 놓는다. 100 페치 기준(run 44168716060)으로
+  시스템 프록시 경로는 45 s 까지 +200 이었다가 60 s 에 +47, 직접 경로는 60 s 에 +89·75 s 에 +74 였다. 누수가 아니라 늦은 해제이고, 스레드 몫과는 따로다.
+  실패한 heatmap 창이 빌드가 끝난 뒤에도 페치당 약 1 개(스레드)만 남긴 것과 맞는다.)
+  **스윕:** ① 같은 API 오용(윈도 Foundation 이 커널 핸들을 쥐고 닫지 않음): 출하 코드에서 `Thread` 를 시작하는 곳은 이음매(고침), `WinSocketLoop`(프로세스당 한 번이고 앱 종료 때만
+  다시 만든다. 핸들 하나라 그대로 둔다), `WinUIDump`·`WindowsSelftest*`(셀프테스트 전용이라 그대로 둔다)다. corelibs `Process` 는 스레드 핸들을 바로 닫고, 프로세스 핸들은 `deinit` 에서
+  닫는다(확인함). ② 같은 TLS 차이(서버의 CertificateRequest): 앱이 부르는 호스트 18 곳을 `openssl s_client` 로 확인했다. CertificateRequest 를 보내는 곳은 graphql.pokeapi.co 하나다.
+  ③ 같은 모양의 첫 실행 일(끝나야 저장하고 기동마다 처음부터 다시 함): `buildBaseIndexViaREST` 하나뿐이다. 업스트림 소유인 `Core/` 라 바꾸지 않았다. 이제 GraphQL 이 윈도에서도 되므로
+  REST 빌드는 GraphQL 장애 때만 돈다(맥과 같다).
+  **사용자 PC:** 키트 pc-5…pc-9(모두 100cc1de 이후)는 두 결함을 다 가진다. ① `base-index.json` 이 없는 실행(첫 실행, 또는 빌드가 끝나기 전에 끈 다음 실행)마다 649 페치 REST
+  빌드가 돈다. CPU 는 수 초를 쓰고, 핸들 약 650 개가 앱 종료까지 남는다. 끝나면 30 일 캐시로 남고, 그 뒤로는 오래된 캐시를 계속 쓴다. ② 모든 페치가 핸들을 하나씩 남긴다
+  (120 s 마다 상태 확인·한도 몇 개 → 켜 둔 하루에 천 단위). 프로세스 한도(약 1,600 만)와는 거리가 멀지만, 작업 관리자의 핸들 수가 선형으로 자란다.
+  **규칙:** 네트워크 이음매는 루프백만이 아니라 앱이 실제로 부르는 호스트와의 TLS 핸드셰이크로도 확인한다(셀프테스트에서, '실패' 와 '닿지 못함' 을 구분해서).
+  윈도에서 작업마다 스레드를 만들 때는 `WinDetachedThread` 를 쓴다. 유휴 게이트의 워밍업은 첫 실행 일이 끝났다는 신호(파일)를 기다린다. 시간으로 끝났다고 가정하지 않는다.
+
+- 이 브랜치의 full run 44157998092 에서 번들·설치 셀프테스트가 파일 대화상자 검사 중 같은 훅 트랩으로 죽었다(`PokeTokenBar.exe+0x7AA80F`, exe 의 DWARF 로
+  `WinMessageHook.swift:56` "Not enough bits to represent the passed value"). 고침은 위 #272 항목(메시지 훅의 `Int(_:)`)의 것을 쓴다. 이 브랜치는 그 고침에 트리거 가드를 더한다: 셀프테스트
+  `loop.highWParam` 이 wParam `UInt.max` 와 `1 << 63` 을 실제 펌프로 보낸다(고치기 전 코드에서는 이 검사에서 프로세스가 죽어 보고서가 남지 않는다. run 44166164011 에서 통과).
+<!-- idle blow-up (fix/windows-idle-blowup) end -->
