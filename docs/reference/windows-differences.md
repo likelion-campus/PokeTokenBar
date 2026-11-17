@@ -115,9 +115,9 @@ differently; the roster's icons bounce together on one beat; card rarity colours
 
 ## Not on Windows yet (owed)
 
-- **Floating pet speech bubbles**, hearts, prayer emoji, agent activity and the run to the cursor (Task 23). The pet itself
-  landed (stage 7 Task 22, differences above); still owed with it: the "not yet" sentences in `TEAM.md` and the three
-  READMEs, and its captures in `assets/windows/SHOT-LIST.txt`.
+- **Floating pet speech bubbles**, the hover readout, hearts, prayer emoji, agent activity and the run to the cursor (Task 23).
+  The pet itself landed (stage 7 Task 22, differences above; `TEAM.md` and the READMEs say so, captures `floating-pet.png`,
+  `home-pet-eye-en.png`); owed: a capture of the pet on a plain desktop (the runner's shows its terminal behind it).
 - **ARM64 native build** (the x64 build runs under emulation on Windows 11 on ARM, untested); **Windows 10** is untested.
 - **Code signing:** the installer and the app are unsigned; SmartScreen warns on first run.
 - **Captures owed:** tray menu with an update offer, the Setup welcome page, dark and high-contrast popover pages, Settings in

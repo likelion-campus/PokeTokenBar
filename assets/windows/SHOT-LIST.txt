@@ -5,7 +5,8 @@
 # scripts/import-windows-shots.sh <run-id> copies exactly these (and refuses any other file). A shot not in the artifact is skipped
 # with a line saying so. Captures are sample-data pages from the real app; nothing is drawn on top.
 # Owed (not made by any run yet): tray menu with an update offer, Setup welcome page, dark and high-contrast popover pages,
-# Settings in Japanese, the floating pet and its bubbles.
+# Settings in Japanese, the floating pet on a plain desktop (the runner's capture shows its terminal behind it) and the pet's
+# bubbles (Task 23).
 tray-menu.png | windows-app | ui-dump/tray-menu-open.png | crop=285x248:24:24:237:200,en-only
 plaza-window.png | windows-app | plaza-panels-default.png
 home-en.png | ui-home | home-three.png
@@ -21,3 +22,5 @@ shop-en.png | windows-app | ui-dump/shop/rich-en.png | not-for-docs
 bag-en.png | windows-app | ui-dump/bag/items-en.png | not-for-docs
 collection-en.png | windows-app | ui-dump/collection/collection-grid-en.png
 pokemon-detail-en.png | windows-app | ui-dump/collection/collection-detail-top-en.png
+floating-pet.png | windows-app | ui-dump/pet/pet-hatched-192.png
+home-pet-eye-en.png | windows-app | ui-dump/pet/home-footer-eye-on-en.png
