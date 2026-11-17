@@ -15,6 +15,12 @@ $ids = @(Select-SeedRunIds $runs $repo)
 Check (($ids -join ',') -eq '5,7') "only own-repo push/dispatch runs are seed candidates, in order (got $($ids -join ','))"
 Check (@(Select-SeedRunIds (@{ workflow_runs = @() } | ConvertTo-Json) $repo).Count -eq 0) 'no runs, no candidates'
 
+Check ((@(Get-SeedBranches 'pull_request' 'windows-port' '123/merge' 'windows-port') -join ',') -eq 'windows-port') 'a pull request searches its base branch only'
+Check ((@(Get-SeedBranches 'pull_request' '' '123/merge' 'windows-port') -join ',') -eq 'windows-port') 'a pull request without a base falls back to the trunk, never to its own ref'
+Check ((@(Get-SeedBranches 'push' '' 'feat/x' 'windows-port') -join ',') -eq 'feat/x,windows-port') 'a push searches its own branch, then the trunk'
+Check ((@(Get-SeedBranches 'push' '' 'windows-port' 'windows-port') -join ',') -eq 'windows-port') 'windows-port searches itself once'
+Check ((@(Get-SeedBranches 'workflow_dispatch' '' 'feat/x' 'ci/other') -join ',') -eq 'feat/x,ci/other') 'a dispatch with another trunk (rehearsal)'
+
 # ---- layer 2: the archive
 $goodNames = @('.build/', '.build/debug', '.build/x86_64-unknown-windows-msvc/debug/a.o', '.build/checkouts/swift-crypto/Package.swift', 'Package.resolved')
 $goodVerbose = @('drwxrwxrwx  0 0      0           0 Nov 17 22:48 .build/', '-rw-rw-rw-  0 0      0           4 Nov 17 22:48 .build/.lock',

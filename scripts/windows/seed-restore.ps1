@@ -33,8 +33,7 @@ function Go-Clean([string]$reason, [string]$run) {
 & ./scripts/windows/restore-mtimes.ps1
 
 # A pull request restores its BASE branch's seed only; everything else its own branch's, then the trunk's.
-$branches = if ($env:GITHUB_EVENT_NAME -eq 'pull_request') { @($env:GITHUB_BASE_REF, $Branch) | Where-Object { $_ } | Select-Object -First 1 }
-            else { @($env:GITHUB_REF_NAME, $Branch) | Where-Object { $_ } | Select-Object -Unique }
+$branches = @(Get-SeedBranches $env:GITHUB_EVENT_NAME $env:GITHUB_BASE_REF $env:GITHUB_REF_NAME $Branch)
 $seed = $null
 foreach ($b in $branches) {
     $json = gh api "repos/$repo/actions/workflows/$Workflow/runs?branch=$b&status=completed&per_page=30"

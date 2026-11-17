@@ -2,6 +2,13 @@
 # A seed is the .build folder of an earlier run, restored into the workspace of a later one: whatever is in the archive becomes input of
 # a trusted job. Three layers: WHO may have produced it, WHAT the archive may contain, and what its metadata may claim.
 
+# Which branches' runs are searched, in order. A pull_request run (its checkout is a merge ref, its ref name `<n>/merge`) takes its BASE
+# branch's seed only; any other run its own branch's, then the trunk's.
+function Get-SeedBranches([string]$EventName, [string]$BaseRef, [string]$RefName, [string]$Trunk) {
+    if ($EventName -eq 'pull_request') { @($BaseRef, $Trunk) | Where-Object { $_ } | Select-Object -First 1 }
+    else { @($RefName, $Trunk) | Where-Object { $_ } | Select-Object -Unique }
+}
+
 # Layer 1. The ids of runs whose artifacts may be consumed, newest first: runs of THIS repository (head_repository, not just a branch
 # named alike: `branch=` matches the head branch by name, also on a fork) started by a push or a dispatch, i.e. by someone with write
 # access. Never a pull_request run, never a fork's.
