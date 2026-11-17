@@ -102,6 +102,7 @@ the end).
 |---|---|
 | A saved place whose monitor is gone shows the pet in the default corner and is kept; the pet returns when the monitor does (the Mac saves the corner) | user ruling 2026-11-18: a monitor away for a moment (a dock, a projector) must not lose the place |
 | A move onto a monitor of another scale keeps the pet's size until the drag ends, then takes the new size; otherwise it goes where Windows suggests | Windows only: per-monitor DPI (the Mac's points are the same on every screen); growing in place at a mixed-DPI edge could flip sizes without end |
+| With the popover open, a press on the pet closes it when the press ends (a click, or the drop of a drag); the Mac closes it when the press starts | Win32: closing the active popover while the button is down moves the foreground away and ends the pet's mouse capture, so the prayer or the drag would be lost |
 | After the pet's right-click menu (Escape, Back view, Turn off) the window that had the keyboard gets it back | the pet never takes the foreground, but a Win32 menu must; the Mac leaves the app active |
 | Large sizes are scaled by the app (the shared smooth filter): at 192 and 384 slightly crisper than the Mac | a layered window takes finished pixels; Core Animation scales on the Mac |
 

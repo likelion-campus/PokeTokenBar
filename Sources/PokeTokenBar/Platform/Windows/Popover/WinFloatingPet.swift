@@ -491,12 +491,21 @@ import WinSDK
         guard !isDestroyed, !inMenu, let pet else { return }
         _ = SetCapture(hwnd)
         pointer.down(at: screenPoint(lParam), windowOrigin: origin)
-        // An open popover closes on the press, as the Mac's transient popover on any press outside it (a prayer or a drag
-        // leaves it closed; the click that closed it does not open it again: `FloatingPetActions.clickMayOpen`).
-        if pet.press.press(popoverOpen: pet.popoverIsOpen()) {
-            pet.stats.popoverClosesOnPress += 1
-            pet.closePopover()
-        }
+        // An open popover closes for this press, as the Mac's transient popover on any press outside it (a prayer or a drag
+        // leaves it closed; the click that closed it does not open it again: `FloatingPetActions.clickMayOpen`). It closes
+        // when the press ends, not now: closing the active popover hands the foreground to another window, and Windows then
+        // ends the pet's capture with the button still down, losing the click or the drag (run 44129424988: no prayer).
+        closeWhenReleased = pet.press.press(popoverOpen: pet.popoverIsOpen())
+    }
+
+    /// The press found the popover open: it closes when the press ends (`buttonUp`, `captureLost`), before the click acts.
+    private var closeWhenReleased = false
+
+    private func closePopoverForThePress() {
+        guard closeWhenReleased, let pet else { return }
+        closeWhenReleased = false
+        pet.stats.popoverClosesOnPress += 1
+        pet.closePopover()
     }
 
     private func mouseMoved(_ lParam: LPARAM) {
@@ -521,6 +530,7 @@ import WinSDK
         guard !isDestroyed, pointer.isPressed else { return }
         let release = pointer.up(at: screenPoint(lParam), windowOrigin: origin, thresholdSquared: thresholdSquared)
         _ = ReleaseCapture()
+        closePopoverForThePress()
         applyDeferredDPI()
         if release.moved { persist() }
         guard release.click, let pet else { return }
@@ -531,6 +541,7 @@ import WinSDK
     private func captureLost() {
         guard pointer.isPressed else { return }
         let moved = pointer.cancel(windowOrigin: origin).moved
+        closePopoverForThePress()
         applyDeferredDPI()
         if moved { persist() }
     }

@@ -329,7 +329,9 @@ enum FloatingPetMotion {
 /// A press on the pet while the popover is open (user ruling 2026-11-18: as the Mac). The Mac's popover is `.transient`:
 /// any press outside it, the pet's included, closes it, so a prayer or a drag leaves it closed; and `AppDelegate.openPopover`
 /// opens nothing while the popover is still shown (dismissing), so the click on a hatched pet that closed it does not open
-/// it again. On Windows the pet never takes the activation, so nothing closes the popover by itself: the press does.
+/// it again. On Windows the pet never takes the activation, so nothing closes the popover by itself: the press does, when it
+/// ends (closing the active popover with the button still down moves the foreground away and Windows ends the pet's capture,
+/// which loses the click or the drag).
 struct FloatingPetPopoverPress: Equatable {
     /// The last press closed the open popover.
     private(set) var closedIt = false

@@ -722,14 +722,16 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             // 3. Popover open, a drag: the press closes it, the release is no click.
             let open3 = await openIt()
             let clicks3 = mon.pet.stats.clicks
+            let before3 = w.frame
             await realDrag(from: screen(w, spot), by: -40, -30)
+            let moved3 = w.frame.left - before3.left == -40 && w.frame.top - before3.top == -30   // the drag was not cut short
             let dragged = await closedAndStays()
-            let dragOK = open3 && dragged && mon.pet.stats.clicks == clicks3 && mon.openers == [.click] && mon.pet.stats.popoverClosesOnPress == 2
+            let dragOK = open3 && moved3 && dragged && mon.pet.stats.clicks == clicks3 && mon.openers == [.click] && mon.pet.stats.popoverClosesOnPress == 2
             let hatchedOK = opened && fg && opener && toggled && oneOpen && dragOK
             ok = ok && hatchedOK
             notes.append("hatched, popover closed: real click -> open=\(opened) foreground=\(fg) opener .pet=\(opener) (refused foreground \(popover.stats.refusedForeground)); "
                          + "popover open: real click -> closed by the press and not reopened (1 s)=\(toggled), openers \(mon.openers)=\(oneOpen); "
-                         + "popover open=\(open3): real drag -> closed and stays=\(dragged), no click=\(mon.pet.stats.clicks == clicks3); closes on press \(mon.pet.stats.popoverClosesOnPress)")
+                         + "popover open=\(open3): real drag -> moved the whole way=\(moved3), closed and stays=\(dragged), no click=\(mon.pet.stats.clicks == clicks3); closes on press \(mon.pet.stats.popoverClosesOnPress)")
         } else {
             ok = false
             notes.append("hatched: no picture")

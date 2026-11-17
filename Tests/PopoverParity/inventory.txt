@@ -131,7 +131,8 @@ G18l | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView
 # F1 on Windows, where it differs from the Mac (stage 7 Task 22 and its review; user rulings of 2026-11-18). As the Mac
 # (no longer differences): "Show animations" off keeps the pet's GIF playing (FloatingPetMotion: the Mac's Reduce Motion
 # stops only the bob and the run; the popover keeps its own rule), and a press on the pet closes an open popover, a prayer
-# or a drag leaving it closed, the click that closed it not reopening it (FloatingPetPopoverPress, the transient popover).
+# or a drag leaving it closed, the click that closed it not reopening it (FloatingPetPopoverPress, the transient popover);
+# Windows closes it when the press ends, the Mac when it starts (Win32 capture: windows-differences.md).
 #  - The saved home is moved only by a drag (and saved once at the first default placement): a home on a monitor that is
 #    gone shows the pet in the default corner and is kept for the monitor's return. The Mac saves the fallback corner
 #    (windowDidMove after targetFrame's setFrame) and loses the home.
