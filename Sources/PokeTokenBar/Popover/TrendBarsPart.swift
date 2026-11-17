@@ -334,7 +334,7 @@ import Foundation
                 let bottom = l.barsTop + PopoverTrendMetrics.track
                 let origin = { (h: CGFloat) in CGPoint(x: x, y: bottom - h) }
                 if c.segments.isEmpty {
-                    let color = c.isToday ? accent : secondary.plazaColor(alpha: hovered ? 0.8 : (c.isEmpty ? 0.18 : 0.45))
+                    let color = c.isToday ? accent : secondary.plazaShapeColor(alpha: hovered ? 0.8 : (c.isEmpty ? 0.18 : 0.45))
                     if let layer = drawing.bar(width: l.columnWidth, height: c.height, color: color, segments: [], at: origin(c.height), scale: scale, graphics: graphics) { layers.append(layer) }
                 } else {
                     let alpha = (c.isToday || hovered) ? 1.0 : 0.55
@@ -344,7 +344,7 @@ import Foundation
                 }
             }
             if c.weekendTick {
-                layers.append(.color(secondary.plazaColor(alpha: 0.5), frame: CGRect(x: x, y: l.tickTop, width: l.columnWidth, height: Self.tickHeight)))
+                layers.append(.color(secondary.plazaShapeColor(alpha: 0.5), frame: CGRect(x: x, y: l.tickTop, width: l.columnWidth, height: Self.tickHeight)))
             }
             if let label = c.axisLabel {
                 let color = c.isToday ? accent : (c.isFuture ? PopoverColorRole.tertiary.plazaColor() : secondary.plazaColor())
