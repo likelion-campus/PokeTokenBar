@@ -310,12 +310,13 @@ $petBudgets = @{
     animated = @{ MaxMainCsPerMin = 270; MaxProcessCsPerMin = 470; MaxProcessCyclesPerSec = 3000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
     hidden = $budget
     # --- stage 7 Task 23 (begin) ---
-    # 'bubble': an agent's waiting bubble stays until it is answered, drawn once: the closed app's budget. 'working': the egg's
-    # bob for a working agent (two pictures a second for up to 10 minutes, the Mac's `AgentBob`) with motion allowed: 120 timer
-    # wakes a minute of its own, so main 160/min (a frame timer left at 30 fps would be 1800), process cs and cycles as the
-    # animated pet's (provisional: to be set from the first measured run).
+    # 'bubble': an agent's waiting bubble stays until it is answered, drawn once: the closed app's budget (full run 44221855413:
+    # main 4 in 120 s, process 133.5 cs/min, 183 k cycles/s). 'working': the egg's bob for a working agent (two pictures a second for
+    # up to 10 minutes, the Mac's `AgentBob`) with motion allowed, 120 timer wakes a minute of its own. Budget from that run's
+    # measurement (main 137/min, process 277 cs/min, 1.35 M cycles/s) with the animated pet's headroom: main 190/min (~1.4x; a
+    # second bob would be 240, a frame timer left at 30 fps 1800), process cs 420 (1.5x), cycles 2.6 M (1.9x).
     bubble = $budget
-    working = @{ MaxMainCsPerMin = 160; MaxProcessCsPerMin = 470; MaxProcessCyclesPerSec = 3000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    working = @{ MaxMainCsPerMin = 190; MaxProcessCsPerMin = 420; MaxProcessCyclesPerSec = 2600000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
     # --- stage 7 Task 23 (end) ---
 }
 $petWant = @{

@@ -430,7 +430,9 @@ extension WindowsSelftest {
         let on = await WindowsSelftest.waitUntil(timeout: 3) { app.store.floatingPetEnabled && pet.window?.revealed == true }
         await P.wait(0.3)
         let shownOn = rows.bubbleAlertsRow?.isVisible == true && rows.agentActivityRow?.isVisible == true
-        let titles = [rows.bubbleAlertsRow?.label, rows.agentActivityRow?.label, rows.agentActivityRow?.hint].map { $0.map { WinKit.text(of: $0.hwnd) } }
+        // A toggle row's title is its check box's own text (`addToggle`: the box is its label, what a screen reader names it by).
+        func boxTitle(_ row: WinRow?) -> String? { row?.control.map { WinKit.text(of: $0.parts.first ?? $0.hwnd) } }
+        let titles = [boxTitle(rows.bubbleAlertsRow), boxTitle(rows.agentActivityRow), rows.agentActivityRow?.hint.map { WinKit.text(of: $0.hwnd) }]
         let titlesOK = titles == [l.floatingPetBubbleAlertsLabel, l.floatingPetAgentActivityLabel, l.floatingPetAgentActivityHint]
         let bubbles0 = app.store.floatingPetBubbleAlerts, agents0 = app.store.floatingPetAgentActivity
         if let c = rows.bubbleAlertsRow?.control { WinKit.send(c.parts[0], 0x00F5) }
