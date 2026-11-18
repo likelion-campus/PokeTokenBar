@@ -104,6 +104,17 @@ Name: "{userdesktop}\PokeTokenBar"; Filename: "{app}\PokeTokenBar.exe"; AppUserM
 ; Also in silent mode, so a later auto-update relaunches the app. /NOLAUNCH=1 is for CI steps that start it themselves.
 Filename: "{app}\PokeTokenBar.exe"; Description: "Launch PokeTokenBar"; Flags: nowait postinstall runasoriginaluser; Check: LaunchAfterInstall
 
+[Registry]
+; --- stage 7 Task 23: the poketokenbar: link (begin) ---
+; Agent hooks open poketokenbar://agent?state=...; the shell starts this install's exe with --agent-link and the link (the
+; Mac's CFBundleURLTypes). Per user (HKCU\Software\Classes, no elevation), written by every install and update. Uninstall
+; removes the key only when its command starts THIS install (CurUninstallStepChanged); the app itself never writes it.
+Root: HKCU; Subkey: "Software\Classes\poketokenbar"; ValueType: string; ValueName: ""; ValueData: "URL:PokeTokenBar agent link"
+Root: HKCU; Subkey: "Software\Classes\poketokenbar"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\poketokenbar\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\PokeTokenBar.exe"",0"
+Root: HKCU; Subkey: "Software\Classes\poketokenbar\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\PokeTokenBar.exe"" --agent-link ""%1"""
+; --- stage 7 Task 23 (end) ---
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 ; The copy an update keeps of the previous app; normally gone at ssDone.
@@ -116,6 +127,9 @@ const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
   ApprovedKey = 'Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run';
   RunValue = 'PokeTokenBar';
+  { stage 7 Task 23: the poketokenbar: link ([Registry]). }
+  LinkKey = 'Software\Classes\poketokenbar';
+  LinkCommandKey = 'Software\Classes\poketokenbar\shell\open\command';
   { One PokeTokenBar Setup at a time: an in-app update and a double-clicked download must not clean up each other's
     copy of the app. Checked and created at the top of InitializeSetup, before the app is closed. Inno's SetupMutex
     directive is checked only after InitializeSetup, when the app is already closed, so it is not used. }
@@ -212,6 +226,13 @@ begin
     end;
   end else
     Log('No Run value PokeTokenBar to remove');
+  { stage 7 Task 23: the poketokenbar: link, only when it starts this install (another install's or program's is kept). }
+  if RegQueryStringValue(HKCU, LinkCommandKey, '', Command) then begin
+    Log('poketokenbar: link command: ' + Command);
+    if Pos(Lowercase(ExpandConstant('{app}\PokeTokenBar.exe')), Lowercase(Command)) > 0 then
+      Log('The link starts this install: deleting it, result ' + IntToStr(Ord(RegDeleteKeyIncludingSubkeys(HKCU, LinkKey))));
+  end else
+    Log('No poketokenbar: link to remove');
 end;
 
 // Inno's own rollback only deletes the files an aborted install created: a file it replaced keeps the new contents

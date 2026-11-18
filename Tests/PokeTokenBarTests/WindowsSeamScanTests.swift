@@ -182,7 +182,8 @@ final class WindowsSeamScanTests: XCTestCase {
             let isApp = rel == "Platform/Windows/WindowsApp.swift"
             let rawAllowed = isApp ? bodyLines(of: "func crtExit(", in: lines) : []
             let callAllowed = isApp ? bodyLines(of: "static func exit(", in: lines)
-                .union(bodyLines(of: "static func exitWithoutSyncForF2Control(", in: lines)) : []
+                .union(bodyLines(of: "static func exitWithoutSyncForF2Control(", in: lines))
+                .union(bodyLines(of: "static func exitForLink(", in: lines)) : []   // stage 7 Task 23: a link start saved nothing
             for (i, line) in lines.enumerated() {
                 let c = code(line)
                 let range = NSRange(c.startIndex..., in: c)
@@ -196,6 +197,51 @@ final class WindowsSeamScanTests: XCTestCase {
         }
         return out
     }
+
+    // --- stage 7 Task 23 (review I1): the command line is read once, after a link start ended (begin) ---
+    /// Windows code reads its command line only through `WindowsApp.launchArguments`, which `WindowsApp.main` sets after a
+    /// `poketokenbar:` link's start has ended: a raw read anywhere else (`CommandLine.arguments`, `ProcessInfo...arguments`) could
+    /// act on flags a link smuggled in. The raw readers allowed: `main` itself and the selftest's own files (a selftest process
+    /// is never a link start).
+    static func argumentReadViolations(in files: [URL], root: URL) throws -> [String] {
+        var out: [String] = []
+        for url in files {
+            let rel = SharedSources.relativePath(url, root: root)
+            guard rel.hasPrefix("Platform/Windows/"), !(rel.components(separatedBy: "/").last ?? "").hasPrefix("WindowsSelftest") else { continue }
+            let lines = try SharedSources.lines(of: url)
+            let allowed = rel == "Platform/Windows/WindowsApp.swift" ? bodyLines(of: "public static func main()", in: lines) : []
+            for (i, line) in lines.enumerated() where !allowed.contains(i) {
+                let c = code(line)
+                if c.contains("CommandLine.arguments") || c.contains("processInfo.arguments") {
+                    out.append("\(rel):\(i + 1) reads the raw command line: use WindowsApp.launchArguments (a link start's smuggled flags never reach it)")
+                }
+            }
+        }
+        return out
+    }
+
+    func testWindowsCodeReadsItsArgumentsOnlyThroughLaunchArguments() throws {
+        let files = SharedSources.allSwiftFiles(root: SharedSources.sourcesRoot)
+        XCTAssertEqual(try Self.argumentReadViolations(in: files, root: SharedSources.sourcesRoot), [])
+    }
+
+    func testTheArgumentScanCatchesARawRead() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-args-scan-\(UUID().uuidString)")
+        let dir = root.appendingPathComponent("Platform/Windows")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        func scan(_ name: String, _ text: String) throws -> Int {
+            let f = dir.appendingPathComponent(name)
+            try text.write(to: f, atomically: true, encoding: .utf8)
+            return try Self.argumentReadViolations(in: [f], root: root).count
+        }
+        XCTAssertEqual(try scan("WinDefaultsSync.swift", "static var x: Bool { ProcessInfo.processInfo.arguments.contains(\"--selftest\") }\n"), 1)
+        XCTAssertEqual(try scan("WinOther.swift", "let a = CommandLine.arguments\n"), 1)
+        XCTAssertEqual(try scan("WindowsApp.swift", "public static func main() -> Never {\n    let a = CommandLine.arguments\n}\nfunc f() { _ = CommandLine.arguments }\n"), 1)
+        XCTAssertEqual(try scan("WindowsSelftestThing.swift", "let a = CommandLine.arguments\n"), 0)
+        XCTAssertEqual(try scan("WinComment.swift", "// CommandLine.arguments is read in main only\n"), 0)
+    }
+    // --- stage 7 Task 23 (end) ---
 
     func testWindowsCodeExitsOnlyThroughWindowsAppExit() throws {
         let files = SharedSources.allSwiftFiles(root: SharedSources.sourcesRoot)
