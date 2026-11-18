@@ -90,7 +90,17 @@ import CPlazaD2D
         if let clip {
             bounds = RECT(left: max(bounds.left, clip.left), top: max(bounds.top, clip.top), right: min(bounds.right, clip.right), bottom: min(bounds.bottom, clip.bottom))
         }
-        guard bounds.right > bounds.left, bounds.bottom > bounds.top else { return }
+        guard bounds.right > bounds.left, bounds.bottom > bounds.top, let seen = visible(dc, bounds) else { return }
+        bounds = seen
+        // A DC with an origin of its own (a child's, in WM_PRINTCLIENT): the painter's bind takes device coordinates, so it would draw
+        // somewhere else; those rare edge paints are the plain GDI shape.
+        var origin = POINT()
+        if GetViewportOrgEx(dc, &origin), origin.x != 0 || origin.y != 0 {
+            for item in drawn where intersects(item.rect, bounds) {
+                fallback(dc, item.rect, radius: item.radius, fill: item.fill, stroke: item.stroke, strokeWidth: item.strokeWidth, under: under, ctx: ctx)
+            }
+            return
+        }
         var shapes: [PTBPaintShape] = []
         for item in drawn where intersects(item.rect, bounds) {
             let fillARGB: UInt32 = item.fill.map { argb($0.color, alpha: $0.alpha) } ?? 0
@@ -123,6 +133,20 @@ import CPlazaD2D
         }
         if bind(dc, r, &shapes) >= 0 { return }
         fallback(dc, r, radius: radius, fill: nil, stroke: Ink(color: outer), strokeWidth: w2, under: outer, ctx: ctx)
+    }
+
+    /// `rect` cut to the DC's clip box (what can actually reach the screen: a themed control asks its parent for its background with
+    /// WM_PRINTCLIENT, and the paint then covers the whole pane while only the control's rectangle is open); nil when nothing is.
+    static func visible(_ dc: HDC, _ rect: RECT) -> RECT? {
+        var box = RECT()
+        let kind = GetClipBox(dc, &box)
+        var out = rect
+        if kind >= 2 /* SIMPLEREGION, COMPLEXREGION */ {
+            out = RECT(left: max(rect.left, box.left), top: max(rect.top, box.top), right: min(rect.right, box.right), bottom: min(rect.bottom, box.bottom))
+        } else if kind == 1 /* NULLREGION */ {
+            return nil
+        }
+        return out.right > out.left && out.bottom > out.top ? out : nil
     }
 
     /// Whether `a` and `b` overlap (a card outside the dirty rect is not drawn).

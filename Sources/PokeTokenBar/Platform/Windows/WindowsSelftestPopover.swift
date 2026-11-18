@@ -531,12 +531,14 @@ extension WindowsSelftest {
         let end = await press(0x23, on: button.hwnd)
         let home = await press(0x24, on: button.hwnd)
         area.scroll(to: 0)
+        _ = SetFocus(field.hwnd)   // reveals the field: the page moves for the focus, not for the key
+        let focusedAt = area.offset, keysBefore = area.stats.pageKeys
         let inEdit = await press(0x22, on: field.hwnd)   // the multi-line edit keeps Page Down
-        let keysOK = down == pageStep && up == 0 && end == range && home == 0 && inEdit == 0
+        let keysOK = down == pageStep && up == 0 && end == range && home == 0 && inEdit == focusedAt && area.stats.pageKeys == keysBefore
         ok = ok && keysOK
         r.add("ui.kit.scrollAccess", ok,
               "lane object: \(rows.joined(separator: "; ")); the viewport (negative control) is role \(control.role), not a scroll bar=\(!blind); "
-              + "keys on a button: Page Down -> \(down) (expected \(pageStep)), Page Up -> \(up) (0), End -> \(end) (\(range)), Home -> \(home) (0); Page Down in the multi-line edit -> \(inEdit) (0, the edit's); page keys used \(area.stats.pageKeys)")
+              + "keys on a button: Page Down -> \(down) (expected \(pageStep)), Page Up -> \(up) (0), End -> \(end) (\(range)), Home -> \(home) (0); Page Down in the multi-line edit: page at \(focusedAt) after the focus, \(inEdit) after the key (unchanged: the edit's); page keys used \(area.stats.pageKeys)")
     }
 
     private static func dpiCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {

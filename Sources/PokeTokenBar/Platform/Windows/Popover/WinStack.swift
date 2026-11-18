@@ -227,14 +227,25 @@ import WinSDK
         guard let f = frames else { return }
         let radius = Int32(metrics.cardRadius)
         let hairline = max(1, ctx.px(1))
-        // All the cards of the page in one bind of the painter (its cost is per bind).
+        // The cards in one bind of the painter (its cost is per bind). A repaint that lies wholly inside a card, clear of its corners and
+        // its hairline (the background a themed control asks its parent for with WM_PRINTCLIENT: most of a page's paints), is the card
+        // colour: one FillRect, no bind. On the runner those paints were 11 binds and 15 ms of a Settings open.
         var cards: [WinPaint.Item] = []
+        let edge = radius + hairline
+        guard let seen = WinPaint.visible(dc, dirty) else { return }
         for case let s? in f.sections {
             guard let card = s.card else { continue }
-            cards.append(WinPaint.Item(rect: WinKit.rect(card), radius: radius, fill: WinPaint.Ink(color: colors.palette.card),
+            let c = WinKit.rect(card)
+            guard WinPaint.intersects(c, seen) else { continue }
+            if seen.left >= c.left + edge, seen.right <= c.right - edge, seen.top >= c.top + edge, seen.bottom <= c.bottom - edge {
+                var inside = seen
+                _ = FillRect(dc, &inside, colors.brush(colors.palette.card))
+                continue
+            }
+            cards.append(WinPaint.Item(rect: c, radius: radius, fill: WinPaint.Ink(color: colors.palette.card),
                                        stroke: WinPaint.Ink(color: colors.palette.cardBorder), strokeWidth: hairline))
         }
-        WinPaint.roundedRects(dc, cards, under: colors.palette.window, ctx: ctx, clip: dirty)
+        WinPaint.roundedRects(dc, cards, under: colors.palette.window, ctx: ctx, clip: seen)
         for case let s? in f.sections {
             for d in s.dividers {
                 var dr = WinKit.rect(d)
