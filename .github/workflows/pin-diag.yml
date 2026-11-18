@@ -1,0 +1,21 @@
+name: pin-diag
+on:
+  push:
+    branches: [ci/windows-pin-build-inputs]
+    paths: ['.github/workflows/pin-diag.yml']
+jobs:
+  d:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - shell: pwsh
+        run: |
+          "image $env:ImageVersion"
+          $i = Get-Command iscc.exe -ErrorAction SilentlyContinue; if ($i) { $i.Source; (Get-Item $i.Source).VersionInfo.ProductVersion } 
+          $p = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'; if (Test-Path $p) { "ISCC $p " + (Get-Item $p).VersionInfo.FileVersion + ' ' + (Get-Item $p).VersionInfo.ProductVersion }
+          choco list --local-only innosetup
+          choco search innosetup --exact --all-versions | Select-Object -First 8
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" version
+          git -C $env:VCPKG_INSTALLATION_ROOT log -1 --format=%H; git -C $env:VCPKG_INSTALLATION_ROOT rev-parse --is-shallow-repository
+          Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' -Directory | ForEach-Object Name
+          $PSVersionTable.PSVersion.ToString()
