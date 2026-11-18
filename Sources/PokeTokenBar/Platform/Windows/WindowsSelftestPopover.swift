@@ -1367,6 +1367,7 @@ struct KitResources: CustomStringConvertible {
             if i == 0 { styleLabel = row.control }
         }
         buildButtons(s)
+        buildStates(s)
         let toggles = s.addSection("Toggles")
         toggles.addToggle("Launch at login", hint: "Turned off in Task Manager > Startup apps", isOn: true)
         toggles.addToggle("Back view", isOn: false)
@@ -1422,6 +1423,45 @@ struct KitResources: CustomStringConvertible {
         _ = ctx
     }
 
+    /// visual polish K3: the states a capture cannot reach by itself, forced through the controls' test hook (hover, pressed, focus ring).
+    func buildStates(_ s: WinStack) {
+        let section = s.addSection("States (forced)")
+        func button(_ label: String, hot: Bool = false, pressed: Bool = false, focus: Bool = false, style: WinButtonStyle = .secondary) {
+            let row = section.addRow(label) { pane, ctx in WinControls.button("Refresh", style: style, in: pane, ctx: ctx) }
+            row.control?.forceState(hot: hot ? 0 : nil, pressed: pressed ? 0 : nil, focus: focus ? 0 : nil)
+        }
+        button("Button hover", hot: true)
+        button("Button pressed", hot: true, pressed: true)
+        button("Button focus ring", focus: true)
+        button("Primary hover", hot: true, style: .primary)
+        button("Primary pressed", hot: true, pressed: true, style: .primary)
+        button("Primary focus ring", focus: true, style: .primary)
+        for (label, hot, pressed, focus) in [("Switch hover", true, false, false), ("Switch pressed", true, true, false), ("Switch focus ring", false, false, true)] {
+            let row = section.addToggle(label, isOn: label.hasSuffix("hover"))
+            row.control?.forceState(hot: hot ? 0 : nil, pressed: pressed ? 0 : nil, focus: focus ? 0 : nil)
+        }
+        let seg = section.addRow("Segment hover, focus", style: .full) { pane, ctx in
+            WinControls.radioGroup(["Used", "Remaining", "Third"], selected: 0, in: pane, ctx: ctx)
+        }
+        seg.control?.forceState(hot: 1, pressed: nil, focus: 0)
+        let pressedSeg = section.addRow("Segment pressed", style: .full) { pane, ctx in
+            WinControls.radioGroup(["Used", "Remaining", "Third"], selected: 0, in: pane, ctx: ctx)
+        }
+        pressedSeg.control?.forceState(hot: 2, pressed: 2, focus: nil)
+        let chips = section.addRow("Chip hover, pressed", style: .full) { pane, ctx in
+            WinControls.chipGroup(names: ["Claude", "Codex", "Gemini"], marks: [false, false, false], selected: 0, in: pane, ctx: ctx)
+        }
+        chips.control?.forceState(hot: 1, pressed: 2, focus: 0)
+        let slider = section.addRow("Slider hover, focus") { pane, ctx in
+            WinControls.trackbar(range: 0...10, step: 1, value: 6, format: { "\($0)" }, width: 170, in: pane, ctx: ctx)
+        }
+        slider.control?.forceState(hot: 0, pressed: nil, focus: 0)
+        let dragging = section.addRow("Slider pressed") { pane, ctx in
+            WinControls.trackbar(range: 0...10, step: 1, value: 3, format: { "\($0)" }, width: 170, in: pane, ctx: ctx)
+        }
+        dragging.control?.forceState(hot: 0, pressed: 0, focus: nil)
+    }
+
     func buildButtons(_ s: WinStack) {
         let buttons = s.addSection("Buttons")
         firstButton = buttons.addRow("Push button") { pane, ctx in WinControls.button("Refresh", in: pane, ctx: ctx) }.control
@@ -1431,6 +1471,12 @@ struct KitResources: CustomStringConvertible {
             row.control?.tooltip = label
             tooltipCount += 1
         }
+        // visual polish K3: the other looks of the push button, and a disabled one
+        buttons.addRow("Primary") { pane, ctx in WinControls.button("Update", style: .primary, in: pane, ctx: ctx) }
+        buttons.addRow("Small") { pane, ctx in WinControls.button("Buy", small: true, in: pane, ctx: ctx) }
+        buttons.addRow("Plain") { pane, ctx in WinControls.button("Skip", style: .plain, in: pane, ctx: ctx) }
+        buttons.addRow("Disabled") { pane, ctx in WinControls.button("Refresh", in: pane, ctx: ctx) }.control?.isEnabled = false
+        buttons.addRow(nil, style: .full) { pane, ctx in WinControls.chipGroup(names: ["Claude", "Codex", "Gemini"], marks: [false, true, false], selected: 0, in: pane, ctx: ctx) }
         buttons.addRow("Link") { pane, ctx in WinControls.link("GitHub repository", in: pane, ctx: ctx) }
     }
 }

@@ -226,7 +226,7 @@ import WinSDK
             let row = section.addStyledRow(label: { [weak self] p, c in
                 guard let self else { return nil }
                 return WinSnapshotLead(parent: p, ctx: c, snapshot: snapshot, language: companion.language, fetcher: fetcher)?.control
-            }) { p, c in WinControls.button(l.restoreSnapshotButton, in: p, ctx: c) }
+            }) { p, c in WinControls.button(l.restoreSnapshotButton, small: true, in: p, ctx: c) }
             row.control?.onClick = { [weak self] in self?.run { $0.restore(snapshot) } }
             snapshotRows.append(row)
         }

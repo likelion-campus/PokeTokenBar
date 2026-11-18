@@ -243,6 +243,7 @@ import WinSDK
             guard let self else { return }
             self.bobTimer = nil
             self.stats.bobTicks += 1
+            WakeTrace.count("petBob")   // the idle gate's attribution: a Foundation timer is no message, so it counts itself
             self.squashed.toggle()
             render()
             self.updateBob(active: true, render: render)

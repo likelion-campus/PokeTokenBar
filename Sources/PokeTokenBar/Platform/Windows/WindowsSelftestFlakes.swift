@@ -157,6 +157,8 @@ enum IdleTimeline {
         let mainCycles: UInt64
         /// "2.3s+3" = the main thread switched 3 times in the 100 ms sample that ended 2.3 s into the window.
         let wakes: String
+        /// The same samples as numbers (`IdleBurstAttribution` matches them with what arrived).
+        var samples: [IdleBurstAttribution.Wake] = []
     }
 
     /// Same reading as `IdleSampler.measure` (thread-of-its-own, snapshots at the edges) plus a snapshot every 100 ms for the timeline.
@@ -167,19 +169,23 @@ enum IdleTimeline {
                 let main = UInt32(mainThread)
                 var last = first
                 var wakes: [String] = []
+                var samples: [IdleBurstAttribution.Wake] = []
                 let start = Date()
                 while Date().timeIntervalSince(start) < seconds {
                     Thread.sleep(forTimeInterval: 0.1)
                     guard let now = IdleSampler.snapshot() else { continuation.resume(returning: nil); return }
                     if let a = last.contextSwitches[main], let b = now.contextSwitches[main], b > a {
-                        wakes.append(String(format: "%.1fs+%d", Date().timeIntervalSince(start), Int(b) - Int(a)))
+                        let t = Date().timeIntervalSince(start)
+                        wakes.append(String(format: "%.1fs+%d", t, Int(b) - Int(a)))
+                        samples.append(IdleBurstAttribution.Wake(t: t, cs: Int(b) - Int(a)))
                     }
                     last = now
                 }
                 let found = last.contextSwitches[main] != nil
                 let cs = found ? Int(last.contextSwitches[main]!) - Int(first.contextSwitches[main] ?? 0) : -1
                 let cycles = (last.cycles[main] ?? 0) &- (first.cycles[main] ?? 0)
-                continuation.resume(returning: Result(mainFound: found, mainContextSwitches: cs, mainCycles: cycles, wakes: wakes.joined(separator: " ")))
+                continuation.resume(returning: Result(mainFound: found, mainContextSwitches: cs, mainCycles: cycles, wakes: wakes.joined(separator: " "),
+                                                      samples: samples))
             }.start()
         }
     }
