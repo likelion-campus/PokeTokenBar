@@ -21,6 +21,9 @@ final class WindowsPopoverKitTests: XCTestCase {
 
     // K1: the Windows ramp's sizes (body 14, caption 12, total 28 semibold) at each DPI: `WinTypeRamp`, one step above the Mac's points.
     func testFontsAreTheWindowsRampAtEachDPI() async {
+        let previous = WinFonts.semiboldIsBold
+        WinFonts.semiboldIsBold = false  // another test's Korean page may have set it
+        defer { WinFonts.semiboldIsBold = previous }
         for (dpi, body, caption, large) in [(UINT(96), Int32(-14), Int32(-12), Int32(-28)), (120, -18, -15, -35), (144, -21, -18, -42), (192, -28, -24, -56)] {
             let fonts = WinFonts(dpi: dpi, textScale: 1)
             defer { fonts.destroy() }
@@ -48,6 +51,9 @@ final class WindowsPopoverKitTests: XCTestCase {
     }
 
     func testSemiboldIsItsOwnFamilyAndMediumDrawsRegular() async {
+        let previous = WinFonts.semiboldIsBold
+        WinFonts.semiboldIsBold = false
+        defer { WinFonts.semiboldIsBold = previous }
         XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 700).1, 700)
         XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 500).1, 400)
         let semibold = WinFonts.face(base: "Segoe UI", weight: 600)
@@ -167,8 +173,23 @@ final class WindowsPopoverKitTests: XCTestCase {
         XCTAssertEqual(WinUIColors.rgb(of: WinUIColors.colorref(0x123456)), 0x123456)
     }
 
+    /// Korean and Japanese ask GDI for bold where Windows draws semibold, so the linked Malgun Gothic / Yu Gothic UI is bold too.
+    func testSemiboldIsBoldOnlyWhereHangulAndKanaLinkTheBoldFace() async {
+        let previous = WinFonts.semiboldIsBold
+        defer { WinFonts.semiboldIsBold = previous }
+        WinFonts.semiboldIsBold = true
+        XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 600).1, 700)
+        XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 600).0, "Segoe UI", "the plain family, not the Semibold one")
+        XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 400).1, 400)
+        WinFonts.semiboldIsBold = false
+        XCTAssertNotEqual(WinFonts.face(base: "Segoe UI", weight: 600).1, 700)
+    }
+
     /// K1: the Windows ramp is its own table; the Mac's (`PopoverTextStyle`, the golden) is not touched.
     func testTheWindowsTypeRampStepsAboveTheMacsAndKeepsSemiboldForBold() async {
+        let previous = WinFonts.semiboldIsBold
+        WinFonts.semiboldIsBold = false
+        defer { WinFonts.semiboldIsBold = previous }
         let ramp: [(PopoverTextStyle, CGFloat, Int)] = [(.caption, 12, 400), (.caption2, 12, 400), (.callout, 13, 400), (.body, 14, 400),
                                                        (.headline, 14, 600), (.title3, 16, 400), (.largeBold, 28, 600)]
         for (style, size, weight) in ramp {

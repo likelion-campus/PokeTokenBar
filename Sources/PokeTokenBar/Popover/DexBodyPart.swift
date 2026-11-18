@@ -368,7 +368,7 @@ enum DexKeyMove: Equatable {
                 canvas.restoreState()
             }
             let fill = cell.isRepresentative ? DexPainter.tint(accent, 0.16)
-                : PopoverColorRole.secondary.plazaShapeColor(alpha: cell.isSelected ? 0.16 : 0.06)
+                : (cell.isSelected ? PopoverColorRole.secondary.plazaShapeColor(alpha: 0.16) : PopoverColorRole.secondary.plazaTileColor(alpha: 0.06))
             p.roundedRect(r, radius: 8, fill: fill, stroke: cell.isSelected ? accent : nil, lineWidth: 1.5, canvas: canvas, space: space)
             let c = content(r, cell, p)
             let font = PlazaFont.system(size: 12, weight: .regular)
