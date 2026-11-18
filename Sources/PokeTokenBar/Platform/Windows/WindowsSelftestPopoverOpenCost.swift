@@ -98,6 +98,8 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         /// The hooks watched this change (a page change in an open window; an open from the tray is built before there is one).
         var hooked = false
         var spy = WinPaintSpy.Counts()
+        /// K2: the antialiased painter's binds and the milliseconds they took during this change.
+        var painter = ""
         var clickToSettledMs = 0.0
         var descendants = 0
         var stillOpen = false, foreground = false, visible = false
@@ -108,7 +110,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
             func ms(_ v: Double) -> String { String(Int(v.rounded())) }
             let slow = t.slow.map { "\($0.name) \(ms($0.ms))" }.joined(separator: ", ")
             let top = t.steps.sorted { $0.ms > $1.ms }.prefix(4).map { "\($0.name) \(ms($0.ms))" }.joined(separator: ", ")
-            let hooks = hooked ? "sent \(spy.sent) (on screen in a build \(spy.sentInBuild)), queued \(spy.queued), frames with a paint \(spy.frames) over \(ms(spy.lastMs - spy.firstMs)) ms"
+            let hooks = hooked ? "sent \(spy.sent) (on screen in a build \(spy.sentInBuild)), queued \(spy.queued), frames with a paint \(spy.frames) over \(ms(spy.lastMs - spy.firstMs)) ms, \(painter)"
                 : "not watched (built before the window was shown)"
             return "\(name) [\(t.page) via \(t.via)]: click->settled \(ms(clickToSettledMs)) ms, build \(ms(t.buildMs)) ms in \(t.builds) build(s); "
                 + "layouts \(t.layouts) (on screen \(t.layoutsOnScreen)), refreshes \(t.refreshes), windows made \(t.windows) / in the window now \(descendants); "
@@ -304,11 +306,13 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         guard let hwnd = popover.hwndForTesting else { return s }
         WinPaintSpy.start(hwnd)
         s.hooked = WinPaintSpy.installed
+        let binds0 = WinPaint.binds, bindMs0 = WinPaint.bindMs
         let t0 = WinOpenTrace.now()
         action()
         s.arrived = await WindowsSelftest.waitUntil(timeout: 5) { until() }
         await wait(1.5)   // the page's queued passes, its paints
         s.spy = WinPaintSpy.counts
+        s.painter = "painter \(WinPaint.binds - binds0) binds \(Int((WinPaint.bindMs - bindMs0).rounded())) ms"
         WinPaintSpy.stop()
         s.report = WinOpenTrace.running
         if let t = s.report { s.clickToSettledMs = t.startedAt + t.settledMs - t0 }

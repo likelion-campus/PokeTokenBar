@@ -255,8 +255,40 @@ enum PopoverScrollMath {
     }
 
     /// Whether a scroll bar is on the screen: only while there is something to scroll (the Mac's overlay scroller is not drawn
-    /// otherwise; Windows keeps its native bar for that case and hides it when the content fits).
+    /// otherwise; Windows' overlay thumb is hidden when the content fits).
     static func showsBar(content: CGFloat, viewport: CGFloat) -> Bool { content > viewport }
+
+    /// The overlay scroll thumb (Windows' replacement for its system bar) inside a track `track` long: where it starts and how long
+    /// it is, in the units of the arguments. Its length is the visible share of the content, never under `minLength` (or the track);
+    /// nil while there is nothing to scroll.
+    struct Thumb: Equatable {
+        var top: CGFloat
+        var length: CGFloat
+        var bottom: CGFloat { top + length }
+    }
+
+    static func thumb(content: CGFloat, viewport: CGFloat, offset: CGFloat, track: CGFloat, minLength: CGFloat) -> Thumb? {
+        guard showsBar(content: content, viewport: viewport), track > 0, viewport > 0 else { return nil }
+        let length = min(track, max(minLength, (track * viewport / content).rounded()))
+        let travel = track - length, range = content - viewport
+        let at = clamped(offset, content: content, viewport: viewport)
+        return Thumb(top: travel > 0 ? (travel * at / range).rounded() : 0, length: length)
+    }
+
+    /// The scroll offset a thumb whose top edge is at `thumbTop` stands for (the inverse of `thumb`, clamped to the track).
+    static func offset(thumbTop: CGFloat, content: CGFloat, viewport: CGFloat, track: CGFloat, minLength: CGFloat) -> CGFloat {
+        guard let t = thumb(content: content, viewport: viewport, offset: 0, track: track, minLength: minLength) else { return 0 }
+        let travel = track - t.length
+        guard travel > 0 else { return 0 }
+        return clamped((min(max(0, thumbTop), travel) / travel * (content - viewport)).rounded(), content: content, viewport: viewport)
+    }
+
+    /// A click in the track outside the thumb pages towards it (`page` pixels); a click on the thumb changes nothing.
+    static func paged(clickY: CGFloat, thumb: Thumb, offset: CGFloat, page: CGFloat, content: CGFloat, viewport: CGFloat) -> CGFloat {
+        if clickY < thumb.top { return clamped(offset - page, content: content, viewport: viewport) }
+        if clickY >= thumb.bottom { return clamped(offset + page, content: content, viewport: viewport) }
+        return offset
+    }
 
     /// The smallest move that shows `top…bottom` (content coordinates) with `margin` around it; unchanged when it is
     /// already inside the viewport; an item taller than the viewport shows its top.

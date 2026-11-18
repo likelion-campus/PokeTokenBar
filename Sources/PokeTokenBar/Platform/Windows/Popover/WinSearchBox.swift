@@ -58,14 +58,10 @@ import WinSDK
         _ = FillRect(dc, &r, colors.brush(colors.palette.window))
         let w = rect.right - rect.left, h = rect.bottom - rect.top
         guard w > 0, h > 0 else { return }
-        let pen = CreatePen(0 /* PS_SOLID */, max(1, ctx.px(1) / 2), colors.palette.cardBorder)
-        let oldPen = SelectObject(dc, UnsafeMutableRawPointer(pen))
-        let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(colors.brush(colors.palette.field)))  // the edit's own colour (white in light)
-        let radius = 2 * ctx.px(6)
-        _ = RoundRect(dc, 0, 0, w, h, radius, radius)
-        _ = SelectObject(dc, oldBrush)
-        _ = SelectObject(dc, oldPen)
-        _ = DeleteObject(UnsafeMutableRawPointer(pen))
+        // The edit's own colour inside (white in light), the card's hairline around it.
+        WinPaint.roundedRect(dc, RECT(left: 0, top: 0, right: w, bottom: h), radius: ctx.px(6), fill: WinPaint.Ink(color: colors.palette.field),
+                             stroke: WinPaint.Ink(color: colors.palette.cardBorder), strokeWidth: max(1, ctx.px(1) / 2),
+                             under: colors.palette.window, ctx: ctx, clip: dirty)
         if let glyph {
             let old = SelectObject(dc, UnsafeMutableRawPointer(glyph.font))
             _ = SetBkMode(dc, 1 /* TRANSPARENT */)
