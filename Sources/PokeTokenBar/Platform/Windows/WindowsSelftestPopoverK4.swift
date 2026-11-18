@@ -86,9 +86,6 @@ enum MSAAProbe {
 }
 
 @MainActor enum WindowsSelftestPopoverK4 {
-    /// Breadcrumbs: a hung step shows up in the timeout's list of checks so far.
-    static var crumbs: WindowsSelftest.Recorder?
-    static func at(_ n: String) { crumbs?.add("popover.k4.at.\(n)", true, "reached") }
     private static func wait(_ seconds: TimeInterval) async { _ = await WindowsSelftest.waitUntil(timeout: seconds) { false } }
     typealias CD = WindowsSelftestPopoverCustomDraw
 
@@ -124,26 +121,22 @@ enum MSAAProbe {
             if DWORD(bitPattern: GetWindowLongW(c.hwnd, -20)) & 0x200 != 0 { problems.append("a field still has a sunken client edge") }
         }
 
-        at("built")
         // names, as MSAA says them
         if let info = MSAAProbe.query(combo.hwnd) {
             if info.role != 0x2B { problems.append("drop-down MSAA role \(info.role), expected push button 43") }
             if info.name != "Language: 한국어" { problems.append("drop-down MSAA name '\(info.name)', expected 'Language: 한국어'") }
             notes.append("drop-down MSAA role=\(info.role) name='\(info.name)' state=0x\(String(info.state, radix: 16))")
         } else { problems.append("no MSAA object for the drop-down") }
-        at("msaaCombo")
         if let info = MSAAProbe.query(off.hwnd), info.state & 0x1 == 0 { problems.append("a disabled drop-down is not UNAVAILABLE in MSAA (state 0x\(String(info.state, radix: 16)))") }
         if let info = MSAAProbe.query(stepper.hwnd) {
             if info.role != 0x2B || info.name != "Quantity: ×3" { problems.append("stepper MSAA role \(info.role) name '\(info.name)', expected 43 'Quantity: ×3'") }
             notes.append("stepper MSAA role=\(info.role) name='\(info.name)'")
         } else { problems.append("no MSAA object for the stepper") }
-        at("msaaStepper")
         if let info = MSAAProbe.query(edit.hwnd) {
             if info.role != 0x2A || !info.name.contains("Nickname") { problems.append("field MSAA role \(info.role) name '\(info.name)', expected text 42 named 'Nickname'") }
             notes.append("field MSAA role=\(info.role) name='\(info.name)' value='\(info.value)'")
         } else { problems.append("no MSAA object for the field") }
 
-        at("msaaEdit")
         // drop-down: keys, menu, width
         var menus: [[TrayMenuModel.Item?]] = []
         var answer: Int? = 0
@@ -180,10 +173,11 @@ enum MSAAProbe {
         if !(cw < 150 && ww > cw + 40 && ww <= 240.5) { problems.append("drop-down widths \(Int(cw)) / \(Int(ww)) DIP: not sized to the entries (short < 150, long up to 240)") }
         notes.append("drop-down widths \(Int(cw)) / \(Int(ww)) DIP")
 
-        at("dropdownKeys")
         // stepper: value, keys, ends, width
         let sw = stepper.preferredSize.width, bw = big.preferredSize.width
-        if sw != bw { problems.append("stepper width follows the maximum: \(Int(sw)) px for 1...5, \(Int(bw)) px for 1...2e9") }
+        // sized to its content: a huge maximum is capped at "×99" (what a quantity can need), not "×2000000000"
+        let stepFont = stepper.font, capped = w.ctx.measure("×99", font: stepFont).cx + w.ctx.px(6 + 18), full = w.ctx.measure("×2000000000", font: stepFont).cx + w.ctx.px(6 + 18)
+        if Int32(bw) != capped || bw >= CGFloat(full) || sw >= bw { problems.append("stepper width: \(Int(sw)) px for 1...5 and \(Int(bw)) px for 1...2e9; expected the second to be \"×99\" wide (\(capped)) and less than \(full)") }
         key(stepper, 0x26)
         key(stepper, 0x26)
         key(stepper, 0x26)  // 3 -> 4 -> 5 -> stays
@@ -207,7 +201,6 @@ enum MSAAProbe {
         _ = SendMessageW(stepper.hwnd, 0x0200, 0, upper)
         notes.append("stepper \(Int(sw)) px wide (same for a 2e9 maximum), halves hot=\(stepper.hotHalf)")
 
-        at("stepper")
         // field frame: the padding is non-client, and was painted by WM_NCPAINT
         var wr = RECT(), cr = RECT()
         _ = GetWindowRect(edit.hwnd, &wr)
@@ -221,7 +214,6 @@ enum MSAAProbe {
         _ = GetClientRect(multi.hwnd, &cr)
         if (wr.right - wr.left) - (cr.right - cr.left) < w.ctx.px(10) { problems.append("the multi-line field's text area is not inset") }
 
-        at("fieldNC")
         guard let dcOwner = CreateCompatibleDC(nil) else { return (problems, notes.joined(separator: "; ")) }
         defer { _ = DeleteDC(dcOwner) }
         // frame pixels: drawn into a bitmap the size of the window
@@ -252,14 +244,13 @@ enum MSAAProbe {
             let edge = rest.rgb(0, mid), card = (r: Int(look.bg & 0xFF), g: Int((look.bg >> 8) & 0xFF), b: Int((look.bg >> 16) & 0xFF))
             let magenta = rest.rgb(rest.width / 2, rest.height / 2)
             if !(magenta.r == 255 && magenta.g == 0 && magenta.b == 255) { problems.append("the frame painted over the text area (centre \(CD.hex(magenta)))") }
-            let edgeRatio = ratio(rest.rgb(1, mid), card)
+            let edgeRatio = ratio(edge, card)
             if edgeRatio < 1.3 { problems.append("the field's hairline is \(String(format: "%.2f", edgeRatio)):1 against its card, expected at least 1.3:1") }
             let top = ring.rgb(ring.width / 2, 0), inkColour: COLORREF = highContrast ? look.palette.text : (dark ? 0x00FF_FFFF : 0)
             if !CD.near(top, inkColour, tolerance: 40) { problems.append("the focus ring's top edge is \(CD.hex(top)), expected \(CD.hex(from: inkColour))") }
             notes.append("field hairline \(CD.hex(edge)) on card = \(String(format: "%.2f", edgeRatio)):1, focus ring \(CD.hex(top))")
         } else { problems.append("no picture of the field frame") }
 
-        at("fieldPixels")
         // drop-down and stepper pixels (the system draws in high contrast)
         if !highContrast {
             let look = WinLook(combo)
@@ -269,7 +260,7 @@ enum MSAAProbe {
                 return s.rgb(s.width / 2, Int(look.ipx(3)))
             }
             let rest = fillAt(combo), hot = fillAt(combo, hot: true), pressed = fillAt(combo, hot: true, pressed: true)
-            let ring = fillAt(combo, focus: true)
+            let ring: (r: Int, g: Int, b: Int)? = { combo.forceState(hot: nil, pressed: nil, focus: 0); return CD.shot(combo.hwnd).map { $0.rgb($0.width / 2, 0) } }()
             combo.forceState()
             func rgb(_ c: COLORREF) -> (r: Int, g: Int, b: Int) { (Int(c & 0xFF), Int((c >> 8) & 0xFF), Int((c >> 16) & 0xFF)) }
             if let rest, !CD.near(rest, look.buttonFill(hot: false, pressed: false)) { problems.append("drop-down at rest is \(CD.hex(rest)), expected its fill \(CD.hex(from: look.buttonFill(hot: false, pressed: false)))") }
@@ -351,7 +342,6 @@ enum MSAAProbe {
     }
 
     static func run(_ r: WindowsSelftest.Recorder) async {
-        crumbs = r
         var problems: [String] = []
         var notes: [String] = []
         for (name, dark, high) in [("light", false, false), ("dark", true, false), ("high contrast", false, true)] {
