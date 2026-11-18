@@ -30,6 +30,8 @@ on:
 permissions:
   contents: read
   actions: read   # the seed (.build of the last windows-port run) is an artifact of another run
+env:
+  PTB_REAL_SPRITE_PROBE: '1'   # DIAGNOSTIC branch only (diag/real-sprite-probe): RealSpriteProbeTests uses the real network
 concurrency:
   group: ${{ inputs.release_sha != '' && format('windows-release-{0}', inputs.release_sha) || format('windows-{0}', github.ref) }}
   cancel-in-progress: ${{ inputs.release_sha == '' && github.ref != 'refs/heads/windows-port' }}
