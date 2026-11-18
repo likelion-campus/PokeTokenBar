@@ -240,3 +240,5 @@ PopoverPetExtrasTwinEquivalenceTests+Mac.swift
 FloatingPetExtrasRendersMacTests.swift
 # PopoverSpriteRetryTwinTests+Mac: drives the Mac's SpriteLoader.recoveringAnimationFrames (AppKit) against the shared sprite model's GIF retry (fix/windows-pet-still)
 PopoverSpriteRetryTwinTests+Mac.swift
+# WindowsPaintScanTests: scans the Windows sources for RoundRect( and DrawFocusRect( with SharedSources (SharedSourcesScanTests.swift), which is Mac-only (visual polish K2)
+WindowsPaintScanTests.swift

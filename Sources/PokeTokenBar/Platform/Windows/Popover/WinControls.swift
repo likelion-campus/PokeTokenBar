@@ -972,12 +972,16 @@ enum WinClipboardText {
         let colors = c.ctx.colors.palette
         let pressed = state & 0x0001 != 0, disabled = state & 0x0004 != 0, focused = state & 0x0010 != 0, hideFocus = state & 0x0200 != 0
         var r = d.rcItem
-        let fill = pressed ? colors.pressed : (c.hot ? colors.hot : c.background)
-        _ = FillRect(d.hDC, &r, c.ctx.colors.brush(fill))
+        // A rounded fill (4 DIP, antialiased) under the pointer or the press; at rest the button is its background only.
+        _ = FillRect(d.hDC, &r, c.ctx.colors.brush(c.background))
+        if !disabled, pressed || c.hot {
+            WinPaint.roundedRect(d.hDC, r, radius: c.ctx.px(4), fill: WinPaint.Ink(color: pressed ? colors.pressed : colors.hot),
+                                 under: c.background, ctx: c.ctx)
+        }
         if let glyph = c.glyph {
             let old = SelectObject(d.hDC, UnsafeMutableRawPointer(c.font))
             _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
-            _ = SetTextColor(d.hDC, disabled ? c.ctx.colors.palette.disabled : (pressed && c.ctx.highContrast ? WinUIContext.sysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? colors.text))))
+            _ = SetTextColor(d.hDC, disabled ? c.ctx.colors.palette.disabled : (pressed && c.ctx.highContrast ? WinUIContext.sysColor(14) : (c.ctx.highContrast ? colors.text : (c.glyphColor ?? (pressed || c.hot ? colors.text : colors.secondaryText)))))
             _ = WinStr.w(glyph.text).withUnsafeBufferPointer {
                 DrawTextW(d.hDC, $0.baseAddress, -1, &r, UINT(DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX))
             }
@@ -985,8 +989,9 @@ enum WinClipboardText {
         }
         if focused, !hideFocus {
             var f = d.rcItem
-            _ = InflateRect(&f, -c.ctx.px(2), -c.ctx.px(2))
-            _ = DrawFocusRect(d.hDC, &f)
+            _ = InflateRect(&f, -c.ctx.px(1), -c.ctx.px(1))
+            WinPaint.focusRing(d.hDC, f, radius: c.ctx.px(4), ctx: c.ctx, outer: colors.text,
+                               inner: f.bottom - f.top >= c.ctx.px(22) ? c.background : nil)
         }
     }
 }
@@ -1096,16 +1101,6 @@ extension WinControls {
         return CGSize(width: CGFloat(w), height: CGFloat(h))
     }
 
-    private static func fillRounded(_ dc: HDC, _ r: RECT, _ color: COLORREF, radius: Int32, ctx: WinUIContext) {
-        guard let pen = CreatePen(5 /* PS_NULL */, 0, 0) else { return }
-        let oldPen = SelectObject(dc, UnsafeMutableRawPointer(pen))
-        let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(ctx.colors.brush(color)))
-        _ = RoundRect(dc, r.left, r.top, r.right + 1, r.bottom + 1, radius, radius)
-        _ = SelectObject(dc, oldBrush)
-        _ = SelectObject(dc, oldPen)
-        _ = DeleteObject(UnsafeMutableRawPointer(pen))
-    }
-
     private static func drawPillText(_ dc: HDC, _ text: String, font: HFONT?, box: RECT) {
         var box = box
         let old = SelectObject(dc, UnsafeMutableRawPointer(font))
@@ -1127,7 +1122,7 @@ extension WinControls {
         let high = ctx.highContrast
         var fill: COLORREF?
         var ink = pal.text
-        var radius = r.bottom - r.top  // a capsule
+        var radius = (r.bottom - r.top) / 2  // a capsule
         switch pill.style {
         case .capsule:
             ink = pal.text
@@ -1138,13 +1133,13 @@ extension WinControls {
         case .prominent:
             ink = high ? WinUIContext.sysColor(14 /* COLOR_HIGHLIGHTTEXT */) : WinUIColors.rgb(255, 255, 255)
             fill = disabled && !high ? WinUIColors.blend(bg, pal.accent, 0.35) : pal.accent
-            radius = 2 * ctx.px(5)
+            radius = ctx.px(5)
         case .borderless:
             ink = pill.accent ? pal.accent : (pill.secondary ? pal.secondaryText : pal.text)
-            radius = 2 * ctx.px(4)
+            radius = ctx.px(4)
         case .disclosure:
             ink = pal.text
-            radius = 2 * ctx.px(4)
+            radius = ctx.px(4)
         }
         if high, pill.style != .prominent { ink = pal.text }
         if high, pill.style == .borderless, pill.accent { ink = pal.text }
@@ -1152,7 +1147,7 @@ extension WinControls {
             let base = fill ?? bg
             fill = WinUIColors.blend(base, pill.style == .prominent ? WinUIColors.rgb(0, 0, 0) : pal.text, pressed ? 0.14 : 0.07)
         }
-        if let fill { fillRounded(d.hDC, r, fill, radius: radius, ctx: ctx) }
+        if let fill { WinPaint.roundedRect(d.hDC, r, radius: radius, fill: WinPaint.Ink(color: fill), under: bg, ctx: ctx) }
         let textColor = disabled ? ctx.colors.palette.disabled : ink
         _ = SetBkMode(d.hDC, 1 /* TRANSPARENT */)
         _ = SetTextColor(d.hDC, textColor)
@@ -1174,9 +1169,10 @@ extension WinControls {
             x += piece.width + gap
         }
         if focused, !hideFocus {
-            var f = d.rcItem
-            _ = InflateRect(&f, -ctx.px(2), -ctx.px(1))
-            _ = DrawFocusRect(d.hDC, &f)
+            // 2 DIP rounded ring in the text colour around the pill's own shape; the 1 DIP inner line only where the pill is tall enough for it
+            // beside its text (the Mac's paddings are 2-4 DIP).
+            WinPaint.focusRing(d.hDC, d.rcItem, radius: radius, ctx: ctx, outer: pal.text,
+                               inner: d.rcItem.bottom - d.rcItem.top >= ctx.px(26) ? bg : nil)
         }
     }
 }

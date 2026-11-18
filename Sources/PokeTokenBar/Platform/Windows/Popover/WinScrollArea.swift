@@ -2,32 +2,48 @@
 import Foundation
 import WinSDK
 
-/// A scrolling page (stage 7 D6): a viewport with a vertical scroll bar and, inside it, the content pane the page's
-/// controls live in, moved up and down as one window. The content's width never changes with its height: it is the viewport
-/// beside the bar's lane (`paneWidth`), as the Mac keeps its scroller lane clear (12 pt of padding). The native bar is there
-/// only while the content is taller than the viewport (Windows hides it by itself when the range fits the page): where the
-/// content fits, the lane is empty, as the Mac's overlay scroller is not drawn until it scrolls (windows-differences.md). The wheel and a precision touchpad
-/// scroll it (`SPI_GETWHEELSCROLLLINES` lines of 16 DIP a notch, fractions kept); a control the keyboard focuses is
-/// brought into view; a thumb drag (the scroll bar's own modal loop) runs inside `WinModalPump`, so team links keep their
-/// heartbeats. No timer: it moves only on input.
+/// A scrolling page (stage 7 D6, K2): a viewport with an overlay scroll thumb in a lane at its right edge and, inside it, the
+/// content pane the page's controls live in, moved up and down as one window. The content's width never changes with its
+/// height: it is the viewport beside the lane (`paneWidth`), the Mac's 12 pt scroller lane (`PopoverView.swift:13-26`), shown
+/// or not. The thumb is the Mac's overlay scroller as Windows 11's own overlay bars draw it: a 3 DIP capsule at rest, 6 DIP with
+/// the lane tinted while the pointer is in the lane or the thumb is dragged (high contrast: the text colour, no tint). It is
+/// drawn only while the content is taller than the viewport and never fades (no timer; windows-differences.md). A drag holds
+/// the mouse capture and moves the page from `WM_MOUSEMOVE`, a click in the lane outside the thumb pages towards it; neither
+/// runs a modal loop. The wheel and a precision touchpad scroll it (`SPI_GETWHEELSCROLLLINES` lines of 16 DIP a notch, fractions
+/// kept); a control the keyboard focuses is brought into view. It moves only on input.
 @MainActor final class WinScrollArea {
     static let className = "PokeTokenBarScroll"
+    static let laneClassName = "PokeTokenBarScrollLane"
     static let lineDIP: CGFloat = 16
+    /// The lane's width (the Mac's `PopoverView` scroller lane), the thumb's widths, its inset from the lane's edge and from the
+    /// track's ends, and its shortest length.
+    static let laneDIP: CGFloat = 12
+    static let restWidthDIP: CGFloat = 3
+    static let hotWidthDIP: CGFloat = 6
+    static let insetDIP: CGFloat = 3
+    static let trackInsetDIP: CGFloat = 2
+    static let minThumbDIP: CGFloat = 24
 
     let viewport: WinSinkWindow
     let content: WinPane
     let ctx: WinUIContext
     private(set) var offset: Int32 = 0
     private(set) var contentHeight: Int32 = 0
-    /// The content's width in pixels: the viewport's client width with the bar's lane taken, whether the bar is shown or not.
+    /// The content's width in pixels: the viewport's width with the lane taken, whether the thumb is shown or not.
     private(set) var paneWidth: Int32 = 0
-    /// The bar's width in pixels (the viewport has no border), measured once with the bar shown.
-    private var laneWidth: Int32 = 0
+    private var laneWidth: Int32 { ctx.px(Self.laneDIP) }
     private var wheel = PopoverWheel()
+    private let lane: WinSinkWindow
+    private var hover = false
+    /// While the thumb is held: the pointer's distance below the thumb's top.
+    private var grab: Int32?
+    private var laneTracking = false
+    /// What `layoutLane` last applied.
+    private var appliedShows = false, appliedLane = [Int32](), appliedThumb: PopoverScrollMath.Thumb?
 
     struct Stats: Equatable {
-        var wheelMessages = 0, thumbDrags = 0, reveals = 0, moves = 0
-        /// `WinModalPump.depth` seen while a thumb drag's loop ran (the selftest's evidence that the pump served it).
+        var wheelMessages = 0, thumbDrags = 0, pageClicks = 0, reveals = 0, moves = 0
+        /// The greatest `WinModalPump.depth` seen while a drag moved the page: 0 means no modal loop ran (the system bar's did).
         var pumpDepthDuringDrag = 0
     }
     private(set) var stats = Stats()
@@ -35,31 +51,24 @@ import WinSDK
 
     init(parent: HWND, ctx: WinUIContext, rect: RECT) throws {
         self.ctx = ctx
-        let style: DWORD = 0x4000_0000 | 0x1000_0000 | 0x0020_0000 | 0x0200_0000  // WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_CLIPCHILDREN
+        let style: DWORD = 0x4000_0000 | 0x1000_0000 | 0x0200_0000  // WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN
         let made = try WinSinkWindow(className: Self.className, title: "", style: style, exStyle: 0x0001_0000 /* WS_EX_CONTROLPARENT */,
                                      x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top, parent: parent)
-        Self.updateBar(made.hwnd, height: 0, page: 1, offset: 0, keepLane: true)  // shows the (disabled) bar, so the client width below is the lane's
-        var client = RECT()
-        _ = GetClientRect(made.hwnd, &client)
-        Self.updateBar(made.hwnd, height: 0, page: 1, offset: 0)  // nothing to scroll yet: the bar goes
-        let pane: WinPane
+        let lanePx = ctx.px(Self.laneDIP)
+        let pane: WinPane, laneWindow: WinSinkWindow
         do {
-            pane = try WinPane(parent: made.hwnd, ctx: ctx, rect: RECT(left: 0, top: 0, right: client.right, bottom: client.bottom))
+            pane = try WinPane(parent: made.hwnd, ctx: ctx, rect: RECT(left: 0, top: 0, right: max(1, rect.right - rect.left - lanePx), bottom: rect.bottom - rect.top))
+            laneWindow = try WinSinkWindow(className: Self.laneClassName, title: "", style: 0x4000_0000 /* WS_CHILD, hidden until it can scroll */, exStyle: 0,
+                                           x: max(0, rect.right - rect.left - lanePx), y: 0, width: lanePx, height: rect.bottom - rect.top, parent: made.hwnd)
         } catch {
             made.destroy()
             throw error
         }
-        if ctx.dark { WinDarkMode.setTheme(made.hwnd, "DarkMode_Explorer") }  // the scroll bar's dark style (Task 16)
         viewport = made
         content = pane
-        paneWidth = client.right
-        laneWidth = (rect.right - rect.left) - client.right
+        lane = laneWindow
+        paneWidth = max(1, rect.right - rect.left - lanePx)
         Self.areas[Int(bitPattern: content.hwnd)] = self
-        viewport.on(0x0115 /* WM_VSCROLL */) { [weak self] wParam, lParam in
-            guard lParam == 0, let self else { return nil }  // a scroll bar control's WM_VSCROLL is the router's
-            self.vscroll(WinKit.loWord(wParam))
-            return 0
-        }
         viewport.on(0x020A /* WM_MOUSEWHEEL */) { [weak self] wParam, _ in
             guard let self else { return nil }
             self.stats.wheelMessages += 1
@@ -69,17 +78,6 @@ import WinSDK
                                                  page: CGFloat(self.viewportHeight))
             self.scroll(to: self.offset + Int32(change))
             return 0
-        }
-        // WM_NCLBUTTONDOWN and WM_NCLBUTTONDBLCLK (the second click of a double click, sent even without CS_DBLCLKS): on the
-        // scroll bar DefWindowProc runs its tracking loop (thumb, arrows, track), which starves the main queue otherwise (R11).
-        for message: UINT in [0x00A1, 0x00A3] {
-            viewport.on(message) { [weak self] wParam, lParam in
-                guard wParam == 7 || wParam == 6 /* HTVSCROLL, HTHSCROLL */, let self else { return nil }
-                self.stats.thumbDrags += 1
-                WinModalPump.begin("scroll")
-                defer { WinModalPump.end("scroll") }
-                return DefWindowProcW(self.viewport.hwnd, message, wParam, lParam)
-            }
         }
         viewport.on(0x0014 /* WM_ERASEBKGND */) { [weak self] wParam, _ in
             guard let self, let dc = HDC(bitPattern: UInt(wParam)) else { return nil }
@@ -91,17 +89,15 @@ import WinSDK
         }
         viewport.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
         viewport.on(0x0010 /* WM_CLOSE */) { _, _ in 0 }  // a child never closes the page
+        installLane()
     }
 
     /// The content's width in pixels (the viewport beside its scroll bar's lane).
     var contentWidth: Int32 { paneWidth }
 
-    /// Whether the native scroll bar is on the screen (`STATE_SYSTEM_INVISIBLE` is off): only while the content is taller than the viewport.
+    /// Whether the thumb is on the screen: only while the content is taller than the viewport (the lane window is shown then).
     var barVisible: Bool {
-        var info = SCROLLBARINFO()
-        info.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
-        guard GetScrollBarInfo(viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB) /* OBJID_VSCROLL */, &info) else { return false }
-        return info.rgstate.0 & 0x0001_8000 == 0  // neither STATE_SYSTEM_INVISIBLE nor STATE_SYSTEM_OFFSCREEN: it is laid out on the screen
+        thumb != nil && UInt(bitPattern: Int(GetWindowLongPtrW(lane.hwnd, -16 /* GWL_STYLE */))) & 0x1000_0000 /* WS_VISIBLE */ != 0
     }
 
     var viewportHeight: Int32 {
@@ -110,12 +106,12 @@ import WinSDK
         return r.bottom
     }
 
-    /// The page's height (pixels): the bar's range, the pane's size (never shorter than the viewport) and a kept offset.
+    /// The page's height (pixels): the thumb's range, the pane's size (never shorter than the viewport) and a kept offset.
     func setContentHeight(_ height: Int32) {
         contentHeight = max(0, height)
         offset = Int32(PopoverScrollMath.clamped(CGFloat(offset), content: CGFloat(contentHeight), viewport: CGFloat(viewportHeight)))
         WinKit.move(content.hwnd, RECT(left: 0, top: -offset, right: contentWidth, bottom: -offset + max(contentHeight, viewportHeight)))
-        Self.updateBar(viewport.hwnd, height: contentHeight, page: viewportHeight, offset: offset)
+        layoutLane()
     }
 
     func scroll(to y: Int32) {
@@ -124,7 +120,7 @@ import WinSDK
         offset = next
         stats.moves += 1
         _ = SetWindowPos(content.hwnd, nil, 0, -offset, 0, 0, UINT(SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE))
-        Self.updateBar(viewport.hwnd, height: contentHeight, page: viewportHeight, offset: offset)
+        _ = InvalidateRect(lane.hwnd, nil, false)
     }
 
     /// Scrolls so the rect (content pixels) is visible with a 8 DIP margin; no move when it already is.
@@ -150,7 +146,7 @@ import WinSDK
 
     func move(_ r: RECT) {
         WinKit.move(viewport.hwnd, r)
-        paneWidth = (r.right - r.left) - laneWidth
+        paneWidth = max(1, (r.right - r.left) - laneWidth)
         setContentHeight(contentHeight)
     }
 
@@ -166,55 +162,153 @@ import WinSDK
         viewport.destroy()
     }
 
-    private func vscroll(_ code: Int) {
-        let line = ctx.px(Self.lineDIP), page = max(line, viewportHeight - line)
-        switch code {
-        case 0: scroll(to: offset - line)  // SB_LINEUP
-        case 1: scroll(to: offset + line)  // SB_LINEDOWN
-        case 2: scroll(to: offset - page)  // SB_PAGEUP
-        case 3: scroll(to: offset + page)  // SB_PAGEDOWN
-        case 4, 5:  // SB_THUMBPOSITION, SB_THUMBTRACK: the 32-bit track position
-            if WinModalPump.depth > 0 { stats.pumpDepthDuringDrag = max(stats.pumpDepthDuringDrag, WinModalPump.depth) }
-            var si = SCROLLINFO()
-            si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
-            si.fMask = 0x0010  // SIF_TRACKPOS
-            if GetScrollInfo(viewport.hwnd, 1 /* SB_VERT */, &si) { scroll(to: si.nTrackPos) }
-        case 6: scroll(to: 0)  // SB_TOP
-        case 7: scroll(to: contentHeight)  // SB_BOTTOM
-        default: break
+    // MARK: the overlay thumb
+
+    /// The thumb inside the lane's track (client pixels), nil while there is nothing to scroll.
+    private var thumb: PopoverScrollMath.Thumb? {
+        let inset = CGFloat(ctx.px(Self.trackInsetDIP))
+        return PopoverScrollMath.thumb(content: CGFloat(contentHeight), viewport: CGFloat(viewportHeight), offset: CGFloat(offset),
+                                       track: CGFloat(viewportHeight) - 2 * inset, minLength: CGFloat(ctx.px(Self.minThumbDIP))).map {
+            PopoverScrollMath.Thumb(top: $0.top + inset, length: $0.length)
         }
     }
 
-    /// The bar is shown and hidden by `SetScrollInfo` itself (without `SIF_DISABLENOSCROLL` it hides the bar when the range fits the
-    /// page and shows it when it does not, with its frame laid out: run 44157374721's first form had real coordinates), and enabled
-    /// by `EnableScrollBar` whenever there is something to scroll: the lane measured at the start leaves the bar disabled, and a
-    /// hidden-then-shown bar kept that (run 44207063172: the thumb and arrows did nothing). `ShowScrollBar` is not used: a bar it
-    /// shows reported `STATE_SYSTEM_OFFSCREEN` with an empty rectangle (run 44226708621). `keepLane` keeps the bar on the screen
-    /// (disabled) for measuring the lane.
-    private static func updateBar(_ hwnd: HWND, height: Int32, page: Int32, offset: Int32, keepLane: Bool = false) {
-        var si = SCROLLINFO()
-        si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
-        si.fMask = 0x0001 | 0x0002 | 0x0004 | (keepLane ? 0x0008 : 0)  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL
-        si.nMin = 0
-        si.nMax = max(0, height - 1)
-        si.nPage = UINT(max(1, page))
-        si.nPos = offset
-        _ = SetScrollInfo(hwnd, 1 /* SB_VERT */, &si, true)
-        if PopoverScrollMath.showsBar(content: CGFloat(height), viewport: CGFloat(page)) { _ = EnableScrollBar(hwnd, 1, 0 /* ESB_ENABLE_BOTH */) }
+    /// The thumb's rectangle in screen pixels (the selftest drives the mouse with it).
+    var thumbScreenRect: RECT? {
+        guard let t = thumb else { return nil }
+        var tl = POINT(x: 0, y: Int32(t.top)), br = POINT(x: laneWidth, y: Int32(t.bottom))
+        _ = ClientToScreen(lane.hwnd, &tl)
+        _ = ClientToScreen(lane.hwnd, &br)
+        return RECT(left: tl.x, top: tl.y, right: br.x, bottom: br.y)
     }
 
-    /// For the selftest's failure lines: whether the style has the bar, its range and the state and rectangle the system reports.
+    /// Whether the pointer's lane look (the wider thumb on the tinted lane) is on.
+    var laneHot: Bool { hover || grab != nil }
+
+    /// Puts the lane window at the viewport's right edge and shows it only while the page can scroll. A layout that changes none of
+    /// that (most of them) touches nothing: no window call, no repaint.
+    private func layoutLane() {
+        var client = RECT()
+        _ = GetClientRect(viewport.hwnd, &client)
+        let shows = PopoverScrollMath.showsBar(content: CGFloat(contentHeight), viewport: CGFloat(viewportHeight))
+        let placed = RECT(left: max(0, client.right - laneWidth), top: 0, right: client.right, bottom: client.bottom)
+        let look = thumb
+        defer { appliedThumb = look }
+        let key = [placed.left, placed.right, placed.bottom]
+        if shows == appliedShows, key == appliedLane {
+            if look != appliedThumb { _ = InvalidateRect(lane.hwnd, nil, false) }
+            return
+        }
+        appliedShows = shows
+        appliedLane = key
+        // Placed and shown (or hidden) in one call, never activating (SWP_SHOWWINDOW / SWP_HIDEWINDOW, SWP_NOACTIVATE).
+        _ = SetWindowPos(lane.hwnd, nil, placed.left, 0, placed.right - placed.left, placed.bottom,
+                         UINT(SWP_NOZORDER | SWP_NOACTIVATE) | (shows ? 0x0040 : 0x0080))
+        if !shows { hover = false; grab = nil }
+        _ = InvalidateRect(lane.hwnd, nil, false)
+    }
+
+    private func installLane() {
+        func y(_ lParam: LPARAM) -> Int32 { Int32(Int16(truncatingIfNeeded: (lParam >> 16) & 0xFFFF)) }
+        lane.on(0x0014 /* WM_ERASEBKGND */) { _, _ in 1 }  // WM_PAINT draws everything
+        lane.on(0x000F /* WM_PAINT */) { [weak self] _, _ in
+            guard let self else { return nil }
+            var ps = PAINTSTRUCT()
+            guard let dc = BeginPaint(self.lane.hwnd, &ps) else { return 0 }
+            self.drawLane(dc)
+            _ = EndPaint(self.lane.hwnd, &ps)
+            return 0
+        }
+        lane.on(0x0318 /* WM_PRINTCLIENT */) { [weak self] wParam, _ in
+            guard let self, let dc = HDC(bitPattern: UInt(wParam)) else { return nil }
+            self.drawLane(dc)
+            return 0
+        }
+        lane.on(0x0020 /* WM_SETCURSOR */) { _, lParam in WinKit.arrowCursor(lParam) }
+        lane.on(0x0010 /* WM_CLOSE */) { _, _ in 0 }
+        lane.on(0x0200 /* WM_MOUSEMOVE */) { [weak self] _, lParam in
+            guard let self else { return nil }
+            if let grab = self.grab {
+                self.stats.pumpDepthDuringDrag = max(self.stats.pumpDepthDuringDrag, WinModalPump.depth)
+                let inset = CGFloat(self.ctx.px(Self.trackInsetDIP))
+                self.scroll(to: Int32(PopoverScrollMath.offset(thumbTop: CGFloat(y(lParam) - grab) - inset, content: CGFloat(self.contentHeight),
+                                                               viewport: CGFloat(self.viewportHeight),
+                                                               track: CGFloat(self.viewportHeight) - 2 * inset, minLength: CGFloat(self.ctx.px(Self.minThumbDIP)))))
+                return 0
+            }
+            if !self.laneTracking {  // asks Windows to say when the pointer leaves, only while it is over the lane
+                self.laneTracking = true
+                var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: self.lane.hwnd, dwHoverTime: 0)
+                _ = TrackMouseEvent(&tme)
+            }
+            if !self.hover {
+                self.hover = true
+                _ = InvalidateRect(self.lane.hwnd, nil, false)
+            }
+            return 0
+        }
+        lane.on(0x02A3 /* WM_MOUSELEAVE */) { [weak self] _, _ in
+            guard let self else { return nil }
+            self.laneTracking = false
+            if self.hover {
+                self.hover = false
+                _ = InvalidateRect(self.lane.hwnd, nil, false)
+            }
+            return 0
+        }
+        lane.on(0x0201 /* WM_LBUTTONDOWN */) { [weak self] _, lParam in
+            guard let self, let t = self.thumb else { return 0 }
+            let py = y(lParam)
+            if CGFloat(py) >= t.top, CGFloat(py) < t.bottom {
+                self.stats.thumbDrags += 1
+                self.grab = py - Int32(t.top)
+                _ = SetCapture(self.lane.hwnd)
+                _ = InvalidateRect(self.lane.hwnd, nil, false)
+            } else {
+                self.stats.pageClicks += 1
+                let line = self.ctx.px(Self.lineDIP)
+                let page = max(line, self.viewportHeight - line)
+                self.scroll(to: Int32(PopoverScrollMath.paged(clickY: CGFloat(py), thumb: t, offset: CGFloat(self.offset), page: CGFloat(page),
+                                                              content: CGFloat(self.contentHeight), viewport: CGFloat(self.viewportHeight))))
+            }
+            return 0
+        }
+        for message: UINT in [0x0202 /* WM_LBUTTONUP */, 0x001F /* WM_CANCELMODE */] {
+            lane.on(message) { [weak self] _, _ in
+                guard let self, self.grab != nil else { return nil }
+                _ = ReleaseCapture()  // WM_CAPTURECHANGED ends the drag
+                return 0
+            }
+        }
+        lane.on(0x0215 /* WM_CAPTURECHANGED */) { [weak self] _, _ in
+            guard let self, self.grab != nil else { return nil }
+            self.grab = nil
+            _ = InvalidateRect(self.lane.hwnd, nil, false)
+            return 0
+        }
+    }
+
+    /// The lane: the window colour (tinted while the pointer is in it), then the thumb.
+    private func drawLane(_ dc: HDC) {
+        var r = RECT()
+        _ = GetClientRect(lane.hwnd, &r)
+        let pal = ctx.colors.palette
+        let hc = ctx.highContrast
+        let tint: COLORREF = ctx.dark ? WinUIColors.rgb(255, 255, 255) : WinUIColors.rgb(0, 0, 0)
+        _ = FillRect(dc, &r, ctx.colors.brush(laneHot && !hc ? WinUIColors.blend(pal.window, tint, 0.03) : pal.window))
+        guard let t = thumb else { return }
+        let width = ctx.px(laneHot ? Self.hotWidthDIP : Self.restWidthDIP)
+        let right = r.right - ctx.px(Self.insetDIP)
+        let box = RECT(left: right - width, top: Int32(t.top), right: right, bottom: Int32(t.bottom))
+        // Opacities: Windows 11's overlay bar at rest, firmer under the pointer; high contrast is the text colour, solid.
+        let ink = hc ? WinPaint.Ink(color: pal.text) : WinPaint.Ink(color: tint, alpha: laneHot ? 0.55 : (ctx.dark ? 0.45 : 0.40))
+        WinPaint.roundedRect(dc, box, radius: width / 2, fill: ink, under: pal.window, ctx: ctx)
+    }
+
+    /// For the selftest's failure lines: the content, the viewport and the thumb.
     func debugState() -> String {
-        var si = SCROLLINFO()
-        si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
-        si.fMask = 0x0001 | 0x0002 | 0x0004 | 0x0010  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_TRACKPOS
-        _ = GetScrollInfo(viewport.hwnd, 1, &si)
-        var info = SCROLLBARINFO()
-        info.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
-        let ok = GetScrollBarInfo(viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB), &info)
-        let style = UInt(bitPattern: Int(GetWindowLongPtrW(viewport.hwnd, -16 /* GWL_STYLE */)))
-        return "style WS_VSCROLL=\(style & 0x0020_0000 != 0) info range \(si.nMin)...\(si.nMax) page \(si.nPage) pos \(si.nPos), GetScrollBarInfo=\(ok) state=0x\(String(info.rgstate.0, radix: 16)) "
-            + "rect \(info.rcScrollBar.left),\(info.rcScrollBar.top)-\(info.rcScrollBar.right),\(info.rcScrollBar.bottom) thumb \(info.xyThumbTop)-\(info.xyThumbBottom)"
+        let t = thumb
+        return "overlay thumb \(t.map { "\(Int($0.top))...\(Int($0.bottom))" } ?? "none") visible=\(barVisible) hot=\(laneHot) content \(contentHeight) viewport \(viewportHeight) offset \(offset) lane \(laneWidth) px"
     }
 }
 #endif
