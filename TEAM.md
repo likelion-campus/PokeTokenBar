@@ -83,13 +83,39 @@ Get-FileHash .\PokeTokenBar-Setup-<버전>-win-x64.exe -Algorithm SHA256
 
 ### 지우기
 
-설정 → 앱 → 설치된 앱에서 PokeTokenBar를 제거합니다. 앱이 켜져 있으면 제거 프로그램이 닫으라고 안내합니다. "로그인 시 자동 시작"으로 등록한 항목은 함께 지워집니다.
+설정 → 앱 → 설치된 앱에서 PokeTokenBar를 제거합니다. 앱이 켜져 있으면 제거 프로그램이 닫으라고 안내합니다. "로그인 시 자동 시작"으로 등록한 항목과 `poketokenbar:` 링크 등록도 함께 지워집니다.
 
 남는 것: `%LOCALAPPDATA%\PokeTokenBar` 폴더(세이브, 설정, 로그, 팀 설정). 다시 설치하면 그대로 이어집니다. 완전히 지우려면 세이브를 내보낸 뒤 그 폴더를 직접 지웁니다.
 
 ### 세이브 옮기기
 
 Mac에서 내보낸 세이브는 Windows 앱의 설정 → "백업 & 이전" 에서 불러옵니다. 앱을 켜지 않은 채 명령 줄로 하려면 `PokeTokenBar.exe --import-save <파일>` 을 실행합니다(앱이 켜져 있으면 거절합니다).
+
+### 에이전트 활동 (Windows)
+
+Mac의 "에이전트 활동"(README)과 같습니다. 플로팅 펫과 설정의 **에이전트 활동에 반응**을 켜 두면, 에이전트가 일하는 동안 들썩이고, 입력이 필요하면 말풍선으로 부르고, 끝나면 마우스 커서 옆으로 달려옵니다. 에이전트는 `poketokenbar://agent?state=<working|waiting|done|idle>[&label=<이름>][&message=<내용>]` 링크로 알립니다. 이 링크는 설치 프로그램이 사용자 계정에만 등록하고(관리자 권한 없음), 제거할 때 함께 지웁니다. 앱이 꺼져 있을 때 링크를 열면 앱이 조용히 켜지고(팝오버 없음) 그 알림은 버려집니다(Mac과 같음). 관리자 권한으로 실행한 터미널에서 연 링크는 꺼진 앱을 켜지 않습니다. 그래서 아래 훅은 앱이 켜져 있을 때만 링크를 엽니다.
+
+링크에 넣는 값(라벨·메시지)은 **모두** `[uri]::EscapeDataString()` 으로 감싸고, 문장은 명령 줄에 이어 붙이지 말고 매개변수나 환경 변수로 넘기세요. 훅은 도구를 쓸 때마다 실행되어 PowerShell 시작(대략 0.3~0.5초)과 PokeTokenBar 한 번 실행이 매번 들어갑니다.
+
+**Claude Code** — 아래를 `%USERPROFILE%\.claude\poketokenbar.ps1` 로 저장합니다. 세션마다 프로젝트 폴더 이름을 라벨로 씁니다.
+
+```powershell
+# PokeTokenBar agent hook: poketokenbar.ps1 <working|waiting|done|idle>
+param([ValidateSet('working', 'waiting', 'done', 'idle')][string]$State)
+if (-not (Get-Process PokeTokenBar -ErrorAction SilentlyContinue)) { exit 0 }   # 훅이 앱을 켜지 않게
+$folder = if ($env:CLAUDE_PROJECT_DIR) { Split-Path -Leaf $env:CLAUDE_PROJECT_DIR } else { '' }
+$label = [uri]::EscapeDataString($folder)
+Start-Process "poketokenbar://agent?state=$State&label=$label"
+exit 0
+```
+
+그리고 `%USERPROFILE%\.claude\settings.json` 의 훅은 README의 Mac 예시와 같은 자리에, 명령만 이렇게 바꿉니다(`<사용자>` 는 내 계정 폴더 이름. 공백이나 한글이 있어도 되게 경로를 따옴표로 감쌉니다).
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:/Users/<사용자>/.claude/poketokenbar.ps1" working
+```
+
+`waiting`, `done` 도 마지막 낱말만 바꿉니다. **다른 에이전트**는 훅이나 스크립트에서 같은 링크를 엽니다. 예: 메시지를 환경 변수 `PTB_MESSAGE` 로 넘기고 `powershell -NoProfile -Command "if (Get-Process PokeTokenBar -EA 0) { Start-Process ('poketokenbar://agent?state=done&label=my-app&message=' + [uri]::EscapeDataString($env:PTB_MESSAGE)) }"`.
 
 ### 팀 광장
 
@@ -105,7 +131,6 @@ Windows 팝오버는 Mac의 화면을 그대로 따라 만든 별도 구현입�
 - 스위치 대신 체크 상자, 분할 단추 대신 눌러 고르는 단추를 씁니다.
 - 한도 갱신은 Keychain이 아니라 Claude 로그인 파일과 세션 키(Windows 자격 증명 보호로 암호화)를 씁니다.
 - 플로팅 펫: 트레이 메뉴, 팝오버 아래쪽 눈 단추, 설정의 "플로팅 펫"에서 켭니다. 끌어 옮기고, 알을 클릭하면 기도, 부화한 포켓몬을 클릭하면 팝오버가 열리며, 우클릭 메뉴(열기, 끄기, 뒷모습)가 있습니다. 배율이 다른 모니터로 끌어 옮기면 놓을 때 크기가 바뀌고, 모니터를 뺐다 꽂으면 원래 자리로 돌아옵니다. Mac처럼 포인터를 올리면 오늘 사용량이, 쓰다듬으면 하트가, 기도하면 🙏가 뜨고, 한도 알림은 말풍선으로 보여 줍니다.
-- 아직 없습니다: 펫의 에이전트 활동 반응(`poketokenbar:` 링크, 준비 중).
 - 설치 파일이 서명되지 않았고 Windows 10은 시험하지 못했습니다(위 "요구 사항").
 
 ### Windows에서 문제가 생길 때

@@ -122,7 +122,7 @@ extension WindowsSelftest {
         notes.append("waiting: panel \(P.describe(panel)) (expected \(P.describe(expected)), pet box kept=\(same(w.frame, box0)))=\(panelOK), "
                      + "\(bubbleRows) opaque bubble pixels, drawn \(String(describing: h.pet.extras.drawnBubble))=\(drawn), popped in=\(popping), settled=\(settled)")
         // A limit alert outranks the agent; when it goes the agent's bubble is back.
-        h.pet.extras.limitAlertForTesting = UsageStore.LimitAlert(key: "selftest", window: "5h", isCritical: true, utilization: 0.97)
+        h.pet.extras.limitAlertForTesting = UsageStore.LimitAlert(key: "selftest", window: "5h", isCritical: true, utilization: 97)
         h.pet.sync()
         let limitDrawn: Bool = { if case .limit? = h.pet.extras.drawnBubble { return true } else { return false } }()
         h.pet.extras.limitAlertForTesting = nil
@@ -434,18 +434,19 @@ extension WindowsSelftest {
         func boxTitle(_ row: WinRow?) -> String? { row?.control.map { WinKit.text(of: $0.parts.first ?? $0.hwnd) } }
         let titles = [boxTitle(rows.bubbleAlertsRow), boxTitle(rows.agentActivityRow), rows.agentActivityRow?.hint.map { WinKit.text(of: $0.hwnd) }]
         let titlesOK = titles == [l.floatingPetBubbleAlertsLabel, l.floatingPetAgentActivityLabel, l.floatingPetAgentActivityHint]
-        let bubbles0 = app.store.floatingPetBubbleAlerts, agents0 = app.store.floatingPetAgentActivity
-        if let c = rows.bubbleAlertsRow?.control { WinKit.send(c.parts[0], 0x00F5) }
-        if let c = rows.agentActivityRow?.control { WinKit.send(c.parts[0], 0x00F5) }
-        let flipped = await WindowsSelftest.waitUntil(timeout: 2) {
-            app.store.floatingPetBubbleAlerts == !bubbles0 && app.store.floatingPetAgentActivity == !agents0
-        }
+        // The group as it first shows with the pet on (the two switches at their settings), before the check flips them.
         if let h = p.hwnd, let area = page.areaForTesting, let stack = page.stackForTesting, let frames = stack.frames,
            let index = stack.sections.firstIndex(where: { $0.caption?.text == l.floatingPetSectionTitle.uppercased() }),
            index < frames.sections.count, let frame = frames.sections[index] {
             area.scroll(to: Int32(max(0, (frame.caption?.minY ?? frame.card?.minY ?? 0) - 8)))
             await P.wait(0.35)
             P.printWindow(h, "settings-pet-group-extras-en.png")
+        }
+        let bubbles0 = app.store.floatingPetBubbleAlerts, agents0 = app.store.floatingPetAgentActivity
+        if let c = rows.bubbleAlertsRow?.control { WinKit.send(c.parts[0], 0x00F5) }
+        if let c = rows.agentActivityRow?.control { WinKit.send(c.parts[0], 0x00F5) }
+        let flipped = await WindowsSelftest.waitUntil(timeout: 2) {
+            app.store.floatingPetBubbleAlerts == !bubbles0 && app.store.floatingPetAgentActivity == !agents0
         }
         app.store.floatingPetBubbleAlerts = bubbles0
         app.store.floatingPetAgentActivity = agents0
@@ -539,7 +540,7 @@ extension WindowsSelftest {
             _ = await settle(hh)
             write(w, "hearts-en")
             _ = await WindowsSelftest.waitUntil(timeout: 2.5) { !hh.pet.extras.heartsShowing }
-            hh.pet.extras.limitAlertForTesting = UsageStore.LimitAlert(key: "selftest", window: "5h", isCritical: true, utilization: 0.97)
+            hh.pet.extras.limitAlertForTesting = UsageStore.LimitAlert(key: "selftest", window: "5h", isCritical: true, utilization: 97)
             hh.pet.sync()
             _ = await settle(hh)
             write(w, "bubble-limit-critical-en")
