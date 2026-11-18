@@ -79,6 +79,17 @@ Expect ([bool]$env:ImageVersion) 'ImageVersion (the build job runner image) is e
 
 # The split workflow builds in one job and writes the manifest in another: the build job passes its toolchain's version.
 $swift = [string]$env:PTB_SWIFT_VERSION
+$sdk = [string]$env:PTB_WINSDK
+Expect ($sdk -match '^10\.0\.\d+\.\d+$') "PTB_WINSDK is '$sdk', expected the Windows SDK the build job compiled against"
+$inno = [string]$env:PTB_INNO_VERSION
+$innoPin = (Get-Content (Join-Path $PSScriptRoot 'build-pins.json') -Raw | ConvertFrom-Json).innosetup
+Expect ($inno -eq $innoPin) "Inno Setup '$inno' built the installer, pinned $innoPin (scripts/windows/build-pins.json)"
+# The OpenSSL the build linked must be the one the selftest reports at run time (parts/*/st.json 'openssl': "OpenSSL 3.6.5 29 Sep 2026").
+$ssl = [string]$env:PTB_OPENSSL_VERSION
+Expect ($ssl -match '^3\.\d+\.\d+$') "PTB_OPENSSL_VERSION is '$ssl', expected the version from opensslv.h"
+$stFiles = @(Get-ChildItem -Path parts -Recurse -Filter st.json -ErrorAction SilentlyContinue)
+Expect ($stFiles.Count -ge 1) 'no st.json of the bundle selftest to read the OpenSSL version from'
+foreach ($f in $stFiles) { $rt = [string](Get-Content $f.FullName -Raw | ConvertFrom-Json).openssl; Expect ($rt -like "OpenSSL $ssl *") "the selftest ran with '$rt', the build linked $ssl" }
 $msvc = [string]$env:PTB_MSVC_TOOLSET
 Expect ($msvc -match '^14\.\d+\.\d+$') "PTB_MSVC_TOOLSET is '$msvc', expected the MSVC toolset the build job compiled against"
 Expect ($swift -match '^\d+(\.\d+)+$') "PTB_SWIFT_VERSION is '$swift', expected the build job's toolchain version"
@@ -95,6 +106,9 @@ $manifest = [ordered]@{
     runnerImage = $env:ImageVersion
     swift       = $swift
     msvcToolset = $msvc
+    windowsSdk  = $sdk
+    innoSetup   = $inno
+    openssl     = $ssl
     installer   = [ordered]@{
         name           = $name
         size           = (Get-Item $setup).Length

@@ -109,6 +109,9 @@ jobs:
       installer_sha256: ${{ steps.buildid.outputs.installer_sha256 }}
       image: ${{ steps.buildid.outputs.image }}
       msvc: ${{ steps.buildid.outputs.msvc }}
+      winsdk: ${{ steps.buildid.outputs.winsdk }}
+      openssl: ${{ steps.buildid.outputs.openssl }}
+      inno: ${{ steps.buildid.outputs.inno }}
       level: ${{ env.PTB_LEVEL }}
       fast: ${{ env.PTB_FAST }}
       clean: ${{ steps.seed.outputs.clean || 'true' }}   # true = built from scratch (level full, release mode, kit/* and clean_build always are)
@@ -236,13 +239,7 @@ jobs:
         if: (success() || failure()) && steps.package.outcome == 'success'
         shell: pwsh
         run: |
-          $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
-          if (-not $iscc) { $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' }
-          if (-not (Test-Path $iscc)) {
-              choco install innosetup -y --no-progress
-              $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
-          }
-          if (-not (Test-Path $iscc)) { throw 'ISCC.exe not found after choco install innosetup' }
+          $iscc = (& ./scripts/windows/ensure-inno.ps1 | Select-Object -Last 1)
           $v = (Get-Content bundle\PokeTokenBar.version -Raw).Trim()
           $next = ($v -replace '\d+$', { [string]([int]$_.Value + 1) })
           $jobs = @(@{ Src = 'bundle'; Ver = $v; Out = 'installer-out' })
@@ -293,6 +290,13 @@ jobs:
           "installer_sha256=$h" >> $env:GITHUB_OUTPUT
           "image=$env:ImageVersion" >> $env:GITHUB_OUTPUT
           "msvc=$env:PTB_MSVC_TOOLSET" >> $env:GITHUB_OUTPUT
+          "winsdk=$env:PTB_WINSDK" >> $env:GITHUB_OUTPUT
+          "inno=$env:PTB_INNO_VERSION" >> $env:GITHUB_OUTPUT
+          # The OpenSSL the app links (vcpkg, pinned by the builtin-baseline in windows/vcpkg.json): the header's own version string.
+          $ssl = [regex]::Match((Get-Content (Join-Path $env:PTB_OPENSSL_DIR 'include/openssl/opensslv.h') -Raw), '#\s*define\s+OPENSSL_VERSION_STR\s+"([^"]+)"').Groups[1].Value
+          if (-not $ssl) { throw 'no OPENSSL_VERSION_STR in opensslv.h' }
+          "openssl=$ssl" >> $env:GITHUB_OUTPUT
+          "toolset $env:PTB_MSVC_TOOLSET, Windows SDK $env:PTB_WINSDK, Inno Setup $env:PTB_INNO_VERSION, OpenSSL $ssl"
           "installer $($f[0].Name) sha256 $h, runner image $env:ImageVersion"
       # The installer is a CI artifact only (short retention): nothing is attached to a release or uploaded elsewhere.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -1708,6 +1712,9 @@ jobs:
           RELEASE_VERSION: ${{ inputs.release_version }}
           PTB_SWIFT_VERSION: ${{ needs.build.outputs.swift }}
           PTB_MSVC_TOOLSET: ${{ needs.build.outputs.msvc }}
+          PTB_WINSDK: ${{ needs.build.outputs.winsdk }}
+          PTB_OPENSSL_VERSION: ${{ needs.build.outputs.openssl }}
+          PTB_INNO_VERSION: ${{ needs.build.outputs.inno }}
           PTB_BUILD_SHA256: ${{ needs.build.outputs.installer_sha256 }}
           PTB_CLEAN_BUILD: ${{ needs.build.outputs.clean }}
           ImageVersion: ${{ needs.build.outputs.image }}

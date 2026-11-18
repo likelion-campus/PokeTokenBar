@@ -1,5 +1,6 @@
 {
   "name": "poketokenbar-windows",
   "version-string": "0",
-  "dependencies": ["openssl"]
+  "dependencies": ["openssl"],
+  "builtin-baseline": "9ee11c38b14f8d0c6cca9a0c6f8a5d6a0859867f"
 }
