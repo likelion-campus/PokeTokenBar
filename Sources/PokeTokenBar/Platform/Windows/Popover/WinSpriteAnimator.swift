@@ -13,11 +13,14 @@ import WinSDK
 /// Timers: none of its own. The shared clock holds one one-shot timer while the view is shown, animation is on and a slot
 /// has a GIF (next frame) or bobs (the next pixel step); it is gone while the view is hidden (`WM_SHOWWINDOW`) or scrolled out (the
 /// next tick finds it out), when animation is off (Windows' "show animations" setting), while the display sleeps and
-/// after `destroy()`. Frames and the decode cache are freed on `destroy()`.
+/// after `destroy()`. Frames and the decode cache are freed on `destroy()`. A clock stopped that way comes back by itself, with no
+/// timer while it is off: on the view's next paint (a view that comes on screen again is always painted: shown again with its pane,
+/// scrolled back, uncovered; a reopened popover or a swapped page builds new views) and when the displays wake (no repaint comes then).
 @MainActor final class WinSpriteAnimator {
     struct Stats: Equatable {
         var ticks = 0, invalidations = 0, invalidatedPixels = 0, drawn = 0, scales = 0, glyphs = 0
         var styled = 0  // stage 7 Task 9
+        var resumes = 0  // fix/windows-popover-sprite-shown: a stopped clock started again by a display wake (not a paint)
     }
 
     private(set) var stats = Stats()
@@ -72,16 +75,40 @@ import WinSDK
             if wParam == 0 { self.playback.isActive = false }
             return nil
         }
+        Self.live[ObjectIdentifier(self)] = LiveAnimator(animator: self)   // fix/windows-popover-sprite-shown
+        Self.followDisplayWake()
         playback.shouldTick = { [weak self] in
             guard let self, let view = self.view else { return false }
             self.stats.ticks += 1
             let shown = Self.isShown(view.hwnd), asleep = self.displayAsleep()
-            // fix/windows-pet-still: a tick that stops the clock says why (it starts again only at the next paint)
-            if !shown || asleep { AppLog.write("popover sprites: the clock stops at a tick: shown=\(shown) displays asleep=\(asleep) (until the next paint)") }
+            // fix/windows-pet-still: a tick that stops the clock says why (it starts again on a paint or a display wake)
+            if !shown || asleep { AppLog.write("popover sprites: the clock stops at a tick: shown=\(shown) displays asleep=\(asleep) (until it is on screen again)") }
             return shown && !asleep
         }
         playback.onInvalidate = { [weak self] index in self?.invalidate(slot: index) }
     }
+
+    // --- fix/windows-popover-sprite-shown: a stopped clock comes back without a paint (begin) ---
+    private struct LiveAnimator { weak var animator: WinSpriteAnimator? }
+    /// The attached animators, for the display wake (one handler for all: the events keep their handlers for the app's life).
+    private static var live: [ObjectIdentifier: LiveAnimator] = [:]
+    private static var followsDisplayWake = false
+
+    private static func followDisplayWake() {
+        guard !followsDisplayWake else { return }
+        followsDisplayWake = true
+        Platform.current.events.onScreensWake {
+            MainActor.assumeIsolated { for entry in live.values { entry.animator?.resumeIfShown() } }
+        }
+    }
+
+    /// The clock was stopped (displays asleep) and the view is on screen with the displays awake: it starts.
+    private func resumeIfShown() {
+        guard !isDestroyed, !playback.isActive, let view, Self.isShown(view.hwnd), !displayAsleep() else { return }
+        stats.resumes += 1
+        playback.isActive = true
+    }
+    // --- fix/windows-popover-sprite-shown (end) ---
 
     /// The shown state said by the host: the popover closing or another page replacing this one.
     func setShown(_ shown: Bool) {
@@ -307,14 +334,17 @@ import WinSDK
         return on != 0
     }
 
-    /// The view is on screen: visible up the chain, not minimized, and its rectangle meets every ancestor's client area
-    /// (a view scrolled out of its scroll area does not).
+    /// The view is on screen: visible up the chain, and its rectangle meets the client area of every window it is a child of, up to
+    /// its top-level window (a view scrolled out of its scroll area does not). Only the parent chain: `GetParent` of a top-level popup
+    /// is its OWNER, and the popover's owner is the app's hidden sink with an empty client area, so walking on to it read every sprite
+    /// of the real popover as not shown and stopped its clock at the first tick (fix/windows-popover-sprite-shown, user's PC kit 11;
+    /// the KitWindow, which has no owner, passed).
     static func isShown(_ hwnd: HWND?) -> Bool {
         guard let hwnd, IsWindowVisible(hwnd) else { return false }
         var area = RECT()
         guard GetWindowRect(hwnd, &area) else { return false }
-        var parent = GetParent(hwnd)
-        while let p = parent {
+        var node = hwnd
+        while GetWindowLongW(node, -16 /* GWL_STYLE */) & 0x4000_0000 /* WS_CHILD */ != 0, let p = GetAncestor(node, UINT(GA_PARENT)) {
             var client = RECT()
             var origin = POINT(x: 0, y: 0)
             guard GetClientRect(p, &client), ClientToScreen(p, &origin) else { return false }
@@ -322,7 +352,7 @@ import WinSDK
             var meet = RECT()
             guard IntersectRect(&meet, &area, &bounds) else { return false }
             area = meet
-            parent = GetParent(p)
+            node = p
         }
         return true
     }
@@ -338,6 +368,7 @@ import WinSDK
         token = nil
         if let host = view { host.paintOverlay = nil }
         view = nil
+        Self.live[ObjectIdentifier(self)] = nil   // fix/windows-popover-sprite-shown
     }
 }
 #endif
