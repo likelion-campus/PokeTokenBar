@@ -34,39 +34,40 @@ Check ($null -eq (Get-WakeDeltaFromLines '' $lines['sprite-open'][1])) 'a missin
 
 # ---- the animated windows: all 14 runs of 2026-11-17/18 pass (fires, messages, main cs a minute; GIF rate 10/s, 120 s windows)
 $runs = @(
-    @('44198847690', 'popover-companion-animated-120s', 1197, 2395, 665.5)
-    @('44198847690', 'popover-sprite-open-120s', 1222, 1223, 624.5)
-    @('44200348337', 'popover-companion-animated-120s', 1198, 2397, 713.5)
-    @('44226306535', 'popover-companion-animated-120s', 1198, 2397, 733.5)
-    @('44226306535', 'popover-sprite-open-120s', 1221, 1222, 658.5)
-    @('44234159408', 'popover-companion-animated-120s', 1198, 2397, 678.5)
-    @('44234159408', 'popover-sprite-open-120s', 1222, 1223, 682.0)
-    @('44234221854', 'popover-companion-animated-120s', 1198, 2397, 799.0)
-    @('44234221854', 'popover-sprite-open-120s', 1222, 1223, 685.0)
-    @('44236491001', 'popover-companion-animated-120s', 1197, 2395, 721.5)
-    @('44236491001', 'popover-sprite-open-120s', 1222, 1223, 760.0)
-    @('44243968506', 'popover-companion-animated-120s', 1198, 2397, 723.5)
-    @('44243968506', 'popover-sprite-open-120s', 1222, 1223, 633.5)
-    @('44260112940', 'popover-companion-animated-120s', 1198, 2397, 666.0)
-    @('44260112940', 'popover-sprite-open-120s', 1221, 1222, 680.0)
-    @('44260120260', 'popover-companion-animated-120s', 1196, 2393, 662.0)
-    @('44260120260', 'popover-sprite-open-120s', 1221, 1222, 706.0)
-    @('44270933756', 'popover-companion-animated-120s', 1197, 2395, 680.0)
-    @('44270933756', 'popover-sprite-open-120s', 1222, 1223, 692.0)
-    @('44273690919', 'popover-companion-animated-120s', 1198, 2397, 672.5)
-    @('44273690919', 'popover-sprite-open-120s', 1222, 1223, 696.0)
-    @('44293514305', 'popover-companion-animated-120s', 1198, 2397, 752.5)
-    @('44293514305', 'popover-sprite-open-120s', 1221, 1222, 671.5)
-    @('44295198366', 'popover-companion-animated-120s', 1198, 2397, 823.5)
-    @('44295198366', 'popover-sprite-open-120s', 1222, 1223, 662.0)
-    @('44297197674', 'popover-companion-animated-120s', 1196, 2393, 692.5)
-    @('44297197674', 'popover-sprite-open-120s', 1221, 1222, 637.0)
+    [pscustomobject]@{ run = '44198847690'; label = 'popover-companion-animated-120s'; fires = 1197; messages = 2395; main = 665.5 }
+    [pscustomobject]@{ run = '44198847690'; label = 'popover-sprite-open-120s'; fires = 1222; messages = 1223; main = 624.5 }
+    [pscustomobject]@{ run = '44200348337'; label = 'popover-companion-animated-120s'; fires = 1198; messages = 2397; main = 713.5 }
+    [pscustomobject]@{ run = '44226306535'; label = 'popover-companion-animated-120s'; fires = 1198; messages = 2397; main = 733.5 }
+    [pscustomobject]@{ run = '44226306535'; label = 'popover-sprite-open-120s'; fires = 1221; messages = 1222; main = 658.5 }
+    [pscustomobject]@{ run = '44234159408'; label = 'popover-companion-animated-120s'; fires = 1198; messages = 2397; main = 678.5 }
+    [pscustomobject]@{ run = '44234159408'; label = 'popover-sprite-open-120s'; fires = 1222; messages = 1223; main = 682.0 }
+    [pscustomobject]@{ run = '44234221854'; label = 'popover-companion-animated-120s'; fires = 1198; messages = 2397; main = 799.0 }
+    [pscustomobject]@{ run = '44234221854'; label = 'popover-sprite-open-120s'; fires = 1222; messages = 1223; main = 685.0 }
+    [pscustomobject]@{ run = '44236491001'; label = 'popover-companion-animated-120s'; fires = 1197; messages = 2395; main = 721.5 }
+    [pscustomobject]@{ run = '44236491001'; label = 'popover-sprite-open-120s'; fires = 1222; messages = 1223; main = 760.0 }
+    [pscustomobject]@{ run = '44243968506'; label = 'popover-companion-animated-120s'; fires = 1198; messages = 2397; main = 723.5 }
+    [pscustomobject]@{ run = '44243968506'; label = 'popover-sprite-open-120s'; fires = 1222; messages = 1223; main = 633.5 }
+    [pscustomobject]@{ run = '44260112940'; label = 'popover-companion-animated-120s'; fires = 1198; messages = 2397; main = 666.0 }
+    [pscustomobject]@{ run = '44260112940'; label = 'popover-sprite-open-120s'; fires = 1221; messages = 1222; main = 680.0 }
+    [pscustomobject]@{ run = '44260120260'; label = 'popover-companion-animated-120s'; fires = 1196; messages = 2393; main = 662.0 }
+    [pscustomobject]@{ run = '44260120260'; label = 'popover-sprite-open-120s'; fires = 1221; messages = 1222; main = 706.0 }
+    [pscustomobject]@{ run = '44270933756'; label = 'popover-companion-animated-120s'; fires = 1197; messages = 2395; main = 680.0 }
+    [pscustomobject]@{ run = '44270933756'; label = 'popover-sprite-open-120s'; fires = 1222; messages = 1223; main = 692.0 }
+    [pscustomobject]@{ run = '44273690919'; label = 'popover-companion-animated-120s'; fires = 1198; messages = 2397; main = 672.5 }
+    [pscustomobject]@{ run = '44273690919'; label = 'popover-sprite-open-120s'; fires = 1222; messages = 1223; main = 696.0 }
+    [pscustomobject]@{ run = '44293514305'; label = 'popover-companion-animated-120s'; fires = 1198; messages = 2397; main = 752.5 }
+    [pscustomobject]@{ run = '44293514305'; label = 'popover-sprite-open-120s'; fires = 1221; messages = 1222; main = 671.5 }
+    [pscustomobject]@{ run = '44295198366'; label = 'popover-companion-animated-120s'; fires = 1198; messages = 2397; main = 823.5 }
+    [pscustomobject]@{ run = '44295198366'; label = 'popover-sprite-open-120s'; fires = 1222; messages = 1223; main = 662.0 }
+    [pscustomobject]@{ run = '44297197674'; label = 'popover-companion-animated-120s'; fires = 1196; messages = 2393; main = 692.5 }
+    [pscustomobject]@{ run = '44297197674'; label = 'popover-sprite-open-120s'; fires = 1221; messages = 1222; main = 637.0 }
 @('44200348337', 'popover-sprite-open-120s', 1221, 1222, 747.0)
 )
+Check ($runs.Count -eq 28) "the table has the 14 runs of both windows (got $($runs.Count))"
 foreach ($r in $runs) {
-    $wake = @{ messages = $r[3]; sources = @("animationClock:$($r[2])") }
-    $v = Test-AnimatedWork $wake 10 120 $r[4] 1000
-    Check $v.ok "run $($r[0]) $($r[1]) passes: $($v.detail)"
+    $wake = @{ messages = $r.messages; sources = @("animationClock:$($r.fires)") }
+    $v = Test-AnimatedWork $wake 10 120 $r.main 1000
+    Check $v.ok "run $($r.run) $($r.label) passes: $($v.detail)"
 }
 # ---- and it still fails what it is there for (the wakes of a regression on top of the median run: 1198 fires, 2397 messages, 713 main cs)
 function Judge([int]$Fires, [int]$Messages, [double]$Main) { Test-AnimatedWork @{ messages = $Messages; sources = @("animationClock:$Fires") } 10 120 $Main 1000 }
