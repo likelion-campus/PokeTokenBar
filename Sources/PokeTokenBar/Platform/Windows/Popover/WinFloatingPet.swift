@@ -390,6 +390,11 @@ import WinSDK
         }
     }
     private(set) var loggedClock: ClockState?
+    /// The clock check (a one-shot Win32 timer, not a Foundation one: it must fire even if the animation clock's timers do not).
+    static let clockCheckTimerID: UInt = 0x5054   // "PT"
+    static let clockCheckDelayMs: UINT = 10_000
+    private var clockCheck: (since: Date, ticks: Int, fires: Int, arms: Int)?
+    private(set) var clockChecks: [String] = []
 
     /// One line in the app's log when what keeps the pet moving or still changes: the state and its inputs (never per frame).
     func noteClock() {
@@ -399,6 +404,14 @@ import WinSDK
                                displayAsleep: pet.displayAsleep(), locked: locked, disconnected: disconnected, floor: model.frameFloor)
         guard state != loggedClock else { return }
         loggedClock = state
+        // Moving: whether the clock really runs is told ~10 s later by a Win32 timer (`checkClock`), once per change.
+        if state.moving {
+            clockCheck = (Date(), playback.ticks, playback.clock.fireCount, playback.clock.armCount)
+            _ = SetTimer(hwnd, Self.clockCheckTimerID, Self.clockCheckDelayMs, nil)
+        } else if clockCheck != nil {
+            clockCheck = nil
+            _ = KillTimer(hwnd, Self.clockCheckTimerID)
+        }
         var status = SYSTEM_POWER_STATUS()
         let power = GetSystemPowerStatus(&status)
             ? withUnsafeBytes(of: status) { "SYSTEM_POWER_STATUS bytes \($0.prefix(4).map { String(format: "%02X", $0) }.joined(separator: " ")) (ACLineStatus=\($0[0]) BatteryFlag=\($0[1]) BatteryLifePercent=\($0[2]) SystemStatusFlag=\($0[3]))" }
@@ -483,6 +496,11 @@ import WinSDK
         }
         w.on(0x0215 /* WM_CAPTURECHANGED */) { [weak self] _, _ in
             self?.captureLost()
+            return 0
+        }
+        w.on(0x0113 /* WM_TIMER */) { [weak self] wParam, _ in   // fix/windows-pet-still: the clock check
+            guard let self, UInt(wParam) == Self.clockCheckTimerID else { return nil }
+            self.checkClock()
             return 0
         }
         w.on(0x02A3 /* WM_MOUSELEAVE */) { [weak self] _, _ in
@@ -858,7 +876,23 @@ import WinSDK
         window.destroy()
     }
 
+    /// The clock check's one fire: how often the animation clock fired and the frames it drew since the pet began to move.
+    private func checkClock() {
+        _ = KillTimer(hwnd, Self.clockCheckTimerID)
+        guard let check = clockCheck, !isDestroyed else { return }
+        clockCheck = nil
+        let seconds = Date().timeIntervalSince(check.since)
+        let due = playback.clock.armedDue.map { String(format: "%.2f", $0.timeIntervalSinceNow) } ?? "none"
+        let line = "floating pet: clock check after \(String(format: "%.1f", seconds)) s: \(playback.clock.fireCount - check.fires) clock fires, "
+            + "\(playback.ticks - check.ticks) ticks, \(playback.clock.armCount - check.arms) arms; armed=\(playback.clock.isArmed) next due in \(due) s, "
+            + "active=\(playback.isActive) frame floor \(model.frameFloor) s"
+        clockChecks.append(line)
+        AppLog.write(line + (playback.clock.fireCount == check.fires ? " — THE CLOCK NEVER FIRED" : ""))
+    }
+
     private func release() {
+        _ = KillTimer(hwnd, Self.clockCheckTimerID)   // fix/windows-pet-still
+        clockCheck = nil
         playback.release()
         if sessionNotify { _ = ptb_window_session_notify(UnsafeMutableRawPointer(hwnd), 0) }
         sessionNotify = false
