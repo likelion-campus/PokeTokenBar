@@ -86,7 +86,8 @@ final class WinSyncingDefaults: UserDefaults, @unchecked Sendable {
     /// `PokeTokenBar.exe.plist` (a PC run included). Nil for the real app, and for the update flags (`WindowsSelftestUpdate`):
     /// those run the app as a person's, on its own settings, so the update's marker reaches the app Setup starts.
     static var selftestSuiteName: String? {
-        guard ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--selftest") && !WindowsSelftestUpdate.flags.contains($0) })
+        // The arguments `WindowsApp.main` decided (stage 7 Task 23: never a link start's own; review I1).
+        guard WindowsApp.launchArguments.contains(where: { $0.hasPrefix("--selftest") && !WindowsSelftestUpdate.flags.contains($0) })
         else { return nil }
         let dir = (ProcessInfo.processInfo.environment["PTB_STATE_DIR"] ?? "").trimmingCharacters(in: .whitespaces)
         let team = dir.isEmpty ? nil

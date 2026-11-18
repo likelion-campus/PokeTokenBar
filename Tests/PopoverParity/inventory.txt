@@ -19,7 +19,7 @@ A2 | 1 | done Platform/Windows/Popover/WinPopover.swift | PokeTokenBarApp.swift,
 A3 | 1 | done Platform/TrayMenuModel.swift | UI/StatusItemMenu.swift, PokeTokenBarApp.swift | Right-click / Control-click menu: today's summary (greyed), Refresh (r), Plaza… with unread count (p, team ready only), Settings… (,), Back view (checked), Quit (q); the items' actions
 A3d | 3 | done Platform/Windows/Popover/WinCollectionPage.swift | UI/StatusItemMenu.swift | Right-click menu: Pokédex (d) opens the Collection on the representative
 A3p | 3 | done Platform/TrayMenuModel.swift | UI/StatusItemMenu.swift | Right-click menu: show / hide the floating pet
-A4 | 3 | pending T23 | PokeTokenBarApp.swift | poketokenbar://agent URL events feed the floating pet's agent activity
+A4 | 3 | done Platform/Windows/WinAgentLink.swift | PokeTokenBarApp.swift | poketokenbar://agent URL events feed the floating pet's agent activity
 A5 | - | n/a: native EDIT controls have Ctrl+C/V/X/A without a menu | UI/StandardEditMenu.swift, PokeTokenBarApp.swift | Edit menu installed so Cmd+C/V reach text fields in an accessory app
 A5t | 1 | done Platform/Windows/Popover/WinTooltips.swift | PokeTokenBarApp.swift | Tooltips show after 600 ms (NSInitialToolTipDelay registered default)
 A5m | - | n/a: no TokenMac install on Windows; the Windows state folder starts new | PokeTokenBarApp.swift | Legacy TokenMac folder migration at launch
