@@ -309,11 +309,21 @@ $petBudgets = @{
     still = $budget
     animated = @{ MaxMainCsPerMin = 270; MaxProcessCsPerMin = 470; MaxProcessCyclesPerSec = 3000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
     hidden = $budget
+    # --- stage 7 Task 23 (begin) ---
+    # 'bubble': an agent's waiting bubble stays until it is answered, drawn once: the closed app's budget. 'working': the egg's
+    # bob for a working agent (two pictures a second for up to 10 minutes, the Mac's `AgentBob`) with motion allowed: 120 timer
+    # wakes a minute of its own, so main 160/min (a frame timer left at 30 fps would be 1800), process cs and cycles as the
+    # animated pet's (provisional: to be set from the first measured run).
+    bubble = $budget
+    working = @{ MaxMainCsPerMin = 160; MaxProcessCsPerMin = 470; MaxProcessCyclesPerSec = 3000000; MaxPrivateGrowthMB = 5; MaxHandleGrowth = 10 }
+    # --- stage 7 Task 23 (end) ---
 }
 $petWant = @{
     still = 'mode=still shown=true window=true picture=loaded .* clock armed=false'
     animated = 'mode=animated shown=true window=true picture=loaded gif frames=([2-9]|\d\d+) .* clock armed=true'
     hidden = 'mode=hidden shown=true window=false'
+    bubble = 'mode=bubble shown=true window=true picture=loaded .* clock armed=false bubble=agentWaiting.* timers=\[\]'   # Task 23
+    working = 'mode=working shown=true window=true picture=loaded .* clock armed=false bubble=none timers=\[agent,bob\]'
 }
 # Object counts (D18, as the popover windows): what the app holds at exit against what it held once the pet stood (the probe's line:
 # GDI and USER slack 2, windows of ours and kit controls none). A missing line fails: the window would not have been checked.
@@ -332,8 +342,8 @@ function Test-PetObjects([string]$Label, [string[]]$Lines) {
 # Clock fires (the wake attribution's 'animationClock' / 'popoverClock', from +28 s to exit): none for a still or a hidden pet; for the
 # animated one the GIF's frames at the 0.4 s floor (at most 2.5 a second over ~125 s: about 310; frames the cap merged last longer),
 # 180-400 (an unapplied floor fires at the GIF's own 50-100 ms frames: 1250 or more; the main thread measured 326 wakes in all).
-$petClockFires = @{ still = @(0, 0); hidden = @(0, 0); animated = @(180, 400) }
-foreach ($mode in 'still', 'animated', 'hidden') {
+$petClockFires = @{ still = @(0, 0); hidden = @(0, 0); animated = @(180, 400); bubble = @(0, 0); working = @(0, 0) }   # Task 23: the bob is no clock
+foreach ($mode in 'still', 'animated', 'hidden', 'bubble', 'working') {
     $label = "pet-$mode-120s"
     if (-not (Test-InShard $label $Shard)) { continue }
     Measure-App $label 120 $off $petBudgets[$mode] @('--pet-idle-probe', $mode)

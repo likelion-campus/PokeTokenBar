@@ -131,6 +131,7 @@ enum WindowsSelftest {
         await popoverTransferChecks(r, app)  // stage 7 task 15 (WindowsSelftestPopoverTransfer.swift): real file and task dialogs, sprites (Direct2D), so after the idle window
         await popoverRecapChecks(r, app)  // stage 7 task 13 (WindowsSelftestPopoverRecap.swift): draws the card (Direct2D), so after the idle window; leaves no window behind
         await popoverPetChecks(r, app)  // stage 7 task 22 (WindowsSelftestPopoverPet.swift): the floating pet (its 🥚 draws through DirectWrite), so after the idle window; leaves no pet behind; before the Shop and Bag checks (its idle windows: run 44062168430 measured the process waking ~1.7 times a second after them, the pet hidden or still)
+        await popoverPetExtrasChecks(r, app)  // stage 7 task 23 (WindowsSelftestPetExtras.swift): the pet's bubbles, hearts, prayers, hover and agents; leaves no pet, window or timer behind
         await WindowsSelftestPopoverIdle.probe("before the tab pages")
         await popoverCollectionChecks(r, app)  // stage 7 task 20 (WindowsSelftestPopoverCollection.swift): the Collection tab; leaves no window behind
         await WindowsSelftestPopoverIdle.probe("after the Collection checks")

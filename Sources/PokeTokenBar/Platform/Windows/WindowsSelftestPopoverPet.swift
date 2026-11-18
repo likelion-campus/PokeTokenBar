@@ -51,9 +51,10 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     }
 
     static func make(_ sample: CompanionHeaderSample, size: Double = 96, quality: UsageStore.AnimationQuality = .powerSaver,
-                     saved: CGPoint? = nil, enabled: Bool = true, configure: (PetHarness) -> Void = { _ in }) async -> PetHarness {
-        let base = await HomeStores.make(language: .en)
-        let companion = await CompanionHeaderSamples.store(sample, language: .en, defaults: defaults, directory: base.directory.appendingPathComponent("sample"))
+                     saved: CGPoint? = nil, enabled: Bool = true, language: AppLanguage = .en,   // Task 23: the bubbles' languages
+                     configure: (PetHarness) -> Void = { _ in }) async -> PetHarness {
+        let base = await HomeStores.make(language: language)
+        let companion = await CompanionHeaderSamples.store(sample, language: language, defaults: defaults, directory: base.directory.appendingPathComponent("sample"))
         let h = PetHarness(base: base, companion: companion)
         if let saved { FloatingPetOrigin.save(saved, in: defaults) } else { clearSaved() }
         base.store.floatingPetSize = size
@@ -1279,7 +1280,7 @@ private struct PetGifFetcher: PlazaSpriteFetching {
               "4 show/hide cycles: \(verdict.summary); windows \(live0) -> \(WinSinkWindow.liveCount); a playback not released or a clock armed right after a hide=\(armedAfter); group start \(start)")
     }
 
-    // MARK: - the idle gate's windows (`--pet-idle-probe still|animated|hidden`; CI only)
+    // MARK: - the idle gate's windows (`--pet-idle-probe still|animated|hidden|bubble|working`; CI only)
 
     private static var idleProbe: PetHarness?
     private static var idleProbeMode: String?
@@ -1289,7 +1290,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
     static func idleProbeExitLine() -> String? {
         guard let mode = idleProbeMode else { return nil }
         let w = idleProbe?.window
-        return "pet idle probe exit: mode=\(mode) window=\(w != nil) clock armed=\(w?.playback.clock.isArmed == true) \(PopoverResources.now())"
+        let timers = idleProbe?.pet.extras.armedTimers.joined(separator: ",") ?? ""   // Task 23
+        return "pet idle probe exit: mode=\(mode) window=\(w != nil) clock armed=\(w?.playback.clock.isArmed == true) timers=[\(timers)] \(PopoverResources.now())"
     }
 
     /// The installed app with the gate's settings, and one pet over sample stores (the app's own pet stays off): `still` an egg,
@@ -1305,11 +1307,20 @@ private struct PetGifFetcher: PlazaSpriteFetching {
         idleProbeMode = mode
         Task { @MainActor in
             await wait(3)
-            let h = await PetHarness.make(mode == "still" ? .eggIncubating : .midLevel) {   // not a fresh hatch: no network warm-up in the window
-                $0.animations = WinSpriteAnimator.systemAnimationsEnabled()
+            // --- stage 7 Task 23: 'bubble' an egg with an agent's waiting bubble (it stays until answered); 'working' an egg
+            // bobbing for a working agent, with motion allowed whatever the runner's "Show animations" (the bob's worst case) (begin) ---
+            let extras = mode == "bubble" || mode == "working"
+            let h = await PetHarness.make(mode == "still" || extras ? .eggIncubating : .midLevel) {   // not a fresh hatch: no network warm-up in the window
+                $0.animations = mode == "working" ? true : WinSpriteAnimator.systemAnimationsEnabled()
             }
             idleProbe = h
             let shown = await h.waitShown()
+            if extras, let url = URL(string: "poketokenbar://agent?label=probe&" + (mode == "bubble" ? "state=waiting&message=FIXTURE%20question" : "state=working")),
+               let event = AgentActivityEvent(url: url) {
+                h.pet.handleAgentEvent(event)
+                _ = await WindowsSelftest.waitUntil(timeout: 2) { h.pet.extras.bubblePop == nil && !h.pet.extras.armedTimers.contains("frame") }
+            }
+            // --- stage 7 Task 23 (end) ---
             if mode == "hidden" {
                 await wait(3)
                 h.store.floatingPetEnabled = false
@@ -1318,7 +1329,8 @@ private struct PetGifFetcher: PlazaSpriteFetching {
             let model = h.window?.playback.models.first
             AppLog.write("pet idle probe: mode=\(mode) shown=\(shown) window=\(h.window != nil) picture=\(model?.current == nil ? "none" : "loaded") gif frames=\(model?.frames.count ?? 0) "
                          + "show animations=\(WinSpriteAnimator.systemAnimationsEnabled()) "
-                         + "floor=\(h.window?.playback.frameFloor ?? -1) clock armed=\(h.window?.playback.clock.isArmed == true) \(PopoverResources.now())")
+                         + "floor=\(h.window?.playback.frameFloor ?? -1) clock armed=\(h.window?.playback.clock.isArmed == true) "
+                         + "bubble=\(h.pet.extras.drawnBubble.map { "\($0)" } ?? "none") timers=[\(h.pet.extras.armedTimers.joined(separator: ","))] \(PopoverResources.now())")   // Task 23
         }
     }
 }

@@ -10,6 +10,8 @@ $IdleShardOf = @{
     'popover-page-detail-120s' = 5; 'popover-page-focus-search-120s' = 5; 'popover-page-focus-left-120s' = 5; 'popover-page-focus-closed-120s' = 5
     # stage 7 Task 22: the floating pet. Shard 4 had the room (5 windows); the third pet window goes to shard 2.
     'pet-still-120s' = 4; 'pet-hidden-120s' = 4; 'pet-animated-120s' = 2
+    # stage 7 Task 23: the pet's bubble and bob. Shard 1 (one 300 s window and three of 120 s) and shard 5 (six) had the room.
+    'pet-bubble-120s' = 1; 'pet-working-120s' = 5
 }
 function Test-InShard([string]$Label, [int]$Shard) {
     if (-not $IdleShardOf.ContainsKey($Label)) { throw "idle window '$Label' is in no shard: add it to `$IdleShardOf in scripts/windows/idle-shards.ps1" }
