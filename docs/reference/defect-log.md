@@ -3113,3 +3113,34 @@ read_when:
   `WinMessageHook.swift:56` "Not enough bits to represent the passed value"). 고침은 위 #272 항목(메시지 훅의 `Int(_:)`)의 것을 쓴다. 이 브랜치는 그 고침에 트리거 가드를 더한다: 셀프테스트
   `loop.highWParam` 이 wParam `UInt.max` 와 `1 << 63` 을 실제 펌프로 보낸다(고치기 전 코드에서는 이 검사에서 프로세스가 죽어 보고서가 남지 않는다. run 44166164011 에서 통과).
 <!-- idle blow-up (fix/windows-idle-blowup) end -->
+
+<!-- process shim kill (fix/windows-process-shim-kill) begin -->
+## 윈도 프로세스 트리 종료: 재사용된 프로세스 id (windows.yml 44207854338, 2026-11-18)
+
+- **`.cmd` shim 의 자식을 함께 끝내는 `PlatformCompat.terminate` 가 shim 과 무관한 프로세스까지 죽였다 — 테스트 프로세스 자신을 포함해서.**
+  **증상:** `feat/windows-pet-extras` 의 `windows.yml` 44207854338 shard 4 의 마지막 청크가 `WindowsProcessTests.testTerminatingACmdShimEndsItsChild` 안에서 끝났다
+  (1001 개 중 751 개 실행, 실패 0, 요약 줄 없이 `swift test` 종료 코드 1). 출력은 테스트 시작(00:55:31.021)에서 끊겼고, 그 뒤의 줄은 전부 00:56:03.6 에 한꺼번에 나왔다.
+  **근거:** shim(cmd.exe)과 그 자식 PowerShell 은 corelibs `Process` 의 `bInheritHandles: true` 로 xctest 의 stdout 파이프를 물려받는다. 그래서 `swift test` 는 PowerShell 이
+  나갈 때에야 EOF 를 봤고, 끊긴 뒤 32 s 는 PowerShell 의 기동과 `Start-Sleep 30` 을 그대로 다 쓴 시간이다. 즉 PowerShell 은 끝나지 않았고, xctest 는 그 전에 죽었다.
+  **원인:** `terminate` 는 Toolhelp 스냅숏의 `th32ParentProcessID` 만으로 트리를 만들고, 찾은 것을 깊은 쪽부터 id 로 `TerminateProcess(…, 1)` 했다(3f8ddff6).
+  윈도는 프로세스 id 를 재사용하고, `th32ParentProcessID` 는 *만들 때의* 부모 id 일 뿐이다. 그래서 만든 프로세스가 이미 끝나 그 id 가 shim(또는 그 자식)에게 다시 배정되면,
+  훨씬 오래된 무관한 프로세스가 shim 의 '자식' 으로 보이고 함께 죽는다. 같은 규칙으로 옛 코드는 가짜 스냅숏에서 [현재 프로세스, 무관한 두 프로세스, 진짜 자식] 을 골랐다
+  (`ProcessTreeSelectionTests` 결함 주입). PC 에서 대표적인 그런 프로세스는 explorer.exe 다(만든 userinit.exe 가 로그온 뒤 끝난다). 출하 코드에서는 `ProcessRunner` 가 Codex 한도
+  갱신 때마다 codex(npm `.cmd` shim)를 이렇게 끝낸다.
+  **같은 함수의 둘째 결함:** 트리를 다 끝낸 뒤 corelibs `Process.terminate()` 를 불렀다. 그것은 `processHandle` 로 `TerminateProcess` 하는데, 그 핸들은 프로세스가 끝나면 corelibs 의
+  관리 스레드가 닫는다(`Process.swift` `closeHandler`, 값은 그대로 남는다). 자식을 먼저 죽이면 shim 이 곧 끝나므로, 닫힌 핸들(다른 객체에 재배정되었을 수 있는 값)로 부를 수 있었다.
+  이번 사고는 아니다(그랬다면 PowerShell 이 먼저 죽었다).
+  **왜 못 걸렀나:** 테스트는 '자식이 끝났나' 만 봤고 '다른 것은 살아 있나' 는 보지 않았다. 재사용된 id 가 shim 에 걸리는 일은 러너의 프로세스 생성 순서에 달린 드문 경우라
+  여러 번의 통과가 아무것도 증명하지 못했다. 테스트의 정리(`defer { forceKill(pid: child) }`)도 같은 부류였다 — 이미 끝난 자식의 id 를 다시 죽였다.
+  **고침:** 고르는 규칙을 공용 순수 함수 `ProcessTreeSelection.descendants` 로 떼었다. 자식은 부모보다 먼저 만들어지지 않았고 스냅숏 뒤에 만들어지지 않았을 때만 자식이다
+  (`GetProcessTimes`). 걸러진 프로세스 아래는 보지 않는다. 현재 프로세스와 그 조상은 우리 자식보다 늘 오래되었으므로 이 규칙으로 빠진다. `WinProcessTree.terminate` 는 루트가
+  우리의 살아 있는 자식인지(스냅숏의 부모 = 현재 프로세스, 생성 시각 ≥ 우리) 확인하고, 고른 프로세스를 *끝내기 전에 모두 연* 뒤 그 핸들로 끝낸다(열린 핸들은 프로세스 객체를
+  붙잡아 둔다 — 그 사이 id 가 재사용될 수 없다). 루트도 우리 핸들로 끝내고(corelibs 와 같은 코드 0xC000000F), corelibs `terminate()` 는 루트를 확인하지 못했을 때의 대체로만 남겼다.
+  맥 분기는 `process.terminate()` 그대로다. 테스트는 자식 핸들을 붙잡아 두고 그 핸들로 정리하며, PowerShell 기동을 60 s 까지 기다린다(15 s 를 넘긴 적이 있다, run 44168716060).
+  **가드(기계):** `ProcessTreeSelectionTests`(4, 맥·윈도 공용): 진짜 자식·손자는 깊은 쪽부터, 재사용된 id 를 부모로 적은 더 오래된 프로세스와 그 아래는 제외(현재 프로세스 포함),
+  스냅숏 뒤에 만들어졌거나 열 수 없는 것은 제외, 같은 틱에 만들어진 자식은 포함. 생성 시각 규칙을 빼면 트리거 테스트가 [50, 901, 900, 200] 을 골라 실패한다.
+  **스윕:** id 로 프로세스를 끝내는 출하 코드는 `PlatformCompat.forceKill(pid:)` 하나(호출부 `ProcessRunner` 는 `process.isRunning` 일 때만 부른다 — corelibs 가 핸들을 쥐고 있는
+  동안은 id 가 재사용되지 않으며, 남는 틈은 `isRunning` 을 읽은 직후 끝나는 경우뿐이다). Toolhelp 부모 id 를 걷는 곳은 이 함수뿐(셀프테스트 둘은 이름으로 세기만 한다).
+  corelibs `terminate()` 를 직접 부르는 `BinaryLocator`(`$SHELL`)·`UpdateChecker`(brew) 는 윈도에서 실행되지 않는다.
+  **규칙:** 윈도에서 프로세스를 id 로 찾아 끝내지 않는다. 부모 id 는 생성 시각과 함께 확인하고, 끝낼 것은 먼저 열어 그 핸들로 끝낸다.
+<!-- process shim kill (fix/windows-process-shim-kill) end -->
