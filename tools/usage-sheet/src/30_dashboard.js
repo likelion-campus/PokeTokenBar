@@ -240,4 +240,5 @@ function renderDashboard(sheet, model, nowMs, tz) {
   }
 
   [120, 100, 100, 100, 30, 130, 110, 100].forEach(function (px, i) { sheet.setColumnWidth(i + 1, px); });
+  return lastRow;
 }

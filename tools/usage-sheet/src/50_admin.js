@@ -89,10 +89,18 @@ function refreshAllLocked() {
   var nowMs = Date.now();
   var today = localDateString(nowMs, tz);
   withScriptLock(function () { ensureAllTabs(ss); });
+  // The pull records its own failures; the catch is for anything unexpected, so the dashboards still render.
+  try {
+    pullEnterprise(ss, nowMs, tz);
+  } catch (e) {
+    console.error("pullEnterprise failed: " + (e && e.message));
+  }
   var data = readAll(ss, tz);
   withScriptLock(function () { writeSuggestedTeamNames(ss, data); });
   DASHBOARD_TABS.forEach(function (d) {
-    renderDashboard(ss.getSheetByName(d.name), computeDashboard(data, d.kind, today), nowMs, tz);
+    var sheet = ss.getSheetByName(d.name);
+    var lastRow = renderDashboard(sheet, computeDashboard(data, d.kind, today), nowMs, tz);
+    renderEnterpriseSection(sheet, lastRow + 3, computeEnterpriseSection(data.enterprise, d.kind, today), data.enterprise, tz);
   });
   renderPlan(ss.getSheetByName(TAB_PLAN), computePlan(data, nowMs, tz), nowMs, tz);
 }
@@ -132,6 +140,8 @@ function onOpen(e) {
     .addItem("지금 새로 고침", "refreshAll")
     .addItem("샘플 데이터 넣기", "seedSampleData")
     .addItem("샘플 데이터 지우기", "clearSampleData")
+    .addItem("Enterprise API 키 넣기", "setEnterpriseKey")
+    .addItem("Enterprise API 키 지우기", "clearEnterpriseKey")
     .addToUi();
 }
 
@@ -240,4 +250,22 @@ function clearSampleData() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   withScriptLock(function () { removeSampleRows(ss); });
   refreshAll();
+}
+
+// The key goes to the owner's UserProperties only (never a cell, the status or an alert) and is used by
+// the owner's own refreshes. Pasting it runs one refresh so the first pull starts right away.
+function setEnterpriseKey() {
+  var ui = SpreadsheetApp.getUi();
+  var res = ui.prompt("Enterprise API 키", "Anthropic 관리자 화면에서 만든 Analytics API 키를 붙여 넣으세요. 이 키는 소유자 계정에만 저장됩니다.", ui.ButtonSet.OK_CANCEL);
+  if (res.getSelectedButton() !== ui.Button.OK) return;
+  var key = String(res.getResponseText()).trim();
+  if (!key) return;
+  PropertiesService.getUserProperties().setProperty(ENT_KEY_PROP, key);
+  refreshAll();
+  ui.alert("키를 저장하고 새로 고쳤습니다. 대시보드 아래 Enterprise 줄에서 결과를 확인하세요.");
+}
+
+function clearEnterpriseKey() {
+  PropertiesService.getUserProperties().deleteProperty(ENT_KEY_PROP);
+  SpreadsheetApp.getUi().alert("키를 지웠습니다. 이미 불러온 데이터는 그대로 남습니다.");
 }

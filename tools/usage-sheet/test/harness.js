@@ -39,6 +39,8 @@ function formatInZone(date, tz, pattern) {
 //   PropertiesService.getUserProperties() / getDocumentProperties(): separate in-memory stores (getProperty,
 //     setProperty, deleteProperty), reachable as fakes.props.user / fakes.props.doc (plain objects).
 //   Utilities.sleep(ms): records into fakes.sleeps.
+//   SpreadsheetApp.getUi().prompt(title, msg, buttons) answers fakes.ui.next ({ button, text }); alert(msg) records
+//     into fakes.ui.alerts; ButtonSet.OK_CANCEL, Button.OK / Button.CANCEL. The chart builder has setNumHeaders(n).
 // Later tasks extend the returned object with more fakes.
 // Like real Sheets, a string written by setValues is parsed as typed input unless the column is
 // plain text ("@") or the string starts with an apostrophe (stripped, stored as text).
@@ -136,6 +138,7 @@ function makeSheet(name) {
         addRange(r) { chart.ranges.push(r._a1); return b; },
         setPosition(row, col, ox, oy) { chart.position = { row, col, offsetX: ox, offsetY: oy }; return b; },
         setOption(k, v) { chart.options[k] = v; return b; },
+        setNumHeaders(n) { chart.numHeaders = n; return b; },
         build() { return chart; },
       };
       return b;
@@ -172,6 +175,7 @@ function makeFakes(opts) {
   const http = { handler: null, requests: [] };
   const props = { user: Object.create(null), doc: Object.create(null) };
   const sleeps = [];
+  const ui = { next: { button: "OK", text: "" }, alerts: [], prompts: [] };
   function propertyStore(store) {
     return {
       getProperty: (k) => (k in store ? store[k] : null),
@@ -183,6 +187,7 @@ function makeFakes(opts) {
     http,
     props,
     sleeps,
+    ui,
     UrlFetchApp: {
       fetch(url, opts) {
         http.requests.push({ url, opts });
@@ -213,6 +218,13 @@ function makeFakes(opts) {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
       getUi: () => ({
+        ButtonSet: { OK_CANCEL: "OK_CANCEL" },
+        Button: { OK: "OK", CANCEL: "CANCEL" },
+        prompt(title, msg, buttons) {
+          ui.prompts.push({ title, msg, buttons });
+          return { getSelectedButton: () => ui.next.button, getResponseText: () => ui.next.text };
+        },
+        alert(msg) { ui.alerts.push(msg); },
         createMenu(title) {
           const menu = { title, items: [] };
           const b = { addItem(label, fn) { menu.items.push([label, fn]); return b; }, addToUi() { menus.push(menu); return b; } };

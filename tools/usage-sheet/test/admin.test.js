@@ -142,13 +142,14 @@ test("refreshAll releases every lock, even when rendering throws", () => {
   assert.equal(S.fakes.lockStats.released, S.fakes.lockStats.acquired);
 });
 
-test("onOpen builds the menu with three items in order", () => {
+test("onOpen builds the menu with five items in order", () => {
   const { S } = fresh();
   S.onOpen({});
   assert.equal(S.fakes.menus.length, 1);
   assert.equal(S.fakes.menus[0].title, "사용량 대시보드");
   assert.deepEqual(plain(S.fakes.menus[0].items), [
     ["지금 새로 고침", "refreshAll"], ["샘플 데이터 넣기", "seedSampleData"], ["샘플 데이터 지우기", "clearSampleData"],
+    ["Enterprise API 키 넣기", "setEnterpriseKey"], ["Enterprise API 키 지우기", "clearEnterpriseKey"],
   ]);
 });
 
