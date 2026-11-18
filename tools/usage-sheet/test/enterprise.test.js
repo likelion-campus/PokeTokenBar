@@ -275,3 +275,69 @@ test("no lock is held while a request is sent; the script lock is taken once for
   assert.equal(S.fakes.lockStats.acquired, 1);
   assert.equal(S.fakes.lockStats.released, 1);
 });
+
+test("the pull stops on the time budget: collected days are written, no error, the next run resumes", () => {
+  // NOW_LONG window: 2026-09-01..11-29 = 90 days. Each request costs 3 s of simulated time.
+  const first = "2026-09-01";
+  let S;
+  S = load(NOW_LONG, () => { S.fakes.clock.advance(3000); return ok([rec("u1", "a@x.com", 1, 1)]); });
+  const t0 = S.fakes.clock.offset;
+  const r1 = pull(S);
+  const used = S.fakes.clock.offset - t0;
+  assert.equal(r1.error, null);
+  assert.ok(used < 150000 + 3000, "stopped near 150 s, got " + used);
+  assert.equal(S.fakes.http.requests.length, 50);
+  assert.equal(r1.saved, 50);
+  assert.equal(logDates(S).length, 50);
+  assert.equal(status(S).error, null);
+  S.fakes.http.requests.length = 0;
+  pull(S);
+  assert.equal(dateOf(S.fakes.http.requests[0].url), dayPlus(first, 50));
+  assert.equal(logDates(S).length, 90);
+});
+
+test("a single slow multi-page day also stops on the time budget", () => {
+  let S;
+  S = load(NOW_SMALL, (url) => {
+    S.fakes.clock.advance(80000);
+    return url.includes("&page=") ? ok([rec("u2", "b@x.com", 1, 1)], "more") : ok([rec("u1", "a@x.com", 1, 1)], "more");
+  });
+  const r = pull(S);
+  assert.equal(r.error, null);
+  assert.equal(S.fakes.http.requests.length, 2);
+  assert.equal(r.saved, 0);
+});
+
+test("a thrown fetch error never carries the request address into the status", () => {
+  const S = load(NOW_SMALL, () => {
+    throw new Error("Address unavailable: https://api.anthropic.com/v1/organizations/analytics/users?date=2026-11-01&limit=1000");
+  });
+  const r = pull(S);
+  assert.ok(r.error.startsWith("요청 실패: Address unavailable: "));
+  assert.ok(!r.error.includes("https://"));
+  assert.ok(!status(S).error.includes("https://"));
+  assert.ok(!status(S).error.includes("api.anthropic.com"));
+});
+
+test("a re-fetch that changes nothing rewrites no 엔터프라이즈 원본 row; a changed value is rewritten", () => {
+  let chat = 5;
+  const S = load(Date.parse("2026-01-04T03:00:00Z"), () => ok([rec("u1", "a@x.com", chat, 1), rec("u2", "b@x.com", 2, 1)]));
+  pull(S);
+  const raw = S.fakes.ss.getSheetByName("엔터프라이즈 원본");
+  const writes = () => raw._ops.filter((o) => o[0] === "set").length;
+  assert.equal(raw._rows.length, 1 + 3 * 2);
+  const stamp = plain(raw._rows[1]);
+  // Later pull: new 받은시각 but identical values in columns 1-7.
+  S.nowMs += 3600000;
+  S.fakes.clock.advance(3600000);
+  const before = writes();
+  plain(S.pullEnterprise(S.fakes.ss, S.nowMs, TZ));
+  assert.equal(writes() - before, 0);
+  assert.deepEqual(plain(raw._rows[1]), stamp);
+  chat = 9;
+  S.nowMs += 3600000;
+  const before2 = writes();
+  plain(S.pullEnterprise(S.fakes.ss, S.nowMs, TZ));
+  assert.ok(writes() - before2 > 0);
+  assert.equal(raw._rows.filter((r) => r[1] === "u1").every((r) => r[3] === 9), true);
+});

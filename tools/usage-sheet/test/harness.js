@@ -41,6 +41,7 @@ function formatInZone(date, tz, pattern) {
 //   Utilities.sleep(ms): records into fakes.sleeps.
 //   SpreadsheetApp.getUi().prompt(title, msg, buttons) answers fakes.ui.next ({ button, text }); alert(msg) records
 //     into fakes.ui.alerts; ButtonSet.OK_CANCEL, Button.OK / Button.CANCEL. The chart builder has setNumHeaders(n); build() throws when it was never called.
+//   fakes.clock.advance(ms): moves what Date.now() and new Date() return inside the script (frozen otherwise).
 // Later tasks extend the returned object with more fakes.
 // Like real Sheets, a string written by setValues is parsed as typed input unless the column is
 // plain text ("@") or the string starts with an apostrophe (stripped, stored as text).
@@ -285,12 +286,15 @@ function loadScript(opts) {
   const fakes = makeFakes(o);
   const pinned = o.nowMs === undefined ? DEFAULT_NOW_MS : o.nowMs;
   // Date.now() and new Date() inside the script return the pinned time, like a frozen clock.
+  // fakes.clock.advance(ms) moves that clock forward (default: it never moves).
+  const clock = { offset: 0, advance(ms) { clock.offset += ms; } };
   class PinnedDate extends Date {
-    constructor(...a) { if (a.length) super(...a); else super(pinned); }
-    static now() { return pinned; }
+    constructor(...a) { if (a.length) super(...a); else super(pinned + clock.offset); }
+    static now() { return pinned + clock.offset; }
   }
   const ctx = vm.createContext({ console, Date: PinnedDate, Math, JSON, ...fakes });
   vm.runInContext(buildSource(), ctx, { filename: "Code.gs" });
+  fakes.clock = clock;
   ctx.fakes = fakes;
   ctx.nowMs = o.nowMs === undefined ? DEFAULT_NOW_MS : o.nowMs;
   ctx.tz = o.tz || DEFAULT_TZ;

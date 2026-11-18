@@ -45,10 +45,26 @@ function summarizeEnterprise(ent, start, end) {
   };
 }
 
+// The API data arrives a day or two late, so the period is counted only up to the newest data day and the
+// previous period is cut to the same length; otherwise flat usage would read as a drop.
 function computeEnterpriseSection(ent, kind, today) {
   var range = periodRange(kind, today);
-  var cur = summarizeEnterprise(ent, range.start, range.end);
-  var prev = summarizeEnterprise(ent, range.prevStart, range.prevEnd);
+  var newest = null;
+  if (ent.status && dateToDayNumber(ent.status.newestDate) !== null) newest = ent.status.newestDate;
+  ent.usage.forEach(function (r) { if (r.date && (newest === null || r.date > newest)) newest = r.date; });
+  var dataEnd = newest === null || newest > range.end ? range.end : newest;
+  var counted = { start: range.start, end: dataEnd };
+  var cur, prev;
+  if (newest === null || dataEnd < range.start) {
+    cur = summarizeEnterprise({ usage: [], people: ent.people }, range.start, range.end);
+    prev = cur;
+    counted = null;
+  } else {
+    var length = dateToDayNumber(dataEnd) - dateToDayNumber(range.start);
+    var prevEndNumber = Math.min(dateToDayNumber(range.prevEnd), dateToDayNumber(range.prevStart) + length);
+    cur = summarizeEnterprise(ent, range.start, dataEnd);
+    prev = summarizeEnterprise(ent, range.prevStart, dayNumberToString(prevEndNumber));
+  }
   function byName(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
   var depts = Object.keys(cur.teams).map(function (name) {
     var t = cur.teams[name];
@@ -65,6 +81,7 @@ function computeEnterpriseSection(ent, kind, today) {
     .filter(function (p) { return !inTop.has(p); }).slice(0, 5);
   return {
     hasData: cur.any,
+    counted: counted,
     tiles: {
       messages: cur.total, perPerson: cur.perPerson, people: cur.people, deptCount: depts.length,
       deltaMessagesPct: pctChange(cur.total, prev.total),
@@ -106,6 +123,7 @@ function renderEnterpriseSection(sheet, startRow, model, ent, tz) {
 
   sheet.getRange(s, 1).setValue(asText("Enterprise 멤버 (Claude 관리자 통계)")).setFontWeight("bold");
   sheet.getRange(s + 1, 1).setValue(asText(enterpriseStatusLine(ent.status, ent.hasKey, tz)));
+  sheet.getRange(s + 2, 1).setValue(asText("센 날짜: " + model.counted.start + " ~ " + model.counted.end + " (이전 기간도 같은 길이)"));
 
   var t = model.tiles;
   sheet.getRange(s + 3, 1, 1, 4).setValues(asTextRows([["메시지", "1인 평균", "쓰는 사람", "부서 수"]])).setFontWeight("bold");

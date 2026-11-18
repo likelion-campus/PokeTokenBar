@@ -36,6 +36,7 @@ var ENT_API_VERSION = "2026-10-21";
 var ENT_FIRST_DATE = "2026-01-01";
 var ENT_PAGE_LIMIT = 1000;
 var ENT_MAX_REQUESTS = 100;
+var ENT_TIME_BUDGET_MS = 150000;   // stop sending requests after this long, so writing and rendering fit the 6 min run
 var ENT_SLEEP_MS = 1000;
 var ENT_RECENT_DAYS = 3;
 var ENT_KEY_PROP = "enterprise_api_key";        // UserProperties

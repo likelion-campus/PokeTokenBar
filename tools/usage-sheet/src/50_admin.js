@@ -27,7 +27,7 @@ function withScriptLock(fn) {
   }
 }
 
-// The 7 data tabs plus the 3 dashboards and the plan tab; existing tabs are left alone.
+// The 10 data tabs plus the 3 dashboards and the plan tab; existing tabs are left alone.
 function ensureAllTabs(ss) {
   ensureSheets(ss);
   DASHBOARD_TABS.map(function (d) { return d.name; }).concat([TAB_PLAN]).forEach(function (name) {
@@ -94,7 +94,8 @@ function withDocumentLock(fn) {
 
 // Reading and rendering run without the script lock, so a slow refresh never makes a report wait: only
 // the dashboards and the plan are written, and by refreshAll alone (hence the document lock). The script
-// lock is taken only for the tab creation and the 참고팀이름 write.
+// lock is taken only for the tab creation, the Enterprise write (one short block after the fetching) and
+// the 참고팀이름 write.
 function refreshAll() {
   withDocumentLock(refreshAllLocked);
 }
@@ -319,7 +320,8 @@ function setEnterpriseKey() {
   if (!key) return;
   PropertiesService.getUserProperties().setProperty(ENT_KEY_PROP, key);
   refreshAll();
-  ui.alert("키를 저장하고 새로 고쳤습니다. 대시보드 아래 Enterprise 줄에서 결과를 확인하세요.");
+  ui.alert("Enterprise API 키를 저장하고 불러왔습니다.\n" +
+    enterpriseStatusLine(entReadStatus(), true, Session.getScriptTimeZone()));
 }
 
 function clearEnterpriseKey() {

@@ -273,3 +273,112 @@ test("clearEnterpriseKey deletes the key and shows one alert", () => {
   assert.equal("enterprise_api_key" in S2.fakes.props.user, false);
   assert.equal(S2.fakes.ui.alerts.length, 1);
 });
+
+test("setEnterpriseKey: the alert shows the pull result (a 401 reads 오류: 401)", () => {
+  const S2 = loadScript();
+  S2.fakes.http.handler = () => ({ code: 401, body: { error: { type: "authentication_error", message: "invalid x-api-key" } } });
+  S2.fakes.ui.next = { button: "OK", text: "k-123" };
+  S2.setEnterpriseKey();
+  assert.equal(S2.fakes.ui.alerts.length, 1);
+  assert.ok(S2.fakes.ui.alerts[0].startsWith("Enterprise API 키를 저장하고 불러왔습니다.\n"));
+  assert.ok(S2.fakes.ui.alerts[0].includes("오류: 401"));
+  assert.ok(!S2.fakes.ui.alerts[0].includes("k-123"));
+});
+
+test("refreshAll end to end: a pulled user shows in the 이번 달 top list with the pulled messages", () => {
+  const S2 = loadScript();   // now 2026-11-16 03:00Z, today 11-16, yesterday UTC 11-15
+  S2.fakes.props.user.enterprise_api_key = KEY;
+  S2.fakes.http.handler = (url) => {
+    const date = /date=(\d{4}-\d{2}-\d{2})/.exec(url)[1];
+    if (date < "2026-11-13") return { code: 200, body: { data: [], next_page: null } };
+    if (date > "2026-11-15") return { code: 400, body: { error: { type: "invalid_request_error", message: "not yet" } } };
+    return { code: 200, body: { data: [{
+      user: { id: "user_ada", email_address: "ada@example.com" },
+      chat_metrics: { message_count: 7, distinct_conversation_count: 2 },
+      cowork_metrics: { message_count: 3 },
+      claude_code_metrics: { core_metrics: { distinct_session_count: 1 } }
+    }], next_page: null } };
+  };
+  // The owner assigns the 부서 once the member is known; the next refresh shows the member.
+  S2.refreshAll();
+  const people = S2.fakes.ss.getSheetByName("엔터프라이즈 사람");
+  assert.equal(people._rows[1][0], "user_ada");
+  people._rows[1][2] = "개발";
+  S2.refreshAll();
+  const rows = S2.fakes.ss.getSheetByName("이번 달")._rows;
+  const i = rows.findIndex((r) => r.includes("많이 쓰는 사람"));
+  assert.ok(i >= 0);
+  const line = rows[i + 1];
+  // 3 pulled days (11-13..11-15) x (7 chat + 3 cowork) = 30 messages
+  assert.deepEqual(plain(line.slice(5, 9)), ["ada", "개발", 30, 3]);
+});
+
+// Flat usage: the same 5 messages from each of 20 users on every day in [from, to].
+function flat(from, to) {
+  const usage = [], ppl = {};
+  for (let u = 0; u < 20; u++) ppl["u" + u] = { email: "u" + u + "@x.com", dept: u < 10 ? "개발" : "교육" };
+  for (let d = S.dateToDayNumber(from); d <= S.dateToDayNumber(to); d++) {
+    for (let u = 0; u < 20; u++) usage.push(use(S.dayNumberToString(d), "u" + u, "u" + u + "@x.com", 5, 0, 1));
+  }
+  return ent(usage, ppl);
+}
+
+test("computeEnterpriseSection: data that lags by two days compares equal-length windows (flat usage reads 0, not a drop)", () => {
+  const e = flat("2026-10-01", "2026-11-14");   // TODAY is 11-16
+  const wk = section(e, "last7");
+  assert.equal(wk.hasData, true);
+  assert.deepEqual(wk.counted, { start: "2026-11-10", end: "2026-11-14" });
+  assert.equal(wk.tiles.messages, 20 * 5 * 5);
+  assert.equal(wk.tiles.deltaMessagesPct, 0);
+  assert.equal(wk.tiles.deltaPerPersonPct, 0);
+  assert.equal(wk.tiles.deltaPeople, 0);
+  const mo = section(e, "thisMonth");
+  assert.deepEqual(mo.counted, { start: "2026-11-01", end: "2026-11-14" });
+  assert.equal(mo.tiles.messages, 20 * 5 * 14);
+  assert.equal(mo.tiles.deltaMessagesPct, 0);
+  assert.equal(mo.tiles.deltaPeople, 0);
+});
+
+test("computeEnterpriseSection: the newest date is the later of the status newestDate and the newest row", () => {
+  // Only 11-10 has rows, but the status says 11-14 was pulled (days with 0 activity count as data).
+  const e = flat("2026-11-10", "2026-11-10");
+  e.status = { lastRunMs: 1, newestDate: "2026-11-14", error: null };
+  assert.deepEqual(section(e, "last7").counted, { start: "2026-11-10", end: "2026-11-14" });
+  // A status older than the rows loses.
+  const e2 = flat("2026-11-10", "2026-11-12");
+  e2.status = { lastRunMs: 1, newestDate: "2026-11-05", error: null };
+  assert.equal(section(e2, "last7").counted.end, "2026-11-12");
+  // No rows at all: the status alone gives an end, but nothing in the window means no section data.
+  const e3 = ent([]);
+  e3.status = { lastRunMs: 1, newestDate: "2026-11-14", error: null };
+  assert.equal(section(e3, "last7").hasData, false);
+});
+
+test("computeEnterpriseSection: on the 1st with data only through last month, 이번 달 has no data", () => {
+  const e = flat("2026-11-01", "2026-11-29");
+  const m = plain(S.computeEnterpriseSection(e, "thisMonth", "2026-12-01"));
+  assert.equal(m.hasData, false);
+});
+
+test("computeEnterpriseSection: a complete month (지난달) is unchanged by the lag handling", () => {
+  const e = flat("2026-09-01", "2026-11-14");
+  const m = section(e, "lastMonth");
+  assert.deepEqual(m.counted, { start: "2026-10-01", end: "2026-10-31" });
+  assert.equal(m.tiles.messages, 20 * 5 * 31);
+  assert.equal(m.tiles.deltaMessagesPct, S.pctChange(20 * 5 * 31, 20 * 5 * 30));
+});
+
+test("computeEnterpriseSection: a previous window that is empty gives a null delta", () => {
+  const e = flat("2026-11-10", "2026-11-14");
+  const m = section(e, "last7");
+  assert.equal(m.tiles.messages, 20 * 5 * 5);
+  assert.equal(m.tiles.deltaMessagesPct, null);
+});
+
+test("renderEnterpriseSection: the counted dates line sits at s+2 only when there is data", () => {
+  const e = flat("2026-10-01", "2026-11-14");
+  const { sheet } = render(e, "thisMonth", 30);
+  assert.equal(cell(sheet, 32, 1), "센 날짜: 2026-11-01 ~ 2026-11-14 (이전 기간도 같은 길이)");
+  const none = render(ent([], {}, { hasKey: false }), "thisMonth", 30);
+  assert.equal(cell(none.sheet, 32, 1), undefined);
+});

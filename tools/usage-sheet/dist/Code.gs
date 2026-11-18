@@ -37,6 +37,7 @@ var ENT_API_VERSION = "2026-10-21";
 var ENT_FIRST_DATE = "2026-01-01";
 var ENT_PAGE_LIMIT = 1000;
 var ENT_MAX_REQUESTS = 100;
+var ENT_TIME_BUDGET_MS = 150000;   // stop sending requests after this long, so writing and rendering fit the 6 min run
 var ENT_SLEEP_MS = 1000;
 var ENT_RECENT_DAYS = 3;
 var ENT_KEY_PROP = "enterprise_api_key";        // UserProperties
@@ -906,12 +907,12 @@ function entDaysToFetch(fetched, first, yesterday, recentDays) {
   return out;
 }
 
-// Fetches one UTC day, following next_page. budget: { left, sent } is shared by the whole run.
+// Fetches one UTC day, following next_page. budget: { left, sent, startedMs } is shared by the whole run.
 function entFetchDay(key, date, budget) {
   var records = [];
   var page = null;
   do {
-    if (budget.left <= 0) return { kind: "budget" };
+    if (budget.left <= 0 || Date.now() - budget.startedMs >= ENT_TIME_BUDGET_MS) return { kind: "budget" };
     var url = ENT_API_URL + "?date=" + date + "&limit=" + ENT_PAGE_LIMIT;
     if (page !== null) url += "&page=" + encodeURIComponent(page);
     if (budget.sent > 0) Utilities.sleep(ENT_SLEEP_MS);
@@ -974,7 +975,19 @@ function writeEnterprise(ss, days, nowMs, tz) {
   var rawItems = [], logItems = [], personItems = [];
   days.forEach(function (day) {
     day.rows.forEach(function (row) {
-      rawItems.push({ key: row[0] + "|" + row[1], build: function () { return row; } });
+      rawItems.push({
+        key: row[0] + "|" + row[1],
+        // An hourly re-fetch mostly returns the same numbers: keep the old row (and its 받은시각) so only
+        // changed rows are written, since each write is one setValues under the script lock.
+        build: function (old) {
+          if (old !== null && cellToDateString(old[0], tz) === row[0]) {
+            var same = true;
+            for (var c = 1; c < 7; c++) if (!cellsEqual(old[c], row[c])) same = false;
+            if (same) return old;
+          }
+          return row;
+        }
+      });
       // Days are ascending and upsertRows updates a repeated key in place, so the newest day's email wins.
       personItems.push({
         key: row[1],
@@ -990,7 +1003,7 @@ function writeEnterprise(ss, days, nowMs, tz) {
   ensureSheets(ss);
   upsertRows(ss.getSheetByName(TAB_ENT_RAW), COLS_ENT_RAW.length, function (r) {
     return cellToDateString(r[0], tz) + "|" + r[1];
-  }, rawItems, { readWidth: 2 });
+  }, rawItems);
   upsertRows(ss.getSheetByName(TAB_ENT_PEOPLE), COLS_ENT_PEOPLE.length, function (r) { return r[0]; },
     personItems, { spans: [[2, 1]] });
   upsertRows(ss.getSheetByName(TAB_ENT_LOG), COLS_ENT_LOG.length, function (r) {
@@ -1015,7 +1028,7 @@ function pullEnterprise(ss, nowMs, tz) {
   var yesterday = utcDateString(nowMs - DAY_MS);
   var recentFrom = dayNumberToString(dateToDayNumber(yesterday) - (ENT_RECENT_DAYS - 1));
   var days = entDaysToFetch(entLoggedDates(ss, tz), first, yesterday, ENT_RECENT_DAYS);
-  var budget = { left: ENT_MAX_REQUESTS, sent: 0 };
+  var budget = { left: ENT_MAX_REQUESTS, sent: 0, startedMs: Date.now() };
   var collected = [];
   var error = null;
   try {
@@ -1037,7 +1050,8 @@ function pullEnterprise(ss, nowMs, tz) {
       collected.push({ date: days[i], rows: rows });
     }
   } catch (e) {
-    error = "요청 실패: " + (e && e.message ? e.message : String(e));
+    // The message can carry the request address; it is not needed to diagnose and is cut out.
+    error = "요청 실패: " + (e && e.message ? e.message : String(e)).replace(/https?:\/\/\S+/g, "(주소 생략)");
   }
   if (error !== null) error = entCut(error);
   withScriptLock(function () {
@@ -1123,10 +1137,26 @@ function summarizeEnterprise(ent, start, end) {
   };
 }
 
+// The API data arrives a day or two late, so the period is counted only up to the newest data day and the
+// previous period is cut to the same length; otherwise flat usage would read as a drop.
 function computeEnterpriseSection(ent, kind, today) {
   var range = periodRange(kind, today);
-  var cur = summarizeEnterprise(ent, range.start, range.end);
-  var prev = summarizeEnterprise(ent, range.prevStart, range.prevEnd);
+  var newest = null;
+  if (ent.status && dateToDayNumber(ent.status.newestDate) !== null) newest = ent.status.newestDate;
+  ent.usage.forEach(function (r) { if (r.date && (newest === null || r.date > newest)) newest = r.date; });
+  var dataEnd = newest === null || newest > range.end ? range.end : newest;
+  var counted = { start: range.start, end: dataEnd };
+  var cur, prev;
+  if (newest === null || dataEnd < range.start) {
+    cur = summarizeEnterprise({ usage: [], people: ent.people }, range.start, range.end);
+    prev = cur;
+    counted = null;
+  } else {
+    var length = dateToDayNumber(dataEnd) - dateToDayNumber(range.start);
+    var prevEndNumber = Math.min(dateToDayNumber(range.prevEnd), dateToDayNumber(range.prevStart) + length);
+    cur = summarizeEnterprise(ent, range.start, dataEnd);
+    prev = summarizeEnterprise(ent, range.prevStart, dayNumberToString(prevEndNumber));
+  }
   function byName(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
   var depts = Object.keys(cur.teams).map(function (name) {
     var t = cur.teams[name];
@@ -1143,6 +1173,7 @@ function computeEnterpriseSection(ent, kind, today) {
     .filter(function (p) { return !inTop.has(p); }).slice(0, 5);
   return {
     hasData: cur.any,
+    counted: counted,
     tiles: {
       messages: cur.total, perPerson: cur.perPerson, people: cur.people, deptCount: depts.length,
       deltaMessagesPct: pctChange(cur.total, prev.total),
@@ -1184,6 +1215,7 @@ function renderEnterpriseSection(sheet, startRow, model, ent, tz) {
 
   sheet.getRange(s, 1).setValue(asText("Enterprise 멤버 (Claude 관리자 통계)")).setFontWeight("bold");
   sheet.getRange(s + 1, 1).setValue(asText(enterpriseStatusLine(ent.status, ent.hasKey, tz)));
+  sheet.getRange(s + 2, 1).setValue(asText("센 날짜: " + model.counted.start + " ~ " + model.counted.end + " (이전 기간도 같은 길이)"));
 
   var t = model.tiles;
   sheet.getRange(s + 3, 1, 1, 4).setValues(asTextRows([["메시지", "1인 평균", "쓰는 사람", "부서 수"]])).setFontWeight("bold");
@@ -1460,7 +1492,7 @@ function withScriptLock(fn) {
   }
 }
 
-// The 7 data tabs plus the 3 dashboards and the plan tab; existing tabs are left alone.
+// The 10 data tabs plus the 3 dashboards and the plan tab; existing tabs are left alone.
 function ensureAllTabs(ss) {
   ensureSheets(ss);
   DASHBOARD_TABS.map(function (d) { return d.name; }).concat([TAB_PLAN]).forEach(function (name) {
@@ -1527,7 +1559,8 @@ function withDocumentLock(fn) {
 
 // Reading and rendering run without the script lock, so a slow refresh never makes a report wait: only
 // the dashboards and the plan are written, and by refreshAll alone (hence the document lock). The script
-// lock is taken only for the tab creation and the 참고팀이름 write.
+// lock is taken only for the tab creation, the Enterprise write (one short block after the fetching) and
+// the 참고팀이름 write.
 function refreshAll() {
   withDocumentLock(refreshAllLocked);
 }
@@ -1752,7 +1785,8 @@ function setEnterpriseKey() {
   if (!key) return;
   PropertiesService.getUserProperties().setProperty(ENT_KEY_PROP, key);
   refreshAll();
-  ui.alert("키를 저장하고 새로 고쳤습니다. 대시보드 아래 Enterprise 줄에서 결과를 확인하세요.");
+  ui.alert("Enterprise API 키를 저장하고 불러왔습니다.\n" +
+    enterpriseStatusLine(entReadStatus(), true, Session.getScriptTimeZone()));
 }
 
 function clearEnterpriseKey() {

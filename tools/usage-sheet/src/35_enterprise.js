@@ -47,12 +47,12 @@ function entDaysToFetch(fetched, first, yesterday, recentDays) {
   return out;
 }
 
-// Fetches one UTC day, following next_page. budget: { left, sent } is shared by the whole run.
+// Fetches one UTC day, following next_page. budget: { left, sent, startedMs } is shared by the whole run.
 function entFetchDay(key, date, budget) {
   var records = [];
   var page = null;
   do {
-    if (budget.left <= 0) return { kind: "budget" };
+    if (budget.left <= 0 || Date.now() - budget.startedMs >= ENT_TIME_BUDGET_MS) return { kind: "budget" };
     var url = ENT_API_URL + "?date=" + date + "&limit=" + ENT_PAGE_LIMIT;
     if (page !== null) url += "&page=" + encodeURIComponent(page);
     if (budget.sent > 0) Utilities.sleep(ENT_SLEEP_MS);
@@ -115,7 +115,19 @@ function writeEnterprise(ss, days, nowMs, tz) {
   var rawItems = [], logItems = [], personItems = [];
   days.forEach(function (day) {
     day.rows.forEach(function (row) {
-      rawItems.push({ key: row[0] + "|" + row[1], build: function () { return row; } });
+      rawItems.push({
+        key: row[0] + "|" + row[1],
+        // An hourly re-fetch mostly returns the same numbers: keep the old row (and its 받은시각) so only
+        // changed rows are written, since each write is one setValues under the script lock.
+        build: function (old) {
+          if (old !== null && cellToDateString(old[0], tz) === row[0]) {
+            var same = true;
+            for (var c = 1; c < 7; c++) if (!cellsEqual(old[c], row[c])) same = false;
+            if (same) return old;
+          }
+          return row;
+        }
+      });
       // Days are ascending and upsertRows updates a repeated key in place, so the newest day's email wins.
       personItems.push({
         key: row[1],
@@ -131,7 +143,7 @@ function writeEnterprise(ss, days, nowMs, tz) {
   ensureSheets(ss);
   upsertRows(ss.getSheetByName(TAB_ENT_RAW), COLS_ENT_RAW.length, function (r) {
     return cellToDateString(r[0], tz) + "|" + r[1];
-  }, rawItems, { readWidth: 2 });
+  }, rawItems);
   upsertRows(ss.getSheetByName(TAB_ENT_PEOPLE), COLS_ENT_PEOPLE.length, function (r) { return r[0]; },
     personItems, { spans: [[2, 1]] });
   upsertRows(ss.getSheetByName(TAB_ENT_LOG), COLS_ENT_LOG.length, function (r) {
@@ -156,7 +168,7 @@ function pullEnterprise(ss, nowMs, tz) {
   var yesterday = utcDateString(nowMs - DAY_MS);
   var recentFrom = dayNumberToString(dateToDayNumber(yesterday) - (ENT_RECENT_DAYS - 1));
   var days = entDaysToFetch(entLoggedDates(ss, tz), first, yesterday, ENT_RECENT_DAYS);
-  var budget = { left: ENT_MAX_REQUESTS, sent: 0 };
+  var budget = { left: ENT_MAX_REQUESTS, sent: 0, startedMs: Date.now() };
   var collected = [];
   var error = null;
   try {
@@ -178,7 +190,8 @@ function pullEnterprise(ss, nowMs, tz) {
       collected.push({ date: days[i], rows: rows });
     }
   } catch (e) {
-    error = "요청 실패: " + (e && e.message ? e.message : String(e));
+    // The message can carry the request address; it is not needed to diagnose and is cut out.
+    error = "요청 실패: " + (e && e.message ? e.message : String(e)).replace(/https?:\/\/\S+/g, "(주소 생략)");
   }
   if (error !== null) error = entCut(error);
   withScriptLock(function () {
