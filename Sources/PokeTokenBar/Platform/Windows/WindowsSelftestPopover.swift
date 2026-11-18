@@ -465,8 +465,8 @@ extension WindowsSelftest {
             // The page follows the pointer by the thumb's travel: 90 px down from the grab point is this offset (the pixel grid of the thumb is the only slack).
             let inset = CGFloat(w.ctx.px(WinScrollArea.trackInsetDIP))
             let track = CGFloat(area.viewportHeight) - 2 * inset
-            let wanted = PopoverScrollMath.offset(thumbTop: 90, content: CGFloat(area.contentHeight),
-                                                  viewport: CGFloat(area.viewportHeight), track: track, minLength: CGFloat(w.ctx.px(WinScrollArea.minThumbDIP)))
+            let wanted = Int32(PopoverScrollMath.offset(thumbTop: 90, content: CGFloat(area.contentHeight),
+                                                  viewport: CGFloat(area.viewportHeight), track: track, minLength: CGFloat(w.ctx.px(WinScrollArea.minThumbDIP))))
             let slack = Int32(CGFloat(area.contentHeight - area.viewportHeight) / max(1, track) * 3)
             let followed = abs(area.offset - wanted) <= slack
             dragOK = area.stats.thumbDrags == drags0 + 1 && area.offset > offset0 && followed && !depths.isEmpty && depths.allSatisfy { $0 == 0 }
