@@ -345,6 +345,45 @@ final class PopoverScrollMathTests: XCTestCase {
         XCTAssertEqual(PopoverScrollMath.clamped(50, content: 300, viewport: 400), 0, "content shorter than the viewport never scrolls")
     }
 
+    func testTheOverlayThumbMirrorsTheVisibleShare() {
+        // 2000 px of content in a 500 px viewport, a 500 px track: a quarter of it, from the top to the bottom of the track
+        let top = PopoverScrollMath.thumb(content: 2000, viewport: 500, offset: 0, track: 500, minLength: 24)
+        XCTAssertEqual(top, PopoverScrollMath.Thumb(top: 0, length: 125))
+        let bottom = PopoverScrollMath.thumb(content: 2000, viewport: 500, offset: 1500, track: 500, minLength: 24)
+        XCTAssertEqual(bottom?.bottom, 500, "scrolled to the end, the thumb rests on the track's end")
+        let middle = PopoverScrollMath.thumb(content: 2000, viewport: 500, offset: 750, track: 500, minLength: 24)
+        XCTAssertEqual(middle?.top, 187.5.rounded())
+        XCTAssertEqual(PopoverScrollMath.thumb(content: 2000, viewport: 500, offset: 9999, track: 500, minLength: 24)?.bottom, 500, "an offset past the end is clamped")
+        XCTAssertEqual(PopoverScrollMath.thumb(content: 100_000, viewport: 500, offset: 0, track: 500, minLength: 24)?.length, 24, "a long page keeps a grabbable thumb")
+        XCTAssertNil(PopoverScrollMath.thumb(content: 500, viewport: 500, offset: 0, track: 500, minLength: 24), "a page that fits has no thumb")
+        XCTAssertNil(PopoverScrollMath.thumb(content: 400, viewport: 500, offset: 0, track: 500, minLength: 24))
+        XCTAssertNil(PopoverScrollMath.thumb(content: 2000, viewport: 500, offset: 0, track: 0, minLength: 24))
+    }
+
+    func testDraggingTheThumbIsTheInverseOfPlacingIt() {
+        for offset in stride(from: CGFloat(0), through: 1500, by: 100) {
+            guard let t = PopoverScrollMath.thumb(content: 2000, viewport: 500, offset: offset, track: 500, minLength: 24) else { return XCTFail("no thumb") }
+            let back = PopoverScrollMath.offset(thumbTop: t.top, content: 2000, viewport: 500, track: 500, minLength: 24)
+            XCTAssertEqual(back, offset, accuracy: 1500 / (500 - 125) / 2 + 0.5, "the pixel grid of the thumb is the only difference at \(offset)")
+        }
+        XCTAssertEqual(PopoverScrollMath.offset(thumbTop: -50, content: 2000, viewport: 500, track: 500, minLength: 24), 0)
+        XCTAssertEqual(PopoverScrollMath.offset(thumbTop: 9999, content: 2000, viewport: 500, track: 500, minLength: 24), 1500, "dragged past the end: the last offset")
+        XCTAssertEqual(PopoverScrollMath.offset(thumbTop: 10, content: 500, viewport: 500, track: 500, minLength: 24), 0, "nothing to scroll")
+    }
+
+    func testAClickInTheTrackPagesTowardsIt() {
+        let thumb = PopoverScrollMath.Thumb(top: 100, length: 125)
+        func page(_ y: CGFloat, offset: CGFloat = 800) -> CGFloat {
+            PopoverScrollMath.paged(clickY: y, thumb: thumb, offset: offset, page: 450, content: 2000, viewport: 500)
+        }
+        XCTAssertEqual(page(10), 350, "above the thumb: one page up")
+        XCTAssertEqual(page(300), 1250, "below the thumb: one page down")
+        XCTAssertEqual(page(150), 800, "on the thumb: no move")
+        XCTAssertEqual(page(225), 1250, "the thumb's bottom edge belongs to the track below it")
+        XCTAssertEqual(page(10, offset: 100), 0, "clamped at the top")
+        XCTAssertEqual(page(300, offset: 1400), 1500, "clamped at the end")
+    }
+
     func testAFocusedControlIsScrolledIntoViewByTheSmallestMove() {
         func reveal(_ top: CGFloat, _ bottom: CGFloat, at offset: CGFloat) -> CGFloat {
             PopoverScrollMath.revealing(top: top, bottom: bottom, offset: offset, viewport: 400, content: 2000, margin: 8)

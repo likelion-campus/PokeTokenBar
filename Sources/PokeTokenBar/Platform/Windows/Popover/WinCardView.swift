@@ -209,15 +209,10 @@ import WinSDK
         _ = FillRect(dc, &rr, ctx.colors.brush(pal.window))
         defer { paintGlyphs(dc) }
         guard tinted, tint != pal.window || ctx.highContrast else { return }
-        if let pen = CreatePen(0 /* PS_SOLID */, max(1, ctx.px(1)), ctx.highContrast ? pal.text : pal.cardBorder) {  // the card's hairline (white on the grey base needs it)
-            let oldPen = SelectObject(dc, UnsafeMutableRawPointer(pen))
-            let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(ctx.colors.brush(tint)))
-            let radius = 2 * ctx.px(radiusDIP)
-            _ = RoundRect(dc, all.left, all.top, all.right + 1, all.bottom + 1, radius, radius)
-            _ = SelectObject(dc, oldBrush)
-            _ = SelectObject(dc, oldPen)
-            _ = DeleteObject(UnsafeMutableRawPointer(pen))
-        }
+        // The card's hairline (white on the grey base needs it; high contrast draws an outline in the text colour).
+        WinPaint.roundedRect(dc, all, radius: ctx.px(radiusDIP), fill: WinPaint.Ink(color: tint),
+                             stroke: WinPaint.Ink(color: ctx.highContrast ? pal.text : pal.cardBorder), strokeWidth: max(1, ctx.px(1)),
+                             under: pal.window, ctx: ctx)
     }
 
     private func paintGlyphs(_ dc: HDC) {

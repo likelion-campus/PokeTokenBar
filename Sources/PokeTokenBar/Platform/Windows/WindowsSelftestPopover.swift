@@ -308,6 +308,7 @@ extension WindowsSelftest {
         fontAndGlyphChecks(r, w)
         await drawnChecks(r, w, page)
         tooltipCheck(r, w, page)
+        WindowsSelftestPopoverPaint.run(r, w)
         await scrollChecks(r, w, page)
         await partResizeCheck(r, w, page)
         await scrollClickChecks(r, w, page)
@@ -427,21 +428,23 @@ extension WindowsSelftest {
         _ = SetFocus(last.hwnd)
         let r0 = WinKit.rect(last.hwnd, in: area.viewport.hwnd)
         let visible = r0.top >= 0 && r0.bottom <= area.viewportHeight
-        // A real thumb drag (CI): the scroll bar's own modal loop, served by WinModalPump.
+        // A real thumb drag (CI), as a person does it: the pointer goes into the lane (the thumb widens), the left button goes down
+        // on the thumb, the pointer moves down in steps, the button goes up. The drawn thumb holds the capture and moves the page
+        // from WM_MOUSEMOVE: no modal loop runs (the system bar's did), so the main queue serves its blocks during the drag.
         var barBefore = "-"
         var drag = "skipped (CI not set)"
         var dragOK = true
         if WindowsSelftest.onCI {
             area.scroll(to: 0)
             _ = SetFocus(first.hwnd)
+            WindowsSelftest.forceForeground(w.hwnd)
             barBefore = area.debugState()
-            var sbi = SCROLLBARINFO()
-            sbi.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
-            _ = GetScrollBarInfo(area.viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB) /* OBJID_VSCROLL */, &sbi)
-            let x = (sbi.rcScrollBar.left + sbi.rcScrollBar.right) / 2
-            let y = sbi.rcScrollBar.top + (sbi.xyThumbTop + sbi.xyThumbBottom) / 2
+            let box = area.thumbScreenRect ?? RECT()
+            let x = (box.left + box.right) / 2
+            let y = (box.top + box.bottom) / 2
             let observed = DepthBox()
             let drags0 = area.stats.thumbDrags, offset0 = area.offset
+            let hotAtRest = area.laneHot
             Thread {
                 mouse(x: x, y: y, flags: 0x0001 | 0x8000)  // MOVE | ABSOLUTE
                 Thread.sleep(forTimeInterval: 0.1)
@@ -459,16 +462,25 @@ extension WindowsSelftest {
             _ = await WindowsSelftest.waitUntil(timeout: 5) { observed.isFinished }
             _ = await WindowsSelftest.waitUntil(timeout: 0.5) { false }
             let depths = observed.values
-            dragOK = area.stats.thumbDrags > drags0 && area.offset > offset0 && depths.contains(1) && WinModalPump.depth == 0
-            drag = "thumb at screen (\(x),\(y)) dragged 90 px: drags +\(area.stats.thumbDrags - drags0) offset \(offset0) -> \(area.offset); main-queue blocks "
-                + "run during the drag saw pump depth \(depths) (1 = inside WinModalPump); depth after=\(WinModalPump.depth); SB_THUMBTRACK saw depth \(area.stats.pumpDepthDuringDrag)"
+            // The page follows the pointer by the thumb's travel: 90 px down from the grab point is this offset (the pixel grid of the thumb is the only slack).
+            let inset = CGFloat(w.ctx.px(WinScrollArea.trackInsetDIP))
+            let track = CGFloat(area.viewportHeight) - 2 * inset
+            let wanted = PopoverScrollMath.offset(thumbTop: 90, content: CGFloat(area.contentHeight),
+                                                  viewport: CGFloat(area.viewportHeight), track: track, minLength: CGFloat(w.ctx.px(WinScrollArea.minThumbDIP)))
+            let slack = Int32(CGFloat(area.contentHeight - area.viewportHeight) / max(1, track) * 3)
+            let followed = abs(area.offset - wanted) <= slack
+            dragOK = area.stats.thumbDrags == drags0 + 1 && area.offset > offset0 && followed && !depths.isEmpty && depths.allSatisfy { $0 == 0 }
+                && area.stats.pumpDepthDuringDrag == 0 && WinModalPump.depth == 0 && GetCapture() == nil && !hotAtRest
+            drag = "thumb at screen (\(x),\(y)) dragged 90 px: drags +\(area.stats.thumbDrags - drags0) offset \(offset0) -> \(area.offset) "
+                + "(the 90 px stand for \(wanted) +-\(slack), followed=\(followed)); main-queue blocks run during the drag saw pump depth \(depths) (0 = no modal loop); "
+                + "depth after=\(WinModalPump.depth) during moves=\(area.stats.pumpDepthDuringDrag); capture after=\(GetCapture() == nil ? "none" : "kept"); lane hot before the pointer came=\(hotAtRest)"
         }
-        // the control for the hidden bar: a page taller than its viewport shows the native bar
+        // the control for the hidden thumb: a page taller than its viewport shows the overlay thumb
         let barShownWhenScrolling = PopoverScrollMath.showsBar(content: CGFloat(area.contentHeight), viewport: CGFloat(area.viewportHeight)) && area.barVisible
         r.add("ui.kit.scroll", afterWheel == expected && afterParts == 2 * expected && visible && dragOK && barShownWhenScrolling,
-              "content \(area.contentHeight) px in a \(area.viewportHeight) px viewport, width \(area.contentWidth) px beside the bar: one wheel notch "
+              "content \(area.contentHeight) px in a \(area.viewportHeight) px viewport, width \(area.contentWidth) px beside the lane: one wheel notch "
               + "(\(lines) lines x \(WinScrollArea.lineDIP) DIP) -> offset \(afterWheel) (expected \(expected)); 8 touchpad parts of 15 -> \(afterParts) "
-              + "(expected \(2 * expected)); native bar shown=\(barShownWhenScrolling) [\(barBefore)];  focus on the last field -> offset \(area.offset), field at \(r0.top)...\(r0.bottom) inside=\(visible); \(drag)")
+              + "(expected \(2 * expected)); overlay thumb shown=\(barShownWhenScrolling) [\(barBefore)];  focus on the last field -> offset \(area.offset), field at \(r0.top)...\(r0.bottom) inside=\(visible); \(drag)")
     }
 
     private static func dpiCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
@@ -884,12 +896,19 @@ extension WindowsSelftest {
         area.scroll(to: 0)
         _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
         let pageBarState = area.debugState()
-        var page1 = SCROLLBARINFO()
-        page1.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
-        _ = GetScrollBarInfo(area.viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB) /* OBJID_VSCROLL */, &page1)
-        let arrow = POINT(x: (page1.rcScrollBar.left + page1.rcScrollBar.right) / 2, y: page1.rcScrollBar.bottom - page1.dxyLineButton / 2)
+        // A click in the lane below the thumb pages down (two clicks: two pages, or the end). It runs no modal loop: the main queue
+        // serves a block posted after the click and nothing holds the mouse capture. The point is near the lane's bottom end, so the
+        // thumb (which moves down a page per click) is not under it for the second click.
+        var viewportBox = RECT()
+        _ = GetWindowRect(area.viewport.hwnd, &viewportBox)
+        let laneBox = area.thumbScreenRect ?? RECT()
+        let arrow = POINT(x: (laneBox.left + laneBox.right) / 2, y: viewportBox.bottom - w.ctx.px(6))
+        let page = max(line, area.viewportHeight - line)
+        let pagesExpected = min(2 * page, area.contentHeight - area.viewportHeight)
+        let clicks0 = area.stats.pageClicks
         let double = await clickRun(at: arrow, clicks: 2)
         let pageOffset = area.offset
+        let pageClicks = area.stats.pageClicks - clicks0
         let pageCapture = GetCapture()
         // The multi-line field: twelve lines in a three-line box, scrolled into view, its own scroll bar's down arrow once.
         field.text = (1...12).map { "C:\\folder\\\($0)" }.joined(separator: "\r\n")
@@ -909,17 +928,18 @@ extension WindowsSelftest {
         // Held down 0.8 s (the arrow repeats): the field's arrow (the kit subclass's tracking loop), then the second press
         // of a double click on the page's arrow (WM_NCLBUTTONDBLCLK): the main queue keeps running inside WinModalPump.
         let heldField = await clickRun(at: fieldArrow, clicks: 1, holdLast: true)
+        area.scroll(to: 0)
         let heldPage = await clickRun(at: arrow, clicks: 2, holdLast: true)
         field.text = ""
         area.scroll(to: 0)
-        let ok = pageOffset == 2 * line && pageCapture == nil && !double.stuck && double.blockRan
+        let ok = pageOffset == pagesExpected && pageClicks == 2 && pageCapture == nil && !double.stuck && double.blockRan
             && firstAfter == firstBefore + 1 && fieldCapture == nil && !one.stuck && one.blockRan
             && heldField.heldRan && !heldField.stuck && heldPage.heldRan && !heldPage.stuck
         r.add("ui.kit.scrollClicks", ok,
-              "[\(pageBarState)] double click on the page's down arrow at (\(arrow.x),\(arrow.y)): offset 0 -> \(pageOffset) (expected \(2 * line), two lines), capture after=\(pageCapture == nil ? "none" : "kept"), "
+              "[\(pageBarState)] double click in the lane below the thumb at (\(arrow.x),\(arrow.y)): page clicks \(pageClicks), offset 0 -> \(pageOffset) (expected \(pagesExpected), two pages or the end), capture after=\(pageCapture == nil ? "none" : "kept"), "
               + "\(double.detail); one click on the multi-line field's own down arrow: first visible line \(firstBefore) -> \(firstAfter) (expected +1), "
               + "capture after=\(fieldCapture == nil ? "none" : "kept"), \(one.detail); held on the field's arrow: \(heldField.detail); "
-              + "double click held on the page's arrow: \(heldPage.detail)")
+              + "double click held in the lane: \(heldPage.detail)")
     }
 
     private struct ClickResult { var stuck: Bool, blockRan: Bool, heldRan: Bool, detail: String }

@@ -88,7 +88,6 @@ import WinSDK
     // --- parity (end) ---
     private var sizeRelayouts: [Date] = []
     private var loggedSizeLoop = false
-    private var borderPen: HPEN?
     private(set) var layouts = 0
     private(set) var isDestroyed = false
 
@@ -225,14 +224,16 @@ import WinSDK
         var r = dirty
         _ = FillRect(dc, &r, colors.brush(colors.palette.window))
         guard let f = frames else { return }
-        if borderPen == nil { borderPen = CreatePen(0 /* PS_SOLID */, max(1, ctx.px(1)), colors.palette.cardBorder) }
-        let oldPen = SelectObject(dc, UnsafeMutableRawPointer(borderPen))
-        let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(colors.brush(colors.palette.card)))
-        let radius = 2 * Int32(metrics.cardRadius)
+        let radius = Int32(metrics.cardRadius)
+        let hairline = max(1, ctx.px(1))
         for case let s? in f.sections {
             if let card = s.card {
                 let c = WinKit.rect(card)
-                _ = RoundRect(dc, c.left, c.top, c.right, c.bottom, radius, radius)
+                if WinPaint.intersects(c, dirty) {
+                    WinPaint.roundedRect(dc, c, radius: radius, fill: WinPaint.Ink(color: colors.palette.card),
+                                         stroke: WinPaint.Ink(color: colors.palette.cardBorder), strokeWidth: hairline,
+                                         under: colors.palette.window, ctx: ctx)
+                }
             }
             for d in s.dividers {
                 var dr = WinKit.rect(d)
@@ -241,8 +242,6 @@ import WinSDK
                 _ = FillRect(dc, &dr, colors.brush(colors.palette.divider))
             }
         }
-        _ = SelectObject(dc, oldBrush)
-        _ = SelectObject(dc, oldPen)
     }
 
     /// Commits changed fields and destroys every control (the pane stays: its owner destroys it).
@@ -251,8 +250,6 @@ import WinSDK
         isDestroyed = true
         for c in controls { c.destroy() }
         sections = []
-        if let pen = borderPen { _ = DeleteObject(UnsafeMutableRawPointer(pen)) }
-        borderPen = nil
         pane.paint = nil
     }
 }
