@@ -734,7 +734,7 @@ enum WinPetDecor {
 
     func hide() {
         guard let hwnd = window?.hwnd, isShown else { return }
-        _ = ShowWindow(hwnd, SW_HIDE)
+        _ = SetWindowPos(hwnd, nil, 0, 0, 0, 0, UINT(SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW))
         isShown = false
     }
 
