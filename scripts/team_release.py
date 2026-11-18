@@ -478,7 +478,7 @@ def check_release_manifest(ctx, manifest, args, app_run_id, app_attempt, local, 
     _expect(problems, where + " runAttempt (the run's attempt)", manifest.get("runAttempt"), app_attempt)
     if not re.fullmatch(r"[0-9a-f]{40}", str(manifest.get("workflowSha"))):
         problems.append(where + " workflowSha is %s, expected a commit SHA" % json.dumps(manifest.get("workflowSha")))
-    for key in ("runnerImage", "swift", "msvcToolset", "windowsSdk", "innoSetup", "openssl"):
+    for key in ("runnerImage", "swift", "msvcToolset", "windowsSdk", "innoSetup", "openssl", "swiftCrypto"):
         if not isinstance(manifest.get(key), str) or not manifest[key]:
             problems.append(where + " %s is %s, expected text" % (key, json.dumps(manifest.get(key))))
     installer = manifest.get("installer") if isinstance(manifest.get("installer"), dict) else {}

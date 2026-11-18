@@ -112,6 +112,7 @@ jobs:
       winsdk: ${{ steps.buildid.outputs.winsdk }}
       openssl: ${{ steps.buildid.outputs.openssl }}
       inno: ${{ steps.buildid.outputs.inno }}
+      swift_crypto: ${{ steps.buildid.outputs.swift_crypto }}
       level: ${{ env.PTB_LEVEL }}
       fast: ${{ env.PTB_FAST }}
       clean: ${{ steps.seed.outputs.clean || 'true' }}   # true = built from scratch (level full, release mode, kit/* and clean_build always are)
@@ -292,6 +293,9 @@ jobs:
           "msvc=$env:PTB_MSVC_TOOLSET" >> $env:GITHUB_OUTPUT
           "winsdk=$env:PTB_WINSDK" >> $env:GITHUB_OUTPUT
           "inno=$env:PTB_INNO_VERSION" >> $env:GITHUB_OUTPUT
+          # swift-crypto floats (Package.swift): record what this build resolved; drift from build-pins.json is a warning here, a failure at release.
+          $sc = (& ./scripts/windows/resolved-swift-crypto.ps1 -Strict:('${{ inputs.release_sha }}' -ne '') | Select-Object -Last 1)
+          "swift_crypto=$sc" >> $env:GITHUB_OUTPUT
           # The OpenSSL the app links (vcpkg, pinned by the builtin-baseline in windows/vcpkg.json): the header's own version string.
           $ssl = [regex]::Match((Get-Content (Join-Path $env:PTB_OPENSSL_DIR 'include/openssl/opensslv.h') -Raw), '#\s*define\s+OPENSSL_VERSION_STR\s+"([^"]+)"').Groups[1].Value
           if (-not $ssl) { throw 'no OPENSSL_VERSION_STR in opensslv.h' }
@@ -1715,6 +1719,7 @@ jobs:
           PTB_WINSDK: ${{ needs.build.outputs.winsdk }}
           PTB_OPENSSL_VERSION: ${{ needs.build.outputs.openssl }}
           PTB_INNO_VERSION: ${{ needs.build.outputs.inno }}
+          PTB_SWIFT_CRYPTO_VERSION: ${{ needs.build.outputs.swift_crypto }}
           PTB_BUILD_SHA256: ${{ needs.build.outputs.installer_sha256 }}
           PTB_CLEAN_BUILD: ${{ needs.build.outputs.clean }}
           ImageVersion: ${{ needs.build.outputs.image }}

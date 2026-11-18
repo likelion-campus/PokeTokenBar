@@ -81,6 +81,9 @@ Expect ([bool]$env:ImageVersion) 'ImageVersion (the build job runner image) is e
 $swift = [string]$env:PTB_SWIFT_VERSION
 $sdk = [string]$env:PTB_WINSDK
 Expect ($sdk -match '^10\.0\.\d+\.\d+$') "PTB_WINSDK is '$sdk', expected the Windows SDK the build job compiled against"
+$swiftCrypto = [string]$env:PTB_SWIFT_CRYPTO_VERSION
+$cryptoPin = (Get-Content (Join-Path $PSScriptRoot 'build-pins.json') -Raw | ConvertFrom-Json).swiftCrypto
+Expect ($swiftCrypto -eq $cryptoPin) "swift-crypto '$swiftCrypto' was linked, pinned $cryptoPin (scripts/windows/build-pins.json)"
 $inno = [string]$env:PTB_INNO_VERSION
 $innoPin = (Get-Content (Join-Path $PSScriptRoot 'build-pins.json') -Raw | ConvertFrom-Json).innosetup
 Expect ($inno -eq $innoPin) "Inno Setup '$inno' built the installer, pinned $innoPin (scripts/windows/build-pins.json)"
@@ -108,6 +111,7 @@ $manifest = [ordered]@{
     msvcToolset = $msvc
     windowsSdk  = $sdk
     innoSetup   = $inno
+    swiftCrypto = $swiftCrypto
     openssl     = $ssl
     installer   = [ordered]@{
         name           = $name

@@ -1,3 +1,4 @@
 {
-  "innosetup": "6.7.1"
+  "innosetup": "6.7.1",
+  "swiftCrypto": "3.15.1"
 }
