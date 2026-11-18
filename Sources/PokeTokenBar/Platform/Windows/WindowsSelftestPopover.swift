@@ -425,11 +425,13 @@ extension WindowsSelftest {
         let r0 = WinKit.rect(last.hwnd, in: area.viewport.hwnd)
         let visible = r0.top >= 0 && r0.bottom <= area.viewportHeight
         // A real thumb drag (CI): the scroll bar's own modal loop, served by WinModalPump.
+        var barBefore = "-"
         var drag = "skipped (CI not set)"
         var dragOK = true
         if WindowsSelftest.onCI {
             area.scroll(to: 0)
             _ = SetFocus(first.hwnd)
+            barBefore = area.debugState()
             var sbi = SCROLLBARINFO()
             sbi.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
             _ = GetScrollBarInfo(area.viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB) /* OBJID_VSCROLL */, &sbi)
@@ -458,10 +460,12 @@ extension WindowsSelftest {
             drag = "thumb at screen (\(x),\(y)) dragged 90 px: drags +\(area.stats.thumbDrags - drags0) offset \(offset0) -> \(area.offset); main-queue blocks "
                 + "run during the drag saw pump depth \(depths) (1 = inside WinModalPump); depth after=\(WinModalPump.depth); SB_THUMBTRACK saw depth \(area.stats.pumpDepthDuringDrag)"
         }
-        r.add("ui.kit.scroll", afterWheel == expected && afterParts == 2 * expected && visible && dragOK,
+        // the control for the hidden bar: a page taller than its viewport shows the native bar
+        let barShownWhenScrolling = PopoverScrollMath.showsBar(content: CGFloat(area.contentHeight), viewport: CGFloat(area.viewportHeight)) && area.barVisible
+        r.add("ui.kit.scroll", afterWheel == expected && afterParts == 2 * expected && visible && dragOK && barShownWhenScrolling,
               "content \(area.contentHeight) px in a \(area.viewportHeight) px viewport, width \(area.contentWidth) px beside the bar: one wheel notch "
               + "(\(lines) lines x \(WinScrollArea.lineDIP) DIP) -> offset \(afterWheel) (expected \(expected)); 8 touchpad parts of 15 -> \(afterParts) "
-              + "(expected \(2 * expected)); focus on the last field -> offset \(area.offset), field at \(r0.top)...\(r0.bottom) inside=\(visible); \(drag)")
+              + "(expected \(2 * expected)); native bar shown=\(barShownWhenScrolling) [\(barBefore)];  focus on the last field -> offset \(area.offset), field at \(r0.top)...\(r0.bottom) inside=\(visible); \(drag)")
     }
 
     private static func dpiCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
@@ -876,6 +880,7 @@ extension WindowsSelftest {
         let line = w.ctx.px(WinScrollArea.lineDIP)
         area.scroll(to: 0)
         _ = await WindowsSelftest.waitUntil(timeout: 0.3) { false }
+        let pageBarState = area.debugState()
         var page1 = SCROLLBARINFO()
         page1.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
         _ = GetScrollBarInfo(area.viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB) /* OBJID_VSCROLL */, &page1)
@@ -908,7 +913,7 @@ extension WindowsSelftest {
             && firstAfter == firstBefore + 1 && fieldCapture == nil && !one.stuck && one.blockRan
             && heldField.heldRan && !heldField.stuck && heldPage.heldRan && !heldPage.stuck
         r.add("ui.kit.scrollClicks", ok,
-              "double click on the page's down arrow at (\(arrow.x),\(arrow.y)): offset 0 -> \(pageOffset) (expected \(2 * line), two lines), capture after=\(pageCapture == nil ? "none" : "kept"), "
+              "[\(pageBarState)] double click on the page's down arrow at (\(arrow.x),\(arrow.y)): offset 0 -> \(pageOffset) (expected \(2 * line), two lines), capture after=\(pageCapture == nil ? "none" : "kept"), "
               + "\(double.detail); one click on the multi-line field's own down arrow: first visible line \(firstBefore) -> \(firstAfter) (expected +1), "
               + "capture after=\(fieldCapture == nil ? "none" : "kept"), \(one.detail); held on the field's arrow: \(heldField.detail); "
               + "double click held on the page's arrow: \(heldPage.detail)")

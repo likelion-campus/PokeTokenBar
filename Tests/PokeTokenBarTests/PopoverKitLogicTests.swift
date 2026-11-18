@@ -331,6 +331,13 @@ final class PopoverStackLayoutTests: XCTestCase {
 }
 
 final class PopoverScrollMathTests: XCTestCase {
+    /// The bar is on the screen only while there is something to scroll (the Mac's overlay scroller; Windows hides its native bar when the content fits).
+    func testBarShownOnlyWhileScrollable() {
+        XCTAssertFalse(PopoverScrollMath.showsBar(content: 0, viewport: 520))
+        XCTAssertFalse(PopoverScrollMath.showsBar(content: 520, viewport: 520))
+        XCTAssertTrue(PopoverScrollMath.showsBar(content: 521, viewport: 520))
+    }
+
     func testTheOffsetStaysInsideTheContent() {
         XCTAssertEqual(PopoverScrollMath.clamped(-5, content: 1000, viewport: 400), 0)
         XCTAssertEqual(PopoverScrollMath.clamped(700, content: 1000, viewport: 400), 600)

@@ -3,8 +3,10 @@ import Foundation
 import WinSDK
 
 /// A scrolling page (stage 7 D6): a viewport with a vertical scroll bar and, inside it, the content pane the page's
-/// controls live in, moved up and down as one window. The bar is always there (`SIF_DISABLENOSCROLL`), so the content's
-/// width never changes with its height, as the Mac keeps its scroller lane clear. The wheel and a precision touchpad
+/// controls live in, moved up and down as one window. The content's width never changes with its height: it is the viewport
+/// beside the bar's lane (`paneWidth`), as the Mac keeps its scroller lane clear (12 pt of padding). The native bar is there
+/// only while the content is taller than the viewport (Windows hides it by itself when the range fits the page): where the
+/// content fits, the lane is empty, as the Mac's overlay scroller is not drawn until it scrolls (windows-differences.md). The wheel and a precision touchpad
 /// scroll it (`SPI_GETWHEELSCROLLLINES` lines of 16 DIP a notch, fractions kept); a control the keyboard focuses is
 /// brought into view; a thumb drag (the scroll bar's own modal loop) runs inside `WinModalPump`, so team links keep their
 /// heartbeats. No timer: it moves only on input.
@@ -17,6 +19,10 @@ import WinSDK
     let ctx: WinUIContext
     private(set) var offset: Int32 = 0
     private(set) var contentHeight: Int32 = 0
+    /// The content's width in pixels: the viewport's client width with the bar's lane taken, whether the bar is shown or not.
+    private(set) var paneWidth: Int32 = 0
+    /// The bar's width in pixels (the viewport has no border), measured once with the bar shown.
+    private var laneWidth: Int32 = 0
     private var wheel = PopoverWheel()
 
     struct Stats: Equatable {
@@ -32,9 +38,10 @@ import WinSDK
         let style: DWORD = 0x4000_0000 | 0x1000_0000 | 0x0020_0000 | 0x0200_0000  // WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_CLIPCHILDREN
         let made = try WinSinkWindow(className: Self.className, title: "", style: style, exStyle: 0x0001_0000 /* WS_EX_CONTROLPARENT */,
                                      x: rect.left, y: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top, parent: parent)
-        Self.updateBar(made.hwnd, height: 0, page: 1, offset: 0)  // shows the (disabled) bar, so the client width below is final
+        Self.updateBar(made.hwnd, height: 0, page: 1, offset: 0, keepLane: true)  // shows the (disabled) bar, so the client width below is the lane's
         var client = RECT()
         _ = GetClientRect(made.hwnd, &client)
+        Self.updateBar(made.hwnd, height: 0, page: 1, offset: 0)  // nothing to scroll yet: the bar goes
         let pane: WinPane
         do {
             pane = try WinPane(parent: made.hwnd, ctx: ctx, rect: RECT(left: 0, top: 0, right: client.right, bottom: client.bottom))
@@ -45,6 +52,8 @@ import WinSDK
         if ctx.dark { WinDarkMode.setTheme(made.hwnd, "DarkMode_Explorer") }  // the scroll bar's dark style (Task 16)
         viewport = made
         content = pane
+        paneWidth = client.right
+        laneWidth = (rect.right - rect.left) - client.right
         Self.areas[Int(bitPattern: content.hwnd)] = self
         viewport.on(0x0115 /* WM_VSCROLL */) { [weak self] wParam, lParam in
             guard lParam == 0, let self else { return nil }  // a scroll bar control's WM_VSCROLL is the router's
@@ -84,11 +93,15 @@ import WinSDK
         viewport.on(0x0010 /* WM_CLOSE */) { _, _ in 0 }  // a child never closes the page
     }
 
-    /// The content's width in pixels (the viewport beside its scroll bar).
-    var contentWidth: Int32 {
-        var r = RECT()
-        _ = GetClientRect(viewport.hwnd, &r)
-        return r.right
+    /// The content's width in pixels (the viewport beside its scroll bar's lane).
+    var contentWidth: Int32 { paneWidth }
+
+    /// Whether the native scroll bar is on the screen (`STATE_SYSTEM_INVISIBLE` is off): only while the content is taller than the viewport.
+    var barVisible: Bool {
+        var info = SCROLLBARINFO()
+        info.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
+        guard GetScrollBarInfo(viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB) /* OBJID_VSCROLL */, &info) else { return false }
+        return info.rgstate.0 & 0x0001_8000 == 0  // neither STATE_SYSTEM_INVISIBLE nor STATE_SYSTEM_OFFSCREEN: it is laid out on the screen
     }
 
     var viewportHeight: Int32 {
@@ -137,6 +150,7 @@ import WinSDK
 
     func move(_ r: RECT) {
         WinKit.move(viewport.hwnd, r)
+        paneWidth = (r.right - r.left) - laneWidth
         setContentHeight(contentHeight)
     }
 
@@ -171,15 +185,36 @@ import WinSDK
         }
     }
 
-    private static func updateBar(_ hwnd: HWND, height: Int32, page: Int32, offset: Int32) {
+    /// The bar is shown and hidden by `SetScrollInfo` itself (without `SIF_DISABLENOSCROLL` it hides the bar when the range fits the
+    /// page and shows it when it does not, with its frame laid out: run 44157374721's first form had real coordinates), and enabled
+    /// by `EnableScrollBar` whenever there is something to scroll: the lane measured at the start leaves the bar disabled, and a
+    /// hidden-then-shown bar kept that (run 44207063172: the thumb and arrows did nothing). `ShowScrollBar` is not used: a bar it
+    /// shows reported `STATE_SYSTEM_OFFSCREEN` with an empty rectangle (run 44226708621). `keepLane` keeps the bar on the screen
+    /// (disabled) for measuring the lane.
+    private static func updateBar(_ hwnd: HWND, height: Int32, page: Int32, offset: Int32, keepLane: Bool = false) {
         var si = SCROLLINFO()
         si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
-        si.fMask = 0x0001 | 0x0002 | 0x0004 | 0x0008  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL
+        si.fMask = 0x0001 | 0x0002 | 0x0004 | (keepLane ? 0x0008 : 0)  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL
         si.nMin = 0
         si.nMax = max(0, height - 1)
         si.nPage = UINT(max(1, page))
         si.nPos = offset
         _ = SetScrollInfo(hwnd, 1 /* SB_VERT */, &si, true)
+        if PopoverScrollMath.showsBar(content: CGFloat(height), viewport: CGFloat(page)) { _ = EnableScrollBar(hwnd, 1, 0 /* ESB_ENABLE_BOTH */) }
+    }
+
+    /// For the selftest's failure lines: whether the style has the bar, its range and the state and rectangle the system reports.
+    func debugState() -> String {
+        var si = SCROLLINFO()
+        si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
+        si.fMask = 0x0001 | 0x0002 | 0x0004 | 0x0010  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_TRACKPOS
+        _ = GetScrollInfo(viewport.hwnd, 1, &si)
+        var info = SCROLLBARINFO()
+        info.cbSize = DWORD(MemoryLayout<SCROLLBARINFO>.size)
+        let ok = GetScrollBarInfo(viewport.hwnd, Int32(bitPattern: 0xFFFF_FFFB), &info)
+        let style = UInt(bitPattern: Int(GetWindowLongPtrW(viewport.hwnd, -16 /* GWL_STYLE */)))
+        return "style WS_VSCROLL=\(style & 0x0020_0000 != 0) info range \(si.nMin)...\(si.nMax) page \(si.nPage) pos \(si.nPos), GetScrollBarInfo=\(ok) state=0x\(String(info.rgstate.0, radix: 16)) "
+            + "rect \(info.rcScrollBar.left),\(info.rcScrollBar.top)-\(info.rcScrollBar.right),\(info.rcScrollBar.bottom) thumb \(info.xyThumbTop)-\(info.xyThumbBottom)"
     }
 }
 #endif

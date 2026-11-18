@@ -52,7 +52,8 @@ and agent reactions. **Owed when it lands:** the `poketokenbar:` link that bring
 | Provider and account tabs wrap onto several lines when they do not fit | the kit has no horizontal scroller |
 | Bordered buttons are native push buttons; Skip, Update, Details, the tabs and Back are drawn by the kit as pills | the native button has no borderless, capsule or prominent look |
 | The footer's error triangle is a focusable button (its message is its accessible name) | screen readers |
-| A thin always-visible scroll thumb in a 12 pt lane in drawn lists (catch log, Pokémon detail); the page scroller is the system one | no overlay scroller |
+| A thin scroll thumb in a 12 pt lane in drawn lists (catch log, Pokémon detail), drawn only while the list is longer than its window but then always (the Mac's appears while scrolling) | a fade needs a timer after every scroll; the idle budgets allow none |
+| The page's scroll bar is the system's, on the screen only while the page is taller than its window (Mac: an overlay scroller drawn while scrolling); the lane beside the content stays empty either way, so the layout never shifts. The catch log and the Pokémon detail page have one scroller each (their own thumb), the page bar is not shown there | an overlay scroller would be a custom-drawn control without the system bar's keyboard and accessibility behaviour |
 | Loading shows text without a spinner (Pokémon detail) | no timer for a spinner |
 | Search field: a separate clear button, no magnifier icon | a native `EDIT` has a cue banner instead of embedded icons |
 | Stepper and Buy/Use buttons are native controls; the stepper field is wider | native look |
