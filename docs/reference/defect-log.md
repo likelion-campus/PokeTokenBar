@@ -3024,6 +3024,13 @@ read_when:
   **고침:** 누름에서 닫을지만 정하고 실제 닫기는 누름이 끝날 때(`buttonUp`·`captureLost`), 클릭이 행동하기 전에. `pet.clickActions` 의 드래그는 끝까지 움직였는지도 본다.
   **부류 스윕:** 버튼이 눌린 채 창을 닫거나 활성화를 바꾸는 다른 곳 — 펫 메뉴는 `WM_CONTEXTMENU`(놓은 뒤), 팝오버·광장의 자체 클릭은 자기 창 안이라 해당 없음.
   **규칙:** 캡처 중(버튼 눌림)에는 전경을 옮기는 일(활성 창 닫기·활성화)을 하지 않는다 — 놓을 때로 미룬다.
+- **(테스트 공백) `pet.idle` 의 'hidden' 이 still·animated 를 귀속 판정으로 바꾼 뒤에도 같은 프로세스 cs 비교로 남아 windows-port 에서 실패했다(push 런 44200348337, 번들 셀프테스트:
+  still 메인 cs 0, hidden 7 > 0+3, 남은 것 없음·재생 해제).** 직접원인: 셀프테스트 프로세스의 배경 깨움(펫과 무관). **왜 못 걸렀나:** still·animated 를 고칠 때(리드 결정 2026-11-18)
+  같은 함수의 세 번째 창 'hidden' 은 "still 과 같은 방법으로 같은 프로세스에서 쟀으니 배경이 상쇄된다"고 보고 남겼다 — 두 창의 배경 깨움은 서로 독립이라 상쇄되지 않는다. 그 브랜치의
+  실행들에선 배경이 조용해 통과했다. **고침:** hidden 도 남은 것(펫 클래스 창 0, 우리 창 수 그대로, 재생 해제·시계 없음)과 잰 창 안의 펫 일(틱·그림·펫 클래스 메시지 0, 이후 무장 없음)로
+  판정하고 cs·사이클은 보고만 한다. **부류 스윕:** `pet.*` 와 펫 확장 체크(`pet.bubble`…`pet.extrasIdle`)에서 프로세스 cs·사이클로 판정하는 곳 전수 — 남은 것 없음(가게 로드 대기의
+  2 s cs 는 판정이 아니라 기다림). 비용 판정은 게이트 창(`pet-still/hidden/animated-120s`, 펫 확장의 `pet-bubble-120s`·`pet-working-120s`)만 한다. **규칙:** 셀프테스트 프로세스 안의
+  비용 체크는 귀속(그 기능 자신의 타이머·틱·그림·메시지)으로 판정하고 문맥 전환·사이클은 보고만 한다 — 같은 프로세스의 두 창을 서로 비교하는 것도 판정이 아니다.
 <!-- stage 7 Task 22 (end) -->
 
 ## 윈도 셀프테스트의 시스템 설정 변경 (2026-11-17)
@@ -3113,3 +3120,52 @@ read_when:
   `WinMessageHook.swift:56` "Not enough bits to represent the passed value"). 고침은 위 #272 항목(메시지 훅의 `Int(_:)`)의 것을 쓴다. 이 브랜치는 그 고침에 트리거 가드를 더한다: 셀프테스트
   `loop.highWParam` 이 wParam `UInt.max` 와 `1 << 63` 을 실제 펌프로 보낸다(고치기 전 코드에서는 이 검사에서 프로세스가 죽어 보고서가 남지 않는다. run 44166164011 에서 통과).
 <!-- idle blow-up (fix/windows-idle-blowup) end -->
+
+<!-- process shim kill (fix/windows-process-shim-kill) begin -->
+## 윈도 프로세스 트리 종료: 재사용된 프로세스 id (windows.yml 44207854338, 2026-11-18)
+
+- **`.cmd` shim 의 자식을 함께 끝내는 `PlatformCompat.terminate` 가 shim 과 무관한 프로세스까지 죽였다 — 테스트 프로세스 자신을 포함해서.**
+  **증상:** `feat/windows-pet-extras` 의 `windows.yml` 44207854338 shard 4 의 마지막 청크가 `WindowsProcessTests.testTerminatingACmdShimEndsItsChild` 안에서 끝났다
+  (1001 개 중 751 개 실행, 실패 0, 요약 줄 없이 `swift test` 종료 코드 1). 출력은 테스트 시작(00:55:31.021)에서 끊겼고, 그 뒤의 줄은 전부 00:56:03.6 에 한꺼번에 나왔다.
+  **근거:** shim(cmd.exe)과 그 자식 PowerShell 은 corelibs `Process` 의 `bInheritHandles: true` 로 xctest 의 stdout 파이프를 물려받는다. 그래서 `swift test` 는 PowerShell 이
+  나갈 때에야 EOF 를 봤고, 끊긴 뒤 32 s 는 PowerShell 의 기동과 `Start-Sleep 30` 을 그대로 다 쓴 시간이다. 즉 PowerShell 은 끝나지 않았고, xctest 는 그 전에 죽었다.
+  **원인:** `terminate` 는 Toolhelp 스냅숏의 `th32ParentProcessID` 만으로 트리를 만들고, 찾은 것을 깊은 쪽부터 id 로 `TerminateProcess(…, 1)` 했다(3f8ddff6).
+  윈도는 프로세스 id 를 재사용하고, `th32ParentProcessID` 는 *만들 때의* 부모 id 일 뿐이다. 그래서 만든 프로세스가 이미 끝나 그 id 가 shim(또는 그 자식)에게 다시 배정되면,
+  훨씬 오래된 무관한 프로세스가 shim 의 '자식' 으로 보이고 함께 죽는다. 같은 규칙으로 옛 코드는 가짜 스냅숏에서 [현재 프로세스, 무관한 두 프로세스, 진짜 자식] 을 골랐다
+  (`ProcessTreeSelectionTests` 결함 주입). PC 에서 대표적인 그런 프로세스는 explorer.exe 다(만든 userinit.exe 가 로그온 뒤 끝난다). 출하 코드에서는 `ProcessRunner` 가 Codex 한도
+  갱신 때마다 codex(npm `.cmd` shim)를 이렇게 끝낸다.
+  **러너 실측(임시 진단, windows.yml 44230921044·44228430972):** 테스트 프로세스의 조상(swift-test ← swift ← bash ×3 ← Runner.Worker ← Runner.Listener ← …)은 모두 살아
+  있지만, 러너에는 만든 프로세스가 끝난 프로세스가 10 개 있었다 — wininit.exe·csrss.exe(만든 smss 인스턴스가 끝남), explorer.exe·winlogon.exe 등, 그리고 지금 단계의 파이프라인
+  `tee.exe` 둘(포크한 bash 가 끝남). 옛 규칙으로 shim 이 그 끝난 id 하나를 받으면: wininit 의 것(712)이면 **132 개**를 끝내려 한다(svchost ×78, Runner·bash·swift-test 를 지나
+  이 테스트 프로세스까지 — 깊은 쪽부터 끝내는 순서에서 **10 번째**, PowerShell 보다 앞). 이것이 44207854338 과 정확히 같은 모양이다(테스트 프로세스가 먼저 죽고 PowerShell 은
+  30 s 를 다 잤다). explorer 의 것(5816)이면 explorer·dwm·winlogon·csrss 등 8 개, tee 의 것이면 그 단계의 로그 파이프. 새 규칙은 모든 경우 0 개다. 새 shim 이 방금 끝난 id 를
+  받는 일은 실제로 일어난다 — 430 개 중 3 개가 우리가 막 끝낸 cmd 24 개의 id 를 받았다. PC 에서는 explorer 아래가 사용자가 띄운 앱 전부다(PokeTokenBar 자신 포함).
+  **같은 함수의 둘째 결함:** 트리를 다 끝낸 뒤 corelibs `Process.terminate()` 를 불렀다. 그것은 `processHandle` 로 `TerminateProcess` 하는데, 그 핸들은 프로세스가 끝나면 corelibs 의
+  관리 스레드가 닫는다(`Process.swift` `closeHandler`, 값은 그대로 남는다). 자식을 먼저 죽이면 shim 이 곧 끝나므로, 닫힌 핸들(다른 객체에 재배정되었을 수 있는 값)로 부를 수 있었다.
+  이번 사고는 아니다(그랬다면 PowerShell 이 먼저 죽었다).
+  **왜 못 걸렀나:** 테스트는 '자식이 끝났나' 만 봤고 '다른 것은 살아 있나' 는 보지 않았다. 재사용된 id 가 shim 에 걸리는 일은 러너의 프로세스 생성 순서에 달린 드문 경우라
+  여러 번의 통과가 아무것도 증명하지 못했다. 테스트의 정리(`defer { forceKill(pid: child) }`)도 같은 부류였다 — 이미 끝난 자식의 id 를 다시 죽였다.
+  **고침:** 고르는 규칙을 공용 순수 함수 `ProcessTreeSelection.descendants` 로 떼었다. 자식은 부모보다 먼저 만들어지지 않았고 스냅숏 뒤에 만들어지지 않았을 때만 자식이다
+  (`GetProcessTimes`). 걸러진 프로세스 아래는 보지 않는다. 현재 프로세스와 그 조상은 우리 자식보다 늘 오래되었으므로 이 규칙으로 빠진다. `WinProcessTree.terminate` 는 루트가
+  우리의 살아 있는 자식인지(스냅숏의 부모 = 현재 프로세스, 생성 시각 ≥ 우리) 확인하고, 고른 프로세스를 *끝내기 전에 모두 연* 뒤 그 핸들로 끝낸다(열린 핸들은 프로세스 객체를
+  붙잡아 둔다 — 그 사이 id 가 재사용될 수 없다). 루트도 우리 핸들로 끝내고(corelibs 와 같은 코드 0xC000000F), corelibs `terminate()` 는 루트를 확인하지 못했을 때의 대체로만 남겼다.
+  맥 분기는 `process.terminate()` 그대로다. 테스트는 자식 핸들을 붙잡아 두고 그 핸들로 정리하며, PowerShell 기동을 60 s 까지 기다린다(15 s 를 넘긴 적이 있다, run 44168716060).
+  **가드(기계):** `ProcessTreeSelectionTests`(4, 맥·윈도 공용): 진짜 자식·손자는 깊은 쪽부터, 재사용된 id 를 부모로 적은 더 오래된 프로세스와 그 아래는 제외(현재 프로세스 포함),
+  스냅숏 뒤에 만들어졌거나 열 수 없는 것은 제외, 같은 틱에 만들어진 자식은 포함. 생성 시각 규칙을 빼면 트리거 테스트가 [50, 901, 900, 200] 을 골라 실패한다.
+  **스윕:** id 로 프로세스를 끝내는 출하 코드는 `PlatformCompat.forceKill(pid:)` 하나(호출부 `ProcessRunner` 는 `process.isRunning` 일 때만 부른다 — corelibs 가 핸들을 쥐고 있는
+  동안은 id 가 재사용되지 않으며, 남는 틈은 `isRunning` 을 읽은 직후 끝나는 경우뿐이다). Toolhelp 부모 id 를 걷는 곳은 이 함수뿐(셀프테스트 둘은 이름으로 세기만 한다).
+  corelibs `terminate()` 를 직접 부르는 `BinaryLocator`(`$SHELL`)·`UpdateChecker`(brew) 는 윈도에서 실행되지 않는다.
+  **규칙:** 윈도에서 프로세스를 id 로 찾아 끝내지 않는다. 부모 id 는 생성 시각과 함께 확인하고, 끝낼 것은 먼저 열어 그 핸들로 끝낸다.
+<!-- process shim kill (fix/windows-process-shim-kill) end -->
+
+## 셀프테스트가 살아 있는 파트에 다른 폭을 먹였다 (2026-11-18)
+
+- **`home.activityHover` 가 날짜에 따라 실패했다 — 점검의 `point(of:)` 가 막대를 창 콘텐츠 폭(332)으로 찾으면서 살아 있는 파트의 폭(311)을 바꿨다.**
+  `TrendBarsPart.size(width:)` 는 파트가 마지막으로 잰 폭을 저장하고 `date(at:)` 도 그 폭으로 배치한다. 점검은 332 로 "가장 높은 막대의 첫 픽셀"을 찾아 호버했고(첫 호버는 332 배치 위에서 맞았다),
+  그 뒤 렌더가 호스트 폭 311 로 다시 재면서 같은 점이 이웃 열/틈이 됐다. 같은 열 +1 px 이동이 `selected=-` 로 선택을 잃어 다시 그렸다("re-rendered=true").
+  **제품 결함 아님** — 카드 창은 `WS_EX_TRANSPARENT`(마우스 투과)이고 진단 줄의 `under=Button` 은 패널 항목 자신이다.
+  - **왜 날짜에 따랐나:** 가장 높은 막대 = 오늘 − 6 일의 열. 열 위치가 날짜로 움직이고, 332 폭의 첫 픽셀이 311 폭의 같은 열 안(통과)인지 밖(실패)인지가 열마다 다르다. 11-11 은 안, 11-12 는 밖이었다.
+  - **왜 못 걸렀나:** 통과하는 날이 대부분이었고 실패 줄이 "같은 열에서 다시 그렸다"뿐이라 위치 정보가 없었다. 첫 호버 `selected==target` 은 332 배치에서 맞아 폭 불일치를 가렸다.
+  - **고침:** 점검이 파트 자신의 폭(`TrendBarsPart.width`, 읽기 전용으로 공개)으로 찾는다. 실패 줄에는 포인터·카드·항목 사각형과 선택·뷰 통계를 남긴다.
+  - **부류 스윕:** 셀프테스트의 `size(width:)` 호출은 이 하나뿐(나머지는 호스트 경로). "오늘"을 시계에서 받는 픽스처(`ActivityFixtures`, Recap `series`, Home 의 `now`)는 날짜별 열 위치에만 의존하며 이 부류는 이 점검이 유일하다.
+  - **영구 캡처:** `PopoverActivityTests.testAPointFoundAtThePartsOwnWidthStaysOnItsColumn` — 7월 1–14 일 모두에서 자기 폭의 점은 +1 px 에서 열을 지키고, 다른 폭의 점은 일부 날에 지키지 못한다(함정을 고정). **규칙:** 살아 있는 파트를 재는 점검은 파트의 현재 폭을 쓰고, `size(width:)` 로 폭을 바꾸지 않는다.
