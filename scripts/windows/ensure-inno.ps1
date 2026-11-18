@@ -16,7 +16,7 @@ function Get-InnoVersion {
 }
 $have = if (Test-Path $exe) { Get-InnoVersion } else { '' }
 if ($have -ne $pin) {
-    "inno setup: image has '$have', pinned $pin: installing the pinned version"
+    "inno setup: image has '$have', pinned ${pin}: installing the pinned version"
     choco install innosetup --version=$pin -y --no-progress --allow-downgrade --force | Out-Host
     $have = Get-InnoVersion
 }
