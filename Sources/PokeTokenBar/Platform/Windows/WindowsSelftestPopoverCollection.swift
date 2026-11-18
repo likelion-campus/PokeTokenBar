@@ -93,6 +93,40 @@ private struct CollectionFixtureNames: PokemonNameProviding {
         if let shot = capture(h.window.hwnd) { _ = WinUIDump.write(shot, to: dir.appendingPathComponent("collection-\(name).png")) }
     }
 
+    /// The share of pixels in a window rectangle that differ from the rectangle's most common colour: 0 for a blank surface, a few
+    /// percent for text and bars. The drawn parts' own checks read models and window texts, never pixels, so an opaque tile painted
+    /// over its content (the detail card went blank white in K1 and every check stayed green) was invisible to them.
+    static func inkFraction(_ shot: WinUIDump.Bitmap, x0: Int, y0: Int, x1: Int, y1: Int) -> Double {
+        var counts: [UInt32: Int] = [:]
+        var total = 0
+        func pixel(_ x: Int, _ y: Int) -> (Int, Int, Int) {
+            let i = (y * shot.width + x) * 4
+            return (Int(shot.bgra[i]), Int(shot.bgra[i + 1]), Int(shot.bgra[i + 2]))
+        }
+        let xs = max(0, x0)..<min(shot.width, x1), ys = max(0, y0)..<min(shot.height, y1)
+        for y in ys { for x in xs {
+            let p = pixel(x, y)
+            counts[UInt32(p.0) << 16 | UInt32(p.1) << 8 | UInt32(p.2), default: 0] += 1
+            total += 1
+        } }
+        guard total > 0, let common = counts.max(by: { $0.value < $1.value })?.key else { return 0 }
+        let b0 = Int(common >> 16), g0 = Int(common >> 8 & 0xFF), r0 = Int(common & 0xFF)
+        var ink = 0
+        for y in ys { for x in xs {
+            let p = pixel(x, y)
+            if abs(p.0 - b0) + abs(p.1 - g0) + abs(p.2 - r0) > 60 { ink += 1 }
+        } }
+        return Double(ink) / Double(total)
+    }
+
+    /// Ink in a band of a window child (`fromY`...`toY` of its height, the middle 76 % of its width), in percent; nil without a capture.
+    private static func ink(of child: HWND, in window: HWND, fromY: Int, toY: Int) -> Double? {
+        guard let shot = capture(window) else { return nil }
+        let r = WinKit.rect(child, in: window)
+        let w = Int(r.right - r.left), h = Int(r.bottom - r.top)
+        return inkFraction(shot, x0: Int(r.left) + w * 12 / 100, y0: Int(r.top) + h * fromY / 100, x1: Int(r.left) + w * 88 / 100, y1: Int(r.top) + h * toY / 100) * 100
+    }
+
     private static func items(_ view: WinDrawnView?, _ action: String) -> [WinControl] {
         guard let view else { return [] }
         let list = (view.drawing?.drawing.accessibility ?? []).filter { $0.role != .scrollArea }
@@ -170,6 +204,11 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             await wait(0.3)
             if page.isShowingDetail || page.dexRow?.isVisible != true { problems.append("\(language): Back did not return to the grid") }
             dump(h, "grid-\(language.rawValue)")
+            // a Pokédex cell shows its number, picture and name on its tile
+            if cells.count > 4, let percent = ink(of: cells[4].hwnd, in: h.window.hwnd, fromY: 10, toY: 90) {
+                notes.append("\(language): ink in a Pokédex cell \(Double(Int(percent * 10)) / 10) %")
+                if percent < 3 { problems.append("\(language): the Pokédex cell is blank (ink \(percent) %)") }
+            } else { problems.append("\(language): no capture for a cell's ink") }
             // more captures for the sheets: the second page (shiny entries 21 and 28), a search with no result, the log
             press(items(view, DexBodyPart.nextAction).first)
             await wait(0.3)
@@ -405,6 +444,11 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             if windows > 80 || slots > 12 { problems.append("\(language): \(windows) child windows, \(slots) sprite slots") }
             // the top of the page as it opens (identity, stats): captured with its names loaded
             dump(h, "detail-top-\(language.rawValue)")
+            // the card under "Individual / Actual stats / Known moves" has its text and bars on it (not a blank tile)
+            if let percent = ink(of: view.hwnd, in: h.window.hwnd, fromY: 35, toY: 70) {
+                notes.append("\(language): ink in the detail card \(Double(Int(percent * 10)) / 10) %")
+                if percent < 2 { problems.append("\(language): the detail card is blank (ink \(percent) % of a band inside it)") }
+            } else { problems.append("\(language): no capture for the detail card's ink") }
             // one scroller, as the Mac's: the page's own thumb (drawn, it scrolls its rows under the pinned Back line); the native bar is not there
             if let area = h.window.scroll {
                 if area.barVisible || area.contentHeight > area.viewportHeight + 2 {
