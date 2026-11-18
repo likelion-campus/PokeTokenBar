@@ -102,7 +102,7 @@ G9 | 2 | done Platform/Windows/Popover/WinTransferSection.swift | UI/DifficultyS
 G10 | - | n/a: a tray icon shows no text (P17, ruling 6) | UI/SettingsView.swift | Menu bar group: today's tokens, cost, growth %, limit %, limit colour mode + "all off" hint
 G11 | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView.swift | Tracked providers: one switch per registered provider + hint
 G12 | 3 | done Platform/Windows/Popover/WinPetSettingsRows.swift | UI/SettingsView.swift | Floating pet group: enable (with its hint), size slider (48-384, step 8, "96px") while on
-G12a | 3 | pending T23 | UI/SettingsView.swift | Floating pet group: bubble alerts, agent activity (with its hint)
+G12a | 3 | done Platform/Windows/Popover/WinPetSettingsRows.swift | UI/SettingsView.swift | Floating pet group: bubble alerts, agent activity (with its hint)
 G12b | 1 | done Platform/Windows/Popover/WinPetSettingsRows.swift | UI/SettingsView.swift | Back view switch (in the pet group on the Mac and, since Task 22, on Windows; applies to the popover sprite, the pet and the tray icon too)
 G13 | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team section card (Korean only): enable switch
 G13c | 1 | done Platform/Windows/Popover/WinTeamSection.swift | Team/UI/TeamSettingsSection.swift | Team: masked code + Copy + Leave
@@ -140,7 +140,7 @@ G18l | 1 | done Platform/Windows/Popover/WinSettingsPage.swift | UI/SettingsView
 #  - The right-click menu gives the foreground back to the window that had it (the Mac activates the app for its menu
 #    and leaves it active).
 F1 | 3 | done Platform/Windows/Popover/WinFloatingPet.swift | UI/FloatingPetPanel.swift | Floating pet window: always on top, size, saved origin, drag, click → popover (egg: pray), right-click menu (open, hide, back view), low power and display-sleep pauses, reduce motion, frame rate at the animation-quality floor
-F2 | 3 | pending T23 | UI/FloatingPetPanel.swift | Floating pet: speech bubbles (limit alerts, agent activity), hearts after strokes, prayer emoji bursts, agent bob, run to the cursor, hover callout
+F2 | 3 | done Platform/Windows/Popover/WinPetExtras.swift | UI/FloatingPetPanel.swift | Floating pet: speech bubbles (limit alerts, agent activity), hearts after strokes, prayer emoji bursts, agent bob, run to the cursor, hover callout
 S1 | 1 | elsewhere Team/Plaza/Draw/PlazaGIFDecoder.swift: the shared GIF decoder with the Mac's delays (stage 6 D11); capFrameRate is Popover/PopoverSpriteFrameCap.swift (T22, the pet's) | UI/SpriteAnimation.swift | GIF frames and delays for every animated sprite; frame-rate cap for the menu bar and the pet
 S2 | 1 | elsewhere Team/Plaza/PlazaStoreSpriteFetcher.swift: the shared sprite fetcher (front/back, shiny, form, egg, the Mac's cache files; stage 6 D12) | UI/SpriteLoader.swift | Sprite loading: cached images and frames, recovery retry, placeholders, egg sprite, crop to content, fit and visible-top metrics
 S2i | 3 | done Popover/PopoverItemImage.swift | UI/SpriteLoader.swift, UI/CompanionView.swift | Item icons (PokéAPI item sprites, emoji fallback) for the shop and the bag
