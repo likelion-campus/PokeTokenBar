@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import SwiftUI
 import XCTest
 @testable import PokeTokenBar
 
@@ -218,6 +219,80 @@ final class PopoverPetExtrasTwinEquivalenceTests: XCTestCase {
             XCTAssertEqual(FloatingPetHeartArt.bubbleTopOffset(visibleTop: top, bubbleHeight: height, overlap: overlap),
                            SpriteVisibleTop.bubbleTopOffset(visibleTop: top, bubbleHeight: height, overlap: overlap))
         }
+    }
+
+    /// The hearts' anchor: the Mac's scan over an NSImage and the twin's over the same pixels as a bitmap, for pictures with
+    /// the band's first opaque row anywhere, a band left empty (the whole width decides), faint pixels at the threshold and an
+    /// empty picture; the median over frames and the inset in a box.
+    func testTheVisibleTopIsTheMacs() async {
+        func picture(_ w: Int, _ h: Int, _ alpha: (Int, Int) -> UInt8) -> (NSImage, PlazaBitmap) {
+            var bitmap = PlazaBitmap(width: w, height: h)
+            for y in 0..<h {
+                for x in 0..<w {
+                    let a = alpha(x, y)
+                    bitmap.bytes[(y * w + x) * 4 + 3] = a
+                    bitmap.bytes[(y * w + x) * 4] = a   // premultiplied red
+                }
+            }
+            let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                       isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)!
+            bitmap.bytes.withUnsafeBytes { rep.bitmapData!.update(from: $0.baseAddress!.assumingMemoryBound(to: UInt8.self), count: w * h * 4) }
+            let image = NSImage(size: NSSize(width: w, height: h))
+            image.addRepresentation(rep)
+            return (image, bitmap)
+        }
+        var cases: [(String, NSImage, PlazaBitmap)] = []
+        for top in [0, 1, 7, 20, 41, 63] {
+            let (i, b) = picture(64, 64) { x, y in y >= top && x >= 28 && x < 36 ? 255 : 0 }
+            cases.append(("band from row \(top)", i, b))
+        }
+        let (side, sideB) = picture(40, 56) { x, y in y >= 9 && x < 6 ? 200 : 0 }   // only outside the band
+        cases.append(("sides only", side, sideB))
+        let (faint, faintB) = picture(32, 32) { _, y in y < 10 ? 16 : (y < 12 ? 17 : 0) }   // 16 is not over the threshold
+        cases.append(("threshold", faint, faintB))
+        let (empty, emptyB) = picture(30, 30) { _, _ in 0 }
+        cases.append(("empty", empty, emptyB))
+        for _ in 0..<30 {
+            let w = Int.random(in: 1...96, using: &rng), h = Int.random(in: 1...96, using: &rng)
+            let seed = UInt64.random(in: 0...UInt64.max, using: &rng)
+            var g = SeededRNG(seed: seed)
+            let rows = (0..<h).map { _ in Bool.random(using: &g) && Bool.random(using: &g) }
+            let (i, b) = picture(w, h) { x, y in rows[y] && (x * 7 + y) % 3 == 0 ? UInt8(truncatingIfNeeded: 10 + (x * 37 + y * 11) % 240) : 0 }
+            cases.append(("random \(w)x\(h)", i, b))
+        }
+        for (name, image, bitmap) in cases {
+            XCTAssertEqual(FloatingPetVisibleTop.opaqueTopFraction(of: bitmap), SpriteVisibleTop.opaqueTopFraction(of: image), name)
+        }
+        for _ in 0..<300 {
+            let fractions = (0..<Int.random(in: 0...9, using: &rng)).map { _ in CGFloat.random(in: -0.2...1.2, using: &rng) }
+            XCTAssertEqual(FloatingPetVisibleTop.anchorFraction(of: fractions), SpriteVisibleTop.anchorFraction(of: fractions))
+            let box = CGFloat.random(in: 40...400, using: &rng), size = CGSize(width: Double.random(in: 0...200, using: &rng), height: Double.random(in: 0...200, using: &rng))
+            let f = CGFloat.random(in: -0.5...1.5, using: &rng)
+            XCTAssertEqual(FloatingPetVisibleTop.inset(box: box, imageSize: size, opaqueTopFraction: f),
+                           SpriteVisibleTop.inset(box: box, imageSize: size, opaqueTopFraction: f), accuracy: 1e-9)
+        }
+    }
+
+    /// The bubble's and the hearts' entrance: the Mac view's transitions and spring (its source), and the twin's curve is
+    /// SwiftUI's own spring of that response and damping, and it has settled when the twin stops.
+    func testThePopInIsTheMacViewsSpring() async throws {
+        let source = try String(contentsOf: Self.sourcesRoot.appendingPathComponent("UI/FloatingPetPanel.swift"), encoding: .utf8)
+        XCTAssertEqual(source.components(separatedBy: ".animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil,").count - 1, 2)
+        XCTAssertTrue(source.contains(".transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))"))
+        XCTAssertTrue(source.contains("insertion: .scale(scale: 0.8, anchor: .bottom).combined(with: .opacity),\n                                removal: .identity))"))
+        XCTAssertEqual(FloatingPetPopIn.response, 0.3)
+        XCTAssertEqual(FloatingPetPopIn.dampingFraction, 0.7)
+        XCTAssertEqual(FloatingPetPopIn.fromScale, 0.8)
+        let spring = Spring(response: 0.3, dampingRatio: 0.7)
+        for t in stride(from: 0.0, through: 0.8, by: 0.01) {
+            XCTAssertEqual(FloatingPetPopIn.progress(at: t), spring.value(target: 1.0, initialVelocity: 0.0, time: t), accuracy: 1e-6, "t=\(t)")
+        }
+        let end = FloatingPetPopIn.duration
+        XCTAssertEqual(spring.value(target: 1.0, initialVelocity: 0.0, time: end), 1, accuracy: 0.002)
+        XCTAssertLessThanOrEqual(end, spring.settlingDuration + 0.05)
+        XCTAssertEqual(FloatingPetPopIn.scale(at: end), 1)
+        XCTAssertEqual(FloatingPetPopIn.opacity(at: 0), 0)
+        XCTAssertEqual(FloatingPetPopIn.scale(at: 0), 0.8)
     }
 
     // MARK: the agent flow against the Mac's controller (its pet hidden: no window on this Mac)

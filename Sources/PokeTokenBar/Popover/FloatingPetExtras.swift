@@ -386,6 +386,66 @@ enum FloatingPetHeartArt {
     }
 }
 
+/// The speech bubble's and the hearts' entrance (`FloatingPetView`: `.transition(.scale(scale: 0.8, anchor: .bottom)
+/// .combined(with: .opacity))` under `.animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil)`, `animated`
+/// being Low Power Mode off): from 0.8 of its size at its bottom centre and transparent, to whole on the spring. Leaving is
+/// instant (the panel shrinks at the same moment). A bubble that changes its text while it shows does not pop again.
+enum FloatingPetPopIn {
+    static let response: Double = 0.3, dampingFraction: Double = 0.7
+    static let fromScale: CGFloat = 0.8
+
+    /// The spring's progress from 0 to 1 at `t` seconds after it began (at rest at 0; underdamped, so it overshoots a little).
+    static func progress(at t: TimeInterval) -> Double {
+        guard t > 0 else { return 0 }
+        let w0 = 2 * Double.pi / response, z = dampingFraction, wd = w0 * (1 - z * z).squareRoot()
+        return 1 - exp(-z * w0 * t) * (cos(wd * t) + z * w0 / wd * sin(wd * t))
+    }
+
+    /// When the frames may stop: the swing's envelope below 1/1000 of the way.
+    static var duration: TimeInterval { log(1000) / (dampingFraction * 2 * Double.pi / response) }
+
+    static func scale(at t: TimeInterval) -> CGFloat { t >= duration ? 1 : fromScale + (1 - fromScale) * CGFloat(progress(at: t)) }
+    static func opacity(at t: TimeInterval) -> Double { t >= duration ? 1 : min(1, max(0, progress(at: t))) }
+}
+
+/// Where the sprite's visible top is in its box (`SpriteVisibleTop`, read by the hearts): the share of each picture above
+/// its first row with an alpha over 16 in the central band (35–65 % of the width; the whole width when the band is empty),
+/// the median of those over the animation's frames, and that share of the aspect-fit picture below the box's top.
+enum FloatingPetVisibleTop {
+    static let alphaThreshold: UInt8 = 16
+    static let centralBand: ClosedRange<Double> = 0.35...0.65
+
+    /// `SpriteVisibleTop.inset`.
+    static func inset(box: CGFloat, imageSize: CGSize, opaqueTopFraction: CGFloat) -> CGFloat {
+        let fit = PopoverSpriteFit.size(for: imageSize, box: box)
+        return (box - fit.height) / 2 + min(max(opaqueTopFraction, 0), 1) * fit.height
+    }
+
+    /// `SpriteVisibleTop.anchorFraction`: the median frame (the few frames that jump to the canvas top do not drag it).
+    static func anchorFraction(of frameFractions: [CGFloat]) -> CGFloat {
+        guard !frameFractions.isEmpty else { return 0 }
+        return frameFractions.sorted()[frameFractions.count / 2]
+    }
+
+    /// `SpriteVisibleTop.scanOpaqueTopFraction` over a bitmap (alpha last, row 0 at the top); 0 when it is empty.
+    static func opaqueTopFraction(of bitmap: PlazaBitmap) -> CGFloat {
+        let w = bitmap.width, h = bitmap.height
+        guard w > 0, h > 0, bitmap.bytes.count >= w * h * 4 else { return 0 }
+        let bandStart = Int(Double(w) * centralBand.lowerBound)
+        let bandEnd = max(bandStart + 1, Int(Double(w) * centralBand.upperBound))
+        func firstOpaqueRow(columns: Range<Int>) -> Int? {
+            for row in 0..<h {
+                for column in columns where bitmap.bytes[(row * w + column) * 4 + 3] > alphaThreshold {
+                    return row
+                }
+            }
+            return nil
+        }
+        let row = firstOpaqueRow(columns: bandStart..<min(bandEnd, w)) ?? firstOpaqueRow(columns: 0..<w)
+        return row.map { CGFloat($0) / CGFloat(h) } ?? 0
+    }
+}
+
 /// The pet's agent reactions as a value (`FloatingPetController.handleAgentEvent`, `agentDidChange`, `returnHome`,
 /// `expireAgentActivity`, `resetAgent`, `petClicked`'s acknowledgement and `sync`'s reset): the window does what the
 /// returned effect says, arms one timer at `deadline` and asks `bobs` for the bob.

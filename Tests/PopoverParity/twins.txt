@@ -242,6 +242,8 @@ UI/FloatingPetPanel.swift#FloatingPetView.hoverTooltip | Popover/FloatingPetExtr
 UI/FloatingPetPanel.swift#PettingDetector | Popover/FloatingPetExtras.swift#FloatingPetPetting | PettingDetector=FloatingPetPetting
 UI/FloatingPetPanel.swift#PrayerEmojiLayer.emojiSize | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt.emojiSize
 UI/SpriteLoader.swift#SpriteVisibleTop.bubbleTopOffset | Popover/FloatingPetExtras.swift#FloatingPetHeartArt.bubbleTopOffset
+UI/SpriteLoader.swift#SpriteVisibleTop.inset | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop.inset | SpriteFit=PopoverSpriteFit
+UI/SpriteLoader.swift#SpriteVisibleTop.anchorFraction | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop.anchorFraction
 # The text cuts with the measurement as a parameter (the Mac measures with AppKit): the same strings with the Mac's
 # measurement passed in (the equivalence test).
 UI/FloatingPetPanel.swift#FloatingPetController.bubbleContent | Popover/FloatingPetExtras.swift#FloatingPetBubbles.bubbleContent | pin 1419ab2a079589c0
@@ -262,6 +264,12 @@ UI/FloatingPetPanel.swift#PrayerBurst | Popover/FloatingPetExtras.swift#Floating
 UI/FloatingPetPanel.swift#PrayerEmojiFrame | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt.particle | pin 44f17c08a0496a7d
 UI/FloatingPetPanel.swift#HeartBubbleArt | Popover/FloatingPetExtras.swift#FloatingPetHeartArt | pin 3fd7c5cef17a45d0
 UI/FloatingPetPanel.swift#FloatingPetView.body | Popover/FloatingPetExtras.swift#FloatingPetPrayerArt.wobbleAngle | pin 6e9fff91ba13ca7f
+# The hearts' anchor over a bitmap instead of an NSImage (the scan over the same pixels; the equivalence test) and the one
+# anchor for an animation; the hearts' cells. The bubble's and the hearts' entrance (FloatingPetPopIn, SwiftUI's spring)
+# are the view body's transitions: the body's pin above guards them.
+UI/SpriteLoader.swift#SpriteVisibleTop.scanOpaqueTopFraction | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop.opaqueTopFraction | pin 3c7c2dd984a32579
+UI/CompanionView.swift#SpriteView.visibleTop | Popover/FloatingPetExtras.swift#FloatingPetVisibleTop | pin b680a4fe017b8fba
+UI/FloatingPetPanel.swift#HeartBubbleView | Popover/FloatingPetExtras.swift#FloatingPetHeartArt | pin 64f9e7a2e0b41684
 # --- stage 7 Task 23 (end) ---
 
 # Task 21: the detail page's derived members (which form, appearance and individual the page shows), copied verbatim.
