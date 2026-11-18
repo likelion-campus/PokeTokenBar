@@ -49,7 +49,7 @@ enum WinAgentLink {
     @MainActor static func install(on sink: WinSinkWindow, deliver: @escaping @MainActor @Sendable (AgentActivityEvent) -> Void) {
         _ = sink.on(copyData) { _, lParam in
             stats.received += 1
-            guard let event = event(fromCopyData: lParam) else {
+            guard let event = WinAgentLink.event(fromCopyData: lParam) else {
                 stats.refused += 1
                 return 0
             }
