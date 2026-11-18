@@ -382,5 +382,6 @@ int ptb_clipboard_hold(uint32_t ms);
 #include "CPlazaD2DText.h" /* the DirectWrite text engine (Task 9) */
 #include "CPlazaD2DChat.h" /* the chat field: native EDIT, IME, Korean IME probe (Task 11) */
 #include "CPlazaD2DPaint.h" /* the popover's antialiased shape painter (visual polish K2) */
+#include "CPlazaD2DAccess.h" /* the overlay scroll lane as an MSAA scroll bar */
 
 #endif
