@@ -185,17 +185,20 @@ import WinSDK
         }
     }
 
-    /// `keepLane`: the bar stays (disabled when nothing scrolls), which is how the lane is measured; otherwise Windows hides the bar
-    /// when the range fits the page and shows it when it does not.
+    /// `SIF_DISABLENOSCROLL` always: it is what enables a bar again when the range grows (a bar hidden by `ShowScrollBar` or by a
+    /// range that fits the page keeps its disabled state otherwise: shown, but the thumb and arrows do nothing). `keepLane` keeps the
+    /// bar on the screen (disabled when nothing scrolls), which is how the lane is measured; otherwise it is on the screen only while
+    /// the content is taller than the page.
     private static func updateBar(_ hwnd: HWND, height: Int32, page: Int32, offset: Int32, keepLane: Bool = false) {
         var si = SCROLLINFO()
         si.cbSize = UINT(MemoryLayout<SCROLLINFO>.size)
-        si.fMask = 0x0001 | 0x0002 | 0x0004 | (keepLane ? 0x0008 : 0)  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL
+        si.fMask = 0x0001 | 0x0002 | 0x0004 | 0x0008  // SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL
         si.nMin = 0
         si.nMax = max(0, height - 1)
         si.nPage = UINT(max(1, page))
         si.nPos = offset
         _ = SetScrollInfo(hwnd, 1 /* SB_VERT */, &si, true)
+        _ = ShowScrollBar(hwnd, 1, PopoverScrollMath.showsBar(content: CGFloat(height), viewport: CGFloat(page)) || keepLane)
     }
 }
 #endif
