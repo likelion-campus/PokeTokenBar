@@ -142,6 +142,7 @@ enum WindowsSelftest {
         await WindowsSelftestPopoverIdle.probe("after the tab strip checks")
         WindowsSelftestPopoverIdle.report(r)
         await popoverOpenCostChecks(r, app)  // settings-open (WindowsSelftestPopoverOpenCost.swift): Home -> Settings as the gear does it, measured; Direct2D, so after the idle window
+        await popoverSpriteShownCheck(r, app)  // fix/windows-popover-sprite-shown (WindowsSelftestPopoverSpriteShown.swift): the real popover's sprite clocks
         return r.checks
     }
 
