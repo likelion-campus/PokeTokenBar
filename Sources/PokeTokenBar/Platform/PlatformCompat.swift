@@ -542,30 +542,15 @@ extension PlatformCompat {
     }
 
     /// Ends `process`. Mac: `process.terminate()`, verbatim. Windows: also its descendants, because terminating an npm
-    /// `.cmd` shim leaves the program it started running (measured on the CI runner, F19). Descendants come from one
-    /// Toolhelp snapshot taken before anything is killed; they are ended first, then the process itself.
+    /// `.cmd` shim leaves the program it started running (measured on the CI runner, F19). `WinProcessTree` takes them from
+    /// one Toolhelp snapshot, keeps only real descendants (a reused process id made unrelated processes look like children:
+    /// run 44207854338 killed the test process), and ends them and the process through handles it opened. corelibs'
+    /// `terminate()` is not called after that: it uses a handle its own thread closes when the process exits. It is the
+    /// fallback when the process could not be confirmed as our running child (no snapshot).
     static func terminate(_ process: Process) {
         #if os(Windows)
-        var children: [DWORD: [DWORD]] = [:]
-        let snapshot = CreateToolhelp32Snapshot(DWORD(TH32CS_SNAPPROCESS), 0)
-        if snapshot != INVALID_HANDLE_VALUE {
-            var entry = PROCESSENTRY32W()
-            entry.dwSize = DWORD(MemoryLayout<PROCESSENTRY32W>.size)
-            if Process32FirstW(snapshot, &entry) {
-                repeat { children[entry.th32ParentProcessID, default: []].append(entry.th32ProcessID) }
-                while Process32NextW(snapshot, &entry)
-            }
-            CloseHandle(snapshot)
-        }
-        var descendants: [DWORD] = []
-        var pending = [DWORD(process.processIdentifier)]
-        while let pid = pending.popLast() {
-            for child in children[pid] ?? [] where !descendants.contains(child) {
-                descendants.append(child)
-                pending.append(child)
-            }
-        }
-        for pid in descendants.reversed() { forceKill(pid: Int32(pid)) }
+        if WinProcessTree.terminate(rootPID: DWORD(process.processIdentifier)) { return }
+        guard process.isRunning else { return }
         #endif
         process.terminate()
     }
