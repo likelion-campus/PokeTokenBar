@@ -21,7 +21,8 @@ import Foundation
     var cardBackground = PlazaColor(srgbRed: 0.93, green: 0.93, blue: 0.93)
     private(set) var pointerDate: String?
     private(set) var keyboardDate: String?
-    private var width: CGFloat = PopoverWindowMetrics.contentWidth
+    /// The width of the last `size(width:)`: what `date(at:)` and the render lay out at (the hosted width, not the window's content width).
+    private(set) var width: CGFloat = PopoverWindowMetrics.contentWidth
     private var fullRender = true
     private var renderedSelection: String?
     private var laidOut: (width: CGFloat, key: String, layout: Layout)?
