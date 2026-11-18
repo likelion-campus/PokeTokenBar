@@ -415,12 +415,12 @@ import WinSDK
                     return label
                 }
             }
-            updateOfferRow = updates.addStyledRow(label: note(.warning), style: .trailing) { p, c in WinControls.button(l.updateButton, in: p, ctx: c) }
+            updateOfferRow = updates.addStyledRow(label: note(.warning), style: .trailing) { p, c in WinControls.button(l.updateButton, small: true, in: p, ctx: c) }
             updateOfferRow?.control?.onClick = { [weak self] in self?.host.updater?.applyUpdate() }
             updateSkippedRow = updates.addStyledRow(label: note(.warning), style: .stacked) { p, c in
                 WinComposite(parent: p, ctx: c) { child in
-                    let again = WinControls.button(l.showSkippedAgain, in: child, ctx: c)
-                    let apply = WinControls.button(l.updateButton, in: child, ctx: c)
+                    let again = WinControls.button(l.showSkippedAgain, small: true, in: child, ctx: c)
+                    let apply = WinControls.button(l.updateButton, small: true, in: child, ctx: c)
                     again?.onClick = { [weak self] in
                         self?.host.updater?.showSkippedAgain()
                         self?.scheduleRefresh()

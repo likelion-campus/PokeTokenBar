@@ -107,7 +107,7 @@ extension WinHomePage {
     /// button). The strip fills what the button leaves, as the Mac's picker does.
     func makeTabLine(_ tabs: PopoverTabsModel, plaza: PlazaButtonModel?, in pane: HWND, ctx: WinUIContext) -> WinComposite? {
         WinComposite(parent: pane, ctx: ctx) { child in
-            let strip = WinControls.radioGroup(tabs.titles, selected: tabs.selected, in: child, ctx: ctx)
+            let strip = WinControls.radioGroup(tabs.titles, selected: tabs.selected, tall: true, fillsRow: true, in: child, ctx: ctx)
             strip?.onSelect = { [weak self] i in self?.selectTab(at: i) }
             tabStrip = strip
             var trailing: [WinControl] = []

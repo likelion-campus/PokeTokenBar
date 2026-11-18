@@ -494,9 +494,14 @@ enum HomeFixtures {
         let tree = KitTree.collect(w)
         if model.providerTabs.count > 1 {
             let tabs = zip(tree.nodes, tree.handles).filter { n in model.providerTabs.contains { $0.title == n.0.text } && n.0.cls == "Button" }
-            if tabs.count != model.providerTabs.count || tabs.contains(where: { WinControl.control($0.1)?.isPill != true }) {
+            // K3: the provider tabs are capsule chips of a radio group (the old drawn pills were push buttons that never said which was
+            // selected); the selected provider is the checked radio button
+            if tabs.count != model.providerTabs.count || tabs.contains(where: { WinControl.control($0.1)?.segmentStyle != .chips || WinKit.className($0.1) != "Button" }) {
                 problems.append("\(tabs.count) tab buttons of \(model.providerTabs.count)")
             }
+            let checkedTitles = tabs.filter { WinKit.send($0.1, 0x00F0 /* BM_GETCHECK */) == 1 }.map { $0.0.text }
+            let wantTitles = model.providerTabs.filter { $0.id == model.selectedProviderID }.map(\.title)
+            if checkedTitles != wantTitles { problems.append("checked provider chips \(checkedTitles), expected \(wantTitles)") }
         }
         // the update offer's buttons are the kit's pills (Skip borderless, Update prominent), in the Mac's order
         if let banner = model.updateBanner, !banner.isUpdating {
@@ -666,14 +671,14 @@ enum HomeFixtures {
         }
         var notes: [String] = []
         var ok = foreground
-        // the provider tabs (capsule buttons, as the Mac's): Tab moves to the next one, Space presses it
+        // the provider tabs (capsule chips of one radio group, K3; they were separate push buttons): one Tab stop, the Right arrow
+        // moves to the next chip and selects it
         if focus("Claude Code") {
-            WindowsSelftestPopover.tap(0x09)  // VK_TAB
-            WindowsSelftestPopover.tap(0x20)  // VK_SPACE
+            WindowsSelftestPopover.tap(0x27)  // VK_RIGHT
             await wait(0.3)
             let pressed = h.recordedActions.contains(.selectProvider("codex"))
             ok = ok && pressed
-            notes.append("Tab, Space on the Claude Code tab -> select codex=\(pressed)")
+            notes.append("Right arrow on the Claude Code chip -> select codex=\(pressed)")
         } else { ok = false; notes.append("no Claude Code tab stop") }
         // the plaza button: Enter
         if let plaza = model.plazaButton, focus(plaza.label) {
