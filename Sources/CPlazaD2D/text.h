@@ -63,6 +63,9 @@ public:
     static Hhea hheaOf(IDWriteFontFace *face);
     TextMetrics metrics(IDWriteFontFace *face, double size);
     int format(int font, int weight, float size, Ref<IDWriteTextFormat> &out);
+    /// The locale the text formats are made with (the system fallback picks Han and kana glyph forms by it): the app language,
+    /// "ko-kr" until set. Formats made before are kept under their own locale.
+    void setLocale(const wchar_t *name);
 
     Ref<IDWriteFactory5> factory;
     Ref<IDWriteFontCollection1> privateFonts;
@@ -83,9 +86,11 @@ private:
     struct FormatEntry {
         int font, weight;
         float size;
+        std::wstring locale;
         Ref<IDWriteTextFormat> format;
     };
     std::vector<FormatEntry> formats;
+    std::wstring localeName = L"ko-kr";   // under `lock`
     std::wstring findPrivate(const wchar_t *expected);
 };
 

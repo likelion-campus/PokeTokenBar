@@ -367,9 +367,12 @@ enum HomeFixtures {
         area.scroll(to: 0)
         await wait(0.1)
         let order = tree.tabOrder.filter { !(IsChild(area.viewport.hwnd, $0) && rect($0, in: w).top >= view.bottom) }
+        // A control half under the scroller's bottom edge shows only its visible part: its rectangle is clipped to the viewport
+        // (unclipped, its lower half "overlapped" the footer and failed the order whenever a line change moved one there by a pixel).
         let rects = order.map { hwnd -> CGRect in
-            let r = rect(hwnd, in: w)
-            return CGRect(x: CGFloat(r.left), y: CGFloat(r.top), width: CGFloat(r.right - r.left), height: CGFloat(r.bottom - r.top))
+            var r = rect(hwnd, in: w)
+            if IsChild(area.viewport.hwnd, hwnd) { r.bottom = min(r.bottom, view.bottom); r.top = max(r.top, view.top) }
+            return CGRect(x: CGFloat(r.left), y: CGFloat(r.top), width: CGFloat(r.right - r.left), height: CGFloat(max(0, r.bottom - r.top)))
         }
         let inOrder = PopoverStackLayout.isReadingOrder(rects)
         if !inOrder || rects.count < 6 { problems.append("Tab order across the panes is not the reading order (\(rects.count) stops)") }
@@ -417,6 +420,9 @@ enum HomeFixtures {
             Variant(name: "three-ru", language: .ru, input: { HomeFixtures.three($0, now: $1) }),
             Variant(name: "three-text150", input: { HomeFixtures.three($0, now: $1) }, textScale: 1.5),
             Variant(name: "three-150", input: { HomeFixtures.three($0, now: $1) }, dpi: 144),
+            // K0: the Korean and Japanese pages at 150 % too (a context at 144 dpi: the runner's display scale cannot be changed)
+            Variant(name: "three-ko-150", language: .ko, input: { HomeFixtures.three($0, now: $1, team: true) }, dpi: 144),
+            Variant(name: "three-ja-150", language: .ja, input: { HomeFixtures.three($0, now: $1) }, dpi: 144),
         ]
     }
 

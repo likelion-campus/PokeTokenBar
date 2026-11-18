@@ -242,7 +242,7 @@ import Foundation
             for (i, top) in visible {
                 let row = model.rows[i], rl = lay.rows[i]
                 let card = CGRect(x: 0, y: top, width: cardW, height: rl.height)
-                p.roundedRect(card, radius: 10, fill: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.06), stroke: nil, lineWidth: 0, canvas: canvas, space: space)
+                p.roundedRect(card, radius: 10, fill: PopoverColorRole.secondary.plazaTileColor(alpha: 0.06), stroke: nil, lineWidth: 0, canvas: canvas, space: space)
                 // badges
                 var x = card.minX + Self.cardPadding
                 let cy = card.minY + Self.cardPadding + rl.badges / 2

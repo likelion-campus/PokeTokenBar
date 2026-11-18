@@ -21,7 +21,7 @@ tasks and `parity-report.md` in the Windows port ledger.
 
 Last reviewed against: the popover with Home, Settings, Recap, Shop, Bag, Collection and the Pokémon detail page, dark mode
 and high contrast, the in-app update, the installer and the floating pet with its bubbles, hearts, prayers, hover readout
-and agent reactions. **Owed when it lands:** the `poketokenbar:` link that brings agent events (see the end).
+and agent reactions, and the `poketokenbar:` link.
 
 ## Approved by the user
 
@@ -42,6 +42,12 @@ and agent reactions. **Owed when it lands:** the `poketokenbar:` link that bring
 | System file and task dialogs, with Replace and Cancel | native dialogs; the popover stays open under an open dialog |
 | Windows fonts, emoji and accent colour; no blur behind capsules and chevrons | Windows conventions; no cheap vibrancy |
 | Tertiary text opacity is the Mac's value, to be reviewed on a real screenshot | pending the user's screenshot |
+| **Type ramp (visual polish K1):** the popover's text is one step larger than the Mac's: caption and caption2 12 (Mac 10), callout 13 (12), body and headline 14 (13), title3 16 (15), the Today total 28 semibold (28 bold), the Shop wallet 24 semibold (24 bold); drawn parts' `.system(size:)` is mapped the same way (+2 up to 10, +1 for 11 to 13, 14 and above unchanged). The Mac's own sizes and the shared tests of them are untouched (`WinTypeRamp`) | the Mac's points are drawn at 2x on a Retina screen (a 10 pt caption is 20 device pixels); Windows draws DIP 1:1 on 96 DPI, so the same numbers read as small, thin text. Windows 11's own ramp is Caption 12, Body 14, Subtitle 20, Title 28. The user's report on a real PC ("shabby"). |
+| **Semibold where the Mac has bold** (headline, the total, the wallet, drawn parts' bold) | Windows emphasises with Segoe UI Semibold (600), never bold; GDI also has no medium, so caption2's 500 draws regular |
+| **One typeface family in labels: Segoe UI Variable** in its three optical sizes (Small up to 12 DIP, Text 13 to 19, Display 20 and up; Segoe UI on Windows 10, which has none). Drawn parts still use Pretendard until the one-text-engine stage (K5) | Windows' own UI face; the optical sizes are how Windows 11 sets its ramp. Hangul and kana come through GDI font linking; a family that does not link Hangul is not used (probed at run time) |
+| **Light layering as Windows 11:** a #F3F3F3 base with white cards, the Shop and Bag tiles on the card fill; text is black at the Mac's 84.7 % (not pure black); tertiary text is black at 56 % (the Mac 26 %; before K1 Windows used 55 % on white, 4.74:1; 56 % over the base is 4.80:1). The Mac's light popover is a grey material with white controlBackground cards, its Shop and Bag tiles 3 % darker than the page | Windows 11 layers surfaces this way (WinUI `SolidBackgroundFillColorBase` #F3F3F3, cards lighter than the base); one card language for Settings, Shop, Bag |
+| Dark Shop and Bag tiles use the card fill (lighter than the window) | the Mac's `secondary.opacity(0.06)` is lighter than the window in dark; the old Windows blend darkened it (a bug) |
+| Popover text is drawn in GDI with the system's smoothing, drawn parts in DirectWrite grayscale | two renderers until K5 (one text engine) |
 
 ## Controls
 
@@ -111,6 +117,10 @@ and agent reactions. **Owed when it lands:** the `poketokenbar:` link that bring
 | The pet's hover tooltip is Windows' tooltip (after 600 ms, as the popover's, dark in dark mode) | Win32's own tooltip control; the Mac shows AppKit's help tag |
 | A run to the pointer on a monitor of another scale keeps the pet's size on the way and takes that monitor's size when it arrives | per-monitor DPI, as for a drag |
 | While the hearts show, a screen reader reads them as the pet window's name | the pet is one layered window with no accessible parts; the Mac labels the hearts' view |
+| A `poketokenbar:` link longer than 8,192 characters is ignored (the Mac reads any length and then cuts the message and label) | a second start hands the link over as a message any local program could send: its copy is bounded. The longest link the pet can show, percent-encoded, is about 5,000 (5,042) |
+| A link opened while the app is off starts it quietly and clean (no popover, none of the opener's arguments or environment, out of the opener's job where the job allows it); an elevated opener starts nothing; each of these starts (or its failure, with the error) is one line in the log; a link whose command line has anything more than the link (a quote that broke out) is dropped whole | Windows starts the handler with the opener's job, integrity level and environment, and with whatever the link's text splices into the command line; the Mac's Launch Services starts the app on its own |
+| Another program of the same user can send the app links over `WM_COPYDATA`, or make a window of the app's class and title to take links meant for it | it already has the user's rights (the Mac's Apple events are open to it the same way); a message that is not a whole, tagged, valid UTF-16 link (a lone surrogate included) is refused, never a crash |
+| The hook example checks `Get-Process PokeTokenBar` and opens the link with `Start-Process` (TEAM.md) | the Mac's uses `pgrep` and `open -g`; the rule is the same: a link opened while the app is off starts it and the event is dropped, so hooks check first |
 
 ## The plaza on the Mac changed too
 
@@ -121,10 +131,9 @@ differently; the roster's icons bounce together on one beat; card rarity colours
 
 ## Not on Windows yet (owed)
 
-- **The `poketokenbar:` link** (Task 23, part b): until it lands no agent event reaches the pet, so the agent reactions
-  (the bob, the waiting and done bubbles, the run to the pointer) are there but never start. The pet, its bubbles, hearts,
-  prayers and hover readout landed (stage 7 Tasks 22 and 23, differences above; captures `floating-pet.png`,
-  `home-pet-eye-en.png`); owed: a capture of the pet on a plain desktop (the runner's shows its terminal behind it).
+- **A capture of the floating pet on a plain desktop** (the runner's shows its terminal behind it). The pet, its
+  bubbles, hearts, prayers, hover readout, agent reactions and the `poketokenbar:` link landed (stage 7 Tasks 22 and 23,
+  differences above; captures `floating-pet.png`, `home-pet-eye-en.png`).
 - **ARM64 native build** (the x64 build runs under emulation on Windows 11 on ARM, untested); **Windows 10** is untested.
 - **Code signing:** the installer and the app are unsigned; SmartScreen warns on first run.
 - **Captures owed:** tray menu with an update offer, the Setup welcome page, dark and high-contrast popover pages, Settings in

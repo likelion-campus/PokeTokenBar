@@ -250,7 +250,7 @@ import WinSDK
         var line = WinCardView.Line(top: 8)
         if m.isPassive {
             line.gap = 6
-            line.glyph = ("checkmark.seal.fill", WinCardKit.colorRef(.systemGreen))
+            line.glyph = ("checkmark.seal.fill", WinCardKit.colorRef(.systemGreen, ctx: ctx))
             if let c = WinCardKit.label(m.passiveHint, .caption2, weight: 600, color: .systemGreen, in: child, ctx: ctx) { line.leading.append(c) }
         } else if m.canUse {
             if state.confirming {

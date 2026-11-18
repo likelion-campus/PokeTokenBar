@@ -99,6 +99,7 @@ import WinSDK
     // --- stage 7 Task 14 (end) ---
 
     init(host: WinPopoverHost, popover: WinPopover?, onBack: @escaping () -> Void) {
+        WinPopoverLanguage.apply(host.companion.language)
         self.host = host
         self.popover = popover
         self.onBack = onBack

@@ -347,7 +347,7 @@ import WinSDK
         let e = driver.effects(at: t)
         if e != header.part.effects {
             header.part.setEffects(e)
-            header.view.show(header.part.renderEffectFrame(scale: ctx.scale, graphics: PlatformPlaza.graphics))
+            header.view.show(header.part.renderEffectFrame(scale: ctx.scale, graphics: WinPopoverGraphics.shared))
             stats.effectFrames += 1
         }
         // never armed at or before now (a due in the past would fire at once, again and again)
@@ -374,7 +374,7 @@ import WinSDK
         let look = barHover.look(at: t)
         if look != header.part.barLook {
             header.part.setBarLook(look)
-            header.view.show(header.part.renderBarFrame(scale: ctx.scale, graphics: PlatformPlaza.graphics))
+            header.view.show(header.part.renderBarFrame(scale: ctx.scale, graphics: WinPopoverGraphics.shared))
             stats.barFrames += 1
         }
         barClock.setDue(barHover.nextDue(after: t).map { max($0, t.addingTimeInterval(0.001)) })

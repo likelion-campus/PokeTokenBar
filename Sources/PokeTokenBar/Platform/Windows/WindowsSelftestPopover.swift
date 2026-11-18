@@ -326,9 +326,12 @@ extension WindowsSelftest {
     private static func fontAndGlyphChecks(_ r: WindowsSelftest.Recorder, _ w: KitWindow) {
         let fonts = w.ctx.fonts
         let body = logFont(fonts.font(.body)), large = logFont(fonts.font(.largeBold))
-        r.add("ui.kit.fonts", body.lfHeight == -Int32(PopoverTextStyle.body.pixelSize(dpi: Int(w.ctx.dpi), textScale: w.ctx.textScale)) && large.lfWeight == 700,
+        // K1: the Windows ramp (WinTypeRamp): body 14 DIP, today total 28 DIP semibold (never bold) in the Display optical size.
+        let semiboldWeights: Set<Int32> = WinFonts.semiboldIsBold ? [700] : [400, 600]  // 400 in a "... Semibold" family, 600 where GDI has no semibold sibling; 700 for ko/ja (Hangul links the bold face)
+        r.add("ui.kit.fonts", body.lfHeight == -Int32(PopoverTextStyle.pixels(14 * CGFloat(w.ctx.textScale), dpi: Int(w.ctx.dpi)))
+              && large.lfHeight == -Int32(PopoverTextStyle.pixels(28 * CGFloat(w.ctx.textScale), dpi: Int(w.ctx.dpi))) && semiboldWeights.contains(large.lfWeight),
               "face=\(fonts.face) (Segoe UI Variable Text installed: \(WinFonts.isInstalled(WinFonts.variableText))) icons=\(fonts.iconFace) dpi=\(w.ctx.dpi) "
-              + "textScale=\(w.ctx.textScale) highContrast=\(w.ctx.highContrast) body lfHeight=\(body.lfHeight) 28 bold lfHeight=\(large.lfHeight) weight=\(large.lfWeight) "
+              + "textScale=\(w.ctx.textScale) highContrast=\(w.ctx.highContrast) body lfHeight=\(body.lfHeight) 28 semibold lfHeight=\(large.lfHeight) weight=\(large.lfWeight) display family=\(fonts.family(forDIP: 28)) small family=\(fonts.family(forDIP: 12)) "
               + "semibold face=\(WinFonts.face(base: fonts.face, weight: 600).0) fonts made=\(fonts.count) brushes=\(w.ctx.colors.count)")
         var missing: [String] = []
         var checked = 0
@@ -489,7 +492,7 @@ extension WindowsSelftest {
         var back = before
         _ = withUnsafeMutablePointer(to: &back) { WinKit.send(w.hwnd, 0x02E0, 96 | 96 << 16, Int(bitPattern: $0)) }
         let body96 = logFont(HFONT(bitPattern: WinKit.send(page.styleLabel?.hwnd, 0x0031))).lfHeight
-        r.add("ui.kit.dpi", ok144 && w.ctx.dpi == 96 && body96 == -13,
+        r.add("ui.kit.dpi", ok144 && w.ctx.dpi == 96 && body96 == -14,
               detail144 + "; back to 96: dpi=\(w.ctx.dpi) body lfHeight=\(body96) (the page is built again at each DPI: comctl32 controls keep the font they were given, R6)")
     }
 

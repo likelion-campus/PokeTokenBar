@@ -163,7 +163,7 @@ import WinSDK
         var rr = r
         _ = FillRect(dc, &rr, ctx.colors.brush(pal.window))
         if tintColor != pal.window || ctx.highContrast {
-            if let pen = CreatePen(ctx.highContrast ? 0 : 5 /* PS_NULL */, 1, pal.text) {
+            if let pen = CreatePen(ctx.highContrast ? 0 : 5 /* PS_NULL */, 1, pal.text) {  // a tinted card needs no hairline
                 let oldPen = SelectObject(dc, UnsafeMutableRawPointer(pen))
                 let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(ctx.colors.brush(tintColor)))
                 let radius = 2 * ctx.px(radiusDIP)

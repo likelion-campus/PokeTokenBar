@@ -611,6 +611,7 @@ struct WinPopoverStats {
     @discardableResult
     private func build(_ page: WinPopoverPage, in w: WinSinkWindow, ctx context: WinUIContext) -> Bool {
         self.page = page
+        WinPopoverLanguage.apply(host.companion.language)  // drawn parts' Han/kana glyph forms and the Hangul/kana weight follow the app language
         building = true
         page.build(in: w, ctx: context, client: Self.client(w.hwnd))
         building = false

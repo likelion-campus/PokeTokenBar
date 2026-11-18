@@ -61,6 +61,9 @@ int ptb_text_engine_create(int measuringMode, PTBTextEngine **out);
 int ptb_text_engine_add_font(PTBTextEngine *e, const uint16_t *path);   /* before finish; UTF-16, NUL-terminated */
 int ptb_text_engine_finish(PTBTextEngine *e);
 void ptb_text_engine_release(PTBTextEngine *e);
+/* the locale (BCP 47, UTF-16, NUL-terminated) the text formats are made with from now on; the system fallback uses it to pick
+   Han and kana glyph forms. Default "ko-kr". */
+int ptb_text_engine_set_locale(PTBTextEngine *e, const uint16_t *name);
 /* family and face receive NUL-terminated UTF-16 names (cap units each) */
 int ptb_text_font_info(PTBTextEngine *e, int font, int weight, double size, PTBFontInfo *out, uint16_t *family, uint32_t familyCap,
                        uint16_t *face, uint32_t faceCap);
