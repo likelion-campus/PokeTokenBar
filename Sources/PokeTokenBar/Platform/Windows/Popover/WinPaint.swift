@@ -29,6 +29,13 @@ import CPlazaD2D
         return code
     }
 
+    /// 0xAARRGGBB of a `COLORREF` (0x00BBGGRR).
+    nonisolated static func argb(_ c: COLORREF, alpha: Double = 1) -> UInt32 {
+        let a = UInt32((min(1, max(0, alpha)) * 255).rounded())
+        let red: UInt32 = c & 0xFF, green: UInt32 = (c >> 8) & 0xFF, blue: UInt32 = (c >> 16) & 0xFF
+        return (a << 24) | (red << 16) | (green << 8) | blue
+    }
+
     /// One rounded rectangle of a batch.
     struct Item {
         var rect: RECT
