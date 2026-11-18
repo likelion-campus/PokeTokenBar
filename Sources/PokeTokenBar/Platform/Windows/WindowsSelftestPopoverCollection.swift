@@ -132,8 +132,9 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             if page.logRow != nil { problems.append("\(language): the log was built before it was asked for") }
             let tips = view.drawing?.drawing.tooltips.count ?? 0
             if tips < 16 { problems.append("\(language): \(tips) tooltips") }
-            // the page is the Mac's 520 pt: the scroller does not scroll
+            // the page is the Mac's 520 pt: the scroller does not scroll, and its native bar is not on the screen (the lane stays empty)
             if let area = h.window.scroll, area.contentHeight > area.viewportHeight + 2 { problems.append("\(language): content \(area.contentHeight) > viewport \(area.viewportHeight)") }
+            if let area = h.window.scroll, area.barVisible != PopoverScrollMath.showsBar(content: CGFloat(area.contentHeight), viewport: CGFloat(area.viewportHeight)) { problems.append("\(language): the native scroll bar is \(area.barVisible ? "shown" : "hidden") with the content at (\(area.contentHeight) px in \(area.viewportHeight))") }
             // a click on a cell selects it and opens its entry
             if let first = cells.first { press(first) }
             await wait(0.2)
@@ -379,6 +380,14 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             if windows > 80 || slots > 12 { problems.append("\(language): \(windows) child windows, \(slots) sprite slots") }
             // the top of the page as it opens (identity, stats): captured with its names loaded
             dump(h, "detail-top-\(language.rawValue)")
+            // one scroller, as the Mac's: the page's own thumb (drawn, it scrolls its rows under the pinned Back line); the native bar is not there
+            if let area = h.window.scroll {
+                if area.barVisible || area.contentHeight > area.viewportHeight + 2 {
+                    problems.append("\(language): a second scroller on the detail page: native bar shown=\(area.barVisible), content \(area.contentHeight) px in \(area.viewportHeight)")
+                }
+                if part.maxScroll <= 0 { problems.append("\(language): the detail page's own scroller has nothing to scroll (\(part.maxScroll))") }
+                notes.append("\(language): scrollers on the detail page: native bar \(area.barVisible ? "shown" : "hidden") (content \(area.contentHeight)/\(area.viewportHeight) px), own thumb for \(Int(part.maxScroll)) pt")
+            }
             // the wheel scrolls it and names are asked for what comes into view only
             _ = SendMessageW(view.hwnd, 0x020A, WPARAM(UInt(bitPattern: Int(-120)) << 16), 0)
             if !(await WindowsSelftest.waitUntil(timeout: 3) { part.scrollY > 0 }) { problems.append("\(language): the wheel did not scroll") }
@@ -406,6 +415,18 @@ private struct CollectionFixtureNames: PokemonNameProviding {
             await wait(0.3)
             if page.isShowingDetail || h.stores.state.dexDetailCollectionID != nil || page.dexRow?.isVisible != true { problems.append("\(language): Back") }
             notes.append("\(language): opened in \(Int(opened * 1000)) ms (details and names loaded), swap drawn once x\(swaps), \(windows) child windows, \(slots) sprites, \(seen.count) of 80 moves in view after scrolling, \(named) move names loaded")
+        }
+        // The catch log: its own drawn thumb is the page's scroller; no native bar beside it
+        if let (h, page) = await harness(120, language: .en, log: true) {
+            defer { h.destroy() }
+            if let area = h.window.scroll, let log = page.logPart {
+                if area.barVisible || area.contentHeight > area.viewportHeight + 2 {
+                    problems.append("catch log: a second scroller: native bar shown=\(area.barVisible), content \(area.contentHeight) px in \(area.viewportHeight)")
+                }
+                if log.maxScroll <= 0 { problems.append("catch log: its own scroller has nothing to scroll (\(log.maxScroll))") }
+                dump(h, "log-scroller-en")
+                notes.append("catch log: native bar \(area.barVisible ? "shown" : "hidden"), own thumb for \(Int(log.maxScroll)) pt")
+            } else { problems.append("catch log: no scroll area or log part") }
         }
         // Back from a species of a later page lands on that page
         if let (h, page) = await harness(40, language: .en) {

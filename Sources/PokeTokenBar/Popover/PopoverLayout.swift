@@ -254,6 +254,10 @@ enum PopoverScrollMath {
         min(max(0, offset), max(0, content - viewport))
     }
 
+    /// Whether a scroll bar is on the screen: only while there is something to scroll (the Mac's overlay scroller is not drawn
+    /// otherwise; Windows keeps its native bar for that case and hides it when the content fits).
+    static func showsBar(content: CGFloat, viewport: CGFloat) -> Bool { content > viewport }
+
     /// The smallest move that shows `top…bottom` (content coordinates) with `margin` around it; unchanged when it is
     /// already inside the viewport; an item taller than the viewport shows its top.
     static func revealing(top: CGFloat, bottom: CGFloat, offset: CGFloat, viewport: CGFloat, content: CGFloat,

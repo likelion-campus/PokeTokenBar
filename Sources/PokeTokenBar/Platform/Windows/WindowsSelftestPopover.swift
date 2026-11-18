@@ -458,10 +458,12 @@ extension WindowsSelftest {
             drag = "thumb at screen (\(x),\(y)) dragged 90 px: drags +\(area.stats.thumbDrags - drags0) offset \(offset0) -> \(area.offset); main-queue blocks "
                 + "run during the drag saw pump depth \(depths) (1 = inside WinModalPump); depth after=\(WinModalPump.depth); SB_THUMBTRACK saw depth \(area.stats.pumpDepthDuringDrag)"
         }
-        r.add("ui.kit.scroll", afterWheel == expected && afterParts == 2 * expected && visible && dragOK,
+        // the control for the hidden bar: a page taller than its viewport shows the native bar
+        let barShownWhenScrolling = PopoverScrollMath.showsBar(content: CGFloat(area.contentHeight), viewport: CGFloat(area.viewportHeight)) && area.barVisible
+        r.add("ui.kit.scroll", afterWheel == expected && afterParts == 2 * expected && visible && dragOK && barShownWhenScrolling,
               "content \(area.contentHeight) px in a \(area.viewportHeight) px viewport, width \(area.contentWidth) px beside the bar: one wheel notch "
               + "(\(lines) lines x \(WinScrollArea.lineDIP) DIP) -> offset \(afterWheel) (expected \(expected)); 8 touchpad parts of 15 -> \(afterParts) "
-              + "(expected \(2 * expected)); focus on the last field -> offset \(area.offset), field at \(r0.top)...\(r0.bottom) inside=\(visible); \(drag)")
+              + "(expected \(2 * expected)); native bar shown=\(barShownWhenScrolling); focus on the last field -> offset \(area.offset), field at \(r0.top)...\(r0.bottom) inside=\(visible); \(drag)")
     }
 
     private static func dpiCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow, _ page: GalleryPage) async {
