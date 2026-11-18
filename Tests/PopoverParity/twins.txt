@@ -157,6 +157,8 @@ UI/CompanionView.swift#EvoLineView.scrollableRow | Popover/EvoLinePart.swift#Evo
 UI/CompanionView.swift#EvoLineView.edgeFade | Popover/EvoLinePart.swift#EvoLinePart.fade | pin 7b597b29c9737921
 UI/CompanionView.swift#EvoLineView.chevron | Popover/EvoLinePart.swift#EvoLinePart.chevronImage | pin 78ed3c74057c0305
 UI/CompanionView.swift#SpriteView.body | Popover/PopoverSpritePlayback.swift#PopoverSpriteModel.show | pin a1e0f46ae9d1974a
+# fix/windows-pet-still: the body's GIF load is this loop (a missing GIF asked again on its schedule); PopoverSpriteRetryTwinTests+Mac drives both.
+UI/SpriteLoader.swift#SpriteLoader.recoveringAnimationFrames | Popover/PopoverSpritePlayback.swift#PopoverSpriteModel.show | pin 609e856db6e28d91
 UI/Badge.swift#BadgeTint.color | Popover/CompanionHeaderModel.swift#PopoverBadgeTint.color | pin fc63b1a23f15e8a9
 UI/Badge.swift#Badge.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPart.drawBadge | pin 6abfcdabbdb9f1ac
 UI/Badge.swift#TypeBadges.body | Popover/CompanionHeaderPart.swift#CompanionHeaderPart.drawBadge | pin e605cac326ffe3a6

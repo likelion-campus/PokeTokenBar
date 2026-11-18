@@ -505,11 +505,51 @@ enum WindowsSelftest {
         r.add("defaults.plistName", real.lastPathComponent == name + ".plist" && name.lowercased().hasSuffix(".exe") && exists,
               "selftest suite file=\(WinPath.native(plist)) exists=\(exists); the app's own would be \(WinPath.native(real)); processName=\(name)")
 
-        for k in keys { app.defaults.removeObject(forKey: k) }
-        WinDefaultsSync.flushNow()
+        await staleCleanupCheck(r, app, plist, plain: key("stale"), fixed: key("staleFixed"))   // fix/windows-pet-still
+
+        removeChildKeys(keys, from: app.defaults)   // fix/windows-pet-still: was a plain removal, which a user's PC left on disk
         let left = keys.filter { plistValue(plist, $0) != nil }
         r.add("defaults.cleanup", left.isEmpty, left.isEmpty ? "removed \(keys.count) selftest keys" : "still on disk: \(left)")
     }
+
+    // --- fix/windows-pet-still: keys a child process wrote are removed after this process reads the suite again (begin) ---
+    /// Removes keys that child processes wrote to the selftest's settings suite. CoreFoundation's settings domain ignores a removal of
+    /// a key its cached copy does not hold ("the key is not present AND value is NULL, do nothing", `writeXMLValue`), and it reads the
+    /// file again only at a synchronize: a key written by a child after this process last synchronized stays on disk. The first flush
+    /// brings the children's writes in; the second writes the removals.
+    @MainActor static func removeChildKeys(_ keys: [String], from defaults: UserDefaults) {
+        WinDefaultsSync.flushNow()
+        for k in keys { defaults.removeObject(forKey: k) }
+        WinDefaultsSync.flushNow()
+    }
+
+    /// `defaults.cleanupStale`: the trigger a user's PC met (no synchronize of this process between a child's write and the removal).
+    /// A child writes `plain` after this process synchronized: a plain removal leaves it on disk (the trigger; not judged when a flush
+    /// came between anyway). Another child writes `fixed` the same way: `removeChildKeys` takes it off.
+    @MainActor private static func staleCleanupCheck(_ r: Recorder, _ app: WindowsAppDelegate, _ plist: URL, plain: String, fixed: String) async {
+        func childWrites(_ key: String) async -> Bool {
+            WinDefaultsSync.flushNow()
+            _ = app.defaults.object(forKey: key)   // this process's copy of the suite, read before the child writes
+            guard let child = try? Helper.start(["--selftest-defaults-writer", "standard", "exit", key, "v1"], ready: true) else { return false }
+            _ = await child.waitReady(timeout: 20)
+            let code = await child.waitExit(timeout: 15)
+            if code == nil { child.kill() }
+            child.close()
+            return plistValue(plist, key) == "v1"
+        }
+        let plainWritten = await childWrites(plain)
+        app.defaults.removeObject(forKey: plain)
+        WinDefaultsSync.flushNow()
+        let plainLeft = plistValue(plist, plain) != nil
+        let fixedWritten = await childWrites(fixed)
+        removeChildKeys([fixed], from: app.defaults)
+        let fixedLeft = plistValue(plist, fixed) != nil
+        r.add("defaults.cleanupStale", plainWritten && fixedWritten && !fixedLeft,
+              "a key a child wrote after this process synchronized: on disk=\(plainWritten), a plain removal left it=\(plainLeft) "
+                + "(\(plainLeft ? "the trigger reached" : "not reached: a synchronize came between; not judged")); "
+                + "the next one on disk=\(fixedWritten), removeChildKeys left it=\(fixedLeft)")
+    }
+    // --- fix/windows-pet-still (end) ---
 
     /// `expectPresent` nil: informational (the F2 control), passes either way and says what happened.
     @MainActor private static func exitWriter(_ r: Recorder, _ name: String, _ mode: [String], _ key: String, _ plist: URL,

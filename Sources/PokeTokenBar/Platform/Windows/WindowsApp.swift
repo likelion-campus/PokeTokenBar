@@ -229,6 +229,7 @@ private func crtExit(_ code: Int32) -> Never {
             return false
         }
         WindowsCrashLog.install(version: WindowsInstall.version ?? "0.0.0-dev")  // 3
+        PlazaStoreSpriteFetcher.report = { AppLog.write($0) }   // fix/windows-pet-still: what the GIF loader finds, in the log
         Self.setPerMonitorDpiAwareness()  // 4
         loopStrategy = WinMainLoop.prepare()  // 5
         do {  // 6

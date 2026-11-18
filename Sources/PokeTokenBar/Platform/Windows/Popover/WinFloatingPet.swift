@@ -214,10 +214,17 @@ import WinSDK
     }
 
     /// This session now (`WTSQuerySessionInformationW`, `WTSSessionInfoEx`); unlocked and connected when it cannot be read.
+    /// Locked only when the input desktop agrees (`FloatingPetSession`, fix/windows-pet-still).
     static func sessionNow() -> (locked: Bool, disconnected: Bool) {
-        var locked: Int32 = 0, disconnected: Int32 = 0
-        _ = ptb_session_state(&locked, &disconnected)
-        return (locked != 0, disconnected != 0)
+        let raw = sessionRaw()
+        return (FloatingPetSession.locked(sessionFlags: raw.flags, inputDesktop: raw.desktop), raw.state == 4 /* WTSDisconnected */)
+    }
+
+    /// The raw values behind it (the log line says them): SessionFlags, SessionState (0xFFFFFFFF when unread), the input desktop.
+    static func sessionRaw() -> (flags: UInt32, state: UInt32, desktop: Int32) {
+        var flags: UInt32 = 0, state: UInt32 = 0
+        _ = ptb_session_raw(&flags, &state)
+        return (flags, state, ptb_input_desktop_default())
     }
 
     /// The monitors now (`EnumDisplayMonitors`, effective DPI) in the shared placement's terms.
@@ -330,6 +337,7 @@ import WinSDK
         playback.onInvalidate = { [weak self] _ in
             self?.render()
             self?.reveal()
+            self?.noteClock()   // fix/windows-pet-still: a GIF that came (or not) changes what the log says
         }
         playback.shouldTick = { [weak self] in self?.canAnimate ?? false }
         apply(model, first: true)
@@ -394,7 +402,72 @@ import WinSDK
         }
         playback.isActive = canAnimate
         pet?.refreshBob()   // Task 23: the bob follows the same motion rule
+        noteClock()   // fix/windows-pet-still
     }
+
+    // --- fix/windows-pet-still: why the pet moves or stands, in the user's log (begin) ---
+    /// What decides whether the pet moves, compared before anything is written (a frame changes none of it).
+    struct ClockState: Equatable {
+        var subject: PlazaSpriteSubjectKey
+        var frames: Int, loading: Bool, energySaver: Bool, gifOn: Bool
+        var active: Bool, visible: Bool, displayAsleep: Bool, locked: Bool, disconnected: Bool
+        var floor: TimeInterval
+
+        var moving: Bool { gifOn && active && frames > 1 }
+
+        /// The one reason a hatched pet stands still, first match (nil while it moves or for the egg, which has no GIF).
+        var stillReason: String? {
+            guard let species = subject.speciesID, !moving else { return nil }
+            if energySaver { return "Energy saver is on (Windows' battery or energy saver, as the Mac's Low Power Mode)" }
+            if !gifOn { return "animation is off for the pet" }
+            if !active {
+                let why = [!visible ? "not shown" : nil, displayAsleep ? "displays asleep" : nil, locked ? "session locked" : nil,
+                           disconnected ? "session disconnected" : nil].compactMap { $0 }
+                return "the clock is stopped (\(why.isEmpty ? "hidden" : why.joined(separator: ", ")))"
+            }
+            if !PokemonAssets.hasAnimatedSprite(speciesID: species) { return "#\(species) has no animated sprite (Gen V GIFs end at #649)" }
+            if loading { return "its GIF is loading" }
+            if frames == 1 { return "its GIF has one frame at the \(floor) s floor" }
+            return "no GIF for #\(species) yet (the download failed; asked again every 2-30 s)"
+        }
+    }
+    private(set) var loggedClock: ClockState?
+    /// The clock check (a one-shot Win32 timer, not a Foundation one: it must fire even if the animation clock's timers do not).
+    static let clockCheckTimerID: UINT_PTR = 0x5054   // "PT"
+    static let clockCheckDelayMs: UINT = 10_000
+    private var clockCheck: (since: Date, ticks: Int, fires: Int, arms: Int)?
+    private(set) var clockChecks: [String] = []
+
+    /// One line in the app's log when what keeps the pet moving or still changes: the state and its inputs (never per frame).
+    func noteClock() {
+        guard !isDestroyed, revealed, let pet, let sprite = playback.models.first else { return }
+        let state = ClockState(subject: model.subject, frames: sprite.frames.count, loading: sprite.isLoading, energySaver: !model.animated,
+                               gifOn: playback.animationsEnabled, active: playback.isActive, visible: IsWindowVisible(hwnd),
+                               displayAsleep: pet.displayAsleep(), locked: locked, disconnected: disconnected, floor: model.frameFloor)
+        guard state != loggedClock else { return }
+        loggedClock = state
+        // Moving: whether the clock really runs is told ~10 s later by a Win32 timer (`checkClock`), once per change.
+        if state.moving {
+            clockCheck = (Date(), playback.ticks, playback.clock.fireCount, playback.clock.armCount)
+            _ = SetTimer(hwnd, Self.clockCheckTimerID, Self.clockCheckDelayMs, nil)
+        } else if clockCheck != nil {
+            clockCheck = nil
+            _ = KillTimer(hwnd, Self.clockCheckTimerID)
+        }
+        var status = SYSTEM_POWER_STATUS()
+        let power = GetSystemPowerStatus(&status)
+            ? withUnsafeBytes(of: status) { "SYSTEM_POWER_STATUS bytes \($0.prefix(4).map { String(format: "%02X", $0) }.joined(separator: " ")) (ACLineStatus=\($0[0]) BatteryFlag=\($0[1]) BatteryLifePercent=\($0[2]) SystemStatusFlag=\($0[3]))" }
+            : "GetSystemPowerStatus failed (\(GetLastError()))"
+        let what = state.moving ? "moving (\(state.frames) frames at the \(state.floor) s floor)"
+            : state.subject.speciesID == nil ? "an egg (no GIF)" : "still: \(state.stillReason ?? "")"
+        let session = WinFloatingPet.sessionRaw()
+        AppLog.write("floating pet: \(what); #\(state.subject.speciesID.map(String.init) ?? "egg") frames=\(state.frames) loading=\(state.loading) "
+                     + "GIF asks=\(sprite.gifAsks) energy saver=\(state.energySaver) (\(power)) Show animations=\(pet.animationsEnabled()) "
+                     + "clock=\(state.active) visible=\(state.visible) displays asleep=\(state.displayAsleep) locked=\(state.locked) "
+                     + "disconnected=\(state.disconnected) (SessionFlags=0x\(String(session.flags, radix: 16)) SessionState=\(session.state) "
+                     + "input desktop=\(session.desktop))")
+    }
+    // --- fix/windows-pet-still (end) ---
 
     // MARK: - placement
 
@@ -572,6 +645,11 @@ import WinSDK
         }
         w.on(0x0215 /* WM_CAPTURECHANGED */) { [weak self] _, _ in
             self?.captureLost()
+            return 0
+        }
+        w.on(0x0113 /* WM_TIMER */) { [weak self] wParam, _ in   // fix/windows-pet-still: the clock check
+            guard let self, UINT_PTR(wParam) == Self.clockCheckTimerID else { return nil }
+            self.checkClock()
             return 0
         }
         w.on(0x02A3 /* WM_MOUSELEAVE */) { [weak self] _, _ in
@@ -1107,7 +1185,23 @@ import WinSDK
         window.destroy()
     }
 
+    /// The clock check's one fire: how often the animation clock fired and the frames it drew since the pet began to move.
+    private func checkClock() {
+        _ = KillTimer(hwnd, Self.clockCheckTimerID)
+        guard let check = clockCheck, !isDestroyed else { return }
+        clockCheck = nil
+        let seconds = Date().timeIntervalSince(check.since)
+        let due = playback.clock.armedDue.map { String(format: "%.2f", $0.timeIntervalSinceNow) } ?? "none"
+        let line = "floating pet: clock check after \(String(format: "%.1f", seconds)) s: \(playback.clock.fireCount - check.fires) clock fires, "
+            + "\(playback.ticks - check.ticks) ticks, \(playback.clock.armCount - check.arms) arms; armed=\(playback.clock.isArmed) next due in \(due) s, "
+            + "active=\(playback.isActive) frame floor \(model.frameFloor) s"
+        clockChecks.append(line)
+        AppLog.write(line + (playback.clock.fireCount == check.fires ? " — THE CLOCK NEVER FIRED" : ""))
+    }
+
     private func release() {
+        _ = KillTimer(hwnd, Self.clockCheckTimerID)   // fix/windows-pet-still
+        clockCheck = nil
         playback.release()
         if sessionNotify { _ = ptb_window_session_notify(UnsafeMutableRawPointer(hwnd), 0) }
         sessionNotify = false

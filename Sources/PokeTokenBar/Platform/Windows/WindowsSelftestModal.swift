@@ -310,8 +310,7 @@ extension WindowsSelftest {
             r.add("modalPump.exitInMenu", ready && code == 0 && saved,
                   "child holds a menu, WindowsApp.exit scheduled on the main queue 0.5 s after it opened, Escape only at 4 s: exit=\(describe(code)) "
                     + "(0 = the exit ran inside the menu; 5 = the menu returned first) setting_on_disk=\(saved) ready=\(ready) escape=\(escape)")
-            app.defaults.removeObject(forKey: key)
-            WinDefaultsSync.flushNow()
+            WindowsSelftest.removeChildKeys([key], from: app.defaults)   // fix/windows-pet-still: the child wrote it
         } catch {
             r.add("modalPump.exitInMenu", false, "\(error)")
         }
