@@ -121,9 +121,12 @@ import Foundation
             if let tip { tips.append(PlazaTooltip(frame: rect, text: tip)) }
         }
         func cardBackground(_ top: CGFloat, _ h: CGFloat) {
-            ops.append(Op(y: top, h: h) { canvas, space, off in
-                p.roundedRect(CGRect(x: 0, y: top + off, width: cw, height: h), radius: 9, fill: PopoverColorRole.secondary.plazaShapeColor(alpha: 0.07), stroke: nil, lineWidth: 0, canvas: canvas, space: space)
-            })
+            // First, under everything the card holds. It is called once the card's height is known, after its content was laid out;
+            // while the Mac's tint was translucent (7 %) painting it over the content hid nothing, but Windows' card fill is opaque
+            // (`plazaTileColor`) and would cover the text and bars (the K1 detail page went blank white).
+            ops.insert(Op(y: top, h: h) { canvas, space, off in
+                p.roundedRect(CGRect(x: 0, y: top + off, width: cw, height: h), radius: 9, fill: PopoverColorRole.secondary.plazaTileColor(alpha: 0.07), stroke: nil, lineWidth: 0, canvas: canvas, space: space)
+            }, at: 0)
         }
         func statRow(_ s: DexDetailModel.Stat, scale: Int, x: CGFloat, y: CGFloat, width w: CGFloat) -> CGFloat {
             let h = max(20, p.metrics(f.stat).height)   // ProgressView's own height sets the Mac row's

@@ -54,6 +54,27 @@ final class WinTextFonts: @unchecked Sendable {
 
     deinit { if let handle { ptb_text_engine_release(handle) } }
 
+    /// The locale text formats are made with from now on (the app language: the system fallback picks Han and kana glyph forms
+    /// by it, so Japanese kanji are not drawn in Korean forms). Default "ko-kr".
+    func setLocale(_ name: String) {
+        guard let handle else { return }
+        _ = name.withCString(encodedAs: UTF16.self) { ptb_text_engine_set_locale(handle, $0) }
+    }
+
+    /// BCP 47 locale of an app language for DirectWrite.
+    static func locale(for language: AppLanguage) -> String {
+        switch language {
+        case .ko: "ko-kr"
+        case .ja: "ja-jp"
+        case .es: "es-es"
+        case .fr: "fr-fr"
+        case .pt: "pt-br"
+        case .de: "de-de"
+        case .ru: "ru-ru"
+        case .en: "en-us"
+        }
+    }
+
     /// The engine's number, weight and size for a plaza font: Galmuri11 / Galmuri14 for `.plaza`, Pretendard for `.system`,
     /// Segoe UI Emoji for `.emoji` (spec §5: the Mac's system font and Apple Color Emoji cannot ship on Windows).
     static func spec(_ font: PlazaFont) -> (font: Int32, weight: Int32, size: Double) {

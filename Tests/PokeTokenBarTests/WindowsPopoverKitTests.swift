@@ -19,19 +19,23 @@ final class WindowsPopoverKitTests: XCTestCase {
         return withUnsafeBytes(of: &copy.lfFaceName) { String(decoding: $0.bindMemory(to: UInt16.self).prefix { $0 != 0 }, as: UTF16.self) }
     }
 
-    func testFontsAreTheMacSizesAtEachDPI() async {
-        for (dpi, body, caption, large) in [(UINT(96), Int32(-13), Int32(-10), Int32(-28)), (120, -16, -13, -35), (144, -20, -15, -42), (192, -26, -20, -56)] {
+    // K1: the Windows ramp's sizes (body 14, caption 12, total 28 semibold) at each DPI: `WinTypeRamp`, one step above the Mac's points.
+    func testFontsAreTheWindowsRampAtEachDPI() async {
+        let previous = WinFonts.semiboldIsBold
+        WinFonts.semiboldIsBold = false  // another test's Korean page may have set it
+        defer { WinFonts.semiboldIsBold = previous }
+        for (dpi, body, caption, large) in [(UINT(96), Int32(-14), Int32(-12), Int32(-28)), (120, -18, -15, -35), (144, -21, -18, -42), (192, -28, -24, -56)] {
             let fonts = WinFonts(dpi: dpi, textScale: 1)
             defer { fonts.destroy() }
             XCTAssertEqual(logFont(fonts.font(.body)).lfHeight, body, "body at \(dpi)")
             XCTAssertEqual(logFont(fonts.font(.caption)).lfHeight, caption, "caption at \(dpi)")
-            XCTAssertEqual(logFont(fonts.font(.largeBold)).lfHeight, large, "28 pt bold at \(dpi)")
-            XCTAssertEqual(logFont(fonts.font(.largeBold)).lfWeight, 700)
+            XCTAssertEqual(logFont(fonts.font(.largeBold)).lfHeight, large, "28 DIP semibold at \(dpi)")
+            XCTAssertTrue([400, 600].contains(logFont(fonts.font(.largeBold)).lfWeight), "semibold (its own family, or weight 600), never 700")
             XCTAssertEqual(faceName(logFont(fonts.font(.body))), fonts.face)
         }
         let scaled = WinFonts(dpi: 96, textScale: 1.5)
         defer { scaled.destroy() }
-        XCTAssertEqual(logFont(scaled.font(.body)).lfHeight, -20, "Windows' text size scales every font")
+        XCTAssertEqual(logFont(scaled.font(.body)).lfHeight, -21, "Windows' text size scales every font")
         print("POPOVER-FONTS face=\(scaled.face) icons=\(scaled.iconFace)")
     }
 
@@ -47,6 +51,9 @@ final class WindowsPopoverKitTests: XCTestCase {
     }
 
     func testSemiboldIsItsOwnFamilyAndMediumDrawsRegular() async {
+        let previous = WinFonts.semiboldIsBold
+        WinFonts.semiboldIsBold = false
+        defer { WinFonts.semiboldIsBold = previous }
         XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 700).1, 700)
         XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 500).1, 400)
         let semibold = WinFonts.face(base: "Segoe UI", weight: 600)
@@ -123,10 +130,13 @@ final class WindowsPopoverKitTests: XCTestCase {
             }
         }
         let light = WinUIColors.resolve(highContrast: false, accent: nil, system: system)
-        XCTAssertEqual(light.window, WinUIColors.rgb(255, 255, 255))
-        XCTAssertEqual(light.card, WinUIColors.rgb(244, 244, 244), "one step (4.5 %) darker than the window")
-        XCTAssertEqual(light.secondaryText, WinUIColors.rgb(78, 78, 78), "black at Windows' 68 % over the card (the Mac's 49.8 % was too faint: PopoverLabelContrastTests)")
-        XCTAssertEqual(light.tertiaryText, WinUIColors.rgb(110, 110, 110), "black at Windows' 55 % over the card (the Mac's 25.9 % read as white on white)")
+        XCTAssertEqual(light.window, WinUIColors.rgb(0xF3, 0xF3, 0xF3), "WinUI SolidBackgroundFillColorBase, not COLOR_WINDOW (K1 layering)")
+        XCTAssertEqual(light.card, WinUIColors.rgb(255, 255, 255), "white cards on the grey base, as Windows 11 and the Mac")
+        XCTAssertEqual(light.cardBorder, WinUIColors.rgb(229, 229, 229), "black 5.9 % over the base")
+        XCTAssertEqual(light.text, WinUIColors.rgb(37, 37, 37), "the Mac's 84.7 % black over the base, not pure COLOR_WINDOWTEXT")
+        XCTAssertEqual(light.secondaryText, WinUIColors.rgb(78, 78, 78), "black at Windows' 68 % over the base (the Mac's 49.8 % was too faint: PopoverLabelContrastTests)")
+        XCTAssertEqual(light.tertiaryText, WinUIColors.rgb(107, 107, 107), "black at Windows' 56 % over the base (the Mac's 25.9 % read as white on white)")
+        XCTAssertGreaterThanOrEqual(PopoverSurface.contrast(WinUIColors.rgb(of: light.tertiaryText), WinUIColors.rgb(of: light.window)), 4.74)
         XCTAssertEqual(light.accent, WinUIColors.systemBlue, "no Windows accent: the Mac's systemBlue")
         XCTAssertEqual(WinUIColors.resolve(highContrast: false, accent: WinUIColors.rgb(9, 8, 7), system: system).accent, WinUIColors.rgb(9, 8, 7))
         let hc = WinUIColors.resolve(highContrast: true, accent: WinUIColors.rgb(9, 8, 7), system: system)
@@ -161,6 +171,46 @@ final class WindowsPopoverKitTests: XCTestCase {
         XCTAssertEqual(both.window, WinUIColors.rgb(255, 255, 255), "high contrast wins: the system's colours")
         XCTAssertEqual(WinUIColors.colorref(0xFF8040), WinUIColors.rgb(0xFF, 0x80, 0x40))
         XCTAssertEqual(WinUIColors.rgb(of: WinUIColors.colorref(0x123456)), 0x123456)
+    }
+
+    /// Korean and Japanese ask GDI for bold where Windows draws semibold, so the linked Malgun Gothic / Yu Gothic UI is bold too.
+    func testSemiboldIsBoldOnlyWhereHangulAndKanaLinkTheBoldFace() async {
+        let previous = WinFonts.semiboldIsBold
+        defer { WinFonts.semiboldIsBold = previous }
+        WinFonts.semiboldIsBold = true
+        XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 600).1, 700)
+        XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 600).0, "Segoe UI", "the plain family, not the Semibold one")
+        XCTAssertEqual(WinFonts.face(base: "Segoe UI", weight: 400).1, 400)
+        WinFonts.semiboldIsBold = false
+        XCTAssertNotEqual(WinFonts.face(base: "Segoe UI", weight: 600).1, 700)
+    }
+
+    /// K1: the Windows ramp is its own table; the Mac's (`PopoverTextStyle`, the golden) is not touched.
+    func testTheWindowsTypeRampStepsAboveTheMacsAndKeepsSemiboldForBold() async {
+        let previous = WinFonts.semiboldIsBold
+        WinFonts.semiboldIsBold = false
+        defer { WinFonts.semiboldIsBold = previous }
+        let ramp: [(PopoverTextStyle, CGFloat, Int)] = [(.caption, 12, 400), (.caption2, 12, 400), (.callout, 13, 400), (.body, 14, 400),
+                                                       (.headline, 14, 600), (.title3, 16, 400), (.largeBold, 28, 600)]
+        for (style, size, weight) in ramp {
+            XCTAssertEqual(WinTypeRamp.step(style), WinTypeRamp.Step(size: size, weight: weight), "\(style)")
+            XCTAssertGreaterThanOrEqual(WinTypeRamp.step(style).size, style.size, "\(style) is not below the Mac's points")
+        }
+        XCTAssertEqual(WinTypeRamp.weight(700), 600, "bold is semibold on Windows")
+        XCTAssertEqual(WinTypeRamp.weight(500), 400, "GDI has no medium")
+        XCTAssertEqual([10, 12, 13, 20, 28].map { WinTypeRamp.optical(size: CGFloat($0)) }, [.small, .small, .text, .display, .display])
+        XCTAssertEqual([9, 10, 11, 13, 14, 20].map { WinTypeRamp.drawnSize(CGFloat($0)) }, [11, 12, 12, 14, 14, 20])
+        XCTAssertEqual(WinTypeRamp.drawnWeight(.bold), .semibold)
+        XCTAssertEqual(WinTypeRamp.drawnWeight(.regular), .regular)
+        XCTAssertEqual(WinPopoverTextEngine.mapped(.system(size: 10, weight: .bold)), .system(size: 12, weight: .semibold))
+        XCTAssertEqual(WinPopoverTextEngine.mapped(.mono(size: 10, weight: .bold)), .mono(size: 10, weight: .bold), "the recap LCD keeps its font")
+        XCTAssertEqual(WinPopoverTextEngine.mapped(.plaza(.small)), .plaza(.small), "the plaza is not mapped")
+        let fonts = WinFonts(dpi: 96, textScale: 1)
+        defer { fonts.destroy() }
+        XCTAssertEqual(logFont(fonts.font(.body)).lfHeight, -14)
+        XCTAssertEqual(logFont(fonts.font(.caption)).lfHeight, -12)
+        XCTAssertNotEqual(logFont(fonts.font(.largeBold)).lfWeight, 700, "semibold, never bold")
+        XCTAssertEqual(fonts.height(.callout), -13)
     }
 
     func testSlidersAndSteppersSnapToTheirStep() async {

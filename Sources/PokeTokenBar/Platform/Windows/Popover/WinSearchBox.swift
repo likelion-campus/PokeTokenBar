@@ -60,7 +60,7 @@ import WinSDK
         guard w > 0, h > 0 else { return }
         let pen = CreatePen(0 /* PS_SOLID */, max(1, ctx.px(1) / 2), colors.palette.cardBorder)
         let oldPen = SelectObject(dc, UnsafeMutableRawPointer(pen))
-        let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(colors.brush(colors.palette.window)))
+        let oldBrush = SelectObject(dc, UnsafeMutableRawPointer(colors.brush(colors.palette.field)))  // the edit's own colour (white in light)
         let radius = 2 * ctx.px(6)
         _ = RoundRect(dc, 0, 0, w, h, radius, radius)
         _ = SelectObject(dc, oldBrush)

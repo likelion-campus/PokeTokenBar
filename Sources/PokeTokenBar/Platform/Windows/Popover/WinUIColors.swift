@@ -2,8 +2,8 @@
 import Foundation
 import WinSDK
 
-/// The popover's colours (stage 7 D15, Task 16). Light: the window in `COLOR_WINDOW`, cards one step darker, text in
-/// `COLOR_WINDOWTEXT`. Dark (`AppsUseLightTheme` = 0): `PopoverSurface.darkWindow`, cards one step lighter, text white at the
+/// The popover's colours (stage 7 D15, Task 16). Light: the window #F3F3F3, cards white, text black at the Mac's
+/// primary opacity. Dark (`AppsUseLightTheme` = 0): `PopoverSurface.darkWindow`, cards one step lighter, text white at the
 /// Mac's primary opacity, the Mac's dark values for status colours and the heatmap. Text colours below are the light case: secondary and tertiary text and the card's lines at Windows' label opacities
 /// (`PopoverLabelOpacity.secondary/tertiary(_, windows: true)`: the Mac's, raised for contrast) over the card. High contrast overrides nothing: every role is a system
 /// colour and the native controls draw themselves. Brushes are made on first use and freed by `destroy`.
@@ -35,9 +35,6 @@ import WinSDK
 
     /// The Mac's systemBlue in light (sRGB 0, 122, 255): the accent when Windows has none set.
     nonisolated static let systemBlue: COLORREF = 0x00FF_7A00
-    /// How much darker than the window a card is.
-    nonisolated static let cardStep = 0.045
-
     let highContrast: Bool
     /// Dark mode (never together with high contrast: that is the system's own colours).
     let dark: Bool
@@ -77,16 +74,23 @@ import WinSDK
                            field: blend(w, white, PopoverSurface.darkFieldStep),
                            disabled: blend(w, white, PopoverSurface.darkDisabledAlpha))
         }
-        let card = blend(window, rgb(0, 0, 0), cardStep)
-        return Palette(window: window, card: card,
-                       cardBorder: blend(card, rgb(0, 0, 0), PopoverLabelOpacity.separator * 0.6),
-                       divider: blend(card, rgb(0, 0, 0), PopoverLabelOpacity.separator),
-                       text: text,
-                       secondaryText: blend(card, text, PopoverLabelOpacity.secondary(.light, windows: true)),
-                       tertiaryText: blend(card, text, PopoverLabelOpacity.tertiary(.light, windows: true)),
+        // Light layering (visual polish K1), as Windows 11 and the Mac: white cards on a grey base. Values are Microsoft's WinUI
+        // theme resources (microsoft/microsoft-ui-xaml, controls/dev/CommonStyles/Common_themeresources_any.xaml, Light):
+        // SolidBackgroundFillColorBase #F3F3F3, CardStrokeColorDefault #0F000000 (black 6 %; ours 5.9 % = the Mac's separator
+        // x 0.6), DividerStrokeColorDefault #0F000000. The card is plain white (the Mac's controlBackgroundColor; WinUI's
+        // CardBackgroundFillColorDefault #B3FFFFFF is white 70 % over the base, nearly the same). Text is the Mac's black 84.7 %
+        // (WinUI's TextFillColorPrimary is #E4000000, 89 %) and Windows' raised secondary/tertiary opacities over the BASE, the
+        // darkest surface text sits on, so the contrast measured on the base is the floor (cards are lighter).
+        let base = rgb(0xF3, 0xF3, 0xF3), white = rgb(255, 255, 255), black = rgb(0, 0, 0)
+        return Palette(window: base, card: white,
+                       cardBorder: blend(base, black, PopoverLabelOpacity.separator * 0.6),
+                       divider: blend(white, black, PopoverLabelOpacity.separator),
+                       text: blend(base, black, PopoverLabelOpacity.primary),
+                       secondaryText: blend(base, black, PopoverLabelOpacity.secondary(.light, windows: true)),
+                       tertiaryText: blend(base, black, PopoverLabelOpacity.tertiary(.light, windows: true)),
                        accent: accent ?? systemBlue,
-                       pressed: blend(card, text, 0.14), hot: blend(card, text, 0.07),
-                       field: window, disabled: system(17 /* COLOR_GRAYTEXT */))
+                       pressed: blend(white, black, 0.14), hot: blend(white, black, 0.07),
+                       field: white, disabled: system(17 /* COLOR_GRAYTEXT */))
     }
 
     /// The orange of warnings, notice glyphs and the footer triangle: the light value the page always used (255, 149, 0), the Mac's

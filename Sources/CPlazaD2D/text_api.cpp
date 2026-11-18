@@ -57,6 +57,12 @@ int ptb_text_engine_finish(PTBTextEngine *e) {
 
 void ptb_text_engine_release(PTBTextEngine *e) { delete E(e); }
 
+int ptb_text_engine_set_locale(PTBTextEngine *e, const uint16_t *name) {
+    if (!e || !name) return ptb::fail("ptb_text_engine_set_locale", E_INVALIDARG);
+    E(e)->setLocale(W(name));
+    return 0;
+}
+
 int ptb_text_font_info(PTBTextEngine *e, int font, int weight, double size, PTBFontInfo *out, uint16_t *family, uint32_t familyCap,
                        uint16_t *face, uint32_t faceCap) {
     if (!e || !out) return ptb::fail("ptb_text_font_info", E_INVALIDARG);
