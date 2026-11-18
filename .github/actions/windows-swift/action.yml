@@ -9,6 +9,9 @@ runs:
         swift-build: 6.3.2-RELEASE
     - run: swift --version
       shell: bash
+    - name: MSVC toolset (the newest whose STL accepts Swift's clang)
+      shell: pwsh
+      run: ${{ github.workspace }}/scripts/windows/select-msvc-toolset.ps1
     - id: vcpkg-cache
       uses: actions/cache@v4
       with:
