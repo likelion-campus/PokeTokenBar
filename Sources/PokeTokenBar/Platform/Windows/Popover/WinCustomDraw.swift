@@ -404,6 +404,29 @@ struct WinLook {
         drawFieldFrame(c, dc, width: wr.right - wr.left, height: wr.bottom - wr.top, focused: GetFocus() == hwnd || c.testFocus != nil)
     }
 
+    /// `body` on a memory bitmap of `r` (at the origin) filled with `background`, copied to `dc` in one blit: the painter blends over what
+    /// the DC holds, so the frame's corners are laid over the card colour, and the blit honours the DC's clip (the text area is excluded).
+    private static func buffered(_ dc: HDC, _ r: RECT, background: HBRUSH?, _ body: (HDC) -> Void) {
+        let w = r.right - r.left, h = r.bottom - r.top
+        guard w > 0, h > 0, let mem = CreateCompatibleDC(dc) else { body(dc); return }
+        defer { _ = DeleteDC(mem) }
+        var info = BITMAPINFO()
+        info.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
+        info.bmiHeader.biWidth = r.right
+        info.bmiHeader.biHeight = -r.bottom
+        info.bmiHeader.biPlanes = 1
+        info.bmiHeader.biBitCount = 32
+        var bits: UnsafeMutableRawPointer?
+        guard let bitmap = CreateDIBSection(dc, &info, 0, &bits, nil, 0), bits != nil else { body(dc); return }
+        defer { _ = DeleteObject(UnsafeMutableRawPointer(bitmap)) }
+        let old = SelectObject(mem, UnsafeMutableRawPointer(bitmap))
+        defer { _ = SelectObject(mem, old) }
+        var fill = r
+        _ = FillRect(mem, &fill, background)
+        body(mem)
+        _ = BitBlt(dc, r.left, r.top, w, h, mem, r.left, r.top, DWORD(SRCCOPY))
+    }
+
     /// The field's rounded hairline frame and, while it has the keyboard, the focus ring; painted into the padding only (the text area
     /// is excluded, so the text is never erased). High contrast: a 1 px frame in the text colour. `dc` has the window's origin.
     static func drawFieldFrame(_ c: WinControl, _ dc: HDC, width w: Int32, height h: Int32, focused: Bool) {
@@ -417,7 +440,7 @@ struct WinLook {
         let colors = c.ctx.colors
         let high = c.ctx.highContrast
         let edge = high ? look.palette.text : look.mix(look.bg, look.dark ? 0.40 : 0.30)
-        WinPaint.buffered(dc, whole, background: colors.brush(c.background)) { mem in
+        buffered(dc, whole, background: colors.brush(c.background)) { mem in
             WinPaint.roundedRect(mem, whole, radius: look.ipx(4), fill: ink(look.palette.field), stroke: ink(edge), strokeWidth: Int32(look.hairlinePx),
                                  under: c.background, ctx: c.ctx)
             if focused {
