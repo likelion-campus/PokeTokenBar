@@ -1526,6 +1526,15 @@ function refreshAllLocked() {
     pullEnterprise(ss, nowMs, tz);
   } catch (e) {
     console.error("pullEnterprise failed: " + (e && e.message));
+    try {
+      var prev = entReadStatus() || {};
+      PropertiesService.getDocumentProperties().setProperty(ENT_STATUS_PROP, JSON.stringify({
+        lastRunMs: prev.lastRunMs || null, newestDate: prev.newestDate || null,
+        error: entCut("불러오기 실패: " + (e && e.message))
+      }));
+    } catch (e2) {
+      console.error("recording the pull failure failed: " + (e2 && e2.message));
+    }
   }
   var data = readAll(ss, tz);
   withScriptLock(function () { writeSuggestedTeamNames(ss, data); });

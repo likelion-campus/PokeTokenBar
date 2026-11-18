@@ -174,13 +174,21 @@ test("renderEnterpriseSection: no data writes only the title and status rows", (
   assert.equal(sheet.getCharts().length, 0);
 });
 
-test("renderEnterpriseSection: no chart without departments, and API-derived text is written as text", () => {
-  const e = ent([use("2026-11-02", "u", "=HYPERLINK(1)@x.com", 3, 0)], { u: { email: "=HYPERLINK(1)@x.com", dept: "" } },
-    { status: { lastRunMs: null, newestDate: null, error: "=1+1" } });
+test("renderEnterpriseSection: no chart without departments", () => {
+  const e = ent([use("2026-11-02", "u", "u@x.com", 3, 0)], { u: { email: "u@x.com", dept: "" } });
   const { sheet } = render(e, "thisMonth", 10);
   assert.equal(sheet.getCharts().length, 0);
+});
+
+test("renderEnterpriseSection: API-derived text is written as text, not as formulas", () => {
+  const e = ent([use("2026-11-02", "u", "=HYPERLINK(1)@x.com", 3, 0)], { u: { email: "=HYPERLINK(1)@x.com", dept: "개발" } },
+    { status: { lastRunMs: null, newestDate: null, error: "=1+1" } });
+  const { sheet } = render(e, "thisMonth", 10);
+  // top list: header at row 17, first person at row 18, column F
+  assert.equal(typeof cell(sheet, 18, 6), "string");
+  assert.equal(cell(sheet, 18, 6), "=HYPERLINK(1)");
+  assert.equal(typeof cell(sheet, 11, 1), "string");
   assert.equal(cell(sheet, 11, 1), "아직 불러오지 못했습니다 · 오류: =1+1");
-  assert.ok(!(typeof cell(sheet, 11, 1) === "object"), "the status line is text, not a formula");
 });
 
 test("refreshAll: a pull that throws on every fetch still renders everything and records the error", () => {
@@ -200,10 +208,19 @@ test("refreshAll: a pull that throws on every fetch still renders everything and
   assert.equal(S2.fakes.lockStats.released, S2.fakes.lockStats.acquired);
 });
 
-test("refreshAll: an unexpected throw from pullEnterprise never stops the dashboards", () => {
+test("refreshAll: an unexpected throw from pullEnterprise never stops the dashboards and shows on the sheet", () => {
   const S2 = loadScript();
+  S2.fakes.props.doc.enterprise_status = JSON.stringify({ lastRunMs: 5, newestDate: "2026-11-15", error: null });
   S2.pullEnterprise = () => { throw new Error("unexpected"); };
-  S2.refreshAll();
+  const calls = [];
+  const orig = console.error;
+  console.error = (m) => calls.push(m);
+  try { S2.refreshAll(); } finally { console.error = orig; }
+  assert.equal(calls.length, 1);
+  const status = JSON.parse(S2.fakes.props.doc.enterprise_status);
+  assert.equal(status.error, "불러오기 실패: unexpected");
+  assert.equal(status.lastRunMs, 5);
+  assert.equal(status.newestDate, "2026-11-15");
   assert.ok(S2.fakes.ss.getSheetByName("이번 달").getLastRow() > 0);
   assert.equal(S2.fakes.lockStats.docHeld, false);
 });
