@@ -323,7 +323,7 @@ private func winPaintSpyQueued(_ code: Int32, _ wParam: WPARAM, _ lParam: LPARAM
         s.arrived = await WindowsSelftest.waitUntil(timeout: 5) { until() }
         await wait(1.5)   // the page's queued passes, its paints
         s.spy = WinPaintSpy.counts
-        s.frameNotes = WinPaintSpy.frameDetail.enumerated().map { "f\($0.offset): " + $0.element.sorted { $0.key < $1.key }.map { "\($0.key) x\($0.value)" }.joined(", ") }.joined(" | ")
+        s.frameNotes = WinPaintSpy.frameDetail.enumerated().map { "f\($0.offset): " + $0.element.sorted { $0.key < $1.key }.map { "\($0.key) x\($0.value)" }.joined(separator: ", ") }.joined(separator: " | ")
         s.painter = "painter \(WinPaint.binds - binds0) binds \(Int((WinPaint.bindMs - bindMs0).rounded())) ms"
         WinPaintSpy.stop()
         s.report = WinOpenTrace.running

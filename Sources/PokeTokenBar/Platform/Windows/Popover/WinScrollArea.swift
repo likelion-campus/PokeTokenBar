@@ -353,7 +353,7 @@ import CPlazaD2D
         let right = r.right - ctx.px(Self.insetDIP)
         let box = RECT(left: right - width, top: Int32(t.top), right: right, bottom: Int32(t.bottom))
         // Opacities: Windows 11's overlay bar at rest, firmer under the pointer; high contrast is the text colour, solid.
-        let ink = hc ? WinPaint.Ink(color: pal.text) : WinPaint.Ink(color: tint, alpha: laneHot ? 0.55 : (ctx.dark ? 0.45 : 0.40))
+        let ink = hc ? WinPaint.Ink(color: pal.text) : WinPaint.Ink(color: tint, alpha: laneHot ? 0.55 : 0.45)
         WinPaint.roundedRect(dc, box, radius: width / 2, fill: ink, under: pal.window, ctx: ctx)
     }
 
