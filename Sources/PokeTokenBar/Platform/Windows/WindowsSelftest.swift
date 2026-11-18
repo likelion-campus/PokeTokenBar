@@ -133,6 +133,7 @@ enum WindowsSelftest {
         await popoverRecapChecks(r, app)  // stage 7 task 13 (WindowsSelftestPopoverRecap.swift): draws the card (Direct2D), so after the idle window; leaves no window behind
         await popoverPetChecks(r, app)  // stage 7 task 22 (WindowsSelftestPopoverPet.swift): the floating pet (its 🥚 draws through DirectWrite), so after the idle window; leaves no pet behind; before the Shop and Bag checks (its idle windows: run 44062168430 measured the process waking ~1.7 times a second after them, the pet hidden or still)
         await popoverPetExtrasChecks(r, app)  // stage 7 task 23 (WindowsSelftestPetExtras.swift): the pet's bubbles, hearts, prayers, hover and agents; leaves no pet, window or timer behind
+        await agentLinkChecks(r, app)  // stage 7 task 23 part b (WindowsSelftestAgentLink.swift): the poketokenbar: link; sandboxed (its own sink, copies of this exe), the registry read only
         await WindowsSelftestPopoverIdle.probe("before the tab pages")
         await popoverCollectionChecks(r, app)  // stage 7 task 20 (WindowsSelftestPopoverCollection.swift): the Collection tab; leaves no window behind
         await WindowsSelftestPopoverIdle.probe("after the Collection checks")
@@ -142,6 +143,7 @@ enum WindowsSelftest {
         await WindowsSelftestPopoverIdle.probe("after the tab strip checks")
         WindowsSelftestPopoverIdle.report(r)
         await popoverOpenCostChecks(r, app)  // settings-open (WindowsSelftestPopoverOpenCost.swift): Home -> Settings as the gear does it, measured; Direct2D, so after the idle window
+        await popoverSpriteShownCheck(r, app)  // fix/windows-popover-sprite-shown (WindowsSelftestPopoverSpriteShown.swift): the real popover's sprite clocks
         return r.checks
     }
 
@@ -959,11 +961,11 @@ enum WindowsSelftest {
             self.ready = ready
         }
 
-        static func start(_ arguments: [String], ready: Bool) throws -> Helper {
+        static func start(_ arguments: [String], ready: Bool, environment overrides: [String: String] = [:]) throws -> Helper {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: executablePath())
             process.arguments = arguments
-            var env = ProcessInfo.processInfo.environment
+            var env = ProcessInfo.processInfo.environment.merging(overrides) { $1 }   // stage 7 Task 23: a link start's own state folder
             var event: HANDLE?
             if ready {
                 let name = "Local\\PokeTokenBar-selftest-\(UUID().uuidString)"

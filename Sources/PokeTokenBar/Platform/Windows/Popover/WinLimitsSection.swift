@@ -96,7 +96,7 @@ extension WinHomePage {
         case .accountLabel(let s):
             section.addStyledRow(label: text(s, .caption, role: .secondary), style: .trailing)
         case .accountUsage(let today, let month):
-            let line = [today, month].map { ([$0.name, $0.tokens] + [$0.cost].compactMap { $0 }).joined(separator: " ") }.joined(separator: "    ")
+            let line = [today, month].map { ([$0.name, $0.tokens] + [$0.cost].compactMap { $0 }).joined(separator: "\u{00A0}") }.joined(separator: "    ")  // a name, its tokens and cost stay together
             section.addStyledRow(label: text(line, .caption, role: .secondary), style: .trailing)
         case .codexMeta(let m):
             section.addStyledRow(label: nil, style: .full) { pane, ctx in

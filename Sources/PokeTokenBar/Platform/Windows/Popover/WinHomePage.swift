@@ -68,6 +68,7 @@ import WinSDK
 
     private(set) var stack: WinStack?
     private var area: WinScrollArea?
+    var scrollAreaForTesting: WinScrollArea? { area }   // fix/windows-popover-sprite-shown: the real popover's sprite check
     /// A scroll area made by a test window is its own to destroy.
     private var ownsArea = true
     // --- pinned panes: the update offer and plaza button above, the footer below, as the Mac pins them (begin) ---
@@ -131,6 +132,7 @@ import WinSDK
     init(store: UsageStore, companion: CompanionStore, updater: UpdateChecker?, team: TeamSettings, feed: TeamFeedStore?,
          state: PopoverState, facts: PopoverPlatformFacts, openPlaza: (() -> Void)? = nil, perform: ((HomeAction) -> Void)? = nil,
          now: @escaping () -> Date = { Date() }) {
+        WinPopoverLanguage.apply(companion.language)
         self.store = store
         self.companion = companion
         self.updater = updater
@@ -691,8 +693,12 @@ import WinSDK
             section.addStyledRow(label: text(p.name, .headline), style: .trailing) { pane, ctx in
                 WinControls.label(total, style: .callout, role: .secondary, wraps: false, in: pane, ctx: ctx)
             }
-            let types = [p.input, p.output, p.cacheWrite, p.cacheRead].map { "\($0.name) \($0.tokens)" }.joined(separator: "    ")
-            section.addStyledRow(label: text(types, .caption, role: .secondary), style: .trailing)
+            // The Mac lays the four token types on two lines (input, output / cache write, cache read, `PopoverView.providerRow`). A
+            // name and its value never come apart: they are joined by a no-break space, so a narrow line wraps between pairs.
+            func pair(_ t: PeriodPair) -> String { "\(t.name)\u{00A0}\(t.tokens)" }
+            for line in [[p.input, p.output], [p.cacheWrite, p.cacheRead]] {
+                section.addStyledRow(label: text(line.map(pair).joined(separator: "    "), .caption, role: .secondary), style: .trailing)
+            }
             for line in p.models {
                 section.addStyledRow(label: text(line.name, .caption, role: .secondary, wraps: false), style: .trailing) { pane, ctx in
                     WinControls.label(line.tokens, style: .caption, role: .secondary, wraps: false, in: pane, ctx: ctx)

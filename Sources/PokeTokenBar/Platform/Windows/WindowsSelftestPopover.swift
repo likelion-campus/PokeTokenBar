@@ -327,7 +327,7 @@ extension WindowsSelftest {
         let fonts = w.ctx.fonts
         let body = logFont(fonts.font(.body)), large = logFont(fonts.font(.largeBold))
         // K1: the Windows ramp (WinTypeRamp): body 14 DIP, today total 28 DIP semibold (never bold) in the Display optical size.
-        let semiboldWeights: Set<Int32> = [400, 600]  // 400 in a "... Semibold" family, 600 in a family GDI has no semibold sibling of
+        let semiboldWeights: Set<Int32> = WinFonts.semiboldIsBold ? [700] : [400, 600]  // 400 in a "... Semibold" family, 600 where GDI has no semibold sibling; 700 for ko/ja (Hangul links the bold face)
         r.add("ui.kit.fonts", body.lfHeight == -Int32(PopoverTextStyle.pixels(14 * CGFloat(w.ctx.textScale), dpi: Int(w.ctx.dpi)))
               && large.lfHeight == -Int32(PopoverTextStyle.pixels(28 * CGFloat(w.ctx.textScale), dpi: Int(w.ctx.dpi))) && semiboldWeights.contains(large.lfWeight),
               "face=\(fonts.face) (Segoe UI Variable Text installed: \(WinFonts.isInstalled(WinFonts.variableText))) icons=\(fonts.iconFace) dpi=\(w.ctx.dpi) "

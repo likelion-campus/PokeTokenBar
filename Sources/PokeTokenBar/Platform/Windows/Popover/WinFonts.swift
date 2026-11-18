@@ -30,6 +30,10 @@ import WinSDK
     }
     private var made: [Key: HFONT] = [:]
     private static var installed: [String: Bool] = [:]
+    /// Korean and Japanese: GDI links Hangul and kana per request weight, and the "... Semibold" families are drawn at lfWeight 400, so
+    /// the linked Malgun Gothic / Yu Gothic UI came out REGULAR (page titles lost their weight). There semibold is asked as bold
+    /// (700) in the plain family, which links the bold faces. Set from the app language (`WinPopoverLanguage`).
+    static var semiboldIsBold = false
 
     init(dpi: UINT, textScale: Double) {
         self.dpi = dpi
@@ -124,6 +128,7 @@ import WinSDK
     static func face(base: String, weight: Int) -> (String, Int32) {
         if weight >= 650 { return (base, 700) }
         if weight >= 550 {
+            if semiboldIsBold { return (base, 700) }
             let semibold = base + " Semibold"
             return isInstalled(semibold) ? (semibold, 400) : (base, 600)
         }

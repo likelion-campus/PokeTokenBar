@@ -41,12 +41,39 @@ struct WinPopoverTextEngine: PlazaTextEngine {
         runs.map { PlazaTextRun(text: $0.text, font: Self.mapped($0.font), color: $0.color) }
     }
 
-    func metrics(_ font: PlazaFont) -> PlazaFontMetrics { base.metrics(Self.mapped(font)) }
-    func line(_ text: String, font: PlazaFont) -> PlazaTextLine { base.line(text, font: Self.mapped(font)) }
+    func metrics(_ font: PlazaFont) -> PlazaFontMetrics { WinPopoverLanguage.syncLocale(); return base.metrics(Self.mapped(font)) }
+    func line(_ text: String, font: PlazaFont) -> PlazaTextLine { WinPopoverLanguage.syncLocale(); return base.line(text, font: Self.mapped(font)) }
     func truncated(_ line: PlazaTextLine, width: CGFloat, ellipsis: PlazaTextLine) -> PlazaTextLine? { base.truncated(line, width: width, ellipsis: ellipsis) }
-    func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph { base.paragraph(text, font: Self.mapped(font), alignment: alignment) }
-    func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine] { base.wrappedLines(text, font: Self.mapped(font), width: width) }
-    func line(_ runs: [PlazaTextRun]) -> PlazaTextLine { base.line(mapped(runs)) }
-    func wrappedLines(_ runs: [PlazaTextRun], width: CGFloat) -> [PlazaTextLine] { base.wrappedLines(mapped(runs), width: width) }
+    func paragraph(_ text: String, font: PlazaFont, alignment: PlazaTextAlignment) -> PlazaParagraph { WinPopoverLanguage.syncLocale(); return base.paragraph(text, font: Self.mapped(font), alignment: alignment) }
+    func wrappedLines(_ text: String, font: PlazaFont, width: CGFloat) -> [PlazaTextLine] { WinPopoverLanguage.syncLocale(); return base.wrappedLines(text, font: Self.mapped(font), width: width) }
+    func line(_ runs: [PlazaTextRun]) -> PlazaTextLine { WinPopoverLanguage.syncLocale(); return base.line(mapped(runs)) }
+    func wrappedLines(_ runs: [PlazaTextRun], width: CGFloat) -> [PlazaTextLine] { WinPopoverLanguage.syncLocale(); return base.wrappedLines(mapped(runs), width: width) }
+}
+#endif
+
+#if os(Windows)
+/// What follows the app language in the popover's text: the DirectWrite format locale (Han and kana glyph forms) and whether GDI
+/// semibold is asked as bold (`WinFonts.semiboldIsBold`). The locale reaches the engine when drawn-part text is first made after it
+/// changed (`syncLocale`), so a page that has no drawn part never loads DirectWrite for it.
+enum WinPopoverLanguage {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var wanted = "ko-kr"
+    nonisolated(unsafe) private static var applied = "ko-kr"
+
+    @MainActor static func apply(_ language: AppLanguage) {
+        lock.lock()
+        wanted = WinTextFonts.locale(for: language)
+        lock.unlock()
+        WinFonts.semiboldIsBold = language == .ko || language == .ja
+    }
+
+    /// Called before text is made or measured for a drawn part.
+    static func syncLocale() {
+        lock.lock()
+        let change = wanted != applied ? wanted : nil
+        if let change { applied = change }
+        lock.unlock()
+        if let change { WinTextFonts.shared.setLocale(change) }
+    }
 }
 #endif

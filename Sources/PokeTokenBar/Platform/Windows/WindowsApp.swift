@@ -9,11 +9,22 @@ public enum WindowsApp {
     /// The process main thread (the selftest compares against it).
     nonisolated(unsafe) static var mainThreadID: DWORD = 0
 
+    /// The command line the app runs with: what `main` decided (stage 7 Task 23: a `poketokenbar:` link's start never gets here
+    /// with its own arguments). The one place Windows code reads its arguments from; reading `CommandLine.arguments` or
+    /// `ProcessInfo.processInfo.arguments` anywhere else is refused by `WindowsSeamScanTests` (the selftest's own files apart).
+    nonisolated(unsafe) private(set) static var launchArguments: [String] = []
+
     public static func main() -> Never {
+        // --- stage 7 Task 23: a `poketokenbar:` link (WinAgentLink) (begin) ---
+        // Before anything else, COM and the run loop included: a link's start reads nothing but the link, sets nothing up and
+        // ends (`WinAgentLink.handleStart`); every other start goes on with its arguments, which every later reader takes from
+        // `launchArguments`.
+        let arguments = MainActor.assumeIsolated { WinAgentLink.handleStart(CommandLine.arguments) }
+        launchArguments = arguments
+        // --- stage 7 Task 23 (end) ---
         WinCom.initializeUIThread()  // STA before anything touches COM (TSF, the IME and the emoji panel need it; stage 6 D16)
         _ = RunLoop.main  // first, before any window: Foundation's initializer turns on CF's message mask (F4)
         mainThreadID = GetCurrentThreadId()
-        let arguments = CommandLine.arguments
         // Synchronous top-level code on the main thread: the main actor's executor is this thread (F16).
         MainActor.assumeIsolated { () -> Never in run(arguments) }
     }
@@ -153,6 +164,12 @@ extension WindowsApp {
         crtExit(code)
     }
 
+    /// A `poketokenbar:` link's start ends here (stage 7 Task 23): it loaded no settings and made no crash marker, log, tray
+    /// or team, so there is nothing to save, and `exit` would flush settings it never read. The other caller of `crtExit`.
+    static func exitForLink() -> Never {
+        crtExit(0)
+    }
+
     /// The selftest's control case only (`defaults.control`): a plain `exit` that skips the sync, to show F2 holds.
     @MainActor static func exitWithoutSyncForF2Control(_ code: Int32) -> Never {
         crtExit(code)
@@ -228,6 +245,7 @@ private func crtExit(_ code: Int32) -> Never {
             self?.secondLaunch()  // stage 7 Task 4: the popover (ruling 3); was the "already running" balloon
             return 0
         }
+        WinAgentLink.install(on: sink) { WinFloatingPet.current?.handleAgentEvent($0) }  // stage 7 Task 23: links from a second start (nil pet: dropped, as on the Mac)
         if !WinMessageHook.install() { AppLog.write("text input stays ANSI: no WH_GETMESSAGE hook") }  // 7
         WinAppUserModelID.set()  // before any notification: the toast is attributed to the id the installer put on the shortcut
         Platform.current = WindowsPlatform.live(window: sink)  // 8
