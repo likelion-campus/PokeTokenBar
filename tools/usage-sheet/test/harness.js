@@ -22,7 +22,7 @@ function formatInZone(date, tz, pattern) {
 // Fakes are in-memory and only as wide as the script uses.
 //   SpreadsheetApp.getActiveSpreadsheet() -> one fake spreadsheet:
 //     getSheetByName, insertSheet, getSheets, deleteSheet
-//   Sheet: getName, getLastRow, getLastColumn, getMaxRows, insertRowsAfter, getRange(row, col, numRows?, numCols?) [strict about the 1000-row grid]
+//   Sheet: getName, getLastRow, getLastColumn, getMaxRows, getMaxColumns (26), deleteColumns, insertRowsAfter, getRange(row, col, numRows?, numCols?) [strict about the 1000-row grid]
 //     [getValues/setValues/setValue/setNumberFormat/clearContent], appendRow, hideSheet,
 //     isSheetHidden, setColumnWidth (sheet._widths), spreadsheet setActiveSheet/getActiveSheet/moveActiveSheet, sheet._ops (set/clear log), sheet._cellsRead, deleteRow, deleteRows, getCharts/insertChart/removeChart, newChart (recording builder),
 //     setFrozenRows, clear. Test-only inspection: sheet._rows, sheet._formats (col -> format).
@@ -40,7 +40,7 @@ function formatInZone(date, tz, pattern) {
 //     setProperty, deleteProperty), reachable as fakes.props.user / fakes.props.doc (plain objects).
 //   Utilities.sleep(ms): records into fakes.sleeps.
 //   SpreadsheetApp.getUi().prompt(title, msg, buttons) answers fakes.ui.next ({ button, text }); alert(msg) records
-//     into fakes.ui.alerts; ButtonSet.OK_CANCEL, Button.OK / Button.CANCEL. The chart builder has setNumHeaders(n).
+//     into fakes.ui.alerts; ButtonSet.OK_CANCEL, Button.OK / Button.CANCEL. The chart builder has setNumHeaders(n); build() throws when it was never called.
 // Later tasks extend the returned object with more fakes.
 // Like real Sheets, a string written by setValues is parsed as typed input unless the column is
 // plain text ("@") or the string starts with an apostrophe (stripped, stored as text).
@@ -56,7 +56,7 @@ function coerce(v, textFormat) {
 
 function makeSheet(name) {
   const sheet = {
-    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000, _cellsRead: 0, _ops: [], _widths: {},
+    _name: name, _rows: [], _hidden: false, _formats: {}, _charts: [], _frozen: 0, _maxRows: 1000, _maxCols: 26, _cellsRead: 0, _ops: [], _widths: {},
     getName: () => name,
     getLastRow() {
       for (let i = sheet._rows.length - 1; i >= 0; i--) {
@@ -70,6 +70,12 @@ function makeSheet(name) {
       return w;
     },
     getMaxRows: () => sheet._maxRows,
+    getMaxColumns: () => sheet._maxCols,
+    deleteColumns(start, howMany) {
+      if (start < 1 || howMany < 1 || start + howMany - 1 > sheet._maxCols) throw new Error("fake deleteColumns: bad range");
+      sheet._rows.forEach((r) => { if (r.length >= start) r.splice(start - 1, howMany); });
+      sheet._maxCols -= howMany;
+    },
     insertRowsAfter(after, n) { if (after > sheet._maxRows) throw new Error("fake insertRowsAfter: bad position"); sheet._maxRows += n; },
     getRange(row, col, numRows, numCols) {
       const nr = numRows === undefined ? 1 : numRows;
@@ -77,6 +83,7 @@ function makeSheet(name) {
       if (row < 1 || col < 1 || nr < 1 || nc < 1) throw new Error("fake getRange: bad coordinates");
       // Like real Sheets: a range past the grid throws (a new tab has 1000 rows).
       if (row + nr - 1 > sheet._maxRows) throw new Error("fake getRange: coordinates outside the dimensions");
+      if (col + nc - 1 > sheet._maxCols) throw new Error("fake getRange: columns outside the dimensions");
       return {
         _a1: { row, col, numRows: nr, numCols: nc },
         setFontWeight() { return this; },
@@ -139,7 +146,11 @@ function makeSheet(name) {
         setPosition(row, col, ox, oy) { chart.position = { row, col, offsetX: ox, offsetY: oy }; return b; },
         setOption(k, v) { chart.options[k] = v; return b; },
         setNumHeaders(n) { chart.numHeaders = n; return b; },
-        build() { return chart; },
+        build() {
+          // Real Sheets guesses the header count when it is unset and can drop the first data row (an empty bar).
+          if (chart.numHeaders === undefined) throw new Error("fake chart: setNumHeaders was never called");
+          return chart;
+        },
       };
       return b;
     },
