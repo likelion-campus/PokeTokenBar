@@ -57,6 +57,7 @@ import WinSDK
         guard !isDestroyed else { return }
         if view !== host { attach(host) }
         playback.animationsEnabled = animationsEnabled()
+        Self.noteAnimations(playback.animationsEnabled, slots: slots)   // fix/windows-pet-still
         playback.bobSteps = max(1, Int((PopoverSpriteModel.bobTravel * host.ctx.scale).rounded()))  // stage 7 Task 9
         playback.update(slots: slots)
         let live = Set(slots.indices)
@@ -262,6 +263,20 @@ import WinSDK
     }
 
     // MARK: - environment
+
+    // --- fix/windows-pet-still: why the popover's sprites stand still, in the user's log (begin) ---
+    @MainActor private static var loggedAnimations: Bool?
+    /// One line in the app's log when the popover's sprite animation turns on or off (the first animated slot shown, then each
+    /// change): off is Windows' "Show animations" (windows-differences: the Mac popover ignores Reduce Motion). Never per frame.
+    @MainActor static func noteAnimations(_ on: Bool, slots: [SpriteSlot]) {
+        guard slots.contains(where: { $0.animated }), on != loggedAnimations else { return }
+        loggedAnimations = on
+        var raw: Int32 = -1
+        let read = SystemParametersInfoW(0x1042 /* SPI_GETCLIENTAREAANIMATION */, 0, &raw, 0)
+        AppLog.write("popover sprites: " + (on ? "animate" : "stand still: Windows' \"Show animations\" is off (Settings > Accessibility > Visual effects > Animation effects)")
+                     + " (SPI_GETCLIENTAREAANIMATION read=\(read) value=\(raw))")
+    }
+    // --- fix/windows-pet-still (end) ---
 
     /// Windows' "Show animations in Windows" (`SPI_GETCLIENTAREAANIMATION`).
     static func systemAnimationsEnabled() -> Bool {

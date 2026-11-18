@@ -401,7 +401,8 @@ import WinSDK
         loggedClock = state
         var status = SYSTEM_POWER_STATUS()
         let power = GetSystemPowerStatus(&status)
-            ? withUnsafeBytes(of: status) { "ACLineStatus=\($0[0]) SystemStatusFlag=\($0[3])" } : "power status unread"
+            ? withUnsafeBytes(of: status) { "SYSTEM_POWER_STATUS bytes \($0.prefix(4).map { String(format: "%02X", $0) }.joined(separator: " ")) (ACLineStatus=\($0[0]) BatteryFlag=\($0[1]) BatteryLifePercent=\($0[2]) SystemStatusFlag=\($0[3]))" }
+            : "GetSystemPowerStatus failed (\(GetLastError()))"
         let what = state.moving ? "moving (\(state.frames) frames at the \(state.floor) s floor)"
             : state.subject.speciesID == nil ? "an egg (no GIF)" : "still: \(state.stillReason ?? "")"
         let session = WinFloatingPet.sessionRaw()
