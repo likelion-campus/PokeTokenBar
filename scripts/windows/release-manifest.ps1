@@ -32,6 +32,8 @@ $v = $env:RELEASE_VERSION
 $head = (git rev-parse HEAD).Trim()
 Expect ($head -eq $sha) "the checkout is $head, not release_sha $sha"
 Expect ($env:PTB_LEVEL -eq 'full') "level is '$env:PTB_LEVEL', not full"
+# The shipped installer is built from scratch: release mode never restores a seed (the workflow's Seed step passes -Clean).
+Expect ($env:PTB_CLEAN_BUILD -eq 'true') "the build was not clean (PTB_CLEAN_BUILD='$env:PTB_CLEAN_BUILD'): a release is built from scratch"
 
 $steps = $env:PTB_STEPS | ConvertFrom-Json
 $gates = [ordered]@{}
@@ -85,6 +87,7 @@ $manifest = [ordered]@{
     workflowSha = $env:GITHUB_SHA
     version     = $v
     level       = $env:PTB_LEVEL
+    cleanBuild  = ($env:PTB_CLEAN_BUILD -eq 'true')
     runId       = [int64]$env:GITHUB_RUN_ID
     runAttempt  = [int]$env:GITHUB_RUN_ATTEMPT
     runnerImage = $env:ImageVersion
