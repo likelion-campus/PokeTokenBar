@@ -25,18 +25,51 @@ import CPlazaD2D
         return (a << 24) | (red << 16) | (green << 8) | blue
     }
 
+    /// One rounded rectangle of a batch.
+    struct Item {
+        var rect: RECT
+        var radius: Int32
+        var fill: Ink?
+        var stroke: Ink?
+        var strokeWidth: Int32 = 1
+    }
+
     /// A rounded rectangle over `r` (right and bottom exclusive): `fill`, then `stroke` inside the edge. `under` is the colour
-    /// the shape is laid over, used only when the antialiased painter is unavailable.
+    /// the shape is laid over, used only when the antialiased painter is unavailable. `clip` (the paint's dirty rectangle) limits
+    /// the work to the part being repainted.
     static func roundedRect(_ dc: HDC, _ r: RECT, radius: Int32, fill: Ink?, stroke: Ink? = nil, strokeWidth: Int32 = 1,
-                            under: COLORREF, ctx: WinUIContext) {
-        guard r.right > r.left, r.bottom > r.top else { return }
-        let fillARGB: UInt32 = fill.map { argb($0.color, alpha: $0.alpha) } ?? 0
-        let strokeARGB: UInt32 = stroke.map { argb($0.color, alpha: $0.alpha) } ?? 0
-        let width = Float(r.right - r.left), height = Float(r.bottom - r.top)
-        var shape = PTBPaintShape(x: 0, y: 0, w: width, h: height, radius: Float(radius), fill: fillARGB, stroke: strokeARGB,
-                                  strokeWidth: stroke == nil ? 0 : Float(strokeWidth))
-        if ptb_paint_shapes(UnsafeMutableRawPointer(dc), r.left, r.top, r.right, r.bottom, &shape, 1) >= 0 { return }
-        fallback(dc, r, radius: radius, fill: fill, stroke: stroke, strokeWidth: strokeWidth, under: under, ctx: ctx)
+                            under: COLORREF, ctx: WinUIContext, clip: RECT? = nil) {
+        roundedRects(dc, [Item(rect: r, radius: radius, fill: fill, stroke: stroke, strokeWidth: strokeWidth)], under: under, ctx: ctx, clip: clip)
+    }
+
+    /// Several rounded rectangles in one bind of the painter (a page's cards): the painter's cost is per bind, not per shape, and the
+    /// bound area is the part of their union that `clip` leaves.
+    static func roundedRects(_ dc: HDC, _ items: [Item], under: COLORREF, ctx: WinUIContext, clip: RECT? = nil) {
+        let drawn = items.filter { $0.rect.right > $0.rect.left && $0.rect.bottom > $0.rect.top }
+        guard let first = drawn.first else { return }
+        var bounds = first.rect
+        for item in drawn.dropFirst() {
+            bounds = RECT(left: min(bounds.left, item.rect.left), top: min(bounds.top, item.rect.top),
+                          right: max(bounds.right, item.rect.right), bottom: max(bounds.bottom, item.rect.bottom))
+        }
+        if let clip {
+            bounds = RECT(left: max(bounds.left, clip.left), top: max(bounds.top, clip.top), right: min(bounds.right, clip.right), bottom: min(bounds.bottom, clip.bottom))
+        }
+        guard bounds.right > bounds.left, bounds.bottom > bounds.top else { return }
+        var shapes: [PTBPaintShape] = []
+        for item in drawn where intersects(item.rect, bounds) {
+            let fillARGB: UInt32 = item.fill.map { argb($0.color, alpha: $0.alpha) } ?? 0
+            let strokeARGB: UInt32 = item.stroke.map { argb($0.color, alpha: $0.alpha) } ?? 0
+            let x = Float(item.rect.left - bounds.left), y = Float(item.rect.top - bounds.top)
+            let width = Float(item.rect.right - item.rect.left), height = Float(item.rect.bottom - item.rect.top)
+            shapes.append(PTBPaintShape(x: x, y: y, w: width, h: height, radius: Float(item.radius), fill: fillARGB, stroke: strokeARGB,
+                                        strokeWidth: item.stroke == nil ? 0 : Float(item.strokeWidth)))
+        }
+        guard !shapes.isEmpty else { return }
+        if ptb_paint_shapes(UnsafeMutableRawPointer(dc), bounds.left, bounds.top, bounds.right, bounds.bottom, &shapes, UInt32(shapes.count)) >= 0 { return }
+        for item in drawn where intersects(item.rect, bounds) {
+            fallback(dc, item.rect, radius: item.radius, fill: item.fill, stroke: item.stroke, strokeWidth: item.strokeWidth, under: under, ctx: ctx)
+        }
     }
 
     /// The focus ring (Windows 11): 2 DIP outer in `outer`, rounded, then (when `inner` is set) 1 DIP inside it in `inner`, drawn

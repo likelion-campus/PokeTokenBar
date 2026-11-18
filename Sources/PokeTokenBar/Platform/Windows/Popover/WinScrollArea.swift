@@ -38,6 +38,8 @@ import WinSDK
     /// While the thumb is held: the pointer's distance below the thumb's top.
     private var grab: Int32?
     private var laneTracking = false
+    /// What `layoutLane` last applied.
+    private var appliedShows = false, appliedLane = [Int32](), appliedThumb: PopoverScrollMath.Thumb?
 
     struct Stats: Equatable {
         var wheelMessages = 0, thumbDrags = 0, pageClicks = 0, reveals = 0, moves = 0
@@ -183,13 +185,24 @@ import WinSDK
     /// Whether the pointer's lane look (the wider thumb on the tinted lane) is on.
     var laneHot: Bool { hover || grab != nil }
 
-    /// Puts the lane window at the viewport's right edge and shows it only while the page can scroll.
+    /// Puts the lane window at the viewport's right edge and shows it only while the page can scroll. A layout that changes none of
+    /// that (most of them) touches nothing: no window call, no repaint.
     private func layoutLane() {
         var client = RECT()
         _ = GetClientRect(viewport.hwnd, &client)
         let shows = PopoverScrollMath.showsBar(content: CGFloat(contentHeight), viewport: CGFloat(viewportHeight))
+        let placed = RECT(left: max(0, client.right - laneWidth), top: 0, right: client.right, bottom: client.bottom)
+        let look = thumb
+        defer { appliedThumb = look }
+        let key = [placed.left, placed.right, placed.bottom]
+        if shows == appliedShows, key == appliedLane {
+            if look != appliedThumb { _ = InvalidateRect(lane.hwnd, nil, false) }
+            return
+        }
+        appliedShows = shows
+        appliedLane = key
         // Placed and shown (or hidden) in one call, never activating (SWP_SHOWWINDOW / SWP_HIDEWINDOW, SWP_NOACTIVATE).
-        _ = SetWindowPos(lane.hwnd, nil, max(0, client.right - laneWidth), 0, min(laneWidth, client.right), client.bottom,
+        _ = SetWindowPos(lane.hwnd, nil, placed.left, 0, placed.right - placed.left, placed.bottom,
                          UINT(SWP_NOZORDER | SWP_NOACTIVATE) | (shows ? 0x0040 : 0x0080))
         if !shows { hover = false; grab = nil }
         _ = InvalidateRect(lane.hwnd, nil, false)

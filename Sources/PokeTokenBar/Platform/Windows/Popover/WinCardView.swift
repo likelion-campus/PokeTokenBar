@@ -212,7 +212,7 @@ import WinSDK
         // The card's hairline (white on the grey base needs it; high contrast draws an outline in the text colour).
         WinPaint.roundedRect(dc, all, radius: ctx.px(radiusDIP), fill: WinPaint.Ink(color: tint),
                              stroke: WinPaint.Ink(color: ctx.highContrast ? pal.text : pal.cardBorder), strokeWidth: max(1, ctx.px(1)),
-                             under: pal.window, ctx: ctx)
+                             under: pal.window, ctx: ctx, clip: r)
     }
 
     private func paintGlyphs(_ dc: HDC) {

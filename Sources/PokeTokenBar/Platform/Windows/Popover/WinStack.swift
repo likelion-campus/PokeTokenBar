@@ -226,15 +226,15 @@ import WinSDK
         guard let f = frames else { return }
         let radius = Int32(metrics.cardRadius)
         let hairline = max(1, ctx.px(1))
+        // All the cards of the page in one bind of the painter (its cost is per bind).
+        var cards: [WinPaint.Item] = []
         for case let s? in f.sections {
-            if let card = s.card {
-                let c = WinKit.rect(card)
-                if WinPaint.intersects(c, dirty) {
-                    WinPaint.roundedRect(dc, c, radius: radius, fill: WinPaint.Ink(color: colors.palette.card),
-                                         stroke: WinPaint.Ink(color: colors.palette.cardBorder), strokeWidth: hairline,
-                                         under: colors.palette.window, ctx: ctx)
-                }
-            }
+            guard let card = s.card else { continue }
+            cards.append(WinPaint.Item(rect: WinKit.rect(card), radius: radius, fill: WinPaint.Ink(color: colors.palette.card),
+                                       stroke: WinPaint.Ink(color: colors.palette.cardBorder), strokeWidth: hairline))
+        }
+        WinPaint.roundedRects(dc, cards, under: colors.palette.window, ctx: ctx, clip: dirty)
+        for case let s? in f.sections {
             for d in s.dividers {
                 var dr = WinKit.rect(d)
                 dr.left += 1

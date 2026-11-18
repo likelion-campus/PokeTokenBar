@@ -61,7 +61,7 @@ import WinSDK
         // The edit's own colour inside (white in light), the card's hairline around it.
         WinPaint.roundedRect(dc, RECT(left: 0, top: 0, right: w, bottom: h), radius: ctx.px(6), fill: WinPaint.Ink(color: colors.palette.field),
                              stroke: WinPaint.Ink(color: colors.palette.cardBorder), strokeWidth: max(1, ctx.px(1) / 2),
-                             under: colors.palette.window, ctx: ctx)
+                             under: colors.palette.window, ctx: ctx, clip: dirty)
         if let glyph {
             let old = SelectObject(dc, UnsafeMutableRawPointer(glyph.font))
             _ = SetBkMode(dc, 1 /* TRANSPARENT */)

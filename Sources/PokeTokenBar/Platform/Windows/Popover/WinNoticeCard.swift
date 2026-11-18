@@ -165,7 +165,7 @@ import WinSDK
         if tintColor != pal.window || ctx.highContrast {  // a tinted card needs no hairline (high contrast: an outline)
             WinPaint.roundedRect(dc, all, radius: ctx.px(radiusDIP), fill: WinPaint.Ink(color: tintColor),
                                  stroke: ctx.highContrast ? WinPaint.Ink(color: pal.text) : nil, strokeWidth: max(1, ctx.px(1)),
-                                 under: pal.window, ctx: ctx)
+                                 under: pal.window, ctx: ctx, clip: r)
         }
         if let glyph, glyphRect.right > glyphRect.left {
             let old = SelectObject(dc, UnsafeMutableRawPointer(glyph.font))

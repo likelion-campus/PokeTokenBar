@@ -122,13 +122,28 @@ import WinSDK
                 card = "card at (\(x0),\(y0)) radius \(rad): corner pixels that are neither window, card nor border = \(cardMid) (aliased: 0), centre is the card colour=\(inside)"
             }
         }
+        // What a bind costs on this machine (informational: the open-cost budget counts frames, and a paint per card was too many):
+        // one 330 x 120 card per bind, and eight of them in one bind.
+        var timing = "no canvas"
+        if let big = Canvas(348, 1100, background: white) {
+            let item = { (i: Int) in WinPaint.Item(rect: RECT(left: 8, top: Int32(8 + i * 130), right: 340, bottom: Int32(128 + i * 130)), radius: 8,
+                                                  fill: WinPaint.Ink(color: ink), stroke: WinPaint.Ink(color: edge), strokeWidth: 1) }
+            let rounds = 30
+            let t0 = Date()
+            for _ in 0..<rounds { for i in 0..<8 { WinPaint.roundedRects(big.dc, [item(i)], under: white, ctx: ctx) } }
+            let separate = Date().timeIntervalSince(t0) * 1000 / Double(rounds)
+            let t1 = Date()
+            for _ in 0..<rounds { WinPaint.roundedRects(big.dc, (0..<8).map(item), under: white, ctx: ctx) }
+            let batched = Date().timeIntervalSince(t1) * 1000 / Double(rounds)
+            timing = String(format: "8 cards on a page: %.2f ms as 8 binds, %.2f ms as one bind", separate, batched)
+        }
         var drawn: UInt64 = 0, failed: UInt64 = 0
         ptb_paint_stats(&drawn, &failed)
         let ok = mid >= 3 && midControl == 0 && cornerOutside && centre && crisp && blended && cardOK && failed == 0 && drawn > 0
         r.add("ui.kit.paint", ok,
               "painter: radius \(radius) corner box has \(mid) antialiased pixels (the same shape through GDI RoundRect, the negative control: \(midControl), must be 0 or the measure is blind), "
               + "pixel (0,0) outside=\(cornerOutside), centre is the fill=\(centre), 1 px stroke crisp on whole pixels=\(crisp), 40 % black over white -> \(g) (expected 153+-3); \(card); "
-              + "batches drawn \(drawn) failed \(failed)")
+              + "batches drawn \(drawn) failed \(failed); \(timing)")
     }
 
     private static func focusRingCheck(_ r: WindowsSelftest.Recorder, _ w: KitWindow) {
