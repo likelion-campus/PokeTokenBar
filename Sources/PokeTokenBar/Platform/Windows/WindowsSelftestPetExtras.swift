@@ -122,7 +122,7 @@ extension WindowsSelftest {
         notes.append("waiting: panel \(P.describe(panel)) (expected \(P.describe(expected)), pet box kept=\(same(w.frame, box0)))=\(panelOK), "
                      + "\(bubbleRows) opaque bubble pixels, drawn \(String(describing: h.pet.extras.drawnBubble))=\(drawn), popped in=\(popping), settled=\(settled)")
         // A limit alert outranks the agent; when it goes the agent's bubble is back.
-        h.pet.extras.limitAlertForTesting = UsageStore.LimitAlert(key: "selftest", window: "5h", isCritical: true, utilization: 0.97)
+        h.pet.extras.limitAlertForTesting = UsageStore.LimitAlert(key: "selftest", window: "5h", isCritical: true, utilization: 97)
         h.pet.sync()
         let limitDrawn: Bool = { if case .limit? = h.pet.extras.drawnBubble { return true } else { return false } }()
         h.pet.extras.limitAlertForTesting = nil
@@ -539,7 +539,7 @@ extension WindowsSelftest {
             _ = await settle(hh)
             write(w, "hearts-en")
             _ = await WindowsSelftest.waitUntil(timeout: 2.5) { !hh.pet.extras.heartsShowing }
-            hh.pet.extras.limitAlertForTesting = UsageStore.LimitAlert(key: "selftest", window: "5h", isCritical: true, utilization: 0.97)
+            hh.pet.extras.limitAlertForTesting = UsageStore.LimitAlert(key: "selftest", window: "5h", isCritical: true, utilization: 97)
             hh.pet.sync()
             _ = await settle(hh)
             write(w, "bubble-limit-critical-en")
