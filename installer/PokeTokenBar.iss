@@ -106,13 +106,13 @@ Filename: "{app}\PokeTokenBar.exe"; Description: "Launch PokeTokenBar"; Flags: n
 
 [Registry]
 ; --- stage 7 Task 23: the poketokenbar: link (begin) ---
-; Agent hooks open poketokenbar://agent?state=...; the shell starts this install's exe with the link as its one argument (the
+; Agent hooks open poketokenbar://agent?state=...; the shell starts this install's exe with --agent-link and the link (the
 ; Mac's CFBundleURLTypes). Per user (HKCU\Software\Classes, no elevation), written by every install and update. Uninstall
 ; removes the key only when its command starts THIS install (CurUninstallStepChanged); the app itself never writes it.
 Root: HKCU; Subkey: "Software\Classes\poketokenbar"; ValueType: string; ValueName: ""; ValueData: "URL:PokeTokenBar agent link"
 Root: HKCU; Subkey: "Software\Classes\poketokenbar"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\poketokenbar\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\PokeTokenBar.exe"",0"
-Root: HKCU; Subkey: "Software\Classes\poketokenbar\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\PokeTokenBar.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\poketokenbar\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\PokeTokenBar.exe"" --agent-link ""%1"""
 ; --- stage 7 Task 23 (end) ---
 
 [UninstallDelete]

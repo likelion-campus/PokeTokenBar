@@ -29,10 +29,10 @@ $key = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
 Assert-That ($null -ne $key) 'install.uninstallKey' "$($key.PSChildName) DisplayVersion=$($key.GetValue('DisplayVersion'))"
 Assert-That ($key.GetValue('DisplayVersion') -eq $v) 'install.displayVersion' "Uninstall DisplayVersion=$($key.GetValue('DisplayVersion')), expected $v"
 Assert-That ($null -eq (Get-RunValue)) 'install.noRunValue' "HKCU Run PokeTokenBar: $(Get-RunValue)"
-# stage 7 Task 23: the poketokenbar: link, per user, starting this install with the link as its one argument.
+# stage 7 Task 23: the poketokenbar: link, per user, starting this install with --agent-link and the link.
 $link = 'HKCU:\Software\Classes\poketokenbar'
 $linkCommand = (Get-ItemProperty -Path "$link\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
-Assert-That ($linkCommand -eq "`"$exe`" `"%1`"") 'install.linkCommand' "poketokenbar: command '$linkCommand'"
+Assert-That ($linkCommand -eq "`"$exe`" --agent-link `"%1`"") 'install.linkCommand' "poketokenbar: command '$linkCommand'"
 Assert-That ($null -ne (Get-ItemProperty -Path $link -Name 'URL Protocol' -ErrorAction SilentlyContinue)) 'install.linkProtocol' "$link has 'URL Protocol'"
 Assert-That (-not (Get-Process PokeTokenBar -ErrorAction SilentlyContinue)) 'install.noLaunchWithFlag' '/NOLAUNCH=1 left no running instance'
 $item = Get-Item $exe

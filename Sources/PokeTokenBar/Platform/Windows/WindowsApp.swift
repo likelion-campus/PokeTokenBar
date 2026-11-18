@@ -9,28 +9,27 @@ public enum WindowsApp {
     /// The process main thread (the selftest compares against it).
     nonisolated(unsafe) static var mainThreadID: DWORD = 0
 
+    /// The command line the app runs with: what `main` decided (stage 7 Task 23: a `poketokenbar:` link's start never gets here
+    /// with its own arguments). The one place Windows code reads its arguments from; reading `CommandLine.arguments` or
+    /// `ProcessInfo.processInfo.arguments` anywhere else is refused by `WindowsSeamScanTests` (the selftest's own files apart).
+    nonisolated(unsafe) private(set) static var launchArguments: [String] = []
+
     public static func main() -> Never {
+        // --- stage 7 Task 23: a `poketokenbar:` link (WinAgentLink) (begin) ---
+        // Before anything else, COM and the run loop included: a link's start reads nothing but the link, sets nothing up and
+        // ends (`WinAgentLink.handleStart`); every other start goes on with its arguments, which every later reader takes from
+        // `launchArguments`.
+        let arguments = MainActor.assumeIsolated { WinAgentLink.handleStart(CommandLine.arguments) }
+        launchArguments = arguments
+        // --- stage 7 Task 23 (end) ---
         WinCom.initializeUIThread()  // STA before anything touches COM (TSF, the IME and the emoji panel need it; stage 6 D16)
         _ = RunLoop.main  // first, before any window: Foundation's initializer turns on CF's message mask (F4)
         mainThreadID = GetCurrentThreadId()
-        let arguments = CommandLine.arguments
         // Synchronous top-level code on the main thread: the main actor's executor is this thread (F16).
         MainActor.assumeIsolated { () -> Never in run(arguments) }
     }
 
     @MainActor private static func run(_ arguments: [String]) -> Never {
-        // --- stage 7 Task 23: a `poketokenbar:` link (WinAgentLink) (begin) ---
-        // Before any other argument is read: a link's start reads nothing but the link. A running app takes it and this start
-        // ends; with none running it becomes a plain start (no flag of the link's command line survives) and the link is dropped.
-        var arguments = arguments
-        var startedByLink = false
-        if let link = AgentLinkRules.link(in: arguments) {
-            let name = WinSingleInstance.mutexName(stateDirectory: AppStatePaths.directory(), defaultDirectory: WindowsAppDelegate.defaultStateDirectory)
-            if WinAgentLink.forward(link, mutexName: name) { WindowsApp.exit(0, .link) }
-            arguments = Array(arguments.prefix(1))
-            startedByLink = true
-        }
-        // --- stage 7 Task 23 (end) ---
         WinTimeZone.publishSystemZone()  // before anything reads TimeZone.current (its own Windows lookup fails on a localized zone name)
         if arguments.contains("--version") {
             try? FileHandle.standardOutput.write(contentsOf: Data(((WindowsInstall.version ?? "0.0.0-dev") + "\n").utf8))
@@ -69,7 +68,6 @@ public enum WindowsApp {
         WindowsSelftestUpdate.prepare(arguments)  // stage 8 Task 6: the CI-only update flags (the loopback feed, before the checker exists)
 
         let app = WindowsAppDelegate(arguments: arguments)
-        app.startedByLink = startedByLink   // Task 23
         guard app.launch() else { WindowsApp.exit(app.yielded ? 3 : 1, .launchFailed) }
         WindowsInstall.leaveInstallFolder()  // not the install folder: Setup updates it, and what the app starts inherits it
         if arguments.contains("--selftest") {
@@ -135,7 +133,7 @@ extension WindowsApp {
     /// The selftest's helper only: told each step of the exit as it completes (`tray removed`, `team shutdown done`).
     @MainActor static var exitStepObserver: ((String) -> Void)?
 
-    enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed, update, link }
+    enum ExitReason: String { case menu, endSession, closeRequest, selftest, helper, launchFailed, update }
 
     /// The cooperative part of the exit (the team's goodbye and the socket thread) shares this much, counted from the start
     /// of `exit`. Setup waits 30 s for the app to close and then refuses, so the whole exit stays far below that; healthy
@@ -145,9 +143,6 @@ extension WindowsApp {
     /// The only way Windows code leaves the process (scan-enforced): settings are lost unless synchronized (F2), and
     /// the log line is lost unless flushed.
     @MainActor static func exit(_ code: Int32, _ reason: ExitReason) -> Never {
-        // Task 23: a link handed to the running app. This start set nothing up (no settings, crash marker, log, tray or team)
-        // and writes nothing: a hook may open a link for every tool call.
-        if reason == .link { crtExit(code) }
         let began = Date()
         WinModalPump.cancelModalLoops()  // an exit asked for inside a modal loop closes the menu first
         if WakeTrace.enabled {  // the idle gate's attribution
@@ -167,6 +162,12 @@ extension WindowsApp {
         teamTransportToShutdown = nil
         exitStepObserver?("team shutdown done")
         crtExit(code)
+    }
+
+    /// A `poketokenbar:` link's start ends here (stage 7 Task 23): it loaded no settings and made no crash marker, log, tray
+    /// or team, so there is nothing to save, and `exit` would flush settings it never read. The other caller of `crtExit`.
+    static func exitForLink() -> Never {
+        crtExit(0)
     }
 
     /// The selftest's control case only (`defaults.control`): a plain `exit` that skips the sync, to show F2 holds.
@@ -212,16 +213,13 @@ private func crtExit(_ code: Int32) -> Never {
     private(set) var showRequests = 0
 
     init(arguments: [String]) { self.arguments = arguments }
-    /// Task 23: this start came from a `poketokenbar:` link while no app ran. It starts as a plain start; if an app appears
-    /// meanwhile, it yields quietly (a link never opens the popover).
-    var startedByLink = false
 
     /// The Mac's `applicationDidFinishLaunching` order. false = yielded to a running instance, or failed (logged).
     func launch() -> Bool {
         _ = RunLoop.main  // 1 (F4; before any window)
         mutexName = WinSingleInstance.mutexName(stateDirectory: AppStatePaths.directory(),
                                                 defaultDirectory: Self.defaultStateDirectory)
-        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart") || startedByLink) == .yielded {  // 2 (before anything that writes)
+        if WinSingleInstance.acquire(name: mutexName, quietly: arguments.contains("--autostart")) == .yielded {  // 2 (before anything that writes)
             yielded = true
             AppLog.writeAndFlush("duplicate instance: yielding to the instance already running (\(mutexName))")
             return false
