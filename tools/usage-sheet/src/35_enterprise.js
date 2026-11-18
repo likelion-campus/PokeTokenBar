@@ -113,12 +113,10 @@ function writeEnterprise(ss, days, nowMs, tz) {
   var nowIso = msToIso(nowMs);
   var today = localDateString(nowMs, tz);
   var rawItems = [], logItems = [], personItems = [];
-  var seen = new Set();
   days.forEach(function (day) {
     day.rows.forEach(function (row) {
       rawItems.push({ key: row[0] + "|" + row[1], build: function () { return row; } });
-      if (seen.has(row[1])) return;
-      seen.add(row[1]);
+      // Days are ascending and upsertRows updates a repeated key in place, so the newest day's email wins.
       personItems.push({
         key: row[1],
         // 부서 (C) belongs to the owner: an existing row gets column B only.

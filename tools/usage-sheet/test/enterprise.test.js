@@ -254,3 +254,24 @@ test("readEnterprise returns typed numbers, a trimmed 부서, the status and has
   delete S.fakes.props.user.enterprise_api_key;
   assert.equal(S.readEnterprise(S.fakes.ss, TZ).hasKey, false);
 });
+
+test("the newest collected day's email wins and the 부서 is untouched", () => {
+  const S = load(Date.parse("2026-01-03T03:00:00Z"), (url) =>
+    ok([rec("u1", dateOf(url) === "2026-01-01" ? "old@x.com" : "new@x.com", 1, 1)]));
+  pull(S);
+  const people = S.fakes.ss.getSheetByName("엔터프라이즈 사람");
+  assert.equal(people._rows.length, 2);
+  assert.deepEqual(plain(people._rows[1]).slice(0, 3), ["u1", "new@x.com", ""]);
+  assert.equal(plain(people._rows[1])[3], "2026-01-03");
+});
+
+test("no lock is held while a request is sent; the script lock is taken once for the writes", () => {
+  const S = load(NOW_SMALL, (url) => {
+    assert.equal(S.fakes.lockStats.held, false);
+    return ok([rec("u1", "a@x.com", 1, 1)]);
+  });
+  pull(S);
+  assert.ok(S.fakes.http.requests.length > 1);
+  assert.equal(S.fakes.lockStats.acquired, 1);
+  assert.equal(S.fakes.lockStats.released, 1);
+});
