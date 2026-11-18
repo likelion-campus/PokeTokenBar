@@ -28,9 +28,9 @@ import WinSDK
         return c
     }
 
-    /// `.buttonStyle(.bordered)`: the native push button.
+    /// `.buttonStyle(.bordered).controlSize(.small)`: the native push button, repainted small (24 DIP).
     static func bordered(_ title: String, in pane: HWND, ctx: WinUIContext, _ action: @escaping () -> Void) -> WinControl? {
-        let c = WinControls.button(title, in: pane, ctx: ctx)
+        let c = WinControls.button(title, small: true, in: pane, ctx: ctx)
         c?.onClick = action
         return c
     }

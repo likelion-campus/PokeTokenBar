@@ -110,6 +110,34 @@ enum WinEditKind: Equatable, Sendable {
     /// A glyph button's glyph colour instead of the text colour (the footer's orange triangle); high contrast keeps the system's.
     var glyphColor: COLORREF?
     fileprivate var hot = false
+    // --- visual polish K3: native controls repainted through NM_CUSTOMDRAW (begin) ---
+    /// Radio groups: a connected segmented control (the main tabs, the pickers) or a row of capsule chips (provider tabs).
+    var segmentStyle: WinSegmentStyle = .segmented
+    /// Chips: a marker dot before the title (the Mac's "●" on a tab with news), drawn by the chip, not part of the window text.
+    var chipMarks: [Bool] = []
+    /// Chips: each chip's width in pixels (they are as wide as their title, 8 DIP apart).
+    var chipWidths: [Int32] = []
+    /// Chips: the semibold face of the selected chip.
+    var boldFont: HFONT?
+    /// Push buttons: the look (secondary = the Mac's `.bordered`, primary = `.borderedProminent`, plain = `.borderless`) and the small size.
+    var buttonStyle: WinButtonStyle = .secondary
+    var isSmallButton = false
+    /// The window of this control the pointer is over (one per control: a segment, the thumb's trackbar), nil when it is elsewhere.
+    /// Set by `WM_MOUSEMOVE` and cleared by `WM_MOUSELEAVE`: nothing is polled and no timer runs.
+    fileprivate(set) var hotPart: HWND?
+    /// How many times custom draw painted a window of this control (the selftest proves it ran: a control that silently
+    /// fell back to the system's drawing shows 0).
+    var customDrawCount = 0
+    /// How many times the subclass painted over the system's picture because custom draw did not run (a safety net; 0 when it works).
+    var fallbackPaintCount = 0
+    /// Whether this kind is repainted by `WinCustomDraw` (not in high contrast: the system draws those).
+    var usesCustomDraw: Bool {
+        switch kind {
+        case .button, .checkbox, .radioGroup, .trackbar: true
+        default: false
+        }
+    }
+    // --- visual polish K3 (end) ---
     private(set) var isDestroyed = false
     /// Counts the selftest reads.
     fileprivate(set) var commits = 0, clicks = 0
@@ -204,6 +232,12 @@ enum WinEditKind: Equatable, Sendable {
         if let onFrame { onFrame(r); return }
         let w = r.right - r.left
         switch kind {
+        case .radioGroup where !chipWidths.isEmpty:
+            var x = r.left
+            for (i, part) in parts.enumerated() {
+                WinKit.move(part, RECT(left: x, top: r.top, right: x + chipWidths[i], bottom: r.bottom))
+                x += chipWidths[i] + ctx.px(8)
+            }
         case .radioGroup:
             let n = Int32(parts.count)
             for (i, part) in parts.enumerated() {
@@ -212,7 +246,10 @@ enum WinEditKind: Equatable, Sendable {
             }
         case .trackbar where parts.count == 2:
             let valueW = Int32(valueWidth), gap = ctx.px(6)
-            WinKit.move(parts[0], RECT(left: r.left, top: r.top, right: r.right - valueW - gap, bottom: r.bottom))
+            // The drawn thumb is wider than the system's: the bar's window reaches a little into the gaps on both sides so the
+            // thumb at either end is not cut (the system's thumb is about 11 px wide, ours 20 DIP).
+            let reach = min(ctx.px(5), gap - 1)
+            WinKit.move(parts[0], RECT(left: r.left - reach, top: r.top, right: r.right - valueW - gap + reach, bottom: r.bottom))
             WinKit.move(parts[1], RECT(left: r.right - valueW, top: r.top, right: r.right, bottom: r.bottom))
         case .stepper where parts.count == 2:
             let arrows = ctx.px(17)
@@ -320,10 +357,12 @@ enum WinEditKind: Equatable, Sendable {
         case 0x0007:  // WM_SETFOCUS: keyboard focus inside a scroll area brings the control into view
             if GetKeyState(0x01 /* VK_LBUTTON */) >= 0 { WinScrollArea.reveal(hwnd) }
             c.onFocus?(true)
+            if c.usesCustomDraw { _ = InvalidateRect(hwnd, nil, false) }  // the focus ring is ours to draw
             return nil
         case 0x0008:  // WM_KILLFOCUS: a field commits when the focus leaves it
             if c.kind == .edit { c.commitIfChanged() }
             c.onFocus?(false)
+            if c.usesCustomDraw { _ = InvalidateRect(hwnd, nil, false) }
             return nil
         case 0x0087 where c.onKey != nil:  // stage 7 Task 12: a drawn item that answers the arrow keys
             var code = DefSubclassProc(hwnd, message, wParam, lParam) | 0x0001  // DLGC_WANTARROWS
@@ -396,6 +435,36 @@ enum WinEditKind: Equatable, Sendable {
             return DefSubclassProc(hwnd, message, wParam, lParam)
         case 0x020A where (c.kind == .combo || c.kind == .trackbar) && GetFocus() != hwnd:  // WM_MOUSEWHEEL: the page scrolls
             return SendMessageW(GetParent(hwnd), message, wParam, lParam)
+        // --- visual polish K3: hover of a custom-drawn control (begin) ---
+        case 0x000F where c.usesCustomDraw && !c.ctx.highContrast && !WinCustomDraw.testDisabled:  // WM_PAINT: the safety net (see `paintFallback`)
+            let before = c.customDrawCount
+            let dirty = GetUpdateRect(hwnd, nil, false)  // an empty update region paints nothing, with or without custom draw
+            let result = DefSubclassProc(hwnd, message, wParam, lParam)
+            if dirty, c.customDrawCount == before, let dc = GetDC(hwnd) {
+                WinCustomDraw.paintFallback(c, hwnd, dc)
+                _ = ReleaseDC(hwnd, dc)
+            }
+            return result
+        case 0x0318 where c.usesCustomDraw && !c.ctx.highContrast && !WinCustomDraw.testDisabled:  // WM_PRINTCLIENT
+            let before = c.customDrawCount
+            let result = DefSubclassProc(hwnd, message, wParam, lParam)
+            if c.customDrawCount == before, let dc = HDC(bitPattern: UInt(wParam)) { WinCustomDraw.paintFallback(c, hwnd, dc) }
+            return result
+        case 0x0200 where c.usesCustomDraw && c.hotPart != hwnd:  // WM_MOUSEMOVE: hover look until WM_MOUSELEAVE (no timer: Windows says when it leaves)
+            let before = c.hotPart
+            c.hotPart = hwnd
+            var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: hwnd, dwHoverTime: 0)
+            _ = TrackMouseEvent(&tme)
+            if let before { _ = InvalidateRect(before, nil, false) }
+            _ = InvalidateRect(hwnd, nil, false)
+            return nil
+        case 0x02A3 where c.usesCustomDraw:  // WM_MOUSELEAVE
+            if c.hotPart == hwnd { c.hotPart = nil }
+            _ = InvalidateRect(hwnd, nil, false)
+            return nil
+        case 0x0014 where c.usesCustomDraw && !c.ctx.highContrast:  // WM_ERASEBKGND: custom draw paints every pixel (no flicker from a background pass)
+            return 1
+        // --- visual polish K3 (end) ---
         case 0x0200 where c.kind == .glyphButton && !c.hot:  // WM_MOUSEMOVE: hover look until WM_MOUSELEAVE
             c.hot = true
             var tme = TRACKMOUSEEVENT(cbSize: DWORD(MemoryLayout<TRACKMOUSEEVENT>.size), dwFlags: 0x0002 /* TME_LEAVE */, hwndTrack: hwnd,
@@ -498,6 +567,7 @@ enum WinClipboardText {
     private static func notify(_ lParam: LPARAM) -> LRESULT? {
         guard let header = UnsafeMutablePointer<NMHDR>(bitPattern: Int(lParam)), let c = WinControl.control(header.pointee.hwndFrom) else { return nil }
         let code = Int32(bitPattern: header.pointee.code)
+        if code == -12 /* NM_CUSTOMDRAW */, c.usesCustomDraw { return WinCustomDraw.handle(c, header) }  // visual polish K3
         switch (c.kind, code) {
         case (.link, -2), (.link, -4):  // NM_CLICK, NM_RETURN
             c.clicked(c.hwnd)
@@ -516,6 +586,7 @@ enum WinClipboardText {
 
     private static func scroll(_ lParam: LPARAM) -> LRESULT? {
         guard let part = HWND(bitPattern: Int(lParam)), let c = WinControl.control(part), c.kind == .trackbar else { return nil }
+        if !c.ctx.highContrast { _ = InvalidateRect(c.parts[0], nil, false) }  // the drawn thumb is wider than the system's: the whole bar repaints
         c.applyValue(WinKit.send(c.parts[0], 0x0400 /* TBM_GETPOS */), notify: true)
         return 0
     }
@@ -601,15 +672,20 @@ enum WinClipboardText {
         return c
     }
 
-    static func button(_ title: String, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+    /// A push button (`BS_PUSHBUTTON`, repainted by `WinCustomDraw`): regular is 28 DIP high with the body text, small 24 DIP with
+    /// the callout text (the Mac's `.controlSize(.small)`), at least 56 DIP wide.
+    static func button(_ title: String, style: WinButtonStyle = .secondary, small: Bool = false, in parent: HWND, ctx: WinUIContext) -> WinControl? {
         guard let h = WinKit.create("Button", WinKit.title(title), style: child | tabStop | group | 0x0000 /* BS_PUSHBUTTON */, parent: parent, id: id())
         else { return nil }
-        let font = ctx.fonts.font(.body)
+        let font = ctx.fonts.font(small ? .callout : .body)
         WinKit.setFont(h, font)
         let s = ctx.measure(title, font: font)
-        return WinControl(kind: .button, ctx: ctx, parts: [h],
-                          size: CGSize(width: CGFloat(s.cx + ctx.px(24)), height: CGFloat(max(s.cy + ctx.px(10), ctx.px(26)))),
-                          background: ctx.colors.palette.window, font: font)
+        let c = WinControl(kind: .button, ctx: ctx, parts: [h],
+                           size: CGSize(width: CGFloat(max(s.cx + ctx.px(24), ctx.px(56))), height: CGFloat(max(s.cy + ctx.px(8), ctx.px(small ? 24 : 28)))),
+                           background: ctx.colors.palette.window, font: font)
+        c.buttonStyle = style
+        c.isSmallButton = small
+        return c
     }
 
     /// A square owner-drawn button showing the symbol's Fluent / MDL2 glyph (or its fallback text); its window text is the
@@ -630,8 +706,9 @@ enum WinClipboardText {
         return c
     }
 
-    /// A check box that spans its row with the box on the right and the label on the left (the Mac's toggle rows,
-    /// Windows 11 Settings' switches); the label is its accessible name.
+    /// A check box that spans its row with the label on the left and a switch (40 x 20 DIP) on the right, as the Mac's and Windows 11
+    /// Settings' toggle rows. It stays a `BS_AUTOCHECKBOX` (role check box, checked state, Space toggles); `WinCustomDraw` paints the
+    /// switch. The label is its accessible name.
     static func checkbox(_ title: String, isOn: Bool, in parent: HWND, ctx: WinUIContext) -> WinControl? {
         let bs: DWORD = 0x0003 /* BS_AUTOCHECKBOX */ | 0x0020 /* BS_LEFTTEXT, BS_RIGHTBUTTON */ | 0x2000 /* BS_MULTILINE */
         guard let h = WinKit.create("Button", WinKit.title(title), style: child | tabStop | group | bs, parent: parent, id: id()) else { return nil }
@@ -639,17 +716,17 @@ enum WinClipboardText {
         WinKit.setFont(h, font)
         let s = ctx.measure(title, font: font)
         let c = WinControl(kind: .checkbox, ctx: ctx, parts: [h],
-                           size: CGSize(width: CGFloat(s.cx + WinKit.metric(71 /* SM_CXMENUCHECK */, dpi: ctx.dpi) + ctx.px(8)),
-                                        height: CGFloat(max(s.cy, WinKit.metric(72 /* SM_CYMENUCHECK */, dpi: ctx.dpi)) + ctx.px(2))),
+                           size: CGSize(width: CGFloat(s.cx + ctx.px(40 + 12 + 3)), height: CGFloat(max(s.cy + ctx.px(8), ctx.px(28)))),
                            background: ctx.colors.palette.window, font: font)
         c.isOn = isOn
         return c
     }
 
-    /// Push-like radio buttons side by side (the Mac's segmented pickers): one Tab stop, arrows move inside the group.
-    static func radioGroup(_ titles: [String], selected: Int, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+    /// Push-like radio buttons (the Mac's segmented pickers), painted by `WinCustomDraw` as one connected control: a shared track
+    /// with the selected segment raised. One Tab stop, arrows move inside the group; `tall` is the main tab strip's 30 DIP.
+    static func radioGroup(_ titles: [String], selected: Int, tall: Bool = false, in parent: HWND, ctx: WinUIContext) -> WinControl? {
         guard !titles.isEmpty else { return nil }
-        let font = ctx.fonts.font(.callout)
+        let font = ctx.fonts.font(.body)
         var parts: [HWND] = []
         var widest: Int32 = 0, height: Int32 = 0
         for (i, title) in titles.enumerated() {
@@ -666,9 +743,40 @@ enum WinClipboardText {
             parts.append(h)
         }
         let c = WinControl(kind: .radioGroup, ctx: ctx, parts: parts,
-                           size: CGSize(width: CGFloat((widest + ctx.px(20)) * Int32(parts.count)), height: CGFloat(height + ctx.px(10))),
+                           size: CGSize(width: CGFloat((widest + ctx.px(24)) * Int32(parts.count)), height: CGFloat(max(height + ctx.px(8), ctx.px(tall ? 30 : 28)))),
                            background: ctx.colors.palette.window, font: font)
         c.selection = selected
+        return c
+    }
+
+    /// Capsule chips as push-like radio buttons (Home's provider and account tabs): the selected one is exposed to screen readers
+    /// as the checked radio button, which the drawn pills it replaces could not say. `names` are the accessible names (window
+    /// texts); a chip's `marks` entry draws the marker dot before its title. No chip is checked when `selected` is nil.
+    static func chipGroup(names: [String], marks: [Bool], selected: Int?, in parent: HWND, ctx: WinUIContext) -> WinControl? {
+        guard !names.isEmpty else { return nil }
+        let regular = ctx.fonts.font(.caption), bold = ctx.fonts.font(.caption, weight: 600)
+        var parts: [HWND] = []
+        var widths: [Int32] = []
+        for (i, name) in names.enumerated() {
+            let first: DWORD = i == 0 ? tabStop | group : 0
+            guard let h = WinKit.create("Button", WinKit.title(name), style: child | first | 0x0009 /* BS_AUTORADIOBUTTON */ | 0x1000 /* BS_PUSHLIKE */,
+                                        parent: parent, id: id()) else {
+                for p in parts { _ = DestroyWindow(p) }
+                return nil
+            }
+            WinKit.setFont(h, regular)
+            let shown = (marks.indices.contains(i) && marks[i] ? "\u{25CF} " : "") + name
+            widths.append(ctx.measure(shown, font: i == selected ? bold : regular).cx + 2 * ctx.px(10))
+            parts.append(h)
+        }
+        let total = widths.reduce(0, +) + ctx.px(8) * Int32(parts.count - 1)
+        let c = WinControl(kind: .radioGroup, ctx: ctx, parts: parts, size: CGSize(width: CGFloat(total), height: CGFloat(max(ctx.lineHeight(regular) + ctx.px(8), ctx.px(24)))),
+                           background: ctx.colors.palette.window, font: regular)
+        c.segmentStyle = .chips
+        c.chipMarks = marks
+        c.chipWidths = widths
+        c.boldFont = bold
+        if let selected { c.selection = selected }
         return c
     }
 
@@ -739,7 +847,7 @@ enum WinClipboardText {
         WinKit.send(bar, 0x0417 /* TBM_SETLINESIZE */, 0, step)
         WinKit.send(bar, 0x0415 /* TBM_SETPAGESIZE */, 0, step)
         let valueW = max(ctx.measure(format(range.lowerBound), font: font).cx, ctx.measure(format(range.upperBound), font: font).cx)
-        let c = WinControl(kind: .trackbar, ctx: ctx, parts: [bar, valueText], size: CGSize(width: CGFloat(ctx.px(width)), height: CGFloat(ctx.px(26))),
+        let c = WinControl(kind: .trackbar, ctx: ctx, parts: [bar, valueText], size: CGSize(width: CGFloat(ctx.px(width)), height: CGFloat(ctx.px(28))),
                            background: ctx.colors.palette.window, font: font)
         c.range = range
         c.step = step
@@ -1082,6 +1190,14 @@ extension WinControl {
     }
 }
 // --- stage 7 Task 20 (end) ---
+
+extension WinControl {
+    /// A hover text for one window of a group (a chip with its own help), where `tooltip` gives every part the same one.
+    func setTooltip(_ text: String?, forPart index: Int) {
+        guard parts.indices.contains(index) else { return }
+        ctx.tooltips.set(text, for: parts[index], in: GetParent(parts[index]))
+    }
+}
 
 extension WinControl {
     /// The pointer is over the button (the kit's hover look).

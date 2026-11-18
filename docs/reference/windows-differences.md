@@ -53,10 +53,10 @@ and agent reactions. **Owed when it lands:** the `poketokenbar:` link that bring
 
 | Difference | Reason |
 |---|---|
-| Check boxes instead of switches | Win32 has no switch control |
-| "Used / Remaining", "Week / Month / Year" are push-like radio buttons; pickers are combo boxes or popup buttons | no native segmented or menu picker; the scope group has no accessible group name (a radio group is named by a group box) |
+| Toggles are switches (40 x 20 DIP) drawn over a native check box (K3) | Win32 has no switch control; the check box keeps the role, the checked state and Space. Narrator says "check box", not "toggle switch" |
+| The main tabs, "Used / Remaining", "Week / Month / Year" and the Pokédex / catch-log picker are one connected segmented control (K3), drawn over push-like radio buttons; provider and account tabs are capsule chips that are radio buttons too (the selected one is the checked radio button). Pickers are combo boxes or popup buttons | no native segmented control; the radio buttons keep the role, checked state and arrow keys. The scope group has no accessible group name (a radio group is named by a group box) |
 | Provider and account tabs wrap onto several lines when they do not fit | the kit has no horizontal scroller |
-| Bordered buttons are native push buttons; Skip, Update, Details, the tabs and Back are drawn by the kit as pills | the native button has no borderless, capsule or prominent look |
+| Bordered buttons are native push buttons repainted by the kit (K3: 28 DIP, small 24 DIP, Windows 11 fill, hairline and rounded corners; the slider's track and round thumb likewise); Skip, Update, Details and Back are drawn by the kit as pills | the native button has no borderless, capsule or prominent look. In high contrast the system draws all of these |
 | The footer's error triangle is a focusable button (its message is its accessible name) | screen readers |
 | A thin scroll thumb in a 12 pt lane in drawn lists (catch log, Pokémon detail), drawn only while the list is longer than its window but then always (the Mac's appears while scrolling) | a fade needs a timer after every scroll; the idle budgets allow none |
 | The page's scroll bar is the system's, on the screen only while the page is taller than its window (Mac: an overlay scroller drawn while scrolling); the lane beside the content stays empty either way, so the layout never shifts. The catch log and the Pokémon detail page have one scroller each (their own thumb), the page bar is not shown there | an overlay scroller would be a custom-drawn control without the system bar's keyboard and accessibility behaviour |

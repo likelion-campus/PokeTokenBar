@@ -1353,6 +1353,12 @@ struct KitResources: CustomStringConvertible {
             row.control?.tooltip = label
             tooltipCount += 1
         }
+        // visual polish K3: the other looks of the push button, and a disabled one
+        buttons.addRow("Primary") { pane, ctx in WinControls.button("Update", style: .primary, in: pane, ctx: ctx) }
+        buttons.addRow("Small") { pane, ctx in WinControls.button("Buy", small: true, in: pane, ctx: ctx) }
+        buttons.addRow("Plain") { pane, ctx in WinControls.button("Skip", style: .plain, in: pane, ctx: ctx) }
+        buttons.addRow("Disabled") { pane, ctx in WinControls.button("Refresh", in: pane, ctx: ctx) }.control?.isEnabled = false
+        buttons.addRow(nil, style: .full) { pane, ctx in WinControls.chipGroup(names: ["Claude", "Codex", "Gemini"], marks: [false, true, false], selected: 0, in: pane, ctx: ctx) }
         buttons.addRow("Link") { pane, ctx in WinControls.link("GitHub repository", in: pane, ctx: ctx) }
     }
 }

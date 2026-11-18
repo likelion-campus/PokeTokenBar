@@ -555,17 +555,17 @@ import WinSDK
             let range = start..<end
             section.addStyledRow(label: nil, style: .full) { pane, ctx in
                 WinComposite(parent: pane, ctx: ctx) { child in
-                    var pills: [WinControl] = []
-                    for i in range {
-                        let isSelected = tabs[i].id == selected
-                        let pill = WinPill(style: .tab, title: titles[i], selected: isSelected, bold: isSelected)
-                        guard let c = WinControls.pillButton(pill, label: tabs[i].title, in: child, ctx: ctx) else { continue }
-                        c.tooltip = tabs[i].help
-                        let id = tabs[i].id
-                        c.onClick = { [weak self] in self?.perform(action(id)) }
-                        pills.append(c)
+                    // One radio group per line: the selected provider is the checked radio button (screen readers say so).
+                    let marks = range.map { tabs[$0].marked }
+                    let names = range.map { tabs[$0].title }
+                    let pick = range.firstIndex { tabs[$0].id == selected }.map { $0 - range.lowerBound }
+                    guard let chips = WinControls.chipGroup(names: names, marks: marks, selected: pick, in: child, ctx: ctx) else { return ([], []) }
+                    for (k, i) in range.enumerated() { chips.setTooltip(tabs[i].help, forPart: k) }
+                    chips.onSelect = { [weak self] k in
+                        guard let self, range.lowerBound + k < tabs.count else { return }
+                        self.perform(action(tabs[range.lowerBound + k].id))
                     }
-                    return (pills, [])
+                    return ([chips], [])
                 }?.control
             }
             start = end

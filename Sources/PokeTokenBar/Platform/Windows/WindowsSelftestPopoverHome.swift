@@ -494,9 +494,14 @@ enum HomeFixtures {
         let tree = KitTree.collect(w)
         if model.providerTabs.count > 1 {
             let tabs = zip(tree.nodes, tree.handles).filter { n in model.providerTabs.contains { $0.title == n.0.text } && n.0.cls == "Button" }
-            if tabs.count != model.providerTabs.count || tabs.contains(where: { WinControl.control($0.1)?.isPill != true }) {
+            // K3: the provider tabs are capsule chips of a radio group (the old drawn pills were push buttons that never said which was
+            // selected); the selected provider is the checked radio button
+            if tabs.count != model.providerTabs.count || tabs.contains(where: { WinControl.control($0.1)?.segmentStyle != .chips || WinKit.className($0.1) != "Button" }) {
                 problems.append("\(tabs.count) tab buttons of \(model.providerTabs.count)")
             }
+            let checkedTitles = tabs.filter { WinKit.send($0.1, 0x00F0 /* BM_GETCHECK */) == 1 }.map { $0.0.text }
+            let wantTitles = model.providerTabs.filter { $0.id == model.selectedProviderID }.map(\.title)
+            if checkedTitles != wantTitles { problems.append("checked provider chips \(checkedTitles), expected \(wantTitles)") }
         }
         // the update offer's buttons are the kit's pills (Skip borderless, Update prominent), in the Mac's order
         if let banner = model.updateBanner, !banner.isUpdating {
