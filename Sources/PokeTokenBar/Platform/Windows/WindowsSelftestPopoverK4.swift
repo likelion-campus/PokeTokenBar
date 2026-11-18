@@ -86,6 +86,9 @@ enum MSAAProbe {
 }
 
 @MainActor enum WindowsSelftestPopoverK4 {
+    /// Breadcrumbs: a hung step shows up in the timeout's list of checks so far.
+    static var crumbs: WindowsSelftest.Recorder?
+    static func at(_ n: String) { crumbs?.add("popover.k4.at.\(n)", true, "reached") }
     private static func wait(_ seconds: TimeInterval) async { _ = await WindowsSelftest.waitUntil(timeout: seconds) { false } }
     typealias CD = WindowsSelftestPopoverCustomDraw
 
@@ -121,22 +124,26 @@ enum MSAAProbe {
             if DWORD(bitPattern: GetWindowLongW(c.hwnd, -20)) & 0x200 != 0 { problems.append("a field still has a sunken client edge") }
         }
 
+        at("built")
         // names, as MSAA says them
         if let info = MSAAProbe.query(combo.hwnd) {
             if info.role != 0x2B { problems.append("drop-down MSAA role \(info.role), expected push button 43") }
             if info.name != "Language: 한국어" { problems.append("drop-down MSAA name '\(info.name)', expected 'Language: 한국어'") }
             notes.append("drop-down MSAA role=\(info.role) name='\(info.name)' state=0x\(String(info.state, radix: 16))")
         } else { problems.append("no MSAA object for the drop-down") }
+        at("msaaCombo")
         if let info = MSAAProbe.query(off.hwnd), info.state & 0x1 == 0 { problems.append("a disabled drop-down is not UNAVAILABLE in MSAA (state 0x\(String(info.state, radix: 16)))") }
         if let info = MSAAProbe.query(stepper.hwnd) {
             if info.role != 0x2B || info.name != "Quantity: ×3" { problems.append("stepper MSAA role \(info.role) name '\(info.name)', expected 43 'Quantity: ×3'") }
             notes.append("stepper MSAA role=\(info.role) name='\(info.name)'")
         } else { problems.append("no MSAA object for the stepper") }
+        at("msaaStepper")
         if let info = MSAAProbe.query(edit.hwnd) {
             if info.role != 0x2A || !info.name.contains("Nickname") { problems.append("field MSAA role \(info.role) name '\(info.name)', expected text 42 named 'Nickname'") }
             notes.append("field MSAA role=\(info.role) name='\(info.name)' value='\(info.value)'")
         } else { problems.append("no MSAA object for the field") }
 
+        at("msaaEdit")
         // drop-down: keys, menu, width
         var menus: [[TrayMenuModel.Item?]] = []
         var answer: Int? = 0
@@ -173,6 +180,7 @@ enum MSAAProbe {
         if !(cw < 150 && ww > cw + 40 && ww <= 240.5) { problems.append("drop-down widths \(Int(cw)) / \(Int(ww)) DIP: not sized to the entries (short < 150, long up to 240)") }
         notes.append("drop-down widths \(Int(cw)) / \(Int(ww)) DIP")
 
+        at("dropdownKeys")
         // stepper: value, keys, ends, width
         let sw = stepper.preferredSize.width, bw = big.preferredSize.width
         if sw != bw { problems.append("stepper width follows the maximum: \(Int(sw)) px for 1...5, \(Int(bw)) px for 1...2e9") }
@@ -199,6 +207,7 @@ enum MSAAProbe {
         _ = SendMessageW(stepper.hwnd, 0x0200, 0, upper)
         notes.append("stepper \(Int(sw)) px wide (same for a 2e9 maximum), halves hot=\(stepper.hotHalf)")
 
+        at("stepper")
         // field frame: the padding is non-client, and was painted by WM_NCPAINT
         var wr = RECT(), cr = RECT()
         _ = GetWindowRect(edit.hwnd, &wr)
@@ -212,6 +221,7 @@ enum MSAAProbe {
         _ = GetClientRect(multi.hwnd, &cr)
         if (wr.right - wr.left) - (cr.right - cr.left) < w.ctx.px(10) { problems.append("the multi-line field's text area is not inset") }
 
+        at("fieldNC")
         guard let dcOwner = CreateCompatibleDC(nil) else { return (problems, notes.joined(separator: "; ")) }
         defer { _ = DeleteDC(dcOwner) }
         // frame pixels: drawn into a bitmap the size of the window
@@ -249,6 +259,7 @@ enum MSAAProbe {
             notes.append("field hairline \(CD.hex(edge)) on card = \(String(format: "%.2f", edgeRatio)):1, focus ring \(CD.hex(top))")
         } else { problems.append("no picture of the field frame") }
 
+        at("fieldPixels")
         // drop-down and stepper pixels (the system draws in high contrast)
         if !highContrast {
             let look = WinLook(combo)
@@ -340,6 +351,7 @@ enum MSAAProbe {
     }
 
     static func run(_ r: WindowsSelftest.Recorder) async {
+        crumbs = r
         var problems: [String] = []
         var notes: [String] = []
         for (name, dark, high) in [("light", false, false), ("dark", true, false), ("high contrast", false, true)] {
