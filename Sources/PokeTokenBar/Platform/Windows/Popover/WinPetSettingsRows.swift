@@ -8,7 +8,8 @@ import WinSDK
 ///   so here it is the pet's.
 /// - The floating pet group (G12), after the tracked providers: show the floating pet (with its hint), back view (the Mac keeps
 ///   it in this group; it applies to the tray icon and the popover too), and the size slider (48–384 in steps of 8, "96px")
-///   while the pet is on. The Mac's speech bubble and agent rows come with Task 23.
+///   while the pet is on, then (Task 23, G12a) the limit-alert bubbles switch and "React to agent activity" with its hint,
+///   also only while the pet is on (the Mac's `if store.floatingPetEnabled`).
 /// `WinSettingsPage` calls it with one line per place; it observes nothing itself (`touch` adds its settings to the page's).
 @MainActor final class WinPetSettingsRows {
     static let qualities: [UsageStore.AnimationQuality] = [.powerSaver, .balanced, .smooth]
@@ -21,6 +22,8 @@ import WinSDK
     private(set) var enableRow: WinRow?
     private(set) var backViewRow: WinRow?
     private(set) var sizeRow: WinRow?
+    private(set) var bubbleAlertsRow: WinRow?
+    private(set) var agentActivityRow: WinRow?
     private(set) var groupSection: WinSectionCard?
 
     init(store: UsageStore) { self.store = store }
@@ -56,6 +59,14 @@ import WinSDK
         }
         sizeRow?.control?.onValue = { v in store.floatingPetSize = Double(v) }
         sizeRow?.isVisible = store.floatingPetEnabled
+        // --- stage 7 Task 23 (G12a) (begin) ---
+        bubbleAlertsRow = section.addToggle(l.floatingPetBubbleAlertsLabel, isOn: store.floatingPetBubbleAlerts)
+        bubbleAlertsRow?.control?.onToggle = { on in store.floatingPetBubbleAlerts = on }
+        bubbleAlertsRow?.isVisible = store.floatingPetEnabled
+        agentActivityRow = section.addToggle(l.floatingPetAgentActivityLabel, hint: l.floatingPetAgentActivityHint, isOn: store.floatingPetAgentActivity)
+        agentActivityRow?.control?.onToggle = { on in store.floatingPetAgentActivity = on }
+        agentActivityRow?.isVisible = store.floatingPetEnabled
+        // --- stage 7 Task 23 (end) ---
         return backViewRow
     }
 
@@ -66,6 +77,10 @@ import WinSDK
         sizeRow?.isVisible = store.floatingPetEnabled
         let size = Int(store.floatingPetSize.rounded())
         if let c = sizeRow?.control, c.value != size { c.value = size }
+        bubbleAlertsRow?.isVisible = store.floatingPetEnabled   // Task 23
+        agentActivityRow?.isVisible = store.floatingPetEnabled
+        if let c = bubbleAlertsRow?.control, c.isOn != store.floatingPetBubbleAlerts { c.isOn = store.floatingPetBubbleAlerts }
+        if let c = agentActivityRow?.control, c.isOn != store.floatingPetAgentActivity { c.isOn = store.floatingPetAgentActivity }
     }
 
     /// What these rows show from observable settings (inside the page's tracking pass).
@@ -73,6 +88,8 @@ import WinSDK
         _ = store.animationQuality
         _ = store.floatingPetEnabled
         _ = store.floatingPetSize
+        _ = store.floatingPetBubbleAlerts   // Task 23
+        _ = store.floatingPetAgentActivity
     }
 }
 #endif

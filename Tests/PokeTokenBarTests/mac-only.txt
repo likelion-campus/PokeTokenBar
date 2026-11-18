@@ -234,3 +234,7 @@ PopoverPetTwinEquivalenceTests+Mac.swift
 # FloatingPetRendersMacTests: renders the Mac's SwiftUI FloatingPetView offscreen (ImageRenderer, AppKit) for the pet's capture states, the reference the Windows captures are put next to (env-gated writer; stage 7 Task 22)
 FloatingPetRendersMacTests.swift
 PopoverDexDetailImagesMac.swift
+# PopoverPetExtrasTwinEquivalenceTests+Mac: drives the Mac's FloatingPetController statics, PettingDetector, HeartBubbleArt, PrayerEmojiLayer and SpriteVisibleTop (AppKit, SwiftUI) against the pet extras' shared twins (stage 7 Task 23)
+PopoverPetExtrasTwinEquivalenceTests+Mac.swift
+# FloatingPetExtrasRendersMacTests: renders the Mac's SwiftUI FloatingPetView with bubbles, hearts and a prayer particle offscreen (ImageRenderer, AppKit), the reference for the Windows captures (env-gated writer; stage 7 Task 23)
+FloatingPetExtrasRendersMacTests.swift
